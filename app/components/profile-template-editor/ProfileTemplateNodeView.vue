@@ -1,0 +1,522 @@
+<script setup lang="ts">
+import {CollisionPriority} from "@dnd-kit/abstract";
+import {useDroppable} from "@dnd-kit/vue";
+import {useSortable} from "@dnd-kit/vue/sortable";
+import AgentMarkdownContent from "nbook/app/components/novel-ide/agent/AgentMarkdownContent.vue";
+import type {ProfileTemplateNodeDto, ProfileTemplateNodeType} from "nbook/shared/dto/profile-template.dto";
+
+const props = defineProps<{
+    node: ProfileTemplateNodeDto;
+    selectedId: string;
+    depth: number;
+    index: number;
+    parentId: string;
+    canHaveChildren: boolean;
+    disabledDropNodeIds: string[];
+}>();
+
+const emit = defineEmits<{
+    (e: "select", id: string): void;
+    (e: "prepareDrag", id: string): void;
+    (e: "duplicate", id: string): void;
+    (e: "delete", id: string): void;
+}>();
+
+const collapsed = ref(false);
+const elementRef = ref<HTMLElement | null>(null);
+const handleRef = ref<HTMLElement | null>(null);
+const targetRef = ref<HTMLElement | null>(null);
+const beforeDropRef = ref<HTMLElement | null>(null);
+const afterDropRef = ref<HTMLElement | null>(null);
+const insideDropRef = ref<HTMLElement | null>(null);
+const dropDisabled = computed(() => props.disabledDropNodeIds.includes(props.node.id));
+
+const {isDragging} = useSortable({
+    id: computed(() => props.node.id),
+    index: computed(() => props.index),
+    group: computed(() => props.parentId),
+    type: "profile-template-node",
+    accept: "profile-template-node",
+    data: computed(() => ({
+        kind: "profile-template-node" as const,
+        nodeId: props.node.id,
+        parentId: props.parentId,
+    })),
+    element: elementRef,
+    handle: handleRef,
+    target: targetRef,
+    feedback: "default",
+    transition: null,
+    disabled: computed(() => props.node.type === "ProfilePrompt"),
+});
+
+useDroppable({
+    id: computed(() => `drop-before-${props.node.id}`),
+    type: "profile-template-drop-zone",
+    accept: ["profile-template-node", "library-node"],
+    data: computed(() => ({
+        kind: "profile-template-drop" as const,
+        parentId: props.parentId,
+        targetId: props.node.id,
+        position: "before" as const,
+    })),
+    element: beforeDropRef,
+    collisionPriority: CollisionPriority.Highest,
+    disabled: dropDisabled,
+});
+
+useDroppable({
+    id: computed(() => `drop-after-${props.node.id}`),
+    type: "profile-template-drop-zone",
+    accept: ["profile-template-node", "library-node"],
+    data: computed(() => ({
+        kind: "profile-template-drop" as const,
+        parentId: props.parentId,
+        targetId: props.node.id,
+        position: "after" as const,
+    })),
+    element: afterDropRef,
+    collisionPriority: CollisionPriority.Highest,
+    disabled: dropDisabled,
+});
+
+useDroppable({
+    id: computed(() => `drop-inside-${props.node.id}`),
+    type: "profile-template-drop-zone",
+    accept: ["profile-template-node", "library-node"],
+    data: computed(() => ({
+        kind: "profile-template-drop" as const,
+        parentId: props.node.id,
+        targetId: null,
+        position: "inside" as const,
+    })),
+    element: insideDropRef,
+    collisionPriority: CollisionPriority.Highest,
+    disabled: computed(() => !props.canHaveChildren || dropDisabled.value),
+});
+
+const nodeIconMap: Record<ProfileTemplateNodeType, string> = {
+    ProfilePrompt: "i-lucide-code-2",
+    HistorySet: "i-lucide-archive",
+    DynamicSet: "i-lucide-panel-top",
+    AppendingSet: "i-lucide-panel-bottom",
+    Message: "i-lucide-message-square",
+    Reminder: "i-lucide-bell-ring",
+    Watch: "i-lucide-eye",
+    If: "i-lucide-git-branch",
+    SkillCatalog: "i-lucide-library",
+    ActivatedSkills: "i-lucide-sparkles",
+};
+
+/**
+ * 返回节点展示标题。
+ */
+function nodeTitle(node: ProfileTemplateNodeDto): string {
+    if (node.type === "Message") {
+        return "Message";
+    }
+    return node.type;
+}
+
+/**
+ * 返回节点的短属性摘要。
+ */
+function nodeMeta(node: ProfileTemplateNodeDto): string {
+    if (node.type === "Message") {
+        return `role: ${String(node.props.role ?? "system")}`;
+    }
+    if (node.type === "Reminder") {
+        return `id: ${String(node.props.id ?? "")}`;
+    }
+    if (node.type === "Watch") {
+        return `path: ${String(node.props.path ?? "")}`;
+    }
+    if (node.type === "If") {
+        return `condition: ${String(node.props.condition ?? "true")}`;
+    }
+    return node.id;
+}
+
+/**
+ * 返回节点说明或正文预览。
+ */
+function nodeSummary(node: ProfileTemplateNodeDto): string {
+    if (node.text) {
+        return node.text.replace(/\s+/g, " ").slice(0, 160);
+    }
+    if (node.type === "HistorySet") {
+        return "长期记忆上下文，进长期历史。";
+    }
+    if (node.type === "DynamicSet") {
+        return "本轮临时上下文，仅用于模型。";
+    }
+    if (node.type === "AppendingSet") {
+        return "输出追加集合，写入历史尾部。";
+    }
+    if (node.type === "ActivatedSkills") {
+        return String(node.props.text ?? "{{activatedSkillsText}}");
+    }
+    return "";
+}
+
+/**
+ * 判断是否显示节点正文摘要。
+ */
+function shouldShowSummary(node: ProfileTemplateNodeDto): boolean {
+    return node.type !== "ProfilePrompt";
+}
+
+/**
+ * 选择当前节点。
+ */
+function selectNode(): void {
+    emit("select", props.node.id);
+}
+
+/**
+ * 开始拖拽前先同步选中状态。
+ */
+function prepareDrag(): void {
+    emit("prepareDrag", props.node.id);
+}
+
+</script>
+
+<template>
+    <div ref="elementRef" class="node-wrap" :data-dragging="isDragging || undefined" :style="{ marginLeft: `${props.depth === 0 ? 0 : 12}px` }">
+        <article
+            class="node-card"
+            :class="[{ selected: props.selectedId === props.node.id }, `node-${props.node.type}`]"
+            :data-dragging="isDragging || undefined"
+            @click.stop="selectNode"
+        >
+            <div ref="beforeDropRef" class="node-edge-drop node-edge-drop-before"></div>
+            <div ref="targetRef" class="node-sort-target flex items-start gap-2">
+                <button ref="handleRef" type="button" class="node-drag-handle mt-1" title="拖拽排序" @pointerdown="prepareDrag" @click.stop>
+                    <span class="i-lucide-grip-vertical h-4 w-4"></span>
+                </button>
+
+                <button v-if="props.node.children.length > 0" type="button" class="node-icon-btn mt-1" title="折叠/展开" @click.stop="collapsed = !collapsed">
+                    <span :class="collapsed ? 'i-lucide-chevron-right' : 'i-lucide-chevron-down'" class="h-3.5 w-3.5"></span>
+                </button>
+
+                <div class="node-icon mt-0.5">
+                    <span :class="nodeIconMap[props.node.type]" class="h-3.5 w-3.5"></span>
+                </div>
+
+                <div class="min-w-0 flex-1">
+                    <div class="flex min-w-0 items-center gap-2">
+                        <span class="truncate text-sm font-semibold text-[var(--text-main)]">{{ nodeTitle(props.node) }}</span>
+                        <span class="truncate text-[11px] text-[var(--text-muted)]">{{ nodeMeta(props.node) }}</span>
+                    </div>
+                    <div v-if="props.node.type === 'Message' && (props.node.text ?? '').trim()" class="node-message-body mt-2">
+                        <pre v-if="props.node.textKind === 'source'" class="node-source-body">{{ props.node.text }}</pre>
+                        <AgentMarkdownContent v-else :content="props.node.text ?? ''" />
+                    </div>
+                    <div v-else-if="shouldShowSummary(props.node) && nodeSummary(props.node)" class="mt-1 line-clamp-2 text-xs leading-5 text-[var(--text-secondary)]">
+                        {{ nodeSummary(props.node) }}
+                    </div>
+                </div>
+
+                <div v-if="props.depth > 0" class="node-actions">
+                    <button class="node-action-btn" title="复制" @click.stop="emit('duplicate', props.node.id)">
+                        <span class="i-lucide-copy h-3.5 w-3.5"></span>
+                    </button>
+                    <button class="node-action-btn danger" title="删除" @click.stop="emit('delete', props.node.id)">
+                        <span class="i-lucide-trash-2 h-3.5 w-3.5"></span>
+                    </button>
+                </div>
+            </div>
+
+            <div v-if="props.canHaveChildren && (!collapsed || props.node.children.length === 0)" class="node-children" :data-empty="props.node.children.length === 0 || undefined">
+                <ProfileTemplateNodeView
+                    v-if="props.node.children.length > 0"
+                    v-for="(child, childIndex) in props.node.children"
+                    :key="child.id"
+                    :node="child"
+                    :selected-id="props.selectedId"
+                    :depth="props.depth + 1"
+                    :index="childIndex"
+                    :parent-id="props.node.id"
+                    :can-have-children="!['SkillCatalog', 'ActivatedSkills'].includes(child.type)"
+                    :disabled-drop-node-ids="props.disabledDropNodeIds"
+                    @select="emit('select', $event)"
+                    @prepare-drag="emit('prepareDrag', $event)"
+                    @duplicate="emit('duplicate', $event)"
+                    @delete="emit('delete', $event)"
+                />
+                <div ref="insideDropRef" class="node-inside-drop"></div>
+            </div>
+            <div ref="afterDropRef" class="node-edge-drop node-edge-drop-after"></div>
+        </article>
+    </div>
+</template>
+
+<style scoped>
+.node-wrap {
+    padding-bottom: 10px;
+}
+
+.node-card {
+    --profile-node-accent: var(--accent-main);
+    --profile-node-bg: color-mix(in srgb, var(--profile-node-accent) 8%, var(--bg-panel));
+    --profile-node-bg-strong: color-mix(in srgb, var(--profile-node-accent) 17%, var(--bg-panel));
+    --profile-node-border: color-mix(in srgb, var(--profile-node-accent) 34%, var(--border-color));
+    --profile-node-icon-bg: color-mix(in srgb, var(--profile-node-accent) 22%, var(--bg-panel));
+    --profile-node-icon-color: color-mix(in srgb, var(--profile-node-accent) 80%, var(--text-main));
+    position: relative;
+    border: 1px solid var(--profile-node-border, var(--border-color));
+    border-radius: 8px;
+    background: var(--profile-node-bg, var(--bg-input));
+    padding: 10px 12px 10px 8px;
+    text-align: left;
+    transition: border-color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.node-edge-drop {
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    z-index: 3;
+    height: 10px;
+    pointer-events: auto;
+}
+
+.node-edge-drop-before {
+    top: -5px;
+}
+
+.node-edge-drop-after {
+    bottom: -5px;
+}
+
+.node-sort-target {
+    min-height: 34px;
+}
+
+.node-inside-drop {
+    position: relative;
+    height: 14px;
+    margin-top: 2px;
+    border-radius: 999px;
+    pointer-events: none;
+}
+
+:deep(.node-wrap[data-dnd-placeholder]) {
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+:deep(.node-wrap[data-dnd-placeholder] .node-card) {
+    border: 1px dashed color-mix(in srgb, var(--accent-main) 68%, var(--border-color));
+    background: color-mix(in srgb, var(--accent-bg) 44%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bg-panel) 76%, transparent);
+}
+
+:deep(.node-wrap[data-dnd-placeholder] .node-card > *) {
+    visibility: hidden;
+}
+
+:deep(.node-wrap[data-dnd-placeholder] .node-card::before) {
+    display: none;
+}
+
+.node-card::before {
+    position: absolute;
+    bottom: 10px;
+    left: 0;
+    top: 10px;
+    width: 3px;
+    border-radius: 0 999px 999px 0;
+    background: var(--accent-main);
+    content: "";
+    opacity: 0.58;
+}
+
+.node-card:hover {
+    border-color: color-mix(in srgb, var(--profile-node-accent) 48%, var(--border-color));
+    background: var(--profile-node-bg-strong, var(--bg-panel));
+}
+
+.node-card.selected {
+    border-color: color-mix(in srgb, var(--profile-node-accent) 70%, var(--accent-main));
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--profile-node-accent) 36%, transparent);
+}
+
+.node-wrap[data-dragging="true"] .node-card {
+    opacity: 0.9;
+    transform: rotate(0.15deg);
+}
+
+.node-wrap[data-dragging="true"] .node-actions,
+.node-wrap[data-dragging="true"] .node-children {
+    pointer-events: none;
+}
+
+:deep(.node-card[data-dnd-dragging="true"]) {
+    border: 1px dashed color-mix(in srgb, var(--accent-main) 68%, var(--border-color));
+    background: color-mix(in srgb, var(--accent-bg) 44%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bg-panel) 76%, transparent);
+    opacity: 1;
+}
+
+:deep(.node-card[data-dnd-dragging="true"] > *) {
+    visibility: hidden;
+}
+
+:deep(.node-card[data-dnd-dragging="true"]::before) {
+    display: none;
+}
+
+.node-ProfilePrompt::before,
+.node-HistorySet::before,
+.node-DynamicSet::before,
+.node-AppendingSet::before,
+.node-Message::before,
+.node-Reminder::before,
+.node-Watch::before,
+.node-If::before,
+.node-ActivatedSkills::before,
+.node-SkillCatalog::before {
+    background: var(--profile-node-accent);
+}
+
+.node-ProfilePrompt {
+    --profile-node-accent: var(--accent-main);
+}
+
+.node-HistorySet {
+    --profile-node-accent: #3f7f72;
+}
+
+.node-DynamicSet {
+    --profile-node-accent: #47799a;
+}
+
+.node-AppendingSet {
+    --profile-node-accent: #6f6aa8;
+}
+
+.node-Message {
+    --profile-node-accent: #c2693c;
+}
+
+.node-Reminder {
+    --profile-node-accent: #b65f5b;
+}
+
+.node-Watch {
+    --profile-node-accent: #b1843e;
+}
+
+.node-If {
+    --profile-node-accent: #64895f;
+}
+
+.node-ActivatedSkills {
+    --profile-node-accent: #8a639e;
+}
+
+.node-SkillCatalog {
+    --profile-node-accent: #5f70a5;
+}
+
+.node-HistorySet,
+.node-DynamicSet,
+.node-AppendingSet {
+    padding: 12px;
+}
+
+.node-icon {
+    display: flex;
+    height: 24px;
+    width: 24px;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--profile-node-icon-bg);
+    color: var(--profile-node-icon-color);
+}
+
+.node-icon-btn,
+.node-drag-handle,
+.node-action-btn {
+    display: inline-flex;
+    height: 24px;
+    width: 24px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    color: var(--text-muted);
+    transition: background-color 0.18s ease, color 0.18s ease;
+}
+
+.node-icon-btn:hover,
+.node-drag-handle:hover,
+.node-action-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-main);
+}
+
+.node-drag-handle {
+    cursor: grab;
+    opacity: 0.7;
+    width: 28px;
+    background: color-mix(in srgb, var(--bg-input) 70%, transparent);
+}
+
+.node-drag-handle:active {
+    cursor: grabbing;
+}
+
+.node-action-btn.danger:hover {
+    color: #dc2626;
+}
+
+.node-actions {
+    display: flex;
+    flex-shrink: 0;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity 0.18s ease;
+}
+
+.node-card:hover .node-actions,
+.node-card.selected .node-actions {
+    opacity: 1;
+}
+
+.node-children {
+    margin-top: 10px;
+    border-left: 1px dashed var(--border-color);
+    padding-left: 12px;
+}
+
+.node-children[data-empty="true"] {
+    min-height: 24px;
+}
+
+.node-message-body {
+    max-height: 180px;
+    overflow: auto;
+    border: 1px solid color-mix(in srgb, var(--profile-node-accent) 24%, var(--border-color));
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--profile-node-accent) 6%, var(--bg-panel));
+    padding: 8px 9px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.55;
+}
+
+.node-source-body {
+    margin: 0;
+    overflow: visible;
+    color: var(--text-secondary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+}
+</style>

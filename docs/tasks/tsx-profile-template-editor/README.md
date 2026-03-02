@@ -1,0 +1,76 @@
+# TSX Profile Template Editor
+
+## 背景
+
+用户希望把 TSX profile 的模板和 profile 代码拆开，让 profile 后续可以切换多种 TSX 预设，并为低代码可视化编辑器提供独立模板真值源。
+
+第一版范围收敛为：模板真值源使用 TSX 文件，入口使用独立 preview 页面，保存模板后只用于预览和验证，不接入真实 Agent 运行。
+
+## 目标
+
+- 在 `server/agent/profiles/templates/` 下维护可编辑 TSX 模板。
+- 支持解析受限 TSX ProfilePrompt DSL 为结构化节点树。
+- 支持从节点树生成规范化 TSX。
+- 提供模板列表、读取、保存、验证和预览 API。
+- 提供独立页面 `/tsx-profile-editor.preview`，用于低代码编辑模板树、属性和消息内容。
+- Preview 页面升级为对齐主 Novel IDE 的主题化三栏工作台：组件库、模板画布、TSX 预览和属性/变量面板。
+- Preview 页面进一步升级为低代码拖拽工作台：左侧组件库可直接拖入画布，画布节点支持跨父级 before / after / inside / root 明确落点移动，并在拖拽过程中实时预览插入后的位置。
+- `leader-runtime` 模板从演示文案升级为接近真实 leader prompt 的模板副本；编辑器仍读写 `server/agent/profiles/templates/leader-runtime.tsx`，不直接修改生产 `server/agent/profiles/builtin/leader-default.profile.tsx`。
+- 右侧源码预览展示纯 `<ProfilePrompt>...</ProfilePrompt>` TSX 片段，不展示 import、函数包装或 `return (...)`。
+- 预览 Prompt 采用消息列表形式，展示解析后可能进入 prompt 的 role/text/source，而不是模拟聊天气泡。
+
+## 关键决策
+
+- 低代码编辑器只支持受限 TSX DSL，不支持任意 TypeScript 逻辑的可视化往返编辑。
+- 第一版支持组件：`ProfilePrompt`、`HistorySet`、`DynamicSet`、`AppendingSet`、`Message`、`Reminder`、`Watch`、`If`、`SkillCatalog`、`ActivatedSkills`。
+- `Watch` 组件扩展为可选 `children`：保留原 `render(change)` 形式，同时允许模板里写 `<Watch path="..."><Message ... /></Watch>`，便于可视化编辑。
+- TypeScript compiler API 通过 `createRequire()` 加载，避免 Nitro dev bundle 直接内联 TypeScript 后触发 ESM `__filename` 问题。
+- 第一版不修改 `AgentProfileRegistry`、`config.yaml` 或 thread metadata，不提供真实运行时模板切换。
+- UI 主题复用 Novel IDE 的 `themeTokens` 与 store 中的当前主题，不维护第二套视觉变量。
+- Preview 工具页复用 Novel IDE 当前主题系统，并提供浅色、暖色、暗色切换；页面颜色优先消费主题变量，不维护独立硬编码主题。
+- 节点排序和组件投放使用项目已有 `@dnd-kit/vue`。左侧组件库使用 `useDraggable`，画布节点使用 `useSortable`，节点边缘和内部区域使用 `useDroppable` 表达明确落点。
+- 画布拖拽不做“悬停即嵌套”，只接受 `before`、`after`、`inside`、`root` 四类显式落点；拖拽中渲染 `dragVisualRoot`，真实 `root` 只在松手成功后更新，避免不同高度节点因为自动排序和 transition 抖动。
+- 拖拽源子树和组件库临时预览节点的 drop zone 会在拖拽过程中禁用，避免拖到自身、后代或临时节点内部造成循环和跳动。
+- Preview 页面维护本地撤销/重做快照栈，只影响当前前端编辑会话，不进入 DTO、API 或 runtime。
+- 右侧变量面板只做模板文本插入，不改变服务端 DTO 或运行时变量解析规则。
+- `leader-runtime.tsx` 保持合法 TSX 模块包装，便于 typecheck、保存和后续接入 runtime；纯 `<ProfilePrompt>...</ProfilePrompt>` 只作为编辑器展示视图。
+- DTO 支持表达式属性 `{kind: "expression", code}` 和 `Message.textKind = "source"`，用于保留 `watchValue={...}`、`when={...}`、`render={...}` 和正文中的 `{...}` TSX 片段，避免保存时把真实模板逻辑拍平成普通字符串。
+- 节点与组件库共用同一套语义配色，使用纯色主题混合背景，不使用半透明渐变效果。
+
+## 变更文件
+
+- `shared/dto/profile-template.dto.ts`
+- `server/agent/profile-templates/profile-template-service.ts`
+- `server/api/agent/profile-templates*.ts`
+- `server/agent/profiles/templates/leader-runtime.tsx`
+- `server/agent/profiles/context-prompt.tsx`
+- `app/pages/tsx-profile-editor.preview.vue`
+- `app/components/profile-template-editor/ProfileTemplateNodeView.vue`
+- `app/components/profile-template-editor/ProfileTemplateLibraryItem.vue`
+- `app/components/profile-template-editor/ProfileTemplateDropZone.vue`
+
+## 验证
+
+- `bun run typecheck`
+- `bun run test server/agent/profile-templates/profile-template-service.test.ts server/agent/profiles/simple-profile.test.ts`
+- `profile-template-service.test.ts` 覆盖表达式属性往返、Message TSX 表达式片段保真，以及 `leader-runtime.tsx` 可解析为无错误 `ProfilePrompt`。
+- Dev server smoke:
+  - `GET /api/agent/profile-templates` 返回 `leader-runtime`
+  - `GET /api/agent/profile-templates/leader-runtime` 返回结构化 AST 且无 issues
+  - `POST /api/agent/profile-templates/preview` 返回预览消息
+  - `GET /tsx-profile-editor.preview` 返回页面 HTML
+- 浏览器检查：
+  - 页面复用主 IDE 主题变量，不再使用独立硬编码主题。
+  - 左侧组件库按集合、消息、流程控制、特权节点分组。
+  - 左侧组件库可拖拽新增节点，点击组件仍可快速追加到当前选中容器。
+  - 中间模板画布支持节点选择、复制、删除、折叠、跨父级拖拽、before / after / inside / root 落点、拖拽中实时位置预览，以及子节点在父节点卡片内嵌展示。
+  - 折叠容器仍保留内部落点，拖拽时可把节点或组件投放进折叠节点。
+  - 撤销和重做对新增、删除、复制、拖拽、属性编辑和变量插入生效。
+  - 右侧属性面板、变量面板、运行时变量和 Prompt 消息预览可切换；源码预览为暗色只读代码区。
+
+## 后续 TODO
+
+- 将模板选择接入真实 profile runtime。
+- 决定模板选择落点：全局 `config.yaml`、profile 默认配置，还是 thread metadata。
+- 支持更多表达式和更精确的变量插入位置。
+- 增加更完整的 Monaco/属性面板交互，以及面向大模板的批量折叠、节点搜索和结构导航。

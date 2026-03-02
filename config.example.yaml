@@ -1,0 +1,122 @@
+agent:
+  tools:
+    allow: []
+    deny: []
+  profiles:
+    leader.default:
+      model:
+        modelKey: null
+        temperature: null
+        topK: null
+        stream: true
+    subagent.writer:
+      model:
+        modelKey: null
+        temperature: null
+        topK: null
+        stream: true
+    subagent.loreRetriever:
+      model:
+        modelKey: null
+        temperature: null
+        topK: null
+        stream: true
+    subagent.retrieval:
+      model:
+        modelKey: deepseek/deepseek-v4-flash
+        temperature: null
+        topK: null
+        stream: true
+models:
+  default: deepseek/deepseek-v4-flash
+  providers:
+    deepseek:
+      name: DeepSeek
+      adapter: deepseek-official
+      options:
+        apiKey: ""
+        baseURL: https://api.deepseek.com/v1
+        proxy: ""
+      models:
+        deepseek-v4-flash:
+          name: DeepSeek-V4-Flash
+          id: deepseek-v4-flash
+          group: deepseek
+          enabled: true
+          contextWindowTokens: 262144
+        deepseek-v4-pro:
+          name: DeepSeek-V4-Pro
+          id: deepseek-v4-pro
+          group: deepseek
+          enabled: false
+          contextWindowTokens: 262144
+    doubao:
+      name: Doubao
+      adapter: openai-compatible
+      options:
+        apiKey: ""
+        baseURL: https://ark.cn-beijing.volces.com/api/v3
+        proxy: ""
+      models:
+        doubao-seed-2-0-pro:
+          name: Doubao Seed 2.0 Pro
+          id: doubao-seed-2-0-pro
+          group: doubao
+          enabled: false
+          contextWindowTokens: 262144
+    gemini:
+      name: Gemini
+      adapter: gemini-compatible
+      options:
+        apiKey: ""
+        baseURL: ""
+        proxy: ""
+      models:
+        gemini-3-pro-preview-maxthinking:
+          name: Gemini 3 Pro Preview MaxThinking
+          id: gemini-3-pro-preview-maxthinking
+          group: gemini
+          enabled: false
+          contextWindowTokens: null
+    qwen:
+      name: Qwen
+      adapter: openai-compatible
+      options:
+        apiKey: ""
+        baseURL: https://dashscope.aliyuncs.com/compatible-mode/v1
+        proxy: ""
+      models:
+        qwen3.6-plus:
+          name: Qwen 3.6 Plus
+          id: qwen3.6-plus
+          group: qwen
+          enabled: false
+          contextWindowTokens: 262144
+    siliconflow:
+      name: SiliconFlow
+      adapter: deepseek-official
+      options:
+        apiKey: ""
+        baseURL: https://api.siliconflow.cn/v1
+        proxy: ""
+      models:
+        deepseek-ai/DeepSeek-V4-Flash:
+          name: DeepSeek-V4-Flash
+          id: deepseek-ai/DeepSeek-V4-Flash
+          group: deepseek
+          enabled: false
+          contextWindowTokens: 262144
+    xiaomimimo:
+      name: XiaoMiMiMo
+      adapter: openai-compatible
+      options:
+        apiKey: ""
+        baseURL: https://token-plan-cn.xiaomimimo.com/v1
+        proxy: ""
+      models:
+        mimo-v2.5-pro:
+          name: mimo-v2.5-pro
+          id: mimo-v2.5-pro
+          group: mimo
+          enabled: false
+          contextWindowTokens: null

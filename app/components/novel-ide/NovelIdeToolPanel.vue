@@ -1,0 +1,46 @@
+<script setup lang="ts">
+import WorkspaceFilePanel from "nbook/app/components/novel-ide/workspace/WorkspaceFilePanel.vue";
+import WorkspaceCharacterPanel from "nbook/app/components/novel-ide/workspace/WorkspaceCharacterPanel.vue";
+import NovelPlotPanel from "nbook/app/components/novel-ide/plot/NovelPlotPanel.vue";
+import type { NovelIdeTab } from "nbook/app/components/novel-ide/mock-data";
+
+const props = defineProps<{
+    activeTab: NovelIdeTab | null;
+}>();
+
+const emit = defineEmits<{
+    (e: "close"): void;
+}>();
+
+const titleMap: Record<NovelIdeTab, string> = {
+    files: "文件",
+    characters: "角色",
+    outline: "剧情大纲",
+};
+</script>
+
+<template>
+    <!-- 左侧工具窗 -->
+    <aside v-if="activeTab" class="z-10 flex w-[340px] shrink-0 flex-col border-r border-[var(--border-color)] bg-[var(--bg-panel)]">
+        <div class="flex shrink-0 items-center justify-between border-b border-[var(--border-color)] px-3 py-2">
+            <span class="text-[11px] font-medium tracking-[0.24em] text-[var(--text-secondary)]">
+                {{ titleMap[activeTab] }}
+            </span>
+
+            <div class="flex items-center gap-0.5">
+                <button class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]">
+                    <span class="i-lucide-ellipsis h-4 w-4"></span>
+                </button>
+                <button class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="emit('close')">
+                    <span class="i-lucide-minus h-4 w-4"></span>
+                </button>
+            </div>
+        </div>
+
+        <WorkspaceFilePanel v-if="activeTab === 'files'" />
+
+        <WorkspaceCharacterPanel v-else-if="activeTab === 'characters'" />
+
+        <NovelPlotPanel v-else-if="activeTab === 'outline'" />
+    </aside>
+</template>

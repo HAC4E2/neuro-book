@@ -1,0 +1,96 @@
+import type {
+    PlotLookupRepository,
+    PlotRepository,
+    StoryRepository,
+    ThreadRepository,
+} from "nbook/server/plot/contracts/plot-repositories";
+import {PlotDtoAssembler} from "nbook/server/plot/assemblers/plot-dto.assembler";
+import {OrderService} from "nbook/server/plot/services/order.service";
+import {PlotScopeGuard} from "nbook/server/plot/services/plot-scope.guard";
+import {StoryService} from "nbook/server/plot/services/story.service";
+import {describe, expect, it, vi} from "vitest";
+
+describe("StoryService", () => {
+    it("删除阶段后会把线程移到未分组 bucket，并压缩阶段排序", async () => {
+        const phases = [
+            {id: 1, storyId: 10, sortOrder: 0, name: "phase-1", title: "阶段 1", summary: "", note: null, createdAt: new Date(), updatedAt: new Date()},
+            {id: 2, storyId: 10, sortOrder: 1, name: "phase-2", title: "阶段 2", summary: "", note: null, createdAt: new Date(), updatedAt: new Date()},
+            {id: 3, storyId: 10, sortOrder: 3, name: "phase-3", title: "阶段 3", summary: "", note: null, createdAt: new Date(), updatedAt: new Date()},
+        ];
+        const ungroupedThreads = [
+            {id: 9, storyId: 10, storyPhaseId: null, sortOrder: 4, name: "free", title: "未分组", isMainThread: false, status: "draft", summary: "", tags: [], writingTip: null, note: null, createdAt: new Date(), updatedAt: new Date()},
+        ];
+        const threadUpdates: Array<{threadId: number; data: {storyPhaseId?: number | null; sortOrder?: number}}> = [];
+
+        const storyRepository = {
+            upsertStoryForNovel: vi.fn(async () => ({id: 10, novelId: 100, title: "小说", summary: "", note: null, createdAt: new Date(), updatedAt: new Date()})),
+            findPhaseById: vi.fn(async (phaseId: number) => phases.find((phase) => phase.id === phaseId) ?? null),
+            findPhasesByStory: vi.fn(async () => [...phases].sort((left, right) => left.sortOrder - right.sortOrder)),
+            findPhaseIdsByStory: vi.fn(async () => phases.map((phase) => phase.id)),
+            updatePhase: vi.fn(async (phaseId: number, data: {sortOrder?: number}) => {
+                const phase = phases.find((item) => item.id === phaseId);
+                if (!phase) {
+                    throw new Error("phase 不存在");
+                }
+                if (data.sortOrder !== undefined) {
+                    phase.sortOrder = data.sortOrder;
+                }
+                return phase;
+            }),
+            deletePhase: vi.fn(async (phaseId: number) => {
+                const phaseIndex = phases.findIndex((phase) => phase.id === phaseId);
+                phases.splice(phaseIndex, 1);
+            }),
+        } as StoryRepository;
+        const threadRepository = {
+            findThreadRefsOwnerIds: vi.fn(async () => [11, 12]),
+            findThreadsByStoryPhase: vi.fn(async (_storyId: number, storyPhaseId: number | null) => {
+                if (storyPhaseId !== null) {
+                    return [];
+                }
+                return ungroupedThreads;
+            }),
+            updateThread: vi.fn(async (threadId: number, data: {storyPhaseId?: number | null; sortOrder?: number}) => {
+                threadUpdates.push({threadId, data});
+                return ungroupedThreads[0]!;
+            }),
+        } as ThreadRepository;
+        const lookupRepository = {
+            findNovelById: vi.fn(async () => ({id: 100, title: "小说", summary: "", workspaceSlug: "test"})),
+        } as PlotLookupRepository;
+        const plotRepository = {} as PlotRepository;
+        const orderService = new OrderService(
+            storyRepository,
+            threadRepository,
+            {} as never,
+            plotRepository,
+        );
+        const scopeGuard = new PlotScopeGuard(
+            storyRepository,
+            threadRepository,
+            {} as never,
+            plotRepository,
+            lookupRepository,
+        );
+        const service = new StoryService(
+            storyRepository,
+            threadRepository,
+            plotRepository,
+            lookupRepository,
+            orderService,
+            new PlotDtoAssembler(),
+            scopeGuard,
+        );
+
+        await service.deleteStoryPhase(100, 2);
+
+        expect(threadUpdates).toEqual([
+            {threadId: 11, data: {storyPhaseId: null, sortOrder: 5}},
+            {threadId: 12, data: {storyPhaseId: null, sortOrder: 6}},
+        ]);
+        expect(phases.map((phase) => ({id: phase.id, sortOrder: phase.sortOrder}))).toEqual([
+            {id: 1, sortOrder: 0},
+            {id: 3, sortOrder: 1},
+        ]);
+    });
+});

@@ -1,0 +1,25 @@
+---
+title: {{title}}
+type: rule
+subtype: null # 内容节点细分类别
+status: {{status}} # 内容节点状态：draft 草稿、pending 待定、active 已确认、archived 已归档。
+icon: null # Lucide 图标名
+aliases: [] # 别名列表
+tags: [] # 中文短标签；有明确分类意义、易理解、可复用，不要为了填字段随意设置。
+summary: ""
+refs: [] # 结构化引用列表；target 使用 Markdown 相对路径。
+retrieval:
+  enabled: true # 是否允许进入 AI 自动检索候选。
+  trigger: null # 自然语言触发条件；为空表示不需要额外触发判断。
+inject:
+  profiles: [] # 直接上下文目标 profile key；常用 subagent.writer 写作、leader.default 规划，可选 subagent.retrieval。
+  always: false # 仅长期稳定约束才设 true；临时剧情、待定问题、章节状态保持 false，交给 retrieval 或 state.md。
+governance:
+  source: manual # 内容来源，例如 manual、imported、generated。
+  review: proposed # 审阅状态，例如 proposed、reviewed。
+ext: {} # 自由扩展对象；系统不校验、不编辑、不依赖。
+---
+
+## 概要
+
+## 规则设定

@@ -1,0 +1,73 @@
+import {z} from "zod";
+import {createError} from "h3";
+import {readWorkspaceTextFile, statWorkspacePath, writeWorkspaceTextFile, type WorkspaceFileNode} from "nbook/server/workspace-files/workspace-files";
+import {buildWorkspaceWriteConflict} from "nbook/server/workspace-files/workspace-file-conflict";
+import {resolveWorkspaceRootInput} from "nbook/server/workspace-files/novel-workspace";
+import {prisma} from "nbook/server/utils/prisma";
+
+const WriteWorkspaceFileBodySchema = z.object({
+    root: z.string().optional(),
+    novelId: z.string().optional(),
+    path: z.string().trim().min(1, "path 不能为空"),
+    content: z.string(),
+    baseContent: z.string().optional(),
+    expectedMtimeMs: z.number().nullable().optional(),
+    force: z.boolean().optional().default(false),
+});
+
+/**
+ * 覆盖写入工作区文本文件。
+ */
+export default defineEventHandler(async (event) => {
+    const body = WriteWorkspaceFileBodySchema.parse(await readBody(event));
+    const root = await resolveWorkspaceRootInput(prisma, body);
+    if (!body.force && body.expectedMtimeMs !== undefined) {
+        const remoteState = await readRemoteState(root, body.path);
+        const actualMtimeMs = remoteState.node?.mtimeMs ?? null;
+        if (actualMtimeMs !== body.expectedMtimeMs) {
+            const conflict = await buildWorkspaceWriteConflict({
+                path: body.path,
+                expectedMtimeMs: body.expectedMtimeMs,
+                actualMtimeMs,
+                baseContent: body.baseContent ?? "",
+                localContent: body.content,
+                remoteContent: remoteState.content,
+                remoteExists: remoteState.node !== null,
+                node: remoteState.node,
+            });
+            throw createError({
+                statusCode: 409,
+                statusMessage: "Workspace file write conflict",
+                message: "真实文件已被修改，请先处理冲突",
+                data: conflict,
+            });
+        }
+    }
+
+    await writeWorkspaceTextFile(root, body.path, body.content);
+    return statWorkspacePath(root, body.path);
+});
+
+/**
+ * 读取当前真实文件状态；文件被外部删除时返回空内容和空节点。
+ */
+async function readRemoteState(root: string | undefined, filePath: string): Promise<{
+    node: WorkspaceFileNode | null;
+    content: string;
+}> {
+    try {
+        const [node, content] = await Promise.all([
+            statWorkspacePath(root, filePath),
+            readWorkspaceTextFile(root, filePath),
+        ]);
+        return {node, content};
+    } catch (error) {
+        if (typeof error === "object" && error !== null && "code" in error && (error as {code?: string}).code === "ENOENT") {
+            return {
+                node: null,
+                content: "",
+            };
+        }
+        throw error;
+    }
+}

@@ -1,0 +1,35 @@
+{
+  "extends": "./.nuxt/tsconfig.json",
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "jsxImportSource": "nbook/server/agent/prompts",
+    "baseUrl": ".",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "outDir": "dist",
+    "paths": {
+      "nbook/*": [
+        "./*"
+      ],
+      "neuro_book/*": [
+        "./*"
+      ]
+    }
+  },
+  "include": [
+    ".nuxt/**/*.d.ts",
+    "app/**/*",
+    "server/agent/**/*",
+    "server/agent-v3/**/*",
+    "shared/**/*",
+    "*.d.ts",
+    "nuxt.config.ts"
+  ]
+}

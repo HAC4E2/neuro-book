@@ -1,0 +1,88 @@
+import { z } from "zod";
+import type { AgentToolCall } from "nbook/app/components/novel-ide/agent/agent-message";
+
+export const AgentTaskStatusSchema = z.enum(["pending", "in_progress", "completed"]);
+
+const AgentTaskStepSchema = z.object({
+    id: z.string().trim().min(1),
+    text: z.string().trim().min(1),
+    status: AgentTaskStatusSchema,
+    note: z.string().trim().min(1).optional(),
+    updatedAt: z.string().trim().min(1),
+});
+
+const AgentTaskListSchema = z.object({
+    title: z.string().trim().min(1).optional(),
+    steps: z.array(AgentTaskStepSchema).min(1),
+    updatedAt: z.string().trim().min(1),
+});
+
+export type AgentTaskStatus = z.infer<typeof AgentTaskStatusSchema>;
+export type AgentTaskStep = z.infer<typeof AgentTaskStepSchema>;
+export type AgentTaskList = z.infer<typeof AgentTaskListSchema>;
+
+export type TaskToolCallLike = Pick<AgentToolCall, "rawResult" | "result">;
+
+/**
+ * 解析 task 工具的结构化返回值。
+ * 优先使用 rawResult，fallback 到 result 里的 JSON 文本。
+ */
+export const parseTaskList = (toolCall: TaskToolCallLike): AgentTaskList | null => {
+    const rawResult = AgentTaskListSchema.safeParse(toolCall.rawResult);
+    if (rawResult.success) {
+        return rawResult.data;
+    }
+
+    const resultText = toolCall.result?.trim();
+    if (!resultText) {
+        return null;
+    }
+
+    try {
+        return AgentTaskListSchema.parse(JSON.parse(resultText));
+    } catch {
+        return null;
+    }
+};
+
+/**
+ * 任务步骤状态文字。
+ */
+export const formatTaskStatusLabel = (status: AgentTaskStatus): string => {
+    switch (status) {
+        case "pending":
+            return "待开始";
+        case "in_progress":
+            return "进行中";
+        case "completed":
+            return "已完成";
+    }
+};
+
+/**
+ * 任务步骤状态颜色。
+ */
+export const taskStatusClass = (status: AgentTaskStatus): string => {
+    switch (status) {
+        case "pending":
+            return "border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-muted)]";
+        case "in_progress":
+            return "border-amber-500/30 bg-amber-500/10 text-amber-700";
+        case "completed":
+            return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700";
+    }
+};
+
+/**
+ * 任务步骤状态图标。
+ */
+export const taskStatusIcon = (status: AgentTaskStatus): string => {
+    switch (status) {
+        case "pending":
+            return "i-lucide-circle-dashed";
+        case "in_progress":
+            return "i-lucide-loader-circle";
+        case "completed":
+            return "i-lucide-check";
+    }
+};

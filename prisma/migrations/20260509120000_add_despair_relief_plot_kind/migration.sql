@@ -1,0 +1,2 @@
+ALTER TYPE "StoryPlotKind" ADD VALUE IF NOT EXISTS 'despair';
+ALTER TYPE "StoryPlotKind" ADD VALUE IF NOT EXISTS 'relief';

@@ -1,0 +1,24 @@
+{
+  "modelMessages": [
+    {
+      "role": "system",
+      "text": "complex system prompt"
+    },
+    {
+      "role": "human",
+      "text": "第三轮：普通输入"
+    }
+  ],
+  "persistedPrepend": [
+    {
+      "role": "system",
+      "text": "complex system prompt"
+    }
+  ],
+  "persistedAppend": [
+    {
+      "role": "human",
+      "text": "第三轮：普通输入"
+    }
+  ]
+}

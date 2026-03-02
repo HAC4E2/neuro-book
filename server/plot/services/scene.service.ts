@@ -1,0 +1,183 @@
+import type {SceneRepository} from "nbook/server/plot/contracts/plot-repositories";
+import {throwPlotNotFound} from "nbook/server/plot/core/errors";
+import {PlotDtoAssembler} from "nbook/server/plot/assemblers/plot-dto.assembler";
+import type {
+    ParsedCreateStorySceneInput,
+    ParsedReorderStorySceneItem,
+    ParsedUpdateStorySceneInput,
+} from "nbook/server/plot/core/types";
+import {OrderService} from "nbook/server/plot/services/order.service";
+import {PlotScopeGuard} from "nbook/server/plot/services/plot-scope.guard";
+import {RefResolverService} from "nbook/server/plot/services/ref-resolver.service";
+import {StoryService} from "nbook/server/plot/services/story.service";
+import type {
+    ChapterPlotDetailDto,
+    PlotTreeDto,
+    StorySceneDetailDto,
+} from "nbook/shared/dto/plot.dto";
+
+/**
+ * Scene 用例服务。
+ */
+export class SceneService {
+    constructor(
+        private readonly sceneRepository: SceneRepository,
+        private readonly storyService: StoryService,
+        private readonly scopeGuard: PlotScopeGuard,
+        private readonly orderService: OrderService,
+        private readonly refResolverService: RefResolverService,
+        private readonly assembler: PlotDtoAssembler,
+    ) {}
+
+    /**
+     * 查询场景详情。
+     */
+    async getStorySceneDetailDto(novelId: number, sceneId: number): Promise<StorySceneDetailDto> {
+        const story = await this.storyService.ensureStory(novelId);
+        await this.scopeGuard.assertScene(story.id, sceneId);
+        const scene = await this.sceneRepository.findSceneWithDetailsById(sceneId);
+        if (!scene) {
+            throwPlotNotFound("剧情场景不存在");
+        }
+
+        return this.assembler.toStorySceneDetailDto(scene);
+    }
+
+    /**
+     * 查询章节下的剧情 Scene 与 Plot。
+     */
+    async getChapterPlotDetailDto(novelId: number, chapterPath: string): Promise<ChapterPlotDetailDto> {
+        const normalizedChapterPath = await this.scopeGuard.assertChapterPath(novelId, chapterPath);
+        const scenes = await this.sceneRepository.findChapterScenesWithPlots(normalizedChapterPath);
+        return this.assembler.toChapterPlotDetailDto(normalizedChapterPath, scenes);
+    }
+
+    /**
+     * 创建场景。
+     */
+    async createStoryScene(novelId: number, input: ParsedCreateStorySceneInput): Promise<StorySceneDetailDto> {
+        const story = await this.storyService.ensureStory(novelId);
+
+        await this.scopeGuard.assertThread(story.id, input.threadId);
+        const chapterPath = input.chapterPath === null ? null : await this.scopeGuard.assertChapterPath(novelId, input.chapterPath);
+
+        const refs = input.resolvedRefs ?? await this.refResolverService.resolveRefs(novelId, story.id, input.refs);
+        const scene = await this.sceneRepository.createScene({
+            storyId: story.id,
+            threadId: input.threadId,
+            chapterPath,
+            threadSortOrder: await this.orderService.getNextSceneThreadSortOrder(input.threadId),
+            chapterSortOrder: await this.orderService.getNextSceneChapterSortOrder(chapterPath),
+            title: input.title,
+            status: input.status ?? "draft",
+            summary: input.summary ?? "",
+            purpose: input.purpose ?? null,
+            writingTip: input.writingTip ?? null,
+            note: input.note ?? null,
+        });
+
+        await this.sceneRepository.replaceRefs(scene.id, refs);
+        return this.getStorySceneDetailDto(novelId, scene.id);
+    }
+
+    /**
+     * 更新场景。
+     */
+    async updateStoryScene(
+        novelId: number,
+        sceneId: number,
+        patch: ParsedUpdateStorySceneInput,
+    ): Promise<StorySceneDetailDto> {
+        const story = await this.storyService.ensureStory(novelId);
+        const scene = await this.scopeGuard.assertScene(story.id, sceneId);
+        const nextThreadId = patch.threadId === undefined ? scene.threadId : patch.threadId;
+        const nextChapterPath = patch.chapterPath === undefined
+            ? scene.chapterPath
+            : patch.chapterPath === null
+                ? null
+                : await this.scopeGuard.assertChapterPath(novelId, patch.chapterPath);
+        const threadChanged = nextThreadId !== scene.threadId;
+        const chapterChanged = nextChapterPath !== scene.chapterPath;
+
+        if (threadChanged) {
+            await this.scopeGuard.assertThread(story.id, nextThreadId);
+        }
+
+        const refs = patch.refs === undefined
+            ? null
+            : patch.resolvedRefs ?? await this.refResolverService.resolveRefs(novelId, story.id, patch.refs);
+        await this.sceneRepository.updateScene(scene.id, {
+            threadId: nextThreadId,
+            chapterPath: patch.chapterPath === undefined ? undefined : nextChapterPath,
+            threadSortOrder: threadChanged ? await this.orderService.getNextSceneThreadSortOrder(nextThreadId) : undefined,
+            chapterSortOrder: patch.chapterPath === undefined
+                ? undefined
+                : nextChapterPath === null
+                    ? null
+                    : chapterChanged
+                        ? await this.orderService.getNextSceneChapterSortOrder(nextChapterPath)
+                        : undefined,
+            title: patch.title,
+            status: patch.status,
+            summary: patch.summary,
+            purpose: patch.purpose,
+            writingTip: patch.writingTip,
+            note: patch.note,
+        });
+
+        if (refs !== null) {
+            await this.sceneRepository.replaceRefs(scene.id, refs);
+        }
+        if (threadChanged) {
+            await this.orderService.normalizeSceneThread(scene.threadId);
+        }
+        if (chapterChanged && scene.chapterPath !== null) {
+            await this.orderService.normalizeSceneChapter(scene.chapterPath);
+        }
+
+        return this.getStorySceneDetailDto(novelId, scene.id);
+    }
+
+    /**
+     * 删除场景。
+     */
+    async deleteStoryScene(novelId: number, sceneId: number): Promise<void> {
+        const story = await this.storyService.ensureStory(novelId);
+        const scene = await this.scopeGuard.assertScene(story.id, sceneId);
+        await this.sceneRepository.deleteScene(scene.id);
+        await this.orderService.normalizeSceneThread(scene.threadId);
+        await this.orderService.normalizeSceneChapter(scene.chapterPath);
+    }
+
+    /**
+     * 批量重排场景。
+     */
+    async reorderStoryScenes(novelId: number, items: ParsedReorderStorySceneItem[]): Promise<PlotTreeDto> {
+        const story = await this.storyService.ensureStory(novelId);
+        const [existingSceneIds, existingThreadIds] = await Promise.all([
+            this.sceneRepository.findSceneIdsByStory(story.id),
+            this.scopeGuard.listThreadIds(story.id),
+        ]);
+        for (const item of items) {
+            if (item.chapterPath !== null) {
+                item.chapterPath = await this.scopeGuard.assertChapterPath(novelId, item.chapterPath);
+            }
+        }
+        const parsedItems = this.orderService.validateSceneReorderItems(
+            existingSceneIds,
+            existingThreadIds,
+            items,
+        );
+
+        for (const item of parsedItems) {
+            await this.sceneRepository.updateScene(item.sceneId, {
+                threadId: item.threadId,
+                chapterPath: item.chapterPath,
+                threadSortOrder: item.threadSortOrder,
+                chapterSortOrder: item.chapterSortOrder,
+            });
+        }
+
+        return this.storyService.getPlotTree(novelId);
+    }
+}

@@ -1,0 +1,196 @@
+import type {Prisma} from "nbook/server/generated/prisma/client";
+import type {
+    StoryPlot,
+    StoryScene,
+    StorySceneRef,
+    StoryThread,
+    StoryThreadRef,
+} from "nbook/server/generated/prisma/client";
+import type {
+    CreateStoryPlotRequestDto,
+    CreateStorySceneRequestDto,
+    CreateStoryThreadRequestDto,
+    ReorderStoryPhasesRequestDto,
+    ReorderStoryPlotsRequestDto,
+    ReorderStoryScenesRequestDto,
+    ReorderStoryThreadsRequestDto,
+    StoryRefDto,
+    UpdateStoryPlotRequestDto,
+    UpdateStorySceneRequestDto,
+    UpdateStoryThreadRequestDto,
+} from "nbook/shared/dto/plot.dto";
+
+/**
+ * 剧情模块可用的 Prisma 执行器。
+ */
+export type PrismaExecutor = Prisma.TransactionClient | {
+    story: Prisma.TransactionClient["story"];
+    storyPhase: Prisma.TransactionClient["storyPhase"];
+    storyThread: Prisma.TransactionClient["storyThread"];
+    storyScene: Prisma.TransactionClient["storyScene"];
+    storyPlot: Prisma.TransactionClient["storyPlot"];
+    storyThreadRef: Prisma.TransactionClient["storyThreadRef"];
+    storySceneRef: Prisma.TransactionClient["storySceneRef"];
+    novel: Prisma.TransactionClient["novel"];
+    $executeRaw: Prisma.TransactionClient["$executeRaw"];
+};
+
+/**
+ * Thread ref 查询结果。
+ */
+export type StoryThreadRefWithTargets = StoryThreadRef & {
+    targetThread: Pick<StoryThread, "id" | "name"> | null;
+    targetScene: Pick<StoryScene, "id"> | null;
+    targetPlot: Pick<StoryPlot, "id"> | null;
+};
+
+/**
+ * Scene ref 查询结果。
+ */
+export type StorySceneRefWithTargets = StorySceneRef & {
+    targetThread: Pick<StoryThread, "id" | "name"> | null;
+    targetScene: Pick<StoryScene, "id"> | null;
+    targetPlot: Pick<StoryPlot, "id"> | null;
+};
+
+/**
+ * Thread 详情聚合结果。
+ */
+export type StoryThreadWithRefs = StoryThread & {
+    refs: StoryThreadRefWithTargets[];
+};
+
+/**
+ * Scene 详情聚合结果。
+ */
+export type StorySceneWithDetails = StoryScene & {
+    plots: StoryPlot[];
+    refs: StorySceneRefWithTargets[];
+    thread: StoryThreadWithRefs;
+};
+
+/**
+ * 章节剧情详情聚合结果。
+ */
+export type ChapterPlotSceneWithThread = StoryScene & {
+    plots: StoryPlot[];
+    thread: Pick<StoryThread, "id" | "title" | "isMainThread">;
+};
+
+/**
+ * 解析后的引用写入结构。
+ */
+export type ResolvedStoryRefInput = {
+    sortOrder: number;
+    relation: string;
+    rawTarget: string;
+    targetKind: "content" | "thread" | "scene" | "plot";
+    targetThreadId: number | null;
+    targetSceneId: number | null;
+    targetPlotId: number | null;
+    visibility: StoryRefDto["visibility"];
+    // `note` 为空表示该引用没有额外备注。
+    note: string | null;
+};
+
+/**
+ * 剧情阶段重排项。
+ */
+export type ParsedReorderStoryPhaseItem = {
+    phaseId: number;
+    sortOrder: number;
+};
+
+/**
+ * 剧情线程重排项。
+ */
+export type ParsedReorderStoryThreadItem = {
+    threadId: number;
+    storyPhaseId: number | null;
+    sortOrder: number;
+};
+
+/**
+ * 剧情场景重排项。
+ */
+export type ParsedReorderStorySceneItem = {
+    sceneId: number;
+    threadId: number;
+    chapterPath: string | null;
+    threadSortOrder: number;
+    chapterSortOrder: number | null;
+};
+
+/**
+ * 情节点重排项。
+ */
+export type ParsedReorderStoryPlotItem = {
+    plotId: number;
+    sceneId: number;
+    sortOrder: number;
+};
+
+/**
+ * 线程创建输入。
+ */
+export type ParsedCreateStoryThreadInput = Omit<CreateStoryThreadRequestDto, "storyPhaseId" | "refs"> & {
+    storyPhaseId: number | null;
+    refs: StoryRefDto[];
+    // `resolvedRefs` 非空表示内容层已经完成目标存在性校验，可直接写库。
+    resolvedRefs?: ResolvedStoryRefInput[];
+};
+
+/**
+ * 线程更新输入。
+ */
+export type ParsedUpdateStoryThreadInput = Omit<UpdateStoryThreadRequestDto, "storyPhaseId" | "refs"> & {
+    // `storyPhaseId` 为 undefined 表示不修改；null 表示移动到未分组。
+    storyPhaseId?: number | null;
+    refs?: StoryRefDto[];
+    // `resolvedRefs` 非空表示内容层已经完成目标存在性校验，可直接写库。
+    resolvedRefs?: ResolvedStoryRefInput[];
+};
+
+/**
+ * 场景创建输入。
+ */
+export type ParsedCreateStorySceneInput = Omit<CreateStorySceneRequestDto, "threadId" | "chapterPath" | "refs"> & {
+    threadId: number;
+    chapterPath: string | null;
+    refs: StoryRefDto[];
+    // `resolvedRefs` 非空表示内容层已经完成目标存在性校验，可直接写库。
+    resolvedRefs?: ResolvedStoryRefInput[];
+};
+
+/**
+ * 场景更新输入。
+ */
+export type ParsedUpdateStorySceneInput = Omit<UpdateStorySceneRequestDto, "threadId" | "chapterPath" | "refs"> & {
+    // `threadId` 为 undefined 表示不修改所属线程。
+    threadId?: number;
+    // `chapterPath` 为 undefined 表示不修改；null 表示从章节顺序中移除。
+    chapterPath?: string | null;
+    refs?: StoryRefDto[];
+    // `resolvedRefs` 非空表示内容层已经完成目标存在性校验，可直接写库。
+    resolvedRefs?: ResolvedStoryRefInput[];
+};
+
+/**
+ * 情节点创建输入。
+ */
+export type ParsedCreateStoryPlotInput = Omit<CreateStoryPlotRequestDto, "sceneId"> & {
+    sceneId: number;
+};
+
+/**
+ * 情节点更新输入。
+ */
+export type ParsedUpdateStoryPlotInput = Omit<UpdateStoryPlotRequestDto, "sceneId"> & {
+    // `sceneId` 为 undefined 表示不修改所属 Scene。
+    sceneId?: number;
+};
+
+export type ReorderStoryPhaseItem = ReorderStoryPhasesRequestDto["items"][number];
+export type ReorderStoryThreadItem = ReorderStoryThreadsRequestDto["items"][number];
+export type ReorderStorySceneItem = ReorderStoryScenesRequestDto["items"][number];
+export type ReorderStoryPlotItem = ReorderStoryPlotsRequestDto["items"][number];

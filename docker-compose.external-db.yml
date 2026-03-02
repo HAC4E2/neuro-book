@@ -1,0 +1,7 @@
+services:
+    app:
+        depends_on: []
+
+    postgres:
+        profiles:
+            - local-postgres

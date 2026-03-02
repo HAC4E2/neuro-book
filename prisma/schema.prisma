@@ -1,0 +1,272 @@
+// schema.prisma
+generator client {
+  provider = "prisma-client"
+  output   = "../server/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum AgentThreadKind {
+  leader
+  subagent
+}
+
+enum AgentThreadRunStatus {
+  idle
+  running
+  waiting_user
+  completed
+  stopped
+  failed
+}
+
+enum StoryThreadStatus {
+  active
+  draft
+  paused
+  done
+  archived
+}
+
+enum StorySceneStatus {
+  draft
+  active
+  written
+  revised
+  archived
+}
+
+enum StoryPlotKind {
+  setup
+  action
+  conflict
+  despair
+  relief
+  reward
+  mystery
+  reveal
+  twist
+  payoff
+  result
+}
+
+enum StoryRefTargetKind {
+  content
+  thread
+  scene
+  plot
+}
+
+enum StoryRefVisibility {
+  author
+  reader
+}
+
+model Novel {
+  id              Int             @id @default(autoincrement())
+  title           String
+  summary         String          @default("")
+  workspaceSlug   String          @unique
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @default(now())
+  story           Story?
+}
+
+model Story {
+  id        Int          @id @default(autoincrement())
+  novelId   Int          @unique
+  title     String
+  summary   String       @default("")
+  note      String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @default(now())
+  novel     Novel        @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  phases    StoryPhase[]
+  threads   StoryThread[]
+  scenes    StoryScene[]
+}
+
+model StoryPhase {
+  id        Int           @id @default(autoincrement())
+  storyId   Int
+  sortOrder Int
+  name      String
+  title     String
+  summary   String        @default("")
+  note      String?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @default(now())
+  story     Story         @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  threads   StoryThread[]
+
+  @@index([storyId, sortOrder])
+  @@unique([storyId, name])
+}
+
+model StoryThread {
+  id                Int               @id @default(autoincrement())
+  storyId           Int
+  storyPhaseId      Int?
+  sortOrder         Int
+  name              String
+  title             String
+  isMainThread      Boolean           @default(false)
+  status            StoryThreadStatus @default(draft)
+  summary           String            @default("")
+  tags              String[]          @default([])
+  writingTip        String?
+  note              String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @default(now())
+  story             Story             @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  storyPhase        StoryPhase?       @relation(fields: [storyPhaseId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  scenes            StoryScene[]
+  refs              StoryThreadRef[]  @relation("StoryThreadRefs")
+  incomingThreadRefs StoryThreadRef[] @relation("StoryThreadRefTargetThread")
+  incomingSceneRefs  StorySceneRef[]  @relation("StorySceneRefTargetThread")
+
+  @@index([storyId, storyPhaseId, sortOrder])
+  @@index([storyId, isMainThread, status])
+  @@unique([storyId, name])
+}
+
+model StoryScene {
+  id                 Int               @id @default(autoincrement())
+  storyId            Int
+  threadId           Int
+  chapterPath        String?
+  threadSortOrder    Int
+  chapterSortOrder   Int?
+  title              String
+  status             StorySceneStatus  @default(draft)
+  summary            String            @default("")
+  purpose            String?
+  writingTip         String?
+  note               String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @default(now())
+  story              Story             @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  thread             StoryThread       @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  plots              StoryPlot[]
+  refs               StorySceneRef[]   @relation("StorySceneRefs")
+  incomingThreadRefs StoryThreadRef[]  @relation("StoryThreadRefTargetScene")
+  incomingSceneRefs  StorySceneRef[]   @relation("StorySceneRefTargetScene")
+
+  @@index([threadId, threadSortOrder])
+  @@index([chapterPath, chapterSortOrder])
+  @@index([storyId, status])
+  @@unique([threadId, threadSortOrder])
+}
+
+model StoryPlot {
+  id                 Int               @id @default(autoincrement())
+  sceneId            Int
+  sortOrder          Int
+  kind               StoryPlotKind
+  summary            String            @default("")
+  effect             String?
+  writingTip         String?
+  note               String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @default(now())
+  scene              StoryScene        @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  incomingThreadRefs StoryThreadRef[]  @relation("StoryThreadRefTargetPlot")
+  incomingSceneRefs  StorySceneRef[]   @relation("StorySceneRefTargetPlot")
+
+  @@index([sceneId, sortOrder])
+  @@unique([sceneId, sortOrder])
+}
+
+model AgentThread {
+  id                    Int                  @id @default(autoincrement())
+  kind                  AgentThreadKind      @default(leader)
+  runStatus             AgentThreadRunStatus @default(idle)
+  profileKey            String               @default("leader.default")
+  metadata              Json                 @default("{}")
+  title                 String               @default("")
+  activeCursorMessageId String?
+  lastMessageAt         DateTime             @default(now())
+  lastMessagePreview    String               @default("")
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @default(now())
+  messages              AgentMessage[]
+  managedSubagents      AgentThread[]        @relation("AgentThreadSubagents")
+  managingLeaders       AgentThread[]        @relation("AgentThreadSubagents")
+
+  @@index([updatedAt])
+  @@index([lastMessageAt])
+  @@index([kind])
+  @@index([runStatus])
+  @@index([profileKey])
+}
+
+model AgentMessage {
+  id            String         @id
+  threadId      Int
+  parentId      String?
+  status        String         @default("done")
+  storedMessage Json
+  archivedAt    DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @default(now()) @updatedAt
+  thread        AgentThread    @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  parent        AgentMessage?  @relation("AgentMessageChildren", fields: [parentId], references: [id], onDelete: SetNull)
+  children      AgentMessage[] @relation("AgentMessageChildren")
+
+  @@index([threadId])
+  @@index([threadId, parentId])
+  @@index([threadId, createdAt])
+  @@index([parentId])
+}
+
+model StoryThreadRef {
+  id                   Int                @id @default(autoincrement())
+  threadId             Int
+  sortOrder            Int
+  relation             String
+  rawTarget            String
+  targetKind           StoryRefTargetKind
+  targetThreadId       Int?
+  targetSceneId        Int?
+  targetPlotId         Int?
+  visibility           StoryRefVisibility @default(author)
+  note                 String?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @default(now())
+  thread               StoryThread        @relation("StoryThreadRefs", fields: [threadId], references: [id], onDelete: Cascade)
+  targetThread         StoryThread?       @relation("StoryThreadRefTargetThread", fields: [targetThreadId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  targetScene          StoryScene?        @relation("StoryThreadRefTargetScene", fields: [targetSceneId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  targetPlot           StoryPlot?         @relation("StoryThreadRefTargetPlot", fields: [targetPlotId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([threadId, sortOrder])
+  @@index([targetThreadId])
+  @@index([targetSceneId])
+  @@index([targetPlotId])
+}
+
+model StorySceneRef {
+  id                   Int                @id @default(autoincrement())
+  sceneId              Int
+  sortOrder            Int
+  relation             String
+  rawTarget            String
+  targetKind           StoryRefTargetKind
+  targetThreadId       Int?
+  targetSceneId        Int?
+  targetPlotId         Int?
+  visibility           StoryRefVisibility @default(author)
+  note                 String?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @default(now())
+  scene                StoryScene         @relation("StorySceneRefs", fields: [sceneId], references: [id], onDelete: Cascade)
+  targetThread         StoryThread?       @relation("StorySceneRefTargetThread", fields: [targetThreadId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  targetScene          StoryScene?        @relation("StorySceneRefTargetScene", fields: [targetSceneId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  targetPlot           StoryPlot?         @relation("StorySceneRefTargetPlot", fields: [targetPlotId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([sceneId, sortOrder])
+  @@index([targetThreadId])
+  @@index([targetSceneId])
+  @@index([targetPlotId])
+}

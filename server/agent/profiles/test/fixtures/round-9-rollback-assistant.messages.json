@@ -1,0 +1,18 @@
+{
+  "modelMessages": [
+    {
+      "role": "system",
+      "text": "complex system prompt"
+    },
+    {
+      "role": "human",
+      "text": "回退前用户问题"
+    },
+    {
+      "role": "ai",
+      "text": "回退后保留的 AI 回答"
+    }
+  ],
+  "persistedPrepend": [],
+  "persistedAppend": []
+}

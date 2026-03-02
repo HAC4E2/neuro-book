@@ -1,0 +1,57 @@
+import {z} from "zod";
+import type {AgentTool} from "nbook/server/agent/tools/agent-tool";
+import type {JsonValue} from "nbook/server/agent/types";
+
+const ReportResultInputSchema = z.object({
+    walkthrough: z.string()
+        .trim()
+        .min(1, "walkthrough 不能为空")
+        .describe("Final human-readable summary of the agent execution. Keep it complete but concise."),
+    data: z.json()
+        .optional()
+        .describe("Optional structured result. The expected shape depends on the current profile."),
+});
+
+/**
+ * agent 提交最终结果的内建工具。
+ */
+export const reportResultTool: AgentTool<typeof ReportResultInputSchema> = {
+    key: "report_result",
+    description: "Submit the final result of this agent execution. The structured data shape depends on the current profile. After calling this tool successfully, the agent should terminate immediately.",
+    schema: ReportResultInputSchema,
+    async execute(input, context) {
+        const parsedData = validateProfileOutput(input.data, context.profile);
+        const rawResult: {
+            walkthrough: string;
+            data?: JsonValue;
+        } = {
+            walkthrough: input.walkthrough,
+        };
+        if (parsedData !== undefined) {
+            rawResult.data = parsedData;
+        }
+        return {
+            content: JSON.stringify({ok: true}),
+            toolArgs: JSON.stringify(input),
+            status: "success",
+            rawResult,
+        };
+    },
+};
+
+/**
+ * 根据当前 profile 校验 report_result.data。
+ */
+function validateProfileOutput(data: unknown, profile: {key: string; outputSchema?: z.ZodType}): JsonValue | undefined {
+    if (!profile.outputSchema) {
+        return data as JsonValue | undefined;
+    }
+    if (data === undefined) {
+        throw new Error(`${profile.key} 必须通过 report_result.data 提交结构化输出`);
+    }
+    const parsed = profile.outputSchema.safeParse(data);
+    if (!parsed.success) {
+        throw new Error(`${profile.key} 的 report_result.data 不符合 profile 输出结构`);
+    }
+    return parsed.data as JsonValue;
+}

@@ -1,0 +1,136 @@
+<script setup lang="ts">
+import { computed, inject, type Ref } from "vue";
+import { renderMarkdown } from "nbook/app/utils/markdown/render";
+import { MARKDOWN_THEME } from "nbook/app/config/markdown-theme";
+
+const props = defineProps<{
+    content: string;
+    html?: string;
+}>();
+
+const sanitizeHtml = inject<Ref<((html: string) => string) | null> | null>("sanitizeHtml", null);
+
+const renderedHtml = computed(() => {
+    return props.html || renderMarkdown(props.content, sanitizeHtml?.value ?? undefined);
+});
+</script>
+
+<template>
+    <div :class="['agent-markdown', `theme-${MARKDOWN_THEME}`]" v-html="renderedHtml"></div>
+</template>
+
+<style>
+/* 引入外部扩展的全局社区主题 */
+@import "nbook/app/styles/markdown-themes.css";
+</style>
+
+<style scoped>
+.agent-markdown {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+.agent-markdown :deep(*) {
+    max-width: 100%;
+}
+.agent-markdown :deep(p),
+.agent-markdown :deep(li),
+.agent-markdown :deep(a),
+.agent-markdown :deep(code) {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+.agent-markdown :deep(pre) {
+    max-width: 100%;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+.agent-markdown :deep(pre code) {
+    white-space: pre-wrap;
+}
+
+/* 默认自带旧有样式 */
+.theme-default :deep(h1),
+.theme-default :deep(h2),
+.theme-default :deep(h3),
+.theme-default :deep(h4) {
+    margin: 0.75rem 0 0.35rem;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--text-main);
+}
+.theme-default :deep(p) {
+    margin: 0.4rem 0;
+}
+.theme-default :deep(ul),
+.theme-default :deep(ol) {
+    margin: 0.45rem 0;
+    padding-left: 1.5rem;
+    list-style: initial;
+}
+.theme-default :deep(ul) { list-style-type: disc; }
+.theme-default :deep(ol) { list-style-type: decimal; }
+.theme-default :deep(li) {
+    margin: 0.18rem 0;
+}
+.theme-default :deep(blockquote) {
+    margin: 0.6rem 0;
+    border-left: 3px solid var(--accent-main);
+    padding-left: 0.75rem;
+    color: var(--text-secondary);
+}
+.theme-default :deep(code) {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    border: 1px solid var(--border-color);
+    border-radius: 0.4rem;
+    background: var(--bg-hover);
+    padding: 0.08rem 0.35rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.85em;
+}
+.theme-default :deep(pre) {
+    max-width: 100%;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    background: var(--bg-hover);
+    padding: 0.75rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.85em;
+    line-height: 1.4;
+    margin: 0.5rem 0;
+}
+.theme-default :deep(pre code) {
+    white-space: pre-wrap;
+    border: 0;
+    background: transparent;
+    padding: 0;
+}
+.theme-default :deep(a) {
+    color: var(--accent-text);
+    text-decoration: underline;
+    text-underline-offset: 0.15rem;
+}
+
+.theme-default :deep(table) {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+    font-size: 0.9em;
+}
+.theme-default :deep(th),
+.theme-default :deep(td) {
+    padding: 0.5rem;
+    border: 1px solid var(--border-color);
+    text-align: left;
+}
+.theme-default :deep(th) {
+    background: var(--bg-hover);
+    font-weight: 600;
+}
+</style>

@@ -1,0 +1,36 @@
+import {fileURLToPath} from "node:url";
+import {defineConfig} from "vitest/config";
+
+const rootDir = fileURLToPath(new URL("./", import.meta.url));
+
+/**
+ * 当前测试先聚焦后端 Agent。
+ * 统一使用 Node 环境，避免前端测试依赖和 Nuxt 浏览器运行时混进来。
+ */
+export default defineConfig({
+    resolve: {
+        alias: {
+            nbook: rootDir,
+        },
+    },
+    test: {
+        environment: "node",
+        globals: true,
+        setupFiles: [
+            "server/agent/test/setup.ts",
+        ],
+        include: [
+            "app/utils/**/*.test.ts",
+            "server/**/*.test.ts",
+            "shared/**/*.test.ts",
+        ],
+        coverage: {
+            provider: "v8",
+            reporter: ["text", "html"],
+            include: [
+                "server/agent/**/*.ts",
+                "shared/dto/agent-chat.dto.ts",
+            ],
+        },
+    },
+});

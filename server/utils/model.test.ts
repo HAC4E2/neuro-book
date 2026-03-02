@@ -1,0 +1,227 @@
+import {AIMessage, HumanMessage, ToolMessage} from "@langchain/core/messages";
+import {describe, expect, it} from "vitest";
+import {convertDeepSeekMessagesToCompletionsParams, normalizeDeepSeekUsageMetadata} from "nbook/server/utils/model";
+
+describe("normalizeDeepSeekUsageMetadata", () => {
+    it("会把 DeepSeek raw usage 归一化到 LangChain usage_metadata", () => {
+        const message = new AIMessage({
+            content: "完成",
+            response_metadata: {
+                usage: {
+                    prompt_tokens: 100,
+                    completion_tokens: 20,
+                    total_tokens: 120,
+                    prompt_cache_hit_tokens: 64,
+                    prompt_cache_miss_tokens: 36,
+                },
+            },
+        });
+
+        normalizeDeepSeekUsageMetadata(message);
+
+        expect(message.usage_metadata).toEqual({
+            input_tokens: 100,
+            output_tokens: 20,
+            total_tokens: 120,
+            input_token_details: {
+                cache_read: 64,
+                cache_miss: 36,
+            },
+        });
+    });
+});
+
+describe("convertDeepSeekMessagesToCompletionsParams", () => {
+    it("会给当前用户轮次内的 assistant tool-call 回填 reasoning_content", () => {
+        const params = convertDeepSeekMessagesToCompletionsParams([
+            new HumanMessage("查一下"),
+            new AIMessage({
+                content: "",
+                additional_kwargs: {
+                    reasoning_content: "需要读取文件",
+                },
+                tool_calls: [{
+                    id: "call-1",
+                    name: "read_file",
+                    args: {
+                        filePath: "AGENTS.md",
+                    },
+                    type: "tool_call",
+                }],
+            }),
+            new ToolMessage({
+                content: "文件内容",
+                tool_call_id: "call-1",
+            }),
+        ], "deepseek-reasoner");
+
+        expect(params[1]).toMatchObject({
+            role: "assistant",
+            reasoning_content: "需要读取文件",
+        });
+    });
+
+    it("会把历史用户轮次中发生过 tool-call 的 reasoning_content 继续带入新请求", () => {
+        const params = convertDeepSeekMessagesToCompletionsParams([
+            new HumanMessage("上一轮"),
+            new AIMessage({
+                content: "",
+                additional_kwargs: {
+                    reasoning_content: "旧思考",
+                },
+                tool_calls: [{
+                    id: "call-1",
+                    name: "read_file",
+                    args: {
+                        filePath: "AGENTS.md",
+                    },
+                    type: "tool_call",
+                }],
+            }),
+            new ToolMessage({
+                content: "文件内容",
+                tool_call_id: "call-1",
+            }),
+            new HumanMessage("下一轮"),
+        ], "deepseek-reasoner");
+
+        expect(params[1]).toMatchObject({
+            role: "assistant",
+            reasoning_content: "旧思考",
+        });
+    });
+
+    it("会兼容 reasoning 与 tool-call 被拆成相邻 assistant 消息的 LangGraph 中间态", () => {
+        const params = convertDeepSeekMessagesToCompletionsParams([
+            new HumanMessage("查一下"),
+            new AIMessage({
+                content: "",
+                additional_kwargs: {
+                    reasoning_content: "先思考再调用工具",
+                },
+            }),
+            new AIMessage({
+                content: "",
+                tool_calls: [{
+                    id: "call-1",
+                    name: "read_file",
+                    args: {
+                        filePath: "AGENTS.md",
+                    },
+                    type: "tool_call",
+                }],
+            }),
+            new ToolMessage({
+                content: "文件内容",
+                tool_call_id: "call-1",
+            }),
+        ], "deepseek-reasoner");
+
+        expect(params[2]).toMatchObject({
+            role: "assistant",
+            reasoning_content: "先思考再调用工具",
+        });
+    });
+
+    it("会回传已有 assistant reasoning_content，非工具轮次交给 DeepSeek 忽略", () => {
+        const params = convertDeepSeekMessagesToCompletionsParams([
+            new HumanMessage("上一轮"),
+            new AIMessage({
+                content: "完成",
+                additional_kwargs: {
+                    reasoning_content: "普通思考",
+                },
+            }),
+            new HumanMessage("下一轮"),
+        ], "deepseek-reasoner");
+
+        expect(params[1]).toMatchObject({
+            role: "assistant",
+            reasoning_content: "普通思考",
+        });
+    });
+
+    it("工具轮次最终 assistant 即使没有 tool-call 也会回传 reasoning_content", () => {
+        const params = convertDeepSeekMessagesToCompletionsParams([
+            new HumanMessage("查一下"),
+            new AIMessage({
+                content: "",
+                additional_kwargs: {
+                    reasoning_content: "先调用工具",
+                },
+                tool_calls: [{
+                    id: "call-1",
+                    name: "read_file",
+                    args: {
+                        filePath: "AGENTS.md",
+                    },
+                    type: "tool_call",
+                }],
+            }),
+            new ToolMessage({
+                content: "文件内容",
+                tool_call_id: "call-1",
+            }),
+            new AIMessage({
+                content: "最终回答",
+                additional_kwargs: {
+                    reasoning_content: "工具结果已拿到，整理答案",
+                },
+            }),
+            new HumanMessage("下一轮"),
+        ], "deepseek-reasoner");
+
+        expect(params[3]).toMatchObject({
+            role: "assistant",
+            reasoning_content: "工具结果已拿到，整理答案",
+        });
+    });
+
+    it("tool-call assistant 缺少 reasoning_content 时提前报错", () => {
+        expect(() => convertDeepSeekMessagesToCompletionsParams([
+            new HumanMessage("查一下"),
+            new AIMessage({
+                content: "",
+                tool_calls: [{
+                    id: "call-1",
+                    name: "read_file",
+                    args: {
+                        filePath: "AGENTS.md",
+                    },
+                    type: "tool_call",
+                }],
+            }),
+            new ToolMessage({
+                content: "文件内容",
+                tool_call_id: "call-1",
+            }),
+        ], "deepseek-reasoner")).toThrow(/缺少 reasoning_content/);
+    });
+
+    it("非 thinking DeepSeek 模型不要求 tool-call assistant 携带 reasoning_content", () => {
+        const params = convertDeepSeekMessagesToCompletionsParams([
+            new HumanMessage("查一下"),
+            new AIMessage({
+                content: "",
+                tool_calls: [{
+                    id: "call-1",
+                    name: "read_file",
+                    args: {
+                        filePath: "AGENTS.md",
+                    },
+                    type: "tool_call",
+                }],
+            }),
+            new ToolMessage({
+                content: "文件内容",
+                tool_call_id: "call-1",
+            }),
+        ], "deepseek-chat");
+
+        expect(params[1]).toMatchObject({
+            role: "assistant",
+            tool_calls: expect.any(Array),
+        });
+        expect("reasoning_content" in params[1]!).toBe(false);
+    });
+});
