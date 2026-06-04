@@ -57,9 +57,15 @@ const emit = defineEmits<{
     (e: "more"): void;
 }>();
 
+defineSlots<{
+    "custom-tab"?: (props: {tab: WorkspaceEditorTab}) => unknown;
+}>();
+
 const isMarkdownFile = computed(() => resolveWorkspaceFileExtension(props.activePath) === ".md");
 const monacoLanguage = computed(() => resolveMonacoLanguage(props.activePath));
 const canEditCurrentFile = computed(() => props.node?.editable === true);
+const activeTab = computed(() => props.tabs.find((tab) => tab.path === props.activePath) ?? null);
+const activeCustomTab = computed(() => activeTab.value?.kind && activeTab.value.kind !== "workspace-file" ? activeTab.value : null);
 
 watch(() => props.activePath, () => {
     props.controller.closeCommentView();
@@ -89,7 +95,9 @@ watch(() => props.activePath, () => {
         />
 
         <div class="relative flex min-h-0 flex-1 overflow-hidden bg-[var(--editor-canvas-bg)]">
-            <MarkdownStudioWelcome v-if="!props.activePath || !props.node" :node="props.node" />
+            <slot v-if="activeCustomTab" name="custom-tab" :tab="activeCustomTab"></slot>
+
+            <MarkdownStudioWelcome v-else-if="!props.activePath || !props.node" :node="props.node" />
 
             <template v-else-if="canEditCurrentFile && isMarkdownFile">
                 <div class="markdown-comment-layout min-w-0 flex-1" :class="props.controller.commentViewOpen.value ? 'is-comment-view' : ''">

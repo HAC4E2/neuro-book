@@ -10,6 +10,7 @@ import WorkspaceFilePanel from "nbook/app/components/novel-ide/workspace/Workspa
 import WorkspaceCharacterPanel from "nbook/app/components/novel-ide/workspace/WorkspaceCharacterPanel.vue";
 import NovelPlotPanel from "nbook/app/components/novel-ide/plot/NovelPlotPanel.vue";
 import NovelRagPanel from "nbook/app/components/novel-ide/rag/NovelRagPanel.vue";
+import NovelTextToImagePanel from "nbook/app/components/novel-ide/text-to-image/NovelTextToImagePanel.vue";
 import type { NovelIdeTab } from "nbook/app/components/novel-ide/mock-data";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {useResizablePanel} from "nbook/app/composables/useResizablePanel";
@@ -45,6 +46,7 @@ const titleMap: Record<NovelIdeTab, string> = {
     characters: "角色",
     outline: "剧情大纲",
     rag: "RAG",
+    textToImage: "文生图",
 };
 const displayTitle = computed(() => props.userAssetsMode ? "用户资产" : titleMap[props.activeTab ?? "files"]);
 
@@ -394,7 +396,7 @@ onMounted(() => {
                 </div>
             </div>
 
-            <div class="contain-layout-paint min-h-0 flex-1 overflow-hidden" :class="isResizing ? 'pointer-events-none select-none' : ''">
+            <div class="contain-layout-paint flex min-h-0 flex-1 overflow-hidden" :class="isResizing ? 'pointer-events-none select-none' : ''">
                 <WorkspaceFilePanel v-if="activeTab === 'files'" />
 
                 <WorkspaceCharacterPanel v-else-if="activeTab === 'characters' && !props.userAssetsMode" />
@@ -402,6 +404,7 @@ onMounted(() => {
                 <NovelPlotPanel v-else-if="activeTab === 'outline' && !props.userAssetsMode" />
 
                 <NovelRagPanel v-else-if="activeTab === 'rag' && !props.userAssetsMode" />
+                <NovelTextToImagePanel v-else-if="activeTab === 'textToImage' && !props.userAssetsMode" />
             </div>
         </aside>
 

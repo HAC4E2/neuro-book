@@ -25,6 +25,7 @@ const items: SidebarItem[] = [
     { value: "characters", label: "Characters", iconClass: "i-lucide-users-round" },
     { value: "outline", label: "Outline", iconClass: "i-lucide-puzzle" },
     { value: "rag", label: "RAG", iconClass: "i-lucide-brain-circuit" },
+    { value: "textToImage", label: "文生图", iconClass: "i-lucide-image" },
 ];
 const sessionItems: SidebarItem[] = [
     { value: "sessions", label: "Sessions", iconClass: "i-lucide-messages-square" },

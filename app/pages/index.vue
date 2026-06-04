@@ -13,6 +13,8 @@ import NovelIdeSettingsDialog from "nbook/app/components/novel-ide/NovelIdeSetti
 import NovelIdeToolPanel from "nbook/app/components/novel-ide/NovelIdeToolPanel.vue";
 import NovelPromptBar from "nbook/app/components/novel-ide/NovelPromptBar.vue";
 import NovelRagInspectorDialog from "nbook/app/components/novel-ide/rag/NovelRagInspectorDialog.vue";
+import TextToImageCharacterWorkspace from "nbook/app/components/novel-ide/text-to-image/TextToImageCharacterWorkspace.vue";
+import TextToImageLlmWorkspace from "nbook/app/components/novel-ide/text-to-image/TextToImageLlmWorkspace.vue";
 import WorkspaceFilePanel from "nbook/app/components/novel-ide/workspace/WorkspaceFilePanel.vue";
 import NovelBookshelfDialog from "nbook/app/components/novel-ide/NovelBookshelfDialog.vue";
 import UserProfileWorkbenchDialog from "nbook/app/components/profile-template-editor/UserProfileWorkbenchDialog.vue";
@@ -1652,7 +1654,16 @@ onBeforeUnmount(() => {
                             @update-monaco-temporary-font-size="setMonacoFontSizeOverride(displayActiveWorkspaceTabPath, $event)"
                             @save-request="void saveCurrentWorkspaceFile()"
                             @open-frontmatter-profile="openFrontmatterProfile"
-                        />
+                        >
+                            <template #custom-tab="{ tab }">
+                                <TextToImageCharacterWorkspace
+                                    v-if="tab.kind === 'text-to-image-character' && tab.textToImageCharacter"
+                                    :project-path="tab.textToImageCharacter.projectPath"
+                                    :character-id="tab.textToImageCharacter.characterId"
+                                />
+                                <TextToImageLlmWorkspace v-else-if="tab.kind === 'text-to-image-llm'" />
+                            </template>
+                        </MarkdownStudioWorkbench>
                     </div>
                     <div
                         v-if="isAgentMode && agentStudioFileTreeOpen"
