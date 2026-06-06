@@ -14,6 +14,7 @@ describe("task tools", () => {
         const context = {
             harness,
             sessionId: created.sessionId,
+            profileKey: "leader.default",
             workspaceRoot: ".agent/task-tools-test",
             workspaceKey: "task-tools-test",
         };

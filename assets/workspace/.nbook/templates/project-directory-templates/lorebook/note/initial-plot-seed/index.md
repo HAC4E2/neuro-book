@@ -12,9 +12,6 @@ refs: []
 retrieval:
   enabled: true
   trigger: null
-inject:
-  profiles: [] # 直接上下文目标 profile key；剧情种子通常不直接注入，按任务用 retrieval 召回。
-  always: false # 临时剧情和开局假设保持 false，避免长期污染写作上下文。
 governance:
   source: manual
   review: proposed

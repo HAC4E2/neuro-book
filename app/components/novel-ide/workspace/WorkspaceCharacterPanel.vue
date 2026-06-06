@@ -185,7 +185,7 @@ function normalizeCharacterIndexPath(filePath: string): string {
 
 function buildCharacterContent(filePath: string): string {
     const title = basename(filePath.replace(/\/index\.md$/i, "")) || "new-character";
-    return `---\ntitle: ${JSON.stringify(title)}\ntype: character\nsubtype: person\nstatus: draft\naliases: []\ntags: []\nsummary: ""\nrefs: []\nretrieval:\n    enabled: true\n    trigger: null\ninject:\n    profiles: []\n    always: false\ngovernance:\n    source: manual\n    review: proposed\ncharacter:\n    logline: ""\n    profile: {}\n    story: {}\n    meta:\n        pinned: false\n        primaryContext: null\n---\n\n`;
+    return `---\ntitle: ${JSON.stringify(title)}\ntype: character\nsubtype: person\nstatus: draft\naliases: []\ntags: []\nsummary: ""\nrefs: []\nretrieval:\n    enabled: true\n    trigger: null\ngovernance:\n    source: manual\n    review: proposed\ncharacter:\n    logline: ""\n    profile: {}\n    story: {}\n    meta:\n        pinned: false\n        primaryContext: null\n---\n\n`;
 }
 
 function buildReferenceTarget(node: WorkspaceFileNode): string {

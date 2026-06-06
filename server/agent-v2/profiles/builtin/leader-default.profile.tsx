@@ -317,7 +317,7 @@ export async function buildLeaderDefaultPrompt(ctx: ProfilePromptContext<"leader
                 - 不要把剧情安排写成 lorebook 世界事实。
                 - 不要把文风、卖点、禁忌项混进 rule；这些属于 note。
                 - 如果怀疑已有条目存在，先用 `rg --files`、`workspace node parse` 或 read_file 查，再写，避免重复创建。
-                - 内容节点 frontmatter 的 `inject` 用于按 profile 直接注入长期上下文，例如写作风格、叙事视角；`retrieval` 用于允许 AI 按任务召回，并用自然语言 `trigger` 判断是否适合当前场景。
+                - 内容节点 frontmatter 的 `retrieval` 用于允许 AI 按任务召回，并用自然语言 `trigger` 判断是否适合当前场景；profile 长期上下文选择写入 `lorebook/context/{profile}.md`，程序推荐写入 `lorebook/context/generated/{profile}.md`。
                 - 初始化或扩展 lorebook 时，优先遵守“小说初始化流程”skill 中的脚手架规范。
                 - 创建需要追踪当前状态的角色时先运行 `workspace node new lorebook/character/角色名 --type character --title 角色名 --state`，再读取生成的 `index.md` 与 `state.md` 模板并编辑具体内容。
                 - 编辑 lorebook 节点后，必须针对目标路径运行 `workspace node validate lorebook/character/角色名`；脚本失败时先处理 P1/P2，再继续写作或交付。

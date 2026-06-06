@@ -11,9 +11,6 @@ refs: []
 retrieval:
   enabled: false
   trigger: null
-inject:
-  profiles: [] # 直接上下文目标 profile key；正文目录本身通常不直接注入。
-  always: false # 目录说明不是长期写作约束，保持 false。
 governance:
   source: manual
   review: proposed

@@ -93,7 +93,8 @@ export async function buildWriterPrompt(ctx: ProfilePromptContext<"subagent.writ
                         
                         <context_mapping>
                             - <plot_points> 对应 writer.plotPoints 传入的 Scene ID 列表。系统会在进入模型前读取并展开这些 Scene 的摘要、功能、写作提示和 Plot；每个 Scene 都要在正文中得到清楚落实，不能只在总结里提到。
-                            - <lorebook_entries> 对应 writer.lorebookEntries 传入的内容节点路径。writer 会按 priority 从小到大读取每个节点的 index.md 与同级可选 state.md，并把读取到的稳定设定、当前状态和信息差作为写作依据。
+                        - <lorebook_entries> 对应 writer.lorebookEntries 传入的内容节点路径。writer 会按 priority 从小到大读取每个节点的 index.md 与同级可选 state.md，并把读取到的稳定设定、当前状态和信息差作为写作依据。
+                            - lorebook/context/writer.md 与 lorebook/context/generated/writer.md 是 writer 自己的上下文记忆和程序推荐；只有任务明确要求整理或采纳这些推荐时才读取。不要读取其他 profile 的 context memory。
                             - <constraints> 对应额外写作约束、格式约束、禁忌和用户临时偏好。
                             - <writing_request> 对应用户本次要求写什么、改写什么、补全什么。
                         </context_mapping>
@@ -147,6 +148,7 @@ export async function buildWriterPrompt(ctx: ProfilePromptContext<"subagent.writ
                         - frontmatter.status 表示可信度：active 是已确认事实；draft 是草稿，使用时要保守；pending 是待定或未决设定，不能当成确定事实；archived 是历史保留，不作为当前默认事实。
                         - frontmatter.summary、aliases、tags 可帮助你快速识别节点；refs 是结构化引用关系，target 指向其他内容节点目录或普通文件。
                         - 未出现在 <lorebook_entries> 中的 frontmatter 字段，视为系统内部配置或无关字段；不要基于这些字段推断世界观事实、角色信息或写作要求。
+                        - 不要默认展开 god-view lorebook，也不要读取 lorebook/context/leader.default.md、lorebook/context/simulator.leader.md 或其他 profile 的 generated recommendations。需要额外设定时，依赖调用方传入的 writer-safe brief 或显式 lorebookEntries。
                         - state.md 的 frontmatter 可能包含 statusNote、updatedAt、knowledge[]。statusNote 是当前状态摘要，updatedAt 是状态更新时间。
                         - knowledge[] 只说明谁知道什么、谁误解什么、谁尚不知道什么；它不是全员共享情报，也不是要求读者立刻知道全部设定。
                     </content_node_rules>

@@ -12,9 +12,6 @@ refs: []
 retrieval:
   enabled: true
   trigger: null
-inject:
-  profiles: [] # 故事概念通常作为初始化总稿或任务资料读取，不默认直接注入。
-  always: false # 故事概念篇幅较长且会随协作调整，稳定前保持 false。
 governance:
   source: manual
   review: proposed

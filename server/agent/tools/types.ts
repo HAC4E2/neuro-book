@@ -9,6 +9,7 @@ export type ToolExecutionContext = {
     harness: NeuroAgentHarness;
     sessionId: number;
     parentSessionId?: number;
+    profileKey: string;
     workspaceRoot: string;
     workspaceKey: string;
     projectPath?: string;

@@ -12,14 +12,12 @@ import {
     readNullableString,
     readPlainObject,
     readRefs,
-    readInject,
     readRetrieval,
     readString,
     readStringArray,
     renderMarkdownDocument,
     type FrontmatterRef,
     type GovernanceDraft,
-    type InjectDraft,
     type RetrievalDraft,
 } from "nbook/app/components/novel-ide/workspace/workspace-frontmatter-profile";
 
@@ -33,7 +31,6 @@ type LocationDraft = {
     summary: string;
     refs: FrontmatterRef[];
     retrieval: RetrievalDraft;
-    inject: InjectDraft;
     governance: GovernanceDraft;
     location: {
         parent: string | null;
@@ -144,6 +141,7 @@ function createDraft(node: WorkspaceFileNode, frontmatter: Record<string, unknow
     delete extra.retrieval;
     delete extra.governance;
     delete extra.location;
+    delete extra.inject;
 
     return {
         title: readString(frontmatter.title, node.title || basename(node.path)),
@@ -155,7 +153,6 @@ function createDraft(node: WorkspaceFileNode, frontmatter: Record<string, unknow
         summary: readString(frontmatter.summary, ""),
         refs: readRefs(frontmatter.refs),
         retrieval: readRetrieval(frontmatter.retrieval),
-        inject: readInject(frontmatter.inject),
         governance: readGovernance(frontmatter.governance),
         location: {
             parent: readNullableString(location.parent),
@@ -188,7 +185,6 @@ function renderDraft(current: LocationDraft): string {
         summary: current.summary,
         refs: current.refs,
         retrieval: current.retrieval,
-        inject: current.inject,
         governance: current.governance,
         location: current.location,
     }, current.body);
@@ -279,13 +275,8 @@ watch(() => [props.modelValue, props.node?.path, selectedFileContent.value], () 
                         <input v-model="draft.retrieval.enabled" type="checkbox" class="h-4 w-4 rounded border-[var(--border-color)]" @change="void saveDraft()">
                         <span>允许检索召回</span>
                     </label>
-                    <label class="flex items-center gap-2 text-[var(--text-secondary)]">
-                        <input v-model="draft.inject.always" type="checkbox" class="h-4 w-4 rounded border-[var(--border-color)]" @change="void saveDraft()">
-                        <span>默认直接注入</span>
-                    </label>
                 </div>
                 <textarea :value="draft.retrieval.trigger ?? ''" rows="2" class="textarea" placeholder="自然语言触发条件；为空表示不需要额外触发判断" @input="draft.retrieval.trigger = ($event.target as HTMLTextAreaElement).value || null" @blur="void saveDraft()"></textarea>
-                <TagInput :model-value="draft.inject.profiles" placeholder="直接注入 profile，例如 leader.default..." @update:model-value="draft.inject.profiles = $event; void saveDraft()" />
                 <div v-for="(entryRef, index) in draft.refs" :key="index" class="flex items-center gap-1">
                     <input v-model="entryRef.relation" class="field w-[88px]" placeholder="关系" @blur="void saveDraft()">
                     <input v-model="entryRef.target" class="field min-w-0 flex-1 font-mono" placeholder="目标 path" @blur="void saveDraft()">

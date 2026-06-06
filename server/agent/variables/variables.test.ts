@@ -281,6 +281,7 @@ describe("Agent variable system", () => {
             await expect(patchTool?.executeWithContext?.({
                 harness: null as never,
                 sessionId: snapshot.metadata.sessionId,
+                profileKey: "leader.default",
                 workspaceRoot: root,
                 workspaceKey: "test",
                 vars,
@@ -513,6 +514,7 @@ describe("Agent variable system", () => {
             const result = await schemaTool?.executeWithContext?.({
                 harness: null as never,
                 sessionId: snapshot.metadata.sessionId,
+                profileKey: "leader.default",
                 workspaceRoot: root,
                 workspaceKey: "test",
                 vars,

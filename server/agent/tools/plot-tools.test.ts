@@ -77,6 +77,7 @@ describe("plot tools", () => {
         const context = {
             harness,
             sessionId: 1,
+            profileKey: "leader.default",
             workspaceRoot: ".agent/plot-tools-test",
             workspaceKey: "plot-tools-test",
         };

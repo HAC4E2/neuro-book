@@ -1,10 +1,11 @@
 import {spawn} from "node:child_process";
 import {existsSync} from "node:fs";
 import {mkdir, readFile, writeFile} from "node:fs/promises";
-import {dirname, join, resolve, win32} from "node:path";
+import {dirname, join, relative, resolve, win32} from "node:path";
 import {createPatch} from "diff";
 import {Type} from "typebox";
 import type {Static} from "typebox";
+import {recordContextAccess} from "nbook/server/agent/context-access/lorebook-context-access";
 import {detectImageMimeType, assertReadable, assertWritable, firstChangedLine, resolveWorkspacePath} from "nbook/server/agent/tools/file-tool-utils";
 import {formatSize, DEFAULT_MAX_BYTES, truncateHead, type TruncationResult} from "nbook/server/agent/tools/truncate";
 import {OutputAccumulator} from "nbook/server/agent/tools/output-accumulator";
@@ -86,6 +87,7 @@ function createReadTool(): NeuroAgentTool {
             await assertReadable(absolutePath);
             const mimeType = detectImageMimeType(absolutePath);
             const buffer = await readFile(absolutePath);
+            await recordReadContextAccess(context, absolutePath);
             if (mimeType) {
                 return {
                     content: [
@@ -128,6 +130,43 @@ function createReadTool(): NeuroAgentTool {
             throw new Error("read 必须在 agent session workspace 内执行。");
         },
     };
+}
+
+async function recordReadContextAccess(context: ToolExecutionContext, absolutePath: string): Promise<void> {
+    const project = resolveContextAccessProject(context, absolutePath);
+    if (!project) {
+        return;
+    }
+    try {
+        await recordContextAccess({
+            projectRoot: project.root,
+            projectSlug: project.slug,
+            profileKey: context.profileKey,
+            sessionId: String(context.sessionId),
+            filePath: project.filePath,
+        });
+    } catch {
+        // 访问推荐是辅助状态，不能影响 read 主流程。
+    }
+}
+
+function resolveContextAccessProject(context: ToolExecutionContext, absolutePath: string): {root: string; slug: string; filePath: string} | null {
+    if (!context.projectPath) {
+        return null;
+    }
+    const projectRoot = resolve(context.workspaceRoot, context.projectPath.replace(/\\/g, "/").replace(/^workspace\//, ""));
+    const filePath = relative(projectRoot, absolutePath).replace(/\\/g, "/");
+    if (filePath.startsWith("../") || filePath === ".." || filePath.startsWith("/")) {
+        return null;
+    }
+    if (!filePath.startsWith("lorebook/") && !filePath.startsWith("manuscript/")) {
+        return null;
+    }
+    const slug = context.projectPath.replace(/\\/g, "/").replace(/\/+$/g, "").split("/").filter(Boolean).at(-1);
+    if (!slug) {
+        return null;
+    }
+    return {root: projectRoot, slug, filePath};
 }
 
 function createWriteTool(): NeuroAgentTool {

@@ -42,6 +42,7 @@ describe("v3 file tools", () => {
         context = {
             harness,
             sessionId: session.sessionId,
+            profileKey: "test.file-tools",
             workspaceRoot,
             workspaceKey: "global",
         };
@@ -97,6 +98,34 @@ describe("v3 file tools", () => {
         expect(result?.content).toEqual([
             {type: "text", text: "银龙姬状态"},
         ]);
+    });
+
+    it("read 成功读取 lorebook 时写入当前 profile 的 context access", async () => {
+        const projectWorkspaceRoot = join(root, "workspace", "silver-dragon-hime");
+        await mkdir(join(projectWorkspaceRoot, "lorebook", "character", "银龙姬"), {recursive: true});
+        await writeFile(join(projectWorkspaceRoot, "lorebook", "character", "银龙姬", "index.md"), "银龙姬设定", "utf-8");
+        const tool = mustTool("read", harness);
+
+        await tool.executeWithContext?.({
+            ...context,
+            workspaceRoot,
+            projectPath: "workspace/silver-dragon-hime",
+        }, "read-context-access", {
+            path: "workspace/silver-dragon-hime/lorebook/character/银龙姬/index.md",
+        });
+
+        const state = JSON.parse(await readFile(join(projectWorkspaceRoot, ".nbook", "context-access", "test.file-tools.json"), "utf-8")) as {
+            profile: string;
+            entries: Array<{path: string; signals: {"index-read"?: number}}>;
+        };
+        expect(state.profile).toBe("test.file-tools");
+        expect(state.entries).toEqual([
+            expect.objectContaining({
+                path: "lorebook/character/银龙姬/",
+                signals: {"index-read": 1},
+            }),
+        ]);
+        await expect(readFile(join(projectWorkspaceRoot, "lorebook", "context", "generated", "test.file-tools.md"), "utf-8")).resolves.toContain("lorebook/character/银龙姬/");
     });
 
     it("resolveWorkspacePath 在 Workspace Root cwd 中归一化完整 Project Path", () => {

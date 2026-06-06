@@ -30,10 +30,6 @@ type CharacterDraft = {
         enabled: boolean;
         trigger: string | null;
     };
-    inject: {
-        profiles: string[];
-        always: boolean;
-    };
     governance: {
         source: string;
         review: string;
@@ -254,7 +250,6 @@ function createDraft(node: WorkspaceFileNode, frontmatter: Record<string, unknow
         content: body,
         refs: readRefs(frontmatter.refs),
         retrieval: readRetrieval(frontmatter.retrieval),
-        inject: readInject(frontmatter.inject),
         governance: readGovernance(frontmatter.governance),
         ext: omitCharacterExt(ext),
         character: {
@@ -281,7 +276,6 @@ function renderDraft(draft: CharacterDraft): string {
         summary: draft.summary,
         refs: draft.refs,
         retrieval: draft.retrieval,
-        inject: draft.inject,
         governance: draft.governance,
         ...(draft.legacyWritingTip !== undefined ? {writingTip: draft.legacyWritingTip} : {}),
         character: draft.character,
@@ -380,14 +374,6 @@ function readRetrieval(value: unknown): CharacterDraft["retrieval"] {
     return {
         enabled: typeof retrieval.enabled === "boolean" ? retrieval.enabled : true,
         trigger: readNullableString(retrieval.trigger),
-    };
-}
-
-function readInject(value: unknown): CharacterDraft["inject"] {
-    const inject = readPlainObject(value);
-    return {
-        profiles: readStringArray(inject.profiles),
-        always: typeof inject.always === "boolean" ? inject.always : false,
     };
 }
 
@@ -538,27 +524,17 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
                         <span>收藏</span>
                     </label>
                 </div>
-                <div class="grid grid-cols-2 gap-2">
-                    <label class="space-y-1">
-                        <span class="text-[var(--text-secondary)]">直接注入 Profile</span>
-                        <TagInput :model-value="editForm.inject.profiles" placeholder="例如 leader.default..." @update:model-value="editForm.inject.profiles = $event; void saveDraft()" />
-                    </label>
-                    <label class="space-y-1">
-                        <span class="text-[var(--text-secondary)]">治理状态</span>
-                        <div class="grid grid-cols-2 gap-1">
-                            <input v-model="editForm.governance.source" class="field" placeholder="source" @blur="void saveDraft()">
-                            <input v-model="editForm.governance.review" class="field" placeholder="review" @blur="void saveDraft()">
-                        </div>
-                    </label>
-                </div>
-                <div class="grid grid-cols-[auto_auto_minmax(0,1fr)] items-center gap-4">
+                <label class="space-y-1">
+                    <span class="text-[var(--text-secondary)]">治理状态</span>
+                    <div class="grid grid-cols-2 gap-1">
+                        <input v-model="editForm.governance.source" class="field" placeholder="source" @blur="void saveDraft()">
+                        <input v-model="editForm.governance.review" class="field" placeholder="review" @blur="void saveDraft()">
+                    </div>
+                </label>
+                <div class="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-4">
                     <label class="flex items-center gap-2 text-[var(--text-secondary)]">
                         <input v-model="editForm.retrieval.enabled" type="checkbox" class="h-4 w-4 rounded border-[var(--border-color)]" @change="void saveDraft()">
                         <span>允许检索召回</span>
-                    </label>
-                    <label class="flex items-center gap-2 text-[var(--text-secondary)]">
-                        <input v-model="editForm.inject.always" type="checkbox" class="h-4 w-4 rounded border-[var(--border-color)]" @change="void saveDraft()">
-                        <span>默认直接注入</span>
                     </label>
                 </div>
                 <label class="space-y-1">

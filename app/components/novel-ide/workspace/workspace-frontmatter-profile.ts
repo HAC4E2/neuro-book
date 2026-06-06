@@ -11,11 +11,6 @@ export type RetrievalDraft = {
     trigger: string | null;
 };
 
-export type InjectDraft = {
-    profiles: string[];
-    always: boolean;
-};
-
 export type GovernanceDraft = {
     source: string;
     review: string;
@@ -111,17 +106,6 @@ export function readRetrieval(value: unknown): RetrievalDraft {
     return {
         enabled: typeof retrieval.enabled === "boolean" ? retrieval.enabled : true,
         trigger: readNullableString(retrieval.trigger),
-    };
-}
-
-/**
- * 读取 AI 直接注入配置。
- */
-export function readInject(value: unknown): InjectDraft {
-    const inject = readPlainObject(value);
-    return {
-        profiles: readStringArray(inject.profiles),
-        always: typeof inject.always === "boolean" ? inject.always : false,
     };
 }
 

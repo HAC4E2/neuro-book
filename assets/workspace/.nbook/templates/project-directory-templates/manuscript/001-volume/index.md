@@ -12,9 +12,6 @@ refs: []
 retrieval:
   enabled: false
   trigger: null
-inject:
-  profiles: [] # 卷目录说明通常不直接注入，按任务用 retrieval 或当前章节上下文。
-  always: false # 卷级说明不是长期写作约束，保持 false。
 governance:
   source: manual
   review: proposed

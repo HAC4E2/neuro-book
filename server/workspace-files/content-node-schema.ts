@@ -33,11 +33,6 @@ export const WorkspaceRetrievalSchema = z.object({
     trigger: z.string().nullable().describe("自然语言触发条件；为空表示不需要额外触发判断。"),
 }).describe("AI 检索候选配置。");
 
-export const WorkspaceInjectSchema = z.object({
-    profiles: z.array(z.string()).describe("直接上下文目标 profile key 列表。可选：leader.default 或用户自定义 profile key。inject 用于长期稳定、低判断成本的上下文；任务相关候选召回使用 retrieval。"),
-    always: z.boolean().describe("当目标 profile 运行且 profiles 命中时，是否默认作为直接上下文候选。仅对文风、创作边界、固定读者承诺等长期稳定约束开启；临时剧情、待定问题、章节状态应保持 false。"),
-}).describe("AI profile 直接上下文配置；区别于 retrieval 的任务相关召回。");
-
 export const WorkspaceContentStateFrontmatterSchema = z.looseObject({
     statusNote: z.string().optional().describe("当前状态摘要；缺省表示未填写。"),
     updatedAt: z.string().nullable().optional().describe("状态更新时间；为空表示未记录。"),
@@ -61,7 +56,6 @@ export const WorkspaceContentFrontmatterSchema = z.looseObject({
     summary: z.string().describe("节点摘要。"),
     refs: z.array(WorkspaceContentRefSchema).describe("结构化引用列表。"),
     retrieval: WorkspaceRetrievalSchema,
-    inject: WorkspaceInjectSchema,
     governance: WorkspaceGovernanceSchema,
     ext: FreeObjectSchema,
 }).describe("标准内容节点 frontmatter。");
@@ -108,10 +102,6 @@ export function createWorkspaceContentFrontmatterDefaults(input: {
         retrieval: {
             enabled: true,
             trigger: null,
-        },
-        inject: {
-            profiles: [],
-            always: false,
         },
         governance: {
             source: "manual",

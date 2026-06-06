@@ -2182,6 +2182,7 @@ export class NeuroAgentHarness {
                 workspaceKey: frame.workspaceKey,
                 workspaceRoot: frame.workspaceRoot,
                 projectPath: frame.projectPath,
+                profileKey: frame.profileKey,
                 invocationId: frame.invocationId,
                 assistant,
                 toolCalls,
@@ -2459,6 +2460,7 @@ export class NeuroAgentHarness {
         workspaceKey: string;
         workspaceRoot: string;
         projectPath?: string;
+        profileKey: string;
         invocationId?: string;
         assistant: AssistantMessage;
         toolCalls: AgentToolCall[];
@@ -2576,6 +2578,7 @@ export class NeuroAgentHarness {
         workspaceKey: string;
         workspaceRoot: string;
         projectPath?: string;
+        profileKey: string;
         invocationId?: string;
         allowedToolKeys: string[];
         toolOverrides: Record<string, NeuroAgentTool>;
@@ -2631,6 +2634,7 @@ export class NeuroAgentHarness {
         workspaceKey: string;
         workspaceRoot: string;
         projectPath?: string;
+        profileKey: string;
         invocationId?: string;
         allowedToolKeys: string[];
         toolOverrides: Record<string, NeuroAgentTool>;
@@ -2661,6 +2665,7 @@ export class NeuroAgentHarness {
         workspaceKey: string;
         workspaceRoot: string;
         projectPath?: string;
+        profileKey: string;
         invocationId?: string;
         allowedToolKeys: string[];
         toolOverrides: Record<string, NeuroAgentTool>;
@@ -2687,6 +2692,7 @@ export class NeuroAgentHarness {
             workspaceKey: input.workspaceKey,
             workspaceRoot: input.workspaceRoot,
             projectPath: input.projectPath,
+            profileKey: input.profileKey,
             invocationId: input.invocationId,
             allowedToolKeys: input.allowedToolKeys,
             toolOverrides: input.toolOverrides,
@@ -2764,6 +2770,7 @@ export class NeuroAgentHarness {
         workspaceKey: string;
         workspaceRoot: string;
         projectPath?: string;
+        profileKey: string;
         invocationId?: string;
         allowedToolKeys: string[];
         toolOverrides: Record<string, NeuroAgentTool>;
@@ -2800,6 +2807,7 @@ export class NeuroAgentHarness {
             const context: ToolExecutionContext = {
                 harness: this,
                 sessionId: input.sessionId,
+                profileKey: input.profileKey,
                 workspaceRoot: input.workspaceRoot,
                 workspaceKey: input.workspaceKey,
                 projectPath: input.projectPath,

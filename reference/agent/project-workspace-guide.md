@@ -39,6 +39,7 @@ Common Project Workspace paths:
 | `{project}/AGENTS.md` | Project-level collaboration instructions. |
 | `{project}/project.yaml` | Project Workspace manifest with kind, title and summary. |
 | `{project}/lorebook/` | Stable canon, prototypes, rules and reusable AI instructions. |
+| `{project}/lorebook/context/` | Profile-scoped context memory and generated recommendations. |
 | `{project}/manuscript/` | Manuscript, volumes, chapters, drafts and chapter-local notes. |
 | `{project}/simulation/` | World simulation, subjects, entities and run artifacts. |
 | `{project}/reference/` | External raw materials and import archives. |
@@ -77,7 +78,7 @@ Rules:
 - Files under content roots that are not `index.md` are ordinary files unless a tool explicitly treats them otherwise.
 - A directory content node may contain child directories, notes, drafts or references.
 - Do not create both `foo.md` and `foo/index.md` for the same stem in one content root.
-- `index.md` stores stable text, frontmatter refs and retrieval / inject config.
+- `index.md` stores stable text, frontmatter refs and retrieval config.
 - Optional `state.md` remains compatible for content nodes, but the long-term direction is to keep lorebook mostly stateless and move runtime state into `simulation/`.
 
 Creation and validation:
@@ -99,6 +100,8 @@ Inline refs are ordinary Markdown links in body text. Use them for appearance, m
 Structured refs are `frontmatter.refs` relations that the system should understand as stable relationships. Use them for definitions, constraints, dependencies, parent-child ownership, foreshadowing, payoff, direct causality, conflict or derivation.
 
 Content-node frontmatter `retrieval.trigger` explains when a node is relevant for task-driven recall. Do not pass retrieval `reason`, `use`, `risk` or `note` directly to writer; caller should judge the candidates and pass only selected content-node paths.
+
+Profile-scoped lorebook context lives in `{project}/lorebook/context/{profile}.md` and `{project}/lorebook/context/generated/{profile}.md`. A profile only reads its own context files. Program-private access state stays in `{project}/.nbook/context-access/{profile}.json` and is not an Agent context entry.
 
 ## Common Directories
 
@@ -199,6 +202,7 @@ Agent runtime config makes `rg --files` output use `/` paths. Shell examples sho
 - Directory protocol: `reference/content/directory-protocol.md`
 - Content information control: `reference/content/information-control.md`
 - Content-node state compatibility: `reference/content/state.md`
-- Retrieval and inject: `reference/content/retrieval.md`
+- Retrieval: `reference/content/retrieval.md`
+- Lorebook context memory: `reference/content/lorebook-context-memory.md`
 - Novel writing workflow: `reference/agent/novel-writing-workflow.md`
 - Plot System: `reference/plot/system.md`

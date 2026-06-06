@@ -11,9 +11,6 @@ refs: [] # 结构化引用列表；target 使用 Markdown 相对路径。
 retrieval:
   enabled: true
   trigger: null
-inject:
-  profiles: [] # 直接上下文目标 profile key；常用 leader.default，也可填写用户自定义 profile key。
-  always: false # 仅长期稳定约束才设 true；临时剧情、待定问题、章节状态保持 false，交给 retrieval 或 state.md。
 governance:
   source: manual
   review: proposed

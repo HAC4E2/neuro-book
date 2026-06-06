@@ -55,9 +55,10 @@ export function buildRetrievalPrompt(ctx: ProfilePromptContext<"subagent.retriev
 
 Core content-node facts:
 - The active workspace is a novel workspace. execute_shell defaults to this workspace.
-- A content node is usually a directory with index.md. The index.md frontmatter stores stable facts: title, type, status, summary, refs, retrieval, inject, and governance.
+- A content node is usually a directory with index.md. The index.md frontmatter stores stable facts: title, type, status, summary, refs, retrieval, and governance.
 - state.md beside index.md stores current world state: location, possession, current goal, status changes, and character knowledge gaps. Missing state.md is normal.
-- retrieval.enabled=false means the node should not be treated as an automatic retrieval candidate. inject is for direct profile injection; do not use inject-only nodes as retrieval results unless the task explicitly asks for that kind of profile-level context.
+- retrieval.enabled=false means the node should not be treated as an automatic retrieval candidate.
+- Profile-scoped context memory lives in lorebook/context/{profile}.md and lorebook/context/generated/{profile}.md. Do not read another profile's context memory.
 - retrieval.trigger is a natural-language condition. Use it as a relevance hint, not as a keyword list.
 - refs describe structural relationships between content nodes. They are useful for expanding from one strong hit to directly related nodes.
 - writer consumes retrieved paths after the caller maps them to lorebookEntries. Your structured result must therefore be an ordered string[] of content-node paths, not a summary report.

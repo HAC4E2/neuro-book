@@ -14,6 +14,7 @@ Default Project Workspace sketch:
 |-- project.yaml
 |-- lorebook/
 |   |-- index.md
+|   |-- context/
 |   |-- world/
 |   |-- character/
 |   |-- location/
@@ -89,5 +90,6 @@ Do not store story canon in `.nbook/` or `.agent/`.
 - Content references: `reference/content/content-references.md`
 - Information control: `reference/content/information-control.md`
 - Content-node state compatibility: `reference/content/state.md`
-- Retrieval and inject: `reference/content/retrieval.md`
+- Retrieval: `reference/content/retrieval.md`
+- Lorebook context memory: `reference/content/lorebook-context-memory.md`
 - Plot System: `reference/plot/system.md`

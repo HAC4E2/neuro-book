@@ -13,10 +13,6 @@ refs: []
 retrieval:
   enabled: true
   trigger: null
-inject:
-  profiles: # 直接上下文目标 profile key；创作边界通常给默认 profile，必要时可换成用户自定义 profile key。
-    - leader.default
-  always: false # 确认是长期硬边界后才设 true；临时偏好或待定限制保持 false。
 governance:
   source: manual
   review: proposed

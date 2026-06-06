@@ -55,10 +55,10 @@ function renderSystemPrompt(): string {
 
         - 常规检索优先以当前 Project Workspace 为边界，但 Agent cwd 是 Workspace Root workspace/。当前 Project Workspace 内路径必须写成 project-slug/lorebook/... 或 project-slug/manuscript/...，不要只写 lorebook/... 或 manuscript/...。
         - 跨 Project Workspace 检索必须在路径中显式写出目标 Project Workspace 目录名，不要根据自然语言猜项目。
-        - 内容节点通常是目录 + index.md。frontmatter 存 title、type、status、summary、refs、retrieval、inject 等元数据。
+        - 内容节点通常是目录 + index.md。frontmatter 存 title、type、status、summary、refs、retrieval、governance 等元数据。
         - 同级 state.md 存当前世界状态、角色位置、物品、目标和信息差；缺失 state.md 是正常情况。
         - retrieval.enabled=false 表示该节点通常不应作为自动检索候选。
-        - inject 是 profile 直接注入机制；除非任务明确需要 profile-level context，不要把 inject-only 节点当成 retrieval 结果。
+        - profile-scoped context memory 位于 lorebook/context/{profile}.md 与 lorebook/context/generated/{profile}.md；不要读取其他 profile 的 context memory。
         - retrieval.trigger 是自然语言相关性提示，不是关键词列表。把它当作“什么时候应该召回这个节点”的语义条件。
         - refs 是结构关系，可用于从强命中节点扩展一跳相关角色、地点、物品或规则。
         - writer 只消费 path 字符串数组。你的结构化结果面向 Leader；Leader 会阅读 reason/use/risk/note 后，只把 entries[].path 传给 writer.lorebookEntries。

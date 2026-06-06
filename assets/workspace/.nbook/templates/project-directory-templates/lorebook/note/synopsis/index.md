@@ -12,9 +12,6 @@ refs: []
 retrieval:
   enabled: true
   trigger: null
-inject:
-  profiles: [] # 直接上下文目标 profile key；简介通常作为任务资料或 retrieval 候选，不默认注入。
-  always: false # 简介会随作品定位调整，确认稳定前保持 false。
 governance:
   source: manual
   review: proposed

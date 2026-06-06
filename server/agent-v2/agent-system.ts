@@ -16,6 +16,7 @@ import {DefaultModelProvider} from "nbook/server/agent/runtime/model-provider";
 import type {ModelProvider} from "nbook/server/agent/runtime/model-provider";
 import {ThreadEventRegistry} from "nbook/server/agent/runtime/thread-event-registry";
 import {AgentThreadRunner} from "nbook/server/agent/runtime/thread-runner";
+import {recordExplicitLorebookEntries} from "nbook/server/agent/context-access/lorebook-context-access";
 import {LeaderThread} from "nbook/server/agent/threads/leader-thread";
 import {SubAgentThread, type AnySubAgentThread} from "nbook/server/agent/threads/subagent-thread";
 import {createSubagentTool} from "nbook/server/agent/tools/builtin/create-subagent.tool";
@@ -1093,6 +1094,7 @@ export class AgentSystem implements AgentThreadGateway, AgentToolGateway {
             threadRepository: this.threadRepository,
             variableStore: this.variableStore,
         };
+        await this.recordRunContextAccess(thread, profileKey, parsedInput, scope);
         const tools = await this.threadContext.resolveProfileTools({
             agentGateway: this,
             thread,
@@ -1113,6 +1115,41 @@ export class AgentSystem implements AgentThreadGateway, AgentToolGateway {
         });
 
         void this.threadRunCoordinator.runThread(thread, runtime, tools, session);
+    }
+
+    /**
+     * 记录 profile invocation 中显式给出的上下文条目。
+     */
+    private async recordRunContextAccess<TKey extends ProfileKey>(
+        thread: AgentThreadRecord,
+        profileKey: TKey,
+        input: ProfileInput<TKey>,
+        scope: AgentVariableScope<TKey, ProfileInput<TKey>>,
+    ): Promise<void> {
+        if (profileKey !== "subagent.writer" || scope.studio.workspaceKind !== "novel" || !scope.studio.workspace) {
+            return;
+        }
+        if (!input || typeof input !== "object" || Array.isArray(input) || !("lorebookEntries" in input) || !Array.isArray(input.lorebookEntries)) {
+            return;
+        }
+        const projectRoot = scope.studio.workspace.replace(/\\/g, "/").replace(/\/+$/g, "");
+        const projectSlug = projectRoot.split("/").filter(Boolean).at(-1);
+        if (!projectSlug) {
+            return;
+        }
+        try {
+            await recordExplicitLorebookEntries({
+                projectRoot,
+                projectSlug,
+                profileKey,
+                sessionId: String(thread.id),
+                entries: input.lorebookEntries.filter((entry): entry is {path: string} => {
+                    return Boolean(entry) && typeof entry === "object" && "path" in entry && typeof entry.path === "string";
+                }),
+            });
+        } catch {
+            // 上下文推荐状态不能影响 agent run 启动。
+        }
     }
 
     /**

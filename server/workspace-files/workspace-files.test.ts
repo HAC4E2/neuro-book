@@ -565,11 +565,7 @@ describe("workspace-files", () => {
         expect(properties.title.description).toContain("内容节点显示标题");
         expect(properties.status.default).toBe("draft");
         expect((properties.retrieval.properties as Record<string, Record<string, unknown>>).trigger.description).toContain("自然语言触发条件");
-        expect((properties.inject.properties as Record<string, Record<string, unknown>>).profiles.description).toContain("用户自定义 profile key");
-        expect((properties.inject.properties as Record<string, Record<string, unknown>>).profiles.description).toContain("leader.default");
-        expect((properties.inject.properties as Record<string, Record<string, unknown>>).profiles.description).toContain("任务相关候选召回使用 retrieval");
-        expect((properties.inject.properties as Record<string, Record<string, unknown>>).always.description).toContain("长期稳定约束");
-        expect((properties.inject.properties as Record<string, Record<string, unknown>>).always.description).toContain("待定问题");
+        expect(properties.inject).toBeUndefined();
         expect(properties.tags.description).toContain("中文短标签");
         expect(properties.tags.description).toContain("不要为了填字段随意设置标签");
         expect(factionProperties.character).toBeUndefined();
@@ -1008,10 +1004,8 @@ describe("workspace-files", () => {
             expect(content).toContain("status: draft # 内容节点状态");
             expect(content).toContain("retrieval:");
             expect(content).toContain("enabled: true");
-            expect(content).toContain("inject:");
-            expect(content).toContain("profiles: []");
-            expect(content).toContain("leader.default");
-            expect(content).toContain("临时剧情、待定问题、章节状态保持 false");
+            expect(content).not.toContain("inject:");
+            expect(content).not.toContain("profiles: []");
             expect(content).toContain("## 概要");
             expect(content).toContain("## 角色定义");
             expect(content).toContain("## 角色画像");
@@ -1646,9 +1640,9 @@ describe("workspace-files", () => {
         await expect(readWorkspaceTextFile(root, "lorebook/note/project-positioning/index.md")).resolves.toContain("- 小说初始化");
         await expect(readWorkspaceTextFile(root, "lorebook/note/story-concept/index.md")).resolves.toContain("## 故事概述");
         await expect(readWorkspaceTextFile(root, "lorebook/note/story-concept/index.md")).resolves.toContain("长简介式作品介绍");
-        await expect(readWorkspaceTextFile(root, "lorebook/rule/writing-style/index.md")).resolves.toContain("inject:");
-        await expect(readWorkspaceTextFile(root, "lorebook/rule/writing-style/index.md")).resolves.toContain("文风约束通常给默认 profile");
-        await expect(readWorkspaceTextFile(root, "lorebook/note/initial-plot-seed/index.md")).resolves.toContain("剧情种子通常不直接注入");
+        await expect(readWorkspaceTextFile(root, "lorebook/rule/writing-style/index.md")).resolves.not.toContain("inject:");
+        await expect(readWorkspaceTextFile(root, "lorebook/context/writer.md")).resolves.toContain("Writer Context Notes");
+        await expect(fs.access(path.join(root, "lorebook/context/generated/.gitkeep")).then(() => true)).resolves.toBe(true);
         await expect(readWorkspaceTextFile(root, "manuscript/001-volume/001-chapter/index.md")).resolves.toContain("## 正文草稿");
         await expect(readWorkspaceTextFile(root, "manuscript/001-volume/001-chapter/index.md")).resolves.toContain("- 开局示例");
 

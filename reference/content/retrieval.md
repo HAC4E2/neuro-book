@@ -1,6 +1,9 @@
-# Content Node Retrieval And Inject
+# Content Node Retrieval
 
-内容节点进入 Agent 上下文分为两条路径：`inject` 与 `retrieval`。
+内容节点进入 Agent 上下文不再使用内容节点级 `inject`。当前模型分成两层：
+
+- `retrieval`：内容节点声明自己是否可以进入任务相关召回候选。
+- [lorebook-context-memory.md](lorebook-context-memory.md)：profile 自己维护哪些条目需要优先读取、可能读取或避免读取。
 
 ## Frontmatter
 
@@ -10,19 +13,14 @@
 retrieval:
   enabled: true
   trigger: null
-inject:
-  profiles: []
-  always: false
 ```
 
 字段语义：
 
 - `retrieval.enabled`：是否允许该节点进入 AI 自动检索候选。
 - `retrieval.trigger`：自然语言触发条件。为空表示不需要额外触发判断。
-- `inject.profiles`：允许直接注入该节点的 profile key 列表，例如 `writer`。
-- `inject.always`：是否对 `inject.profiles` 中的目标 profile 默认直接注入。
 
-`inject` 用于稳定、长期、低判断成本的上下文，例如写作风格、叙事视角、全局禁忌。`retrieval` 用于需要根据任务、章节大纲、最近正文和场景判断是否相关的内容节点。
+长期稳定的 profile-scoped 上下文选择不写在内容节点 frontmatter 中。它由 `lorebook/context/{profile}.md` 和 `lorebook/context/generated/{profile}.md` 管理。
 
 ## Retrieval Profile
 
@@ -63,4 +61,4 @@ inject:
 3. Leader 或系统入口阅读 `reason` / `use` / `risk` 后，把选中的 `entries[].path` 映射为 `writer.lorebookEntries` 参数。
 4. Writer 按输入数组顺序读取每个内容节点的 `index.md` 与同级可选 `state.md`，并注入 prompt。
 
-这种设计让 retriever 专注路径选择，让 writer 获得完整文件上下文，同时不要求 writer 自己调用工具或进行多轮搜索。
+这种设计让 retriever 专注路径选择，让 writer 获得明确文件上下文，同时不要求 writer 自己调用工具或进行多轮搜索。

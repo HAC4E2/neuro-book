@@ -1,6 +1,7 @@
 import {z} from "zod";
-import type {AgentTool} from "nbook/server/agent/tools/agent-tool";
+import type {AgentTool, AgentToolContext} from "nbook/server/agent/tools/agent-tool";
 import {createToolResultMessage} from "nbook/server/agent/tools/shared/tool-message";
+import {recordContextAccess} from "nbook/server/agent/context-access/lorebook-context-access";
 import {readWorkspaceTextFile} from "nbook/server/workspace-files/workspace-files";
 import {resolveAgentFileTarget} from "nbook/server/agent/tools/file/workspace-file-target";
 
@@ -26,6 +27,7 @@ export const readFileTool: AgentTool<typeof ReadFileInputSchema> = {
         const {filePath, offset, limit} = input;
         const target = await resolveAgentFileTarget(context, filePath);
         const content = await readWorkspaceTextFile(target.root, target.filePath);
+        await recordReadAccess(context, target);
         const allLines = content.split("\n");
         const lines: string[] = [];
         const startLine = offset ?? 1;
@@ -45,3 +47,49 @@ export const readFileTool: AgentTool<typeof ReadFileInputSchema> = {
         return createToolResultMessage(result, JSON.stringify({filePath, offset, limit}));
     },
 };
+
+type ResolvedFileTarget = {root: string; filePath: string};
+
+async function recordReadAccess(context: AgentToolContext, target: ResolvedFileTarget): Promise<void> {
+    const scope = context.getScope();
+    if (scope.studio.workspaceKind !== "novel" || !scope.studio.workspace) {
+        return;
+    }
+    const project = resolveProjectTarget(scope.studio.workspace, target);
+    if (!project) {
+        return;
+    }
+    try {
+        await recordContextAccess({
+            projectRoot: project.root,
+            projectSlug: project.slug,
+            profileKey: context.profileKey,
+            sessionId: String(context.threadId),
+            filePath: project.filePath,
+        });
+    } catch {
+        // 访问推荐是辅助状态，不能影响 read_file 主流程。
+    }
+}
+
+function resolveProjectTarget(workspaceRoot: string, target: ResolvedFileTarget): {root: string; slug: string; filePath: string} | null {
+    const normalizedWorkspace = workspaceRoot.replace(/\\/g, "/").replace(/\/+$/g, "");
+    const slug = normalizedWorkspace.split("/").filter(Boolean).at(-1);
+    if (!slug) {
+        return null;
+    }
+    const normalizedRoot = target.root.replace(/\\/g, "/").replace(/\/+$/g, "");
+    const normalizedPath = target.filePath.replace(/\\/g, "/").replace(/^\/+/g, "");
+    if (normalizedRoot === normalizedWorkspace) {
+        return {root: normalizedWorkspace, slug, filePath: normalizedPath};
+    }
+    const workspacePrefix = `${normalizedWorkspace}/`;
+    if (`${normalizedRoot}/`.startsWith(workspacePrefix)) {
+        const rootRemainder = normalizedRoot.slice(workspacePrefix.length);
+        return {root: normalizedWorkspace, slug, filePath: `${rootRemainder}/${normalizedPath}`.replace(/^\/+/g, "")};
+    }
+    if (normalizedRoot === "workspace" && normalizedPath.startsWith(`${slug}/`)) {
+        return {root: normalizedWorkspace, slug, filePath: normalizedPath.slice(slug.length + 1)};
+    }
+    return null;
+}
