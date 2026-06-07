@@ -11,6 +11,7 @@ import {useNotification} from "nbook/app/composables/useNotification";
 import {useAgentSession} from "nbook/app/components/novel-ide/agent/useAgentSession";
 import {useAgentSessionStream, type AgentSessionStreamSnapshotReason} from "nbook/app/components/novel-ide/agent/useAgentSessionStream";
 import {useAgentSessionApi} from "nbook/app/composables/useAgentSessionApi";
+import {useCostDisplay} from "nbook/app/composables/useCostDisplay";
 import AgentChatFlow from "nbook/app/components/novel-ide/agent/AgentChatFlow.vue";
 import AgentComposer from "nbook/app/components/novel-ide/agent/AgentComposer.vue";
 import AgentLinkedAgentPanel from "nbook/app/components/novel-ide/agent/AgentLinkedAgentPanel.vue";
@@ -20,6 +21,7 @@ import {deriveAgentTreeState, resolveBranchSwitchTarget} from "nbook/app/compone
 import {AGENT_REQUEST_USER_INPUT_CONTEXT_KEY} from "nbook/app/components/novel-ide/agent/request-user-input-context";
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
+import {formatCost, formatCostExact, usingCnyRate} from "nbook/app/utils/cost-format";
 import type {ConfigModelSettingsDto} from "nbook/shared/dto/config.dto";
 import type {AgentQueuedMessageDto, AgentSessionListQueryDto, AgentSessionSnapshotDto, AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
 import type {ThinkingLevelDto} from "nbook/shared/dto/app-settings.dto";
@@ -78,6 +80,7 @@ const sanitizeHtml = ref<((html: string) => string) | null>(null);
 const session = useAgentSession();
 const agentApi = useAgentSessionApi();
 const configApi = useConfigApi();
+const costDisplay = useCostDisplay();
 const messages = session.messages;
 const running = session.running;
 const connectionStatus = session.connectionStatus;
@@ -264,19 +267,52 @@ const drawerIconClass = computed(() => "i-lucide-sparkles text-[var(--accent-tex
 const sessionTreeState = computed(() => deriveAgentTreeState(activeSnapshot.value?.tree ?? []));
 const branchSwitcherStateByMessageId = computed(() => sessionTreeState.value.switcherByMessageId);
 
-const contextUsageCompactLabel = computed(() => formatCompactTokenCount(activeSnapshot.value?.usage?.input));
-const contextUsageExactLabel = computed(() => formatTokenCount(activeSnapshot.value?.usage?.input));
-const contextPercentCompactLabel = computed(() => "");
+const contextUsageCompactLabel = computed(() => {
+    const usage = activeSnapshot.value?.contextUsage;
+    if (!usage) {
+        return "- / -";
+    }
+    return `${formatCompactTokenCount(usage.usedTokens)} / ${formatCompactTokenCount(usage.limitTokens)}`;
+});
+const contextUsageExactLabel = computed(() => {
+    const usage = activeSnapshot.value?.contextUsage;
+    if (!usage) {
+        return "Context 估算 - / -";
+    }
+    const percent = typeof usage.percent === "number" && Number.isFinite(usage.percent)
+        ? `（${formatPercent(usage.percent)}）`
+        : "";
+    return `Context 估算 ${formatTokenCount(usage.usedTokens)} / ${formatTokenCount(usage.limitTokens)} tokens${percent}`;
+});
+const contextPercentCompactLabel = computed(() => {
+    const percent = activeSnapshot.value?.contextUsage?.percent;
+    return typeof percent === "number" && Number.isFinite(percent) ? formatPercent(percent) : "";
+});
 const cumulativeInputCompactLabel = computed(() => formatCompactTokenCount(activeSummary.value?.usage?.input));
 const cumulativeOutputCompactLabel = computed(() => formatCompactTokenCount(activeSummary.value?.usage?.output));
 const cumulativeCacheCompactLabel = computed(() => formatCompactTokenCount(activeSummary.value?.usage?.cacheRead));
 const cumulativeCacheWriteCompactLabel = computed(() => formatCompactTokenCount(activeSummary.value?.usage?.cacheWrite));
+const cumulativeCacheHitRateLabel = computed(() => {
+    const usage = activeSummary.value?.usage;
+    return usage ? formatCacheHitRate(usage) : "";
+});
+const costDisplayOptions = computed(() => costDisplay.costDisplayOptions.value);
+const costExchangeRateSuffix = computed(() => {
+    if (!usingCnyRate(costDisplayOptions.value)) {
+        return "";
+    }
+    return costDisplay.exchangeRateStale.value ? "，按缓存 USD/CNY 汇率换算" : "，按当前 USD/CNY 汇率换算";
+});
+const cumulativeCostCompactLabel = computed(() => formatCost(activeSummary.value?.usage?.cost.total, costDisplayOptions.value));
 const cumulativeUsageExactLabel = computed(() => {
     const usage = activeSummary.value?.usage;
     if (!usage) {
-        return "输入 -- / 输出 -- / 缓存 --";
+        return "Session 总消耗：输入 -- / 输出 -- / 缓存读 -- / 缓存写 -- / 命中率 --";
     }
-    return `输入 ${formatTokenCount(usage.input)} / 输出 ${formatTokenCount(usage.output)} / 缓存 ${formatTokenCount(usage.cacheRead)}`;
+    const costLabel = formatCost(usage.cost.total, costDisplayOptions.value)
+        ? ` / Session 耗费 ${formatCost(usage.cost.total, costDisplayOptions.value)}（输入 ${formatCostExact(usage.cost.input, costDisplayOptions.value)} / 输出 ${formatCostExact(usage.cost.output, costDisplayOptions.value)} / 缓存读 ${formatCostExact(usage.cost.cacheRead, costDisplayOptions.value)} / 缓存写 ${formatCostExact(usage.cost.cacheWrite, costDisplayOptions.value)} / 总计 ${formatCostExact(usage.cost.total, costDisplayOptions.value)}${costExchangeRateSuffix.value}）`
+        : "";
+    return `Session 总消耗：输入 ${formatTokenCount(usage.input)} / 输出 ${formatTokenCount(usage.output)} / 缓存读 ${formatTokenCount(usage.cacheRead)} / 缓存写 ${formatTokenCount(usage.cacheWrite)} / 缓存命中率 ${formatCacheHitRate(usage)}${costLabel}`;
 });
 
 /**
@@ -303,6 +339,26 @@ function formatCompactTokenCount(value: number | null | undefined): string {
         return `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}K`;
     }
     return `${value}`;
+}
+
+/**
+ * 格式化 context 使用百分比。
+ */
+function formatPercent(value: number): string {
+    return `${new Intl.NumberFormat("zh-CN", {
+        maximumFractionDigits: value >= 10 ? 0 : 1,
+    }).format(value)}%`;
+}
+
+/**
+ * 计算 prompt cache 命中率：缓存读 / 本次输入 prompt 总量。
+ */
+function formatCacheHitRate(usage: {input: number; cacheRead: number}): string {
+    const promptTokens = usage.input + usage.cacheRead;
+    if (promptTokens <= 0) {
+        return "0%";
+    }
+    return formatPercent(usage.cacheRead / promptTokens * 100);
 }
 
 /**
@@ -346,6 +402,8 @@ const loadSelectableModels = async (): Promise<void> => {
     try {
         const snapshot = await configApi.editorSnapshot();
         selectableModels.value = snapshot.modelSettings.enabledModels;
+        costDisplay.setCostCurrency(readSnapshotCostCurrency(snapshot.effective.ui));
+        void costDisplay.ensureExchangeRate(configApi.exchangeRate);
     } catch (error) {
         console.error("读取模型列表失败", error);
         selectableModels.value = [];
@@ -369,6 +427,8 @@ const loadResolvedLeaderProfileKey = async (): Promise<void> => {
             return;
         }
         resolvedDefaultProfileKey.value = settings.defaultProfileSettings.effectiveProfileKey || systemLeaderProfileKey.value;
+        costDisplay.setCostCurrency(settings.ui.costCurrency);
+        void costDisplay.ensureExchangeRate(configApi.exchangeRate);
     } catch (error) {
         if (requestId !== defaultProfileResolveRequest) {
             return;
@@ -377,6 +437,16 @@ const loadResolvedLeaderProfileKey = async (): Promise<void> => {
         resolvedDefaultProfileKey.value = systemLeaderProfileKey.value;
     }
 };
+
+/**
+ * 从配置快照的通用 JSON 字段读取费用显示币种。
+ */
+function readSnapshotCostCurrency(ui: unknown): "USD" | "CNY" {
+    if (ui && typeof ui === "object" && !Array.isArray(ui) && "costCurrency" in ui && ui.costCurrency === "CNY") {
+        return "CNY";
+    }
+    return "USD";
+}
 
 /**
  * 刷新 session 列表。
@@ -1496,6 +1566,8 @@ function isApprovalApproved(answer?: {
                 :menu-refresh-key="agentMenuRefreshKey"
                 :resolve-editor-menu="resolveInputMenu"
                 :on-editor-skill-trigger-start="refreshSkillCatalog"
+                :cost-display-options="costDisplayOptions"
+                :cost-exchange-rate-suffix="costExchangeRateSuffix"
                 @copy="void copyMessage($event)"
                 @copy-tool="void copyToolCall($event)"
                 @start-edit="startEditingMessage"
@@ -1532,6 +1604,8 @@ function isApprovalApproved(answer?: {
                 :cumulative-output-compact-label="cumulativeOutputCompactLabel"
                 :cumulative-cache-compact-label="cumulativeCacheCompactLabel"
                 :cumulative-cache-write-compact-label="cumulativeCacheWriteCompactLabel"
+                :cumulative-cache-hit-rate-label="cumulativeCacheHitRateLabel"
+                :cumulative-cost-compact-label="cumulativeCostCompactLabel"
                 :connection-status-label="connectionStatusLabel"
                 :run-phase-label="runPhaseLabel"
                 :connection-needs-action="connectionNeedsAction"

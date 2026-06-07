@@ -13,6 +13,6 @@
 - [reference/agent/](reference/agent/)：多 Agent、Profile、上下文和前端运行状态。
 - [reference/editor/](reference/editor/)：Markdown Studio 与富文本 live preview 参考。
 - [reference/plot/](reference/plot/)：剧情系统和前端工作区参考。
-- [reference/workspace-reference/](reference/workspace-reference/)：统一引用系统和 inline 引用参考。
+- [reference/content/content-references.md](reference/content/content-references.md)：统一引用系统和 inline 引用参考。
 - [reference/content/](reference/content/)：内容校验与规范化流程。
 - [reference/theme/](reference/theme/)：主题系统参考。

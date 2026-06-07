@@ -51,6 +51,8 @@ const props = defineProps<{
     cumulativeOutputCompactLabel: string;
     cumulativeCacheCompactLabel: string;
     cumulativeCacheWriteCompactLabel: string;
+    cumulativeCacheHitRateLabel: string;
+    cumulativeCostCompactLabel: string;
     connectionStatusLabel: string;
     runPhaseLabel: string;
     connectionNeedsAction: boolean;
@@ -377,6 +379,8 @@ defineExpose({focus});
                                     <NovelIdeModelSelect
                                         :model-value="props.sessionModelDraft.modelKey"
                                         :models="props.selectableModels"
+                                        allow-default
+                                        :default-label="props.sessionModelDefaultLabel"
                                         placeholder="选择 Session 模型"
                                         dropdown-direction="up"
                                         @update:model-value="updateSessionModelDraft({modelKey: $event})"
@@ -449,9 +453,17 @@ defineExpose({focus});
                 <span>{{ props.cumulativeOutputCompactLabel }}</span>
                 <span class="i-lucide-database-zap h-3 w-3"></span>
                 <span>{{ props.cumulativeCacheCompactLabel }}</span>
-                <template v-if="props.cumulativeCacheWriteCompactLabel">
+                <template v-if="props.cumulativeCacheHitRateLabel">
+                    <span class="i-lucide-percent h-3 w-3"></span>
+                    <span>{{ props.cumulativeCacheHitRateLabel }}</span>
+                </template>
+                <template v-if="props.cumulativeCacheWriteCompactLabel !== '-' && props.cumulativeCacheWriteCompactLabel !== '0'">
                     <span class="i-lucide-hard-drive-upload h-3 w-3"></span>
                     <span>{{ props.cumulativeCacheWriteCompactLabel }}</span>
+                </template>
+                <template v-if="props.cumulativeCostCompactLabel">
+                    <span class="i-lucide-circle-dollar-sign h-3 w-3"></span>
+                    <span>{{ props.cumulativeCostCompactLabel }}</span>
                 </template>
             </div>
             <div v-if="props.connectionStatusLabel" class="inline-flex items-center gap-1 rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5">

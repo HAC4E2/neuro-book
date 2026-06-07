@@ -117,6 +117,9 @@ export async function readConfigBootstrap(
         defaultProfileSettings: {
             effectiveProfileKey: resolveDefaultProfileKeyFromConfig(target.workspaceKind, global, project),
         },
+        ui: {
+            costCurrency: effective.ui.costCurrency,
+        },
     };
 }
 

@@ -1,4 +1,4 @@
-import type {AgentUserMessageInput, AssistantMessage, Message, TextContent, ToolResultMessage, Usage} from "nbook/server/agent/messages/types";
+import type {AgentMessage, AgentUserMessageInput, AssistantMessage, Message, TextContent, ToolResultMessage, Usage} from "nbook/server/agent/messages/types";
 import type {AgentToolResult} from "@earendil-works/pi-agent-core";
 
 export const EMPTY_USAGE: Usage = {
@@ -15,6 +15,38 @@ export const EMPTY_USAGE: Usage = {
         total: 0,
     },
 };
+
+/**
+ * 累加多次 assistant provider usage。
+ */
+export function sumUsage(usages: Array<Usage | undefined>): Usage | undefined {
+    const presentUsages = usages.filter((usage): usage is Usage => Boolean(usage));
+    if (presentUsages.length === 0) {
+        return undefined;
+    }
+
+    return presentUsages.reduce<Usage>((total, usage) => ({
+        input: total.input + usage.input,
+        output: total.output + usage.output,
+        cacheRead: total.cacheRead + usage.cacheRead,
+        cacheWrite: total.cacheWrite + usage.cacheWrite,
+        totalTokens: total.totalTokens + usage.totalTokens,
+        cost: {
+            input: total.cost.input + usage.cost.input,
+            output: total.cost.output + usage.cost.output,
+            cacheRead: total.cost.cacheRead + usage.cost.cacheRead,
+            cacheWrite: total.cost.cacheWrite + usage.cost.cacheWrite,
+            total: total.cost.total + usage.cost.total,
+        },
+    }), EMPTY_USAGE);
+}
+
+/**
+ * 汇总 session 消息里的所有 assistant provider usage。
+ */
+export function sumAssistantUsage(messages: AgentMessage[]): Usage | undefined {
+    return sumUsage(messages.map((message) => message.role === "assistant" ? message.usage : undefined));
+}
 
 /**
  * 当前时间戳。集中封装，测试中可以用显式 timestamp 覆盖。

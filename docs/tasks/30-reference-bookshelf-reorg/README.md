@@ -40,7 +40,7 @@
 - Split the old lorebook information-control document into `reference/content/directory-protocol.md` and `reference/content/information-control.md`; archived the old long version.
 - Added a new current `reference/plot/system.md` and `reference/plot/README.md`.
 - Audited the objective against current files and strengthened stable references that were still too thin:
-  - `reference/content/directory-protocol.md` now includes the stable `leader.rp` / `simulator.actor` / `rp.writer` runtime profile contract and `simulation/runs/` boundary.
+  - `reference/content/simulation.md` now includes the current `simulator.leader` / `simulator.actor` / `rp.writer` runtime profile contract and `simulation/runs/` boundary.
   - `reference/plot/system.md` now includes DTO fields, status values, `chapterPath` validation, scene ordering, structured ref URI rules and Agent consumption order.
   - Confirmed `docs/modules/agent/harness.md` no longer exists; the current harness reference lives in `reference/agent/harness.md`.
 - Cleaned legacy shallow docs that duplicated or contradicted the Reference Bookshelf:
@@ -62,7 +62,7 @@
 - `bun run test server/agent/profiles/profile-dsl.test.ts server/agent/profiles/workbench-service.test.ts server/agent/profiles/leader-assets-profile.test.ts server/agent/profiles/rp-profiles.test.ts`：4 files / 46 tests passed。
 - `bun scripts/build/profile.ts check builtin/leader.default.profile.tsx --system`：passed。
 - `bun scripts/build/profile.ts check builtin/leader.assets.profile.tsx --system`：passed。
-- `bun scripts/build/profile.ts check builtin/leader.rp.profile.tsx --system`：passed。
+- Historical verification before the profile-context V2 cut: `bun scripts/build/profile.ts check builtin/leader.rp.profile.tsx --system`：passed。Current checks should target `builtin/simulator.leader.profile.tsx` instead.
 - `bun scripts/build/prepare-system-profile-metadata.ts`：prepared 9 system profiles and profile variable IDE types。
 - `bun scripts/build/profile.ts compile --all`：compiled 9 workspace user-assets profile artifacts after the user override kept old `spec/**` Import paths.
 - `rg -n "docs/(agent|profile|profile-tsx)|\\]\\(/(agent|profile|profile-tsx)" docs README.md reference AGENTS.md PROJECT-STATUS.md architecture.md CLAUDE.md --glob '!docs/archived/**' --glob '!docs/tasks/**' --glob '!docs/drafts/**' --glob '!docs/research/**'`：无 active docs 残留。

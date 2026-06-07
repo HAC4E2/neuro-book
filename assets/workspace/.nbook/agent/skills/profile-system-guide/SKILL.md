@@ -37,7 +37,7 @@ For harness/profile architecture explanations, read `references/harness-profile-
 - Harness docs: `docs/modules/agent/harness.md`
 - TSX Profile Workbench task notes: `docs/tasks/04-tsx-profile-workbench/README.md`
 - Agent migration/runtime notes: `docs/tasks/02-pi-agent-harness-migration/README.md`
-- Workspace terms: `spec/workspace/TERMS.md`
+- Workspace terms: `reference/workspace/TERMS.md`
 - Detailed reference for this skill: `assets/workspace/.nbook/agent/skills/profile-system-guide/references/harness-profile-system.md`
 
 ## Editing Strategy

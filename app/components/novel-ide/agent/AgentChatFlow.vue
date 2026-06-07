@@ -3,6 +3,7 @@ import type { AgentMessage, AgentToolCall, ChatNode } from "nbook/app/components
 import { toChatNodes } from "nbook/app/components/novel-ide/agent/agent-message";
 import AgentTextBubble from "nbook/app/components/novel-ide/agent/AgentTextBubble.vue";
 import AgentToolBubble from "nbook/app/components/novel-ide/agent/AgentToolBubble.vue";
+import type {CostDisplayOptions} from "nbook/app/utils/cost-format";
 import type {
     AgentTriggerMenuContext,
     AgentTriggerMenuState,
@@ -33,6 +34,10 @@ const props = defineProps<{
     resolveEditorMenu?: (context: AgentTriggerMenuContext) => AgentTriggerMenuState;
     /** 编辑器触发技能菜单时的刷新钩子。 */
     onEditorSkillTriggerStart?: () => void;
+    /** 费用显示币种与汇率。 */
+    costDisplayOptions: CostDisplayOptions;
+    /** 费用 tooltip 汇率说明。 */
+    costExchangeRateSuffix?: string;
 }>();
 
 const emit = defineEmits<{
@@ -236,6 +241,8 @@ defineExpose({ scrollToBottom: forceScrollToBottom, scrollRef });
                     :menu-refresh-key="props.menuRefreshKey"
                     :resolve-menu="props.resolveEditorMenu"
                     :on-skill-trigger-start="props.onEditorSkillTriggerStart"
+                    :cost-display-options="props.costDisplayOptions"
+                    :cost-exchange-rate-suffix="props.costExchangeRateSuffix"
                     @copy="emit('copy', $event)"
                     @start-edit="emit('start-edit', $event)"
                     @cancel-edit="emit('cancel-edit', $event)"

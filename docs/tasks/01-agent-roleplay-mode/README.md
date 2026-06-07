@@ -1,8 +1,8 @@
 # Agent RP Mode
 
-## Current Target: Simulation Hard Cut
+## Current Target: Simulation / Profile Context V2
 
-2026-06-06 update: 本任务里的早期 `simulation/simulator.md`、`simulation/writer.md`、`simulation/config.yaml`、`simulation/cast.yaml` 说法已经被 profile context V2 取代。当前合同是：所有 profile 先读 Project root `AGENTS.md`，再读自己的 `agent-context/{profile}/context.md` / `agent-context/{profile}/generated.md`；`simulator.leader` 读 `agent-context/simulator.leader/context.md`，`rp.writer` 读 `agent-context/rp.writer/context.md`；`simulation/` 只保留 `subjects/`、`entities/`、`runs/` runtime state。
+2026-06-07 update: 本任务里的早期 `leader.rp`、`simulation/simulator.md`、`simulation/writer.md`、`simulation/config.yaml`、`simulation/cast.yaml` 说法已经被 profile context V2 取代。当前合同是：所有 profile 先读 Project root `AGENTS.md`，再读自己的 `agent-context/{profile}/context.md` / `agent-context/{profile}/generated.md`；`simulator.leader` 读 `agent-context/simulator.leader/context.md`，`rp.writer` 读 `agent-context/rp.writer/context.md`；`simulation/` 只保留 `subjects/`、`entities/`、`runs/` runtime state。
 
 本任务当前实现目标已从独立 `roleplay/` 运行目录硬切为默认 Project 模板内的 `simulation/`：
 
@@ -11,8 +11,9 @@
 - 旧 `roleplay/gm.md` 的当前对应入口是 `agent-context/simulator.leader/context.md`。
 - 旧 `roleplay/actors/{id}/actor.md` 改为 `simulation/subjects/{id}/subject.md`。
 - 旧 `roleplay/playthrough/` 改为 `simulation/runs/`。
-- `leader.rp`、`simulator.actor`、`rp.writer` 是当前 RP/simulation profile 组合，提示词和路径合同使用 simulation / subject / entity 口径。
-- `RP目录初始化` skill 已删除；`RP模式` skill 负责说明 `leader.rp` 入口和就地 RP/simulation 入口。
+- `simulator.leader`、`simulator.actor`、`rp.writer` 是当前 RP/simulation profile 组合，提示词和路径合同使用 `agent-context/` + `simulation/subjects|entities|runs` 口径。
+- `leader.rp` 是已删除的 legacy profile；当前 RP 入口应创建或复用 `simulator.leader`。
+- `RP目录初始化` skill 已删除；`RP模式` skill 负责说明 `simulator.leader` 入口和就地 RP/simulation 入口。
 
 下文包含早期设计记录；凡与本节冲突，以本节为准。
 
@@ -29,7 +30,7 @@
 
 - 增加 RP 相关 skill，让用户能理解本系统如何运行 RP/simulation、如何使用默认 Project 模板内的 `simulation/` 目录、如何导入或分析 SillyTavern 角色卡。
 - 第一阶段优先支持纯文字或轻量文本卡，不复刻重前端卡的 UI、脚本、API 请求和复杂变量系统。
-- 保持当前项目的文件化 workspace 心智：稳定设定进入 `lorebook/`，外部原始素材进入 `reference/`，RP 编排配置进入当前 workspace 下的 `simulation/`；第一版不设计持久化 session 目录。
+- 保持当前项目的文件化 workspace 心智：稳定设定进入 `lorebook/`，外部原始素材进入 `reference/`，profile 专用说明进入 `agent-context/`，当前运行态进入 `simulation/`；第一版不设计持久化 session 目录。
 - 角色卡迁移首先是写作项目导入器，其次才是 RP 扩展生成器；写作模式和 RP 模式共享同一批 `lorebook/` 设定资产。
 - 迁移脚本需要作为长期可迭代工具维护，后续会反复根据样本卡优化分类、拆分和写入策略。
 - 后续再讨论变量系统、泛用自然语言编辑工具和更强的多 Agent RP 编排。
@@ -63,22 +64,22 @@
 ## Decisions
 
 - RP 相关能力先拆成至少三个 skill：
-  - `RP模式`：介绍本系统如何运行 RP、如何进入轻量 RP、如何理解 `leader.rp` / GM / actor / writer 分工、如何引用 RP 文档和导入流程。
+  - `RP模式`：介绍本系统如何运行 RP、如何进入轻量 RP、如何理解 `simulator.leader` / `simulator.actor` / `rp.writer` 分工、如何引用 RP 文档和导入流程。
   - `RP目录初始化`：已废弃并删除；simulation 目录进入默认 Project 模板。
   - `novel-import-silly-tavern-card`：提取或读取角色卡原始 JSON，生成检查报告，并把稳定文本设定导入当前 workspace 的写作资产；当前使用 canonical skill `novel-import-silly-tavern-card`；RP 动态机制优先归档到 `reference/`，后续再转写为 `simulation/` 编排文件。
 - 角色卡导入分两层：
   - 基础写作层：默认执行，把可稳定复用的角色、地点、势力、规则、世界观、事件背景等导入 `lorebook/` 和 `reference/`。
-  - RP 扩展层：可选执行，在基础写作层之上创建或更新 `simulation/`，保存 GM 口径、角色映射、actor 指令、writer 规则、变量草案、MVU 更新规则和状态栏/UI 迁移说明。
+  - RP 扩展层：可选执行，在基础写作层之上创建或更新 `agent-context/` 与 `simulation/`，保存 simulator leader 口径、subject 映射、actor 指令、writer 规则、变量草案、MVU 更新规则和状态栏/UI 迁移说明。
 - 不单独维护 `conversion-plan.md`。`inspect` 只输出临时 overview；稳定证据由 `unpack` 写入解包目录；导入过程以 unpack report 和 import report 记录本次写入、跳过、归档和需人工确认的内容。
 - RP 目录建议使用更可读的 `simulation/`，而不是缩写 `rp/`。
-- `simulation/` 是当前小说 workspace 的一部分，可以被用户资产、workspace 覆盖 agent/profile 机制自然配合。
+- `simulation/` 是当前小说 workspace 的 runtime state 目录；profile 专用说明不再混放到 `simulation/`，而是进入 `agent-context/{profile}/context.md`。
 - RP/simulation 目录已经并入默认 Project 模板 `project-directory-templates`。新建 Project 时默认生成 `simulation/`；目标 Project Workspace 已存在且显式传入 `--template project-directory-templates` 时，只补齐缺失的默认模板文件，不覆盖用户已有内容。
 - 试用反馈后的 RP 交互决策：
   - `rp.writer` 可以开放 bash 与文件读写工具。它不再必须通过 `report_result.data.prose` 报告正文；可以直接写作或写入 GM 指定文件。后续实现要用 profile prompt 和输入参数约束写入范围。
-  - `rp.writer` 只负责正文，不负责生成“选项”“下一步行动建议”或 GM 控制面内容。可选行动、提示、确认问题由 GM / `leader.rp` 生成和呈现。
-  - GM / `leader.rp` 是直接面向用户的 RP 主控，需要承担一定旁白职责。开局时 GM 应能介绍玩家角色已知信息、当前处境和必要世界观背景；如果 GM 自己的文风不够好，可以先调用 `rp.writer` 代笔，再由 GM 转述给玩家，或引用文件让玩家自行打开阅读。
+  - `rp.writer` 只负责正文，不负责生成“选项”“下一步行动建议”或 simulator leader 控制面内容。可选行动、提示、确认问题由 `simulator.leader` 生成和呈现。
+  - `simulator.leader` 是直接面向用户的 RP/simulation 主控，需要承担一定旁白职责。开局时它应能介绍玩家角色已知信息、当前处境和必要世界观背景；如果自身文风不够好，可以先调用 `rp.writer` 代笔，再由它转述给玩家，或引用文件让玩家自行打开阅读。
   - actor 目录应拆出 `mind.md` 与 `state.md`：`mind.md` 记录角色当前思维、判断、猜测和动机；`state.md` 记录角色当前状态，例如位置、持有物品、伤势、关系压力、短期目标等。
-- RP/simulation 目录入口收束：删除 `simulation/AGENTS.md`，避免它和 `simulator.md` 形成双入口混淆；通用启动说明下放到 `RP模式` skill 和 `leader.rp` profile，作者主要修改 `simulation/simulator.md`。
+- RP/simulation 目录入口收束：删除 `simulation/AGENTS.md`，避免它和 profile context 形成双入口混淆；通用启动说明下放到 `RP模式` skill 和 `simulator.leader` profile，作者主要修改 `agent-context/simulator.leader/context.md`。
 - `knowledge.md` 是给 actor 看的角色视角资料，不写上帝视角；模板改为二级章节归类、三级标题作为条目，并新增 `## 世界观`。不再维护“信念与误解”“最近更新”“更新规则”章节；是否误解由 GM / leader 在后台判断，更新规则写在 profile prompt 中。
 - lorebook 信息控制继续讨论：一个方向是在 lorebook frontmatter 中标注条目可见对象或可知条件，让 actor 的 `knowledge.md` 可以引用“这个角色可知道”的公开世界观/常识条目，避免每个 actor 重复维护通用世界观。但 canonical lorebook 仍默认是 GM / leader / 作者视角，actor 不能因为引用而自行读取完整 lorebook。
   - 暂定推荐方向：visibility 只是“谁能知道/何时能知道”的元数据，不代表 actor 可直接读取原文；`knowledge.md` 优先保存角色视角摘要或引用索引。混合公开常识和隐藏真相的 lorebook 条目后续应拆条目，或提供 actor-safe 摘要字段，由 GM / leader 注入。
@@ -86,14 +87,20 @@
 - GM 发给 actor 的消息不应使用 YAML / JSON / 字段任务单。内部可以结构化组织信息，但发送给 actor 时应改成第二人称自然语言，只描述角色合理可知、可见、可感受到的内容；不要发送 `not_known_to_you`、`task`、返回格式或 hidden facts。
 - `report_result.walkthrough` 已严格改名为 `result`；模型可见 schema、工具执行和 harness 读取都使用 `result`。中期目标仍是用 sidecar result pass 整理 actor 主上下文的沉浸式回应。
 - actor `knowledge.md` 引用 lorebook 的方式使用项目已支持的 Markdown 相对路径链接，例如 `[王都公共常识](../../lorebook/world/capital.md)`；链接是维护索引或可知来源，不代表 actor 可以自行读取完整 canonical 原文。
-- 最新 `simulation/` 目标结构收束为少量根文件 + subject 子目录：
+- 最新 `simulation/` 目标结构收束为 runtime state 目录；profile guidance 进入 `agent-context/`：
 
 ```text
+agent-context/
+|-- simulator.leader/
+|   |-- context.md
+|   |-- memory.md
+|   `-- generated.md
+`-- rp.writer/
+    |-- context.md
+    |-- memory.md
+    `-- generated.md
+
 simulation/
-|-- config.yaml
-|-- cast.yaml
-|-- simulator.md
-|-- writer.md
 |-- entities/      # stateful instances
 |-- runs/          # current playthrough / tick artifacts
 `-- subjects/
@@ -148,9 +155,8 @@ lorebook/world/rule/...
 lorebook/system/...
 lorebook/event/...
 lorebook/note/...
-simulation/cast.yaml
-simulation/simulator.md
-simulation/writer.md
+agent-context/simulator.leader/context.md
+agent-context/rp.writer/context.md
 simulation/entities/{entity-id}/entity.md
 simulation/entities/{entity-id}/state.md
 simulation/subjects/{actor-id}/subject.md
@@ -192,6 +198,8 @@ reporter       # overview.md / inspect.json / unpack-report.md / import-report.m
 
 ## Implemented V1
 
+2026-06-07 note: 本节保留 V1 历史实现记录。当前活跃合同已切到 `simulator.leader` + `agent-context/`；下列 `leader.rp`、`simulation/config.yaml`、`simulation/cast.yaml`、`simulation/simulator.md`、`simulation/writer.md` 只表示早期落地状态，不再作为当前实现入口。
+
 - 已新增系统 skill：`assets/workspace/.nbook/agent/skills/novel-import-silly-tavern-card/SKILL.md`；旧 `assets/workspace/.nbook/agent/skills/novel-import-silly-tavern-card/SKILL.md` 作为兼容入口保留。
 - 已新增系统 skill：`assets/workspace/.nbook/agent/skills/RP模式/SKILL.md`，作为用户进入 `leader.rp` / GM Tick 流程的可发现入口。
 - `RP目录初始化` skill 已废弃并删除；`simulation/` 随默认 Project 模板创建。
@@ -204,7 +212,7 @@ reporter       # overview.md / inspect.json / unpack-report.md / import-report.m
   - `inspect <input>`：读取 `.json`、`.raw.json` 或 best-effort PNG 文本块，只在 stdout 输出临时 overview，不生成文件。
   - `unpack <input> --project <path>`：生成 `reference/silly-tavern/{slug}/` 解包目录，包含 raw、overview、inspect、worldbook、regex、tavern_helper 和 unpack report；worldbook 会逐条拆成 frontmatter + 正文 Markdown，regex/scripts/variables 会逐条拆成独立 JSON。
   - `import <unpackDir> --project <path>`：从解包目录读取数据，把稳定 worldbook entries 按 deterministic 分类写入 `lorebook/character`、`lorebook/location`、`lorebook/faction`、`lorebook/world/rule`、`lorebook/system`、`lorebook/item`、`lorebook/event` 或 `lorebook/note`，并在解包目录生成带 `Import Mapping`、`Skipped Dynamic Content`、`Classification Review Queue`、`Pending Lorebook Notes` 和 `Recommended Next Steps` 的 `import-report.md`。
-  - `import <unpackDir> ... --rp`：额外生成 `reference/silly-tavern/{slug}/simulation-migration/README.md`、`simulator-candidates.md`、`writer-candidates.md`、`subject-candidates.md`、`entity-candidates.md`、`unsupported-runtime.md`，作为后续转写到 `simulation/simulator.md`、`simulation/writer.md`、subject 文件或 simulation mechanics 的迁移参考；不会创建 `simulation/subjects`、`simulation/entities` 或 `simulation/runs`。
+  - `import <unpackDir> ... --rp`：额外生成 `reference/silly-tavern/{slug}/simulation-migration/README.md`、`simulator-candidates.md`、`writer-candidates.md`、`subject-candidates.md`、`entity-candidates.md`、`unsupported-runtime.md`，作为后续转写到 `agent-context/simulator.leader/context.md`、`agent-context/rp.writer/context.md`、subject 文件或 simulation mechanics 的迁移参考；不会创建 `simulation/subjects`、`simulation/entities` 或 `simulation/runs`。
   - preset-like JSON 只归档和报告，不作为角色主体写入 lorebook。
   - `--project` 必须指向包含 `project.yaml` 的 Project Workspace，避免和 Workspace Root / `.nbook` 混淆。
   - `import` 会拒绝 unknown 解包目录；`inspect` / `unpack` 仍允许 unknown，用于查看和保存原始结构。
@@ -215,6 +223,7 @@ reporter       # overview.md / inspect.json / unpack-report.md / import-report.m
   - `rule` 进入 `lorebook/world/rule`；`system` 进入 `lorebook/system`；`event` 进入 `lorebook/event`；`unknown`、混合职责条目和格式风险条目进入 `lorebook/note` pending，并在 report 中列为 classification review。
   - `inspect --json` 和 `import --json` 都输出 `mappingSummary`，便于后续 Agent 或脚本继续优化分类规则。
 - 已新增测试：`server/agent/skills/silly-tavern-card-cli.test.ts`，覆盖三张样本 raw 卡、预设识别、动态 marker 统计、Windows 路径 slug、Project Workspace 校验、inspect 不写文件、unpack 目录结构、集中 `generated.json`、import 从解包目录读取和用户手改保护。
+- 2026-06-07 文档清理：将 Current Target、RP skill 说明和导入迁移目标同步到 profile context V2；当前入口为 `simulator.leader`，profile guidance 位于 `agent-context/`，`simulation/` 只保留 runtime state。`roleplay-runtime-structure.md` 明确降级为早期设计记录。
 
 - 变量系统暂不实现。第一阶段先把纯文本卡导入做好；复杂数值、好感度、背包、任务进度、状态栏等后续专门设计。
 - 泛用自然语言编辑工具先记录为 TODO。该工具不是 state 专用，参数方向暂定为：目标文件、自然语言操作说明、可选携带上下文消息数量，后续可接轻量模型。
@@ -307,9 +316,9 @@ reporter       # overview.md / inspect.json / unpack-report.md / import-report.m
 
 ## TODO / Follow-ups
 
-- 真实试跑 `leader.rp` 初始化流程，检查 cast.yaml 到 actor session 的创建/复用提示是否足够清晰。
+- 真实试跑 `simulator.leader` 初始化流程，检查 `agent-context/simulator.leader/context.md`、subject 路径到 actor session 的创建/复用提示是否足够清晰。
 - 继续增强 SillyTavern worldbook 迁移脚本：基于更多真实样本优化分类规则，尤其是事件、系统、格式约束、角色别名和大型世界书目录名。
-- 后续把 `simulation-migration/` 归档进一步转写为 `simulation/simulator.md` / `simulation/writer.md` / subject 文件补丁或 simulation mechanics。
+- 后续把 `simulation-migration/` 归档进一步转写为 `agent-context/simulator.leader/context.md` / `agent-context/rp.writer/context.md` / subject 文件补丁或 simulation mechanics。
 - 扩展 PNG 提取能力：当前只 best-effort 读取 `tEXt` 文本块，后续按样本需要再支持 `iTXt` / `zTXt`。
 - 设计泛用自然语言编辑工具：输入目标文件、自然语言操作说明和可选上下文消息数量，由轻量模型辅助修改文件；后续可用于 Agent 记忆系统、RP 状态维护和常规文件编辑减负。
 - 单独讨论 RP 变量系统：如何表示数值、列表、背包、好感度、任务、世界时钟，以及它和 `state.md`、`simulation/runs/` 的关系。

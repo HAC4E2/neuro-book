@@ -142,6 +142,7 @@ export type EffectiveConfig = {
     };
     ui: {
         theme: "sepia" | "light" | "dark";
+        costCurrency: "USD" | "CNY";
     };
     editor: {
         markdown: MarkdownEditorPreferences;

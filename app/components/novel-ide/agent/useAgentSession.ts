@@ -248,6 +248,7 @@ export function useAgentSession() {
             effectiveThinkingLevel: state.effectiveThinkingLevel,
             planModeActive: state.planModeActive,
             usage: state.usage,
+            contextUsage: state.contextUsage,
         };
         if (state.activeInvocation) {
             liveRunStatus.value = state.activeInvocation.status === "waiting" ? "waiting" : state.activeInvocation.status;

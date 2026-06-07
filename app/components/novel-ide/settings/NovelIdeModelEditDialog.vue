@@ -3,6 +3,7 @@ import type {SelectOption} from "nbook/app/components/common/form/FormSelect.vue
 import Dialog from "nbook/app/components/common/Dialog.vue";
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
+import {hasModelCostOverride, type ModelCostDraft} from "nbook/app/components/novel-ide/settings/model-cost-draft";
 import type {ModelInputKind} from "nbook/shared/dto/app-settings.dto";
 
 type ModelDraft = {
@@ -16,7 +17,7 @@ type ModelDraft = {
     reasoning: "inherit" | "true" | "false";
     input: string;
     maxTokens: string;
-    cost: string;
+    cost: ModelCostDraft;
     compat: string;
     contextWindowTokens: string;
 };
@@ -46,6 +47,7 @@ const emit = defineEmits<{
     (e: "model-id-change"): void;
     (e: "toggle-model-input", model: ModelDraft, inputKind: ModelInputKind): void;
     (e: "reset-model-input", model: ModelDraft): void;
+    (e: "reset-model-cost", model: ModelDraft): void;
 }>();
 
 const reasoningOptions: SelectOption[] = [
@@ -53,6 +55,27 @@ const reasoningOptions: SelectOption[] = [
     {value: "true", label: "支持"},
     {value: "false", label: "不支持"},
 ];
+
+const costFields: Array<{key: keyof Pick<ModelCostDraft, "input" | "output" | "cacheRead" | "cacheWrite">; label: string; placeholder: string}> = [
+    {key: "input", label: "Input", placeholder: "0.14"},
+    {key: "output", label: "Output", placeholder: "0.28"},
+    {key: "cacheRead", label: "Cache read", placeholder: "0.0028"},
+    {key: "cacheWrite", label: "Cache write", placeholder: "0"},
+];
+
+/**
+ * 判断当前模型是否覆盖 Pi registry 价格。
+ */
+function modelCostSourceLabel(model: ModelDraft): string {
+    return hasModelCostOverride(model.cost) ? "自定义覆盖" : "继承 Pi registry";
+}
+
+/**
+ * 当前价格输入单位。
+ */
+function modelCostUnitLabel(model: ModelDraft): string {
+    return "USD / 1M tokens";
+}
 
 /**
  * 关闭模型编辑弹窗。
@@ -204,13 +227,13 @@ function updateOpen(value: boolean): void {
                     </section>
                 </div>
 
-                <!-- 高级 JSON 配置 -->
+                <!-- 高级配置 -->
                 <div class="mt-5 rounded-xl border border-[var(--border-color)] border-opacity-60 bg-[var(--bg-input)] bg-opacity-20 p-4 space-y-4 transition-all duration-300 hover:shadow-[0_4px_20px_rgba(0,0,0,0.02)] hover:border-[var(--accent-main)] hover:border-opacity-30">
                     <div class="flex items-center gap-2 pb-1">
                         <span class="flex items-center justify-center w-5 h-5 rounded bg-[var(--accent-bg)] text-[var(--accent-text)]">
                             <span class="i-lucide-braces h-3.5 w-3.5"></span>
                         </span>
-                        <h4 class="text-xs font-bold text-[var(--text-main)] tracking-wider">高级配置 (JSON)</h4>
+                        <h4 class="text-xs font-bold text-[var(--text-main)] tracking-wider">高级配置</h4>
                     </div>
                     <div class="grid gap-5 md:grid-cols-2">
                         <div class="space-y-2">
@@ -225,17 +248,27 @@ function updateOpen(value: boolean): void {
                                 class="w-full h-24 resize-none rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-2 font-mono text-[11px] text-[var(--text-main)] outline-none transition-all placeholder:text-[var(--text-muted)] placeholder:text-opacity-50 focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)] focus:ring-opacity-20 custom-scrollbar"
                             ></textarea>
                         </div>
-                        <div class="space-y-2">
-                            <div class="flex items-center justify-between">
-                                <label class="text-xs font-semibold text-[var(--text-secondary)]">Cost JSON</label>
-                                <span class="text-[9px] font-bold text-[var(--text-muted)] uppercase tracking-wider bg-[var(--bg-hover)] border border-[var(--border-color)] px-1.5 py-0.5 rounded">COST</span>
+                        <div class="space-y-3">
+                            <div class="flex items-center justify-between gap-3">
+                                <div class="min-w-0">
+                                    <label class="text-xs font-semibold text-[var(--text-secondary)]">模型价格</label>
+                                    <div class="mt-0.5 text-[10px] text-[var(--text-muted)]">{{ modelCostUnitLabel(props.editingModel) }}</div>
+                                </div>
+                                <span class="shrink-0 text-[9px] font-bold uppercase tracking-wider bg-[var(--bg-hover)] border border-[var(--border-color)] px-1.5 py-0.5 rounded" :class="hasModelCostOverride(props.editingModel.cost) ? 'text-[var(--accent-text)]' : 'text-[var(--text-muted)]'">{{ modelCostSourceLabel(props.editingModel) }}</span>
                             </div>
-                            <textarea
-                                v-model="props.editingModel.cost"
-                                placeholder="{&quot;input&quot;:0,&quot;output&quot;:0,&quot;cacheRead&quot;:0,&quot;cacheWrite&quot;:0}"
-                                spellcheck="false"
-                                class="w-full h-24 resize-none rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-2 font-mono text-[11px] text-[var(--text-main)] outline-none transition-all placeholder:text-[var(--text-muted)] placeholder:text-opacity-50 focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)] focus:ring-opacity-20 custom-scrollbar"
-                            ></textarea>
+                            <div class="grid grid-cols-2 gap-2">
+                                <div v-for="field in costFields" :key="field.key" class="space-y-1">
+                                    <label class="text-[10px] font-medium text-[var(--text-muted)]">{{ field.label }}</label>
+                                    <FormInput v-model="props.editingModel.cost[field.key]" type="number" min="0" step="0.000001" :placeholder="field.placeholder" class="bg-[var(--bg-input)] shadow-sm" />
+                                </div>
+                            </div>
+                            <div class="flex items-center justify-between gap-3 rounded-lg border border-[var(--border-color)] border-opacity-30 bg-[var(--bg-input)] bg-opacity-15 p-2">
+                                <span class="min-w-0 text-[10px] leading-normal text-[var(--text-muted)]">保存后统一写入 USD / 1M tokens；空价格继承 Pi registry。</span>
+                                <button type="button" class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-[var(--border-color)] px-2 text-[10px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="清空价格覆盖，恢复继承 Pi registry" @click="emit('reset-model-cost', props.editingModel)">
+                                    <span class="i-lucide-rotate-ccw h-3 w-3"></span>
+                                    清空
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>

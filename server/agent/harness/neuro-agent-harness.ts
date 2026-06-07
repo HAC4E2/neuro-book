@@ -76,6 +76,7 @@ import type {
     AgentLinkedSessionDto,
     AgentPendingApprovalDto,
     AgentRuntimeStreamEventDto,
+    AgentSessionContextUsageDto,
     AgentSessionEventDto,
     AgentSessionEventsQueryDto,
     AgentSessionListQueryDto,
@@ -1016,7 +1017,8 @@ export class NeuroAgentHarness {
             thinkingLevel: projection.context.thinkingLevel,
             effectiveThinkingLevel,
             planModeActive: projection.context.planModeActive,
-            usage: [...projection.context.messages].reverse().find((message) => message.role === "assistant")?.usage,
+            usage: this.repo.usage(projection.snapshot),
+            contextUsage: await this.sessionContextUsage(projection.snapshot, projection.context),
         };
     }
 
@@ -1062,7 +1064,8 @@ export class NeuroAgentHarness {
             effectiveThinkingLevel,
             planModeActive: context.planModeActive,
             lastSeq: this.eventHub.lastSeq(sessionId),
-            usage: [...context.messages].reverse().find((message) => message.role === "assistant")?.usage,
+            usage: this.repo.usage(snapshot),
+            contextUsage: await this.sessionContextUsage(snapshot, context),
         };
     }
 
@@ -1598,7 +1601,7 @@ export class NeuroAgentHarness {
             activeLeafId: snapshot.leafId,
             title: context.title,
             summary: context.summary ?? this.sessionFallbackSummary(context.messages),
-            usage: [...context.messages].reverse().find((message) => message.role === "assistant")?.usage,
+            usage: this.repo.usage(snapshot),
             linkedAgents,
         };
         if (!query.includeRecentMessages) {
@@ -3375,6 +3378,29 @@ export class NeuroAgentHarness {
             summary,
             pendingApproval,
             activeInvocation,
+        };
+    }
+
+    /**
+     * 生成当前 active context 的 token 估算信息。
+     */
+    private async sessionContextUsage(snapshot: SessionSnapshot, context: NeuroSessionContext): Promise<AgentSessionContextUsageDto> {
+        const usedTokens = estimateContextTokens(context.messages).tokens;
+        let limitTokens: number | null = null;
+        try {
+            const config = await loadEffectiveConfig(snapshot.metadata);
+            const model = context.model ?? this.modelResolver(config, context.profileKey);
+            limitTokens = typeof model.contextWindow === "number" && Number.isFinite(model.contextWindow)
+                ? model.contextWindow
+                : null;
+        } catch {
+            limitTokens = null;
+        }
+        return {
+            usedTokens,
+            limitTokens,
+            percent: limitTokens ? usedTokens / limitTokens * 100 : null,
+            estimated: true,
         };
     }
 

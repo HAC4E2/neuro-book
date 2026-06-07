@@ -27,8 +27,8 @@ when_to_use:
 ## 执行顺序
 
 1. 确认 Current Project Workspace，所有文件路径使用 `project-slug/simulation/...`。
-2. 检查 `simulation/config.yaml`、`simulation/cast.yaml`、`simulation/simulator.md`、`simulation/writer.md` 是否存在；缺失时优先从默认 Project 模板补齐。
-3. 如果当前任务已需要专门世界模拟主管，创建或复用 `simulator.leader`，后续推进由它读取本 skill 初始化出的 `simulation/`。
+2. 检查 `agent-context/simulator.leader/context.md`、`agent-context/rp.writer/context.md`、`simulation/subjects/`、`simulation/entities/`、`simulation/runs/` 是否存在；缺失时优先从默认 Project 模板补齐。
+3. 如果当前任务已需要专门世界模拟主管，创建或复用 `simulator.leader`，后续推进由它读取 `agent-context/simulator.leader/context.md` 与本 skill 初始化出的 `simulation/` runtime state。
 4. 读取基础 lorebook：故事概念、主角、关键 NPC、地点、势力、规则和重要物品。
 5. 确定初始 subjects：至少包含玩家/主角；按用户要求或开局需要加入关键 NPC、势力代表或系统主体。
 6. 为每个 subject 建立或更新：

@@ -3,7 +3,7 @@ import {existsSync} from "node:fs";
 import {dirname, join, resolve} from "node:path";
 import {randomUUID} from "node:crypto";
 import type {AgentMessage, JsonValue, Message} from "nbook/server/agent/messages/types";
-import {createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
+import {createUserMessage, messageText, sumAssistantUsage} from "nbook/server/agent/messages/message-utils";
 import type {
     CompactionSessionEntry,
     LinkedAgentSummary,
@@ -443,7 +443,6 @@ export class JsonlSessionRepository {
         const context = this.reduce(snapshot);
         const path = this.activePath(snapshot);
         const lastMessage = [...path].reverse().find((entry) => entry.type === "message");
-        const lastAssistant = [...context.messages].reverse().find((message) => message.role === "assistant");
         const updatedAt = path.at(-1)?.timestamp ?? snapshot.metadata.createdAt;
         const interrupted = [...path].reverse().find((entry) => entry.type === "invocation_lifecycle");
 
@@ -462,8 +461,21 @@ export class JsonlSessionRepository {
             updatedAt,
             archived: context.archived,
             lastMessagePreview: lastMessage?.type === "message" ? messageText(lastMessage.message).slice(0, 160) : undefined,
-            usage: lastAssistant?.role === "assistant" ? lastAssistant.usage : undefined,
+            usage: this.usage(snapshot),
         };
+    }
+
+    /**
+     * 汇总 active path 中所有原始 assistant 调用的 provider usage。
+     *
+     * 注意不要从 reduce().messages 统计：compaction 会把早期历史替换成 summary message，
+     * 但 session 总消耗必须保留压缩前已经发生的模型调用成本。
+     */
+    usage(snapshot: SessionSnapshot): AgentSessionSummaryDto["usage"] {
+        const assistantMessages = this.activePath(snapshot)
+            .filter((entry): entry is Extract<SessionEntry, {type: "message"}> => entry.type === "message" && entry.message.role === "assistant")
+            .map((entry) => entry.message);
+        return sumAssistantUsage(assistantMessages);
     }
 
     /**

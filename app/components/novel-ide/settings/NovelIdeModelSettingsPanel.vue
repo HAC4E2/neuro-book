@@ -5,6 +5,7 @@ import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
 import Dialog from "nbook/app/components/common/Dialog.vue";
 import NovelIdeModelSelect from "nbook/app/components/novel-ide/settings/NovelIdeModelSelect.vue";
 import NovelIdeModelEditDialog from "nbook/app/components/novel-ide/settings/NovelIdeModelEditDialog.vue";
+import {clearModelCostDraft, createEmptyModelCostDraft, createModelCostDraft, parseModelCostDraft, type ModelCostDraft} from "nbook/app/components/novel-ide/settings/model-cost-draft";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {useNotification} from "nbook/app/composables/useNotification";
@@ -49,7 +50,7 @@ type ModelDraft = {
     reasoning: "inherit" | "true" | "false";
     input: string;
     maxTokens: string;
-    cost: string;
+    cost: ModelCostDraft;
     compat: string;
     contextWindowTokens: string;
 };
@@ -234,7 +235,7 @@ function cloneModel(model: ConfiguredModelDto): ModelDraft {
         reasoning: model.reasoning === null ? "inherit" : model.reasoning ? "true" : "false",
         input: model.input?.join(",") ?? "",
         maxTokens: typeof model.maxTokens === "number" ? String(model.maxTokens) : "",
-        cost: model.cost ? JSON.stringify(model.cost, null, 2) : "",
+        cost: createModelCostDraft(model.cost),
         compat: model.compat ? JSON.stringify(model.compat, null, 2) : "",
         contextWindowTokens: typeof model.contextWindowTokens === "number" ? String(model.contextWindowTokens) : "",
     };
@@ -293,6 +294,13 @@ function modelInputEnabled(model: ModelDraft, inputKind: ModelInputKind): boolea
 }
 
 /**
+ * 清空模型价格覆盖，恢复继承 Pi registry。
+ */
+function resetModelCost(model: ModelDraft): void {
+    clearModelCostDraft(model.cost);
+}
+
+/**
  * 解析模型推理能力；继承表示由 Pi registry 决定。
  */
 function parseModelReasoning(value: ModelDraft["reasoning"]): boolean | null {
@@ -321,39 +329,6 @@ function parseModelCompat(value: string): ConfiguredModelDto["compat"] {
     } catch {
         return null;
     }
-}
-
-/**
- * 解析 Pi cost JSON；空值表示继承 Pi registry。
- */
-function parseModelCost(value: string): ConfiguredModelDto["cost"] {
-    const normalizedValue = value.trim();
-    if (!normalizedValue) {
-        return null;
-    }
-    try {
-        const parsedValue = JSON.parse(normalizedValue);
-        if (!parsedValue || typeof parsedValue !== "object" || Array.isArray(parsedValue)) {
-            return null;
-        }
-        const record = parsedValue as Record<string, unknown>;
-        const cost = {
-            input: readFiniteNumber(record.input),
-            output: readFiniteNumber(record.output),
-            cacheRead: readFiniteNumber(record.cacheRead),
-            cacheWrite: readFiniteNumber(record.cacheWrite),
-        };
-        return cost;
-    } catch {
-        return null;
-    }
-}
-
-/**
- * 读取 Pi cost 中的数字字段。
- */
-function readFiniteNumber(value: unknown): number {
-    return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 /**
@@ -419,20 +394,20 @@ function cloneProvider(provider: ConfigModelSettingsDto["providers"][number]): P
 /**
  * 将接口响应应用到本地草稿。
  */
-function applySettings(settings: ConfigModelSettingsDto): void {
+function applySettings(snapshot: ConfigEditorSnapshotDto): void {
     draft.value = {
-        defaultModelKey: settings.defaultModelKey,
-        providers: settings.providers.map(cloneProvider),
+        defaultModelKey: snapshot.modelSettings.defaultModelKey,
+        providers: snapshot.modelSettings.providers.map(cloneProvider),
     };
     snapshotText.value = JSON.stringify(buildSavePayload());
     activeProviderId.value = draft.value.providers[0]?.id ?? "";
     discoveredModels.value = {};
     resolvedContextWindowMap.value = Object.fromEntries(
-        settings.enabledModels.map((model) => [model.key, model.contextWindowTokens]),
+        snapshot.modelSettings.enabledModels.map((model) => [model.key, model.contextWindowTokens]),
     );
     manualModelDrafts.value = {};
     projectReferencesDirty.value = false;
-    novelIdeStore.setSelectedModelLabel(settings.defaultModelLabel);
+    novelIdeStore.setSelectedModelLabel(snapshot.modelSettings.defaultModelLabel);
 }
 
 /**
@@ -530,7 +505,7 @@ function buildSavePayload(): UpdateModelSettingsRequestDto {
                 reasoning: parseModelReasoning(model.reasoning),
                 input: parseModelInput(model.input),
                 maxTokens: parseMaxTokens(model.maxTokens),
-                cost: parseModelCost(model.cost),
+                cost: parseModelCostDraft(model.cost),
                 compat: parseModelCompat(model.compat),
                 contextWindowTokens: parseContextWindowTokens(model.contextWindowTokens),
             })),
@@ -571,7 +546,7 @@ function buildGlobalConfigPayload(): GlobalConfigDto {
                     reasoning: parseModelReasoning(model.reasoning),
                     input: parseModelInput(model.input),
                     maxTokens: parseMaxTokens(model.maxTokens),
-                    cost: parseModelCost(model.cost),
+                    cost: parseModelCostDraft(model.cost),
                     compat: parseModelCompat(model.compat),
                     contextWindowTokens: parseContextWindowTokens(model.contextWindowTokens),
                 })),
@@ -762,7 +737,7 @@ async function loadSettings(): Promise<void> {
         if (isProjectScope.value) {
             applyProjectSettings(snapshot);
         } else {
-            applySettings(snapshot.modelSettings);
+            applySettings(snapshot);
         }
     } catch (error) {
         notification.error(resolveApiErrorMessage(error, "读取模型设定失败"));
@@ -1035,7 +1010,7 @@ function clonePiModel(model: PiBuiltinModelDto): ModelDraft {
         reasoning: model.reasoning ? "true" : "false",
         input: model.input.join(","),
         maxTokens: String(model.maxTokens),
-        cost: JSON.stringify(model.cost, null, 2),
+        cost: createEmptyModelCostDraft(),
         compat: model.compat ? JSON.stringify(model.compat, null, 2) : "",
         contextWindowTokens: String(model.contextWindowTokens),
     };
@@ -1101,7 +1076,7 @@ async function saveSettings(): Promise<void> {
             applyProjectSettings(snapshot);
             notification.success("Project 默认模型覆盖已保存，后续新发起的请求会使用新的合并配置。");
         } else {
-            applySettings(snapshot.modelSettings);
+            applySettings(snapshot);
             notification.success("模型设定已写入 Global Config，后续新发起的请求会使用新的默认模型。");
         }
     } catch (error) {
@@ -1293,7 +1268,7 @@ function buildModelCheckDraft(model: ModelDraft): Omit<ConfiguredModelDto, "enab
         reasoning: parseModelReasoning(model.reasoning),
         input: parseModelInput(model.input),
         maxTokens: parseMaxTokens(model.maxTokens),
-        cost: parseModelCost(model.cost),
+        cost: parseModelCostDraft(model.cost),
         compat: parseModelCompat(model.compat),
         contextWindowTokens: parseContextWindowTokens(model.contextWindowTokens),
     };
@@ -1401,7 +1376,7 @@ function enableModel(model: {
         existingModel.reasoning = typeof model.reasoning === "boolean" ? (model.reasoning ? "true" : "false") : existingModel.reasoning;
         existingModel.input = model.input?.join(",") ?? existingModel.input;
         existingModel.maxTokens = typeof model.maxTokens === "number" ? String(model.maxTokens) : model.maxTokens?.trim() ?? existingModel.maxTokens;
-        existingModel.cost = model.cost ? JSON.stringify(model.cost, null, 2) : existingModel.cost;
+        existingModel.cost = model.cost ? createModelCostDraft(model.cost) : existingModel.cost;
         existingModel.compat = model.compat ? JSON.stringify(model.compat, null, 2) : existingModel.compat;
         existingModel.contextWindowTokens = typeof model.contextWindowTokens === "number"
             ? String(model.contextWindowTokens)
@@ -1418,7 +1393,7 @@ function enableModel(model: {
             reasoning: typeof model.reasoning === "boolean" ? (model.reasoning ? "true" : "false") : "inherit",
             input: model.input?.join(",") ?? "",
             maxTokens: typeof model.maxTokens === "number" ? String(model.maxTokens) : model.maxTokens?.trim() ?? "",
-            cost: model.cost ? JSON.stringify(model.cost, null, 2) : "",
+            cost: model.cost ? createModelCostDraft(model.cost) : createEmptyModelCostDraft(),
             compat: model.compat ? JSON.stringify(model.compat, null, 2) : "",
             contextWindowTokens: typeof model.contextWindowTokens === "number"
                 ? String(model.contextWindowTokens)
@@ -1613,7 +1588,6 @@ function toggleLibraryModel(model: { name: string; id: string; group: string; st
                 reasoning: model.builtinModel.reasoning,
                 input: model.builtinModel.input,
                 maxTokens: model.builtinModel.maxTokens,
-                cost: model.builtinModel.cost,
                 compat: model.builtinModel.compat,
                 contextWindowTokens: model.builtinModel.contextWindowTokens,
             }
@@ -2018,6 +1992,7 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.p
         @model-id-change="ensureDefaultModelKey"
         @toggle-model-input="toggleModelInput"
         @reset-model-input="($event) => { $event.input = ''; }"
+        @reset-model-cost="resetModelCost"
     />
 </template>
 

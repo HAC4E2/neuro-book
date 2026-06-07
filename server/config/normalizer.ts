@@ -24,6 +24,7 @@ import type {JsonValue} from "nbook/server/agent/messages/types";
 import {ThinkingLevelSchema} from "nbook/shared/dto/app-settings.dto";
 
 const DEFAULT_THEME: EffectiveConfig["ui"]["theme"] = "sepia";
+const DEFAULT_COST_CURRENCY: EffectiveConfig["ui"]["costCurrency"] = "USD";
 const DEFAULT_AGENT_PROFILE_MODEL_DEFAULTS: AgentProfileModelConfig = {
     modelKey: null,
     temperature: null,
@@ -87,6 +88,7 @@ export function createDefaultEffectiveConfig(): EffectiveConfig {
         },
         ui: {
             theme: DEFAULT_THEME,
+            costCurrency: DEFAULT_COST_CURRENCY,
         },
         editor: {
             markdown: {...DEFAULT_MARKDOWN_EDITOR_PREFERENCES},
@@ -120,6 +122,7 @@ export function normalizeGlobalConfig(input: Partial<StoredGlobalConfig> | null 
         },
         ui: {
             theme: normalizeTheme(raw.ui?.theme),
+            costCurrency: normalizeCostCurrency(raw.ui?.costCurrency),
         },
         editor: {
             markdown: normalizeMarkdownPreferences(raw.editor?.markdown),
@@ -173,6 +176,7 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
     effective.agent.profileModelDefaults = normalizeAgentProfileModelDefaults(globalConfig.agent?.profileModelDefaults);
     effective.agent.profiles = normalizeCompleteAgentProfiles(globalProfilePatches, effective.agent.profileModelDefaults);
     effective.ui.theme = normalizeTheme(globalConfig.ui?.theme);
+    effective.ui.costCurrency = normalizeCostCurrency(globalConfig.ui?.costCurrency);
     effective.editor.markdown = normalizeMarkdownPreferences(globalConfig.editor?.markdown);
     effective.editor.monaco = normalizeMonacoPreferences(globalConfig.editor?.monaco);
     effective.web = normalizeWebSettings(globalConfig.web);
@@ -412,6 +416,10 @@ function normalizeMonacoPreferences(input: Partial<MonacoEditorPreferences> | un
 
 function normalizeTheme(input: unknown): EffectiveConfig["ui"]["theme"] {
     return input === "light" || input === "dark" || input === "sepia" ? input : DEFAULT_THEME;
+}
+
+function normalizeCostCurrency(input: unknown): EffectiveConfig["ui"]["costCurrency"] {
+    return input === "CNY" ? "CNY" : DEFAULT_COST_CURRENCY;
 }
 
 function normalizeText(input: unknown): string {

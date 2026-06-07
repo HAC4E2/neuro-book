@@ -7,6 +7,7 @@ import {Type} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {
+    readConfigBootstrap,
     readConfigEditorSnapshot,
     saveGlobalConfig,
     saveProjectConfig,
@@ -37,8 +38,35 @@ describe("config service", () => {
         const snapshot = await readConfigEditorSnapshot({workspaceKind: "novel", projectPath: "workspace/config-test-project"}, catalog);
 
         expect(snapshot.defaultProfileSettings.effectiveProfileKey).toBe("leader.default");
+        expect(snapshot.effective.ui).toMatchObject({costCurrency: "USD"});
         await expect(fs.access(path.join("workspace", ".nbook", "config.json"))).rejects.toMatchObject({code: "ENOENT"});
         await expect(fs.access(path.join("workspace", "config-test-project", ".nbook", "config.json"))).rejects.toMatchObject({code: "ENOENT"});
+    });
+
+    it("Global UI 费用显示币种可以保存并被 bootstrap 读回", async () => {
+        const snapshot = await saveGlobalConfig({
+            ui: {
+                theme: "sepia",
+                costCurrency: "CNY",
+            },
+        }, {workspaceKind: "user-assets"});
+        const bootstrap = await readConfigBootstrap({workspaceKind: "user-assets"}, catalog);
+
+        expect(snapshot.global.ui?.costCurrency).toBe("CNY");
+        expect(snapshot.effective.ui).toMatchObject({costCurrency: "CNY"});
+        expect(bootstrap.ui.costCurrency).toBe("CNY");
+    });
+
+    it("非法 UI 费用显示币种会回退为 USD", async () => {
+        const snapshot = await saveGlobalConfig({
+            ui: {
+                theme: "sepia",
+                costCurrency: "EUR",
+            },
+        } as never, {workspaceKind: "user-assets"});
+
+        expect(snapshot.global.ui?.costCurrency).toBe("USD");
+        expect(snapshot.effective.ui).toMatchObject({costCurrency: "USD"});
     });
 
     it("Project Config 在 project.yaml 损坏时仍可读写", async () => {

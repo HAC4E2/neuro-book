@@ -4,6 +4,7 @@ import { messageStatusLabel } from "nbook/app/components/novel-ide/agent/agent-m
 import { useCollapsible } from "nbook/app/composables/useCollapsible";
 import AgentMarkdownContent from "nbook/app/components/novel-ide/agent/AgentMarkdownContent.vue";
 import StructuredTextEditor from "nbook/app/components/common/form/StructuredTextEditor.vue";
+import {formatCost, formatCostExact, type CostDisplayOptions} from "nbook/app/utils/cost-format";
 import type {
     AgentTriggerMenuContext,
     AgentTriggerMenuState,
@@ -26,6 +27,8 @@ const props = defineProps<{
     menuRefreshKey?: string | number;
     resolveMenu?: (context: AgentTriggerMenuContext) => AgentTriggerMenuState;
     onSkillTriggerStart?: () => void;
+    costDisplayOptions: CostDisplayOptions;
+    costExchangeRateSuffix?: string;
 }>();
 
 const emit = defineEmits<{
@@ -167,6 +170,71 @@ const systemLabel = computed(() => {
     }
     return "System";
 });
+
+/** 当前 assistant 消息的 provider 调用用量。 */
+const messageUsage = computed(() => props.node.message.type === "ai" ? props.node.message.usage : undefined);
+
+/** 本次调用 token 明细 tooltip。 */
+const messageUsageTitle = computed(() => {
+    const usage = messageUsage.value;
+    if (!usage) {
+        return "";
+    }
+    const costLabel = formatCost(usage.cost.total, props.costDisplayOptions)
+        ? ` / 本次耗费 ${formatCost(usage.cost.total, props.costDisplayOptions)}（输入 ${formatCostExact(usage.cost.input, props.costDisplayOptions)} / 输出 ${formatCostExact(usage.cost.output, props.costDisplayOptions)} / 缓存读 ${formatCostExact(usage.cost.cacheRead, props.costDisplayOptions)} / 缓存写 ${formatCostExact(usage.cost.cacheWrite, props.costDisplayOptions)} / 总计 ${formatCostExact(usage.cost.total, props.costDisplayOptions)}${props.costExchangeRateSuffix ?? ""}）`
+        : "";
+    return `本次调用：总 ${formatTokenCount(usage.totalTokens)} / 输入 ${formatTokenCount(usage.input)} / 输出 ${formatTokenCount(usage.output)} / 缓存读 ${formatTokenCount(usage.cacheRead)} / 缓存写 ${formatTokenCount(usage.cacheWrite)} / 缓存命中率 ${formatCacheHitRate(usage)}${costLabel}`;
+});
+
+/** 当前调用是否有可计算的 prompt cache 命中率。 */
+const messageCacheHitRateLabel = computed(() => {
+    const usage = messageUsage.value;
+    if (!usage || usage.input + usage.cacheRead <= 0) {
+        return "";
+    }
+    return formatCacheHitRate(usage);
+});
+
+/** 本次调用费用标签；没有可展示价格时为空。 */
+const messageCostLabel = computed(() => formatCost(messageUsage.value?.cost.total, props.costDisplayOptions));
+
+/** 格式化精确 token 数。 */
+function formatTokenCount(value: number | null | undefined): string {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+        return "-";
+    }
+    return new Intl.NumberFormat("zh-CN", {maximumFractionDigits: 0}).format(value);
+}
+
+/** 格式化紧凑 token 数。 */
+function formatCompactTokenCount(value: number | null | undefined): string {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+        return "-";
+    }
+    if (value >= 1_000_000) {
+        return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`;
+    }
+    if (value >= 1_000) {
+        return `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}K`;
+    }
+    return `${value}`;
+}
+
+/** 格式化百分比。 */
+function formatPercent(value: number): string {
+    return `${new Intl.NumberFormat("zh-CN", {
+        maximumFractionDigits: value >= 10 ? 0 : 1,
+    }).format(value)}%`;
+}
+
+/** 计算 prompt cache 命中率：缓存读 / 本次输入 prompt 总量。 */
+function formatCacheHitRate(usage: {input: number; cacheRead: number}): string {
+    const promptTokens = usage.input + usage.cacheRead;
+    if (promptTokens <= 0) {
+        return "0%";
+    }
+    return formatPercent(usage.cacheRead / promptTokens * 100);
+}
 
 /** 系统消息折叠摘要。 */
 const systemSummary = computed(() => {
@@ -425,11 +493,29 @@ const endSwipe = (event: PointerEvent): void => {
         </div>
 
         <!-- token 尾部 -->
-        <div v-if="props.node.message.tokens" class="mt-1 flex w-full items-center pl-6 text-[var(--text-muted)]">
+        <div v-if="messageUsage" class="mt-1 flex w-full items-center pl-6 text-[var(--text-muted)]">
             <div class="flex-1"></div>
-            <div class="flex items-center text-[10px] text-[var(--text-muted)]">
+            <div class="flex items-center gap-1 text-[10px] text-[var(--text-muted)]" :title="messageUsageTitle">
                 <span class="i-lucide-zap mr-1 h-3 w-3"></span>
-                {{ props.node.message.tokens }} tokens
+                <span>本次 {{ formatCompactTokenCount(messageUsage.totalTokens) }}</span>
+                <span class="i-lucide-arrow-down h-3 w-3"></span>
+                <span>{{ formatCompactTokenCount(messageUsage.input) }}</span>
+                <span class="i-lucide-arrow-up h-3 w-3"></span>
+                <span>{{ formatCompactTokenCount(messageUsage.output) }}</span>
+                <span class="i-lucide-database-zap h-3 w-3"></span>
+                <span>{{ formatCompactTokenCount(messageUsage.cacheRead) }}</span>
+                <template v-if="messageCacheHitRateLabel">
+                    <span class="i-lucide-percent h-3 w-3"></span>
+                    <span>{{ messageCacheHitRateLabel }}</span>
+                </template>
+                <template v-if="messageUsage.cacheWrite">
+                    <span class="i-lucide-hard-drive-upload h-3 w-3"></span>
+                    <span>{{ formatCompactTokenCount(messageUsage.cacheWrite) }}</span>
+                </template>
+                <template v-if="messageCostLabel">
+                    <span class="i-lucide-circle-dollar-sign h-3 w-3"></span>
+                    <span>本次 {{ messageCostLabel }}</span>
+                </template>
             </div>
         </div>
     </div>

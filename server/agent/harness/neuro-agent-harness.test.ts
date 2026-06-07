@@ -14,9 +14,26 @@ import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import simulatorActorProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/simulator.actor.profile";
 import {createAssistantTextMessage, createTextToolResult, createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 import {HistorySet, Message, ModelContext, ProfilePrompt, Reminder, System} from "nbook/server/agent/profiles/profile-dsl";
-import type {AgentMessage, Message as RuntimeMessage} from "nbook/server/agent/messages/types";
+import type {AgentMessage, Message as RuntimeMessage, Usage} from "nbook/server/agent/messages/types";
 import {AGENT_PLAN_MODE_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
 import {defineSessionVariable} from "nbook/server/agent/variables/registry";
+
+function usage(input: number, output: number, cacheRead = 0, cacheWrite = 0): Usage {
+    return {
+        input,
+        output,
+        cacheRead,
+        cacheWrite,
+        totalTokens: input + output + cacheRead + cacheWrite,
+        cost: {
+            input,
+            output,
+            cacheRead,
+            cacheWrite,
+            total: input + output + cacheRead + cacheWrite,
+        },
+    };
+}
 
 function visibleMessageText(messages: AgentMessage[]): string {
     return messages
@@ -246,6 +263,42 @@ describe("NeuroAgentHarness", () => {
         expect(session.entries.some((entry) => {
             return entry.type === "custom_message" && messageText(entry.message as never) === "DYNAMIC_REMINDER";
         })).toBe(false);
+    });
+
+    it("session snapshot 和 live state 暴露累计 usage 与 context usage", async () => {
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            input: {},
+            workspaceRoot: root,
+        });
+        await harness.repo.appendMessage(created.sessionId, createAssistantTextMessage({
+            text: "first",
+            usage: usage(12, 4, 3, 1),
+        }));
+        await harness.repo.appendMessage(created.sessionId, createAssistantTextMessage({
+            text: "second",
+            usage: usage(20, 8, 5, 0),
+        }));
+
+        const snapshot = await harness.getSessionSnapshot(created.sessionId);
+        const liveState = await harness.getSessionLiveState(created.sessionId);
+
+        expect(snapshot.usage).toMatchObject({
+            input: 32,
+            output: 12,
+            cacheRead: 8,
+            cacheWrite: 1,
+            totalTokens: 53,
+        });
+        expect(snapshot.summary.usage).toMatchObject(snapshot.usage ?? {});
+        expect(liveState.usage).toMatchObject(snapshot.usage ?? {});
+        expect(snapshot.contextUsage).toEqual(expect.objectContaining({
+            limitTokens: 128_000,
+            estimated: true,
+        }));
+        expect(typeof snapshot.contextUsage?.usedTokens).toBe("number");
+        expect(typeof snapshot.contextUsage?.percent).toBe("number");
+        expect(liveState.contextUsage).toEqual(snapshot.contextUsage);
     });
 
     it("新建 Project session 的 agent cwd 使用 Workspace Root 并保留 projectPath", async () => {

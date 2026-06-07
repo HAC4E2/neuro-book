@@ -13,9 +13,10 @@ when_to_use:
 ## 前置检查
 
 - 当前 Project Workspace 必须存在 `project.yaml`。
-- 当前 Project Workspace 应存在 `simulation/config.yaml`、`simulation/cast.yaml`、`simulation/simulator.md`、`simulation/writer.md`、`simulation/subjects/*`，并可按需使用 `simulation/entities/*`。
-- 如果没有 `simulation/`，重新用默认 Project 模板创建项目，或手工从 `assets/workspace/.nbook/templates/project-directory-templates/simulation/` 补齐。
-- 如果用户要从 SillyTavern 卡进入 RP，先使用 `novel-import-silly-tavern-card` 完成 `inspect -> unpack -> import`。动态机制归档在 `reference/silly-tavern/...`，后续再迁移到 simulation 机制。
+- 当前 Project Workspace 应存在 `agent-context/simulator.leader/context.md`、`agent-context/rp.writer/context.md`、`simulation/subjects/*`，并可按需使用 `simulation/entities/*` 与 `simulation/runs/*`。
+- `simulation/` 只保存 runtime state：`subjects/`、`entities/`、`runs/`。profile 专用说明放在 `agent-context/{profile}/context.md`，不要再创建或依赖旧 `simulation/config.yaml`、`simulation/cast.yaml`、`simulation/simulator.md`、`simulation/writer.md`。
+- 如果缺少 `simulation/` 或 `agent-context/` 默认文件，重新用默认 Project 模板创建项目，或手工从 `assets/workspace/.nbook/templates/project-directory-templates/` 补齐缺失文件。
+- 如果用户要从 SillyTavern 卡进入 RP，先使用 `novel-import-silly-tavern-card` 完成 `inspect -> unpack -> import`。动态机制归档在 `reference/silly-tavern/...`，后续再人工迁移到 `agent-context/`、`simulation/` 或 emulation workflow。
 
 ## 启动方式
 
@@ -26,12 +27,12 @@ when_to_use:
 
 ## simulator.leader 流程
 
-1. 读取 `simulation/config.yaml`、`simulation/cast.yaml`、`simulation/simulator.md` 和 `simulation/writer.md`。
-2. 根据 `cast.yaml` 创建或复用 `simulator.actor` 会话；每个 subject 的文件由 actor sidecar 读取和过滤，主扮演 run 只接收 actor-safe context 与 GM packet。
-3. 创建或复用 `rp.writer`，只给它 `simulation/writer.md` 与 simulator leader brief。
+1. 读取 Project `AGENTS.md`、`agent-context/simulator.leader/context.md`，必要时读取 `simulation/runs/current.md`、最近 Tick、相关 subject/entity state、Plot 和允许的 lorebook / reference。
+2. 根据当前任务、`agent-context/simulator.leader/context.md` 和 `simulation/subjects/*` 创建或复用 `simulator.actor` 会话；每个 subject 的文件由 actor sidecar 读取和过滤，主扮演 run 只接收 actor-safe context 与 actor-facing message。
+3. 创建或复用 `rp.writer`，只给它 `agent-context/rp.writer/context.md` 与 simulator leader brief。
 4. 用户发送第一条行动、台词或剧本式指令后，进入 Tick。
 
-`cast.yaml` 到 actor input 的字段映射固定为：`instruction -> instructionPath`、`events -> eventsPath`、`knowledge -> knowledgePath`、`mind -> mindPath`、`state -> statePath`。路径要从 Project Workspace 相对路径转换成 Agent cwd 可用路径。
+subject 文件到 actor input 的字段映射固定为：`subject.md -> instructionPath`、`events.md -> eventsPath`、`knowledge.md -> knowledgePath`、`mind.md -> mindPath`、`state.md -> statePath`。路径要从 Project Workspace 相对路径转换成 Agent cwd 可用路径。
 
 ## Tick 流程
 
@@ -52,7 +53,7 @@ when_to_use:
 - `simulator.leader` 是 simulator leader，可在 GM 裁决后写入 subject `state.md`、`simulation/entities/*` 和必要的 `simulation/runs/*`。
 - `simulator.actor` 是 subject simulator；主扮演阶段不读取完整 `simulation/`、`lorebook/`、`reference/` 或其他 subject 文件。
 - `simulator.actor` 的旁路可以维护自己的 `events.md`、`knowledge.md` 与 `mind.md`；`state.md` 与 `entities` 由 simulator leader 裁决。
-- `rp.writer` 只消费 `simulation/writer.md` 和 simulator leader brief，不自主遍历 `simulation/` 或 lorebook。
+- `rp.writer` 只消费 `agent-context/rp.writer/context.md` 和 simulator leader brief，不自主遍历 `simulation/` 或 lorebook。
 - 第一版不做持久化 session 记忆，不实现完整变量系统。
 
 ## 信息控制模型
@@ -68,6 +69,6 @@ when_to_use:
 ## 完成标准
 
 - 用户已经选择 `simulator.leader` 或就地 RP 入口。
-- `simulation/` 目录存在且最小文件齐全。
-- `cast.yaml` 中至少有 player subject。
+- `agent-context/simulator.leader/context.md`、`agent-context/rp.writer/context.md` 和 `simulation/` runtime 目录存在。
+- `simulation/subjects/` 中至少有 player 或用户指定的 subject。
 - agent 能解释下一步要读哪些文件、创建哪些 subject simulator、如何开始第一 Tick。

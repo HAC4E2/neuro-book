@@ -28,13 +28,13 @@
 - `--rp`：额外生成 `reference/silly-tavern/{slug}/simulation-migration/` 动态机制归档，不写入 `simulation/`。
 - 动态 MVU、Prompt Template、EJS、regex、状态栏/UI 等不会直接作为稳定 lorebook fact 导入。
 
-当前需要补强：
+当前已落地：
 
-- skill 名称仍是中文旧 key；reference 里已提出未来可改为 `novel-import-silly-tavern-card`，但尚未落地。
-- 导入分类仍提到旧 `lorebook/rule`，需要对齐当前目录协议：世界规则进 `lorebook/world/rule/`，机制进 `lorebook/system/`，AI 使用说明进 `lorebook/instruction/`。
-- `--rp` 产物仍称 `simulation-migration/`，但与最新 emulation bootstrap / tick workflow 的衔接还不够明确。
-- 对 `knowledge.md`、subject、entity、state、runs 的信息控制边界说明还可以更强。
-- import report 应更明确给出下一步：是否需要 `novel-workflow-05-emulation-bootstrap`、是否需要人工 review、哪些 dynamic 机制需要后续迁移。
+- `novel-import-silly-tavern-card` 已是 canonical skill；旧中文目录已删除，只在历史任务记录中保留旧名。
+- 导入分类已对齐当前目录协议：世界规则进 `lorebook/world/rule/`，机制进 `lorebook/system/`，AI 使用说明按风险进入 `lorebook/instruction/` 或 dynamic archive。
+- `--rp` 继续生成 `simulation-migration/` 迁移候选，但候选目标已对齐 profile context V2：simulator 规则进入 `agent-context/simulator.leader/context.md`，writer 规则进入 `agent-context/rp.writer/context.md`，runtime state 仍进入 `simulation/subjects|entities|runs`。
+- 对 `knowledge.md`、subject、entity、state、runs 的信息控制边界已写入 skill、report 和 follow-up workflow。
+- import report 已包含 recommended next steps，指导 validate、classification review、emulation bootstrap 或 tick。
 
 ## Relevant References
 
@@ -125,8 +125,8 @@
 强化 `simulation-migration/` 归档内容：
 
 - 把 dynamic 机制按迁移目标分类：
-  - `simulator.md` candidates：GM 裁决规则、状态更新规则、系统玩法。
-  - `writer.md` candidates：只影响用户可见正文的风格或格式要求。
+  - `agent-context/simulator.leader/context.md` candidates：世界裁决规则、状态更新规则、系统玩法。
+  - `agent-context/rp.writer/context.md` candidates：只影响用户可见正文的风格或格式要求。
   - `subject candidates`：可能转为 subject `knowledge.md` / `mind.md` 的角色视角材料，但必须人工过滤。
   - `entity candidates`：需要状态追踪的唯一物品、隐藏状态、变量化道具。
   - `unsupported runtime`：暂不迁移的 JS、regex、外部脚本、UI 状态栏。
@@ -149,7 +149,7 @@ simulation-migration/
 更新或新增测试：
 
 - `server/agent/skills/skill-catalog.test.ts`
-  - 断言 `novel-import-silly-tavern-card` 和旧 `SillyTavern角色卡导入` 都可见。
+  - 断言 `novel-import-silly-tavern-card` 可见；旧 `SillyTavern角色卡导入` 不再作为当前 catalog 入口。
 - `server/agent/skills/silly-tavern-card-cli.test.ts`
   - 分类目标不再使用旧 `lorebook/rule` 作为默认规则目录。
   - dynamic 条目仍跳过稳定 lorebook import。
@@ -199,8 +199,8 @@ bun run test server/agent/skills/skill-catalog.test.ts server/agent/skills/silly
 
 ## Acceptance Criteria
 
-- `SillyTavern角色卡导入` skill 明确遵守当前 directory / information-control / emulation workflow 规范。
-- 新增 `novel-import-silly-tavern-card`，旧中文 skill 保持兼容入口，不破坏现有调用。
+- `novel-import-silly-tavern-card` skill 明确遵守当前 directory / information-control / emulation workflow 规范。
+- 旧中文 skill 目录已删除；历史文档只把 `SillyTavern角色卡导入` 作为旧名说明。
 - 本 skill 明确负责第一遍 lorebook 导入，并把难分类条目写入 report 供后续 Agent / 作者处理。
 - 混合职责条目不自动拆分；低置信稳定设定进入 `lorebook/note/` 且 `status: pending`，纯动态/污染/无法判断内容只进 report / dynamic archive。
 - CLI 分类目标不再默认产生过时 `lorebook/rule` 路径。
@@ -231,6 +231,7 @@ The latest importer contract is:
 - 2026-06-03：增强分类 review 标记：状态栏/UI/好感度面板等 ST runtime 风险词不会直接进入稳定 `lorebook/system`，而是进入 pending note 与 classification review queue；普通可模拟系统仍可进入 `lorebook/system`。
 - 2026-06-04：skill 命名统一后，删除旧 `SillyTavern角色卡导入` 兼容目录，`scripts/silly-tavern-card.ts` 迁入 `novel-import-silly-tavern-card/scripts/`，测试和文档入口同步使用 canonical path。
 - 2026-06-06：根据命定之诗手动分类经验增强 importer：新增 `species` 分类、comment 命名模式优先规则、system 关键词扩展、location import 阶段自动嵌套、dynamic worldbook 独立归档、结构分隔标记 report-only、card-body 素材归档，并清理稳定 lorebook 中的 ST 原始 metadata 与自动生成正文块。
+- 2026-06-07：同步 profile context V2 口径。`simulation-migration/` 的 simulator / writer candidates 分别指向 `agent-context/simulator.leader/context.md` 与 `agent-context/rp.writer/context.md`；旧中文 skill 名仅作为历史说明，不再是当前 catalog 入口。
 
 ## Files Changed
 

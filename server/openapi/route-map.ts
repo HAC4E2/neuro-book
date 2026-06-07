@@ -54,6 +54,7 @@ import {
 import {
     ConfigBootstrapDtoSchema,
     ConfigEditorSnapshotDtoSchema,
+    ExchangeRateDtoSchema,
     ConfigSnapshotDtoSchema,
     ConfigWorkspaceQueryDtoSchema,
     GlobalConfigDtoSchema,
@@ -438,6 +439,13 @@ export const routeMetaMap: RouteMetaEntry[] = [
         summary: "Get lightweight startup config",
         queryParams: ConfigWorkspaceQueryDtoSchema,
         responseBody: ConfigBootstrapDtoSchema,
+    },
+    {
+        file: "config/exchange-rate.get.ts",
+        method: "get",
+        tags: ["Config"],
+        summary: "Get cached USD/CNY exchange rate",
+        responseBody: ExchangeRateDtoSchema,
     },
     {
         file: "config/global.put.ts",

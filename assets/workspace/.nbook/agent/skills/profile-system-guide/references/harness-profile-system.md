@@ -410,4 +410,4 @@ Primary docs:
 - `docs/tasks/04-tsx-profile-workbench/README.md`
 - `docs/tasks/05-leader-profile-v2-adaptation/README.md`
 - `docs/tasks/archived/user-assets-workspace/README.md`
-- `spec/workspace/TERMS.md`
+- `reference/workspace/TERMS.md`

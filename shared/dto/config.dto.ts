@@ -137,6 +137,7 @@ export const MonacoEditorConfigDtoSchema = z.object({
 
 export const UiConfigDtoSchema = z.object({
     theme: z.enum(["sepia", "light", "dark"]).default("sepia"),
+    costCurrency: z.enum(["USD", "CNY"]).default("USD"),
 });
 
 export const EditorConfigDtoSchema = z.object({
@@ -198,7 +199,7 @@ export const GlobalConfigDtoSchema = z.object({
         profileModelDefaults: AgentProfileModelConfigDtoSchema.partial().default({}),
         profiles: ConfigAgentProfileMapDtoSchema,
     }).default({defaultProfileKey: {novel: null, userAssets: null}, profileModelDefaults: {}, profiles: {}}),
-    ui: UiConfigDtoSchema.default({theme: "sepia"}),
+    ui: UiConfigDtoSchema.default({theme: "sepia", costCurrency: "USD"}),
     editor: EditorConfigDtoSchema.default({
         markdown: DEFAULT_MARKDOWN_EDITOR_PREFERENCES,
         monaco: DEFAULT_MONACO_EDITOR_PREFERENCES,
@@ -248,6 +249,17 @@ export type ProjectConfigDto = z.infer<typeof ProjectConfigDtoSchema>;
 export type ConfigSnapshotDto = z.infer<typeof ConfigSnapshotDtoSchema>;
 export type ConfigEditorSnapshotDto = z.infer<typeof ConfigEditorSnapshotDtoSchema>;
 
+export const ExchangeRateDtoSchema = z.object({
+    base: z.literal("USD"),
+    quote: z.literal("CNY"),
+    rate: z.number().positive(),
+    source: z.literal("frankfurter"),
+    fetchedAt: z.string().trim().min(1),
+    stale: z.boolean(),
+});
+
+export type ExchangeRateDto = z.infer<typeof ExchangeRateDtoSchema>;
+
 export const ConfigBootstrapDtoSchema = z.object({
     modelSettings: z.object({
         defaultModelLabel: z.string().trim().nullable().default(null),
@@ -255,6 +267,9 @@ export const ConfigBootstrapDtoSchema = z.object({
     }),
     defaultProfileSettings: z.object({
         effectiveProfileKey: ProfileKeySchema.nullable(),
+    }),
+    ui: z.object({
+        costCurrency: z.enum(["USD", "CNY"]).default("USD"),
     }),
 });
 

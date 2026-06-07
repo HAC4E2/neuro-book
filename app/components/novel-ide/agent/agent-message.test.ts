@@ -1,6 +1,24 @@
 import {describe, expect, it} from "vitest";
 import {applyRuntimeEventToMessages, applySessionEntryToMessages, deriveMessagesFromSessionSnapshot, isContinuationPointMessage, type AgentMessage} from "nbook/app/components/novel-ide/agent/agent-message";
 import type {AgentSessionSnapshotDto} from "nbook/shared/dto/agent-session.dto";
+import type {Usage} from "nbook/server/agent/messages/types";
+
+function usage(input: number, output: number, cacheRead = 0, cacheWrite = 0): Usage {
+    return {
+        input,
+        output,
+        cacheRead,
+        cacheWrite,
+        totalTokens: input + output + cacheRead + cacheWrite,
+        cost: {
+            input,
+            output,
+            cacheRead,
+            cacheWrite,
+            total: input + output + cacheRead + cacheWrite,
+        },
+    };
+}
 
 const baseSnapshot = (entries: AgentSessionSnapshotDto["entries"]): AgentSessionSnapshotDto => ({
     eventEpoch: "epoch-1",
@@ -98,6 +116,34 @@ describe("agent message projection", () => {
             systemLabel: "System Prompt",
             content: "# Leader\n\n保持协作。",
         }));
+    });
+
+    it("保留 assistant message 的完整 usage 明细", () => {
+        const assistantUsage = usage(120, 30, 40, 5);
+        const messages = deriveMessagesFromSessionSnapshot(baseSnapshot([{
+            id: "assistant-usage",
+            parentId: null,
+            timestamp: 1,
+            type: "message",
+            origin: "harness",
+            message: {
+                role: "assistant",
+                content: [{type: "text", text: "done"}],
+                api: "test",
+                provider: "test",
+                model: "test",
+                usage: assistantUsage,
+                stopReason: "stop",
+                timestamp: 1,
+            } as never,
+        }]));
+
+        expect(messages[0]).toMatchObject({
+            type: "ai",
+            content: "done",
+            tokens: 195,
+            usage: assistantUsage,
+        });
     });
 
     it("把 system-reminder custom_message 投影为轻量系统提醒", () => {

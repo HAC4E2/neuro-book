@@ -4,6 +4,24 @@ import {join} from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {createAssistantTextMessage, createTextToolResult} from "nbook/server/agent/messages/message-utils";
+import type {Usage} from "nbook/server/agent/messages/types";
+
+function usage(input: number, output: number, cacheRead = 0, cacheWrite = 0): Usage {
+    return {
+        input,
+        output,
+        cacheRead,
+        cacheWrite,
+        totalTokens: input + output + cacheRead + cacheWrite,
+        cost: {
+            input,
+            output,
+            cacheRead,
+            cacheWrite,
+            total: input + output + cacheRead + cacheWrite,
+        },
+    };
+}
 
 describe("JsonlSessionRepository", () => {
     let root: string;
@@ -85,6 +103,73 @@ describe("JsonlSessionRepository", () => {
         ]);
         expect(sessions.some((session) => session.sessionId === userAssetsSession.metadata.sessionId)).toBe(false);
         expect(sessions.some((session) => session.sessionId === projectSession.metadata.sessionId)).toBe(false);
+    });
+
+    it("session summary 累加 active path 中所有 assistant usage", async () => {
+        const session = await repo.createSession({
+            profileKey: "leader.default",
+            input: {},
+            workspaceRoot: root,
+            workspaceKey: "global",
+        });
+
+        await repo.appendMessage(session.metadata.sessionId, createAssistantTextMessage({
+            text: "first",
+            usage: usage(10, 3, 2, 1),
+        }), session.metadata.workspaceKey);
+        await repo.appendMessage(session.metadata.sessionId, createAssistantTextMessage({
+            text: "second",
+            usage: usage(20, 7, 4, 0),
+        }), session.metadata.workspaceKey);
+
+        const summary = repo.summary(await repo.readSession(session.metadata.sessionId));
+
+        expect(summary.usage).toMatchObject({
+            input: 30,
+            output: 10,
+            cacheRead: 6,
+            cacheWrite: 1,
+            totalTokens: 47,
+            cost: {
+                input: 30,
+                output: 10,
+                cacheRead: 6,
+                cacheWrite: 1,
+                total: 47,
+            },
+        });
+    });
+
+    it("session summary usage 不受 compaction 删除上下文影响", async () => {
+        const session = await repo.createSession({
+            profileKey: "leader.default",
+            input: {},
+            workspaceRoot: root,
+            workspaceKey: "global",
+        });
+        await repo.appendMessage(session.metadata.sessionId, createAssistantTextMessage({
+            text: "before compact",
+            usage: usage(100, 20),
+        }), session.metadata.workspaceKey);
+        const kept = await repo.appendMessage(session.metadata.sessionId, createAssistantTextMessage({
+            text: "after compact",
+            usage: usage(10, 2),
+        }), session.metadata.workspaceKey);
+        await repo.appendEntry(session.metadata.sessionId, {
+            type: "compaction",
+            summary: "compressed previous context",
+            firstKeptEntryId: kept.id,
+            tokensBefore: 120,
+        }, session.metadata.workspaceKey);
+
+        const snapshot = await repo.readSession(session.metadata.sessionId);
+
+        expect(repo.reduce(snapshot).messages.map((message) => message.role)).toEqual(["user", "assistant"]);
+        expect(repo.summary(snapshot).usage).toMatchObject({
+            input: 110,
+            output: 22,
+            totalTokens: 132,
+        });
     });
 
     it("session 列表支持 profile、状态、关系和数量筛选", async () => {

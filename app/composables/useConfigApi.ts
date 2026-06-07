@@ -3,6 +3,7 @@ import type {
     ConfigBootstrapDto,
     ConfigEditorSnapshotDto,
     ConfigWorkspaceQueryDto,
+    ExchangeRateDto,
     GlobalConfigDto,
     ProjectConfigDto,
 } from "nbook/shared/dto/config.dto";
@@ -105,6 +106,18 @@ export function useConfigApi() {
         return $fetch<PiBuiltinCatalogDto>("/api/config/models/pi-catalog");
     }
 
+    /**
+     * 读取费用显示用汇率；后端负责缓存和 Frankfurter 访问。
+     */
+    async function exchangeRate(): Promise<ExchangeRateDto> {
+        return $fetch<ExchangeRateDto>("/api/config/exchange-rate", {
+            query: {
+                base: "USD",
+                quote: "CNY",
+            },
+        });
+    }
+
     return {
         globalQuery,
         novelProjectQuery,
@@ -115,5 +128,6 @@ export function useConfigApi() {
         saveGlobal,
         saveProject,
         piModelCatalog,
+        exchangeRate,
     };
 }

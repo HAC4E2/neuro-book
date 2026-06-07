@@ -1,6 +1,6 @@
 import {z} from "zod";
 import type {AssistantMessageEvent} from "@earendil-works/pi-ai";
-import type {AgentMessage as PiAgentMessage, AgentToolCall as PiAgentToolCall, AssistantMessage as PiAssistantMessage, Message as PiMessage, ToolResultMessage} from "nbook/server/agent/messages/types";
+import type {AgentMessage as PiAgentMessage, AgentToolCall as PiAgentToolCall, AssistantMessage as PiAssistantMessage, Message as PiMessage, ToolResultMessage, Usage} from "nbook/server/agent/messages/types";
 import type {AgentRuntimeStreamEventDto, AgentSessionSnapshotDto, AgentPendingApprovalDto} from "nbook/shared/dto/agent-session.dto";
 import type {SessionEntry} from "nbook/server/agent/session/types";
 import {toStableArgsJson} from "nbook/app/components/novel-ide/agent/tool-args-stream";
@@ -71,6 +71,8 @@ export type AgentMessage = {
     toolCalls?: AgentToolCall[];
     timestamp?: string;
     model?: string;
+    /** assistant 本次 provider 调用的完整 token/cost 用量。 */
+    usage?: Usage;
     tokens?: number;
     thinking?: string;
     /** assistant 生成失败时的 provider/runtime 错误文本。 */
@@ -621,6 +623,7 @@ export const toLocalMessage = (id: string, message: PiMessage | PiAgentMessage, 
             status: streaming ? "streaming" : errorText ? "stopped" : "done",
             timestamp: formatTimestamp(message.timestamp),
             model: message.model,
+            usage: message.usage,
             tokens: message.usage?.totalTokens,
             thinking: thinking || undefined,
             error: errorText || undefined,

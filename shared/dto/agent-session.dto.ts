@@ -176,6 +176,16 @@ export type ClientStateSnapshotDto = ClientVariablesDto;
 
 export type AgentSessionStatus = "idle" | "running" | "waiting" | "archived" | "interrupted";
 
+export type AgentSessionContextUsageDto = {
+    /** 当前 active context 的 token 估算值。 */
+    usedTokens: number;
+    /** 当前模型 context window；为空表示模型未声明窗口。 */
+    limitTokens: number | null;
+    /** usedTokens / limitTokens 的百分比；limitTokens 为空时为空。 */
+    percent: number | null;
+    estimated: true;
+};
+
 export type AgentSessionSummaryDto = {
     sessionId: number;
     profileKey: string;
@@ -264,6 +274,7 @@ export type AgentSessionLiveStateDto = {
     effectiveThinkingLevel: z.infer<typeof ThinkingLevelSchema>;
     planModeActive: boolean;
     usage?: Usage;
+    contextUsage?: AgentSessionContextUsageDto;
 };
 
 export type AgentRuntimeStreamEventDto =
@@ -398,4 +409,5 @@ export type AgentSessionSnapshotDto = {
     planModeActive: boolean;
     lastSeq: number;
     usage?: Usage;
+    contextUsage?: AgentSessionContextUsageDto;
 };
