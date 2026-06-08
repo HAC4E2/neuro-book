@@ -34,7 +34,7 @@ const SubjectEventAppendSchema = Type.Object({
 const SubjectRagSearchSchema = Type.Object({
     subjectPath: Type.String({description: "Subject directory path, relative to Agent cwd, e.g. project/simulation/subjects/erina."}),
     query: Type.String({description: "Current actor-facing query or packet summary."}),
-    sources: Type.Optional(Type.Array(Type.Union([Type.Literal("events"), Type.Literal("memory")]), {description: "Optional source filter. Defaults to both events and memory."})),
+    sources: Type.Array(Type.Union([Type.Literal("events"), Type.Literal("memory")]), {minItems: 1, maxItems: 1, description: "Explicit single source filter. Callers must choose exactly one of events or memory; there is no implicit both-source default."}),
     limit: Type.Optional(Type.Integer({minimum: 1, maximum: 20, description: "Maximum rough candidates. Defaults to 10."})),
 }, {additionalProperties: false});
 
@@ -106,7 +106,7 @@ function createSubjectRagSearchTool(): NeuroAgentTool {
         async executeWithContext(context, _toolCallId, params: unknown) {
             const input = params as SubjectRagSearchInput;
             const subject = resolveSubjectPaths(context, input.subjectPath);
-            const sources: SubjectSourceType[] = input.sources?.length ? input.sources : ["events", "memory"];
+            const sources = normalizeSearchSources(input.sources);
             await ensureSubjectJsonlReadable(subject, sources);
             const candidates = await searchSubjectRag({
                 context,
@@ -126,6 +126,17 @@ function createSubjectRagSearchTool(): NeuroAgentTool {
             throw new Error("subject_rag_search 必须在 agent session workspace 内执行。");
         },
     };
+}
+
+function normalizeSearchSources(sources: SubjectRagSearchInput["sources"]): SubjectSourceType[] {
+    if (!Array.isArray(sources) || sources.length !== 1) {
+        throw new Error("subject_rag_search 必须显式指定且只能指定一个 source：events 或 memory。需要两层记忆时请分别调用两次。");
+    }
+    const source = sources[0];
+    if (source !== "events" && source !== "memory") {
+        throw new Error("subject_rag_search sources 只允许 events 或 memory。");
+    }
+    return [source];
 }
 
 function createMemoryBioTool(): NeuroAgentTool {

@@ -61,6 +61,19 @@ import {
     ProjectConfigDtoSchema,
 } from "nbook/shared/dto/config.dto";
 import {WorkspaceFileIssueDtoSchema} from "nbook/shared/dto/workspace-tree.dto";
+import {
+    ProjectRagEventDeleteRequestDtoSchema,
+    ProjectRagEventReorderRequestDtoSchema,
+    ProjectRagEventWriteRequestDtoSchema,
+    ProjectRagMemoryDeleteRequestDtoSchema,
+    ProjectRagMemoryWriteRequestDtoSchema,
+    ProjectRagOverviewDtoSchema,
+    ProjectRagRebuildRequestDtoSchema,
+    ProjectRagRebuildResultDtoSchema,
+    ProjectRagSearchRequestDtoSchema,
+    ProjectRagSearchResultDtoSchema,
+    ProjectRagSubjectDtoSchema,
+} from "nbook/shared/dto/project-rag.dto";
 
 // ─── AI / Writing DTOs ──────────────────────────────────────────
 import {
@@ -113,6 +126,14 @@ const StatQuerySchema = z_.object({
 const TreeQuerySchema = z_.object({
     projectPath: z_.string().optional().describe("Project Workspace path, for example workspace/<project>"),
     workspaceKind: z_.literal("user-assets").optional().describe("Use the global user assets workspace"),
+});
+
+const ProjectRagProjectQuerySchema = z_.object({
+    projectPath: z_.string().trim().min(1).describe("Project Workspace path, for example workspace/<project>"),
+});
+
+const ProjectRagSubjectQuerySchema = ProjectRagProjectQuerySchema.extend({
+    subjectPath: z_.string().trim().min(1).describe("Project-relative subject path, for example simulation/subjects/<subject-id>"),
 });
 
 const WorkspaceTreeSnapshotSchema = z_.object({
@@ -488,6 +509,105 @@ export const routeMetaMap: RouteMetaEntry[] = [
         summary: "Discover available models from a provider",
         requestBody: DiscoverProviderModelsRequestDtoSchema,
         responseBody: DiscoverProviderModelsResponseDtoSchema,
+    },
+
+    // ═══ Project RAG ═══
+    {
+        file: "projects/rag/overview.get.ts",
+        method: "get",
+        tags: ["Project RAG"],
+        summary: "Read Project-level subject RAG overview",
+        queryParams: ProjectRagProjectQuerySchema,
+        responseBody: ProjectRagOverviewDtoSchema,
+    },
+    {
+        file: "projects/rag/subject.get.ts",
+        method: "get",
+        tags: ["Project RAG"],
+        summary: "Read one subject's RAG data",
+        queryParams: ProjectRagSubjectQuerySchema,
+        responseBody: ProjectRagSubjectDtoSchema,
+    },
+    {
+        file: "projects/rag/search.post.ts",
+        method: "post",
+        tags: ["Project RAG"],
+        summary: "Search one subject through the real RAG chain",
+        queryParams: ProjectRagProjectQuerySchema,
+        requestBody: ProjectRagSearchRequestDtoSchema,
+        responseBody: ProjectRagSearchResultDtoSchema,
+    },
+    {
+        file: "projects/rag/rebuild.post.ts",
+        method: "post",
+        tags: ["Project RAG"],
+        summary: "Rebuild subject RAG index for one subject or the current Project",
+        queryParams: ProjectRagProjectQuerySchema,
+        requestBody: ProjectRagRebuildRequestDtoSchema,
+        responseBody: ProjectRagRebuildResultDtoSchema,
+    },
+    {
+        file: "projects/rag/events.post.ts",
+        method: "post",
+        tags: ["Project RAG"],
+        summary: "Create a subject event",
+        queryParams: ProjectRagProjectQuerySchema,
+        requestBody: ProjectRagEventWriteRequestDtoSchema,
+        responseBody: ProjectRagSubjectDtoSchema,
+    },
+    {
+        file: "projects/rag/events.patch.ts",
+        method: "patch",
+        tags: ["Project RAG"],
+        summary: "Update a subject event",
+        queryParams: ProjectRagProjectQuerySchema,
+        requestBody: ProjectRagEventWriteRequestDtoSchema,
+        responseBody: ProjectRagSubjectDtoSchema,
+    },
+    {
+        file: "projects/rag/events.delete.ts",
+        method: "delete",
+        tags: ["Project RAG"],
+        summary: "Delete a subject event",
+        queryParams: ProjectRagProjectQuerySchema,
+        requestBody: ProjectRagEventDeleteRequestDtoSchema,
+        responseBody: ProjectRagSubjectDtoSchema,
+    },
+    {
+        file: "projects/rag/events/reorder.post.ts",
+        method: "post",
+        tags: ["Project RAG"],
+        summary: "Reorder a subject event",
+        queryParams: ProjectRagProjectQuerySchema,
+        requestBody: ProjectRagEventReorderRequestDtoSchema,
+        responseBody: ProjectRagSubjectDtoSchema,
+    },
+    {
+        file: "projects/rag/memories.post.ts",
+        method: "post",
+        tags: ["Project RAG"],
+        summary: "Create a subject memory",
+        queryParams: ProjectRagProjectQuerySchema,
+        requestBody: ProjectRagMemoryWriteRequestDtoSchema,
+        responseBody: ProjectRagSubjectDtoSchema,
+    },
+    {
+        file: "projects/rag/memories.patch.ts",
+        method: "patch",
+        tags: ["Project RAG"],
+        summary: "Update a subject memory",
+        queryParams: ProjectRagProjectQuerySchema,
+        requestBody: ProjectRagMemoryWriteRequestDtoSchema,
+        responseBody: ProjectRagSubjectDtoSchema,
+    },
+    {
+        file: "projects/rag/memories.delete.ts",
+        method: "delete",
+        tags: ["Project RAG"],
+        summary: "Delete a subject memory",
+        queryParams: ProjectRagProjectQuerySchema,
+        requestBody: ProjectRagMemoryDeleteRequestDtoSchema,
+        responseBody: ProjectRagSubjectDtoSchema,
     },
 
     // ═══ Workspace Files ═══

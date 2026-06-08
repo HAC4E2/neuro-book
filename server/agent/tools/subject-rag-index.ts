@@ -30,7 +30,9 @@ export type SubjectRagCandidate = {
     sourcePath: string;
 };
 
-type BunSqliteDatabase = {
+export type SubjectRagRuntimeContext = Pick<ToolExecutionContext, "workspaceRoot" | "projectPath">;
+
+type SubjectRagDatabase = {
     run(sql: string, ...params: unknown[]): unknown;
     query(sql: string): {
         all(...params: unknown[]): unknown[];
@@ -41,12 +43,27 @@ type BunSqliteDatabase = {
     close(): void;
 };
 
-type SqliteModule = {
-    Database: new (path: string) => BunSqliteDatabase;
+type BunSqliteModule = {
+    Database: new (path: string) => SubjectRagDatabase;
+};
+
+type NodeSqliteDatabase = {
+    exec(sql: string): void;
+    prepare(sql: string): {
+        all(...params: unknown[]): unknown[];
+        get(...params: unknown[]): unknown;
+        run(...params: unknown[]): unknown;
+    };
+    loadExtension(path: string): void;
+    close(): void;
+};
+
+type NodeSqliteModule = {
+    DatabaseSync: new (path: string, options?: {allowExtension?: boolean}) => NodeSqliteDatabase;
 };
 
 type SqliteVecModule = {
-    load(db: BunSqliteDatabase): void;
+    load(db: SubjectRagDatabase): void;
 };
 
 type RagEmbeddingModel = {
@@ -81,7 +98,7 @@ const MAX_EMBED_BATCH = 32;
  * 检索当前 subject 的 events / memory RAG 候选。
  */
 export async function searchSubjectRag(input: {
-    context: ToolExecutionContext;
+    context: SubjectRagRuntimeContext;
     subject: SubjectPaths;
     query: string;
     sources: SubjectRagSourceType[];
@@ -120,6 +137,26 @@ export async function searchSubjectRag(input: {
 }
 
 /**
+ * 强制重建当前 subject 的指定 RAG source。JSONL 仍是事实源，SQLite 只做缓存。
+ */
+export async function rebuildSubjectRag(input: {
+    context: SubjectRagRuntimeContext;
+    subject: SubjectPaths;
+    sources: SubjectRagSourceType[];
+}): Promise<void> {
+    const embedding = await resolveSubjectRagEmbedding(input.context);
+    const ragDbPath = resolveSubjectRagDbPath(input.subject);
+    await mkdir(dirname(ragDbPath), {recursive: true});
+    const db = await openSubjectRagDatabase(ragDbPath, embedding.dimensions);
+    try {
+        await ensureRagMeta(db, embedding);
+        await syncSubjectSources(db, input.subject, input.sources, embedding, true);
+    } finally {
+        db.close();
+    }
+}
+
+/**
  * 把 subject source 标记为 dirty。JSON 文件是事实源，SQLite 只做可重建缓存。
  */
 export async function markSubjectRagDirty(subject: SubjectPaths, sourceType: SubjectRagSourceType, content: string): Promise<void> {
@@ -137,10 +174,9 @@ export async function markSubjectRagDirty(subject: SubjectPaths, sourceType: Sub
     await writeJsonFile(subject.ragStatePath, current);
 }
 
-async function openSubjectRagDatabase(dbPath: string, dimensions: number): Promise<BunSqliteDatabase> {
-    const sqlite = await import("bun:sqlite") as SqliteModule;
+async function openSubjectRagDatabase(dbPath: string, dimensions: number): Promise<SubjectRagDatabase> {
+    const db = await createSqliteDatabase(dbPath);
     const sqliteVec = await import("sqlite-vec") as unknown as SqliteVecModule;
-    const db = new sqlite.Database(dbPath);
     try {
         sqliteVec.load(db);
         createSchema(db, dimensions);
@@ -151,7 +187,67 @@ async function openSubjectRagDatabase(dbPath: string, dimensions: number): Promi
     }
 }
 
-function createSchema(db: BunSqliteDatabase, dimensions: number): void {
+async function createSqliteDatabase(dbPath: string): Promise<SubjectRagDatabase> {
+    if ("Bun" in globalThis) {
+        const sqliteSpecifier = "bun:sqlite";
+        const sqlite = await import(sqliteSpecifier) as BunSqliteModule;
+        return new sqlite.Database(dbPath);
+    }
+    const sqliteSpecifier = "node:sqlite";
+    const sqlite = await import(sqliteSpecifier) as unknown as NodeSqliteModule;
+    return wrapNodeSqliteDatabase(new sqlite.DatabaseSync(dbPath, {allowExtension: true}));
+}
+
+function wrapNodeSqliteDatabase(db: NodeSqliteDatabase): SubjectRagDatabase {
+    return {
+        run(sql, ...params) {
+            if (params.length === 0) {
+                db.exec(sql);
+                return undefined;
+            }
+            return db.prepare(sql).run(...params.map(normalizeNodeSqliteParam));
+        },
+        query(sql) {
+            const statement = db.prepare(sql);
+            return {
+                all(...params) {
+                    return statement.all(...params.map(normalizeNodeSqliteParam));
+                },
+                get(...params) {
+                    return statement.get(...params.map(normalizeNodeSqliteParam));
+                },
+            };
+        },
+        transaction(fn) {
+            return (...args) => {
+                db.exec("BEGIN IMMEDIATE");
+                try {
+                    const result = fn(...args);
+                    db.exec("COMMIT");
+                    return result;
+                } catch (error) {
+                    db.exec("ROLLBACK");
+                    throw error;
+                }
+            };
+        },
+        loadExtension(path) {
+            db.loadExtension(path);
+        },
+        close() {
+            db.close();
+        },
+    };
+}
+
+function normalizeNodeSqliteParam(value: unknown): unknown {
+    if (typeof value === "number" && Number.isSafeInteger(value)) {
+        return BigInt(value);
+    }
+    return value;
+}
+
+function createSchema(db: SubjectRagDatabase, dimensions: number): void {
     db.run("PRAGMA foreign_keys = ON");
     db.run(`
         CREATE TABLE IF NOT EXISTS subject_rag_meta (
@@ -202,7 +298,7 @@ function createSchema(db: BunSqliteDatabase, dimensions: number): void {
     )`);
 }
 
-function querySubjectRagSource(db: BunSqliteDatabase, input: {
+function querySubjectRagSource(db: SubjectRagDatabase, input: {
     queryEmbedding: number[];
     subjectPath: string;
     source: SubjectRagSourceType;
@@ -244,7 +340,7 @@ function querySubjectRagSource(db: BunSqliteDatabase, input: {
     }>;
 }
 
-async function ensureRagMeta(db: BunSqliteDatabase, embedding: RagEmbeddingModel): Promise<void> {
+async function ensureRagMeta(db: SubjectRagDatabase, embedding: RagEmbeddingModel): Promise<void> {
     const currentVersion = readMeta(db, "schemaVersion");
     const currentProvider = readMeta(db, "embedding.provider");
     const currentModel = readMeta(db, "embedding.model");
@@ -271,21 +367,23 @@ async function ensureRagMeta(db: BunSqliteDatabase, embedding: RagEmbeddingModel
 }
 
 async function syncSubjectSources(
-    db: BunSqliteDatabase,
+    db: SubjectRagDatabase,
     subject: SubjectPaths,
     sources: SubjectRagSourceType[],
     embedding: RagEmbeddingModel,
+    force = false,
 ): Promise<void> {
     for (const sourceType of sources) {
-        await syncSubjectSource(db, subject, sourceType, embedding);
+        await syncSubjectSource(db, subject, sourceType, embedding, force);
     }
 }
 
 async function syncSubjectSource(
-    db: BunSqliteDatabase,
+    db: SubjectRagDatabase,
     subject: SubjectPaths,
     sourceType: SubjectRagSourceType,
     embedding: RagEmbeddingModel,
+    force = false,
 ): Promise<void> {
     const sourcePath = sourceType === "events" ? subject.eventsPath : subject.memoryPath;
     const sourceText = await readTextIfExists(sourcePath);
@@ -294,7 +392,7 @@ async function syncSubjectSource(
     const externalDirty = await readSubjectRagDirty(subject, sourceType, sourceHash);
     const existing = db.query("SELECT id, source_hash AS sourceHash, dirty FROM subject_rag_sources WHERE subject_path = ? AND source_type = ?")
         .get(subject.absolutePath, sourceType) as {id: number; sourceHash: string; dirty: number} | null;
-    if (existing && existing.sourceHash === sourceHash && existing.dirty === 0 && !externalDirty) {
+    if (!force && existing && existing.sourceHash === sourceHash && existing.dirty === 0 && !externalDirty) {
         return;
     }
 
@@ -343,7 +441,7 @@ async function syncSubjectSource(
     }
 }
 
-function upsertSource(db: BunSqliteDatabase, input: {
+function upsertSource(db: SubjectRagDatabase, input: {
     existingId?: number;
     subjectId: string;
     subjectPath: string;
@@ -432,7 +530,7 @@ function splitLongText(text: string): string[] {
     return chunks;
 }
 
-async function resolveSubjectRagEmbedding(context: ToolExecutionContext): Promise<RagEmbeddingModel> {
+async function resolveSubjectRagEmbedding(context: SubjectRagRuntimeContext): Promise<RagEmbeddingModel> {
     const config = await loadEffectiveConfigForAgentRuntime({
         workspaceRoot: context.workspaceRoot,
         projectPath: context.projectPath,
@@ -465,7 +563,7 @@ async function resolveSubjectRagEmbedding(context: ToolExecutionContext): Promis
         baseUrl,
         apiKey,
         dimensions: embedding.dimensions,
-        timeoutMs: embedding.timeoutMs,
+        timeoutMs: embedding.timeoutMs ?? 30_000,
         requestOptions: embeddingRequestOptions(embedding),
     };
 }
@@ -483,24 +581,33 @@ async function embedTextBatch(model: RagEmbeddingModel, texts: string[]): Promis
     const timeout = model.timeoutMs
         ? globalThis.setTimeout(() => controller?.abort(), model.timeoutMs ?? 0)
         : null;
-    const response = await fetch(`${model.baseUrl.replace(/\/+$/u, "")}/embeddings`, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${model.apiKey}`,
-        },
-        signal: controller?.signal,
-        body: JSON.stringify({
-            model: model.modelId,
-            input: texts,
-            dimensions: model.dimensions,
-            ...model.requestOptions,
-        }),
-    }).finally(() => {
+    const url = `${model.baseUrl.replace(/\/+$/u, "")}/embeddings`;
+    let response: Response;
+    try {
+        response = await fetch(url, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${model.apiKey}`,
+            },
+            signal: controller?.signal,
+            body: JSON.stringify({
+                model: model.modelId,
+                input: texts,
+                dimensions: model.dimensions,
+                ...model.requestOptions,
+            }),
+        });
+    } catch (error) {
+        if (isAbortError(error)) {
+            throw new Error(`embedding 请求超时：model=${model.modelId} timeoutMs=${String(model.timeoutMs ?? 0)} url=${url}`);
+        }
+        throw error;
+    } finally {
         if (timeout) {
             globalThis.clearTimeout(timeout);
         }
-    });
+    }
     if (!response.ok) {
         throw new Error(`embedding 请求失败：HTTP ${String(response.status)} ${sanitizeProviderError(await response.text().catch(() => response.statusText))}`);
     }
@@ -524,6 +631,10 @@ function embeddingRequestOptions(config: EmbeddingServiceConfig): Record<string,
     );
 }
 
+function isAbortError(error: unknown): boolean {
+    return typeof error === "object" && error !== null && "name" in error && error.name === "AbortError";
+}
+
 function parseEmbedding(value: unknown, label: string): number[] {
     if (!Array.isArray(value)) {
         throw new Error(`${label} embedding 必须是 number[]。`);
@@ -536,12 +647,12 @@ function parseEmbedding(value: unknown, label: string): number[] {
     });
 }
 
-function readMeta(db: BunSqliteDatabase, key: string): string | null {
+function readMeta(db: SubjectRagDatabase, key: string): string | null {
     const row = db.query("SELECT value FROM subject_rag_meta WHERE key = ?").get(key) as {value: string} | null;
     return row?.value ?? null;
 }
 
-function writeMeta(db: BunSqliteDatabase, key: string, value: string): void {
+function writeMeta(db: SubjectRagDatabase, key: string, value: string): void {
     db.run("INSERT INTO subject_rag_meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", key, value);
 }
 

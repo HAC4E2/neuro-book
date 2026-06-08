@@ -454,6 +454,34 @@ describe("config service", {timeout: 30_000}, () => {
         expect(snapshot.defaultProfileSettings.effectiveProfileKey).toBe("leader.default");
     });
 
+    it("Global embedding 启用后空模型和空维度会写入默认值", async () => {
+        const snapshot = await saveGlobalConfig({
+            embedding: {
+                enabled: true,
+                provider: "openai-compatible",
+                model: null,
+                dimensions: null,
+                apiKey: {configured: false, maskedValue: null, value: "sk-embedding"},
+                baseURL: "https://embedding.example/v1",
+                timeoutMs: 30000,
+                requestOptions: {},
+            },
+        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"});
+
+        expect(snapshot.global.embedding).toMatchObject({
+            enabled: true,
+            model: "text-embedding-3-small",
+            dimensions: 1536,
+            timeoutMs: 30000,
+        });
+        expect(snapshot.effective.embedding).toMatchObject({
+            enabled: true,
+            model: "text-embedding-3-small",
+            dimensions: 1536,
+            timeoutMs: 30000,
+        });
+    });
+
     it("Agent runtime 配置读取会合并 Project embedding 覆盖", async () => {
         await saveGlobalConfig({
             embedding: {

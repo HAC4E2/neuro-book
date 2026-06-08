@@ -178,6 +178,17 @@
 - [ ] profile 模板
 - [ ] alternate_greetings 需要适配
 - [ ] web_fetch 优化，反爬虫。https://www.zhihu.com/question/341189075
+- [ ] events.jsonl 边写边想。渐进式记录
+- [ ] 工具生成的时候刷新页面，无法正常恢复，也无法 abort
+- [ ]
+- [ ]
+- [ ]
+- [ ]
+- [ ]
+- [ ]
+- [ ]
+- [ ]
+- [ ]
 - [ ]
 - [ ]
 - [ ]

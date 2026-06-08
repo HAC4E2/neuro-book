@@ -282,7 +282,7 @@ type SubjectMemoryBioOutput = {
 type SubjectRagSearchInput = {
     subjectPath: string;
     query: string;
-    sources?: Array<"events" | "memory">;
+    sources: ["events"] | ["memory"];
     limit?: number;
 };
 
@@ -335,7 +335,9 @@ RAG 索引原则：
 - NeuroBook 不适配 Pi 的 embedding model。`models.*` 只管理 Pi chat / vision 模型；RAG 只读取顶层 `embedding` 配置。
 - 检索必须限定 subject scope，不能跨 subject 泄露。
 - RAG 返回给 actor 时必须保留 `topic` 或事件来源，避免 chunk 切开后失去主体。
+- `subject_rag_search` 必须显式指定单一 source：`["events"]` 或 `["memory"]`。工具层不提供默认双搜，也不允许一次同时搜两层；需要两层记忆时由 sidecar 分别调用两次后自行合并。
 - 第一版建议使用独立缓存库 `{project}/.nbook/subject-rag.sqlite`，不要混入 Project SQLite `.nbook/project.sqlite`。Project SQLite 是 Plot / Story durable 结构库；subject RAG 是可重建索引缓存，并依赖 sqlite-vec 虚表。
+- Runtime 内 `subject_rag_search` 必须兼容 Node / Bun 两种 SQLite 运行环境：Node server/product 使用 `node:sqlite` 加载 sqlite-vec，Bun smoke 可继续使用 Bun runtime。
 - embedding 未配置时，`subject_rag_search` 直接返回明确错误，不做关键词 fallback，避免误以为 RAG 已经生效。
 - 写入工具只标记 dirty；`subject_rag_search` 在搜索前同步重建 dirty source。第一版不做后台索引队列。
 - `actor.context-load` 注入 RAG 时必须有硬预算：最多 6 条 events + 4 条 memory，并限制最终注入文本长度，避免长线后再次撑爆上下文。
@@ -418,6 +420,7 @@ CREATE VIRTUAL TABLE subject_rag_vec USING vec0(
 4. 设置界面新增独立 Embedding tab；模型设置页不再出现 embedding input / embedding model selector / embedding dimensions。
 5. RAG 只读取 effective `embedding` 配置，并调用 `POST {baseURL}/embeddings`。
 6. RAG index 元数据必须记录实际 provider、model、dimensions 和 schema version；这些值变化时，`subject-rag.sqlite` 应重建或明确报错。
+7. `timeoutMs` 默认为 `30000`，即使旧配置文件里是 `null`，effective config 也必须回退到 30s，避免 provider 长时间不返回时 tool 永久卡在执行中。
 
 ### sqlite-vec Smoke
 
@@ -472,7 +475,7 @@ CREATE VIRTUAL TABLE subject_rag_vec USING vec0(
 
 ### 4. subject_rag_search Tool
 
-- 输入 `{ subjectPath, query, sources?, limit? }`。
+- 输入 `{ subjectPath, query, sources, limit? }`，其中 `sources` 必须是 `["events"]` 或 `["memory"]`。
 - 检查并按需重建当前 subject 的 dirty source。
 - 使用 embedding model 生成 query embedding，并通过 sqlite-vec 召回候选。
 - 返回候选，不直接生成最终 context；候选包含 `source`、`text`、`topic?`、`tick?`、`time?`、`rank`、`sourcePath`。
@@ -496,7 +499,7 @@ CREATE VIRTUAL TABLE subject_rag_vec USING vec0(
 ### 7. actor.context-load Integration
 
 - `actor.context-load` 根据当前 actor-facing packet 生成检索 query。
-- 调用 `subject_rag_search` 检索当前 subject 的 events / memory。
+- 调用 `subject_rag_search` 分别检索当前 subject 的 events 与 memory；如果两层都需要，必须分两次调用。
 - 由 `actor.context-load` 对候选做 rerank：过滤无关候选、合并重复信息、优先保留当前情境会影响角色反应的记忆。
 - 将少量相关经历和稳定认知注入 `<actor_sidecar_context>`；该注入使用 sidecar `persistedMessages`，会进入 actor session active path、后续 run 和 compaction。
 - 注入文案必须区分“当前状态”“当前心理”“相关过往经历”“相关稳定认知”。
@@ -559,6 +562,9 @@ CREATE VIRTUAL TABLE subject_rag_vec USING vec0(
 - 2026-06-08：修复 `subject_rag_search` 在普通 Project agent session 中忽略 Project embedding 覆盖的问题。RAG 现在通过 `loadEffectiveConfigForAgentRuntime({workspaceRoot, projectPath})` 读取配置；`workspaceRoot` 为容器 `workspace` 时会继续合并 `projectPath` 对应 Project Config，`projectPath` 为外部 Project Workspace 绝对根目录时会读取该目录的 `.nbook/config.json`。新增/更新验证覆盖 Project embedding 覆盖：`bun scripts/smoke/subject-rag-smoke.ts` 通过；`bunx vitest run server/agent/tools/subject-memory-tools.test.ts --reporter=dot` 通过；`bunx vitest run server/config/config-service.test.ts --reporter=dot` 通过。
 - 2026-06-08：修复复审发现的外部 Project Workspace 配置读取断点。`loadEffectiveConfigForAgentRuntime()` 现在优先识别绝对 `projectPath`，把它视为外部 Project Workspace 根读取 Project Config；`NeuroAgentHarness` 内部模型解析、settleRun sidecar、context usage 与 compaction 也统一走该 helper，避免主 run 仍按 `workspace/<slug>` 解析绝对路径。新增验证：`bunx vitest run server/config/config-service.test.ts -t "Agent runtime 配置读取" --reporter=dot` 通过；`bunx vitest run server/agent/harness/neuro-agent-harness.test.ts -t "外部 Project Workspace session" --reporter=dot` 通过。
 - 2026-06-08：修复任务审查发现的收尾问题：确认 `subject_rag_search` 会读取并消费 `.nbook/subject-rag-dirty.json` 中 hash 匹配的 dirty source；Project embedding 覆盖已由 smoke mock 断言实际请求使用 `project-embed` / 3 dimensions；同步更新 active task / tutorial / public docs 中仍会误导当前合同的 subject 旧 `events.md` / `knowledge.md` 口径。复验：`bun scripts/smoke/subject-rag-smoke.ts` 通过；`bunx vitest run server/config/config-service.test.ts server/agent/tools/subject-memory-tools.test.ts server/agent/tools/sqlite-vec-smoke.test.ts server/agent/profiles/rp-profiles.test.ts server/agent/harness/model-resolver.test.ts --reporter=dot` 通过。
+- 2026-06-08：修复 `subject_rag_search` 在 Node/Nitro runtime 下动态 import `bun:sqlite` 导致的 ESM loader 报错。RAG 索引现在按运行环境创建 SQLite adapter：Node 使用 `node:sqlite` + sqlite-vec，Bun smoke 继续使用 `bun:sqlite`；新增 `subject_event_append` 后立刻 `subject_rag_search` 的回归测试，确认 search 会同步重建 dirty events 并消费 dirty 标记。Global Embedding 设置启用但模型/维度留空时会写入默认 `text-embedding-3-small` / `1536`，Project 空值仍表示继承 Global。复验：`bun scripts/smoke/subject-rag-smoke.ts` 通过；`bunx vitest run server/agent/tools/subject-memory-tools.test.ts --reporter=dot` 通过；`bunx vitest run server/config/config-service.test.ts --reporter=dot` 通过。
+- 2026-06-08：排查 SiliconFlow embedding 卡住问题。官方文档确认 `POST /v1/embeddings` 的 `model` / `input` / Qwen3 `dimensions` 请求形状符合合同；本地探针显示 `/v1/models` 260ms 返回，`BAAI/bge-m3`、`Qwen/Qwen3-Embedding-0.6B` 和 `Qwen/Qwen3-Embedding-4B` 的 embedding 请求 100-250ms 返回，但当前配置的 `Qwen/Qwen3-Embedding-8B` 在 10-20s 内不返回。修复：effective embedding timeout 默认改为 30000ms，前端空 timeout 写入 30000，`subject_rag_search` 捕获 AbortError 并返回明确 `embedding 请求超时`，避免工具无限挂起。复验：`bunx vitest run server/agent/tools/subject-memory-tools.test.ts server/config/config-service.test.ts --reporter=dot` 通过；`bun scripts/smoke/subject-rag-smoke.ts` 通过。
+- 2026-06-08：修复 `subject_rag_search` source 合同漂移。工具不再默认同时搜索 events 和 memory，也不允许一次传两个 source；调用方必须显式传 `["events"]` 或 `["memory"]`，`actor.context-load` 如需两层记忆必须分别调用两次后自行 rerank/合并。新增回归测试覆盖缺失 sources 和双 source 都会失败。
 
 ## TODO / Follow-ups
 

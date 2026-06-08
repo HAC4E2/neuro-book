@@ -41,6 +41,9 @@ type EmbeddingProjectDraft = {
 
 type EmbeddingRequestOptions = EmbeddingServiceConfigDto["requestOptions"];
 
+const DEFAULT_GLOBAL_EMBEDDING_MODEL = "text-embedding-3-small";
+const DEFAULT_GLOBAL_EMBEDDING_DIMENSIONS = 1536;
+const DEFAULT_GLOBAL_EMBEDDING_TIMEOUT_MS = 30000;
 const configApi = useConfigApi();
 const notification = useNotification();
 const loading = ref(false);
@@ -131,14 +134,17 @@ function buildSecretPayload(): SecretConfigValueDto {
  * 构造 Global embedding 配置段。
  */
 function buildGlobalEmbeddingPayload(): EmbeddingServiceConfigDto {
+    const model = normalizeNullableText(globalDraft.value.model);
+    const dimensions = parseNullablePositiveInteger(globalDraft.value.dimensions);
+    const timeoutMs = parseNullablePositiveInteger(globalDraft.value.timeoutMs);
     return {
         enabled: globalDraft.value.enabled,
         provider: globalDraft.value.provider,
-        model: normalizeNullableText(globalDraft.value.model),
-        dimensions: parseNullablePositiveInteger(globalDraft.value.dimensions),
+        model: model ?? (globalDraft.value.enabled ? DEFAULT_GLOBAL_EMBEDDING_MODEL : null),
+        dimensions: dimensions ?? (globalDraft.value.enabled ? DEFAULT_GLOBAL_EMBEDDING_DIMENSIONS : null),
         apiKey: buildSecretPayload(),
         baseURL: globalDraft.value.baseURL.trim(),
-        timeoutMs: parseNullablePositiveInteger(globalDraft.value.timeoutMs),
+        timeoutMs: timeoutMs ?? DEFAULT_GLOBAL_EMBEDDING_TIMEOUT_MS,
         requestOptions: parseRequestOptions(globalDraft.value.requestOptions),
     };
 }
@@ -352,15 +358,15 @@ onMounted(() => {
                     </label>
                     <label class="space-y-1.5">
                         <span class="text-xs font-medium text-[var(--text-secondary)]">模型名</span>
-                        <FormInput v-model="globalDraft.model" placeholder="text-embedding-3-small" />
+                        <FormInput v-model="globalDraft.model" :placeholder="DEFAULT_GLOBAL_EMBEDDING_MODEL" />
                     </label>
                     <label class="space-y-1.5">
                         <span class="text-xs font-medium text-[var(--text-secondary)]">维度</span>
-                        <FormInput v-model="globalDraft.dimensions" type="number" min="1" step="1" placeholder="1536" />
+                        <FormInput v-model="globalDraft.dimensions" type="number" min="1" step="1" :placeholder="String(DEFAULT_GLOBAL_EMBEDDING_DIMENSIONS)" />
                     </label>
                     <label class="space-y-1.5">
                         <span class="text-xs font-medium text-[var(--text-secondary)]">Timeout ms</span>
-                        <FormInput v-model="globalDraft.timeoutMs" type="number" min="1000" step="1000" placeholder="30000" />
+                        <FormInput v-model="globalDraft.timeoutMs" type="number" min="1000" step="1000" :placeholder="String(DEFAULT_GLOBAL_EMBEDDING_TIMEOUT_MS)" />
                     </label>
                     <label class="space-y-1.5 md:col-span-2">
                         <span class="text-xs font-medium text-[var(--text-secondary)]">Base URL</span>

@@ -2,24 +2,53 @@
 import {existsSync} from "node:fs";
 import {readFile} from "node:fs/promises";
 import {dirname, resolve} from "node:path";
+import process from "node:process";
 import {fileURLToPath} from "node:url";
 
-import {run, runCapture} from "../utils/process.mjs";
+import {Command} from "commander";
+
+import {run, runCapture} from "nbook/scripts/utils/process.mjs";
+
+type CanaryOptions = {
+    allowDirty: boolean;
+    draft: boolean;
+    dryRun: boolean;
+    push: boolean;
+    repo: string;
+    tag?: string;
+    target?: string;
+    watch: boolean;
+    yes: boolean;
+};
+
+type ReleaseNotesInput = {
+    packageVersion: string;
+    shortHead: string;
+    tag: string;
+    target: string;
+};
+
+type WorkflowRun = {
+    databaseId?: number;
+    displayTitle?: string;
+    headSha?: string;
+};
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const DEFAULT_REPO = "notnotype/neuro-book";
 const RELEASE_WORKFLOW = "release-container.yml";
 
-const options = parseArgs(process.argv.slice(2));
+const options = parseOptions();
 
-async function main() {
+/** Canary release 脚本主流程。 */
+async function main(): Promise<void> {
     process.chdir(REPO_ROOT);
 
     const packageVersion = await readPackageVersion();
     const branch = await currentBranch();
     const head = (await runCapture("git", ["rev-parse", "HEAD"], {cwd: REPO_ROOT})).trim();
     const shortHead = (await runCapture("git", ["rev-parse", "--short", "HEAD"], {cwd: REPO_ROOT})).trim();
-    const tag = options.tag ?? await defaultCanaryTag(packageVersion, shortHead);
+    const tag = options.tag ?? defaultCanaryTag(packageVersion, shortHead);
     const target = options.target ?? head;
 
     await assertGhAvailable();
@@ -81,84 +110,37 @@ async function main() {
     }
 }
 
-function parseArgs(args) {
-    const parsed = {
-        allowDirty: false,
-        draft: false,
-        dryRun: false,
-        push: false,
-        repo: process.env.GITHUB_REPOSITORY || DEFAULT_REPO,
-        tag: null,
-        target: null,
-        watch: true,
-        yes: false,
-    };
+/** 用 commander 解析 CLI 参数。 */
+function parseOptions(): CanaryOptions {
+    const program = new Command()
+        .name("release:canary")
+        .description("Create a NeuroBook canary prerelease from the current repository state.")
+        .allowExcessArguments(false)
+        .showHelpAfterError("(使用 --help 查看可用参数)")
+        .option("--allow-dirty", "允许 tracked worktree 不干净。真实发布通常不建议使用。", false)
+        .option("--draft", "创建 draft release。draft 不会等待 release workflow。", false)
+        .option("--dry-run", "只打印将执行的 gh release create 命令。", false)
+        .option("--push", "发布前把当前 HEAD 推送到当前分支。", false)
+        .option("--repo <repo>", "GitHub repository，例如 owner/name。", process.env.GITHUB_REPOSITORY ?? DEFAULT_REPO)
+        .option("--tag <tag>", "指定 canary tag。默认使用下一 patch 版本、UTC 时间戳和短 SHA。")
+        .option("--target <commit>", "指定 release target commit。默认使用当前 HEAD。")
+        .option("--watch", "等待 release workflow 完成。", true)
+        .option("--no-watch", "创建 release 后不等待 release workflow。")
+        .option("-y, --yes", "确认创建远端 canary prerelease。", false);
 
-    for (let index = 0; index < args.length; index += 1) {
-        const arg = args[index];
-        if (arg === "--allow-dirty") {
-            parsed.allowDirty = true;
-            continue;
-        }
-        if (arg === "--draft") {
-            parsed.draft = true;
-            continue;
-        }
-        if (arg === "--dry-run") {
-            parsed.dryRun = true;
-            continue;
-        }
-        if (arg === "--push") {
-            parsed.push = true;
-            continue;
-        }
-        if (arg === "--no-watch") {
-            parsed.watch = false;
-            continue;
-        }
-        if (arg === "--watch") {
-            parsed.watch = true;
-            continue;
-        }
-        if (arg === "--yes" || arg === "-y") {
-            parsed.yes = true;
-            continue;
-        }
-        if (arg === "--repo") {
-            parsed.repo = requireValue(args, index, arg);
-            index += 1;
-            continue;
-        }
-        if (arg === "--tag") {
-            parsed.tag = requireValue(args, index, arg);
-            index += 1;
-            continue;
-        }
-        if (arg === "--target") {
-            parsed.target = requireValue(args, index, arg);
-            index += 1;
-            continue;
-        }
-        throw new Error(`未知参数：${arg}`);
-    }
+    program.parse(process.argv);
 
-    return parsed;
+    return program.opts<CanaryOptions>();
 }
 
-function requireValue(args, index, arg) {
-    const value = args[index + 1];
-    if (!value) {
-        throw new Error(`${arg} 需要参数值`);
-    }
-    return value;
-}
-
-async function readPackageVersion() {
-    const packageJson = JSON.parse(await readFile(resolve(REPO_ROOT, "package.json"), "utf8"));
+/** 读取 package.json 的版本号。 */
+async function readPackageVersion(): Promise<string> {
+    const packageJson = JSON.parse(await readFile(resolve(REPO_ROOT, "package.json"), "utf8")) as {version?: unknown};
     return String(packageJson.version);
 }
 
-async function defaultCanaryTag(packageVersion, shortHead) {
+/** 根据 package 版本和短 SHA 生成默认 canary tag。 */
+function defaultCanaryTag(packageVersion: string, shortHead: string): string {
     const nextPatch = nextPatchVersion(packageVersion);
     const stamp = new Date()
         .toISOString()
@@ -168,7 +150,8 @@ async function defaultCanaryTag(packageVersion, shortHead) {
     return `v${nextPatch}-canary.${stamp}.${shortHead}`;
 }
 
-function nextPatchVersion(version) {
+/** 把 semver patch 版本加一，忽略已有 prerelease 后缀。 */
+function nextPatchVersion(version: string): string {
     const match = /^(\d+)\.(\d+)\.(\d+)(?:-.+)?$/u.exec(version);
     if (!match) {
         throw new Error(`package.json version 不是 semver patch 形式：${version}`);
@@ -179,7 +162,8 @@ function nextPatchVersion(version) {
     return `${major}.${minor}.${patch + 1}`;
 }
 
-async function currentBranch() {
+/** 返回当前命名分支。 */
+async function currentBranch(): Promise<string> {
     const branch = (await runCapture("git", ["branch", "--show-current"], {cwd: REPO_ROOT})).trim();
     if (!branch) {
         throw new Error("当前不是命名分支。请切到 release 分支，或用 --target 指定已推送 commit。");
@@ -187,12 +171,14 @@ async function currentBranch() {
     return branch;
 }
 
-async function assertGhAvailable() {
+/** 检查 GitHub CLI 可用且已登录。 */
+async function assertGhAvailable(): Promise<void> {
     await runCapture("gh", ["--version"], {cwd: REPO_ROOT});
     await runCapture("gh", ["auth", "status"], {cwd: REPO_ROOT});
 }
 
-async function assertReleaseDoesNotExist(tag) {
+/** 检查远端 GitHub release 尚不存在。 */
+async function assertReleaseDoesNotExist(tag: string): Promise<void> {
     try {
         await runCapture("gh", ["release", "view", tag, "--repo", options.repo], {cwd: REPO_ROOT});
     } catch {
@@ -201,7 +187,8 @@ async function assertReleaseDoesNotExist(tag) {
     throw new Error(`GitHub release 已存在：${tag}`);
 }
 
-async function assertGitTagDoesNotExist(tag) {
+/** 检查本地和远端 git tag 尚不存在。 */
+async function assertGitTagDoesNotExist(tag: string): Promise<void> {
     const localTag = await runCapture("git", ["tag", "--list", tag], {cwd: REPO_ROOT});
     if (localTag.trim()) {
         throw new Error(`本地 tag 已存在：${tag}`);
@@ -212,18 +199,21 @@ async function assertGitTagDoesNotExist(tag) {
     }
 }
 
-async function assertCleanTrackedWorktree() {
+/** 默认发布前要求 tracked worktree 干净。 */
+async function assertCleanTrackedWorktree(): Promise<void> {
     const status = await runCapture("git", ["status", "--porcelain", "--untracked-files=no"], {cwd: REPO_ROOT});
     if (status.trim()) {
         throw new Error(`tracked worktree 不干净，停止 release：\n${status.trim()}\n先提交或 stash，或仅本地预览时使用 --allow-dirty --dry-run。`);
     }
 }
 
-async function pushCurrentHead(branch) {
+/** 把当前 HEAD 推送到同名远端分支。 */
+async function pushCurrentHead(branch: string): Promise<void> {
     await run("git", ["push", "origin", `HEAD:${branch}`], {cwd: REPO_ROOT});
 }
 
-async function assertCurrentHeadPushed(branch, head) {
+/** 真实发布前确认当前 HEAD 已包含在远端分支。 */
+async function assertCurrentHeadPushed(branch: string, head: string): Promise<void> {
     await run("git", ["fetch", "origin", branch], {cwd: REPO_ROOT});
     const remoteRef = `origin/${branch}`;
     const remoteExists = await runCapture("git", ["rev-parse", "--verify", remoteRef], {cwd: REPO_ROOT})
@@ -240,9 +230,10 @@ async function assertCurrentHeadPushed(branch, head) {
     }
 }
 
-async function releaseNotes(input) {
+/** 生成 GitHub release notes 文本。 */
+async function releaseNotes(input: ReleaseNotesInput): Promise<string> {
     const previousTag = await runCapture("git", ["describe", "--tags", "--abbrev=0", `${input.target}^`], {cwd: REPO_ROOT})
-        .then((value) => value.trim())
+        .then((value: string) => value.trim())
         .catch(() => "");
     const compareLine = previousTag
         ? `Compare: https://github.com/${options.repo}/compare/${previousTag}...${input.tag}`
@@ -259,7 +250,8 @@ async function releaseNotes(input) {
     ].filter(Boolean).join("\n");
 }
 
-async function watchReleaseWorkflow({head, tag}) {
+/** 等待 GitHub release workflow 完成。 */
+async function watchReleaseWorkflow({head, tag}: {head: string; tag: string}): Promise<void> {
     const runId = await findWorkflowRun({head, tag});
     if (!runId) {
         throw new Error(`未找到 ${RELEASE_WORKFLOW} 的 release run。可稍后手动查看 GitHub Actions。`);
@@ -267,7 +259,8 @@ async function watchReleaseWorkflow({head, tag}) {
     await run("gh", ["run", "watch", runId, "--repo", options.repo, "--exit-status"], {cwd: REPO_ROOT});
 }
 
-async function findWorkflowRun({head, tag}) {
+/** 轮询查找 release 事件触发出的 workflow run。 */
+async function findWorkflowRun({head, tag}: {head: string; tag: string}): Promise<string | null> {
     for (let attempt = 0; attempt < 18; attempt += 1) {
         const output = await runCapture("gh", [
             "run",
@@ -283,7 +276,7 @@ async function findWorkflowRun({head, tag}) {
             "--json",
             "databaseId,headSha,displayTitle,status,createdAt",
         ], {cwd: REPO_ROOT});
-        const runs = JSON.parse(output);
+        const runs = JSON.parse(output) as WorkflowRun[];
         const match = runs.find((item) => item.headSha === head || item.displayTitle?.includes(tag));
         if (match?.databaseId) {
             return String(match.databaseId);
@@ -293,17 +286,19 @@ async function findWorkflowRun({head, tag}) {
     return null;
 }
 
-function sleep(ms) {
+/** 等待指定毫秒数。 */
+function sleep(ms: number): Promise<void> {
     return new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
 }
 
-function shellQuote(value) {
+/** 返回适合展示在 shell 命令中的参数文本。 */
+function shellQuote(value: string): string {
     return /^[a-zA-Z0-9_./:=@-]+$/u.test(value)
         ? value
         : JSON.stringify(value);
 }
 
-main().catch((error) => {
+main().catch((error: unknown) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
 });

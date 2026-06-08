@@ -2852,6 +2852,7 @@ describe("NeuroAgentHarness", () => {
                     fauxToolCall("subject_rag_search", {
                         subjectPath: `${projectSlug}/simulation/subjects/heroine`,
                         query: "五彩缤纷的石头 世界之心",
+                        sources: ["events"],
                     }, {id: "context-rag"}),
                     fauxToolCall("read", {
                         path: `${projectSlug}/lorebook/world/world-heart.md`,
@@ -2964,6 +2965,9 @@ describe("NeuroAgentHarness", () => {
         const sidecarContextEntry = snapshot.entries.find((entry) => {
             return entry.type === "message" && messageText(entry.message).includes("<actor_sidecar_context");
         });
+        const sidecarContextEntries = snapshot.entries.filter((entry) => {
+            return entry.type === "message" && messageText(entry.message).includes("<actor_sidecar_context source=\"actor.context-load\">");
+        });
 
         expect(result.status).toBe("completed");
         expect(result.reportResult?.data).toEqual(expect.objectContaining({
@@ -2975,7 +2979,7 @@ describe("NeuroAgentHarness", () => {
         expect(mind).toContain("怀疑主角知道更多内情");
         expect(state).toBe("她位于学院区广场边缘，状态正常。\n");
         expect(context.messages.map((message) => message.role).slice(-2)).toEqual(["assistant", "toolResult"]);
-        expect(context.messages.filter((message) => message.role === "user")).toHaveLength(5);
+        expect(sidecarContextEntries).toHaveLength(1);
         expect(sidecarContextEntry).toEqual(expect.objectContaining({
             type: "message",
             origin: "harness",

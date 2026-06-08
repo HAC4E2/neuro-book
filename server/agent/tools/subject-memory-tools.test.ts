@@ -179,7 +179,135 @@ describe("subject memory tools", () => {
         await expect(tool.executeWithContext?.(context, "rag-search", {
             subjectPath: "demo/simulation/subjects/heroine",
             query: "艾琳娜",
+            sources: ["events"],
         })).rejects.toThrow("不会执行关键词 fallback");
+    });
+
+    it("subject_rag_search 必须显式指定 sources，不提供时不会默认双搜", async () => {
+        const subjectRoot = join(workspaceRoot, "demo", "simulation", "subjects", "heroine");
+        await mkdir(subjectRoot, {recursive: true});
+        await writeFile(join(subjectRoot, "events.jsonl"), "{\"text\":\"艾琳娜帮过我。\"}\n", "utf-8");
+        await writeFile(join(subjectRoot, "memory.jsonl"), "{\"topic\":\"艾琳娜\",\"view\":\"她帮过我。\"}\n", "utf-8");
+        const tool = mustTool("subject_rag_search", harness);
+
+        await expect(tool.executeWithContext?.(context, "rag-search-missing-sources", {
+            subjectPath: "demo/simulation/subjects/heroine",
+            query: "艾琳娜",
+        })).rejects.toThrow("必须显式指定且只能指定一个 source");
+    });
+
+    it("subject_rag_search 不允许一次同时搜索 events 和 memory", async () => {
+        const subjectRoot = join(workspaceRoot, "demo", "simulation", "subjects", "heroine");
+        await mkdir(subjectRoot, {recursive: true});
+        await writeFile(join(subjectRoot, "events.jsonl"), "{\"text\":\"艾琳娜帮过我。\"}\n", "utf-8");
+        await writeFile(join(subjectRoot, "memory.jsonl"), "{\"topic\":\"艾琳娜\",\"view\":\"她帮过我。\"}\n", "utf-8");
+        const tool = mustTool("subject_rag_search", harness);
+
+        await expect(tool.executeWithContext?.(context, "rag-search-two-sources", {
+            subjectPath: "demo/simulation/subjects/heroine",
+            query: "艾琳娜",
+            sources: ["events", "memory"],
+        })).rejects.toThrow("必须显式指定且只能指定一个 source");
+    });
+
+    it("subject_event_append 后立刻 search 会同步重建 dirty events 索引", async () => {
+        const originalFetch = globalThis.fetch;
+        const subjectRoot = join(workspaceRoot, "demo", "simulation", "subjects", "heroine");
+        await mkdir(subjectRoot, {recursive: true});
+        await mkdir(join(workspaceRoot, ".nbook"), {recursive: true});
+        await writeFile(join(subjectRoot, "events.jsonl"), "{\"text\":\"旧事件只提到了王都学院走廊。\"}\n", "utf-8");
+        await writeFile(join(subjectRoot, "memory.jsonl"), "{\"topic\":\"艾琳娜\",\"view\":\"艾琳娜是我的同班同学。\"}\n", "utf-8");
+        await writeFile(join(workspaceRoot, ".nbook", "config.json"), JSON.stringify({
+            embedding: {
+                enabled: true,
+                provider: "openai-compatible",
+                model: "test-embed",
+                dimensions: 3,
+                apiKey: "sk-test",
+                baseURL: "https://embedding.test/v1",
+                timeoutMs: null,
+                requestOptions: {},
+            },
+        }), "utf-8");
+        globalThis.fetch = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+            const body = JSON.parse(String(init?.body ?? "{}")) as {input?: string[]};
+            const input = Array.isArray(body.input) ? body.input : [];
+            return new Response(JSON.stringify({
+                data: input.map((text) => ({
+                    embedding: text.includes("艾琳娜") || text.includes("粉色头发")
+                        ? [1, 0, 0]
+                        : [0, 1, 0],
+                })),
+            }), {
+                status: 200,
+                headers: {"Content-Type": "application/json"},
+            });
+        }) as typeof fetch;
+        try {
+            const appendTool = mustTool("subject_event_append", harness);
+            const searchTool = mustTool("subject_rag_search", harness);
+
+            await appendTool.executeWithContext?.(context, "append-before-search", {
+                subjectPath: "demo/simulation/subjects/heroine",
+                events: [
+                    {text: "我刚刚确认艾琳娜就是早上帮我的粉色头发女孩。"},
+                ],
+            });
+            const result = await searchTool.executeWithContext?.(context, "search-after-append", {
+                subjectPath: "demo/simulation/subjects/heroine",
+                query: "艾琳娜 粉色头发",
+                sources: ["events"],
+                limit: 3,
+            });
+            const text = result?.content[0]?.type === "text" ? result.content[0].text : "";
+
+            expect(text).toContain("粉色头发女孩");
+            await expect(readFile(join(workspaceRoot, "demo", ".nbook", "subject-rag-dirty.json"), "utf-8")).resolves.not.toContain("\"events\"");
+            await expect(readFile(join(workspaceRoot, "demo", ".nbook", "subject-rag.sqlite"))).resolves.toBeInstanceOf(Buffer);
+        } finally {
+            globalThis.fetch = originalFetch;
+        }
+    });
+
+    it("subject_rag_search 的 embedding 请求超时会明确失败", async () => {
+        const originalFetch = globalThis.fetch;
+        const subjectRoot = join(workspaceRoot, "demo", "simulation", "subjects", "heroine");
+        await mkdir(subjectRoot, {recursive: true});
+        await mkdir(join(workspaceRoot, ".nbook"), {recursive: true});
+        await writeFile(join(subjectRoot, "events.jsonl"), "{\"text\":\"艾琳娜帮过我。\"}\n", "utf-8");
+        await writeFile(join(subjectRoot, "memory.jsonl"), "{\"topic\":\"艾琳娜\",\"view\":\"她帮过我。\"}\n", "utf-8");
+        await writeFile(join(workspaceRoot, ".nbook", "config.json"), JSON.stringify({
+            embedding: {
+                enabled: true,
+                provider: "openai-compatible",
+                model: "slow-embed",
+                dimensions: 3,
+                apiKey: "sk-test",
+                baseURL: "https://embedding.test/v1",
+                timeoutMs: 1,
+                requestOptions: {},
+            },
+        }), "utf-8");
+        globalThis.fetch = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+            await new Promise((_resolve, reject) => {
+                init?.signal?.addEventListener("abort", () => {
+                    reject(new DOMException("This operation was aborted", "AbortError"));
+                });
+            });
+            throw new Error("unreachable");
+        }) as typeof fetch;
+        try {
+            const tool = mustTool("subject_rag_search", harness);
+
+            await expect(tool.executeWithContext?.(context, "rag-search-timeout", {
+                subjectPath: "demo/simulation/subjects/heroine",
+                query: "艾琳娜",
+                sources: ["events"],
+                limit: 1,
+            })).rejects.toThrow("embedding 请求超时");
+        } finally {
+            globalThis.fetch = originalFetch;
+        }
     });
 
     it("memory_bio 调用真实 memory.curator profile，应用 JSON Patch 并标记 dirty", async () => {

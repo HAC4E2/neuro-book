@@ -194,7 +194,36 @@ describe("RP builtin profiles", () => {
                     caller: {kind: "sidecar"},
                 } satisfies SidecarContext<Parameters<typeof memorySave.merge>[0]["input"]>)
                 : memorySave?.enterPrompt ?? "";
+            const contextLoadPrompt = typeof contextLoad?.enterPrompt === "function"
+                ? contextLoad.enterPrompt({
+                    name: "actor.context-load",
+                    stage: "prepareRun",
+                    sessionId: -1,
+                    session: testSession({
+                        profileKey: "simulator.actor",
+                        workspaceRoot: fixture.workspaceRoot,
+                    }),
+                    input: {
+                        actorId: "heroine",
+                        actorName: "绘璃奈",
+                        kind: "npc",
+                        instructionPath: `${fixture.projectSlug}/simulation/subjects/heroine/subject.md`,
+                        eventsPath: `${fixture.projectSlug}/simulation/subjects/heroine/events.jsonl`,
+                        memoryPath: `${fixture.projectSlug}/simulation/subjects/heroine/memory.jsonl`,
+                        mindPath: `${fixture.projectSlug}/simulation/subjects/heroine/mind.md`,
+                        statePath: `${fixture.projectSlug}/simulation/subjects/heroine/state.md`,
+                    },
+                    invocationId: "test-invocation",
+                    profileKey: "simulator.actor",
+                    caller: {kind: "sidecar"},
+                } satisfies SidecarContext<Parameters<typeof contextLoad.merge>[0]["input"]>)
+                : contextLoad?.enterPrompt ?? "";
+            expect(contextLoadPrompt).toContain(`subjectPath: ${fixture.projectSlug}/simulation/subjects/heroine`);
+            expect(contextLoadPrompt).toContain("subjectPath 必须使用上面的 subjectPath");
+            expect(contextLoadPrompt).toContain("不要关键词 fallback");
             expect(memorySavePrompt).toContain("eventsPath");
+            expect(memorySavePrompt).toContain(`subjectPath: ${fixture.projectSlug}/simulation/subjects/heroine`);
+            expect(memorySavePrompt).toContain("subjectPath 必须使用上面的 subjectPath");
             expect(memorySavePrompt).toContain("根据 visible_response、spoken_dialogue、inner_response 和本轮上下文判断是否需要更新");
             expect(memorySavePrompt).toContain("不要修改 statePath");
             expect(systemPrompt).toContain("<actor_definition>");
@@ -223,6 +252,7 @@ describe("RP builtin profiles", () => {
             expect(systemPrompt).not.toContain("not_known_to_you");
             expect(systemPrompt).not.toContain("必要时可更新");
             expect(modelContextText).toContain("<actor_binding>");
+            expect(modelContextText).toContain(`subjectPath: ${fixture.projectSlug}/simulation/subjects/heroine`);
             expect(modelContextText).toContain("这些路径只供 actor.context-load / actor.memory-save 旁路使用");
             expect(modelContextText).not.toContain("<subject_instruction>");
             expect(modelContextText).not.toContain("保持礼貌但警惕");

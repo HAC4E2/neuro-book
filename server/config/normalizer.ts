@@ -41,7 +41,7 @@ const DEFAULT_EMBEDDING_SERVICE: EmbeddingServiceConfig = {
     dimensions: null,
     apiKey: "",
     baseURL: "",
-    timeoutMs: null,
+    timeoutMs: 30_000,
     requestOptions: {},
 };
 const DEFAULT_WEB_SETTINGS: WebSettingsConfig = {
@@ -514,7 +514,7 @@ export function normalizeEmbeddingService(
         dimensions,
         apiKey: normalizeText(record.apiKey),
         baseURL: normalizeText(record.baseURL),
-        timeoutMs: normalizeNullablePositiveInteger(record.timeoutMs),
+        timeoutMs: normalizeNullablePositiveInteger(record.timeoutMs) ?? DEFAULT_EMBEDDING_SERVICE.timeoutMs,
         requestOptions: normalizeJsonRecord(record.requestOptions),
     };
 }

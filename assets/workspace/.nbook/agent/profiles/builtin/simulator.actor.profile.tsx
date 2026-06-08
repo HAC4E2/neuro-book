@@ -57,6 +57,7 @@ const actorContextLoadPass: SidecarProfilePass<Input, ActorContextLoadSidecarDat
         - actorName: ${ctx.input.actorName?.trim() || ctx.input.actorId}
         - kind: ${ctx.input.kind?.trim() || "未指定"}
         - instructionPath: ${ctx.input.instructionPath}
+        - subjectPath: ${subjectDirectoryPath(ctx.input)}
         - eventsPath: ${ctx.input.eventsPath}
         - memoryPath: ${ctx.input.memoryPath}
         - mindPath: ${ctx.input.mindPath}
@@ -64,8 +65,11 @@ const actorContextLoadPass: SidecarProfilePass<Input, ActorContextLoadSidecarDat
 
         规则：
         - 你可以读取当前 subject 自己的 subject.md、mind.md、state.md。
-        - 你应优先调用 subject_rag_search 检索当前 subject 的 events.jsonl / memory.jsonl，而不是直接读取完整 events.jsonl / memory.jsonl。
+        - 调用 subject_rag_search 时，subjectPath 必须使用上面的 subjectPath，不要把 eventsPath 或 memoryPath 当作 subjectPath。
+        - subject_rag_search 必须显式指定且只能指定一个 sources 值：["events"] 或 ["memory"]。如果需要两层记忆，请分别调用两次，不要一次同时搜索 events 和 memory。
+        - 你应优先调用 subject_rag_search 分别检索当前 subject 的 events.jsonl 与 memory.jsonl，而不是直接读取完整 events.jsonl / memory.jsonl。
         - subject_rag_search 只做粗召回；你负责 rerank、去重、过滤和压缩。
+        - 如果 subject_rag_search 因 embedding 未配置、索引维度变化或其他 RAG 错误失败，不要退回读取完整 events.jsonl / memory.jsonl，也不要关键词 fallback；如实报告失败原因。
         - 注入预算：最多保留 6 条相关过往经历和 4 条相关稳定认知，并限制 actor_safe_context 总长度。
         - 你可以读取当前消息中明确列出的 actor-safe lorebook 或 context 路径，并过滤成 actor-safe 摘要。
         - 不要自行搜索或遍历 lorebook；只读取当前消息明确提供的 actor-safe 路径。
@@ -110,6 +114,7 @@ const actorMemorySavePass: SidecarProfilePass<Input, ActorMemorySaveSidecarData>
         当前 actor：
         - actorId: ${ctx.input.actorId}
         - actorName: ${ctx.input.actorName?.trim() || ctx.input.actorId}
+        - subjectPath: ${subjectDirectoryPath(ctx.input)}
         - eventsPath: ${ctx.input.eventsPath}
         - memoryPath: ${ctx.input.memoryPath}
         - mindPath: ${ctx.input.mindPath}
@@ -120,6 +125,7 @@ const actorMemorySavePass: SidecarProfilePass<Input, ActorMemorySaveSidecarData>
 
         写入规则：
         - 只允许维护 eventsPath、memoryPath 与 mindPath。
+        - 调用 subject_event_append 或 memory_bio 时，subjectPath 必须使用上面的 subjectPath，不要把 eventsPath 或 memoryPath 当作 subjectPath。
         - 不要修改 subject.md。
         - 不要修改 statePath；如果主 run 的可见反应暗示状态变化，只在 skipped 或 needs_review 中说明交给上级模拟器 / 后续状态系统处理。
         - 调用 subject_event_append 追加 events.jsonl，不要直接 edit/write events.jsonl。
@@ -166,6 +172,7 @@ export default defineAgentProfile({
                 <HistorySet>
                     <Message><Import path="reference/content/information-control.md" /></Message>
                     <Message><Import path="reference/content/simulation.md" /></Message>
+                    <Message><Import path="reference/content/subject-rag-memory.md" /></Message>
                 </HistorySet>
                 <ModelContext>
                     <Message>{renderActorBinding(ctx.input)}</Message>
@@ -246,6 +253,7 @@ function renderActorBinding(input: Input): string {
         actorId: ${input.actorId}
         actorName: ${input.actorName?.trim() || input.actorId}
         kind: ${input.kind?.trim() || "未指定"}
+        subjectPath: ${subjectDirectoryPath(input)}
         instructionPath: ${input.instructionPath}
         eventsPath: ${input.eventsPath}
         memoryPath: ${input.memoryPath}
@@ -255,6 +263,14 @@ function renderActorBinding(input: Input): string {
         这些路径只供 actor.context-load / actor.memory-save 旁路使用。主扮演 run 不读取这些文件原文，只使用旁路注入的 <actor_sidecar_context>。
         </actor_binding>
     `;
+}
+
+function subjectDirectoryPath(input: Input): string {
+    const candidate = input.eventsPath.replaceAll("\\", "/").replace(/\/events\.jsonl$/u, "");
+    if (candidate !== input.eventsPath.replaceAll("\\", "/")) {
+        return candidate;
+    }
+    return input.memoryPath.replaceAll("\\", "/").replace(/\/memory\.jsonl$/u, "");
 }
 
 function renderInvocationReminder(input: Input): string {

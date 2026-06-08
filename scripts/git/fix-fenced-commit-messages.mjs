@@ -2,15 +2,22 @@
 
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
+import {Command} from 'commander';
 
 const scriptPath = fileURLToPath(import.meta.url);
 const defaultRange = 'HEAD';
 
-/** 打印脚本用法。 */
-function printUsage() {
-    console.log(`Usage:
-  bun scripts/git/fix-fenced-commit-messages.mjs [--range <rev-range>] [--apply]
-  bun scripts/git/fix-fenced-commit-messages.mjs --filter-message
+/** 读取命令行参数。 */
+function parseArgs() {
+    const program = new Command()
+        .name('fix-fenced-commit-messages')
+        .description('修复被 AI 前置说明或 markdown fence 包住的 Git commit message。')
+        .allowExcessArguments(false)
+        .showHelpAfterError('(使用 --help 查看可用参数)')
+        .option('--range <rev-range>', '要扫描的 git revision range。', defaultRange)
+        .option('--apply', '实际改写历史；默认只 dry-run。', false)
+        .option('--filter-message', 'git filter-branch --msg-filter 内部模式。', false)
+        .addHelpText('after', `
 
 Examples:
   bun scripts/git/fix-fenced-commit-messages.mjs --range main..HEAD
@@ -18,60 +25,10 @@ Examples:
 
 说明：
   默认只 dry-run。真正改写历史必须传 --apply。
-  脚本会把这类提交信息：
+  脚本会把 AI 前置说明 + fenced block，或纯 fenced block，改成 fenced code block 内的内容。`);
 
-    Here is a suggested commit message...
-
-    \`\`\`text
-    feat(scope): real message
-    ...
-    \`\`\`
-
-  或者这类纯 fenced block：
-
-    \`\`\`markdown
-    fix(scope): real message
-    \`\`\`
-
-  改成 fenced code block 内的内容。`);
-}
-
-/** 读取命令行参数。 */
-function parseArgs(argv) {
-    const args = {
-        range: defaultRange,
-        apply: false,
-        help: false,
-        filterMessage: false,
-    };
-
-    for (let index = 0; index < argv.length; index += 1) {
-        const arg = argv[index];
-        if (arg === '--help' || arg === '-h') {
-            args.help = true;
-            continue;
-        }
-        if (arg === '--apply') {
-            args.apply = true;
-            continue;
-        }
-        if (arg === '--filter-message') {
-            args.filterMessage = true;
-            continue;
-        }
-        if (arg === '--range') {
-            const value = argv[index + 1];
-            if (!value) {
-                throw new Error('--range 需要一个 git revision range');
-            }
-            args.range = value;
-            index += 1;
-            continue;
-        }
-        throw new Error(`未知参数：${arg}`);
-    }
-
-    return args;
+    program.parse(process.argv);
+    return program.opts();
 }
 
 /** 执行 git 命令并返回 stdout。 */
@@ -204,11 +161,7 @@ function applyRewrite(range) {
 
 /** 主流程。 */
 async function main() {
-    const args = parseArgs(process.argv.slice(2));
-    if (args.help) {
-        printUsage();
-        return;
-    }
+    const args = parseArgs();
     if (args.filterMessage) {
         await runFilterMode();
         return;

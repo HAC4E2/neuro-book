@@ -522,6 +522,9 @@ function findProviderApiKey(config: StoredGlobalConfig, providerId: string): str
     return config.models?.providers?.find((provider) => provider.id === providerId)?.options.apiKey ?? "";
 }
 
+const DEFAULT_GLOBAL_EMBEDDING_MODEL = "text-embedding-3-small";
+const DEFAULT_GLOBAL_EMBEDDING_DIMENSIONS = 1536;
+
 function normalizeGlobalEmbeddingForWrite(
     embedding: NonNullable<GlobalConfigDto["embedding"]>,
     current: StoredGlobalConfig,
@@ -529,8 +532,8 @@ function normalizeGlobalEmbeddingForWrite(
     return normalizeEmbeddingService({
         enabled: embedding.enabled,
         provider: embedding.provider,
-        model: embedding.model,
-        dimensions: embedding.dimensions,
+        model: embedding.model ?? (embedding.enabled ? DEFAULT_GLOBAL_EMBEDDING_MODEL : null),
+        dimensions: embedding.dimensions ?? (embedding.enabled ? DEFAULT_GLOBAL_EMBEDDING_DIMENSIONS : null),
         apiKey: resolveSecretWrite({
             previousValue: current.embedding?.apiKey ?? "",
             configured: embedding.apiKey?.configured ?? false,

@@ -74,6 +74,7 @@ Subject memory 工具只给 sidecar 使用。`simulator.actor` 主 run 不直接
 `subject_rag_search`：
 
 - 输入当前 `subjectPath`、`query`、`sources` 和 `limit`。
+- `sources` 必须显式指定单一 source：`["events"]` 或 `["memory"]`。工具不提供默认双搜，也不允许一次同时搜索两层；需要两层记忆时由 sidecar 分两次调用。
 - 搜索前检查 source hash 和 dirty 状态，必要时同步重建索引。
 - 使用 configured embedding service 生成 query embedding。
 - 只在当前 subject 和指定 source 内召回候选。
@@ -146,7 +147,7 @@ Agent runtime 读取配置时必须使用 `workspaceRoot + projectPath` 合并 P
 `actor.context-load` 在 `prepareRun` 阶段执行：
 
 1. 基于 actor-facing packet 和当前 subject 文件生成检索 query。
-2. 调用 `subject_rag_search` 粗召回当前 subject 的 `events.jsonl` / `memory.jsonl`。
+2. 调用 `subject_rag_search` 粗召回当前 subject 的 `events.jsonl` 和/或 `memory.jsonl`；如果两层都需要，必须分别传 `["events"]`、`["memory"]` 调用两次。
 3. 自行 rerank、去重、过滤和压缩。
 4. 把少量相关经历和稳定认知写入 `<actor_sidecar_context>`。
 5. 通过 `persistedMessages` 写入 actor session active path，并让本轮主 run 可见。

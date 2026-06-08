@@ -9,6 +9,7 @@ import type {DropdownItem} from "nbook/app/components/common/dropdown.types";
 import WorkspaceFilePanel from "nbook/app/components/novel-ide/workspace/WorkspaceFilePanel.vue";
 import WorkspaceCharacterPanel from "nbook/app/components/novel-ide/workspace/WorkspaceCharacterPanel.vue";
 import NovelPlotPanel from "nbook/app/components/novel-ide/plot/NovelPlotPanel.vue";
+import NovelRagPanel from "nbook/app/components/novel-ide/rag/NovelRagPanel.vue";
 import type { NovelIdeTab } from "nbook/app/components/novel-ide/mock-data";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {useResizablePanel} from "nbook/app/composables/useResizablePanel";
@@ -43,6 +44,7 @@ const titleMap: Record<NovelIdeTab, string> = {
     files: "文件",
     characters: "角色",
     outline: "剧情大纲",
+    rag: "RAG",
 };
 const displayTitle = computed(() => props.userAssetsMode ? "用户资产" : titleMap[props.activeTab ?? "files"]);
 
@@ -398,6 +400,8 @@ onMounted(() => {
                 <WorkspaceCharacterPanel v-else-if="activeTab === 'characters' && !props.userAssetsMode" />
 
                 <NovelPlotPanel v-else-if="activeTab === 'outline' && !props.userAssetsMode" />
+
+                <NovelRagPanel v-else-if="activeTab === 'rag' && !props.userAssetsMode" />
             </div>
         </aside>
 

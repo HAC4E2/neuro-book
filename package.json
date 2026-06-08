@@ -41,7 +41,7 @@
     "auth:create-admin": "bun scripts/cli/create-admin.ts",
     "studio": "bunx prisma studio --config ./prisma.config.ts",
     "deploy": "bun scripts/deploy/deploy.mjs",
-    "release:canary": "bun scripts/release/canary.mjs",
+    "release:canary": "bun scripts/release/canary.ts",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs"
