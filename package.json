@@ -42,10 +42,6 @@
     "studio": "bunx prisma studio --config ./prisma.config.ts",
     "deploy": "bun scripts/deploy/deploy.mjs",
     "release": "bun scripts/release/release.ts",
-    "release:canary": "bun scripts/release/release.ts canary",
-    "release:alpha": "bun scripts/release/release.ts alpha",
-    "release:beta": "bun scripts/release/release.ts beta",
-    "release:rc": "bun scripts/release/release.ts rc",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs"

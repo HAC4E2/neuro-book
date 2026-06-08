@@ -511,16 +511,16 @@
 ### User Request
 
 - 将 canary 和正式版发布合并到一个 `bun run release -- <subcommand>` CLI，一条龙处理版本、tag、GitHub Release 和 workflow watch。
-- 按 SemVer 语义支持 `canary`、`alpha`、`beta`、`rc` 先行版本，同时保留 `release:canary` 兼容入口。
+- 按 SemVer 语义支持 `canary`、`alpha`、`beta`、`rc` 先行版本；发布入口只保留 `bun run release -- ...`。
 
 ### Decisions
 
-- `scripts/release/release.ts` 是统一发布入口；`release:canary`、`release:alpha`、`release:beta`、`release:rc` 都只是同一 CLI 的快捷 alias。
+- `scripts/release/release.ts` 是统一发布入口；`package.json` 不再保留按 channel 拆分的快捷 alias，避免出现第二组调用入口。
 - `stable` 只接受 SemVer release 版本 `X.Y.Z`，并在真实执行时要求 `--yes --push`、工作区干净、版本不得低于当前 `package.json.version`。
 - `stable` 支持显式 `--version v0.1.3`，也支持 `--next patch|minor|major` 从当前 `package.json.version` 自动增长；正式版不会在缺少这两个参数时猜版本。
 - `prerelease` / `canary` / `alpha` / `beta` / `rc` 都创建 GitHub prerelease，继续带 `--prerelease`，因此 release workflow 不会给 GHCR 打 `latest`。
 - 显式 `--tag` 必须是白名单 channel 的 SemVer prerelease tag，且 tag 中的 channel 必须与命令 channel 一致，避免 `release beta --tag v0.1.3-alpha.1` 这类语义错乱。
-- 默认 prerelease 使用下一 patch 版本；`--current-patch` 只用于补发当前版本线。
+- 默认 prerelease 使用下一 patch 版本，也可用 `--next patch|minor|major` 显式选择基础版本增长；`--current-patch` 只用于补发当前版本线，且不能和 `--version` / `--next` / `--tag` 混用。
 - `alpha` / `beta` / `rc` 不传 `--sequence` 时，会扫描本地和远端已有 tag 自动生成下一个数字序号；`--sequence` 和 `--tag` 仍可手动覆盖。`canary` 继续使用 UTC 时间戳和短 SHA 保持唯一性。
 
 ### Files Changed
@@ -534,8 +534,11 @@
 
 - `bun run release -- prerelease --help`
 - `bun run release -- prerelease --channel beta --version 0.1.3 --sequence 1 --dry-run --allow-dirty`
-- `bun run release:beta -- --version 0.1.3 --sequence 2 --dry-run --allow-dirty`
+- `bun run release -- beta --version 0.1.3 --sequence 2 --dry-run --allow-dirty`
 - `bun run release -- beta --dry-run --allow-dirty --no-watch` 会按已有 tag 自动选择下一个 `vX.Y.Z-beta.N`。
+- `bun run release -- canary --next minor --dry-run --allow-dirty --no-watch` 会生成下一 minor 线的 canary tag，例如 `v0.2.0-canary.<UTC>.<sha>`。
+- `bun run release -- beta --next minor --dry-run --allow-dirty --no-watch` 会生成下一 minor 线的 beta tag，例如 `v0.2.0-beta.1`。
+- `bun run release -- canary --next minor --version 0.1.3 --dry-run --allow-dirty --no-watch` 会拒绝多个基础版本参数混用。
 - `bun run release -- alpha --version 0.1.3 --sequence 1 --dry-run --allow-dirty --no-watch`
 - `bun run release -- rc --tag v0.1.3-rc.1 --dry-run --allow-dirty --no-watch`
 - `bun run release -- stable --version v0.1.3 --dry-run --push --no-watch`

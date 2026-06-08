@@ -23,6 +23,7 @@ type PrereleaseOptions = CommonOptions & {
     channel?: PrereleaseChannel;
     currentPatch: boolean;
     draft: boolean;
+    next?: ReleaseIncrement;
     sequence?: string;
     tag?: string;
     target?: string;
@@ -113,6 +114,7 @@ function addPrereleaseCommand(program: Command): void {
         .option("--draft", "创建 draft release。draft 不会等待 release workflow。", false)
         .option("--dry-run", "只打印将执行的 gh release create 命令。", false)
         .option("--current-patch", "基于当前 package patch 生成 prerelease；默认使用下一 patch。通常只用于补发当前版本线。", false)
+        .option("--next <part>", "自动增长 prerelease 基础版本：patch、minor、major。默认等同 patch。", parseReleaseIncrement)
         .option("--push", "发布前把当前 HEAD 推送到当前分支。", false)
         .option("--repo <repo>", "GitHub repository，例如 owner/name。", process.env.GITHUB_REPOSITORY ?? DEFAULT_REPO)
         .option("--sequence <id>", "手动指定先行版本序号或标识；alpha/beta/rc 默认自动递增，canary 默认使用 UTC 时间戳和短 SHA。")
@@ -134,6 +136,7 @@ function addPrereleaseAliasCommand(program: Command, channel: PrereleaseChannel)
         .option("--draft", "创建 draft release。draft 不会等待 release workflow。", false)
         .option("--dry-run", "只打印将执行的 gh release create 命令。", false)
         .option("--current-patch", "基于当前 package patch 生成 prerelease；默认使用下一 patch。通常只用于补发当前版本线。", false)
+        .option("--next <part>", "自动增长 prerelease 基础版本：patch、minor、major。默认等同 patch。", parseReleaseIncrement)
         .option("--push", "发布前把当前 HEAD 推送到当前分支。", false)
         .option("--repo <repo>", "GitHub repository，例如 owner/name。", process.env.GITHUB_REPOSITORY ?? DEFAULT_REPO)
         .option("--sequence <id>", "手动指定先行版本序号或标识；alpha/beta/rc 默认自动递增，canary 默认使用 UTC 时间戳和短 SHA。")
@@ -215,7 +218,8 @@ async function runPrerelease(options: PrereleaseOptions): Promise<void> {
     const tagPlan = await resolvePrereleaseTag({
         channel: options.channel ?? "canary",
         currentVersion: packageVersion,
-        incrementPatch: !options.currentPatch,
+        currentPatch: options.currentPatch,
+        next: options.next,
         sequence: options.sequence,
         shortHead,
         tag: options.tag,
@@ -420,7 +424,7 @@ function parseReleaseIncrement(input: string): ReleaseIncrement {
     if (input === "major" || input === "minor" || input === "patch") {
         return input;
     }
-    throw new Error(`stable --next 只支持 patch、minor、major：${input}`);
+    throw new Error(`--next 只支持 patch、minor、major：${input}`);
 }
 
 /** 解析 stable 目标版本；--version 和 --next 必须二选一。 */
@@ -441,13 +445,17 @@ function resolveStableVersion(options: StableOptions, currentPackageVersion: str
 async function resolvePrereleaseTag(input: {
     channel: PrereleaseChannel;
     currentVersion: string;
-    incrementPatch: boolean;
+    currentPatch: boolean;
+    next?: ReleaseIncrement;
     sequence?: string;
     shortHead: string;
     tag?: string;
     version?: string;
 }): Promise<ParsedPrereleaseTag> {
     if (input.tag) {
+        if (input.version || input.next || input.currentPatch) {
+            throw new Error("prerelease --tag 不能和 --version、--next 或 --current-patch 同时使用。");
+        }
         const parsed = parsePrereleaseTag(input.tag);
         if (input.channel !== parsed.channel) {
             throw new Error(`显式 tag channel 与命令 channel 不一致：${parsed.channel} != ${input.channel}`);
@@ -456,11 +464,7 @@ async function resolvePrereleaseTag(input: {
         return parsed;
     }
 
-    const baseVersion = input.version
-        ? normalizeReleaseVersion(input.version)
-        : input.incrementPatch
-            ? nextPatchVersion(input.currentVersion)
-            : normalizeReleaseVersion(input.currentVersion);
+    const baseVersion = resolvePrereleaseBaseVersion(input);
     assertVersionNotLower(baseVersion, releaseVersionOf(input.currentVersion), "prerelease base version");
     const sequence = input.sequence ?? await defaultPrereleaseSequence(input.channel, baseVersion, input.shortHead);
     const prerelease = `${input.channel}.${sequence}`;
@@ -472,6 +476,27 @@ async function resolvePrereleaseTag(input: {
         tag: `v${baseVersion}-${prerelease}`,
         version: baseVersion,
     };
+}
+
+/** 解析 prerelease 基础版本；默认等同 --next patch。 */
+function resolvePrereleaseBaseVersion(input: {
+    currentPatch: boolean;
+    currentVersion: string;
+    next?: ReleaseIncrement;
+    version?: string;
+}): string {
+    const selected = [input.version ? "--version" : "", input.next ? "--next" : "", input.currentPatch ? "--current-patch" : ""]
+        .filter(Boolean);
+    if (selected.length > 1) {
+        throw new Error(`prerelease 基础版本参数只能选一个：${selected.join("、")}`);
+    }
+    if (input.version) {
+        return normalizeReleaseVersion(input.version);
+    }
+    if (input.currentPatch) {
+        return normalizeReleaseVersion(input.currentVersion);
+    }
+    return incrementReleaseVersion(input.currentVersion, input.next ?? "patch");
 }
 
 /** 默认先行版本序号。 */
@@ -544,12 +569,6 @@ function parsePrereleaseTag(input: string): ParsedPrereleaseTag {
         tag: tag.startsWith("v") ? tag : `v${tag}`,
         version: `${match[1]}.${match[2]}.${match[3]}`,
     };
-}
-
-/** 把 semver patch 版本加一，忽略已有 prerelease 后缀。 */
-function nextPatchVersion(version: string): string {
-    const parsed = parseReleaseVersion(releaseVersionOf(version), "package.json version");
-    return `${parsed.major}.${parsed.minor}.${parsed.patch + 1}`;
 }
 
 /** 是否是 SemVer release 版本。 */
