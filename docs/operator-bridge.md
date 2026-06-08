@@ -109,7 +109,7 @@ local-git 模式不使用 Docker。应用直接在宿主机项目目录中运行
 
 - 宿主机 git clone/pull 项目源码。
 - 宿主机安装依赖、Nuxt prepare/generate/build 和 SQLite 迁移。
-- 服务用 `bun .output/server/index.mjs` 启动。
+- 服务启动前先同步 user-assets，再用 `bun .output/server/index.mjs` 启动。
 - 部署脚本生成 `.deploy/start-local-git.sh` 或 `.deploy/start-local-git.ps1` 便于启动服务，但不生成 systemd/pm2 服务，不接管后台进程管理。
 - 数据库固定 SQLite-only。App SQLite 位于 `workspace/.nbook/neuro-book.sqlite`；Project SQLite 位于 `workspace/<project>/.nbook/project.sqlite`。
 
@@ -360,12 +360,14 @@ bun run nuxt:prepare
 bun run generate
 bun run nuxt:build
 bun run migrate:deploy
+bun scripts/build/prepare-system-assets.ts --sync-user-assets
 bun .output/server/index.mjs
 ```
 
 PowerShell 下先按 `.env` 内容设置当前进程环境变量，再运行：
 
 ```powershell
+bun scripts/build/prepare-system-assets.ts --sync-user-assets
 bun .output/server/index.mjs
 ```
 

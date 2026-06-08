@@ -2,7 +2,7 @@
 
 import * as p from '@clack/prompts';
 import {DEPLOY_DIRNAME, LOCAL_GIT_DEPLOY_MODE} from './constants.mjs';
-import {renderNativeScript, nativeStartScriptName, nativeAdminScriptName, nativeStartHelp, dryRunCommand} from './scripts-gen.mjs';
+import {LOCAL_GIT_SERVER_COMMAND, LOCAL_GIT_SYSTEM_ASSETS_COMMAND, localGitStartCommand, renderNativeScript, nativeStartScriptName, nativeAdminScriptName, nativeStartHelp, dryRunCommand} from './scripts-gen.mjs';
 import {ensureNativeCommands} from './native-deps.mjs';
 import {run} from '../utils/process.mjs';
 
@@ -46,7 +46,7 @@ ${DEPLOY_DIRNAME}/${nativeStartScriptName()}
 ${DEPLOY_DIRNAME}/${nativeAdminScriptName()}
 
 手动启动命令：
-${nativeStartHelp('bun .output/server/index.mjs')}`,
+${nativeStartHelp(localGitStartCommand())}`,
         'local-git 启动命令',
     );
 }
@@ -60,7 +60,7 @@ export function renderCompose() {
 export function renderStartScript(config) {
     return {
         startPath: `${DEPLOY_DIRNAME}/${nativeStartScriptName()}`,
-        startContent: renderNativeScript('bun .output/server/index.mjs'),
+        startContent: renderNativeScript(localGitStartCommand()),
         adminPath: `${DEPLOY_DIRNAME}/${nativeAdminScriptName()}`,
         adminContent: renderNativeScript('bun run auth:create-admin'),
     };
@@ -78,7 +78,8 @@ export function updateCommands() {
         'bun run generate',
         'bun run nuxt:build',
         'bun run migrate:deploy',
-        'bun .output/server/index.mjs',
+        LOCAL_GIT_SYSTEM_ASSETS_COMMAND,
+        LOCAL_GIT_SERVER_COMMAND,
     ];
 }
 
@@ -88,5 +89,6 @@ export function notes() {
 ${updateCommands().map((line) => `- ${line}`).join('\n')}
 
 Windows PowerShell 启动前请按 .env 内容设置当前进程环境变量，然后运行：
-- bun .output/server/index.mjs`;
+- ${LOCAL_GIT_SYSTEM_ASSETS_COMMAND}
+- ${LOCAL_GIT_SERVER_COMMAND}`;
 }

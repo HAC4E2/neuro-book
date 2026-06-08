@@ -127,7 +127,7 @@ bun scripts/deploy/neuro-book-deploy.mjs --deploy-mode local-git
 - 检查 Git、Bun、ripgrep 等工具。
 - 生成 `.env`、`config.yaml`、`workspace/.nbook/config.json` 和 `.deploy/README.md`。
 - 安装依赖、构建应用、执行 SQLite migration。
-- 打印启动命令。
+- 打印启动命令；启动前会同步 user-assets，修复未手改系统 profile 覆盖层的 `.compiled` artifact。
 
 local-git 不接管 systemd、pm2 或后台进程管理。需要长期运行时，可以按部署目录中的 `.deploy/README.md` 接入自己的进程管理方式。
 
@@ -211,6 +211,8 @@ git pull --ff-only
 bun install --frozen-lockfile
 bun run nuxt:build
 bun run migrate:deploy
+bun scripts/build/prepare-system-assets.ts --sync-user-assets
+bun .output/server/index.mjs
 ```
 
 如果要让其他 Agent 协助部署、更新或排障，优先把 [交付与运维桥梁](https://github.com/notnotype/neuro-book/blob/master/docs/operator-bridge.md) 发给它。那份文档更适合作为外部执行者的 checklist。

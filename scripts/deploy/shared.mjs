@@ -24,7 +24,7 @@ import {
 } from './constants.mjs';
 import {run, runCapture, validatePort} from '../utils/process.mjs';
 import {askText, askSelect} from './prompts.mjs';
-import {nativeStartScriptName, nativeAdminScriptName, renderNativeScript, dryRunCommand, nativeStartHelp} from './scripts-gen.mjs';
+import {localGitStartCommand, nativeStartScriptName, nativeAdminScriptName, renderNativeScript, dryRunCommand, nativeStartHelp} from './scripts-gen.mjs';
 import {renderEnv, renderBootConfig, renderGlobalConfig, parseEnv, randomSecret} from './config-render.mjs';
 
 /** 查询路径是否存在，并返回 stat 信息。 */
@@ -267,7 +267,7 @@ function adminCommand(config, mode) {
 /** 生成容器启动命令提示。 */
 function upCommand(config, mode) {
     if (config.deployMode === LOCAL_GIT_DEPLOY_MODE) {
-        return nativeStartHelp('bun .output/server/index.mjs');
+        return nativeStartHelp(localGitStartCommand());
     }
     const files = ['-f', 'docker-compose.yml', '-f', `${DEPLOY_DIRNAME}/docker-compose.generated.yml`];
     const upArgs = config.deployMode === 'source' ? 'up -d --build' : 'up -d';

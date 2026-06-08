@@ -2,6 +2,17 @@
 
 import * as p from '@clack/prompts';
 
+export const LOCAL_GIT_SYSTEM_ASSETS_COMMAND = 'bun scripts/build/prepare-system-assets.ts --sync-user-assets';
+export const LOCAL_GIT_SERVER_COMMAND = 'bun .output/server/index.mjs';
+
+/** 返回 local-git 服务启动命令。启动前同步 user-assets，修复系统 profile 覆盖层 artifact。 */
+export function localGitStartCommand() {
+    return [
+        LOCAL_GIT_SYSTEM_ASSETS_COMMAND,
+        LOCAL_GIT_SERVER_COMMAND,
+    ].join('\n');
+}
+
 /** 按平台返回 .env 加载方式说明。 */
 export function nativeStartHelp(command) {
     if (process.platform === 'win32') {
