@@ -32,9 +32,16 @@ import {useDialog} from "nbook/app/composables/useDialog";
 import {useNotification} from "nbook/app/composables/useNotification";
 import type {AgentTriggerMenuContext, AgentTriggerMenuItem, AgentTriggerMenuState, MarkdownCommandKind} from "nbook/app/components/novel-ide/agent/trigger-menu";
 import {useNovelIdeStore, type AgentWorkspaceSyncPayload, type WorkspaceEditorKind, type WorkspaceEditorViewMode, type WorkspaceFileNode} from "nbook/app/stores/novel-ide";
+import {useTextToImageStore} from "nbook/app/stores/text-to-image";
 import type {WorkspaceFileChangeEventDto, WorkspaceFileStreamEventDto} from "nbook/shared/dto/workspace-file-events.dto";
 import type {AgentSessionSummaryDto, AgentSkillCatalogItemDto} from "nbook/shared/dto/agent-session.dto";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
+import {
+    buildTextToImageLlmMessages,
+    extractImagineBlocks,
+    insertImagineBlocksIntoMarkdown,
+    requestTextToImageLlmCompletion,
+} from "nbook/app/utils/text-to-image-llm";
 import {
     collectWorkspaceReferencePathCandidates,
 } from "nbook/app/utils/workspace-reference-search";
@@ -82,6 +89,7 @@ const layoutTransitionDirection = ref<LayoutModeTransitionDirection | null>(null
 const markdownSkillCatalog = ref<AgentSkillCatalogItemDto[]>([]);
 const markdownSkillCatalogLoaded = ref(false);
 const markdownSkillCatalogLoading = ref(false);
+const bodyImageGenerating = ref(false);
 let markdownSkillCatalogRequest: Promise<void> | null = null;
 let workspaceFileSyncRunning = false;
 let pendingWorkspaceFileEvents: WorkspaceFileChangeEventDto[] = [];
@@ -99,6 +107,7 @@ const IDE_PAPER_TRANSITION_SELECTORS = [
 ] as const;
 
 const novelIdeStore = useNovelIdeStore();
+const textToImageStore = useTextToImageStore();
 const route = useRoute();
 const router = useRouter();
 const {
@@ -158,6 +167,7 @@ const {
     switchToNovelWorkspace,
     switchToUserAssetsWorkspace,
 } = novelIdeStore;
+const {taskPrompts: textToImageTaskPrompts} = storeToRefs(textToImageStore);
 const {mountThemeHost} = useIdeTheme(theme);
 const workspaceFileEvents = useWorkspaceFileEvents();
 const authSessionState = useAuthSessionState();
@@ -354,6 +364,16 @@ const workspaceReferenceRefreshKey = computed(() => workspaceTree.value
  * Markdown 文件继续进入 MarkdownStudio。
  */
 const isMarkdownFile = computed(() => currentFileExtension.value === ".md");
+const isEditableManuscriptMarkdown = computed(() => {
+    const workspacePath = normalizeWorkspacePath(selectedFilePath.value);
+    return selectedFileNode.value?.editable === true && isMarkdownFile.value && workspacePath.startsWith("manuscript/");
+});
+const canGenerateBodyImage = computed(() => (
+    workspaceDisplayReady.value
+    && isEditableManuscriptMarkdown.value
+    && selectedFileContent.value.trim().length > 0
+    && !bodyImageGenerating.value
+));
 
 const markdownCommandSections = [
     {
@@ -754,6 +774,56 @@ const saveCurrentWorkspaceFile = async (): Promise<void> => {
             return;
         }
         saveQueued.value = false;
+    }
+};
+
+/**
+ * 将当前章节作为正文图片生成任务发送给 LLM，并把返回的图片块写回正文。
+ */
+const generateBodyImagesForCurrentChapter = async (): Promise<void> => {
+    if (bodyImageGenerating.value) {
+        return;
+    }
+    if (!canGenerateBodyImage.value) {
+        notification.warning("请先打开一个可编辑的正文章节。", {title: "正文生图"});
+        return;
+    }
+    const {apiConfig, contextPreset} = textToImageStore.resolveLlmTaskBinding("bodyImage");
+    const apiBaseUrl = apiConfig.apiBaseUrl.trim().replace(/\/+$/u, "");
+    if (!apiBaseUrl || !apiConfig.model.trim()) {
+        notification.warning("请先在文生图 LLM 中为“正文图片生成”配置 API 和模型。", {title: "正文生图"});
+        return;
+    }
+
+    const messages = buildTextToImageLlmMessages({
+        task: "bodyImage",
+        userRequest: selectedFileContent.value.trim(),
+        taskPrompt: textToImageTaskPrompts.value.bodyImage.prompt,
+        contextPreset,
+    });
+
+    bodyImageGenerating.value = true;
+    try {
+        const reply = await requestTextToImageLlmCompletion(apiConfig, messages);
+        const blocks = extractImagineBlocks(reply);
+        if (!blocks.length) {
+            notification.warning("LLM 回复中没有找到 <imagine> 或 <image> 图片标记。", {title: "正文生图"});
+            return;
+        }
+        const result = insertImagineBlocksIntoMarkdown(selectedFileContent.value, blocks);
+        if (!result.inserted) {
+            notification.warning("没有新的图片标记可插入，可能已经插入过相同内容。", {title: "正文生图"});
+            return;
+        }
+        selectedFileContent.value = result.markdown;
+        await nextTick();
+        await saveCurrentWorkspaceFile();
+        const appendedText = result.appended ? `，追加 ${result.appended} 个` : "";
+        notification.success(`已插入 ${result.inserted} 个正文生图标记（匹配 ${result.matched} 个${appendedText}）。`);
+    } catch (error) {
+        notification.error(resolveApiErrorMessage(error, "正文生图请求失败"), {title: "正文生图"});
+    } finally {
+        bodyImageGenerating.value = false;
     }
 };
 
@@ -1645,12 +1715,15 @@ onBeforeUnmount(() => {
                             :open-reference="openWorkspaceReference"
                             :resolve-reference="resolveWorkspaceReferencePreview"
                             :enable-quick-triggers="true"
+                            :can-generate-body-image="canGenerateBodyImage"
+                            :body-image-busy="bodyImageGenerating"
                             @select-tab="void selectWorkspaceTab($event)"
                             @close-tab="void closeEditorTab($event)"
                             @set-pin="setWorkspaceTabPinned"
                             @keep-tab="keepWorkspaceTab"
                             @move-tab="moveWorkspaceTab"
                             @set-view-mode="setCurrentWorkspaceViewMode"
+                            @generate-body-image="void generateBodyImagesForCurrentChapter()"
                             @update-monaco-temporary-font-size="setMonacoFontSizeOverride(displayActiveWorkspaceTabPath, $event)"
                             @save-request="void saveCurrentWorkspaceFile()"
                             @open-frontmatter-profile="openFrontmatterProfile"

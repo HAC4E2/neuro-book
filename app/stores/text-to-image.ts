@@ -47,11 +47,13 @@ export type TextToImageLlmApiConfig = {
 };
 
 export type TextToImageLlmContextRole = "system" | "user" | "assistant";
+export type TextToImageLlmContextTriggerMode = "always" | "trigger";
 
 export type TextToImageLlmContextEntry = {
     id: string;
     name: string;
     role: TextToImageLlmContextRole;
+    triggerMode: TextToImageLlmContextTriggerMode;
     content: string;
     enabled: boolean;
 };
@@ -162,6 +164,13 @@ export type TextToImageProjectCharacterGroup = {
     activeCharacterId: string | null;
 };
 
+export type TextToImageTagVocabularySource = {
+    id: string;
+    name: string;
+    importedAt: string;
+    entryCount: number;
+};
+
 export const MAX_TEXT_TO_IMAGE_LLM_TOKENS = 30000;
 
 export const TEXT_TO_IMAGE_NOVELAI_SAMPLERS: Array<{value: string; label: string}> = [
@@ -255,6 +264,18 @@ function createLocalId(prefix: string): string {
 }
 
 /**
+ * 创建一条本地 tag 词库来源元数据；具体 tag 条目由 IndexedDB 保存。
+ */
+function createTagVocabularySource(name: string, patch: Partial<TextToImageTagVocabularySource> = {}): TextToImageTagVocabularySource {
+    return {
+        id: patch.id ?? createLocalId("tag_vocab"),
+        name: patch.name?.trim() || name || "未命名词库",
+        importedAt: patch.importedAt ?? new Date().toISOString(),
+        entryCount: Math.max(0, Math.round(Number(patch.entryCount ?? 0))),
+    };
+}
+
+/**
  * 创建一条 LLM API 配置。
  */
 function createLlmApiConfig(name = "默认", patch: Partial<TextToImageLlmApiConfig> = {}): TextToImageLlmApiConfig {
@@ -276,10 +297,12 @@ function createLlmApiConfig(name = "默认", patch: Partial<TextToImageLlmApiCon
  */
 function createLlmContextEntry(name = "新条目", patch: Partial<TextToImageLlmContextEntry> = {}): TextToImageLlmContextEntry {
     const role = patch.role === "user" || patch.role === "assistant" || patch.role === "system" ? patch.role : "system";
+    const triggerMode = patch.triggerMode === "trigger" ? "trigger" : "always";
     return {
         id: patch.id ?? createLocalId("llm_ctx_entry"),
         name: patch.name ?? name,
         role,
+        triggerMode,
         content: patch.content ?? "",
         enabled: patch.enabled ?? true,
     };
@@ -582,6 +605,13 @@ function normalizeGenerationDraft(settings: Partial<TextToImageGenerationDraft> 
 }
 
 /**
+ * 规整 tag 词库来源元数据。
+ */
+function normalizeTagVocabularySource(source: Partial<TextToImageTagVocabularySource>, fallbackName: string): TextToImageTagVocabularySource {
+    return createTagVocabularySource(fallbackName, source);
+}
+
+/**
  * 文生图配置工作台的本地状态。
  */
 export const useTextToImageStore = defineStore("textToImage", () => {
@@ -604,6 +634,8 @@ export const useTextToImageStore = defineStore("textToImage", () => {
     const characterGroups = ref<Record<string, TextToImageProjectCharacterGroup>>({
         [DEFAULT_PROJECT_KEY]: createCharacterGroup(DEFAULT_PROJECT_KEY),
     });
+    const tagVocabularySources = ref<TextToImageTagVocabularySource[]>([]);
+    const activeTagVocabularySourceId = ref("");
 
     const activeProjectKey = computed(() => normalizeProjectPath(currentProjectPath.value));
     const activeStyle = computed(() => stylePresets.value.find((item) => item.id === activeStyleId.value) ?? stylePresets.value[0] ?? null);
@@ -661,6 +693,10 @@ export const useTextToImageStore = defineStore("textToImage", () => {
         novelAi.value = normalizeNovelAiSettings(novelAi.value);
         output.value = normalizeOutputSettings(output.value);
         generationDraft.value = normalizeGenerationDraft(generationDraft.value);
+        tagVocabularySources.value = tagVocabularySources.value.map((source, index) => normalizeTagVocabularySource(source, index === 0 ? "默认词库" : `tagData ${index + 1}`));
+        if (activeTagVocabularySourceId.value && !tagVocabularySources.value.some((source) => source.id === activeTagVocabularySourceId.value)) {
+            activeTagVocabularySourceId.value = "";
+        }
         llm.value = normalizeLlmSettings(llm.value);
         if (llmContextPresets.value.length === 0) {
             const preset = createLlmContextPreset();
@@ -1244,6 +1280,52 @@ export const useTextToImageStore = defineStore("textToImage", () => {
         });
     }
 
+    /**
+     * 登记一个本地 tag 词库来源；大量条目由 IndexedDB 工具写入。
+     */
+    function addTagVocabularySource(name: string, entryCount: number, importedAt = new Date().toISOString()): TextToImageTagVocabularySource {
+        const source = createTagVocabularySource(name, {entryCount, importedAt});
+        tagVocabularySources.value = [...tagVocabularySources.value, source];
+        activeTagVocabularySourceId.value = source.id;
+        return source;
+    }
+
+    /**
+     * 更新 tag 词库来源元数据。
+     */
+    function updateTagVocabularySource(sourceId: string, patch: Partial<TextToImageTagVocabularySource>): void {
+        tagVocabularySources.value = tagVocabularySources.value.map((source) => source.id === sourceId ? normalizeTagVocabularySource({
+            ...source,
+            ...patch,
+            id: source.id,
+        }, source.name || "tagData") : source);
+    }
+
+    /**
+     * 从本地元数据中移除一个 tag 词库来源；IndexedDB 条目由调用方先删除。
+     */
+    function deleteTagVocabularySource(sourceId: string): void {
+        tagVocabularySources.value = tagVocabularySources.value.filter((source) => source.id !== sourceId);
+        if (activeTagVocabularySourceId.value === sourceId) {
+            activeTagVocabularySourceId.value = tagVocabularySources.value[0]?.id ?? "";
+        }
+    }
+
+    /**
+     * 清空所有 tag 词库来源元数据；IndexedDB 条目由调用方先清空。
+     */
+    function clearTagVocabularySources(): void {
+        tagVocabularySources.value = [];
+        activeTagVocabularySourceId.value = "";
+    }
+
+    /**
+     * 切换当前搜索使用的 tag 词库；空字符串表示搜索全部词库。
+     */
+    function activateTagVocabularySource(sourceId: string): void {
+        activeTagVocabularySourceId.value = tagVocabularySources.value.some((source) => source.id === sourceId) ? sourceId : "";
+    }
+
     return {
         activeCharacter,
         activeCharacterGroup,
@@ -1252,6 +1334,7 @@ export const useTextToImageStore = defineStore("textToImage", () => {
         activeLlmContextPreset,
         activeStyle,
         activeStyleId,
+        activeTagVocabularySourceId,
         addCharacter,
         addCharacterFromDraft,
         addLlmApiConfig,
@@ -1259,11 +1342,14 @@ export const useTextToImageStore = defineStore("textToImage", () => {
         addLlmContextPreset,
         addStylePreset,
         addStyleVibeReference,
+        addTagVocabularySource,
         activateLlmApiConfig,
         activateLlmContextPreset,
         activateStylePreset,
+        activateTagVocabularySource,
         activeLlmContextPresetId,
         characterGroups,
+        clearTagVocabularySources,
         clearGenerationResults,
         characters,
         currentProjectPath,
@@ -1273,6 +1359,7 @@ export const useTextToImageStore = defineStore("textToImage", () => {
         deleteLlmContextPreset,
         deleteStylePreset,
         deleteStyleVibeReference,
+        deleteTagVocabularySource,
         duplicateStylePreset,
         ensureDefaults,
         ensureProjectGroup,
@@ -1290,6 +1377,7 @@ export const useTextToImageStore = defineStore("textToImage", () => {
         selectCharacter,
         setCurrentProjectPath,
         stylePresets,
+        tagVocabularySources,
         taskPrompts,
         updateCharacter,
         updateGenerationDraft,
@@ -1303,6 +1391,7 @@ export const useTextToImageStore = defineStore("textToImage", () => {
         updateOutputSettings,
         updateStylePreset,
         updateStyleVibeReference,
+        updateTagVocabularySource,
         updateTaskPrompt,
     };
 }, {
@@ -1322,6 +1411,8 @@ export const useTextToImageStore = defineStore("textToImage", () => {
             "activeStyleId",
             "currentProjectPath",
             "characterGroups",
+            "tagVocabularySources",
+            "activeTagVocabularySourceId",
         ],
     },
 });

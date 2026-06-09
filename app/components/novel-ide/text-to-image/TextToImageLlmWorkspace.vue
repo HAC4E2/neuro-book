@@ -8,27 +8,20 @@ import {
     MAX_TEXT_TO_IMAGE_LLM_TOKENS,
     TEXT_TO_IMAGE_PROMPT_TASKS,
     useTextToImageStore,
-    type TextToImageLlmApiConfig,
     type TextToImageLlmContextEntry,
     type TextToImageLlmContextPreset,
     type TextToImageLlmContextRole,
+    type TextToImageLlmContextTriggerMode,
     type TextToImageLlmParameters,
     type TextToImagePromptTask,
 } from "nbook/app/stores/text-to-image";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
-
-type ChatCompletionMessage = {
-    role: TextToImageLlmContextRole;
-    content: string;
-};
-
-type ChatCompletionResponse = {
-    choices?: Array<{
-        message?: {
-            content?: string;
-        };
-    }>;
-};
+import {
+    buildTextToImageLlmMessages,
+    formatTextToImageLlmMessages,
+    requestTextToImageLlmCompletion,
+    type TextToImageLlmMessage,
+} from "nbook/app/utils/text-to-image-llm";
 
 type ModelListEntry = string | {
     id?: string;
@@ -65,11 +58,17 @@ const testUserPrompt = ref("请根据当前配置生成一段简短测试回复�
 const testResponse = ref("");
 const testBusy = ref(false);
 const testError = ref("");
+const lastSentPromptPreview = ref("");
 
 const roleOptions: SelectOption[] = [
     {value: "system", label: "SYS", description: "系统上下文"},
     {value: "user", label: "USER", description: "用户上下文"},
     {value: "assistant", label: "AI", description: "助手历史上下文"},
+];
+
+const triggerModeOptions: SelectOption[] = [
+    {value: "always", label: "常开", description: "每次请求都会发送"},
+    {value: "trigger", label: "触发", description: "本次请求文本包含条目名时发送"},
 ];
 
 const llmParameterControls: Array<{key: keyof TextToImageLlmParameters; label: string; min: number; max: number; step: number}> = [
@@ -117,14 +116,15 @@ const contextPresetOptions = computed<SelectOption[]>(() => llmContextPresets.va
 
 const selectedContextEntry = computed(() => activeLlmContextPreset.value?.entries.find((entry) => entry.id === selectedContextEntryId.value) ?? null);
 
-const enabledContextEntries = computed(() => activeLlmContextPreset.value?.entries.filter((entry) => entry.enabled && entry.content.trim()) ?? []);
-
-const testMessages = computed<ChatCompletionMessage[]>(() => buildTaskMessages(selectedTestTask.value, testUserPrompt.value));
-
-const finalPromptPreview = computed(() => testMessages.value.map((message, index) => [
-    `#${index + 1} ${message.role.toUpperCase()}`,
-    message.content,
-]).join("\n\n"));
+const testMessages = computed<TextToImageLlmMessage[]>(() => {
+    const {contextPreset} = store.resolveLlmTaskBinding(selectedTestTask.value);
+    return buildTextToImageLlmMessages({
+        task: selectedTestTask.value,
+        userRequest: testUserPrompt.value,
+        taskPrompt: taskPrompts.value[selectedTestTask.value]?.prompt,
+        contextPreset,
+    });
+});
 
 watch(() => activeLlmContextPreset.value?.id, () => {
     selectedContextEntryId.value = activeLlmContextPreset.value?.entries[0]?.id ?? "";
@@ -291,6 +291,7 @@ function addContextEntry(): void {
     const entry = store.addLlmContextEntry(activeLlmContextPreset.value.id, {
         name: `条目 ${activeLlmContextPreset.value.entries.length + 1}`,
         role: "system",
+        triggerMode: "always",
         content: "",
     });
     selectedContextEntryId.value = entry?.id ?? "";
@@ -365,23 +366,6 @@ function taskBinding(task: TextToImagePromptTask): {apiConfigId: string; context
     };
 }
 
-function buildTaskMessages(task: TextToImagePromptTask, externalRequest: string): ChatCompletionMessage[] {
-    const {contextPreset} = store.resolveLlmTaskBinding(task);
-    const contextMessages = (contextPreset?.entries ?? [])
-        .filter((entry) => entry.enabled && entry.content.trim())
-        .map((entry) => ({
-            role: entry.role,
-            content: entry.content.trim(),
-        }));
-    const taskPrompt = taskPrompts.value[task]?.prompt.trim();
-    const userRequest = externalRequest.trim();
-    return [
-        ...contextMessages,
-        ...(taskPrompt ? [{role: "system" as const, content: taskPrompt}] : []),
-        ...(userRequest ? [{role: "user" as const, content: userRequest}] : []),
-    ];
-}
-
 async function sendTestRequest(): Promise<void> {
     if (testBusy.value) {
         return;
@@ -395,77 +379,15 @@ async function sendTestRequest(): Promise<void> {
     testBusy.value = true;
     testError.value = "";
     testResponse.value = "";
+    const messages = testMessages.value;
+    lastSentPromptPreview.value = formatTextToImageLlmMessages(messages);
     try {
-        testResponse.value = await requestChatCompletion(apiConfig, testMessages.value);
+        testResponse.value = await requestTextToImageLlmCompletion(apiConfig, messages);
     } catch (error) {
         testError.value = resolveApiErrorMessage(error, "测试请求失败");
     } finally {
         testBusy.value = false;
     }
-}
-
-async function requestChatCompletion(apiConfig: TextToImageLlmApiConfig, messages: ChatCompletionMessage[]): Promise<string> {
-    const headers: HeadersInit = {"Content-Type": "application/json"};
-    if (apiConfig.apiKey.trim()) {
-        headers.Authorization = `Bearer ${apiConfig.apiKey.trim()}`;
-    }
-    const response = await fetch(`${apiConfig.apiBaseUrl.trim().replace(/\/+$/, "")}/chat/completions`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-            model: apiConfig.model.trim(),
-            temperature: apiConfig.parameters.temperature,
-            top_p: apiConfig.parameters.topP,
-            max_tokens: apiConfig.parameters.maxTokens,
-            stream: apiConfig.stream,
-            messages,
-        }),
-    });
-    if (!response.ok) {
-        const message = await response.text();
-        throw new Error(message || `LLM 请求失败：${response.status}`);
-    }
-    if (apiConfig.stream) {
-        return await readStreamingResponse(response);
-    }
-    const data = await response.json() as ChatCompletionResponse;
-    return data.choices?.[0]?.message?.content?.trim() ?? "";
-}
-
-async function readStreamingResponse(response: Response): Promise<string> {
-    const reader = response.body?.getReader();
-    if (!reader) {
-        return "";
-    }
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let output = "";
-    while (true) {
-        const {done, value} = await reader.read();
-        if (done) {
-            break;
-        }
-        buffer += decoder.decode(value, {stream: true});
-        const lines = buffer.split(/\r?\n/u);
-        buffer = lines.pop() ?? "";
-        for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed.startsWith("data:")) {
-                continue;
-            }
-            const payload = trimmed.slice(5).trim();
-            if (!payload || payload === "[DONE]") {
-                continue;
-            }
-            try {
-                const json = JSON.parse(payload) as {choices?: Array<{delta?: {content?: string}; message?: {content?: string}}>};
-                output += json.choices?.[0]?.delta?.content ?? json.choices?.[0]?.message?.content ?? "";
-            } catch {
-                output += payload;
-            }
-        }
-    }
-    return output.trim();
 }
 
 function parseContextEntriesFromJson(data: unknown): Partial<TextToImageLlmContextEntry>[] {
@@ -516,6 +438,7 @@ function normalizeJsonEntry(value: unknown, fallbackName: string): Partial<TextT
         return {
             name: fallbackName,
             role: "system",
+            triggerMode: "always",
             content: value,
             enabled: true,
         };
@@ -524,6 +447,7 @@ function normalizeJsonEntry(value: unknown, fallbackName: string): Partial<TextT
         return {
             name: fallbackName,
             role: "system",
+            triggerMode: "always",
             content: JSON.stringify(value),
             enabled: true,
         };
@@ -537,6 +461,7 @@ function normalizeJsonEntry(value: unknown, fallbackName: string): Partial<TextT
         || fallbackName;
     const content = readEntryContent(value);
     const role = normalizeRole(readString(value.role) || readString(value.type) || readString(value.identifier));
+    const triggerMode = normalizeTriggerMode(readString(value.triggerMode) || readString(value.trigger_mode) || readString(value.mode));
     const enabled = typeof value.enabled === "boolean"
         ? value.enabled
         : typeof value.enable === "boolean"
@@ -544,7 +469,7 @@ function normalizeJsonEntry(value: unknown, fallbackName: string): Partial<TextT
             : typeof value.disabled === "boolean"
                 ? !value.disabled
                 : true;
-    return {name, role, content, enabled};
+    return {name, role, triggerMode, content, enabled};
 }
 
 function readEntryContent(value: JsonRecord): string {
@@ -608,6 +533,14 @@ function normalizeRole(value: string): TextToImageLlmContextRole {
         return "user";
     }
     return "system";
+}
+
+function normalizeTriggerMode(value: string): TextToImageLlmContextTriggerMode {
+    const normalized = value.trim().toLowerCase();
+    if (["trigger", "keyword", "keywords", "selective", "manual", "触发"].some((item) => normalized.includes(item))) {
+        return "trigger";
+    }
+    return "always";
 }
 
 function readString(value: unknown): string {
@@ -767,12 +700,13 @@ function sanitizeFileName(fileName: string): string {
                                     v-for="entry in activeLlmContextPreset.entries"
                                     :key="entry.id"
                                     type="button"
-                                    class="grid w-full grid-cols-[1rem_64px_minmax(120px,220px)_minmax(0,1fr)_auto_auto] items-center gap-3 rounded-md border px-3 py-3 text-left transition-colors"
+                                    class="grid w-full grid-cols-[1rem_64px_72px_minmax(120px,220px)_minmax(0,1fr)_auto_auto] items-center gap-3 rounded-md border px-3 py-3 text-left transition-colors"
                                     :class="entry.id === selectedContextEntryId ? 'border-[var(--accent-main)] bg-[var(--accent-bg)]' : 'border-[var(--border-color)] bg-[var(--bg-panel)] hover:bg-[var(--bg-hover)]'"
                                     @click="selectedContextEntryId = entry.id"
                                 >
                                     <span class="i-lucide-grip-vertical h-4 w-4 text-[var(--text-muted)]"></span>
                                     <span class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1 text-center text-xs font-semibold text-[var(--accent-text)]">{{ entry.role.toUpperCase().slice(0, 3) }}</span>
+                                    <span class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1 text-center text-xs font-semibold" :class="entry.triggerMode === 'trigger' ? 'text-[var(--accent-text)]' : 'text-[var(--text-secondary)]'">{{ entry.triggerMode === "trigger" ? "触发" : "常开" }}</span>
                                     <span class="min-w-0 truncate rounded-md bg-[var(--bg-input)] px-2 py-1 text-sm text-[var(--accent-text)]">{{ entry.name }}</span>
                                     <span class="min-w-0 truncate text-sm text-[var(--text-secondary)]">{{ entry.content || "空内容" }}</span>
                                     <button type="button" class="toggle compact-toggle" :class="entry.enabled ? 'toggle-on' : ''" :aria-pressed="entry.enabled" @click.stop="updateContextEntry(entry.id, {enabled: !entry.enabled})"><span></span></button>
@@ -797,6 +731,10 @@ function sanitizeFileName(fileName: string): string {
                                 <label class="block">
                                     <span class="field-label">角色</span>
                                     <FormSelect :model-value="selectedContextEntry.role" :options="roleOptions" dropdown-direction="down" @update:model-value="updateContextEntry(selectedContextEntry.id, {role: $event as TextToImageLlmContextRole})" />
+                                </label>
+                                <label class="block">
+                                    <span class="field-label">触发模式</span>
+                                    <FormSelect :model-value="selectedContextEntry.triggerMode" :options="triggerModeOptions" dropdown-direction="down" @update:model-value="updateContextEntry(selectedContextEntry.id, {triggerMode: $event as TextToImageLlmContextTriggerMode})" />
                                 </label>
                                 <label class="block">
                                     <span class="field-label">内容</span>
@@ -851,7 +789,7 @@ function sanitizeFileName(fileName: string): string {
                     </label>
                     <label class="block">
                         <span class="field-label">组合提示词</span>
-                        <FormTextarea :model-value="finalPromptPreview" :rows="8" readonly placeholder="这里显示根据上下文和外部请求组合的最终提示词..." />
+                        <FormTextarea :model-value="lastSentPromptPreview" :rows="8" readonly placeholder="发送任意 LLM 请求后，这里会显示本次实际发送给大模型的提示词..." />
                     </label>
                     <label class="block">
                         <span class="field-label">AI 回复</span>

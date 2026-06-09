@@ -3,6 +3,7 @@ import {storeToRefs} from "pinia";
 import Dialog from "nbook/app/components/common/Dialog.vue";
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
 import FormTextarea from "nbook/app/components/common/form/FormTextarea.vue";
+import TextToImageTagVocabularyPanel from "nbook/app/components/novel-ide/text-to-image/TextToImageTagVocabularyPanel.vue";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import {
@@ -14,6 +15,12 @@ import {
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 
 type CharacterPromptDialogMode = "photoPrompt" | "revision";
+type TextToImageTagInsertTarget = {
+    value: string;
+    label: string;
+    description?: string;
+    iconClass?: string;
+};
 
 type ChatCompletionResponse = {
     choices?: Array<{
@@ -92,6 +99,7 @@ const characterPromptRequirement = ref("");
 const characterPromptReferences = ref<CharacterPromptReferenceImage[]>([]);
 const characterPromptBusy = ref(false);
 const characterPromptError = ref("");
+const selectedTagInsertTarget = ref("photoPrompt");
 
 const characterTextFields: Array<{key: TextToImageCharacterTagKey; label: string; rows: number; placeholder: string}> = [
     {key: "profileTraits", label: "角色特征（描述性格和年龄）", rows: 3, placeholder: "例如：calm, clever, 18 years old"},
@@ -133,6 +141,19 @@ const characterPromptDialogTitle = computed(() => characterPromptDialogMode.valu
 const characterPromptDialogDescription = computed(() => characterPromptDialogMode.value === "photoPrompt"
     ? "输入这张角色照片的具体需求，也可以添加参考图片。"
     : "输入你想修改角色 tag 的方向，LLM 会重写下方详细参数。");
+const tagInsertTargets = computed<TextToImageTagInsertTarget[]>(() => {
+    const currentCharacter = character.value;
+    const description = currentCharacter ? formatCharacterName(currentCharacter) : "";
+    return [
+        {value: "photoPrompt", label: "角色照片提示词", description, iconClass: "i-lucide-image"},
+        ...characterTextFields.map((field) => ({
+            value: `field:${field.key}`,
+            label: field.label,
+            description,
+            iconClass: "i-lucide-user-round",
+        })),
+    ];
+});
 
 watch(characterDisplayName, (title) => {
     if (character.value) {
@@ -142,6 +163,12 @@ watch(characterDisplayName, (title) => {
 
 watch(() => props.characterId, () => {
     textToImageStore.selectCharacter(props.characterId, props.projectPath);
+}, {immediate: true});
+
+watch(tagInsertTargets, (targets) => {
+    if (!targets.some((target) => target.value === selectedTagInsertTarget.value)) {
+        selectedTagInsertTarget.value = targets[0]?.value ?? "";
+    }
 }, {immediate: true});
 
 function formatCharacterName(item: TextToImageCharacter): string {
@@ -154,6 +181,36 @@ function updateCharacter(patch: Partial<TextToImageCharacter>): void {
 
 function updateCharacterTagField(key: TextToImageCharacterTagKey, value: string): void {
     updateCharacter({[key]: value} as Partial<TextToImageCharacter>);
+}
+
+function insertVocabularyTag(tag: string): void {
+    const currentCharacter = character.value;
+    if (!currentCharacter) {
+        return;
+    }
+    const target = selectedTagInsertTarget.value;
+    if (target === "photoPrompt") {
+        updateCharacter({photoPrompt: appendTagText(currentCharacter.photoPrompt, tag)});
+        return;
+    }
+    if (target.startsWith("field:")) {
+        const key = target.slice("field:".length) as TextToImageCharacterTagKey;
+        if (characterTextFields.some((field) => field.key === key)) {
+            updateCharacter({[key]: appendTagText(currentCharacter[key], tag)} as Partial<TextToImageCharacter>);
+        }
+    }
+}
+
+function appendTagText(current: string, tag: string): string {
+    const normalizedTag = tag.trim();
+    if (!normalizedTag) {
+        return current;
+    }
+    const trimmed = current.trim().replace(/[,，]\s*$/u, "");
+    if (!trimmed) {
+        return normalizedTag;
+    }
+    return `${trimmed}, ${normalizedTag}`;
 }
 
 async function generateCharacterImage(): Promise<void> {
@@ -533,6 +590,15 @@ function readFileAsDataUrl(file: File): Promise<string> {
                                 <span class="i-lucide-square-pen h-4 w-4"></span>
                                 <span>修改角色提示词</span>
                             </button>
+                        </div>
+
+                        <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)]/45 p-3">
+                            <TextToImageTagVocabularyPanel
+                                v-model:selected-target="selectedTagInsertTarget"
+                                title="角色 tagData 词库"
+                                :targets="tagInsertTargets"
+                                @insert="insertVocabularyTag"
+                            />
                         </div>
 
                         <div v-if="generationWarnings.length > 0" class="rounded-md border border-amber-500/20 bg-amber-500/10 p-3 text-xs leading-5 text-amber-700">

@@ -12,10 +12,14 @@ const props = withDefaults(defineProps<{
     commentViewOpen?: boolean;
     commentCount?: number;
     activeTabRows?: number;
+    canGenerateBodyImage?: boolean;
+    bodyImageBusy?: boolean;
 }>(), {
     commentViewOpen: false,
     commentCount: 0,
     activeTabRows: 3,
+    canGenerateBodyImage: false,
+    bodyImageBusy: false,
 });
 
 const emit = defineEmits<{
@@ -25,6 +29,7 @@ const emit = defineEmits<{
     (e: "keep-tab", path: string): void;
     (e: "move-tab", path: string, targetPath: string | null, targetPinned: boolean, position: TabDropPosition): void;
     (e: "set-view-mode", mode: WorkspaceEditorViewMode): void;
+    (e: "generate-body-image"): void;
     (e: "toggle-comment-view"): void;
     (e: "more"): void;
 }>();
@@ -285,6 +290,17 @@ function isDropTarget(tab: WorkspaceEditorTab, pinned: boolean, position: TabDro
                         <span :class="button.iconClass" class="h-3.5 w-3.5"></span>
                     </button>
                 </div>
+                <button
+                    v-if="props.editorKind === 'markdown'"
+                    type="button"
+                    class="flex h-7 items-center justify-center gap-1.5 rounded-md px-2 text-xs transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-45"
+                    :disabled="!props.canGenerateBodyImage || props.bodyImageBusy"
+                    title="正文生图"
+                    @click="emit('generate-body-image')"
+                >
+                    <span class="h-4 w-4" :class="props.bodyImageBusy ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-image-plus'"></span>
+                    <span class="hidden xl:inline">正文生图</span>
+                </button>
                 <button
                     v-if="props.editorKind === 'markdown'"
                     type="button"

@@ -31,6 +31,8 @@ const props = withDefaults(defineProps<{
     openReference?: (target: string) => void;
     resolveReference?: WorkspaceReferenceResolver;
     enableQuickTriggers?: boolean;
+    canGenerateBodyImage?: boolean;
+    bodyImageBusy?: boolean;
 }>(), {
     activeTabRows: 3,
     referenceRefreshKey: "",
@@ -41,6 +43,8 @@ const props = withDefaults(defineProps<{
     }),
     openReference: () => {},
     enableQuickTriggers: false,
+    canGenerateBodyImage: false,
+    bodyImageBusy: false,
 });
 
 const emit = defineEmits<{
@@ -51,6 +55,7 @@ const emit = defineEmits<{
     (e: "keep-tab", path: string): void;
     (e: "move-tab", path: string, targetPath: string | null, targetPinned: boolean, position: "before" | "after"): void;
     (e: "set-view-mode", mode: WorkspaceEditorViewMode): void;
+    (e: "generate-body-image"): void;
     (e: "save-request"): void;
     (e: "open-frontmatter-profile", kind: FrontmatterProfileKind): void;
     (e: "update-monaco-temporary-font-size", value: number): void;
@@ -84,12 +89,15 @@ watch(() => props.activePath, () => {
             :comment-view-open="props.controller.commentViewOpen.value"
             :comment-count="props.controller.inlineComments.value.length"
             :active-tab-rows="props.activeTabRows"
+            :can-generate-body-image="props.canGenerateBodyImage"
+            :body-image-busy="props.bodyImageBusy"
             @select-tab="emit('select-tab', $event)"
             @close-tab="emit('close-tab', $event)"
             @set-pin="(path, pinned) => emit('set-pin', path, pinned)"
             @keep-tab="emit('keep-tab', $event)"
             @move-tab="(path, targetPath, targetPinned, position) => emit('move-tab', path, targetPath, targetPinned, position)"
             @set-view-mode="emit('set-view-mode', $event)"
+            @generate-body-image="emit('generate-body-image')"
             @toggle-comment-view="props.controller.commentViewOpen.value ? props.controller.closeCommentView() : props.controller.openCommentView()"
             @more="emit('more')"
         />

@@ -6,6 +6,7 @@ import FormInput from "nbook/app/components/common/form/FormInput.vue";
 import FormSelect, {type SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
 import FormTextarea from "nbook/app/components/common/form/FormTextarea.vue";
 import IconButton from "nbook/app/components/common/IconButton.vue";
+import TextToImageTagVocabularyPanel from "nbook/app/components/novel-ide/text-to-image/TextToImageTagVocabularyPanel.vue";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {useNovelIdeStore, type WorkspaceFileNode} from "nbook/app/stores/novel-ide";
 import {
@@ -38,7 +39,13 @@ type VibeNumberKey = "strength" | "infoExtracted";
 type VibeSourceType = TextToImageVibeReference["sourceType"];
 type CharacterAddMode = "manual" | "project";
 type CharacterPromptDialogMode = "photoPrompt" | "revision";
-type TextToImagePanelSection = "generation" | "novelAi" | "style" | "llm" | "characters";
+type TextToImagePanelSection = "generation" | "tagVocabulary" | "novelAi" | "style" | "llm" | "characters";
+type TextToImageTagInsertTarget = {
+    value: string;
+    label: string;
+    description?: string;
+    iconClass?: string;
+};
 
 type WorkspaceReadResponse = {
     path: string;
@@ -148,6 +155,7 @@ const {
 const {currentNovelId, novels} = storeToRefs(novelIdeStore);
 
 const selectedPromptTask = ref<TextToImagePromptTask>("bodyImage");
+const selectedTagInsertTarget = ref("generationPrompt");
 const promptFileInputRef = ref<HTMLInputElement | null>(null);
 const characterPhotoInputRef = ref<HTMLInputElement | null>(null);
 const characterPromptReferenceInputRef = ref<HTMLInputElement | null>(null);
@@ -177,6 +185,7 @@ const characterPromptBusy = ref(false);
 const characterPromptError = ref("");
 const collapsedSections = ref<Record<TextToImagePanelSection, boolean>>({
     generation: false,
+    tagVocabulary: false,
     novelAi: false,
     style: false,
     llm: false,
@@ -281,6 +290,32 @@ const promptTaskOptions = computed<SelectOption[]>(() => TEXT_TO_IMAGE_PROMPT_TA
 })));
 
 const activeTaskPrompt = computed(() => taskPrompts.value[selectedPromptTask.value]);
+const tagInsertTargets = computed<TextToImageTagInsertTarget[]>(() => {
+    const targets: TextToImageTagInsertTarget[] = [
+        {value: "generationPrompt", label: "本次正面 prompt", iconClass: "i-lucide-wand-sparkles"},
+        {value: "generationNegativePrompt", label: "本次负面 prompt", iconClass: "i-lucide-shield-minus"},
+    ];
+    if (activeStyle.value) {
+        targets.push(
+            {value: "stylePositivePrefix", label: "画风正面前缀", description: activeStyle.value.name, iconClass: "i-lucide-palette"},
+            {value: "stylePositiveSuffix", label: "画风正面后缀", description: activeStyle.value.name, iconClass: "i-lucide-palette"},
+            {value: "styleNegativePrefix", label: "画风负面前缀", description: activeStyle.value.name, iconClass: "i-lucide-palette"},
+            {value: "styleNegativeSuffix", label: "画风负面后缀", description: activeStyle.value.name, iconClass: "i-lucide-palette"},
+        );
+    }
+    if (activeCharacter.value) {
+        targets.push(
+            {value: "characterPhotoPrompt", label: "当前角色照片提示词", description: formatCharacterName(activeCharacter.value), iconClass: "i-lucide-image"},
+            ...characterTextFields.map((field) => ({
+                value: `character:${field.key}`,
+                label: `角色：${field.label}`,
+                description: formatCharacterName(activeCharacter.value as TextToImageCharacter),
+                iconClass: "i-lucide-user-round",
+            })),
+        );
+    }
+    return targets;
+});
 
 const activeStyleOptions = computed<SelectOption[]>(() => stylePresets.value.map((style) => ({
     value: style.id,
@@ -354,6 +389,12 @@ watch(novels, () => {
         sourceProjectPath.value = currentNovelId.value || novels.value[0]?.projectPath || novels.value[0]?.id || "";
     }
 });
+
+watch(tagInsertTargets, (targets) => {
+    if (!targets.some((target) => target.value === selectedTagInsertTarget.value)) {
+        selectedTagInsertTarget.value = targets[0]?.value ?? "";
+    }
+}, {immediate: true});
 
 onMounted(async () => {
     store.ensureDefaults();
@@ -847,6 +888,65 @@ function updateActiveCharacterField(key: TextToImageCharacterTagKey, value: stri
     }
     const patch: Partial<TextToImageCharacter> = {[key]: value};
     store.updateCharacter(activeCharacter.value.id, patch);
+}
+
+/**
+ * 将本地 tag 词库选中的 tag 追加到当前目标字段。
+ */
+function insertVocabularyTag(tag: string): void {
+    const target = selectedTagInsertTarget.value;
+    if (target === "generationPrompt") {
+        store.updateGenerationDraft({prompt: appendTagText(generationDraft.value.prompt, tag)});
+        return;
+    }
+    if (target === "generationNegativePrompt") {
+        store.updateGenerationDraft({negativePrompt: appendTagText(generationDraft.value.negativePrompt, tag)});
+        return;
+    }
+    if (target.startsWith("style") && activeStyle.value) {
+        const styleTargetMap: Record<string, StyleTextFieldKey> = {
+            stylePositivePrefix: "positivePrefix",
+            stylePositiveSuffix: "positiveSuffix",
+            styleNegativePrefix: "negativePrefix",
+            styleNegativeSuffix: "negativeSuffix",
+        };
+        const key = styleTargetMap[target];
+        if (key) {
+            store.updateStylePreset(activeStyle.value.id, {
+                [key]: appendTagText(activeStyle.value[key], tag),
+            } as Partial<TextToImageStylePreset>);
+        }
+        return;
+    }
+    if (!activeCharacter.value) {
+        return;
+    }
+    if (target === "characterPhotoPrompt") {
+        store.updateCharacter(activeCharacter.value.id, {
+            photoPrompt: appendTagText(activeCharacter.value.photoPrompt, tag),
+        });
+        return;
+    }
+    if (target.startsWith("character:")) {
+        const key = target.slice("character:".length) as TextToImageCharacterTagKey;
+        if (characterTextFields.some((field) => field.key === key)) {
+            store.updateCharacter(activeCharacter.value.id, {
+                [key]: appendTagText(activeCharacter.value[key], tag),
+            } as Partial<TextToImageCharacter>);
+        }
+    }
+}
+
+function appendTagText(current: string, tag: string): string {
+    const normalizedTag = tag.trim();
+    if (!normalizedTag) {
+        return current;
+    }
+    const trimmed = current.trim().replace(/[,，]\s*$/u, "");
+    if (!trimmed) {
+        return normalizedTag;
+    }
+    return `${trimmed}, ${normalizedTag}`;
 }
 
 /**
@@ -1591,6 +1691,26 @@ function readFileAsDataUrl(file: File): Promise<string> {
                             </div>
                         </div>
                     </div>
+                </div>
+            </section>
+
+            <!-- tagData 本地词库 -->
+            <section class="mb-4 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/45">
+                <div class="grid min-h-9 grid-cols-[minmax(0,1fr)_5.75rem] items-center gap-2 border-b border-[var(--border-color)] px-3 py-2">
+                    <button type="button" class="grid min-w-0 grid-cols-[1rem_minmax(0,1fr)_0.875rem] items-center gap-2 text-left" :aria-expanded="!isSectionCollapsed('tagVocabulary')" @click="toggleSection('tagVocabulary')">
+                        <span class="i-lucide-tags h-4 w-4 text-[var(--accent-main)]"></span>
+                        <h3 class="min-w-0 truncate text-[12px] font-medium text-[var(--text-main)]">标签词库</h3>
+                        <span class="h-3.5 w-3.5 text-[var(--text-muted)]" :class="isSectionCollapsed('tagVocabulary') ? 'i-lucide-chevron-right' : 'i-lucide-chevron-down'"></span>
+                    </button>
+                    <div class="w-[5.75rem]" aria-hidden="true"></div>
+                </div>
+                <div v-if="!isSectionCollapsed('tagVocabulary')" class="px-3 py-3">
+                    <TextToImageTagVocabularyPanel
+                        v-model:selected-target="selectedTagInsertTarget"
+                        compact
+                        :targets="tagInsertTargets"
+                        @insert="insertVocabularyTag"
+                    />
                 </div>
             </section>
 
