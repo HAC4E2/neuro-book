@@ -6,9 +6,10 @@
 
 - [project-structure.md](project-structure.md)：Project Workspace 目录结构总览，说明常用目录、前两层结构和目录归属边界。
 - [lorebook.md](lorebook.md)：`lorebook/` 目录、默认类型、扩展类型和边界。
+- [manual.md](manual.md)：`manual/` 说明书目录、玩家手册、RP 主持手册、规则/系统/速查入口和边界。
 - [manuscript.md](manuscript.md)：`manuscript/` 正文目录、卷章节点和草稿边界。
 - [simulation.md](simulation.md)：`simulation/`、subjects、entities、runs 和 simulation profile 合同。
-- [subject-rag-memory.md](subject-rag-memory.md)：Subject 级 RAG memory 机制，说明 `events.jsonl` / `memory.jsonl`、`subject_rag_search`、`memory_bio`、embedding 配置和 sidecar 注入边界。
+- [subject-rag-memory.md](subject-rag-memory.md)：Subject 级 RAG memory 机制，说明 `events.jsonl` / `memory.jsonl`、`subject_rag_search`、`subject_memory_update`、embedding 配置和 sidecar 注入边界。
 - [content-references.md](content-references.md)：内容节点引用、inline Markdown links、structured refs 和校验规则。
 - [directory-protocol.md](directory-protocol.md)：旧综合入口的兼容索引，指向上面拆分后的目录规范。
 - [information-control.md](information-control.md)：Prototype / Entity / Subject 信息控制模型，说明 subject knowledge、entity state 和 lorebook canon 的边界。
@@ -22,7 +23,7 @@
 ## Reading Rules
 
 - 创建、移动、校验 lorebook / manuscript 内容节点时，先参考 [../agent/project-workspace-guide.md](../agent/project-workspace-guide.md) 的短指南。
-- 设计目录结构、实体状态、SillyTavern worldbook 迁移或 Project 模板时，先读 [project-structure.md](project-structure.md)，再读对应细分文档。
+- 设计目录结构、实体状态、RP 说明书、SillyTavern worldbook 迁移或 Project 模板时，先读 [project-structure.md](project-structure.md)，再读对应细分文档。
 - 设计角色可知信息、subject knowledge、entity hidden state 或 sidecar context-load 时，读 [information-control.md](information-control.md) 和 [subject-rag-memory.md](subject-rag-memory.md)。
 - 修改 Markdown 正文、批注和富文本兼容格式时，读 [markdown-dialect.md](markdown-dialect.md)。
 - 为 writer 选择设定上下文时，读 [retrieval.md](retrieval.md) 和 [../agent/profile-context-memory.md](../agent/profile-context-memory.md)；不要把 retrieval 的 `reason` / `use` / `risk` 直接传给 writer。

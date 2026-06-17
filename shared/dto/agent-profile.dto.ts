@@ -135,10 +135,12 @@ export const AgentProfileDetailDtoSchema = z.object({
     source: z.string(),
     issues: z.array(AgentProfileIssueDtoSchema),
     variables: z.array(AgentProfileVariableGroupDtoSchema),
-    allowedToolKeys: z.array(z.string()),
-    inputSchema: AgentProfileSchemaDetailDtoSchema,
+    toolKeys: z.array(z.string()),
+    initialSchema: AgentProfileSchemaDetailDtoSchema,
+    payloadSchema: AgentProfileSchemaDetailDtoSchema,
     outputSchema: AgentProfileSchemaDetailDtoSchema,
     reportResultSchema: z.record(z.string(), z.json()).nullable().optional(),
+    reportSidecarResultSchema: z.record(z.string(), z.json()).nullable().optional(),
     root: AgentProfilePromptNodeDtoSchema.nullable().optional(),
 });
 
@@ -148,11 +150,11 @@ export const AgentProfileDetailDtoSchema = z.object({
 export const AgentProfilePreparePreviewRequestDtoSchema = z.object({
     profileKey: z.string().trim().min(1),
     /**
-     * 完整 input JSON。未提供时服务端会根据 inputOverrides 做一次最小构造。
+     * 完整 initial JSON。未提供时服务端会根据 initialOverrides 做一次最小构造。
      */
-    input: z.json().optional(),
+    initial: z.json().optional(),
     sessionId: z.string().trim().min(1).optional(),
-    inputOverrides: z.record(z.string(), z.string()).optional(),
+    initialOverrides: z.record(z.string(), z.string()).optional(),
     /**
      * 仅用于 Workbench 显式验证未保存源码；服务端会在临时 profile root 中预览。
      */
@@ -186,6 +188,7 @@ export const AgentProfilePreparePreviewDtoSchema = z.object({
     persistedMessageCount: z.number().int().nonnegative(),
     variables: z.array(AgentProfileVariableGroupDtoSchema),
     reportResultSchema: z.record(z.string(), z.json()).nullable().optional(),
+    reportSidecarResultSchema: z.record(z.string(), z.json()).nullable().optional(),
 });
 
 /**
@@ -242,8 +245,8 @@ export const AgentProfileCompileRequestDtoSchema = z.object({
     dryRun: z.boolean().default(false),
     preview: z.boolean().default(false),
     sessionId: z.string().trim().min(1).optional(),
-    input: z.json().optional(),
-    inputOverrides: z.record(z.string(), z.string()).optional(),
+    initial: z.json().optional(),
+    initialOverrides: z.record(z.string(), z.string()).optional(),
 });
 
 /**

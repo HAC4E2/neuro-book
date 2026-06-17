@@ -12,19 +12,24 @@ description: 编辑 Neuro Book TSX Agent Profile，包括 builtin 覆盖、自�
 Profile 文件应显式导出：
 
 - `profileManifest`：包含 `key`、`name`、可选 `description`。
-- `InputSchema`：TypeBox 输入 schema。普通 agent 可用 `Type.Object({})`。
+- `InitialSchema`：TypeBox 创建期初始化 schema。普通 agent 可用 `Type.Object({})`。
+- `PayloadSchema`：可选。TypeBox 单次 invocation payload schema；只有需要 `invoke_agent.input` 时声明。
 - `OutputSchema`：TypeBox 输出 schema。空对象 schema 表示没有额外结构化字段。
-- `Input` / `Output`：用 `Static<typeof InputSchema>` / `Static<typeof OutputSchema>` 推导的类型别名。
+- `Initial` / `Payload` / `Output`：用 `Static<typeof ...Schema>` 推导的类型别名。
 - `default`：`defineAgentProfile({...})` 返回值。
 
 推荐新文件使用 `defineAgentProfile`：
 
 ```tsx
+import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
+
 export default defineAgentProfile({
     manifest: profileManifest,
-    inputSchema: InputSchema,
+    initialSchema: InitialSchema,
     outputSchema: OutputSchema,
-    allowedToolKeys: ["read"],
+    tools: toolset(
+        builtin.file.read,
+    ),
     context(ctx) {
         return <ProfilePrompt>...</ProfilePrompt>;
     },
@@ -33,7 +38,7 @@ export default defineAgentProfile({
 
 ## Builtin 限制
 
-覆盖 `leader.default`、`leader.assets`、`writer`、`retrieval` 时，不允许修改 `key`、`InputSchema`、`OutputSchema`。可以修改 prompt、helper function、`allowedToolKeys`。
+覆盖 `leader.default`、`leader.assets`、`writer`、`retrieval` 时，不允许修改 `key`、`InitialSchema`、`PayloadSchema`、`OutputSchema`。可以修改 prompt、helper function、根 `tools` 绑定和主路 `toolKeys`。
 
 系统 builtin 和用户覆盖必须共用同一个 schema contract。遇到 `builtin_schema_locked` 时，解释为“可以改行为和提示词，但不能把创建参数或输出协议换成另一种形状”。
 
@@ -54,7 +59,7 @@ export default defineAgentProfile({
 
 `Variable` / `VariableSchema` 第一版只放在 `ModelContext` 里，不放在 `System`、`HistorySet` 或 `AppendingSet`。
 
-变量路径使用 `client.*`、`global.*`、`project.*`、`session.*`。`ctx.input` 是 profile 创建输入，不是浏览器状态；浏览器状态通过 `ctx.vars` / `client.*` 读取。
+变量路径使用 `client.*`、`global.*`、`project.*`、`session.*`。`ctx.initial` 是 profile 创建输入，`ctx.invocation.payload` 是本轮结构化 payload；它们都不是浏览器状态。浏览器状态通过 `ctx.vars` / `client.*` 读取。
 
 ## 工作流
 

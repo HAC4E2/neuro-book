@@ -8,7 +8,7 @@
 
 - `Start Neuro Book.cmd` / `Start Neuro Book.ps1`：启动本地服务。
 - `Create Admin.cmd` / `Create Admin.ps1`：后续创建或重置管理员。
-- `Update Neuro Book.cmd` / `Update Neuro Book.ps1`：检查 GitHub Release 最新 Windows 包，下载并校验 `neuro-book-windows-x64.zip`，保留 `data/` 后切换新版 `app/`、`launcher/` 和根启动脚本。
+- `Update Neuro Book.cmd` / `Update Neuro Book.ps1`：列出 GitHub Releases 中带 Windows 包的 stable / canary 等版本，选择目标版本后下载并校验 `neuro-book-windows-x64.zip`，保留 `data/` 后切换新版 `app/`、`launcher/` 和根启动脚本。
 
 目录边界：
 

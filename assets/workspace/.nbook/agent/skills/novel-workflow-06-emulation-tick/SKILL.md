@@ -42,7 +42,7 @@ when_to_use:
    - Plot handoff 候选。
 8. 创建 `simulation/runs/ticks/{id}-{slug}/report.md`。
 9. 如果本 tick 有用户可见正文、RP 正文或试写片段，创建 `simulation/runs/ticks/{id}-{slug}/prose.md`。
-10. 写入已裁决的 subject `state.md` 和必要 `simulation/entities/**`。subject `events.md`、`knowledge.md`、`mind.md` 可由对应 actor sidecar 维护；没有 sidecar 时，leader 可按 report 中的 subject-facing 信息谨慎写入。
+10. 写入已裁决的 subject `state.md` 和必要 `simulation/entities/**`。subject `events.jsonl`、`memory.jsonl`、`mind.md` 可由对应 actor sidecar 维护；没有 sidecar 时，leader 可按 report 中的 subject-facing 信息谨慎写入。
 11. 更新 `simulation/runs/current.md` 和 `simulation/runs/index.md`。
 
 ## report.md 推荐结构

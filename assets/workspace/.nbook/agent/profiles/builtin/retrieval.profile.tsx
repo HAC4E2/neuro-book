@@ -2,29 +2,32 @@
 /** @jsxRuntime automatic */
 import type {Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {RetrievalInputSchema, RetrievalOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
+import {RetrievalInitialSchema, RetrievalOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {AppendingSet, HistorySet, Import, Message, ProfilePrompt, RuntimeLocationReminder, SkillCatalog, System, WorkspaceFocusReminder} from "nbook/server/agent/profiles/profile-dsl";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
 
 export const profileManifest = {
     key: "retrieval",
-    name: "Retrieval",
+    name: "内容检索",
     description: "内容节点召回和候选判断 agent：为 Leader 查找 lorebook/manuscript 相关节点，输出 entries 给调用方判断，不直接替 writer 写正文。",
 } as const;
 
-export const InputSchema = RetrievalInputSchema;
+export const InitialSchema = RetrievalInitialSchema;
 export const OutputSchema = RetrievalOutputSchema;
 
-export type Input = Static<typeof InputSchema>;
+export type Initial = Static<typeof InitialSchema>;
 export type Output = Static<typeof OutputSchema>;
-
-const allowedToolKeys = ["bash", "read", "report_result"] as const;
 
 export default defineAgentProfile({
     manifest: profileManifest,
-    inputSchema: InputSchema,
+    initialSchema: InitialSchema,
     outputSchema: OutputSchema,
-    allowedToolKeys,
+    tools: toolset(
+        builtin.file.bash,
+        builtin.file.read,
+        builtin.result.main(),
+    ),
     compaction: {},
     context(ctx) {
         return (
@@ -39,7 +42,7 @@ export default defineAgentProfile({
                 <AppendingSet>
                     <RuntimeLocationReminder />
                     <WorkspaceFocusReminder />
-                    <Message>{`Search prompt:\n${ctx.input.prompt}`}</Message>
+                    <Message>{`Search prompt:\n${ctx.initial.prompt}`}</Message>
                 </AppendingSet>
             </ProfilePrompt>
         );

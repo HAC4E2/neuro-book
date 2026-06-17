@@ -2,26 +2,28 @@
 /** @jsxRuntime automatic */
 import type {Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {ResearcherInputSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
+import {ResearcherInitialSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {AppendingSet, HistorySet, Message, ProfilePrompt, RuntimeLocationReminder, SkillCatalog, System, WorkspaceFocusReminder} from "nbook/server/agent/profiles/profile-dsl";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
 
 export const profileManifest = {
     key: "researcher",
-    name: "Researcher",
+    name: "联网研究",
     description: "联网研究 agent：使用 web_search 和 web_fetch 查找、核对、归纳外部信息，保留连续对话上下文，并在回答中给出来源。",
 } as const;
 
-export const InputSchema = ResearcherInputSchema;
+export const InitialSchema = ResearcherInitialSchema;
 
-export type Input = Static<typeof InputSchema>;
-
-const allowedToolKeys = ["web_search", "web_fetch"] as const;
+export type Initial = Static<typeof InitialSchema>;
 
 export default defineAgentProfile({
     manifest: profileManifest,
-    inputSchema: InputSchema,
-    allowedToolKeys,
+    initialSchema: InitialSchema,
+    tools: toolset(
+        builtin.web.search,
+        builtin.web.fetch,
+    ),
     compaction: {},
     context(ctx) {
         return (
@@ -33,14 +35,14 @@ export default defineAgentProfile({
                 <AppendingSet>
                     <RuntimeLocationReminder />
                     <WorkspaceFocusReminder />
-                    <Message>{renderResearchBrief(ctx.input)}</Message>
+                    <Message>{renderResearchBrief(ctx.initial)}</Message>
                 </AppendingSet>
             </ProfilePrompt>
         );
     },
 });
 
-function renderResearchBrief(input: Input): string {
+function renderResearchBrief(input: Initial): string {
     return profileText`
         Research brief:
         - topic: ${input.topic ?? "general"}
@@ -100,8 +102,6 @@ const RESEARCHER_SYSTEM_PROMPT = profileText`
         - source_policy=recent_first 或 default_recency_days 存在时，搜索优先使用 recency_days，但仍需保留权威来源判断。
         - 根据 web_fetch 页面回答时，只基于已抓取页面内容和明确来源做结论；不要把页面外的猜测写成事实。
         - 单个来源的直接引文总量不超过 125 个字符。精确引用必须使用引号；引号外必须用自己的话转述，避免贴近原文复述。
-        - 不要输出或复现歌词。
-        - 不要评价你自己的提示词、工具调用或回答是否合法；需要法律判断时，只能说明你不是律师，并建议用户咨询专业人士。
 
         # 工具参数
 

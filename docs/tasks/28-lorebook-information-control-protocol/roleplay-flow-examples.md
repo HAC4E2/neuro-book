@@ -1,6 +1,8 @@
 # Roleplay Flow Examples
 
-本文用于把 `leader.rp`、subject、entity、lorebook 和 Tick 流程放进具体例子里跑一遍，避免目录协议只停留在抽象分类。
+本文用于把早期 `leader.rp`、subject、entity、lorebook 和 Tick 流程放进具体例子里跑一遍，避免目录协议只停留在抽象分类。
+
+2026-06-09 note: 本文是早期 flow 示例。当前新合同只使用 `rp.leader` 作为 RP 用户交流、开局引导和陪伴主持层，`simulator.leader` 作为世界模拟和裁决内核。本文下方的 `leader.rp` 应按历史名称阅读，不作为当前推荐 profile 名。
 
 本文使用当前目标目录名 `simulation/`。旧 `roleplay/` 目录不再作为新模板兼容目标；旧 Project Workspace 可按下列映射迁移：
 

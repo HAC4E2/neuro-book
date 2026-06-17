@@ -26,6 +26,14 @@ Agent 工具是模型能请求执行的能力。NeuroBook 的工具设计目标�
 
 实践上，简单任务不要为了形式创建 agent。只有当 writer、retrieval、researcher、RP actor 这类专门 profile 能明显降低上下文污染或职责混乱时，才创建或复用 linked agent。
 
+协作工具当前合同：
+
+- `get_agent_profile({ profileKey })` 返回 `InitialSchema`、`PayloadSchema`、`OutputSchema` 和 `toolKeys`；不返回 profile 源码或 report schema。
+- `create_agent({ profileKey, initial })` 用 `InitialSchema` 创建 linked session；`initial` 必须是真实 JSON object。
+- `invoke_agent({ sessionId, mode, message, input, title })` 调用已有 session；`message` 是自然语言字符串，`input` 是本轮 payload object，会按目标 `PayloadSchema` 校验。
+- `prompt` / `steer` / `followup` 可以只传 `message` 或只传 `input`；`continue` 不接受 `message` 或 `input`。
+- `invoke_agent` 返回统一 `result.message` / `result.data` 和简洁 `stats`；不要读取旧 `finalMessage`、`invocationId` 或原始 usage。
+
 ## 变量与 SQL
 
 变量工具用于读写 `client`、`global`、`project`、`session` 变量：
@@ -42,7 +50,7 @@ Agent 工具是模型能请求执行的能力。NeuroBook 的工具设计目标�
 
 - `subject_rag_search`：检索当前 subject 的 `events.jsonl` 和 `memory.jsonl`。它要求配置 embedding 服务，未配置时会明确失败，不做关键词 fallback。
 - `subject_event_append`：追加合法 `events.jsonl`，并标记对应 RAG source dirty。
-- `memory_bio`：把本轮 subject-facing facts 交给 `memory.curator` profile，由它生成 JSON Patch，工具层校验并写回 `memory.jsonl`。
+- `subject_memory_update`：把本轮 subject-facing facts 数组交给 `memory.curator` profile，由它生成 JSON Patch，工具层校验并写回 `memory.jsonl`。
 
 这些工具不用于完整 Project RAG，也不让 actor 读取其他 subject 的私有记忆。subject 侧 `events.md` / `knowledge.md` 是旧合同，当前工具不会读取或自动迁移。
 

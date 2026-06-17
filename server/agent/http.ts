@@ -64,7 +64,7 @@ export async function pushAgentSessionEvent(
 export async function createAgentSession(body: AgentCreateSessionRequestDto, harness = useAgentHarness()) {
     return harness.createAgent({
         profileKey: body.profileKey,
-        input: body.input,
+        initial: body.initial,
         workspaceRoot: body.workspaceRoot,
         workspaceKey: body.workspaceKey,
         projectPath: body.projectPath,
@@ -84,6 +84,13 @@ export async function listAgentSessions(query: AgentSessionListQueryDto, harness
  */
 export async function getAgentSessionSnapshot(sessionId: number, harness = useAgentHarness()) {
     return harness.getSessionSnapshot(sessionId);
+}
+
+/**
+ * 返回关联 Agent 面板使用的轻量关系投影。
+ */
+export async function getAgentSessionRelations(sessionId: number, harness = useAgentHarness()) {
+    return harness.getSessionRelations(sessionId);
 }
 
 /**
@@ -143,6 +150,8 @@ export function toInvokeInput(
         sessionId,
         mode: body.mode,
         message: body.message,
+        payload: body.input,
+        title: body.title,
         resolution: body.resolution,
         clientState: body.clientState,
         caller: {kind: "user"},

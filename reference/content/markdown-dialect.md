@@ -14,22 +14,27 @@
 不适用范围：
 
 - 工具调用路径。
-- `writer.chapterPaths`、`writer.lorebookEntries`、`create_agent.input` 等结构化参数。
+- `writer` 的 `invoke_agent.input.path`、`invoke_agent.input.context`、`create_agent.initial` 等结构化参数。
 - Plot / SQL / variable tool 的 JSON 参数。
 
-工具调用和结构化参数必须继续使用对应工具要求的路径格式；不要把正文内部相对链接当成工具路径。
+工具调用和结构化参数必须继续使用对应工具要求的路径格式；不要把正文内部 Markdown 链接当成工具路径。
 
 ## Workspace Links
 
-正文内部 Markdown link 可以使用相对链接：
+正文内部 Markdown link 支持三种 workspace 路径形态，推荐顺序如下：
 
 ```md
+主角在 [荒野祭坛](lorebook/location/initial-stage/) 醒来。
 主角在 [荒野祭坛](../../lorebook/location/initial-stage/) 醒来。
+主角在 [荒野祭坛](C:/absolute/path/to/project/lorebook/location/initial-stage/) 醒来。
 ```
 
 规则：
 
-- 内容节点链接指向目录并保留结尾 `/`，例如 `../../lorebook/character/foo/`。
+- 推荐使用 Project-relative path，例如 `lorebook/character/foo/`、`manual/reference.md`。这类路径从当前 Project Workspace root 解析，不带 `workspace/<project>/` 前缀。
+- 兼容相对当前 Markdown 文件的路径，例如 `../../lorebook/character/foo/`。这类路径从当前 Markdown 文件所在目录解析。
+- 支持当前 Project Workspace 内的绝对文件系统路径，例如 `C:/.../project/lorebook/character/foo/`，但不推荐用于长期正文，因为跨机器、跨 Project Root 和发布后容易失效。绝对路径仍必须落在当前 Project Workspace 内；POSIX 风格 `/...` 目前不会作为 workspace ref 进入校验。
+- 内容节点链接指向目录并保留结尾 `/`，例如 `lorebook/character/foo/`。
 - 普通文件链接指向具体文件名，例如 `notes.md`。
 - 可以链接计划或执行记录等普通 Markdown 文件，例如 `[实施计划](.agent/thread-id/plan.md)`。
 - `http:`、`https:`、`mailto:`、`tel:`、`#` 和其他 scheme 按普通链接或非工作区引用处理。
@@ -38,12 +43,12 @@
 
 | Context | Path Form |
 | --- | --- |
-| 正文内部 Markdown link | 相对当前 Markdown 文件，例如 `../../lorebook/character/foo/` |
+| 正文内部 Markdown link | 推荐 Project-relative，例如 `lorebook/character/foo/`；也支持相对当前 Markdown 文件或绝对路径 |
 | Agent 文件工具 / bash | Workspace Root cwd-relative，例如 `project-slug/lorebook/character/foo/` |
-| `writer.lorebookEntries` | Workspace Root cwd-relative 内容节点路径，例如 `project-slug/lorebook/character/foo/` |
+| `writer` payload `context.lorebookEntries` | Workspace Root cwd-relative 内容节点路径，例如 `project-slug/lorebook/character/foo/` |
 | Plot tool `projectPath` | Project Path，例如 `workspace/project-slug` |
 
-不要把正文内部的相对链接直接复制到工具调用参数中。
+不要把正文内部链接不加判断地复制到工具调用参数中。正文里推荐的 Project-relative 链接通常可以转为 Agent 文件工具路径的 suffix，但工具调用仍需要遵守具体工具的 cwd / Project Path 要求。
 
 ## Inline Comment
 
@@ -124,7 +129,7 @@ Inline comment 用于局部批注：
 
 Agent 生成或修改 Markdown 时：
 
-- 正文内部引用优先使用相对链接；工具调用路径仍使用工具要求的 cwd-relative 或 Project Path。
+- 正文内部引用优先使用 Project-relative 链接；相对当前文件路径和绝对路径仅作为兼容形态。工具调用路径仍使用工具要求的 cwd-relative 或 Project Path。
 - 内容节点链接指向目录并保留 `/`。
 - 不要把 Markdown 扩展标签写进 frontmatter 字段名或工具 JSON。
 - 不要为了展示功能而使用扩展格式；只有用户目标、正文需要或审稿需要时才使用。

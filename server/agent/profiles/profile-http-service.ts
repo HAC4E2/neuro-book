@@ -23,7 +23,7 @@ import type {
     AgentProfileSchemaDetailDto,
     AgentProfileVariableGroupDto,
 } from "nbook/shared/dto/agent-profile.dto";
-import {reportResultSchemaForProfile} from "nbook/server/agent/profiles/report-result-schema";
+import {reportResultSchemaForProfile, reportSidecarResultSchemaForProfile} from "nbook/server/agent/profiles/report-result-schema";
 import type {ProfileTemplateNodeDto} from "nbook/shared/dto/profile-template.dto";
 import {buildProfilePromptRoot} from "nbook/server/agent/profiles/profile-dsl-source-parser";
 
@@ -70,12 +70,18 @@ export async function readAgentProfileDetail(
         source,
         issues: catalogItem.issues,
         variables: buildProfileVariableGroups(profile),
-        allowedToolKeys: runtimeProfile ? [...runtimeProfile.allowedToolKeys] : [],
-        inputSchema: buildSchemaDetail({
-            schema: profile?.inputSchema ?? null,
+        toolKeys: runtimeProfile ? [...runtimeProfile.rootToolKeys] : [],
+        initialSchema: buildSchemaDetail({
+            schema: profile?.initialSchema ?? null,
             locked: catalogItem.schemaLocked,
             sourceAvailable: Boolean(source),
-            label: "InputSchema",
+            label: "InitialSchema",
+        }),
+        payloadSchema: buildSchemaDetail({
+            schema: profile?.payloadSchema ?? null,
+            locked: catalogItem.schemaLocked,
+            sourceAvailable: Boolean(source),
+            label: "PayloadSchema",
         }),
         outputSchema: buildSchemaDetail({
             schema: profile?.outputSchema ?? null,
@@ -83,8 +89,11 @@ export async function readAgentProfileDetail(
             sourceAvailable: Boolean(source),
             label: "OutputSchema",
         }),
-        reportResultSchema: runtimeProfile && runtimeProfile.allowedToolKeys.includes("report_result")
+        reportResultSchema: runtimeProfile && runtimeProfile.rootToolKeys.includes("report_result")
             ? cloneJsonObject(reportResultSchemaForProfile(runtimeProfile))
+            : null,
+        reportSidecarResultSchema: runtimeProfile && runtimeProfile.rootToolKeys.includes("report_sidecar_result")
+            ? cloneJsonObject(reportSidecarResultSchemaForProfile(runtimeProfile))
             : null,
         root: buildSystemPromptRoot(source),
     };
@@ -98,17 +107,17 @@ export async function previewAgentProfilePrepare(
     request: AgentProfilePreparePreviewRequestDto,
 ): Promise<AgentProfilePreparePreviewDto> {
     const profile = await harness.profiles.get(request.profileKey);
-    const input = harness.profiles.parseInput(profile, buildPreviewInput(request));
+    const initial = harness.profiles.parseInitial(profile, buildPreviewInitial(request));
     const previewSnapshot = request.sessionId ? await harness.repo.readSession(Number(request.sessionId)).catch(() => null) : null;
     const sessionContext = previewSnapshot ? harness.repo.reduce(previewSnapshot) : await buildPreviewSession(harness, request);
-    const session = createProfilePreviewSessionFacade(harness, request.profileKey, input, previewSnapshot, sessionContext);
+    const session = createProfilePreviewSessionFacade(harness, request.profileKey, initial, previewSnapshot, sessionContext);
     const catalog = await harness.profiles.snapshot();
     const skills = await harness.skills.list();
 
     try {
         const prepared = await profile.prepare!({
             session,
-            input,
+            initial,
             vars: createProfileVariableAccessor({
                 repo: harness.repo,
                 snapshot: previewSnapshot ?? previewSessionSnapshot(request.profileKey, sessionContext),
@@ -159,8 +168,11 @@ export async function previewAgentProfilePrepare(
             messages,
             persistedMessageCount: historyMessages.length + appendingMessages.length,
             variables: buildProfileVariableGroups(catalog.profiles.find((item) => item.key === request.profileKey), profile),
-            reportResultSchema: profile.allowedToolKeys.includes("report_result")
+            reportResultSchema: profile.rootToolKeys.includes("report_result")
                 ? cloneJsonObject(reportResultSchemaForProfile(profile))
+                : null,
+            reportSidecarResultSchema: profile.rootToolKeys.includes("report_sidecar_result")
+                ? cloneJsonObject(reportSidecarResultSchemaForProfile(profile))
                 : null,
         };
     } catch (error) {
@@ -176,8 +188,11 @@ export async function previewAgentProfilePrepare(
             messages: [],
             persistedMessageCount: 0,
             variables: buildProfileVariableGroups(catalog.profiles.find((item) => item.key === request.profileKey), profile),
-            reportResultSchema: profile.allowedToolKeys.includes("report_result")
+            reportResultSchema: profile.rootToolKeys.includes("report_result")
                 ? cloneJsonObject(reportResultSchemaForProfile(profile))
+                : null,
+            reportSidecarResultSchema: profile.rootToolKeys.includes("report_sidecar_result")
+                ? cloneJsonObject(reportSidecarResultSchemaForProfile(profile))
                 : null,
         };
     }
@@ -232,13 +247,13 @@ function buildSchemaDetail(input: {
     schema: TSchema | null;
     locked: boolean;
     sourceAvailable: boolean;
-    label: "InputSchema" | "OutputSchema";
+    label: "InitialSchema" | "PayloadSchema" | "OutputSchema";
 }): AgentProfileSchemaDetailDto {
     if (input.locked) {
         return {
             jsonSchema: cloneJsonObject(input.schema),
             editMode: "locked",
-            reason: "builtin profile 的 Input/Output schema 由静态 contract 锁定。",
+            reason: "builtin profile 的 Initial/Payload/Output schema 由静态 contract 锁定。",
             sourceRange: null,
         };
     }
@@ -277,7 +292,7 @@ async function buildPreviewSession(harness: NeuroAgentHarness, request: AgentPro
 function createProfilePreviewSessionFacade(
     harness: NeuroAgentHarness,
     profileKey: string,
-    input: JsonValue,
+    initial: JsonValue,
     snapshot: SessionSnapshot | null,
     context: NeuroSessionContext,
 ): ProfilePrepareContext["session"] {
@@ -305,7 +320,7 @@ function createProfilePreviewSessionFacade(
                 repo: harness.repo,
                 snapshot: sourceSnapshot,
                 summarizerProfileKey: contentInput.profileKey ?? profileKey,
-                summarizerInput: contentInput.input ?? input,
+                summarizerInput: contentInput.initial ?? initial,
             });
         },
     };
@@ -313,13 +328,13 @@ function createProfilePreviewSessionFacade(
 }
 
 /**
- * 请求 input 优先，其次用 inputOverrides 的自由文本字段构造 JSON 对象。
+ * 请求 initial 优先，其次用 initialOverrides 的自由文本字段构造 JSON 对象。
  */
-function buildPreviewInput(request: AgentProfilePreparePreviewRequestDto): JsonValue {
-    if (request.input !== undefined) {
-        return request.input as JsonValue;
+function buildPreviewInitial(request: AgentProfilePreparePreviewRequestDto): JsonValue {
+    if (request.initial !== undefined) {
+        return request.initial as JsonValue;
     }
-    return JSON.parse(JSON.stringify(request.inputOverrides ?? {})) as JsonValue;
+    return JSON.parse(JSON.stringify(request.initialOverrides ?? {})) as JsonValue;
 }
 
 /**
@@ -426,14 +441,24 @@ function buildProfileVariableGroups(profile: AgentCatalogItem | undefined, runti
         group: "Profile Schema",
         items: [
             {
-                label: "InputSchema",
-                value: "inputSchema",
-                path: "inputSchema",
-                token: "{{inputSchema}}",
+                label: "InitialSchema",
+                value: "initialSchema",
+                path: "initialSchema",
+                token: "{{initialSchema}}",
                 editable: false,
                 valueType: "jsonSchema",
                 source: "profile",
-                schema: cloneJsonObject(profile.inputSchema),
+                schema: cloneJsonObject(profile.initialSchema),
+            },
+            {
+                label: "PayloadSchema",
+                value: "payloadSchema",
+                path: "payloadSchema",
+                token: "{{payloadSchema}}",
+                editable: false,
+                valueType: "jsonSchema",
+                source: "profile",
+                schema: cloneJsonObject(profile.payloadSchema),
             },
             {
                 label: "OutputSchema",
@@ -484,7 +509,7 @@ function previewSessionSnapshot(profileKey: string, session: NeuroSessionContext
         metadata: {
             sessionId: -1,
             profileKey,
-            input: {},
+            initial: {},
             workspaceRoot: session.workspaceRoot,
             workspaceKey: "preview",
             createdAt: Date.now(),

@@ -2,6 +2,7 @@ import {describe, expect, it, vi} from "vitest";
 import {
     abortAgentSession,
     createAgentSession,
+    getAgentSessionRelations,
     getAgentSessionSnapshot,
     invokeAgentSession,
     listAgentSessions,
@@ -21,7 +22,7 @@ describe("agent session http helpers", () => {
 
         await expect(createAgentSession({
             profileKey: "leader.default",
-            input: {role: "tester"},
+            initial: {},
             workspaceRoot: "workspace",
             workspaceKey: "global",
             parentSessionId: 1,
@@ -31,7 +32,7 @@ describe("agent session http helpers", () => {
 
         expect(createAgent).toHaveBeenCalledWith({
             profileKey: "leader.default",
-            input: {role: "tester"},
+            initial: {},
             workspaceRoot: "workspace",
             workspaceKey: "global",
             parentSessionId: 1,
@@ -62,6 +63,18 @@ describe("agent session http helpers", () => {
         expect(getSessionSnapshot).toHaveBeenCalledWith(12);
     });
 
+    it("getAgentSessionRelations 调用 harness.getSessionRelations", async () => {
+        const getSessionRelations = vi.fn(async () => ({
+            sessionId: 12,
+            linkedAgents: [],
+            linkedByAgents: [],
+        }));
+
+        await getAgentSessionRelations(12, {getSessionRelations} as never);
+
+        expect(getSessionRelations).toHaveBeenCalledWith(12);
+    });
+
     it("invokeAgentSession 调用 harness.invokeAgent", async () => {
         const invokeAgent = vi.fn(async () => ({
             sessionId: 12,
@@ -72,12 +85,16 @@ describe("agent session http helpers", () => {
         await invokeAgentSession(12, {
             mode: "prompt",
             message: {text: "hello"},
+            input: {plotId: "plot-1"},
+            title: "Invoke title",
         }, {invokeAgent} as never);
 
         expect(invokeAgent).toHaveBeenCalledWith({
             sessionId: 12,
             mode: "prompt",
             message: {text: "hello"},
+            payload: {plotId: "plot-1"},
+            title: "Invoke title",
             resolution: undefined,
             clientState: undefined,
             caller: {kind: "user"},
@@ -154,6 +171,8 @@ describe("agent session http helpers", () => {
             sessionId: 4,
             mode: "continue",
             message: undefined,
+            payload: undefined,
+            title: undefined,
             resolution: {
                 kind: "tool_approval",
                 toolCallId: "tool-1",

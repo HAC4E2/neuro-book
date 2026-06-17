@@ -16,20 +16,23 @@ Goals:
 
 ## Legal Targets
 
-Reference targets are workspace-relative or Markdown-relative paths.
+Reference targets may be Project-relative, Markdown-relative, or absolute filesystem paths. Project-relative paths are preferred for authored Markdown because they survive file moves inside `manual/`, `manuscript/` and `lorebook/` better than deep relative links.
 
 ```text
 ../location/孤儿院/
 ../../manuscript/第一卷/第一章/
 ./draft.md
 lorebook/location/initial-stage/
+C:/Projects/neuro-book/workspace/my-project/lorebook/location/initial-stage/
 ```
 
 Rules:
 
 - Content node target points to a directory and keeps a trailing `/`.
 - Ordinary file target points to a concrete file name, such as `./draft.md`.
-- Relative paths resolve from the current Markdown file directory.
+- Project-relative paths resolve from the current Project Workspace root and are preferred in authored Markdown, for example `lorebook/location/initial-stage/`.
+- Markdown-relative paths resolve from the current Markdown file directory and remain supported, for example `../location/孤儿院/`.
+- Absolute filesystem paths are accepted when needed for local references, but are not recommended for durable project content.
 - Workspace-root-like paths resolve from the configured reference base; current project paths are preferred in agent tool calls.
 - External URLs stay normal Markdown links and do not enter workspace refs validation.
 
@@ -60,7 +63,7 @@ refs:
 Fields:
 
 - `relation`: free string. Recommended values include `defines`, `constrains`, `depends_on`, `part_of`, `contains`, `foreshadows`, `pays_off`, `conflicts_with`, `derived_from`.
-- `target`: workspace path or Markdown-relative path.
+- `target`: Project-relative path, Markdown-relative path, or absolute filesystem path inside the current Project Workspace.
 - `note`: optional note.
 
 Structured `refs` express relations. They do not express narrative disclosure, role knowledge or information-control permission.
@@ -82,7 +85,7 @@ Unresolved settings should be content nodes with pending status, or collected un
 
 `workspace node validate TARGET` should check:
 
-- Relative path resolves inside the workspace.
+- Project-relative, Markdown-relative or absolute target resolves inside the current Project Workspace.
 - Target exists.
 - Content node target uses directory path.
 - Old protocols `chapter://`, `lorebook://`, `db://`, `vfs://` do not enter workspace reference validation.
@@ -96,7 +99,7 @@ When creating or editing content:
 
 1. Create content nodes with `workspace node new`.
 2. Edit `index.md` frontmatter and body.
-3. Use relative Markdown links inside prose.
+3. Prefer Project-relative Markdown links inside prose; use Markdown-relative links only when they are clearer for nearby files.
 4. Use structured refs only for stable semantic relations.
 5. Run `workspace node validate TARGET` after moving or editing references.
 

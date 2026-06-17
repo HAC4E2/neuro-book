@@ -14,7 +14,7 @@ description: Import local SillyTavern character cards, worldbooks, presets, MVU 
 - 这是导入 workflow，不是 SillyTavern runtime 兼容层。
 - 不执行 JavaScript、regex、EJS、MVU、ST-Prompt-Template、Tavern Helper 或外部请求。
 - 不自动创建 `simulation/subjects/`、`simulation/entities/` 或 `simulation/runs/`。
-- 不生成 subject-facing `knowledge.md`；角色可知信息必须后续按信息控制边界重写。
+- 不生成 subject-facing `memory.jsonl`；角色可知信息必须后续按信息控制边界重写。
 - 混合职责条目不自动拆分，进入 classification review queue。
 - 低置信但可复用的稳定设定可进入 `lorebook/note/`，frontmatter `status: pending`。
 - 动态 worldbook 条目不进入稳定 `lorebook/`，统一归档到 `reference/silly-tavern/{slug}/dynamic-worldbook/`。

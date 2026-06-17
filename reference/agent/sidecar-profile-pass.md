@@ -1,6 +1,6 @@
 # Sidecar Profile Pass
 
-`SidecarProfilePass` 是 profile 声明的旁路 run。它沿用当前 profile、当前 session、当前 session tree 和当前 input，在主 run 前后 fork 一段 runtime-only 分支，完成检索、反思或维护任务后，通过 `merge()` 把结果注入主线或持久化到主 session。
+`SidecarProfilePass` 是 profile 声明的旁路 run。它沿用当前 profile、当前 session、当前 session tree 和当前 input，在主 run 前后 fork 一条 side branch，完成检索、反思或维护任务后，通过 `merge()` 把结果注入主线或持久化到主 session。
 
 它不是新 profile，也不通过 `profileKey` 切换身份。
 
@@ -25,7 +25,7 @@ type SidecarProfilePass<TInput, TSidecarData> = {
     name: string;
     stage: "prepareRun" | "settleRun";
     enterPrompt: string | ((ctx: SidecarContext<TInput>) => string);
-    allowedToolKeys?: readonly string[];
+    toolKeys?: readonly string[];
     sidecarDataSchema?: TSchema;
     outputFallback?: "final_message_as_result" | "parse_final_message_json";
     merge: (ctx: SidecarContext<TInput>, result: SidecarResult<TSidecarData>) => SidecarMergePlan;
@@ -35,29 +35,40 @@ type SidecarProfilePass<TInput, TSidecarData> = {
 V1 规则：
 
 - `stage` 只支持 `prepareRun` 和 `settleRun`。
-- sidecar 自己的 assistant / toolResult transcript 默认 `runtime_only`，不进入主 history。
+- sidecar 自己的 assistant / toolResult transcript 持久化在 session tree 的 side branch；完成后恢复主 run active leaf，不把 sidecar transcript 合入主 history。
 - 禁止 nested sidecar。
-- sidecar 失败、waiting、schema 校验失败或缺少必要结果时，父 run 失败。
-- `allowedToolKeys` 必须是当前 profile `allowedToolKeys` 的子集。
-- provider-visible tools 保持 profile 最大集合，避免破坏工具/schema 缓存；实际执行权限由执行层控制。
-- profile 可声明 `mainRunAllowedToolKeys` 限制主 run 可执行工具；不声明时主 run 默认可执行全部 `allowedToolKeys`。sidecar 仍使用自己的 `allowedToolKeys` 执行子集和 reminder。
+- sidecar waiting、缺少必要结果、或多轮 tool error 后仍无法完成时，父 run 失败。
+- `toolKeys` 必须是当前 profile 根 `tools` 的 key 子集。
+- provider-visible tools 来自 profile 根 `tools`，保持 profile-stable；实际执行权限由主 run `toolKeys` 或 sidecar `toolKeys` 控制。
+- sidecar 不能创建或覆盖工具绑定，不能修改工具 schema、description 或执行函数。
 
 ## Result And Merge
 
-`report_result` 固定支持：
+主路结果使用 `report_result`：
 
 ```ts
 type ReportResultArgs = {
     result: string;
     data?: JsonValue;
-    sidecar_data?: JsonValue;
 };
 ```
 
-- 主路结构化输出使用 `data`。
-- sidecar 结构化输出使用 `sidecar_data`。
-- `sidecarDataSchema` 只在 Harness runtime 校验，不参与 provider-visible schema 渲染。
-- 没有 `report_result` 时，可按 `outputFallback` 使用最后一条 assistant message。
+sidecar 旁路结果使用 `report_sidecar_result`：
+
+```ts
+type ReportSidecarResultArgs = {
+    result: string;
+    data: {
+        [sidecarName: string]: JsonValue;
+    };
+};
+```
+
+- `report_result.data` 是主路结构化输出，按 profile `outputSchema` 或 `builtin.result.main({ dataSchema })` 校验。
+- `report_sidecar_result.data` 是旁路结构化输出的 keyed 包装。profile normalize 会收集所有 sidecar 的 `sidecarDataSchema`，把它们渲染成 `{ "<sidecar-name>": payload }` 形态的 profile-stable union provider-visible schema。
+- provider-visible tools 和 schema 始终来自 profile root `tools`，不随当前 active sidecar 改变；sidecar 只用 `toolKeys` 收窄执行权限。
+- sidecar 运行期按当前 active sidecar 精确读取并校验 `report_sidecar_result.data[activeSidecar.name]`；缺 key、传错 key、额外 key 或 payload 类型不匹配都会在 tool execution 阶段返回模型可见 error toolResult，并允许同一 run 自我修正。
+- 没有 `report_sidecar_result` 时，可按 `outputFallback` 使用最后一条 assistant message。
 
 `merge()` 可以返回：
 
@@ -73,9 +84,9 @@ V1 推荐只在 `prepareRun` 使用 `persistedMessages`，用于“本轮需要�
 `actor.context-load`：
 
 - stage: `prepareRun`
-- tools: `subject_rag_search`, `read`, `report_result`
+- toolKeys: `subject_rag_search`, `report_sidecar_result`
 - 输入：actor-facing packet、actor path、当前 subject files。
-- 输出：actor-safe current context、相关过往经历和相关稳定认知。
+- 输出：actor-safe current context、相关过往经历和相关稳定认知写入 `report_sidecar_result.result`；`data` 只返回 `{ "actor.context-load": {} }` 用于闭合 keyed 协议。
 - 检索：`subject_rag_search` 只检索当前 subject 的指定单一 source；必须显式传 `["events"]` 或 `["memory"]`，需要两层记忆时分两次调用；查询调参第一版只使用 `limit`，不检索 lorebook、Project 全局文件或其他 subject。
 - merge：把 actor-safe 摘要以 `persistedMessages` 写入 actor session，并注入 actor 主 run；主 run 不直接读取完整 subject files。
 - 预算：第一版最多注入少量 events / memory 摘要，合并后若 provider-visible context 超出模型窗口，父 invocation 失败。
@@ -83,8 +94,8 @@ V1 推荐只在 `prepareRun` 使用 `persistedMessages`，用于“本轮需要�
 `actor.memory-save`：
 
 - stage: `settleRun`
-- tools: `subject_event_append`, `memory_bio`, `read`, `edit`, `report_result`
-- 目标：追加 `events.jsonl`，通过 `memory_bio` 维护 `memory.jsonl`，并更新 `mind.md`。
+- toolKeys: `subject_event_append`, `subject_memory_update`, `read`, `edit`, `report_sidecar_result`
+- 目标：追加 `events.jsonl`，通过 `subject_memory_update` 维护 `memory.jsonl`，并更新 `mind.md`。
 - 不更新 `state.md`；位置、持有物、伤势等仍由 simulator leader / 后续变量系统裁决。
 
 Subject RAG 的索引、embedding 配置和工具合同见 [../content/subject-rag-memory.md](../content/subject-rag-memory.md)。

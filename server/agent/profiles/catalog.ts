@@ -1,5 +1,5 @@
 import {existsSync} from "node:fs";
-import {readFile, readdir, stat} from "node:fs/promises";
+import {copyFile, mkdir, readFile, readdir, stat} from "node:fs/promises";
 import {basename, join, relative, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
 import {Value} from "typebox/value";
@@ -135,14 +135,32 @@ export class AgentProfileCatalog {
     }
 
     /**
-     * 解析并校验 profile input。
+     * 解析并校验 profile initial。
      */
-    parseInput(profile: AgentProfile, input: JsonValue): JsonValue {
+    parseInitial(profile: AgentProfile, initial: JsonValue): JsonValue {
         try {
-            return Value.Parse(profile.inputSchema, input) as JsonValue;
+            return Value.Parse(profile.initialSchema, initial) as JsonValue;
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
-            throw new Error(`profile ${profile.manifest.key} input 校验失败：${message}`);
+            throw new Error(`profile ${profile.manifest.key} initial 校验失败：${message}`);
+        }
+    }
+
+    /**
+     * 解析并校验单次 invocation payload。未声明 PayloadSchema 的 profile 不接受 payload。
+     */
+    parsePayload(profile: AgentProfile, payload: JsonValue | undefined): JsonValue | undefined {
+        if (payload === undefined) {
+            return undefined;
+        }
+        if (!profile.payloadSchema) {
+            throw new Error(`profile ${profile.manifest.key} 未声明 PayloadSchema，不能接收 invocation input。`);
+        }
+        try {
+            return Value.Parse(profile.payloadSchema, payload) as JsonValue;
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error(`profile ${profile.manifest.key} payload 校验失败：${message}`);
         }
     }
 
@@ -155,8 +173,9 @@ export class AgentProfileCatalog {
             key: profile.manifest.key,
             name: profile.manifest.name,
             description: profile.manifest.description,
-            allowedToolKeys: profile.allowedToolKeys,
-            inputSchema: profile.inputSchema,
+            toolKeys: profile.rootToolKeys,
+            initialSchema: profile.initialSchema,
+            payloadSchema: profile.payloadSchema,
             outputSchema: profile.outputSchema,
             source,
             sourcePath,
@@ -355,7 +374,8 @@ export class AgentProfileCatalog {
 
     private async importCompiledProfile(profileRoot: string, item: ProfileArtifactManifestItem): Promise<AgentProfile> {
         const artifactPath = join(profileRoot, PROFILE_COMPILED_DIR_NAME, item.artifactFileName);
-        const mod = await import(`${pathToFileURL(artifactPath).href}?compiled=${item.artifactSha256}`) as {
+        const importPath = await prepareCompiledProfileImportPath(artifactPath, item);
+        const mod = await import(pathToFileURL(importPath).href) as {
             default?: unknown;
         };
         const profile = mod.default;
@@ -370,15 +390,16 @@ export class AgentProfileCatalog {
             value
             && typeof value === "object"
             && "manifest" in value
-            && "inputSchema" in value
-            && "allowedToolKeys" in value
+            && "initialSchema" in value
+            && "tools" in value
+            && "rootToolKeys" in value
             && "prepare" in value
             && typeof (value as {prepare?: unknown}).prepare === "function",
         );
     }
 
     private profileIssueCode(value: unknown): AgentProfileIssueCode {
-        if (value && typeof value === "object" && !("inputSchema" in value)) {
+        if (value && typeof value === "object" && !("initialSchema" in value)) {
             return "schema_missing";
         }
         return "invalid_export";
@@ -392,14 +413,15 @@ export class AgentProfileCatalog {
         if (!builtin?.builtin) {
             return {profile};
         }
-        const inputChanged = !this.sameSchema(profile.inputSchema, builtin.profile.inputSchema);
+        const initialChanged = !this.sameSchema(profile.initialSchema, builtin.profile.initialSchema);
+        const payloadChanged = !this.sameSchema(profile.payloadSchema, builtin.profile.payloadSchema);
         const outputChanged = !this.sameSchema(profile.outputSchema, builtin.profile.outputSchema);
-        if (!inputChanged && !outputChanged) {
+        if (!initialChanged && !payloadChanged && !outputChanged) {
             return {profile};
         }
         const issue: AgentProfileIssue = {
             code: "builtin_schema_locked",
-            message: `builtin profile ${profile.manifest.key} 的 Input/Output schema 被锁定，运行时将继续使用内置 schema。`,
+            message: `builtin profile ${profile.manifest.key} 的 Initial/Payload/Output schema 被锁定，运行时将继续使用内置 schema。`,
             profileKey: profile.manifest.key,
             source,
             sourcePath,
@@ -407,7 +429,8 @@ export class AgentProfileCatalog {
         return {
             profile: {
                 ...profile,
-                inputSchema: builtin.profile.inputSchema,
+                initialSchema: builtin.profile.initialSchema,
+                payloadSchema: builtin.profile.payloadSchema,
                 outputSchema: builtin.profile.outputSchema,
             },
             issue,
@@ -484,7 +507,7 @@ export class AgentProfileCatalog {
         };
     }
 
-    private staleIssue(source: Exclude<AgentProfileSourceKind, "memory">, file: ProfileFileEntry, manifestItem: ProfileArtifactManifestItem, reason?: "source_changed" | "dependency_changed" | "artifact_missing" | "artifact_changed"): AgentProfileIssue {
+    private staleIssue(source: Exclude<AgentProfileSourceKind, "memory">, file: ProfileFileEntry, manifestItem: ProfileArtifactManifestItem, reason?: "source_changed" | "dependency_changed" | "artifact_missing" | "artifact_changed" | "type_artifact_missing" | "type_artifact_changed"): AgentProfileIssue {
         if (source === "user" && reason === "source_changed") {
             return {
                 code: "source_stale",
@@ -507,6 +530,10 @@ export class AgentProfileCatalog {
             ? `profile ${manifestItem.profileKey} 缺少 compiled artifact，需要重新编译。`
             : reason === "artifact_changed"
                 ? `profile ${manifestItem.profileKey} 的 compiled artifact 与 manifest 不匹配，需要重新同步或重新编译。`
+                : reason === "type_artifact_missing"
+                    ? `profile ${manifestItem.profileKey} 缺少 type artifact，需要重新编译。`
+                    : reason === "type_artifact_changed"
+                        ? `profile ${manifestItem.profileKey} 的 type artifact 与 manifest 不匹配，需要重新同步或重新编译。`
                 : reason === "source_changed"
                     ? `profile ${manifestItem.profileKey} 的源码已修改，需要重新编译。`
                     : reason === "dependency_changed"
@@ -587,4 +614,19 @@ class ProfileCatalogError extends Error {
     constructor(readonly code: AgentProfileIssueCode, message: string) {
         super(message);
     }
+}
+
+/**
+ * Bun 会忽略 file URL query 的模块缓存差异；复制到带 hash 的物理路径后再 import。
+ */
+async function prepareCompiledProfileImportPath(artifactPath: string, item: ProfileArtifactManifestItem): Promise<string> {
+    const cacheRoot = resolve(process.cwd(), ".agent", "workspace", "profile-import-cache");
+    const importPath = join(cacheRoot, item.artifactFileName.replace(/\.mjs$/u, `.${item.artifactSha256.slice(0, 16)}.mjs`));
+    const existing = await stat(importPath).catch(() => null);
+    if (existing?.size === item.artifactBytes) {
+        return importPath;
+    }
+    await mkdir(cacheRoot, {recursive: true});
+    await copyFile(artifactPath, importPath);
+    return importPath;
 }

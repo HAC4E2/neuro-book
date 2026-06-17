@@ -13,11 +13,14 @@ Default Project Workspace sketch:
 |-- AGENTS.md
 |-- project.yaml
 |-- agent-context/
+|   |-- index.md
 |   |-- simulator.leader/
+|   |   |-- index.md
 |   |   |-- context.md
 |   |   |-- memory.md
 |   |   `-- generated.md
 |   `-- rp.writer/
+|       |-- index.md
 |       |-- context.md
 |       |-- memory.md
 |       `-- generated.md
@@ -31,13 +34,31 @@ Default Project Workspace sketch:
 |   |-- event/
 |   |-- system/
 |   `-- instruction/
+|-- manual/
+|   |-- index.md
+|   |-- README.md
+|   |-- world-guide.md
+|   |-- rules-guide.md
+|   |-- gm-guide.md
+|   |-- reference.md
+|   `-- player-guide/
 |-- manuscript/
+|   |-- index.md
 |   `-- 001-volume/
 |-- simulation/
+|   |-- index.md
 |   |-- subjects/
+|   |   `-- index.md
 |   |-- entities/
+|   |   `-- index.md
 |   `-- runs/
+|       |-- index.md
+|       `-- ticks/
+|           `-- index.md
 |-- reference/
+|   `-- index.md
+|-- upload/
+|   `-- index.md
 |-- .nbook/
 `-- .agent/
 ```
@@ -48,21 +69,25 @@ The top-level directories are extensible, but the default template should stay s
 
 | Directory | Purpose | Detailed reference |
 | --- | --- | --- |
-| `lorebook/` | Mostly stateless project manual: canon, prototypes, rules and reusable AI instructions. | [lorebook.md](lorebook.md) |
+| `lorebook/` | Mostly stateless canon, prototypes, rules and reusable AI instructions. | [lorebook.md](lorebook.md) |
+| `manual/` | Play and RP handbooks: quickstart, player guide, world overview, rules guide, GM guide and quick reference. | [manual.md](manual.md) |
 | `manuscript/` | Formal prose, volumes, chapters, drafts and chapter-local notes. | [manuscript.md](manuscript.md) |
 | `agent-context/` | Profile-scoped context memory, generated recommendations and profile-specific project guidance. | [../agent/profile-context-memory.md](../agent/profile-context-memory.md) |
 | `simulation/` | World runtime state, subjects, entities and run artifacts. | [simulation.md](simulation.md) |
 | `reference/` | External raw materials, import archives and low-confidence migration inputs. | This file |
+| `upload/` | Uploaded files and project-local intake material awaiting organization. | This file |
 | `.nbook/` | Project config, Project SQLite and control files. | `reference/workspace/TERMS.md` |
 | `.agent/` | Temporary execution notes, plans and caches. | Agent docs |
 
 Keep the boundary simple:
 
 - Stable project knowledge goes to `lorebook/`.
+- Play instructions, player-safe handbooks and RP host manuals go to `manual/`.
 - Profile-specific project guidance and context memory go to `agent-context/`.
 - Formal prose goes to `manuscript/`.
 - Current runtime state goes to `simulation/`.
 - Imported or raw source material goes to `reference/`.
+- Uploaded intake files can land in `upload/` before being curated into `reference/`, `lorebook/`, `manual/` or `manuscript/`.
 - Project config and database files stay under `.nbook/`.
 - Temporary agent work stays under `.agent/` or a system temp directory.
 
@@ -82,6 +107,7 @@ Do not store story canon in `.nbook/` or `.agent/`.
 ## Detail Ownership
 
 - `lorebook/` rules and type taxonomy live in [lorebook.md](lorebook.md).
+- `manual/` handbook and RP play guide rules live in [manual.md](manual.md).
 - `agent-context/` profile context memory lives in [../agent/profile-context-memory.md](../agent/profile-context-memory.md).
 - `manuscript/` volume/chapter rules live in [manuscript.md](manuscript.md).
 - `simulation/` subjects/entities/runs and simulator profile contracts live in [simulation.md](simulation.md).
@@ -92,6 +118,7 @@ Do not store story canon in `.nbook/` or `.agent/`.
 
 - Agent path guide: `reference/agent/project-workspace-guide.md`
 - Lorebook directory: `reference/content/lorebook.md`
+- Manual directory: `reference/content/manual.md`
 - Manuscript directory: `reference/content/manuscript.md`
 - Simulation directory: `reference/content/simulation.md`
 - Content references: `reference/content/content-references.md`

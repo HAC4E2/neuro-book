@@ -55,7 +55,7 @@ NeuroBook 是一个基于 Nuxt 构建的长篇小说创作与 AI 角色扮演 ID
 .\Update Neuro Book.cmd
 ```
 
-更新入口会下载 GitHub Release 最新 Windows 包，校验 `SHA256SUMS`，保留 `data/` 后切换新版 `app/`、`launcher/` 和根启动脚本。内置 `runtime/bun/` 会保留当前版本，避免替换正在运行的 `bun.exe`。
+更新入口会列出 GitHub Releases 中带 Windows 包的可用版本，包括 stable 和 canary，选择目标版本后下载 zip，校验 `SHA256SUMS`，保留 `data/` 后切换新版 `app/`、`launcher/` 和根启动脚本。内置 `runtime/bun/` 会保留当前版本，避免替换正在运行的 `bun.exe`。
 
 目录边界：
 

@@ -14,7 +14,7 @@ candidates: []
 ## Reading Hints
 
 - 开始或继续 simulation / RP 时，优先检查 `simulation/runs/current.md`。
-- 根据 `simulation/runs/current.md` 的 active subjects，读取相关 `simulation/subjects/{id}/subject.md`、`state.md`、`events.md`、`knowledge.md` 与 `mind.md`。
+- 根据 `simulation/runs/current.md` 的 active subjects，读取相关 `simulation/subjects/{id}/subject.md`、`state.md`、`events.jsonl`、`memory.jsonl` 与 `mind.md`。
 - 需要真实实例状态时，再读取相关 `simulation/entities/{id}/entity.md` 与 `state.md`。
 - 需要稳定设定时，只读取与本轮目标相关的 `lorebook/` 条目；不要把完整 god-view lorebook 复制给 actor 或 writer。
 - 需要作品边界、开局素材或初始化说明时，可检查 `lorebook/instruction/creation-boundaries/`、`lorebook/note/project-profile/`、`lorebook/note/story-concept/` 与 `lorebook/note/opening-seed/`。

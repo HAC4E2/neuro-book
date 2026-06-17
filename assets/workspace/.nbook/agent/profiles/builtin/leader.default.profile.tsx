@@ -2,7 +2,8 @@
 /** @jsxRuntime automatic */
 import type {Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {LeaderDefaultInputSchema, LeaderDefaultOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
+import {LeaderDefaultInitialSchema, LeaderDefaultOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {
     AgentCatalog,
     AppendingSet,
@@ -27,56 +28,54 @@ import {profileText} from "nbook/server/agent/profiles/profile-text";
 
 export const profileManifest = {
     key: "leader.default",
-    name: "Leader",
+    name: "主创",
     description: "默认协作与统筹 agent：协助小说创作、workspace 文件操作、Plot/Lorebook/Manuscript 协调，并按需创建或复用专用 profile agent。",
 } as const;
 
-export const InputSchema = LeaderDefaultInputSchema;
+export const InitialSchema = LeaderDefaultInitialSchema;
 
 export const OutputSchema = LeaderDefaultOutputSchema;
 
-export type Input = Static<typeof InputSchema>;
+export type Initial = Static<typeof InitialSchema>;
 export type Output = Static<typeof OutputSchema>;
-
-const allowedToolKeys = [
-    "read",
-    "write",
-    "edit",
-    "apply_patch",
-    "bash",
-    "create_agent",
-    "invoke_agent",
-    "get_agent",
-    "get_agent_profile",
-    "get_session",
-    "detach_agent",
-    "request_user_input",
-    "enter_plan_mode",
-    "exit_plan_mode",
-    "task_create",
-    "task_set_status",
-    "get_plot_tree",
-    "get_story_thread",
-    "get_story_scene_context",
-    "get_chapter_plot",
-    "create_story_thread",
-    "update_story_thread",
-    "create_story_scene",
-    "update_story_scene",
-    "create_story_plot",
-    "create_story_plots",
-    "update_story_plot",
-    "execute_sql",
-    "variable_schema",
-    "variable_read",
-    "variable_patch",
-] as const;
 
 export default defineAgentProfile({
     manifest: profileManifest,
-    inputSchema: InputSchema,
+    initialSchema: InitialSchema,
     outputSchema: OutputSchema,
-    allowedToolKeys,
+    tools: toolset(
+        builtin.file.read,
+        builtin.file.write,
+        builtin.file.edit,
+        builtin.file.applyPatch,
+        builtin.file.bash,
+        builtin.agent.create,
+        builtin.agent.invoke,
+        builtin.agent.get,
+        builtin.agent.getProfile,
+        builtin.agent.getSession,
+        builtin.agent.detach,
+        builtin.control.requestUserInput,
+        builtin.control.enterPlanMode,
+        builtin.control.exitPlanMode,
+        builtin.task.create,
+        builtin.task.setStatus,
+        builtin.plot.getTree,
+        builtin.plot.getThread,
+        builtin.plot.getSceneContext,
+        builtin.plot.getChapter,
+        builtin.plot.createThread,
+        builtin.plot.updateThread,
+        builtin.plot.createScene,
+        builtin.plot.updateScene,
+        builtin.plot.createPlot,
+        builtin.plot.createPlots,
+        builtin.plot.updatePlot,
+        builtin.sql.execute,
+        builtin.variable.schema,
+        builtin.variable.read,
+        builtin.variable.patch,
+    ),
     summarizer: {
         profileKey: "summarizer",
         input: {
@@ -96,6 +95,9 @@ export default defineAgentProfile({
                 <HistorySet>
                     <Message>
                         <AgentCatalog />
+                    </Message>
+                    <Message>
+                        <Import path="reference/agent/profile-routing.md" />
                     </Message>
                     <Message>
                         <SkillCatalog />
@@ -172,15 +174,13 @@ const LEADER_SYSTEM_PROMPT = profileText`
         - 多和用户交流，不要用户说一句话就把长期剧情、完整大纲或大量设定一次性定稿。
         - 尽量少用 request_user_input 问“是/否”。创作讨论更适合用开放问题和 2 到 4 个候选方向自然停下。
         - 当世界观问题需要用户参与时，优先问宏观选择，例如力量体系、主题气质、冲突方向，而不是追问零散细枝末节。
+        
+        # Agent
+        
+        - 默认你应该尽可能的派发子代理来完成任务，除非用户明确要你自己完成
+        - 如果遇到任何写作任务，必须使用 writer 来完成，你可以制定 writer 应该把文件写到哪里。并且不需要复述一遍文件给用户，而是直接使用文件应用
 
-        # 输出效率
-
-        - 先给结论、动作或下一步，不要用表演式语气。
-        - 对清楚的小任务，直接做最简单的正确动作。
-        - 对开放或含糊任务，给简短分析和下一步选项，然后等用户方向。
-        - 最终回复只报告关键结果、验证和偏差；不要复述长提示词或完整工具输出。
-
-        # 共享规范
-
-        默认 Leader 的工具使用、Task Management、多 Agent 协作、SQL、Plan Mode、Skills、Markdown 扩展格式、Project Workspace、内容节点、Lorebook、Manuscript、Simulation、Plot System 和 workspace node CLI 稳定说明已通过 HistorySet 中的 reference 文档注入。处理这些主题时遵守共享规范，不要依赖旧 task walkthrough 或过时 prompt 片段。
+       # Notes
+       
+       - 如果用户提到 “破限”、“预设修改”、“文风调节”，则向他说明这些目前都需要通过调整 profile 的系统提示词来达成，把用户引导到 “用户资产” 界面，右上角点击 “Agent” 打开 “用户资产助手” 代理。
     `;

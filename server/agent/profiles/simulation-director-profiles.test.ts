@@ -2,7 +2,7 @@ import {resolve} from "node:path";
 import {describe, expect, it} from "vitest";
 import directorProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/director.profile";
 import simulatorLeaderProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/simulator.leader.profile";
-import {DirectorInputSchema, DirectorOutputSchema, SimulatorLeaderInputSchema, SimulatorLeaderOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import {DirectorInitialSchema, DirectorOutputSchema, SimulatorLeaderInitialSchema, SimulatorLeaderOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {messageText} from "nbook/server/agent/messages/message-utils";
 import type {AgentMessage, Message} from "nbook/server/agent/messages/types";
 import type {RuntimeSessionFacade} from "nbook/server/agent/profiles/define-agent-runtime";
@@ -25,24 +25,22 @@ describe("simulation and director builtin profiles", () => {
             session: testSession({
                 profileKey: "simulator.leader",
                 workspaceRoot: resolve("workspace"),
+                projectPath: "workspace/rp-project",
                 customState: {},
                 linkedAgents: [],
                 archived: false,
                 planModeActive: false,
             }),
-            input: {
-                projectPath: "workspace/rp-project",
-                simulationRoot: "rp-project/simulation/",
-            },
+            initial: {},
             vars: createTestVariableAccessor(),
             catalog: {profiles: [], issues: []},
             skills: [],
         });
         const prompt = [prepared.systemPrompt ?? "", messagesText(prepared.historyInitMessages), messagesText(prepared.modelContextMessages)].join("\n");
 
-        expect(simulatorLeaderProfile.inputSchema).toBe(SimulatorLeaderInputSchema);
+        expect(simulatorLeaderProfile.initialSchema).toBe(SimulatorLeaderInitialSchema);
         expect(simulatorLeaderProfile.outputSchema).toBe(SimulatorLeaderOutputSchema);
-        expect(simulatorLeaderProfile.allowedToolKeys).toEqual([
+        expect(simulatorLeaderProfile.rootToolKeys).toEqual([
             "read",
             "write",
             "edit",
@@ -58,8 +56,8 @@ describe("simulation and director builtin profiles", () => {
             "get_story_scene_context",
             "get_chapter_plot",
         ]);
-        expect(simulatorLeaderProfile.allowedToolKeys).not.toContain("create_story_plot");
-        expect(simulatorLeaderProfile.allowedToolKeys).not.toContain("report_result");
+        expect(simulatorLeaderProfile.rootToolKeys).not.toContain("create_story_plot");
+        expect(simulatorLeaderProfile.rootToolKeys).not.toContain("report_result");
         expect(prompt).toContain("世界模拟主管");
         expect(prompt).toContain("writer_safe_brief");
         expect(prompt).toContain("director_handoff");
@@ -69,6 +67,8 @@ describe("simulation and director builtin profiles", () => {
         expect(prompt).toContain("最小 subject scaffold");
         expect(prompt).toContain("直接用普通 assistant 文本返回最终结果");
         expect(prompt).toContain("projectPath: workspace/rp-project");
+        expect(prompt).toContain("reference/agent/profile-routing.md");
+        expect(prompt).toContain("RP 用户体验与叙事组装转 `rp.leader`");
         expect(prompt).toContain("reference/agent/workspace-tool-use.md");
         expect(prompt).toContain("reference/content/simulation.md");
     });
@@ -83,7 +83,7 @@ describe("simulation and director builtin profiles", () => {
                 archived: false,
                 planModeActive: false,
             }),
-            input: {
+            initial: {
                 projectPath: "workspace/rp-project",
                 mode: "writing",
                 defaultChapterPath: "rp-project/manuscript/001-volume/001-chapter/",
@@ -94,11 +94,11 @@ describe("simulation and director builtin profiles", () => {
         });
         const prompt = [prepared.systemPrompt ?? "", messagesText(prepared.historyInitMessages), messagesText(prepared.modelContextMessages)].join("\n");
 
-        expect(directorProfile.inputSchema).toBe(DirectorInputSchema);
+        expect(directorProfile.initialSchema).toBe(DirectorInitialSchema);
         expect(directorProfile.outputSchema).toBe(DirectorOutputSchema);
-        expect(directorProfile.allowedToolKeys).toContain("create_story_plots");
-        expect(directorProfile.allowedToolKeys).not.toContain("write");
-        expect(directorProfile.allowedToolKeys).not.toContain("edit");
+        expect(directorProfile.rootToolKeys).toContain("create_story_plots");
+        expect(directorProfile.rootToolKeys).not.toContain("write");
+        expect(directorProfile.rootToolKeys).not.toContain("edit");
         expect(prompt).toContain("剧情导演");
         expect(prompt).toContain("Thread / Scene / Plot");
         expect(prompt).toContain("不维护 simulation/subjects/**");
@@ -126,7 +126,7 @@ function testSession(input: Partial<NeuroSessionContext>): RuntimeSessionFacade 
                     metadata: {
                         sessionId: -1,
                         profileKey: session.profileKey,
-                        input: {},
+                        initial: {},
                         workspaceRoot: session.workspaceRoot,
                         workspaceKey: "test",
                         createdAt: 0,

@@ -4,42 +4,45 @@ import type {Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import type {AgentRuntimeHookContext} from "nbook/server/agent/profiles/define-agent-runtime";
 import {agentRuntimeBuiltins, defineAgentRuntime} from "nbook/server/agent/profiles/define-agent-runtime";
-import {SessionSummarizerInputSchema, SessionSummarizerOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
+import {SessionSummarizerInitialSchema, SessionSummarizerOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {Message, ModelContext, ProfilePrompt, System} from "nbook/server/agent/profiles/profile-dsl";
 
 export const profileManifest = {
     key: "summarizer",
-    name: "Session Summarizer",
-    description: "Background profile that maintains display title and summary for an Agent session.",
+    name: "会话摘要",
+    description: "后台元数据维护 agent：自动维护 Agent session 的显示标题与摘要。",
 } as const;
 
-export const InputSchema = SessionSummarizerInputSchema;
+export const InitialSchema = SessionSummarizerInitialSchema;
 export const OutputSchema = SessionSummarizerOutputSchema;
 
-export type Input = Static<typeof InputSchema>;
+export type Initial = Static<typeof InitialSchema>;
 export type Output = Static<typeof OutputSchema>;
 
 export default defineAgentProfile({
     manifest: profileManifest,
-    inputSchema: InputSchema,
+    initialSchema: InitialSchema,
     outputSchema: OutputSchema,
-    allowedToolKeys: ["report_result"],
-    runtime: defineAgentRuntime<Input>({
+    tools: toolset(
+        builtin.result.main({dataSchema: OutputSchema}),
+    ),
+    runtime: defineAgentRuntime<Initial>({
         hooks: [
-            agentRuntimeBuiltins.profilePrompt<Input>(),
-            agentRuntimeBuiltins.sessionContext<Input>(),
-            agentRuntimeBuiltins.reportResult<Input>(),
-            agentRuntimeBuiltins.runtimeOnlyTranscript<Input>(),
+            agentRuntimeBuiltins.profilePrompt<Initial>(),
+            agentRuntimeBuiltins.sessionContext<Initial>(),
+            agentRuntimeBuiltins.reportResult<Initial>(),
+            agentRuntimeBuiltins.runtimeOnlyTranscript<Initial>(),
             {
                 name: "write-source-summary",
                 stage: "settleRun",
                 async run(ctx) {
                     const data = normalizeSummaryResult(ctx.runResult?.reportResult?.data);
-                    const state = await readSourceState(ctx.input.sourceSessionId, ctx);
-                    if (!data || !state.running || state.sourceLeafId !== (await ctx.session.read(ctx.input.sourceSessionId)).snapshot.leafId) {
+                    const state = await readSourceState(ctx.initial.sourceSessionId, ctx);
+                    if (!data || !state.running || state.sourceLeafId !== (await ctx.session.read(ctx.initial.sourceSessionId)).snapshot.leafId) {
                         return {
                             writePlans: [{
-                                target: {sessionId: ctx.input.sourceSessionId},
+                                target: {sessionId: ctx.initial.sourceSessionId},
                                 cause: "summarizer.stale",
                                 ops: [{
                                     kind: "append",
@@ -60,7 +63,7 @@ export default defineAgentProfile({
                     }
                     return {
                         writePlans: [{
-                            target: {sessionId: ctx.input.sourceSessionId},
+                            target: {sessionId: ctx.initial.sourceSessionId},
                             cause: "summarizer.writeback",
                             ops: [
                                 {
@@ -100,9 +103,9 @@ export default defineAgentProfile({
     }),
     async context(ctx) {
         const dialogue = await ctx.session.agentDialogueContent({
-            sessionId: ctx.input.sourceSessionId,
+            sessionId: ctx.initial.sourceSessionId,
             profileKey: "summarizer",
-            input: ctx.input,
+            initial: ctx.initial,
         });
         return (
             <ProfilePrompt>
@@ -137,7 +140,7 @@ function normalizeSummaryResult(value: unknown): Output | null {
     return {title, summary};
 }
 
-async function readSourceState(sourceSessionId: number, ctx: AgentRuntimeHookContext<Input>): Promise<{
+async function readSourceState(sourceSessionId: number, ctx: AgentRuntimeHookContext<Initial>): Promise<{
     running?: boolean;
     dirty?: boolean;
     profileKey?: string;

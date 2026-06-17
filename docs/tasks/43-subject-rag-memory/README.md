@@ -44,7 +44,7 @@ simulation/subjects/{subject-id}/
 `-- state.md
 ```
 
-- `simulator.actor` 主 run 不直接读取 subject 文件原文，且主 run 实际执行权限只允许 `report_result`；`actor.context-load` sidecar 可读取小文件并使用 `subject_rag_search` 注入 actor-safe context，注入内容会作为 harness-origin user message 持久化到 actor session。
+- `simulator.actor` 主 run 不直接读取 subject 文件原文，且主 run 实际执行权限只允许 `report_result`；`actor.context-load` sidecar 不读 subject 原文，只使用 `subject_rag_search` 注入 actor-safe context，注入内容会作为 harness-origin user message 持久化到 actor session。
 - `actor.memory-save` sidecar 维护 `events.jsonl`、`memory.jsonl` 与 `mind.md`，`state.md` 由 `simulator.leader` 裁决。
 - 旧 `events.md` / `knowledge.md` 合同已 hard cut；工具层不导入、不读取、不做长期双轨同步。
 - Task 42 已把 rollback 和 RAG 分离。本 task 不展开 rollback 实现，只需保证 RAG 索引可重建，且不把被回滚掉的非 active 现实当成当前记忆。
@@ -145,7 +145,7 @@ type SubjectMemory = {
 
 第一版故意不保留：
 
-- `id`：与 `topic` 重复。改名、合并和删除由 `memory_bio` 工具处理。
+- `id`：与 `topic` 重复。改名、合并和删除由 `subject_memory_update` 工具处理。
 - `kind`：暂不需要；`topic + view` 足够表达人、地点、概念、物品或组织。
 - `salience` / `confidence` / `evidenceEventIds`：第一版会增加 AI 维护负担，暂不加入。
 
@@ -156,7 +156,7 @@ type SubjectMemory = {
 {"topic":"艾琳娜","view":"艾琳娜是班里新来的同学。她有粉色头发，看起来很显眼。我现在还没有确认她和早上帮过我的女孩是不是同一个人。"}
 ```
 
-如果角色推理出二者相同，`memory_bio` 应合并为：
+如果角色推理出二者相同，`subject_memory_update` 应合并为：
 
 ```jsonl
 {"topic":"艾琳娜","aliases":["粉色头发的女孩子","早上帮过我的女孩"],"view":"我已经意识到，艾琳娜就是入学当天早晨帮过我的粉色头发女孩。她让我避免了迟到，所以我对她有明显的感激和亲近感。我们现在是同班同学，我想找机会正式道谢，也更愿意相信她。"}
@@ -194,20 +194,18 @@ type SubjectMemory = {
 
 会，就考虑更新 `memory.jsonl`。不会，就只写 `events.jsonl` 或 `mind.md`。
 
-### memory_bio Tool Direction
+### subject_memory_update Tool Direction
 
-用户计划提供 `memory_bio` 工具，让 agent 用自然语言操作记忆。`memory.jsonl` 交给子 agent / sidecar 维护。
+用户计划提供 `subject_memory_update` 工具，让 agent 用自然语言操作记忆。`memory.jsonl` 交给子 agent / sidecar 维护。
 
-最新决策：调用方不负责处理具体更新逻辑。调用方只报告 subject-facing facts；`memory_bio` 工具内部创建 / 调用一个通用 `memory.curator` profile，由该 profile 读取当前 `memory.jsonl` 后产出 JSON Patch，最后由工具应用 patch、校验并写回文件。
+最新决策：调用方不负责处理具体更新逻辑。调用方只报告 subject-facing facts 数组；`subject_memory_update` 工具内部创建 / 调用一个通用 `memory.curator` profile，由该 profile 读取当前 `memory.jsonl` 后产出 JSON Patch，最后由工具应用 patch、校验并写回文件。
 
 工具外部输入：
 
 ```ts
-type MemoryBioInput = {
+type SubjectMemoryUpdateInput = {
     subjectPath: string;
-    facts: string;
-    tick?: string;
-    time?: string;
+    facts: string[];
 };
 ```
 
@@ -216,9 +214,9 @@ type MemoryBioInput = {
 `memory.curator` profile 输入：
 
 ```ts
-type SubjectMemoryBioInput = {
+type MemoryCuratorInput = {
     subjectPath: string;
-    facts: string;
+    facts: string[];
     currentMemories: Array<{
         topic: string;
         aliases?: string[];
@@ -230,12 +228,12 @@ type SubjectMemoryBioInput = {
 `memory.curator` profile 输出：
 
 ```ts
-type SubjectMemoryBioOutput = {
-    reason: string;
+type MemoryCuratorOutput = {
     patch: JsonPatchOperation[];
-    summary: string;
 };
 ```
+
+`MemoryCuratorOutput` 和每个 patch operation 都不允许额外字段；`reason` / `summary` 不再放入 `report_result.data`，人类可读摘要统一写在 `report_result.result`。
 
 工具应用 JSON Patch 后必须校验：
 
@@ -262,23 +260,22 @@ type SubjectMemoryBioOutput = {
 
 第一版只给 sidecar 使用 RAG / memory 工具，主路 `simulator.actor` 不直接使用。
 
-`simulator.actor` 的 profile 最大工具集合仍包含 sidecar 需要的 `subject_rag_search`、`subject_event_append`、`memory_bio`、`read`、`edit` 和 `report_result`，用于 provider-visible schema 和 sidecar 子集校验；但 profile 通过 `mainRunAllowedToolKeys: ["report_result"]` 把主 run 执行权限硬收窄为只允许 `report_result`。`leader.default` 不直接拥有 subject memory / RAG 工具。
+`simulator.actor` 的 profile 最大工具集合仍包含 sidecar 需要的 `subject_rag_search`、`subject_event_append`、`subject_memory_update`、`read`、`edit`、`report_result` 和 `report_sidecar_result`，用于 provider-visible schema 和 sidecar 子集校验；但 profile 通过 `mainRunToolKeys: ["report_result"]` 把主 run 执行权限硬收窄为只允许 `report_result`。`leader.default` 不直接拥有 subject memory / RAG 工具。
 
 `actor.context-load` 工具：
 
 - `subject_rag_search`
-- `read`
-- `report_result`
+- `report_sidecar_result`
 
 `actor.memory-save` 工具：
 
 - `subject_event_append`
-- `memory_bio`
+- `subject_memory_update`
 - `read`
 - `edit`
-- `report_result`
+- `report_sidecar_result`
 
-`subject_rag_search` 只做粗召回，不直接生成最终 actor context。`actor.context-load` 承担一部分 rerank 职责：它根据当前 actor-facing packet 过滤候选、合并重复内容、选择真正会影响角色反应的记忆，再压缩注入 `<actor_sidecar_context>`。
+`subject_rag_search` 只做粗召回，不直接生成最终 actor context。`actor.context-load` 承担一部分 rerank 职责：它根据当前 actor-facing packet 过滤候选、合并重复内容、选择真正会影响角色反应的记忆，再通过 `report_sidecar_result.result` 返回纯文本，并用 `data: { "actor.context-load": {} }` 闭合旁路结果，最终由 `merge()` 压缩注入 `<actor-sidecar-context>`。
 
 ```ts
 type SubjectRagSearchInput = {
@@ -482,10 +479,10 @@ CREATE VIRTUAL TABLE subject_rag_vec USING vec0(
 - 标记该 subject 的 `events` source dirty，或执行增量索引。
 - 不允许 Agent 直接手写 JSONL 格式。
 
-### 6. memory.curator Profile + memory_bio Tool
+### 6. memory.curator Profile + subject_memory_update Tool
 
 - 新增 `memory.curator` profile，只负责根据 facts 和 currentMemories 生成 JSON Patch。该 profile 命名保持通用，第一版用于 subject memory，后续可复用到其他可编辑记忆集合。
-- `memory_bio` 工具每次都调用真实 `memory.curator` profile，读取当前 `memory.jsonl`，应用 profile 返回的 patch，校验结果并写回文件。
+- `subject_memory_update` 工具每次都调用真实 `memory.curator` profile，读取当前 `memory.jsonl`，应用 profile 返回的 patch，校验结果并写回文件。
 - patch 成功后标记该 subject 的 `memory` source dirty，或执行增量索引。
 - 调用方只报告 subject-facing facts，不指定具体 JSON Patch 或 topic 操作。
 - JSON Patch 应用或校验失败时，最多自动重试一次；仍失败则不写 `memory.jsonl`，返回 `needs_review`。本轮已追加的 `events.jsonl` 经历保留，不回滚。
@@ -495,14 +492,14 @@ CREATE VIRTUAL TABLE subject_rag_vec USING vec0(
 - `actor.context-load` 根据当前 actor-facing packet 生成检索 query。
 - 调用 `subject_rag_search` 分别检索当前 subject 的 events 与 memory；如果两层都需要，必须分两次调用。
 - 由 `actor.context-load` 对候选做 rerank：过滤无关候选、合并重复信息、优先保留当前情境会影响角色反应的记忆。
-- 将少量相关经历和稳定认知注入 `<actor_sidecar_context>`；该注入使用 sidecar `persistedMessages`，会进入 actor session active path、后续 run 和 compaction。
+- 将少量相关经历和稳定认知注入 `<actor-sidecar-context>`；该注入使用 sidecar `persistedMessages`，会进入 actor session active path、后续 run 和 compaction。
 - 注入文案必须区分“当前状态”“当前心理”“相关过往经历”“相关稳定认知”。
 - 注入预算：最多 6 条 events + 4 条 memory，并限制最终注入文本长度。超出时由 `actor.context-load` 选择更相关的候选，而不是全部塞入主路。
 
 ### 8. actor.memory-save Integration
 
 - 主 run 后由 memory-save sidecar 调用 `subject_event_append` 追加 `events.jsonl`。
-- 如果本轮造成稳定认知变化，调用 `memory_bio`，只报告事实，不处理具体合并/删除/更新逻辑。
+- 如果本轮造成稳定认知变化，调用 `subject_memory_update`，只报告 facts 数组，不处理具体合并/删除/更新逻辑。
 - 短期情绪和当下动机仍更新 `mind.md`。
 - `state.md` 继续由 `simulator.leader` 裁决。
 
@@ -518,9 +515,9 @@ CREATE VIRTUAL TABLE subject_rag_vec USING vec0(
 
 - parser test：`memory.jsonl` 支持长 `view`，拒绝空 `topic` / 空 `view`。
 - parser test：`events.jsonl` 支持 `{ tick?, time?, text }`，拒绝空 `text`。
-- memory_bio test：更新同 topic 不新增重复行。
-- memory_bio test：合并 `粉色头发的女孩子` 到 `艾琳娜` 后，旧 topic 删除或进入 aliases。
-- memory_bio test：`memory.curator` 返回 JSON Patch 后，工具应用 patch 并拒绝空 topic / 空 view / 重复 topic。
+- subject_memory_update test：更新同 topic 不新增重复行。
+- subject_memory_update test：合并 `粉色头发的女孩子` 到 `艾琳娜` 后，旧 topic 删除或进入 aliases。
+- subject_memory_update test：`memory.curator` 返回 JSON Patch 后，工具应用 patch 并拒绝空 topic / 空 view / 重复 topic。
 - subject_event_append test：追加多条 event 后文件仍是合法 JSONL，并标记 events source dirty。
 - sqlite-vec smoke test：能创建 vec0 表、插入向量并查询成功。
 - RAG search test：embedding 未配置时返回明确错误，不做关键词 fallback。
@@ -536,19 +533,22 @@ CREATE VIRTUAL TABLE subject_rag_vec USING vec0(
 
 ## Walkthrough
 
-- 2026-06-08：用户确认第一版 subject RAG 只做两层记忆：`events.jsonl` 作为经历流，`memory.jsonl` 作为对主体的稳定看法；`subject.md`、`mind.md`、`state.md` 直接进上下文；`memory-seed.md` 作为初始化记忆种子。讨论中收敛 `memory.jsonl` schema 为 `{ topic, aliases?, view }`，删除 `id`、`kind`、`salience`、`confidence`、`evidenceEventIds`，并确认 `memory.jsonl` 支持更新、合并和删除，计划由自然语言 `memory_bio` 工具维护。
+- 2026-06-08：用户确认第一版 subject RAG 只做两层记忆：`events.jsonl` 作为经历流，`memory.jsonl` 作为对主体的稳定看法；`subject.md`、`mind.md`、`state.md` 直接进上下文；`memory-seed.md` 作为初始化记忆种子。讨论中收敛 `memory.jsonl` schema 为 `{ topic, aliases?, view }`，删除 `id`、`kind`、`salience`、`confidence`、`evidenceEventIds`，并确认 `memory.jsonl` 支持更新、合并和删除，计划由自然语言 memory 工具维护。
 - 2026-06-08：确认 `events.jsonl` 第一版 schema 为 `{ tick?, time?, text }`，删除 `type` 字段；初始化 seed 通过多条普通 event 表示，`text` 必须自包含，推理和误解修正通过追加新 event 表达。
-- 2026-06-08：确认 RAG 工程落地目标是先跑通 subject RAG 流程；`actor.context-load` 使用 `subject_rag_search` 做粗召回并承担 rerank / 压缩注入职责；`memory_bio` 改为“调用方报告 facts，内部调用 `memory.curator` profile 产出 JSON Patch，工具校验并写回 memory.jsonl”；RAG SQLite 第一版确定独立放在 `{project}/.nbook/subject-rag.sqlite`。
-- 2026-06-08：用户确认 `memory-seed.md`、独立 `subject-rag.sqlite`、旧 `events.md` / `knowledge.md` hard cut；`memory_bio` 每次都调用真实 curator profile；嵌入模型配置先独立于 Pi 模型设置设计。
+- 2026-06-08：确认 RAG 工程落地目标是先跑通 subject RAG 流程；`actor.context-load` 使用 `subject_rag_search` 做粗召回并承担 rerank / 压缩注入职责；memory update 工具改为“调用方报告 facts，内部调用 `memory.curator` profile 产出 JSON Patch，工具校验并写回 memory.jsonl”；RAG SQLite 第一版确定独立放在 `{project}/.nbook/subject-rag.sqlite`。
+- 2026-06-08：用户确认 `memory-seed.md`、独立 `subject-rag.sqlite`、旧 `events.md` / `knowledge.md` hard cut；memory update 工具每次都调用真实 curator profile；嵌入模型配置先独立于 Pi 模型设置设计。
 - 2026-06-08：用户确认剩余实现边界：embedding 未配置时报错不 fallback；Provider/API Key 走全局设置，Project-level 只选 embedding model + dimensions；实现前做 sqlite-vec smoke；写入标 dirty、搜索时同步 rebuild；memory.curator patch 失败最多重试一次，仍失败则保留 events 并返回 needs_review；RAG 注入最多 6 条 events + 4 条 memory；`memory-seed.md` 只在初始化时转换；旧 `events.md` / `knowledge.md` 硬切，不在运行时做导入兼容。
 - 2026-06-08：已落地 subject memory 合同：模板和 reference 切到 `subject.md` / `memory-seed.md` / `events.jsonl` / `memory.jsonl` / `mind.md` / `state.md`；新增 JSONL parser / validator / JSON Patch 应用；`subject_event_append` 会追加合法 events 并标记 RAG dirty。
-- 2026-06-08：已新增 `memory.curator` profile 和真实 `memory_bio` 工具。调用方只报告 facts；工具读取当前 `memory.jsonl`，调用 curator 生成 JSON Patch，应用后校验 topic/view/aliases/重复 topic，失败重试一次，仍失败返回 `needs_review` 且不写文件。
+- 2026-06-08：已新增 `memory.curator` profile 和真实 memory update 工具。调用方只报告 facts；工具读取当前 `memory.jsonl`，调用 curator 生成 JSON Patch，应用后校验 topic/view/aliases/重复 topic，失败重试一次，仍失败返回 `needs_review` 且不写文件。
 - 2026-06-08：已新增 SQLite + sqlite-vec subject RAG 索引缓存 `{project}/.nbook/subject-rag.sqlite`，表包括 `subject_rag_meta`、`subject_rag_sources`、`subject_rag_chunks`、`subject_rag_vec`。JSONL 文件仍是事实源；写入只标 dirty，`subject_rag_search` 搜索前按 source hash / dirty 同步重建；events 每行一个 chunk，memory 按 topic/view 切 chunk并保留 topic；`subject_path` 与 `source_type` 进入 sqlite-vec partition，KNN 在当前 subject/source 内发生，避免被其他 subject 或其他 source 的全局近邻挤掉。
 - 2026-06-08：已扩展配置与前端设置，增加独立 Embedding 服务配置。RAG 使用 OpenAI-compatible `/embeddings` adapter 读取 effective embedding provider/model/API Key/baseURL/dimensions；未启用 embedding、缺少 model、缺少 dimensions、缺少 API Key 或缺少 API Base 时明确报错，不做关键词 fallback。
-- 2026-06-08：已接入 `simulator.actor` sidecar：`actor.context-load` 可用 `subject_rag_search` 召回当前 subject 的 events/memory 并 rerank 注入；`actor.memory-save` 可用 `subject_event_append` 和 `memory_bio` 维护记忆。主 actor run 继续只消费 sidecar 持久化注入的 actor-safe context，不直接读写 subject 文件。
-- 2026-06-08：Harness sidecar merge 新增 `persistedMessages`。`actor.context-load` 的 `<actor_sidecar_context>` 已从 runtime-only 注入改为持久化注入，写入 actor session active path，后续 actor run 可见，并能进入 compaction summary；注入后若 provider-visible context 超出模型窗口，父 invocation 直接失败，已写入的 context 不回滚。
+- 2026-06-08：已接入 `simulator.actor` sidecar：`actor.context-load` 可用 `subject_rag_search` 召回当前 subject 的 events/memory 并 rerank 注入；`actor.memory-save` 可用 `subject_event_append` 和 memory update 工具维护记忆。主 actor run 继续只消费 sidecar 持久化注入的 actor-safe context，不直接读写 subject 文件。
+- 2026-06-08：Harness sidecar merge 新增 `persistedMessages`。`actor.context-load` 的 `<actor-sidecar-context>` 已从 runtime-only 注入改为持久化注入，写入 actor session active path，后续 actor run 可见，并能进入 compaction summary；注入后若 provider-visible context 超出模型窗口，父 invocation 直接失败，已写入的 context 不回滚。
+- 2026-06-10：`actor.context-load` sidecarData 合同收敛为纯文本 string，不再返回 `{ actor_safe_context, sources, withheld, confidence }` 等对象；sidecar 自身 transcript 改为持久化在 session tree 旁路 leaf 上，完成后恢复父 run active leaf，主路只消费 `<actor-sidecar-context>` merge 结果。
+- 2026-06-14：旁路结果工具改为 `report_sidecar_result.data`；`actor.context-load` 仍返回纯文本 string，但不再通过 `report_result.sidecar_data` 旁路字段承载。
+- 2026-06-15：旁路结果协议改为 sidecar-name keyed data：`actor.context-load` 的纯文本正文改写到 `report_sidecar_result.result`，`data` 只传 `{ "actor.context-load": {} }`；`actor.memory-save` 同样只用 keyed 空对象，业务摘要写在 `result`。
 - 2026-06-08：验证结果：`bun scripts/smoke/subject-rag-smoke.ts` 通过；`bunx vitest run server/agent/tools/subject-memory-tools.test.ts server/agent/tools/sqlite-vec-smoke.test.ts --reporter=dot` 通过；`bunx vitest run shared/dto/app-settings.dto.test.ts server/config/config-service.test.ts server/utils/app-config.test.ts server/utils/model-settings.test.ts --reporter=dot` 通过；`bunx vitest run server/agent/harness/model-resolver.test.ts --reporter=dot` 通过；`simulator.actor 会通过 context-load` 窄测和 `rp-profiles.test.ts` 通过。`bunx tsc --noEmit --pretty false` 仍有既有无关红灯，当前不含本 task 新增的 subject RAG / embedding 类型错误。
-- 2026-06-08：根据用户最新决策删除旧 subject 文件导入兼容。`subject_event_append`、`subject_rag_search`、`memory_bio` 只处理 `events.jsonl` / `memory.jsonl`；旧 `events.md` / `knowledge.md` 即使存在也不会被工具读取或转换。新增测试覆盖旧 md 存在时仍按 JSONL 硬切行为执行。
+- 2026-06-08：根据用户最新决策删除旧 subject 文件导入兼容。`subject_event_append`、`subject_rag_search` 和 memory update 工具只处理 `events.jsonl` / `memory.jsonl`；旧 `events.md` / `knowledge.md` 即使存在也不会被工具读取或转换。新增测试覆盖旧 md 存在时仍按 JSONL 硬切行为执行。
 - 2026-06-08：补齐 sqlite-vec 产品打包保障。`scripts/build/patch-nitro-runtime-deps.mjs` 已把 `sqlite-vec` 纳入 Nitro runtime package seed，复制其当前平台 native optional package；`product:stage` 新增 `assertProductSqliteVecVendor()`，从 product 的 `.output/server/index.mjs` 解析 `sqlite-vec` 并确认 `load()` 与 native optional package 存在。当前本机验证 `.output/server/node_modules/sqlite-vec` 与 `sqlite-vec-windows-x64/vec0.dll` 存在，并能从 `.output/server/index.mjs` 解析到 `vec0.dll`；`bun run product:stage` 已通过，且 product 内可解析到 `product/.output/server/node_modules/sqlite-vec-windows-x64/vec0.dll`。
 - 2026-06-08：修复 review 发现的两个落地问题：`subject_rag_vec` 升级到 `subject-rag-v2`，使用 `subject_path` / `source_type` partition key 并按 source 分别召回，避免 sqlite-vec 全局 top-k 先截断后过滤导致当前 subject 失忆；`assertProductSqliteVecVendor()` 改为调用 product vendor 内的 `sqliteVec.getLoadablePath()`，断言当前平台实际 native 扩展路径存在且位于 product `.output/server/node_modules`。
 - 2026-06-08：用户明确 NeuroBook 不适配 Pi 的 embedding model，本轮完成硬切：`shared/dto/app-settings.dto.ts` 的 model input 只保留 `text | image`，模型设置页删除 embedding selector / dimensions；Global / Project Config 新增顶层 `embedding`，设置中心新增独立 Embedding tab，Global 配置 OpenAI-compatible embedding 服务，Project 只覆盖 model 和 dimensions。RAG 继续读取 effective `embedding`，调用 `/embeddings` adapter。
@@ -560,7 +560,9 @@ CREATE VIRTUAL TABLE subject_rag_vec USING vec0(
 - 2026-06-08：排查 SiliconFlow embedding 卡住问题。官方文档确认 `POST /v1/embeddings` 的 `model` / `input` / Qwen3 `dimensions` 请求形状符合合同；本地探针显示 `/v1/models` 260ms 返回，`BAAI/bge-m3`、`Qwen/Qwen3-Embedding-0.6B` 和 `Qwen/Qwen3-Embedding-4B` 的 embedding 请求 100-250ms 返回，但当前配置的 `Qwen/Qwen3-Embedding-8B` 在 10-20s 内不返回。修复：effective embedding timeout 默认改为 30000ms，前端空 timeout 写入 30000，`subject_rag_search` 捕获 AbortError 并返回明确 `embedding 请求超时`，避免工具无限挂起。复验：`bunx vitest run server/agent/tools/subject-memory-tools.test.ts server/config/config-service.test.ts --reporter=dot` 通过；`bun scripts/smoke/subject-rag-smoke.ts` 通过。
 - 2026-06-08：修复 `subject_rag_search` source 合同漂移。工具不再默认同时搜索 events 和 memory，也不允许一次传两个 source；调用方必须显式传 `["events"]` 或 `["memory"]`，`actor.context-load` 如需两层记忆必须分别调用两次后自行 rerank/合并。新增回归测试覆盖缺失 sources 和双 source 都会失败。
 - 2026-06-08：收窄 `subject_rag_search` 查询接口。第一版只暴露 `limit`；`minScore`、`maxCharsPerItem`、tick/time 范围暂不提供。索引层改为归一化 embedding 后用内部距离阈值过滤明显无关候选；工具结果继续只渲染文本，不向 Agent 返回 score 或 JSON candidates。
-- 2026-06-08：修复 profile 权限边界。`leader.default` 不再暴露 `subject_event_append`、`subject_rag_search`、`memory_bio`；新增 `mainRunAllowedToolKeys` profile 合同和 harness 执行层接入，`simulator.actor` 主 run 只允许执行 `report_result`，RAG / memory 工具只在 `actor.context-load` 与 `actor.memory-save` sidecar 执行子集中可用。
+- 2026-06-08：修复 profile 权限边界。`leader.default` 不再暴露 `subject_event_append`、`subject_rag_search` 和 memory update 工具；新增 `mainRunAllowedToolKeys` profile 合同和 harness 执行层接入，`simulator.actor` 主 run 只允许执行 `report_result`，RAG / memory 工具只在 `actor.context-load` 与 `actor.memory-save` sidecar 执行子集中可用。
+- 2026-06-09：根据最新命名决策硬切 memory update 工具名：`memory_bio` 改为 `subject_memory_update`，与 `subject_event_append`、`subject_rag_search` 形成同一命名族；不保留旧 alias。`subject_memory_update.facts` 改为 `string[]`；`memory.curator` 的 `report_result.data` 收窄为 `{ patch }`，人类可读摘要统一放在 `report_result.result`。
+- 2026-06-12：subject 文件结构在「Subject Soul 拆分」任务中调整，本文上方目录图里的 `memory-seed.md` 已废弃。当前 subject 目录为 `subject.md`（全知秘密档，仅 simulator.leader 可读）+ `soul.md`（第一人称扮演手册，直接 Import 进 actor 主路）+ `events.jsonl` / `memory.jsonl` / `mind.md` / `state.md`。冷启动初始记忆由 simulator.leader 直接落进 `events.jsonl` / `memory.jsonl`，不再经过 `memory-seed.md` 中转。`subject.md` 和 `soul.md` 永不进 RAG 索引；RAG 仍只索引 `events.jsonl` / `memory.jsonl`，本任务的 RAG 检索/索引合同不变。
 
 ## TODO / Follow-ups
 

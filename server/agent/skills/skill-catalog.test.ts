@@ -94,8 +94,13 @@ name: User Writer
             "novel-technique-commercial-rhythm",
             "skill-creator",
             "skill-creator-zh",
+            "stop-slop",
             "tsx-profile-editing",
         ]));
+        expect(skills.find((item) => item.key === "stop-slop")).toEqual(expect.objectContaining({
+            name: "stop-slop",
+            description: "Remove AI writing patterns from prose. Use when drafting, editing, or reviewing text to eliminate predictable AI tells.",
+        }));
     });
 });
 

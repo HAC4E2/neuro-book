@@ -1060,7 +1060,7 @@ ${pendingEntries || "- none"}
 
 - Run \`workspace node validate\` on the affected lorebook roots above.
 - Review the classification queue before treating pending notes as canon.
-- Do not copy god-view worldbook content directly into \`simulation/subjects/*/knowledge.md\`.
+- Do not copy god-view worldbook content directly into \`simulation/subjects/*/memory.jsonl\`.
 - If the project needs RP or world simulation, use \`novel-workflow-05-emulation-bootstrap\` after reviewing this report.
 - If the user wants plot progression, use \`novel-workflow-06-emulation-tick\` after simulation is initialized.
 `;
@@ -1114,13 +1114,13 @@ function renderSimulationMigrationReadme(inspection: CardInspection): string {
 - 不创建 \`simulation/subjects/\`、\`simulation/entities/\` 或 \`simulation/runs/\`。
 - 不执行 JavaScript、regex、EJS、MVU、Tavern Helper 或外部请求。
 - 只把候选材料按迁移目标分组，后续由 Agent / 作者人工过滤。
-- subject-facing \`knowledge.md\` 必须从角色可知信息重写，不能直接复制上帝视角 worldbook。
+- subject-facing \`memory.jsonl\` 必须从角色可知信息重写，不能直接复制上帝视角 worldbook。
 
 ## Files
 
 - \`simulator-candidates.md\`: 可转写给 simulator leader 的规则、状态更新和玩法候选。
 - \`writer-candidates.md\`: 只影响用户可见正文的风格、格式或文风候选。
-- \`subject-candidates.md\`: 可能转成 subject events / knowledge / mind 的角色视角候选。
+- \`subject-candidates.md\`: 可能转成 subject events / memory / mind 的角色视角候选。
 - \`entity-candidates.md\`: 可能需要实例化为 \`simulation/entities/\` 的状态对象候选。
 - \`unsupported-runtime.md\`: 暂不迁移的 ST runtime、脚本、regex 和 UI 状态栏材料。
 
@@ -1175,8 +1175,8 @@ ${lines || "- none"}
 ## Migration Notes
 
 - \`subject.md\`: 可写稳定人格、行动原则和语气。
-- \`events.md\`: 只记录 subject 亲历、看到或被告知的事件。
-- \`knowledge.md\`: 只写 subject 知道或误解的事实，不复制上帝视角秘密。
+- \`events.jsonl\`: 只记录 subject 亲历、看到或被告知的事件。
+- \`memory.jsonl\`: 只写 subject 知道、相信、误解、态度或关系判断，不复制上帝视角秘密。
 - \`mind.md\`: 写当前心理、动机和疑虑。
 - \`state.md\`: 由 simulator leader 裁决后维护。
 `;

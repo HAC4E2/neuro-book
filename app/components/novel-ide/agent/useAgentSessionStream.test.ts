@@ -10,6 +10,11 @@ type AgentSessionEventWithoutEpoch = AgentSessionEventDto extends infer Event
 
 const baseSnapshot = (lastSeq = 0, eventEpoch = "epoch-1"): AgentSessionSnapshotDto => ({
     eventEpoch,
+    eventCursor: {
+        eventEpoch,
+        after: lastSeq,
+    },
+    latestSeq: lastSeq,
     summary: {
         sessionId: 1,
         profileKey: "leader.default",
@@ -64,6 +69,37 @@ const connectedEvent = (seq: number, eventEpoch = "epoch-1"): AgentSessionEventD
 describe("useAgentSessionStream", () => {
     beforeEach(() => {
         vi.useFakeTimers();
+    });
+
+    it("首次订阅使用 snapshot eventCursor 作为 after", async () => {
+        const session = useAgentSession();
+        const activeSessionId = ref<number | null>(1);
+        session.applySnapshot({
+            ...baseSnapshot(3),
+            eventCursor: {
+                eventEpoch: "epoch-1",
+                after: 3,
+            },
+            latestSeq: 7,
+        });
+        const cursors: AgentSessionEventsQueryDto[] = [];
+        const stream = useAgentSessionStream({
+            session,
+            activeSessionId,
+            api: {
+                getSession: vi.fn(async () => baseSnapshot(3)),
+                subscribeSessionEvents: vi.fn(async (_sessionId, cursor, onEvent, _signal, options) => {
+                    cursors.push(cursor);
+                    options?.onOpen?.();
+                    await onEvent(connectedEvent(7, cursor.eventEpoch ?? "epoch-1"));
+                }),
+            },
+        });
+
+        await stream.start(1);
+
+        expect(cursors[0]).toEqual({eventEpoch: "epoch-1", after: 3});
+        stream.stop();
     });
 
     it("stream close 后按 lastSeq 自动重连", async () => {
@@ -309,6 +345,62 @@ describe("useAgentSessionStream", () => {
         expect(api.getSession).toHaveBeenCalledTimes(1);
         expect(session.needsSnapshot.value).toBe(false);
         expect(session.snapshot.value?.activePathRevision).toBe("leaf-move-1");
+    });
+
+    it("agent link entry 改变关联关系时通过 snapshot 刷新 linked agents", async () => {
+        const session = useAgentSession();
+        const activeSessionId = ref<number | null>(1);
+        session.applySnapshot(baseSnapshot(1));
+        const api = {
+            getSession: vi.fn(async () => ({
+                ...baseSnapshot(2),
+                linkedAgents: [{
+                    sessionId: 2,
+                    profileKey: "writer",
+                    workspaceKey: "global",
+                    workspaceRoot: ".",
+                    status: "idle" as const,
+                    updatedAt: 2,
+                    archived: false,
+                    detached: false,
+                }],
+            })),
+            subscribeSessionEvents: vi.fn(async (_sessionId: number, _cursor: AgentSessionEventsQueryDto, onEvent: (event: AgentSessionEventDto) => Promise<void> | void, _signal?: AbortSignal, options?: {onOpen?: () => void}) => {
+                options?.onOpen?.();
+                await onEvent(sessionEvent({
+                    seq: 2,
+                    sessionId: 1,
+                    kind: "session",
+                    event: {
+                        type: "session_entry",
+                        entry: {
+                            id: "entry-agent-link-2",
+                            parentId: null,
+                            timestamp: Date.now(),
+                            type: "custom",
+                            key: "agent.link.2",
+                            value: {
+                                sessionId: 2,
+                                profileKey: "writer",
+                            },
+                        },
+                    },
+                }));
+                await new Promise<void>(() => {});
+            }),
+        };
+        const stream = useAgentSessionStream({session, api, activeSessionId});
+
+        await stream.start(1);
+
+        expect(api.getSession).toHaveBeenCalledTimes(1);
+        expect(session.needsSnapshot.value).toBe(false);
+        expect(session.snapshot.value?.linkedAgents).toEqual([
+            expect.objectContaining({
+                sessionId: 2,
+                detached: false,
+            }),
+        ]);
     });
 
     it("等待异步事件处理完成后再处理下一帧", async () => {

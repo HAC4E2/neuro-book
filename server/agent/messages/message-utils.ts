@@ -141,7 +141,11 @@ export function createAssistantTextMessage(input: {
 /**
  * 从 message 中提取人类可读文本。
  */
-export function messageText(message: Message): string {
+export function messageText(message: Message, options?: { stripThinking?: boolean } | number): string {
+    // 当作为 Array.prototype.map(messageText) 的回调时，第二个参数 options 传入的是 index (number)。
+    // 此时不应进行 stripThinking，故仅在 options 为 object 时读取 stripThinking。
+    const stripThinking = (options && typeof options === "object") ? options.stripThinking : false;
+
     if (message.role === "user") {
         if (typeof message.content === "string") {
             return message.content;
@@ -155,10 +159,10 @@ export function messageText(message: Message): string {
                 return block.text;
             }
             if (block.type === "thinking") {
-                return block.thinking;
+                return stripThinking ? "" : block.thinking;
             }
             return `[tool:${block.name}]`;
-        }).join("\n");
+        }).filter(Boolean).join("\n");
     }
 
     return message.content.filter((block) => block.type === "text").map((block) => block.text).join("\n");

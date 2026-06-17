@@ -16,6 +16,10 @@ Profile context memory 用来替代内容节点 frontmatter 中的 `inject.profi
 |   |   |-- context.md
 |   |   |-- memory.md
 |   |   `-- generated.md
+|   |-- rp.leader/
+|   |   |-- context.md
+|   |   |-- memory.md
+|   |   `-- generated.md
 |   |-- director/
 |   |   |-- context.md
 |   |   |-- memory.md
@@ -32,6 +36,7 @@ Profile context memory 用来替代内容节点 frontmatter 中的 `inject.profi
     `-- context-access/
         |-- leader.default.json
         |-- simulator.leader.json
+        |-- rp.leader.json
         |-- director.json
         `-- writer.json
 ```

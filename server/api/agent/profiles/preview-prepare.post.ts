@@ -19,8 +19,8 @@ export default defineEventHandler(async (event) => {
         dryRun: true,
         preview: true,
         sessionId: body.sessionId,
-        input: body.input,
-        inputOverrides: body.inputOverrides,
+        initial: body.initial,
+        initialOverrides: body.initialOverrides,
     });
     if (result.preview) {
         return result.preview;
@@ -33,5 +33,6 @@ export default defineEventHandler(async (event) => {
         persistedMessageCount: 0,
         variables: [],
         reportResultSchema: null,
+        reportSidecarResultSchema: null,
     };
 });

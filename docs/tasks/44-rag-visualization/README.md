@@ -95,7 +95,7 @@
   - events：新增、修改、删除、重排单条 event。
   - memory：新增、修改、删除单条 memory。
   - 修改后必须校验 JSONL，并标记对应 source dirty。
-  - 复杂合并、别名推理和自然语言整理仍优先由 `memory_bio` / `memory.curator` 维护，RAG 面板第一版不做复杂 curator UI。
+  - 复杂合并、别名推理和自然语言整理仍优先由 `subject_memory_update` / `memory.curator` 维护，RAG 面板第一版不做复杂 curator UI。
 - Search tab 必须调用真实 `searchSubjectRag()` 路径。可以为 HTTP API 构造最小 `ToolExecutionContext` 所需的 `workspaceRoot/projectPath`，但不要走前端关键词过滤伪装 RAG。
 - 用户决策：
   - 入口命名使用 `RAG`。

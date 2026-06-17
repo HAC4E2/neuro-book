@@ -57,6 +57,6 @@ ext: {}
 - `state.md` 不存在时不报错。
 - `state.md` 存在但 frontmatter 非法时报 `invalid-state-frontmatter`。
 - `state.md` 字段不符合 schema 时报 `invalid-state-field`。
-- `knowledge[]` 字符串里的 Markdown 内容节点链接会按 workspace 相对路径进行断链校验。
+- `knowledge[]` 字符串里的 Markdown 内容节点链接会按正文引用规则进行断链校验：优先 Project-relative path，也支持相对当前文件路径和当前 Project Workspace 内绝对路径。
 - `workspace node validate --recursive <target>` 会递归校验目标目录下所有内容节点。
 - 旧 URI 协议不作为状态引用目标。

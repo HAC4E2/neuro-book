@@ -342,7 +342,7 @@
 - Nitro runtime vendor seed 补入 `undici`，保证 Product Payload 直接启动 `.output/server/index.mjs` 时不缺服务端 fetch 依赖。
 - Windows Nuxt build 优化采用 `nitro.externals.trace=false`，避免 Nitro/node-file-trace 在 Windows 上扫描重 provider SDK 依赖树；由于该模式会把 external import 写成构建机根 `node_modules` 的 file URL，`patch-nitro-runtime-deps.mjs` 会先把这些 URL 改为 `.output/server/node_modules` 相对 import，再从 Nitro 产物扫描 external package seed 并复制 runtime vendor。
 - Product 内的 workspace agent script 会从 `.output/server/scripts/agent` 回到 Product Root 的 `assets/workspace/.nbook/templates` 定位系统 Project 模板。
-- `Update Neuro Book.cmd` 不再 `git pull`；它会查询 GitHub latest release，下载 `neuro-book-windows-x64.zip` 和 `SHA256SUMS`，校验 SHA256 后备份旧 `app/`、`launcher/`、根启动脚本和 `portable-release.json`，再切换新版并保留 `data/`。
+- `Update Neuro Book.cmd` 不再 `git pull`；它会查询 GitHub Releases，列出带 `neuro-book-windows-x64.zip` 和 `SHA256SUMS` 的 stable / canary / alpha / beta / rc 版本供用户选择，校验 SHA256 后备份旧 `app/`、`launcher/`、根启动脚本和 `portable-release.json`，再切换新版并保留 `data/`。
 - Windows Launcher 自动更新保留当前 `runtime/bun/`，避免在 update 命令运行中替换正在使用的 `bun.exe`；`portable-release.json` 会记录 `runtimeKind: "bun"`、packaged Bun version 和当前保留的 runtime version。
 - `Rebuild Neuro Book.*` 不再打包，因为 Product Portable 不支持本机 build。
 - 正式部署模式重设为 Product Portable、Product Bun、Product Docker/ghcr、Source Dev；`local-git` 和 `source Docker` 降级为源码/过渡路径。
@@ -410,7 +410,7 @@
     - 继续运行 `workspace.ts project validate launcher-smoke`，返回 `ok: true`，`schemaVersion: "1"`。
     - 在 Product Root 内只保留 Bun 和 Windows 系统目录，执行 `assets\workspace\.nbook\agent\bin\workspace.cmd project create/validate`、`profile.cmd --help`、`variable.cmd --help`，确认 agent bin wrapper 可通过 Bun 运行。
     - 解压新 zip 到 `%TEMP%`，确认根目录无 `.git`、无根 `node_modules`；PATH 只保留 zip 内 `runtime/bun` 和 Windows 系统目录后，执行 `app\assets\workspace\.nbook\agent\bin\workspace.cmd project create/validate`、`profile.cmd --help`、`variable.cmd --help`，确认 zip 内 wrapper 可用。
-    - 使用本地 `HttpListener` fake GitHub latest release，运行隔离 zip 内 `runtime\bun\bun.exe launcher\launcher.mjs update`；确认 launcher 下载 `neuro-book-windows-x64.zip` / `SHA256SUMS`、完成 SHA256 校验、备份旧 `app/` / `launcher/` / root scripts、切换新 payload，`data/.deploy/windows-launcher.json` 写入 `stage: "updated"`。
+    - 使用本地 `HttpListener` fake GitHub releases 列表，运行隔离 zip 内 `runtime\bun\bun.exe launcher\launcher.mjs update`；确认 launcher 可列出/自动选择带 Windows 包的版本，下载 `neuro-book-windows-x64.zip` / `SHA256SUMS`、完成 SHA256 校验、备份旧 `app/` / `launcher/` / root scripts、切换新 payload，`data/.deploy/windows-launcher.json` 写入 `stage: "updated"`。
     - `bun scripts/deploy/publish-ghcr-image.mjs --dry-run`
     - `bun scripts/deploy/neuro-book-deploy.mjs --yes --deploy-mode ghcr --dry-run --dir .agent/workspace/deploy-ghcr-dry-run`
     - `bash -n scripts/deploy/docker-product-entrypoint.sh`
@@ -520,7 +520,7 @@
 - `stable` 支持显式 `--version v0.1.3`，也支持 `--next patch|minor|major` 从当前 `package.json.version` 自动增长；正式版不会在缺少这两个参数时猜版本。
 - `prerelease` / `canary` / `alpha` / `beta` / `rc` 都创建 GitHub prerelease，继续带 `--prerelease`，因此 release workflow 不会给 GHCR 打 `latest`。
 - 显式 `--tag` 必须是白名单 channel 的 SemVer prerelease tag，且 tag 中的 channel 必须与命令 channel 一致，避免 `release beta --tag v0.1.3-alpha.1` 这类语义错乱。
-- 默认 prerelease 使用下一 patch 版本，也可用 `--next patch|minor|major` 显式选择基础版本增长；`--current-patch` 只用于补发当前版本线，且不能和 `--version` / `--next` / `--tag` 混用。
+- 默认 prerelease 使用当前发布线的下一 patch 版本，也可用 `--next patch|minor|major` 显式选择基础版本增长；当前发布线取 `package.json.version` 和当前 HEAD 最近可达 SemVer tag 中较新的版本，避免已有 canary 线高于 package version 时继续重复发同一 minor。`--current-patch` 只用于补发当前 package 版本线，且不能和 `--version` / `--next` / `--tag` 混用。
 - `alpha` / `beta` / `rc` 不传 `--sequence` 时，会扫描本地和远端已有 tag 自动生成下一个数字序号；`--sequence` 和 `--tag` 仍可手动覆盖。`canary` 继续使用 UTC 时间戳和短 SHA 保持唯一性。
 
 ### Files Changed
@@ -536,8 +536,8 @@
 - `bun run release -- prerelease --channel beta --version 0.1.3 --sequence 1 --dry-run --allow-dirty`
 - `bun run release -- beta --version 0.1.3 --sequence 2 --dry-run --allow-dirty`
 - `bun run release -- beta --dry-run --allow-dirty --no-watch` 会按已有 tag 自动选择下一个 `vX.Y.Z-beta.N`。
-- `bun run release -- canary --next minor --dry-run --allow-dirty --no-watch` 会生成下一 minor 线的 canary tag，例如 `v0.2.0-canary.<UTC>.<sha>`。
-- `bun run release -- beta --next minor --dry-run --allow-dirty --no-watch` 会生成下一 minor 线的 beta tag，例如 `v0.2.0-beta.1`。
+- `bun run release -- canary --next minor --dry-run --allow-dirty --no-watch` 会基于当前发布线生成下一 minor 线的 canary tag；已有 `v0.2.0-canary.*` 时会生成 `v0.3.0-canary.<UTC>.<sha>`。
+- `bun run release -- beta --next minor --dry-run --allow-dirty --no-watch` 会基于当前发布线生成下一 minor 线的 beta tag；已有 `v0.2.0-canary.*` 时会生成 `v0.3.0-beta.1`。
 - `bun run release -- canary --next minor --version 0.1.3 --dry-run --allow-dirty --no-watch` 会拒绝多个基础版本参数混用。
 - `bun run release -- alpha --version 0.1.3 --sequence 1 --dry-run --allow-dirty --no-watch`
 - `bun run release -- rc --tag v0.1.3-rc.1 --dry-run --allow-dirty --no-watch`

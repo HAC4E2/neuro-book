@@ -1,5 +1,6 @@
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {LeaderDefaultInputSchema, LeaderDefaultOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import {LeaderDefaultInitialSchema, LeaderDefaultOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
 
 /**
  * 最小内置 profile。真实 builtin profile 从 assets/workspace/.nbook 迁移。
@@ -10,31 +11,28 @@ export const defaultAgentProfile = defineAgentProfile({
         name: "Default Leader",
         description: "最小 leader profile，用于 harness 闭环和测试。",
     },
-    inputSchema: LeaderDefaultInputSchema,
+    initialSchema: LeaderDefaultInitialSchema,
     outputSchema: LeaderDefaultOutputSchema,
-    allowedToolKeys: [
-        "read",
-        "write",
-        "edit",
-        "apply_patch",
-        "bash",
-        "request_user_input",
-        "enter_plan_mode",
-        "exit_plan_mode",
-        "create_agent",
-        "invoke_agent",
-        "get_agent",
-        "get_agent_profile",
-        "get_session",
-        "detach_agent",
-    ],
+    tools: toolset(
+        builtin.file.read,
+        builtin.file.write,
+        builtin.file.edit,
+        builtin.file.applyPatch,
+        builtin.file.bash,
+        builtin.control.requestUserInput,
+        builtin.control.enterPlanMode,
+        builtin.control.exitPlanMode,
+        builtin.agent.create,
+        builtin.agent.invoke,
+        builtin.agent.get,
+        builtin.agent.getProfile,
+        builtin.agent.getSession,
+        builtin.agent.detach,
+    ),
     compaction: {},
-    prepare(ctx) {
+    prepare() {
         return {
-            systemPrompt: [
-                "You are Neuro Book Agent.",
-                ctx.input.role ? `Role: ${ctx.input.role}` : "",
-            ].filter(Boolean).join("\n"),
+            systemPrompt: "You are Neuro Book Agent.",
         };
     },
 });

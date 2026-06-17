@@ -13,12 +13,13 @@ Agent cwd is the Workspace Root, usually `workspace/`. The Workspace Root is a d
 The Current Project Workspace is usually `workspace/{project}/`. Runtime reminders may show it as `workspace/{project}`. When file tools or bash operate from the Workspace Root, prefer cwd-relative project paths:
 
 - Use `{project}/lorebook/...`.
+- Use `{project}/manual/...`.
 - Use `{project}/manuscript/...`.
 - Use `{project}/simulation/...`.
 - Use `{project}/reference/...`.
 - Do not default to `workspace/{project}/...` unless a tool explicitly asks for a Project Workspace path.
 
-Tool inputs and profile inputs often need different path shapes:
+Tool inputs and profile initial values often need different path shapes:
 
 | Situation | Preferred path |
 | --- | --- |
@@ -40,9 +41,11 @@ Common Project Workspace paths:
 | `{project}/agent-context/` | Profile-scoped context memory, generated recommendations and profile-specific project guidance. |
 | `{project}/project.yaml` | Project Workspace manifest with kind, title and summary. |
 | `{project}/lorebook/` | Stable canon, prototypes, rules and reusable AI instructions. |
+| `{project}/manual/` | Project handbooks for quickstart, player guide, rules guide, GM guide and quick reference. |
 | `{project}/manuscript/` | Manuscript, volumes, chapters, drafts and chapter-local notes. |
 | `{project}/simulation/` | World simulation, subjects, entities and run artifacts. |
 | `{project}/reference/` | External raw materials and import archives. |
+| `{project}/upload/` | Uploaded intake files awaiting organization. |
 | `{project}/.nbook/` | Project config, Project SQLite and project control files. |
 | `{project}/.agent/` | Temporary plans, caches and execution notes. |
 
@@ -54,9 +57,11 @@ Top-level sketch:
 |-- agent-context/
 |-- project.yaml
 |-- lorebook/
+|-- manual/
 |-- manuscript/
 |-- simulation/
 |-- reference/
+|-- upload/
 |-- .nbook/
 `-- .agent/
 ```
@@ -64,9 +69,11 @@ Top-level sketch:
 Keep the boundary simple:
 
 - Stable project knowledge goes to `lorebook/`.
+- Play instructions, player-safe handbooks and RP host manuals go to `manual/`.
 - Formal prose goes to `manuscript/`.
 - Current runtime state goes to `simulation/`.
 - Imported or raw source material goes to `reference/`.
+- Uploaded intake files can land in `upload/` before curation.
 - Project config and database files stay under `.nbook/`.
 
 ## Content Node Basics
@@ -96,7 +103,7 @@ After moving or renaming content nodes, enumerate affected `index.md` files and 
 
 Content-node references split into inline refs and structured refs.
 
-Inline refs are ordinary Markdown links in body text. Use them for appearance, mention, scene location and ordinary relatedness. Inside body text, relative Markdown links are allowed; tool calls still use cwd-relative project paths.
+Inline refs are ordinary Markdown links in body text. Use them for appearance, mention, scene location and ordinary relatedness. Inside body text, prefer Project-relative links such as `lorebook/location/capital/`; Markdown-relative links and absolute paths are supported. Tool calls still use cwd-relative project paths.
 
 Structured refs are `frontmatter.refs` relations that the system should understand as stable relationships. Use them for definitions, constraints, dependencies, parent-child ownership, foreshadowing, payoff, direct causality, conflict or derivation.
 
@@ -130,7 +137,7 @@ Guidelines:
 
 ### Lorebook
 
-`lorebook/` is the stable project manual for canon, prototypes, rules and reusable AI instructions.
+`lorebook/` is the stable canon layer for facts, prototypes, rules and reusable AI instructions.
 
 Use lorebook for:
 
@@ -146,6 +153,36 @@ Do not use lorebook for:
 - Entity holder, hidden activation state, damage or progress.
 - Raw imported cards, scripts or low-confidence migration notes.
 
+### Manual
+
+`manual/` is the readable handbook layer for a Project. It can include quickstart instructions, player-facing guides, human GM notes, rules summaries, system module overviews and quick-reference links.
+
+Typical structure:
+
+```text
+manual/
+|-- index.md
+|-- README.md
+|-- world-guide.md
+|-- rules-guide.md
+|-- gm-guide.md
+|-- reference.md
+`-- player-guide/
+    |-- README.md
+    |-- character-creation.md
+    `-- playable-characters/
+        `-- player.md
+```
+
+Guidelines:
+
+- Read `manual/README.md` when the user asks how to start or continue an RP Project.
+- Read `manual/player-guide/` for player-safe information, character creation and default playable characters.
+- Read `manual/gm-guide.md` when acting as or preparing an RP host.
+- Read `manual/rules-guide.md` and `manual/reference.md` for adjudication entry points, but verify stable world facts against `lorebook/`.
+- Do not write current state, tick logs or hidden subject state into `manual/`; use `simulation/`.
+- Do not store raw imports in `manual/`; use `reference/`.
+
 ### Simulation
 
 `simulation/` is the world simulation layer. It supports RP, writing-time world evolution, subject reactions, information control and entity state maintenance.
@@ -154,12 +191,18 @@ Minimal structure:
 
 ```text
 simulation/
+|-- index.md
 |-- subjects/
+|   `-- index.md
 |-- entities/
+|   `-- index.md
 `-- runs/
+    |-- index.md
+    `-- ticks/
+        `-- index.md
 ```
 
-Use `simulation/subjects/` for information-control subjects and `simulation/entities/` for stateful instances. `actor` is a simulator profile type, not a top-level project directory.
+Use `simulation/subjects/` for information-control subjects and `simulation/entities/` for stateful entities. `actor` is a simulator profile type, not a top-level project directory.
 
 ### Reference
 
@@ -197,6 +240,7 @@ Agent runtime config makes `rg --files` output use `/` paths. Shell examples sho
 - Workspace terms: `reference/workspace/TERMS.md`
 - Project structure: `reference/content/project-structure.md`
 - Directory protocol: `reference/content/directory-protocol.md`
+- Manual directory: `reference/content/manual.md`
 - Content information control: `reference/content/information-control.md`
 - Content-node state compatibility: `reference/content/state.md`
 - Retrieval: `reference/content/retrieval.md`

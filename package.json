@@ -13,7 +13,7 @@
     "scripts/utils/*.mjs"
   ],
   "scripts": {
-    "dev": "nuxt prepare && bun run generate && bun scripts/build/prepare-system-assets.ts --sync-user-assets && nuxt dev",
+    "dev": "nuxt prepare && bun run generate && bun scripts/build/prepare-system-assets.ts --sync-user-assets --force-sync-user-assets && nuxt dev",
     "dev:warmup": "bun scripts/cli/warmup-dev-server.mjs",
     "nuxt:build": "nuxt prepare && bun run generate && bun scripts/build/prepare-system-assets.ts && nuxt build && bun scripts/build/patch-nitro-runtime-deps.mjs",
     "nuxt:preview": "nuxt preview",
@@ -30,6 +30,8 @@
     "test:agent": "vitest run server/agent shared/dto",
     "migrate": "bun scripts/db/prisma-migrate.mjs",
     "migrate:deploy": "bun scripts/db/prisma-migrate.mjs --deploy",
+    "migrate:agent-session-initial": "bun scripts/db/migrate-agent-session-initial.ts",
+    "migrate:writer-session-initial": "bun scripts/db/migrate-writer-session-initial.ts",
     "generate": "bun scripts/db/prisma-generate.mjs",
     "generate:openapi": "bun scripts/build/generate-openapi-meta.ts",
     "config:migrate": "bun scripts/db/migrate-config-system.ts",

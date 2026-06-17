@@ -1,6 +1,6 @@
 # Lorebook Directory
 
-`lorebook/` is the mostly stateless, omniscient project manual. It stores stable facts, prototypes, rules and reusable AI instructions.
+`lorebook/` is the mostly stateless, omniscient canon layer. It stores stable facts, prototypes, rules and reusable AI instructions.
 
 ## Default Shape
 

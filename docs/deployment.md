@@ -84,7 +84,7 @@ Windows Product Portable 是 Windows x64 的 Product Payload + Windows Launcher 
 
 自动化 smoke 或服务器脚本可以设置 `NEURO_BOOK_NO_OPEN_BROWSER=1`，让 Windows Launcher 启动服务但不自动打开浏览器；普通用户双击启动仍会打开本地网页。
 
-`Update Neuro Book.cmd` 不再执行 `git pull`。它会查询 GitHub latest release，下载 `neuro-book-windows-x64.zip` 和 `SHA256SUMS`，校验 SHA256 后备份旧 `app/`、`launcher/`、根启动脚本和 `portable-release.json`，再切换新版并保留 `data/`。自动更新会保留当前 `runtime/bun/`，避免在 launcher 运行中替换正在使用的 `bun.exe`。
+`Update Neuro Book.cmd` 不再执行 `git pull`。它会查询 GitHub Releases，列出带 `neuro-book-windows-x64.zip` 和 `SHA256SUMS` 的 stable / canary / alpha / beta / rc 版本供用户选择，校验 SHA256 后备份旧 `app/`、`launcher/`、根启动脚本和 `portable-release.json`，再切换新版并保留 `data/`。自动更新会保留当前 `runtime/bun/`，避免在 launcher 运行中替换正在使用的 `bun.exe`。
 
 ## Product Bun
 

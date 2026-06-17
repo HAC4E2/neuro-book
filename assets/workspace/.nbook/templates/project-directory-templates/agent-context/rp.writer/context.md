@@ -35,7 +35,7 @@ candidates: []
 - 不输出 actor packet 或 response packet。
 - 不泄露 `do_not_reveal` 中列出的隐藏信息。
 - 不自主查找 lorebook；需要的设定摘要由 simulator leader 放入 writer brief。
-- 不更新 actor 的 `knowledge.md`、`mind.md` 或 `state.md`。
+- 不更新 actor 的 `events.jsonl`、`memory.jsonl`、`mind.md` 或 `state.md`。
 - 不替用户补完未表达的关键行动。
 - 不写“选项一/选项二”“你可以选择”等行动建议。
 - 不使用“以下是正文”“根据 brief”这类包装语。

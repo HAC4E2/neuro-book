@@ -57,7 +57,7 @@ describe("profile workbench service", () => {
             catalog.invalidate();
             await expect(catalog.get("agent.created")).resolves.toEqual(expect.objectContaining({
                 manifest: expect.objectContaining({key: "agent.created"}),
-                allowedToolKeys: expect.arrayContaining(["report_result"]),
+                rootToolKeys: expect.arrayContaining(["report_result"]),
             }));
         } finally {
             await rm(root, {recursive: true, force: true});
@@ -107,9 +107,9 @@ import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profi
 
 export default defineAgentProfile({
     manifest: {key: "agent.parser", name: "Parser"},
-    inputSchema: {},
+    initialSchema: {},
     outputSchema: {},
-    allowedToolKeys: [],
+    tools: {},
     context(ctx) {
         return (
             <ProfilePrompt>
@@ -131,7 +131,7 @@ export default defineAgentProfile({
                     <Reminder id="plan">
                         <Message>提醒</Message>
                     </Reminder>
-                    <Watch path="ctx.input.prompt" />
+                    <Watch path="ctx.initial.prompt" />
                 </AppendingSet>
             </ProfilePrompt>
         );

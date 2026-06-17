@@ -22,7 +22,7 @@ import type {AgentSessionListQueryDto, AgentSessionSummaryDto} from "nbook/share
 
 type CreateSessionInput = {
     profileKey: string;
-    input: JsonValue;
+    initial: JsonValue;
     workspaceRoot: string;
     workspaceKey?: string;
     projectPath?: string;
@@ -57,7 +57,7 @@ export class JsonlSessionRepository {
         const metadata: SessionMetadata = {
             sessionId,
             profileKey: input.profileKey,
-            input: input.input,
+            initial: input.initial,
             workspaceRoot: input.workspaceRoot,
             workspaceKey: input.workspaceKey ?? "global",
             projectPath: input.projectPath,
@@ -173,7 +173,11 @@ export class JsonlSessionRepository {
      * Leader profile 采用 profileKey 命名约定筛选。
      */
     private isLeaderProfile(profileKey: string): boolean {
-        return profileKey === "leader.default" || profileKey === "leader.assets" || profileKey.startsWith("leader.");
+        return profileKey === "leader.default"
+            || profileKey === "leader.assets"
+            || profileKey === "rp.leader"
+            || profileKey === "simulator.leader"
+            || profileKey.startsWith("leader.");
     }
 
     /**
@@ -354,7 +358,7 @@ export class JsonlSessionRepository {
         let summary = snapshot.metadata.summary;
         let compaction: CompactionSessionEntry | null = null;
         const linkedAgents = new Map<SessionId, LinkedAgentSummary>();
-        let archived = false;
+        let archived = snapshot.entries.some((entry) => entry.type === "session_archived");
         let planModeActive = false;
 
         const reduceEntries = snapshot.entries.filter((entry) => {
@@ -377,9 +381,6 @@ export class JsonlSessionRepository {
             }
             if (entry.type === "custom") {
                 customState[entry.key] = entry.value;
-                if (entry.origin !== "projection") {
-                    this.reduceLinkedAgent(entry.key, entry.value, linkedAgents);
-                }
                 if (entry.origin !== "projection" && entry.key === "ui.planMode.active") {
                     planModeActive = entry.value === true;
                 }
@@ -420,6 +421,15 @@ export class JsonlSessionRepository {
             }
         }
 
+        for (const entry of snapshot.entries) {
+            if (entry.type !== "custom" || entry.origin === "projection") {
+                continue;
+            }
+            if (entry.key.startsWith("agent.link.") || entry.key.startsWith("agent.detach.")) {
+                this.reduceLinkedAgent(entry.key, entry.value, linkedAgents);
+            }
+        }
+
         const compactedMessages = compaction ? this.applyCompaction(path, compaction, messages) : messages;
 
         return {
@@ -445,7 +455,10 @@ export class JsonlSessionRepository {
     summary(snapshot: SessionSnapshot): AgentSessionSummaryDto {
         const context = this.reduce(snapshot);
         const path = this.activePath(snapshot);
-        const lastMessage = [...path].reverse().find((entry) => entry.type === "message");
+        const lastMessage = [...path].reverse().find((entry) => {
+            if (entry.type !== "message") return false;
+            return messageText(entry.message, { stripThinking: true }).trim().length > 0;
+        });
         const updatedAt = path.at(-1)?.timestamp ?? snapshot.metadata.createdAt;
         const interrupted = [...path].reverse().find((entry) => entry.type === "invocation_lifecycle");
 
@@ -464,7 +477,7 @@ export class JsonlSessionRepository {
                 : interrupted?.type === "invocation_lifecycle" && interrupted.status === "start" ? "interrupted" : "idle",
             updatedAt,
             archived: context.archived,
-            lastMessagePreview: lastMessage?.type === "message" ? messageText(lastMessage.message).slice(0, 160) : undefined,
+            lastMessagePreview: lastMessage?.type === "message" ? messageText(lastMessage.message, { stripThinking: true }).trim().slice(0, 160) : undefined,
             usage: this.usage(snapshot),
         };
     }
@@ -523,7 +536,7 @@ export class JsonlSessionRepository {
      */
     private treeNodePreview(entry: SessionEntry): string | undefined {
         if (entry.type === "message") {
-            return messageText(entry.message).replace(/\s+/g, " ").trim().slice(0, 180) || undefined;
+            return messageText(entry.message, { stripThinking: true }).replace(/\s+/g, " ").trim().slice(0, 180) || undefined;
         }
         if (entry.type === "custom_message") {
             return entry.message.role;
@@ -556,7 +569,7 @@ export class JsonlSessionRepository {
         const snapshot = await this.readSession(sessionId);
         const fork = await this.createSession({
             profileKey: snapshot.metadata.profileKey,
-            input: snapshot.metadata.input,
+            initial: snapshot.metadata.initial,
             workspaceRoot: snapshot.metadata.workspaceRoot,
             workspaceKey: snapshot.metadata.workspaceKey,
             projectPath: snapshot.metadata.projectPath,

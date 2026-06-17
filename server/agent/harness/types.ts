@@ -10,6 +10,7 @@ import type {
     AgentQueuedMessageDto,
     AgentRuntimeStreamEventDto,
     AgentSessionListQueryDto,
+    AgentSessionRelationsDto,
     AgentSessionSnapshotDto,
     AgentSessionSummaryDto,
     AgentTreeRequestDto,
@@ -17,7 +18,9 @@ import type {
 
 export type CreateAgentInput = {
     profileKey: string;
-    input?: JsonValue;
+    initial?: JsonValue;
+    /** 可选展示标题；为空时使用 profile manifest name。 */
+    title?: string;
     workspaceRoot?: string;
     workspaceKey?: string;
     projectPath?: string;
@@ -34,6 +37,7 @@ export type InvokeAgentInput = {
     sessionId: number;
     mode: "prompt" | "continue" | "steer" | "followup";
     message?: AgentUserMessageInput;
+    payload?: JsonValue;
     /** 可选展示标题；提供时会在 invocation admission 成功后写入目标 session。 */
     title?: string;
     resolution?: AgentResolution;
@@ -65,13 +69,12 @@ export type InvokeAgentResult = {
         success?: boolean;
         /** 为空表示本次主路没有可用结构化结果，例如任务失败或只返回可读错误说明。 */
         data?: unknown;
-        /** 为空表示本次不是 sidecar 返回，或 sidecar 没有提供结构化旁路结果。 */
-        sidecar_data?: unknown;
     };
     error?: string;
     errorPhase?: InvocationErrorPhase;
     errorInfo?: InvocationErrorInfo;
     usage?: Usage;
+    elapsedMs?: number;
     queuedItem?: AgentQueuedMessageDto;
 };
 
@@ -137,6 +140,7 @@ export type AgentAbortResult = {
 export type AgentSessionService = {
     listSessions(query?: AgentSessionListQueryDto): Promise<AgentSessionSummaryDto[]>;
     getSessionSnapshot(sessionId: number): Promise<AgentSessionSnapshotDto>;
+    getSessionRelations(sessionId: number): Promise<AgentSessionRelationsDto>;
     runCommand(sessionId: number, body: AgentCommandRequestDto): Promise<AgentCommandResult>;
     moveTree(sessionId: number, body: AgentTreeRequestDto): Promise<AgentTreeResult>;
     abortInvocation(sessionId: number, body?: AgentAbortRequestDto): Promise<AgentAbortResult>;

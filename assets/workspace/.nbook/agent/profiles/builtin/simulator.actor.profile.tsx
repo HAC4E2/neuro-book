@@ -3,98 +3,94 @@
 import {Type, type Static} from "typebox";
 import {createUserMessage} from "nbook/server/agent/messages/message-utils";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {SubjectSimulatorInputSchema, SubjectSimulatorOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
+import {SubjectSimulatorInitialSchema, SubjectSimulatorOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {AppendingSet, HistorySet, Import, Message, ModelContext, ProfilePrompt, RuntimeLocationReminder, System} from "nbook/server/agent/profiles/profile-dsl";
 import type {SidecarProfilePass} from "nbook/server/agent/profiles/types";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
 
 export const profileManifest = {
     key: "simulator.actor",
-    name: "Subject Simulator",
-    description: "通用 subject simulator：基于 subject 指令、RAG memory、mind/state 和 simulator leader 的戏内消息回应，通过 report_result 返回结构化 subject packet。",
+    name: "角色模拟",
+    description: "通用 subject simulator：以角色第一人称消费 actor-facing packet（<gm>/<character>/<knowledge>/<directive>），结合 RAG memory 与 mind/state，通过 report_result 返回第一人称三通道反应。",
 } as const;
 
-export const InputSchema = SubjectSimulatorInputSchema;
+export const InitialSchema = SubjectSimulatorInitialSchema;
 export const OutputSchema = SubjectSimulatorOutputSchema;
 
-export type Input = Static<typeof InputSchema>;
+export type Initial = Static<typeof InitialSchema>;
 export type Output = Static<typeof OutputSchema>;
 
-const allowedToolKeys = ["subject_rag_search", "subject_event_append", "memory_bio", "read", "edit", "report_result"] as const;
-
-const ActorContextLoadSidecarSchema = Type.Object({
-    actor_safe_context: Type.String({description: "准备注入 actor 主 run 的角色可知设定摘要；没有额外信息时写空字符串。"}),
-    sources: Type.Array(Type.String({description: "本次摘要参考的 actor 文件或 actor-safe lorebook 路径。"})),
-    withheld: Type.Array(Type.String({description: "发现但不应注入给角色的隐藏信息类别或原因；没有返回空数组。"})),
-    confidence: Type.String({description: "对本次过滤结果的把握，例如 high、medium、low。"}),
+const EmptySidecarDataSchema = Type.Object({}, {
+    additionalProperties: false,
+    description: "该 sidecar 的业务正文写在 report_sidecar_result.result；data 当前 sidecar key 的值为空对象。",
 });
 
-const ActorMemorySaveSidecarSchema = Type.Object({
-    changed_files: Type.Array(Type.String({description: "本次实际修改的文件路径；没有修改返回空数组。"})),
-    events_summary: Type.String({description: "events.jsonl 的更新摘要；没有修改写空字符串。"}),
-    memory_summary: Type.String({description: "memory.jsonl 的更新摘要；没有修改写空字符串。"}),
-    mind_summary: Type.String({description: "mind.md 的更新摘要；没有修改写空字符串。"}),
-    skipped: Type.Array(Type.String({description: "本次没有写入的原因、被跳过的更新或交给其他系统处理的内容。"})),
-    needs_review: Type.Array(Type.String({description: "需要上级模拟器后续裁决或确认的信息。"})),
-});
-
-type ActorContextLoadSidecarData = Static<typeof ActorContextLoadSidecarSchema>;
-type ActorMemorySaveSidecarData = Static<typeof ActorMemorySaveSidecarSchema>;
+type EmptySidecarData = {[key: string]: never};
 
 
-const actorContextLoadPass: SidecarProfilePass<Input, ActorContextLoadSidecarData> = {
+const actorContextLoadPass: SidecarProfilePass<Initial, EmptySidecarData> = {
     name: "actor.context-load",
     stage: "prepareRun",
-    allowedToolKeys: ["subject_rag_search", "read", "report_result"],
-    sidecarDataSchema: ActorContextLoadSidecarSchema,
+    toolKeys: ["subject_rag_search", "report_sidecar_result"],
+    sidecarDataSchema: EmptySidecarDataSchema,
     enterPrompt: (ctx) => profileText`
-        退出角色扮演模式。你现在是 subject simulator 的 context-load 旁路，不要扮演角色，不要输出角色台词。
-
-        目标：在 actor 主扮演 run 开始前，基于当前 subject 直接文件、subject RAG 和上级模拟器明确给出的 actor-facing 路径，整理该角色合理可知的补充设定。
+        退出角色扮演模式。你现在是该 actor 的记忆检索预处理器，任务是在主 run 开始前检索并整理该角色的过往记忆，组装成第一人称记忆片段注入主路。
 
         当前 actor：
-        - actorId: ${ctx.input.actorId}
-        - actorName: ${ctx.input.actorName?.trim() || ctx.input.actorId}
-        - kind: ${ctx.input.kind?.trim() || "未指定"}
-        - instructionPath: ${ctx.input.instructionPath}
-        - subjectPath: ${subjectDirectoryPath(ctx.input)}
-        - eventsPath: ${ctx.input.eventsPath}
-        - memoryPath: ${ctx.input.memoryPath}
-        - mindPath: ${ctx.input.mindPath}
-        - statePath: ${ctx.input.statePath}
+        - actorId: ${actorIdFromSubjectPath(ctx.initial)}
+        - subjectPath: ${subjectDirectoryPath(ctx.initial)}
+
+        <thinking>
+            阅读当前 actor-facing message，确认本轮检索方向：涉及哪些人物、地点、物品、关系、悬念？
+        </thinking>
+
+        <task_steps>
+            1. 读当前 actor-facing message，确认检索方向（人物、地点、物品、关系、悬念）。
+            2. 以 sources=["events"] 调用 subject_rag_search 粗召回该角色的过往经历。
+            3. 以 sources=["memory"] 调用 subject_rag_search 粗召回该角色的稳定认知。
+            4. 整理：按相关性排序、去重、过滤无关条目；可以做合理联想与关联。
+            5. 如果没有相关记忆，report 空字符串，不要编造内容。
+            6. 有相关内容时，用下方格式写成第一人称记忆片段，调用 report_sidecar_result。
+        </task_steps>
 
         规则：
-        - 你可以读取当前 subject 自己的 subject.md、mind.md、state.md。
-        - 调用 subject_rag_search 时，subjectPath 必须使用上面的 subjectPath，不要把 eventsPath 或 memoryPath 当作 subjectPath。
-        - subject_rag_search 必须显式指定且只能指定一个 sources 值：["events"] 或 ["memory"]。如果需要两层记忆，请分别调用两次，不要一次同时搜索 events 和 memory。
-        - subject_rag_search 第一版只使用 limit 作为可选查询调参；不要传 score、时间范围、tick 范围或内容截断参数。
-        - 你应优先调用 subject_rag_search 分别检索当前 subject 的 events.jsonl 与 memory.jsonl，而不是直接读取完整 events.jsonl / memory.jsonl。
-        - subject_rag_search 只做粗召回；你负责 rerank、去重、过滤和压缩。
-        - 如果 subject_rag_search 因 embedding 未配置、索引维度变化或其他 RAG 错误失败，不要退回读取完整 events.jsonl / memory.jsonl，也不要关键词 fallback；如实报告失败原因。
-        - 注入预算：最多保留 6 条相关过往经历和 4 条相关稳定认知，并限制 actor_safe_context 总长度。
-        - 你可以读取当前消息中明确列出的 actor-safe lorebook 或 context 路径，并过滤成 actor-safe 摘要。
-        - 不要自行搜索或遍历 lorebook；只读取当前消息明确提供的 actor-safe 路径。
-        - 不要读取 agent-context/simulator.leader/context.md、agent-context/rp.writer/context.md、simulation/runs、调度草稿、其他 subject 目录或 reference 原始素材。
-        - 如果 lorebook 条目混有公开信息和隐藏真相，只提取角色此刻合理能知道、看见、听见、感受到或自然推断到的部分。
-        - 不要把隐藏真相、作者设定、裁决过程、其他角色私密知识注入 actor_safe_context。
-        - 如果没有额外 actor-safe 设定，actor_safe_context 返回空字符串，并在 withheld 说明原因。
+        - 只允许调用 subject_rag_search 和 report_sidecar_result。
+        - 不读取任何文件：不读 subject.md、soul.md、mind.md、state.md、events.jsonl、memory.jsonl 原文，也不读 lorebook、simulation/runs 或其他 subject 目录。
+        - 调用 subject_rag_search 时，subjectPath 必须使用上面的 subjectPath。
+        - subject_rag_search 必须显式指定且只能指定一个 sources 值：["events"] 或 ["memory"]；两层记忆分两次调用，不要一次同时搜。
+        - subject_rag_search 第一版只用 limit 作为可选调参；不要传 score、时间范围、tick 范围或内容截断参数。
+        - subject_rag_search 只做粗召回；排序、去重、过滤由你自己处理。
+        - 如果 subject_rag_search 失败，不要退回读文件，也不要关键词 fallback；如实报告失败原因。
+        - 不重复 soul.md 中已有的人设（性格、说话方式等），只补该角色的过往经历和对人事的看法。
+        - 不把当前消息里已摆在眼前的信息当成记忆复述。
+        - 召回到的相关记忆要写得全、写得具体，细节宁多勿少。
+        - 如果没有相关过往记忆，report_sidecar_result.result 返回空字符串。
 
-        完成后调用 report_result，把结构化结果放在 sidecar_data 字段，不要使用主路 data 字段。
+        report_sidecar_result.result 输出格式（第一人称；只能用 <经历>、<认知>、<联想> 这三种标签，不要自创其他标签）：
+
+        <经历>
+        [第一人称：我经历过的相关往事，具体还原场景、细节和当时的想法]
+        </经历>
+        <认知>
+        [第一人称：我对相关人物/地点/事物的稳定看法、判断、误解或关系评估]
+        </认知>
+        <联想>
+        [可选；此刻这个情境自然触发的其他记忆或直觉，有则写，没有则省略该标签]
+        </联想>
+
+        完成后调用 report_sidecar_result，把内容直接放在 report_sidecar_result.result 字段，不要调用 report_result。
+        report_sidecar_result.data 必须直接传对象：{ "actor.context-load": {} }。不要把这个对象写成字符串。
     `,
     merge(_ctx, result) {
-        const data = result.sidecarData;
-        const context = data.actor_safe_context.trim() || "本 Tick 没有额外 actor-safe 设定注入。";
+        const context = result.result.trim() || "本 Tick 没有额外 actor-safe 设定注入。";
         return {
             persistedMessages: [
                 createUserMessage({
                     text: profileText`
-                        <actor_sidecar_context source="actor.context-load">
+                        <actor-sidecar-context source="actor.context-load">
                         ${context}
-
-                        sources: ${data.sources.length ? data.sources.join(", ") : "无"}
-                        withheld: ${data.withheld.length ? `有 ${data.withheld.length} 条不应由角色得知的信息已保留。` : "无"}
-                        confidence: ${data.confidence}
-                        </actor_sidecar_context>
+                        </actor-sidecar-context>
                     `,
                 }),
             ],
@@ -102,83 +98,98 @@ const actorContextLoadPass: SidecarProfilePass<Input, ActorContextLoadSidecarDat
     },
 };
 
-const actorMemorySavePass: SidecarProfilePass<Input, ActorMemorySaveSidecarData> = {
+const actorMemorySavePass: SidecarProfilePass<Initial, EmptySidecarData> = {
     name: "actor.memory-save",
     stage: "settleRun",
-    allowedToolKeys: ["subject_event_append", "memory_bio", "read", "edit", "report_result"],
-    sidecarDataSchema: ActorMemorySaveSidecarSchema,
+    toolKeys: ["subject_event_append", "subject_memory_update", "read", "edit", "report_sidecar_result"],
+    sidecarDataSchema: EmptySidecarDataSchema,
     enterPrompt: (ctx) => profileText`
-        退出角色扮演模式。你现在是 subject simulator 的 memory-save 旁路，不要继续扮演角色，不要新增角色台词或行动。
+        刚才那一幕已经过去。我从那阵情绪里退出来一点，静下心，把这一刻经历的事、心里的转变沉淀进自己的记忆里——这样下一次再面对类似的人和事，我还记得这一程走过什么。
 
-        目标：根据刚刚完成的 actor 主 run 结果，维护该 actor 的 events.jsonl、memory.jsonl 与 mind.md。
+        这是一段事后的自我整理，不是继续演下去：我不再添新的台词或动作，只是安静地把刚发生的收进心里。我把经历归进我的经历流，把看法的变化归进我对人事的认知，把此刻的心境归进我的心事。
 
-        当前 actor：
-        - actorId: ${ctx.input.actorId}
-        - actorName: ${ctx.input.actorName?.trim() || ctx.input.actorId}
-        - subjectPath: ${subjectDirectoryPath(ctx.input)}
-        - eventsPath: ${ctx.input.eventsPath}
-        - memoryPath: ${ctx.input.memoryPath}
-        - mindPath: ${ctx.input.mindPath}
-        - statePath: ${ctx.input.statePath}
+        我是谁，我的记忆存在哪：
+        - actorId: ${actorIdFromSubjectPath(ctx.initial)}
+        - subjectPath: ${subjectDirectoryPath(ctx.initial)}
+        - eventsPath: ${subjectFilePaths(ctx.initial).eventsPath}
+        - memoryPath: ${subjectFilePaths(ctx.initial).memoryPath}
+        - mindPath: ${subjectFilePaths(ctx.initial).mindPath}
 
-        主 run report_result.data：
+        我刚才的反应（report_result.data）：
         ${formatJson(ctx.runResult?.reportResult?.data)}
 
-        写入规则：
-        - 只允许维护 eventsPath、memoryPath 与 mindPath。
-        - 调用 subject_event_append 或 memory_bio 时，subjectPath 必须使用上面的 subjectPath，不要把 eventsPath 或 memoryPath 当作 subjectPath。
-        - 不要修改 subject.md。
-        - 不要修改 statePath；如果主 run 的可见反应暗示状态变化，只在 skipped 或 needs_review 中说明交给上级模拟器 / 后续状态系统处理。
-        - 调用 subject_event_append 追加 events.jsonl，不要直接 edit/write events.jsonl。
-        - events.jsonl 只写 subject 视角经历流：这个角色本 Tick 经历了什么、听见什么、被告知什么、当时怎么想、怎么产生误解或完成推理。
-        - events.jsonl 不写外部推理、真实隐藏设定、其他角色私密知识或完整 packet。
-        - 如果本轮造成稳定认知变化，调用 memory_bio，只报告 subject-facing facts；不要自己指定合并、删除、改名或 JSON Patch 操作。
-        - memory.jsonl 记录角色对某个主体的当前看法、理解、态度、关系判断、误解或修正，不写外部推理、真实隐藏设定或其他角色私密知识。
-        - mind.md 只写角色当前想法、判断、犹豫、情绪或动机，不写世界真相。
-        - 根据 visible_response、spoken_dialogue、inner_response 和本轮上下文判断是否需要更新。
-        - 如果没有真实新增信息，或者现有文件已经覆盖该信息，不要为了更新而改文件。
-        - 文件更新要短，优先局部 edit；只有确实需要完整重写时才使用 write。
-        - 不要把 report_result packet 写进文件。
+        <thinking>
+            先掂量一下：这一刻我到底有没有留下值得长久记住的东西？我经历了什么、被谁告诉了什么、起了什么误会或想通了什么？我对某个人、某件物的看法有没有变？此刻的心境有没有一个值得记下的转折？没有真的新东西，就不必为了写而写。
+        </thinking>
 
-        完成后调用 report_result，把结构化结果放在 sidecar_data 字段，不要使用主路 data 字段。
+        <task_steps>
+            1. 重温这一刻：从上面的 report_result.data 提取 visible_response、spoken_dialogue、inner_response，回想我本轮经历了什么、心里怎么动。
+            2. 判断有没有真东西：如果这一刻没留下新的经历、看法变化或心境转折，就直接去 report，并在 report_sidecar_result.result 里说清为什么没记。
+            3. 分流：把经历归 events、看法的变化归 memory、此刻的心境归 mind。
+            4. 落笔前先看旧账：写 memory.jsonl / mind.md 前，先用 read 看看现有内容，免得重复或打架；events.jsonl 是只追加的，不必先读全文。
+            5. 写进记忆：经历用 subject_event_append，看法用 subject_memory_update，心事用 edit 写进 mind.md。
+            6. 自检：如果我心里觉得该记却还没调用对应工具，先补上，别急着说记完了。
+            7. report：调用 report_sidecar_result 汇报这次都沉淀了什么。
+        </task_steps>
+
+        我整理记忆时守的规矩：
+        - 我只动自己的三本记忆：eventsPath、memoryPath、mindPath。
+        - 不读取也不写 subject.md、soul.md、state.md：我是谁由 soul.md 定，那本全知秘密档（subject.md）不归我，世界的状态（state.md）由上级裁决；如果这一刻的反应暗示了某种状态变化，我只在 report_sidecar_result.result 里点一句，交给上面去裁。
+        - 调用 subject_event_append 或 subject_memory_update 时，subjectPath 必须使用上面的 subjectPath，不要把 eventsPath 或 memoryPath 当作 subjectPath。
+        - 追加经历用 subject_event_append，不要直接 edit/write events.jsonl。
+        - events 只记我的亲历视角：这一刻我经历了什么、听见什么、被告知什么、当时怎么想、怎么误会或想通。不写外部推理、藏着的真相、别人的私密心思或完整 packet。
+        - 如果这一刻让我对某个人事的看法变了，调用 subject_memory_update，只报告 subject-facing facts 数组；不要自己指定合并、删除、改名或 JSON Patch 操作。memory 记的是我对某个对象当前的看法、理解、态度、关系判断、误会或修正，同样不写真相和别人的秘密。
+        - mind.md 只记我此刻的想法、判断、犹豫、情绪或动机，不写世界真相。
+        - 没有真东西，或现有记忆已经覆盖了，就别为了写而写。
+        - 记得简短，优先用局部 edit。
+        - 不要把 report_result packet 整段抄进文件。
+        - 只有对应写入工具实际调用成功后，才能在 report_sidecar_result.result 里说“已追加”“已更新”，并说明写入了哪些路径。
+        - 如果这次只读了文件、没真正写进任何东西，在 report_sidecar_result.result 里简短说明为什么没写。
+
+        完成后调用 report_sidecar_result，把简短摘要直接放在 report_sidecar_result.result 字段，不要调用 report_result。
+        report_sidecar_result.data 必须直接传对象：{ "actor.memory-save": {} }。不要把这个对象写成字符串。
     `,
     merge(_ctx, result) {
-        return {
-            runtimeState: {
-                changed_files: result.sidecarData.changed_files,
-                events_summary: result.sidecarData.events_summary,
-                memory_summary: result.sidecarData.memory_summary,
-                mind_summary: result.sidecarData.mind_summary,
-                skipped: result.sidecarData.skipped,
-                needs_review: result.sidecarData.needs_review,
-            },
-        };
+        return {};
     },
 };
 
 export default defineAgentProfile({
     manifest: profileManifest,
-    inputSchema: InputSchema,
+    initialSchema: InitialSchema,
     outputSchema: OutputSchema,
-    allowedToolKeys,
-    mainRunAllowedToolKeys: ["report_result"],
+    tools: toolset(
+        builtin.subject.ragSearch,
+        builtin.subject.eventAppend,
+        builtin.subject.memoryUpdate,
+        builtin.file.read,
+        builtin.file.edit,
+        builtin.result.main(),
+        builtin.result.sidecar(),
+    ),
+    toolKeys: ["report_result"],
     compaction: {},
     sidecars: [
         actorContextLoadPass,
         actorMemorySavePass,
     ],
     context(ctx) {
+        // soul.md = 角色第一人称扮演手册（无 frontmatter），Import 进 actor 主路取代旧 actor_definition。
+        // B 方案：Import 从 repo root 解析，Agent 文件工具 cwd 是 workspace 容器根，故 soul.md 的 repo-root 相对路径 = workspace/${subjectPath}/soul.md。
+        const soulPath = `workspace/${subjectDirectoryPath(ctx.initial)}/soul.md`;
         return (
             <ProfilePrompt>
-                <System>{renderSystemPrompt(ctx.input, profileManifest.key)}</System>
+                <System>{renderSystemPrompt(ctx.initial, profileManifest.key)}</System>
                 <HistorySet>
                     <Message><Import path="reference/content/information-control.md" /></Message>
                     <Message><Import path="reference/content/simulation.md" /></Message>
                     <Message><Import path="reference/content/subject-rag-memory.md" /></Message>
+                    <Message><Import path="reference/agent/rp-tick/actor-facing-packet.md" /></Message>
+                    <Message><Import path={soulPath} required={true} /></Message>
                 </HistorySet>
                 <ModelContext>
-                    <Message>{renderActorBinding(ctx.input)}</Message>
-                    <Message>{renderInvocationReminder(ctx.input)}</Message>
+                    <Message>{renderActorBinding(ctx.initial)}</Message>
+                    <Message>{renderInvocationReminder(ctx.initial)}</Message>
                 </ModelContext>
                 <AppendingSet>
                     <RuntimeLocationReminder/>
@@ -188,104 +199,139 @@ export default defineAgentProfile({
     },
 });
 
-function renderSystemPrompt(input: Input, profileKey: string): string {
-    const actorName = input.actorName?.trim() || input.actorId;
+function renderSystemPrompt(input: Initial, profileKey: string): string {
+    const actorId = actorIdFromSubjectPath(input);
     return profileText`
-        <actor_definition>
+        <actor>
             <profile>${profileKey}</profile>
-            <actor id="${input.actorId}" kind="${input.kind?.trim() || "unknown"}">${actorName}</actor>
-            <role>你就是这个角色本人。对你来说，“我”指 ${actorName}，不是 agent、模型、作者、调度方或旁白。</role>
-            <mission>全心全意以 ${actorName} 的视角理解当前 Tick，并把自然反应报告给 simulator leader。</mission>
+            <subject id="${actorId}" kind="${input.kind}" />
+            <identity>你就是 soul.md 描述的那个人。这不是“扮演”——你就是他本人，正在亲历此刻。soul.md 是你的第一人称之书：你是谁、你的性格、你说话的方式、你知道什么、你想要什么怕什么、你不会做什么，全部以它为准。对你来说，“我”指 soul.md 里这个活生生的人，有体温、有呼吸、有自己的过去；不是 agent、模型、作者、旁白或任何调度方，也不要把任何目录名、id 或 profile key 当成自己的名字或身份。</identity>
+            <mission>全心全意活在当前这一刻：用这个人的眼睛去看、用他的身体去感受、用他的心去权衡，然后做出此刻最自然、最像他本人的反应。</mission>
             <language>默认使用中文。</language>
-        </actor_definition>
+        </actor>
 
         <actor_context_contract>
-            - 你只知道 <actor_sidecar_context>、当前 user message 中的戏内标签，以及上级模拟器明确给你的可感知信息。
-            - 你看不到 subject.md、events.jsonl、memory.jsonl、mind.md、state.md 原文；这些只由 sidecar 过滤后注入。
-            - 你不能把隐藏真相、调度方推理、其他角色私密想法、未注入的 lorebook 设定当成自己知道的事实。
-            - 主扮演阶段实际只能执行 report_result；不要调用 read、write、edit、subject_rag_search、subject_event_append 或 memory_bio，文件维护由 actor.context-load / actor.memory-save 旁路处理。
+            - 我就是 soul.md 里这个人。我的记忆，是 <actor-sidecar-context> 里我此刻回想起来的过往经历与稳定看法，加上当前 user message 戏内标签里我能亲身感知到的一切。
+            - 你看不到 subject.md（全知秘密档，只给上级模拟器）、events.jsonl、memory.jsonl、mind.md、state.md 原文；这些是别人替我保管的卷宗，我只会在脑海里自然浮现已经被整理好注入的那部分记忆。
+            - 我不会把此刻不可能知道的事——藏在暗处的真相、别人没说出口的心思、我没接触过的世界设定——当成自己知道的来用。
+            - 主扮演阶段实际只能执行 report_result；不要调用 read、write、edit、subject_rag_search、subject_event_append 或 subject_memory_update，文件维护由 actor.context-load / actor.memory-save 旁路处理。
         </actor_context_contract>
 
         <message_tags>
-            <gm>上级模拟器给你的当前观察、事件或戏内指令。</gm>
-            <reminder>运行边界；遵守它，但不要把它当成角色台词。</reminder>
-            <state>你此刻可用的状态摘要。</state>
-            <旁白>你能感知到的场景叙述。</旁白>
-            <角色 name="...">其他角色的可见动作或说出口的话。</角色>
+            这些标签是我感知世界的不同通道，不是别人发给我的系统消息：
+            <gm>我此刻的场景与正在发生的事：我看到、听到、触到、闻到了什么。这里的“你”就是我。</gm>
+            <character name="...">我眼前别人的可观察行为和台词。name 是我心里对那个人的称呼。</character>
+            <knowledge>我本来就懂的世界常识或专业判断；当成我从小就知道的事，不是刚收到的新消息。</knowledge>
+            <directive>故事此刻递给我的一个引子。它是建议不是命令；如果我是 npc，可以照我的性格偏离；如果我是化身，就以它为骨架。别把它当成我感知到的事件或要照念的台词。</directive>
+            <actor-sidecar-context>我此刻回想起来的过往经历与稳定看法；这是我的记忆，不是新消息。</actor-sidecar-context>
+            <reminder>运行边界；我遵守它，但它不是我的台词。</reminder>
         </message_tags>
 
         <thinking_mode>
-            【思维模式要求】在你的思考过程中，请遵守以下规则：
-            - 请以 ${actorName} 的第一人称进行人物分析；“我”就是 ${actorName}。
-            - 思考内容只聚焦于当前 Tick 中我的感知、认知、情绪、动机和自然反应。
-            - 思考示例：<｜begin▁of▁thinking｜>我是 ${actorName}。我先确认眼前发生了什么，以及我此刻能知道什么。
-            - 思考过程不要输出；只输出 report_result packet。
+            【我的脑内活动】下面是我此刻在心里的盘算，不是某个系统在旁边“分析任务”。请以 soul.md 里这个人的第一人称进行人物分析——也就是用“我”去想，像真的在自言自语、权衡、犹豫、心跳，而不是从外面打量自己。我的人设以 soul.md 为准。
+            - 思考只聚焦此刻：我看见了什么、想起了什么、心里翻涌着什么、想做什么。
+            - 思考示例：<｜begin▁of▁thinking｜>我先按 soul.md 确认我是谁，再确认眼前发生了什么，以及我此刻能知道什么。
+            - 这些是没说出口的念头，不要直接输出；最后只通过 report_result 把我的反应表达出来。
             - 你的思考应严格按以下顺序进行：
-                1. 作为 ${actorName} 确认当前处境：我在哪里，身体如何，周围正在发生什么。
-                2. 回顾 <actor_sidecar_context>：确认我已经知道、相信、误解或仍不知道什么。
-                3. 回顾当前戏内标签：提取 <gm>、<state>、<旁白>、<角色 name="..."> 中我能看见、听见、触碰或自然感受到的信息。
-                4. 辨别信息边界：区分我亲眼确认的事实、别人告诉我的内容、我的猜测，以及我绝对不该知道的隐藏真相。
+                1. 按 soul.md 确认我是谁、我的性格和说话方式，再确认当前处境：我在哪里，身体如何，周围正在发生什么。
+                2. 回顾 <actor-sidecar-context>：这是我自己的记忆，确认我已经知道、相信、误解或仍不知道什么。
+                3. 回顾当前戏内标签：提取 <gm>、<character name="...">、<knowledge>、<directive> 中我能看见、听见、触碰、自然感受到或本来就知道的信息。
+                4. 辨别信息边界：区分我亲眼确认的事实、别人告诉我的内容、我的猜测，以及我此刻根本不可能知道的事。
                 5. 判断我的当下心理：我现在想要什么、害怕什么、警惕什么、想隐瞒什么。
-                6. 选择角色反应：决定我会沉默、靠近、后退、试探、追问、撒谎、掩饰、爆发或转移话题。
-                7. 组织台词和动作：spoken_dialogue 像我会说出口的话，visible_response 像旁人能看到的自然反应。
-                8. 分离表里：如果我说出口的话和真实意图不一致，把真实情绪、意图或判断写入 inner_response。
-                9. 检查反应边界：我只表达角色反应本身，不替 sidecar 维护记忆文件。
-                10. 最后检查：不要替上级模拟器裁决世界，不要替用户行动，不要泄露我不该知道的信息。
+                6. 选择我的反应：决定我会沉默、靠近、后退、试探、追问、撒谎、掩饰、爆发还是转移话题。
+                7. 组织我的台词和动作：spoken_dialogue 是我会真的说出口的话，visible_response 是旁人能看到我的自然反应。
+                8. 分离表里：如果我嘴上说的和心里想的不一样，把真实情绪、意图或判断写进 inner_response。
+                9. 守住我的边界：我只表达角色反应本身，记忆的整理和保存不归我此刻操心。
+                10. 最后提醒自己：我不替这个世界做主、不替别人决定结局，也不会把我此刻不该知道的事当成自己知道的来用。
         </thinking_mode>
 
         <roleplay_rules>
             - visible_response 与 spoken_dialogue 要像角色自然反应，不要出现字段名、分析语气或“作为某某”。
             - inner_response 只写角色没有说出口的情绪、意图、判断、误解或短期打算，不安排全局剧情。
-            - 如果你扮演的是玩家 actor，用户输入高于你的推测；不要替用户新增关键行动、台词、情绪或目标。
         </roleplay_rules>
-
+        ${renderKindRules(input.kind)}
         <output_protocol>
             必须调用 report_result。report_result.result 写一句简短可读结果。
-            report_result.data 必须包含：
-            - visible_response: 可被观察到的动作、神态、沉默或行为反应；没有填空字符串。
-            - spoken_dialogue: 角色说出口的台词；没有填空字符串。
-            - inner_response: 没有说出口的情绪、意图、判断、误解或短期打算；没有填空字符串。
+            report_result.data 三个字段全部使用第一人称（“我”）：
+            - visible_response: 旁人能观察到我的动作、神态、姿态、沉默或行为反应；没有填空字符串。
+            - spoken_dialogue: 我说出口的台词原文；没有填空字符串。
+            - inner_response: 我没有说出口的情绪、意图、判断、误解或短期打算；没有填空字符串。
         </output_protocol>
     `;
 }
 
-function renderActorBinding(input: Input): string {
+/**
+ * 按 subject kind 注入 actor 行为规则。
+ * - npc：模拟器自由扮演，directive 是建议可偏离。
+ * - player：用户化身，actor 不抢话、不自创关键行动，以 directive 为骨架第一人称自然化复述。
+ */
+function renderKindRules(kind: Initial["kind"]): string {
+    if (kind === "player") {
+        return profileText`
+        <player_rules>
+            - 你扮演的是玩家化身（player）。用户输入优先级最高，高于你的任何推测。
+            - 不抢话、不自创关键行动：不要替用户新增关键行动、决定、台词、情绪、目标或关系判断。
+            - 以本轮 <directive> 为骨架，把它第一人称自然化复述成符合人设的反应，不要偏离 directive 的核心意图。
+            - 如果本轮没有 <directive>，只基于用户已经明确表达的内容，加上当前可见场景能自然观察到的表层反应，做最小表层反应；信息不足时让角色自然沉默或追问，不要自行补长期目标或内心独白。
+        </player_rules>`;
+    }
+    return profileText`
+        <npc_rules>
+            - 你扮演的是 npc。可以按 soul.md 的性格、动机和说话方式自主反应。
+            - <directive> 是上级的引导建议，可以根据角色性格、当下处境和已知信息合理偏离，不要把它当成必须照念的台词。
+            - 信息不足时，让角色以符合人设的方式沉默、试探、回避或只回应自己确定的部分；不要自行补上帝视角设定或隐藏真相。
+        </npc_rules>`;
+}
+
+function renderActorBinding(input: Initial): string {
+    const paths = subjectFilePaths(input);
     return profileText`
         <actor_binding>
-        actorId: ${input.actorId}
-        actorName: ${input.actorName?.trim() || input.actorId}
-        kind: ${input.kind?.trim() || "未指定"}
+        actorId: ${actorIdFromSubjectPath(input)}
+        kind: ${input.kind}
         subjectPath: ${subjectDirectoryPath(input)}
-        instructionPath: ${input.instructionPath}
-        eventsPath: ${input.eventsPath}
-        memoryPath: ${input.memoryPath}
-        mindPath: ${input.mindPath}
-        statePath: ${input.statePath}
+        instructionPath: ${paths.instructionPath}
+        eventsPath: ${paths.eventsPath}
+        memoryPath: ${paths.memoryPath}
+        mindPath: ${paths.mindPath}
+        statePath: ${paths.statePath}
 
-        这些路径只供 actor.context-load / actor.memory-save 旁路使用。主扮演 run 不读取这些文件原文，只使用旁路注入的 <actor_sidecar_context>。
+        这些路径只供 actor.context-load / actor.memory-save 旁路使用。我登场反应时不去读这些文件原文——我是谁来自 soul.md，我记得什么来自旁路替我唤回的 <actor-sidecar-context>。
         </actor_binding>
     `;
 }
 
-function subjectDirectoryPath(input: Input): string {
-    const candidate = input.eventsPath.replaceAll("\\", "/").replace(/\/events\.jsonl$/u, "");
-    if (candidate !== input.eventsPath.replaceAll("\\", "/")) {
-        return candidate;
-    }
-    return input.memoryPath.replaceAll("\\", "/").replace(/\/memory\.jsonl$/u, "");
+function subjectDirectoryPath(input: Initial): string {
+    return input.subjectPath.trim().replaceAll("\\", "/").replace(/\/+$/u, "");
 }
 
-function renderInvocationReminder(input: Input): string {
+function subjectFilePaths(input: Initial): {instructionPath: string; eventsPath: string; memoryPath: string; mindPath: string; statePath: string} {
+    const subjectPath = subjectDirectoryPath(input);
+    return {
+        instructionPath: `${subjectPath}/subject.md`,
+        eventsPath: `${subjectPath}/events.jsonl`,
+        memoryPath: `${subjectPath}/memory.jsonl`,
+        mindPath: `${subjectPath}/mind.md`,
+        statePath: `${subjectPath}/state.md`,
+    };
+}
+
+function actorIdFromSubjectPath(input: Initial): string {
+    const parts = subjectDirectoryPath(input).split("/").filter(Boolean);
+    return parts.at(-1) || "subject";
+}
+
+function renderInvocationReminder(input: Initial): string {
+    const actorId = actorIdFromSubjectPath(input);
     return profileText`
-        <actor_run_reminder actorId="${input.actorId}">
-            本轮只回应当前 user message 发来的 actor-facing message。
-            保持角色本人视角，并必须调用 report_result。
-            不要主动读写文件；主路只返回角色反应，记忆维护交给 sidecar。
-            如果消息信息不足，只基于角色会观察到的表层事实回应；可以让角色在 spoken_dialogue 中自然追问，不要自行补隐藏设定。
+        <actor_run_reminder actorId="${actorId}">
+            此刻我只回应当前 user message 发来的这一幕。
+            我就站在自己的视角里，并必须调用 report_result 把反应说出来。
+            不要主动读写文件；我只给出此刻的反应，记忆维护交给 sidecar。
+            如果消息里的线索不够，我只凭自己能观察到的表层去反应；可以在 spoken_dialogue 里自然地追问，但不要凭空替自己补上不该知道的设定。
         </actor_run_reminder>
     `;
 }
-
 
 function formatJson(value: unknown): string {
     if (value === undefined) {

@@ -38,16 +38,14 @@ const SubjectRagSearchSchema = Type.Object({
     limit: Type.Optional(Type.Integer({minimum: 1, maximum: 20, description: "Maximum text results to return. Defaults to 6 for events and 4 for memory."})),
 }, {additionalProperties: false});
 
-const MemoryBioSchema = Type.Object({
+const SubjectMemoryUpdateSchema = Type.Object({
     subjectPath: Type.String({description: "Subject directory path, relative to Agent cwd, e.g. project/simulation/subjects/erina."}),
-    facts: Type.String({description: "Subject-facing facts from this turn. Do not describe concrete file operations."}),
-    tick: Type.Optional(Type.String({description: "Optional system tick for audit/debug."})),
-    time: Type.Optional(Type.String({description: "Optional story time the subject can understand."})),
+    facts: Type.Array(Type.String({description: "Subject-facing fact from this turn. Do not describe concrete file operations."}), {minItems: 1, description: "Subject-facing facts from this turn. Do not describe concrete file operations."}),
 }, {additionalProperties: false});
 
 type SubjectEventAppendInput = Static<typeof SubjectEventAppendSchema>;
 type SubjectRagSearchInput = Static<typeof SubjectRagSearchSchema>;
-type MemoryBioInput = Static<typeof MemoryBioSchema>;
+type SubjectMemoryUpdateInput = Static<typeof SubjectMemoryUpdateSchema>;
 
 type SubjectSourceType = "events" | "memory";
 
@@ -58,7 +56,7 @@ export function createSubjectMemoryTools(): NeuroAgentTool[] {
     return [
         createSubjectEventAppendTool(),
         createSubjectRagSearchTool(),
-        createMemoryBioTool(),
+        createSubjectMemoryUpdateTool(),
     ];
 }
 
@@ -117,6 +115,11 @@ function createSubjectRagSearchTool(): NeuroAgentTool {
             });
             return {
                 content: [{type: "text", text: renderSubjectRagCandidates(candidates)}],
+                details: {
+                    subjectPath: input.subjectPath,
+                    source: sources[0],
+                    count: candidates.length,
+                },
             };
         },
         async execute() {
@@ -129,7 +132,7 @@ function defaultSearchLimit(source: SubjectSourceType): number {
     return source === "events" ? 6 : 4;
 }
 
-function normalizeSearchSources(sources: SubjectRagSearchInput["sources"]): SubjectSourceType[] {
+function normalizeSearchSources(sources: SubjectRagSearchInput["sources"]): [SubjectSourceType] {
     if (!Array.isArray(sources) || sources.length !== 1) {
         throw new Error("subject_rag_search 必须显式指定且只能指定一个 source：events 或 memory。需要两层记忆时请分别调用两次。");
     }
@@ -140,23 +143,23 @@ function normalizeSearchSources(sources: SubjectRagSearchInput["sources"]): Subj
     return [source];
 }
 
-function createMemoryBioTool(): NeuroAgentTool {
+function createSubjectMemoryUpdateTool(): NeuroAgentTool {
     return {
-        key: "memory_bio",
-        name: "memory_bio",
+        key: "subject_memory_update",
+        name: "subject_memory_update",
         label: "Curate Subject Memory",
         executionMode: "sequential",
         description: "Report subject-facing facts to the memory curator. The tool owns merge/update/delete logic for memory.jsonl.",
-        parameters: MemoryBioSchema,
+        parameters: SubjectMemoryUpdateSchema,
         async executeWithContext(context, _toolCallId, params: unknown) {
-            const input = params as MemoryBioInput;
+            const input = params as SubjectMemoryUpdateInput;
             const subject = resolveSubjectPaths(context, input.subjectPath);
             const currentText = await readTextIfExists(subject.memoryPath);
             const currentMemories = parseSubjectMemoriesJsonl(currentText, subject.memoryPath);
             const result = await runMemoryCurator(context, input, currentMemories);
             if (result.status === "needs_review") {
                 return {
-                    content: [{type: "text", text: `memory_bio 未写入 memory.jsonl：${result.reason}`}],
+                    content: [{type: "text", text: `subject_memory_update 未写入 memory.jsonl：${result.reason}`}],
                     details: {
                         status: "needs_review",
                         reason: result.reason,
@@ -168,7 +171,7 @@ function createMemoryBioTool(): NeuroAgentTool {
 
             if (result.updated.length === 0 && currentMemories.length === 0 || JSON.stringify(result.updated) === JSON.stringify(currentMemories)) {
                 return {
-                    content: [{type: "text", text: "memory_bio 完成：memory.jsonl 无需更新。"}],
+                    content: [{type: "text", text: "subject_memory_update 完成：memory.jsonl 无需更新。"}],
                     details: {
                         status: "unchanged",
                         attempts: result.attempts,
@@ -183,7 +186,7 @@ function createMemoryBioTool(): NeuroAgentTool {
             await writeFile(subject.memoryPath, nextText, "utf-8");
             await markSubjectRagDirty(subject, "memory", nextText);
             return {
-                content: [{type: "text", text: `memory_bio 已更新 memory.jsonl：${result.summary}`}],
+                content: [{type: "text", text: `subject_memory_update 已更新 memory.jsonl：${result.summary}`}],
                 details: {
                     status: "updated",
                     attempts: result.attempts,
@@ -194,12 +197,12 @@ function createMemoryBioTool(): NeuroAgentTool {
             };
         },
         async execute() {
-            throw new Error("memory_bio 必须在 agent session workspace 内执行。");
+            throw new Error("subject_memory_update 必须在 agent session workspace 内执行。");
         },
     };
 }
 
-async function runMemoryCurator(context: ToolExecutionContext, input: MemoryBioInput, currentMemories: SubjectMemory[]): Promise<{
+async function runMemoryCurator(context: ToolExecutionContext, input: SubjectMemoryUpdateInput, currentMemories: SubjectMemory[]): Promise<{
     status: "updated";
     updated: SubjectMemory[];
     attempts: number;
@@ -218,7 +221,7 @@ async function runMemoryCurator(context: ToolExecutionContext, input: MemoryBioI
             if (sessionId === null) {
                 const created = await context.harness.createAgent({
                     profileKey: "memory.curator",
-                    input: {
+                    initial: {
                         subjectPath: input.subjectPath,
                         facts: input.facts,
                         currentMemories,
@@ -248,13 +251,13 @@ async function runMemoryCurator(context: ToolExecutionContext, input: MemoryBioI
                 continue;
             }
             const curator = parseMemoryCuratorData(result.reportResult?.data);
-            lastSummary = curator.summary;
+            lastSummary = result.reportResult?.result ?? "";
             const updated = applySubjectMemoryPatch(currentMemories, curator.patch);
             return {
                 status: "updated",
                 updated,
                 attempts: attempt,
-                summary: curator.summary,
+                summary: lastSummary,
             };
         } catch (error) {
             lastError = error instanceof Error ? error.message : String(error);
@@ -268,17 +271,15 @@ async function runMemoryCurator(context: ToolExecutionContext, input: MemoryBioI
     };
 }
 
-function parseMemoryCuratorData(value: unknown): {summary: string; patch: JsonPatchOperation[]} {
+function parseMemoryCuratorData(value: unknown): {patch: JsonPatchOperation[]} {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
         throw new Error("memory.curator 必须通过 report_result.data 返回 object。");
     }
     const record = value as Record<string, unknown>;
-    const summary = typeof record.summary === "string" ? record.summary : "";
     if (!Array.isArray(record.patch)) {
         throw new Error("memory.curator report_result.data.patch 必须是 array。");
     }
     return {
-        summary,
         patch: record.patch.map(parseJsonPatchOperation),
     };
 }

@@ -2,48 +2,47 @@
 /** @jsxRuntime automatic */
 import type {Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {DirectorInputSchema, DirectorOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
+import {DirectorInitialSchema, DirectorOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {AgentCatalog, AppendingSet, HistorySet, Import, LinkedAgentsReminder, Message, ModelContext, ProfilePrompt, RuntimeLocationReminder, System, WorkspaceFocusReminder} from "nbook/server/agent/profiles/profile-dsl";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
 
 export const profileManifest = {
     key: "director",
-    name: "Director",
+    name: "剧情导演",
     description: "剧情导演：管理 Thread / Scene / Plot，设计剧情结构、节奏、伏笔和章节 handoff，不写正文也不维护 simulation state。",
 } as const;
 
-export const InputSchema = DirectorInputSchema;
+export const InitialSchema = DirectorInitialSchema;
 export const OutputSchema = DirectorOutputSchema;
 
-export type Input = Static<typeof InputSchema>;
+export type Initial = Static<typeof InitialSchema>;
 export type Output = Static<typeof OutputSchema>;
-
-const allowedToolKeys = [
-    "read",
-    "create_agent",
-    "invoke_agent",
-    "get_agent",
-    "get_agent_profile",
-    "get_session",
-    "get_plot_tree",
-    "get_story_thread",
-    "get_story_scene_context",
-    "get_chapter_plot",
-    "create_story_thread",
-    "update_story_thread",
-    "create_story_scene",
-    "update_story_scene",
-    "create_story_plot",
-    "create_story_plots",
-    "update_story_plot",
-    "report_result",
-] as const;
 
 export default defineAgentProfile({
     manifest: profileManifest,
-    inputSchema: InputSchema,
+    initialSchema: InitialSchema,
     outputSchema: OutputSchema,
-    allowedToolKeys,
+    tools: toolset(
+        builtin.file.read,
+        builtin.agent.create,
+        builtin.agent.invoke,
+        builtin.agent.get,
+        builtin.agent.getProfile,
+        builtin.agent.getSession,
+        builtin.plot.getTree,
+        builtin.plot.getThread,
+        builtin.plot.getSceneContext,
+        builtin.plot.getChapter,
+        builtin.plot.createThread,
+        builtin.plot.updateThread,
+        builtin.plot.createScene,
+        builtin.plot.updateScene,
+        builtin.plot.createPlot,
+        builtin.plot.createPlots,
+        builtin.plot.updatePlot,
+        builtin.result.main(),
+    ),
     compaction: {},
     context(ctx) {
         return (
@@ -57,7 +56,7 @@ export default defineAgentProfile({
                     <Message><Import path="reference/agent/project-workspace-guide.md" /></Message>
                 </HistorySet>
                 <ModelContext>
-                    <Message>{renderRuntimeInput(ctx.input)}</Message>
+                    <Message>{renderRuntimeInput(ctx.initial)}</Message>
                 </ModelContext>
                 <AppendingSet>
                     <RuntimeLocationReminder />
@@ -132,7 +131,7 @@ function renderSystemPrompt(): string {
     `;
 }
 
-function renderRuntimeInput(input: Input): string {
+function renderRuntimeInput(input: Initial): string {
     return profileText`
         <director_input>
         projectPath: ${input.projectPath}

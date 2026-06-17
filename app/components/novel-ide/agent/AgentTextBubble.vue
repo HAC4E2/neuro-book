@@ -18,6 +18,7 @@ const props = defineProps<{
     node: Extract<ChatNode, { kind: "text" }>;
     editingMessageId?: string | null;
     actionDisabled?: boolean;
+    runActionDisabled?: boolean;
     savingEdit?: boolean;
     branchSwitcher?: {
         nodeIds: string[];
@@ -27,6 +28,8 @@ const props = defineProps<{
     menuRefreshKey?: string | number;
     resolveMenu?: (context: AgentTriggerMenuContext) => AgentTriggerMenuState;
     onSkillTriggerStart?: () => void;
+    /** 打开消息 Markdown 中的 workspace 引用。 */
+    openReference?: (target: string) => void;
     costDisplayOptions: CostDisplayOptions;
     costExchangeRateSuffix?: string;
 }>();
@@ -197,6 +200,12 @@ const messageCacheHitRateLabel = computed(() => {
 
 /** 本次调用费用标签；没有可展示价格时为空。 */
 const messageCostLabel = computed(() => formatCost(messageUsage.value?.cost.total, props.costDisplayOptions));
+const branchSwitcherTitle = computed(() => {
+    if (!props.branchSwitcher) {
+        return "";
+    }
+    return `分支 ${props.branchSwitcher.currentIndex + 1}/${props.branchSwitcher.total}，可左右滑动切换`;
+});
 
 /** 格式化精确 token 数。 */
 function formatTokenCount(value: number | null | undefined): string {
@@ -270,7 +279,7 @@ watch(() => props.node.message.id, () => {
  * 开始编辑当前消息。
  */
 const startEdit = (): void => {
-    if (!canEdit.value || props.actionDisabled) {
+    if (!canEdit.value || props.actionDisabled || props.runActionDisabled) {
         return;
     }
     syncEditingDraft();
@@ -290,7 +299,7 @@ const cancelEdit = (): void => {
  */
 const saveEdit = (): void => {
     const content = decodeEditableContent(editingDraft.value).trim();
-    if (!content || props.savingEdit) {
+    if (!content || props.savingEdit || props.runActionDisabled) {
         return;
     }
     emit("save-edit", {
@@ -319,6 +328,8 @@ const startSwipe = (event: PointerEvent): void => {
     if (!props.branchSwitcher || props.actionDisabled || isEditing.value) {
         return;
     }
+    const target = event.currentTarget as HTMLElement | null;
+    target?.setPointerCapture?.(event.pointerId);
     swipeStart.value = {
         x: event.clientX,
         y: event.clientY,
@@ -329,6 +340,10 @@ const startSwipe = (event: PointerEvent): void => {
  * 横向滑动切换消息分支，纵向滚动不拦截。
  */
 const endSwipe = (event: PointerEvent): void => {
+    const target = event.currentTarget as HTMLElement | null;
+    if (target?.hasPointerCapture?.(event.pointerId)) {
+        target.releasePointerCapture(event.pointerId);
+    }
     if (!swipeStart.value || !props.branchSwitcher || props.actionDisabled || isEditing.value) {
         swipeStart.value = null;
         return;
@@ -368,7 +383,7 @@ const endSwipe = (event: PointerEvent): void => {
                 :class="isSystemError ? 'max-h-[240px] border-rose-500/30 bg-rose-500/5' : isSystemReminder ? 'max-h-[180px]' : 'max-h-[320px]'"
             >
                 <div v-if="props.node.message.content" class="min-w-0 text-xs leading-relaxed" :class="isSystemError ? 'text-rose-700' : 'text-[var(--text-muted)]'">
-                    <AgentMarkdownContent :content="props.node.message.content" :html="props.node.message.html" />
+                    <AgentMarkdownContent :content="props.node.message.content" :html="props.node.message.html" :open-reference="props.openReference" />
                 </div>
             </div>
         </div>
@@ -377,7 +392,7 @@ const endSwipe = (event: PointerEvent): void => {
     <!-- 用户 / Assistant 消息 -->
     <div v-else class="group flex min-w-0 w-full flex-col items-start">
         <!-- 消息头部 -->
-        <div class="mb  -1.5 ml-1 flex w-full items-center gap-2">
+        <div class="mb-1.5 ml-1 flex w-full items-center gap-2">
             <div
                 class="flex h-4 w-4 items-center justify-center rounded-full border"
                 :class="props.node.message.type === 'ai' ? 'border-[var(--accent-main)] bg-[var(--accent-bg)]' : 'border-[var(--border-color)] bg-[var(--bg-input)]'"
@@ -397,25 +412,26 @@ const endSwipe = (event: PointerEvent): void => {
 
             <div class="flex-1"></div>
 
-            <div class="mr-4 flex items-center gap-0.5 text-[var(--text-muted)]">
+            <div class="mr-4 flex items-center gap-1 text-[var(--text-muted)]">
+                <div v-if="props.branchSwitcher" class="mr-1 inline-flex h-7 items-center overflow-hidden rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-muted)]" :title="branchSwitcherTitle">
+                    <button class="flex h-7 w-7 items-center justify-center border-r border-[var(--border-color)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled" title="上一条分支" @click="cycleBranch(-1)">
+                        <span class="i-lucide-chevron-left h-3.5 w-3.5"></span>
+                    </button>
+                    <span class="inline-flex h-7 items-center gap-1 px-2 text-[10px] tabular-nums text-[var(--text-secondary)]">
+                        <span class="i-lucide-git-branch h-3 w-3 text-[var(--accent-text)]"></span>
+                        {{ props.branchSwitcher.currentIndex + 1 }} / {{ props.branchSwitcher.total }}
+                    </span>
+                    <button class="flex h-7 w-7 items-center justify-center border-l border-[var(--border-color)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled" title="下一条分支" @click="cycleBranch(1)">
+                        <span class="i-lucide-chevron-right h-3.5 w-3.5"></span>
+                    </button>
+                </div>
                 <button class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled" title="复制" @click="emit('copy', props.node.message)">
                     <span class="i-lucide-copy h-3.5 w-3.5"></span>
                 </button>
-                <template v-if="props.branchSwitcher">
-                    <button class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled" title="上一条分支" @click="cycleBranch(-1)">
-                        <span class="i-lucide-chevron-left h-3.5 w-3.5"></span>
-                    </button>
-                    <span class="px-1 text-[10px] tabular-nums text-[var(--text-muted)]">
-                        {{ props.branchSwitcher.currentIndex + 1 }}/{{ props.branchSwitcher.total }}
-                    </span>
-                    <button class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled" title="下一条分支" @click="cycleBranch(1)">
-                        <span class="i-lucide-chevron-right h-3.5 w-3.5"></span>
-                    </button>
-                </template>
-                <button v-if="canEdit" class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled" title="编辑" @click="startEdit">
+                <button v-if="canEdit" class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled || props.runActionDisabled" title="编辑" @click="startEdit">
                     <span class="i-lucide-pencil h-3.5 w-3.5"></span>
                 </button>
-                <button v-if="canRetry" class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled" title="刷新" @click="emit('retry', props.node.message)">
+                <button v-if="canRetry" class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled || props.runActionDisabled" title="刷新" @click="emit('retry', props.node.message)">
                     <span class="i-lucide-rotate-cw h-3.5 w-3.5"></span>
                 </button>
                 <button class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled" title="回退" @click="emit('delete', props.node.message)">
@@ -443,7 +459,7 @@ const endSwipe = (event: PointerEvent): void => {
                 </button>
 
                 <div v-if="!isThinkingCollapsed" class="mt-1.5 border-l border-[var(--border-color)]/40 pl-3 text-[13px] leading-relaxed text-[var(--text-muted)]/85">
-                    <AgentMarkdownContent :content="props.node.message.thinking ?? ''" :streaming="props.node.message.status === 'streaming'" />
+                    <AgentMarkdownContent :content="props.node.message.thinking ?? ''" :streaming="props.node.message.status === 'streaming'" :open-reference="props.openReference" />
                 </div>
             </div>
         </div>
@@ -471,6 +487,7 @@ const endSwipe = (event: PointerEvent): void => {
                         :show-toolbar="false"
                         popover-direction="auto"
                         :submit-on-enter="false"
+                        :readonly="props.runActionDisabled"
                         :enable-quick-triggers="true"
                         :menu-refresh-key="props.menuRefreshKey ?? ''"
                         :resolve-menu="props.resolveMenu"
@@ -481,13 +498,13 @@ const endSwipe = (event: PointerEvent): void => {
                         <button class="inline-flex h-7 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-[11px] text-[var(--text-main)] transition-colors hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.savingEdit" @click="cancelEdit">
                             取消
                         </button>
-                        <button class="inline-flex h-7 items-center justify-center rounded-md border border-transparent bg-[var(--accent-main)] px-2.5 text-[11px] text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.savingEdit || !editingDraft.trim()" @click="saveEdit">
+                        <button class="inline-flex h-7 items-center justify-center rounded-md border border-transparent bg-[var(--accent-main)] px-2.5 text-[11px] text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.savingEdit || props.runActionDisabled || !editingDraft.trim()" @click="saveEdit">
                             {{ props.savingEdit ? "保存中..." : "保存" }}
                         </button>
                     </div>
                 </div>
                 <div v-else class="min-w-0 text-sm leading-relaxed text-[var(--text-main)]">
-                    <AgentMarkdownContent :content="props.node.message.content" :html="props.node.message.html" :streaming="props.node.message.status === 'streaming'" />
+                    <AgentMarkdownContent :content="props.node.message.content" :html="props.node.message.html" :streaming="props.node.message.status === 'streaming'" :open-reference="props.openReference" />
                 </div>
             </div>
         </div>

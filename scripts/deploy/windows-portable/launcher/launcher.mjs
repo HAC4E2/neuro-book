@@ -26,7 +26,7 @@ const PACKAGE_ROOT_NAME = "neuro-book-windows-x64";
 const WINDOWS_ZIP_NAME = `${PACKAGE_ROOT_NAME}.zip`;
 const SHA256SUMS_NAME = "SHA256SUMS";
 const UPDATE_RELEASE_API = process.env.NEURO_BOOK_UPDATE_RELEASE_API
-    ?? "https://api.github.com/repos/notnotype/neuro-book/releases/latest";
+    ?? "https://api.github.com/repos/notnotype/neuro-book/releases?per_page=30";
 const LAUNCHER_ROOT_FILES = [
     "Start Neuro Book.cmd",
     "Start Neuro Book.ps1",
@@ -79,24 +79,25 @@ async function update() {
     await assertProductPayload();
     await mkdir(DEPLOY_DIR, {recursive: true});
     const currentRelease = await readPortableRelease();
-    const latestRelease = await fetchLatestRelease();
-    const zipAsset = releaseAsset(latestRelease, WINDOWS_ZIP_NAME);
-    const sumsAsset = releaseAsset(latestRelease, SHA256SUMS_NAME);
+    const releases = await fetchUpdateReleases();
+    const selectedRelease = await selectUpdateRelease(releases, currentRelease);
+    const zipAsset = releaseAsset(selectedRelease, WINDOWS_ZIP_NAME);
+    const sumsAsset = releaseAsset(selectedRelease, SHA256SUMS_NAME);
 
-    if (currentRelease?.releaseTag === latestRelease.tag_name && process.env.NEURO_BOOK_UPDATE_FORCE !== "1") {
-        p.note(`当前已是最新版本：${latestRelease.tag_name}`, "无需更新");
+    if (currentRelease?.releaseTag === selectedRelease.tag_name && process.env.NEURO_BOOK_UPDATE_FORCE !== "1") {
+        p.note(`当前已是所选版本：${selectedRelease.tag_name}`, "无需更新");
         return;
     }
 
     p.note([
         `当前版本：${currentRelease?.releaseTag ?? "unknown"}`,
-        `最新版本：${latestRelease.tag_name}`,
+        `目标版本：${selectedRelease.tag_name} (${releaseKind(selectedRelease)})`,
         "更新会替换 app/、launcher/、根启动脚本和 portable-release.json，并保留 data/。",
         "内置 Bun runtime 会保留当前版本，避免更新进程替换正在运行的 bun.exe。",
     ].join("\n"), "准备更新");
     if (process.env.NEURO_BOOK_UPDATE_ASSUME_YES !== "1") {
         const confirmed = await p.confirm({
-            message: "现在下载并切换到最新版本？",
+            message: "现在下载并切换到所选版本？",
             initialValue: true,
         });
         if (p.isCancel(confirmed) || !confirmed) {
@@ -105,8 +106,8 @@ async function update() {
         }
     }
 
-    const stagedRoot = await downloadAndStageUpdate(latestRelease, zipAsset, sumsAsset);
-    await applyPortableUpdate(stagedRoot, latestRelease.tag_name);
+    const stagedRoot = await downloadAndStageUpdate(selectedRelease, zipAsset, sumsAsset);
+    await applyPortableUpdate(stagedRoot, selectedRelease.tag_name);
     p.note("更新完成。请重新运行 Start Neuro Book.cmd 启动新版。", "Product 更新完成");
 }
 
@@ -121,9 +122,9 @@ async function readPortableRelease() {
 }
 
 /**
- * 查询 GitHub 最新 release。
+ * 查询 GitHub releases。默认列出 stable 和 prerelease，供用户选择。
  */
-async function fetchLatestRelease() {
+async function fetchUpdateReleases() {
     const response = await fetch(UPDATE_RELEASE_API, {
         headers: {
             "Accept": "application/vnd.github+json",
@@ -131,24 +132,76 @@ async function fetchLatestRelease() {
         },
     });
     if (!response.ok) {
-        throw new Error(`查询最新 release 失败：${UPDATE_RELEASE_API} ${response.status}`);
+        throw new Error(`查询 release 列表失败：${UPDATE_RELEASE_API} ${response.status}`);
     }
-    const release = await response.json();
-    if (!release?.tag_name || !Array.isArray(release.assets)) {
-        throw new Error("GitHub release 响应缺少 tag_name 或 assets。");
+    const payload = await response.json();
+    const releases = Array.isArray(payload) ? payload : [payload];
+    const candidates = releases.filter((release) => {
+        if (!release?.tag_name || release.draft || !Array.isArray(release.assets)) {
+            return false;
+        }
+        return Boolean(assetMaybe(release, WINDOWS_ZIP_NAME) && assetMaybe(release, SHA256SUMS_NAME));
+    });
+    if (candidates.length === 0) {
+        throw new Error("没有找到带 Windows portable zip 和 SHA256SUMS 的可更新 release。");
     }
-    return release;
+    return candidates;
+}
+
+/**
+ * 让用户选择更新目标；自动化模式默认选列表第一项。
+ */
+async function selectUpdateRelease(releases, currentRelease) {
+    if (process.env.NEURO_BOOK_UPDATE_ASSUME_YES === "1") {
+        return releases[0];
+    }
+
+    const currentTag = currentRelease?.releaseTag ?? "unknown";
+    const selected = await p.select({
+        message: `当前版本 ${currentTag}，请选择要更新到的版本`,
+        options: releases.map((release) => ({
+            label: releaseLabel(release),
+            value: release.tag_name,
+            hint: releaseHint(release),
+        })),
+        initialValue: releases[0].tag_name,
+    });
+    if (p.isCancel(selected)) {
+        p.cancel("已取消更新。");
+        process.exit(0);
+    }
+    return releases.find((release) => release.tag_name === selected) ?? releases[0];
 }
 
 /**
  * 从 release assets 中找到指定文件。
  */
 function releaseAsset(release, name) {
-    const asset = release.assets.find((item) => item.name === name);
+    const asset = assetMaybe(release, name);
     if (!asset?.browser_download_url) {
-        throw new Error(`最新 release ${release.tag_name} 缺少 asset：${name}`);
+        throw new Error(`所选 release ${release.tag_name} 缺少 asset：${name}`);
     }
     return asset;
+}
+
+function assetMaybe(release, name) {
+    return release.assets.find((item) => item.name === name);
+}
+
+function releaseLabel(release) {
+    return `${release.tag_name} (${releaseKind(release)})`;
+}
+
+function releaseHint(release) {
+    return release.published_at ? new Date(release.published_at).toLocaleString() : undefined;
+}
+
+function releaseKind(release) {
+    if (!release.prerelease) {
+        return "stable";
+    }
+    const match = /-(canary|alpha|beta|rc)(?:[.+-]|$)/u.exec(release.tag_name);
+    return match?.[1] ?? "prerelease";
 }
 
 /**

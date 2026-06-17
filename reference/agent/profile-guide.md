@@ -15,11 +15,19 @@
 
 - `manifest.key`
 - `manifest.name`
-- `inputSchema`
-- `allowedToolKeys`
+- `initialSchema`
+- `tools`
 - `context(ctx)`
 
-需要结构化结果时声明 `outputSchema`。存在 `outputSchema` 时，`report_result.data` 是主路结构化输出的 runtime 校验依据；provider-visible schema 中该字段保持 optional，以便错误说明和 sidecar 复用同一个工具 schema。
+需要每轮结构化调用载荷时声明 `payloadSchema`。需要结构化结果时声明 `outputSchema`。存在 `outputSchema` 时，`report_result.data` 是主路结构化输出的 runtime 校验依据；provider-visible schema 中该字段保持 optional，方便任务失败或只返回可读错误说明时仍能结束主 run。旁路结构化结果不要复用 `report_result`，必须通过 `report_sidecar_result.data` 返回。
+
+`tools` 是 profile 的根工具绑定对象，决定模型可见工具 schema 和 profile 最大执行权限。推荐用 `toolset(builtin...)` 显式声明工具集合；需要定制 `report_result.data` schema 时使用 `builtin.result.main({ dataSchema: OutputSchema })`。如果 profile 有 sidecar，root `tools` 需要同时声明 `builtin.result.sidecar()`；其 `data` schema 会由当前 profile 全部 `sidecarDataSchema` 汇总成 sidecar-name keyed 的 profile-stable union。sidecar 调用时必须传 `data: { "<sidecar-name>": payload }`，payload 才按该 sidecar 的 `sidecarDataSchema` 校验。主 run 需要收窄执行权限时声明顶层 `toolKeys`，sidecar 需要收窄执行权限时声明 `sidecar.toolKeys`，二者都只能引用根 `tools` 中已有的 key。
+
+`tools` 支持三种来源：
+
+- `builtin.file.read` / `builtin.file.write` 等：引用内置全局工具。
+- `defineProfileTool({...})`：定义并内联 profile 自带工具，该工具只在当前 profile run 内可见。
+- `pluginTool("plugin_tool")`：引用运行时已注册但没有 typed API 的插件工具；不要用它内联自带工具。
 
 内置 profile 位于 `assets/workspace/.nbook/agent/profiles/builtin/`，例如：
 
@@ -32,7 +40,7 @@
 
 ## Prepare Lifecycle
 
-1. Harness 校验 profile input，并构造 `ProfilePrepareContext`。
+1. Harness 校验 profile initial 和本轮 payload，并构造 `ProfilePrepareContext`。
 2. Profile `context(ctx)` 返回 `<ProfilePrompt>`。
 3. `server/agent/profiles/profile-dsl.ts` 编译 TSX tree，生成 `ProfileTurnPlan`。
 4. Harness 根据 plan 组合 provider prompt、历史写入和 profile runtime state。
@@ -40,7 +48,9 @@
 
 常用 `ctx` 字段：
 
-- `ctx.input`：通过 `inputSchema` 校验后的 profile 创建输入。
+- `ctx.initial`：通过 `initialSchema` 校验后的 profile 创建期初始化数据。
+- `ctx.invocation?.payload`：通过 `payloadSchema` 校验后的本轮结构化载荷。未声明 `payloadSchema` 的 profile 不接受 payload。
+- `ctx.invocation?.message`：本轮自然语言 message；它不属于 `PayloadSchema`。
 - `ctx.session`：当前 session facade，包含 workspaceRoot、messages、customState、linkedAgents 等。
 - `ctx.vars`：变量访问器。TSX 中优先用 `<Variable>` 和 `<VariableSchema>` 注入。
 - `ctx.catalog`：当前可见 agent profiles 和 profile issues。
@@ -221,6 +231,7 @@ Agent 需要读写变量时，按工具流程：
 /** @jsxRuntime automatic */
 import {Type} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
 import {
     AppendingSet,
     HistorySet,
@@ -241,16 +252,23 @@ export const profileManifest = {
     description: "Example profile.",
 } as const;
 
-export const InputSchema = Type.Object({
+export const InitialSchema = Type.Object({
     prompt: Type.String(),
 });
 
-const allowedToolKeys = ["read", "write", "edit"] as const;
+export const PayloadSchema = Type.Object({
+    plotId: Type.Optional(Type.String()),
+});
 
 export default defineAgentProfile({
     manifest: profileManifest,
-    inputSchema: InputSchema,
-    allowedToolKeys,
+    initialSchema: InitialSchema,
+    payloadSchema: PayloadSchema,
+    tools: toolset(
+        builtin.file.read,
+        builtin.file.write,
+        builtin.file.edit,
+    ),
     context() {
         return (
             <ProfilePrompt>
@@ -278,14 +296,43 @@ export default defineAgentProfile({
 });
 ```
 
+## Profile-Owned Tool
+
+profile 可以用 `defineProfileTool()` 定义自带工具，并把 definition 本身放进根 `tools`。自带工具的 key 只在当前 profile run 内解析，不会注册进全局 registry。
+
+```ts
+import {Type} from "typebox";
+import {builtin, defineProfileTool, toolset} from "nbook/server/agent/profiles/profile-tools";
+
+const roll_dice = defineProfileTool({
+    key: "roll_dice",
+    description: "Roll one six-sided dice.",
+    parameters: Type.Object({}),
+    async execute() {
+        const value = Math.floor(Math.random() * 6) + 1;
+        return {
+            content: [{type: "text", text: `rolled ${value}`}],
+            details: {value},
+        };
+    },
+});
+
+const profileTools = toolset(
+    roll_dice,
+    builtin.result.main(),
+);
+```
+
 ## Checklist
 
 新增或修改 profile 后检查：
 
 - `key`、`kind`、`name` 和 `description` 是否准确。
-- `inputSchema` 是否只包含创建输入，不混入每轮动态状态。
+- `initialSchema` 是否只包含创建期初始化数据，不混入每轮动态状态。
+- `payloadSchema` 是否只包含单次 invocation 的结构化载荷；自然语言 message 不要塞进 payload。
 - 需要结构化结果时是否声明 `outputSchema`。
-- `allowedToolKeys` 是否是最小可用工具集合。
+- `tools` 是否是 profile 最大工具集合；顶层 `toolKeys` / `sidecar.toolKeys` 是否只是它的子集。
+- sidecar 是否使用 `report_sidecar_result` 而不是 `report_result` 返回旁路结果；是否声明了对应 `sidecarDataSchema`。
 - `System` 是否只放 profile 身份、职责和长期行为边界。
 - `HistorySet` 是否只放稳定前缀。
 - 共享规范是否用 `Import` 引用，而不是复制长 prompt。

@@ -140,7 +140,7 @@ Follow-up update:
 
 `prose.md` 规则：
 
-- RP Tick：保存 `rp.writer` 或 leader 输出的完整正文。
+- RP Tick：保存 `rp.writer` 输出的完整正文；`rp.leader` 只组装正文链接和元场景。
 - 写作设计 Tick：可保存试写片段或场景草稿。
 - 正式章节写作：章节正文仍写入 `manuscript/.../index.md`，`prose.md` 可以只放摘要和目标章节链接。
 
@@ -273,7 +273,7 @@ bun scripts/build/profile.ts compile --all
 
 ## Files Changed
 
-2026-06-06 update: `simulation/simulator.md` / `simulation/writer.md` 已被后续 profile context V2 取代；当前默认 Project 模板把 profile guidance 放在 `agent-context/simulator.leader/context.md` 和 `agent-context/rp.writer/context.md`，`simulation/` 只保留 runtime state 与 runs。
+2026-06-06 update: `simulation/simulator.md` / `simulation/writer.md` 已被后续 profile context V2 取代；当前默认 Project 模板把 simulation guidance 放在 `agent-context/simulator.leader/context.md`，`agent-context/rp.writer/context.md` 只作为可选写作偏好来源，由上级整理进 writer brief；`simulation/` 只保留 runtime state 与 runs。
 
 - `assets/workspace/.nbook/agent/skills/novel-workflow-05-emulation-bootstrap/SKILL.md`
 - `assets/workspace/.nbook/agent/skills/novel-workflow-06-emulation-tick/SKILL.md`

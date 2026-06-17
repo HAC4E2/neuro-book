@@ -148,11 +148,17 @@ export async function readProfileSource(profiles: AgentProfileCatalog, request: 
             source,
             issues: fallbackIssues,
             variables: [],
-            allowedToolKeys: [],
-            inputSchema: {
+            toolKeys: [],
+            initialSchema: {
                 jsonSchema: null,
                 editMode: "source",
-                reason: "坏 profile 需要在源码中修复 InputSchema。",
+                reason: "坏 profile 需要在源码中修复 InitialSchema。",
+                sourceRange: null,
+            },
+            payloadSchema: {
+                jsonSchema: null,
+                editMode: "source",
+                reason: "坏 profile 需要在源码中修复 PayloadSchema。",
                 sourceRange: null,
             },
             outputSchema: {
@@ -162,6 +168,7 @@ export async function readProfileSource(profiles: AgentProfileCatalog, request: 
                 sourceRange: null,
             },
             reportResultSchema: null,
+            reportSidecarResultSchema: null,
             root: buildSystemPromptRoot(source),
         };
     }

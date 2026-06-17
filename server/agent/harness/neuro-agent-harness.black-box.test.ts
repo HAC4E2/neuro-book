@@ -7,7 +7,8 @@ import type {FauxProviderRegistration} from "@earendil-works/pi-ai";
 import {Type} from "typebox";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
-import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+import {defineAgentProfile as defineRuntimeAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
 import {createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 import type {AgentMessage, Message as RuntimeMessage} from "nbook/server/agent/messages/types";
 import type {AgentSessionEventDto, AgentSessionSnapshotDto} from "nbook/shared/dto/agent-session.dto";
@@ -37,6 +38,31 @@ type EventObserver = {
     stop(): Promise<void>;
 };
 
+function defineAgentProfile(profile: any): ReturnType<typeof defineRuntimeAgentProfile> {
+    const {
+        allowedToolKeys,
+        mainRunAllowedToolKeys,
+        sidecars,
+        toolKeys,
+        ...rest
+    } = profile;
+    return defineRuntimeAgentProfile({
+        ...rest,
+        tools: rest.tools ?? profileToolsFromKeys(allowedToolKeys ?? []),
+        toolKeys: toolKeys ?? mainRunAllowedToolKeys,
+        sidecars: sidecars?.map((sidecar: any) => {
+            const {
+                allowedToolKeys: sidecarAllowedToolKeys,
+                ...sidecarRest
+            } = sidecar;
+            return {
+                ...sidecarRest,
+                toolKeys: sidecarRest.toolKeys ?? sidecarAllowedToolKeys,
+            };
+        }),
+    });
+}
+
 function registerPlainProfile(
     harness: NeuroAgentHarness,
     input: {
@@ -49,8 +75,8 @@ function registerPlainProfile(
             key: input.key,
             name: input.key,
         },
-        inputSchema: Type.Object({}),
-        allowedToolKeys: input.allowedToolKeys ?? [],
+        initialSchema: Type.Object({}),
+        tools: profileToolsFromKeys(input.allowedToolKeys ?? []),
         prepare() {
             return {};
         },
@@ -220,7 +246,7 @@ describe("NeuroAgentHarness black-box contract", () => {
                 key: "test.blackbox.prompt",
                 name: "BlackBox Prompt",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["bb_echo"],
             prepare() {
                 return {};
@@ -235,7 +261,7 @@ describe("NeuroAgentHarness black-box contract", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.blackbox.prompt",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -273,7 +299,7 @@ describe("NeuroAgentHarness black-box contract", () => {
         faux.setResponses([fauxAssistantMessage("continued")]);
         const created = await harness.createAgent({
             profileKey,
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         await harness.repo.appendMessage(created.sessionId, createUserMessage({text: "existing prompt"}));
@@ -295,7 +321,7 @@ describe("NeuroAgentHarness black-box contract", () => {
         });
         const created = await harness.createAgent({
             profileKey,
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         const before = await harness.getSessionSnapshot(created.sessionId);
@@ -336,7 +362,7 @@ describe("NeuroAgentHarness black-box contract", () => {
                 key: "test.blackbox.steer",
                 name: "BlackBox Steer",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["bb_continue"],
             prepare() {
                 return {};
@@ -350,7 +376,7 @@ describe("NeuroAgentHarness black-box contract", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.blackbox.steer",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         const observer = await observeSession(harness, created.sessionId);
@@ -403,7 +429,7 @@ describe("NeuroAgentHarness black-box contract", () => {
                 key: "test.blackbox.followup",
                 name: "BlackBox Followup",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["bb_continue_followup"],
             prepare() {
                 return {};
@@ -418,7 +444,7 @@ describe("NeuroAgentHarness black-box contract", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.blackbox.followup",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -452,7 +478,7 @@ describe("NeuroAgentHarness black-box contract", () => {
                 key: "test.blackbox.waiting",
                 name: "BlackBox Waiting",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["request_user_input"],
             prepare() {
                 return {};
@@ -468,7 +494,7 @@ describe("NeuroAgentHarness black-box contract", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.blackbox.waiting",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -507,7 +533,7 @@ describe("NeuroAgentHarness black-box contract", () => {
                 key: "test.blackbox.waiting-queue",
                 name: "BlackBox Waiting Queue",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["request_user_input"],
             prepare() {
                 return {};
@@ -525,7 +551,7 @@ describe("NeuroAgentHarness black-box contract", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.blackbox.waiting-queue",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         const waiting = await harness.invokeAgent({
@@ -586,7 +612,7 @@ describe("NeuroAgentHarness black-box contract", () => {
         ]);
         const created = await harness.createAgent({
             profileKey,
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -618,7 +644,7 @@ describe("NeuroAgentHarness black-box contract", () => {
         ]);
         const created = await harness.createAgent({
             profileKey,
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -661,7 +687,7 @@ describe("NeuroAgentHarness black-box contract", () => {
                 key: "test.blackbox.recoverable-tool",
                 name: "BlackBox Recoverable Tool",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["bb_recoverable_error"],
             prepare() {
                 return {};
@@ -675,7 +701,7 @@ describe("NeuroAgentHarness black-box contract", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.blackbox.recoverable-tool",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -712,7 +738,7 @@ describe("NeuroAgentHarness black-box contract", () => {
                 key: "test.blackbox.fatal-tool",
                 name: "BlackBox Fatal Tool",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["bb_fatal"],
             prepare() {
                 return {};
@@ -725,7 +751,7 @@ describe("NeuroAgentHarness black-box contract", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.blackbox.fatal-tool",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -759,7 +785,7 @@ describe("NeuroAgentHarness black-box contract", () => {
         ]);
         const created = await harness.createAgent({
             profileKey,
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -803,7 +829,7 @@ describe("NeuroAgentHarness black-box contract", () => {
                 key: "test.blackbox.waiting-abort",
                 name: "BlackBox Waiting Abort",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["request_user_input"],
             prepare() {
                 return {};
@@ -818,7 +844,7 @@ describe("NeuroAgentHarness black-box contract", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.blackbox.waiting-abort",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         const waiting = await harness.invokeAgent({
@@ -871,7 +897,7 @@ describe("NeuroAgentHarness black-box contract", () => {
         ]);
         const created = await harness.createAgent({
             profileKey,
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         const observer = await observeSession(harness, created.sessionId);
@@ -940,7 +966,7 @@ describe("NeuroAgentHarness black-box contract", () => {
         });
         const created = await harness.createAgent({
             profileKey,
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         const currentEpoch = harness.eventHub.eventEpoch;
@@ -1027,7 +1053,7 @@ describe("NeuroAgentHarness black-box contract", () => {
                 key: "test.blackbox.slow-tool",
                 name: "BlackBox Slow Tool",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["slow_tool"],
             prepare() {
                 return {};
@@ -1041,7 +1067,7 @@ describe("NeuroAgentHarness black-box contract", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.blackbox.slow-tool",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         const observer = await observeSession(harness, created.sessionId);
@@ -1067,6 +1093,96 @@ describe("NeuroAgentHarness black-box contract", () => {
             await new Promise((resolve) => setTimeout(resolve, 0));
             expect(result.status).toBe("completed");
             expect(eventTypes(observer.events)).toContain("tool_execution_end");
+        } finally {
+            releaseTool();
+            await observer.stop();
+        }
+    });
+
+    it("运行中 snapshot 使用 transcript replay anchor 恢复未落盘事件", async () => {
+        let releaseTool = () => {};
+        const toolBlocker = new Promise<void>((resolve) => {
+            releaseTool = resolve;
+        });
+        harness.tools.register({
+            key: "slow_replay_tool",
+            name: "slow_replay_tool",
+            label: "Slow Replay Tool",
+            description: "Waits until released.",
+            parameters: Type.Object({
+                text: Type.String(),
+            }),
+            async execute(_toolCallId, params: unknown) {
+                await toolBlocker;
+                const input = params as {text: string};
+                return {
+                    content: [{type: "text", text: `slow:${input.text}`}],
+                    details: input,
+                };
+            },
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.blackbox.slow-replay",
+                name: "BlackBox Slow Replay",
+            },
+            initialSchema: Type.Object({}),
+            allowedToolKeys: ["slow_replay_tool"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("slow_replay_tool", {text: "payload"}, {id: "slow-replay-1"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage("slow replay done"),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.blackbox.slow-replay",
+            initial: {},
+            workspaceRoot: root,
+        });
+        const observer = await observeSession(harness, created.sessionId);
+        try {
+            const running = harness.invokeAgent({
+                sessionId: created.sessionId,
+                mode: "prompt",
+                message: {text: "run slow replay"},
+            });
+            await waitUntil(() => eventTypes(observer.events).includes("tool_execution_start"), "slow replay tool execution start");
+
+            const runningSnapshot = await harness.getSessionSnapshot(created.sessionId);
+            expect(runningSnapshot.activeInvocation).not.toBeNull();
+            expect(runningSnapshot.eventCursor.after).toBeLessThan(runningSnapshot.latestSeq);
+            expect(runningSnapshot.lastSeq).toBe(runningSnapshot.eventCursor.after);
+            expect(runningSnapshot.entries.some((entry) => entry.type === "message" && entry.message.role === "assistant")).toBe(false);
+
+            const replay = harness.subscribeSessionEvents(created.sessionId, runningSnapshot.eventCursor)[Symbol.asyncIterator]();
+            const replayed: AgentSessionEventDto[] = [];
+            try {
+                await waitUntil(async () => {
+                    const next = await replay.next();
+                    if (next.done) {
+                        return false;
+                    }
+                    replayed.push(next.value);
+                    return eventTypes(replayed).includes("tool_execution_start");
+                }, "running refresh replay reaches tool start");
+            } finally {
+                await replay.return?.();
+            }
+            expect(eventTypes(replayed)).toContain("message_update");
+            expect(eventTypes(replayed)).toContain("tool_execution_start");
+
+            releaseTool();
+            const result = await running;
+            expect(result.status).toBe("completed");
+            const completedSnapshot = await harness.getSessionSnapshot(created.sessionId);
+            expect(completedSnapshot.eventCursor.after).toBe(completedSnapshot.latestSeq);
+            expect(completedSnapshot.lastSeq).toBe(completedSnapshot.eventCursor.after);
+            expect(completedSnapshot.entries.some((entry) => entry.type === "message" && entry.message.role === "assistant")).toBe(true);
+            expect(completedSnapshot.entries.some((entry) => entry.type === "message" && entry.message.role === "toolResult")).toBe(true);
         } finally {
             releaseTool();
             await observer.stop();

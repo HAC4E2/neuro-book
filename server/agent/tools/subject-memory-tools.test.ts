@@ -8,6 +8,7 @@ import type {FauxProviderRegistration} from "@earendil-works/pi-ai";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
 import memoryCuratorProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/memory.curator.profile";
@@ -51,15 +52,15 @@ describe("subject memory tools", () => {
                 key: "test.subject-memory-tools",
                 name: "Subject Memory Tools Test",
             },
-            inputSchema: Type.Object({}),
-            allowedToolKeys: [],
+            initialSchema: Type.Object({}),
+            tools: profileToolsFromKeys([]),
             prepare() {
                 return {};
             },
         }), false);
         const session = await harness.createAgent({
             profileKey: "test.subject-memory-tools",
-            input: {},
+            initial: {},
             workspaceRoot,
         });
         context = {
@@ -368,7 +369,7 @@ describe("subject memory tools", () => {
         }
     });
 
-    it("memory_bio 调用真实 memory.curator profile，应用 JSON Patch 并标记 dirty", async () => {
+    it("subject_memory_update 调用真实 memory.curator profile，应用 JSON Patch 并标记 dirty", async () => {
         const subjectRoot = join(workspaceRoot, "demo", "simulation", "subjects", "heroine");
         await mkdir(subjectRoot, {recursive: true});
         await writeFile(join(subjectRoot, "memory.jsonl"), [
@@ -381,7 +382,6 @@ describe("subject memory tools", () => {
                 fauxToolCall("report_result", {
                     result: "patch ready",
                     data: {
-                        reason: "角色确认二者是同一个人。",
                         patch: [
                             {
                                 op: "replace",
@@ -394,21 +394,20 @@ describe("subject memory tools", () => {
                             },
                             {op: "remove", path: "/0"},
                         ],
-                        summary: "合并艾琳娜与粉色头发女孩。",
                     },
                 }, {id: "curator-report"}),
             ], {stopReason: "toolUse"}),
         ]);
-        const tool = mustTool("memory_bio", harness);
+        const tool = mustTool("subject_memory_update", harness);
 
-        const result = await tool.executeWithContext?.(context, "memory-bio", {
+        const result = await tool.executeWithContext?.(context, "subject-memory-update", {
             subjectPath: "demo/simulation/subjects/heroine",
-            facts: "我确认艾琳娜就是早上帮过我的粉色头发女孩。",
+            facts: ["我确认艾琳娜就是早上帮过我的粉色头发女孩。"],
         });
 
         expect(result?.details).toEqual(expect.objectContaining({
             status: "updated",
-            summary: "合并艾琳娜与粉色头发女孩。",
+            summary: "patch ready",
             dirty: true,
         }));
         expect(parseSubjectMemoriesJsonl(await readFile(join(subjectRoot, "memory.jsonl"), "utf-8"))).toEqual([{
@@ -419,7 +418,7 @@ describe("subject memory tools", () => {
         await expect(readFile(join(workspaceRoot, "demo", ".nbook", "subject-rag-dirty.json"), "utf-8")).resolves.toContain("\"memory\"");
     });
 
-    it("memory_bio 硬切 JSONL，不导入旧 knowledge.md", async () => {
+    it("subject_memory_update 硬切 JSONL，不导入旧 knowledge.md", async () => {
         const subjectRoot = join(workspaceRoot, "demo", "simulation", "subjects", "heroine");
         await mkdir(subjectRoot, {recursive: true});
         await writeFile(join(subjectRoot, "knowledge.md"), "## 艾琳娜\n\n我知道艾琳娜曾经帮过我。", "utf-8");
@@ -428,7 +427,6 @@ describe("subject memory tools", () => {
                 fauxToolCall("report_result", {
                     result: "patch ready",
                     data: {
-                        reason: "只根据本轮 facts 新增记忆，不读取旧 knowledge.md。",
                         patch: [{
                             op: "add",
                             path: "/-",
@@ -437,21 +435,20 @@ describe("subject memory tools", () => {
                                 view: "我今天确认自己仍然记得艾琳娜帮过我。",
                             },
                         }],
-                        summary: "新增艾琳娜记忆。",
                     },
                 }, {id: "curator-hard-cut-report"}),
             ], {stopReason: "toolUse"}),
         ]);
-        const tool = mustTool("memory_bio", harness);
+        const tool = mustTool("subject_memory_update", harness);
 
-        const result = await tool.executeWithContext?.(context, "memory-bio-hard-cut", {
+        const result = await tool.executeWithContext?.(context, "subject-memory-update-hard-cut", {
             subjectPath: "demo/simulation/subjects/heroine",
-            facts: "我今天确认自己仍然记得艾琳娜帮过我。",
+            facts: ["我今天确认自己仍然记得艾琳娜帮过我。"],
         });
 
         expect(result?.details).toEqual(expect.objectContaining({
             status: "updated",
-            summary: "新增艾琳娜记忆。",
+            summary: "patch ready",
         }));
         expect(parseSubjectMemoriesJsonl(await readFile(join(subjectRoot, "memory.jsonl"), "utf-8"))).toEqual([{
             topic: "艾琳娜",
@@ -460,7 +457,7 @@ describe("subject memory tools", () => {
         await expect(readFile(join(workspaceRoot, "demo", ".nbook", "subject-rag-dirty.json"), "utf-8")).resolves.toContain("\"memory\"");
     });
 
-    it("memory_bio patch 校验失败会重试一次，仍失败则 needs_review 且不写文件", async () => {
+    it("subject_memory_update patch 校验失败会重试一次，仍失败则 needs_review 且不写文件", async () => {
         const subjectRoot = join(workspaceRoot, "demo", "simulation", "subjects", "heroine");
         await mkdir(subjectRoot, {recursive: true});
         const original = "{\"topic\":\"艾琳娜\",\"view\":\"她是同班同学。\"}\n";
@@ -470,9 +467,7 @@ describe("subject memory tools", () => {
                 fauxToolCall("report_result", {
                     result: "bad patch",
                     data: {
-                        reason: "错误 patch。",
                         patch: [{op: "replace", path: "/0/view", value: ""}],
-                        summary: "bad",
                     },
                 }, {id: "curator-bad-1"}),
             ], {stopReason: "toolUse"}),
@@ -480,18 +475,16 @@ describe("subject memory tools", () => {
                 fauxToolCall("report_result", {
                     result: "bad patch again",
                     data: {
-                        reason: "仍然错误。",
                         patch: [{op: "add", path: "/-", value: {topic: "", view: "x"}}],
-                        summary: "bad again",
                     },
                 }, {id: "curator-bad-2"}),
             ], {stopReason: "toolUse"}),
         ]);
-        const tool = mustTool("memory_bio", harness);
+        const tool = mustTool("subject_memory_update", harness);
 
-        const result = await tool.executeWithContext?.(context, "memory-bio-bad", {
+        const result = await tool.executeWithContext?.(context, "subject-memory-update-bad", {
             subjectPath: "demo/simulation/subjects/heroine",
-            facts: "事实需要更新，但 curator patch 不合法。",
+            facts: ["事实需要更新，但 curator patch 不合法。"],
         });
 
         expect(result?.details).toEqual(expect.objectContaining({

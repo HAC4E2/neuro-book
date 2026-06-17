@@ -57,7 +57,7 @@ export const AgentResolutionDtoSchema = z.discriminatedUnion("kind", [
 
 export const AgentCreateSessionRequestDtoSchema = z.object({
     profileKey: z.string().trim().min(1, "profileKey 不能为空"),
-    input: JsonValueSchema.optional(),
+    initial: JsonValueSchema.optional(),
     workspaceRoot: z.string().trim().min(1).optional(),
     workspaceKey: z.string().trim().min(1).optional(),
     projectPath: z.string().trim().min(1).optional(),
@@ -67,23 +67,25 @@ export const AgentCreateSessionRequestDtoSchema = z.object({
 export const AgentInvokeRequestDtoSchema = z.object({
     mode: z.enum(["prompt", "continue", "steer", "followup"]),
     message: AgentUserMessageInputDtoSchema.optional(),
+    input: JsonValueSchema.optional(),
+    title: z.string().trim().min(1).optional(),
     resolution: AgentResolutionDtoSchema.optional(),
     clientState: z.lazy(() => ClientVariablesDtoSchema).optional(),
     caller: z.never().optional(),
     block: z.boolean().optional(),
 }).superRefine((value, ctx) => {
-    if ((value.mode === "prompt" || value.mode === "steer" || value.mode === "followup") && !value.message) {
+    if ((value.mode === "prompt" || value.mode === "steer" || value.mode === "followup") && !value.message && value.input === undefined) {
         ctx.addIssue({
             code: "custom",
             path: ["message"],
-            message: `${value.mode} 模式必须提供 message`,
+            message: `${value.mode} 模式必须提供 message 或 input`,
         });
     }
-    if (value.mode === "continue" && value.message) {
+    if (value.mode === "continue" && (value.message || value.input !== undefined)) {
         ctx.addIssue({
             code: "custom",
             path: ["message"],
-            message: "continue 模式不能提供 message",
+            message: "continue 模式不能提供 message 或 input",
         });
     }
 });
@@ -176,6 +178,13 @@ export type ClientVariablesDto = z.infer<typeof ClientVariablesDtoSchema>;
 export type ClientStateSnapshotDto = ClientVariablesDto;
 
 export type AgentSessionStatus = "idle" | "running" | "waiting" | "archived" | "interrupted";
+export type AgentSessionProfileAvailability = "loaded" | "missing" | "unloadable";
+
+export type AgentEventCursorDto = {
+    eventEpoch: string;
+    /** 前端已经处理到的事件序号；订阅 SSE 时使用 after=该值。 */
+    after: number;
+};
 
 export type AgentSessionContextUsageDto = {
     /** 当前 active context 的 token 估算值。 */
@@ -190,6 +199,13 @@ export type AgentSessionContextUsageDto = {
 export type AgentSessionSummaryDto = {
     sessionId: number;
     profileKey: string;
+    /**
+     * 当前 session 引用的 profile 是否仍可用于后续运行。
+     * 为空只会出现在仓储层原始摘要；HTTP runtime 投影会始终填充。
+     */
+    profileAvailability?: AgentSessionProfileAvailability;
+    /** profile 不可继续运行时的用户可读原因；profile 可用时为空。 */
+    profileIssueMessage?: string;
     workspaceKey: string;
     workspaceRoot: string;
     projectPath?: string;
@@ -223,6 +239,12 @@ export type AgentLinkedSessionDto = AgentSessionSummaryDto & {
     detached: boolean;
 };
 
+export type AgentSessionRelationsDto = {
+    sessionId: number;
+    linkedAgents: AgentLinkedSessionDto[];
+    linkedByAgents: AgentLinkedSessionDto[];
+};
+
 export type AgentPendingApprovalDto = {
     assistantMessageId?: string;
     toolCallId: string;
@@ -235,7 +257,8 @@ export type AgentPendingApprovalDto = {
 export type AgentQueuedMessageDto = {
     id: string;
     kind: "steer" | "followup";
-    message: AgentUserMessageInputDto;
+    message?: AgentUserMessageInputDto;
+    input?: JsonValue;
     createdAt: number;
 };
 
@@ -386,6 +409,10 @@ export type AgentSessionEventDto =
 
 export type AgentSessionSnapshotDto = {
     eventEpoch: string;
+    /** 前端应用 snapshot 后继续订阅 SSE 的恢复 cursor。 */
+    eventCursor: AgentEventCursorDto;
+    /** 当前服务端事件流尾部，仅用于调试/对照，不作为恢复 cursor。 */
+    latestSeq: number;
     summary: AgentSessionSummaryDto;
     /** 后台展示标题/摘要维护状态；仅面向 UI，不影响 Agent 运行态。 */
     summarizer?: AgentSessionSummarizerStateDto;
@@ -409,6 +436,7 @@ export type AgentSessionSnapshotDto = {
     /** 当前新 run 实际会传给 PI 的 thinking level。 */
     effectiveThinkingLevel: z.infer<typeof ThinkingLevelSchema>;
     planModeActive: boolean;
+    /** 兼容字段；值等于 eventCursor.after，不再表示 EventHub 尾部。 */
     lastSeq: number;
     usage?: Usage;
     contextUsage?: AgentSessionContextUsageDto;

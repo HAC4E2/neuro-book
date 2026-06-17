@@ -1,11 +1,9 @@
 import {Type} from "typebox";
 
 /**
- * leader.default 的实例初始化参数。它只用于 create_agent，不承载每轮 prompt。
+ * leader.default / leader.assets 的实例初始化参数。Project 归属由 session metadata 承载。
  */
-export const LeaderDefaultInputSchema = Type.Object({
-    role: Type.Optional(Type.String({description: "可选的运行角色提示，用于让 leader 在默认协作模式之外临时偏向某个工作身份。"})),
-});
+export const LeaderDefaultInitialSchema = Type.Object({});
 
 /**
  * leader.default 的结构化输出合同。
@@ -15,12 +13,9 @@ export const LeaderDefaultOutputSchema = Type.Object({
 });
 
 /**
- * simulator.leader 的实例初始化参数。每轮模拟任务通过 invoke_agent.message 传入。
+ * simulator.leader 的实例初始化参数。当前 Project 由 session projectPath / Workspace Focus 承载。
  */
-export const SimulatorLeaderInputSchema = Type.Object({
-    projectPath: Type.String({description: "Project Workspace path, e.g. workspace/silver-dragon-hime."}),
-    simulationRoot: Type.Optional(Type.String({description: "Agent cwd-relative simulation root, e.g. silver-dragon-hime/simulation/. Omit to derive from projectPath."})),
-});
+export const SimulatorLeaderInitialSchema = Type.Object({});
 
 /**
  * simulator.leader 返回普通 assistant 文本，不绑定 report_result.data 结构。
@@ -28,9 +23,19 @@ export const SimulatorLeaderInputSchema = Type.Object({
 export const SimulatorLeaderOutputSchema = Type.Object({});
 
 /**
+ * rp.leader 的实例初始化参数。当前 Project 由 session projectPath / Workspace Focus 承载。
+ */
+export const RpLeaderInitialSchema = Type.Object({});
+
+/**
+ * rp.leader 返回普通 assistant 文本，不绑定 report_result.data 结构。
+ */
+export const RpLeaderOutputSchema = Type.Object({});
+
+/**
  * director 的实例初始化参数。每轮剧情任务通过 invoke_agent.message 传入。
  */
-export const DirectorInputSchema = Type.Object({
+export const DirectorInitialSchema = Type.Object({
     projectPath: Type.String({description: "Project Workspace path, e.g. workspace/silver-dragon-hime."}),
     mode: Type.Optional(Type.Union([
         Type.Literal("writing"),
@@ -75,32 +80,28 @@ export const DirectorOutputSchema = Type.Object({
 /**
  * simulator.actor 的实例初始化参数。每轮 actor-facing message 通过 invoke_agent.message 传入。
  */
-export const SubjectSimulatorInputSchema = Type.Object({
-    actorId: Type.String({description: "本局 subject simulator id，通常与 simulation/subjects/{id}/ 目录名对应。"}),
-    actorName: Type.Optional(Type.String({description: "角色可读名。为空时使用 actorId。"})),
-    kind: Type.Optional(Type.String({description: "actor 类型，例如 player、npc、faction、system。"})),
-    instructionPath: Type.String({description: "subject simulator 指令文件路径，必须相对于 Agent cwd，例如 project-slug/simulation/subjects/erina/subject.md。"}),
-    eventsPath: Type.String({description: "角色经历流 JSONL 路径，必须相对于 Agent cwd，例如 project-slug/simulation/subjects/erina/events.jsonl。"}),
-    memoryPath: Type.String({description: "角色稳定认知 JSONL 路径，必须相对于 Agent cwd，例如 project-slug/simulation/subjects/erina/memory.jsonl。"}),
-    mindPath: Type.String({description: "角色当前思维文件路径，必须相对于 Agent cwd，例如 project-slug/simulation/subjects/erina/mind.md。"}),
-    statePath: Type.String({description: "角色当前状态文件路径，必须相对于 Agent cwd，例如 project-slug/simulation/subjects/erina/state.md。"}),
+export const SubjectSimulatorInitialSchema = Type.Object({
+    subjectPath: Type.String({description: "subject simulator directory path，必须相对于 Agent cwd，例如 project-slug/simulation/subjects/erina。"}),
+    kind: Type.Union([Type.Literal("player"), Type.Literal("npc")], {
+        description: "subject 类型。player：用户化身，actor 不主动行动/抢话，只把 leader 的 directive 第一人称自然化复述；npc：模拟器自由扮演。simulator.leader 调 actor 前按 subject.md frontmatter 的 kind 显式传入。第一版仅支持 player/npc。",
+    }),
 });
 
 /**
  * simulator.actor 通过 report_result.data 返回的结构化角色反应。
  */
 export const SubjectSimulatorOutputSchema = Type.Object({
-    visible_response: Type.String({description: "角色在场景中可被观察到的动作、神态、姿态、沉默或行为反应；没有则填空字符串。"}),
-    spoken_dialogue: Type.String({description: "角色明确说出口的台词；没有则填空字符串。"}),
-    inner_response: Type.String({description: "角色没有直接说出口的情绪、意图、判断、误解或短期打算；没有则填空字符串。"}),
+    visible_response: Type.String({description: "第一人称：旁人能观察到我的动作、神态、姿态、沉默或行为反应；没有则填空字符串。"}),
+    spoken_dialogue: Type.String({description: "第一人称：我说出口的台词原文；没有则填空字符串。"}),
+    inner_response: Type.String({description: "第一人称：我没有说出口的情绪、意图、判断、误解或短期打算；没有则填空字符串。"}),
 });
 
 /**
  * memory.curator 的输入。调用方报告 facts，不指定具体 patch 操作。
  */
-export const MemoryCuratorInputSchema = Type.Object({
+export const MemoryCuratorInitialSchema = Type.Object({
     subjectPath: Type.String({description: "被维护的 subject directory path。"}),
-    facts: Type.String({description: "本轮新增的 subject-facing facts。不要写具体 JSON Patch 操作要求。"}),
+    facts: Type.Array(Type.String({description: "本轮新增的 subject-facing fact。不要写具体 JSON Patch 操作要求。"}), {minItems: 1, description: "本轮新增的 subject-facing facts。调用方只报告事实，不指定具体 patch 操作。"}),
     currentMemories: Type.Array(Type.Object({
         topic: Type.String({description: "当前认知主体。"}),
         aliases: Type.Optional(Type.Array(Type.String(), {description: "旧称、模糊称呼或合并后的别名。"})),
@@ -112,37 +113,30 @@ export const MemoryCuratorInputSchema = Type.Object({
  * memory.curator 通过 report_result.data 返回 JSON Patch。
  */
 export const MemoryCuratorOutputSchema = Type.Object({
-    reason: Type.String({description: "为什么需要或不需要更新 memory.jsonl。"}),
     patch: Type.Array(Type.Object({
         op: Type.String({description: "RFC 6902 operation: add/remove/replace/move/copy/test."}),
         path: Type.String({description: "JSON Pointer path."}),
         from: Type.Optional(Type.String({description: "move/copy 的来源 JSON Pointer。"})),
         value: Type.Optional(Type.Unknown({description: "add/replace/test 的值。"})),
-    }), {description: "应用到 SubjectMemory[] 的 JSON Patch。无更新返回空数组。"}),
-    summary: Type.String({description: "人类可读更新摘要。"}),
+    }, {additionalProperties: false}), {description: "应用到 SubjectMemory[] 的 JSON Patch。无更新返回空数组。"}),
+}, {additionalProperties: false});
+
+/**
+ * rp.writer 的实例初始化参数为空。每轮 Writer Brief 通过 invoke_agent.message 传递。
+ */
+export const RpWriterInitialSchema = Type.Object({}, {
+    additionalProperties: false,
 });
 
 /**
- * rp.writer 的实例初始化参数。每轮 writer brief 通过 invoke_agent.message 传入。
+ * rp.writer 使用 report_result.result 回报问题或写入落点，不绑定 report_result.data 结构。
  */
-export const RpWriterInputSchema = Type.Object({
-    writerInstructionPath: Type.String({description: "RP writer 提示词素材路径，必须相对于 Agent cwd，例如 project-slug/agent-context/rp.writer/context.md。"}),
-    style: Type.Optional(Type.String({description: "稳定文风偏好。临时 Tick 文风要求应放在 writer brief 中。"})),
-    outputRequirements: Type.Optional(Type.Array(Type.String({description: "稳定输出约束，例如人称、篇幅、Markdown 规则。"}), {description: "可选稳定输出约束。"})),
-    language: Type.Optional(Type.String({description: "输出语言，例如 zh-CN。默认跟随 writer brief。"})),
-});
-
-/**
- * rp.writer 的普通输出合同。rp.writer 默认直接回复正文，只有 writer brief 明确要求写入文件时才使用文件工具。
- */
-export const RpWriterOutputSchema = Type.Object({
-    result: Type.Optional(Type.String({description: "可选结果说明。rp.writer 通常直接用普通 assistant 回复输出正文，不要求 report_result。"})),
-});
+export const RpWriterOutputSchema = Type.Object({});
 
 /**
  * summarizer 的实例初始化参数。sourceSessionId 由 harness 注入。
  */
-export const SessionSummarizerInputSchema = Type.Object({
+export const SessionSummarizerInitialSchema = Type.Object({
     sourceSessionId: Type.Number({description: "由 harness 注入的 source session id。"}),
     trigger: Type.Optional(Type.Union([
         Type.Literal("afterInvocation"),
@@ -166,20 +160,43 @@ export const SessionSummarizerOutputSchema = Type.Object({
 });
 
 /**
- * writer 子代理输入：由 leader/create_agent 传入，不承载每轮对话文本。
+ * writer 的长期实例初始化参数为空。每轮写作任务通过 invoke_agent.message + PayloadSchema 传入。
  */
-export const WriterInputSchema = Type.Object({
-    prompt: Type.String({description: "本次写作任务。写清要写什么、是重写还是局部修改、章节边界和交付要求。"}),
-    chapterPaths: Type.Array(Type.String({description: "章节内容节点目录路径，必须相对于 Agent cwd。普通 Project agent 的 cwd 是 workspace 容器根，因此应传 project-slug/manuscript/.../，不要传 manuscript/.../ 或 workspace/project-slug/.../。"}), {
-        minItems: 1,
-        maxItems: 1,
-        description: "本 writer session 绑定的唯一章节。调用方必须先创建章节内容节点，并在 Plot System 中把 Scene 挂到该章节。",
-    }),
-    lorebookEntries: Type.Optional(Type.Array(Type.String({description: "内容节点路径，按 writer agent cwd 解析。writer 会按数组顺序读取 index.md 与同级可选 state.md。"}), {description: "本次写作需要读取的 Lorebook/Manuscript 内容节点路径数组。"})),
-    constraints: Type.Optional(Type.Array(Type.String({description: "额外写作约束、格式约束、禁忌、字数或用户临时偏好。"}), {description: "本轮写作约束列表。"})),
-    writingStylePreset: Type.Optional(Type.String({description: "可选 writing style 预设 key，不是文件路径。系统预设目录：assets/workspace/.nbook/agent/writing-presets/styles；用户覆盖目录：workspace/.nbook/agent/writing-presets/styles。为空使用默认文风。"})),
-    writingReferencePreset: Type.Optional(Type.String({description: "可选 writing reference 预设 key，不是文件路径。系统预设目录：assets/workspace/.nbook/agent/writing-presets/references；用户覆盖目录：workspace/.nbook/agent/writing-presets/references。为空使用默认参考文档。"})),
+export const WriterInitialSchema = Type.Object({}, {
+    additionalProperties: false,
 });
+
+/**
+ * writer 单次 invocation payload。message 承载自然语言任务，payload 只承载目标文件和建议读取清单。
+ */
+export const WriterPayloadSchema = Type.Object({
+    path: Type.String({
+        minLength: 1,
+        description: "本轮写入或修改的目标 Markdown 文件路径，必须是 Workspace Root cwd-relative Project 路径，例如 project-slug/manuscript/001-volume/001-chapter/index.md。writer 只能写这个路径。",
+    }),
+    context: Type.Optional(Type.Object({
+        threadIds: Type.Optional(Type.Array(Type.String({
+            minLength: 1,
+            description: "建议 writer 按需读取的 Thread id。使用 get_story_thread 读取。",
+        }))),
+        sceneIds: Type.Optional(Type.Array(Type.String({
+            minLength: 1,
+            description: "建议 writer 按需读取的 Scene id。使用 get_story_scene_context 读取。",
+        }))),
+        plotIds: Type.Optional(Type.Array(Type.String({
+            minLength: 1,
+            description: "建议 writer 按需读取的 Plot id。使用 get_story_plot_context 读取。",
+        }))),
+        lorebookEntries: Type.Optional(Type.Array(Type.String({
+            minLength: 1,
+            description: "建议 writer 按需读取的内容节点路径，可是 Project 内目录或 .md 文件。",
+        }))),
+        readablePaths: Type.Optional(Type.Array(Type.String({
+            minLength: 1,
+            description: "建议 writer 按需读取的普通 Markdown 文件路径，必须是 Project 内路径。",
+        }))),
+    }, {additionalProperties: false})),
+}, {additionalProperties: false});
 
 /**
  * writer 子代理结构化输出。
@@ -192,7 +209,7 @@ export const WriterOutputSchema = Type.Object({
 /**
  * retrieval 子代理输入。
  */
-export const RetrievalInputSchema = Type.Object({
+export const RetrievalInitialSchema = Type.Object({
     prompt: Type.String({description: "检索请求。写清任务目标、要找什么、给谁用、章节/正文上下文、排除项和数量偏好。"}),
 });
 
@@ -212,7 +229,7 @@ export const RetrievalOutputSchema = Type.Object({
 /**
  * researcher 子代理输入：创建 session 时传入长期研究边界；每轮具体问题通过 invoke_agent.message 继续对话。
  */
-export const ResearcherInputSchema = Type.Object({
+export const ResearcherInitialSchema = Type.Object({
     topic: Type.Optional(Type.String({
         maxLength: 500,
         description: "Long-lived research topic for this researcher session. Omit for a general researcher.",
