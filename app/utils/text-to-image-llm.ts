@@ -1,3 +1,4 @@
+import {escapeAttribute, unescapeAttribute} from "nbook/shared/markdown-workbench";
 import type {
     TextToImageLlmApiConfig,
     TextToImageLlmContextEntry,
@@ -24,6 +25,8 @@ export type TextToImageImagineBlock = {
     inner: string;
     tagName: "imagine" | "image";
     triggerText: string | null;
+    responsePrefix: string;
+    responseIndex: number;
 };
 
 export type TextToImageImagineInsertResult = {
@@ -33,6 +36,31 @@ export type TextToImageImagineInsertResult = {
     appended: number;
     skippedDuplicate: number;
 };
+
+export type TextToImagePromptPlaceholderInsertResult = {
+    markdown: string;
+    inserted: number;
+    matched: number;
+    appended: number;
+};
+
+export type TextToImagePromptPlaceholderReplaceResult = {
+    markdown: string;
+    replaced: boolean;
+    prompt: string;
+};
+
+export type TextToImageGeneratedImageMarkdownInput = {
+    id: string;
+    fileName: string;
+    savedPath: string;
+    dataUrl: string;
+    width: number;
+    height: number;
+    seed: number;
+};
+
+const TEXT_TO_IMAGE_PROMPT_PLACEHOLDER_PATTERN = /<text-to-image-prompt\s+id="([^"]+)">\n?([\s\S]*?)\n?<\/text-to-image-prompt>/giu;
 
 export function buildTextToImageLlmMessages(options: {
     task: TextToImagePromptTask;
@@ -97,8 +125,81 @@ export async function requestTextToImageLlmCompletion(apiConfig: TextToImageLlmA
 }
 
 export function extractImagineBlocks(response: string): TextToImageImagineBlock[] {
-    const imagineBlocks = extractBlocksByTag(response, "imagine");
-    return imagineBlocks.length ? imagineBlocks : extractBlocksByTag(response, "image");
+    return [
+        ...extractBlocksByTag(response, "imagine"),
+        ...extractBlocksByTag(response, "image"),
+    ].sort((left, right) => left.responseIndex - right.responseIndex);
+}
+
+export function insertTextToImagePromptPlaceholdersIntoMarkdown(markdown: string, blocks: TextToImageImagineBlock[]): TextToImagePromptPlaceholderInsertResult {
+    const placements = blocks
+        .map((block, order) => ({
+            block,
+            order,
+            prompt: normalizeBlockText(block.inner),
+            insertAt: resolvePromptPlaceholderInsertAt(markdown, block),
+        }))
+        .filter((placement) => placement.prompt.length > 0);
+    const matchedPlacements = placements
+        .filter((placement) => placement.insertAt >= 0)
+        .sort((left, right) => right.insertAt - left.insertAt || right.order - left.order);
+    const appendedPlacements = placements
+        .filter((placement) => placement.insertAt < 0)
+        .sort((left, right) => left.order - right.order);
+
+    let nextMarkdown = markdown;
+    for (const placement of matchedPlacements) {
+        nextMarkdown = insertBlockAt(nextMarkdown, placement.insertAt, renderTextToImagePromptPlaceholderMarkdown({
+            id: createTextToImagePromptPlaceholderId(placement.order),
+            prompt: placement.prompt,
+        }));
+    }
+    if (appendedPlacements.length) {
+        nextMarkdown = appendBlocks(nextMarkdown, appendedPlacements.map((placement) => renderTextToImagePromptPlaceholderMarkdown({
+            id: createTextToImagePromptPlaceholderId(placement.order),
+            prompt: placement.prompt,
+        })));
+    }
+
+    return {
+        markdown: nextMarkdown,
+        inserted: matchedPlacements.length + appendedPlacements.length,
+        matched: matchedPlacements.length,
+        appended: appendedPlacements.length,
+    };
+}
+
+export function replaceTextToImagePromptPlaceholder(markdown: string, id: string, replacementMarkdown: string): TextToImagePromptPlaceholderReplaceResult {
+    TEXT_TO_IMAGE_PROMPT_PLACEHOLDER_PATTERN.lastIndex = 0;
+    for (const match of markdown.matchAll(TEXT_TO_IMAGE_PROMPT_PLACEHOLDER_PATTERN)) {
+        const matchedId = unescapeAttribute(match[1] ?? "");
+        if (matchedId !== id) {
+            continue;
+        }
+        const index = match.index ?? -1;
+        if (index < 0) {
+            break;
+        }
+        return {
+            markdown: `${markdown.slice(0, index)}${replacementMarkdown}${markdown.slice(index + match[0].length)}`,
+            replaced: true,
+            prompt: (match[2] ?? "").trim(),
+        };
+    }
+    return {markdown, replaced: false, prompt: ""};
+}
+
+export function buildGeneratedImageMarkdown(image: TextToImageGeneratedImageMarkdownInput): string {
+    const url = image.savedPath.trim()
+        ? `/api/text-to-image/image?path=${encodeURIComponent(image.savedPath)}&v=${encodeURIComponent(image.id)}`
+        : image.dataUrl;
+    const titleParts = [
+        image.fileName,
+        image.seed >= 0 ? `seed ${image.seed}` : "",
+        image.width && image.height ? `${image.width}x${image.height}` : "",
+        image.savedPath,
+    ].filter(Boolean);
+    return `![NovelAI 生成图片](${url} "${escapeMarkdownTitle(titleParts.join(" | "))}")`;
 }
 
 export function insertImagineBlocksIntoMarkdown(markdown: string, blocks: TextToImageImagineBlock[]): TextToImageImagineInsertResult {
@@ -187,12 +288,15 @@ function extractBlocksByTag(response: string, tagName: "imagine" | "image"): Tex
     const blocks: TextToImageImagineBlock[] = [];
     for (const match of response.matchAll(pattern)) {
         const raw = match[0];
+        const responseIndex = match.index ?? 0;
         const inner = readTagInner(raw, tagName);
         blocks.push({
             raw: raw.trim(),
             inner,
             tagName,
             triggerText: readTriggerText(inner),
+            responsePrefix: response.slice(0, responseIndex),
+            responseIndex,
         });
     }
     return blocks;
@@ -225,6 +329,16 @@ function normalizeBlockText(value: string): string {
     return value.replace(/^\s*regex\s*:\s*.+?(?:\r?\n|$)/imu, "").trim();
 }
 
+function resolvePromptPlaceholderInsertAt(markdown: string, block: TextToImageImagineBlock): number {
+    if (block.triggerText) {
+        const triggerEnd = findTriggerEnd(markdown, block.triggerText);
+        if (triggerEnd >= 0) {
+            return triggerEnd;
+        }
+    }
+    return findResponseContextEnd(markdown, block.responsePrefix);
+}
+
 function findTriggerEnd(markdown: string, triggerText: string): number {
     const literalIndex = markdown.indexOf(triggerText);
     if (literalIndex >= 0) {
@@ -239,6 +353,56 @@ function findTriggerEnd(markdown: string, triggerText: string): number {
         return -1;
     }
     return -1;
+}
+
+function findResponseContextEnd(markdown: string, responsePrefix: string): number {
+    const cleanPrefix = stripGeneratedImageTags(responsePrefix).trimEnd();
+    if (!cleanPrefix) {
+        return -1;
+    }
+    const normalizedMarkdown = normalizeLineEndingsWithIndexMap(markdown);
+    const normalizedPrefix = normalizeLineEndingsWithIndexMap(cleanPrefix).text;
+    const maxLength = Math.min(360, normalizedPrefix.length);
+    const candidateLengths = [maxLength, 240, 160, 100, 60, 36, 20, 12, 8, 4]
+        .filter((length, index, array) => length > 0 && array.indexOf(length) === index);
+    for (const length of candidateLengths) {
+        const candidate = normalizedPrefix.slice(-length).trimStart();
+        if (candidate.length < Math.min(4, length)) {
+            continue;
+        }
+        const foundAt = normalizedMarkdown.text.lastIndexOf(candidate);
+        if (foundAt >= 0) {
+            const normalizedEnd = foundAt + candidate.length - 1;
+            return (normalizedMarkdown.indexMap[normalizedEnd] ?? normalizedEnd) + 1;
+        }
+    }
+    return -1;
+}
+
+function stripGeneratedImageTags(value: string): string {
+    return value.replace(/<(?:imagine|image)\b[^>]*>[\s\S]*?<\/(?:imagine|image)>/giu, "");
+}
+
+function normalizeLineEndingsWithIndexMap(value: string): {text: string; indexMap: number[]} {
+    let text = "";
+    const indexMap: number[] = [];
+    for (let index = 0; index < value.length; index += 1) {
+        const char = value[index];
+        if (char === "\r") {
+            if (value[index + 1] === "\n") {
+                text += "\n";
+                indexMap.push(index + 1);
+                index += 1;
+                continue;
+            }
+            text += "\n";
+            indexMap.push(index);
+            continue;
+        }
+        text += char;
+        indexMap.push(index);
+    }
+    return {text, indexMap};
 }
 
 function insertBlockAt(markdown: string, index: number, blockText: string): string {
@@ -262,4 +426,16 @@ function blockSeparatorAfter(nextText: string): string {
         return "\n";
     }
     return nextText.startsWith("\n\n") ? "" : nextText.startsWith("\n") ? "\n" : "\n\n";
+}
+
+function createTextToImagePromptPlaceholderId(order: number): string {
+    return `tti-${Date.now().toString(36)}-${order.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function renderTextToImagePromptPlaceholderMarkdown(payload: {id: string; prompt: string}): string {
+    return `<text-to-image-prompt id="${escapeAttribute(payload.id)}">\n${payload.prompt.trim()}\n</text-to-image-prompt>`;
+}
+
+function escapeMarkdownTitle(value: string): string {
+    return value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
 }

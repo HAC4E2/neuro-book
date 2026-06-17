@@ -4,6 +4,7 @@ import type {MarkdownStudioController} from "nbook/app/composables/useMarkdownSt
 import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
 import type {WorkspaceEditorKind, WorkspaceEditorTab, WorkspaceEditorViewMode, WorkspaceFileNode} from "nbook/app/stores/novel-ide";
 import type {WorkspaceReferenceResolver} from "nbook/app/components/markdown-studio/tiptap/WorkspaceReference";
+import type {TextToImagePromptGeneratePayload} from "nbook/app/components/markdown-studio/tiptap/TextToImagePrompt";
 import type {FrontmatterProfileKind, MarkdownEditorPreferences, MonacoEditorPreferences} from "nbook/shared/editor-workbench";
 import {resolveMonacoLanguage, resolveWorkspaceFileExtension} from "nbook/shared/editor-workbench";
 import MarkdownStudio from "nbook/app/components/markdown-studio/MarkdownStudio.vue";
@@ -62,6 +63,7 @@ const emit = defineEmits<{
     (e: "move-tab", path: string, targetPath: string | null, targetPinned: boolean, position: "before" | "after"): void;
     (e: "set-view-mode", mode: WorkspaceEditorViewMode): void;
     (e: "generate-body-image"): void;
+    (e: "generate-text-to-image-prompt", payload: TextToImagePromptGeneratePayload): void;
     (e: "save-request"): void;
     (e: "open-frontmatter-profile", kind: FrontmatterProfileKind): void;
     (e: "update-monaco-temporary-font-size", value: number): void;
@@ -167,6 +169,7 @@ watch(() => props.activePath, () => {
                         @save-request="emit('save-request')"
                         @open-frontmatter-profile="emit('open-frontmatter-profile', $event)"
                         @update-monaco-temporary-font-size="emit('update-monaco-temporary-font-size', $event)"
+                        @generate-text-to-image-prompt="emit('generate-text-to-image-prompt', $event)"
                     />
                     <MarkdownCommentFlowPanel
                         v-if="props.controller.commentViewOpen.value"

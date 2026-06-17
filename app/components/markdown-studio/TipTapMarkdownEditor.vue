@@ -9,6 +9,7 @@ import MarkdownSelectionMenu from "nbook/app/components/markdown-studio/Markdown
 import TipTapFrontmatterPanel from "nbook/app/components/markdown-studio/TipTapFrontmatterPanel.vue";
 import type {MarkdownFormatCommand, MarkdownInlineCommentItem, MarkdownStudioEditorHandle} from "nbook/app/composables/useMarkdownStudioController";
 import {createMarkdownEditorExtensions} from "nbook/app/components/markdown-studio/tiptap/markdown-editor-extensions";
+import type {TextToImagePromptGeneratePayload} from "nbook/app/components/markdown-studio/tiptap/TextToImagePrompt";
 import {collectInlineComments, INLINE_COMMENT_PLUGIN_KEY, type InlineCommentRange} from "nbook/app/components/markdown-studio/tiptap/InlineComment";
 import {useDialog} from "nbook/app/composables/useDialog";
 import {useNotification} from "nbook/app/composables/useNotification";
@@ -70,6 +71,7 @@ const emit = defineEmits<{
     (e: "open-frontmatter-profile", kind: FrontmatterProfileKind): void;
     (e: "inline-comments-change", comments: MarkdownInlineCommentItem[]): void;
     (e: "inline-comment-select", index: number): void;
+    (e: "generate-text-to-image-prompt", payload: TextToImagePromptGeneratePayload): void;
 }>();
 
 const {prompt} = useDialog();
@@ -173,6 +175,7 @@ const editor = useEditor({
         sourcePath: props.activePath,
         resolveReference: props.resolveReference,
         enableQuickTriggers: props.enableQuickTriggers,
+        onGenerateTextToImagePrompt: (payload) => emit("generate-text-to-image-prompt", payload),
     }),
     editable: !props.readonly,
     editorProps: {
@@ -1272,6 +1275,43 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
     border-radius: 4px;
     background: color-mix(in srgb, var(--source-bg) 88%, #000 12%);
     object-fit: contain;
+}
+:deep(.nb-text-to-image-prompt-node) {
+    display: flex;
+    align-items: center;
+    margin: 0.25rem 0 1rem;
+}
+
+:deep(.nb-text-to-image-prompt-button) {
+    display: inline-flex;
+    min-height: 2rem;
+    align-items: center;
+    gap: 0.4rem;
+    border: 1px solid color-mix(in srgb, var(--accent-main) 42%, var(--border-color));
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--accent-bg) 58%, var(--editor-preview-bg));
+    padding: 0.28rem 0.72rem;
+    color: var(--accent-main);
+    font-size: 0.86rem;
+    font-weight: 700;
+    line-height: 1.2;
+    cursor: pointer;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-main) 8%, transparent);
+}
+
+:deep(.nb-text-to-image-prompt-button:hover) {
+    background: color-mix(in srgb, var(--accent-bg) 76%, var(--editor-preview-bg));
+    border-color: color-mix(in srgb, var(--accent-main) 70%, var(--border-color));
+}
+
+:deep(.nb-text-to-image-prompt-button:disabled) {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+:deep(.nb-text-to-image-prompt-button__icon) {
+    width: 1rem;
+    height: 1rem;
 }
 
 :deep(.nb-markdown-editor p.is-editor-empty:first-child::before) {

@@ -14,6 +14,7 @@ import {InlineComment} from "nbook/app/components/markdown-studio/tiptap/InlineC
 import {MarkdownInlineCodeShortcut} from "nbook/app/components/markdown-studio/tiptap/MarkdownInlineCodeShortcut";
 import {MarkdownLink} from "nbook/app/components/markdown-studio/tiptap/MarkdownLink";
 import {MarkdownSlashCommand} from "nbook/app/components/markdown-studio/tiptap/MarkdownSlashCommand";
+import {TextToImagePrompt, type TextToImagePromptGeneratePayload} from "nbook/app/components/markdown-studio/tiptap/TextToImagePrompt";
 import {MarkdownHighlight, MarkdownSubscript, MarkdownSuperscript, MarkdownTextColor} from "nbook/app/components/markdown-studio/tiptap/MarkdownTextMarks";
 import {createFallbackWorkspaceReferenceMeta, WorkspaceReference, type WorkspaceReferenceResolver} from "nbook/app/components/markdown-studio/tiptap/WorkspaceReference";
 
@@ -32,6 +33,7 @@ export interface MarkdownEditorExtensionOptions extends MarkdownSuggestionContro
     sourcePath?: string;
     resolveReference?: WorkspaceReferenceResolver;
     enableQuickTriggers?: boolean;
+    onGenerateTextToImagePrompt?: (payload: TextToImagePromptGeneratePayload) => void;
 }
 
 /**
@@ -49,7 +51,7 @@ export function createMarkdownEditorExtensions(options: MarkdownEditorExtensionO
         TableKit,
         Image.configure({
             inline: true,
-            allowBase64: false,
+            allowBase64: true,
             HTMLAttributes: {
                 class: "nb-markdown-image-node",
             },
@@ -65,6 +67,9 @@ export function createMarkdownEditorExtensions(options: MarkdownEditorExtensionO
         MarkdownCode,
         MarkdownInlineCodeShortcut,
         MarkdownAlign,
+        TextToImagePrompt.configure({
+            onGenerate: options.onGenerateTextToImagePrompt ?? (() => {}),
+        }),
         MarkdownTextColor,
         MarkdownHighlight,
         MarkdownSuperscript,

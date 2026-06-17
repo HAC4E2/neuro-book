@@ -23,6 +23,7 @@ import WorkspaceFileConflictDialog from "nbook/app/components/novel-ide/workspac
 import WorkspaceLocationProfileDialog from "nbook/app/components/novel-ide/workspace/WorkspaceLocationProfileDialog.vue";
 import WorkspaceRuleProfileDialog from "nbook/app/components/novel-ide/workspace/WorkspaceRuleProfileDialog.vue";
 import type {WorkspaceReferencePreviewMeta} from "nbook/app/components/markdown-studio/tiptap/WorkspaceReference";
+import type {TextToImagePromptGeneratePayload} from "nbook/app/components/markdown-studio/tiptap/TextToImagePrompt";
 import {useIdeTheme} from "nbook/app/composables/useIdeTheme";
 import {useAuthSessionState} from "nbook/app/composables/useAuthSessionState";
 import {useMarkdownStudioController} from "nbook/app/composables/useMarkdownStudioController";
@@ -37,9 +38,11 @@ import type {WorkspaceFileChangeEventDto, WorkspaceFileStreamEventDto} from "nbo
 import type {AgentSessionSummaryDto, AgentSkillCatalogItemDto} from "nbook/shared/dto/agent-session.dto";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {
+    buildGeneratedImageMarkdown,
     buildTextToImageLlmMessages,
     extractImagineBlocks,
-    insertImagineBlocksIntoMarkdown,
+    insertTextToImagePromptPlaceholdersIntoMarkdown,
+    replaceTextToImagePromptPlaceholder,
     requestTextToImageLlmCompletion,
 } from "nbook/app/utils/text-to-image-llm";
 import {
@@ -58,6 +61,39 @@ type StreamDoneEvent = {
 
 type StreamErrorEvent = {
     message?: string;
+};
+type TextToImageGenerateResponse = {
+    images: Array<{
+        id: string;
+        createdAt: string;
+        fileName: string;
+        savedPath: string;
+        metadataPath: string;
+        dataUrl: string;
+        mimeType: string;
+        byteLength: number;
+        seed: number;
+        width: number;
+        height: number;
+        model: string;
+        prompt: string;
+        negativePrompt: string;
+    }>;
+    request: {
+        model: string;
+        requestedModel: string;
+        action: "generate";
+        prompt: string;
+        negativePrompt: string;
+        seed: number;
+        width: number;
+        height: number;
+        steps: number;
+        sampler: string;
+        savedDirectory: string;
+        parameters: Record<string, unknown>;
+    };
+    warnings: string[];
 };
 
 type SameDocumentViewTransition = {
@@ -94,6 +130,7 @@ const markdownSkillCatalog = ref<AgentSkillCatalogItemDto[]>([]);
 const markdownSkillCatalogLoaded = ref(false);
 const markdownSkillCatalogLoading = ref(false);
 const bodyImageGenerating = ref(false);
+const bodyImagePromptGeneratingIds = ref<string[]>([]);
 let markdownSkillCatalogRequest: Promise<void> | null = null;
 let workspaceFileSyncRunning = false;
 let pendingWorkspaceFileEvents: WorkspaceFileChangeEventDto[] = [];
@@ -171,7 +208,13 @@ const {
     switchToNovelWorkspace,
     switchToUserAssetsWorkspace,
 } = novelIdeStore;
-const {taskPrompts: textToImageTaskPrompts} = storeToRefs(textToImageStore);
+const {
+    activeStyle: activeTextToImageStyle,
+    generationDraft: textToImageGenerationDraft,
+    novelAi: textToImageNovelAi,
+    output: textToImageOutput,
+    taskPrompts: textToImageTaskPrompts,
+} = storeToRefs(textToImageStore);
 const {mountThemeHost} = useIdeTheme(theme);
 const workspaceFileEvents = useWorkspaceFileEvents();
 const authSessionState = useAuthSessionState();
@@ -782,7 +825,7 @@ const saveCurrentWorkspaceFile = async (): Promise<void> => {
 };
 
 /**
- * 将当前章节作为正文图片生成任务发送给 LLM，并把返回的图片块写回正文。
+ * 将当前章节作为正文图片生成任务发送给 LLM，并把返回的 <image> 块转为正文里的生成按钮。
  */
 const generateBodyImagesForCurrentChapter = async (): Promise<void> => {
     if (bodyImageGenerating.value) {
@@ -811,19 +854,19 @@ const generateBodyImagesForCurrentChapter = async (): Promise<void> => {
         const reply = await requestTextToImageLlmCompletion(apiConfig, messages);
         const blocks = extractImagineBlocks(reply);
         if (!blocks.length) {
-            notification.warning("LLM 回复中没有找到 <imagine> 或 <image> 图片标记。", {title: "正文生图"});
+            notification.warning("LLM 回复中没有找到 <image> 图片标记。", {title: "正文生图"});
             return;
         }
-        const result = insertImagineBlocksIntoMarkdown(selectedFileContent.value, blocks);
+        const result = insertTextToImagePromptPlaceholdersIntoMarkdown(selectedFileContent.value, blocks);
         if (!result.inserted) {
-            notification.warning("没有新的图片标记可插入，可能已经插入过相同内容。", {title: "正文生图"});
+            notification.warning("没有可插入的图片按钮，请检查 <image> 标签内是否包含 NovelAI tag。", {title: "正文生图"});
             return;
         }
         selectedFileContent.value = result.markdown;
         await nextTick();
         await saveCurrentWorkspaceFile();
         const appendedText = result.appended ? `，追加 ${result.appended} 个` : "";
-        notification.success(`已插入 ${result.inserted} 个正文生图标记（匹配 ${result.matched} 个${appendedText}）。`);
+        notification.success(`已插入 ${result.inserted} 个生成图片按钮（匹配 ${result.matched} 个${appendedText}）。`);
     } catch (error) {
         notification.error(resolveApiErrorMessage(error, "正文生图请求失败"), {title: "正文生图"});
     } finally {
@@ -831,6 +874,71 @@ const generateBodyImagesForCurrentChapter = async (): Promise<void> => {
     }
 };
 
+/**
+ * 点击正文中的生成图片按钮后，调用 NovelAI 并用返回图片替换对应按钮。
+ */
+const generateImageForBodyPrompt = async (payload: TextToImagePromptGeneratePayload): Promise<void> => {
+    const id = payload.id.trim();
+    const promptText = payload.prompt.trim();
+    if (!id || !promptText) {
+        notification.warning("图片按钮缺少可发送给 NovelAI 的 tag。", {title: "正文生图"});
+        return;
+    }
+    if (bodyImagePromptGeneratingIds.value.includes(id)) {
+        return;
+    }
+    if (!isEditableManuscriptMarkdown.value) {
+        notification.warning("请先打开包含该图片按钮的可编辑正文章节。", {title: "正文生图"});
+        return;
+    }
+    if (!selectedFileContent.value.includes(id)) {
+        notification.warning("当前正文中没有找到这个生成图片按钮，可能已经被替换或删除。", {title: "正文生图"});
+        return;
+    }
+    if (!textToImageNovelAi.value.token.trim()) {
+        notification.warning("请先在文生图分页配置 NovelAI Persistent Token。", {title: "正文生图"});
+        return;
+    }
+
+    bodyImagePromptGeneratingIds.value = [...bodyImagePromptGeneratingIds.value, id];
+    try {
+        const result = await $fetch<TextToImageGenerateResponse>("/api/text-to-image/generate", {
+            method: "POST",
+            body: {
+                novelAi: textToImageNovelAi.value,
+                style: activeTextToImageStyle.value,
+                character: null,
+                prompt: promptText,
+                negativePrompt: textToImageGenerationDraft.value.negativePrompt,
+                output: textToImageOutput.value,
+            },
+        });
+        const image = result.images[0];
+        if (!image) {
+            notification.warning("NovelAI 返回结果中没有图片。", {title: "正文生图"});
+            return;
+        }
+
+        const replacement = buildGeneratedImageMarkdown(image);
+        const replaced = replaceTextToImagePromptPlaceholder(selectedFileContent.value, id, replacement);
+        if (!replaced.replaced) {
+            notification.warning("图片已生成，但正文中的按钮已经不存在；可在文生图结果历史中查看。", {title: "正文生图"});
+            textToImageStore.prependGenerationResults(result.images);
+            return;
+        }
+
+        selectedFileContent.value = replaced.markdown;
+        textToImageStore.prependGenerationResults(result.images);
+        await nextTick();
+        await saveCurrentWorkspaceFile();
+        const warningText = result.warnings.length ? `；${result.warnings.join("；")}` : "";
+        notification.success(`图片已生成并插入正文${warningText}`, {title: "正文生图"});
+    } catch (error) {
+        notification.error(resolveApiErrorMessage(error, "NovelAI 生图失败"), {title: "正文生图"});
+    } finally {
+        bodyImagePromptGeneratingIds.value = bodyImagePromptGeneratingIds.value.filter((entry) => entry !== id);
+    }
+};
 /**
  * 切换工作区编辑模式。
  */
@@ -1952,6 +2060,7 @@ onBeforeUnmount(() => {
                             @move-tab="moveWorkspaceTab"
                             @set-view-mode="setCurrentWorkspaceViewMode"
                             @generate-body-image="void generateBodyImagesForCurrentChapter()"
+                            @generate-text-to-image-prompt="void generateImageForBodyPrompt($event)"
                             @update-monaco-temporary-font-size="setMonacoFontSizeOverride(displayActiveWorkspaceTabPath, $event)"
                             @save-request="void saveCurrentWorkspaceFile()"
                             @open-frontmatter-profile="openFrontmatterProfile"
