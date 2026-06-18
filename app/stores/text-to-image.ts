@@ -71,6 +71,13 @@ export type TextToImageLlmTaskBinding = {
     contextPresetId: string;
 };
 
+export type TextToImageLastLlmExchange = {
+    task: TextToImagePromptTask | "";
+    prompt: string;
+    response: string;
+    updatedAt: string | null;
+};
+
 export type TextToImageOutputSettings = {
     imageSavePath: string;
 };
@@ -138,6 +145,8 @@ export type TextToImageCharacter = {
     cnName: string;
     enName: string;
     portraitDataUrl: string;
+    portraitHistory: TextToImageGenerationResult[];
+    activePortraitIndex: number;
     photoPrompt: string;
     sendPhoto: boolean;
     profileTraits: string;
@@ -156,7 +165,7 @@ export type TextToImageCharacter = {
     sourceCharacterPath: string;
 };
 
-export type TextToImageCharacterTagKey = Exclude<keyof TextToImageCharacter, "id" | "cnName" | "enName" | "portraitDataUrl" | "photoPrompt" | "sendPhoto" | "sourceProjectPath" | "sourceNovelTitle" | "sourceCharacterPath">;
+export type TextToImageCharacterTagKey = Exclude<keyof TextToImageCharacter, "id" | "cnName" | "enName" | "portraitDataUrl" | "portraitHistory" | "activePortraitIndex" | "photoPrompt" | "sendPhoto" | "sourceProjectPath" | "sourceNovelTitle" | "sourceCharacterPath">;
 
 export type TextToImageProjectCharacterGroup = {
     projectPath: string;
@@ -236,6 +245,13 @@ const DEFAULT_GENERATION_DRAFT: TextToImageGenerationDraft = {
     prompt: "",
     negativePrompt: "",
     includeActiveCharacter: true,
+};
+
+const DEFAULT_LAST_LLM_EXCHANGE: TextToImageLastLlmExchange = {
+    task: "",
+    prompt: "",
+    response: "",
+    updatedAt: null,
 };
 
 const DEFAULT_NOVEL_AI_SETTINGS: NovelAiApiSettings = {
@@ -437,10 +453,16 @@ function createStylePreset(name = "默认画风串"): TextToImageStylePreset {
  */
 function createCharacter(name = "新角色", patch: Partial<TextToImageCharacter> = {}): TextToImageCharacter {
     const id = patch.id ?? createLocalId("character");
+    const portraitHistory = Array.isArray(patch.portraitHistory)
+        ? patch.portraitHistory.filter((item): item is TextToImageGenerationResult => Boolean(item && typeof item === "object"))
+        : [];
+    const activePortraitIndex = Math.min(
+        Math.max(0, portraitHistory.length - 1),
+        Math.max(0, Math.round(Number(patch.activePortraitIndex ?? Math.max(0, portraitHistory.length - 1)))),
+    );
     return {
         cnName: name,
         enName: "",
-        portraitDataUrl: "",
         photoPrompt: "",
         sendPhoto: false,
         profileTraits: "",
@@ -458,6 +480,9 @@ function createCharacter(name = "新角色", patch: Partial<TextToImageCharacter
         sourceNovelTitle: "",
         sourceCharacterPath: "",
         ...patch,
+        portraitDataUrl: patch.portraitDataUrl ?? portraitHistory[activePortraitIndex]?.dataUrl ?? "",
+        portraitHistory,
+        activePortraitIndex,
         id,
     };
 }
@@ -611,6 +636,16 @@ function normalizeTagVocabularySource(source: Partial<TextToImageTagVocabularySo
     return createTagVocabularySource(fallbackName, source);
 }
 
+function normalizeLastLlmExchange(exchange: Partial<TextToImageLastLlmExchange> = {}): TextToImageLastLlmExchange {
+    const task = TEXT_TO_IMAGE_PROMPT_TASKS.some((item) => item.key === exchange.task) ? exchange.task ?? "" : "";
+    return {
+        task,
+        prompt: exchange.prompt ?? "",
+        response: exchange.response ?? "",
+        updatedAt: exchange.updatedAt ?? null,
+    };
+}
+
 /**
  * 文生图配置工作台的本地状态。
  */
@@ -628,6 +663,7 @@ export const useTextToImageStore = defineStore("textToImage", () => {
     const llmContextPresets = ref<TextToImageLlmContextPreset[]>([defaultContextPreset]);
     const activeLlmContextPresetId = ref(defaultContextPreset.id);
     const llmTaskBindings = ref<Record<TextToImagePromptTask, TextToImageLlmTaskBinding>>(createDefaultLlmTaskBindings(llm.value.activeApiConfigId, defaultContextPreset.id));
+    const lastLlmExchange = ref<TextToImageLastLlmExchange>({...DEFAULT_LAST_LLM_EXCHANGE});
     const stylePresets = ref<TextToImageStylePreset[]>([defaultStyle]);
     const activeStyleId = ref(defaultStyle.id);
     const currentProjectPath = ref(DEFAULT_PROJECT_KEY);
@@ -693,6 +729,7 @@ export const useTextToImageStore = defineStore("textToImage", () => {
         novelAi.value = normalizeNovelAiSettings(novelAi.value);
         output.value = normalizeOutputSettings(output.value);
         generationDraft.value = normalizeGenerationDraft(generationDraft.value);
+        lastLlmExchange.value = normalizeLastLlmExchange(lastLlmExchange.value);
         tagVocabularySources.value = tagVocabularySources.value.map((source, index) => normalizeTagVocabularySource(source, index === 0 ? "默认词库" : `tagData ${index + 1}`));
         if (activeTagVocabularySourceId.value && !tagVocabularySources.value.some((source) => source.id === activeTagVocabularySourceId.value)) {
             activeTagVocabularySourceId.value = "";
@@ -1101,6 +1138,13 @@ export const useTextToImageStore = defineStore("textToImage", () => {
         return {apiConfig, contextPreset};
     }
 
+    function recordLlmExchange(exchange: {task: TextToImagePromptTask; prompt: string; response: string}): void {
+        lastLlmExchange.value = normalizeLastLlmExchange({
+            ...exchange,
+            updatedAt: new Date().toISOString(),
+        });
+    }
+
     /**
      * 新增画风串并设为当前启用。
      */
@@ -1366,12 +1410,14 @@ export const useTextToImageStore = defineStore("textToImage", () => {
         generationDraft,
         generationResults,
         importTaskPrompt,
+        lastLlmExchange,
         llm,
         llmContextPresets,
         llmTaskBindings,
         novelAi,
         output,
         prependGenerationResults,
+        recordLlmExchange,
         resolveLlmTaskBinding,
         saveActiveLlmApiConfig,
         selectCharacter,
@@ -1407,6 +1453,7 @@ export const useTextToImageStore = defineStore("textToImage", () => {
             "llmContextPresets",
             "activeLlmContextPresetId",
             "llmTaskBindings",
+            "lastLlmExchange",
             "stylePresets",
             "activeStyleId",
             "currentProjectPath",

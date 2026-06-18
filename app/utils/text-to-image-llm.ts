@@ -4,8 +4,14 @@ import type {
     TextToImageLlmContextEntry,
     TextToImageLlmContextPreset,
     TextToImageLlmContextRole,
+    TextToImageGenerationResult,
     TextToImagePromptTask,
 } from "nbook/app/stores/text-to-image";
+import {
+    parseTextToImageResultMarkdown,
+    renderTextToImageResultMarkdown,
+    type TextToImageResultPayload,
+} from "nbook/app/components/markdown-studio/tiptap/TextToImageResult";
 
 export type TextToImageLlmMessage = {
     role: TextToImageLlmContextRole;
@@ -50,6 +56,12 @@ export type TextToImagePromptPlaceholderReplaceResult = {
     prompt: string;
 };
 
+export type TextToImageResultReplaceResult = {
+    markdown: string;
+    replaced: boolean;
+    payload: TextToImageResultPayload | null;
+};
+
 export type TextToImageGeneratedImageMarkdownInput = {
     id: string;
     fileName: string;
@@ -60,7 +72,14 @@ export type TextToImageGeneratedImageMarkdownInput = {
     seed: number;
 };
 
+export type TextToImageGeneratedImageResultMarkdownInput = {
+    id: string;
+    activeIndex?: number;
+    images: TextToImageGenerationResult[];
+};
+
 const TEXT_TO_IMAGE_PROMPT_PLACEHOLDER_PATTERN = /<text-to-image-prompt\s+id="([^"]+)">\n?([\s\S]*?)\n?<\/text-to-image-prompt>/giu;
+const TEXT_TO_IMAGE_RESULT_MARKDOWN_PATTERN = /<text-to-image-result\s+id="([^"]+)">\n?([\s\S]*?)\n?<\/text-to-image-result>/giu;
 
 export function buildTextToImageLlmMessages(options: {
     task: TextToImagePromptTask;
@@ -200,6 +219,39 @@ export function buildGeneratedImageMarkdown(image: TextToImageGeneratedImageMark
         image.savedPath,
     ].filter(Boolean);
     return `![NovelAI 生成图片](${url} "${escapeMarkdownTitle(titleParts.join(" | "))}")`;
+}
+
+export function buildGeneratedImageResultMarkdown(input: TextToImageGeneratedImageResultMarkdownInput): string {
+    return renderTextToImageResultMarkdown({
+        id: input.id,
+        activeIndex: input.activeIndex ?? Math.max(0, input.images.length - 1),
+        items: input.images,
+    });
+}
+
+export function replaceTextToImageResultMarkdown(markdown: string, id: string, replacementMarkdown: string): TextToImageResultReplaceResult {
+    TEXT_TO_IMAGE_RESULT_MARKDOWN_PATTERN.lastIndex = 0;
+    for (const match of markdown.matchAll(TEXT_TO_IMAGE_RESULT_MARKDOWN_PATTERN)) {
+        const matchedId = unescapeAttribute(match[1] ?? "");
+        if (matchedId !== id) {
+            continue;
+        }
+        const index = match.index ?? -1;
+        if (index < 0) {
+            break;
+        }
+        return {
+            markdown: `${markdown.slice(0, index)}${replacementMarkdown}${markdown.slice(index + match[0].length)}`,
+            replaced: true,
+            payload: parseTextToImageResultMarkdown(match[0]),
+        };
+    }
+    return {markdown, replaced: false, payload: null};
+}
+
+export function createTextToImageGeneratedResultId(sourceId: string): string {
+    const normalized = sourceId.trim().replace(/[^\w-]+/gu, "-").replace(/^-+|-+$/gu, "");
+    return `tti-result-${normalized || Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 export function insertImagineBlocksIntoMarkdown(markdown: string, blocks: TextToImageImagineBlock[]): TextToImageImagineInsertResult {

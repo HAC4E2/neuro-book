@@ -27,6 +27,7 @@ import {
     type TextToImageVibeReference,
 } from "nbook/app/stores/text-to-image";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
+import {enqueueTextToImageGeneration, type TextToImageGenerationQueueStatus} from "nbook/app/utils/text-to-image-generation-queue";
 import type {WorkspaceTreeSnapshotDto} from "nbook/shared/dto/workspace-tree.dto";
 
 type StyleTextFieldKey = "positivePrefix" | "positiveSuffix" | "negativePrefix" | "negativeSuffix";
@@ -173,10 +174,12 @@ const llmConnectionMessage = ref("");
 const outputSettingsOpen = ref(false);
 const selectingOutputPath = ref(false);
 const generatingImage = ref(false);
+const imageGenerationStatus = ref<"idle" | TextToImageGenerationQueueStatus>("idle");
 const generationError = ref("");
 const generationWarnings = ref<string[]>([]);
 const lastGenerationRequest = ref<TextToImageGenerateResponse["request"] | null>(null);
 const generatingCharacterImage = ref(false);
+const characterImageGenerationStatus = ref<"idle" | TextToImageGenerationQueueStatus>("idle");
 const characterPromptDialogOpen = ref(false);
 const characterPromptDialogMode = ref<CharacterPromptDialogMode>("photoPrompt");
 const characterPromptRequirement = ref("");
@@ -191,6 +194,8 @@ const collapsedSections = ref<Record<TextToImagePanelSection, boolean>>({
     llm: false,
     characters: false,
 });
+const generationButtonLabel = computed(() => imageGenerationStatus.value === "queued" ? "排队中" : imageGenerationStatus.value === "running" ? "生成中" : "生成");
+const characterImageGenerationLabel = computed(() => characterImageGenerationStatus.value === "queued" ? "排队中" : characterImageGenerationStatus.value === "running" ? "生成中" : "生成图片");
 
 const novelAiModelOptions: SelectOption[] = [
     {value: "nai-diffusion-4-5-full", label: "NAI Diffusion V4.5 Full"},
@@ -451,17 +456,25 @@ async function generateTextToImage(): Promise<void> {
     }
 
     generatingImage.value = true;
+    imageGenerationStatus.value = "queued";
     try {
-        const result = await $fetch<TextToImageGenerateResponse>("/api/text-to-image/generate", {
-            method: "POST",
-            body: {
-                novelAi: novelAi.value,
-                style: activeStyle.value,
-                character: generationDraft.value.includeActiveCharacter ? activeCharacter.value : null,
-                prompt: generationDraft.value.prompt,
-                negativePrompt: generationDraft.value.negativePrompt,
-                output: output.value,
+        notification.info("文生图请求已加入队列。");
+        const result = await enqueueTextToImageGeneration<TextToImageGenerateResponse>({
+            id: `panel-generation:${Date.now().toString(36)}`,
+            onStatusChange: (status) => {
+                imageGenerationStatus.value = status === "done" || status === "error" ? "idle" : status;
             },
+            run: () => $fetch<TextToImageGenerateResponse>("/api/text-to-image/generate", {
+                method: "POST",
+                body: {
+                    novelAi: novelAi.value,
+                    style: activeStyle.value,
+                    character: generationDraft.value.includeActiveCharacter ? activeCharacter.value : null,
+                    prompt: generationDraft.value.prompt,
+                    negativePrompt: generationDraft.value.negativePrompt,
+                    output: output.value,
+                },
+            }),
         });
         store.prependGenerationResults(result.images);
         generationWarnings.value = result.warnings;
@@ -472,6 +485,7 @@ async function generateTextToImage(): Promise<void> {
         notification.error(generationError.value);
     } finally {
         generatingImage.value = false;
+        imageGenerationStatus.value = "idle";
     }
 }
 
@@ -494,30 +508,47 @@ async function generateActiveCharacterImage(): Promise<void> {
     }
 
     generatingCharacterImage.value = true;
+    characterImageGenerationStatus.value = "queued";
     try {
-        const result = await $fetch<TextToImageGenerateResponse>("/api/text-to-image/generate", {
-            method: "POST",
-            body: {
-                novelAi: novelAi.value,
-                style: activeStyle.value,
-                character,
-                prompt,
-                negativePrompt: generationDraft.value.negativePrompt,
-                output: output.value,
+        notification.info("角色照片生成请求已加入队列。");
+        const result = await enqueueTextToImageGeneration<TextToImageGenerateResponse>({
+            id: `panel-character-portrait:${character.id}:${Date.now().toString(36)}`,
+            onStatusChange: (status) => {
+                characterImageGenerationStatus.value = status === "done" || status === "error" ? "idle" : status;
             },
+            run: () => $fetch<TextToImageGenerateResponse>("/api/text-to-image/generate", {
+                method: "POST",
+                body: {
+                    novelAi: novelAi.value,
+                    style: activeStyle.value,
+                    character,
+                    prompt,
+                    negativePrompt: generationDraft.value.negativePrompt,
+                    output: output.value,
+                },
+            }),
         });
         store.prependGenerationResults(result.images);
         generationWarnings.value = result.warnings;
         lastGenerationRequest.value = result.request;
-        const portrait = result.images[0]?.dataUrl ?? "";
+        const portrait = result.images[0] ?? null;
         if (portrait) {
-            store.updateCharacter(character.id, {portraitDataUrl: portrait});
+            const nextHistory = [
+                ...(Array.isArray(character.portraitHistory) ? character.portraitHistory : []),
+                portrait,
+            ];
+            store.updateCharacter(character.id, {
+                portraitDataUrl: portrait.dataUrl,
+                portraitHistory: nextHistory,
+                activePortraitIndex: nextHistory.length - 1,
+            });
         }
         notification.success(`角色照片已生成并保存：${result.images[0]?.fileName ?? "图片"}`);
     } catch (error) {
         notification.error(resolveApiErrorMessage(error, "角色照片生成失败"));
     } finally {
         generatingCharacterImage.value = false;
+        characterImageGenerationStatus.value = "idle";
     }
 }
 
@@ -539,7 +570,11 @@ async function importCharacterPhoto(event: Event): Promise<void> {
         return;
     }
     const dataUrl = await readFileAsDataUrl(file);
-    store.updateCharacter(activeCharacter.value.id, {portraitDataUrl: dataUrl});
+    store.updateCharacter(activeCharacter.value.id, {
+        portraitDataUrl: dataUrl,
+        portraitHistory: [],
+        activePortraitIndex: 0,
+    });
 }
 
 /**
@@ -1289,6 +1324,16 @@ async function requestCharacterDesign(detail: SourceCharacterDetail): Promise<st
     if (llm.value.apiKey.trim()) {
         headers.Authorization = `Bearer ${llm.value.apiKey.trim()}`;
     }
+    const messages: ChatCompletionMessage[] = [
+        {
+            role: "system",
+            content: taskPrompts.value.characterDesign.prompt.trim() || "你是 NovelAI 角色与服装 tag 设计助手。",
+        },
+        {
+            role: "user",
+            content: buildCharacterDesignMessage(detail),
+        },
+    ];
     const response = await fetch(`${apiBaseUrl}/chat/completions`, {
         method: "POST",
         headers,
@@ -1297,16 +1342,7 @@ async function requestCharacterDesign(detail: SourceCharacterDetail): Promise<st
             temperature: llm.value.parameters.temperature,
             top_p: llm.value.parameters.topP,
             max_tokens: llm.value.parameters.maxTokens,
-            messages: [
-                {
-                    role: "system",
-                    content: taskPrompts.value.characterDesign.prompt.trim() || "你是 NovelAI 角色与服装 tag 设计助手。",
-                },
-                {
-                    role: "user",
-                    content: buildCharacterDesignMessage(detail),
-                },
-            ],
+            messages,
         }),
     });
     if (!response.ok) {
@@ -1318,6 +1354,11 @@ async function requestCharacterDesign(detail: SourceCharacterDetail): Promise<st
     if (!content) {
         throw new Error("LLM 没有返回可用内容");
     }
+    store.recordLlmExchange({
+        task: "characterDesign",
+        prompt: formatChatCompletionMessages(messages),
+        response: content,
+    });
     return content;
 }
 
@@ -1349,7 +1390,7 @@ async function requestCharacterPhotoPrompt(character: TextToImageCharacter, requ
             role: "user",
             content: userContent,
         },
-    ]);
+    ], "characterDesign");
     return content.replace(/^```(?:text|txt|markdown)?/iu, "").replace(/```$/u, "").trim();
 }
 
@@ -1366,13 +1407,13 @@ async function requestCharacterRevision(character: TextToImageCharacter, directi
             role: "user",
             content: buildCharacterRevisionMessage(character, direction),
         },
-    ]);
+    ], "characterRevision");
 }
 
 /**
  * 统一调用 OpenAI-compatible chat completions 接口。
  */
-async function requestLlmChatCompletion(messages: ChatCompletionMessage[]): Promise<string> {
+async function requestLlmChatCompletion(messages: ChatCompletionMessage[], task: TextToImagePromptTask): Promise<string> {
     const apiBaseUrl = llm.value.apiBaseUrl.trim().replace(/\/+$/, "");
     const headers: HeadersInit = {"Content-Type": "application/json"};
     if (llm.value.apiKey.trim()) {
@@ -1398,7 +1439,26 @@ async function requestLlmChatCompletion(messages: ChatCompletionMessage[]): Prom
     if (!content) {
         throw new Error("LLM 没有返回可用内容");
     }
+    store.recordLlmExchange({
+        task,
+        prompt: formatChatCompletionMessages(messages),
+        response: content,
+    });
     return content;
+}
+
+function formatChatCompletionMessages(messages: ChatCompletionMessage[]): string {
+    return messages.map((message, index) => [
+        `#${index + 1} ${message.role.toUpperCase()}`,
+        formatChatCompletionContent(message.content),
+    ].join("\n")).join("\n\n");
+}
+
+function formatChatCompletionContent(content: ChatCompletionMessage["content"]): string {
+    if (typeof content === "string") {
+        return content;
+    }
+    return content.map((part) => part.type === "text" ? part.text : "[image reference omitted]").join("\n");
 }
 
 function buildCharacterDesignMessage(detail: SourceCharacterDetail): string {
@@ -1612,7 +1672,7 @@ function readFileAsDataUrl(file: File): Promise<string> {
                     <div class="flex w-[5.75rem] items-center justify-end">
                         <button type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--accent-main)] px-2 text-[11px] text-[var(--accent-text)] transition-colors hover:bg-[var(--accent-bg)] disabled:cursor-not-allowed disabled:border-[var(--border-color)] disabled:text-[var(--text-muted)]" :disabled="!canGenerateTextToImage" @click.stop="generateTextToImage">
                             <span class="h-3.5 w-3.5" :class="generatingImage ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-send'"></span>
-                            <span>{{ generatingImage ? "生成中" : "生成" }}</span>
+                            <span>{{ generationButtonLabel }}</span>
                         </button>
                     </div>
                 </div>
@@ -2223,7 +2283,7 @@ function readFileAsDataUrl(file: File): Promise<string> {
                                     <div class="grid gap-2 md:grid-cols-3">
                                         <button type="button" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-[var(--accent-main)] px-3 text-[12px] text-[var(--accent-text)] transition-colors hover:bg-[var(--accent-bg)] disabled:cursor-not-allowed disabled:border-[var(--border-color)] disabled:text-[var(--text-muted)]" :disabled="generatingCharacterImage || !activeCharacter.photoPrompt.trim()" @click="generateActiveCharacterImage">
                                             <span class="h-4 w-4" :class="generatingCharacterImage ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-wand-sparkles'"></span>
-                                            <span>{{ generatingCharacterImage ? "生成中" : "生成图片" }}</span>
+                                            <span>{{ characterImageGenerationLabel }}</span>
                                         </button>
                                         <button type="button" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="openCharacterPhotoPromptDialog">
                                             <span class="i-lucide-lightbulb h-4 w-4"></span>

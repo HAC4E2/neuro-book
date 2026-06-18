@@ -10,6 +10,7 @@ import TipTapFrontmatterPanel from "nbook/app/components/markdown-studio/TipTapF
 import type {MarkdownFormatCommand, MarkdownInlineCommentItem, MarkdownStudioEditorHandle} from "nbook/app/composables/useMarkdownStudioController";
 import {createMarkdownEditorExtensions} from "nbook/app/components/markdown-studio/tiptap/markdown-editor-extensions";
 import type {TextToImagePromptGeneratePayload} from "nbook/app/components/markdown-studio/tiptap/TextToImagePrompt";
+import type {TextToImageResultPayload} from "nbook/app/components/markdown-studio/tiptap/TextToImageResult";
 import {collectInlineComments, INLINE_COMMENT_PLUGIN_KEY, type InlineCommentRange} from "nbook/app/components/markdown-studio/tiptap/InlineComment";
 import {useDialog} from "nbook/app/composables/useDialog";
 import {useNotification} from "nbook/app/composables/useNotification";
@@ -72,6 +73,8 @@ const emit = defineEmits<{
     (e: "inline-comments-change", comments: MarkdownInlineCommentItem[]): void;
     (e: "inline-comment-select", index: number): void;
     (e: "generate-text-to-image-prompt", payload: TextToImagePromptGeneratePayload): void;
+    (e: "open-text-to-image-result-viewer", payload: TextToImageResultPayload): void;
+    (e: "open-text-to-image-result-actions", payload: TextToImageResultPayload): void;
 }>();
 
 const {prompt} = useDialog();
@@ -176,6 +179,8 @@ const editor = useEditor({
         resolveReference: props.resolveReference,
         enableQuickTriggers: props.enableQuickTriggers,
         onGenerateTextToImagePrompt: (payload) => emit("generate-text-to-image-prompt", payload),
+        onOpenTextToImageResultViewer: (payload) => emit("open-text-to-image-result-viewer", payload),
+        onOpenTextToImageResultActions: (payload) => emit("open-text-to-image-result-actions", payload),
     }),
     editable: !props.readonly,
     editorProps: {
@@ -1268,14 +1273,20 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
 
 :deep(.nb-markdown-editor img.nb-markdown-image-node) {
     display: block;
-    max-width: min(100%, 560px);
-    max-height: 360px;
-    margin: 0.25rem 0 1rem;
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    margin: 0.5rem auto 1.25rem;
     border: 1px solid var(--border-color);
-    border-radius: 4px;
+    border-radius: 6px;
     background: color-mix(in srgb, var(--source-bg) 88%, #000 12%);
     object-fit: contain;
 }
+
+:deep(.nb-markdown-editor p:has(> img.nb-markdown-image-node:only-child)) {
+    text-indent: 0;
+}
+
 :deep(.nb-text-to-image-prompt-node) {
     display: flex;
     align-items: center;
@@ -1304,14 +1315,111 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
     border-color: color-mix(in srgb, var(--accent-main) 70%, var(--border-color));
 }
 
+:deep(.nb-text-to-image-prompt-button.is-generating) {
+    border-color: color-mix(in srgb, var(--accent-main) 78%, var(--border-color));
+    background: color-mix(in srgb, var(--accent-bg) 84%, var(--editor-preview-bg));
+    color: var(--accent-text);
+    cursor: wait;
+    opacity: 1;
+}
+
 :deep(.nb-text-to-image-prompt-button:disabled) {
     cursor: not-allowed;
     opacity: 0.55;
 }
 
+:deep(.nb-text-to-image-prompt-button.is-generating:disabled) {
+    cursor: wait;
+    opacity: 1;
+}
+
 :deep(.nb-text-to-image-prompt-button__icon) {
     width: 1rem;
     height: 1rem;
+}
+
+:deep(.nb-text-to-image-prompt-button__icon--spin) {
+    animation: nb-text-to-image-spin 0.9s linear infinite;
+}
+
+:deep(.nb-text-to-image-result-node) {
+    display: block;
+    width: 100%;
+    margin: 0.5rem auto 1.25rem;
+    text-indent: 0;
+}
+
+:deep(.nb-text-to-image-result-button) {
+    position: relative;
+    display: block;
+    width: 100%;
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--source-bg) 88%, #000 12%);
+    padding: 0;
+    cursor: zoom-in;
+}
+
+:deep(.nb-text-to-image-result-button:disabled) {
+    cursor: wait;
+}
+
+:deep(.nb-text-to-image-result-image) {
+    display: block;
+    width: 100%;
+    height: auto;
+    object-fit: contain;
+    user-select: none;
+    -webkit-user-drag: none;
+}
+
+:deep(.nb-text-to-image-result-image[hidden]),
+:deep(.nb-text-to-image-result-placeholder[hidden]),
+:deep(.nb-text-to-image-result-busy[hidden]) {
+    display: none !important;
+}
+
+:deep(.nb-text-to-image-result-placeholder) {
+    display: flex;
+    min-height: 14rem;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
+:deep(.nb-text-to-image-result-busy) {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    background: rgb(0 0 0 / 42%);
+    color: white;
+    font-size: 0.9rem;
+    font-weight: 700;
+}
+
+:deep(.nb-text-to-image-result-busy__icon) {
+    width: 1.1rem;
+    height: 1.1rem;
+    animation: nb-text-to-image-spin 0.9s linear infinite;
+}
+
+:deep(.nb-text-to-image-result-caption) {
+    margin-top: 0.35rem;
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    line-height: 1.4;
+    text-align: center;
+}
+
+@keyframes nb-text-to-image-spin {
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 :deep(.nb-markdown-editor p.is-editor-empty:first-child::before) {

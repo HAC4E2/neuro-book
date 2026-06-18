@@ -17,6 +17,40 @@ interface TextToImagePromptToken extends MarkdownToken {
 }
 
 const TEXT_TO_IMAGE_PROMPT_PATTERN = /^<text-to-image-prompt\s+id="([^"]+)">\n?([\s\S]*?)\n?<\/text-to-image-prompt>/u;
+type TextToImagePromptGenerationState = "idle" | "queued" | "running";
+
+const promptGenerationStates = new Map<string, Exclude<TextToImagePromptGenerationState, "idle">>();
+const generatingPromptListeners = new Set<() => void>();
+
+export function setTextToImagePromptGenerationState(id: string, state: TextToImagePromptGenerationState): void {
+    const normalizedId = id.trim();
+    if (!normalizedId) {
+        return;
+    }
+    if (state === "idle") {
+        promptGenerationStates.delete(normalizedId);
+    } else {
+        promptGenerationStates.set(normalizedId, state);
+    }
+    for (const listener of generatingPromptListeners) {
+        listener();
+    }
+}
+
+export function setTextToImagePromptGenerating(id: string, generating: boolean): void {
+    setTextToImagePromptGenerationState(id, generating ? "running" : "idle");
+}
+
+function getTextToImagePromptGenerationState(id: string): TextToImagePromptGenerationState {
+    return promptGenerationStates.get(id.trim()) ?? "idle";
+}
+
+function subscribeTextToImagePromptGenerating(listener: () => void): () => void {
+    generatingPromptListeners.add(listener);
+    return () => {
+        generatingPromptListeners.delete(listener);
+    };
+}
 
 declare module "@tiptap/core" {
     interface Commands<ReturnType> {
@@ -97,11 +131,23 @@ export const TextToImagePrompt = Node.create<TextToImagePromptOptions>({
             const sync = (): void => {
                 const prompt = String(currentNode.attrs.prompt ?? "").trim();
                 const id = String(currentNode.attrs.id ?? "").trim();
-                button.title = prompt ? `生成图片：${prompt}` : "生成图片";
-                button.disabled = !id || !prompt;
+                const generationState = getTextToImagePromptGenerationState(id);
+                const generating = generationState !== "idle";
+                const statusLabel = generationState === "queued" ? "排队中..." : generationState === "running" ? "正在生成图片..." : "生成图片";
+                button.title = generating ? statusLabel : prompt ? `生成图片：${prompt}` : "生成图片";
+                button.disabled = !id || !prompt || generating;
+                button.setAttribute("aria-busy", generating ? "true" : "false");
+                button.classList.toggle("is-generating", generating);
+                icon.className = generating
+                    ? "i-lucide-loader-2 nb-text-to-image-prompt-button__icon nb-text-to-image-prompt-button__icon--spin"
+                    : "i-lucide-image-plus nb-text-to-image-prompt-button__icon";
+                label.textContent = statusLabel;
                 wrapper.dataset.textToImagePromptId = id;
+                wrapper.dataset.textToImagePromptGenerating = generating ? "true" : "false";
+                wrapper.dataset.textToImagePromptState = generationState;
             };
             sync();
+            const unsubscribeGenerating = subscribeTextToImagePromptGenerating(sync);
 
             button.addEventListener("click", (event) => {
                 event.preventDefault();
@@ -125,6 +171,9 @@ export const TextToImagePrompt = Node.create<TextToImagePromptOptions>({
                     return true;
                 },
                 stopEvent: (event) => event.type === "click" || event.type === "mousedown" || event.type === "mouseup",
+                destroy: () => {
+                    unsubscribeGenerating();
+                },
             };
         };
     },

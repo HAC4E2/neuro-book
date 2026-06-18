@@ -42,6 +42,7 @@ const {
     activeLlmApiConfig,
     activeLlmContextPreset,
     activeLlmContextPresetId,
+    lastLlmExchange,
     llm,
     llmContextPresets,
     llmTaskBindings,
@@ -55,10 +56,10 @@ const llmConnectionStatus = ref<"idle" | "success" | "failed">("idle");
 const llmConnectionMessage = ref("");
 const selectedTestTask = ref<TextToImagePromptTask>("bodyImage");
 const testUserPrompt = ref("请根据当前配置生成一段简短测试回复。");
-const testResponse = ref("");
 const testBusy = ref(false);
 const testError = ref("");
-const lastSentPromptPreview = ref("");
+const lastSentPromptPreview = computed(() => lastLlmExchange.value.prompt);
+const lastLlmResponsePreview = computed(() => lastLlmExchange.value.response);
 
 const roleOptions: SelectOption[] = [
     {value: "system", label: "SYS", description: "系统上下文"},
@@ -378,11 +379,15 @@ async function sendTestRequest(): Promise<void> {
     }
     testBusy.value = true;
     testError.value = "";
-    testResponse.value = "";
     const messages = testMessages.value;
-    lastSentPromptPreview.value = formatTextToImageLlmMessages(messages);
+    const promptPreview = formatTextToImageLlmMessages(messages);
     try {
-        testResponse.value = await requestTextToImageLlmCompletion(apiConfig, messages);
+        const response = await requestTextToImageLlmCompletion(apiConfig, messages);
+        store.recordLlmExchange({
+            task: selectedTestTask.value,
+            prompt: promptPreview,
+            response,
+        });
     } catch (error) {
         testError.value = resolveApiErrorMessage(error, "测试请求失败");
     } finally {
@@ -793,7 +798,7 @@ function sanitizeFileName(fileName: string): string {
                     </label>
                     <label class="block">
                         <span class="field-label">AI 回复</span>
-                        <FormTextarea :model-value="testResponse" :rows="10" readonly placeholder="点击上方按钮后，AI 的回复将显示在这里..." />
+                        <FormTextarea :model-value="lastLlmResponsePreview" :rows="10" readonly placeholder="发送任意 LLM 请求后，这里会显示最后一次 AI 原始回复，方便排查 <image> 格式错误..." />
                     </label>
                     <p v-if="testError" class="m-0 text-sm text-[var(--danger-text)]">{{ testError }}</p>
                 </section>

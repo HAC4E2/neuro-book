@@ -11,8 +11,11 @@ import {
     type TextToImageCharacter,
     type TextToImageCharacterTagKey,
     type TextToImageGenerationResult,
+    type TextToImagePromptTask,
 } from "nbook/app/stores/text-to-image";
+import {resolveTextToImageResultImageUrl} from "nbook/app/components/markdown-studio/tiptap/TextToImageResult";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
+import {enqueueTextToImageGeneration, type TextToImageGenerationQueueStatus} from "nbook/app/utils/text-to-image-generation-queue";
 
 type CharacterPromptDialogMode = "photoPrompt" | "revision";
 type TextToImageTagInsertTarget = {
@@ -91,6 +94,7 @@ const {
 const characterPhotoInputRef = ref<HTMLInputElement | null>(null);
 const characterPromptReferenceInputRef = ref<HTMLInputElement | null>(null);
 const generatingCharacterImage = ref(false);
+const characterImageGenerationStatus = ref<"idle" | TextToImageGenerationQueueStatus>("idle");
 const generationWarnings = ref<string[]>([]);
 const lastGenerationRequest = ref<TextToImageGenerateResponse["request"] | null>(null);
 const characterPromptDialogOpen = ref(false);
@@ -100,6 +104,8 @@ const characterPromptReferences = ref<CharacterPromptReferenceImage[]>([]);
 const characterPromptBusy = ref(false);
 const characterPromptError = ref("");
 const selectedTagInsertTarget = ref("photoPrompt");
+const characterImageViewerOpen = ref(false);
+const characterImageViewerIndex = ref(0);
 
 const characterTextFields: Array<{key: TextToImageCharacterTagKey; label: string; rows: number; placeholder: string}> = [
     {key: "profileTraits", label: "角色特征（描述性格和年龄）", rows: 3, placeholder: "例如：calm, clever, 18 years old"},
@@ -137,6 +143,35 @@ const character = computed(() => {
 });
 
 const characterDisplayName = computed(() => character.value ? formatCharacterName(character.value) : "角色不存在");
+const characterPortraitItems = computed<TextToImageGenerationResult[]>(() => {
+    const currentCharacter = character.value;
+    if (!currentCharacter) {
+        return [];
+    }
+    const history = Array.isArray(currentCharacter.portraitHistory) ? currentCharacter.portraitHistory : [];
+    if (history.length > 0) {
+        return history;
+    }
+    if (!currentCharacter.portraitDataUrl) {
+        return [];
+    }
+    return [createLocalPortraitResult(currentCharacter.portraitDataUrl, currentCharacter.photoPrompt)];
+});
+const activeCharacterPortraitIndex = computed(() => Math.min(
+    Math.max(0, characterPortraitItems.value.length - 1),
+    Math.max(0, Math.round(Number(character.value?.activePortraitIndex ?? 0))),
+));
+const activeCharacterPortraitItem = computed(() => characterPortraitItems.value[activeCharacterPortraitIndex.value] ?? null);
+const characterImageViewerItem = computed(() => characterPortraitItems.value[characterImageViewerIndex.value] ?? null);
+const characterImageGenerationLabel = computed(() => {
+    if (characterImageGenerationStatus.value === "queued") {
+        return "排队中";
+    }
+    if (characterImageGenerationStatus.value === "running") {
+        return "生成中";
+    }
+    return "生成图片";
+});
 const characterPromptDialogTitle = computed(() => characterPromptDialogMode.value === "photoPrompt" ? "生成图片提示词" : "修改角色提示词");
 const characterPromptDialogDescription = computed(() => characterPromptDialogMode.value === "photoPrompt"
     ? "输入这张角色照片的具体需求，也可以添加参考图片。"
@@ -173,6 +208,25 @@ watch(tagInsertTargets, (targets) => {
 
 function formatCharacterName(item: TextToImageCharacter): string {
     return item.cnName.trim() || item.enName.trim() || "未命名角色";
+}
+
+function createLocalPortraitResult(dataUrl: string, prompt: string): TextToImageGenerationResult {
+    return {
+        id: `local-portrait-${props.characterId}`,
+        createdAt: "",
+        fileName: "本地头像",
+        savedPath: "",
+        metadataPath: "",
+        dataUrl,
+        mimeType: "image/png",
+        byteLength: 0,
+        seed: -1,
+        width: 0,
+        height: 0,
+        model: "",
+        prompt,
+        negativePrompt: "",
+    };
 }
 
 function updateCharacter(patch: Partial<TextToImageCharacter>): void {
@@ -229,30 +283,47 @@ async function generateCharacterImage(): Promise<void> {
     }
 
     generatingCharacterImage.value = true;
+    characterImageGenerationStatus.value = "queued";
     try {
-        const result = await $fetch<TextToImageGenerateResponse>("/api/text-to-image/generate", {
-            method: "POST",
-            body: {
-                novelAi: novelAi.value,
-                style: activeStyle.value,
-                character: currentCharacter,
-                prompt,
-                negativePrompt: generationDraft.value.negativePrompt,
-                output: output.value,
+        notification.info("角色照片生成请求已加入队列。");
+        const result = await enqueueTextToImageGeneration<TextToImageGenerateResponse>({
+            id: `character-portrait:${currentCharacter.id}:${Date.now().toString(36)}`,
+            onStatusChange: (status) => {
+                characterImageGenerationStatus.value = status === "done" || status === "error" ? "idle" : status;
             },
+            run: () => $fetch<TextToImageGenerateResponse>("/api/text-to-image/generate", {
+                method: "POST",
+                body: {
+                    novelAi: novelAi.value,
+                    style: activeStyle.value,
+                    character: currentCharacter,
+                    prompt,
+                    negativePrompt: generationDraft.value.negativePrompt,
+                    output: output.value,
+                },
+            }),
         });
         textToImageStore.prependGenerationResults(result.images);
         generationWarnings.value = result.warnings;
         lastGenerationRequest.value = result.request;
-        const portrait = result.images[0]?.dataUrl ?? "";
+        const portrait = result.images[0] ?? null;
         if (portrait) {
-            updateCharacter({portraitDataUrl: portrait});
+            const nextHistory = [
+                ...(Array.isArray(currentCharacter.portraitHistory) ? currentCharacter.portraitHistory : []),
+                portrait,
+            ];
+            updateCharacter({
+                portraitDataUrl: portrait.dataUrl,
+                portraitHistory: nextHistory,
+                activePortraitIndex: nextHistory.length - 1,
+            });
         }
         notification.success(`角色照片已生成并保存：${result.images[0]?.fileName ?? "图片"}`);
     } catch (error) {
         notification.error(resolveApiErrorMessage(error, "角色照片生成失败"));
     } finally {
         generatingCharacterImage.value = false;
+        characterImageGenerationStatus.value = "idle";
     }
 }
 
@@ -267,7 +338,11 @@ async function importCharacterPhoto(event: Event): Promise<void> {
     if (!file || !character.value) {
         return;
     }
-    updateCharacter({portraitDataUrl: await readFileAsDataUrl(file)});
+    updateCharacter({
+        portraitDataUrl: await readFileAsDataUrl(file),
+        portraitHistory: [],
+        activePortraitIndex: 0,
+    });
 }
 
 function toggleCharacterSendPhoto(): void {
@@ -275,6 +350,25 @@ function toggleCharacterSendPhoto(): void {
         return;
     }
     updateCharacter({sendPhoto: !character.value.sendPhoto});
+}
+
+function openCharacterImageViewer(index = activeCharacterPortraitIndex.value): void {
+    if (characterPortraitItems.value.length === 0) {
+        return;
+    }
+    characterImageViewerIndex.value = Math.min(
+        Math.max(0, characterPortraitItems.value.length - 1),
+        Math.max(0, index),
+    );
+    characterImageViewerOpen.value = true;
+}
+
+function stepCharacterImageViewer(offset: number): void {
+    const count = characterPortraitItems.value.length;
+    if (count <= 0) {
+        return;
+    }
+    characterImageViewerIndex.value = (characterImageViewerIndex.value + offset + count) % count;
 }
 
 function openCharacterPhotoPromptDialog(): void {
@@ -383,7 +477,7 @@ async function requestCharacterPhotoPrompt(item: TextToImageCharacter, requireme
             role: "user",
             content: userContent,
         },
-    ]);
+    ], "characterDesign");
     return content.replace(/^```(?:text|txt|markdown)?/iu, "").replace(/```$/u, "").trim();
 }
 
@@ -397,10 +491,10 @@ async function requestCharacterRevision(item: TextToImageCharacter, direction: s
             role: "user",
             content: buildCharacterRevisionMessage(item, direction),
         },
-    ]);
+    ], "characterRevision");
 }
 
-async function requestLlmChatCompletion(messages: ChatCompletionMessage[]): Promise<string> {
+async function requestLlmChatCompletion(messages: ChatCompletionMessage[], task: TextToImagePromptTask): Promise<string> {
     const apiBaseUrl = llm.value.apiBaseUrl.trim().replace(/\/+$/, "");
     const headers: HeadersInit = {"Content-Type": "application/json"};
     if (llm.value.apiKey.trim()) {
@@ -426,7 +520,26 @@ async function requestLlmChatCompletion(messages: ChatCompletionMessage[]): Prom
     if (!content) {
         throw new Error("LLM 没有返回可用内容");
     }
+    textToImageStore.recordLlmExchange({
+        task,
+        prompt: formatChatCompletionMessages(messages),
+        response: content,
+    });
     return content;
+}
+
+function formatChatCompletionMessages(messages: ChatCompletionMessage[]): string {
+    return messages.map((message, index) => [
+        `#${index + 1} ${message.role.toUpperCase()}`,
+        formatChatCompletionContent(message.content),
+    ].join("\n")).join("\n\n");
+}
+
+function formatChatCompletionContent(content: ChatCompletionMessage["content"]): string {
+    if (typeof content === "string") {
+        return content;
+    }
+    return content.map((part) => part.type === "text" ? part.text : "[image reference omitted]").join("\n");
 }
 
 function buildCharacterPhotoPromptMessage(item: TextToImageCharacter, requirement: string, referenceCount: number): string {
@@ -552,7 +665,9 @@ function readFileAsDataUrl(file: File): Promise<string> {
                 <section class="grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
                     <div class="space-y-3">
                         <div class="overflow-hidden rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)]">
-                            <img v-if="character.portraitDataUrl" :src="character.portraitDataUrl" :alt="characterDisplayName" class="block aspect-[4/5] w-full object-cover">
+                            <button v-if="activeCharacterPortraitItem" type="button" class="block w-full cursor-zoom-in p-0 text-left" title="点击查看角色照片" @click="openCharacterImageViewer()">
+                                <img :src="resolveTextToImageResultImageUrl(activeCharacterPortraitItem)" :alt="characterDisplayName" class="block aspect-[4/5] w-full object-cover">
+                            </button>
                             <div v-else class="flex aspect-[4/5] w-full flex-col items-center justify-center gap-2 text-[var(--text-muted)]">
                                 <span class="i-lucide-image h-10 w-10"></span>
                                 <span class="text-sm">暂无角色照片</span>
@@ -580,7 +695,7 @@ function readFileAsDataUrl(file: File): Promise<string> {
                         <div class="grid gap-2 lg:grid-cols-3">
                             <button type="button" class="inline-flex h-10 items-center justify-center gap-1.5 rounded-md border border-[var(--accent-main)] px-3 text-sm text-[var(--accent-text)] transition-colors hover:bg-[var(--accent-bg)] disabled:cursor-not-allowed disabled:border-[var(--border-color)] disabled:text-[var(--text-muted)]" :disabled="generatingCharacterImage || !character.photoPrompt.trim()" @click="generateCharacterImage">
                                 <span class="h-4 w-4" :class="generatingCharacterImage ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-wand-sparkles'"></span>
-                                <span>{{ generatingCharacterImage ? "生成中" : "生成图片" }}</span>
+                                <span>{{ characterImageGenerationLabel }}</span>
                             </button>
                             <button type="button" class="inline-flex h-10 items-center justify-center gap-1.5 rounded-md border border-[var(--border-color)] px-3 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="openCharacterPhotoPromptDialog">
                                 <span class="i-lucide-lightbulb h-4 w-4"></span>
@@ -683,6 +798,44 @@ function readFileAsDataUrl(file: File): Promise<string> {
                 </div>
 
                 <p v-if="characterPromptError" class="m-0 text-sm text-[var(--danger-text)]">{{ characterPromptError }}</p>
+            </div>
+        </Dialog>
+        <Dialog
+            v-model="characterImageViewerOpen"
+            size="full"
+            :title="characterDisplayName"
+            :show-footer="false"
+            overlay-type="opaque"
+            body-class="!overflow-hidden !px-0 !py-0"
+        >
+            <div class="relative flex min-h-0 flex-1 items-center justify-center bg-black">
+                <button
+                    v-if="characterPortraitItems.length > 1"
+                    type="button"
+                    class="absolute left-4 top-1/2 z-10 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70"
+                    title="上一张"
+                    @click="stepCharacterImageViewer(-1)"
+                >
+                    <span class="i-lucide-chevron-left h-7 w-7"></span>
+                </button>
+                <img
+                    v-if="characterImageViewerItem"
+                    :src="resolveTextToImageResultImageUrl(characterImageViewerItem)"
+                    :alt="characterDisplayName"
+                    class="max-h-full max-w-full object-contain"
+                >
+                <button
+                    v-if="characterPortraitItems.length > 1"
+                    type="button"
+                    class="absolute right-4 top-1/2 z-10 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70"
+                    title="下一张"
+                    @click="stepCharacterImageViewer(1)"
+                >
+                    <span class="i-lucide-chevron-right h-7 w-7"></span>
+                </button>
+                <div v-if="characterPortraitItems.length > 0" class="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-black/60 px-3 py-1 text-sm font-semibold text-white">
+                    {{ characterImageViewerIndex + 1 }}/{{ characterPortraitItems.length }}
+                </div>
             </div>
         </Dialog>
     </section>

@@ -6,6 +6,7 @@ import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES, DEFAULT_MONACO_EDITOR_PREFERENCES, 
 import type {AgentTriggerMenuContext, AgentTriggerMenuState} from "nbook/app/components/novel-ide/agent/trigger-menu";
 import type {WorkspaceReferenceResolver} from "nbook/app/components/markdown-studio/tiptap/WorkspaceReference";
 import type {TextToImagePromptGeneratePayload} from "nbook/app/components/markdown-studio/tiptap/TextToImagePrompt";
+import type {TextToImageResultPayload} from "nbook/app/components/markdown-studio/tiptap/TextToImageResult";
 
 const props = withDefaults(defineProps<{
     controller: MarkdownStudioController;
@@ -50,6 +51,8 @@ const emit = defineEmits<{
     (e: "open-frontmatter-profile", kind: FrontmatterProfileKind): void;
     (e: "update-monaco-temporary-font-size", value: number): void;
     (e: "generate-text-to-image-prompt", payload: TextToImagePromptGeneratePayload): void;
+    (e: "open-text-to-image-result-viewer", payload: TextToImageResultPayload): void;
+    (e: "open-text-to-image-result-actions", payload: TextToImageResultPayload): void;
 }>();
 
 /**
@@ -97,6 +100,8 @@ function handleSourceBlur(): void {
                     @inline-comments-change="controller.setInlineComments"
                     @inline-comment-select="controller.activateInlineComment"
                     @generate-text-to-image-prompt="emit('generate-text-to-image-prompt', $event)"
+                    @open-text-to-image-result-viewer="emit('open-text-to-image-result-viewer', $event)"
+                    @open-text-to-image-result-actions="emit('open-text-to-image-result-actions', $event)"
                 />
                 <template #fallback>
                     <div class="flex min-h-[65vh] items-center justify-center text-[var(--text-muted)]">

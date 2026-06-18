@@ -12,6 +12,7 @@ import MarkdownSourceEditor from "nbook/app/components/markdown-studio/MarkdownS
 import MarkdownStudioToolbar from "nbook/app/components/markdown-studio/MarkdownStudioToolbar.vue";
 import MarkdownStudioWelcome from "nbook/app/components/markdown-studio/MarkdownStudioWelcome.vue";
 import MarkdownCommentFlowPanel from "nbook/app/components/markdown-studio/MarkdownCommentFlowPanel.vue";
+import type {TextToImageResultPayload} from "nbook/app/components/markdown-studio/tiptap/TextToImageResult";
 
 type WorkspaceMode = "novel" | "user-assets";
 
@@ -64,6 +65,8 @@ const emit = defineEmits<{
     (e: "set-view-mode", mode: WorkspaceEditorViewMode): void;
     (e: "generate-body-image"): void;
     (e: "generate-text-to-image-prompt", payload: TextToImagePromptGeneratePayload): void;
+    (e: "open-text-to-image-result-viewer", payload: TextToImageResultPayload): void;
+    (e: "open-text-to-image-result-actions", payload: TextToImageResultPayload): void;
     (e: "save-request"): void;
     (e: "open-frontmatter-profile", kind: FrontmatterProfileKind): void;
     (e: "update-monaco-temporary-font-size", value: number): void;
@@ -170,6 +173,8 @@ watch(() => props.activePath, () => {
                         @open-frontmatter-profile="emit('open-frontmatter-profile', $event)"
                         @update-monaco-temporary-font-size="emit('update-monaco-temporary-font-size', $event)"
                         @generate-text-to-image-prompt="emit('generate-text-to-image-prompt', $event)"
+                        @open-text-to-image-result-viewer="emit('open-text-to-image-result-viewer', $event)"
+                        @open-text-to-image-result-actions="emit('open-text-to-image-result-actions', $event)"
                     />
                     <MarkdownCommentFlowPanel
                         v-if="props.controller.commentViewOpen.value"
