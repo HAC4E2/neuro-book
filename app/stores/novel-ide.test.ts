@@ -71,18 +71,54 @@ describe("useNovelIdeStore deleteNovel", () => {
         expect(store.currentNovelId).toBe("workspace/next-book");
         expect(store.activeWorkspaceTabPath).not.toBe("manuscript/deleted.md");
     });
+
+    it("初始化时把 URL 指定的 Project 补进项目列表查询", async () => {
+        const {useNovelIdeStore} = await import("nbook/app/stores/novel-ide");
+        const store = useNovelIdeStore();
+        store.currentNovelId = "workspace/ming-ding-zhi-shi-2";
+
+        await store.initializeWorkspace();
+
+        expect(globalThis.$fetch).toHaveBeenCalledWith("/api/projects", {
+            query: {includeProjectPath: "workspace/ming-ding-zhi-shi-2"},
+        });
+        expect(store.currentNovelId).toBe("workspace/ming-ding-zhi-shi-2");
+    });
+
+    it("新建 Project 后刷新列表时包含新 Project，避免 route 规范化回旧书", async () => {
+        const {useNovelIdeStore} = await import("nbook/app/stores/novel-ide");
+        const store = useNovelIdeStore();
+
+        const createdId = await store.createNovel("新 Project", "");
+
+        expect(createdId).toBe("workspace/created-book");
+        expect(globalThis.$fetch).toHaveBeenCalledWith("/api/projects", {
+            query: {includeProjectPath: "workspace/created-book"},
+        });
+        expect(store.novels.some((novel) => novel.id === "workspace/created-book")).toBe(true);
+    });
 });
 
 function createFetchMock(): FetchMock {
-    return vi.fn(async (url: string) => {
+    return vi.fn(async (url: string, options?: {query?: {includeProjectPath?: string}}) => {
+        if (url === "/api/projects" && "method" in (options ?? {}) && (options as {method?: string}).method === "POST") {
+            return {id: "workspace/created-book"};
+        }
         if (url === "/api/projects/item") {
             return {success: true};
         }
         if (url === "/api/projects") {
-            return [
+            const novels = [
                 createNovel("workspace/next-book"),
                 createNovel("workspace/current-book"),
             ];
+            if (options?.query?.includeProjectPath === "workspace/ming-ding-zhi-shi-2") {
+                novels.push(createNovel("workspace/ming-ding-zhi-shi-2"));
+            }
+            if (options?.query?.includeProjectPath === "workspace/created-book") {
+                novels.push(createNovel("workspace/created-book"));
+            }
+            return novels;
         }
         if (url === "/api/workspace-files/tree") {
             return {

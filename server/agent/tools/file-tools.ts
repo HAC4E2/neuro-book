@@ -81,7 +81,7 @@ function createReadTool(): NeuroAgentTool {
         executionMode: "parallel",
         description: `Read the contents of a file. Supports text files and images (jpg, png, gif, webp). Images are sent as attachments. For text files, output is truncated to 2000 lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete. Agent cwd is the Workspace Root, so Project files should use project-slug/lorebook/... or project-slug/manuscript/.... Fully-qualified Project Paths like workspace/silver-dragon-hime/lorebook/... are accepted as compatibility aliases. Use read to examine files instead of cat/head/tail/sed.`,
         parameters: ReadSchema,
-        async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown) {
+        async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown, _userInput?: unknown, signal?: AbortSignal) {
             const input = params as ReadInput;
             const absolutePath = resolveWorkspacePath(input.path, context.workspaceRoot, context.projectPath);
             await assertReadable(absolutePath);
@@ -177,7 +177,7 @@ function createWriteTool(): NeuroAgentTool {
         executionMode: "sequential",
         description: "Create or overwrite a file. Automatically creates parent directories. Use write only for new files or complete rewrites, not targeted edits to existing files.",
         parameters: WriteSchema,
-        async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown) {
+        async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown, _userInput?: unknown, signal?: AbortSignal) {
             const input = params as WriteInput;
             const absolutePath = resolveWorkspacePath(input.path, context.workspaceRoot, context.projectPath);
             await mkdir(dirname(absolutePath), {recursive: true});
@@ -219,7 +219,7 @@ function createEditTool(): NeuroAgentTool {
             }
             return input as EditInput;
         },
-        async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown) {
+        async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown, _userInput?: unknown, signal?: AbortSignal) {
             const input = params as EditInput;
             if (!Array.isArray(input.edits) || input.edits.length === 0) {
                 throw new Error("edits must contain at least one replacement.");
@@ -252,7 +252,7 @@ function createApplyPatchTool(): NeuroAgentTool {
         executionMode: "sequential",
         description: "Use the `apply_patch` tool to edit files by passing a Codex apply_patch patch in the `patch` string field. Use it when a change is naturally cohesive in one verified patch. For multiple separate locations in one file, prefer one edit call with multiple entries in edits[].",
         parameters: ApplyPatchSchema,
-        async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown) {
+        async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown, _userInput?: unknown, signal?: AbortSignal) {
             const input = params as {patch: string};
             const result = await applyCodexPatch({
                 workspaceRoot: context.workspaceRoot,
@@ -286,6 +286,7 @@ function createBashTool(): NeuroAgentTool {
             context: ToolExecutionContext,
             _toolCallId: string,
             params: unknown,
+            _userInput?: unknown,
             signal?: AbortSignal,
             onUpdate?: Parameters<NeuroAgentTool["execute"]>[3],
         ) {

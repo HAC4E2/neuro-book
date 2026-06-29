@@ -2,7 +2,6 @@
 import {storeToRefs} from "pinia";
 import type {AuthSessionDto} from "nbook/shared/dto/auth.dto";
 import type {ConfigBootstrapDto} from "nbook/shared/dto/config.dto";
-import type {NovelContinueRequestDto} from "nbook/shared/dto/novel.dto";
 import {isNovelIdeTab, type NovelIdeTab} from "nbook/app/components/novel-ide/mock-data";
 import MarkdownStudioWorkbench from "nbook/app/components/markdown-studio/MarkdownStudioWorkbench.vue";
 import AgentChatSurface from "nbook/app/components/novel-ide/agent/AgentChatSurface.vue";
@@ -11,6 +10,7 @@ import NovelIdeHeader from "nbook/app/components/novel-ide/NovelIdeHeader.vue";
 import NovelIdeSidebar from "nbook/app/components/novel-ide/NovelIdeSidebar.vue";
 import NovelIdeSettingsDialog from "nbook/app/components/novel-ide/NovelIdeSettingsDialog.vue";
 import NovelIdeToolPanel from "nbook/app/components/novel-ide/NovelIdeToolPanel.vue";
+import WorldEngineWorkbenchDialog from "nbook/app/components/novel-ide/world-engine/WorldEngineWorkbenchDialog.vue";
 import NovelPromptBar from "nbook/app/components/novel-ide/NovelPromptBar.vue";
 import Dialog from "nbook/app/components/common/Dialog.vue";
 import FormTextarea from "nbook/app/components/common/form/FormTextarea.vue";
@@ -61,6 +61,7 @@ import {
 } from "nbook/app/utils/workspace-reference-search";
 import {buildWorkspaceReferenceSections} from "nbook/app/utils/workspace-reference-menu";
 import {resolveWorkspaceFileExtension, type FrontmatterProfileKind} from "nbook/shared/editor-workbench";
+import {buildSelectionRefChip, type InlineEditPayload, type InlineEditReference, type InlineEditTask} from "nbook/app/utils/inline-editor-selection";
 
 type StreamTokenEvent = {
     text?: string;
@@ -121,13 +122,14 @@ const WELCOME_LOREBOOK_ENTRY_TYPES = ["location", "character", "item", "rule", "
 
 type WelcomeLorebookEntryType = typeof WELCOME_LOREBOOK_ENTRY_TYPES[number];
 
-const abortController = ref<AbortController | null>(null);
 const initialized = ref(false);
 const themeHostRef = ref<HTMLElement | null>(null);
 const currentUser = ref<AuthSessionDto["user"]>(null);
 const bookshelfOpen = ref(false);
 const settingsDialogOpen = ref(false);
-const ragInspectorOpen = ref(false);
+const worldEngineWorkbenchOpen = ref(false);
+const worldEngineWorkbenchHasUnsavedDrafts = ref(false);
+const worldEngineWorkbenchSaving = ref(false);
 const profileWorkbenchOpen = ref(false);
 const frontmatterProfileKind = ref<FrontmatterProfileKind | null>(null);
 const agentStudioFileTreeOpen = ref(false);
@@ -186,15 +188,12 @@ const {
     agentStudioFileTreeWidth,
     agentStudioPanelWidth,
     novels,
-    promptExpanded,
-    requirement,
     rightPanelOpen,
     savingFile,
     selectedFileContent,
     selectedFileNode,
     selectedFilePath,
     selectedModel,
-    selectedReasoning,
     theme,
     viewMode,
     markdownEditorPreferences,
@@ -228,6 +227,7 @@ const {
     switchNovel,
     switchToNovelWorkspace,
     switchToUserAssetsWorkspace,
+    loadNovels,
 } = novelIdeStore;
 const {
     activeStyle: activeTextToImageStyle,
@@ -248,6 +248,7 @@ const studio = useMarkdownStudioController({
 
 const {choose, prompt} = useDialog();
 const notification = useNotification();
+const {t} = useI18n();
 
 const novelItems = computed(() => novels.value.map((novel) => ({
     label: novel.title,
@@ -282,6 +283,9 @@ const buildProjectRoute = (projectTarget: string): string => {
 };
 
 const workspaceBootstrapped = ref(false);
+const consumingRouteOpenPath = ref(false);
+const lastMissingProjectNoticeTarget = ref("");
+const discardOpenPathForProjectFallback = ref(false);
 const displayRightPanelOpen = computed(() => workspaceBootstrapped.value && rightPanelOpen.value);
 const isAgentMode = computed(() => layoutMode.value === "agent");
 const agentSurfaceActive = computed(() => workspaceBootstrapped.value && (rightPanelOpen.value || isAgentMode.value));
@@ -366,7 +370,7 @@ const displayActiveLeftTab = computed<NovelIdeTab | null>(() => {
 const ideToolPanelOpen = computed(() => !isAgentMode.value && displayActiveLeftTab.value !== null);
 const ideToolPanelStyle = computed(() => ideToolPanelOpen.value ? {width: `${leftPanelWidth.value}px`} : {width: "0px"});
 const displaySidebarActiveTab = computed<NovelIdeTab | "sessions" | null>(() => isAgentMode.value ? "sessions" : displayActiveLeftTab.value);
-const displayNovelTitle = computed(() => isUserAssetsWorkspace.value ? "用户资产" : currentNovel.value?.title ?? "");
+const displayNovelTitle = computed(() => isUserAssetsWorkspace.value ? t("ide.header.userAssets") : currentNovel.value?.title ?? "");
 const displayNovelItems = computed(() => isUserAssetsWorkspace.value ? [] : novelItems.value);
 const displayNovelIdForAgent = computed(() => isUserAssetsWorkspace.value ? "" : currentNovelId.value);
 const agentWorkspaceKey = computed(() => {
@@ -392,10 +396,7 @@ const displayActiveWorkspaceTabPath = computed(() => workspaceDisplayReady.value
 const displaySelectedFileNode = computed(() => workspaceDisplayReady.value ? selectedFileNode.value : null);
 const displayCurrentEditorKind = computed<WorkspaceEditorKind>(() => workspaceDisplayReady.value ? currentEditorKind.value : "readonly");
 const displayCurrentWorkspaceViewMode = computed<WorkspaceEditorViewMode>(() => workspaceDisplayReady.value ? currentWorkspaceViewMode.value : "source");
-const displayPromptExpanded = computed(() => workspaceBootstrapped.value ? promptExpanded.value : true);
-const displayRequirement = computed(() => workspaceBootstrapped.value ? requirement.value : "");
-const displaySelectedModel = computed(() => workspaceBootstrapped.value ? selectedModel.value : "未配置模型");
-const displaySelectedReasoning = computed(() => workspaceBootstrapped.value ? selectedReasoning.value : "中");
+const displaySelectedModel = computed(() => workspaceBootstrapped.value ? selectedModel.value : t("ide.shell.modelNotConfigured"));
 const displayMonacoTemporaryFontSize = computed(() => displayActiveWorkspaceTabPath.value
     ? monacoFontSizeOverridesByPath.value[displayActiveWorkspaceTabPath.value] ?? null
     : null);
@@ -450,42 +451,86 @@ const bodyImageResultViewerItem = computed(() => {
     const payload = bodyImageResultViewer.value;
     return payload?.items[bodyImageResultViewerIndex.value] ?? null;
 });
+const isPlainTextFile = computed(() => [".txt", ".text", ".markdown"].includes(currentFileExtension.value));
+const inlinePromptExpanded = ref(false);
+const inlinePromptInstruction = ref("");
+const inlinePromptTask = ref<InlineEditTask>("polish");
+const inlinePromptReferences = ref<InlineEditReference[]>([]);
+const inlinePromptHoveredReference = ref<InlineEditReference | null>(null);
+const inlinePromptRunning = ref(false);
+const inlinePromptStatusText = ref(t("ide.inlineAi.initialStatus"));
+const inlinePromptEditPreview = ref("");
+const displayInlinePromptSessionLabel = computed(() => {
+    return unref(agentSurfaceRef.value?.inlineEditorSessionLabel) || t("ide.inlineAi.sessionLabel");
+});
+const inlinePromptSessions = computed<AgentSessionSummaryDto[]>(() => {
+    return unref(agentSurfaceRef.value?.inlineEditorSessions) ?? [];
+});
+const inlinePromptSessionId = computed<number | null>(() => {
+    return unref(agentSurfaceRef.value?.inlineEditorSessionId) ?? null;
+});
+const inlinePromptSessionLoading = computed(() => {
+    return unref(agentSurfaceRef.value?.inlineEditorSessionLoading) ?? false;
+});
+const inlinePromptResultText = computed(() => {
+    return unref(agentSurfaceRef.value?.inlineEditorResultText) || "";
+});
+const inlinePromptAgentRunning = computed(() => {
+    return unref(agentSurfaceRef.value?.inlineEditorRunning) ?? false;
+});
+const displayInlinePromptEditPreview = computed(() => {
+    return unref(agentSurfaceRef.value?.inlineEditPreview) || inlinePromptEditPreview.value;
+});
+const inlinePromptAvailable = computed(() => {
+    return workspaceDisplayReady.value
+        && selectedFileNode.value?.editable === true
+        && (isMarkdownFile.value || isPlainTextFile.value);
+});
 
-const markdownCommandSections = [
+const inlineTaskLabels = computed<Record<InlineEditTask, string>>(() => ({
+    rewrite: t("ide.inlineAi.taskRewrite"),
+    polish: t("ide.inlineAi.taskPolish"),
+    expand: t("ide.inlineAi.taskExpand"),
+    condense: t("ide.inlineAi.taskCondense"),
+    continue_after: t("ide.inlineAi.taskContinueAfter"),
+    bridge: t("ide.inlineAi.taskBridge"),
+}));
+
+const markdownCommandSections = computed(() => [
     {
         id: "ai",
         title: "AI",
         items: [
-            createMarkdownCommandItem("command:ai-generate", "AI 生成", "占位，后续接入 AI 写入。", "i-lucide-sparkles", "paragraph", true),
-            createMarkdownCommandItem("command:ai-rewrite", "AI 改写", "占位，后续接入选区改写。", "i-lucide-wand-sparkles", "paragraph", true),
+            createMarkdownCommandItem("command:ai-generate", t("ide.markdownMenu.aiGenerate"), t("ide.markdownMenu.aiGenerateDescription"), "i-lucide-sparkles", "paragraph", true),
+            createMarkdownCommandItem("command:ai-rewrite", t("ide.markdownMenu.aiRewrite"), t("ide.markdownMenu.aiRewriteDescription"), "i-lucide-wand-sparkles", "paragraph", true),
         ],
     },
     {
         id: "style",
         title: "Style",
         items: [
-            createMarkdownCommandItem("command:paragraph", "正文", "切换为普通段落。", "i-lucide-type", "paragraph"),
-            createMarkdownCommandItem("command:heading-1", "标题 1", "插入一级标题。", "i-lucide-heading-1", "heading-1"),
-            createMarkdownCommandItem("command:heading-2", "标题 2", "插入二级标题。", "i-lucide-heading-2", "heading-2"),
-            createMarkdownCommandItem("command:heading-3", "标题 3", "插入三级标题。", "i-lucide-heading-3", "heading-3"),
-            createMarkdownCommandItem("command:bullet-list", "无序列表", "切换无序列表。", "i-lucide-list", "bullet-list"),
-            createMarkdownCommandItem("command:ordered-list", "有序列表", "切换有序列表。", "i-lucide-list-ordered", "ordered-list"),
-            createMarkdownCommandItem("command:blockquote", "引用块", "切换引用块。", "i-lucide-text-quote", "blockquote"),
-            createMarkdownCommandItem("command:code-block", "代码块", "插入代码块。", "i-lucide-square-code", "code-block"),
-            createMarkdownCommandItem("command:horizontal-rule", "分割线", "插入水平分割线。", "i-lucide-minus", "horizontal-rule"),
+            createMarkdownCommandItem("command:paragraph", t("ide.markdownMenu.paragraph"), t("ide.markdownMenu.paragraphDescription"), "i-lucide-type", "paragraph"),
+            createMarkdownCommandItem("command:heading-1", t("ide.markdownMenu.heading1"), t("ide.markdownMenu.heading1Description"), "i-lucide-heading-1", "heading-1"),
+            createMarkdownCommandItem("command:heading-2", t("ide.markdownMenu.heading2"), t("ide.markdownMenu.heading2Description"), "i-lucide-heading-2", "heading-2"),
+            createMarkdownCommandItem("command:heading-3", t("ide.markdownMenu.heading3"), t("ide.markdownMenu.heading3Description"), "i-lucide-heading-3", "heading-3"),
+            createMarkdownCommandItem("command:bullet-list", t("ide.markdownMenu.bulletList"), t("ide.markdownMenu.bulletListDescription"), "i-lucide-list", "bullet-list"),
+            createMarkdownCommandItem("command:ordered-list", t("ide.markdownMenu.orderedList"), t("ide.markdownMenu.orderedListDescription"), "i-lucide-list-ordered", "ordered-list"),
+            createMarkdownCommandItem("command:blockquote", t("ide.markdownMenu.blockquote"), t("ide.markdownMenu.blockquoteDescription"), "i-lucide-text-quote", "blockquote"),
+            createMarkdownCommandItem("command:code-block", t("ide.markdownMenu.codeBlock"), t("ide.markdownMenu.codeBlockDescription"), "i-lucide-square-code", "code-block"),
+            createMarkdownCommandItem("command:horizontal-rule", t("ide.markdownMenu.horizontalRule"), t("ide.markdownMenu.horizontalRuleDescription"), "i-lucide-minus", "horizontal-rule"),
         ],
     },
     {
         id: "insert",
         title: "Insert",
         items: [
-            createMarkdownCommandItem("command:image", "图片", "占位，后续插入图片语法。", "i-lucide-image", "image", true),
-            createMarkdownCommandItem("command:link", "链接", "占位，后续插入普通链接。", "i-lucide-link", "link", true),
-            createMarkdownCommandItem("command:reference", "引用", "切换到 @ 引用菜单。", "i-lucide-at-sign", "reference"),
-            createMarkdownCommandItem("command:comment", "评论", "占位，后续插入评论。", "i-lucide-message-square-plus", "comment", true),
+            createMarkdownCommandItem("command:image", t("ide.markdownMenu.image"), t("ide.markdownMenu.imageDescription"), "i-lucide-image", "image", true),
+            createMarkdownCommandItem("command:link", t("ide.markdownMenu.link"), t("ide.markdownMenu.linkDescription"), "i-lucide-link", "link", true),
+            createMarkdownCommandItem("command:reference", t("ide.markdownMenu.reference"), t("ide.markdownMenu.referenceDescription"), "i-lucide-at-sign", "reference"),
+            createMarkdownCommandItem("command:comment", t("ide.markdownMenu.comment"), t("ide.markdownMenu.commentDescription"), "i-lucide-message-square-plus", "comment", true),
         ],
     },
-];
+]);
 
 /**
  * 创建 Markdown slash command 菜单项。
@@ -557,14 +602,14 @@ function resolveMarkdownSkillMenu(context: AgentTriggerMenuContext): AgentTrigge
 
     if (markdownSkillCatalogLoading.value && items.length === 0) {
         return {
-            title: "调用技能",
+            title: t("ide.markdownMenu.skillTitle"),
             prefix: "$",
             sections: [{
                 id: "skill-loading",
                 items: [{
                     id: "skill:loading",
-                    label: "加载技能中",
-                    description: "正在读取当前仓库的 skills catalog。",
+                    label: t("ide.markdownMenu.skillLoading"),
+                    description: t("ide.markdownMenu.skillLoadingDescription"),
                     iconClass: "i-lucide-loader-circle animate-spin",
                     disabled: true,
                 }],
@@ -574,14 +619,14 @@ function resolveMarkdownSkillMenu(context: AgentTriggerMenuContext): AgentTrigge
 
     if (markdownSkillCatalogLoaded.value && items.length === 0) {
         return {
-            title: "调用技能",
+            title: t("ide.markdownMenu.skillTitle"),
             prefix: "$",
             sections: [{
                 id: "skill-empty",
                 items: [{
                     id: "skill:empty",
-                    label: "没有匹配技能",
-                    description: markdownSkillCatalog.value.length > 0 ? "当前查询没有匹配的 skill。" : "当前仓库还没有可用的 skill。",
+                    label: t("ide.markdownMenu.skillEmpty"),
+                    description: markdownSkillCatalog.value.length > 0 ? t("ide.markdownMenu.skillNoMatchDescription") : t("ide.markdownMenu.skillNoneDescription"),
                     iconClass: "i-lucide-info",
                     disabled: true,
                 }],
@@ -590,7 +635,7 @@ function resolveMarkdownSkillMenu(context: AgentTriggerMenuContext): AgentTrigge
     }
 
     return {
-        title: "调用技能",
+        title: t("ide.markdownMenu.skillTitle"),
         prefix: "$",
         sections: items.length > 0 ? [{id: "skill", items}] : [],
     };
@@ -602,14 +647,14 @@ function resolveMarkdownSkillMenu(context: AgentTriggerMenuContext): AgentTrigge
 function resolveMarkdownMenu(context: AgentTriggerMenuContext): AgentTriggerMenuState {
     if (context.kind === "command") {
         const query = context.query.trim().toLocaleLowerCase("zh-CN");
-        const sections = markdownCommandSections
+        const sections = markdownCommandSections.value
             .map((section) => ({
                 ...section,
                 items: section.items.filter((item) => !query || `${item.label} ${item.description} ${item.hint ?? ""}`.toLocaleLowerCase("zh-CN").includes(query)),
             }))
             .filter((section) => section.items.length > 0);
         return {
-            title: "命令",
+            title: t("ide.markdownMenu.commandTitle"),
             prefix: "/",
             sections: sections.length > 0 ? sections : [createEmptyMenuSection(context.query)],
         };
@@ -620,7 +665,7 @@ function resolveMarkdownMenu(context: AgentTriggerMenuContext): AgentTriggerMenu
 
     const referenceSections = buildWorkspaceReferenceSections(workspaceTree.value, context.query);
     return {
-        title: "引用",
+        title: t("ide.markdownMenu.referenceTitle"),
         prefix: "@",
         sections: referenceSections.length > 0 ? referenceSections : [createEmptyMenuSection(context.query)],
     };
@@ -630,14 +675,14 @@ function resolveMarkdownMenu(context: AgentTriggerMenuContext): AgentTriggerMenu
  * 搜索无结果时仍保留菜单，避免 Suggestion 直接关闭。
  */
 function createEmptyMenuSection(query: string): {id: string; title: string; items: AgentTriggerMenuItem[]} {
-    const label = query.trim() ? "没有匹配结果" : "暂无可引用内容";
+    const label = query.trim() ? t("ide.markdownMenu.noMatch") : t("ide.markdownMenu.noReference");
     return {
         id: "empty",
         title: "",
         items: [{
             id: "empty-result",
             label,
-            description: query.trim() ? "换一个关键词试试。" : "当前工作区没有可引用的 Markdown 文件或内容节点。",
+            description: query.trim() ? t("ide.markdownMenu.tryAnotherKeyword") : t("ide.markdownMenu.noWorkspaceReference"),
             iconClass: "i-lucide-search-x",
             disabled: true,
         }],
@@ -650,7 +695,7 @@ function createEmptyMenuSection(query: string): {id: string; title: string; item
 async function openWorkspaceReference(target: string): Promise<void> {
     const resolvedPath = resolveReferencePath(target, selectedFilePath.value);
     if (!resolvedPath) {
-        notification.warning(`引用目标不存在或不可打开：${target}`, {title: "打开引用失败"});
+        notification.warning(t("ide.shell.referenceOpenMissing", {target}), {title: t("ide.shell.referenceOpenFailedTitle")});
         return;
     }
     await novelIdeStore.openWorkspacePath(resolvedPath, "permanent");
@@ -842,7 +887,7 @@ const saveCurrentWorkspaceFile = async (): Promise<void> => {
     try {
         await saveCurrentFile();
     } catch (error) {
-        notification.error(resolveApiErrorMessage(error, "自动保存失败"), {title: "保存失败"});
+        notification.error(resolveApiErrorMessage(error, t("ide.shell.autoSaveFailed")), {title: t("ide.shell.autoSaveFailedTitle")});
     } finally {
         if (saveQueued.value && !novelIdeStore.workspaceWriteConflict && selectedFileContent.value !== lastSyncedFileContent.value) {
             saveQueued.value = false;
@@ -1196,6 +1241,186 @@ async function rerollBodyImageResult(): Promise<void> {
     }
 }
 /**
+ * 将 TipTap 选区加入底部 Inline AI 输入栏。
+ */
+function addInlineAiReference(reference: InlineEditReference): void {
+    inlinePromptReferences.value = [
+        ...inlinePromptReferences.value.filter((item) => item.ref !== reference.ref || item.text !== reference.text),
+        reference,
+    ];
+    inlinePromptExpanded.value = true;
+    inlinePromptStatusText.value = reference.match === "unique"
+        ? t("ide.inlineAi.referenceAdded")
+        : t("ide.inlineAi.referenceAddedWeak");
+}
+
+/**
+ * 清除一个 Inline AI 引用。
+ */
+function clearInlineAiReference(index: number): void {
+    const removedReference = inlinePromptReferences.value[index] ?? null;
+    inlinePromptReferences.value = inlinePromptReferences.value.filter((_reference, referenceIndex) => referenceIndex !== index);
+    if (removedReference && inlinePromptHoveredReference.value?.ref === removedReference.ref) {
+        inlinePromptHoveredReference.value = null;
+    }
+}
+
+/**
+ * 构造发送给 AgentChatFlow 的可见用户消息。
+ */
+function buildInlineVisibleMessage(payload: InlineEditPayload): string {
+    const chips = payload.references.length > 0
+        ? payload.references.map((reference) => reference.ref)
+        : [buildSelectionRefChip({path: payload.targetPath})];
+    const instruction = payload.instruction.trim() || t("ide.inlineAi.defaultInstruction");
+    return `**${inlineTaskLabels.value[payload.task]}** ${chips.join(" ")}\n\n${instruction}`;
+}
+
+/**
+ * 将 IDE store 的 Project Workspace 相对路径转换为 Workspace Root cwd-relative 完整路径。
+ *
+ * @example
+ * // 当 currentNovelId = "ming-ding-zhi-shi-2"
+ * resolveInlineEditorTargetPath("manuscript/001/index.md")
+ * // => "ming-ding-zhi-shi-2/manuscript/001/index.md"
+ *
+ * resolveInlineEditorTargetPath("ming-ding-zhi-shi-2/manuscript/001/index.md")
+ * // => "ming-ding-zhi-shi-2/manuscript/001/index.md" (避免重复前缀)
+ */
+function resolveInlineEditorTargetPath(projectRelativePath: string): string {
+    if (!projectRelativePath) {
+        return projectRelativePath;
+    }
+    const projectSlug = currentNovelId.value;
+    if (!projectSlug) {
+        // user-assets 或 welcome 模式，直接返回原路径
+        return projectRelativePath;
+    }
+    // 避免重复前缀
+    if (projectRelativePath.startsWith(`${projectSlug}/`)) {
+        return projectRelativePath;
+    }
+    return `${projectSlug}/${projectRelativePath}`;
+}
+
+/**
+ * 批量转换 selection references 的路径，并重新生成 canonical chip。
+ */
+function resolveInlineEditorReferences(references: InlineEditReference[]): InlineEditReference[] {
+    return references.map((reference) => {
+        const resolvedPath = resolveInlineEditorTargetPath(reference.path);
+        return {
+            ...reference,
+            path: resolvedPath,
+            ref: buildSelectionRefChip({
+                path: resolvedPath,
+                range: reference.range,
+            }),
+        };
+    });
+}
+
+/**
+ * 发送 Inline AI 编辑任务给 inline.editor profile。
+ */
+async function sendInlineEditorPrompt(): Promise<void> {
+    if (inlinePromptRunning.value) {
+        return;
+    }
+    if (!inlinePromptAvailable.value) {
+        notification.warning(t("ide.inlineAi.unsupportedFile"), {title: "Inline AI"});
+        return;
+    }
+    if (!selectedFilePath.value) {
+        notification.warning(t("ide.inlineAi.openEditableFileFirst"), {title: "Inline AI"});
+        return;
+    }
+    if (!inlinePromptInstruction.value.trim() && inlinePromptReferences.value.length === 0) {
+        notification.warning(t("ide.inlineAi.missingInstruction"), {title: "Inline AI"});
+        return;
+    }
+
+    const payload: InlineEditPayload = {
+        version: 1,
+        task: inlinePromptTask.value,
+        targetPath: resolveInlineEditorTargetPath(selectedFilePath.value),
+        instruction: inlinePromptInstruction.value.trim(),
+        references: resolveInlineEditorReferences(inlinePromptReferences.value),
+    };
+    const agentSurface = agentSurfaceRef.value;
+    if (!agentSurface?.sendInlineEditorPrompt) {
+        notification.error(t("ide.inlineAi.agentNotReady"), {title: "Inline AI"});
+        return;
+    }
+
+    await saveCurrentWorkspaceFile();
+    inlinePromptRunning.value = true;
+    inlinePromptStatusText.value = t("ide.inlineAi.sending");
+    inlinePromptEditPreview.value = "";
+
+    try {
+        await agentSurface.sendInlineEditorPrompt(payload, buildInlineVisibleMessage(payload));
+        inlinePromptInstruction.value = "";
+        inlinePromptReferences.value = [];
+        inlinePromptHoveredReference.value = null;
+        inlinePromptStatusText.value = t("ide.inlineAi.started");
+    } catch (error) {
+        inlinePromptStatusText.value = resolveApiErrorMessage(error, t("ide.inlineAi.sendFailed"));
+        notification.error(inlinePromptStatusText.value, {title: "Inline AI"});
+    } finally {
+        inlinePromptRunning.value = false;
+    }
+}
+
+/**
+ * 停止当前 Inline AI 任务。
+ */
+async function stopInlineEditorPrompt(): Promise<void> {
+    await agentSurfaceRef.value?.stopInlineEditorPrompt?.();
+    inlinePromptRunning.value = false;
+    inlinePromptStatusText.value = t("ide.inlineAi.stopRequested");
+}
+
+/**
+ * 在 PromptBar 内切换后台 Inline AI session。
+ */
+async function selectInlineEditorSession(sessionId: number): Promise<void> {
+    try {
+        await agentSurfaceRef.value?.selectInlineEditorSession?.(sessionId);
+        inlinePromptStatusText.value = t("ide.inlineAi.boundSession");
+    } catch (error) {
+        inlinePromptStatusText.value = resolveApiErrorMessage(error, t("ide.inlineAi.bindFailed"));
+        notification.error(inlinePromptStatusText.value, {title: "Inline AI"});
+    }
+}
+
+/**
+ * 在当前 Project Workspace 下创建新的 Inline AI session。
+ */
+async function createInlineEditorSession(): Promise<void> {
+    try {
+        await agentSurfaceRef.value?.createInlineEditorSession?.();
+        inlinePromptStatusText.value = t("ide.inlineAi.sessionCreated");
+    } catch (error) {
+        inlinePromptStatusText.value = resolveApiErrorMessage(error, t("ide.inlineAi.createSessionFailed"));
+        notification.error(inlinePromptStatusText.value, {title: "Inline AI"});
+    }
+}
+
+/**
+ * 刷新 PromptBar 的 Inline AI session 列表。
+ */
+async function refreshInlineEditorSessions(): Promise<void> {
+    try {
+        await agentSurfaceRef.value?.refreshInlineEditorSessions?.();
+        inlinePromptStatusText.value = t("ide.inlineAi.sessionsRefreshed");
+    } catch (error) {
+        inlinePromptStatusText.value = resolveApiErrorMessage(error, t("ide.inlineAi.refreshSessionsFailed"));
+        notification.error(inlinePromptStatusText.value, {title: "Inline AI"});
+    }
+}
+
+/**
  * 切换工作区编辑模式。
  */
 const setCurrentWorkspaceViewMode = (mode: WorkspaceEditorViewMode): void => {
@@ -1210,6 +1435,19 @@ watch(currentWorkspaceViewMode, (mode) => {
     viewMode.value = mode;
 }, {immediate: true});
 
+watch([inlinePromptAvailable, agentSurfaceRef], ([available, surface]) => {
+    if (available && surface?.refreshInlineEditorSessions) {
+        void surface.refreshInlineEditorSessions();
+    }
+}, {immediate: true});
+
+watch(selectedFilePath, () => {
+    inlinePromptReferences.value = [];
+    inlinePromptHoveredReference.value = null;
+    inlinePromptEditPreview.value = "";
+    inlinePromptStatusText.value = t("ide.inlineAi.initialStatus");
+});
+
 /**
  * 关闭标签页，脏文件先确认。
  */
@@ -1222,11 +1460,11 @@ const closeEditorTab = async (filePath: string): Promise<void> => {
         await closeWorkspaceTab(filePath, true);
         return;
     }
-    const action = await choose("当前标签有未保存修改，是否先保存？", [
-        {label: "保存", value: "save", tone: "primary"},
-        {label: "放弃", value: "discard", tone: "danger"},
-        {label: "取消", value: "cancel"},
-    ], "关闭标签");
+    const action = await choose(t("ide.shell.closeTabUnsaved"), [
+        {label: t("ide.shell.save"), value: "save", tone: "primary"},
+        {label: t("ide.shell.discard"), value: "discard", tone: "danger"},
+        {label: t("common.cancel"), value: "cancel"},
+    ], t("ide.shell.closeTabTitle"));
     if (action === "cancel") {
         return;
     }
@@ -1252,11 +1490,11 @@ const resolveUnsavedWorkspaceChanges = async (): Promise<WorkspaceSwitchDecision
         return "save";
     }
 
-    const action = await choose("当前 workspace 有未保存修改，是否先保存？", [
-        {label: "保存", value: "save", tone: "primary"},
-        {label: "放弃", value: "discard", tone: "danger"},
-        {label: "取消", value: "cancel"},
-    ], "未保存修改");
+    const action = await choose(t("ide.shell.unsavedWorkspaceMessage"), [
+        {label: t("ide.shell.save"), value: "save", tone: "primary"},
+        {label: t("ide.shell.discard"), value: "discard", tone: "danger"},
+        {label: t("common.cancel"), value: "cancel"},
+    ], t("ide.shell.unsavedWorkspaceTitle"));
 
     if (action === "cancel") {
         return "cancel";
@@ -1270,6 +1508,32 @@ const resolveUnsavedWorkspaceChanges = async (): Promise<WorkspaceSwitchDecision
 };
 
 /**
+ * 切换 Project 前保护 World Engine Workbench 的会话态草稿。
+ */
+const confirmWorldEngineWorkbenchDraftDiscardForProjectSwitch = async (): Promise<boolean> => {
+    if (!worldEngineWorkbenchOpen.value) {
+        return true;
+    }
+    if (worldEngineWorkbenchSaving.value) {
+        await choose("World Engine 正在保存 Slice，请等待保存完成后再切换 Project。", [
+            {label: t("common.confirm"), value: "ok", tone: "primary"},
+        ], "World Engine 正在保存");
+        return false;
+    }
+    if (!worldEngineWorkbenchHasUnsavedDrafts.value) {
+        return true;
+    }
+    const action = await choose("World Engine Workbench 有未保存草稿。切换 Project 会放弃这些会话草稿。", [
+        {label: "放弃草稿并切换", value: "discard", tone: "danger"},
+        {label: t("common.cancel"), value: "cancel"},
+    ], "World Engine 草稿未保存");
+    if (action === "cancel") {
+        return false;
+    }
+    return action === "discard";
+};
+
+/**
  * 切换小说前先处理当前文件保存状态。
  */
 const handleSwitchNovel = async (novelId: string): Promise<void> => {
@@ -1277,6 +1541,10 @@ const handleSwitchNovel = async (novelId: string): Promise<void> => {
         if (route.query.project !== novelId) {
             await router.replace(buildProjectRoute(novelId));
         }
+        return;
+    }
+
+    if (!(await confirmWorldEngineWorkbenchDraftDiscardForProjectSwitch())) {
         return;
     }
 
@@ -1604,10 +1872,10 @@ const flushWorkspaceFileEvents = async (): Promise<void> => {
             pendingWorkspaceFileEvents = [];
             const result = await syncWorkspaceFromDisk(events);
             if (result.activeFile === "dirty") {
-                notification.warning("磁盘文件已更新，但当前编辑器有未保存修改，已保留本地内容。", {title: "文件同步冲突"});
+                notification.warning(t("ide.shell.fileSyncConflictMessage"), {title: t("ide.shell.fileSyncConflictTitle")});
             }
             if (result.activeFile === "deleted") {
-                notification.warning("当前文件已在磁盘中删除，编辑器已关闭该文件。", {title: "文件已删除"});
+                notification.warning(t("ide.shell.fileDeletedMessage"), {title: t("ide.shell.fileDeletedTitle")});
             }
         }
     } finally {
@@ -1651,142 +1919,8 @@ const subscribeWorkspaceEvents = (): void => {
                 return;
             }
             console.warn("[workspace-files] event stream failed", error);
-            notification.warning("文件实时同步连接已断开，请手动刷新或重新打开小说。", {title: "同步中断"});
+            notification.warning(t("ide.shell.syncInterruptedMessage"), {title: t("ide.shell.syncInterruptedTitle")});
         });
-};
-
-/**
- * 把服务端 SSE 帧解析为续写事件。
- */
-const handleFrame = (frame: string): void => {
-    const lines = frame.split("\n");
-    let eventName = "";
-    let dataText = "";
-
-    for (const line of lines) {
-        if (line.startsWith("event:")) {
-            eventName = line.slice("event:".length).trim();
-            continue;
-        }
-        if (line.startsWith("data:")) {
-            dataText += line.slice("data:".length).trim();
-        }
-    }
-
-    if (!eventName || !dataText) {
-        return;
-    }
-
-    if (eventName === "token") {
-        const tokenPayload = JSON.parse(dataText) as StreamTokenEvent;
-        const text = typeof tokenPayload.text === "string" ? tokenPayload.text : "";
-        if (text) {
-            studio.appendStreamText(text);
-        }
-        return;
-    }
-
-    if (eventName === "done") {
-        const donePayload = JSON.parse(dataText) as StreamDoneEvent;
-        studio.setStatusText(`生成完成，总新增 ${String(donePayload.fullText ?? "").length} 字`);
-        return;
-    }
-
-    if (eventName === "error") {
-        const errorPayload = JSON.parse(dataText) as StreamErrorEvent;
-        studio.setStatusText(errorPayload.message ?? "续写失败");
-    }
-};
-
-/**
- * 停止当前续写请求，并保存当前文件。
- */
-const stopContinue = (): void => {
-    abortController.value?.abort();
-    abortController.value = null;
-    studio.setStatusText("已手动停止续写");
-    studio.abortStream();
-    void saveCurrentWorkspaceFile();
-};
-
-/**
- * 发起续写请求并消费 SSE 流，内容源改为当前文件。
- */
-const startContinue = async (): Promise<void> => {
-    if (studio.loading.value) {
-        return;
-    }
-
-    await saveCurrentWorkspaceFile();
-
-    if (!selectedFileContent.value.trim()) {
-        studio.setStatusText("请先输入部分正文以获取上下文");
-        return;
-    }
-    if (!requirement.value.trim()) {
-        studio.setStatusText("请填写具体的情节续写要求");
-        return;
-    }
-
-    const payload: NovelContinueRequestDto = {
-        content: selectedFileContent.value,
-        requirement: requirement.value,
-    };
-
-    const controller = new AbortController();
-    abortController.value = controller;
-    studio.loading.value = true;
-    studio.setStatusText("AI 加载中...");
-
-    try {
-        const response = await fetch("/api/writing/continue", {
-            method: "POST",
-            headers: {"Content-Type": "application/json"},
-            body: JSON.stringify(payload),
-            signal: controller.signal,
-        });
-
-        if (!response.ok) {
-            throw new Error(`请求失败：${response.status}`);
-        }
-        if (!response.body) {
-            throw new Error("服务端未返回流式数据");
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        studio.setStatusText("正在续写中...");
-        studio.startStream();
-
-        while (true) {
-            const {done, value} = await reader.read();
-            if (done) {
-                break;
-            }
-
-            buffer += decoder.decode(value, {stream: true});
-            const frames = buffer.split("\n\n");
-            buffer = frames.pop() ?? "";
-
-            for (const frame of frames) {
-                handleFrame(frame);
-            }
-        }
-
-        if (buffer.trim()) {
-            handleFrame(buffer);
-        }
-    } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") {
-            studio.setStatusText("已手动停止续写");
-        } else {
-            studio.setStatusText(error instanceof Error ? error.message : "请求失败获取异常");
-        }
-    } finally {
-        abortController.value = null;
-        studio.finishStream();
-    }
 };
 
 /**
@@ -1849,13 +1983,13 @@ const toggleLeftTab = (tab: NovelIdeTab): void => {
 };
 
 /**
- * 从顶部栏直接打开剧本工作台。
+ * 从主 IDE 打开当前 Project 的 World Engine 工作台。
  */
-const openPlotWorkbench = (): void => {
-    if (isUserAssetsWorkspace.value) {
+const openWorldEngineWorkbench = (): void => {
+    if (isUserAssetsWorkspace.value || !currentNovelId.value) {
         return;
     }
-    novelIdeStore.plotWorkbenchOpen = true;
+    worldEngineWorkbenchOpen.value = true;
 };
 
 /**
@@ -1877,7 +2011,18 @@ const initializeWorkspaceFromRoute = async (): Promise<void> => {
         return;
     }
 
-    await switchToNovelWorkspace(target.kind === "project" ? target.projectPath : undefined);
+    if (target.kind === "project") {
+        const list = await loadNovels({includeProjectPath: target.projectPath});
+        const routeProjectExists = list.some((novel) => novel.id === target.projectPath);
+        discardOpenPathForProjectFallback.value = !routeProjectExists;
+        await switchToNovelWorkspace(routeProjectExists ? target.projectPath : list[0]?.id);
+        notifyProjectRouteFallback(target);
+        return;
+    }
+
+    discardOpenPathForProjectFallback.value = false;
+    await switchToNovelWorkspace();
+    notifyProjectRouteFallback(target);
 };
 
 /**
@@ -1908,21 +2053,62 @@ const normalizeNovelRouteQuery = async (): Promise<void> => {
 };
 
 /**
+ * URL 指定的 Project 不存在或已删除时，告知作者已切回当前可用 Project。
+ */
+const notifyProjectRouteFallback = (target: ProjectRouteTarget): void => {
+    if (target.kind !== "project") {
+        return;
+    }
+    if (workspaceKind.value !== "novel" || currentNovelId.value === target.projectPath) {
+        lastMissingProjectNoticeTarget.value = "";
+        return;
+    }
+    if (lastMissingProjectNoticeTarget.value === target.projectPath) {
+        return;
+    }
+    lastMissingProjectNoticeTarget.value = target.projectPath;
+    const fallbackTitle = displayNovelTitle.value || currentNovelId.value || "可用 Project";
+    const openPathHint = typeof route.query.openPath === "string" ? " 已忽略原链接中的文件路径。" : "";
+    notification.warning(`Project ${target.projectPath} 不存在或已删除，已切换到 ${fallbackTitle}。${openPathHint}`, {title: "Project 已不可用"});
+};
+
+/**
+ * 取消 route 触发的 workspace 切换时，把 URL 拉回当前实际 workspace。
+ */
+const restoreCurrentWorkspaceRoute = async (): Promise<void> => {
+    if (isUserAssetsWorkspace.value) {
+        if (route.query.project === USER_ASSETS_PROJECT_TARGET) {
+            return;
+        }
+        await router.replace(buildProjectRoute(USER_ASSETS_PROJECT_TARGET));
+        return;
+    }
+    await normalizeNovelRouteQuery();
+};
+
+/**
  * 监听页面 query 变化，允许主页面直接切换 novel/user-assets workspace。
  */
 const syncWorkspaceRoute = async (): Promise<void> => {
     if (workspaceRouteSynced()) {
+        await consumeWorkspaceOpenPathFromRoute();
         if (!isUserAssetsWorkspace.value) {
             await normalizeNovelRouteQuery();
         }
         subscribeWorkspaceEvents();
         return;
     }
+    if (!(await confirmWorldEngineWorkbenchDraftDiscardForProjectSwitch())) {
+        await restoreCurrentWorkspaceRoute();
+        return;
+    }
     const decision = await resolveUnsavedWorkspaceChanges();
     if (decision === "cancel") {
+        await restoreCurrentWorkspaceRoute();
         return;
     }
     await initializeWorkspaceFromRoute();
+    await consumeWorkspaceOpenPathFromRoute();
     if (!isUserAssetsWorkspace.value) {
         await normalizeNovelRouteQuery();
     }
@@ -1954,9 +2140,95 @@ function openWelcomeFiles(): void {
 async function openWelcomeWorkspacePath(filePath: string): Promise<void> {
     openWelcomeFiles();
     try {
+        if (filePath === "world-engine/calendar.ts") {
+            const created = await ensureWorldEngineCalendarFile();
+            await novelIdeStore.selectWorkspacePath(filePath, "permanent");
+            if (created) {
+                notification.success("已创建 world-engine/calendar.ts", {title: "Calendar 配置已就绪"});
+            }
+            return;
+        }
         await novelIdeStore.selectWorkspacePath(filePath, "permanent");
     } catch (error) {
-        notification.error(resolveApiErrorMessage(error, `无法打开 ${filePath}`), {title: "打开路径失败"});
+        notification.error(resolveApiErrorMessage(error, t("ide.shell.openPathFailed", {path: filePath})), {title: t("ide.shell.openPathFailedTitle")});
+    }
+}
+
+/**
+ * 为旧 Project 补齐新版 Calendar 入口文件。
+ */
+async function ensureWorldEngineCalendarFile(): Promise<boolean> {
+    const nodes = await novelIdeStore.loadWorkspaceTree();
+    if (nodes.some((node) => node.path === "world-engine/calendar.ts")) {
+        return false;
+    }
+    await createMissingWorldEngineCalendarFile();
+    return true;
+}
+
+/**
+ * 创建新版 Calendar 入口文件。
+ */
+async function createMissingWorldEngineCalendarFile(): Promise<void> {
+    await novelIdeStore.createWorkspaceFile("world-engine/calendar.ts", buildWorldEngineCalendarTemplate());
+}
+
+/**
+ * 默认 Calendar 草稿，保持和项目模板同一套 simple calendar 语义。
+ */
+function buildWorldEngineCalendarTemplate(): string {
+    return [
+        "/**",
+        " * World Engine Calendar.",
+        " *",
+        " * 默认使用 Simple Calendar。可以改成 type: 'gregorian' 使用真实公历，",
+        " * 或改成 type: 'custom' 手写 format / parse。",
+        " */",
+        "",
+        "export default {",
+        "  type: 'simple',",
+        "  eraBefore: '蒙昧纪元',",
+        "  eraAfter: '新生纪元',",
+        "  baseUnit: 'second',",
+        "  units: [",
+        "    { name: 'minute', parent: 'second', ratio: 60 },",
+        "    { name: 'hour', parent: 'minute', ratio: 60 },",
+        "    { name: 'day', parent: 'hour', ratio: 24 },",
+        "    { name: 'month', parent: 'day', ratio: 30 },",
+        "    { name: 'year', parent: 'month', ratio: 12 }",
+        "  ],",
+        "  format: '{eraName}{year}年{month}月{day}日 {hour:02}:{minute:02}:{second:02}'",
+        "};",
+        "",
+    ].join("\n");
+}
+
+/**
+ * 消费 `openPath` 深链，在当前 Project Workspace 内打开目标文件。
+ */
+async function consumeWorkspaceOpenPathFromRoute(): Promise<void> {
+    if (consumingRouteOpenPath.value || isUserAssetsWorkspace.value || !currentNovelId.value || typeof route.query.openPath !== "string") {
+        return;
+    }
+    if (discardOpenPathForProjectFallback.value) {
+        discardOpenPathForProjectFallback.value = false;
+        const nextQuery = {...route.query};
+        delete nextQuery.openPath;
+        await router.replace({path: route.path, query: nextQuery});
+        return;
+    }
+    const filePath = normalizeWorkspacePath(route.query.openPath);
+    if (!filePath) {
+        return;
+    }
+    consumingRouteOpenPath.value = true;
+    try {
+        await openWelcomeWorkspacePath(filePath);
+        const nextQuery = {...route.query};
+        delete nextQuery.openPath;
+        await router.replace({path: route.path, query: nextQuery});
+    } finally {
+        consumingRouteOpenPath.value = false;
     }
 }
 
@@ -1996,48 +2268,48 @@ function toggleWelcomeAgentSurface(): void {
  * 创建欢迎页默认章节文件。
  */
 async function createWelcomeChapter(): Promise<void> {
-    const input = await prompt("请输入章节路径", "manuscript/001-volume/new-chapter/index.md", "新建章节");
+    const input = await prompt(t("ide.shell.createChapterPrompt"), "manuscript/001-volume/new-chapter/index.md", t("ide.shell.createChapterTitle"));
     const filePath = normalizeWelcomeChapterPath(input);
     if (!filePath) {
         return;
     }
-    await createWelcomeFile(filePath, buildWelcomeMarkdownContent(filePath), "创建章节失败");
+    await createWelcomeFile(filePath, buildWelcomeMarkdownContent(filePath), t("ide.shell.createChapterFailed"));
 }
 
 /**
  * 创建欢迎页普通 Markdown 文件。
  */
 async function createWelcomeMarkdownFile(): Promise<void> {
-    const input = await prompt("请输入 Markdown 文件路径", "manuscript/new-file.md", "新建 Markdown");
+    const input = await prompt(t("ide.shell.createMarkdownPrompt"), "manuscript/new-file.md", t("ide.shell.createMarkdownTitle"));
     const filePath = normalizeWelcomeMarkdownPath(input);
     if (!filePath) {
         return;
     }
-    await createWelcomeFile(filePath, buildWelcomeMarkdownContent(filePath), "创建 Markdown 失败");
+    await createWelcomeFile(filePath, buildWelcomeMarkdownContent(filePath), t("ide.shell.createMarkdownFailed"));
 }
 
 /**
  * 创建欢迎页 Lorebook 条目。
  */
 async function createWelcomeLorebookEntry(): Promise<void> {
-    const selectedType = await choose("请选择世界书条目类型", [
-        {label: "地点", value: "location", tone: "primary"},
-        {label: "角色", value: "character"},
-        {label: "物品", value: "item"},
-        {label: "规则", value: "rule"},
-        {label: "笔记", value: "note"},
-        {label: "取消", value: "cancel"},
-    ], "新建世界书条目");
+    const selectedType = await choose(t("ide.shell.createLorebookTypePrompt"), [
+        {label: t("ide.shell.lorebookLocation"), value: "location", tone: "primary"},
+        {label: t("ide.shell.lorebookCharacter"), value: "character"},
+        {label: t("ide.shell.lorebookItem"), value: "item"},
+        {label: t("ide.shell.lorebookRule"), value: "rule"},
+        {label: t("ide.shell.lorebookNote"), value: "note"},
+        {label: t("common.cancel"), value: "cancel"},
+    ], t("ide.shell.createLorebookTitle"));
     if (!isWelcomeLorebookEntryType(selectedType)) {
         return;
     }
 
-    const input = await prompt("请输入世界书条目路径", `lorebook/${selectedType}/new-entry/index.md`, "新建世界书条目");
+    const input = await prompt(t("ide.shell.createLorebookPathPrompt"), `lorebook/${selectedType}/new-entry/index.md`, t("ide.shell.createLorebookTitle"));
     const filePath = normalizeWelcomeLorebookPath(input, selectedType);
     if (!filePath) {
         return;
     }
-    await createWelcomeFile(filePath, buildWelcomeLorebookContent(filePath, selectedType), "创建世界书条目失败");
+    await createWelcomeFile(filePath, buildWelcomeLorebookContent(filePath, selectedType), t("ide.shell.createLorebookFailed"));
 }
 
 /**
@@ -2047,7 +2319,7 @@ async function createWelcomeFile(filePath: string, content: string, fallbackMess
     try {
         const node = await novelIdeStore.createWorkspaceFile(filePath, content);
         await novelIdeStore.selectWorkspacePath(node.path, "permanent");
-        notification.success(`已创建 ${node.path}`, {title: "创建成功"});
+        notification.success(t("ide.shell.createSuccess", {path: node.path}), {title: t("ide.shell.createSuccessTitle")});
     } catch (error) {
         notification.error(resolveApiErrorMessage(error, fallbackMessage), {title: fallbackMessage});
     }
@@ -2172,6 +2444,7 @@ onMounted(() => {
             void syncAuthSession();
             await initializeWorkspaceFromRoute();
             await syncDefaultModelLabel();
+            await consumeWorkspaceOpenPathFromRoute();
             if (!isUserAssetsWorkspace.value) {
                 await normalizeNovelRouteQuery();
             }
@@ -2183,7 +2456,7 @@ onMounted(() => {
     })();
 });
 
-watch(() => route.query.project, () => {
+watch(() => [route.query.project, route.query.openPath] as const, () => {
     if (!initialized.value) {
         return;
     }
@@ -2191,9 +2464,6 @@ watch(() => route.query.project, () => {
 });
 
 onBeforeUnmount(() => {
-    studio.abortStream();
-    abortController.value?.abort();
-    abortController.value = null;
     workspaceEventAbortController.value?.abort();
     workspaceEventAbortController.value = null;
     if (import.meta.client) {
@@ -2218,15 +2488,14 @@ onBeforeUnmount(() => {
             @toggle-layout-mode="void toggleAgentLayoutMode()"
             @toggle-agent="isAgentMode ? toggleAgentModeStudio() : rightPanelOpen = !rightPanelOpen"
             @open-bookshelf="bookshelfOpen = true"
-            @open-plot-workbench="openPlotWorkbench"
-            @open-rag-inspector="ragInspectorOpen = true"
+            @open-world-engine="openWorldEngineWorkbench"
             @open-user-assets="openUserAssets"
             @open-profile-workbench="profileWorkbenchOpen = true"
             @switch-novel="handleSwitchNovel"
             @open-admin="void openAdmin()"
             @logout="void logout()"
         />
-        <NovelRagInspectorDialog v-if="!isUserAssetsWorkspace" v-model="ragInspectorOpen" :project-path="currentNovelId" />
+        <WorldEngineWorkbenchDialog v-if="!isUserAssetsWorkspace" v-model="worldEngineWorkbenchOpen" :project-path="currentNovelId" :project-title="displayNovelTitle" @has-unsaved-drafts-change="worldEngineWorkbenchHasUnsavedDrafts = $event" @saving-change="worldEngineWorkbenchSaving = $event" @open-workspace-path="void openWelcomeWorkspacePath($event)" />
 
         <div class="flex min-h-0 flex-1 overflow-hidden">
             <NovelIdeSidebar class="ide-sidebar" :active-tab="displaySidebarActiveTab" :agent-mode="isAgentMode" :user-assets-mode="isUserAssetsWorkspace" @toggle-tab="handleSidebarToggle" @collapse="activeLeftTab = null" @open-settings="settingsDialogOpen = true" />
@@ -2280,7 +2549,7 @@ onBeforeUnmount(() => {
                     <div class="min-w-0">
                         <div class="text-[12px] font-semibold uppercase tracking-[0.18em] text-[var(--text-secondary)]">Studio</div>
                     </div>
-                    <button type="button" class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="agentStudioFileTreeOpen ? '收起文件树' : '展开文件树'" @click="agentStudioFileTreeOpen = !agentStudioFileTreeOpen">
+                    <button type="button" class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="agentStudioFileTreeOpen ? t('ide.shell.collapseFileTree') : t('ide.shell.expandFileTree')" @click="agentStudioFileTreeOpen = !agentStudioFileTreeOpen">
                         <span :class="agentStudioFileTreeOpen ? 'i-lucide-panel-right-close' : 'i-lucide-folder-tree'" class="h-4 w-4"></span>
                     </button>
                 </div>
@@ -2306,6 +2575,8 @@ onBeforeUnmount(() => {
                             :resolve-menu="resolveMarkdownMenu"
                             :open-reference="openWorkspaceReference"
                             :resolve-reference="resolveWorkspaceReferencePreview"
+                            :inline-ai-references="inlinePromptReferences"
+                            :inline-ai-highlight-reference="inlinePromptHoveredReference"
                             :enable-quick-triggers="true"
                             :can-generate-body-image="canGenerateBodyImage"
                             :body-image-busy="bodyImageGenerating"
@@ -2331,10 +2602,9 @@ onBeforeUnmount(() => {
                             @switch-agent-mode="void openWelcomeAgentMode()"
                             @toggle-agent-surface="toggleWelcomeAgentSurface"
                             @open-bookshelf="bookshelfOpen = true"
-                            @open-plot-workbench="openPlotWorkbench"
-                            @open-rag-inspector="ragInspectorOpen = true"
                             @open-user-assets="openUserAssets"
                             @open-profile-workbench="profileWorkbenchOpen = true"
+                            @inline-ai-reference="addInlineAiReference"
                         >
                             <template #custom-tab="{ tab }">
                                 <TextToImageCharacterWorkspace
@@ -2362,19 +2632,31 @@ onBeforeUnmount(() => {
                 </div>
 
                 <NovelPromptBar
-                    v-if="!isAgentMode"
+                    v-if="!isAgentMode && inlinePromptAvailable"
                     class="ide-prompt-bar"
-                    :model-value="displayRequirement"
-                    :loading="studio.loading.value || loadingWorkspace"
-                    :typing="studio.typing.value"
-                    :status-text="studio.statusText.value"
+                    :model-value="inlinePromptInstruction"
+                    :loading="inlinePromptRunning || inlinePromptAgentRunning || loadingWorkspace"
                     :selected-model="displaySelectedModel"
-                    :selected-reasoning="displaySelectedReasoning"
-                    :expanded="displayPromptExpanded"
-                    @update:model-value="requirement = $event"
-                    @update:expanded="promptExpanded = $event"
-                    @send="startContinue"
-                    @stop="stopContinue"
+                    :expanded="inlinePromptExpanded"
+                    :task="inlinePromptTask"
+                    :references="inlinePromptReferences"
+                    :current-path="selectedFilePath"
+                    :session-label="displayInlinePromptSessionLabel"
+                    :sessions="inlinePromptSessions"
+                    :active-session-id="inlinePromptSessionId"
+                    :session-loading="inlinePromptSessionLoading"
+                    :edit-preview="displayInlinePromptEditPreview"
+                    :result-text="inlinePromptResultText"
+                    @update:model-value="inlinePromptInstruction = $event"
+                    @update:expanded="inlinePromptExpanded = $event"
+                    @update:task="inlinePromptTask = $event"
+                    @clear-reference="clearInlineAiReference"
+                    @hover-reference="inlinePromptHoveredReference = $event"
+                    @select-session="void selectInlineEditorSession($event)"
+                    @create-session="void createInlineEditorSession()"
+                    @refresh-sessions="void refreshInlineEditorSessions()"
+                    @send="void sendInlineEditorPrompt()"
+                    @stop="void stopInlineEditorPrompt()"
                 />
             </main>
 
@@ -2410,7 +2692,7 @@ onBeforeUnmount(() => {
             </section>
         </div>
 
-        <NovelBookshelfDialog v-model="bookshelfOpen" @switched="void router.replace(buildProjectRoute($event))" />
+        <NovelBookshelfDialog v-model="bookshelfOpen" :before-workspace-switch="confirmWorldEngineWorkbenchDraftDiscardForProjectSwitch" @switched="void router.replace(buildProjectRoute($event))" />
         <NovelIdeSettingsDialog v-model="settingsDialogOpen" />
         <UserProfileWorkbenchDialog v-model="profileWorkbenchOpen" />
         <WorkspaceFileConflictDialog

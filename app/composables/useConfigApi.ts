@@ -9,11 +9,22 @@ import type {
 } from "nbook/shared/dto/config.dto";
 import type {PiBuiltinCatalogDto} from "nbook/shared/dto/app-settings.dto";
 
+type ConfigEditorSnapshotOptions = {
+    includeAgentProfileSettings?: boolean;
+    agentProfileSettingsScope?: "global" | "project";
+};
+
+type ConfigEditorSnapshotQueryParams = ConfigWorkspaceQueryDto & {
+    includeAgentProfileSettings?: "true";
+    agentProfileSettingsScope?: "global" | "project";
+};
+
 /**
  * 统一构造当前 IDE 上下文对应的 Config API 查询与保存入口。
  */
 export function useConfigApi() {
     const novelIdeStore = useNovelIdeStore();
+    const {t} = useI18n();
 
     /**
      * Workspace Root 配置查询参数。Global Config 写入时也带上当前目标，
@@ -54,17 +65,37 @@ export function useConfigApi() {
      */
     function projectQuery(): ConfigWorkspaceQueryDto {
         if (novelIdeStore.workspaceKind === "user-assets" || !novelIdeStore.currentNovelId) {
-            throw new Error("当前没有可写入的 Project Workspace 配置");
+            throw new Error(t("composables.config.noWritableProjectWorkspace"));
         }
         return novelProjectQuery(novelIdeStore.currentNovelId);
     }
 
     /**
+     * 设置页重型衍生数据按需加载，默认 query 保持轻量。
+     */
+    function editorSnapshotQuery(
+        query: ConfigWorkspaceQueryDto,
+        options: ConfigEditorSnapshotOptions,
+    ): ConfigEditorSnapshotQueryParams {
+        if (options.includeAgentProfileSettings !== true) {
+            return query;
+        }
+        return {
+            ...query,
+            includeAgentProfileSettings: "true",
+            ...(options.agentProfileSettingsScope ? {agentProfileSettingsScope: options.agentProfileSettingsScope} : {}),
+        };
+    }
+
+    /**
      * 读取设置页编辑快照。后端每次都从配置文件重新读取。
      */
-    async function editorSnapshot(query: ConfigWorkspaceQueryDto = currentQuery()): Promise<ConfigEditorSnapshotDto> {
+    async function editorSnapshot(
+        query: ConfigWorkspaceQueryDto = currentQuery(),
+        options: ConfigEditorSnapshotOptions = {},
+    ): Promise<ConfigEditorSnapshotDto> {
         return $fetch<ConfigEditorSnapshotDto>("/api/config/editor-snapshot", {
-            query,
+            query: editorSnapshotQuery(query, options),
         });
     }
 
@@ -80,10 +111,14 @@ export function useConfigApi() {
     /**
      * 保存 Workspace Root `.nbook/config.json` 并返回后端重新合并后的快照。
      */
-    async function saveGlobal(global: GlobalConfigDto, query: ConfigWorkspaceQueryDto = currentQuery()): Promise<ConfigEditorSnapshotDto> {
+    async function saveGlobal(
+        global: GlobalConfigDto,
+        query: ConfigWorkspaceQueryDto = currentQuery(),
+        options: ConfigEditorSnapshotOptions = {},
+    ): Promise<ConfigEditorSnapshotDto> {
         return $fetch<ConfigEditorSnapshotDto>("/api/config/global", {
             method: "PUT",
-            query,
+            query: editorSnapshotQuery(query, options),
             body: global,
         });
     }
@@ -91,11 +126,32 @@ export function useConfigApi() {
     /**
      * 保存 Project Workspace `.nbook/config.json` 并返回后端重新合并后的快照。
      */
-    async function saveProject(project: ProjectConfigDto, query: ConfigWorkspaceQueryDto = projectQuery()): Promise<ConfigEditorSnapshotDto> {
+    async function saveProject(
+        project: ProjectConfigDto,
+        query: ConfigWorkspaceQueryDto = projectQuery(),
+        options: ConfigEditorSnapshotOptions = {},
+    ): Promise<ConfigEditorSnapshotDto> {
         return $fetch<ConfigEditorSnapshotDto>("/api/config/project", {
             method: "PUT",
-            query,
+            query: editorSnapshotQuery(query, options),
             body: project,
+        });
+    }
+
+    /**
+     * 重置 Project Workspace 中指定 profile 的 profile home，并返回完整 Agent Profile settings 快照。
+     */
+    async function resetProfileHome(
+        profileKey: string,
+        query: ConfigWorkspaceQueryDto = projectQuery(),
+    ): Promise<ConfigEditorSnapshotDto> {
+        return $fetch<ConfigEditorSnapshotDto>("/api/config/profile-home/reset", {
+            method: "POST",
+            query: editorSnapshotQuery(query, {
+                includeAgentProfileSettings: true,
+                agentProfileSettingsScope: "project",
+            }),
+            body: {profileKey},
         });
     }
 
@@ -127,6 +183,7 @@ export function useConfigApi() {
         editorSnapshot,
         saveGlobal,
         saveProject,
+        resetProfileHome,
         piModelCatalog,
         exchangeRate,
     };

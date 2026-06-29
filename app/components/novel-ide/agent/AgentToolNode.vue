@@ -15,8 +15,10 @@ const emit = defineEmits<{
 }>();
 
 const renderConfig = computed(() => resolveToolRenderConfig(props.toolCall));
+const {t} = useI18n();
 
 const isRunning = computed(() => props.toolCall.status === "running" || props.toolCall.status === "streaming");
+const collapsedPreview = computed(() => renderConfig.value.collapsedPreviewKey ? t(renderConfig.value.collapsedPreviewKey) : renderConfig.value.collapsedPreview);
 
 /** 尝试将 args 解析为 JSON 对象，失败返回 null。 */
 const parsedArgs = computed<unknown | null>(() => {
@@ -55,8 +57,8 @@ const parsedResult = computed<unknown | null>(() => {
                     <span v-if="!props.expanded && renderConfig.mode === 'inline'" class="truncate font-mono text-[11px] text-[var(--text-muted)] opacity-80 min-w-0">
                         {{ props.toolCall.argsJson ?? props.toolCall.argsText }}
                     </span>
-                    <span v-else-if="!props.expanded && renderConfig.collapsedPreview" class="truncate font-mono text-[11px] text-[var(--text-muted)] opacity-80 min-w-0">
-                        {{ renderConfig.collapsedPreview }}
+                    <span v-else-if="!props.expanded && collapsedPreview" class="truncate font-mono text-[11px] text-[var(--text-muted)] opacity-80 min-w-0">
+                        {{ collapsedPreview }}
                     </span>
                 </div>
             </div>
@@ -95,7 +97,7 @@ const parsedResult = computed<unknown | null>(() => {
                     </div>
                 </div>
                 <div class="mt-2 flex items-center justify-start gap-1 text-[var(--text-muted)]">
-                    <button class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="复制" @click="emit('copy')">
+                    <button class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('agent.textBubble.copy')" @click="emit('copy')">
                         <span class="i-lucide-copy h-3.5 w-3.5"></span>
                     </button>
                 </div>

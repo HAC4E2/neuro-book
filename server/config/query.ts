@@ -1,6 +1,8 @@
 import {createError} from "h3";
 import {
+    ConfigEditorSnapshotQueryDtoSchema,
     ConfigWorkspaceQueryDtoSchema,
+    type ConfigEditorSnapshotQueryDto,
     type ConfigWorkspaceQueryDto,
 } from "nbook/shared/dto/config.dto";
 
@@ -16,4 +18,23 @@ export function validateConfigWorkspaceQuery(query: unknown): ConfigWorkspaceQue
         });
     }
     return parsed.data;
+}
+
+/**
+ * 校验设置页编辑快照 query。includeAgentProfileSettings 只接受 true/false。
+ */
+export function validateConfigEditorSnapshotQuery(query: unknown): ConfigEditorSnapshotQueryDto {
+    const parsed = ConfigEditorSnapshotQueryDtoSchema.safeParse(query);
+    if (!parsed.success) {
+        throw createError({
+            statusCode: 400,
+            message: parsed.error.issues[0]?.message ?? "配置请求参数不合法",
+        });
+    }
+    return {
+        ...parsed.data,
+        includeAgentProfileSettings: parsed.data.includeAgentProfileSettings === true
+            || parsed.data.includeAgentProfileSettings === "true",
+        ...(parsed.data.agentProfileSettingsScope ? {agentProfileSettingsScope: parsed.data.agentProfileSettingsScope} : {}),
+    };
 }

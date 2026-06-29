@@ -13,6 +13,7 @@ import MarkdownStudioToolbar from "nbook/app/components/markdown-studio/Markdown
 import MarkdownStudioWelcome from "nbook/app/components/markdown-studio/MarkdownStudioWelcome.vue";
 import MarkdownCommentFlowPanel from "nbook/app/components/markdown-studio/MarkdownCommentFlowPanel.vue";
 import type {TextToImageResultPayload} from "nbook/app/components/markdown-studio/tiptap/TextToImageResult";
+import type {InlineEditReference} from "nbook/app/utils/inline-editor-selection";
 
 type WorkspaceMode = "novel" | "user-assets";
 
@@ -36,6 +37,8 @@ const props = withDefaults(defineProps<{
     resolveMenu?: (context: AgentTriggerMenuContext) => AgentTriggerMenuState;
     openReference?: (target: string) => void;
     resolveReference?: WorkspaceReferenceResolver;
+    inlineAiReferences?: InlineEditReference[];
+    inlineAiHighlightReference?: InlineEditReference | null;
     enableQuickTriggers?: boolean;
     canGenerateBodyImage?: boolean;
     bodyImageBusy?: boolean;
@@ -50,6 +53,7 @@ const props = withDefaults(defineProps<{
         sections: [],
     }),
     openReference: () => {},
+    inlineAiReferences: () => [],
     enableQuickTriggers: false,
     canGenerateBodyImage: false,
     bodyImageBusy: false,
@@ -79,11 +83,10 @@ const emit = defineEmits<{
     (e: "switch-agent-mode"): void;
     (e: "toggle-agent-surface"): void;
     (e: "open-bookshelf"): void;
-    (e: "open-plot-workbench"): void;
-    (e: "open-rag-inspector"): void;
     (e: "open-user-assets"): void;
     (e: "open-profile-workbench"): void;
     (e: "more"): void;
+    (e: "inline-ai-reference", reference: InlineEditReference): void;
 }>();
 
 defineSlots<{
@@ -146,8 +149,6 @@ watch(() => props.activePath, () => {
                 @switch-agent-mode="emit('switch-agent-mode')"
                 @toggle-agent-surface="emit('toggle-agent-surface')"
                 @open-bookshelf="emit('open-bookshelf')"
-                @open-plot-workbench="emit('open-plot-workbench')"
-                @open-rag-inspector="emit('open-rag-inspector')"
                 @open-user-assets="emit('open-user-assets')"
                 @open-profile-workbench="emit('open-profile-workbench')"
             />
@@ -168,6 +169,8 @@ watch(() => props.activePath, () => {
                         :resolve-menu="props.resolveMenu"
                         :open-reference="props.openReference"
                         :resolve-reference="props.resolveReference"
+                        :inline-ai-references="props.inlineAiReferences"
+                        :inline-ai-highlight-reference="props.inlineAiHighlightReference"
                         :enable-quick-triggers="props.enableQuickTriggers"
                         @save-request="emit('save-request')"
                         @open-frontmatter-profile="emit('open-frontmatter-profile', $event)"
@@ -175,6 +178,7 @@ watch(() => props.activePath, () => {
                         @generate-text-to-image-prompt="emit('generate-text-to-image-prompt', $event)"
                         @open-text-to-image-result-viewer="emit('open-text-to-image-result-viewer', $event)"
                         @open-text-to-image-result-actions="emit('open-text-to-image-result-actions', $event)"
+                        @inline-ai-reference="emit('inline-ai-reference', $event)"
                     />
                     <MarkdownCommentFlowPanel
                         v-if="props.controller.commentViewOpen.value"
@@ -224,8 +228,6 @@ watch(() => props.activePath, () => {
                 @switch-agent-mode="emit('switch-agent-mode')"
                 @toggle-agent-surface="emit('toggle-agent-surface')"
                 @open-bookshelf="emit('open-bookshelf')"
-                @open-plot-workbench="emit('open-plot-workbench')"
-                @open-rag-inspector="emit('open-rag-inspector')"
                 @open-user-assets="emit('open-user-assets')"
                 @open-profile-workbench="emit('open-profile-workbench')"
             />

@@ -25,11 +25,12 @@ const emit = defineEmits<{
     (e: "resolve", value: WorkspaceFileConflictResolution): void;
 }>();
 
-const dialogTitle = computed(() => props.conflict?.remoteExists === false ? "真实文件已删除" : "文件保存冲突");
-const remoteActionLabel = computed(() => props.conflict?.remoteExists === false ? "关闭已删除文件" : "使用真实文件");
+const {t} = useI18n();
+const dialogTitle = computed(() => props.conflict?.remoteExists === false ? t("ide.workspace.conflict.deletedTitle") : t("ide.workspace.conflict.saveConflictTitle"));
+const remoteActionLabel = computed(() => props.conflict?.remoteExists === false ? t("ide.workspace.conflict.closeDeletedFile") : t("ide.workspace.conflict.useRemoteFile"));
 const subtitle = computed(() => props.conflict?.remoteExists === false
-    ? "真实文件已被删除，可以关闭当前编辑器状态或保存合并结果。"
-    : "网页编辑与真实文件都已变化，需要选择保存结果。");
+    ? t("ide.workspace.conflict.deletedSubtitle")
+    : t("ide.workspace.conflict.conflictSubtitle"));
 
 const document = computed<DiffWorkbenchDocument | null>(() => {
     const conflict = props.conflict;
@@ -45,10 +46,10 @@ const document = computed<DiffWorkbenchDocument | null>(() => {
         currentContent: conflict.localContent,
         incomingContent: conflict.remoteContent,
         resultContent: conflict.mergedContent,
-        baseLabel: "共同基线",
-        currentLabel: "网页编辑",
-        incomingLabel: "真实文件",
-        resultLabel: "合并结果",
+        baseLabel: t("ide.workspace.conflict.baseLabel"),
+        currentLabel: t("ide.workspace.conflict.currentLabel"),
+        incomingLabel: t("ide.workspace.conflict.incomingLabel"),
+        resultLabel: t("ide.workspace.conflict.resultLabel"),
     };
 });
 
@@ -90,10 +91,10 @@ function handleAction(payload: DiffWorkbenchActionPayload): void {
         :available-modes="['diff', 'merge', 'current-base', 'incoming-base']"
         initial-mode="diff"
         :actions="[
-            {id: 'cancel', label: '取消'},
+            {id: 'cancel', label: t('ide.workspace.common.cancel')},
             {id: 'reload-remote', label: remoteActionLabel},
-            {id: 'overwrite-local', label: '覆盖真实文件', tone: 'danger'},
-            {id: 'save-result', label: '保存合并结果', tone: 'primary'},
+            {id: 'overwrite-local', label: t('ide.workspace.conflict.overwriteRemote'), tone: 'danger'},
+            {id: 'save-result', label: t('ide.workspace.conflict.saveMerged'), tone: 'primary'},
         ]"
         @update:model-value="emit('update:modelValue', $event)"
         @action="handleAction"

@@ -54,7 +54,9 @@ import {
 import {
     ConfigBootstrapDtoSchema,
     ConfigEditorSnapshotDtoSchema,
+    ConfigEditorSnapshotQueryDtoSchema,
     ExchangeRateDtoSchema,
+    ConfigProfileHomeResetRequestDtoSchema,
     ConfigSnapshotDtoSchema,
     ConfigWorkspaceQueryDtoSchema,
     GlobalConfigDtoSchema,
@@ -83,9 +85,6 @@ import {
     FormAnnotationRequestDtoSchema,
     FormAnnotationResponseDtoSchema,
 } from "nbook/shared/dto/ai-form-annotation.dto";
-import {
-    NovelContinueRequestDtoSchema,
-} from "nbook/shared/dto/novel.dto";
 
 // ─── Success response (for DELETE and simple operations) ────────
 import { z as z_ } from "zod";
@@ -474,7 +473,7 @@ export const routeMetaMap: RouteMetaEntry[] = [
         method: "get",
         tags: ["Config"],
         summary: "Get config editor snapshot",
-        queryParams: ConfigWorkspaceQueryDtoSchema,
+        queryParams: ConfigEditorSnapshotQueryDtoSchema,
         responseBody: ConfigEditorSnapshotDtoSchema,
     },
     {
@@ -497,7 +496,7 @@ export const routeMetaMap: RouteMetaEntry[] = [
         method: "put",
         tags: ["Config"],
         summary: "Update Workspace Root Global Config",
-        queryParams: ConfigWorkspaceQueryDtoSchema,
+        queryParams: ConfigEditorSnapshotQueryDtoSchema,
         requestBody: GlobalConfigDtoSchema,
         responseBody: ConfigEditorSnapshotDtoSchema,
     },
@@ -506,8 +505,17 @@ export const routeMetaMap: RouteMetaEntry[] = [
         method: "put",
         tags: ["Config"],
         summary: "Update current Project Workspace Config",
-        queryParams: ConfigWorkspaceQueryDtoSchema,
+        queryParams: ConfigEditorSnapshotQueryDtoSchema,
         requestBody: ProjectConfigDtoSchema,
+        responseBody: ConfigEditorSnapshotDtoSchema,
+    },
+    {
+        file: "config/profile-home/reset.post.ts",
+        method: "post",
+        tags: ["Config"],
+        summary: "Reset one Project profile home",
+        queryParams: ConfigEditorSnapshotQueryDtoSchema,
+        requestBody: ConfigProfileHomeResetRequestDtoSchema,
         responseBody: ConfigEditorSnapshotDtoSchema,
     },
     {
@@ -716,15 +724,6 @@ export const routeMetaMap: RouteMetaEntry[] = [
         tags: ["Workspace Files"],
         summary: "Convert a workspace markdown file into a directory",
         requestBody: ConvertBodySchema,
-    },
-
-    // ═══ Writing (SSE) ═══
-    {
-        file: "writing/continue.post.ts",
-        method: "post",
-        tags: ["Writing"],
-        summary: "AI novel continuation — returns SSE stream (text/event-stream)",
-        requestBody: NovelContinueRequestDtoSchema,
     },
 
     // ═══ AI ═══

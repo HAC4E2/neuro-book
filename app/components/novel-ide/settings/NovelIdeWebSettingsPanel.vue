@@ -55,6 +55,7 @@ type WebDraft = {
 
 const configApi = useConfigApi();
 const notification = useNotification();
+const {t} = useI18n();
 const loading = ref(false);
 const saving = ref(false);
 const errorText = ref("");
@@ -67,7 +68,7 @@ const providerItems = computed(() => [
     {
         key: "tavily" as const,
         name: "Tavily",
-        description: "LLM-oriented search provider, also used by web_fetch fallback.",
+        description: t("settings.panels.web.tavilyProviderDescription"),
         iconClass: "i-lucide-sparkles",
         configured: draft.value.tavily.apiKeyConfigured,
         enabled: draft.value.tavily.enabled,
@@ -75,16 +76,16 @@ const providerItems = computed(() => [
     {
         key: "brave" as const,
         name: "Brave Search",
-        description: "Independent search index provider for web_search.",
+        description: t("settings.panels.web.braveProviderDescription"),
         iconClass: "i-lucide-search",
         configured: draft.value.brave.apiKeyConfigured,
         enabled: draft.value.brave.enabled,
     },
 ]);
-const providerOptions: SelectOption[] = [
-    {value: "tavily", label: "Tavily", description: "默认优先使用 Tavily 搜索。"},
-    {value: "brave", label: "Brave Search", description: "默认优先使用 Brave Search。"},
-];
+const providerOptions = computed<SelectOption[]>(() => [
+    {value: "tavily", label: "Tavily", description: t("settings.panels.web.tavilyDescription")},
+    {value: "brave", label: "Brave Search", description: t("settings.panels.web.braveDescription")},
+]);
 const defaultProvider = computed({
     get: (): SearchProviderKey => normalizeOrder(draft.value.order)[0] ?? "tavily",
     set: (providerKey: string): void => {
@@ -254,7 +255,7 @@ async function loadSettings(): Promise<void> {
     try {
         applySettings(await configApi.editorSnapshot(props.targetQuery));
     } catch (error) {
-        errorText.value = resolveApiErrorMessage(error, "读取 Web 工具配置失败");
+        errorText.value = resolveApiErrorMessage(error, t("settings.panels.web.loadFailed"));
     } finally {
         loading.value = false;
     }
@@ -271,9 +272,9 @@ async function saveSettings(): Promise<void> {
     errorText.value = "";
     try {
         applySettings(await configApi.saveGlobal(buildGlobalConfigPayload(), props.targetQuery));
-        notification.success("Web 工具配置已写入 Global Config，后续新发起的 Agent 请求会使用新配置。");
+        notification.success(t("settings.panels.web.saveSuccess"));
     } catch (error) {
-        errorText.value = resolveApiErrorMessage(error, "保存 Web 工具配置失败");
+        errorText.value = resolveApiErrorMessage(error, t("settings.panels.web.saveFailed"));
     } finally {
         saving.value = false;
     }
@@ -397,8 +398,8 @@ defineExpose({
     <div class="space-y-4 pt-1">
         <div class="flex flex-wrap items-center justify-between gap-4">
             <div class="max-w-xl">
-                <h3 class="text-base font-semibold text-[var(--text-main)]">Agent Web 工具</h3>
-                <p class="mt-1 text-xs text-[var(--text-secondary)]">配置 researcher 使用的 web_search / web_fetch provider。写入 Workspace Root Global Config。</p>
+                <h3 class="text-base font-semibold text-[var(--text-main)]">{{ t("settings.panels.web.title") }}</h3>
+                <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ t("settings.panels.web.description") }}</p>
             </div>
         </div>
 
@@ -409,7 +410,7 @@ defineExpose({
 
         <div v-if="loading" class="flex min-h-[260px] flex-col items-center justify-center gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-sm">
             <span class="i-lucide-loader-2 h-8 w-8 animate-spin text-[var(--text-muted)]"></span>
-            <span class="text-sm text-[var(--text-secondary)]">正在读取 Web 工具配置...</span>
+            <span class="text-sm text-[var(--text-secondary)]">{{ t("settings.panels.web.loading") }}</span>
         </div>
 
         <div v-else class="space-y-4">
@@ -420,12 +421,12 @@ defineExpose({
                             <span class="flex h-5 w-5 items-center justify-center rounded bg-[var(--accent-bg)] text-[var(--accent-text)]">
                                 <span class="i-lucide-search h-3.5 w-3.5"></span>
                             </span>
-                            <h4 class="text-xs font-bold tracking-wider text-[var(--text-main)]">搜索 Provider</h4>
+                            <h4 class="text-xs font-bold tracking-wider text-[var(--text-main)]">{{ t("settings.panels.web.searchProvider") }}</h4>
                         </div>
-                        <p class="mt-1.5 text-xs leading-relaxed text-[var(--text-secondary)]">web_search 按顺序尝试已启用且配置了 API key 的 provider。模型不可见 provider 参数。</p>
+                        <p class="mt-1.5 text-xs leading-relaxed text-[var(--text-secondary)]">{{ t("settings.panels.web.searchProviderDescription") }}</p>
                     </div>
                     <div class="w-[260px] shrink-0 space-y-1.5">
-                        <div class="text-[11px] font-semibold text-[var(--text-secondary)]">默认搜索 Provider</div>
+                        <div class="text-[11px] font-semibold text-[var(--text-secondary)]">{{ t("settings.panels.web.defaultSearchProvider") }}</div>
                         <FormSelect v-model="defaultProvider" :options="providerOptions" />
                         <div class="truncate text-[10px] text-[var(--text-muted)]">Fallback: {{ draft.order.map((key) => key === "tavily" ? "Tavily" : "Brave").join(" -> ") }}</div>
                     </div>
@@ -442,20 +443,20 @@ defineExpose({
                                     <div class="flex flex-wrap items-center gap-2">
                                         <h5 class="text-sm font-semibold text-[var(--text-main)]">{{ item.name }}</h5>
                                         <span class="h-2 w-2 rounded-full" :class="item.enabled ? 'bg-emerald-500' : 'bg-slate-400'"></span>
-                                        <span class="rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">{{ item.configured ? "key configured" : "no key" }}</span>
+                                        <span class="rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">{{ item.configured ? t("settings.panels.web.keyConfigured") : t("settings.panels.web.noKey") }}</span>
                                     </div>
                                     <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ item.description }}</p>
                                 </div>
                             </div>
 
                             <div class="flex items-center gap-1.5">
-                                <button type="button" class="flex h-7 w-7 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-40" :disabled="!canMove(item.key, -1)" title="上移 provider 顺序" @click="moveProvider(item.key, -1)">
+                                <button type="button" class="flex h-7 w-7 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-40" :disabled="!canMove(item.key, -1)" :title="t('settings.panels.web.moveUp')" @click="moveProvider(item.key, -1)">
                                     <span class="i-lucide-arrow-up h-3.5 w-3.5"></span>
                                 </button>
-                                <button type="button" class="flex h-7 w-7 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-40" :disabled="!canMove(item.key, 1)" title="下移 provider 顺序" @click="moveProvider(item.key, 1)">
+                                <button type="button" class="flex h-7 w-7 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-40" :disabled="!canMove(item.key, 1)" :title="t('settings.panels.web.moveDown')" @click="moveProvider(item.key, 1)">
                                     <span class="i-lucide-arrow-down h-3.5 w-3.5"></span>
                                 </button>
-                                <button type="button" class="relative h-6 w-11 rounded-full border transition-colors" :class="item.enabled ? 'border-[var(--accent-main)] bg-[var(--accent-main)]' : 'border-[var(--border-color)] bg-[var(--bg-input)]'" :title="item.enabled ? '禁用 provider' : '启用 provider'" @click="toggleProvider(item.key)">
+                                <button type="button" class="relative h-6 w-11 rounded-full border transition-colors" :class="item.enabled ? 'border-[var(--accent-main)] bg-[var(--accent-main)]' : 'border-[var(--border-color)] bg-[var(--bg-input)]'" :title="item.enabled ? t('settings.panels.web.disableProvider') : t('settings.panels.web.enableProvider')" @click="toggleProvider(item.key)">
                                     <span class="absolute top-0.5 h-[18px] w-[18px] rounded-full bg-white shadow transition-transform" :class="item.enabled ? 'translate-x-5' : 'translate-x-0.5'"></span>
                                 </button>
                             </div>
@@ -463,28 +464,28 @@ defineExpose({
 
                         <div class="mt-4 grid gap-3 md:grid-cols-3">
                             <label class="space-y-1.5 md:col-span-2">
-                                <span class="text-xs font-medium text-[var(--text-secondary)]">API Key</span>
+                                <span class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.web.apiKey") }}</span>
                                 <div class="flex gap-2">
-                                    <FormInput v-model="providerDraft(item.key).apiKey" type="password" :placeholder="providerDraft(item.key).apiKeyConfigured ? providerDraft(item.key).apiKeyMaskedValue ?? '已配置，留空保留' : '未配置'" />
+                                    <FormInput v-model="providerDraft(item.key).apiKey" type="password" :placeholder="providerDraft(item.key).apiKeyConfigured ? providerDraft(item.key).apiKeyMaskedValue ?? t('settings.panels.web.apiKeyConfigured') : t('settings.panels.web.notConfigured')" />
                                     <button type="button" class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-rose-500/20 bg-rose-500/10 px-2.5 text-[11px] font-medium text-rose-600 hover:bg-rose-500/20" @click="clearProviderApiKey(item.key)">
                                         <span class="i-lucide-trash-2 h-3.5 w-3.5"></span>
-                                        清空
+                                        {{ t("settings.panels.web.clear") }}
                                     </button>
                                 </div>
                             </label>
 
                             <label class="space-y-1.5">
-                                <span class="text-xs font-medium text-[var(--text-secondary)]">Timeout ms</span>
+                                <span class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.web.timeoutMs") }}</span>
                                 <FormInput v-model="providerDraft(item.key).timeoutMs" type="number" min="1000" step="1000" placeholder="15000" />
                             </label>
 
                             <template v-if="item.key === 'brave'">
                                 <label class="space-y-1.5">
-                                    <span class="text-xs font-medium text-[var(--text-secondary)]">Country</span>
+                                    <span class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.web.country") }}</span>
                                     <FormInput v-model="draft.brave.country" placeholder="US" />
                                 </label>
                                 <label class="space-y-1.5">
-                                    <span class="text-xs font-medium text-[var(--text-secondary)]">Search Lang</span>
+                                    <span class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.web.searchLang") }}</span>
                                     <FormInput v-model="draft.brave.searchLang" placeholder="en" />
                                 </label>
                             </template>
@@ -498,32 +499,32 @@ defineExpose({
                     <span class="flex h-5 w-5 items-center justify-center rounded bg-[var(--accent-bg)] text-[var(--accent-text)]">
                         <span class="i-lucide-file-down h-3.5 w-3.5"></span>
                     </span>
-                    <h4 class="text-xs font-bold tracking-wider text-[var(--text-main)]">web_fetch 本地抓取</h4>
+                    <h4 class="text-xs font-bold tracking-wider text-[var(--text-main)]">{{ t("settings.panels.web.localFetch") }}</h4>
                 </div>
 
                 <div class="grid gap-3 md:grid-cols-3">
                     <button type="button" class="flex items-center justify-between gap-4 rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3 text-left shadow-sm transition-all hover:bg-[var(--bg-hover)]" @click="draft.localFetch.enabled = !draft.localFetch.enabled">
-                        <span><span class="block text-sm font-medium text-[var(--text-main)]">Local first</span><span class="mt-0.5 block text-xs text-[var(--text-secondary)]">HTTP(S) fetch + Readability + Markdown</span></span>
+                        <span><span class="block text-sm font-medium text-[var(--text-main)]">{{ t("settings.panels.web.localFirst") }}</span><span class="mt-0.5 block text-xs text-[var(--text-secondary)]">{{ t("settings.panels.web.localFirstDescription") }}</span></span>
                         <span class="h-2.5 w-2.5 rounded-full" :class="draft.localFetch.enabled ? 'bg-emerald-500' : 'bg-slate-400'"></span>
                     </button>
                     <label class="space-y-1.5">
-                        <span class="text-xs font-medium text-[var(--text-secondary)]">Timeout ms</span>
+                        <span class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.web.timeoutMs") }}</span>
                         <FormInput v-model="draft.localFetch.timeoutMs" type="number" min="1000" step="1000" />
                     </label>
                     <label class="space-y-1.5">
-                        <span class="text-xs font-medium text-[var(--text-secondary)]">Max redirects</span>
+                        <span class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.web.maxRedirects") }}</span>
                         <FormInput v-model="draft.localFetch.maxRedirects" type="number" min="0" step="1" />
                     </label>
                     <label class="space-y-1.5">
-                        <span class="text-xs font-medium text-[var(--text-secondary)]">Max bytes</span>
+                        <span class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.web.maxBytes") }}</span>
                         <FormInput v-model="draft.localFetch.maxBytes" type="number" min="1024" step="1024" />
                     </label>
                     <label class="space-y-1.5">
-                        <span class="text-xs font-medium text-[var(--text-secondary)]">Max characters</span>
+                        <span class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.web.maxCharacters") }}</span>
                         <FormInput v-model="draft.localFetch.maxCharacters" type="number" min="1000" step="1000" />
                     </label>
                     <label class="space-y-1.5">
-                        <span class="text-xs font-medium text-[var(--text-secondary)]">Fallback threshold</span>
+                        <span class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.web.fallbackThreshold") }}</span>
                         <FormInput v-model="draft.localFetch.minCharactersForLocal" type="number" min="0" step="100" />
                     </label>
                 </div>
@@ -536,16 +537,16 @@ defineExpose({
                             <span class="flex h-5 w-5 items-center justify-center rounded bg-[var(--accent-bg)] text-[var(--accent-text)]">
                                 <span class="i-lucide-rotate-cw h-3.5 w-3.5"></span>
                             </span>
-                            <h4 class="text-xs font-bold tracking-wider text-[var(--text-main)]">Tavily Extract Fallback</h4>
+                            <h4 class="text-xs font-bold tracking-wider text-[var(--text-main)]">{{ t("settings.panels.web.tavilyFallback") }}</h4>
                         </div>
-                        <p class="mt-1.5 text-xs text-[var(--text-secondary)]">本地抓取失败或内容太短时，web_fetch 可按配置使用 Tavily extract。</p>
+                        <p class="mt-1.5 text-xs text-[var(--text-secondary)]">{{ t("settings.panels.web.tavilyFallbackDescription") }}</p>
                     </div>
                     <button type="button" class="relative h-6 w-11 rounded-full border transition-colors" :class="draft.tavilyFallback.enabled ? 'border-[var(--accent-main)] bg-[var(--accent-main)]' : 'border-[var(--border-color)] bg-[var(--bg-input)]'" @click="draft.tavilyFallback.enabled = !draft.tavilyFallback.enabled">
                         <span class="absolute top-0.5 h-[18px] w-[18px] rounded-full bg-white shadow transition-transform" :class="draft.tavilyFallback.enabled ? 'translate-x-5' : 'translate-x-0.5'"></span>
                     </button>
                 </div>
                 <div class="max-w-xs space-y-1.5">
-                    <span class="text-xs font-medium text-[var(--text-secondary)]">Fallback timeout ms</span>
+                    <span class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.web.fallbackTimeoutMs") }}</span>
                     <FormInput v-model="draft.tavilyFallback.timeoutMs" type="number" min="1000" step="1000" placeholder="20000" />
                 </div>
             </section>

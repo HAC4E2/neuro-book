@@ -15,6 +15,7 @@ export type AgentToolRenderConfig = {
     mode: AgentToolRenderMode;
     typeLabel: string;
     collapsedPreview?: string;
+    collapsedPreviewKey?: string;
     component?: Component;
 };
 
@@ -27,49 +28,49 @@ const TOOL_RENDER_REGISTRY: Record<string, AgentToolRenderConfig> = {
     request_user_input: {
         mode: "block",
         typeLabel: "Question",
-        collapsedPreview: "等待用户回答",
+        collapsedPreviewKey: "agent.tool.waitingUserAnswer",
         component: markRaw(AgentRequestUserInputBubble),
     },
     enter_plan_mode: {
         mode: "block",
         typeLabel: "Plan Mode",
-        collapsedPreview: "等待审批",
+        collapsedPreviewKey: "agent.tool.waitingApproval",
         component: markRaw(AgentRequestUserInputBubble),
     },
     exit_plan_mode: {
         mode: "message",
         typeLabel: "Plan Mode",
-        collapsedPreview: "计划审批",
+        collapsedPreviewKey: "agent.tool.planApproval",
         component: markRaw(AgentExitPlanModeBubble),
     },
     write: {
         mode: "block",
         typeLabel: "Write",
-        collapsedPreview: "写入文件",
+        collapsedPreviewKey: "agent.tool.writeFile",
         component: markRaw(AgentWriteFileBubble),
     },
     edit: {
         mode: "block",
         typeLabel: "Edit",
-        collapsedPreview: "编辑文件",
+        collapsedPreviewKey: "agent.tool.editFile",
         component: markRaw(AgentEditFileBubble),
     },
     apply_patch: {
         mode: "block",
         typeLabel: "Patch",
-        collapsedPreview: "应用补丁",
+        collapsedPreviewKey: "agent.tool.applyPatch",
         component: markRaw(AgentApplyPatchBubble),
     },
     task_create: {
         mode: "message",
         typeLabel: "Checklist",
-        collapsedPreview: "任务清单",
+        collapsedPreviewKey: "agent.tool.taskList",
         component: markRaw(AgentTaskBubble),
     },
     task_set_status: {
         mode: "message",
         typeLabel: "Checklist",
-        collapsedPreview: "任务状态更新",
+        collapsedPreviewKey: "agent.tool.taskStatusUpdate",
         component: markRaw(AgentTaskBubble),
     },
 };

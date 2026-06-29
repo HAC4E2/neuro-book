@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import {onMounted, ref, useAttrs} from "vue";
-import {storeToRefs} from "pinia";
+import {ref, useAttrs} from "vue";
 import Dialog from "nbook/app/components/common/Dialog.vue";
 import Dropdown from "nbook/app/components/common/Dropdown.vue";
 import DiffWorkbenchDialog from "nbook/app/components/common/diff/DiffWorkbenchDialog.vue";
@@ -41,20 +40,19 @@ const emit = defineEmits<{
     (e: "close"): void;
 }>();
 
-const titleMap: Record<NovelIdeTab, string> = {
-    files: "文件",
-    characters: "角色",
+const {t} = useI18n();
+const titleMap = computed<Record<NovelIdeTab, string>>(() => ({
+    files: t("ide.toolPanel.files"),
+    characters: t("ide.toolPanel.characters"),
     outline: "剧情大纲",
     rag: "RAG",
     textToImage: "文生图",
-};
-const displayTitle = computed(() => props.userAssetsMode ? "用户资产" : titleMap[props.activeTab ?? "files"]);
+}));
+const displayTitle = computed(() => props.userAssetsMode ? t("ide.toolPanel.userAssets") : titleMap.value[props.activeTab ?? "files"]);
 
 const novelIdeStore = useNovelIdeStore();
-const {plotWorkbenchOpen} = storeToRefs(novelIdeStore);
 const notification = useNotification();
 const attrs = useAttrs();
-const isMounted = ref(false);
 const downloadingWorkspace = ref(false);
 const uploadingSingleFile = ref(false);
 const uploadingProject = ref(false);
@@ -71,7 +69,7 @@ const projectDirectoryInputRef = ref<HTMLInputElement | null>(null);
 const projectZipInputRef = ref<HTMLInputElement | null>(null);
 const resizeHandleRef = ref<HTMLElement | null>(null);
 const downloadTargetLabel = computed(() => props.userAssetsMode ? "Workspace Root .nbook" : "Project Workspace");
-const downloadButtonTitle = computed(() => props.userAssetsMode ? "打包下载 Workspace Root .nbook" : "打包下载当前 Project Workspace");
+const downloadButtonTitle = computed(() => props.userAssetsMode ? t("ide.toolPanel.downloadWorkspaceRoot") : t("ide.toolPanel.downloadProjectWorkspace"));
 const {isResizing, panelStyle} = useResizablePanel(resizeHandleRef, {
     size: computed(() => props.width),
     minSize: MIN_PANEL_WIDTH,
@@ -81,10 +79,10 @@ const {isResizing, panelStyle} = useResizablePanel(resizeHandleRef, {
     syncDuringResize: true,
     onResize: (width) => emit("update:width", width),
 });
-const projectUploadItems: DropdownItem[] = [
-    {label: "上传文件夹", value: "directory", iconClass: "i-lucide-folder-up"},
-    {label: "上传 zip", value: "zip", iconClass: "i-lucide-file-archive"},
-];
+const projectUploadItems = computed<DropdownItem[]>(() => [
+    {label: t("ide.toolPanel.uploadDirectory"), value: "directory", iconClass: "i-lucide-folder-up"},
+    {label: t("ide.toolPanel.uploadZip"), value: "zip", iconClass: "i-lucide-file-archive"},
+]);
 
 type UserAssetsSyncWarningItem = {
     id: string;
@@ -118,9 +116,9 @@ async function confirmDownloadWorkspace(): Promise<void> {
     try {
         downloadConfirmOpen.value = false;
         const filename = await novelIdeStore.downloadCurrentWorkspace();
-        notification.success(`已开始下载 ${filename}`);
+        notification.success(t("ide.toolPanel.downloadStarted", {filename}));
     } catch (error) {
-        notification.error(resolveApiErrorMessage(error, `打包下载 ${downloadTargetLabel.value} 失败`));
+        notification.error(resolveApiErrorMessage(error, t("ide.toolPanel.downloadFailed", {target: downloadTargetLabel.value})));
     } finally {
         downloadingWorkspace.value = false;
     }
@@ -178,9 +176,9 @@ async function handleSingleFileSelected(event: Event): Promise<void> {
     uploadingSingleFile.value = true;
     try {
         const result = await novelIdeStore.uploadFileToUploadFolder(file);
-        notification.success(formatUploadResult(result, "文件已上传到 upload/"));
+        notification.success(formatUploadResult(result, t("ide.toolPanel.uploadedSingleFile")));
     } catch (error) {
-        notification.error(resolveApiErrorMessage(error, "上传文件失败"));
+        notification.error(resolveApiErrorMessage(error, t("ide.toolPanel.uploadSingleFailed")));
     } finally {
         uploadingSingleFile.value = false;
     }
@@ -200,9 +198,9 @@ async function handleProjectDirectorySelected(event: Event): Promise<void> {
     uploadingProject.value = true;
     try {
         const result = await novelIdeStore.uploadProjectFiles(files);
-        notification.success(formatUploadResult(result, "Project 文件夹上传完成"));
+        notification.success(formatUploadResult(result, t("ide.toolPanel.projectDirectoryUploaded")));
     } catch (error) {
-        notification.error(resolveApiErrorMessage(error, "上传 Project 文件夹失败"));
+        notification.error(resolveApiErrorMessage(error, t("ide.toolPanel.projectDirectoryUploadFailed")));
     } finally {
         uploadingProject.value = false;
     }
@@ -222,9 +220,9 @@ async function handleProjectZipSelected(event: Event): Promise<void> {
     uploadingProject.value = true;
     try {
         const result = await novelIdeStore.uploadProjectZip(file);
-        notification.success(formatUploadResult(result, "Project zip 上传完成"));
+        notification.success(formatUploadResult(result, t("ide.toolPanel.projectZipUploaded")));
     } catch (error) {
-        notification.error(resolveApiErrorMessage(error, "上传 Project zip 失败"));
+        notification.error(resolveApiErrorMessage(error, t("ide.toolPanel.projectZipUploadFailed")));
     } finally {
         uploadingProject.value = false;
     }
@@ -234,7 +232,7 @@ function formatUploadResult(result: {written: number; skipped: number}, fallback
     if (!result.written && !result.skipped) {
         return fallback;
     }
-    return `已写入 ${result.written} 个文件，跳过 ${result.skipped} 个已有文件。`;
+    return t("ide.toolPanel.uploadResult", {written: result.written, skipped: result.skipped});
 }
 
 function buildSyncWarningItems(result: UserAssetsSyncResultDto): UserAssetsSyncWarningItem[] {
@@ -260,12 +258,12 @@ function buildSyncWarningItems(result: UserAssetsSyncResultDto): UserAssetsSyncW
 function formatSyncResult(result: UserAssetsSyncResultDto): string {
     const updatedProfiles = result.updatedProfiles ?? 0;
     const updatedAssets = result.updatedAssets ?? 0;
-    const chunks = [`补齐 ${result.copied} 个缺失文件`, `保留 ${result.skipped} 个已有文件`];
+    const chunks = [t("ide.toolPanel.syncCopied", {count: result.copied}), t("ide.toolPanel.syncSkipped", {count: result.skipped})];
     if (updatedProfiles) {
-        chunks.push(`更新 ${updatedProfiles} 个 profile`);
+        chunks.push(t("ide.toolPanel.syncProfiles", {count: updatedProfiles}));
     }
     if (updatedAssets) {
-        chunks.push(`更新 ${updatedAssets} 个 agent asset`);
+        chunks.push(t("ide.toolPanel.syncAssets", {count: updatedAssets}));
     }
     return `${chunks.join("，")}。`;
 }
@@ -274,12 +272,12 @@ function toSyncConflictDocument(detail: UserAssetsSyncConflictDetailDto): DiffWo
     const path = detail.fileName ?? detail.assetPath ?? detail.label;
     return {
         id: `user-assets-sync:${detail.kind}:${path}:${detail.systemSha256}:${detail.userSha256}`,
-        title: detail.kind === "profile" ? `Profile 覆盖冲突: ${detail.label}` : `Asset 覆盖冲突: ${detail.label}`,
+        title: detail.kind === "profile" ? t("ide.toolPanel.conflictProfileTitle", {label: detail.label}) : t("ide.toolPanel.conflictAssetTitle", {label: detail.label}),
         path,
         language: detail.language,
         diffable: detail.diffable,
         unavailableReason: detail.reason,
-        notice: detail.diffable ? undefined : "系统版本与用户覆盖都已保留，但该文件不能直接用文本 diff 展示。",
+        notice: detail.diffable ? undefined : t("ide.toolPanel.conflictNotice"),
         metadata: {
             currentBytes: detail.userBytes,
             incomingBytes: detail.systemBytes,
@@ -290,10 +288,10 @@ function toSyncConflictDocument(detail: UserAssetsSyncConflictDetailDto): DiffWo
         currentContent: detail.userContent,
         incomingContent: detail.systemContent,
         resultContent: detail.userContent,
-        currentLabel: "用户覆盖",
-        incomingLabel: "系统版本",
-        baseLabel: "上次同步版本",
-        resultLabel: "结果",
+        currentLabel: t("ide.toolPanel.currentLabel"),
+        incomingLabel: t("ide.toolPanel.incomingLabel"),
+        baseLabel: t("ide.toolPanel.baseLabel"),
+        resultLabel: t("ide.toolPanel.resultLabel"),
     };
 }
 
@@ -310,15 +308,15 @@ async function syncSystemAssets(): Promise<void> {
         lastSyncWarnings.value = buildSyncWarningItems(result);
         if (lastSyncWarnings.value.length) {
             syncWarningsOpen.value = true;
-            notification.warning(`有 ${lastSyncWarnings.value.length} 个用户覆盖已保留，点击同步详情可查看 diff。`, {
-                title: "用户资产同步完成但有冲突",
+            notification.warning(t("ide.toolPanel.syncWarningMessage", {count: lastSyncWarnings.value.length}), {
+                title: t("ide.toolPanel.syncWarningTitle"),
                 autoClose: false,
             });
             return;
         }
-        notification.success(formatSyncResult(result), {title: "用户资产已同步"});
+        notification.success(formatSyncResult(result), {title: t("ide.toolPanel.syncSuccessTitle")});
     } catch (error) {
-        notification.error(resolveApiErrorMessage(error, "同步系统 assets 失败"));
+        notification.error(resolveApiErrorMessage(error, t("ide.toolPanel.syncFailed")));
     } finally {
         syncingAssets.value = false;
     }
@@ -337,7 +335,7 @@ async function openSyncWarningDiff(item: UserAssetsSyncWarningItem): Promise<voi
         syncConflictSubtitle.value = item.message;
         syncConflictDiffOpen.value = true;
     } catch (error) {
-        notification.error(resolveApiErrorMessage(error, "读取同步冲突 diff 失败"));
+        notification.error(resolveApiErrorMessage(error, t("ide.toolPanel.diffLoadFailed")));
     } finally {
         syncConflictLoading.value = false;
     }
@@ -349,9 +347,6 @@ function handleSyncDiffAction(payload: DiffWorkbenchActionPayload): void {
     }
 }
 
-onMounted(() => {
-    isMounted.value = true;
-});
 </script>
 
 <template>
@@ -373,21 +368,21 @@ onMounted(() => {
                     <input ref="projectDirectoryInputRef" class="hidden" type="file" multiple webkitdirectory @change="(event) => void handleProjectDirectorySelected(event)">
                     <input ref="projectZipInputRef" class="hidden" type="file" accept=".zip,application/zip" @change="(event) => void handleProjectZipSelected(event)">
 
-                    <button class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" title="上传单个文件到 upload/" :disabled="uploadingSingleFile" @click="openSingleFileUpload">
+                    <button class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :title="t('ide.toolPanel.uploadSingleTitle')" :disabled="uploadingSingleFile" @click="openSingleFileUpload">
                         <span :class="uploadingSingleFile ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-file-up'" class="h-4 w-4"></span>
                     </button>
                     <Dropdown class="!w-auto" :items="projectUploadItems" menu-class="right-0 top-full mt-1 w-36" @select="selectProjectUploadMode">
-                        <button class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" title="上传 Project" :disabled="uploadingProject">
+                        <button class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :title="t('ide.toolPanel.uploadProjectTitle')" :disabled="uploadingProject">
                             <span :class="uploadingProject ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-folder-up'" class="h-4 w-4"></span>
                         </button>
                     </Dropdown>
                     <button class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :title="downloadButtonTitle" :disabled="downloadingWorkspace" @click="openDownloadConfirm">
                         <span :class="downloadingWorkspace ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-download'" class="h-4 w-4"></span>
                     </button>
-                    <button v-if="props.userAssetsMode" class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" title="同步系统 assets" :disabled="syncingAssets" @click="void syncSystemAssets()">
+                    <button v-if="props.userAssetsMode" class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :title="t('ide.toolPanel.syncAssetsTitle')" :disabled="syncingAssets" @click="void syncSystemAssets()">
                         <span :class="syncingAssets ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-folder-sync'" class="h-4 w-4"></span>
                     </button>
-                    <button v-if="props.userAssetsMode && lastSyncWarnings.length" class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="查看同步冲突" @click="syncWarningsOpen = true">
+                    <button v-if="props.userAssetsMode && lastSyncWarnings.length" class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('ide.toolPanel.viewSyncConflicts')" @click="syncWarningsOpen = true">
                         <span class="i-lucide-triangle-alert h-4 w-4"></span>
                     </button>
                     <button class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="emit('close')">
@@ -408,16 +403,13 @@ onMounted(() => {
             </div>
         </aside>
 
-        <!-- 剧本工作台 Dialog 宿主：允许顶部按钮直接打开，不强制切换左侧剧情大纲 tab。 -->
-        <NovelPlotPanel v-if="isMounted && !props.userAssetsMode && activeTab !== 'outline' && plotWorkbenchOpen" class="hidden" />
-
-        <Dialog v-model="downloadConfirmOpen" :title="`下载 ${downloadTargetLabel}`" width="420px" show-cancel :busy="downloadingWorkspace" @confirm="confirmDownloadWorkspace">
-            <p>将先保存所有未保存的文件，然后打包下载当前 {{ downloadTargetLabel }}。</p>
+        <Dialog v-model="downloadConfirmOpen" :title="t('ide.toolPanel.downloadTitle', {target: downloadTargetLabel})" width="420px" show-cancel :busy="downloadingWorkspace" @confirm="confirmDownloadWorkspace">
+            <p>{{ t("ide.toolPanel.downloadConfirm", {target: downloadTargetLabel}) }}</p>
         </Dialog>
 
-        <Dialog v-model="syncWarningsOpen" title="用户资产同步详情" width="620px" :show-footer="false">
+        <Dialog v-model="syncWarningsOpen" :title="t('ide.toolPanel.syncDetailsTitle')" width="620px" :show-footer="false">
             <div class="space-y-3">
-                <p class="m-0 text-sm text-[var(--text-secondary)]">以下用户覆盖已保留，系统版本没有自动覆盖。可以打开 diff 查看差异。</p>
+                <p class="m-0 text-sm text-[var(--text-secondary)]">{{ t("ide.toolPanel.syncDetailsDescription") }}</p>
                 <div class="max-h-[52vh] space-y-2 overflow-auto pr-1">
                     <button
                         v-for="item in lastSyncWarnings"
@@ -441,12 +433,12 @@ onMounted(() => {
         <DiffWorkbenchDialog
             v-model="syncConflictDiffOpen"
             :document="syncConflictDocument"
-            title="用户覆盖 Diff"
+            :title="t('ide.toolPanel.userOverrideDiff')"
             :subtitle="syncConflictSubtitle"
             :available-modes="['diff']"
             initial-mode="diff"
             :merge-readonly="true"
-            :actions="[{id: 'cancel', label: '关闭'}]"
+            :actions="[{id: 'cancel', label: t('ide.toolPanel.close')}]"
             @action="handleSyncDiffAction"
         />
     </div>

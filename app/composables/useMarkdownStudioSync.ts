@@ -21,6 +21,7 @@ type UseMarkdownStudioSyncOptions = {
  * 协调源码编辑器与预览编辑器之间的显式同步。
  */
 export const useMarkdownStudioSync = (options: UseMarkdownStudioSyncOptions) => {
+    const {t} = useI18n();
     let pendingEditorSync: "source" | "preview" | null = null;
     let pendingMarkdown = "";
 
@@ -50,8 +51,8 @@ export const useMarkdownStudioSync = (options: UseMarkdownStudioSyncOptions) => 
         } catch (error) {
             console.warn(`[MarkdownStudio] ${target} editor sync failed`, error);
             options.controller.setStatusText?.(target === "preview"
-                ? "富文本同步失败，源码内容已保留。"
-                : "源码同步失败，富文本内容已保留。");
+                ? t("markdownStudio.workbench.previewSyncFailed")
+                : t("markdownStudio.workbench.sourceSyncFailed"));
         }
     };
 

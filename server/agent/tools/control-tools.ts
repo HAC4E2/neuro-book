@@ -2,7 +2,8 @@ import {Type} from "typebox";
 import type {Static, TSchema} from "typebox";
 import {Value} from "typebox/value";
 import {defineAgentTool} from "nbook/server/agent/tools/types";
-import type {NeuroAgentTool} from "nbook/server/agent/tools/types";
+import type {NeuroAgentTool, UserInputRequestContext, UserInputFormSpec} from "nbook/server/agent/tools/types";
+import type {LowCodeFieldDto} from "nbook/shared/dto/low-code-form.dto";
 
 export const ReportResultSchema = Type.Object({
     result: Type.String(),
@@ -88,13 +89,122 @@ export const controlTools = {
         name: "request_user_input",
         label: "Request User Input",
         executionMode: "sequential",
-        approvalRequired: true,
         description: "Ask the user for input and wait for continue resolution.",
         parameters: RequestUserInputSchema,
-        async execute() {
+        userInputRequest: {
+            when(context: UserInputRequestContext): UserInputFormSpec {
+                const params = context.args as Static<typeof RequestUserInputSchema>;
+                const questions = params.questions;
+
+                // 构建 Low-Code Form 字段
+                const fields: LowCodeFieldDto[] = questions.map((question, index) => {
+                    const path = `answer_${index}`;
+
+                    if (question.options && question.options.length > 0) {
+                        // 有选项：使用 radio 或 checkbox
+                        const component = question.multiSelect ? ("checkbox" as const) : ("radio" as const);
+                        const options = question.options.map((opt, optIndex) => ({
+                            value: optIndex,
+                            label: opt.label,
+                            description: opt.description,
+                        }));
+
+                        // 处理默认值
+                        let defaultValue: number | number[] | undefined;
+                        if (question.multiSelect && question.defaultOptionIndexes) {
+                            defaultValue = question.defaultOptionIndexes;
+                        } else if (!question.multiSelect && question.defaultOptionIndex !== undefined) {
+                            defaultValue = question.defaultOptionIndex;
+                        }
+
+                        return {
+                            path,
+                            component,
+                            label: question.question,
+                            description: question.header,
+                            required: true,
+                            options: options,
+                            defaultValue,
+                        };
+                    } else {
+                        // 无选项：使用 textarea 用于开放式问题
+                        return {
+                            path,
+                            component: "textarea" as const,
+                            label: question.question,
+                            description: question.header,
+                            required: true,
+                            rows: 3,
+                            options: [],
+                        };
+                    }
+                });
+
+                return {
+                    form: {
+                        defaults: {},
+                        fields,
+                    },
+                    prompt: "请回答以下问题",
+                    layout: "dialog",
+                };
+            },
+        },
+        async executeWithContext(_context, _toolCallId, _params, userInput) {
+            if (!userInput) {
+                throw new Error("request_user_input 需要用户输入数据");
+            }
+
+            const params = _params as Static<typeof RequestUserInputSchema>;
+            const formData = userInput as Record<string, string | number | number[]>;
+
+            // 将 Low-Code Form 数据转换为 answers 格式
+            const answers = params.questions.map((question, index) => {
+                const answerKey = `answer_${index}`;
+                const value = formData[answerKey];
+
+                if (question.options && question.options.length > 0) {
+                    if (question.multiSelect) {
+                        // 多选：value 是 number[]
+                        const selectedIndexes = Array.isArray(value) ? value : [value];
+                        const selectedLabels = selectedIndexes
+                            .map((idx) => question.options![idx as number]?.label)
+                            .filter(Boolean);
+                        return {
+                            questionIndex: index,
+                            text: selectedLabels.join(", "),
+                            selectedOptionIndexes: selectedIndexes as number[],
+                        };
+                    } else {
+                        // 单选：value 是 number
+                        const selectedIndex = typeof value === "number" ? value : Number(value);
+                        const selectedLabel = question.options[selectedIndex]?.label ?? "";
+                        return {
+                            questionIndex: index,
+                            text: selectedLabel,
+                            selectedOptionIndex: selectedIndex,
+                        };
+                    }
+                } else {
+                    // 开放式问题：value 是 string
+                    return {
+                        questionIndex: index,
+                        text: String(value),
+                    };
+                }
+            });
+
+            // 构建响应文本
+            const responseText = answers
+                .map((answer, index) => {
+                    const question = params.questions[index]!;
+                    return `${question.question}\n回答：${answer.text}`;
+                })
+                .join("\n\n");
+
             return {
-                content: [{type: "text", text: "等待用户输入。"}],
-                details: {pending: true},
+                content: [{type: "text", text: responseText}],
+                details: {answers},
                 terminate: true,
             };
         },
@@ -104,14 +214,52 @@ export const controlTools = {
         name: "enter_plan_mode",
         label: "Enter Plan Mode",
         executionMode: "sequential",
-        approvalRequired: true,
         description: "Request entering plan mode.",
         parameters: PlanModeSchema,
-        async execute(_toolCallId, params: unknown) {
+        userInputRequest: {
+            when(context: UserInputRequestContext): UserInputFormSpec {
+                const params = context.args as Static<typeof PlanModeSchema>;
+
+                return {
+                    form: {
+                        defaults: {
+                            approved: true,
+                        },
+                        fields: [
+                            {
+                                path: "approved",
+                                component: "radio" as const,
+                                label: "是否批准进入计划模式？",
+                                description: params.reason,
+                                required: true,
+                                options: [
+                                    {value: true, label: "批准"},
+                                    {value: false, label: "拒绝"},
+                                ],
+                                defaultValue: true,
+                            },
+                        ],
+                    },
+                    prompt: "进入计划模式",
+                    layout: "dialog",
+                };
+            },
+        },
+        async executeWithContext(_context, _toolCallId, params, userInput) {
             const plan = params as Static<typeof PlanModeSchema>;
+            const formData = userInput as {approved?: boolean};
+
+            if (!formData?.approved) {
+                return {
+                    content: [{type: "text", text: "用户拒绝进入计划模式。"}],
+                    details: {approved: false},
+                    terminate: true,
+                };
+            }
+
             return {
                 content: [{type: "text", text: plan.reason ? `请求进入计划模式：${plan.reason}` : "请求进入计划模式。"}],
-                details: {pending: true},
+                details: {approved: true, pending: true},
                 terminate: true,
             };
         },
@@ -121,14 +269,67 @@ export const controlTools = {
         name: "exit_plan_mode",
         label: "Exit Plan Mode",
         executionMode: "sequential",
-        approvalRequired: true,
         description: "Request exiting plan mode. Optionally pass planFilePath for a Project Workspace relative Markdown file under .agent/plan/ so the approval UI can preview it.",
         parameters: PlanModeSchema,
-        async execute(_toolCallId, params: unknown) {
+        userInputRequest: {
+            when(context: UserInputRequestContext): UserInputFormSpec {
+                const params = context.args as Static<typeof PlanModeSchema>;
+
+                const fields: LowCodeFieldDto[] = [
+                    {
+                        path: "approved",
+                        component: "radio" as const,
+                        label: "是否批准退出计划模式？",
+                        description: params.reason,
+                        required: true,
+                        options: [
+                            {value: true, label: "批准"},
+                            {value: false, label: "拒绝"},
+                        ],
+                        defaultValue: true,
+                    },
+                ];
+
+                // 如果提供了 planFilePath，添加提示文字段
+                if (params.planFilePath) {
+                    fields.push({
+                        path: "planPreviewNote",
+                        component: "text" as const,
+                        label: "计划文件",
+                        description: `请在批准前查看文件：${params.planFilePath}`,
+                        required: false,
+                        options: [],
+                        defaultValue: params.planFilePath,
+                    });
+                }
+
+                return {
+                    form: {
+                        defaults: {
+                            approved: true,
+                        },
+                        fields,
+                    },
+                    prompt: "退出计划模式",
+                    layout: "dialog",
+                };
+            },
+        },
+        async executeWithContext(_context, _toolCallId, params, userInput) {
             const plan = params as Static<typeof PlanModeSchema>;
+            const formData = userInput as {approved?: boolean};
+
+            if (!formData?.approved) {
+                return {
+                    content: [{type: "text", text: "用户拒绝退出计划模式。"}],
+                    details: {approved: false},
+                    terminate: true,
+                };
+            }
+
             return {
                 content: [{type: "text", text: plan.reason ? `请求退出计划模式：${plan.reason}` : "请求退出计划模式。"}],
-                details: {pending: true},
+                details: {approved: true, pending: true},
                 terminate: true,
             };
         },

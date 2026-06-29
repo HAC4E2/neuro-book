@@ -15,6 +15,9 @@ hero:
     - theme: alt
       text: 了解 NeuroBook
       link: /introduction
+    - theme: alt
+      text: English
+      link: https://github.com/notnotype/neuro-book/blob/master/README.en.md
 
 features:
   - title: NeuroAgentHarness
@@ -41,7 +44,7 @@ features:
 
 如果你还没有把应用跑起来，先读 [快速开始](/quick-start)。如果你要部署到自己的机器或服务器，读 [部署方式](/deployment)。
 
-如果你想理解 NeuroBook 的产品心智模型，读 [介绍](/introduction)。如果你要理解 Agent 如何工作，读 [Agent Reference](https://github.com/notnotype/neuro-book/blob/master/reference/agent/README.md)。
+如果你想理解 NeuroBook 的产品心智模型，读 [介绍](/introduction)。如果你要理解 Agent 如何工作，读 [Agent Reference](https://github.com/notnotype/neuro-book/blob/master/reference/agent/README.md)。英文入口见 [English README](https://github.com/notnotype/neuro-book/blob/master/README.en.md)。
 
 ## 文档分区
 
@@ -56,3 +59,4 @@ features:
 - [Profile Routing](https://github.com/notnotype/neuro-book/blob/master/reference/agent/profile-routing.md) / [Leader 协作协议](https://github.com/notnotype/neuro-book/blob/master/reference/agent/leader-default.md)：入口 agent 选择、任务错位切换建议，以及 leader、writer、retrieval、researcher、RP profiles 的协作边界。
 - [Profile Guide](https://github.com/notnotype/neuro-book/blob/master/reference/agent/profile-guide.md)：用 TSX 表达 prompt、上下文和运行期提醒。
 - [Agent Harness](https://github.com/notnotype/neuro-book/blob/master/reference/agent/harness.md)：Agent Harness、runtime hooks、SSE 和 session tree 的后续阅读入口。
+- [English README](https://github.com/notnotype/neuro-book/blob/master/README.en.md)：英文项目入口。

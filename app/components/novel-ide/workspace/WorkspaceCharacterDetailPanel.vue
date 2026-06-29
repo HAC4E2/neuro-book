@@ -58,6 +58,7 @@ const emit = defineEmits<{
 }>();
 
 const store = useNovelIdeStore();
+const {t} = useI18n();
 const {selectedFileContent, savingFile} = storeToRefs(store);
 const editForm = ref<CharacterDraft | null>(null);
 const lastAppliedContent = ref("");
@@ -75,10 +76,10 @@ const expandedSections = ref({
 });
 
 const statusOptions = computed<SelectOption[]>(() => [
-    {value: "draft", label: "草稿中", description: "尚未确认，不应强依赖", indicatorClass: getWorkspaceLorebookStatusIndicatorClass("draft")},
-    {value: "pending", label: "待定", description: "未决设定或待回答问题", indicatorClass: getWorkspaceLorebookStatusIndicatorClass("pending")},
-    {value: "active", label: "已生效", description: "已确认，可稳定引用", indicatorClass: getWorkspaceLorebookStatusIndicatorClass("active")},
-    {value: "archived", label: "已归档", description: "历史保留，不默认使用", indicatorClass: getWorkspaceLorebookStatusIndicatorClass("archived")},
+    {value: "draft", label: t("ide.workspace.common.statusDraft"), description: t("ide.workspace.common.statusDraftDescription"), indicatorClass: getWorkspaceLorebookStatusIndicatorClass("draft")},
+    {value: "pending", label: t("ide.workspace.common.statusPending"), description: t("ide.workspace.common.statusPendingDescription"), indicatorClass: getWorkspaceLorebookStatusIndicatorClass("pending")},
+    {value: "active", label: t("ide.workspace.common.statusActive"), description: t("ide.workspace.common.statusActiveDescription"), indicatorClass: getWorkspaceLorebookStatusIndicatorClass("active")},
+    {value: "archived", label: t("ide.workspace.common.statusArchived"), description: t("ide.workspace.common.statusArchivedDescription"), indicatorClass: getWorkspaceLorebookStatusIndicatorClass("archived")},
 ]);
 const isDirty = computed(() => editForm.value ? renderDraft(editForm.value) !== selectedFileContent.value : false);
 const relatedIssues = computed(() => {
@@ -218,13 +219,13 @@ function parseMarkdownDocument(content: string): {
         return {
             frontmatter: isPlainObject(parsed) ? parsed : {},
             body: content.slice(match[0].length),
-            error: isPlainObject(parsed) || parsed === null ? null : "frontmatter 必须是对象",
+            error: isPlainObject(parsed) || parsed === null ? null : t("ide.workspace.common.frontmatterObjectError"),
         };
     } catch (error) {
         return {
             frontmatter: {},
             body: content.slice(match[0].length),
-            error: error instanceof Error ? error.message : "frontmatter 解析失败",
+            error: error instanceof Error ? error.message : t("ide.workspace.common.frontmatterParseFailed"),
         };
     }
 }
@@ -403,16 +404,16 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
                     <span class="i-lucide-user-round h-3.5 w-3.5"></span>
                 </span>
                 <div class="min-w-0">
-                    <div class="truncate text-sm font-semibold text-[var(--text-main)]">{{ editForm?.title || "角色" }}</div>
+                    <div class="truncate text-sm font-semibold text-[var(--text-main)]">{{ editForm?.title || t("ide.workspace.character.panelTitle") }}</div>
                     <div class="truncate text-[10px] text-[var(--text-muted)]">{{ editForm?.path }}</div>
                 </div>
-                <span v-if="isDirty" class="h-2 w-2 shrink-0 rounded-full bg-amber-500" title="有未保存修改"></span>
+                <span v-if="isDirty" class="h-2 w-2 shrink-0 rounded-full bg-amber-500" :title="t('ide.workspace.common.dirty')"></span>
             </div>
         </template>
 
         <template #actions>
-            <button class="rounded-md px-2 py-1 text-[10px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" type="button" @click="emit('refresh')">刷新</button>
-            <button class="rounded-md px-2 py-1 text-[10px] text-[var(--accent-text)] hover:bg-[var(--bg-hover)]" type="button" @click="dialogOpen = true">档案</button>
+            <button class="rounded-md px-2 py-1 text-[10px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" type="button" @click="emit('refresh')">{{ t("ide.workspace.common.refresh") }}</button>
+            <button class="rounded-md px-2 py-1 text-[10px] text-[var(--accent-text)] hover:bg-[var(--bg-hover)]" type="button" @click="dialogOpen = true">{{ t("ide.workspace.character.profile") }}</button>
         </template>
 
         <div v-if="editForm" class="space-y-3 text-[11px]">
@@ -424,13 +425,13 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
                     </span>
                     <div class="min-w-0 flex-1">
                         <div class="truncate text-sm font-semibold text-[var(--text-main)]">{{ editForm.title }}</div>
-                        <div class="mt-1 line-clamp-2 text-[11px] leading-4 text-[var(--text-secondary)]">{{ editForm.summary || editForm.character.logline || "未填写角色摘要" }}</div>
+                        <div class="mt-1 line-clamp-2 text-[11px] leading-4 text-[var(--text-secondary)]">{{ editForm.summary || editForm.character.logline || t("ide.workspace.character.noSummary") }}</div>
                         <div class="mt-2 truncate font-mono text-[10px] text-[var(--text-muted)]">{{ editForm.path }}</div>
                     </div>
                 </div>
                 <button type="button" class="mt-3 flex w-full items-center justify-center gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-2 text-xs text-[var(--text-main)] hover:bg-[var(--bg-hover)]" @click="dialogOpen = true">
                     <span class="i-lucide-expand h-3.5 w-3.5"></span>
-                    打开角色档案
+                    {{ t("ide.workspace.character.openProfile") }}
                 </button>
             </div>
         </div>
@@ -438,7 +439,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
     <Dialog
         :model-value="dialogOpen"
-        :title="editForm?.title || '角色档案'"
+        :title="editForm?.title || t('ide.workspace.character.profileTitle')"
         width="min(1280px, calc(100vw - 160px))"
         height="min(760px, calc(100vh - 96px))"
         overlay-type="blur"
@@ -454,21 +455,21 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
                     </span>
                     <div class="min-w-0">
                         <div class="flex items-center gap-2">
-                            <h2 class="truncate text-2xl font-bold tracking-wide text-[var(--text-main)]">{{ editForm?.title || "角色档案" }}</h2>
+                            <h2 class="truncate text-2xl font-bold tracking-wide text-[var(--text-main)]">{{ editForm?.title || t("ide.workspace.character.profileTitle") }}</h2>
                             <span v-if="editForm?.status" class="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-700">{{ editForm.status }}</span>
-                            <span v-if="isDirty" class="h-2 w-2 shrink-0 rounded-full bg-amber-500" title="有未保存修改"></span>
+                            <span v-if="isDirty" class="h-2 w-2 shrink-0 rounded-full bg-amber-500" :title="t('ide.workspace.common.dirty')"></span>
                         </div>
-                        <div class="mt-1 truncate text-sm text-[var(--text-secondary)]">{{ editForm?.character.logline || editForm?.summary || "未填写角色定义" }}</div>
+                        <div class="mt-1 truncate text-sm text-[var(--text-secondary)]">{{ editForm?.character.logline || editForm?.summary || t("ide.workspace.character.noDefinition") }}</div>
                         <div class="mt-2 flex flex-wrap gap-1.5">
                             <span v-for="tag in editForm?.tags ?? []" :key="tag" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-0.5 text-xs text-[var(--text-secondary)]">{{ tag }}</span>
                         </div>
                     </div>
                 </div>
                 <div class="flex shrink-0 items-center gap-1">
-                    <button class="icon-action" type="button" title="刷新" @click="emit('refresh')"><span class="i-lucide-refresh-cw h-4 w-4"></span></button>
-                    <button class="icon-action" type="button" title="保存" :disabled="savingFile" @click="void saveDraft()"><span class="i-lucide-save h-4 w-4"></span></button>
+                    <button class="icon-action" type="button" :title="t('ide.workspace.common.refresh')" @click="emit('refresh')"><span class="i-lucide-refresh-cw h-4 w-4"></span></button>
+                    <button class="icon-action" type="button" :title="t('ide.workspace.common.save')" :disabled="savingFile" @click="void saveDraft()"><span class="i-lucide-save h-4 w-4"></span></button>
                     <span class="mx-2 h-7 w-px bg-[var(--border-color)]"></span>
-                    <button class="icon-action" type="button" title="关闭" @click="updateDialogVisible(false)"><span class="i-lucide-x h-5 w-5"></span></button>
+                    <button class="icon-action" type="button" :title="t('ide.workspace.common.close')" @click="updateDialogVisible(false)"><span class="i-lucide-x h-5 w-5"></span></button>
                 </div>
             </div>
         </template>
@@ -479,53 +480,53 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
             <!-- 角色表单分页 -->
             <div class="flex rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] p-1">
-                <button type="button" class="tab-button" :class="activeTab === 'overview' ? 'tab-button-active' : ''" @click="activeTab = 'overview'">概览</button>
-                <button type="button" class="tab-button" :class="activeTab === 'profile' ? 'tab-button-active' : ''" @click="activeTab = 'profile'">详细设定</button>
-                <button type="button" class="tab-button" :class="activeTab === 'relations' ? 'tab-button-active' : ''" @click="activeTab = 'relations'">关系网络</button>
+                <button type="button" class="tab-button" :class="activeTab === 'overview' ? 'tab-button-active' : ''" @click="activeTab = 'overview'">{{ t("ide.workspace.character.overview") }}</button>
+                <button type="button" class="tab-button" :class="activeTab === 'profile' ? 'tab-button-active' : ''" @click="activeTab = 'profile'">{{ t("ide.workspace.character.profileTab") }}</button>
+                <button type="button" class="tab-button" :class="activeTab === 'relations' ? 'tab-button-active' : ''" @click="activeTab = 'relations'">{{ t("ide.workspace.character.relationsTab") }}</button>
             </div>
 
             <!-- 角色核心信息 -->
             <section v-if="activeTab === 'overview'" class="space-y-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)]/40 p-3">
                 <div class="grid grid-cols-[minmax(0,1fr)_132px] gap-2">
                     <label class="space-y-1">
-                        <span class="text-[var(--text-secondary)]">角色名</span>
+                        <span class="text-[var(--text-secondary)]">{{ t("ide.workspace.character.name") }}</span>
                         <input v-model="editForm.title" class="h-7 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 text-xs text-[var(--text-main)] outline-none focus:border-[var(--accent-main)]" type="text" @blur="void saveDraft()">
                     </label>
                     <label class="space-y-1">
-                        <span class="text-[var(--text-secondary)]">状态</span>
+                        <span class="text-[var(--text-secondary)]">{{ t("ide.workspace.common.status") }}</span>
                         <FormSelect :model-value="editForm.status" :options="statusOptions" @update:model-value="editForm.status = $event; void saveDraft()" />
                     </label>
                 </div>
                 <label class="space-y-1">
-                    <span class="text-[var(--text-secondary)]">一句话定义</span>
+                    <span class="text-[var(--text-secondary)]">{{ t("ide.workspace.character.logline") }}</span>
                     <input :value="editForm.character.logline ?? ''" class="h-7 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 text-xs text-[var(--text-main)] outline-none focus:border-[var(--accent-main)]" type="text" @input="editForm.character.logline = ($event.target as HTMLInputElement).value || undefined" @blur="void saveDraft()">
                 </label>
                 <label class="space-y-1">
-                    <span class="text-[var(--text-secondary)]">摘要</span>
+                    <span class="text-[var(--text-secondary)]">{{ t("ide.workspace.common.summary") }}</span>
                     <textarea v-model="editForm.summary" rows="3" class="w-full resize-y rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1.5 text-xs leading-5 text-[var(--text-main)] outline-none focus:border-[var(--accent-main)]" @blur="void saveDraft()"></textarea>
                 </label>
                 <div class="grid grid-cols-2 gap-2">
                     <label class="space-y-1">
-                        <span class="text-[var(--text-secondary)]">别名</span>
-                        <TagInput :model-value="editForm.aliases" placeholder="添加别名..." @update:model-value="editForm.aliases = $event; void saveDraft()" />
+                        <span class="text-[var(--text-secondary)]">{{ t("ide.workspace.common.aliases") }}</span>
+                        <TagInput :model-value="editForm.aliases" :placeholder="t('ide.workspace.common.addAlias')" @update:model-value="editForm.aliases = $event; void saveDraft()" />
                     </label>
                     <label class="space-y-1">
-                        <span class="text-[var(--text-secondary)]">标签</span>
-                        <TagInput :model-value="editForm.tags" placeholder="添加标签..." accentStyle @update:model-value="editForm.tags = $event; void saveDraft()" />
+                        <span class="text-[var(--text-secondary)]">{{ t("ide.workspace.common.tags") }}</span>
+                        <TagInput :model-value="editForm.tags" :placeholder="t('ide.workspace.common.addTag')" accentStyle @update:model-value="editForm.tags = $event; void saveDraft()" />
                     </label>
                 </div>
                 <div class="grid grid-cols-[minmax(0,1fr)_96px] gap-2">
                     <label class="space-y-1">
-                        <span class="text-[var(--text-secondary)]">主绑定上下文</span>
-                        <input :value="editForm.character.meta?.primaryContext ?? ''" class="field" placeholder="例如 lorebook/location/night-port" @input="updateMeta('primaryContext', ($event.target as HTMLInputElement).value || undefined)" @blur="void saveDraft()">
+                        <span class="text-[var(--text-secondary)]">{{ t("ide.workspace.character.primaryContext") }}</span>
+                        <input :value="editForm.character.meta?.primaryContext ?? ''" class="field" :placeholder="t('ide.workspace.character.primaryContextPlaceholder')" @input="updateMeta('primaryContext', ($event.target as HTMLInputElement).value || undefined)" @blur="void saveDraft()">
                     </label>
                     <label class="flex items-end gap-2 pb-1 text-[var(--text-secondary)]">
                         <input :checked="editForm.character.meta?.pinned === true" type="checkbox" class="h-4 w-4 rounded border-[var(--border-color)]" @change="updateMeta('pinned', ($event.target as HTMLInputElement).checked); void saveDraft()">
-                        <span>收藏</span>
+                        <span>{{ t("ide.workspace.character.pinned") }}</span>
                     </label>
                 </div>
                 <label class="space-y-1">
-                    <span class="text-[var(--text-secondary)]">治理状态</span>
+                    <span class="text-[var(--text-secondary)]">{{ t("ide.workspace.character.governanceStatus") }}</span>
                     <div class="grid grid-cols-2 gap-1">
                         <input v-model="editForm.governance.source" class="field" placeholder="source" @blur="void saveDraft()">
                         <input v-model="editForm.governance.review" class="field" placeholder="review" @blur="void saveDraft()">
@@ -534,73 +535,73 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
                 <div class="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-4">
                     <label class="flex items-center gap-2 text-[var(--text-secondary)]">
                         <input v-model="editForm.retrieval.enabled" type="checkbox" class="h-4 w-4 rounded border-[var(--border-color)]" @change="void saveDraft()">
-                        <span>允许检索召回</span>
+                        <span>{{ t("ide.workspace.common.allowRetrieval") }}</span>
                     </label>
                 </div>
                 <label class="space-y-1">
-                    <span class="text-[var(--text-secondary)]">AI 检索触发条件</span>
-                    <textarea :value="editForm.retrieval.trigger ?? ''" rows="2" class="textarea" placeholder="自然语言描述什么时候触发；为空表示无额外触发限制" @input="editForm.retrieval.trigger = ($event.target as HTMLTextAreaElement).value || null" @blur="void saveDraft()"></textarea>
+                    <span class="text-[var(--text-secondary)]">{{ t("ide.workspace.character.aiTrigger") }}</span>
+                    <textarea :value="editForm.retrieval.trigger ?? ''" rows="2" class="textarea" :placeholder="t('ide.workspace.character.aiTriggerPlaceholder')" @input="editForm.retrieval.trigger = ($event.target as HTMLTextAreaElement).value || null" @blur="void saveDraft()"></textarea>
                 </label>
             </section>
 
             <!-- 基础身份 -->
             <section v-if="activeTab === 'profile'" class="space-y-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)]/40 p-3">
                 <button type="button" class="flex w-full items-center justify-between text-left font-medium text-[var(--text-main)]" @click="expandedSections.profile = !expandedSections.profile">
-                    <span>基础身份</span>
+                    <span>{{ t("ide.workspace.character.baseIdentity") }}</span>
                     <span class="i-lucide-chevron-down h-3.5 w-3.5 transition-transform" :class="expandedSections.profile ? '' : '-rotate-90'"></span>
                 </button>
                 <div v-show="expandedSections.profile" class="grid grid-cols-4 gap-2">
-                    <input :value="editForm.character.profile?.gender ?? ''" class="field" placeholder="性别" @input="updateProfile('gender', ($event.target as HTMLInputElement).value || undefined)" @blur="void saveDraft()">
-                    <input :value="editForm.character.profile?.age ?? ''" class="field" placeholder="年龄" @input="updateProfile('age', ($event.target as HTMLInputElement).value || undefined)" @blur="void saveDraft()">
-                    <input :value="editForm.character.profile?.race ?? ''" class="field" placeholder="种族" @input="updateProfile('race', ($event.target as HTMLInputElement).value || undefined)" @blur="void saveDraft()">
-                    <input :value="editForm.character.profile?.faction ?? ''" class="field" placeholder="阵营" @input="updateProfile('faction', ($event.target as HTMLInputElement).value || undefined)" @blur="void saveDraft()">
-                    <input :value="editForm.character.profile?.occupation ?? ''" class="field" placeholder="职业" @input="updateProfile('occupation', ($event.target as HTMLInputElement).value || undefined)" @blur="void saveDraft()">
-                    <input :value="editForm.character.profile?.identity ?? ''" class="field" placeholder="身份" @input="updateProfile('identity', ($event.target as HTMLInputElement).value || undefined)" @blur="void saveDraft()">
-                    <input :value="editForm.character.profile?.residence ?? ''" class="field" placeholder="居住地" @input="updateProfile('residence', ($event.target as HTMLInputElement).value || undefined)" @blur="void saveDraft()">
-                    <input :value="editForm.character.profile?.origin ?? ''" class="field" placeholder="出身" @input="updateProfile('origin', ($event.target as HTMLInputElement).value || undefined)" @blur="void saveDraft()">
+                    <input :value="editForm.character.profile?.gender ?? ''" class="field" :placeholder="t('ide.workspace.character.gender')" @input="updateProfile('gender', ($event.target as HTMLInputElement).value || undefined)" @blur="void saveDraft()">
+                    <input :value="editForm.character.profile?.age ?? ''" class="field" :placeholder="t('ide.workspace.character.age')" @input="updateProfile('age', ($event.target as HTMLInputElement).value || undefined)" @blur="void saveDraft()">
+                    <input :value="editForm.character.profile?.race ?? ''" class="field" :placeholder="t('ide.workspace.character.race')" @input="updateProfile('race', ($event.target as HTMLInputElement).value || undefined)" @blur="void saveDraft()">
+                    <input :value="editForm.character.profile?.faction ?? ''" class="field" :placeholder="t('ide.workspace.character.faction')" @input="updateProfile('faction', ($event.target as HTMLInputElement).value || undefined)" @blur="void saveDraft()">
+                    <input :value="editForm.character.profile?.occupation ?? ''" class="field" :placeholder="t('ide.workspace.character.occupation')" @input="updateProfile('occupation', ($event.target as HTMLInputElement).value || undefined)" @blur="void saveDraft()">
+                    <input :value="editForm.character.profile?.identity ?? ''" class="field" :placeholder="t('ide.workspace.character.identity')" @input="updateProfile('identity', ($event.target as HTMLInputElement).value || undefined)" @blur="void saveDraft()">
+                    <input :value="editForm.character.profile?.residence ?? ''" class="field" :placeholder="t('ide.workspace.character.residence')" @input="updateProfile('residence', ($event.target as HTMLInputElement).value || undefined)" @blur="void saveDraft()">
+                    <input :value="editForm.character.profile?.origin ?? ''" class="field" :placeholder="t('ide.workspace.character.origin')" @input="updateProfile('origin', ($event.target as HTMLInputElement).value || undefined)" @blur="void saveDraft()">
                 </div>
             </section>
 
             <!-- 外貌与性格 -->
             <section v-if="activeTab === 'profile'" class="space-y-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)]/40 p-3">
                 <button type="button" class="flex w-full items-center justify-between text-left font-medium text-[var(--text-main)]" @click="expandedSections.appearance = !expandedSections.appearance">
-                    <span>外貌与表现</span>
+                    <span>{{ t("ide.workspace.character.appearanceTitle") }}</span>
                     <span class="i-lucide-chevron-down h-3.5 w-3.5 transition-transform" :class="expandedSections.appearance ? '' : '-rotate-90'"></span>
                 </button>
                 <div v-show="expandedSections.appearance" class="space-y-2">
-                    <textarea :value="editForm.character.profile?.appearance ?? ''" rows="3" class="textarea" placeholder="外貌描述" @input="updateProfile('appearance', ($event.target as HTMLTextAreaElement).value || undefined)" @blur="void saveDraft()"></textarea>
+                    <textarea :value="editForm.character.profile?.appearance ?? ''" rows="3" class="textarea" :placeholder="t('ide.workspace.character.appearance')" @input="updateProfile('appearance', ($event.target as HTMLTextAreaElement).value || undefined)" @blur="void saveDraft()"></textarea>
                     <div class="grid grid-cols-2 gap-2">
-                        <input :value="editForm.character.profile?.clothingStyle ?? ''" class="field" placeholder="衣着风格" @input="updateProfile('clothingStyle', ($event.target as HTMLInputElement).value || undefined)" @blur="void saveDraft()">
-                        <input :value="editForm.character.profile?.voiceStyle ?? ''" class="field" placeholder="声音风格" @input="updateProfile('voiceStyle', ($event.target as HTMLInputElement).value || undefined)" @blur="void saveDraft()">
+                        <input :value="editForm.character.profile?.clothingStyle ?? ''" class="field" :placeholder="t('ide.workspace.character.clothingStyle')" @input="updateProfile('clothingStyle', ($event.target as HTMLInputElement).value || undefined)" @blur="void saveDraft()">
+                        <input :value="editForm.character.profile?.voiceStyle ?? ''" class="field" :placeholder="t('ide.workspace.character.voiceStyle')" @input="updateProfile('voiceStyle', ($event.target as HTMLInputElement).value || undefined)" @blur="void saveDraft()">
                     </div>
-                    <TagInput :model-value="editForm.character.profile?.bodyFeatures ?? []" placeholder="身体特征..." @update:model-value="updateProfile('bodyFeatures', $event); void saveDraft()" />
-                    <TagInput :model-value="editForm.character.profile?.mannerisms ?? []" placeholder="习惯动作..." @update:model-value="updateProfile('mannerisms', $event); void saveDraft()" />
+                    <TagInput :model-value="editForm.character.profile?.bodyFeatures ?? []" :placeholder="t('ide.workspace.character.bodyFeatures')" @update:model-value="updateProfile('bodyFeatures', $event); void saveDraft()" />
+                    <TagInput :model-value="editForm.character.profile?.mannerisms ?? []" :placeholder="t('ide.workspace.character.mannerisms')" @update:model-value="updateProfile('mannerisms', $event); void saveDraft()" />
                 </div>
             </section>
 
             <section v-if="activeTab === 'profile'" class="space-y-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)]/40 p-3">
                 <button type="button" class="flex w-full items-center justify-between text-left font-medium text-[var(--text-main)]" @click="expandedSections.personality = !expandedSections.personality">
-                    <span>性格心理</span>
+                    <span>{{ t("ide.workspace.character.personalityTitle") }}</span>
                     <span class="i-lucide-chevron-down h-3.5 w-3.5 transition-transform" :class="expandedSections.personality ? '' : '-rotate-90'"></span>
                 </button>
                 <div v-show="expandedSections.personality" class="space-y-2">
-                    <TagInput :model-value="editForm.character.profile?.personalityTraits ?? []" placeholder="性格特质..." accentStyle @update:model-value="updateProfile('personalityTraits', $event); void saveDraft()" />
-                    <input :value="editForm.character.profile?.temperament ?? ''" class="field" placeholder="气质 / 行为底色" @input="updateProfile('temperament', ($event.target as HTMLInputElement).value || undefined)" @blur="void saveDraft()">
+                    <TagInput :model-value="editForm.character.profile?.personalityTraits ?? []" :placeholder="t('ide.workspace.character.personalityTraits')" accentStyle @update:model-value="updateProfile('personalityTraits', $event); void saveDraft()" />
+                    <input :value="editForm.character.profile?.temperament ?? ''" class="field" :placeholder="t('ide.workspace.character.temperament')" @input="updateProfile('temperament', ($event.target as HTMLInputElement).value || undefined)" @blur="void saveDraft()">
                     <div class="grid grid-cols-2 gap-2">
-                        <textarea :value="editForm.character.profile?.motivation ?? ''" rows="2" class="textarea" placeholder="动机" @input="updateProfile('motivation', ($event.target as HTMLTextAreaElement).value || undefined)" @blur="void saveDraft()"></textarea>
-                        <textarea :value="editForm.character.profile?.secrets ?? ''" rows="2" class="textarea" placeholder="秘密" @input="updateProfile('secrets', ($event.target as HTMLTextAreaElement).value || undefined)" @blur="void saveDraft()"></textarea>
+                        <textarea :value="editForm.character.profile?.motivation ?? ''" rows="2" class="textarea" :placeholder="t('ide.workspace.character.motivation')" @input="updateProfile('motivation', ($event.target as HTMLTextAreaElement).value || undefined)" @blur="void saveDraft()"></textarea>
+                        <textarea :value="editForm.character.profile?.secrets ?? ''" rows="2" class="textarea" :placeholder="t('ide.workspace.character.secrets')" @input="updateProfile('secrets', ($event.target as HTMLTextAreaElement).value || undefined)" @blur="void saveDraft()"></textarea>
                     </div>
                     <div class="grid grid-cols-2 gap-2">
-                        <textarea :value="editForm.character.profile?.desires ?? ''" rows="2" class="textarea" placeholder="欲望" @input="updateProfile('desires', ($event.target as HTMLTextAreaElement).value || undefined)" @blur="void saveDraft()"></textarea>
-                        <textarea :value="editForm.character.profile?.values ?? ''" rows="2" class="textarea" placeholder="价值观" @input="updateProfile('values', ($event.target as HTMLTextAreaElement).value || undefined)" @blur="void saveDraft()"></textarea>
+                        <textarea :value="editForm.character.profile?.desires ?? ''" rows="2" class="textarea" :placeholder="t('ide.workspace.character.desires')" @input="updateProfile('desires', ($event.target as HTMLTextAreaElement).value || undefined)" @blur="void saveDraft()"></textarea>
+                        <textarea :value="editForm.character.profile?.values ?? ''" rows="2" class="textarea" :placeholder="t('ide.workspace.character.values')" @input="updateProfile('values', ($event.target as HTMLTextAreaElement).value || undefined)" @blur="void saveDraft()"></textarea>
                     </div>
                     <div class="grid grid-cols-2 gap-2">
-                        <TagInput :model-value="editForm.character.profile?.likes ?? []" placeholder="喜欢..." @update:model-value="updateProfile('likes', $event); void saveDraft()" />
-                        <TagInput :model-value="editForm.character.profile?.dislikes ?? []" placeholder="厌恶..." @update:model-value="updateProfile('dislikes', $event); void saveDraft()" />
+                        <TagInput :model-value="editForm.character.profile?.likes ?? []" :placeholder="t('ide.workspace.character.likes')" @update:model-value="updateProfile('likes', $event); void saveDraft()" />
+                        <TagInput :model-value="editForm.character.profile?.dislikes ?? []" :placeholder="t('ide.workspace.character.dislikes')" @update:model-value="updateProfile('dislikes', $event); void saveDraft()" />
                     </div>
                     <div class="grid grid-cols-2 gap-2">
-                        <TagInput :model-value="editForm.character.profile?.fears ?? []" placeholder="恐惧..." @update:model-value="updateProfile('fears', $event); void saveDraft()" />
-                        <TagInput :model-value="editForm.character.profile?.weaknesses ?? []" placeholder="弱点..." @update:model-value="updateProfile('weaknesses', $event); void saveDraft()" />
+                        <TagInput :model-value="editForm.character.profile?.fears ?? []" :placeholder="t('ide.workspace.character.fears')" @update:model-value="updateProfile('fears', $event); void saveDraft()" />
+                        <TagInput :model-value="editForm.character.profile?.weaknesses ?? []" :placeholder="t('ide.workspace.character.weaknesses')" @update:model-value="updateProfile('weaknesses', $event); void saveDraft()" />
                     </div>
                 </div>
             </section>
@@ -608,38 +609,38 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
             <!-- 能力与叙事 -->
             <section v-if="activeTab === 'profile'" class="space-y-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)]/40 p-3">
                 <button type="button" class="flex w-full items-center justify-between text-left font-medium text-[var(--text-main)]" @click="expandedSections.abilities = !expandedSections.abilities">
-                    <span>能力资源</span>
+                    <span>{{ t("ide.workspace.character.abilitiesTitle") }}</span>
                     <span class="i-lucide-chevron-down h-3.5 w-3.5 transition-transform" :class="expandedSections.abilities ? '' : '-rotate-90'"></span>
                 </button>
                 <div v-show="expandedSections.abilities" class="grid grid-cols-2 gap-2">
-                    <TagInput :model-value="editForm.character.profile?.abilities ?? []" placeholder="能力..." @update:model-value="updateProfile('abilities', $event); void saveDraft()" />
-                    <TagInput :model-value="editForm.character.profile?.skills ?? []" placeholder="技能..." @update:model-value="updateProfile('skills', $event); void saveDraft()" />
-                    <TagInput :model-value="editForm.character.profile?.equipment ?? []" placeholder="装备..." @update:model-value="updateProfile('equipment', $event); void saveDraft()" />
-                    <TagInput :model-value="editForm.character.profile?.resources ?? []" placeholder="资源..." @update:model-value="updateProfile('resources', $event); void saveDraft()" />
-                    <textarea :value="editForm.character.profile?.limitations ?? ''" rows="2" class="textarea col-span-2" placeholder="限制" @input="updateProfile('limitations', ($event.target as HTMLTextAreaElement).value || undefined)" @blur="void saveDraft()"></textarea>
+                    <TagInput :model-value="editForm.character.profile?.abilities ?? []" :placeholder="t('ide.workspace.character.abilities')" @update:model-value="updateProfile('abilities', $event); void saveDraft()" />
+                    <TagInput :model-value="editForm.character.profile?.skills ?? []" :placeholder="t('ide.workspace.character.skills')" @update:model-value="updateProfile('skills', $event); void saveDraft()" />
+                    <TagInput :model-value="editForm.character.profile?.equipment ?? []" :placeholder="t('ide.workspace.character.equipment')" @update:model-value="updateProfile('equipment', $event); void saveDraft()" />
+                    <TagInput :model-value="editForm.character.profile?.resources ?? []" :placeholder="t('ide.workspace.character.resources')" @update:model-value="updateProfile('resources', $event); void saveDraft()" />
+                    <textarea :value="editForm.character.profile?.limitations ?? ''" rows="2" class="textarea col-span-2" :placeholder="t('ide.workspace.character.limitations')" @input="updateProfile('limitations', ($event.target as HTMLTextAreaElement).value || undefined)" @blur="void saveDraft()"></textarea>
                 </div>
             </section>
 
             <section v-if="activeTab === 'profile'" class="space-y-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)]/40 p-3">
                 <button type="button" class="flex w-full items-center justify-between text-left font-medium text-[var(--text-main)]" @click="expandedSections.story = !expandedSections.story">
-                    <span>叙事状态</span>
+                    <span>{{ t("ide.workspace.character.storyTitle") }}</span>
                     <span class="i-lucide-chevron-down h-3.5 w-3.5 transition-transform" :class="expandedSections.story ? '' : '-rotate-90'"></span>
                 </button>
                 <div v-show="expandedSections.story" class="space-y-2">
                     <div class="grid grid-cols-2 gap-2">
-                        <input :value="editForm.character.story?.firstAppearance ?? ''" class="field" placeholder="首次登场" @input="updateStory('firstAppearance', ($event.target as HTMLInputElement).value || undefined)" @blur="void saveDraft()">
-                        <input :value="editForm.character.story?.roleInStory ?? ''" class="field" placeholder="故事定位" @input="updateStory('roleInStory', ($event.target as HTMLInputElement).value || undefined)" @blur="void saveDraft()">
+                        <input :value="editForm.character.story?.firstAppearance ?? ''" class="field" :placeholder="t('ide.workspace.character.firstAppearance')" @input="updateStory('firstAppearance', ($event.target as HTMLInputElement).value || undefined)" @blur="void saveDraft()">
+                        <input :value="editForm.character.story?.roleInStory ?? ''" class="field" :placeholder="t('ide.workspace.character.roleInStory')" @input="updateStory('roleInStory', ($event.target as HTMLInputElement).value || undefined)" @blur="void saveDraft()">
                     </div>
-                    <textarea :value="editForm.character.story?.currentState ?? ''" rows="2" class="textarea" placeholder="当前状态" @input="updateStory('currentState', ($event.target as HTMLTextAreaElement).value || undefined)" @blur="void saveDraft()"></textarea>
-                    <textarea :value="editForm.character.story?.characterArc ?? ''" rows="2" class="textarea" placeholder="角色弧光" @input="updateStory('characterArc', ($event.target as HTMLTextAreaElement).value || undefined)" @blur="void saveDraft()"></textarea>
-                    <TagInput :model-value="editForm.character.story?.keyEvents ?? []" placeholder="关键事件..." accentStyle @update:model-value="updateStory('keyEvents', $event); void saveDraft()" />
+                    <textarea :value="editForm.character.story?.currentState ?? ''" rows="2" class="textarea" :placeholder="t('ide.workspace.character.currentState')" @input="updateStory('currentState', ($event.target as HTMLTextAreaElement).value || undefined)" @blur="void saveDraft()"></textarea>
+                    <textarea :value="editForm.character.story?.characterArc ?? ''" rows="2" class="textarea" :placeholder="t('ide.workspace.character.characterArc')" @input="updateStory('characterArc', ($event.target as HTMLTextAreaElement).value || undefined)" @blur="void saveDraft()"></textarea>
+                    <TagInput :model-value="editForm.character.story?.keyEvents ?? []" :placeholder="t('ide.workspace.character.keyEvents')" accentStyle @update:model-value="updateStory('keyEvents', $event); void saveDraft()" />
                     <div class="grid grid-cols-2 gap-2">
-                        <textarea :value="editForm.character.story?.goalsShortTerm ?? ''" rows="2" class="textarea" placeholder="短期目标" @input="updateStory('goalsShortTerm', ($event.target as HTMLTextAreaElement).value || undefined)" @blur="void saveDraft()"></textarea>
-                        <textarea :value="editForm.character.story?.goalsLongTerm ?? ''" rows="2" class="textarea" placeholder="长期目标" @input="updateStory('goalsLongTerm', ($event.target as HTMLTextAreaElement).value || undefined)" @blur="void saveDraft()"></textarea>
+                        <textarea :value="editForm.character.story?.goalsShortTerm ?? ''" rows="2" class="textarea" :placeholder="t('ide.workspace.character.goalsShortTerm')" @input="updateStory('goalsShortTerm', ($event.target as HTMLTextAreaElement).value || undefined)" @blur="void saveDraft()"></textarea>
+                        <textarea :value="editForm.character.story?.goalsLongTerm ?? ''" rows="2" class="textarea" :placeholder="t('ide.workspace.character.goalsLongTerm')" @input="updateStory('goalsLongTerm', ($event.target as HTMLTextAreaElement).value || undefined)" @blur="void saveDraft()"></textarea>
                     </div>
                     <div class="grid grid-cols-2 gap-2">
-                        <textarea :value="editForm.character.story?.publicPersona ?? ''" rows="2" class="textarea" placeholder="外在人设 / 公众形象" @input="updateStory('publicPersona', ($event.target as HTMLTextAreaElement).value || undefined)" @blur="void saveDraft()"></textarea>
-                        <textarea :value="editForm.character.story?.trueSelf ?? ''" rows="2" class="textarea" placeholder="真实自我" @input="updateStory('trueSelf', ($event.target as HTMLTextAreaElement).value || undefined)" @blur="void saveDraft()"></textarea>
+                        <textarea :value="editForm.character.story?.publicPersona ?? ''" rows="2" class="textarea" :placeholder="t('ide.workspace.character.publicPersona')" @input="updateStory('publicPersona', ($event.target as HTMLTextAreaElement).value || undefined)" @blur="void saveDraft()"></textarea>
+                        <textarea :value="editForm.character.story?.trueSelf ?? ''" rows="2" class="textarea" :placeholder="t('ide.workspace.character.trueSelf')" @input="updateStory('trueSelf', ($event.target as HTMLTextAreaElement).value || undefined)" @blur="void saveDraft()"></textarea>
                     </div>
                 </div>
             </section>
@@ -647,21 +648,21 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
             <!-- 引用与正文 -->
             <section v-if="activeTab === 'relations'" class="space-y-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)]/40 p-3">
                 <button type="button" class="flex w-full items-center justify-between text-left font-medium text-[var(--text-main)]" @click="expandedSections.refs = !expandedSections.refs">
-                    <span>引用与正文</span>
+                    <span>{{ t("ide.workspace.character.referencesAndBody") }}</span>
                     <span class="i-lucide-chevron-down h-3.5 w-3.5 transition-transform" :class="expandedSections.refs ? '' : '-rotate-90'"></span>
                 </button>
                 <div v-show="expandedSections.refs" class="space-y-2">
                     <div v-for="(entryRef, index) in editForm.refs" :key="index" class="flex items-center gap-1">
-                        <input v-model="entryRef.relation" type="text" placeholder="关系" class="field w-[76px]" @blur="void saveDraft()">
-                        <input v-model="entryRef.target" type="text" placeholder="目标 path" class="field min-w-0 flex-1 font-mono" @blur="void saveDraft()">
+                        <input v-model="entryRef.relation" type="text" :placeholder="t('ide.workspace.common.relation')" class="field w-[76px]" @blur="void saveDraft()">
+                        <input v-model="entryRef.target" type="text" :placeholder="t('ide.workspace.common.targetPath')" class="field min-w-0 flex-1 font-mono" @blur="void saveDraft()">
                         <button type="button" class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-rose-500/10 hover:text-rose-500" @click="removeRef(index)">
                             <span class="i-lucide-x h-3.5 w-3.5"></span>
                         </button>
                     </div>
                     <button type="button" class="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] hover:text-[var(--text-main)]" @click="addRef">
-                        <span class="i-lucide-plus h-3 w-3"></span>添加引用
+                        <span class="i-lucide-plus h-3 w-3"></span>{{ t("ide.workspace.common.addReference") }}
                     </button>
-                    <textarea v-model="editForm.content" rows="6" class="textarea" placeholder="角色正文..." @blur="void saveDraft()"></textarea>
+                    <textarea v-model="editForm.content" rows="6" class="textarea" :placeholder="t('ide.workspace.character.bodyPlaceholder')" @blur="void saveDraft()"></textarea>
                 </div>
             </section>
         </div>

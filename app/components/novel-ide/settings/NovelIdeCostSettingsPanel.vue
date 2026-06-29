@@ -17,6 +17,7 @@ const props = withDefaults(defineProps<{
 const configApi = useConfigApi();
 const costDisplay = useCostDisplay();
 const notification = useNotification();
+const {t} = useI18n();
 
 const loading = ref(false);
 const saving = ref(false);
@@ -25,17 +26,17 @@ const editorSnapshot = ref<ConfigEditorSnapshotDto | null>(null);
 const costCurrency = ref<CostDisplayCurrency>("USD");
 const snapshotCurrency = ref<CostDisplayCurrency>("USD");
 
-const currencyOptions: SelectOption[] = [
-    {value: "USD", label: "USD", description: "按美元显示 session / turn 费用"},
-    {value: "CNY", label: "CNY", description: "按 USD/CNY 汇率换算为人民币显示"},
-];
+const currencyOptions = computed<SelectOption[]>(() => [
+    {value: "USD", label: "USD", description: t("settings.panels.cost.usdDescription")},
+    {value: "CNY", label: "CNY", description: t("settings.panels.cost.cnyDescription")},
+]);
 
 const dirty = computed(() => costCurrency.value !== snapshotCurrency.value);
 const exchangeRateLabel = computed(() => {
     if (!costDisplay.usdToCnyRate.value) {
-        return "尚未刷新；没有可用汇率时 Agent 费用会回退显示 USD。";
+        return t("settings.panels.cost.exchangeRateMissing");
     }
-    const staleLabel = costDisplay.exchangeRateStale.value ? "（缓存汇率）" : "";
+    const staleLabel = costDisplay.exchangeRateStale.value ? t("settings.panels.cost.cachedRate") : "";
     return `1 USD = ${costDisplay.usdToCnyRate.value.toFixed(4)} CNY${staleLabel}`;
 });
 const exchangeRateFetchedLabel = computed(() => {
@@ -47,7 +48,7 @@ const exchangeRateFetchedLabel = computed(() => {
     if (Number.isNaN(date.getTime())) {
         return "";
     }
-    return `更新于 ${date.toLocaleString()}`;
+    return t("settings.panels.cost.fetchedAt", {time: date.toLocaleString()});
 });
 
 /**
@@ -95,7 +96,7 @@ async function loadSettings(): Promise<void> {
     try {
         applySettings(await configApi.editorSnapshot(props.targetQuery));
     } catch (error) {
-        notification.error(resolveApiErrorMessage(error, "读取费用显示设置失败"));
+        notification.error(resolveApiErrorMessage(error, t("settings.panels.cost.loadFailed")));
     } finally {
         loading.value = false;
     }
@@ -111,9 +112,9 @@ async function saveSettings(): Promise<void> {
     saving.value = true;
     try {
         applySettings(await configApi.saveGlobal(buildGlobalConfigPayload(), props.targetQuery));
-        notification.success("费用显示币种已保存。");
+        notification.success(t("settings.panels.cost.saveSuccess"));
     } catch (error) {
-        notification.error(resolveApiErrorMessage(error, "保存费用显示设置失败"));
+        notification.error(resolveApiErrorMessage(error, t("settings.panels.cost.saveFailed")));
     } finally {
         saving.value = false;
     }
@@ -130,9 +131,12 @@ async function refreshExchangeRate(): Promise<void> {
     try {
         const rate = await configApi.exchangeRate();
         costDisplay.setExchangeRate(rate);
-        notification.success(`已更新 USD/CNY 汇率：${rate.rate.toFixed(4)}${rate.stale ? "（缓存汇率）" : ""}`);
+        notification.success(t("settings.panels.cost.refreshSuccess", {
+            rate: rate.rate.toFixed(4),
+            stale: rate.stale ? t("settings.panels.cost.cachedRate") : "",
+        }));
     } catch (error) {
-        notification.error(resolveApiErrorMessage(error, "刷新 USD/CNY 汇率失败"));
+        notification.error(resolveApiErrorMessage(error, t("settings.panels.cost.refreshFailed")));
     } finally {
         exchangeRateLoading.value = false;
     }
@@ -159,14 +163,14 @@ defineExpose({
     <div class="space-y-4 pt-1">
         <div class="flex flex-wrap items-center justify-between gap-4">
             <div class="max-w-xl">
-                <h3 class="text-base font-semibold text-[var(--text-main)]">费用显示</h3>
-                <p class="mt-1 text-xs text-[var(--text-secondary)]">配置 Agent session / turn 费用的展示币种。模型价格和 provider usage 仍统一按 USD 保存。</p>
+                <h3 class="text-base font-semibold text-[var(--text-main)]">{{ t("settings.panels.cost.title") }}</h3>
+                <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ t("settings.panels.cost.description") }}</p>
             </div>
         </div>
 
         <div v-if="loading" class="flex min-h-[260px] flex-col items-center justify-center gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-sm">
             <span class="i-lucide-loader-2 h-8 w-8 animate-spin text-[var(--text-muted)]"></span>
-            <span class="text-sm text-[var(--text-secondary)]">正在读取费用显示设置...</span>
+            <span class="text-sm text-[var(--text-secondary)]">{{ t("settings.panels.cost.loading") }}</span>
         </div>
 
         <div v-else class="grid gap-4">
@@ -176,14 +180,14 @@ defineExpose({
                         <span class="flex h-5 w-5 items-center justify-center rounded bg-[var(--accent-bg)] text-[var(--accent-text)]">
                             <span class="i-lucide-circle-dollar-sign h-3.5 w-3.5"></span>
                         </span>
-                        <h4 class="text-xs font-bold tracking-wider text-[var(--text-main)]">显示币种</h4>
+                        <h4 class="text-xs font-bold tracking-wider text-[var(--text-main)]">{{ t("settings.panels.cost.currencyTitle") }}</h4>
                     </div>
-                    <p class="text-xs leading-relaxed text-[var(--text-secondary)]">选择 CNY 后，需要刷新一次 USD/CNY 汇率，Agent 费用才会换算为人民币；没有汇率时会继续显示 USD。</p>
+                    <p class="text-xs leading-relaxed text-[var(--text-secondary)]">{{ t("settings.panels.cost.currencyDescription") }}</p>
                 </div>
 
                 <div class="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
                     <div class="space-y-1.5">
-                        <label class="text-xs font-semibold text-[var(--text-secondary)]">费用显示币种</label>
+                        <label class="text-xs font-semibold text-[var(--text-secondary)]">{{ t("settings.panels.cost.currencyLabel") }}</label>
                         <FormSelect v-model="costCurrency" :options="currencyOptions" />
                     </div>
                     <button
@@ -194,7 +198,7 @@ defineExpose({
                     >
                         <span v-if="exchangeRateLoading" class="i-lucide-loader-2 mr-1.5 h-3.5 w-3.5 animate-spin"></span>
                         <span v-else class="i-lucide-refresh-cw mr-1.5 h-3.5 w-3.5"></span>
-                        刷新汇率
+                        {{ t("settings.panels.cost.refreshRate") }}
                     </button>
                 </div>
 

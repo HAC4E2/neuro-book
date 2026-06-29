@@ -86,8 +86,9 @@ export type MarkdownStudioController = ReturnType<typeof useMarkdownStudioContro
  * 这套实现只维护一份 Markdown 真状态，父层显式调用两个编辑器的 update() 完成同步。
  */
 export const useMarkdownStudioController = (options: UseMarkdownStudioControllerOptions) => {
+    const {t} = useI18n();
     const loading = ref(false);
-    const statusText = ref(options.initialStatusText ?? "等待操作...");
+    const statusText = ref(options.initialStatusText ?? t("markdownStudio.workbench.waitingStatus"));
     const viewMode = options.viewMode;
     const activeEditor = ref<ActiveEditor>(null);
     const sourceHandle = shallowRef<MarkdownStudioEditorHandle | null>(null);

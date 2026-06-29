@@ -72,6 +72,7 @@ const {
     selectedStorySceneId,
 } = storeToRefs(novelIdeStore);
 const {choose} = useDialog();
+const {t} = useI18n();
 const {resolveMenu, menuRefreshKey} = useStructuredReferenceMenu({
     novelId: currentNovelId,
     selectedStoryThreadId,
@@ -282,10 +283,10 @@ const statusClass = (status: ChapterStatusDto): string => {
  * 状态文案。
  */
 const statusLabel = (status: ChapterStatusDto): string => {
-    if (status === "DRAFT") return "草稿中";
-    if (status === "REVISING") return "待修改";
-    if (status === "DONE") return "已完成";
-    return "未开始";
+    if (status === "DRAFT") return t("ide.chapterPanel.statusDraft");
+    if (status === "REVISING") return t("ide.chapterPanel.statusRevising");
+    if (status === "DONE") return t("ide.chapterPanel.statusDone");
+    return t("ide.chapterPanel.statusNotStarted");
 };
 
 const statusDropdownItems = computed<DropdownItem[]>(() => chapterStatusOptions.map((status) => ({
@@ -299,7 +300,7 @@ const statusDropdownItems = computed<DropdownItem[]>(() => chapterStatusOptions.
 /**
  * 章节编号。
  */
-const chapterNumber = (sortOrder: number): string => `第${String(sortOrder + 1).padStart(2, "0")}章`;
+const chapterNumber = (sortOrder: number): string => t("ide.chapterPanel.chapterNumber", {number: String(sortOrder + 1).padStart(2, "0")});
 
 /**
  * 更新时间文案。
@@ -550,7 +551,7 @@ async function loadChapterPlotDetail(chapterId: string): Promise<void> {
             return;
         }
 
-        chapterPlotError.value = error instanceof Error ? error.message : "加载章节剧情失败";
+        chapterPlotError.value = error instanceof Error ? error.message : t("ide.chapterPanel.loadChapterPlotFailed");
     } finally {
         if (chapterPlotRequestId.value === requestId) {
             chapterPlotLoading.value = false;
@@ -633,7 +634,7 @@ const confirmEditChapter = async (): Promise<void> => {
         editChapterOriginalSnapshot.value = createChapterEditorSnapshot();
         showEditChapterDialog.value = false;
     } catch (error) {
-        editChapterError.value = resolveApiErrorMessage(error, "保存章节失败");
+        editChapterError.value = resolveApiErrorMessage(error, t("ide.chapterPanel.saveChapterFailed"));
     } finally {
         savingEditChapter.value = false;
     }
@@ -681,7 +682,7 @@ const confirmEditVolume = async (): Promise<void> => {
         editVolumeOriginalSnapshot.value = createVolumeEditorSnapshot();
         showEditVolumeDialog.value = false;
     } catch (error) {
-        editVolumeError.value = resolveApiErrorMessage(error, "保存篇失败");
+        editVolumeError.value = resolveApiErrorMessage(error, t("ide.chapterPanel.saveVolumeFailed"));
     } finally {
         savingEditVolume.value = false;
     }
@@ -697,11 +698,11 @@ async function handleEditChapterRequestClose(reason: "overlay" | "cancel" | "clo
         return;
     }
 
-    const action = await choose("当前章节表单有未保存修改，是否先保存？", [
-        {label: "保存", value: "save", tone: "primary"},
-        {label: "放弃", value: "discard", tone: "danger"},
-        {label: "取消", value: "cancel"},
-    ], "未保存修改");
+    const action = await choose(t("ide.chapterPanel.unsavedChapterMessage"), [
+        {label: t("ide.chapterPanel.save"), value: "save", tone: "primary"},
+        {label: t("ide.chapterPanel.discard"), value: "discard", tone: "danger"},
+        {label: t("ide.chapterPanel.cancel"), value: "cancel"},
+    ], t("ide.chapterPanel.unsavedTitle"));
     if (action === "save") {
         await confirmEditChapter();
         return;
@@ -721,11 +722,11 @@ async function handleEditVolumeRequestClose(reason: "overlay" | "cancel" | "clos
         return;
     }
 
-    const action = await choose("当前篇表单有未保存修改，是否先保存？", [
-        {label: "保存", value: "save", tone: "primary"},
-        {label: "放弃", value: "discard", tone: "danger"},
-        {label: "取消", value: "cancel"},
-    ], "未保存修改");
+    const action = await choose(t("ide.chapterPanel.unsavedVolumeMessage"), [
+        {label: t("ide.chapterPanel.save"), value: "save", tone: "primary"},
+        {label: t("ide.chapterPanel.discard"), value: "discard", tone: "danger"},
+        {label: t("ide.chapterPanel.cancel"), value: "cancel"},
+    ], t("ide.chapterPanel.unsavedTitle"));
     if (action === "save") {
         await confirmEditVolume();
         return;
@@ -883,20 +884,20 @@ watch(selectedVolume, () => {
         <div class="shrink-0 space-y-2.5 border-b border-[var(--border-color)] bg-[var(--bg-panel)] p-3">
             <div class="relative">
                 <span class="i-lucide-search absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-muted)]"></span>
-                <input v-model="searchQuery" type="text" placeholder="搜索篇、章节、标签、角色…" class="w-full rounded-3 border border-[var(--border-color)] bg-[var(--bg-input)] py-1.5 pl-8 pr-3 text-xs text-[var(--text-main)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent-main)]">
+                <input v-model="searchQuery" type="text" :placeholder="t('ide.chapterPanel.searchPlaceholder')" class="w-full rounded-3 border border-[var(--border-color)] bg-[var(--bg-input)] py-1.5 pl-8 pr-3 text-xs text-[var(--text-main)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent-main)]">
             </div>
             <div class="flex items-center justify-between">
                 <div class="flex gap-1">
                     <button class="inline-flex items-center gap-1 rounded-2 px-1.5 py-1 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.creating" @click="emit('createVolume')">
                         <span class="i-lucide-plus h-3.5 w-3.5"></span>
-                        <span>新建篇</span>
+                        <span>{{ t("ide.chapterPanel.createVolume") }}</span>
                     </button>
                     <button class="inline-flex items-center gap-1 rounded-2 px-1.5 py-1 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.creating" @click="startInlineCreate(volumes[0]?.id || '')">
                         <span class="i-lucide-plus h-3.5 w-3.5"></span>
-                        <span>新建章</span>
+                        <span>{{ t("ide.chapterPanel.createChapter") }}</span>
                     </button>
                 </div>
-                <span v-if="searchQuery.trim()" class="text-[10px] text-[var(--text-muted)]">搜索中已禁用拖拽</span>
+                <span v-if="searchQuery.trim()" class="text-[10px] text-[var(--text-muted)]">{{ t("ide.chapterPanel.dragDisabledSearching") }}</span>
             </div>
         </div>
 
@@ -948,14 +949,14 @@ watch(selectedVolume, () => {
                     <span
                         v-if="isVolumeDetailDirty"
                         class="mt-1 h-2 w-2 shrink-0 rounded-full bg-amber-500"
-                        title="有未保存修改"
+                        :title="t('ide.chapterPanel.dirtyTitle')"
                     ></span>
                     <span class="flex min-w-0 flex-1 flex-col gap-0.5 overflow-hidden">
                         <span class="truncate font-serif text-sm font-bold text-[var(--text-main)]">{{ selectedVolume.title }}</span>
                         <span class="flex min-w-0 items-center gap-1.5 overflow-hidden text-[11px] text-[var(--text-muted)]">
-                            <span class="shrink-0">{{ selectedVolume.chapters.length }}章</span>
+                            <span class="shrink-0">{{ t("ide.chapterPanel.volumeChapterCount", {count: selectedVolume.chapters.length}) }}</span>
                             <span class="shrink-0">·</span>
-                            <span class="shrink-0">{{ (selectedVolume.chapters.reduce((sum, chapter) => sum + chapter.wordCount, 0) / 10000).toFixed(1) }}万字</span>
+                            <span class="shrink-0">{{ t("ide.chapterPanel.wordCount", {count: selectedVolume.chapters.reduce((sum, chapter) => sum + chapter.wordCount, 0)}) }}</span>
                             <span class="shrink-0">·</span>
                             <span class="truncate">{{ updatedLabel(selectedVolume.updatedAt) }}</span>
                         </span>
@@ -965,14 +966,14 @@ watch(selectedVolume, () => {
                     <span
                         v-if="isChapterDetailDirty"
                         class="mt-1 h-2 w-2 shrink-0 rounded-full bg-amber-500"
-                        title="有未保存修改"
+                        :title="t('ide.chapterPanel.dirtyTitle')"
                     ></span>
                     <span class="flex min-w-0 flex-1 flex-col gap-0.5 overflow-hidden">
                         <span class="truncate font-serif text-sm font-bold text-[var(--text-main)]">{{ chapterNumber(selectedChapter.sortOrder) }} {{ selectedChapter.title }}</span>
                         <span class="flex min-w-0 items-center gap-1.5 overflow-hidden text-[11px] text-[var(--text-muted)]">
                             <span class="shrink-0" :class="statusClass(selectedChapter.status)">{{ statusLabel(selectedChapter.status) }}</span>
                             <span class="shrink-0">·</span>
-                            <span class="shrink-0">{{ selectedChapter.wordCount }}字</span>
+                            <span class="shrink-0">{{ t("ide.chapterPanel.chapterWordCount", {count: selectedChapter.wordCount}) }}</span>
                             <span class="shrink-0">·</span>
                             <span class="truncate">{{ updatedLabel(selectedChapter.updatedAt) }}</span>
                         </span>
@@ -986,7 +987,7 @@ watch(selectedVolume, () => {
                     type="button"
                     class="inline-flex h-6 w-6 items-center justify-center rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40"
                     :disabled="!canRollbackDetail"
-                    title="回退"
+                    :title="t('ide.chapterPanel.rollback')"
                     @click="rollbackDetail"
                 >
                     <span class="i-lucide-rotate-ccw h-3 w-3"></span>
@@ -995,7 +996,7 @@ watch(selectedVolume, () => {
                     v-if="detailPanelHeight > 44 && selectedChapter"
                     type="button"
                     class="inline-flex h-6 w-6 items-center justify-center rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
-                    title="AI 批注"
+                    :title="t('ide.chapterPanel.aiAnnotation')"
                     @click="openChapterAiDialog"
                 >
                     <span class="i-lucide-sparkles h-3 w-3"></span>
@@ -1005,20 +1006,20 @@ watch(selectedVolume, () => {
                     type="button"
                     class="inline-flex h-6 items-center justify-center rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 text-[10px] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
                     @click="openChapterEditorFromDetail"
-                >编辑</button>
+                >{{ t("ide.chapterPanel.edit") }}</button>
                 <button
                     v-else-if="detailPanelHeight > 44 && selectedVolume"
                     type="button"
                     class="inline-flex h-6 items-center justify-center rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 text-[10px] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
                     @click="openVolumeEditorFromDetail"
-                >编辑</button>
+                >{{ t("ide.chapterPanel.edit") }}</button>
             </template>
 
             <template #default>
                 <div class="px-4 pb-4 pt-3 text-xs">
                     <div v-if="selectedVolume" class="space-y-3 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-input)] p-3 text-[var(--text-secondary)]">
                         <label class="block space-y-1">
-                            <span class="font-medium text-[var(--text-secondary)]">标题</span>
+                            <span class="font-medium text-[var(--text-secondary)]">{{ t("ide.chapterPanel.title") }}</span>
                             <input
                                 v-model="volumeDetailForm.title"
                                 type="text"
@@ -1027,31 +1028,31 @@ watch(selectedVolume, () => {
                             >
                         </label>
                         <div class="space-y-1">
-                            <span class="font-medium text-[var(--text-secondary)]">摘要</span>
+                            <span class="font-medium text-[var(--text-secondary)]">{{ t("ide.chapterPanel.summary") }}</span>
                             <StructuredTextEditor
                                 v-model="volumeDetailForm.summary"
                                 :rows="4"
                                 default-mode="rich"
-                                placeholder="概括当前篇的整体内容..."
+                                :placeholder="t('ide.chapterPanel.volumeSummaryPlaceholder')"
                                 :menu-refresh-key="menuRefreshKey"
                                 :resolve-menu="resolveMenu"
                                 @blur="saveVolumeDetail"
                             />
                         </div>
                         <div class="flex gap-2">
-                            <span class="w-12 shrink-0 text-[var(--text-muted)]">章节：</span>
-                            <span class="flex-1">{{ selectedVolume.chapters.length }} 章</span>
+                            <span class="w-12 shrink-0 text-[var(--text-muted)]">{{ t("ide.chapterPanel.chapters") }}</span>
+                            <span class="flex-1">{{ t("ide.chapterPanel.chapterCount", {count: selectedVolume.chapters.length}) }}</span>
                         </div>
                         <div class="flex gap-2">
-                            <span class="w-12 shrink-0 text-[var(--text-muted)]">字数：</span>
-                            <span class="flex-1">{{ selectedVolume.chapters.reduce((sum, chapter) => sum + chapter.wordCount, 0) }} 字</span>
+                            <span class="w-12 shrink-0 text-[var(--text-muted)]">{{ t("ide.chapterPanel.words") }}</span>
+                            <span class="flex-1">{{ t("ide.chapterPanel.wordCount", {count: selectedVolume.chapters.reduce((sum, chapter) => sum + chapter.wordCount, 0)}) }}</span>
                         </div>
                     </div>
 
                     <div v-else-if="selectedChapter" class="space-y-3">
                         <div class="space-y-3 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-input)] p-3 text-[var(--text-secondary)]">
                             <label class="block space-y-1">
-                                <span class="font-medium text-[var(--text-secondary)]">标题</span>
+                                <span class="font-medium text-[var(--text-secondary)]">{{ t("ide.chapterPanel.title") }}</span>
                                 <input
                                     v-model="chapterDetailForm.title"
                                     type="text"
@@ -1061,7 +1062,7 @@ watch(selectedVolume, () => {
                             </label>
                             <div class="grid grid-cols-2 gap-3">
                                 <label class="block space-y-1">
-                                    <span class="font-medium text-[var(--text-secondary)]">状态</span>
+                                    <span class="font-medium text-[var(--text-secondary)]">{{ t("ide.chapterPanel.status") }}</span>
                                     <select
                                         v-model="chapterDetailForm.status"
                                         class="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-2.5 py-2 text-[12px] text-[var(--text-main)] outline-none transition-colors focus:border-[var(--accent-main)]"
@@ -1074,19 +1075,19 @@ watch(selectedVolume, () => {
                                 </label>
                             </div>
                             <div class="space-y-1">
-                                <span class="font-medium text-[var(--text-secondary)]">摘要</span>
+                                <span class="font-medium text-[var(--text-secondary)]">{{ t("ide.chapterPanel.summary") }}</span>
                                 <StructuredTextEditor
                                     v-model="chapterDetailForm.summary"
                                     :rows="5"
                                     default-mode="rich"
-                                    placeholder="概括当前章节..."
+                                    :placeholder="t('ide.chapterPanel.chapterSummaryPlaceholder')"
                                     :menu-refresh-key="menuRefreshKey"
                                     :resolve-menu="resolveMenu"
                                     @blur="saveChapterDetail"
                                 />
                             </div>
                             <label class="block space-y-1">
-                                <span class="font-medium text-[var(--text-secondary)]">角色</span>
+                                <span class="font-medium text-[var(--text-secondary)]">{{ t("ide.chapterPanel.characters") }}</span>
                                 <input
                                     v-model="chapterDetailForm.characters"
                                     type="text"
@@ -1095,7 +1096,7 @@ watch(selectedVolume, () => {
                                 >
                             </label>
                             <label class="block space-y-1">
-                                <span class="font-medium text-[var(--text-secondary)]">待办</span>
+                                <span class="font-medium text-[var(--text-secondary)]">{{ t("ide.chapterPanel.todos") }}</span>
                                 <input
                                     v-model="chapterDetailForm.todos"
                                     type="text"
@@ -1107,7 +1108,7 @@ watch(selectedVolume, () => {
 
                         <div class="space-y-2 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-input)]/70 p-3">
                             <div class="flex items-center justify-between">
-                                <span class="text-[11px] font-semibold tracking-[0.16em] text-[var(--text-secondary)]">剧情 Scene</span>
+                                <span class="text-[11px] font-semibold tracking-[0.16em] text-[var(--text-secondary)]">{{ t("ide.chapterPanel.plotScene") }}</span>
                                 <span v-if="selectedChapterPlotDetail" class="text-[10px] text-[var(--text-muted)]">
                                     {{ selectedChapterPlotDetail.totalScenes }} Scene / {{ selectedChapterPlotDetail.totalPlots }} Plot
                                 </span>
@@ -1123,7 +1124,7 @@ watch(selectedVolume, () => {
                             </div>
 
                             <div v-else-if="!selectedChapterPlotDetail || selectedChapterPlotDetail.scenes.length === 0" class="rounded-xl border border-dashed border-[var(--border-color)] bg-[var(--bg-panel)]/50 px-3 py-2 text-[11px] text-[var(--text-muted)]">
-                                本章尚未编排剧情 Scene
+                                {{ t("ide.chapterPanel.noScene") }}
                             </div>
 
                             <div v-else class="space-y-2">
@@ -1142,7 +1143,7 @@ watch(selectedVolume, () => {
                                                     {{ scene.threadTitle }}
                                                 </span>
                                                 <span v-if="scene.threadIsMain" class="rounded-full border border-amber-500/25 bg-amber-500/10 px-1.5 py-0.5 text-amber-700">
-                                                    主线
+                                                    {{ t("ide.chapterPanel.mainThread") }}
                                                 </span>
                                                 <span>{{ sceneStatusLabel(scene.status) }}</span>
                                             </div>
@@ -1154,7 +1155,7 @@ watch(selectedVolume, () => {
                                         {{ scene.summary }}
                                     </div>
                                     <div v-if="scene.purpose" class="mt-1 text-[10px] leading-5 text-[var(--text-muted)]">
-                                        目的：{{ scene.purpose }}
+                                        {{ t("ide.chapterPanel.purpose", {purpose: scene.purpose}) }}
                                     </div>
 
                                     <div v-if="scene.plots.length > 0" class="mt-2 space-y-1.5 border-t border-[var(--border-color)]/70 pt-2">
@@ -1170,16 +1171,16 @@ watch(selectedVolume, () => {
                                                 </span>
                                             </div>
                                             <div class="mt-1 text-[11px] leading-5 text-[var(--text-secondary)]">
-                                                {{ plot.summary || "暂无 Plot 摘要" }}
+                                                {{ plot.summary || t("ide.chapterPanel.noPlotSummary") }}
                                             </div>
                                             <div v-if="plot.effect" class="mt-1 text-[10px] leading-5 text-[var(--text-muted)]">
-                                                结果：{{ plot.effect }}
+                                                {{ t("ide.chapterPanel.effect", {effect: plot.effect}) }}
                                             </div>
                                         </div>
                                     </div>
 
                                     <div v-else class="mt-2 rounded-lg border border-dashed border-[var(--border-color)] px-2 py-1.5 text-[10px] text-[var(--text-muted)]">
-                                        暂无 Plot
+                                        {{ t("ide.chapterPanel.noPlot") }}
                                     </div>
                                 </div>
                             </div>
@@ -1192,7 +1193,7 @@ watch(selectedVolume, () => {
         <FormAnnotationDialog
             v-if="selectedChapter"
             v-model="detailAiDialogOpen"
-            title="章节 AI 批注"
+            :title="t('ide.chapterPanel.annotationTitle')"
             form-kind="chapter_meta"
             :draft="chapterAnnotationDraft"
             :context="{chapterId: selectedChapter.id, novelId: novelIdeStore.currentNovelId ?? ''}"
@@ -1200,22 +1201,22 @@ watch(selectedVolume, () => {
         />
 
         <!-- 章节编辑对话框 -->
-        <Dialog :model-value="showEditChapterDialog" title="编辑章节信息" width="480px" :busy="savingEditChapter" @request-close="handleEditChapterRequestClose" @update:model-value="showEditChapterDialog = $event">
+        <Dialog :model-value="showEditChapterDialog" :title="t('ide.chapterPanel.editChapterTitle')" width="480px" :busy="savingEditChapter" @request-close="handleEditChapterRequestClose" @update:model-value="showEditChapterDialog = $event">
             <template #header-extra>
                 <div v-if="savingEditChapter || editChapterError" class="ml-2 flex items-center text-xs">
                     <span v-if="savingEditChapter" class="flex items-center gap-1 text-[var(--text-muted)]">
                         <span class="i-lucide-loader-circle animate-spin"></span>
-                        保存中
+                        {{ t("ide.chapterPanel.saving") }}
                     </span>
                     <span v-else class="text-rose-500">{{ editChapterError }}</span>
                 </div>
             </template>
             <div class="space-y-1">
-                <label class="text-xs font-semibold text-[var(--text-secondary)]">标题</label>
-                <input v-model="editChapterForm.title" type="text" class="w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-2 text-sm text-[var(--text-main)] outline-none transition-colors focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]" placeholder="请输入章节标题">
+                <label class="text-xs font-semibold text-[var(--text-secondary)]">{{ t("ide.chapterPanel.title") }}</label>
+                <input v-model="editChapterForm.title" type="text" class="w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-2 text-sm text-[var(--text-main)] outline-none transition-colors focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]" :placeholder="t('ide.chapterPanel.chapterTitlePlaceholder')">
             </div>
             <div class="space-y-1">
-                <label class="text-xs font-semibold text-[var(--text-secondary)]">状态</label>
+                <label class="text-xs font-semibold text-[var(--text-secondary)]">{{ t("ide.chapterPanel.status") }}</label>
                 <Dropdown :items="statusDropdownItems" menu-class="left-0 top-full mt-2 w-full" @select="selectChapterStatus">
                     <button type="button" class="flex w-full items-center justify-between rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-2 text-sm text-[var(--text-main)] outline-none transition-colors hover:border-[var(--accent-main)] hover:bg-[var(--bg-hover)]">
                         <span class="inline-flex items-center gap-2">
@@ -1227,56 +1228,56 @@ watch(selectedVolume, () => {
                 </Dropdown>
             </div>
             <div class="space-y-1">
-                <label class="text-xs font-semibold text-[var(--text-secondary)]">摘要</label>
-                <textarea v-model="editChapterForm.summary" rows="3" class="w-full resize-none rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-2 text-sm text-[var(--text-main)] outline-none transition-colors focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]" placeholder="章节内容概要..."></textarea>
+                <label class="text-xs font-semibold text-[var(--text-secondary)]">{{ t("ide.chapterPanel.summary") }}</label>
+                <textarea v-model="editChapterForm.summary" rows="3" class="w-full resize-none rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-2 text-sm text-[var(--text-main)] outline-none transition-colors focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]" :placeholder="t('ide.chapterPanel.chapterSummaryEditPlaceholder')"></textarea>
             </div>
             <div class="space-y-1">
-                <label class="text-xs font-semibold text-[var(--text-secondary)]">角色 (使用逗号分隔)</label>
-                <input v-model="editChapterForm.characters" type="text" class="w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-2 text-sm text-[var(--text-main)] outline-none transition-colors focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]" placeholder="例如：张三，李四">
+                <label class="text-xs font-semibold text-[var(--text-secondary)]">{{ t("ide.chapterPanel.charactersLabel") }}</label>
+                <input v-model="editChapterForm.characters" type="text" class="w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-2 text-sm text-[var(--text-main)] outline-none transition-colors focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]" :placeholder="t('ide.chapterPanel.charactersPlaceholder')">
             </div>
             <div class="space-y-1">
-                <label class="text-xs font-semibold text-[var(--text-secondary)]">待办 (使用逗号分隔)</label>
-                <input v-model="editChapterForm.todos" type="text" class="w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-2 text-sm text-[var(--text-main)] outline-none transition-colors focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]" placeholder="例如：修改对话，补充细节">
+                <label class="text-xs font-semibold text-[var(--text-secondary)]">{{ t("ide.chapterPanel.todosLabel") }}</label>
+                <input v-model="editChapterForm.todos" type="text" class="w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-2 text-sm text-[var(--text-main)] outline-none transition-colors focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]" :placeholder="t('ide.chapterPanel.todosPlaceholder')">
             </div>
             <template #footer>
-                <button class="inline-flex items-center justify-center h-8 px-4 rounded-md text-[13px] font-medium cursor-pointer border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-main)] transition-colors duration-200 hover:bg-[var(--bg-hover)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50" :disabled="savingEditChapter" @click="showEditChapterDialog = false">取消</button>
+                <button class="inline-flex items-center justify-center h-8 px-4 rounded-md text-[13px] font-medium cursor-pointer border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-main)] transition-colors duration-200 hover:bg-[var(--bg-hover)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50" :disabled="savingEditChapter" @click="showEditChapterDialog = false">{{ t("ide.chapterPanel.cancel") }}</button>
                 <button class="inline-flex min-w-[92px] items-center justify-center h-8 px-4 rounded-md text-[13px] font-medium cursor-pointer border border-transparent bg-[var(--accent-main)] text-white transition-all duration-200 hover:opacity-90 hover:shadow-md active:scale-95 disabled:cursor-not-allowed disabled:opacity-50" :disabled="savingEditChapter" @click="confirmEditChapter">
                     <span v-if="savingEditChapter" class="flex items-center gap-1">
                         <span class="i-lucide-loader-circle h-4 w-4 animate-spin"></span>
-                        保存中
+                        {{ t("ide.chapterPanel.saving") }}
                     </span>
-                    <span v-else>确定</span>
+                    <span v-else>{{ t("ide.chapterPanel.confirm") }}</span>
                 </button>
             </template>
         </Dialog>
 
         <!-- 篇编辑对话框 -->
-        <Dialog :model-value="showEditVolumeDialog" title="编辑篇信息" width="480px" :busy="savingEditVolume" @request-close="handleEditVolumeRequestClose" @update:model-value="showEditVolumeDialog = $event">
+        <Dialog :model-value="showEditVolumeDialog" :title="t('ide.chapterPanel.editVolumeTitle')" width="480px" :busy="savingEditVolume" @request-close="handleEditVolumeRequestClose" @update:model-value="showEditVolumeDialog = $event">
             <template #header-extra>
                 <div v-if="savingEditVolume || editVolumeError" class="ml-2 flex items-center text-xs">
                     <span v-if="savingEditVolume" class="flex items-center gap-1 text-[var(--text-muted)]">
                         <span class="i-lucide-loader-circle animate-spin"></span>
-                        保存中
+                        {{ t("ide.chapterPanel.saving") }}
                     </span>
                     <span v-else class="text-rose-500">{{ editVolumeError }}</span>
                 </div>
             </template>
             <div class="space-y-1">
-                <label class="text-xs font-semibold text-[var(--text-secondary)]">标题</label>
-                <input v-model="editVolumeForm.title" type="text" class="w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-2 text-sm text-[var(--text-main)] outline-none transition-colors focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]" placeholder="请输入篇标题">
+                <label class="text-xs font-semibold text-[var(--text-secondary)]">{{ t("ide.chapterPanel.title") }}</label>
+                <input v-model="editVolumeForm.title" type="text" class="w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-2 text-sm text-[var(--text-main)] outline-none transition-colors focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]" :placeholder="t('ide.chapterPanel.volumeTitlePlaceholder')">
             </div>
             <div class="space-y-1">
-                <label class="text-xs font-semibold text-[var(--text-secondary)]">摘要</label>
-                <textarea v-model="editVolumeForm.summary" rows="4" class="w-full resize-none rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-2 text-sm text-[var(--text-main)] outline-none transition-colors focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]" placeholder="请输入篇摘要..."></textarea>
+                <label class="text-xs font-semibold text-[var(--text-secondary)]">{{ t("ide.chapterPanel.summary") }}</label>
+                <textarea v-model="editVolumeForm.summary" rows="4" class="w-full resize-none rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-2 text-sm text-[var(--text-main)] outline-none transition-colors focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]" :placeholder="t('ide.chapterPanel.volumeSummaryEditPlaceholder')"></textarea>
             </div>
             <template #footer>
-                <button class="inline-flex items-center justify-center h-8 px-4 rounded-md text-[13px] font-medium cursor-pointer border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-main)] transition-colors duration-200 hover:bg-[var(--bg-hover)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50" :disabled="savingEditVolume" @click="showEditVolumeDialog = false">取消</button>
+                <button class="inline-flex items-center justify-center h-8 px-4 rounded-md text-[13px] font-medium cursor-pointer border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-main)] transition-colors duration-200 hover:bg-[var(--bg-hover)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50" :disabled="savingEditVolume" @click="showEditVolumeDialog = false">{{ t("ide.chapterPanel.cancel") }}</button>
                 <button class="inline-flex min-w-[92px] items-center justify-center h-8 px-4 rounded-md text-[13px] font-medium cursor-pointer border border-transparent bg-[var(--accent-main)] text-white transition-all duration-200 hover:opacity-90 hover:shadow-md active:scale-95 disabled:cursor-not-allowed disabled:opacity-50" :disabled="savingEditVolume" @click="confirmEditVolume">
                     <span v-if="savingEditVolume" class="flex items-center gap-1">
                         <span class="i-lucide-loader-circle h-4 w-4 animate-spin"></span>
-                        保存中
+                        {{ t("ide.chapterPanel.saving") }}
                     </span>
-                    <span v-else>确定</span>
+                    <span v-else>{{ t("ide.chapterPanel.confirm") }}</span>
                 </button>
             </template>
         </Dialog>

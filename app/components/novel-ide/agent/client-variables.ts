@@ -2,9 +2,25 @@ import type {ClientStateSnapshotDto} from "nbook/shared/dto/agent-session.dto";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import type {VariablePatchRequest} from "nbook/server/agent/variables/types";
 import type {NovelIdeTab} from "nbook/app/components/novel-ide/mock-data";
-import {isNovelIdeTab} from "nbook/app/components/novel-ide/mock-data";
+import {isNovelIdeTab, NOVEL_IDE_TABS} from "nbook/app/components/novel-ide/mock-data";
 import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
 import {themeTokens} from "nbook/app/utils/theme/theme-tokens";
+
+type RuntimeI18n = {
+    t: (key: string, params?: {[key: string]: string | number}) => string;
+};
+
+/**
+ * 非组件工具层不能使用 useI18n；这里复用 Nuxt 注入的运行时 i18n，失败时回退中文源语言。
+ */
+function translate(key: string, fallback: string, params?: {[key: string]: string | number}): string {
+    try {
+        const nuxtApp = useNuxtApp() as {$i18n?: RuntimeI18n};
+        return nuxtApp.$i18n?.t(key, params) ?? fallback;
+    } catch {
+        return fallback;
+    }
+}
 
 /**
  * Novel IDE 发给 Agent 的客户端变量输入。
@@ -79,14 +95,16 @@ function applyKnownClientState(path: string, value: JsonValue, options: {
 }): void {
     if (path === "ide.activePanel") {
         if (value !== null && (typeof value !== "string" || !isNovelIdeTab(value))) {
-            throw new Error(`client.ide.activePanel 只能写入 ${["files", "characters", "outline"].join("/")} 或 null。`);
+            const values = NOVEL_IDE_TABS.join("/");
+            throw new Error(translate("agent.clientVariables.activePanelInvalid", `client.ide.activePanel 只能写入 ${values} 或 null。`, {values}));
         }
         options.setActivePanel?.(value);
         return;
     }
     if (path === "ide.theme") {
         if (typeof value !== "string" || !(value in themeTokens)) {
-            throw new Error("client.ide.theme 只能写入 sepia/light/dark。");
+            const values = Object.keys(themeTokens).join("/");
+            throw new Error(translate("agent.clientVariables.themeInvalid", `client.ide.theme 只能写入 ${values}。`, {values}));
         }
         options.setTheme?.(value as IdeTheme);
     }
@@ -111,7 +129,7 @@ function applyJsonPatch(value: JsonValue | undefined, operations: VariablePatchR
         const parent = resolveParent(current, segments);
         const key = segments.at(-1);
         if (key === undefined) {
-            throw new Error("JSON Patch path 不能为空。");
+            throw new Error(translate("agent.clientVariables.emptyJsonPatchPath", "JSON Patch path 不能为空。"));
         }
         if (operation.op === "remove") {
             removeValue(parent, key);
@@ -150,14 +168,14 @@ function writeDotPath(value: Record<string, JsonValue>, path: string, nextValue:
     }
     const leaf = segments.at(-1);
     if (!leaf) {
-        throw new Error("client variable path 不能为空。");
+        throw new Error(translate("agent.clientVariables.emptyClientVariablePath", "client variable path 不能为空。"));
     }
     current[leaf] = nextValue;
 }
 
 function parsePointer(path: string): string[] {
     if (!path.startsWith("/")) {
-        throw new Error(`JSON Patch path 必须是 JSON Pointer 或空字符串：${path}`);
+        throw new Error(translate("agent.clientVariables.invalidPointer", `JSON Patch path 必须是 JSON Pointer 或空字符串：${path}`, {path}));
     }
     return path.slice(1).split("/").map((segment) => segment.replace(/~1/g, "/").replace(/~0/g, "~"));
 }
@@ -170,7 +188,7 @@ function resolveParent(value: JsonValue, segments: string[]): JsonValue {
             continue;
         }
         if (!current || typeof current !== "object") {
-            throw new Error(`JSON Patch 无法下钻到 ${segment}。`);
+            throw new Error(translate("agent.clientVariables.cannotDescend", `JSON Patch 无法下钻到 ${segment}。`, {segment}));
         }
         current = current[segment] ?? null;
     }
@@ -182,7 +200,7 @@ function readValue(parent: JsonValue, key: string): JsonValue {
         return parent[readArrayIndex(key, parent.length)] ?? null;
     }
     if (!parent || typeof parent !== "object") {
-        throw new Error(`JSON Patch target 不是 object/array：${key}`);
+        throw new Error(translate("agent.clientVariables.targetNotContainer", `JSON Patch target 不是 object/array：${key}`, {key}));
     }
     return parent[key] ?? null;
 }
@@ -198,7 +216,7 @@ function writeValue(parent: JsonValue, key: string, value: JsonValue, op: "add" 
         return;
     }
     if (!parent || typeof parent !== "object") {
-        throw new Error(`JSON Patch target 不是 object/array：${key}`);
+        throw new Error(translate("agent.clientVariables.targetNotContainer", `JSON Patch target 不是 object/array：${key}`, {key}));
     }
     parent[key] = value;
 }
@@ -209,24 +227,24 @@ function removeValue(parent: JsonValue, key: string): void {
         return;
     }
     if (!parent || typeof parent !== "object") {
-        throw new Error(`JSON Patch target 不是 object/array：${key}`);
+        throw new Error(translate("agent.clientVariables.targetNotContainer", `JSON Patch target 不是 object/array：${key}`, {key}));
     }
     delete parent[key];
 }
 
 function readArrayIndex(segment: string, length: number): number {
     if (!/^\d+$/.test(segment)) {
-        throw new Error(`JSON Patch 数组下标非法：${segment}`);
+        throw new Error(translate("agent.clientVariables.invalidArrayIndex", `JSON Patch 数组下标非法：${segment}`, {segment}));
     }
     const index = Number(segment);
     if (index < 0 || index >= length) {
-        throw new Error(`JSON Patch 数组下标越界：${segment}`);
+        throw new Error(translate("agent.clientVariables.arrayIndexOutOfRange", `JSON Patch 数组下标越界：${segment}`, {segment}));
     }
     return index;
 }
 
 function assertEqual(left: JsonValue, right: JsonValue, path: string): void {
     if (JSON.stringify(left) !== JSON.stringify(right)) {
-        throw new Error(`JSON Patch test 失败：${path}`);
+        throw new Error(translate("agent.clientVariables.testFailed", `JSON Patch test 失败：${path}`, {path}));
     }
 }

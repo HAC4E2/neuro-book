@@ -46,16 +46,16 @@ export const parseTaskList = (toolCall: TaskToolCallLike): AgentTaskList | null 
 };
 
 /**
- * 任务步骤状态文字。
+ * 任务步骤状态对应的 locale key。
  */
-export const formatTaskStatusLabel = (status: AgentTaskStatus): string => {
+export const taskStatusLabelKey = (status: AgentTaskStatus): string => {
     switch (status) {
         case "pending":
-            return "待开始";
+            return "agent.tasks.todo";
         case "in_progress":
-            return "进行中";
+            return "agent.tasks.inProgress";
         case "completed":
-            return "已完成";
+            return "agent.tasks.completed";
     }
 };
 

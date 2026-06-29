@@ -9,6 +9,7 @@ const props = defineProps<{
     toolCall: AgentToolCall;
 }>();
 
+const {t} = useI18n();
 const userInputContext = inject(AGENT_REQUEST_USER_INPUT_CONTEXT_KEY, null);
 
 const parsedArgs = computed(() => {
@@ -59,7 +60,7 @@ const questionOptions = computed(() => {
 const answerViews = computed(() => {
     return deriveRequestUserInputAnswerViews(parsedArgs.value, props.toolCall.rawResult, {
         fallbackQuestion: pendingQuestion.value,
-        otherLabel: isExitPlanModeApproval.value ? "追加建议" : "其他答案",
+        otherLabel: isExitPlanModeApproval.value ? t("agent.userInput.addSuggestion") : t("agent.userInput.otherAnswer"),
     });
 });
 
@@ -80,7 +81,7 @@ const toolArgsText = computed(() => {
                 {{ questionText }}
             </div>
             <div v-else class="text-xs whitespace-pre-wrap break-all font-mono leading-5 text-[var(--text-secondary)]">
-                {{ toolArgsText || "参数流式输出中..." }}
+                {{ toolArgsText || t("agent.userInput.streamingArgs") }}
             </div>
 
             <div class="mt-3 space-y-2">
@@ -92,7 +93,7 @@ const toolArgsText = computed(() => {
                     >
                         <div class="flex items-center gap-2">
                             <span class="text-xs font-medium text-[var(--text-main)]">{{ option.label }}</span>
-                            <span v-if="option.recommended" class="rounded border border-emerald-500/20 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">推荐</span>
+                            <span v-if="option.recommended" class="rounded border border-emerald-500/20 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">{{ t("agent.userInput.recommended") }}</span>
                         </div>
                         <div v-if="option.description" class="mt-1 text-[11px] leading-4 text-[var(--text-muted)]">
                             {{ option.description }}
@@ -100,9 +101,9 @@ const toolArgsText = computed(() => {
                     </div>
                 </div>
                 <div class="flex flex-wrap gap-1.5 text-[10px] text-[var(--text-muted)]">
-                    <span v-if="questionOptions.length === 0" class="rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5">开放回答</span>
-                    <span v-if="questionOptions.length > 0" class="rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5">{{ isExitPlanModeApproval ? "允许追加建议" : "允许其他答案" }}</span>
-                    <span class="rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5">允许备注</span>
+                    <span v-if="questionOptions.length === 0" class="rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5">{{ t("agent.userInput.openAnswer") }}</span>
+                    <span v-if="questionOptions.length > 0" class="rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5">{{ isExitPlanModeApproval ? t("agent.userInput.allowSuggestion") : t("agent.userInput.allowOtherAnswer") }}</span>
+                    <span class="rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5">{{ t("agent.userInput.allowNote") }}</span>
                 </div>
             </div>
         </div>
@@ -115,17 +116,17 @@ const toolArgsText = computed(() => {
 
             <div v-if="isPendingQuestion" class="flex items-center gap-2 text-xs leading-5 text-amber-700">
                 <span class="i-lucide-clock h-3.5 w-3.5 shrink-0"></span>
-                <span>{{ isPlanModeApproval ? "等待用户审批，请在输入框上方完成选择。" : "等待用户回答，请在输入框上方完成选择。" }}</span>
+                <span>{{ isPlanModeApproval ? t("agent.userInput.waitingApproval") : t("agent.userInput.waitingAnswer") }}</span>
             </div>
 
             <div v-else-if="answerViews.length > 0" class="space-y-3">
                 <div v-for="answer in answerViews" :key="answer.questionIndex" class="space-y-1">
                     <div v-if="answerViews.length > 1 && answer.question" class="text-xs leading-5 text-[var(--text-muted)]">{{ answer.questionIndex + 1 }}. {{ answer.question }}</div>
-                    <div v-if="answer.ignored" class="text-sm leading-6 text-[var(--text-main)]">已忽略</div>
-                    <div v-else-if="answer.openAnswer && answer.text" class="text-sm leading-6 text-[var(--text-main)]">回答：{{ answer.text }}</div>
-                    <div v-else-if="answer.openAnswer && answer.note" class="text-sm leading-6 text-[var(--text-main)]">回答：{{ answer.note }}</div>
-                    <div v-else class="text-sm text-[var(--text-main)]">选择：{{ answer.selectedLabel || "开放回答" }}</div>
-                    <div v-if="answer.note && !answer.openAnswer" class="text-xs leading-5 text-[var(--text-muted)]">备注：{{ answer.note }}</div>
+                    <div v-if="answer.ignored" class="text-sm leading-6 text-[var(--text-main)]">{{ t("agent.userInput.ignored") }}</div>
+                    <div v-else-if="answer.openAnswer && answer.text" class="text-sm leading-6 text-[var(--text-main)]">{{ t("agent.userInput.answerPrefix", {text: answer.text}) }}</div>
+                    <div v-else-if="answer.openAnswer && answer.note" class="text-sm leading-6 text-[var(--text-main)]">{{ t("agent.userInput.answerPrefix", {text: answer.note}) }}</div>
+                    <div v-else class="text-sm text-[var(--text-main)]">{{ t("agent.userInput.choicePrefix", {text: answer.selectedLabel || t("agent.userInput.openAnswer")}) }}</div>
+                    <div v-if="answer.note && !answer.openAnswer" class="text-xs leading-5 text-[var(--text-muted)]">{{ t("agent.userInput.notePrefix", {text: answer.note}) }}</div>
                 </div>
             </div>
 

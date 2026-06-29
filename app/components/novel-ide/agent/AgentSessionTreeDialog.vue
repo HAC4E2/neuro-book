@@ -28,13 +28,14 @@ const filterMode = ref<AgentSessionTreeFilterMode>("default");
 const selectedEntryId = ref<string | null>(null);
 const collapsedBranchIds = ref<Set<string>>(new Set());
 const listContainerRef = ref<HTMLElement | null>(null);
-const filterOptions: {value: AgentSessionTreeFilterMode; label: string; title: string}[] = [
-    {value: "default", label: "Default", title: "显示主要历史节点"},
-    {value: "no-tools", label: "No-tools", title: "隐藏工具结果，保留对话节点"},
-    {value: "user", label: "User", title: "只看用户与系统注入消息"},
-    {value: "labeled", label: "Labeled", title: "只看已标记或分支摘要节点"},
-    {value: "all", label: "All", title: "显示全部节点"},
-];
+const {t} = useI18n();
+const filterOptions = computed<{value: AgentSessionTreeFilterMode; label: string; title: string}[]>(() => [
+    {value: "default", label: "Default", title: t("agent.sessionTree.filterDefaultTitle")},
+    {value: "no-tools", label: "No-tools", title: t("agent.sessionTree.filterNoToolsTitle")},
+    {value: "user", label: "User", title: t("agent.sessionTree.filterUserTitle")},
+    {value: "labeled", label: "Labeled", title: t("agent.sessionTree.filterLabeledTitle")},
+    {value: "all", label: "All", title: t("agent.sessionTree.filterAllTitle")},
+]);
 
 const treeState = computed(() => deriveAgentTreeState(props.tree));
 const hasSearchQuery = computed(() => Boolean(search.value.trim()));
@@ -333,11 +334,11 @@ function nodePreview(node: SessionTreeNode): string {
         if (matches) {
             const names = matches.map(m => m.replace(/\[tool:|\]/g, ""));
             const uniqueNames = Array.from(new Set(names));
-            return `调用工具: ${uniqueNames.join(", ")} (${matches.length}次)`;
+            return t("agent.sessionTree.toolCallsSummary", {names: uniqueNames.join(", "), count: matches.length});
         }
     }
     if (rawPreview.startsWith("---") && rawPreview.includes("profile:")) {
-        return "[配置注入] Profile configuration";
+        return t("agent.sessionTree.profileInjection");
     }
     if (rawPreview.startsWith("{") && rawPreview.endsWith("}")) {
         return `[JSON Payload]`;
@@ -346,7 +347,7 @@ function nodePreview(node: SessionTreeNode): string {
         const parts = rawPreview.split(" ");
         const status = parts[1];
         if (status) {
-            return `执行状态: ${status.toUpperCase()}`;
+            return t("agent.sessionTree.invocationStatus", {status: status.toUpperCase()});
         }
     }
     return rawPreview;
@@ -397,9 +398,9 @@ function toggleBranch(row: AgentSessionTreeRow): void {
  */
 function branchToggleTitle(row: AgentSessionTreeRow): string {
     if (hasSearchQuery.value) {
-        return "搜索时临时展开分支";
+        return t("agent.sessionTree.searchExpandedBranch");
     }
-    return row.collapsed ? "展开分支" : "收起分支";
+    return row.collapsed ? t("agent.sessionTree.expandBranch") : t("agent.sessionTree.collapseBranch");
 }
 
 /**
@@ -407,9 +408,9 @@ function branchToggleTitle(row: AgentSessionTreeRow): string {
  */
 function branchBadgeTitle(row: AgentSessionTreeRow): string {
     if (row.isBranchPoint) {
-        return row.collapsed ? `已隐藏 ${row.hiddenDescendantCount} 行` : "分支数量";
+        return row.collapsed ? t("agent.sessionTree.hiddenRows", {count: row.hiddenDescendantCount}) : t("agent.sessionTree.branchCount");
     }
-    return "所在分支";
+    return t("agent.sessionTree.branchPosition");
 }
 
 /**
@@ -513,7 +514,7 @@ function handleKeyDown(e: KeyboardEvent): void {
 <template>
     <Dialog
         :model-value="props.modelValue"
-        title="Session Tree"
+        :title="t('agent.sessionTree.title')"
         width="min(1560px, calc(100vw - 16px))"
         height="min(920px, calc(100vh - 16px))"
         body-class="!p-0 !gap-0 !overflow-hidden !bg-[var(--bg-main)]"
@@ -528,15 +529,15 @@ function handleKeyDown(e: KeyboardEvent): void {
                         <span class="i-lucide-git-branch h-4.5 w-4.5"></span>
                     </span>
                     <div class="min-w-0">
-                        <div class="text-base font-semibold leading-snug text-[var(--text-main)]">Session Tree</div>
+                        <div class="text-base font-semibold leading-snug text-[var(--text-main)]">{{ t("agent.sessionTree.title") }}</div>
                         <div class="mt-0.5 flex min-w-0 flex-wrap items-center gap-2 text-[11px] text-[var(--text-muted)]">
-                            <span>{{ props.tree.length }} nodes</span>
+                            <span>{{ t("agent.sessionTree.nodeCount", {count: props.tree.length}) }}</span>
                             <span class="h-1 w-1 rounded-full bg-[var(--border-color-hover)]"></span>
-                            <span class="truncate font-mono">leaf {{ activeLeafLabel }}</span>
+                            <span class="truncate font-mono">{{ t("agent.sessionTree.leaf", {leaf: activeLeafLabel}) }}</span>
                         </div>
                     </div>
                 </div>
-                <button type="button" class="flex h-8 w-8 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" aria-label="关闭 Session Tree" @click="emit('update:modelValue', false)">
+                <button type="button" class="flex h-8 w-8 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :aria-label="t('agent.sessionTree.close')" @click="emit('update:modelValue', false)">
                     <span class="i-lucide-x h-4 w-4"></span>
                 </button>
             </div>
@@ -548,7 +549,7 @@ function handleKeyDown(e: KeyboardEvent): void {
                 <div class="sticky top-0 z-20 flex flex-wrap items-center gap-2 border-b border-[var(--border-color)] bg-[var(--toolbar-bg)]/95 px-3 py-2 backdrop-blur">
                     <div class="flex h-8 min-w-[280px] flex-1 items-center gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2.5 shadow-sm">
                         <span class="i-lucide-search h-4 w-4 shrink-0 text-[var(--text-muted)]"></span>
-                        <input v-model="search" class="min-w-0 flex-1 bg-transparent text-sm text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)]" placeholder="搜索内容、类型或 Entry ID..." />
+                        <input v-model="search" class="min-w-0 flex-1 bg-transparent text-sm text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)]" :placeholder="t('agent.sessionTree.searchPlaceholder')" />
                     </div>
                     <div class="flex h-8 overflow-hidden rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-0.5 shadow-sm">
                         <button
@@ -621,7 +622,7 @@ function handleKeyDown(e: KeyboardEvent): void {
                         </div>
                     </div>
                     <div v-else class="rounded-md border border-dashed border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-12 text-center text-sm text-[var(--text-muted)]">
-                        没有匹配的节点
+                        {{ t("agent.sessionTree.noMatchingNode") }}
                     </div>
                 </div>
             </div>
@@ -631,10 +632,10 @@ function handleKeyDown(e: KeyboardEvent): void {
                 <div class="border-b border-[var(--border-color)] bg-[var(--bg-main)] px-4 py-3">
                     <div class="flex min-w-0 items-center justify-between gap-3">
                         <div class="min-w-0">
-                            <div class="text-sm font-semibold text-[var(--text-main)]">节点详情</div>
+                            <div class="text-sm font-semibold text-[var(--text-main)]">{{ t("agent.sessionTree.details") }}</div>
                             <div class="mt-1 truncate font-mono text-[11px] text-[var(--text-muted)]">{{ selectedEntryLabel }}</div>
                         </div>
-                        <button v-if="selectedNode" type="button" class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="复制 Entry ID" @click="void copyId(selectedNode.id)">
+                        <button v-if="selectedNode" type="button" class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('agent.sessionTree.copyEntryId')" @click="void copyId(selectedNode.id)">
                             <span class="i-lucide-copy h-3.5 w-3.5"></span>
                         </button>
                     </div>
@@ -655,7 +656,7 @@ function handleKeyDown(e: KeyboardEvent): void {
                         <div v-if="parsedMessage.thinking" class="mb-4 rounded-md border border-amber-500/25 bg-amber-500/5 p-3">
                             <div class="mb-2 flex items-center gap-2 text-xs font-medium text-amber-600 dark:text-amber-400">
                                 <span class="i-lucide-brain h-4 w-4"></span>
-                                思考过程
+                                {{ t("agent.sessionTree.thinking") }}
                             </div>
                             <div class="max-h-[240px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-[var(--text-secondary)]">{{ parsedMessage.thinking }}</div>
                         </div>
@@ -679,7 +680,7 @@ function handleKeyDown(e: KeyboardEvent): void {
                         <!-- Main Content -->
                         <div v-if="parsedMessage.content" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-main)] p-3">
                             <div class="mb-2 flex items-center justify-between gap-3">
-                                <div class="text-xs font-medium text-[var(--text-main)]">内容</div>
+                                <div class="text-xs font-medium text-[var(--text-main)]">{{ t("agent.sessionTree.content") }}</div>
                                 <span class="font-mono text-[10px] text-[var(--text-muted)]">{{ formatTimestamp(selectedNode.timestamp) }}</span>
                             </div>
                             <div class="max-h-[360px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-[var(--text-secondary)]">{{ parsedMessage.content }}</div>
@@ -690,7 +691,7 @@ function handleKeyDown(e: KeyboardEvent): void {
                     <template v-else-if="selectedEntry?.type === 'custom' || selectedEntry?.type === 'variable_patch'">
                         <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-main)] p-3">
                             <div class="mb-2 flex items-center justify-between gap-3">
-                                <div class="text-xs font-medium text-[var(--text-main)]">数据 ({{ selectedEntry.type }})</div>
+                                <div class="text-xs font-medium text-[var(--text-main)]">{{ t("agent.sessionTree.data", {type: selectedEntry.type}) }}</div>
                             </div>
                             <div class="max-h-[360px] overflow-y-auto rounded bg-[var(--bg-input)] p-2">
                                 <pre class="whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-[var(--text-secondary)]">{{ JSON.stringify(selectedEntry, null, 2) }}</pre>
@@ -700,7 +701,7 @@ function handleKeyDown(e: KeyboardEvent): void {
                     
                     <template v-else-if="selectedEntry?.type === 'compaction'">
                         <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-main)] p-3">
-                            <div class="mb-2 text-xs font-medium text-[var(--text-main)]">压实详情 (Compaction)</div>
+                            <div class="mb-2 text-xs font-medium text-[var(--text-main)]">{{ t("agent.sessionTree.compactionDetails") }}</div>
                             <div class="mb-3 max-h-[160px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-[var(--text-secondary)]">{{ selectedEntry.summary }}</div>
                             <div v-if="selectedEntry.details" class="grid grid-cols-2 gap-2 text-xs">
                                 <div class="rounded bg-[var(--bg-panel)] p-2">
@@ -719,7 +720,7 @@ function handleKeyDown(e: KeyboardEvent): void {
                     <template v-else>
                         <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-main)] p-3">
                             <div class="mb-2 flex items-center justify-between gap-3">
-                                <div class="text-xs font-medium text-[var(--text-main)]">内容</div>
+                                <div class="text-xs font-medium text-[var(--text-main)]">{{ t("agent.sessionTree.content") }}</div>
                                 <span class="font-mono text-[10px] text-[var(--text-muted)]">{{ formatTimestamp(selectedNode.timestamp) }}</span>
                             </div>
                             <div class="max-h-[360px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-[var(--text-secondary)]">
@@ -757,12 +758,12 @@ function handleKeyDown(e: KeyboardEvent): void {
                     </div>
                 </div>
                 <div v-else class="flex flex-1 items-center justify-center px-4 text-sm text-[var(--text-muted)]">
-                    选择一个节点查看详情
+                    {{ t("agent.sessionTree.selectNodeHint") }}
                 </div>
                 <div class="border-t border-[var(--border-color)] bg-[var(--bg-main)] px-4 py-3">
                     <button type="button" class="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-[var(--accent-main)] text-sm font-medium text-white shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.running || !selectedNode" @click="activateSelected">
                         <span class="i-lucide-git-branch h-4 w-4"></span>
-                        切换到此节点
+                        {{ t("agent.sessionTree.activateNode") }}
                     </button>
                 </div>
             </aside>

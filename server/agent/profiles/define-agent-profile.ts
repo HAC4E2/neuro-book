@@ -1,8 +1,9 @@
 import type {TSchema} from "typebox";
-import type {AgentProfile, AgentProfileDefinition, AgentProfileManifest} from "nbook/server/agent/profiles/types";
+import type {AgentProfile, AgentProfileDefinition, AgentProfileManifest, ProfilePrepareContext} from "nbook/server/agent/profiles/types";
 import {compileProfileContext, validateCompactionPlan, validateProfileTurnPlan} from "nbook/server/agent/profiles/profile-dsl";
 import {agentRuntimeBuiltins, defineAgentRuntime} from "nbook/server/agent/profiles/define-agent-runtime";
 import type {ProfileTools} from "nbook/server/agent/profiles/profile-tools";
+import {parseLowCodeFormValue, type LowCodeFormDefinition} from "nbook/server/low-code-form";
 
 /**
  * 定义一个 v3 Agent Profile。用户自定义 profile 必须通过这个函数导出。
@@ -11,9 +12,10 @@ export function defineAgentProfile<
     const TInitialSchema extends TSchema,
     const TPayloadSchema extends TSchema = TSchema,
     const TOutputSchema extends TSchema = TSchema,
+    const TSettingsSchema extends TSchema | undefined = undefined,
     const TSummarizerKey extends string = string,
     const TTools extends ProfileTools = ProfileTools,
->(profile: AgentProfileDefinition<TInitialSchema, TPayloadSchema, TOutputSchema, TSummarizerKey, TTools>): AgentProfile<TInitialSchema, TPayloadSchema, TOutputSchema, TSummarizerKey, TTools> {
+>(profile: AgentProfileDefinition<TInitialSchema, TPayloadSchema, TOutputSchema, TSettingsSchema, TSummarizerKey, TTools>): AgentProfile<TInitialSchema, TPayloadSchema, TOutputSchema, TSettingsSchema, TSummarizerKey, TTools> {
     assertProfileManifest(profile.manifest);
     assertNoLegacyToolFields(profile.manifest.key, profile);
     const rootToolKeys = assertProfileTools(profile.manifest.key, profile.tools);
@@ -29,12 +31,13 @@ export function defineAgentProfile<
     }
     const prepare = profile.prepare
         ? async (...args: Parameters<NonNullable<typeof profile.prepare>>) => {
-            const plan = await profile.prepare!(...args);
+            const ctx = withDefaultSettings(profile, args[0]);
+            const plan = await profile.prepare!(ctx as never);
             validateProfileTurnPlan(profile.manifest.key, plan);
             return plan;
         }
-        : async (...args: Parameters<NonNullable<AgentProfile<TInitialSchema, TPayloadSchema, TOutputSchema>["prepare"]>>) => {
-            const ctx = args[0];
+        : async (...args: Parameters<NonNullable<AgentProfile<TInitialSchema, TPayloadSchema, TOutputSchema, TSettingsSchema>["prepare"]>>) => {
+            const ctx = withDefaultSettings(profile, args[0]);
             const tree = await profile.context!(ctx);
             return compileProfileContext(profile, ctx, tree);
         };
@@ -50,6 +53,22 @@ export function defineAgentProfile<
 }
 
 /**
+ * 为手工调用 profile.prepare 的旧测试和预览路径补齐默认 settings。
+ */
+function withDefaultSettings<TContext extends ProfilePrepareContext>(
+    profile: {settingsForm?: LowCodeFormDefinition},
+    ctx: TContext,
+): TContext {
+    if (ctx.settings !== undefined) {
+        return ctx;
+    }
+    return {
+        ...ctx,
+        settings: profile.settingsForm ? parseLowCodeFormValue(profile.settingsForm, undefined) : {},
+    } as TContext;
+}
+
+/**
  * 校验 profile manifest 的最小运行时合同。
  */
 export function assertProfileManifest(manifest: AgentProfileManifest): void {
@@ -58,6 +77,9 @@ export function assertProfileManifest(manifest: AgentProfileManifest): void {
     }
     if (!manifest.name.trim()) {
         throw new Error(`profile ${manifest.key} manifest.name 不能为空`);
+    }
+    if (manifest.version !== undefined && (!Number.isInteger(manifest.version) || manifest.version < 1)) {
+        throw new Error(`profile ${manifest.key} manifest.version 必须是正整数。`);
     }
 }
 

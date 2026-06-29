@@ -7,6 +7,7 @@ import {
 import type {
     AgentProfileConfig,
     AgentProfileModelConfig,
+    AgentProfileSettingsConfig,
     ConfiguredModelConfig,
     ConfiguredProviderConfig,
     EffectiveConfig,
@@ -238,6 +239,10 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
                         ),
                         projectProfiles[profileKey]?.model,
                     ),
+                    settings: mergeAgentProfileSettingsConfig(
+                        globalProfilePatches[profileKey]?.settings,
+                        projectProfiles[profileKey]?.settings,
+                    ),
                 } satisfies AgentProfileConfig]),
         );
     }
@@ -325,20 +330,18 @@ export function normalizeAgentProfiles(input: Record<string, Partial<StoredAgent
     if (!input) {
         return {};
     }
-    return Object.fromEntries(
-        Object.entries(input)
-            .map(([profileKey, profile]) => {
-                const key = normalizeText(profileKey);
-                if (!key) {
-                    return null;
-                }
-                return [key, {
-                    model: normalizeAgentProfileModelPatch(profile.model),
-                }] as const;
-            })
-            .filter((entry): entry is readonly [string, StoredAgentProfileConfig] => entry !== null)
-            .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey)),
-    );
+    const entries: Array<readonly [string, StoredAgentProfileConfig]> = [];
+    for (const [profileKey, profile] of Object.entries(input)) {
+        const key = normalizeText(profileKey);
+        if (!key) {
+            continue;
+        }
+        entries.push([key, {
+            model: normalizeAgentProfileModelPatch(profile.model),
+            settings: normalizeAgentProfileSettings(profile.settings),
+        }]);
+    }
+    return Object.fromEntries(entries.sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey)));
 }
 
 function normalizeCompleteAgentProfiles(
@@ -348,6 +351,7 @@ function normalizeCompleteAgentProfiles(
     return Object.fromEntries(
         Object.entries(input ?? {}).map(([profileKey, profile]) => [profileKey, {
             model: mergeAgentProfileModelConfig(defaults, profile.model),
+            settings: normalizeAgentProfileSettings(profile.settings),
         } satisfies AgentProfileConfig]),
     );
 }
@@ -376,6 +380,26 @@ function normalizeAgentProfileModelPatch(input: Partial<AgentProfileModelConfig>
         ...(Object.hasOwn(input, "topK") ? {topK: normalizeNullableInteger(input.topK)} : {}),
         ...(Object.hasOwn(input, "reasoningEffort") ? {reasoningEffort: normalizeThinkingLevel(input.reasoningEffort)} : {}),
         ...(Object.hasOwn(input, "stream") && typeof input.stream === "boolean" ? {stream: input.stream} : {}),
+    };
+}
+
+/**
+ * 规范化 profile settings patch。
+ */
+export function normalizeAgentProfileSettings(input: unknown): AgentProfileSettingsConfig {
+    return normalizeJsonRecord(input);
+}
+
+/**
+ * 合并 profile settings patch。当前第一版只做浅合并。
+ */
+export function mergeAgentProfileSettingsConfig(
+    base: AgentProfileSettingsConfig | undefined,
+    patchInput: AgentProfileSettingsConfig | undefined,
+): AgentProfileSettingsConfig {
+    return {
+        ...normalizeAgentProfileSettings(base),
+        ...normalizeAgentProfileSettings(patchInput),
     };
 }
 

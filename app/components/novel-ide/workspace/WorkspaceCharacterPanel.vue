@@ -10,6 +10,7 @@ import {isWorkspaceLorebookEntry} from "nbook/app/components/novel-ide/workspace
 const store = useNovelIdeStore();
 const {confirm, prompt} = useDialog();
 const {error: notifyError} = useNotification();
+const {t} = useI18n();
 const {
     loadingWorkspaceTree,
     selectedFileNode,
@@ -82,7 +83,7 @@ async function createCharacter(): Promise<void> {
         return;
     }
 
-    const input = await prompt("请输入角色路径", "lorebook/character/new-character", "新建角色");
+    const input = await prompt(t("ide.workspace.character.createPathPrompt"), "lorebook/character/new-character", t("ide.workspace.character.create"));
     const rawPath = typeof input === "string" ? input.trim() : "";
     if (!rawPath) {
         return;
@@ -90,7 +91,7 @@ async function createCharacter(): Promise<void> {
 
     const indexPath = normalizeCharacterIndexPath(rawPath);
     if (!indexPath.startsWith("lorebook/")) {
-        notifyError("角色必须创建在 lorebook/ 目录下。", {title: "创建角色失败"});
+        notifyError(t("ide.workspace.character.createScopeError"), {title: t("ide.workspace.character.createFailed")});
         return;
     }
 
@@ -98,7 +99,7 @@ async function createCharacter(): Promise<void> {
         const node = await store.createWorkspaceFile(indexPath, buildCharacterContent(indexPath));
         await store.selectWorkspacePath(node.path);
     } catch (error) {
-        notifyError(formatError(error), {title: "创建角色失败"});
+        notifyError(formatError(error), {title: t("ide.workspace.character.createFailed")});
     }
 }
 
@@ -107,7 +108,7 @@ async function createCharacter(): Promise<void> {
  */
 async function renameCharacter(node: WorkspaceFileNode): Promise<void> {
     const currentPath = node.path.endsWith("/index.md") ? node.path.slice(0, -"/index.md".length) : node.path;
-    const input = await prompt("请输入新路径", currentPath, "重命名角色");
+    const input = await prompt(t("ide.workspace.filePanel.renamePathPrompt"), currentPath, t("ide.workspace.character.renameTitle"));
     const rawPath = typeof input === "string" ? input.trim() : "";
     if (!rawPath || rawPath === currentPath) {
         return;
@@ -117,7 +118,7 @@ async function renameCharacter(node: WorkspaceFileNode): Promise<void> {
         const moved = await store.renameWorkspacePath(currentPath, rawPath);
         await store.selectWorkspacePath(moved.path);
     } catch (error) {
-        notifyError(formatError(error), {title: "重命名角色失败"});
+        notifyError(formatError(error), {title: t("ide.workspace.character.renameFailed")});
     }
 }
 
@@ -126,14 +127,14 @@ async function renameCharacter(node: WorkspaceFileNode): Promise<void> {
  */
 async function deleteCharacter(node: WorkspaceFileNode): Promise<void> {
     const targetPath = node.path.endsWith("/index.md") ? node.path.slice(0, -"/index.md".length) : node.path;
-    if (!await confirm(`确定要删除角色 ${displayTitle(node)} 吗？`)) {
+    if (!await confirm(t("ide.workspace.character.deleteConfirm", {title: displayTitle(node)}))) {
         return;
     }
 
     try {
         await store.deleteWorkspacePath(targetPath, true);
     } catch (error) {
-        notifyError(formatError(error), {title: "删除角色失败"});
+        notifyError(formatError(error), {title: t("ide.workspace.character.deleteFailed")});
     }
 }
 
@@ -152,12 +153,12 @@ async function copyReference(node: WorkspaceFileNode): Promise<void> {
  */
 function openNodeMenu(node: WorkspaceFileNode, event: MouseEvent): void {
     openContextMenu(event, [
-        {label: "打开", iconClass: "i-lucide-folder-open", action: () => void selectCharacter(node)},
-        {label: "复制引用", iconClass: "i-lucide-copy", action: () => void copyReference(node)},
+        {label: t("ide.workspace.common.open"), iconClass: "i-lucide-folder-open", action: () => void selectCharacter(node)},
+        {label: t("ide.workspace.common.copyReference"), iconClass: "i-lucide-copy", action: () => void copyReference(node)},
         {separator: true},
-        {label: "新建角色", iconClass: "i-lucide-user-plus", action: () => void createCharacter()},
-        {label: "重命名", iconClass: "i-lucide-pencil", action: () => void renameCharacter(node)},
-        {label: "删除", iconClass: "i-lucide-trash-2", danger: true, action: () => void deleteCharacter(node)},
+        {label: t("ide.workspace.character.create"), iconClass: "i-lucide-user-plus", action: () => void createCharacter()},
+        {label: t("ide.workspace.common.rename"), iconClass: "i-lucide-pencil", action: () => void renameCharacter(node)},
+        {label: t("ide.workspace.common.delete"), iconClass: "i-lucide-trash-2", danger: true, action: () => void deleteCharacter(node)},
     ]);
 }
 
@@ -166,9 +167,9 @@ function openNodeMenu(node: WorkspaceFileNode, event: MouseEvent): void {
  */
 function openRootMenu(event: MouseEvent): void {
     openContextMenu(event, [
-        {label: "新建角色", iconClass: "i-lucide-user-plus", action: () => void createCharacter()},
+        {label: t("ide.workspace.character.create"), iconClass: "i-lucide-user-plus", action: () => void createCharacter()},
         {separator: true},
-        {label: "刷新", iconClass: "i-lucide-refresh-cw", action: () => void refreshTree()},
+        {label: t("ide.workspace.common.refresh"), iconClass: "i-lucide-refresh-cw", action: () => void refreshTree()},
     ]);
 }
 
@@ -248,7 +249,7 @@ function formatError(error: unknown): string {
     if (typeof error === "object" && error !== null && "message" in error && typeof error.message === "string") {
         return error.message;
     }
-    return "文件操作失败。";
+    return t("ide.workspace.character.fileOperationFailed");
 }
 
 onMounted(() => {
@@ -264,12 +265,12 @@ onMounted(() => {
         <div class="flex shrink-0 items-center gap-2 border-b border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-2">
             <div class="relative min-w-0 flex-1">
                 <span class="i-lucide-search absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-muted)]"></span>
-                <input v-model="searchQuery" type="text" placeholder="搜索角色、别名、标签..." class="w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] py-1.5 pl-7 pr-2 text-xs text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)] focus:border-[var(--accent-main)]">
+                <input v-model="searchQuery" type="text" :placeholder="t('ide.workspace.character.searchPlaceholder')" class="w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] py-1.5 pl-7 pr-2 text-xs text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)] focus:border-[var(--accent-main)]">
             </div>
-            <button type="button" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1.5 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" title="新建角色" @click="void createCharacter()">
+            <button type="button" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1.5 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" :title="t('ide.workspace.character.create')" @click="void createCharacter()">
                 <span class="i-lucide-user-plus h-3.5 w-3.5"></span>
             </button>
-            <button type="button" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1.5 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" title="刷新" @click="void refreshTree()">
+            <button type="button" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1.5 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" :title="t('ide.workspace.common.refresh')" @click="void refreshTree()">
                 <span class="i-lucide-refresh-cw h-3.5 w-3.5"></span>
             </button>
         </div>
@@ -277,10 +278,10 @@ onMounted(() => {
         <!-- 角色列表 -->
         <div class="min-h-0 flex-1 overflow-y-auto p-2 custom-scrollbar" @contextmenu.prevent.stop="openRootMenu">
             <div v-if="loadingWorkspaceTree && workspaceTree.length === 0" class="flex h-full min-h-[180px] items-center justify-center rounded-md border border-dashed border-[var(--border-color)] text-xs text-[var(--text-muted)]">
-                正在加载角色...
+                {{ t("ide.workspace.character.loading") }}
             </div>
             <div v-else-if="filteredNodes.length === 0" class="flex h-full min-h-[180px] items-center justify-center rounded-md border border-dashed border-[var(--border-color)] px-4 text-center text-xs leading-5 text-[var(--text-muted)]">
-                未找到角色。右键或点击上方按钮创建角色。
+                {{ t("ide.workspace.character.empty") }}
             </div>
             <button
                 v-for="node in filteredNodes"

@@ -23,6 +23,7 @@ import {
 const store = useNovelIdeStore();
 const {choose, confirm, prompt} = useDialog();
 const {error: notifyError} = useNotification();
+const {t} = useI18n();
 const {
     canAccessWorkspace,
     loadingWorkspaceTree,
@@ -115,7 +116,7 @@ async function createFile(baseDir = ""): Promise<void> {
     }
 
     const prefix = baseDir ? `${baseDir.replace(/\/$/, "")}/` : "";
-    const input = await prompt("请输入新文件路径", `${prefix}new-file.md`);
+    const input = await prompt(t("ide.workspace.filePanel.newFilePathPrompt"), `${prefix}new-file.md`);
     const filePath = typeof input === "string" ? input.trim() : "";
     if (!filePath) {
         return;
@@ -133,20 +134,20 @@ async function createLorebookEntry(baseDir: string | null = null): Promise<void>
         return;
     }
 
-    const selectedType = await choose("请选择 Lorebook 条目类型", [
-        {label: "地点", value: "location", tone: "primary"},
-        {label: "角色", value: "character"},
-        {label: "物品", value: "item"},
-        {label: "规则", value: "rule"},
-        {label: "笔记", value: "note"},
-    ], "新建 Lorebook 条目");
+    const selectedType = await choose(t("ide.workspace.filePanel.newLorebookTypePrompt"), [
+        {label: t("ide.workspace.filePanel.lorebookLocation"), value: "location", tone: "primary"},
+        {label: t("ide.workspace.filePanel.lorebookCharacter"), value: "character"},
+        {label: t("ide.workspace.filePanel.lorebookItem"), value: "item"},
+        {label: t("ide.workspace.filePanel.lorebookRule"), value: "rule"},
+        {label: t("ide.workspace.filePanel.lorebookNote"), value: "note"},
+    ], t("ide.workspace.filePanel.newLorebookTitle"));
     if (!isLorebookEntryType(selectedType)) {
         return;
     }
 
     const defaultDir = baseDir === null ? `lorebook/${selectedType}/` : baseDir;
     const prefix = defaultDir ? `${defaultDir.replace(/\/$/, "")}/` : "";
-    const input = await prompt("请输入 Lorebook 条目路径", `${prefix}new-entry`, "新建 Lorebook 条目");
+    const input = await prompt(t("ide.workspace.filePanel.newLorebookPathPrompt"), `${prefix}new-entry`, t("ide.workspace.filePanel.newLorebookTitle"));
     const rawPath = typeof input === "string" ? input.trim() : "";
     if (!rawPath) {
         return;
@@ -154,7 +155,7 @@ async function createLorebookEntry(baseDir: string | null = null): Promise<void>
 
     const filePath = normalizeLorebookEntryIndexPath(rawPath);
     if (!isWorkspaceLorebookScopePath(filePath)) {
-        notifyError("Lorebook 条目必须创建在 lorebook/ 目录下。", {title: "创建 Lorebook 条目失败"});
+        notifyError(t("ide.workspace.filePanel.newLorebookScopeError"), {title: t("ide.workspace.filePanel.createLorebookFailed")});
         return;
     }
 
@@ -163,7 +164,7 @@ async function createLorebookEntry(baseDir: string | null = null): Promise<void>
         expandedPaths.value = [...new Set([...expandedPaths.value, resolveParentDirectory(node.path)])].filter(Boolean);
         await store.selectWorkspacePath(node.path);
     } catch (error) {
-        notifyError(formatCreateError(error), {title: "创建 Lorebook 条目失败"});
+        notifyError(formatCreateError(error), {title: t("ide.workspace.filePanel.createLorebookFailed")});
     }
 }
 
@@ -176,7 +177,7 @@ async function createDirectory(baseDir = ""): Promise<void> {
     }
 
     const prefix = baseDir ? `${baseDir.replace(/\/$/, "")}/` : "";
-    const input = await prompt("请输入新目录路径", `${prefix}new-folder`);
+    const input = await prompt(t("ide.workspace.filePanel.newDirectoryPathPrompt"), `${prefix}new-folder`);
     const dirPath = typeof input === "string" ? input.trim() : "";
     if (!dirPath) {
         return;
@@ -202,7 +203,7 @@ async function createDirectoryIndex(node: WorkspaceFileNode | null = selectedFil
         expandedPaths.value = [...new Set([...expandedPaths.value, node.path])];
         await store.selectWorkspacePath(indexNode.path);
     } catch (error) {
-        notifyError(formatCreateError(error), {title: "转化目录节点失败"});
+        notifyError(formatCreateError(error), {title: t("ide.workspace.filePanel.convertDirectoryFailed")});
     }
 }
 
@@ -219,7 +220,7 @@ async function convertFileToDirectory(node: WorkspaceFileNode | null = selectedF
         expandedPaths.value = [...new Set([...expandedPaths.value, converted.path])];
         await store.selectWorkspacePath(converted.path);
     } catch (error) {
-        notifyError(formatCreateError(error), {title: "文件转目录节点失败"});
+        notifyError(formatCreateError(error), {title: t("ide.workspace.filePanel.convertFileFailed")});
     }
 }
 
@@ -232,7 +233,7 @@ async function renameNode(node: WorkspaceFileNode): Promise<void> {
     }
 
     const currentPath = node.isDirectory ? node.path.replace(/\/$/, "") : node.path;
-    const input = await prompt("请输入新路径", currentPath);
+    const input = await prompt(t("ide.workspace.filePanel.renamePathPrompt"), currentPath);
     const nextPath = typeof input === "string" ? input.trim() : "";
     if (!nextPath || nextPath === currentPath) {
         return;
@@ -252,14 +253,14 @@ async function deleteNode(node: WorkspaceFileNode): Promise<void> {
     }
 
     const label = node.title || node.path;
-    if (!await confirm(`确定要删除 ${label} 吗？`)) {
+    if (!await confirm(t("ide.workspace.filePanel.deleteConfirm", {label}))) {
         return;
     }
 
     try {
         await store.deleteWorkspacePath(node.path, false);
     } catch (error) {
-        if (!node.isDirectory || !await confirm("目录非空。是否递归删除整个目录？")) {
+        if (!node.isDirectory || !await confirm(t("ide.workspace.filePanel.deleteDirectoryRecursiveConfirm"))) {
             throw error;
         }
         await store.deleteWorkspacePath(node.path, true);
@@ -293,7 +294,7 @@ async function moveNode(payload: WorkspaceFileMovePayload): Promise<void> {
         const nextSelection = resolveSelectionAfterMove(sourceNode.path, nextPath, currentSelection);
         await store.selectWorkspacePath(nextSelection);
     } catch (error) {
-        notifyError(formatMoveError(error), {title: "移动文件失败"});
+        notifyError(formatMoveError(error), {title: t("ide.workspace.filePanel.moveFailedTitle")});
     }
 }
 
@@ -304,38 +305,38 @@ function openNodeMenu(node: WorkspaceFileNode, event: MouseEvent): void {
     const baseDir = node.isDirectory ? node.path : resolveParentDirectory(node.path);
     const siblingDir = resolveParentDirectory(node.path);
     const items: ContextMenuItem[] = [
-        {label: isWorkspaceContentDirectoryNode(node) ? "打开 index.md" : "打开", iconClass: "i-lucide-folder-open", action: () => void openNode(node)},
+        {label: isWorkspaceContentDirectoryNode(node) ? t("ide.workspace.filePanel.openIndex") : t("ide.workspace.common.open"), iconClass: "i-lucide-folder-open", action: () => void openNode(node)},
         {
-            label: node.isDirectory && expandedPaths.value.includes(node.path) ? "收起" : "展开",
+            label: node.isDirectory && expandedPaths.value.includes(node.path) ? t("ide.workspace.common.collapse") : t("ide.workspace.common.expand"),
             iconClass: "i-lucide-chevron-down",
             disabled: !node.isDirectory,
             action: () => toggleExpanded(node.path),
         },
         {separator: true},
-        {label: "新建子文件", iconClass: "i-lucide-file-plus", disabled: !node.isDirectory, action: () => void createFile(baseDir)},
-        {label: "新建子目录", iconClass: "i-lucide-folder-plus", disabled: !node.isDirectory, action: () => void createDirectory(baseDir)},
-        {label: "新建同级文件", iconClass: "i-lucide-file-plus-2", action: () => void createFile(siblingDir)},
-        {label: "新建同级目录", iconClass: "i-lucide-folder-plus", action: () => void createDirectory(siblingDir)},
+        {label: t("ide.workspace.filePanel.newChildFile"), iconClass: "i-lucide-file-plus", disabled: !node.isDirectory, action: () => void createFile(baseDir)},
+        {label: t("ide.workspace.filePanel.newChildDirectory"), iconClass: "i-lucide-folder-plus", disabled: !node.isDirectory, action: () => void createDirectory(baseDir)},
+        {label: t("ide.workspace.filePanel.newSiblingFile"), iconClass: "i-lucide-file-plus-2", action: () => void createFile(siblingDir)},
+        {label: t("ide.workspace.filePanel.newSiblingDirectory"), iconClass: "i-lucide-folder-plus", action: () => void createDirectory(siblingDir)},
     ];
 
     if (node.isDirectory && isWorkspaceLorebookScopePath(baseDir)) {
-        items.push({label: "新建子 Lorebook 条目", iconClass: "i-lucide-book-plus", action: () => void createLorebookEntry(baseDir)});
+        items.push({label: t("ide.workspace.filePanel.newChildLorebook"), iconClass: "i-lucide-book-plus", action: () => void createLorebookEntry(baseDir)});
     }
     if (!node.isDirectory && isWorkspaceLorebookScopePath(siblingDir)) {
-        items.push({label: "新建同级 Lorebook 条目", iconClass: "i-lucide-book-plus", action: () => void createLorebookEntry(siblingDir)});
+        items.push({label: t("ide.workspace.filePanel.newSiblingLorebook"), iconClass: "i-lucide-book-plus", action: () => void createLorebookEntry(siblingDir)});
     }
     if (canCreateDirectoryIndex(node)) {
-        items.push({label: "转化为目录节点", iconClass: "i-lucide-file-symlink", action: () => void createDirectoryIndex(node)});
+        items.push({label: t("ide.workspace.filePanel.convertDirectoryNode"), iconClass: "i-lucide-file-symlink", action: () => void createDirectoryIndex(node)});
     }
     if (canConvertFileToDirectory(node)) {
-        items.push({label: "文件转目录节点", iconClass: "i-lucide-folder-input", action: () => void convertFileToDirectory(node)});
+        items.push({label: t("ide.workspace.filePanel.convertFileToDirectoryNode"), iconClass: "i-lucide-folder-input", action: () => void convertFileToDirectory(node)});
     }
 
     items.push(
         {separator: true},
-        {label: "复制引用", iconClass: "i-lucide-copy", action: () => void copyReference(node)},
-        {label: "重命名", iconClass: "i-lucide-pencil", action: () => void renameNode(node)},
-        {label: "删除", iconClass: "i-lucide-trash-2", danger: true, action: () => void deleteNode(node)},
+        {label: t("ide.workspace.common.copyReference"), iconClass: "i-lucide-copy", action: () => void copyReference(node)},
+        {label: t("ide.workspace.common.rename"), iconClass: "i-lucide-pencil", action: () => void renameNode(node)},
+        {label: t("ide.workspace.common.delete"), iconClass: "i-lucide-trash-2", danger: true, action: () => void deleteNode(node)},
     );
     openContextMenu(event, items);
 }
@@ -345,11 +346,11 @@ function openNodeMenu(node: WorkspaceFileNode, event: MouseEvent): void {
  */
 function openRootMenu(event: MouseEvent): void {
     openContextMenu(event, [
-        {label: "新建文件", iconClass: "i-lucide-file-plus", action: () => void createFile()},
-        {label: "新建目录", iconClass: "i-lucide-folder-plus", action: () => void createDirectory()},
-        {label: "新建 Lorebook 条目", iconClass: "i-lucide-book-plus", action: () => void createLorebookEntry(null)},
+        {label: t("ide.workspace.filePanel.newFile"), iconClass: "i-lucide-file-plus", action: () => void createFile()},
+        {label: t("ide.workspace.filePanel.newDirectory"), iconClass: "i-lucide-folder-plus", action: () => void createDirectory()},
+        {label: t("ide.workspace.filePanel.newLorebook"), iconClass: "i-lucide-book-plus", action: () => void createLorebookEntry(null)},
         {separator: true},
-        {label: "刷新", iconClass: "i-lucide-refresh-cw", action: () => void refreshTree()},
+        {label: t("ide.workspace.common.refresh"), iconClass: "i-lucide-refresh-cw", action: () => void refreshTree()},
     ]);
 }
 
@@ -408,7 +409,7 @@ async function resolveMoveConflictPath(sourceNode: WorkspaceFileNode, targetDir:
     }
 
     const suggestedPath = suggestAvailableMovePath(sourceNode, targetDir);
-    const input = await prompt(`目标位置已存在同名路径：${conflictedPath}\n请输入新的目标路径`, suggestedPath, "目标位置同名冲突");
+    const input = await prompt(t("ide.workspace.filePanel.moveConflictPrompt", {path: conflictedPath}), suggestedPath, t("ide.workspace.filePanel.moveConflictTitle"));
     const nextPath = typeof input === "string" ? input.trim() : "";
     if (!nextPath || nextPath === normalizeWorkspacePath(sourceNode.path) || existingPathSet.value.has(normalizeWorkspacePath(nextPath))) {
         return null;
@@ -553,7 +554,7 @@ function formatMoveError(error: unknown): string {
     if (typeof error === "object" && error !== null && "message" in error && typeof error.message === "string") {
         return error.message;
     }
-    return "文件系统移动失败，已恢复到移动前状态。";
+    return t("ide.workspace.filePanel.moveFailedFallback");
 }
 
 /**
@@ -566,7 +567,7 @@ function formatCreateError(error: unknown): string {
     if (typeof error === "object" && error !== null && "message" in error && typeof error.message === "string") {
         return error.message;
     }
-    return "文件创建失败，请检查路径是否已经存在。";
+    return t("ide.workspace.filePanel.createFailedFallback");
 }
 
 function loadExpandedPaths(): string[] {
@@ -622,7 +623,7 @@ watch(canAccessWorkspace, (canAccess) => {
         <div class="flex shrink-0 items-center gap-2 border-b border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-2">
             <div class="relative min-w-0 flex-1">
                 <span class="i-lucide-search absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-muted)]"></span>
-                <input v-model="searchQuery" type="text" placeholder="搜索文件、类型、摘要..." class="w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] py-1.5 pl-7 pr-2 text-xs text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)] focus:border-[var(--accent-main)]">
+                <input v-model="searchQuery" type="text" :placeholder="t('ide.workspace.filePanel.searchPlaceholder')" class="w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] py-1.5 pl-7 pr-2 text-xs text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)] focus:border-[var(--accent-main)]">
             </div>
             <button type="button" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1.5 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="void refreshTree()">
                 <span class="i-lucide-refresh-cw h-3.5 w-3.5"></span>
@@ -632,10 +633,10 @@ watch(canAccessWorkspace, (canAccess) => {
         <!-- 工作区文件树容器 -->
         <div class="min-h-0 flex-1 overflow-y-auto p-2 custom-scrollbar">
             <div v-if="loadingWorkspaceTree && workspaceTree.length === 0" class="flex h-full min-h-[180px] items-center justify-center rounded-md border border-dashed border-[var(--border-color)] text-xs text-[var(--text-muted)]">
-                正在加载文件树...
+                {{ t("ide.workspace.filePanel.loadingTree") }}
             </div>
             <div v-else-if="filteredNodes.length === 0" class="flex h-full min-h-[180px] items-center justify-center rounded-md border border-dashed border-[var(--border-color)] text-xs text-[var(--text-muted)]" @contextmenu.prevent.stop="openRootMenu">
-                没有可显示的文件
+                {{ t("ide.workspace.filePanel.emptyTree") }}
             </div>
             <WorkspaceFileTree
                 v-else

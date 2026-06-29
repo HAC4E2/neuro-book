@@ -12,6 +12,30 @@ describe("renderMarkdown", () => {
         expect(renderMarkdown("${小说初始化流程}")).toContain("${小说初始化流程}");
     });
 
+    it("会把 inline selection reference 渲染为 chip", () => {
+        const html = renderMarkdown("**润色** [[manuscript/001/chapter.md#L12-L18]]");
+
+        expect(html).toContain("nb-reference-chip is-selection");
+        expect(html).toContain("data-reference-target=\"manuscript/001/chapter.md\"");
+        expect(html).toContain("选区");
+    });
+
+    it("会把短格式 selection reference 渲染为 chip", () => {
+        const html = renderMarkdown("**润色** src/server.ts#45-67");
+
+        expect(html).toContain("nb-reference-chip is-selection");
+        expect(html).toContain("data-reference-target=\"src/server.ts\"");
+        expect(html).toContain("server.ts:45-67");
+    });
+
+    it("不会把 issue 编号和 URL fragment 渲染为 selection chip", () => {
+        const html = renderMarkdown("see issue#123 and https://example.com/a#45");
+
+        expect(html).not.toContain("nb-reference-chip is-selection");
+        expect(html).not.toContain("data-reference-target=\"example.com/a\"");
+        expect(html).toContain("issue#123");
+    });
+
     it("会修复流式输出中分隔行缺列的 GFM 表格", () => {
         const html = renderMarkdown("| 因果链 | 起因 | 过程 | 结果 |\n|--------|------|------|");
 

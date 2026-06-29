@@ -48,6 +48,7 @@ const { isCollapsed: isThinkingCollapsed, toggle: toggleThinking } = useCollapsi
 const editingDraft = ref("");
 const isSystemCollapsed = ref(true);
 const swipeStart = ref<{x: number; y: number} | null>(null);
+const {t, locale} = useI18n();
 
 /**
  * 编辑态统一解码 HTML 实体。
@@ -147,7 +148,7 @@ const messageAuthorLabel = computed(() => {
     if (props.node.message.type === "ai") {
         return "Assistant";
     }
-    return isSteerMessage.value ? "引导" : "You";
+    return isSteerMessage.value ? t("agent.textBubble.steer") : "You";
 });
 
 /** 系统消息展示类型。 */
@@ -184,9 +185,25 @@ const messageUsageTitle = computed(() => {
         return "";
     }
     const costLabel = formatCost(usage.cost.total, props.costDisplayOptions)
-        ? ` / 本次耗费 ${formatCost(usage.cost.total, props.costDisplayOptions)}（输入 ${formatCostExact(usage.cost.input, props.costDisplayOptions)} / 输出 ${formatCostExact(usage.cost.output, props.costDisplayOptions)} / 缓存读 ${formatCostExact(usage.cost.cacheRead, props.costDisplayOptions)} / 缓存写 ${formatCostExact(usage.cost.cacheWrite, props.costDisplayOptions)} / 总计 ${formatCostExact(usage.cost.total, props.costDisplayOptions)}${props.costExchangeRateSuffix ?? ""}）`
+        ? t("agent.textBubble.usageCost", {
+            compactCost: formatCost(usage.cost.total, props.costDisplayOptions),
+            inputCost: formatCostExact(usage.cost.input, props.costDisplayOptions),
+            outputCost: formatCostExact(usage.cost.output, props.costDisplayOptions),
+            cacheReadCost: formatCostExact(usage.cost.cacheRead, props.costDisplayOptions),
+            cacheWriteCost: formatCostExact(usage.cost.cacheWrite, props.costDisplayOptions),
+            totalCost: formatCostExact(usage.cost.total, props.costDisplayOptions),
+            suffix: props.costExchangeRateSuffix ?? "",
+        })
         : "";
-    return `本次调用：总 ${formatTokenCount(usage.totalTokens)} / 输入 ${formatTokenCount(usage.input)} / 输出 ${formatTokenCount(usage.output)} / 缓存读 ${formatTokenCount(usage.cacheRead)} / 缓存写 ${formatTokenCount(usage.cacheWrite)} / 缓存命中率 ${formatCacheHitRate(usage)}${costLabel}`;
+    return t("agent.textBubble.usageTitle", {
+        total: formatTokenCount(usage.totalTokens),
+        input: formatTokenCount(usage.input),
+        output: formatTokenCount(usage.output),
+        cacheRead: formatTokenCount(usage.cacheRead),
+        cacheWrite: formatTokenCount(usage.cacheWrite),
+        hitRate: formatCacheHitRate(usage),
+        cost: costLabel,
+    });
 });
 
 /** 当前调用是否有可计算的 prompt cache 命中率。 */
@@ -204,7 +221,7 @@ const branchSwitcherTitle = computed(() => {
     if (!props.branchSwitcher) {
         return "";
     }
-    return `分支 ${props.branchSwitcher.currentIndex + 1}/${props.branchSwitcher.total}，可左右滑动切换`;
+    return t("agent.textBubble.branchTitle", {current: props.branchSwitcher.currentIndex + 1, total: props.branchSwitcher.total});
 });
 
 /** 格式化精确 token 数。 */
@@ -212,7 +229,7 @@ function formatTokenCount(value: number | null | undefined): string {
     if (typeof value !== "number" || !Number.isFinite(value)) {
         return "-";
     }
-    return new Intl.NumberFormat("zh-CN", {maximumFractionDigits: 0}).format(value);
+    return new Intl.NumberFormat(locale.value, {maximumFractionDigits: 0}).format(value);
 }
 
 /** 格式化紧凑 token 数。 */
@@ -231,7 +248,7 @@ function formatCompactTokenCount(value: number | null | undefined): string {
 
 /** 格式化百分比。 */
 function formatPercent(value: number): string {
-    return `${new Intl.NumberFormat("zh-CN", {
+    return `${new Intl.NumberFormat(locale.value, {
         maximumFractionDigits: value >= 10 ? 0 : 1,
     }).format(value)}%`;
 }
@@ -414,27 +431,27 @@ const endSwipe = (event: PointerEvent): void => {
 
             <div class="mr-4 flex items-center gap-1 text-[var(--text-muted)]">
                 <div v-if="props.branchSwitcher" class="mr-1 inline-flex h-7 items-center overflow-hidden rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-muted)]" :title="branchSwitcherTitle">
-                    <button class="flex h-7 w-7 items-center justify-center border-r border-[var(--border-color)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled" title="上一条分支" @click="cycleBranch(-1)">
+                    <button class="flex h-7 w-7 items-center justify-center border-r border-[var(--border-color)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled" :title="t('agent.textBubble.previousBranch')" @click="cycleBranch(-1)">
                         <span class="i-lucide-chevron-left h-3.5 w-3.5"></span>
                     </button>
                     <span class="inline-flex h-7 items-center gap-1 px-2 text-[10px] tabular-nums text-[var(--text-secondary)]">
                         <span class="i-lucide-git-branch h-3 w-3 text-[var(--accent-text)]"></span>
                         {{ props.branchSwitcher.currentIndex + 1 }} / {{ props.branchSwitcher.total }}
                     </span>
-                    <button class="flex h-7 w-7 items-center justify-center border-l border-[var(--border-color)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled" title="下一条分支" @click="cycleBranch(1)">
+                    <button class="flex h-7 w-7 items-center justify-center border-l border-[var(--border-color)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled" :title="t('agent.textBubble.nextBranch')" @click="cycleBranch(1)">
                         <span class="i-lucide-chevron-right h-3.5 w-3.5"></span>
                     </button>
                 </div>
-                <button class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled" title="复制" @click="emit('copy', props.node.message)">
+                <button class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled" :title="t('agent.textBubble.copy')" @click="emit('copy', props.node.message)">
                     <span class="i-lucide-copy h-3.5 w-3.5"></span>
                 </button>
-                <button v-if="canEdit" class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled || props.runActionDisabled" title="编辑" @click="startEdit">
+                <button v-if="canEdit" class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled || props.runActionDisabled" :title="t('agent.textBubble.edit')" @click="startEdit">
                     <span class="i-lucide-pencil h-3.5 w-3.5"></span>
                 </button>
-                <button v-if="canRetry" class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled || props.runActionDisabled" title="刷新" @click="emit('retry', props.node.message)">
+                <button v-if="canRetry" class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled || props.runActionDisabled" :title="t('agent.textBubble.retry')" @click="emit('retry', props.node.message)">
                     <span class="i-lucide-rotate-cw h-3.5 w-3.5"></span>
                 </button>
-                <button class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled" title="回退" @click="emit('delete', props.node.message)">
+                <button class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled" :title="t('agent.textBubble.rollback')" @click="emit('delete', props.node.message)">
                     <span class="i-lucide-undo-2 h-3.5 w-3.5"></span>
                 </button>
             </div>
@@ -455,7 +472,7 @@ const endSwipe = (event: PointerEvent): void => {
                     >
                         {{ thinkingSummary }}
                     </span>
-                    <span v-else class="text-[10px] normal-case tracking-normal text-[var(--text-muted)]/65">收起</span>
+                    <span v-else class="text-[10px] normal-case tracking-normal text-[var(--text-muted)]/65">{{ t("agent.textBubble.collapse") }}</span>
                 </button>
 
                 <div v-if="!isThinkingCollapsed" class="mt-1.5 border-l border-[var(--border-color)]/40 pl-3 text-[13px] leading-relaxed text-[var(--text-muted)]/85">
@@ -480,7 +497,7 @@ const endSwipe = (event: PointerEvent): void => {
                     <!-- 消息编辑器 -->
                     <StructuredTextEditor
                         :model-value="editingDraft"
-                        placeholder="编辑消息..."
+                        :placeholder="t('agent.textBubble.editPlaceholder')"
                         :min-height="180"
                         :max-height="420"
                         mode="source"
@@ -496,10 +513,10 @@ const endSwipe = (event: PointerEvent): void => {
                     />
                     <div class="flex items-center justify-end gap-2">
                         <button class="inline-flex h-7 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-[11px] text-[var(--text-main)] transition-colors hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.savingEdit" @click="cancelEdit">
-                            取消
+                            {{ t("agent.textBubble.cancel") }}
                         </button>
                         <button class="inline-flex h-7 items-center justify-center rounded-md border border-transparent bg-[var(--accent-main)] px-2.5 text-[11px] text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.savingEdit || props.runActionDisabled || !editingDraft.trim()" @click="saveEdit">
-                            {{ props.savingEdit ? "保存中..." : "保存" }}
+                            {{ props.savingEdit ? t("agent.textBubble.saving") : t("agent.textBubble.save") }}
                         </button>
                     </div>
                 </div>
@@ -514,7 +531,7 @@ const endSwipe = (event: PointerEvent): void => {
             <div class="flex-1"></div>
             <div class="flex items-center gap-1 text-[10px] text-[var(--text-muted)]" :title="messageUsageTitle">
                 <span class="i-lucide-zap mr-1 h-3 w-3"></span>
-                <span>本次 {{ formatCompactTokenCount(messageUsage.totalTokens) }}</span>
+                <span>{{ t("agent.textBubble.thisTurn", {value: formatCompactTokenCount(messageUsage.totalTokens)}) }}</span>
                 <span class="i-lucide-arrow-down h-3 w-3"></span>
                 <span>{{ formatCompactTokenCount(messageUsage.input) }}</span>
                 <span class="i-lucide-arrow-up h-3 w-3"></span>
@@ -531,7 +548,7 @@ const endSwipe = (event: PointerEvent): void => {
                 </template>
                 <template v-if="messageCostLabel">
                     <span class="i-lucide-circle-dollar-sign h-3 w-3"></span>
-                    <span>本次 {{ messageCostLabel }}</span>
+                    <span>{{ t("agent.textBubble.thisTurn", {value: messageCostLabel}) }}</span>
                 </template>
             </div>
         </div>

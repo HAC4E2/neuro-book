@@ -1,4 +1,4 @@
-import { createApp, type ComponentPublicInstance, defineComponent, h, nextTick, ref, type VNodeRef } from "vue";
+import { createApp, type App, type ComponentPublicInstance, defineComponent, h, type InjectionKey, nextTick, ref, type VNodeRef } from "vue";
 import Dialog from "nbook/app/components/common/Dialog.vue";
 import { IDE_THEME_HOST_CLASS } from "../utils/theme/theme-tokens";
 
@@ -28,12 +28,39 @@ interface ChooseDialogOptions {
     }>;
 }
 
+type VueI18nContextApp = App<Element> & {
+    __VUE_I18N_SYMBOL__?: InjectionKey<object>;
+    _context: {
+        provides: Record<symbol, object>;
+    };
+};
+
+/**
+ * 让动态创建的 Dialog app 复用 Nuxt 主 app 的 i18n 注入。
+ */
+function inheritI18nContext(app: App<Element>, sourceApp: VueI18nContextApp): void {
+    const i18nSymbol = sourceApp.__VUE_I18N_SYMBOL__;
+    if (!i18nSymbol) {
+        return;
+    }
+
+    const i18nInstance = sourceApp._context.provides[i18nSymbol];
+    if (!i18nInstance) {
+        return;
+    }
+
+    const targetApp = app as VueI18nContextApp;
+    targetApp.__VUE_I18N_SYMBOL__ = i18nSymbol;
+    app.provide(i18nSymbol, i18nInstance);
+}
+
 /**
  * 动态创建一个对话框实例，返回 Promise。
  * 对话框关闭后自动销毁 DOM 和 Vue app。
  */
 function createDialogInstance(
     options: DialogOptions,
+    sourceApp: VueI18nContextApp,
 ): Promise<string | boolean | null> {
     return new Promise((resolve) => {
         // 宿主 DOM 节点
@@ -162,6 +189,7 @@ function createDialogInstance(
         });
 
         const app = createApp(DialogWrapper);
+        inheritI18nContext(app, sourceApp);
         app.mount(container);
     });
 }
@@ -169,7 +197,7 @@ function createDialogInstance(
 /**
  * 动态创建一个多动作对话框实例，返回选中的动作值。
  */
-function createChooseDialogInstance(options: ChooseDialogOptions): Promise<DialogActionValue> {
+function createChooseDialogInstance(options: ChooseDialogOptions, sourceApp: VueI18nContextApp): Promise<DialogActionValue> {
     return new Promise((resolve) => {
         const container = document.createElement("div");
         const themeHost = document.querySelector<HTMLElement>(`.${IDE_THEME_HOST_CLASS}`);
@@ -235,6 +263,7 @@ function createChooseDialogInstance(options: ChooseDialogOptions): Promise<Dialo
         });
 
         const app = createApp(DialogWrapper);
+        inheritI18nContext(app, sourceApp);
         app.mount(container);
     });
 }
@@ -246,27 +275,31 @@ function createChooseDialogInstance(options: ChooseDialogOptions): Promise<Dialo
  * 用于替代浏览器原生的 window.alert / window.confirm / window.prompt。
  */
 export function useDialog() {
+    const {t} = useI18n();
+    const nuxtApp = useNuxtApp();
+    const sourceApp = nuxtApp.vueApp as VueI18nContextApp;
+
     /**
      * 消息提示对话框，替代 window.alert。
      */
-    const alert = (message: string, title = "提示"): Promise<void> => {
-        return createDialogInstance({ type: "alert", message, title }) as unknown as Promise<void>;
+    const alert = (message: string, title?: string): Promise<void> => {
+        return createDialogInstance({ type: "alert", message, title: title ?? t("dialog.alertTitle") }, sourceApp) as unknown as Promise<void>;
     };
 
     /**
      * 确认对话框，替代 window.confirm。
      * 用户点击确定返回 true，取消返回 false。
      */
-    const confirm = (message: string, title = "确认"): Promise<boolean> => {
-        return createDialogInstance({ type: "confirm", message, title }) as Promise<boolean>;
+    const confirm = (message: string, title?: string): Promise<boolean> => {
+        return createDialogInstance({ type: "confirm", message, title: title ?? t("dialog.confirmTitle") }, sourceApp) as Promise<boolean>;
     };
 
     /**
      * 输入对话框，替代 window.prompt。
      * 用户点击确定返回输入值，取消返回 null。
      */
-    const prompt = (message: string, defaultValue = "", title = "输入"): Promise<string | null> => {
-        return createDialogInstance({ type: "prompt", message, defaultValue, title }) as Promise<string | null>;
+    const prompt = (message: string, defaultValue = "", title?: string): Promise<string | null> => {
+        return createDialogInstance({ type: "prompt", message, defaultValue, title: title ?? t("dialog.promptTitle") }, sourceApp) as Promise<string | null>;
     };
 
     /**
@@ -275,13 +308,13 @@ export function useDialog() {
     const choose = (
         message: string,
         actions: ChooseDialogOptions["actions"],
-        title = "请选择",
+        title?: string,
     ): Promise<DialogActionValue> => {
         return createChooseDialogInstance({
             message,
-            title,
+            title: title ?? t("dialog.chooseTitle"),
             actions,
-        });
+        }, sourceApp);
     };
 
     return { alert, confirm, prompt, choose };

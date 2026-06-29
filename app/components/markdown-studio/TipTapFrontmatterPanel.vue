@@ -25,16 +25,17 @@ const emit = defineEmits<{
     (e: "save-request"): void;
     (e: "open-profile", kind: FrontmatterProfileKind): void;
 }>();
+const {t} = useI18n();
 
 const profileLabel = computed(() => {
     if (props.profileKind === "character") {
-        return "角色档案";
+        return t("markdownStudio.frontmatter.characterProfile");
     }
     if (props.profileKind === "location") {
-        return "地点档案";
+        return t("markdownStudio.frontmatter.locationProfile");
     }
     if (props.profileKind === "rule") {
-        return "规则档案";
+        return t("markdownStudio.frontmatter.ruleProfile");
     }
     return "";
 });
@@ -44,10 +45,10 @@ const profileLabel = computed(() => {
  */
 const frontmatterSummary = computed(() => {
     if (!props.hasFrontmatter) {
-        return "无 frontmatter";
+        return t("markdownStudio.frontmatter.noFrontmatter");
     }
     const firstLine = props.modelValue.split("\n").find((line) => line.trim());
-    return firstLine?.trim() || "空 frontmatter";
+    return firstLine?.trim() || t("markdownStudio.frontmatter.emptyFrontmatter");
 });
 
 /**
@@ -93,7 +94,7 @@ function handleKeydown(event: KeyboardEvent): void {
                     <button v-if="props.profileKind" type="button" class="frontmatter-icon-action" :title="profileLabel" @click="openProfile">
                         <span class="i-lucide-square-pen h-3.5 w-3.5"></span>
                     </button>
-                    <button type="button" class="frontmatter-icon-action is-danger" title="移除 frontmatter" :disabled="props.readonly" @click="emit('remove')">
+                    <button type="button" class="frontmatter-icon-action is-danger" :title="t('markdownStudio.frontmatter.remove')" :disabled="props.readonly" @click="emit('remove')">
                         <span class="i-lucide-trash-2 h-3.5 w-3.5"></span>
                     </button>
                 </div>
@@ -116,7 +117,7 @@ function handleKeydown(event: KeyboardEvent): void {
 
         <button v-else type="button" class="frontmatter-add" :disabled="props.readonly" @click="emit('add')">
             <span class="i-lucide-braces h-3.5 w-3.5"></span>
-            <span>添加 frontmatter</span>
+            <span>{{ t("markdownStudio.frontmatter.add") }}</span>
         </button>
     </section>
 </template>

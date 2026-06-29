@@ -28,6 +28,7 @@ const emit = defineEmits<{
 const searchQuery = ref("");
 const pinnedSessionIds = ref<number[]>([]);
 const resizeHandleRef = ref<HTMLElement | null>(null);
+const {t} = useI18n();
 
 const storageKey = computed(() => `agent:pinned-sessions:${props.workspaceKey}`);
 const pinnedSet = computed(() => new Set(pinnedSessionIds.value));
@@ -110,7 +111,7 @@ function sessionTitle(session: AgentSessionSummaryDto): string {
  * 返回 session 预览文本。
  */
 function sessionPreview(session: AgentSessionSummaryDto): string {
-    return session.summary || session.lastMessagePreview || "暂无消息";
+    return session.summary || session.lastMessagePreview || t("agent.session.noRecentMessages");
 }
 
 /**
@@ -125,11 +126,11 @@ function canArchiveSession(session: AgentSessionSummaryDto): boolean {
  */
 function statusLabel(status: AgentSessionSummaryDto["status"]): string {
     switch (status) {
-        case "running": return "运行中";
-        case "waiting": return "等待";
-        case "interrupted": return "中断";
-        case "archived": return "归档";
-        default: return "闲置";
+        case "running": return t("agent.session.running");
+        case "waiting": return t("agent.session.waiting");
+        case "interrupted": return t("agent.session.interrupted");
+        case "archived": return t("agent.session.archived");
+        default: return t("agent.session.idle");
     }
 }
 
@@ -153,7 +154,7 @@ function profileAvailabilityLabel(session: AgentSessionSummaryDto): string | nul
     if (!session.profileAvailability || session.profileAvailability === "loaded") {
         return null;
     }
-    return session.profileAvailability === "missing" ? "Profile 缺失" : "Profile 不可运行";
+    return session.profileAvailability === "missing" ? t("agent.session.profileMissing") : t("agent.session.profileUnavailable");
 }
 
 /**
@@ -181,14 +182,14 @@ watch(storageKey, loadPinnedSessions, {immediate: true});
 
         <div class="flex shrink-0 items-center justify-between border-b border-[var(--border-color)] px-3 py-3">
             <div class="min-w-0">
-                <div class="text-sm font-semibold text-[var(--text-main)]">Agent Sessions</div>
-                <div class="text-[11px] text-[var(--text-muted)]">当前 Project Workspace</div>
+                <div class="text-sm font-semibold text-[var(--text-main)]">{{ t("agent.session.sidebarTitle") }}</div>
+                <div class="text-[11px] text-[var(--text-muted)]">{{ t("agent.session.currentProjectWorkspace") }}</div>
             </div>
             <div class="flex shrink-0 items-center gap-1">
-                <button type="button" class="flex h-8 w-8 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:opacity-40" title="刷新" :disabled="loading" @click="emit('refresh')">
+                <button type="button" class="flex h-8 w-8 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:opacity-40" :title="t('agent.session.refresh')" :disabled="loading" @click="emit('refresh')">
                     <span class="i-lucide-refresh-cw h-4 w-4"></span>
                 </button>
-                <button type="button" class="flex h-8 w-8 items-center justify-center rounded-md bg-[var(--accent-bg)] text-[var(--accent-text)] hover:opacity-80 disabled:opacity-40" title="新建对话" :disabled="loading || Boolean(actionId)" @click="emit('create')">
+                <button type="button" class="flex h-8 w-8 items-center justify-center rounded-md bg-[var(--accent-bg)] text-[var(--accent-text)] hover:opacity-80 disabled:opacity-40" :title="t('agent.session.newChat')" :disabled="loading || Boolean(actionId)" @click="emit('create')">
                     <span class="i-lucide-plus h-4 w-4"></span>
                 </button>
             </div>
@@ -197,7 +198,7 @@ watch(storageKey, loadPinnedSessions, {immediate: true});
         <div class="shrink-0 border-b border-[var(--border-color)] p-3">
             <div class="flex h-9 items-center gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5">
                 <span class="i-lucide-search h-4 w-4 shrink-0 text-[var(--text-muted)]"></span>
-                <input v-model="searchQuery" type="text" placeholder="搜索会话..." class="min-w-0 flex-1 bg-transparent text-[12px] text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)]">
+                <input v-model="searchQuery" type="text" :placeholder="t('agent.session.searchPlaceholder')" class="min-w-0 flex-1 bg-transparent text-[12px] text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)]">
             </div>
         </div>
 
@@ -227,10 +228,10 @@ watch(storageKey, loadPinnedSessions, {immediate: true});
                     </span>
                 </span>
                 <span class="flex shrink-0 flex-col gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                    <button type="button" class="flex h-6 w-6 items-center justify-center rounded text-[var(--text-muted)] hover:bg-[var(--bg-input)] hover:text-[var(--accent-text)]" :title="pinnedSet.has(session.sessionId) ? '取消置顶' : '置顶'" @click.stop="togglePin(session.sessionId)">
+                    <button type="button" class="flex h-6 w-6 items-center justify-center rounded text-[var(--text-muted)] hover:bg-[var(--bg-input)] hover:text-[var(--accent-text)]" :title="pinnedSet.has(session.sessionId) ? t('agent.session.unpin') : t('agent.session.pin')" @click.stop="togglePin(session.sessionId)">
                         <span class="i-lucide-pin h-3.5 w-3.5"></span>
                     </button>
-                    <button type="button" class="flex h-6 w-6 items-center justify-center rounded text-[var(--text-muted)] hover:bg-red-500/10 hover:text-red-500 disabled:opacity-40" title="归档" :disabled="loading || actionId === session.sessionId || !canArchiveSession(session)" @click.stop="emit('archive', session)">
+                    <button type="button" class="flex h-6 w-6 items-center justify-center rounded text-[var(--text-muted)] hover:bg-red-500/10 hover:text-red-500 disabled:opacity-40" :title="t('agent.session.archive')" :disabled="loading || actionId === session.sessionId || !canArchiveSession(session)" @click.stop="emit('archive', session)">
                         <span v-if="actionId === session.sessionId" class="i-lucide-loader-circle h-3.5 w-3.5 animate-spin"></span>
                         <span v-else class="i-lucide-archive h-3.5 w-3.5"></span>
                     </button>
@@ -238,7 +239,7 @@ watch(storageKey, loadPinnedSessions, {immediate: true});
             </button>
 
             <div v-if="filteredSessions.length === 0" class="mt-6 rounded-md border border-dashed border-[var(--border-color)] px-3 py-6 text-center text-[12px] text-[var(--text-muted)]">
-                没有匹配的会话
+                {{ t("agent.session.noMatching") }}
             </div>
         </div>
     </aside>

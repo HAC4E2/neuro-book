@@ -1,6 +1,17 @@
 import { fileURLToPath } from "node:url";
 
 const rootDir = fileURLToPath(new URL("./", import.meta.url));
+const serverDir = fileURLToPath(new URL("./server/", import.meta.url));
+const i18nConfigPath = fileURLToPath(new URL("./app/i18n/i18n.config.ts", import.meta.url));
+const runtimeWorkspaceRoot = fileURLToPath(new URL("./workspace/", import.meta.url)).replace(/\\/g, "/").replace(/\/$/, "");
+const runtimeWorkspaceWatchIgnore = [
+    runtimeWorkspaceRoot,
+    `${runtimeWorkspaceRoot}/**`,
+    runtimeWorkspaceRoot.replace(/\//g, "\\"),
+    `${runtimeWorkspaceRoot.replace(/\//g, "\\")}\\**`,
+    "workspace",
+    "workspace/**",
+];
 
 /**
  * 将 node_modules 依赖拆成稳定 vendor chunk。
@@ -37,6 +48,11 @@ export default defineNuxtConfig({
         nbook: rootDir,
     },
     vite: {
+        server: {
+            watch: {
+                ignored: runtimeWorkspaceWatchIgnore,
+            },
+        },
         optimizeDeps: {
             entries: [
                 "./app/app.vue",
@@ -94,6 +110,27 @@ export default defineNuxtConfig({
         },
     ],
     nitro: {
+        devStorage: {
+            root: {
+                driver: "fs",
+                readOnly: true,
+                base: rootDir,
+                watchOptions: {
+                    ignored: runtimeWorkspaceWatchIgnore,
+                },
+            },
+            src: {
+                driver: "fs",
+                readOnly: true,
+                base: serverDir,
+                watchOptions: {
+                    ignored: runtimeWorkspaceWatchIgnore,
+                },
+            },
+        },
+        watchOptions: {
+            ignored: runtimeWorkspaceWatchIgnore,
+        },
         externals: {
             external: [
                 "@earendil-works/pi-ai",
@@ -128,10 +165,29 @@ export default defineNuxtConfig({
         "nuxt-auth-utils",
         "@pinia/nuxt",
         "pinia-plugin-persistedstate/nuxt",
+        "@nuxtjs/i18n",
         "@unocss/nuxt",
         "@nuxtjs/color-mode",
         "@vueuse/nuxt",
     ],
+    i18n: {
+        strategy: "no_prefix",
+        defaultLocale: "zh-CN",
+        detectBrowserLanguage: false,
+        locales: [
+            {
+                code: "zh-CN",
+                language: "zh-CN",
+                name: "简体中文",
+            },
+            {
+                code: "en-US",
+                language: "en-US",
+                name: "English",
+            },
+        ],
+        vueI18n: i18nConfigPath,
+    },
     piniaPluginPersistedstate: {
         storage: "localStorage",
     },

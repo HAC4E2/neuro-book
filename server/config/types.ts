@@ -24,12 +24,18 @@ export type AgentProfileModelConfig = {
     stream: boolean;
 };
 
+export type AgentProfileSettingsConfig = {
+    [key: string]: JsonValue;
+};
+
 export type AgentProfileConfig = {
     model: AgentProfileModelConfig;
+    settings: AgentProfileSettingsConfig;
 };
 
 export type StoredAgentProfileConfig = {
     model: Partial<AgentProfileModelConfig>;
+    settings?: AgentProfileSettingsConfig;
 };
 
 export type StoredAgentProfileModelDefaultsConfig = Partial<AgentProfileModelConfig>;

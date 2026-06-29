@@ -8,6 +8,7 @@ import type {AgentToolRegistry} from "nbook/server/agent/tools/tool-registry";
 import type {NeuroAgentTool} from "nbook/server/agent/tools/types";
 import type {AgentInvokeCaller, InvokeAgentResult} from "nbook/server/agent/harness/types";
 import type {AgentRuntimeStreamEventDto} from "nbook/shared/dto/agent-session.dto";
+import type {UserInputFormSpec} from "nbook/server/agent/tools/types";
 
 export type RunRuntimeState = Map<string, JsonValue>;
 
@@ -25,10 +26,17 @@ export type RunToolBatchResult = {
     reportResultError?: string;
     sidecarResultError?: string;
     toolOverrides?: Record<string, NeuroAgentTool>;
+    /** 向后兼容：单个 waiting approval */
     waiting?: {
         toolCallId: string;
         toolName: string;
+        formSpec?: UserInputFormSpec;
     };
+    /** 批量 waiting approvals */
+    waitingApprovals?: Array<{
+        toolCallId: string;
+        toolName: string;
+    }>;
     shouldContinue: boolean;
 };
 

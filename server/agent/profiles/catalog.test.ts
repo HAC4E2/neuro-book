@@ -95,6 +95,151 @@ describe("AgentProfileCatalog", () => {
         }));
     });
 
+    it("resolveMany 批量返回 loaded、missing 和 unloadable", async () => {
+        await writeProfile(systemRoot, "custom.loaded.profile.tsx", profileSource("custom.loaded", "Loaded"));
+        await writeProfile(systemRoot, "custom.unloadable.profile.tsx", "export default { manifest: { key: 'custom.unloadable', name: 'Broken' } };");
+        await compileRoot(systemRoot, "custom.loaded.profile.tsx");
+        const catalog = new AgentProfileCatalog(systemRoot, userRoot);
+
+        const resolved = await catalog.resolveMany(["custom.loaded", "custom.missing", "custom.unloadable"]);
+
+        expect(resolved.get("custom.loaded")).toEqual(expect.objectContaining({
+            availability: "loaded",
+            profile: expect.objectContaining({
+                manifest: expect.objectContaining({key: "custom.loaded"}),
+            }),
+        }));
+        expect(resolved.get("custom.missing")).toEqual(expect.objectContaining({
+            availability: "missing",
+            profile: null,
+        }));
+        expect(resolved.get("custom.unloadable")).toEqual(expect.objectContaining({
+            availability: "unloadable",
+            profile: null,
+            issueMessage: expect.stringContaining("未编译"),
+        }));
+    });
+
+    it("热路径命中 catalog cache，不重复扫描 inventory", async () => {
+        await writeProfile(systemRoot, "custom.cached.profile.tsx", profileSource("custom.cached", "Cached"));
+        await compileRoot(systemRoot);
+        const catalog = new AgentProfileCatalog(systemRoot, userRoot);
+        const instrumented = catalog as unknown as {
+            readProfileInventory: () => Promise<unknown>;
+        };
+        const originalReadProfileInventory = instrumented.readProfileInventory.bind(catalog);
+        let inventoryReads = 0;
+        instrumented.readProfileInventory = async () => {
+            inventoryReads += 1;
+            return originalReadProfileInventory();
+        };
+
+        await catalog.get("custom.cached");
+        await catalog.get("custom.cached");
+        await catalog.resolveMany(["custom.cached"]);
+        await catalog.snapshot();
+
+        expect(inventoryReads).toBe(1);
+
+        catalog.invalidate();
+        await catalog.get("custom.cached");
+
+        expect(inventoryReads).toBe(2);
+    });
+
+    it("invalidate 后旧 loadAll promise 不能回写 stale catalog cache", async () => {
+        await writeProfile(systemRoot, "custom.race.profile.tsx", profileSource("custom.race", "Race V1"));
+        await compileRoot(systemRoot);
+        const catalog = new AgentProfileCatalog(systemRoot, userRoot);
+        const instrumented = catalog as unknown as {
+            loadInventory: (inventory: unknown) => Promise<unknown>;
+        };
+        const originalLoadInventory = instrumented.loadInventory.bind(catalog);
+        const staleLoadReady = createDeferred();
+        const releaseStaleLoad = createDeferred();
+        let loadInventoryCalls = 0;
+        instrumented.loadInventory = async (inventory: unknown) => {
+            loadInventoryCalls += 1;
+            const loaded = await originalLoadInventory(inventory);
+            if (loadInventoryCalls === 1) {
+                staleLoadReady.resolve();
+                await releaseStaleLoad.promise;
+            }
+            return loaded;
+        };
+
+        const staleProfilePromise = catalog.get("custom.race");
+        await staleLoadReady.promise;
+        await writeProfile(systemRoot, "custom.race.profile.tsx", profileSource("custom.race", "Race V2"));
+        await compileRoot(systemRoot);
+        catalog.invalidate();
+
+        const freshProfile = await catalog.get("custom.race");
+        releaseStaleLoad.resolve();
+        const staleProfile = await staleProfilePromise;
+        const cachedProfile = await catalog.get("custom.race");
+
+        expect(loadInventoryCalls).toBe(2);
+        expect((await staleProfile.prepare!(context())).systemPrompt).toBe("Race V1");
+        expect((await freshProfile.prepare!(context())).systemPrompt).toBe("Race V2");
+        expect((await cachedProfile.prepare!(context())).systemPrompt).toBe("Race V2");
+    });
+
+    it("profile watcher 会把外部源码和 compiled artifact 变化标记为 dirty", async () => {
+        await writeProfile(systemRoot, "prompt-helper.ts", `export const helperText = "watch-v1";`);
+        await writeProfile(systemRoot, "custom.watch.profile.tsx", `
+            import {Type} from "typebox";
+            import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+            import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
+            import {helperText} from "./prompt-helper";
+
+            export const profileManifest = { key: "custom.watch", name: "Watch" } as const;
+            export default defineAgentProfile({
+                manifest: profileManifest,
+                initialSchema: Type.Object({}),
+                outputSchema: Type.Object({}),
+                tools: profileToolsFromKeys([]),
+                prepare() { return { systemPrompt: helperText }; },
+            });
+        `);
+        await compileRoot(systemRoot);
+        const catalog = new AgentProfileCatalog(systemRoot, userRoot);
+        await catalog.startWatching();
+        try {
+            const firstProfile = await catalog.get("custom.watch");
+            expect((await firstProfile.prepare!(context())).systemPrompt).toBe("watch-v1");
+
+            await writeProfile(systemRoot, "prompt-helper.ts", `export const helperText = "watch-v2";`);
+            await compileRoot(systemRoot);
+
+            await waitFor(async () => {
+                const nextProfile = await catalog.get("custom.watch");
+                expect((await nextProfile.prepare!(context())).systemPrompt).toBe("watch-v2");
+            }, 3_000);
+        } finally {
+            await catalog.dispose();
+        }
+    });
+
+    it("profile watcher 启动期 error 会清理 watcher 并允许重试", async () => {
+        const catalog = new AgentProfileCatalog(systemRoot, userRoot);
+        const internal = catalog as unknown as {
+            watcher: {
+                emit(eventName: "error", error: Error): boolean;
+            } | null;
+        };
+
+        const start = catalog.startWatching();
+        internal.watcher?.emit("error", new Error("watch startup failed"));
+
+        await expect(start).rejects.toThrow("watch startup failed");
+        expect(internal.watcher).toBeNull();
+
+        await catalog.startWatching();
+        expect(internal.watcher).not.toBeNull();
+        await catalog.dispose();
+    });
+
     it("加载 TSX DSL profile 时使用自动 JSX runtime", async () => {
         await writeProfile(systemRoot, "custom.jsx.profile.tsx", `
             /** @jsxImportSource nbook/server/agent/profiles/profile-dsl */
@@ -251,6 +396,7 @@ describe("AgentProfileCatalog", () => {
         expect((await firstProfile.prepare!(context())).systemPrompt).toBe("v1");
 
         await writeProfile(systemRoot, "prompt-helper.ts", `export const helperText = "v2";`);
+        firstCatalog.invalidate();
         const staleSnapshot = await firstCatalog.snapshot();
         expect(staleSnapshot.profiles.find((item) => item.key === "custom.helper")?.loadStatus).toBe("compile_stale");
 
@@ -558,7 +704,7 @@ describe("AgentProfileCatalog", () => {
         systemRoot = join(productRoot, "assets", "workspace", ".nbook", "agent", "profiles");
         userRoot = join(productRoot, "workspace", ".nbook", "agent", "profiles");
         await mkdir(join(productRoot, ".output", "server"), {recursive: true});
-        await writeFile(join(productRoot, "release-meta.json"), "{}\n", "utf8");
+        await writeFile(join(productRoot, "package.json"), "{\"name\":\"neuro-book-product\",\"version\":\"0.0.0\",\"type\":\"module\"}\n", "utf8");
         await writeFile(join(productRoot, "tsconfig.json"), "{}\n", "utf8");
         await writeFile(join(productRoot, ".output", "server", "index.mjs"), "", "utf8");
         await writeProfile(systemRoot, "custom.product.profile.mjs", `
@@ -590,14 +736,14 @@ describe("AgentProfileCatalog", () => {
         expect(artifact).not.toContain("D:/a/neuro-book/");
     });
 
-    it("通用 .output Product runner 无根 release-meta 时仍从 output vendor 解析 require", async () => {
+    it("通用 .output Product runner 无根 Product package 时仍从 output vendor 解析 require", async () => {
         const productRoot = join(root, "product-output-runner");
         systemRoot = join(productRoot, "assets", "workspace", ".nbook", "agent", "profiles");
         userRoot = join(productRoot, "workspace", ".nbook", "agent", "profiles");
         await mkdir(join(productRoot, ".output", "server", "node_modules", "@nbook", "output-marker"), {recursive: true});
         await writeFile(join(productRoot, "tsconfig.json"), "{}\n", "utf8");
         await writeFile(join(productRoot, ".output", "server", "index.mjs"), "", "utf8");
-        await writeFile(join(productRoot, ".output", "server", "release-meta.json"), "{\"versionKind\":\"release\"}\n", "utf8");
+        await writeFile(join(productRoot, ".output", "server", "package.json"), "{\"name\":\"neuro-book-output\",\"version\":\"0.0.0\",\"type\":\"module\"}\n", "utf8");
         await writeFile(join(productRoot, ".output", "server", "node_modules", "@nbook", "output-marker", "index.js"), `module.exports = {marker: "output-vendor"};\n`, "utf8");
         await writeProfile(systemRoot, "custom.output.profile.mjs", `
             export default {
@@ -641,7 +787,7 @@ describe("AgentProfileCatalog", () => {
         await mkdir(join(productRoot, ".output", "server"), {recursive: true});
         await writeFile(join(productRoot, "tsconfig.json"), "{}\n", "utf8");
         await writeFile(join(productRoot, ".output", "server", "index.mjs"), "", "utf8");
-        await writeFile(join(productRoot, ".output", "server", "release-meta.json"), "{\"versionKind\":\"release\"}\n", "utf8");
+        await writeFile(join(productRoot, ".output", "server", "package.json"), "{\"name\":\"neuro-book-output\",\"version\":\"0.0.0\",\"type\":\"module\"}\n", "utf8");
         await writeProfile(systemRoot, "custom.output.profile.mjs", `
             export default {
                 manifest: { key: "custom.output", name: "Output" },
@@ -700,7 +846,7 @@ describe("AgentProfileCatalog", () => {
         await mkdir(join(productRoot, ".output", "server", "node_modules", "@nbook", "portable-marker"), {recursive: true});
         await mkdir(dataWorkspaceRoot, {recursive: true});
         await symlink(dataWorkspaceRoot, join(productRoot, "workspace"), process.platform === "win32" ? "junction" : "dir");
-        await writeFile(join(productRoot, "release-meta.json"), "{}\n", "utf8");
+        await writeFile(join(productRoot, "package.json"), "{\"name\":\"neuro-book-product\",\"version\":\"0.0.0\",\"type\":\"module\"}\n", "utf8");
         await writeFile(join(productRoot, "tsconfig.json"), "{}\n", "utf8");
         await writeFile(join(productRoot, ".output", "server", "index.mjs"), "", "utf8");
         await writeFile(join(productRoot, ".output", "server", "node_modules", "@nbook", "portable-marker", "index.js"), `module.exports = {marker: "portable-vendor"};\n`, "utf8");
@@ -810,6 +956,7 @@ function context() {
             now: "2026-05-23T00:00:00.000Z",
             promptUserTurnCount: 0,
         },
+        settings: {},
     };
 }
 
@@ -818,4 +965,33 @@ async function compileRoot(profileRoot: string, fileName?: string): Promise<void
         profileRoot,
         fileName,
     });
+}
+
+/**
+ * 创建测试用 deferred，用于控制并发 cache 写回顺序。
+ */
+function createDeferred(): {promise: Promise<void>; resolve: () => void} {
+    let resolve!: () => void;
+    const promise = new Promise<void>((nextResolve) => {
+        resolve = nextResolve;
+    });
+    return {promise, resolve};
+}
+
+async function waitFor(assertion: () => Promise<void> | void, timeoutMs = 1_000): Promise<void> {
+    const startedAt = Date.now();
+    let lastError: unknown;
+    while (Date.now() - startedAt < timeoutMs) {
+        try {
+            await assertion();
+            return;
+        } catch (error) {
+            lastError = error;
+            await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+    }
+    if (lastError instanceof Error) {
+        throw lastError;
+    }
+    throw new Error(String(lastError));
 }

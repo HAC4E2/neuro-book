@@ -13,6 +13,7 @@
 
 ## 关键入口
 
+- [English README](https://github.com/notnotype/neuro-book/blob/master/README.en.md)：英文项目入口。
 - [../PROJECT-STATUS.md](../PROJECT-STATUS.md)：仓库现状和近期任务。
 - [operator-bridge.md](operator-bridge.md)：交付与运维桥梁，面向用户和用户 Agent，说明部署、更新、排障和关键文档索引。
 - [tutorials/](tutorials/)：基础教程，从第一本书到第一次 RP。

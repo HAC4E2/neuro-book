@@ -46,6 +46,7 @@ const DEFAULT_GLOBAL_EMBEDDING_DIMENSIONS = 1536;
 const DEFAULT_GLOBAL_EMBEDDING_TIMEOUT_MS = 30000;
 const configApi = useConfigApi();
 const notification = useNotification();
+const {t} = useI18n();
 const loading = ref(false);
 const saving = ref(false);
 const errorText = ref("");
@@ -58,6 +59,7 @@ const isProjectScope = computed(() => props.scope === "project");
 const providerOptions: SelectOption[] = [
     {value: "openai-compatible", label: "OpenAI Compatible", description: "POST /embeddings"},
 ];
+const displayTargetLabel = computed(() => props.targetLabel || t("settings.panels.embedding.currentProject"));
 const dirty = computed(() => JSON.stringify(isProjectScope.value ? buildProjectEmbeddingPayload() : buildGlobalEmbeddingPayload()) !== snapshotText.value);
 
 /**
@@ -190,7 +192,7 @@ async function loadSettings(): Promise<void> {
     try {
         applySettings(await configApi.editorSnapshot(props.targetQuery));
     } catch (error) {
-        errorText.value = resolveApiErrorMessage(error, "读取 Embedding 配置失败");
+        errorText.value = resolveApiErrorMessage(error, t("settings.panels.embedding.loadFailed"));
     } finally {
         loading.value = false;
     }
@@ -210,9 +212,9 @@ async function saveSettings(): Promise<void> {
             ? await configApi.saveProject(buildProjectConfigPayload(), props.targetQuery)
             : await configApi.saveGlobal(buildGlobalConfigPayload(), props.targetQuery);
         applySettings(snapshot);
-        notification.success(isProjectScope.value ? "Project Embedding 覆盖已保存。" : "Embedding 服务配置已写入 Global Config。");
+        notification.success(isProjectScope.value ? t("settings.panels.embedding.projectSaveSuccess") : t("settings.panels.embedding.globalSaveSuccess"));
     } catch (error) {
-        errorText.value = resolveApiErrorMessage(error, "保存 Embedding 配置失败");
+        errorText.value = resolveApiErrorMessage(error, t("settings.panels.embedding.saveFailed"));
     } finally {
         saving.value = false;
     }
@@ -291,8 +293,8 @@ defineExpose({
     <div class="space-y-4 pt-1">
         <div class="flex flex-wrap items-center justify-between gap-4">
             <div class="max-w-xl">
-                <h3 class="text-base font-semibold text-[var(--text-main)]">{{ isProjectScope ? "Project Embedding 覆盖" : "Embedding 服务" }}</h3>
-                <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ isProjectScope ? `只覆盖 ${props.targetLabel || "当前 Project"} 的 embedding 模型名与维度。` : "配置 NeuroBook 自己调用的 OpenAI-compatible embedding 服务；不使用 Pi 模型目录。" }}</p>
+                <h3 class="text-base font-semibold text-[var(--text-main)]">{{ isProjectScope ? t("settings.panels.embedding.projectTitle") : t("settings.panels.embedding.globalTitle") }}</h3>
+                <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ isProjectScope ? t("settings.panels.embedding.projectDescription", {target: displayTargetLabel}) : t("settings.panels.embedding.globalDescription") }}</p>
             </div>
         </div>
 
@@ -303,7 +305,7 @@ defineExpose({
 
         <div v-if="loading" class="flex min-h-[260px] flex-col items-center justify-center gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-sm">
             <span class="i-lucide-loader-2 h-8 w-8 animate-spin text-[var(--text-muted)]"></span>
-            <span class="text-sm text-[var(--text-secondary)]">正在读取 Embedding 配置...</span>
+            <span class="text-sm text-[var(--text-secondary)]">{{ t("settings.panels.embedding.loading") }}</span>
         </div>
 
         <div v-else-if="isProjectScope" class="grid gap-4">
@@ -312,22 +314,22 @@ defineExpose({
                     <span class="flex h-5 w-5 items-center justify-center rounded bg-[var(--accent-bg)] text-[var(--accent-text)]">
                         <span class="i-lucide-folder-cog h-3.5 w-3.5"></span>
                     </span>
-                    <h4 class="text-xs font-bold tracking-wider text-[var(--text-main)]">Project 覆盖</h4>
+                    <h4 class="text-xs font-bold tracking-wider text-[var(--text-main)]">{{ t("settings.panels.embedding.projectOverride") }}</h4>
                 </div>
 
                 <div class="grid gap-3 md:grid-cols-2">
                     <label class="space-y-1.5">
-                        <span class="text-xs font-medium text-[var(--text-secondary)]">模型名</span>
-                        <FormInput v-model="projectDraft.model" placeholder="留空继承 Global" />
+                        <span class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.embedding.model") }}</span>
+                        <FormInput v-model="projectDraft.model" :placeholder="t('settings.panels.embedding.inheritGlobal')" />
                     </label>
                     <label class="space-y-1.5">
-                        <span class="text-xs font-medium text-[var(--text-secondary)]">维度</span>
-                        <FormInput v-model="projectDraft.dimensions" type="number" min="1" step="1" placeholder="留空继承 Global" />
+                        <span class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.embedding.dimensions") }}</span>
+                        <FormInput v-model="projectDraft.dimensions" type="number" min="1" step="1" :placeholder="t('settings.panels.embedding.inheritGlobal')" />
                     </label>
                 </div>
 
                 <div class="mt-4 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-2 text-xs leading-5 text-[var(--text-secondary)]">
-                    Project Config 不保存 provider、baseURL、API Key 或 requestOptions；这些服务级字段统一来自 Global Config。
+                    {{ t("settings.panels.embedding.projectServiceNote") }}
                 </div>
             </section>
         </div>
@@ -339,9 +341,9 @@ defineExpose({
                         <span class="flex h-5 w-5 items-center justify-center rounded bg-[var(--accent-bg)] text-[var(--accent-text)]">
                             <span class="i-lucide-binary h-3.5 w-3.5"></span>
                         </span>
-                        <h4 class="text-xs font-bold tracking-wider text-[var(--text-main)]">服务配置</h4>
+                        <h4 class="text-xs font-bold tracking-wider text-[var(--text-main)]">{{ t("settings.panels.embedding.serviceConfig") }}</h4>
                     </div>
-                    <FormCheckbox v-model="globalDraft.enabled" :label="globalDraft.enabled ? '已启用' : '未启用'" />
+                    <FormCheckbox v-model="globalDraft.enabled" :label="globalDraft.enabled ? t('settings.panels.embedding.enabled') : t('settings.panels.embedding.disabled')" />
                 </div>
 
                 <div class="grid gap-3 md:grid-cols-2">
@@ -350,11 +352,11 @@ defineExpose({
                         <FormSelect v-model="globalDraft.provider" :options="providerOptions" />
                     </label>
                     <label class="space-y-1.5">
-                        <span class="text-xs font-medium text-[var(--text-secondary)]">模型名</span>
+                        <span class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.embedding.model") }}</span>
                         <FormInput v-model="globalDraft.model" :placeholder="DEFAULT_GLOBAL_EMBEDDING_MODEL" />
                     </label>
                     <label class="space-y-1.5">
-                        <span class="text-xs font-medium text-[var(--text-secondary)]">维度</span>
+                        <span class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.embedding.dimensions") }}</span>
                         <FormInput v-model="globalDraft.dimensions" type="number" min="1" step="1" :placeholder="String(DEFAULT_GLOBAL_EMBEDDING_DIMENSIONS)" />
                     </label>
                     <label class="space-y-1.5">
@@ -362,21 +364,21 @@ defineExpose({
                         <FormInput v-model="globalDraft.timeoutMs" type="number" min="1000" step="1000" :placeholder="String(DEFAULT_GLOBAL_EMBEDDING_TIMEOUT_MS)" />
                     </label>
                     <label class="space-y-1.5 md:col-span-2">
-                        <span class="text-xs font-medium text-[var(--text-secondary)]">Base URL</span>
+                        <span class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.embedding.baseUrl") }}</span>
                         <FormInput v-model="globalDraft.baseURL" placeholder="https://api.openai.com/v1" />
                     </label>
                     <label class="space-y-1.5 md:col-span-2">
-                        <span class="text-xs font-medium text-[var(--text-secondary)]">API Key</span>
+                        <span class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.embedding.apiKey") }}</span>
                         <div class="flex gap-2">
-                            <FormInput v-model="globalDraft.apiKey" type="password" :placeholder="globalDraft.apiKeyConfigured ? globalDraft.apiKeyMaskedValue ?? '已配置，留空保留' : 'sk-...'" />
+                            <FormInput v-model="globalDraft.apiKey" type="password" :placeholder="globalDraft.apiKeyConfigured ? globalDraft.apiKeyMaskedValue ?? t('settings.panels.embedding.apiKeyConfigured') : 'sk-...'" />
                             <button type="button" class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-rose-500/20 bg-rose-500/10 px-2.5 text-[11px] font-medium text-rose-600 hover:bg-rose-500/20" @click="clearApiKey">
                                 <span class="i-lucide-trash-2 h-3.5 w-3.5"></span>
-                                清空
+                                {{ t("settings.panels.embedding.clear") }}
                             </button>
                         </div>
                     </label>
                     <label class="space-y-1.5 md:col-span-2">
-                        <span class="text-xs font-medium text-[var(--text-secondary)]">Request Options JSON</span>
+                        <span class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.embedding.requestOptionsJson") }}</span>
                         <textarea v-model="globalDraft.requestOptions" rows="5" placeholder="{&quot;encoding_format&quot;:&quot;float&quot;}" class="w-full resize-y rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 py-2 font-mono text-[12px] text-[var(--text-main)] outline-none transition-colors placeholder:text-[var(--text-muted)] placeholder:opacity-80 focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]/20"></textarea>
                     </label>
                 </div>

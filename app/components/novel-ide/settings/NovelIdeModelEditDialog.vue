@@ -52,24 +52,26 @@ const emit = defineEmits<{
     (e: "reset-model-cost", model: ModelDraft): void;
 }>();
 
-const reasoningOptions: SelectOption[] = [
-    {value: "inherit", label: "继承"},
-    {value: "true", label: "支持"},
-    {value: "false", label: "不支持"},
-];
+const {t} = useI18n();
 
-const costFields: Array<{key: keyof Pick<ModelCostDraft, "input" | "output" | "cacheRead" | "cacheWrite">; label: string; placeholder: string}> = [
-    {key: "input", label: "Input", placeholder: "0.14"},
-    {key: "output", label: "Output", placeholder: "0.28"},
-    {key: "cacheRead", label: "Cache read", placeholder: "0.0028"},
-    {key: "cacheWrite", label: "Cache write", placeholder: "0"},
-];
+const reasoningOptions = computed<SelectOption[]>(() => [
+    {value: "inherit", label: t("settings.panels.modelEdit.inherit")},
+    {value: "true", label: t("settings.panels.modelEdit.supported")},
+    {value: "false", label: t("settings.panels.modelEdit.unsupported")},
+]);
+
+const costFields = computed<Array<{key: keyof Pick<ModelCostDraft, "input" | "output" | "cacheRead" | "cacheWrite">; label: string; placeholder: string}>>(() => [
+    {key: "input", label: t("settings.panels.modelEdit.costInput"), placeholder: "0.14"},
+    {key: "output", label: t("settings.panels.modelEdit.costOutput"), placeholder: "0.28"},
+    {key: "cacheRead", label: t("settings.panels.modelEdit.costCacheRead"), placeholder: "0.0028"},
+    {key: "cacheWrite", label: t("settings.panels.modelEdit.costCacheWrite"), placeholder: "0"},
+]);
 
 /**
  * 判断当前模型是否覆盖 Pi registry 价格。
  */
 function modelCostSourceLabel(model: ModelDraft): string {
-    return hasModelCostOverride(model.cost) ? "自定义覆盖" : "继承 Pi registry";
+    return hasModelCostOverride(model.cost) ? t("settings.panels.modelEdit.customOverride") : t("settings.panels.modelEdit.inheritPiRegistry");
 }
 
 /**
@@ -91,7 +93,7 @@ function updateOpen(value: boolean): void {
     <!-- 模型编辑 Dialog -->
     <Dialog
         :model-value="props.modelValue"
-        title="模型设置"
+        :title="t('settings.panels.modelEdit.title')"
         width="min(740px, calc(100vw - 32px))"
         max-height="calc(100vh - 32px)"
         overlay-type="blur"
@@ -108,20 +110,20 @@ function updateOpen(value: boolean): void {
                             <span class="flex items-center justify-center w-5 h-5 rounded bg-[var(--accent-bg)] text-[var(--accent-text)]">
                                 <span class="i-lucide-badge-info h-3.5 w-3.5"></span>
                             </span>
-                            <h4 class="text-xs font-bold text-[var(--text-main)] tracking-wider">基本信息</h4>
+                            <h4 class="text-xs font-bold text-[var(--text-main)] tracking-wider">{{ t("settings.panels.modelEdit.basicInfo") }}</h4>
                         </div>
                         <div class="grid gap-3.5">
                             <div class="space-y-1.5">
-                                <label class="text-xs font-semibold text-[var(--text-secondary)]">模型名称</label>
-                                <FormInput v-model="props.editingModel.name" placeholder="模型名称" class="bg-[var(--bg-input)] shadow-sm" />
+                                <label class="text-xs font-semibold text-[var(--text-secondary)]">{{ t("settings.panels.modelEdit.modelName") }}</label>
+                                <FormInput v-model="props.editingModel.name" :placeholder="t('settings.panels.modelEdit.modelName')" class="bg-[var(--bg-input)] shadow-sm" />
                             </div>
                             <div class="space-y-1.5">
-                                <label class="text-xs font-semibold text-[var(--text-secondary)]">模型 ID</label>
-                                <FormInput v-model="props.editingModel.id" placeholder="模型 ID" class="bg-[var(--bg-input)] shadow-sm" @update:model-value="emit('model-id-change')" />
+                                <label class="text-xs font-semibold text-[var(--text-secondary)]">{{ t("settings.panels.modelEdit.modelId") }}</label>
+                                <FormInput v-model="props.editingModel.id" :placeholder="t('settings.panels.modelEdit.modelId')" class="bg-[var(--bg-input)] shadow-sm" @update:model-value="emit('model-id-change')" />
                             </div>
                             <div class="space-y-1.5">
-                                <label class="text-xs font-semibold text-[var(--text-secondary)]">分组</label>
-                                <FormInput v-model="props.editingModel.group" :placeholder="`默认推导: ${props.deriveGroup(props.editingModel.id)}`" class="bg-[var(--bg-input)] shadow-sm" />
+                                <label class="text-xs font-semibold text-[var(--text-secondary)]">{{ t("settings.panels.modelEdit.group") }}</label>
+                                <FormInput v-model="props.editingModel.group" :placeholder="t('settings.panels.modelEdit.defaultDerived', {group: props.deriveGroup(props.editingModel.id)})" class="bg-[var(--bg-input)] shadow-sm" />
                             </div>
                         </div>
                     </section>
@@ -132,26 +134,26 @@ function updateOpen(value: boolean): void {
                             <span class="flex items-center justify-center w-5 h-5 rounded bg-[var(--accent-bg)] text-[var(--accent-text)]">
                                 <span class="i-lucide-plug h-3.5 w-3.5"></span>
                             </span>
-                            <h4 class="text-xs font-bold text-[var(--text-main)] tracking-wider">接口配置</h4>
+                            <h4 class="text-xs font-bold text-[var(--text-main)] tracking-wider">{{ t("settings.panels.modelEdit.apiConfig") }}</h4>
                         </div>
                         <div class="grid gap-3.5">
                             <div class="space-y-1.5">
                                 <label class="text-xs font-semibold text-[var(--text-secondary)]">Pi Registry Provider</label>
-                                <FormInput v-model="props.editingModel.provider" placeholder="留空使用配置 ID" class="bg-[var(--bg-input)] shadow-sm" />
+                                <FormInput v-model="props.editingModel.provider" :placeholder="t('settings.panels.modelEdit.providerPlaceholder')" class="bg-[var(--bg-input)] shadow-sm" />
                             </div>
                             <div class="space-y-2">
-                                <label class="text-xs font-semibold text-[var(--text-secondary)]">接口格式</label>
+                                <label class="text-xs font-semibold text-[var(--text-secondary)]">{{ t("settings.panels.modelEdit.apiFormat") }}</label>
                                 <div class="flex flex-col gap-2 rounded-lg border border-[var(--border-color)] border-opacity-50 bg-[var(--bg-input)] bg-opacity-20 p-2">
                                     <FormSelect v-model="props.editingModel.api" :options="[{value: '', label: props.modelApiInheritLabel(props.editingModel)}, ...props.modelApiOptions]" />
                                     <div class="flex items-center gap-2">
-                                        <span class="text-[10px] text-[var(--text-muted)] shrink-0 font-medium pl-1">自定义格式</span>
-                                        <FormInput v-model="props.editingModel.api" placeholder="留空继承" class="bg-[var(--bg-input)] shadow-sm flex-1" />
+                                        <span class="text-[10px] text-[var(--text-muted)] shrink-0 font-medium pl-1">{{ t("settings.panels.modelEdit.customFormat") }}</span>
+                                        <FormInput v-model="props.editingModel.api" :placeholder="t('settings.panels.modelEdit.inheritPlaceholder')" class="bg-[var(--bg-input)] shadow-sm flex-1" />
                                     </div>
                                 </div>
                             </div>
                             <div class="space-y-1.5">
-                                <label class="text-xs font-semibold text-[var(--text-secondary)]">模型 Base URL</label>
-                                <FormInput v-model="props.editingModel.baseUrl" placeholder="留空继承 Registry 或 Provider API Base" class="bg-[var(--bg-input)] shadow-sm" />
+                                <label class="text-xs font-semibold text-[var(--text-secondary)]">{{ t("settings.panels.modelEdit.modelBaseUrl") }}</label>
+                                <FormInput v-model="props.editingModel.baseUrl" :placeholder="t('settings.panels.modelEdit.baseUrlPlaceholder')" class="bg-[var(--bg-input)] shadow-sm" />
                             </div>
                         </div>
                     </section>
@@ -162,24 +164,24 @@ function updateOpen(value: boolean): void {
                             <span class="flex items-center justify-center w-5 h-5 rounded bg-[var(--accent-bg)] text-[var(--accent-text)]">
                                 <span class="i-lucide-gauge h-3.5 w-3.5"></span>
                             </span>
-                            <h4 class="text-xs font-bold text-[var(--text-main)] tracking-wider">运行限制</h4>
+                            <h4 class="text-xs font-bold text-[var(--text-main)] tracking-wider">{{ t("settings.panels.modelEdit.limits") }}</h4>
                         </div>
                         <div class="grid gap-3.5">
                             <div class="space-y-1.5">
                                 <div class="flex items-center justify-between gap-2">
-                                    <label class="text-xs font-semibold text-[var(--text-secondary)]">上下文窗口</label>
-                                    <span class="truncate text-[10px] text-[var(--text-muted)] font-medium">留空: {{ props.modelContextWindowDefaultLabel(props.editingModel) }}</span>
+                                    <label class="text-xs font-semibold text-[var(--text-secondary)]">{{ t("settings.panels.modelEdit.contextWindow") }}</label>
+                                    <span class="truncate text-[10px] text-[var(--text-muted)] font-medium">{{ t("settings.panels.modelEdit.emptyLabel", {value: props.modelContextWindowDefaultLabel(props.editingModel)}) }}</span>
                                 </div>
-                                <FormInput v-model="props.editingModel.contextWindowTokens" :placeholder="`留空使用 ${props.modelContextWindowDefaultLabel(props.editingModel)}`" class="bg-[var(--bg-input)] shadow-sm" />
-                                <p class="text-[10px] leading-4 text-[var(--text-muted)]">用于判断当前 Session context 是否超过模型窗口，并影响自动压缩触发。</p>
+                                <FormInput v-model="props.editingModel.contextWindowTokens" :placeholder="t('settings.panels.modelEdit.emptyUse', {value: props.modelContextWindowDefaultLabel(props.editingModel)})" class="bg-[var(--bg-input)] shadow-sm" />
+                                <p class="text-[10px] leading-4 text-[var(--text-muted)]">{{ t("settings.panels.modelEdit.contextWindowDescription") }}</p>
                             </div>
                             <div class="space-y-1.5">
                                 <div class="flex items-center justify-between gap-2">
                                     <label class="text-xs font-semibold text-[var(--text-secondary)]">Max Tokens</label>
-                                    <span class="truncate text-[10px] text-[var(--text-muted)] font-medium">留空: {{ props.modelMaxTokensDefaultLabel(props.editingModel) }}</span>
+                                    <span class="truncate text-[10px] text-[var(--text-muted)] font-medium">{{ t("settings.panels.modelEdit.emptyLabel", {value: props.modelMaxTokensDefaultLabel(props.editingModel)}) }}</span>
                                 </div>
-                                <FormInput v-model="props.editingModel.maxTokens" :placeholder="`留空使用 ${props.modelMaxTokensDefaultLabel(props.editingModel)}`" class="bg-[var(--bg-input)] shadow-sm" />
-                                <p class="text-[10px] leading-4 text-[var(--text-muted)]">用于限制单次模型调用最多生成多少输出 token。</p>
+                                <FormInput v-model="props.editingModel.maxTokens" :placeholder="t('settings.panels.modelEdit.emptyUse', {value: props.modelMaxTokensDefaultLabel(props.editingModel)})" class="bg-[var(--bg-input)] shadow-sm" />
+                                <p class="text-[10px] leading-4 text-[var(--text-muted)]">{{ t("settings.panels.modelEdit.maxTokensDescription") }}</p>
                             </div>
                         </div>
                     </section>
@@ -190,13 +192,13 @@ function updateOpen(value: boolean): void {
                             <span class="flex items-center justify-center w-5 h-5 rounded bg-[var(--accent-bg)] text-[var(--accent-text)]">
                                 <span class="i-lucide-sliders-horizontal h-3.5 w-3.5"></span>
                             </span>
-                            <h4 class="text-xs font-bold text-[var(--text-main)] tracking-wider">模型能力</h4>
+                            <h4 class="text-xs font-bold text-[var(--text-main)] tracking-wider">{{ t("settings.panels.modelEdit.capabilities") }}</h4>
                         </div>
                         <div class="grid gap-4">
                             <div class="space-y-2">
                                 <div class="flex items-center justify-between gap-2">
-                                    <label class="text-xs font-semibold text-[var(--text-secondary)]">输入能力</label>
-                                    <span class="truncate text-[10px] text-[var(--text-muted)] font-medium">当前: {{ props.modelInputDisplayLabel(props.editingModel) }}</span>
+                                    <label class="text-xs font-semibold text-[var(--text-secondary)]">{{ t("settings.panels.modelEdit.inputCapability") }}</label>
+                                    <span class="truncate text-[10px] text-[var(--text-muted)] font-medium">{{ t("settings.panels.modelEdit.currentLabel", {value: props.modelInputDisplayLabel(props.editingModel)}) }}</span>
                                 </div>
                                 <div class="grid grid-cols-2 gap-1 rounded-lg border border-[var(--border-color)] border-opacity-40 bg-[var(--bg-input)] bg-opacity-25 p-1">
                                     <button
@@ -205,7 +207,7 @@ function updateOpen(value: boolean): void {
                                         type="button"
                                         class="inline-flex h-8 items-center justify-center gap-1.5 rounded-md text-[11px] font-medium transition-all duration-200"
                                         :class="props.modelInputEnabled(props.editingModel, option.value) ? 'border border-[var(--accent-main)] border-opacity-30 bg-[var(--accent-bg)] text-[var(--accent-text)] shadow-sm font-semibold' : 'border border-transparent bg-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
-                                        :title="`${option.label}输入`"
+                                        :title="t('settings.panels.modelEdit.inputTitle', {label: option.label})"
                                         @click="emit('toggle-model-input', props.editingModel, option.value)"
                                     >
                                         <span class="h-3.5 w-3.5" :class="option.iconClass"></span>
@@ -214,23 +216,23 @@ function updateOpen(value: boolean): void {
                                     <button
                                         type="button"
                                         class="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-transparent bg-transparent text-[11px] font-medium text-[var(--text-muted)] transition-all duration-200 hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
-                                        title="清空后继承 Registry 或 Provider 默认"
+                                        :title="t('settings.panels.modelEdit.inheritInputTitle')"
                                         @click="emit('reset-model-input', props.editingModel)"
                                     >
                                         <span class="i-lucide-rotate-ccw h-3.5 w-3.5"></span>
-                                        继承
+                                        {{ t("settings.panels.modelEdit.inherit") }}
                                     </button>
                                 </div>
                             </div>
                             <div class="space-y-2">
                                 <div class="flex items-center justify-between gap-2">
-                                    <label class="text-xs font-semibold text-[var(--text-secondary)]">Reasoning 能力</label>
-                                    <span class="truncate text-[10px] text-[var(--text-muted)] font-medium">当前: {{ props.modelReasoningDisplayLabel(props.editingModel) }}</span>
+                                    <label class="text-xs font-semibold text-[var(--text-secondary)]">{{ t("settings.panels.modelEdit.reasoningCapability") }}</label>
+                                    <span class="truncate text-[10px] text-[var(--text-muted)] font-medium">{{ t("settings.panels.modelEdit.currentLabel", {value: props.modelReasoningDisplayLabel(props.editingModel)}) }}</span>
                                 </div>
                                 <FormSelect v-model="props.editingModel.reasoning" :options="reasoningOptions" />
                                 <div class="flex items-start gap-1.5 rounded-lg border border-[var(--border-color)] border-opacity-30 bg-[var(--bg-input)] bg-opacity-15 p-2 text-[10px] leading-normal text-[var(--text-muted)]">
                                     <span class="i-lucide-info h-3.5 w-3.5 shrink-0 text-[var(--text-muted)] mt-0.5"></span>
-                                    <span>描述模型是否支持推理思考。思考强度可在 Agent Profile 中进行调节。</span>
+                                    <span>{{ t("settings.panels.modelEdit.reasoningDescription") }}</span>
                                 </div>
                             </div>
                         </div>
@@ -243,7 +245,7 @@ function updateOpen(value: boolean): void {
                         <span class="flex items-center justify-center w-5 h-5 rounded bg-[var(--accent-bg)] text-[var(--accent-text)]">
                             <span class="i-lucide-braces h-3.5 w-3.5"></span>
                         </span>
-                        <h4 class="text-xs font-bold text-[var(--text-main)] tracking-wider">高级配置</h4>
+                        <h4 class="text-xs font-bold text-[var(--text-main)] tracking-wider">{{ t("settings.panels.modelEdit.advanced") }}</h4>
                     </div>
                     <div class="grid gap-5 md:grid-cols-2">
                         <div class="space-y-2">
@@ -261,7 +263,7 @@ function updateOpen(value: boolean): void {
                         <div class="space-y-3">
                             <div class="flex items-center justify-between gap-3">
                                 <div class="min-w-0">
-                                    <label class="text-xs font-semibold text-[var(--text-secondary)]">模型价格</label>
+                                    <label class="text-xs font-semibold text-[var(--text-secondary)]">{{ t("settings.panels.modelEdit.modelCost") }}</label>
                                     <div class="mt-0.5 text-[10px] text-[var(--text-muted)]">{{ modelCostUnitLabel(props.editingModel) }}</div>
                                 </div>
                                 <span class="shrink-0 text-[9px] font-bold uppercase tracking-wider bg-[var(--bg-hover)] border border-[var(--border-color)] px-1.5 py-0.5 rounded" :class="hasModelCostOverride(props.editingModel.cost) ? 'text-[var(--accent-text)]' : 'text-[var(--text-muted)]'">{{ modelCostSourceLabel(props.editingModel) }}</span>
@@ -273,10 +275,10 @@ function updateOpen(value: boolean): void {
                                 </div>
                             </div>
                             <div class="flex items-center justify-between gap-3 rounded-lg border border-[var(--border-color)] border-opacity-30 bg-[var(--bg-input)] bg-opacity-15 p-2">
-                                <span class="min-w-0 text-[10px] leading-normal text-[var(--text-muted)]">保存后统一写入 USD / 1M tokens；空价格继承 Pi registry。</span>
-                                <button type="button" class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-[var(--border-color)] px-2 text-[10px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="清空价格覆盖，恢复继承 Pi registry" @click="emit('reset-model-cost', props.editingModel)">
+                                <span class="min-w-0 text-[10px] leading-normal text-[var(--text-muted)]">{{ t("settings.panels.modelEdit.costDescription") }}</span>
+                                <button type="button" class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-[var(--border-color)] px-2 text-[10px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('settings.panels.modelEdit.clearCostTitle')" @click="emit('reset-model-cost', props.editingModel)">
                                     <span class="i-lucide-rotate-ccw h-3 w-3"></span>
-                                    清空
+                                    {{ t("settings.panels.modelEdit.clear") }}
                                 </button>
                             </div>
                         </div>

@@ -17,12 +17,17 @@
 - **代码审查报告使用直白的话语再解释一次**
 - 任务完成后的 walkthrough 要报告实际结果与任务计划的出入
 - **Important: 目前项目已经很大了，所以在开始任务前，你可以读取相关文档和相关的 tasks**
+- 代码修复、代码重构设计的时候需要考虑这些问题：
+  1. 这个修复或者重构是否系统性？还是说本次修复是 hack？
+  2. 这次修复或重构，能否在代码设计上约束 Agent 以后不会犯这种错误？
+  3. 本次重构或修复会导致那些测试出问题？哪些测试没用了考虑删除。哪些应该修改优化？
 
 ## 文档索引
 
 - `PROJECT-STATUS.md`：仓库级现状、当前重点、模块状态、风险和近期任务。TODO 也记录在这里，注意 TODO 完成后记得删除
 - `docs/README.md`：文档体系入口，说明 `docs/` 目录分工。
 - `reference/README.md`：NeuroBook Reference Bookshelf，按模块链接到 `reference/<module>/`。
+- `reference/world-engine/README.md`：World Engine 世界引擎 reference 入口。写作模式动态世界状态 + 时间线真相源；处理 slice / subject / instant / reduce / schema / Calendar / 记录原则 / leader-writer 协作时先读这里。
 - `reference/workspace/TERMS.md`：Workspace Root、Workspace Root `.nbook`、Project Workspace、Project Workspace `.nbook`、user-assets、Bundled Workspace Template 的标准术语。涉及 workspace / project / user-assets / assets 覆盖时必须优先引用这里，不要把 Project Workspace 缩写成 workspace。
 - `docs/modules`：模块文档索引，链接模块说明、需求整理和开发参考。在你直接查询 node_modules 前先看看这个文件，可能有 research 或者库的本地 git 仓库位置
 - `docs/tasks/README.md`：重大任务 walkthrough 规则和维护要求。
@@ -58,8 +63,8 @@
 - Important: 当你编写代码的时候遇到项目设计等问题，不要用 hack 绕过问题、制造技术债、破坏类型系统。立刻终止任务，并告知用户问题
 - 不要一次性应用 800 行以上的超大补丁（防止出错）。可以考虑拆分多次进行应用（例如按照脚本逻辑 script、模板 template、样式 style）。或者提醒用户规划拆分为多个文件。但是要注意：强耦合，高相关的逻辑还是可以放在一个文件内的。（不要为了为拆而拆）
 - 简单逻辑不要主动写测试文件，复杂逻辑需要写测试
-- 只有在复杂、大型功能编写后才运行测试。简单的小功能不要主动测试
-- 类型覆盖非常重要，你设计的每一个组件都尽可能地标注类型。不要用 Record<string, unknown>，unknown，any 这些类型。如果使用 any/unknown 请在代码旁边写明原因。
+- 只有在复杂、大型功能编写后才运行测试。简单的小功能不要主动测试。不要过度测试，只在最常用，最复杂，最容易犯错的地方加测试即可
+- 类型覆盖非常重要，你设计的每一个组件都尽可能地标注类型。不要用 Record<string, unknown>，unknown，any 这些类型。如果特殊情况（外部未知数据用 unknown，无法表达或主动绕过类型系统时才用 any。）使用 any/unknown 请在代码旁边写明原因，如果你使用了 any，需要提出系统设计是否有问题。
 
 ## Others
 
@@ -74,7 +79,27 @@
   - app/components/common/NotificationViewport.vue
   - app/components/common/Dialog.vue
 - 前端 API 错误文案统一使用 `app/utils/api-error.ts` 的 `resolveApiErrorMessage(error, fallback)` 解析，不要在业务组件里重复解析 `$fetch` 错误结构。
-- 前端错误展示按入口归属：当前 Dialog/Panel 内可恢复的表单或加载错误写入该入口自己的局部 error state；跨入口、后台动作、复制/剪贴板/文件操作等即时反馈使用 `useNotification()`；不要把 A 入口触发的错误写进只有 B 入口能看到的 error state。
+- **前端通知途径规范**（详见 `docs/frontend-notification-channels.md`）：
+  - **全局通知 `useNotification()`**：跨入口操作、后台动作（自动保存、Agent 运行）、即时反馈（复制、粘贴、文件操作）、成功提示。使用 `notification.success()` / `error()` / `warning()` / `info()`，配合 `resolveApiErrorMessage()` 解析错误。
+  - **局部 error state (`const error = ref("")`)**：当前 Dialog/Panel 内可恢复的表单或加载错误，需要持续展示直到用户修正。
+  - **决策标准**：如果操作完成后 Dialog 会关闭，或错误可能在其它入口不可见，使用 `useNotification()`；如果错误需要和当前表单字段关联展示，使用局部 error state。
+  - **标准模式**：
+    ```typescript
+    import { resolveApiErrorMessage } from "nbook/app/utils/api-error";
+    import { useNotification } from "nbook/app/composables/useNotification";
+    
+    const notification = useNotification();
+    
+    try {
+        await $fetch("/api/save", { method: "POST", body: data });
+        notification.success("保存成功");
+    } catch (error) {
+        notification.error(
+            resolveApiErrorMessage(error, "保存失败"),
+            { title: "保存失败" }
+        );
+    }
+    ```
 - 如果同一业务函数会被多个入口复用，必须在函数内按调用入口显式选择错误出口，或拆成入口级 wrapper，避免隐藏宿主、Dialog、侧边栏之间错误不可见。
 - 可拖拽调整尺寸的面板统一使用 `app/composables/useResizablePanel.ts`；不要在组件里重复手写 `mousemove` / `mouseup` / pointer 监听。尺寸状态放在宿主或 store，组件只通过 `update:width` / `update:height` 回传。
 
@@ -89,3 +114,4 @@
 - 可以使用 get_file_contents、search_code、issue_read 搜寻 github 项目
 - .agent/workspace 为你可随意操作的目录（.agent 目录不是），你可以再此编写临时文件、clone 代码等
 - 可以通过编写测试脚本并运行来测试数据
+- 如果要写 commit message 的时候，可以从 docs/tasks PROJECT-STATUS.md 获取信息，查看他们的最新变更。提交信息要丰富，覆盖所有相关 tasks。重点关心新功能

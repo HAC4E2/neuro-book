@@ -159,6 +159,7 @@ export function convertAgentProfileModelSettingsRequestToConfig(
         profiles: Object.fromEntries(
             request.agentProfiles.map((profile) => [profile.profileKey, {
                 model: normalizeAgentProfileModelConfig(profile.model),
+                settings: {},
             }]),
         ),
     };

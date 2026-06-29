@@ -53,7 +53,7 @@ type LegacyTestProfile<
     TOutputSchema extends TSchema = TSchema,
     TSummarizerKey extends string = string,
     TTools extends ProfileTools = ProfileTools,
-> = Omit<AgentProfileDefinition<TInitialSchema, TSchema, TOutputSchema, TSummarizerKey, TTools>, "tools" | "toolKeys" | "sidecars"> & {
+> = Omit<AgentProfileDefinition<TInitialSchema, TSchema, TOutputSchema, undefined, TSummarizerKey, TTools>, "tools" | "toolKeys" | "sidecars"> & {
     tools?: ProfileTools;
     allowedToolKeys?: readonly string[];
     mainRunAllowedToolKeys?: readonly string[];
@@ -88,7 +88,7 @@ function defineAgentProfile<
                 ...sidecarRest,
                 toolKeys: sidecarRest.toolKeys ?? sidecarAllowedToolKeys,
             };
-        }) as AgentProfileDefinition<TInitialSchema, TSchema, TOutputSchema, TSummarizerKey, TTools>["sidecars"],
+        }) as AgentProfileDefinition<TInitialSchema, TSchema, TOutputSchema, undefined, TSummarizerKey, TTools>["sidecars"],
     });
 }
 
@@ -670,6 +670,8 @@ describe("profile TSX DSL", () => {
                     source: "system",
                     builtin: true,
                     loadStatus: "loaded",
+                    hasSettingsForm: false,
+                    canResetHome: false,
                 }],
                 issues: [],
             },
@@ -734,6 +736,8 @@ describe("profile TSX DSL", () => {
                     source: "system",
                     builtin: true,
                     loadStatus: "loaded",
+                    hasSettingsForm: false,
+                    canResetHome: false,
                 }],
                 issues: [],
             },
@@ -1191,6 +1195,7 @@ function context(): ProfilePrepareContext<object> {
             now: "2026-05-23T00:00:00.000Z",
             promptUserTurnCount: 1,
         },
+        settings: {},
     };
 }
 

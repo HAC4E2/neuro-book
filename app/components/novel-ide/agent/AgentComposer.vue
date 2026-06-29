@@ -16,16 +16,6 @@ type AgentComposerSessionModelDraft = {
     reasoningEffort: ThinkingLevelDto | null;
 };
 
-const thinkingLevelOptions: Array<{value: ThinkingLevelDto | null; label: string}> = [
-    {value: null, label: "跟随 Profile"},
-    {value: "off", label: "关闭"},
-    {value: "minimal", label: "极低"},
-    {value: "low", label: "低"},
-    {value: "medium", label: "中"},
-    {value: "high", label: "高"},
-    {value: "xhigh", label: "极高"},
-];
-
 const props = defineProps<{
     inputText: string;
     pendingSession: AgentPendingUserInputSession | null;
@@ -83,6 +73,12 @@ const emit = defineEmits<{
             ignored?: boolean;
         }>;
     }): void;
+    /** Task 63: Low-Code Form 提交事件 */
+    (e: "submit-user-input-form", payload: {
+        assistantMessageId: string;
+        toolCallId: string;
+        data: import("nbook/shared/dto/low-code-form.dto").LowCodeJsonObject;
+    }): void;
     (e: "send"): void;
     (e: "steer"): void;
     (e: "followup"): void;
@@ -98,12 +94,22 @@ const emit = defineEmits<{
 const inputRef = ref<InstanceType<typeof AgentComposerInput> | null>(null);
 const userInputPromptRef = ref<InstanceType<typeof AgentUserInputPrompt> | null>(null);
 const sessionModelControlsRef = ref<HTMLElement | null>(null);
+const {t} = useI18n();
 const activeQuestionKey = ref("");
 const composerExpanded = ref(false);
 const activeQuestionState = ref({
     canContinue: false,
-    submitButtonLabel: "继续",
+    submitButtonLabel: t("agent.composer.continue"),
 });
+const thinkingLevelOptions = computed<Array<{value: ThinkingLevelDto | null; label: string}>>(() => [
+    {value: null, label: t("agent.composer.followProfile")},
+    {value: "off", label: t("agent.composer.off")},
+    {value: "minimal", label: t("agent.composer.minimal")},
+    {value: "low", label: t("agent.composer.low")},
+    {value: "medium", label: t("agent.composer.medium")},
+    {value: "high", label: t("agent.composer.high")},
+    {value: "xhigh", label: t("agent.composer.xhigh")},
+]);
 
 const activeComposerValue = computed(() => {
     if (!props.pendingSession || !activeQuestionKey.value) {
@@ -113,8 +119,8 @@ const activeComposerValue = computed(() => {
 });
 
 const composerPlaceholder = computed(() => props.pendingSession
-    ? "补充说明...（将随当前需求一起提交）"
-    : "输入消息... (输入 @ 引用, $ 技能, / 命令)");
+    ? t("agent.composer.pendingPlaceholder")
+    : t("agent.composer.messagePlaceholder"));
 
 const runInputText = computed(() => props.inputText);
 const canStopReadonlyRun = computed(() => props.readonly && props.running && !runInputText.value.trim());
@@ -153,27 +159,27 @@ const sendIconClass = computed(() => {
 
 const sendButtonTitle = computed(() => {
     if (canStopReadonlyRun.value) {
-        return "停止";
+        return t("agent.composer.stop");
     }
     if (props.readonly) {
-        return props.readonlyReason || "当前 Session 只读";
+        return props.readonlyReason || t("agent.composer.readonly");
     }
     if (props.pendingSession) {
-        return activeQuestionState.value.submitButtonLabel || "继续";
+        return activeQuestionState.value.submitButtonLabel || t("agent.composer.continue");
     }
     if (props.running && runInputText.value.trim()) {
-        return composerExpanded.value ? "引导；Ctrl+点击 队列" : "引导；Ctrl+Enter / Ctrl+点击 队列";
+        return composerExpanded.value ? t("agent.composer.steerQueueExpanded") : t("agent.composer.steerQueue");
     }
     if (props.running) {
-        return "停止";
+        return t("agent.composer.stop");
     }
     if (props.canContinueWithoutInput) {
-        return "继续";
+        return t("agent.composer.continue");
     }
-    return "发送";
+    return t("agent.composer.send");
 });
 
-const expandButtonTitle = computed(() => composerExpanded.value ? "收起大文本编辑" : "展开大文本编辑");
+const expandButtonTitle = computed(() => composerExpanded.value ? t("agent.composer.collapseEditor") : t("agent.composer.expandEditor"));
 const expandButtonIcon = computed(() => composerExpanded.value ? "i-lucide-minimize-2" : "i-lucide-maximize-2");
 
 const queuedMessageText = (item: AgentQueuedMessageDto): string => {
@@ -186,7 +192,7 @@ const queuedMessageText = (item: AgentQueuedMessageDto): string => {
 
 const queuedMessageIcon = (item: AgentQueuedMessageDto): string => item.kind === "steer" ? "i-lucide-corner-down-left" : "i-lucide-list-plus";
 
-const queuedMessageLabel = (item: AgentQueuedMessageDto): string => item.kind === "steer" ? "引导" : "队列";
+const queuedMessageLabel = (item: AgentQueuedMessageDto): string => item.kind === "steer" ? t("agent.composer.steer") : t("agent.composer.queue");
 
 const resolveComposerMenu = (context: AgentTriggerMenuContext): AgentTriggerMenuState => {
     const state = props.resolveMenu(context);
@@ -333,6 +339,7 @@ defineExpose({focus});
                 @update:notes="emit('update:notes', $event)"
                 @active-question-change="setActiveQuestion"
                 @submit="emit('submit-user-input', $event)"
+                @submit-form="emit('submit-user-input-form', $event)"
             />
         </div>
 
@@ -369,14 +376,14 @@ defineExpose({focus});
 
             <div class="flex items-center justify-between border-t border-[var(--border-color)]/50 px-2 py-2">
                 <div class="flex min-w-0 items-center gap-2">
-                    <div ref="sessionModelControlsRef" class="relative flex w-[230px] shrink-0 items-center gap-1.5">
+                    <div ref="sessionModelControlsRef" class="relative flex w-[260px] shrink-0 items-center gap-1.5">
                         <div class="min-w-0 flex-1">
                             <NovelIdeModelSelect
                                 :model-value="props.sessionModelSelectionValue"
                                 :models="props.selectableModels"
                                 allow-default
                                 :default-label="props.sessionModelDefaultLabel"
-                                placeholder="选择 Session 模型"
+                                :placeholder="t('agent.composer.selectSessionModel')"
                                 :disabled="props.readonly || props.running || props.loadingSession || props.sessionModelSaving"
                                 dropdown-direction="up"
                                 @update:model-value="emit('update-session-model-selection', $event)"
@@ -385,7 +392,7 @@ defineExpose({focus});
                         <button
                             class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50"
                             :disabled="props.readonly || props.running || props.loadingSession"
-                            title="当前 Session 模型参数"
+                            :title="t('agent.composer.sessionModelParams')"
                             @click="emit('toggle-session-model-popover')"
                         >
                             <span class="i-lucide-sliders-horizontal h-3.5 w-3.5"></span>
@@ -394,8 +401,8 @@ defineExpose({focus});
                         <div v-if="props.sessionModelPopoverOpen" class="absolute bottom-full left-0 z-40 mb-2 w-[320px] rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-3 shadow-2xl">
                             <div class="mb-3 flex items-center justify-between gap-3">
                                 <div>
-                                    <div class="text-sm font-medium text-[var(--text-main)]">当前 Session 模型参数</div>
-                                    <div class="mt-1 text-[11px] text-[var(--text-muted)]">仅影响当前 Session 后续新发起的 run。</div>
+                                    <div class="text-sm font-medium text-[var(--text-main)]">{{ t("agent.composer.sessionModelParams") }}</div>
+                                    <div class="mt-1 text-[11px] text-[var(--text-muted)]">{{ t("agent.composer.sessionModelDescription") }}</div>
                                 </div>
                                 <button class="rounded p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="emit('update:sessionModelPopoverOpen', false)">
                                     <span class="i-lucide-x h-3.5 w-3.5"></span>
@@ -404,13 +411,13 @@ defineExpose({focus});
 
                             <div class="space-y-3">
                                 <div class="space-y-1.5">
-                                    <label class="text-xs font-medium text-[var(--text-secondary)]">模型</label>
+                                    <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("agent.composer.model") }}</label>
                                     <NovelIdeModelSelect
                                         :model-value="props.sessionModelDraft.modelKey"
                                         :models="props.selectableModels"
                                         allow-default
                                         :default-label="props.sessionModelDefaultLabel"
-                                        placeholder="选择 Session 模型"
+                                        :placeholder="t('agent.composer.selectSessionModel')"
                                         :disabled="props.readonly"
                                         dropdown-direction="up"
                                         @update:model-value="updateSessionModelDraft({modelKey: $event})"
@@ -418,8 +425,8 @@ defineExpose({focus});
                                 </div>
                                 <div class="space-y-1.5">
                                     <div class="flex items-center justify-between gap-2">
-                                        <label class="text-xs font-medium text-[var(--text-secondary)]">思考强度</label>
-                                        <span class="truncate text-[10px] text-[var(--text-muted)]">当前 {{ props.sessionThinkingResolvedLabel }}</span>
+                                        <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("agent.composer.thinkingEffort") }}</label>
+                                        <span class="truncate text-[10px] text-[var(--text-muted)]">{{ t("agent.composer.current", {value: props.sessionThinkingResolvedLabel}) }}</span>
                                     </div>
                                     <select :value="props.sessionModelDraft.reasoningEffort ?? ''" class="h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-[12px] text-[var(--text-main)] outline-none transition-colors focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]/20 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.readonly" @change="updateSessionModelDraft({reasoningEffort: (($event.target as HTMLSelectElement).value || null) as AgentComposerSessionModelDraft['reasoningEffort']})">
                                         <option v-for="option in thinkingLevelOptions" :key="option.label" :value="option.value ?? ''">{{ option.label }}</option>
@@ -429,11 +436,11 @@ defineExpose({focus});
 
                             <div class="mt-4 flex items-center justify-between gap-2">
                                 <button class="inline-flex h-8 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.readonly || props.sessionModelSaving" @click="emit('reset-session-model-settings')">
-                                    回到 profile 默认
+                                    {{ t("agent.composer.resetProfileDefault") }}
                                 </button>
                                 <button class="inline-flex h-8 items-center justify-center rounded-md bg-[var(--accent-main)] px-3 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.readonly || props.sessionModelSaving" @click="emit('apply-session-model-settings')">
                                     <span v-if="props.sessionModelSaving" class="i-lucide-loader-2 mr-1.5 h-3.5 w-3.5 animate-spin"></span>
-                                    应用到当前 Session
+                                    {{ t("agent.composer.applySession") }}
                                 </button>
                             </div>
                         </div>
@@ -501,20 +508,20 @@ defineExpose({focus});
                 <span>{{ props.connectionStatusLabel }}</span>
             </div>
             <template v-if="props.connectionNeedsAction">
-                <button class="inline-flex items-center gap-1 rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="重新连接 Agent 事件流" @click="emit('reconnect-events')">
+                <button class="inline-flex items-center gap-1 rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('agent.composer.reconnectTitle')" @click="emit('reconnect-events')">
                     <span class="i-lucide-refresh-cw h-3 w-3"></span>
-                    <span>重连</span>
+                    <span>{{ t("agent.composer.reconnect") }}</span>
                 </button>
-                <button class="inline-flex items-center gap-1 rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="重新拉取一次当前 Session 历史" @click="emit('refresh-history')">
+                <button class="inline-flex items-center gap-1 rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('agent.composer.refreshHistoryTitle')" @click="emit('refresh-history')">
                     <span class="i-lucide-history h-3 w-3"></span>
-                    <span>刷新历史</span>
+                    <span>{{ t("agent.composer.refreshHistory") }}</span>
                 </button>
             </template>
             <div v-if="props.running" class="inline-flex items-center gap-1 rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5">
                 <span class="i-lucide-loader-circle h-3 w-3 animate-spin"></span>
-                <span>{{ props.runPhaseLabel || "运行中" }}</span>
+                <span>{{ props.runPhaseLabel || t("agent.composer.running") }}</span>
             </div>
-            <div v-if="props.planModeActive" class="inline-flex items-center gap-1 rounded-full border border-[var(--accent-main)]/30 bg-[var(--accent-bg)] px-1.5 py-0.5 text-[var(--accent-text)]" title="Shift+Tab 切换">
+            <div v-if="props.planModeActive" class="inline-flex items-center gap-1 rounded-full border border-[var(--accent-main)]/30 bg-[var(--accent-bg)] px-1.5 py-0.5 text-[var(--accent-text)]" :title="t('agent.composer.togglePlanTitle')">
                 <span class="i-lucide-clipboard-list h-3 w-3"></span>
                 <span>Plan</span>
             </div>

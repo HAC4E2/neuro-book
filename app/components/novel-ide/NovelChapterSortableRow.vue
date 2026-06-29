@@ -21,6 +21,7 @@ const emit = defineEmits<{
 
 const elementRef = ref<HTMLElement | null>(null);
 const handleRef = ref<HTMLElement | null>(null);
+const {t} = useI18n();
 
 /**
  * 注册章节排序能力。
@@ -59,7 +60,7 @@ const { isDragging, isDropTarget } = useSortable({
             type="button"
             class="chapter-drag-handle mr-1.5 flex h-5 w-5 shrink-0 cursor-grab items-center justify-center rounded-full text-[var(--text-muted)] opacity-50 transition-colors hover:bg-[var(--bg-input)] hover:opacity-100 disabled:cursor-not-allowed"
             :disabled="dragDisabled"
-            title="拖拽排序章节"
+            :title="t('ide.chapterPanel.dragChapter')"
             @click.stop
         >
             <span class="i-lucide-grip-vertical h-3.5 w-3.5"></span>
@@ -69,10 +70,10 @@ const { isDragging, isDropTarget } = useSortable({
         <span class="ml-2 w-10 shrink-0 text-right opacity-60">{{ chapter.wordCount }}</span>
         <span class="w-12 shrink-0 text-right" :class="statusClass">{{ statusLabel }}</span>
         <div class="ml-2 flex items-center gap-0.5">
-            <button class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-transparent text-[var(--text-secondary)] transition-all hover:bg-gray-500/20 hover:text-[var(--text-main)]" title="编辑章节信息" @click.stop="emit('edit', chapter)">
+            <button class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-transparent text-[var(--text-secondary)] transition-all hover:bg-gray-500/20 hover:text-[var(--text-main)]" :title="t('ide.chapterPanel.editChapter')" @click.stop="emit('edit', chapter)">
                 <span class="i-lucide-settings-2 h-4 w-4"></span>
             </button>
-            <button class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-transparent text-[var(--text-secondary)] transition-all hover:bg-red-500/10 hover:text-red-500" title="删除章节" @click.stop="emit('delete', chapter.id)">
+            <button class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-transparent text-[var(--text-secondary)] transition-all hover:bg-red-500/10 hover:text-red-500" :title="t('ide.chapterPanel.deleteChapter')" @click.stop="emit('delete', chapter.id)">
                 <span class="i-lucide-trash h-4 w-4"></span>
             </button>
         </div>

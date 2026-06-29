@@ -44,8 +44,8 @@ const DIALOG_SIZE_PRESETS: Record<DialogSize, DialogSizePreset> = {
         maxHeight: "calc(100vh - 20px)",
     },
     full: {
-        width: "min(1840px, calc(100vw - 24px))",
-        height: "min(1080px, calc(100vh - 24px))",
+        width: "calc(100vw - 24px)",
+        height: "calc(100vh - 24px)",
         maxHeight: "calc(100vh - 24px)",
     },
 };
@@ -108,6 +108,7 @@ const emit = defineEmits<{
     (e: "request-close", reason: "overlay" | "cancel" | "close-button" | "esc"): void;
 }>();
 const instance = getCurrentInstance();
+const {t} = useI18n();
 const overlayPointerButton = ref<number | null>(null);
 
 /**
@@ -266,8 +267,8 @@ onMounted(() => {
                     <!-- footer 区域 -->
                     <div v-if="props.showFooter" class="flex items-center justify-end gap-2.5 px-5 py-2 border-t border-[var(--border-color)] bg-transparent">
                         <slot name="footer" :confirm="handleConfirm" :cancel="() => requestClose('cancel')">
-                            <button v-if="props.showCancel" class="inline-flex items-center justify-center h-8 px-4 rounded-md text-[13px] font-medium cursor-pointer border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-main)] transition-colors duration-200 hover:bg-[var(--bg-hover)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.busy" @click="requestClose('cancel')">取消</button>
-                            <button class="inline-flex items-center justify-center h-8 px-4 rounded-md text-[13px] font-medium cursor-pointer border border-transparent bg-[var(--accent-main)] text-white transition-all duration-200 hover:opacity-90 hover:shadow-md active:scale-95 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.busy" @click="handleConfirm">确定</button>
+                            <button v-if="props.showCancel" class="inline-flex items-center justify-center h-8 px-4 rounded-md text-[13px] font-medium cursor-pointer border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-main)] transition-colors duration-200 hover:bg-[var(--bg-hover)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.busy" @click="requestClose('cancel')">{{ t("common.cancel") }}</button>
+                            <button class="inline-flex items-center justify-center h-8 px-4 rounded-md text-[13px] font-medium cursor-pointer border border-transparent bg-[var(--accent-main)] text-white transition-all duration-200 hover:opacity-90 hover:shadow-md active:scale-95 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.busy" @click="handleConfirm">{{ t("common.confirm") }}</button>
                         </slot>
                     </div>
                 </div>

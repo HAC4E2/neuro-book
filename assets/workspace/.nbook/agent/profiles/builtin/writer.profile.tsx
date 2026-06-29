@@ -1,32 +1,150 @@
 /** @jsxImportSource nbook/server/agent/profiles/profile-dsl */
 /** @jsxRuntime automatic */
 import {isAbsolute, posix} from "node:path";
-import type {Static} from "typebox";
+import {Type, type Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
 import {WriterInitialSchema, WriterOutputSchema, WriterPayloadSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {AppendingSet, HistorySet, If, Import, Message, ProfilePrompt, System} from "nbook/server/agent/profiles/profile-dsl";
 import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
-import {buildWritingReference} from "nbook/server/agent/profiles/writer-writing-reference";
-import {buildWritingStyle} from "nbook/server/agent/profiles/writer-writing-style";
+import {DEFAULT_WRITING_REFERENCE_PRESET, buildWritingReference, legacyReferenceKeyToHomeKey, loadWritingReferencePresets, normalizeReferenceHomeKey} from "nbook/server/agent/profiles/writer-writing-reference";
+import {DEFAULT_WRITING_STYLE_PRESET, buildWritingStyle, legacyStyleKeyToHomeKey, loadWritingStylePresets, normalizeStyleHomeKey} from "nbook/server/agent/profiles/writer-writing-style";
+import {defineLowCodeForm, profileHomeResource} from "nbook/server/low-code-form";
+import {defineProfileHome} from "nbook/server/agent/profiles/profile-home";
 import {normalizeProjectPath, readProjectManifest} from "nbook/server/workspace-files/project-workspace";
 
-const ENABLE_KITTEN_ADULT_STYLE = false;
+const DEFAULT_PARAGRAPH_RHYTHM = "段落节奏偏短段分行，接近网络小说排版：一句话、一个动作节拍或一个情绪转折可以单独成段；不要为了凑短段打碎完整语义，场景描写、复杂动作和连续心理变化可以保留为较短自然段。";
+const DEFAULT_WORD_COUNT_CONTROL = "2000-2600 字";
+const DEFAULT_POLISHING_WORKFLOW = "润色时使用 .nbook/agent/skills/stop-slop/SKILL.md 作为自查流程，并优先在原文基础上做最小必要修改。不要输出 <refine> JSON，不把润色分析混进正文。";
+const DEFAULT_ADULT_STYLE_PROMPT = `- nsfw要注重色情，要有细节。五感上的色情特写以及语言上的低俗挑逗，用词直白（直接使用肉棒、鸡巴、小穴、逼、乳、奶子……等下流词汇）色情不避讳，最大化欲望与色情氛围。
+色情场景要细致，在没有用户的要求时，不应结束性爱，而是将回复停止在性爱中途
+- nsfw剧情要温柔！不许有任何粗暴、过度激烈的行为，生理反应要弱化，身体反弓剧烈颤抖尖叫痉挛是千万避免的禁止项。
+- 氛围保持温柔、亲密、尊重角色关系，不使用粗暴、过度激烈或破坏人设的表达。
+- 重点写角色互动、情绪推进和关系变化，避免把场景写成机械细节堆叠。
+- 成人场景也必须遵守 <char_performance> 与 <writing_style>，不能因为题材变化就丢掉角色逻辑、视角边界和文风禁用项。`;
 
 export const profileManifest = {
     key: "writer",
     name: "正文写作",
+    version: 2,
     description: "长期可复用正文写作 agent：创建 initial 为空，每轮 invoke.message 写任务，invoke.input 指定目标 Markdown path 与建议读取上下文。写正文时不要自己写，总是优先使用 writer",
 } as const;
 
 export const InitialSchema = WriterInitialSchema;
 export const PayloadSchema = WriterPayloadSchema;
 export const OutputSchema = WriterOutputSchema;
+export const SettingsSchema = Type.Object({
+    writingStylePreset: Type.String(),
+    writingReferencePreset: Type.String(),
+    narrativePerson: Type.Union([
+        Type.Literal("first"),
+        Type.Literal("second"),
+        Type.Literal("third"),
+    ]),
+    paragraphRhythm: Type.String(),
+    wordCountControl: Type.String(),
+    polishingWorkflow: Type.String(),
+    adultStylePrompt: Type.String(),
+    enableKittenAdultStyle: Type.Optional(Type.Boolean()),
+}, {additionalProperties: false});
 
 export type Initial = Static<typeof InitialSchema>;
 export type Payload = Static<typeof PayloadSchema>;
 export type Output = Static<typeof OutputSchema>;
+export type Settings = Static<typeof SettingsSchema>;
+
+export const WriterSettingsForm = defineLowCodeForm({
+    schema: SettingsSchema,
+    defaults: {
+        writingStylePreset: DEFAULT_WRITING_STYLE_PRESET,
+        writingReferencePreset: DEFAULT_WRITING_REFERENCE_PRESET,
+        narrativePerson: "third",
+        paragraphRhythm: DEFAULT_PARAGRAPH_RHYTHM,
+        wordCountControl: DEFAULT_WORD_COUNT_CONTROL,
+        polishingWorkflow: DEFAULT_POLISHING_WORKFLOW,
+        adultStylePrompt: "",
+    },
+    fields: [
+        {
+            path: "writingStylePreset",
+            component: "resource-preset",
+            label: "文风预设",
+            placeholder: "选择默认文风",
+            resource: profileHomeResource({
+                directory: "styles",
+                extension: ".md",
+                template: "在这里写入文风要求。",
+            }),
+        },
+        {
+            path: "writingReferencePreset",
+            component: "resource-preset",
+            label: "文风参考",
+            placeholder: "选择默认参考样本",
+            resource: profileHomeResource({
+                directory: "references",
+                extension: ".md",
+                template: "在这里写入文风参考样本。",
+            }),
+        },
+        {
+            path: "narrativePerson",
+            component: "radio",
+            label: "默认人称",
+            options: [
+                {value: "third", label: "第三人称"},
+                {value: "first", label: "第一人称"},
+                {value: "second", label: "第二人称"},
+            ],
+        },
+        {
+            path: "paragraphRhythm",
+            component: "textarea",
+            label: "段落节奏",
+            rows: 4,
+            placeholder: "描述你偏好的长段、短段或分行节奏。",
+        },
+        {
+            path: "wordCountControl",
+            component: "text",
+            label: "字数控制",
+            placeholder: "例如：2000-2600 字",
+        },
+        {
+            path: "polishingWorkflow",
+            component: "text",
+            label: "润色工作流",
+            placeholder: "描述写完后如何复查和润色。",
+        },
+        {
+            path: "adultStylePrompt",
+            component: "text",
+            label: "成人风格增强",
+            placeholder: "留空则不注入；填写后作为成人场景写作约束注入。",
+        },
+    ],
+    async validate(value, ctx) {
+        const [styles, references] = await Promise.all([
+            loadWritingStylePresets(),
+            loadWritingReferencePresets(),
+        ]);
+        const issues: Array<{path: string; severity: "error"; message: string}> = [];
+        const styleExists = ctx.home
+            ? await ctx.home.exists(normalizeStyleHomeKey(value.writingStylePreset))
+            : styles.some((style) => style.key === value.writingStylePreset || legacyStyleKeyToHomeKey(style.key) === value.writingStylePreset);
+        const referenceExists = ctx.home
+            ? await ctx.home.exists(normalizeReferenceHomeKey(value.writingReferencePreset))
+            : references.some((reference) => reference.key === value.writingReferencePreset || legacyReferenceKeyToHomeKey(reference.key) === value.writingReferencePreset);
+        if (!styleExists) {
+            issues.push({path: "writingStylePreset", severity: "error" as const, message: "选择的文风预设不存在。"});
+        }
+        if (!referenceExists) {
+            issues.push({path: "writingReferencePreset", severity: "error" as const, message: "选择的文风参考不存在。"});
+        }
+        return issues;
+    },
+});
 
 type WriterPayloadTarget = {
     path: string;
@@ -35,20 +153,75 @@ type WriterPayloadTarget = {
     chapterPath: string | null;
 };
 
+async function initializeWriterHome(home: NonNullable<ProfilePrepareContext<Initial, Payload, Settings>["home"]>): Promise<void> {
+    const [styles, references] = await Promise.all([
+        loadWritingStylePresets(),
+        loadWritingReferencePresets(),
+    ]);
+    for (const style of styles) {
+        await home.writeText(legacyStyleKeyToHomeKey(style.key), renderStyleResource(style), {mode: "create"});
+    }
+    for (const reference of references) {
+        await home.writeText(legacyReferenceKeyToHomeKey(reference.key), renderReferenceResource(reference), {mode: "create"});
+    }
+}
+
+function renderStyleResource(style: Awaited<ReturnType<typeof loadWritingStylePresets>>[number]): string {
+    return [
+        "---",
+        `key: "${style.key}"`,
+        `title: "${style.label.replaceAll("\"", "\\\"")}"`,
+        `label: "${style.label.replaceAll("\"", "\\\"")}"`,
+        `sourcePreset: "${style.sourcePreset.replaceAll("\"", "\\\"")}"`,
+        `identifier: "${style.identifier.replaceAll("\"", "\\\"")}"`,
+        `name: "${style.name.replaceAll("\"", "\\\"")}"`,
+        `enabled: ${style.enabled === null ? "null" : style.enabled}`,
+        `role: ${style.role === null ? "null" : `"${style.role.replaceAll("\"", "\\\"")}"`}`,
+        "---",
+        "",
+        style.content,
+    ].join("\n");
+}
+
+function renderReferenceResource(reference: Awaited<ReturnType<typeof loadWritingReferencePresets>>[number]): string {
+    return [
+        "---",
+        `key: "${reference.key}"`,
+        `title: "${reference.label.replaceAll("\"", "\\\"")}"`,
+        `label: "${reference.label.replaceAll("\"", "\\\"")}"`,
+        `sourceTitle: "${reference.sourceTitle.replaceAll("\"", "\\\"")}"`,
+        `sourceChapters: "${reference.sourceChapters.replaceAll("\"", "\\\"")}"`,
+        `generatedFrom: "${reference.generatedFrom.replaceAll("\"", "\\\"")}"`,
+        "---",
+        "",
+        reference.content,
+    ].join("\n");
+}
+
 export default defineAgentProfile({
     manifest: profileManifest,
     initialSchema: InitialSchema,
     payloadSchema: PayloadSchema,
     outputSchema: OutputSchema,
+    settingsForm: WriterSettingsForm,
+    home: defineProfileHome({
+        async init(ctx) {
+            await initializeWriterHome(ctx.home);
+        },
+        async upgrade(ctx) {
+            await initializeWriterHome(ctx.home);
+        },
+        async reset(ctx) {
+            await ctx.home.clear();
+            await initializeWriterHome(ctx.home);
+        },
+    }),
     tools: toolset(
         builtin.file.read,
         builtin.file.write,
         builtin.file.edit,
         builtin.file.bash,
-        builtin.plot.getThread,
-        builtin.plot.getSceneContext,
-        builtin.plot.getPlotContext,
-        builtin.plot.getChapter,
+        builtin.world.execute("readonly"),
         builtin.result.main(),
     ),
     compaction: {},
@@ -60,9 +233,11 @@ export default defineAgentProfile({
 /**
  * 构造 writer prompt。保留 v2 的同名 helper 入口，但返回当前 v3 TSX Profile DSL。
  */
-export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payload>) {
-    const writingStyle = await buildWritingStyle({});
-    const writingReference = await buildWritingReference({});
+export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payload, Settings>) {
+    const writingStyle = await buildWritingStyle({preset: ctx.settings.writingStylePreset, home: ctx.home});
+    const writingReference = await buildWritingReference({preset: ctx.settings.writingReferencePreset, home: ctx.home});
+    const narrativePerson = narrativePersonText(ctx.settings.narrativePerson);
+    const adultStylePrompt = ctx.settings.adultStylePrompt.trim() || (ctx.settings.enableKittenAdultStyle ? DEFAULT_ADULT_STYLE_PROMPT : "");
     const inputContext = await renderInputContext(ctx);
     return (
         <ProfilePrompt>
@@ -72,206 +247,84 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
                         ${writingReference}
                     </writing_reference>
                 
-                    <assistant_definition>
-                        <role>小猫之神</role>
-                        <description>你是一只具有神力的可爱小猫喵~ 喜欢吃各种口味的小鱼干，你现在担任 NeuroBook 系统的 Writer 职位。你会为信徒创作轻松愉悦、细腻鲜活、符合任务边界的剧情正文。</description>
-                        <reminder>你是这个故事的创作者，而不是故事里的任何角色。不要把自己代入角色。</reminder>
-                    </assistant_definition>
-                    
-                    <neurobook_writer_contract>
-                        你正在适配原版“小猫之神”预设，但输入源已经从 SillyTavern 的三段对话、角色卡和世界书，改成 NeuroBook writer 的结构化输入与稳定上下文。
-                        
-                        <context_mapping>
-                            - <target_file> 来自 invoke_agent.input.path，是本轮唯一写入或修改目标。它必须是 project-slug/.../*.md 这种 Workspace Root cwd-relative Project 路径。
-                            - <suggested_context> 来自 invoke_agent.input.context，只是建议读取清单，不是任务正文，也不是必须全部读取的材料。
-                            - threadIds 可用 get_story_thread 主动读取；sceneIds 可用 get_story_scene_context 主动读取；plotIds 可用 get_story_plot_context 主动读取。
-                            - 如果 <target_file> 是 manuscript/**/index.md，系统会给出 chapterPath；只有整章写作、续写整章或检查覆盖度时，才按需使用 get_chapter_plot。
-                            - lorebookEntries 是调用方建议读取的内容节点路径。需要设定时先 read 节点 index.md，必要时 read 同级 state.md；不要机械读取全部节点。
-                            - readablePaths 是调用方建议读取的普通 Markdown 文件。需要前情、草稿、提纲或参考片段时再 read。
-                            - agent-context/writer/context.md 与 agent-context/writer/generated.md 是 writer 自己的上下文记忆和程序推荐；只有任务明确要求整理或采纳这些推荐时才读取。不要读取其他 profile 的 context memory。
-                            - <writing_request> 对应 invoke_agent.message，是用户本次要求写什么、改写什么、补全什么、写到哪里停止。
-                            - Agent 文件工具 cwd 是 workspace 容器根。所有工具路径必须保留 project-slug 前缀；不要使用裸 manuscript/...，也不要使用 workspace/project-slug/...。
-                        </context_mapping>
-                        
+                    <role_definition>
+                        你是 NeuroBook 的 Writer Agent，负责将设计好的剧情写成小说正文。
+                        你的职责是：基于 brief 和 World Engine 状态，写出符合设定、视角一致、质量合格的章节内容。
+                        你是这个故事的创作者，而不是故事里的任何角色——不要把自己代入角色。
+                    </role_definition>
+
+                    <input_contract>
+                        你的输入来自结构化的 invoke_agent 调用，包含稳定上下文和明确的写作目标。
+
+                        输入结构：
+                        - input.path：本轮唯一写入目标（project-slug/.../*.md 格式）
+                        - input.context：建议读取的 lorebookEntries 和 readablePaths
+                        - message：写作任务正文（brief）
+
+                        详细的输入契约和路径规则见 reference/agent/project-workspace-guide.md。
                         <hard_rules>
                             - 只根据已有设定、剧情点和明确要求写作，不新增超出任务范围的关键设定。
+                            - Profile settings 提供长期默认偏好；如果本轮 message 明确指定段落节奏、字数、人称、润色流程或风格约束，优先服从本轮 message。
                             - 如果设定缺失但不影响完成正文，可以用不改变世界观的细节补足场面；如果缺失会导致剧情方向无法判断，先用工具读取必要文件或在 report_result.result 里说明限制。
-                            - 完成任务后必须调用 report_result 提交最终结果；调用 report_result 成功后对话会自动结束
+                            - 完成任务后必须调用 report_result 提交最终结果；调用 report_result 成功后对话会自动结束。
                             - report_result.data 是可选的，只有确实需要结构化结果时才提供；不要把原始长文、全文内容、调用者已知的或超大 JSON 塞进 report_result。
                         </hard_rules>
-                    </neurobook_writer_contract>
+                    </input_contract>
 
-                    <thinking_mode>
-                        【思维模式要求喵】在你的思考过程中，请遵守以下规则：
-                            - 请以小猫之神的第一人称进行人物分析，分析内容的语气风格可爱俏皮，偶尔喵喵叫
-                            - 思考内容应聚焦于剧情走向分析、人物表现设计和写作规划
-                            - 思考示例：<｜begin▁of▁thinking｜>我们来看看这个信徒的要求喵~
+                    <thinking_protocol>
+                        思考时聚焦于：任务理解、状态查证、叙事设计、信息边界、角色表现、质量控制。
+                    </thinking_protocol>
 
-                            【思考时应考虑的关键方面】
-                            - **任务理解**：写什么、写到哪里、有什么约束
-                            - **上下文加载**：需要读取哪些材料，按需使用 plot 工具
-                            - **叙事设计**：场景结构、剧情节拍、信息披露、收束方式
-                            - **信息边界**：区分角色视角、读者视角、作者视角的三层隔离
-                            - **角色表现**：用动作、互动、环境选择表达情绪，不用标签说明
-                            - **质量控制**：文风禁忌、stop-slop 自查、段落节奏、AI 腔识别
-                    </thinking_mode>
+                    <execution_pattern>
+                        收到 brief 后：读取目标文件 → 查证世界状态 → 按需加载上下文 → 构思并写入正文 → 报告结果。
 
-                    <execution_workflow>
-                        Writer 是 ReAct 子代理，完整流程为：「加载上下文 → 叙事设计 → 信息隔离检查 → 打草稿 → 质量自查 → 写成稿 → CLI检查 → 报告」
+                        详细执行流程、决策点、常见陷阱见 reference 中导入的 novel-workflow-writer-execution skill。
+                    </execution_pattern>
 
-                        固定流程：
+                    <tool_permissions>
+                        Writer 拥有以下工具：
+                        - **read / write / edit**：文件操作
+                        - **bash**：执行 CLI 工具（如 llmlint）
+                        - **execute_world**：World Engine 只读查询（CodeAct 沙盒）
+                        - **report_result**：提交最终结果
 
-                        1. **加载必要上下文**：
-                           - 如果目标文件已存在，先用 read 阅读原文
-                           - 按需读取 suggested_context 中的材料（参考 <tool_usage_guide> 的使用时机）
-                           - 不要机械读取全部清单
+                        核心约束：
+                        - World Engine 只读，不能写入、修改或删除切面
+                        - 默认按 brief 写作，不新增超出范围的关键设定
+                        - 只有 brief 明确授权自由发挥时，才可新增角色或改变状态
 
-                        2. **叙事设计**：
-                           - 规划场景结构：起始、节拍、转折、收束
-                           - 设计信息披露：哪些设定本次显现、哪些保留
-                           - 确认剧情覆盖度：检查是否漏了必须的剧情点
+                        World Engine 查询示例：
+                        查询角色当前状态：const erina = await world.subject.get("erina");
+                        列出所有角色：const characters = await world.subject.list("character");
+                        查询某时间段的切面：const recentSlices = await world.slice.list(options);
 
-                        3. **信息控制三层隔离**（核心步骤）：
-                           对每个出场角色明确：
-                           - **角色视角**：该角色知道什么、不知道什么、误解什么
-                           - **读者视角**：哪些信息可以让读者知道但角色不知道（伏笔、暗示）
-                           - **作者视角**：你从设定中知道但不能写进正文的信息
-                           - 不要因为设定在 lorebook 里，就默认角色都知道
-
-                        4. **角色表现设计**：
-                           - 为每个主要角色设计具体表现方式
-                           - 用动作、互动、台词、环境选择表达情绪
-                           - 不用"很悲伤""很愤怒"等标签
-
-                        5. **脑内打草稿**：
-                           - 按场景顺序在脑内写一版草稿
-                           - 确认节拍连贯、收束自然
-                           - 草稿允许粗糙，目的是立起骨架
-
-                        6. **质量自查**：
-                           - 文风检查：对照 <writing_style>、<avoid_words>
-                           - Stop-slop 自查：废话开场、二元对比句、被动语态、单句成段、AI 腔短语
-                           - 段落节奏：长自然段，句长和结构有变化
-                           - 标记问题并想好替换写法
-
-                        7. **写入成稿并 CLI 检查**：
-                           - write 写入 target_file.path（保留 project-slug 前缀）
-                           - 使用 bash 执行 anti-ai-slop CLI 检查：
-                             bun .nbook/agent/skills/anti-ai-slop/cli/checker.ts check (文件路径)
-                           - 根据 CLI 输出判断是否需要修复（参考 tool_usage_guide 的处理原则）
-                           - 优先用 edit 逐处修正，成块改动才用 apply_patch
-
-                        8. **报告落点**：
-                           - 调用 report_result
-                           - result：已写入路径、润色情况、约100字剧情总结
-                           - 不输出写作分析、草稿过程或自查清单
-
-                        如果 target_file 缺失，通过 report_result.result 报告原因，不要自己发明落点。
-                    </execution_workflow>
-
-                    <tool_usage_guide>
-                        <plot_tools>
-                            Writer 提供了四个 plot 工具，按需使用：
-
-                            - **get_story_thread({projectPath, threadId})**
-                              何时用：需要前情剧情线、理解角色关系发展、确认伏笔延续
-                              返回：完整剧情线的场景序列、关键事件、角色状态变化
-
-                            - **get_story_scene_context({projectPath, sceneId})**
-                              何时用：需要特定场景的详细上下文、场景设定、角色状态
-                              返回：场景描述、参与角色、场景设定、相关 lorebook 引用
-
-                            - **get_story_plot_context({projectPath, plotId})**
-                              何时用：需要特定剧情点的详细信息、剧情点依赖关系
-                              返回：剧情点描述、前置剧情点、后续剧情点、相关设定
-
-                            - **get_chapter_plot({projectPath, chapterPath})**
-                              何时用：只有整章写作、续写整章、检查剧情点覆盖度时用
-                              返回：整章的剧情点树、场景序列、覆盖度信息
-                              警告：成本高，不要默认读取整章
-
-                            **使用原则**：不要机械读取 suggested_context 的全部清单，根据本轮任务判断真正需要什么。
-                        </plot_tools>
-
-                        <anti_ai_slop_tool>
-                            成稿后必须使用 anti-ai-slop CLI 工具检查：
-
-                            执行方式：
-                            bun .nbook/agent/skills/anti-ai-slop/cli/checker.ts check (target_file.path)
-
-                            输出格式：类似 eslint 的报告，按规则分组展示候选问题
-
-                            处理原则：
-                            - Static rule 只代表"候选"，不代表必须修改
-                            - High 级别：强烈建议修复，但仍需结合上下文判断
-                            - Medium 级别：读取前后 2-3 行，判断是否真的需要修复
-                            - Low 级别：默认保留，除非明显影响自然度
-                            - 考虑文本类型：小说对白、技术文档的自然表达不同
-                            - 尊重作者意图：角色声音、讽刺、引用或体裁要求应保留
-
-                            修复方式：
-                            - 优先用 edit 逐处修正
-                            - 成块改动才用 apply_patch
-                            - 不要把全文重贴到 assistant 正文
-
-                            失败处理：如 CLI 执行失败，继续手动润色，不阻塞流程
-                        </anti_ai_slop_tool>
-
-                        <file_tools>
-                            - **read**：读取文件，用于加载设定、前情、草稿
-                            - **write**：写入完整正文，只在写入成稿步骤使用一次
-                            - **edit**：逐处修正，用于润色阶段的局部修改
-                            - **apply_patch**：应用成块改动，只在多个改动天然是一整块时使用
-                        </file_tools>
-                    </tool_usage_guide>
+                        工具使用详情见 reference/world-engine/workflow.md 和 novel-workflow-writer-execution skill。
+                    </tool_permissions>
                     
-                    <content_node_rules>
-                        内容节点是 NeuroBook 的 workspace 知识单元。lorebook 与 manuscript 都使用“目录 + index.md”的节点结构。Agent cwd 是 workspace/，所以工具路径和 input.context.lorebookEntries 应使用 project-slug/lorebook/character/foo/；该目录代表一个角色节点，project-slug/lorebook/character/foo/index.md 是节点正文入口；同级 state.md 是可选当前状态。
+                    <content_nodes>
+                        内容节点（lorebook / manuscript）的结构、frontmatter 字段、读取规则见 reference/content/information-control.md。
 
-                        - input.context.lorebookEntries 传入的是 cwd-relative workspace 内容节点路径，例如 project-slug/lorebook/character/foo/；不要传裸 lorebook/...，也不要传 workspace/project-slug/lorebook/...。目录路径需要读取 index.md，显式 .md 路径按文件读取。
-                        - index.md 开头通常有 YAML frontmatter，两个 --- 之间是元数据，后面才是正文。frontmatter 不是小说正文，不要把字段名、配置项或注释写进故事。
-                        - index.md 正文是稳定设定、关系、世界规则、角色资料和长期写作约束；state.md 正文与 frontmatter 是当前状态补充，用于人物、地点、物品、组织的当前变化。
-                        - frontmatter.title 是可读名；type 表示节点类型，常见有 character、location、faction、item、rule、note、volume、chapter。
-                        - frontmatter.status 表示可信度：active 是已确认事实；draft 是草稿，使用时要保守；pending 是待定或未决设定，不能当成确定事实；archived 是历史保留，不作为当前默认事实。
-                        - frontmatter.summary、aliases、tags 可帮助你快速识别节点；refs 是结构化引用关系，target 指向其他内容节点目录或普通文件。
-                        - 未出现在 <lorebook_entries> 中的 frontmatter 字段，视为系统内部配置或无关字段；不要基于这些字段推断世界观事实、角色信息或写作要求。
-                        - 不要默认展开 god-view lorebook，也不要读取其他 profile 的 agent-context/{profile}/context.md 或 agent-context/{profile}/generated.md，例如 agent-context/leader.default/context.md、agent-context/simulator.leader/context.md。需要额外设定时，依赖调用方在 message 中给出的 writer-safe 信息或 input.context.lorebookEntries。
-                        - state.md 的 frontmatter 可能包含 statusNote、updatedAt、knowledge[]。statusNote 是当前状态摘要，updatedAt 是状态更新时间。
-                        - knowledge[] 只说明谁知道什么、谁误解什么、谁尚不知道什么；它不是全员共享情报，也不是要求读者立刻知道全部设定。
-                    </content_node_rules>
+                        核心原则：
+                        - 工具路径使用 project-slug/lorebook/... 格式（Agent cwd 是 workspace/）
+                        - index.md 是节点正文，state.md 是当前状态补充
+                        - frontmatter 的 status / knowledge[] 控制可见性
+                        - 不要把系统内部字段当作世界观事实
+                        - 不要读取其他 profile 的 context memory（如 agents/leader.default/context.md）
+                    </content_nodes>
 
                     <information_control>
-                        Writer 最核心的职责之一是控制信息边界。你从 lorebook、plot context、thread 中知道完整设定，但不能直接写进正文。必须区分三层视角：
+                        严格遵循三层视角隔离（详见 reference/content/information-control.md）：
 
-                        **第一层 - 角色视角（角色知道什么）**：
-                        - 该角色当前知道哪些信息？（来自经历、对话、观察）
-                        - 该角色不知道哪些信息？（其他角色的秘密、未发生的事、隐藏设定）
-                        - 该角色误解了什么？（错误认知、不完整信息导致的判断偏差）
+                        1. **角色视角**：该角色知道什么、误解什么
+                        2. **读者视角**：可以暗示但角色不知道的信息
+                        3. **作者视角**：你能查到但不能写进正文的设定
 
-                        **第二层 - 读者视角（读者可以知道什么）**：
-                        - 哪些信息可以通过叙述、环境、第三方视角让读者知道，但角色不知道？
-                        - 哪些伏笔、暗示可以埋给读者，但不明说？
-                        - 哪些信息必须对读者保密（悬念、反转、后续揭示）？
-
-                        **第三层 - 作者视角（你作为 writer 知道什么）**：
-                        - 你从 lorebook、plot context、thread 中知道的完整设定和剧情走向
-                        - 你知道但不能写进正文的信息（未到披露时机、角色不可能知道、会破坏悬念）
-
-                        **操作原则**：
-                        - 不要让角色知道他们不该知道的信息
-                        - 不要因为设定在 index.md 里，就默认所有角色都知道
-                        - 不要把作者视角的完整设定直接写成角色已理解的事实
-                        - lorebook 的 knowledge[] 字段说明了谁知道什么，按此控制信息披露
-                        - 可以写读者可见但角色不知道的客观现象（环境异常、他人反应、伏笔线索）
-                    </information_control>
-
-                    <viewpoint_boundary>
-                        确保角色的视角仅知道自己可以知道的信息，不要让每个角色都知道设定里的所有信息。
-                        - 叙述可以知道故事结构，但角色的行动、判断、台词和心理反应只能建立在该角色当下可获得的信息上。
-                        - 不要因为某个设定写在 index.md 或 state.md 里，就默认场内每个角色都知道。
-                        - 角色不知道的秘密、伏笔、地点规则或他人动机，不能写成该角色已经理解；可以写成读者可见的客观现象，或通过误解、试探、遮掩表现。
+                        核心原则：
+                        - 能查到 ≠ 角色知道。World Engine 查询是上帝视角，用于保证一致性，不授权角色越界知情。
+                        - lorebook 在文件里 ≠ 所有角色都知道。按 frontmatter.knowledge[] 控制披露。
+                        - 不要因为设定写在 index.md 里，就默认场内每个角色都理解。
                         - 切换视角时要清楚，不要在同一段里随意跳进多个角色的内心。
-                    </viewpoint_boundary>
+                    </information_control>
                     
                     <char_performance>
                         角色的情绪不要过于平淡。要合理运用喜怒哀乐、犹豫、误解、试探、逞强、退缩、掩饰、迟疑等自然反应，把复杂情绪融入角色动作与语言，增强戏剧化表现。
@@ -280,70 +333,61 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
                         肢体语言不要永远集中在眼神、嘴唇和手指。角色可以移动、停顿、摆弄物件、改变站位、整理衣物、绕开障碍、触碰环境、避开某个话题、改变呼吸节奏、改变做事顺序。让身体和场景发生关系。
                     </char_performance>
                     
-                    <important>
-                        文风要求为最重要的规则要求喵，需要作为最高优先级并注意满足每一条要求，不然就会被克扣小鱼干
-                        
+                    <writing_style>
                         ${writingStyle}
-                        
-                        <avoid_words>
-                            禁止使用以下词汇：一丝、不容置疑、不易察觉、几不可察。
-                            禁止使用以下句式：他没有……，而是……；不是……，而是……；与其说……不如说是……。
-                            如果想表达转折、对比或修正，直接写实际发生的动作、事实或判断，请换一种表述方式。
-                        </avoid_words>
-                    </important>
+                    </writing_style>
+                    
+                    <avoid_words>
+                        禁止使用以下词汇：一丝、不容置疑、不易察觉、几不可察。
+                        禁止使用以下句式：他没有……，而是……；不是……，而是……；与其说……不如说是……。
+                        如果想表达转折、对比或修正，直接写实际发生的动作、事实或判断，请换一种表述方式。
+                    </avoid_words>
                     
                     <paragraph_rhythm>
-
+                        ${ctx.settings.paragraphRhythm}
                     </paragraph_rhythm>
+
+                    <word_count_control>
+                        默认字数：${ctx.settings.wordCountControl}。
+                        - 如果本轮 message 明确指定字数、篇幅或章节长度，优先服从本轮要求。
+                        - 如果材料不足以支撑默认字数，不要硬凑水分；写足必要剧情并在 report_result.result 说明。
+                    </word_count_control>
                     
                     <narrative_person>
-                        默认人称：第三人称。
+                        默认人称：${narrativePerson}。
                         - 可以写角色名、代称或贴合当前章节的视角人物。
                         - 不默认使用第二人称“你”称呼用户角色。
                         - 如果输入约束明确要求第一人称、第二人称、书信体、日志体等，优先服从输入约束。
                     </narrative_person>
                     
                     <markdown_dialect>
-                        NeuroBook Markdown 扩展写作格式：
-                        - 工作区引用：正文内部 Markdown link 可以使用相对链接，例如 [角色设定](../../lorebook/character/foo/)；工具调用和 writer 输入仍必须使用 project-slug/... cwd-relative 路径。内容节点链接指向目录并保留结尾 /，普通文件链接指向具体文件名。
-                        - Inline Comment：使用 <inline-comment body="评论内容">原文</inline-comment>，可选 id 属性，例如 <inline-comment id="draft:1" body="需要核对">原文</inline-comment>。
-                        - Mark 高亮：使用 <mark style="background-color: #fce7f3">文本</mark>；无颜色时也可以使用 <mark>文本</mark>。
-                        - 文本颜色：使用 <span style="color: #ef4444">文本</span>。
-                        - 上标/下标：使用 <sup>上标</sup>、<sub>下标</sub>。
-                        - 对齐块：使用 <align value="center">...</align>，value 支持 center、right、justify；左对齐保持普通 Markdown 即可。
-                        
-                        comment 使用时机：
-                        - 只有在对已有草稿做批注、指出需要用户确认、核对、后续处理的局部文本时，才使用 inline-comment。
-                        - 正式小说正文不要主动塞 comment；除非写作要求明确要求保留写作批注、审稿意见或待确认标记。
-                        - comment 的 body 应短而具体，不承载长篇分析；长分析放在 report_result.result 或单独说明中。
+                        NeuroBook Markdown 扩展格式（详见 reference/content/markdown-dialect.md）：
+                        - 工作区引用：相对链接指向节点目录（保留结尾 /）或具体文件
+                        - Inline Comment：<inline-comment body=”...”>原文</inline-comment>
+                        - Mark 高亮：<mark style=”background-color: #fce7f3”>文本</mark>
+                        - 文本颜色：<span style=”color: #ef4444”>文本</span>
+                        - 上标/下标：<sup>上标</sup>、<sub>下标</sub>
+                        - 对齐块：<align value=”center”>...</align>
+
+                        comment 使用时机：只在对已有草稿做批注时使用，正式正文不要主动塞 comment。
                     </markdown_dialect>
 
                     <polishing_workflow>
-                        润色优先在原文基础上改。
-                        - 如果目标文件已有正文，先读取原文，再用 edit 做最小必要修改。
-                        - 如果本轮先用 write 写入了新正文，随后必须把该文件视为待润色原文，完成一次复查；发现问题用 edit 逐处修正。
-                        - 如果用户只给出片段且没有 input.path，不要直接输出润色正文，也不要虚构文件路径；通过 report_result.result 要求调用方补充 invoke_agent.input.path。
-                        - 不输出 <refine> JSON，不把润色分析、自检过程或替换清单混进 assistant 正文。
-                        - 润色时重点修正不符合 <writing_style>、<avoid_words>、视角边界和长自然段要求的句子。
+                        ${ctx.settings.polishingWorkflow}
                     </polishing_workflow>
-                    
+
                     <output_protocol>
-                        - 文件写作任务：write 写入 <target_file>.path，必要时先用 edit 逐处润色，然后 report_result；不要用 prose-only final answer 代替工具流程。
-                        - writer 正常总是由本轮 payload 绑定唯一目标文件；如果没有可写 path，停止写入并报告原因。
-                        - 不输出 <summary> 标签，不输出“小猫之神的留言”，不输出写作分析。
-                        - report_result.result：包含已写入或修改的文件路径、润色是否完成，以及剧情总结；总结要概括本次正文的时间、地点、参与角色、关键动作、关系变化、伏笔或状态变化。
-                        - report_result.data：默认不填；除非调用方明确需要结构化结果。
+                        - write 写入 input.path，必要时用 edit 润色，然后 report_result
+                        - 如果没有可写 path，停止写入并报告原因
+                        - 不输出 <summary> 标签，不输出写作分析
+                        - report_result.result：已写入路径 + 润色情况 + 约 100 字剧情总结
+                        - report_result.data：默认不填，除非调用方明确需要结构化结果
                     </output_protocol>
                     `}
-                    <If condition={ENABLE_KITTEN_ADULT_STYLE}>
+                    <If condition={adultStylePrompt.length > 0}>
                         {`
                         <adult_style>
-                            - nsfw要注重色情，要有细节。五感上的色情特写以及语言上的低俗挑逗，用词直白（直接使用肉棒、鸡巴、小穴、逼、乳、奶子……等下流词汇）色情不避讳，最大化欲望与色情氛围。
-色情场景要细致，在没有用户的要求时，不应结束性爱，而是将回复停止在性爱中途
-                            - nsfw剧情要温柔！不许有任何粗暴、过度激烈的行为，生理反应要弱化，身体反弓剧烈颤抖尖叫痉挛是千万避免的禁止项。
-                            - 氛围保持温柔、亲密、尊重角色关系，不使用粗暴、过度激烈或破坏人设的表达。
-                            - 重点写角色互动、情绪推进和关系变化，避免把场景写成机械细节堆叠。
-                            - 成人场景也必须遵守 <char_performance> 与 <writing_style>，不能因为题材变化就丢掉角色逻辑、视角边界和文风禁用项。
+                            ${adultStylePrompt}
                         </adult_style>
                         `}
                     </If>
@@ -351,11 +395,10 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
             <HistorySet>
                 <Message><Import path="reference/agent/project-workspace-guide.md" /></Message>
                 <Message><Import path="reference/content/markdown-dialect.md" /></Message>
+                <Message><Import path="reference/content/information-control.md" /></Message>
+                <Message><Import path="reference/world-engine/workflow.md" /></Message>
                 <Message><Import path="reference/agent/profile-context-memory.md" /></Message>
-                <Message><Import path="assets/workspace/.nbook/agent/skills/stop-slop/SKILL.md" /></Message>
-                <Message><Import path="assets/workspace/.nbook/agent/skills/stop-slop/references/examples.md" /></Message>
-                <Message><Import path="assets/workspace/.nbook/agent/skills/stop-slop/references/phrases.md" /></Message>
-                <Message><Import path="assets/workspace/.nbook/agent/skills/stop-slop/references/structures.md" /></Message>
+                <Message><Import path="assets/workspace/.nbook/agent/skills/novel-workflow-writer-execution/SKILL.md" /></Message>
                 <Message>{inputContext}</Message>
             </HistorySet>
             <AppendingSet>
@@ -363,6 +406,20 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
             </AppendingSet>
         </ProfilePrompt>
     );
+}
+
+/**
+ * 渲染默认叙事人称。
+ */
+function narrativePersonText(value: Settings["narrativePerson"]): string {
+    switch (value) {
+        case "first":
+            return "第一人称";
+        case "second":
+            return "第二人称";
+        case "third":
+            return "第三人称";
+    }
 }
 
 
@@ -427,10 +484,9 @@ async function resolvePayloadTarget(rawPath: string): Promise<WriterPayloadTarge
  * 校验并规范化 payload.context 中的建议读取路径。
  */
 function normalizePayloadContext(target: WriterPayloadTarget, context: Payload["context"] | undefined): NonNullable<Payload["context"]> {
+    // 写作模式不使用 Plot 系统：threadIds / sceneIds / plotIds 即使在 payload schema 里仍存在，
+    // 也不再规范化、不再渲染给 writer（对应 plot 工具已从 writer 下架）。
     return {
-        threadIds: context?.threadIds,
-        sceneIds: context?.sceneIds,
-        plotIds: context?.plotIds,
         lorebookEntries: context?.lorebookEntries?.map((path) => normalizeProjectPathRef(path, target.projectSlug, "writer.input.context.lorebookEntries", {preserveTrailingSlash: true})),
         readablePaths: context?.readablePaths?.map((path) => normalizeProjectPathRef(path, target.projectSlug, "writer.input.context.readablePaths", {mustBeMarkdown: true})),
     };
@@ -453,10 +509,6 @@ function renderSuggestedContext(target: WriterPayloadTarget, context: NonNullabl
         "<suggested_context>",
         "这些是调用方建议读取的上下文引用，不是任务正文，也不是必须全部读取的清单。请根据本轮 message 判断需要读什么。",
         `projectPath: ${target.projectPath}`,
-        renderList("threadIds", context.threadIds, "可用 get_story_thread({projectPath, threadId}) 读取。"),
-        renderList("sceneIds", context.sceneIds, "可用 get_story_scene_context({projectPath, sceneId}) 读取。"),
-        renderList("plotIds", context.plotIds, "可用 get_story_plot_context({projectPath, plotId}) 读取。"),
-        target.chapterPath ? `chapterPlot: 如需整章视角或覆盖度检查，可用 get_chapter_plot({projectPath: "${target.projectPath}", chapterPath: "${target.chapterPath}"})。不要默认读取整章。` : "",
         renderList("lorebookEntries", context.lorebookEntries, "建议按需用 read 读取节点 index.md，必要时读取同级 state.md。"),
         renderList("readablePaths", context.readablePaths, "建议按需用 read 读取。"),
         "</suggested_context>",

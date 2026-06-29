@@ -3,13 +3,14 @@ import {storeToRefs} from "pinia";
 import {useNovelIdeStore, type AgentWorkspaceSyncPayload} from "nbook/app/stores/novel-ide";
 import {isNovelIdeTab} from "nbook/app/components/novel-ide/mock-data";
 import type {AgentMessage, AgentToolCall} from "nbook/app/components/novel-ide/agent/agent-message";
-import {hasVisibleInvocationError, isContinuationPointMessage} from "nbook/app/components/novel-ide/agent/agent-message";
+import {hasVisibleInvocationError, isContinuationPointMessage, toPendingUserInputSession, type AgentPendingUserInputSession} from "nbook/app/components/novel-ide/agent/agent-message";
 import {applyClientVariablePatch, buildAgentClientState} from "nbook/app/components/novel-ide/agent/client-variables";
 import {useStructuredReferenceMenu} from "nbook/app/composables/useStructuredReferenceMenu";
 import {useDialog} from "nbook/app/composables/useDialog";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {useAgentSession} from "nbook/app/components/novel-ide/agent/useAgentSession";
 import {useAgentSessionStream, type AgentSessionStreamSnapshotReason} from "nbook/app/components/novel-ide/agent/useAgentSessionStream";
+import {applyAgentCommandResult} from "nbook/app/components/novel-ide/agent/agent-command-result";
 import {useAgentSessionApi} from "nbook/app/composables/useAgentSessionApi";
 import {useCostDisplay} from "nbook/app/composables/useCostDisplay";
 import Dropdown from "nbook/app/components/common/Dropdown.vue";
@@ -19,15 +20,19 @@ import AgentLinkedAgentPanel from "nbook/app/components/novel-ide/agent/AgentLin
 import AgentSessionDialog from "nbook/app/components/novel-ide/agent/AgentSessionDialog.vue";
 import AgentSessionTreeDialog from "nbook/app/components/novel-ide/agent/AgentSessionTreeDialog.vue";
 import {deriveAgentTreeState, resolveBranchSwitchTarget} from "nbook/app/components/novel-ide/agent/session-tree";
+import {AgentSessionListRequestGuard} from "nbook/app/components/novel-ide/agent/session-list-request-guard";
 import {AGENT_REQUEST_USER_INPUT_CONTEXT_KEY} from "nbook/app/components/novel-ide/agent/request-user-input-context";
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {formatCost, formatCostExact, usingCnyRate} from "nbook/app/utils/cost-format";
 import type {ConfigModelSettingsDto} from "nbook/shared/dto/config.dto";
-import type {AgentQueuedMessageDto, AgentSessionListQueryDto, AgentSessionSnapshotDto, AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
+import type {AgentQueuedMessageDto, AgentSessionListPageDto, AgentSessionListQueryDto, AgentSessionSnapshotDto, AgentSessionSummaryDto, AgentPendingApprovalDto} from "nbook/shared/dto/agent-session.dto";
 import type {DropdownItem} from "nbook/app/components/common/dropdown.types";
 import type {ThinkingLevelDto} from "nbook/shared/dto/app-settings.dto";
-import type {InvokeAgentResult} from "nbook/server/agent/harness/types";
+import type {AgentCommandResult, InvokeAgentResult} from "nbook/server/agent/harness/types";
+import type {JsonValue} from "nbook/server/agent/messages/types";
+import type {InlineEditPayload} from "nbook/app/utils/inline-editor-selection";
+import {LowCodeJsonObjectSchema} from "nbook/shared/dto/low-code-form.dto";
 
 type SessionModelDraft = {
     modelKey: string | null;
@@ -39,6 +44,8 @@ type LeaderCreateProfileOption = {
     label: string;
     iconClass: string;
 };
+
+const INLINE_EDITOR_PROFILE_KEY = "inline.editor";
 
 const props = defineProps<{
     active: boolean;
@@ -60,9 +67,17 @@ const chatFlowRef = ref<InstanceType<typeof AgentChatFlow> | null>(null);
 const inputRef = ref<InstanceType<typeof AgentComposer> | null>(null);
 
 const sessions = ref<AgentSessionSummaryDto[]>([]);
+const sessionListTotal = ref(0);
+const sessionListHasMore = ref(false);
+const sessionListNextOffset = ref<number | null>(null);
 const activeSessionId = ref<number | null>(null);
+const inlineEditorSessions = ref<AgentSessionSummaryDto[]>([]);
+const inlineEditorSessionId = ref<number | null>(null);
+const inlineEditorSessionLoading = ref(false);
+const inlineEditorResultText = ref("");
 const linkedAgentPanelOpen = ref(false);
 const loadingSession = ref(false);
+const sessionListLoading = ref(false);
 const linkedAgentsLoading = ref(false);
 const previousSelectedFilePath = ref<string | null>(props.selectedFilePath || null);
 const fileChangedSinceLastSend = ref(false);
@@ -87,19 +102,56 @@ const userInputNotes = ref<Record<string, string>>({});
 let defaultProfileResolveRequest = 0;
 let ensureSessionRequest: Promise<AgentSessionSummaryDto[]> | null = null;
 let suppressLeaderProfileReset = false;
+let inlineEditorSessionRequestId = 0;
+const sessionListRequestGuard = new AgentSessionListRequestGuard();
+const hiddenWritingModeProfileKeys = new Set(["rp.leader", "simulator.leader"]);
+
+/**
+ * 应用 session 列表分页结果。
+ */
+function applySessionListPage(page: AgentSessionListPageDto, append: boolean): AgentSessionSummaryDto[] {
+    if (append) {
+        const seenSessionIds = new Set(sessions.value.map((sessionSummary) => sessionSummary.sessionId));
+        sessions.value = [
+            ...sessions.value,
+            ...page.items.filter((sessionSummary) => {
+                if (seenSessionIds.has(sessionSummary.sessionId)) {
+                    return false;
+                }
+                seenSessionIds.add(sessionSummary.sessionId);
+                return true;
+            }),
+        ];
+    } else {
+        sessions.value = page.items;
+    }
+    sessionListTotal.value = page.total;
+    sessionListHasMore.value = page.hasMore;
+    sessionListNextOffset.value = page.nextOffset ?? null;
+    return sessions.value;
+}
 
 const sanitizeHtml = ref<((html: string) => string) | null>(null);
 const session = useAgentSession();
+const inlineEditorSession = useAgentSession();
 const agentApi = useAgentSessionApi();
 const configApi = useConfigApi();
 const costDisplay = useCostDisplay();
 const messages = session.messages;
 const running = session.running;
+const inlineEditorMessages = inlineEditorSession.messages;
+const inlineEditorRunning = inlineEditorSession.running;
 const connectionStatus = session.connectionStatus;
 const runPhase = session.runPhase;
 const pendingUserInputSession = session.pendingUserInputSession;
+const pendingUserInputSessionsComputed = computed(() => {
+    const pendings = session.snapshot.value?.pendingApprovals ?? [];
+    return pendings.map((approval: AgentPendingApprovalDto) => toPendingUserInputSession(approval, messages.value))
+        .filter((s): s is AgentPendingUserInputSession => s !== null);
+});
 const {confirm} = useDialog();
 const notification = useNotification();
+const {t} = useI18n();
 
 const ideStore = useNovelIdeStore();
 const {
@@ -143,6 +195,28 @@ const queuedMessages = computed<AgentQueuedMessageDto[]>(() => [
 const linkedAgentCount = computed(() => linkedAgents.value.length + linkedByAgents.value.length);
 const planModeActive = computed(() => activeSnapshot.value?.planModeActive ?? false);
 const renderNodes = computed(() => messages.value);
+const inlineEditPreview = computed(() => {
+    const toolCall = inlineEditorMessages.value
+        .flatMap((message) => message.toolCalls ?? [])
+        .filter((item) => (item.name === "edit" || item.name === "write") && (item.status === "streaming" || item.status === "running"))
+        .at(-1);
+    if (!toolCall) {
+        return "";
+    }
+    const path = readToolPath(toolCall);
+    const status = t("agent.chatSurface.inlineRunning");
+    const result = toolCall.error || toolCall.result || "";
+    return [`${status}${path ? `：${path}` : ""}`, result].filter(Boolean).join("\n");
+});
+const inlineEditorSessionLabel = computed(() => {
+    const selected = inlineEditorSessions.value.find((item) => item.sessionId === inlineEditorSessionId.value)
+        ?? inlineEditorSession.snapshot.value?.summary
+        ?? null;
+    if (!selected) {
+        return t("agent.chatSurface.inlineSessionLabel");
+    }
+    return selected.title || `Inline AI #${String(selected.sessionId)}`;
+});
 const messageActionsDisabled = computed(() => running.value || Boolean(messageActionId.value));
 const canContinueWithoutInput = computed(() => {
     if (running.value || inputText.value.trim() || messages.value.length === 0) {
@@ -154,25 +228,25 @@ const canContinueWithoutInput = computed(() => {
 });
 const connectionStatusLabel = computed(() => {
     switch (connectionStatus.value) {
-        case "connecting": return "连接中";
-        case "reconnecting": return "事件连接断开，正在重连";
-        case "recovering": return "正在恢复历史";
-        case "disconnected": return "事件连接已断开";
+        case "connecting": return t("agent.chatSurface.connecting");
+        case "reconnecting": return t("agent.chatSurface.reconnecting");
+        case "recovering": return t("agent.chatSurface.recovering");
+        case "disconnected": return t("agent.chatSurface.disconnected");
         default: return "";
     }
 });
 const connectionNeedsAction = computed(() => connectionStatus.value === "disconnected" || sessionStream.reconnectAttempt.value > 3);
 const runPhaseLabel = computed(() => {
     switch (runPhase.value) {
-        case "model_pending": return "等待模型响应";
-        case "thinking": return "思考中";
-        case "assistant_streaming": return "生成回复中";
-        case "tool_args_streaming": return "生成工具参数";
-        case "tool_running": return "执行工具中";
-        case "tool_streaming": return "读取工具输出";
-        case "waiting_user": return "等待用户确认";
-        case "finishing": return "工具已完成，正在继续生成";
-        default: return "运行中";
+        case "model_pending": return t("agent.chatSurface.phaseModelPending");
+        case "thinking": return t("agent.chatSurface.phaseThinking");
+        case "assistant_streaming": return t("agent.chatSurface.phaseAssistantStreaming");
+        case "tool_args_streaming": return t("agent.chatSurface.phaseToolArgsStreaming");
+        case "tool_running": return t("agent.chatSurface.phaseToolRunning");
+        case "tool_streaming": return t("agent.chatSurface.phaseToolStreaming");
+        case "waiting_user": return t("agent.chatSurface.phaseWaitingUser");
+        case "finishing": return t("agent.chatSurface.phaseFinishing");
+        default: return t("agent.chatSurface.phaseRunning");
     }
 });
 
@@ -181,6 +255,9 @@ const systemLeaderProfileKey = computed(() => {
 });
 
 const leaderProfileKey = computed(() => {
+    if (ideStore.workspaceKind !== "user-assets" && hiddenWritingModeProfileKeys.has(resolvedDefaultProfileKey.value)) {
+        return systemLeaderProfileKey.value;
+    }
     return resolvedDefaultProfileKey.value || systemLeaderProfileKey.value;
 });
 
@@ -189,15 +266,13 @@ const createProfileOptions = computed<LeaderCreateProfileOption[]>(() => {
     const options: LeaderCreateProfileOption[] = [
         {
             profileKey: defaultKey,
-            label: defaultKey === systemLeaderProfileKey.value ? profileDisplayName(defaultKey) : `默认：${profileDisplayName(defaultKey)}`,
+            label: defaultKey === systemLeaderProfileKey.value ? profileDisplayName(defaultKey) : t("agent.profiles.defaultPrefix", {name: profileDisplayName(defaultKey)}),
             iconClass: profileIconClass(defaultKey),
         },
     ];
     if (ideStore.workspaceKind !== "user-assets") {
         options.push(
-            {profileKey: "leader.default", label: "主创", iconClass: profileIconClass("leader.default")},
-            {profileKey: "rp.leader", label: "跑团主持", iconClass: profileIconClass("rp.leader")},
-            {profileKey: "simulator.leader", label: "世界模拟", iconClass: profileIconClass("simulator.leader")},
+            {profileKey: "leader.default", label: profileDisplayName("leader.default"), iconClass: profileIconClass("leader.default")},
         );
     }
     const seen = new Set<string>();
@@ -236,6 +311,49 @@ const notifyAgentError = (error: unknown, fallback: string, title = fallback): s
 };
 
 /**
+ * 将 InlineEditPayload 转成 DTO 接受的 JsonValue。
+ */
+function inlineEditPayloadToJson(payload: InlineEditPayload): JsonValue {
+    return {
+        version: payload.version,
+        task: payload.task,
+        targetPath: payload.targetPath,
+        instruction: payload.instruction,
+        references: payload.references.map((reference) => {
+            const output: {[key: string]: JsonValue} = {
+                ref: reference.ref,
+                path: reference.path,
+                match: reference.match,
+                text: reference.text,
+            };
+            if (reference.range) {
+                output.range = {
+                    startLine: reference.range.startLine,
+                    endLine: reference.range.endLine,
+                };
+            }
+            return output;
+        }),
+    };
+}
+
+/**
+ * 从文件工具参数中读取 path，用于 Inline AI 轻量预览。
+ */
+function readToolPath(toolCall: AgentToolCall): string {
+    const argsText = toolCall.argsJson || toolCall.argsText;
+    if (!argsText.trim()) {
+        return "";
+    }
+    try {
+        const parsed = JSON.parse(argsText) as {path?: string};
+        return typeof parsed.path === "string" ? parsed.path : "";
+    } catch {
+        return "";
+    }
+}
+
+/**
  * 生成等待用户输入实例的稳定 key，用来避免旧 pending 的提交态影响下一组问题。
  */
 function pendingUserInputKey(session: typeof pendingUserInputSession.value): string | null {
@@ -252,10 +370,10 @@ function pendingUserInputKey(session: typeof pendingUserInputSession.value): str
  */
 function profileDisplayName(profileKey: string): string {
     switch (profileKey) {
-        case "leader.assets": return "用户资产助手";
-        case "rp.leader": return "跑团主持";
-        case "simulator.leader": return "世界模拟";
-        case "leader.default": return "主创";
+        case "leader.assets": return t("agent.profiles.leaderAssets");
+        case "rp.leader": return t("agent.profiles.rpLeader");
+        case "simulator.leader": return t("agent.profiles.simulatorLeader");
+        case "leader.default": return t("agent.profiles.leaderDefault");
         default: return profileKey;
     }
 }
@@ -287,8 +405,8 @@ watch(() => pendingUserInputSession.value?.assistantMessageId ?? null, () => {
 }, {immediate: true});
 
 const activeDrawerTitle = computed(() => profileDisplayName(activeSummary.value?.profileKey ?? leaderProfileKey.value));
-const activeSessionTitle = computed(() => activeSummary.value?.title || (activeSessionId.value ? `Session #${String(activeSessionId.value)}` : "未命名对话"));
-const activeSessionSummaryText = computed(() => activeSummary.value?.summary?.trim() || activeSummary.value?.lastMessagePreview?.trim() || "暂无消息");
+const activeSessionTitle = computed(() => activeSummary.value?.title || (activeSessionId.value ? `Session #${String(activeSessionId.value)}` : t("agent.session.unnamed")));
+const activeSessionSummaryText = computed(() => activeSummary.value?.summary?.trim() || activeSummary.value?.lastMessagePreview?.trim() || t("agent.session.noRecentMessages"));
 const summarizerStatus = computed<null | {
     label: string;
     icon: string;
@@ -302,25 +420,25 @@ const summarizerStatus = computed<null | {
     }
     if (state.running && state.dirty) {
         return {
-            label: "摘要排队",
+            label: t("agent.chatSurface.summaryQueued"),
             icon: "i-lucide-refresh-cw",
             className: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
-            title: "后台摘要正在运行；当前摘要完成后会按最新会话重新摘要。",
+            title: t("agent.chatSurface.summaryQueuedTitle"),
             spinning: true,
         };
     }
     if (state.running) {
         return {
-            label: "摘要中",
+            label: t("agent.chatSurface.summarizing"),
             icon: "i-lucide-loader-circle",
             className: "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300",
-            title: "后台正在更新当前会话标题和摘要。",
+            title: t("agent.chatSurface.summarizingTitle"),
             spinning: true,
         };
     }
     if (state.lastError) {
         return {
-            label: "摘要失败",
+            label: t("agent.chatSurface.summaryFailed"),
             icon: "i-lucide-triangle-alert",
             className: "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300",
             title: state.lastError,
@@ -329,18 +447,18 @@ const summarizerStatus = computed<null | {
     }
     return null;
 });
-const sessionModelDefaultLabel = computed(() => "跟随 Profile 默认");
+const sessionModelDefaultLabel = computed(() => t("agent.chatSurface.followProfileDefault"));
 const sessionModelSelectionValue = computed(() => sessionModelMode.value === "override" ? sessionModelDraft.value.modelKey : null);
 const sessionThinkingResolvedLabel = computed(() => {
     const requested = activeSnapshot.value?.thinkingLevel ?? null;
     const effective = activeSnapshot.value?.effectiveThinkingLevel ?? "off";
     if (requested === null) {
-        return `跟随 Profile（当前 ${thinkingLevelLabel(effective)}）`;
+        return t("agent.chatSurface.followProfileCurrent", {level: thinkingLevelLabel(effective)});
     }
     if (requested === effective) {
         return thinkingLevelLabel(effective);
     }
-    return `${thinkingLevelLabel(requested)}（实际 ${thinkingLevelLabel(effective)}）`;
+    return t("agent.chatSurface.requestedEffective", {requested: thinkingLevelLabel(requested), effective: thinkingLevelLabel(effective)});
 });
 const drawerIconClass = computed(() => "i-lucide-sparkles text-[var(--accent-text)]");
 
@@ -357,12 +475,12 @@ const contextUsageCompactLabel = computed(() => {
 const contextUsageExactLabel = computed(() => {
     const usage = activeSnapshot.value?.contextUsage;
     if (!usage) {
-        return "Context 估算 - / -";
+        return t("agent.chatSurface.contextUnknown");
     }
     const percent = typeof usage.percent === "number" && Number.isFinite(usage.percent)
         ? `（${formatPercent(usage.percent)}）`
         : "";
-    return `Context 估算 ${formatTokenCount(usage.usedTokens)} / ${formatTokenCount(usage.limitTokens)} tokens${percent}`;
+    return t("agent.chatSurface.contextEstimate", {used: formatTokenCount(usage.usedTokens), limit: formatTokenCount(usage.limitTokens), percent});
 });
 const contextPercentCompactLabel = computed(() => {
     const percent = activeSnapshot.value?.contextUsage?.percent;
@@ -381,18 +499,33 @@ const costExchangeRateSuffix = computed(() => {
     if (!usingCnyRate(costDisplayOptions.value)) {
         return "";
     }
-    return costDisplay.exchangeRateStale.value ? "，按缓存 USD/CNY 汇率换算" : "，按当前 USD/CNY 汇率换算";
+    return costDisplay.exchangeRateStale.value ? t("agent.chatSurface.cachedRateSuffix") : t("agent.chatSurface.currentRateSuffix");
 });
 const cumulativeCostCompactLabel = computed(() => formatCost(activeSummary.value?.usage?.cost.total, costDisplayOptions.value));
 const cumulativeUsageExactLabel = computed(() => {
     const usage = activeSummary.value?.usage;
     if (!usage) {
-        return "Session 总消耗：输入 -- / 输出 -- / 缓存读 -- / 缓存写 -- / 命中率 --";
+        return t("agent.chatSurface.totalUsageEmpty");
     }
     const costLabel = formatCost(usage.cost.total, costDisplayOptions.value)
-        ? ` / Session 耗费 ${formatCost(usage.cost.total, costDisplayOptions.value)}（输入 ${formatCostExact(usage.cost.input, costDisplayOptions.value)} / 输出 ${formatCostExact(usage.cost.output, costDisplayOptions.value)} / 缓存读 ${formatCostExact(usage.cost.cacheRead, costDisplayOptions.value)} / 缓存写 ${formatCostExact(usage.cost.cacheWrite, costDisplayOptions.value)} / 总计 ${formatCostExact(usage.cost.total, costDisplayOptions.value)}${costExchangeRateSuffix.value}）`
+        ? t("agent.chatSurface.totalUsageWithCost", {
+            compactCost: formatCost(usage.cost.total, costDisplayOptions.value),
+            inputCost: formatCostExact(usage.cost.input, costDisplayOptions.value),
+            outputCost: formatCostExact(usage.cost.output, costDisplayOptions.value),
+            cacheReadCost: formatCostExact(usage.cost.cacheRead, costDisplayOptions.value),
+            cacheWriteCost: formatCostExact(usage.cost.cacheWrite, costDisplayOptions.value),
+            totalCost: formatCostExact(usage.cost.total, costDisplayOptions.value),
+            suffix: costExchangeRateSuffix.value,
+        })
         : "";
-    return `Session 总消耗：输入 ${formatTokenCount(usage.input)} / 输出 ${formatTokenCount(usage.output)} / 缓存读 ${formatTokenCount(usage.cacheRead)} / 缓存写 ${formatTokenCount(usage.cacheWrite)} / 缓存命中率 ${formatCacheHitRate(usage)}${costLabel}`;
+    return t("agent.chatSurface.totalUsage", {
+        input: formatTokenCount(usage.input),
+        output: formatTokenCount(usage.output),
+        cacheRead: formatTokenCount(usage.cacheRead),
+        cacheWrite: formatTokenCount(usage.cacheWrite),
+        hitRate: formatCacheHitRate(usage),
+        cost: costLabel,
+    });
 });
 
 /**
@@ -446,12 +579,12 @@ function formatCacheHitRate(usage: {input: number; cacheRead: number}): string {
  */
 function thinkingLevelLabel(level: ThinkingLevelDto): string {
     switch (level) {
-        case "off": return "关闭";
-        case "minimal": return "极低";
-        case "low": return "低";
-        case "medium": return "中";
-        case "high": return "高";
-        case "xhigh": return "极高";
+        case "off": return t("agent.composer.off");
+        case "minimal": return t("agent.composer.minimal");
+        case "low": return t("agent.composer.low");
+        case "medium": return t("agent.composer.medium");
+        case "high": return t("agent.composer.high");
+        case "xhigh": return t("agent.composer.xhigh");
     }
 }
 
@@ -544,16 +677,33 @@ const refreshSessions = async (): Promise<AgentSessionSummaryDto[]> => {
  * 按弹窗筛选条件刷新 session 列表。
  */
 const refreshSessionsWithQuery = async (query: AgentSessionListQueryDto = {}): Promise<AgentSessionSummaryDto[]> => {
-    try {
-        sessions.value = await agentApi.listSessions({
-            ...query,
-            workspaceKey: workspaceKey.value,
-        });
+    const requestQuery = {
+        ...query,
+        workspaceKey: workspaceKey.value,
+    };
+    const request = sessionListRequestGuard.begin(requestQuery);
+    if (!request.shouldFetch) {
         return sessions.value;
+    }
+    sessionListRequestGuard.start();
+    sessionListLoading.value = true;
+    try {
+        const page = await agentApi.listSessions(requestQuery);
+        if (!sessionListRequestGuard.accepts(request)) {
+            return sessions.value;
+        }
+        const nextSessions = applySessionListPage(page, request.append);
+        sessionListRequestGuard.markApplied(request);
+        return nextSessions;
     } catch (error) {
+        if (!sessionListRequestGuard.accepts(request)) {
+            return sessions.value;
+        }
         console.error("刷新 session 列表失败", error);
-        notifyAgentError(error, "刷新 session 列表失败");
+        notifyAgentError(error, t("agent.chatSurface.loadSessionsFailed"));
         throw error;
+    } finally {
+        sessionListLoading.value = sessionListRequestGuard.finish(request);
     }
 };
 
@@ -639,7 +789,7 @@ const loadSession = async (sessionId: number): Promise<void> => {
         scrollToBottom();
     } catch (error) {
         console.error(`加载 session ${String(sessionId)} 失败`, error);
-        notifyAgentError(error, "加载 Agent session 失败");
+        notifyAgentError(error, t("agent.chatSurface.loadSessionFailed"));
     }
 };
 
@@ -676,7 +826,7 @@ const refreshLinkedAgentRelations = async (): Promise<void> => {
             return;
         }
         console.error(`刷新 session ${String(targetSessionId)} 关联 Agent 失败`, error);
-        notifyAgentError(error, "刷新关联 Agent 失败");
+        notifyAgentError(error, t("agent.chatSurface.refreshLinkedFailed"));
     } finally {
         if (requestId === linkedAgentRelationsRequestId) {
             linkedAgentsLoading.value = false;
@@ -697,6 +847,20 @@ const applySnapshotOrSync = async (snapshot?: AgentSessionSnapshotDto | null): P
         return;
     }
     await syncActiveSessionSnapshot();
+};
+
+/**
+ * 应用 command HTTP 返回。轻控制命令只更新 live shell，不补拉完整 snapshot。
+ */
+const applyCommandResult = async (result: AgentCommandResult): Promise<void> => {
+    await applyAgentCommandResult(result, {
+        activeSessionId: () => activeSessionId.value,
+        applyLiveState: session.applyLiveState,
+        syncSessionModelState,
+        refreshSessions,
+        loadSession,
+        applySnapshotOrSync,
+    });
 };
 
 /**
@@ -728,8 +892,22 @@ const handleInvokeResult = async (result: InvokeAgentResult): Promise<void> => {
     }
     await syncActiveSessionSnapshot("invoke_error_fallback");
     if (!hasVisibleInvocationError(messages.value, result.invocationId)) {
-        notification.error(result.error ?? "Agent 运行失败", {title: "Agent 运行失败"});
+        notification.error(result.error ?? t("agent.chatSurface.runFailed"), {title: t("agent.chatSurface.runFailed")});
     }
+};
+
+/**
+ * 处理后台 Inline AI invoke 结果，并把最终摘要留给 PromptBar 展示。
+ */
+const handleInlineEditorInvokeResult = async (result: InvokeAgentResult): Promise<void> => {
+    inlineEditorResultText.value = result.reportResult?.result ?? result.finalMessage ?? "";
+    if (result.status !== "error") {
+        await refreshInlineEditorSessions();
+        return;
+    }
+    await inlineEditorStream.syncSnapshot("invoke_error_fallback");
+    inlineEditorResultText.value = result.error ?? t("agent.chatSurface.runFailed");
+    throw new Error(inlineEditorResultText.value);
 };
 
 function mergeQueuedMessages(queue: AgentQueuedMessageDto[], item: AgentQueuedMessageDto): AgentQueuedMessageDto[] {
@@ -784,6 +962,13 @@ const ensureActiveSessionEvents = async (): Promise<void> => {
 };
 
 /**
+ * 发送 Inline AI 前确保后台 inline session SSE 处于连接状态。
+ */
+const ensureInlineEditorEvents = async (): Promise<void> => {
+    await inlineEditorStream.ensure();
+};
+
+/**
  * 用户显式要求立即重连事件流。
  */
 const reconnectActiveSessionEvents = async (): Promise<void> => {
@@ -791,12 +976,67 @@ const reconnectActiveSessionEvents = async (): Promise<void> => {
         await sessionStream.reconnectNow();
     } catch (error) {
         console.error("重新连接 Agent 事件流失败", error);
-        notifyAgentError(error, "重新连接 Agent 事件流失败");
+        notifyAgentError(error, t("agent.chatSurface.reconnectFailed"));
     }
 };
 
 /**
- * 提交结构化问题答案。
+ * Task 63: 提交 Low-Code Form 数据。
+ */
+const submitUserInputForm = async (payload: {
+    assistantMessageId: string;
+    toolCallId: string;
+    data: import("nbook/shared/dto/low-code-form.dto").LowCodeJsonObject;
+}): Promise<void> => {
+    if (!activeSessionId.value || !pendingUserInputSession.value) {
+        return;
+    }
+    const pendingSession = pendingUserInputSession.value;
+    const pendingKey = pendingUserInputKey(pendingSession);
+    if (pendingKey && submittingUserInputKey.value === pendingKey) {
+        return;
+    }
+
+    // 验证提交的 formData
+    const dataValidation = LowCodeJsonObjectSchema.safeParse(payload.data);
+    if (!dataValidation.success) {
+        console.error("submitUserInputForm: payload.data 验证失败", dataValidation.error);
+        notification.error(t("agent.chatSurface.invalidFormData"), {title: t("agent.chatSurface.submitAnswersFailed")});
+        return;
+    }
+
+    try {
+        submittingUserInputKey.value = pendingKey;
+        await ensureActiveSessionEvents();
+        session.clearPendingUserInputSession();
+        userInputSelectedAnswers.value = {};
+        userInputNotes.value = {};
+
+        const result = await agentApi.invokeSession(activeSessionId.value, {
+            mode: "continue",
+            clientState: buildClientState(),
+            resolution: {
+                kind: "user_input",
+                toolCallId: payload.toolCallId,
+                data: dataValidation.data,
+            } as any,
+        });
+        await handleInvokeResult(result);
+        await syncActiveSessionSnapshot();
+    } catch (error) {
+        console.error("提交 Low-Code Form 失败", error);
+        await syncActiveSessionSnapshot();
+        notifyAgentError(error, t("agent.chatSurface.submitAnswersFailed"));
+        throw error;
+    } finally {
+        if (submittingUserInputKey.value === pendingKey) {
+            submittingUserInputKey.value = null;
+        }
+    }
+};
+
+/**
+ * 提交结构化问题答案（支持单个或批量）。
  */
 const submitUserInputAnswers = async (payload: {
     assistantMessageId: string;
@@ -834,7 +1074,7 @@ const submitUserInputAnswers = async (payload: {
             return {
                 questionIndex,
                 text: answer.ignored
-                    ? "用户选择终止本轮。"
+                    ? t("agent.chatSurface.userTerminated")
                     : formatAnswerText(question.options, answer.selectedOptionIndex, answer.selectedOptionIndexes, answer.note),
                 selectedOptionIndex: answer.selectedOptionIndex,
                 selectedOptionIndexes: answer.selectedOptionIndexes,
@@ -845,32 +1085,96 @@ const submitUserInputAnswers = async (payload: {
         session.clearPendingUserInputSession();
         userInputSelectedAnswers.value = {};
         userInputNotes.value = {};
-        const result = await agentApi.invokeSession(activeSessionId.value, {
-            mode: "continue",
-            clientState: buildClientState(),
-            resolution: firstQuestion.kind === "tool_approval"
-                ? {
-                    kind: "tool_approval",
-                    toolCallId,
-                    approved: isApprovalApproved(payload.answers[0]),
-                    resultText: answers.map((answer) => answer.text).join("\n"),
-                    answers,
+
+        // 如果有多个待审批项，一次性提交所有审批
+        const allPendingSessions = pendingUserInputSessionsComputed.value;
+        if (allPendingSessions.length > 1) {
+            type AnswerItem = {
+                questionIndex: number;
+                text: string;
+                selectedOptionIndex?: number;
+                selectedOptionIndexes?: number[];
+                note?: string;
+                ignored?: boolean;
+            };
+            type ResolutionItem = {
+                kind: "tool_approval";
+                toolCallId: string;
+                approved: boolean;
+                resultText: string;
+                answers: AnswerItem[];
+            } | {
+                kind: "user_input";
+                toolCallId: string;
+                answers: AnswerItem[];
+            };
+            const resolutions: Array<ResolutionItem | null> = allPendingSessions.map((session: AgentPendingUserInputSession) => {
+                const sessionToolCallId = session.questions[0]?.toolCallId ?? session.questions[0]?.toolNodeId;
+                const sessionFirstQuestion = session.questions[0];
+                if (!sessionToolCallId || !sessionFirstQuestion) {
+                    return null;
                 }
-                : {
-                    kind: "user_input",
-                    toolCallId,
-                    answers,
-                },
-        });
-        await handleInvokeResult(result);
-        await syncActiveSessionSnapshot();
-    } catch (error) {
-        if (!pendingUserInputSession.value && submittingUserInputKey.value === pendingKey) {
-            pendingUserInputSession.value = pendingSession;
+                // 只有第一个审批使用用户交互的答案，其余使用默认批准
+                const isFirstSession = session === pendingSession;
+                const sessionAnswers: AnswerItem[] = isFirstSession
+                    ? answers
+                    : [{
+                        questionIndex: 0,
+                        text: t("agent.userInput.approve"),
+                        selectedOptionIndex: 0,
+                        selectedOptionIndexes: [0],
+                    }];
+
+                if (sessionFirstQuestion.kind === "tool_approval") {
+                    return {
+                        kind: "tool_approval" as const,
+                        toolCallId: sessionToolCallId,
+                        approved: isFirstSession ? isApprovalApproved(payload.answers[0]) : true,
+                        resultText: sessionAnswers.map((a) => a.text).join("\n"),
+                        answers: sessionAnswers,
+                    };
+                }
+                return {
+                    kind: "user_input" as const,
+                    toolCallId: sessionToolCallId,
+                    answers: sessionAnswers,
+                };
+            }).filter((r: ResolutionItem | null): r is ResolutionItem => r !== null);
+
+            const result = await agentApi.invokeSession(activeSessionId.value, {
+                mode: "continue",
+                clientState: buildClientState(),
+                resolutions: resolutions as any,
+            });
+            await handleInvokeResult(result);
+            await syncActiveSessionSnapshot();
+        } else {
+            // 单个审批，保持原有逻辑
+            const result = await agentApi.invokeSession(activeSessionId.value, {
+                mode: "continue",
+                clientState: buildClientState(),
+                resolution: firstQuestion.kind === "tool_approval"
+                    ? {
+                        kind: "tool_approval",
+                        toolCallId,
+                        approved: isApprovalApproved(payload.answers[0]),
+                        resultText: answers.map((answer) => answer.text).join("\n"),
+                        answers,
+                    }
+                    : {
+                        kind: "user_input",
+                        toolCallId,
+                        answers,
+                    },
+            });
+            await handleInvokeResult(result);
+            await syncActiveSessionSnapshot();
         }
+    } catch (error) {
+        // pendingUserInputSession 现在是 computed，会自动从 session 状态恢复
         console.error("提交问题答案失败", error);
         await syncActiveSessionSnapshot();
-        notifyAgentError(error, "提交问题答案失败");
+        notifyAgentError(error, t("agent.chatSurface.submitAnswersFailed"));
         throw error;
     } finally {
         if (submittingUserInputKey.value === pendingKey) {
@@ -939,10 +1243,10 @@ const togglePlanMode = async (): Promise<void> => {
             command: "plan",
             active: !planModeActive.value,
         });
-        await applySnapshotOrSync(result.snapshot);
+        await applyCommandResult(result);
     } catch (error) {
         console.error("切换 Plan Mode 失败", error);
-        notifyAgentError(error, "切换 Plan Mode 失败");
+        notifyAgentError(error, t("agent.chatSurface.togglePlanFailed"));
     }
 };
 
@@ -955,7 +1259,7 @@ const send = async (): Promise<void> => {
         return;
     }
     if (!activeSessionId.value) {
-        notification.info("请先新建或选择一个 Agent session", {title: "没有可用 session"});
+        notification.info(t("agent.chatSurface.noSessionMessage"), {title: t("agent.chatSurface.noSessionTitle")});
         sessionDialogOpen.value = true;
         return;
     }
@@ -990,6 +1294,54 @@ const send = async (): Promise<void> => {
 };
 
 /**
+ * 发送 Inline AI 编辑任务。调用方只负责构造 visible message 与 payload。
+ */
+const sendInlineEditorPrompt = async (payload: InlineEditPayload, visibleMessage: string): Promise<void> => {
+    const targetSession = await ensureInlineEditorSession();
+    if (targetSession.status === "running" || targetSession.status === "waiting") {
+        throw new Error(t("agent.chatSurface.inlineRunningError"));
+    }
+    if (inlineEditorSessionId.value !== targetSession.sessionId || !inlineEditorSession.snapshot.value) {
+        await loadInlineEditorSession(targetSession.sessionId);
+    }
+
+    inlineEditorResultText.value = "";
+    inlineEditorSession.appendOptimisticUserMessage(visibleMessage);
+    await ensureInlineEditorEvents();
+    const result = await agentApi.invokeSession(targetSession.sessionId, {
+        mode: "prompt",
+        message: {text: visibleMessage},
+        input: inlineEditPayloadToJson(payload),
+        clientState: buildClientState(),
+    });
+    await handleInlineEditorInvokeResult(result);
+};
+
+/**
+ * 打开或创建 Inline AI Session，供 PromptBar 主动绑定。
+ */
+const openInlineEditorSession = async (): Promise<AgentSessionSummaryDto> => {
+    const targetSession = await ensureInlineEditorSession();
+    if (activeSessionId.value !== targetSession.sessionId) {
+        await loadSession(targetSession.sessionId);
+    }
+    return targetSession;
+};
+
+/**
+ * 停止后台 Inline AI session 当前运行。
+ */
+const stopInlineEditorPrompt = async (): Promise<void> => {
+    if (!inlineEditorSessionId.value) {
+        return;
+    }
+    await agentApi.abortSession(inlineEditorSessionId.value, {});
+    inlineEditorResultText.value = t("agent.chatSurface.stopped");
+    await inlineEditorStream.syncSnapshot("manual_refresh");
+    await refreshInlineEditorSessions();
+};
+
+/**
  * 运行中引导当前 Agent loop。
  */
 const steer = async (): Promise<void> => {
@@ -1007,10 +1359,10 @@ const steer = async (): Promise<void> => {
         });
         await handleInvokeResult(result);
         resetInput();
-        notification.success("消息已引导");
+        notification.success(t("agent.chatSurface.steered"));
     } catch (error) {
         console.error("引导消息失败", error);
-        notifyAgentError(error, "引导消息失败");
+        notifyAgentError(error, t("agent.chatSurface.steerFailed"));
     }
 };
 
@@ -1032,10 +1384,10 @@ const followup = async (): Promise<void> => {
         });
         await handleInvokeResult(result);
         resetInput();
-        notification.success("消息已排队");
+        notification.success(t("agent.chatSurface.queued"));
     } catch (error) {
         console.error("排队消息失败", error);
-        notifyAgentError(error, "排队消息失败");
+        notifyAgentError(error, t("agent.chatSurface.queueFailed"));
     }
 };
 
@@ -1071,7 +1423,7 @@ const handleSlashCommand = async (message: string): Promise<boolean> => {
             command: "model",
             modelKey: rest[0] ?? null,
         });
-        await applySnapshotOrSync(result.snapshot);
+        await applyCommandResult(result);
         return true;
     }
     return false;
@@ -1090,10 +1442,10 @@ const compactSession = async (instructions?: string): Promise<void> => {
             command: "compact",
             instructions,
         });
-        await applySnapshotOrSync(result.snapshot);
+        await applyCommandResult(result);
     } catch (error) {
         console.error("压缩 Session 失败", error);
-        notifyAgentError(error, "压缩 Session 失败");
+        notifyAgentError(error, t("agent.chatSurface.compactFailed"));
     }
 };
 
@@ -1112,7 +1464,7 @@ const copyMessage = async (message: AgentMessage): Promise<void> => {
         return;
     }
     await navigator.clipboard.writeText(message.content);
-    notification.success("消息已复制");
+    notification.success(t("agent.chatSurface.copied"));
 };
 
 /**
@@ -1126,7 +1478,7 @@ const copyToolCall = async (toolCall: AgentToolCall): Promise<void> => {
         return;
     }
     await navigator.clipboard.writeText(text);
-    notification.success("工具结果已复制");
+    notification.success(t("agent.chatSurface.toolCopied"));
 };
 
 const startEditingMessage = (message: AgentMessage): void => {
@@ -1159,10 +1511,10 @@ const updateSessionModelSelection = async (modelKey: string | null): Promise<voi
             command: "model",
             modelKey,
         });
-        await applySnapshotOrSync(result.snapshot);
+        await applyCommandResult(result);
     } catch (error) {
         console.error("更新 session 模型失败", error);
-        notifyAgentError(error, "更新 session 模型失败");
+        notifyAgentError(error, t("agent.chatSurface.updateModelFailed"));
     } finally {
         sessionModelSaving.value = false;
     }
@@ -1186,10 +1538,10 @@ const updateSessionThinkingLevel = async (thinkingLevel: ThinkingLevelDto | null
             command: "thinking",
             thinkingLevel,
         });
-        await applySnapshotOrSync(result.snapshot);
+        await applyCommandResult(result);
     } catch (error) {
         console.error("更新 session 推理强度失败", error);
-        notifyAgentError(error, "更新 session 推理强度失败");
+        notifyAgentError(error, t("agent.chatSurface.updateThinkingFailed"));
     } finally {
         sessionModelSaving.value = false;
     }
@@ -1249,6 +1601,21 @@ const sessionStream = useAgentSessionStream({
     },
 });
 
+const inlineEditorStream = useAgentSessionStream({
+    session: inlineEditorSession,
+    api: agentApi,
+    activeSessionId: inlineEditorSessionId,
+    onEvent: async (event) => {
+        if (event.kind === "session" && event.event.type === "client_variable_patch_requested" && inlineEditorSessionId.value) {
+            await acknowledgeClientPatch(inlineEditorSessionId.value, event.event.request);
+        }
+    },
+    onError: (error, fallback) => {
+        console.error(fallback, error);
+        notifyAgentError(error, fallback);
+    },
+});
+
 const cycleMessageBranch = async (messageId: string, direction: -1 | 1): Promise<void> => {
     if (!activeSessionId.value || messageActionId.value || running.value) {
         return;
@@ -1266,7 +1633,7 @@ const cycleMessageBranch = async (messageId: string, direction: -1 | 1): Promise
         await applySnapshotOrSync(result.snapshot);
     } catch (error) {
         console.error("切换消息分支失败", error);
-        notifyAgentError(error, "切换消息分支失败");
+        notifyAgentError(error, t("agent.chatSurface.switchBranchFailed"));
     } finally {
         messageActionId.value = null;
     }
@@ -1285,7 +1652,7 @@ const selectTreeNode = async (entryId: string): Promise<void> => {
         await applySnapshotOrSync(result.snapshot);
     } catch (error) {
         console.error("切换 Session Tree 节点失败", error);
-        notifyAgentError(error, "切换 Session Tree 节点失败");
+        notifyAgentError(error, t("agent.chatSurface.switchTreeFailed"));
     } finally {
         messageActionId.value = null;
     }
@@ -1313,10 +1680,10 @@ const saveEditedMessage = async (payload: {message: AgentMessage; content: strin
         }
         editingMessageId.value = null;
         await syncActiveSessionSnapshot();
-        notification.success("消息已更新");
+        notification.success(t("agent.chatSurface.messageUpdated"));
     } catch (error) {
         console.error("改写消息失败", error);
-        notifyAgentError(error, "改写消息失败");
+        notifyAgentError(error, t("agent.chatSurface.rewriteFailed"));
     } finally {
         messageActionId.value = null;
     }
@@ -1345,7 +1712,7 @@ const refreshMessage = async (message: AgentMessage): Promise<void> => {
         await syncActiveSessionSnapshot();
     } catch (error) {
         console.error("刷新消息失败", error);
-        notifyAgentError(error, "刷新消息失败");
+        notifyAgentError(error, t("agent.chatSurface.refreshMessageFailed"));
     } finally {
         messageActionId.value = null;
     }
@@ -1355,7 +1722,7 @@ const rollbackMessage = async (message: AgentMessage): Promise<void> => {
     if (!activeSessionId.value || messageActionId.value || running.value) {
         return;
     }
-    const confirmed = await confirm("确定要回退到这条消息吗？", "回退消息");
+    const confirmed = await confirm(t("agent.chatSurface.rollbackConfirm"), t("agent.chatSurface.rollbackTitle"));
     if (!confirmed) {
         return;
     }
@@ -1367,10 +1734,10 @@ const rollbackMessage = async (message: AgentMessage): Promise<void> => {
         });
         await applySnapshotOrSync(result.snapshot);
         editingMessageId.value = null;
-        notification.success("消息已回退");
+        notification.success(t("agent.chatSurface.rollbackSuccess"));
     } catch (error) {
         console.error("回退消息失败", error);
-        notifyAgentError(error, "回退消息失败");
+        notifyAgentError(error, t("agent.chatSurface.rollbackFailed"));
     } finally {
         messageActionId.value = null;
     }
@@ -1459,8 +1826,11 @@ const archiveSessionFromDialog = async (target: AgentSessionSummaryDto): Promise
  */
 function resetWorkspaceSessionState(): void {
     sessionStream.stop();
+    inlineEditorStream.stop();
     activeSessionId.value = null;
+    inlineEditorSessionId.value = null;
     sessions.value = [];
+    inlineEditorSessions.value = [];
     linkedAgentPanelOpen.value = false;
     sessionDialogOpen.value = false;
     sessionTreeDialogOpen.value = false;
@@ -1469,6 +1839,8 @@ function resetWorkspaceSessionState(): void {
     messageActionId.value = null;
     inputText.value = "";
     session.reset();
+    inlineEditorSession.reset();
+    inlineEditorResultText.value = "";
     syncSessionModelState(null);
 }
 
@@ -1542,6 +1914,7 @@ watch(() => [ideStore.workspaceKind, ideStore.currentNovelId] as const, async ()
 
 onBeforeUnmount(() => {
     sessionStream.stop();
+    inlineEditorStream.stop();
 });
 
 onMounted(() => {
@@ -1563,13 +1936,147 @@ defineExpose({
     loadingSession,
     linkedAgentsLoading,
     running,
+    inlineEditorRunning,
+    inlineEditorResultText,
+    inlineEditorSessionId,
+    inlineEditorSessions,
+    inlineEditorSessionLoading,
+    inlineEditPreview,
+    inlineEditorSessionLabel,
     sessionActionId,
     ensureSessionReady,
     refreshSessionsWithQuery,
     selectSession,
     createSession: createSessionFromHeader,
     archiveSessionFromDialog,
+    openInlineEditorSession,
+    refreshInlineEditorSessions,
+    selectInlineEditorSession,
+    createInlineEditorSession,
+    sendInlineEditorPrompt,
+    stopInlineEditorPrompt,
 });
+
+/**
+ * 确保 Project 级 Inline AI Session 可用。
+ */
+async function ensureInlineEditorSession(): Promise<AgentSessionSummaryDto> {
+    const list = await refreshInlineEditorSessions();
+    const selected = inlineEditorSessionId.value
+        ? list.find((item) => item.sessionId === inlineEditorSessionId.value)
+        : undefined;
+    if (selected) {
+        return selected;
+    }
+    return createInlineEditorSession();
+}
+
+/**
+ * 刷新当前 Project Workspace 下的 Inline AI sessions。
+ */
+async function refreshInlineEditorSessions(): Promise<AgentSessionSummaryDto[]> {
+    const requestId = ++inlineEditorSessionRequestId;
+    inlineEditorSessionLoading.value = true;
+    try {
+        const page = await agentApi.listSessions({
+            workspaceKey: workspaceKey.value,
+            profileGroup: "all",
+            profileKey: INLINE_EDITOR_PROFILE_KEY,
+            status: "active",
+            relation: "all",
+            limit: 50,
+        });
+        if (requestId !== inlineEditorSessionRequestId) {
+            return inlineEditorSessions.value;
+        }
+        inlineEditorSessions.value = page.items;
+        const rememberedId = readInlineEditorSessionId();
+        const remembered = rememberedId ? page.items.find((item) => item.sessionId === rememberedId) : undefined;
+        const current = inlineEditorSessionId.value ? page.items.find((item) => item.sessionId === inlineEditorSessionId.value) : undefined;
+        const target = current ?? remembered ?? page.items[0];
+        if (target && inlineEditorSessionId.value !== target.sessionId) {
+            await loadInlineEditorSession(target.sessionId, {invalidateRefresh: false});
+        }
+        if (!target) {
+            inlineEditorSessionId.value = null;
+            inlineEditorSession.reset();
+            inlineEditorResultText.value = "";
+            inlineEditorStream.stop();
+        }
+        return inlineEditorSessions.value;
+    } finally {
+        if (requestId === inlineEditorSessionRequestId) {
+            inlineEditorSessionLoading.value = false;
+        }
+    }
+}
+
+/**
+ * 创建一个新的 Project 级 Inline AI session，并设为 PromptBar 当前 session。
+ */
+async function createInlineEditorSession(): Promise<AgentSessionSummaryDto> {
+    const created = await agentApi.createSession({
+        profileKey: INLINE_EDITOR_PROFILE_KEY,
+        initial: {},
+        workspaceRoot: agentWorkspaceRoot.value,
+        workspaceKey: workspaceKey.value,
+        projectPath: ideStore.workspaceKind === "user-assets" ? undefined : ideStore.currentNovelId,
+    });
+    await loadInlineEditorSession(created.sessionId);
+    await refreshInlineEditorSessions();
+    const snapshot = inlineEditorSession.snapshot.value ?? await agentApi.getSession(created.sessionId);
+    return snapshot.summary;
+}
+
+/**
+ * 选择 PromptBar 当前使用的 Inline AI session，不影响右侧 Agent 面板。
+ */
+async function selectInlineEditorSession(sessionId: number): Promise<void> {
+    if (inlineEditorSessionId.value === sessionId) {
+        return;
+    }
+    await loadInlineEditorSession(sessionId);
+}
+
+/**
+ * 加载后台 Inline AI session snapshot，并启动它自己的 SSE。
+ */
+async function loadInlineEditorSession(sessionId: number, options: {invalidateRefresh?: boolean} = {}): Promise<AgentSessionSummaryDto> {
+    if (options.invalidateRefresh !== false) {
+        inlineEditorSessionRequestId += 1;
+    }
+    inlineEditorStream.stop();
+    inlineEditorSessionId.value = sessionId;
+    inlineEditorSession.reset();
+    inlineEditorResultText.value = "";
+    saveInlineEditorSessionId(sessionId);
+    const snapshot = await agentApi.getSession(sessionId);
+    if (snapshot.summary.profileKey !== INLINE_EDITOR_PROFILE_KEY) {
+        throw new Error(t("agent.chatSurface.inlineLoadFailed"));
+    }
+    inlineEditorSession.applySnapshot(snapshot);
+    inlineEditorSessions.value = inlineEditorSessions.value.some((item) => item.sessionId === snapshot.summary.sessionId)
+        ? inlineEditorSessions.value.map((item) => item.sessionId === snapshot.summary.sessionId ? snapshot.summary : item)
+        : [snapshot.summary, ...inlineEditorSessions.value];
+    void inlineEditorStream.start(sessionId);
+    return snapshot.summary;
+}
+
+function readInlineEditorSessionId(): number | null {
+    if (!import.meta.client) {
+        return null;
+    }
+    const raw = localStorage.getItem(`agent:inline-editor-session:${workspaceKey.value}`);
+    const parsed = raw ? Number(raw) : NaN;
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function saveInlineEditorSessionId(sessionId: number): void {
+    if (!import.meta.client) {
+        return;
+    }
+    localStorage.setItem(`agent:inline-editor-session:${workspaceKey.value}`, String(sessionId));
+}
 
 function readLastSessionId(): number | null {
     if (!import.meta.client) {
@@ -1594,12 +2101,12 @@ function formatAnswerText(
     note?: string,
 ): string {
     const indexes = selectedOptionIndexes?.length ? selectedOptionIndexes : selectedOptionIndex === undefined ? [] : [selectedOptionIndex];
-    const labels = indexes.map((index) => index === -1 ? "其他答案" : options[index]?.label ?? String(index));
-    const selectedText = labels.join("、");
+    const labels = indexes.map((index) => index === -1 ? t("agent.userInput.otherAnswer") : options[index]?.label ?? String(index));
+    const selectedText = labels.join(t("agent.planApproval.separator"));
     if (selectedText && note?.trim()) {
-        return `${selectedText}\n备注：${note.trim()}`;
+        return `${selectedText}\n${t("agent.planApproval.note", {note: note.trim()})}`;
     }
-    return note?.trim() || selectedText || "继续";
+    return note?.trim() || selectedText || t("agent.userInput.continue");
 }
 
 function isApprovalApproved(answer?: {
@@ -1646,21 +2153,21 @@ function isApprovalApproved(answer?: {
                 </div>
                 <div class="flex shrink-0 items-center gap-1">
                     <Dropdown v-if="canChooseCreateProfile" :items="createProfileDropdownItems" root-class="relative inline-block" menu-class="right-0 top-full mt-1.5 w-44" compact @select="void createSessionFromHeader($event)">
-                        <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" title="新建对话" :disabled="loadingSession">
+                        <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :title="t('agent.session.newChat')" :disabled="loadingSession">
                             <span class="i-lucide-plus h-4 w-4"></span>
                         </button>
                     </Dropdown>
-                    <button v-else class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" title="新建对话" :disabled="loadingSession" @click="void createSessionFromHeader()">
+                    <button v-else class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :title="t('agent.session.newChat')" :disabled="loadingSession" @click="void createSessionFromHeader()">
                         <span class="i-lucide-plus h-4 w-4"></span>
                     </button>
-                    <button class="flex items-center gap-1.5 rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :class="{'bg-[var(--bg-hover)] text-[var(--accent-main)]': linkedAgentPanelOpen}" title="关联 Agent" @click="linkedAgentPanelOpen = !linkedAgentPanelOpen">
+                    <button class="flex items-center gap-1.5 rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :class="{'bg-[var(--bg-hover)] text-[var(--accent-main)]': linkedAgentPanelOpen}" :title="t('agent.chatSurface.linkedAgentsTitle')" @click="linkedAgentPanelOpen = !linkedAgentPanelOpen">
                         <span class="i-lucide-users h-4 w-4"></span>
                         <span v-if="linkedAgentCount" class="rounded-sm bg-[var(--accent-main)] px-1 text-[9px] font-bold text-white">{{ linkedAgentCount }}</span>
                     </button>
-                    <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" title="Session Tree" :disabled="!activeSessionId" @click="sessionTreeDialogOpen = true">
+                    <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :title="t('agent.chatSurface.sessionTreeTitle')" :disabled="!activeSessionId" @click="sessionTreeDialogOpen = true">
                         <span class="i-lucide-git-branch h-4 w-4"></span>
                     </button>
-                    <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="Session 列表" @click="void openSessionDialog()">
+                    <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('agent.chatSurface.sessionListTitle')" @click="void openSessionDialog()">
                         <span class="i-lucide-messages-square h-4 w-4"></span>
                     </button>
                     <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="emit('close')">
@@ -1744,6 +2251,7 @@ function isApprovalApproved(answer?: {
                 :resolve-menu="resolveInputMenu"
                 :on-skill-trigger-start="refreshSkillCatalog"
                 @submit-user-input="void submitUserInputAnswers($event)"
+                @submit-user-input-form="void submitUserInputForm($event)"
                 @send="void send()"
                 @steer="void steer()"
                 @followup="void followup()"
@@ -1761,8 +2269,11 @@ function isApprovalApproved(answer?: {
             <AgentSessionDialog
                 v-model="sessionDialogOpen"
                 :sessions="sessions"
+                :total="sessionListTotal"
+                :has-more="sessionListHasMore"
+                :next-offset="sessionListNextOffset"
                 :active-session-id="activeSessionId"
-                :loading="loadingSession"
+                :loading="loadingSession || sessionListLoading"
                 :running="running"
                 :action-id="sessionActionId"
                 :create-profile-options="createProfileOptions"
@@ -1771,6 +2282,7 @@ function isApprovalApproved(answer?: {
                 @create="void createSessionFromDialog($event)"
                 @archive="void archiveSessionFromDialog($event)"
                 @refresh="void refreshSessionsWithQuery($event)"
+                @load-more="void refreshSessionsWithQuery($event)"
             />
 
             <AgentSessionTreeDialog

@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import {createClient} from "@libsql/client";
+import {createClient, type Client} from "@libsql/client";
 import {createError} from "h3";
 import * as yaml from "yaml";
 import {resolveWorkspaceContainerRoot} from "nbook/server/workspace-files/workspace-assets-root";
@@ -9,6 +9,7 @@ import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-
 export const PROJECT_MANIFEST_FILE = "project.yaml";
 export const PROJECT_DATABASE_RELATIVE_PATH = ".nbook/project.sqlite";
 export const PROJECT_CONFIG_RELATIVE_PATH = ".nbook/config.json";
+export const PROJECT_DELETED_MARKER_RELATIVE_PATH = ".nbook/deleted-project.json";
 
 export type ProjectManifest = {
     kind: "novel";
@@ -121,6 +122,37 @@ CREATE TABLE IF NOT EXISTS "StorySceneRef" (
     CONSTRAINT "StorySceneRef_targetSceneId_fkey" FOREIGN KEY ("targetSceneId") REFERENCES "StoryScene" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT "StorySceneRef_targetPlotId_fkey" FOREIGN KEY ("targetPlotId") REFERENCES "StoryPlot" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
+CREATE TABLE IF NOT EXISTS "WorldSubject" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "type" TEXT NOT NULL,
+    "name" TEXT NOT NULL DEFAULT '',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS "WorldSlice" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "instant" BIGINT NOT NULL,
+    "title" TEXT NOT NULL DEFAULT '',
+    "summary" TEXT NOT NULL DEFAULT '',
+    "kind" TEXT NOT NULL DEFAULT 'event',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS "WorldPatch" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "sliceId" TEXT NOT NULL,
+    "subjectId" TEXT NOT NULL,
+    "instant" BIGINT NOT NULL,
+    "seq" INTEGER NOT NULL DEFAULT 0,
+    "path" TEXT NOT NULL,
+    "op" TEXT NOT NULL,
+    "value" TEXT,
+    "summary" TEXT,
+    "text" TEXT,
+    "vector" BLOB,
+    "model" TEXT,
+    CONSTRAINT "WorldPatch_sliceId_fkey" FOREIGN KEY ("sliceId") REFERENCES "WorldSlice" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "WorldPatch_subjectId_fkey" FOREIGN KEY ("subjectId") REFERENCES "WorldSubject" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+DROP TABLE IF EXISTS "WorldMutation";
 CREATE UNIQUE INDEX IF NOT EXISTS "StoryPhase_storyId_name_key" ON "StoryPhase"("storyId", "name");
 CREATE INDEX IF NOT EXISTS "StoryPhase_storyId_sortOrder_idx" ON "StoryPhase"("storyId", "sortOrder");
 CREATE UNIQUE INDEX IF NOT EXISTS "StoryThread_storyId_name_key" ON "StoryThread"("storyId", "name");
@@ -136,6 +168,12 @@ CREATE INDEX IF NOT EXISTS "StorySceneRef_sceneId_sortOrder_idx" ON "StorySceneR
 CREATE INDEX IF NOT EXISTS "StorySceneRef_targetThreadId_idx" ON "StorySceneRef"("targetThreadId");
 CREATE INDEX IF NOT EXISTS "StorySceneRef_targetSceneId_idx" ON "StorySceneRef"("targetSceneId");
 CREATE INDEX IF NOT EXISTS "StorySceneRef_targetPlotId_idx" ON "StorySceneRef"("targetPlotId");
+CREATE UNIQUE INDEX IF NOT EXISTS "WorldSlice_instant_key" ON "WorldSlice"("instant");
+CREATE INDEX IF NOT EXISTS "WorldSlice_instant_idx" ON "WorldSlice"("instant");
+CREATE INDEX IF NOT EXISTS "WorldSubject_type_idx" ON "WorldSubject"("type");
+CREATE INDEX IF NOT EXISTS "WorldPatch_subjectId_instant_seq_idx" ON "WorldPatch"("subjectId", "instant", "seq");
+CREATE INDEX IF NOT EXISTS "WorldPatch_subjectId_path_instant_idx" ON "WorldPatch"("subjectId", "path", "instant");
+CREATE INDEX IF NOT EXISTS "WorldPatch_path_idx" ON "WorldPatch"("path");
 INSERT INTO "ProjectMetadata" ("key", "value", "updatedAt")
 VALUES ('schemaVersion', '1', CURRENT_TIMESTAMP)
 ON CONFLICT("key") DO UPDATE SET "value" = excluded."value", "updatedAt" = CURRENT_TIMESTAMP;
@@ -171,11 +209,37 @@ export function resolveProjectAbsolutePath(projectPath: string): string {
 export async function assertProjectWorkspaceDirectory(projectPath: string): Promise<string> {
     const normalizedProjectPath = normalizeProjectPath(projectPath);
     const projectRoot = resolveProjectAbsolutePath(normalizedProjectPath);
-    const stat = await fs.stat(projectRoot);
+    let stat: Awaited<ReturnType<typeof fs.stat>>;
+    try {
+        stat = await fs.stat(projectRoot);
+    } catch (error) {
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+            throw createError({statusCode: 404, message: "Project Workspace 不存在"});
+        }
+        throw error;
+    }
     if (!stat.isDirectory()) {
         throw createError({statusCode: 400, message: "projectPath 必须指向 Project Workspace 目录"});
     }
+    if (await isProjectRootDeleted(projectRoot)) {
+        throw createError({statusCode: 404, message: "Project Workspace 已删除"});
+    }
     return normalizedProjectPath;
+}
+
+/**
+ * 判断 Project Workspace 目录是否存在。包含已标记删除但尚未物理清理的目录。
+ */
+export async function projectWorkspaceDirectoryExists(projectPath: string): Promise<boolean> {
+    try {
+        const stat = await fs.stat(resolveProjectAbsolutePath(projectPath));
+        return stat.isDirectory();
+    } catch (error) {
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+            return false;
+        }
+        throw error;
+    }
 }
 
 /**
@@ -256,6 +320,9 @@ export async function listProjectWorkspaces(): Promise<ProjectListItem[]> {
         if (!entry.isDirectory() || entry.name === ".nbook") {
             continue;
         }
+        if (await isProjectRootDeleted(path.join(workspaceRoot, entry.name))) {
+            continue;
+        }
         const projectPath = path.posix.join("workspace", entry.name);
         try {
             const manifest = await readProjectManifest(projectPath);
@@ -280,6 +347,21 @@ export async function listProjectWorkspaces(): Promise<ProjectListItem[]> {
 }
 
 /**
+ * 判断 Project Root 是否已经被删除流程标记。用于隐藏物理清理尚未完成的 Project。
+ */
+export async function isProjectRootDeleted(projectRoot: string): Promise<boolean> {
+    try {
+        const stat = await fs.stat(path.join(projectRoot, PROJECT_DELETED_MARKER_RELATIVE_PATH));
+        return stat.isFile();
+    } catch (error) {
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+            return false;
+        }
+        throw error;
+    }
+}
+
+/**
  * 初始化或迁移 Project SQLite。
  */
 export async function initProjectDatabase(projectPath: string): Promise<string> {
@@ -298,6 +380,7 @@ export async function initProjectDatabaseAtRoot(projectRoot: string): Promise<st
         for (const statement of splitSqlStatements(PROJECT_MIGRATION_SQL)) {
             await client.execute(statement);
         }
+        await ensureWorldSliceSummaryColumn(client);
     } finally {
         await client.close();
         collectReleasedSqliteHandles();
@@ -314,4 +397,13 @@ export function toSqliteFileUrl(filePath: string): string {
 
 function splitSqlStatements(sql: string): string[] {
     return sql.split(";").map((statement) => statement.trim()).filter(Boolean);
+}
+
+/** 旧 Project SQLite 可能早于 slice-level summary，初始化时做幂等补列。 */
+async function ensureWorldSliceSummaryColumn(client: Client): Promise<void> {
+    const result = await client.execute(`PRAGMA table_info("WorldSlice")`);
+    const hasSummary = result.rows.some((row) => String(row.name ?? "") === "summary");
+    if (!hasSummary) {
+        await client.execute(`ALTER TABLE "WorldSlice" ADD COLUMN "summary" TEXT NOT NULL DEFAULT ''`);
+    }
 }

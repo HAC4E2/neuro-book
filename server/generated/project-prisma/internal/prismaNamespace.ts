@@ -391,7 +391,10 @@ export const ModelName = {
   StoryThread: 'StoryThread',
   StoryScene: 'StoryScene',
   StoryPlot: 'StoryPlot',
-  StorySceneRef: 'StorySceneRef'
+  StorySceneRef: 'StorySceneRef',
+  WorldSubject: 'WorldSubject',
+  WorldSlice: 'WorldSlice',
+  WorldPatch: 'WorldPatch'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -407,7 +410,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "projectMetadata" | "databaseLock" | "story" | "storyPhase" | "storyThread" | "storyScene" | "storyPlot" | "storySceneRef"
+    modelProps: "projectMetadata" | "databaseLock" | "story" | "storyPhase" | "storyThread" | "storyScene" | "storyPlot" | "storySceneRef" | "worldSubject" | "worldSlice" | "worldPatch"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -1003,6 +1006,228 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    WorldSubject: {
+      payload: Prisma.$WorldSubjectPayload<ExtArgs>
+      fields: Prisma.WorldSubjectFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.WorldSubjectFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WorldSubjectPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.WorldSubjectFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WorldSubjectPayload>
+        }
+        findFirst: {
+          args: Prisma.WorldSubjectFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WorldSubjectPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.WorldSubjectFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WorldSubjectPayload>
+        }
+        findMany: {
+          args: Prisma.WorldSubjectFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WorldSubjectPayload>[]
+        }
+        create: {
+          args: Prisma.WorldSubjectCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WorldSubjectPayload>
+        }
+        createMany: {
+          args: Prisma.WorldSubjectCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.WorldSubjectCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WorldSubjectPayload>[]
+        }
+        delete: {
+          args: Prisma.WorldSubjectDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WorldSubjectPayload>
+        }
+        update: {
+          args: Prisma.WorldSubjectUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WorldSubjectPayload>
+        }
+        deleteMany: {
+          args: Prisma.WorldSubjectDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.WorldSubjectUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.WorldSubjectUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WorldSubjectPayload>[]
+        }
+        upsert: {
+          args: Prisma.WorldSubjectUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WorldSubjectPayload>
+        }
+        aggregate: {
+          args: Prisma.WorldSubjectAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateWorldSubject>
+        }
+        groupBy: {
+          args: Prisma.WorldSubjectGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.WorldSubjectGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.WorldSubjectCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.WorldSubjectCountAggregateOutputType> | number
+        }
+      }
+    }
+    WorldSlice: {
+      payload: Prisma.$WorldSlicePayload<ExtArgs>
+      fields: Prisma.WorldSliceFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.WorldSliceFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WorldSlicePayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.WorldSliceFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WorldSlicePayload>
+        }
+        findFirst: {
+          args: Prisma.WorldSliceFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WorldSlicePayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.WorldSliceFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WorldSlicePayload>
+        }
+        findMany: {
+          args: Prisma.WorldSliceFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WorldSlicePayload>[]
+        }
+        create: {
+          args: Prisma.WorldSliceCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WorldSlicePayload>
+        }
+        createMany: {
+          args: Prisma.WorldSliceCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.WorldSliceCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WorldSlicePayload>[]
+        }
+        delete: {
+          args: Prisma.WorldSliceDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WorldSlicePayload>
+        }
+        update: {
+          args: Prisma.WorldSliceUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WorldSlicePayload>
+        }
+        deleteMany: {
+          args: Prisma.WorldSliceDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.WorldSliceUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.WorldSliceUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WorldSlicePayload>[]
+        }
+        upsert: {
+          args: Prisma.WorldSliceUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WorldSlicePayload>
+        }
+        aggregate: {
+          args: Prisma.WorldSliceAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateWorldSlice>
+        }
+        groupBy: {
+          args: Prisma.WorldSliceGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.WorldSliceGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.WorldSliceCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.WorldSliceCountAggregateOutputType> | number
+        }
+      }
+    }
+    WorldPatch: {
+      payload: Prisma.$WorldPatchPayload<ExtArgs>
+      fields: Prisma.WorldPatchFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.WorldPatchFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WorldPatchPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.WorldPatchFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WorldPatchPayload>
+        }
+        findFirst: {
+          args: Prisma.WorldPatchFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WorldPatchPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.WorldPatchFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WorldPatchPayload>
+        }
+        findMany: {
+          args: Prisma.WorldPatchFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WorldPatchPayload>[]
+        }
+        create: {
+          args: Prisma.WorldPatchCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WorldPatchPayload>
+        }
+        createMany: {
+          args: Prisma.WorldPatchCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.WorldPatchCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WorldPatchPayload>[]
+        }
+        delete: {
+          args: Prisma.WorldPatchDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WorldPatchPayload>
+        }
+        update: {
+          args: Prisma.WorldPatchUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WorldPatchPayload>
+        }
+        deleteMany: {
+          args: Prisma.WorldPatchDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.WorldPatchUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.WorldPatchUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WorldPatchPayload>[]
+        }
+        upsert: {
+          args: Prisma.WorldPatchUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WorldPatchPayload>
+        }
+        aggregate: {
+          args: Prisma.WorldPatchAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateWorldPatch>
+        }
+        groupBy: {
+          args: Prisma.WorldPatchGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.WorldPatchGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.WorldPatchCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.WorldPatchCountAggregateOutputType> | number
+        }
+      }
+    }
   }
 } & {
   other: {
@@ -1159,6 +1384,46 @@ export const StorySceneRefScalarFieldEnum = {
 export type StorySceneRefScalarFieldEnum = (typeof StorySceneRefScalarFieldEnum)[keyof typeof StorySceneRefScalarFieldEnum]
 
 
+export const WorldSubjectScalarFieldEnum = {
+  id: 'id',
+  type: 'type',
+  name: 'name',
+  createdAt: 'createdAt'
+} as const
+
+export type WorldSubjectScalarFieldEnum = (typeof WorldSubjectScalarFieldEnum)[keyof typeof WorldSubjectScalarFieldEnum]
+
+
+export const WorldSliceScalarFieldEnum = {
+  id: 'id',
+  instant: 'instant',
+  title: 'title',
+  summary: 'summary',
+  kind: 'kind',
+  createdAt: 'createdAt'
+} as const
+
+export type WorldSliceScalarFieldEnum = (typeof WorldSliceScalarFieldEnum)[keyof typeof WorldSliceScalarFieldEnum]
+
+
+export const WorldPatchScalarFieldEnum = {
+  id: 'id',
+  sliceId: 'sliceId',
+  subjectId: 'subjectId',
+  instant: 'instant',
+  seq: 'seq',
+  path: 'path',
+  op: 'op',
+  value: 'value',
+  summary: 'summary',
+  text: 'text',
+  vector: 'vector',
+  model: 'model'
+} as const
+
+export type WorldPatchScalarFieldEnum = (typeof WorldPatchScalarFieldEnum)[keyof typeof WorldPatchScalarFieldEnum]
+
+
 export const SortOrder = {
   asc: 'asc',
   desc: 'desc'
@@ -1241,6 +1506,20 @@ export type EnumStoryRefTargetKindFieldRefInput<$PrismaModel> = FieldRefInputTyp
  * Reference to a field of type 'StoryRefVisibility'
  */
 export type EnumStoryRefVisibilityFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'StoryRefVisibility'>
+    
+
+
+/**
+ * Reference to a field of type 'BigInt'
+ */
+export type BigIntFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'BigInt'>
+    
+
+
+/**
+ * Reference to a field of type 'Bytes'
+ */
+export type BytesFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Bytes'>
     
 
 
@@ -1353,6 +1632,9 @@ export type GlobalOmitConfig = {
   storyScene?: Prisma.StorySceneOmit
   storyPlot?: Prisma.StoryPlotOmit
   storySceneRef?: Prisma.StorySceneRefOmit
+  worldSubject?: Prisma.WorldSubjectOmit
+  worldSlice?: Prisma.WorldSliceOmit
+  worldPatch?: Prisma.WorldPatchOmit
 }
 
 /* Types for Logging */

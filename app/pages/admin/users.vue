@@ -34,6 +34,7 @@ const resetPassword = ref("");
 const novelIdeStore = useNovelIdeStore();
 const {theme} = storeToRefs(novelIdeStore);
 const {mountThemeHost} = useIdeTheme(theme);
+const {t} = useI18n();
 const editOpen = computed({
     get: () => Boolean(editTarget.value),
     set: (open: boolean): void => {
@@ -80,7 +81,7 @@ const loadUsers = async (): Promise<void> => {
         currentUser.value = session.user;
         users.value = list;
     } catch (error) {
-        errorMessage.value = error instanceof Error ? error.message : "加载用户失败";
+        errorMessage.value = error instanceof Error ? error.message : t("admin.loadUsersFailed");
     } finally {
         loading.value = false;
     }
@@ -108,7 +109,7 @@ const createUser = async (): Promise<void> => {
         createForm.role = "user";
         await loadUsers();
     } catch (error) {
-        dialogErrorMessage.value = error instanceof Error ? error.message : "创建失败";
+        dialogErrorMessage.value = error instanceof Error ? error.message : t("admin.createFailed");
     }
 };
 
@@ -143,7 +144,7 @@ const saveUser = async (): Promise<void> => {
         editTarget.value = null;
         await loadUsers();
     } catch (error) {
-        dialogErrorMessage.value = error instanceof Error ? error.message : "保存失败";
+        dialogErrorMessage.value = error instanceof Error ? error.message : t("admin.saveFailed");
     }
 };
 
@@ -167,7 +168,7 @@ const submitReset = async (): Promise<void> => {
         resetPassword.value = "";
         await loadUsers();
     } catch (error) {
-        dialogErrorMessage.value = error instanceof Error ? error.message : "重置失败";
+        dialogErrorMessage.value = error instanceof Error ? error.message : t("admin.resetFailed");
     }
 };
 
@@ -185,7 +186,7 @@ const toggleStatus = async (user: AdminUserListItemDto): Promise<void> => {
         });
         await loadUsers();
     } catch (error) {
-        dialogErrorMessage.value = error instanceof Error ? error.message : "更新失败";
+        dialogErrorMessage.value = error instanceof Error ? error.message : t("admin.updateFailed");
     }
 };
 
@@ -213,24 +214,24 @@ onMounted(() => {
         <div class="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-6 px-6 py-6">
             <header class="flex items-center justify-between gap-4 border-b border-[var(--border-color)] pb-4">
                 <div>
-                    <div class="text-2xl font-semibold">用户管理</div>
-                    <div class="mt-1 text-sm text-[var(--text-secondary)]">用于创建、授权、禁用和重置全站用户。</div>
+                    <div class="text-2xl font-semibold">{{ t("admin.usersTitle") }}</div>
+                    <div class="mt-1 text-sm text-[var(--text-secondary)]">{{ t("admin.usersDescription") }}</div>
                 </div>
                 <div class="flex items-center gap-3">
                     <div class="text-right text-sm text-[var(--text-secondary)]">
-                        <div>{{ currentUser?.displayName || currentUser?.username || "未登录" }}</div>
+                        <div>{{ currentUser?.displayName || currentUser?.username || t("admin.notLoggedIn") }}</div>
                         <div>{{ currentUser?.role || "" }}</div>
                     </div>
                     <button class="rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-2 text-sm hover:bg-[var(--bg-hover)]" @click="void logout()">
-                        退出
+                        {{ t("common.logout") }}
                     </button>
                 </div>
             </header>
 
             <div class="flex items-center justify-between">
-                <div class="text-sm text-[var(--text-secondary)]">总用户数 {{ users.length }}</div>
+                <div class="text-sm text-[var(--text-secondary)]">{{ t("admin.totalUsers", {count: users.length}) }}</div>
                 <button class="rounded-lg bg-[var(--accent-main)] px-4 py-2 text-sm font-medium text-white hover:opacity-90" @click="createOpen = true">
-                    新建用户
+                    {{ t("admin.createUser") }}
                 </button>
             </div>
 
@@ -242,13 +243,13 @@ onMounted(() => {
                 <table class="w-full border-collapse text-sm">
                     <thead class="bg-[var(--bg-input)] text-[var(--text-secondary)]">
                         <tr>
-                            <th class="px-4 py-3 text-left font-medium">用户名</th>
-                            <th class="px-4 py-3 text-left font-medium">显示名</th>
-                            <th class="px-4 py-3 text-left font-medium">角色</th>
-                            <th class="px-4 py-3 text-left font-medium">状态</th>
-                            <th class="px-4 py-3 text-left font-medium">最后登录</th>
-                            <th class="px-4 py-3 text-left font-medium">最后活跃</th>
-                            <th class="px-4 py-3 text-left font-medium">操作</th>
+                            <th class="px-4 py-3 text-left font-medium">{{ t("admin.username") }}</th>
+                            <th class="px-4 py-3 text-left font-medium">{{ t("admin.displayName") }}</th>
+                            <th class="px-4 py-3 text-left font-medium">{{ t("admin.role") }}</th>
+                            <th class="px-4 py-3 text-left font-medium">{{ t("admin.status") }}</th>
+                            <th class="px-4 py-3 text-left font-medium">{{ t("admin.lastLogin") }}</th>
+                            <th class="px-4 py-3 text-left font-medium">{{ t("admin.lastSeen") }}</th>
+                            <th class="px-4 py-3 text-left font-medium">{{ t("admin.actions") }}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -261,10 +262,10 @@ onMounted(() => {
                             <td class="px-4 py-3">{{ user.lastSeenAt ? new Date(user.lastSeenAt).toLocaleString() : "-" }}</td>
                             <td class="px-4 py-3">
                                 <div class="flex flex-wrap gap-2">
-                                    <button class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-1.5 text-xs hover:bg-[var(--bg-hover)]" @click="openEdit(user)">编辑</button>
-                                    <button class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-1.5 text-xs hover:bg-[var(--bg-hover)]" @click="resetTarget = user">重置密码</button>
+                                    <button class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-1.5 text-xs hover:bg-[var(--bg-hover)]" @click="openEdit(user)">{{ t("admin.edit") }}</button>
+                                    <button class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-1.5 text-xs hover:bg-[var(--bg-hover)]" @click="resetTarget = user">{{ t("admin.resetPassword") }}</button>
                                     <button class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-1.5 text-xs hover:bg-[var(--bg-hover)]" @click="void toggleStatus(user)">
-                                        {{ user.status === 'active' ? '禁用' : '启用' }}
+                                        {{ user.status === 'active' ? t("admin.disable") : t("admin.enable") }}
                                     </button>
                                 </div>
                             </td>
@@ -274,71 +275,71 @@ onMounted(() => {
             </div>
         </div>
 
-        <Dialog v-model="createOpen" title="新建用户" width="520px" show-cancel :teleport-target="false" @confirm="void createUser()">
+        <Dialog v-model="createOpen" :title="t('admin.createUser')" width="520px" show-cancel :teleport-target="false" @confirm="void createUser()">
             <div class="space-y-4 text-sm">
                 <div v-if="dialogErrorMessage" class="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-red-200">
                     {{ dialogErrorMessage }}
                 </div>
                 <label class="block">
-                    <div class="mb-2 text-[var(--text-secondary)]">用户名</div>
+                    <div class="mb-2 text-[var(--text-secondary)]">{{ t("admin.username") }}</div>
                     <FormInput v-model="createForm.username" placeholder="username" />
                 </label>
                 <label class="block">
-                    <div class="mb-2 text-[var(--text-secondary)]">显示名</div>
-                    <FormInput v-model="createForm.displayName" placeholder="可选" />
+                    <div class="mb-2 text-[var(--text-secondary)]">{{ t("admin.displayName") }}</div>
+                    <FormInput v-model="createForm.displayName" :placeholder="t('common.optional')" />
                 </label>
                 <label class="block">
                     <div class="mb-2 flex items-center justify-between gap-2">
-                        <span class="text-[var(--text-secondary)]">密码</span>
+                        <span class="text-[var(--text-secondary)]">{{ t("admin.password") }}</span>
                         <button type="button" class="inline-flex items-center gap-1 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1 text-[11px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="generateCreatePassword">
                             <span class="i-lucide-wand-sparkles h-3.5 w-3.5"></span>
-                            <span>自动生成</span>
+                            <span>{{ t("admin.generate") }}</span>
                         </button>
                     </div>
-                    <FormInput v-model="createForm.password" type="text" placeholder="至少 8 位" />
+                    <FormInput v-model="createForm.password" type="text" :placeholder="t('admin.passwordMinLength')" />
                 </label>
                 <label class="block">
-                    <div class="mb-2 text-[var(--text-secondary)]">角色</div>
+                    <div class="mb-2 text-[var(--text-secondary)]">{{ t("admin.role") }}</div>
                     <FormSelect v-model="createForm.role" :options="[{label: 'user', value: 'user'}, {label: 'admin', value: 'admin'}]" />
                 </label>
             </div>
         </Dialog>
 
-        <Dialog v-model="editOpen" title="编辑用户" width="520px" show-cancel :teleport-target="false" @confirm="void saveUser()">
+        <Dialog v-model="editOpen" :title="t('admin.editUser')" width="520px" show-cancel :teleport-target="false" @confirm="void saveUser()">
             <div class="space-y-4 text-sm">
                 <div v-if="dialogErrorMessage" class="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-red-200">
                     {{ dialogErrorMessage }}
                 </div>
                 <label class="block">
-                    <div class="mb-2 text-[var(--text-secondary)]">显示名</div>
-                    <FormInput v-model="editForm.displayName" placeholder="可选" />
+                    <div class="mb-2 text-[var(--text-secondary)]">{{ t("admin.displayName") }}</div>
+                    <FormInput v-model="editForm.displayName" :placeholder="t('common.optional')" />
                 </label>
                 <label class="block">
-                    <div class="mb-2 text-[var(--text-secondary)]">角色</div>
+                    <div class="mb-2 text-[var(--text-secondary)]">{{ t("admin.role") }}</div>
                     <FormSelect v-model="editForm.role" :options="[{label: 'user', value: 'user'}, {label: 'admin', value: 'admin'}]" />
                 </label>
                 <label class="block">
-                    <div class="mb-2 text-[var(--text-secondary)]">状态</div>
+                    <div class="mb-2 text-[var(--text-secondary)]">{{ t("admin.status") }}</div>
                     <FormSelect v-model="editForm.status" :options="[{label: 'active', value: 'active'}, {label: 'disabled', value: 'disabled'}]" />
                 </label>
             </div>
         </Dialog>
 
-        <Dialog v-model="resetOpen" title="重置密码" width="480px" show-cancel :teleport-target="false" @confirm="void submitReset()">
+        <Dialog v-model="resetOpen" :title="t('admin.resetPassword')" width="480px" show-cancel :teleport-target="false" @confirm="void submitReset()">
             <div class="space-y-4 text-sm">
                 <div v-if="dialogErrorMessage" class="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-red-200">
                     {{ dialogErrorMessage }}
                 </div>
-                <div class="text-[var(--text-secondary)]">为 <strong>{{ resetTarget?.username }}</strong> 设置新密码。</div>
+                <div class="text-[var(--text-secondary)]">{{ t("admin.setNewPasswordFor", {username: resetTarget?.username ?? ""}) }}</div>
                 <label class="block">
                     <div class="mb-2 flex items-center justify-between gap-2">
-                        <span class="text-[var(--text-secondary)]">新密码</span>
+                        <span class="text-[var(--text-secondary)]">{{ t("admin.newPassword") }}</span>
                         <button type="button" class="inline-flex items-center gap-1 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1 text-[11px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="generateResetPassword">
                             <span class="i-lucide-wand-sparkles h-3.5 w-3.5"></span>
-                            <span>自动生成</span>
+                            <span>{{ t("admin.generate") }}</span>
                         </button>
                     </div>
-                    <FormInput v-model="resetPassword" type="text" placeholder="至少 8 位" />
+                    <FormInput v-model="resetPassword" type="text" :placeholder="t('admin.passwordMinLength')" />
                 </label>
             </div>
         </Dialog>

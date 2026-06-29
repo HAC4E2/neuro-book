@@ -1,6 +1,19 @@
 export type WorkspaceLorebookType = "location" | "character" | "item" | "rule" | "note";
 export type WorkspaceLorebookStatus = "draft" | "pending" | "active" | "archived";
 
+type RuntimeI18n = {
+    t: (key: string) => string;
+};
+
+function translate(key: string, fallback: string): string {
+    try {
+        const nuxtApp = useNuxtApp() as {$i18n?: RuntimeI18n};
+        return nuxtApp.$i18n?.t(key) ?? fallback;
+    } catch {
+        return fallback;
+    }
+}
+
 /**
  * 文件化 lorebook 类型视觉元数据。
  */
@@ -104,15 +117,15 @@ export function getWorkspaceLorebookTypeMeta(type: WorkspaceLorebookType): Works
  */
 export function getWorkspaceLorebookStatusLabel(status: WorkspaceLorebookStatus): string {
     if (status === "draft") {
-        return "草稿中";
+        return translate("ide.workspace.common.statusDraft", "草稿中");
     }
     if (status === "pending") {
-        return "待定";
+        return translate("ide.workspace.common.statusPending", "待定");
     }
     if (status === "active") {
-        return "已生效";
+        return translate("ide.workspace.common.statusActive", "已生效");
     }
-    return "已归档";
+    return translate("ide.workspace.common.statusArchived", "已归档");
 }
 
 /**

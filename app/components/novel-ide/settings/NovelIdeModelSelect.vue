@@ -15,8 +15,8 @@ const props = withDefaults(defineProps<{
     dropdownDirection?: "auto" | "down" | "up";
 }>(), {
     allowDefault: false,
-    defaultLabel: "跟随默认",
-    placeholder: "请选择模型",
+    defaultLabel: "",
+    placeholder: "",
     disabled: false,
     dropdownDirection: "auto",
 });
@@ -24,6 +24,8 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
     (e: "update:modelValue", value: string | null): void;
 }>();
+
+const {t} = useI18n();
 
 const selectOptions = computed<SelectOption[]>(() => {
     const options = props.models.map((model) => ({
@@ -37,7 +39,7 @@ const selectOptions = computed<SelectOption[]>(() => {
 
     return [{
         value: DEFAULT_OPTION_VALUE,
-        label: props.defaultLabel,
+        label: props.defaultLabel || t("settings.panels.modelSelect.followDefault"),
     }, ...options];
 });
 
@@ -68,7 +70,7 @@ function handleUpdate(value: string): void {
         <FormSelect
             :model-value="selectedValue"
             :options="selectOptions"
-            :placeholder="props.placeholder"
+            :placeholder="props.placeholder || t('settings.panels.modelSelect.placeholder')"
             :dropdown-direction="props.dropdownDirection"
             @update:model-value="handleUpdate"
         />

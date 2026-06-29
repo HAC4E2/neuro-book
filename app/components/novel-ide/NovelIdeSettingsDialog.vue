@@ -3,7 +3,6 @@ import {storeToRefs} from "pinia";
 import type {SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
 import Dialog from "nbook/app/components/common/Dialog.vue";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
-import NovelIdeAgentProfileDefaultSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeAgentProfileDefaultSettingsPanel.vue";
 import NovelIdeAgentProfileModelSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeAgentProfileModelSettingsPanel.vue";
 import NovelIdeCostSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeCostSettingsPanel.vue";
 import NovelIdeEmbeddingSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeEmbeddingSettingsPanel.vue";
@@ -15,7 +14,7 @@ import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
 import type {MarkdownStudioViewMode} from "nbook/app/composables/useMarkdownStudioController";
 import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES, DEFAULT_MONACO_EDITOR_PREFERENCES, type MarkdownEditorPreferences, type MonacoEditorPreferences} from "nbook/shared/editor-workbench";
 
-type SettingsSection = "frontend" | "editor" | "models" | "embedding" | "cost" | "web-tools" | "agent-profile-defaults" | "agent-profile-models";
+type SettingsSection = "frontend" | "editor" | "models" | "embedding" | "cost" | "web-tools" | "agent-profile-models";
 type SettingsScope = "global" | "project" | "browser";
 type AppVersionKind = "release" | "tag" | "commit" | "package";
 
@@ -42,8 +41,8 @@ const emit = defineEmits<{
 
 const novelIdeStore = useNovelIdeStore();
 const notification = useNotification();
+const {locale, setLocale, t} = useI18n();
 const {
-    promptExpanded,
     selectedReasoning,
     theme,
     viewMode,
@@ -51,7 +50,7 @@ const {
     monacoEditorPreferences,
 } = storeToRefs(novelIdeStore);
 
-const activeSection = ref<SettingsSection>("frontend");
+const activeSection = ref<SettingsSection>("models");
 const activeScope = ref<SettingsScope>("global");
 const targetNovelId = ref("");
 const appVersion = ref<AppVersionDto | null>(null);
@@ -60,83 +59,76 @@ const modelSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 const embeddingSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 const costSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 const webSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
-const agentProfileDefaultSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 const agentProfileModelSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 
-const frontendSectionItems: Array<{value: SettingsSection; label: string; description: string; iconClass: string}> = [
+const frontendSectionItems = computed<Array<{value: SettingsSection; label: string; description: string; iconClass: string}>>(() => [
     {
         value: "frontend",
-        label: "前端设定",
-        description: "本地 UI 偏好，即改即生效。",
+        label: t("settings.section.frontend.label"),
+        description: t("settings.section.frontend.description"),
         iconClass: "i-lucide-monitor-cog",
     },
     {
         value: "editor",
-        label: "编辑器",
-        description: "Markdown 富文本显示偏好。",
+        label: t("settings.section.editor.label"),
+        description: t("settings.section.editor.description"),
         iconClass: "i-lucide-type",
     },
     {
         value: "models",
-        label: "模型设置",
-        description: "管理 Provider、Model 与默认模型。",
+        label: t("settings.section.models.label"),
+        description: t("settings.section.models.description"),
         iconClass: "i-lucide-cpu",
     },
     {
         value: "embedding",
         label: "Embedding",
-        description: "配置 RAG 使用的嵌入服务。",
+        description: t("settings.section.embedding.description"),
         iconClass: "i-lucide-binary",
     },
     {
         value: "cost",
-        label: "费用显示",
-        description: "设置 Agent 费用展示币种和汇率。",
+        label: t("settings.section.cost.label"),
+        description: t("settings.section.cost.description"),
         iconClass: "i-lucide-circle-dollar-sign",
     },
     {
         value: "web-tools",
-        label: "Web 工具",
-        description: "配置 Agent 联网搜索与抓取。",
+        label: t("settings.section.webTools.label"),
+        description: t("settings.section.webTools.description"),
         iconClass: "i-lucide-search-code",
     },
     {
-        value: "agent-profile-defaults",
-        label: "默认 Profile",
-        description: "配置当前 workspace 新线程默认使用的 Profile。",
-        iconClass: "i-lucide-route",
-    },
-    {
         value: "agent-profile-models",
-        label: "Agent Profile 模型",
-        description: "配置各个 Agent Profile 的默认模型参数。",
+        label: t("settings.section.agentProfileModels.label"),
+        description: t("settings.section.agentProfileModels.description"),
         iconClass: "i-lucide-bot-message-square",
     },
-];
+]);
 
-const scopeOptions: Array<{value: SettingsScope; label: string; description: string; iconClass: string}> = [
+const scopeOptions = computed<Array<{value: SettingsScope; label: string; description: string; iconClass: string}>>(() => [
     {
         value: "global",
-        label: "Global Config",
-        description: "Workspace Root .nbook/config.json",
+        label: t("settings.scope.global.label"),
+        description: t("settings.scope.global.description"),
         iconClass: "i-lucide-globe-2",
     },
     {
         value: "project",
-        label: "Project Config",
-        description: "所选 Project Workspace .nbook/config.json",
+        label: t("settings.scope.project.label"),
+        description: t("settings.scope.project.description"),
         iconClass: "i-lucide-folder-cog",
     },
     {
         value: "browser",
-        label: "Browser State",
-        description: "本地 UI 状态，不写入 config 文件",
+        label: t("settings.scope.browser.label"),
+        description: t("settings.scope.browser.description"),
         iconClass: "i-lucide-monitor",
     },
-];
+]);
 
-const globalConfigSections: SettingsSection[] = ["models", "embedding", "cost", "web-tools", "agent-profile-defaults", "agent-profile-models"];
-const projectConfigSections: SettingsSection[] = ["models", "embedding", "web-tools", "agent-profile-defaults", "agent-profile-models"];
+const globalConfigSections: SettingsSection[] = ["models", "embedding", "cost", "web-tools", "agent-profile-models"];
+const projectConfigSections: SettingsSection[] = ["agent-profile-models"];
 const browserSections: SettingsSection[] = ["frontend", "editor"];
 
 const themeOptions: SelectOption[] = [
@@ -150,43 +142,53 @@ const themeOptions: SelectOption[] = [
     {value: "tokyo-night", label: "Tokyo Night"},
 ];
 
-const viewModeOptions: SelectOption[] = [
-    {value: "rich", label: "富文本"},
-    {value: "source", label: "源码"},
-];
+const viewModeOptions = computed<SelectOption[]>(() => [
+    {value: "rich", label: t("settings.frontend.viewModeRich")},
+    {value: "source", label: t("settings.frontend.viewModeSource")},
+]);
 
-const promptExpandedOptions: SelectOption[] = [
-    {value: "expanded", label: "默认展开"},
-    {value: "collapsed", label: "默认收起"},
-];
+const localeOptions = computed<SelectOption[]>(() => [
+    {
+        value: "zh-CN",
+        label: t("settings.frontend.simplifiedChinese"),
+        description: t("settings.frontend.simplifiedChineseDescription"),
+        iconClass: "i-lucide-languages",
+    },
+    {
+        value: "en-US",
+        label: t("settings.frontend.english"),
+        description: t("settings.frontend.englishDescription"),
+        iconClass: "i-lucide-languages",
+    },
+]);
 
-const editorFontOptions: SelectOption[] = [
+const editorFontOptions = computed<SelectOption[]>(() => [
     {
         value: "\"Source Han Serif SC\", \"Noto Serif SC\", \"Songti SC\", serif",
-        label: "中文衬线",
+        label: t("settings.editor.fontChineseSerif"),
     },
     {
         value: "\"Microsoft YaHei\", \"Noto Sans SC\", sans-serif",
-        label: "中文黑体",
+        label: t("settings.editor.fontChineseSans"),
     },
     {
         value: "\"LXGW WenKai\", \"KaiTi\", \"STKaiti\", serif",
-        label: "中文楷体",
+        label: t("settings.editor.fontChineseKai"),
     },
     {
         value: "ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
-        label: "系统无衬线",
+        label: t("settings.editor.fontSystemSans"),
     },
     {
         value: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-        label: "等宽字体",
+        label: t("settings.editor.fontMonospace"),
     },
-];
+]);
 
-const monacoFontOptions: SelectOption[] = [
+const monacoFontOptions = computed<SelectOption[]>(() => [
     {
         value: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace",
-        label: "系统等宽",
+        label: t("settings.editor.fontSystemMonospace"),
     },
     {
         value: "JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
@@ -200,14 +202,7 @@ const monacoFontOptions: SelectOption[] = [
         value: "Fira Code, ui-monospace, Menlo, Monaco, Consolas, monospace",
         label: "Fira Code",
     },
-];
-
-const promptExpandedValue = computed({
-    get: (): string => promptExpanded.value ? "expanded" : "collapsed",
-    set: (value: string): void => {
-        promptExpanded.value = value === "expanded";
-    },
-});
+]);
 
 const projectOptions = computed<SelectOption[]>(() => novelIdeStore.novels.map((novel) => ({
     value: novel.id,
@@ -229,23 +224,23 @@ const visibleSectionItems = computed(() => {
         : activeScope.value === "project"
             ? projectConfigSections
             : globalConfigSections;
-    return frontendSectionItems.filter((item) => allowed.includes(item.value));
+    return frontendSectionItems.value.filter((item) => allowed.includes(item.value));
 });
 
 const versionLabel = computed(() => {
     if (appVersionPending.value && !appVersion.value) {
-        return "读取版本中";
+        return t("settings.version.loading");
     }
     if (!appVersion.value) {
-        return "版本信息不可用";
+        return t("settings.version.unavailable");
     }
     if (appVersion.value.versionKind === "commit") {
-        return `Commit ${appVersion.value.versionLabel}`;
+        return t("settings.version.commit", {version: appVersion.value.versionLabel});
     }
     if (appVersion.value.versionKind === "release") {
-        return `Release ${appVersion.value.versionLabel}`;
+        return t("settings.version.release", {version: appVersion.value.versionLabel});
     }
-    return `版本 ${appVersion.value.versionLabel}`;
+    return t("settings.version.generic", {version: appVersion.value.versionLabel});
 });
 
 const activeSavePanel = computed<SettingsSavePanelExpose | null>(() => {
@@ -258,8 +253,6 @@ const activeSavePanel = computed<SettingsSavePanelExpose | null>(() => {
             return costSettingsPanelRef.value;
         case "web-tools":
             return webSettingsPanelRef.value;
-        case "agent-profile-defaults":
-            return agentProfileDefaultSettingsPanelRef.value;
         case "agent-profile-models":
             return agentProfileModelSettingsPanelRef.value;
         case "frontend":
@@ -274,6 +267,29 @@ const showHeaderSaveButton = computed(() => activeSavePanel.value !== null);
 const activeSaveDisabled = computed(() => activeSaveLoading.value || activeSaveSaving.value || !activeSaveDirty.value);
 
 /**
+ * 读取当前配置目标允许显示的设置分区。
+ */
+function sectionsForScope(scope: SettingsScope): SettingsSection[] {
+    if (scope === "browser") {
+        return browserSections;
+    }
+    if (scope === "project") {
+        return projectConfigSections;
+    }
+    return globalConfigSections;
+}
+
+/**
+ * 保证右侧内容分区与左侧配置目标一致。
+ */
+function alignActiveSectionToScope(): void {
+    const allowed = sectionsForScope(activeScope.value);
+    if (!allowed.includes(activeSection.value)) {
+        activeSection.value = allowed[0] ?? "frontend";
+    }
+}
+
+/**
  * 保存当前激活的配置面板。
  */
 async function saveActivePanel(): Promise<void> {
@@ -285,18 +301,14 @@ async function saveActivePanel(): Promise<void> {
 }
 
 /**
- * 有未保存修改时阻止切换配置目标、设置分区或关闭弹窗。
+ * 设置页允许直接离开 dirty 草稿；只在加载或保存中阻止切换。
  */
 function canLeaveCurrentPanel(): boolean {
     if (activeSaveLoading.value || activeSaveSaving.value) {
-        notification.info(activeSaveSaving.value ? "当前配置正在保存，请稍候。" : "当前配置正在读取，请稍候。");
+        notification.info(activeSaveSaving.value ? t("settings.feedback.saving") : t("settings.feedback.loading"));
         return false;
     }
-    if (!activeSaveDirty.value) {
-        return true;
-    }
-    notification.warning("当前配置有未保存修改，请先保存设定。");
-    return false;
+    return true;
 }
 
 /**
@@ -311,15 +323,16 @@ function selectScope(scope: SettingsScope): void {
     }
     if (scope === "project" && novelIdeStore.workspaceKind === "user-assets") {
         activeScope.value = "global";
-        activeSection.value = "agent-profile-defaults";
+        activeSection.value = "models";
         return;
     }
     activeScope.value = scope;
     activeSection.value = scope === "browser" ? "frontend" : "models";
+    alignActiveSectionToScope();
 }
 
 /**
- * 选择配置分区；保存型面板有未保存修改时先阻止卸载。
+ * 选择配置分区；dirty 草稿会随面板切换自然丢弃。
  */
 function selectSection(section: SettingsSection): void {
     if (section === activeSection.value) {
@@ -424,6 +437,15 @@ function updateTheme(value: string): void {
 }
 
 /**
+ * 处理界面语言选择。
+ */
+function updateLocale(value: string): void {
+    if (value === "zh-CN" || value === "en-US") {
+        void setLocale(value);
+    }
+}
+
+/**
  * 处理默认视图模式选择。
  */
 function updateViewMode(value: string): void {
@@ -460,7 +482,7 @@ watch(() => props.modelValue, (open) => {
     targetNovelId.value = novelIdeStore.currentNovelId || novelIdeStore.novels[0]?.id || "";
     if (novelIdeStore.workspaceKind === "user-assets" && activeScope.value === "project") {
         activeScope.value = "global";
-        activeSection.value = "agent-profile-defaults";
+        activeSection.value = "models";
     }
 }, {immediate: true});
 
@@ -476,23 +498,14 @@ watch(() => novelIdeStore.novels, (novels) => {
     }
 }, {deep: true});
 
-watch(activeScope, (scope) => {
-    const allowed = scope === "browser"
-        ? browserSections
-        : scope === "project"
-            ? projectConfigSections
-            : globalConfigSections;
-    if (!allowed.includes(activeSection.value)) {
-        activeSection.value = allowed[0] ?? "frontend";
-    }
-});
+watch(activeScope, alignActiveSectionToScope, {immediate: true});
 
 </script>
 
 <template>
     <Dialog
         :model-value="props.modelValue"
-        title="配置中心"
+        :title="t('settings.title')"
         width="1280px"
         height="86vh"
         overlay-type="blur"
@@ -522,20 +535,13 @@ watch(activeScope, (scope) => {
                                 <span>{{ scope.label }}</span>
                             </button>
                         </div>
-
-                        <div v-if="activeScope === 'project'" class="flex flex-wrap items-center gap-2 text-[11px] text-[var(--text-secondary)]">
-                            <span class="inline-flex min-h-7 items-center gap-1 rounded-full border border-[var(--border-color)] border-opacity-60 bg-[var(--bg-panel)] bg-opacity-50 px-2.5 py-1">
-                                <span class="i-lucide-pin h-3 w-3 text-[var(--text-muted)]"></span>
-                                只修改所选 Project，不切换当前小说
-                            </span>
-                        </div>
                     </div>
 
                     <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
                         <div v-if="activeScope === 'project'" class="flex min-w-[300px] items-center gap-2 rounded-lg border border-[var(--border-color)] border-opacity-60 bg-[var(--bg-panel)] bg-opacity-35 px-2 py-1">
                             <span class="shrink-0 text-[11px] font-semibold text-[var(--text-muted)]">Project</span>
                             <div class="min-w-0 flex-1">
-                                <FormSelect :model-value="targetNovelId" :options="projectOptions" placeholder="选择 Project Workspace" @update:model-value="selectTargetNovel" />
+                                <FormSelect :model-value="targetNovelId" :options="projectOptions" :placeholder="t('settings.scope.project.selectorPlaceholder')" @update:model-value="selectTargetNovel" />
                             </div>
                         </div>
 
@@ -551,7 +557,7 @@ watch(activeScope, (scope) => {
                             <span class="relative flex items-center gap-1.5">
                                 <span v-if="activeSaveLoading || activeSaveSaving" class="i-lucide-loader-2 h-3.5 w-3.5 animate-spin"></span>
                                 <span v-else class="i-lucide-save h-3.5 w-3.5"></span>
-                                {{ activeSaveLoading ? "读取中..." : activeSaveSaving ? "保存中..." : "保存设定" }}
+                                {{ activeSaveLoading ? t("common.loading") : activeSaveSaving ? t("common.saving") : t("common.saveSettings") }}
                             </span>
                         </button>
                     </div>
@@ -559,10 +565,10 @@ watch(activeScope, (scope) => {
             </section>
 
             <div class="flex min-h-0 flex-1 gap-6">
-            <!-- 左侧导航栏 - 清爽无边框 -->
+                <!-- 左侧导航栏 - 清爽无边框 -->
             <aside class="flex w-[220px] shrink-0 flex-col pb-2">
                 <div class="mb-3 mt-1 px-3">
-                    <div class="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">{{ activeScope === "browser" ? "Browser State" : "Config File" }}</div>
+                    <div class="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">{{ activeScope === "browser" ? t("settings.scope.browserState") : t("settings.scope.configFile") }}</div>
                 </div>
 
                 <div class="flex flex-col gap-1.5">
@@ -597,7 +603,7 @@ watch(activeScope, (scope) => {
                             :href="appVersion?.githubUrl || 'https://github.com/notnotype/neuro-book'"
                             target="_blank"
                             rel="noreferrer"
-                            title="打开 GitHub"
+                            :title="t('settings.version.openGithub')"
                         >
                             <span class="i-lucide-github h-4 w-4"></span>
                         </a>
@@ -615,11 +621,24 @@ watch(activeScope, (scope) => {
                             <div class="grid gap-3">
                                 <div class="group flex items-center gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm transition-all duration-300 hover:shadow-md">
                                     <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--bg-input)] text-[var(--text-secondary)] transition-colors group-hover:bg-[var(--accent-bg)] group-hover:text-[var(--accent-main)]">
+                                        <span class="i-lucide-languages h-5 w-5"></span>
+                                    </div>
+                                    <div class="min-w-0 flex-1">
+                                        <div class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.frontend.languageTitle") }}</div>
+                                        <div class="mt-0.5 text-xs text-[var(--text-secondary)]">{{ t("settings.frontend.languageDescription") }}</div>
+                                    </div>
+                                    <div class="w-48 shrink-0">
+                                        <FormSelect :model-value="locale" :options="localeOptions" @update:model-value="updateLocale" />
+                                    </div>
+                                </div>
+
+                                <div class="group flex items-center gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm transition-all duration-300 hover:shadow-md">
+                                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--bg-input)] text-[var(--text-secondary)] transition-colors group-hover:bg-[var(--accent-bg)] group-hover:text-[var(--accent-main)]">
                                         <span class="i-lucide-palette h-5 w-5"></span>
                                     </div>
                                     <div class="min-w-0 flex-1">
-                                        <div class="text-sm font-medium text-[var(--text-main)]">IDE 主题</div>
-                                        <div class="mt-0.5 text-xs text-[var(--text-secondary)]">控制整个 Novel IDE 的配色与背景氛围。</div>
+                                        <div class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.frontend.themeTitle") }}</div>
+                                        <div class="mt-0.5 text-xs text-[var(--text-secondary)]">{{ t("settings.frontend.themeDescription") }}</div>
                                     </div>
                                     <div class="w-40 shrink-0">
                                         <FormSelect :model-value="theme" :options="themeOptions" @update:model-value="updateTheme" />
@@ -631,8 +650,8 @@ watch(activeScope, (scope) => {
                                         <span class="i-lucide-brain-circuit h-5 w-5"></span>
                                     </div>
                                     <div class="min-w-0 flex-1">
-                                        <div class="text-sm font-medium text-[var(--text-main)]">推理强度</div>
-                                        <div class="mt-0.5 text-xs text-[var(--text-secondary)]">用于底部 Prompt Bar 的默认推理档位显示值。</div>
+                                        <div class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.frontend.reasoningTitle") }}</div>
+                                        <div class="mt-0.5 text-xs text-[var(--text-secondary)]">{{ t("settings.frontend.reasoningDescription") }}</div>
                                     </div>
                                     <div class="w-40 shrink-0">
                                         <FormSelect :model-value="selectedReasoning" :options="novelIdeStore.reasoningOptions.map((item) => ({ value: item, label: item }))" @update:model-value="selectedReasoning = $event" />
@@ -644,24 +663,11 @@ watch(activeScope, (scope) => {
                                         <span class="i-lucide-layout h-5 w-5"></span>
                                     </div>
                                     <div class="min-w-0 flex-1">
-                                        <div class="text-sm font-medium text-[var(--text-main)]">默认视图</div>
-                                        <div class="mt-0.5 text-xs text-[var(--text-secondary)]">切换编辑器默认打开预览还是源码视图。</div>
+                                        <div class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.frontend.viewModeTitle") }}</div>
+                                        <div class="mt-0.5 text-xs text-[var(--text-secondary)]">{{ t("settings.frontend.viewModeDescription") }}</div>
                                     </div>
                                     <div class="w-40 shrink-0">
                                         <FormSelect :model-value="viewMode" :options="viewModeOptions" @update:model-value="updateViewMode" />
-                                    </div>
-                                </div>
-
-                                <div class="group flex items-center gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm transition-all duration-300 hover:shadow-md">
-                                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--bg-input)] text-[var(--text-secondary)] transition-colors group-hover:bg-[var(--accent-bg)] group-hover:text-[var(--accent-main)]">
-                                        <span class="i-lucide-panel-bottom h-5 w-5"></span>
-                                    </div>
-                                    <div class="min-w-0 flex-1">
-                                        <div class="text-sm font-medium text-[var(--text-main)]">Prompt Bar</div>
-                                        <div class="mt-0.5 text-xs text-[var(--text-secondary)]">控制页面初始进入时底部输入栏的展开状态。</div>
-                                    </div>
-                                    <div class="w-40 shrink-0">
-                                        <FormSelect v-model="promptExpandedValue" :options="promptExpandedOptions" />
                                     </div>
                                 </div>
                             </div>
@@ -671,12 +677,12 @@ watch(activeScope, (scope) => {
                         <div v-else-if="activeSection === 'editor'" key="editor" class="space-y-4 pt-1">
                             <div class="flex flex-wrap items-center justify-between gap-4">
                                 <div class="max-w-xl">
-                                    <h3 class="text-base font-semibold text-[var(--text-main)]">Markdown 编辑器</h3>
-                                    <p class="mt-1 text-xs text-[var(--text-secondary)]">这些配置只改变 TipTap 富文本区显示，不会写入 Markdown 文件。</p>
+                                    <h3 class="text-base font-semibold text-[var(--text-main)]">{{ t("settings.editor.markdownTitle") }}</h3>
+                                    <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ t("settings.editor.markdownDescription") }}</p>
                                 </div>
                                 <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="resetEditorPreferences">
                                     <span class="i-lucide-rotate-ccw h-3.5 w-3.5"></span>
-                                    <span>重置</span>
+                                    <span>{{ t("settings.editor.resetMarkdown") }}</span>
                                 </button>
                             </div>
 
@@ -686,15 +692,15 @@ watch(activeScope, (scope) => {
                                         <span class="i-lucide-type h-5 w-5"></span>
                                     </div>
                                     <div class="min-w-0 flex-1">
-                                        <div class="text-sm font-medium text-[var(--text-main)]">正文字体</div>
-                                        <div class="mt-0.5 text-xs text-[var(--text-secondary)]">设置富文本编辑区的字体族。</div>
+                                        <div class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.editor.bodyFontTitle") }}</div>
+                                        <div class="mt-0.5 text-xs text-[var(--text-secondary)]">{{ t("settings.editor.bodyFontDescription") }}</div>
                                     </div>
                                     <div class="w-72 shrink-0">
                                         <input
                                             list="markdown-editor-font-options"
                                             class="h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-xs text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)] focus:ring-opacity-20"
                                             :value="markdownEditorPreferences.fontFamily"
-                                            placeholder="输入 CSS font-family"
+                                            :placeholder="t('settings.editor.fontFamilyPlaceholder')"
                                             @input="updateEditorPreferences({fontFamily: ($event.target as HTMLInputElement).value})"
                                         >
                                         <datalist id="markdown-editor-font-options">
@@ -705,28 +711,28 @@ watch(activeScope, (scope) => {
 
                                 <div class="grid gap-3 md:grid-cols-2">
                                     <label class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm">
-                                        <span class="text-sm font-medium text-[var(--text-main)]">字号</span>
-                                        <span class="mt-0.5 block text-xs text-[var(--text-secondary)]">单位 px，建议 15-18。</span>
+                                        <span class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.editor.fontSizeTitle") }}</span>
+                                        <span class="mt-0.5 block text-xs text-[var(--text-secondary)]">{{ t("settings.editor.fontSizeDescription") }}</span>
                                         <input type="number" class="mt-3 h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-sm text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)] focus:ring-opacity-20" :value="markdownEditorPreferences.fontSize" min="12" max="28" step="1" @input="updateEditorNumber('fontSize', ($event.target as HTMLInputElement).value, 12, 28)">
                                     </label>
 
                                     <label class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm">
-                                        <span class="text-sm font-medium text-[var(--text-main)]">行高</span>
-                                        <span class="mt-0.5 block text-xs text-[var(--text-secondary)]">无单位倍率，建议 1.6-2.0。</span>
+                                        <span class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.editor.lineHeightTitle") }}</span>
+                                        <span class="mt-0.5 block text-xs text-[var(--text-secondary)]">{{ t("settings.editor.lineHeightDescription") }}</span>
                                         <input type="number" class="mt-3 h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-sm text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)] focus:ring-opacity-20" :value="markdownEditorPreferences.lineHeight" min="1.2" max="2.6" step="0.05" @input="updateEditorNumber('lineHeight', ($event.target as HTMLInputElement).value, 1.2, 2.6)">
                                     </label>
 
                                     <label class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm">
-                                        <span class="text-sm font-medium text-[var(--text-main)]">正文宽度</span>
-                                        <span class="mt-0.5 block text-xs text-[var(--text-secondary)]">单位 px，控制居中正文栏宽度。</span>
+                                        <span class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.editor.contentWidthTitle") }}</span>
+                                        <span class="mt-0.5 block text-xs text-[var(--text-secondary)]">{{ t("settings.editor.contentWidthDescription") }}</span>
                                         <input type="number" class="mt-3 h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-sm text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)] focus:ring-opacity-20" :value="markdownEditorPreferences.contentWidth" min="520" max="1280" step="20" @input="updateEditorNumber('contentWidth', ($event.target as HTMLInputElement).value, 520, 1280)">
                                     </label>
 
                                     <div class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm">
                                         <div class="flex items-center justify-between gap-4">
                                             <div class="min-w-0">
-                                                <div class="text-sm font-medium text-[var(--text-main)]">段落缩进</div>
-                                                <div class="mt-0.5 text-xs text-[var(--text-secondary)]">仅普通正文段落首行缩进。</div>
+                                                <div class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.editor.paragraphIndentTitle") }}</div>
+                                                <div class="mt-0.5 text-xs text-[var(--text-secondary)]">{{ t("settings.editor.paragraphIndentDescription") }}</div>
                                             </div>
                                             <button type="button" class="relative h-6 w-11 rounded-full border transition-colors" :class="markdownEditorPreferences.paragraphIndentEnabled ? 'border-[var(--accent-main)] bg-[var(--accent-main)]' : 'border-[var(--border-color)] bg-[var(--bg-input)]'" @click="updateEditorPreferences({paragraphIndentEnabled: !markdownEditorPreferences.paragraphIndentEnabled})">
                                                 <span class="absolute top-0.5 h-[18px] w-[18px] rounded-full bg-white shadow transition-transform" :class="markdownEditorPreferences.paragraphIndentEnabled ? 'translate-x-5' : 'translate-x-0.5'"></span>
@@ -740,12 +746,12 @@ watch(activeScope, (scope) => {
                             <div class="grid gap-3 border-t border-[var(--border-color)] pt-4">
                                 <div class="flex flex-wrap items-center justify-between gap-4">
                                     <div class="max-w-xl">
-                                        <h3 class="text-base font-semibold text-[var(--text-main)]">源码 Monaco</h3>
-                                        <p class="mt-1 text-xs text-[var(--text-secondary)]">这些配置作为源码模式默认值；Ctrl/Cmd + 滚轮只临时调整当前 Tab。</p>
+                                        <h3 class="text-base font-semibold text-[var(--text-main)]">{{ t("settings.editor.monacoTitle") }}</h3>
+                                        <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ t("settings.editor.monacoDescription") }}</p>
                                     </div>
                                     <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="resetMonacoPreferences">
                                         <span class="i-lucide-rotate-ccw h-3.5 w-3.5"></span>
-                                        <span>重置源码</span>
+                                        <span>{{ t("settings.editor.resetMonaco") }}</span>
                                     </button>
                                 </div>
 
@@ -754,15 +760,15 @@ watch(activeScope, (scope) => {
                                         <span class="i-lucide-code-2 h-5 w-5"></span>
                                     </div>
                                     <div class="min-w-0 flex-1">
-                                        <div class="text-sm font-medium text-[var(--text-main)]">源码字体</div>
-                                        <div class="mt-0.5 text-xs text-[var(--text-secondary)]">设置 Monaco 编辑器的字体族。</div>
+                                        <div class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.editor.monacoFontTitle") }}</div>
+                                        <div class="mt-0.5 text-xs text-[var(--text-secondary)]">{{ t("settings.editor.monacoFontDescription") }}</div>
                                     </div>
                                     <div class="w-72 shrink-0">
                                         <input
                                             list="monaco-editor-font-options"
                                             class="h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-xs text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)] focus:ring-opacity-20"
                                             :value="monacoEditorPreferences.fontFamily"
-                                            placeholder="输入 CSS font-family"
+                                            :placeholder="t('settings.editor.fontFamilyPlaceholder')"
                                             @input="updateMonacoPreferences({fontFamily: ($event.target as HTMLInputElement).value})"
                                         >
                                         <datalist id="monaco-editor-font-options">
@@ -773,39 +779,39 @@ watch(activeScope, (scope) => {
 
                                 <div class="grid gap-3 md:grid-cols-3">
                                     <label class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm">
-                                        <span class="text-sm font-medium text-[var(--text-main)]">源码字号</span>
-                                        <span class="mt-0.5 block text-xs text-[var(--text-secondary)]">默认字号，单位 px。</span>
+                                        <span class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.editor.monacoFontSizeTitle") }}</span>
+                                        <span class="mt-0.5 block text-xs text-[var(--text-secondary)]">{{ t("settings.editor.monacoFontSizeDescription") }}</span>
                                         <input type="number" class="mt-3 h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-sm text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)] focus:ring-opacity-20" :value="monacoEditorPreferences.fontSize" min="10" max="32" step="1" @input="updateMonacoNumber('fontSize', ($event.target as HTMLInputElement).value, 10, 32)">
                                     </label>
 
                                     <label class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm">
-                                        <span class="text-sm font-medium text-[var(--text-main)]">源码行高</span>
-                                        <span class="mt-0.5 block text-xs text-[var(--text-secondary)]">单位 px。</span>
+                                        <span class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.editor.monacoLineHeightTitle") }}</span>
+                                        <span class="mt-0.5 block text-xs text-[var(--text-secondary)]">{{ t("settings.editor.monacoLineHeightDescription") }}</span>
                                         <input type="number" class="mt-3 h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-sm text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)] focus:ring-opacity-20" :value="monacoEditorPreferences.lineHeight" min="16" max="56" step="1" @input="updateMonacoNumber('lineHeight', ($event.target as HTMLInputElement).value, 16, 56)">
                                     </label>
 
                                     <label class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm">
-                                        <span class="text-sm font-medium text-[var(--text-main)]">Tab Size</span>
-                                        <span class="mt-0.5 block text-xs text-[var(--text-secondary)]">缩进空格数。</span>
+                                        <span class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.editor.tabSizeTitle") }}</span>
+                                        <span class="mt-0.5 block text-xs text-[var(--text-secondary)]">{{ t("settings.editor.tabSizeDescription") }}</span>
                                         <input type="number" class="mt-3 h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-sm text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)] focus:ring-opacity-20" :value="monacoEditorPreferences.tabSize" min="2" max="8" step="1" @input="updateMonacoNumber('tabSize', ($event.target as HTMLInputElement).value, 2, 8)">
                                     </label>
                                 </div>
 
                                 <div class="grid gap-3 md:grid-cols-2">
                                     <button type="button" class="flex items-center justify-between gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 text-left shadow-sm transition-all hover:bg-[var(--bg-hover)]" @click="updateMonacoPreferences({wordWrap: !monacoEditorPreferences.wordWrap})">
-                                        <span><span class="block text-sm font-medium text-[var(--text-main)]">自动换行</span><span class="mt-0.5 block text-xs text-[var(--text-secondary)]">长行在视口内折行。</span></span>
+                                        <span><span class="block text-sm font-medium text-[var(--text-main)]">{{ t("settings.editor.wordWrapTitle") }}</span><span class="mt-0.5 block text-xs text-[var(--text-secondary)]">{{ t("settings.editor.wordWrapDescription") }}</span></span>
                                         <span class="h-2.5 w-2.5 rounded-full" :class="monacoEditorPreferences.wordWrap ? 'bg-emerald-500' : 'bg-slate-400'"></span>
                                     </button>
                                     <button type="button" class="flex items-center justify-between gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 text-left shadow-sm transition-all hover:bg-[var(--bg-hover)]" @click="updateMonacoPreferences({minimapEnabled: !monacoEditorPreferences.minimapEnabled})">
-                                        <span><span class="block text-sm font-medium text-[var(--text-main)]">缩略图</span><span class="mt-0.5 block text-xs text-[var(--text-secondary)]">显示 Monaco 右侧 minimap。</span></span>
+                                        <span><span class="block text-sm font-medium text-[var(--text-main)]">{{ t("settings.editor.minimapTitle") }}</span><span class="mt-0.5 block text-xs text-[var(--text-secondary)]">{{ t("settings.editor.minimapDescription") }}</span></span>
                                         <span class="h-2.5 w-2.5 rounded-full" :class="monacoEditorPreferences.minimapEnabled ? 'bg-emerald-500' : 'bg-slate-400'"></span>
                                     </button>
                                     <button type="button" class="flex items-center justify-between gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 text-left shadow-sm transition-all hover:bg-[var(--bg-hover)]" @click="updateMonacoPreferences({lineNumbers: !monacoEditorPreferences.lineNumbers})">
-                                        <span><span class="block text-sm font-medium text-[var(--text-main)]">行号</span><span class="mt-0.5 block text-xs text-[var(--text-secondary)]">显示源码行号。</span></span>
+                                        <span><span class="block text-sm font-medium text-[var(--text-main)]">{{ t("settings.editor.lineNumbersTitle") }}</span><span class="mt-0.5 block text-xs text-[var(--text-secondary)]">{{ t("settings.editor.lineNumbersDescription") }}</span></span>
                                         <span class="h-2.5 w-2.5 rounded-full" :class="monacoEditorPreferences.lineNumbers ? 'bg-emerald-500' : 'bg-slate-400'"></span>
                                     </button>
                                     <button type="button" class="flex items-center justify-between gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 text-left shadow-sm transition-all hover:bg-[var(--bg-hover)]" @click="updateMonacoPreferences({renderWhitespace: !monacoEditorPreferences.renderWhitespace})">
-                                        <span><span class="block text-sm font-medium text-[var(--text-main)]">空白字符</span><span class="mt-0.5 block text-xs text-[var(--text-secondary)]">显示边界空格与制表符。</span></span>
+                                        <span><span class="block text-sm font-medium text-[var(--text-main)]">{{ t("settings.editor.whitespaceTitle") }}</span><span class="mt-0.5 block text-xs text-[var(--text-secondary)]">{{ t("settings.editor.whitespaceDescription") }}</span></span>
                                         <span class="h-2.5 w-2.5 rounded-full" :class="monacoEditorPreferences.renderWhitespace ? 'bg-emerald-500' : 'bg-slate-400'"></span>
                                     </button>
                                 </div>
@@ -831,11 +837,6 @@ watch(activeScope, (scope) => {
                         <!-- Web 工具设定 -->
                         <div v-else-if="activeSection === 'web-tools'" key="web-tools">
                             <NovelIdeWebSettingsPanel ref="webSettingsPanelRef" :key="`web-tools:${settingsPanelKey}`" :target-query="targetQuery" :target-label="targetLabel" />
-                        </div>
-
-                        <!-- 默认 Profile 设定 -->
-                        <div v-else-if="activeSection === 'agent-profile-defaults'" key="agent-profile-defaults">
-                            <NovelIdeAgentProfileDefaultSettingsPanel ref="agentProfileDefaultSettingsPanelRef" :key="`defaults:${settingsPanelKey}`" :scope="activeScope === 'project' ? 'project' : 'global'" :target-query="targetQuery" :target-label="targetLabel" />
                         </div>
 
                         <!-- Agent Profile 模型设定 -->

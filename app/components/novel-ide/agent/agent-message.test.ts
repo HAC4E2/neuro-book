@@ -43,7 +43,8 @@ const baseSnapshot = (entries: AgentSessionSnapshotDto["entries"]): AgentSession
     entries,
     linkedAgents: [],
     linkedByAgents: [],
-    pendingApproval: null,
+    pendingUserInputs: [],
+    pendingApprovals: [],
     steerQueue: [],
     followUpQueue: {
         status: "ready",
@@ -368,12 +369,12 @@ describe("agent message projection", () => {
                 timestamp: Date.now(),
             } as never,
         }]);
-        snapshot.pendingApproval = {
+        snapshot.pendingApprovals = [{
             assistantMessageId: "assistant-approval",
             toolCallId: "approval-call",
             toolName: "request_user_input",
             args: {questions: [{question: "继续吗？"}]},
-        };
+        }];
 
         const messages = deriveMessagesFromSessionSnapshot(snapshot);
 

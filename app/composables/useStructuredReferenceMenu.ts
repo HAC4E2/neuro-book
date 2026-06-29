@@ -51,13 +51,62 @@ type PlotReferenceCandidate = {
 
 const PLOT_RESULT_LIMIT = 20;
 
-const COMMAND_ITEMS: QuickTextItem[] = [
-    {id: "command:plan", label: "plan", description: "切换 Plan Mode。", iconClass: "i-lucide-clipboard-list", value: "/plan"},
-    {id: "command:compact", label: "compact", description: "压缩当前 Agent Session 上下文。", iconClass: "i-lucide-archive", value: "/compact"},
-    {id: "command:clear", label: "clear", description: "清空当前 Session 视图并回到空历史。", iconClass: "i-lucide-trash", value: "/clear"},
-    {id: "command:new", label: "new", description: "新建 Agent Session。", iconClass: "i-lucide-plus", value: "/new"},
-    {id: "command:settings", label: "settings", description: "保留设置入口。", iconClass: "i-lucide-settings", value: "/settings"},
-];
+type RuntimeI18n = {
+    t: (key: string) => string;
+};
+
+const referenceMenuFallbacks = {
+    "ide.referenceMenu.currentThread": "当前线程",
+    "ide.referenceMenu.currentScene": "当前场景",
+    "ide.referenceMenu.referenceTitle": "引用",
+    "ide.referenceMenu.lorebookTitle": "设定引用",
+    "ide.referenceMenu.lorebookPathDescription": "输入 workspace 相对路径，例如 lorebook/character/苏雪/。",
+    "ide.referenceMenu.threadTitle": "线程引用",
+    "ide.referenceMenu.threadLoading": "加载线程中",
+    "ide.referenceMenu.plotTreeLoadingDescription": "正在拉取当前小说的剧情树。",
+    "ide.referenceMenu.sceneTitle": "场景引用",
+    "ide.referenceMenu.sceneLoading": "加载场景中",
+    "ide.referenceMenu.plotTitle": "节点引用",
+    "ide.referenceMenu.plotLoading": "加载情节点中",
+    "ide.referenceMenu.plotLoadingDescription": "正在拉取当前场景的情节点。",
+    "ide.referenceMenu.missingContext": "缺少上下文",
+    "ide.referenceMenu.missingContextDescription": "请先选中剧情场景，再插入 plot 引用。",
+    "ide.referenceMenu.skillTitle": "调用技能",
+    "ide.referenceMenu.skillLoading": "加载技能中",
+    "ide.referenceMenu.skillLoadingDescription": "正在读取当前仓库的 skills catalog。",
+    "ide.referenceMenu.skillEmpty": "没有匹配技能",
+    "ide.referenceMenu.skillNoMatchDescription": "当前查询没有匹配的 skill。",
+    "ide.referenceMenu.skillNoneDescription": "当前仓库还没有可用的 skill。",
+    "ide.referenceMenu.commandTitle": "执行命令",
+    "ide.referenceMenu.plotThreadSection": "剧情线程",
+    "ide.referenceMenu.plotSceneSection": "剧情场景",
+    "ide.referenceMenu.plotNodeSection": "情节点",
+    "ide.referenceMenu.plotSection": "剧情",
+    "ide.referenceMenu.plotRootLoading": "加载剧情中",
+    "ide.referenceMenu.noMatch": "没有匹配结果",
+    "ide.referenceMenu.noReference": "暂无可引用内容",
+    "ide.referenceMenu.tryAnotherKeyword": "换一个关键词试试。",
+    "ide.referenceMenu.noReferenceObjects": "当前工作区没有可引用内容或剧情对象。",
+    "ide.referenceMenu.commandPlanDescription": "切换 Plan Mode。",
+    "ide.referenceMenu.commandCompactDescription": "压缩当前 Agent Session 上下文。",
+    "ide.referenceMenu.commandClearDescription": "清空当前 Session 视图并回到空历史。",
+    "ide.referenceMenu.commandNewDescription": "新建 Agent Session。",
+    "ide.referenceMenu.commandSettingsDescription": "保留设置入口。",
+} as const;
+
+type ReferenceMenuKey = keyof typeof referenceMenuFallbacks;
+
+/**
+ * 结构化引用菜单会被普通单元测试直接调用；这里使用 Nuxt i18n 可用时翻译、不可用时回退中文源文案。
+ */
+function translateReferenceMenu(key: ReferenceMenuKey): string {
+    try {
+        const nuxtApp = useNuxtApp() as {$i18n?: RuntimeI18n};
+        return nuxtApp.$i18n?.t(key) ?? referenceMenuFallbacks[key];
+    } catch {
+        return referenceMenuFallbacks[key];
+    }
+}
 
 export interface UseStructuredReferenceMenuOptions {
     novelId: Ref<string>;
@@ -67,6 +116,7 @@ export interface UseStructuredReferenceMenuOptions {
 }
 
 export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOptions) {
+    const t = translateReferenceMenu;
     const skillCatalog = ref<AgentSkillCatalogItemDto[]>([]);
     const loadingSkillCatalog = ref(false);
     const skillCatalogLoaded = ref(false);
@@ -78,6 +128,13 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
     const selectedScenePlotLoadedId = ref("");
     const loadingSelectedScenePlotDetail = ref(false);
     const refreshVersion = ref(0);
+    const commandItems = computed<QuickTextItem[]>(() => [
+        {id: "command:plan", label: "plan", description: t("ide.referenceMenu.commandPlanDescription"), iconClass: "i-lucide-clipboard-list", value: "/plan"},
+        {id: "command:compact", label: "compact", description: t("ide.referenceMenu.commandCompactDescription"), iconClass: "i-lucide-archive", value: "/compact"},
+        {id: "command:clear", label: "clear", description: t("ide.referenceMenu.commandClearDescription"), iconClass: "i-lucide-trash", value: "/clear"},
+        {id: "command:new", label: "new", description: t("ide.referenceMenu.commandNewDescription"), iconClass: "i-lucide-plus", value: "/new"},
+        {id: "command:settings", label: "settings", description: t("ide.referenceMenu.commandSettingsDescription"), iconClass: "i-lucide-settings", value: "/settings"},
+    ]);
 
     watch(options.novelId, () => {
         plotTree.value = null;
@@ -160,19 +217,19 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
     function getSelectedThreadTitle(): string {
         const selectedThreadIdValue = options.selectedStoryThreadId.value;
         if (!selectedThreadIdValue || !plotTree.value) {
-            return "当前线程";
+            return t("ide.referenceMenu.currentThread");
         }
 
         const thread = [...plotTree.value.phases.flatMap((phase) => phase.threads), ...plotTree.value.ungroupedThreads]
             .find((item) => item.id === selectedThreadIdValue);
-        return thread?.title ?? "当前线程";
+        return thread?.title ?? t("ide.referenceMenu.currentThread");
     }
 
     function getPlotCandidates(query: string): PlotReferenceCandidate[] {
         const sceneCandidates = selectedScenePlotDetail.value?.plots.map((plot) => ({
             id: plot.id,
             sceneId: plot.sceneId,
-            sceneTitle: selectedScenePlotDetail.value?.title ?? "当前场景",
+            sceneTitle: selectedScenePlotDetail.value?.title ?? t("ide.referenceMenu.currentScene"),
             threadTitle: getSelectedThreadTitle(),
             summary: plot.summary,
             kind: plot.kind,
@@ -235,7 +292,7 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
             const plotSections = buildPlotRootSections(context.query);
             const sections = [...workspaceSections, ...plotSections];
             return {
-                title: "引用",
+                title: t("ide.referenceMenu.referenceTitle"),
                 prefix: "@",
                 sections: sections.length > 0 ? sections : [createEmptyReferenceSection(context.query)],
             };
@@ -243,14 +300,14 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
 
         if (context.kind === "lorebook") {
             return {
-                title: "设定引用",
+                title: t("ide.referenceMenu.lorebookTitle"),
                 prefix: "",
                 sections: [{
                     id: "lorebook-path",
                     items: [{
                         id: "lorebook:path",
                         label: context.query || "lorebook/",
-                        description: "输入 workspace 相对路径，例如 lorebook/character/苏雪/。",
+                        description: t("ide.referenceMenu.lorebookPathDescription"),
                         iconClass: "i-lucide-library-big",
                         insertText: context.query,
                         trailingSpace: false,
@@ -263,22 +320,22 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
             void ensurePlotTreeLoaded();
             const threadCandidates = getThreadCandidates(context.query);
             if (loadingPlotTreeEntries.value && threadCandidates.length === 0) {
-                return {title: "线程引用", prefix: "@thread://", sections: [{id: "thread-loading", items: [{id: "thread:loading", label: "加载线程中", description: "正在拉取当前小说的剧情树。", iconClass: "i-lucide-loader-circle animate-spin"}]}]};
+                return {title: t("ide.referenceMenu.threadTitle"), prefix: "@thread://", sections: [{id: "thread-loading", items: [{id: "thread:loading", label: t("ide.referenceMenu.threadLoading"), description: t("ide.referenceMenu.plotTreeLoadingDescription"), iconClass: "i-lucide-loader-circle animate-spin"}]}]};
             }
 
             const items = threadCandidates.map(toThreadMenuItem);
-            return {title: "线程引用", prefix: "@thread://", sections: items.length > 0 ? [{id: "thread", items}] : []};
+            return {title: t("ide.referenceMenu.threadTitle"), prefix: "@thread://", sections: items.length > 0 ? [{id: "thread", items}] : []};
         }
 
         if (context.kind === "scene") {
             void ensurePlotTreeLoaded();
             const sceneCandidates = getSceneCandidates(context.query);
             if (loadingPlotTreeEntries.value && sceneCandidates.length === 0) {
-                return {title: "场景引用", prefix: "@scene://", sections: [{id: "scene-loading", items: [{id: "scene:loading", label: "加载场景中", description: "正在拉取当前小说的剧情树。", iconClass: "i-lucide-loader-circle animate-spin"}]}]};
+                return {title: t("ide.referenceMenu.sceneTitle"), prefix: "@scene://", sections: [{id: "scene-loading", items: [{id: "scene:loading", label: t("ide.referenceMenu.sceneLoading"), description: t("ide.referenceMenu.plotTreeLoadingDescription"), iconClass: "i-lucide-loader-circle animate-spin"}]}]};
             }
 
             const items = sceneCandidates.map(toSceneMenuItem);
-            return {title: "场景引用", prefix: "@scene://", sections: items.length > 0 ? [{id: "scene", items}] : []};
+            return {title: t("ide.referenceMenu.sceneTitle"), prefix: "@scene://", sections: items.length > 0 ? [{id: "scene", items}] : []};
         }
 
         if (context.kind === "plot") {
@@ -288,15 +345,15 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
 
             const plotCandidates = getPlotCandidates(context.query);
             if (loadingSelectedScenePlotDetail.value && plotCandidates.length === 0) {
-                return {title: "节点引用", prefix: "@plot://", sections: [{id: "plot-loading", items: [{id: "plot:loading", label: "加载情节点中", description: "正在拉取当前场景的情节点。", iconClass: "i-lucide-loader-circle animate-spin"}]}]};
+                return {title: t("ide.referenceMenu.plotTitle"), prefix: "@plot://", sections: [{id: "plot-loading", items: [{id: "plot:loading", label: t("ide.referenceMenu.plotLoading"), description: t("ide.referenceMenu.plotLoadingDescription"), iconClass: "i-lucide-loader-circle animate-spin"}]}]};
             }
 
             if (!options.selectedStorySceneId.value && plotCandidates.length === 0) {
-                return {title: "节点引用", prefix: "@plot://", sections: [{id: "plot-empty", items: [{id: "plot:empty", label: "缺少上下文", description: "请先选中剧情场景，再插入 plot 引用。", iconClass: "i-lucide-info"}]}]};
+                return {title: t("ide.referenceMenu.plotTitle"), prefix: "@plot://", sections: [{id: "plot-empty", items: [{id: "plot:empty", label: t("ide.referenceMenu.missingContext"), description: t("ide.referenceMenu.missingContextDescription"), iconClass: "i-lucide-info"}]}]};
             }
 
             const items = plotCandidates.map(toPlotMenuItem);
-            return {title: "节点引用", prefix: "@plot://", sections: items.length > 0 ? [{id: "plot", items}] : []};
+            return {title: t("ide.referenceMenu.plotTitle"), prefix: "@plot://", sections: items.length > 0 ? [{id: "plot", items}] : []};
         }
 
         if (context.kind === "skill") {
@@ -317,14 +374,14 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
                 }));
             if (loadingSkillCatalog.value && items.length === 0) {
                 return {
-                    title: "调用技能",
+                    title: t("ide.referenceMenu.skillTitle"),
                     prefix: "$",
                     sections: [{
                         id: "skill-loading",
                         items: [{
                             id: "skill:loading",
-                            label: "加载技能中",
-                            description: "正在读取当前仓库的 skills catalog。",
+                            label: t("ide.referenceMenu.skillLoading"),
+                            description: t("ide.referenceMenu.skillLoadingDescription"),
                             iconClass: "i-lucide-loader-circle animate-spin",
                         }],
                     }],
@@ -333,28 +390,28 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
 
             if (skillCatalogLoaded.value && items.length === 0) {
                 return {
-                    title: "调用技能",
+                    title: t("ide.referenceMenu.skillTitle"),
                     prefix: "$",
                     sections: [{
                         id: "skill-empty",
                         items: [{
                             id: "skill:empty",
-                            label: "没有匹配技能",
-                            description: skillCatalog.value.length > 0 ? "当前查询没有匹配的 skill。" : "当前仓库还没有可用的 skill。",
+                            label: t("ide.referenceMenu.skillEmpty"),
+                            description: skillCatalog.value.length > 0 ? t("ide.referenceMenu.skillNoMatchDescription") : t("ide.referenceMenu.skillNoneDescription"),
                             iconClass: "i-lucide-info",
                         }],
                     }],
                 };
             }
 
-            return {title: "调用技能", prefix: "$", sections: items.length > 0 ? [{id: "skill", items}] : []};
+            return {title: t("ide.referenceMenu.skillTitle"), prefix: "$", sections: items.length > 0 ? [{id: "skill", items}] : []};
         }
 
         const normalizedQuery = context.query.trim().toLocaleLowerCase("zh-CN");
-        const items = COMMAND_ITEMS
+        const items = commandItems.value
             .filter((item) => !normalizedQuery || `${item.label} ${item.description}`.toLocaleLowerCase("zh-CN").includes(normalizedQuery))
             .map((item) => ({id: item.id, label: item.label, description: item.description, iconClass: item.iconClass, insertText: item.value}));
-        return {title: "执行命令", prefix: "/", sections: items.length > 0 ? [{id: "command", items}] : []};
+        return {title: t("ide.referenceMenu.commandTitle"), prefix: "/", sections: items.length > 0 ? [{id: "command", items}] : []};
     }
 
     /**
@@ -378,27 +435,27 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
         const sections: AgentTriggerMenuSection[] = [];
         const threadItems = getThreadCandidates(query).map(toThreadMenuItem);
         if (threadItems.length > 0) {
-            sections.push({id: "plot-thread", title: "剧情线程", items: threadItems});
+            sections.push({id: "plot-thread", title: t("ide.referenceMenu.plotThreadSection"), items: threadItems});
         }
 
         const sceneItems = getSceneCandidates(query).map(toSceneMenuItem);
         if (sceneItems.length > 0) {
-            sections.push({id: "plot-scene", title: "剧情场景", items: sceneItems});
+            sections.push({id: "plot-scene", title: t("ide.referenceMenu.plotSceneSection"), items: sceneItems});
         }
 
         const plotItems = getPlotCandidates(query).map(toPlotMenuItem);
         if (plotItems.length > 0) {
-            sections.push({id: "plot-node", title: "情节点", items: plotItems});
+            sections.push({id: "plot-node", title: t("ide.referenceMenu.plotNodeSection"), items: plotItems});
         }
 
         if (loadingPlotTreeEntries.value && threadItems.length === 0 && sceneItems.length === 0) {
             sections.push({
                 id: "plot-loading",
-                title: "剧情",
+                title: t("ide.referenceMenu.plotSection"),
                 items: [{
                     id: "plot-root-loading",
-                    label: "加载剧情中",
-                    description: "正在拉取当前小说的剧情树。",
+                    label: t("ide.referenceMenu.plotRootLoading"),
+                    description: t("ide.referenceMenu.plotTreeLoadingDescription"),
                     iconClass: "i-lucide-loader-circle animate-spin",
                     disabled: true,
                 }],
@@ -416,8 +473,8 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
             id: "empty-reference",
             items: [{
                 id: "empty-reference-result",
-                label: query.trim() ? "没有匹配结果" : "暂无可引用内容",
-                description: query.trim() ? "换一个关键词试试。" : "当前工作区没有可引用内容或剧情对象。",
+                label: query.trim() ? t("ide.referenceMenu.noMatch") : t("ide.referenceMenu.noReference"),
+                description: query.trim() ? t("ide.referenceMenu.tryAnotherKeyword") : t("ide.referenceMenu.noReferenceObjects"),
                 iconClass: "i-lucide-search-x",
                 disabled: true,
             }],

@@ -41,6 +41,7 @@ describe("resolvePiModelFromConfig", () => {
                             reasoningEffort: null,
                             stream: true,
                         },
+                        settings: {},
                     },
                 },
             },

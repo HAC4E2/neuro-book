@@ -15,7 +15,7 @@ const props = withDefaults(defineProps<{
     expanded?: boolean;
     readonly?: boolean;
 }>(), {
-    placeholder: "输入消息... (输入 @ 引用, $ 技能, / 命令)",
+    placeholder: "",
     menuRefreshKey: "",
     onSkillTriggerStart: () => {},
     borderless: false,
@@ -30,6 +30,7 @@ const emit = defineEmits<{
 }>();
 
 const editorRef = ref<InstanceType<typeof ReferencePlainTextEditor> | null>(null);
+const {t} = useI18n();
 const editorMinHeight = computed(() => props.expanded ? 220 : 44);
 const editorMaxHeight = computed(() => props.expanded ? 420 : 150);
 
@@ -64,7 +65,7 @@ defineExpose({
         :key="props.placeholder"
         ref="editorRef"
         :model-value="props.modelValue"
-        :placeholder="props.placeholder"
+        :placeholder="props.placeholder || t('agent.composer.messagePlaceholder')"
         :min-height="editorMinHeight"
         :max-height="editorMaxHeight"
         :submit-on-enter="!props.expanded"

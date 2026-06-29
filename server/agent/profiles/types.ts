@@ -9,11 +9,15 @@ import type {SessionSummarizerInitialSchema} from "nbook/server/agent/profiles/b
 import type {AgentRuntimeDefinition, NormalizedAgentRuntimeDefinition, RuntimeSessionFacade} from "nbook/server/agent/profiles/define-agent-runtime";
 import type {AgentInvokeCaller} from "nbook/server/agent/harness/types";
 import type {ProfileTools} from "nbook/server/agent/profiles/profile-tools";
+import type {LowCodeFormDefinition} from "nbook/server/low-code-form";
+import type {LowCodeJsonObject} from "nbook/shared/dto/low-code-form.dto";
+import type {ProfileHomeDefinition, ProfileHomeFacade} from "nbook/server/agent/profiles/profile-home";
 
 export type AgentProfileManifest<TKey extends string = string> = {
     key: TKey;
     name: string;
     description?: string;
+    version?: number;
 };
 
 export type AgentProfileSourceKind = "memory" | "system" | "user";
@@ -60,6 +64,8 @@ export type AgentCatalogItem = {
     sourcePath?: string;
     builtin: boolean;
     loadStatus: AgentProfileLoadStatus;
+    hasSettingsForm: boolean;
+    canResetHome: boolean;
     issue?: AgentProfileIssue;
 };
 
@@ -68,7 +74,17 @@ export type AgentCatalogSnapshot = {
     issues: AgentProfileIssue[];
 };
 
-export type ProfilePrepareContext<TInitial = JsonValue, TPayload = unknown> = {
+type ProfileSettingsContext<TSettings> = TSettings extends undefined
+    ? {settings?: LowCodeJsonObject}
+    : unknown extends TSettings
+        ? {settings?: LowCodeJsonObject}
+    : {settings: TSettings};
+
+type StaticSettings<TSettingsSchema extends TSchema | undefined> = [TSettingsSchema] extends [TSchema]
+    ? Static<TSettingsSchema>
+    : undefined;
+
+export type ProfilePrepareContext<TInitial = JsonValue, TPayload = unknown, TSettings = undefined> = {
     session: RuntimeSessionFacade;
     /** 创建 agent session 时传入的稳定初始化参数。 */
     initial: TInitial;
@@ -91,7 +107,9 @@ export type ProfilePrepareContext<TInitial = JsonValue, TPayload = unknown> = {
         /** prompt 模式下尚未写入 session 的本轮用户输入；continue 时为空。 */
         pendingUserMessage?: Message;
     };
-};
+    /** 当前 profile home。Project session 读取时 Project 优先、Global 兜底；写入仍落当前主 home。 */
+    home?: ProfileHomeFacade;
+} & ProfileSettingsContext<TSettings>;
 
 export type ProfileTurnPlan = {
     systemPrompt?: string;
@@ -174,6 +192,7 @@ export type AgentProfileDefinition<
     TInitialSchema extends TSchema = TSchema,
     TPayloadSchema extends TSchema = TSchema,
     TOutputSchema extends TSchema = TSchema,
+    TSettingsSchema extends TSchema | undefined = TSchema | undefined,
     TSummarizerKey extends string = string,
     TTools extends ProfileTools = ProfileTools,
 > = {
@@ -181,6 +200,8 @@ export type AgentProfileDefinition<
     initialSchema: TInitialSchema;
     payloadSchema?: TPayloadSchema;
     outputSchema?: TOutputSchema;
+    settingsForm?: TSettingsSchema extends TSchema ? LowCodeFormDefinition<TSettingsSchema> : undefined;
+    home?: ProfileHomeDefinition;
     tools: TTools;
     /** 主 run 实际可执行工具；不声明时等于 tools 的全部 key。sidecar 仍可声明自己的执行子集。 */
     toolKeys?: readonly (keyof TTools & string)[];
@@ -190,17 +211,18 @@ export type AgentProfileDefinition<
     runtime?: AgentRuntimeDefinition<Static<TInitialSchema>> | NormalizedAgentRuntimeDefinition<Static<TInitialSchema>>;
     /** profile 自带的 session.* 变量定义，随 profile `.compiled` artifact 加载。 */
     variableDefinitions?: readonly VariableDefinition[];
-    context?(ctx: ProfilePrepareContext<Static<TInitialSchema>, Static<TPayloadSchema>>): ProfileDslNode | Promise<ProfileDslNode>;
-    prepare?(ctx: ProfilePrepareContext<Static<TInitialSchema>, Static<TPayloadSchema>>): ProfileTurnPlan | Promise<ProfileTurnPlan>;
+    context?(ctx: ProfilePrepareContext<Static<TInitialSchema>, Static<TPayloadSchema>, StaticSettings<TSettingsSchema>>): ProfileDslNode | Promise<ProfileDslNode>;
+    prepare?(ctx: ProfilePrepareContext<Static<TInitialSchema>, Static<TPayloadSchema>, StaticSettings<TSettingsSchema>>): ProfileTurnPlan | Promise<ProfileTurnPlan>;
 };
 
 export type AgentProfile<
     TInitialSchema extends TSchema = TSchema,
     TPayloadSchema extends TSchema = TSchema,
     TOutputSchema extends TSchema = TSchema,
+    TSettingsSchema extends TSchema | undefined = TSchema | undefined,
     TSummarizerKey extends string = string,
     TTools extends ProfileTools = ProfileTools,
-> = Omit<AgentProfileDefinition<TInitialSchema, TPayloadSchema, TOutputSchema, TSummarizerKey, TTools>, "sidecars"> & {
+> = Omit<AgentProfileDefinition<TInitialSchema, TPayloadSchema, TOutputSchema, TSettingsSchema, TSummarizerKey, TTools>, "sidecars"> & {
     /** 运行时只需要 sidecar 合同本身；profile 定义阶段仍按 InitialSchema 约束 ctx.initial。 */
     sidecars?: readonly SidecarProfilePass<any, JsonValue>[];
     /** 由 tools 对象派生的稳定 root 工具 key 列表。运行时以 tools 为真相源，此字段只供便捷读取。 */

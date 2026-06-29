@@ -59,15 +59,16 @@ const emit = defineEmits<{
 }>();
 
 const store = useNovelIdeStore();
+const {t} = useI18n();
 const {selectedFileContent, savingFile} = storeToRefs(store);
 const draft = ref<LocationDraft | null>(null);
 const diagnostics = ref("");
 
 const statusOptions = computed<SelectOption[]>(() => [
-    {value: "draft", label: "草稿中", indicatorClass: getWorkspaceLorebookStatusIndicatorClass("draft")},
-    {value: "pending", label: "待定", indicatorClass: getWorkspaceLorebookStatusIndicatorClass("pending")},
-    {value: "active", label: "已生效", indicatorClass: getWorkspaceLorebookStatusIndicatorClass("active")},
-    {value: "archived", label: "已归档", indicatorClass: getWorkspaceLorebookStatusIndicatorClass("archived")},
+    {value: "draft", label: t("ide.workspace.common.statusDraft"), indicatorClass: getWorkspaceLorebookStatusIndicatorClass("draft")},
+    {value: "pending", label: t("ide.workspace.common.statusPending"), indicatorClass: getWorkspaceLorebookStatusIndicatorClass("pending")},
+    {value: "active", label: t("ide.workspace.common.statusActive"), indicatorClass: getWorkspaceLorebookStatusIndicatorClass("active")},
+    {value: "archived", label: t("ide.workspace.common.statusArchived"), indicatorClass: getWorkspaceLorebookStatusIndicatorClass("archived")},
 ]);
 const subtypeOptions = ["world", "continent", "nation", "region", "city", "district", "building", "room", "landmark", "facility", "ruin", "dungeon", "settlement", "transport"];
 const relatedIssues = computed(() => {
@@ -200,7 +201,7 @@ watch(() => [props.modelValue, props.node?.path, selectedFileContent.value], () 
 <template>
     <Dialog
         :model-value="props.modelValue"
-        :title="draft?.title || '地点档案'"
+        :title="draft?.title || t('ide.workspace.typedProfile.locationProfile')"
         width="min(1160px, calc(100vw - 160px))"
         height="min(740px, calc(100vh - 96px))"
         overlay-type="blur"
@@ -216,15 +217,15 @@ watch(() => [props.modelValue, props.node?.path, selectedFileContent.value], () 
                         <span class="i-lucide-map-pinned h-7 w-7"></span>
                     </span>
                     <div class="min-w-0">
-                        <h2 class="truncate text-xl font-bold text-[var(--text-main)]">{{ draft?.title || "地点档案" }}</h2>
+                        <h2 class="truncate text-xl font-bold text-[var(--text-main)]">{{ draft?.title || t("ide.workspace.typedProfile.locationProfile") }}</h2>
                         <div class="mt-1 truncate text-xs text-[var(--text-secondary)]">{{ draft?.path }}</div>
                     </div>
                 </div>
                 <div class="flex shrink-0 items-center gap-1">
-                    <button class="icon-action" type="button" title="刷新" @click="emit('refresh')"><span class="i-lucide-refresh-cw h-4 w-4"></span></button>
-                    <button class="icon-action" type="button" title="保存" :disabled="savingFile || Boolean(diagnostics)" @click="void saveDraft()"><span class="i-lucide-save h-4 w-4"></span></button>
+                    <button class="icon-action" type="button" :title="t('ide.workspace.common.refresh')" @click="emit('refresh')"><span class="i-lucide-refresh-cw h-4 w-4"></span></button>
+                    <button class="icon-action" type="button" :title="t('ide.workspace.common.save')" :disabled="savingFile || Boolean(diagnostics)" @click="void saveDraft()"><span class="i-lucide-save h-4 w-4"></span></button>
                     <span class="mx-2 h-7 w-px bg-[var(--border-color)]"></span>
-                    <button class="icon-action" type="button" title="关闭" @click="emit('update:modelValue', false)"><span class="i-lucide-x h-5 w-5"></span></button>
+                    <button class="icon-action" type="button" :title="t('ide.workspace.common.close')" @click="emit('update:modelValue', false)"><span class="i-lucide-x h-5 w-5"></span></button>
                 </div>
             </div>
         </template>
@@ -236,53 +237,53 @@ watch(() => [props.modelValue, props.node?.path, selectedFileContent.value], () 
             <!-- 地点核心信息 -->
             <section class="rounded-xl border border-sky-500/15 bg-sky-500/5 p-3">
                 <div class="grid grid-cols-[minmax(0,1fr)_132px_150px] gap-2">
-                    <label class="space-y-1"><span>地点名</span><input v-model="draft.title" class="field" @blur="void saveDraft()"></label>
-                    <label class="space-y-1"><span>状态</span><FormSelect :model-value="draft.status" :options="statusOptions" @update:model-value="draft.status = $event; void saveDraft()" /></label>
-                    <label class="space-y-1"><span>类型</span><input :value="draft.subtype ?? ''" class="field" list="location-subtypes" @input="draft.subtype = ($event.target as HTMLInputElement).value || null" @blur="void saveDraft()"></label>
+                    <label class="space-y-1"><span>{{ t("ide.workspace.typedProfile.locationName") }}</span><input v-model="draft.title" class="field" @blur="void saveDraft()"></label>
+                    <label class="space-y-1"><span>{{ t("ide.workspace.common.status") }}</span><FormSelect :model-value="draft.status" :options="statusOptions" @update:model-value="draft.status = $event; void saveDraft()" /></label>
+                    <label class="space-y-1"><span>{{ t("ide.workspace.typedProfile.type") }}</span><input :value="draft.subtype ?? ''" class="field" list="location-subtypes" @input="draft.subtype = ($event.target as HTMLInputElement).value || null" @blur="void saveDraft()"></label>
                 </div>
                 <datalist id="location-subtypes"><option v-for="item in subtypeOptions" :key="item" :value="item"></option></datalist>
-                <label class="mt-2 block space-y-1"><span>摘要</span><textarea v-model="draft.summary" rows="3" class="textarea" @blur="void saveDraft()"></textarea></label>
+                <label class="mt-2 block space-y-1"><span>{{ t("ide.workspace.common.summary") }}</span><textarea v-model="draft.summary" rows="3" class="textarea" @blur="void saveDraft()"></textarea></label>
                 <div class="mt-2 grid grid-cols-2 gap-2">
-                    <label class="space-y-1"><span>别名</span><TagInput :model-value="draft.aliases" placeholder="添加别名..." @update:model-value="draft.aliases = $event; void saveDraft()" /></label>
-                    <label class="space-y-1"><span>标签</span><TagInput :model-value="draft.tags" placeholder="添加标签..." accentStyle @update:model-value="draft.tags = $event; void saveDraft()" /></label>
+                    <label class="space-y-1"><span>{{ t("ide.workspace.common.aliases") }}</span><TagInput :model-value="draft.aliases" :placeholder="t('ide.workspace.common.addAlias')" @update:model-value="draft.aliases = $event; void saveDraft()" /></label>
+                    <label class="space-y-1"><span>{{ t("ide.workspace.common.tags") }}</span><TagInput :model-value="draft.tags" :placeholder="t('ide.workspace.common.addTag')" accentStyle @update:model-value="draft.tags = $event; void saveDraft()" /></label>
                 </div>
             </section>
 
             <!-- 地点空间设定 -->
             <section class="grid grid-cols-2 gap-3">
                 <div class="space-y-2 rounded-xl border border-[var(--border-color)] bg-[var(--bg-input)]/40 p-3">
-                    <div class="font-semibold text-[var(--text-main)]">空间与环境</div>
-                    <input :value="draft.location.parent ?? ''" class="field" placeholder="上级地点" @input="draft.location.parent = ($event.target as HTMLInputElement).value || null" @blur="void saveDraft()">
-                    <input :value="draft.location.region ?? ''" class="field" placeholder="区域 / 国家 / 城市" @input="draft.location.region = ($event.target as HTMLInputElement).value || null" @blur="void saveDraft()">
-                    <input :value="draft.location.terrain ?? ''" class="field" placeholder="地貌" @input="draft.location.terrain = ($event.target as HTMLInputElement).value || null" @blur="void saveDraft()">
-                    <input :value="draft.location.climate ?? ''" class="field" placeholder="气候" @input="draft.location.climate = ($event.target as HTMLInputElement).value || null" @blur="void saveDraft()">
-                    <textarea :value="draft.location.atmosphere ?? ''" rows="3" class="textarea" placeholder="氛围 / 视觉关键词" @input="draft.location.atmosphere = ($event.target as HTMLTextAreaElement).value || null" @blur="void saveDraft()"></textarea>
+                    <div class="font-semibold text-[var(--text-main)]">{{ t("ide.workspace.typedProfile.spaceEnvironment") }}</div>
+                    <input :value="draft.location.parent ?? ''" class="field" :placeholder="t('ide.workspace.typedProfile.parentLocation')" @input="draft.location.parent = ($event.target as HTMLInputElement).value || null" @blur="void saveDraft()">
+                    <input :value="draft.location.region ?? ''" class="field" :placeholder="t('ide.workspace.typedProfile.region')" @input="draft.location.region = ($event.target as HTMLInputElement).value || null" @blur="void saveDraft()">
+                    <input :value="draft.location.terrain ?? ''" class="field" :placeholder="t('ide.workspace.typedProfile.terrain')" @input="draft.location.terrain = ($event.target as HTMLInputElement).value || null" @blur="void saveDraft()">
+                    <input :value="draft.location.climate ?? ''" class="field" :placeholder="t('ide.workspace.typedProfile.climate')" @input="draft.location.climate = ($event.target as HTMLInputElement).value || null" @blur="void saveDraft()">
+                    <textarea :value="draft.location.atmosphere ?? ''" rows="3" class="textarea" :placeholder="t('ide.workspace.typedProfile.atmosphere')" @input="draft.location.atmosphere = ($event.target as HTMLTextAreaElement).value || null" @blur="void saveDraft()"></textarea>
                 </div>
                 <div class="space-y-2 rounded-xl border border-[var(--border-color)] bg-[var(--bg-input)]/40 p-3">
-                    <div class="font-semibold text-[var(--text-main)]">可用性</div>
-                    <textarea :value="draft.location.access ?? ''" rows="2" class="textarea" placeholder="进入方式 / 交通 / 门禁" @input="draft.location.access = ($event.target as HTMLTextAreaElement).value || null" @blur="void saveDraft()"></textarea>
-                    <TagInput :model-value="draft.location.landmarks" placeholder="地标..." @update:model-value="draft.location.landmarks = $event; void saveDraft()" />
-                    <TagInput :model-value="draft.location.risks" placeholder="风险..." @update:model-value="draft.location.risks = $event; void saveDraft()" />
-                    <TagInput :model-value="draft.location.resources" placeholder="资源..." @update:model-value="draft.location.resources = $event; void saveDraft()" />
+                    <div class="font-semibold text-[var(--text-main)]">{{ t("ide.workspace.typedProfile.availability") }}</div>
+                    <textarea :value="draft.location.access ?? ''" rows="2" class="textarea" :placeholder="t('ide.workspace.typedProfile.access')" @input="draft.location.access = ($event.target as HTMLTextAreaElement).value || null" @blur="void saveDraft()"></textarea>
+                    <TagInput :model-value="draft.location.landmarks" :placeholder="t('ide.workspace.typedProfile.landmarks')" @update:model-value="draft.location.landmarks = $event; void saveDraft()" />
+                    <TagInput :model-value="draft.location.risks" :placeholder="t('ide.workspace.typedProfile.risks')" @update:model-value="draft.location.risks = $event; void saveDraft()" />
+                    <TagInput :model-value="draft.location.resources" :placeholder="t('ide.workspace.typedProfile.resources')" @update:model-value="draft.location.resources = $event; void saveDraft()" />
                 </div>
             </section>
 
             <!-- AI 与引用 -->
             <section class="space-y-2 rounded-xl border border-[var(--border-color)] bg-[var(--bg-input)]/40 p-3">
-                <div class="font-semibold text-[var(--text-main)]">AI 上下文与引用</div>
+                <div class="font-semibold text-[var(--text-main)]">{{ t("ide.workspace.typedProfile.aiReferences") }}</div>
                 <div class="flex flex-wrap items-center gap-4">
                     <label class="flex items-center gap-2 text-[var(--text-secondary)]">
                         <input v-model="draft.retrieval.enabled" type="checkbox" class="h-4 w-4 rounded border-[var(--border-color)]" @change="void saveDraft()">
-                        <span>允许检索召回</span>
+                        <span>{{ t("ide.workspace.common.allowRetrieval") }}</span>
                     </label>
                 </div>
-                <textarea :value="draft.retrieval.trigger ?? ''" rows="2" class="textarea" placeholder="自然语言触发条件；为空表示不需要额外触发判断" @input="draft.retrieval.trigger = ($event.target as HTMLTextAreaElement).value || null" @blur="void saveDraft()"></textarea>
+                <textarea :value="draft.retrieval.trigger ?? ''" rows="2" class="textarea" :placeholder="t('ide.workspace.common.retrievalTrigger')" @input="draft.retrieval.trigger = ($event.target as HTMLTextAreaElement).value || null" @blur="void saveDraft()"></textarea>
                 <div v-for="(entryRef, index) in draft.refs" :key="index" class="flex items-center gap-1">
-                    <input v-model="entryRef.relation" class="field w-[88px]" placeholder="关系" @blur="void saveDraft()">
-                    <input v-model="entryRef.target" class="field min-w-0 flex-1 font-mono" placeholder="目标 path" @blur="void saveDraft()">
+                    <input v-model="entryRef.relation" class="field w-[88px]" :placeholder="t('ide.workspace.common.relation')" @blur="void saveDraft()">
+                    <input v-model="entryRef.target" class="field min-w-0 flex-1 font-mono" :placeholder="t('ide.workspace.common.targetPath')" @blur="void saveDraft()">
                     <button type="button" class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-rose-500/10 hover:text-rose-500" @click="removeRef(index)"><span class="i-lucide-x h-3.5 w-3.5"></span></button>
                 </div>
-                <button type="button" class="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] hover:text-[var(--text-main)]" @click="addRef"><span class="i-lucide-plus h-3 w-3"></span>添加引用</button>
+                <button type="button" class="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] hover:text-[var(--text-main)]" @click="addRef"><span class="i-lucide-plus h-3 w-3"></span>{{ t("ide.workspace.common.addReference") }}</button>
             </section>
         </div>
     </Dialog>

@@ -4,6 +4,7 @@ import type {AgentMessage, JsonValue, Model, Usage} from "nbook/server/agent/mes
 import type {SessionEntry, SessionTreeNode} from "nbook/server/agent/session/types";
 import type {VariablePatchAck, VariablePatchRequest} from "nbook/server/agent/variables/types";
 import {ThinkingLevelSchema} from "nbook/shared/dto/app-settings.dto";
+import type {LowCodeFormDto} from "nbook/shared/dto/low-code-form.dto";
 
 const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
     z.string(),
@@ -44,6 +45,8 @@ export const AgentResolutionDtoSchema = z.discriminatedUnion("kind", [
     z.object({
         kind: z.literal("user_input"),
         toolCallId: z.string().trim().min(1),
+        /** Task 63: Low-Code Form 提交数据（存在时优先于 answers）。 */
+        data: JsonValueSchema.optional(),
         answers: z.array(z.object({
             questionIndex: z.number().int().nonnegative(),
             text: z.string(),
@@ -51,9 +54,13 @@ export const AgentResolutionDtoSchema = z.discriminatedUnion("kind", [
             selectedOptionIndexes: z.array(z.number().int().min(-1)).optional(),
             note: z.string().optional(),
             ignored: z.boolean().optional(),
-        })),
+        })).optional(),
+    }).refine((value) => value.data !== undefined || value.answers !== undefined, {
+        message: "user_input resolution 必须提供 data 或 answers",
     }),
 ]);
+
+export type AgentResolutionDto = z.infer<typeof AgentResolutionDtoSchema>;
 
 export const AgentCreateSessionRequestDtoSchema = z.object({
     profileKey: z.string().trim().min(1, "profileKey 不能为空"),
@@ -70,6 +77,7 @@ export const AgentInvokeRequestDtoSchema = z.object({
     input: JsonValueSchema.optional(),
     title: z.string().trim().min(1).optional(),
     resolution: AgentResolutionDtoSchema.optional(),
+    resolutions: z.array(AgentResolutionDtoSchema).optional(),
     clientState: z.lazy(() => ClientVariablesDtoSchema).optional(),
     caller: z.never().optional(),
     block: z.boolean().optional(),
@@ -88,6 +96,13 @@ export const AgentInvokeRequestDtoSchema = z.object({
             message: "continue 模式不能提供 message 或 input",
         });
     }
+    if (value.resolution && value.resolutions) {
+        ctx.addIssue({
+            code: "custom",
+            path: ["resolution"],
+            message: "不能同时提供 resolution 和 resolutions",
+        });
+    }
 });
 
 export const AgentSessionListQueryDtoSchema = z.object({
@@ -95,9 +110,12 @@ export const AgentSessionListQueryDtoSchema = z.object({
     projectPath: z.string().trim().min(1).optional(),
     includeArchived: z.coerce.boolean().optional(),
     includeSystem: z.coerce.boolean().optional(),
+    profileKey: z.string().trim().min(1).optional(),
     profileGroup: z.enum(["all", "leader"]).optional(),
     status: z.enum(["all", "active", "running", "waiting", "idle", "interrupted", "archived"]).optional(),
     relation: z.enum(["all", "top", "child"]).optional(),
+    search: z.string().trim().optional(),
+    offset: z.coerce.number().int().min(0).optional(),
     limit: z.coerce.number().int().min(1).max(200).optional(),
 });
 
@@ -220,6 +238,15 @@ export type AgentSessionSummaryDto = {
     usage?: Usage;
 };
 
+export type AgentSessionListPageDto = {
+    items: AgentSessionSummaryDto[];
+    total: number;
+    offset: number;
+    limit: number;
+    hasMore: boolean;
+    nextOffset?: number;
+};
+
 export type AgentSessionSummarizerStateDto = {
     running: boolean;
     dirty: boolean;
@@ -245,14 +272,23 @@ export type AgentSessionRelationsDto = {
     linkedByAgents: AgentLinkedSessionDto[];
 };
 
-export type AgentPendingApprovalDto = {
+export type AgentPendingUserInputDto = {
     assistantMessageId?: string;
     toolCallId: string;
     toolName: string;
     args?: JsonValue;
     planFilePath?: string;
     planContent?: string;
+    /** Task 63: Low-Code Form 规格，从 tool.user-input-required 事件复制；存在时优先于 args.form */
+    formSpec?: {
+        form: LowCodeFormDto;
+        layout?: "dialog" | "inline" | "fullscreen";
+        prompt?: string;
+    };
 };
+
+/** @deprecated 使用 AgentPendingUserInputDto */
+export type AgentPendingApprovalDto = AgentPendingUserInputDto;
 
 export type AgentQueuedMessageDto = {
     id: string;
@@ -286,9 +322,10 @@ export type AgentSessionLiveStateDto = {
     /** 后台标题/摘要维护状态。为空表示当前 session 未启用或尚无摘要状态。 */
     summarizer?: AgentSessionSummarizerStateDto;
     activeLeafId: string | null;
-    /** 显式 active path 重定位版本；变化时前端应拉 snapshot 重建消息投影。 */
+    /** 显式 active path 重定位版本;变化时前端应拉 snapshot 重建消息投影。 */
     activePathRevision: string | null;
-    pendingApproval: AgentPendingApprovalDto | null;
+    pendingUserInputs: AgentPendingUserInputDto[];
+    pendingApprovals: AgentPendingApprovalDto[];
     steerQueue: AgentQueuedMessageDto[];
     followUpQueue: AgentFollowUpQueueStateDto;
     activeInvocation: AgentActiveInvocationDto | null;
@@ -305,29 +342,35 @@ export type AgentSessionLiveStateDto = {
 export type AgentRuntimeStreamEventDto =
     | {
         type: "agent_start";
+        sidecarContext?: { type: string; leafId: string };
     }
     | {
         type: "agent_end";
         status: "completed" | "waiting" | "failed" | "aborted" | "interrupted";
         usage?: Usage;
+        sidecarContext?: { type: string; leafId: string };
     }
     | {
         type: "turn_start";
         turnIndex: number;
+        sidecarContext?: { type: string; leafId: string };
     }
     | {
         type: "turn_end";
         turnIndex: number;
         status: "completed" | "waiting" | "failed";
+        sidecarContext?: { type: string; leafId: string };
     }
     | {
         type: "message_start" | "message_end";
         message: AgentMessage;
+        sidecarContext?: { type: string; leafId: string };
     }
     | {
         type: "message_update";
         message: AgentMessage;
         assistantMessageEvent: AssistantMessageEvent;
+        sidecarContext?: { type: string; leafId: string };
     }
     | {
         type: "tool_execution_start";
@@ -335,6 +378,7 @@ export type AgentRuntimeStreamEventDto =
         toolName: string;
         /** 工具参数来自异构 tool schema，第一版原样透传给工具卡展示。 */
         args: unknown;
+        sidecarContext?: { type: string; leafId: string };
     }
     | {
         type: "tool_execution_update";
@@ -344,6 +388,7 @@ export type AgentRuntimeStreamEventDto =
         args: unknown;
         /** 工具流式 partial result 来自异构工具，后续如变大再做 preview/ref。 */
         partialResult: unknown;
+        sidecarContext?: { type: string; leafId: string };
     }
     | {
         type: "tool_execution_end";
@@ -352,6 +397,74 @@ export type AgentRuntimeStreamEventDto =
         /** 工具结果来自异构工具，第一版保持原样，后续如变大再做 preview/ref。 */
         result: unknown;
         isError: boolean;
+        sidecarContext?: { type: string; leafId: string };
+    }
+    | {
+        type: "tool.user-input-required";
+        toolCallId: string;
+        toolName: string;
+        args: unknown;
+        formSpec: {
+            form: LowCodeFormDto;
+            resultSchema?: unknown;
+            prompt?: string;
+            layout?: "dialog" | "inline" | "fullscreen";
+        };
+        sidecarContext?: { type: string; leafId: string };
+    }
+    | {
+        type: "sidecar.start";
+        sidecarType: string;
+        stage: string;
+        leafId: string;
+    }
+    | {
+        type: "sidecar.complete";
+        sidecarType: string;
+        stage: string;
+        leafId: string;
+    }
+    | {
+        type: "sidecar.error";
+        sidecarType: string;
+        stage: string;
+        error: string;
+    }
+    | {
+        type: "sidecar_start";
+        /** sidecar 类型名称，例如 "context-load" */
+        sidecarType: string;
+        /** sidecar 执行阶段，prepareRun 或 settleRun */
+        stage: "prepareRun" | "settleRun";
+        /** sidecar transcript 在 session 中的 leafId */
+        leafId: string | null;
+        sidecarContext?: { type: string; leafId: string };
+    }
+    | {
+        type: "sidecar_complete";
+        sidecarType: string;
+        stage: "prepareRun" | "settleRun";
+        leafId: string | null;
+        /** sidecar 返回的结果数据，供前端展示或调试 */
+        sidecarResult: unknown;
+        sidecarContext?: { type: string; leafId: string };
+    }
+    | {
+        type: "sidecar_error";
+        sidecarType: string;
+        stage: "prepareRun" | "settleRun";
+        leafId: string | null;
+        error: string;
+        sidecarContext?: { type: string; leafId: string };
+    }
+    | {
+        type: "sidecar_merge";
+        /** 合并了哪些 sidecar 的数据 */
+        sidecarTypes: string[];
+        stage: "prepareRun" | "settleRun";
+        /** 合并后实际写入 persistedMessages 的消息数量 */
+        mergedMessageCount: number;
+        sidecarContext?: { type: string; leafId: string };
     };
 
 export type AgentSessionControlEvent =
@@ -426,7 +539,8 @@ export type AgentSessionSnapshotDto = {
     entries: SessionEntry[];
     linkedAgents: AgentLinkedSessionDto[];
     linkedByAgents: AgentLinkedSessionDto[];
-    pendingApproval: AgentPendingApprovalDto | null;
+    pendingUserInputs: AgentPendingUserInputDto[];
+    pendingApprovals: AgentPendingApprovalDto[];
     steerQueue: AgentQueuedMessageDto[];
     followUpQueue: AgentFollowUpQueueStateDto;
     activeInvocation: AgentActiveInvocationDto | null;

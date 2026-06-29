@@ -106,14 +106,16 @@ type ProviderPreset = {
     description: string;
 };
 
-const fallbackProviderPresetOptions: ProviderPreset[] = [
+const {t} = useI18n();
+
+const fallbackProviderPresetOptions = computed<ProviderPreset[]>(() => [
     {
         value: "xiaomi-token-plan-cn",
         label: "Xiaomi Token Plan CN",
         providerId: "xiaomi-token-plan-cn",
         providerName: "Xiaomi Token Plan CN",
         baseURL: "",
-        description: "Pi 内置小米 Token Plan 中国区 Provider",
+        description: t("settings.panels.models.builtinXiaomiDescription"),
     },
     {
         value: "deepseek",
@@ -121,7 +123,7 @@ const fallbackProviderPresetOptions: ProviderPreset[] = [
         providerId: "deepseek",
         providerName: "DeepSeek",
         baseURL: "",
-        description: "Pi 内置 DeepSeek Provider",
+        description: t("settings.panels.models.builtinDeepseekDescription"),
     },
     {
         value: "openai",
@@ -129,7 +131,7 @@ const fallbackProviderPresetOptions: ProviderPreset[] = [
         providerId: "openai",
         providerName: "OpenAI",
         baseURL: "",
-        description: "Pi 内置 OpenAI Provider",
+        description: t("settings.panels.models.builtinOpenaiDescription"),
     },
     {
         value: "openrouter",
@@ -137,7 +139,7 @@ const fallbackProviderPresetOptions: ProviderPreset[] = [
         providerId: "openrouter",
         providerName: "OpenRouter",
         baseURL: "",
-        description: "Pi 内置 OpenRouter Provider",
+        description: t("settings.panels.models.builtinOpenrouterDescription"),
     },
     {
         value: "google",
@@ -145,17 +147,17 @@ const fallbackProviderPresetOptions: ProviderPreset[] = [
         providerId: "google",
         providerName: "Google",
         baseURL: "",
-        description: "Pi 内置 Google Provider",
+        description: t("settings.panels.models.builtinGoogleDescription"),
     },
     {
         value: "custom",
-        label: "自定义",
+        label: t("settings.panels.models.custom"),
         providerId: "custom-provider",
         providerName: "Custom Provider",
         baseURL: "",
-        description: "自定义 Pi Model Provider",
+        description: t("settings.panels.models.customDescription"),
     },
-];
+]);
 
 const novelIdeStore = useNovelIdeStore();
 const configApi = useConfigApi();
@@ -164,7 +166,7 @@ const notification = useNotification();
 const loading = ref(false);
 const saving = ref(false);
 const activeProviderKey = ref("");
-const selectedPreset = ref<string>(fallbackProviderPresetOptions[0]?.value ?? "custom");
+const selectedPreset = ref<string>(fallbackProviderPresetOptions.value[0]?.value ?? "custom");
 const draft = ref<ModelSettingsDraft>({
     defaultModelKey: null,
     providers: [],
@@ -194,10 +196,10 @@ const modelApiOptions: SelectOption[] = [
     {value: "google-generative-ai", label: "Google Generative AI", description: "Gemini / Google GenAI"},
     {value: "bedrock-converse-stream", label: "Bedrock Converse", description: "AWS Bedrock Converse Stream"},
 ];
-const modelInputOptions: Array<{value: ModelInputKind; label: string; iconClass: string}> = [
-    {value: "text", label: "文本", iconClass: "i-lucide-type"},
-    {value: "image", label: "图片", iconClass: "i-lucide-image"},
-];
+const modelInputOptions = computed<Array<{value: ModelInputKind; label: string; iconClass: string}>>(() => [
+    {value: "text", label: t("settings.panels.models.textInput"), iconClass: "i-lucide-type"},
+    {value: "image", label: t("settings.panels.models.imageInput"), iconClass: "i-lucide-image"},
+]);
 
 const providerPresetOptions = computed<ProviderPreset[]>(() => {
     const builtinPresets = (piCatalog.value?.providers ?? []).map((provider) => ({
@@ -206,11 +208,11 @@ const providerPresetOptions = computed<ProviderPreset[]>(() => {
         providerId: provider.id,
         providerName: provider.name,
         baseURL: provider.baseUrl,
-        description: `Pi 内置 Provider，包含 ${provider.models.length} 个模型`,
+        description: t("settings.panels.models.builtinProviderDescription", {count: provider.models.length}),
     }));
-    const customPreset = fallbackProviderPresetOptions.find((preset) => preset.value === "custom");
+    const customPreset = fallbackProviderPresetOptions.value.find((preset) => preset.value === "custom");
     return [
-        ...(builtinPresets.length > 0 ? builtinPresets : fallbackProviderPresetOptions.filter((preset) => preset.value !== "custom")),
+        ...(builtinPresets.length > 0 ? builtinPresets : fallbackProviderPresetOptions.value.filter((preset) => preset.value !== "custom")),
         ...(customPreset ? [customPreset] : []),
     ];
 });
@@ -778,7 +780,7 @@ async function loadSettings(): Promise<void> {
             applySettings(snapshot);
         }
     } catch (error) {
-        notification.error(resolveApiErrorMessage(error, "读取模型设定失败"));
+        notification.error(resolveApiErrorMessage(error, t("settings.panels.models.loadFailed")));
     } finally {
         loading.value = false;
     }
@@ -942,15 +944,15 @@ function displayModelApi(model: ModelDraft, provider: ProviderDraft | null = act
 function displayModelApiSource(model: ModelDraft, provider: ProviderDraft | null = activeProvider.value): string {
     const source = resolveEffectiveModelMetadata(model, provider).apiSource;
     if (source === "model") {
-        return "模型覆盖";
+        return t("settings.panels.models.modelApiSourceModel");
     }
     if (source === "provider") {
-        return "继承配置";
+        return t("settings.panels.models.modelApiSourceProvider");
     }
     if (source === "registry") {
-        return "继承";
+        return t("settings.panels.models.modelApiSourceRegistry");
     }
-    return "默认";
+    return t("settings.panels.models.modelApiSourceFallback");
 }
 
 /**
@@ -984,45 +986,45 @@ function resolveEffectiveModelMetadata(model: ModelDraft, provider: ProviderDraf
 
 function providerDefaultApiLabel(provider: ProviderDraft): string {
     const registryApi = findPiProvider(provider.id)?.models[0]?.api ?? "openai-completions";
-    return `继承（${registryApi}）`;
+    return t("settings.panels.models.providerDefaultApi", {api: registryApi});
 }
 
 function modelApiInheritLabel(model: ModelDraft): string {
     const providerApi = activeProvider.value?.api.trim();
     if (providerApi) {
-        return `继承配置（${providerApi}）`;
+        return t("settings.panels.models.inheritProviderApi", {api: providerApi});
     }
-    return `继承（${resolveEffectiveModelMetadata(model).api}）`;
+    return t("settings.panels.models.providerDefaultApi", {api: resolveEffectiveModelMetadata(model).api});
 }
 
 function modelInputDisplayLabel(model: ModelDraft): string {
     return resolveEffectiveModelMetadata(model).input
-        .map((item) => modelInputOptions.find((option) => option.value === item)?.label ?? item)
+        .map((item) => modelInputOptions.value.find((option) => option.value === item)?.label ?? item)
         .join(" / ");
 }
 
 function modelReasoningDisplayLabel(model: ModelDraft): string {
-    return resolveEffectiveModelMetadata(model).reasoning ? "支持" : "不支持";
+    return resolveEffectiveModelMetadata(model).reasoning ? t("settings.panels.models.supported") : t("settings.panels.models.unsupported");
 }
 
 function formatTokenLimit(value: number | null | undefined): string {
     if (typeof value !== "number" || !Number.isFinite(value)) {
-        return "未知";
+        return t("settings.panels.models.unknown");
     }
-    return new Intl.NumberFormat("zh-CN", {maximumFractionDigits: 0}).format(value);
+    return new Intl.NumberFormat(undefined, {maximumFractionDigits: 0}).format(value);
 }
 
 function modelContextWindowDefaultLabel(model: ModelDraft): string {
     const piModel = findPiModelForDraft(model);
     const value = piModel?.contextWindowTokens ?? RUNTIME_DEFAULT_CONTEXT_WINDOW_TOKENS;
-    const source = piModel?.contextWindowTokens ? "Pi" : "运行默认";
+    const source = piModel?.contextWindowTokens ? "Pi" : t("settings.panels.models.runtimeDefault");
     return `${formatTokenLimit(value)} tokens（${source}）`;
 }
 
 function modelMaxTokensDefaultLabel(model: ModelDraft): string {
     const piModel = findPiModelForDraft(model);
     const value = piModel?.maxTokens ?? RUNTIME_DEFAULT_MAX_TOKENS;
-    const source = piModel?.maxTokens ? "Pi" : "运行默认";
+    const source = piModel?.maxTokens ? "Pi" : t("settings.panels.models.runtimeDefault");
     return `${formatTokenLimit(value)} tokens（${source}）`;
 }
 
@@ -1084,7 +1086,7 @@ async function addProvider(): Promise<void> {
     try {
         await loadPiCatalog();
     } catch (error) {
-        notification.error(resolveApiErrorMessage(error, "读取 Pi 内置模型目录失败"));
+        notification.error(resolveApiErrorMessage(error, t("settings.panels.models.loadPiCatalogFailed")));
         return;
     }
     const preset = providerPresetOptions.value.find((item) => item.value === selectedPreset.value) ?? providerPresetOptions.value[0];
@@ -1114,7 +1116,7 @@ async function addProvider(): Promise<void> {
         },
         models: builtinProvider?.models.map(clonePiModel) ?? [],
     });
-    notification.success(`已新增 Provider：${preset.label}`);
+    notification.success(t("settings.panels.models.providerAdded", {label: preset.label}));
 }
 
 /**
@@ -1137,13 +1139,13 @@ async function saveSettings(): Promise<void> {
         editorSnapshot.value = snapshot;
         if (isProjectScope.value) {
             applyProjectSettings(snapshot);
-            notification.success("Project 默认模型覆盖已保存，后续新发起的请求会使用新的合并配置。");
+            notification.success(t("settings.panels.models.projectSaveSuccess"));
         } else {
             applySettings(snapshot, {preserveUiState: true, preferredProviderKey: activeProviderKey.value});
-            notification.success("模型设定已写入 Global Config，后续新发起的请求会使用新的默认模型。");
+            notification.success(t("settings.panels.models.globalSaveSuccess"));
         }
     } catch (error) {
-        notification.error(resolveApiErrorMessage(error, "保存模型设定失败"));
+        notification.error(resolveApiErrorMessage(error, t("settings.panels.models.saveFailed")));
     } finally {
         saving.value = false;
     }
@@ -1275,7 +1277,7 @@ function confirmDeleteActiveProvider(): void {
     activeProviderKey.value = draft.value.providers[0]?.localKey ?? "";
     ensureDefaultModelKey();
     deleteProviderDialogOpen.value = false;
-    notification.success(`已删除 Provider：${provider.name}`);
+    notification.success(t("settings.panels.models.providerDeleted", {name: provider.name}));
 }
 
 /**
@@ -1355,7 +1357,7 @@ async function checkProvider(): Promise<void> {
         const notify = result.success ? notification.success : notification.error;
         notify(result.message);
     } catch (error) {
-        notification.error(resolveApiErrorMessage(error, "Provider 测试失败"));
+        notification.error(resolveApiErrorMessage(error, t("settings.panels.models.providerCheckFailed")));
     } finally {
         providerTestingId.value = "";
     }
@@ -1382,7 +1384,7 @@ async function discoverModels(): Promise<void> {
                     name: model.name,
                     group: deriveGroup(model.id),
                 })),
-                message: `已从 Pi 内置目录读取 ${builtinProvider.models.length} 个模型。`,
+                message: t("settings.panels.models.builtinModelsLoaded", {count: builtinProvider.models.length}),
             }
             : await $fetch<DiscoverProviderModelsResponseDto>("/api/config/models/provider-discover", {
                 method: "POST",
@@ -1394,7 +1396,7 @@ async function discoverModels(): Promise<void> {
         };
         notification.success(result.message);
     } catch (error) {
-        notification.error(resolveApiErrorMessage(error, "模型发现失败"));
+        notification.error(resolveApiErrorMessage(error, t("settings.panels.models.discoverFailed")));
     } finally {
         providerDiscoveringId.value = "";
     }
@@ -1485,7 +1487,7 @@ function addManualModel(): void {
 
     const manualDraft = getManualModelDraft(provider.id);
     if (!manualDraft.name.trim() || !manualDraft.id.trim()) {
-        notification.error("手动添加模型时，模型名称和模型 ID 都不能为空");
+        notification.error(t("settings.panels.models.manualRequired"));
         return;
     }
 
@@ -1507,7 +1509,7 @@ function addManualModel(): void {
             contextWindowTokens: "",
         },
     };
-    notification.success("模型已加入当前 Provider 白名单");
+    notification.success(t("settings.panels.models.manualAdded"));
 }
 
 /**
@@ -1538,7 +1540,7 @@ async function checkModel(model: ModelDraft): Promise<void> {
         const notify = result.success ? notification.success : notification.error;
         notify(result.message);
     } catch (error) {
-        notification.error(resolveApiErrorMessage(error, "模型健康检查失败"));
+        notification.error(resolveApiErrorMessage(error, t("settings.panels.models.modelCheckFailed")));
     } finally {
         modelTestingKey.value = "";
     }
@@ -1687,8 +1689,8 @@ defineExpose({
         <!-- 精简版顶部栏 -->
         <div class="flex flex-wrap items-center justify-between gap-4">
             <div class="max-w-xl">
-                <h3 class="text-base font-semibold text-[var(--text-main)]">{{ isProjectScope ? "Project 默认模型" : "模型连接设置" }}</h3>
-                <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ isProjectScope ? `只覆盖 ${props.targetLabel || "当前 Project"} 的默认模型；Provider 与 API Key 仍来自 Global Config。` : "配置 Provider、API 凭证与模型白名单，这会写入 Workspace Root .nbook/config.json。" }}</p>
+                <h3 class="text-base font-semibold text-[var(--text-main)]">{{ isProjectScope ? t("settings.panels.models.projectTitle") : t("settings.panels.models.globalTitle") }}</h3>
+                <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ isProjectScope ? t("settings.panels.models.projectDescription", {target: props.targetLabel || t("settings.panels.models.currentProject")}) : t("settings.panels.models.globalDescription") }}</p>
             </div>
         </div>
 
@@ -1699,15 +1701,14 @@ defineExpose({
                     <div class="flex h-6 w-6 items-center justify-center rounded-md bg-[var(--accent-bg)] text-[var(--accent-text)]">
                         <span class="i-lucide-cpu h-3.5 w-3.5"></span>
                     </div>
-                    <div class="text-sm font-semibold text-[var(--text-main)]">{{ isProjectScope ? "Project 默认模型覆盖" : "全局默认模型" }}</div>
+                    <div class="text-sm font-semibold text-[var(--text-main)]">{{ isProjectScope ? t("settings.panels.models.projectDefaultTitle") : t("settings.panels.models.globalDefaultTitle") }}</div>
                 </div>
-                <div class="mb-3 text-xs leading-5 text-[var(--text-secondary)]">{{ isProjectScope ? "选择“跟随 Global 默认模型”会清除 Project Config 中的覆盖值。" : "Agent、续写和 AI 批注都会默认使用该模型。" }}</div>
                 <NovelIdeModelSelect
                     :model-value="draft.defaultModelKey"
                     :models="defaultModelOptions"
                     :allow-default="isProjectScope"
-                    default-label="跟随 Global 默认模型"
-                    placeholder="尚未启用任何模型"
+                    :default-label="t('settings.panels.models.followGlobalDefault')"
+                    :placeholder="t('settings.panels.models.noEnabledModels')"
                     @update:model-value="draft.defaultModelKey = $event"
                 />
             </div>
@@ -1717,16 +1718,15 @@ defineExpose({
                     <div class="flex h-6 w-6 items-center justify-center rounded-md bg-[var(--bg-input)] text-[var(--text-secondary)]">
                         <span class="i-lucide-network h-3.5 w-3.5"></span>
                     </div>
-                    <div class="text-sm font-semibold text-[var(--text-main)]">新增 Provider</div>
+                    <div class="text-sm font-semibold text-[var(--text-main)]">{{ t("settings.panels.models.addProvider") }}</div>
                 </div>
-                <div class="mb-3 text-xs leading-5 text-[var(--text-secondary)]">从 Pi 内置 Provider 目录添加连接；重复添加会自动改成本地新 ID。</div>
                 <div class="flex items-center gap-2">
                     <div class="min-w-0 flex-1">
                         <FormSelect :model-value="selectedPreset" :options="providerPresetOptions.map((item) => ({ value: item.value, label: item.label }))" @update:model-value="selectedPreset = $event" />
                     </div>
                     <button class="inline-flex h-7 shrink-0 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 text-xs font-medium text-[var(--text-main)] shadow-sm transition-colors hover:bg-[var(--bg-hover)] active:scale-95" @click="void addProvider()">
                         <span class="i-lucide-plus mr-1 h-3 w-3"></span>
-                        添加
+                        {{ t("settings.panels.models.add") }}
                     </button>
                 </div>
             </div>
@@ -1735,7 +1735,7 @@ defineExpose({
         <!-- Loading State -->
         <div v-if="loading" class="flex min-h-[400px] flex-col items-center justify-center gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-sm">
             <span class="i-lucide-loader-2 h-8 w-8 animate-spin text-[var(--text-muted)]"></span>
-            <span class="text-sm text-[var(--text-secondary)]">正在读取模型设定...</span>
+            <span class="text-sm text-[var(--text-secondary)]">{{ t("settings.panels.models.loading") }}</span>
         </div>
 
         <!-- 模型设置双栏布局 -->
@@ -1744,11 +1744,11 @@ defineExpose({
             <aside class="flex flex-col rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-2 shadow-sm">
                 <div class="px-3 pb-3 pt-2">
                     <div class="text-[11px] font-bold uppercase tracking-[0.2em] text-[var(--text-muted)]">Providers</div>
-                    <div class="mt-1 text-xs text-[var(--text-secondary)] opacity-80">点击配置对应服务商</div>
+                    <div class="mt-1 text-xs text-[var(--text-secondary)] opacity-80">{{ t("settings.panels.models.providersHint") }}</div>
                 </div>
 
                 <div v-if="draft.providers.length === 0" class="m-2 rounded-xl border border-dashed border-[var(--border-color)] px-4 py-8 text-center text-xs leading-6 text-[var(--text-secondary)]">
-                    还没有 Provider<br>请从上方新增一个
+                    {{ t("settings.panels.models.noProviders") }}<br>{{ t("settings.panels.models.addProviderFromAbove") }}
                 </div>
 
                 <div class="flex flex-col gap-1 overflow-y-auto px-1 pb-1 custom-scrollbar">
@@ -1768,7 +1768,7 @@ defineExpose({
                         <span class="i-lucide-server h-4 w-4 shrink-0 transition-transform duration-300 group-hover:scale-110" :class="activeProviderKey === provider.localKey ? 'text-[var(--accent-main)]' : 'text-[var(--text-muted)]'"></span>
                         <div class="min-w-0 flex-1">
                             <div class="truncate text-[13px] font-medium" :class="activeProviderKey === provider.localKey ? 'text-[var(--accent-text)]' : 'text-[var(--text-main)]'">{{ provider.name }}</div>
-                            <div class="mt-0.5 truncate text-[11px] opacity-70">{{ provider.models.filter((model) => model.enabled).length }} 个模型</div>
+                            <div class="mt-0.5 truncate text-[11px] opacity-70">{{ t("settings.panels.models.modelCount", {count: provider.models.filter((model) => model.enabled).length}) }}</div>
                         </div>
                     </button>
                 </div>
@@ -1785,24 +1785,24 @@ defineExpose({
                         <div class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-5 shadow-sm transition-all duration-300 hover:shadow-md">
                             <div class="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border-color)] pb-4">
                                 <div>
-                                    <h3 class="text-base font-semibold text-[var(--text-main)]">Provider 配置</h3>
-                                    <p class="mt-1 text-xs text-[var(--text-secondary)]">配置此服务商的 API 访问凭据；模型能力由 Pi Model 元数据决定。</p>
+                                    <h3 class="text-base font-semibold text-[var(--text-main)]">{{ t("settings.panels.models.providerConfig") }}</h3>
+                                    <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ t("settings.panels.models.providerConfigDescription") }}</p>
                                 </div>
 
                                 <div class="flex flex-wrap items-center gap-2">
                                     <button class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-xs font-medium text-[var(--text-main)] shadow-sm transition-all duration-200 hover:bg-[var(--bg-hover)] hover:shadow active:scale-95 disabled:pointer-events-none disabled:opacity-60" :disabled="providerTestingId === activeProvider.id" @click="void checkProvider()">
                                         <span v-if="providerTestingId === activeProvider.id" class="i-lucide-loader-2 h-3.5 w-3.5 animate-spin"></span>
                                         <span v-else class="i-lucide-activity h-3.5 w-3.5 text-[var(--text-muted)]"></span>
-                                        {{ providerTestingId === activeProvider.id ? "检查中..." : "检查 Provider" }}
+                                        {{ providerTestingId === activeProvider.id ? t("settings.panels.models.checking") : t("settings.panels.models.checkProvider") }}
                                     </button>
                                     <button class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-xs font-medium text-[var(--text-main)] shadow-sm transition-all duration-200 hover:bg-[var(--bg-hover)] hover:shadow active:scale-95 disabled:pointer-events-none disabled:opacity-60" :disabled="providerDiscoveringId === activeProvider.id" @click="void discoverModels()">
                                         <span v-if="providerDiscoveringId === activeProvider.id" class="i-lucide-loader-2 h-3.5 w-3.5 animate-spin"></span>
                                         <span v-else class="i-lucide-cloud-lightning h-3.5 w-3.5 text-[var(--text-muted)]"></span>
-                                        {{ providerDiscoveringId === activeProvider.id ? "抓取中..." : "查询可用模型" }}
+                                        {{ providerDiscoveringId === activeProvider.id ? t("settings.panels.models.discovering") : t("settings.panels.models.discoverModels") }}
                                     </button>
                                     <button class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-rose-500/20 bg-rose-500/8 px-3 text-xs font-medium text-rose-600 shadow-sm transition-all duration-200 hover:bg-rose-500/15 hover:shadow active:scale-95" @click="requestDeleteActiveProvider">
                                         <span class="i-lucide-trash-2 h-3.5 w-3.5"></span>
-                                        删除
+                                        {{ t("settings.panels.models.delete") }}
                                     </button>
                                 </div>
                             </div>
@@ -1810,38 +1810,38 @@ defineExpose({
                             <!-- Provider 表单 -->
                             <div class="mt-5 grid gap-4 md:grid-cols-2">
                                 <div class="group space-y-1.5">
-                                    <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">配置 ID</label>
-                                    <FormInput :model-value="activeProvider.id" placeholder="例如 siliconflow 或 deepseek-cn" @update:model-value="renameActiveProviderId" />
+                                    <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">{{ t("settings.panels.models.providerId") }}</label>
+                                    <FormInput :model-value="activeProvider.id" :placeholder="t('settings.panels.models.providerIdPlaceholder')" @update:model-value="renameActiveProviderId" />
                                 </div>
                                 <div class="group space-y-1.5">
-                                    <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">服务商名称</label>
-                                    <FormInput v-model="activeProvider.name" placeholder="例如 SiliconFlow" />
+                                    <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">{{ t("settings.panels.models.providerName") }}</label>
+                                    <FormInput v-model="activeProvider.name" :placeholder="t('settings.panels.models.providerNamePlaceholder')" />
                                 </div>
                                 <div class="group space-y-1.5">
-                                    <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">接口格式</label>
+                                    <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">{{ t("settings.panels.models.apiFormat") }}</label>
                                     <FormSelect v-model="activeProvider.api" :options="[{value: '', label: providerDefaultApiLabel(activeProvider)}, ...modelApiOptions]" />
                                 </div>
                                 <div class="group space-y-1.5">
                                     <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">API Base</label>
-                                    <FormInput v-model="activeProvider.options.baseURL" placeholder="可留空，使用 Pi Model 默认 baseUrl" />
+                                    <FormInput v-model="activeProvider.options.baseURL" :placeholder="t('settings.panels.models.apiBasePlaceholder')" />
                                 </div>
                                 <div class="group space-y-1.5 md:col-span-2">
                                     <div class="flex items-center justify-between gap-3">
                                         <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">API Key</label>
-                                        <button v-if="activeProvider.options.apiKeyConfigured" type="button" class="text-[11px] text-rose-500 transition-colors hover:text-rose-600" @click="clearActiveProviderApiKey">清空密钥</button>
+                                        <button v-if="activeProvider.options.apiKeyConfigured" type="button" class="text-[11px] text-rose-500 transition-colors hover:text-rose-600" @click="clearActiveProviderApiKey">{{ t("settings.panels.models.clearApiKey") }}</button>
                                     </div>
-                                    <FormInput v-model="activeProvider.options.apiKey" :placeholder="activeProvider.options.apiKeyConfigured ? `已配置 ${activeProvider.options.apiKeyMaskedValue ?? ''}；留空则保留` : 'sk-...'" type="password" />
+                                    <FormInput v-model="activeProvider.options.apiKey" :placeholder="activeProvider.options.apiKeyConfigured ? t('settings.panels.models.configuredApiKeyPlaceholder', {value: activeProvider.options.apiKeyMaskedValue ?? ''}) : 'sk-...'" type="password" />
                                 </div>
                                 <div class="group space-y-1.5 md:col-span-2">
-                                    <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">代理</label>
+                                    <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">{{ t("settings.panels.models.proxy") }}</label>
                                     <FormInput v-model="activeProvider.options.proxy" placeholder="http://127.0.0.1:7890" />
                                 </div>
                                 <div class="group space-y-1.5 md:col-span-2">
-                                    <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">请求超时</label>
-                                    <FormInput v-model="activeProvider.options.timeoutMs" placeholder="默认 180000" type="number" />
+                                    <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">{{ t("settings.panels.models.requestTimeout") }}</label>
+                                    <FormInput v-model="activeProvider.options.timeoutMs" :placeholder="t('settings.panels.models.defaultTimeout')" type="number" />
                                 </div>
                                 <div class="group space-y-1.5 md:col-span-2">
-                                    <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">请求扩展参数</label>
+                                    <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">{{ t("settings.panels.models.requestOptions") }}</label>
                                     <textarea v-model="activeProvider.options.requestOptions" rows="4" placeholder="{&quot;store&quot;:false}" class="w-full resize-y rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 py-2 font-mono text-[12px] text-[var(--text-main)] outline-none transition-colors placeholder:text-[var(--text-muted)] placeholder:opacity-80 focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]/20"></textarea>
                                 </div>
                             </div>
@@ -1852,17 +1852,17 @@ defineExpose({
                             <div class="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--border-color)] px-5 py-4 bg-[var(--bg-panel)]">
                                 <div>
                                     <div class="flex items-center gap-2">
-                                        <h3 class="text-base font-semibold text-[var(--text-main)]">已启用模型</h3>
+                                        <h3 class="text-base font-semibold text-[var(--text-main)]">{{ t("settings.panels.models.enabledModels") }}</h3>
                                         <div class="flex items-center justify-center rounded-full bg-[var(--bg-input)] px-2 py-0.5 text-[11px] font-medium text-[var(--text-secondary)]">{{ activeProvider.models.filter(m => m.enabled).length }}</div>
                                     </div>
-                                    <p class="mt-1 text-xs text-[var(--text-secondary)]">按 Group 分组展示。右侧管理可查询更多。</p>
+                                    <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ t("settings.panels.models.enabledModelsDescription") }}</p>
                                 </div>
                             </div>
 
                             <div class="max-h-[360px] min-h-[150px] overflow-y-auto bg-[var(--bg-input)]/20 p-3 custom-scrollbar">
                                 <div v-if="enabledModelGroups.length === 0" class="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-[var(--border-color)] py-8 text-center bg-[var(--bg-panel)]">
                                     <span class="i-lucide-box h-5 w-5 text-[var(--text-muted)]"></span>
-                                    <div class="text-sm text-[var(--text-secondary)]">当前 Provider 未启用任何模型</div>
+                                    <div class="text-sm text-[var(--text-secondary)]">{{ t("settings.panels.models.noEnabledProviderModels") }}</div>
                                 </div>
 
                                 <div v-else class="space-y-2">
@@ -1899,14 +1899,14 @@ defineExpose({
                                                 </div>
 
                                                 <div class="flex items-center gap-1 opacity-0 transition-opacity duration-200 group-hover/model:opacity-100">
-                                                    <button class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-input)] hover:text-[var(--text-main)] transition-colors disabled:opacity-50" :disabled="modelTestingKey === `${activeProvider.id}/${model.id}`" title="检查模型" @click="void checkModel(model)">
+                                                    <button class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-input)] hover:text-[var(--text-main)] transition-colors disabled:opacity-50" :disabled="modelTestingKey === `${activeProvider.id}/${model.id}`" :title="t('settings.panels.models.checkModel')" @click="void checkModel(model)">
                                                         <span v-if="modelTestingKey === `${activeProvider.id}/${model.id}`" class="i-lucide-loader-2 h-3.5 w-3.5 animate-spin"></span>
                                                         <span v-else class="i-lucide-play h-3.5 w-3.5"></span>
                                                     </button>
-                                                    <button class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-input)] hover:text-[var(--text-main)] transition-colors" title="编辑设置" @click="openModelEdit(model)">
+                                                    <button class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-input)] hover:text-[var(--text-main)] transition-colors" :title="t('settings.panels.models.editSettings')" @click="openModelEdit(model)">
                                                         <span class="i-lucide-settings h-3.5 w-3.5"></span>
                                                     </button>
-                                                    <button class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-rose-500/10 hover:text-rose-500 transition-colors" title="弃用/移除" @click="disableModel(model)">
+                                                    <button class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-rose-500/10 hover:text-rose-500 transition-colors" :title="t('settings.panels.models.disableModel')" @click="disableModel(model)">
                                                         <span class="i-lucide-minus h-3.5 w-3.5"></span>
                                                     </button>
                                                 </div>
@@ -1919,11 +1919,11 @@ defineExpose({
                             <div class="flex items-center gap-3 px-4 py-3 bg-[var(--bg-panel)] border-t border-[var(--border-color)]">
                                 <button class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-emerald-600/20 bg-emerald-500/10 px-4 text-xs font-medium text-emerald-600 shadow-sm transition-all duration-200 hover:bg-emerald-500/20 active:scale-95" @click="libraryDialogOpen = true">
                                     <span class="i-lucide-list-filter h-3.5 w-3.5"></span>
-                                    管理模型库
+                                    {{ t("settings.panels.models.manageLibrary") }}
                                 </button>
                                 <button class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] px-4 text-xs font-medium text-[var(--text-main)] shadow-sm transition-all duration-200 hover:bg-[var(--bg-hover)] active:scale-95" @click="libraryDialogOpen = true">
                                     <span class="i-lucide-plus h-3.5 w-3.5"></span>
-                                    添加
+                                    {{ t("settings.panels.models.add") }}
                                 </button>
                             </div>
                         </div>
@@ -1934,8 +1934,8 @@ defineExpose({
                             <span class="i-lucide-server-off h-8 w-8 text-[var(--text-muted)] opacity-50"></span>
                         </div>
                         <div>
-                            <div class="text-base font-medium text-[var(--text-main)]">未选择 Provider</div>
-                            <div class="mt-1 text-sm text-[var(--text-secondary)]">请从左侧选择一个服务商，或在上方新增。</div>
+                            <div class="text-base font-medium text-[var(--text-main)]">{{ t("settings.panels.models.noProviderSelected") }}</div>
+                            <div class="mt-1 text-sm text-[var(--text-secondary)]">{{ t("settings.panels.models.selectProviderHint") }}</div>
                         </div>
                     </section>
                 </Transition>
@@ -1945,7 +1945,7 @@ defineExpose({
 
         <Dialog
         v-model="libraryDialogOpen"
-        :title="activeProvider ? `${activeProvider.name} 模型` : '模型管理库'"
+        :title="activeProvider ? t('settings.panels.models.modelLibraryTitle', {provider: activeProvider.name}) : t('settings.panels.models.modelLibrary')"
         width="800px"
         height="85%"
         overlay-type="blur"
@@ -1956,18 +1956,18 @@ defineExpose({
             <div class="flex items-center gap-3 shrink-0">
                 <div class="relative flex-1">
                     <span class="i-lucide-search absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]"></span>
-                    <input v-model="librarySearchQuery" type="text" placeholder="搜索模型 ID 或名称" class="h-9 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] pl-9 pr-3 text-sm text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)] focus:border-[var(--accent-main)]" />
+                    <input v-model="librarySearchQuery" type="text" :placeholder="t('settings.panels.models.searchModels')" class="h-9 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] pl-9 pr-3 text-sm text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)] focus:border-[var(--accent-main)]" />
                 </div>
-                <button class="flex h-9 items-center justify-center gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:opacity-50" :disabled="providerDiscoveringId === activeProvider.id" title="重新获取可用模型" @click="void discoverModels()">
+                <button class="flex h-9 items-center justify-center gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:opacity-50" :disabled="providerDiscoveringId === activeProvider.id" :title="t('settings.panels.models.refreshModels')" @click="void discoverModels()">
                     <span class="h-4 w-4" :class="providerDiscoveringId === activeProvider.id ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-refresh-cw'"></span>
-                    刷新
+                    {{ t("settings.panels.models.refresh") }}
                 </button>
             </div>
             
             <div class="flex-1 overflow-y-auto custom-scrollbar rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-2 min-h-0">
                 <div v-if="unifiedLibraryGroups.length === 0" class="flex h-full flex-col items-center justify-center py-20 text-center">
                     <span class="i-lucide-search-x mb-2 h-8 w-8 text-[var(--text-muted)] opacity-50"></span>
-                    <span class="text-sm text-[var(--text-muted)]">未找到匹配的模型</span>
+                    <span class="text-sm text-[var(--text-muted)]">{{ t("settings.panels.models.noMatchingModels") }}</span>
                 </div>
                 
                 <div v-else class="space-y-2">
@@ -2003,15 +2003,15 @@ defineExpose({
             <!-- 手动添加模型入口 -->
             <div class="shrink-0 rounded-xl border border-[var(--border-color)] bg-[var(--bg-input)]/30 p-3">
                 <div class="flex flex-wrap items-center gap-3">
-                    <FormInput v-model="getManualModelDraft(activeProvider.id).name" placeholder="手动添加名称" class="flex-1 bg-[var(--bg-panel)] shadow-sm !h-8 !text-xs" />
-                    <FormInput :model-value="getManualModelDraft(activeProvider.id).id" placeholder="手动添加 ID" class="flex-1 bg-[var(--bg-panel)] shadow-sm !h-8 !text-xs" @update:model-value="updateManualModelId(activeProvider.id, $event)" />
+                    <FormInput v-model="getManualModelDraft(activeProvider.id).name" :placeholder="t('settings.panels.models.manualName')" class="flex-1 bg-[var(--bg-panel)] shadow-sm !h-8 !text-xs" />
+                    <FormInput :model-value="getManualModelDraft(activeProvider.id).id" :placeholder="t('settings.panels.models.manualId')" class="flex-1 bg-[var(--bg-panel)] shadow-sm !h-8 !text-xs" @update:model-value="updateManualModelId(activeProvider.id, $event)" />
                     <div class="w-[190px]">
-                        <FormSelect v-model="getManualModelDraft(activeProvider.id).api" :options="[{value: '', label: activeProvider.api ? `继承配置（${activeProvider.api}）` : providerDefaultApiLabel(activeProvider)}, ...modelApiOptions]" placeholder="API 格式" />
+                        <FormSelect v-model="getManualModelDraft(activeProvider.id).api" :options="[{value: '', label: activeProvider.api ? t('settings.panels.models.inheritProviderApi', {api: activeProvider.api}) : providerDefaultApiLabel(activeProvider)}, ...modelApiOptions]" :placeholder="t('settings.panels.models.apiFormat')" />
                     </div>
-                    <FormInput v-model="getManualModelDraft(activeProvider.id).api" placeholder="自定义接口格式；留空继承" class="w-[180px] bg-[var(--bg-panel)] shadow-sm !h-8 !text-xs" />
-                    <FormInput v-model="getManualModelDraft(activeProvider.id).contextWindowTokens" placeholder="上下文窗口" class="w-[120px] bg-[var(--bg-panel)] shadow-sm !h-8 !text-xs" />
+                    <FormInput v-model="getManualModelDraft(activeProvider.id).api" :placeholder="t('settings.panels.models.customApiFormat')" class="w-[180px] bg-[var(--bg-panel)] shadow-sm !h-8 !text-xs" />
+                    <FormInput v-model="getManualModelDraft(activeProvider.id).contextWindowTokens" :placeholder="t('settings.panels.models.contextWindow')" class="w-[120px] bg-[var(--bg-panel)] shadow-sm !h-8 !text-xs" />
                     <button class="inline-flex h-8 shrink-0 items-center justify-center rounded-md bg-[var(--accent-main)] text-white px-3 text-xs font-medium shadow-sm transition-all hover:opacity-90 active:scale-95" @click="addManualModel">
-                        添加
+                        {{ t("settings.panels.models.add") }}
                     </button>
                 </div>
             </div>
@@ -2020,15 +2020,15 @@ defineExpose({
 
     <Dialog
         v-model="deleteProviderDialogOpen"
-        title="删除 Provider"
+        :title="t('settings.panels.models.deleteProviderTitle')"
         width="420px"
         overlay-type="blur"
         show-cancel
         @confirm="confirmDeleteActiveProvider"
     >
         <div v-if="activeProvider" class="space-y-3">
-            <p class="text-sm text-[var(--text-secondary)]">将删除 Provider「{{ activeProvider.name }}」及其模型列表。保存后 API Key 与模型配置会从 Global Config 移除。</p>
-            <p class="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-700">如果默认模型指向该 Provider，系统会自动切换到其它已启用模型；没有可用模型时会清空默认模型。</p>
+            <p class="text-sm text-[var(--text-secondary)]">{{ t("settings.panels.models.deleteProviderMessage", {name: activeProvider.name}) }}</p>
+            <p class="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-700">{{ t("settings.panels.models.deleteProviderWarning") }}</p>
         </div>
     </Dialog>
 

@@ -17,13 +17,14 @@ const emit = defineEmits<{
 const visibleOwnedAgents = computed(() => props.ownedAgents);
 const visibleLinkedByAgents = computed(() => props.linkedByAgents);
 const totalRelations = computed(() => visibleOwnedAgents.value.length + visibleLinkedByAgents.value.length);
+const {t} = useI18n();
 
 const profileLabel = (profileKey: string) => {
     switch(profileKey) {
-        case "leader.default": return "主线调度";
-        case "leader.assets": return "用户资产助手";
-        case "writer": return "写作 Agent";
-        case "retrieval": return "检索 Agent";
+        case "leader.default": return t("agent.linkedAgents.mainDispatcher");
+        case "leader.assets": return t("agent.linkedAgents.userAssetsAssistant");
+        case "writer": return t("agent.linkedAgents.writerAgent");
+        case "retrieval": return t("agent.linkedAgents.retrievalAgent");
         default: return profileKey;
     }
 };
@@ -40,13 +41,13 @@ const statusDotClass = (status: AgentLinkedSessionDto["status"], detached: boole
 };
 
 const statusLabel = (status: AgentLinkedSessionDto["status"], detached: boolean) => {
-    if (detached) return "已解绑";
+    if (detached) return t("agent.linkedAgents.detached");
     switch (status) {
-        case "running": return "执行中";
-        case "waiting": return "等待输入";
-        case "interrupted": return "已中断";
-        case "archived": return "已归档";
-        default: return "闲置";
+        case "running": return t("agent.linkedAgents.running");
+        case "waiting": return t("agent.linkedAgents.waiting");
+        case "interrupted": return t("agent.linkedAgents.interrupted");
+        case "archived": return t("agent.linkedAgents.archived");
+        default: return t("agent.linkedAgents.idle");
     }
 };
 
@@ -54,7 +55,7 @@ const profileAvailabilityLabel = (session: AgentLinkedSessionDto): string | null
     if (!session.profileAvailability || session.profileAvailability === "loaded") {
         return null;
     }
-    return session.profileAvailability === "missing" ? "Profile 缺失" : "Profile 不可运行";
+    return session.profileAvailability === "missing" ? t("agent.session.profileMissing") : t("agent.session.profileUnavailable");
 };
 
 const profileAvailabilityTitle = (session: AgentLinkedSessionDto): string => {
@@ -70,11 +71,11 @@ const profileAvailabilityTitle = (session: AgentLinkedSessionDto): string => {
         <div class="flex items-center justify-between">
             <span class="flex items-center gap-2 text-xs font-semibold tracking-wider text-[var(--accent-text)]">
                 <span class="i-lucide-boxes h-4 w-4"></span>
-                关联 Agent
+                {{ t("agent.linkedAgents.title") }}
                 <span v-if="totalRelations" class="rounded-sm bg-[var(--accent-main)] px-1.5 py-0.5 text-[9px] font-bold text-white">{{ totalRelations }}</span>
             </span>
             <div class="flex shrink-0 gap-1.5">
-                <button class="flex h-6 w-6 items-center justify-center rounded text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :disabled="props.loading" title="刷新" @click="emit('refresh')">
+                <button class="flex h-6 w-6 items-center justify-center rounded text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :disabled="props.loading" :title="t('agent.linkedAgents.refresh')" @click="emit('refresh')">
                     <span class="i-lucide-refresh-cw h-4 w-4"></span>
                 </button>
                 <button class="ml-1 flex h-6 w-6 items-center justify-center rounded text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="emit('close')">
@@ -87,7 +88,7 @@ const profileAvailabilityTitle = (session: AgentLinkedSessionDto): string => {
             <!-- 当前 session 绑定出去的 Agent -->
             <section>
                 <div class="mb-1.5 flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
-                    <span>当前绑定的 Agent</span>
+                    <span>{{ t("agent.linkedAgents.owned") }}</span>
                     <span>{{ visibleOwnedAgents.length }}</span>
                 </div>
                 <div v-if="visibleOwnedAgents.length > 0" class="space-y-2">
@@ -113,14 +114,14 @@ const profileAvailabilityTitle = (session: AgentLinkedSessionDto): string => {
                     </button>
                 </div>
                 <div v-else class="rounded-lg border border-dashed border-[var(--border-color)] bg-[var(--bg-panel)] py-4 text-center text-[11px] text-[var(--text-muted)]">
-                    当前 session 没有绑定出去的 Agent。
+                    {{ t("agent.linkedAgents.noOwned") }}
                 </div>
             </section>
 
             <!-- 绑定当前 session 的上游 Agent -->
             <section>
                 <div class="mb-1.5 flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
-                    <span>绑定当前 session 的 Agent</span>
+                    <span>{{ t("agent.linkedAgents.linkedBy") }}</span>
                     <span>{{ visibleLinkedByAgents.length }}</span>
                 </div>
                 <div v-if="visibleLinkedByAgents.length > 0" class="space-y-2">
@@ -146,14 +147,14 @@ const profileAvailabilityTitle = (session: AgentLinkedSessionDto): string => {
                     </button>
                 </div>
                 <div v-else class="rounded-lg border border-dashed border-[var(--border-color)] bg-[var(--bg-panel)] py-4 text-center text-[11px] text-[var(--text-muted)]">
-                    没有其他 Agent 绑定当前 session。
+                    {{ t("agent.linkedAgents.noLinkedBy") }}
                 </div>
             </section>
         </div>
 
         <!-- 空状态 -->
         <div v-else class="rounded-lg border border-dashed border-[var(--border-color)] bg-[var(--bg-panel)] py-8 text-center text-xs text-[var(--text-muted)]">
-            当前 session 暂无关联 Agent。
+            {{ t("agent.linkedAgents.empty") }}
         </div>
     </div>
 </template>

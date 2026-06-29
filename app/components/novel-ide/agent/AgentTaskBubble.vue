@@ -2,10 +2,10 @@
 import type { AgentToolCall } from "nbook/app/components/novel-ide/agent/agent-message";
 import { formatTimestamp } from "nbook/app/components/novel-ide/agent/agent-message";
 import {
-    formatTaskStatusLabel,
     parseTaskList,
     taskStatusClass,
     taskStatusIcon,
+    taskStatusLabelKey,
 } from "nbook/app/components/novel-ide/agent/task-list";
 
 const props = defineProps<{
@@ -14,26 +14,27 @@ const props = defineProps<{
 
 const taskList = computed(() => parseTaskList(props.toolCall));
 const isCollapsed = ref(false);
+const {t} = useI18n();
 
-const toolTitle = computed(() => props.toolCall.name === "task_create" ? "任务清单" : "任务状态更新");
+const toolTitle = computed(() => props.toolCall.name === "task_create" ? t("agent.tool.taskList") : t("agent.tool.taskStatusUpdate"));
 
 const statusLabel = computed(() => {
     switch (props.toolCall.status) {
         case "running":
         case "streaming":
-            return "任务更新中";
+            return t("agent.tasks.updating");
         case "error":
-            return "任务更新失败";
+            return t("agent.tasks.failed");
         case "success":
-            return "任务已同步";
+            return t("agent.tasks.synced");
         default:
-            return "任务";
+            return t("agent.tasks.task");
     }
 });
 
 const completedStepCount = computed(() => taskList.value?.steps.filter((step) => step.status === "completed").length ?? 0);
 const stepSummary = computed(() => taskList.value
-    ? `${completedStepCount.value}/${taskList.value.steps.length} 完成`
+    ? t("agent.tasks.completeSummary", {completed: completedStepCount.value, total: taskList.value.steps.length})
     : statusLabel.value);
 </script>
 
@@ -54,7 +55,7 @@ const stepSummary = computed(() => taskList.value
                 <button
                     type="button"
                     class="flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
-                    :title="isCollapsed ? '展开任务状态' : '折叠任务状态'"
+                    :title="isCollapsed ? t('agent.tasks.expand') : t('agent.tasks.collapse')"
                     @click="isCollapsed = !isCollapsed"
                 >
                     <span :class="isCollapsed ? 'i-lucide-chevron-down' : 'i-lucide-chevron-up'" class="h-3.5 w-3.5"></span>
@@ -85,9 +86,9 @@ const stepSummary = computed(() => taskList.value
                                 </span>
                             </div>
                             <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] leading-5 text-[var(--text-muted)]">
-                                <span>{{ formatTaskStatusLabel(step.status) }}</span>
-                                <span v-if="step.note" class="min-w-0 break-words">备注：{{ step.note }}</span>
-                                <span>更新于 {{ formatTimestamp(step.updatedAt) }}</span>
+                                <span>{{ t(taskStatusLabelKey(step.status)) }}</span>
+                                <span v-if="step.note" class="min-w-0 break-words">{{ t("agent.tasks.note", {note: step.note}) }}</span>
+                                <span>{{ t("agent.tasks.updatedAt", {time: formatTimestamp(step.updatedAt)}) }}</span>
                             </div>
                         </div>
                     </div>
@@ -95,12 +96,12 @@ const stepSummary = computed(() => taskList.value
             </div>
 
             <div class="flex flex-wrap items-center gap-2 text-[10px] leading-4 text-[var(--text-muted)]">
-                <span>整体更新时间 {{ formatTimestamp(taskList.updatedAt) }}</span>
+                <span>{{ t("agent.tasks.overallUpdatedAt", {time: formatTimestamp(taskList.updatedAt)}) }}</span>
             </div>
         </div>
 
         <div v-else-if="!isCollapsed" class="mt-2 min-w-0 break-words rounded-md border border-[var(--border-color)]/70 bg-[var(--bg-input)] px-2 py-1.5 text-[11px] leading-5 text-[var(--text-muted)]">
-            {{ toolCall.result?.trim() || "任务数据解析中..." }}
+            {{ toolCall.result?.trim() || t("agent.tasks.parsing") }}
         </div>
 
         <div v-if="toolCall.error && !isCollapsed" class="mt-2 break-all whitespace-pre-wrap rounded-md border border-rose-500/30 bg-rose-500/5 p-2 font-mono text-[11px] text-rose-500">

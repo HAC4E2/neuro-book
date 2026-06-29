@@ -3,6 +3,8 @@ import type {AssistantMessageEvent} from "@earendil-works/pi-ai";
 import type {AgentMessage as PiAgentMessage, AgentToolCall as PiAgentToolCall, AssistantMessage as PiAssistantMessage, Message as PiMessage, ToolResultMessage, Usage} from "nbook/server/agent/messages/types";
 import type {AgentRuntimeStreamEventDto, AgentSessionSnapshotDto, AgentPendingApprovalDto} from "nbook/shared/dto/agent-session.dto";
 import type {SessionEntry} from "nbook/server/agent/session/types";
+import type {LowCodeFormDto} from "nbook/shared/dto/low-code-form.dto";
+import {LowCodeFormDtoSchema} from "nbook/shared/dto/low-code-form.dto";
 import {toStableArgsJson} from "nbook/app/components/novel-ide/agent/tool-args-stream";
 
 type PiAssistantContent = PiAssistantMessage["content"][number];
@@ -32,7 +34,23 @@ export type UserMessageIntent = "normal" | "steer";
  */
 export type ToolCallStatus = "streaming" | "invalid" | "running" | "success" | "error";
 
-const INTERRUPTED_TOOL_CALL_ERROR = "工具调用未完成：服务重启或运行中断后，已经无法继续等待这个结果。";
+type RuntimeI18n = {
+    t: (key: string, params?: {[key: string]: string | number}) => string;
+};
+
+/**
+ * 非组件工具层不能使用 useI18n；这里复用 Nuxt 注入的运行时 i18n，失败时回退中文源语言。
+ */
+function translate(key: string, fallback: string, params?: {[key: string]: string | number}): string {
+    try {
+        const nuxtApp = useNuxtApp() as {$i18n?: RuntimeI18n};
+        return nuxtApp.$i18n?.t(key, params) ?? fallback;
+    } catch {
+        return fallback;
+    }
+}
+
+const interruptedToolCallError = (): string => translate("agent.tool.interrupted", "工具调用未完成：服务重启或运行中断后，已经无法继续等待这个结果。");
 
 /**
  * 单个 Tool Call 实体。
@@ -154,6 +172,10 @@ export type AgentPendingUserInputSession = {
     assistantMessageId: string;
     status: "pending";
     questions: AgentPendingUserInputQuestion[];
+    /** Task 63: Low-Code Form 表单规格（存在时优先使用 LowCodeForm 渲染）。类型递归深度限制，运行时验证由 LowCodeFormDtoSchema 保证。 */
+    form?: any;
+    /** Task 63: 当存在 form 时，关联的 toolCallId 用于提交 resolution。 */
+    formToolCallId?: string;
 };
 
 export type RequestUserInputAnswerView = {
@@ -218,11 +240,13 @@ export const formatTimestamp = (value?: string | number): string => {
     const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
 
     if (diffInSeconds < 60) {
-        return "刚刚";
+        return translate("agent.time.justNow", "刚刚");
     } else if (diffInSeconds < 3600) {
-        return `${String(Math.floor(diffInSeconds / 60))} 分钟前`;
+        const count = Math.floor(diffInSeconds / 60);
+        return translate("agent.time.minutesAgo", `${String(count)} 分钟前`, {count});
     } else if (diffInSeconds < 86400) {
-        return `${String(Math.floor(diffInSeconds / 3600))} 小时前`;
+        const count = Math.floor(diffInSeconds / 3600);
+        return translate("agent.time.hoursAgo", `${String(count)} 小时前`, {count});
     }
     return date.toLocaleDateString();
 };
@@ -266,16 +290,16 @@ export const toolStatusIcon = (toolCall: AgentToolCall): string => {
  */
 export const messageStatusLabel = (message: AgentMessage): string => {
     if (message.error) {
-        return "生成失败";
+        return translate("agent.messageStatus.failed", "生成失败");
     }
     if (message.toolCalls?.some((toolCall) => toolCall.status === "running")) {
-        return "执行工具中";
+        return translate("agent.messageStatus.toolRunning", "执行工具中");
     }
     if (message.toolCalls?.some((toolCall) => toolCall.status === "streaming")) {
-        return "生成工具调用";
+        return translate("agent.messageStatus.toolStreaming", "生成工具调用");
     }
     if (message.status === "streaming") {
-        return "生成中";
+        return translate("agent.messageStatus.streaming", "生成中");
     }
     return "";
 };
@@ -358,7 +382,7 @@ export const deriveMessagesFromSessionSnapshot = (snapshot: AgentSessionSnapshot
     const messages: AgentMessage[] = [];
     const assistantByToolCallId = new Map<string, AgentMessage>();
     const hasActiveInvocation = Boolean(snapshot.activeInvocation);
-    const pendingToolCallId = snapshot.pendingApproval?.toolCallId ?? null;
+    const pendingToolCallId = snapshot.pendingApprovals[0]?.toolCallId ?? null;
     const assistantErrorInvocations = findAssistantErrorInvocations(snapshot.entries);
     let currentInvocationId: string | null = null;
 
@@ -611,7 +635,9 @@ export const toLocalMessage = (id: string, message: PiMessage | PiAgentMessage, 
         const text = message.content.filter((block) => block.type === "text").map((block) => block.text).join("");
         const thinking = message.content.filter((block) => block.type === "thinking").map((block) => block.thinking).join("");
         const errorText = message.stopReason === "error" || message.stopReason === "aborted"
-            ? message.errorMessage?.trim() || (message.stopReason === "aborted" ? "生成已中断。" : "生成失败，provider 未返回错误详情。")
+            ? message.errorMessage?.trim() || (message.stopReason === "aborted"
+                ? translate("agent.userInput.assistantAborted", "生成已中断。")
+                : translate("agent.userInput.providerNoDetail", "生成失败，provider 未返回错误详情。"))
             : "";
         const toolCalls = message.content
             .filter((block): block is PiAgentToolCall => block.type === "toolCall")
@@ -662,7 +688,7 @@ export const toLocalMessage = (id: string, message: PiMessage | PiAgentMessage, 
         systemDisplayKind: "system",
         content: "",
         status: "done",
-        timestamp: "刚刚",
+        timestamp: translate("agent.time.justNow", "刚刚"),
     };
 };
 
@@ -677,9 +703,44 @@ export const toPendingUserInputSession = (
         return null;
     }
     const assistantMessage = messages.find((message) => message.toolCalls?.some((toolCall) => toolCall.id === pending.toolCallId));
+
+    // Task 63: 优先使用 pending.formSpec（从 snapshot 恢复时可用）
+    if (pending.formSpec) {
+        const formValidation = LowCodeFormDtoSchema.safeParse(pending.formSpec.form);
+        if (!formValidation.success) {
+            console.warn("pending.formSpec.form 验证失败", formValidation.error);
+            return null;
+        }
+        return {
+            assistantMessageId: assistantMessage?.id ?? pending.assistantMessageId ?? pending.toolCallId,
+            status: "pending",
+            questions: [],
+            form: formValidation.data,
+            formToolCallId: pending.toolCallId,
+        };
+    }
+
     const args = pending.args && typeof pending.args === "object" && !Array.isArray(pending.args)
         ? pending.args as Record<string, unknown>
         : {};
+
+    // Fallback: 检测 args.form（兼容旧数据或 SSE 事件直接构建的场景）
+    const form = (args as any).form;
+    if (form && typeof form === "object" && Array.isArray((form as any).fields)) {
+        const formValidation = LowCodeFormDtoSchema.safeParse(form);
+        if (!formValidation.success) {
+            console.warn("args.form 验证失败", formValidation.error);
+            return null;
+        }
+        return {
+            assistantMessageId: assistantMessage?.id ?? pending.assistantMessageId ?? pending.toolCallId,
+            status: "pending",
+            questions: [],
+            form: formValidation.data,
+            formToolCallId: pending.toolCallId,
+        };
+    }
+
     if (pending.toolName === "request_user_input") {
         const parsed = RequestUserInputToolArgsSchema.safeParse(args);
         const questions = parsed.success ? parsed.data.questions : [];
@@ -712,11 +773,11 @@ export const toPendingUserInputSession = (
             approvalToolArgsText: JSON.stringify(args, null, 2),
             planFilePath: pending.toolName === "exit_plan_mode" ? pending.planFilePath : undefined,
             planContent: pending.toolName === "exit_plan_mode" ? pending.planContent : undefined,
-            header: pending.toolName === "skill" ? "Skill" : "审批",
+            header: pending.toolName === "skill" ? "Skill" : translate("agent.approval.header", "审批"),
             question: approvalQuestion(pending.toolName, args),
             options: [
-                {label: "批准", description: "允许 Agent 继续执行该动作。", recommended: true, defaultSelected: true},
-                {label: "拒绝", description: "阻止该动作，并把结果返回给 Agent。"},
+                {label: translate("agent.userInput.approve", "批准"), description: translate("agent.approval.allowDescription", "允许 Agent 继续执行该动作。"), recommended: true, defaultSelected: true},
+                {label: translate("agent.planApproval.reject", "拒绝"), description: translate("agent.approval.rejectDescription", "阻止该动作，并把结果返回给 Agent。")},
             ],
             multiSelect: false,
             defaultOptionIndex: 0,
@@ -757,7 +818,7 @@ export const deriveRequestUserInputAnswerViews = (
             : answer.selectedOptionIndex === undefined ? [] : [answer.selectedOptionIndex];
         const selectedLabel = selectedIndexes.map((optionIndex) => {
             return optionIndex === -1
-                ? options?.otherLabel ?? "其他答案"
+                ? options?.otherLabel ?? translate("agent.userInput.otherAnswer", "其他答案")
                 : questionOptions[optionIndex]?.label ?? String(optionIndex);
         }).join("、");
 
@@ -1068,8 +1129,8 @@ const markInterruptedToolCalls = (
             return {
                 ...toolCall,
                 status: "error",
-                error: toolCall.error ?? INTERRUPTED_TOOL_CALL_ERROR,
-                result: toolCall.result ?? INTERRUPTED_TOOL_CALL_ERROR,
+                error: toolCall.error ?? interruptedToolCallError(),
+                result: toolCall.result ?? interruptedToolCallError(),
             };
         });
     }
@@ -1192,14 +1253,18 @@ const extractLinkedSessionId = (value: unknown): number | undefined => {
 
 const approvalQuestion = (toolName: string, args: Record<string, unknown>): string => {
     if (toolName === "enter_plan_mode") {
-        return typeof args.reason === "string" && args.reason ? `Agent 请求进入 Plan Mode：${args.reason}` : "Agent 请求进入 Plan Mode。";
+        return typeof args.reason === "string" && args.reason
+            ? translate("agent.approval.enterPlanWithReason", `Agent 请求进入 Plan Mode：${args.reason}`, {reason: args.reason})
+            : translate("agent.approval.enterPlan", "Agent 请求进入 Plan Mode。");
     }
     if (toolName === "exit_plan_mode") {
-        return typeof args.reason === "string" && args.reason ? `Agent 请求退出 Plan Mode：${args.reason}` : "Agent 请求退出 Plan Mode。";
+        return typeof args.reason === "string" && args.reason
+            ? translate("agent.approval.exitPlanWithReason", `Agent 请求退出 Plan Mode：${args.reason}`, {reason: args.reason})
+            : translate("agent.approval.exitPlan", "Agent 请求退出 Plan Mode。");
     }
     if (toolName === "skill") {
-        const skillKey = typeof args.skillKey === "string" ? args.skillKey : "未知 skill";
-        return `Agent 请求激活 skill：${skillKey}`;
+        const skillKey = typeof args.skillKey === "string" ? args.skillKey : translate("agent.approval.unknownSkill", "未知 skill");
+        return translate("agent.approval.activateSkill", `Agent 请求激活 skill：${skillKey}`, {skill: skillKey});
     }
-    return `Agent 请求执行 ${toolName}。`;
+    return translate("agent.approval.executeTool", `Agent 请求执行 ${toolName}。`, {tool: toolName});
 };

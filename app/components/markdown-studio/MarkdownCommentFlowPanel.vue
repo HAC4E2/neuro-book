@@ -12,6 +12,7 @@ const emit = defineEmits<{
     (e: "delete", index: number): void;
     (e: "close"): void;
 }>();
+const {t} = useI18n();
 
 const editingIndex = ref<number | null>(null);
 const editingBody = ref("");
@@ -35,7 +36,7 @@ function saveEditing(): void {
 }
 
 function snippet(comment: MarkdownInlineCommentItem): string {
-    return comment.text.trim() || "空文本";
+    return comment.text.trim() || t("markdownStudio.comments.emptyText");
 }
 </script>
 
@@ -44,10 +45,10 @@ function snippet(comment: MarkdownInlineCommentItem): string {
         <header class="flex h-11 shrink-0 items-center justify-between border-b border-[var(--border-color)] px-4">
             <div class="flex min-w-0 items-center gap-2">
                 <span class="i-lucide-message-square-text h-4 w-4 text-amber-600"></span>
-                <div class="truncate text-sm font-semibold text-[var(--text-main)]">评论</div>
+                <div class="truncate text-sm font-semibold text-[var(--text-main)]">{{ t("markdownStudio.comments.title") }}</div>
                 <span class="rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] leading-none text-amber-700">{{ props.comments.length }}</span>
             </div>
-            <button type="button" class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="关闭评论视图" @click="emit('close')">
+            <button type="button" class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('markdownStudio.comments.close')" @click="emit('close')">
                 <span class="i-lucide-x h-4 w-4"></span>
             </button>
         </header>
@@ -55,7 +56,7 @@ function snippet(comment: MarkdownInlineCommentItem): string {
         <div class="min-h-0 flex-1 overflow-y-auto p-4 custom-scrollbar">
             <div v-if="props.comments.length === 0" class="flex h-full min-h-[240px] flex-col items-center justify-center rounded-lg border border-dashed border-[var(--border-color)] text-center text-xs text-[var(--text-muted)]">
                 <span class="i-lucide-message-square h-6 w-6"></span>
-                <div class="mt-2">当前文件还没有评论</div>
+                <div class="mt-2">{{ t("markdownStudio.comments.empty") }}</div>
             </div>
 
             <div v-else class="space-y-3">
@@ -74,14 +75,14 @@ function snippet(comment: MarkdownInlineCommentItem): string {
                                     :class="comment.index === props.activeIndex ? 'border-amber-600 bg-amber-500 text-white' : 'border-amber-500 bg-[var(--editor-preview-bg)] text-amber-700'"
                                 >{{ comment.index }}</span>
                                 <div class="min-w-0">
-                                    <div class="truncate text-xs font-medium text-[var(--text-main)]">原文：{{ snippet(comment) }}</div>
+                                    <div class="truncate text-xs font-medium text-[var(--text-main)]">{{ t("markdownStudio.comments.original", {text: snippet(comment)}) }}</div>
                                 </div>
                             </div>
                             <div class="flex shrink-0 items-center gap-1 opacity-70 transition-opacity group-hover:opacity-100">
-                                <button type="button" class="flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="编辑评论" @click.stop="startEditing(comment)">
+                                <button type="button" class="flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('markdownStudio.comments.edit')" @click.stop="startEditing(comment)">
                                     <span class="i-lucide-pencil h-3.5 w-3.5"></span>
                                 </button>
-                                <button type="button" class="flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-rose-500/10 hover:text-rose-500" title="删除评论" @click.stop="emit('delete', comment.index)">
+                                <button type="button" class="flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-rose-500/10 hover:text-rose-500" :title="t('markdownStudio.comments.delete')" @click.stop="emit('delete', comment.index)">
                                     <span class="i-lucide-trash-2 h-3.5 w-3.5"></span>
                                 </button>
                             </div>
@@ -100,16 +101,16 @@ function snippet(comment: MarkdownInlineCommentItem): string {
                         <div class="mt-2 flex items-center gap-2">
                             <button type="button" class="inline-flex h-7 items-center gap-1 rounded-md bg-amber-600 px-3 text-xs font-medium text-white hover:bg-amber-700" @click.stop="saveEditing">
                                 <span class="i-lucide-check h-3.5 w-3.5"></span>
-                                <span>保存</span>
+                                <span>{{ t("markdownStudio.comments.save") }}</span>
                             </button>
                             <button type="button" class="inline-flex h-7 items-center gap-1 rounded-md px-3 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click.stop="cancelEditing">
                                 <span class="i-lucide-x h-3.5 w-3.5"></span>
-                                <span>取消</span>
+                                <span>{{ t("markdownStudio.comments.cancel") }}</span>
                             </button>
                         </div>
                     </div>
                     <div v-else class="mt-3 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-2 text-xs leading-5 text-[var(--text-secondary)]">
-                        {{ comment.body || "无评论内容" }}
+                        {{ comment.body || t("markdownStudio.comments.noBody") }}
                     </div>
                 </article>
             </div>

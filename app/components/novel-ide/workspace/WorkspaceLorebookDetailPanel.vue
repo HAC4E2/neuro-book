@@ -63,6 +63,7 @@ const emit = defineEmits<{
 }>();
 
 const store = useNovelIdeStore();
+const {t} = useI18n();
 const {selectedFileContent, savingFile} = storeToRefs(store);
 const editForm = ref<LorebookFileDraft | null>(null);
 const lastAppliedContent = ref("");
@@ -86,17 +87,17 @@ const relatedIssues = computed(() => {
 });
 
 const typeOptions = computed<SelectOption[]>(() => [
-    {value: "location", label: "地点 (Location)", iconClass: "i-lucide-map-pinned"},
-    {value: "character", label: "角色 (Character)", iconClass: "i-lucide-user-round"},
-    {value: "item", label: "物品 (Item)", iconClass: "i-lucide-package"},
-    {value: "rule", label: "规则 (Rule)", iconClass: "i-lucide-book-key"},
-    {value: "note", label: "笔记 (Note)", iconClass: "i-lucide-scroll-text"},
+    {value: "location", label: t("ide.workspace.common.typeLocation"), iconClass: "i-lucide-map-pinned"},
+    {value: "character", label: t("ide.workspace.common.typeCharacter"), iconClass: "i-lucide-user-round"},
+    {value: "item", label: t("ide.workspace.common.typeItem"), iconClass: "i-lucide-package"},
+    {value: "rule", label: t("ide.workspace.common.typeRule"), iconClass: "i-lucide-book-key"},
+    {value: "note", label: t("ide.workspace.common.typeNote"), iconClass: "i-lucide-scroll-text"},
 ]);
 const statusOptions = computed<SelectOption[]>(() => [
-    {value: "draft", label: "草稿中", description: "尚未确认，不应强依赖", indicatorClass: getWorkspaceLorebookStatusIndicatorClass("draft")},
-    {value: "pending", label: "待定", description: "未决设定或待回答问题", indicatorClass: getWorkspaceLorebookStatusIndicatorClass("pending")},
-    {value: "active", label: "已生效", description: "已确认，可稳定引用", indicatorClass: getWorkspaceLorebookStatusIndicatorClass("active")},
-    {value: "archived", label: "已归档", description: "历史保留，不默认使用", indicatorClass: getWorkspaceLorebookStatusIndicatorClass("archived")},
+    {value: "draft", label: t("ide.workspace.common.statusDraft"), description: t("ide.workspace.common.statusDraftDescription"), indicatorClass: getWorkspaceLorebookStatusIndicatorClass("draft")},
+    {value: "pending", label: t("ide.workspace.common.statusPending"), description: t("ide.workspace.common.statusPendingDescription"), indicatorClass: getWorkspaceLorebookStatusIndicatorClass("pending")},
+    {value: "active", label: t("ide.workspace.common.statusActive"), description: t("ide.workspace.common.statusActiveDescription"), indicatorClass: getWorkspaceLorebookStatusIndicatorClass("active")},
+    {value: "archived", label: t("ide.workspace.common.statusArchived"), description: t("ide.workspace.common.statusArchivedDescription"), indicatorClass: getWorkspaceLorebookStatusIndicatorClass("archived")},
 ]);
 const subtypeOptions = computed(() => {
     if (!editForm.value) {
@@ -187,13 +188,13 @@ function parseMarkdownDocument(content: string): {
         return {
             frontmatter: isPlainObject(parsed) ? parsed : {},
             body: content.slice(match[0].length),
-            error: isPlainObject(parsed) || parsed === null ? null : "frontmatter 必须是对象",
+            error: isPlainObject(parsed) || parsed === null ? null : t("ide.workspace.common.frontmatterObjectError"),
         };
     } catch (error) {
         return {
             frontmatter: {},
             body: content.slice(match[0].length),
-            error: error instanceof Error ? error.message : "frontmatter 解析失败",
+            error: error instanceof Error ? error.message : t("ide.workspace.common.frontmatterParseFailed"),
         };
     }
 }
@@ -306,15 +307,15 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
                     <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border text-[11px]" :class="typeMeta.iconClass">
                         <span :class="currentIconClass" class="h-3.5 w-3.5"></span>
                     </span>
-                    <span v-if="isDirty" class="h-2 w-2 shrink-0 rounded-full bg-amber-500" title="有未保存修改"></span>
+                    <span v-if="isDirty" class="h-2 w-2 shrink-0 rounded-full bg-amber-500" :title="t('ide.workspace.common.dirty')"></span>
                     <span class="truncate font-serif text-sm font-bold tracking-wide text-[var(--text-main)]">{{ editForm.title || editForm.name }}</span>
                 </template>
             </div>
         </template>
 
         <template #actions>
-            <button class="rounded-md px-2 py-1 text-[10px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" type="button" @click="emit('refresh')">刷新</button>
-            <button class="rounded-md px-2 py-1 text-[10px] text-[var(--accent-text)] hover:bg-[var(--bg-hover)]" type="button" :disabled="savingFile" @click="void saveDraft()">保存</button>
+            <button class="rounded-md px-2 py-1 text-[10px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" type="button" @click="emit('refresh')">{{ t("ide.workspace.common.refresh") }}</button>
+            <button class="rounded-md px-2 py-1 text-[10px] text-[var(--accent-text)] hover:bg-[var(--bg-hover)]" type="button" :disabled="savingFile" @click="void saveDraft()">{{ t("ide.workspace.common.save") }}</button>
         </template>
 
         <div v-if="editForm" class="space-y-4 p-3 pb-6 text-[11px]" :class="savingFile ? 'pointer-events-none opacity-80' : ''">
@@ -326,16 +327,16 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
             <!-- 路径与标题信息 -->
             <div class="space-y-3 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-input)]/20 p-3">
                 <div class="space-y-1">
-                    <label class="font-medium text-[var(--text-secondary)]">路径 (Path)</label>
+                    <label class="font-medium text-[var(--text-secondary)]">{{ t("ide.workspace.lorebookDetail.path") }}</label>
                     <div class="rounded-lg border border-[var(--border-color)]/70 bg-[var(--bg-panel)] px-2 py-1.5 font-mono text-[10px] text-[var(--text-muted)]">{{ editForm.path }}</div>
                 </div>
                 <div class="grid grid-cols-2 gap-4">
                     <div class="space-y-1">
-                        <label class="font-medium text-[var(--text-secondary)]">Slug 名称 (Name)</label>
+                        <label class="font-medium text-[var(--text-secondary)]">{{ t("ide.workspace.lorebookDetail.slugName") }}</label>
                         <input :value="editForm.name" type="text" disabled class="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1 text-xs font-mono text-[var(--text-muted)] outline-none">
                     </div>
                     <div class="space-y-1">
-                        <label class="font-medium text-[var(--text-secondary)]">显示标题 (Title)</label>
+                        <label class="font-medium text-[var(--text-secondary)]">{{ t("ide.workspace.lorebookDetail.displayTitle") }}</label>
                         <input v-model="editForm.title" type="text" class="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1 text-xs text-[var(--text-main)] outline-none focus:border-[var(--accent-main)]" @blur="void saveDraft()">
                     </div>
                 </div>
@@ -344,15 +345,15 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
             <!-- 分类信息 -->
             <div class="grid grid-cols-3 gap-4">
                 <div class="space-y-1">
-                    <label class="font-medium text-[var(--text-secondary)]">设置类别</label>
+                    <label class="font-medium text-[var(--text-secondary)]">{{ t("ide.workspace.lorebookDetail.category") }}</label>
                     <FormSelect :model-value="editForm.type" :options="typeOptions" @update:model-value="editForm.type = $event as LorebookFileDraft['type']; void saveDraft()" />
                 </div>
                 <div class="space-y-1">
-                    <label class="font-medium text-[var(--text-secondary)]">细分类别</label>
-                    <Combobox :model-value="editForm.subtype" :options="subtypeOptions" placeholder="输入或选择子类..." @update:model-value="editForm.subtype = $event; void saveDraft()" />
+                    <label class="font-medium text-[var(--text-secondary)]">{{ t("ide.workspace.lorebookDetail.subtype") }}</label>
+                    <Combobox :model-value="editForm.subtype" :options="subtypeOptions" :placeholder="t('ide.workspace.lorebookDetail.subtypePlaceholder')" @update:model-value="editForm.subtype = $event; void saveDraft()" />
                 </div>
                 <div class="space-y-1">
-                    <label class="font-medium text-[var(--text-secondary)]">当前状态</label>
+                    <label class="font-medium text-[var(--text-secondary)]">{{ t("ide.workspace.lorebookDetail.currentStatus") }}</label>
                     <FormSelect :model-value="editForm.status" :options="statusOptions" @update:model-value="editForm.status = $event; void saveDraft()" />
                 </div>
             </div>
@@ -360,19 +361,19 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
             <!-- 别名与标签 -->
             <div class="space-y-3">
                 <div class="space-y-1">
-                    <label class="font-medium text-[var(--text-secondary)]">别名 (Aliases)</label>
-                    <TagInput :model-value="editForm.aliases" placeholder="添加后回车..." @update:model-value="editForm.aliases = $event; void saveDraft()" />
+                    <label class="font-medium text-[var(--text-secondary)]">{{ t("ide.workspace.common.aliases") }}</label>
+                    <TagInput :model-value="editForm.aliases" :placeholder="t('ide.workspace.common.addThenEnter')" @update:model-value="editForm.aliases = $event; void saveDraft()" />
                 </div>
                 <div class="space-y-1">
-                    <label class="font-medium text-[var(--text-secondary)]">标签 (Tags)</label>
-                    <TagInput :model-value="editForm.tags" placeholder="添加后回车..." accentStyle @update:model-value="editForm.tags = $event; void saveDraft()" />
+                    <label class="font-medium text-[var(--text-secondary)]">{{ t("ide.workspace.common.tags") }}</label>
+                    <TagInput :model-value="editForm.tags" :placeholder="t('ide.workspace.common.addThenEnter')" accentStyle @update:model-value="editForm.tags = $event; void saveDraft()" />
                 </div>
             </div>
 
             <!-- 摘要信息 -->
             <div class="space-y-4">
                 <div class="space-y-1">
-                    <label class="font-medium text-[var(--text-secondary)]">设定摘要 (Summary)</label>
+                    <label class="font-medium text-[var(--text-secondary)]">{{ t("ide.workspace.lorebookDetail.settingSummary") }}</label>
                     <textarea v-model="editForm.summary" rows="5" class="w-full resize-y rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1.5 text-xs text-[var(--text-main)] outline-none focus:border-[var(--accent-main)]" @blur="void saveDraft()"></textarea>
                 </div>
             </div>
@@ -380,35 +381,35 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
             <!-- AI 注入策略 -->
             <div class="overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-sm">
                 <button type="button" class="flex w-full items-center justify-between bg-[var(--bg-sidebar)] px-3 py-2 text-left hover:bg-[var(--bg-hover)]" @click="expandedSections.retrieval = !expandedSections.retrieval">
-                    <span class="flex items-center gap-2 font-medium text-[var(--text-main)]"><span class="i-lucide-target h-3.5 w-3.5 text-[var(--text-muted)]"></span>AI 上下文策略</span>
+                    <span class="flex items-center gap-2 font-medium text-[var(--text-main)]"><span class="i-lucide-target h-3.5 w-3.5 text-[var(--text-muted)]"></span>{{ t("ide.workspace.lorebookDetail.retrievalTitle") }}</span>
                     <span class="i-lucide-chevron-down h-3.5 w-3.5 text-[var(--text-muted)] transition-transform duration-200" :class="expandedSections.retrieval ? '' : '-rotate-90'"></span>
                 </button>
                 <div v-show="expandedSections.retrieval" class="space-y-3 bg-[var(--bg-input)]/30 p-2.5">
                     <label class="flex items-center gap-2 text-[var(--text-secondary)]">
                         <input v-model="editForm.retrieval.enabled" type="checkbox" class="h-4 w-4 rounded border-[var(--border-color)]" @change="void saveDraft()">
-                        <span>允许 AI 检索召回</span>
+                        <span>{{ t("ide.workspace.common.allowRetrieval") }}</span>
                     </label>
-                    <textarea :value="editForm.retrieval.trigger ?? ''" rows="2" class="w-full resize-y rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1.5 text-xs text-[var(--text-main)] outline-none focus:border-[var(--accent-main)]" placeholder="自然语言触发条件；为空表示不需要额外触发判断" @input="editForm.retrieval.trigger = ($event.target as HTMLTextAreaElement).value || null" @blur="void saveDraft()"></textarea>
+                    <textarea :value="editForm.retrieval.trigger ?? ''" rows="2" class="w-full resize-y rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1.5 text-xs text-[var(--text-main)] outline-none focus:border-[var(--accent-main)]" :placeholder="t('ide.workspace.common.retrievalTrigger')" @input="editForm.retrieval.trigger = ($event.target as HTMLTextAreaElement).value || null" @blur="void saveDraft()"></textarea>
                 </div>
             </div>
 
             <!-- 引用关系 -->
             <div class="overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-sm">
                 <button type="button" class="flex w-full items-center justify-between bg-[var(--bg-sidebar)] px-3 py-2 text-left hover:bg-[var(--bg-hover)]" @click="expandedSections.refs = !expandedSections.refs">
-                    <span class="flex items-center gap-2 font-medium text-[var(--text-main)]"><span class="i-lucide-link h-3.5 w-3.5 text-[var(--text-muted)]"></span>外链与节点 (References)</span>
+                    <span class="flex items-center gap-2 font-medium text-[var(--text-main)]"><span class="i-lucide-link h-3.5 w-3.5 text-[var(--text-muted)]"></span>{{ t("ide.workspace.lorebookDetail.referencesTitle") }}</span>
                     <span class="i-lucide-chevron-down h-3.5 w-3.5 text-[var(--text-muted)] transition-transform duration-200" :class="expandedSections.refs ? '' : '-rotate-90'"></span>
                 </button>
                 <div v-show="expandedSections.refs" class="bg-[var(--bg-input)]/30 p-2">
                     <div v-for="(entryRef, index) in editForm.refs" :key="index" class="group mb-1.5 flex items-center gap-1">
-                        <input v-model="entryRef.relation" type="text" placeholder="关系" class="w-[76px] rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-1.5 py-1 text-[11px] outline-none" @blur="void saveDraft()">
+                        <input v-model="entryRef.relation" type="text" :placeholder="t('ide.workspace.common.relation')" class="w-[76px] rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-1.5 py-1 text-[11px] outline-none" @blur="void saveDraft()">
                         <span class="i-lucide-arrow-right h-3 w-3 shrink-0 text-[var(--text-muted)]"></span>
-                        <input v-model="entryRef.target" type="text" placeholder="目标 path 或 pending" class="min-w-0 flex-1 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-1.5 py-1 text-[11px] font-mono outline-none" @blur="void saveDraft()">
+                        <input v-model="entryRef.target" type="text" :placeholder="t('ide.workspace.lorebookDetail.targetOrPending')" class="min-w-0 flex-1 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-1.5 py-1 text-[11px] font-mono outline-none" @blur="void saveDraft()">
                         <button type="button" class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-rose-500/10 hover:text-rose-500" @click="removeRef(index)">
                             <span class="i-lucide-x h-3.5 w-3.5"></span>
                         </button>
                     </div>
                     <button type="button" class="mt-2 flex items-center gap-1 px-1 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] hover:text-[var(--text-main)]" @click="addRef">
-                        <span class="i-lucide-plus h-3 w-3"></span>添加引用
+                        <span class="i-lucide-plus h-3 w-3"></span>{{ t("ide.workspace.common.addReference") }}
                     </button>
                 </div>
             </div>
@@ -416,7 +417,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
             <!-- 治理信息 -->
             <div class="overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-sm">
                 <button type="button" class="flex w-full items-center justify-between bg-[var(--bg-sidebar)] px-3 py-2 text-left hover:bg-[var(--bg-hover)]" @click="expandedSections.governance = !expandedSections.governance">
-                    <span class="flex items-center gap-2 font-medium text-[var(--text-main)]"><span class="i-lucide-shield-check h-3.5 w-3.5 text-[var(--text-muted)]"></span>治理与来源 (Governance)</span>
+                    <span class="flex items-center gap-2 font-medium text-[var(--text-main)]"><span class="i-lucide-shield-check h-3.5 w-3.5 text-[var(--text-muted)]"></span>{{ t("ide.workspace.lorebookDetail.governanceTitle") }}</span>
                     <span class="i-lucide-chevron-down h-3.5 w-3.5 text-[var(--text-muted)] transition-transform duration-200" :class="expandedSections.governance ? '' : '-rotate-90'"></span>
                 </button>
                 <div v-show="expandedSections.governance" class="space-y-3 bg-[var(--bg-input)]/30 p-2.5">

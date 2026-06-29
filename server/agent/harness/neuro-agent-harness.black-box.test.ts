@@ -517,7 +517,7 @@ describe("NeuroAgentHarness black-box contract", () => {
         const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
 
         expect(waiting.status).toBe("waiting");
-        expect(waitingSnapshot.pendingApproval).toEqual(expect.objectContaining({
+        expect(waitingSnapshot.pendingApprovals[0]).toEqual(expect.objectContaining({
             toolCallId: "ask-1",
             toolName: "request_user_input",
         }));

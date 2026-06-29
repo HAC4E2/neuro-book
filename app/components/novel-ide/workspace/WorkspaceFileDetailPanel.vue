@@ -41,6 +41,7 @@ const emit = defineEmits<{
 }>();
 
 const store = useNovelIdeStore();
+const {t, locale} = useI18n();
 const {selectedFileContent, savingFile, workspaceTree} = storeToRefs(store);
 const frontmatterText = ref("");
 const markdownBody = ref("");
@@ -62,10 +63,10 @@ const manuscriptStats = ref<ManuscriptStatsSnapshot>({
     updatedAt: "",
 });
 const manuscriptStatusOptions = computed<SelectOption[]>(() => [
-    {value: "draft", label: "草稿", description: "尚未确认，不应强依赖"},
-    {value: "pending", label: "待定", description: "未决设定或待回答问题"},
-    {value: "active", label: "已确认", description: "可作为稳定上下文"},
-    {value: "archived", label: "归档", description: "历史保留，不默认使用"},
+    {value: "draft", label: t("ide.workspace.fileDetail.draft"), description: t("ide.workspace.common.statusDraftDescription")},
+    {value: "pending", label: t("ide.workspace.fileDetail.pending"), description: t("ide.workspace.common.statusPendingDescription")},
+    {value: "active", label: t("ide.workspace.fileDetail.active"), description: t("ide.workspace.fileDetail.activeDescription")},
+    {value: "archived", label: t("ide.workspace.fileDetail.archived"), description: t("ide.workspace.common.statusArchivedDescription")},
 ]);
 
 const isMarkdownFile = computed(() => Boolean(props.node?.editable && props.node.path.toLowerCase().endsWith(".md")));
@@ -175,7 +176,7 @@ function refreshManuscriptStats(): void {
         totalSize: descendants.reduce((total, node) => total + node.size, props.node?.size ?? 0),
         chapters: descendants.filter((node) => node.contentNode && !node.isDirectory && node.path.toLowerCase().endsWith("/index.md")).length,
         files: descendants.filter((node) => !node.isDirectory).length,
-        updatedAt: new Date().toLocaleTimeString("zh-CN", {hour: "2-digit", minute: "2-digit"}),
+        updatedAt: new Date().toLocaleTimeString(locale.value, {hour: "2-digit", minute: "2-digit"}),
     };
 }
 
@@ -263,13 +264,13 @@ function parseFrontmatterText(text: string): {
             return {frontmatter: {}, error: null};
         }
         if (!isPlainObject(parsed)) {
-            return {frontmatter: {}, error: "frontmatter 必须是对象"};
+            return {frontmatter: {}, error: t("ide.workspace.common.frontmatterObjectError")};
         }
         return {frontmatter: parsed, error: null};
     } catch (error) {
         return {
             frontmatter: {},
-            error: error instanceof Error ? error.message : "frontmatter 解析失败",
+            error: error instanceof Error ? error.message : t("ide.workspace.common.frontmatterParseFailed"),
         };
     }
 }
@@ -331,15 +332,15 @@ function basename(filePath: string): string {
     >
         <template #header>
             <div class="min-w-0 overflow-hidden">
-                <div class="truncate text-xs font-semibold text-[var(--text-main)]">{{ props.node?.title || props.node?.path || "文件详情" }}</div>
+                <div class="truncate text-xs font-semibold text-[var(--text-main)]">{{ props.node?.title || props.node?.path || t("ide.workspace.fileDetail.title") }}</div>
                 <div class="truncate text-[10px] text-[var(--text-muted)]">{{ props.node?.path }}</div>
             </div>
         </template>
 
         <template #actions>
-            <button v-if="canCreateIndex" class="rounded-md px-2 py-1 text-[10px] text-[var(--accent-text)] hover:bg-[var(--bg-hover)]" type="button" @click="emit('create-index')">转化</button>
-            <button v-if="canConvertFileToDirectory" class="rounded-md px-2 py-1 text-[10px] text-[var(--accent-text)] hover:bg-[var(--bg-hover)]" type="button" @click="emit('convert-file-to-directory')">转目录</button>
-            <button v-if="isContentIndexFile" class="rounded-md px-2 py-1 text-[10px] text-[var(--accent-text)] hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-45" type="button" :disabled="isManuscriptIndexFile ? savingFile : (!isFrontmatterDirty || savingFile)" @click="isManuscriptIndexFile ? void saveManuscriptForm() : void saveFrontmatter()">保存</button>
+            <button v-if="canCreateIndex" class="rounded-md px-2 py-1 text-[10px] text-[var(--accent-text)] hover:bg-[var(--bg-hover)]" type="button" @click="emit('create-index')">{{ t("ide.workspace.fileDetail.convert") }}</button>
+            <button v-if="canConvertFileToDirectory" class="rounded-md px-2 py-1 text-[10px] text-[var(--accent-text)] hover:bg-[var(--bg-hover)]" type="button" @click="emit('convert-file-to-directory')">{{ t("ide.workspace.fileDetail.convertToDirectory") }}</button>
+            <button v-if="isContentIndexFile" class="rounded-md px-2 py-1 text-[10px] text-[var(--accent-text)] hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-45" type="button" :disabled="isManuscriptIndexFile ? savingFile : (!isFrontmatterDirty || savingFile)" @click="isManuscriptIndexFile ? void saveManuscriptForm() : void saveFrontmatter()">{{ t("ide.workspace.common.save") }}</button>
         </template>
 
         <div v-if="props.node" class="grid min-w-0 gap-2 text-xs text-[var(--text-secondary)]">
@@ -347,16 +348,16 @@ function basename(filePath: string): string {
             <div class="min-w-0 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1.5">
                 <div class="flex min-w-0 items-center justify-between gap-2">
                     <div class="text-[10px] uppercase tracking-[0.16em] text-[var(--text-muted)]">{{ props.node.isDirectory ? "Directory" : "File" }}</div>
-                    <div class="shrink-0 text-[10px] text-[var(--text-muted)]">{{ props.node.editable ? "可编辑" : "只读" }}</div>
+                    <div class="shrink-0 text-[10px] text-[var(--text-muted)]">{{ props.node.editable ? t("ide.workspace.fileDetail.editable") : t("ide.workspace.fileDetail.readonly") }}</div>
                 </div>
                 <div class="mt-1 max-w-full truncate font-mono text-[11px] text-[var(--text-main)]" :title="props.node.path">{{ props.node.path }}</div>
             </div>
 
             <div v-if="isContentDirectoryWithoutIndex" class="rounded-md border border-amber-500/20 bg-amber-500/8 p-2 text-amber-800">
-                该目录还没有 index.md，因此 frontmatter 只读。点击“转化”会创建 index.md。
+                {{ t("ide.workspace.fileDetail.contentDirectoryWithoutIndex") }}
             </div>
             <div v-else-if="isDirectoryWithoutIndex" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-[var(--text-muted)]">
-                普通目录不承载 frontmatter。只有 manuscript/ 与 lorebook/ 下的目录节点使用 index.md。
+                {{ t("ide.workspace.fileDetail.directoryWithoutIndex") }}
             </div>
 
             <div v-if="localFrontmatterError || props.node.frontmatterError" class="rounded-md border border-rose-500/20 bg-rose-500/8 p-2 text-rose-700">
@@ -369,48 +370,48 @@ function basename(filePath: string): string {
                     <div class="text-[10px] uppercase tracking-[0.16em] text-[var(--text-muted)]">Manuscript</div>
                     <div class="flex shrink-0 items-center gap-2">
                         <span v-if="manuscriptStats.updatedAt" class="text-[10px] text-[var(--text-muted)]">{{ manuscriptStats.updatedAt }}</span>
-                        <span v-if="isFrontmatterDirty" class="text-[10px] text-amber-600">未保存</span>
-                        <button type="button" class="rounded-md border border-[var(--border-color)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="refreshManuscriptStats">更新统计</button>
+                        <span v-if="isFrontmatterDirty" class="text-[10px] text-amber-600">{{ t("ide.workspace.common.unsaved") }}</span>
+                        <button type="button" class="rounded-md border border-[var(--border-color)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="refreshManuscriptStats">{{ t("ide.workspace.fileDetail.updateStats") }}</button>
                     </div>
                 </div>
                 <div class="grid grid-cols-5 gap-1.5">
                     <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1.5">
-                        <div class="text-[8px] uppercase tracking-[0.12em] text-[var(--text-muted)]">Current</div>
+                        <div class="text-[8px] uppercase tracking-[0.12em] text-[var(--text-muted)]">{{ t("ide.workspace.fileDetail.current") }}</div>
                         <div class="mt-0.5 text-[var(--text-main)]">{{ manuscriptStats.currentWords }}</div>
                     </div>
                     <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1.5">
-                        <div class="text-[8px] uppercase tracking-[0.12em] text-[var(--text-muted)]">Total</div>
+                        <div class="text-[8px] uppercase tracking-[0.12em] text-[var(--text-muted)]">{{ t("ide.workspace.fileDetail.total") }}</div>
                         <div class="mt-0.5 text-[var(--text-main)]">{{ manuscriptStats.totalWords }}</div>
                     </div>
                     <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1.5">
-                        <div class="text-[8px] uppercase tracking-[0.12em] text-[var(--text-muted)]">Size</div>
+                        <div class="text-[8px] uppercase tracking-[0.12em] text-[var(--text-muted)]">{{ t("ide.workspace.fileDetail.size") }}</div>
                         <div class="mt-0.5 text-[var(--text-main)]">{{ manuscriptStats.totalSize }}</div>
                     </div>
                     <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1.5">
-                        <div class="text-[8px] uppercase tracking-[0.12em] text-[var(--text-muted)]">Chapters</div>
+                        <div class="text-[8px] uppercase tracking-[0.12em] text-[var(--text-muted)]">{{ t("ide.workspace.fileDetail.chapters") }}</div>
                         <div class="mt-0.5 text-[var(--text-main)]">{{ manuscriptStats.chapters }}</div>
                     </div>
                     <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1.5">
-                        <div class="text-[8px] uppercase tracking-[0.12em] text-[var(--text-muted)]">Files</div>
+                        <div class="text-[8px] uppercase tracking-[0.12em] text-[var(--text-muted)]">{{ t("ide.workspace.fileDetail.files") }}</div>
                         <div class="mt-0.5 text-[var(--text-main)]">{{ manuscriptStats.files }}</div>
                     </div>
                 </div>
                 <div class="grid grid-cols-[minmax(0,1fr)_132px] gap-2">
                     <div class="space-y-1">
-                        <label class="text-[11px] font-medium text-[var(--text-secondary)]">标题</label>
+                        <label class="text-[11px] font-medium text-[var(--text-secondary)]">{{ t("ide.workspace.common.title") }}</label>
                         <input v-model="manuscriptForm.title" class="h-7 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 text-xs text-[var(--text-main)] outline-none focus:border-[var(--accent-main)]" type="text" @blur="void saveManuscriptForm()">
                     </div>
                     <div class="space-y-1">
-                        <label class="text-[11px] font-medium text-[var(--text-secondary)]">状态</label>
+                        <label class="text-[11px] font-medium text-[var(--text-secondary)]">{{ t("ide.workspace.common.status") }}</label>
                         <FormSelect :model-value="manuscriptForm.status || 'draft'" :options="manuscriptStatusOptions" @update:model-value="manuscriptForm.status = $event; void saveManuscriptForm()" />
                     </div>
                 </div>
                 <div class="space-y-1">
-                    <label class="text-[11px] font-medium text-[var(--text-secondary)]">标签</label>
-                    <TagInput :model-value="manuscriptForm.tags" placeholder="添加标签..." accentStyle @update:model-value="manuscriptForm.tags = $event; void saveManuscriptForm()" />
+                    <label class="text-[11px] font-medium text-[var(--text-secondary)]">{{ t("ide.workspace.common.tags") }}</label>
+                    <TagInput :model-value="manuscriptForm.tags" :placeholder="t('ide.workspace.common.addTag')" accentStyle @update:model-value="manuscriptForm.tags = $event; void saveManuscriptForm()" />
                 </div>
                 <div class="space-y-1">
-                    <label class="text-[11px] font-medium text-[var(--text-secondary)]">摘要</label>
+                    <label class="text-[11px] font-medium text-[var(--text-secondary)]">{{ t("ide.workspace.common.summary") }}</label>
                     <textarea v-model="manuscriptForm.summary" rows="3" class="w-full resize-y rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1.5 text-xs leading-5 text-[var(--text-main)] outline-none focus:border-[var(--accent-main)]" @blur="void saveManuscriptForm()"></textarea>
                 </div>
             </div>
@@ -418,21 +419,21 @@ function basename(filePath: string): string {
             <div v-else-if="isContentIndexFile || props.node.contentNode" class="space-y-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2">
                 <div class="flex items-center justify-between gap-2">
                     <div class="text-[10px] uppercase tracking-[0.18em] text-[var(--text-muted)]">Frontmatter</div>
-                    <span v-if="isContentIndexFile && isFrontmatterDirty" class="text-[10px] text-amber-600">未保存</span>
+                    <span v-if="isContentIndexFile && isFrontmatterDirty" class="text-[10px] text-amber-600">{{ t("ide.workspace.common.unsaved") }}</span>
                 </div>
                 <div v-if="isContentIndexFile" class="flex items-center justify-between gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1.5">
                     <div class="flex min-w-0 items-center gap-2">
                         <span :class="currentIconClass" class="h-4 w-4 shrink-0 text-[var(--accent-text)]"></span>
-                        <span class="truncate text-[11px] text-[var(--text-secondary)]">{{ currentIconName || "未配置图标" }}</span>
+                        <span class="truncate text-[11px] text-[var(--text-secondary)]">{{ currentIconName || t("ide.workspace.fileDetail.noIcon") }}</span>
                     </div>
-                    <button type="button" class="rounded-md border border-[var(--border-color)] px-2 py-1 text-[10px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="iconPickerVisible = true">选择图标</button>
+                    <button type="button" class="rounded-md border border-[var(--border-color)] px-2 py-1 text-[10px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="iconPickerVisible = true">{{ t("ide.workspace.fileDetail.chooseIcon") }}</button>
                 </div>
                 <textarea
                     v-if="isContentIndexFile"
                     v-model="frontmatterText"
                     rows="10"
                     class="w-full resize-y rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1.5 font-mono text-[11px] leading-5 text-[var(--text-main)] outline-none focus:border-[var(--accent-main)]"
-                    placeholder="title: 新节点"
+                    :placeholder="t('ide.workspace.fileDetail.frontmatterPlaceholder')"
                     :disabled="savingFile"
                 ></textarea>
                 <pre v-else class="max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-2 font-mono text-[11px] leading-5 text-[var(--text-main)] custom-scrollbar">{{ readonlyFrontmatterText }}</pre>
@@ -443,7 +444,7 @@ function basename(filePath: string): string {
             </div>
 
             <div v-if="hasRelatedIssues" class="space-y-2">
-                <div class="text-[10px] uppercase tracking-[0.18em] text-[var(--text-muted)]">Validate</div>
+                <div class="text-[10px] uppercase tracking-[0.18em] text-[var(--text-muted)]">{{ t("ide.workspace.fileDetail.validate") }}</div>
                 <div v-for="issue in relatedIssues" :key="`${issue.code}:${issue.path}:${issue.message}`" class="rounded-md border border-amber-500/20 bg-amber-500/8 p-2 text-amber-800">
                     <div class="font-medium">[{{ issue.level }}] {{ issue.code }}</div>
                     <div class="mt-1 leading-5">{{ issue.message }}</div>

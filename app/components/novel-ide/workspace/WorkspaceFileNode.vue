@@ -11,7 +11,6 @@ import {
 } from "nbook/app/components/novel-ide/workspace/workspace-file-tree";
 import {
     getWorkspaceLorebookStatusIndicatorClass,
-    getWorkspaceLorebookStatusLabel,
     getWorkspaceLorebookTypeMeta,
     readWorkspaceLorebookStatus,
     readWorkspaceLorebookType,
@@ -29,9 +28,10 @@ const props = withDefaults(defineProps<{
 
 const treeContext = inject(workspaceFileTreeContextKey);
 if (!treeContext) {
-    throw new Error("WorkspaceFileNode 必须在 WorkspaceFileTree 中使用");
+    throw new Error("WorkspaceFileNode must be used inside WorkspaceFileTree");
 }
 
+const {t} = useI18n();
 const isBranch = computed(() => props.node.isDirectory && props.node.children.length > 0);
 const isForcedOpen = computed(() => treeContext.forcedExpandedPathSet.value.has(props.node.path));
 const isOpen = computed(() => props.node.isDirectory && (isForcedOpen.value || treeContext.expandedPathSet.value.has(props.node.path)));
@@ -46,7 +46,7 @@ const lorebookType = computed(() => readWorkspaceLorebookType(props.node.entryTy
 const lorebookStatus = computed(() => readWorkspaceLorebookStatus(props.node.status));
 const lorebookTypeMeta = computed(() => getWorkspaceLorebookTypeMeta(lorebookType.value));
 const statusIndicatorClass = computed(() => getWorkspaceLorebookStatusIndicatorClass(lorebookStatus.value));
-const statusLabel = computed(() => getWorkspaceLorebookStatusLabel(lorebookStatus.value));
+const statusLabel = computed(() => t(`ide.workspace.common.status${capitalizeStatus(lorebookStatus.value)}`));
 const iconClass = computed(() => getWorkspaceFileIcon(props.node, isOpen.value));
 const configuredIconClass = computed(() => readLucideIconClass(props.node.icon));
 const isContentIndexFile = computed(() => !isLorebookEntry.value && isWorkspaceContentIndexNode(props.node));
@@ -194,6 +194,19 @@ function resolveDirectoryMeta(name: string): {icon: string; colorClass: string; 
         return {icon: meta.icon, colorClass: meta.iconClass.split(" ")[0] ?? "text-[var(--text-main)]", label: name};
     }
     return null;
+}
+
+function capitalizeStatus(status: "draft" | "pending" | "active" | "archived"): "Draft" | "Pending" | "Active" | "Archived" {
+    if (status === "draft") {
+        return "Draft";
+    }
+    if (status === "pending") {
+        return "Pending";
+    }
+    if (status === "active") {
+        return "Active";
+    }
+    return "Archived";
 }
 
 onUnmounted(() => {

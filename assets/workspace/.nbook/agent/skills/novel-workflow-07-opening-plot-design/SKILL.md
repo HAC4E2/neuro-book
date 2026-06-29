@@ -1,15 +1,15 @@
 ---
 name: novel-workflow-07-opening-plot-design
-description: 小说流程 07：开局剧情设计。用于设计小说开篇或前三章附近的起步剧情，把基础定位、世界书和当前 simulation 状态转成可执行的开局推进；范围可少于或多于三章。
+description: 小说流程 07：开局剧情设计。用于设计小说开篇或前三章附近的起步剧情，把基础定位、世界书和 World Engine 当前状态转成可执行的开局推进；范围可少于或多于三章。
 ---
 
 # novel-workflow-07-opening-plot-design：开局剧情设计
 
-用于把新书的定位、世界书和当前状态转成开篇可写的剧情。默认关注前三章附近的阅读体验，但章节数量由节奏决定。
+用于把新书的定位、世界书和当前 World Engine 状态转成开篇可写的剧情。默认关注前三章附近的阅读体验，但章节数量由节奏决定。
 
 默认按用户主导推进：先了解用户想要的开局画面、第一股压力、主角第一个选择和不想采用的套路。可以给 2 到 4 个开局推进方向作为灵感，让用户选择或修正；只有用户明确要求“你来设计”“直接给完整开局方案”时，才由 Agent 主导拆完整开局。
 
-开局设计应使用 `novel-workflow-08-plot-planning` 中的剧情设计方法：先判断本轮是自由探索、Scene 级推进、Thread 级主线，还是 StoryPhase 级阶段设计；再按需要使用上帝视角、主角代入、多角色代入、emulation 因果推导和随机素材池。不要把开局设计写成固定顺序流程。
+开局设计应使用 `novel-workflow-08-plot-planning` 中的剧情设计方法：先判断本轮是自由探索、宏观剧情设计、当前片段推进，还是准备落到 World Engine；再按需要使用上帝视角、主角代入、多角色代入、World Engine 状态推导和随机素材池。不要把开局设计写成固定顺序流程。
 
 ## 前置要求
 
@@ -18,9 +18,9 @@ description: 小说流程 07：开局剧情设计。用于设计小说开篇或�
 - 小说简介、类型基调和核心 hook。
 - 主角基础定位。
 - 最小世界书条目。
-- 当前 `state.md`，至少包含主角处境、短期任务、势力或环境压力。
+- World Engine 已初始化并记录开局相关角色、地点或势力；如果还未初始化，至少要有可讨论的故事起点。
 
-如果当前运行态缺失，先进入 `novel-workflow-05-emulation-bootstrap`；如果需要推进下一刻，进入 `novel-workflow-06-emulation-tick`。如果世界书基础缺失，先进入 `novel-workflow-03-lorebook-bootstrap`。
+如果 World Engine 尚未初始化，但用户已经要正式推进开局或写章节，先进入 `novel-workflow-world-engine-init`。如果世界书基础缺失，先进入 `novel-workflow-03-lorebook-bootstrap`。
 
 ## 多视角开局推演
 
@@ -68,9 +68,9 @@ description: 小说流程 07：开局剧情设计。用于设计小说开篇或�
 
 如果用户想进入旁白式推演，让用户扮演角色，Agent 只描述局势与选项，并在每轮结尾询问用户要怎么做。
 
-### Emulation 因果推导
+### World Engine 状态推导
 
-需要从设定自然推出开局时，参考 `novel-workflow-06-emulation-tick` 的方法：从环境、资源、势力行动、仪式异常、角色误判或随机变量推出多条因果链。推导结果只是候选剧情压力，用户确认后才整理成正式开局。
+需要从设定自然推出开局时，参考 `novel-workflow-08-plot-planning` 的状态推进流程：先用 `execute_world` 查询角色、地点、势力和最近时间线，再从环境、资源、势力行动、仪式异常、角色误判或随机变量推出多条候选因果链。推导结果只是候选剧情压力，用户确认后才整理成正式开局，并按 LOD 粒度写入 World Engine。
 
 ### 随机扰动素材
 
@@ -96,16 +96,16 @@ description: 小说流程 07：开局剧情设计。用于设计小说开篇或�
 - 主角做了什么选择。
 - 本段结尾留下什么钩子。
 
-### 落到剧情结构
+### 落到 World Engine
 
-需要进入 Plot 系统且方向已经确认时，再创建或更新 Thread / Scene / Plot：
+需要落库且方向已经确认时，进入 `novel-workflow-08-plot-planning` 的 Phase 4-8，把确认后的开局事实写进 World Engine：
 
-- Thread 表达开局主线。
-- Scene 表达具体场景推进。
-- Plot 只拆关键节奏节点。
-- 低谷节点可用 `despair`，释放节点可用 `relief`，奖励兑现可用 `reward`。
+- 用项目日历字符串确定开局时间。
+- 按 LOD 判断哪些角色、地点、势力需要 subject。
+- 写入关键位置、状态、认知、关系和势力动向。
+- 不把未确认的候选剧情写入时间线。
 
-引用优先指向已有 lorebook 和当前 state，不要把剧情事实倒灌成世界设定。
+引用优先指向已有 lorebook 和 World Engine subject，不要把动态剧情事实倒灌成稳定世界设定。
 
 ## 自检
 
@@ -123,5 +123,5 @@ description: 小说流程 07：开局剧情设计。用于设计小说开篇或�
 - 开篇压力、主角行动、低谷、释放和钩子成立。
 - 开局方向由用户确认，不是 Agent 单方面定稿。
 - 已通过多视角切换检查主角行动和其他角色反应。
-- 需要落库时，Thread / Scene / Plot 已能直接支撑写作。
+- 需要落库时，开局事实已能按 `08` 的流程推进进 World Engine。
 - 后续可以进入 `novel-workflow-09-chapter-writing` 或更长线 `novel-workflow-08-plot-planning`。

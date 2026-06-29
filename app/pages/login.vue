@@ -18,6 +18,7 @@ const errorMessage = ref("");
 const novelIdeStore = useNovelIdeStore();
 const {theme} = storeToRefs(novelIdeStore);
 const {mountThemeHost} = useIdeTheme(theme);
+const {t} = useI18n();
 
 /**
  * 解析安全的登录后跳转地址。
@@ -48,7 +49,7 @@ const submit = async (): Promise<void> => {
         });
         await router.push(resolveRedirect());
     } catch (error) {
-        errorMessage.value = error instanceof Error ? error.message : "登录失败";
+        errorMessage.value = error instanceof Error ? error.message : t("auth.loginFailed");
     } finally {
         busy.value = false;
     }
@@ -75,19 +76,19 @@ onMounted(() => {
         <div class="mx-auto flex min-h-screen w-full max-w-md items-center px-4 py-10">
             <div class="w-full rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-6 shadow-2xl">
                 <div class="mb-6">
-                    <div class="text-2xl font-semibold">登录</div>
-                    <div class="mt-2 text-sm text-[var(--text-secondary)]">使用账号密码访问全站与管理员后台。</div>
+                    <div class="text-2xl font-semibold">{{ t("auth.loginTitle") }}</div>
+                    <div class="mt-2 text-sm text-[var(--text-secondary)]">{{ t("auth.loginDescription") }}</div>
                 </div>
 
                 <form class="space-y-4" @submit.prevent="submit">
                     <label class="block">
-                        <div class="mb-2 text-sm text-[var(--text-secondary)]">用户名</div>
-                        <FormInput v-model="username" autocomplete="username" placeholder="请输入用户名" />
+                        <div class="mb-2 text-sm text-[var(--text-secondary)]">{{ t("auth.username") }}</div>
+                        <FormInput v-model="username" autocomplete="username" :placeholder="t('auth.usernamePlaceholder')" />
                     </label>
 
                     <label class="block">
-                        <div class="mb-2 text-sm text-[var(--text-secondary)]">密码</div>
-                        <FormInput v-model="password" type="password" autocomplete="current-password" placeholder="请输入密码" />
+                        <div class="mb-2 text-sm text-[var(--text-secondary)]">{{ t("auth.password") }}</div>
+                        <FormInput v-model="password" type="password" autocomplete="current-password" :placeholder="t('auth.passwordPlaceholder')" />
                     </label>
 
                     <div v-if="errorMessage" class="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
@@ -99,13 +100,13 @@ onMounted(() => {
                         class="inline-flex h-10 w-full items-center justify-center rounded-lg bg-[var(--accent-main)] px-4 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                         :disabled="busy"
                     >
-                        {{ busy ? "登录中..." : "登录" }}
+                        {{ busy ? t("auth.loggingIn") : t("auth.loginButton") }}
                     </button>
 
                     <p class="pt-1 text-center text-xs text-[var(--text-secondary)]">
-                        测试站点的密码联系
+                        {{ t("auth.testSiteHintBefore") }}
                         <a class="text-[var(--accent-text)] hover:underline" href="mailto:notnotype@qq.com">notnotype@qq.com</a>
-                        获取，需要表明你从哪里得到这个站点的
+                        {{ t("auth.testSiteHintAfter") }}
                     </p>
                 </form>
             </div>

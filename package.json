@@ -1,8 +1,12 @@
 {
   "name": "neuro-book",
-  "version": "0.1.1",
-  "description": "面向长篇小说创作的本地 AI 工作台，集成文件化 workspace、Markdown Studio、剧情结构管理和多 Agent 写作流程。",
+  "version": "0.4.2-canary.20260628.152519Z.2f6e6343",
+  "description": "A local AI workspace for long-form novel writing, integrating a file-based workspace, Markdown Studio, story structure management, and multi-agent writing workflows.",
   "license": "PolyForm-Noncommercial-1.0.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/notnotype/neuro-book.git"
+  },
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -70,6 +74,7 @@
     "@nestjs/platform-express": "^11.1.12",
     "@nestjs/swagger": "^11.2.5",
     "@nuxt/kit": "^4.3.1",
+    "@nuxtjs/i18n": "^10.4.0",
     "@pinia/nuxt": "^0.11.3",
     "@prisma/adapter-libsql": "7.3.0",
     "@prisma/client": "^7.3.0",

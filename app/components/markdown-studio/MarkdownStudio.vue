@@ -7,6 +7,7 @@ import type {AgentTriggerMenuContext, AgentTriggerMenuState} from "nbook/app/com
 import type {WorkspaceReferenceResolver} from "nbook/app/components/markdown-studio/tiptap/WorkspaceReference";
 import type {TextToImagePromptGeneratePayload} from "nbook/app/components/markdown-studio/tiptap/TextToImagePrompt";
 import type {TextToImageResultPayload} from "nbook/app/components/markdown-studio/tiptap/TextToImageResult";
+import type {InlineEditReference} from "nbook/app/utils/inline-editor-selection";
 
 const props = withDefaults(defineProps<{
     controller: MarkdownStudioController;
@@ -20,6 +21,8 @@ const props = withDefaults(defineProps<{
     resolveMenu?: (context: AgentTriggerMenuContext) => AgentTriggerMenuState;
     openReference?: (target: string) => void;
     resolveReference?: WorkspaceReferenceResolver;
+    inlineAiReferences?: InlineEditReference[];
+    inlineAiHighlightReference?: InlineEditReference | null;
     enableQuickTriggers?: boolean;
 }>(), {
     readonly: false,
@@ -35,11 +38,14 @@ const props = withDefaults(defineProps<{
         sections: [],
     }),
     openReference: () => {},
+    inlineAiReferences: () => [],
+    inlineAiHighlightReference: null,
     enableQuickTriggers: false,
 });
 
 const sourceEditorRef = ref<MarkdownStudioEditorHandle | null>(null);
 const previewEditorRef = ref<MarkdownStudioEditorHandle | null>(null);
+const {t} = useI18n();
 const { onPreviewChange, onSourceChange } = useMarkdownStudioSync({
     controller: props.controller,
     sourceEditorRef,
@@ -53,6 +59,7 @@ const emit = defineEmits<{
     (e: "generate-text-to-image-prompt", payload: TextToImagePromptGeneratePayload): void;
     (e: "open-text-to-image-result-viewer", payload: TextToImageResultPayload): void;
     (e: "open-text-to-image-result-actions", payload: TextToImageResultPayload): void;
+    (e: "inline-ai-reference", reference: InlineEditReference): void;
 }>();
 
 /**
@@ -91,6 +98,8 @@ function handleSourceBlur(): void {
                     :resolve-menu="props.resolveMenu"
                     :open-reference="props.openReference"
                     :resolve-reference="props.resolveReference"
+                    :inline-ai-references="props.inlineAiReferences"
+                    :inline-ai-highlight-reference="props.inlineAiHighlightReference"
                     :enable-quick-triggers="props.enableQuickTriggers"
                     @change="onPreviewChange"
                     @focus="controller.onPreviewFocus"
@@ -102,11 +111,12 @@ function handleSourceBlur(): void {
                     @generate-text-to-image-prompt="emit('generate-text-to-image-prompt', $event)"
                     @open-text-to-image-result-viewer="emit('open-text-to-image-result-viewer', $event)"
                     @open-text-to-image-result-actions="emit('open-text-to-image-result-actions', $event)"
+                    @inline-ai-reference="emit('inline-ai-reference', $event)"
                 />
                 <template #fallback>
                     <div class="flex min-h-[65vh] items-center justify-center text-[var(--text-muted)]">
                         <span class="i-lucide-loader-2 mr-2 h-6 w-6 animate-spin"></span>
-                        <span>加载富文本引擎...</span>
+                        <span>{{ t("markdownStudio.workbench.loadingRichEngine") }}</span>
                     </div>
                 </template>
             </ClientOnly>

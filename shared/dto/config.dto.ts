@@ -8,6 +8,12 @@ import {
     DEFAULT_MARKDOWN_EDITOR_PREFERENCES,
     DEFAULT_MONACO_EDITOR_PREFERENCES,
 } from "nbook/shared/editor-workbench";
+import {
+    LowCodeFormDtoSchema,
+    LowCodeFormIssueDtoSchema,
+    LowCodeJsonObjectSchema,
+    LowCodeResourceMutationDtoSchema,
+} from "nbook/shared/dto/low-code-form.dto";
 
 const JsonValueSchema: z.ZodType<unknown> = z.lazy(() => z.union([
     z.string(),
@@ -37,6 +43,10 @@ const ProviderRequestOptionsSchema = z.record(z.string(), JsonValueSchema).defau
 const ProfileKeySchema = z.string().trim().min(1);
 const WebSearchProviderKeySchema = z.enum(["tavily", "brave"]);
 const WebTimeoutMsSchema = z.number().int().positive().nullable().default(null);
+const ConfigQueryBooleanFlagSchema = z.union([
+    z.boolean(),
+    z.enum(["true", "false"]),
+]).optional();
 
 /**
  * Secret 字段的编辑态。GET 不返回 value；PUT 中 value 缺失表示保留。
@@ -60,10 +70,15 @@ export const ConfigItemMetaDtoSchema = z.object({
     description: z.string().trim().min(1),
 });
 
-export const ConfigWorkspaceQueryDtoSchema = z.object({
+const ConfigWorkspaceQueryBaseDtoSchema = z.object({
     workspaceKind: z.enum(["novel", "user-assets"]).default("novel"),
     projectPath: z.string().trim().min(1).optional(),
-}).superRefine((value, ctx) => {
+});
+
+function refineConfigWorkspaceQuery(
+    value: z.infer<typeof ConfigWorkspaceQueryBaseDtoSchema>,
+    ctx: z.RefinementCtx,
+): void {
     if (value.workspaceKind === "novel" && !value.projectPath) {
         ctx.addIssue({
             code: "custom",
@@ -71,6 +86,17 @@ export const ConfigWorkspaceQueryDtoSchema = z.object({
             message: "Project Workspace 配置必须提供 projectPath",
         });
     }
+}
+
+export const ConfigWorkspaceQueryDtoSchema = ConfigWorkspaceQueryBaseDtoSchema.superRefine(refineConfigWorkspaceQuery);
+
+export const ConfigEditorSnapshotQueryDtoSchema = ConfigWorkspaceQueryBaseDtoSchema.extend({
+    includeAgentProfileSettings: ConfigQueryBooleanFlagSchema,
+    agentProfileSettingsScope: z.enum(["global", "project"]).optional(),
+}).superRefine(refineConfigWorkspaceQuery);
+
+export const ConfigProfileHomeResetRequestDtoSchema = z.object({
+    profileKey: ProfileKeySchema,
 });
 
 export const ConfigModelProviderOptionsDtoSchema = z.object({
@@ -124,7 +150,17 @@ export const ConfigAgentProfileSettingsDtoSchema = z.object({
     agentProfiles: z.array(z.object({
         profileKey: ProfileKeySchema,
         name: z.string().trim().min(1),
+        canResetHome: z.boolean().default(false),
         model: AgentProfileModelConfigDtoSchema,
+        settings: z.object({
+            form: LowCodeFormDtoSchema,
+            value: LowCodeJsonObjectSchema,
+            inheritedValue: LowCodeJsonObjectSchema.default({}),
+            effectivePatch: LowCodeJsonObjectSchema.default({}),
+            globalPatch: LowCodeJsonObjectSchema.default({}),
+            projectPatch: LowCodeJsonObjectSchema.default({}),
+            issues: z.array(LowCodeFormIssueDtoSchema).default([]),
+        }).nullable().default(null),
     })).default([]),
 });
 
@@ -174,7 +210,9 @@ export const EditorConfigDtoSchema = z.object({
 });
 
 export const ConfigAgentProfileMapDtoSchema = z.record(z.string(), z.object({
-    model: AgentProfileModelConfigDtoSchema.partial(),
+    model: AgentProfileModelConfigDtoSchema.partial().default({}),
+    settings: LowCodeJsonObjectSchema.optional(),
+    resourceMutations: z.array(LowCodeResourceMutationDtoSchema).optional(),
 })).default({});
 
 export const WebConfigDtoSchema = z.object({
@@ -236,6 +274,28 @@ export const GlobalConfigDtoSchema = z.object({
     web: WebConfigDtoSchema,
 }).partial().passthrough();
 
+export const GlobalConfigUpdateDtoSchema = z.object({
+    auth: z.object({
+        enabled: z.boolean().default(true),
+    }).optional(),
+    models: z.object({
+        default: NullableModelKeySchema,
+        providers: z.array(ConfiguredProviderConfigDtoSchema).default([]),
+    }).optional(),
+    embedding: EmbeddingServiceConfigDtoSchema.partial().optional(),
+    agent: z.object({
+        defaultProfileKey: z.object({
+            novel: ProfileKeySchema.nullable().default(null),
+            userAssets: ProfileKeySchema.nullable().default(null),
+        }).default({novel: null, userAssets: null}),
+        profileModelDefaults: AgentProfileModelConfigDtoSchema.partial().default({}),
+        profiles: ConfigAgentProfileMapDtoSchema,
+    }).optional(),
+    ui: UiConfigDtoSchema.optional(),
+    editor: EditorConfigDtoSchema.optional(),
+    web: z.preprocess((value) => value === undefined ? undefined : value, WebConfigDtoSchema).optional(),
+}).partial().passthrough();
+
 export const ProjectConfigDtoSchema = z.object({
     models: z.object({
         default: NullableModelKeySchema,
@@ -271,6 +331,11 @@ export const ConfigEditorSnapshotDtoSchema = z.object({
 export type SecretConfigValueDto = z.infer<typeof SecretConfigValueDtoSchema>;
 export type ConfigItemMetaDto = z.infer<typeof ConfigItemMetaDtoSchema>;
 export type ConfigWorkspaceQueryDto = z.infer<typeof ConfigWorkspaceQueryDtoSchema>;
+export type ConfigEditorSnapshotQueryDto = ConfigWorkspaceQueryDto & {
+    includeAgentProfileSettings: boolean;
+    agentProfileSettingsScope?: "global" | "project";
+};
+export type ConfigProfileHomeResetRequestDto = z.infer<typeof ConfigProfileHomeResetRequestDtoSchema>;
 export type ConfigModelSettingsDto = z.infer<typeof ConfigModelSettingsDtoSchema>;
 export type EmbeddingServiceConfigDto = z.infer<typeof EmbeddingServiceConfigDtoSchema>;
 export type EmbeddingProjectConfigDto = z.infer<typeof EmbeddingProjectConfigDtoSchema>;
@@ -279,6 +344,7 @@ export type ConfigAgentProfileSettingsDto = z.infer<typeof ConfigAgentProfileSet
 export type ConfigDefaultProfileSettingsDto = z.infer<typeof ConfigDefaultProfileSettingsDtoSchema>;
 export type WebConfigDto = z.infer<typeof WebConfigDtoSchema>;
 export type GlobalConfigDto = z.infer<typeof GlobalConfigDtoSchema>;
+export type GlobalConfigUpdateDto = z.infer<typeof GlobalConfigUpdateDtoSchema>;
 export type ProjectConfigDto = z.infer<typeof ProjectConfigDtoSchema>;
 export type ConfigSnapshotDto = z.infer<typeof ConfigSnapshotDtoSchema>;
 export type ConfigEditorSnapshotDto = z.infer<typeof ConfigEditorSnapshotDtoSchema>;

@@ -14,12 +14,14 @@ type TutorialQuestion = {
     label: string;
 };
 
-const tutorialQuestions: TutorialQuestion[] = [
-    {id: "agent-mode", label: "什么时候切到 Agent 模式？"},
-    {id: "first-chapter", label: "我该从哪里开始写第一章？"},
-    {id: "lorebook", label: "世界书和剧本工作台怎么分工？"},
-    {id: "rag", label: "RAG 入口能帮我看什么？"},
-];
+const {t} = useI18n();
+
+const tutorialQuestions = computed<TutorialQuestion[]>(() => [
+    {id: "agent-mode", label: t("markdownStudio.tutorial.questionAgentMode")},
+    {id: "first-chapter", label: t("markdownStudio.tutorial.questionFirstChapter")},
+    {id: "lorebook", label: t("markdownStudio.tutorial.questionLorebook")},
+    {id: "rag", label: t("markdownStudio.tutorial.questionRag")},
+]);
 
 /**
  * 关闭教程 Agent 占位对话框。
@@ -30,15 +32,15 @@ function closeDialog(): void {
 </script>
 
 <template>
-    <Dialog :model-value="props.modelValue" title="教程 Agent" width="min(680px, calc(100vw - 32px))" :show-footer="false" overlay-type="blur" @update:model-value="emit('update:modelValue', $event)">
+    <Dialog :model-value="props.modelValue" :title="t('markdownStudio.tutorial.title')" width="min(680px, calc(100vw - 32px))" :show-footer="false" overlay-type="blur" @update:model-value="emit('update:modelValue', $event)">
         <!-- 教程 Agent 预留内容 -->
         <div class="flex flex-col gap-4">
             <div class="rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] px-4 py-3">
                 <div class="flex items-start gap-3">
                     <span class="i-lucide-bot h-5 w-5 shrink-0 text-[var(--accent-text)]"></span>
                     <div class="min-w-0">
-                        <div class="text-sm font-semibold text-[var(--text-main)]">NeuroBook 教程向导</div>
-                        <p class="mt-1 text-sm leading-6 text-[var(--text-secondary)]">这里会接入一个教程特化的 leader Agent，读取教程、参考文档和当前 Project 上下文，帮你理解界面并定位下一步。</p>
+                        <div class="text-sm font-semibold text-[var(--text-main)]">{{ t("markdownStudio.tutorial.guideTitle") }}</div>
+                        <p class="mt-1 text-sm leading-6 text-[var(--text-secondary)]">{{ t("markdownStudio.tutorial.description") }}</p>
                     </div>
                 </div>
             </div>
@@ -51,30 +53,30 @@ function closeDialog(): void {
             </div>
 
             <div class="rounded-lg border border-dashed border-[var(--border-color)] bg-transparent px-4 py-3">
-                <div class="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--text-secondary)]">预留合同</div>
+                <div class="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--text-secondary)]">{{ t("markdownStudio.tutorial.reservedContract") }}</div>
                 <div class="mt-2 grid gap-2 text-xs leading-5 text-[var(--text-secondary)] sm:grid-cols-2">
                     <div class="flex gap-2">
                         <span class="i-lucide-file-search h-4 w-4 shrink-0 text-[var(--accent-text)]"></span>
-                        <span>读取教程和参考文档。</span>
+                        <span>{{ t("markdownStudio.tutorial.readDocs") }}</span>
                     </div>
                     <div class="flex gap-2">
                         <span class="i-lucide-mouse-pointer-click h-4 w-4 shrink-0 text-[var(--accent-text)]"></span>
-                        <span>后续可请求前端打开界面。</span>
+                        <span>{{ t("markdownStudio.tutorial.openUiLater") }}</span>
                     </div>
                     <div class="flex gap-2">
                         <span class="i-lucide-folder-tree h-4 w-4 shrink-0 text-[var(--accent-text)]"></span>
-                        <span>理解当前 Project Workspace 结构。</span>
+                        <span>{{ t("markdownStudio.tutorial.understandWorkspace") }}</span>
                     </div>
                     <div class="flex gap-2">
                         <span class="i-lucide-message-square-text h-4 w-4 shrink-0 text-[var(--accent-text)]"></span>
-                        <span>保持独立入口，不混入普通 session 列表。</span>
+                        <span>{{ t("markdownStudio.tutorial.isolatedEntry") }}</span>
                     </div>
                 </div>
             </div>
 
             <div class="flex items-center justify-between gap-3 border-t border-[var(--border-color)] pt-3">
-                <div class="text-xs text-[var(--text-muted)]">真实教程 Agent 与界面动作会在后续接入。</div>
-                <button type="button" class="inline-flex h-8 items-center justify-center rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-sm font-medium text-[var(--text-main)] transition-colors hover:bg-[var(--bg-hover)]" @click="closeDialog">知道了</button>
+                <div class="text-xs text-[var(--text-muted)]">{{ t("markdownStudio.tutorial.futureNote") }}</div>
+                <button type="button" class="inline-flex h-8 items-center justify-center rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-sm font-medium text-[var(--text-main)] transition-colors hover:bg-[var(--bg-hover)]" @click="closeDialog">{{ t("markdownStudio.tutorial.gotIt") }}</button>
             </div>
         </div>
     </Dialog>

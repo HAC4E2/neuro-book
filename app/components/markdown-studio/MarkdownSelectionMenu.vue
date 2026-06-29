@@ -30,51 +30,53 @@ const emit = defineEmits<{
     (e: "insert-reference"): void;
     (e: "insert-image"): void;
     (e: "add-comment"): void;
+    (e: "add-ai-reference"): void;
 }>();
 
 const {prompt} = useDialog();
+const {t} = useI18n();
 const textMenuOpen = ref(false);
 const colorMenuOpen = ref(false);
 const moreMenuOpen = ref(false);
 const bubbleMenuVisible = ref(true);
 const revision = ref(0);
 
-const textBlockOptions: TextBlockOption[] = [
-    {id: "paragraph", label: "Text", iconClass: "i-lucide-type"},
-    {id: "heading-1", label: "Heading 1", iconClass: "i-lucide-heading-1"},
-    {id: "heading-2", label: "Heading 2", iconClass: "i-lucide-heading-2"},
-    {id: "heading-3", label: "Heading 3", iconClass: "i-lucide-heading-3"},
-    {id: "bullet-list", label: "Bulleted list", iconClass: "i-lucide-list"},
-    {id: "ordered-list", label: "Numbered list", iconClass: "i-lucide-list-ordered"},
-    {id: "blockquote", label: "Blockquote", iconClass: "i-lucide-quote"},
-    {id: "code-block", label: "Code block", iconClass: "i-lucide-square-code"},
-];
+const textBlockOptions = computed<TextBlockOption[]>(() => [
+    {id: "paragraph", label: t("markdownStudio.selection.paragraph"), iconClass: "i-lucide-type"},
+    {id: "heading-1", label: t("markdownStudio.selection.heading1"), iconClass: "i-lucide-heading-1"},
+    {id: "heading-2", label: t("markdownStudio.selection.heading2"), iconClass: "i-lucide-heading-2"},
+    {id: "heading-3", label: t("markdownStudio.selection.heading3"), iconClass: "i-lucide-heading-3"},
+    {id: "bullet-list", label: t("markdownStudio.selection.bulletList"), iconClass: "i-lucide-list"},
+    {id: "ordered-list", label: t("markdownStudio.selection.orderedList"), iconClass: "i-lucide-list-ordered"},
+    {id: "blockquote", label: t("markdownStudio.selection.blockquote"), iconClass: "i-lucide-quote"},
+    {id: "code-block", label: t("markdownStudio.selection.codeBlock"), iconClass: "i-lucide-square-code"},
+]);
 
-const textColors: ColorOption[] = [
-    {id: "default", label: "Default", value: ""},
-    {id: "slate", label: "Slate", value: "#64748b"},
-    {id: "orange", label: "Orange", value: "#f97316"},
-    {id: "amber", label: "Amber", value: "#f59e0b"},
-    {id: "yellow", label: "Yellow", value: "#eab308"},
-    {id: "emerald", label: "Emerald", value: "#10b981"},
-    {id: "sky", label: "Sky", value: "#0ea5e9"},
-    {id: "violet", label: "Violet", value: "#8b5cf6"},
-    {id: "pink", label: "Pink", value: "#ec4899"},
-    {id: "red", label: "Red", value: "#ef4444"},
-];
+const textColors = computed<ColorOption[]>(() => [
+    {id: "default", label: t("markdownStudio.selection.defaultColor"), value: ""},
+    {id: "slate", label: t("markdownStudio.selection.slate"), value: "#64748b"},
+    {id: "orange", label: t("markdownStudio.selection.orange"), value: "#f97316"},
+    {id: "amber", label: t("markdownStudio.selection.amber"), value: "#f59e0b"},
+    {id: "yellow", label: t("markdownStudio.selection.yellow"), value: "#eab308"},
+    {id: "emerald", label: t("markdownStudio.selection.emerald"), value: "#10b981"},
+    {id: "sky", label: t("markdownStudio.selection.sky"), value: "#0ea5e9"},
+    {id: "violet", label: t("markdownStudio.selection.violet"), value: "#8b5cf6"},
+    {id: "pink", label: t("markdownStudio.selection.pink"), value: "#ec4899"},
+    {id: "red", label: t("markdownStudio.selection.red"), value: "#ef4444"},
+]);
 
-const highlightColors: ColorOption[] = [
-    {id: "none", label: "None", value: ""},
-    {id: "neutral", label: "Neutral", value: "#f1f5f9"},
-    {id: "stone", label: "Stone", value: "#ede9e1"},
-    {id: "orange", label: "Orange", value: "#ffedd5"},
-    {id: "yellow", label: "Yellow", value: "#fef9c3"},
-    {id: "green", label: "Green", value: "#dcfce7"},
-    {id: "blue", label: "Blue", value: "#dbeafe"},
-    {id: "purple", label: "Purple", value: "#ede9fe"},
-    {id: "pink", label: "Pink", value: "#fce7f3"},
-    {id: "red", label: "Red", value: "#fee2e2"},
-];
+const highlightColors = computed<ColorOption[]>(() => [
+    {id: "none", label: t("markdownStudio.selection.noneColor"), value: ""},
+    {id: "neutral", label: t("markdownStudio.selection.neutral"), value: "#f1f5f9"},
+    {id: "stone", label: t("markdownStudio.selection.stone"), value: "#ede9e1"},
+    {id: "orange", label: t("markdownStudio.selection.orange"), value: "#ffedd5"},
+    {id: "yellow", label: t("markdownStudio.selection.yellow"), value: "#fef9c3"},
+    {id: "green", label: t("markdownStudio.selection.green"), value: "#dcfce7"},
+    {id: "blue", label: t("markdownStudio.selection.blue"), value: "#dbeafe"},
+    {id: "purple", label: t("markdownStudio.selection.purple"), value: "#ede9fe"},
+    {id: "pink", label: t("markdownStudio.selection.pink"), value: "#fce7f3"},
+    {id: "red", label: t("markdownStudio.selection.red"), value: "#fee2e2"},
+]);
 
 const bubbleOptions = {
     strategy: "fixed" as const,
@@ -92,27 +94,27 @@ const bubbleOptions = {
 const currentTextOption = computed<TextBlockOption>(() => {
     void revision.value;
     if (props.editor.isActive("heading", {level: 1})) {
-        return textBlockOptions.find((option) => option.id === "heading-1") ?? textBlockOptions[0]!;
+        return textBlockOptions.value.find((option) => option.id === "heading-1") ?? textBlockOptions.value[0]!;
     }
     if (props.editor.isActive("heading", {level: 2})) {
-        return textBlockOptions.find((option) => option.id === "heading-2") ?? textBlockOptions[0]!;
+        return textBlockOptions.value.find((option) => option.id === "heading-2") ?? textBlockOptions.value[0]!;
     }
     if (props.editor.isActive("heading", {level: 3})) {
-        return textBlockOptions.find((option) => option.id === "heading-3") ?? textBlockOptions[0]!;
+        return textBlockOptions.value.find((option) => option.id === "heading-3") ?? textBlockOptions.value[0]!;
     }
     if (props.editor.isActive("bulletList")) {
-        return textBlockOptions.find((option) => option.id === "bullet-list") ?? textBlockOptions[0]!;
+        return textBlockOptions.value.find((option) => option.id === "bullet-list") ?? textBlockOptions.value[0]!;
     }
     if (props.editor.isActive("orderedList")) {
-        return textBlockOptions.find((option) => option.id === "ordered-list") ?? textBlockOptions[0]!;
+        return textBlockOptions.value.find((option) => option.id === "ordered-list") ?? textBlockOptions.value[0]!;
     }
     if (props.editor.isActive("blockquote")) {
-        return textBlockOptions.find((option) => option.id === "blockquote") ?? textBlockOptions[0]!;
+        return textBlockOptions.value.find((option) => option.id === "blockquote") ?? textBlockOptions.value[0]!;
     }
     if (props.editor.isActive("codeBlock")) {
-        return textBlockOptions.find((option) => option.id === "code-block") ?? textBlockOptions[0]!;
+        return textBlockOptions.value.find((option) => option.id === "code-block") ?? textBlockOptions.value[0]!;
     }
-    return textBlockOptions[0]!;
+    return textBlockOptions.value[0]!;
 });
 
 const currentTextColor = computed(() => {
@@ -226,7 +228,7 @@ async function setLink(): Promise<void> {
     }
     closeDropdowns();
     const previousHref = String(props.editor.getAttributes("link").href ?? "");
-    const href = await prompt("链接地址，留空则移除链接", previousHref || "https://", "编辑链接");
+    const href = await prompt(t("markdownStudio.selection.editLinkPrompt"), previousHref || "https://", t("markdownStudio.selection.editLinkTitle"));
     if (href === null) {
         return;
     }
@@ -303,11 +305,11 @@ onUnmounted(() => {
             <button
                 type="button"
                 class="markdown-selection-menu__button markdown-selection-menu__button--improve"
-                title="AI Improve 暂未接入"
-                disabled
+                :title="t('markdownStudio.selection.addAiReference')"
+                @click="closeDropdowns(); emit('add-ai-reference')"
             >
                 <span class="i-lucide-sparkles h-3.5 w-3.5"></span>
-                <span>Improve</span>
+                <span>{{ t("markdownStudio.selection.addAiReference") }}</span>
             </button>
 
             <div class="markdown-selection-menu__divider"></div>
@@ -316,7 +318,7 @@ onUnmounted(() => {
                 <button
                     type="button"
                     class="markdown-selection-menu__button markdown-selection-menu__button--text"
-                    title="文本样式"
+                    :title="t('markdownStudio.selection.textStyle')"
                     @click="toggleDropdown('text')"
                 >
                     <span :class="currentTextOption.iconClass" class="h-3.5 w-3.5"></span>
@@ -343,7 +345,7 @@ onUnmounted(() => {
                 type="button"
                 class="markdown-selection-menu__button markdown-selection-menu__button--icon"
                 :class="isActive('bold') ? 'is-active' : ''"
-                title="Bold"
+                :title="t('markdownStudio.selection.bold')"
                 @click="runCommand(() => props.editor.chain().focus().toggleBold().run())"
             >
                 <span class="i-lucide-bold h-3.5 w-3.5"></span>
@@ -352,7 +354,7 @@ onUnmounted(() => {
                 type="button"
                 class="markdown-selection-menu__button markdown-selection-menu__button--icon"
                 :class="isActive('italic') ? 'is-active' : ''"
-                title="Italic"
+                :title="t('markdownStudio.selection.italic')"
                 @click="runCommand(() => props.editor.chain().focus().toggleItalic().run())"
             >
                 <span class="i-lucide-italic h-3.5 w-3.5"></span>
@@ -361,7 +363,7 @@ onUnmounted(() => {
                 type="button"
                 class="markdown-selection-menu__button markdown-selection-menu__button--icon"
                 :class="isActive('underline') ? 'is-active' : ''"
-                title="Underline"
+                :title="t('markdownStudio.selection.underline')"
                 @click="runCommand(() => props.editor.chain().focus().toggleUnderline().run())"
             >
                 <span class="i-lucide-underline h-3.5 w-3.5"></span>
@@ -370,7 +372,7 @@ onUnmounted(() => {
                 type="button"
                 class="markdown-selection-menu__button markdown-selection-menu__button--icon"
                 :class="isActive('strike') ? 'is-active' : ''"
-                title="Strike"
+                :title="t('markdownStudio.selection.strike')"
                 @click="runCommand(() => props.editor.chain().focus().toggleStrike().run())"
             >
                 <span class="i-lucide-strikethrough h-3.5 w-3.5"></span>
@@ -379,7 +381,7 @@ onUnmounted(() => {
                 type="button"
                 class="markdown-selection-menu__button markdown-selection-menu__button--icon"
                 :class="isActive('code') ? 'is-active' : ''"
-                title="Code"
+                :title="t('markdownStudio.selection.code')"
                 @click="runCommand(() => props.editor.chain().focus().toggleCode().run())"
             >
                 <span class="i-lucide-code h-3.5 w-3.5"></span>
@@ -387,7 +389,7 @@ onUnmounted(() => {
             <button
                 type="button"
                 class="markdown-selection-menu__button markdown-selection-menu__button--icon"
-                title="清除格式"
+                :title="t('markdownStudio.selection.clearFormatting')"
                 @click="runCommand(() => props.editor.chain().focus().unsetAllMarks().clearNodes().run())"
             >
                 <span class="i-lucide-eraser h-3.5 w-3.5"></span>
@@ -395,13 +397,13 @@ onUnmounted(() => {
 
             <div class="markdown-selection-menu__divider"></div>
 
-            <button type="button" class="markdown-selection-menu__button markdown-selection-menu__button--icon" title="Link" @click="void setLink()">
+            <button type="button" class="markdown-selection-menu__button markdown-selection-menu__button--icon" :title="t('markdownStudio.selection.link')" @click="void setLink()">
                 <span class="i-lucide-link h-3.5 w-3.5"></span>
             </button>
-            <button type="button" class="markdown-selection-menu__button markdown-selection-menu__button--icon" title="添加评论" @click="closeDropdowns(); emit('add-comment')">
+            <button type="button" class="markdown-selection-menu__button markdown-selection-menu__button--icon" :title="t('markdownStudio.selection.addComment')" @click="closeDropdowns(); emit('add-comment')">
                 <span class="i-lucide-message-square-plus h-3.5 w-3.5"></span>
             </button>
-            <button type="button" class="markdown-selection-menu__button markdown-selection-menu__button--icon" title="Image" @click="closeDropdowns(); emit('insert-image')">
+            <button type="button" class="markdown-selection-menu__button markdown-selection-menu__button--icon" :title="t('markdownStudio.selection.image')" @click="closeDropdowns(); emit('insert-image')">
                 <span class="i-lucide-image h-3.5 w-3.5"></span>
             </button>
 
@@ -410,14 +412,14 @@ onUnmounted(() => {
                     type="button"
                     class="markdown-selection-menu__button markdown-selection-menu__button--color"
                     :class="currentTextColor || currentHighlightColor ? 'is-active' : ''"
-                    title="颜色和高亮"
+                    :title="t('markdownStudio.selection.colorAndHighlight')"
                     @click="toggleDropdown('color')"
                 >
                     <span class="markdown-selection-menu__letter-a" :style="{color: currentTextColor || undefined, backgroundColor: currentHighlightColor || undefined}">A</span>
                     <span class="i-lucide-chevron-down h-2.5 w-2.5"></span>
                 </button>
                 <div v-if="colorMenuOpen" class="markdown-selection-menu__dropdown markdown-selection-menu__dropdown--color">
-                    <div class="markdown-selection-menu__palette-title">Text Color</div>
+                    <div class="markdown-selection-menu__palette-title">{{ t("markdownStudio.selection.textColor") }}</div>
                     <div class="markdown-selection-menu__palette-grid">
                         <button
                             v-for="color in textColors"
@@ -432,7 +434,7 @@ onUnmounted(() => {
                         </button>
                     </div>
 
-                    <div class="markdown-selection-menu__palette-title">Highlight Color</div>
+                    <div class="markdown-selection-menu__palette-title">{{ t("markdownStudio.selection.highlightColor") }}</div>
                     <div class="markdown-selection-menu__palette-grid">
                         <button
                             v-for="color in highlightColors"
@@ -452,7 +454,7 @@ onUnmounted(() => {
             <div class="markdown-selection-menu__divider"></div>
 
             <div class="markdown-selection-menu__group">
-                <button type="button" class="markdown-selection-menu__button markdown-selection-menu__button--icon" title="更多格式" @click="toggleDropdown('more')">
+                <button type="button" class="markdown-selection-menu__button markdown-selection-menu__button--icon" :title="t('markdownStudio.selection.moreFormatting')" @click="toggleDropdown('more')">
                     <span class="i-lucide-ellipsis-vertical h-3.5 w-3.5"></span>
                 </button>
                 <div v-if="moreMenuOpen" class="markdown-selection-menu__dropdown markdown-selection-menu__dropdown--more">
@@ -460,7 +462,7 @@ onUnmounted(() => {
                         type="button"
                         class="markdown-selection-menu__button markdown-selection-menu__button--icon"
                         :class="isActive('markdownSuperscript') ? 'is-active' : ''"
-                        title="上标"
+                        :title="t('markdownStudio.selection.superscript')"
                         @click="runCommand(() => props.editor.chain().focus().toggleMarkdownSuperscript().run(), false)"
                     >
                         <span class="i-lucide-superscript h-3.5 w-3.5"></span>
@@ -469,22 +471,22 @@ onUnmounted(() => {
                         type="button"
                         class="markdown-selection-menu__button markdown-selection-menu__button--icon"
                         :class="isActive('markdownSubscript') ? 'is-active' : ''"
-                        title="下标"
+                        :title="t('markdownStudio.selection.subscript')"
                         @click="runCommand(() => props.editor.chain().focus().toggleMarkdownSubscript().run(), false)"
                     >
                         <span class="i-lucide-subscript h-3.5 w-3.5"></span>
                     </button>
                     <div class="markdown-selection-menu__divider"></div>
-                    <button type="button" class="markdown-selection-menu__button markdown-selection-menu__button--icon" title="左对齐" @click="applyAlign('left')">
+                    <button type="button" class="markdown-selection-menu__button markdown-selection-menu__button--icon" :title="t('markdownStudio.selection.alignLeft')" @click="applyAlign('left')">
                         <span class="i-lucide-align-left h-3.5 w-3.5"></span>
                     </button>
-                    <button type="button" class="markdown-selection-menu__button markdown-selection-menu__button--icon" title="居中" @click="applyAlign('center')">
+                    <button type="button" class="markdown-selection-menu__button markdown-selection-menu__button--icon" :title="t('markdownStudio.selection.alignCenter')" @click="applyAlign('center')">
                         <span class="i-lucide-align-center h-3.5 w-3.5"></span>
                     </button>
-                    <button type="button" class="markdown-selection-menu__button markdown-selection-menu__button--icon" title="右对齐" @click="applyAlign('right')">
+                    <button type="button" class="markdown-selection-menu__button markdown-selection-menu__button--icon" :title="t('markdownStudio.selection.alignRight')" @click="applyAlign('right')">
                         <span class="i-lucide-align-right h-3.5 w-3.5"></span>
                     </button>
-                    <button type="button" class="markdown-selection-menu__button markdown-selection-menu__button--icon" title="两端对齐" @click="applyAlign('justify')">
+                    <button type="button" class="markdown-selection-menu__button markdown-selection-menu__button--icon" :title="t('markdownStudio.selection.alignJustify')" @click="applyAlign('justify')">
                         <span class="i-lucide-align-justify h-3.5 w-3.5"></span>
                     </button>
                     <div class="markdown-selection-menu__divider"></div>
@@ -492,7 +494,7 @@ onUnmounted(() => {
                         type="button"
                         class="markdown-selection-menu__button markdown-selection-menu__button--icon"
                         :disabled="!canOutdentList"
-                        title="减少缩进"
+                        :title="t('markdownStudio.selection.decreaseIndent')"
                         @click="runCommand(() => props.editor.chain().focus().liftListItem('listItem').run(), false)"
                     >
                         <span class="i-lucide-indent-decrease h-3.5 w-3.5"></span>
@@ -501,7 +503,7 @@ onUnmounted(() => {
                         type="button"
                         class="markdown-selection-menu__button markdown-selection-menu__button--icon"
                         :disabled="!canIndentList"
-                        title="增加缩进"
+                        :title="t('markdownStudio.selection.increaseIndent')"
                         @click="runCommand(() => props.editor.chain().focus().sinkListItem('listItem').run(), false)"
                     >
                         <span class="i-lucide-indent-increase h-3.5 w-3.5"></span>

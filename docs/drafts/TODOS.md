@@ -191,7 +191,20 @@
 - [ ] 世界模拟调整
 - [ ] 提示词调整
 - [ ]
+- [ ] 日期系统
+- [ ] workflow
 - [ ]
+- [ ] invoke_agent tool 能 continue
+- [ ]
+- [ ]
+- [ ] 继续优化 novel 流程，融合几个 skill，优化杀 bug skill
+- [ ] exit_plan_mode approval 表单优化
+- [ ]
+- [ ]
+- [ ]
+- [ ]
+- [ ]
+
 
 ------
 

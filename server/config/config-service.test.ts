@@ -5,29 +5,41 @@ import {randomUUID} from "node:crypto";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {Type} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+import {defineProfileHome} from "nbook/server/agent/profiles/profile-home";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
+import {toolset} from "nbook/server/agent/profiles/profile-tools";
+import {defineLowCodeForm, defineResourcePreset, profileHomeResource, type LowCodeFieldDefinition} from "nbook/server/low-code-form";
 import {
     loadEffectiveConfigForAgentRuntime,
     readConfigBootstrap,
     readConfigEditorSnapshot,
+    resetProjectProfileHome,
     saveGlobalConfig,
     saveProjectConfig,
 } from "nbook/server/config/config-service";
 
 const createdRoots: string[] = [];
-const catalog = createCatalog(["leader.default", "leader.assets", "custom.agent"]);
+const catalog = createCatalog(["leader.default", "leader.assets", "custom.agent", "writer"]);
 let globalConfigBackupPath: string | null = null;
+let globalAgentsBackupPath: string | null = null;
 
 describe("config service", {timeout: 30_000}, () => {
     beforeEach(async () => {
         globalConfigBackupPath = await moveGlobalConfigAside();
+        globalAgentsBackupPath = await moveGlobalAgentsAside();
         await createProjectFixture();
     });
 
     afterEach(async () => {
         await Promise.all(createdRoots.splice(0).map((root) => fs.rm(root, {recursive: true, force: true})));
         await fs.rm(path.join("workspace", ".nbook", "config.json"), {force: true});
+        await fs.rm(path.join("workspace", ".nbook", "agents"), {recursive: true, force: true});
         await fs.rm(path.join("workspace", "config-test-project"), {recursive: true, force: true});
+        if (globalAgentsBackupPath) {
+            await fs.mkdir(path.join("workspace", ".nbook"), {recursive: true});
+            await fs.rename(globalAgentsBackupPath, path.join("workspace", ".nbook", "agents"));
+            globalAgentsBackupPath = null;
+        }
         if (globalConfigBackupPath) {
             await fs.mkdir(path.join("workspace", ".nbook"), {recursive: true});
             await fs.rename(globalConfigBackupPath, path.join("workspace", ".nbook", "config.json"));
@@ -650,6 +662,533 @@ describe("config service", {timeout: 30_000}, () => {
             stream: true,
         });
     });
+
+    it("Agent Profile settings 默认只返回轻量列表且不解析低代码 options", async () => {
+        const optionsProvider = vi.fn(() => [
+            {value: "default-style", label: "默认文风"},
+            {value: "cinematic", label: "电影感"},
+        ]);
+        const lightCatalog = createCatalog(["writer"], {writingStyleOptions: optionsProvider});
+        const snapshot = await readConfigEditorSnapshot({workspaceKind: "user-assets"}, lightCatalog);
+        const writer = snapshot.agentProfileSettings.agentProfiles.find((profile) => profile.profileKey === "writer");
+
+        expect(writer?.settings).toBeNull();
+        expect(writer?.model).toMatchObject({stream: true});
+        expect(optionsProvider).not.toHaveBeenCalled();
+    });
+
+    it("Agent Profile settings 完整模式只读取带 settings form 的 runtime profile", async () => {
+        const profileCatalog = createCatalog(["leader.default", "leader.assets", "custom.agent", "writer"]);
+        const getSpy = vi.spyOn(profileCatalog, "get");
+
+        try {
+            const snapshot = await readConfigEditorSnapshot({workspaceKind: "user-assets"}, profileCatalog, {
+                includeAgentProfileSettings: true,
+            });
+            const writer = snapshot.agentProfileSettings.agentProfiles.find((profile) => profile.profileKey === "writer");
+
+            expect(writer?.settings?.form.fields.map((field) => field.path)).toEqual(["writingStylePreset", "narrativePerson"]);
+            expect(getSpy).toHaveBeenCalledTimes(1);
+            expect(getSpy).toHaveBeenCalledWith("writer");
+        } finally {
+            getSpy.mockRestore();
+        }
+    });
+
+    it("Agent Profile settings 支持 Global 保存并返回 form 与 effective value", async () => {
+        const snapshot = await saveGlobalConfig({
+            agent: {
+                defaultProfileKey: {novel: "leader.default", userAssets: "leader.assets"},
+                profiles: {
+                    writer: {
+                        model: {},
+                        settings: {
+                            writingStylePreset: "cinematic",
+                            narrativePerson: "first",
+                        },
+                    },
+                },
+            },
+        }, {workspaceKind: "user-assets"}, catalog, {includeAgentProfileSettings: true});
+        const writer = snapshot.agentProfileSettings.agentProfiles.find((profile) => profile.profileKey === "writer");
+
+        expect(writer?.settings?.form.fields.map((field) => field.path)).toEqual(["writingStylePreset", "narrativePerson"]);
+        expect(writer?.settings?.value).toMatchObject({
+            writingStylePreset: "cinematic",
+            narrativePerson: "first",
+        });
+        expect(writer?.settings?.inheritedValue).toMatchObject({
+            writingStylePreset: "default-style",
+            narrativePerson: "third",
+        });
+        expect(writer?.settings?.globalPatch).toEqual({
+            writingStylePreset: "cinematic",
+            narrativePerson: "first",
+        });
+    });
+
+    it("Agent Profile settings 支持 Project patch 覆盖与继承", async () => {
+        await saveGlobalConfig({
+            agent: {
+                defaultProfileKey: {novel: "leader.default", userAssets: "leader.assets"},
+                profiles: {
+                    writer: {
+                        model: {},
+                        settings: {
+                            writingStylePreset: "cinematic",
+                            narrativePerson: "first",
+                        },
+                    },
+                },
+            },
+        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, catalog);
+
+        const overrideSnapshot = await saveProjectConfig({
+            agent: {
+                profiles: {
+                    writer: {
+                        model: {},
+                        settings: {
+                            narrativePerson: "second",
+                        },
+                    },
+                },
+            },
+        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, catalog, {includeAgentProfileSettings: true});
+        const overridden = overrideSnapshot.agentProfileSettings.agentProfiles.find((profile) => profile.profileKey === "writer");
+
+        expect(overridden?.settings?.value).toMatchObject({
+            writingStylePreset: "cinematic",
+            narrativePerson: "second",
+        });
+        expect(overridden?.settings?.inheritedValue).toMatchObject({
+            writingStylePreset: "cinematic",
+            narrativePerson: "first",
+        });
+        expect(overridden?.settings?.projectPatch).toEqual({
+            narrativePerson: "second",
+        });
+
+        const inheritedSnapshot = await saveProjectConfig({
+            agent: {
+                profiles: {
+                    writer: {
+                        model: {},
+                        settings: {},
+                    },
+                },
+            },
+        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, catalog, {includeAgentProfileSettings: true});
+        const inherited = inheritedSnapshot.agentProfileSettings.agentProfiles.find((profile) => profile.profileKey === "writer");
+
+        expect(inherited?.settings?.value).toMatchObject({
+            writingStylePreset: "cinematic",
+            narrativePerson: "first",
+        });
+        expect(inherited?.settings?.projectPatch).toEqual({});
+    });
+
+    it("Agent Profile settings 保存 Project patch 时按继承后的 effective value 校验", async () => {
+        await saveGlobalConfig({
+            agent: {
+                defaultProfileKey: {novel: "leader.default", userAssets: "leader.assets"},
+                profiles: {
+                    writer: {
+                        model: {},
+                        settings: {
+                            writingStylePreset: "cross-invalid",
+                        },
+                    },
+                },
+            },
+        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, catalog);
+
+        await expect(saveProjectConfig({
+            agent: {
+                profiles: {
+                    writer: {
+                        model: {},
+                        settings: {
+                            narrativePerson: "second",
+                        },
+                    },
+                },
+            },
+        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, catalog)).rejects.toMatchObject({statusCode: 400});
+    });
+
+    it("Agent Profile settings 保存时拒绝非法 option 与自定义校验错误", async () => {
+        await expect(saveGlobalConfig({
+            agent: {
+                defaultProfileKey: {novel: "leader.default", userAssets: "leader.assets"},
+                profiles: {
+                    writer: {
+                        model: {},
+                        settings: {
+                            writingStylePreset: "missing",
+                        },
+                    },
+                },
+            },
+        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, catalog)).rejects.toMatchObject({statusCode: 400});
+
+        await expect(saveGlobalConfig({
+            agent: {
+                defaultProfileKey: {novel: "leader.default", userAssets: "leader.assets"},
+                profiles: {
+                    writer: {
+                        model: {},
+                        settings: {
+                            writingStylePreset: "forbidden",
+                        },
+                    },
+                },
+            },
+        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, catalog)).rejects.toMatchObject({statusCode: 400});
+    });
+
+    it("Project 保存应用 resource mutations 且不把 mutations 写入 config", async () => {
+        const resourceCatalog = createCatalog(["writer"], {writingStyleResource: true});
+
+        await saveProjectConfig({
+            agent: {
+                profiles: {
+                    writer: {
+                        model: {},
+                        settings: {
+                            writingStylePreset: "styles/new.md",
+                        },
+                        resourceMutations: [{
+                            type: "create",
+                            fieldPath: "writingStylePreset",
+                            label: "新文风",
+                            slug: "new",
+                            content: "新的文风正文",
+                        }],
+                    },
+                },
+            },
+        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog);
+        const raw = JSON.parse(await fs.readFile(path.join("workspace", "config-test-project", ".nbook", "config.json"), "utf-8")) as {
+            agent?: {profiles?: {writer?: {resourceMutations?: unknown; settings?: {writingStylePreset?: string}}}}
+        };
+
+        expect(raw.agent?.profiles?.writer?.settings?.writingStylePreset).toBe("styles/new.md");
+        expect(raw.agent?.profiles?.writer?.resourceMutations).toBeUndefined();
+        await expect(fs.readFile(path.join("workspace", "config-test-project", "agents", "writer", "styles", "new.md"), "utf-8")).resolves.toContain("新的文风正文");
+    });
+
+    it("Project 保存 settings 校验失败时不会先写入 resource mutations", async () => {
+        const resourceCatalog = createCatalog(["writer"], {writingStyleResource: true});
+        const resourcePath = path.join("workspace", "config-test-project", "agents", "writer", "styles", "invalid-save.md");
+
+        await expect(saveProjectConfig({
+            agent: {
+                profiles: {
+                    writer: {
+                        model: {},
+                        settings: {
+                            writingStylePreset: "styles/invalid-save.md",
+                            narrativePerson: "bad",
+                        },
+                        resourceMutations: [{
+                            type: "create",
+                            fieldPath: "writingStylePreset",
+                            label: "不应落盘",
+                            slug: "invalid-save",
+                            content: "这段内容不应该写入 profile home",
+                        }],
+                    },
+                },
+            },
+        } as never, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog)).rejects.toMatchObject({statusCode: 400});
+        await expect(fs.access(resourcePath)).rejects.toMatchObject({code: "ENOENT"});
+    });
+
+    it("Project 保存按 resource mutations 最终 key 校验 selected key", async () => {
+        const resourceCatalog = createCatalog(["writer"], {writingStyleResource: true});
+
+        await expect(saveProjectConfig({
+            agent: {
+                profiles: {
+                    writer: {
+                        model: {},
+                        settings: {
+                            writingStylePreset: "styles/first.md",
+                        },
+                        resourceMutations: [{
+                            type: "create",
+                            fieldPath: "writingStylePreset",
+                            label: "先创建",
+                            slug: "first",
+                            content: "不应该落盘",
+                        }, {
+                            type: "rename",
+                            fieldPath: "writingStylePreset",
+                            key: "styles/first.md",
+                            label: "最终资源",
+                            slug: "second",
+                        }],
+                    },
+                },
+            },
+        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog)).rejects.toMatchObject({statusCode: 400});
+
+        await expect(fs.access(path.join("workspace", "config-test-project", "agents", "writer", "styles", "first.md"))).rejects.toMatchObject({code: "ENOENT"});
+        await expect(fs.access(path.join("workspace", "config-test-project", "agents", "writer", "styles", "second.md"))).rejects.toMatchObject({code: "ENOENT"});
+    });
+
+    it("Project 保存按 resource mutations 最终 key 校验没有 validateKey 的 resolver", async () => {
+        const resourceCatalog = createCatalog(["writer"], {customWritingStyleResourceWithoutValidateKey: true});
+
+        const snapshot = await saveProjectConfig({
+            agent: {
+                profiles: {
+                    writer: {
+                        model: {},
+                        settings: {
+                            writingStylePreset: "styles/new.md",
+                        },
+                        resourceMutations: [{
+                            type: "create",
+                            fieldPath: "writingStylePreset",
+                            label: "新文风",
+                            slug: "new",
+                            content: "新的正文",
+                        }],
+                    },
+                },
+            },
+        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog, {includeAgentProfileSettings: true});
+        const writer = snapshot.agentProfileSettings.agentProfiles.find((profile) => profile.profileKey === "writer");
+
+        expect(writer?.settings?.projectPatch).toEqual({writingStylePreset: "styles/new.md"});
+    });
+
+    it("Project 保存拒绝 rename 后继续保存旧 selected key", async () => {
+        const resourceCatalog = createCatalog(["writer"], {writingStyleResource: true});
+        await fs.mkdir(path.join("workspace", "config-test-project", "agents", "writer", "styles"), {recursive: true});
+        await fs.writeFile(path.join("workspace", "config-test-project", "agents", "writer", "styles", "old.md"), "旧正文", "utf-8");
+
+        await expect(saveProjectConfig({
+            agent: {
+                profiles: {
+                    writer: {
+                        model: {},
+                        settings: {
+                            writingStylePreset: "styles/old.md",
+                        },
+                        resourceMutations: [{
+                            type: "rename",
+                            fieldPath: "writingStylePreset",
+                            key: "styles/old.md",
+                            label: "新资源",
+                            slug: "new",
+                        }],
+                    },
+                },
+            },
+        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog)).rejects.toMatchObject({statusCode: 400});
+
+        await expect(fs.readFile(path.join("workspace", "config-test-project", "agents", "writer", "styles", "old.md"), "utf-8")).resolves.toBe("旧正文");
+    });
+
+    it("Project 保存拒绝删除当前最终 selected key", async () => {
+        const resourceCatalog = createCatalog(["writer"], {writingStyleResource: true});
+        await fs.mkdir(path.join("workspace", "config-test-project", "agents", "writer", "styles"), {recursive: true});
+        await fs.writeFile(path.join("workspace", "config-test-project", "agents", "writer", "styles", "old.md"), "旧正文", "utf-8");
+
+        await expect(saveProjectConfig({
+            agent: {
+                profiles: {
+                    writer: {
+                        model: {},
+                        settings: {
+                            writingStylePreset: "styles/old.md",
+                        },
+                        resourceMutations: [{
+                            type: "remove",
+                            fieldPath: "writingStylePreset",
+                            key: "styles/old.md",
+                        }],
+                    },
+                },
+            },
+        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog)).rejects.toMatchObject({statusCode: 400});
+
+        await expect(fs.readFile(path.join("workspace", "config-test-project", "agents", "writer", "styles", "old.md"), "utf-8")).resolves.toBe("旧正文");
+    });
+
+    it("Project 显式保存 global-only resource key 时要求先复制到项目", async () => {
+        const resourceCatalog = createCatalog(["writer"], {writingStyleResource: true});
+        await saveGlobalConfig({
+            agent: {
+                profiles: {
+                    writer: {
+                        model: {},
+                        settings: {
+                            writingStylePreset: "styles/global-only.md",
+                        },
+                        resourceMutations: [{
+                            type: "create",
+                            fieldPath: "writingStylePreset",
+                            label: "全局文风",
+                            slug: "global-only",
+                            content: "全局正文",
+                        }],
+                    },
+                },
+            },
+        }, {workspaceKind: "user-assets"}, resourceCatalog);
+
+        await expect(saveProjectConfig({
+            agent: {
+                profiles: {
+                    writer: {
+                        model: {},
+                        settings: {
+                            writingStylePreset: "styles/global-only.md",
+                        },
+                    },
+                },
+            },
+        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog)).rejects.toMatchObject({
+            statusCode: 400,
+            message: expect.stringContaining("请先复制到项目"),
+        });
+    });
+
+    it("Project 复制 global resource 到项目后允许保存同 key", async () => {
+        const resourceCatalog = createCatalog(["writer"], {writingStyleResource: true});
+        await saveGlobalConfig({
+            agent: {
+                profiles: {
+                    writer: {
+                        model: {},
+                        settings: {
+                            writingStylePreset: "styles/global-only.md",
+                        },
+                        resourceMutations: [{
+                            type: "create",
+                            fieldPath: "writingStylePreset",
+                            label: "全局文风",
+                            slug: "global-only",
+                            content: "全局正文",
+                        }],
+                    },
+                },
+            },
+        }, {workspaceKind: "user-assets"}, resourceCatalog);
+
+        const snapshot = await saveProjectConfig({
+            agent: {
+                profiles: {
+                    writer: {
+                        model: {},
+                        settings: {
+                            writingStylePreset: "styles/global-only.md",
+                        },
+                        resourceMutations: [{
+                            type: "create",
+                            fieldPath: "writingStylePreset",
+                            label: "全局文风",
+                            slug: "global-only",
+                            content: "项目固化正文",
+                        }],
+                    },
+                },
+            },
+        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog, {includeAgentProfileSettings: true});
+        const writer = snapshot.agentProfileSettings.agentProfiles.find((profile) => profile.profileKey === "writer");
+
+        expect(writer?.settings?.projectPatch).toEqual({writingStylePreset: "styles/global-only.md"});
+        await expect(fs.readFile(path.join("workspace", "config-test-project", "agents", "writer", "styles", "global-only.md"), "utf-8")).resolves.toContain("项目固化正文");
+    });
+
+    it("Project 可以重置 profile home 并刷新完整 settings snapshot", async () => {
+        const resourceCatalog = createCatalog(["writer"], {writingStyleResource: true, homeReset: true});
+        const customPath = path.join("workspace", "config-test-project", "agents", "writer", "styles", "custom.md");
+        await fs.mkdir(path.dirname(customPath), {recursive: true});
+        await fs.writeFile(customPath, "用户自定义", "utf-8");
+
+        const snapshot = await resetProjectProfileHome({
+            profileKey: "writer",
+        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog);
+        const writer = snapshot.agentProfileSettings.agentProfiles.find((profile) => profile.profileKey === "writer");
+
+        await expect(fs.access(customPath)).rejects.toMatchObject({code: "ENOENT"});
+        await expect(fs.readFile(path.join("workspace", "config-test-project", "agents", "writer", "styles", "reset.md"), "utf-8")).resolves.toBe("reset");
+        expect(writer?.canResetHome).toBe(true);
+        expect(writer?.settings?.form.fields[0]?.resource?.options).toEqual([expect.objectContaining({key: "styles/reset.md"})]);
+    });
+
+    it("Global 保存完整 Agent Profile settings 时初始化 Global profile home 且不初始化 Project profile home", async () => {
+        const resourceCatalog = createCatalog(["writer"], {writingStyleResource: true});
+
+        const snapshot = await saveGlobalConfig({
+            agent: {
+                defaultProfileKey: {novel: "leader.default", userAssets: "leader.assets"},
+                profiles: {
+                    writer: {
+                        model: {},
+                        settings: {
+                            writingStylePreset: "styles/global-only.md",
+                            narrativePerson: "first",
+                        },
+                        resourceMutations: [{
+                            type: "create",
+                            fieldPath: "writingStylePreset",
+                            label: "全局文风",
+                            slug: "global-only",
+                            content: "全局正文",
+                        }],
+                    },
+                },
+            },
+        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog, {
+            includeAgentProfileSettings: true,
+            agentProfileSettingsScope: "global",
+        });
+        const writer = snapshot.agentProfileSettings.agentProfiles.find((profile) => profile.profileKey === "writer");
+
+        expect(writer?.settings?.form.fields[0]?.resource?.options).toEqual([expect.objectContaining({
+            key: "styles/global-only.md",
+            origin: "global",
+        })]);
+        await fs.access(path.join("workspace", ".nbook", "agents", "writer", "home.json"));
+        await expect(fs.access(path.join("workspace", "config-test-project", "agents", "writer", "home.json"))).rejects.toMatchObject({code: "ENOENT"});
+    });
+
+    it("Global 保存应用 resource mutations 且不把 mutations 写入 config", async () => {
+        const resourceCatalog = createCatalog(["writer"], {writingStyleResource: true});
+
+        await saveGlobalConfig({
+            agent: {
+                profiles: {
+                    writer: {
+                        model: {},
+                        settings: {
+                            writingStylePreset: "styles/new.md",
+                        },
+                        resourceMutations: [{
+                            type: "create",
+                            fieldPath: "writingStylePreset",
+                            label: "新文风",
+                            slug: "new",
+                            content: "全局新文风正文",
+                        }],
+                    },
+                },
+            },
+        }, {workspaceKind: "user-assets"}, resourceCatalog);
+        const raw = JSON.parse(await fs.readFile(path.join("workspace", ".nbook", "config.json"), "utf-8")) as {
+            agent?: {profiles?: {writer?: {resourceMutations?: unknown; settings?: {writingStylePreset?: string}}}}
+        };
+
+        expect(raw.agent?.profiles?.writer?.settings?.writingStylePreset).toBe("styles/new.md");
+        expect(raw.agent?.profiles?.writer?.resourceMutations).toBeUndefined();
+        await expect(fs.readFile(path.join("workspace", ".nbook", "agents", "writer", "styles", "new.md"), "utf-8")).resolves.toContain("全局新文风正文");
+    });
 });
 
 async function moveGlobalConfigAside(): Promise<string | null> {
@@ -669,6 +1208,23 @@ async function moveGlobalConfigAside(): Promise<string | null> {
     return backupPath;
 }
 
+async function moveGlobalAgentsAside(): Promise<string | null> {
+    const agentsPath = path.join("workspace", ".nbook", "agents");
+    try {
+        await fs.access(agentsPath);
+    } catch (error) {
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+            return null;
+        }
+        throw error;
+    }
+
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-agents-test-"));
+    const backupPath = path.join(tempDir, "agents");
+    await fs.rename(agentsPath, backupPath);
+    return backupPath;
+}
+
 async function createProjectFixture(): Promise<void> {
     await fs.mkdir(path.join("workspace", "config-test-project"), {recursive: true});
     await fs.writeFile(path.join("workspace", "config-test-project", "project.yaml"), [
@@ -679,19 +1235,98 @@ async function createProjectFixture(): Promise<void> {
     ].join("\n"), "utf-8");
 }
 
-function createCatalog(profileKeys: string[]): AgentProfileCatalog {
+function createCatalog(
+    profileKeys: string[],
+    options: {writingStyleOptions?: LowCodeFieldDefinition["options"]; writingStyleResource?: boolean; customWritingStyleResourceWithoutValidateKey?: boolean; homeReset?: boolean} = {},
+): AgentProfileCatalog {
     const profileCatalog = new AgentProfileCatalog("__missing_system__", "__missing_user__");
+    const writerSettingsForm = defineLowCodeForm({
+        schema: Type.Object({
+            writingStylePreset: Type.String(),
+            narrativePerson: Type.Union([
+                Type.Literal("first"),
+                Type.Literal("second"),
+                Type.Literal("third"),
+            ]),
+        }, {additionalProperties: false}),
+        defaults: {
+            writingStylePreset: "default-style",
+            narrativePerson: "third",
+        },
+        fields: [
+            {
+                path: "writingStylePreset",
+                component: options.writingStyleResource || options.customWritingStyleResourceWithoutValidateKey ? "resource-preset" : "combobox",
+                label: "文风预设",
+                ...(options.writingStyleResource || options.customWritingStyleResourceWithoutValidateKey ? {
+                    resource: options.customWritingStyleResourceWithoutValidateKey
+                        ? defineResourcePreset({
+                            contentType: "markdown",
+                            template: "模板",
+                            createKeyPrefix: "styles/",
+                            createKeySuffix: ".md",
+                            list: () => [{key: "styles/existing.md", label: "已有文风"}],
+                            read: (_ctx, key) => ({key, contentType: "markdown", content: "正文"}),
+                            create: (_ctx, mutation) => ({key: `styles/${mutation.slug}.md`, contentType: "markdown", content: mutation.content ?? ""}),
+                            createKey: (_ctx, mutation) => `styles/${mutation.slug}.md`,
+                        })
+                        : profileHomeResource({directory: "styles", template: "模板"}),
+                } : {
+                    options: options.writingStyleOptions ?? [
+                    {value: "default-style", label: "默认文风"},
+                    {value: "cinematic", label: "电影感"},
+                    {value: "cross-invalid", label: "交叉校验"},
+                    {value: "forbidden", label: "禁用文风"},
+                    ],
+                }),
+            },
+            {
+                path: "narrativePerson",
+                component: "radio",
+                label: "默认人称",
+                options: [
+                    {value: "third", label: "第三人称"},
+                    {value: "first", label: "第一人称"},
+                    {value: "second", label: "第二人称"},
+                ],
+            },
+        ],
+        validate(value) {
+            const issues: Array<{path: string; severity: "error"; message: string}> = [];
+            if (value.writingStylePreset === "forbidden") {
+                issues.push({path: "writingStylePreset", severity: "error" as const, message: "禁用文风不可保存。"});
+            }
+            if (value.writingStylePreset === "cross-invalid" && value.narrativePerson === "second") {
+                issues.push({path: "narrativePerson", severity: "error" as const, message: "交叉校验文风不能使用第二人称。"});
+            }
+            return issues;
+        },
+    });
     for (const profileKey of profileKeys) {
-        profileCatalog.register(defineAgentProfile({
+        const baseProfile = {
             manifest: {
                 key: profileKey,
                 name: profileKey,
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}, {additionalProperties: false}),
             outputSchema: Type.Unknown(),
-            allowedToolKeys: [],
+            tools: toolset(),
             prepare: () => ({}),
-        }), true);
+            ...(profileKey === "writer" && options.homeReset ? {
+                home: defineProfileHome({
+                    async reset(ctx) {
+                        await ctx.home.clear();
+                        await ctx.home.writeText("styles/reset.md", "reset");
+                    },
+                }),
+            } : {}),
+        } satisfies Parameters<typeof defineAgentProfile>[0];
+        profileCatalog.register(profileKey === "writer"
+            ? defineAgentProfile({
+                ...baseProfile,
+                settingsForm: writerSettingsForm,
+            })
+            : defineAgentProfile(baseProfile), true);
     }
     return profileCatalog;
 }

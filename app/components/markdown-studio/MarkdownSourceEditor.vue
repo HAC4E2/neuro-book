@@ -24,7 +24,7 @@ const props = withDefaults(defineProps<{
     initialValue: "",
     readonly: false,
     autofocus: false,
-    placeholder: "# Markdown 源码\n\n在这里直接编辑 Markdown。",
+    placeholder: "",
     theme: "sepia",
     visible: false,
     language: "markdown",
@@ -44,6 +44,7 @@ const emit = defineEmits<{
     (e: "shift-tab"): void;
     (e: "update-temporary-font-size", value: number): void;
 }>();
+const {t} = useI18n();
 
 const editorRootRef = ref<HTMLDivElement | null>(null);
 let monacoApi: MonacoEditorApi | null = null;
@@ -58,6 +59,7 @@ let wheelListenerRoot: HTMLDivElement | null = null;
 let editorDisposed = false;
 let suppressModelSync = false;
 let outsideSyncVersion = 0;
+const editorPlaceholder = computed(() => props.placeholder || t("markdownStudio.source.placeholder"));
 
 const effectiveFontSize = computed(() => clampNumber(
     props.temporaryFontSize ?? props.monacoPreferences.fontSize,
@@ -431,7 +433,7 @@ onMounted(async () => {
         renderLineHighlight: "gutter",
         roundedSelection: true,
         ...buildEditorOptions(),
-        placeholder: props.placeholder,
+        placeholder: editorPlaceholder.value,
     });
     applyModelOptions();
 

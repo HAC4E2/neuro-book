@@ -19,7 +19,7 @@
 - `tools`
 - `context(ctx)`
 
-需要每轮结构化调用载荷时声明 `payloadSchema`。需要结构化结果时声明 `outputSchema`。存在 `outputSchema` 时，`report_result.data` 是主路结构化输出的 runtime 校验依据；provider-visible schema 中该字段保持 optional，方便任务失败或只返回可读错误说明时仍能结束主 run。旁路结构化结果不要复用 `report_result`，必须通过 `report_sidecar_result.data` 返回。
+需要每轮结构化调用载荷时声明 `payloadSchema`。需要结构化结果时声明 `outputSchema`。需要 profile 自定义默认预设时声明 `settingsForm`，运行时通过 `ctx.settings` 读取合并后的设置；settings 不属于创建期 initial，也不属于单次 invocation payload。存在 `outputSchema` 时，`report_result.data` 是主路结构化输出的 runtime 校验依据；provider-visible schema 中该字段保持 optional，方便任务失败或只返回可读错误说明时仍能结束主 run。旁路结构化结果不要复用 `report_result`，必须通过 `report_sidecar_result.data` 返回。
 
 `tools` 是 profile 的根工具绑定对象，决定模型可见工具 schema 和 profile 最大执行权限。推荐用 `toolset(builtin...)` 显式声明工具集合；需要定制 `report_result.data` schema 时使用 `builtin.result.main({ dataSchema: OutputSchema })`。如果 profile 有 sidecar，root `tools` 需要同时声明 `builtin.result.sidecar()`；其 `data` schema 会由当前 profile 全部 `sidecarDataSchema` 汇总成 sidecar-name keyed 的 profile-stable union。sidecar 调用时必须传 `data: { "<sidecar-name>": payload }`，payload 才按该 sidecar 的 `sidecarDataSchema` 校验。主 run 需要收窄执行权限时声明顶层 `toolKeys`，sidecar 需要收窄执行权限时声明 `sidecar.toolKeys`，二者都只能引用根 `tools` 中已有的 key。
 
@@ -51,11 +51,62 @@
 - `ctx.initial`：通过 `initialSchema` 校验后的 profile 创建期初始化数据。
 - `ctx.invocation?.payload`：通过 `payloadSchema` 校验后的本轮结构化载荷。未声明 `payloadSchema` 的 profile 不接受 payload。
 - `ctx.invocation?.message`：本轮自然语言 message；它不属于 `PayloadSchema`。
+- `ctx.settings`：通过 `settingsForm` defaults、Global Config 与 Project Config patch 合并并校验后的 profile 设置。未声明 `settingsForm` 的 profile 默认为 `{}`。
 - `ctx.session`：当前 session facade，包含 workspaceRoot、messages、customState、linkedAgents 等。
 - `ctx.vars`：变量访问器。TSX 中优先用 `<Variable>` 和 `<VariableSchema>` 注入。
 - `ctx.catalog`：当前可见 agent profiles 和 profile issues。
 - `ctx.skills`：当前可见 skills。
 - `ctx.runtime`：本轮时间、用户 turn 计数等 runtime 信息。
+
+## Profile Settings
+
+`settingsForm` 用来表达 profile 自己拥有的可视化设置，例如 writer 的文风预设、文风参考预设和默认人称。它适合放“长期默认偏好”，不适合放本轮任务、目标文件、临时上下文或用户自然语言要求。
+
+settings 使用 `defineLowCodeForm()` 定义：
+
+```ts
+import {Type} from "typebox";
+import {defineLowCodeForm} from "nbook/server/low-code-form";
+
+export const SettingsSchema = Type.Object({
+    writingStylePreset: Type.String(),
+}, {additionalProperties: false});
+
+export const WriterSettingsForm = defineLowCodeForm({
+    schema: SettingsSchema,
+    defaults: {
+        writingStylePreset: "default",
+    },
+    fields: [{
+        path: "writingStylePreset",
+        component: "combobox",
+        label: "文风预设",
+        placeholder: "选择默认文风",
+        async options() {
+            return [
+                {value: "default", label: "默认文风"},
+            ];
+        },
+    }],
+});
+```
+
+第一版低代码 form 支持：
+
+- TypeBox schema 类型校验。
+- `defaults` 默认值。
+- 字段级动态 `options(ctx)`。
+- async `validate(value, ctx)` 自定义校验，返回字段级 issue。
+- 组件：`text`、`textarea`、`number`、`switch`、`select`、`combobox`、`radio`、`checkbox`。
+
+第一版限制：
+
+- `field.path` 只支持 settings 对象的顶层字段，不支持 dot path nested merge。
+- `checkbox` 表示多选复选框组，值必须是数组，option value 只支持 `string | number`。
+- `switch` 表示单个 boolean。
+- `combobox` 只能选择 options 中的值，不允许自由输入。
+
+Config 层保存 `agent.profiles[profileKey].settings` patch。Global patch 覆盖 profile defaults；Project patch 覆盖 Global，并在 Project UI 中展示字段级“继承 / 覆盖”。保存时服务端会执行 schema、options 和自定义校验；运行时如果读到损坏 settings，会回退 defaults 并记录 warning，避免 profile 不可用。
 
 ## TSX Contract
 

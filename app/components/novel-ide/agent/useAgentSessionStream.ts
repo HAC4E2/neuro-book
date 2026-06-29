@@ -43,6 +43,10 @@ type AgentSessionStreamOptions = {
     onError?: (error: unknown, fallback: string) => void;
 };
 
+type RuntimeI18n = {
+    t: (key: string) => string;
+};
+
 const reconnectDelay = (attempt: number): number => {
     const delays = [300, 800, 1500, 3000, 5000];
     return delays[Math.min(attempt, delays.length - 1)] ?? 5000;
@@ -50,6 +54,18 @@ const reconnectDelay = (attempt: number): number => {
 const DISCONNECTED_AFTER_ATTEMPTS = 3;
 
 const isAbortError = (error: unknown): boolean => error instanceof DOMException && error.name === "AbortError";
+
+/**
+ * SSE stream helper 会被普通 Vitest 直接实例化；这里不能依赖 setup-only 的 useI18n。
+ */
+function translate(key: string, fallback: string): string {
+    try {
+        const nuxtApp = useNuxtApp() as {$i18n?: RuntimeI18n};
+        return nuxtApp.$i18n?.t(key) ?? fallback;
+    } catch {
+        return fallback;
+    }
+}
 
 /**
  * 管理 Agent session SSE 连接、重连和 snapshot single-flight。
@@ -120,7 +136,7 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
                 options.applySnapshotSideEffects?.(snapshot);
                 return true;
             } catch (error) {
-                options.onError?.(error, "同步 Agent session 失败");
+                options.onError?.(error, translate("agent.chatSurface.syncSessionFailed", "同步 Agent session 失败"));
                 return false;
             } finally {
                 if (snapshotPromise === request) {

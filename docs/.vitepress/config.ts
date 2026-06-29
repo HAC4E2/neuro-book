@@ -25,6 +25,7 @@ export default defineConfig({
       { text: 'Agent', link: '/agent/' },
       { text: 'Profile', link: '/profile/' },
       { text: 'Reference', link: 'https://github.com/notnotype/neuro-book/blob/master/reference/README.md' },
+      { text: 'English', link: 'https://github.com/notnotype/neuro-book/blob/master/README.en.md' },
       { text: 'GitHub', link: 'https://github.com/notnotype/neuro-book' }
     ],
 

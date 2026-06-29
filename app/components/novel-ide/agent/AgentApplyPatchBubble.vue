@@ -6,6 +6,7 @@ import {parseToolArgsObject} from "nbook/app/components/novel-ide/agent/tool-arg
 const props = defineProps<{
     toolCall: AgentToolCall;
 }>();
+const {t} = useI18n();
 
 interface ApplyPatchArgs {
     path?: string;
@@ -47,7 +48,7 @@ const touchedFiles = computed(() => {
                 <span class="mr-1 inline-block h-3 w-3 align-text-bottom i-lucide-file-diff"></span>
                 {{ filePath }}
             </span>
-            <span v-if="touchedFiles.length === 0" class="rounded border border-[var(--accent-main)]/30 bg-[var(--bg-main)] px-2 py-1 font-mono text-[11px] text-[var(--accent-main)]">解析路径中...</span>
+            <span v-if="touchedFiles.length === 0" class="rounded border border-[var(--accent-main)]/30 bg-[var(--bg-main)] px-2 py-1 font-mono text-[11px] text-[var(--accent-main)]">{{ t("agent.tool.resolvingPath") }}</span>
         </div>
 
         <!-- Patch Preview -->
@@ -62,7 +63,7 @@ const touchedFiles = computed(() => {
 
         <div v-if="props.toolCall.status === 'success'" class="mt-2 flex items-center gap-1.5 text-[11px] font-medium text-green-500/80">
             <span class="i-lucide-check-circle h-3.5 w-3.5"></span>
-            补丁应用成功
+            {{ t("agent.tool.patchApplied") }}
         </div>
     </div>
 </template>

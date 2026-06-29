@@ -14,7 +14,7 @@
 - `order` 使用两位数字，从 `01` 开始；active task 按 README 首次加入 git 的时间正序编号，缺少 git 记录时使用目录 LastWriteTime。
 - `name` 使用英文 kebab-case。
 - 每个任务目录至少包含 `README.md`。
-- 需要额外资料时，可以在任务目录内添加 `notes.md`、`references.md` 或截图资源。
+- 并不一定强制都把任务塞到 README.md 里，还可以在任务目录类放其他和任务有关的文档等资料，例如 notes.md, references.md
 
 ## 归档
 
@@ -22,6 +22,17 @@
 - 用户可以手动归档任务。
 - 执行任务治理时，目录 LastWriteTime 早于当前时间三天的 task 会移入 `archived/`。
 - archived task 不参与 active 编号，也不要求继续维护 `PROJECT-STATUS.md` 同步状态。
+- 每一轮的实现报告都需要记录在这个 58 号任务目录下的 walkthourghs/ 子文件夹中
+
+## goal 模式工作流程
+
+如果你正在持续推进某个任务，则按照这个流程循环进行：
+
+调研/计划 -> 编码/实现 -> 测试 -> 浏览器测试 -> 代码审查 <-> 修复（回到代码审查） -> 调研/计划 或者 结束任务
+
+最后应该从用户的角度，新建一个 project 跑一个实际的例子，评估这个系统的好用程度，bug。然后继续优化
+
+注意：实现的过程中如果堵塞，可以尝试稍微绕道，但是每次绕道到必须要在 walkthourgh 文件中记录好。重大出入则记录到 README.md 中
 
 ## 同步要求
 

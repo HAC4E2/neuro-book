@@ -28,6 +28,7 @@ const props = defineProps<{
 
 const userInputContext = inject(AGENT_REQUEST_USER_INPUT_CONTEXT_KEY, null);
 const showApprovedPreview = ref(false);
+const {t} = useI18n();
 
 /**
  * 当前 exit_plan_mode 是否仍在等待审批。
@@ -92,17 +93,17 @@ const selectedIndexes = computed(() => {
 
 function selectedOptionLabel(optionIndex: number): string {
     if (optionIndex === NONE_OF_ABOVE_OPTION_INDEX) {
-        return "追加建议";
+        return t("agent.planApproval.addSuggestion");
     }
     const optionLabel = questionOptions.value[optionIndex]?.label;
     if (optionLabel) {
         return optionLabel;
     }
     if (optionIndex === APPROVE_OPTION_INDEX) {
-        return "批准";
+        return t("agent.planApproval.approve");
     }
     if (optionIndex === REJECT_OPTION_INDEX) {
-        return "拒绝";
+        return t("agent.planApproval.reject");
     }
     return String(optionIndex);
 }
@@ -112,12 +113,12 @@ const selectedLabel = computed(() => {
         return "";
     }
     if (parsedAnswer.value.ignored) {
-        return "已忽略";
+        return t("agent.planApproval.ignored");
     }
     if (selectedIndexes.value.length === 0) {
-        return "开放回答";
+        return t("agent.planApproval.openAnswer");
     }
-    return selectedIndexes.value.map(selectedOptionLabel).join("、");
+    return selectedIndexes.value.map(selectedOptionLabel).join(t("agent.planApproval.separator"));
 });
 
 const shouldShowPlanPreview = computed(() => {
@@ -141,30 +142,30 @@ const planSummary = computed(() => {
 
 const statusLabel = computed(() => {
     if (isPendingQuestion.value) {
-        return hasPlanFileArgument.value ? "计划文件审批中" : "聊天计划审批中";
+        return hasPlanFileArgument.value ? t("agent.planApproval.pendingFile") : t("agent.planApproval.pendingChat");
     }
     if (!parsedAnswer.value) {
         if (parsedRawResult.value?.approved === true) {
-            return "计划已批准";
+            return t("agent.planApproval.approved");
         }
         if (parsedRawResult.value?.approved === false) {
-            return "计划已拒绝";
+            return t("agent.planApproval.rejected");
         }
-        return hasPlanFileArgument.value ? "计划文件审批" : "聊天计划审批";
+        return hasPlanFileArgument.value ? t("agent.planApproval.fileApproval") : t("agent.planApproval.chatApproval");
     }
     if (parsedAnswer.value.ignored) {
-        return "计划审批已暂停";
+        return t("agent.planApproval.paused");
     }
     if (selectedIndexes.value.includes(APPROVE_OPTION_INDEX)) {
-        return "计划已批准";
+        return t("agent.planApproval.approved");
     }
     if (selectedIndexes.value.includes(NONE_OF_ABOVE_OPTION_INDEX)) {
-        return "已追加建议";
+        return t("agent.planApproval.suggestionAdded");
     }
     if (selectedIndexes.value.includes(REJECT_OPTION_INDEX) || parsedRawResult.value?.approved === false) {
-        return "计划已拒绝";
+        return t("agent.planApproval.rejected");
     }
-    return "已追加建议";
+    return t("agent.planApproval.suggestionAdded");
 });
 </script>
 
@@ -180,7 +181,7 @@ const statusLabel = computed(() => {
                     v-if="!isPendingQuestion && planContent"
                     class="ml-auto shrink-0 rounded p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
                     type="button"
-                    :title="showApprovedPreview ? '折叠计划预览' : '展开计划预览'"
+                    :title="showApprovedPreview ? t('agent.planApproval.collapsePreview') : t('agent.planApproval.expandPreview')"
                     @click="showApprovedPreview = !showApprovedPreview"
                 >
                     <span :class="showApprovedPreview ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" class="h-3.5 w-3.5"></span>
@@ -191,19 +192,19 @@ const statusLabel = computed(() => {
                 <AgentMarkdownContent :content="planContent" />
             </div>
             <div v-else-if="planSummary" class="line-clamp-2 break-words text-xs leading-5 text-[var(--text-secondary)]">
-                {{ planSummary || "计划预览已折叠。" }}
+                {{ planSummary || t("agent.planApproval.collapsed") }}
             </div>
             <div v-else class="text-xs leading-5 text-[var(--text-muted)]">
-                {{ hasPlanFileArgument ? "计划文件未附带可展示内容；请以聊天中已经展示的计划为准。" : "本次退出审批未携带计划文件；请以聊天中已经展示的计划为准。" }}
+                {{ hasPlanFileArgument ? t("agent.planApproval.noFileContent") : t("agent.planApproval.noChatContent") }}
             </div>
 
             <div v-if="isPendingQuestion" class="mt-2 flex items-center gap-2 text-[11px] leading-5 text-amber-700">
                 <span class="i-lucide-clock h-3.5 w-3.5 shrink-0"></span>
-                <span>等待用户审批，请在输入框上方完成选择。</span>
+                <span>{{ t("agent.planApproval.waiting") }}</span>
             </div>
             <div v-else-if="parsedAnswer" class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] leading-5 text-[var(--text-muted)]">
-                <span>选择：{{ selectedLabel }}</span>
-                <span v-if="parsedAnswer.note">备注：{{ parsedAnswer.note }}</span>
+                <span>{{ t("agent.planApproval.choice", {label: selectedLabel}) }}</span>
+                <span v-if="parsedAnswer.note">{{ t("agent.planApproval.note", {note: parsedAnswer.note}) }}</span>
             </div>
         </div>
     </div>

@@ -31,7 +31,8 @@ const baseSnapshot = (lastSeq = 0, eventEpoch = "epoch-1"): AgentSessionSnapshot
     entries: [],
     linkedAgents: [],
     linkedByAgents: [],
-    pendingApproval: null,
+    pendingUserInputs: [],
+    pendingApprovals: [],
     steerQueue: [],
     followUpQueue: {
         status: "ready",
@@ -322,7 +323,8 @@ describe("useAgentSessionStream", () => {
                             activeInvocation: null,
                             activeLeafId: "entry-1",
                             activePathRevision: "leaf-move-1",
-                            pendingApproval: null,
+                            pendingUserInputs: [],
+                            pendingApprovals: [],
                             steerQueue: [],
                             followUpQueue: {
                                 status: "ready",

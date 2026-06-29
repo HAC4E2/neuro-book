@@ -39,8 +39,14 @@ describe("agent session http helpers", () => {
         });
     });
 
-    it("listAgentSessions 调用 harness.listSessions", async () => {
-        const listSessions = vi.fn(async () => []);
+    it("listAgentSessions 调用 harness.listSessionPage", async () => {
+        const listSessionPage = vi.fn(async () => ({
+            items: [],
+            total: 0,
+            offset: 0,
+            limit: 25,
+            hasMore: false,
+        }));
         const query = {
             workspaceKey: "global",
             includeArchived: true,
@@ -50,9 +56,12 @@ describe("agent session http helpers", () => {
             limit: 25,
         } as const;
 
-        await listAgentSessions(query, {listSessions} as never);
+        await expect(listAgentSessions(query, {listSessionPage} as never)).resolves.toEqual(expect.objectContaining({
+            items: [],
+            total: 0,
+        }));
 
-        expect(listSessions).toHaveBeenCalledWith(query);
+        expect(listSessionPage).toHaveBeenCalledWith(query);
     });
 
     it("getAgentSessionSnapshot 调用 harness.getSessionSnapshot", async () => {
@@ -112,6 +121,28 @@ describe("agent session http helpers", () => {
         await runAgentSessionCommand(12, {command: "plan", active: true}, {runCommand} as never);
 
         expect(runCommand).toHaveBeenCalledWith(12, {command: "plan", active: true});
+    });
+
+    it("热路径 helper 会把 Server-Timing sink 传给 harness", async () => {
+        const timingSink = {mark: vi.fn()};
+        const getSessionSnapshot = vi.fn(async () => ({sessionId: 12}));
+        const getSessionRelations = vi.fn(async () => ({
+            sessionId: 12,
+            linkedAgents: [],
+            linkedByAgents: [],
+        }));
+        const runCommand = vi.fn(async () => ({
+            status: "completed",
+            sessionId: 12,
+        }));
+
+        await getAgentSessionSnapshot(12, {getSessionSnapshot} as never, timingSink);
+        await getAgentSessionRelations(12, {getSessionRelations} as never, timingSink);
+        await runAgentSessionCommand(12, {command: "plan", active: true}, {runCommand} as never, timingSink);
+
+        expect(getSessionSnapshot).toHaveBeenCalledWith(12, timingSink);
+        expect(getSessionRelations).toHaveBeenCalledWith(12, timingSink);
+        expect(runCommand).toHaveBeenCalledWith(12, {command: "plan", active: true}, timingSink);
     });
 
     it("moveAgentSessionTree 调用 harness.moveTree", async () => {

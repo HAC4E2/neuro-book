@@ -1061,8 +1061,8 @@ ${pendingEntries || "- none"}
 - Run \`workspace node validate\` on the affected lorebook roots above.
 - Review the classification queue before treating pending notes as canon.
 - Do not copy god-view worldbook content directly into \`simulation/subjects/*/memory.jsonl\`.
-- If the project needs RP or world simulation, use \`novel-workflow-05-emulation-bootstrap\` after reviewing this report.
-- If the user wants plot progression, use \`novel-workflow-06-emulation-tick\` after simulation is initialized.
+- For normal writing mode, initialize dynamic state with \`novel-workflow-world-engine-init\`, then use \`novel-workflow-08-plot-planning\` for plot/state progression.
+- Use \`novel-workflow-05-emulation-bootstrap\` or \`novel-workflow-06-emulation-tick\` only when the user explicitly wants RP / legacy simulation.
 `;
 }
 
@@ -1137,7 +1137,7 @@ function renderSimulationMigrationReadme(inspection: CardInspection): string {
 function renderSimulatorCandidates(inspection: CardInspection, loaded: RawCardInput): string {
     return `# ${markdownHeadingText(inspection.name)} Simulator Candidates
 
-这些材料可能转写到 \`agent-context/simulator.leader/context.md\`、system lorebook 或后续 emulation bootstrap。不要直接复制动态指令。
+这些材料可能转写到 \`agents/simulator.leader/context.md\`、system lorebook 或后续 emulation bootstrap。不要直接复制动态指令。
 
 ## System / Rule Entries
 
@@ -1152,7 +1152,7 @@ ${renderEntryArchive(loaded, (entry) => entry.categories.includes("dynamic-mvu")
 function renderWriterCandidates(inspection: CardInspection, loaded: RawCardInput): string {
     return `# ${markdownHeadingText(inspection.name)} Writer Candidates
 
-这些材料只在确认为作品级、静态、可复用的写作说明后，才考虑转写到 \`lorebook/instruction/\` 或 \`agent-context/rp.writer/context.md\`。
+这些材料只在确认为作品级、静态、可复用的写作说明后，才考虑转写到 \`lorebook/instruction/\` 或 \`agents/rp.writer/context.md\`。
 
 ${renderEntryArchive(loaded, (entry) => entry.categories.some((category) => category === "formatting" || category === "dynamic-prompt"))}
 `;

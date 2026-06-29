@@ -9,6 +9,7 @@ import {
 const props = defineProps<{
     toolCall: AgentToolCall;
 }>();
+const {t} = useI18n();
 
 interface EditFileArgs {
     path?: string;
@@ -38,7 +39,7 @@ const resultText = computed(() => props.toolCall.result?.trim() ?? "");
         <div class="flex items-center gap-2">
             <span class="rounded bg-[var(--bg-main)] px-2 py-1 font-mono text-[11px] text-[var(--accent-main)] border border-[var(--accent-main)]/30">
                 <span class="i-lucide-file-edit h-3 w-3 mr-1 inline-block align-text-bottom"></span>
-                {{ filePathText || "解析路径中..." }}
+                {{ filePathText || t("agent.tool.resolvingPath") }}
             </span>
             <span v-if="(parsedArgs.edits?.length ?? 0) > 1" class="rounded border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1 font-mono text-[10px] text-[var(--text-muted)]">{{ parsedArgs.edits?.length }} edits</span>
         </div>
@@ -70,7 +71,7 @@ const resultText = computed(() => props.toolCall.result?.trim() ?? "");
 
         <div v-if="props.toolCall.status === 'success'" class="flex items-center text-[11px] text-green-500/80 mt-2 gap-1.5 font-medium">
             <span class="i-lucide-check-circle h-3.5 w-3.5"></span>
-            文件修改成功
+            {{ t("agent.tool.fileEdited") }}
         </div>
     </div>
 </template>

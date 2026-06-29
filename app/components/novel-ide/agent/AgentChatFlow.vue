@@ -60,6 +60,7 @@ const shouldStickToBottom = ref(true);
 const lastScrollTop = ref(0);
 let pendingImmediateScroll = true;
 let autoScrollFrame: number | null = null;
+const {t} = useI18n();
 
 const chatNodes = computed(() => {
     return toChatNodes(props.messages);
@@ -273,8 +274,8 @@ defineExpose({ scrollToBottom: forceScrollToBottom, scrollRef });
                     <span class="i-lucide-bot h-6 w-6 text-[var(--text-muted)]"></span>
                 </div>
                 <div class="space-y-2">
-                    <h3 class="text-base font-medium text-[var(--text-main)]">开始与 AI 协作</h3>
-                    <p class="text-sm leading-relaxed text-[var(--text-muted)]">你可以让我帮你设计角色、规划大纲，或者直接讨论接下来的剧情走向。</p>
+                    <h3 class="text-base font-medium text-[var(--text-main)]">{{ t("agent.chat.startTitle") }}</h3>
+                    <p class="text-sm leading-relaxed text-[var(--text-muted)]">{{ t("agent.chat.startDescription") }}</p>
                 </div>
             </template>
             <!-- compact 模式空状态 -->
@@ -282,7 +283,7 @@ defineExpose({ scrollToBottom: forceScrollToBottom, scrollRef });
                 <div class="flex h-8 w-8 items-center justify-center rounded-xl border border-[var(--border-color)] bg-[var(--bg-input)]">
                     <span class="i-lucide-loader-circle h-4 w-4 animate-spin text-[var(--text-muted)]"></span>
                 </div>
-                <p class="text-xs text-[var(--text-muted)]">等待 Agent 响应…</p>
+                <p class="text-xs text-[var(--text-muted)]">{{ t("agent.chat.waiting") }}</p>
             </template>
         </div>
     </div>

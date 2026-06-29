@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import type {AgentPendingUserInputSession} from "nbook/app/components/novel-ide/agent/agent-message";
+import type {LowCodeJsonObject} from "nbook/shared/dto/low-code-form.dto";
+import LowCodeForm from "nbook/app/components/common/low-code-form/LowCodeForm.vue";
 
 const NONE_OF_ABOVE_OPTION_INDEX = -1;
 
@@ -27,13 +29,27 @@ const emit = defineEmits<{
             ignored?: boolean;
         }>;
     }): void;
+    /** Task 63: Low-Code Form 提交事件 */
+    (e: "submit-form", payload: {
+        assistantMessageId: string;
+        toolCallId: string;
+        data: LowCodeJsonObject;
+    }): void;
 }>();
 
 const activeToolNodeId = ref("");
 const activeQuestionIndexValue = ref(0);
 const isCollapsed = ref(false);
+const {t} = useI18n();
+
+// Task 63: Low-Code Form 状态
+const lowCodeFormData = ref<LowCodeJsonObject>({});
+const isLowCodeFormMode = computed(() => Boolean(props.session.form));
 
 const activeQuestion = computed(() => {
+    if (isLowCodeFormMode.value) {
+        return null;
+    }
     return props.session.questions.find((question) => question.toolNodeId === activeToolNodeId.value && question.questionIndex === activeQuestionIndexValue.value) ?? props.session.questions[0];
 });
 
@@ -60,21 +76,21 @@ const isExitPlanModeApproval = computed(() => activeQuestion.value?.approvalActi
 
 const submitButtonLabel = computed(() => {
     if (!isToolApproval.value) {
-        return canSubmit.value ? "继续" : "下一条";
+        return canSubmit.value ? t("agent.userInput.continue") : t("agent.userInput.next");
     }
     if (activeAnswer.value.includes(0)) {
-        return "批准";
+        return t("agent.userInput.approve");
     }
     return isExitPlanModeApproval.value && activeAnswer.value.includes(NONE_OF_ABOVE_OPTION_INDEX)
-        ? "提交建议"
-        : "提交";
+        ? t("agent.userInput.submitSuggestion")
+        : t("agent.userInput.submit");
 });
 
-const ignoreButtonLabel = computed(() => isToolApproval.value ? "终止本轮" : "忽略");
-const noneOfAboveLabel = computed(() => isExitPlanModeApproval.value ? "追加建议" : "其他答案");
+const ignoreButtonLabel = computed(() => isToolApproval.value ? t("agent.userInput.terminateRun") : t("agent.userInput.ignore"));
+const noneOfAboveLabel = computed(() => isExitPlanModeApproval.value ? t("agent.userInput.addSuggestion") : t("agent.userInput.otherAnswer"));
 const noneOfAboveDescription = computed(() => isExitPlanModeApproval.value
-    ? "在下方输入框写下建议，Agent 会继续留在 Plan Mode 调整计划。"
-    : "在下方输入框补充你的其他答案。");
+    ? t("agent.userInput.suggestionDescription")
+    : t("agent.userInput.otherAnswerDescription"));
 
 const answeredCount = computed(() => {
     return props.session.questions.filter((question) => hasAnswer(questionKey(question.toolNodeId, question.questionIndex))).length;
@@ -200,6 +216,10 @@ function ignoreQuestion(): void {
  * 进入下一题，全部完成后提交。
  */
 function continueQuestion(): void {
+    if (isLowCodeFormMode.value) {
+        submitLowCodeForm();
+        return;
+    }
     if (!activeQuestion.value || !hasAnswer(questionKey(activeQuestion.value.toolNodeId, activeQuestion.value.questionIndex)) || props.submitting || props.readonly) {
         return;
     }
@@ -237,7 +257,44 @@ function submit(): void {
     });
 }
 
+/**
+ * Task 63: 提交 Low-Code Form 数据。
+ */
+function submitLowCodeForm(): void {
+    if (!props.session.form || !props.session.formToolCallId || props.submitting || props.readonly) {
+        return;
+    }
+    emit("submit-form", {
+        assistantMessageId: props.session.assistantMessageId,
+        toolCallId: props.session.formToolCallId,
+        data: lowCodeFormData.value,
+    });
+}
+
+/**
+ * Task 63: 忽略 Low-Code Form 请求。
+ */
+function ignoreLowCodeForm(): void {
+    if (!props.session.form || !props.session.formToolCallId || props.submitting || props.readonly) {
+        return;
+    }
+    emit("submit", {
+        assistantMessageId: props.session.assistantMessageId,
+        resume: false,
+        answers: [{
+            toolNodeId: props.session.formToolCallId,
+            questionIndex: 0,
+            ignored: true,
+        }],
+    });
+}
+
 watch(() => props.session.assistantMessageId, () => {
+    if (isLowCodeFormMode.value) {
+        lowCodeFormData.value = {};
+        isCollapsed.value = false;
+        return;
+    }
     activeToolNodeId.value = props.session.questions[0]?.toolNodeId ?? "";
     activeQuestionIndexValue.value = props.session.questions[0]?.questionIndex ?? 0;
     isCollapsed.value = false;
@@ -245,6 +302,9 @@ watch(() => props.session.assistantMessageId, () => {
 }, {immediate: true});
 
 watch(() => props.session.questions.map((question) => `${question.toolNodeId}\n${question.questionIndex}`).join("\n"), () => {
+    if (isLowCodeFormMode.value) {
+        return;
+    }
     applyDefaultAnswers();
     if (props.session.questions.some((question) => question.toolNodeId === activeToolNodeId.value && question.questionIndex === activeQuestionIndexValue.value)) {
         return;
@@ -282,14 +342,69 @@ defineExpose({
 </script>
 
 <template>
-    <!-- 挂起中的结构化问题 -->
-    <div v-if="activeQuestion" class="min-w-0 w-full max-w-full sm:max-w-[560px] overflow-hidden rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] shadow-lg shadow-black/5">
+    <!-- Task 63: Low-Code Form 模式 -->
+    <div v-if="isLowCodeFormMode && props.session.form" class="min-w-0 w-full max-w-full sm:max-w-[560px] overflow-hidden rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] shadow-lg shadow-black/5">
         <div class="flex items-center justify-between gap-3 border-b border-[var(--border-color)]/60 px-3 py-1.5">
             <div class="min-w-0">
                 <div class="flex items-center gap-2 text-[11px] font-medium text-[var(--text-muted)]">
-                    <span>{{ activeQuestion.header || (isToolApproval ? "审批" : "当前需求") }}</span>
+                    <span>{{ t("agent.userInput.formRequest") }}</span>
+                </div>
+            </div>
+            <div class="flex shrink-0 items-center gap-1.5 text-xs text-[var(--text-muted)]">
+                <button
+                    class="flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
+                    :title="isCollapsed ? t('agent.userInput.expand') : t('agent.userInput.collapse')"
+                    @click="isCollapsed = !isCollapsed"
+                >
+                    <span :class="isCollapsed ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" class="h-3.5 w-3.5"></span>
+                </button>
+            </div>
+        </div>
+
+        <div v-if="!isCollapsed" class="max-h-[400px] overflow-y-auto px-3 pb-2 pt-2">
+            <LowCodeForm
+                :form="props.session.form"
+                v-model="lowCodeFormData"
+                :disabled="props.submitting || props.readonly"
+            />
+        </div>
+
+        <div class="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border-color)]/70 bg-[var(--bg-panel)]/35 px-3 py-1.5">
+            <div class="min-w-0 text-xs text-[var(--text-muted)]">
+                {{ t("agent.userInput.fillForm") }}
+            </div>
+            <div class="flex min-w-0 shrink-0 items-center gap-2">
+                <button
+                    type="button"
+                    class="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40"
+                    :disabled="props.submitting || props.readonly"
+                    @click="ignoreLowCodeForm"
+                >
+                    <span>{{ t("agent.userInput.ignore") }}</span>
+                    <span class="rounded bg-[var(--bg-panel)] px-1.5 py-0.5 text-[10px]">ESC</span>
+                </button>
+                <button
+                    type="button"
+                    class="inline-flex h-7 items-center gap-1.5 rounded-md bg-[var(--accent-main)] px-3 text-[11px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                    :disabled="props.submitting || props.readonly"
+                    @click="submitLowCodeForm"
+                >
+                    <span>{{ t("agent.userInput.submit") }}</span>
+                    <span v-if="props.submitting" class="i-lucide-loader-2 h-3.5 w-3.5 animate-spin"></span>
+                    <span v-else class="i-lucide-corner-down-left h-3.5 w-3.5"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 挂起中的结构化问题 -->
+    <div v-else-if="activeQuestion" class="min-w-0 w-full max-w-full sm:max-w-[560px] overflow-hidden rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] shadow-lg shadow-black/5">
+        <div class="flex items-center justify-between gap-3 border-b border-[var(--border-color)]/60 px-3 py-1.5">
+            <div class="min-w-0">
+                <div class="flex items-center gap-2 text-[11px] font-medium text-[var(--text-muted)]">
+                    <span>{{ activeQuestion.header || (isToolApproval ? t("agent.userInput.approval") : t("agent.userInput.currentRequest")) }}</span>
                     <span class="tabular-nums">{{ activeQuestionIndex + 1 }} / {{ questionCount }}</span>
-                    <span class="tabular-nums">已答 {{ answeredCount }}</span>
+                    <span class="tabular-nums">{{ t("agent.userInput.answeredCount", {count: answeredCount}) }}</span>
                 </div>
                 <div v-if="isCollapsed" class="mt-0.5 truncate text-xs font-semibold text-[var(--text-main)]">{{ activeQuestion.question }}</div>
             </div>
@@ -297,7 +412,7 @@ defineExpose({
                 <button
                     class="flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-35"
                     :disabled="isCollapsed || activeQuestionIndex === 0"
-                    title="上一题"
+                    :title="t('agent.userInput.previous')"
                     @click="switchQuestion(activeQuestionIndex - 1)"
                 >
                     <span class="i-lucide-chevron-left h-3.5 w-3.5"></span>
@@ -305,14 +420,14 @@ defineExpose({
                 <button
                     class="flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-35"
                     :disabled="isCollapsed || activeQuestionIndex >= questionCount - 1"
-                    title="下一题"
+                    :title="t('agent.userInput.nextQuestion')"
                     @click="switchQuestion(activeQuestionIndex + 1)"
                 >
                     <span class="i-lucide-chevron-right h-3.5 w-3.5"></span>
                 </button>
                 <button
                     class="flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
-                    :title="isCollapsed ? '展开' : '收起'"
+                    :title="isCollapsed ? t('agent.userInput.expand') : t('agent.userInput.collapse')"
                     @click="isCollapsed = !isCollapsed"
                 >
                     <span :class="isCollapsed ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" class="h-3.5 w-3.5"></span>
@@ -372,13 +487,13 @@ defineExpose({
             </div>
 
             <div v-if="activeQuestion.options.length === 0" class="mt-2 rounded-md border border-dashed border-[var(--border-color)] bg-[var(--bg-panel)] px-2.5 py-2 text-[11px] leading-4 text-[var(--text-muted)]">
-                在下方输入框填写回答或补充说明。
+                {{ t("agent.userInput.freeAnswerHint") }}
             </div>
         </div>
 
         <div class="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border-color)]/70 bg-[var(--bg-panel)]/35 px-3 py-1.5">
             <div class="min-w-0 text-xs text-[var(--text-muted)]">
-                已回答 {{ answeredCount }} / {{ questionCount }}
+                {{ t("agent.userInput.answeredProgress", {answered: answeredCount, total: questionCount}) }}
             </div>
             <div class="flex min-w-0 shrink-0 items-center gap-2">
                 <button

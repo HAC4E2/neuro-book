@@ -4,6 +4,8 @@ import path from "node:path";
 import {createError} from "h3";
 import {useAgentHarness} from "nbook/server/agent/http";
 import type {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
+import type {AgentCatalogItem} from "nbook/server/agent/profiles/types";
+import {resolveProfileSettings} from "nbook/server/agent/profiles/profile-settings";
 import {
     USER_ASSETS_WORKSPACE_KIND,
     USER_ASSETS_WORKSPACE_ROOT,
@@ -22,12 +24,14 @@ import type {
     ConfigSnapshotDto,
     ConfigWorkspaceQueryDto,
     GlobalConfigDto,
+    GlobalConfigUpdateDto,
     ProjectConfigDto,
 } from "nbook/shared/dto/config.dto";
 import {CONFIG_REGISTRY, CONFIG_VERSION} from "nbook/server/config/registry";
 import {
     normalizeAgentProfileModelConfig,
     normalizeAgentProfiles,
+    normalizeAgentProfileSettings,
     normalizeEmbeddingModelConfig,
     normalizeEmbeddingService,
     normalizeGlobalConfig,
@@ -48,12 +52,28 @@ import type {
     StoredProviderConfig,
 } from "nbook/server/config/types";
 import {
+    applyLowCodeResourceMutations,
+    resolveLowCodeForm,
+    validateLowCodeResourceMutations,
+    validateLowCodeFormValue,
+    type LowCodeFormDefinition,
+    type LowCodeFormResolveContext,
+    type LowCodeResourceMutationKeyView,
+} from "nbook/server/low-code-form";
+import type {LowCodeJsonObject, LowCodeJsonValue, LowCodeResourceMutationDto} from "nbook/shared/dto/low-code-form.dto";
+import {ensureGlobalProfileHome, ensureProfileHome, resetProfileHome, resolveProjectRootForProfileHome, type ProfileHomeDefinition} from "nbook/server/agent/profiles/profile-home";
+import {
     buildModelLabel,
     listEnabledModels,
     resolveConfiguredModel,
 } from "nbook/server/utils/model-settings";
 
 const GLOBAL_CONFIG_PATH = path.resolve(process.cwd(), "workspace", ".nbook", "config.json");
+
+type ConfigEditorSnapshotOptions = {
+    includeAgentProfileSettings?: boolean;
+    agentProfileSettingsScope?: "global" | "project";
+};
 
 /**
  * 读取业务运行使用的最新配置快照。
@@ -74,6 +94,7 @@ export async function readConfigSnapshot(query: ConfigWorkspaceQueryDto): Promis
 export async function readConfigEditorSnapshot(
     query: ConfigWorkspaceQueryDto,
     profiles: AgentProfileCatalog = useAgentHarness().profiles,
+    options: ConfigEditorSnapshotOptions = {},
 ): Promise<ConfigEditorSnapshotDto> {
     const target = await resolveConfigTarget(query);
     const {global, project} = await readConfigFiles(query, target);
@@ -89,10 +110,16 @@ export async function readConfigEditorSnapshot(
         meta: CONFIG_REGISTRY,
         modelSettings: buildConfigModelSettingsDto(effective),
         embeddingSettings: buildConfigEmbeddingSettingsDto(global, project, effective),
-        agentProfileSettings: buildConfigAgentProfileSettingsDto(effective, catalog.profiles.map((profile) => ({
-            profileKey: profile.key,
-            name: profile.name,
-        }))),
+        agentProfileSettings: await buildConfigAgentProfileSettingsDto({
+            effective,
+            global,
+            project,
+            profiles,
+            catalogProfiles: catalog.profiles,
+            query,
+            includeSettings: options.includeAgentProfileSettings === true,
+            settingsScope: options.agentProfileSettingsScope ?? (target.workspaceKind === "novel" ? "project" : "global"),
+        }),
         defaultProfileSettings: buildDefaultProfileSettingsDto({
             workspaceKind: target.workspaceKind,
             projectConfigAvailable: Boolean(target.projectConfigPath),
@@ -131,7 +158,16 @@ export async function readConfigBootstrap(
 /**
  * 保存 Global Config。secret value 缺失时保留原值。
  */
-export async function saveGlobalConfig(input: GlobalConfigDto, query: ConfigWorkspaceQueryDto): Promise<ConfigEditorSnapshotDto> {
+export async function saveGlobalConfig(
+    input: GlobalConfigUpdateDto,
+    query: ConfigWorkspaceQueryDto,
+    profiles: AgentProfileCatalog = useAgentHarness().profiles,
+    options: ConfigEditorSnapshotOptions = {},
+): Promise<ConfigEditorSnapshotDto> {
+    await assertProfileSettingsInput(input.agent?.profiles, query, profiles, undefined, {
+        includeResourceMutationFinalKeys: true,
+    }, "global");
+    await applyProfileResourceMutations(input.agent?.profiles, query, profiles, undefined, "global");
     const current = await readGlobalConfigFile();
     const next = normalizeGlobalConfig({
         ...current,
@@ -144,13 +180,18 @@ export async function saveGlobalConfig(input: GlobalConfigDto, query: ConfigWork
         ...(input.embedding !== undefined ? {embedding: normalizeGlobalEmbeddingForWrite(input.embedding, current)} : {}),
     });
     await writeJsonFile(GLOBAL_CONFIG_PATH, next);
-    return readConfigEditorSnapshot(query);
+    return readConfigEditorSnapshot(query, profiles, {...options, agentProfileSettingsScope: "global"});
 }
 
 /**
  * 保存 Project Config。包含 global-only 字段时直接拒绝。
  */
-export async function saveProjectConfig(input: ProjectConfigDto, query: ConfigWorkspaceQueryDto): Promise<ConfigEditorSnapshotDto> {
+export async function saveProjectConfig(
+    input: ProjectConfigDto,
+    query: ConfigWorkspaceQueryDto,
+    profiles: AgentProfileCatalog = useAgentHarness().profiles,
+    options: ConfigEditorSnapshotOptions = {},
+): Promise<ConfigEditorSnapshotDto> {
     const target = await resolveConfigTarget(query);
     if (!target.projectConfigPath) {
         throw createError({
@@ -159,8 +200,48 @@ export async function saveProjectConfig(input: ProjectConfigDto, query: ConfigWo
         });
     }
     assertProjectConfigDoesNotContainGlobalOnly(input);
-    await writeJsonFile(target.projectConfigPath, normalizeProjectConfig(input as StoredProjectConfig));
-    return readConfigEditorSnapshot(query);
+    const global = await readGlobalConfigFile();
+    await assertProfileSettingsInput(input.agent?.profiles, query, profiles, global.agent?.profiles, {
+        includeResourceMutationFinalKeys: true,
+    }, "project");
+    await applyProfileResourceMutations(input.agent?.profiles, query, profiles, global.agent?.profiles);
+    await writeJsonFile(target.projectConfigPath, normalizeProjectConfig(stripProfileResourceMutations(input) as StoredProjectConfig));
+    return readConfigEditorSnapshot(query, profiles, {...options, agentProfileSettingsScope: "project"});
+}
+
+/**
+ * 重置指定 Project Workspace 下的 profile home，并返回刷新后的完整 Agent Profile settings snapshot。
+ */
+export async function resetProjectProfileHome(
+    input: {profileKey: string},
+    query: ConfigWorkspaceQueryDto,
+    profiles: AgentProfileCatalog = useAgentHarness().profiles,
+): Promise<ConfigEditorSnapshotDto> {
+    const target = await resolveConfigTarget(query);
+    if (!target.projectConfigPath || target.workspaceKind !== "novel") {
+        throw createError({statusCode: 400, message: "只有 Project Config 支持重置 profile home。"});
+    }
+    const projectRoot = resolveProjectRootForProfileHome(query.projectPath);
+    if (!projectRoot) {
+        throw createError({statusCode: 400, message: "重置 profile home 需要 Project Workspace。"});
+    }
+    const profile = await profiles.get(input.profileKey).catch(() => null);
+    if (!profile) {
+        throw createError({statusCode: 404, message: `profile ${input.profileKey} 不存在。`});
+    }
+    if (!profile.home?.reset) {
+        throw createError({statusCode: 400, message: `profile ${input.profileKey} 未声明 home reset。`});
+    }
+    await resetProfileHome({
+        projectRoot,
+        profileKey: profile.manifest.key,
+        profileVersion: profile.manifest.version ?? 1,
+        definition: profile.home,
+    });
+    return readConfigEditorSnapshot(query, profiles, {
+        includeAgentProfileSettings: true,
+        agentProfileSettingsScope: "project",
+    });
 }
 
 /**
@@ -402,21 +483,386 @@ function buildConfigEmbeddingSettingsDto(
     };
 }
 
-function buildConfigAgentProfileSettingsDto(
-    effective: EffectiveConfig,
-    profileDefinitions: Array<{profileKey: string; name: string}>,
-): ConfigAgentProfileSettingsDto {
+async function buildConfigAgentProfileSettingsDto(input: {
+    effective: EffectiveConfig;
+    global: StoredGlobalConfig;
+    project: StoredProjectConfig | null;
+    profiles: AgentProfileCatalog;
+    catalogProfiles: AgentCatalogItem[];
+    query: ConfigWorkspaceQueryDto;
+    includeSettings: boolean;
+    settingsScope: "global" | "project";
+}): Promise<ConfigAgentProfileSettingsDto> {
     return {
-        enabledModels: listEnabledModels(effective.models),
-        profileModelDefaults: normalizeAgentProfileModelConfig(effective.agent.profileModelDefaults),
-        agentProfiles: profileDefinitions.map((definition) => ({
-            profileKey: definition.profileKey,
+        enabledModels: listEnabledModels(input.effective.models),
+        profileModelDefaults: normalizeAgentProfileModelConfig(input.effective.agent.profileModelDefaults),
+        agentProfiles: await Promise.all(input.catalogProfiles.map(async (definition) => ({
+            profileKey: definition.key,
             name: definition.name,
+            canResetHome: definition.canResetHome,
             model: normalizeAgentProfileModelConfig({
-                ...effective.agent.profileModelDefaults,
-                ...(effective.agent.profiles[definition.profileKey]?.model ?? {}),
+                ...input.effective.agent.profileModelDefaults,
+                ...(input.effective.agent.profiles[definition.key]?.model ?? {}),
             }),
-        })),
+            settings: input.includeSettings ? await buildProfileSettingsDto(input, definition) : null,
+        }))),
+    };
+}
+
+/**
+ * 构造单个 profile 的 settings 编辑 DTO。
+ */
+async function buildProfileSettingsDto(input: {
+    effective: EffectiveConfig;
+    global: StoredGlobalConfig;
+    project: StoredProjectConfig | null;
+    profiles: AgentProfileCatalog;
+    query: ConfigWorkspaceQueryDto;
+    settingsScope: "global" | "project";
+}, definition: AgentCatalogItem): Promise<ConfigAgentProfileSettingsDto["agentProfiles"][number]["settings"]> {
+    if (definition.loadStatus !== "loaded") {
+        return null;
+    }
+    if (!definition.hasSettingsForm) {
+        return null;
+    }
+    const profile = await input.profiles.get(definition.key).catch(() => null);
+    if (!profile?.settingsForm) {
+        return null;
+    }
+    const effectivePatch = normalizeAgentProfileSettings(input.effective.agent.profiles[definition.key]?.settings);
+    const globalPatch = normalizeAgentProfileSettings(input.global.agent?.profiles?.[definition.key]?.settings);
+    const projectPatch = normalizeAgentProfileSettings(input.project?.agent?.profiles?.[definition.key]?.settings);
+    const ctx = {
+        ...await lowCodeFormContext(definition.key, input.query, input.settingsScope, profile, effectivePatch),
+        allowGlobalResourceKeys: input.settingsScope === "project",
+    };
+    const resolution = await resolveProfileSettings(profile, effectivePatch, ctx);
+    const inheritedResolution = await resolveProfileSettings(profile, input.project ? globalPatch : {}, ctx);
+    return {
+        form: await resolveLowCodeForm(profile.settingsForm, ctx),
+        value: resolution.value,
+        inheritedValue: inheritedResolution.value,
+        effectivePatch,
+        globalPatch,
+        projectPatch,
+        issues: resolution.issues,
+    };
+}
+
+/**
+ * 校验写入请求里的 profile settings patch。
+ */
+async function assertProfileSettingsInput(
+    profilesInput: Record<string, {settings?: LowCodeJsonObject; resourceMutations?: LowCodeResourceMutationDto[]}> | undefined,
+    query: ConfigWorkspaceQueryDto,
+    profiles: AgentProfileCatalog,
+    inheritedProfilesInput?: Record<string, {settings?: LowCodeJsonObject}>,
+    options: {includeResourceMutationFinalKeys?: boolean} = {},
+    scope: "global" | "project" = "global",
+): Promise<void> {
+    if (!profilesInput) {
+        return;
+    }
+    for (const [profileKey, profileConfig] of Object.entries(profilesInput)) {
+        if (profileConfig.settings === undefined) {
+            continue;
+        }
+        const profile = await profiles.get(profileKey).catch(() => null);
+        if (!profile?.settingsForm) {
+            if (Object.keys(profileConfig.settings).length === 0) {
+                continue;
+            }
+            throw createError({
+                statusCode: 400,
+                message: `profile ${profileKey} 未声明 settingsForm，不能保存 settings。`,
+            });
+        }
+        const settingsForValidation = inheritedProfilesInput
+            ? {
+                ...normalizeAgentProfileSettings(inheritedProfilesInput[profileKey]?.settings),
+                ...normalizeAgentProfileSettings(profileConfig.settings),
+            }
+            : profileConfig.settings;
+        const ctx = await lowCodeFormContext(profileKey, query, scope, profile, settingsForValidation);
+        const resourceKeyView = options.includeResourceMutationFinalKeys
+            ? await buildResourceMutationKeyView(profile.settingsForm, profileConfig.resourceMutations, ctx, settingsForValidation)
+            : null;
+        const validationCtx = {
+            ...(resourceKeyView ? withResourceMutationKeyView(ctx, resourceKeyView) : ctx),
+            allowGlobalResourceKeys: scope === "project",
+        };
+        const result = await validateLowCodeFormValue(
+            profile.settingsForm,
+            settingsForValidation,
+            validationCtx,
+        );
+        const error = result.issues.find((issue) => issue.severity === "error");
+        if (error) {
+            throw createError({
+                statusCode: 400,
+                message: `profile ${profileKey} settings 校验失败：${error.message}`,
+            });
+        }
+        if (scope === "project") {
+            await assertProjectProfileResourceKeys(profile.settingsForm, profileConfig.settings, resourceKeyView ? withResourceMutationKeyView(ctx, resourceKeyView) : ctx);
+        }
+    }
+}
+
+async function applyProfileResourceMutations(
+    profilesInput: Record<string, {settings?: LowCodeJsonObject; resourceMutations?: LowCodeResourceMutationDto[]}> | undefined,
+    query: ConfigWorkspaceQueryDto,
+    profiles: AgentProfileCatalog,
+    inheritedProfilesInput?: Record<string, {settings?: LowCodeJsonObject}>,
+    scope: "global" | "project" = "project",
+): Promise<void> {
+    if (!profilesInput) {
+        return;
+    }
+    for (const [profileKey, profileConfig] of Object.entries(profilesInput)) {
+        if (!profileConfig.resourceMutations?.length) {
+            continue;
+        }
+        const profile = await profiles.get(profileKey).catch(() => null);
+        if (!profile?.settingsForm) {
+            throw createError({statusCode: 400, message: `profile ${profileKey} 未声明 settingsForm，不能保存资源。`});
+        }
+        const currentValues = {
+            ...normalizeAgentProfileSettings(inheritedProfilesInput?.[profileKey]?.settings),
+            ...normalizeAgentProfileSettings(profileConfig.settings),
+        };
+        const results = await applyLowCodeResourceMutations(
+            profile.settingsForm,
+            profileConfig.resourceMutations,
+            await lowCodeFormContext(profileKey, query, scope, profile, currentValues),
+            currentValues,
+        );
+        const issue = results.flatMap((result) => result.issues).find((item) => item.severity === "error");
+        if (issue) {
+            throw createError({statusCode: 400, message: `profile ${profileKey} 资源操作失败：${issue.message}`});
+        }
+    }
+}
+
+async function assertProjectProfileResourceKeys(
+    form: LowCodeFormDefinition,
+    settings: LowCodeJsonObject | undefined,
+    ctx: LowCodeFormResolveContext,
+): Promise<void> {
+    if (!settings) {
+        return;
+    }
+    for (const field of form.fields) {
+        if (field.component !== "resource-preset" || !field.resource) {
+            continue;
+        }
+        const current = readLowCodePath(settings, field.path);
+        if (current === undefined || current === null || current === "") {
+            continue;
+        }
+        if (typeof current !== "string") {
+            continue;
+        }
+        const valid = await projectResourceKeyExists(field.resource, ctx, resourceKeyCandidates(field.resource, current));
+        if (!valid) {
+            throw createError({
+                statusCode: 400,
+                message: `profile ${ctx.profileKey} settings 校验失败：字段 ${field.label} 选择的资源只存在于全局库，请先复制到项目并选中。`,
+            });
+        }
+    }
+}
+
+async function projectResourceKeyExists(
+    resource: NonNullable<LowCodeFormDefinition["fields"][number]["resource"]>,
+    ctx: LowCodeFormResolveContext,
+    candidateKeys: readonly string[],
+): Promise<boolean> {
+    const mutationKeyResult = resourceMutationKeyResult(ctx, candidateKeys);
+    if (mutationKeyResult !== null) {
+        return mutationKeyResult;
+    }
+    if (!ctx.home) {
+        return false;
+    }
+    try {
+        if (resource.validateKey) {
+            for (const key of candidateKeys) {
+                if (await resource.validateKey(ctx, key)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        return (await resource.list(ctx)).some((option) => candidateKeys.includes(option.key));
+    } catch {
+        return false;
+    }
+}
+
+function resourceMutationKeyResult(ctx: LowCodeFormResolveContext, candidateKeys: readonly string[]): boolean | null {
+    if (!ctx.resourceMutationKeyView) {
+        return null;
+    }
+    const normalizedKeys = candidateKeys.map(normalizeResourceKeyForView);
+    if (!normalizedKeys.some((key) => ctx.resourceMutationKeyView!.knownKeys.has(key))) {
+        return null;
+    }
+    return normalizedKeys.some((key) => ctx.resourceMutationKeyView!.finalKeys.has(key));
+}
+
+function resourceKeyCandidates(
+    resource: NonNullable<LowCodeFormDefinition["fields"][number]["resource"]>,
+    current: string,
+): string[] {
+    const candidateKeys = [current];
+    if (!current.includes("/") && resource.createKeyPrefix && resource.createKeySuffix) {
+        const suffix = resource.createKeySuffix;
+        const slug = current.endsWith(suffix) ? current.slice(0, -suffix.length) : current;
+        candidateKeys.push(`${resource.createKeyPrefix}${slug}${suffix}`);
+    }
+    return [...new Set(candidateKeys)];
+}
+
+/**
+ * 按低代码表单点路径读取对象字段，用于 Project 显式覆盖校验。
+ */
+function readLowCodePath(value: LowCodeJsonObject, fieldPath: string): LowCodeJsonValue | undefined {
+    const segments = fieldPath.split(".").filter(Boolean);
+    let current: LowCodeJsonValue | undefined = value;
+    for (const segment of segments) {
+        if (!current || typeof current !== "object" || Array.isArray(current)) {
+            return undefined;
+        }
+        current = current[segment];
+    }
+    return current;
+}
+
+/**
+ * 根据 Config query 构造低代码 form 解析上下文。
+ */
+async function lowCodeFormContext(
+    profileKey: string,
+    query: ConfigWorkspaceQueryDto,
+    scope: "global" | "project",
+    profile?: {manifest: {version?: number}; home?: ProfileHomeDefinition; settingsForm?: LowCodeFormDefinition},
+    values?: LowCodeJsonObject,
+): Promise<LowCodeFormResolveContext> {
+    const workspaceRoot = query.workspaceKind === "novel" ? WORKSPACE_CONTAINER_ROOT : USER_ASSETS_WORKSPACE_ROOT;
+    const needsHome = profileNeedsHome(profile);
+    const projectRoot = scope === "project" && query.workspaceKind === "novel" ? resolveProjectRootForProfileHome(query.projectPath) : null;
+    const projectHome = projectRoot && profile && needsHome
+        ? await ensureProfileHome({
+            projectRoot,
+            profileKey,
+            profileVersion: profile.manifest.version ?? 1,
+            definition: profile.home,
+        })
+        : undefined;
+    const globalHome = profile && needsHome
+        ? await ensureGlobalProfileHome({
+            workspaceRoot,
+            profileKey,
+            profileVersion: profile.manifest.version ?? 1,
+            definition: profile.home,
+        })
+        : undefined;
+    const home = scope === "global" ? globalHome : projectHome;
+    return {
+        profileKey,
+        scope,
+        workspaceRoot,
+        ...(query.projectPath ? {projectPath: query.projectPath} : {}),
+        ...(values ? {values} : {}),
+        ...(home ? {home} : {}),
+        ...(scope === "project" && globalHome ? {globalHome} : {}),
+    };
+}
+
+function profileNeedsHome(profile: {home?: ProfileHomeDefinition; settingsForm?: LowCodeFormDefinition} | undefined): boolean {
+    return Boolean(profile?.home) || Boolean(profile?.settingsForm?.fields.some((field) => field.component === "resource-preset"));
+}
+
+async function buildResourceMutationKeyView(
+    form: LowCodeFormDefinition,
+    mutations: readonly LowCodeResourceMutationDto[] | undefined,
+    ctx: LowCodeFormResolveContext,
+    currentValues: LowCodeJsonObject,
+): Promise<{knownKeys: Set<string>; finalKeys: Set<string>} | null> {
+    if (!mutations?.length) {
+        return null;
+    }
+    const results = await validateLowCodeResourceMutations(form, mutations, ctx, currentValues);
+    const issue = results.flatMap((result) => result.issues).find((item) => item.severity === "error");
+    if (issue) {
+        throw createError({statusCode: 400, message: `profile ${ctx.profileKey} 资源操作失败：${issue.message}`});
+    }
+    const knownKeys = new Set<string>();
+    const finalKeys = new Set<string>();
+    const fieldPaths = new Set(mutations.map((mutation) => mutation.fieldPath));
+    for (const fieldPath of fieldPaths) {
+        const field = form.fields.find((item) => item.path === fieldPath);
+        if (!field?.resource) {
+            continue;
+        }
+        for (const option of await field.resource.list(ctx)) {
+            knownKeys.add(normalizeResourceKeyForView(option.key));
+        }
+        const result = results.findLast((item) => item.fieldPath === fieldPath);
+        for (const key of result?.finalKeys ?? []) {
+            const normalizedKey = normalizeResourceKeyForView(key);
+            knownKeys.add(normalizedKey);
+            finalKeys.add(normalizedKey);
+        }
+    }
+    return {knownKeys, finalKeys};
+}
+
+function withResourceMutationKeyView(
+    ctx: LowCodeFormResolveContext,
+    keyView: LowCodeResourceMutationKeyView,
+): LowCodeFormResolveContext {
+    if (!ctx.home || keyView.knownKeys.size === 0) {
+        return ctx;
+    }
+    return {
+        ...ctx,
+        resourceMutationKeyView: keyView,
+        home: {
+            ...ctx.home,
+            async exists(filePath) {
+                const key = normalizeResourceKeyForView(filePath);
+                if (keyView.knownKeys.has(key)) {
+                    return keyView.finalKeys.has(key);
+                }
+                return ctx.home!.exists(filePath);
+            },
+        },
+    };
+}
+
+function normalizeResourceKeyForView(filePath: string): string {
+    return filePath.trim().replaceAll("\\", "/").replace(/^\/+|\/+$/gu, "");
+}
+
+function stripProfileResourceMutations(input: ProjectConfigDto): ProjectConfigDto {
+    if (!input.agent?.profiles) {
+        return input;
+    }
+    return {
+        ...input,
+        agent: {
+            ...input.agent,
+            profiles: Object.fromEntries(Object.entries(input.agent.profiles).map(([profileKey, profileConfig]) => ([
+                profileKey,
+                {
+                    model: profileConfig.model,
+                    ...(profileConfig.settings !== undefined ? {settings: profileConfig.settings} : {}),
+                },
+            ]))),
+        },
     };
 }
 

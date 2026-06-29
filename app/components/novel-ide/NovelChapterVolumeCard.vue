@@ -37,6 +37,7 @@ const emit = defineEmits<{
 const volumeRef = ref<HTMLElement | null>(null);
 const volumeHandleRef = ref<HTMLElement | null>(null);
 const inlineInputRef = ref<HTMLInputElement | null>(null);
+const {t} = useI18n();
 
 /**
  * 注册篇排序能力。
@@ -85,7 +86,7 @@ watch(() => props.showInlineCreate, (visible) => {
                 isDropTarget && !isDragSource ? 'border-[var(--accent-main)]/40 bg-[var(--accent-bg)]/45' : '',
             ]"
         >
-            <button type="button" class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-input)] hover:text-[var(--text-main)]" :title="volume.isExpanded ? '收起本篇章节' : '展开本篇章节'" @click.stop="emit('toggle', volume.id)">
+            <button type="button" class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-input)] hover:text-[var(--text-main)]" :title="volume.isExpanded ? t('ide.chapterPanel.collapseVolume') : t('ide.chapterPanel.expandVolume')" @click.stop="emit('toggle', volume.id)">
                 <span :class="volume.isExpanded ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" class="h-4 w-4"></span>
             </button>
             <button
@@ -93,24 +94,24 @@ watch(() => props.showInlineCreate, (visible) => {
                 type="button"
                 class="volume-drag-handle flex h-6 w-6 shrink-0 cursor-grab items-center justify-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-input)] hover:text-[var(--text-main)] disabled:cursor-not-allowed"
                 :disabled="dragDisabled"
-                title="拖拽排序篇"
+                :title="t('ide.chapterPanel.dragVolume')"
             >
                 <span class="i-lucide-grip-vertical h-4 w-4"></span>
             </button>
             <button type="button" class="flex min-w-0 flex-1 items-center justify-between gap-3 text-left" @click="emit('selectVolume', volume.id)">
                 <span class="min-w-0 flex-1">
                     <span class="block truncate font-serif text-sm font-bold text-[var(--text-main)]">{{ volume.title }}</span>
-                    <span class="block truncate text-[10px] text-[var(--text-muted)]">{{ volume.summary || "暂无摘要" }}</span>
+                    <span class="block truncate text-[10px] text-[var(--text-muted)]">{{ volume.summary || t("ide.chapterPanel.noSummary") }}</span>
                 </span>
             </button>
             <div class="flex shrink-0 items-center gap-1" @click.stop>
-                <button class="flex h-6 w-6 items-center justify-center rounded-full bg-transparent text-[var(--text-secondary)] transition-all hover:bg-gray-500/20 hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :disabled="creating" title="在本篇末尾新建章" @click="emit('startInlineCreate', volume.id)">
+                <button class="flex h-6 w-6 items-center justify-center rounded-full bg-transparent text-[var(--text-secondary)] transition-all hover:bg-gray-500/20 hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :disabled="creating" :title="t('ide.chapterPanel.createChapterInVolume')" @click="emit('startInlineCreate', volume.id)">
                     <span class="i-lucide-plus h-4 w-4"></span>
                 </button>
-                <button class="flex h-6 w-6 items-center justify-center rounded-full bg-transparent text-[var(--text-secondary)] transition-all hover:bg-gray-500/20 hover:text-[var(--text-main)]" title="编辑篇信息" @click="emit('editVolume', volume)">
+                <button class="flex h-6 w-6 items-center justify-center rounded-full bg-transparent text-[var(--text-secondary)] transition-all hover:bg-gray-500/20 hover:text-[var(--text-main)]" :title="t('ide.chapterPanel.editVolume')" @click="emit('editVolume', volume)">
                     <span class="i-lucide-settings-2 h-4 w-4"></span>
                 </button>
-                <button class="flex h-6 w-6 items-center justify-center rounded-full bg-transparent text-[var(--text-secondary)] transition-all hover:bg-red-500/10 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-50" :disabled="creating" title="删除本篇" @click="emit('deleteVolume', volume)">
+                <button class="flex h-6 w-6 items-center justify-center rounded-full bg-transparent text-[var(--text-secondary)] transition-all hover:bg-red-500/10 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-50" :disabled="creating" :title="t('ide.chapterPanel.deleteVolume')" @click="emit('deleteVolume', volume)">
                     <span class="i-lucide-trash h-4 w-4"></span>
                 </button>
             </div>
@@ -143,15 +144,15 @@ watch(() => props.showInlineCreate, (visible) => {
                     <span class="i-lucide-plus h-3.5 w-3.5"></span>
                 </span>
                 <div class="flex flex-1 items-center justify-between rounded-2 border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1 focus-within:border-[var(--accent-main)]">
-                    <input ref="inlineInputRef" :value="inlineTitle" type="text" placeholder="输入章节名称..." class="min-w-0 flex-1 bg-transparent text-xs text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)]" @input="emit('update:inlineTitle', ($event.target as HTMLInputElement).value)" @keydown.enter="emit('confirmInlineCreate')" @keydown.esc="emit('cancelInlineCreate')" @blur="emit('confirmInlineCreate')">
-                    <button class="ml-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[var(--accent-main)] transition-colors hover:bg-[var(--accent-main)] hover:text-white" title="确认新建" @mousedown.prevent @click="emit('confirmInlineCreate')">
+                    <input ref="inlineInputRef" :value="inlineTitle" type="text" :placeholder="t('ide.chapterPanel.inlineChapterPlaceholder')" class="min-w-0 flex-1 bg-transparent text-xs text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)]" @input="emit('update:inlineTitle', ($event.target as HTMLInputElement).value)" @keydown.enter="emit('confirmInlineCreate')" @keydown.esc="emit('cancelInlineCreate')" @blur="emit('confirmInlineCreate')">
+                    <button class="ml-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[var(--accent-main)] transition-colors hover:bg-[var(--accent-main)] hover:text-white" :title="t('ide.chapterPanel.confirmCreate')" @mousedown.prevent @click="emit('confirmInlineCreate')">
                         <span class="i-lucide-check h-3 w-3"></span>
                     </button>
                 </div>
             </div>
 
             <div v-if="volume.chapters.length === 0" class="mx-5 rounded-2 border border-dashed border-[var(--border-color)] px-3 py-2 text-[11px] text-[var(--text-muted)]">
-                拖拽章节到此处，或在本篇新建第一章
+                {{ t("ide.chapterPanel.emptyVolumeHint") }}
             </div>
         </div>
     </div>

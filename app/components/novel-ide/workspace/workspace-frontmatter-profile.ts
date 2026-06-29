@@ -1,5 +1,18 @@
 import YAML from "yaml";
 
+type RuntimeI18n = {
+    t: (key: string) => string;
+};
+
+function translate(key: string, fallback: string): string {
+    try {
+        const nuxtApp = useNuxtApp() as {$i18n?: RuntimeI18n};
+        return nuxtApp.$i18n?.t(key) ?? fallback;
+    } catch {
+        return fallback;
+    }
+}
+
 export type FrontmatterRef = {
     relation: string;
     target: string;
@@ -38,13 +51,13 @@ export function parseMarkdownDocument(content: string): ParsedMarkdownDocument {
         return {
             frontmatter: isPlainObject(parsed) ? parsed : {},
             body: content.slice(match[0].length),
-            error: isPlainObject(parsed) || parsed === null ? null : "frontmatter 必须是对象",
+            error: isPlainObject(parsed) || parsed === null ? null : translate("ide.workspace.common.frontmatterObjectError", "frontmatter 必须是对象"),
         };
     } catch (error) {
         return {
             frontmatter: {},
             body: content.slice(match[0].length),
-            error: error instanceof Error ? error.message : "frontmatter 解析失败",
+            error: error instanceof Error ? error.message : translate("ide.workspace.common.frontmatterParseFailed", "frontmatter 解析失败"),
         };
     }
 }

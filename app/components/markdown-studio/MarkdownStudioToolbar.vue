@@ -34,6 +34,7 @@ const emit = defineEmits<{
     (e: "more"): void;
 }>();
 
+const {t} = useI18n();
 const pinnedTabs = computed(() => props.tabs.filter((tab) => tab.pinned));
 const regularTabs = computed(() => props.tabs.filter((tab) => !tab.pinned));
 const draggedTabPath = ref<string | null>(null);
@@ -46,10 +47,10 @@ const contextMenuX = ref(0);
 const contextMenuY = ref(0);
 const contextMenuItems = ref<ContextMenuItem[]>([]);
 
-const modeButtons: Array<{mode: WorkspaceEditorViewMode; title: string; iconClass: string}> = [
-    {mode: "rich", title: "富文本模式", iconClass: "i-lucide-book-open-text"},
-    {mode: "source", title: "源码模式", iconClass: "i-lucide-file-code-2"},
-];
+const modeButtons = computed<Array<{mode: WorkspaceEditorViewMode; title: string; iconClass: string}>>(() => [
+    {mode: "rich", title: t("markdownStudio.toolbar.richMode"), iconClass: "i-lucide-book-open-text"},
+    {mode: "source", title: t("markdownStudio.toolbar.sourceMode"), iconClass: "i-lucide-file-code-2"},
+]);
 
 /**
  * 标签行高度限制，默认允许多行，调用方仍可配置为单行。
@@ -85,19 +86,19 @@ function openTabContextMenu(tab: WorkspaceEditorTab, event: MouseEvent): void {
     contextMenuY.value = event.clientY;
     contextMenuItems.value = [
         {
-            label: tab.pinned ? "取消固定" : "固定",
+            label: tab.pinned ? t("markdownStudio.toolbar.unpin") : t("markdownStudio.toolbar.pin"),
             iconClass: tab.pinned ? "i-lucide-bookmark-x" : "i-lucide-bookmark",
             action: () => emit("set-pin", tab.path, !tab.pinned),
         },
         {
-            label: "保留预览",
+            label: t("markdownStudio.toolbar.keepPreview"),
             iconClass: "i-lucide-panel-top-open",
             disabled: !tab.preview,
             action: () => emit("keep-tab", tab.path),
         },
         {separator: true},
         {
-            label: "关闭",
+            label: t("markdownStudio.toolbar.close"),
             iconClass: "i-lucide-x",
             action: () => emit("close-tab", tab.path),
         },
@@ -229,7 +230,7 @@ function isDropTarget(tab: WorkspaceEditorTab, pinned: boolean, position: TabDro
                 <span class="flex h-2 w-2 shrink-0 items-center justify-center">
                     <span v-if="tab.dirty" class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
                 </span>
-                <button type="button" class="-mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-0 hover:bg-[var(--bg-hover)] group-hover:opacity-100" title="关闭" @click.stop="emit('close-tab', tab.path)">
+                <button type="button" class="-mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-0 hover:bg-[var(--bg-hover)] group-hover:opacity-100" :title="t('markdownStudio.toolbar.close')" @click.stop="emit('close-tab', tab.path)">
                     <span class="i-lucide-x h-3 w-3"></span>
                 </button>
             </div>
@@ -270,7 +271,7 @@ function isDropTarget(tab: WorkspaceEditorTab, pinned: boolean, position: TabDro
                     <span class="flex h-2 w-2 shrink-0 items-center justify-center">
                         <span v-if="tab.dirty" class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
                     </span>
-                    <button type="button" class="-mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-0 hover:bg-[var(--bg-hover)] group-hover:opacity-100" title="关闭" @click.stop="emit('close-tab', tab.path)">
+                    <button type="button" class="-mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-0 hover:bg-[var(--bg-hover)] group-hover:opacity-100" :title="t('markdownStudio.toolbar.close')" @click.stop="emit('close-tab', tab.path)">
                         <span class="i-lucide-x h-3 w-3"></span>
                     </button>
                 </div>
@@ -306,7 +307,7 @@ function isDropTarget(tab: WorkspaceEditorTab, pinned: boolean, position: TabDro
                     type="button"
                     class="relative flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
                     :class="props.commentViewOpen ? 'bg-[var(--bg-hover)] text-[var(--accent-main)]' : ''"
-                    title="评论视图"
+                    :title="t('markdownStudio.toolbar.comments')"
                     @click="emit('toggle-comment-view')"
                 >
                     <span class="i-lucide-message-square-text h-4 w-4"></span>
@@ -315,7 +316,7 @@ function isDropTarget(tab: WorkspaceEditorTab, pinned: boolean, position: TabDro
                         class="absolute -right-1 -top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full border border-[var(--toolbar-bg)] bg-amber-500 px-0.5 text-[9px] font-semibold leading-none text-white"
                     >{{ props.commentCount > 9 ? "9+" : props.commentCount }}</span>
                 </button>
-                <button class="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="更多" @click="emit('more')">
+                <button class="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('markdownStudio.toolbar.more')" @click="emit('more')">
                     <span class="i-lucide-ellipsis-vertical h-4 w-4"></span>
                 </button>
             </div>

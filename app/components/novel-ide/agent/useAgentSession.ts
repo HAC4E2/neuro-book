@@ -1,14 +1,16 @@
-import type {AgentRuntimeStreamEventDto, AgentSessionEventDto, AgentSessionLiveStateDto, AgentSessionRelationsDto, AgentSessionSnapshotDto} from "nbook/shared/dto/agent-session.dto";
+import type {AgentRuntimeStreamEventDto, AgentSessionEventDto, AgentSessionLiveStateDto, AgentSessionRelationsDto, AgentSessionSnapshotDto, AgentPendingApprovalDto} from "nbook/shared/dto/agent-session.dto";
 import {computed, getCurrentScope, onScopeDispose, ref, shallowRef} from "vue";
 import {
     applyRuntimeEventToMessages,
     applySessionEntryToMessages,
     deriveMessagesFromSessionSnapshot,
+    formatTimestamp,
     reconcileMessages,
     toPendingUserInputSession,
     type AgentMessage,
     type AgentPendingUserInputSession,
 } from "nbook/app/components/novel-ide/agent/agent-message";
+import type {LowCodeFormDto} from "nbook/shared/dto/low-code-form.dto";
 
 export type AgentConnectionStatus = "idle" | "connecting" | "connected" | "reconnecting" | "recovering" | "disconnected";
 
@@ -29,6 +31,25 @@ type PendingMessageUpdate = {
 };
 
 /**
+ * 将 tool.user-input-required 事件转换为前端 AgentPendingUserInputSession。
+ */
+function toLowCodeFormSession(
+    event: Extract<AgentRuntimeStreamEventDto, {type: "tool.user-input-required"}>,
+    assistantMessageId?: string,
+): AgentPendingUserInputSession | null {
+    if (!event.formSpec?.form) {
+        return null;
+    }
+    return {
+        assistantMessageId: assistantMessageId ?? event.toolCallId,
+        status: "pending",
+        questions: [],
+        form: event.formSpec.form as LowCodeFormDto,
+        formToolCallId: event.toolCallId,
+    };
+}
+
+/**
  * 统一管理 session snapshot + live event，并派生当前 UI message 列表。
  */
 export function useAgentSession() {
@@ -37,12 +58,13 @@ export function useAgentSession() {
     const liveRunStatus = ref<"idle" | "running" | "waiting" | "aborting">("idle");
     const runPhase = ref<AgentRunPhase>("idle");
     const connectionStatus = ref<AgentConnectionStatus>("idle");
-    const pendingUserInputSession = ref<AgentPendingUserInputSession | null>(null);
+    const pendingUserInputSessions = ref<AgentPendingUserInputSession[]>([]);
     const eventEpoch = ref<string | null>(null);
     const lastSeq = ref(0);
     const needsSnapshot = ref(false);
     const snapshotReasons = ref<string[]>([]);
     const running = computed(() => Boolean(snapshot.value?.activeInvocation) || liveRunStatus.value === "running" || liveRunStatus.value === "aborting");
+    const pendingUserInputSession = computed(() => pendingUserInputSessions.value[0] ?? null);
     const pendingMessageUpdates: PendingMessageUpdate[] = [];
     let runtimeUpdateFrame: number | null = null;
     let runtimeUpdateFallbackTimer: ReturnType<typeof setTimeout> | null = null;
@@ -160,7 +182,7 @@ export function useAgentSession() {
         liveRunStatus.value = "idle";
         runPhase.value = "idle";
         connectionStatus.value = "idle";
-        pendingUserInputSession.value = null;
+        pendingUserInputSessions.value = [];
         eventEpoch.value = null;
         lastSeq.value = 0;
         needsSnapshot.value = false;
@@ -168,7 +190,7 @@ export function useAgentSession() {
     };
 
     const clearPendingUserInputSession = (): void => {
-        pendingUserInputSession.value = null;
+        pendingUserInputSessions.value = [];
     };
 
     /**
@@ -182,7 +204,7 @@ export function useAgentSession() {
                 type: "user",
                 content,
                 status: "done",
-                timestamp: "刚刚",
+                timestamp: formatTimestamp(Date.now()),
             },
         ]);
     };
@@ -207,12 +229,14 @@ export function useAgentSession() {
         messages.value = activePathChanged ? nextMessages : reconcileMessages(messages.value, nextMessages);
         if (payload.activeInvocation) {
             liveRunStatus.value = payload.activeInvocation.status === "waiting" ? "waiting" : payload.activeInvocation.status;
-            runPhase.value = payload.pendingApproval ? "waiting_user" : runPhase.value === "idle" ? "model_pending" : runPhase.value;
+            runPhase.value = payload.pendingApprovals.length > 0 ? "waiting_user" : runPhase.value === "idle" ? "model_pending" : runPhase.value;
         } else {
             liveRunStatus.value = "idle";
             runPhase.value = "idle";
         }
-        pendingUserInputSession.value = toPendingUserInputSession(payload.pendingApproval, messages.value);
+        pendingUserInputSessions.value = payload.pendingApprovals
+            .map((approval: AgentPendingApprovalDto) => toPendingUserInputSession(approval, messages.value))
+            .filter((session: AgentPendingUserInputSession | null): session is AgentPendingUserInputSession => session !== null);
         eventEpoch.value = cursor.eventEpoch;
         lastSeq.value = cursor.after;
         needsSnapshot.value = false;
@@ -249,7 +273,7 @@ export function useAgentSession() {
             summarizer: state.summarizer,
             activeLeafId: state.activeLeafId,
             activePathRevision: state.activePathRevision,
-            pendingApproval: state.pendingApproval,
+            pendingApprovals: state.pendingApprovals,
             steerQueue: state.steerQueue,
             followUpQueue: state.followUpQueue,
             activeInvocation: state.activeInvocation,
@@ -262,12 +286,14 @@ export function useAgentSession() {
         };
         if (state.activeInvocation) {
             liveRunStatus.value = state.activeInvocation.status === "waiting" ? "waiting" : state.activeInvocation.status;
-            runPhase.value = state.pendingApproval ? "waiting_user" : runPhase.value === "idle" ? "model_pending" : runPhase.value;
+            runPhase.value = state.pendingApprovals.length > 0 ? "waiting_user" : runPhase.value === "idle" ? "model_pending" : runPhase.value;
         } else if (liveRunStatus.value !== "aborting") {
             liveRunStatus.value = "idle";
             runPhase.value = "idle";
         }
-        pendingUserInputSession.value = toPendingUserInputSession(state.pendingApproval, messages.value);
+        pendingUserInputSessions.value = state.pendingApprovals
+            .map((approval: AgentPendingApprovalDto) => toPendingUserInputSession(approval, messages.value))
+            .filter((session: AgentPendingUserInputSession | null): session is AgentPendingUserInputSession => session !== null);
         if (activePathChanged) {
             requestSnapshot("active_path_changed");
         }
@@ -333,6 +359,21 @@ export function useAgentSession() {
                 applyRuntimePhase(payload.event);
                 return;
             }
+
+            // 处理 tool.user-input-required 事件
+            if (payload.event.type === "tool.user-input-required") {
+                flushPendingMessageUpdates();
+                const event = payload.event;
+                const assistantMessage = messages.value.find((message) => message.toolCalls?.some((toolCall) => toolCall.id === event.toolCallId));
+                const userInputSession = toLowCodeFormSession(event, assistantMessage?.id);
+                if (userInputSession) {
+                    pendingUserInputSessions.value = [...pendingUserInputSessions.value, userInputSession];
+                    liveRunStatus.value = "waiting";
+                    runPhase.value = "waiting_user";
+                }
+                return;
+            }
+
             flushPendingMessageUpdates();
             messages.value = applyRuntimeEventToMessages(messages.value, payload.event, payload.invocationId);
             applyRuntimePhase(payload.event);
@@ -345,9 +386,17 @@ export function useAgentSession() {
             messages.value = applySessionEntryToMessages(messages.value, payload.event.entry);
             if (payload.event.entry.type === "message" && payload.event.entry.message.role === "toolResult") {
                 const toolCallId = payload.event.entry.message.toolCallId;
-                if (pendingUserInputSession.value?.questions.some((question) => (question.toolCallId ?? question.toolNodeId) === toolCallId)) {
-                    pendingUserInputSession.value = null;
-                }
+                pendingUserInputSessions.value = pendingUserInputSessions.value.filter((session): boolean => {
+                    // 清理 questions 中的匹配项
+                    if (session.questions.some((question) => (question.toolCallId ?? question.toolNodeId) === toolCallId)) {
+                        return false;
+                    }
+                    // 清理 formToolCallId 匹配项（Task 63 Low-Code Form）
+                    if (session.formToolCallId === toolCallId) {
+                        return false;
+                    }
+                    return true;
+                });
             }
             if (payload.event.entry.type === "custom"
                 && (payload.event.entry.key.startsWith("agent.link.") || payload.event.entry.key.startsWith("agent.detach."))) {
@@ -392,6 +441,7 @@ export function useAgentSession() {
         appendOptimisticUserMessage,
         applyConnectionStatus,
         applyEvent,
+        applyLiveState,
         applyRelations,
         applySnapshot,
         clearSnapshotRequest,
