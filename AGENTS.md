@@ -48,7 +48,7 @@
 - 不要使用相对路径导入，使用 `import {Sessions} from "nb/types/session"`
 - async 函数优先：尽量避免回调函数。try catch 优先。尽量避免 Promise API
 - 日志使用规范：this.logger.debug({ kind: message.kind }, "自然语言描述，不要用 tui.adapter.emit");
-- 目前项目处于快速开发阶段，可以直接激进地修改项目代码，不需要对老代码做兼容。数据库结构、数据可以随意变更，不用兼容。
+- **Important：目前项目处于快速开发阶段，可以直接激进地修改本项目代码，不需要对老代码做兼容。数据库结构、数据可以随意变更，不用兼容。永远不要出现 legacy**
 - 有时候 throw 比 try catch 更好
 - 后端代码（gateway、runtime 等需要高领域表达力的）推荐使用 class 模式，前端代码 web/ 下推荐使用 Functional Programming 模式
 - 代码多使用中文注释。设计接口和类时，要为接口和每一个函数写规范
@@ -115,3 +115,14 @@
 - .agent/workspace 为你可随意操作的目录（.agent 目录不是），你可以再此编写临时文件、clone 代码等
 - 可以通过编写测试脚本并运行来测试数据
 - 如果要写 commit message 的时候，可以从 docs/tasks PROJECT-STATUS.md 获取信息，查看他们的最新变更。提交信息要丰富，覆盖所有相关 tasks。重点关心新功能
+
+## 发布流程
+
+- 发布前先阅读 `PROJECT-STATUS.md` 和相关 `docs/tasks/**/README.md` / walkthrough，确认本轮改动、验证记录和任务状态。
+- 发布前必须更新 `RELEASE.md`，用用户可读的话概括本轮变更、影响范围和已知验证结果；不要只写内部任务编号。
+- 提交前用 `git status --short --branch` 确认工作区范围；用户明确要求“提交全部改动”时，才使用 `git add -A` 纳入全部 tracked / untracked 改动。
+- 业务提交 message 要覆盖主要任务和用户可见能力；提交后先 `git push origin HEAD:master`。如果远端拒绝，停止并报告，不要 force push。
+- canary patch 发布使用 `bun run release -- canary --next patch --push --yes --no-watch`；canary minor 发布使用 `bun run release -- canary --next minor --push --yes --no-watch`。
+- release 脚本会自动更新 `package.json.version`、创建 `chore(release): v...` 提交、push 当前分支并创建 GitHub prerelease。
+- 不要等待或盯 GitHub Actions release workflow；发布命令必须带 `--no-watch`。创建 GitHub Release 成功后，报告 release tag / URL，并说明 Actions 后台自行运行。
+- 如果 release 命令被中断，先检查 `git status --short --branch`、`git log --oneline -5`、`package.json.version`，再用 `gh release view <tag> --repo notnotype/neuro-book` 判断版本提交和 GitHub Release 是否已经完成，避免重复发布。

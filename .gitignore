@@ -43,4 +43,11 @@ docs/.vitepress/cache
 assets/workspace/.nbook/agent/profiles/.compiled/
 assets/workspace/.nbook/agent/variables/.compiled/
 assets/workspace/.nbook/agent/profiles/.system-profile-metadata.json
+# llmlint 评测 harness（消费侧代码）：本地运行，不进 git
+assets/workspace/.nbook/agent/skills/llmlint/evals/
 server/agent/variables/generated-profile-variable-types.d.ts
+
+# 文生图生成产物（NovelAI 图片 + json），不进 git
+Imagine/
+# Tauri 桌面壳 Rust 构建产物
+src-tauri/target/

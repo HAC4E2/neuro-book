@@ -8,7 +8,6 @@ import type {DropdownItem} from "nbook/app/components/common/dropdown.types";
 import WorkspaceFilePanel from "nbook/app/components/novel-ide/workspace/WorkspaceFilePanel.vue";
 import WorkspaceCharacterPanel from "nbook/app/components/novel-ide/workspace/WorkspaceCharacterPanel.vue";
 import NovelPlotPanel from "nbook/app/components/novel-ide/plot/NovelPlotPanel.vue";
-import NovelRagPanel from "nbook/app/components/novel-ide/rag/NovelRagPanel.vue";
 import NovelTextToImagePanel from "nbook/app/components/novel-ide/text-to-image/NovelTextToImagePanel.vue";
 import type { NovelIdeTab } from "nbook/app/components/novel-ide/mock-data";
 import {useNotification} from "nbook/app/composables/useNotification";
@@ -38,14 +37,14 @@ defineOptions({
 const emit = defineEmits<{
     (e: "update:width", value: number): void;
     (e: "close"): void;
+    (e: "openWorldEngine"): void;
 }>();
 
 const {t} = useI18n();
 const titleMap = computed<Record<NovelIdeTab, string>>(() => ({
     files: t("ide.toolPanel.files"),
     characters: t("ide.toolPanel.characters"),
-    outline: "剧情大纲",
-    rag: "RAG",
+    plot: t("ide.toolPanel.plot"),
     textToImage: "文生图",
 }));
 const displayTitle = computed(() => props.userAssetsMode ? t("ide.toolPanel.userAssets") : titleMap.value[props.activeTab ?? "files"]);
@@ -396,9 +395,8 @@ function handleSyncDiffAction(payload: DiffWorkbenchActionPayload): void {
 
                 <WorkspaceCharacterPanel v-else-if="activeTab === 'characters' && !props.userAssetsMode" />
 
-                <NovelPlotPanel v-else-if="activeTab === 'outline' && !props.userAssetsMode" />
+                <NovelPlotPanel v-else-if="activeTab === 'plot' && !props.userAssetsMode" @open-world-engine="emit('openWorldEngine')" />
 
-                <NovelRagPanel v-else-if="activeTab === 'rag' && !props.userAssetsMode" />
                 <NovelTextToImagePanel v-else-if="activeTab === 'textToImage' && !props.userAssetsMode" />
             </div>
         </aside>
