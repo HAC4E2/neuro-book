@@ -16,16 +16,19 @@ llmlint 是面向 LLM 输出的文本 lint skill。CLI 负责稳定、可复现�
 
 ## Quick Start
 
+> 依赖未安装时（首次使用或 skill 目录缺 `node_modules`，运行报缺少 `commander` / `picocolors` / `tinyglobby`），先在 skill 目录手动安装一次：`npm install`（或 `bun install` / `pnpm install`）。CLI 用 **Bun**（原生跑 TS）或 **Node + `tsx`**（`npx tsx …`）运行 —— 下文示例的 `bun` 前缀可直接替换为 `npx tsx`（裸 `node` 不行，TS 源码用了无扩展名相对导入）。
+
 检查文件中的 regex detector 候选：
 
 ```bash
 bun .nbook/agent/skills/llmlint/bin/llmlint.ts check <文件路径>
 ```
 
-`check` 可传多个文件或目录（目录递归 `.md` / `.markdown` / `.txt`）。对 Markdown 文件默认跳过代码块 / frontmatter / 行内代码 / 链接等结构区域，避免误杀；`--scan-all` 关闭遮罩：
+`check` 可传多个文件、目录或 glob 模式（目录递归 `.md` / `.markdown` / `.txt`；模式支持 `**` 递归与 `!` 排除）。对 Markdown 文件默认跳过代码块 / frontmatter / 行内代码 / 链接等结构区域，避免误杀；`--scan-all` 关闭遮罩：
 
 ```bash
 bun .nbook/agent/skills/llmlint/bin/llmlint.ts check manuscript/            # 递归整部稿件
+bun .nbook/agent/skills/llmlint/bin/llmlint.ts check 'manuscript/**/*.md'   # glob 模式（引号防 shell 展开）
 bun .nbook/agent/skills/llmlint/bin/llmlint.ts check a.md b.md --scan-all   # 多文件 + 不跳过结构区
 ```
 

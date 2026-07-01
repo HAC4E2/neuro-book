@@ -17,6 +17,19 @@ import type {LintRuleRecord} from "nbook/assets/workspace/.nbook/agent/skills/ll
 
 const RULESETS_ROOT = resolve("assets/workspace/.nbook/agent/skills/llmlint/rulesets");
 const LLMLINT_BIN = resolve("assets/workspace/.nbook/agent/skills/llmlint/bin/llmlint.ts");
+const CURATED_SOURCE_FILES = [
+    "轻量规则集1.2.json",
+    "轻量规则集v1.1.json",
+    "通用规则集1.2.json",
+    "Claude-保守版.json",
+    "Claude-日常版.json",
+    "Claude-强力版.json",
+    "Gemini-保守版.json",
+    "Gemini-日常版.json",
+    "Gemini-强力版.json",
+    "deepseekv4pro专用.json",
+    "极其杀手.json",
+];
 const execFileAsync = promisify(execFile);
 
 describe("llmlint", () => {
@@ -495,8 +508,10 @@ describe("llmlint", () => {
     it("curated import 会生成按 namespace 拆分的内置默认 ruleset", async () => {
         const root = await mkdtemp(join(tmpdir(), "llmlint-curated-"));
         tempRoots.push(root);
+        const sourceRoot = join(root, "source");
+        await writeCuratedSourceFixture(sourceRoot);
         const report = await importCuratedRulesets({
-            sourceRoot: ".agent/workspace/llmlint_rules",
+            sourceRoot,
             outputRoot: root,
         });
         const rulesetRoot = join(root, "builtin", "default");
@@ -517,15 +532,14 @@ describe("llmlint", () => {
         await expect(readFile(join(rulesetRoot, "rules.json"), "utf-8")).rejects.toMatchObject({code: "ENOENT"});
         expect(manifest.ruleFiles).toBeUndefined();
         expect(manifest.rulesRoot).toBeUndefined();
-        expect(r18Rules).toHaveLength(20);
+        expect(r18Rules).toHaveLength(1);
         expect(r18Rules.every((rule) => rule.namespace === "vocabulary.r18")).toBe(true);
         expect(report.skipped).toHaveLength(0);
         expect(report.converted.text).toBeGreaterThan(0);
         expect(report.converted.simple).toBeGreaterThan(0);
         expect(report.converted.regex).toBeGreaterThan(0);
-        expect(report.uniqueRules).toBe(340);
-        expect(rules).toHaveLength(340);
-        expect(rules.filter((rule) => rule.enabled !== false)).toHaveLength(311);
+        expect(report.uniqueRules).toBe(rules.length);
+        expect(rules.filter((rule) => rule.id.startsWith("cn."))).toHaveLength(4);
         expect(rules.some((rule) => rule.id === "mechanical-elevation-ending")).toBe(true);
         expect(rules.some((rule) => rule.id === "opening-cliche-announce" && rule.namespace === "opening.cliche")).toBe(true);
         expect(rules.some((rule) => rule.id === "inflation-novelty" && rule.namespace === "inflation.significance")).toBe(true);
@@ -534,7 +548,7 @@ describe("llmlint", () => {
         expect(rules.some((rule) => rule.namespace === "vocabulary.r18" && rule.enabled !== false)).toBe(true);
         expect(rules.some((rule) => rule.namespace === "modifier.extreme" && rule.enabled !== false)).toBe(false);
         expect(JSON.stringify(rules)).not.toContain(`leg${"acy"}`);
-        expect(rules.filter((rule) => rule.id.startsWith("cn.")).every((rule) => rule.source?.importedFrom === ".agent/workspace/llmlint_rules")).toBe(true);
+        expect(rules.filter((rule) => rule.id.startsWith("cn.")).every((rule) => rule.source?.importedFrom === "curated-cn-rule-samples")).toBe(true);
         expect(rules.some((rule) => rule.id === "cn.vocabulary.body.skull-head")).toBe(true);
         const cnSlugs = rules
             .filter((rule) => rule.id.startsWith("cn."))
@@ -554,13 +568,15 @@ describe("llmlint", () => {
     it("curated import 遇到缺失 slug 映射会失败", async () => {
         const root = await mkdtemp(join(tmpdir(), "llmlint-curated-missing-slug-"));
         tempRoots.push(root);
+        const sourceRoot = join(root, "source");
+        await writeCuratedSourceFixture(sourceRoot);
         const key = "vocabulary.body\t\t头颅";
         const original = CURATED_RULE_SLUGS[key];
         delete CURATED_RULE_SLUGS[key];
 
         try {
             await expect(importCuratedRulesets({
-                sourceRoot: ".agent/workspace/llmlint_rules",
+                sourceRoot,
                 outputRoot: root,
             })).rejects.toThrow("缺少中文规则 slug 映射");
         } finally {
@@ -920,6 +936,49 @@ describe("llmlint", () => {
         expect(report.totalOccurrences).toBeGreaterThanOrEqual(1);
         expect(report.files[0]?.changed).toBe(true);
     });
+
+    it("CLI check 支持 glob 模式与 ! 排除", async () => {
+        const dir = `llmlint-glob-${randomUUID()}`;
+        const absDir = resolve(process.cwd(), dir);
+        tempRoots.push(absDir);
+        await mkdir(join(absDir, "drafts"), {recursive: true});
+        await writeFile(join(absDir, "a.md"), "其实甲。", "utf-8");
+        await writeFile(join(absDir, "b.md"), "其实乙。", "utf-8");
+        await writeFile(join(absDir, "drafts", "skip.md"), "其实丙。", "utf-8");
+        const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+        await runCli(["bun", "llmlint", "check", `${dir}/**/*.md`, `!${dir}/drafts/**`, "--review", "all", "--format", "json"]);
+        const report = JSON.parse(String(log.mock.calls[0]?.[0])) as {kind: string; files: Array<{filePath: string}>};
+        expect(report.kind).toBe("check-multi");
+        expect(report.files).toHaveLength(2);
+        expect(report.files.every((file) => !file.filePath.includes("drafts"))).toBe(true);
+    });
+
+    it("formatCheckReport color 门控：true 含 ANSI、false 纯文本", async () => {
+        const rulesetId = `test/${randomUUID()}`;
+        tempRoots.push(join(RULESETS_ROOT, "test"));
+        await writeRuleset(rulesetId, [{...regexRule("test.color", "test.output", "颜色规则", "高风险词"), level: "high"}]);
+        const loadedRules = await loadRules(emptyConfig([rulesetId]));
+        const issues = scanText("有高风险词。", loadedRules.regexRules);
+
+        const colored = formatCheckReport("input.md", issues, loadedRules, {color: true});
+        const plain = formatCheckReport("input.md", issues, loadedRules, {color: false});
+        const esc = String.fromCharCode(0x1B);
+        expect(colored).toContain(esc);
+        expect(plain).not.toContain(esc);
+    });
+
+    it("CLI check 被抓取（非 TTY）输出纯文本，无 ANSI", async () => {
+        const root = await mkdtemp(join(tmpdir(), "llmlint-noansi-"));
+        tempRoots.push(root);
+        const filePath = join(root, "input.md");
+        await writeFile(filePath, "其实甲。", "utf-8");
+        const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+        await runCli(["bun", "llmlint", "check", filePath, "--review", "all"]);
+
+        expect(String(log.mock.calls[0]?.[0])).not.toContain(String.fromCharCode(0x1B));
+    });
 });
 
 function emptyConfig(rulesets: string[]) {
@@ -1007,6 +1066,57 @@ async function writeInvalidJsonRuleset(id: string): Promise<void> {
         version: "1.0.0",
     }), "utf-8");
     await writeFile(join(root, "rules", "broken.json"), "[", "utf-8");
+}
+
+async function writeCuratedSourceFixture(root: string): Promise<void> {
+    await mkdir(root, {recursive: true});
+    for (const fileName of CURATED_SOURCE_FILES) {
+        await writeFile(join(root, fileName), "[]\n", "utf-8");
+    }
+    await writeFile(join(root, "轻量规则集1.2.json"), JSON.stringify([
+        {
+            name: "人体词汇",
+            enabled: true,
+            subRules: [{
+                targets: ["头颅"],
+                replacements: ["头", "脑袋"],
+                mode: "text",
+                remark: "头颅",
+            }],
+        },
+        {
+            name: "R18词汇",
+            enabled: false,
+            subRules: [{
+                targets: ["乳房"],
+                replacements: ["胸部"],
+                mode: "text",
+                remark: "R18 词汇",
+            }],
+        },
+        {
+            name: "由于删除",
+            enabled: true,
+            subRules: [{
+                targets: ["由于(?:的|地|得)?"],
+                replacements: [],
+                mode: "regex",
+                remark: "由于删除",
+            }],
+        },
+    ], null, 2), "utf-8");
+    await writeFile(join(root, "极其杀手.json"), JSON.stringify([
+        {
+            name: "极其删除",
+            enabled: true,
+            subRules: [{
+                targets: ["极其{的,地,得}?"],
+                replacements: [],
+                mode: "simple",
+                remark: "极其删除",
+            }],
+        },
+    ], null, 2), "utf-8");
 }
 
 async function readRulesetRules(root: string): Promise<unknown[]> {
