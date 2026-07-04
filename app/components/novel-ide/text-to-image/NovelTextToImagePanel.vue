@@ -20,23 +20,40 @@ import {
     type NovelAiApiSettings,
     type TextToImageCharacter,
     type TextToImageCharacterTagKey,
+    type TextToImageCharacterReference,
     type TextToImageGenerationResult,
     type TextToImageLlmParameters,
+    type TextToImageOutfit,
     type TextToImagePromptTask,
     type TextToImageStylePreset,
     type TextToImageVibeReference,
 } from "nbook/app/stores/text-to-image";
+import type {TextToImagePromptReplacementRule} from "nbook/app/utils/text-to-image-prompt-engine";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {enqueueTextToImageGeneration, type TextToImageGenerationQueueStatus} from "nbook/app/utils/text-to-image-generation-queue";
+import {
+    buildTextToImageLlmMessages,
+    formatTextToImageLlmMessages,
+    requestTextToImageLlmCompletion,
+} from "nbook/app/utils/text-to-image-llm";
+import {
+    buildTextToImageCharacterDesignRequestPayload,
+    buildTextToImageCharacterRevisionRequestPayload,
+    buildTextToImageCharacterTagPatch,
+    createTextToImageCharacterRequestSlots,
+    parseTextToImageCharacterDraft,
+} from "nbook/app/utils/text-to-image-character-design";
+import {parseStChatu8TextToImageSettings} from "nbook/app/utils/text-to-image-st-chatu8-import";
 import type {WorkspaceTreeSnapshotDto} from "nbook/shared/dto/workspace-tree.dto";
 
 type StyleTextFieldKey = "positivePrefix" | "positiveSuffix" | "negativePrefix" | "negativeSuffix";
 type StyleBooleanKey = "useFurryDataset" | "positiveQualityPreset";
 type LlmParameterKey = keyof TextToImageLlmParameters;
 type NovelAiNumberKey = "promptGuidance" | "promptGuidanceRescale" | "width" | "height" | "steps" | "seed";
-type NovelAiBooleanKey = "aiDefaultCharacterPosition" | "variety";
+type NovelAiBooleanKey = "aiDefaultCharacterPosition" | "variety" | "smeaDyn" | "decrisper";
 type NovelAiDimensionKey = "width" | "height";
 type VibeNumberKey = "strength" | "infoExtracted";
+type CharacterReferenceNumberKey = "strength" | "infoExtracted";
 type VibeSourceType = TextToImageVibeReference["sourceType"];
 type CharacterAddMode = "manual" | "project";
 type CharacterPromptDialogMode = "photoPrompt" | "revision";
@@ -141,15 +158,20 @@ const notification = useNotification();
 const {
     activeCharacter,
     activeCharacterId,
+    activeOutfit,
+    activeOutfitId,
     activeStyle,
     activeStyleId,
     characters,
     currentProjectPath,
     generationDraft,
     generationResults,
+    lastNovelAiExchange,
     llm,
     novelAi,
     output,
+    outfits,
+    promptReplacementRules,
     stylePresets,
     taskPrompts,
 } = storeToRefs(store);
@@ -158,6 +180,7 @@ const {currentNovelId, novels} = storeToRefs(novelIdeStore);
 const selectedPromptTask = ref<TextToImagePromptTask>("bodyImage");
 const selectedTagInsertTarget = ref("generationPrompt");
 const promptFileInputRef = ref<HTMLInputElement | null>(null);
+const stChatu8FileInputRef = ref<HTMLInputElement | null>(null);
 const characterPhotoInputRef = ref<HTMLInputElement | null>(null);
 const characterPromptReferenceInputRef = ref<HTMLInputElement | null>(null);
 const characterAddMode = ref<CharacterAddMode>("manual");
@@ -242,6 +265,39 @@ const negativeQualityPresetOptions: SelectOption[] = TEXT_TO_IMAGE_NEGATIVE_QUAL
 const novelAiGuidanceControls: Array<{key: Extract<NovelAiNumberKey, "promptGuidance" | "promptGuidanceRescale">; label: string; min: number; max: number; step: number}> = [
     {key: "promptGuidance", label: "Prompt Guidance", min: 0, max: 20, step: 0.1},
     {key: "promptGuidanceRescale", label: "Prompt Guidance Rescale", min: 0, max: 1, step: 0.01},
+];
+
+const novelAiSmeaModeOptions: SelectOption[] = [
+    {value: "auto", label: "SMEA 自动", description: "大尺寸时自动启用"},
+    {value: "on", label: "SMEA 开启", description: "强制发送 sm=true"},
+    {value: "off", label: "SMEA 关闭", description: "强制关闭 sm"},
+];
+
+const promptRuleTargetOptions: SelectOption[] = [
+    {value: "positive", label: "正面 prompt"},
+    {value: "negative", label: "负面 prompt"},
+];
+
+const promptRuleMatchModeOptions: SelectOption[] = [
+    {value: "plain", label: "普通文本"},
+    {value: "regex", label: "正则"},
+];
+
+const promptRuleModeOptions: SelectOption[] = [
+    {value: "replace", label: "替换"},
+    {value: "append", label: "追加"},
+    {value: "prepend", label: "前置"},
+    {value: "delete", label: "删除"},
+];
+
+const outfitTextFields: Array<{key: keyof Pick<TextToImageOutfit, "aliases" | "upperFront" | "upperBack" | "lowerFront" | "lowerBack" | "fullPrompt" | "negativePrompt">; label: string; rows: number}> = [
+    {key: "aliases", label: "触发别名", rows: 2},
+    {key: "upperFront", label: "上半身正面", rows: 3},
+    {key: "upperBack", label: "上半身背面", rows: 3},
+    {key: "lowerFront", label: "下半身正面", rows: 3},
+    {key: "lowerBack", label: "下半身背面", rows: 3},
+    {key: "fullPrompt", label: "全身组合", rows: 3},
+    {key: "negativePrompt", label: "负面 tag", rows: 2},
 ];
 
 const styleFieldGroups: Array<{key: StyleTextFieldKey; label: string; placeholder: string}> = [
@@ -470,6 +526,9 @@ async function generateTextToImage(): Promise<void> {
                     novelAi: novelAi.value,
                     style: activeStyle.value,
                     character: generationDraft.value.includeActiveCharacter ? activeCharacter.value : null,
+                    characters: characters.value,
+                    outfits: outfits.value,
+                    promptRules: promptReplacementRules.value,
                     prompt: generationDraft.value.prompt,
                     negativePrompt: generationDraft.value.negativePrompt,
                     output: output.value,
@@ -522,6 +581,9 @@ async function generateActiveCharacterImage(): Promise<void> {
                     novelAi: novelAi.value,
                     style: activeStyle.value,
                     character,
+                    characters: characters.value,
+                    outfits: outfits.value,
+                    promptRules: promptReplacementRules.value,
                     prompt,
                     negativePrompt: generationDraft.value.negativePrompt,
                     output: output.value,
@@ -529,6 +591,11 @@ async function generateActiveCharacterImage(): Promise<void> {
             }),
         });
         store.prependGenerationResults(result.images);
+        store.recordNovelAiExchange({
+            request: result.request,
+            warnings: result.warnings,
+            imageCount: result.images.length,
+        });
         generationWarnings.value = result.warnings;
         lastGenerationRequest.value = result.request;
         const portrait = result.images[0] ?? null;
@@ -786,6 +853,13 @@ function updateNovelAiDimension(key: NovelAiDimensionKey, value: string | number
 /**
  * 格式化 NovelAI 参数显示。
  */
+function updateNovelAiSmeaMode(value: string): void {
+    const smeaMode = novelAiSmeaModeOptions.some((option) => option.value === value)
+        ? value as NovelAiApiSettings["smeaMode"]
+        : "auto";
+    store.updateNovelAiSettings({smeaMode});
+}
+
 function formatNovelAiNumber(key: NovelAiNumberKey): string {
     const value = novelAi.value[key];
     if (key === "width" || key === "height" || key === "steps" || key === "seed") {
@@ -853,6 +927,63 @@ function deleteActiveStyleVibeReference(vibeId: string): void {
 /**
  * 百分比参数显示。
  */
+function addActiveStyleCharacterReference(): void {
+    if (!activeStyle.value) {
+        return;
+    }
+    store.addStyleCharacterReference(activeStyle.value.id);
+}
+
+function updateActiveStyleCharacterReference(referenceId: string, patch: Partial<TextToImageCharacterReference>): void {
+    if (!activeStyle.value) {
+        return;
+    }
+    store.updateStyleCharacterReference(activeStyle.value.id, referenceId, patch);
+}
+
+function updateCharacterReferenceNumber(referenceId: string, key: CharacterReferenceNumberKey, value: string | number): void {
+    const nextValue = Number(value);
+    if (!Number.isFinite(nextValue)) {
+        return;
+    }
+    updateActiveStyleCharacterReference(referenceId, {[key]: nextValue});
+}
+
+function deleteActiveStyleCharacterReference(referenceId: string): void {
+    if (!activeStyle.value) {
+        return;
+    }
+    store.deleteStyleCharacterReference(activeStyle.value.id, referenceId);
+}
+
+function addOutfit(): void {
+    store.addOutfit();
+}
+
+function deleteActiveOutfit(): void {
+    if (activeOutfit.value) {
+        store.deleteOutfit(activeOutfit.value.id);
+    }
+}
+
+function updateActiveOutfit(patch: Partial<TextToImageOutfit>): void {
+    if (activeOutfit.value) {
+        store.updateOutfit(activeOutfit.value.id, patch);
+    }
+}
+
+function formatOutfitName(outfit: TextToImageOutfit): string {
+    return outfit.nameCn.trim() || outfit.nameEn.trim() || "未命名服装";
+}
+
+function addPromptReplacementRule(): void {
+    store.addPromptReplacementRule();
+}
+
+function updatePromptReplacementRule(ruleId: string, patch: Partial<TextToImagePromptReplacementRule>): void {
+    store.updatePromptReplacementRule(ruleId, patch);
+}
+
 function formatRatio(value: number): string {
     return `${Math.round(value * 100)}%`;
 }
@@ -1141,7 +1272,7 @@ async function connectLlm(): Promise<void> {
  */
 async function requestAvailableModels(): Promise<string[]> {
     const apiBaseUrl = llm.value.apiBaseUrl.trim().replace(/\/+$/, "");
-    const headers: HeadersInit = {};
+    const headers: Record<string, string> = {};
     if (llm.value.apiKey.trim()) {
         headers.Authorization = `Bearer ${llm.value.apiKey.trim()}`;
     }
@@ -1218,6 +1349,35 @@ async function importPromptFile(event: Event): Promise<void> {
 /**
  * 选择导入来源小说并刷新角色列表。
  */
+function openStChatu8ImportDialog(): void {
+    stChatu8FileInputRef.value?.click();
+}
+
+async function importStChatu8Settings(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0] ?? null;
+    input.value = "";
+    if (!file) {
+        return;
+    }
+
+    try {
+        const parsed = parseStChatu8TextToImageSettings(await file.text());
+        for (const character of parsed.characters) {
+            store.addCharacterFromDraft(character);
+        }
+        for (const outfit of parsed.outfits) {
+            store.addOutfitFromDraft(outfit);
+        }
+        if (parsed.promptRules.length > 0) {
+            store.importPromptReplacementRules(parsed.promptRules);
+        }
+        notification.success(`已导入 ${parsed.characters.length} 个角色、${parsed.outfits.length} 套服装、${parsed.promptRules.length} 条规则`);
+    } catch (error) {
+        notification.error(resolveApiErrorMessage(error, "导入 st-chatu8 配置失败"));
+    }
+}
+
 async function selectSourceProject(projectPath: string): Promise<void> {
     sourceProjectPath.value = projectPath;
     sourceCharacterPath.value = "";
@@ -1319,8 +1479,39 @@ async function importCharacterFromProject(): Promise<void> {
  * 调用 OpenAI-compatible chat completions 接口生成角色 tag。
  */
 async function requestCharacterDesign(detail: SourceCharacterDetail): Promise<string> {
+    const {apiConfig, contextPreset} = store.resolveLlmTaskBinding("characterDesign");
+    if (!apiConfig.apiBaseUrl.trim() || !apiConfig.model.trim()) {
+        throw new Error("请先在文生图 LLM 中为“角色/服装设计”配置 API 和模型。");
+    }
+    const characterDesignRequestPayload = buildTextToImageCharacterDesignRequestPayload(detail);
+    const characterDesignTaskPrompt = taskPrompts.value.characterDesign.prompt.trim() || [
+        "你是 NovelAI 角色与服装 tag 设计助手。",
+        "请读取请求体 JSON，根据其中的小说角色设定生成角色 tag。",
+        "只返回 JSON，不要解释，不要 Markdown。JSON 结构必须是 {\"character\": {...}}，字段名使用 outputSchema.character 中列出的中文字段。",
+    ].join("\n");
+    const characterDesignMessages = buildTextToImageLlmMessages({
+        task: "characterDesign",
+        userRequest: characterDesignRequestPayload,
+        taskPrompt: characterDesignTaskPrompt,
+        contextPreset,
+        extraDetectionText: [detail.title, detail.summary, detail.content, detail.stateContent].filter(Boolean).join("\n"),
+        requestVariables: createTextToImageCharacterRequestSlots({
+            userRequest: characterDesignRequestPayload,
+        }),
+    });
+    const characterDesignReply = await requestTextToImageLlmCompletion(apiConfig, characterDesignMessages);
+    if (!characterDesignReply) {
+        throw new Error("LLM 没有返回可用内容");
+    }
+    store.recordLlmExchange({
+        task: "characterDesign",
+        prompt: formatTextToImageLlmMessages(characterDesignMessages),
+        response: characterDesignReply,
+    });
+    return characterDesignReply;
+
     const apiBaseUrl = llm.value.apiBaseUrl.trim().replace(/\/+$/, "");
-    const headers: HeadersInit = {"Content-Type": "application/json"};
+    const headers: Record<string, string> = {"Content-Type": "application/json"};
     if (llm.value.apiKey.trim()) {
         headers.Authorization = `Bearer ${llm.value.apiKey.trim()}`;
     }
@@ -1398,6 +1589,38 @@ async function requestCharacterPhotoPrompt(character: TextToImageCharacter, requ
  * 调用 LLM 按用户方向修改当前角色 tag。
  */
 async function requestCharacterRevision(character: TextToImageCharacter, direction: string): Promise<string> {
+    const {apiConfig, contextPreset} = store.resolveLlmTaskBinding("characterRevision");
+    if (!apiConfig.apiBaseUrl.trim() || !apiConfig.model.trim()) {
+        throw new Error("请先在文生图 LLM 中为“角色/服装修改”配置 API 和模型。");
+    }
+    const revisionRequestPayload = buildTextToImageCharacterRevisionRequestPayload(character, direction);
+    const revisionTaskPrompt = taskPrompts.value.characterRevision.prompt.trim() || [
+        "你是 NovelAI 角色 tag 修改助手。",
+        "请读取请求体 JSON，根据 request.direction 修改 request.currentCharacter 中的 tag。",
+        "只返回 JSON，不要解释，不要 Markdown。JSON 结构必须是 {\"character\": {...}}，只需要包含被修改后的角色字段。",
+    ].join("\n");
+    const revisionMessages = buildTextToImageLlmMessages({
+        task: "characterRevision",
+        userRequest: revisionRequestPayload,
+        taskPrompt: revisionTaskPrompt,
+        contextPreset,
+        extraDetectionText: revisionRequestPayload,
+        requestVariables: createTextToImageCharacterRequestSlots({
+            userRequest: revisionRequestPayload,
+            currentCharacter: character,
+        }),
+    });
+    const revisionReply = await requestTextToImageLlmCompletion(apiConfig, revisionMessages);
+    if (!revisionReply) {
+        throw new Error("LLM 没有返回可用内容");
+    }
+    store.recordLlmExchange({
+        task: "characterRevision",
+        prompt: formatTextToImageLlmMessages(revisionMessages),
+        response: revisionReply,
+    });
+    return revisionReply;
+
     return await requestLlmChatCompletion([
         {
             role: "system",
@@ -1415,7 +1638,7 @@ async function requestCharacterRevision(character: TextToImageCharacter, directi
  */
 async function requestLlmChatCompletion(messages: ChatCompletionMessage[], task: TextToImagePromptTask): Promise<string> {
     const apiBaseUrl = llm.value.apiBaseUrl.trim().replace(/\/+$/, "");
-    const headers: HeadersInit = {"Content-Type": "application/json"};
+    const headers: Record<string, string> = {"Content-Type": "application/json"};
     if (llm.value.apiKey.trim()) {
         headers.Authorization = `Bearer ${llm.value.apiKey.trim()}`;
     }
@@ -1542,25 +1765,11 @@ function buildCharacterRevisionMessage(character: TextToImageCharacter, directio
  * 只把 LLM 返回内容写回角色详细 tag 字段。
  */
 function buildCharacterTagPatch(draft: Partial<TextToImageCharacter>): Partial<TextToImageCharacter> {
-    const patch: Partial<TextToImageCharacter> = {};
-    for (const field of characterTextFields) {
-        const value = draft[field.key];
-        if (typeof value === "string" && value.trim()) {
-            patch[field.key] = value;
-        }
-    }
-    return patch;
+    return buildTextToImageCharacterTagPatch(draft);
 }
 
 function parseCharacterDraft(content: string): Partial<TextToImageCharacter> {
-    const draft: Partial<TextToImageCharacter> = {};
-    for (const field of characterDraftFields) {
-        const value = readDraftField(content, field.label);
-        if (value) {
-            field.apply(draft, value);
-        }
-    }
-    return draft;
+    return parseTextToImageCharacterDraft(content);
 }
 
 /**
@@ -1637,6 +1846,10 @@ function readFileAsDataUrl(file: File): Promise<string> {
                     <p class="mt-0.5 truncate text-[11px] text-[var(--text-muted)]">当前小说：{{ currentNovelTitle }}</p>
                 </div>
                 <div class="flex shrink-0 items-center gap-1">
+                    <IconButton title="导入 st-chatu8 JSON" size="sm" @click="openStChatu8ImportDialog">
+                        <span class="i-lucide-file-json h-3.5 w-3.5"></span>
+                    </IconButton>
+                    <input ref="stChatu8FileInputRef" type="file" accept=".json,application/json" class="hidden" @change="importStChatu8Settings">
                     <IconButton title="设置返回图片保存路径" size="sm" :class="outputSettingsOpen ? '!bg-[var(--accent-bg)] !text-[var(--accent-text)]' : ''" @click="outputSettingsOpen = !outputSettingsOpen">
                         <span class="i-lucide-settings h-3.5 w-3.5"></span>
                     </IconButton>
@@ -1723,6 +1936,15 @@ function readFileAsDataUrl(file: File): Promise<string> {
 
                     <div v-if="lastGenerationRequest" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)]/50 px-2 py-1.5 text-[11px] text-[var(--text-muted)]">
                         上次请求：{{ lastGenerationRequest.model }} · seed {{ lastGenerationRequest.seed }} · {{ lastGenerationRequest.savedDirectory }}
+                    </div>
+
+                    <div v-if="lastNovelAiExchange.request" class="space-y-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)]/50 p-2">
+                        <div class="flex items-center justify-between gap-2 text-[11px] text-[var(--text-secondary)]">
+                            <span>NovelAI 调试</span>
+                            <span class="text-[10px] text-[var(--text-muted)]">{{ lastNovelAiExchange.imageCount }} 张</span>
+                        </div>
+                        <FormTextarea :model-value="JSON.stringify(lastNovelAiExchange.request, null, 2)" :rows="6" readonly />
+                        <p v-if="lastNovelAiExchange.warnings.length > 0" class="m-0 text-[10px] text-[var(--text-muted)]">{{ lastNovelAiExchange.warnings.join(' / ') }}</p>
                     </div>
 
                     <div class="space-y-2 border-t border-[var(--border-color)] pt-3">
@@ -1841,6 +2063,42 @@ function readFileAsDataUrl(file: File): Promise<string> {
                                     @update:model-value="updateNovelAiNumber(control.key, $event)"
                                 />
                             </div>
+                        </div>
+                        <label class="block">
+                            <span class="mb-1 block text-[11px] text-[var(--text-secondary)]">SMEA</span>
+                            <FormSelect :model-value="novelAi.smeaMode" :options="novelAiSmeaModeOptions" dropdown-direction="down" @update:model-value="updateNovelAiSmeaMode" />
+                        </label>
+                        <div class="grid grid-cols-2 gap-2">
+                            <button
+                                type="button"
+                                class="grid min-h-10 grid-cols-[minmax(0,1fr)_2.125rem] items-center gap-2 rounded-md border px-2 text-left text-[11px] transition-colors"
+                                :class="novelAi.smeaDyn ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'border-[var(--border-color)] bg-[var(--bg-panel)]/50 text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
+                                :aria-pressed="novelAi.smeaDyn"
+                                @click="toggleNovelAiBoolean('smeaDyn')"
+                            >
+                                <span class="min-w-0">
+                                    <span class="block truncate">SMEA Dyn</span>
+                                    <span class="mt-0.5 block text-[10px]" :class="novelAi.smeaDyn ? 'text-[var(--accent-text)] opacity-80' : 'text-[var(--text-muted)]'">{{ novelAi.smeaDyn ? "已开启" : "已关闭" }}</span>
+                                </span>
+                                <span class="relative h-4 w-8 rounded-full transition-colors" :class="novelAi.smeaDyn ? 'bg-[var(--accent-main)]' : 'bg-[var(--border-color)]'">
+                                    <span class="absolute top-0.5 h-3 w-3 rounded-full bg-[var(--bg-panel)] shadow transition-transform" :class="novelAi.smeaDyn ? 'translate-x-[18px]' : 'translate-x-0.5'"></span>
+                                </span>
+                            </button>
+                            <button
+                                type="button"
+                                class="grid min-h-10 grid-cols-[minmax(0,1fr)_2.125rem] items-center gap-2 rounded-md border px-2 text-left text-[11px] transition-colors"
+                                :class="novelAi.decrisper ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'border-[var(--border-color)] bg-[var(--bg-panel)]/50 text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
+                                :aria-pressed="novelAi.decrisper"
+                                @click="toggleNovelAiBoolean('decrisper')"
+                            >
+                                <span class="min-w-0">
+                                    <span class="block truncate">Decrisper</span>
+                                    <span class="mt-0.5 block text-[10px]" :class="novelAi.decrisper ? 'text-[var(--accent-text)] opacity-80' : 'text-[var(--text-muted)]'">{{ novelAi.decrisper ? "已开启" : "已关闭" }}</span>
+                                </span>
+                                <span class="relative h-4 w-8 rounded-full transition-colors" :class="novelAi.decrisper ? 'bg-[var(--accent-main)]' : 'bg-[var(--border-color)]'">
+                                    <span class="absolute top-0.5 h-3 w-3 rounded-full bg-[var(--bg-panel)] shadow transition-transform" :class="novelAi.decrisper ? 'translate-x-[18px]' : 'translate-x-0.5'"></span>
+                                </span>
+                            </button>
                         </div>
                         <div class="grid grid-cols-2 gap-2">
                             <button
@@ -2060,6 +2318,92 @@ function readFileAsDataUrl(file: File): Promise<string> {
                                 </div>
                             </div>
                         </div>
+
+                        <div class="space-y-2 border-t border-[var(--border-color)] pt-3">
+                            <div class="flex items-center justify-between gap-2">
+                                <div class="flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-[var(--text-secondary)]">
+                                    <span class="i-lucide-id-card h-3.5 w-3.5"></span>
+                                    <span class="truncate">Character Reference</span>
+                                    <span class="text-[10px] text-[var(--text-muted)]">{{ activeStyle.characterReferences.length }}</span>
+                                </div>
+                                <button type="button" class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-[var(--border-color)] px-2 text-[11px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="addActiveStyleCharacterReference">
+                                    <span class="i-lucide-plus h-3.5 w-3.5"></span>
+                                    <span>新增参考</span>
+                                </button>
+                            </div>
+                            <div v-if="activeStyle.characterReferences.length === 0" class="rounded-md border border-dashed border-[var(--border-color)] px-3 py-3 text-center text-[11px] text-[var(--text-muted)]">
+                                暂无 Character Reference。
+                            </div>
+                            <div v-else class="space-y-2">
+                                <div v-for="reference in activeStyle.characterReferences" :key="reference.id" class="space-y-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)]/50 p-2">
+                                    <div class="flex items-center justify-between gap-2">
+                                        <label class="flex min-w-0 items-center gap-2 text-[11px] text-[var(--text-secondary)]">
+                                            <input class="h-4 w-4 accent-[var(--accent-main)]" type="checkbox" :checked="reference.enabled" @change="updateActiveStyleCharacterReference(reference.id, {enabled: ($event.target as HTMLInputElement).checked})">
+                                            <span class="truncate">启用</span>
+                                        </label>
+                                        <IconButton title="删除 Character Reference" size="sm" variant="danger" @click="deleteActiveStyleCharacterReference(reference.id)">
+                                            <span class="i-lucide-trash-2 h-3.5 w-3.5"></span>
+                                        </IconButton>
+                                    </div>
+                                    <label class="block">
+                                        <span class="mb-1 block text-[11px] text-[var(--text-secondary)]">名称</span>
+                                        <FormInput :model-value="reference.displayName" placeholder="角色参考图" @update:model-value="updateActiveStyleCharacterReference(reference.id, {displayName: $event})" />
+                                    </label>
+                                    <div class="grid grid-cols-2 gap-2">
+                                        <label class="block min-w-0">
+                                            <span class="mb-1 block text-[11px] text-[var(--text-secondary)]">Strength</span>
+                                            <FormInput :model-value="String(reference.strength)" type="number" min="0" max="1" step="0.01" @update:model-value="updateCharacterReferenceNumber(reference.id, 'strength', $event)" />
+                                        </label>
+                                        <label class="block min-w-0">
+                                            <span class="mb-1 block text-[11px] text-[var(--text-secondary)]">Info Extracted</span>
+                                            <FormInput :model-value="String(reference.infoExtracted)" type="number" min="0" max="1" step="0.01" @update:model-value="updateCharacterReferenceNumber(reference.id, 'infoExtracted', $event)" />
+                                        </label>
+                                    </div>
+                                    <label class="block">
+                                        <span class="mb-1 block text-[11px] text-[var(--text-secondary)]">图片 Data URL / Base64</span>
+                                        <FormTextarea :model-value="reference.imageDataUrl" :rows="3" placeholder="粘贴 data:image/png;base64,... 或原始 base64" @update:model-value="updateActiveStyleCharacterReference(reference.id, {imageDataUrl: $event})" />
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="space-y-2 border-t border-[var(--border-color)] pt-3">
+                            <div class="flex items-center justify-between gap-2">
+                                <div class="flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-[var(--text-secondary)]">
+                                    <span class="i-lucide-repeat h-3.5 w-3.5"></span>
+                                    <span class="truncate">Prompt 动态替换</span>
+                                    <span class="text-[10px] text-[var(--text-muted)]">{{ promptReplacementRules.length }}</span>
+                                </div>
+                                <button type="button" class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-[var(--border-color)] px-2 text-[11px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="addPromptReplacementRule">
+                                    <span class="i-lucide-plus h-3.5 w-3.5"></span>
+                                    <span>新增规则</span>
+                                </button>
+                            </div>
+                            <div v-if="promptReplacementRules.length === 0" class="rounded-md border border-dashed border-[var(--border-color)] px-3 py-3 text-center text-[11px] text-[var(--text-muted)]">
+                                暂无替换规则。
+                            </div>
+                            <div v-else class="space-y-2">
+                                <div v-for="rule in promptReplacementRules" :key="rule.id" class="space-y-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)]/50 p-2">
+                                    <div class="flex items-center justify-between gap-2">
+                                        <label class="flex min-w-0 items-center gap-2 text-[11px] text-[var(--text-secondary)]">
+                                            <input class="h-4 w-4 accent-[var(--accent-main)]" type="checkbox" :checked="rule.enabled" @change="updatePromptReplacementRule(rule.id, {enabled: ($event.target as HTMLInputElement).checked})">
+                                            <span class="truncate">启用</span>
+                                        </label>
+                                        <IconButton title="删除规则" size="sm" variant="danger" @click="store.deletePromptReplacementRule(rule.id)">
+                                            <span class="i-lucide-trash-2 h-3.5 w-3.5"></span>
+                                        </IconButton>
+                                    </div>
+                                    <FormInput :model-value="rule.name" placeholder="规则名" @update:model-value="updatePromptReplacementRule(rule.id, {name: $event})" />
+                                    <div class="grid grid-cols-2 gap-2">
+                                        <FormSelect :model-value="rule.target" :options="promptRuleTargetOptions" dropdown-direction="down" @update:model-value="updatePromptReplacementRule(rule.id, {target: $event as TextToImagePromptReplacementRule['target']})" />
+                                        <FormSelect :model-value="rule.mode" :options="promptRuleModeOptions" dropdown-direction="down" @update:model-value="updatePromptReplacementRule(rule.id, {mode: $event as TextToImagePromptReplacementRule['mode']})" />
+                                        <FormSelect :model-value="rule.matchMode" :options="promptRuleMatchModeOptions" dropdown-direction="down" @update:model-value="updatePromptReplacementRule(rule.id, {matchMode: $event as TextToImagePromptReplacementRule['matchMode']})" />
+                                    </div>
+                                    <FormTextarea :model-value="rule.trigger" :rows="2" placeholder="匹配内容或正则；追加/前置时可留空" @update:model-value="updatePromptReplacementRule(rule.id, {trigger: $event})" />
+                                    <FormTextarea :model-value="rule.replacement" :rows="2" placeholder="替换/追加/前置内容；删除时可留空" @update:model-value="updatePromptReplacementRule(rule.id, {replacement: $event})" />
+                                </div>
+                            </div>
+                        </div>
                     </template>
                 </div>
             </section>
@@ -2233,6 +2577,66 @@ function readFileAsDataUrl(file: File): Promise<string> {
                             </div>
                             <div v-else class="rounded-md border border-dashed border-[var(--border-color)] px-2 py-3 text-center text-[11px] text-[var(--text-muted)]">
                                 暂无角色
+                            </div>
+                        </div>
+
+                        <div class="space-y-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)]/50 p-2">
+                            <div class="flex items-center justify-between gap-2">
+                                <span class="text-[11px] font-medium text-[var(--text-secondary)]">服装管理</span>
+                                <div class="flex items-center gap-1">
+                                    <span class="text-[10px] text-[var(--text-muted)]">{{ outfits.length }}</span>
+                                    <IconButton title="新增服装" size="sm" @click="addOutfit">
+                                        <span class="i-lucide-plus h-3.5 w-3.5"></span>
+                                    </IconButton>
+                                    <IconButton title="删除当前服装" size="sm" variant="danger" :disabled="!activeOutfit" @click="deleteActiveOutfit">
+                                        <span class="i-lucide-trash-2 h-3.5 w-3.5"></span>
+                                    </IconButton>
+                                </div>
+                            </div>
+                            <p class="m-0 text-[10px] leading-4 text-[var(--text-muted)]">可在 prompt 中使用 $服装名-fullbody$、$服装名-upperbody$、$服装名-lowerbody$。</p>
+                            <div v-if="outfits.length > 0" class="space-y-1">
+                                <button
+                                    v-for="outfit in outfits"
+                                    :key="outfit.id"
+                                    type="button"
+                                    class="grid h-8 w-full grid-cols-[1rem_minmax(0,1fr)_2.125rem] items-center gap-2 rounded-md border px-2 text-left text-[11px] transition-colors"
+                                    :class="outfit.id === activeOutfitId ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'border-transparent text-[var(--text-secondary)] hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
+                                    @click="store.selectOutfit(outfit.id)"
+                                >
+                                    <span class="i-lucide-shirt h-3.5 w-3.5"></span>
+                                    <span class="min-w-0 truncate">{{ formatOutfitName(outfit) }}</span>
+                                    <span class="text-[10px]" :class="outfit.enabled ? 'text-[var(--accent-text)]' : 'text-[var(--text-muted)]'">{{ outfit.enabled ? "启用" : "关闭" }}</span>
+                                </button>
+                            </div>
+                            <div v-else class="rounded-md border border-dashed border-[var(--border-color)] px-2 py-3 text-center text-[11px] text-[var(--text-muted)]">
+                                暂无服装。
+                            </div>
+                            <div v-if="activeOutfit" class="space-y-2 border-t border-[var(--border-color)] pt-2">
+                                <div class="grid grid-cols-2 gap-2">
+                                    <label class="block min-w-0">
+                                        <span class="mb-1 block text-[11px] text-[var(--text-secondary)]">中文名称</span>
+                                        <FormInput :model-value="activeOutfit.nameCn" @update:model-value="updateActiveOutfit({nameCn: $event})" />
+                                    </label>
+                                    <label class="block min-w-0">
+                                        <span class="mb-1 block text-[11px] text-[var(--text-secondary)]">英文名称</span>
+                                        <FormInput :model-value="activeOutfit.nameEn" @update:model-value="updateActiveOutfit({nameEn: $event})" />
+                                    </label>
+                                </div>
+                                <button
+                                    type="button"
+                                    class="grid min-h-9 w-full grid-cols-[minmax(0,1fr)_2.125rem] items-center gap-2 rounded-md border px-2 text-left text-[11px] transition-colors"
+                                    :class="activeOutfit.enabled ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'border-[var(--border-color)] bg-[var(--bg-input)]/70 text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
+                                    @click="updateActiveOutfit({enabled: !activeOutfit.enabled})"
+                                >
+                                    <span>{{ activeOutfit.enabled ? "当前服装可被触发" : "当前服装已关闭" }}</span>
+                                    <span class="relative h-4 w-8 rounded-full transition-colors" :class="activeOutfit.enabled ? 'bg-[var(--accent-main)]' : 'bg-[var(--border-color)]'">
+                                        <span class="absolute top-0.5 h-3 w-3 rounded-full bg-[var(--bg-panel)] shadow transition-transform" :class="activeOutfit.enabled ? 'translate-x-[18px]' : 'translate-x-0.5'"></span>
+                                    </span>
+                                </button>
+                                <label v-for="field in outfitTextFields" :key="field.key" class="block">
+                                    <span class="mb-1 block text-[11px] text-[var(--text-secondary)]">{{ field.label }}</span>
+                                    <FormTextarea :model-value="activeOutfit[field.key]" :rows="field.rows" @update:model-value="updateActiveOutfit({[field.key]: $event})" />
+                                </label>
                             </div>
                         </div>
 

@@ -16,6 +16,17 @@ import {
 import {resolveTextToImageResultImageUrl} from "nbook/app/components/markdown-studio/tiptap/TextToImageResult";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {enqueueTextToImageGeneration, type TextToImageGenerationQueueStatus} from "nbook/app/utils/text-to-image-generation-queue";
+import {
+    buildTextToImageLlmMessages,
+    formatTextToImageLlmMessages,
+    requestTextToImageLlmCompletion,
+} from "nbook/app/utils/text-to-image-llm";
+import {
+    buildTextToImageCharacterRevisionRequestPayload,
+    buildTextToImageCharacterTagPatch,
+    createTextToImageCharacterRequestSlots,
+    parseTextToImageCharacterDraft,
+} from "nbook/app/utils/text-to-image-character-design";
 
 type CharacterPromptDialogMode = "photoPrompt" | "revision";
 type TextToImageTagInsertTarget = {
@@ -88,6 +99,8 @@ const {
     llm,
     novelAi,
     output,
+    outfitGroups,
+    promptReplacementRules,
     taskPrompts,
 } = storeToRefs(textToImageStore);
 
@@ -141,6 +154,8 @@ const character = computed(() => {
     const group = characterGroups.value[props.projectPath];
     return group?.characters.find((item) => item.id === props.characterId) ?? null;
 });
+const projectCharacters = computed(() => characterGroups.value[props.projectPath]?.characters ?? []);
+const projectOutfits = computed(() => outfitGroups.value[props.projectPath]?.outfits ?? []);
 
 const characterDisplayName = computed(() => character.value ? formatCharacterName(character.value) : "角色不存在");
 const characterPortraitItems = computed<TextToImageGenerationResult[]>(() => {
@@ -216,7 +231,6 @@ function createLocalPortraitResult(dataUrl: string, prompt: string): TextToImage
         createdAt: "",
         fileName: "本地头像",
         savedPath: "",
-        metadataPath: "",
         dataUrl,
         mimeType: "image/png",
         byteLength: 0,
@@ -297,6 +311,9 @@ async function generateCharacterImage(): Promise<void> {
                     novelAi: novelAi.value,
                     style: activeStyle.value,
                     character: currentCharacter,
+                    characters: projectCharacters.value,
+                    outfits: projectOutfits.value,
+                    promptRules: promptReplacementRules.value,
                     prompt,
                     negativePrompt: generationDraft.value.negativePrompt,
                     output: output.value,
@@ -304,6 +321,11 @@ async function generateCharacterImage(): Promise<void> {
             }),
         });
         textToImageStore.prependGenerationResults(result.images);
+        textToImageStore.recordNovelAiExchange({
+            request: result.request,
+            warnings: result.warnings,
+            imageCount: result.images.length,
+        });
         generationWarnings.value = result.warnings;
         lastGenerationRequest.value = result.request;
         const portrait = result.images[0] ?? null;
@@ -482,6 +504,38 @@ async function requestCharacterPhotoPrompt(item: TextToImageCharacter, requireme
 }
 
 async function requestCharacterRevision(item: TextToImageCharacter, direction: string): Promise<string> {
+    const {apiConfig, contextPreset} = textToImageStore.resolveLlmTaskBinding("characterRevision");
+    if (!apiConfig.apiBaseUrl.trim() || !apiConfig.model.trim()) {
+        throw new Error("请先在文生图 LLM 中为“角色/服装修改”配置 API 和模型。");
+    }
+    const revisionRequestPayload = buildTextToImageCharacterRevisionRequestPayload(item, direction);
+    const revisionTaskPrompt = taskPrompts.value.characterRevision.prompt.trim() || [
+        "你是 NovelAI 角色 tag 修改助手。",
+        "请读取请求体 JSON，根据 request.direction 修改 request.currentCharacter 中的 tag。",
+        "只返回 JSON，不要解释，不要 Markdown。JSON 结构必须是 {\"character\": {...}}，只需要包含被修改后的角色字段。",
+    ].join("\n");
+    const revisionMessages = buildTextToImageLlmMessages({
+        task: "characterRevision",
+        userRequest: revisionRequestPayload,
+        taskPrompt: revisionTaskPrompt,
+        contextPreset,
+        extraDetectionText: revisionRequestPayload,
+        requestVariables: createTextToImageCharacterRequestSlots({
+            userRequest: revisionRequestPayload,
+            currentCharacter: item,
+        }),
+    });
+    const revisionReply = await requestTextToImageLlmCompletion(apiConfig, revisionMessages);
+    if (!revisionReply) {
+        throw new Error("LLM 没有返回可用内容");
+    }
+    textToImageStore.recordLlmExchange({
+        task: "characterRevision",
+        prompt: formatTextToImageLlmMessages(revisionMessages),
+        response: revisionReply,
+    });
+    return revisionReply;
+
     return await requestLlmChatCompletion([
         {
             role: "system",
@@ -496,7 +550,7 @@ async function requestCharacterRevision(item: TextToImageCharacter, direction: s
 
 async function requestLlmChatCompletion(messages: ChatCompletionMessage[], task: TextToImagePromptTask): Promise<string> {
     const apiBaseUrl = llm.value.apiBaseUrl.trim().replace(/\/+$/, "");
-    const headers: HeadersInit = {"Content-Type": "application/json"};
+    const headers: Record<string, string> = {"Content-Type": "application/json"};
     if (llm.value.apiKey.trim()) {
         headers.Authorization = `Bearer ${llm.value.apiKey.trim()}`;
     }
@@ -593,25 +647,11 @@ function buildCharacterRevisionMessage(item: TextToImageCharacter, direction: st
 }
 
 function buildCharacterTagPatch(draft: Partial<TextToImageCharacter>): Partial<TextToImageCharacter> {
-    const patch: Partial<Record<TextToImageCharacterTagKey, string>> = {};
-    for (const field of characterTextFields) {
-        const value = draft[field.key];
-        if (typeof value === "string" && value.trim()) {
-            patch[field.key] = value;
-        }
-    }
-    return patch as Partial<TextToImageCharacter>;
+    return buildTextToImageCharacterTagPatch(draft);
 }
 
 function parseCharacterDraft(content: string): Partial<TextToImageCharacter> {
-    const draft: Partial<TextToImageCharacter> = {};
-    for (const field of characterDraftFields) {
-        const value = readDraftField(content, field.label);
-        if (value) {
-            field.apply(draft, value);
-        }
-    }
-    return draft;
+    return parseTextToImageCharacterDraft(content);
 }
 
 function readDraftField(content: string, label: string): string {

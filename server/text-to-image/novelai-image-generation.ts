@@ -3,6 +3,52 @@ import path from "node:path";
 import {unzipSync} from "fflate";
 import {z} from "zod";
 import {withBrowserProxyForFetch} from "nbook/server/utils/browser-proxy";
+import {resolveTextToImagePrompt, type TextToImageResolvedCharacterPrompt} from "nbook/app/utils/text-to-image-prompt-engine";
+
+const TextToImageGenerateCharacterSchema = z.object({
+    id: z.string(),
+    cnName: z.string().default(""),
+    enName: z.string().default(""),
+    profileTraits: z.string().default(""),
+    facialAppearance: z.string().default(""),
+    facialBack: z.string().default(""),
+    upperSfw: z.string().default(""),
+    upperBackSfw: z.string().default(""),
+    lowerSfw: z.string().default(""),
+    lowerBackSfw: z.string().default(""),
+    upperNsfw: z.string().default(""),
+    upperBackNsfw: z.string().default(""),
+    lowerNsfw: z.string().default(""),
+    lowerBackNsfw: z.string().default(""),
+    sourceProjectPath: z.string().default(""),
+    sourceNovelTitle: z.string().default(""),
+    sourceCharacterPath: z.string().default(""),
+});
+
+const TextToImageGenerateOutfitSchema = z.object({
+    id: z.string(),
+    nameCn: z.string().default(""),
+    nameEn: z.string().default(""),
+    aliases: z.string().default(""),
+    enabled: z.boolean().default(true),
+    upperFront: z.string().default(""),
+    upperBack: z.string().default(""),
+    lowerFront: z.string().default(""),
+    lowerBack: z.string().default(""),
+    fullPrompt: z.string().default(""),
+    negativePrompt: z.string().default(""),
+});
+
+const TextToImagePromptReplacementRuleSchema = z.object({
+    id: z.string(),
+    name: z.string().default(""),
+    enabled: z.boolean().default(true),
+    target: z.enum(["positive", "negative"]).default("positive"),
+    matchMode: z.enum(["plain", "regex"]).default("plain"),
+    mode: z.enum(["replace", "append", "prepend", "delete"]).default("replace"),
+    trigger: z.string().default(""),
+    replacement: z.string().default(""),
+});
 
 export const TextToImageGenerateRequestSchema = z.object({
     novelAi: z.object({
@@ -15,6 +61,9 @@ export const TextToImageGenerateRequestSchema = z.object({
         promptGuidanceRescale: z.number().default(0),
         aiDefaultCharacterPosition: z.boolean().default(true),
         variety: z.boolean().default(false),
+        smeaMode: z.enum(["auto", "off", "on"]).default("auto"),
+        smeaDyn: z.boolean().default(false),
+        decrisper: z.boolean().default(false),
         width: z.number().int().default(832),
         height: z.number().int().default(1216),
         steps: z.number().int().default(28),
@@ -40,26 +89,19 @@ export const TextToImageGenerateRequestSchema = z.object({
             strength: z.number().default(0.6),
             infoExtracted: z.number().default(0.7),
         })).default([]),
+        characterReferences: z.array(z.object({
+            id: z.string(),
+            enabled: z.boolean().default(true),
+            displayName: z.string().default("Character Reference"),
+            imageDataUrl: z.string().default(""),
+            strength: z.number().default(0.6),
+            infoExtracted: z.number().default(0.7),
+        })).default([]),
     }).nullable().default(null),
-    character: z.object({
-        id: z.string(),
-        cnName: z.string().default(""),
-        enName: z.string().default(""),
-        profileTraits: z.string().default(""),
-        facialAppearance: z.string().default(""),
-        facialBack: z.string().default(""),
-        upperSfw: z.string().default(""),
-        upperBackSfw: z.string().default(""),
-        lowerSfw: z.string().default(""),
-        lowerBackSfw: z.string().default(""),
-        upperNsfw: z.string().default(""),
-        upperBackNsfw: z.string().default(""),
-        lowerNsfw: z.string().default(""),
-        lowerBackNsfw: z.string().default(""),
-        sourceProjectPath: z.string().default(""),
-        sourceNovelTitle: z.string().default(""),
-        sourceCharacterPath: z.string().default(""),
-    }).nullable().default(null),
+    character: TextToImageGenerateCharacterSchema.nullable().default(null),
+    characters: z.array(TextToImageGenerateCharacterSchema).default([]),
+    outfits: z.array(TextToImageGenerateOutfitSchema).default([]),
+    promptRules: z.array(TextToImagePromptReplacementRuleSchema).default([]),
     prompt: z.string().default(""),
     negativePrompt: z.string().default(""),
     output: z.object({
@@ -74,7 +116,6 @@ export type TextToImageGeneratedImage = {
     createdAt: string;
     fileName: string;
     savedPath: string;
-    metadataPath: string;
     dataUrl: string;
     mimeType: string;
     byteLength: number;
@@ -188,22 +229,12 @@ export async function generateNovelAiImage(input: TextToImageGenerateRequest): P
         const extension = extensionFromMimeType(image.mimeType);
         const fileName = buildImageFileName(createdAt, buildResult.seed, index, extension);
         const savedPath = path.join(outputDirectory, fileName);
-        const metadataPath = savedPath.replace(/\.[^.]+$/u, ".json");
         await fs.writeFile(savedPath, image.data);
-        await fs.writeFile(metadataPath, JSON.stringify({
-            createdAt,
-            fileName,
-            request: {
-                ...buildResult,
-                requestData: buildResult.requestData,
-            },
-        }, null, 2), "utf-8");
         savedImages.push({
             id: `${Date.now().toString(36)}-${index}`,
             createdAt,
             fileName,
             savedPath,
-            metadataPath,
             dataUrl: `data:${image.mimeType};base64,${image.data.toString("base64")}`,
             mimeType: image.mimeType,
             byteLength: image.data.byteLength,
@@ -254,10 +285,24 @@ async function buildNovelAiRequest(input: TextToImageGenerateRequest, token: str
         warnings.push(`采样方法已按模型兼容性映射为 ${sampler}。`);
     }
 
+    const resolvedPrompt = resolveTextToImagePrompt({
+        prompt: input.prompt,
+        negativePrompt: input.negativePrompt,
+        characters: collectPromptCharacters(input),
+        outfits: input.outfits,
+        promptRules: input.promptRules,
+        activeCharacter: shouldInlineCharacterPrompt(input) ? input.character : null,
+    });
+    if (resolvedPrompt.unresolvedTriggers.length > 0) {
+        warnings.push(`本次有 ${resolvedPrompt.unresolvedTriggers.length} 个 prompt 触发符未匹配：${resolvedPrompt.unresolvedTriggers.join(", ")}`);
+    }
+    if (resolvedPrompt.appliedRules.length > 0) {
+        warnings.push(`已应用 ${resolvedPrompt.appliedRules.length} 条 prompt 替换规则。`);
+    }
+
     const basePrompt = mergePromptParts(
         input.style?.positivePrefix,
-        shouldInlineCharacterPrompt(input) ? buildCharacterPrompt(input.character) : "",
-        input.prompt,
+        resolvedPrompt.prompt,
         input.style?.positiveSuffix,
     );
     if (!basePrompt) {
@@ -266,7 +311,7 @@ async function buildNovelAiRequest(input: TextToImageGenerateRequest, token: str
     const prompt = input.style?.positiveQualityPreset === false
         ? basePrompt
         : applyQualityTags(basePrompt, model);
-    const baseNegativePrompt = mergePromptParts(input.style?.negativePrefix, input.negativePrompt, input.style?.negativeSuffix);
+    const baseNegativePrompt = mergePromptParts(input.style?.negativePrefix, resolvedPrompt.negativePrompt, input.style?.negativeSuffix);
     const preset = resolveNegativePreset(model, input.style?.negativeQualityPreset ?? "none");
     let negativePrompt = mergePromptParts(preset.content, baseNegativePrompt);
     if (containsNsfwTag(prompt)) {
@@ -283,8 +328,8 @@ async function buildNovelAiRequest(input: TextToImageGenerateRequest, token: str
         n_samples: 1,
         ucPreset: preset.ucPreset,
         qualityToggle: input.style?.positiveQualityPreset ?? true,
-        autoSmea: false,
-        dynamic_thresholding: false,
+        autoSmea: input.novelAi.smeaMode === "auto",
+        dynamic_thresholding: input.novelAi.decrisper,
         controlnet_strength: 1,
         legacy: false,
         add_original_image: true,
@@ -300,16 +345,17 @@ async function buildNovelAiRequest(input: TextToImageGenerateRequest, token: str
     };
 
     if (isV4Model(model)) {
-        applyV4PromptParameters(parameters, input, prompt, negativePrompt);
+        applyV4PromptParameters(parameters, input, prompt, negativePrompt, resolvedPrompt.characterPrompts);
     } else {
         const isDdim = sampler.includes("ddim");
-        const autoSmea = width * height > 1024 * 1024;
-        parameters.sm = isDdim ? false : autoSmea;
-        parameters.sm_dyn = false;
+        const autoSmea = input.novelAi.smeaMode === "auto" && width * height > 1024 * 1024;
+        parameters.sm = isDdim ? false : input.novelAi.smeaMode === "on" || autoSmea;
+        parameters.sm_dyn = !isDdim && input.novelAi.smeaDyn;
         parameters.uc = negativePrompt;
     }
 
     await applyVibeTransferParameters(parameters, input, model, token, warnings);
+    applyCharacterReferenceParameters(parameters, input, warnings);
 
     return {
         model,
@@ -334,17 +380,27 @@ async function buildNovelAiRequest(input: TextToImageGenerateRequest, token: str
     };
 }
 
-function applyV4PromptParameters(parameters: Record<string, unknown>, input: TextToImageGenerateRequest, prompt: string, negativePrompt: string): void {
-    const characterPrompt = input.character ? buildCharacterPrompt(input.character) : "";
-    const includeCharacter = Boolean(input.character && characterPrompt);
-    const center = {x: 0.5, y: 0.5};
+function applyV4PromptParameters(parameters: Record<string, unknown>, input: TextToImageGenerateRequest, prompt: string, negativePrompt: string, resolvedCharacterPrompts: TextToImageResolvedCharacterPrompt[]): void {
+    const fallbackCharacterPrompt = input.character ? buildCharacterPrompt(input.character) : "";
+    const fallbackPrompts: TextToImageResolvedCharacterPrompt[] = fallbackCharacterPrompt
+        ? [{
+            characterId: input.character?.id ?? "active",
+            name: input.character?.cnName || input.character?.enName || "active",
+            prompt: fallbackCharacterPrompt,
+            negativePrompt: "",
+            center: {x: 0.5, y: 0.5},
+        }]
+        : [];
+    const characterPrompts = resolvedCharacterPrompts.length > 0 ? resolvedCharacterPrompts : fallbackPrompts;
     const useCoords = !input.novelAi.aiDefaultCharacterPosition;
-    const charCaptions = includeCharacter
-        ? [{centers: [center], char_caption: characterPrompt}]
-        : [];
-    const negativeCharCaptions = includeCharacter
-        ? [{centers: [center], char_caption: ""}]
-        : [];
+    const charCaptions = characterPrompts.map((item) => ({
+        centers: [item.center],
+        char_caption: item.prompt,
+    }));
+    const negativeCharCaptions = characterPrompts.map((item) => ({
+        centers: [item.center],
+        char_caption: item.negativePrompt,
+    }));
 
     parameters.params_version = 3;
     parameters.use_coords = useCoords;
@@ -365,14 +421,12 @@ function applyV4PromptParameters(parameters: Record<string, unknown>, input: Tex
         },
         legacy_uc: false,
     };
-    parameters.characterPrompts = includeCharacter
-        ? [{
-            center,
-            prompt: characterPrompt,
-            uc: "",
-            enabled: true,
-        }]
-        : [];
+    parameters.characterPrompts = characterPrompts.map((item) => ({
+        center: item.center,
+        prompt: item.prompt,
+        uc: item.negativePrompt,
+        enabled: true,
+    }));
 }
 
 async function applyVibeTransferParameters(parameters: Record<string, unknown>, input: TextToImageGenerateRequest, model: string, token: string, warnings: string[]): Promise<void> {
@@ -409,6 +463,45 @@ async function applyVibeTransferParameters(parameters: Record<string, unknown>, 
     parameters.reference_image_multiple = encodings;
     parameters.reference_strength_multiple = strengths;
     parameters.reference_information_extracted_multiple = infoExtracted;
+}
+
+function applyCharacterReferenceParameters(parameters: Record<string, unknown>, input: TextToImageGenerateRequest, warnings: string[]): void {
+    const references = (input.style?.characterReferences ?? []).filter((reference) => reference.enabled);
+    if (references.length === 0) {
+        return;
+    }
+
+    const images: string[] = [];
+    const strengths: number[] = [];
+    const infoExtracted: number[] = [];
+    for (const reference of references) {
+        const image = readImageDataUrlBase64(reference.imageDataUrl);
+        if (!image) {
+            warnings.push(`${reference.displayName || "Character Reference"} 没有可用图片，已跳过。`);
+            continue;
+        }
+        images.push(image);
+        strengths.push(clampNumber(reference.strength, 0, 1, 0.6));
+        infoExtracted.push(clampNumber(reference.infoExtracted, 0, 1, 0.7));
+    }
+
+    if (images.length === 0) {
+        return;
+    }
+
+    parameters.use_character_reference = true;
+    parameters.character_reference_image_multiple = images;
+    parameters.character_reference_strength_multiple = strengths;
+    parameters.character_reference_information_extracted_multiple = infoExtracted;
+    parameters.normalize_character_reference_strength_multiple = true;
+}
+
+function collectPromptCharacters(input: TextToImageGenerateRequest): TextToImageGenerateRequest["characters"] {
+    const characters = [...input.characters];
+    if (input.character && !characters.some((character) => character.id === input.character?.id)) {
+        characters.unshift(input.character);
+    }
+    return characters;
 }
 
 async function encodeVibeReference(imageBaseUrl: string, token: string, imageDataUrl: string, model: string, informationExtracted: number): Promise<string> {

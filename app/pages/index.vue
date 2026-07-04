@@ -59,6 +59,7 @@ import {enqueueTextToImageGeneration, type TextToImageGenerationQueueStatus} fro
 import {
     collectWorkspaceReferencePathCandidates,
 } from "nbook/app/utils/workspace-reference-search";
+import {searchTextToImageTagVocabulary} from "nbook/app/utils/text-to-image-tag-vocabulary";
 import {buildWorkspaceReferenceSections} from "nbook/app/utils/workspace-reference-menu";
 import {resolveWorkspaceFileExtension, type FrontmatterProfileKind} from "nbook/shared/editor-workbench";
 import {buildSelectionRefChip, type InlineEditPayload, type InlineEditReference, type InlineEditTask} from "nbook/app/utils/inline-editor-selection";
@@ -80,7 +81,6 @@ type TextToImageGenerateResponse = {
         createdAt: string;
         fileName: string;
         savedPath: string;
-        metadataPath: string;
         dataUrl: string;
         mimeType: string;
         byteLength: number;
@@ -231,9 +231,13 @@ const {
 } = novelIdeStore;
 const {
     activeStyle: activeTextToImageStyle,
+    activeTagVocabularySourceId: textToImageActiveTagVocabularySourceId,
+    characters: textToImageCharacters,
     generationDraft: textToImageGenerationDraft,
     novelAi: textToImageNovelAi,
     output: textToImageOutput,
+    outfits: textToImageOutfits,
+    promptReplacementRules: textToImagePromptReplacementRules,
     taskPrompts: textToImageTaskPrompts,
 } = storeToRefs(textToImageStore);
 const {mountThemeHost} = useIdeTheme(theme);
@@ -918,6 +922,65 @@ const saveCurrentWorkspaceFile = async (): Promise<void> => {
 /**
  * 将当前章节作为正文图片生成任务发送给 LLM，并把返回的 <image> 块转为正文里的生成按钮。
  */
+async function buildTextToImageBodyRequestVariables(userRequest: string): Promise<Record<string, string>> {
+    const characters = textToImageCharacters.value.map((character) => ({
+        cnName: character.cnName,
+        enName: character.enName,
+        profileTraits: character.profileTraits,
+        facialAppearance: character.facialAppearance,
+        upperSfw: character.upperSfw,
+        lowerSfw: character.lowerSfw,
+    }));
+    const outfits = textToImageOutfits.value.map((outfit) => ({
+        nameCn: outfit.nameCn,
+        nameEn: outfit.nameEn,
+        aliases: outfit.aliases,
+        enabled: outfit.enabled,
+        fullPrompt: outfit.fullPrompt,
+        upperFront: outfit.upperFront,
+        lowerFront: outfit.lowerFront,
+    }));
+    const promptRules = textToImagePromptReplacementRules.value.map((rule) => ({
+        name: rule.name,
+        enabled: rule.enabled,
+        target: rule.target,
+        matchMode: rule.matchMode,
+        mode: rule.mode,
+        trigger: rule.trigger,
+        replacement: rule.replacement,
+    }));
+    const tagData = await collectTextToImageTagDataContext(userRequest);
+    return {
+        userRequest,
+        request: userRequest,
+        currentChapter: userRequest,
+        characters: JSON.stringify(characters, null, 2),
+        outfits: JSON.stringify(outfits, null, 2),
+        promptRules: JSON.stringify(promptRules, null, 2),
+        tagData,
+        localTagVocabulary: tagData,
+    };
+}
+
+async function collectTextToImageTagDataContext(query: string): Promise<string> {
+    try {
+        const nameQuery = [
+            query.slice(0, 3000),
+            ...textToImageCharacters.value.flatMap((character) => [character.cnName, character.enName]),
+            ...textToImageOutfits.value.flatMap((outfit) => [outfit.nameCn, outfit.nameEn, outfit.aliases]),
+        ].filter(Boolean).join("\n");
+        const entries = await searchTextToImageTagVocabulary(nameQuery, {
+            sourceId: textToImageActiveTagVocabularySourceId.value || undefined,
+            limit: 30,
+        });
+        return entries
+            .map((entry) => `${entry.tag}${entry.translation ? ` = ${entry.translation}` : ""}${entry.category ? ` [${entry.category}]` : ""}`)
+            .join("\n");
+    } catch {
+        return "";
+    }
+}
+
 const generateBodyImagesForCurrentChapter = async (): Promise<void> => {
     if (bodyImageGenerating.value) {
         return;
@@ -933,11 +996,20 @@ const generateBodyImagesForCurrentChapter = async (): Promise<void> => {
         return;
     }
 
+    const userRequest = selectedFileContent.value.trim();
+    const requestVariables = await buildTextToImageBodyRequestVariables(userRequest);
     const messages = buildTextToImageLlmMessages({
         task: "bodyImage",
-        userRequest: selectedFileContent.value.trim(),
+        userRequest,
         taskPrompt: textToImageTaskPrompts.value.bodyImage.prompt,
         contextPreset,
+        extraDetectionText: [
+            userRequest,
+            requestVariables.characters,
+            requestVariables.outfits,
+            requestVariables.tagData,
+        ].join("\n"),
+        requestVariables,
     });
 
     bodyImageGenerating.value = true;
@@ -1011,11 +1083,19 @@ const generateImageForBodyPrompt = async (payload: TextToImagePromptGeneratePayl
                     novelAi: textToImageNovelAi.value,
                     style: activeTextToImageStyle.value,
                     character: null,
+                    characters: textToImageCharacters.value,
+                    outfits: textToImageOutfits.value,
+                    promptRules: textToImagePromptReplacementRules.value,
                     prompt: promptText,
                     negativePrompt: textToImageGenerationDraft.value.negativePrompt,
                     output: textToImageOutput.value,
                 },
             }),
+        });
+        textToImageStore.recordNovelAiExchange({
+            request: result.request,
+            warnings: result.warnings,
+            imageCount: result.images.length,
         });
         const image = result.images[0];
         if (!image) {
@@ -1209,11 +1289,19 @@ async function rerollBodyImageResult(): Promise<void> {
                     novelAi: textToImageNovelAi.value,
                     style: activeTextToImageStyle.value,
                     character: null,
+                    characters: textToImageCharacters.value,
+                    outfits: textToImageOutfits.value,
+                    promptRules: textToImagePromptReplacementRules.value,
                     prompt: item.prompt,
                     negativePrompt: item.negativePrompt || textToImageGenerationDraft.value.negativePrompt,
                     output: textToImageOutput.value,
                 },
             }),
+        });
+        textToImageStore.recordNovelAiExchange({
+            request: result.request,
+            warnings: result.warnings,
+            imageCount: result.images.length,
         });
         const image = result.images[0];
         if (!image) {

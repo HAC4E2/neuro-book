@@ -1,6 +1,7 @@
 import {describe, expect, it} from "vitest";
 import {
     buildGeneratedImageMarkdown,
+    buildTextToImageLlmMessages,
     extractImagineBlocks,
     insertTextToImagePromptPlaceholdersIntoMarkdown,
     replaceTextToImagePromptPlaceholder,
@@ -82,5 +83,36 @@ describe("text-to-image LLM markdown placeholders", () => {
         expect(result.markdown).not.toContain("tag two");
         expect(result.markdown).toContain("/api/text-to-image/image?path=");
         expect(readPlaceholderIds(result.markdown)).toEqual(["first"]);
+    });
+});
+
+describe("text-to-image LLM prompt slots", () => {
+    it("inserts the request body into matching context placeholders instead of appending a duplicate user message", () => {
+        const messages = buildTextToImageLlmMessages({
+            task: "characterDesign",
+            userRequest: "{\"task\":\"characterDesign\",\"request\":{\"name\":\"Himari\"}}",
+            taskPrompt: "请严格返回 JSON。",
+            contextPreset: {
+                id: "preset-1",
+                name: "角色设计",
+                updatedAt: null,
+                entries: [
+                    {
+                        id: "entry-1",
+                        name: "玩家输入",
+                        role: "system",
+                        triggerMode: "always",
+                        enabled: true,
+                        content: "<本次玩家输入>\n{{用户需求}}\n</本次玩家输入>",
+                    },
+                ],
+            },
+        });
+
+        expect(messages).toHaveLength(2);
+        expect(messages[0]?.role).toBe("system");
+        expect(messages[0]?.content).toContain("\"name\":\"Himari\"");
+        expect(messages[0]?.content).not.toContain("{{用户需求}}");
+        expect(messages[1]).toEqual({role: "system", content: "请严格返回 JSON。"});
     });
 });

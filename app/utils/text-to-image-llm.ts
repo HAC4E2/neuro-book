@@ -87,24 +87,33 @@ export function buildTextToImageLlmMessages(options: {
     taskPrompt?: string;
     contextPreset: TextToImageLlmContextPreset | null;
     extraDetectionText?: string;
+    requestVariables?: Record<string, string>;
 }): TextToImageLlmMessage[] {
     const taskPrompt = options.taskPrompt?.trim() ?? "";
     const userRequest = options.userRequest.trim();
+    const templateContext = createPromptTemplateContext(userRequest, options.requestVariables);
     const detectionText = [
         taskPrompt,
         userRequest,
         options.extraDetectionText?.trim() ?? "",
     ].filter(Boolean).join("\n");
+    let userRequestSlotUsed = false;
     const contextMessages = (options.contextPreset?.entries ?? [])
         .filter((entry) => shouldSendContextEntry(entry, detectionText))
-        .map((entry) => ({
-            role: entry.role,
-            content: entry.content.trim(),
-        }));
+        .map((entry) => {
+            const rendered = renderPromptTemplate(entry.content.trim(), templateContext);
+            userRequestSlotUsed ||= rendered.usedUserRequestSlot;
+            return {
+                role: entry.role,
+                content: rendered.content,
+            };
+        });
+    const renderedTaskPrompt = taskPrompt ? renderPromptTemplate(taskPrompt, templateContext) : null;
+    userRequestSlotUsed ||= renderedTaskPrompt?.usedUserRequestSlot ?? false;
     return [
         ...contextMessages,
-        ...(taskPrompt ? [{role: "system" as const, content: taskPrompt}] : []),
-        ...(userRequest ? [{role: "user" as const, content: userRequest}] : []),
+        ...(renderedTaskPrompt ? [{role: "system" as const, content: renderedTaskPrompt.content}] : []),
+        ...(userRequest && !userRequestSlotUsed ? [{role: "user" as const, content: userRequest}] : []),
     ];
 }
 
@@ -116,7 +125,7 @@ export function formatTextToImageLlmMessages(messages: TextToImageLlmMessage[]):
 }
 
 export async function requestTextToImageLlmCompletion(apiConfig: TextToImageLlmApiConfig, messages: TextToImageLlmMessage[]): Promise<string> {
-    const headers: HeadersInit = {"Content-Type": "application/json"};
+    const headers: Record<string, string> = {"Content-Type": "application/json"};
     if (apiConfig.apiKey.trim()) {
         headers.Authorization = `Bearer ${apiConfig.apiKey.trim()}`;
     }
@@ -297,6 +306,58 @@ function shouldSendContextEntry(entry: TextToImageLlmContextEntry, detectionText
     }
     const triggerName = entry.name.trim();
     return Boolean(triggerName && detectionText.toLocaleLowerCase().includes(triggerName.toLocaleLowerCase()));
+}
+
+type PromptTemplateRenderResult = {
+    content: string;
+    usedUserRequestSlot: boolean;
+};
+
+const USER_REQUEST_PROMPT_SLOT_KEYS = new Set([
+    "用户需求",
+    "用户输入",
+    "本次玩家输入",
+    "请求体",
+    "request",
+    "userrequest",
+    "userinput",
+]);
+
+function createPromptTemplateContext(userRequest: string, variables: Record<string, string> = {}): Map<string, string> {
+    const entries = {
+        "用户需求": userRequest,
+        "用户输入": userRequest,
+        "本次玩家输入": userRequest,
+        "请求体": userRequest,
+        request: userRequest,
+        userRequest,
+        userInput: userRequest,
+        ...variables,
+    };
+    return new Map(Object.entries(entries).map(([key, value]) => [normalizePromptSlotKey(key), value]));
+}
+
+function renderPromptTemplate(content: string, context: Map<string, string>): PromptTemplateRenderResult {
+    let usedUserRequestSlot = false;
+    const rendered = content.replace(/\{\{\s*([^{}]+?)\s*\}\}/gu, (match, rawKey: string) => {
+        const normalizedKey = normalizePromptSlotKey(rawKey);
+        const value = context.get(normalizedKey);
+        if (value === undefined) {
+            return match;
+        }
+        if (USER_REQUEST_PROMPT_SLOT_KEYS.has(normalizedKey)) {
+            usedUserRequestSlot = true;
+        }
+        return value;
+    });
+    return {
+        content: rendered,
+        usedUserRequestSlot,
+    };
+}
+
+function normalizePromptSlotKey(key: string): string {
+    return key.trim().toLocaleLowerCase().replace(/[\s_\-:/：｜|（）()【】\[\]{}]+/gu, "");
 }
 
 async function readStreamingResponse(response: Response): Promise<string> {

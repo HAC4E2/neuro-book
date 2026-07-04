@@ -1,3 +1,7 @@
+import type {TextToImagePromptReplacementRule} from "nbook/app/utils/text-to-image-prompt-engine";
+
+export type NovelAiSmeaMode = "auto" | "off" | "on";
+
 export type NovelAiApiSettings = {
     token: string;
     apiBaseUrl: string;
@@ -9,6 +13,9 @@ export type NovelAiApiSettings = {
     promptGuidanceRescale: number;
     aiDefaultCharacterPosition: boolean;
     variety: boolean;
+    smeaMode: NovelAiSmeaMode;
+    smeaDyn: boolean;
+    decrisper: boolean;
     sizePreset: string;
     width: number;
     height: number;
@@ -93,7 +100,6 @@ export type TextToImageGenerationResult = {
     createdAt: string;
     fileName: string;
     savedPath: string;
-    metadataPath: string;
     dataUrl: string;
     mimeType: string;
     byteLength: number;
@@ -125,6 +131,15 @@ export type TextToImageVibeReference = {
     infoExtracted: number;
 };
 
+export type TextToImageCharacterReference = {
+    id: string;
+    enabled: boolean;
+    displayName: string;
+    imageDataUrl: string;
+    strength: number;
+    infoExtracted: number;
+};
+
 export type TextToImageNegativeQualityPreset = "none" | "heavy" | "light" | "humanFocus" | "furryFocus";
 
 export type TextToImageStylePreset = {
@@ -138,6 +153,7 @@ export type TextToImageStylePreset = {
     positiveQualityPreset: boolean;
     negativeQualityPreset: TextToImageNegativeQualityPreset;
     vibeReferences: TextToImageVibeReference[];
+    characterReferences: TextToImageCharacterReference[];
 };
 
 export type TextToImageCharacter = {
@@ -173,11 +189,38 @@ export type TextToImageProjectCharacterGroup = {
     activeCharacterId: string | null;
 };
 
+export type TextToImageOutfit = {
+    id: string;
+    nameCn: string;
+    nameEn: string;
+    aliases: string;
+    enabled: boolean;
+    upperFront: string;
+    upperBack: string;
+    lowerFront: string;
+    lowerBack: string;
+    fullPrompt: string;
+    negativePrompt: string;
+};
+
+export type TextToImageProjectOutfitGroup = {
+    projectPath: string;
+    outfits: TextToImageOutfit[];
+    activeOutfitId: string | null;
+};
+
 export type TextToImageTagVocabularySource = {
     id: string;
     name: string;
     importedAt: string;
     entryCount: number;
+};
+
+export type TextToImageLastNovelAiExchange = {
+    request: Record<string, unknown> | null;
+    warnings: string[];
+    imageCount: number;
+    updatedAt: string | null;
 };
 
 export const MAX_TEXT_TO_IMAGE_LLM_TOKENS = 30000;
@@ -254,6 +297,13 @@ const DEFAULT_LAST_LLM_EXCHANGE: TextToImageLastLlmExchange = {
     updatedAt: null,
 };
 
+const DEFAULT_LAST_NOVEL_AI_EXCHANGE: TextToImageLastNovelAiExchange = {
+    request: null,
+    warnings: [],
+    imageCount: 0,
+    updatedAt: null,
+};
+
 const DEFAULT_NOVEL_AI_SETTINGS: NovelAiApiSettings = {
     token: "",
     apiBaseUrl: "https://api.novelai.net",
@@ -265,6 +315,9 @@ const DEFAULT_NOVEL_AI_SETTINGS: NovelAiApiSettings = {
     promptGuidanceRescale: 0,
     aiDefaultCharacterPosition: true,
     variety: false,
+    smeaMode: "auto",
+    smeaDyn: false,
+    decrisper: false,
     sizePreset: "normal_portrait",
     width: 832,
     height: 1216,
@@ -384,6 +437,9 @@ function normalizeNovelAiSettings(settings: Partial<NovelAiApiSettings> = {}): N
         promptGuidanceRescale: clampNumber(Number(settings.promptGuidanceRescale ?? DEFAULT_NOVEL_AI_SETTINGS.promptGuidanceRescale), 0, 1, DEFAULT_NOVEL_AI_SETTINGS.promptGuidanceRescale),
         aiDefaultCharacterPosition: settings.aiDefaultCharacterPosition ?? DEFAULT_NOVEL_AI_SETTINGS.aiDefaultCharacterPosition,
         variety: settings.variety ?? DEFAULT_NOVEL_AI_SETTINGS.variety,
+        smeaMode: settings.smeaMode === "off" || settings.smeaMode === "on" ? settings.smeaMode : "auto",
+        smeaDyn: settings.smeaDyn ?? DEFAULT_NOVEL_AI_SETTINGS.smeaDyn,
+        decrisper: settings.decrisper ?? DEFAULT_NOVEL_AI_SETTINGS.decrisper,
         sizePreset,
         width,
         height,
@@ -412,6 +468,17 @@ function createVibeReference(name = "Vibe Reference", patch: Partial<TextToImage
 /**
  * 规整画风串，兼容没有 Vibe 字段的旧配置。
  */
+function createCharacterReference(name = "Character Reference", patch: Partial<TextToImageCharacterReference> = {}): TextToImageCharacterReference {
+    return {
+        id: patch.id ?? createLocalId("char_ref"),
+        enabled: patch.enabled ?? true,
+        displayName: patch.displayName ?? name,
+        imageDataUrl: patch.imageDataUrl ?? "",
+        strength: clampNumber(Number(patch.strength ?? 0.6), 0, 1, 0.6),
+        infoExtracted: clampNumber(Number(patch.infoExtracted ?? 0.7), 0, 1, 0.7),
+    };
+}
+
 function normalizeStylePreset(style: Partial<TextToImageStylePreset>, fallbackName: string): TextToImageStylePreset {
     const negativeQualityPreset = TEXT_TO_IMAGE_NEGATIVE_QUALITY_PRESETS.some((preset) => preset.value === style.negativeQualityPreset)
         ? style.negativeQualityPreset ?? "none"
@@ -427,6 +494,7 @@ function normalizeStylePreset(style: Partial<TextToImageStylePreset>, fallbackNa
         positiveQualityPreset: style.positiveQualityPreset ?? true,
         negativeQualityPreset,
         vibeReferences: (style.vibeReferences ?? []).map((reference, index) => createVibeReference(reference.displayName || `Vibe ${index + 1}`, reference)),
+        characterReferences: (style.characterReferences ?? []).map((reference, index) => createCharacterReference(reference.displayName || `Character Ref ${index + 1}`, reference)),
     };
 }
 
@@ -445,6 +513,7 @@ function createStylePreset(name = "默认画风串"): TextToImageStylePreset {
         positiveQualityPreset: true,
         negativeQualityPreset: "none",
         vibeReferences: [],
+        characterReferences: [],
     };
 }
 
@@ -501,6 +570,46 @@ function createCharacterGroup(projectPath: string): TextToImageProjectCharacterG
 /**
  * 创建单个任务提示词配置。
  */
+function createOutfit(name = "新服装", patch: Partial<TextToImageOutfit> = {}): TextToImageOutfit {
+    return {
+        id: patch.id ?? createLocalId("outfit"),
+        nameCn: patch.nameCn ?? name,
+        nameEn: patch.nameEn ?? "",
+        aliases: patch.aliases ?? "",
+        enabled: patch.enabled ?? true,
+        upperFront: patch.upperFront ?? "",
+        upperBack: patch.upperBack ?? "",
+        lowerFront: patch.lowerFront ?? "",
+        lowerBack: patch.lowerBack ?? "",
+        fullPrompt: patch.fullPrompt ?? "",
+        negativePrompt: patch.negativePrompt ?? "",
+    };
+}
+
+function createOutfitGroup(projectPath: string): TextToImageProjectOutfitGroup {
+    return {
+        projectPath,
+        outfits: [],
+        activeOutfitId: null,
+    };
+}
+
+function createPromptReplacementRule(name = "替换规则", patch: Partial<TextToImagePromptReplacementRule> = {}): TextToImagePromptReplacementRule {
+    const target = patch.target === "negative" ? "negative" : "positive";
+    const matchMode = patch.matchMode === "regex" ? "regex" : "plain";
+    const mode = patch.mode === "append" || patch.mode === "prepend" || patch.mode === "delete" ? patch.mode : "replace";
+    return {
+        id: patch.id ?? createLocalId("prompt_rule"),
+        name: patch.name?.trim() || name,
+        enabled: patch.enabled ?? true,
+        target,
+        matchMode,
+        mode,
+        trigger: patch.trigger ?? "",
+        replacement: patch.replacement ?? "",
+    };
+}
+
 function createTaskPrompt(task: TextToImagePromptTask, prompt = ""): TextToImageTaskPrompt {
     return {
         task,
@@ -649,6 +758,15 @@ function normalizeLastLlmExchange(exchange: Partial<TextToImageLastLlmExchange> 
 /**
  * 文生图配置工作台的本地状态。
  */
+function normalizeLastNovelAiExchange(exchange: Partial<TextToImageLastNovelAiExchange> = {}): TextToImageLastNovelAiExchange {
+    return {
+        request: exchange.request && typeof exchange.request === "object" ? exchange.request : null,
+        warnings: Array.isArray(exchange.warnings) ? exchange.warnings.map((warning) => String(warning)) : [],
+        imageCount: Math.max(0, Math.round(Number(exchange.imageCount ?? 0))),
+        updatedAt: exchange.updatedAt ?? null,
+    };
+}
+
 export const useTextToImageStore = defineStore("textToImage", () => {
     const defaultStyle = createStylePreset();
     const defaultPrompts = createDefaultTaskPrompts();
@@ -664,12 +782,17 @@ export const useTextToImageStore = defineStore("textToImage", () => {
     const activeLlmContextPresetId = ref(defaultContextPreset.id);
     const llmTaskBindings = ref<Record<TextToImagePromptTask, TextToImageLlmTaskBinding>>(createDefaultLlmTaskBindings(llm.value.activeApiConfigId, defaultContextPreset.id));
     const lastLlmExchange = ref<TextToImageLastLlmExchange>({...DEFAULT_LAST_LLM_EXCHANGE});
+    const lastNovelAiExchange = ref<TextToImageLastNovelAiExchange>({...DEFAULT_LAST_NOVEL_AI_EXCHANGE});
     const stylePresets = ref<TextToImageStylePreset[]>([defaultStyle]);
     const activeStyleId = ref(defaultStyle.id);
     const currentProjectPath = ref(DEFAULT_PROJECT_KEY);
     const characterGroups = ref<Record<string, TextToImageProjectCharacterGroup>>({
         [DEFAULT_PROJECT_KEY]: createCharacterGroup(DEFAULT_PROJECT_KEY),
     });
+    const outfitGroups = ref<Record<string, TextToImageProjectOutfitGroup>>({
+        [DEFAULT_PROJECT_KEY]: createOutfitGroup(DEFAULT_PROJECT_KEY),
+    });
+    const promptReplacementRules = ref<TextToImagePromptReplacementRule[]>([]);
     const tagVocabularySources = ref<TextToImageTagVocabularySource[]>([]);
     const activeTagVocabularySourceId = ref("");
 
@@ -681,6 +804,10 @@ export const useTextToImageStore = defineStore("textToImage", () => {
     const characters = computed(() => activeCharacterGroup.value.characters);
     const activeCharacterId = computed(() => activeCharacterGroup.value.activeCharacterId);
     const activeCharacter = computed(() => characters.value.find((item) => item.id === activeCharacterId.value) ?? characters.value[0] ?? null);
+    const activeOutfitGroup = computed(() => outfitGroups.value[activeProjectKey.value] ?? createOutfitGroup(activeProjectKey.value));
+    const outfits = computed(() => activeOutfitGroup.value.outfits);
+    const activeOutfitId = computed(() => activeOutfitGroup.value.activeOutfitId);
+    const activeOutfit = computed(() => outfits.value.find((item) => item.id === activeOutfitId.value) ?? outfits.value[0] ?? null);
 
     /**
      * 确保指定小说存在角色分组。
@@ -713,12 +840,38 @@ export const useTextToImageStore = defineStore("textToImage", () => {
         };
     }
 
+    function ensureOutfitGroup(projectPath = currentProjectPath.value): TextToImageProjectOutfitGroup {
+        const key = normalizeProjectPath(projectPath);
+        const existing = outfitGroups.value[key];
+        if (existing) {
+            return existing;
+        }
+        const group = createOutfitGroup(key);
+        outfitGroups.value = {
+            ...outfitGroups.value,
+            [key]: group,
+        };
+        return group;
+    }
+
+    function updateProjectOutfitGroup(projectPath: string, group: TextToImageProjectOutfitGroup): void {
+        const key = normalizeProjectPath(projectPath);
+        outfitGroups.value = {
+            ...outfitGroups.value,
+            [key]: {
+                ...group,
+                projectPath: key,
+            },
+        };
+    }
+
     /**
      * 切换当前小说绑定的角色分组。
      */
     function setCurrentProjectPath(projectPath: string): void {
         currentProjectPath.value = normalizeProjectPath(projectPath);
         ensureProjectGroup(currentProjectPath.value);
+        ensureOutfitGroup(currentProjectPath.value);
         ensureDefaults();
     }
 
@@ -730,6 +883,8 @@ export const useTextToImageStore = defineStore("textToImage", () => {
         output.value = normalizeOutputSettings(output.value);
         generationDraft.value = normalizeGenerationDraft(generationDraft.value);
         lastLlmExchange.value = normalizeLastLlmExchange(lastLlmExchange.value);
+        lastNovelAiExchange.value = normalizeLastNovelAiExchange(lastNovelAiExchange.value);
+        promptReplacementRules.value = promptReplacementRules.value.map((rule, index) => createPromptReplacementRule(rule.name || `替换规则 ${index + 1}`, rule));
         tagVocabularySources.value = tagVocabularySources.value.map((source, index) => normalizeTagVocabularySource(source, index === 0 ? "默认词库" : `tagData ${index + 1}`));
         if (activeTagVocabularySourceId.value && !tagVocabularySources.value.some((source) => source.id === activeTagVocabularySourceId.value)) {
             activeTagVocabularySourceId.value = "";
@@ -788,6 +943,7 @@ export const useTextToImageStore = defineStore("textToImage", () => {
             activeStyleId.value = stylePresets.value[0]?.id ?? "";
         }
         ensureProjectGroup(currentProjectPath.value);
+        ensureOutfitGroup(currentProjectPath.value);
         for (const [projectPath, group] of Object.entries(characterGroups.value)) {
             const charactersInGroup = group.characters.map((character) => createCharacter(character.cnName || "角色", character));
             const activeId = charactersInGroup.some((item) => item.id === group.activeCharacterId) ? group.activeCharacterId : charactersInGroup[0]?.id ?? null;
@@ -795,6 +951,15 @@ export const useTextToImageStore = defineStore("textToImage", () => {
                 ...group,
                 characters: charactersInGroup,
                 activeCharacterId: activeId,
+            });
+        }
+        for (const [projectPath, group] of Object.entries(outfitGroups.value)) {
+            const outfitsInGroup = group.outfits.map((outfit) => createOutfit(outfit.nameCn || outfit.nameEn || "服装", outfit));
+            const activeId = outfitsInGroup.some((item) => item.id === group.activeOutfitId) ? group.activeOutfitId : outfitsInGroup[0]?.id ?? null;
+            updateProjectOutfitGroup(projectPath, {
+                ...group,
+                outfits: outfitsInGroup,
+                activeOutfitId: activeId,
             });
         }
     }
@@ -1171,6 +1336,10 @@ export const useTextToImageStore = defineStore("textToImage", () => {
                 ...reference,
                 id: createLocalId("vibe"),
             })),
+            characterReferences: source.characterReferences.map((reference, index) => createCharacterReference(reference.displayName || `Character Ref ${index + 1}`, {
+                ...reference,
+                id: createLocalId("char_ref"),
+            })),
         };
         stylePresets.value = [...stylePresets.value, style];
         activeStyleId.value = style.id;
@@ -1244,6 +1413,42 @@ export const useTextToImageStore = defineStore("textToImage", () => {
     /**
      * 删除画风串；至少保留一条配置。
      */
+    function addStyleCharacterReference(styleId: string): TextToImageCharacterReference | null {
+        const style = stylePresets.value.find((item) => item.id === styleId);
+        if (!style) {
+            return null;
+        }
+        const reference = createCharacterReference(`Character Ref ${style.characterReferences.length + 1}`);
+        updateStylePreset(styleId, {
+            characterReferences: [...style.characterReferences, reference],
+        });
+        return reference;
+    }
+
+    function updateStyleCharacterReference(styleId: string, referenceId: string, patch: Partial<TextToImageCharacterReference>): void {
+        const style = stylePresets.value.find((item) => item.id === styleId);
+        if (!style) {
+            return;
+        }
+        updateStylePreset(styleId, {
+            characterReferences: style.characterReferences.map((reference) => reference.id === referenceId ? createCharacterReference(reference.displayName, {
+                ...reference,
+                ...patch,
+                id: reference.id,
+            }) : reference),
+        });
+    }
+
+    function deleteStyleCharacterReference(styleId: string, referenceId: string): void {
+        const style = stylePresets.value.find((item) => item.id === styleId);
+        if (!style) {
+            return;
+        }
+        updateStylePreset(styleId, {
+            characterReferences: style.characterReferences.filter((reference) => reference.id !== referenceId),
+        });
+    }
+
     function deleteStylePreset(styleId: string): void {
         if (stylePresets.value.length <= 1) {
             return;
@@ -1327,6 +1532,93 @@ export const useTextToImageStore = defineStore("textToImage", () => {
     /**
      * 登记一个本地 tag 词库来源；大量条目由 IndexedDB 工具写入。
      */
+    function addOutfit(projectPath = currentProjectPath.value): TextToImageOutfit {
+        const group = ensureOutfitGroup(projectPath);
+        const outfit = createOutfit(`服装 ${group.outfits.length + 1}`);
+        updateProjectOutfitGroup(projectPath, {
+            ...group,
+            outfits: [...group.outfits, outfit],
+            activeOutfitId: outfit.id,
+        });
+        return outfit;
+    }
+
+    function addOutfitFromDraft(draft: Partial<TextToImageOutfit>, projectPath = currentProjectPath.value): TextToImageOutfit {
+        const group = ensureOutfitGroup(projectPath);
+        const displayName = draft.nameCn?.trim() || draft.nameEn?.trim() || `服装 ${group.outfits.length + 1}`;
+        const outfit = createOutfit(displayName, draft);
+        updateProjectOutfitGroup(projectPath, {
+            ...group,
+            outfits: [...group.outfits, outfit],
+            activeOutfitId: outfit.id,
+        });
+        return outfit;
+    }
+
+    function selectOutfit(outfitId: string, projectPath = currentProjectPath.value): void {
+        const group = ensureOutfitGroup(projectPath);
+        if (group.outfits.some((item) => item.id === outfitId)) {
+            updateProjectOutfitGroup(projectPath, {
+                ...group,
+                activeOutfitId: outfitId,
+            });
+        }
+    }
+
+    function updateOutfit(outfitId: string, patch: Partial<TextToImageOutfit>, projectPath = currentProjectPath.value): void {
+        const group = ensureOutfitGroup(projectPath);
+        updateProjectOutfitGroup(projectPath, {
+            ...group,
+            outfits: group.outfits.map((item) => item.id === outfitId ? createOutfit(item.nameCn || item.nameEn || "服装", {
+                ...item,
+                ...patch,
+                id: item.id,
+            }) : item),
+        });
+    }
+
+    function deleteOutfit(outfitId: string, projectPath = currentProjectPath.value): void {
+        const group = ensureOutfitGroup(projectPath);
+        const nextOutfits = group.outfits.filter((item) => item.id !== outfitId);
+        updateProjectOutfitGroup(projectPath, {
+            ...group,
+            outfits: nextOutfits,
+            activeOutfitId: group.activeOutfitId === outfitId ? nextOutfits[0]?.id ?? null : group.activeOutfitId,
+        });
+    }
+
+    function addPromptReplacementRule(patch: Partial<TextToImagePromptReplacementRule> = {}): TextToImagePromptReplacementRule {
+        const rule = createPromptReplacementRule(`替换规则 ${promptReplacementRules.value.length + 1}`, patch);
+        promptReplacementRules.value = [...promptReplacementRules.value, rule];
+        return rule;
+    }
+
+    function updatePromptReplacementRule(ruleId: string, patch: Partial<TextToImagePromptReplacementRule>): void {
+        promptReplacementRules.value = promptReplacementRules.value.map((rule) => rule.id === ruleId ? createPromptReplacementRule(rule.name, {
+            ...rule,
+            ...patch,
+            id: rule.id,
+        }) : rule);
+    }
+
+    function deletePromptReplacementRule(ruleId: string): void {
+        promptReplacementRules.value = promptReplacementRules.value.filter((rule) => rule.id !== ruleId);
+    }
+
+    function importPromptReplacementRules(rules: Partial<TextToImagePromptReplacementRule>[]): void {
+        const nextRules = rules.map((rule, index) => createPromptReplacementRule(rule.name || `替换规则 ${index + 1}`, rule));
+        promptReplacementRules.value = [...promptReplacementRules.value, ...nextRules];
+    }
+
+    function recordNovelAiExchange(exchange: {request: Record<string, unknown> | null; warnings?: string[]; imageCount?: number}): void {
+        lastNovelAiExchange.value = normalizeLastNovelAiExchange({
+            request: exchange.request,
+            warnings: exchange.warnings ?? [],
+            imageCount: exchange.imageCount ?? 0,
+            updatedAt: new Date().toISOString(),
+        });
+    }
+
     function addTagVocabularySource(name: string, entryCount: number, importedAt = new Date().toISOString()): TextToImageTagVocabularySource {
         const source = createTagVocabularySource(name, {entryCount, importedAt});
         tagVocabularySources.value = [...tagVocabularySources.value, source];
@@ -1376,6 +1668,9 @@ export const useTextToImageStore = defineStore("textToImage", () => {
         activeCharacterId,
         activeLlmApiConfig,
         activeLlmContextPreset,
+        activeOutfit,
+        activeOutfitGroup,
+        activeOutfitId,
         activeStyle,
         activeStyleId,
         activeTagVocabularySourceId,
@@ -1384,6 +1679,10 @@ export const useTextToImageStore = defineStore("textToImage", () => {
         addLlmApiConfig,
         addLlmContextEntry,
         addLlmContextPreset,
+        addOutfit,
+        addOutfitFromDraft,
+        addPromptReplacementRule,
+        addStyleCharacterReference,
         addStylePreset,
         addStyleVibeReference,
         addTagVocabularySource,
@@ -1401,6 +1700,9 @@ export const useTextToImageStore = defineStore("textToImage", () => {
         deleteLlmApiConfig,
         deleteLlmContextEntry,
         deleteLlmContextPreset,
+        deleteOutfit,
+        deletePromptReplacementRule,
+        deleteStyleCharacterReference,
         deleteStylePreset,
         deleteStyleVibeReference,
         deleteTagVocabularySource,
@@ -1409,18 +1711,25 @@ export const useTextToImageStore = defineStore("textToImage", () => {
         ensureProjectGroup,
         generationDraft,
         generationResults,
+        importPromptReplacementRules,
         importTaskPrompt,
         lastLlmExchange,
+        lastNovelAiExchange,
         llm,
         llmContextPresets,
         llmTaskBindings,
         novelAi,
         output,
+        outfitGroups,
+        outfits,
         prependGenerationResults,
+        promptReplacementRules,
         recordLlmExchange,
+        recordNovelAiExchange,
         resolveLlmTaskBinding,
         saveActiveLlmApiConfig,
         selectCharacter,
+        selectOutfit,
         setCurrentProjectPath,
         stylePresets,
         tagVocabularySources,
@@ -1435,6 +1744,9 @@ export const useTextToImageStore = defineStore("textToImage", () => {
         updateLlmTaskBinding,
         updateNovelAiSettings,
         updateOutputSettings,
+        updateOutfit,
+        updatePromptReplacementRule,
+        updateStyleCharacterReference,
         updateStylePreset,
         updateStyleVibeReference,
         updateTagVocabularySource,
@@ -1454,10 +1766,13 @@ export const useTextToImageStore = defineStore("textToImage", () => {
             "activeLlmContextPresetId",
             "llmTaskBindings",
             "lastLlmExchange",
+            "lastNovelAiExchange",
             "stylePresets",
             "activeStyleId",
             "currentProjectPath",
             "characterGroups",
+            "outfitGroups",
+            "promptReplacementRules",
             "tagVocabularySources",
             "activeTagVocabularySourceId",
         ],

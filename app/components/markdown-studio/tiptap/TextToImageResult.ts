@@ -225,6 +225,13 @@ export const TextToImageResult = Node.create<TextToImageResultOptions>({
                 }
                 this.options.onOpenViewer(readPayload());
             });
+            imageButton.addEventListener("dblclick", (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                clearLongPressTimer();
+                longPressTriggered = false;
+                this.options.onOpenActions(readPayload());
+            });
 
             return {
                 dom: wrapper,
@@ -236,7 +243,7 @@ export const TextToImageResult = Node.create<TextToImageResultOptions>({
                     sync();
                     return true;
                 },
-                stopEvent: (event) => ["click", "mousedown", "mouseup", "pointerdown", "pointerup", "pointercancel", "contextmenu"].includes(event.type),
+                stopEvent: (event) => ["click", "dblclick", "mousedown", "mouseup", "pointerdown", "pointerup", "pointercancel", "contextmenu"].includes(event.type),
                 destroy: () => {
                     clearLongPressTimer();
                     unsubscribeGenerating();
@@ -357,7 +364,6 @@ function normalizeTextToImageResultItem(input: Partial<TextToImageGenerationResu
         createdAt: readString(input.createdAt),
         fileName: readString(input.fileName),
         savedPath: readString(input.savedPath),
-        metadataPath: readString(input.metadataPath),
         dataUrl: readString(input.dataUrl),
         mimeType: readString(input.mimeType, "image/png"),
         byteLength: readNumber(input.byteLength, 0),
