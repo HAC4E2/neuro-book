@@ -9,7 +9,10 @@ import type {CharacterExt, CharacterMeta, CharacterProfile, CharacterStory} from
 import {
     getWorkspaceLorebookStatusIndicatorClass,
 } from "nbook/app/components/novel-ide/workspace/workspace-entry-meta";
+import {useNotification} from "nbook/app/composables/useNotification";
+import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {useNovelIdeStore, type WorkspaceFileIssue, type WorkspaceFileNode} from "nbook/app/stores/novel-ide";
+import {useTextToImageStore} from "nbook/app/stores/text-to-image";
 
 type CharacterRef = {
     relation: string;
@@ -40,6 +43,12 @@ type CharacterDraft = {
     character: CharacterExt;
 };
 
+type CharacterImageTagsGenerateResponse = {
+    detailPath: string;
+    imageTagsPath: string;
+    warnings: string[];
+};
+
 const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
 
 const props = defineProps<{
@@ -58,12 +67,16 @@ const emit = defineEmits<{
 }>();
 
 const store = useNovelIdeStore();
+const textToImageStore = useTextToImageStore();
+const notification = useNotification();
 const {t} = useI18n();
-const {selectedFileContent, savingFile} = storeToRefs(store);
+const {currentNovelId, selectedFileContent, savingFile} = storeToRefs(store);
+const {taskPrompts} = storeToRefs(textToImageStore);
 const editForm = ref<CharacterDraft | null>(null);
 const lastAppliedContent = ref("");
 const diagnostics = ref("");
 const dialogOpen = ref(false);
+const generatingImageTags = ref(false);
 const activeTab = ref<"overview" | "profile" | "relations">("overview");
 const expandedSections = ref({
     profile: true,
@@ -107,6 +120,58 @@ async function saveDraft(): Promise<void> {
     await store.saveCurrentFile();
     lastAppliedContent.value = nextContent;
     diagnostics.value = "";
+}
+
+/**
+ * 从当前角色详情页生成同目录 image-tags.md，并打开生成后的文件分页。
+ */
+async function generateImageTags(): Promise<void> {
+    if (!editForm.value || !props.node || generatingImageTags.value) {
+        return;
+    }
+    if (!currentNovelId.value) {
+        notification.error("当前没有打开的 Project Workspace。", {title: "生成角色 tag"});
+        return;
+    }
+    const {apiConfig} = textToImageStore.resolveLlmTaskBinding("characterDesign");
+    if (!apiConfig.apiBaseUrl.trim() || !apiConfig.model.trim()) {
+        notification.error("请先在文生图 LLM 中为“角色/服装设计”配置 API 和模型。", {title: "生成角色 tag"});
+        return;
+    }
+
+    generatingImageTags.value = true;
+    try {
+        await saveDraft();
+        const characterMarkdown = renderDraft(editForm.value);
+        const result = await $fetch<CharacterImageTagsGenerateResponse>("/api/text-to-image/character-image-tags", {
+            method: "POST",
+            body: {
+                projectPath: currentNovelId.value,
+                characterPath: props.node.path,
+                characterTitle: editForm.value.title,
+                characterMarkdown,
+                taskPrompt: taskPrompts.value.characterDesign.prompt,
+                llm: {
+                    apiBaseUrl: apiConfig.apiBaseUrl,
+                    apiKey: apiConfig.apiKey,
+                    model: apiConfig.model,
+                    parameters: apiConfig.parameters,
+                },
+            },
+        });
+        await store.loadWorkspaceTree({bypassPendingRequest: true});
+        await store.selectWorkspacePath(result.imageTagsPath, "permanent");
+        const warningText = result.warnings.filter(Boolean).join("\n");
+        if (warningText) {
+            notification.warning(warningText, {title: "生成角色 tag"});
+        } else {
+            notification.success(`已生成 ${result.imageTagsPath}`, {title: "生成角色 tag"});
+        }
+    } catch (error) {
+        notification.error(resolveApiErrorMessage(error, "生成角色 tag 失败"), {title: "生成角色 tag"});
+    } finally {
+        generatingImageTags.value = false;
+    }
 }
 
 /**
@@ -466,6 +531,9 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
                     </div>
                 </div>
                 <div class="flex shrink-0 items-center gap-1">
+                    <button class="icon-action" type="button" title="生成角色 tag" :disabled="savingFile || generatingImageTags" @click="void generateImageTags()">
+                        <span class="h-4 w-4" :class="generatingImageTags ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-tags'"></span>
+                    </button>
                     <button class="icon-action" type="button" :title="t('ide.workspace.common.refresh')" @click="emit('refresh')"><span class="i-lucide-refresh-cw h-4 w-4"></span></button>
                     <button class="icon-action" type="button" :title="t('ide.workspace.common.save')" :disabled="savingFile" @click="void saveDraft()"><span class="i-lucide-save h-4 w-4"></span></button>
                     <span class="mx-2 h-7 w-px bg-[var(--border-color)]"></span>

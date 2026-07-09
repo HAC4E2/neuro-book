@@ -310,6 +310,31 @@ describe("discoverProviderModels", () => {
         await expect(discoverProviderModels(createProviderDraft())).rejects.toThrow("HTTP 401 Unauthorized");
     });
 
+    it("uses ark-code-latest fallback when Volcengine Agent Plan does not expose /models", async () => {
+        globalThis.fetch = vi.fn().mockResolvedValue(new Response("", {
+            status: 404,
+            statusText: "Not Found",
+        })) as unknown as typeof fetch;
+
+        const result = await discoverProviderModels(createProviderDraft({
+            id: "volcengine-agent-plan",
+            name: "Volcengine Agent Plan",
+            options: {
+                apiKey: "ark-test",
+                baseURL: "https://ark.cn-beijing.volces.com/api/plan/v3",
+                proxy: "",
+                timeoutMs: 1000,
+                requestOptions: {},
+            },
+        }));
+
+        expect(result.models).toEqual([
+            {id: "ark-code-latest", name: "ark-code-latest", group: "ark"},
+        ]);
+        expect(result.message).toContain("Agent Plan");
+        expect(result.message).toContain("ark-code-latest");
+    });
+
     it("远端 JSON 缺少 data 数组时给出结构错误", async () => {
         globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({object: "list"}))) as unknown as typeof fetch;
 

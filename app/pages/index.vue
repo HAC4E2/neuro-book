@@ -45,15 +45,17 @@ import type {WorkspaceFileChangeEventDto, WorkspaceFileStreamEventDto} from "nbo
 import type {AgentSessionSummaryDto, AgentSkillCatalogItemDto} from "nbook/shared/dto/agent-session.dto";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {
+    buildTextToImagePromptPlacementDraft,
     buildGeneratedImageResultMarkdown,
     buildTextToImageLlmMessages,
     createTextToImageGeneratedResultId,
     extractImagineBlocks,
     formatTextToImageLlmMessages,
-    insertTextToImagePromptPlaceholdersIntoMarkdown,
+    insertTextToImagePromptPlaceholdersByPlacement,
     replaceTextToImagePromptPlaceholder,
     replaceTextToImageResultMarkdown,
     requestTextToImageLlmCompletion,
+    type TextToImagePromptPlacement,
 } from "nbook/app/utils/text-to-image-llm";
 import {enqueueTextToImageGeneration, type TextToImageGenerationQueueStatus} from "nbook/app/utils/text-to-image-generation-queue";
 import {
@@ -74,6 +76,11 @@ type StreamDoneEvent = {
 
 type StreamErrorEvent = {
     message?: string;
+};
+
+type BodyImagePromptPlacementResponse = {
+    placements: TextToImagePromptPlacement[];
+    warnings: string[];
 };
 type TextToImageGenerateResponse = {
     images: Array<{
@@ -106,6 +113,28 @@ type TextToImageGenerateResponse = {
         parameters: Record<string, unknown>;
     };
     warnings: string[];
+};
+
+type BodyImageCharacterTagsResponse = {
+    requestVariables: Record<string, string>;
+    warnings: string[];
+    matchedCharacters: Array<{
+        id: string;
+        sourcePath: string;
+        cnName: string;
+        enName: string;
+    }>;
+};
+
+type BodyImagePromptRuleRequest = {
+    id: string;
+    name: string;
+    enabled: boolean;
+    target: "positive" | "negative";
+    matchMode: "plain" | "regex";
+    mode: "replace" | "append" | "prepend" | "delete";
+    trigger: string;
+    replacement: string;
 };
 
 type SameDocumentViewTransition = {
@@ -235,11 +264,9 @@ const {
 const {
     activeStyle: activeTextToImageStyle,
     activeTagVocabularySourceId: textToImageActiveTagVocabularySourceId,
-    characters: textToImageCharacters,
     generationDraft: textToImageGenerationDraft,
     novelAi: textToImageNovelAi,
     output: textToImageOutput,
-    outfits: textToImageOutfits,
     promptReplacementRules: textToImagePromptReplacementRules,
     taskPrompts: textToImageTaskPrompts,
 } = storeToRefs(textToImageStore);
@@ -926,24 +953,8 @@ const saveCurrentWorkspaceFile = async (): Promise<void> => {
  * 将当前章节作为正文图片生成任务发送给 LLM，并把返回的 <image> 块转为正文里的生成按钮。
  */
 async function buildTextToImageBodyRequestVariables(userRequest: string): Promise<Record<string, string>> {
-    const characters = textToImageCharacters.value.map((character) => ({
-        cnName: character.cnName,
-        enName: character.enName,
-        profileTraits: character.profileTraits,
-        facialAppearance: character.facialAppearance,
-        upperSfw: character.upperSfw,
-        lowerSfw: character.lowerSfw,
-    }));
-    const outfits = textToImageOutfits.value.map((outfit) => ({
-        nameCn: outfit.nameCn,
-        nameEn: outfit.nameEn,
-        aliases: outfit.aliases,
-        enabled: outfit.enabled,
-        fullPrompt: outfit.fullPrompt,
-        upperFront: outfit.upperFront,
-        lowerFront: outfit.lowerFront,
-    }));
     const promptRules = textToImagePromptReplacementRules.value.map((rule) => ({
+        id: rule.id,
         name: rule.name,
         enabled: rule.enabled,
         target: rule.target,
@@ -952,26 +963,46 @@ async function buildTextToImageBodyRequestVariables(userRequest: string): Promis
         trigger: rule.trigger,
         replacement: rule.replacement,
     }));
-    const tagData = await collectTextToImageTagDataContext(userRequest);
+    const [tagData, characterTagContext] = await Promise.all([
+        collectTextToImageTagDataContext(userRequest),
+        collectBodyImageCharacterTagContext(userRequest, promptRules),
+    ]);
     return {
         userRequest,
         request: userRequest,
         currentChapter: userRequest,
-        characters: JSON.stringify(characters, null, 2),
-        outfits: JSON.stringify(outfits, null, 2),
+        characters: characterTagContext.requestVariables.characters ?? "",
+        outfits: characterTagContext.requestVariables.outfits ?? "",
+        characterImageTags: characterTagContext.requestVariables.characterImageTags ?? "",
+        characterDetectorReport: characterTagContext.requestVariables.characterDetectorReport ?? "",
+        characterTagWarnings: characterTagContext.warnings.join("\n"),
         promptRules: JSON.stringify(promptRules, null, 2),
         tagData,
         localTagVocabulary: tagData,
     };
 }
 
+async function collectBodyImageCharacterTagContext(
+    chapterMarkdown: string,
+    promptRules: BodyImagePromptRuleRequest[],
+): Promise<BodyImageCharacterTagsResponse> {
+    if (!currentNovelId.value) {
+        return {requestVariables: {}, warnings: [], matchedCharacters: []};
+    }
+    return $fetch<BodyImageCharacterTagsResponse>("/api/text-to-image/body-character-tags", {
+        method: "POST",
+        body: {
+            projectPath: currentNovelId.value,
+            chapterPath: selectedFilePath.value,
+            chapterMarkdown,
+            promptRules,
+        },
+    });
+}
+
 async function collectTextToImageTagDataContext(query: string): Promise<string> {
     try {
-        const nameQuery = [
-            query.slice(0, 3000),
-            ...textToImageCharacters.value.flatMap((character) => [character.cnName, character.enName]),
-            ...textToImageOutfits.value.flatMap((outfit) => [outfit.nameCn, outfit.nameEn, outfit.aliases]),
-        ].filter(Boolean).join("\n");
+        const nameQuery = query.slice(0, 3000);
         const entries = await searchTextToImageTagVocabulary(nameQuery, {
             sourceId: textToImageActiveTagVocabularySourceId.value || undefined,
             limit: 30,
@@ -999,24 +1030,27 @@ const generateBodyImagesForCurrentChapter = async (): Promise<void> => {
         return;
     }
 
-    const userRequest = selectedFileContent.value.trim();
-    const requestVariables = await buildTextToImageBodyRequestVariables(userRequest);
-    const messages = buildTextToImageLlmMessages({
-        task: "bodyImage",
-        userRequest,
-        taskPrompt: textToImageTaskPrompts.value.bodyImage.prompt,
-        contextPreset,
-        extraDetectionText: [
-            userRequest,
-            requestVariables.characters,
-            requestVariables.outfits,
-            requestVariables.tagData,
-        ].join("\n"),
-        requestVariables,
-    });
-
     bodyImageGenerating.value = true;
     try {
+        const chapterMarkdown = selectedFileContent.value;
+        const userRequest = chapterMarkdown.trim();
+        const requestVariables = await buildTextToImageBodyRequestVariables(userRequest);
+        if (requestVariables.characterTagWarnings) {
+            notification.warning(requestVariables.characterTagWarnings, {title: "正文生图角色识别"});
+        }
+        const messages = buildTextToImageLlmMessages({
+            task: "bodyImage",
+            userRequest,
+            taskPrompt: textToImageTaskPrompts.value.bodyImage.prompt,
+            contextPreset,
+            extraDetectionText: [
+                userRequest,
+                requestVariables.characterImageTags,
+                requestVariables.characterDetectorReport,
+                requestVariables.tagData,
+            ].join("\n"),
+            requestVariables,
+        });
         const reply = await requestTextToImageLlmCompletion(apiConfig, messages);
         textToImageStore.recordLlmExchange({
             task: "bodyImage",
@@ -1028,16 +1062,39 @@ const generateBodyImagesForCurrentChapter = async (): Promise<void> => {
             notification.warning("LLM 回复中没有找到 <image> 图片标记。", {title: "正文生图"});
             return;
         }
-        const result = insertTextToImagePromptPlaceholdersIntoMarkdown(selectedFileContent.value, blocks);
+        const placementDraft = buildTextToImagePromptPlacementDraft(chapterMarkdown, blocks);
+        if (!placementDraft.prompts.length) {
+            notification.warning("LLM 回复的 <image> 标签里没有可发送给 NovelAI 的 tag。", {title: "正文生图"});
+            return;
+        }
+        if (!currentNovelId.value) {
+            notification.warning("当前章节没有可用于创建插图定位子 agent 的 Project。", {title: "正文生图"});
+            return;
+        }
+        const placementResponse = await $fetch<BodyImagePromptPlacementResponse>("/api/text-to-image/body-prompt-placements", {
+            method: "POST",
+            body: {
+                projectPath: currentNovelId.value,
+                chapterPath: selectedFilePath.value,
+                chapterMarkdown,
+                paragraphs: placementDraft.paragraphs,
+                prompts: placementDraft.prompts,
+                llmReply: reply,
+            },
+        });
+        for (const warning of placementResponse.warnings) {
+            notification.warning(warning, {title: "正文生图插图定位"});
+        }
+        const result = insertTextToImagePromptPlaceholdersByPlacement(chapterMarkdown, placementDraft, placementResponse.placements);
         if (!result.inserted) {
-            notification.warning("没有可插入的图片按钮，请检查 <image> 标签内是否包含 NovelAI tag。", {title: "正文生图"});
+            notification.warning("插图定位器没有返回可用插入位置，已保持正文不变。", {title: "正文生图"});
             return;
         }
         selectedFileContent.value = result.markdown;
         await nextTick();
         await saveCurrentWorkspaceFile();
-        const appendedText = result.appended ? `，追加 ${result.appended} 个` : "";
-        notification.success(`已插入 ${result.inserted} 个生成图片按钮（匹配 ${result.matched} 个${appendedText}）。`);
+        const skippedText = result.skipped ? `，跳过 ${result.skipped} 个无效位置` : "";
+        notification.success(`已插入 ${result.inserted} 个生成图片按钮${skippedText}。`, {title: "正文生图"});
     } catch (error) {
         notification.error(resolveApiErrorMessage(error, "正文生图请求失败"), {title: "正文生图"});
     } finally {
@@ -1086,8 +1143,8 @@ const generateImageForBodyPrompt = async (payload: TextToImagePromptGeneratePayl
                     novelAi: textToImageNovelAi.value,
                     style: activeTextToImageStyle.value,
                     character: null,
-                    characters: textToImageCharacters.value,
-                    outfits: textToImageOutfits.value,
+                    characters: [],
+                    outfits: [],
                     promptRules: textToImagePromptReplacementRules.value,
                     prompt: promptText,
                     negativePrompt: textToImageGenerationDraft.value.negativePrompt,
@@ -1292,8 +1349,8 @@ async function rerollBodyImageResult(): Promise<void> {
                     novelAi: textToImageNovelAi.value,
                     style: activeTextToImageStyle.value,
                     character: null,
-                    characters: textToImageCharacters.value,
-                    outfits: textToImageOutfits.value,
+                    characters: [],
+                    outfits: [],
                     promptRules: textToImagePromptReplacementRules.value,
                     prompt: item.prompt,
                     negativePrompt: item.negativePrompt || textToImageGenerationDraft.value.negativePrompt,

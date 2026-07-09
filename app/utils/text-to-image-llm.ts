@@ -50,6 +50,40 @@ export type TextToImagePromptPlaceholderInsertResult = {
     appended: number;
 };
 
+export type TextToImagePromptPlacementParagraph = {
+    id: string;
+    index: number;
+    text: string;
+    start: number;
+    end: number;
+};
+
+export type TextToImagePromptPlacementPrompt = {
+    id: string;
+    order: number;
+    prompt: string;
+    responseIndex: number;
+    nearbyText: string;
+};
+
+export type TextToImagePromptPlacementDraft = {
+    paragraphs: TextToImagePromptPlacementParagraph[];
+    prompts: TextToImagePromptPlacementPrompt[];
+};
+
+export type TextToImagePromptPlacement = {
+    promptId: string;
+    afterParagraphId: string;
+    reason: string;
+    confidence: number;
+};
+
+export type TextToImagePromptPlacementInsertResult = {
+    markdown: string;
+    inserted: number;
+    skipped: number;
+};
+
 export type TextToImagePromptPlaceholderReplaceResult = {
     markdown: string;
     replaced: boolean;
@@ -171,9 +205,6 @@ export function insertTextToImagePromptPlaceholdersIntoMarkdown(markdown: string
     const matchedPlacements = placements
         .filter((placement) => placement.insertAt >= 0)
         .sort((left, right) => right.insertAt - left.insertAt || right.order - left.order);
-    const appendedPlacements = placements
-        .filter((placement) => placement.insertAt < 0)
-        .sort((left, right) => left.order - right.order);
 
     let nextMarkdown = markdown;
     for (const placement of matchedPlacements) {
@@ -182,18 +213,71 @@ export function insertTextToImagePromptPlaceholdersIntoMarkdown(markdown: string
             prompt: placement.prompt,
         }));
     }
-    if (appendedPlacements.length) {
-        nextMarkdown = appendBlocks(nextMarkdown, appendedPlacements.map((placement) => renderTextToImagePromptPlaceholderMarkdown({
-            id: createTextToImagePromptPlaceholderId(placement.order),
-            prompt: placement.prompt,
-        })));
+
+    return {
+        markdown: nextMarkdown,
+        inserted: matchedPlacements.length,
+        matched: matchedPlacements.length,
+        appended: 0,
+    };
+}
+
+export function buildTextToImagePromptPlacementDraft(
+    markdown: string,
+    blocks: TextToImageImagineBlock[],
+    options: {createId?: (order: number) => string} = {},
+): TextToImagePromptPlacementDraft {
+    const paragraphs = collectMarkdownParagraphs(markdown);
+    const prompts = blocks
+        .map((block, order) => ({
+            id: options.createId?.(order) ?? createTextToImagePromptPlaceholderId(order),
+            order,
+            prompt: normalizeBlockText(block.inner),
+            responseIndex: block.responseIndex,
+            nearbyText: readPromptNearbyText(block),
+        }))
+        .filter((prompt) => prompt.prompt.length > 0);
+    return {paragraphs, prompts};
+}
+
+export function insertTextToImagePromptPlaceholdersByPlacement(
+    markdown: string,
+    draft: TextToImagePromptPlacementDraft,
+    placements: TextToImagePromptPlacement[],
+): TextToImagePromptPlacementInsertResult {
+    const paragraphById = new Map(draft.paragraphs.map((paragraph) => [paragraph.id, paragraph]));
+    const promptById = new Map(draft.prompts.map((prompt) => [prompt.id, prompt]));
+    const seenPromptIds = new Set<string>();
+    const insertions: Array<{insertAt: number; order: number; prompt: TextToImagePromptPlacementPrompt}> = [];
+    let skipped = 0;
+
+    for (const placement of placements) {
+        const prompt = promptById.get(placement.promptId);
+        const paragraph = paragraphById.get(placement.afterParagraphId);
+        if (!prompt || !paragraph || seenPromptIds.has(prompt.id)) {
+            skipped += 1;
+            continue;
+        }
+        seenPromptIds.add(prompt.id);
+        insertions.push({
+            insertAt: paragraph.end,
+            order: prompt.order,
+            prompt,
+        });
+    }
+
+    let nextMarkdown = markdown;
+    for (const insertion of insertions.sort((left, right) => right.insertAt - left.insertAt || right.order - left.order)) {
+        nextMarkdown = insertBlockAt(nextMarkdown, insertion.insertAt, renderTextToImagePromptPlaceholderMarkdown({
+            id: insertion.prompt.id,
+            prompt: insertion.prompt.prompt,
+        }));
     }
 
     return {
         markdown: nextMarkdown,
-        inserted: matchedPlacements.length + appendedPlacements.length,
-        matched: matchedPlacements.length,
-        appended: appendedPlacements.length,
+        inserted: insertions.length,
+        skipped,
     };
 }
 
@@ -276,23 +360,17 @@ export function insertImagineBlocksIntoMarkdown(markdown: string, blocks: TextTo
     const matchedPlacements = placements
         .filter((placement) => placement.insertAt >= 0)
         .sort((left, right) => right.insertAt - left.insertAt || right.order - left.order);
-    const appendedPlacements = placements
-        .filter((placement) => placement.insertAt < 0)
-        .sort((left, right) => left.order - right.order);
 
     let nextMarkdown = markdown;
     for (const placement of matchedPlacements) {
         nextMarkdown = insertBlockAt(nextMarkdown, placement.insertAt, placement.text);
     }
-    if (appendedPlacements.length) {
-        nextMarkdown = appendBlocks(nextMarkdown, appendedPlacements.map((placement) => placement.text));
-    }
 
     return {
         markdown: nextMarkdown,
-        inserted: matchedPlacements.length + appendedPlacements.length,
+        inserted: matchedPlacements.length,
         matched: matchedPlacements.length,
-        appended: appendedPlacements.length,
+        appended: 0,
         skippedDuplicate,
     };
 }
@@ -496,6 +574,14 @@ function stripGeneratedImageTags(value: string): string {
     return value.replace(/<(?:imagine|image)\b[^>]*>[\s\S]*?<\/(?:imagine|image)>/giu, "");
 }
 
+function readPromptNearbyText(block: TextToImageImagineBlock): string {
+    const cleanPrefix = stripGeneratedImageTags(block.responsePrefix).trim();
+    if (!cleanPrefix) {
+        return "";
+    }
+    return cleanPrefix.slice(Math.max(0, cleanPrefix.length - 360));
+}
+
 function normalizeLineEndingsWithIndexMap(value: string): {text: string; indexMap: number[]} {
     let text = "";
     const indexMap: number[] = [];
@@ -522,9 +608,51 @@ function insertBlockAt(markdown: string, index: number, blockText: string): stri
     return `${markdown.slice(0, index)}${blockSeparatorBefore(markdown.slice(0, index))}${blockText}${blockSeparatorAfter(markdown.slice(index))}${markdown.slice(index)}`;
 }
 
-function appendBlocks(markdown: string, blockTexts: string[]): string {
-    const suffix = blockTexts.join("\n\n");
-    return `${markdown.trimEnd()}${markdown.trimEnd() ? "\n\n" : ""}${suffix}\n`;
+function collectMarkdownParagraphs(markdown: string): TextToImagePromptPlacementParagraph[] {
+    const paragraphs: TextToImagePromptPlacementParagraph[] = [];
+    let paragraphStart = -1;
+    let paragraphEnd = 0;
+    const paragraphLines: string[] = [];
+    let index = 0;
+    while (index < markdown.length) {
+        const lineStart = index;
+        const newlineMatch = /\r\n|\n|\r/u.exec(markdown.slice(index));
+        const lineEnd = newlineMatch ? index + (newlineMatch.index ?? 0) : markdown.length;
+        const line = markdown.slice(lineStart, lineEnd);
+        if (line.trim()) {
+            if (paragraphStart < 0) {
+                paragraphStart = lineStart;
+            }
+            paragraphLines.push(line.trim());
+            paragraphEnd = lineEnd;
+        } else if (paragraphStart >= 0) {
+            paragraphs.push({
+                id: `p-${paragraphs.length + 1}`,
+                index: paragraphs.length,
+                text: paragraphLines.join("\n"),
+                start: paragraphStart,
+                end: paragraphEnd,
+            });
+            paragraphStart = -1;
+            paragraphEnd = 0;
+            paragraphLines.length = 0;
+        }
+        if (!newlineMatch) {
+            index = markdown.length;
+        } else {
+            index = lineEnd + newlineMatch[0].length;
+        }
+    }
+    if (paragraphStart >= 0) {
+        paragraphs.push({
+            id: `p-${paragraphs.length + 1}`,
+            index: paragraphs.length,
+            text: paragraphLines.join("\n"),
+            start: paragraphStart,
+            end: paragraphEnd,
+        });
+    }
+    return paragraphs;
 }
 
 function blockSeparatorBefore(previousText: string): string {

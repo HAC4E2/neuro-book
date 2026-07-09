@@ -309,7 +309,7 @@ export function renderTextToImageResultMarkdown(payload: TextToImageResultPayloa
     const normalized = normalizeTextToImageResultPayload(payload);
     return `<text-to-image-result id="${escapeAttribute(normalized.id)}">\n${JSON.stringify({
         activeIndex: normalized.activeIndex,
-        items: normalized.items,
+        items: normalized.items.map(serializeTextToImageResultItemForMarkdown),
     }, null, 2)}\n</text-to-image-result>`;
 }
 
@@ -373,6 +373,13 @@ function normalizeTextToImageResultItem(input: Partial<TextToImageGenerationResu
         model: readString(input.model),
         prompt: readString(input.prompt),
         negativePrompt: readString(input.negativePrompt),
+    };
+}
+
+function serializeTextToImageResultItemForMarkdown(item: TextToImageResultItem): TextToImageResultItem {
+    return {
+        ...item,
+        dataUrl: item.savedPath.trim() ? "" : item.dataUrl,
     };
 }
 

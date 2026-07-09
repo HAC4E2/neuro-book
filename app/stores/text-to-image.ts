@@ -397,6 +397,44 @@ function normalizeProjectPath(projectPath: string): string {
     return normalized || DEFAULT_PROJECT_KEY;
 }
 
+function buildImportedCharacterKey(character: Partial<Pick<TextToImageCharacter, "sourceProjectPath" | "sourceCharacterPath">>): string {
+    const sourceProjectPath = character.sourceProjectPath?.trim() ?? "";
+    const sourceCharacterPath = character.sourceCharacterPath?.trim() ?? "";
+    return sourceProjectPath && sourceCharacterPath ? `${sourceProjectPath}\n${sourceCharacterPath}` : "";
+}
+
+function normalizeGenerationResultForStorage(result: TextToImageGenerationResult): TextToImageGenerationResult {
+    return {
+        ...result,
+        dataUrl: result.savedPath.trim() ? "" : result.dataUrl,
+    };
+}
+
+function dedupeImportedCharacters(characters: TextToImageCharacter[]): TextToImageCharacter[] {
+    const nextCharacters: TextToImageCharacter[] = [];
+    const indexByKey = new Map<string, number>();
+    for (const character of characters) {
+        const key = buildImportedCharacterKey(character);
+        if (!key) {
+            nextCharacters.push(character);
+            continue;
+        }
+        const existingIndex = indexByKey.get(key);
+        if (existingIndex === undefined) {
+            indexByKey.set(key, nextCharacters.length);
+            nextCharacters.push(character);
+            continue;
+        }
+        const existing = nextCharacters[existingIndex];
+        nextCharacters[existingIndex] = createCharacter(character.cnName || character.enName || existing?.cnName || "角色", {
+            ...existing,
+            ...character,
+            id: existing?.id ?? character.id,
+        });
+    }
+    return nextCharacters;
+}
+
 /**
  * 限制数值范围，避免持久化恢复出非法参数。
  */
@@ -523,7 +561,9 @@ function createStylePreset(name = "默认画风串"): TextToImageStylePreset {
 function createCharacter(name = "新角色", patch: Partial<TextToImageCharacter> = {}): TextToImageCharacter {
     const id = patch.id ?? createLocalId("character");
     const portraitHistory = Array.isArray(patch.portraitHistory)
-        ? patch.portraitHistory.filter((item): item is TextToImageGenerationResult => Boolean(item && typeof item === "object"))
+        ? patch.portraitHistory
+            .filter((item): item is TextToImageGenerationResult => Boolean(item && typeof item === "object"))
+            .map(normalizeGenerationResultForStorage)
         : [];
     const activePortraitIndex = Math.min(
         Math.max(0, portraitHistory.length - 1),
@@ -624,7 +664,29 @@ function createTaskPrompt(task: TextToImagePromptTask, prompt = ""): TextToImage
  */
 function createDefaultTaskPrompts(): Record<TextToImagePromptTask, TextToImageTaskPrompt> {
     return {
-        bodyImage: createTaskPrompt("bodyImage"),
+        bodyImage: createTaskPrompt("bodyImage", [
+            "你是正文文生图提示词助手。请根据当前章节正文，为适合插图的位置生成 NovelAI 英文 tags。",
+            "调用方会提供当前章节、命中的角色 image-tags、角色识别报告、本地 tag 词库和 prompt 替换规则。",
+            "只使用命中的角色 image-tags，不要把未命中的角色写入画面。",
+            "角色 tag 请直接展开为英文 tags，不要输出 $角色名$ 触发符。",
+            "每个插图只输出一个 <image>...</image> 块；标签之间用英文逗号分隔；不要输出解释。",
+            "",
+            "<当前章节>",
+            "{{currentChapter}}",
+            "</当前章节>",
+            "",
+            "<命中的角色 image-tags>",
+            "{{characterImageTags}}",
+            "</命中的角色 image-tags>",
+            "",
+            "<角色识别报告>",
+            "{{characterDetectorReport}}",
+            "</角色识别报告>",
+            "",
+            "<本地 tag 词库>",
+            "{{tagData}}",
+            "</本地 tag 词库>",
+        ].join("\n")),
         characterDesign: createTaskPrompt("characterDesign", [
             "你是 NovelAI 角色与服装 tag 设计助手。",
             "根据输入的人物设定，输出适合文生图使用的英文 tag。",
@@ -760,11 +822,51 @@ function normalizeLastLlmExchange(exchange: Partial<TextToImageLastLlmExchange> 
  */
 function normalizeLastNovelAiExchange(exchange: Partial<TextToImageLastNovelAiExchange> = {}): TextToImageLastNovelAiExchange {
     return {
-        request: exchange.request && typeof exchange.request === "object" ? exchange.request : null,
+        request: exchange.request && typeof exchange.request === "object"
+            ? sanitizeNovelAiExchangeValue(exchange.request) as Record<string, unknown>
+            : null,
         warnings: Array.isArray(exchange.warnings) ? exchange.warnings.map((warning) => String(warning)) : [],
         imageCount: Math.max(0, Math.round(Number(exchange.imageCount ?? 0))),
         updatedAt: exchange.updatedAt ?? null,
     };
+}
+
+function sanitizeNovelAiExchangeValue(value: unknown, key = "", depth = 0): unknown {
+    if (depth > 8) {
+        return "[omitted nested payload]";
+    }
+    if (typeof value === "string") {
+        return shouldOmitNovelAiExchangeString(key, value)
+            ? `[omitted image payload: ${value.length} chars]`
+            : value;
+    }
+    if (Array.isArray(value)) {
+        if (isNovelAiImagePayloadKey(key)) {
+            return value.map((item) => typeof item === "string"
+                ? `[omitted image payload: ${item.length} chars]`
+                : sanitizeNovelAiExchangeValue(item, key, depth + 1));
+        }
+        return value.map((item) => sanitizeNovelAiExchangeValue(item, key, depth + 1));
+    }
+    if (value && typeof value === "object") {
+        return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([entryKey, entryValue]) => [
+            entryKey,
+            sanitizeNovelAiExchangeValue(entryValue, entryKey, depth + 1),
+        ]));
+    }
+    return value;
+}
+
+function shouldOmitNovelAiExchangeString(key: string, value: string): boolean {
+    return isNovelAiImagePayloadKey(key) || value.startsWith("data:image/") || isLongBase64LikeString(value);
+}
+
+function isNovelAiImagePayloadKey(key: string): boolean {
+    return /(?:^|_)(?:image|img)(?:_|$)|dataUrl|vibeEncoding|reference_image|character_reference/iu.test(key);
+}
+
+function isLongBase64LikeString(value: string): boolean {
+    return value.length > 4096 && /^[A-Za-z0-9+/=\r\n]+$/u.test(value);
 }
 
 export const useTextToImageStore = defineStore("textToImage", () => {
@@ -945,7 +1047,7 @@ export const useTextToImageStore = defineStore("textToImage", () => {
         ensureProjectGroup(currentProjectPath.value);
         ensureOutfitGroup(currentProjectPath.value);
         for (const [projectPath, group] of Object.entries(characterGroups.value)) {
-            const charactersInGroup = group.characters.map((character) => createCharacter(character.cnName || "角色", character));
+            const charactersInGroup = dedupeImportedCharacters(group.characters.map((character) => createCharacter(character.cnName || "角色", character)));
             const activeId = charactersInGroup.some((item) => item.id === group.activeCharacterId) ? group.activeCharacterId : charactersInGroup[0]?.id ?? null;
             updateProjectGroup(projectPath, {
                 ...group,
@@ -1480,6 +1582,23 @@ export const useTextToImageStore = defineStore("textToImage", () => {
     function addCharacterFromDraft(draft: Partial<TextToImageCharacter>, projectPath = currentProjectPath.value): TextToImageCharacter {
         const group = ensureProjectGroup(projectPath);
         const displayName = draft.cnName?.trim() || draft.enName?.trim() || `角色 ${group.characters.length + 1}`;
+        const importedKey = buildImportedCharacterKey(draft);
+        const existing = importedKey
+            ? group.characters.find((character) => buildImportedCharacterKey(character) === importedKey)
+            : null;
+        if (existing) {
+            const character = createCharacter(displayName, {
+                ...existing,
+                ...draft,
+                id: existing.id,
+            });
+            updateProjectGroup(projectPath, {
+                ...group,
+                characters: group.characters.map((item) => item.id === existing.id ? character : item),
+                activeCharacterId: character.id,
+            });
+            return character;
+        }
         const character = createCharacter(displayName, draft);
         updateProjectGroup(projectPath, {
             ...group,
@@ -1509,10 +1628,11 @@ export const useTextToImageStore = defineStore("textToImage", () => {
         const group = ensureProjectGroup(projectPath);
         updateProjectGroup(projectPath, {
             ...group,
-            characters: group.characters.map((item) => item.id === characterId ? {
+            characters: group.characters.map((item) => item.id === characterId ? createCharacter(item.cnName || item.enName || "角色", {
                 ...item,
                 ...patch,
-            } : item),
+                id: item.id,
+            }) : item),
         });
     }
 

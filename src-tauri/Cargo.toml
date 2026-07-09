@@ -1,0 +1,27 @@
+[package]
+name = "neuro-book-desktop"
+version = "0.4.2"
+description = "NeuroBook Desktop Shell"
+edition = "2021"
+rust-version = "1.77"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# 进程组：Windows 下用 Job Object (KILL_ON_JOB_CLOSE)，保证 Tauri 退出/崩溃时连同服务子进程一起被 OS 杀掉
+command-group = "2"
+# 创建 product/workspace -> data/workspace 的目录联接（无需管理员权限）
+junction = "1"
+# cookie 0.18.1 (tauri 传递依赖) 与 time 0.3.52 的 parse 签名不兼容，pin 回 2024 稳定版
+time = "=0.3.36"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NeuroBook</title>
+  <style>
+    html, body { margin: 0; height: 100%; }
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #2e1d20;
+      color: #f5ede0;
+      font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    }
+    .wrap { text-align: center; max-width: 480px; padding: 24px; }
+    .spinner {
+      width: 46px; height: 46px;
+      border: 4px solid rgba(245, 237, 224, 0.15);
+      border-top-color: #e8b45c;
+      border-radius: 50%;
+      margin: 0 auto 22px;
+      animation: spin 0.9s linear infinite;
+    }
+    p { margin: 0; font-size: 15px; opacity: 0.85; }
+    #status { margin-top: 8px; font-size: 12px; opacity: 0.5; }
+    #error-box { display: none; margin-top: 24px; text-align: left; }
+    #error-box .error-title {
+      font-size: 14px; font-weight: 600; color: #e8b45c;
+      margin-bottom: 10px;
+    }
+    #error-box .error-msg {
+      font-size: 12px; opacity: 0.75; white-space: pre-wrap;
+      word-break: break-all; line-height: 1.6;
+      background: rgba(0,0,0,0.25); border-radius: 6px;
+      padding: 12px 14px; max-height: 320px; overflow-y: auto;
+    }
+    #error-box .error-hint {
+      margin-top: 14px; font-size: 11px; opacity: 0.45;
+    }
+    #retry-btn {
+      display: inline-block; margin-top: 16px; padding: 8px 28px;
+      font-size: 13px; border: 1px solid rgba(245,237,224,0.3);
+      border-radius: 6px; background: transparent; color: #f5ede0;
+      cursor: pointer; transition: background 0.2s;
+    }
+    #retry-btn:hover { background: rgba(245,237,224,0.1); }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <!-- 加载中状态 -->
+  <div id="loading" class="wrap">
+    <div class="spinner"></div>
+    <p>NeuroBook 启动中…</p>
+    <p id="status">正在初始化</p>
+  </div>
+
+  <!-- 启动失败状态 -->
+  <div id="error-box" class="wrap">
+    <div class="error-title">⚠ 启动失败</div>
+    <div id="error-msg" class="error-msg"></div>
+    <div class="error-hint">日志位于 data/logs/boot.log，可复制以上信息反馈问题。</div>
+    <button id="retry-btn" onclick="location.reload()">重试</button>
+  </div>
+
+  <script>
+    // 轮询 Rust 端的启动状态；就绪后跳转，失败时展示错误信息。
+    // withGlobalTauri 把 invoke 暴露在 window.__TAURI__.core.invoke。
+    const invoke = window.__TAURI__?.core?.invoke ?? window.__TAURI__?.invoke;
+    const TIMEOUT_MS = 120_000;
+    const startTime = Date.now();
+    let pollCount = 0;
+
+    /** 更新状态提示文字 */
+    function setStatus(text) {
+      const el = document.getElementById("status");
+      if (el) el.textContent = text;
+    }
+
+    /** 展示错误信息 */
+    function showError(message) {
+      document.getElementById("loading").style.display = "none";
+      const box = document.getElementById("error-box");
+      box.style.display = "block";
+      document.getElementById("error-msg").textContent = message || "未知错误";
+    }
+
+    function poll() {
+      if (typeof invoke !== "function") {
+        if (Date.now() - startTime > TIMEOUT_MS) {
+          showError("Tauri invoke 不可用，WebView2 可能版本过低。请更新 Windows 或安装 WebView2 Evergreen Runtime。");
+          return;
+        }
+        setTimeout(poll, 400);
+        return;
+      }
+
+      pollCount++;
+      const elapsed = Date.now() - startTime;
+
+      // 每 5 秒更新一次状态提示
+      if (pollCount % 12 === 0) {
+        if (elapsed < 10_000)      setStatus("正在启动 Bun 运行时…");
+        else if (elapsed < 30_000) setStatus("正在执行数据库迁移…");
+        else if (elapsed < 60_000) setStatus("正在加载服务…");
+        else                       setStatus("仍在启动中，请稍候… (" + Math.round(elapsed / 1000) + "s)");
+      }
+
+      // 检查启动错误
+      invoke("get_boot_error").then((error) => {
+        if (typeof error === "string" && error) {
+          showError(error);
+          return;
+        }
+        // 检查服务是否就绪
+        invoke("get_server_url").then((url) => {
+          if (typeof url === "string" && url) {
+            setStatus("正在跳转…");
+            window.location.replace(url);
+          } else if (elapsed > TIMEOUT_MS) {
+            showError("服务在 120 秒内未就绪。\n请检查 data/logs/boot.log 获取详细信息。");
+          } else {
+            setTimeout(poll, 400);
+          }
+        }).catch(() => {
+          if (elapsed > TIMEOUT_MS) {
+            showError("服务在 120 秒内未就绪。\n请检查 data/logs/boot.log 获取详细信息。");
+          } else {
+            setTimeout(poll, 400);
+          }
+        });
+      }).catch(() => {
+        if (elapsed > TIMEOUT_MS) {
+          showError("服务在 120 秒内未就绪。\n请检查 data/logs/boot.log 获取详细信息。");
+        } else {
+          setTimeout(poll, 400);
+        }
+      });
+    }
+    poll();
+  </script>
+</body>
+</html>

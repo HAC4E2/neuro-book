@@ -1,0 +1,71 @@
+import {createPinia, defineStore, setActivePinia} from "pinia";
+import {computed, ref} from "vue";
+import {beforeAll, beforeEach, describe, expect, it} from "vitest";
+
+describe("useTextToImageStore", () => {
+    beforeAll(() => {
+        const globals = globalThis as typeof globalThis & Record<string, unknown>;
+        globals.defineStore = defineStore;
+        globals.ref = ref;
+        globals.computed = computed;
+        globals.piniaPluginPersistedstate = {
+            localStorage: () => ({}),
+        };
+    });
+
+    beforeEach(() => {
+        setActivePinia(createPinia());
+    });
+
+    it("reuses an imported source character instead of duplicating it", async () => {
+        const {useTextToImageStore} = await import("nbook/app/stores/text-to-image");
+        const store = useTextToImageStore();
+        store.setCurrentProjectPath("workspace/current-book");
+
+        const first = store.addCharacterFromDraft({
+            cnName: "Imported Character",
+            enName: "Imported Character",
+            profileTraits: "first draft",
+            sourceProjectPath: "workspace/source-book",
+            sourceCharacterPath: "characters/imported/index.md",
+        });
+        const second = store.addCharacterFromDraft({
+            cnName: "Imported Character",
+            enName: "Imported Character",
+            profileTraits: "updated draft",
+            sourceProjectPath: "workspace/source-book",
+            sourceCharacterPath: "characters/imported/index.md",
+        });
+
+        expect(second.id).toBe(first.id);
+        expect(store.characters).toHaveLength(1);
+        expect(store.characters[0]?.profileTraits).toBe("updated draft");
+    });
+
+    it("removes large base64 image payloads from persisted NovelAI exchange snapshots", async () => {
+        const {useTextToImageStore} = await import("nbook/app/stores/text-to-image");
+        const store = useTextToImageStore();
+
+        store.recordNovelAiExchange({
+            imageCount: 1,
+            warnings: [],
+            request: {
+                prompt: "tag",
+                parameters: {
+                    reference_image_multiple: [`data:image/png;base64,${"a".repeat(128)}`],
+                    character_reference_image_multiple: ["b".repeat(128)],
+                    nested: {
+                        safe: "value",
+                    },
+                },
+            },
+        });
+
+        const serialized = JSON.stringify(store.lastNovelAiExchange.request);
+        expect(serialized).toContain("safe");
+        expect(serialized).not.toContain("data:image/png;base64");
+        expect(serialized).not.toContain("aaaaaaaaaaaaaaaa");
+        expect(serialized).not.toContain("bbbbbbbbbbbbbbbb");
+        expect(serialized).toContain("[omitted image payload");
+    });
+});

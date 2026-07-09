@@ -45,6 +45,7 @@ type OpenAIModelsResponse = {
     data?: Array<{
         id?: unknown;
     }>;
+    fallbackReason?: "volcengine-agent-plan-no-models";
 };
 
 type ProviderFetchInit = RequestInit & {
@@ -346,9 +347,16 @@ export async function discoverProviderModels(providerDraft: ModelProviderDraftDt
     const response = await fetchProviderModels(providerDraft, baseURL);
     const models = parseOpenAIModelsResponse(response);
 
+    const providerName = providerDraft.name;
+    const fallbackMessageName = providerName.toLowerCase().includes("agent plan")
+        ? providerName
+        : `${providerName} Agent Plan`;
+
     return {
         models,
-        message: `已从 ${providerDraft.name} 远程发现 ${models.length} 个模型，用时 ${String(Date.now() - startedAt)}ms。`,
+        message: response.fallbackReason === "volcengine-agent-plan-no-models"
+            ? `${fallbackMessageName} /models 不可用，已使用兼容模型 ark-code-latest；用时 ${String(Date.now() - startedAt)}ms。`
+            : `已从 ${providerDraft.name} 远程发现 ${models.length} 个模型，用时 ${String(Date.now() - startedAt)}ms。`,
     };
 }
 
@@ -671,6 +679,12 @@ async function fetchProviderModels(providerDraft: ModelProviderDraftDto, baseURL
         const response = await fetch(buildModelsEndpoint(baseURL), requestInit as RequestInit);
 
         if (!response.ok) {
+            if (response.status === 404 && isVolcengineAgentPlanBaseUrl(baseURL)) {
+                return {
+                    data: [{id: "ark-code-latest"}],
+                    fallbackReason: "volcengine-agent-plan-no-models",
+                };
+            }
             throw new Error(`${providerDraft.name} /models 请求失败：HTTP ${String(response.status)} ${response.statusText}`);
         }
 
@@ -695,6 +709,16 @@ async function fetchProviderModels(providerDraft: ModelProviderDraftDto, baseURL
  */
 function buildModelsEndpoint(baseURL: string): string {
     return `${baseURL.replace(/\/+$/, "")}/models`;
+}
+
+function isVolcengineAgentPlanBaseUrl(baseURL: string): boolean {
+    try {
+        const parsed = new URL(baseURL.trim());
+        return parsed.hostname === "ark.cn-beijing.volces.com"
+            && parsed.pathname.replace(/\/+$/u, "") === "/api/plan/v3";
+    } catch {
+        return false;
+    }
 }
 
 /**

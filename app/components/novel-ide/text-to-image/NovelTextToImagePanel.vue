@@ -44,6 +44,7 @@ import {
     parseTextToImageCharacterDraft,
 } from "nbook/app/utils/text-to-image-character-design";
 import {parseStChatu8TextToImageSettings} from "nbook/app/utils/text-to-image-st-chatu8-import";
+import {resolveTextToImageResultImageUrl} from "nbook/app/components/markdown-studio/tiptap/TextToImageResult";
 import type {WorkspaceTreeSnapshotDto} from "nbook/shared/dto/workspace-tree.dto";
 
 type StyleTextFieldKey = "positivePrefix" | "positiveSuffix" | "negativePrefix" | "negativeSuffix";
@@ -364,17 +365,6 @@ const tagInsertTargets = computed<TextToImageTagInsertTarget[]>(() => {
             {value: "styleNegativeSuffix", label: "画风负面后缀", description: activeStyle.value.name, iconClass: "i-lucide-palette"},
         );
     }
-    if (activeCharacter.value) {
-        targets.push(
-            {value: "characterPhotoPrompt", label: "当前角色照片提示词", description: formatCharacterName(activeCharacter.value), iconClass: "i-lucide-image"},
-            ...characterTextFields.map((field) => ({
-                value: `character:${field.key}`,
-                label: `角色：${field.label}`,
-                description: formatCharacterName(activeCharacter.value as TextToImageCharacter),
-                iconClass: "i-lucide-user-round",
-            })),
-        );
-    }
     return targets;
 });
 
@@ -536,8 +526,13 @@ async function generateTextToImage(): Promise<void> {
             }),
         });
         store.prependGenerationResults(result.images);
+        store.recordNovelAiExchange({
+            request: result.request,
+            warnings: result.warnings,
+            imageCount: result.images.length,
+        });
         generationWarnings.value = result.warnings;
-        lastGenerationRequest.value = result.request;
+        lastGenerationRequest.value = lastNovelAiExchange.value.request as TextToImageGenerateResponse["request"] | null;
         notification.success(`生成完成，已保存 ${result.images.length} 张图片`);
     } catch (error) {
         generationError.value = resolveApiErrorMessage(error, "文生图生成失败");
@@ -597,7 +592,7 @@ async function generateActiveCharacterImage(): Promise<void> {
             imageCount: result.images.length,
         });
         generationWarnings.value = result.warnings;
-        lastGenerationRequest.value = result.request;
+        lastGenerationRequest.value = lastNovelAiExchange.value.request as TextToImageGenerateResponse["request"] | null;
         const portrait = result.images[0] ?? null;
         if (portrait) {
             const nextHistory = [
@@ -605,7 +600,7 @@ async function generateActiveCharacterImage(): Promise<void> {
                 portrait,
             ];
             store.updateCharacter(character.id, {
-                portraitDataUrl: portrait.dataUrl,
+                portraitDataUrl: resolveTextToImageResultImageUrl(portrait),
                 portraitHistory: nextHistory,
                 activePortraitIndex: nextHistory.length - 1,
             });
@@ -1399,7 +1394,7 @@ async function loadSourceCharacters(projectPath = sourceProjectPath.value): Prom
         const snapshot = await $fetch<WorkspaceTreeSnapshotDto<WorkspaceFileNode>>("/api/workspace-files/tree", {
             query: {projectPath},
         });
-        const nextCharacters = snapshot.nodes
+        const nextCharacters = dedupeSourceCharacters(snapshot.nodes
             .filter((node) => node.entryType === "character" && node.contentNode)
             .map((node) => ({
                 path: node.path,
@@ -1407,7 +1402,7 @@ async function loadSourceCharacters(projectPath = sourceProjectPath.value): Prom
                 summary: node.summary,
                 indexPath: resolveContentIndexPath(node.path),
                 statePath: node.state?.exists ? node.state.path : null,
-            }))
+            })))
             .sort((left, right) => left.title.localeCompare(right.title, "zh-CN"));
         sourceCharacters.value = nextCharacters;
         sourceCharacterPath.value = nextCharacters.some((character) => character.path === sourceCharacterPath.value) ? sourceCharacterPath.value : nextCharacters[0]?.path ?? "";
@@ -1416,6 +1411,20 @@ async function loadSourceCharacters(projectPath = sourceProjectPath.value): Prom
     } finally {
         sourceLoading.value = false;
     }
+}
+
+function dedupeSourceCharacters(characters: SourceCharacterOption[]): SourceCharacterOption[] {
+    const seen = new Set<string>();
+    const nextCharacters: SourceCharacterOption[] = [];
+    for (const character of characters) {
+        const key = character.indexPath || character.path;
+        if (seen.has(key)) {
+            continue;
+        }
+        seen.add(key);
+        nextCharacters.push(character);
+    }
+    return nextCharacters;
 }
 
 /**
@@ -2499,8 +2508,8 @@ function readFileAsDataUrl(file: File): Promise<string> {
                 </div>
             </section>
 
-            <!-- 角色管理 -->
-            <section class="w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/45">
+            <!-- 旧角色/服装管理已迁移到 Project Workspace 的 image-tags.md 文件，文生图面板不再展示。 -->
+            <section v-if="false" class="w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/45">
                 <div class="grid min-h-9 grid-cols-[minmax(0,1fr)_5.75rem] items-center gap-2 border-b border-[var(--border-color)] px-3 py-2">
                     <button type="button" class="grid min-w-0 grid-cols-[1rem_minmax(0,1fr)_0.875rem] items-center gap-2 text-left" :aria-expanded="!isSectionCollapsed('characters')" @click="toggleSection('characters')">
                         <span class="i-lucide-user-round-cog h-4 w-4 text-[var(--accent-main)]"></span>
@@ -2615,27 +2624,27 @@ function readFileAsDataUrl(file: File): Promise<string> {
                                 <div class="grid grid-cols-2 gap-2">
                                     <label class="block min-w-0">
                                         <span class="mb-1 block text-[11px] text-[var(--text-secondary)]">中文名称</span>
-                                        <FormInput :model-value="activeOutfit.nameCn" @update:model-value="updateActiveOutfit({nameCn: $event})" />
+                                        <FormInput :model-value="activeOutfit?.nameCn ?? ''" @update:model-value="updateActiveOutfit({nameCn: $event})" />
                                     </label>
                                     <label class="block min-w-0">
                                         <span class="mb-1 block text-[11px] text-[var(--text-secondary)]">英文名称</span>
-                                        <FormInput :model-value="activeOutfit.nameEn" @update:model-value="updateActiveOutfit({nameEn: $event})" />
+                                        <FormInput :model-value="activeOutfit?.nameEn ?? ''" @update:model-value="updateActiveOutfit({nameEn: $event})" />
                                     </label>
                                 </div>
                                 <button
                                     type="button"
                                     class="grid min-h-9 w-full grid-cols-[minmax(0,1fr)_2.125rem] items-center gap-2 rounded-md border px-2 text-left text-[11px] transition-colors"
-                                    :class="activeOutfit.enabled ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'border-[var(--border-color)] bg-[var(--bg-input)]/70 text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
-                                    @click="updateActiveOutfit({enabled: !activeOutfit.enabled})"
+                                    :class="activeOutfit?.enabled ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'border-[var(--border-color)] bg-[var(--bg-input)]/70 text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
+                                    @click="updateActiveOutfit({enabled: !(activeOutfit?.enabled ?? false)})"
                                 >
-                                    <span>{{ activeOutfit.enabled ? "当前服装可被触发" : "当前服装已关闭" }}</span>
-                                    <span class="relative h-4 w-8 rounded-full transition-colors" :class="activeOutfit.enabled ? 'bg-[var(--accent-main)]' : 'bg-[var(--border-color)]'">
-                                        <span class="absolute top-0.5 h-3 w-3 rounded-full bg-[var(--bg-panel)] shadow transition-transform" :class="activeOutfit.enabled ? 'translate-x-[18px]' : 'translate-x-0.5'"></span>
+                                    <span>{{ activeOutfit?.enabled ? "当前服装可被触发" : "当前服装已关闭" }}</span>
+                                    <span class="relative h-4 w-8 rounded-full transition-colors" :class="activeOutfit?.enabled ? 'bg-[var(--accent-main)]' : 'bg-[var(--border-color)]'">
+                                        <span class="absolute top-0.5 h-3 w-3 rounded-full bg-[var(--bg-panel)] shadow transition-transform" :class="activeOutfit?.enabled ? 'translate-x-[18px]' : 'translate-x-0.5'"></span>
                                     </span>
                                 </button>
                                 <label v-for="field in outfitTextFields" :key="field.key" class="block">
                                     <span class="mb-1 block text-[11px] text-[var(--text-secondary)]">{{ field.label }}</span>
-                                    <FormTextarea :model-value="activeOutfit[field.key]" :rows="field.rows" @update:model-value="updateActiveOutfit({[field.key]: $event})" />
+                                    <FormTextarea :model-value="activeOutfit?.[field.key] ?? ''" :rows="field.rows" @update:model-value="updateActiveOutfit({[field.key]: $event})" />
                                 </label>
                             </div>
                         </div>
@@ -2653,14 +2662,14 @@ function readFileAsDataUrl(file: File): Promise<string> {
                             </div>
 
                             <div class="space-y-4 p-3">
-                                <div v-if="activeCharacter.sourceNovelTitle" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/60 px-2 py-1.5 text-[11px] text-[var(--text-muted)]">
-                                    来源：{{ activeCharacter.sourceNovelTitle }} · {{ activeCharacter.sourceCharacterPath }}
+                                <div v-if="activeCharacter?.sourceNovelTitle" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/60 px-2 py-1.5 text-[11px] text-[var(--text-muted)]">
+                                    来源：{{ activeCharacter?.sourceNovelTitle }} · {{ activeCharacter?.sourceCharacterPath }}
                                 </div>
 
                                 <div class="space-y-3 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/45 p-3">
                                     <div class="flex flex-col items-center gap-3">
                                         <div class="w-full max-w-[320px] overflow-hidden rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]">
-                                            <img v-if="activeCharacter.portraitDataUrl" :src="activeCharacter.portraitDataUrl" :alt="activeCharacterDisplayName" class="block aspect-[4/3] w-full object-cover">
+                                            <img v-if="activeCharacter?.portraitDataUrl" :src="activeCharacter?.portraitDataUrl" :alt="activeCharacterDisplayName" class="block aspect-[4/3] w-full object-cover">
                                             <div v-else class="flex aspect-[4/3] w-full flex-col items-center justify-center gap-2 text-[11px] text-[var(--text-muted)]">
                                                 <span class="i-lucide-image h-8 w-8"></span>
                                                 <span>暂无角色照片</span>
@@ -2671,8 +2680,8 @@ function readFileAsDataUrl(file: File): Promise<string> {
                                                 <span class="i-lucide-upload h-4 w-4"></span>
                                                 <span>上传照片</span>
                                             </button>
-                                            <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-color)] px-3 text-[12px] transition-colors hover:bg-[var(--bg-hover)]" :class="activeCharacter.sendPhoto ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'bg-[var(--bg-panel)] text-[var(--text-secondary)]'" :aria-pressed="activeCharacter.sendPhoto" @click="toggleActiveCharacterSendPhoto">
-                                                <span class="h-4 w-4" :class="activeCharacter.sendPhoto ? 'i-lucide-square-check' : 'i-lucide-square'"></span>
+                                            <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-color)] px-3 text-[12px] transition-colors hover:bg-[var(--bg-hover)]" :class="activeCharacter?.sendPhoto ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'bg-[var(--bg-panel)] text-[var(--text-secondary)]'" :aria-pressed="activeCharacter?.sendPhoto ?? false" @click="toggleActiveCharacterSendPhoto">
+                                                <span class="h-4 w-4" :class="activeCharacter?.sendPhoto ? 'i-lucide-square-check' : 'i-lucide-square'"></span>
                                                 <span>发送图片</span>
                                             </button>
                                             <input ref="characterPhotoInputRef" type="file" accept="image/*" class="hidden" @change="importCharacterPhoto">
@@ -2681,11 +2690,11 @@ function readFileAsDataUrl(file: File): Promise<string> {
 
                                     <label class="block">
                                         <span class="mb-1 block text-[12px] font-medium text-[var(--text-secondary)]">提示词</span>
-                                        <FormTextarea :model-value="activeCharacter.photoPrompt" :rows="6" placeholder="这里保存角色照片设计时生成的 NovelAI tag" @update:model-value="store.updateCharacter(activeCharacter.id, {photoPrompt: $event})" />
+                                        <FormTextarea :model-value="activeCharacter?.photoPrompt ?? ''" :rows="6" placeholder="这里保存角色照片设计时生成的 NovelAI tag" @update:model-value="activeCharacter && store.updateCharacter(activeCharacter.id, {photoPrompt: $event})" />
                                     </label>
 
                                     <div class="grid gap-2 md:grid-cols-3">
-                                        <button type="button" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-[var(--accent-main)] px-3 text-[12px] text-[var(--accent-text)] transition-colors hover:bg-[var(--accent-bg)] disabled:cursor-not-allowed disabled:border-[var(--border-color)] disabled:text-[var(--text-muted)]" :disabled="generatingCharacterImage || !activeCharacter.photoPrompt.trim()" @click="generateActiveCharacterImage">
+                                        <button type="button" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-[var(--accent-main)] px-3 text-[12px] text-[var(--accent-text)] transition-colors hover:bg-[var(--accent-bg)] disabled:cursor-not-allowed disabled:border-[var(--border-color)] disabled:text-[var(--text-muted)]" :disabled="generatingCharacterImage || !(activeCharacter?.photoPrompt ?? '').trim()" @click="generateActiveCharacterImage">
                                             <span class="h-4 w-4" :class="generatingCharacterImage ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-wand-sparkles'"></span>
                                             <span>{{ characterImageGenerationLabel }}</span>
                                         </button>
@@ -2706,15 +2715,15 @@ function readFileAsDataUrl(file: File): Promise<string> {
                                     </div>
                                     <label class="block">
                                         <span class="mb-1 block text-[12px] text-[var(--text-secondary)]">角色中文名称</span>
-                                        <FormInput :model-value="activeCharacter.cnName" placeholder="例如：伊蕾娜" @update:model-value="store.updateCharacter(activeCharacter.id, {cnName: $event})" />
+                                        <FormInput :model-value="activeCharacter?.cnName ?? ''" placeholder="例如：伊蕾娜" @update:model-value="activeCharacter && store.updateCharacter(activeCharacter.id, {cnName: $event})" />
                                     </label>
                                     <label class="block">
                                         <span class="mb-1 block text-[12px] text-[var(--text-secondary)]">角色英文名称</span>
-                                        <FormInput :model-value="activeCharacter.enName" placeholder="例如：Elaina" @update:model-value="store.updateCharacter(activeCharacter.id, {enName: $event})" />
+                                        <FormInput :model-value="activeCharacter?.enName ?? ''" placeholder="例如：Elaina" @update:model-value="activeCharacter && store.updateCharacter(activeCharacter.id, {enName: $event})" />
                                     </label>
                                     <label v-for="field in characterTextFields" :key="field.key" class="block">
                                         <span class="mb-1 block text-[12px] text-[var(--text-secondary)]">{{ field.label }}</span>
-                                        <FormTextarea :model-value="activeCharacter[field.key]" :rows="field.rows" :placeholder="field.placeholder" @update:model-value="updateActiveCharacterField(field.key, $event)" />
+                                        <FormTextarea :model-value="activeCharacter?.[field.key] ?? ''" :rows="field.rows" :placeholder="field.placeholder" @update:model-value="updateActiveCharacterField(field.key, $event)" />
                                     </label>
                                 </div>
                             </div>
@@ -2740,20 +2749,20 @@ function readFileAsDataUrl(file: File): Promise<string> {
 
                     <!-- 角色详情 -->
                     <div v-else class="hidden space-y-2">
-                        <div v-if="activeCharacter.sourceNovelTitle" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)]/50 px-2 py-1.5 text-[11px] text-[var(--text-muted)]">
-                            来源：{{ activeCharacter.sourceNovelTitle }} · {{ activeCharacter.sourceCharacterPath }}
+                        <div v-if="activeCharacter?.sourceNovelTitle" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)]/50 px-2 py-1.5 text-[11px] text-[var(--text-muted)]">
+                            来源：{{ activeCharacter?.sourceNovelTitle }} · {{ activeCharacter?.sourceCharacterPath }}
                         </div>
                         <label class="block">
                             <span class="mb-1 block text-[11px] text-[var(--text-secondary)]">角色中文名称</span>
-                            <FormInput :model-value="activeCharacter.cnName" placeholder="例如：伊蕾娜" @update:model-value="store.updateCharacter(activeCharacter.id, {cnName: $event})" />
+                            <FormInput :model-value="activeCharacter?.cnName ?? ''" placeholder="例如：伊蕾娜" @update:model-value="activeCharacter && store.updateCharacter(activeCharacter.id, {cnName: $event})" />
                         </label>
                         <label class="block">
                             <span class="mb-1 block text-[11px] text-[var(--text-secondary)]">角色英文名称</span>
-                            <FormInput :model-value="activeCharacter.enName" placeholder="例如：Elaina" @update:model-value="store.updateCharacter(activeCharacter.id, {enName: $event})" />
+                            <FormInput :model-value="activeCharacter?.enName ?? ''" placeholder="例如：Elaina" @update:model-value="activeCharacter && store.updateCharacter(activeCharacter.id, {enName: $event})" />
                         </label>
                         <label v-for="field in characterTextFields" :key="field.key" class="block">
                             <span class="mb-1 block text-[11px] text-[var(--text-secondary)]">{{ field.label }}</span>
-                            <FormTextarea :model-value="activeCharacter[field.key]" :rows="field.rows" :placeholder="field.placeholder" @update:model-value="updateActiveCharacterField(field.key, $event)" />
+                            <FormTextarea :model-value="activeCharacter?.[field.key] ?? ''" :rows="field.rows" :placeholder="field.placeholder" @update:model-value="updateActiveCharacterField(field.key, $event)" />
                         </label>
                     </div>
                 </div>

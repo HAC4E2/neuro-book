@@ -96,6 +96,7 @@ const {
     activeStyle,
     characterGroups,
     generationDraft,
+    lastNovelAiExchange,
     llm,
     novelAi,
     output,
@@ -327,7 +328,7 @@ async function generateCharacterImage(): Promise<void> {
             imageCount: result.images.length,
         });
         generationWarnings.value = result.warnings;
-        lastGenerationRequest.value = result.request;
+        lastGenerationRequest.value = lastNovelAiExchange.value.request as TextToImageGenerateResponse["request"] | null;
         const portrait = result.images[0] ?? null;
         if (portrait) {
             const nextHistory = [
@@ -335,7 +336,7 @@ async function generateCharacterImage(): Promise<void> {
                 portrait,
             ];
             updateCharacter({
-                portraitDataUrl: portrait.dataUrl,
+                portraitDataUrl: resolveTextToImageResultImageUrl(portrait),
                 portraitHistory: nextHistory,
                 activePortraitIndex: nextHistory.length - 1,
             });
