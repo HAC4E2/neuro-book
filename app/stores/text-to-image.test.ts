@@ -1,4 +1,4 @@
-import {createPinia, defineStore, setActivePinia} from "pinia";
+﻿import {createPinia, defineStore, setActivePinia} from "pinia";
 import {computed, ref} from "vue";
 import {beforeAll, beforeEach, describe, expect, it} from "vitest";
 
@@ -68,4 +68,38 @@ describe("useTextToImageStore", () => {
         expect(serialized).not.toContain("bbbbbbbbbbbbbbbb");
         expect(serialized).toContain("[omitted image payload");
     });
+    it("normalizes generation batch size and removes a single generation result", async () => {
+        const {useTextToImageStore} = await import("nbook/app/stores/text-to-image");
+        const store = useTextToImageStore();
+
+        store.updateGenerationDraft({batchSize: 9});
+        expect(store.generationDraft.batchSize).toBe(4);
+        store.updateGenerationDraft({batchSize: 0});
+        expect(store.generationDraft.batchSize).toBe(1);
+
+        const first = createGenerationResult("first");
+        const second = createGenerationResult("second");
+        store.prependGenerationResults([first, second]);
+        store.removeGenerationResult(first.id);
+
+        expect(store.generationResults.map((result) => result.id)).toEqual([second.id]);
+    });
 });
+
+function createGenerationResult(id: string) {
+    return {
+        id,
+        createdAt: "2026-07-09T00:00:00.000Z",
+        fileName: `${id}.png`,
+        savedPath: "",
+        dataUrl: "data:image/png;base64,AA==",
+        mimeType: "image/png",
+        byteLength: 1,
+        seed: 1,
+        width: 64,
+        height: 64,
+        model: "nai-diffusion-4-5-full",
+        prompt: "tag",
+        negativePrompt: "",
+    };
+}

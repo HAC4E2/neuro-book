@@ -1,4 +1,4 @@
-import type {TextToImagePromptReplacementRule} from "nbook/app/utils/text-to-image-prompt-engine";
+﻿import type {TextToImagePromptReplacementRule} from "nbook/app/utils/text-to-image-prompt-engine";
 
 export type NovelAiSmeaMode = "auto" | "off" | "on";
 
@@ -93,6 +93,7 @@ export type TextToImageGenerationDraft = {
     prompt: string;
     negativePrompt: string;
     includeActiveCharacter: boolean;
+    batchSize: number;
 };
 
 export type TextToImageGenerationResult = {
@@ -288,6 +289,7 @@ const DEFAULT_GENERATION_DRAFT: TextToImageGenerationDraft = {
     prompt: "",
     negativePrompt: "",
     includeActiveCharacter: true,
+    batchSize: 1,
 };
 
 const DEFAULT_LAST_LLM_EXCHANGE: TextToImageLastLlmExchange = {
@@ -797,6 +799,7 @@ function normalizeGenerationDraft(settings: Partial<TextToImageGenerationDraft> 
         prompt: settings.prompt ?? DEFAULT_GENERATION_DRAFT.prompt,
         negativePrompt: settings.negativePrompt ?? DEFAULT_GENERATION_DRAFT.negativePrompt,
         includeActiveCharacter: settings.includeActiveCharacter ?? DEFAULT_GENERATION_DRAFT.includeActiveCharacter,
+        batchSize: Math.round(clampNumber(Number(settings.batchSize ?? DEFAULT_GENERATION_DRAFT.batchSize), 1, 4, DEFAULT_GENERATION_DRAFT.batchSize)),
     };
 }
 
@@ -1111,6 +1114,13 @@ export const useTextToImageStore = defineStore("textToImage", () => {
      */
     function clearGenerationResults(): void {
         generationResults.value = [];
+    }
+
+    /**
+     * 从当前页结果历史中移除一张生成图片。
+     */
+    function removeGenerationResult(resultId: string): void {
+        generationResults.value = generationResults.value.filter((result) => result.id !== resultId);
     }
 
     /**
@@ -1814,6 +1824,7 @@ export const useTextToImageStore = defineStore("textToImage", () => {
         characterGroups,
         clearTagVocabularySources,
         clearGenerationResults,
+        removeGenerationResult,
         characters,
         currentProjectPath,
         deleteCharacter,

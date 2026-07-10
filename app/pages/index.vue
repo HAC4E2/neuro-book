@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import {storeToRefs} from "pinia";
 import type {AuthSessionDto} from "nbook/shared/dto/auth.dto";
 import type {ConfigBootstrapDto} from "nbook/shared/dto/config.dto";
@@ -1139,6 +1139,7 @@ const generateImageForBodyPrompt = async (payload: TextToImagePromptGeneratePayl
         notification.info("图片生成请求已加入队列。", {title: "正文生图"});
         const result = await enqueueTextToImageGeneration<TextToImageGenerateResponse>({
             id: `body-prompt:${id}`,
+            label: "正文插图",
             onStatusChange: (status) => {
                 setTextToImagePromptGenerationState(id, queueStatusToGenerationState(status));
             },
@@ -1153,6 +1154,7 @@ const generateImageForBodyPrompt = async (payload: TextToImagePromptGeneratePayl
                     promptRules: textToImagePromptReplacementRules.value,
                     prompt: promptText,
                     negativePrompt: textToImageGenerationDraft.value.negativePrompt,
+                    count: 1,
                     output: textToImageOutput.value,
                 },
             }),
@@ -1345,6 +1347,7 @@ async function rerollBodyImageResult(): Promise<void> {
         notification.info("重新生成请求已加入队列。", {title: "正文生图"});
         const result = await enqueueTextToImageGeneration<TextToImageGenerateResponse>({
             id: `body-result:${payload.id}:${Date.now().toString(36)}`,
+            label: "正文图片重绘",
             onStatusChange: (status) => {
                 setTextToImageResultGenerationState(payload.id, queueStatusToGenerationState(status));
             },
@@ -1359,6 +1362,7 @@ async function rerollBodyImageResult(): Promise<void> {
                     promptRules: textToImagePromptReplacementRules.value,
                     prompt: item.prompt,
                     negativePrompt: item.negativePrompt || textToImageGenerationDraft.value.negativePrompt,
+                    count: 1,
                     output: textToImageOutput.value,
                 },
             }),

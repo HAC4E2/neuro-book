@@ -1,5 +1,6 @@
-import YAML from "yaml";
+﻿import YAML from "yaml";
 import {z} from "zod";
+import {requestTextToImageLlmCompletion} from "nbook/server/text-to-image/llm-provider";
 import {parseTextToImageCharacterDraft} from "nbook/app/utils/text-to-image-character-design";
 import {
     renderTextToImageCharacterImageTagsMarkdown,
@@ -72,14 +73,6 @@ type CharacterImageTagDraft = {
     lowerNsfw?: string;
     lowerBackNsfw?: string;
     negativePrompt?: string;
-};
-
-type ChatCompletionResponse = {
-    choices?: Array<{
-        message?: {
-            content?: string;
-        };
-    }>;
 };
 
 /**
@@ -284,28 +277,14 @@ function fallbackExtractCharacterAppearance(characterMarkdown: string, character
 }
 
 async function requestCharacterImageTagDraft(input: CharacterImageTagsGenerateRequest, extraction: CharacterImageAppearanceExtraction): Promise<string> {
-    const messages = buildCharacterImageTagLlmMessages(input, extraction);
-    const headers: Record<string, string> = {"Content-Type": "application/json"};
-    if (input.llm.apiKey.trim()) {
-        headers.Authorization = `Bearer ${input.llm.apiKey.trim()}`;
-    }
-    const response = await fetch(`${input.llm.apiBaseUrl.replace(/\/+$/u, "")}/chat/completions`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-            model: input.llm.model,
-            temperature: input.llm.parameters.temperature,
-            top_p: input.llm.parameters.topP,
-            max_tokens: input.llm.parameters.maxTokens,
-            messages,
-        }),
+    const content = await requestTextToImageLlmCompletion({
+        apiBaseUrl: input.llm.apiBaseUrl,
+        apiKey: input.llm.apiKey,
+        model: input.llm.model,
+        parameters: input.llm.parameters,
+        stream: false,
+        messages: buildCharacterImageTagLlmMessages(input, extraction),
     });
-    if (!response.ok) {
-        const message = await response.text();
-        throw new Error(message || `LLM 请求失败：${response.status}`);
-    }
-    const data = await response.json() as ChatCompletionResponse;
-    const content = data.choices?.[0]?.message?.content?.trim() ?? "";
     if (!content) {
         throw new Error("LLM 没有返回可用角色 tag。");
     }

@@ -1,5 +1,5 @@
-<script setup lang="ts">
-import {computed, onMounted, ref, watch} from "vue";
+﻿<script setup lang="ts">
+import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 import {storeToRefs} from "pinia";
 import Dialog from "nbook/app/components/common/Dialog.vue";
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
@@ -30,11 +30,19 @@ import {
 } from "nbook/app/stores/text-to-image";
 import type {TextToImagePromptReplacementRule} from "nbook/app/utils/text-to-image-prompt-engine";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
-import {enqueueTextToImageGeneration, type TextToImageGenerationQueueStatus} from "nbook/app/utils/text-to-image-generation-queue";
+import {
+    enqueueTextToImageGeneration,
+    subscribeTextToImageGenerationQueue,
+    type TextToImageGenerationQueueSnapshot,
+    type TextToImageGenerationQueueStatus,
+} from "nbook/app/utils/text-to-image-generation-queue";
 import {
     buildTextToImageLlmMessages,
     formatTextToImageLlmMessages,
     requestTextToImageLlmCompletion,
+    requestTextToImageLlmModels,
+    type TextToImageLlmContentPart,
+    type TextToImageLlmMessage,
 } from "nbook/app/utils/text-to-image-llm";
 import {
     buildTextToImageCharacterDesignRequestPayload,
@@ -88,40 +96,6 @@ type SourceCharacterDetail = SourceCharacterOption & {
     novelTitle: string;
     content: string;
     stateContent: string;
-};
-
-type ChatCompletionResponse = {
-    choices?: Array<{
-        message?: {
-            content?: string;
-        };
-    }>;
-};
-
-type ChatCompletionContentPart = {
-    type: "text";
-    text: string;
-} | {
-    type: "image_url";
-    image_url: {
-        url: string;
-    };
-};
-
-type ChatCompletionMessage = {
-    role: "system" | "user";
-    content: string | ChatCompletionContentPart[];
-};
-
-type ModelListEntry = string | {
-    id?: string;
-    model?: string;
-    name?: string;
-};
-
-type ModelListResponse = ModelListEntry[] | {
-    data?: ModelListEntry[];
-    models?: ModelListEntry[];
 };
 
 type SelectOutputDirectoryResponse = {
@@ -199,6 +173,13 @@ const outputSettingsOpen = ref(false);
 const selectingOutputPath = ref(false);
 const generatingImage = ref(false);
 const imageGenerationStatus = ref<"idle" | TextToImageGenerationQueueStatus>("idle");
+const generationQueueSnapshot = ref<TextToImageGenerationQueueSnapshot>({
+    jobs: [],
+    activeCount: 0,
+    queuedCount: 0,
+    runningCount: 0,
+    completedCount: 0,
+});
 const generationError = ref("");
 const generationWarnings = ref<string[]>([]);
 const lastGenerationRequest = ref<TextToImageGenerateResponse["request"] | null>(null);
@@ -220,6 +201,12 @@ const collapsedSections = ref<Record<TextToImagePanelSection, boolean>>({
 });
 const generationButtonLabel = computed(() => imageGenerationStatus.value === "queued" ? "排队中" : imageGenerationStatus.value === "running" ? "生成中" : "生成");
 const characterImageGenerationLabel = computed(() => characterImageGenerationStatus.value === "queued" ? "排队中" : characterImageGenerationStatus.value === "running" ? "生成中" : "生成图片");
+const visibleGenerationQueueJobs = computed(() => generationQueueSnapshot.value.jobs.slice(0, 6));
+const generationQueueSummary = computed(() => {
+    const snapshot = generationQueueSnapshot.value;
+    return `运行 ${snapshot.runningCount} · 排队 ${snapshot.queuedCount} · 完成 ${snapshot.completedCount}`;
+});
+let unsubscribeGenerationQueue: (() => void) | null = null;
 
 const novelAiModelOptions: SelectOption[] = [
     {value: "nai-diffusion-4-5-full", label: "NAI Diffusion V4.5 Full"},
@@ -448,6 +435,9 @@ watch(tagInsertTargets, (targets) => {
 }, {immediate: true});
 
 onMounted(async () => {
+    unsubscribeGenerationQueue = subscribeTextToImageGenerationQueue((snapshot) => {
+        generationQueueSnapshot.value = snapshot;
+    });
     store.ensureDefaults();
     if (novels.value.length === 0) {
         try {
@@ -462,6 +452,11 @@ onMounted(async () => {
     if (sourceProjectPath.value) {
         await loadSourceCharacters(sourceProjectPath.value);
     }
+});
+
+onBeforeUnmount(() => {
+    unsubscribeGenerationQueue?.();
+    unsubscribeGenerationQueue = null;
 });
 
 /**
@@ -507,6 +502,7 @@ async function generateTextToImage(): Promise<void> {
         notification.info("文生图请求已加入队列。");
         const result = await enqueueTextToImageGeneration<TextToImageGenerateResponse>({
             id: `panel-generation:${Date.now().toString(36)}`,
+            label: "手动生图",
             onStatusChange: (status) => {
                 imageGenerationStatus.value = status === "done" || status === "error" ? "idle" : status;
             },
@@ -521,6 +517,7 @@ async function generateTextToImage(): Promise<void> {
                     promptRules: promptReplacementRules.value,
                     prompt: generationDraft.value.prompt,
                     negativePrompt: generationDraft.value.negativePrompt,
+                    count: generationDraft.value.batchSize,
                     output: output.value,
                 },
             }),
@@ -567,6 +564,7 @@ async function generateActiveCharacterImage(): Promise<void> {
         notification.info("角色照片生成请求已加入队列。");
         const result = await enqueueTextToImageGeneration<TextToImageGenerateResponse>({
             id: `panel-character-portrait:${character.id}:${Date.now().toString(36)}`,
+            label: `角色头像：${formatCharacterName(character)}`,
             onStatusChange: (status) => {
                 characterImageGenerationStatus.value = status === "done" || status === "error" ? "idle" : status;
             },
@@ -581,6 +579,7 @@ async function generateActiveCharacterImage(): Promise<void> {
                     promptRules: promptReplacementRules.value,
                     prompt,
                     negativePrompt: generationDraft.value.negativePrompt,
+                    count: 1,
                     output: output.value,
                 },
             }),
@@ -1040,6 +1039,56 @@ function formatGenerationTime(value: string): string {
     return date.toLocaleString("zh-CN", {hour12: false});
 }
 
+function updateGenerationBatchSize(value: string): void {
+    store.updateGenerationDraft({batchSize: Number(value)});
+}
+
+function formatGenerationQueueStatus(status: TextToImageGenerationQueueStatus): string {
+    const labels: Record<TextToImageGenerationQueueStatus, string> = {
+        queued: "排队",
+        running: "生成中",
+        done: "完成",
+        error: "失败",
+    };
+    return labels[status];
+}
+
+function generationQueueJobIconClass(status: TextToImageGenerationQueueStatus): string {
+    const icons: Record<TextToImageGenerationQueueStatus, string> = {
+        queued: "i-lucide-clock-3 text-[var(--status-warning)]",
+        running: "i-lucide-loader-2 animate-spin text-[var(--status-info)]",
+        done: "i-lucide-check text-[var(--status-success)]",
+        error: "i-lucide-circle-alert text-[var(--status-danger)]",
+    };
+    return icons[status];
+}
+
+function reuseGenerationResult(result: TextToImageGenerationResult): void {
+    store.updateGenerationDraft({
+        prompt: result.prompt,
+        negativePrompt: result.negativePrompt,
+    });
+    notification.success("已套用生成结果 prompt");
+}
+
+async function copyGenerationResultPath(result: TextToImageGenerationResult): Promise<void> {
+    const value = result.savedPath || result.fileName;
+    if (!value) {
+        notification.warning("没有可复制的图片路径");
+        return;
+    }
+    try {
+        await navigator.clipboard.writeText(value);
+        notification.success("图片路径已复制");
+    } catch (error) {
+        notification.error(resolveApiErrorMessage(error, "复制图片路径失败"));
+    }
+}
+
+function removeGenerationResult(result: TextToImageGenerationResult): void {
+    store.removeGenerationResult(result.id);
+}
+
 /**
  * 更新当前角色的 tag 字段。
  */
@@ -1266,43 +1315,10 @@ async function connectLlm(): Promise<void> {
  * 请求 OpenAI-compatible 模型列表接口。
  */
 async function requestAvailableModels(): Promise<string[]> {
-    const apiBaseUrl = llm.value.apiBaseUrl.trim().replace(/\/+$/, "");
-    const headers: Record<string, string> = {};
-    if (llm.value.apiKey.trim()) {
-        headers.Authorization = `Bearer ${llm.value.apiKey.trim()}`;
-    }
-    const response = await fetch(`${apiBaseUrl}/models`, {
-        method: "GET",
-        headers,
-    });
-    if (!response.ok) {
-        throw new Error("连接失败");
-    }
-    const data = await response.json() as ModelListResponse;
-    const entries = Array.isArray(data) ? data : [
-        ...(data.data ?? []),
-        ...(data.models ?? []),
-    ];
-    const models = entries
-        .map((entry) => readModelId(entry))
-        .filter((model): model is string => model.length > 0);
-    return Array.from(new Set(models)).sort((left, right) => left.localeCompare(right));
+    return await requestTextToImageLlmModels(llm.value);
 }
 
-/**
- * 从不同 provider 的模型条目中提取模型 ID。
- */
-function readModelId(entry: ModelListEntry): string {
-    if (typeof entry === "string") {
-        return entry.trim();
-    }
-    return entry.id?.trim() || entry.model?.trim() || entry.name?.trim() || "";
-}
-
-/**
- * 切换任务提示词。
- */
-function selectPromptTask(value: string): void {
+function selectPromptTask(value: string): void {function selectPromptTask(value: string): void {
     const matched = TEXT_TO_IMAGE_PROMPT_TASKS.find((task) => task.key === value);
     if (matched) {
         selectedPromptTask.value = matched.key;
@@ -1519,57 +1535,10 @@ async function requestCharacterDesign(detail: SourceCharacterDetail): Promise<st
     });
     return characterDesignReply;
 
-    const apiBaseUrl = llm.value.apiBaseUrl.trim().replace(/\/+$/, "");
-    const headers: Record<string, string> = {"Content-Type": "application/json"};
-    if (llm.value.apiKey.trim()) {
-        headers.Authorization = `Bearer ${llm.value.apiKey.trim()}`;
-    }
-    const messages: ChatCompletionMessage[] = [
-        {
-            role: "system",
-            content: taskPrompts.value.characterDesign.prompt.trim() || "你是 NovelAI 角色与服装 tag 设计助手。",
-        },
-        {
-            role: "user",
-            content: buildCharacterDesignMessage(detail),
-        },
-    ];
-    const response = await fetch(`${apiBaseUrl}/chat/completions`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-            model: llm.value.model.trim(),
-            temperature: llm.value.parameters.temperature,
-            top_p: llm.value.parameters.topP,
-            max_tokens: llm.value.parameters.maxTokens,
-            messages,
-        }),
-    });
-    if (!response.ok) {
-        const message = await response.text();
-        throw new Error(message || `LLM 请求失败：${response.status}`);
-    }
-    const data = await response.json() as ChatCompletionResponse;
-    const content = data.choices?.[0]?.message?.content?.trim() ?? "";
-    if (!content) {
-        throw new Error("LLM 没有返回可用内容");
-    }
-    store.recordLlmExchange({
-        task: "characterDesign",
-        prompt: formatChatCompletionMessages(messages),
-        response: content,
-    });
-    return content;
 }
 
-/**
- * 构造角色设计任务的用户消息。
- */
-/**
- * 调用 LLM 生成当前角色照片的生图 prompt。
- */
 async function requestCharacterPhotoPrompt(character: TextToImageCharacter, requirement: string, references: CharacterPromptReferenceImage[]): Promise<string> {
-    const userContent: ChatCompletionContentPart[] = [
+    const userContent: TextToImageLlmContentPart[] = [
         {
             type: "text",
             text: buildCharacterPhotoPromptMessage(character, requirement, references.length),
@@ -1630,93 +1599,25 @@ async function requestCharacterRevision(character: TextToImageCharacter, directi
     });
     return revisionReply;
 
-    return await requestLlmChatCompletion([
-        {
-            role: "system",
-            content: taskPrompts.value.characterRevision.prompt.trim() || "你是 NovelAI 角色 tag 修改助手。",
-        },
-        {
-            role: "user",
-            content: buildCharacterRevisionMessage(character, direction),
-        },
-    ], "characterRevision");
 }
 
-/**
- * 统一调用 OpenAI-compatible chat completions 接口。
- */
-async function requestLlmChatCompletion(messages: ChatCompletionMessage[], task: TextToImagePromptTask): Promise<string> {
-    const apiBaseUrl = llm.value.apiBaseUrl.trim().replace(/\/+$/, "");
-    const headers: Record<string, string> = {"Content-Type": "application/json"};
-    if (llm.value.apiKey.trim()) {
-        headers.Authorization = `Bearer ${llm.value.apiKey.trim()}`;
+async function requestLlmChatCompletion(messages: TextToImageLlmMessage[], task: TextToImagePromptTask): Promise<string> {
+    const {apiConfig} = store.resolveLlmTaskBinding(task);
+    if (!apiConfig.apiBaseUrl.trim() || !apiConfig.model.trim()) {
+        throw new Error("请先配置文生图 LLM API 和模型。");
     }
-    const response = await fetch(`${apiBaseUrl}/chat/completions`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-            model: llm.value.model.trim(),
-            temperature: llm.value.parameters.temperature,
-            top_p: llm.value.parameters.topP,
-            max_tokens: llm.value.parameters.maxTokens,
-            messages,
-        }),
-    });
-    if (!response.ok) {
-        const message = await response.text();
-        throw new Error(message || `LLM 请求失败：${response.status}`);
-    }
-    const data = await response.json() as ChatCompletionResponse;
-    const content = data.choices?.[0]?.message?.content?.trim() ?? "";
+    const content = await requestTextToImageLlmCompletion(apiConfig, messages);
     if (!content) {
         throw new Error("LLM 没有返回可用内容");
     }
     store.recordLlmExchange({
         task,
-        prompt: formatChatCompletionMessages(messages),
+        prompt: formatTextToImageLlmMessages(messages),
         response: content,
     });
     return content;
 }
 
-function formatChatCompletionMessages(messages: ChatCompletionMessage[]): string {
-    return messages.map((message, index) => [
-        `#${index + 1} ${message.role.toUpperCase()}`,
-        formatChatCompletionContent(message.content),
-    ].join("\n")).join("\n\n");
-}
-
-function formatChatCompletionContent(content: ChatCompletionMessage["content"]): string {
-    if (typeof content === "string") {
-        return content;
-    }
-    return content.map((part) => part.type === "text" ? part.text : "[image reference omitted]").join("\n");
-}
-
-function buildCharacterDesignMessage(detail: SourceCharacterDetail): string {
-    const fieldList = characterDraftFields.map((field) => `${field.label}:`).join("\n");
-    return [
-        "请根据以下小说角色设定，输出用于 NovelAI 文生图的英文 tag 草稿。",
-        "只输出下列字段，字段名必须保持一致；每个字段后填写逗号分隔的英文 tag 或短句。",
-        "",
-        fieldList,
-        "",
-        `来源小说：${detail.novelTitle}`,
-        `角色标题：${detail.title}`,
-        `角色摘要：${detail.summary || "无"}`,
-        "",
-        "角色设定正文：",
-        detail.content,
-        detail.stateContent ? ["", "角色状态补充：", detail.stateContent].join("\n") : "",
-    ].filter((item) => item.length > 0).join("\n");
-}
-
-/**
- * 解析 LLM 按字段返回的角色 tag 草稿。
- */
-/**
- * 构造角色照片 prompt 生成任务。
- */
 function buildCharacterPhotoPromptMessage(character: TextToImageCharacter, requirement: string, referenceCount: number): string {
     return [
         "请根据当前角色 tag 和用户需求，生成一段可直接用于 NovelAI 的英文图片 prompt。",
@@ -1909,6 +1810,11 @@ function readFileAsDataUrl(file: File): Promise<string> {
                         <FormTextarea :model-value="generationDraft.negativePrompt" :rows="3" placeholder="可留空，由画风串负面前后缀和负面预设补足" @update:model-value="store.updateGenerationDraft({negativePrompt: $event})" />
                     </label>
 
+                    <label class="grid grid-cols-[minmax(0,1fr)_5rem] items-center gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)]/50 px-2 py-2">
+                        <span class="min-w-0 text-[11px] text-[var(--text-secondary)]">生成张数</span>
+                        <FormInput :model-value="String(generationDraft.batchSize)" type="number" min="1" max="4" step="1" @update:model-value="updateGenerationBatchSize" />
+                    </label>
+
                     <button
                         type="button"
                         class="grid min-h-10 w-full grid-cols-[minmax(0,1fr)_2.125rem] items-center gap-2 rounded-md border px-2 text-left text-[11px] transition-colors"
@@ -1943,6 +1849,18 @@ function readFileAsDataUrl(file: File): Promise<string> {
                         <p v-for="warning in generationWarnings" :key="warning" class="text-[11px] text-[var(--text-muted)]">{{ warning }}</p>
                     </div>
 
+                    <div v-if="visibleGenerationQueueJobs.length > 0" class="space-y-1 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)]/50 px-2 py-1.5">
+                        <div class="flex items-center justify-between gap-2 text-[11px] text-[var(--text-secondary)]">
+                            <span>队列</span>
+                            <span class="text-[10px] text-[var(--text-muted)]">{{ generationQueueSummary }}</span>
+                        </div>
+                        <div v-for="job in visibleGenerationQueueJobs" :key="job.id" class="grid grid-cols-[1rem_minmax(0,1fr)_3rem] items-center gap-1.5 text-[10px] text-[var(--text-muted)]">
+                            <span class="h-3.5 w-3.5" :class="generationQueueJobIconClass(job.status)"></span>
+                            <span class="min-w-0 truncate">{{ job.label }}</span>
+                            <span class="text-right">{{ formatGenerationQueueStatus(job.status) }}</span>
+                        </div>
+                    </div>
+
                     <div v-if="lastGenerationRequest" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)]/50 px-2 py-1.5 text-[11px] text-[var(--text-muted)]">
                         上次请求：{{ lastGenerationRequest.model }} · seed {{ lastGenerationRequest.seed }} · {{ lastGenerationRequest.savedDirectory }}
                     </div>
@@ -1969,7 +1887,7 @@ function readFileAsDataUrl(file: File): Promise<string> {
                         </div>
                         <div v-else class="space-y-3">
                             <div v-for="result in generationResults" :key="result.id" class="overflow-hidden rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)]/50">
-                                <img :src="result.dataUrl" :alt="result.fileName" class="block aspect-[3/4] w-full bg-[var(--bg-input)] object-contain">
+                                <img :src="resolveTextToImageResultImageUrl(result)" :alt="result.fileName" class="block aspect-[3/4] w-full bg-[var(--bg-input)] object-contain">
                                 <div class="space-y-1.5 border-t border-[var(--border-color)] p-2">
                                     <div class="flex items-center justify-between gap-2">
                                         <span class="min-w-0 truncate text-[11px] font-medium text-[var(--text-main)]">{{ result.fileName }}</span>
@@ -1978,6 +1896,20 @@ function readFileAsDataUrl(file: File): Promise<string> {
                                     <p class="truncate text-[10px] text-[var(--text-muted)]">{{ formatGenerationTime(result.createdAt) }} · {{ result.model }} · seed {{ result.seed }}</p>
                                     <p class="truncate text-[10px] text-[var(--text-muted)]">{{ result.savedPath }}</p>
                                     <p class="line-clamp-2 text-[10px] text-[var(--text-secondary)]">{{ result.prompt }}</p>
+                                    <div class="grid grid-cols-3 gap-1 pt-1">
+                                        <button type="button" class="inline-flex h-7 items-center justify-center gap-1 rounded-md border border-[var(--border-color)] px-2 text-[10px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="reuseGenerationResult(result)">
+                                            <span class="i-lucide-copy-check h-3.5 w-3.5"></span>
+                                            <span>套用</span>
+                                        </button>
+                                        <button type="button" class="inline-flex h-7 items-center justify-center gap-1 rounded-md border border-[var(--border-color)] px-2 text-[10px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="copyGenerationResultPath(result)">
+                                            <span class="i-lucide-clipboard h-3.5 w-3.5"></span>
+                                            <span>路径</span>
+                                        </button>
+                                        <button type="button" class="inline-flex h-7 items-center justify-center gap-1 rounded-md border border-[var(--status-danger-border)] px-2 text-[10px] text-[var(--status-danger)] transition-colors hover:bg-[var(--status-danger-bg)]" @click="removeGenerationResult(result)">
+                                            <span class="i-lucide-trash-2 h-3.5 w-3.5"></span>
+                                            <span>移除</span>
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>

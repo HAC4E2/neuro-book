@@ -1,4 +1,4 @@
-import {escapeAttribute, unescapeAttribute} from "nbook/shared/markdown-workbench";
+﻿import {escapeAttribute, unescapeAttribute} from "nbook/shared/markdown-workbench";
 import type {
     TextToImageLlmApiConfig,
     TextToImageLlmContextEntry,
@@ -13,19 +13,28 @@ import {
     type TextToImageResultPayload,
 } from "nbook/app/components/markdown-studio/tiptap/TextToImageResult";
 
+export type TextToImageLlmContentPart = {
+    type: "text";
+    text: string;
+} | {
+    type: "image_url";
+    image_url: {
+        url: string;
+    };
+};
+
 export type TextToImageLlmMessage = {
     role: TextToImageLlmContextRole;
+    content: string | TextToImageLlmContentPart[];
+};
+
+type TextToImageLlmCompletionApiResponse = {
     content: string;
 };
 
-type ChatCompletionResponse = {
-    choices?: Array<{
-        message?: {
-            content?: string;
-        };
-    }>;
+type TextToImageLlmModelsApiResponse = {
+    models: string[];
 };
-
 export type TextToImageImagineBlock = {
     raw: string;
     inner: string;
@@ -154,23 +163,19 @@ export function buildTextToImageLlmMessages(options: {
 export function formatTextToImageLlmMessages(messages: TextToImageLlmMessage[]): string {
     return messages.map((message, index) => [
         `#${index + 1} ${message.role.toUpperCase()}`,
-        message.content,
+        formatTextToImageLlmContent(message.content),
     ].join("\n")).join("\n\n");
 }
 
 export async function requestTextToImageLlmCompletion(apiConfig: TextToImageLlmApiConfig, messages: TextToImageLlmMessage[]): Promise<string> {
-    const headers: Record<string, string> = {"Content-Type": "application/json"};
-    if (apiConfig.apiKey.trim()) {
-        headers.Authorization = `Bearer ${apiConfig.apiKey.trim()}`;
-    }
-    const response = await fetch(`${apiConfig.apiBaseUrl.trim().replace(/\/+$/u, "")}/chat/completions`, {
+    const response = await fetch("/api/text-to-image/llm-completion", {
         method: "POST",
-        headers,
+        headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
-            model: apiConfig.model.trim(),
-            temperature: apiConfig.parameters.temperature,
-            top_p: apiConfig.parameters.topP,
-            max_tokens: apiConfig.parameters.maxTokens,
+            apiBaseUrl: apiConfig.apiBaseUrl,
+            apiKey: apiConfig.apiKey,
+            model: apiConfig.model,
+            parameters: apiConfig.parameters,
             stream: apiConfig.stream,
             messages,
         }),
@@ -179,13 +184,33 @@ export async function requestTextToImageLlmCompletion(apiConfig: TextToImageLlmA
         const message = await response.text();
         throw new Error(message || `LLM 请求失败：${response.status}`);
     }
-    if (apiConfig.stream) {
-        return await readStreamingResponse(response);
-    }
-    const data = await response.json() as ChatCompletionResponse;
-    return data.choices?.[0]?.message?.content?.trim() ?? "";
+    const data = await response.json() as TextToImageLlmCompletionApiResponse;
+    return data.content.trim();
 }
 
+export async function requestTextToImageLlmModels(apiConfig: Pick<TextToImageLlmApiConfig, "apiBaseUrl" | "apiKey">): Promise<string[]> {
+    const response = await fetch("/api/text-to-image/llm-models", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            apiBaseUrl: apiConfig.apiBaseUrl,
+            apiKey: apiConfig.apiKey,
+        }),
+    });
+    if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || `LLM 模型列表读取失败：${response.status}`);
+    }
+    const data = await response.json() as TextToImageLlmModelsApiResponse;
+    return data.models;
+}
+
+function formatTextToImageLlmContent(content: TextToImageLlmMessage["content"]): string {
+    if (typeof content === "string") {
+        return content;
+    }
+    return content.map((part) => part.type === "text" ? part.text : "[image reference omitted]").join("\n");
+}
 export function extractImagineBlocks(response: string): TextToImageImagineBlock[] {
     return [
         ...extractBlocksByTag(response, "imagine"),
@@ -436,42 +461,6 @@ function renderPromptTemplate(content: string, context: Map<string, string>): Pr
 
 function normalizePromptSlotKey(key: string): string {
     return key.trim().toLocaleLowerCase().replace(/[\s_\-:/：｜|（）()【】\[\]{}]+/gu, "");
-}
-
-async function readStreamingResponse(response: Response): Promise<string> {
-    const reader = response.body?.getReader();
-    if (!reader) {
-        return "";
-    }
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let output = "";
-    while (true) {
-        const {done, value} = await reader.read();
-        if (done) {
-            break;
-        }
-        buffer += decoder.decode(value, {stream: true});
-        const lines = buffer.split(/\r?\n/u);
-        buffer = lines.pop() ?? "";
-        for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed.startsWith("data:")) {
-                continue;
-            }
-            const payload = trimmed.slice(5).trim();
-            if (!payload || payload === "[DONE]") {
-                continue;
-            }
-            try {
-                const json = JSON.parse(payload) as {choices?: Array<{delta?: {content?: string}; message?: {content?: string}}>};
-                output += json.choices?.[0]?.delta?.content ?? json.choices?.[0]?.message?.content ?? "";
-            } catch {
-                output += payload;
-            }
-        }
-    }
-    return output.trim();
 }
 
 function extractBlocksByTag(response: string, tagName: "imagine" | "image"): TextToImageImagineBlock[] {

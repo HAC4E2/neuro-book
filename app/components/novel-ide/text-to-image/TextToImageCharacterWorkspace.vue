@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import {storeToRefs} from "pinia";
 import Dialog from "nbook/app/components/common/Dialog.vue";
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
@@ -303,6 +303,7 @@ async function generateCharacterImage(): Promise<void> {
         notification.info("角色照片生成请求已加入队列。");
         const result = await enqueueTextToImageGeneration<TextToImageGenerateResponse>({
             id: `character-portrait:${currentCharacter.id}:${Date.now().toString(36)}`,
+            label: `角色头像：${formatCharacterName(currentCharacter)}`,
             onStatusChange: (status) => {
                 characterImageGenerationStatus.value = status === "done" || status === "error" ? "idle" : status;
             },
@@ -317,6 +318,7 @@ async function generateCharacterImage(): Promise<void> {
                     promptRules: promptReplacementRules.value,
                     prompt,
                     negativePrompt: generationDraft.value.negativePrompt,
+                    count: 1,
                     output: output.value,
                 },
             }),

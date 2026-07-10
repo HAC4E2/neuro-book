@@ -1,4 +1,4 @@
-import fs from "node:fs/promises";
+﻿import fs from "node:fs/promises";
 import path from "node:path";
 import {unzipSync} from "fflate";
 import {z} from "zod";
@@ -104,6 +104,7 @@ export const TextToImageGenerateRequestSchema = z.object({
     promptRules: z.array(TextToImagePromptReplacementRuleSchema).default([]),
     prompt: z.string().default(""),
     negativePrompt: z.string().default(""),
+    count: z.number().int().min(1).max(4).default(1),
     output: z.object({
         imageSavePath: z.string().default(""),
     }).default({imageSavePath: ""}),
@@ -280,6 +281,7 @@ async function buildNovelAiRequest(input: TextToImageGenerateRequest, token: str
     const height = clampInteger(input.novelAi.height, 64, 4096, 1216);
     const steps = clampInteger(input.novelAi.steps, 1, 50, 28);
     const seed = input.novelAi.seed === -1 ? randomSeed() : clampInteger(input.novelAi.seed, 0, MAX_SEED, randomSeed());
+    const count = clampInteger(input.count, 1, 4, 1);
     const sampler = mapSamplerForModel(input.novelAi.sampler.trim() || "k_euler_ancestral", model);
     if (sampler !== input.novelAi.sampler) {
         warnings.push(`采样方法已按模型兼容性映射为 ${sampler}。`);
@@ -325,7 +327,7 @@ async function buildNovelAiRequest(input: TextToImageGenerateRequest, token: str
         scale: toFiniteNumber(input.novelAi.promptGuidance, 5),
         sampler,
         steps,
-        n_samples: 1,
+        n_samples: count,
         ucPreset: preset.ucPreset,
         qualityToggle: input.style?.positiveQualityPreset ?? true,
         autoSmea: input.novelAi.smeaMode === "auto",
