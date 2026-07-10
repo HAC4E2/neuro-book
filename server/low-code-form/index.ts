@@ -794,8 +794,10 @@ function mergeSettings(defaults: LowCodeJsonObject, patch: LowCodeJsonObject | u
     }
     const clonedPatch = cloneJsonObject(patch);
     for (const key of Object.keys(merged)) {
-        if (Object.hasOwn(clonedPatch, key)) {
-            merged[key] = clonedPatch[key];
+        // JSON 值不可能为 undefined；非 undefined 即代表 patch 携带了该键，兼替代索引签名下无法收窄的 hasOwn。
+        const patchValue = clonedPatch[key];
+        if (patchValue !== undefined) {
+            merged[key] = patchValue;
         }
     }
     return merged;

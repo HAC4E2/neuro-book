@@ -55,3 +55,12 @@ server/agent/variables/generated-profile-variable-types.d.ts
 Imagine/
 # Tauri 桌面壳 Rust 构建产物
 src-tauri/target/
+# Crash dumps
+*.stackdump
+# Test output
+test-results/
+# Agent session / workspace runtime data (server-side)
+server/workspace/.nbook/
+server/.agent/
+# Temporary screenshots / assets
+t16-editor-heat.png
