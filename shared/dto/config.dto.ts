@@ -15,6 +15,17 @@ import {
     LowCodeResourceMutationDtoSchema,
 } from "nbook/shared/dto/low-code-form.dto";
 import {themeAppearanceValues, themeVarNames} from "nbook/shared/theme/theme-vars";
+import {
+    CompactionKeepRecentSchema,
+    CompactionTriggerSchema,
+    ProfileCompactionRuntimePatchSchema,
+    ProfileFileChangeNoticeRuntimePatchSchema,
+    ProfileRuntimeSettingsPatchSchema,
+    ProfileSummarizerRuntimePatchSchema,
+    SummarizerIntervalSchema,
+} from "nbook/shared/agent/profile-runtime-settings";
+import {MAX_AGENT_DIFF_MAX_CHARS} from "nbook/shared/agent/file-change-policy";
+import {PiSimpleRequestOptionsSchema} from "nbook/shared/dto/pi-request-options.dto";
 
 const themeVarNameSet = new Set<string>(themeVarNames);
 
@@ -103,7 +114,7 @@ export const ConfigModelProviderOptionsDtoSchema = z.object({
     baseURL: ProviderOptionTextSchema,
     proxy: ProviderOptionTextSchema,
     timeoutMs: ProviderTimeoutMsSchema,
-    requestOptions: ProviderRequestOptionsSchema,
+    requestOptions: PiSimpleRequestOptionsSchema,
 });
 
 export const ConfiguredProviderConfigDtoSchema = z.object({
@@ -171,6 +182,10 @@ export const ConfigAgentProfileBuildStateDtoSchema = z.object({
 export const ConfigAgentProfileSettingsDtoSchema = z.object({
     enabledModels: z.array(EnabledModelOptionDtoSchema).default([]),
     profileModelDefaults: AgentProfileModelConfigDtoSchema,
+    harnessRuntimeDefaults: z.lazy(() => ProfileRuntimeSettingsDtoSchema),
+    profileRuntimeDefaults: z.lazy(() => ProfileRuntimeSettingsDtoSchema),
+    globalRuntimeDefaultsPatch: z.lazy(() => ProfileRuntimeSettingsPatchDtoSchema).default({}),
+    projectRuntimeDefaultsPatch: z.lazy(() => ProfileRuntimeSettingsPatchDtoSchema).default({}),
     agentProfiles: z.array(z.object({
         profileKey: ProfileKeySchema,
         name: z.string().trim().min(1),
@@ -178,8 +193,14 @@ export const ConfigAgentProfileSettingsDtoSchema = z.object({
         model: AgentProfileModelConfigDtoSchema,
         loadStatus: ConfigAgentProfileLoadStatusDtoSchema,
         hasSettingsForm: z.boolean().default(false),
-        // profile 源码是否声明了后台会话摘要（summarizer）；true 时设置面板才展示摘要开关。
-        hasSummarizer: z.boolean().default(false),
+        runtime: z.object({
+            profileDefaults: z.lazy(() => ProfileRuntimeSettingsPatchDtoSchema).default({}),
+            effective: z.lazy(() => ProfileRuntimeSettingsDtoSchema),
+            globalDefaultsPatch: z.lazy(() => ProfileRuntimeSettingsPatchDtoSchema).default({}),
+            globalProfilePatch: z.lazy(() => ProfileRuntimeSettingsPatchDtoSchema).default({}),
+            projectDefaultsPatch: z.lazy(() => ProfileRuntimeSettingsPatchDtoSchema).default({}),
+            projectProfilePatch: z.lazy(() => ProfileRuntimeSettingsPatchDtoSchema).default({}),
+        }),
         issue: ConfigAgentProfileIssueDtoSchema.nullable().default(null),
         sourcePath: z.string().trim().min(1).nullable().default(null),
         buildState: ConfigAgentProfileBuildStateDtoSchema,
@@ -268,12 +289,40 @@ export const EditorConfigDtoSchema = z.object({
     monaco: MonacoEditorConfigDtoSchema.default(DEFAULT_MONACO_EDITOR_PREFERENCES),
 });
 
+export const SummarizerIntervalDtoSchema = SummarizerIntervalSchema;
+export const CompactionTriggerDtoSchema = CompactionTriggerSchema;
+export const CompactionKeepRecentDtoSchema = CompactionKeepRecentSchema;
+export const ProfileSummarizerRuntimePatchDtoSchema = ProfileSummarizerRuntimePatchSchema;
+export const ProfileCompactionRuntimePatchDtoSchema = ProfileCompactionRuntimePatchSchema;
+export const ProfileFileChangeNoticeRuntimePatchDtoSchema = ProfileFileChangeNoticeRuntimePatchSchema;
+export const ProfileRuntimeSettingsPatchDtoSchema = ProfileRuntimeSettingsPatchSchema;
+
+export const ProfileRuntimeSettingsDtoSchema = z.object({
+    summarizer: z.object({
+        enabled: z.boolean(),
+        profileKey: ProfileKeySchema,
+        trigger: z.literal("afterInvocation"),
+        interval: SummarizerIntervalDtoSchema,
+        maxDialogueContentTokens: z.number().positive(),
+    }),
+    compaction: z.object({
+        enabled: z.boolean(),
+        trigger: CompactionTriggerDtoSchema,
+        reserveTokens: z.number().int().positive(),
+        keepRecent: CompactionKeepRecentDtoSchema,
+        prompt: z.string().min(1),
+        summaryPrefix: z.string().min(1),
+    }),
+    fileChangeNotice: z.object({
+        diffMaxChars: z.number().int().min(0).max(MAX_AGENT_DIFF_MAX_CHARS),
+    }),
+});
+
 export const ConfigAgentProfileMapDtoSchema = z.record(z.string(), z.object({
     model: AgentProfileModelConfigDtoSchema.partial().default({}),
     settings: LowCodeJsonObjectSchema.optional(),
     resourceMutations: z.array(LowCodeResourceMutationDtoSchema).optional(),
-    // 后台会话摘要开关。缺省沿用 profile 源码默认（开启）；enabled=false 表示对该 profile 禁用 summarizer。
-    summarizer: z.object({enabled: z.boolean().optional()}).optional(),
+    runtime: ProfileRuntimeSettingsPatchDtoSchema.optional(),
 })).default({});
 
 export const WebConfigDtoSchema = z.object({
@@ -334,9 +383,6 @@ export const WorkspaceHistoryConfigDtoSchema = WorkspaceHistoryFieldsDtoSchema.p
 export const ProjectWorkspaceHistoryConfigDtoSchema = WorkspaceHistoryFieldsDtoSchema.omit({enabled: true}).partial();
 
 export const GlobalConfigDtoSchema = z.object({
-    auth: z.object({
-        enabled: z.boolean().default(true),
-    }).default({enabled: true}),
     models: z.object({
         default: NullableModelKeySchema,
         providers: z.array(ConfiguredProviderConfigDtoSchema).default([]),
@@ -348,8 +394,9 @@ export const GlobalConfigDtoSchema = z.object({
             userAssets: ProfileKeySchema.nullable().default(null),
         }).default({novel: null, userAssets: null}),
         profileModelDefaults: AgentProfileModelConfigDtoSchema.partial().default({}),
+        profileRuntimeDefaults: ProfileRuntimeSettingsPatchDtoSchema.default({}),
         profiles: ConfigAgentProfileMapDtoSchema,
-    }).default({defaultProfileKey: {novel: null, userAssets: null}, profileModelDefaults: {}, profiles: {}}),
+    }).default({defaultProfileKey: {novel: null, userAssets: null}, profileModelDefaults: {}, profileRuntimeDefaults: {}, profiles: {}}),
     ui: UiConfigDtoSchema.default({theme: "sepia", customThemes: [], costCurrency: "USD"}),
     editor: EditorConfigDtoSchema.default({
         markdown: DEFAULT_MARKDOWN_EDITOR_PREFERENCES,
@@ -361,9 +408,6 @@ export const GlobalConfigDtoSchema = z.object({
 }).partial().passthrough();
 
 export const GlobalConfigUpdateDtoSchema = z.object({
-    auth: z.object({
-        enabled: z.boolean().default(true),
-    }).optional(),
     models: z.object({
         default: NullableModelKeySchema,
         providers: z.array(ConfiguredProviderConfigDtoSchema).default([]),
@@ -375,6 +419,7 @@ export const GlobalConfigUpdateDtoSchema = z.object({
             userAssets: ProfileKeySchema.nullable().default(null),
         }).default({novel: null, userAssets: null}),
         profileModelDefaults: AgentProfileModelConfigDtoSchema.partial().default({}),
+        profileRuntimeDefaults: ProfileRuntimeSettingsPatchDtoSchema.default({}),
         profiles: ConfigAgentProfileMapDtoSchema,
     }).optional(),
     ui: UiConfigDtoSchema.optional(),
@@ -392,6 +437,7 @@ export const ProjectConfigDtoSchema = z.object({
     agent: z.object({
         defaultProfileKey: ProfileKeySchema.nullable().optional(),
         profileModelDefaults: AgentProfileModelConfigDtoSchema.partial().optional(),
+        profileRuntimeDefaults: ProfileRuntimeSettingsPatchDtoSchema.optional(),
         profiles: ConfigAgentProfileMapDtoSchema.optional(),
     }).partial().optional(),
     editor: EditorConfigDtoSchema.partial().optional(),
@@ -427,6 +473,8 @@ export type CustomThemeDto = z.infer<typeof CustomThemeDtoSchema>;
 export type EmbeddingServiceConfigDto = z.infer<typeof EmbeddingServiceConfigDtoSchema>;
 export type EmbeddingProjectConfigDto = z.infer<typeof EmbeddingProjectConfigDtoSchema>;
 export type ConfigEmbeddingSettingsDto = z.infer<typeof ConfigEmbeddingSettingsDtoSchema>;
+export type ProfileRuntimeSettingsPatchDto = z.infer<typeof ProfileRuntimeSettingsPatchDtoSchema>;
+export type ProfileRuntimeSettingsDto = z.infer<typeof ProfileRuntimeSettingsDtoSchema>;
 export type ConfigAgentProfileBuildStateDto = z.infer<typeof ConfigAgentProfileBuildStateDtoSchema>;
 export type ConfigAgentProfileSettingsDto = z.infer<typeof ConfigAgentProfileSettingsDtoSchema>;
 export type ConfigAgentProfileBuildStatusDto = z.infer<typeof ConfigAgentProfileBuildStatusDtoSchema>;

@@ -7,9 +7,9 @@ describe("resolvePiModelInputs", () => {
         expect(resolvePiModelInputs("xiaomi-token-plan-cn", "mimo-v2.5-pro")).toEqual(["text"]);
     });
 
-    it("从 Pi registry 读取 Mimo 图片理解模型能力", () => {
+    it("从 Pi registry 读取 Mimo 图片理解模型能力，已移除 alias 回落 text", () => {
         expect(resolvePiModelInputs("xiaomi-token-plan-cn", "mimo-v2.5")).toEqual(["text", "image"]);
-        expect(resolvePiModelInputs("xiaomi-token-plan-cn", "mimo-v2-omni")).toEqual(["text", "image"]);
+        expect(resolvePiModelInputs("xiaomi-token-plan-cn", "mimo-v2-omni")).toEqual(["text"]);
     });
 
     it("未知自定义模型默认只声明 text", () => {
@@ -42,6 +42,7 @@ describe("resolvePiModelFromConfig", () => {
                             stream: true,
                         },
                         settings: {},
+                        runtime: {fileChangeNotice: {diffMaxChars: 512}},
                     },
                 },
             },
@@ -245,6 +246,7 @@ describe("resolvePiModelFromConfig", () => {
                                     output: 2,
                                     cacheRead: 3,
                                     cacheWrite: 4,
+                                    tiers: [],
                                 },
                                 compat: {
                                     thinkingFormat: "deepseek",
@@ -273,6 +275,7 @@ describe("resolvePiModelFromConfig", () => {
             output: 2,
             cacheRead: 3,
             cacheWrite: 4,
+            tiers: [],
         });
         expect(model.compat).toMatchObject({
             thinkingFormat: "deepseek",

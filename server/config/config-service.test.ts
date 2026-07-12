@@ -381,7 +381,6 @@ describe("config service", {timeout: 30_000}, () => {
 
     it("Global 部分写回会保留未提交的配置段", async () => {
         await saveGlobalConfig({
-            auth: {enabled: true},
             models: {
                 default: "deepseek/deepseek-v4-flash",
                 providers: [{
@@ -406,18 +405,22 @@ describe("config service", {timeout: 30_000}, () => {
             },
         }, {workspaceKind: "user-assets"});
 
+        const configPath = path.join("workspace", ".nbook", "config.json");
+        const withOldAuth = JSON.parse(await fs.readFile(configPath, "utf-8")) as Record<string, unknown>;
+        withOldAuth.auth = {enabled: false};
+        await fs.writeFile(configPath, `${JSON.stringify(withOldAuth, null, 4)}\n`, "utf-8");
+
         const snapshot = await saveGlobalConfig({
-            auth: {enabled: false},
+            ui: {theme: "sepia", customThemes: [], costCurrency: "USD"},
         }, {workspaceKind: "user-assets"});
 
-        expect(snapshot.effective.auth.enabled).toBe(false);
         expect(snapshot.modelSettings.defaultModelKey).toBe("deepseek/deepseek-v4-flash");
         expect(snapshot.modelSettings.providers).toHaveLength(1);
-        const raw = JSON.parse(await fs.readFile(path.join("workspace", ".nbook", "config.json"), "utf-8")) as {
-            auth?: {enabled?: boolean};
+        const raw = JSON.parse(await fs.readFile(configPath, "utf-8")) as {
+            auth?: unknown;
             models?: {providers?: Array<{options: {apiKey: string}}>}
         };
-        expect(raw.auth?.enabled).toBe(false);
+        expect(raw.auth).toBeUndefined();
         expect(raw.models?.providers?.[0]?.options.apiKey).toBe("sk-keep-me");
     });
 
@@ -806,7 +809,7 @@ describe("config service", {timeout: 30_000}, () => {
         expect(optionsProvider).not.toHaveBeenCalled();
     });
 
-    it("Agent Profile settings 专用接口只读取带 settings form 的 runtime profile", async () => {
+    it("Agent Profile settings 专用接口读取每个 loaded Profile 的 runtime defaults", async () => {
         const profileCatalog = createCatalog(["leader.default", "leader.assets", "custom.agent", "writer"]);
         const getSpy = vi.spyOn(profileCatalog, "get");
 
@@ -817,11 +820,45 @@ describe("config service", {timeout: 30_000}, () => {
             expect(writer?.settings?.form.fields.map((field) => field.path)).toEqual(["writingStylePreset", "narrativePerson"]);
             expect(writer?.loadStatus).toBe("loaded");
             expect(writer?.hasSettingsForm).toBe(true);
-            expect(getSpy).toHaveBeenCalledTimes(1);
-            expect(getSpy).toHaveBeenCalledWith("writer");
+            expect(getSpy).toHaveBeenCalledTimes(4);
+            expect(getSpy.mock.calls.map(([profileKey]) => profileKey).sort()).toEqual([
+                "custom.agent",
+                "leader.assets",
+                "leader.default",
+                "writer",
+            ]);
         } finally {
             getSpy.mockRestore();
         }
+    });
+
+    it("所有 Profile 都返回 runtime 默认、各层 patch 与最终有效值", async () => {
+        await saveGlobalConfig({
+            agent: {
+                profiles: {
+                    "custom.agent": {
+                        model: {},
+                        runtime: {
+                            summarizer: {enabled: true},
+                            fileChangeNotice: {diffMaxChars: 1024},
+                        },
+                    },
+                },
+            },
+        }, {workspaceKind: "novel", projectPath: CONFIG_TEST_PROJECT_PATH}, catalog);
+        const settings = await readConfigAgentProfileSettings({workspaceKind: "novel", projectPath: CONFIG_TEST_PROJECT_PATH}, catalog, {
+            agentProfileSettingsScope: "global",
+        });
+        const custom = settings.agentProfiles.find((profile) => profile.profileKey === "custom.agent");
+        const writer = settings.agentProfiles.find((profile) => profile.profileKey === "writer");
+
+        expect(custom?.runtime.globalProfilePatch).toEqual({
+            summarizer: {enabled: true},
+            fileChangeNotice: {diffMaxChars: 1024},
+        });
+        expect(custom?.runtime.effective.summarizer.enabled).toBe(true);
+        expect(custom?.runtime.effective.fileChangeNotice.diffMaxChars).toBe(1024);
+        expect(writer?.runtime.effective.fileChangeNotice.diffMaxChars).toBe(512);
     });
 
     it("Agent Profile settings 支持 Global 保存并返回 form 与 effective value", async () => {

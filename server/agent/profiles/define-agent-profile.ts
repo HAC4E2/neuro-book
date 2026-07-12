@@ -1,9 +1,11 @@
 import type {TSchema} from "typebox";
 import type {AgentProfile, AgentProfileDefinition, AgentProfileManifest, ProfilePrepareContext} from "nbook/server/agent/profiles/types";
-import {compileProfileContext, validateCompactionPlan, validateProfileTurnPlan} from "nbook/server/agent/profiles/profile-dsl";
+import {compileProfileContext, validateProfileTurnPlan} from "nbook/server/agent/profiles/profile-dsl";
 import {agentRuntimeBuiltins, defineAgentRuntime} from "nbook/server/agent/profiles/define-agent-runtime";
 import type {ProfileTools} from "nbook/server/agent/profiles/profile-tools";
 import {parseLowCodeFormValue, type LowCodeFormDefinition} from "nbook/server/low-code-form";
+import {validateProfileRuntimeSettingsPatch} from "nbook/server/agent/profiles/profile-runtime-settings";
+import type {LowCodeJsonObject} from "nbook/shared/dto/low-code-form.dto";
 
 /**
  * 定义一个 v3 Agent Profile。用户自定义 profile 必须通过这个函数导出。
@@ -19,9 +21,8 @@ export function defineAgentProfile<
     assertProfileManifest(profile.manifest);
     assertNoLegacyToolFields(profile.manifest.key, profile);
     const rootToolKeys = assertProfileTools(profile.manifest.key, profile.tools);
-    assertProfileSummarizer(profile.manifest.key, profile.summarizer);
+    validateProfileRuntimeSettingsPatch(`profile ${profile.manifest.key} runtimeDefaults`, profile.runtimeDefaults);
     assertProfileSkills(profile.manifest.key, profile.skills);
-    validateCompactionPlan(profile.manifest.key, profile.compaction);
     assertProfileToolKeys(profile.manifest.key, rootToolKeys, profile.toolKeys);
     assertProfileSidecars(profile.manifest.key, rootToolKeys, profile.sidecars);
     if (profile.context && profile.prepare) {
@@ -54,18 +55,20 @@ export function defineAgentProfile<
 }
 
 /**
- * 为手工调用 profile.prepare 的旧测试和预览路径补齐默认 settings。
+ * 为直接调用 profile.prepare 的路径补齐 Profile 自定义 settings defaults。
+ * Harness 通用运行配置不进入 ctx.settings。
  */
 function withDefaultSettings<TContext extends ProfilePrepareContext>(
     profile: {settingsForm?: LowCodeFormDefinition},
     ctx: TContext,
 ): TContext {
-    if (ctx.settings !== undefined) {
-        return ctx;
-    }
+    const providedSettings = (ctx.settings ?? {}) as LowCodeJsonObject;
+    const profileSettings: LowCodeJsonObject = profile.settingsForm
+        ? parseLowCodeFormValue(profile.settingsForm, providedSettings) as LowCodeJsonObject
+        : providedSettings;
     return {
         ...ctx,
-        settings: profile.settingsForm ? parseLowCodeFormValue(profile.settingsForm, undefined) : {},
+        settings: profileSettings,
     } as TContext;
 }
 
@@ -103,23 +106,6 @@ export function assertProfileManifest(manifest: AgentProfileManifest): void {
     }
 }
 
-/**
- * 校验 summarizer 静态声明的最小 shape。
- */
-function assertProfileSummarizer(profileKey: string, summarizer: AgentProfile["summarizer"]): void {
-    if (!summarizer) {
-        return;
-    }
-    if (summarizer.enabled === false) {
-        return;
-    }
-    if (!summarizer.profileKey || !summarizer.profileKey.trim()) {
-        throw new Error(`profile ${profileKey} summarizer.profileKey 不能为空`);
-    }
-    if (summarizer.input !== undefined && (typeof summarizer.input !== "object" || summarizer.input === null || Array.isArray(summarizer.input))) {
-        throw new Error(`profile ${profileKey} summarizer.input 必须是对象`);
-    }
-}
 
 /**
  * 校验 profile skill 白名单声明：include 必须是非空、去重的 skill key 数组。

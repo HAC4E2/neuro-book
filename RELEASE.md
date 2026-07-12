@@ -1,5 +1,54 @@
 # Release Notes
 
+## Unreleased：Pi 运行时升级与统一安装管理
+
+- Pi Models / Agent Runtime 升级到 `0.80.6`，模型解析改为显式 `Models` runtime；内置 Provider、本地多连接和自定义 OpenAI-compatible Provider 不再依赖全局注册表，冻结的 session、sidecar 与 compaction 会复用同一运行时连接，避免配置串线或执行途中漂移。
+- 模型能力补齐 `max` thinking、分层价格 `cost.tiers` 与可生效的 request options。设置界面支持逐层价格编辑、重复阈值校验和完整覆盖；长上下文费用计算、Catalog、Config、Session、Profile 与中英文界面共用同一合同。
+- Provider 错误新增统一清洗边界，覆盖 trace、健康检查、Harness、session、compaction 和最终 Assistant 消息；敏感文本会脱敏并限制长度，同时保留必要的 usage、reasoning 与 cache 统计。
+
+- 新增独立轻量包 `@notnotype/neuro-book-manager` 和统一 `neuro-book` 命令，覆盖安装、更新、启动、状态、诊断、Bun Runtime、rg/PortableGit/bash 工具与管理员创建。npm 包只包含 Manager bundle，不携带 Nuxt、Vue、Prisma 等应用依赖。
+- Git 仓库根成为统一 Installation Root；Source、`.output`、`.runtime` 和 `.deploy` 按组件分层。Windows Portable 不再使用 `app/` Product Root 或 junction，完整源码与 `.output` 位于根目录，用户状态稳定保存在 `data/`。
+- 新增 `NEURO_BOOK_STATE_ROOT`，统一 Workspace Root、Boot Config、Product `.env`、SQLite 相对路径和日志目录。普通安装默认使用根状态，Windows Portable 使用 `data/`。
+- Installation Manifest 硬切 v2，分开记录 Manager Host Runtime 与 Application Runtime。安装、更新和崩溃恢复共用持久化 Operation Journal；Release Source/Product/Compose 先 staging/validate 再切换，Source Product 在 detached worktree 构建，原生更新会备份 SQLite 并执行 HTTP 版本健康检查。
+- Product build 支持 `NEURO_BOOK_OUTPUT_DIR` staging，源码更新与 Product 切换解耦；Product system profiles 会在 Nitro vendor 完成后以 Product 模式重新编译，确保无根 `node_modules` 时仍能加载。
+- Source Docker 改为 Dockerfile 多阶段容器内安装与构建；GHCR 安装不再 clone 宿主源码，而是使用 Release Manifest 固定镜像 digest。
+- Release 新增 Source、Windows/Linux Product、Windows Portable、统一 `release-manifest.json` 和 `SHA256SUMS`；Manager 使用独立 `manager-v*` tag 与 npm stable/canary 发布流程。
+- 本轮已通过完整应用与 Manager typecheck、23 项 Manager 测试、Pi/runtime/harness 聚焦组合 8 files / 229 tests、Config/model settings/shared DTO 138 tests、npm tarball 空目录审计、全新 Nuxt/Product build、无根 `node_modules` 的 migration/admin/profile/variable/workspace/HTTP smoke、Windows Portable 真实组装，以及 Release/Portable 脚本 bundle 和 workflow YAML 校验。本机没有 Docker，Linux/Docker verify jobs 尚未实际运行；真实 Provider 与浏览器验收未自动执行。
+
+## 0.7.2-canary - 2026-07-11
+
+这次 patch 集中收口 Agent Profile 的通用运行设置、自动摘要、Workspace 语义和发布产物一致性，同时修复 Markdown 编辑器的若干边界问题，并降低 llmlint 自动改写风险。
+
+1. Agent 通用运行策略统一
+Summarizer、Compaction 和单文件 diff 上限现在由 Harness 统一解析。设置支持 Global 通用默认、Global Profile 覆盖、Project 通用默认和 Project Profile 覆盖；Profile 源码只通过 `runtimeDefaults` 提供更低优先级的出厂策略。复杂策略按字段继承，trigger 与 keep-recent 等判别联合整体替换。手动 `/summarize` 和 compact 即使自动开关关闭也会使用最终策略强制执行；summarizer system session 不递归摘要并默认关闭 Compaction。
+
+设置审查轮进一步修复了仅修改通用 runtime defaults 时无法保存的问题。空白字段明确表示继承，非法非空输入会在对应字段下报错而不会静默删除覆盖；界面会标明继承值来自 Harness、Profile、Global 或 Project 的哪一层。Profile 源码默认值与 Config 保存值现共用同一严格 schema。
+
+2. Profile Workbench 公开表面进一步简化
+`FileChangeNotice` 节点只保留 `mode`，单文件 diff 预算不再经过 Profile settings 或 turn plan，而是在 Harness 物化 notice 时注入最终 runtime 值。Variable 系统的运行时能力、`ctx.vars`、definition artifact 和全局工具仍然保留，但 `Variable` / `VariableSchema` TSX helper、`builtin.variable` Profile 绑定和 Workbench 变量插入暂时下线，减少 Profile 作者面对的重复入口。
+
+发布前同时修复了 Profile settings fallback 的优先级回归：直接调用 Profile prepare 时，用户设置现在稳定覆盖表单默认值；`leader.assets` 的“最高优先级置顶提示词”不会再被空默认值覆盖。运行策略已经与 `settingsForm` 完全分层，不再需要 diff 保留键或 prepare fallback 补值。
+
+3. Agent 文件提醒和 Workspace 语义更准确
+文件变更 notice 改为英文 Git 风格状态，能区分 added、modified、deleted、renamed、restored 和 reverted，并继续保留 hunk、diff 统计、安全阻断、预算与 at-least-once 游标语义。敏感路径即使超出前四个 diff detail，也只显示不可点击路径与 file change inbox 指引，不会通过通用 footer 建议 Agent 主动读取。Reminder 状态分离“已观察值”和“实际注入轮次”，空 linked agents 不再产生空提醒，清空后重新关联同一 Agent 仍能再次通知。文档与提示词明确：Current Project Workspace 只是默认焦点，不是访问边界；普通 Agent cwd 始终是 Workspace Root。
+
+4. Markdown 方言和模式切换更稳
+`StructuredTextEditor` 在 rich/source 模式切换前同步结算两个编辑器的防抖输入，修复 300ms 窗口内切换可能丢失末尾输入的问题。Markdown 方言扩展组改为真实编辑器与测试共用的单一来源；HTML fallback 使用真实配对闭合判据，规范化规则与 tokenizer 保持同构；Inline AI 引用高亮的全文文本映射改为每轮只构建一次，避免随引用数量重复扫描全文。
+
+5. Portable Profile artifacts 发布校验加强
+`profile status` 发现 `compile_stale` 时会返回非零退出码。Product staging 会按 manifest 当前引用清理隔离副本中的历史 Profile artifacts，并同时校验 artifact / type artifact 是否存在、是否携带构建机绝对路径；Windows Portable 使用同一套 manifest 归一化规则，兼容数组与按 Profile key 索引的序列化形态。
+
+6. 鉴权配置迁移到 Boot Config
+`auth.enabled` 从可热更新的 Global Config 移到启动期 `config.yaml`。服务器部署默认开启、Windows Portable 默认关闭；创建管理员后会更新 Boot Config，并在重启后生效。管理员 API 统一使用同一守卫，鉴权关闭时本地放行；非法 Boot Config 会明确失败，不再静默伪装成默认值。
+
+7. llmlint 自动修复权限更保守
+默认规则集只保留 3 条无需语境判断的机械规则为 `fixability:auto`，不默认启用 candidate，其余规则均为 manual。规则带有 `action.replace` 只表示存在替换模板，不再隐含允许自动应用；最终是否可自动或候选修复，统一以配置合并后的 `fixability` 为准。
+
+8. Profile 设置合并与旧 artifact 升级修复
+Profile 直接 prepare 的默认设置遵循“表单默认值 < 调用方设置”，通用文件 diff 预算只补缺失项，不再覆盖用户已有设置。Profile 核心 helper 的语义变化会通过 compilerVersion 7 强制旧 bundle 失效重编，避免状态显示 loaded 但实际仍执行旧设置合并逻辑。
+
+本轮发布前执行全仓类型检查，并覆盖 Profile / Harness / Config、Markdown 方言、Portable manifest、llmlint 与相关契约测试。浏览器验收未自动执行，建议重点手动检查普通 Profile 的自动摘要开关、StructuredTextEditor 快速切换模式，以及 Profile Workbench 精简后的编辑流程。
+
 ## 0.7.1-canary - 2026-07-10
 
 这次 patch 是 0.7.0 canary 的验收与契约同步版，不新增业务代码，主要补齐 Agent 文件变更收件箱的最终验证结果和公开行为说明。

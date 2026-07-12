@@ -7,7 +7,7 @@ import {dirname, join, relative, resolve} from "node:path";
 import {createRequire} from "node:module";
 import {fileURLToPath, pathToFileURL} from "node:url";
 
-import {runCapture} from "../utils/process.mjs";
+import {normalizeProfileManifestProfiles} from "./profile-artifact-manifest.mjs";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const PRODUCT_ROOT = resolve(REPO_ROOT, "product");
@@ -50,8 +50,8 @@ async function stageProduct() {
     await writeProductPackageJson();
     await writeProductEnv();
     await copyNbookRuntimePackage();
-    await stageSourceSnapshot();
     await prepareProductSystemAssets();
+    await pruneProductProfileArtifacts();
     await assertProductTsxVendor();
     await assertProductSqliteVecVendor();
     await assertProductProfileArtifactsPortable();
@@ -67,16 +67,19 @@ async function assertProductProfileArtifactsPortable() {
     if (!existsSync(resolve(compiledRoot, "manifest.json"))) {
         throw new Error(`Product profile artifact 缺少 manifest：${resolve(compiledRoot, "manifest.json")}`);
     }
-    const entries = await readdir(compiledRoot, {withFileTypes: true}).catch(() => []);
+    const profiles = await readProductProfileManifestProfiles(compiledRoot);
     const offenders = [];
-    for (const entry of entries) {
-        if (!entry.isFile() || !entry.name.endsWith(".mjs")) {
+    for (const profile of profiles) {
+        if (typeof profile.artifactFileName !== "string" || !profile.artifactFileName.endsWith(".mjs")) {
             continue;
         }
-        const filePath = resolve(compiledRoot, entry.name);
+        const filePath = resolve(compiledRoot, ...profile.artifactFileName.split("/"));
+        if (!existsSync(filePath)) {
+            throw new Error(`Product profile manifest 引用了缺失 artifact：${profile.artifactFileName}`);
+        }
         const head = (await readFile(filePath, "utf8")).slice(0, 2048).replaceAll("\\", "/");
         if (/__nbookCreateRequire\(["']file:\/\/\/[A-Za-z]:/u.test(head) || head.includes("D:/a/neuro-book/")) {
-            offenders.push(entry.name);
+            offenders.push(profile.artifactFileName);
         }
     }
     if (offenders.length > 0) {
@@ -345,46 +348,47 @@ function assertNbookRuntimePackage(packageRoot) {
 }
 
 /**
- * 在 Product Root 携带完整源码快照（git tracked 文件）到 `source/`。
- *
- * 快照不含 node_modules 和构建产物，随包分发但部署机不 install；
- * 后续排障时用户可让 Agent 在 `source/` 内 `bun install` + 重新构建。
- */
-async function stageSourceSnapshot() {
-    const stdout = await runCapture("git", ["ls-files", "-z"], {cwd: REPO_ROOT});
-    const files = stdout.split("\0").filter(Boolean);
-    if (files.length === 0) {
-        throw new Error("git ls-files 没有返回任何文件，无法生成源码快照。请在 Git checkout 内运行 product:stage。");
-    }
-    const sourceRoot = resolve(PRODUCT_ROOT, "source");
-    await rm(sourceRoot, {recursive: true, force: true});
-    // 开发机 worktree 可能有已删除但未 git rm 的 index 条目；快照按 worktree 实际内容为准。
-    const skipped = [];
-    let staged = 0;
-    for (const file of files) {
-        const source = resolve(REPO_ROOT, file);
-        if (!existsSync(source)) {
-            skipped.push(file);
-            continue;
-        }
-        const target = resolve(sourceRoot, file);
-        await mkdir(dirname(target), {recursive: true});
-        await cp(source, target);
-        staged += 1;
-    }
-    if (skipped.length > 0) {
-        console.warn(`Source snapshot skipped ${skipped.length} tracked files missing from worktree (deleted locally?): ${skipped.slice(0, 5).join(", ")}${skipped.length > 5 ? " ..." : ""}`);
-    }
-    console.log(`Source snapshot staged: ${staged} files -> product/source`);
-}
-
-/**
  * 在 Product Root 内准备系统 assets，确保 artifact 依赖绑定 Product Runtime。
  */
 async function prepareProductSystemAssets() {
     await run("bun", [".output/server/scripts/build/prepare-system-assets.ts", "--force"], {
         cwd: PRODUCT_ROOT,
     });
+}
+
+/**
+ * Product staging 是隔离副本，不需要运行时的 7 天回收宽限。
+ * 只保留 manifest 当前引用的内容寻址 Profile artifacts，避免把开发机历史产物带入产品包。
+ */
+async function pruneProductProfileArtifacts() {
+    const compiledRoot = resolve(PRODUCT_ROOT, "assets", "workspace", ".nbook", "agent", "profiles", ".compiled");
+    const profiles = await readProductProfileManifestProfiles(compiledRoot);
+    const keep = new Set(profiles.flatMap((profile) => [profile.artifactFileName, profile.typeFileName].filter((fileName) => typeof fileName === "string")));
+    if (keep.size === 0) {
+        throw new Error("Product profile manifest 没有可保留的 artifact 引用，拒绝执行清理。");
+    }
+    const missing = [...keep].filter((fileName) => !existsSync(resolve(compiledRoot, ...fileName.split("/"))));
+    if (missing.length > 0) {
+        throw new Error(`Product profile manifest 引用了缺失 artifact：${missing.join(", ")}`);
+    }
+    const artifactsRoot = resolve(compiledRoot, "artifacts");
+    const entries = await readdir(artifactsRoot, {withFileTypes: true}).catch(() => []);
+    let removed = 0;
+    for (const entry of entries) {
+        if (!entry.isFile() || keep.has(`artifacts/${entry.name}`)) {
+            continue;
+        }
+        await rm(resolve(artifactsRoot, entry.name), {force: true});
+        removed += 1;
+    }
+    console.log(`Product profile artifacts pruned: ${removed} unreferenced files removed`);
+}
+
+/** 读取 Profile manifest，兼容 array 与按 profile key 索引的 object 两种序列化形态。 */
+async function readProductProfileManifestProfiles(compiledRoot) {
+    const manifestPath = resolve(compiledRoot, "manifest.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    return normalizeProfileManifestProfiles(manifest, manifestPath);
 }
 
 /**

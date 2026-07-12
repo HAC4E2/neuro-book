@@ -5,7 +5,7 @@ import type {SessionWritePlan} from "nbook/server/agent/session/write-plan";
 import type {ProfileDslNode} from "nbook/server/agent/profiles/profile-dsl";
 import type {SkillCatalogItem} from "nbook/server/agent/skills/skill-catalog";
 import type {ClientStateSnapshot, ProfileVariableAccessor, VariableDefinition} from "nbook/server/agent/variables/types";
-import type {SessionSummarizerInitialSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import type {ProfileRuntimeDefaults} from "nbook/shared/agent/profile-runtime-settings";
 import type {AgentRuntimeDefinition, NormalizedAgentRuntimeDefinition, RuntimeSessionFacade} from "nbook/server/agent/profiles/define-agent-runtime";
 import type {AgentInvokeCaller} from "nbook/server/agent/harness/types";
 import type {ProfileTools} from "nbook/server/agent/profiles/profile-tools";
@@ -69,8 +69,7 @@ export type AgentCatalogItem = {
     builtin: boolean;
     loadStatus: AgentProfileLoadStatus;
     hasSettingsForm: boolean;
-    /** profile 源码是否声明了后台会话摘要（summarizer），设置面板据此展示摘要开关。 */
-    hasSummarizer: boolean;
+    /** 是否声明专用 summarizer 策略；决定无用户覆盖时的默认开关，不控制设置 UI 可见性。 */
     canResetHome: boolean;
     issue?: AgentProfileIssue;
 };
@@ -81,9 +80,9 @@ export type AgentCatalogSnapshot = {
 };
 
 type ProfileSettingsContext<TSettings> = TSettings extends undefined
-    ? {settings?: LowCodeJsonObject}
+    ? {settings: LowCodeJsonObject}
     : unknown extends TSettings
-        ? {settings?: LowCodeJsonObject}
+        ? {settings: LowCodeJsonObject}
     : {settings: TSettings};
 
 type StaticSettings<TSettingsSchema extends TSchema | undefined> = [TSettingsSchema] extends [TSchema]
@@ -94,14 +93,14 @@ export type ProfilePrepareContext<TInitial = JsonValue, TPayload = unknown, TSet
     session: RuntimeSessionFacade;
     /** 创建 agent session 时传入的稳定初始化参数。 */
     initial: TInitial;
-    /** 本次 invocation 的一次性入参。clientState 会同时归一化进 ctx.vars.client.*。 */
+    /** 本次 invocation 的一次性入参；runtime reminder 可直接读取 clientState。 */
     invocation?: {
         payload?: TPayload;
         message?: string;
         clientState?: ClientStateSnapshot;
         caller: AgentInvokeCaller;
     };
-    /** 统一变量访问器。profile 普通写法优先用 TSX <Variable>/<VariableSchema> helper。 */
+    /** 底层变量访问器；保留给需要显式编程访问的 profile。 */
     vars: ProfileVariableAccessor;
     /** Agent profile catalog snapshot，用于 AgentCatalog 和 create_agent/invoke_agent 提示。 */
     catalog: AgentCatalogSnapshot;
@@ -129,27 +128,7 @@ export type ProfileTurnPlan = {
     stateWrites?: SessionEntryDraft[];
 };
 
-export type ProfileCompactionPlan = {
-    enabled?: boolean;
-    triggerPercent?: number;
-    triggerTokens?: number;
-    reserveTokens?: number;
-    keepRecentTokens?: number;
-    keepRecentPercent?: number;
-    prompt?: string;
-    summaryPrefix?: string;
-};
-
-export type KnownAgentProfileInputs = {
-    summarizer: Omit<Static<typeof SessionSummarizerInitialSchema>, "sourceSessionId">;
-};
-
-export type AgentProfileSummarizerConfig<TKey extends string = string> = {
-    /** false 表示显式关闭当前 profile 的展示标题/摘要维护。 */
-    enabled?: boolean;
-    profileKey: TKey;
-    input?: TKey extends keyof KnownAgentProfileInputs ? KnownAgentProfileInputs[TKey] : JsonValue;
-};
+export type AgentProfileRuntimeDefaults<TKey extends string = string> = ProfileRuntimeDefaults;
 
 export type SidecarProfilePassStage = "prepareRun" | "settleRun";
 
@@ -219,8 +198,8 @@ export type AgentProfileDefinition<
      */
     skills?: {include: readonly string[]};
     sidecars?: readonly SidecarProfilePass<Static<TInitialSchema>, JsonValue>[];
-    summarizer?: AgentProfileSummarizerConfig<TSummarizerKey>;
-    compaction?: ProfileCompactionPlan;
+    /** Harness 通用运行策略的最低优先级出厂默认；用户配置始终可以覆盖。 */
+    runtimeDefaults?: AgentProfileRuntimeDefaults<TSummarizerKey>;
     runtime?: AgentRuntimeDefinition<Static<TInitialSchema>> | NormalizedAgentRuntimeDefinition<Static<TInitialSchema>>;
     /** profile 自带的 session.* 变量定义，随 profile `.compiled` artifact 加载。 */
     variableDefinitions?: readonly VariableDefinition[];

@@ -33,7 +33,6 @@ export default defineAgentProfile({
     tools: toolset(
         builtin.result.main({dataSchema: OutputSchema}),
     ),
-    compaction: {},
     context(ctx) {
         const payload = ctx.invocation?.payload as Payload | undefined;
         return (
