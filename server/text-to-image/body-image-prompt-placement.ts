@@ -21,6 +21,11 @@ export const BodyImagePromptPlacementPromptSchema = z.object({
 export const BodyImagePromptPlacementSchema = z.object({
     promptId: z.string().trim().min(1),
     afterParagraphId: z.string().trim().min(1),
+    characterIds: z.array(z.string().trim().min(1)).default([]),
+    view: z.enum(["front", "back"]).default("front"),
+    framing: z.enum(["face", "upper", "lower", "full"]).default("full"),
+    rating: z.enum(["sfw", "nsfw"]).default("sfw"),
+    outfitName: z.string().default(""),
     reason: z.string().default(""),
     confidence: z.number().min(0).max(1).default(0.8),
 });
@@ -31,6 +36,7 @@ export const BodyImagePromptPlacementRequestSchema = z.object({
     chapterMarkdown: z.string().default(""),
     paragraphs: z.array(BodyImagePromptPlacementParagraphSchema).default([]),
     prompts: z.array(BodyImagePromptPlacementPromptSchema).default([]),
+    characterIds: z.array(z.string().trim().min(1)).default([]),
     llmReply: z.string().default(""),
 });
 
@@ -59,6 +65,7 @@ export async function resolveBodyImagePromptPlacements(input: BodyImagePromptPla
                 paragraphs: input.paragraphs,
                 prompts: input.prompts,
                 placements,
+                characterIds: input.characterIds,
             }),
             warnings,
         };
@@ -68,6 +75,7 @@ export async function resolveBodyImagePromptPlacements(input: BodyImagePromptPla
             placements: fallbackPlaceBodyImagePrompts({
                 paragraphs: input.paragraphs,
                 prompts: input.prompts,
+                characterIds: input.characterIds,
             }),
             warnings,
         };
@@ -81,9 +89,11 @@ export function normalizeBodyImagePromptPlacements(input: {
     paragraphs: BodyImagePromptPlacementParagraph[];
     prompts: BodyImagePromptPlacementPrompt[];
     placements: BodyImagePromptPlacement[];
+    characterIds?: string[];
 }): BodyImagePromptPlacement[] {
     const paragraphIds = new Set(input.paragraphs.map((paragraph) => paragraph.id));
     const promptIds = new Set(input.prompts.map((prompt) => prompt.id));
+    const allowedCharacterIds = new Set(input.characterIds ?? []);
     const seenPromptIds = new Set<string>();
     const normalized: BodyImagePromptPlacement[] = [];
     for (const placement of input.placements) {
@@ -96,6 +106,11 @@ export function normalizeBodyImagePromptPlacements(input: {
         normalized.push({
             promptId,
             afterParagraphId,
+            characterIds: (placement.characterIds ?? []).filter((characterId) => allowedCharacterIds.has(characterId)),
+            view: placement.view ?? "front",
+            framing: placement.framing ?? "full",
+            rating: placement.rating ?? "sfw",
+            outfitName: placement.outfitName?.trim() ?? "",
             reason: placement.reason.trim() || "子 agent 判定该插图适合放在此段落后。",
             confidence: clampConfidence(placement.confidence),
         });
@@ -109,6 +124,7 @@ export function normalizeBodyImagePromptPlacements(input: {
 export function fallbackPlaceBodyImagePrompts(input: {
     paragraphs: BodyImagePromptPlacementParagraph[];
     prompts: BodyImagePromptPlacementPrompt[];
+    characterIds?: string[];
 }): BodyImagePromptPlacement[] {
     const placements: BodyImagePromptPlacement[] = [];
     for (const prompt of input.prompts) {
@@ -123,6 +139,11 @@ export function fallbackPlaceBodyImagePrompts(input: {
         placements.push({
             promptId: prompt.id,
             afterParagraphId: paragraph.id,
+            characterIds: [],
+            view: "front",
+            framing: "full",
+            rating: "sfw",
+            outfitName: "",
             reason: "LLM 回复上下文明确命中该段落。",
             confidence: 0.7,
         });
@@ -131,6 +152,7 @@ export function fallbackPlaceBodyImagePrompts(input: {
         paragraphs: input.paragraphs,
         prompts: input.prompts,
         placements,
+        characterIds: input.characterIds,
     });
 }
 
@@ -180,6 +202,11 @@ function readAgentPlacements(data: unknown): BodyImagePromptPlacement[] {
         .map((item) => ({
             promptId: typeof item.promptId === "string" ? item.promptId : "",
             afterParagraphId: typeof item.afterParagraphId === "string" ? item.afterParagraphId : "",
+            characterIds: Array.isArray(item.characterIds) ? item.characterIds.filter((value): value is string => typeof value === "string") : [],
+            view: item.view === "back" ? "back" : "front",
+            framing: item.framing === "face" || item.framing === "upper" || item.framing === "lower" ? item.framing : "full",
+            rating: item.rating === "nsfw" ? "nsfw" : "sfw",
+            outfitName: typeof item.outfitName === "string" ? item.outfitName : "",
             reason: typeof item.reason === "string" ? item.reason : "",
             confidence: typeof item.confidence === "number" ? item.confidence : 0.8,
         }));

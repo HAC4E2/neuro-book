@@ -108,8 +108,16 @@
         else                       setStatus("仍在启动中，请稍候… (" + Math.round(elapsed / 1000) + "s)");
       }
 
-      // 检查启动错误
-      invoke("get_boot_error").then((error) => {
+      // 优先检查是否有 data 目录迁移在进行（迁移期间服务未起，迁移完成会清除进度）
+      invoke("get_migration_progress").then((progress) => {
+        if (typeof progress === "string" && progress) {
+          setStatus(progress);
+          setTimeout(poll, 400);
+          return Promise.reject(new Error("__migration_in_progress__"));
+        }
+        // 检查启动错误
+        return invoke("get_boot_error");
+      }).then((error) => {
         if (typeof error === "string" && error) {
           showError(error);
           return;
@@ -124,14 +132,16 @@
           } else {
             setTimeout(poll, 400);
           }
-        }).catch(() => {
+        }).catch((e) => {
+          if (e && e.message === "__migration_in_progress__") return;
           if (elapsed > TIMEOUT_MS) {
             showError("服务在 120 秒内未就绪。\n请检查 data/logs/boot.log 获取详细信息。");
           } else {
             setTimeout(poll, 400);
           }
         });
-      }).catch(() => {
+      }).catch((e) => {
+        if (e && e.message === "__migration_in_progress__") return;
         if (elapsed > TIMEOUT_MS) {
           showError("服务在 120 秒内未就绪。\n请检查 data/logs/boot.log 获取详细信息。");
         } else {

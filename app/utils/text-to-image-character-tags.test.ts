@@ -38,8 +38,8 @@ describe("text-to-image character image-tags markdown", () => {
             "## 负面提示词",
             "mature woman",
             "## 服装列表",
-            "- 深色水手校服|dark navy sailor uniform",
-            "- 白色睡裙|white nightgown",
+            "- [深色水手校服/dark navy sailor uniform](outfits/深色水手校服.md)",
+            "- [白色睡裙/white nightgown](outfits/白色睡裙.md)",
         ].join("\n"), {
             id: "character-xiaoming",
             sourcePath: "lorebook/character/xiaoming/image-tags.md",
@@ -50,8 +50,26 @@ describe("text-to-image character image-tags markdown", () => {
         expect(tag.facialAppearance).toContain("golden brown eyes");
         expect(tag.upperBackNsfw).toBe("bare back");
         expect(tag.outfits).toEqual([
-            {nameCn: "深色水手校服", nameEn: "dark navy sailor uniform"},
-            {nameCn: "白色睡裙", nameEn: "white nightgown"},
+            {
+                sourcePath: "lorebook/character/xiaoming/outfits/深色水手校服.md",
+                owner: "",
+                nameCn: "深色水手校服",
+                nameEn: "dark navy sailor uniform",
+                upper: "",
+                upperBack: "",
+                lower: "",
+                lowerBack: "",
+            },
+            {
+                sourcePath: "lorebook/character/xiaoming/outfits/白色睡裙.md",
+                owner: "",
+                nameCn: "白色睡裙",
+                nameEn: "white nightgown",
+                upper: "",
+                upperBack: "",
+                lower: "",
+                lowerBack: "",
+            },
         ]);
 
         const engineCharacter = imageTagToPromptEngineCharacter(tag);
@@ -70,7 +88,7 @@ describe("text-to-image character image-tags markdown", () => {
             "## 五官外貌",
             "blonde hair",
             "## 服装列表",
-            "深色水手校服|dark navy sailor uniform",
+            "[深色水手校服/dark navy sailor uniform](outfits/深色水手校服.md)",
         ].join("\n"), {id: "c-1", sourcePath: "lorebook/character/xiaoming/image-tags.md"});
 
         const context = renderTextToImageCharacterTagsForLlm([tag]);
@@ -78,7 +96,21 @@ describe("text-to-image character image-tags markdown", () => {
         expect(context).toContain("小明|明明");
         expect(context).toContain("Xiao Ming");
         expect(context).toContain("blonde hair");
-        expect(context).toContain("深色水手校服|dark navy sailor uniform");
+        expect(context).toContain("深色水手校服/dark navy sailor uniform");
+    });
+
+    it("ignores an outfit index that escapes the current character outfits directory", () => {
+        const tag = parseTextToImageCharacterImageTags([
+            "## 角色中文名称",
+            "小明",
+            "## 服装列表",
+            "- [跨角色服装/another character outfit](../xiaohong/outfits/礼服.md)",
+        ].join("\n"), {
+            id: "xiaoming",
+            sourcePath: "lorebook/character/xiaoming/image-tags.md",
+        });
+
+        expect(tag.outfits).toEqual([]);
     });
 
     it("renders image-tags.md markdown that can be parsed back", () => {
@@ -100,7 +132,16 @@ describe("text-to-image character image-tags markdown", () => {
             lowerNsfw: "",
             lowerBackNsfw: "",
             negativePrompt: "mature woman",
-            outfits: [{nameCn: "深色水手校服", nameEn: "dark navy sailor uniform"}],
+            outfits: [{
+                sourcePath: "lorebook/character/xiaoming/outfits/深色水手校服.md",
+                owner: "Xiao Ming",
+                nameCn: "深色水手校服",
+                nameEn: "dark navy sailor uniform",
+                upper: "white sailor shirt",
+                upperBack: "white sailor shirt",
+                lower: "navy pleated skirt",
+                lowerBack: "navy pleated skirt",
+            }],
         });
         const parsed = parseTextToImageCharacterImageTags(markdown, {
             id: "xiaoming",
@@ -110,6 +151,11 @@ describe("text-to-image character image-tags markdown", () => {
         expect(markdown).toContain("# image-tags");
         expect(parsed.cnAliases).toEqual(["小明", "明明"]);
         expect(parsed.facialAppearance).toBe("((blonde hair)), ((golden brown eyes))");
-        expect(parsed.outfits).toEqual([{nameCn: "深色水手校服", nameEn: "dark navy sailor uniform"}]);
+        expect(markdown).toContain("[深色水手校服/dark navy sailor uniform](outfits/深色水手校服.md)");
+        expect(parsed.outfits[0]).toMatchObject({
+            nameCn: "深色水手校服",
+            nameEn: "dark navy sailor uniform",
+            sourcePath: "lorebook/character/xiaoming/outfits/深色水手校服.md",
+        });
     });
 });

@@ -1,5 +1,5 @@
 ﻿<script setup lang="ts">
-import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
+import {computed, onMounted, ref, watch} from "vue";
 import {storeToRefs} from "pinia";
 import Dialog from "nbook/app/components/common/Dialog.vue";
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
@@ -31,12 +31,6 @@ import {
 import type {TextToImagePromptReplacementRule} from "nbook/app/utils/text-to-image-prompt-engine";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {
-    enqueueTextToImageGeneration,
-    subscribeTextToImageGenerationQueue,
-    type TextToImageGenerationQueueSnapshot,
-    type TextToImageGenerationQueueStatus,
-} from "nbook/app/utils/text-to-image-generation-queue";
-import {
     buildTextToImageLlmMessages,
     formatTextToImageLlmMessages,
     requestTextToImageLlmCompletion,
@@ -52,7 +46,7 @@ import {
     parseTextToImageCharacterDraft,
 } from "nbook/app/utils/text-to-image-character-design";
 import {parseStChatu8TextToImageSettings} from "nbook/app/utils/text-to-image-st-chatu8-import";
-import {resolveTextToImageResultImageUrl} from "nbook/app/components/markdown-studio/tiptap/TextToImageResult";
+import type {TextToImageJobDto} from "nbook/shared/dto/text-to-image.dto";
 import type {WorkspaceTreeSnapshotDto} from "nbook/shared/dto/workspace-tree.dto";
 
 type StyleTextFieldKey = "positivePrefix" | "positiveSuffix" | "negativePrefix" | "negativeSuffix";
@@ -98,10 +92,6 @@ type SourceCharacterDetail = SourceCharacterOption & {
     stateContent: string;
 };
 
-type SelectOutputDirectoryResponse = {
-    path: string | null;
-};
-
 type TextToImageGenerateResponse = {
     images: TextToImageGenerationResult[];
     request: {
@@ -137,16 +127,17 @@ const {
     activeOutfitId,
     activeStyle,
     activeStyleId,
+    activeNovelAiProviderId,
     characters,
     currentProjectPath,
     generationDraft,
-    generationResults,
     lastNovelAiExchange,
     llm,
     novelAi,
-    output,
     outfits,
     promptReplacementRules,
+    projectJobs,
+    providers,
     stylePresets,
     taskPrompts,
 } = storeToRefs(store);
@@ -169,22 +160,11 @@ const importStatus = ref("");
 const connectingLlm = ref(false);
 const llmConnectionStatus = ref<"idle" | "success" | "failed">("idle");
 const llmConnectionMessage = ref("");
-const outputSettingsOpen = ref(false);
-const selectingOutputPath = ref(false);
 const generatingImage = ref(false);
-const imageGenerationStatus = ref<"idle" | TextToImageGenerationQueueStatus>("idle");
-const generationQueueSnapshot = ref<TextToImageGenerationQueueSnapshot>({
-    jobs: [],
-    activeCount: 0,
-    queuedCount: 0,
-    runningCount: 0,
-    completedCount: 0,
-});
+const imageGenerationStatus = ref<"idle" | "queued">("idle");
 const generationError = ref("");
 const generationWarnings = ref<string[]>([]);
 const lastGenerationRequest = ref<TextToImageGenerateResponse["request"] | null>(null);
-const generatingCharacterImage = ref(false);
-const characterImageGenerationStatus = ref<"idle" | TextToImageGenerationQueueStatus>("idle");
 const characterPromptDialogOpen = ref(false);
 const characterPromptDialogMode = ref<CharacterPromptDialogMode>("photoPrompt");
 const characterPromptRequirement = ref("");
@@ -199,14 +179,12 @@ const collapsedSections = ref<Record<TextToImagePanelSection, boolean>>({
     llm: false,
     characters: false,
 });
-const generationButtonLabel = computed(() => imageGenerationStatus.value === "queued" ? "排队中" : imageGenerationStatus.value === "running" ? "生成中" : "生成");
-const characterImageGenerationLabel = computed(() => characterImageGenerationStatus.value === "queued" ? "排队中" : characterImageGenerationStatus.value === "running" ? "生成中" : "生成图片");
-const visibleGenerationQueueJobs = computed(() => generationQueueSnapshot.value.jobs.slice(0, 6));
+const generationButtonLabel = computed(() => imageGenerationStatus.value === "queued" ? "排队中" : "生成");
+const visibleGenerationQueueJobs = computed(() => projectJobs.value.slice(0, 6));
 const generationQueueSummary = computed(() => {
-    const snapshot = generationQueueSnapshot.value;
-    return `运行 ${snapshot.runningCount} · 排队 ${snapshot.queuedCount} · 完成 ${snapshot.completedCount}`;
+    const jobs = projectJobs.value;
+    return `运行 ${jobs.filter((job) => job.status === "running").length} · 排队 ${jobs.filter((job) => job.status === "queued").length} · 完成 ${jobs.filter((job) => job.status === "succeeded").length}`;
 });
-let unsubscribeGenerationQueue: (() => void) | null = null;
 
 const novelAiModelOptions: SelectOption[] = [
     {value: "nai-diffusion-4-5-full", label: "NAI Diffusion V4.5 Full"},
@@ -411,12 +389,18 @@ const generationPreviewNegativePrompt = computed(() => mergePromptPreview(
     generationDraft.value.negativePrompt,
     activeStyle.value?.negativeSuffix,
 ));
+const novelAiProviderOptions = computed<SelectOption[]>(() => providers.value
+    .filter((provider) => provider.kind === "novelai")
+    .map((provider) => ({value: String(provider.id), label: `${provider.name} · ${provider.model}`})));
 const canGenerateTextToImage = computed(() => {
-    return !generatingImage.value && novelAi.value.token.trim().length > 0 && generationPreviewPrompt.value.trim().length > 0;
+    return !generatingImage.value && activeNovelAiProviderId.value !== null && generationPreviewPrompt.value.trim().length > 0;
 });
 
 watch(currentNovelId, (projectPath) => {
     store.setCurrentProjectPath(projectPath);
+    if (projectPath) {
+        void store.refreshProjectJobs(projectPath).catch(() => undefined);
+    }
     if (!sourceProjectPath.value && projectPath) {
         sourceProjectPath.value = projectPath;
     }
@@ -435,10 +419,15 @@ watch(tagInsertTargets, (targets) => {
 }, {immediate: true});
 
 onMounted(async () => {
-    unsubscribeGenerationQueue = subscribeTextToImageGenerationQueue((snapshot) => {
-        generationQueueSnapshot.value = snapshot;
-    });
     store.ensureDefaults();
+    await store.refreshProviders().catch((error) => {
+        notification.error(resolveApiErrorMessage(error, "读取文生图 Provider 失败"));
+    });
+    if (currentProjectPath.value) {
+        await store.refreshProjectJobs(currentProjectPath.value).catch((error) => {
+            notification.error(resolveApiErrorMessage(error, "读取文生图任务失败"));
+        });
+    }
     if (novels.value.length === 0) {
         try {
             await novelIdeStore.loadNovels();
@@ -452,11 +441,6 @@ onMounted(async () => {
     if (sourceProjectPath.value) {
         await loadSourceCharacters(sourceProjectPath.value);
     }
-});
-
-onBeforeUnmount(() => {
-    unsubscribeGenerationQueue?.();
-    unsubscribeGenerationQueue = null;
 });
 
 /**
@@ -485,8 +469,8 @@ async function generateTextToImage(): Promise<void> {
     }
     generationError.value = "";
     generationWarnings.value = [];
-    if (!novelAi.value.token.trim()) {
-        generationError.value = "请先配置 NovelAI Persistent Token";
+    if (activeNovelAiProviderId.value === null) {
+        generationError.value = "请先选择 NovelAI Provider";
         notification.error(generationError.value);
         return;
     }
@@ -499,38 +483,30 @@ async function generateTextToImage(): Promise<void> {
     generatingImage.value = true;
     imageGenerationStatus.value = "queued";
     try {
-        notification.info("文生图请求已加入队列。");
-        const result = await enqueueTextToImageGeneration<TextToImageGenerateResponse>({
-            id: `panel-generation:${Date.now().toString(36)}`,
-            label: "手动生图",
-            onStatusChange: (status) => {
-                imageGenerationStatus.value = status === "done" || status === "error" ? "idle" : status;
-            },
-            run: () => $fetch<TextToImageGenerateResponse>("/api/text-to-image/generate", {
-                method: "POST",
-                body: {
-                    novelAi: novelAi.value,
-                    style: activeStyle.value,
-                    character: generationDraft.value.includeActiveCharacter ? activeCharacter.value : null,
-                    characters: characters.value,
-                    outfits: outfits.value,
-                    promptRules: promptReplacementRules.value,
-                    prompt: generationDraft.value.prompt,
-                    negativePrompt: generationDraft.value.negativePrompt,
+        const job = await $fetch<{id: string}>("/api/text-to-image/jobs", {
+            method: "POST",
+            body: {
+                projectPath: currentProjectPath.value,
+                providerId: activeNovelAiProviderId.value,
+                kind: "manual",
+                prompt: generationPreviewPrompt.value,
+                negativePrompt: generationPreviewNegativePrompt.value,
+                novelAi: {
+                    model: novelAi.value.model,
+                    sampler: novelAi.value.sampler,
+                    noiseSchedule: novelAi.value.noiseSchedule,
+                    promptGuidance: novelAi.value.promptGuidance,
+                    promptGuidanceRescale: novelAi.value.promptGuidanceRescale,
+                    width: novelAi.value.width,
+                    height: novelAi.value.height,
+                    steps: novelAi.value.steps,
+                    seed: novelAi.value.seed,
                     count: generationDraft.value.batchSize,
-                    output: output.value,
                 },
-            }),
+            },
         });
-        store.prependGenerationResults(result.images);
-        store.recordNovelAiExchange({
-            request: result.request,
-            warnings: result.warnings,
-            imageCount: result.images.length,
-        });
-        generationWarnings.value = result.warnings;
-        lastGenerationRequest.value = lastNovelAiExchange.value.request as TextToImageGenerateResponse["request"] | null;
-        notification.success(`生成完成，已保存 ${result.images.length} 张图片`);
+        notification.success(`文生图任务已加入队列：${job.id}`);
+        await store.refreshProjectJobs(currentProjectPath.value);
     } catch (error) {
         generationError.value = resolveApiErrorMessage(error, "文生图生成失败");
         notification.error(generationError.value);
@@ -541,234 +517,7 @@ async function generateTextToImage(): Promise<void> {
 }
 
 /**
- * 使用当前角色照片 prompt 调用现有 NovelAI 生图接口，并把首张结果保存为角色头像。
- */
-async function generateActiveCharacterImage(): Promise<void> {
-    const character = activeCharacter.value;
-    if (!character || generatingCharacterImage.value) {
-        return;
-    }
-    const prompt = character.photoPrompt.trim();
-    if (!novelAi.value.token.trim()) {
-        notification.error("请先配置 NovelAI Persistent Token");
-        return;
-    }
-    if (!prompt) {
-        notification.error("请先填写或生成角色照片提示词");
-        return;
-    }
-
-    generatingCharacterImage.value = true;
-    characterImageGenerationStatus.value = "queued";
-    try {
-        notification.info("角色照片生成请求已加入队列。");
-        const result = await enqueueTextToImageGeneration<TextToImageGenerateResponse>({
-            id: `panel-character-portrait:${character.id}:${Date.now().toString(36)}`,
-            label: `角色头像：${formatCharacterName(character)}`,
-            onStatusChange: (status) => {
-                characterImageGenerationStatus.value = status === "done" || status === "error" ? "idle" : status;
-            },
-            run: () => $fetch<TextToImageGenerateResponse>("/api/text-to-image/generate", {
-                method: "POST",
-                body: {
-                    novelAi: novelAi.value,
-                    style: activeStyle.value,
-                    character,
-                    characters: characters.value,
-                    outfits: outfits.value,
-                    promptRules: promptReplacementRules.value,
-                    prompt,
-                    negativePrompt: generationDraft.value.negativePrompt,
-                    count: 1,
-                    output: output.value,
-                },
-            }),
-        });
-        store.prependGenerationResults(result.images);
-        store.recordNovelAiExchange({
-            request: result.request,
-            warnings: result.warnings,
-            imageCount: result.images.length,
-        });
-        generationWarnings.value = result.warnings;
-        lastGenerationRequest.value = lastNovelAiExchange.value.request as TextToImageGenerateResponse["request"] | null;
-        const portrait = result.images[0] ?? null;
-        if (portrait) {
-            const nextHistory = [
-                ...(Array.isArray(character.portraitHistory) ? character.portraitHistory : []),
-                portrait,
-            ];
-            store.updateCharacter(character.id, {
-                portraitDataUrl: resolveTextToImageResultImageUrl(portrait),
-                portraitHistory: nextHistory,
-                activePortraitIndex: nextHistory.length - 1,
-            });
-        }
-        notification.success(`角色照片已生成并保存：${result.images[0]?.fileName ?? "图片"}`);
-    } catch (error) {
-        notification.error(resolveApiErrorMessage(error, "角色照片生成失败"));
-    } finally {
-        generatingCharacterImage.value = false;
-        characterImageGenerationStatus.value = "idle";
-    }
-}
-
-/**
  * 打开角色头像本地上传选择器。
- */
-function openCharacterPhotoDialog(): void {
-    characterPhotoInputRef.value?.click();
-}
-
-/**
- * 将本地图片保存为当前角色头像。
- */
-async function importCharacterPhoto(event: Event): Promise<void> {
-    const input = event.target as HTMLInputElement;
-    const file = input.files?.[0] ?? null;
-    input.value = "";
-    if (!file || !activeCharacter.value) {
-        return;
-    }
-    const dataUrl = await readFileAsDataUrl(file);
-    store.updateCharacter(activeCharacter.value.id, {
-        portraitDataUrl: dataUrl,
-        portraitHistory: [],
-        activePortraitIndex: 0,
-    });
-}
-
-/**
- * 切换是否把角色照片作为后续请求上下文发送。
- */
-function toggleActiveCharacterSendPhoto(): void {
-    if (!activeCharacter.value) {
-        return;
-    }
-    store.updateCharacter(activeCharacter.value.id, {sendPhoto: !activeCharacter.value.sendPhoto});
-}
-
-/**
- * 打开生成角色照片 prompt 的小窗口。
- */
-function openCharacterPhotoPromptDialog(): void {
-    openCharacterPromptDialog("photoPrompt");
-}
-
-/**
- * 打开修改角色详细 tag 的小窗口。
- */
-function openCharacterRevisionDialog(): void {
-    openCharacterPromptDialog("revision");
-}
-
-function openCharacterPromptDialog(mode: CharacterPromptDialogMode): void {
-    if (!activeCharacter.value) {
-        notification.error("请先选择角色");
-        return;
-    }
-    characterPromptDialogMode.value = mode;
-    characterPromptRequirement.value = "";
-    characterPromptReferences.value = [];
-    characterPromptError.value = "";
-    characterPromptDialogOpen.value = true;
-}
-
-function openCharacterPromptReferenceDialog(): void {
-    characterPromptReferenceInputRef.value?.click();
-}
-
-async function importCharacterPromptReferences(event: Event): Promise<void> {
-    const input = event.target as HTMLInputElement;
-    const files = Array.from(input.files ?? []);
-    input.value = "";
-    if (files.length === 0) {
-        return;
-    }
-    const references = await Promise.all(files.map(async (file) => ({
-        id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-        name: file.name,
-        dataUrl: await readFileAsDataUrl(file),
-    })));
-    characterPromptReferences.value = [
-        ...characterPromptReferences.value,
-        ...references,
-    ].slice(0, 6);
-}
-
-function removeCharacterPromptReference(id: string): void {
-    characterPromptReferences.value = characterPromptReferences.value.filter((reference) => reference.id !== id);
-}
-
-/**
- * 确认小窗口：生成照片 prompt 或修改角色 tag。
- */
-async function submitCharacterPromptDialog(): Promise<void> {
-    if (characterPromptBusy.value || !activeCharacter.value) {
-        return;
-    }
-    if (!llm.value.apiBaseUrl.trim() || !llm.value.model.trim()) {
-        characterPromptError.value = "请先在 LLM 大模型区连接并选择模型";
-        return;
-    }
-    if (!characterPromptRequirement.value.trim()) {
-        characterPromptError.value = "请填写具体需求";
-        return;
-    }
-
-    characterPromptBusy.value = true;
-    characterPromptError.value = "";
-    try {
-        if (characterPromptDialogMode.value === "photoPrompt") {
-            const prompt = await requestCharacterPhotoPrompt(activeCharacter.value, characterPromptRequirement.value, characterPromptReferences.value);
-            store.updateCharacter(activeCharacter.value.id, {photoPrompt: prompt});
-            notification.success("角色照片提示词已生成");
-        } else {
-            const content = await requestCharacterRevision(activeCharacter.value, characterPromptRequirement.value);
-            const draft = parseCharacterDraft(content);
-            const patch = buildCharacterTagPatch(draft);
-            if (Object.keys(patch).length === 0) {
-                throw new Error("LLM 没有返回可用的角色 tag 字段");
-            }
-            store.updateCharacter(activeCharacter.value.id, patch);
-            notification.success("角色详细 tag 已更新");
-        }
-        characterPromptDialogOpen.value = false;
-    } catch (error) {
-        characterPromptError.value = resolveApiErrorMessage(error, characterPromptDialogMode.value === "photoPrompt" ? "生成图片提示词失败" : "修改角色提示词失败");
-    } finally {
-        characterPromptBusy.value = false;
-    }
-}
-
-/**
- * 通过本机目录选择器设置返回图片保存路径。
- */
-async function selectOutputDirectory(): Promise<void> {
-    if (selectingOutputPath.value) {
-        return;
-    }
-    selectingOutputPath.value = true;
-    try {
-        const result = await $fetch<SelectOutputDirectoryResponse>("/api/text-to-image/select-output-directory", {
-            method: "POST",
-            body: {
-                currentPath: output.value.imageSavePath,
-            },
-        });
-        if (result.path) {
-            store.updateOutputSettings({imageSavePath: result.path});
-            notification.success("已设置返回图片保存路径");
-        }
-    } catch (error) {
-        notification.error(resolveApiErrorMessage(error, "选择保存路径失败"));
-    } finally {
-        selectingOutputPath.value = false;
-    }
-}
-
-/**
- * 更新当前画风串的字段。
  */
 function updateActiveStyleField(key: StyleTextFieldKey, value: string): void {
     if (!activeStyle.value) {
@@ -1043,24 +792,38 @@ function updateGenerationBatchSize(value: string): void {
     store.updateGenerationDraft({batchSize: Number(value)});
 }
 
-function formatGenerationQueueStatus(status: TextToImageGenerationQueueStatus): string {
-    const labels: Record<TextToImageGenerationQueueStatus, string> = {
+function formatGenerationQueueStatus(status: TextToImageJobDto["status"]): string {
+    const labels: Record<TextToImageJobDto["status"], string> = {
         queued: "排队",
         running: "生成中",
-        done: "完成",
-        error: "失败",
+        succeeded: "完成",
+        failed: "失败",
+        canceled: "已取消",
+        interrupted: "已中断",
     };
     return labels[status];
 }
 
-function generationQueueJobIconClass(status: TextToImageGenerationQueueStatus): string {
-    const icons: Record<TextToImageGenerationQueueStatus, string> = {
+function generationQueueJobIconClass(status: TextToImageJobDto["status"]): string {
+    const icons: Record<TextToImageJobDto["status"], string> = {
         queued: "i-lucide-clock-3 text-[var(--status-warning)]",
         running: "i-lucide-loader-2 animate-spin text-[var(--status-info)]",
-        done: "i-lucide-check text-[var(--status-success)]",
-        error: "i-lucide-circle-alert text-[var(--status-danger)]",
+        succeeded: "i-lucide-check text-[var(--status-success)]",
+        failed: "i-lucide-circle-alert text-[var(--status-danger)]",
+        canceled: "i-lucide-ban text-[var(--text-muted)]",
+        interrupted: "i-lucide-circle-pause text-[var(--status-warning)]",
     };
     return icons[status];
+}
+
+function formatGenerationQueueJobKind(kind: TextToImageJobDto["kind"]): string {
+    const labels: Record<TextToImageJobDto["kind"], string> = {
+        manual: "手动生成",
+        body: "正文插图",
+        character: "角色图",
+        reroll: "重新生成",
+    };
+    return labels[kind];
 }
 
 function reuseGenerationResult(result: TextToImageGenerationResult): void {
@@ -1200,16 +963,10 @@ function addCharacter(): void {
     openCharacterWorkspace(character);
 }
 
-/**
- * 在中间主工作区打开文生图角色详情分页。
- */
+/** 角色 tag 已迁移到 Project Workspace 的 image-tags.md，不再打开旧角色分页。 */
 function openCharacterWorkspace(character: TextToImageCharacter): void {
     store.selectCharacter(character.id);
-    novelIdeStore.openTextToImageCharacterTab({
-        projectPath: currentProjectPath.value,
-        characterId: character.id,
-        title: formatCharacterName(character),
-    });
+    notification.info("角色 tag 已迁移到角色目录中的 image-tags.md");
 }
 
 /**
@@ -1315,10 +1072,14 @@ async function connectLlm(): Promise<void> {
  * 请求 OpenAI-compatible 模型列表接口。
  */
 async function requestAvailableModels(): Promise<string[]> {
-    return await requestTextToImageLlmModels(llm.value);
+    const {providerId} = store.resolveLlmTaskBinding(selectedPromptTask.value);
+    if (providerId === null) {
+        throw new Error("请先为当前任务选择 OpenAI-compatible Provider。");
+    }
+    return await requestTextToImageLlmModels(providerId);
 }
 
-function selectPromptTask(value: string): void {function selectPromptTask(value: string): void {
+function selectPromptTask(value: string): void {
     const matched = TEXT_TO_IMAGE_PROMPT_TASKS.find((task) => task.key === value);
     if (matched) {
         selectedPromptTask.value = matched.key;
@@ -1504,10 +1265,7 @@ async function importCharacterFromProject(): Promise<void> {
  * 调用 OpenAI-compatible chat completions 接口生成角色 tag。
  */
 async function requestCharacterDesign(detail: SourceCharacterDetail): Promise<string> {
-    const {apiConfig, contextPreset} = store.resolveLlmTaskBinding("characterDesign");
-    if (!apiConfig.apiBaseUrl.trim() || !apiConfig.model.trim()) {
-        throw new Error("请先在文生图 LLM 中为“角色/服装设计”配置 API 和模型。");
-    }
+    const {contextPreset} = store.resolveLlmTaskBinding("characterDesign");
     const characterDesignRequestPayload = buildTextToImageCharacterDesignRequestPayload(detail);
     const characterDesignTaskPrompt = taskPrompts.value.characterDesign.prompt.trim() || [
         "你是 NovelAI 角色与服装 tag 设计助手。",
@@ -1524,7 +1282,7 @@ async function requestCharacterDesign(detail: SourceCharacterDetail): Promise<st
             userRequest: characterDesignRequestPayload,
         }),
     });
-    const characterDesignReply = await requestTextToImageLlmCompletion(apiConfig, characterDesignMessages);
+    const characterDesignReply = await requestLlmChatCompletion(characterDesignMessages, "characterDesign");
     if (!characterDesignReply) {
         throw new Error("LLM 没有返回可用内容");
     }
@@ -1567,10 +1325,7 @@ async function requestCharacterPhotoPrompt(character: TextToImageCharacter, requ
  * 调用 LLM 按用户方向修改当前角色 tag。
  */
 async function requestCharacterRevision(character: TextToImageCharacter, direction: string): Promise<string> {
-    const {apiConfig, contextPreset} = store.resolveLlmTaskBinding("characterRevision");
-    if (!apiConfig.apiBaseUrl.trim() || !apiConfig.model.trim()) {
-        throw new Error("请先在文生图 LLM 中为“角色/服装修改”配置 API 和模型。");
-    }
+    const {contextPreset} = store.resolveLlmTaskBinding("characterRevision");
     const revisionRequestPayload = buildTextToImageCharacterRevisionRequestPayload(character, direction);
     const revisionTaskPrompt = taskPrompts.value.characterRevision.prompt.trim() || [
         "你是 NovelAI 角色 tag 修改助手。",
@@ -1588,7 +1343,7 @@ async function requestCharacterRevision(character: TextToImageCharacter, directi
             currentCharacter: character,
         }),
     });
-    const revisionReply = await requestTextToImageLlmCompletion(apiConfig, revisionMessages);
+    const revisionReply = await requestLlmChatCompletion(revisionMessages, "characterRevision");
     if (!revisionReply) {
         throw new Error("LLM 没有返回可用内容");
     }
@@ -1602,11 +1357,17 @@ async function requestCharacterRevision(character: TextToImageCharacter, directi
 }
 
 async function requestLlmChatCompletion(messages: TextToImageLlmMessage[], task: TextToImagePromptTask): Promise<string> {
-    const {apiConfig} = store.resolveLlmTaskBinding(task);
-    if (!apiConfig.apiBaseUrl.trim() || !apiConfig.model.trim()) {
-        throw new Error("请先配置文生图 LLM API 和模型。");
+    const {providerId} = store.resolveLlmTaskBinding(task);
+    const provider = providers.value.find((item) => item.id === providerId && item.kind === "openai_compatible");
+    if (!provider || !provider.model.trim()) {
+        throw new Error("请先为该任务选择并配置 OpenAI-compatible Provider。");
     }
-    const content = await requestTextToImageLlmCompletion(apiConfig, messages);
+    const content = await requestTextToImageLlmCompletion({
+        providerId: provider.id,
+        model: provider.model,
+        parameters: llm.value.parameters,
+        stream: llm.value.stream,
+    }, messages);
     if (!content) {
         throw new Error("LLM 没有返回可用内容");
     }
@@ -1759,27 +1520,12 @@ function readFileAsDataUrl(file: File): Promise<string> {
                     <IconButton title="导入 st-chatu8 JSON" size="sm" @click="openStChatu8ImportDialog">
                         <span class="i-lucide-file-json h-3.5 w-3.5"></span>
                     </IconButton>
-                    <input ref="stChatu8FileInputRef" type="file" accept=".json,application/json" class="hidden" @change="importStChatu8Settings">
-                    <IconButton title="设置返回图片保存路径" size="sm" :class="outputSettingsOpen ? '!bg-[var(--accent-bg)] !text-[var(--accent-text)]' : ''" @click="outputSettingsOpen = !outputSettingsOpen">
-                        <span class="i-lucide-settings h-3.5 w-3.5"></span>
+                    <IconButton title="历史图片" size="sm" :disabled="!currentProjectPath" @click="novelIdeStore.openTextToImageHistoryTab(currentProjectPath)">
+                        <span class="i-lucide-images h-3.5 w-3.5"></span>
                     </IconButton>
+                    <input ref="stChatu8FileInputRef" type="file" accept=".json,application/json" class="hidden" @change="importStChatu8Settings">
                     <span class="i-lucide-image h-5 w-5 text-[var(--accent-main)]"></span>
                 </div>
-            </div>
-            <div v-if="outputSettingsOpen" class="mt-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)]/70 p-2">
-                <div class="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2">
-                    <label class="block min-w-0">
-                        <span class="mb-1 block text-[11px] text-[var(--text-secondary)]">返回图片保存路径</span>
-                        <FormInput :model-value="output.imageSavePath" readonly placeholder="尚未选择本地文件夹" />
-                    </label>
-                    <button type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-color)] px-2 text-[11px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-60" :disabled="selectingOutputPath" @click="selectOutputDirectory">
-                        <span class="h-3.5 w-3.5" :class="selectingOutputPath ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-folder-open'"></span>
-                        <span>{{ selectingOutputPath ? "选择中" : "选择目录" }}</span>
-                    </button>
-                </div>
-                <p class="mt-1 text-[10px] text-[var(--text-muted)]">
-                    请选择本机文件夹；后续发送 NovelAI 请求并接收图片时会用这个本地路径保存结果。
-                </p>
             </div>
         </div>
 
@@ -1801,6 +1547,18 @@ function readFileAsDataUrl(file: File): Promise<string> {
                 </div>
 
                 <div v-if="!isSectionCollapsed('generation')" class="space-y-3 px-3 py-3">
+                    <!-- Provider 选择：凭据仅由服务端持有，浏览器只保存 Provider ID。 -->
+                    <label class="block">
+                        <span class="mb-1 block text-[11px] text-[var(--text-secondary)]">NovelAI Provider</span>
+                        <FormSelect
+                            :model-value="activeNovelAiProviderId === null ? '' : String(activeNovelAiProviderId)"
+                            :options="novelAiProviderOptions"
+                            placeholder="选择 NovelAI Provider"
+                            dropdown-direction="down"
+                            :disabled="novelAiProviderOptions.length === 0"
+                            @update:model-value="store.selectNovelAiProvider($event ? Number($event) : null)"
+                        />
+                    </label>
                     <label class="block">
                         <span class="mb-1 block text-[11px] text-[var(--text-secondary)]">本次正面 prompt</span>
                         <FormTextarea :model-value="generationDraft.prompt" :rows="5" placeholder="输入正文图片生成结果或直接输入 NovelAI tag" @update:model-value="store.updateGenerationDraft({prompt: $event})" />
@@ -1836,7 +1594,7 @@ function readFileAsDataUrl(file: File): Promise<string> {
                             <span class="min-w-0 truncate">模型：{{ novelAi.model }}</span>
                             <span class="min-w-0 truncate text-right">{{ novelAi.width }} x {{ novelAi.height }} · {{ novelAi.steps }} steps</span>
                             <span class="min-w-0 truncate">画风：{{ activeStyle?.name || "未命名画风串" }}</span>
-                            <span class="min-w-0 truncate text-right">保存：{{ output.imageSavePath || "默认图片目录" }}</span>
+                            <span class="min-w-0 truncate text-right">任务完成后保存至历史图片</span>
                         </div>
                         <div class="space-y-1 border-t border-[var(--border-color)] pt-2">
                             <p class="line-clamp-3 text-[11px] text-[var(--text-secondary)]">正面：{{ generationPreviewPrompt || "空" }}</p>
@@ -1856,7 +1614,7 @@ function readFileAsDataUrl(file: File): Promise<string> {
                         </div>
                         <div v-for="job in visibleGenerationQueueJobs" :key="job.id" class="grid grid-cols-[1rem_minmax(0,1fr)_3rem] items-center gap-1.5 text-[10px] text-[var(--text-muted)]">
                             <span class="h-3.5 w-3.5" :class="generationQueueJobIconClass(job.status)"></span>
-                            <span class="min-w-0 truncate">{{ job.label }}</span>
+                            <span class="min-w-0 truncate">{{ formatGenerationQueueJobKind(job.kind) }}</span>
                             <span class="text-right">{{ formatGenerationQueueStatus(job.status) }}</span>
                         </div>
                     </div>
@@ -1874,46 +1632,6 @@ function readFileAsDataUrl(file: File): Promise<string> {
                         <p v-if="lastNovelAiExchange.warnings.length > 0" class="m-0 text-[10px] text-[var(--text-muted)]">{{ lastNovelAiExchange.warnings.join(' / ') }}</p>
                     </div>
 
-                    <div class="space-y-2 border-t border-[var(--border-color)] pt-3">
-                        <div class="flex items-center justify-between gap-2">
-                            <span class="text-[11px] text-[var(--text-secondary)]">生成结果</span>
-                            <button type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-color)] px-2 text-[11px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-60" :disabled="generationResults.length === 0" @click="store.clearGenerationResults">
-                                <span class="i-lucide-eraser h-3.5 w-3.5"></span>
-                                <span>清空</span>
-                            </button>
-                        </div>
-                        <div v-if="generationResults.length === 0" class="rounded-md border border-dashed border-[var(--border-color)] px-3 py-3 text-center text-[11px] text-[var(--text-muted)]">
-                            暂无生成结果。
-                        </div>
-                        <div v-else class="space-y-3">
-                            <div v-for="result in generationResults" :key="result.id" class="overflow-hidden rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)]/50">
-                                <img :src="resolveTextToImageResultImageUrl(result)" :alt="result.fileName" class="block aspect-[3/4] w-full bg-[var(--bg-input)] object-contain">
-                                <div class="space-y-1.5 border-t border-[var(--border-color)] p-2">
-                                    <div class="flex items-center justify-between gap-2">
-                                        <span class="min-w-0 truncate text-[11px] font-medium text-[var(--text-main)]">{{ result.fileName }}</span>
-                                        <span class="shrink-0 text-[10px] text-[var(--text-muted)]">{{ formatImageBytes(result.byteLength) }}</span>
-                                    </div>
-                                    <p class="truncate text-[10px] text-[var(--text-muted)]">{{ formatGenerationTime(result.createdAt) }} · {{ result.model }} · seed {{ result.seed }}</p>
-                                    <p class="truncate text-[10px] text-[var(--text-muted)]">{{ result.savedPath }}</p>
-                                    <p class="line-clamp-2 text-[10px] text-[var(--text-secondary)]">{{ result.prompt }}</p>
-                                    <div class="grid grid-cols-3 gap-1 pt-1">
-                                        <button type="button" class="inline-flex h-7 items-center justify-center gap-1 rounded-md border border-[var(--border-color)] px-2 text-[10px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="reuseGenerationResult(result)">
-                                            <span class="i-lucide-copy-check h-3.5 w-3.5"></span>
-                                            <span>套用</span>
-                                        </button>
-                                        <button type="button" class="inline-flex h-7 items-center justify-center gap-1 rounded-md border border-[var(--border-color)] px-2 text-[10px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="copyGenerationResultPath(result)">
-                                            <span class="i-lucide-clipboard h-3.5 w-3.5"></span>
-                                            <span>路径</span>
-                                        </button>
-                                        <button type="button" class="inline-flex h-7 items-center justify-center gap-1 rounded-md border border-[var(--status-danger-border)] px-2 text-[10px] text-[var(--status-danger)] transition-colors hover:bg-[var(--status-danger-bg)]" @click="removeGenerationResult(result)">
-                                            <span class="i-lucide-trash-2 h-3.5 w-3.5"></span>
-                                            <span>移除</span>
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
                 </div>
             </section>
 
@@ -1948,18 +1666,6 @@ function readFileAsDataUrl(file: File): Promise<string> {
                     <div class="w-[5.75rem]" aria-hidden="true"></div>
                 </div>
                 <div v-if="!isSectionCollapsed('novelAi')" class="space-y-2 px-3 py-3">
-                    <label class="block">
-                        <span class="mb-1 block text-[11px] text-[var(--text-secondary)]">Persistent Token</span>
-                        <FormInput :model-value="novelAi.token" type="password" placeholder="pst-..." @update:model-value="store.updateNovelAiSettings({token: $event})" />
-                    </label>
-                    <label class="block">
-                        <span class="mb-1 block text-[11px] text-[var(--text-secondary)]">API Base URL</span>
-                        <FormInput :model-value="novelAi.apiBaseUrl" placeholder="https://api.novelai.net" @update:model-value="store.updateNovelAiSettings({apiBaseUrl: $event})" />
-                    </label>
-                    <label class="block">
-                        <span class="mb-1 block text-[11px] text-[var(--text-secondary)]">Image Base URL</span>
-                        <FormInput :model-value="novelAi.imageBaseUrl" placeholder="https://image.novelai.net" @update:model-value="store.updateNovelAiSettings({imageBaseUrl: $event})" />
-                    </label>
                     <label class="block">
                         <span class="mb-1 block text-[11px] text-[var(--text-secondary)]">默认模型</span>
                         <FormSelect :model-value="novelAi.model" :options="novelAiModelOptions" dropdown-direction="down" @update:model-value="store.updateNovelAiSettings({model: $event})" />
@@ -2350,409 +2056,4 @@ function readFileAsDataUrl(file: File): Promise<string> {
             </section>
 
             <!-- LLM 配置 -->
-            <section class="mb-4 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/45">
-                <div class="grid min-h-9 grid-cols-[minmax(0,1fr)_5.75rem] items-center gap-2 border-b border-[var(--border-color)] px-3 py-2">
-                    <button type="button" class="grid min-w-0 grid-cols-[1rem_minmax(0,1fr)_0.875rem] items-center gap-2 text-left" @click="openLlmWorkspace">
-                        <span class="i-lucide-brain-circuit h-4 w-4 text-[var(--accent-main)]"></span>
-                        <h3 class="min-w-0 truncate text-[12px] font-medium text-[var(--text-main)]">LLM 大模型</h3>
-                        <span class="i-lucide-panel-top-open h-3.5 w-3.5 text-[var(--text-muted)]"></span>
-                    </button>
-                    <div class="w-[5.75rem]" aria-hidden="true"></div>
-                </div>
-                <div class="space-y-3 px-3 py-3">
-                    <button type="button" class="flex w-full items-center justify-between gap-3 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-3 text-left transition-colors hover:bg-[var(--bg-hover)]" @click="openLlmWorkspace">
-                        <div class="min-w-0">
-                            <div class="truncate text-[12px] font-medium text-[var(--accent-text)]">打开 LLM 详细配置</div>
-                            <div class="mt-1 truncate text-[11px] text-[var(--text-muted)]">
-                                {{ llm.model || "未选择模型" }} · {{ llm.apiBaseUrl || "未配置 API" }}
-                            </div>
-                        </div>
-                        <span class="i-lucide-arrow-right h-4 w-4 shrink-0 text-[var(--text-muted)]"></span>
-                    </button>
-                </div>
-                <div v-if="false" class="hidden">
-                    <div class="grid grid-cols-[1fr_auto] items-end gap-2">
-                        <label class="block min-w-0">
-                            <span class="mb-1 block text-[11px] text-[var(--text-secondary)]">API 连接</span>
-                            <FormInput :model-value="llm.apiBaseUrl" placeholder="例如：https://api.openai.com/v1" @update:model-value="updateLlmApiBaseUrl" />
-                        </label>
-                        <button type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-color)] px-2 text-[11px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-60" :disabled="connectingLlm || !llm.apiBaseUrl.trim()" @click="connectLlm">
-                            <span class="h-3.5 w-3.5" :class="connectingLlm ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-plug'"></span>
-                            <span>{{ connectingLlm ? "连接中" : "连接" }}</span>
-                        </button>
-                    </div>
-                    <label class="block">
-                        <span class="mb-1 block text-[11px] text-[var(--text-secondary)]">API Key</span>
-                        <FormInput :model-value="llm.apiKey" type="password" placeholder="sk-..." @update:model-value="updateLlmApiKey" />
-                    </label>
-                    <p v-if="llmConnectionMessage" class="text-[11px]" :class="llmConnectionStatus === 'failed' ? 'text-[var(--danger-text)]' : 'text-[var(--text-muted)]'">{{ llmConnectionMessage }}</p>
-                    <label v-if="llmModelOptions.length > 0" class="block">
-                        <span class="mb-1 block text-[11px] text-[var(--text-secondary)]">选择模型</span>
-                        <FormSelect :model-value="llm.model" :options="llmModelOptions" placeholder="连接后选择模型" dropdown-direction="down" @update:model-value="store.updateLlmSettings({model: $event})" />
-                    </label>
-                    <div v-else class="rounded-md border border-dashed border-[var(--border-color)] px-2.5 py-2 text-[11px] text-[var(--text-muted)]">
-                        连接后显示可用模型列表。
-                    </div>
-
-                    <div class="space-y-3 border-t border-[var(--border-color)] pt-3">
-                        <div v-for="control in llmParameterControls" :key="control.key" class="space-y-1.5">
-                            <div class="flex items-center justify-between gap-2">
-                                <span class="text-[11px] text-[var(--text-secondary)]">{{ control.label }}</span>
-                                <span class="text-[11px] tabular-nums text-[var(--text-muted)]">{{ formatLlmParameter(control.key) }}</span>
-                            </div>
-                            <div class="grid grid-cols-[1fr_84px] items-center gap-2">
-                                <input
-                                    class="h-7 w-full accent-[var(--accent-main)]"
-                                    type="range"
-                                    :min="control.min"
-                                    :max="control.max"
-                                    :step="control.step"
-                                    :value="llm.parameters[control.key]"
-                                    @input="updateLlmParameter(control.key, ($event.target as HTMLInputElement).value)"
-                                >
-                                <FormInput
-                                    :model-value="String(llm.parameters[control.key])"
-                                    type="number"
-                                    :min="String(control.min)"
-                                    :max="String(control.max)"
-                                    :step="String(control.step)"
-                                    @update:model-value="updateLlmParameter(control.key, $event)"
-                                />
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="space-y-2 border-t border-[var(--border-color)] pt-3">
-                        <div class="flex items-center justify-between gap-2">
-                            <span class="text-[11px] text-[var(--text-secondary)]">任务提示词</span>
-                            <button type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-color)] px-2 text-[11px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="openPromptFileDialog">
-                                <span class="i-lucide-upload h-3.5 w-3.5"></span>
-                                <span>导入</span>
-                            </button>
-                            <input ref="promptFileInputRef" type="file" accept=".txt,.md,text/plain,text/markdown" class="hidden" @change="importPromptFile">
-                        </div>
-                        <FormSelect :model-value="selectedPromptTask" :options="promptTaskOptions" dropdown-direction="down" @update:model-value="selectPromptTask" />
-                        <FormTextarea :model-value="activeTaskPrompt.prompt" :rows="6" placeholder="粘贴或导入该任务使用的提示词" @update:model-value="updateSelectedTaskPrompt" />
-                        <p v-if="activeTaskPrompt.importedName" class="truncate text-[10px] text-[var(--text-muted)]">
-                            {{ activeTaskPrompt.importedName }}<span v-if="activeTaskPrompt.updatedAt"> · {{ activeTaskPrompt.updatedAt }}</span>
-                        </p>
-                    </div>
-                </div>
-            </section>
-
-            <!-- 旧角色/服装管理已迁移到 Project Workspace 的 image-tags.md 文件，文生图面板不再展示。 -->
-            <section v-if="false" class="w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/45">
-                <div class="grid min-h-9 grid-cols-[minmax(0,1fr)_5.75rem] items-center gap-2 border-b border-[var(--border-color)] px-3 py-2">
-                    <button type="button" class="grid min-w-0 grid-cols-[1rem_minmax(0,1fr)_0.875rem] items-center gap-2 text-left" :aria-expanded="!isSectionCollapsed('characters')" @click="toggleSection('characters')">
-                        <span class="i-lucide-user-round-cog h-4 w-4 text-[var(--accent-main)]"></span>
-                        <h3 class="min-w-0 truncate text-[12px] font-medium text-[var(--text-main)]">角色管理</h3>
-                        <span class="h-3.5 w-3.5 text-[var(--text-muted)]" :class="isSectionCollapsed('characters') ? 'i-lucide-chevron-right' : 'i-lucide-chevron-down'"></span>
-                    </button>
-                    <div class="flex w-[5.75rem] items-center justify-end">
-                        <IconButton title="删除当前角色" size="sm" variant="danger" :disabled="!activeCharacter" @click="deleteActiveCharacter">
-                            <span class="i-lucide-trash-2 h-3.5 w-3.5"></span>
-                        </IconButton>
-                    </div>
-                </div>
-
-                <div v-if="!isSectionCollapsed('characters')" class="space-y-3 px-3 py-3">
-                    <div class="flex items-center justify-between gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)]/50 px-2 py-1.5">
-                        <span class="min-w-0 truncate text-[11px] text-[var(--text-secondary)]">绑定小说：{{ currentNovelTitle }}</span>
-                        <span class="shrink-0 text-[11px] text-[var(--text-muted)]">{{ characters.length }} 个角色</span>
-                    </div>
-
-                    <div class="grid grid-cols-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-0.5">
-                        <button type="button" class="h-7 rounded px-2 text-[11px] transition-colors" :class="characterAddMode === 'manual' ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'" @click="characterAddMode = 'manual'">手动添加</button>
-                        <button type="button" class="h-7 rounded px-2 text-[11px] transition-colors" :class="characterAddMode === 'project' ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'" @click="characterAddMode = 'project'">从小说添加</button>
-                    </div>
-
-                    <div v-if="characterAddMode === 'manual'" class="flex justify-end">
-                        <button type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-color)] px-2 text-[11px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="addCharacter">
-                            <span class="i-lucide-user-plus h-3.5 w-3.5"></span>
-                            <span>新建空角色</span>
-                        </button>
-                    </div>
-
-                    <div v-else class="space-y-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)]/50 p-2">
-                        <label class="block">
-                            <span class="mb-1 block text-[11px] text-[var(--text-secondary)]">来源小说</span>
-                            <FormSelect :model-value="sourceProjectPath" :options="sourceProjectOptions" placeholder="选择小说" dropdown-direction="down" @update:model-value="selectSourceProject" />
-                        </label>
-                        <div class="grid grid-cols-[1fr_auto] items-end gap-2">
-                            <label class="block min-w-0">
-                                <span class="mb-1 block text-[11px] text-[var(--text-secondary)]">来源角色</span>
-                                <FormSelect :model-value="sourceCharacterPath" :options="sourceCharacterOptions" placeholder="选择角色" dropdown-direction="down" @update:model-value="sourceCharacterPath = $event" />
-                            </label>
-                            <IconButton title="刷新来源角色" size="sm" :disabled="sourceLoading || !sourceProjectPath" @click="loadSourceCharacters()">
-                                <span class="h-3.5 w-3.5" :class="sourceLoading ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-refresh-cw'"></span>
-                            </IconButton>
-                        </div>
-                        <button type="button" class="inline-flex h-7 w-full items-center justify-center gap-1.5 rounded-md border border-[var(--accent-main)] px-2 text-[11px] text-[var(--accent-text)] transition-colors hover:bg-[var(--accent-bg)] disabled:cursor-not-allowed disabled:border-[var(--border-color)] disabled:text-[var(--text-muted)]" :disabled="!selectedSourceCharacter || importingCharacter" @click="importCharacterFromProject">
-                            <span class="h-3.5 w-3.5" :class="importingCharacter ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-user-plus'"></span>
-                            <span>{{ importingCharacter ? "导入中" : "导入到当前小说" }}</span>
-                        </button>
-                        <p v-if="sourceError" class="text-[11px] text-[var(--danger-text)]">{{ sourceError }}</p>
-                        <p v-else-if="importStatus" class="text-[11px] text-[var(--text-muted)]">{{ importStatus }}</p>
-                    </div>
-
-                    <!-- 角色列表 -->
-                    <div class="space-y-2">
-                        <div class="space-y-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)]/50 p-2">
-                            <div class="flex items-center justify-between gap-2">
-                                <span class="text-[11px] font-medium text-[var(--text-secondary)]">角色分页</span>
-                                <span class="text-[10px] text-[var(--text-muted)]">{{ characters.length }}</span>
-                            </div>
-                            <p class="m-0 text-[10px] leading-4 text-[var(--text-muted)]">点击角色名会在中间工作区打开详情分页。</p>
-                            <div v-if="characters.length > 0" class="space-y-1">
-                                <button
-                                    v-for="character in characters"
-                                    :key="character.id"
-                                    type="button"
-                                    class="grid h-8 w-full grid-cols-[1rem_minmax(0,1fr)] items-center gap-2 rounded-md border px-2 text-left text-[11px] transition-colors"
-                                    :class="character.id === activeCharacterId ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'border-transparent text-[var(--text-secondary)] hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
-                                    @click="openCharacterWorkspace(character)"
-                                >
-                                    <span class="i-lucide-user h-3.5 w-3.5"></span>
-                                    <span class="min-w-0 truncate">{{ formatCharacterName(character) }}</span>
-                                </button>
-                            </div>
-                            <div v-else class="rounded-md border border-dashed border-[var(--border-color)] px-2 py-3 text-center text-[11px] text-[var(--text-muted)]">
-                                暂无角色
-                            </div>
-                        </div>
-
-                        <div class="space-y-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)]/50 p-2">
-                            <div class="flex items-center justify-between gap-2">
-                                <span class="text-[11px] font-medium text-[var(--text-secondary)]">服装管理</span>
-                                <div class="flex items-center gap-1">
-                                    <span class="text-[10px] text-[var(--text-muted)]">{{ outfits.length }}</span>
-                                    <IconButton title="新增服装" size="sm" @click="addOutfit">
-                                        <span class="i-lucide-plus h-3.5 w-3.5"></span>
-                                    </IconButton>
-                                    <IconButton title="删除当前服装" size="sm" variant="danger" :disabled="!activeOutfit" @click="deleteActiveOutfit">
-                                        <span class="i-lucide-trash-2 h-3.5 w-3.5"></span>
-                                    </IconButton>
-                                </div>
-                            </div>
-                            <p class="m-0 text-[10px] leading-4 text-[var(--text-muted)]">可在 prompt 中使用 $服装名-fullbody$、$服装名-upperbody$、$服装名-lowerbody$。</p>
-                            <div v-if="outfits.length > 0" class="space-y-1">
-                                <button
-                                    v-for="outfit in outfits"
-                                    :key="outfit.id"
-                                    type="button"
-                                    class="grid h-8 w-full grid-cols-[1rem_minmax(0,1fr)_2.125rem] items-center gap-2 rounded-md border px-2 text-left text-[11px] transition-colors"
-                                    :class="outfit.id === activeOutfitId ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'border-transparent text-[var(--text-secondary)] hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
-                                    @click="store.selectOutfit(outfit.id)"
-                                >
-                                    <span class="i-lucide-shirt h-3.5 w-3.5"></span>
-                                    <span class="min-w-0 truncate">{{ formatOutfitName(outfit) }}</span>
-                                    <span class="text-[10px]" :class="outfit.enabled ? 'text-[var(--accent-text)]' : 'text-[var(--text-muted)]'">{{ outfit.enabled ? "启用" : "关闭" }}</span>
-                                </button>
-                            </div>
-                            <div v-else class="rounded-md border border-dashed border-[var(--border-color)] px-2 py-3 text-center text-[11px] text-[var(--text-muted)]">
-                                暂无服装。
-                            </div>
-                            <div v-if="activeOutfit" class="space-y-2 border-t border-[var(--border-color)] pt-2">
-                                <div class="grid grid-cols-2 gap-2">
-                                    <label class="block min-w-0">
-                                        <span class="mb-1 block text-[11px] text-[var(--text-secondary)]">中文名称</span>
-                                        <FormInput :model-value="activeOutfit?.nameCn ?? ''" @update:model-value="updateActiveOutfit({nameCn: $event})" />
-                                    </label>
-                                    <label class="block min-w-0">
-                                        <span class="mb-1 block text-[11px] text-[var(--text-secondary)]">英文名称</span>
-                                        <FormInput :model-value="activeOutfit?.nameEn ?? ''" @update:model-value="updateActiveOutfit({nameEn: $event})" />
-                                    </label>
-                                </div>
-                                <button
-                                    type="button"
-                                    class="grid min-h-9 w-full grid-cols-[minmax(0,1fr)_2.125rem] items-center gap-2 rounded-md border px-2 text-left text-[11px] transition-colors"
-                                    :class="activeOutfit?.enabled ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'border-[var(--border-color)] bg-[var(--bg-input)]/70 text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
-                                    @click="updateActiveOutfit({enabled: !(activeOutfit?.enabled ?? false)})"
-                                >
-                                    <span>{{ activeOutfit?.enabled ? "当前服装可被触发" : "当前服装已关闭" }}</span>
-                                    <span class="relative h-4 w-8 rounded-full transition-colors" :class="activeOutfit?.enabled ? 'bg-[var(--accent-main)]' : 'bg-[var(--border-color)]'">
-                                        <span class="absolute top-0.5 h-3 w-3 rounded-full bg-[var(--bg-panel)] shadow transition-transform" :class="activeOutfit?.enabled ? 'translate-x-[18px]' : 'translate-x-0.5'"></span>
-                                    </span>
-                                </button>
-                                <label v-for="field in outfitTextFields" :key="field.key" class="block">
-                                    <span class="mb-1 block text-[11px] text-[var(--text-secondary)]">{{ field.label }}</span>
-                                    <FormTextarea :model-value="activeOutfit?.[field.key] ?? ''" :rows="field.rows" @update:model-value="updateActiveOutfit({[field.key]: $event})" />
-                                </label>
-                            </div>
-                        </div>
-
-                        <div v-if="!activeCharacter" class="hidden rounded-md border border-dashed border-[var(--border-color)] px-3 py-6 text-center text-[12px] text-[var(--text-muted)]">
-                            请选择或新建一个角色。
-                        </div>
-
-                        <div v-else class="hidden min-w-0 overflow-hidden rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)]/50">
-                            <div class="flex items-center gap-1 border-b border-[var(--border-color)] px-2 pt-2">
-                                <button type="button" class="relative -mb-px inline-flex max-w-full items-center gap-1.5 rounded-t-md border border-[var(--border-color)] border-b-[var(--bg-panel)] bg-[var(--bg-panel)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--accent-text)]">
-                                    <span class="i-lucide-id-card h-3.5 w-3.5"></span>
-                                    <span class="min-w-0 truncate">{{ activeCharacterDisplayName }}</span>
-                                </button>
-                            </div>
-
-                            <div class="space-y-4 p-3">
-                                <div v-if="activeCharacter?.sourceNovelTitle" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/60 px-2 py-1.5 text-[11px] text-[var(--text-muted)]">
-                                    来源：{{ activeCharacter?.sourceNovelTitle }} · {{ activeCharacter?.sourceCharacterPath }}
-                                </div>
-
-                                <div class="space-y-3 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/45 p-3">
-                                    <div class="flex flex-col items-center gap-3">
-                                        <div class="w-full max-w-[320px] overflow-hidden rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]">
-                                            <img v-if="activeCharacter?.portraitDataUrl" :src="activeCharacter?.portraitDataUrl" :alt="activeCharacterDisplayName" class="block aspect-[4/3] w-full object-cover">
-                                            <div v-else class="flex aspect-[4/3] w-full flex-col items-center justify-center gap-2 text-[11px] text-[var(--text-muted)]">
-                                                <span class="i-lucide-image h-8 w-8"></span>
-                                                <span>暂无角色照片</span>
-                                            </div>
-                                        </div>
-                                        <div class="flex flex-wrap items-center justify-center gap-2">
-                                            <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 text-[12px] text-[var(--accent-text)] transition-colors hover:bg-[var(--bg-hover)]" @click="openCharacterPhotoDialog">
-                                                <span class="i-lucide-upload h-4 w-4"></span>
-                                                <span>上传照片</span>
-                                            </button>
-                                            <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-color)] px-3 text-[12px] transition-colors hover:bg-[var(--bg-hover)]" :class="activeCharacter?.sendPhoto ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'bg-[var(--bg-panel)] text-[var(--text-secondary)]'" :aria-pressed="activeCharacter?.sendPhoto ?? false" @click="toggleActiveCharacterSendPhoto">
-                                                <span class="h-4 w-4" :class="activeCharacter?.sendPhoto ? 'i-lucide-square-check' : 'i-lucide-square'"></span>
-                                                <span>发送图片</span>
-                                            </button>
-                                            <input ref="characterPhotoInputRef" type="file" accept="image/*" class="hidden" @change="importCharacterPhoto">
-                                        </div>
-                                    </div>
-
-                                    <label class="block">
-                                        <span class="mb-1 block text-[12px] font-medium text-[var(--text-secondary)]">提示词</span>
-                                        <FormTextarea :model-value="activeCharacter?.photoPrompt ?? ''" :rows="6" placeholder="这里保存角色照片设计时生成的 NovelAI tag" @update:model-value="activeCharacter && store.updateCharacter(activeCharacter.id, {photoPrompt: $event})" />
-                                    </label>
-
-                                    <div class="grid gap-2 md:grid-cols-3">
-                                        <button type="button" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-[var(--accent-main)] px-3 text-[12px] text-[var(--accent-text)] transition-colors hover:bg-[var(--accent-bg)] disabled:cursor-not-allowed disabled:border-[var(--border-color)] disabled:text-[var(--text-muted)]" :disabled="generatingCharacterImage || !(activeCharacter?.photoPrompt ?? '').trim()" @click="generateActiveCharacterImage">
-                                            <span class="h-4 w-4" :class="generatingCharacterImage ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-wand-sparkles'"></span>
-                                            <span>{{ characterImageGenerationLabel }}</span>
-                                        </button>
-                                        <button type="button" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="openCharacterPhotoPromptDialog">
-                                            <span class="i-lucide-lightbulb h-4 w-4"></span>
-                                            <span>生成图片提示词</span>
-                                        </button>
-                                        <button type="button" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="openCharacterRevisionDialog">
-                                            <span class="i-lucide-square-pen h-4 w-4"></span>
-                                            <span>修改角色提示词</span>
-                                        </button>
-                                    </div>
-                                </div>
-
-                                <div class="space-y-3 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/45 p-3">
-                                    <div class="flex items-center justify-between gap-2 border-b border-[var(--border-color)] pb-2">
-                                        <h4 class="truncate text-[13px] font-semibold text-[var(--accent-text)]">角色详细参数</h4>
-                                    </div>
-                                    <label class="block">
-                                        <span class="mb-1 block text-[12px] text-[var(--text-secondary)]">角色中文名称</span>
-                                        <FormInput :model-value="activeCharacter?.cnName ?? ''" placeholder="例如：伊蕾娜" @update:model-value="activeCharacter && store.updateCharacter(activeCharacter.id, {cnName: $event})" />
-                                    </label>
-                                    <label class="block">
-                                        <span class="mb-1 block text-[12px] text-[var(--text-secondary)]">角色英文名称</span>
-                                        <FormInput :model-value="activeCharacter?.enName ?? ''" placeholder="例如：Elaina" @update:model-value="activeCharacter && store.updateCharacter(activeCharacter.id, {enName: $event})" />
-                                    </label>
-                                    <label v-for="field in characterTextFields" :key="field.key" class="block">
-                                        <span class="mb-1 block text-[12px] text-[var(--text-secondary)]">{{ field.label }}</span>
-                                        <FormTextarea :model-value="activeCharacter?.[field.key] ?? ''" :rows="field.rows" :placeholder="field.placeholder" @update:model-value="updateActiveCharacterField(field.key, $event)" />
-                                    </label>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div v-if="characters.length > 0" class="hidden">
-                        <button
-                            v-for="character in characters"
-                            :key="character.id"
-                            type="button"
-                            class="rounded-md border px-2 py-1 text-[11px] transition-colors"
-                            :class="character.id === activeCharacterId ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'border-[var(--border-color)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
-                            @click="store.selectCharacter(character.id)"
-                        >
-                            {{ character.cnName.trim() || character.enName.trim() || "未命名角色" }}
-                        </button>
-                    </div>
-
-                    <div v-if="!activeCharacter" class="hidden rounded-md border border-dashed border-[var(--border-color)] px-3 py-4 text-center text-[12px] text-[var(--text-muted)]">
-                        暂无角色。
-                    </div>
-
-                    <!-- 角色详情 -->
-                    <div v-else class="hidden space-y-2">
-                        <div v-if="activeCharacter?.sourceNovelTitle" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)]/50 px-2 py-1.5 text-[11px] text-[var(--text-muted)]">
-                            来源：{{ activeCharacter?.sourceNovelTitle }} · {{ activeCharacter?.sourceCharacterPath }}
-                        </div>
-                        <label class="block">
-                            <span class="mb-1 block text-[11px] text-[var(--text-secondary)]">角色中文名称</span>
-                            <FormInput :model-value="activeCharacter?.cnName ?? ''" placeholder="例如：伊蕾娜" @update:model-value="activeCharacter && store.updateCharacter(activeCharacter.id, {cnName: $event})" />
-                        </label>
-                        <label class="block">
-                            <span class="mb-1 block text-[11px] text-[var(--text-secondary)]">角色英文名称</span>
-                            <FormInput :model-value="activeCharacter?.enName ?? ''" placeholder="例如：Elaina" @update:model-value="activeCharacter && store.updateCharacter(activeCharacter.id, {enName: $event})" />
-                        </label>
-                        <label v-for="field in characterTextFields" :key="field.key" class="block">
-                            <span class="mb-1 block text-[11px] text-[var(--text-secondary)]">{{ field.label }}</span>
-                            <FormTextarea :model-value="activeCharacter?.[field.key] ?? ''" :rows="field.rows" :placeholder="field.placeholder" @update:model-value="updateActiveCharacterField(field.key, $event)" />
-                        </label>
-                    </div>
-                </div>
-            </section>
-        </div>
-    </div>
-
-    <Dialog
-        v-model="characterPromptDialogOpen"
-        :title="characterPromptDialogTitle"
-        width="640px"
-        max-height="86vh"
-        show-cancel
-        :busy="characterPromptBusy"
-        @confirm="submitCharacterPromptDialog"
-    >
-        <div class="space-y-4">
-            <p class="m-0 text-[12px] text-[var(--text-secondary)]">{{ characterPromptDialogDescription }}</p>
-            <label class="block">
-                <span class="mb-1 block text-[12px] text-[var(--text-secondary)]">{{ characterPromptDialogMode === "photoPrompt" ? "角色照片具体需求" : "修改方向" }}</span>
-                <FormTextarea
-                    :model-value="characterPromptRequirement"
-                    :rows="5"
-                    :placeholder="characterPromptDialogMode === 'photoPrompt' ? '例如：角色站在花园中，日常服装，柔和室内光线，半身头像...' : '例如：改成夏季运动服，保留发色和眼睛，整体更活泼...'"
-                    @update:model-value="characterPromptRequirement = $event"
-                />
-            </label>
-
-            <div v-if="characterPromptDialogMode === 'photoPrompt'" class="space-y-2 rounded-md border border-dashed border-[var(--border-color)] bg-[var(--bg-input)]/45 p-3">
-                <div class="flex items-center justify-between gap-2">
-                    <div class="flex min-w-0 items-center gap-2 text-[12px] text-[var(--text-secondary)]">
-                        <span class="i-lucide-paperclip h-4 w-4"></span>
-                        <span class="truncate">参考图片（可选）</span>
-                    </div>
-                    <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-color)] px-3 text-[12px] text-[var(--accent-text)] transition-colors hover:bg-[var(--bg-hover)]" @click="openCharacterPromptReferenceDialog">
-                        <span class="i-lucide-plus h-4 w-4"></span>
-                        <span>添加图片</span>
-                    </button>
-                    <input ref="characterPromptReferenceInputRef" type="file" accept="image/*" multiple class="hidden" @change="importCharacterPromptReferences">
-                </div>
-
-                <div v-if="characterPromptReferences.length === 0" class="flex min-h-20 items-center justify-center rounded-md text-[12px] text-[var(--text-muted)]">
-                    点击上方按钮添加参考图片
-                </div>
-                <div v-else class="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                    <div v-for="reference in characterPromptReferences" :key="reference.id" class="overflow-hidden rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)]">
-                        <img :src="reference.dataUrl" :alt="reference.name" class="block aspect-square w-full object-cover">
-                        <div class="flex items-center justify-between gap-2 border-t border-[var(--border-color)] px-2 py-1">
-                            <span class="min-w-0 truncate text-[10px] text-[var(--text-muted)]">{{ reference.name }}</span>
-                            <button type="button" class="shrink-0 text-[var(--text-muted)] transition-colors hover:text-[var(--danger-text)]" title="移除参考图" @click="removeCharacterPromptReference(reference.id)">
-                                <span class="i-lucide-x h-3.5 w-3.5"></span>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <p v-if="characterPromptError" class="m-0 text-[12px] text-[var(--danger-text)]">{{ characterPromptError }}</p>
-        </div>
-    </Dialog>
 </template>

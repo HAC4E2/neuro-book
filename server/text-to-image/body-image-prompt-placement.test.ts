@@ -29,12 +29,17 @@ describe("body image prompt placement", () => {
             ],
         });
 
-        expect(placements).toEqual([{
+        expect(placements).toEqual([expect.objectContaining({
             promptId: "prompt-1",
             afterParagraphId: "p-1",
             reason: "first",
             confidence: 0.9,
-        }]);
+            characterIds: [],
+            view: "front",
+            framing: "full",
+            rating: "sfw",
+            outfitName: "",
+        })]);
     });
 
     it("fallback only places prompts with clear nearby paragraph context", () => {

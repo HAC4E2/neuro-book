@@ -23,6 +23,44 @@ describe("assertProjectWorkspaceDirectory", () => {
 });
 
 describe("initProjectDatabaseAtRoot", () => {
+    it("创建和升级 Project SQLite 时都会提供文生图任务与资产表", async () => {
+        const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-text-to-image-project-"));
+        try {
+            await initProjectDatabaseAtRoot(projectRoot);
+            const databasePath = path.join(projectRoot, ".nbook", "project.sqlite");
+            const client = createClient({url: toSqliteFileUrl(databasePath)});
+            try {
+                const tables = await client.execute(`
+                    SELECT "name" FROM sqlite_schema
+                    WHERE type = 'table' AND "name" IN ('TextToImageJob', 'TextToImageAsset')
+                    ORDER BY "name"
+                `);
+                expect(tables.rows.map((row) => String(row.name))).toEqual([
+                    "TextToImageAsset",
+                    "TextToImageJob",
+                ]);
+
+                const columns = await client.execute(`PRAGMA table_info("TextToImageJob")`);
+                expect(columns.rows.map((row) => String(row.name))).toEqual(expect.arrayContaining([
+                    "id",
+                    "providerId",
+                    "kind",
+                    "status",
+                    "sourcePath",
+                    "sourceAnchorId",
+                    "sourceInsertStatus",
+                    "requestJson",
+                    "resultAssetIdsJson",
+                    "attemptCount",
+                ]));
+            } finally {
+                client.close();
+            }
+        } finally {
+            await removeTempProject(projectRoot);
+        }
+    });
+
     it("会把旧 StoryPlot 备份并合并到 Scene，同时清理 plot ref", async () => {
         const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-project-migration-"));
         try {

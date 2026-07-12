@@ -1,16 +1,29 @@
 ﻿import YAML from "yaml";
 import {z} from "zod";
-import {requestTextToImageLlmCompletion} from "nbook/server/text-to-image/llm-provider";
-import {parseTextToImageCharacterDraft} from "nbook/app/utils/text-to-image-character-design";
 import {
+    requestTextToImageLlmCompletion,
+    type TextToImageLlmProviderConnection,
+} from "nbook/server/text-to-image/llm-provider";
+import {parseTextToImageCharacterDraft} from "nbook/app/utils/text-to-image-character-design";
+import {parseTextToImageOutfitDrafts, type TextToImageOutfitDraft} from "nbook/app/utils/text-to-image-outfit-design";
+import {
+    parseTextToImageCharacterImageTags,
     renderTextToImageCharacterImageTagsMarkdown,
     type TextToImageCharacterImageTag,
+    type TextToImageCharacterImageTagOutfit,
 } from "nbook/app/utils/text-to-image-character-tags";
+import {renderTextToImageOutfitTagsMarkdown} from "nbook/app/utils/text-to-image-outfit-tags";
 import {useAgentHarness} from "nbook/server/agent/http";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import {resolveWorkspaceRootInput} from "nbook/server/workspace-files/novel-workspace";
 import {invalidateProjectWorkspaceIndexAfterMutation} from "nbook/server/workspace-files/project-workspace-index";
-import {readWorkspaceTextFile, statWorkspacePath, writeWorkspaceTextFile, type WorkspaceFileNode} from "nbook/server/workspace-files/workspace-files";
+import {
+    readWorkspaceTextFile,
+    statWorkspacePath,
+    workspacePathExists,
+    writeWorkspaceTextFile,
+    type WorkspaceFileNode,
+} from "nbook/server/workspace-files/workspace-files";
 
 export const CHARACTER_IMAGE_TAG_EXTRACTOR_PROFILE_KEY = "character-image-tag.extractor";
 
@@ -21,9 +34,7 @@ export const CharacterImageTagsGenerateRequestSchema = z.object({
     characterMarkdown: z.string().default(""),
     taskPrompt: z.string().default(""),
     llm: z.object({
-        apiBaseUrl: z.string().trim().min(1),
-        apiKey: z.string().default(""),
-        model: z.string().trim().min(1),
+        providerId: z.number().int().positive(),
         parameters: z.object({
             temperature: z.number().default(0.7),
             topP: z.number().default(1),
@@ -53,6 +64,7 @@ export type CharacterImageTagsGenerateResult = {
     characterDirectoryPath: string;
     detailPath: string;
     imageTagsPath: string;
+    outfitPaths: string[];
     content: string;
     node: WorkspaceFileNode;
     warnings: string[];
@@ -78,7 +90,10 @@ type CharacterImageTagDraft = {
 /**
  * 生成或覆盖角色目录下的 image-tags.md。
  */
-export async function generateCharacterImageTags(input: CharacterImageTagsGenerateRequest): Promise<CharacterImageTagsGenerateResult> {
+export async function generateCharacterImageTags(
+    input: CharacterImageTagsGenerateRequest,
+    provider: TextToImageLlmProviderConnection & {model: string},
+): Promise<CharacterImageTagsGenerateResult> {
     const root = await resolveWorkspaceRootInput({projectPath: input.projectPath});
     const characterMarkdown = input.characterMarkdown || await readWorkspaceTextFile(root, input.characterPath);
     const paths = resolveCharacterImageTagPaths({
@@ -92,7 +107,7 @@ export async function generateCharacterImageTags(input: CharacterImageTagsGenera
         characterTitle: input.characterTitle,
         characterMarkdown,
     }, warnings);
-    const llmReply = await requestCharacterImageTagDraft(input, extraction);
+    const llmReply = await requestCharacterImageTagDraft(input, extraction, provider);
     const draft = parseTextToImageCharacterDraft(llmReply) as CharacterImageTagDraft;
     const tag = buildCharacterImageTagFromDraft({
         id: createImageTagId(paths.imageTagsPath),
@@ -101,9 +116,21 @@ export async function generateCharacterImageTags(input: CharacterImageTagsGenera
         fallbackEnName: extraction.enName,
         draft,
     });
+    const existingTag = await readExistingCharacterImageTag(root, paths.imageTagsPath);
+    const outfitArtifacts = buildCharacterOutfitArtifacts({
+        characterDirectoryPath: paths.characterDirectoryPath,
+        characterEnName: tag.enName,
+        existingOutfits: existingTag?.outfits ?? [],
+        drafts: parseTextToImageOutfitDrafts(llmReply),
+    });
+    tag.outfits = outfitArtifacts.outfits;
+    warnings.push(...outfitArtifacts.warnings);
     const content = renderTextToImageCharacterImageTagsMarkdown(tag);
     if (paths.shouldCopyDetailFile) {
         await writeWorkspaceTextFile(root, paths.detailPath, characterMarkdown);
+    }
+    for (const file of outfitArtifacts.files) {
+        await writeWorkspaceTextFile(root, file.path, file.content);
     }
     await writeWorkspaceTextFile(root, paths.imageTagsPath, content);
     invalidateProjectWorkspaceIndexAfterMutation({root});
@@ -111,6 +138,7 @@ export async function generateCharacterImageTags(input: CharacterImageTagsGenera
         characterDirectoryPath: paths.characterDirectoryPath,
         detailPath: paths.detailPath,
         imageTagsPath: paths.imageTagsPath,
+        outfitPaths: outfitArtifacts.files.map((file) => file.path),
         content,
         node: await statWorkspacePath(root, paths.imageTagsPath),
         warnings,
@@ -175,6 +203,65 @@ export function buildCharacterImageTagFromDraft(input: {
         negativePrompt: readDraftField(input.draft.negativePrompt),
         outfits: [],
     };
+}
+
+/**
+ * 把 LLM 服装草稿转换成角色目录内的 Markdown 文件产物，并保留未被本次回复覆盖的索引。
+ */
+export function buildCharacterOutfitArtifacts(input: {
+    characterDirectoryPath: string;
+    characterEnName: string;
+    existingOutfits: TextToImageCharacterImageTagOutfit[];
+    drafts: TextToImageOutfitDraft[];
+}): {
+    outfits: TextToImageCharacterImageTagOutfit[];
+    files: Array<{path: string; content: string}>;
+    warnings: string[];
+} {
+    const outfits = [...input.existingOutfits];
+    const files: Array<{path: string; content: string}> = [];
+    const warnings: string[] = [];
+    const expectedOwner = normalizeOutfitIdentity(input.characterEnName);
+
+    for (const draft of input.drafts) {
+        if (!draft.nameCn.trim() || !draft.nameEn.trim()) {
+            warnings.push(`已跳过缺少中英文名称的服装：${draft.nameCn || draft.nameEn || "未命名服装"}`);
+            continue;
+        }
+        const actualOwner = normalizeOutfitIdentity(draft.owner);
+        if (expectedOwner && actualOwner && expectedOwner !== actualOwner) {
+            warnings.push(`已跳过归属人不匹配的服装 ${draft.nameCn}：${draft.owner}`);
+            continue;
+        }
+        const existingIndex = outfits.findIndex((outfit) => (
+            normalizeOutfitIdentity(outfit.nameCn) === normalizeOutfitIdentity(draft.nameCn)
+            || normalizeOutfitIdentity(outfit.nameEn) === normalizeOutfitIdentity(draft.nameEn)
+        ));
+        const existingPath = existingIndex >= 0 ? outfits[existingIndex]?.sourcePath ?? "" : "";
+        const sourcePath = isCharacterOutfitPath(input.characterDirectoryPath, existingPath)
+            ? existingPath
+            : `${input.characterDirectoryPath}/outfits/${sanitizeOutfitFileName(draft.nameCn)}.md`;
+        if (existingPath && sourcePath !== existingPath) {
+            warnings.push(`服装 ${draft.nameCn} 的索引路径不在当前角色 outfits 目录，已写入安全路径。`);
+        }
+        const outfit: TextToImageCharacterImageTagOutfit = {
+            sourcePath,
+            owner: draft.owner.trim() || input.characterEnName.trim(),
+            nameCn: draft.nameCn.trim(),
+            nameEn: draft.nameEn.trim(),
+            upper: draft.upper.trim(),
+            upperBack: draft.upperBack.trim(),
+            lower: draft.lower.trim(),
+            lowerBack: draft.lowerBack.trim(),
+        };
+        if (existingIndex >= 0) {
+            outfits.splice(existingIndex, 1, outfit);
+        } else {
+            outfits.push(outfit);
+        }
+        files.push({path: sourcePath, content: renderTextToImageOutfitTagsMarkdown(outfit)});
+    }
+    return {outfits, files, warnings};
 }
 
 async function extractCharacterAppearanceWithAgent(input: {
@@ -276,11 +363,13 @@ function fallbackExtractCharacterAppearance(characterMarkdown: string, character
     };
 }
 
-async function requestCharacterImageTagDraft(input: CharacterImageTagsGenerateRequest, extraction: CharacterImageAppearanceExtraction): Promise<string> {
+async function requestCharacterImageTagDraft(
+    input: CharacterImageTagsGenerateRequest,
+    extraction: CharacterImageAppearanceExtraction,
+    provider: TextToImageLlmProviderConnection & {model: string},
+): Promise<string> {
     const content = await requestTextToImageLlmCompletion({
-        apiBaseUrl: input.llm.apiBaseUrl,
-        apiKey: input.llm.apiKey,
-        model: input.llm.model,
+        ...provider,
         parameters: input.llm.parameters,
         stream: false,
         messages: buildCharacterImageTagLlmMessages(input, extraction),
@@ -294,9 +383,11 @@ async function requestCharacterImageTagDraft(input: CharacterImageTagsGenerateRe
 function buildCharacterImageTagLlmMessages(input: CharacterImageTagsGenerateRequest, extraction: CharacterImageAppearanceExtraction): Array<{role: "system" | "user"; content: string}> {
     const systemPrompt = input.taskPrompt.trim() || [
         "你是 NovelAI 角色 image-tags.md 生成助手。",
-        "调用方已经用子 agent 提取了角色外貌事实。请只根据这些事实生成生图相关 tags。",
-        "只返回 JSON，不要解释，不要 Markdown。JSON 结构必须是 {\"character\": {...}}。",
+        "调用方已经用子 agent 提取了角色外貌事实。请根据这些事实生成生图相关的角色 tags 与可见服装 tags。",
+        "只返回 JSON，不要解释，不要 Markdown。JSON 结构必须是 {\"character\": {...}, \"outfits\": [{...}]}。",
         "字段使用中文字段名：角色中文名称、角色英文名称、角色特征、五官外貌、五官外貌背面、上半身SFW、上半身背面SFW、下半身SFW、下半身背面SFW、上半身NSFW、上半身NSFW背面、下半身NSFW、下半身NSFW背面、负面提示词。",
+        "每件服装使用字段：归属人、中文名称、英文名称、上半身、上半身背面、下半身、下半身背面。服装部位只输出英文绘图 tags。",
+        "服装数组可以为空；有多件服装时每件各占一个对象。",
     ].join("\n");
     return [
         {role: "system", content: systemPrompt},
@@ -315,6 +406,17 @@ function buildCharacterImageTagLlmMessages(input: CharacterImageTagsGenerateRequ
             }, null, 2),
         },
     ];
+}
+
+async function readExistingCharacterImageTag(root: string | undefined, imageTagsPath: string): Promise<TextToImageCharacterImageTag | null> {
+    if (!await workspacePathExists(root, imageTagsPath)) {
+        return null;
+    }
+    const content = await readWorkspaceTextFile(root, imageTagsPath);
+    return parseTextToImageCharacterImageTags(content, {
+        id: createImageTagId(imageTagsPath),
+        sourcePath: imageTagsPath,
+    });
 }
 
 function parseMarkdownDocument(content: string): {frontmatter: Record<string, unknown>; body: string} {
@@ -345,6 +447,26 @@ function sanitizeCharacterDirectoryName(value: string): string {
         .replace(/-+/gu, "-")
         .replace(/^-|-$/gu, "");
     return sanitized || "unnamed-character";
+}
+
+function sanitizeOutfitFileName(value: string): string {
+    const sanitized = value
+        .trim()
+        .replace(/[\\/:*?"<>|\u0000-\u001F]+/gu, "-")
+        .replace(/\s+/gu, "-")
+        .replace(/-+/gu, "-")
+        .replace(/^-|-$/gu, "");
+    return sanitized || "未命名服装";
+}
+
+function isCharacterOutfitPath(characterDirectoryPath: string, candidatePath: string): boolean {
+    const characterDirectory = characterDirectoryPath.trim().replaceAll("\\", "/").replace(/\/+$/u, "");
+    const normalized = candidatePath.trim().replaceAll("\\", "/");
+    return normalized.startsWith(`${characterDirectory}/outfits/`) && normalized.toLocaleLowerCase().endsWith(".md");
+}
+
+function normalizeOutfitIdentity(value: string): string {
+    return value.trim().replace(/[\s_\-]+/gu, "").toLocaleLowerCase();
 }
 
 function createImageTagId(imageTagsPath: string): string {

@@ -398,7 +398,9 @@ export const ModelName = {
   StoryDecision: 'StoryDecision',
   WorldSubject: 'WorldSubject',
   WorldSlice: 'WorldSlice',
-  WorldPatch: 'WorldPatch'
+  WorldPatch: 'WorldPatch',
+  TextToImageJob: 'TextToImageJob',
+  TextToImageAsset: 'TextToImageAsset'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -414,7 +416,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "projectMetadata" | "databaseLock" | "story" | "storyAct" | "storyChapter" | "storyPhase" | "storyThread" | "storyScene" | "storySceneRef" | "storyPromise" | "storyPromiseBeat" | "storyDecision" | "worldSubject" | "worldSlice" | "worldPatch"
+    modelProps: "projectMetadata" | "databaseLock" | "story" | "storyAct" | "storyChapter" | "storyPhase" | "storyThread" | "storyScene" | "storySceneRef" | "storyPromise" | "storyPromiseBeat" | "storyDecision" | "worldSubject" | "worldSlice" | "worldPatch" | "textToImageJob" | "textToImageAsset"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -1528,6 +1530,154 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    TextToImageJob: {
+      payload: Prisma.$TextToImageJobPayload<ExtArgs>
+      fields: Prisma.TextToImageJobFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.TextToImageJobFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageJobPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.TextToImageJobFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageJobPayload>
+        }
+        findFirst: {
+          args: Prisma.TextToImageJobFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageJobPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.TextToImageJobFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageJobPayload>
+        }
+        findMany: {
+          args: Prisma.TextToImageJobFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageJobPayload>[]
+        }
+        create: {
+          args: Prisma.TextToImageJobCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageJobPayload>
+        }
+        createMany: {
+          args: Prisma.TextToImageJobCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.TextToImageJobCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageJobPayload>[]
+        }
+        delete: {
+          args: Prisma.TextToImageJobDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageJobPayload>
+        }
+        update: {
+          args: Prisma.TextToImageJobUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageJobPayload>
+        }
+        deleteMany: {
+          args: Prisma.TextToImageJobDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.TextToImageJobUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.TextToImageJobUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageJobPayload>[]
+        }
+        upsert: {
+          args: Prisma.TextToImageJobUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageJobPayload>
+        }
+        aggregate: {
+          args: Prisma.TextToImageJobAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateTextToImageJob>
+        }
+        groupBy: {
+          args: Prisma.TextToImageJobGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TextToImageJobGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.TextToImageJobCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TextToImageJobCountAggregateOutputType> | number
+        }
+      }
+    }
+    TextToImageAsset: {
+      payload: Prisma.$TextToImageAssetPayload<ExtArgs>
+      fields: Prisma.TextToImageAssetFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.TextToImageAssetFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageAssetPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.TextToImageAssetFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageAssetPayload>
+        }
+        findFirst: {
+          args: Prisma.TextToImageAssetFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageAssetPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.TextToImageAssetFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageAssetPayload>
+        }
+        findMany: {
+          args: Prisma.TextToImageAssetFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageAssetPayload>[]
+        }
+        create: {
+          args: Prisma.TextToImageAssetCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageAssetPayload>
+        }
+        createMany: {
+          args: Prisma.TextToImageAssetCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.TextToImageAssetCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageAssetPayload>[]
+        }
+        delete: {
+          args: Prisma.TextToImageAssetDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageAssetPayload>
+        }
+        update: {
+          args: Prisma.TextToImageAssetUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageAssetPayload>
+        }
+        deleteMany: {
+          args: Prisma.TextToImageAssetDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.TextToImageAssetUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.TextToImageAssetUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageAssetPayload>[]
+        }
+        upsert: {
+          args: Prisma.TextToImageAssetUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageAssetPayload>
+        }
+        aggregate: {
+          args: Prisma.TextToImageAssetAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateTextToImageAsset>
+        }
+        groupBy: {
+          args: Prisma.TextToImageAssetGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TextToImageAssetGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.TextToImageAssetCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TextToImageAssetCountAggregateOutputType> | number
+        }
+      }
+    }
   }
 } & {
   other: {
@@ -1818,6 +1968,48 @@ export const WorldPatchScalarFieldEnum = {
 export type WorldPatchScalarFieldEnum = (typeof WorldPatchScalarFieldEnum)[keyof typeof WorldPatchScalarFieldEnum]
 
 
+export const TextToImageJobScalarFieldEnum = {
+  id: 'id',
+  providerId: 'providerId',
+  kind: 'kind',
+  status: 'status',
+  sourcePath: 'sourcePath',
+  sourceAnchorId: 'sourceAnchorId',
+  sourceInsertStatus: 'sourceInsertStatus',
+  requestJson: 'requestJson',
+  resultAssetIdsJson: 'resultAssetIdsJson',
+  errorMessage: 'errorMessage',
+  attemptCount: 'attemptCount',
+  createdAt: 'createdAt',
+  startedAt: 'startedAt',
+  finishedAt: 'finishedAt'
+} as const
+
+export type TextToImageJobScalarFieldEnum = (typeof TextToImageJobScalarFieldEnum)[keyof typeof TextToImageJobScalarFieldEnum]
+
+
+export const TextToImageAssetScalarFieldEnum = {
+  id: 'id',
+  jobId: 'jobId',
+  relativePath: 'relativePath',
+  fileName: 'fileName',
+  mimeType: 'mimeType',
+  byteLength: 'byteLength',
+  width: 'width',
+  height: 'height',
+  model: 'model',
+  seed: 'seed',
+  prompt: 'prompt',
+  negativePrompt: 'negativePrompt',
+  sourceKind: 'sourceKind',
+  sourcePath: 'sourcePath',
+  sourceAnchorId: 'sourceAnchorId',
+  createdAt: 'createdAt'
+} as const
+
+export type TextToImageAssetScalarFieldEnum = (typeof TextToImageAssetScalarFieldEnum)[keyof typeof TextToImageAssetScalarFieldEnum]
+
+
 export const SortOrder = {
   asc: 'asc',
   desc: 'desc'
@@ -1967,6 +2159,27 @@ export type BytesFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, '
 
 
 /**
+ * Reference to a field of type 'TextToImageJobKind'
+ */
+export type EnumTextToImageJobKindFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'TextToImageJobKind'>
+    
+
+
+/**
+ * Reference to a field of type 'TextToImageJobStatus'
+ */
+export type EnumTextToImageJobStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'TextToImageJobStatus'>
+    
+
+
+/**
+ * Reference to a field of type 'TextToImageSourceInsertStatus'
+ */
+export type EnumTextToImageSourceInsertStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'TextToImageSourceInsertStatus'>
+    
+
+
+/**
  * Reference to a field of type 'Float'
  */
 export type FloatFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Float'>
@@ -2082,6 +2295,8 @@ export type GlobalOmitConfig = {
   worldSubject?: Prisma.WorldSubjectOmit
   worldSlice?: Prisma.WorldSliceOmit
   worldPatch?: Prisma.WorldPatchOmit
+  textToImageJob?: Prisma.TextToImageJobOmit
+  textToImageAsset?: Prisma.TextToImageAssetOmit
 }
 
 /* Types for Logging */

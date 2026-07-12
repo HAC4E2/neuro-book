@@ -13,9 +13,8 @@ import NovelIdeToolPanel from "nbook/app/components/novel-ide/NovelIdeToolPanel.
 import WorldEngineWorkbenchDialog from "nbook/app/components/novel-ide/world-engine/WorldEngineWorkbenchDialog.vue";
 import NovelPromptBar from "nbook/app/components/novel-ide/NovelPromptBar.vue";
 import Dialog from "nbook/app/components/common/Dialog.vue";
-import FormTextarea from "nbook/app/components/common/form/FormTextarea.vue";
-import TextToImageCharacterWorkspace from "nbook/app/components/novel-ide/text-to-image/TextToImageCharacterWorkspace.vue";
 import TextToImageLlmWorkspace from "nbook/app/components/novel-ide/text-to-image/TextToImageLlmWorkspace.vue";
+import TextToImageHistoryWorkspace from "nbook/app/components/novel-ide/text-to-image/TextToImageHistoryWorkspace.vue";
 import type {AgentSessionModelDraft} from "nbook/app/components/novel-ide/agent/agent-session-model-controls";
 import WorkspaceFilePanel from "nbook/app/components/novel-ide/workspace/WorkspaceFilePanel.vue";
 import NovelBookshelfDialog from "nbook/app/components/novel-ide/NovelBookshelfDialog.vue";
@@ -26,11 +25,6 @@ import WorkspaceLocationProfileDialog from "nbook/app/components/novel-ide/works
 import WorkspaceRuleProfileDialog from "nbook/app/components/novel-ide/workspace/WorkspaceRuleProfileDialog.vue";
 import type {WorkspaceReferencePreviewMeta} from "nbook/app/components/markdown-studio/tiptap/WorkspaceReference";
 import {setTextToImagePromptGenerationState, type TextToImagePromptGeneratePayload} from "nbook/app/components/markdown-studio/tiptap/TextToImagePrompt";
-import {
-    resolveTextToImageResultImageUrl,
-    setTextToImageResultGenerationState,
-    type TextToImageResultPayload,
-} from "nbook/app/components/markdown-studio/tiptap/TextToImageResult";
 import {useIdeTheme} from "nbook/app/composables/useIdeTheme";
 import {useAuthSessionState} from "nbook/app/composables/useAuthSessionState";
 import {useMarkdownStudioController} from "nbook/app/composables/useMarkdownStudioController";
@@ -46,23 +40,8 @@ import type {WorkspaceFileChangeEventDto, WorkspaceFileStreamEventDto} from "nbo
 import type {AgentSessionSummaryDto, AgentSkillCatalogItemDto} from "nbook/shared/dto/agent-session.dto";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {
-    buildTextToImagePromptPlacementDraft,
-    buildGeneratedImageResultMarkdown,
-    buildTextToImageLlmMessages,
-    createTextToImageGeneratedResultId,
-    extractImagineBlocks,
-    formatTextToImageLlmMessages,
-    insertTextToImagePromptPlaceholdersByPlacement,
-    replaceTextToImagePromptPlaceholder,
-    replaceTextToImageResultMarkdown,
-    requestTextToImageLlmCompletion,
-    type TextToImagePromptPlacement,
-} from "nbook/app/utils/text-to-image-llm";
-import {enqueueTextToImageGeneration, type TextToImageGenerationQueueStatus} from "nbook/app/utils/text-to-image-generation-queue";
-import {
     collectWorkspaceReferencePathCandidates,
 } from "nbook/app/utils/workspace-reference-search";
-import {searchTextToImageTagVocabulary} from "nbook/app/utils/text-to-image-tag-vocabulary";
 import {buildWorkspaceReferenceSections} from "nbook/app/utils/workspace-reference-menu";
 import {resolveWorkspaceFileExtension, type FrontmatterProfileKind} from "nbook/shared/editor-workbench";
 import {buildSelectionRefChip, type InlineEditPayload, type InlineEditReference, type InlineEditTask} from "nbook/app/utils/inline-editor-selection";
@@ -77,65 +56,6 @@ type StreamDoneEvent = {
 
 type StreamErrorEvent = {
     message?: string;
-};
-
-type BodyImagePromptPlacementResponse = {
-    placements: TextToImagePromptPlacement[];
-    warnings: string[];
-};
-type TextToImageGenerateResponse = {
-    images: Array<{
-        id: string;
-        createdAt: string;
-        fileName: string;
-        savedPath: string;
-        dataUrl: string;
-        mimeType: string;
-        byteLength: number;
-        seed: number;
-        width: number;
-        height: number;
-        model: string;
-        prompt: string;
-        negativePrompt: string;
-    }>;
-    request: {
-        model: string;
-        requestedModel: string;
-        action: "generate";
-        prompt: string;
-        negativePrompt: string;
-        seed: number;
-        width: number;
-        height: number;
-        steps: number;
-        sampler: string;
-        savedDirectory: string;
-        parameters: Record<string, unknown>;
-    };
-    warnings: string[];
-};
-
-type BodyImageCharacterTagsResponse = {
-    requestVariables: Record<string, string>;
-    warnings: string[];
-    matchedCharacters: Array<{
-        id: string;
-        sourcePath: string;
-        cnName: string;
-        enName: string;
-    }>;
-};
-
-type BodyImagePromptRuleRequest = {
-    id: string;
-    name: string;
-    enabled: boolean;
-    target: "positive" | "negative";
-    matchMode: "plain" | "regex";
-    mode: "replace" | "append" | "prepend" | "delete";
-    trigger: string;
-    replacement: string;
 };
 
 type SameDocumentViewTransition = {
@@ -177,16 +97,6 @@ const markdownSkillCatalogLoaded = ref(false);
 const markdownSkillCatalogLoading = ref(false);
 const bodyImageGenerating = ref(false);
 const bodyImagePromptGeneratingIds = ref<string[]>([]);
-const bodyImageResultGeneratingIds = ref<string[]>([]);
-const bodyImageResultActionsOpen = ref(false);
-const bodyImageResultActions = ref<TextToImageResultPayload | null>(null);
-const bodyImageTagRevisionDialogOpen = ref(false);
-const bodyImageTagRevisionRequirement = ref("");
-const bodyImageTagRevisionBusy = ref(false);
-const bodyImageTagRevisionError = ref("");
-const bodyImageResultViewerOpen = ref(false);
-const bodyImageResultViewer = ref<TextToImageResultPayload | null>(null);
-const bodyImageResultViewerIndex = ref(0);
 let markdownSkillCatalogRequest: Promise<void> | null = null;
 let workspaceFileSyncRunning = false;
 let pendingWorkspaceFileEvents: WorkspaceFileChangeEventDto[] = [];
@@ -265,11 +175,9 @@ const {
     loadNovels,
 } = novelIdeStore;
 const {
-    activeStyle: activeTextToImageStyle,
-    activeTagVocabularySourceId: textToImageActiveTagVocabularySourceId,
+    activeNovelAiProviderId: textToImageActiveNovelAiProviderId,
     generationDraft: textToImageGenerationDraft,
     novelAi: textToImageNovelAi,
-    output: textToImageOutput,
     promptReplacementRules: textToImagePromptReplacementRules,
     taskPrompts: textToImageTaskPrompts,
 } = storeToRefs(textToImageStore);
@@ -484,14 +392,6 @@ const canGenerateBodyImage = computed(() => (
     && selectedFileContent.value.trim().length > 0
     && !bodyImageGenerating.value
 ));
-const bodyImageResultActionItem = computed(() => {
-    const payload = bodyImageResultActions.value;
-    return payload?.items[payload.activeIndex] ?? payload?.items[0] ?? null;
-});
-const bodyImageResultViewerItem = computed(() => {
-    const payload = bodyImageResultViewer.value;
-    return payload?.items[bodyImageResultViewerIndex.value] ?? null;
-});
 const isPlainTextFile = computed(() => [".txt", ".text", ".markdown"].includes(currentFileExtension.value));
 const inlinePromptExpanded = ref(false);
 const inlinePromptInstruction = ref("");
@@ -960,72 +860,6 @@ const saveCurrentWorkspaceFile = async (): Promise<void> => {
     }
 };
 
-/**
- * 将当前章节作为正文图片生成任务发送给 LLM，并把返回的 <image> 块转为正文里的生成按钮。
- */
-async function buildTextToImageBodyRequestVariables(userRequest: string): Promise<Record<string, string>> {
-    const promptRules = textToImagePromptReplacementRules.value.map((rule) => ({
-        id: rule.id,
-        name: rule.name,
-        enabled: rule.enabled,
-        target: rule.target,
-        matchMode: rule.matchMode,
-        mode: rule.mode,
-        trigger: rule.trigger,
-        replacement: rule.replacement,
-    }));
-    const [tagData, characterTagContext] = await Promise.all([
-        collectTextToImageTagDataContext(userRequest),
-        collectBodyImageCharacterTagContext(userRequest, promptRules),
-    ]);
-    return {
-        userRequest,
-        request: userRequest,
-        currentChapter: userRequest,
-        characters: characterTagContext.requestVariables.characters ?? "",
-        outfits: characterTagContext.requestVariables.outfits ?? "",
-        characterImageTags: characterTagContext.requestVariables.characterImageTags ?? "",
-        characterDetectorReport: characterTagContext.requestVariables.characterDetectorReport ?? "",
-        characterTagWarnings: characterTagContext.warnings.join("\n"),
-        promptRules: JSON.stringify(promptRules, null, 2),
-        tagData,
-        localTagVocabulary: tagData,
-    };
-}
-
-async function collectBodyImageCharacterTagContext(
-    chapterMarkdown: string,
-    promptRules: BodyImagePromptRuleRequest[],
-): Promise<BodyImageCharacterTagsResponse> {
-    if (!currentNovelId.value) {
-        return {requestVariables: {}, warnings: [], matchedCharacters: []};
-    }
-    return $fetch<BodyImageCharacterTagsResponse>("/api/text-to-image/body-character-tags", {
-        method: "POST",
-        body: {
-            projectPath: currentNovelId.value,
-            chapterPath: selectedFilePath.value,
-            chapterMarkdown,
-            promptRules,
-        },
-    });
-}
-
-async function collectTextToImageTagDataContext(query: string): Promise<string> {
-    try {
-        const nameQuery = query.slice(0, 3000);
-        const entries = await searchTextToImageTagVocabulary(nameQuery, {
-            sourceId: textToImageActiveTagVocabularySourceId.value || undefined,
-            limit: 30,
-        });
-        return entries
-            .map((entry) => `${entry.tag}${entry.translation ? ` = ${entry.translation}` : ""}${entry.category ? ` [${entry.category}]` : ""}`)
-            .join("\n");
-    } catch {
-        return "";
-    }
-}
-
 const generateBodyImagesForCurrentChapter = async (): Promise<void> => {
     if (bodyImageGenerating.value) {
         return;
@@ -1034,76 +868,46 @@ const generateBodyImagesForCurrentChapter = async (): Promise<void> => {
         notification.warning("请先打开一个可编辑的正文章节。", {title: "正文生图"});
         return;
     }
-    const {apiConfig, contextPreset} = textToImageStore.resolveLlmTaskBinding("bodyImage");
-    const apiBaseUrl = apiConfig.apiBaseUrl.trim().replace(/\/+$/u, "");
-    if (!apiBaseUrl || !apiConfig.model.trim()) {
-        notification.warning("请先在文生图 LLM 中为“正文图片生成”配置 API 和模型。", {title: "正文生图"});
+    const {apiConfig, providerId} = textToImageStore.resolveLlmTaskBinding("bodyImage");
+    if (providerId === null) {
+        notification.warning("请先为“正文图片生成”选择 OpenAI-compatible Provider。", {title: "正文生图"});
         return;
     }
 
     bodyImageGenerating.value = true;
     try {
+        await saveCurrentWorkspaceFile();
+        const projectPath = currentNovelId.value;
+        const chapterPath = selectedFilePath.value;
         const chapterMarkdown = selectedFileContent.value;
-        const userRequest = chapterMarkdown.trim();
-        const requestVariables = await buildTextToImageBodyRequestVariables(userRequest);
-        if (requestVariables.characterTagWarnings) {
-            notification.warning(requestVariables.characterTagWarnings, {title: "正文生图角色识别"});
-        }
-        const messages = buildTextToImageLlmMessages({
-            task: "bodyImage",
-            userRequest,
-            taskPrompt: textToImageTaskPrompts.value.bodyImage.prompt,
-            contextPreset,
-            extraDetectionText: [
-                userRequest,
-                requestVariables.characterImageTags,
-                requestVariables.characterDetectorReport,
-                requestVariables.tagData,
-            ].join("\n"),
-            requestVariables,
-        });
-        const reply = await requestTextToImageLlmCompletion(apiConfig, messages);
-        textToImageStore.recordLlmExchange({
-            task: "bodyImage",
-            prompt: formatTextToImageLlmMessages(messages),
-            response: reply,
-        });
-        const blocks = extractImagineBlocks(reply);
-        if (!blocks.length) {
-            notification.warning("LLM 回复中没有找到 <image> 图片标记。", {title: "正文生图"});
+        if (!projectPath || !chapterPath) {
+            notification.warning("当前章节没有可用的 Project 路径。", {title: "正文生图"});
             return;
         }
-        const placementDraft = buildTextToImagePromptPlacementDraft(chapterMarkdown, blocks);
-        if (!placementDraft.prompts.length) {
-            notification.warning("LLM 回复的 <image> 标签里没有可发送给 NovelAI 的 tag。", {title: "正文生图"});
-            return;
-        }
-        if (!currentNovelId.value) {
-            notification.warning("当前章节没有可用于创建插图定位子 agent 的 Project。", {title: "正文生图"});
-            return;
-        }
-        const placementResponse = await $fetch<BodyImagePromptPlacementResponse>("/api/text-to-image/body-prompt-placements", {
+        const chapterHash = await sha256Text(chapterMarkdown);
+        const result = await $fetch<{inserted: number; skipped: number; warnings: string[]}>("/api/text-to-image/body-prompts", {
             method: "POST",
             body: {
-                projectPath: currentNovelId.value,
-                chapterPath: selectedFilePath.value,
-                chapterMarkdown,
-                paragraphs: placementDraft.paragraphs,
-                prompts: placementDraft.prompts,
-                llmReply: reply,
+                projectPath,
+                chapterPath,
+                chapterHash,
+                llmProviderId: providerId,
+                taskPrompt: textToImageTaskPrompts.value.bodyImage.prompt,
+                defaultNegativePrompt: textToImageGenerationDraft.value.negativePrompt,
+                promptRules: textToImagePromptReplacementRules.value,
+                parameters: apiConfig.parameters,
             },
         });
-        for (const warning of placementResponse.warnings) {
-            notification.warning(warning, {title: "正文生图插图定位"});
+        for (const warning of result.warnings) {
+            notification.warning(warning, {title: "正文生图"});
         }
-        const result = insertTextToImagePromptPlaceholdersByPlacement(chapterMarkdown, placementDraft, placementResponse.placements);
         if (!result.inserted) {
             notification.warning("插图定位器没有返回可用插入位置，已保持正文不变。", {title: "正文生图"});
             return;
         }
-        selectedFileContent.value = result.markdown;
-        await nextTick();
-        await saveCurrentWorkspaceFile();
+        if (selectedFilePath.value === chapterPath) {
+            await novelIdeStore.selectWorkspacePath(chapterPath, "permanent", {forceDisk: true});
+        }
         const skippedText = result.skipped ? `，跳过 ${result.skipped} 个无效位置` : "";
         notification.success(`已插入 ${result.inserted} 个生成图片按钮${skippedText}。`, {title: "正文生图"});
     } catch (error) {
@@ -1112,6 +916,12 @@ const generateBodyImagesForCurrentChapter = async (): Promise<void> => {
         bodyImageGenerating.value = false;
     }
 };
+
+async function sha256Text(value: string): Promise<string> {
+    const bytes = new TextEncoder().encode(value);
+    const digest = await crypto.subtle.digest("SHA-256", bytes);
+    return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
 
 /**
  * 点击正文中的生成图片按钮后，调用 NovelAI 并用返回图片替换对应按钮。
@@ -1134,67 +944,46 @@ const generateImageForBodyPrompt = async (payload: TextToImagePromptGeneratePayl
         notification.warning("当前正文中没有找到这个生成图片按钮，可能已经被替换或删除。", {title: "正文生图"});
         return;
     }
-    if (!textToImageNovelAi.value.token.trim()) {
-        notification.warning("请先在文生图分页配置 NovelAI Persistent Token。", {title: "正文生图"});
+    if (textToImageActiveNovelAiProviderId.value === null) {
+        notification.warning("请先选择 NovelAI Provider。", {title: "正文生图"});
         return;
     }
 
     bodyImagePromptGeneratingIds.value = [...bodyImagePromptGeneratingIds.value, id];
     setTextToImagePromptGenerationState(id, "queued");
     try {
-        notification.info("图片生成请求已加入队列。", {title: "正文生图"});
-        const result = await enqueueTextToImageGeneration<TextToImageGenerateResponse>({
-            id: `body-prompt:${id}`,
-            label: "正文插图",
-            onStatusChange: (status) => {
-                setTextToImagePromptGenerationState(id, queueStatusToGenerationState(status));
-            },
-            run: () => $fetch<TextToImageGenerateResponse>("/api/text-to-image/generate", {
-                method: "POST",
-                body: {
-                    novelAi: textToImageNovelAi.value,
-                    style: activeTextToImageStyle.value,
-                    character: null,
-                    characters: [],
-                    outfits: [],
-                    promptRules: textToImagePromptReplacementRules.value,
-                    prompt: promptText,
-                    negativePrompt: textToImageGenerationDraft.value.negativePrompt,
+        const projectPath = currentNovelId.value;
+        const chapterPath = selectedFilePath.value;
+        if (!projectPath || !chapterPath) {
+            notification.warning("当前正文缺少 Project 或章节路径。", {title: "正文生图"});
+            return;
+        }
+        const novelAi = textToImageNovelAi.value;
+        const job = await $fetch<{id: string}>("/api/text-to-image/jobs", {
+            method: "POST",
+            body: {
+                projectPath,
+                providerId: textToImageActiveNovelAiProviderId.value,
+                kind: "body",
+                sourcePath: chapterPath,
+                sourceAnchorId: id,
+                prompt: promptText,
+                negativePrompt: payload.negativePrompt,
+                novelAi: {
+                    model: novelAi.model,
+                    sampler: novelAi.sampler,
+                    noiseSchedule: novelAi.noiseSchedule,
+                    promptGuidance: novelAi.promptGuidance,
+                    promptGuidanceRescale: novelAi.promptGuidanceRescale,
+                    width: novelAi.width,
+                    height: novelAi.height,
+                    steps: novelAi.steps,
+                    seed: novelAi.seed,
                     count: 1,
-                    output: textToImageOutput.value,
                 },
-            }),
+            },
         });
-        textToImageStore.recordNovelAiExchange({
-            request: result.request,
-            warnings: result.warnings,
-            imageCount: result.images.length,
-        });
-        const image = result.images[0];
-        if (!image) {
-            notification.warning("NovelAI 返回结果中没有图片。", {title: "正文生图"});
-            return;
-        }
-
-        const resultId = createTextToImageGeneratedResultId(id);
-        const replacement = buildGeneratedImageResultMarkdown({
-            id: resultId,
-            activeIndex: 0,
-            images: [image],
-        });
-        const replaced = replaceTextToImagePromptPlaceholder(selectedFileContent.value, id, replacement);
-        if (!replaced.replaced) {
-            notification.warning("图片已生成，但正文中的按钮已经不存在；可在文生图结果历史中查看。", {title: "正文生图"});
-            textToImageStore.prependGenerationResults(result.images);
-            return;
-        }
-
-        selectedFileContent.value = replaced.markdown;
-        textToImageStore.prependGenerationResults(result.images);
-        await nextTick();
-        await saveCurrentWorkspaceFile();
-        const warningText = result.warnings.length ? `；${result.warnings.join("；")}` : "";
-        notification.success(`图片已生成并插入正文${warningText}`, {title: "正文生图"});
+        notification.success(`正文插图任务已加入队列：${job.id}`, {title: "正文生图"});
     } catch (error) {
         notification.error(resolveApiErrorMessage(error, "NovelAI 生图失败"), {title: "正文生图"});
     } finally {
@@ -1203,223 +992,6 @@ const generateImageForBodyPrompt = async (payload: TextToImagePromptGeneratePayl
     }
 };
 
-function queueStatusToGenerationState(status: TextToImageGenerationQueueStatus): "idle" | "queued" | "running" {
-    return status === "queued" || status === "running" ? status : "idle";
-}
-
-function openBodyImageResultActions(payload: TextToImageResultPayload): void {
-    if (!payload.items.length) {
-        return;
-    }
-    bodyImageResultActions.value = payload;
-    bodyImageResultActionsOpen.value = true;
-}
-
-function openBodyImageResultViewer(payload: TextToImageResultPayload): void {
-    if (!payload.items.length) {
-        return;
-    }
-    bodyImageResultViewer.value = payload;
-    bodyImageResultViewerIndex.value = payload.activeIndex;
-    bodyImageResultViewerOpen.value = true;
-}
-
-function stepBodyImageResultViewer(offset: number): void {
-    const count = bodyImageResultViewer.value?.items.length ?? 0;
-    if (count <= 0) {
-        return;
-    }
-    bodyImageResultViewerIndex.value = (bodyImageResultViewerIndex.value + offset + count) % count;
-}
-
-function openBodyImageTagRevisionDialog(): void {
-    if (!bodyImageResultActionItem.value) {
-        return;
-    }
-    bodyImageTagRevisionRequirement.value = "";
-    bodyImageTagRevisionError.value = "";
-    bodyImageTagRevisionDialogOpen.value = true;
-}
-
-async function submitBodyImageTagRevision(): Promise<void> {
-    const payload = bodyImageResultActions.value;
-    const item = bodyImageResultActionItem.value;
-    if (!payload || !item || bodyImageTagRevisionBusy.value) {
-        return;
-    }
-    const requirement = bodyImageTagRevisionRequirement.value.trim();
-    if (!requirement) {
-        bodyImageTagRevisionError.value = "请填写 tag 修改要求。";
-        return;
-    }
-
-    bodyImageTagRevisionBusy.value = true;
-    bodyImageTagRevisionError.value = "";
-    try {
-        const revisedPrompt = await requestBodyImageTagRevision(item.prompt, requirement);
-        const nextItems = payload.items.map((entry, index) => index === payload.activeIndex ? {
-            ...entry,
-            prompt: revisedPrompt,
-        } : entry);
-        const nextPayload: TextToImageResultPayload = {
-            ...payload,
-            items: nextItems,
-        };
-        const replacement = buildGeneratedImageResultMarkdown({
-            id: nextPayload.id,
-            activeIndex: nextPayload.activeIndex,
-            images: nextPayload.items,
-        });
-        const replaced = replaceTextToImageResultMarkdown(selectedFileContent.value, nextPayload.id, replacement);
-        if (!replaced.replaced) {
-            throw new Error("当前正文中没有找到这张图片块，可能已经被删除。");
-        }
-        selectedFileContent.value = replaced.markdown;
-        bodyImageResultActions.value = nextPayload;
-        if (bodyImageResultViewer.value?.id === nextPayload.id) {
-            bodyImageResultViewer.value = nextPayload;
-        }
-        await nextTick();
-        await saveCurrentWorkspaceFile();
-        bodyImageTagRevisionDialogOpen.value = false;
-        notification.success("tag 已更新，可点击重新生成图片。", {title: "正文生图"});
-    } catch (error) {
-        bodyImageTagRevisionError.value = resolveApiErrorMessage(error, "tag 修改失败");
-    } finally {
-        bodyImageTagRevisionBusy.value = false;
-    }
-}
-
-async function requestBodyImageTagRevision(currentTag: string, requirement: string): Promise<string> {
-    const {apiConfig, contextPreset} = textToImageStore.resolveLlmTaskBinding("characterRevision");
-    const apiBaseUrl = apiConfig.apiBaseUrl.trim().replace(/\/+$/u, "");
-    if (!apiBaseUrl || !apiConfig.model.trim()) {
-        throw new Error("请先在文生图 LLM 中为“角色/服装修改”配置 API 和模型。");
-    }
-    const messages = buildTextToImageLlmMessages({
-        task: "characterRevision",
-        taskPrompt: textToImageTaskPrompts.value.characterRevision.prompt || "你是 NovelAI tag 修改助手。只输出修改后的英文 tag，不要解释，不要 Markdown。",
-        contextPreset,
-        extraDetectionText: currentTag,
-        userRequest: [
-            "请根据修改要求改写下面这段 NovelAI 图片 tag。",
-            "只输出修改后的完整 tag；不要解释，不要 Markdown，不要包裹代码块。",
-            "",
-            "当前 tag：",
-            currentTag,
-            "",
-            "修改要求：",
-            requirement,
-        ].join("\n"),
-    });
-    const reply = await requestTextToImageLlmCompletion(apiConfig, messages);
-    const revised = reply.replace(/^```(?:text|txt|markdown)?/iu, "").replace(/```$/u, "").trim();
-    if (!revised) {
-        throw new Error("LLM 没有返回可用 tag。");
-    }
-    textToImageStore.recordLlmExchange({
-        task: "characterRevision",
-        prompt: formatTextToImageLlmMessages(messages),
-        response: reply,
-    });
-    return revised;
-}
-
-async function rerollBodyImageResult(): Promise<void> {
-    const payload = bodyImageResultActions.value;
-    const item = bodyImageResultActionItem.value;
-    if (!payload || !item) {
-        return;
-    }
-    if (bodyImageResultGeneratingIds.value.includes(payload.id)) {
-        return;
-    }
-    if (!isEditableManuscriptMarkdown.value) {
-        notification.warning("请先打开包含该图片的可编辑正文章节。", {title: "正文生图"});
-        return;
-    }
-    if (!selectedFileContent.value.includes(payload.id)) {
-        notification.warning("当前正文中没有找到这张图片块，可能已经被删除。", {title: "正文生图"});
-        return;
-    }
-    if (!textToImageNovelAi.value.token.trim()) {
-        notification.warning("请先在文生图分页配置 NovelAI Persistent Token。", {title: "正文生图"});
-        return;
-    }
-
-    bodyImageResultGeneratingIds.value = [...bodyImageResultGeneratingIds.value, payload.id];
-    setTextToImageResultGenerationState(payload.id, "queued");
-    try {
-        notification.info("重新生成请求已加入队列。", {title: "正文生图"});
-        const result = await enqueueTextToImageGeneration<TextToImageGenerateResponse>({
-            id: `body-result:${payload.id}:${Date.now().toString(36)}`,
-            label: "正文图片重绘",
-            onStatusChange: (status) => {
-                setTextToImageResultGenerationState(payload.id, queueStatusToGenerationState(status));
-            },
-            run: () => $fetch<TextToImageGenerateResponse>("/api/text-to-image/generate", {
-                method: "POST",
-                body: {
-                    novelAi: textToImageNovelAi.value,
-                    style: activeTextToImageStyle.value,
-                    character: null,
-                    characters: [],
-                    outfits: [],
-                    promptRules: textToImagePromptReplacementRules.value,
-                    prompt: item.prompt,
-                    negativePrompt: item.negativePrompt || textToImageGenerationDraft.value.negativePrompt,
-                    count: 1,
-                    output: textToImageOutput.value,
-                },
-            }),
-        });
-        textToImageStore.recordNovelAiExchange({
-            request: result.request,
-            warnings: result.warnings,
-            imageCount: result.images.length,
-        });
-        const image = result.images[0];
-        if (!image) {
-            notification.warning("NovelAI 返回结果中没有图片。", {title: "正文生图"});
-            return;
-        }
-
-        const nextItems = [...payload.items, image];
-        const nextPayload: TextToImageResultPayload = {
-            ...payload,
-            activeIndex: nextItems.length - 1,
-            items: nextItems,
-        };
-        const replacement = buildGeneratedImageResultMarkdown({
-            id: nextPayload.id,
-            activeIndex: nextPayload.activeIndex,
-            images: nextPayload.items,
-        });
-        const replaced = replaceTextToImageResultMarkdown(selectedFileContent.value, nextPayload.id, replacement);
-        if (!replaced.replaced) {
-            notification.warning("图片已重新生成，但正文中的图片块已经不存在；可在文生图结果历史中查看。", {title: "正文生图"});
-            textToImageStore.prependGenerationResults(result.images);
-            return;
-        }
-
-        selectedFileContent.value = replaced.markdown;
-        bodyImageResultActions.value = nextPayload;
-        if (bodyImageResultViewer.value?.id === nextPayload.id) {
-            bodyImageResultViewer.value = nextPayload;
-            bodyImageResultViewerIndex.value = nextPayload.activeIndex;
-        }
-        textToImageStore.prependGenerationResults(result.images);
-        await nextTick();
-        await saveCurrentWorkspaceFile();
-        const warningText = result.warnings.length ? `；${result.warnings.join("；")}` : "";
-        notification.success(`图片已重新生成${warningText}`, {title: "正文生图"});
-    } catch (error) {
-        notification.error(resolveApiErrorMessage(error, "重新生成图片失败"), {title: "正文生图"});
-    } finally {
-        bodyImageResultGeneratingIds.value = bodyImageResultGeneratingIds.value.filter((entry) => entry !== payload.id);
-        setTextToImageResultGenerationState(payload.id, "idle");
-    }
-}
 /**
  * 将 TipTap 选区加入底部 Inline AI 输入栏。
  */
@@ -2828,8 +2400,6 @@ onBeforeUnmount(() => {
                             @set-view-mode="setCurrentWorkspaceViewMode"
                             @generate-body-image="void generateBodyImagesForCurrentChapter()"
                             @generate-text-to-image-prompt="void generateImageForBodyPrompt($event)"
-                            @open-text-to-image-result-viewer="openBodyImageResultViewer"
-                            @open-text-to-image-result-actions="openBodyImageResultActions"
                             @update-monaco-temporary-font-size="setMonacoFontSizeOverride(displayActiveWorkspaceTabPath, $event)"
                             @save-request="void saveCurrentWorkspaceFile()"
                             @open-frontmatter-profile="openFrontmatterProfile"
@@ -2847,12 +2417,11 @@ onBeforeUnmount(() => {
                             @inline-ai-reference="addInlineAiReference"
                         >
                             <template #custom-tab="{ tab }">
-                                <TextToImageCharacterWorkspace
-                                    v-if="tab.kind === 'text-to-image-character' && tab.textToImageCharacter"
-                                    :project-path="tab.textToImageCharacter.projectPath"
-                                    :character-id="tab.textToImageCharacter.characterId"
+                                <TextToImageLlmWorkspace v-if="tab.kind === 'text-to-image-llm'" />
+                                <TextToImageHistoryWorkspace
+                                    v-else-if="tab.kind === 'text-to-image-history' && tab.textToImageHistory"
+                                    :project-path="tab.textToImageHistory.projectPath"
                                 />
-                                <TextToImageLlmWorkspace v-else-if="tab.kind === 'text-to-image-llm'" />
                             </template>
                         </MarkdownStudioWorkbench>
                     </div>
@@ -2978,94 +2547,6 @@ onBeforeUnmount(() => {
             :issues="workspaceIssues"
             @refresh="void loadWorkspaceTree()"
         />
-        <Dialog
-            v-model="bodyImageResultActionsOpen"
-            title="图片 tag"
-            width="min(720px, calc(100vw - 32px))"
-            max-height="85vh"
-            :show-footer="false"
-        >
-            <div class="space-y-4">
-                <label class="block">
-                    <span class="mb-1.5 block text-sm font-medium text-[var(--text-secondary)]">本次 tag</span>
-                    <textarea
-                        readonly
-                        :value="bodyImageResultActionItem?.prompt ?? ''"
-                        rows="10"
-                        class="w-full resize-y rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-2 text-xs leading-5 text-[var(--text-main)] outline-none"
-                    ></textarea>
-                </label>
-                <div class="flex flex-wrap justify-end gap-2">
-                    <button type="button" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 text-sm text-[var(--accent-text)] transition-colors hover:bg-[var(--bg-hover)]" @click="openBodyImageTagRevisionDialog">
-                        <span class="i-lucide-square-pen h-4 w-4"></span>
-                        <span>tag 修改</span>
-                    </button>
-                    <button type="button" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-[var(--accent-main)] px-3 text-sm text-[var(--accent-text)] transition-colors hover:bg-[var(--accent-bg)] disabled:cursor-wait disabled:border-[var(--border-color)] disabled:text-[var(--text-muted)]" :disabled="Boolean(bodyImageResultActions && bodyImageResultGeneratingIds.includes(bodyImageResultActions.id))" @click="void rerollBodyImageResult()">
-                        <span class="i-lucide-refresh-cw h-4 w-4" :class="bodyImageResultActions && bodyImageResultGeneratingIds.includes(bodyImageResultActions.id) ? 'animate-spin' : ''"></span>
-                        <span>{{ bodyImageResultActions && bodyImageResultGeneratingIds.includes(bodyImageResultActions.id) ? "排队/生成中" : "重新生成图片" }}</span>
-                    </button>
-                </div>
-            </div>
-        </Dialog>
-        <Dialog
-            v-model="bodyImageTagRevisionDialogOpen"
-            title="修改图片 tag"
-            width="min(560px, calc(100vw - 32px))"
-            show-cancel
-            :busy="bodyImageTagRevisionBusy"
-            @confirm="submitBodyImageTagRevision"
-        >
-            <div class="space-y-3">
-                <label class="block">
-                    <span class="mb-1.5 block text-sm font-medium text-[var(--text-secondary)]">修改要求</span>
-                    <FormTextarea
-                        :model-value="bodyImageTagRevisionRequirement"
-                        :rows="5"
-                        placeholder="例如：精简不必要的 tag，保留角色和构图；或者强化室内光线..."
-                        @update:model-value="bodyImageTagRevisionRequirement = $event"
-                    />
-                </label>
-                <p v-if="bodyImageTagRevisionError" class="m-0 text-sm text-[var(--danger-text)]">{{ bodyImageTagRevisionError }}</p>
-            </div>
-        </Dialog>
-        <Dialog
-            v-model="bodyImageResultViewerOpen"
-            title="图片预览"
-            size="full"
-            :show-footer="false"
-            overlay-type="opaque"
-            body-class="!overflow-hidden !px-0 !py-0"
-        >
-            <div class="relative flex min-h-0 flex-1 items-center justify-center bg-black">
-                <button
-                    v-if="(bodyImageResultViewer?.items.length ?? 0) > 1"
-                    type="button"
-                    class="absolute left-4 top-1/2 z-10 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70"
-                    title="上一张"
-                    @click="stepBodyImageResultViewer(-1)"
-                >
-                    <span class="i-lucide-chevron-left h-7 w-7"></span>
-                </button>
-                <img
-                    v-if="bodyImageResultViewerItem"
-                    :src="resolveTextToImageResultImageUrl(bodyImageResultViewerItem)"
-                    alt="NovelAI 生成图片"
-                    class="max-h-full max-w-full object-contain"
-                >
-                <button
-                    v-if="(bodyImageResultViewer?.items.length ?? 0) > 1"
-                    type="button"
-                    class="absolute right-4 top-1/2 z-10 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70"
-                    title="下一张"
-                    @click="stepBodyImageResultViewer(1)"
-                >
-                    <span class="i-lucide-chevron-right h-7 w-7"></span>
-                </button>
-                <div v-if="bodyImageResultViewer" class="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-black/60 px-3 py-1 text-sm font-semibold text-white">
-                    {{ bodyImageResultViewerIndex + 1 }}/{{ bodyImageResultViewer.items.length }}
-                </div>
-            </div>
-        </Dialog>
     </div>
 </template>
 

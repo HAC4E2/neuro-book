@@ -81,11 +81,10 @@ export type WorkspaceFileIssue = {
     line?: number;
 };
 
-export type WorkspaceEditorTabKind = "workspace-file" | "text-to-image-character" | "text-to-image-llm";
+export type WorkspaceEditorTabKind = "workspace-file" | "text-to-image-llm" | "text-to-image-history";
 
-export type TextToImageCharacterWorkspaceTab = {
+export type TextToImageHistoryWorkspaceTab = {
     projectPath: string;
-    characterId: string;
 };
 
 export type WorkspaceEditorTab = {
@@ -97,14 +96,14 @@ export type WorkspaceEditorTab = {
     pinned: boolean;
     preview: boolean;
     dirty: boolean;
-    textToImageCharacter?: TextToImageCharacterWorkspaceTab;
+    textToImageHistory?: TextToImageHistoryWorkspaceTab;
 };
 
-export const TEXT_TO_IMAGE_CHARACTER_TAB_PREFIX = "text-to-image://character/";
 export const TEXT_TO_IMAGE_LLM_TAB_PATH = "text-to-image://llm/settings";
+export const TEXT_TO_IMAGE_HISTORY_TAB_PREFIX = "text-to-image://history/";
 
-export function buildTextToImageCharacterTabPath(projectPath: string, characterId: string): string {
-    return `${TEXT_TO_IMAGE_CHARACTER_TAB_PREFIX}${encodeURIComponent(projectPath || "__unbound__")}/${encodeURIComponent(characterId)}`;
+export function buildTextToImageHistoryTabPath(projectPath: string): string {
+    return `${TEXT_TO_IMAGE_HISTORY_TAB_PREFIX}${encodeURIComponent(projectPath)}`;
 }
 
 export type WorkspaceOpenMode = "preview" | "permanent";
@@ -668,45 +667,6 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     };
 
     /**
-     * 打开文生图角色详情的虚拟工作区标签页。
-     */
-    const openTextToImageCharacterTab = (payload: TextToImageCharacterWorkspaceTab & {title: string}): void => {
-        persistActiveWorkspaceBuffer();
-        const path = buildTextToImageCharacterTabPath(payload.projectPath, payload.characterId);
-        const existingTab = workspaceTabs.value.find((tab) => tab.path === path);
-        const nextTab: WorkspaceEditorTab = {
-            kind: "text-to-image-character",
-            path,
-            title: payload.title.trim() || "未命名角色",
-            editorKind: "readonly",
-            viewMode: "source",
-            pinned: existingTab?.pinned ?? false,
-            preview: false,
-            dirty: false,
-            textToImageCharacter: {
-                projectPath: payload.projectPath,
-                characterId: payload.characterId,
-            },
-        };
-        workspaceTabs.value = existingTab
-            ? workspaceTabs.value.map((tab) => tab.path === path ? {...tab, ...nextTab} : tab)
-            : [...workspaceTabs.value, nextTab];
-        activeWorkspaceTabPath.value = path;
-        activeWorkspaceFile.value = null;
-    };
-
-    /**
-     * 根据角色重命名同步虚拟标签标题。
-     */
-    const updateTextToImageCharacterTabTitle = (projectPath: string, characterId: string, title: string): void => {
-        const path = buildTextToImageCharacterTabPath(projectPath, characterId);
-        workspaceTabs.value = workspaceTabs.value.map((tab) => tab.path === path ? {
-            ...tab,
-            title: title.trim() || tab.title,
-        } : tab);
-    };
-
-    /**
      * 打开文生图 LLM 详细配置的虚拟工作区标签页。
      */
     const openTextToImageLlmTab = (): void => {
@@ -726,6 +686,33 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             ? workspaceTabs.value.map((tab) => tab.path === TEXT_TO_IMAGE_LLM_TAB_PATH ? {...tab, ...nextTab} : tab)
             : [...workspaceTabs.value, nextTab];
         activeWorkspaceTabPath.value = TEXT_TO_IMAGE_LLM_TAB_PATH;
+        activeWorkspaceFile.value = null;
+    };
+
+    /** 打开当前 Project 唯一的文生图历史图片工作区。 */
+    const openTextToImageHistoryTab = (projectPath: string): void => {
+        const normalizedProjectPath = projectPath.trim();
+        if (!normalizedProjectPath) {
+            return;
+        }
+        persistActiveWorkspaceBuffer();
+        const path = buildTextToImageHistoryTabPath(normalizedProjectPath);
+        const existingTab = workspaceTabs.value.find((tab) => tab.path === path);
+        const nextTab: WorkspaceEditorTab = {
+            kind: "text-to-image-history",
+            path,
+            title: "历史图片",
+            editorKind: "readonly",
+            viewMode: "source",
+            pinned: existingTab?.pinned ?? false,
+            preview: false,
+            dirty: false,
+            textToImageHistory: {projectPath: normalizedProjectPath},
+        };
+        workspaceTabs.value = existingTab
+            ? workspaceTabs.value.map((tab) => tab.path === path ? {...tab, ...nextTab} : tab)
+            : [...workspaceTabs.value, nextTab];
+        activeWorkspaceTabPath.value = path;
         activeWorkspaceFile.value = null;
     };
 
@@ -862,7 +849,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
 
             for (const path of candidatePaths) {
                 const tab = workspaceTabs.value.find((item) => item.path === path);
-                if (tab?.kind === "text-to-image-character" || tab?.kind === "text-to-image-llm") {
+                if (tab?.kind === "text-to-image-llm" || tab?.kind === "text-to-image-history") {
                     await selectWorkspaceTab(path);
                     return;
                 }
@@ -1418,7 +1405,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
      */
     const selectWorkspaceTab = async (filePath: string): Promise<WorkspaceFileNode | null> => {
         const tab = workspaceTabs.value.find((item) => item.path === filePath);
-        if (tab?.kind === "text-to-image-character" || tab?.kind === "text-to-image-llm") {
+        if (tab?.kind === "text-to-image-llm" || tab?.kind === "text-to-image-history") {
             persistActiveWorkspaceBuffer();
             activeWorkspaceTabPath.value = tab.path;
             activeWorkspaceFile.value = null;
@@ -2434,7 +2421,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         novelTree,
         openWorkspacePath,
         openTextToImageLlmTab,
-        openTextToImageCharacterTab,
+        openTextToImageHistoryTab,
         openWorkspaceNode,
         optimisticRenameWorkspacePath,
         pendingAgentChapterUpdate,
@@ -2476,7 +2463,6 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         setMonacoFontSizeOverride,
         setWorkspaceTabPinned,
         setWorkspaceTabViewMode,
-        updateTextToImageCharacterTabTitle,
         toggleWorkspaceTabPinned,
         switchNovel,
         switchToNovelWorkspace,

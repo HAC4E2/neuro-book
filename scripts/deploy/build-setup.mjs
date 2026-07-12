@@ -3,20 +3,20 @@
  * NeuroBook Setup 构建脚本。
  *
  * 流程：
- *   1. 把 dist/neuro-book-desktop-x64/ 复制到 C:\temp\nb-setup\source\（短路径，绕过 MAX_PATH）
+ *   1. 把 dist/neuro-book-desktop-x64/ 复制到 C:\nb\s\（短路径，绕过 MAX_PATH）
  *   2. 调用 Inno Setup ISCC.exe 编译 setup.exe
  *   3. 输出 dist/NeuroBook-Setup.exe
  */
 import {existsSync} from "node:fs";
-import {cp, mkdir, readFile, rm} from "node:fs/promises";
+import {mkdir, readFile, rm, stat} from "node:fs/promises";
 import {basename, dirname, join, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {runCapture} from "../utils/process.mjs";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const PORTABLE_SOURCE = join(REPO_ROOT, "dist", "neuro-book-desktop-x64");
-const STAGING_ROOT = "C:\\temp\\nb-setup";
-const STAGING_SOURCE = join(STAGING_ROOT, "source");
+const STAGING_ROOT = "C:\\nb";
+const STAGING_SOURCE = join(STAGING_ROOT, "s");
 const ISS_SCRIPT = join(REPO_ROOT, "scripts", "deploy", "neuro-book-setup.iss");
 const ISCC_PATHS = [
     join(process.env.LOCALAPPDATA ?? "", "Programs", "Inno Setup 6", "ISCC.exe"),
@@ -46,10 +46,10 @@ async function main() {
     console.log(`Version: ${version}`);
 
     // 4. 暂存到短路径
+    // 用 PowerShell Copy-Item（.NET 支持长路径），node fs.cp 会因 Windows MAX_PATH 失败。
     console.log("Staging to short path...");
-    await rm(STAGING_ROOT, {recursive: true, force: true});
-    await mkdir(STAGING_SOURCE, {recursive: true});
-    await cp(PORTABLE_SOURCE, STAGING_SOURCE, {recursive: true});
+    const psCmd = `Remove-Item -Recurse -Force '${STAGING_ROOT}' -ErrorAction SilentlyContinue; Copy-Item -Path '${PORTABLE_SOURCE}' -Destination '${STAGING_SOURCE}' -Recurse -Force`;
+    await runCapture("powershell", ["-NoProfile", "-Command", psCmd]);
     console.log("Staged.");
 
     // 5. 编译
@@ -59,7 +59,7 @@ async function main() {
     console.log(`Installer built: ${basename(OUTPUT_EXE)}`);
 
     // 6. 清理暂存
-    await rm(STAGING_ROOT, {recursive: true, force: true});
+    await runCapture("powershell", ["-NoProfile", "-Command", `Remove-Item -Recurse -Force '${STAGING_ROOT}' -ErrorAction SilentlyContinue`]);
 
     // 7. 输出信息
     if (existsSync(OUTPUT_EXE)) {

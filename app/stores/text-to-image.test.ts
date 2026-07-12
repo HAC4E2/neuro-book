@@ -84,6 +84,43 @@ describe("useTextToImageStore", () => {
 
         expect(store.generationResults.map((result) => result.id)).toEqual([second.id]);
     });
+
+    it("loads current Project job summaries from the server without persisting them", async () => {
+        const globals = globalThis as typeof globalThis & Record<string, unknown>;
+        const requests: string[] = [];
+        const fetchMock = async (url: string) => {
+            requests.push(url);
+            return {
+                items: [{
+                    id: "job-1",
+                    providerId: 7,
+                    kind: "manual",
+                    status: "queued",
+                    sourcePath: null,
+                    sourceAnchorId: null,
+                    sourceInsertStatus: "not_applicable",
+                    resultAssetIds: [],
+                    errorMessage: null,
+                    attemptCount: 0,
+                    createdAt: "2026-07-11T00:00:00.000Z",
+                    startedAt: null,
+                    finishedAt: null,
+                }],
+                page: 1,
+                pageSize: 12,
+                hasMore: false,
+            };
+        };
+        (globals as Record<string, unknown>).$fetch = fetchMock;
+        const {useTextToImageStore} = await import("nbook/app/stores/text-to-image");
+        const store = useTextToImageStore();
+
+        await store.refreshProjectJobs("workspace/current-book");
+
+        expect(requests).toEqual(["/api/text-to-image/jobs?projectPath=workspace%2Fcurrent-book&pageSize=12"]);
+        expect(store.projectJobs.map((job) => job.id)).toEqual(["job-1"]);
+        expect(store.projectJobsProjectPath).toBe("workspace/current-book");
+    });
 });
 
 function createGenerationResult(id: string) {

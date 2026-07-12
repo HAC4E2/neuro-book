@@ -21,6 +21,8 @@
 - 在 Project Workspace 角色详情页右上方增加“生成角色 tag”按钮。
 - 点击后先保存当前角色详情页，再通过子 agent 提取外貌信息，交给 LLM 生成 tag，并写入角色目录中的 `image-tags.md`。
 - 角色目录结构约定为 `lorebook/character/<角色目录>/index.md` + `lorebook/character/<角色目录>/image-tags.md`；现有 `index.md` 目录不自动移动或改名。
+- 每个角色可以绑定多件服装；`image-tags.md` 的服装列表只保存 `中文名称/英文名称` Markdown 链接索引，详细 Tag 独立保存在角色目录的 `outfits/*.md`。
+- 独立服装文件按上半身、上半身背面、下半身、下半身背面四个部位维护。
 
 ## Goal
 
@@ -42,6 +44,8 @@
 - 新增内置 profile `body-image.character-detector` 和 runtime skill `body-image-character-detection`，用于正文生图前从候选角色中筛选相关角色。
 - 新增内置 profile `character-image-tag.extractor` 和 runtime skill `character-image-tag-generation`，用于角色详情页生成 `image-tags.md` 前提取生图相关外貌事实。
 - Project Workspace 的角色详情页右上角已增加生成按钮；成功后会打开生成的 `image-tags.md` 文件分页。
+- 角色 Tag 生成会同时读取 JSON `outfits[]` 或多个 `<服装>` 回复块，为当前角色写入独立服装 Markdown；同名服装更新，未返回服装保留，归属人不匹配的服装跳过并告警。
+- 正文生图加载角色时会跟随服装索引读取独立文件，并按正背面与脸部/上半身/下半身/全身镜头确定性注入对应服装 Tag。
 - 文生图面板不再展示旧角色/服装管理 UI；旧 Pinia store 和历史辅助函数暂留，避免本轮扩成大规模清理重构。
 
 ## Walkthrough
@@ -62,6 +66,9 @@
 - 新增 `/api/text-to-image/character-image-tags`，接收当前角色详情页 Markdown、角色路径和文生图 LLM 配置；服务端调用 `character-image-tag.extractor` 提取外貌事实，再请求 OpenAI-compatible LLM 生成结构化角色 tag，最后渲染并写入 `image-tags.md`。
 - 新增 `renderTextToImageCharacterImageTagsMarkdown`，保证生成的 `image-tags.md` 能被正文生图解析器回读。
 - 角色详情页按钮会复用“角色/服装设计”的 LLM API 配置和任务提示词；如果配置缺失，会在前端提示用户先配置。
+- 默认角色/服装设计提示词要求返回 `character + outfits[]` JSON；解析器同时消费既有提示词常用的 `<服装>` 标签格式，每个回复可包含多件服装。
+- 生成服务在 `lorebook/character/<角色目录>/outfits/` 写入独立服装文件，并把显式相对链接合并回 `image-tags.md` 的服装列表。
+- Prompt 编译器不再把服装英文名当作最终 Tag，而是按 resolver 给出的 `outfitName`、`view` 与 `framing` 选择服装文件中的对应部位。
 - 已编译 `character-image-tag.extractor` profile 到 `.compiled/artifacts`，catalog 可加载该内置 profile。
 
 - 新增 `body-image.prompt-placer` profile 与 `body-image-prompt-placement` skill：正文生图 LLM 仍按现有世界书返回 `<image>...</image>`，应用把解析出的图片 prompt 和章节段落交给插图定位子 agent，子 agent 只返回 `{promptId, afterParagraphId}`，不改写正文、不生成 tag。
@@ -81,6 +88,9 @@
 - `promptRules` 继续按现有提示词替换规则结构传递，包含 `id/name/enabled/target/matchMode/mode/trigger/replacement`，避免正文生图链路旁路已有替换系统。
 - 角色详情页生成 tag 时不移动或重命名现有角色目录；如果来源已经是 `index.md` 内容节点，就在同目录生成 `image-tags.md`。
 - `character-image-tag.extractor` 只提取外貌事实，不生成 NovelAI tags；tag 生成仍交给文生图 LLM，避免子 agent 同时承担分析和 prompt 工程两种职责。
+- 服装归属于角色目录，不建立全局共享库；`image-tags.md` 只承担显式索引，独立服装 Markdown 是详细参数真相源。
+- 同名服装重新生成时覆盖对应文件，本次 LLM 未返回的服装不删除，避免丢失用户手工维护内容。
+- 服装部位选择由 Prompt 编译器确定，LLM 只返回服装名称与结构化 Tag，不能直接决定最终注入部位。
 - 正文插图定位交给 `body-image.prompt-placer` 子 agent，但最终写入正文只由应用按 paragraph id 执行；无锚点结果宁可跳过，不再回退到章节末尾追加或按段落均分。
 
 ## Files Changed
@@ -94,12 +104,18 @@
 - `app/pages/index.vue`
 - `app/utils/text-to-image-character-tags.ts`
 - `app/utils/text-to-image-character-tags.test.ts`
+- `app/utils/text-to-image-outfit-tags.ts`
+- `app/utils/text-to-image-outfit-tags.test.ts`
+- `app/utils/text-to-image-outfit-design.ts`
+- `app/utils/text-to-image-outfit-design.test.ts`
 - `server/text-to-image/body-image-character-tags.ts`
 - `server/text-to-image/body-image-character-tags.test.ts`
 - `server/text-to-image/body-image-prompt-placement.ts`
 - `server/text-to-image/body-image-prompt-placement.test.ts`
 - `server/text-to-image/character-image-tags.ts`
 - `server/text-to-image/character-image-tags.test.ts`
+- `server/text-to-image/prompt-compiler.ts`
+- `server/text-to-image/prompt-compiler.test.ts`
 - `server/api/text-to-image/body-character-tags.post.ts`
 - `server/api/text-to-image/body-prompt-placements.post.ts`
 - `server/api/text-to-image/character-image-tags.post.ts`
@@ -119,6 +135,10 @@
 
 ## Verification
 
+- 已运行 `bunx vitest run app/utils/text-to-image-outfit-tags.test.ts app/utils/text-to-image-outfit-design.test.ts app/utils/text-to-image-character-tags.test.ts server/text-to-image/character-image-tags.test.ts server/text-to-image/body-image-character-tags.test.ts server/text-to-image/prompt-compiler.test.ts`，结果 `6 files / 24 tests passed`。
+- 已运行 `bun run typecheck`，Nuxt 类型检查退出码为 0。
+- 新增回归覆盖两层路径边界：角色生成不会复用 `outfits/` 目录外的同名索引路径；`image-tags.md` 也不会解析跨角色、章节或其他目录的服装链接。
+
 - 已运行 `bunx vitest run app/utils/text-to-image-character-tags.test.ts server/text-to-image/body-image-character-tags.test.ts server/agent/profiles/body-image-character-detector-profile.test.ts app/utils/text-to-image-llm.test.ts app/utils/text-to-image-prompt-engine.test.ts`，结果 5 files / 16 tests passed。
 - 已运行 `bunx vitest run app/utils/text-to-image-character-tags.test.ts server/text-to-image/character-image-tags.test.ts server/agent/profiles/character-image-tag-extractor-profile.test.ts server/text-to-image/body-image-character-tags.test.ts server/agent/profiles/body-image-character-detector-profile.test.ts`，结果 5 files / 12 tests passed。
 - 已运行 `bun scripts/build/profile.ts compile builtin/body-image.character-detector.profile.tsx --system`，生成内置 profile compiled artifact。
@@ -128,6 +148,14 @@
 - 已再次运行 `bun run typecheck`；正文生图相关类型错误已清理，当前仍失败在既有 Plot 面板 `chapterPath/chapterId` 类型不一致：
   - `app/components/novel-ide/plot/NovelPlotPanel.vue`
 - 按项目规则未自动做浏览器交互验收。
+
+## 2026-07-11 Hard Cut Update
+
+- Provider credentials, queue scheduling, retry, persisted jobs/assets, and the history workspace are now server-owned; the browser sends Provider IDs only.
+- Body-image placeholders are structured Markdown contracts and are replaced under a chapter lock with ordinary Markdown image syntax after the first asset succeeds.
+- The former `text-to-image-result` editor node, result dialogs, and visible Tavern-style role/outfit manager have been removed. Character image tags are managed only through the Project Workspace character directory and `image-tags.md`.
+- The text-to-image panel creates manual jobs and shows queue summaries only. Users open generated assets through the dedicated history workspace tab.
+- Current verification: focused LLM/chapter/queue suite passed (10 tests) and `bun run typecheck` passed after the hard cut.
 
 ## TODO / Follow-ups
 

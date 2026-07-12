@@ -35,6 +35,47 @@ CREATE TABLE IF NOT EXISTS "DatabaseLock" (
     "key" INTEGER NOT NULL PRIMARY KEY,
     "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS "TextToImageJob" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "providerId" INTEGER NOT NULL,
+    "kind" TEXT NOT NULL,
+    "status" TEXT NOT NULL,
+    "sourcePath" TEXT,
+    "sourceAnchorId" TEXT,
+    "sourceInsertStatus" TEXT NOT NULL DEFAULT 'not_applicable',
+    "requestJson" TEXT NOT NULL,
+    "resultAssetIdsJson" TEXT NOT NULL DEFAULT '[]',
+    "errorMessage" TEXT,
+    "attemptCount" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "startedAt" DATETIME,
+    "finishedAt" DATETIME
+);
+CREATE INDEX IF NOT EXISTS "TextToImageJob_status_createdAt_idx" ON "TextToImageJob"("status", "createdAt");
+CREATE INDEX IF NOT EXISTS "TextToImageJob_providerId_status_createdAt_idx" ON "TextToImageJob"("providerId", "status", "createdAt");
+CREATE INDEX IF NOT EXISTS "TextToImageJob_sourcePath_createdAt_idx" ON "TextToImageJob"("sourcePath", "createdAt");
+CREATE TABLE IF NOT EXISTS "TextToImageAsset" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "jobId" TEXT NOT NULL,
+    "relativePath" TEXT NOT NULL,
+    "fileName" TEXT NOT NULL,
+    "mimeType" TEXT NOT NULL,
+    "byteLength" INTEGER NOT NULL,
+    "width" INTEGER NOT NULL,
+    "height" INTEGER NOT NULL,
+    "model" TEXT NOT NULL,
+    "seed" INTEGER NOT NULL,
+    "prompt" TEXT NOT NULL,
+    "negativePrompt" TEXT NOT NULL,
+    "sourceKind" TEXT NOT NULL,
+    "sourcePath" TEXT,
+    "sourceAnchorId" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "TextToImageAsset_jobId_fkey" FOREIGN KEY ("jobId") REFERENCES "TextToImageJob" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "TextToImageAsset_relativePath_key" ON "TextToImageAsset"("relativePath");
+CREATE INDEX IF NOT EXISTS "TextToImageAsset_jobId_createdAt_idx" ON "TextToImageAsset"("jobId", "createdAt");
+CREATE INDEX IF NOT EXISTS "TextToImageAsset_sourcePath_createdAt_idx" ON "TextToImageAsset"("sourcePath", "createdAt");
 CREATE TABLE IF NOT EXISTS "Story" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "title" TEXT NOT NULL,

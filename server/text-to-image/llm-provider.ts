@@ -1,17 +1,20 @@
 import {z} from "zod";
-import {withBrowserProxyForFetch} from "nbook/server/utils/browser-proxy";
+import {
+    fetchTextToImageProvider,
+    type TextToImageProviderFetch,
+} from "nbook/server/text-to-image/provider-fetch";
 
 const TextToImageLlmTextContentPartSchema = z.object({
     type: z.literal("text"),
     text: z.string(),
-});
+}).strict();
 
 const TextToImageLlmImageContentPartSchema = z.object({
     type: z.literal("image_url"),
     image_url: z.object({
         url: z.string(),
-    }),
-});
+    }).strict(),
+}).strict();
 
 const TextToImageLlmMessageSchema = z.object({
     role: z.enum(["system", "user", "assistant"]),
@@ -19,30 +22,35 @@ const TextToImageLlmMessageSchema = z.object({
         z.string(),
         z.array(z.union([TextToImageLlmTextContentPartSchema, TextToImageLlmImageContentPartSchema])),
     ]),
-});
+}).strict();
 
 export const TextToImageLlmModelsRequestSchema = z.object({
-    apiBaseUrl: z.string().trim().min(1),
-    apiKey: z.string().default(""),
-});
+    providerId: z.number().int().positive(),
+}).strict();
 
 export const TextToImageLlmCompletionRequestSchema = z.object({
-    apiBaseUrl: z.string().trim().min(1),
-    apiKey: z.string().default(""),
+    providerId: z.number().int().positive(),
     model: z.string().trim().min(1),
     parameters: z.object({
         temperature: z.number().default(0.7),
         topP: z.number().default(1),
         maxTokens: z.number().int().positive().default(4096),
-    }),
+    }).strict(),
     stream: z.boolean().default(false),
     messages: z.array(TextToImageLlmMessageSchema).min(1),
-});
+}).strict();
 
 export type TextToImageLlmModelsRequest = z.infer<typeof TextToImageLlmModelsRequestSchema>;
 export type TextToImageLlmCompletionRequest = z.infer<typeof TextToImageLlmCompletionRequestSchema>;
 export type TextToImageLlmCompletionResponse = {
     content: string;
+};
+
+/** 仅在服务端内部传递的已解析 Provider 连接信息。 */
+export type TextToImageLlmProviderConnection = {
+    baseUrl: string;
+    credential: string;
+    allowPrivateNetwork: boolean;
 };
 
 type ModelListEntry = string | {
@@ -67,16 +75,18 @@ type ChatCompletionResponse = {
 /**
  * 通过服务端统一读取 OpenAI-compatible 模型列表，避免前端直连带来的 CORS 与代理差异。
  */
-export async function listTextToImageLlmModels(input: TextToImageLlmModelsRequest, fetchImpl: typeof fetch = fetch): Promise<string[]> {
-    const url = `${normalizeApiBaseUrl(input.apiBaseUrl)}/models`;
-    const headers = buildAuthorizationHeaders(input.apiKey);
-    const response = await requestWithOptionalBrowserProxy(fetchImpl, url, {
+export async function listTextToImageLlmModels(
+    input: TextToImageLlmProviderConnection,
+    fetchImpl: TextToImageProviderFetch = fetchTextToImageProvider,
+): Promise<string[]> {
+    const url = `${normalizeApiBaseUrl(input.baseUrl)}/models`;
+    const headers = buildAuthorizationHeaders(input.credential);
+    const response = await fetchImpl(url, {
         method: "GET",
         headers,
-    });
+    }, {allowPrivateNetwork: input.allowPrivateNetwork});
     if (!response.ok) {
-        const message = await response.text().catch(() => "");
-        throw new Error(message || `LLM 模型列表读取失败：${response.status}`);
+        throw new Error(`LLM 模型列表请求失败（状态 ${response.status}）`);
     }
     const data = await response.json() as ModelListResponse;
     const entries = Array.isArray(data)
@@ -96,15 +106,15 @@ export async function listTextToImageLlmModels(input: TextToImageLlmModelsReques
  * 通过服务端统一发送 OpenAI-compatible chat completion 请求。
  */
 export async function requestTextToImageLlmCompletion(
-    input: TextToImageLlmCompletionRequest,
-    fetchImpl: typeof fetch = fetch,
+    input: TextToImageLlmProviderConnection & Pick<TextToImageLlmCompletionRequest, "model" | "parameters" | "stream" | "messages">,
+    fetchImpl: TextToImageProviderFetch = fetchTextToImageProvider,
 ): Promise<string> {
-    const url = `${normalizeApiBaseUrl(input.apiBaseUrl)}/chat/completions`;
-    const response = await requestWithOptionalBrowserProxy(fetchImpl, url, {
+    const url = `${normalizeApiBaseUrl(input.baseUrl)}/chat/completions`;
+    const response = await fetchImpl(url, {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
-            ...buildAuthorizationHeaders(input.apiKey),
+            ...buildAuthorizationHeaders(input.credential),
         },
         body: JSON.stringify({
             model: input.model.trim(),
@@ -114,10 +124,9 @@ export async function requestTextToImageLlmCompletion(
             stream: input.stream,
             messages: input.messages,
         }),
-    });
+    }, {allowPrivateNetwork: input.allowPrivateNetwork});
     if (!response.ok) {
-        const message = await response.text().catch(() => "");
-        throw new Error(message || `LLM 请求失败：${response.status}`);
+        throw new Error(`LLM 补全请求失败（状态 ${response.status}）`);
     }
     if (input.stream) {
         return await readStreamingResponse(response);
@@ -126,18 +135,13 @@ export async function requestTextToImageLlmCompletion(
     return data.choices?.[0]?.message?.content?.trim() ?? "";
 }
 
-function normalizeApiBaseUrl(apiBaseUrl: string): string {
-    return apiBaseUrl.trim().replace(/\/+$/u, "");
+function normalizeApiBaseUrl(baseUrl: string): string {
+    return baseUrl.trim().replace(/\/+$/u, "");
 }
 
-function buildAuthorizationHeaders(apiKey: string): Record<string, string> {
-    const token = apiKey.trim();
+function buildAuthorizationHeaders(credential: string): Record<string, string> {
+    const token = credential.trim();
     return token ? {Authorization: `Bearer ${token}`} : {};
-}
-
-async function requestWithOptionalBrowserProxy(fetchImpl: typeof fetch, url: string, init: RequestInit): Promise<Response> {
-    const resolvedInit = fetchImpl === fetch ? await withBrowserProxyForFetch(url, init) : init;
-    return await fetchImpl(url, resolvedInit);
 }
 
 async function readStreamingResponse(response: Response): Promise<string> {

@@ -105,6 +105,29 @@ enum StoryDecisionAnchorKind {
   content
 }
 
+enum TextToImageJobKind {
+  manual
+  body
+  character
+  reroll
+}
+
+enum TextToImageJobStatus {
+  queued
+  running
+  succeeded
+  failed
+  canceled
+  interrupted
+}
+
+enum TextToImageSourceInsertStatus {
+  not_applicable
+  pending
+  inserted
+  missing
+}
+
 model ProjectMetadata {
   key       String   @id
   value     String
@@ -416,4 +439,49 @@ model WorldPatch {
   @@index([subjectId, instant, seq])
   @@index([subjectId, path, instant])
   @@index([path])
+}
+
+model TextToImageJob {
+  id                 String                        @id
+  providerId         Int
+  kind               TextToImageJobKind
+  status             TextToImageJobStatus
+  sourcePath         String?
+  sourceAnchorId     String?
+  sourceInsertStatus TextToImageSourceInsertStatus @default(not_applicable)
+  requestJson        String
+  resultAssetIdsJson String                        @default("[]")
+  errorMessage       String?
+  attemptCount       Int                           @default(0)
+  createdAt          DateTime                      @default(now())
+  startedAt          DateTime?
+  finishedAt         DateTime?
+  assets             TextToImageAsset[]
+
+  @@index([status, createdAt])
+  @@index([providerId, status, createdAt])
+  @@index([sourcePath, createdAt])
+}
+
+model TextToImageAsset {
+  id             String         @id
+  jobId          String
+  relativePath   String         @unique
+  fileName       String
+  mimeType       String
+  byteLength     Int
+  width          Int
+  height         Int
+  model          String
+  seed           Int
+  prompt         String
+  negativePrompt String
+  sourceKind     String
+  sourcePath     String?
+  sourceAnchorId String?
+  createdAt      DateTime       @default(now())
+  job            TextToImageJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, createdAt])
+  @@index([sourcePath, createdAt])
 }

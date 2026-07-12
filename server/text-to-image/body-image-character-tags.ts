@@ -1,11 +1,13 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import {consola} from "consola";
 import {z} from "zod";
 import {
     parseTextToImageCharacterImageTags,
     renderTextToImageCharacterTagsForLlm,
     type TextToImageCharacterImageTag,
 } from "nbook/app/utils/text-to-image-character-tags";
+import {parseTextToImageOutfitTags} from "nbook/app/utils/text-to-image-outfit-tags";
 import type {TextToImagePromptReplacementRule} from "nbook/app/utils/text-to-image-prompt-engine";
 import {useAgentHarness} from "nbook/server/agent/http";
 import type {JsonValue} from "nbook/server/agent/messages/types";
@@ -97,7 +99,7 @@ export async function buildBodyImageCharacterTagContext(input: {
  */
 export function fallbackDetectBodyImageCharacterTags(chapterMarkdown: string, candidates: TextToImageCharacterImageTag[]): BodyImageCharacterMatch[] {
     return candidates
-        .filter((candidate) => candidate.cnAliases.some((alias) => alias && chapterMarkdown.includes(alias)))
+        .filter((candidate) => characterAliases(candidate).some((alias) => aliasMatchesChapter(alias, chapterMarkdown)))
         .map((candidate) => ({
             id: candidate.id,
             sourcePath: candidate.sourcePath,
@@ -117,12 +119,40 @@ export async function listProjectCharacterImageTags(projectPathInput: string): P
     for (const absolutePath of tagPaths) {
         const relativePath = path.relative(projectRoot, absolutePath).split(path.sep).join("/");
         const content = await fs.readFile(absolutePath, "utf-8");
-        tags.push(parseTextToImageCharacterImageTags(content, {
+        const tag = parseTextToImageCharacterImageTags(content, {
             id: createImageTagId(relativePath),
             sourcePath: relativePath,
-        }));
+        });
+        tags.push(await hydrateCharacterOutfits(projectRoot, tag));
     }
     return tags;
+}
+
+/**
+ * 跟随角色 image-tags.md 中的显式索引读取独立服装文件，路径必须留在当前 Project Workspace 内。
+ */
+export async function hydrateCharacterOutfits(
+    projectRoot: string,
+    character: TextToImageCharacterImageTag,
+): Promise<TextToImageCharacterImageTag> {
+    const resolvedRoot = path.resolve(projectRoot);
+    const outfits = await Promise.all(character.outfits.map(async (outfit) => {
+        const absolutePath = path.resolve(resolvedRoot, outfit.sourcePath);
+        const relativePath = path.relative(resolvedRoot, absolutePath);
+        if (!relativePath || relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+            return outfit;
+        }
+        try {
+            const content = await fs.readFile(absolutePath, "utf-8");
+            return parseTextToImageOutfitTags(content, {sourcePath: outfit.sourcePath});
+        } catch (error) {
+            if (isNotFoundError(error)) {
+                return outfit;
+            }
+            throw error;
+        }
+    }));
+    return {...character, outfits};
 }
 
 /**
@@ -174,14 +204,7 @@ async function detectBodyImageCharactersWithAgent(input: {
 }): Promise<BodyImageCharacterMatch[]> {
     const harness = useAgentHarness();
     const projectSlug = input.projectPath.slice("workspace/".length);
-    const existingSessions = await harness.listSessions({
-        projectPath: projectSlug,
-        profileKey: BODY_IMAGE_CHARACTER_DETECTOR_PROFILE_KEY,
-        includeArchived: false,
-        includeSystem: true,
-        limit: 1,
-    });
-    const sessionId = existingSessions[0]?.sessionId ?? (await harness.createAgent({
+    const sessionId = (await harness.createAgent({
         profileKey: BODY_IMAGE_CHARACTER_DETECTOR_PROFILE_KEY,
         initial: {},
         workspaceRoot: "workspace",
@@ -190,7 +213,8 @@ async function detectBodyImageCharactersWithAgent(input: {
         title: "正文生图角色识别",
     })).sessionId;
 
-    const result = await harness.invokeAgent({
+    try {
+        const result = await harness.invokeAgent({
         sessionId,
         mode: "prompt",
         message: {text: "识别这段正文中实际出现或语义相关的角色，只返回 report_result.data。"},
@@ -210,7 +234,12 @@ async function detectBodyImageCharactersWithAgent(input: {
     if (result.status !== "completed") {
         throw new Error(result.error ?? `角色识别子 agent 未完成：${result.status}`);
     }
-    return readAgentMatches(result.reportResult?.data);
+        return readAgentMatches(result.reportResult?.data);
+    } finally {
+        await harness.runCommand(sessionId, {command: "archive", reason: "text-to-image one-shot completed"}).catch((error) => {
+            consola.warn({sessionId, error}, "正文生图角色识别 one-shot 会话归档失败");
+        });
+    }
 }
 
 function readAgentMatches(data: unknown): BodyImageCharacterMatch[] {
@@ -281,6 +310,29 @@ function clampConfidence(value: number): number {
         return 0.8;
     }
     return Math.min(1, Math.max(0, value));
+}
+
+function characterAliases(candidate: TextToImageCharacterImageTag): string[] {
+    return [...candidate.cnAliases, candidate.cnName, candidate.enName]
+        .flatMap((value) => value.split(/[|｜]/u))
+        .map((alias) => alias.trim())
+        .filter((alias) => unicodeLetterCount(alias) >= 2);
+}
+
+function aliasMatchesChapter(alias: string, chapterMarkdown: string): boolean {
+    const escaped = escapeRegExp(alias);
+    if (/\p{Script=Han}/u.test(alias)) {
+        return new RegExp(`(^|[^\\p{Script=Han}])${escaped}($|[^\\p{Script=Han}])`, "u").test(chapterMarkdown);
+    }
+    return new RegExp(`(^|[^\\p{L}\\p{N}])${escaped}($|[^\\p{L}\\p{N}])`, "iu").test(chapterMarkdown);
+}
+
+function unicodeLetterCount(value: string): number {
+    return [...value].filter((character) => /\p{L}/u.test(character)).length;
+}
+
+function escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 function isNotFoundError(error: unknown): boolean {

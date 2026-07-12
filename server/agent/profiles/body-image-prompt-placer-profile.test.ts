@@ -40,7 +40,6 @@ describe("body-image.prompt-placer profile", () => {
                 customState: {},
                 linkedAgents: [],
                 archived: false,
-                planModeActive: false,
             }),
             initial: {},
             invocation: {
@@ -88,8 +87,8 @@ function testSession(input: Partial<NeuroSessionContext>): RuntimeSessionFacade 
         customState: {},
         linkedAgents: [],
         archived: false,
-        planModeActive: false,
         ...input,
+        agentMode: input.agentMode ?? "normal",
         async read() {
             return {
                 snapshot: {

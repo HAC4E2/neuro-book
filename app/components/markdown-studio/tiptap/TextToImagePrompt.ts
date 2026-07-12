@@ -1,11 +1,13 @@
 import {mergeAttributes, Node} from "@tiptap/core";
 import type {MarkdownToken} from "@tiptap/core";
-import {escapeAttribute, unescapeAttribute} from "nbook/shared/markdown-workbench";
+import {unescapeAttribute} from "nbook/shared/markdown-workbench";
+import {
+    parseTextToImagePromptMarkdown,
+    renderTextToImagePromptMarkdown as renderStructuredTextToImagePromptMarkdown,
+    type TextToImagePromptPayload,
+} from "nbook/shared/text-to-image-markdown";
 
-export type TextToImagePromptGeneratePayload = {
-    id: string;
-    prompt: string;
-};
+export type TextToImagePromptGeneratePayload = TextToImagePromptPayload;
 
 type TextToImagePromptOptions = {
     onGenerate: (payload: TextToImagePromptGeneratePayload) => void;
@@ -14,6 +16,9 @@ type TextToImagePromptOptions = {
 interface TextToImagePromptToken extends MarkdownToken {
     id?: string;
     prompt?: string;
+    negativePrompt?: string;
+    characterIds?: string[];
+    sourceChapterHash?: string;
 }
 
 const TEXT_TO_IMAGE_PROMPT_PATTERN = /^<text-to-image-prompt\s+id="([^"]+)">\n?([\s\S]*?)\n?<\/text-to-image-prompt>/u;
@@ -85,6 +90,15 @@ export const TextToImagePrompt = Node.create<TextToImagePromptOptions>({
             prompt: {
                 default: "",
             },
+            negativePrompt: {
+                default: "",
+            },
+            characterIds: {
+                default: [],
+            },
+            sourceChapterHash: {
+                default: "",
+            },
         };
     },
 
@@ -93,10 +107,9 @@ export const TextToImagePrompt = Node.create<TextToImagePromptOptions>({
             tag: "text-to-image-prompt[id]",
             getAttrs: (dom) => {
                 const element = dom as HTMLElement;
-                return {
-                    id: unescapeAttribute(element.getAttribute("id") ?? ""),
-                    prompt: element.textContent?.trim() ?? "",
-                };
+                const id = unescapeAttribute(element.getAttribute("id") ?? "");
+                const payload = parseTextToImagePromptMarkdown(`<text-to-image-prompt id="${element.getAttribute("id") ?? ""}">\n${element.textContent?.trim() ?? ""}\n</text-to-image-prompt>`);
+                return payload ?? {id, prompt: "", negativePrompt: "", characterIds: [], sourceChapterHash: ""};
             },
         }];
     },
@@ -104,7 +117,12 @@ export const TextToImagePrompt = Node.create<TextToImagePromptOptions>({
     renderHTML({HTMLAttributes}) {
         const id = String(HTMLAttributes.id ?? "");
         const prompt = String(HTMLAttributes.prompt ?? "");
-        return ["text-to-image-prompt", mergeAttributes({id}), prompt];
+        return ["text-to-image-prompt", mergeAttributes({id}), JSON.stringify({
+            prompt,
+            negativePrompt: String(HTMLAttributes.negativePrompt ?? ""),
+            characterIds: Array.isArray(HTMLAttributes.characterIds) ? HTMLAttributes.characterIds : [],
+            sourceChapterHash: String(HTMLAttributes.sourceChapterHash ?? ""),
+        })];
     },
 
     addNodeView() {
@@ -157,7 +175,13 @@ export const TextToImagePrompt = Node.create<TextToImagePromptOptions>({
                 if (!id || !prompt) {
                     return;
                 }
-                this.options.onGenerate({id, prompt});
+                this.options.onGenerate({
+                    id,
+                    prompt,
+                    negativePrompt: String(currentNode.attrs.negativePrompt ?? ""),
+                    characterIds: Array.isArray(currentNode.attrs.characterIds) ? currentNode.attrs.characterIds : [],
+                    sourceChapterHash: String(currentNode.attrs.sourceChapterHash ?? ""),
+                });
             });
 
             return {
@@ -189,11 +213,14 @@ export const TextToImagePrompt = Node.create<TextToImagePromptOptions>({
             if (!matched) {
                 return undefined;
             }
+            const payload = parseTextToImagePromptMarkdown(matched[0]);
+            if (!payload) {
+                return undefined;
+            }
             return {
                 type: "textToImagePrompt",
                 raw: matched[0],
-                id: unescapeAttribute(matched[1] ?? ""),
-                prompt: (matched[2] ?? "").trim(),
+                ...payload,
             };
         },
     },
@@ -203,13 +230,21 @@ export const TextToImagePrompt = Node.create<TextToImagePromptOptions>({
         return helpers.createNode("textToImagePrompt", {
             id: promptToken.id ?? "",
             prompt: promptToken.prompt ?? "",
+            negativePrompt: promptToken.negativePrompt ?? "",
+            characterIds: promptToken.characterIds ?? [],
+            sourceChapterHash: promptToken.sourceChapterHash ?? "",
         });
     },
 
     renderMarkdown: (node) => {
         const id = String(node.attrs?.id ?? "").trim();
-        const prompt = String(node.attrs?.prompt ?? "").trim();
-        return `<text-to-image-prompt id="${escapeAttribute(id)}">\n${prompt}\n</text-to-image-prompt>`;
+        return renderTextToImagePromptMarkdown({
+            id,
+            prompt: String(node.attrs?.prompt ?? ""),
+            negativePrompt: String(node.attrs?.negativePrompt ?? ""),
+            characterIds: Array.isArray(node.attrs?.characterIds) ? node.attrs.characterIds : [],
+            sourceChapterHash: String(node.attrs?.sourceChapterHash ?? ""),
+        });
     },
 
     renderText: ({node}) => {
@@ -225,5 +260,5 @@ export const TextToImagePrompt = Node.create<TextToImagePromptOptions>({
 });
 
 export function renderTextToImagePromptMarkdown(payload: TextToImagePromptGeneratePayload): string {
-    return `<text-to-image-prompt id="${escapeAttribute(payload.id)}">\n${payload.prompt.trim()}\n</text-to-image-prompt>`;
+    return renderStructuredTextToImagePromptMarkdown(payload);
 }

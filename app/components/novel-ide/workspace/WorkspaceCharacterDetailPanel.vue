@@ -46,6 +46,7 @@ type CharacterDraft = {
 type CharacterImageTagsGenerateResponse = {
     detailPath: string;
     imageTagsPath: string;
+    outfitPaths: string[];
     warnings: string[];
 };
 
@@ -71,7 +72,7 @@ const textToImageStore = useTextToImageStore();
 const notification = useNotification();
 const {t} = useI18n();
 const {currentNovelId, selectedFileContent, savingFile} = storeToRefs(store);
-const {taskPrompts} = storeToRefs(textToImageStore);
+const {providers, taskPrompts} = storeToRefs(textToImageStore);
 const editForm = ref<CharacterDraft | null>(null);
 const lastAppliedContent = ref("");
 const diagnostics = ref("");
@@ -94,6 +95,14 @@ const statusOptions = computed<SelectOption[]>(() => [
     {value: "active", label: t("ide.workspace.common.statusActive"), description: t("ide.workspace.common.statusActiveDescription"), indicatorClass: getWorkspaceLorebookStatusIndicatorClass("active")},
     {value: "archived", label: t("ide.workspace.common.statusArchived"), description: t("ide.workspace.common.statusArchivedDescription"), indicatorClass: getWorkspaceLorebookStatusIndicatorClass("archived")},
 ]);
+const characterTagProviderOptions = computed<SelectOption[]>(() => providers.value
+    .filter((provider) => provider.kind === "openai_compatible")
+    .map((provider) => ({
+        value: String(provider.id),
+        label: `${provider.name} · ${provider.model}`,
+        iconClass: "i-lucide-brain-circuit",
+    })));
+const characterTagProviderId = computed(() => textToImageStore.resolveLlmTaskBinding("characterDesign").providerId);
 const isDirty = computed(() => editForm.value ? renderDraft(editForm.value) !== selectedFileContent.value : false);
 const relatedIssues = computed(() => {
     if (!props.node) {
@@ -133,9 +142,10 @@ async function generateImageTags(): Promise<void> {
         notification.error("当前没有打开的 Project Workspace。", {title: "生成角色 tag"});
         return;
     }
-    const {apiConfig} = textToImageStore.resolveLlmTaskBinding("characterDesign");
-    if (!apiConfig.apiBaseUrl.trim() || !apiConfig.model.trim()) {
-        notification.error("请先在文生图 LLM 中为“角色/服装设计”配置 API 和模型。", {title: "生成角色 tag"});
+    await textToImageStore.refreshProviders();
+    const {apiConfig, providerId} = textToImageStore.resolveLlmTaskBinding("characterDesign");
+    if (providerId === null) {
+        notification.error("请先为角色设计选择 OpenAI-compatible Provider。", {title: "生成角色 tag"});
         return;
     }
 
@@ -152,9 +162,7 @@ async function generateImageTags(): Promise<void> {
                 characterMarkdown,
                 taskPrompt: taskPrompts.value.characterDesign.prompt,
                 llm: {
-                    apiBaseUrl: apiConfig.apiBaseUrl,
-                    apiKey: apiConfig.apiKey,
-                    model: apiConfig.model,
+                    providerId,
                     parameters: apiConfig.parameters,
                 },
             },
@@ -165,13 +173,21 @@ async function generateImageTags(): Promise<void> {
         if (warningText) {
             notification.warning(warningText, {title: "生成角色 tag"});
         } else {
-            notification.success(`已生成 ${result.imageTagsPath}`, {title: "生成角色 tag"});
+            const outfitText = result.outfitPaths.length > 0 ? `，同步 ${result.outfitPaths.length} 件服装` : "";
+            notification.success(`已生成 ${result.imageTagsPath}${outfitText}`, {title: "生成角色 tag"});
         }
     } catch (error) {
         notification.error(resolveApiErrorMessage(error, "生成角色 tag 失败"), {title: "生成角色 tag"});
     } finally {
         generatingImageTags.value = false;
     }
+}
+
+/** 角色 image-tag 生成只绑定 Provider ID，凭据永不进入组件状态。 */
+function selectCharacterTagProvider(value: string): void {
+    textToImageStore.updateLlmTaskBinding("characterDesign", {
+        providerId: value ? Number(value) : null,
+    });
 }
 
 /**
@@ -531,6 +547,16 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
                     </div>
                 </div>
                 <div class="flex shrink-0 items-center gap-1">
+                    <div class="w-48">
+                        <FormSelect
+                            :model-value="characterTagProviderId === null ? '' : String(characterTagProviderId)"
+                            :options="characterTagProviderOptions"
+                            placeholder="选择角色设计 Provider"
+                            size="sm"
+                            dropdown-direction="down"
+                            @update:model-value="selectCharacterTagProvider"
+                        />
+                    </div>
                     <button class="icon-action" type="button" title="生成角色 tag" :disabled="savingFile || generatingImageTags" @click="void generateImageTags()">
                         <span class="h-4 w-4" :class="generatingImageTags ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-tags'"></span>
                     </button>

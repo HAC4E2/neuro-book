@@ -17,6 +17,34 @@ use tauri::{Emitter, Manager, RunEvent, State};
 /// 加载页 label，与 tauri.conf.json 中 windows[0].label 一致。
 const WINDOW_LABEL: &str = "main";
 
+/// 桌面 exe 同目录的桌面级配置文件名。data 目录定位先于 Nitro 启动，
+/// 不能放进 Nitro 的 config.json（它本身就在 data/workspace/.nbook/ 下，存在鸡生蛋）。
+const DESKTOP_CONFIG_FILENAME: &str = "neuro-book.config.json";
+
+/// 桌面级配置：data 目录定位与运行时迁移指令。由 desktop.rs 在启动 Nitro 前读写。
+/// 所有字段 Option，缺省即回退默认行为（保持向后兼容）。
+#[derive(serde::Serialize, serde::Deserialize, Clone, Default)]
+struct DesktopConfig {
+    /// 当前生效的 data 目录绝对路径。空/缺省 → 回退 exe 同目录的 data/。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    data_dir: Option<String>,
+    /// 待执行迁移（前端改 dataDir 时写入，重启时 boot 执行后清除）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pending_move: Option<PendingMove>,
+    /// 迁移失败时写入的错误信息，供前端展示。null 表示无错误。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    last_error: Option<String>,
+}
+
+/// 待执行的 data 目录迁移指令。
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+struct PendingMove {
+    /// 迁移源目录（当前生效 data 目录）。
+    from: String,
+    /// 迁移目标目录（新 data 目录）。
+    to: String,
+}
+
 /// 桌面运行态：就绪后的服务地址 + 仍在运行的服务子进程（用于退出时清理）。
 struct DesktopState {
     /// 服务就绪后写入 "http://localhost:<port>"，加载页轮询读取后跳转。
@@ -25,6 +53,10 @@ struct DesktopState {
     error: Mutex<Option<String>>,
     /// 服务子进程（进程组），退出时 kill。
     child: Mutex<Option<GroupChild>>,
+    /// 当前生效的 data 目录绝对路径，供前端查询。
+    data_dir: Mutex<Option<String>>,
+    /// 迁移进度文案（如 "正在迁移数据..."），加载页轮询展示。None 表示无迁移。
+    migration_progress: Mutex<Option<String>>,
 }
 
 /// 默认全局 config：关闭全站鉴权（本地单用户桌面应用，OS 账户即安全边界）。
@@ -61,8 +93,16 @@ pub fn run() {
             url: Mutex::new(None),
             error: Mutex::new(None),
             child: Mutex::new(None),
+            data_dir: Mutex::new(None),
+            migration_progress: Mutex::new(None),
         })
-        .invoke_handler(tauri::generate_handler![get_server_url, get_boot_error])
+        .invoke_handler(tauri::generate_handler![
+            get_server_url,
+            get_boot_error,
+            get_data_dir,
+            change_data_dir,
+            get_migration_progress
+        ])
         .setup(|app| {
             let handle = app.handle().clone();
             // 启动是耗时操作（migrate / 系统资源同步 / Bun 冷启动），放后台线程避免阻塞事件循环。
@@ -106,6 +146,67 @@ fn get_boot_error(state: State<DesktopState>) -> Option<String> {
     state.error.lock().unwrap().clone()
 }
 
+/// 前端查询当前生效的 data 目录绝对路径。未启动完时可能为 None。
+#[tauri::command]
+fn get_data_dir(state: State<DesktopState>) -> Option<String> {
+    state.data_dir.lock().unwrap().clone()
+}
+
+/// 前端查询迁移进度文案。None 表示无迁移在进行。
+#[tauri::command]
+fn get_migration_progress(state: State<DesktopState>) -> Option<String> {
+    state.migration_progress.lock().unwrap().clone()
+}
+
+/// 前端切换 data 目录：校验→写 pendingMove→重启，重启后 boot 执行迁移。
+/// 返回新路径（已写入 pendingMove），前端据此提示用户“重启迁移”。
+#[tauri::command]
+fn change_data_dir(app: tauri::AppHandle, state: State<DesktopState>, path: String) -> Result<String, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("目标路径不能为空".to_string());
+    }
+    let root = resolve_portable_root().map_err(|e| render_error(&e))?;
+    let config = read_desktop_config(&root);
+    let current = resolve_data_dir(&root, &config);
+    let new_path = {
+        let p = PathBuf::from(trimmed);
+        if p.is_absolute() { p } else { root.join(p) }
+    };
+    if new_path == current {
+        return Err("新路径与当前 data 目录相同".to_string());
+    }
+    // 目标若已存在且非空 → 拒绝（避免覆盖；迁移时也再次校验，这里提前拦截给前端清晰反馈）
+    if new_path.exists() {
+        if let Ok(entries) = fs::read_dir(&new_path) {
+            if entries.filter_map(|e| e.ok()).next().is_some() {
+                return Err(format!("目标目录已存在且非空：{}", new_path.display()));
+            }
+        }
+    }
+
+    let mut next = config.clone();
+    next.pending_move = Some(PendingMove {
+        from: current.to_string_lossy().to_string(),
+        to: new_path.to_string_lossy().to_string(),
+    });
+    write_desktop_config(&root, &next);
+
+    // 提示加载页即将重启迁移
+    *state.migration_progress.lock().unwrap() =
+        Some("正在准备迁移，即将重启…".to_string());
+
+    // restart 会先触发 ExitRequested（连带 kill 服务子进程），再重新拉起 exe。
+    // 重启后 boot 检测 pending_move 执行迁移。
+    // 在新线程里 restart，避免在 command 里同步重启导致当前调用链中断异常。
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(200));
+        handle.restart();
+    });
+    Ok(new_path.to_string_lossy().to_string())
+}
+
 // ---------------------------------------------------------------------------
 // 启动编排
 // ---------------------------------------------------------------------------
@@ -115,7 +216,44 @@ fn boot(app: tauri::AppHandle) -> Result<(), BootError> {
     let root = resolve_portable_root()?;
     let product_dir = root.join("product");
     let bun_exe = resolve_bun(&root)?;
-    let data_dir = root.join("data");
+
+    // 读桌面级配置（data 目录定位），先于一切依赖 data 的逻辑。
+    let mut config = read_desktop_config(&root);
+
+    // 执行待迁移指令（前端改 dataDir 后写入，重启时在此执行；服务未起，安全）。
+    if let Some(pending) = config.pending_move.clone() {
+        if let Some(state) = app.try_state::<DesktopState>() {
+            *state.migration_progress.lock().unwrap() =
+                Some("正在迁移数据目录…".to_string());
+        }
+        match migrate_data_dir(&pending.from, &pending.to) {
+            Ok(()) => {
+                // 迁移成功：更新 data_dir 指向新位置，清待迁移与历史错误。
+                config.data_dir = Some(pending.to.clone());
+                config.pending_move = None;
+                config.last_error = None;
+                write_desktop_config(&root, &config);
+            }
+            Err(err) => {
+                // 迁移失败：保留旧 data_dir（即 pending.from 对应路径），清待迁移避免重启循环，
+                // 写错误供前端展示。仍用旧路径启动，不让用户卡死。
+                let msg = render_error(&err);
+                log_line(&format!("data migration failed: {msg}"));
+                config.pending_move = None;
+                config.last_error = Some(msg);
+                write_desktop_config(&root, &config);
+            }
+        }
+        if let Some(state) = app.try_state::<DesktopState>() {
+            *state.migration_progress.lock().unwrap() = None;
+        }
+    }
+
+    let data_dir = resolve_data_dir(&root, &config);
+    if let Some(state) = app.try_state::<DesktopState>() {
+        *state.data_dir.lock().unwrap() =
+            Some(data_dir.to_string_lossy().to_string());
+    }
     let workspace_dir = data_dir.join("workspace");
     let nbook_dir = workspace_dir.join(".nbook");
     let logs_dir = data_dir.join("logs");
@@ -229,6 +367,97 @@ fn resolve_portable_root() -> Result<PathBuf, BootError> {
         .ok_or_else(|| BootError::Config("无法定位 exe 父目录".into()))?
         .to_path_buf();
     Ok(dir)
+}
+
+/// 桌面级配置文件路径：{exe 目录}/neuro-book.config.json。
+fn desktop_config_path(root: &Path) -> PathBuf {
+    root.join(DESKTOP_CONFIG_FILENAME)
+}
+
+/// 读取桌面级配置。文件不存在或解析失败均回退默认（空 data_dir），不阻断启动。
+/// 兼容人工编辑或 Inno Setup 写入可能带的 UTF-8 BOM（serde_json 不容忍 BOM）。
+fn read_desktop_config(root: &Path) -> DesktopConfig {
+    let path = desktop_config_path(root);
+    match fs::read_to_string(&path) {
+        Ok(text) => {
+            let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
+            match serde_json::from_str::<DesktopConfig>(text) {
+                Ok(cfg) => cfg,
+                Err(err) => {
+                    log_line(&format!("config.json 解析失败，回退默认：{err}"));
+                    DesktopConfig::default()
+                }
+            }
+        }
+        Err(_) => DesktopConfig::default(),
+    }
+}
+
+/// 写入桌面级配置（pretty JSON，便于人工查看/编辑）。
+fn write_desktop_config(root: &Path, config: &DesktopConfig) {
+    let path = desktop_config_path(root);
+    if let Ok(text) = serde_json::to_string_pretty(config) {
+        let _ = fs::write(path, text);
+    }
+}
+
+/// 解析当前生效 data 目录：config.data_dir 非空→用之（相对路径相对 exe root），否则回退 root/data。
+fn resolve_data_dir(root: &Path, config: &DesktopConfig) -> PathBuf {
+    match &config.data_dir {
+        Some(s) if !s.trim().is_empty() => {
+            let p = PathBuf::from(s.trim());
+            if p.is_absolute() {
+                p
+            } else {
+                root.join(p)
+            }
+        }
+        _ => root.join("data"),
+    }
+}
+
+/// 迁移 data 目录：递归复制 from→to。to 必须不存在或为空（防覆盖）。
+/// 成功后不自动删 from（防丢数据，提示用户手动清理）。
+fn migrate_data_dir(from: &str, to: &str) -> Result<(), BootError> {
+    let from_path = PathBuf::from(from);
+    let to_path = PathBuf::from(to);
+
+    if !from_path.exists() {
+        return Err(BootError::Config(format!("迁移源目录不存在：{from}")));
+    }
+    // to 已存在且非空 → 拒绝（避免覆盖已有数据）
+    if to_path.exists() {
+        if let Ok(entries) = fs::read_dir(&to_path) {
+            if entries.filter_map(|e| e.ok()).next().is_some() {
+                return Err(BootError::Config(format!(
+                    "目标目录非空，为避免覆盖已拒绝迁移：{to}"
+                )));
+            }
+        }
+    }
+
+    fs::create_dir_all(&to_path).map_err(|e| BootError::io("创建目标目录", e))?;
+    copy_dir_recursive(&from_path, &to_path).map_err(|e| BootError::io("复制数据文件", e))?;
+    log_line(&format!("data 已迁移 {from} -> {to}"));
+    Ok(())
+}
+
+/// 递归复制目录树（保留文件内容与目录结构）。复制失败时返回错误，调用方决定是否回滚。
+fn copy_dir_recursive(from: &Path, to: &Path) -> io::Result<()> {
+    fs::create_dir_all(to)?;
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        let src = entry.path();
+        let name = entry.file_name();
+        let dst = to.join(&name);
+        let ft = entry.file_type()?;
+        if ft.is_dir() {
+            copy_dir_recursive(&src, &dst)?;
+        } else {
+            fs::copy(&src, &dst)?;
+        }
+    }
+    Ok(())
 }
 
 /// 解析 Bun 运行时：优先 portable 自带的 runtime/bun/bun.exe，回退到 PATH 中的 bun。

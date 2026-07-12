@@ -19,7 +19,6 @@ import {MarkdownInlineCodeShortcut} from "nbook/app/components/markdown-studio/t
 import {MarkdownLink} from "nbook/app/components/markdown-studio/tiptap/MarkdownLink";
 import {MarkdownSlashCommand} from "nbook/app/components/markdown-studio/tiptap/MarkdownSlashCommand";
 import {TextToImagePrompt, type TextToImagePromptGeneratePayload} from "nbook/app/components/markdown-studio/tiptap/TextToImagePrompt";
-import {TextToImageResult, type TextToImageResultPayload} from "nbook/app/components/markdown-studio/tiptap/TextToImageResult";
 import {MarkdownHighlight, MarkdownSubscript, MarkdownSuperscript, MarkdownTextColor} from "nbook/app/components/markdown-studio/tiptap/MarkdownTextMarks";
 import {MarkdownParagraph} from "nbook/app/components/markdown-studio/tiptap/MarkdownParagraph";
 import {createFallbackWorkspaceReferenceMeta, WorkspaceReference, type WorkspaceReferenceResolver} from "nbook/app/components/markdown-studio/tiptap/WorkspaceReference";
@@ -46,8 +45,6 @@ export interface MarkdownEditorExtensionOptions extends MarkdownSuggestionContro
     resolveReference?: WorkspaceReferenceResolver;
     enableQuickTriggers?: boolean;
     onGenerateTextToImagePrompt?: (payload: TextToImagePromptGeneratePayload) => void;
-    onOpenTextToImageResultViewer?: (payload: TextToImageResultPayload) => void;
-    onOpenTextToImageResultActions?: (payload: TextToImageResultPayload) => void;
 }
 
 /**
@@ -102,10 +99,6 @@ export function createMarkdownEditorExtensions(options: MarkdownEditorExtensionO
         MarkdownAlign,
         TextToImagePrompt.configure({
             onGenerate: options.onGenerateTextToImagePrompt ?? (() => {}),
-        }),
-        TextToImageResult.configure({
-            onOpenViewer: options.onOpenTextToImageResultViewer ?? (() => {}),
-            onOpenActions: options.onOpenTextToImageResultActions ?? (() => {}),
         }),
         MarkdownTextColor,
         MarkdownHighlight,

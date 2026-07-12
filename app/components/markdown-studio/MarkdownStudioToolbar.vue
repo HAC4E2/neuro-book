@@ -63,11 +63,11 @@ const tabRowsStyle = computed(() => ({
  * 根据编辑器类型选择标签图标。
  */
 function tabIconClass(tab: WorkspaceEditorTab): string {
-    if (tab.kind === "text-to-image-character") {
-        return "i-lucide-id-card";
-    }
     if (tab.kind === "text-to-image-llm") {
         return "i-lucide-brain-circuit";
+    }
+    if (tab.kind === "text-to-image-history") {
+        return "i-lucide-images";
     }
     if (tab.editorKind === "markdown") {
         return "i-lucide-file-text";

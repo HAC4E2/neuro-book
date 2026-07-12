@@ -1,9 +1,11 @@
 import type {TextToImagePromptEngineCharacter} from "nbook/app/utils/text-to-image-prompt-engine";
+import {
+    renderOutfitName,
+    splitOutfitNames,
+    type TextToImageOutfitTag,
+} from "nbook/app/utils/text-to-image-outfit-tags";
 
-export type TextToImageCharacterImageTagOutfit = {
-    nameCn: string;
-    nameEn: string;
-};
+export type TextToImageCharacterImageTagOutfit = TextToImageOutfitTag;
 
 export type TextToImageCharacterImageTag = {
     id: string;
@@ -71,7 +73,7 @@ export function parseTextToImageCharacterImageTags(content: string, input: {id: 
         lowerNsfw: readField("lowerNsfw"),
         lowerBackNsfw: readField("lowerBackNsfw"),
         negativePrompt: readField("negativePrompt"),
-        outfits: parseOutfits(sections.get("outfitList") ?? ""),
+        outfits: parseOutfits(sections.get("outfitList") ?? "", input.sourcePath),
     };
 }
 
@@ -123,7 +125,7 @@ export function renderTextToImageCharacterTagsForLlm(tags: TextToImageCharacterI
             renderLine("下半身 NSFW", tag.lowerNsfw),
             renderLine("下半身背面 NSFW", tag.lowerBackNsfw),
             renderLine("负面提示词", tag.negativePrompt),
-            renderLine("服装列表", tag.outfits.map((outfit) => `${outfit.nameCn}|${outfit.nameEn}`).join("\n")),
+            renderLine("服装列表", tag.outfits.map((outfit) => renderOutfitName(outfit.nameCn, outfit.nameEn)).join("\n")),
         ].filter(Boolean);
         return lines.join("\n");
     }).join("\n\n");
@@ -150,7 +152,7 @@ export function renderTextToImageCharacterImageTagsMarkdown(tag: TextToImageChar
         renderSection("下半身 NSFW", tag.lowerNsfw),
         renderSection("下半身背面 NSFW", tag.lowerBackNsfw),
         renderSection("负面提示词", tag.negativePrompt),
-        renderSection("服装列表", tag.outfits.map((outfit) => `${outfit.nameCn}|${outfit.nameEn}`).join("\n")),
+        renderSection("服装列表", tag.outfits.map((outfit) => renderOutfitIndex(outfit, tag.sourcePath)).join("\n")),
     ].join("\n").replace(/\n{3,}/gu, "\n\n").trimEnd() + "\n";
 }
 
@@ -216,19 +218,76 @@ function splitCnAliases(value: string): string[] {
         .filter(Boolean);
 }
 
-function parseOutfits(value: string): TextToImageCharacterImageTagOutfit[] {
+function parseOutfits(value: string, imageTagsPath: string): TextToImageCharacterImageTagOutfit[] {
     return value
         .split(/\r?\n/u)
         .map((line) => stripListMarker(line).trim())
         .filter(Boolean)
         .map((line) => {
-            const [nameCn = "", ...englishParts] = line.split(/[|｜]/u);
+            const link = line.match(/^\[([^\]]+)\]\(([^)]+)\)$/u);
+            if (!link) {
+                return null;
+            }
+            const names = splitOutfitNames(link[1] ?? "");
+            const sourcePath = resolveLinkedWorkspacePath(imageTagsPath, link[2] ?? "");
+            if (!isCharacterOutfitIndexPath(imageTagsPath, sourcePath)) {
+                return null;
+            }
             return {
-                nameCn: nameCn.trim(),
-                nameEn: englishParts.join("|").trim(),
+                sourcePath,
+                owner: "",
+                nameCn: names.nameCn,
+                nameEn: names.nameEn,
+                upper: "",
+                upperBack: "",
+                lower: "",
+                lowerBack: "",
             };
         })
-        .filter((outfit) => outfit.nameCn || outfit.nameEn);
+        .filter((outfit): outfit is TextToImageCharacterImageTagOutfit => Boolean(outfit?.sourcePath && (outfit.nameCn || outfit.nameEn)));
+}
+
+function renderOutfitIndex(outfit: TextToImageCharacterImageTagOutfit, imageTagsPath: string): string {
+    const label = renderOutfitName(outfit.nameCn, outfit.nameEn);
+    const target = renderRelativeWorkspacePath(imageTagsPath, outfit.sourcePath);
+    return label && target ? `- [${label}](${target})` : "";
+}
+
+function resolveLinkedWorkspacePath(sourcePath: string, targetPath: string): string {
+    const target = targetPath.trim().replaceAll("\\", "/");
+    if (!target || target.startsWith("/") || /^[A-Za-z]+:/u.test(target)) {
+        return "";
+    }
+    const segments = sourcePath.replaceAll("\\", "/").split("/").slice(0, -1);
+    for (const segment of target.split("/")) {
+        if (!segment || segment === ".") {
+            continue;
+        }
+        if (segment === "..") {
+            if (segments.length === 0) {
+                return "";
+            }
+            segments.pop();
+            continue;
+        }
+        segments.push(segment);
+    }
+    return segments.join("/");
+}
+
+function renderRelativeWorkspacePath(sourcePath: string, targetPath: string): string {
+    const sourceDirectory = sourcePath.replaceAll("\\", "/").split("/").slice(0, -1).join("/");
+    const normalizedTarget = targetPath.trim().replaceAll("\\", "/");
+    return normalizedTarget.startsWith(`${sourceDirectory}/`)
+        ? normalizedTarget.slice(sourceDirectory.length + 1)
+        : normalizedTarget;
+}
+
+function isCharacterOutfitIndexPath(imageTagsPath: string, outfitPath: string): boolean {
+    const characterDirectory = imageTagsPath.replaceAll("\\", "/").split("/").slice(0, -1).join("/");
+    const normalizedOutfitPath = outfitPath.replaceAll("\\", "/");
+    return normalizedOutfitPath.startsWith(`${characterDirectory}/outfits/`)
+        && normalizedOutfitPath.toLocaleLowerCase().endsWith(".md");
 }
 
 function renderLine(label: string, value: string): string {

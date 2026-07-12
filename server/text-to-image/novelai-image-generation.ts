@@ -2,8 +2,12 @@
 import path from "node:path";
 import {unzipSync} from "fflate";
 import {z} from "zod";
-import {withBrowserProxyForFetch} from "nbook/server/utils/browser-proxy";
 import {resolveTextToImagePrompt, type TextToImageResolvedCharacterPrompt} from "nbook/app/utils/text-to-image-prompt-engine";
+import {
+    fetchTextToImageProvider,
+    type TextToImageProviderFetch,
+} from "nbook/server/text-to-image/provider-fetch";
+import {TEXT_TO_IMAGE_NOVELAI_BASE_URL} from "nbook/server/text-to-image/schemas";
 
 const TextToImageGenerateCharacterSchema = z.object({
     id: z.string(),
@@ -23,7 +27,7 @@ const TextToImageGenerateCharacterSchema = z.object({
     sourceProjectPath: z.string().default(""),
     sourceNovelTitle: z.string().default(""),
     sourceCharacterPath: z.string().default(""),
-});
+}).strict();
 
 const TextToImageGenerateOutfitSchema = z.object({
     id: z.string(),
@@ -37,7 +41,7 @@ const TextToImageGenerateOutfitSchema = z.object({
     lowerBack: z.string().default(""),
     fullPrompt: z.string().default(""),
     negativePrompt: z.string().default(""),
-});
+}).strict();
 
 const TextToImagePromptReplacementRuleSchema = z.object({
     id: z.string(),
@@ -48,12 +52,11 @@ const TextToImagePromptReplacementRuleSchema = z.object({
     mode: z.enum(["replace", "append", "prepend", "delete"]).default("replace"),
     trigger: z.string().default(""),
     replacement: z.string().default(""),
-});
+}).strict();
 
 export const TextToImageGenerateRequestSchema = z.object({
+    providerId: z.number().int().positive(),
     novelAi: z.object({
-        token: z.string(),
-        imageBaseUrl: z.string().default("https://image.novelai.net"),
         model: z.string().default("nai-diffusion-4-5-full"),
         sampler: z.string().default("k_euler_ancestral"),
         noiseSchedule: z.string().default("karras"),
@@ -68,7 +71,7 @@ export const TextToImageGenerateRequestSchema = z.object({
         height: z.number().int().default(1216),
         steps: z.number().int().default(28),
         seed: z.number().int().default(-1),
-    }),
+    }).strict(),
     style: z.object({
         id: z.string().optional(),
         name: z.string().default(""),
@@ -88,7 +91,7 @@ export const TextToImageGenerateRequestSchema = z.object({
             sourceType: z.enum(["png", "naiv4vibe", "naiv4vibebundle", "rawImage"]).default("rawImage"),
             strength: z.number().default(0.6),
             infoExtracted: z.number().default(0.7),
-        })).default([]),
+        }).strict()).default([]),
         characterReferences: z.array(z.object({
             id: z.string(),
             enabled: z.boolean().default(true),
@@ -96,8 +99,8 @@ export const TextToImageGenerateRequestSchema = z.object({
             imageDataUrl: z.string().default(""),
             strength: z.number().default(0.6),
             infoExtracted: z.number().default(0.7),
-        })).default([]),
-    }).nullable().default(null),
+        }).strict()).default([]),
+    }).strict().nullable().default(null),
     character: TextToImageGenerateCharacterSchema.nullable().default(null),
     characters: z.array(TextToImageGenerateCharacterSchema).default([]),
     outfits: z.array(TextToImageGenerateOutfitSchema).default([]),
@@ -107,8 +110,8 @@ export const TextToImageGenerateRequestSchema = z.object({
     count: z.number().int().min(1).max(4).default(1),
     output: z.object({
         imageSavePath: z.string().default(""),
-    }).default({imageSavePath: ""}),
-});
+    }).strict().default({imageSavePath: ""}),
+}).strict();
 
 export type TextToImageGenerateRequest = z.infer<typeof TextToImageGenerateRequestSchema>;
 
@@ -145,6 +148,32 @@ export type TextToImageGenerateResponse = {
         parameters: Record<string, unknown>;
     };
     warnings: string[];
+};
+
+/** 队列调用的已编译 NovelAI 输入：不携带角色、服装、输出路径或浏览器 data URL。 */
+export type NovelAiRequestInput = {
+    prompt: string;
+    negativePrompt: string;
+    novelAi: {
+        model: string;
+        sampler: string;
+        noiseSchedule: string;
+        promptGuidance: number;
+        promptGuidanceRescale: number;
+        width: number;
+        height: number;
+        steps: number;
+        seed: number;
+        count: number;
+    };
+};
+
+export type NovelAiGeneratedImage = {
+    bytes: Uint8Array;
+    mimeType: "image/png" | "image/jpeg" | "image/webp";
+    width: number;
+    height: number;
+    seed: number;
 };
 
 type NegativeQualityPreset = NonNullable<TextToImageGenerateRequest["style"]>["negativeQualityPreset"];
@@ -206,19 +235,23 @@ const NEGATIVE_PRESETS: Record<string, Partial<Record<NegativeQualityPreset, {uc
     },
 };
 
-export async function generateNovelAiImage(input: TextToImageGenerateRequest): Promise<TextToImageGenerateResponse> {
-    const token = normalizeNovelAiToken(input.novelAi.token);
+export async function generateNovelAiImage(
+    input: TextToImageGenerateRequest,
+    credential: string,
+    fetchImpl: TextToImageProviderFetch = fetchTextToImageProvider,
+): Promise<TextToImageGenerateResponse> {
+    const token = normalizeNovelAiToken(credential);
     if (!token) {
-        throw new Error("NovelAI Persistent Token 不能为空");
+        throw new Error("NovelAI Provider 凭据不能为空");
     }
 
     const warnings: string[] = [];
     const outputDirectory = await resolveOutputDirectory(input.output.imageSavePath);
-    const buildResult = await buildNovelAiRequest(input, token, warnings);
+    const buildResult = await buildNovelAiRequest(input, token, warnings, fetchImpl);
     buildResult.savedDirectory = outputDirectory;
-    const response = await postNovelAiJson(input.novelAi.imageBaseUrl, "/ai/generate-image", token, buildResult.requestData, {
+    const response = await postNovelAiJson("/ai/generate-image", token, buildResult.requestData, {
         Accept: "application/x-zip-compressed",
-    });
+    }, fetchImpl);
     const images = extractNovelAiImages(Buffer.from(await response.arrayBuffer()));
     if (images.length === 0) {
         throw new Error("NovelAI 返回结果中没有找到图片");
@@ -268,7 +301,66 @@ export async function generateNovelAiImage(input: TextToImageGenerateRequest): P
     };
 }
 
-async function buildNovelAiRequest(input: TextToImageGenerateRequest, token: string, warnings: string[]): Promise<NovelAiRequestBuildResult> {
+/**
+ * 请求 NovelAI 并只返回受控的二进制图片；文件保存由 Project 资产服务负责。
+ */
+export async function requestNovelAiImages(
+    input: NovelAiRequestInput,
+    credential: string,
+    signal: AbortSignal,
+    fetchImpl: TextToImageProviderFetch = fetchTextToImageProvider,
+): Promise<{images: NovelAiGeneratedImage[]; request: {model: string; seed: number}; warnings: string[]}> {
+    const token = normalizeNovelAiToken(credential);
+    if (!token) {
+        throw new Error("NovelAI Provider 凭据不能为空");
+    }
+    const warnings: string[] = [];
+    const buildResult = await buildNovelAiRequest({
+        providerId: 0,
+        novelAi: {
+            ...input.novelAi,
+            aiDefaultCharacterPosition: true,
+            variety: false,
+            smeaMode: "auto",
+            smeaDyn: false,
+            decrisper: false,
+        },
+        style: null,
+        character: null,
+        characters: [],
+        outfits: [],
+        promptRules: [],
+        prompt: input.prompt,
+        negativePrompt: input.negativePrompt,
+        count: input.novelAi.count,
+        output: {imageSavePath: ""},
+    }, token, warnings, fetchImpl);
+    const response = await postNovelAiJson("/ai/generate-image", token, buildResult.requestData, {
+        Accept: "application/x-zip-compressed",
+    }, fetchImpl, signal);
+    const images = extractNovelAiImages(Buffer.from(await response.arrayBuffer()));
+    if (images.length === 0) {
+        throw new Error("NovelAI 返回结果中没有找到图片");
+    }
+    return {
+        images: images.map((image) => ({
+            bytes: new Uint8Array(image.data),
+            mimeType: image.mimeType as NovelAiGeneratedImage["mimeType"],
+            width: buildResult.width,
+            height: buildResult.height,
+            seed: buildResult.seed,
+        })),
+        request: {model: buildResult.model, seed: buildResult.seed},
+        warnings,
+    };
+}
+
+async function buildNovelAiRequest(
+    input: TextToImageGenerateRequest,
+    token: string,
+    warnings: string[],
+    fetchImpl: TextToImageProviderFetch,
+): Promise<NovelAiRequestBuildResult> {
     const requestedModel = input.novelAi.model.trim() || "nai-diffusion-4-5-full";
     const model = input.style?.useFurryDataset === true && !requestedModel.includes("furry")
         ? "nai-diffusion-furry-3"
@@ -356,7 +448,7 @@ async function buildNovelAiRequest(input: TextToImageGenerateRequest, token: str
         parameters.uc = negativePrompt;
     }
 
-    await applyVibeTransferParameters(parameters, input, model, token, warnings);
+    await applyVibeTransferParameters(parameters, input, model, token, warnings, fetchImpl);
     applyCharacterReferenceParameters(parameters, input, warnings);
 
     return {
@@ -431,7 +523,14 @@ function applyV4PromptParameters(parameters: Record<string, unknown>, input: Tex
     }));
 }
 
-async function applyVibeTransferParameters(parameters: Record<string, unknown>, input: TextToImageGenerateRequest, model: string, token: string, warnings: string[]): Promise<void> {
+async function applyVibeTransferParameters(
+    parameters: Record<string, unknown>,
+    input: TextToImageGenerateRequest,
+    model: string,
+    token: string,
+    warnings: string[],
+    fetchImpl: TextToImageProviderFetch,
+): Promise<void> {
     const references = (input.style?.vibeReferences ?? []).filter((reference) => reference.enabled);
     if (references.length === 0) {
         return;
@@ -444,7 +543,7 @@ async function applyVibeTransferParameters(parameters: Record<string, unknown>, 
         let encoding = reference.vibeEncoding.trim();
         if (!encoding && reference.imageDataUrl.trim()) {
             try {
-                encoding = await encodeVibeReference(input.novelAi.imageBaseUrl, token, reference.imageDataUrl, model, reference.infoExtracted);
+                encoding = await encodeVibeReference(token, reference.imageDataUrl, model, reference.infoExtracted, fetchImpl);
             } catch (error) {
                 warnings.push(`${reference.displayName || "Vibe"} 编码失败，已跳过：${error instanceof Error ? error.message : String(error)}`);
             }
@@ -506,19 +605,32 @@ function collectPromptCharacters(input: TextToImageGenerateRequest): TextToImage
     return characters;
 }
 
-async function encodeVibeReference(imageBaseUrl: string, token: string, imageDataUrl: string, model: string, informationExtracted: number): Promise<string> {
+async function encodeVibeReference(
+    token: string,
+    imageDataUrl: string,
+    model: string,
+    informationExtracted: number,
+    fetchImpl: TextToImageProviderFetch,
+): Promise<string> {
     const imageBase64 = readImageDataUrlBase64(imageDataUrl);
-    const response = await postNovelAiJson(imageBaseUrl, "/ai/encode-vibe", token, {
+    const response = await postNovelAiJson("/ai/encode-vibe", token, {
         image: imageBase64,
         model,
         informationExtracted,
-    }, {});
+    }, {}, fetchImpl);
     return Buffer.from(await response.arrayBuffer()).toString("base64");
 }
 
-async function postNovelAiJson(baseUrl: string, endpoint: string, token: string, data: unknown, extraHeaders: Record<string, string>): Promise<Response> {
-    const url = `${baseUrl.trim().replace(/\/+$/u, "")}${endpoint}`;
-    const response = await fetch(url, await withBrowserProxyForFetch(url, {
+async function postNovelAiJson(
+    endpoint: string,
+    token: string,
+    data: unknown,
+    extraHeaders: Record<string, string>,
+    fetchImpl: TextToImageProviderFetch,
+    signal?: AbortSignal,
+): Promise<Response> {
+    const url = `${TEXT_TO_IMAGE_NOVELAI_BASE_URL}${endpoint}`;
+    const response = await fetchImpl(url, {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
@@ -526,11 +638,11 @@ async function postNovelAiJson(baseUrl: string, endpoint: string, token: string,
             ...extraHeaders,
         },
         body: JSON.stringify(data),
-    }));
+        signal,
+    }, {allowPrivateNetwork: false});
 
     if (!response.ok) {
-        const text = await response.text().catch(() => "");
-        throw new Error(`NovelAI 请求失败：${response.status}${text ? ` ${text.slice(0, 500)}` : ""}`);
+        throw new Error(`NovelAI 请求失败：${response.status}`);
     }
 
     return response;

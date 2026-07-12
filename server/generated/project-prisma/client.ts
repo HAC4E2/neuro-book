@@ -114,3 +114,13 @@ export type WorldSlice = Prisma.WorldSliceModel
  * 
  */
 export type WorldPatch = Prisma.WorldPatchModel
+/**
+ * Model TextToImageJob
+ * 
+ */
+export type TextToImageJob = Prisma.TextToImageJobModel
+/**
+ * Model TextToImageAsset
+ * 
+ */
+export type TextToImageAsset = Prisma.TextToImageAssetModel

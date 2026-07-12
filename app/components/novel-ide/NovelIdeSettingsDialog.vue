@@ -10,6 +10,8 @@ import ThemeEditorDialog from "nbook/app/components/novel-ide/settings/theme/The
 import NovelIdeModelSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeModelSettingsPanel.vue";
 import NovelIdeObservabilitySettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeObservabilitySettingsPanel.vue";
 import NovelIdeWebSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeWebSettingsPanel.vue";
+import DesktopDataDirDialog from "nbook/app/components/novel-ide/DesktopDataDirDialog.vue";
+import {useDesktopBridge} from "nbook/app/composables/useDesktopBridge";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {useThemeManager} from "nbook/app/composables/useThemeManager";
@@ -77,6 +79,9 @@ const themeEditorMode = ref<ThemeEditorMode>("create");
 const themeEditorInitialTheme = ref<CustomThemeDto | null>(null);
 const themeDeleteTarget = ref<CustomThemeDto | null>(null);
 const themeImportInputRef = ref<HTMLInputElement | null>(null);
+// 桌面数据目录设置（仅桌面壳环境显示）
+const {isDesktop} = useDesktopBridge();
+const showDataDirDialog = ref(false);
 
 const frontendSectionItems = computed<Array<{value: SettingsSection; label: string; description: string; iconClass: string}>>(() => [
     {
@@ -737,6 +742,26 @@ watch(activeScope, alignActiveSectionToScope, {immediate: true});
     >
         <!-- 固定高度，顶部配置目标栏 + 左右分栏 -->
         <div class="flex h-full flex-col gap-4">
+            <!-- 桌面数据目录入口（仅桌面壳环境显示） -->
+            <section v-if="isDesktop" class="flex shrink-0 items-center justify-between gap-3 rounded-2xl border border-[var(--border-color)] border-opacity-70 bg-[var(--bg-input)] bg-opacity-20 px-4 py-2.5 shadow-sm">
+                <div class="flex min-w-0 items-center gap-2">
+                    <span class="i-lucide-hard-drive h-4 w-4 shrink-0 text-[var(--accent-main)]"></span>
+                    <div class="min-w-0">
+                        <div class="text-xs font-semibold text-[var(--text-main)]">数据目录</div>
+                        <div class="text-[11px] text-[var(--text-muted)]">小说、数据库与生成图片的存放位置，可移出系统盘</div>
+                    </div>
+                </div>
+                <button
+                    type="button"
+                    class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] bg-opacity-45 px-3 text-xs font-medium text-[var(--text-secondary)] transition hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] active:scale-95"
+                    @click="showDataDirDialog = true"
+                >
+                    <span class="i-lucide-folder-input h-3.5 w-3.5"></span>
+                    <span>更改</span>
+                </button>
+            </section>
+            <!-- 桌面数据目录设置 Dialog -->
+            <DesktopDataDirDialog v-model="showDataDirDialog" />
             <!-- 配置目标栏 -->
             <section class="shrink-0 rounded-2xl border border-[var(--border-color)] border-opacity-70 bg-[var(--bg-input)] bg-opacity-20 px-4 py-3 shadow-sm">
                 <div class="flex flex-wrap items-start justify-between gap-3">

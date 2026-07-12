@@ -71,6 +71,40 @@ export async function writeWorkspaceTextFileTracked(input: {
     }
 }
 
+/**
+ * 已由服务端解析并 containment 校验过 Project 根时的追踪写入入口。
+ * 用于后台任务操作隔离测试 Project，避免把绝对根重新按仓库 cwd 解析。
+ */
+export async function writeResolvedProjectTextFileTracked(input: {
+    projectPath: string;
+    projectRoot: string;
+    filePath: string;
+    content: string;
+    actor: OperationActor;
+    knownBefore?: string | null;
+}): Promise<void> {
+    const expectedRoot = resolveProjectAbsolutePath(input.projectPath);
+    if (path.resolve(input.projectRoot) !== expectedRoot) {
+        throw new Error("已解析的 Project 根与 projectPath 不一致。");
+    }
+    if (path.isAbsolute(input.filePath)) {
+        throw new Error("Project 追踪写入只接受相对路径。");
+    }
+    const absolutePath = resolveWorkspacePath(expectedRoot, input.filePath);
+    const before = input.knownBefore !== undefined
+        ? (input.knownBefore === null ? null : new TextEncoder().encode(input.knownBefore))
+        : await readBytesForRecord(input.projectPath, input.filePath);
+    await fs.mkdir(path.dirname(absolutePath), {recursive: true});
+    await fs.writeFile(absolutePath, input.content, "utf8");
+    await recordProjectWrite({
+        projectPath: input.projectPath,
+        relativePath: input.filePath,
+        actor: input.actor,
+        before,
+        after: new TextEncoder().encode(input.content),
+    });
+}
+
 /** 创建新文本文件 + 记账（已存在时核心函数拒绝，不会产生覆盖语义）。 */
 export async function createWorkspaceFileTracked(input: WorkspaceNewFileInput & {actor: OperationActor}): Promise<WorkspaceFileNode> {
     const node = await createWorkspaceFile(input);

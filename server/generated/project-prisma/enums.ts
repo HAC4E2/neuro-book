@@ -132,3 +132,35 @@ export const StoryDecisionAnchorKind = {
 } as const
 
 export type StoryDecisionAnchorKind = (typeof StoryDecisionAnchorKind)[keyof typeof StoryDecisionAnchorKind]
+
+
+export const TextToImageJobKind = {
+  manual: 'manual',
+  body: 'body',
+  character: 'character',
+  reroll: 'reroll'
+} as const
+
+export type TextToImageJobKind = (typeof TextToImageJobKind)[keyof typeof TextToImageJobKind]
+
+
+export const TextToImageJobStatus = {
+  queued: 'queued',
+  running: 'running',
+  succeeded: 'succeeded',
+  failed: 'failed',
+  canceled: 'canceled',
+  interrupted: 'interrupted'
+} as const
+
+export type TextToImageJobStatus = (typeof TextToImageJobStatus)[keyof typeof TextToImageJobStatus]
+
+
+export const TextToImageSourceInsertStatus = {
+  not_applicable: 'not_applicable',
+  pending: 'pending',
+  inserted: 'inserted',
+  missing: 'missing'
+} as const
+
+export type TextToImageSourceInsertStatus = (typeof TextToImageSourceInsertStatus)[keyof typeof TextToImageSourceInsertStatus]

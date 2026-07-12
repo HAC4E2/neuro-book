@@ -65,7 +65,9 @@ export const ModelName = {
   StoryDecision: 'StoryDecision',
   WorldSubject: 'WorldSubject',
   WorldSlice: 'WorldSlice',
-  WorldPatch: 'WorldPatch'
+  WorldPatch: 'WorldPatch',
+  TextToImageJob: 'TextToImageJob',
+  TextToImageAsset: 'TextToImageAsset'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -333,6 +335,48 @@ export const WorldPatchScalarFieldEnum = {
 } as const
 
 export type WorldPatchScalarFieldEnum = (typeof WorldPatchScalarFieldEnum)[keyof typeof WorldPatchScalarFieldEnum]
+
+
+export const TextToImageJobScalarFieldEnum = {
+  id: 'id',
+  providerId: 'providerId',
+  kind: 'kind',
+  status: 'status',
+  sourcePath: 'sourcePath',
+  sourceAnchorId: 'sourceAnchorId',
+  sourceInsertStatus: 'sourceInsertStatus',
+  requestJson: 'requestJson',
+  resultAssetIdsJson: 'resultAssetIdsJson',
+  errorMessage: 'errorMessage',
+  attemptCount: 'attemptCount',
+  createdAt: 'createdAt',
+  startedAt: 'startedAt',
+  finishedAt: 'finishedAt'
+} as const
+
+export type TextToImageJobScalarFieldEnum = (typeof TextToImageJobScalarFieldEnum)[keyof typeof TextToImageJobScalarFieldEnum]
+
+
+export const TextToImageAssetScalarFieldEnum = {
+  id: 'id',
+  jobId: 'jobId',
+  relativePath: 'relativePath',
+  fileName: 'fileName',
+  mimeType: 'mimeType',
+  byteLength: 'byteLength',
+  width: 'width',
+  height: 'height',
+  model: 'model',
+  seed: 'seed',
+  prompt: 'prompt',
+  negativePrompt: 'negativePrompt',
+  sourceKind: 'sourceKind',
+  sourcePath: 'sourcePath',
+  sourceAnchorId: 'sourceAnchorId',
+  createdAt: 'createdAt'
+} as const
+
+export type TextToImageAssetScalarFieldEnum = (typeof TextToImageAssetScalarFieldEnum)[keyof typeof TextToImageAssetScalarFieldEnum]
 
 
 export const SortOrder = {

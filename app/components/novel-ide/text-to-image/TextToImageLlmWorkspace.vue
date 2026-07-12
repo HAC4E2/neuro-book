@@ -3,6 +3,7 @@ import {storeToRefs} from "pinia";
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
 import FormSelect, {type SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
 import FormTextarea from "nbook/app/components/common/form/FormTextarea.vue";
+import TextToImageProviderSection from "nbook/app/components/novel-ide/text-to-image/TextToImageProviderSection.vue";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {
     MAX_TEXT_TO_IMAGE_LLM_TOKENS,
@@ -23,37 +24,23 @@ import {
     type TextToImageLlmMessage,
 } from "nbook/app/utils/text-to-image-llm";
 
-type ModelListEntry = string | {
-    id?: string;
-    model?: string;
-    name?: string;
-};
-
-type ModelListResponse = ModelListEntry[] | {
-    data?: ModelListEntry[];
-    models?: ModelListEntry[];
-};
-
 type JsonRecord = Record<string, unknown>;
 
 const store = useTextToImageStore();
 const notification = useNotification();
 const {
-    activeLlmApiConfig,
     activeLlmContextPreset,
     activeLlmContextPresetId,
     lastLlmExchange,
     llm,
     llmContextPresets,
     llmTaskBindings,
+    providers,
     taskPrompts,
 } = storeToRefs(store);
 
 const contextFileInputRef = ref<HTMLInputElement | null>(null);
 const selectedContextEntryId = ref("");
-const connectingLlm = ref(false);
-const llmConnectionStatus = ref<"idle" | "success" | "failed">("idle");
-const llmConnectionMessage = ref("");
 const selectedTestTask = ref<TextToImagePromptTask>("bodyImage");
 const testUserPrompt = ref("请根据当前配置生成一段简短测试回复。");
 const testBusy = ref(false);
@@ -85,35 +72,20 @@ const promptTaskOptions = computed<SelectOption[]>(() => TEXT_TO_IMAGE_PROMPT_TA
     iconClass: task.key === "bodyImage" ? "i-lucide-image" : task.key === "characterDesign" ? "i-lucide-palette" : "i-lucide-square-pen",
 })));
 
-const apiConfigOptions = computed<SelectOption[]>(() => llm.value.apiConfigs.map((config) => ({
-    value: config.id,
-    label: config.name || "未命名 API 配置",
-    description: config.model || config.apiBaseUrl || "未配置",
-    iconClass: "i-lucide-plug",
-})));
-
-const llmModelOptions = computed<SelectOption[]>(() => {
-    const model = llm.value.model.trim();
-    const modelOptions = llm.value.availableModels.map((modelId) => ({
-        value: modelId,
-        label: modelId,
-        iconClass: "i-lucide-box",
-    }));
-    if (!model || modelOptions.some((option) => option.value === model)) {
-        return modelOptions;
-    }
-    return [
-        {value: model, label: `${model}（当前）`, iconClass: "i-lucide-box"},
-        ...modelOptions,
-    ];
-});
+const providerOptions = computed<SelectOption[]>(() => providers.value
+    .filter((provider) => provider.kind === "openai_compatible")
+    .map((provider) => ({
+        value: String(provider.id),
+        label: `${provider.name} · ${provider.model}`,
+        iconClass: "i-lucide-brain-circuit",
+    })));
 
 const contextPresetOptions = computed<SelectOption[]>(() => llmContextPresets.value.map((preset) => ({
     value: preset.id,
     label: preset.name || "未命名上下文",
     description: `${preset.entries.length} 个条目`,
     iconClass: "i-lucide-list-tree",
-})));
+}))); 
 
 const selectedContextEntry = computed(() => activeLlmContextPreset.value?.entries.find((entry) => entry.id === selectedContextEntryId.value) ?? null);
 
@@ -130,57 +102,6 @@ const testMessages = computed<TextToImageLlmMessage[]>(() => {
 watch(() => activeLlmContextPreset.value?.id, () => {
     selectedContextEntryId.value = activeLlmContextPreset.value?.entries[0]?.id ?? "";
 }, {immediate: true});
-
-function selectApiConfig(configId: string): void {
-    store.activateLlmApiConfig(configId);
-    llmConnectionStatus.value = "idle";
-    llmConnectionMessage.value = "";
-}
-
-function updateActiveApiName(name: string): void {
-    if (!llm.value.activeApiConfigId) {
-        return;
-    }
-    store.updateLlmApiConfig(llm.value.activeApiConfigId, {name});
-}
-
-function addApiConfig(): void {
-    const config = store.addLlmApiConfig();
-    notification.success(`已新建 API 配置：${config.name}`);
-}
-
-function saveApiConfig(): void {
-    store.saveActiveLlmApiConfig();
-    notification.success("API 配置已保存");
-}
-
-function deleteActiveApiConfig(): void {
-    if (!llm.value.activeApiConfigId || llm.value.apiConfigs.length <= 1) {
-        return;
-    }
-    store.deleteLlmApiConfig(llm.value.activeApiConfigId);
-    notification.success("API 配置已删除");
-}
-
-function updateLlmApiBaseUrl(apiBaseUrl: string): void {
-    store.updateLlmSettings({
-        apiBaseUrl,
-        availableModels: [],
-        model: "",
-    });
-    llmConnectionStatus.value = "idle";
-    llmConnectionMessage.value = "";
-}
-
-function updateLlmApiKey(apiKey: string): void {
-    store.updateLlmSettings({
-        apiKey,
-        availableModels: [],
-        model: "",
-    });
-    llmConnectionStatus.value = "idle";
-    llmConnectionMessage.value = "";
-}
 
 function updateLlmParameter(key: keyof TextToImageLlmParameters, value: string | number): void {
     const nextValue = Number(value);
@@ -200,59 +121,7 @@ function formatLlmParameter(key: keyof TextToImageLlmParameters): string {
     return key === "maxTokens" ? String(Math.round(value)) : value.toFixed(2);
 }
 
-async function connectLlm(): Promise<void> {
-    if (connectingLlm.value) {
-        return;
-    }
-    const apiBaseUrl = llm.value.apiBaseUrl.trim().replace(/\/+$/, "");
-    if (!apiBaseUrl) {
-        llmConnectionStatus.value = "failed";
-        llmConnectionMessage.value = "连接失败";
-        return;
-    }
-    connectingLlm.value = true;
-    llmConnectionStatus.value = "idle";
-    llmConnectionMessage.value = "";
-    try {
-        const headers: HeadersInit = {};
-        if (llm.value.apiKey.trim()) {
-            headers.Authorization = `Bearer ${llm.value.apiKey.trim()}`;
-        }
-        const response = await fetch(`${apiBaseUrl}/models`, {headers});
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
-        const data = await response.json() as ModelListResponse;
-        const list = Array.isArray(data)
-            ? data
-            : Array.isArray(data.data)
-                ? data.data
-                : Array.isArray(data.models)
-                    ? data.models
-                    : [];
-        const models = list.map((item) => typeof item === "string" ? item : item.id ?? item.model ?? item.name ?? "")
-            .filter((item) => item.trim().length > 0);
-        if (models.length === 0) {
-            throw new Error("没有返回可用模型");
-        }
-        store.updateLlmSettings({
-            apiBaseUrl,
-            availableModels: models,
-            model: models.includes(llm.value.model) ? llm.value.model : models[0] ?? "",
-        });
-        store.saveActiveLlmApiConfig();
-        llmConnectionStatus.value = "success";
-        llmConnectionMessage.value = `已连接，获取到 ${models.length} 个模型`;
-    } catch {
-        store.updateLlmSettings({availableModels: []});
-        llmConnectionStatus.value = "failed";
-        llmConnectionMessage.value = "连接失败";
-    } finally {
-        connectingLlm.value = false;
-    }
-}
-
-function toggleLlmBoolean(key: "stream" | "sendImages"): void {
+function toggleLlmBoolean(key: "stream"): void {
     store.updateLlmSettings({[key]: !llm.value[key]});
 }
 
@@ -353,28 +222,35 @@ function exportAllContextPresets(): void {
     });
 }
 
-function updateTaskBinding(task: TextToImagePromptTask, patch: {apiConfigId?: string; contextPresetId?: string}): void {
+function updateTaskBinding(task: TextToImagePromptTask, patch: {providerId?: number | null; contextPresetId?: string}): void {
     store.updateLlmTaskBinding(task, patch);
 }
 
-function taskBinding(task: TextToImagePromptTask): {apiConfigId: string; contextPresetId: string} {
-    const fallbackApi = llm.value.activeApiConfigId || (llm.value.apiConfigs[0]?.id ?? "");
+function taskBinding(task: TextToImagePromptTask): {providerId: number | null; contextPresetId: string} {
     const fallbackContext = activeLlmContextPresetId.value || (llmContextPresets.value[0]?.id ?? "");
     const binding = llmTaskBindings.value[task];
     return {
-        apiConfigId: binding?.apiConfigId || fallbackApi,
+        providerId: binding?.providerId ?? null,
         contextPresetId: binding?.contextPresetId || fallbackContext,
     };
 }
+
+onMounted(async () => {
+    try {
+        await store.refreshProviders();
+    } catch (error) {
+        notification.error(resolveApiErrorMessage(error, "读取文生图 Provider 失败"));
+    }
+});
 
 async function sendTestRequest(): Promise<void> {
     if (testBusy.value) {
         return;
     }
-    const {apiConfig} = store.resolveLlmTaskBinding(selectedTestTask.value);
-    const apiBaseUrl = apiConfig.apiBaseUrl.trim().replace(/\/+$/, "");
-    if (!apiBaseUrl || !apiConfig.model.trim()) {
-        testError.value = "请先为该任务配置 API 和模型";
+    const {providerId} = store.resolveLlmTaskBinding(selectedTestTask.value);
+    const provider = providers.value.find((item) => item.id === providerId && item.kind === "openai_compatible");
+    if (!provider || !provider.model.trim()) {
+        testError.value = "请先为该任务选择并配置 OpenAI-compatible Provider";
         return;
     }
     testBusy.value = true;
@@ -382,7 +258,12 @@ async function sendTestRequest(): Promise<void> {
     const messages = testMessages.value;
     const promptPreview = formatTextToImageLlmMessages(messages);
     try {
-        const response = await requestTextToImageLlmCompletion(apiConfig, messages);
+        const response = await requestTextToImageLlmCompletion({
+            providerId: provider.id,
+            model: provider.model,
+            parameters: llm.value.parameters,
+            stream: llm.value.stream,
+        }, messages);
         store.recordLlmExchange({
             task: selectedTestTask.value,
             prompt: promptPreview,
@@ -586,11 +467,15 @@ function sanitizeFileName(fileName: string): string {
                         <h1 class="mt-1 truncate text-2xl font-semibold text-[var(--text-main)]">LLM 大模型详细配置</h1>
                     </div>
                     <div class="flex shrink-0 items-center gap-2 text-xs text-[var(--text-secondary)]">
-                        <span class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2.5 py-1">{{ activeLlmApiConfig?.name || "默认" }}</span>
+                        <span class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2.5 py-1">{{ providers.length }} Providers</span>
                         <span class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2.5 py-1">{{ activeLlmContextPreset?.name || "默认上下文" }}</span>
                     </div>
                 </header>
 
+                <TextToImageProviderSection />
+
+                <!-- 旧的浏览器 API 凭据表单已由 Provider 管理替代，待 Store 迁移后删除。 -->
+                <!--
                 <section class="space-y-4 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)]/45 p-4">
                     <div class="flex items-center justify-between gap-3">
                         <h2 class="flex items-center gap-2 text-lg font-semibold text-[var(--accent-text)]">
@@ -662,6 +547,9 @@ function sanitizeFileName(fileName: string): string {
                         </div>
                     </div>
                 </section>
+
+                </section>
+                -->
 
                 <section class="space-y-4 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)]/45 p-4">
                     <div class="flex flex-wrap items-center justify-between gap-3">
@@ -763,8 +651,8 @@ function sanitizeFileName(fileName: string): string {
                                 {{ task.label }}
                             </h3>
                             <label class="block">
-                                <span class="field-label">API 配置</span>
-                                <FormSelect :model-value="taskBinding(task.key).apiConfigId" :options="apiConfigOptions" dropdown-direction="down" @update:model-value="updateTaskBinding(task.key, {apiConfigId: $event})" />
+                                <span class="field-label">Provider</span>
+                                <FormSelect :model-value="taskBinding(task.key).providerId === null ? '' : String(taskBinding(task.key).providerId)" :options="providerOptions" placeholder="选择 OpenAI-compatible Provider" dropdown-direction="down" @update:model-value="updateTaskBinding(task.key, {providerId: $event ? Number($event) : null})" />
                             </label>
                             <label class="block">
                                 <span class="field-label">上下文预设</span>

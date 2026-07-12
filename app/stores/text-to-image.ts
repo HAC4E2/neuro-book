@@ -1,5 +1,11 @@
 ﻿import type {TextToImagePromptReplacementRule} from "nbook/app/utils/text-to-image-prompt-engine";
 
+import type {
+    TextToImageJobDto,
+    TextToImageJobPageDto,
+    TextToImageProviderDto,
+} from "nbook/shared/dto/text-to-image.dto";
+
 export type NovelAiSmeaMode = "auto" | "off" | "on";
 
 export type NovelAiApiSettings = {
@@ -74,6 +80,8 @@ export type TextToImageLlmContextPreset = {
 
 export type TextToImageLlmTaskBinding = {
     task: TextToImagePromptTask;
+    /** 服务端 Provider 主键；浏览器不保存 LLM 凭据。 */
+    providerId: number | null;
     apiConfigId: string;
     contextPresetId: string;
 };
@@ -703,9 +711,9 @@ function createDefaultTaskPrompts(): Record<TextToImagePromptTask, TextToImageTa
  */
 function createDefaultLlmTaskBindings(apiConfigId = "", contextPresetId = ""): Record<TextToImagePromptTask, TextToImageLlmTaskBinding> {
     return {
-        bodyImage: {task: "bodyImage", apiConfigId, contextPresetId},
-        characterDesign: {task: "characterDesign", apiConfigId, contextPresetId},
-        characterRevision: {task: "characterRevision", apiConfigId, contextPresetId},
+        bodyImage: {task: "bodyImage", providerId: null, apiConfigId, contextPresetId},
+        characterDesign: {task: "characterDesign", providerId: null, apiConfigId, contextPresetId},
+        characterRevision: {task: "characterRevision", providerId: null, apiConfigId, contextPresetId},
     };
 }
 
@@ -877,6 +885,12 @@ export const useTextToImageStore = defineStore("textToImage", () => {
     const defaultPrompts = createDefaultTaskPrompts();
 
     const novelAi = ref<NovelAiApiSettings>(createDefaultNovelAiSettings());
+    const providers = ref<TextToImageProviderDto[]>([]);
+    const activeNovelAiProviderId = ref<number | null>(null);
+    const projectJobs = ref<TextToImageJobDto[]>([]);
+    const projectJobsProjectPath = ref("");
+    const projectJobsLoading = ref(false);
+    const projectJobsError = ref("");
     const llm = ref<TextToImageLlmSettings>(normalizeLlmSettings());
     const output = ref<TextToImageOutputSettings>({...DEFAULT_OUTPUT_SETTINGS});
     const generationDraft = ref<TextToImageGenerationDraft>({...DEFAULT_GENERATION_DRAFT});
@@ -903,6 +917,7 @@ export const useTextToImageStore = defineStore("textToImage", () => {
 
     const activeProjectKey = computed(() => normalizeProjectPath(currentProjectPath.value));
     const activeStyle = computed(() => stylePresets.value.find((item) => item.id === activeStyleId.value) ?? stylePresets.value[0] ?? null);
+    const activeNovelAiProvider = computed(() => providers.value.find((provider) => provider.id === activeNovelAiProviderId.value && provider.kind === "novelai") ?? null);
     const activeLlmApiConfig = computed(() => llm.value.apiConfigs.find((config) => config.id === llm.value.activeApiConfigId) ?? llm.value.apiConfigs[0] ?? null);
     const activeLlmContextPreset = computed(() => llmContextPresets.value.find((preset) => preset.id === activeLlmContextPresetId.value) ?? llmContextPresets.value[0] ?? null);
     const activeCharacterGroup = computed(() => characterGroups.value[activeProjectKey.value] ?? createCharacterGroup(activeProjectKey.value));
@@ -929,6 +944,39 @@ export const useTextToImageStore = defineStore("textToImage", () => {
             [key]: group,
         };
         return group;
+    }
+
+    /** 从服务端刷新当前用户可用的生图 Provider；credential 永不进入 Pinia。 */
+    async function refreshProviders(): Promise<void> {
+        const response = await $fetch<{providers: TextToImageProviderDto[]}>("/api/text-to-image/providers");
+        providers.value = response.providers;
+        if (!activeNovelAiProvider.value) {
+            activeNovelAiProviderId.value = providers.value.find((provider) => provider.kind === "novelai")?.id ?? null;
+        }
+    }
+
+    /** 切换当前手动 NovelAI 生图 Provider。 */
+    function selectNovelAiProvider(providerId: number | null): void {
+        activeNovelAiProviderId.value = providers.value.some((provider) => provider.id === providerId && provider.kind === "novelai")
+            ? providerId
+            : null;
+    }
+
+    /** 读取当前 Project 的文生图任务摘要；任务与图片均由服务端持久化。 */
+    async function refreshProjectJobs(projectPath = currentProjectPath.value): Promise<void> {
+        const normalizedProjectPath = normalizeProjectPath(projectPath);
+        projectJobsLoading.value = true;
+        projectJobsError.value = "";
+        try {
+            const response = await $fetch<TextToImageJobPageDto>(`/api/text-to-image/jobs?projectPath=${encodeURIComponent(normalizedProjectPath)}&pageSize=12`);
+            projectJobs.value = response.items;
+            projectJobsProjectPath.value = normalizedProjectPath;
+        } catch (error) {
+            projectJobsError.value = error instanceof Error ? error.message : "读取文生图任务失败";
+            throw error;
+        } finally {
+            projectJobsLoading.value = false;
+        }
     }
 
     /**
@@ -1405,14 +1453,17 @@ export const useTextToImageStore = defineStore("textToImage", () => {
     /**
      * 解析任务运行时配置。
      */
-    function resolveLlmTaskBinding(task: TextToImagePromptTask): {apiConfig: TextToImageLlmApiConfig; contextPreset: TextToImageLlmContextPreset | null} {
+    function resolveLlmTaskBinding(task: TextToImagePromptTask): {apiConfig: TextToImageLlmApiConfig; providerId: number | null; contextPreset: TextToImageLlmContextPreset | null} {
         const binding = llmTaskBindings.value[task];
         const apiConfig = llm.value.apiConfigs.find((config) => config.id === binding?.apiConfigId)
             ?? activeLlmApiConfig.value
             ?? createLlmApiConfig("默认", llm.value);
         const contextPreset = llmContextPresets.value.find((preset) => preset.id === binding?.contextPresetId)
             ?? activeLlmContextPreset.value;
-        return {apiConfig, contextPreset};
+        const providerId = providers.value.some((provider) => provider.id === binding?.providerId && provider.kind === "openai_compatible")
+            ? binding?.providerId ?? null
+            : null;
+        return {apiConfig, providerId, contextPreset};
     }
 
     function recordLlmExchange(exchange: {task: TextToImagePromptTask; prompt: string; response: string}): void {
@@ -1798,6 +1849,8 @@ export const useTextToImageStore = defineStore("textToImage", () => {
         activeCharacterId,
         activeLlmApiConfig,
         activeLlmContextPreset,
+        activeNovelAiProvider,
+        activeNovelAiProviderId,
         activeOutfit,
         activeOutfitGroup,
         activeOutfitId,
@@ -1855,10 +1908,18 @@ export const useTextToImageStore = defineStore("textToImage", () => {
         outfits,
         prependGenerationResults,
         promptReplacementRules,
+        providers,
+        projectJobs,
+        projectJobsError,
+        projectJobsLoading,
+        projectJobsProjectPath,
+        refreshProviders,
+        refreshProjectJobs,
         recordLlmExchange,
         recordNovelAiExchange,
         resolveLlmTaskBinding,
         saveActiveLlmApiConfig,
+        selectNovelAiProvider,
         selectCharacter,
         selectOutfit,
         setCurrentProjectPath,
@@ -1889,6 +1950,7 @@ export const useTextToImageStore = defineStore("textToImage", () => {
         storage: piniaPluginPersistedstate.localStorage(),
         pick: [
             "novelAi",
+            "activeNovelAiProviderId",
             "llm",
             "output",
             "generationDraft",
