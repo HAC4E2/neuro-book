@@ -2056,4 +2056,6 @@ function readFileAsDataUrl(file: File): Promise<string> {
             </section>
 
             <!-- LLM 配置 -->
+        </div>
+    </div>
 </template>

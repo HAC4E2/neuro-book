@@ -1,21 +1,17 @@
 #!/usr/bin/env bun
 import {spawn} from "node:child_process";
 import {existsSync} from "node:fs";
-import {cp, mkdir, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
+import {cp, mkdir, readFile, readdir, realpath, rm, stat, writeFile} from "node:fs/promises";
 import {dirname, relative, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
 import {compileProfileArtifacts} from "nbook/server/agent/profiles/profile-artifact-compiler";
 
 const runtimePackageSeeds = [
-    "@clack/core",
     "@clack/prompts",
     "@earendil-works/pi-agent-core",
     "@earendil-works/pi-ai",
     "@libsql/client",
     "@libsql/isomorphic-ws",
-    "@vue/runtime-core",
-    "@vue/runtime-dom",
-    "@vue/server-renderer",
     "chokidar",
     "commander",
     "consola",
@@ -23,27 +19,20 @@ const runtimePackageSeeds = [
     "dotenv",
     "esbuild",
     "fflate",
-    "get-tsconfig",
     "h3",
     "picocolors",
-    "sisteransi",
     "sqlite-vec",
     "typebox",
     "tsx",
     "typescript",
     "undici",
+    "vue",
     "ws",
     "yaml",
     "yazl",
     "zod",
 ];
-const windowsRuntimePackageSeeds = [
-    "@esbuild/win32-x64",
-];
-const effectiveRuntimePackageSeeds = [
-    ...runtimePackageSeeds,
-    ...(process.platform === "win32" ? windowsRuntimePackageSeeds : []),
-];
+const effectiveRuntimePackageSeeds = runtimePackageSeeds;
 const runtimeContextPaths = [
     "AGENTS.md",
     "reference",
@@ -371,16 +360,24 @@ async function copyWorkspaceCliRuntimeScript() {
  * 复制一组 runtime 入口包及其 runtime dependencies 闭包。
  */
 async function copyRuntimePackageClosure(seedPackages) {
-    const queue = [...seedPackages];
+    const queue = seedPackages.map((packageName) => ({packageName, source: null, parentPackageName: null}));
     const requiredPackages = new Set(seedPackages);
     const seen = new Set();
     while (queue.length > 0) {
-        const packageName = queue.shift();
+        const next = queue.shift();
+        if (!next) {
+            continue;
+        }
+        const {packageName, source: resolvedSource, parentPackageName} = next;
         if (!packageName || seen.has(packageName)) {
             continue;
         }
         seen.add(packageName);
-        const source = resolve("node_modules", ...packageName.split("/"));
+        const source = resolvedSource ?? await resolveRuntimePackage(packageName);
+        if (!source) {
+            const parent = parentPackageName ? ` (required by ${parentPackageName})` : "";
+            throw new Error(`Missing Nitro runtime package: ${packageName}${parent}`);
+        }
         const target = resolve(outputRoot, "server", "node_modules", ...packageName.split("/"));
         if (!existsSync(source)) {
             if (requiredPackages.has(packageName)) {
@@ -405,17 +402,50 @@ async function copyRuntimePackageClosure(seedPackages) {
         const dependencies = packageJson.dependencies ?? {};
         for (const dependencyName of Object.keys(dependencies)) {
             if (!seen.has(dependencyName)) {
-                queue.push(dependencyName);
+                queue.push({
+                    packageName: dependencyName,
+                    source: await resolveRuntimePackage(dependencyName, source),
+                    parentPackageName: packageName,
+                });
             }
         }
         const optionalDependencies = packageJson.optionalDependencies ?? {};
         for (const dependencyName of Object.keys(optionalDependencies)) {
-            const dependencyPath = resolve("node_modules", ...dependencyName.split("/"));
-            if (!seen.has(dependencyName) && existsSync(dependencyPath)) {
-                queue.push(dependencyName);
+            const dependencySource = await resolveRuntimePackage(dependencyName, source);
+            if (!seen.has(dependencyName) && dependencySource) {
+                queue.push({
+                    packageName: dependencyName,
+                    source: dependencySource,
+                    parentPackageName: packageName,
+                });
             }
         }
     }
+}
+
+/**
+ * 按 Node 的模块解析规则定位运行时包。Bun 的隔离安装会把传递依赖放在
+ * `.bun/<package>/node_modules` 中，因此不能只从项目根 `node_modules` 查找。
+ */
+async function resolveRuntimePackage(packageName, importerSource = null) {
+    if (!importerSource) {
+        const packageRoot = resolve("node_modules", ...packageName.split("/"));
+        return existsSync(packageRoot) ? packageRoot : null;
+    }
+
+    const importerManifest = resolve(importerSource, "package.json");
+    if (!existsSync(importerManifest)) {
+        return null;
+    }
+    let current = dirname(await realpath(importerManifest));
+    while (dirname(current) !== current) {
+        const candidate = resolve(current, "node_modules", ...packageName.split("/"));
+        if (existsSync(candidate)) {
+            return await realpath(candidate);
+        }
+        current = dirname(current);
+    }
+    return null;
 }
 
 /**

@@ -118,6 +118,10 @@ async function resolveBunFromPath() {
         if (existsSync(real)) {
             return real;
         }
+        const npmRuntime = join(dirname(first), "node_modules", "bun", "bin", "bun.exe");
+        if (existsSync(npmRuntime)) {
+            return npmRuntime;
+        }
         throw new Error(`PATH 中的 bun 不是 bun.exe：${first}\n请安装官方 Bun (https://bun.sh) 或用 --bun-runtime 指定真实 bun.exe。`);
     }
     return first;
