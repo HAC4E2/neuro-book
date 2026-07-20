@@ -39,6 +39,10 @@ type CreateSessionInput = {
     parentSessionId?: SessionId;
     systemRole?: SessionMetadata["systemRole"];
     title?: string;
+    /** Session 类别（Task 110 D15）；为空视为 chat。 */
+    kind?: SessionMetadata["kind"];
+    /** 寻址标签（Task 110 acquire）；为空视为无标签。 */
+    tags?: string[];
 };
 
 type AppendEntryInput = SessionEntryDraft & {
@@ -109,6 +113,8 @@ export class JsonlSessionRepository {
             systemRole: input.systemRole,
             createdAt: now,
             title: input.title,
+            kind: input.kind,
+            tags: input.tags,
         };
         const sessionPath = this.sessionPath(sessionId);
         await mkdir(dirname(sessionPath), {recursive: true});
@@ -456,7 +462,7 @@ export class JsonlSessionRepository {
     /**
      * 追加普通 message entry。
      */
-    async appendMessage(sessionId: SessionId, message: StoredAgentMessage, workspaceKey?: string, origin?: "prompt" | "harness" | "manual" | "ingest"): Promise<SessionEntry> {
+    async appendMessage(sessionId: SessionId, message: StoredAgentMessage, workspaceKey?: string, origin?: "prompt" | "harness" | "manual" | "ingest" | "workflow"): Promise<SessionEntry> {
         return this.appendEntry(sessionId, {
             type: "message",
             message,
@@ -796,22 +802,30 @@ export class JsonlSessionRepository {
         return scope.scope === "activeLeaf" && (scope.leafId === null ? activePathIds.size === 0 : activePathIds.has(scope.leafId));
     }
 
+    /** sessionId 分配串行链：seq 文件是读改写，无互斥时并发 createSession 会拿到同一个 id（Task 110 workflow 并发建 session 踩出） */
+    private sessionSeqChain: Promise<unknown> = Promise.resolve();
+
     private async nextSessionId(): Promise<SessionId> {
-        await this.attachmentMigrationGate.assertWritable();
-        const seqPath = join(this.rootWorkspace, ".nbook", "agent", "session-seq.json");
-        await mkdir(dirname(seqPath), {recursive: true});
-        let next = 1;
-        try {
-            const current = JSON.parse(await readFile(seqPath, "utf8")) as {next?: unknown};
-            if (typeof current.next === "number" && Number.isInteger(current.next) && current.next > 0) {
-                next = current.next;
+        const allocation = this.sessionSeqChain.then(async () => {
+            await this.attachmentMigrationGate.assertWritable();
+            const seqPath = join(this.rootWorkspace, ".nbook", "agent", "session-seq.json");
+            await mkdir(dirname(seqPath), {recursive: true});
+            let next = 1;
+            try {
+                const current = JSON.parse(await readFile(seqPath, "utf8")) as {next?: unknown};
+                if (typeof current.next === "number" && Number.isInteger(current.next) && current.next > 0) {
+                    next = current.next;
+                }
+            } catch {
+                next = 1;
             }
-        } catch {
-            next = 1;
-        }
-        await this.attachmentMigrationGate.assertWritable();
-        await writeFile(seqPath, JSON.stringify({next: next + 1}, null, 2), "utf8");
-        return next;
+            await this.attachmentMigrationGate.assertWritable();
+            await writeFile(seqPath, JSON.stringify({next: next + 1}, null, 2), "utf8");
+            return next;
+        });
+        // 失败不断链：下一次分配照常排队执行
+        this.sessionSeqChain = allocation.catch(() => undefined);
+        return allocation;
     }
 
     private resolveLeaf(entries: SessionEntry[]): SessionEntryId | null {

@@ -72,6 +72,10 @@ export const builtin = {
     sql: {
         execute: registeredTool("execute_sql"),
     },
+    workflow: {
+        run: registeredTool("run_workflow"),
+        list: registeredTool("list_workflows"),
+    },
     subject: {
         ragSearch: registeredTool("subject_rag_search"),
         eventAppend: registeredTool("subject_event_append"),

@@ -31,6 +31,7 @@ const components = {
     MentionedSkillsReminder: dsl.MentionedSkillsReminder,
     AgentCatalog: dsl.AgentCatalog,
     SkillCatalog: dsl.SkillCatalog,
+    WorkflowCatalog: dsl.WorkflowCatalog,
     ActivatedSkills: dsl.ActivatedSkills,
     SqlSchemaSummary: dsl.SqlSchemaSummary,
     Import: dsl.Import,
@@ -86,6 +87,7 @@ export namespace JSX {
         MentionedSkillsReminder: Record<string, never>;
         AgentCatalog: Parameters<typeof dsl.AgentCatalog>[0];
         SkillCatalog: Parameters<typeof dsl.SkillCatalog>[0];
+        WorkflowCatalog: Parameters<typeof dsl.WorkflowCatalog>[0];
         ActivatedSkills: Parameters<typeof dsl.ActivatedSkills>[0];
         SqlSchemaSummary: Parameters<typeof dsl.SqlSchemaSummary>[0];
         Import: Parameters<typeof dsl.Import>[0];

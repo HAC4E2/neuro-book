@@ -171,6 +171,7 @@ export async function previewAgentProfilePrepare(
             }),
             catalog,
             skills,
+            workflows: await harness.workflows.list(),
             runtime: {
                 now: new Date().toISOString(),
                 promptUserTurnCount: sessionContext.messages.filter((message) => message.role === "user").length,

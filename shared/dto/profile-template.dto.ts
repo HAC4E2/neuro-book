@@ -33,6 +33,7 @@ export const ProfileTemplateNodeTypeSchema = z.enum([
     "MentionedSkillsReminder",
     "AgentCatalog",
     "SkillCatalog",
+    "WorkflowCatalog",
     "ActivatedSkills",
     "SqlSchemaSummary",
     "Import",

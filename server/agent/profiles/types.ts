@@ -109,6 +109,8 @@ export type ProfilePrepareContext<TInitial = JsonValue, TPayload = unknown, TSet
     catalog: AgentCatalogSnapshot;
     /** 当前可见 skill 快照，用于 SkillCatalog。 */
     skills: SkillCatalogItem[];
+    /** 当前可见 workflow 快照，用于 WorkflowCatalog fragment（Task 111）。为空 = 宿主未注入（测试/旧路径），fragment 渲染为空。 */
+    workflows?: {key: string; title: string; description: string; whenToUse?: string; source: "system" | "user"}[];
     runtime?: {
         now: string;
         promptUserTurnCount: number;

@@ -1,8 +1,8 @@
 # Task 110 · Agent Workflow 编排系统
 
-- 状态：**设计定稿（脚本式）；spike 已完成验收全绿（2026-07-19），未接入 NeuroBook**
-- Spike 仓：`C:\Users\notnotype\Documents\CodeRepository\GithubProjects\nb-workflow`（sibling 仓，对标 nb-history 做法；13 tests / 78 断言 + tsc 全绿）
-- 日期：2026-07-19
+- 状态：**设计定稿（脚本式）；spike 验收全绿；已完成初步接入（2026-07-20）——内核 vendor 进仓，跑在真实 session 层上，preview demo 页可用**
+- Spike 仓：`C:\Users\notnotype\Documents\CodeRepository\GithubProjects\nb-workflow`（sibling 仓，真相源；`bun run sync:nb-workflow` 镜像到 `server/vendor/nb-workflow/`）
+- 日期：2026-07-19 设计与 spike；2026-07-20 初步接入
 - 相关：`reference/agent/sidecar-profile-pass.md`、`docs/agent/tools.md`、`server/agent/tools/agent-collaboration-tools.ts`、`server/agent/harness/neuro-agent-harness.ts`（invokeCore/runLoop/runSidecarPasses）、`server/agent/session/session-repo.ts`（forkSession/moveLeaf）、`server/world-engine/codeact-sandbox.ts`、`docs/drafts/TODOS.md`（invoke_workflow / 非阻塞 invoke / workflow 三条待办）
 
 ## 用户需求
@@ -245,10 +245,91 @@ await wf.workflow(key, args);                // 嵌套限一层
 - 明确不在 spike 范围：沙盒化、journal 落 `workflow_step` entry、SSE 投影、waiting 穿透、harness 可重入、schema 校验——即接入任务的工作清单。
 - **演示与事件流（07-19 第二轮）**：内核新增 `WorkflowEvent` 事件流（status/activity+cached/ask_pending/log/progress，即 SSE 公开投影的前置形态）；`bun run demo` 生成 `demo/index.html` 四板块——① 实跑事件回放播放器（trace 图逐步点亮、ask 暂停等应答、resume 后缓存命中快闪，即接入后用户体验）② 骨架+CFG 静态投影 ③ 改参数 rerun 失效着色（14 命中/2 重跑）④ RP leader session 树跨 run 生长（workflow/direct 双色）。
 
+## 初步接入（2026-07-20）
+
+目标：验证 session 操作能力真实可用——内核跑在 NeuroBook 真实 session 层上，产出 preview demo 页。**不是完全接入**：run 状态仍内存态、无 SSE、无面 B 工具、sidecar 未迁移。
+
+### 内核端口化（sibling 仓，vendor 前置改造）
+
+- 抽出 `src/ports.ts`：`SessionPort`（createSession/meta/findByTag/activeLeaf/setActiveLeaf/append/transcript/archive/lock/releaseAll，全异步）+ `AgentPort`（profileInfo/invoke(sessionId, fromLeaf, opts) → `AgentInvokeOutcome`）+ `WorkspacePort`。语义合同写在接口注释：append 显式锚定 parentId（F2）且自动移 leaf（对齐真实仓）；锁是运行时态。
+- `EntryId` 从 number 改 **string**（对齐 `SessionEntryId`）；`SessionId` 保持 number。
+- 内存实现改名 `MemorySessionStore` / `MockAgentPort`（mock invoke 的 entry 写入也走 SessionPort——因此**同一个 MockAgentPort 可直接跑在真实仓适配器上**，这是"mock 模型 × 真实 session"组合的关键）。
+- 新增 `WorkflowRunner.begin()` 非阻塞启动（同步返回 runId，done 不 reject）+ 同 run 并发 execute 护栏；`createSession` 透传 `initial`（真实 profile 需要）。
+- tsconfig 开 `noUncheckedIndexedAccess` 对齐 NeuroBook 严格度（防 vendor 漂移）。
+
+### Vendor 与 NeuroBook 侧落点
+
+- `scripts/cli/sync-nb-workflow.ts` + `bun run sync:nb-workflow` → `server/vendor/nb-workflow/`（VENDOR.json 溯源，机器同步勿手改；与 nb-history 同模式）。
+- **D15 子集落地**：`SessionMetadata` 加 `kind?: "chat"|"workflow"|"system"` + `tags?: string[]`（可选，落最终位置）；`MessageSessionEntry.origin` 联合加 `"workflow"`；`repo.createSession` 透传。systemRole 废弃并入、列表按 kind 隐藏**未做**（留正式接入）。
+- `server/agent/workflow/workflow-session-port.ts`：`NeuroWorkflowSessionPort` 落在 `JsonlSessionRepository` 上。映射：checkout=moveLeaf；append=appendEntry({parentId}) 显式锚定；archive=追加 session_archived entry；transcript=沿 parentId 回溯只投影 message entry（origin: workflow→workflow，其余→direct）；findByTag=listSessions({profileKey}) 收窄后逐个读 tags（O(n) 读，正式接入要做索引）。创建路由：`workflow.demo.*` 前缀直落 repo（无需真实 profile），真实 profile 走注入的 `harness.createAgent`（含 initial 校验）。mock 助手回复构造合法 `AssistantMessage`（provider:"nb-workflow"/model:"mock-responder"/usage 全零，开放联合类型合法）。
+- `workflow-agent-port.ts`：`HarnessAgentPort`（真实一轮 = `harness.invokeAgent({sessionId, mode, message, payload, caller:{kind:"user"}, block:true})`；invoke 前游标≠当前 leaf 则先 moveLeaf；error → throw（F4）；queued → throw 暴露并发冲突）+ `RoutingAgentPort` 按 profileKey 前缀分流 mock/真实。
+- `workflow-demo-service.ts`：单例组装 + run 事件环形缓冲（绝对游标）+ trace mermaid 服务端计算（进行中虚线橙/本次缓存命中绿/ask 体育场）+ 参与者提取（journal 的 create/acquire 看 result、open 解析指纹）+ 真实 session 树 mermaid（origin 三色 + active leaf 标记，标签过净化层）。
+- 路由 `server/api/agent/workflow-demo/*`：scenarios / runs(list|post) / runs/[runId](get?after|resume|rerun) / sessions/[sessionId]/tree / direct-chat。run 快照路由返回类型显式收窄 `unknown`（RunView 递归 JsonValue 进 Nuxt 类型化路由表会 TS2589 爆栈，线上边界按无类型 JSON，前端断言）。
+- Demo 页 `app/pages/workflow.preview.vue`（路由 `/workflow.preview`）+ `app/components/workflow-preview/`（RunPanel 轮询面板 / SessionTree 真树卡片 / Mermaid 渲染器）+ `app/utils/workflow-preview/render-mermaid.ts`（mermaid 11 惰性单例）。前端只渲染服务端算好的 mermaid 字符串。新依赖 `mermaid@11`。
+
+### Demo 场景（五个）
+
+1. **拆书**（mock）：并发摘要（concurrency=2）→ 剧情分析 + if 追加分支 → ask 圈选挂起 → 文风提取；完成后可改 styleMode 旋钮 rerun 演示局部失效。
+2. **写作流水线**（mock）：writer↔critic 上限 4 轮，耗尽升级 ask approve，worldUpdater 收尾恰好一次。
+3. **RP 持久参与者**（mock）：acquire leader/actor（tag 跨 run 复用真实 session）；树卡片内可直聊（origin=manual 黄色 entry 插进主线），再跑一轮历史连续。
+4. **Sidecar 旁路**（mock）：对持久 caller session 做 excursion 探针（旁支留真树上），结论 append 回主线。
+5. **真实 Agent 并发问答**（真模型）：用户填真实 profileKey（默认 writer）→ 并发 3 路真实 create+invoke（每路真实 session，admission 按 session 隔离天然支持并发）→ 汇总 invoke。**注意**：simulator.* 等重契约 profile（subject 文件、sidecar）不适合裸调用——真实 RP 属于完全接入范畴。
+
+### 验证
+
+- 核心测试 `server/agent/workflow/workflow-session-port.test.ts`（vitest，4 用例）：端口语义（锚定开叉/auto-leaf/checkout/transcript 投影/archive/findByTag）、RP 跨 run 复用 + 直聊插主线 + 锁互斥、excursion 旁支留真树、ask resume 前缀零重跑且真实 entry 零重复写。**4/4 一次通过**。
+- `nuxt typecheck` 全绿；session-repo 回归 23/23；sibling 13 tests + tsc（含新严格度）全绿。
+- 浏览器走查待用户（`bun run dev` → `/workflow.preview`）。
+
+### 接入期新发现（追加进合同）
+
+- **F6 递归类型防线**：`JsonValue` 递归类型不能进 Nuxt 类型化路由表（$fetch Serialize）也不能进 `ref<T>`（UnwrapRef）——路由边界收窄 unknown + 前端断言；组件态用 `shallowRef`。
+- **F7 mock 助手消息**：pi-ai `Api/ProviderId` 是开放联合，合成 AssistantMessage 用显式 mock 标识（provider:"nb-workflow"）诚实合法；`parseStoredMessage` 严格 exact-keys 校验可过。
+- **F8 创建双路**：repo.createSession（免 profile 校验，mock/kind/tags 可用）与 harness.createAgent（真实 profile 全校验，暂无 kind/tags 面）是两条创建路径，正式接入要在 harness.createAgent 面补 kind/tags。
+- **F9 typescript 包禁 ESM import**：`projection/cfg.ts` 顶层 `import ts from "typescript"` 会被 Nitro dev 的 rollup 拉进模块图解析（~9MB 单文件包），叠加本仓基础内存后触达 V8 4GB 堆上限，`bun run dev` 在 Nitro build 阶段 OOM（exit 134）。修复：改 `import type` + `createRequire` 运行时 require（与 `world-engine/single-file-typescript-config-import.ts`、`profile-dsl-source-parser.ts` 既有先例同款），sibling 697b7e8 已修并重新 sync vendor；dev boot + scenarios API 验证通过。
+- 已知边界：进程内锁不拦真实聊天入口（真实 invoke 靠 harness admission 串行；直聊互斥要等正式接入统一到 harness 层）；`input/data` 结构化值以 JSON 代码块存进 message 正文（仅展示，不做往返——内核场景逻辑不依赖历史结构化值）；run 状态/事件缓冲内存态，重启即失。
+
+### 观测反馈轮（2026-07-20 第二轮）
+
+用户对 demo 页的五条反馈全部落地：
+
+1. **人话化**：新增 `server/agent/workflow/workflow-run-vm.ts` 观测 VM 构建器——`labels`（activityKey → 「写手#566：提问「写第一章」」这类中文标签，profile 中文名表 `PROFILE_NAMES` 在 scenarios）、事件流日志行全部人话；内核 `activity_started` 事件补带参数指纹（sibling 改 + 回灌）供进行中节点打标签。
+2. **session 为节点的图**：`flowMermaid`（mermaid sequenceDiagram）——参与者=编排器/各 session（中文名）/用户；请求箭头落在 started 时刻、返回箭头落在完成时刻，**并发交错与 writer↔critic 交替天然可见**；create/acquire/append 是 note，ask 是 WF→用户箭头，缓存命中标 ⚡。前端把它作为主视图，Activity 级 trace 收进「工程视图」details。
+3. **workflow 代码展示**：场景 DTO 加 `code`（`def.run.toString()` 运行时源码），场景卡 details 展示。
+4. **real-fanout 排队根因**：`JsonlSessionRepository.nextSessionId` 是 seq 文件「读→写回+1」非原子读改写，`wf.map` 并发 create（App 里首个并发建 session 的调用方）两分支拿到同一 sessionId → 后 invoke 落在同一 session 上被 admission 排队。**修复：分配挂进程内串行链**（session-repo.ts `sessionSeqChain`）+ 并发唯一性回归测试。这是接入验证挖出的真实层既有缺陷。
+5. **phase 与用户参与 / 前端包装**：runState 返回结构化 VM `{labels, phases, flowMermaid, traceMermaid, participants}`——`phases` 由 progress 事件切段把 activity/ask 归属到声明骨架（status: pending/active/done）；前端据此自绘 phase 步进条（含 🙋 参与点徽标）、ask 卡片、参与者中文名芯片。**这是「用户 ↔ 前端 ↔ workflow」模式的地基：服务端出结构化投影，前端自行组装 UI**，也是正式接入时 public projection DTO 的雏形。挂起中的 pendingAsk 以占位记录进 labels 与 trace（橙色体育场节点，用户在图上能看到「卡在哪等我」）。
+
+验证：workflow 模块 7/7（含 VM 构建器 2 用例 + 并发回归）+ session-repo 23/23 + `nuxt typecheck` 全绿。sibling 至 `6da7e59`（activity_started 带指纹）。
+
+### 观测第三轮（2026-07-20：演示节奏 + 运行中高亮 + 多可视化）
+
+用户两条反馈：演示跑太快看不清 + 再多几种可视化方式（点名方向：以 session 为节点、create 长节点、每次 invoke 长一条边的实时生长图）。全部落地，不动 vendor/内核：
+
+1. **演示速度可调**：`demoKnobs.speedFactor`（默认 4）作用于全部 mock responder 的 sleep（不进参数指纹，replay/缓存语义零影响）；startRun 请求透传，页面「演示速度」选择（1×/4×/8×）。
+2. **运行中高亮**：demo 服务 `running` 表打点 `startedAt`（`EventBuffer` 条目附服务端接收时刻 `TimedEvent`）；VM 新增 `runningNow`（key/label/目标 sessionId/startedAt）→ 面板状态行下「⏳ 正在运行」呼吸脉冲 chip（含已耗时），正在被调用的参与者 chip 橙色脉冲 + 💭；running 轮询 700ms→500ms。
+3. **三种新可视化**（`workflow-run-vm.ts` 推导，前端 tab 切换：对话流/时间线/直播卡片/关系图）：
+   - **泳道时间线** `timeline`（新组件 WorkflowTimeline.vue，纯 HTML/CSS）：每 session 一条泳道，started→完成为条形，编排器级 activity（ask/workspace.read）归编排器泳道；进行中条 end=null 右端开放+呼吸；缓存命中瞬时窄条标 ⚡。并发交错与耗时直观可见。
+   - **Agent 直播卡片** `live`（WorkflowAgentCards.vue）：每参与者一卡——💭 思考中（脉冲）/✔ 空闲 + 最近一次收到的指令与最新回复。
+   - **实时生长关系图** `relationMermaid`（用户点名方向）：编排器为起点，create/acquire 长 session 节点，**每次 invoke 一条独立边**（「第n次·提问「…」」），writer↔critic 循环表现为两节点间不断加边；进行中的 invoke/pendingAsk 为橙色虚线边 + 忙碌节点橙色样式，轮询重渲染即「生长」；边 >60 退化为聚合计数边防炸图。
+   - 备选路（用户提的「在 workflow 里加类似 progress 的标注代码」）本轮未用——三种图都能从既有事件/journal 推导；若后续视图缺语义再走该路。
+
+4. **声明状态机视图**（用户追加提案，已做原型）：场景侧声明 `machine: MachineDecl {nodes, edges}`（原型放 `DemoScenario`，验证好用后上提内核 `WorkflowDefinition`）；状态更新 API = 既有 `wf.progress({node: "<key>"})`（内核 `ProgressState` 加 `node?: string` 指针字段，sibling `2ed1d3c` + 回灌）——**声明是图，progress 是指针**，与流程逻辑完全解耦。VM `machineMermaid`：全貌图运行前即可见，运行时当前节点橙色虚线、走过的绿色、循环重访标 ×n、刚发生的转移边橙色加粗。拆书（含 if 分支双出边）与写作流水线（review 驳回/通过/升级三出边 + revise 回环）已声明；面板「状态机」tab 仅在声明时出现并置于首位。
+
+5. **状态图 API 二轮 → `wf.chart`**（内核级，sibling `a871cf2` + 回灌；取代 progress.node 指针原型，`ProgressState.node` 已移除）：
+   - **零预置，图只在执行中长出来**（用户三轮拍板：不要初始化图，要看拆书慢慢长）：`chart.node(key, title?)` / `chart.edge(from, to, label?)` 增量声明，代码走到哪、图长到哪。`MachineDecl` 预声明骨架已删（二轮曾做混合式，三轮推翻）。
+   - **并发 = token**：`chart.enter/leave/move(key, {token, sessionId})`——一个 token 一条并行执行线（默认 "main"，map 分支用 item id 当 token），多个 token 同时停留即并发可见；token 可附 sessionId，节点徽标显示「💭写手#12」= 哪个 agent 在这个状态上干活。`move` = leave+enter+确保边存在（边走过次数 ×n，刚走的加粗）。
+   - 非 journaled 纯观测（与 log/progress 同级），replay 时随代码重跑自然重建。VM `buildChart` 消费 chart 事件渲染 mermaid。
+   - 场景构图形态：**拆书 = 起点 →「chN 摘要」逐章长节点（扇出）→ 完成即长「合并」边汇入剧情分析 → if 长出深度伏笔 → 圈选后只长用户选中章的文风节点（第二次扇出）→ 完成**；流水线 = draft/review/revise 回环节点带 session 徽标；RP = leader 派发后 actor 节点才出现；**sidecar = 同一 session 的两个分支节点**（主线 →「excursion 开叉」→ 旁支（检索员帮工名留在节点上）→「结论写回主线」回主线，强调不是两个 agent）；real-fanout = 议题 → 各角度节点扇出（真实 session 并发）→ 汇总去重。
+   - **四轮打磨（用户反馈）**：图 **append-only（只增不删）**，每条边带全局执行序号 ①②③…（同一条边多次走过 = 多个序号，如回环边「②驳回 ④驳回」）——**终图本身就是可回放的流程记录**，也为后续重放动画铺路；节点**持久**显示打过工的 agent 中文名〔写手#12〕（不随 token 离开消失，活跃只用颜色表达，避免标签闪变导致 mermaid 重排）。
+
+验证：workflow 模块 7/7（VM 用例扩了时间线/卡片/关系图/状态图断言，事件入参改 `TimedEvent`）+ `nuxt typecheck` 全绿。sibling 至 `a871cf2`。浏览器走查待用户。
+
 ## 后续 TODO
 
+- [ ] 状态图增强（用户已提，本轮未做）：边显示流经的数据摘要；token 沿边移动的重放动画（边序号已铺路）
 - [ ] D2-D5 逐条确认
 - [ ] 沙盒方案细化（World Engine codeact-sandbox 弱隔离 MVP 能否直接承载长驻 async 脚本）
-- [ ] `workflow_step` entry 与 public projection 的 DTO 设计
+- [ ] `workflow_step` entry 与 public projection 的 DTO 设计（run-as-session 持久化，取代 demo 服务的内存 run 态）
 - [ ] 面 C 挂载后 harness 瘦身范围评估（runSidecarPasses 拆除清单）
+- [ ] 正式接入清单：waiting 穿透 / 面 B `run_workflow` 工具 / 脚本沙盒化 / findByTag 索引化 / harness.createAgent 面补 kind+tags / 直聊互斥统一到 harness / D15 剩余（systemRole 并入 + 列表隐藏）——已立项 [Task 111](../111-workflow-agent-integration/README.md) 承接
 - [ ] 实施阶段规划（建议顺序：journal 内核 → 面 A + 拆书 → 面 B + 流水线 → 面 C sidecar 迁移）

@@ -5,6 +5,7 @@ import {createSubjectMemoryTools} from "nbook/server/agent/tools/subject-memory-
 import {createTaskTools} from "nbook/server/agent/tools/task-tools";
 import {createWebTools} from "nbook/server/agent/tools/web-tools";
 import {createWorldEngineTools} from "nbook/server/agent/tools/world-engine-tools";
+import {createWorkflowTools} from "nbook/server/agent/tools/workflow-tools";
 import {agentCollaborationTools} from "nbook/server/agent/tools/agent-collaboration-tools";
 import {controlTools} from "nbook/server/agent/tools/control-tools";
 import {createVariableTools} from "nbook/server/agent/variables/tools";
@@ -23,6 +24,7 @@ function buildAgentTools() {
     const worldEngineTools = definitionsByKey(createWorldEngineTools());
     const subjectMemoryTools = definitionsByKey(createSubjectMemoryTools());
     const sqlTool = defineAgentToolFromRuntime(createSqlTool());
+    const workflowTools = createWorkflowTools();
     return {
         read: requireDefinition(fileTools, "read"),
         write: requireDefinition(fileTools, "write"),
@@ -47,6 +49,8 @@ function buildAgentTools() {
         savePromiseBeat: requireDefinition(plotTools, "save_promise_beat"),
         saveStoryDecision: requireDefinition(plotTools, "save_story_decision"),
         executeSql: sqlTool,
+        runWorkflow: workflowTools.runWorkflow,
+        listWorkflows: workflowTools.listWorkflows,
         variableSchema: requireDefinition(variableTools, "variable_schema"),
         variableRead: requireDefinition(variableTools, "variable_read"),
         variablePatch: requireDefinition(variableTools, "variable_patch"),

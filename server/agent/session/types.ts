@@ -21,6 +21,13 @@ export type SessionMetadata = {
     summary?: string;
     /** system session 默认从普通列表隐藏；summarizer 表示 session 展示元数据维护者。 */
     systemRole?: "summarizer";
+    /**
+     * Session 类别（Task 110 D15）：为空视为 chat。
+     * workflow = workflow run 载体或 workflow 创建的参与者；system 将吸收 systemRole（迁移未做）。
+     */
+    kind?: "chat" | "workflow" | "system";
+    /** 寻址标签（Task 110 acquire 持久参与者按 (profileKey, tag) 复用）；为空视为无标签。 */
+    tags?: string[];
 };
 
 export type SessionProjectionScope = {
@@ -34,8 +41,8 @@ export type MessageSessionEntry = {
     timestamp: number;
     type: "message";
     message: StoredAgentMessage;
-    /** 为空表示旧 entry 或手工追加；prompt 表示真实用户 prompt。 */
-    origin?: "prompt" | "harness" | "manual" | "ingest";
+    /** 为空表示旧 entry 或手工追加；prompt 表示真实用户 prompt；workflow 表示 workflow run 写入。 */
+    origin?: "prompt" | "harness" | "manual" | "ingest" | "workflow";
     /** partial 表示 provider stream 中途失败后保存的半截 assistant。 */
     status?: "partial" | "interrupted" | "error";
 };

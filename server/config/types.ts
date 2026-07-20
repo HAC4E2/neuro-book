@@ -44,6 +44,12 @@ export type StoredAgentProfileConfig = {
 
 export type StoredAgentProfileModelDefaultsConfig = Partial<AgentProfileModelConfig>;
 
+/** agent 可见模型清单条目：modelKey = "provider-id/model-id"；note 是给 agent 看的一句用途描述 */
+export type AgentVisibleModelConfig = {
+    modelKey: string;
+    note: string;
+};
+
 export type ConfiguredModelConfig = {
     name: string;
     id: string;
@@ -174,6 +180,11 @@ export type EffectiveConfig = {
         profileModelDefaults: AgentProfileModelConfig;
         profileRuntimeDefaults?: ProfileRuntimeSettingsPatch;
         profiles: Record<string, AgentProfileConfig>;
+        /**
+         * agent 可见模型清单（Task 111）：agent/workflow 指定模型时只能从这里选。
+         * 为空表示未配置，消费方兜底为单条默认模型；通常不超过 5 条。
+         */
+        visibleModels: AgentVisibleModelConfig[];
     };
     ui: {
         theme: string;
@@ -239,6 +250,7 @@ export type StoredGlobalConfig = {
         profileModelDefaults?: StoredAgentProfileModelDefaultsConfig;
         profileRuntimeDefaults?: ProfileRuntimeSettingsPatch;
         profiles?: Record<string, StoredAgentProfileConfig>;
+        visibleModels?: AgentVisibleModelConfig[];
     };
     ui?: Partial<EffectiveConfig["ui"]>;
     editor?: {

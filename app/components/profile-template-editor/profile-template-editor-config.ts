@@ -34,6 +34,7 @@ export const componentLibrary: ComponentLibraryItem[] = [
     {type: "ActivatedSkills", label: "ActivatedSkills", description: "激活技能内容。把本轮启用的 skill 文本注入 prompt，通常由运行时维护。", iconClass: "i-lucide-sparkles", group: "privileged"},
     {type: "AgentCatalog", label: "AgentCatalog", description: "Agent 目录索引。展示可创建/调用的 profile 基础信息，详情用 get_agent_profile 查询。", iconClass: "i-lucide-bot", group: "privileged"},
     {type: "SkillCatalog", label: "SkillCatalog", description: "技能目录节点。展示可用 skill 列表，帮助模型理解当前可调用的工作流能力。", iconClass: "i-lucide-library", group: "privileged"},
+    {type: "WorkflowCatalog", label: "WorkflowCatalog", description: "Workflow 目录节点。展示可通过 run_workflow 运行的 workflow 索引与使用纪律。", iconClass: "i-lucide-workflow", group: "privileged"},
     {type: "SqlSchemaSummary", label: "SqlSchemaSummary", description: "SQL schema 摘要节点。注入当前数据库业务表与字段提示，辅助 execute_sql。", iconClass: "i-lucide-database", group: "privileged"},
     {type: "Import", label: "Import", description: "共享文本导入节点。显式加载 AGENTS.md、reference/ 或 docs/ 中的稳定上下文。", iconClass: "i-lucide-file-input", group: "privileged"},
 ];

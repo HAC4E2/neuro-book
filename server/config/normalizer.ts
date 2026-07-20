@@ -8,6 +8,7 @@ import type {
     AgentProfileConfig,
     AgentProfileModelConfig,
     AgentProfileSettingsConfig,
+    AgentVisibleModelConfig,
     ConfiguredModelConfig,
     ConfiguredProviderConfig,
     EffectiveConfig,
@@ -174,6 +175,7 @@ export function createDefaultEffectiveConfig(): EffectiveConfig {
             profileModelDefaults: {...DEFAULT_AGENT_PROFILE_MODEL_DEFAULTS},
             profileRuntimeDefaults: {},
             profiles: {},
+            visibleModels: [],
         },
         ui: {
             theme: DEFAULT_THEME,
@@ -211,6 +213,7 @@ export function normalizeGlobalConfig(input: Partial<StoredGlobalConfig> | null 
             profileModelDefaults: normalizeAgentProfileModelPatch(raw.agent?.profileModelDefaults),
             profileRuntimeDefaults: normalizeProfileRuntimeSettingsPatch(raw.agent?.profileRuntimeDefaults),
             profiles: normalizeAgentProfiles(raw.agent?.profiles),
+            visibleModels: normalizeAgentVisibleModels(raw.agent?.visibleModels),
         },
         ui: {
             theme: normalizeTheme(raw.ui?.theme, customThemes),
@@ -262,6 +265,20 @@ export function normalizeProjectConfig(input: Partial<StoredProjectConfig> | nul
     };
 }
 
+/** 规范化 agent 可见模型清单：丢弃缺 modelKey 的条目并去重（首见优先）；note 缺省为空串 */
+function normalizeAgentVisibleModels(input: AgentVisibleModelConfig[] | null | undefined): AgentVisibleModelConfig[] {
+    if (!Array.isArray(input)) return [];
+    const seen = new Set<string>();
+    const out: AgentVisibleModelConfig[] = [];
+    for (const raw of input) {
+        const modelKey = typeof raw?.modelKey === "string" ? raw.modelKey.trim() : "";
+        if (!modelKey || seen.has(modelKey)) continue;
+        seen.add(modelKey);
+        out.push({modelKey, note: typeof raw.note === "string" ? raw.note.trim() : ""});
+    }
+    return out;
+}
+
 /**
  * 将 Global + Project 合并为业务运行使用的 effective config。
  */
@@ -279,6 +296,7 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
     const globalRuntimeDefaults = normalizeProfileRuntimeSettingsPatch(globalConfig.agent?.profileRuntimeDefaults);
     effective.agent.profileRuntimeDefaults = globalRuntimeDefaults;
     effective.agent.profiles = normalizeCompleteAgentProfiles(globalProfilePatches, effective.agent.profileModelDefaults, globalRuntimeDefaults);
+    effective.agent.visibleModels = normalizeAgentVisibleModels(globalConfig.agent?.visibleModels);
     effective.ui.customThemes = normalizeCustomThemes(globalConfig.ui?.customThemes);
     effective.ui.theme = normalizeTheme(globalConfig.ui?.theme, effective.ui.customThemes);
     effective.ui.costCurrency = normalizeCostCurrency(globalConfig.ui?.costCurrency);

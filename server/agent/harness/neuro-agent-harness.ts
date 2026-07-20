@@ -47,6 +47,7 @@ import {canonicalSessionModel, projectSessionModelRef, sessionModelsEqual} from 
 import type {DurableSessionModelRef} from "nbook/server/agent/session/session-model-redaction";
 import type {AgentRuntimeHook, AgentRuntimeHookResult, RuntimeSessionFacade} from "nbook/server/agent/profiles/define-agent-runtime";
 import {SkillCatalog} from "nbook/server/agent/skills/skill-catalog";
+import {WorkflowCatalog} from "nbook/server/agent/workflow/workflow-catalog";
 import {findPendingApprovalCall, findPendingApprovalCalls, resolutionToToolResult} from "nbook/server/agent/tools/approval";
 import {assertPublicToolCallId} from "nbook/shared/agent/public-tool-identity";
 import {assertProjectOpen} from "nbook/server/workspace-files/project-session";
@@ -193,6 +194,7 @@ type HarnessOptions = ({
 }) & {
     profiles?: AgentProfileCatalog;
     skills?: SkillCatalog;
+    workflows?: WorkflowCatalog;
     tools?: AgentToolRegistry;
     modelResolver?: (config: Pick<EffectiveConfig, "agent" | "models">, profileKey: string, override?: {modelKey?: string | null} | null) => Model<any>;
     /** 为当前冻结配置创建或选择 Pi Models runtime。 */
@@ -485,6 +487,7 @@ export class NeuroAgentHarness {
     readonly piTraceRecorder: PiRequestRecorder;
     readonly profiles: AgentProfileCatalog;
     readonly skills: SkillCatalog;
+    readonly workflows: WorkflowCatalog;
     readonly tools: AgentToolRegistry;
     readonly eventHub: AgentSessionEventHub;
     readonly attachmentStore: AttachmentStore;
@@ -555,6 +558,10 @@ export class NeuroAgentHarness {
         this.skills = options.skills ?? new SkillCatalog(
             join(systemNbookRoot, "agent", "skills"),
             join(userNbookRoot, "agent", "skills"),
+        );
+        this.workflows = options.workflows ?? new WorkflowCatalog(
+            join(systemNbookRoot, "agent", "workflows"),
+            join(userNbookRoot, "agent", "workflows"),
         );
         this.tools = options.tools ?? new AgentToolRegistry();
         this.eventHub = options.eventHub ?? new AgentSessionEventHub();
@@ -734,6 +741,8 @@ export class NeuroAgentHarness {
             projectPath,
             parentSessionId: input.parentSessionId,
             title,
+            kind: input.kind,
+            tags: input.tags,
         });
         const initialModel = await this.resolveInitialSessionModel(snapshot);
         if (initialModel) {
@@ -2353,6 +2362,7 @@ export class NeuroAgentHarness {
             ...(home ? {home} : {}),
             catalog: await this.profiles.snapshot(),
             skills: await this.skills.list(),
+            workflows: await this.workflows.list(),
             runtime: {
                 now: new Date().toISOString(),
                 promptUserTurnCount: this.countPromptUserTurns(snapshot),
@@ -3069,6 +3079,7 @@ export class NeuroAgentHarness {
             ...(home ? {home} : {}),
             catalog: await this.profiles.snapshot(),
             skills: await this.skills.list(),
+            workflows: await this.workflows.list(),
             runtime: {
                 now: new Date().toISOString(),
                 promptUserTurnCount: this.countPromptUserTurns(snapshot),
@@ -4301,6 +4312,7 @@ export class NeuroAgentHarness {
             vars: await this.createProfileVariableAccessor(snapshot, frame.profile, {dryRun: true}),
             catalog: await this.profiles.snapshot(),
             skills: await this.skills.list(),
+            workflows: await this.workflows.list(),
             runtime: {
                 now: new Date().toISOString(),
                 promptUserTurnCount: this.countPromptUserTurns(snapshot),

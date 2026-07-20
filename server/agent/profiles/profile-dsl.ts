@@ -472,6 +472,17 @@ export function AgentCatalog(props: {text?: string | ((ctx: ProfilePrepareContex
 }
 
 /**
+ * Workflow catalog string fragment（Task 111）。列出可运行的 workflow 索引与使用纪律；
+ * API 细节不进 prompt（渐进式加载：编写指南在 reference/agent/workflow/，需要时用 read 工具读取）。
+ */
+export function WorkflowCatalog(props: {text?: string | ((ctx: ProfilePrepareContext<any>) => string | Promise<string>)}): ProfileStringFragmentNode {
+    return {
+        kind: "StringFragment",
+        text: props.text ?? defaultWorkflowCatalogText,
+    };
+}
+
+/**
  * Activated skills string fragment。
  */
 export function ActivatedSkills(props: {text?: string | ((ctx: ProfilePrepareContext<any>) => string | Promise<string>)}): ProfileStringFragmentNode {
@@ -2103,6 +2114,38 @@ async function defaultAgentCatalogText(ctx: ProfilePrepareContext<any>): Promise
         "This catalog is only an index. Before creating or invoking an unfamiliar profile, call get_agent_profile({ profileKey }) to inspect InitialSchema, PayloadSchema, OutputSchema, and profile root tools.",
         "",
         ...profiles,
+        "</system-reminder>",
+    ].join("\n");
+}
+
+async function defaultWorkflowCatalogText(ctx: ProfilePrepareContext<any>): Promise<string> {
+    const workflows = ctx.workflows ?? [];
+    if (workflows.length === 0) {
+        return "";
+    }
+    const workflowLines = workflows
+        .map((item) => [
+            `- key: ${item.key}`,
+            `  title: ${item.title}`,
+            item.description ? `  description: ${item.description}` : "",
+            item.whenToUse ? `  when_to_use: ${item.whenToUse}` : "",
+        ].filter(Boolean).join("\n"))
+        .join("\n\n");
+    return [
+        "<system-reminder>",
+        "## Workflows",
+        "",
+        "Workflows orchestrate multiple agent sessions as a durable script (parallel fan-out, review loops, human checkpoints, live state chart). They are heavier than a single sub-agent call; use one when the task genuinely needs multi-agent structure or the user asks for it.",
+        "",
+        "- Run a catalog workflow with run_workflow({ workflowKey, args }); list details with list_workflows.",
+        "- You may also write an ad-hoc workflow and pass it as run_workflow({ script }). Before writing one, read the authoring guide under reference/agent/workflow/ (start with README.md) — especially the wf.chart section so the run stays visible to the user.",
+        "- Every run_workflow call requires user approval; the user watches progress in the workflow panel, so keep args and script self-explanatory.",
+        "- A model may be pinned via run_workflow({ model }) only from the user-approved visible model list (see list_workflows).",
+        "- Workflow keys may be Chinese. Use the original key from the catalog exactly.",
+        "",
+        "## Available Workflows",
+        "",
+        workflowLines,
         "</system-reminder>",
     ].join("\n");
 }

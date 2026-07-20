@@ -126,6 +126,7 @@ const nodeIconMap: Record<ProfileTemplateNodeType, string> = {
     MentionedSkillsReminder: "i-lucide-at-sign",
     AgentCatalog: "i-lucide-bot",
     SkillCatalog: "i-lucide-library",
+    WorkflowCatalog: "i-lucide-workflow",
     ActivatedSkills: "i-lucide-sparkles",
     SqlSchemaSummary: "i-lucide-database",
     Import: "i-lucide-file-input",
@@ -358,7 +359,7 @@ function prepareDrag(): void {
                     :depth="props.depth + 1"
                     :index="childIndex"
                     :parent-id="props.node.id"
-                    :can-have-children="!['Text', 'ToolCall', 'ToolResult', 'AgentCatalog', 'SkillCatalog', 'ActivatedSkills', 'SqlSchemaSummary', 'Import', 'LinkedAgentsSummary', 'LinkedAgentsReminder', 'RuntimeLocationReminder', 'WorkspaceFocusReminder', 'ModeAvailabilityReminder', 'TaskReminder', 'MentionedSkillsReminder', 'FileChangeNotice'].includes(child.type)"
+                    :can-have-children="!['Text', 'ToolCall', 'ToolResult', 'AgentCatalog', 'SkillCatalog', 'WorkflowCatalog', 'ActivatedSkills', 'SqlSchemaSummary', 'Import', 'LinkedAgentsSummary', 'LinkedAgentsReminder', 'RuntimeLocationReminder', 'WorkspaceFocusReminder', 'ModeAvailabilityReminder', 'TaskReminder', 'MentionedSkillsReminder', 'FileChangeNotice'].includes(child.type)"
                     :disabled-drop-node-ids="props.disabledDropNodeIds"
                     @select="emit('select', $event)"
                     @prepare-drag="emit('prepareDrag', $event)"

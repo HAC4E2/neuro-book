@@ -32,6 +32,10 @@ export type CreateAgentInput = {
     workspaceKey?: string;
     projectPath?: string;
     parentSessionId?: number;
+    /** session 类别（D15）：workflow 创建的参与者/run session 标注用；缺省 = chat。 */
+    kind?: "chat" | "workflow" | "system";
+    /** 寻址标签（D15）：workflow acquire 按 (profileKey, tag) 跨 run 复用等场景。 */
+    tags?: string[];
 };
 
 export type CreateAgentResult = {

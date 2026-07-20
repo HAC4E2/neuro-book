@@ -22,6 +22,7 @@ import {
     SqlSchemaSummary,
     System,
     TaskReminder,
+    WorkflowCatalog,
     WorkspaceFocusReminder,
 } from "nbook/server/agent/profiles/profile-dsl";
 import {defineProfileHome, type ProfileHomeFacade} from "nbook/server/agent/profiles/profile-home";
@@ -194,6 +195,8 @@ export default defineAgentProfile({
         ...plotReadBindings,
         ...plotWriteBindings,
         builtin.sql.execute,
+        builtin.workflow.run,
+        builtin.workflow.list,
     ),
     runtimeDefaults: {
         summarizer: {
@@ -273,6 +276,9 @@ export default defineAgentProfile({
                     </Message>
                     <Message>
                         <SkillCatalog />
+                    </Message>
+                    <Message>
+                        <WorkflowCatalog />
                     </Message>
                     <Message>
                         <Import path="AGENTS.md" />

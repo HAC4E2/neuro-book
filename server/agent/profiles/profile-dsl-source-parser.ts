@@ -36,6 +36,7 @@ const PROFILE_DSL_COMPONENTS = new Set<ProfileTemplateNodeType>([
     "MentionedSkillsReminder",
     "AgentCatalog",
     "SkillCatalog",
+    "WorkflowCatalog",
     "ActivatedSkills",
     "SqlSchemaSummary",
     "Import",

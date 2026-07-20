@@ -119,6 +119,7 @@ export function canHaveChildren(type: ProfileTemplateNodeType): boolean {
         "ToolResult",
         "AgentCatalog",
         "SkillCatalog",
+        "WorkflowCatalog",
         "ActivatedSkills",
         "SqlSchemaSummary",
         "Import",
@@ -224,6 +225,7 @@ export function isInlineStringNodeType(type: ProfileTemplateNodeType): boolean {
     return type === "Text"
         || type === "AgentCatalog"
         || type === "SkillCatalog"
+        || type === "WorkflowCatalog"
         || type === "ActivatedSkills"
         || type === "SqlSchemaSummary"
         || type === "Import"
