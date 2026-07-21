@@ -387,16 +387,25 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
  * 规范化 Provider 列表为运行时 Record。
  */
 export function normalizeModelSettings(input: StoredGlobalConfig["models"] | undefined): ModelSettingsConfig {
+    const providers = normalizeStoredProviders(input?.providers);
+    const providerCounts = countIds(providers.map((provider) => provider.id));
     return {
         defaultModelKey: normalizeNullableModelKey(input?.default),
         providers: Object.fromEntries(
-            normalizeStoredProviders(input?.providers).map((provider) => [provider.id, {
-                name: normalizeText(provider.name) || provider.id,
-                enabled: provider.enabled ?? true,
-                api: normalizeNullableText(provider.api),
-                options: normalizeProviderOptions(provider.options),
-                models: Object.fromEntries(provider.models.map((model) => [model.id, normalizeModel(model)])),
-            } satisfies ConfiguredProviderConfig]),
+            providers
+                .filter((provider) => (providerCounts.get(provider.id) ?? 0) === 1)
+                .map((provider) => {
+                    const modelCounts = countIds(provider.models.map((model) => model.id));
+                    return [provider.id, {
+                        name: normalizeText(provider.name) || provider.id,
+                        enabled: provider.enabled ?? true,
+                        modelApi: normalizeNullableText(provider.modelApi),
+                        options: normalizeProviderOptions(provider.options),
+                        models: Object.fromEntries(provider.models
+                            .filter((model) => (modelCounts.get(model.id) ?? 0) === 1)
+                            .map((model) => [model.id, normalizeModel(model)])),
+                    } satisfies ConfiguredProviderConfig] as const;
+                }),
         ),
     };
 }
@@ -412,7 +421,7 @@ export function serializeModelSettings(config: ModelSettingsConfig): StoredGloba
                 id: providerId,
                 name: provider.name,
                 enabled: provider.enabled,
-                api: provider.api,
+                modelApi: provider.modelApi,
                 options: provider.options,
                 models: Object.values(provider.models)
                     .map((model) => ({...model}))
@@ -608,12 +617,21 @@ function normalizeStoredProviders(input: StoredProviderConfig[] | undefined): St
             id: normalizeText(provider.id),
             name: normalizeText(provider.name),
             enabled: provider.enabled ?? true,
-            api: normalizeNullableText(provider.api),
+            modelApi: normalizeNullableText(provider.modelApi),
             options: normalizeProviderOptions(provider.options),
             models: Array.isArray(provider.models) ? provider.models.map(normalizeModel) : [],
         }))
         .filter((provider) => provider.id)
         .sort((left, right) => left.id.localeCompare(right.id));
+}
+
+/** 统计原始数组身份，runtime Record 化时跳过所有重复组而不是后项覆盖前项。 */
+function countIds(values: string[]): Map<string, number> {
+    const counts = new Map<string, number>();
+    for (const value of values) {
+        counts.set(value, (counts.get(value) ?? 0) + 1);
+    }
+    return counts;
 }
 
 function normalizeModel(input: Partial<ConfiguredModelConfig>): ConfiguredModelConfig {
@@ -623,14 +641,14 @@ function normalizeModel(input: Partial<ConfiguredModelConfig>): ConfiguredModelC
         id,
         group: normalizeNullableText(input.group),
         enabled: input.enabled ?? true,
-        provider: normalizeNullableText(input.provider),
         api: normalizeNullableText(input.api),
-        baseUrl: normalizeNullableText(input.baseUrl),
         reasoning: typeof input.reasoning === "boolean" ? input.reasoning : null,
         input: normalizeModelInput(input.input),
         maxTokens: normalizeNullablePositiveInteger(input.maxTokens),
         cost: normalizeModelCost(input.cost),
         compat: normalizeNullableJsonRecord(input.compat),
+        headers: normalizeNullableStringRecord(input.headers),
+        thinkingLevelMap: normalizeNullableStringRecord(input.thinkingLevelMap),
         contextWindowTokens: normalizeNullablePositiveInteger(input.contextWindowTokens),
     };
 }
@@ -908,6 +926,14 @@ function normalizeModelCost(input: unknown): ConfiguredModelConfig["cost"] {
         tiers: normalizeModelCostTiers(cost.tiers),
     };
     return normalized;
+}
+
+function normalizeNullableStringRecord(input: unknown): Record<string, string | null> | null {
+    if (!input || typeof input !== "object" || Array.isArray(input)) {
+        return null;
+    }
+    const record = Object.fromEntries(Object.entries(input).flatMap(([key, value]) => typeof value === "string" || value === null ? [[key, value]] : []));
+    return Object.keys(record).length ? record : null;
 }
 
 function normalizeFiniteNumber(input: unknown): number {

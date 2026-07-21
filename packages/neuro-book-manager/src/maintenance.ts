@@ -1,13 +1,16 @@
-import {readFile, readdir} from "node:fs/promises";
-import {dirname, join, resolve} from "node:path";
+import {randomUUID} from "node:crypto";
+import {join} from "node:path";
 
-import {commandStatus} from "#manager/app-commands";
-import {pathExists} from "#manager/files";
+export {doctor, installationStatus} from "#manager/installation-health";
+
 import {withInstallLock} from "#manager/lock";
-import {writeInstallationManifest} from "#manager/manifest-store";
+import {readInstallationManifest, writeInstallationManifest} from "#manager/manifest-store";
+import {commitOperation, completeRuntimeWrapperSwitch, createOperation, pathCreateEffect, pathRetireEffect, prepareRuntimeWrapperSwitch, recoverInterruptedOperations, setOperationEffect, updateOperation} from "#manager/operation";
 import {installationPaths} from "#manager/paths";
-import {installManagerExecutable, installManagedBun, writeManagerWrapper} from "#manager/runtime";
-import {installManagedTool, type ManagedToolName} from "#manager/tools";
+import {assertInstallationHostCompatible} from "#manager/platform";
+import {parseInstallationManifest} from "#manager/schema";
+import {assertManagerUpgrade, installManagerExecutable, installManagedBun, writeManagerWrapper, writeRuntimeWrapper} from "#manager/runtime";
+import {installManagedTool, type ManagedToolName, writeManagedToolWrappers} from "#manager/tools";
 import type {InstallationManifest, ManagedGitToolComponent, ManagedToolComponent} from "#manager/types";
 import {MANAGER_VERSION} from "#manager/version-info";
 
@@ -15,24 +18,53 @@ import {MANAGER_VERSION} from "#manager/version-info";
 export async function maintainRuntime(root: string, manifest: InstallationManifest, managerExecutable: string, version?: string): Promise<InstallationManifest> {
     const paths = installationPaths(root, manifest.profile === "windows-portable");
     return withInstallLock(join(paths.deploy, "install.lock"), async () => {
-        const runtime = await installManagedBun(root, version);
-        const manager = await installManagerExecutable(root, MANAGER_VERSION, managerExecutable);
-        const next: InstallationManifest = {
-            ...manifest,
-            managerVersion: MANAGER_VERSION,
-            components: {
-                ...manifest.components,
-                manager,
-                managerRuntime: runtime,
-                applicationRuntime: manifest.components.applicationRuntime.provider === "container"
-                    ? manifest.components.applicationRuntime
-                    : runtime,
-            },
-            updatedAt: new Date().toISOString(),
-        };
-        await writeManagerWrapper(root, next.components.manager, runtime);
-        await writeInstallationManifest(paths.manifest, next);
-        return next;
+        const recovered = await recoverInterruptedOperations(root);
+        const current = recovered ?? await readInstallationManifest(paths.manifest);
+        if (!current) throw new Error("Installation Manifest不存在，无法维护Runtime。");
+        assertInstallationHostCompatible(current);
+        await assertManagerUpgrade(MANAGER_VERSION, current.managerVersion, current.components.manager.bundleSha256, managerExecutable);
+        const createdPaths: string[] = [];
+        const retiredPaths: string[] = [];
+        let journal = await createOperation({id: randomUUID(), action: "update", root, containerEngine: current.containerEngine, backupRoot: join(paths.backups, randomUUID()), previousManifest: current, nextManifest: null});
+        try {
+            journal = await setOperationEffect(journal, {kind: "component-switch", state: "planned", owner: "managed-assets"});
+            const recordCreated = async (path: string): Promise<void> => {
+                journal = await setOperationEffect(journal, pathCreateEffect(path));
+            };
+            const recordCreatedApplied = async (path: string): Promise<void> => {
+                journal = await setOperationEffect(journal, pathCreateEffect(path, "applied"));
+            };
+            const recordRetired = async (path: string): Promise<void> => {
+                journal = await setOperationEffect(journal, pathRetireEffect(path));
+            };
+            const runtime = await installManagedBun(root, {
+                requestedVersion: version,
+                trustedIdentity: current.components.managerRuntime.provider === "managed" ? current.components.managerRuntime : undefined,
+                createdPaths,
+                recordCreated,
+                recordCreatedApplied,
+                retiredPaths,
+                recordRetired,
+            });
+            const manager = await installManagerExecutable(root, MANAGER_VERSION, managerExecutable, createdPaths, recordCreated, recordCreatedApplied);
+            journal = await setOperationEffect(journal, {kind: "component-switch", state: "applied", owner: "managed-assets"});
+            const next: InstallationManifest = {...current, managerVersion: MANAGER_VERSION, components: {...current.components, manager, managerRuntime: runtime, applicationRuntime: current.components.applicationRuntime.provider === "container" ? current.components.applicationRuntime : runtime}, updatedAt: new Date().toISOString()};
+            parseInstallationManifest(next);
+            journal = await updateOperation(journal, "validated", {nextManifest: next});
+            journal = await prepareRuntimeWrapperSwitch(journal);
+            await writeRuntimeWrapper(root, runtime);
+            await writeManagedToolWrappers(root, next.components.tools);
+            await writeManagerWrapper(root, manager, runtime);
+            journal = await completeRuntimeWrapperSwitch(journal);
+            journal = await setOperationEffect(journal, {kind: "manifest-switch", state: "planned", owner: "manifest"});
+            await writeInstallationManifest(paths.manifest, next);
+            journal = await setOperationEffect(journal, {kind: "manifest-switch", state: "applied", owner: "manifest"});
+            await commitOperation(journal);
+            return next;
+        } catch (error) {
+            await recoverInterruptedOperations(root).catch(() => undefined);
+            throw error;
+        }
     });
 }
 
@@ -40,104 +72,51 @@ export async function maintainRuntime(root: string, manifest: InstallationManife
 export async function maintainTool(root: string, manifest: InstallationManifest, tool: ManagedToolName, managerExecutable: string): Promise<InstallationManifest> {
     const paths = installationPaths(root, manifest.profile === "windows-portable");
     return withInstallLock(join(paths.deploy, "install.lock"), async () => {
-        let installed: ManagedToolComponent | ManagedGitToolComponent;
-        if (tool === "git") installed = await installManagedTool(root, "git");
-        else installed = await installManagedTool(root, "rg");
-        const manager = await installManagerExecutable(root, MANAGER_VERSION, managerExecutable);
-        const next: InstallationManifest = {
-            ...manifest,
-            managerVersion: MANAGER_VERSION,
-            components: {
-                ...manifest.components,
-                manager,
-                tools: {...manifest.components.tools, [tool]: installed},
-            },
-            updatedAt: new Date().toISOString(),
-        };
-        await writeManagerWrapper(root, manager, next.components.managerRuntime);
-        await writeInstallationManifest(paths.manifest, next);
-        return next;
-    });
-}
-
-/** 汇总安装状态，不把外部命令存在等同于安装健康。 */
-export async function installationStatus(root: string, manifest: InstallationManifest): Promise<object> {
-    const paths = installationPaths(root, manifest.profile === "windows-portable");
-    const operations = await unfinishedOperations(paths.operations);
-    return {
-        root,
-        profile: manifest.profile,
-        managerVersion: manifest.managerVersion,
-        executingManagerVersion: MANAGER_VERSION,
-        appVersion: manifest.appVersion,
-        channel: manifest.channel,
-        sourceRevision: manifest.sourceRevision,
-        stateRoot: resolve(root, manifest.stateRoot),
-        productReady: !manifest.components.product || manifest.components.product.provider === "container"
-            ? true
-            : await pathExists(join(root, ".output", "server", "index.mjs")),
-        unfinishedOperations: operations,
-        components: manifest.components,
-    };
-}
-
-/** 逐项诊断 Manifest v2、真实组件路径、状态目录和外部命令。 */
-export async function doctor(root: string, manifest: InstallationManifest): Promise<object> {
-    const stateRoot = resolve(root, manifest.stateRoot);
-    const checks: Array<{name: string; healthy: boolean; detail: string}> = [];
-    const addPath = async (name: string, path: string): Promise<void> => {
-        checks.push({name, healthy: await pathExists(path), detail: path});
-    };
-    await addPath("manager", resolve(root, manifest.components.manager.path));
-    if (manifest.components.managerRuntime.provider === "managed") {
-        await addPath("managerRuntime", resolve(root, manifest.components.managerRuntime.path));
-    }
-    if (manifest.components.applicationRuntime.provider === "managed") {
-        await addPath("applicationRuntime", resolve(root, manifest.components.applicationRuntime.path));
-    }
-    if (manifest.components.product && manifest.components.product.provider !== "container") {
-        await addPath("product", join(root, ".output", "server", "index.mjs"));
-    }
-    await addPath("stateRoot", stateRoot);
-    await addPath("workspaceRoot", join(stateRoot, "workspace"));
-    await addPath("bootConfig", join(stateRoot, "config.yaml"));
-    await addPath("logs", join(stateRoot, "logs"));
-    for (const [name, tool] of Object.entries(manifest.components.tools)) {
-        if (tool?.provider === "managed") await addPath(`tool:${name}`, resolve(root, tool.path));
-        if (name === "git" && tool?.provider === "managed" && "bashPath" in tool) {
-            await addPath("tool:bash", resolve(root, tool.bashPath));
+        const recovered = await recoverInterruptedOperations(root);
+        const current = recovered ?? await readInstallationManifest(paths.manifest);
+        if (!current) throw new Error("Installation Manifest不存在，无法维护Tool。");
+        assertInstallationHostCompatible(current);
+        if (current.profile === "ghcr" || current.profile === "source-docker") {
+            throw new Error("GHCR/Source Docker 的应用工具由容器提供，不在宿主管理。");
         }
-    }
-    const operations = await unfinishedOperations(join(root, ".deploy", "operations"));
-    checks.push({name: "operationJournal", healthy: operations.length === 0, detail: operations.join(", ") || "none"});
-    const commands = {
-        bun: await commandStatus("bun"),
-        git: await commandStatus("git"),
-        rg: await commandStatus("rg"),
-        docker: await commandStatus("docker"),
-    };
-    return {
-        healthy: checks.every((check) => check.healthy),
-        checks,
-        paths: {root, stateRoot, workspace: join(stateRoot, "workspace"), bootConfig: join(stateRoot, "config.yaml")},
-        commands,
-        python: {
-            python3: await commandStatus("python3"),
-            python: await commandStatus("python"),
-            note: "Manager v1 只检测 Python，不托管下载。",
-        },
-    };
-}
-
-async function unfinishedOperations(root: string): Promise<string[]> {
-    if (!await pathExists(root)) return [];
-    const entries = await readdir(root, {withFileTypes: true});
-    const result: string[] = [];
-    for (const entry of entries) {
-        if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-        const path = join(root, entry.name);
-        const content = await readFile(path, "utf8");
-        if (!content.includes('"phase": "committed"')) result.push(join(dirname(path), entry.name));
-    }
-    return result;
+        await assertManagerUpgrade(MANAGER_VERSION, current.managerVersion, current.components.manager.bundleSha256, managerExecutable);
+        const createdPaths: string[] = [];
+        const retiredPaths: string[] = [];
+        let journal = await createOperation({id: randomUUID(), action: "update", root, containerEngine: current.containerEngine, backupRoot: join(paths.backups, randomUUID()), previousManifest: current, nextManifest: null});
+        try {
+            journal = await setOperationEffect(journal, {kind: "component-switch", state: "planned", owner: "managed-assets"});
+            const recordCreated = async (path: string): Promise<void> => {
+                journal = await setOperationEffect(journal, pathCreateEffect(path));
+            };
+            const recordCreatedApplied = async (path: string): Promise<void> => {
+                journal = await setOperationEffect(journal, pathCreateEffect(path, "applied"));
+            };
+            const recordRetired = async (path: string): Promise<void> => {
+                journal = await setOperationEffect(journal, pathRetireEffect(path));
+            };
+            let installed: ManagedToolComponent | ManagedGitToolComponent;
+            const currentTool = current.components.tools[tool];
+            const trustedIdentity = currentTool?.provider === "managed" ? currentTool : undefined;
+            if (tool === "git") installed = await installManagedTool(root, "git", {trustedIdentity, createdPaths, recordCreated, recordCreatedApplied, retiredPaths, recordRetired});
+            else installed = await installManagedTool(root, "rg", {trustedIdentity, createdPaths, recordCreated, recordCreatedApplied, retiredPaths, recordRetired});
+            const manager = await installManagerExecutable(root, MANAGER_VERSION, managerExecutable, createdPaths, recordCreated, recordCreatedApplied);
+            journal = await setOperationEffect(journal, {kind: "component-switch", state: "applied", owner: "managed-assets"});
+            const next: InstallationManifest = {...current, managerVersion: MANAGER_VERSION, components: {...current.components, manager, tools: {...current.components.tools, [tool]: installed}}, updatedAt: new Date().toISOString()};
+            parseInstallationManifest(next);
+            journal = await updateOperation(journal, "validated", {nextManifest: next});
+            journal = await prepareRuntimeWrapperSwitch(journal);
+            if (next.components.managerRuntime.provider === "managed") await writeRuntimeWrapper(root, next.components.managerRuntime);
+            await writeManagedToolWrappers(root, next.components.tools);
+            await writeManagerWrapper(root, manager, next.components.managerRuntime);
+            journal = await completeRuntimeWrapperSwitch(journal);
+            journal = await setOperationEffect(journal, {kind: "manifest-switch", state: "planned", owner: "manifest"});
+            await writeInstallationManifest(paths.manifest, next);
+            journal = await setOperationEffect(journal, {kind: "manifest-switch", state: "applied", owner: "manifest"});
+            await commitOperation(journal);
+            return next;
+        } catch (error) {
+            await recoverInterruptedOperations(root).catch(() => undefined);
+            throw error;
+        }
+    });
 }

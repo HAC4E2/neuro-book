@@ -22,7 +22,7 @@ import {
 export {profileSourceFileSetChangedSinceCompile} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import type {ProfileCompilePublishOptions, ProfileCompileWorkerResult} from "nbook/server/agent/profiles/profile-compile-worker-types";
 import {appLogger} from "nbook/server/app-logs/logger";
-import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {ProjectNotOpenError} from "nbook/server/workspace-files/project-session";
 import type {
     AgentProfileCompileAllRequestDto,
@@ -334,7 +334,7 @@ export class ProfileCompileWorkerService {
 
     private async runCompileAllFanout(task: CompileTask): Promise<AgentProfileCompileResultDto> {
         const startedAt = performance.now();
-        const buildCompiledDir = resolve(process.cwd(), ".agent", "workspace", "profile-artifact-fan-in", randomUUID());
+        const buildCompiledDir = join(dirname(this.userProfileRoot), ".staging", "profile-artifact-fan-in", randomUUID());
         const stagedDirs: string[] = [buildCompiledDir];
         try {
             const [files, existingManifest] = await Promise.all([

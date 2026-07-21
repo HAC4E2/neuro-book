@@ -88,7 +88,9 @@ AI 已经是一匹好马，NeuroBook 是那副鞍（NeuroAgentHarness——Harne
 
 ## 快速开始
 
-**Windows：解压即用。** 从 [GitHub Releases](https://github.com/notnotype/neuro-book/releases) 下载 zip，解压后运行：
+### Windows 普通用户：Portable 解压即用
+
+打开 [GitHub Releases](https://github.com/notnotype/neuro-book/releases)，在完整 Release 的 Assets 中下载文件名准确为 `neuro-book-windows-x64.zip` 的压缩包。不要下载 Source 或 Product overlay。解压后运行：
 
 ```powershell
 .\Start Neuro Book.cmd
@@ -96,19 +98,54 @@ AI 已经是一匹好马，NeuroBook 是那副鞍（NeuroAgentHarness——Harne
 
 包内内置 Bun、rg、PortableGit/bash、预构建 `.output` 和完整源码，不装应用依赖、不在用户机器构建；首次启动由 NeuroBook Manager 初始化 `data/` 状态目录，默认免密码直接使用。需要时运行 `.\Create Admin.cmd` 创建管理员。之后用 `.\Update Neuro Book.cmd` 事务升级，`data/` 中的作品、配置和日志全部保留。
 
-**服务器 / Docker：**
+### Windows 高级用户：NeuroBook Manager
 
-```bash
-bunx --bun @notnotype/neuro-book-manager@canary install --profile ghcr
+需要多实例、Docker、Product Bun 或 Source Profile 时使用 Manager。没有安装 Bun：
+
+```powershell
+irm https://raw.githubusercontent.com/notnotype/neuro-book/master/scripts/install/install.ps1 | iex
 ```
 
+已经安装 Bun：
 
-| 方式                     | 适合                                           |
-| ------------------------ | ---------------------------------------------- |
-| Windows Product Portable | Windows 本机用户，解压即用                     |
-| ghcr                     | 服务器 Docker 部署，拉取预构建镜像，低内存友好 |
-| Product Bun              | 已有 Bun 的本机或服务器，源码 + 预构建 Product  |
-| Source Dev               | 开发者，源码开发和测试                         |
+```powershell
+bunx --bun @notnotype/neuro-book-manager@canary
+```
+
+### Linux / macOS：统一使用 NeuroBook Manager
+
+Linux x64/ARM64 glibc或macOS x64/ARM64用户没有安装 Bun 时运行：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/notnotype/neuro-book/master/scripts/install/install.sh | sh
+```
+
+Linux需要`curl`、`unzip`和`sha256sum`；macOS使用系统`shasum -a 256`。自动化环境没有TTY时必须显式传参：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/notnotype/neuro-book/master/scripts/install/install.sh | sh -s -- --profile ghcr --yes
+```
+
+已经安装 Bun：
+
+```bash
+bunx --bun @notnotype/neuro-book-manager@canary
+```
+
+Stage 0是可审计的联网引导脚本：它只把固定版本 Bun下载到用户缓存并校验SHA256，然后运行Manager `@canary`。Manager默认选择最新一个已经完整发布Manifest的应用canary，而不是把Stage 0绑定到某个应用版本。`install.ps1`、`install.cmd`和`install.sh`也随完整Release发布，可配合`SHA256SUMS`审计后再联网执行。
+
+Manager不传参数会说明部署方式并引导选择目录、更新通道、端口和鉴权。最终确认前会统一检查原生宿主架构、Git、Docker/Podman、Compose、端口、目标目录、Release和组件来源；`--yes`不能绕过blocker。安装后运行`neuro-book manage`可在TUI中管理多个实例；实例索引保存在`~/.neuro-book-manager/config.json`，真实部署状态仍位于各实例的`.deploy/installation.json`。自动化可先运行`install --profile ghcr --dry-run --json`审计，再使用`--yes`执行。
+
+Canary阶段固定使用`@canary`。不要写成`bunx run @notnotype/neuro-book-manager`：`bunx run`会把包名按本地脚本或路径解析，Manager不会启动。只有GitHub Release出现正式`release-manifest.json`后才可安装；仍在构建或已取消的Release会被Manager安全跳过。
+
+| Profile | 适合场景 |
+| --- | --- |
+| `windows-portable` | Windows普通用户；下载完整Portable或由Manager托管Runtime和工具 |
+| `ghcr` | Linux/macOS容器部署首选；使用Docker或Podman运行固定digest镜像 |
+| `product-bun` | 不使用Docker；下载同revision源码和预构建Product |
+| `source-dev` | NeuroBook开发；Git源码、依赖和dev server |
+| `source-product` | 从Git源码在本机staging构建生产Product |
+| `source-docker` | 以Git源码为context，在容器内安装依赖和构建镜像 |
 
 完整的部署、更新、管理员与模型配置说明见 [docs/deployment.md](docs/deployment.md)。要让其他 AI Agent 协助部署或排障，把 [docs/operator-bridge.md](docs/operator-bridge.md) 发给它即可。
 

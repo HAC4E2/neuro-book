@@ -103,11 +103,20 @@ onMounted(() => {
                         {{ busy ? t("auth.loggingIn") : t("auth.loginButton") }}
                     </button>
 
-                    <p class="pt-1 text-center text-xs text-[var(--text-secondary)]">
-                        {{ t("auth.testSiteHintBefore") }}
-                        <a class="text-[var(--accent-text)] hover:underline" href="mailto:notnotype@qq.com">notnotype@qq.com</a>
-                        {{ t("auth.testSiteHintAfter") }}
-                    </p>
+                    <!-- 首次部署与关闭认证指引 -->
+                    <div class="space-y-2 rounded-lg border border-[var(--status-info-border)] bg-[var(--status-info-bg)] px-3 py-3 text-xs text-[var(--text-secondary)]">
+                        <div class="font-medium text-[var(--text-main)]">{{ t("auth.setupAdminTitle") }}</div>
+                        <p>
+                            {{ t("auth.setupAdminCommandBefore") }}
+                            <code class="rounded bg-[var(--bg-main)] px-1.5 py-0.5 font-mono text-[var(--status-info)]">bun run create-admin</code>
+                            {{ t("auth.setupAdminCommandAfter") }}
+                        </p>
+                        <p>
+                            {{ t("auth.disableAuthBefore") }}
+                            <code class="rounded bg-[var(--bg-main)] px-1.5 py-0.5 font-mono text-[var(--status-info)]">config.yaml</code>
+                            {{ t("auth.disableAuthAfter") }}
+                        </p>
+                    </div>
                 </form>
             </div>
         </div>

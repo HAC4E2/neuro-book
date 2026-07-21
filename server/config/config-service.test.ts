@@ -14,45 +14,35 @@ import {
     loadEffectiveConfigForAgentRuntime,
     readConfigBootstrap,
     readConfigEditorSnapshot,
-    readIllustrationDirectorSelectorSnapshot,
+    resolveConfigTarget,
     resetProjectProfileHome,
     saveGlobalConfig,
     saveProjectConfig,
-    updateIllustrationDirectorSelector,
 } from "nbook/server/config/config-service";
 import {ProjectNotOpenError} from "nbook/server/workspace-files/project-session";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
+import {createIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/workspace-assets-test-helper";
+import type {GlobalConfigUpdateDto} from "nbook/shared/dto/config.dto";
+import {disposeAgentHarness} from "nbook/server/agent/http";
 
 const createdRoots: string[] = [];
 const catalog = createCatalog(["leader.default", "leader.assets", "custom.agent", "writer"]);
 const CONFIG_TEST_PROJECT_PATH = "workspace/config-test-project";
-let globalConfigBackupPath: string | null = null;
-let globalAgentsBackupPath: string | null = null;
+let isolatedAssets: IsolatedWorkspaceAssets | null = null;
 
 describe("config service", {timeout: 30_000}, () => {
     beforeEach(async () => {
-        globalConfigBackupPath = await moveGlobalConfigAside();
-        globalAgentsBackupPath = await moveGlobalAgentsAside();
+        isolatedAssets = await createIsolatedWorkspaceAssets({useAsCwd: true});
         await createProjectFixture();
         await openProjectForTest(CONFIG_TEST_PROJECT_PATH);
     });
 
     afterEach(async () => {
         await closeProjectForTest(CONFIG_TEST_PROJECT_PATH).catch(() => undefined);
+        await disposeAgentHarness();
         await Promise.all(createdRoots.splice(0).map((root) => fs.rm(root, {recursive: true, force: true})));
-        await fs.rm(path.join("workspace", ".nbook", "config.json"), {force: true});
-        await fs.rm(path.join("workspace", ".nbook", "agents"), {recursive: true, force: true});
-        await fs.rm(path.join("workspace", "config-test-project"), {recursive: true, force: true});
-        if (globalAgentsBackupPath) {
-            await fs.mkdir(path.join("workspace", ".nbook"), {recursive: true});
-            await fs.rename(globalAgentsBackupPath, path.join("workspace", ".nbook", "agents"));
-            globalAgentsBackupPath = null;
-        }
-        if (globalConfigBackupPath) {
-            await fs.mkdir(path.join("workspace", ".nbook"), {recursive: true});
-            await fs.rename(globalConfigBackupPath, path.join("workspace", ".nbook", "config.json"));
-            globalConfigBackupPath = null;
-        }
+        await isolatedAssets?.dispose();
+        isolatedAssets = null;
     });
 
     it("无配置文件时返回默认 Global + Project 快照且不创建文件", async () => {
@@ -64,170 +54,292 @@ describe("config service", {timeout: 30_000}, () => {
         await expect(fs.access(path.join("workspace", "config-test-project", ".nbook", "config.json"))).rejects.toMatchObject({code: "ENOENT"});
     });
 
-    it("以 expected config hash CAS 更新 Director selector，并保留同 profile 其他配置", async () => {
-        await fs.mkdir(path.join("workspace", ".nbook"), {recursive: true});
-        await fs.writeFile(path.join("workspace", ".nbook", "config.json"), `${JSON.stringify({
-            agent: {
-                profiles: {
-                    "illustration.director": {
-                        model: {modelKey: null},
-                        settings: {planningConcurrency: 3},
-                    },
-                },
-            },
-        }, null, 4)}\n`, "utf8");
-        const before = await readIllustrationDirectorSelectorSnapshot();
-        expect(before.storyboardPresetKey).toBe("storyboard-presets/default.md");
-
-        const updated = await updateIllustrationDirectorSelector({
-            expectedConfigHash: before.configHash,
-            storyboardPresetKey: "storyboard-presets/preset.v2.md",
-        });
-        expect(updated.storyboardPresetKey).toBe("storyboard-presets/preset.v2.md");
-        expect(updated.configHash).not.toBe(before.configHash);
-        const persisted = JSON.parse(await fs.readFile(path.join("workspace", ".nbook", "config.json"), "utf8")) as {
-            agent: {profiles: Record<string, {model: {modelKey?: string | null}; settings: Record<string, unknown>}>};
-        };
-        expect(persisted.agent.profiles["illustration.director"]?.model.modelKey).toBeNull();
-        expect(persisted.agent.profiles["illustration.director"]?.settings).toMatchObject({
-            planningConcurrency: 3,
-            storyboardPresetKey: "storyboard-presets/preset.v2.md",
-        });
-        await expect(updateIllustrationDirectorSelector({
-            expectedConfigHash: before.configHash,
-            storyboardPresetKey: "storyboard-presets/stale.md",
-        })).rejects.toMatchObject({code: "GLOBAL_CONFIG_HASH_CONFLICT"});
-
-        const concurrent = await Promise.allSettled([
-            updateIllustrationDirectorSelector({
-                expectedConfigHash: updated.configHash,
-                storyboardPresetKey: "storyboard-presets/concurrent-a.md",
-            }),
-            updateIllustrationDirectorSelector({
-                expectedConfigHash: updated.configHash,
-                storyboardPresetKey: "storyboard-presets/concurrent-b.md",
-            }),
-        ]);
-        expect(concurrent.filter((result) => result.status === "fulfilled")).toHaveLength(1);
-        expect(concurrent.filter((result) => result.status === "rejected")).toHaveLength(1);
-        expect(concurrent.find((result) => result.status === "rejected")).toMatchObject({
-            reason: {code: "GLOBAL_CONFIG_HASH_CONFLICT"},
-        });
+    it("分离 State Root 时 Project Config 路径不回退到 cwd", async () => {
+        const previousStateRoot = process.env.NEURO_BOOK_STATE_ROOT;
+        const stateRoot = path.join(isolatedAssets!.root, "separate-state");
+        const projectRoot = path.join(stateRoot, "workspace", "separate-project");
+        await fs.mkdir(projectRoot, {recursive: true});
+        process.env.NEURO_BOOK_STATE_ROOT = stateRoot;
+        try {
+            const target = await resolveConfigTarget({
+                workspaceKind: "novel",
+                projectPath: "workspace/separate-project",
+            });
+            expect(target.projectConfigPath).toBe(path.join(projectRoot, ".nbook", "config.json"));
+            expect(target.projectConfigPath).not.toBe(path.resolve(process.cwd(), "workspace", "separate-project", ".nbook", "config.json"));
+        } finally {
+            if (previousStateRoot === undefined) {
+                delete process.env.NEURO_BOOK_STATE_ROOT;
+            } else {
+                process.env.NEURO_BOOK_STATE_ROOT = previousStateRoot;
+            }
+        }
     });
 
-    it("Global Config 保存并解析 illustration Director binding 摘要", async () => {
-        const snapshot = await saveGlobalConfig({
+    it("Global Config 写入在文件 mutation 前拒绝不可运行模型", async () => {
+        await expect(saveGlobalConfig({
             models: {
-                default: "openai/gpt-5",
+                default: "custom/broken",
                 providers: [{
-                    id: "openai",
-                    name: "OpenAI",
+                    id: "custom",
+                    name: "Custom",
                     enabled: true,
-                    api: "openai-completions",
+                    modelApi: null,
                     options: {
-                        apiKey: {configured: false, maskedValue: null, value: "sk-director"},
-                        baseURL: "https://api.openai.com/v1",
+                        apiKey: {configured: false, maskedValue: null},
+                        baseURL: "https://example.com/v1",
                         proxy: "",
                         timeoutMs: null,
                         requestOptions: {},
                     },
                     models: [{
-                        id: "gpt-5",
-                        name: "GPT-5",
+                        id: "broken",
+                        name: "Broken",
                         group: null,
                         enabled: true,
-                        contextWindowTokens: 256000,
+                        api: null,
+                        reasoning: null,
+                        input: null,
+                        maxTokens: null,
+                        contextWindowTokens: null,
+                        cost: null,
+                        compat: null,
+                        headers: null,
+                        thinkingLevelMap: null,
                     }],
                 }],
             },
-            agent: {
-                profiles: {
-                    "illustration.director": {
-                        model: {modelKey: "openai/gpt-5"},
-                    },
-                },
-            },
-        }, {workspaceKind: "user-assets"}, catalog);
-        const binding = (snapshot.modelSettings as typeof snapshot.modelSettings & {
-            illustrationDirector: {
-                bindingId: string;
-                configured: boolean;
-                modelKey: string | null;
-                providerId: string | null;
-                providerName: string | null;
-                modelId: string | null;
-                modelName: string | null;
-            };
-        }).illustrationDirector;
-
-        expect(binding).toEqual({
-            bindingId: "illustration.director",
-            configured: true,
-            modelKey: "openai/gpt-5",
-            providerId: "openai",
-            providerName: "OpenAI",
-            modelId: "gpt-5",
-            modelName: "GPT-5",
-        });
-    });
-
-    it("Director binding 未显式选择模型时不继承通用 Profile 默认模型", async () => {
-        const snapshot = await saveGlobalConfig({
-            models: {
-                default: "openai/gpt-5",
-                providers: [{
-                    id: "openai",
-                    name: "OpenAI",
-                    enabled: true,
-                    api: "openai-completions",
-                    options: {
-                        apiKey: {configured: false, maskedValue: null, value: "sk-director"},
-                        baseURL: "https://api.openai.com/v1",
-                        proxy: "",
-                        timeoutMs: null,
-                        requestOptions: {},
-                    },
-                    models: [{
-                        id: "gpt-5",
-                        name: "GPT-5",
-                        group: null,
-                        enabled: true,
-                        contextWindowTokens: 256000,
-                    }],
-                }],
-            },
-            agent: {
-                profileModelDefaults: {modelKey: "openai/gpt-5"},
-                profiles: {
-                    "illustration.director": {
-                        model: {modelKey: null},
-                    },
-                },
-            },
-        }, {workspaceKind: "user-assets"}, catalog);
-
-        expect(snapshot.modelSettings.illustrationDirector).toMatchObject({
-            configured: false,
-            modelKey: null,
-        });
-    });
-
-    it("Project Config 拒绝写入 illustration Director model binding", async () => {
-        await expect(saveProjectConfig({
-            agent: {
-                profiles: {
-                    "illustration.director": {
-                        model: {modelKey: "openai/gpt-5"},
-                    },
-                },
-            },
-        }, {workspaceKind: "novel", projectPath: CONFIG_TEST_PROJECT_PATH}, catalog)).rejects.toMatchObject({
+        } as never, {workspaceKind: "user-assets"})).rejects.toMatchObject({
             statusCode: 400,
-            message: expect.stringContaining("Director model binding"),
+            data: {issues: expect.arrayContaining([expect.objectContaining({code: "missing_api"})])},
+        });
+        await expect(fs.access(path.join("workspace", ".nbook", "config.json"))).rejects.toMatchObject({code: "ENOENT"});
+    });
+
+    it("Global Config 写入拒绝缺少 Provider 默认 API", async () => {
+        const models = validModelsInput();
+        models.providers[0]!.modelApi = null;
+
+        await expect(saveGlobalConfig({models}, {workspaceKind: "user-assets"})).rejects.toMatchObject({
+            statusCode: 400,
+            data: {issues: expect.arrayContaining([expect.objectContaining({code: "missing_provider_model_api"})])},
+        });
+        await expect(fs.access(path.join("workspace", ".nbook", "config.json"))).rejects.toMatchObject({code: "ENOENT"});
+    });
+
+    it("不包含 models 的 Global 保存不会被当前坏模型阻断", async () => {
+        await fs.mkdir(path.join("workspace", ".nbook"), {recursive: true});
+        await fs.writeFile(path.join("workspace", ".nbook", "config.json"), JSON.stringify({
+            models: {
+                default: "broken/model",
+                providers: [{
+                    id: "broken",
+                    name: "Broken",
+                    enabled: true,
+                    modelApi: null,
+                    options: {apiKey: "", baseURL: "", proxy: "", timeoutMs: null, requestOptions: {}},
+                    models: [{id: "model", name: "Model", enabled: true}],
+                }],
+            },
+        }, null, 4), "utf8");
+
+        const snapshot = await saveGlobalConfig({ui: {theme: "sepia", customThemes: [], costCurrency: "USD"}}, {workspaceKind: "user-assets"});
+        expect(snapshot.global.ui?.theme).toBe("sepia");
+        expect(snapshot.modelSettings.validationIssues.some((issue) => issue.code === "missing_api")).toBe(true);
+    });
+
+    it("Global Config 写入拒绝重复 Provider ID", async () => {
+        const models = validModelsInput();
+        models.providers.push({...models.providers[0]!, models: [...models.providers[0]!.models]});
+        await expect(saveGlobalConfig({models}, {workspaceKind: "user-assets"})).rejects.toMatchObject({
+            statusCode: 400,
+            data: {issues: expect.arrayContaining([expect.objectContaining({code: "duplicate_provider_id"})])},
         });
     });
 
-    it("Provider enabled 旧配置默认 true，保存 false 时会持久化", async () => {
+    it("disabled Provider 下的重复模型 ID 仍拒绝保存", async () => {
+        const models = validModelsInput();
+        models.providers[0]!.enabled = false;
+        models.providers[0]!.models.push({...models.providers[0]!.models[0]!, enabled: false});
+
+        await expect(saveGlobalConfig({models}, {workspaceKind: "user-assets"})).rejects.toMatchObject({
+            statusCode: 400,
+            data: {issues: expect.arrayContaining([expect.objectContaining({code: "duplicate_model_id"})])},
+        });
+    });
+
+    it("disabled Provider 的不完整模型仍拒绝保存", async () => {
+        const models = validModelsInput();
+        models.providers[0]!.enabled = false;
+        models.providers[0]!.models[0]!.enabled = false;
+        models.providers[0]!.models[0]!.api = null;
+
+        await expect(saveGlobalConfig({models}, {workspaceKind: "user-assets"})).rejects.toMatchObject({
+            statusCode: 400,
+            data: {issues: expect.arrayContaining([expect.objectContaining({code: "missing_api"})])},
+        });
+    });
+
+    it("读取重复 Provider 配置保留全部原始条目、来源索引和 secret 状态", async () => {
+        const models = validModelsInput();
+        const first = models.providers[0]!;
+        await fs.mkdir(path.join("workspace", ".nbook"), {recursive: true});
+        await fs.writeFile(path.join("workspace", ".nbook", "config.json"), JSON.stringify({
+            models: {
+                default: first.id + "/" + first.models[0]!.id,
+                providers: [
+                    {...first, options: {...first.options, apiKey: "first-secret"}},
+                    {...first, name: "Second", options: {...first.options, apiKey: "second-secret"}},
+                ],
+            },
+        }), "utf-8");
+
+        const snapshot = await readConfigEditorSnapshot({workspaceKind: "user-assets"});
+
+        expect(snapshot.modelSettings.providers).toHaveLength(2);
+        expect(snapshot.modelSettings.providers.map((provider) => provider.sourceIndex)).toEqual([0, 1]);
+        expect(snapshot.modelSettings.providers.map((provider) => provider.options.apiKey.configured)).toEqual([true, true]);
+        expect(snapshot.modelSettings.validationIssues.filter((issue) => issue.code === "duplicate_provider_id")).toHaveLength(2);
+        expect(snapshot.modelSettings.enabledModels).toEqual([]);
+    });
+
+    it("已保存 Provider 不允许通过来源索引改名或继承旧 API key", async () => {
+        const models = validModelsInput();
+        const first = models.providers[0]!;
+        await fs.mkdir(path.join("workspace", ".nbook"), {recursive: true});
+        await fs.writeFile(path.join("workspace", ".nbook", "config.json"), JSON.stringify({
+            models: {
+                default: "first/model",
+                providers: [
+                    {...first, options: {...first.options, apiKey: "first-secret"}},
+                    {...first, options: {...first.options, apiKey: "second-secret"}},
+                ],
+            },
+        }), "utf-8");
+        const snapshot = await readConfigEditorSnapshot({workspaceKind: "user-assets"});
+        const providers = snapshot.modelSettings.providers.map((provider, index) => ({
+            ...provider,
+            id: index === 0 ? "first" : "second",
+        }));
+
+        const configPath = path.join("workspace", ".nbook", "config.json");
+        const before = await fs.readFile(configPath, "utf-8");
+        await expect(saveGlobalConfig({models: {default: "first/model", providers}}, {workspaceKind: "user-assets"})).rejects.toMatchObject({
+            statusCode: 400,
+            message: expect.stringContaining("Provider ID 不可修改"),
+        });
+        await expect(fs.readFile(configPath, "utf-8")).resolves.toBe(before);
+    });
+
+    it("已保存 Provider 的端点身份变化必须显式复制", async () => {
+        await saveGlobalConfig({models: validModelsInput()}, {workspaceKind: "user-assets"});
+        const snapshot = await readConfigEditorSnapshot({workspaceKind: "user-assets"});
+        const provider = snapshot.modelSettings.providers[0]!;
+        const configPath = path.join("workspace", ".nbook", "config.json");
+        const before = await fs.readFile(configPath, "utf8");
+
+        await expect(saveGlobalConfig({
+            models: {
+                default: snapshot.modelSettings.defaultModelKey,
+                providers: [{...provider, options: {...provider.options, baseURL: "https://other.example/v1"}}],
+            },
+        }, {workspaceKind: "user-assets"})).rejects.toMatchObject({
+            statusCode: 400,
+            message: expect.stringContaining("连接身份不可修改"),
+        });
+        await expect(fs.readFile(configPath, "utf8")).resolves.toBe(before);
+    });
+
+    it("已保存 Provider 可修改默认接口并保留原 Secret", async () => {
+        const initial = validModelsInput();
+        initial.providers[0]!.options.apiKey = {configured: false, maskedValue: null, value: "sk-keep-model-api"};
+        await saveGlobalConfig({models: initial}, {workspaceKind: "user-assets"});
+        const snapshot = await readConfigEditorSnapshot({workspaceKind: "user-assets"});
+        const provider = snapshot.modelSettings.providers[0]!;
+
+        await saveGlobalConfig({
+            models: {
+                default: snapshot.modelSettings.defaultModelKey,
+                providers: [{...provider, modelApi: "openai-responses"}],
+            },
+        }, {workspaceKind: "user-assets"});
+        const raw = JSON.parse(await fs.readFile(path.join("workspace", ".nbook", "config.json"), "utf8")) as {
+            models?: {providers?: Array<{modelApi?: string; options?: {apiKey?: string}}>};
+        };
+
+        expect(raw.models?.providers?.[0]?.modelApi).toBe("openai-responses");
+        expect(raw.models?.providers?.[0]?.options?.apiKey).toBe("sk-keep-model-api");
+    });
+
+    it("旧客户端省略 sourceIndex 时不会按 Provider ID 猜测 Secret", async () => {
+        await saveGlobalConfig({models: validModelsInput()}, {workspaceKind: "user-assets"});
+        const snapshot = await readConfigEditorSnapshot({workspaceKind: "user-assets"});
+        const provider = snapshot.modelSettings.providers[0]!;
+        const {sourceIndex: _sourceIndex, ...withoutSource} = provider;
+
+        await expect(saveGlobalConfig({
+            models: {default: snapshot.modelSettings.defaultModelKey, providers: [withoutSource]},
+        }, {workspaceKind: "user-assets"})).rejects.toMatchObject({
+            statusCode: 400,
+            message: expect.stringContaining("必须携带来源索引"),
+        });
+    });
+
+    it("删除 Provider 前扫描 managed Project 的显式模型引用", async () => {
+        const models = validModelsInput();
+        await saveGlobalConfig({models}, {workspaceKind: "user-assets"});
+        const modelKey = `${models.providers[0]!.id}/${models.providers[0]!.models[0]!.id}`;
+        await fs.mkdir(path.join("workspace", "config-test-project", ".nbook"), {recursive: true});
+        await fs.writeFile(path.join("workspace", "config-test-project", ".nbook", "config.json"), JSON.stringify({
+            models: {default: modelKey},
+        }), "utf8");
+
+        await expect(saveGlobalConfig({
+            models: {default: null, providers: []},
+        }, {workspaceKind: "user-assets"})).rejects.toMatchObject({
+            statusCode: 400,
+            data: {issues: expect.arrayContaining([expect.objectContaining({modelKey})])},
+        });
+    });
+
+    it("Agent-only Global 保存拒绝不可运行 modelKey 且不写文件", async () => {
+        await saveGlobalConfig({models: validModelsInput()}, {workspaceKind: "user-assets"});
+        const configPath = path.join("workspace", ".nbook", "config.json");
+        const before = await fs.readFile(configPath, "utf-8");
+
+        await expect(saveGlobalConfig({
+            agent: {
+                defaultProfileKey: {novel: null, userAssets: null},
+                profileModelDefaults: {modelKey: "missing/model"},
+                profileRuntimeDefaults: {},
+                profiles: {},
+            },
+        }, {workspaceKind: "user-assets"})).rejects.toMatchObject({
+            statusCode: 400,
+            data: {issues: expect.arrayContaining([expect.objectContaining({code: "invalid_model_reference"})])},
+        });
+        expect(await fs.readFile(configPath, "utf-8")).toBe(before);
+    });
+
+    it("Global Config 写入拒绝无效 Profile 模型引用", async () => {
+        await expect(saveGlobalConfig({
+            models: validModelsInput(),
+            agent: {
+                defaultProfileKey: {novel: null, userAssets: null},
+                profileModelDefaults: {modelKey: "missing/model"},
+                profileRuntimeDefaults: {},
+                profiles: {},
+            },
+        }, {workspaceKind: "user-assets"}, catalog)).rejects.toMatchObject({
+            statusCode: 400,
+            data: {issues: expect.arrayContaining([expect.objectContaining({
+                code: "invalid_model_reference",
+                path: ["agent", "profileModelDefaults", "modelKey"],
+            })])},
+        });
+    });
+
+    it("Provider enabled 缺省为 true，保存 false 时会持久化", async () => {
         await fs.mkdir(path.join("workspace", ".nbook"), {recursive: true});
         await fs.writeFile(path.join("workspace", ".nbook", "config.json"), JSON.stringify({
             models: {
@@ -235,7 +347,7 @@ describe("config service", {timeout: 30_000}, () => {
                 providers: [{
                     id: "legacy-provider",
                     name: "Legacy Provider",
-                    api: "openai-completions",
+                    modelApi: "openai-completions",
                     options: {
                         apiKey: "",
                         baseURL: "",
@@ -259,9 +371,10 @@ describe("config service", {timeout: 30_000}, () => {
                 default: null,
                 providers: [{
                     id: "legacy-provider",
+                    sourceIndex: 0,
                     name: "Legacy Provider",
                     enabled: false,
-                    api: "openai-completions",
+                    modelApi: "openai-completions",
                     options: {
                         apiKey: {configured: false, maskedValue: null, value: ""},
                         baseURL: "",
@@ -274,7 +387,15 @@ describe("config service", {timeout: 30_000}, () => {
                         name: "Legacy Model",
                         group: null,
                         enabled: true,
+                        api: "openai-completions",
+                        reasoning: false,
+                        input: ["text"],
                         contextWindowTokens: 128000,
+                        maxTokens: 8192,
+                        cost: null,
+                        compat: null,
+                        headers: null,
+                        thinkingLevelMap: null,
                     }],
                 }],
             },
@@ -388,10 +509,11 @@ describe("config service", {timeout: 30_000}, () => {
                 providers: [{
                     id: "deepseek",
                     name: "DeepSeek",
-                    api: null,
+                    enabled: true,
+                    modelApi: "openai-completions",
                     options: {
                         apiKey: {configured: false, maskedValue: null, value: "sk-test-123456"},
-                        baseURL: "",
+                        baseURL: "https://api.deepseek.com/v1",
                         proxy: "",
                         timeoutMs: null,
                         requestOptions: {},
@@ -401,6 +523,10 @@ describe("config service", {timeout: 30_000}, () => {
                         name: "DeepSeek V4 Flash",
                         group: null,
                         enabled: true,
+                        api: "openai-completions",
+                        reasoning: false,
+                        input: ["text"],
+                        maxTokens: 8192,
                         contextWindowTokens: 128000,
                     }],
                 }],
@@ -412,11 +538,13 @@ describe("config service", {timeout: 30_000}, () => {
                 default: "deepseek/deepseek-v4-flash",
                 providers: [{
                     id: "deepseek",
+                    sourceIndex: 0,
                     name: "DeepSeek",
-                    api: null,
+                    enabled: true,
+                    modelApi: "openai-completions",
                     options: {
                         apiKey: {configured: true, maskedValue: "sk-t...3456"},
-                        baseURL: "",
+                        baseURL: "https://api.deepseek.com/v1",
                         proxy: "",
                         timeoutMs: null,
                         requestOptions: {},
@@ -426,6 +554,10 @@ describe("config service", {timeout: 30_000}, () => {
                         name: "DeepSeek V4 Flash",
                         group: null,
                         enabled: true,
+                        api: "openai-completions",
+                        reasoning: false,
+                        input: ["text"],
+                        maxTokens: 8192,
                         contextWindowTokens: 128000,
                     }],
                 }],
@@ -439,61 +571,6 @@ describe("config service", {timeout: 30_000}, () => {
         expect(snapshot.modelSettings.providers[0]?.options.apiKey).toEqual({
             configured: true,
             maskedValue: "sk-t...3456",
-        });
-    });
-
-    it("新 Provider ID 不能用 masked 状态冒充可保留的旧 API key", async () => {
-        await saveGlobalConfig({
-            models: {
-                default: "director/gpt-5",
-                providers: [{
-                    id: "director",
-                    name: "Director",
-                    enabled: true,
-                    api: "openai-completions",
-                    options: {
-                        apiKey: {configured: false, maskedValue: null, value: "sk-director-secret"},
-                        baseURL: "https://example.com/v1",
-                        proxy: "",
-                        timeoutMs: null,
-                        requestOptions: {},
-                    },
-                    models: [{id: "gpt-5", name: "GPT-5", group: null, enabled: true, contextWindowTokens: 128000}],
-                }],
-            },
-            agent: {
-                profiles: {
-                    "illustration.director": {model: {modelKey: "director/gpt-5"}},
-                },
-            },
-        }, {workspaceKind: "user-assets"});
-
-        await expect(saveGlobalConfig({
-            models: {
-                default: "renamed/gpt-5",
-                providers: [{
-                    id: "renamed",
-                    name: "Director",
-                    enabled: true,
-                    api: "openai-completions",
-                    options: {
-                        apiKey: {configured: true, maskedValue: "sk-d...cret"},
-                        baseURL: "https://example.com/v1",
-                        proxy: "",
-                        timeoutMs: null,
-                        requestOptions: {},
-                    },
-                    models: [{id: "gpt-5", name: "GPT-5", group: null, enabled: true, contextWindowTokens: 128000}],
-                }],
-            },
-            agent: {
-                profiles: {
-                    "illustration.director": {model: {modelKey: "renamed/gpt-5"}},
-                },
-            },
-        }, {workspaceKind: "user-assets"})).rejects.toMatchObject({
-            statusCode: 400,
-            message: expect.stringContaining("API key"),
         });
     });
 
@@ -558,10 +635,11 @@ describe("config service", {timeout: 30_000}, () => {
                 providers: [{
                     id: "deepseek",
                     name: "DeepSeek",
-                    api: null,
+                    enabled: true,
+                    modelApi: "openai-completions",
                     options: {
                         apiKey: {configured: false, maskedValue: null, value: "sk-keep-model"},
-                        baseURL: "",
+                        baseURL: "https://api.deepseek.com/v1",
                         proxy: "",
                         timeoutMs: null,
                         requestOptions: {},
@@ -571,6 +649,10 @@ describe("config service", {timeout: 30_000}, () => {
                         name: "DeepSeek V4 Flash",
                         group: null,
                         enabled: true,
+                        api: "openai-completions",
+                        reasoning: false,
+                        input: ["text"],
+                        maxTokens: 8192,
                         contextWindowTokens: 128000,
                     }],
                 }],
@@ -606,7 +688,8 @@ describe("config service", {timeout: 30_000}, () => {
                 providers: [{
                     id: "deepseek",
                     name: "DeepSeek",
-                    api: null,
+                    enabled: true,
+                    modelApi: "openai-completions",
                     options: {
                         apiKey: {configured: false, maskedValue: null, value: "sk-keep-me"},
                         baseURL: "https://api.deepseek.com/v1",
@@ -619,6 +702,10 @@ describe("config service", {timeout: 30_000}, () => {
                         name: "DeepSeek V4 Flash",
                         group: null,
                         enabled: true,
+                        api: "openai-completions",
+                        reasoning: false,
+                        input: ["text"],
+                        maxTokens: 8192,
                         contextWindowTokens: 128000,
                     }],
                 }],
@@ -651,10 +738,11 @@ describe("config service", {timeout: 30_000}, () => {
                 providers: [{
                     id: "custom",
                     name: "Custom",
-                    api: "openai-completions",
+                    enabled: true,
+                    modelApi: "openai-completions",
                     options: {
                         apiKey: {configured: false, maskedValue: null, value: "sk-custom"},
-                        baseURL: "",
+                        baseURL: "https://model.example/v1",
                         proxy: "",
                         timeoutMs: null,
                         requestOptions: {},
@@ -664,9 +752,7 @@ describe("config service", {timeout: 30_000}, () => {
                         name: "Mimo Vision",
                         group: null,
                         enabled: true,
-                        provider: "xiaomi-token-plan-cn",
                         api: "openai-completions",
-                        baseUrl: "https://model.example/v1",
                         reasoning: true,
                         input: ["text", "image"],
                         maxTokens: 1234,
@@ -680,6 +766,8 @@ describe("config service", {timeout: 30_000}, () => {
                             thinkingFormat: "deepseek",
                             supportsStrictMode: false,
                         },
+                        headers: {"X-Test": "value"},
+                        thinkingLevelMap: {high: "high"},
                         contextWindowTokens: 98765,
                     }],
                 }],
@@ -689,9 +777,7 @@ describe("config service", {timeout: 30_000}, () => {
         const visionModel = snapshot.modelSettings.providers[0]?.models.find((model) => model.id === "mimo-vl");
 
         expect(visionModel).toMatchObject({
-            provider: "xiaomi-token-plan-cn",
             api: "openai-completions",
-            baseUrl: "https://model.example/v1",
             reasoning: true,
             input: ["text", "image"],
             maxTokens: 1234,
@@ -705,9 +791,10 @@ describe("config service", {timeout: 30_000}, () => {
                 thinkingFormat: "deepseek",
                 supportsStrictMode: false,
             },
+            headers: {"X-Test": "value"},
+            thinkingLevelMap: {high: "high"},
             contextWindowTokens: 98765,
         });
-        expect(snapshot.modelSettings.providers[0]?.api).toBe("openai-completions");
     });
 
     it("Project Config 可以覆盖默认模型、embedding 模型与默认 profile，但拒绝全局字段", async () => {
@@ -717,11 +804,12 @@ describe("config service", {timeout: 30_000}, () => {
                 providers: [{
                     id: "deepseek",
                     name: "DeepSeek",
-                    api: null,
-                    options: {apiKey: {configured: false, maskedValue: null}, baseURL: "", proxy: "", timeoutMs: null, requestOptions: {}},
+                    enabled: true,
+                    modelApi: "openai-completions",
+                    options: {apiKey: {configured: false, maskedValue: null}, baseURL: "https://api.deepseek.com/v1", proxy: "", timeoutMs: null, requestOptions: {}},
                     models: [
-                        {id: "a", name: "A", group: null, enabled: true, contextWindowTokens: null},
-                        {id: "b", name: "B", group: null, enabled: true, contextWindowTokens: null},
+                        {id: "a", name: "A", group: null, enabled: true, api: "openai-completions", reasoning: false, input: ["text"], maxTokens: 8192, contextWindowTokens: 128000},
+                        {id: "b", name: "B", group: null, enabled: true, api: "openai-completions", reasoning: false, input: ["text"], maxTokens: 8192, contextWindowTokens: 128000},
                     ],
                 }],
             },
@@ -782,6 +870,72 @@ describe("config service", {timeout: 30_000}, () => {
         }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"})).rejects.toMatchObject({statusCode: 400});
     });
 
+    it("Project section patch 保留未提交的 models、agent、editor 与 history", async () => {
+        await saveGlobalConfig({models: validModelsInput()}, {workspaceKind: "user-assets"});
+        await saveProjectConfig({
+            models: {default: "local/model"},
+            agent: {
+                defaultProfileKey: "leader.default",
+                profileModelDefaults: {modelKey: "local/model"},
+                profiles: {writer: {model: {modelKey: "local/model"}}},
+            },
+            editor: {markdown: {fontSize: 18}},
+            history: {retentionFullDays: 30},
+        }, {workspaceKind: "novel", projectPath: CONFIG_TEST_PROJECT_PATH});
+
+        await saveProjectConfig({
+            embedding: {model: "project-embed", dimensions: 768},
+        }, {workspaceKind: "novel", projectPath: CONFIG_TEST_PROJECT_PATH});
+        const raw = JSON.parse(await fs.readFile(path.join("workspace", "config-test-project", ".nbook", "config.json"), "utf-8")) as {
+            models: {default: string};
+            agent: {profileModelDefaults: {modelKey: string}; profiles: {writer: {model: {modelKey: string}}}};
+            editor: {markdown: {fontSize: number}};
+            history: {retentionFullDays: number};
+            embedding: {model: string; dimensions: number};
+        };
+
+        expect(raw.models).toEqual({default: "local/model"});
+        expect(raw.agent.profileModelDefaults.modelKey).toBe("local/model");
+        expect(raw.agent.profiles.writer.model.modelKey).toBe("local/model");
+        expect(raw.editor.markdown.fontSize).toBe(18);
+        expect(raw.history.retentionFullDays).toBe(30);
+        expect(raw.embedding).toEqual({model: "project-embed", dimensions: 768});
+    });
+
+    it("Project 默认模型与 Profile modelKey 必须引用 runnable 模型", async () => {
+        await saveGlobalConfig({models: validModelsInput()}, {workspaceKind: "user-assets"});
+
+        await expect(saveProjectConfig({
+            models: {default: "missing/model"},
+        }, {workspaceKind: "novel", projectPath: CONFIG_TEST_PROJECT_PATH})).rejects.toMatchObject({
+            statusCode: 400,
+            data: {issues: expect.arrayContaining([expect.objectContaining({code: "invalid_model_reference"})])},
+        });
+        await expect(saveProjectConfig({
+            agent: {profiles: {writer: {model: {modelKey: "missing/model"}}}},
+        }, {workspaceKind: "novel", projectPath: CONFIG_TEST_PROJECT_PATH})).rejects.toMatchObject({
+            statusCode: 400,
+            data: {issues: expect.arrayContaining([expect.objectContaining({code: "invalid_model_reference"})])},
+        });
+    });
+
+    it("Global 模型保存不扫描、不修改当前 Project 的历史失效引用", async () => {
+        const projectConfigPath = path.join("workspace", "config-test-project", ".nbook", "config.json");
+        await fs.mkdir(path.dirname(projectConfigPath), {recursive: true});
+        await fs.writeFile(projectConfigPath, JSON.stringify({
+            models: {default: "missing/model"},
+            agent: {profileModelDefaults: {modelKey: "missing/model"}},
+        }, null, 4), "utf-8");
+        const before = await fs.readFile(projectConfigPath, "utf-8");
+
+        await saveGlobalConfig({models: validModelsInput()}, {
+            workspaceKind: "novel",
+            projectPath: CONFIG_TEST_PROJECT_PATH,
+        });
+
+        expect(await fs.readFile(projectConfigPath, "utf-8")).toBe(before);
+    });
+
     it("Project Config 的 null 覆盖会回落到 Global Config", async () => {
         await saveGlobalConfig({
             models: {
@@ -789,10 +943,11 @@ describe("config service", {timeout: 30_000}, () => {
                 providers: [{
                     id: "deepseek",
                     name: "DeepSeek",
-                    api: null,
-                    options: {apiKey: {configured: false, maskedValue: null}, baseURL: "", proxy: "", timeoutMs: null, requestOptions: {}},
+                    enabled: true,
+                    modelApi: "openai-completions",
+                    options: {apiKey: {configured: false, maskedValue: null}, baseURL: "https://api.deepseek.com/v1", proxy: "", timeoutMs: null, requestOptions: {}},
                     models: [
-                        {id: "a", name: "A", group: null, enabled: true, contextWindowTokens: null},
+                        {id: "a", name: "A", group: null, enabled: true, api: "openai-completions", reasoning: false, input: ["text"], maxTokens: 8192, contextWindowTokens: 128000},
                     ],
                 }],
             },
@@ -861,7 +1016,6 @@ describe("config service", {timeout: 30_000}, () => {
         }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"});
 
         const effective = await loadEffectiveConfigForAgentRuntime({
-            workspaceRoot: "workspace",
             projectPath: "workspace/config-test-project",
         });
 
@@ -905,7 +1059,6 @@ describe("config service", {timeout: 30_000}, () => {
         }, null, 4), "utf-8");
 
         const effective = await loadEffectiveConfigForAgentRuntime({
-            workspaceRoot: "workspace",
             projectPath: externalProjectRoot,
         });
 
@@ -1593,38 +1746,38 @@ describe("config service", {timeout: 30_000}, () => {
     });
 });
 
-async function moveGlobalConfigAside(): Promise<string | null> {
-    const configPath = path.join("workspace", ".nbook", "config.json");
-    try {
-        await fs.access(configPath);
-    } catch (error) {
-        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
-            return null;
-        }
-        throw error;
-    }
-
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-config-test-"));
-    const backupPath = path.join(tempDir, "config.json");
-    await fs.rename(configPath, backupPath);
-    return backupPath;
-}
-
-async function moveGlobalAgentsAside(): Promise<string | null> {
-    const agentsPath = path.join("workspace", ".nbook", "agents");
-    try {
-        await fs.access(agentsPath);
-    } catch (error) {
-        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
-            return null;
-        }
-        throw error;
-    }
-
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-agents-test-"));
-    const backupPath = path.join(tempDir, "agents");
-    await fs.rename(agentsPath, backupPath);
-    return backupPath;
+function validModelsInput(): NonNullable<GlobalConfigUpdateDto["models"]> {
+    return {
+        default: "local/model",
+        providers: [{
+            id: "local",
+            name: "Local",
+            enabled: true,
+                    modelApi: "openai-completions",
+            options: {
+                apiKey: {configured: false, maskedValue: null},
+                baseURL: "https://example.com/v1",
+                proxy: "",
+                timeoutMs: null,
+                requestOptions: {},
+            },
+            models: [{
+                id: "model",
+                name: "Model",
+                group: null,
+                enabled: true,
+                api: "openai-completions",
+                reasoning: false,
+                input: ["text"],
+                maxTokens: 4096,
+                contextWindowTokens: 8192,
+                cost: null,
+                compat: null,
+                headers: null,
+                thinkingLevelMap: null,
+            }],
+        }],
+    };
 }
 
 async function createProjectFixture(): Promise<void> {

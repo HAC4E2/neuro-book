@@ -26,6 +26,7 @@ type CheckModelResponse = {
 
 type CheckModelOptions = {
     signal?: AbortSignal;
+    trace?: unknown;
 };
 
 function createTestEvent(body: unknown): ModelCheckTestEvent {
@@ -48,7 +49,7 @@ function createProviderDraft() {
     return {
         id: "custom",
         name: "Custom",
-        api: "openai-completions",
+        modelApi: "openai-completions",
         options: {
             apiKey: "",
             baseURL: "https://example.com/v1",
@@ -64,23 +65,23 @@ function createModelDraft() {
         name: "Draft",
         id: "draft-model",
         group: null,
-        provider: null,
-        api: null,
-        baseUrl: null,
-        reasoning: null,
-        input: null,
-        maxTokens: null,
+        api: "openai-completions",
+        reasoning: false,
+        input: ["text"],
+        maxTokens: 1024,
         cost: null,
         compat: null,
-        contextWindowTokens: null,
+        headers: null,
+        thinkingLevelMap: null,
+        contextWindowTokens: 8192,
     };
 }
 
-function createRequestBody(options: {useSavedApiKey: boolean} = {useSavedApiKey: false}) {
+function createRequestBody(options: {credentialSource: "provided" | "saved" | "cleared"} = {credentialSource: "cleared"}) {
     return {
         provider: createProviderDraft(),
         model: createModelDraft(),
-        useSavedApiKey: options.useSavedApiKey,
+        credentialSource: options.credentialSource,
     };
 }
 
@@ -90,10 +91,16 @@ function mockConfigService(): void {
             models: {
                 providers: {
                     custom: {
-                        options: {apiKey: "sk-saved"},
+                        modelApi: "openai-completions",
+                        options: {apiKey: "sk-saved", baseURL: "https://example.com/v1", proxy: ""},
                     },
                 },
             },
+        })),
+    }));
+    vi.doMock("nbook/server/agent/http", () => ({
+        useAgentHarness: vi.fn(() => ({
+            traceBinding: vi.fn(() => ({kind: "test-trace"})),
         })),
     }));
 }
@@ -104,10 +111,12 @@ describe("POST /api/config/models/model-check", () => {
         vi.clearAllMocks();
         vi.stubGlobal("defineEventHandler", (handler: unknown) => handler);
         vi.stubGlobal("defineRouteMeta", () => undefined);
-        vi.stubGlobal("readBody", (event: {body?: unknown}) => event.body);
+        vi.doMock("nbook/server/utils/novel-chapter", () => ({
+            validateBody: vi.fn(async (event: {body?: unknown}) => event.body),
+        }));
     });
 
-    it("禁用 API Key 回退时不会补齐已保存密钥", async () => {
+    it("明确 cleared 时不会补齐已保存密钥", async () => {
         const checkModelHealth = vi.fn(async () => ({
             success: false,
             latencyMs: null,
@@ -125,7 +134,7 @@ describe("POST /api/config/models/model-check", () => {
             })),
         }));
 
-        const body = createRequestBody({useSavedApiKey: false});
+        const body = createRequestBody({credentialSource: "cleared"});
         const event = createTestEvent(body);
 
         const handler = (await import("nbook/server/api/config/models/model-check.post")).default;
@@ -133,12 +142,25 @@ describe("POST /api/config/models/model-check", () => {
 
         expect(checkModelHealth).toHaveBeenCalledWith(body.provider, body.model, {
             signal: expect.any(AbortSignal),
+            trace: {kind: "test-trace"},
         });
         const options = checkModelHealth.mock.calls[0]?.[2] as CheckModelOptions | undefined;
         expect(options?.signal?.aborted).toBe(false);
         expect(event.node.req.listenerCount("aborted")).toBe(0);
         expect(event.node.req.listenerCount("close")).toBe(0);
         expect(event.node.res.listenerCount("close")).toBe(0);
+    });
+
+    it("saved连接身份不匹配时返回400且模型Adapter零调用", async () => {
+        const checkModelHealth = vi.fn();
+        mockConfigService();
+        vi.doMock("nbook/server/utils/model-settings", () => ({checkModelHealth}));
+        const body = createRequestBody({credentialSource: "saved"});
+        body.provider.options.baseURL = "https://changed.example/v1";
+
+        const handler = (await import("nbook/server/api/config/models/model-check.post")).default;
+        await expect(handler(createTestEvent(body) as never)).rejects.toMatchObject({statusCode: 400});
+        expect(checkModelHealth).not.toHaveBeenCalled();
     });
 
     it("请求中断时会 abort 传给模型检查的 signal 并清理监听器", async () => {

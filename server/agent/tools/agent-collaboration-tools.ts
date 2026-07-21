@@ -3,6 +3,7 @@ import type {Static} from "typebox";
 import {Value} from "typebox/value";
 import {defineAgentTool} from "nbook/server/agent/tools/types";
 import type {JsonValue} from "nbook/server/agent/messages/types";
+import {normalizeToolResultDetails} from "nbook/server/agent/messages/message-utils";
 
 const CreateAgentSchema = Type.Object({
     profileKey: Type.String({description: "Agent profile key from AgentCatalog, e.g. writer or retrieval."}),
@@ -81,14 +82,14 @@ export const agentCollaborationTools = {
                 profileKey: agentInput.profileKey,
                 initial: normalizeCreateAgentInitial(agentInput.profileKey, agentInput.initial) as never,
                 title: agentInput.title,
-                workspaceRoot: agentInput.workspaceRoot ?? context.workspaceRoot,
+                workspaceRoot: agentInput.workspaceRoot ?? context.workspaceRootRef,
                 workspaceKey: context.workspaceKey,
                 projectPath: agentInput.projectPath ?? context.projectPath,
                 parentSessionId: context.sessionId,
             });
             return {
                 content: [{type: "text", text: `created agent session ${result.sessionId}`}],
-                details: result,
+                details: normalizeToolResultDetails(result),
             };
         },
     }),
@@ -136,7 +137,7 @@ export const agentCollaborationTools = {
             const result = await context.harness.getAgent(query.sessionId, context.sessionId);
             return {
                 content: [{type: "text", text: JSON.stringify(result)}],
-                details: result,
+                details: normalizeToolResultDetails(result),
             };
         },
     }),
@@ -152,7 +153,7 @@ export const agentCollaborationTools = {
             const result = await getAgentProfileDetail(context.harness, query.profileKey);
             return {
                 content: [{type: "text", text: JSON.stringify(result, null, 2)}],
-                details: result as unknown as JsonValue,
+                details: normalizeToolResultDetails(result),
             };
         },
     }),
@@ -175,7 +176,7 @@ export const agentCollaborationTools = {
             const result = await context.harness.getSession({...query, sessionId: query.sessionId ?? context.sessionId}, context.sessionId);
             return {
                 content: [{type: "text", text: JSON.stringify(result)}],
-                details: result,
+                details: normalizeToolResultDetails(result),
             };
         },
     }),
@@ -196,7 +197,7 @@ export const agentCollaborationTools = {
                     : `agent ${detach.sessionId} was not linked`;
             return {
                 content: [{type: "text", text}],
-                details: result,
+                details: normalizeToolResultDetails(result),
             };
         },
     }),
@@ -258,7 +259,7 @@ function compactInvokeAgentResult(result: {
     return output;
 }
 
-async function getAgentProfileDetail(harness: {profiles: {snapshot(): Promise<{profiles: Array<{key: string; name: string; description?: string; loadStatus: string; initialSchema?: unknown; payloadSchema?: unknown; outputSchema?: unknown}>}>; get(profileKey: string): Promise<{rootToolKeys: readonly string[]; initialSchema?: unknown; payloadSchema?: unknown; outputSchema?: unknown}>}}, profileKey: string): Promise<Record<string, JsonValue>> {
+async function getAgentProfileDetail(harness: {profiles: {snapshot(): Promise<{profiles: Array<{key: string; name: string; description?: string; loadStatus: string; creationMode: "public" | "system_only"; initialSchema?: unknown; payloadSchema?: unknown; outputSchema?: unknown}>}>; get(profileKey: string): Promise<{rootToolKeys: readonly string[]; initialSchema?: unknown; payloadSchema?: unknown; outputSchema?: unknown}>}}, profileKey: string): Promise<Record<string, JsonValue>> {
     const {renderSchemaSummary} = await import("nbook/server/agent/profiles/profile-dsl");
     const snapshot = await harness.profiles.snapshot();
     const item = snapshot.profiles.find((profile) => profile.key === profileKey);
@@ -270,6 +271,8 @@ async function getAgentProfileDetail(harness: {profiles: {snapshot(): Promise<{p
         profileKey,
         name: item.name,
         description: item.description ?? "",
+        creationMode: item.creationMode,
+        createAgentAllowed: item.creationMode === "public",
         toolKeys: [...profile.rootToolKeys],
         initialSchema: item.initialSchema ? renderSchemaSummary(item.initialSchema as never) : "none",
         payloadSchema: item.payloadSchema ? renderSchemaSummary(item.payloadSchema as never) : "none",

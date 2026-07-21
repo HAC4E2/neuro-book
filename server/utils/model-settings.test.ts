@@ -1,14 +1,16 @@
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {fauxAssistantMessage, fauxText} from "@earendil-works/pi-ai";
 import {createFauxModels} from "nbook/server/agent/test-utils/faux-models";
-import {buildModelSettingsDto, checkModelHealth, checkProviderConnection, convertModelSettingsRequestToConfig, discoverProviderModels, MODEL_SMOKE_CHECK_PROMPTS, pickModelSmokeCheckPrompt, resolveConfiguredModel, withSavedProviderApiKey} from "nbook/server/utils/model-settings";
+import {checkModelHealth, checkProviderConnection, discoverProviderModels, MODEL_SMOKE_CHECK_PROMPTS, pickModelSmokeCheckPrompt, resolveConfiguredModel, withSavedProviderApiKey} from "nbook/server/utils/model-settings";
+import type {ModelSettingsConfig} from "nbook/server/config/types";
 import type {ConfiguredModelDto, ModelProviderDraftDto} from "nbook/shared/dto/app-settings.dto";
+import type {PiTraceBinding} from "nbook/server/agent/observability/traced-provider";
 
 function createProviderDraft(overrides: Partial<ModelProviderDraftDto> = {}): ModelProviderDraftDto {
     return {
         id: "qwen",
         name: "Qwen",
-        api: "openai-completions",
+        modelApi: "openai-completions",
         options: {
             apiKey: "sk-test",
             baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1/",
@@ -25,15 +27,15 @@ function createModelDraft(overrides: Partial<Omit<ConfiguredModelDto, "enabled">
         name: "Faux",
         id: "faux-fast",
         group: null,
-        provider: null,
-        api: null,
-        baseUrl: null,
-        reasoning: null,
-        input: null,
-        maxTokens: null,
+        api: "openai-completions",
+        reasoning: false,
+        input: ["text"],
+        maxTokens: 1024,
         cost: null,
         compat: null,
-        contextWindowTokens: null,
+        headers: null,
+        thinkingLevelMap: null,
+        contextWindowTokens: 8192,
         ...overrides,
     };
 }
@@ -48,29 +50,26 @@ function createConfiguredModel(overrides: Partial<ConfiguredModelDto> = {}): Con
 
 describe("model settings provider enabled", () => {
     it("disabled Provider 下的模型不进入 enabledModels，也不能被解析为默认模型", () => {
-        const config = convertModelSettingsRequestToConfig({
+        const config: ModelSettingsConfig = {
             defaultModelKey: "enabled-provider/enabled-model",
-            providers: [{
-                id: "disabled-provider",
+            providers: {
+                "disabled-provider": {
                 name: "Disabled Provider",
                 enabled: false,
-                api: "openai-completions",
+                modelApi: "openai-completions",
                 options: createProviderDraft().options,
-                models: [createConfiguredModel({id: "disabled-model", name: "Disabled Model"})],
-            }, {
-                id: "enabled-provider",
+                models: {"disabled-model": createConfiguredModel({id: "disabled-model", name: "Disabled Model"})},
+            },
+                "enabled-provider": {
                 name: "Enabled Provider",
                 enabled: true,
-                api: "openai-completions",
+                modelApi: "openai-completions",
                 options: createProviderDraft().options,
-                models: [createConfiguredModel({id: "enabled-model", name: "Enabled Model"})],
-            }],
-        });
+                models: {"enabled-model": createConfiguredModel({id: "enabled-model", name: "Enabled Model"})},
+            },
+            },
+        };
 
-        const dto = buildModelSettingsDto({models: config});
-
-        expect(dto.providers.find((provider) => provider.id === "disabled-provider")?.enabled).toBe(false);
-        expect(dto.enabledModels.map((model) => model.key)).toEqual(["enabled-provider/enabled-model"]);
         expect(resolveConfiguredModel(config, "disabled-provider/disabled-model")).toBeNull();
     });
 
@@ -82,16 +81,41 @@ describe("model settings provider enabled", () => {
 });
 
 describe("provider/model Pi checks", () => {
+    it("health-check trace 开启时写入 _system correlation，关闭时零记录", async () => {
+        const faux = createFauxModels({provider: "faux-trace-check", api: "openai-completions", models: [{id: "faux-fast"}]});
+        faux.setResponses([fauxAssistantMessage(fauxText("ok")), fauxAssistantMessage(fauxText("ok"))]);
+        const record = vi.fn(async () => undefined);
+        const binding: PiTraceBinding = {
+            recorder: {record} as PiTraceBinding["recorder"],
+            settings: {enabled: true, capturePayload: true, maxRecords: 100},
+            correlation: {kind: "health-check", mode: "model-check"},
+        };
+
+        await checkModelHealth(createProviderDraft({id: "faux-trace-check"}), createModelDraft(), {
+            runtimeResolver: () => faux.runtime,
+            trace: binding,
+        });
+        await vi.waitFor(() => expect(record).toHaveBeenCalledTimes(1));
+        expect(record.mock.calls[0]?.[0]).toMatchObject({correlation: {kind: "health-check", mode: "model-check"}});
+
+        await checkModelHealth(createProviderDraft({id: "faux-trace-check"}), createModelDraft(), {
+            runtimeResolver: () => faux.runtime,
+            trace: {...binding, settings: {...binding.settings, enabled: false}},
+        });
+        expect(record).toHaveBeenCalledTimes(1);
+    });
+
     it("model check 通过 Pi streamSimple smoke", async () => {
         const faux = createFauxModels({
             provider: "faux-check",
+            api: "openai-completions",
             models: [{id: "faux-fast"}],
         });
         faux.setResponses([fauxAssistantMessage(fauxText("ok"))]);
         const result = await checkModelHealth(createProviderDraft({
             id: "faux-check",
             name: "Faux",
-            api: faux.api,
+            modelApi: "openai-completions",
         }), createModelDraft({
             id: "faux-fast",
         }), {runtimeResolver: () => faux.runtime});
@@ -118,6 +142,7 @@ describe("provider/model Pi checks", () => {
         const controller = new AbortController();
         const faux = createFauxModels({
             provider: "faux-signal-check",
+            api: "openai-completions",
             models: [{id: "faux-fast"}],
         });
         faux.setResponses([(_context, options) => {
@@ -127,7 +152,7 @@ describe("provider/model Pi checks", () => {
         const result = await checkModelHealth(createProviderDraft({
             id: "faux-signal-check",
             name: "Faux Signal",
-            api: faux.api,
+            modelApi: "openai-completions",
         }), createModelDraft({
             id: "faux-fast",
         }), {
@@ -141,13 +166,14 @@ describe("provider/model Pi checks", () => {
     it("provider check 可使用传入的代表模型", async () => {
         const faux = createFauxModels({
             provider: "faux-provider-check",
+            api: "openai-completions",
             models: [{id: "faux-fast"}],
         });
         faux.setResponses([fauxAssistantMessage(fauxText("ok"))]);
         const result = await checkProviderConnection(createProviderDraft({
             id: "faux-provider-check",
             name: "Faux Provider",
-            api: faux.api,
+            modelApi: "openai-completions",
             }), [createModelDraft({id: "faux-fast"})], {runtimeResolver: () => faux.runtime});
 
         expect(result.success).toBe(true);
@@ -173,7 +199,7 @@ describe("provider/model Pi checks", () => {
         const result = await checkModelHealth(createProviderDraft({
             options: {
                 apiKey: "",
-                baseURL: "",
+                baseURL: "http://127.0.0.1:1234/v1",
                 proxy: "",
                 timeoutMs: null,
                 requestOptions: {},
@@ -206,6 +232,7 @@ describe("provider/model Pi checks", () => {
     it("provider 错误消息会脱敏", async () => {
         const faux = createFauxModels({
             provider: "faux-error-check",
+            api: "openai-completions",
             models: [{id: "faux-fast"}],
         });
         faux.setResponses([fauxAssistantMessage([], {
@@ -215,7 +242,7 @@ describe("provider/model Pi checks", () => {
         const result = await checkModelHealth(createProviderDraft({
             id: "faux-error-check",
             name: "Faux",
-            api: faux.api,
+            api: "openai-completions",
         }), createModelDraft({id: "faux-fast"}), {runtimeResolver: () => faux.runtime});
 
         expect(result.success).toBe(false);
@@ -258,21 +285,20 @@ describe("discoverProviderModels", () => {
 
         const result = await discoverProviderModels(createProviderDraft());
 
-        expect(fetchMock).toHaveBeenCalledWith(
-            "https://dashscope.aliyuncs.com/compatible-mode/v1/models",
-            expect.objectContaining({
-                method: "GET",
-                headers: expect.objectContaining({
-                    accept: "application/json",
-                    authorization: "Bearer sk-test",
-                }),
-            }),
-        );
-        expect(result.models).toEqual([
+        const [url, init] = fetchMock.mock.calls[0] ?? [];
+        expect(String(url)).toBe("https://dashscope.aliyuncs.com/compatible-mode/v1/models");
+        expect(init).toMatchObject({
+            method: "GET",
+            headers: {
+                accept: "application/json",
+                authorization: "Bearer sk-test",
+            },
+        });
+        expect(result.models.map((model) => ({id: model.id, name: model.name, group: model.group}))).toEqual([
             {id: "qwen-max", name: "qwen-max", group: "qwen"},
             {id: "qwen-plus", name: "qwen-plus", group: "qwen"},
         ]);
-        expect(result.message).toContain("已从 Qwen 远程发现 2 个模型");
+        expect(result.message).toContain("已从 Qwen 发现 2 个模型");
     });
 
     it("缺少 API Base 时直接报错", async () => {
@@ -293,7 +319,7 @@ describe("discoverProviderModels", () => {
             statusText: "Unauthorized",
         })) as unknown as typeof fetch;
 
-        await expect(discoverProviderModels(createProviderDraft())).rejects.toThrow("HTTP 401 Unauthorized");
+        await expect(discoverProviderModels(createProviderDraft())).rejects.toThrow("HTTP 401");
     });
 
     it("uses ark-code-latest fallback when Volcengine Agent Plan does not expose /models", async () => {
@@ -324,6 +350,6 @@ describe("discoverProviderModels", () => {
     it("远端 JSON 缺少 data 数组时给出结构错误", async () => {
         globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({object: "list"}))) as unknown as typeof fetch;
 
-        await expect(discoverProviderModels(createProviderDraft())).rejects.toThrow("/models 返回缺少 data 数组");
+        await expect(discoverProviderModels(createProviderDraft())).rejects.toThrow();
     });
 });

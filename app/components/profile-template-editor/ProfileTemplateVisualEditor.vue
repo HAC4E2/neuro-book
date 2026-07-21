@@ -501,20 +501,9 @@ async function loadThreads(): Promise<void> {
         if (!selectedThreadId.value || !threads.value.some((thread) => String(thread.sessionId) === selectedThreadId.value)) {
             selectedThreadId.value = threads.value[0]?.sessionId ? String(threads.value[0].sessionId) : "";
         }
-        await syncSelectedThreadScope();
     } finally {
         loadingThreads.value = false;
     }
-}
-
-/**
- * 通过线程详情接口同步当前 IDE 客户端变量到线程 scope。
- */
-async function syncSelectedThreadScope(): Promise<void> {
-    if (!selectedThreadId.value) {
-        return;
-    }
-    await agentApi.getSession(Number(selectedThreadId.value));
 }
 
 /**
@@ -543,7 +532,6 @@ async function previewTemplate(): Promise<void> {
     previewing.value = true;
     statusText.value = "正在生成 Prompt 预览...";
     try {
-        await syncSelectedThreadScope();
         const result = props.mode === "user-profile"
             ? await previewPreparedProfile()
             : await $fetch<ProfileTemplatePreviewDto>("/api/agent/profile-templates/preview", {
@@ -664,6 +652,7 @@ function fileItemToCatalogItem(item: AgentProfileFileItemDto): AgentProfileCatal
         fileName: item.fileName,
         source: "user",
         overrideState: "user_only",
+        creationMode: "public",
         loadStatus: item.loadStatus,
         schemaLocked: false,
         canEdit: true,
@@ -994,6 +983,7 @@ function emptyProfileDetail(compileIssues: AgentProfileIssueDto[]): AgentProfile
             fileName: selectedTemplate.value,
             source: "user",
             overrideState: "user_only",
+            creationMode: "public",
             loadStatus: "source_error",
             schemaLocked: false,
             canEdit: true,
@@ -2166,7 +2156,6 @@ watch(selectedTemplate, () => {
 });
 
 watch(selectedThreadId, async () => {
-    await syncSelectedThreadScope();
     if (previewDialogOpen.value) {
         await previewTemplate();
     }

@@ -1,5 +1,6 @@
 import type {Static, TSchema} from "typebox";
-import type {AgentMessage, JsonValue, Message} from "nbook/server/agent/messages/types";
+import type {JsonValue} from "nbook/server/agent/messages/types";
+import type {StoredAgentMessage, StoredUserMessage} from "nbook/server/agent/messages/stored-types";
 import type {NeuroSessionContext, SessionEntryDraft} from "nbook/server/agent/session/types";
 import type {SessionWritePlan} from "nbook/server/agent/session/write-plan";
 import type {ProfileDslNode} from "nbook/server/agent/profiles/profile-dsl";
@@ -22,6 +23,7 @@ export type AgentProfileManifest<TKey extends string = string> = {
 };
 
 export type AgentProfileSourceKind = "memory" | "system" | "user";
+export type AgentProfileCreationMode = "public" | "system_only";
 
 export type AgentProfileLoadStatus =
     | "loaded"
@@ -71,6 +73,7 @@ export type AgentCatalogItem = {
     hasSettingsForm: boolean;
     /** 是否声明专用 summarizer 策略；决定无用户覆盖时的默认开关，不控制设置 UI 可见性。 */
     canResetHome: boolean;
+    creationMode: AgentProfileCreationMode;
     issue?: AgentProfileIssue;
 };
 
@@ -110,7 +113,7 @@ export type ProfilePrepareContext<TInitial = JsonValue, TPayload = unknown, TSet
         now: string;
         promptUserTurnCount: number;
         /** prompt 模式下尚未写入 session 的本轮用户输入；continue 时为空。 */
-        pendingUserMessage?: Message;
+        pendingUserMessage?: StoredUserMessage;
     };
     /** 当前 profile home。Project session 读取时 Project 优先、Global 兜底；写入仍落当前主 home。 */
     home?: ProfileHomeFacade;
@@ -118,11 +121,11 @@ export type ProfilePrepareContext<TInitial = JsonValue, TPayload = unknown, TSet
 
 export type ProfileTurnPlan = {
     systemPrompt?: string;
-    historyInitMessages?: Message[];
-    appendingMessages?: Message[];
+    historyInitMessages?: StoredAgentMessage[];
+    appendingMessages?: StoredAgentMessage[];
     /** ModelContext 内需要按 AppendingSet 语义写入 session 的运行时提醒。 */
-    modelContextAppendingMessages?: Message[];
-    modelContextMessages?: AgentMessage[];
+    modelContextAppendingMessages?: StoredAgentMessage[];
+    modelContextMessages?: StoredAgentMessage[];
     /** 每个 provider turn 由 profile 显式声明并动态物化的 AppendingSet 上下文。 */
     turnContexts?: ProfileTurnContextPlan[];
     stateWrites?: SessionEntryDraft[];
@@ -159,8 +162,8 @@ export type SidecarResult<TSidecarData = JsonValue> = {
 };
 
 export type SidecarMergePlan = {
-    runtimeMessages?: AgentMessage[];
-    persistedMessages?: Message[];
+    runtimeMessages?: StoredAgentMessage[];
+    persistedMessages?: StoredAgentMessage[];
     runtimeState?: JsonValue;
     writePlans?: SessionWritePlan[];
 };
@@ -184,6 +187,10 @@ export type AgentProfileDefinition<
     TTools extends ProfileTools = ProfileTools,
 > = {
     manifest: AgentProfileManifest;
+    /** Agent session 创建入口能力。system_only 只能由 Harness 内部系统流程创建。 */
+    capabilities?: {
+        creation?: AgentProfileCreationMode;
+    };
     initialSchema: TInitialSchema;
     payloadSchema?: TPayloadSchema;
     outputSchema?: TOutputSchema;

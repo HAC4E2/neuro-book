@@ -2,6 +2,7 @@ import type {AssistantMessage} from "nbook/server/agent/messages/types";
 import {createAssistantTextMessage} from "nbook/server/agent/messages/message-utils";
 import type {FailedRunLoopResult, FailedTurnOutcome, RunFrame, TurnIngestResult} from "nbook/server/agent/harness/run-kernel-types";
 import {providerErrorText, sanitizeProviderErrorMessage} from "nbook/server/agent/observability/provider-error-sanitizer";
+import {isPublicToolCallId} from "nbook/shared/agent/public-tool-identity";
 
 export type FailedTurnIngestDraft = {
     assistant: AssistantMessage;
@@ -32,6 +33,11 @@ export function sanitizePartialAssistant(assistant: AssistantMessage): Assistant
  * 清理 Provider assistant 终态中的错误文本，正文与 usage 保持不变。
  */
 export function sanitizeProviderAssistant(assistant: AssistantMessage): AssistantMessage {
+    for (const block of assistant.content) {
+        if (block.type === "toolCall" && !isPublicToolCallId(block.id)) {
+            throw new Error("provider_tool_call_id_invalid");
+        }
+    }
     return {
         ...assistant,
         errorMessage: assistant.errorMessage ? sanitizeProviderErrorMessage(assistant.errorMessage) : undefined,

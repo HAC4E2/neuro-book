@@ -1,14 +1,15 @@
 import {randomUUID} from "node:crypto";
 import {readFile, readdir, rm} from "node:fs/promises";
-import {join} from "node:path";
+import {join, resolve} from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {fauxAssistantMessage} from "@earendil-works/pi-ai";
-import {createFauxModels, type FauxModelsFixture} from "nbook/server/agent/test-utils/faux-models";
+import {createFauxModels, type FauxModelsFixture, writeFauxProviderConfig} from "nbook/server/agent/test-utils/faux-models";
 import {Type} from "typebox";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
+import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import type {PiTraceRecord} from "nbook/server/agent/observability/pi-request-recorder";
 
 /** 轮询等待某 session 目录至少出现 minCount 条 trace 文件（record 是 fire-and-forget）。 */
@@ -29,11 +30,13 @@ describe("harness → pi trace 集成", () => {
     let faux: FauxModelsFixture;
     let harness: NeuroAgentHarness;
 
-    beforeEach(() => {
-        root = join(".agent", "harness-trace-test", randomUUID());
+    beforeEach(async () => {
+        root = resolve(".agent", "harness-trace-test", randomUUID());
         faux = createFauxModels({models: [{id: `faux-${randomUUID()}`, contextWindow: 128_000, maxTokens: 8_000}]});
+        await writeFauxProviderConfig(root, faux);
         harness = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
+            profiles: new AgentProfileCatalog(join(root, "profiles-system"), join(root, "profiles-user")),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,

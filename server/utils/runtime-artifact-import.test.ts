@@ -22,7 +22,8 @@ describe("importRuntimeArtifact", () => {
 
     it("用物理 cache key 区分同一路径 artifact", async () => {
         const root = await mkdtemp(join(tmpdir(), "nbook-runtime-artifact-query-"));
-        const cacheRoot = resolve(".agent", "workspace", "runtime-artifact-import-cache", "test");
+        const cacheBase = join(root, "runtime-artifact-import-cache");
+        const cacheRoot = join(cacheBase, "test");
         try {
             const artifactPath = join(root, "runtime-artifact.mjs");
             await writeFile(artifactPath, "export const version = 1;\n", "utf8");
@@ -30,11 +31,13 @@ describe("importRuntimeArtifact", () => {
             const first = await importRuntimeArtifact<{version: number}>(artifactPath, {
                 cacheKey: "version-1",
                 cacheNamespace: "test",
+                cacheRoot: cacheBase,
             });
             await writeFile(artifactPath, "export const version = 2;\n", "utf8");
             const second = await importRuntimeArtifact<{version: number}>(artifactPath, {
                 cacheKey: "version-2",
                 cacheNamespace: "test",
+                cacheRoot: cacheBase,
             });
 
             expect(first.version).toBe(1);
@@ -42,7 +45,6 @@ describe("importRuntimeArtifact", () => {
             await expect(readdir(cacheRoot)).resolves.toEqual(["version-1.mjs", "version-2.mjs"]);
         } finally {
             await rm(root, {recursive: true, force: true});
-            await rm(cacheRoot, {recursive: true, force: true});
         }
     });
 });

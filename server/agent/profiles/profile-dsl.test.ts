@@ -37,7 +37,7 @@ import {validateProfileRuntimeSettingsPatch} from "nbook/server/agent/profiles/p
 import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
 import type {ProfileTools} from "nbook/server/agent/profiles/profile-tools";
 import type {AgentProfileDefinition, ProfilePrepareContext, SidecarProfilePass} from "nbook/server/agent/profiles/types";
-import type {AgentDialogueContent} from "nbook/server/agent/session/dialogue-content";
+import {createTestRuntimeSession} from "nbook/server/agent/profiles/test/runtime-session";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
 import {defineLowCodeForm} from "nbook/server/low-code-form";
@@ -746,6 +746,7 @@ describe("profile TSX DSL", () => {
                     loadStatus: "loaded",
                     hasSettingsForm: false,
                     canResetHome: false,
+                    creationMode: "public",
                 }],
                 issues: [],
             },
@@ -924,6 +925,17 @@ describe("profile TSX DSL", () => {
                     loadStatus: "loaded",
                     hasSettingsForm: false,
                     canResetHome: false,
+                    creationMode: "public",
+                }, {
+                    key: "summarizer",
+                    name: "Summarizer",
+                    description: "后台摘要",
+                    source: "system",
+                    builtin: true,
+                    loadStatus: "loaded",
+                    hasSettingsForm: false,
+                    canResetHome: false,
+                    creationMode: "system_only",
                 }],
                 issues: [],
             },
@@ -933,6 +945,7 @@ describe("profile TSX DSL", () => {
 
         expect(text).toContain("## Available Agents");
         expect(text).toContain("writer");
+        expect(text).not.toContain("summarizer");
         expect(text).toContain("get_agent_profile");
         expect(text).not.toContain("allowedTools: read, write");
         expect(text).not.toContain("写作任务说明");
@@ -1009,14 +1022,14 @@ describe("profile TSX DSL", () => {
         expect(modelText).toBe("SQL_SCHEMA");
         expect(modelText).not.toContain("<dynamic-context>");
         expect(appendingText).toContain("Runtime Location:");
-        expect(appendingText).toContain("- Tool cwd / Workspace Root: workspace/");
+        expect(appendingText).toContain("- Tool cwd / Current Project Workspace: workspace/novel-7/");
         expect(appendingText).toContain("- Repository Source Root:");
         expect(appendingText).toContain("- Repository Reference Root:");
-        expect(appendingText).toContain("not an access boundary");
+        expect(appendingText).toContain("current File Scope");
         expect(appendingText).toContain("Current Workspace Focus:");
         expect(appendingText).toContain("Current Project Workspace: workspace/novel-7");
-        expect(appendingText).toContain("novel-7/lorebook/..., novel-7/manuscript/..., or novel-7/reference/...");
-        expect(appendingText).toContain("Current selected file: novel-7/manuscript/001-opening/index.md");
+        expect(appendingText).toContain("use lorebook/..., manuscript/..., or reference/... directly");
+        expect(appendingText).toContain("Current selected file: manuscript/001-opening/index.md");
         expect(appendingText).not.toContain("You are in normal mode. switch_mode is available");
         expect(appendingText).toContain("Current linked agents:");
         expect(appendingText).toContain("Current task list: Test plan");
@@ -1200,12 +1213,12 @@ describe("profile TSX DSL", () => {
         expect(unchanged.appendingMessages ?? []).toEqual([]);
         const text = (projectChanged.appendingMessages ?? []).map(messageText).join("\n");
         expect(text).toContain("User switched Current Project Workspace to workspace/b");
-        expect(text).toContain("Tool cwd and accessible Project Workspaces are unchanged");
-        expect(text).toContain("Use b/lorebook/..., b/manuscript/..., and b/reference/...");
-        expect(text).toContain("Use workspace/b only when a tool explicitly asks for projectPath");
+        expect(text).toContain("next invocation uses this Project Workspace as the File Scope");
+        expect(text).toContain("Use lorebook/..., manuscript/..., and reference/... directly");
+        expect(text).toContain("Use workspace/b when a tool explicitly asks for projectPath");
 
         const fileText = (fileChanged.appendingMessages ?? []).map(messageText).join("\n");
-        expect(fileText).toContain("Current selected file changed to a/manuscript/002/index.md");
+        expect(fileText).toContain("Current selected file changed to manuscript/002/index.md");
         expect(fileText).toContain("Use this cwd-relative path directly in file tools.");
     });
 
@@ -1297,7 +1310,7 @@ describe("profile TSX DSL", () => {
         expect(enteredText).toContain("Plan mode is active");
         expect(enteredText).toContain("## Mode Constraints");
         expect(enteredText).toContain("## Plan Work Directory");
-        expect(enteredText).toContain("workspace/alpha/.agent/plan");
+        expect(enteredText).toContain(".agent/plan");
         expect(enteredText).toContain("planFilePath like .agent/plan/<slug>.md");
         expect(enteredText).toContain("approval UI displays that Project Workspace file");
 
@@ -1412,43 +1425,10 @@ describe("profile TSX DSL", () => {
 });
 
 function context(): ProfilePrepareContext<object> {
-    const session: ProfilePrepareContext<object>["session"] = {
-        systemPrompt: "",
+    const session: ProfilePrepareContext<object>["session"] = createTestRuntimeSession({
         messages: [createUserMessage({text: "prompt"})],
-        model: null,
-        thinkingLevel: "off",
         profileKey: "test.dsl",
-        workspaceRoot: "workspace",
-        customState: {},
-        linkedAgents: [],
-        archived: false,
-        agentMode: "normal",
-        async read() {
-            return {
-                snapshot: {
-                    metadata: {
-                        sessionId: -1,
-                        profileKey: "test.dsl",
-                        initial: {},
-                        workspaceRoot: "workspace",
-                        workspaceKey: "test",
-                        createdAt: 0,
-                    },
-                    entries: [],
-                    leafId: null,
-                },
-                context: session,
-            };
-        },
-        async agentDialogueContent(): Promise<AgentDialogueContent> {
-            return {
-                text: "",
-                tokens: 0,
-                fingerprint: "test",
-                entryIds: [],
-            };
-        },
-    };
+    });
     return {
         session,
         initial: {},

@@ -1,29 +1,43 @@
 # 部署方式
 
-NeuroBook 的所有安装形式由独立包 `@notnotype/neuro-book-manager` 管理，公开命令为 `neuro-book`。旧 `neuro-book-deploy`、`local-git` 和宿主 build + runtime container 的混合模式已删除。
+NeuroBook 的所有安装形式由独立包 `@notnotype/neuro-book-manager` 管理，公开命令为 `neuro-book`。旧部署入口、`local-git` 和宿主 build + runtime container 的混合模式已删除。
 
 ## 推荐顺序
 
 | Profile | 适合场景 | Source | Product | Runtime / Tool |
 | --- | --- | --- | --- | --- |
 | `windows-portable` | Windows x64 普通用户 | Release 源码 | Windows `.output` | 托管 Bun、rg、PortableGit/bash |
-| `ghcr` | 服务器 Docker | 镜像 `/app` | 镜像 `.output` | container |
-| `product-bun` | 已有 Bun 的 Windows/Linux | Release 源码 | 平台 `.output` | system Bun/Tool |
+| `ghcr` | Linux/macOS Docker或Podman | 镜像 `/app` | 镜像 `.output` | container |
+| `product-bun` | 已有 Bun 的 Windows/Linux/macOS | Release 源码 | 平台 `.output` | system Bun/Tool |
 | `source-dev` | 本机开发 | Git | 无 | system Bun/Tool |
 | `source-product` | 从 Git 构建生产 Product | Git | 本机 staging build | system Bun/Tool |
 | `source-docker` | 需要从源码构建镜像 | Git build context | 容器内 build | container |
 
-初版正式支持 Windows x64 与 Linux x64 glibc。macOS、arm64 和 musl 尚未进入 Product/managed runtime 发布矩阵。
+正式平台为Windows x64、Linux x64/AArch64 glibc和macOS x64/ARM64。Windows ARM64、Linux musl和其他架构明确拒绝，不会回退到x64资产。
+
+## 用户入口
+
+- Windows普通用户从完整GitHub Release下载准确文件名`neuro-book-windows-x64.zip`，解压后运行`Start Neuro Book.cmd`。Source archive与Product overlay不是可直接启动的Portable。
+- Windows高级用户通过Manager部署多实例、Docker、Product Bun或Source Profile；没有Bun时使用PowerShell Stage 0。
+- Linux/macOS所有本机、服务器和开发部署统一从Manager进入；有Docker/Podman时默认推荐`ghcr`，没有容器engine时选择`product-bun`或对应Source Profile。
 
 ## Stage 0
 
 机器已经安装 Bun 时，可以直接运行：
 
 ```bash
-bunx --bun @notnotype/neuro-book-manager@canary install --profile ghcr
+bunx --bun @notnotype/neuro-book-manager@canary
+```
+
+不传参数会进入 Clack 安装向导，逐步解释并选择 Profile、Installation Root、实例名称、更新通道、端口和鉴权。CI 或自动化部署使用显式命令：
+
+```bash
+bunx --bun @notnotype/neuro-book-manager@canary install --profile ghcr --yes
 ```
 
 Canary Manager 使用 `@canary`。没有 Bun 时，使用仓库提供的平台 Stage 0：
+
+不要使用`bunx run @notnotype/neuro-book-manager`；该命令会让Bun把包名按本地脚本或路径解析，Manager不会启动。稳定Manager和正确npm `latest`建立前，公开文档继续使用`@canary`。
 
 ```powershell
 irm https://raw.githubusercontent.com/notnotype/neuro-book/master/scripts/install/install.ps1 | iex
@@ -33,7 +47,17 @@ irm https://raw.githubusercontent.com/notnotype/neuro-book/master/scripts/instal
 curl -fsSL https://raw.githubusercontent.com/notnotype/neuro-book/master/scripts/install/install.sh | sh
 ```
 
-Stage 0 只把固定版本 Bun 下载到用户 cache、校验官方 SHA256，然后调用 Manager。它不会先向目标 Installation Root 写 `.runtime`，因此不会破坏 Git materialize。
+POSIX Stage 0支持Linux x64/AArch64 glibc和macOS x64/ARM64，并依赖`curl`与`unzip`。Linux使用`sha256sum`并验证glibc，macOS使用系统`shasum -a 256`。无参数管道执行会尝试从`/dev/tty`恢复Manager交互输入；没有TTY时在下载前失败，自动化应使用：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/notnotype/neuro-book/master/scripts/install/install.sh | sh -s -- --profile ghcr --yes
+```
+
+Stage 0把固定版本Bun下载到用户cache，解压后再次校验executable SHA256、版本和执行位，清理临时目录后才调用Manager `@canary`；它不会先向Installation Root写`.runtime`。Windows Stage 0使用原生OS架构，Windows ARM64在下载前拒绝；缓存与首次解压使用同一executable checksum/version门禁。
+
+每个完成装配的应用Release也独立发布`install.ps1`、`install.cmd`和`install.sh`，三者进入同一`SHA256SUMS`。raw GitHub命令适合快速安装；Release资产适合先审计脚本内容与校验值，再进行联网引导。它们不是离线应用安装包。
+
+Manager只安装已经发布正式`release-manifest.json`的完整GitHub Release。候选资产在Actions内完成校验后才公开Manifest；仍在构建、验证失败或已取消的Release会被Resolver跳过。
 
 ## Installation Root 与 State Root
 
@@ -61,14 +85,29 @@ neuro-book/
 
 Release 更新只替换组件拥有的路径，不覆盖 State Root。
 
+`neuro-book update`按当前Profile执行原子应用更新，不接受`--component`拆分Source/Product；同版本且Manager checksum一致时直接返回“已是最新版本”。Runtime与Tool分别使用`neuro-book runtime update bun`、`neuro-book tools update <rg|git>`。候选CI或审计可用`--release-manifest <本地路径或HTTPS URL>`，它与`--version`互斥，仍会校验channel、revision、平台、资产文件名和checksum。
+
 ## 常用命令
 
 ```text
-neuro-book install --profile <profile> [--dir <path>] [--version <version>]
+neuro-book                              # 交互式安装向导
+neuro-book manage                       # 多实例 TUI
+neuro-book install --profile <profile> [--dir <path>] [--version <version> | --release-manifest <path-or-url>]
     [--channel <stable|canary>] [--port <port>]
-    [--auth <enabled|disabled>] [--yes] [--dry-run]
+    [--auth <enabled|disabled>] [--yes] [--dry-run [--json]]
 
-neuro-book update [--component <source|product|runtime|tools>...] [--dry-run]
+neuro-book instances list [--json]
+neuro-book instances add <path> [--name <name>] [--default]
+neuro-book instances import <path> [--name <name>] [--default]
+neuro-book instances inspect [path] [--json]
+neuro-book instances discover [--root <path>...] [--json]
+neuro-book instances roots list|add|remove
+neuro-book adopt [path] --profile <source-dev|source-product|source-docker>
+neuro-book instances forget <name-or-id>
+neuro-book instances default <name-or-id>
+neuro-book instances config
+
+neuro-book update [--version <version> | --release-manifest <path-or-url>] [--dry-run]
 neuro-book start
 neuro-book status [--json]
 neuro-book doctor [--json]
@@ -84,7 +123,30 @@ neuro-book tools path <rg|git>
 neuro-book admin create [username]
 ```
 
+`update/start/status/doctor/runtime/tools/admin` 支持全局 `--root <path>` 或 `--instance <name-or-id>`。未显式指定时，Manager 优先使用当前目录所属实例；目录外执行时使用用户配置中的默认实例。
+
+全局参数必须位于子命令前，例如`neuro-book --root <path> update`。应用或Runtime目标版本位于子命令后，例如`neuro-book install --version <app-version>`或`neuro-book runtime install bun --version <bun-version>`；裸`neuro-book --version`只输出Manager自身版本。
+
+## 用户级 Manager 配置
+
+Manager 配置默认位于 `~/.neuro-book-manager/config.json`。它只保存：
+
+- 安装向导偏好，例如 channel 和上次安装目录。
+- 已注册实例的名称、绝对 Installation Root 和默认实例。
+
+配置不复制应用版本、组件 checksum、Runtime 或 Product 状态；这些信息仍只存在于实例的 `.deploy/installation.json`。配置可保存有限`discoveryRoots`，默认最多向下扫描3层并跳过依赖、构建和Manager目录，不递归整个磁盘。配置损坏或删除不会破坏实例，重新执行 `neuro-book instances import <path>` 即可恢复索引。
+
+无参数入口会按当前目录切换管理、损坏实例处理、接管和部署菜单；非TTY只输出离线检测结果与下一步命令，不产生文件。Candidate Discovery不执行Bun/Docker等环境子进程，其他Git仓库不会进入候选。`instances import`校验Manifest、组件checksum、wrapper、Product、State Root和Operation，但服务或容器停机只产生warning。`adopt`只接受干净且remote/branch/upstream合法的NeuroBook Git checkout；三个Source Profile均先在系统临时目录的短路径detached worktree准备，避免Windows长路径并保证主checkout在提交前不变。
+
+`status`是轻量运行状态，不重算所有大文件checksum；`doctor`才执行完整离线完整性和服务检查。正常停机的原生服务或容器返回warning但保持`healthy=true`，并给出`start`下一步。Docker/Compose缺失、Compose与Manifest镜像不一致、运行中容器实际镜像错误、HTTP不可达或版本错误均为fail。`start`在Docker `up -d`后等待版本接口，不把Compose退出码0当作应用已经可用。
+
+`neuro-book manage` 的 blessed TUI 支持多实例查看、状态、诊断、启动、事务更新、注册、设为默认和忘记记录。安装、启动和更新等长操作会退出 TUI 后在正常终端中继续，避免子进程输出破坏界面。
+
 安装完成后优先使用 Installation Root 下的稳定 wrapper：Windows 为 `.runtime\bin\neuro-book.cmd`，POSIX 为 `.runtime/bin/neuro-book`。Manager 只修改自己启动的子进程 PATH，不修改系统 PATH。
+
+Install Preflight是Clack、`install --yes`与`install --dry-run --json`的共同门禁。一次报告包含原生/进程架构、Profile支持、Git、Docker/Podman、Compose、端口、Installation Root身份、Release完整性和组件来源；blocker禁止执行，warning在交互入口确认后继续。Manager拒绝Rosetta、Windows x64模拟和其他原生/进程架构不一致环境，不会把跨架构安装解释为update或repair。
+
+Managed Bun、ripgrep和PortableGit的版本目录是不可变组件。统一Managed Asset Repository只复用当前有效Manifest能够证明archive/source URL、全部checksum、执行位和真实版本的目录；Fresh Install不会读取既有文件的当前checksum并重新认证。验证失败时整版本重建，所有受管资产完成后才刷新稳定wrapper。
 
 ## Windows Portable
 
@@ -107,7 +169,7 @@ cd /opt/neuro-book
 .runtime/bin/neuro-book start
 ```
 
-Manager 不 clone 宿主源码；它根据 Release Manifest 生成 Compose，镜像使用 `ref@sha256:digest`，并挂载 State Root 的 Workspace Root、Boot Config 和日志。镜像 `/app` 内含完整源码和 `.output`。
+Manager不clone宿主源码；它根据Release Manifest生成Compose，镜像使用`ref@sha256:digest`，并挂载State Root的Workspace Root、Boot Config和日志。首次安装验证Docker/Podman CLI、Compose和engine info后持久化选择；后续启动、更新、回滚、中断恢复、doctor和create-admin只使用该engine。create-admin直接使用`docker compose`与`podman compose`共同支持的`compose exec`，不依赖provider特有的`ps --status`。镜像`/app`内含完整源码和`.output`。
 
 ## Product Bun
 
@@ -167,12 +229,23 @@ SHA256SUMS
 neuro-book-source.zip
 neuro-book-product-windows-x64.zip
 neuro-book-product-linux-x64-glibc.tar.gz
+neuro-book-product-linux-aarch64-glibc.tar.gz
+neuro-book-product-darwin-x64.tar.gz
+neuro-book-product-darwin-aarch64.tar.gz
 neuro-book-windows-x64.zip
 ghcr.io/notnotype/neuro-book:<tag>
 ```
 
-Release Manifest 记录应用版本、Git revision、channel、最低 Manager 版本、各资产 URL/SHA256、Product 平台与 source revision、Windows Portable 资产以及 GHCR digest。Manager 过旧时会拒绝继续并提示重新运行 Stage 0 或 bunx。
+Release Manifest v3记录应用版本、Git revision、channel、最低Manager版本、五平台资产URL/SHA256、Windows Portable资产以及GHCR digest。五个平台必须完整且唯一，资产名必须匹配平台；Product打包命令还会拒绝把当前宿主`.output`交叉标记为其他平台。Resolver先读取稳定envelope并提示升级Manager，再严格解析平台payload。Installation Manifest v4与Operation Journal v3是硬切协议，旧Installation不自动迁移。官方release CLI会在创建GitHub Release前验证本地Manager与npm同版本公开bundle；Release workflow也在任何Source/Product/GHCR构建或推送前执行同一门禁。
+
+### v3实例迁移到v4
+
+- 先停止实例并备份完整State Root。Windows Portable必须备份完整`data/`。
+- 在新的Installation Root重新安装相同Profile，只复用State Root；不要复制旧`.deploy`、`.runtime`、`.output`、generated Compose或wrapper。
+- Portable曾使用绝对`DATABASE_URL`临时修复登录时，迁移后恢复`file:./workspace/.nbook/neuro-book.sqlite`。
+- 未完成的Operation Journal v1/v2需要人工核对Manifest、Product、Git、Compose和SQLite；v3 Manager不会自动转换或忽略。
+- 旧Agent Session包含完整Pi Model且无法证明Provider Config ID时，按[RELEASE迁移指南](https://github.com/notnotype/neuro-book/blob/master/RELEASE.md#旧agent-session模型引用)使用逐entry mapping维护命令。
 
 ## 验收建议
 
-自动化 CLI/HTTP smoke 通过后，仍建议手动验证首次启动、登录、创建项目、更新提示和更新后数据保留。本项目不会自动执行浏览器验收。
+Release/PR workflow会对原生Product执行Manager、Stage 0、native package、HTTP与浏览器smoke。最终Release索引还必须等待公开Linux x64 Docker、Linux ARM64 Docker、Linux x64 rootless Podman和Windows Portable数据复用门禁；GHCR链覆盖migration、管理员、登录、restart、doctor与Operation恢复。仍建议人工验证首次启动、登录、创建项目、更新提示和更新后数据保留。Apple Silicon上的Docker Desktop与rootless Podman Source Docker/GHCR双引擎实机验收本次合并明确豁免，但仍是Task 105未完成项；原生Product CI不能替代这些设备证据，也不能把豁免写成已验证。

@@ -3,25 +3,30 @@ import {rm} from "node:fs/promises";
 import {resolve} from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {fauxAssistantMessage, fauxToolCall} from "@earendil-works/pi-ai";
-import {createFauxModels, type FauxModelsFixture} from "nbook/server/agent/test-utils/faux-models";
+import {createFauxModels, type FauxModelsFixture, writeFauxProviderConfig} from "nbook/server/agent/test-utils/faux-models";
 import {Type} from "typebox";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
-import {createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
-import type {AgentMessage, JsonValue, Message as RuntimeMessage} from "nbook/server/agent/messages/types";
+import {createStoredUserMessage} from "nbook/server/agent/messages/message-utils";
+import type {JsonValue, Message as RuntimeMessage} from "nbook/server/agent/messages/types";
+import type {StoredAgentMessage} from "nbook/server/agent/messages/stored-types";
+import {storedMessageText} from "nbook/server/agent/messages/stored-message-presentation";
 
 describe("NeuroAgentHarness invocation payload", () => {
     let root: string;
     let faux: FauxModelsFixture;
     let harness: NeuroAgentHarness;
 
-    beforeEach(() => {
+    beforeEach(async () => {
         root = resolve(".agent", "agent-harness-payload-test", randomUUID());
         faux = createFauxModels();
+        await writeFauxProviderConfig(root, faux);
         harness = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
+            profiles: new AgentProfileCatalog(resolve(root, "profiles-system"), resolve(root, "profiles-user")),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
         });
@@ -50,8 +55,29 @@ describe("NeuroAgentHarness invocation payload", () => {
             profileKey: "test.initial-required",
             initial: {},
             workspaceRoot: root,
-        })).rejects.toThrow("initial 校验失败");
+        })).rejects.toThrow("initial 校验失败：/topic：缺少必填字段");
     }, 20_000);
+
+    it("public createAgent 拒绝 system-only profile", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.system-only",
+                name: "System Only",
+            },
+            capabilities: {creation: "system_only"},
+            initialSchema: Type.Object({sourceSessionId: Type.Number()}),
+            tools: profileToolsFromKeys([]),
+            prepare() {
+                return {};
+            },
+        }), false);
+
+        await expect(harness.createAgent({
+            profileKey: "test.system-only",
+            initial: {sourceSessionId: 1},
+            workspaceRoot: root,
+        })).rejects.toThrow("仅供系统内部创建");
+    });
 
     it("prompt 可以只传 payload，并按 PayloadSchema 校验后进入 ctx.invocation.payload", async () => {
         let observedMessage: string | undefined;
@@ -71,9 +97,7 @@ describe("NeuroAgentHarness invocation payload", () => {
                 observedPayload = ctx.invocation?.payload;
                 return {
                     systemPrompt: `payload=${ctx.invocation?.payload?.plotId}; message=${ctx.invocation?.message}`,
-                    appendingMessages: [createUserMessage({
-                        text: `prepared payload=${ctx.invocation?.payload?.plotId}; message=${ctx.invocation?.message}`,
-                    })],
+                    appendingMessages: [createStoredUserMessage(`prepared payload=${ctx.invocation?.payload?.plotId}; message=${ctx.invocation?.message}`)],
                 };
             },
         }), false);
@@ -203,7 +227,7 @@ describe("NeuroAgentHarness invocation payload", () => {
         })).rejects.toThrow("continue 模式不能提供 message 或 input");
 
         expect(invalidPayload.status).toBe("error");
-        expect(invalidPayload.error).toContain("payload 校验失败");
+        expect(invalidPayload.error).toContain("payload 校验失败：/plotId：must be string");
     }, 20_000);
 
     it("running followup 入队前会校验 payload，失败时不污染队列", async () => {
@@ -244,7 +268,7 @@ describe("NeuroAgentHarness invocation payload", () => {
             mode: "followup",
             payload: {plotId: 1},
         })).rejects.toThrow("payload 校验失败");
-        const snapshot = await harness.getSessionSnapshot(created.sessionId);
+        const snapshot = await harness.getSessionRecovery(created.sessionId);
 
         expect(waiting.status).toBe("waiting");
         expect(snapshot.followUpQueue.items).toEqual([]);
@@ -288,16 +312,13 @@ describe("NeuroAgentHarness invocation payload", () => {
             mode: "steer",
             payload: {plotId: 1},
         })).rejects.toThrow("payload 校验失败");
-        const snapshot = await harness.getSessionSnapshot(created.sessionId);
+        const snapshot = await harness.getSessionRecovery(created.sessionId);
 
         expect(waiting.status).toBe("waiting");
-        expect(snapshot.steerQueue).toEqual([]);
+        expect(snapshot.steerQueue).toEqual({items: [], omittedItems: 0});
     }, 20_000);
 });
 
-function visibleText(messages: AgentMessage[]): string {
-    return messages
-        .filter((message): message is RuntimeMessage => message.role !== "custom")
-        .map(messageText)
-        .join("\n");
+function visibleText(messages: StoredAgentMessage[]): string {
+    return messages.map((message) => storedMessageText(message)).join("\n");
 }

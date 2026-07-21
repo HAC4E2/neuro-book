@@ -6,7 +6,9 @@ describe("POST /api/config/models/provider-check", () => {
         vi.clearAllMocks();
         vi.stubGlobal("defineEventHandler", (handler: unknown) => handler);
         vi.stubGlobal("defineRouteMeta", () => undefined);
-        vi.stubGlobal("readBody", (event: {body?: unknown}) => event.body);
+        vi.doMock("nbook/server/utils/novel-chapter", () => ({
+            validateBody: vi.fn(async (event: {body?: unknown}) => event.body),
+        }));
     });
 
     it("草稿没有启用模型且禁用保存模型回退时不会使用旧模型", async () => {
@@ -20,22 +22,24 @@ describe("POST /api/config/models/provider-check", () => {
                 models: {
                     providers: {
                         custom: {
-                            options: {apiKey: "sk-saved"},
+                            enabled: true,
+                            modelApi: "openai-completions",
+                            options: {apiKey: "sk-saved", baseURL: "https://example.com/v1", proxy: ""},
                             models: {
                                 "saved-model": {
                                     name: "Saved",
                                     id: "saved-model",
                                     group: null,
                                     enabled: true,
-                                    provider: null,
-                                    api: null,
-                                    baseUrl: null,
-                                    reasoning: null,
-                                    input: null,
-                                    maxTokens: null,
+                                    api: "openai-completions",
+                                    reasoning: false,
+                                    input: ["text"],
+                                    maxTokens: 1024,
                                     cost: null,
                                     compat: null,
-                                    contextWindowTokens: null,
+                                    headers: null,
+                                    thinkingLevelMap: null,
+                                    contextWindowTokens: 8192,
                                 },
                             },
                         },
@@ -53,6 +57,11 @@ describe("POST /api/config/models/provider-check", () => {
                 },
             })),
         }));
+        vi.doMock("nbook/server/agent/http", () => ({
+            useAgentHarness: vi.fn(() => ({
+                traceBinding: vi.fn(() => ({kind: "test-trace"})),
+            })),
+        }));
 
         const handler = (await import("nbook/server/api/config/models/provider-check.post")).default;
         await handler({
@@ -60,7 +69,7 @@ describe("POST /api/config/models/provider-check", () => {
                 provider: {
                     id: "custom",
                     name: "Custom",
-                    api: "openai-completions",
+                    modelApi: "openai-completions",
                     options: {
                         apiKey: "",
                         baseURL: "https://example.com/v1",
@@ -70,11 +79,45 @@ describe("POST /api/config/models/provider-check", () => {
                     },
                 },
                 models: [],
-                useSavedApiKey: true,
+                credentialSource: "saved",
                 useSavedModels: false,
             },
         } as never);
 
-        expect(checkProviderConnection).toHaveBeenCalledWith(expect.anything(), []);
+        expect(checkProviderConnection).toHaveBeenCalledWith(expect.objectContaining({
+            options: expect.objectContaining({apiKey: "sk-saved"}),
+        }), [], {
+            trace: {kind: "test-trace"},
+        });
+    });
+
+    it("saved连接身份不匹配时返回400且网络Adapter零调用", async () => {
+        const checkProviderConnection = vi.fn();
+        vi.doMock("nbook/server/config/config-service", () => ({
+            loadGlobalEffectiveConfigSync: vi.fn(() => ({
+                models: {providers: {custom: {
+                    enabled: true,
+                    modelApi: "openai-completions",
+                    options: {apiKey: "sk-saved", baseURL: "https://saved.example/v1", proxy: ""},
+                    models: {},
+                }}},
+            })),
+        }));
+        vi.doMock("nbook/server/utils/model-settings", () => ({checkProviderConnection}));
+        vi.doMock("nbook/server/agent/http", () => ({useAgentHarness: vi.fn()}));
+
+        const handler = (await import("nbook/server/api/config/models/provider-check.post")).default;
+        await expect(handler({body: {
+            provider: {
+                id: "custom",
+                name: "Custom",
+                modelApi: "openai-completions",
+                options: {apiKey: "request-secret", baseURL: "https://changed.example/v1", proxy: "", timeoutMs: null, requestOptions: {}},
+            },
+            models: [],
+            credentialSource: "saved",
+            useSavedModels: false,
+        }} as never)).rejects.toMatchObject({statusCode: 400});
+        expect(checkProviderConnection).not.toHaveBeenCalled();
     });
 });

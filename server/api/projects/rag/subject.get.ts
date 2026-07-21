@@ -1,4 +1,5 @@
 import {readProjectRagSubject} from "nbook/server/rag/project-rag-visualization";
+import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 import {ProjectRagSubjectDtoSchema} from "nbook/shared/dto/project-rag.dto";
 import {requireProjectPathQuery} from "nbook/server/utils/novel-chapter";
 import {withProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
@@ -62,6 +63,7 @@ defineRouteMeta({
                                     "properties": {
                                         "line": {
                                             "type": "integer",
+                                            "minimum": 0,
                                             "exclusiveMinimum": true,
                                             "maximum": 9007199254740991
                                         },
@@ -90,6 +92,7 @@ defineRouteMeta({
                                     "properties": {
                                         "line": {
                                             "type": "integer",
+                                            "minimum": 0,
                                             "exclusiveMinimum": true,
                                             "maximum": 9007199254740991
                                         },
@@ -216,6 +219,6 @@ export default defineEventHandler((event) => withProjectNotOpenHttpError(async (
     if (!subjectPath) {
         throw createError({statusCode: 400, message: "subjectPath query 不能为空"});
     }
-    const result = await readProjectRagSubject(requireProjectPathQuery(event), subjectPath);
+    const result = await readProjectRagSubject(runtimePathsFromEnv().workspaceRoot, requireProjectPathQuery(event), subjectPath);
     return ProjectRagSubjectDtoSchema.parse(result);
 }));

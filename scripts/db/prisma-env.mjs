@@ -1,10 +1,9 @@
 import "dotenv/config";
 import {existsSync, mkdirSync, readFileSync} from "node:fs";
-import {dirname, resolve} from "node:path";
+import {dirname} from "node:path";
 import * as yaml from "yaml";
+import {resolveAppSqliteLocation, selectAppSqliteUrl} from "nbook/server/runtime/app-sqlite-location";
 import {resolveBootConfigPath, resolveStateRoot} from "nbook/server/runtime/installation-paths";
-
-const DEFAULT_SQLITE_URL = "file:./workspace/.nbook/neuro-book.sqlite";
 
 export function resolveDatabaseKind() {
     const rawKind = process.env.DATABASE_KIND?.trim().toLowerCase();
@@ -40,15 +39,17 @@ export function preparePrismaEnv() {
     const bootUrl = normalizeText(bootDatabase.url);
     process.env.DATABASE_KIND = kind;
     if (!process.env.DATABASE_URL) {
-        process.env.DATABASE_URL = bootUrl || DEFAULT_SQLITE_URL;
+        process.env.DATABASE_URL = selectAppSqliteUrl(undefined, bootUrl);
     }
 
-    const databaseUrl = process.env.DATABASE_URL?.trim() ?? "";
-    if (!databaseUrl.startsWith("file:")) {
-        throw new Error(`DATABASE_URL 只支持 SQLite file: URL，当前为：${databaseUrl || "<empty>"}`);
+    const configuredUrl = process.env.DATABASE_URL?.trim() ?? "";
+    if (!configuredUrl.startsWith("file:")) {
+        throw new Error(`DATABASE_URL 只支持 SQLite file: URL，当前为：${configuredUrl || "<empty>"}`);
     }
-    mkdirSync(dirname(resolve(resolveStateRoot(), databaseUrl.slice("file:".length))), {recursive: true});
-    return {kind, databaseUrl};
+    const location = resolveAppSqliteLocation(configuredUrl, resolveStateRoot());
+    process.env.DATABASE_URL = location.connectionUrl;
+    mkdirSync(dirname(location.hostPath), {recursive: true});
+    return {kind, databaseUrl: location.connectionUrl};
 }
 
 function readBootDatabaseConfig() {

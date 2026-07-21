@@ -1,4 +1,4 @@
-import {join} from "node:path";
+import {join, resolve} from "node:path";
 import {PROFILE_COMPILED_DIR_NAME, type ProfileArtifactManifestItem} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import type {AgentProfile, AgentProfileIssueCode} from "nbook/server/agent/profiles/types";
 import {importRuntimeArtifact} from "nbook/server/utils/runtime-artifact-import";
@@ -8,6 +8,10 @@ import {importRuntimeArtifact} from "nbook/server/utils/runtime-artifact-import"
  * 不读源码、不判 freshness、不写 manifest。
  */
 export class ProfileArtifactStore {
+    constructor(private readonly runtimeCacheRoot: string) {
+        this.runtimeCacheRoot = resolve(runtimeCacheRoot);
+    }
+
     /**
      * 从指定 profile root 的 `.compiled/artifacts/<sha>.mjs` 加载 profile。
      */
@@ -18,6 +22,7 @@ export class ProfileArtifactStore {
         }>(artifactPath, {
             cacheKey: item.artifactSha256,
             cacheNamespace: "profile",
+            cacheRoot: this.runtimeCacheRoot,
             expectedBytes: item.artifactBytes,
         });
         const profile = mod.default;

@@ -1,5 +1,5 @@
-import type {Message} from "nbook/server/agent/messages/types";
-import {createUserMessage} from "nbook/server/agent/messages/message-utils";
+import type {StoredAgentMessage} from "nbook/server/agent/messages/stored-types";
+import {createStoredUserMessage} from "nbook/server/agent/messages/message-utils";
 import {advanceAgentCursor, readUnseenForAgent} from "nbook/server/workspace-history/project-history";
 import {
     readAgentChangeDiffDetails,
@@ -12,6 +12,7 @@ import {
     MAX_AGENT_CHANGE_NOTICE_CHARS,
 } from "nbook/shared/agent/file-change-policy";
 import type {OperationActor, UnseenGroup} from "nbook/server/vendor/nb-history/index";
+import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 export type FileChangeAwareness = "off" | "minimal" | "full";
 
@@ -24,6 +25,7 @@ export type ProfileTurnContextPlan = {
 
 export type ProfileTurnContextSettlement = {
     kind: "file-change-notice";
+    projectRoot: AbsoluteFsPath;
     projectPath: string;
     sessionId: number;
     /** nb-history last_seen_entry_id，成功 ingest 后原样推进。 */
@@ -33,7 +35,7 @@ export type ProfileTurnContextSettlement = {
 export type MaterializedProfileTurnContext = {
     insertions: Array<{
         appendingIndex: number;
-        message: Message;
+        message: StoredAgentMessage;
     }>;
     settlements: ProfileTurnContextSettlement[];
 };
@@ -44,9 +46,7 @@ export type MaterializedProfileTurnContext = {
 export function previewProfileTurnContexts(plans: ProfileTurnContextPlan[], diffMaxChars = DEFAULT_AGENT_DIFF_MAX_CHARS): MaterializedProfileTurnContext["insertions"] {
     return plans.map((plan) => ({
         appendingIndex: plan.appendingIndex,
-        message: createUserMessage({
-            text: `<file-change-notice runtime-data="preview" mode="${plan.mode}" diff-max-chars="${diffMaxChars}">\nGenerated at runtime from project file changes not yet seen by this session.\n</file-change-notice>`,
-        }),
+        message: createStoredUserMessage(`<file-change-notice runtime-data="preview" mode="${plan.mode}" diff-max-chars="${diffMaxChars}">\nGenerated at runtime from project file changes not yet seen by this session.\n</file-change-notice>`),
     }));
 }
 
@@ -57,31 +57,34 @@ export function previewProfileTurnContexts(plans: ProfileTurnContextPlan[], diff
  */
 export async function materializeProfileTurnContexts(input: {
     plans: ProfileTurnContextPlan[];
+    projectRoot?: AbsoluteFsPath;
     projectPath?: string;
     sessionId: number;
     diffMaxChars: number;
 }): Promise<MaterializedProfileTurnContext> {
-    if (!input.projectPath || input.plans.length === 0) {
+    if (!input.projectRoot || !input.projectPath || input.plans.length === 0) {
         return {insertions: [], settlements: []};
     }
     const insertions: MaterializedProfileTurnContext["insertions"] = [];
     const settlements: ProfileTurnContextSettlement[] = [];
     for (const plan of input.plans) {
-        const groups = await readUnseenForAgent(input.projectPath, input.sessionId);
+        const groups = await readUnseenForAgent(input.projectRoot, input.projectPath, input.sessionId);
         if (groups.length === 0) {
             continue;
         }
         const diffDetails = await readAgentChangeDiffDetails({
+            projectRoot: input.projectRoot,
             projectPath: input.projectPath,
             groups,
             maxChars: input.diffMaxChars,
         });
         insertions.push({
             appendingIndex: plan.appendingIndex,
-            message: createUserMessage({text: buildFileChangeReminder(groups, plan.mode, diffDetails, input.diffMaxChars)}),
+            message: createStoredUserMessage(buildFileChangeReminder(groups, plan.mode, diffDetails, input.diffMaxChars)),
         });
         settlements.push({
             kind: "file-change-notice",
+            projectRoot: input.projectRoot,
             projectPath: input.projectPath,
             sessionId: input.sessionId,
             entryId: Math.max(...groups.map((group) => group.maxEntryId)),
@@ -94,11 +97,11 @@ export async function materializeProfileTurnContexts(input: {
  * 把动态 AppendingSet 消息插回 profile 声明的位置。
  */
 export function mergeProfileTurnContextMessages(
-    messages: Message[],
+    messages: StoredAgentMessage[],
     insertions: MaterializedProfileTurnContext["insertions"],
-): Message[] {
+): StoredAgentMessage[] {
     const sorted = [...insertions].sort((left, right) => left.appendingIndex - right.appendingIndex);
-    const result: Message[] = [];
+    const result: StoredAgentMessage[] = [];
     let insertionIndex = 0;
     for (let messageIndex = 0; messageIndex <= messages.length; messageIndex += 1) {
         while (sorted[insertionIndex]?.appendingIndex === messageIndex) {
@@ -120,13 +123,18 @@ export function mergeProfileTurnContextMessages(
  */
 export async function settleProfileTurnContexts(settlements: ProfileTurnContextSettlement[]): Promise<void> {
     for (const settlement of settlements) {
-        await advanceAgentCursor(settlement.projectPath, settlement.sessionId, settlement.entryId);
+        await advanceAgentCursor(
+            settlement.projectRoot,
+            settlement.projectPath,
+            settlement.sessionId,
+            settlement.entryId,
+        );
     }
 }
 
 /**
  * 构造 `<file-change-notice>` 提醒正文。
- * 安全小 diff 直接内联；超限时只给 workspace 引用、hunk 位置和主动 read 提示。
+ * 安全小 diff 直接内联；逐文件只陈述事实，操作指导在 footer 按整批文件汇总一次。
  */
 export function buildFileChangeReminder(
     groups: UnseenGroup[],
@@ -143,16 +151,19 @@ export function buildFileChangeReminder(
     const hasSensitivePath = groups.some((group) => isSensitiveHistoryDiffPath(group.path));
     const hasReadableNonSensitivePath = groups.some((group) => group.endHash !== null && !isSensitiveHistoryDiffPath(group.path));
     const hasDeletedPath = groups.some((group) => group.endHash === null);
-    const footer = [
-        hasReadableNonSensitivePath
-            ? mode === "full"
-                ? `Non-sensitive files may no longer match versions you read earlier. Inline diffs show changed fragments only; use read only when the task needs complete current content from a non-sensitive path.${hasSensitivePath ? " Sensitive paths are excluded from the prompt and must be reviewed in the file change inbox." : ""}${hasDeletedPath ? " Deleted paths cannot be read." : ""}`
-                : `Inline diffs show changed fragments only. Use read only for complete current content from a non-sensitive path when needed.${hasSensitivePath ? " Sensitive paths must be reviewed in the file change inbox." : ""}${hasDeletedPath ? " Deleted paths cannot be read." : ""}`
-            : hasSensitivePath
-                ? `Sensitive file contents and diffs are excluded from the prompt. Review sensitive paths in the file change inbox instead of reading them because of this notice.${hasDeletedPath ? " Deleted paths cannot be read." : ""}`
-                : "All listed files were deleted. Their current paths cannot be read; ask the user to inspect or restore them from the file change inbox if earlier content is needed.",
-        "</file-change-notice>",
-    ];
+    const footerClauses: string[] = [];
+    if (hasReadableNonSensitivePath) {
+        footerClauses.push(mode === "full"
+            ? "Non-sensitive current files may no longer match versions you read earlier. Inline diffs show changed fragments only; read complete current content only from non-sensitive paths when relevant."
+            : "Inline diffs show changed fragments only; read complete current content only from non-sensitive paths when relevant.");
+    }
+    if (hasSensitivePath) {
+        footerClauses.push("Sensitive file contents and diffs are excluded from this notice. Do not read or reproduce them solely because they changed; ask the user before inspecting them when the current task requires it.");
+    }
+    if (hasDeletedPath) {
+        footerClauses.push("Deleted paths have no current file. Ask the user whether history review or recovery is needed before taking further action.");
+    }
+    const footer = [...footerClauses, "</file-change-notice>"];
     const lines: string[] = [];
     let listedCount = 0;
     for (const group of groups.slice(0, MAX_AGENT_CHANGE_LISTED_FILES)) {
@@ -191,8 +202,8 @@ function renderFileChange(group: UnseenGroup, mode: "minimal" | "full", detail: 
     const lines = [`- ${status}: ${target} — ${metadata}`];
     if (sensitive) {
         lines.push(deleted
-            ? "  Sensitive path: file content and diff are excluded from the prompt. The file was deleted and its current path cannot be read; ask the user to inspect or restore it from the file change inbox if earlier content is needed."
-            : "  Sensitive path: file content and diff are excluded from the prompt. Review it in the file change inbox; do not retrieve or reproduce its contents solely because of this notice.");
+            ? "  Sensitive path: file content and diff are excluded from the prompt; the current file is deleted."
+            : "  Sensitive path: file content and diff are excluded from the prompt.");
         return lines;
     }
     if (!detail) {
@@ -210,13 +221,13 @@ function renderFileChange(group: UnseenGroup, mode: "minimal" | "full", detail: 
         lines.push(
             `  Location: ${detail.locations.map(translateLocation).join("; ")}`,
             deleted
-                ? `  Diff size: ${detail.charCount} characters, ${detail.changedLineCount} changed lines; above the inline limit of ${diffMaxChars} characters / ${detail.lineLimit} lines. The file was deleted and its current path cannot be read; ask the user to inspect or restore it from the file change inbox if earlier content is needed.`
-                : `  Diff size: ${detail.charCount} characters, ${detail.changedLineCount} changed lines; above the inline limit of ${diffMaxChars} characters / ${detail.lineLimit} lines. Use read for the complete current file instead of guessing unseen content.`,
+                ? `  Diff size: ${detail.charCount} characters, ${detail.changedLineCount} changed lines; above the inline limit of ${diffMaxChars} characters / ${detail.lineLimit} lines. The current file is deleted.`
+                : `  Diff size: ${detail.charCount} characters, ${detail.changedLineCount} changed lines; above the inline limit of ${diffMaxChars} characters / ${detail.lineLimit} lines.`,
         );
         return lines;
     }
     if (detail.kind === "blocked") {
-        lines.push("  File content and diff are excluded from the prompt. Review the path in the file change inbox instead of reading it because of this notice.");
+        lines.push("  File content and diff are excluded from the prompt.");
         return lines;
     }
     if (detail.kind === "unchanged") {
@@ -224,8 +235,8 @@ function renderFileChange(group: UnseenGroup, mode: "minimal" | "full", detail: 
         return lines;
     }
     lines.push(deleted
-        ? `  Diff unavailable (${detail.reason}); the file was deleted and its current path cannot be read.`
-        : `  Diff unavailable (${detail.reason}); use read if the task depends on this file.`);
+        ? `  Diff unavailable (${detail.reason}); the current file is deleted.`
+        : `  Diff unavailable (${detail.reason}).`);
     return lines;
 }
 

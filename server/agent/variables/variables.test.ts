@@ -1,5 +1,5 @@
 import {mkdir, readFile, rm, unlink, writeFile} from "node:fs/promises";
-import {resolve} from "node:path";
+import {join, resolve} from "node:path";
 import {randomUUID} from "node:crypto";
 import {describe, expect, it} from "vitest";
 import {Type} from "typebox";
@@ -9,12 +9,49 @@ import {createProfileVariableAccessor} from "nbook/server/agent/variables/access
 import {compileVariableDefinitions, loadCompiledVariableDefinitions, readVariableDefinitionManifest, validateVariableDefinitionArtifact} from "nbook/server/agent/variables/definition-artifact";
 import {generateVariableTypes} from "nbook/server/agent/variables/generated-types";
 import {applyVariableJsonPatch} from "nbook/server/agent/variables/json-patch";
-import {defineClientVariable, defineProjectVariable, defineSessionVariable, VariableRegistry} from "nbook/server/agent/variables/registry";
+import {defineClientVariable, defineProjectVariable, defineSessionVariable, defineWorkspaceRootVariable, VariableRegistry} from "nbook/server/agent/variables/registry";
 import {createVariableTools} from "nbook/server/agent/variables/tools";
-import {resolveAgentNbookRoot} from "nbook/server/agent/variables/workspace-paths";
 import type {VariableInvocationState} from "nbook/server/agent/variables/types";
+import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 describe("Agent variable system", () => {
+    it("外部Project Workspace不会重绑定global变量物理根", async () => {
+        const workspaceRoot = resolve(".agent", "workspace", "variable-global-root-test", randomUUID());
+        const externalProjectRoot = resolve(".agent", "external-project", randomUUID());
+        await Promise.all([mkdir(workspaceRoot, {recursive: true}), mkdir(externalProjectRoot, {recursive: true})]);
+        try {
+            const repo = new JsonlSessionRepository(workspaceRoot);
+            const snapshot = await repo.createSession({
+                profileKey: "test.vars",
+                initial: {},
+                workspaceRoot: absoluteFsPath(externalProjectRoot),
+                workspaceKey: "test",
+                projectPath: externalProjectRoot,
+            });
+            const registry = new VariableRegistry([defineWorkspaceRootVariable({
+                key: "preferences",
+                schema: Type.Object({theme: Type.String()}),
+                default: {theme: "light"},
+                writableBy: ["agent"],
+            })]);
+            const accessor = createProfileVariableAccessor({repo, snapshot, registry});
+
+            await accessor.read("global.preferences");
+            const result = await accessor.patch("global", "preferences", [{op: "replace", path: "", value: {theme: "dark"}}]);
+
+            expect(result.issue).toBeUndefined();
+            const stored = await readFile(resolve(workspaceRoot, ".nbook", "agent", "variables.json"), "utf-8");
+            expect(stored).toContain('"theme": "dark"');
+            await expect(readFile(resolve(externalProjectRoot, ".nbook", "agent", "variables.json"), "utf-8"))
+                .rejects.toMatchObject({code: "ENOENT"});
+        } finally {
+            await Promise.all([
+                rm(workspaceRoot, {recursive: true, force: true}),
+                rm(externalProjectRoot, {recursive: true, force: true}),
+            ]);
+        }
+    });
+
     it("VariableCatalog 顶层直接暴露四类变量根", () => {
         const registry = new VariableRegistry([
             defineProjectVariable({
@@ -93,11 +130,6 @@ describe("Agent variable system", () => {
         expect(generated.diagnostics).toEqual([]);
     });
 
-    it("Workspace Root .nbook 路径不会被重复追加 .nbook", () => {
-        expect(resolveAgentNbookRoot("workspace/.nbook").replace(/\\/g, "/")).toMatch(/workspace\/\.nbook$/);
-        expect(resolveAgentNbookRoot("workspace").replace(/\\/g, "/")).toMatch(/workspace\/\.nbook$/);
-    });
-
     it("读取子路径时会使用注册根 default 的子字段", async () => {
         const root = resolve(".agent", "workspace", "variable-default-test", randomUUID());
         await mkdir(root, {recursive: true});
@@ -105,7 +137,7 @@ describe("Agent variable system", () => {
         const snapshot = await repo.createSession({
             profileKey: "test.vars",
             initial: {},
-            workspaceRoot: root,
+            workspaceRoot: absoluteFsPath(root),
             workspaceKey: "test",
         });
         const registry = new VariableRegistry([
@@ -139,7 +171,7 @@ describe("Agent variable system", () => {
         const snapshot = await repo.createSession({
             profileKey: "test.vars",
             initial: {},
-            workspaceRoot: root,
+            workspaceRoot: absoluteFsPath(root),
             workspaceKey: "test",
         });
         const registry = new VariableRegistry([
@@ -181,7 +213,7 @@ describe("Agent variable system", () => {
         const snapshot = await repo.createSession({
             profileKey: "test.vars",
             initial: {},
-            workspaceRoot: root,
+            workspaceRoot: absoluteFsPath(root),
             workspaceKey: "test",
         });
         const registry = new VariableRegistry([
@@ -223,7 +255,7 @@ describe("Agent variable system", () => {
         const snapshot = await repo.createSession({
             profileKey: "test.vars",
             initial: {},
-            workspaceRoot: root,
+            workspaceRoot: absoluteFsPath(root),
             workspaceKey: "test",
         });
         const registry = new VariableRegistry([
@@ -262,7 +294,7 @@ describe("Agent variable system", () => {
         const snapshot = await repo.createSession({
             profileKey: "test.vars",
             initial: {},
-            workspaceRoot: root,
+            workspaceRoot: absoluteFsPath(root),
             workspaceKey: "test",
         });
         const vars = createProfileVariableAccessor({
@@ -282,7 +314,8 @@ describe("Agent variable system", () => {
                 harness: null as never,
                 sessionId: snapshot.metadata.sessionId,
                 profileKey: "leader.default",
-                workspaceRoot: root,
+                workspaceRootRef: absoluteFsPath(root),
+                workspaceFsRoot: absoluteFsPath(root),
                 workspaceKey: "test",
                 vars,
             }, "tool-1", {
@@ -302,7 +335,7 @@ describe("Agent variable system", () => {
         const snapshot = await repo.createSession({
             profileKey: "test.vars",
             initial: {},
-            workspaceRoot: root,
+            workspaceRoot: absoluteFsPath(root),
             workspaceKey: "test",
         });
         const variableState: VariableInvocationState = {
@@ -358,7 +391,7 @@ describe("Agent variable system", () => {
         const snapshot = await repo.createSession({
             profileKey: "test.vars",
             initial: {},
-            workspaceRoot: root,
+            workspaceRoot: absoluteFsPath(root),
             workspaceKey: "test",
         });
         const variableState: VariableInvocationState = {
@@ -422,7 +455,7 @@ describe("Agent variable system", () => {
         const snapshot = await repo.createSession({
             profileKey: "test.vars",
             initial: {},
-            workspaceRoot: root,
+            workspaceRoot: absoluteFsPath(root),
             workspaceKey: "test",
         });
         const brokenRepo = Object.create(repo) as JsonlSessionRepository;
@@ -442,6 +475,7 @@ describe("Agent variable system", () => {
             }),
         ]);
         const projectRoot = resolve(".agent", "workspace", "variable-audit-failure-project", randomUUID());
+        await mkdir(projectRoot, {recursive: true});
         variableState.clientOverlay = {
             studio: {workspace: projectRoot},
             currentProjectWorkspace: projectRoot,
@@ -502,7 +536,7 @@ describe("Agent variable system", () => {
         const snapshot = await repo.createSession({
             profileKey: "test.vars",
             initial: {},
-            workspaceRoot: root,
+            workspaceRoot: absoluteFsPath(root),
             workspaceKey: "test",
         });
         try {
@@ -511,7 +545,8 @@ describe("Agent variable system", () => {
                 harness: null as never,
                 sessionId: snapshot.metadata.sessionId,
                 profileKey: "leader.default",
-                workspaceRoot: root,
+                workspaceRootRef: absoluteFsPath(root),
+                workspaceFsRoot: absoluteFsPath(root),
                 workspaceKey: "test",
                 vars,
             }, "tool-1", {namespace: "session"});
@@ -528,7 +563,7 @@ describe("Agent variable system", () => {
         const snapshot = await repo.createSession({
             profileKey: "test.vars",
             initial: {},
-            workspaceRoot: root,
+            workspaceRoot: absoluteFsPath(root),
             workspaceKey: "test",
         });
         const registry = new VariableRegistry([
@@ -694,6 +729,85 @@ describe("Agent variable system", () => {
             await expect(validateVariableDefinitionArtifact(root, nextItem)).resolves.toEqual({fresh: true});
         } finally {
             await rm(root, {recursive: true, force: true});
+        }
+    });
+
+    it("只读 Product variable definition 新鲜时零写入，过期时要求重建", async () => {
+        const root = resolve(".agent", "workspace", "variable-definition-readonly-test", randomUUID());
+        const stagingRoot = resolve(root, "runtime-staging");
+        const definitionPath = resolve(root, "definitions.ts");
+        const manifestPath = resolve(root, ".compiled", "manifest.json");
+        await mkdir(root, {recursive: true});
+        await writeFile(definitionPath, [
+            "import {Type} from \"typebox\";",
+            "import {defineProjectVariable} from \"nbook/server/agent/variables/registry\";",
+            "export const definitions = [defineProjectVariable({",
+            "    key: \"styleGuide\",",
+            "    schema: Type.String(),",
+            "})];",
+            "export default definitions;",
+            "",
+        ].join("\n"), "utf8");
+        try {
+            await compileVariableDefinitions({definitionRoot: root, stagingRoot});
+            await rm(stagingRoot, {recursive: true, force: true});
+            const manifestBefore = await readFile(manifestPath, "utf8");
+
+            const fresh = await compileVariableDefinitions({
+                definitionRoot: root,
+                skipFresh: true,
+                writePolicy: "forbid",
+                stagingRoot,
+            });
+            expect(fresh.definitions).toHaveLength(1);
+            await expect(readFile(stagingRoot, "utf8")).rejects.toThrow();
+            expect(await readFile(manifestPath, "utf8")).toBe(manifestBefore);
+
+            await writeFile(definitionPath, (await readFile(definitionPath, "utf8")).replace("Type.String()", "Type.Number()"), "utf8");
+            await expect(compileVariableDefinitions({
+                definitionRoot: root,
+                skipFresh: true,
+                writePolicy: "forbid",
+                stagingRoot,
+            })).rejects.toThrow("请重新构建或安装与源码匹配的 Product");
+            await expect(readFile(stagingRoot, "utf8")).rejects.toThrow();
+            expect(await readFile(manifestPath, "utf8")).toBe(manifestBefore);
+        } finally {
+            await rm(root, {recursive: true, force: true});
+        }
+    });
+
+    it("Product variable definition只记录.output/server自包含依赖", async () => {
+        const productRoot = resolve(".agent", "workspace", "variable-product-context-test", randomUUID());
+        const outputRoot = join(productRoot, ".output", "server");
+        const definitionRoot = join(outputRoot, "assets", "workspace", ".nbook", "agent", "variables");
+        await mkdir(definitionRoot, {recursive: true});
+        await writeFile(join(productRoot, "package.json"), '{"name":"neuro-book-product","type":"module"}\n', "utf8");
+        await writeFile(join(outputRoot, "index.mjs"), "", "utf8");
+        await writeFile(join(outputRoot, "tsconfig.json"), "{}\n", "utf8");
+        await writeFile(join(definitionRoot, "definitions.ts"), [
+            "export const definitions = [{",
+            '    namespace: "project",',
+            '    key: "styleGuide",',
+            '    schema: {type: "string"},',
+            "}];",
+            "export default definitions;",
+            "",
+        ].join("\n"), "utf8");
+        const previousCwd = process.cwd();
+        try {
+            process.chdir(productRoot);
+            const manifest = await compileVariableDefinitions({
+                definitionRoot,
+                rootLabel: "assets/workspace/.nbook/agent/variables",
+            });
+            const item = manifest.definitions[0]!;
+
+            expect(item.dependencies.every((dependency) => dependency.path.startsWith(".output/server/"))).toBe(true);
+            await expect(validateVariableDefinitionArtifact(definitionRoot, item, {requireTypeArtifact: true})).resolves.toEqual({fresh: true});
+        } finally {
+            process.chdir(previousCwd);
+            await rm(productRoot, {recursive: true, force: true});
         }
     });
 });

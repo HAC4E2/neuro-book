@@ -1,6 +1,6 @@
 import {randomUUID} from "node:crypto";
 import {readFile, rm} from "node:fs/promises";
-import {join} from "node:path";
+import {join, resolve} from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {AgentSessionEventHub} from "nbook/server/agent/events/session-event-hub";
 import {createAssistantTextMessage, createTextToolResult} from "nbook/server/agent/messages/message-utils";
@@ -8,16 +8,17 @@ import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {SessionWriteExecutor} from "nbook/server/agent/session/write-plan";
 import type {SessionWriteTimingSink} from "nbook/server/agent/session/write-plan";
 import type {AgentSessionEventDto} from "nbook/shared/dto/agent-session.dto";
+import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 describe("SessionWriteExecutor", () => {
-    let root: string;
+    let root: AbsoluteFsPath;
     let repo: JsonlSessionRepository;
     let eventHub: AgentSessionEventHub;
     let executor: SessionWriteExecutor;
     let liveStateCalls: number;
 
     beforeEach(() => {
-        root = join(".agent", "agent-write-plan-test", randomUUID());
+        root = absoluteFsPath(resolve(".agent", "agent-write-plan-test", randomUUID()));
         repo = new JsonlSessionRepository(root);
         eventHub = new AgentSessionEventHub();
         liveStateCalls = 0;
@@ -40,10 +41,10 @@ describe("SessionWriteExecutor", () => {
                     activePathRevision: null,
                     pendingUserInputs: [],
                     pendingApprovals: [],
-                    steerQueue: [],
+                    steerQueue: {count: 0},
                     followUpQueue: {
                         status: "ready",
-                        items: [],
+                        count: 0,
                     },
                     activeInvocation: null,
                     model: null,
@@ -113,9 +114,10 @@ describe("SessionWriteExecutor", () => {
         for (let index = 0; index < 3; index += 1) {
             const event = await iterator.next();
             if (!event.done) {
-                events.push(event.value.kind === "session" ? event.value.event.type : event.value.kind);
-                if (event.value.kind === "session" && event.value.event.type === "session_state_changed") {
-                    stateChangedEvent = event.value;
+                const payload = event.value.payload;
+                events.push(payload.kind === "session" ? payload.event.type : payload.kind);
+                if (payload.kind === "session" && payload.event.type === "session_state_changed") {
+                    stateChangedEvent = payload;
                 }
             }
         }
@@ -129,10 +131,10 @@ describe("SessionWriteExecutor", () => {
             expect(stateChangedEvent.event.state).not.toHaveProperty("messages");
             expect(stateChangedEvent.event.state).not.toHaveProperty("entries");
             expect(stateChangedEvent.event.state).not.toHaveProperty("tree");
-            expect(JSON.stringify(stateChangedEvent).length).toBeLessThan(50_000);
+            expect(Buffer.byteLength(JSON.stringify(stateChangedEvent), "utf8")).toBeLessThan(50 * 1024);
         }
         expect(repo.reduce(await repo.readSession(session.metadata.sessionId)).messages.map((message) => message.role)).toEqual(["assistant", "toolResult"]);
-        expect(result.liveStates.get(session.metadata.sessionId)).toBe(
+        expect(result.liveStates.get(session.metadata.sessionId)).toEqual(
             stateChangedEvent?.kind === "session" && stateChangedEvent.event.type === "session_state_changed"
                 ? stateChangedEvent.event.state
                 : undefined,
@@ -247,10 +249,10 @@ describe("SessionWriteExecutor", () => {
                     activePathRevision: null,
                     pendingUserInputs: [],
                     pendingApprovals: [],
-                    steerQueue: [],
+                    steerQueue: {count: 0},
                     followUpQueue: {
                         status: "ready",
-                        items: [],
+                        count: 0,
                     },
                     activeInvocation: null,
                     model: null,
@@ -338,10 +340,10 @@ describe("SessionWriteExecutor", () => {
                     activePathRevision: null,
                     pendingUserInputs: [],
                     pendingApprovals: [],
-                    steerQueue: [],
+                    steerQueue: {count: 0},
                     followUpQueue: {
                         status: "ready",
-                        items: [],
+                        count: 0,
                     },
                     activeInvocation: null,
                     model: null,
@@ -455,7 +457,7 @@ describe("SessionWriteExecutor", () => {
         expect(repo.reduce(await repo.readSession(session.metadata.sessionId)).messages.map((message) => message.role)).toEqual(["assistant", "assistant"]);
     });
 
-    it("moveLeaf op 会移动 active leaf 并发布 session events", async () => {
+    it("moveLeaf op 会移动 active leaf，并只发布有类型的 live state", async () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
@@ -477,13 +479,12 @@ describe("SessionWriteExecutor", () => {
         }], "invoke-1", {timing: timing.sink});
 
         const firstEvent = await iterator.next();
-        const secondEvent = await iterator.next();
         await iterator.return?.();
         const snapshot = await repo.readSession(session.metadata.sessionId);
         expect(result.entries.map((entry) => entry.type)).toEqual(["leaf"]);
         expect(snapshot.leafId).toBeNull();
-        expect(firstEvent.done ? undefined : firstEvent.value.kind === "session" ? firstEvent.value.event.type : firstEvent.value.kind).toBe("session_entry");
-        expect(secondEvent.done ? undefined : secondEvent.value.kind === "session" ? secondEvent.value.event.type : secondEvent.value.kind).toBe("session_state_changed");
+        const firstPayload = firstEvent.done ? undefined : firstEvent.value.payload;
+        expect(firstPayload?.kind === "session" ? firstPayload.event.type : firstPayload?.kind).toBe("session_state_changed");
         expect(timing.events).toEqual([
             "writePlan:start",
             "writePlan:end",

@@ -2,6 +2,8 @@ import {describe, expect, it} from "vitest";
 import {createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 import type {RunFrame, TurnContinuationDecision} from "nbook/server/agent/harness/run-kernel-types";
 import {applyNextTurnPreparation} from "nbook/server/agent/harness/prepare-next-turn";
+import {createPublicRuntimeProjectionState} from "nbook/server/agent/events/public-event-projection";
+import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 describe("prepare next turn reducer", () => {
     it("会把 steer 消息追加到 RunFrame", () => {
@@ -69,7 +71,8 @@ function fakeFrame(): RunFrame {
     return {
         sessionId: 7,
         workspaceKey: "global",
-        workspaceRoot: "workspace",
+        workspaceRootRef: "workspace",
+        workspaceFsRoot: absoluteFsPath(process.cwd()),
         systemPrompt: "",
         models: {} as RunFrame["models"],
         model: {} as RunFrame["model"],
@@ -80,6 +83,7 @@ function fakeFrame(): RunFrame {
         agentMode: "normal",
         thinkingLevel: "off",
         runtimeState: new Map(),
+        publicEventProjection: createPublicRuntimeProjectionState(),
         messages: [],
         nextTurnRuntimeMessages: [],
         turnIndex: 1,

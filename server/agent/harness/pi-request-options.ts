@@ -23,12 +23,12 @@ export function parsePiSimpleRequestOptions(
  * 为当前 API 合并 NeuroBook secret 与 Provider-scoped env。
  *
  * Bedrock 的 bearer token 通过 Pi 正式读取的 AWS env 传入；其他 API 使用标准
- * `apiKey`。自定义 OpenAI-compatible 空 key 使用内部占位值，以兼容无认证端点。
+ * `apiKey`。所有 Provider 都是用户独立 runtime；OpenAI-compatible 空 key 使用内部占位值，
+ * 以兼容无认证端点。
  */
 export function piRequestAuthOptions(input: {
     api: Api;
     apiKey?: string;
-    customRuntime: boolean;
     env?: Record<string, string>;
 }): Pick<SimpleStreamOptions, "apiKey" | "env"> {
     if (input.api === "bedrock-converse-stream") {
@@ -41,7 +41,7 @@ export function piRequestAuthOptions(input: {
     if (input.apiKey) {
         return {apiKey: input.apiKey, ...(input.env ? {env: input.env} : {})};
     }
-    if (input.customRuntime && (input.api === "openai-completions" || input.api === "openai-responses")) {
+    if (input.api === "openai-completions" || input.api === "openai-responses") {
         return {apiKey: OPENAI_NO_AUTH_KEY, ...(input.env ? {env: input.env} : {})};
     }
     return input.env ? {env: input.env} : {};

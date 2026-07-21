@@ -50,9 +50,7 @@ export type ConfiguredModelConfig = {
     id: string;
     group: string | null;
     enabled: boolean;
-    provider: string | null;
     api: string | null;
-    baseUrl: string | null;
     reasoning: boolean | null;
     input: ModelInputKind[] | null;
     maxTokens: number | null;
@@ -70,6 +68,8 @@ export type ConfiguredModelConfig = {
         }>;
     } | null;
     compat: Record<string, JsonValue> | null;
+    headers: Record<string, string | null> | null;
+    thinkingLevelMap: Record<string, string | null> | null;
     contextWindowTokens: number | null;
 };
 
@@ -84,7 +84,8 @@ export type ModelProviderOptionsConfig = {
 export type ConfiguredProviderConfig = {
     name: string;
     enabled: boolean;
-    api: string | null;
+    /** 创建、发现和手动添加候选时使用；runtime 始终读取最终 model.api。 */
+    modelApi: string | null;
     options: ModelProviderOptionsConfig;
     models: Record<string, ConfiguredModelConfig>;
 };

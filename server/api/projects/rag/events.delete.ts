@@ -1,5 +1,6 @@
 import {ProjectRagEventDeleteRequestDtoSchema, ProjectRagSubjectDtoSchema} from "nbook/shared/dto/project-rag.dto";
 import {deleteProjectRagEvent} from "nbook/server/rag/project-rag-visualization";
+import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 import {requireProjectPathQuery, validateBody} from "nbook/server/utils/novel-chapter";
 import {withProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
 
@@ -77,6 +78,7 @@ defineRouteMeta({
                                     "properties": {
                                         "line": {
                                             "type": "integer",
+                                            "minimum": 0,
                                             "exclusiveMinimum": true,
                                             "maximum": 9007199254740991
                                         },
@@ -105,6 +107,7 @@ defineRouteMeta({
                                     "properties": {
                                         "line": {
                                             "type": "integer",
+                                            "minimum": 0,
                                             "exclusiveMinimum": true,
                                             "maximum": 9007199254740991
                                         },
@@ -230,6 +233,6 @@ defineRouteMeta({
  */
 export default defineEventHandler((event) => withProjectNotOpenHttpError(async () => {
     const body = await validateBody(event, ProjectRagEventDeleteRequestDtoSchema);
-    const result = await deleteProjectRagEvent(requireProjectPathQuery(event), body);
+    const result = await deleteProjectRagEvent(runtimePathsFromEnv().workspaceRoot, requireProjectPathQuery(event), body);
     return ProjectRagSubjectDtoSchema.parse(result);
 }));

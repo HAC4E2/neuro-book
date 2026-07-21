@@ -87,7 +87,7 @@ function normalizeLegacyProviders(input: unknown): StoredProviderConfig[] | unde
         return {
             id: providerId,
             name: typeof provider.name === "string" ? provider.name : providerId,
-            api: typeof provider.api === "string" ? provider.api : null,
+            modelApi: typeof provider.modelApi === "string" ? provider.modelApi : null,
             options: isRecord(provider.options) ? provider.options : {},
             models: normalizeLegacyModels(provider.models),
         } as StoredProviderConfig;
@@ -109,9 +109,7 @@ function normalizeLegacyModels(input: unknown): ConfiguredModelConfig[] {
             name: typeof model.name === "string" ? model.name : modelId,
             group: typeof model.group === "string" ? model.group : null,
             enabled: typeof model.enabled === "boolean" ? model.enabled : true,
-            provider: typeof model.provider === "string" ? model.provider : null,
             api: typeof model.api === "string" ? model.api : null,
-            baseUrl: typeof model.baseUrl === "string" ? model.baseUrl : null,
             reasoning: typeof model.reasoning === "boolean" ? model.reasoning : null,
             input: Array.isArray(model.input) ? model.input.filter((item): item is NonNullable<ConfiguredModelConfig["input"]>[number] => item === "text" || item === "image") : null,
             maxTokens: typeof model.maxTokens === "number" ? model.maxTokens : null,
@@ -133,6 +131,8 @@ function normalizeLegacyModels(input: unknown): ConfiguredModelConfig[] {
                 }
                 : null,
             compat: isRecord(model.compat) ? model.compat as ConfiguredModelConfig["compat"] : null,
+            headers: isRecord(model.headers) ? model.headers as ConfiguredModelConfig["headers"] : null,
+            thinkingLevelMap: isRecord(model.thinkingLevelMap) ? model.thinkingLevelMap as ConfiguredModelConfig["thinkingLevelMap"] : null,
             contextWindowTokens: typeof model.contextWindowTokens === "number" ? model.contextWindowTokens : null,
         };
     });

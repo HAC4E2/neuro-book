@@ -147,9 +147,10 @@ Snapshot 是运行时使用的最新配置结果，不承担来源解释；只�
 Agent 读取规则：
 
 - 创建 session / invocation 前读取最新 effective config。
-- 创建 session 时会把当时解析出的具体模型写入 session `model_change`；Composer 不再展示“默认模型”选项，后续切换也绑定具体模型。
+- 创建 session 时会把当时解析出的具体模型写入 session `model_change`；Composer 不再展示“默认模型”选项，后续切换也绑定具体模型。session 的稳定选择身份是 `providerConfigId + model.id`，不是持久化 metadata 快照。
 - Provider 可持久化禁用；禁用 Provider 在运行时、默认模型候选、Composer 可选模型和旧 session 模型有效性校验中都视为不存在，但保留 API Key 与模型列表，重新启用后恢复原模型启用状态。
-- 单次 invocation 开始后固定当时 config snapshot。
+- 每次新 invocation（包括手动 compaction）会按 session selection key 从当前 effective config 的完整 Provider Config 重新解析模型；同 key 的模型能力、compat、Provider Base URL 或 token limits 变化时追加新的 `model_change`，深比较无变化时不写冗余记录。runtime 不查询 Model Catalog 或模型发现接口。
+- 单次 invocation 开始后固定当时 config snapshot 与解析后的 runtime binding；turn、tool loop、自动 compaction 和 sidecar 不受运行中配置修改影响。
 - compaction、model command 和 report_result reminder 路径都使用 invocation 开始时的模型配置。
 - 如果旧 session 绑定的模型 key 已从当前配置中删除或禁用，snapshot / live state 会显示当前有效默认模型；下一次 run 前会追加新的具体模型 `model_change` 修正 active path。没有可用默认模型时 snapshot / live state 显示未选择，不追加 `model: null`，重置默认或 run 时明确报配置错误。
 
@@ -286,7 +287,7 @@ assets/
 - `config.example.yaml`
 - `scripts/migrate-config-system.ts`
 - `scripts/smoke-agent.ts`
-- `scripts/neuro-book-deploy.mjs`
+- 当时的旧部署脚本（已删除）
 - `scripts/check-profile.ts`
 - `scripts/prepare-profile-types.ts`
 - `server/plugins/workspace-root.ts`
@@ -299,7 +300,37 @@ assets/
 - `shared/dto/workspace-settings.dto.ts`
 - `shared/dto/app-settings.dto.ts` 中的 Agent tool settings DTO
 
+## 2026-07-18 Model Config 硬切
+
+- Provider Config 已删除 `defaultApi`、Discovery Adapter 和 endpoint path；Automatic Model Discovery 的 Adapter 选择不再属于 Global Config。
+- 新增连接级必填 `modelApi`，用于选择 discovery 协议，以及手动添加和 Model Library 候选补全；Base URL、Secret 与模型目录不足以安全推断协议。每个已保存模型仍必须保存最终 `model.api`，runtime 不从 Provider 字段回退，同一 Provider 的模型允许分别使用不同接口。
+- Global Config 写入合同现在校验所有模型，包括 disabled 模型；`enabled` 只影响 runnable 集合，不能再用禁用状态保存不完整模型。
+- 设置页一键修复会删除无法补全的 disabled 坏模型，但不会自动删除 enabled 模型或能力完整的 disabled 模型。
+- Model Library 与 Provider Template Library 只服务设置页创建/补全，不进入 Config runtime 解析。
+- 核心实现阶段没有擅自修改真实 Workspace Root `.nbook/config.json`；数据清理只在后续获得用户明确授权后执行。
+- 2026-07-18 用户授权后，正式 Config Service 写入 seam 已删除 5 条历史不完整 disabled 模型；默认模型和 Secret 保留语义未变，清理后模型 validation issue 为 0。
+- 2026-07-19 交互验收纠正 Provider 连接身份：Provider ID、Base URL 与 proxy 继续不可隐式迁移；`modelApi` 只是可编辑的 discovery/候选补全偏好。已保存 Provider 可更新该字段并通过 `sourceIndex` 保留原 Secret，端点身份变化仍必须复制连接。
+- 一键修复只在 Provider 的所有已保存模型都使用同一种受支持 `model.api` 时补全缺失 `modelApi`；空模型、混合 API、缺失或未知值继续要求用户选择，不从名称、URL 或 Secret 猜测。
+
 ## Verification
+
+### 2026-07-14：Global Config 测试隔离事故修复
+
+- 复现现象：真实`workspace/.nbook/config.json`从工作树消失，同时系统临时目录遗留`nbook-config-test-*/config.json`；7月11日与7月13日各存在一份未恢复备份，证明问题可重复发生。
+- 根因：`config-service.test.ts`的`beforeEach`会把真实Global Config和Global Agent资源目录rename到临时目录，`afterEach`再移回。测试进程被中断、超时或强制退出时不会执行恢复，真实用户配置因此留在临时目录。
+- 修复：Config Service测试改用现有`createIsolatedWorkspaceAssets({useAsCwd: true})`，Global Config、Global Agent资源和Project fixture全部位于独立临时State Root。删除真实目录备份、清空和恢复逻辑，测试不再接触用户数据。
+- 数据恢复：按用户决策使用7月11日备份恢复真实Global Config；恢复后文件SHA256与备份完全一致，JSON解析通过，未输出任何secret。
+- 验证：`bun test server/config/config-service.test.ts --path-ignore-patterns=product`通过39项测试；测试前后真实Global Config SHA256保持不变。另一次误包含`product/`源码副本的测试运行虽然出现重复模块`instanceof`失败，真实Global Config仍保持不变，证明失败路径也不会再搬移用户配置。
+- 实际计划差异：仓库已有Workspace assets隔离基础设施，无需新增Config专用fixture。问题不是业务Config读写，而是测试绕开统一路径Context直接操作真实cwd。
+
+### 2026-07-18：Model Config 硬切验证
+
+- `bun run typecheck`：通过。
+- `bunx vitest run` 聚焦 21 个文件：156 tests passed，覆盖 Config normalizer/service、Provider Config 合同、Model Library、Provider Template、Automatic Discovery、Candidate Completion、model settings、四个前端 session Module、模型检查 route 和 Agent harness fixture。
+- `NovelIdeModelSettingsPanel.vue` 已从约 1980 行降至 695 行；Config 草稿、Provider Template、Automatic Discovery 和模型健康检查分别由独立 Module 持有。
+- `bun run nuxt:build`：通过。
+- `bun run nuxt:build`：通过，确认模型设置页拆分后的客户端与 Product Runtime bundle 可编译。
+- `bun run generate:openapi`：42 个 route meta 更新成功；`server/api/config/**` 的 `defaultApi` / `discovery` 审计为零，相关 route 已包含 `modelApi`。
 
 已通过：
 
@@ -309,7 +340,7 @@ assets/
 - `bun test server/workspace-files`
 - `bun scripts/prepare-profile-types.ts --all`
 - `bunx tsc --noEmit --pretty false`
-- `node --check scripts/neuro-book-deploy.mjs`
+- 旧部署脚本语法检查（历史验证，入口已删除）
 - `node --check scripts/deploy.mjs`
 
 本轮设置页重构追加验证：

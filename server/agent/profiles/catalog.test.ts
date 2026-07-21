@@ -29,8 +29,8 @@ import {defineAgentProfile as defineRuntimeAgentProfile} from "nbook/server/agen
 import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
 import {messageText} from "nbook/server/agent/messages/message-utils";
-import type {AgentDialogueContent} from "nbook/server/agent/session/dialogue-content";
 import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
+import {createTestRuntimeSession} from "nbook/server/agent/profiles/test/runtime-session";
 
 function defineAgentProfile(profile: any): ReturnType<typeof defineRuntimeAgentProfile> {
     const {
@@ -1095,6 +1095,42 @@ describe("AgentProfileCatalog", () => {
         await expect(validateProfileArtifact(systemRoot, nextItem)).resolves.toEqual({fresh: true});
     });
 
+    it("只读 Product profile 新鲜时零写入，过期时要求重建", async () => {
+        const stagingRoot = join(root, "runtime-staging");
+        const profilePath = join(systemRoot, "custom.readonly.profile.tsx");
+        await writeProfile(systemRoot, "custom.readonly.profile.tsx", profileSource("custom.readonly", "Readonly"));
+        await compileProfileArtifacts({
+            profileRoot: systemRoot,
+            rootLabel: "assets/workspace/.nbook/agent/profiles",
+            stagingRoot,
+        });
+        await rm(stagingRoot, {recursive: true, force: true});
+        const manifestPath = join(systemRoot, ".compiled", "manifest.json");
+        const manifestBefore = await readFile(manifestPath, "utf8");
+
+        const fresh = await compileProfileArtifacts({
+            profileRoot: systemRoot,
+            rootLabel: "assets/workspace/.nbook/agent/profiles",
+            skipFresh: true,
+            writePolicy: "forbid",
+            stagingRoot,
+        });
+        expect(fresh.compiled).toEqual([]);
+        await expect(readFile(stagingRoot, "utf8")).rejects.toThrow();
+        expect(await readFile(manifestPath, "utf8")).toBe(manifestBefore);
+
+        await writeFile(profilePath, (await readFile(profilePath, "utf8")).replace("Readonly", "Changed"), "utf8");
+        await expect(compileProfileArtifacts({
+            profileRoot: systemRoot,
+            rootLabel: "assets/workspace/.nbook/agent/profiles",
+            skipFresh: true,
+            writePolicy: "forbid",
+            stagingRoot,
+        })).rejects.toThrow("请重新构建或安装与源码匹配的 Product");
+        await expect(readFile(stagingRoot, "utf8")).rejects.toThrow();
+        expect(await readFile(manifestPath, "utf8")).toBe(manifestBefore);
+    });
+
     it("系统 artifact 同步到用户 root 后入口源码依赖可重定位", async () => {
         await writeProfile(systemRoot, "builtin/custom.synced.profile.tsx", profileSource("custom.synced", "Synced"));
         await writeProfile(userRoot, "builtin/custom.synced.profile.tsx", profileSource("custom.synced", "Synced"));
@@ -1118,20 +1154,24 @@ describe("AgentProfileCatalog", () => {
 
     it("Product profile artifact 不写入构建机绝对 require 路径", async () => {
         const productRoot = join(root, "product");
-        systemRoot = join(productRoot, "assets", "workspace", ".nbook", "agent", "profiles");
+        const outputServerRoot = join(productRoot, ".output", "server");
+        systemRoot = join(outputServerRoot, "assets", "workspace", ".nbook", "agent", "profiles");
         userRoot = join(productRoot, "workspace", ".nbook", "agent", "profiles");
-        await mkdir(join(productRoot, ".output", "server"), {recursive: true});
+        await mkdir(join(outputServerRoot, "node_modules", "nbook", "server", "test"), {recursive: true});
         await writeFile(join(productRoot, "package.json"), "{\"name\":\"neuro-book-product\",\"version\":\"0.0.0\",\"type\":\"module\"}\n", "utf8");
         await writeFile(join(productRoot, "tsconfig.json"), "{}\n", "utf8");
-        await writeFile(join(productRoot, ".output", "server", "index.mjs"), "", "utf8");
+        await writeFile(join(outputServerRoot, "tsconfig.json"), "{}\n", "utf8");
+        await writeFile(join(outputServerRoot, "index.mjs"), "", "utf8");
+        await writeFile(join(outputServerRoot, "node_modules", "nbook", "server", "test", "product-marker.ts"), 'export const marker = "output";\n', "utf8");
         await writeProfile(systemRoot, "custom.product.profile.mjs", `
+            import {marker} from "nbook/server/test/product-marker";
             export default {
                 manifest: { key: "custom.product", name: "Product" },
                 initialSchema: { type: "object", properties: {} },
                 outputSchema: { type: "object", properties: {} },
                 tools: {},
                 rootToolKeys: [],
-                prepare() { return { systemPrompt: "ok" }; },
+                prepare() { return { systemPrompt: marker }; },
             };
         `);
 
@@ -1153,14 +1193,23 @@ describe("AgentProfileCatalog", () => {
         expect(artifact.slice(0, 2048)).not.toContain("globalThis._importMeta_");
         expect(artifact.slice(0, 2048)).not.toMatch(/file:\/\/\/[A-Za-z]:/u);
         expect(artifact).not.toContain("D:/a/neuro-book/");
+        expect(manifestItem.dependencies.every((dependency) => dependency.path.startsWith(".output/server/"))).toBe(true);
+        expect(manifestItem.dependencies.some((dependency) => dependency.path.endsWith("node_modules/nbook/server/test/product-marker.ts"))).toBe(true);
+        process.chdir(productRoot);
+        try {
+            await expect(validateProfileArtifact(systemRoot, manifestItem, {requireTypeArtifact: true})).resolves.toEqual({fresh: true});
+        } finally {
+            process.chdir(previousCwd);
+        }
     });
 
     it("通用 .output Product runner 无根 Product package 时仍从 output vendor 解析 require", async () => {
         const productRoot = join(root, "product-output-runner");
-        systemRoot = join(productRoot, "assets", "workspace", ".nbook", "agent", "profiles");
+        systemRoot = join(productRoot, ".output", "server", "assets", "workspace", ".nbook", "agent", "profiles");
         userRoot = join(productRoot, "workspace", ".nbook", "agent", "profiles");
         await mkdir(join(productRoot, ".output", "server", "node_modules", "@nbook", "output-marker"), {recursive: true});
         await writeFile(join(productRoot, "tsconfig.json"), "{}\n", "utf8");
+        await writeFile(join(productRoot, ".output", "server", "tsconfig.json"), "{}\n", "utf8");
         await writeFile(join(productRoot, ".output", "server", "index.mjs"), "", "utf8");
         await writeFile(join(productRoot, ".output", "server", "package.json"), "{\"name\":\"neuro-book-output\",\"version\":\"0.0.0\",\"type\":\"module\"}\n", "utf8");
         await writeFile(join(productRoot, ".output", "server", "node_modules", "@nbook", "output-marker", "index.js"), `module.exports = {marker: "output-vendor"};\n`, "utf8");
@@ -1204,9 +1253,10 @@ describe("AgentProfileCatalog", () => {
     it("通用 .output Product runner 会重编源码模式遗留 artifact", async () => {
         const productRoot = join(root, "product-output-stale-artifact");
         const sourceRoot = join(root, "source-artifact-root");
-        systemRoot = join(productRoot, "assets", "workspace", ".nbook", "agent", "profiles");
+        systemRoot = join(productRoot, ".output", "server", "assets", "workspace", ".nbook", "agent", "profiles");
         await mkdir(join(productRoot, ".output", "server"), {recursive: true});
         await writeFile(join(productRoot, "tsconfig.json"), "{}\n", "utf8");
+        await writeFile(join(productRoot, ".output", "server", "tsconfig.json"), "{}\n", "utf8");
         await writeFile(join(productRoot, ".output", "server", "index.mjs"), "", "utf8");
         await writeFile(join(productRoot, ".output", "server", "package.json"), "{\"name\":\"neuro-book-output\",\"version\":\"0.0.0\",\"type\":\"module\"}\n", "utf8");
         await writeProfile(systemRoot, "custom.output.profile.mjs", `
@@ -1271,6 +1321,7 @@ describe("AgentProfileCatalog", () => {
         await symlink(dataWorkspaceRoot, join(productRoot, "workspace"), process.platform === "win32" ? "junction" : "dir");
         await writeFile(join(productRoot, "package.json"), "{\"name\":\"neuro-book-product\",\"version\":\"0.0.0\",\"type\":\"module\"}\n", "utf8");
         await writeFile(join(productRoot, "tsconfig.json"), "{}\n", "utf8");
+        await writeFile(join(productRoot, ".output", "server", "tsconfig.json"), "{}\n", "utf8");
         await writeFile(join(productRoot, ".output", "server", "index.mjs"), "", "utf8");
         await writeFile(join(productRoot, ".output", "server", "node_modules", "@nbook", "portable-marker", "index.js"), `module.exports = {marker: "portable-vendor"};\n`, "utf8");
         await writeProfile(userRoot, "custom.portable.profile.mjs", `
@@ -1346,43 +1397,9 @@ function profileSource(key: string, name: string): string {
 }
 
 function context() {
-    const session = {
-        systemPrompt: "",
-        messages: [],
-        model: null,
-        thinkingLevel: "off" as const,
+    const session = createTestRuntimeSession({
         profileKey: "custom.jsx",
-        workspaceRoot: "workspace",
-        customState: {},
-        linkedAgents: [],
-        archived: false,
-        agentMode: "normal" as const,
-        async read() {
-            return {
-                snapshot: {
-                    metadata: {
-                        sessionId: -1,
-                        profileKey: "custom.jsx",
-                        initial: {},
-                        workspaceRoot: "workspace",
-                        workspaceKey: "test",
-                        createdAt: 0,
-                    },
-                    entries: [],
-                    leafId: null,
-                },
-                context: session,
-            };
-        },
-        async agentDialogueContent(): Promise<AgentDialogueContent> {
-            return {
-                text: "",
-                tokens: 0,
-                fingerprint: "test",
-                entryIds: [],
-            };
-        },
-    };
+    });
     return {
         session,
         initial: {},

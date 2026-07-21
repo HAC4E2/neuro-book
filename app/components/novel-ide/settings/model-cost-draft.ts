@@ -17,7 +17,7 @@ export type ModelCostTierDraft = {
 };
 
 /**
- * 创建空价格草稿；空字段表示继承 Pi registry，价格单位固定为 USD / 1M tokens。
+ * 创建空价格草稿；空字段表示用户配置未记录价格，价格单位固定为 USD / 1M tokens。
  */
 export function createEmptyModelCostDraft(): ModelCostDraft {
     return {
@@ -52,7 +52,7 @@ export function createModelCostDraft(cost: ConfiguredModelDto["cost"]): ModelCos
 }
 
 /**
- * 清空价格覆盖，恢复继承 Pi registry。
+ * 清空用户配置中的价格。
  */
 export function clearModelCostDraft(cost: ModelCostDraft): void {
     cost.input = "";
@@ -70,7 +70,7 @@ export function hasModelCostOverride(cost: ModelCostDraft): boolean {
 }
 
 /**
- * 将价格草稿解析为保存用 USD / 1M tokens；空草稿表示继承 Pi registry。
+ * 将价格草稿解析为保存用 USD / 1M tokens；空草稿表示价格未知。
  */
 export function parseModelCostDraft(cost: ModelCostDraft): ConfiguredModelDto["cost"] {
     if (!hasModelCostOverride(cost)) {

@@ -1,7 +1,7 @@
 import {existsSync} from "node:fs";
 import {mkdir, readFile, readdir, stat} from "node:fs/promises";
-import {basename, join, relative, resolve} from "node:path";
-import {Value} from "typebox/value";
+import {basename, dirname, join, relative, resolve} from "node:path";
+import {assertTypeBoxValue} from "nbook/server/agent/profiles/schema-validation";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import {
     PROFILE_COMPILED_DIR_NAME,
@@ -16,7 +16,6 @@ import {ProfileFreshnessChecker} from "nbook/server/agent/profiles/profile-fresh
 import {ProfileRegistry} from "nbook/server/agent/profiles/profile-registry";
 import {ProfileSourceWatcher, type ProfileSourceWatchEvent} from "nbook/server/agent/profiles/profile-source-watcher";
 import {readSystemProfileMetadata, sha256File} from "nbook/server/workspace-files/novel-workspace";
-import {resolveSystemNbookRoot, resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
 import type {
     AgentCatalogSnapshot,
     AgentCatalogItem,
@@ -160,19 +159,13 @@ function idleProfileBuildState(): AgentProfileBuildState {
     };
 }
 
-function defaultSystemProfileRoot(): string {
-    return join(resolveSystemNbookRoot(), "agent", "profiles");
-}
-
-function defaultUserProfileRoot(): string {
-    return join(resolveUserNbookRoot(), "agent", "profiles");
-}
-
 /**
  * 动态 profile catalog。用户 profile 按 key 覆盖系统 profile。
  * Runtime 只加载 `.compiled` artifact，不在普通请求中编译 TSX 源码。
  */
 export class AgentProfileCatalog implements ProfileReleaseRegistrySink {
+    private readonly systemRoot: string;
+    private readonly userRoot: string;
     private readonly memoryProfiles = new Map<string, ProfileSource>();
     private memoryRevision = 0;
     private catalogGeneration = 0;
@@ -184,15 +177,34 @@ export class AgentProfileCatalog implements ProfileReleaseRegistrySink {
     private runtimeRegistryEnabled = false;
     private runtimeRegistryLoad?: Promise<LoadedProfileCatalog>;
     private runtimeRegistryLoadGeneration = -1;
-    private readonly artifactStore = new ProfileArtifactStore();
+    private readonly artifactStore: ProfileArtifactStore;
     private readonly freshness = new ProfileFreshnessChecker();
     private readonly runtimeRegistry = new ProfileRegistry<LoadedProfileCatalog>();
 
-    constructor(
-        private readonly systemRoot = defaultSystemProfileRoot(),
-        private readonly userRoot = defaultUserProfileRoot(),
-        private readonly _legacyModuleCacheRoot?: string,
-    ) {}
+    /**
+     * 创建只绑定指定物理 roots 的 Profile Catalog。
+     * system/user root 必须由进程、CLI、构建或测试 Adapter 显式决定；本 Module 不发现 cwd 或环境。
+     */
+    constructor(systemRoot: string, userRoot: string) {
+        this.systemRoot = resolve(systemRoot);
+        this.userRoot = resolve(userRoot);
+        this.artifactStore = new ProfileArtifactStore(join(dirname(this.userRoot), ".staging", "runtime-artifact-import-cache"));
+    }
+
+    /**
+     * 将 Catalog 已知来源的物理源码路径投影为工作台稳定 fileName。
+     * 来源归属由 Catalog roots 决定，调用方不得从 cwd 或环境重新推断。
+     */
+    sourceFileName(sourcePath: string, source: AgentProfileSourceKind): string {
+        const root = source === "system"
+            ? this.systemRoot
+            : source === "user"
+                ? this.userRoot
+                : null;
+        return root
+            ? relative(root, sourcePath).split(/[\\/]+/).join("/")
+            : basename(sourcePath);
+    }
 
     /**
      * 注册内存 profile，主要给测试和最小内置 profile 使用。
@@ -487,7 +499,8 @@ export class AgentProfileCatalog implements ProfileReleaseRegistrySink {
      */
     parseInitial(profile: AgentProfile, initial: JsonValue): JsonValue {
         try {
-            return Value.Parse(profile.initialSchema, initial) as JsonValue;
+            assertTypeBoxValue(profile.initialSchema, initial);
+            return initial;
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             throw new Error(`profile ${profile.manifest.key} initial 校验失败：${message}`);
@@ -502,13 +515,14 @@ export class AgentProfileCatalog implements ProfileReleaseRegistrySink {
             return undefined;
         }
         if (!profile.payloadSchema) {
-            throw new Error(`profile ${profile.manifest.key} 未声明 PayloadSchema，不能接收 invocation input。`);
+            throw new AgentInvocationPayloadError(`profile ${profile.manifest.key} 未声明 PayloadSchema，不能接收 invocation input。`);
         }
         try {
-            return Value.Parse(profile.payloadSchema, payload) as JsonValue;
+            assertTypeBoxValue(profile.payloadSchema, payload);
+            return payload;
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
-            throw new Error(`profile ${profile.manifest.key} payload 校验失败：${message}`);
+            throw new AgentInvocationPayloadError(`profile ${profile.manifest.key} payload 校验失败：${message}`);
         }
     }
 
@@ -533,6 +547,7 @@ export class AgentProfileCatalog implements ProfileReleaseRegistrySink {
                 loadStatus: buildState.running || buildState.queued ? "compiling" : issue ? statusFromIssue(issue) : "loaded",
                 hasSettingsForm: Boolean(profile.settingsForm),
                 canResetHome: Boolean(profile.home?.reset),
+                creationMode: profile.capabilities?.creation ?? "public",
                 issue,
             };
         });
@@ -548,6 +563,7 @@ export class AgentProfileCatalog implements ProfileReleaseRegistrySink {
                 loadStatus: buildState.running || buildState.queued ? "compiling" : profile.loadStatus,
                 hasSettingsForm: false,
                 canResetHome: false,
+                creationMode: "public",
                 issue: profile.issue,
             };
         });
@@ -959,6 +975,16 @@ export class AgentProfileCatalog implements ProfileReleaseRegistrySink {
 
     private relativeProfilePath(sourcePath: string, root: string): string {
         return relative(root, sourcePath).split(/[\\/]+/).join("/");
+    }
+}
+
+/** Admission阶段的结构化payload错误；prompt将其转为error结果，队列操作继续拒绝入队。 */
+export class AgentInvocationPayloadError extends Error {
+    readonly code = "invalid_payload";
+
+    constructor(message: string) {
+        super(message);
+        this.name = "AgentInvocationPayloadError";
     }
 }
 

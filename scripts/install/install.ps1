@@ -1,4 +1,4 @@
-[CmdletBinding(PositionalBinding = $false)]
+﻿[CmdletBinding(PositionalBinding = $false)]
 param(
     [string]$ManagerTag = "canary",
     [Parameter(ValueFromRemainingArguments = $true)]
@@ -6,8 +6,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-if (-not [Environment]::Is64BitOperatingSystem) {
-    throw "NeuroBook Manager v1 Stage 0 只支持 Windows x64。"
+$nativeArchitecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+if ($nativeArchitecture -ne [System.Runtime.InteropServices.Architecture]::X64) {
+    throw "NeuroBook Manager v1 Stage 0 只支持原生 Windows x64，检测到：$nativeArchitecture。"
 }
 $bunVersion = "1.3.14"
 $localAppData = $env:LOCALAPPDATA
@@ -17,19 +18,29 @@ if (-not $localAppData) {
 $cacheRoot = Join-Path $localAppData "NeuroBook\manager\runtime\bun\$bunVersion"
 $bunExe = Join-Path $cacheRoot "bun-windows-x64\bun.exe"
 $assetUrl = "https://github.com/oven-sh/bun/releases/download/bun-v$bunVersion/bun-windows-x64.zip"
+$archiveSha256 = "0a0620930b6675d7ba440e81f4e0e00d3cfbe096c4b140d3fff02205e9e18922"
+$bunSha256 = "0187f68d843f825a72ada4a7eca60db896ed753759a7f8252edcd31ac1bf1b9c"
 
-if (-not (Test-Path -LiteralPath $bunExe)) {
+$cachedValid = $false
+if (Test-Path -LiteralPath $bunExe) {
+    try {
+        $actualBun = (Get-FileHash -LiteralPath $bunExe -Algorithm SHA256).Hash.ToLowerInvariant()
+        $actualVersion = (& $bunExe --version 2>$null)
+        $cachedValid = $actualBun -eq $bunSha256 -and $actualVersion -eq $bunVersion -and $LASTEXITCODE -eq 0
+    } catch {
+        $cachedValid = $false
+    }
+}
+
+if (-not $cachedValid) {
+    Remove-Item -LiteralPath $cacheRoot -Recurse -Force -ErrorAction SilentlyContinue
     $stage = Join-Path ([System.IO.Path]::GetTempPath()) "neuro-book-stage0-$([guid]::NewGuid())"
     New-Item -ItemType Directory -Path $stage | Out-Null
     try {
-        $base = "https://github.com/oven-sh/bun/releases/download/bun-v$bunVersion"
         $archive = Join-Path $stage "bun-windows-x64.zip"
-        $sums = Join-Path $stage "SHASUMS256.txt"
         Invoke-WebRequest -Uri $assetUrl -OutFile $archive
-        Invoke-WebRequest -Uri "$base/SHASUMS256.txt" -OutFile $sums
-        $expected = ((Get-Content -LiteralPath $sums) | Where-Object { $_ -match "\s+bun-windows-x64.zip$" } | Select-Object -First 1).Split(" ")[0]
         $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-        if (-not $expected -or $actual -ne $expected.ToLowerInvariant()) {
+        if ($actual -ne $archiveSha256) {
             throw "Bun SHA256 校验失败。"
         }
         New-Item -ItemType Directory -Path $cacheRoot -Force | Out-Null
@@ -39,9 +50,24 @@ if (-not (Test-Path -LiteralPath $bunExe)) {
     }
 }
 
+try {
+    if (-not (Test-Path -LiteralPath $bunExe -PathType Leaf)) {
+        throw "Bun executable不存在：$bunExe"
+    }
+    $actualBun = (Get-FileHash -LiteralPath $bunExe -Algorithm SHA256).Hash.ToLowerInvariant()
+    $actualVersion = (& $bunExe --version 2>$null)
+    if ($LASTEXITCODE -ne 0 -or $actualBun -ne $bunSha256 -or $actualVersion -ne $bunVersion) {
+        throw "Bun executable checksum或版本不匹配。"
+    }
+} catch {
+    Remove-Item -LiteralPath $cacheRoot -Recurse -Force -ErrorAction SilentlyContinue
+    throw "NeuroBook Stage 0 Bun executable校验失败：$($_.Exception.Message)"
+}
+
 $env:NEURO_BOOK_STAGE0_BUN_PATH = $bunExe
 $env:NEURO_BOOK_STAGE0_BUN_VERSION = $bunVersion
 $env:NEURO_BOOK_STAGE0_BUN_SOURCE_URL = $assetUrl
-$env:NEURO_BOOK_STAGE0_BUN_SHA256 = (Get-FileHash -LiteralPath $bunExe -Algorithm SHA256).Hash.ToLowerInvariant()
+$env:NEURO_BOOK_STAGE0_BUN_ARCHIVE_SHA256 = $archiveSha256
+$env:NEURO_BOOK_STAGE0_BUN_SHA256 = $bunSha256
 & $bunExe x --bun "@notnotype/neuro-book-manager@$ManagerTag" install @ManagerArgs
 exit $LASTEXITCODE

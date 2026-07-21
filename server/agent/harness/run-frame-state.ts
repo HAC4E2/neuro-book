@@ -1,16 +1,17 @@
 import type {RunFrame, RuntimeTurn, TurnIngestResult} from "nbook/server/agent/harness/run-kernel-types";
 import type {AppliedFailedTurn} from "nbook/server/agent/harness/turn-failure";
+import {createPublicRuntimeProjectionState} from "nbook/server/agent/events/public-event-projection";
 
 export type CreateRunFrameInput = {
     invocationId?: RunFrame["invocationId"];
     sessionId: RunFrame["sessionId"];
     workspaceKey: RunFrame["workspaceKey"];
-    workspaceRoot: RunFrame["workspaceRoot"];
+    workspaceRootRef: RunFrame["workspaceRootRef"];
+    workspaceFsRoot: RunFrame["workspaceFsRoot"];
     projectPath?: RunFrame["projectPath"];
     systemPrompt: RunFrame["systemPrompt"];
     messages: RunFrame["messages"];
     models: RunFrame["models"];
-    customPiRuntime?: RunFrame["customPiRuntime"];
     model: RunFrame["model"];
     apiKey?: RunFrame["apiKey"];
     timeoutMs?: RunFrame["timeoutMs"];
@@ -51,12 +52,12 @@ export function createRunFrame(input: CreateRunFrameInput): RunFrame {
         invocationId: input.invocationId,
         sessionId: input.sessionId,
         workspaceKey: input.workspaceKey,
-        workspaceRoot: input.workspaceRoot,
+        workspaceRootRef: input.workspaceRootRef,
+        workspaceFsRoot: input.workspaceFsRoot,
         projectPath: input.projectPath,
         systemPrompt: input.systemPrompt,
         messages: input.messages.slice(),
         models: input.models,
-        customPiRuntime: input.customPiRuntime,
         model: input.model,
         apiKey: input.apiKey,
         timeoutMs: input.timeoutMs,
@@ -92,6 +93,7 @@ export function createRunFrame(input: CreateRunFrameInput): RunFrame {
         activeSidecar: input.activeSidecar,
         automaticCompactionDoneForTurn: false,
         pendingWritePlans: [],
+        publicEventProjection: createPublicRuntimeProjectionState(),
         onEvent: input.onEvent,
     };
 }
@@ -111,7 +113,7 @@ export function consumeNextTurnModelMessages(frame: RunFrame): RunFrame["message
 export function applySuccessfulTurn(frame: RunFrame, turn: RuntimeTurn, ingest: TurnIngestResult): void {
     frame.finalAssistant = turn.assistant;
     frame.messages.push(turn.assistant);
-    frame.messages.push(...turn.toolResults);
+    frame.messages.push(...turn.toolResults.map((toolResult) => toolResult.stored));
     frame.reportResult = turn.reportResult ?? frame.reportResult;
     frame.sidecarResult = turn.sidecarResult ?? frame.sidecarResult;
     if (turn.reportResult || turn.sidecarResult) {

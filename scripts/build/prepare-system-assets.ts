@@ -4,8 +4,9 @@ const args = new Set(process.argv.slice(2));
 const syncUserAssets = args.has("--sync-user-assets");
 const force = args.has("--force");
 const forceSyncUserAssets = args.has("--force-sync-user-assets");
+const productBuild = args.has("--product-build");
 
-const result = await prepareSystemAssets({syncUserAssets, force, forceSyncUserAssets});
+const result = await prepareSystemAssets({syncUserAssets, force, forceSyncUserAssets, productBuild});
 
 console.log(`prepared system variable definitions: ${result.variableManifest.definitions.length} definition file(s)`);
 console.log(`prepared system profiles: ${result.profileResult.manifest.profiles.length} profile(s), compiled ${result.profileResult.compiled.length} stale profile(s)`);

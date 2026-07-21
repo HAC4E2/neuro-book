@@ -1,13 +1,15 @@
-import type {AgentSessionEventDto, AgentSessionEventsQueryDto, AgentSessionSnapshotDto} from "nbook/shared/dto/agent-session.dto";
+import type {AgentSessionEventDto, AgentSessionEventsQueryDto, AgentSessionRecoveryDto} from "nbook/shared/dto/agent-session.dto";
+import type {AgentRecoveryApplyResult} from "nbook/app/components/novel-ide/agent/useAgentSession";
 import type {Ref} from "vue";
 import {ref} from "vue";
 
-export type AgentSessionStreamSnapshotReason =
+export type AgentSessionStreamRecoveryReason =
     | "initial_load"
     | "seq_gap"
     | "snapshot_required"
     | "event_epoch_changed"
     | "active_path_changed"
+    | "invalid_history_cursor"
     | "linked_agent_changed"
     | "manual_refresh"
     | "invoke_error_fallback";
@@ -15,16 +17,16 @@ export type AgentSessionStreamSnapshotReason =
 type AgentSessionStreamStore = {
     eventEpoch: Ref<string | null>;
     lastSeq: Ref<number>;
-    needsSnapshot: Ref<boolean>;
-    snapshotReasons: Ref<string[]>;
+    needsRecovery: Ref<boolean>;
+    recoveryReasons: Ref<string[]>;
     applyConnectionStatus(status: "idle" | "connecting" | "connected" | "reconnecting" | "recovering" | "disconnected"): void;
     applyEvent(event: AgentSessionEventDto): void;
-    applySnapshot(snapshot: AgentSessionSnapshotDto): void;
-    clearSnapshotRequest(): void;
+    applyRecovery(recovery: AgentSessionRecoveryDto): AgentRecoveryApplyResult;
+    clearRecoveryRequest(): void;
 };
 
 type AgentSessionStreamApi = {
-    getSession(sessionId: number): Promise<AgentSessionSnapshotDto>;
+    getSessionRecovery(sessionId: number): Promise<AgentSessionRecoveryDto>;
     subscribeSessionEvents(
         sessionId: number,
         cursor: AgentSessionEventsQueryDto,
@@ -38,13 +40,20 @@ type AgentSessionStreamOptions = {
     session: AgentSessionStreamStore;
     api: AgentSessionStreamApi;
     activeSessionId: Ref<number | null>;
-    applySnapshotSideEffects?: (snapshot: AgentSessionSnapshotDto) => void;
+    applyRecoverySideEffects?: (recovery: AgentSessionRecoveryDto, result: AgentRecoveryApplyResult) => void | Promise<void>;
     onEvent?: (event: AgentSessionEventDto) => void | Promise<void>;
     onError?: (error: unknown, fallback: string) => void;
 };
 
 type RuntimeI18n = {
     t: (key: string) => string;
+};
+
+type ConnectionReady = {
+    promise: Promise<void>;
+    readonly settled: boolean;
+    resolve: () => void;
+    reject: (error: unknown) => void;
 };
 
 const reconnectDelay = (attempt: number): number => {
@@ -68,19 +77,17 @@ function translate(key: string, fallback: string): string {
 }
 
 /**
- * 管理 Agent session SSE 连接、重连和 snapshot single-flight。
+ * 管理 Agent session SSE 连接、重连和 recovery single-flight。
  */
 export function useAgentSessionStream(options: AgentSessionStreamOptions) {
     const controller = ref<AbortController | null>(null);
     const sessionId = ref<number | null>(null);
     const reconnectAttempt = ref(0);
     const lastDisconnectReason = ref("");
-    let readyPromise: Promise<void> | null = null;
-    let resolveReady: (() => void) | null = null;
-    let rejectReady: ((error: unknown) => void) | null = null;
+    let ready: ConnectionReady | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    let snapshotPromise: {sessionId: number; promise: Promise<boolean>} | null = null;
-    let snapshotGeneration = 0;
+    let recoveryPromise: {sessionId: number; promise: Promise<boolean>} | null = null;
+    let recoveryGeneration = 0;
     let stopped = false;
 
     const clearReconnectTimer = (): void => {
@@ -91,12 +98,31 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
         reconnectTimer = null;
     };
 
-    const createReadyPromise = (): void => {
-        readyPromise = new Promise<void>((resolve, reject) => {
-            resolveReady = resolve;
-            rejectReady = reject;
+    const createConnectionReady = (): ConnectionReady => {
+        let resolveReady!: () => void;
+        let rejectReady!: (error: unknown) => void;
+        let settled = false;
+        const promise = new Promise<void>((resolve, reject) => {
+            resolveReady = () => {
+                if (settled) return;
+                settled = true;
+                resolve();
+            };
+            rejectReady = (error) => {
+                if (settled) return;
+                settled = true;
+                reject(error);
+            };
         });
-        void readyPromise.catch(() => {});
+        void promise.catch(() => {});
+        return {
+            promise,
+            get settled() {
+                return settled;
+            },
+            resolve: resolveReady,
+            reject: rejectReady,
+        };
     };
 
     const scheduleReconnect = (targetSessionId: number, reason: string): void => {
@@ -112,40 +138,53 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
         }, delay);
     };
 
-    const syncSnapshot = async (reason: AgentSessionStreamSnapshotReason): Promise<boolean> => {
+    const syncRecovery = async (reason: AgentSessionStreamRecoveryReason): Promise<boolean> => {
         const targetSessionId = options.activeSessionId.value;
         if (!targetSessionId) {
             return false;
         }
-        if (snapshotPromise?.sessionId === targetSessionId) {
-            return snapshotPromise.promise;
+        if (recoveryPromise?.sessionId === targetSessionId) {
+            return recoveryPromise.promise;
         }
-        const generation = snapshotGeneration;
+        const generation = recoveryGeneration;
         if (reason !== "manual_refresh" && reason !== "invoke_error_fallback") {
             options.session.applyConnectionStatus("recovering");
         }
         const request = {sessionId: targetSessionId, promise: Promise.resolve(false)};
         const promise = (async () => {
             try {
-                const snapshot = await options.api.getSession(targetSessionId);
-                if (generation !== snapshotGeneration || targetSessionId !== options.activeSessionId.value) {
+                const recovery = await options.api.getSessionRecovery(targetSessionId);
+                if (generation !== recoveryGeneration || targetSessionId !== options.activeSessionId.value) {
                     return false;
                 }
-                options.session.applySnapshot(snapshot);
-                options.session.clearSnapshotRequest();
-                options.applySnapshotSideEffects?.(snapshot);
+                const applyResult = options.session.applyRecovery(recovery);
+                options.session.clearRecoveryRequest();
+                await options.applyRecoverySideEffects?.(recovery, applyResult);
+                const activeController = controller.value;
+                if (activeController && sessionId.value === targetSessionId && targetSessionId === options.activeSessionId.value) {
+                    // recovery cursor 是新 subscription 的 replay 起点；旧连接不能继续沿用被重置前的读取位置。
+                    clearReconnectTimer();
+                    reconnectAttempt.value = 0;
+                    activeController.abort();
+                    if (controller.value === activeController) {
+                        controller.value = null;
+                        sessionId.value = null;
+                        ready = null;
+                    }
+                    await start(targetSessionId);
+                }
                 return true;
             } catch (error) {
                 options.onError?.(error, translate("agent.chatSurface.syncSessionFailed", "同步 Agent session 失败"));
                 return false;
             } finally {
-                if (snapshotPromise === request) {
-                    snapshotPromise = null;
+                if (recoveryPromise === request) {
+                    recoveryPromise = null;
                 }
             }
         })();
         request.promise = promise;
-        snapshotPromise = request;
+        recoveryPromise = request;
         return promise;
     };
 
@@ -155,25 +194,27 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
         }
         await options.onEvent?.(event);
         options.session.applyEvent(event);
-        if (options.session.needsSnapshot.value) {
-            const reasons = options.session.snapshotReasons.value;
-            let reason: AgentSessionStreamSnapshotReason = "seq_gap";
+        if (options.session.needsRecovery.value) {
+            const reasons = options.session.recoveryReasons.value;
+            let reason: AgentSessionStreamRecoveryReason = "seq_gap";
             if (reasons.includes("event_epoch_changed")) {
                 reason = "event_epoch_changed";
             } else if (reasons.includes("snapshot_required")) {
                 reason = "snapshot_required";
             } else if (reasons.includes("active_path_changed")) {
                 reason = "active_path_changed";
+            } else if (reasons.includes("invalid_history_cursor")) {
+                reason = "invalid_history_cursor";
             } else if (reasons.includes("linked_agent_changed")) {
                 reason = "linked_agent_changed";
             }
-            await syncSnapshot(reason);
+            await syncRecovery(reason);
         }
     };
 
     const start = async (targetSessionId: number): Promise<void> => {
         if (controller.value && sessionId.value === targetSessionId) {
-            await readyPromise;
+            await ready?.promise;
             return;
         }
         clearReconnectTimer();
@@ -182,7 +223,11 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
         controller.value = nextController;
         sessionId.value = targetSessionId;
         stopped = false;
-        createReadyPromise();
+        const nextReady = createConnectionReady();
+        ready = nextReady;
+        nextController.signal.addEventListener("abort", () => {
+            nextReady.reject(new DOMException("Agent session event stream aborted", "AbortError"));
+        }, {once: true});
         options.session.applyConnectionStatus(reconnectAttempt.value > 0 ? "reconnecting" : "connecting");
 
         void (async () => {
@@ -194,27 +239,38 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
                     await handleEvent(targetSessionId, event);
                 }, nextController.signal, {
                     onOpen: () => {
+                        if (controller.value !== nextController || nextController.signal.aborted) {
+                            return;
+                        }
                         reconnectAttempt.value = 0;
-                        resolveReady?.();
+                        nextReady.resolve();
                     },
                 });
-                scheduleReconnect(targetSessionId, "event stream closed");
+                if (controller.value === nextController && !nextController.signal.aborted) {
+                    if (!nextReady.settled) {
+                        nextReady.reject(new Error("Agent session event stream closed before open"));
+                    }
+                    scheduleReconnect(targetSessionId, "event stream closed");
+                }
             } catch (error) {
-                rejectReady?.(error);
-                if (targetSessionId === options.activeSessionId.value && !isAbortError(error) && !stopped) {
+                if (controller.value === nextController) {
+                    nextReady.reject(error);
+                }
+                if (controller.value === nextController
+                    && targetSessionId === options.activeSessionId.value
+                    && !isAbortError(error)
+                    && !stopped) {
                     scheduleReconnect(targetSessionId, error instanceof Error ? error.message : String(error));
                 }
             } finally {
                 if (controller.value === nextController) {
                     controller.value = null;
                     sessionId.value = null;
-                    readyPromise = null;
-                    resolveReady = null;
-                    rejectReady = null;
+                    ready = null;
                 }
             }
         })();
-        await readyPromise;
+        await nextReady.promise;
     };
 
     const ensure = async (): Promise<void> => {
@@ -233,7 +289,7 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
         controller.value?.abort();
         controller.value = null;
         sessionId.value = null;
-        readyPromise = null;
+        ready = null;
         await start(options.activeSessionId.value);
     };
 
@@ -243,9 +299,9 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
         controller.value?.abort();
         controller.value = null;
         sessionId.value = null;
-        readyPromise = null;
-        snapshotGeneration += 1;
-        snapshotPromise = null;
+        ready = null;
+        recoveryGeneration += 1;
+        recoveryPromise = null;
         options.session.applyConnectionStatus("idle");
     };
 
@@ -256,6 +312,6 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
         reconnectAttempt,
         start,
         stop,
-        syncSnapshot,
+        syncRecovery,
     };
 }

@@ -2,8 +2,13 @@ import {Type} from "typebox";
 import type {Static, TSchema} from "typebox";
 import {Value} from "typebox/value";
 import {valid} from "semver";
+import {isAbsolute, join, resolve} from "node:path";
 
-import type {InstallationManifest, OperationJournal, ReleaseManifest} from "#manager/types";
+import {PRODUCT_ASSET_NAMES} from "#manager/platform";
+import {PRODUCT_PLATFORMS, type InstallationManifest, type OperationJournal, type ReleaseManifest} from "#manager/types";
+import {assertAbsolutePathWithin, installationRelativePath} from "#manager/installation-path";
+import {sourceDockerImageName, sourceDockerImageSuffix} from "#manager/source-docker-image";
+import {resolveAppSqliteLocation} from "nbook/server/runtime/app-sqlite-location";
 
 const SHA256_PATTERN = "^[a-fA-F0-9]{64}$";
 const REVISION_PATTERN = "^[a-f0-9]{40}$";
@@ -18,7 +23,8 @@ const InstallProfileSchema = Type.Union([
     Type.Literal("ghcr"),
 ]);
 const ReleaseChannelSchema = Type.Union([Type.Literal("stable"), Type.Literal("canary")]);
-const ProductPlatformSchema = Type.Union([Type.Literal("windows-x64"), Type.Literal("linux-x64-glibc")]);
+const ContainerEngineSchema = Type.Union([Type.Literal("docker"), Type.Literal("podman")]);
+const ProductPlatformSchema = Type.Union(PRODUCT_PLATFORMS.map((platform) => Type.Literal(platform)));
 const StateRootSchema = Type.Union([Type.Literal("."), Type.Literal("data")]);
 const RevisionSchema = Type.String({pattern: REVISION_PATTERN});
 const ChecksumSchema = Type.String({pattern: SHA256_PATTERN});
@@ -38,7 +44,7 @@ const ReleaseSourceSchema = Type.Object({
     revision: RevisionSchema,
     path: Type.Literal("."),
     files: Type.Array(RelativePathSchema),
-    checksum: ChecksumSchema,
+    archiveSha256: ChecksumSchema,
     sourceUrl: Type.String({minLength: 1}),
     license: Type.String({minLength: 1}),
     redistribution: Type.String({minLength: 1}),
@@ -64,7 +70,7 @@ const ReleaseProductSchema = Type.Object({
     revision: RevisionSchema,
     path: Type.Literal(".output"),
     platform: ProductPlatformSchema,
-    checksum: ChecksumSchema,
+    archiveSha256: ChecksumSchema,
     sourceUrl: Type.String({minLength: 1}),
     license: Type.String({minLength: 1}),
     redistribution: Type.String({minLength: 1}),
@@ -82,7 +88,7 @@ const ManagerSchema = Type.Object({
     provider: Type.Literal("managed"),
     version: Type.String({minLength: 1}),
     path: RelativePathSchema,
-    checksum: ChecksumSchema,
+    bundleSha256: ChecksumSchema,
 }, {additionalProperties: false});
 const SystemRuntimeSchema = Type.Object({
     provider: Type.Literal("system"),
@@ -93,7 +99,8 @@ const ManagedRuntimeSchema = Type.Object({
     provider: Type.Literal("managed"),
     version: Type.String({minLength: 1}),
     path: RelativePathSchema,
-    checksum: ChecksumSchema,
+    archiveSha256: ChecksumSchema,
+    executableSha256: ChecksumSchema,
     sourceUrl: Type.String({minLength: 1}),
     license: Type.String({minLength: 1}),
     redistribution: Type.String({minLength: 1}),
@@ -113,7 +120,9 @@ const ManagedGitToolSchema = Type.Object({
     path: RelativePathSchema,
     bashPath: RelativePathSchema,
     distribution: Type.Literal("PortableGit"),
-    checksum: ChecksumSchema,
+    archiveSha256: ChecksumSchema,
+    gitSha256: ChecksumSchema,
+    bashSha256: ChecksumSchema,
     sourceUrl: Type.String({minLength: 1}),
     license: Type.String({minLength: 1}),
     redistribution: Type.String({minLength: 1}),
@@ -126,8 +135,9 @@ const ToolComponentsSchema = Type.Object({
 }, {additionalProperties: false});
 
 export const InstallationManifestSchema = Type.Object({
-    schemaVersion: Type.Literal(2),
+    schemaVersion: Type.Literal(4),
     profile: InstallProfileSchema,
+    containerEngine: Type.Union([ContainerEngineSchema, Type.Null()]),
     managerVersion: Type.String({minLength: 1}),
     appVersion: Type.String({minLength: 1}),
     channel: ReleaseChannelSchema,
@@ -155,24 +165,111 @@ const OperationPhaseSchema = Type.Union([
     Type.Literal("committed"),
 ]);
 
+const OperationEffectStateSchema = Type.Union([Type.Literal("planned"), Type.Literal("applied")]);
+const OperationEffectSchema = Type.Union([
+    Type.Object({
+        kind: Type.Literal("path-create"),
+        state: OperationEffectStateSchema,
+        owner: Type.Union([
+            Type.Literal("staging"), Type.Literal("backup"), Type.Literal("source"), Type.Literal("runtime"), Type.Literal("tool"),
+            Type.Literal("manager"), Type.Literal("wrapper"), Type.Literal("state"), Type.Literal("portable-launcher"),
+        ]),
+        path: RelativePathSchema,
+        cleanupError: Type.Optional(Type.String({minLength: 1})),
+    }, {additionalProperties: false}),
+    Type.Object({
+        kind: Type.Literal("path-retire"),
+        state: OperationEffectStateSchema,
+        owner: Type.Union([Type.Literal("runtime"), Type.Literal("tool")]),
+        path: RelativePathSchema,
+        cleanupError: Type.Optional(Type.String({minLength: 1})),
+    }, {additionalProperties: false}),
+    Type.Object({
+        kind: Type.Literal("component-switch"),
+        state: OperationEffectStateSchema,
+        owner: Type.Union([Type.Literal("source"), Type.Literal("product"), Type.Literal("managed-assets")]),
+    }, {additionalProperties: false}),
+    Type.Object({
+        kind: Type.Literal("wrapper-switch"),
+        state: OperationEffectStateSchema,
+        owner: Type.Literal("wrapper"),
+        previousState: Type.Union([Type.Literal("present"), Type.Literal("missing")]),
+        backupPath: Type.Optional(Type.String({minLength: 1})),
+    }, {additionalProperties: false}),
+    Type.Object({kind: Type.Literal("manifest-switch"), state: OperationEffectStateSchema, owner: Type.Literal("manifest")}, {additionalProperties: false}),
+    Type.Object({kind: Type.Literal("git-checkout"), state: OperationEffectStateSchema, owner: Type.Literal("source")}, {additionalProperties: false}),
+    Type.Object({
+        kind: Type.Literal("git-fast-forward"),
+        state: OperationEffectStateSchema,
+        owner: Type.Literal("source"),
+        previousRevision: RevisionSchema,
+        targetRevision: RevisionSchema,
+        dependenciesInstalled: Type.Optional(Type.Boolean()),
+    }, {additionalProperties: false}),
+    Type.Object({
+        kind: Type.Literal("docker-image"),
+        state: OperationEffectStateSchema,
+        owner: Type.Literal("product"),
+        image: Type.String({minLength: 1}),
+        previousImage: Type.Optional(Type.String({minLength: 1})),
+        previousImageRetired: Type.Optional(Type.Boolean()),
+        cleanupError: Type.Optional(Type.String({minLength: 1})),
+    }, {additionalProperties: false}),
+    Type.Object({
+        kind: Type.Literal("compose"),
+        state: OperationEffectStateSchema,
+        owner: Type.Literal("compose"),
+        previousState: Type.Union([Type.Literal("running"), Type.Literal("stopped"), Type.Literal("missing")]),
+        stopped: Type.Boolean(),
+        previousCompose: Type.Optional(Type.String({minLength: 1})),
+        created: Type.Boolean(),
+        previousImage: Type.Optional(Type.String({minLength: 1})),
+        targetImage: Type.Optional(Type.String({minLength: 1})),
+    }, {additionalProperties: false}),
+    Type.Object({
+        kind: Type.Literal("sqlite-backup"),
+        state: OperationEffectStateSchema,
+        owner: Type.Literal("app-sqlite"),
+        configuredUrl: Type.String({minLength: 1}),
+        stateRoot: Type.String({minLength: 1}),
+        hostPath: Type.String({minLength: 1}),
+        backupPath: Type.String({minLength: 1}),
+        checkpoint: Type.Object({
+            busy: Type.Integer({minimum: 0}),
+            log: Type.Integer({minimum: -1}),
+            checkpointed: Type.Integer({minimum: -1}),
+        }, {additionalProperties: false}),
+    }, {additionalProperties: false}),
+]);
+
 export const OperationJournalSchema = Type.Object({
-    schemaVersion: Type.Literal(1),
+    schemaVersion: Type.Literal(3),
     id: Type.String({minLength: 1}),
     action: Type.Union([Type.Literal("install"), Type.Literal("update")]),
     phase: OperationPhaseSchema,
     root: Type.String({minLength: 1}),
-    createdPaths: Type.Array(RelativePathSchema),
+    containerEngine: Type.Union([ContainerEngineSchema, Type.Null()]),
+    effects: Type.Array(OperationEffectSchema),
     backupRoot: Type.String({minLength: 1}),
     previousManifest: Type.Union([InstallationManifestSchema, Type.Null()]),
     nextManifest: Type.Union([InstallationManifestSchema, Type.Null()]),
-    git: Type.Optional(Type.Object({
-        previousRevision: RevisionSchema,
-        targetRevision: RevisionSchema,
-        committed: Type.Boolean(),
+    migrationRoot: Type.Optional(Type.String({minLength: 1})),
+    attachmentMigration: Type.Optional(Type.Object({
+        runId: Type.String({pattern: "^[A-Za-z0-9_-]+$"}),
+        state: Type.Union([
+            Type.Literal("planned"),
+            Type.Literal("applied"),
+            Type.Literal("rolled_back"),
+        ]),
+        migratedSessions: Type.Integer({minimum: 1}),
+        sessions: Type.Array(Type.Object({
+            sessionId: Type.Union([Type.Integer(), Type.Null()]),
+            sourcePath: Type.String({minLength: 1}),
+            sourceHash: Type.String({pattern: "^[a-f0-9]{64}$"}),
+            targetHash: Type.String({pattern: "^[a-f0-9]{64}$"}),
+            backupPath: Type.Optional(Type.String({minLength: 1})),
+        }, {additionalProperties: false}), {minItems: 1}),
     }, {additionalProperties: false})),
-    databaseBackup: Type.Optional(Type.String({minLength: 1})),
-    databasePath: Type.Optional(Type.String({minLength: 1})),
-    previousCompose: Type.Optional(Type.String({minLength: 1})),
     outcome: Type.Optional(Type.Union([Type.Literal("success"), Type.Literal("rolled-back")])),
     createdAt: Type.String({pattern: ISO_DATE_PATTERN}),
     updatedAt: Type.String({pattern: ISO_DATE_PATTERN}),
@@ -197,7 +294,7 @@ const ReleaseImageSchema = Type.Object({
 }, {additionalProperties: false});
 
 export const ReleaseManifestSchema = Type.Object({
-    schemaVersion: Type.Literal(2),
+    schemaVersion: Type.Literal(3),
     version: Type.String({minLength: 1}),
     channel: ReleaseChannelSchema,
     sourceRevision: RevisionSchema,
@@ -208,13 +305,22 @@ export const ReleaseManifestSchema = Type.Object({
     ghcr: ReleaseImageSchema,
 }, {additionalProperties: false});
 
+const ReleaseManifestEnvelopeSchema = Type.Object({
+    schemaVersion: Type.Integer({minimum: 1}),
+    minManagerVersion: Type.String({minLength: 1}),
+}, {additionalProperties: true});
+
 export type InstallationManifestValue = Static<typeof InstallationManifestSchema>;
 export type OperationJournalValue = Static<typeof OperationJournalSchema>;
 export type ReleaseManifestValue = Static<typeof ReleaseManifestSchema>;
 
 /** 严格解析并执行 Profile/组件语义校验。 */
 export function parseInstallationManifest(value: unknown): InstallationManifest {
-    assertSchema(InstallationManifestSchema, value, "installation.json 不符合 NeuroBook Manager schema v2；schema v1 安装必须重新安装。");
+    assertSchema(
+        InstallationManifestSchema,
+        value,
+        "installation.json 不符合 NeuroBook Manager schema v4；旧版安装必须重新安装，Windows Portable 只复用完整 data/。",
+    );
     const manifest = value as InstallationManifest;
     assertSemVer(manifest.managerVersion, "managerVersion");
     assertSemVer(manifest.appVersion, "appVersion");
@@ -227,18 +333,158 @@ export function parseInstallationManifest(value: unknown): InstallationManifest 
 export function parseOperationJournal(value: unknown, path: string): OperationJournal {
     assertSchema(OperationJournalSchema, value, `Operation journal 不符合 schema：${path}`);
     const journal = value as OperationJournal;
-    for (const createdPath of journal.createdPaths) assertSafeRelativePath(createdPath);
+    if (!isAbsolute(journal.root)) {
+        throw new Error(`Operation root必须是绝对路径：${journal.root}`);
+    }
+    const journalRoot = resolve(journal.root);
+    assertAbsolutePathWithin(join(journalRoot, ".deploy", "backups"), journal.backupRoot, "Operation backupRoot");
     if (journal.previousManifest) parseInstallationManifest(journal.previousManifest);
     if (journal.nextManifest) parseInstallationManifest(journal.nextManifest);
-    if (journal.git?.committed && !journal.nextManifest) {
-        throw new Error(`Git 已提交的 Operation journal 缺少 nextManifest：${path}`);
+    const effectIdentities = new Set<string>();
+    for (const effect of journal.effects) {
+        assertOperationEffect(journal, effect, path);
+        const identity = operationEffectIdentity(effect);
+        if (effectIdentities.has(identity)) throw new Error(`Operation effect重复：${identity}`);
+        effectIdentities.add(identity);
+    }
+    if (journal.nextManifest) {
+        const referencedPaths = componentPaths(journal.nextManifest);
+        for (const effect of journal.effects) {
+            if (effect.kind !== "path-retire") continue;
+            const normalized = effect.path.replaceAll("\\", "/").replace(/\/$/u, "");
+            if (referencedPaths.some((componentPath) => componentPath === normalized || componentPath.startsWith(`${normalized}/`))) {
+                throw new Error(`Operation path-retire仍包含nextManifest引用的组件目录：${effect.path}`);
+            }
+        }
+    }
+    if (journal.attachmentMigration && !journal.nextManifest) {
+        throw new Error(`Attachment migration Operation journal缺少nextManifest：${path}`);
+    }
+    if (journal.migrationRoot) {
+        assertAbsolutePathWithin(journalRoot, journal.migrationRoot, "Operation migrationRoot", {allowRoot: true});
+    }
+    for (const session of journal.attachmentMigration?.sessions ?? []) {
+        installationRelativePath(session.sourcePath);
+        if (session.backupPath) installationRelativePath(session.backupPath);
+    }
+    for (const manifest of [journal.previousManifest, journal.nextManifest]) {
+        if (manifest && manifest.containerEngine !== journal.containerEngine) {
+            throw new Error(`Operation journal与Installation Manifest的Container Engine不一致：${path}`);
+        }
+    }
+    const containerState = journal.effects.some((effect) => effect.kind === "compose" || effect.kind === "docker-image")
+        || [journal.previousManifest, journal.nextManifest].some((manifest) => manifest?.profile === "ghcr" || manifest?.profile === "source-docker");
+    if (containerState && !journal.containerEngine) {
+        throw new Error(`包含容器状态的Operation journal缺少Container Engine：${path}`);
     }
     return journal;
 }
 
+/** 验证单条Effect的ownership、路径布局和恢复所需字段。 */
+function assertOperationEffect(journal: OperationJournal, effect: OperationJournal["effects"][number], journalPath: string): void {
+    if (effect.kind === "path-create" || effect.kind === "path-retire") {
+        const relativePath = installationRelativePath(effect.path);
+        assertOwnedEffectPath(journal, effect.owner, relativePath, effect.kind);
+    }
+    if (effect.kind === "wrapper-switch" && effect.backupPath) {
+        assertAbsolutePathWithin(journal.backupRoot, effect.backupPath, "Manager wrapper backup");
+    }
+    if (effect.kind === "wrapper-switch" && effect.previousState === "present" && !effect.backupPath) {
+        throw new Error(`已有Manager wrapper的切换Effect必须预先记录backupPath：${journalPath}`);
+    }
+    if (effect.kind === "wrapper-switch" && effect.previousState === "missing" && effect.backupPath) {
+        throw new Error(`原本不存在Manager wrapper时不能记录backupPath：${journalPath}`);
+    }
+    if (effect.kind === "compose" && effect.previousCompose) {
+        assertAbsolutePathWithin(journal.backupRoot, effect.previousCompose, "Docker previousCompose");
+    }
+    if (effect.kind === "sqlite-backup") {
+        if (!isAbsolute(effect.stateRoot) || !isAbsolute(effect.hostPath)) {
+            throw new Error(`App SQLite effect必须保存绝对stateRoot/hostPath：${journalPath}`);
+        }
+        assertAbsolutePathWithin(journal.backupRoot, effect.backupPath, "App SQLite backup");
+        const manifest = journal.previousManifest ?? journal.nextManifest;
+        if (!manifest) throw new Error(`App SQLite Operation journal缺少Manifest身份：${journalPath}`);
+        const expectedStateRoot = resolve(journal.root, manifest.stateRoot);
+        if (resolve(effect.stateRoot) !== expectedStateRoot) {
+            throw new Error(`App SQLite effect的stateRoot与Manifest不一致：${effect.stateRoot}`);
+        }
+        const location = resolveAppSqliteLocation(effect.configuredUrl, effect.stateRoot);
+        if (resolve(location.hostPath) !== resolve(effect.hostPath)) {
+            throw new Error(`App SQLite configuredUrl与物理path不一致：${effect.configuredUrl} / ${effect.hostPath}`);
+        }
+        if ((manifest.profile === "ghcr" || manifest.profile === "source-docker") && location.scope !== "state-root") {
+            throw new Error(`Docker Profile的App SQLite必须位于State Root内：${effect.hostPath}`);
+        }
+    }
+    if (effect.kind === "docker-image") {
+        const operationSuffix = `-${sourceDockerImageSuffix(journal.id)}`;
+        if (!effect.image.startsWith("neuro-book-source:") || !effect.image.endsWith(operationSuffix)) {
+            throw new Error(`Source Docker镜像不属于当前Operation：${effect.image}`);
+        }
+        const product = journal.nextManifest?.components.product;
+        if (journal.nextManifest?.profile === "source-docker" && product?.provider === "container"
+            && effect.image !== sourceDockerImageName(journal.nextManifest.sourceRevision, journal.id)) {
+            throw new Error(`Source Docker镜像与nextManifest revision不一致：${effect.image}`);
+        }
+        const previousProduct = journal.previousManifest?.components.product;
+        if (effect.previousImage && (journal.previousManifest?.profile !== "source-docker"
+            || previousProduct?.provider !== "container" || previousProduct.image !== effect.previousImage)) {
+            throw new Error(`Source Docker previousImage不属于previousManifest：${effect.previousImage}`);
+        }
+        if (effect.previousImage === effect.image) {
+            throw new Error(`Source Docker新旧镜像代次不能相同：${effect.image}`);
+        }
+        if (effect.previousImageRetired && !effect.previousImage) {
+            throw new Error(`Source Docker镜像没有previousImage却标记为已退役：${journalPath}`);
+        }
+    }
+}
+
+/** owner决定Effect可触达的固定Installation Root布局。 */
+function assertOwnedEffectPath(journal: OperationJournal, owner: string, input: string, kind: "path-create" | "path-retire"): void {
+    const path = input.replaceAll("\\", "/");
+    if (owner === "staging" && path.startsWith(".deploy/staging/")) return;
+    if (owner === "backup" && path.startsWith(".deploy/backups/")) return;
+    if (owner === "source" && path === "node_modules") return;
+    if (owner === "runtime" && path.startsWith(".runtime/bun/")) return;
+    if (owner === "tool" && path.startsWith(".runtime/tools/")) return;
+    if (owner === "manager" && path.startsWith(".runtime/manager/")) return;
+    if (owner === "wrapper" && path === ".runtime/bin") return;
+    if (owner === "portable-launcher" && new Set([
+        "Start Neuro Book.cmd", "Start Neuro Book.ps1",
+        "Update Neuro Book.cmd", "Update Neuro Book.ps1",
+        "Create Admin.cmd", "Create Admin.ps1",
+    ]).has(path)) return;
+    if (owner === "state" && kind === "path-create") {
+        const manifest = journal.nextManifest ?? journal.previousManifest;
+        const statePrefix = manifest?.stateRoot === "." ? "" : `${manifest?.stateRoot.replaceAll("\\", "/")}/`;
+        if (manifest && new Set([
+            `${statePrefix}workspace`, `${statePrefix}logs`, `${statePrefix}.env`, `${statePrefix}config.yaml`,
+            `${statePrefix}workspace/.nbook/config.json`,
+        ]).has(path)) return;
+    }
+    throw new Error(`Operation ${kind}的${owner} owner不拥有路径：${input}`);
+}
+
+/** Effect identity用于防止同一物理动作在Journal中出现互相矛盾的重复状态。 */
+function operationEffectIdentity(effect: OperationJournal["effects"][number]): string {
+    if (effect.kind === "path-create" || effect.kind === "path-retire") return `${effect.kind}:${effect.path}`;
+    if (effect.kind === "component-switch") return `${effect.kind}:${effect.owner}`;
+    return effect.kind;
+}
+
+/** 在严格解析前读取稳定Release envelope，用于优先提示Manager升级。 */
+export function parseReleaseManifestEnvelope(value: unknown): {schemaVersion: number; minManagerVersion: string} {
+    assertSchema(ReleaseManifestEnvelopeSchema, value, "release-manifest.json缺少有效的schemaVersion/minManagerVersion envelope。");
+    const envelope = value as {schemaVersion: number; minManagerVersion: string};
+    assertSemVer(envelope.minManagerVersion, "minManagerVersion");
+    return {schemaVersion: envelope.schemaVersion, minManagerVersion: envelope.minManagerVersion};
+}
+
 /** 严格解析并执行 Release revision/platform 语义校验。 */
 export function parseReleaseManifest(value: unknown): ReleaseManifest {
-    assertSchema(ReleaseManifestSchema, value, "release-manifest.json 不符合 NeuroBook Release schema v2。");
+    assertSchema(ReleaseManifestSchema, value, "release-manifest.json 不符合 NeuroBook Release schema v3。");
     const manifest = value as ReleaseManifest;
     assertSemVer(manifest.version, "version");
     assertSemVer(manifest.minManagerVersion, "minManagerVersion");
@@ -250,7 +496,20 @@ export function parseReleaseManifest(value: unknown): ReleaseManifest {
         if (platforms.has(product.platform)) {
             throw new Error(`Release Manifest 包含重复 Product 平台：${product.platform}`);
         }
+        let filename: string;
+        try {
+            filename = new URL(product.url).pathname.split("/").at(-1) ?? "";
+        } catch {
+            throw new Error(`Product ${product.platform} URL非法：${product.url}`);
+        }
+        if (filename !== PRODUCT_ASSET_NAMES[product.platform]) {
+            throw new Error(`Product ${product.platform}资产名非法：${filename}`);
+        }
         platforms.add(product.platform);
+    }
+    const missingPlatforms = PRODUCT_PLATFORMS.filter((platform) => !platforms.has(platform));
+    if (missingPlatforms.length > 0 || platforms.size !== PRODUCT_PLATFORMS.length) {
+        throw new Error(`Release Manifest必须完整包含五个平台，缺少：${missingPlatforms.join(", ") || "<unknown>"}`);
     }
     if (manifest.ghcr.sourceRevision !== manifest.sourceRevision) {
         throw new Error("GHCR sourceRevision 与 Release Source 不一致。");
@@ -267,6 +526,10 @@ function assertInstallationSemantics(manifest: InstallationManifest): void {
         throw new Error(`Profile ${manifest.profile} 的 State Root 非法：${manifest.stateRoot}`);
     }
     const expected = profileContract(manifest.profile);
+    const containerProfile = manifest.profile === "ghcr" || manifest.profile === "source-docker";
+    if (containerProfile !== (manifest.containerEngine !== null)) {
+        throw new Error(`Profile ${manifest.profile}的Container Engine记录非法。`);
+    }
     if (source.provider !== expected.source || (product?.provider ?? "none") !== expected.product || !expected.runtimes.includes(applicationRuntime.provider)) {
         throw new Error(`Profile ${manifest.profile} 的 Source/Product/Application Runtime 组件组合非法。`);
     }
@@ -300,23 +563,28 @@ function profileContract(profile: InstallationManifest["profile"]): {source: str
 }
 
 function assertComponentPaths(manifest: InstallationManifest): void {
-    const paths = [
+    for (const path of componentPaths(manifest)) assertSafeRelativePath(path);
+}
+
+/** 返回Manifest直接引用的Installation Root相对组件路径。 */
+function componentPaths(manifest: InstallationManifest): string[] {
+    return [
         manifest.components.manager.path,
         manifest.components.managerRuntime.provider === "managed" ? manifest.components.managerRuntime.path : null,
         manifest.components.applicationRuntime.provider === "managed" ? manifest.components.applicationRuntime.path : null,
         manifest.components.tools.rg?.provider === "managed" ? manifest.components.tools.rg.path : null,
         manifest.components.tools.git?.provider === "managed" ? manifest.components.tools.git.path : null,
         manifest.components.tools.git?.provider === "managed" ? manifest.components.tools.git.bashPath : null,
+        manifest.components.product && manifest.components.product.provider !== "container" ? manifest.components.product.path : null,
+        manifest.stateRoot === "data" ? "data" : null,
+        manifest.profile === "ghcr" || manifest.profile === "source-docker" ? ".deploy/docker-compose.generated.yml" : null,
+        ".runtime/bin",
         ...manifest.components.source.provider === "release" ? manifest.components.source.files : [],
-    ].filter((path): path is string => Boolean(path));
-    for (const path of paths) assertSafeRelativePath(path);
+    ].filter((path): path is string => Boolean(path)).map((path) => path.replaceAll("\\", "/"));
 }
 
 export function assertSafeRelativePath(path: string): void {
-    const normalized = path.replaceAll("\\", "/");
-    if (!normalized || normalized.startsWith("/") || /^[A-Za-z]:\//u.test(normalized) || normalized.split("/").includes("..")) {
-        throw new Error(`组件路径必须位于 Installation Root 内：${path}`);
-    }
+    installationRelativePath(path);
 }
 
 function assertSemVer(version: string, field: string): void {

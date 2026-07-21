@@ -1,6 +1,6 @@
 # NeuroBook 交付与运维桥梁
 
-本文件面向协助部署或排障的 Agent。当前部署真相源是独立 `@notnotype/neuro-book-manager`，不要再调用已删除的 `neuro-book-deploy`、`local-git` 模式、`Dockerfile.source-runtime` 或旧 Windows Launcher。
+本文件面向协助部署或排障的 Agent。当前部署真相源是独立 `@notnotype/neuro-book-manager`，不要再调用已删除的旧部署入口、`local-git` 模式、`Dockerfile.source-runtime` 或旧 Windows Launcher。
 
 ## 先收集的信息
 
@@ -44,6 +44,8 @@ Source、Product、Runtime、Tool、Deployment State 和 User State 有独立所
 
 ## 标准入口
 
+Windows普通用户优先下载完整Release中的`neuro-book-windows-x64.zip`；不要把Source archive或Windows Product overlay当成Portable。Windows高级部署与所有Linux部署统一通过Manager。
+
 已有 Bun：
 
 ```bash
@@ -51,6 +53,20 @@ bunx --bun @notnotype/neuro-book-manager@canary install --profile ghcr
 ```
 
 Canary 使用 `@canary`。没有 Bun 时，Stage 0 会把固定 Bun 放入用户 cache 并校验 SHA256，再调用同一个 Manager。Stage 0 不应把临时 Bun 写入目标 Installation Root。
+
+```powershell
+irm https://raw.githubusercontent.com/notnotype/neuro-book/master/scripts/install/install.ps1 | iex
+```
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/notnotype/neuro-book/master/scripts/install/install.sh | sh
+```
+
+完整Release同时附带`install.ps1`、`install.cmd`和`install.sh`并纳入`SHA256SUMS`。Linux Stage 0仅支持x64 glibc，并要求`curl`、`unzip`和`sha256sum`。
+
+不要生成或建议`bunx run @notnotype/neuro-book-manager`。`bunx run`会把包名当作本地脚本或路径，无法启动Manager。stable和正确npm `latest`建立前，所有canary操作显式使用`@canary`。
+
+Release只有在正式`release-manifest.json`公开后才算装配完成。候选资产只存在于Actions artifact期间不可安装；构建中、验证失败或取消的Release应由Resolver安全跳过。
 
 安装后的稳定入口：
 
@@ -62,6 +78,8 @@ Canary 使用 `@canary`。没有 Bun 时，Stage 0 会把固定 Bun 放入用户
 ./.runtime/bin/neuro-book status --json
 ```
 
+面向真人可以省略子命令：Manager会离线检测当前目录，在受管实例、损坏Manifest、未接管Git checkout、Portable State和普通目录之间切换菜单。Agent和CI应继续显式使用`install`、`adopt`、`instances inspect/discover/import`和`--yes`。Import的`--yes`只接受运行状态warning，不能绕过checksum、wrapper或Operation blocker。
+
 ## Profile 语义
 
 ### windows-portable
@@ -71,6 +89,7 @@ Canary 使用 `@canary`。没有 Bun 时，Stage 0 会把固定 Bun 放入用户
 - `.runtime` 内置 Bun、rg、PortableGit/bash 和版本化 Manager。
 - `data/` 是唯一需要跨重新解压保留的用户状态目录。
 - `Start/Update/Create Admin` 只是 Manager 的平台前端，不维护第二套更新协议。
+- CMD与PowerShell Launcher都显式传入Portable Installation Root并透传Manager退出码；不要向Launcher增加migration、更新或Runtime切换逻辑。
 
 ### ghcr
 
@@ -120,6 +139,8 @@ neuro-book tools list
 - 每个组件的 provider、version、platform、path、checksum。
 - managed 组件的官方 `sourceUrl`、`license` 和 `redistribution`。
 
+解释doctor时区分“安装完整性”和“服务状态”：服务正常停止只应出现warning并保持`healthy=true`；运行中的服务若镜像、端口、HTTP或版本不匹配才是fail。Docker Profile还要比较Compose配置镜像、容器实际镜像和Manifest固定digest/revision tag。不要为了让doctor变绿而手工改Manifest或放宽检查。
+
 `installation.json` 是严格 schema，不要手工加入任意字段。如果状态与文件系统不一致，先报告，不要直接伪造 manifest。
 
 ## 更新流程
@@ -128,8 +149,9 @@ neuro-book tools list
 
 ```bash
 neuro-book update
-neuro-book update --component product
-neuro-book update --component runtime tools
+neuro-book update
+neuro-book runtime update bun
+neuro-book tools update rg
 ```
 
 更新应满足：

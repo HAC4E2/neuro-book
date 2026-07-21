@@ -209,19 +209,19 @@
 - [ ] html 编辑器外部链接跳转策略
 - [ ] html 展示卡片主题需要和当前主题同步，防止暗色主题，结果 html 展示卡片还是亮色的
 - [ ] 官网 + 部署方式的优化
-- [ ]
-- [ ]
-- [ ]
-- [ ]
-
-
+- [ ] 设置接口返回内容太大，可以优化 + gzip
+- [ ] 设置 UI 优化用户体验
+- [ ] 侧边栏 搜索和 git
 - [ ] llmlint 复制指令标明行号
 - [ ] pi-ai 更新，gpt-sol吃不到缓存
 - [ ] profile 配置与全局配置优化
-- [ ] 
+- [ ] $去选skill的时候只能拿鼠标滚轮往下拖，键盘往下不会滚动
 - [ ]
-- [ ]
+- [ ]简单的说就是，我让ai写了一篇文章，但是发现里面有些地方用词有问题让它改。ai确定改完了之后我去看就会发现内容完全没变化。但是只要刷新页面内容的变化就会生效。这个情况在初期文件少的时候基本不会发生，但是到了后面各种设定文件什么的多了起来后出现这个问题的概率就会显著变高
+- 都提问题我也来提个不知道算不算问题的问题，我调用api次数比较多，一分钟能来个十多次的时候，有时候不知道是api那边未响应还是什么原因就agent一直在处理，点暂停停不下来，只能等十多分钟模型报错或者关掉powershell重新启动
 
+
+The following 2 project files changed since you last viewed them: - added: [world-engine/.runtime-artifact-import-cache/world-engine-calendar/c2f7b2530f52f26d.mjs](world-engine/.runtime-artifact-import-cache/world-engine-calendar/c2f7b2530f52f26d.mjs) — 1 change; by an external tool; added Location: new L1-L23 / old ∅ Diff size: 756 characters, 23 changed lines; above the inline limit of 512 characters / 16 lines. Use read for the complete current file instead of guessing unseen content. - added: [world-engine/schema/.runtime-artifact-import-cache/world-engine-schema/815fd59192ab8da8.mjs](world-engine/schema/.runtime-artifact-import-cache/world-engine-schema/815fd59192ab8da8.mjs) — 1 change; by an external tool; added Location: new L1-L106 / old ∅ Diff size: 9441 characters, 106 changed lines; above the inline limit of 512 characters / 16 lines. Use read for the complete current file instead of guessing unseen content. Non-sensitive files may no longer match versions you read earlier. Inline diffs show changed fragments only; use read only when the task needs complete current content from a non-sensitive path.
 
 ------
 

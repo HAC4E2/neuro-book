@@ -22,7 +22,7 @@ _Avoid_: deploy mode, source bootstrap zip, app sub-root
 
 **NeuroBook Manager**:
 独立 npm 包 `@notnotype/neuro-book-manager` 提供的安装、更新、启动、诊断、Runtime 和 Tool 管理器，公开命令为 `neuro-book`。
-_Avoid_: neuro-book-deploy, application dependency installer
+_Avoid_: application dependency installer
 
 **Workspace Root `.nbook`**:
 Workspace Root 的全局控制区，保存 Global Config、用户 assets、Agent 资源覆盖层和全局运行状态。
@@ -36,6 +36,22 @@ _Avoid_: workspace
 公开 API 和运行时定位 Project Workspace 的稳定标识，固定为 `workspace/{project-slug}`。
 _Avoid_: projectId, novelId, database id
 
+**Agent Workspace Root Reference**:
+Agent session持久化的可迁移逻辑引用。managed Workspace Root使用`workspace`，user-assets使用`workspace/.nbook`；用户明确选择的外部Project Workspace可使用绝对路径。它不是文件系统cwd。
+_Avoid_: workspace cwd, State Root path, Installation Root path
+
+**Agent Workspace Filesystem Root**:
+每次Agent invocation根据当前State Root从Agent Workspace Root Reference解析出的绝对文件系统根。文件工具、bash、Plan Mode、World Engine临时文件和Agent文件历史只能使用该物理根。
+_Avoid_: session workspaceRoot, Project Path, persisted workspace path
+
+**File Scope**:
+文件工具与bash在一次Agent invocation中共用的物理cwd。绑定Project Path时是当前Project Workspace；未绑定项目时是Workspace Root；user-assets时是Workspace Root `.nbook`；外部Project Workspace时是其绝对目录。
+_Avoid_: Agent cwd alias, persisted workspace path, Project Path
+
+**Project File Address**:
+显式跨Project Workspace的文件地址，固定为`workspace/{project-slug}/{relative-path}`。它由Project Path Resolver解析，不是根据物理cwd或目录名猜测的兼容路径。
+_Avoid_: project-slug relative alias, inferred project path
+
 **Project Manifest**:
 Project Workspace 根目录中描述项目类型、标题、摘要等展示元数据的 `project.yaml` 文件。
 _Avoid_: Novel row, workspace.yaml, project metadata
@@ -45,8 +61,16 @@ _Avoid_: Novel row, workspace.yaml, project metadata
 _Avoid_: validation truth, workspace issues
 
 **Project Workspace File Index**:
-从 Project Workspace 文件系统构建的内存索引，保存文件节点、frontmatter、state、refs 和路径存在信息。
+从 Project Workspace 文件系统构建的内存索引，保存文件节点、frontmatter、state、refs 和路径存在信息。它是弱一致 snapshot：目录枚举后消失的路径可以被本轮扫描忽略，只有 `ENOENT` 可被吸收，权限、越界和磁盘错误仍必须失败。
 _Avoid_: tree cache, validation table
+
+**Project Runtime Artifact**:
+NeuroBook 从 Project Workspace 源文件派生、可随时重建、只供运行时执行或缓存使用的文件。它属于 Project Workspace `.nbook` 控制区，不是项目内容，不进入文件历史、Agent 文件变更提醒、Project Workspace File Index 或 Project 下载包。
+_Avoid_: project content, source file, Project SQLite
+
+**Project Workspace Download Archive**:
+Project Workspace 的可携带完整备份。它包含普通项目文件、独立一致的 Project SQLite snapshot，以及项目已存在时的完整 History SQLite snapshot；不复制 live WAL/SHM。History SQLite 可能包含全文快照、已删除内容、acceptance 和 session cursor，分享前必须评估隐私风险。
+_Avoid_: live database copy, log archive, content-only export
 
 **Imported Reference**:
 导入到 Project Workspace `reference/` 下的外部原始素材、解包结果、低置信迁移材料和报告。
@@ -75,6 +99,34 @@ _Avoid_: config mirror, settings
 **Global Config**:
 单用户全局运行配置，位于 Workspace Root `.nbook/config.json`。
 _Avoid_: boot config, project config
+
+**Model Library**:
+NeuroBook 维护的只读标准模型资料目录，按精确 model ID 保持唯一条目；保存模型身份与通用能力，只服务设置页候选补全和显式添加，不代表任意 Provider 实际提供该模型，也不参与 Agent runtime 解析。
+_Avoid_: Provider model list, live registry, discovery result
+
+**Provider Template Library**:
+NeuroBook 维护的只读精选连接模板目录，包含 MiMo Token Plan 等尽量只需 Secret 即可创建的模板，以及 Custom Provider 创建入口。
+_Avoid_: Model Library, Provider Config, runtime provider
+
+**Provider Template**:
+Provider Template Library 中的一条只读创建资料，提供名称、Pi API、Base URL、鉴权、request options、内部发现 hint 和可选推荐 model ID；实例化后得到普通 Provider Config 草稿，保存结果不保留模板引用。
+_Avoid_: Provider Config, runtime provider, credential profile
+
+**Provider Config**:
+Global Config 中用户保存的完整 Provider 连接与模型能力配置；包含本地 ID、连接参数和自包含模型列表，是模型 runtime 的唯一配置真值源。所有已保存模型无论是否启用都必须能力完整；`enabled` 只表达是否允许选择和运行。
+_Avoid_: Provider Template, Pi Provider ID, discovery result
+
+**Provider Model API**:
+Provider Config 中用于创建新模型候选的连接级 Pi API 提示，配置字段名为 `modelApi`。Provider Template 可以预填，Custom Provider 可以由用户选择，已保存 Provider 也可以直接修改；它不属于 Provider Config ID、Base URL 与 proxy 组成的凭据连接身份。它只参与 Automatic Model Discovery、手动添加和 Model Library 候选补全，runtime 不得从它回退，最终执行格式必须保存到每个模型自己的 `model.api`。
+_Avoid_: Discovery Adapter, runtime API fallback, model capability
+
+**Automatic Model Discovery**:
+用户在设置页显式触发的一次性模型发现操作。Implementation 按已知主机或连接级 `modelApi` 选择 OpenAI/OpenRouter/Google Adapter，不会因为响应失败把同一 Secret 切换到另一种认证形式；结果只存在于当前前端发现会话，Provider Config 不保存 Adapter 或 endpoint path。
+_Avoid_: Provider Config field, runtime refresh, user-configured discovery adapter
+
+**Discovered Model Candidate**:
+Automatic Model Discovery 返回的前端临时模型候选，允许字段不完整；远端字段优先，Model Library 只按精确 model ID 补缺，只有补全并通过 Provider Config 合同后才能保存。
+_Avoid_: Provider Config model, Model Library entry, disabled model draft
 
 **App SQLite**:
 应用级 SQLite 数据库，位于 Workspace Root `.nbook`，保存用户、鉴权和 Global Config，不记录 Project Workspace。
@@ -165,13 +217,30 @@ _Avoid_: files-only panel, workspace switcher
 - Windows Portable uses `data/` as State Root, so its physical Workspace Root is `data/workspace/` while Project Path remains `workspace/{project-slug}`.
 - **NeuroBook Manager** updates component-owned paths and must not overwrite State Root user data.
 - **Global Config** lives in **Workspace Root `.nbook`**.
+- A **Provider Template** may create one **Provider Config**, but the saved Provider Config does not retain a reference to the template.
+- A **Provider Config** owns its Base URL, credentials, request options and complete user model list; it does not persist Automatic Model Discovery strategy.
+- A **Provider Config** may own one editable **Provider Model API** for new candidate completion; changing it does not change the Provider connection identity or any saved model, while runtime reads only each model's final `model.api`.
+- A **Model Library** entry may supplement a Discovered Model Candidate by exact model ID, but it does not assert that the current Provider offers that model.
+- **Automatic Model Discovery** returns frontend-temporary Discovered Model Candidates through internal Adapters; users do not configure or persist Adapter selection.
+- A **Discovered Model Candidate** must become complete before it can enter a Provider Config; incomplete candidates cannot be persisted by setting `enabled=false`.
+- Agent runtime never queries the Model Library, Provider Template Library or Automatic Model Discovery.
 - **App SQLite** lives in **Workspace Root `.nbook`**.
 - **Project SQLite** lives in exactly one **Project Workspace `.nbook`**.
 - **Project Path** locates exactly one **Project Workspace** under a **Workspace Root**.
+- **Agent Workspace Root Reference** is persisted in an Agent session and resolves to one current **Agent Workspace Filesystem Root** for each invocation.
+- Managed **Agent Workspace Root Reference** values are portable across Installation Root and State Root moves; their resolved **Agent Workspace Filesystem Root** is not persisted.
+- **File Scope** is projected for each invocation from the session's Agent Workspace Root Reference and optional Project Path; it is not persisted as an absolute path.
+- Project-bound file tools use Project-relative paths inside the current File Scope; cross-project file access uses a **Project File Address**.
 - **Project Manifest** lives at the root of exactly one **Project Workspace** and stores display metadata.
 - **Project Workspace File Index** belongs to one **Project Workspace** and is refreshed from file scans or file watcher events.
+- A **Project Workspace File Index** is a weakly consistent filesystem snapshot: paths that disappear during enumeration may be omitted, while non-`ENOENT` I/O failures remain errors.
 - **Project Workspace Issue Index** belongs to one **Project Workspace** and can be rebuilt from its files.
 - **Project Workspace Issue Index** is derived from **Project Workspace File Index** plus validation rules.
+- A **Project Runtime Artifact** is derived from Project Workspace source files and may be deleted and rebuilt without losing project content.
+- A **Project Runtime Artifact** must not enter Project Workspace file history, Agent file-change notices, Project Workspace File Index or Project downloads.
+- A **Project Workspace Download Archive** contains standalone snapshots of Project SQLite and, when present, History SQLite; it never copies their live WAL/SHM sidecars.
+- History SQLite in a **Project Workspace Download Archive** is complete backup data and may retain full text, deleted content, acceptance state and session cursors.
+- Every History consumer must obtain its `WorkspaceHistory` through the host opening seam, which purges no-longer-managed paths before returning the instance; a ProjectSession that never uses History does not open the database solely for this maintenance.
 - **Imported Reference** may be transformed into **Canonical Lorebook Entry** only after classification and confidence checks.
 - **Dynamic Migration Note** belongs in **Imported Reference** until a later migration step turns it into simulator, writer, subject, entity, Plot, or lorebook material.
 - **Subject-facing Knowledge** must not be generated by directly copying a full **Canonical Lorebook Entry** or **Imported Reference**.

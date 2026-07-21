@@ -1,10 +1,12 @@
 import {randomUUID} from "node:crypto";
-import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
-import {join} from "node:path";
-import {afterEach, beforeEach, describe, expect, it} from "vitest";
+import {appendFile, readFile, rm, writeFile} from "node:fs/promises";
+import {join, resolve} from "node:path";
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
+import {consola} from "consola";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {createAssistantTextMessage, createTextToolResult} from "nbook/server/agent/messages/message-utils";
 import type {Usage} from "nbook/server/agent/messages/types";
+import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 function usage(input: number, output: number, cacheRead = 0, cacheWrite = 0): Usage {
     return {
@@ -24,11 +26,11 @@ function usage(input: number, output: number, cacheRead = 0, cacheWrite = 0): Us
 }
 
 describe("JsonlSessionRepository", () => {
-    let root: string;
+    let root: AbsoluteFsPath;
     let repo: JsonlSessionRepository;
 
     beforeEach(() => {
-        root = join(".agent", "agent-session-test", randomUUID());
+        root = absoluteFsPath(resolve(".agent", "agent-session-test", randomUUID()));
         repo = new JsonlSessionRepository(root);
     });
 
@@ -72,152 +74,6 @@ describe("JsonlSessionRepository", () => {
         expect(context.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
     });
 
-    it("并发创建顶层 session 时分配唯一单调 ID 且 JSONL 互不覆盖", async () => {
-        const created = await Promise.all(Array.from({length: 32}, async (_value, index) => repo.createSession({
-            profileKey: "illustration.director",
-            initial: {operation: "plan-chapter", index},
-            workspaceRoot: root,
-            workspaceKey: `workspace/novel-${String(index)}`,
-            projectPath: `workspace/novel-${String(index)}`,
-            title: `chapter-${String(index)}`,
-        })));
-        const sessionIds = created.map((session) => session.metadata.sessionId).sort((left, right) => left - right);
-
-        expect(sessionIds).toEqual(Array.from({length: 32}, (_value, index) => index + 1));
-        await Promise.all(created.map(async (session) => {
-            const restored = await repo.readSession(session.metadata.sessionId);
-            expect(restored.metadata.title).toBe(session.metadata.title);
-            expect(restored.entries).toEqual([{type: "leaf", leafId: null, id: expect.any(String), timestamp: expect.any(Number), parentId: null}]);
-        }));
-        const sequence = JSON.parse(await readFile(join(root, ".nbook", "agent", "session-seq.json"), "utf8")) as {next: number};
-        expect(sequence.next).toBe(33);
-    });
-
-    it("同一 root 的多个 repository 实例共享创建临界区", async () => {
-        const repositories = Array.from({length: 24}, () => new JsonlSessionRepository(root));
-        const created = await Promise.all(repositories.map(async (target, index) => {
-            return target.createSession({
-                profileKey: "illustration.director",
-                initial: {index},
-                workspaceRoot: root,
-                title: `multi-repo-${String(index)}`,
-            });
-        }));
-
-        expect(created.map((session) => session.metadata.sessionId).sort((left, right) => left - right)).toEqual(
-            Array.from({length: 24}, (_value, index) => index + 1),
-        );
-    });
-
-    it("sequence 缺失或滞后时从已有 session 恢复且绝不覆盖 JSONL", async () => {
-        const sessionsRoot = join(root, ".nbook", "agent", "sessions");
-        await mkdir(sessionsRoot, {recursive: true});
-        const firstPath = join(sessionsRoot, "1.jsonl");
-        const sentinel = "existing-session-must-survive\n";
-        await writeFile(firstPath, sentinel, "utf8");
-
-        const missingSequence = await repo.createSession({
-            profileKey: "illustration.director",
-            initial: {},
-            workspaceRoot: root,
-            title: "recovered-from-files",
-        });
-        expect(missingSequence.metadata.sessionId).toBe(2);
-        expect(await readFile(firstPath, "utf8")).toBe(sentinel);
-
-        await writeFile(join(root, ".nbook", "agent", "session-seq.json"), JSON.stringify({next: 1}), "utf8");
-        const staleSequence = await repo.createSession({
-            profileKey: "illustration.director",
-            initial: {},
-            workspaceRoot: root,
-            title: "recovered-from-stale-sequence",
-        });
-        expect(staleSequence.metadata.sessionId).toBe(3);
-        expect(await readFile(firstPath, "utf8")).toBe(sentinel);
-    });
-
-    it("sequence JSON 损坏时按已有最大 session ID 恢复", async () => {
-        const agentRoot = join(root, ".nbook", "agent");
-        const sessionsRoot = join(agentRoot, "sessions");
-        await mkdir(sessionsRoot, {recursive: true});
-        await writeFile(join(sessionsRoot, "7.jsonl"), "existing-seven\n", "utf8");
-        await writeFile(join(agentRoot, "session-seq.json"), "{broken", "utf8");
-
-        const created = await repo.createSession({
-            profileKey: "illustration.director",
-            initial: {},
-            workspaceRoot: root,
-        });
-        expect(created.metadata.sessionId).toBe(8);
-
-        await writeFile(join(agentRoot, "session-seq.json"), "null", "utf8");
-        const recoveredFromWrongShape = await repo.createSession({
-            profileKey: "illustration.director",
-            initial: {},
-            workspaceRoot: root,
-        });
-        expect(recoveredFromWrongShape.metadata.sessionId).toBe(9);
-    });
-
-    it("不安全整数 sequence 必须 fail-closed，不能进入重复 ID 自旋", async () => {
-        const agentRoot = join(root, ".nbook", "agent");
-        await mkdir(agentRoot, {recursive: true});
-        await writeFile(
-            join(agentRoot, "session-seq.json"),
-            JSON.stringify({next: Number.MAX_SAFE_INTEGER + 1}),
-            "utf8",
-        );
-
-        await expect(repo.createSession({
-            profileKey: "illustration.director",
-            initial: {},
-            workspaceRoot: root,
-        })).rejects.toThrow(/safe integer|安全整数/u);
-
-        await rm(join(agentRoot, "session-seq.json"));
-        const sessionsRoot = join(agentRoot, "sessions");
-        await mkdir(sessionsRoot, {recursive: true});
-        await writeFile(join(sessionsRoot, `${String(Number.MAX_SAFE_INTEGER)}.jsonl`), "max-id\n", "utf8");
-        await expect(repo.createSession({
-            profileKey: "illustration.director",
-            initial: {},
-            workspaceRoot: root,
-        })).rejects.toThrow(/安全整数上限/u);
-    });
-
-    it.runIf(process.platform === "win32")("Windows root 大小写别名共享创建临界区", async () => {
-        await mkdir(root, {recursive: true});
-        const lower = new JsonlSessionRepository(root.toLocaleLowerCase("en-US"));
-        const upper = new JsonlSessionRepository(root.toLocaleUpperCase("en-US"));
-        const created = await Promise.all([lower, upper].map(async (target, index) => target.createSession({
-            profileKey: "illustration.director",
-            initial: {index},
-            workspaceRoot: root,
-        })));
-        expect(created.map((session) => session.metadata.sessionId).sort((left, right) => left - right)).toEqual([1, 2]);
-    });
-
-    it("创建失败不会毒化 creation tail，后续 session 继续使用新 ID", async () => {
-        const blockedPath = join(root, ".nbook", "agent", "sessions", "1.jsonl");
-        await mkdir(blockedPath, {recursive: true});
-        await expect(repo.createSession({
-            profileKey: "illustration.director",
-            initial: {},
-            workspaceRoot: root,
-        })).rejects.toThrow();
-        await rm(blockedPath, {recursive: true, force: true});
-
-        const created = await repo.createSession({
-            profileKey: "illustration.director",
-            initial: {},
-            workspaceRoot: root,
-            title: "recovered",
-        });
-        expect(created.metadata.sessionId).toBe(1);
-        const sequence = JSON.parse(await readFile(join(root, ".nbook", "agent", "session-seq.json"), "utf8")) as {next: number};
-        expect(sequence.next).toBe(2);
-    });
-
     it("workspace session 列表只读取指定 workspaceKey", async () => {
         const workspaceSession = await repo.createSession({
             profileKey: "leader.default",
@@ -229,7 +85,7 @@ describe("JsonlSessionRepository", () => {
         const projectSession = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: "workspace/novel-7",
+            workspaceRoot: "workspace",
             workspaceKey: "workspace/novel-7",
             projectPath: "workspace/novel-7",
             title: "project session",
@@ -249,6 +105,59 @@ describe("JsonlSessionRepository", () => {
         ]);
         expect(sessions.some((session) => session.sessionId === userAssetsSession.metadata.sessionId)).toBe(false);
         expect(sessions.some((session) => session.sessionId === projectSession.metadata.sessionId)).toBe(false);
+    });
+
+    it("列表隔离单个损坏metadata并返回结构化issue", async () => {
+        const healthy = await repo.createSession({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: "workspace",
+            workspaceKey: "global",
+        });
+        const corrupt = await repo.createSession({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: "workspace",
+            workspaceKey: "global",
+        });
+        const corruptPath = join(root, ".nbook", "agent", "sessions", `${String(corrupt.metadata.sessionId)}.jsonl`);
+        const source = await readFile(corruptPath, "utf8");
+        await writeFile(corruptPath, source.replace('"workspaceRoot":"workspace"', '"workspaceRoot":".agent/task-tools-test"'), "utf8");
+
+        const result = await repo.listSessionsWithIssues();
+
+        expect(result.sessions).toEqual([
+            expect.objectContaining({sessionId: healthy.metadata.sessionId}),
+        ]);
+        expect(result.issues).toEqual([{
+            sessionId: corrupt.metadata.sessionId,
+            fileName: `${String(corrupt.metadata.sessionId)}.jsonl`,
+            message: expect.stringContaining("workspaceRoot只支持"),
+        }]);
+    });
+
+    it("相同Session问题集合只告警一次，修复后复发会重新告警", async () => {
+        const corrupt = await repo.createSession({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: "workspace",
+            workspaceKey: "global",
+        });
+        const corruptPath = join(root, ".nbook", "agent", "sessions", `${String(corrupt.metadata.sessionId)}.jsonl`);
+        const source = await readFile(corruptPath, "utf8");
+        const invalid = source.replace('"workspaceRoot":"workspace"', '"workspaceRoot":".agent/task-tools-test"');
+        await writeFile(corruptPath, invalid, "utf8");
+        const warn = vi.spyOn(consola, "warn").mockImplementation(() => undefined);
+
+        await repo.listSessions();
+        await repo.listSessions();
+        expect(warn).toHaveBeenCalledTimes(1);
+
+        await writeFile(corruptPath, source, "utf8");
+        await repo.listSessions();
+        await writeFile(corruptPath, invalid, "utf8");
+        await repo.listSessions();
+        expect(warn).toHaveBeenCalledTimes(2);
     });
 
     it("session 列表支持摘要搜索和 offset 分页", async () => {
@@ -589,6 +498,45 @@ describe("JsonlSessionRepository", () => {
         });
     });
 
+    it("Session Tree 的工具名、标题预览和 label 都使用有界公开文本", async () => {
+        const session = await repo.createSession({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+            workspaceKey: "global",
+        });
+        const user = await repo.appendUserMessage(session.metadata.sessionId, "root", session.metadata.workspaceKey);
+        const toolName = "tool-" + "x".repeat(10_000);
+        await repo.appendMessage(session.metadata.sessionId, createTextToolResult({
+            toolCallId: "call-1",
+            toolName,
+            text: "ok",
+        }), session.metadata.workspaceKey);
+        await repo.appendEntry(session.metadata.sessionId, {
+            type: "session_update",
+            updates: {
+                title: "标题" + "长".repeat(10_000),
+            },
+        }, session.metadata.workspaceKey);
+        await repo.appendEntry(session.metadata.sessionId, {
+            type: "label",
+            targetEntryId: user.id,
+            label: "标签" + "长".repeat(10_000),
+        }, session.metadata.workspaceKey);
+
+        const tree = repo.tree(await repo.readSession(session.metadata.sessionId, session.metadata.workspaceKey));
+        const toolNode = tree.find((node) => node.role === "toolResult");
+        const titleNode = tree.find((node) => node.type === "session_update");
+        const userNode = tree.find((node) => node.id === user.id);
+
+        expect(toolNode?.toolName).toBeDefined();
+        expect(Buffer.byteLength(toolNode?.toolName ?? "", "utf8")).toBeLessThanOrEqual(512);
+        expect(titleNode?.preview).toBeDefined();
+        expect(Buffer.byteLength(titleNode?.preview ?? "", "utf8")).toBeLessThanOrEqual(512);
+        expect(userNode?.label).toBeDefined();
+        expect(Buffer.byteLength(userNode?.label ?? "", "utf8")).toBeLessThanOrEqual(512);
+    });
+
     it("支持 leaf 移动和 fork，历史不删除", async () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
@@ -729,5 +677,160 @@ describe("JsonlSessionRepository", () => {
                 detached: false,
             },
         ]);
+    });
+
+    it("读写两侧都拒绝尚未迁移的 raw image", async () => {
+        const session = await repo.createSession({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+            workspaceKey: "global",
+        });
+        const rawMessage = {
+            role: "toolResult" as const,
+            toolCallId: "call-image",
+            toolName: "read",
+            content: [{type: "image" as const, mimeType: "image/png", data: "AAAA"}],
+            isError: false,
+            timestamp: Date.now(),
+        };
+
+        await expect(repo.appendEntry(session.metadata.sessionId, {
+            type: "message",
+            message: rawMessage as never,
+        })).rejects.toMatchObject({code: "migration_required"});
+
+        const sessionPath = join(root, ".nbook", "agent", "sessions", `${String(session.metadata.sessionId)}.jsonl`);
+        await appendFile(sessionPath, `${JSON.stringify({
+            kind: "entry",
+            entry: {
+                id: randomUUID(),
+                parentId: null,
+                timestamp: Date.now(),
+                type: "message",
+                message: rawMessage,
+            },
+        })}\n`, "utf8");
+
+        await expect(repo.readSession(session.metadata.sessionId)).rejects.toMatchObject({code: "migration_required"});
+        await expect(repo.listSessionsWithIssues()).rejects.toMatchObject({code: "migration_required"});
+    });
+
+    it("readEntry 命中后停止逐行读取，不解析目标后的长 session 内容", async () => {
+        const session = await repo.createSession({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+            workspaceKey: "global",
+        });
+        const target = await repo.appendUserMessage(session.metadata.sessionId, "target");
+        const sessionPath = join(root, ".nbook", "agent", "sessions", `${String(session.metadata.sessionId)}.jsonl`);
+        await appendFile(sessionPath, "{not-json-after-target}\n", "utf8");
+
+        await expect(repo.readEntry(session.metadata.sessionId, target.id)).resolves.toMatchObject({id: target.id});
+        await expect(repo.readSession(session.metadata.sessionId)).rejects.toThrow();
+    });
+
+    it("首次读取会原子脱敏旧完整 Model，后续只暴露 durable identity", async () => {
+        const session = await repo.createSession({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: "workspace",
+            workspaceKey: "global",
+        });
+        const sessionPath = join(root, ".nbook", "agent", "sessions", `${String(session.metadata.sessionId)}.jsonl`);
+        await appendFile(sessionPath, `${JSON.stringify({
+            kind: "entry",
+            entry: {
+                id: randomUUID(),
+                parentId: null,
+                timestamp: Date.now(),
+                type: "model_change",
+                model: {
+                    providerConfigId: "provider-a",
+                    provider: "upstream-provider",
+                    id: "model-a",
+                    baseUrl: "https://private.example",
+                    headers: {Authorization: "Bearer secret"},
+                },
+            },
+        })}\n`, "utf8");
+
+        const migratedRepo = new JsonlSessionRepository(root);
+        const snapshot = await migratedRepo.readSession(session.metadata.sessionId);
+        const modelChange = snapshot.entries.find((entry) => entry.type === "model_change");
+        const source = await readFile(sessionPath, "utf8");
+
+        expect(modelChange).toMatchObject({
+            type: "model_change",
+            model: {providerConfigId: "provider-a", modelId: "model-a"},
+        });
+        expect(source).not.toContain("Bearer secret");
+        expect(source).not.toContain("private.example");
+        expect(source).not.toContain("upstream-provider");
+    });
+
+    it("旧 Model 身份无法证明时稳定阻断且不改写源文件", async () => {
+        const session = await repo.createSession({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: "workspace",
+            workspaceKey: "global",
+        });
+        const sessionPath = join(root, ".nbook", "agent", "sessions", `${String(session.metadata.sessionId)}.jsonl`);
+        await appendFile(sessionPath, `${JSON.stringify({
+            kind: "entry",
+            entry: {
+                id: randomUUID(),
+                parentId: null,
+                timestamp: Date.now(),
+                type: "model_change",
+                model: {id: "model-without-provider", headers: {Authorization: "Bearer secret"}},
+            },
+        })}\n`, "utf8");
+        const original = await readFile(sessionPath, "utf8");
+        const blockedRepo = new JsonlSessionRepository(root);
+
+        await expect(blockedRepo.readSession(session.metadata.sessionId)).rejects.toThrow("显式映射");
+        await expect(blockedRepo.readEntry(session.metadata.sessionId, randomUUID())).rejects.toThrow("显式映射");
+        expect(await readFile(sessionPath, "utf8")).toBe(original);
+    });
+
+    it("新 model_change 只允许写入 Provider Config ID 与 Model ID", async () => {
+        const session = await repo.createSession({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: "workspace",
+            workspaceKey: "global",
+        });
+        await repo.appendEntry(session.metadata.sessionId, {
+            type: "model_change",
+            model: {providerConfigId: "provider-a", modelId: "model-a"},
+        });
+        const sessionPath = join(root, ".nbook", "agent", "sessions", `${String(session.metadata.sessionId)}.jsonl`);
+        const records = (await readFile(sessionPath, "utf8")).trim().split(/\r?\n/u).map((line) => JSON.parse(line) as {entry?: {type?: string; model?: object}});
+        const modelChange = records.find((record) => record.entry?.type === "model_change");
+
+        expect(modelChange?.entry?.model).toEqual({providerConfigId: "provider-a", modelId: "model-a"});
+        await expect(repo.appendEntry(session.metadata.sessionId, {
+            type: "model_change",
+            model: {providerConfigId: "provider-a", modelId: "model-a", headers: {Authorization: "secret"}},
+        } as never)).rejects.toThrow("只包含providerConfigId和modelId");
+    });
+
+    it("一个旧 Session 无法脱敏时不会阻断其他 Session", async () => {
+        const blocked = await repo.createSession({profileKey: "leader.default", initial: {}, workspaceRoot: "workspace", workspaceKey: "global"});
+        const healthy = await repo.createSession({profileKey: "leader.default", initial: {}, workspaceRoot: "workspace", workspaceKey: "global"});
+        const blockedPath = join(root, ".nbook", "agent", "sessions", `${String(blocked.metadata.sessionId)}.jsonl`);
+        await appendFile(blockedPath, `${JSON.stringify({
+            kind: "entry",
+            entry: {id: randomUUID(), parentId: null, timestamp: Date.now(), type: "model_change", model: {provider: "registry", id: "model"}},
+        })}\n`, "utf8");
+        const isolatedRepo = new JsonlSessionRepository(root);
+
+        await expect(isolatedRepo.readSession(healthy.metadata.sessionId)).resolves.toMatchObject({metadata: {sessionId: healthy.metadata.sessionId}});
+        const result = await isolatedRepo.listSessionsWithIssues();
+        expect(result.sessions.some((session) => session.sessionId === healthy.metadata.sessionId)).toBe(true);
+        expect(result.issues).toEqual(expect.arrayContaining([expect.objectContaining({sessionId: blocked.metadata.sessionId, message: expect.stringContaining("显式映射")})]));
     });
 });

@@ -6,10 +6,10 @@ import type {
     ConfigEditorSnapshotDto,
     ConfigWorkspaceQueryDto,
     ExchangeRateDto,
-    GlobalConfigDto,
+    GlobalConfigUpdateDto,
     ProjectConfigDto,
 } from "nbook/shared/dto/config.dto";
-import type {PiBuiltinCatalogDto} from "nbook/shared/dto/app-settings.dto";
+import type {ModelLibraryDto, ProviderTemplateLibraryDto} from "nbook/shared/dto/app-settings.dto";
 
 type AgentProfileSettingsQueryParams = ConfigWorkspaceQueryDto & {
     scope: "global" | "project";
@@ -112,13 +112,13 @@ export function useConfigApi() {
      * 保存 Workspace Root `.nbook/config.json` 并返回后端重新合并后的快照。
      */
     async function saveGlobal(
-        global: GlobalConfigDto,
+        update: GlobalConfigUpdateDto,
         query: ConfigWorkspaceQueryDto = currentQuery(),
     ): Promise<ConfigEditorSnapshotDto> {
         const snapshot = await $fetch<ConfigEditorSnapshotDto>("/api/config/global", {
             method: "PUT",
             query,
-            body: global,
+            body: update,
         });
         novelIdeStore.bumpConfigRevision();
         return snapshot;
@@ -156,11 +156,14 @@ export function useConfigApi() {
         return snapshot;
     }
 
-    /**
-     * 读取 Pi 内置 Provider/Model 目录。
-     */
-    async function piModelCatalog(): Promise<PiBuiltinCatalogDto> {
-        return $fetch<PiBuiltinCatalogDto>("/api/config/models/pi-catalog");
+    /** 读取 NeuroBook Model Library。 */
+    async function modelLibrary(): Promise<ModelLibraryDto> {
+        return $fetch<ModelLibraryDto>("/api/config/models/library");
+    }
+
+    /** 读取 NeuroBook Provider Template Library。 */
+    async function providerTemplates(): Promise<ProviderTemplateLibraryDto> {
+        return $fetch<ProviderTemplateLibraryDto>("/api/config/models/provider-templates");
     }
 
     /**
@@ -187,7 +190,8 @@ export function useConfigApi() {
         saveGlobal,
         saveProject,
         resetProfileHome,
-        piModelCatalog,
+        modelLibrary,
+        providerTemplates,
         exchangeRate,
     };
 }

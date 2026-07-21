@@ -5,7 +5,9 @@ import type {ClientStateSnapshot} from "nbook/server/agent/variables/types";
 import type {ServerTimingSink} from "nbook/server/utils/server-timing";
 import type {
     AgentAbortRequestDto,
+    AgentAbortResult,
     AgentActiveInvocationDto,
+    AgentCommandResult,
     AgentCommandRequestDto,
     AgentFollowUpQueueStateDto,
     AgentQueuedMessageDto,
@@ -13,8 +15,10 @@ import type {
     AgentSessionListPageDto,
     AgentSessionListQueryDto,
     AgentSessionLiveStateDto,
+    AgentSessionQueryDto,
+    AgentSessionQueryResultDto,
+    AgentSessionRecoveryDto,
     AgentSessionRelationsDto,
-    AgentSessionSnapshotDto,
     AgentSessionSummaryDto,
     AgentTreeRequestDto,
 } from "nbook/shared/dto/agent-session.dto";
@@ -54,27 +58,22 @@ export type InvokeAgentInput = {
     internalQueued?: boolean;
 };
 
-export type AgentInvokeCallerKind = "user" | "agent" | "sidecar" | "system";
-
-export type AgentInvokeCaller = {
-    kind: AgentInvokeCallerKind;
-    sessionId?: number;
-    profileKey?: string;
-    toolCallId?: string;
-};
-
-export type InvokeAgentStatus = "completed" | "waiting" | "error";
-
-export type InvokeAgentResult = {
+/** Harness 内部 invocation 结果；结构化 data 保持完整，不直接作为 HTTP DTO 返回。 */
+export type AgentInvocationResult = {
     sessionId: number;
     invocationId: string;
-    status: InvokeAgentStatus;
+    status: "completed" | "waiting" | "error";
+    /** Durable assistant 正文的有界调用方预览；完整内容从 session history 读取。 */
     finalMessage?: string;
+    /** finalMessage 对应原始正文的 UTF-8 字节数。 */
+    finalMessageBytes?: number;
+    /** true 表示 finalMessage 不是完整正文。 */
+    finalMessageOmitted?: boolean;
     reportResult?: {
         result: string;
         success?: boolean;
-        /** 为空表示本次主路没有可用结构化结果，例如任务失败或只返回可读错误说明。 */
-        data?: unknown;
+        /** Profile 的完整结构化输出；仅供内部调用者与 runtime hook 使用。 */
+        data?: JsonValue;
     };
     error?: string;
     errorPhase?: InvocationErrorPhase;
@@ -82,6 +81,22 @@ export type InvokeAgentResult = {
     usage?: Usage;
     elapsedMs?: number;
     queuedItem?: AgentQueuedMessageDto;
+};
+
+/** Harness 内部 tree 操作结果；HTTP Adapter 必须投影其中的 invocation。 */
+export type AgentTreeOperationResult = {
+    status: "completed" | "invoked";
+    state: AgentSessionLiveStateDto;
+    invocation?: AgentInvocationResult;
+};
+
+export type AgentInvokeCallerKind = "user" | "agent" | "sidecar" | "system";
+
+export type AgentInvokeCaller = {
+    kind: AgentInvokeCallerKind;
+    sessionId?: number;
+    profileKey?: string;
+    toolCallId?: string;
 };
 
 export type AgentSummary = {
@@ -130,43 +145,13 @@ export type AgentRuntimeState = {
     followUpQueue: AgentFollowUpQueueStateDto;
 };
 
-export type AgentCommandResult =
-    | {
-        kind: "live_state";
-        status: "completed" | "started";
-        sessionId: number;
-        state: AgentSessionLiveStateDto;
-    }
-    | {
-        kind: "snapshot";
-        status: "completed";
-        sessionId: number;
-        snapshot: AgentSessionSnapshotDto;
-    }
-    | {
-        kind: "created_session";
-        status: "completed";
-        sessionId: number;
-        createdSession: AgentSessionSummaryDto;
-    };
-
-export type AgentTreeResult = {
-    status: "completed" | "invoked";
-    snapshot: AgentSessionSnapshotDto;
-    invocation?: InvokeAgentResult;
-};
-
-export type AgentAbortResult = {
-    status: "idle" | "aborted";
-    sessionId: number;
-};
-
 export type AgentSessionService = {
     listSessions(query?: AgentSessionListQueryDto): Promise<AgentSessionSummaryDto[]>;
     listSessionPage(query?: AgentSessionListQueryDto): Promise<AgentSessionListPageDto>;
-    getSessionSnapshot(sessionId: number, timingSink?: ServerTimingSink): Promise<AgentSessionSnapshotDto>;
+    getSessionQuery(sessionId: number, query?: AgentSessionQueryDto, timingSink?: ServerTimingSink): Promise<AgentSessionQueryResultDto>;
+    getSessionRecovery(sessionId: number, timingSink?: ServerTimingSink): Promise<AgentSessionRecoveryDto>;
     getSessionRelations(sessionId: number, timingSink?: ServerTimingSink): Promise<AgentSessionRelationsDto>;
     runCommand(sessionId: number, body: AgentCommandRequestDto, timingSink?: ServerTimingSink): Promise<AgentCommandResult>;
-    moveTree(sessionId: number, body: AgentTreeRequestDto): Promise<AgentTreeResult>;
+    moveTree(sessionId: number, body: AgentTreeRequestDto): Promise<AgentTreeOperationResult>;
     abortInvocation(sessionId: number, body?: AgentAbortRequestDto): Promise<AgentAbortResult>;
 };

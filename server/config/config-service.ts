@@ -6,14 +6,15 @@ import {useAgentHarness} from "nbook/server/agent/http";
 import type {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import type {AgentCatalogItem, AgentProfileIssue} from "nbook/server/agent/profiles/types";
 import {resolveProfileSettings} from "nbook/server/agent/profiles/profile-settings";
-import {resolveProfileRuntimeSettings} from "nbook/server/agent/profiles/profile-runtime-settings";
+import {mergeProfileRuntimePatches, resolveProfileRuntimeSettings} from "nbook/server/agent/profiles/profile-runtime-settings";
 import {
     USER_ASSETS_WORKSPACE_KIND,
     USER_ASSETS_WORKSPACE_ROOT,
     WORKSPACE_CONTAINER_ROOT,
     type WorkspaceRootKind,
 } from "nbook/server/workspace-files/novel-workspace";
-import {assertProjectWorkspaceDirectory} from "nbook/server/workspace-files/project-workspace";
+import {assertProjectWorkspaceDirectory, listProjectWorkspaces} from "nbook/server/workspace-files/project-workspace";
+import {normalizeProjectPath, resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
 import {GlobalConfigDtoSchema} from "nbook/shared/dto/config.dto";
 import type {
     ConfigAgentProfileSettingsDto,
@@ -30,26 +31,23 @@ import type {
     ProjectConfigDto,
 } from "nbook/shared/dto/config.dto";
 import {resolveStateWorkspaceRoot} from "nbook/server/runtime/installation-paths";
+import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {CONFIG_REGISTRY, CONFIG_VERSION} from "nbook/server/config/registry";
 import {
     normalizeAgentProfileModelConfig,
-    normalizeAgentProfiles,
     normalizeAgentProfileSettings,
     normalizeEmbeddingModelConfig,
     normalizeEmbeddingService,
     normalizeGlobalConfig,
     normalizeProjectConfig,
     resolveEffectiveConfig,
-    serializeModelSettings,
 } from "nbook/server/config/normalizer";
 import type {
-    AgentProfileConfig,
     ConfigTarget,
     ConfiguredModelConfig,
     EmbeddingServiceConfig,
     EffectiveConfig,
     ModelProviderOptionsConfig,
-    ModelSettingsConfig,
     StoredGlobalConfig,
     StoredProjectConfig,
     StoredProviderConfig,
@@ -67,11 +65,17 @@ import type {LowCodeJsonObject, LowCodeJsonValue, LowCodeResourceMutationDto} fr
 import {ensureGlobalProfileHome, ensureProfileHome, resetProfileHome, resolveProjectRootForProfileHome, type ProfileHomeDefinition} from "nbook/server/agent/profiles/profile-home";
 import {
     buildModelLabel,
-    listEnabledModels,
-    resolveConfiguredModel,
 } from "nbook/server/utils/model-settings";
+import {
+    inspectModelReferences,
+    inspectModelSettings,
+    inspectProviderConfigDocument,
+    type ModelReferenceInput,
+    type ModelSettingsContractInput,
+} from "nbook/shared/models/provider-config-contract";
 import {assertProjectOpen, markProjectActivity} from "nbook/server/workspace-files/project-session";
-import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-runtime-root";
+import {sameProviderConnection} from "nbook/shared/models/provider-connection-identity";
 import {
     ILLUSTRATION_DIRECTOR_BINDING_ID,
     ILLUSTRATION_DIRECTOR_PROFILE_KEY,
@@ -87,7 +91,6 @@ export type IllustrationDirectorSelectorSnapshot = {
     configHash: string;
 };
 
-/** Director selector 的 expected-hash CAS 冲突。 */
 export class IllustrationDirectorSelectorConflictError extends Error {
     readonly code = "GLOBAL_CONFIG_HASH_CONFLICT" as const;
 
@@ -134,7 +137,7 @@ export async function readConfigEditorSnapshot(query: ConfigWorkspaceQueryDto): 
         project: project as ProjectConfigDto | null,
         effective: effective as unknown as Record<string, never>,
         meta: CONFIG_REGISTRY,
-        modelSettings: buildConfigModelSettingsDto(effective, readIllustrationDirectorModelKey(global)),
+        modelSettings: buildConfigModelSettingsDto(global, project, target.workspaceKind),
         embeddingSettings: buildConfigEmbeddingSettingsDto(global, project, effective),
         defaultProfileSettings: buildDefaultProfileSettingsDto({
             workspaceKind: target.workspaceKind,
@@ -203,8 +206,8 @@ export async function readConfigBootstrap(
 
     return {
         modelSettings: {
-            defaultModelLabel: buildConfigModelSettingsDto(effective, readIllustrationDirectorModelKey(global)).defaultModelLabel,
-            enabledModels: listEnabledModels(effective.models),
+            defaultModelLabel: buildConfigModelSettingsDto(global, project, target.workspaceKind).defaultModelLabel,
+            enabledModels: listRawEnabledModels(global),
         },
         defaultProfileSettings: {
             effectiveProfileKey: resolveDefaultProfileKeyFromConfig(target.workspaceKind, global, project),
@@ -225,25 +228,31 @@ export async function saveGlobalConfig(
     query: ConfigWorkspaceQueryDto,
     profiles: AgentProfileCatalog = useAgentHarness().profiles,
 ): Promise<ConfigEditorSnapshotDto> {
+    const current = await readGlobalConfigFile();
+    if (input.models !== undefined) {
+        assertProviderConnectionsStable(input.models.providers, current);
+    }
+    const next = normalizeGlobalConfig({
+        ...current,
+        ...(input.agent !== undefined ? {agent: input.agent} : {}),
+        ...(input.ui !== undefined ? {ui: input.ui} : {}),
+        ...(input.editor !== undefined ? {editor: input.editor} : {}),
+        ...(input.observability !== undefined ? {observability: input.observability} : {}),
+        ...(input.history !== undefined ? {history: input.history} : {}),
+        ...(input.web !== undefined ? {web: normalizeGlobalWebForWrite(input.web, current)} : {}),
+        ...(input.models !== undefined ? {models: normalizeGlobalModelsForWrite(input.models, current)} : {}),
+        ...(input.embedding !== undefined ? {embedding: normalizeGlobalEmbeddingForWrite(input.embedding, current)} : {}),
+    });
+    if (input.models !== undefined) {
+        assertGlobalProviderConfig(input.models, next);
+    } else if (input.agent !== undefined) {
+        assertReferencesRunnable(current.models, globalModelReferences(next));
+    }
     await assertProfileSettingsInput(input.agent?.profiles, query, profiles, undefined, {
         includeResourceMutationFinalKeys: true,
     }, "global");
     await applyProfileResourceMutations(input.agent?.profiles, query, profiles, undefined, "global");
-    await withGlobalConfigWrite(async () => {
-        const current = await readGlobalConfigFile();
-        const next = normalizeGlobalConfig({
-            ...current,
-            ...(input.agent !== undefined ? {agent: input.agent} : {}),
-            ...(input.ui !== undefined ? {ui: input.ui} : {}),
-            ...(input.editor !== undefined ? {editor: input.editor} : {}),
-            ...(input.observability !== undefined ? {observability: input.observability} : {}),
-            ...(input.history !== undefined ? {history: input.history} : {}),
-            ...(input.web !== undefined ? {web: normalizeGlobalWebForWrite(input.web, current)} : {}),
-            ...(input.models !== undefined ? {models: normalizeGlobalModelsForWrite(input.models, current)} : {}),
-            ...(input.embedding !== undefined ? {embedding: normalizeGlobalEmbeddingForWrite(input.embedding, current)} : {}),
-        });
-        await writeJsonFile(globalConfigPath(), next);
-    });
+    await writeJsonFile(globalConfigPath(), next);
     return readConfigEditorSnapshot(query);
 }
 
@@ -264,12 +273,19 @@ export async function saveProjectConfig(
     }
     assertProjectConfigDataPlaneOpen(target, query);
     assertProjectConfigDoesNotContainGlobalOnly(input);
-    const global = await readGlobalConfigFile();
+    const [global, current] = await Promise.all([
+        readGlobalConfigFile(),
+        readProjectConfigFile(target.projectConfigPath),
+    ]);
+    const next = mergeProjectConfig(current, stripProfileResourceMutations(input) as StoredProjectConfig);
+    if (projectModelReferencesChanged(input)) {
+        assertProjectModelReferences(global, next);
+    }
     await assertProfileSettingsInput(input.agent?.profiles, query, profiles, global.agent?.profiles, {
         includeResourceMutationFinalKeys: true,
     }, "project");
     await applyProfileResourceMutations(input.agent?.profiles, query, profiles, global.agent?.profiles);
-    await writeJsonFile(target.projectConfigPath, normalizeProjectConfig(stripProfileResourceMutations(input) as StoredProjectConfig));
+    await writeJsonFile(target.projectConfigPath, next);
     return readConfigEditorSnapshot(query);
 }
 
@@ -286,7 +302,10 @@ export async function resetProjectProfileHome(
         throw createError({statusCode: 400, message: "只有 Project Config 支持重置 profile home。"});
     }
     assertProjectConfigDataPlaneOpen(target, query);
-    const projectRoot = resolveProjectRootForProfileHome(query.projectPath);
+    const projectRoot = resolveProjectRootForProfileHome(
+        absoluteFsPath(resolveStateWorkspaceRoot()),
+        query.projectPath,
+    );
     if (!projectRoot) {
         throw createError({statusCode: 400, message: "重置 profile home 需要 Project Workspace。"});
     }
@@ -315,56 +334,43 @@ export async function loadEffectiveConfig(query: ConfigWorkspaceQueryDto = {work
 }
 
 /**
- * 只按 workspaceRoot 读取 effective config。
+ * 按Agent runtime的Project Path读取effective config。
  *
- * 普通 Project agent session 的 workspaceRoot 通常是容器 `workspace`，
- * Project 覆盖必须走 loadEffectiveConfigForAgentRuntime()。
+ * Global Config始终属于当前Runtime Paths的Workspace Root `.nbook`；外部绝对
+ * Project Workspace只改变Project Config来源，不能冒充Global Config根。
  */
-export async function loadEffectiveConfigForWorkspaceRoot(workspaceRoot: string | undefined): Promise<EffectiveConfig> {
-    const externalWorkspaceRoot = resolveExternalWorkspaceRoot(workspaceRoot);
-    if (externalWorkspaceRoot) {
-        const global = normalizeGlobalConfig(await readJsonFile<StoredGlobalConfig>(path.join(externalWorkspaceRoot, ".nbook", "config.json")));
-        return resolveEffectiveConfig(global, null);
-    }
-
-    const global = await readGlobalConfigFile();
-    const normalizedRoot = normalizeWorkspaceRoot(workspaceRoot);
-    if (!normalizedRoot || normalizedRoot === USER_ASSETS_WORKSPACE_ROOT || normalizedRoot === WORKSPACE_CONTAINER_ROOT) {
-        return resolveEffectiveConfig(global, null);
-    }
-    const configPath = normalizedRoot.endsWith("/.nbook")
-        ? path.resolve(process.cwd(), normalizedRoot, "config.json")
-        : path.resolve(process.cwd(), normalizedRoot, ".nbook", "config.json");
-    return resolveEffectiveConfig(global, await readProjectConfigFile(configPath));
+export async function loadEffectiveConfigForAgentRuntime(input: {projectPath?: string}): Promise<EffectiveConfig> {
+    return loadEffectiveConfigAtWorkspaceRoot({
+        workspaceRoot: absoluteFsPath(resolveStateWorkspaceRoot()),
+        projectPath: input.projectPath,
+    });
 }
 
 /**
- * 按 Agent runtime metadata 的 workspaceRoot + projectPath 读取 effective config。
+ * 在调用方已经确定的 Workspace Root 下读取 Agent runtime Config。
+ * 核心运行时使用此 Interface，避免再次从 cwd 或环境猜测 State Root。
  */
-export async function loadEffectiveConfigForAgentRuntime(input: {workspaceRoot?: string; projectPath?: string}): Promise<EffectiveConfig> {
+export async function loadEffectiveConfigAtWorkspaceRoot(input: {
+    workspaceRoot: AbsoluteFsPath;
+    projectPath?: string;
+}): Promise<EffectiveConfig> {
     if (!input.projectPath) {
-        return loadEffectiveConfigForWorkspaceRoot(input.workspaceRoot);
+        return resolveEffectiveConfig(await readGlobalConfigFileAtWorkspaceRoot(input.workspaceRoot), null);
     }
 
     if (path.isAbsolute(input.projectPath)) {
         const [global, project] = await Promise.all([
-            readGlobalConfigFile(),
+            readGlobalConfigFileAtWorkspaceRoot(input.workspaceRoot),
             readProjectConfigFile(path.join(path.resolve(input.projectPath), ".nbook", "config.json")),
         ]);
         return resolveEffectiveConfig(global, project);
     }
 
-    const externalWorkspaceRoot = resolveExternalWorkspaceRoot(input.workspaceRoot);
-    if (externalWorkspaceRoot) {
-        const projectSlug = extractProjectSlug(input.projectPath);
-        const [global, project] = await Promise.all([
-            normalizeGlobalConfig(await readJsonFile<StoredGlobalConfig>(path.join(externalWorkspaceRoot, ".nbook", "config.json"))),
-            readProjectConfigFile(path.join(externalWorkspaceRoot, projectSlug, ".nbook", "config.json")),
-        ]);
-        return resolveEffectiveConfig(global, project);
-    }
-
-    return loadEffectiveConfig({workspaceKind: "novel", projectPath: input.projectPath});
+    const projectRoot = resolveProjectWorkspaceRoot(input.workspaceRoot, normalizeProjectPath(input.projectPath));
+    return resolveEffectiveConfig(
+        await readGlobalConfigFileAtWorkspaceRoot(input.workspaceRoot),
+        await readProjectConfigFile(path.join(projectRoot, ".nbook", "config.json")),
+    );
 }
 
 /**
@@ -373,90 +379,6 @@ export async function loadEffectiveConfigForAgentRuntime(input: {workspaceRoot?:
 export function loadGlobalEffectiveConfigSync(): EffectiveConfig {
     const global = readJsonFileSync<StoredGlobalConfig>(globalConfigPath());
     return resolveEffectiveConfig(normalizeGlobalConfig(global), null);
-}
-
-/**
- * 保存模型设置到 Global Config。
- */
-export async function saveModelSettings(config: ModelSettingsConfig, query: ConfigWorkspaceQueryDto): Promise<ConfigEditorSnapshotDto> {
-    await withGlobalConfigWrite(async () => {
-        const current = await readGlobalConfigFile();
-        const next = normalizeGlobalConfig({
-            ...current,
-            models: serializeModelSettings(config),
-        });
-        await writeJsonFile(globalConfigPath(), next);
-    });
-    return readConfigEditorSnapshot(query);
-}
-
-/**
- * 保存 Agent Profile 模型设置到 Global Config。
- */
-export async function saveAgentProfileSettings(
-    config: Record<string, AgentProfileConfig>,
-    query: ConfigWorkspaceQueryDto,
-): Promise<ConfigEditorSnapshotDto> {
-    await withGlobalConfigWrite(async () => {
-        const current = await readGlobalConfigFile();
-        const next = normalizeGlobalConfig({
-            ...current,
-            agent: {
-                ...(current.agent ?? {}),
-                profiles: normalizeAgentProfiles(config),
-            },
-        });
-        await writeJsonFile(globalConfigPath(), next);
-    });
-    return readConfigEditorSnapshot(query);
-}
-
-/** 读取 Director 全局 Storyboard selector 的有限快照；hash 绑定完整规范化 Global Config。 */
-export async function readIllustrationDirectorSelectorSnapshot(): Promise<IllustrationDirectorSelectorSnapshot> {
-    return createIllustrationDirectorSelectorSnapshot(await readGlobalConfigFile());
-}
-
-/**
- * 以完整 Global Config expected hash 只更新 Director selector。
- *
- * 该入口与普通 Global Config 保存共用同一临界区，因此同进程并发不会发生 read-modify-write 丢更新。
- */
-export async function updateIllustrationDirectorSelector(input: {
-    expectedConfigHash: string;
-    storyboardPresetKey: string;
-}): Promise<IllustrationDirectorSelectorSnapshot> {
-    const expectedConfigHash = /^sha256:[0-9a-f]{64}$/u.test(input.expectedConfigHash)
-        ? input.expectedConfigHash
-        : "";
-    const match = /^storyboard-presets\/([a-z0-9][a-z0-9._-]{0,199})\.md$/u.exec(input.storyboardPresetKey);
-    if (!expectedConfigHash || !match?.[1]) throw new Error("Director selector CAS 输入不合法");
-    StoryboardStableIdSchema.parse(match[1]);
-    return withGlobalConfigWrite(async () => {
-        const current = await readGlobalConfigFile();
-        const snapshot = createIllustrationDirectorSelectorSnapshot(current);
-        if (snapshot.configHash !== expectedConfigHash) throw new IllustrationDirectorSelectorConflictError();
-        const profiles = current.agent?.profiles ?? {};
-        const director = profiles[ILLUSTRATION_DIRECTOR_PROFILE_KEY];
-        const next = normalizeGlobalConfig({
-            ...current,
-            agent: {
-                ...(current.agent ?? {}),
-                profiles: {
-                    ...profiles,
-                    [ILLUSTRATION_DIRECTOR_PROFILE_KEY]: {
-                        model: director?.model ?? {},
-                        settings: {
-                            ...(director?.settings ?? {}),
-                            storyboardPresetKey: input.storyboardPresetKey,
-                        },
-                        ...(director?.runtime ? {runtime: director.runtime} : {}),
-                    },
-                },
-            },
-        });
-        await writeJsonFile(globalConfigPath(), next);
-        return createIllustrationDirectorSelectorSnapshot(next);
-    });
 }
 
 /**
@@ -486,10 +408,12 @@ export async function resolveConfigTarget(query: ConfigWorkspaceQueryDto): Promi
             message: "Project Workspace 配置必须提供有效 projectPath",
         });
     }
-    const projectPath = await assertProjectWorkspaceDirectory(query.projectPath);
+    const workspaceRoot = absoluteFsPath(resolveStateWorkspaceRoot());
+    const projectPath = await assertProjectWorkspaceDirectory(workspaceRoot, query.projectPath);
+    const projectRoot = resolveProjectWorkspaceRoot(workspaceRoot, projectPath);
     return {
         workspaceKind,
-        projectConfigPath: path.resolve(process.cwd(), projectPath, ".nbook", "config.json"),
+        projectConfigPath: path.join(projectRoot, ".nbook", "config.json"),
     };
 }
 
@@ -530,6 +454,10 @@ async function readGlobalConfigFile(): Promise<StoredGlobalConfig> {
     return normalizeGlobalConfig(await readJsonFile<StoredGlobalConfig>(globalConfigPath()));
 }
 
+export async function readGlobalConfigFileAtWorkspaceRoot(workspaceRoot: AbsoluteFsPath): Promise<StoredGlobalConfig> {
+    return normalizeGlobalConfig(await readJsonFile<StoredGlobalConfig>(path.join(workspaceRoot, ".nbook", "config.json")));
+}
+
 async function readProjectConfigFile(configPath: string): Promise<StoredProjectConfig> {
     return normalizeProjectConfig(await readJsonFile<StoredProjectConfig>(configPath));
 }
@@ -562,9 +490,10 @@ function redactGlobalConfig(config: StoredGlobalConfig): GlobalConfigDto {
         },
         models: {
             default: config.models?.default ?? null,
-            providers: (config.models?.providers ?? []).map((provider) => ({
+            providers: (config.models?.providers ?? []).map((provider, sourceIndex) => ({
                 ...provider,
-                api: provider.api ?? null,
+                sourceIndex,
+                modelApi: provider.modelApi ?? null,
                 options: {
                     ...provider.options,
                     apiKey: maskSecret(provider.options.apiKey),
@@ -574,12 +503,17 @@ function redactGlobalConfig(config: StoredGlobalConfig): GlobalConfigDto {
     });
 }
 
-function buildConfigModelSettingsDto(effective: EffectiveConfig, illustrationDirectorModelKey: string | null): ConfigModelSettingsDto {
-    const providers = Object.entries(effective.models.providers).map(([providerId, provider]) => ({
-        id: providerId,
+function buildConfigModelSettingsDto(
+    global: StoredGlobalConfig,
+    project: StoredProjectConfig | null,
+    workspaceKind: WorkspaceRootKind,
+): ConfigModelSettingsDto {
+    const providers = (global.models?.providers ?? []).map((provider, sourceIndex) => ({
+        sourceIndex,
+        id: provider.id,
         name: provider.name,
         enabled: provider.enabled,
-        api: provider.api,
+        modelApi: provider.modelApi,
         options: {
             apiKey: maskSecret(provider.options.apiKey),
             baseURL: provider.options.baseURL,
@@ -587,55 +521,284 @@ function buildConfigModelSettingsDto(effective: EffectiveConfig, illustrationDir
             timeoutMs: provider.options.timeoutMs,
             requestOptions: provider.options.requestOptions,
         },
-        models: Object.values(provider.models).sort((left, right) => left.id.localeCompare(right.id)),
-    })).sort((left, right) => left.id.localeCompare(right.id));
-    const defaultModel = resolveConfiguredModel(effective.models, effective.models.defaultModelKey);
+        models: provider.models.map((model) => ({...model})),
+    }));
+    const defaultModelKey = workspaceKind === USER_ASSETS_WORKSPACE_KIND
+        ? global.models?.default ?? null
+        : project?.models?.default ?? global.models?.default ?? null;
+    const enabledModels = listRawEnabledModels(global);
+    const defaultModel = enabledModels.find((model) => model.key === defaultModelKey) ?? null;
+    const references = workspaceKind === USER_ASSETS_WORKSPACE_KIND
+        ? globalModelReferences(global)
+        : projectModelReferences(project);
+    const validationIssues = inspectModelSettings(rawModelSettingsInput(global.models, defaultModelKey), references).issues;
 
     return {
-        defaultModelKey: effective.models.defaultModelKey,
-        defaultModelLabel: defaultModel ? buildModelLabel(defaultModel.provider.name, defaultModel.model.name) : null,
-        enabledModels: listEnabledModels(effective.models),
+        defaultModelKey,
+        defaultModelLabel: defaultModel?.label ?? null,
+        enabledModels,
         providers,
-        illustrationDirector: buildIllustrationDirectorModelBindingDto(effective, illustrationDirectorModelKey),
+        validationIssues,
+        illustrationDirector: buildIllustrationDirectorModelBinding(global),
+    };
+}
+/**
+ * 在任何资源 mutation 或文件写入前校验完整 Provider Config。
+ * DTO 数组直接进入 shared contract，确保重复 Provider/model ID 不会在 normalize 后被覆盖。
+ */
+function assertGlobalProviderConfig(
+    models: NonNullable<GlobalConfigUpdateDto["models"]>,
+    candidate: StoredGlobalConfig,
+): void {
+    const references = globalModelReferences(candidate);
+    const issues = inspectModelSettings(rawModelSettingsInput(models, models.default ?? null), references).issues;
+    if (issues.length === 0) {
+        return;
+    }
+    throw createError({
+        statusCode: 400,
+        message: issues[0]?.message ?? "Provider Config 校验失败。",
+        data: {issues},
+    });
+}
+
+/** 将存储数组转换为 shared contract 输入；调用方必须在 runtime Record 化之前执行。 */
+function rawModelSettingsInput(
+    models: StoredGlobalConfig["models"] | NonNullable<GlobalConfigUpdateDto["models"]> | undefined,
+    defaultModelKey: string | null = models?.default ?? null,
+): ModelSettingsContractInput {
+    return {
+        defaultModelKey,
+        providers: (models?.providers ?? []).map((provider) => ({
+            id: provider.id,
+            enabled: provider.enabled ?? true,
+            modelApi: provider.modelApi ?? null,
+            options: {baseURL: provider.options.baseURL},
+            models: provider.models,
+        })),
     };
 }
 
-/** 从 normalized effective config 解析插图 Director 的只读模型 binding 摘要。 */
-function buildIllustrationDirectorModelBindingDto(effective: EffectiveConfig, modelKey: string | null): ConfigModelSettingsDto["illustrationDirector"] {
-    const resolved = resolveConfiguredModel(effective.models, modelKey);
-    if (!resolved) {
-        return {
-            bindingId: ILLUSTRATION_DIRECTOR_BINDING_ID,
-            configured: false,
-            modelKey,
-            providerId: null,
-            providerName: null,
-            modelId: null,
-            modelName: null,
-        };
+/** 从未经 Record 折叠的 Provider Config 数组生成唯一、可运行模型选项。 */
+function listRawEnabledModels(global: StoredGlobalConfig): ConfigModelSettingsDto["enabledModels"] {
+    const inspection = inspectProviderConfigDocument(rawModelSettingsInput(global.models, null));
+    const options: ConfigModelSettingsDto["enabledModels"] = [];
+    for (const provider of global.models?.providers ?? []) {
+        for (const model of provider.models) {
+            const key = `${provider.id}/${model.id}`;
+            if (!inspection.runnableModelKeys.has(key)) {
+                continue;
+            }
+            options.push({
+                key,
+                label: buildModelLabel(provider.name, model.name),
+                providerId: provider.id,
+                modelId: model.id,
+                contextWindowTokens: model.contextWindowTokens,
+            });
+        }
     }
-    return {
-        bindingId: ILLUSTRATION_DIRECTOR_BINDING_ID,
-        configured: true,
-        modelKey,
-        providerId: resolved.providerId,
-        providerName: resolved.provider.name,
-        modelId: resolved.model.id,
-        modelName: resolved.model.name,
-    };
+    return options.sort((left, right) => left.label.localeCompare(right.label));
+}
+
+/** 使用当前原始 Provider Config 的 runnable key 校验一组显式模型引用。 */
+function assertReferencesRunnable(
+    models: StoredGlobalConfig["models"] | undefined,
+    references: readonly ModelReferenceInput[],
+): void {
+    const runnableModelKeys = inspectProviderConfigDocument(rawModelSettingsInput(models, null)).runnableModelKeys;
+    const issues = inspectModelReferences(runnableModelKeys, references);
+    if (issues.length === 0) {
+        return;
+    }
+    throw createError({
+        statusCode: 400,
+        message: issues[0]?.message ?? "模型引用校验失败。",
+        data: {issues},
+    });
 }
 
 /**
- * 读取 Global Director slot 显式保存的 model key。
- * 通用 Profile 默认模型不能把缺失的独立 binding 伪装成已配置。
+ * Global Provider mutation 前扫描所有 managed Project 引用。
+ * 这是控制面完整性检查，不隐式 open Project，也不修改 Project Config。
  */
-function readIllustrationDirectorModelKey(global: StoredGlobalConfig): string | null {
-    const model = global.agent?.profiles?.[ILLUSTRATION_DIRECTOR_PROFILE_KEY]?.model;
-    if (!model || !Object.hasOwn(model, "modelKey")) {
-        return null;
+async function assertManagedProjectModelReferences(global: StoredGlobalConfig): Promise<void> {
+    const workspaceRoot = absoluteFsPath(resolveStateWorkspaceRoot());
+    const runnableModelKeys = inspectProviderConfigDocument(rawModelSettingsInput(global.models, null)).runnableModelKeys;
+    const issues = [] as ReturnType<typeof inspectModelReferences>;
+    for (const project of await listProjectWorkspaces(workspaceRoot)) {
+        const projectRoot = resolveProjectWorkspaceRoot(workspaceRoot, normalizeProjectPath(project.projectPath));
+        const config = await readProjectConfigFile(path.join(projectRoot, ".nbook", "config.json"));
+        const references: ModelReferenceInput[] = [{
+            modelKey: config.models?.default ?? global.models?.default ?? null,
+            path: [project.projectPath, "models", "default"],
+            label: `${project.projectPath} 默认模型`,
+        }, ...projectModelReferences(config).map((reference) => ({
+            ...reference,
+            path: [project.projectPath, ...reference.path],
+            label: `${project.projectPath} ${reference.label}`,
+        }))];
+        issues.push(...inspectModelReferences(runnableModelKeys, references));
     }
-    const modelKey = model.modelKey?.trim() ?? "";
-    return modelKey || null;
+    if (issues.length > 0) {
+        throw createError({
+            statusCode: 400,
+            message: issues[0]?.message ?? "Project 模型引用校验失败。",
+            data: {issues},
+        });
+    }
+}
+
+/** 删除 Provider 前列出 Global 与全部 managed Project 中仍指向它的模型引用。 */
+export async function inspectProviderReferences(providerId: string): Promise<Array<{label: string; modelKey: string}>> {
+    const global = await readGlobalConfigFile();
+    const prefix = `${providerId}/`;
+    const references: Array<{label: string; modelKey: string}> = [];
+    for (const reference of [{modelKey: global.models?.default ?? null, label: "Global 默认模型"}, ...globalModelReferences(global)]) {
+        if (reference.modelKey?.startsWith(prefix)) {
+            references.push({label: reference.label, modelKey: reference.modelKey});
+        }
+    }
+    const workspaceRoot = absoluteFsPath(resolveStateWorkspaceRoot());
+    for (const project of await listProjectWorkspaces(workspaceRoot)) {
+        const projectRoot = resolveProjectWorkspaceRoot(workspaceRoot, normalizeProjectPath(project.projectPath));
+        const config = await readProjectConfigFile(path.join(projectRoot, ".nbook", "config.json"));
+        for (const reference of [
+            {modelKey: config.models?.default ?? global.models?.default ?? null, label: `${project.projectPath} 默认模型`},
+            ...projectModelReferences(config).map((item) => ({...item, label: `${project.projectPath} ${item.label}`})),
+        ]) {
+            if (reference.modelKey?.startsWith(prefix)) {
+                references.push({label: reference.label, modelKey: reference.modelKey});
+            }
+        }
+    }
+    return references;
+}
+
+/** 返回 Global Agent 配置中所有显式模型引用。 */
+function globalModelReferences(config: StoredGlobalConfig): ModelReferenceInput[] {
+    const references: ModelReferenceInput[] = [];
+    if (config.agent?.profileModelDefaults && Object.hasOwn(config.agent.profileModelDefaults, "modelKey")) {
+        references.push({
+            modelKey: config.agent.profileModelDefaults.modelKey ?? null,
+            path: ["agent", "profileModelDefaults", "modelKey"],
+            label: "Agent Profile 默认模型",
+        });
+    }
+    for (const [profileKey, profile] of Object.entries(config.agent?.profiles ?? {})) {
+        if (!profile.model || !Object.hasOwn(profile.model, "modelKey")) {
+            continue;
+        }
+        references.push({
+            modelKey: profile.model.modelKey ?? null,
+            path: ["agent", "profiles", profileKey, "model", "modelKey"],
+            label: `Agent Profile ${profileKey} 模型`,
+        });
+    }
+    return references;
+}
+
+/** 返回当前 Project Config 中所有显式 Profile 模型引用。 */
+function projectModelReferences(config: StoredProjectConfig | null): ModelReferenceInput[] {
+    const references: ModelReferenceInput[] = [];
+    if (config?.agent?.profileModelDefaults && Object.hasOwn(config.agent.profileModelDefaults, "modelKey")) {
+        references.push({
+            modelKey: config.agent.profileModelDefaults.modelKey ?? null,
+            path: ["agent", "profileModelDefaults", "modelKey"],
+            label: "Project Agent Profile 默认模型",
+        });
+    }
+    for (const [profileKey, profile] of Object.entries(config?.agent?.profiles ?? {})) {
+        if (!profile.model || !Object.hasOwn(profile.model, "modelKey")) {
+            continue;
+        }
+        references.push({
+            modelKey: profile.model.modelKey ?? null,
+            path: ["agent", "profiles", profileKey, "model", "modelKey"],
+            label: `Project Agent Profile ${profileKey} 模型`,
+        });
+    }
+    return references;
+}
+
+/** 判断 Project section patch 是否实际修改模型选择引用。 */
+function projectModelReferencesChanged(input: ProjectConfigDto): boolean {
+    if (input.models && Object.hasOwn(input.models, "default")) {
+        return true;
+    }
+    if (input.agent?.profileModelDefaults && Object.hasOwn(input.agent.profileModelDefaults, "modelKey")) {
+        return true;
+    }
+    return Object.values(input.agent?.profiles ?? {}).some((profile) => Boolean(
+        profile.model && Object.hasOwn(profile.model, "modelKey"),
+    ));
+}
+
+/** 校验当前 Project 显式模型引用；不扫描或修改其他 Project Workspace。 */
+function assertProjectModelReferences(global: StoredGlobalConfig, project: StoredProjectConfig): void {
+    const runnableModelKeys = inspectProviderConfigDocument(rawModelSettingsInput(global.models, null)).runnableModelKeys;
+    const defaultModelKey = project.models?.default ?? global.models?.default ?? null;
+    const references: ModelReferenceInput[] = [{
+        modelKey: defaultModelKey,
+        path: ["models", "default"],
+        label: "Project 默认模型",
+    }, ...projectModelReferences(project)];
+    const issues = inspectModelReferences(runnableModelKeys, references);
+    if (!defaultModelKey?.trim() && runnableModelKeys.size > 0) {
+        issues.unshift({
+            code: "missing_default_model",
+            path: ["models", "default"],
+            modelKey: null,
+            message: "存在可运行模型时，Project 必须能解析到默认模型。",
+        });
+    }
+    if (issues.length === 0) {
+        return;
+    }
+    throw createError({
+        statusCode: 400,
+        message: issues[0]?.message ?? "Project 模型引用校验失败。",
+        data: {issues},
+    });
+}
+
+/**
+ * 将 Project Config 请求解释为顶层 section patch。
+ * 未提交 section 保持原值；profiles 明确提交时替换当前 Project 的完整 override map。
+ */
+function mergeProjectConfig(current: StoredProjectConfig, patch: StoredProjectConfig): StoredProjectConfig {
+    const next: StoredProjectConfig = {...current};
+    if (patch.models) {
+        next.models = {...current.models, ...patch.models};
+    }
+    if (patch.embedding) {
+        next.embedding = {...current.embedding, ...patch.embedding};
+    }
+    if (patch.editor) {
+        next.editor = {
+            ...current.editor,
+            ...patch.editor,
+            ...(patch.editor.markdown ? {markdown: {...current.editor?.markdown, ...patch.editor.markdown}} : {}),
+            ...(patch.editor.monaco ? {monaco: {...current.editor?.monaco, ...patch.editor.monaco}} : {}),
+        };
+    }
+    if (patch.history) {
+        next.history = {...current.history, ...patch.history};
+    }
+    if (patch.agent) {
+        next.agent = {
+            ...current.agent,
+            ...patch.agent,
+            ...(patch.agent.profileModelDefaults ? {
+                profileModelDefaults: {...current.agent?.profileModelDefaults, ...patch.agent.profileModelDefaults},
+            } : {}),
+            ...(patch.agent.profileRuntimeDefaults ? {
+                profileRuntimeDefaults: mergeProfileRuntimePatches(current.agent?.profileRuntimeDefaults, patch.agent.profileRuntimeDefaults),
+            } : {}),
+            ...(patch.agent.profiles !== undefined ? {profiles: patch.agent.profiles} : {}),
+        };
+    }
+    return normalizeProjectConfig(next);
 }
 
 function buildConfigEmbeddingSettingsDto(
@@ -668,8 +831,15 @@ async function buildConfigAgentProfileSettingsDto(input: {
     includeSettings: boolean;
     settingsScope: "global" | "project";
 }): Promise<ConfigAgentProfileSettingsDto> {
+    const defaultModelKey = input.settingsScope === "project"
+        ? input.project?.models?.default ?? input.global.models?.default ?? null
+        : input.global.models?.default ?? null;
+    const modelReferences = input.settingsScope === "project"
+        ? projectModelReferences(input.project)
+        : globalModelReferences(input.global);
     return {
-        enabledModels: listEnabledModels(input.effective.models),
+        enabledModels: listRawEnabledModels(input.global),
+        validationIssues: inspectModelSettings(rawModelSettingsInput(input.global.models, defaultModelKey), modelReferences).issues,
         profileModelDefaults: normalizeAgentProfileModelConfig(input.effective.agent.profileModelDefaults),
         harnessRuntimeDefaults: resolveProfileRuntimeSettings(undefined, undefined),
         profileRuntimeDefaults: resolveProfileRuntimeSettings(undefined, input.effective.agent.profileRuntimeDefaults),
@@ -949,7 +1119,10 @@ async function lowCodeFormContext(
 ): Promise<LowCodeFormResolveContext> {
     const workspaceRoot = query.workspaceKind === "novel" ? WORKSPACE_CONTAINER_ROOT : USER_ASSETS_WORKSPACE_ROOT;
     const needsHome = profileNeedsHome(profile);
-    const projectRoot = scope === "project" && query.workspaceKind === "novel" ? resolveProjectRootForProfileHome(query.projectPath) : null;
+    const runtimeWorkspaceRoot = absoluteFsPath(resolveStateWorkspaceRoot());
+    const projectRoot = scope === "project" && query.workspaceKind === "novel"
+        ? resolveProjectRootForProfileHome(runtimeWorkspaceRoot, query.projectPath)
+        : null;
     if (projectRoot && profile && needsHome) {
         assertProjectPathOpen(query.projectPath);
     }
@@ -963,7 +1136,7 @@ async function lowCodeFormContext(
         : undefined;
     const globalHome = profile && needsHome
         ? await ensureGlobalProfileHome({
-            workspaceRoot,
+            workspaceRoot: runtimeWorkspaceRoot,
             profileKey,
             profileVersion: profile.manifest.version ?? 1,
             definition: profile.home,
@@ -1130,30 +1303,27 @@ function maskSecret(value: string | null | undefined): {configured: boolean; mas
 
 function resolveSecretWrite(input: {previousValue: string; configured: boolean; value?: string}): string {
     if (input.value === undefined) {
-        if (input.configured && !input.previousValue.trim()) {
-            throw createError({
-                statusCode: 400,
-                message: "无法保留当前 API key：对应的已保存 Provider 不存在，请重新输入密钥",
-            });
-        }
         return input.previousValue;
     }
     return input.value.trim();
 }
 
 function normalizeGlobalModelsForWrite(
-    models: NonNullable<GlobalConfigDto["models"]>,
+    models: NonNullable<GlobalConfigUpdateDto["models"]>,
     current: StoredGlobalConfig,
 ): NonNullable<StoredGlobalConfig["models"]> {
+    const usedSourceIndexes = new Set<number>();
     return {
         default: models.default ?? null,
         providers: models.providers.map((provider): StoredProviderConfig => ({
-            ...provider,
-            api: provider.api,
+            id: provider.id,
+            name: provider.name,
+            enabled: provider.enabled,
+            modelApi: provider.modelApi,
             options: {
                 ...provider.options,
                 apiKey: resolveSecretWrite({
-                    previousValue: findProviderApiKey(current, provider.id),
+                    previousValue: resolveProviderApiKey(current, provider, usedSourceIndexes),
                     configured: provider.options.apiKey.configured,
                     value: provider.options.apiKey.value,
                 }),
@@ -1164,22 +1334,98 @@ function normalizeGlobalModelsForWrite(
                 id: model.id,
                 group: model.group,
                 enabled: model.enabled,
-                provider: model.provider,
                 api: model.api,
-                baseUrl: model.baseUrl,
                 reasoning: model.reasoning,
                 input: model.input,
                 maxTokens: model.maxTokens,
                 cost: model.cost,
                 compat: model.compat,
+                headers: model.headers,
+                thinkingLevelMap: model.thinkingLevelMap,
                 contextWindowTokens: model.contextWindowTokens,
             })),
         })),
     };
 }
 
-function findProviderApiKey(config: StoredGlobalConfig, providerId: string): string {
-    return config.models?.providers?.find((provider) => provider.id === providerId)?.options.apiKey ?? "";
+/**
+ * Provider Config ID 是连接身份，不允许通过普通保存偷偷改名或换端点。
+ * Provider Model API 只影响发现和候选补全，可以在同一连接上显式修改。
+ * 显式 clone/migrate 尚未进入此保存接口；调用方必须新建 Provider 并重新提供凭据。
+ */
+function assertProviderConnectionsStable(
+    providers: NonNullable<GlobalConfigUpdateDto["models"]>["providers"],
+    current: StoredGlobalConfig,
+): void {
+    const storedProviders = current.models?.providers ?? [];
+    const seenSourceIndexes = new Set<number>();
+    for (const provider of providers) {
+        if (provider.sourceIndex === undefined) {
+            if (storedProviders.some((stored) => stored.id === provider.id)) {
+                throw createError({
+                    statusCode: 400,
+                    message: `Provider ${provider.id} 必须携带来源索引；修改连接身份请先复制为新的 Provider。`,
+                });
+            }
+            continue;
+        }
+        if (seenSourceIndexes.has(provider.sourceIndex)) {
+            throw createError({statusCode: 400, message: `Provider 来源索引重复：${String(provider.sourceIndex)}`});
+        }
+        seenSourceIndexes.add(provider.sourceIndex);
+        const stored = storedProviders[provider.sourceIndex];
+        if (!stored) {
+            throw createError({statusCode: 400, message: `Provider ${provider.id} 的来源索引无效。`});
+        }
+        if (stored.id !== provider.id) {
+            throw createError({
+                statusCode: 400,
+                message: `Provider ID 不可修改：${stored.id}。请复制为新的 Provider，再迁移模型和引用。`,
+            });
+        }
+        if (!sameProviderConnection({
+            id: stored.id,
+            baseURL: stored.options.baseURL,
+            proxy: stored.options.proxy,
+        }, {
+            id: provider.id,
+            baseURL: provider.options.baseURL,
+            proxy: provider.options.proxy,
+        })) {
+            throw createError({
+                statusCode: 400,
+                message: `Provider ${provider.id} 的连接身份不可修改（Base URL 或代理已变化）。请复制为新的 Provider。`,
+            });
+        }
+    }
+}
+
+/** 按编辑快照来源索引保留对应 Provider secret，避免重复 ID 修复时串 key。 */
+function resolveProviderApiKey(
+    config: StoredGlobalConfig,
+    provider: NonNullable<GlobalConfigUpdateDto["models"]>["providers"][number],
+    usedSourceIndexes: Set<number>,
+): string {
+    const storedProviders = config.models?.providers ?? [];
+    if (provider.sourceIndex !== undefined) {
+        const source = storedProviders[provider.sourceIndex];
+        if (!source) {
+            throw createError({statusCode: 400, message: `Provider ${provider.id} 的来源索引无效。`});
+        }
+        if (usedSourceIndexes.has(provider.sourceIndex)) {
+            throw createError({statusCode: 400, message: `Provider 来源索引重复：${String(provider.sourceIndex)}`});
+        }
+        usedSourceIndexes.add(provider.sourceIndex);
+        return source.options.apiKey;
+    }
+
+    if (storedProviders.some((item) => item.id === provider.id) && provider.options.apiKey.value === undefined) {
+        throw createError({
+            statusCode: 400,
+            message: `Provider ${provider.id} 缺少来源索引或显式 API key；不能按 Provider ID 猜测旧 Secret。`,
+        });
+    }
+    return provider.options.apiKey.value?.trim() ?? "";
 }
 
 const DEFAULT_GLOBAL_EMBEDDING_MODEL = "text-embedding-3-small";
@@ -1287,15 +1533,6 @@ function assertProjectConfigDoesNotContainGlobalOnly(input: ProjectConfigDto): v
             message: "Project Config 不能覆盖 history.enabled（文件历史总开关仅 Global）",
         });
     }
-    const agent = record.agent as Record<string, unknown> | undefined;
-    const profiles = agent?.profiles as Record<string, Record<string, unknown>> | undefined;
-    const directorModel = profiles?.[ILLUSTRATION_DIRECTOR_PROFILE_KEY]?.model as Record<string, unknown> | undefined;
-    if (directorModel && Object.keys(directorModel).length > 0) {
-        throw createError({
-            statusCode: 400,
-            message: "illustration Director model binding 只能由 Global Config 写入",
-        });
-    }
 }
 
 async function readJsonFile<T>(filePath: string): Promise<T | null> {
@@ -1320,12 +1557,92 @@ function readJsonFileSync<T>(filePath: string): T | null {
     }
 }
 
-async function writeJsonFile(filePath: string, value: unknown): Promise<void> {
-    await fs.mkdir(path.dirname(filePath), {recursive: true});
-    await fs.writeFile(filePath, `${JSON.stringify(value, null, 4)}\n`, "utf-8");
+/** P4：以完整 Global Config expected hash 只更新 Director selector。 */
+export async function readIllustrationDirectorSelectorSnapshot(): Promise<IllustrationDirectorSelectorSnapshot> {
+    return createIllustrationDirectorSelectorSnapshot(await readGlobalConfigFile());
 }
 
-/** 从规范化 Global Config 投影不含 secret 明文的 selector 摘要与完整配置 hash。 */
+/** 以 CAS hash 更新 Director storyboard preset selector。 */
+export async function updateIllustrationDirectorSelector(input: {
+    expectedConfigHash: string;
+    storyboardPresetKey: string;
+}): Promise<IllustrationDirectorSelectorSnapshot> {
+    const expectedConfigHash = /^sha256:[0-9a-f]{64}$/u.test(input.expectedConfigHash)
+        ? input.expectedConfigHash
+        : "";
+    const match = /^storyboard-presets\/([a-z0-9][a-z0-9._-]{0,199})\.md$/u.exec(input.storyboardPresetKey);
+    if (!expectedConfigHash || !match?.[1]) throw new Error("Director selector CAS 输入不合法");
+    StoryboardStableIdSchema.parse(match[1]);
+    return withGlobalConfigWrite(async () => {
+        const current = await readGlobalConfigFile();
+        const snapshot = createIllustrationDirectorSelectorSnapshot(current);
+        if (snapshot.configHash !== expectedConfigHash) throw new IllustrationDirectorSelectorConflictError();
+        const profiles = current.agent?.profiles ?? {};
+        const director = profiles[ILLUSTRATION_DIRECTOR_PROFILE_KEY];
+        const next = normalizeGlobalConfig({
+            ...current,
+            agent: {
+                ...(current.agent ?? {}),
+                profiles: {
+                    ...profiles,
+                    [ILLUSTRATION_DIRECTOR_PROFILE_KEY]: {
+                        model: director?.model ?? {},
+                        settings: {
+                            ...(director?.settings ?? {}),
+                            storyboardPresetKey: input.storyboardPresetKey,
+                        },
+                        ...(director?.runtime ? {runtime: director.runtime} : {}),
+                    },
+                },
+            },
+        });
+        await writeJsonFile(globalConfigPath(), next);
+        return createIllustrationDirectorSelectorSnapshot(next);
+    });
+}
+
+/** 从 normalized effective config 解析插图 Director 的只读模型 binding 摘要。 */
+function buildIllustrationDirectorModelBinding(global: StoredGlobalConfig): ConfigModelSettingsDto["illustrationDirector"] {
+    const modelKey = readIllustrationDirectorModelKey(global);
+    const effective = structuredClone(global) as StoredGlobalConfig & { models?: { providers?: Array<{ id: string; name: string; models: Array<{ id: string; name: string }> }> } };
+    // 简化的 effective model 解析：从 global config 中找匹配的 provider/model
+    const normalized = normalizeGlobalConfig(global);
+    const configured = normalized.agent?.profiles?.[ILLUSTRATION_DIRECTOR_PROFILE_KEY]?.model as { modelKey?: string } | undefined;
+    const resolvedModelKey = modelKey ?? configured?.modelKey ?? null;
+    if (!resolvedModelKey) {
+        return {
+            bindingId: ILLUSTRATION_DIRECTOR_BINDING_ID,
+            configured: false,
+            modelKey: null,
+            providerId: null,
+            providerName: null,
+            modelId: null,
+            modelName: null,
+        };
+    }
+    // 从 enabled models 中查找匹配的模型
+    const enabledModels = listRawEnabledModels(global);
+    const matched = enabledModels.find((m) => m.key === resolvedModelKey);
+    return {
+        bindingId: ILLUSTRATION_DIRECTOR_BINDING_ID,
+        configured: Boolean(matched),
+        modelKey: resolvedModelKey,
+        providerId: matched?.providerId ?? null,
+        providerName: matched?.providerName ?? null,
+        modelId: matched?.modelId ?? null,
+        modelName: matched?.label ?? null,
+    };
+}
+
+function readIllustrationDirectorModelKey(global: StoredGlobalConfig): string | null {
+    const model = global.agent?.profiles?.[ILLUSTRATION_DIRECTOR_PROFILE_KEY]?.model;
+    if (!model || !Object.hasOwn(model, "modelKey")) {
+        return null;
+    }
+    const modelKey = (model as { modelKey?: string }).modelKey?.trim() ?? "";
+    return modelKey || null;
+}
+
 function createIllustrationDirectorSelectorSnapshot(config: StoredGlobalConfig): IllustrationDirectorSelectorSnapshot {
     const normalized = normalizeGlobalConfig(config);
     const configured = normalized.agent?.profiles?.[ILLUSTRATION_DIRECTOR_PROFILE_KEY]?.settings?.storyboardPresetKey;
@@ -1339,7 +1656,6 @@ function createIllustrationDirectorSelectorSnapshot(config: StoredGlobalConfig):
     };
 }
 
-/** 按真实 Global Config 路径串行化本进程所有 read-modify-write。 */
 async function withGlobalConfigWrite<TResult>(operation: () => Promise<TResult>): Promise<TResult> {
     const key = path.resolve(globalConfigPath()).toLocaleLowerCase("en-US");
     const previous = globalConfigWriteLocks.get(key) ?? Promise.resolve();
@@ -1358,38 +1674,16 @@ async function withGlobalConfigWrite<TResult>(operation: () => Promise<TResult>)
     }
 }
 
-function normalizeWorkspaceRoot(workspaceRoot: string | undefined): string | null {
-    const normalized = workspaceRoot?.trim().replaceAll("\\", "/").replace(/^\/+/, "").replace(/\/+$/g, "") ?? "";
-    if (!normalized || normalized === "." || normalized === ".." || normalized.startsWith("../")) {
-        return null;
-    }
-    return normalized;
+async function writeJsonFile(filePath: string, value: unknown): Promise<void> {
+    await fs.mkdir(path.dirname(filePath), {recursive: true});
+    await fs.writeFile(filePath, `${JSON.stringify(value, null, 4)}\n`, "utf-8");
 }
 
-function resolveExternalWorkspaceRoot(workspaceRoot: string | undefined): string | null {
-    if (!workspaceRoot || !path.isAbsolute(workspaceRoot)) {
-        return null;
+async function pathExists(filePath: string): Promise<boolean> {
+    try {
+        await fs.access(filePath);
+        return true;
+    } catch {
+        return false;
     }
-    const absoluteRoot = path.resolve(workspaceRoot);
-    const repoWorkspaceRoot = resolveStateWorkspaceRoot();
-    const relativeToRepoWorkspace = path.relative(repoWorkspaceRoot, absoluteRoot);
-    if (!relativeToRepoWorkspace || !relativeToRepoWorkspace.startsWith("..") && !path.isAbsolute(relativeToRepoWorkspace)) {
-        return null;
-    }
-    return absoluteRoot;
-}
-
-function extractProjectSlug(projectPath: string): string {
-    const normalized = projectPath.trim().replaceAll("\\", "/").replace(/^\/+|\/+$/g, "");
-    if (path.posix.isAbsolute(normalized) || normalized.includes("..")) {
-        throw createError({statusCode: 400, message: "projectPath 必须形如 workspace/<project>"});
-    }
-    const parts = normalized.split("/").filter(Boolean);
-    if (parts.length === 2 && parts[0] === "workspace") {
-        return parts[1] ?? "";
-    }
-    if (parts.length === 1 && parts[0]) {
-        return parts[0];
-    }
-    throw createError({statusCode: 400, message: "projectPath 必须形如 workspace/<project>"});
 }

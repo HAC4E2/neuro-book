@@ -5,15 +5,23 @@ import {pathToFileURL} from "node:url";
 type NativeImport = (specifier: string) => Promise<unknown>;
 type RuntimeArtifactQuery = Record<string, string | number | bigint | boolean>;
 type RuntimeArtifactImportOptions = {
-    /** 非空时把 artifact 复制到带 cache key 的物理路径，避免 Bun 忽略 file URL query。 */
-    cacheKey?: string;
-    /** 校验已存在 cache 文件的字节数；为空时只按 cache key 命中。 */
-    expectedBytes?: number;
-    /** 不同 artifact 家族使用不同缓存目录，方便排查和后续清理。 */
-    cacheNamespace?: string;
     /** 附加给 file URL 的 query，仅用于诊断或 Node module cache，不作为 Bun cache key。 */
     query?: RuntimeArtifactQuery;
-};
+} & ({
+    cacheKey?: undefined;
+    cacheNamespace?: never;
+    cacheRoot?: never;
+    expectedBytes?: never;
+} | {
+    /** 把 artifact 复制到带 cache key 的物理路径，避免 Bun 忽略 file URL query。 */
+    cacheKey: string;
+    /** 不同 artifact 家族使用不同缓存目录，方便排查和后续清理。 */
+    cacheNamespace?: string;
+    /** 物理缓存根必须由领域 Adapter 显式决定，禁止从 cwd 或只读 artifact 位置猜测。 */
+    cacheRoot: string;
+    /** 校验已存在 cache 文件的字节数；为空时只按 cache key 命中。 */
+    expectedBytes?: number;
+});
 
 const nativeImport = new Function("specifier", "return import(specifier)") as NativeImport;
 
@@ -34,8 +42,14 @@ export async function importRuntimeArtifact<TModule>(
     return await importSpecifierNatively<TModule>(runtimeArtifactSpecifier(importPath, options.query ?? {}));
 }
 
-async function prepareCachedArtifactPath(artifactPath: string, options: RuntimeArtifactImportOptions): Promise<string> {
-    const cacheRoot = resolve(process.cwd(), ".agent", "workspace", "runtime-artifact-import-cache", safeSegment(options.cacheNamespace ?? "default"));
+async function prepareCachedArtifactPath(
+    artifactPath: string,
+    options: Extract<RuntimeArtifactImportOptions, {cacheKey: string}>,
+): Promise<string> {
+    const cacheRoot = join(
+        resolve(options.cacheRoot),
+        safeSegment(options.cacheNamespace ?? "default"),
+    );
     const cacheKey = safeSegment(options.cacheKey ?? "unknown");
     const importPath = join(cacheRoot, `${cacheKey}.mjs`);
     const existing = await stat(importPath).catch(() => null);

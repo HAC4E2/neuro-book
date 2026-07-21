@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import {createError} from "h3";
-import {resolveProjectAbsolutePath} from "nbook/server/workspace-files/project-workspace";
+import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import type {Instant} from "nbook/server/world-engine/types";
 import type {CalendarStrategy} from "nbook/server/world-engine/calendar-strategy";
 import {SimpleCalendar, normalizeSimpleCalendarConfig} from "nbook/server/world-engine/calendars/simple";
@@ -41,13 +41,11 @@ export class WorldCalendar {
  * calendar.yaml 已废弃，不再支持。
  */
 export class WorldCalendarLoader {
-    async load(projectPath: string): Promise<WorldCalendar> {
-        const projectAbsPath = resolveProjectAbsolutePath(projectPath);
-
+    async load(projectRoot: AbsoluteFsPath): Promise<WorldCalendar> {
         // 只支持 calendar.ts
-        const tsPath = path.join(projectAbsPath, "world-engine", "calendar.ts");
+        const tsPath = path.join(projectRoot, "world-engine", "calendar.ts");
         if (await fileExists(tsPath)) {
-            return await this.loadFromTypeScript(tsPath);
+            return await this.loadFromTypeScript(projectRoot, tsPath);
         }
 
         // calendar.ts 不存在，报错
@@ -57,10 +55,14 @@ export class WorldCalendarLoader {
         });
     }
 
-    private async loadFromTypeScript(tsPath: string): Promise<WorldCalendar> {
+    private async loadFromTypeScript(projectRoot: AbsoluteFsPath, tsPath: string): Promise<WorldCalendar> {
         try {
             // calendar.ts 是单文件配置入口；入口内容变化时通过 hash 模块路径热加载。
-            const module = await importSingleFileTypeScriptConfig<{default?: unknown}>(tsPath, "calendar");
+            const module = await importSingleFileTypeScriptConfig<{default?: unknown}>({
+                filePath: tsPath,
+                label: "calendar",
+                runtimeCacheRoot: path.join(projectRoot, ".nbook", "runtime-artifact-import-cache"),
+            });
             const config = module.default;
 
             if (!config || typeof config !== "object") {

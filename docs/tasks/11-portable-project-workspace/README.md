@@ -12,7 +12,7 @@
 - 评估是否删除 `execute_sql` 工具，改为让 Agent 通过 `bash` 操作数据库。
 - 应用级数据库仍然保留，用于保存 `User` 等全局数据；`User` 不进入 Project Workspace-local SQLite。
 - Project Workspace 级数据库允许文件化，路径使用相对 path，便于打包迁移。
-- 任务最后一步必须同步修改 `README.md`、`docs/operator-bridge.md`、`scripts/migrate-config-system.ts`、`scripts/deploy.mjs`、`scripts/neuro-book-deploy.mjs`。
+- 任务最后一步必须同步修改 `README.md`、`docs/operator-bridge.md`、`scripts/migrate-config-system.ts`、`scripts/deploy.mjs`和当时的旧部署脚本。
 
 ## Goal
 
@@ -158,7 +158,9 @@
     - 推荐命令是什么。
 - Project 列表扫描只看 Workspace Root 下一级目录的 `project.yaml`，不递归。
 - `workspace project pack` 输出 zip；zip 根就是 Project Workspace 内容。
-- 打包前 CLI 需要 checkpoint Project SQLite，成功后只包含 `project.sqlite`；checkpoint 失败时才包含 `project.sqlite-wal` / `project.sqlite-shm` 并在导入时恢复。
+- 当前 Project 下载对 Project SQLite 和已有 History SQLite 分别执行在线 `VACUUM INTO`，每个输出通过 `PRAGMA quick_check` 后才进入 zip；不复制 live 主库、WAL 或 SHM，失败时直接终止打包。
+- `project.yaml`、Project Config、Project SQLite 与已有 History SQLite 不受 `.gitignore` 排除；普通项目文件继续遵守 `.gitignore`，Project Runtime Artifact 始终硬排除。
+- History SQLite 是完整备份数据，可能含全文快照、已删除正文、acceptance 与 session cursor；前端仅对 Project 下载显示分享隐私警告，user-assets 仍走普通 workspace archive。
 
 ### 7. Agent Tool 合同
 
@@ -226,7 +228,7 @@
 - `scripts/deploy.mjs`
     - 删除 PostgreSQL 相关同步、compose override 和远端环境假设。
     - 确认远端部署只需要 app + workspace 数据目录。
-- `scripts/neuro-book-deploy.mjs`
+- 当时的旧部署脚本（已删除）
     - 删除数据库类型选择。
     - 不再生成 PostgreSQL password、service、override 或外部 URL 配置。
     - 输出 SQLite-only 的备份和 Project Workspace 打包提示。
@@ -305,7 +307,7 @@
 - `scripts/prisma-migrate.mjs`
 - `scripts/docker-entrypoint.sh`
 - `scripts/deploy.mjs`
-- `scripts/neuro-book-deploy.mjs`
+- 当时的旧部署脚本（已删除）
 - `scripts/migrate-config-system.ts`
 - `README.md`
 - `docs/operator-bridge.md`
@@ -313,6 +315,7 @@
 
 ## Verification
 
+- 2026-07-18 Project 下载回归：`workspace-archive.test.ts` 与 `download.get.test.ts` 通过，覆盖 live WAL 中已提交 Project 数据、保持打开的 History operation/acceptance/cursor、两个 standalone SQLite、WAL/SHM 与 runtime artifact 排除、`.gitignore` 下 metadata 强制纳入、损坏库失败清理、可选 metadata 的非 `ENOENT` 错误不被吞，以及 user-assets 继续走普通 archive。
 - 已执行 `bun .\assets\workspace\.nbook\agent\scripts\workspace.ts project create "workspace/codex-project-create-smoke" --title "测试项目" --summary "临时验证" --json`，确认会合并 bundled `assets/workspace/.nbook/templates/novel-directory-templates` 与用户覆盖层 `workspace/.nbook/templates/novel-directory-templates`、写入 `project.yaml`、初始化 `.nbook/project.sqlite`，且目标目录不再保留旧 `workspace.yaml`；验证后已删除临时 Project Workspace。
 - 已执行 `bun .\scripts\sync-user-assets.ts`，确认仍跟随旧系统上游的 `workspace/.nbook/agent/scripts/workspace.ts` 会同步到新 `workspace project create` 命令面。
 - 已执行目标已存在场景的 smoke，确认 `workspace project create` 失败时不会删除已有 Project Workspace 目录，也不会残留 `.creating-*` 临时目录。

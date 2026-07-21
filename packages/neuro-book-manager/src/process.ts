@@ -22,12 +22,34 @@ export async function run(command: string, args: string[], options: RunOptions =
                 return;
             }
             if (code !== 0) {
-                rejectPromise(new Error(`${command} 执行失败，退出码 ${code ?? "unknown"}`));
+                const location = options.cwd ? `，工作目录 ${options.cwd}` : "";
+                rejectPromise(new Error(`${command} 执行失败，退出码 ${code ?? "unknown"}${location}`));
                 return;
             }
             resolvePromise();
         });
     });
+}
+
+/**
+ * 从Manager Host Runtime启动Bun子进程。
+ *
+ * Bun 1.3.14在Windows由Bun进程直接spawn另一个`bun install`时会错误报告
+ * frozen lockfile变化；经PowerShell宿主启动则使用正常CLI语义。参数通过JSON环境变量
+ * 传递，避免路径空格和PowerShell字符串转义改变命令内容。
+ */
+export async function runBun(command: string, args: string[], options: RunOptions = {}): Promise<void> {
+    if (process.platform !== "win32") {
+        await run(command, args, options);
+        return;
+    }
+    const env = {
+        ...(options.env ?? process.env),
+        NEURO_BOOK_CHILD_BUN: command,
+        NEURO_BOOK_CHILD_BUN_ARGS: JSON.stringify(args),
+    };
+    const script = "$command = $env:NEURO_BOOK_CHILD_BUN; $arguments = ConvertFrom-Json $env:NEURO_BOOK_CHILD_BUN_ARGS; & $command @arguments; exit $LASTEXITCODE";
+    await run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {...options, env});
 }
 
 /** 执行外部命令并读取 stdout。 */
@@ -46,7 +68,9 @@ export async function runCapture(command: string, args: string[], options: Omit<
         child.stdout.on("data", (chunk: string) => stdout += chunk);
         child.stderr.on("data", (chunk: string) => stderr += chunk);
         child.on("error", rejectPromise);
-        child.on("exit", (code, signal) => {
+        // `exit`早于stdio关闭；短命令在macOS上可能先退出、后派发最后一段stdout。
+        // 只有`close`能够保证stdout/stderr已完整消费，版本检查才能稳定读取输出。
+        child.on("close", (code, signal) => {
             if (signal || code !== 0) {
                 rejectPromise(new Error(stderr.trim() || `${command} 执行失败，退出码 ${code ?? signal ?? "unknown"}`));
                 return;
