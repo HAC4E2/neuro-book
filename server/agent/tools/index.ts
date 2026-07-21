@@ -5,6 +5,9 @@ import {createSubjectMemoryTools} from "nbook/server/agent/tools/subject-memory-
 import {createTaskTools} from "nbook/server/agent/tools/task-tools";
 import {createWebTools} from "nbook/server/agent/tools/web-tools";
 import {createWorldEngineTools} from "nbook/server/agent/tools/world-engine-tools";
+import {createStoryboardImportAgentTools} from "nbook/server/agent/tools/storyboard-import-tools";
+import {createIllustrationPlanningAgentTools} from "nbook/server/agent/tools/illustration-planning-tools";
+import {createIllustrationReviewAgentTools} from "nbook/server/agent/tools/illustration-review-tools";
 import {agentCollaborationTools} from "nbook/server/agent/tools/agent-collaboration-tools";
 import {controlTools} from "nbook/server/agent/tools/control-tools";
 import {createVariableTools} from "nbook/server/agent/variables/tools";
@@ -22,6 +25,9 @@ function buildAgentTools() {
     const webTools = definitionsByKey(createWebTools());
     const worldEngineTools = definitionsByKey(createWorldEngineTools());
     const subjectMemoryTools = definitionsByKey(createSubjectMemoryTools());
+    const storyboardImportTools = definitionsByKey(createStoryboardImportAgentTools());
+    const illustrationPlanningTools = definitionsByKey(createIllustrationPlanningAgentTools());
+    const illustrationReviewTools = definitionsByKey(createIllustrationReviewAgentTools());
     const sqlTool = defineAgentToolFromRuntime(createSqlTool());
     return {
         read: requireDefinition(fileTools, "read"),
@@ -53,6 +59,18 @@ function buildAgentTools() {
         subjectRagSearch: requireDefinition(subjectMemoryTools, "subject_rag_search"),
         subjectEventAppend: requireDefinition(subjectMemoryTools, "subject_event_append"),
         subjectMemoryUpdate: requireDefinition(subjectMemoryTools, "subject_memory_update"),
+        inspectChatu8Storyboard: requireDefinition(storyboardImportTools, "inspect_chatu8_storyboard"),
+        submitChatu8StoryboardConversion: requireDefinition(storyboardImportTools, "submit_chatu8_storyboard_conversion"),
+        resolveIllustrationTags: requireDefinition(illustrationPlanningTools, "resolve_tags"),
+        suggestIllustrationTagReplacements: requireDefinition(illustrationPlanningTools, "suggest_tag_replacements"),
+        finalizeIllustrationTagResolution: requireDefinition(illustrationPlanningTools, "finalize_tag_resolution"),
+        searchIllustrationTags: requireDefinition(illustrationPlanningTools, "search_tags"),
+        relatedIllustrationTags: requireDefinition(illustrationPlanningTools, "related_tags"),
+        validateIllustrationTagResolutions: requireDefinition(illustrationPlanningTools, "validate_tag_resolutions"),
+        searchIllustrationTagPatterns: requireDefinition(illustrationPlanningTools, "search_tag_patterns"),
+        getIllustrationTagPatterns: requireDefinition(illustrationPlanningTools, "get_tag_patterns"),
+        listChapterIllustrations: requireDefinition(illustrationReviewTools, "list_chapter_illustrations"),
+        getIllustrationDetail: requireDefinition(illustrationReviewTools, "get_illustration_detail"),
         executeWorld: requireDefinition(worldEngineTools, "execute_world"),
         webSearch: requireDefinition(webTools, "web_search"),
         webFetch: requireDefinition(webTools, "web_fetch"),

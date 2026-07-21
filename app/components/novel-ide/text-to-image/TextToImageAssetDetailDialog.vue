@@ -24,6 +24,8 @@ const novelIdeStore = useNovelIdeStore();
 const textToImageStore = useTextToImageStore();
 const busyAction = ref<"retry" | "delete" | "source" | "">("");
 const deleteConfirmationOpen = ref(false);
+const providerReady = computed(() => textToImageStore.novelAiProviderInspection.state === "configured"
+    && textToImageStore.novelAiProviderInspection.provider?.hasCredential === true);
 
 const imageUrl = computed(() => {
     if (!props.asset) {
@@ -71,7 +73,7 @@ async function copyPrompt(): Promise<void> {
 }
 
 async function retry(): Promise<void> {
-    if (!props.asset || busyAction.value) {
+    if (!props.asset || busyAction.value || !providerReady.value) {
         return;
     }
     busyAction.value = "retry";
@@ -160,7 +162,7 @@ async function deleteAsset(): Promise<void> {
                 <div class="flex flex-wrap gap-2">
                     <IconButton title="复制提示词" size="sm" @click="void copyPrompt"><span class="i-lucide-copy h-4 w-4"></span></IconButton>
                     <IconButton title="套用到手动生成" size="sm" @click="applyToManualGeneration"><span class="i-lucide-wand-sparkles h-4 w-4"></span></IconButton>
-                    <IconButton title="重新生成" size="sm" :disabled="busyAction !== ''" @click="void retry"><span class="i-lucide-rotate-ccw h-4 w-4"></span></IconButton>
+                    <IconButton :title="providerReady ? '重新生成' : '请先收敛并配置唯一 NovelAI Provider'" size="sm" :disabled="busyAction !== '' || !providerReady" @click="void retry"><span class="i-lucide-rotate-ccw h-4 w-4"></span></IconButton>
                     <IconButton title="打开来源章节" size="sm" :disabled="!props.asset.sourcePath || busyAction !== ''" @click="void openSource"><span class="i-lucide-file-text h-4 w-4"></span></IconButton>
                     <IconButton title="删除图片" size="sm" :disabled="busyAction !== ''" @click="deleteConfirmationOpen = true"><span class="i-lucide-trash-2 h-4 w-4 text-[var(--danger-text)]"></span></IconButton>
                 </div>

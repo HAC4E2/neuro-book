@@ -524,6 +524,101 @@ export type DateTimeNullableWithAggregatesFilter<$PrismaModel = never> = {
   _max?: Prisma.NestedDateTimeNullableFilter<$PrismaModel>
 }
 
+export type FloatNullableFilter<$PrismaModel = never> = {
+  equals?: number | Prisma.FloatFieldRefInput<$PrismaModel> | null
+  in?: number[] | null
+  notIn?: number[] | null
+  lt?: number | Prisma.FloatFieldRefInput<$PrismaModel>
+  lte?: number | Prisma.FloatFieldRefInput<$PrismaModel>
+  gt?: number | Prisma.FloatFieldRefInput<$PrismaModel>
+  gte?: number | Prisma.FloatFieldRefInput<$PrismaModel>
+  not?: Prisma.NestedFloatNullableFilter<$PrismaModel> | number | null
+}
+
+export type FloatNullableWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: number | Prisma.FloatFieldRefInput<$PrismaModel> | null
+  in?: number[] | null
+  notIn?: number[] | null
+  lt?: number | Prisma.FloatFieldRefInput<$PrismaModel>
+  lte?: number | Prisma.FloatFieldRefInput<$PrismaModel>
+  gt?: number | Prisma.FloatFieldRefInput<$PrismaModel>
+  gte?: number | Prisma.FloatFieldRefInput<$PrismaModel>
+  not?: Prisma.NestedFloatNullableWithAggregatesFilter<$PrismaModel> | number | null
+  _count?: Prisma.NestedIntNullableFilter<$PrismaModel>
+  _avg?: Prisma.NestedFloatNullableFilter<$PrismaModel>
+  _sum?: Prisma.NestedFloatNullableFilter<$PrismaModel>
+  _min?: Prisma.NestedFloatNullableFilter<$PrismaModel>
+  _max?: Prisma.NestedFloatNullableFilter<$PrismaModel>
+}
+
+export type EnumIllustrationPlanningOperationFilter<$PrismaModel = never> = {
+  equals?: $Enums.IllustrationPlanningOperation | Prisma.EnumIllustrationPlanningOperationFieldRefInput<$PrismaModel>
+  in?: $Enums.IllustrationPlanningOperation[]
+  notIn?: $Enums.IllustrationPlanningOperation[]
+  not?: Prisma.NestedEnumIllustrationPlanningOperationFilter<$PrismaModel> | $Enums.IllustrationPlanningOperation
+}
+
+export type EnumIllustrationPlanningWorkflowStatusFilter<$PrismaModel = never> = {
+  equals?: $Enums.IllustrationPlanningWorkflowStatus | Prisma.EnumIllustrationPlanningWorkflowStatusFieldRefInput<$PrismaModel>
+  in?: $Enums.IllustrationPlanningWorkflowStatus[]
+  notIn?: $Enums.IllustrationPlanningWorkflowStatus[]
+  not?: Prisma.NestedEnumIllustrationPlanningWorkflowStatusFilter<$PrismaModel> | $Enums.IllustrationPlanningWorkflowStatus
+}
+
+export type EnumIllustrationPlanningOperationWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.IllustrationPlanningOperation | Prisma.EnumIllustrationPlanningOperationFieldRefInput<$PrismaModel>
+  in?: $Enums.IllustrationPlanningOperation[]
+  notIn?: $Enums.IllustrationPlanningOperation[]
+  not?: Prisma.NestedEnumIllustrationPlanningOperationWithAggregatesFilter<$PrismaModel> | $Enums.IllustrationPlanningOperation
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumIllustrationPlanningOperationFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumIllustrationPlanningOperationFilter<$PrismaModel>
+}
+
+export type EnumIllustrationPlanningWorkflowStatusWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.IllustrationPlanningWorkflowStatus | Prisma.EnumIllustrationPlanningWorkflowStatusFieldRefInput<$PrismaModel>
+  in?: $Enums.IllustrationPlanningWorkflowStatus[]
+  notIn?: $Enums.IllustrationPlanningWorkflowStatus[]
+  not?: Prisma.NestedEnumIllustrationPlanningWorkflowStatusWithAggregatesFilter<$PrismaModel> | $Enums.IllustrationPlanningWorkflowStatus
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumIllustrationPlanningWorkflowStatusFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumIllustrationPlanningWorkflowStatusFilter<$PrismaModel>
+}
+
+export type EnumIllustrationPlanningAttemptStatusFilter<$PrismaModel = never> = {
+  equals?: $Enums.IllustrationPlanningAttemptStatus | Prisma.EnumIllustrationPlanningAttemptStatusFieldRefInput<$PrismaModel>
+  in?: $Enums.IllustrationPlanningAttemptStatus[]
+  notIn?: $Enums.IllustrationPlanningAttemptStatus[]
+  not?: Prisma.NestedEnumIllustrationPlanningAttemptStatusFilter<$PrismaModel> | $Enums.IllustrationPlanningAttemptStatus
+}
+
+export type EnumIllustrationPlanningAttemptStatusWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.IllustrationPlanningAttemptStatus | Prisma.EnumIllustrationPlanningAttemptStatusFieldRefInput<$PrismaModel>
+  in?: $Enums.IllustrationPlanningAttemptStatus[]
+  notIn?: $Enums.IllustrationPlanningAttemptStatus[]
+  not?: Prisma.NestedEnumIllustrationPlanningAttemptStatusWithAggregatesFilter<$PrismaModel> | $Enums.IllustrationPlanningAttemptStatus
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumIllustrationPlanningAttemptStatusFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumIllustrationPlanningAttemptStatusFilter<$PrismaModel>
+}
+
+export type EnumIllustrationPlanningApplyStateFilter<$PrismaModel = never> = {
+  equals?: $Enums.IllustrationPlanningApplyState | Prisma.EnumIllustrationPlanningApplyStateFieldRefInput<$PrismaModel>
+  in?: $Enums.IllustrationPlanningApplyState[]
+  notIn?: $Enums.IllustrationPlanningApplyState[]
+  not?: Prisma.NestedEnumIllustrationPlanningApplyStateFilter<$PrismaModel> | $Enums.IllustrationPlanningApplyState
+}
+
+export type EnumIllustrationPlanningApplyStateWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.IllustrationPlanningApplyState | Prisma.EnumIllustrationPlanningApplyStateFieldRefInput<$PrismaModel>
+  in?: $Enums.IllustrationPlanningApplyState[]
+  notIn?: $Enums.IllustrationPlanningApplyState[]
+  not?: Prisma.NestedEnumIllustrationPlanningApplyStateWithAggregatesFilter<$PrismaModel> | $Enums.IllustrationPlanningApplyState
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumIllustrationPlanningApplyStateFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumIllustrationPlanningApplyStateFilter<$PrismaModel>
+}
+
 export type NestedStringFilter<$PrismaModel = never> = {
   equals?: string | Prisma.StringFieldRefInput<$PrismaModel>
   in?: string[]
@@ -1049,6 +1144,90 @@ export type NestedDateTimeNullableWithAggregatesFilter<$PrismaModel = never> = {
   _count?: Prisma.NestedIntNullableFilter<$PrismaModel>
   _min?: Prisma.NestedDateTimeNullableFilter<$PrismaModel>
   _max?: Prisma.NestedDateTimeNullableFilter<$PrismaModel>
+}
+
+export type NestedFloatNullableWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: number | Prisma.FloatFieldRefInput<$PrismaModel> | null
+  in?: number[] | null
+  notIn?: number[] | null
+  lt?: number | Prisma.FloatFieldRefInput<$PrismaModel>
+  lte?: number | Prisma.FloatFieldRefInput<$PrismaModel>
+  gt?: number | Prisma.FloatFieldRefInput<$PrismaModel>
+  gte?: number | Prisma.FloatFieldRefInput<$PrismaModel>
+  not?: Prisma.NestedFloatNullableWithAggregatesFilter<$PrismaModel> | number | null
+  _count?: Prisma.NestedIntNullableFilter<$PrismaModel>
+  _avg?: Prisma.NestedFloatNullableFilter<$PrismaModel>
+  _sum?: Prisma.NestedFloatNullableFilter<$PrismaModel>
+  _min?: Prisma.NestedFloatNullableFilter<$PrismaModel>
+  _max?: Prisma.NestedFloatNullableFilter<$PrismaModel>
+}
+
+export type NestedEnumIllustrationPlanningOperationFilter<$PrismaModel = never> = {
+  equals?: $Enums.IllustrationPlanningOperation | Prisma.EnumIllustrationPlanningOperationFieldRefInput<$PrismaModel>
+  in?: $Enums.IllustrationPlanningOperation[]
+  notIn?: $Enums.IllustrationPlanningOperation[]
+  not?: Prisma.NestedEnumIllustrationPlanningOperationFilter<$PrismaModel> | $Enums.IllustrationPlanningOperation
+}
+
+export type NestedEnumIllustrationPlanningWorkflowStatusFilter<$PrismaModel = never> = {
+  equals?: $Enums.IllustrationPlanningWorkflowStatus | Prisma.EnumIllustrationPlanningWorkflowStatusFieldRefInput<$PrismaModel>
+  in?: $Enums.IllustrationPlanningWorkflowStatus[]
+  notIn?: $Enums.IllustrationPlanningWorkflowStatus[]
+  not?: Prisma.NestedEnumIllustrationPlanningWorkflowStatusFilter<$PrismaModel> | $Enums.IllustrationPlanningWorkflowStatus
+}
+
+export type NestedEnumIllustrationPlanningOperationWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.IllustrationPlanningOperation | Prisma.EnumIllustrationPlanningOperationFieldRefInput<$PrismaModel>
+  in?: $Enums.IllustrationPlanningOperation[]
+  notIn?: $Enums.IllustrationPlanningOperation[]
+  not?: Prisma.NestedEnumIllustrationPlanningOperationWithAggregatesFilter<$PrismaModel> | $Enums.IllustrationPlanningOperation
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumIllustrationPlanningOperationFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumIllustrationPlanningOperationFilter<$PrismaModel>
+}
+
+export type NestedEnumIllustrationPlanningWorkflowStatusWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.IllustrationPlanningWorkflowStatus | Prisma.EnumIllustrationPlanningWorkflowStatusFieldRefInput<$PrismaModel>
+  in?: $Enums.IllustrationPlanningWorkflowStatus[]
+  notIn?: $Enums.IllustrationPlanningWorkflowStatus[]
+  not?: Prisma.NestedEnumIllustrationPlanningWorkflowStatusWithAggregatesFilter<$PrismaModel> | $Enums.IllustrationPlanningWorkflowStatus
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumIllustrationPlanningWorkflowStatusFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumIllustrationPlanningWorkflowStatusFilter<$PrismaModel>
+}
+
+export type NestedEnumIllustrationPlanningAttemptStatusFilter<$PrismaModel = never> = {
+  equals?: $Enums.IllustrationPlanningAttemptStatus | Prisma.EnumIllustrationPlanningAttemptStatusFieldRefInput<$PrismaModel>
+  in?: $Enums.IllustrationPlanningAttemptStatus[]
+  notIn?: $Enums.IllustrationPlanningAttemptStatus[]
+  not?: Prisma.NestedEnumIllustrationPlanningAttemptStatusFilter<$PrismaModel> | $Enums.IllustrationPlanningAttemptStatus
+}
+
+export type NestedEnumIllustrationPlanningAttemptStatusWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.IllustrationPlanningAttemptStatus | Prisma.EnumIllustrationPlanningAttemptStatusFieldRefInput<$PrismaModel>
+  in?: $Enums.IllustrationPlanningAttemptStatus[]
+  notIn?: $Enums.IllustrationPlanningAttemptStatus[]
+  not?: Prisma.NestedEnumIllustrationPlanningAttemptStatusWithAggregatesFilter<$PrismaModel> | $Enums.IllustrationPlanningAttemptStatus
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumIllustrationPlanningAttemptStatusFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumIllustrationPlanningAttemptStatusFilter<$PrismaModel>
+}
+
+export type NestedEnumIllustrationPlanningApplyStateFilter<$PrismaModel = never> = {
+  equals?: $Enums.IllustrationPlanningApplyState | Prisma.EnumIllustrationPlanningApplyStateFieldRefInput<$PrismaModel>
+  in?: $Enums.IllustrationPlanningApplyState[]
+  notIn?: $Enums.IllustrationPlanningApplyState[]
+  not?: Prisma.NestedEnumIllustrationPlanningApplyStateFilter<$PrismaModel> | $Enums.IllustrationPlanningApplyState
+}
+
+export type NestedEnumIllustrationPlanningApplyStateWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.IllustrationPlanningApplyState | Prisma.EnumIllustrationPlanningApplyStateFieldRefInput<$PrismaModel>
+  in?: $Enums.IllustrationPlanningApplyState[]
+  notIn?: $Enums.IllustrationPlanningApplyState[]
+  not?: Prisma.NestedEnumIllustrationPlanningApplyStateWithAggregatesFilter<$PrismaModel> | $Enums.IllustrationPlanningApplyState
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumIllustrationPlanningApplyStateFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumIllustrationPlanningApplyStateFilter<$PrismaModel>
 }
 
 

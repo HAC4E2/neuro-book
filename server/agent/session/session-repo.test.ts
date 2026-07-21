@@ -1,5 +1,5 @@
 import {randomUUID} from "node:crypto";
-import {readFile, rm} from "node:fs/promises";
+import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
@@ -70,6 +70,152 @@ describe("JsonlSessionRepository", () => {
         expect(context.title).toBe("renamed");
         expect(context.summary).toBe("short summary");
         expect(context.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
+    });
+
+    it("并发创建顶层 session 时分配唯一单调 ID 且 JSONL 互不覆盖", async () => {
+        const created = await Promise.all(Array.from({length: 32}, async (_value, index) => repo.createSession({
+            profileKey: "illustration.director",
+            initial: {operation: "plan-chapter", index},
+            workspaceRoot: root,
+            workspaceKey: `workspace/novel-${String(index)}`,
+            projectPath: `workspace/novel-${String(index)}`,
+            title: `chapter-${String(index)}`,
+        })));
+        const sessionIds = created.map((session) => session.metadata.sessionId).sort((left, right) => left - right);
+
+        expect(sessionIds).toEqual(Array.from({length: 32}, (_value, index) => index + 1));
+        await Promise.all(created.map(async (session) => {
+            const restored = await repo.readSession(session.metadata.sessionId);
+            expect(restored.metadata.title).toBe(session.metadata.title);
+            expect(restored.entries).toEqual([{type: "leaf", leafId: null, id: expect.any(String), timestamp: expect.any(Number), parentId: null}]);
+        }));
+        const sequence = JSON.parse(await readFile(join(root, ".nbook", "agent", "session-seq.json"), "utf8")) as {next: number};
+        expect(sequence.next).toBe(33);
+    });
+
+    it("同一 root 的多个 repository 实例共享创建临界区", async () => {
+        const repositories = Array.from({length: 24}, () => new JsonlSessionRepository(root));
+        const created = await Promise.all(repositories.map(async (target, index) => {
+            return target.createSession({
+                profileKey: "illustration.director",
+                initial: {index},
+                workspaceRoot: root,
+                title: `multi-repo-${String(index)}`,
+            });
+        }));
+
+        expect(created.map((session) => session.metadata.sessionId).sort((left, right) => left - right)).toEqual(
+            Array.from({length: 24}, (_value, index) => index + 1),
+        );
+    });
+
+    it("sequence 缺失或滞后时从已有 session 恢复且绝不覆盖 JSONL", async () => {
+        const sessionsRoot = join(root, ".nbook", "agent", "sessions");
+        await mkdir(sessionsRoot, {recursive: true});
+        const firstPath = join(sessionsRoot, "1.jsonl");
+        const sentinel = "existing-session-must-survive\n";
+        await writeFile(firstPath, sentinel, "utf8");
+
+        const missingSequence = await repo.createSession({
+            profileKey: "illustration.director",
+            initial: {},
+            workspaceRoot: root,
+            title: "recovered-from-files",
+        });
+        expect(missingSequence.metadata.sessionId).toBe(2);
+        expect(await readFile(firstPath, "utf8")).toBe(sentinel);
+
+        await writeFile(join(root, ".nbook", "agent", "session-seq.json"), JSON.stringify({next: 1}), "utf8");
+        const staleSequence = await repo.createSession({
+            profileKey: "illustration.director",
+            initial: {},
+            workspaceRoot: root,
+            title: "recovered-from-stale-sequence",
+        });
+        expect(staleSequence.metadata.sessionId).toBe(3);
+        expect(await readFile(firstPath, "utf8")).toBe(sentinel);
+    });
+
+    it("sequence JSON 损坏时按已有最大 session ID 恢复", async () => {
+        const agentRoot = join(root, ".nbook", "agent");
+        const sessionsRoot = join(agentRoot, "sessions");
+        await mkdir(sessionsRoot, {recursive: true});
+        await writeFile(join(sessionsRoot, "7.jsonl"), "existing-seven\n", "utf8");
+        await writeFile(join(agentRoot, "session-seq.json"), "{broken", "utf8");
+
+        const created = await repo.createSession({
+            profileKey: "illustration.director",
+            initial: {},
+            workspaceRoot: root,
+        });
+        expect(created.metadata.sessionId).toBe(8);
+
+        await writeFile(join(agentRoot, "session-seq.json"), "null", "utf8");
+        const recoveredFromWrongShape = await repo.createSession({
+            profileKey: "illustration.director",
+            initial: {},
+            workspaceRoot: root,
+        });
+        expect(recoveredFromWrongShape.metadata.sessionId).toBe(9);
+    });
+
+    it("不安全整数 sequence 必须 fail-closed，不能进入重复 ID 自旋", async () => {
+        const agentRoot = join(root, ".nbook", "agent");
+        await mkdir(agentRoot, {recursive: true});
+        await writeFile(
+            join(agentRoot, "session-seq.json"),
+            JSON.stringify({next: Number.MAX_SAFE_INTEGER + 1}),
+            "utf8",
+        );
+
+        await expect(repo.createSession({
+            profileKey: "illustration.director",
+            initial: {},
+            workspaceRoot: root,
+        })).rejects.toThrow(/safe integer|安全整数/u);
+
+        await rm(join(agentRoot, "session-seq.json"));
+        const sessionsRoot = join(agentRoot, "sessions");
+        await mkdir(sessionsRoot, {recursive: true});
+        await writeFile(join(sessionsRoot, `${String(Number.MAX_SAFE_INTEGER)}.jsonl`), "max-id\n", "utf8");
+        await expect(repo.createSession({
+            profileKey: "illustration.director",
+            initial: {},
+            workspaceRoot: root,
+        })).rejects.toThrow(/安全整数上限/u);
+    });
+
+    it.runIf(process.platform === "win32")("Windows root 大小写别名共享创建临界区", async () => {
+        await mkdir(root, {recursive: true});
+        const lower = new JsonlSessionRepository(root.toLocaleLowerCase("en-US"));
+        const upper = new JsonlSessionRepository(root.toLocaleUpperCase("en-US"));
+        const created = await Promise.all([lower, upper].map(async (target, index) => target.createSession({
+            profileKey: "illustration.director",
+            initial: {index},
+            workspaceRoot: root,
+        })));
+        expect(created.map((session) => session.metadata.sessionId).sort((left, right) => left - right)).toEqual([1, 2]);
+    });
+
+    it("创建失败不会毒化 creation tail，后续 session 继续使用新 ID", async () => {
+        const blockedPath = join(root, ".nbook", "agent", "sessions", "1.jsonl");
+        await mkdir(blockedPath, {recursive: true});
+        await expect(repo.createSession({
+            profileKey: "illustration.director",
+            initial: {},
+            workspaceRoot: root,
+        })).rejects.toThrow();
+        await rm(blockedPath, {recursive: true, force: true});
+
+        const created = await repo.createSession({
+            profileKey: "illustration.director",
+            initial: {},
+            workspaceRoot: root,
+            title: "recovered",
+        });
+        expect(created.metadata.sessionId).toBe(1);
+        const sequence = JSON.parse(await readFile(join(root, ".nbook", "agent", "session-seq.json"), "utf8")) as {next: number};
+        expect(sequence.next).toBe(2);
     });
 
     it("workspace session 列表只读取指定 workspaceKey", async () => {

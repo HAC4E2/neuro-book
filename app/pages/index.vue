@@ -13,7 +13,6 @@ import NovelIdeToolPanel from "nbook/app/components/novel-ide/NovelIdeToolPanel.
 import WorldEngineWorkbenchDialog from "nbook/app/components/novel-ide/world-engine/WorldEngineWorkbenchDialog.vue";
 import NovelPromptBar from "nbook/app/components/novel-ide/NovelPromptBar.vue";
 import Dialog from "nbook/app/components/common/Dialog.vue";
-import TextToImageLlmWorkspace from "nbook/app/components/novel-ide/text-to-image/TextToImageLlmWorkspace.vue";
 import TextToImageHistoryWorkspace from "nbook/app/components/novel-ide/text-to-image/TextToImageHistoryWorkspace.vue";
 import type {AgentSessionModelDraft} from "nbook/app/components/novel-ide/agent/agent-session-model-controls";
 import WorkspaceFilePanel from "nbook/app/components/novel-ide/workspace/WorkspaceFilePanel.vue";
@@ -24,19 +23,19 @@ import WorkspaceFileConflictDialog from "nbook/app/components/novel-ide/workspac
 import WorkspaceLocationProfileDialog from "nbook/app/components/novel-ide/workspace/WorkspaceLocationProfileDialog.vue";
 import WorkspaceRuleProfileDialog from "nbook/app/components/novel-ide/workspace/WorkspaceRuleProfileDialog.vue";
 import type {WorkspaceReferencePreviewMeta} from "nbook/app/components/markdown-studio/tiptap/WorkspaceReference";
-import {setTextToImagePromptGenerationState, type TextToImagePromptGeneratePayload} from "nbook/app/components/markdown-studio/tiptap/TextToImagePrompt";
 import {useIdeTheme} from "nbook/app/composables/useIdeTheme";
 import {useAuthSessionState} from "nbook/app/composables/useAuthSessionState";
 import {useMarkdownStudioController} from "nbook/app/composables/useMarkdownStudioController";
 import {useWorkspaceFileEvents} from "nbook/app/composables/useWorkspaceFileEvents";
 import {useProjectSession} from "nbook/app/composables/useProjectSession";
+import {useIllustrationExecutionController} from "nbook/app/composables/useIllustrationExecutionController";
 import {useResizablePanel} from "nbook/app/composables/useResizablePanel";
 import {useDialog} from "nbook/app/composables/useDialog";
 import {useNotification} from "nbook/app/composables/useNotification";
 import type {AgentTriggerMenuContext, AgentTriggerMenuItem, AgentTriggerMenuState, MarkdownCommandKind} from "nbook/app/components/novel-ide/agent/trigger-menu";
 import {useNovelIdeStore, type AgentWorkspaceSyncPayload, type WorkspaceEditorKind, type WorkspaceEditorViewMode, type WorkspaceFileNode} from "nbook/app/stores/novel-ide";
-import {useTextToImageStore} from "nbook/app/stores/text-to-image";
 import type {WorkspaceFileChangeEventDto, WorkspaceFileStreamEventDto} from "nbook/shared/dto/workspace-file-events.dto";
+import type {IllustrationPlanningWorkflowDto} from "nbook/shared/text-to-image-illustration-workflow";
 import type {AgentSessionSummaryDto, AgentSkillCatalogItemDto} from "nbook/shared/dto/agent-session.dto";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {
@@ -45,6 +44,11 @@ import {
 import {buildWorkspaceReferenceSections} from "nbook/app/utils/workspace-reference-menu";
 import {resolveWorkspaceFileExtension, type FrontmatterProfileKind} from "nbook/shared/editor-workbench";
 import {buildSelectionRefChip, type InlineEditPayload, type InlineEditReference, type InlineEditTask} from "nbook/app/utils/inline-editor-selection";
+import {
+    captureIllustrationSelection,
+    IllustrationSelectionCaptureError,
+} from "nbook/app/utils/illustration-planning-selection";
+import type {SettingsNavigationRequest} from "nbook/app/utils/settings-navigation";
 
 type StreamTokenEvent = {
     text?: string;
@@ -77,6 +81,7 @@ const themeHostRef = ref<HTMLElement | null>(null);
 const currentUser = ref<AuthSessionDto["user"]>(null);
 const bookshelfOpen = ref(false);
 const settingsDialogOpen = ref(false);
+const settingsNavigationRequest = ref<SettingsNavigationRequest | null>(null);
 const traceViewerOpen = ref(false);
 const historyInboxOpen = ref(false);
 const historyInboxRefreshKey = ref(0);
@@ -95,9 +100,8 @@ const layoutTransitionDirection = ref<LayoutModeTransitionDirection | null>(null
 const markdownSkillCatalog = ref<AgentSkillCatalogItemDto[]>([]);
 const markdownSkillCatalogLoaded = ref(false);
 const markdownSkillCatalogLoading = ref(false);
-const bodyImageGenerating = ref(false);
-const bodyImagePromptGeneratingIds = ref<string[]>([]);
 let markdownSkillCatalogRequest: Promise<void> | null = null;
+let settingsNavigationRequestId = 0;
 let workspaceFileSyncRunning = false;
 let pendingWorkspaceFileEvents: WorkspaceFileChangeEventDto[] = [];
 const USER_ASSETS_PROJECT_TARGET = "workspace/.nbook";
@@ -108,13 +112,30 @@ const MODE_TRANSITION_SELECTORS = [
     ".mode-transition-studio",
     ".mode-transition-agent",
 ] as const;
+
+/** 打开普通设置入口，不携带功能页聚焦请求。 */
+function openSettingsDialog(): void {
+    settingsNavigationRequest.value = null;
+    settingsDialogOpen.value = true;
+}
+
+/** 从文生图分页打开 Global Models，并聚焦唯一 Director binding 卡。 */
+function openIllustrationDirectorSettings(): void {
+    settingsNavigationRequestId += 1;
+    settingsNavigationRequest.value = {
+        id: settingsNavigationRequestId,
+        scope: "global",
+        section: "models",
+        focus: "illustration-director",
+    };
+    settingsDialogOpen.value = true;
+}
 const IDE_PAPER_TRANSITION_SELECTORS = [
     ".mode-transition-ide-tools",
     ".mode-transition-studio",
 ] as const;
 
 const novelIdeStore = useNovelIdeStore();
-const textToImageStore = useTextToImageStore();
 const route = useRoute();
 const router = useRouter();
 const {
@@ -174,18 +195,12 @@ const {
     switchToUserAssetsWorkspace,
     loadNovels,
 } = novelIdeStore;
-const {
-    activeNovelAiProviderId: textToImageActiveNovelAiProviderId,
-    generationDraft: textToImageGenerationDraft,
-    novelAi: textToImageNovelAi,
-    promptReplacementRules: textToImagePromptReplacementRules,
-    taskPrompts: textToImageTaskPrompts,
-} = storeToRefs(textToImageStore);
 const {mountThemeHost} = useIdeTheme(activeThemeId, customThemes, themeVarsSnapshot);
 const workspaceFileEvents = useWorkspaceFileEvents();
 // Task 94：项目显式生命周期——当前小说项目保持 open 并声明用户在场；user-assets 工作区不参与 open/presence。
 const projectSessionTarget = computed<string | null>(() => workspaceKind.value === "novel" && currentNovelId.value ? currentNovelId.value : null);
 useProjectSession(projectSessionTarget);
+const textToImagePromptController = useIllustrationExecutionController(projectSessionTarget);
 const authSessionState = useAuthSessionState();
 const agentSurfaceRef = ref<InstanceType<typeof AgentChatSurface> | null>(null);
 
@@ -382,16 +397,15 @@ const workspaceReferenceRefreshKey = computed(() => workspaceTree.value
  * Markdown 文件继续进入 MarkdownStudio。
  */
 const isMarkdownFile = computed(() => currentFileExtension.value === ".md");
-const isEditableManuscriptMarkdown = computed(() => {
-    const workspacePath = normalizeWorkspacePath(selectedFilePath.value);
-    return selectedFileNode.value?.editable === true && isMarkdownFile.value && workspacePath.startsWith("manuscript/");
-});
-const canGenerateBodyImage = computed(() => (
-    workspaceDisplayReady.value
-    && isEditableManuscriptMarkdown.value
-    && selectedFileContent.value.trim().length > 0
-    && !bodyImageGenerating.value
-));
+const illustrationPlanningBusy = ref(false);
+/** Route B 整章规划只对已打开 Project 的 manuscript Markdown 开放。 */
+const canPlanIllustrations = computed(() => workspaceKind.value === "novel"
+    && Boolean(currentNovelId.value)
+    && selectedFileNode.value?.editable === true
+    && /^manuscript\/.+\.md$/u.test(selectedFilePath.value));
+const illustrationPlanningUnavailableReason = computed(() => canPlanIllustrations.value
+    ? "由 illustration.director 规划当前已保存章节"
+    : "正文生图只对已打开 Project 的 manuscript Markdown 开放");
 const isPlainTextFile = computed(() => [".txt", ".text", ".markdown"].includes(currentFileExtension.value));
 const inlinePromptExpanded = ref(false);
 const inlinePromptInstruction = ref("");
@@ -860,137 +874,84 @@ const saveCurrentWorkspaceFile = async (): Promise<void> => {
     }
 };
 
-const generateBodyImagesForCurrentChapter = async (): Promise<void> => {
-    if (bodyImageGenerating.value) {
-        return;
-    }
-    if (!canGenerateBodyImage.value) {
-        notification.warning("请先打开一个可编辑的正文章节。", {title: "正文生图"});
-        return;
-    }
-    const {apiConfig, providerId} = textToImageStore.resolveLlmTaskBinding("bodyImage");
-    if (providerId === null) {
-        notification.warning("请先为“正文图片生成”选择 OpenAI-compatible Provider。", {title: "正文生图"});
-        return;
-    }
-
-    bodyImageGenerating.value = true;
+/**
+ * 保存当前章节后启动 Route B plan-chapter。
+ * 浏览器只提交 Project/章节意图；配置、事实、Pattern 与 hash 均由服务端冻结。
+ */
+async function planCurrentChapterIllustrations(): Promise<void> {
+    if (!canPlanIllustrations.value || !currentNovelId.value || illustrationPlanningBusy.value) return;
+    illustrationPlanningBusy.value = true;
     try {
-        await saveCurrentWorkspaceFile();
-        const projectPath = currentNovelId.value;
-        const chapterPath = selectedFilePath.value;
-        const chapterMarkdown = selectedFileContent.value;
-        if (!projectPath || !chapterPath) {
-            notification.warning("当前章节没有可用的 Project 路径。", {title: "正文生图"});
+        studio.flushActiveEditor();
+        if (selectedFileContent.value !== lastSyncedFileContent.value) await saveCurrentWorkspaceFile();
+        if (novelIdeStore.workspaceWriteConflict || selectedFileContent.value !== lastSyncedFileContent.value) {
+            notification.warning("请先解决正文保存冲突，再启动插图规划。", {title: "正文生图"});
             return;
         }
-        const chapterHash = await sha256Text(chapterMarkdown);
-        const result = await $fetch<{inserted: number; skipped: number; warnings: string[]}>("/api/text-to-image/body-prompts", {
+        const workflow = await $fetch<IllustrationPlanningWorkflowDto>("/api/text-to-image/illustration-workflows", {
             method: "POST",
             body: {
-                projectPath,
-                chapterPath,
-                chapterHash,
-                llmProviderId: providerId,
-                taskPrompt: textToImageTaskPrompts.value.bodyImage.prompt,
-                defaultNegativePrompt: textToImageGenerationDraft.value.negativePrompt,
-                promptRules: textToImagePromptReplacementRules.value,
-                parameters: apiConfig.parameters,
+                projectPath: currentNovelId.value,
+                chapterPath: selectedFilePath.value,
+                operation: "plan-chapter",
             },
         });
-        for (const warning of result.warnings) {
-            notification.warning(warning, {title: "正文生图"});
-        }
-        if (!result.inserted) {
-            notification.warning("插图定位器没有返回可用插入位置，已保持正文不变。", {title: "正文生图"});
-            return;
-        }
-        if (selectedFilePath.value === chapterPath) {
-            await novelIdeStore.selectWorkspacePath(chapterPath, "permanent", {forceDisk: true});
-        }
-        const skippedText = result.skipped ? `，跳过 ${result.skipped} 个无效位置` : "";
-        notification.success(`已插入 ${result.inserted} 个生成图片按钮${skippedText}。`, {title: "正文生图"});
+        activeLeftTab.value = "textToImage";
+        notification.success(
+            workflow.status === "ready" ? "已恢复现有插图规划预览。" : `插图规划已启动${workflow.queuePosition ? `，当前队列 #${workflow.queuePosition}` : ""}。`,
+            {title: "正文生图"},
+        );
     } catch (error) {
-        notification.error(resolveApiErrorMessage(error, "正文生图请求失败"), {title: "正文生图"});
+        notification.error(resolveApiErrorMessage(error, "启动插图规划失败"), {title: "正文生图"});
     } finally {
-        bodyImageGenerating.value = false;
+        illustrationPlanningBusy.value = false;
     }
-};
-
-async function sha256Text(value: string): Promise<string> {
-    const bytes = new TextEncoder().encode(value);
-    const digest = await crypto.subtle.digest("SHA-256", bytes);
-    return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 /**
- * 点击正文中的生成图片按钮后，调用 NovelAI 并用返回图片替换对应按钮。
+ * 保存当前章节并启动 Route B plan-selection。
+ * TipTap 行范围仅作定位提示；精确 offset 与章节哈希重新从已保存 Markdown 计算。
  */
-const generateImageForBodyPrompt = async (payload: TextToImagePromptGeneratePayload): Promise<void> => {
-    const id = payload.id.trim();
-    const promptText = payload.prompt.trim();
-    if (!id || !promptText) {
-        notification.warning("图片按钮缺少可发送给 NovelAI 的 tag。", {title: "正文生图"});
-        return;
-    }
-    if (bodyImagePromptGeneratingIds.value.includes(id)) {
-        return;
-    }
-    if (!isEditableManuscriptMarkdown.value) {
-        notification.warning("请先打开包含该图片按钮的可编辑正文章节。", {title: "正文生图"});
-        return;
-    }
-    if (!selectedFileContent.value.includes(id)) {
-        notification.warning("当前正文中没有找到这个生成图片按钮，可能已经被替换或删除。", {title: "正文生图"});
-        return;
-    }
-    if (textToImageActiveNovelAiProviderId.value === null) {
-        notification.warning("请先选择 NovelAI Provider。", {title: "正文生图"});
-        return;
-    }
-
-    bodyImagePromptGeneratingIds.value = [...bodyImagePromptGeneratingIds.value, id];
-    setTextToImagePromptGenerationState(id, "queued");
+async function planSelectionIllustration(reference: InlineEditReference): Promise<void> {
+    if (!canPlanIllustrations.value || !currentNovelId.value || illustrationPlanningBusy.value) return;
+    illustrationPlanningBusy.value = true;
     try {
-        const projectPath = currentNovelId.value;
-        const chapterPath = selectedFilePath.value;
-        if (!projectPath || !chapterPath) {
-            notification.warning("当前正文缺少 Project 或章节路径。", {title: "正文生图"});
+        studio.flushActiveEditor();
+        if (selectedFileContent.value !== lastSyncedFileContent.value) await saveCurrentWorkspaceFile();
+        if (novelIdeStore.workspaceWriteConflict || selectedFileContent.value !== lastSyncedFileContent.value) {
+            notification.warning("请先解决正文保存冲突，再启动选区插图规划。", {title: "正文生图"});
             return;
         }
-        const novelAi = textToImageNovelAi.value;
-        const job = await $fetch<{id: string}>("/api/text-to-image/jobs", {
+        if (reference.path.replaceAll("\\", "/") !== selectedFilePath.value.replaceAll("\\", "/")) {
+            notification.warning("选区所属章节已切换，请重新选择正文。", {title: "正文生图"});
+            return;
+        }
+
+        const selection = await captureIllustrationSelection(lastSyncedFileContent.value, reference);
+        const workflow = await $fetch<IllustrationPlanningWorkflowDto>("/api/text-to-image/illustration-workflows", {
             method: "POST",
             body: {
-                projectPath,
-                providerId: textToImageActiveNovelAiProviderId.value,
-                kind: "body",
-                sourcePath: chapterPath,
-                sourceAnchorId: id,
-                prompt: promptText,
-                negativePrompt: payload.negativePrompt,
-                novelAi: {
-                    model: novelAi.model,
-                    sampler: novelAi.sampler,
-                    noiseSchedule: novelAi.noiseSchedule,
-                    promptGuidance: novelAi.promptGuidance,
-                    promptGuidanceRescale: novelAi.promptGuidanceRescale,
-                    width: novelAi.width,
-                    height: novelAi.height,
-                    steps: novelAi.steps,
-                    seed: novelAi.seed,
-                    count: 1,
-                },
+                projectPath: currentNovelId.value,
+                chapterPath: selectedFilePath.value,
+                operation: "plan-selection",
+                selection,
             },
         });
-        notification.success(`正文插图任务已加入队列：${job.id}`, {title: "正文生图"});
+        activeLeftTab.value = "textToImage";
+        notification.success(
+            workflow.status === "ready" ? "已恢复现有选区插图规划预览。" : `选区插图规划已启动${workflow.queuePosition ? `，当前队列 #${workflow.queuePosition}` : ""}。`,
+            {title: "正文生图"},
+        );
     } catch (error) {
-        notification.error(resolveApiErrorMessage(error, "NovelAI 生图失败"), {title: "正文生图"});
+        if (error instanceof IllustrationSelectionCaptureError) {
+            notification.warning(error.message.slice(error.message.indexOf(":") + 1).trim(), {title: "无法定位选区"});
+            return;
+        }
+        notification.error(resolveApiErrorMessage(error, "启动选区插图规划失败"), {title: "正文生图"});
     } finally {
-        bodyImagePromptGeneratingIds.value = bodyImagePromptGeneratingIds.value.filter((entry) => entry !== id);
-        setTextToImagePromptGenerationState(id, "idle");
+        illustrationPlanningBusy.value = false;
     }
-};
+}
 
 /**
  * 将 TipTap 选区加入底部 Inline AI 输入栏。
@@ -2309,7 +2270,7 @@ onBeforeUnmount(() => {
         <WorldEngineWorkbenchDialog v-if="!isUserAssetsWorkspace" v-model="worldEngineWorkbenchOpen" :project-path="currentNovelId" :project-title="displayNovelTitle" @has-unsaved-drafts-change="worldEngineWorkbenchHasUnsavedDrafts = $event" @saving-change="worldEngineWorkbenchSaving = $event" @open-workspace-path="void openWelcomeWorkspacePath($event)" />
 
         <div class="flex min-h-0 flex-1 overflow-hidden">
-            <NovelIdeSidebar class="ide-sidebar" :active-tab="displaySidebarActiveTab" :agent-mode="isAgentMode" :user-assets-mode="isUserAssetsWorkspace" @toggle-tab="handleSidebarToggle" @collapse="activeLeftTab = null" @open-settings="settingsDialogOpen = true" />
+            <NovelIdeSidebar class="ide-sidebar" :active-tab="displaySidebarActiveTab" :agent-mode="isAgentMode" :user-assets-mode="isUserAssetsWorkspace" @toggle-tab="handleSidebarToggle" @collapse="activeLeftTab = null" @open-settings="openSettingsDialog" />
 
             <AgentModeSessionSidebar
                 :sessions="agentModeSessions"
@@ -2336,7 +2297,7 @@ onBeforeUnmount(() => {
                 ]"
                 :style="ideToolPanelStyle"
             >
-                <NovelIdeToolPanel v-model:width="leftPanelWidth" class="ide-panel h-full" :active-tab="displayActiveLeftTab" :user-assets-mode="isUserAssetsWorkspace" @close="activeLeftTab = null" @open-world-engine="openWorldEngineWorkbench" />
+                <NovelIdeToolPanel v-model:width="leftPanelWidth" class="ide-panel h-full" :active-tab="displayActiveLeftTab" :user-assets-mode="isUserAssetsWorkspace" @close="activeLeftTab = null" @open-world-engine="openWorldEngineWorkbench" @open-illustration-director-settings="openIllustrationDirectorSettings" />
             </div>
 
             <!-- Studio 工作区 -->
@@ -2390,16 +2351,17 @@ onBeforeUnmount(() => {
                             :inline-ai-references="inlinePromptReferences"
                             :inline-ai-highlight-reference="inlinePromptHoveredReference"
                             :enable-quick-triggers="true"
-                            :can-generate-body-image="canGenerateBodyImage"
-                            :body-image-busy="bodyImageGenerating"
+                            :can-plan-illustrations="canPlanIllustrations"
+                            :illustration-planning-busy="illustrationPlanningBusy"
+                            :illustration-planning-unavailable-reason="illustrationPlanningUnavailableReason"
+                            :text-to-image-prompt-controller="textToImagePromptController"
                             @select-tab="void selectWorkspaceTab($event)"
                             @close-tab="void closeEditorTab($event)"
                             @set-pin="setWorkspaceTabPinned"
                             @keep-tab="keepWorkspaceTab"
                             @move-tab="moveWorkspaceTab"
                             @set-view-mode="setCurrentWorkspaceViewMode"
-                            @generate-body-image="void generateBodyImagesForCurrentChapter()"
-                            @generate-text-to-image-prompt="void generateImageForBodyPrompt($event)"
+                            @plan-illustrations="void planCurrentChapterIllustrations()"
                             @update-monaco-temporary-font-size="setMonacoFontSizeOverride(displayActiveWorkspaceTabPath, $event)"
                             @save-request="void saveCurrentWorkspaceFile()"
                             @open-frontmatter-profile="openFrontmatterProfile"
@@ -2415,11 +2377,11 @@ onBeforeUnmount(() => {
                             @open-user-assets="openUserAssets"
                             @open-profile-workbench="profileWorkbenchOpen = true"
                             @inline-ai-reference="addInlineAiReference"
+                            @plan-selection-illustration="void planSelectionIllustration($event)"
                         >
                             <template #custom-tab="{ tab }">
-                                <TextToImageLlmWorkspace v-if="tab.kind === 'text-to-image-llm'" />
                                 <TextToImageHistoryWorkspace
-                                    v-else-if="tab.kind === 'text-to-image-history' && tab.textToImageHistory"
+                                    v-if="tab.kind === 'text-to-image-history' && tab.textToImageHistory"
                                     :project-path="tab.textToImageHistory.projectPath"
                                 />
                             </template>
@@ -2517,7 +2479,7 @@ onBeforeUnmount(() => {
         </div>
 
         <NovelBookshelfDialog v-model="bookshelfOpen" :before-workspace-switch="confirmWorldEngineWorkbenchDraftDiscardForProjectSwitch" @switched="void router.replace(buildProjectRoute($event))" />
-        <NovelIdeSettingsDialog v-model="settingsDialogOpen" />
+        <NovelIdeSettingsDialog v-model="settingsDialogOpen" :navigation-request="settingsNavigationRequest" />
         <AgentTraceViewerDialog v-model="traceViewerOpen" @open-session="void openTraceSession($event)" />
         <WorkspaceHistoryInboxDialog v-model="historyInboxOpen" :project-path="isUserAssetsWorkspace ? null : currentNovelId" :theme="activeThemeId" />
         <UserProfileWorkbenchDialog v-model="profileWorkbenchOpen" />

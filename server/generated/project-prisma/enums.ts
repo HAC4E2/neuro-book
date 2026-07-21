@@ -138,7 +138,8 @@ export const TextToImageJobKind = {
   manual: 'manual',
   body: 'body',
   character: 'character',
-  reroll: 'reroll'
+  reroll: 'reroll',
+  illustration: 'illustration'
 } as const
 
 export type TextToImageJobKind = (typeof TextToImageJobKind)[keyof typeof TextToImageJobKind]
@@ -147,10 +148,13 @@ export type TextToImageJobKind = (typeof TextToImageJobKind)[keyof typeof TextTo
 export const TextToImageJobStatus = {
   queued: 'queued',
   running: 'running',
+  completing: 'completing',
   succeeded: 'succeeded',
   failed: 'failed',
   canceled: 'canceled',
-  interrupted: 'interrupted'
+  interrupted: 'interrupted',
+  configuration_stale: 'configuration_stale',
+  outcome_unknown: 'outcome_unknown'
 } as const
 
 export type TextToImageJobStatus = (typeof TextToImageJobStatus)[keyof typeof TextToImageJobStatus]
@@ -164,3 +168,51 @@ export const TextToImageSourceInsertStatus = {
 } as const
 
 export type TextToImageSourceInsertStatus = (typeof TextToImageSourceInsertStatus)[keyof typeof TextToImageSourceInsertStatus]
+
+
+export const IllustrationPlanningOperation = {
+  plan_chapter: 'plan_chapter',
+  plan_selection: 'plan_selection',
+  review_candidates: 'review_candidates'
+} as const
+
+export type IllustrationPlanningOperation = (typeof IllustrationPlanningOperation)[keyof typeof IllustrationPlanningOperation]
+
+
+export const IllustrationPlanningWorkflowStatus = {
+  queued: 'queued',
+  running: 'running',
+  validating: 'validating',
+  applying: 'applying',
+  ready: 'ready',
+  failed: 'failed',
+  canceled: 'canceled',
+  stale: 'stale'
+} as const
+
+export type IllustrationPlanningWorkflowStatus = (typeof IllustrationPlanningWorkflowStatus)[keyof typeof IllustrationPlanningWorkflowStatus]
+
+
+export const IllustrationPlanningAttemptStatus = {
+  created: 'created',
+  running: 'running',
+  succeeded: 'succeeded',
+  failed: 'failed',
+  interrupted: 'interrupted',
+  canceled: 'canceled'
+} as const
+
+export type IllustrationPlanningAttemptStatus = (typeof IllustrationPlanningAttemptStatus)[keyof typeof IllustrationPlanningAttemptStatus]
+
+
+export const IllustrationPlanningApplyState = {
+  prepared: 'prepared',
+  storyboard_written: 'storyboard_written',
+  chapter_written: 'chapter_written',
+  storyboard_applied: 'storyboard_applied',
+  completed: 'completed',
+  rolled_back: 'rolled_back',
+  apply_conflict: 'apply_conflict'
+} as const
+
+export type IllustrationPlanningApplyState = (typeof IllustrationPlanningApplyState)[keyof typeof IllustrationPlanningApplyState]

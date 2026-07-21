@@ -9,6 +9,26 @@ type ProjectClientEntry = {
     adapter: TrackedPrismaLibSql;
 };
 
+/**
+ * 后台 worker 的短连接 Project 客户端；不要求 Project session 已打开，也绝不进入进程缓存。
+ */
+export async function withEphemeralTextToImageProjectClient<T>(
+    projectPath: string,
+    operation: (client: PrismaClient) => Promise<T>,
+): Promise<T> {
+    const normalizedProjectPath = normalizeProjectPath(projectPath);
+    const databasePath = resolveProjectDatabasePath(normalizedProjectPath);
+    const adapter = new TrackedPrismaLibSql({url: toSqliteFileUrl(databasePath)});
+    const client = new PrismaClient({adapter});
+    try {
+        return await operation(client);
+    } finally {
+        await client.$disconnect();
+        adapter.closeTrackedClients();
+        collectReleasedSqliteHandles();
+    }
+}
+
 const clients = new Map<string, ProjectClientEntry>();
 
 /** 获取当前已打开 Project 的文生图 Prisma client。 */

@@ -4,7 +4,7 @@ import {requireCurrentUser} from "nbook/server/utils/auth";
 import {assertProjectOpenForRoot} from "nbook/server/workspace-files/project-open-guard";
 import type {TextToImageJobDto} from "nbook/shared/dto/text-to-image.dto";
 
-const statuses: TextToImageJobDto["status"][] = ["queued", "running", "succeeded", "failed", "canceled", "interrupted"];
+const statuses: TextToImageJobDto["status"][] = ["queued", "running", "completing", "succeeded", "failed", "canceled", "interrupted", "configuration_stale", "outcome_unknown"];
 
 export default defineEventHandler(async (event) => {
     const user = await requireCurrentUser(event);

@@ -400,7 +400,14 @@ export const ModelName = {
   WorldSlice: 'WorldSlice',
   WorldPatch: 'WorldPatch',
   TextToImageJob: 'TextToImageJob',
-  TextToImageAsset: 'TextToImageAsset'
+  TextToImageAsset: 'TextToImageAsset',
+  TextToImageReferenceAsset: 'TextToImageReferenceAsset',
+  IllustrationExecutionManifest: 'IllustrationExecutionManifest',
+  IllustrationExecutionApproval: 'IllustrationExecutionApproval',
+  TextToImageDispatchOutbox: 'TextToImageDispatchOutbox',
+  IllustrationPlanningWorkflow: 'IllustrationPlanningWorkflow',
+  IllustrationPlanningAttempt: 'IllustrationPlanningAttempt',
+  IllustrationPlanningApplyJournal: 'IllustrationPlanningApplyJournal'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -416,7 +423,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "projectMetadata" | "databaseLock" | "story" | "storyAct" | "storyChapter" | "storyPhase" | "storyThread" | "storyScene" | "storySceneRef" | "storyPromise" | "storyPromiseBeat" | "storyDecision" | "worldSubject" | "worldSlice" | "worldPatch" | "textToImageJob" | "textToImageAsset"
+    modelProps: "projectMetadata" | "databaseLock" | "story" | "storyAct" | "storyChapter" | "storyPhase" | "storyThread" | "storyScene" | "storySceneRef" | "storyPromise" | "storyPromiseBeat" | "storyDecision" | "worldSubject" | "worldSlice" | "worldPatch" | "textToImageJob" | "textToImageAsset" | "textToImageReferenceAsset" | "illustrationExecutionManifest" | "illustrationExecutionApproval" | "textToImageDispatchOutbox" | "illustrationPlanningWorkflow" | "illustrationPlanningAttempt" | "illustrationPlanningApplyJournal"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -1678,6 +1685,524 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    TextToImageReferenceAsset: {
+      payload: Prisma.$TextToImageReferenceAssetPayload<ExtArgs>
+      fields: Prisma.TextToImageReferenceAssetFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.TextToImageReferenceAssetFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageReferenceAssetPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.TextToImageReferenceAssetFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageReferenceAssetPayload>
+        }
+        findFirst: {
+          args: Prisma.TextToImageReferenceAssetFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageReferenceAssetPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.TextToImageReferenceAssetFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageReferenceAssetPayload>
+        }
+        findMany: {
+          args: Prisma.TextToImageReferenceAssetFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageReferenceAssetPayload>[]
+        }
+        create: {
+          args: Prisma.TextToImageReferenceAssetCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageReferenceAssetPayload>
+        }
+        createMany: {
+          args: Prisma.TextToImageReferenceAssetCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.TextToImageReferenceAssetCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageReferenceAssetPayload>[]
+        }
+        delete: {
+          args: Prisma.TextToImageReferenceAssetDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageReferenceAssetPayload>
+        }
+        update: {
+          args: Prisma.TextToImageReferenceAssetUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageReferenceAssetPayload>
+        }
+        deleteMany: {
+          args: Prisma.TextToImageReferenceAssetDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.TextToImageReferenceAssetUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.TextToImageReferenceAssetUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageReferenceAssetPayload>[]
+        }
+        upsert: {
+          args: Prisma.TextToImageReferenceAssetUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageReferenceAssetPayload>
+        }
+        aggregate: {
+          args: Prisma.TextToImageReferenceAssetAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateTextToImageReferenceAsset>
+        }
+        groupBy: {
+          args: Prisma.TextToImageReferenceAssetGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TextToImageReferenceAssetGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.TextToImageReferenceAssetCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TextToImageReferenceAssetCountAggregateOutputType> | number
+        }
+      }
+    }
+    IllustrationExecutionManifest: {
+      payload: Prisma.$IllustrationExecutionManifestPayload<ExtArgs>
+      fields: Prisma.IllustrationExecutionManifestFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.IllustrationExecutionManifestFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationExecutionManifestPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.IllustrationExecutionManifestFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationExecutionManifestPayload>
+        }
+        findFirst: {
+          args: Prisma.IllustrationExecutionManifestFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationExecutionManifestPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.IllustrationExecutionManifestFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationExecutionManifestPayload>
+        }
+        findMany: {
+          args: Prisma.IllustrationExecutionManifestFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationExecutionManifestPayload>[]
+        }
+        create: {
+          args: Prisma.IllustrationExecutionManifestCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationExecutionManifestPayload>
+        }
+        createMany: {
+          args: Prisma.IllustrationExecutionManifestCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.IllustrationExecutionManifestCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationExecutionManifestPayload>[]
+        }
+        delete: {
+          args: Prisma.IllustrationExecutionManifestDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationExecutionManifestPayload>
+        }
+        update: {
+          args: Prisma.IllustrationExecutionManifestUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationExecutionManifestPayload>
+        }
+        deleteMany: {
+          args: Prisma.IllustrationExecutionManifestDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.IllustrationExecutionManifestUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.IllustrationExecutionManifestUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationExecutionManifestPayload>[]
+        }
+        upsert: {
+          args: Prisma.IllustrationExecutionManifestUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationExecutionManifestPayload>
+        }
+        aggregate: {
+          args: Prisma.IllustrationExecutionManifestAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateIllustrationExecutionManifest>
+        }
+        groupBy: {
+          args: Prisma.IllustrationExecutionManifestGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.IllustrationExecutionManifestGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.IllustrationExecutionManifestCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.IllustrationExecutionManifestCountAggregateOutputType> | number
+        }
+      }
+    }
+    IllustrationExecutionApproval: {
+      payload: Prisma.$IllustrationExecutionApprovalPayload<ExtArgs>
+      fields: Prisma.IllustrationExecutionApprovalFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.IllustrationExecutionApprovalFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationExecutionApprovalPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.IllustrationExecutionApprovalFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationExecutionApprovalPayload>
+        }
+        findFirst: {
+          args: Prisma.IllustrationExecutionApprovalFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationExecutionApprovalPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.IllustrationExecutionApprovalFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationExecutionApprovalPayload>
+        }
+        findMany: {
+          args: Prisma.IllustrationExecutionApprovalFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationExecutionApprovalPayload>[]
+        }
+        create: {
+          args: Prisma.IllustrationExecutionApprovalCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationExecutionApprovalPayload>
+        }
+        createMany: {
+          args: Prisma.IllustrationExecutionApprovalCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.IllustrationExecutionApprovalCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationExecutionApprovalPayload>[]
+        }
+        delete: {
+          args: Prisma.IllustrationExecutionApprovalDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationExecutionApprovalPayload>
+        }
+        update: {
+          args: Prisma.IllustrationExecutionApprovalUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationExecutionApprovalPayload>
+        }
+        deleteMany: {
+          args: Prisma.IllustrationExecutionApprovalDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.IllustrationExecutionApprovalUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.IllustrationExecutionApprovalUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationExecutionApprovalPayload>[]
+        }
+        upsert: {
+          args: Prisma.IllustrationExecutionApprovalUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationExecutionApprovalPayload>
+        }
+        aggregate: {
+          args: Prisma.IllustrationExecutionApprovalAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateIllustrationExecutionApproval>
+        }
+        groupBy: {
+          args: Prisma.IllustrationExecutionApprovalGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.IllustrationExecutionApprovalGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.IllustrationExecutionApprovalCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.IllustrationExecutionApprovalCountAggregateOutputType> | number
+        }
+      }
+    }
+    TextToImageDispatchOutbox: {
+      payload: Prisma.$TextToImageDispatchOutboxPayload<ExtArgs>
+      fields: Prisma.TextToImageDispatchOutboxFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.TextToImageDispatchOutboxFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageDispatchOutboxPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.TextToImageDispatchOutboxFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageDispatchOutboxPayload>
+        }
+        findFirst: {
+          args: Prisma.TextToImageDispatchOutboxFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageDispatchOutboxPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.TextToImageDispatchOutboxFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageDispatchOutboxPayload>
+        }
+        findMany: {
+          args: Prisma.TextToImageDispatchOutboxFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageDispatchOutboxPayload>[]
+        }
+        create: {
+          args: Prisma.TextToImageDispatchOutboxCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageDispatchOutboxPayload>
+        }
+        createMany: {
+          args: Prisma.TextToImageDispatchOutboxCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.TextToImageDispatchOutboxCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageDispatchOutboxPayload>[]
+        }
+        delete: {
+          args: Prisma.TextToImageDispatchOutboxDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageDispatchOutboxPayload>
+        }
+        update: {
+          args: Prisma.TextToImageDispatchOutboxUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageDispatchOutboxPayload>
+        }
+        deleteMany: {
+          args: Prisma.TextToImageDispatchOutboxDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.TextToImageDispatchOutboxUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.TextToImageDispatchOutboxUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageDispatchOutboxPayload>[]
+        }
+        upsert: {
+          args: Prisma.TextToImageDispatchOutboxUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageDispatchOutboxPayload>
+        }
+        aggregate: {
+          args: Prisma.TextToImageDispatchOutboxAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateTextToImageDispatchOutbox>
+        }
+        groupBy: {
+          args: Prisma.TextToImageDispatchOutboxGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TextToImageDispatchOutboxGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.TextToImageDispatchOutboxCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TextToImageDispatchOutboxCountAggregateOutputType> | number
+        }
+      }
+    }
+    IllustrationPlanningWorkflow: {
+      payload: Prisma.$IllustrationPlanningWorkflowPayload<ExtArgs>
+      fields: Prisma.IllustrationPlanningWorkflowFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.IllustrationPlanningWorkflowFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationPlanningWorkflowPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.IllustrationPlanningWorkflowFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationPlanningWorkflowPayload>
+        }
+        findFirst: {
+          args: Prisma.IllustrationPlanningWorkflowFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationPlanningWorkflowPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.IllustrationPlanningWorkflowFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationPlanningWorkflowPayload>
+        }
+        findMany: {
+          args: Prisma.IllustrationPlanningWorkflowFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationPlanningWorkflowPayload>[]
+        }
+        create: {
+          args: Prisma.IllustrationPlanningWorkflowCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationPlanningWorkflowPayload>
+        }
+        createMany: {
+          args: Prisma.IllustrationPlanningWorkflowCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.IllustrationPlanningWorkflowCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationPlanningWorkflowPayload>[]
+        }
+        delete: {
+          args: Prisma.IllustrationPlanningWorkflowDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationPlanningWorkflowPayload>
+        }
+        update: {
+          args: Prisma.IllustrationPlanningWorkflowUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationPlanningWorkflowPayload>
+        }
+        deleteMany: {
+          args: Prisma.IllustrationPlanningWorkflowDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.IllustrationPlanningWorkflowUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.IllustrationPlanningWorkflowUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationPlanningWorkflowPayload>[]
+        }
+        upsert: {
+          args: Prisma.IllustrationPlanningWorkflowUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationPlanningWorkflowPayload>
+        }
+        aggregate: {
+          args: Prisma.IllustrationPlanningWorkflowAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateIllustrationPlanningWorkflow>
+        }
+        groupBy: {
+          args: Prisma.IllustrationPlanningWorkflowGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.IllustrationPlanningWorkflowGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.IllustrationPlanningWorkflowCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.IllustrationPlanningWorkflowCountAggregateOutputType> | number
+        }
+      }
+    }
+    IllustrationPlanningAttempt: {
+      payload: Prisma.$IllustrationPlanningAttemptPayload<ExtArgs>
+      fields: Prisma.IllustrationPlanningAttemptFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.IllustrationPlanningAttemptFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationPlanningAttemptPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.IllustrationPlanningAttemptFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationPlanningAttemptPayload>
+        }
+        findFirst: {
+          args: Prisma.IllustrationPlanningAttemptFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationPlanningAttemptPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.IllustrationPlanningAttemptFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationPlanningAttemptPayload>
+        }
+        findMany: {
+          args: Prisma.IllustrationPlanningAttemptFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationPlanningAttemptPayload>[]
+        }
+        create: {
+          args: Prisma.IllustrationPlanningAttemptCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationPlanningAttemptPayload>
+        }
+        createMany: {
+          args: Prisma.IllustrationPlanningAttemptCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.IllustrationPlanningAttemptCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationPlanningAttemptPayload>[]
+        }
+        delete: {
+          args: Prisma.IllustrationPlanningAttemptDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationPlanningAttemptPayload>
+        }
+        update: {
+          args: Prisma.IllustrationPlanningAttemptUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationPlanningAttemptPayload>
+        }
+        deleteMany: {
+          args: Prisma.IllustrationPlanningAttemptDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.IllustrationPlanningAttemptUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.IllustrationPlanningAttemptUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationPlanningAttemptPayload>[]
+        }
+        upsert: {
+          args: Prisma.IllustrationPlanningAttemptUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationPlanningAttemptPayload>
+        }
+        aggregate: {
+          args: Prisma.IllustrationPlanningAttemptAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateIllustrationPlanningAttempt>
+        }
+        groupBy: {
+          args: Prisma.IllustrationPlanningAttemptGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.IllustrationPlanningAttemptGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.IllustrationPlanningAttemptCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.IllustrationPlanningAttemptCountAggregateOutputType> | number
+        }
+      }
+    }
+    IllustrationPlanningApplyJournal: {
+      payload: Prisma.$IllustrationPlanningApplyJournalPayload<ExtArgs>
+      fields: Prisma.IllustrationPlanningApplyJournalFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.IllustrationPlanningApplyJournalFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationPlanningApplyJournalPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.IllustrationPlanningApplyJournalFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationPlanningApplyJournalPayload>
+        }
+        findFirst: {
+          args: Prisma.IllustrationPlanningApplyJournalFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationPlanningApplyJournalPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.IllustrationPlanningApplyJournalFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationPlanningApplyJournalPayload>
+        }
+        findMany: {
+          args: Prisma.IllustrationPlanningApplyJournalFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationPlanningApplyJournalPayload>[]
+        }
+        create: {
+          args: Prisma.IllustrationPlanningApplyJournalCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationPlanningApplyJournalPayload>
+        }
+        createMany: {
+          args: Prisma.IllustrationPlanningApplyJournalCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.IllustrationPlanningApplyJournalCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationPlanningApplyJournalPayload>[]
+        }
+        delete: {
+          args: Prisma.IllustrationPlanningApplyJournalDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationPlanningApplyJournalPayload>
+        }
+        update: {
+          args: Prisma.IllustrationPlanningApplyJournalUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationPlanningApplyJournalPayload>
+        }
+        deleteMany: {
+          args: Prisma.IllustrationPlanningApplyJournalDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.IllustrationPlanningApplyJournalUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.IllustrationPlanningApplyJournalUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationPlanningApplyJournalPayload>[]
+        }
+        upsert: {
+          args: Prisma.IllustrationPlanningApplyJournalUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IllustrationPlanningApplyJournalPayload>
+        }
+        aggregate: {
+          args: Prisma.IllustrationPlanningApplyJournalAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateIllustrationPlanningApplyJournal>
+        }
+        groupBy: {
+          args: Prisma.IllustrationPlanningApplyJournalGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.IllustrationPlanningApplyJournalGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.IllustrationPlanningApplyJournalCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.IllustrationPlanningApplyJournalCountAggregateOutputType> | number
+        }
+      }
+    }
   }
 } & {
   other: {
@@ -1976,7 +2501,23 @@ export const TextToImageJobScalarFieldEnum = {
   sourcePath: 'sourcePath',
   sourceAnchorId: 'sourceAnchorId',
   sourceInsertStatus: 'sourceInsertStatus',
+  providerSnapshotJson: 'providerSnapshotJson',
   requestJson: 'requestJson',
+  originJson: 'originJson',
+  sourceIdentityHash: 'sourceIdentityHash',
+  providerOwnerUserId: 'providerOwnerUserId',
+  providerCredentialRevision: 'providerCredentialRevision',
+  executionManifestId: 'executionManifestId',
+  executionApprovalId: 'executionApprovalId',
+  compiledRequestHash: 'compiledRequestHash',
+  idempotencyKey: 'idempotencyKey',
+  variantIndex: 'variantIndex',
+  outputIndex: 'outputIndex',
+  parentJobId: 'parentJobId',
+  parentAssetId: 'parentAssetId',
+  stableErrorCode: 'stableErrorCode',
+  activeAttemptId: 'activeAttemptId',
+  activeAttemptFence: 'activeAttemptFence',
   resultAssetIdsJson: 'resultAssetIdsJson',
   errorMessage: 'errorMessage',
   attemptCount: 'attemptCount',
@@ -2008,6 +2549,139 @@ export const TextToImageAssetScalarFieldEnum = {
 } as const
 
 export type TextToImageAssetScalarFieldEnum = (typeof TextToImageAssetScalarFieldEnum)[keyof typeof TextToImageAssetScalarFieldEnum]
+
+
+export const TextToImageReferenceAssetScalarFieldEnum = {
+  id: 'id',
+  kind: 'kind',
+  contentHash: 'contentHash',
+  relativePath: 'relativePath',
+  fileName: 'fileName',
+  mimeType: 'mimeType',
+  byteLength: 'byteLength',
+  parentAssetId: 'parentAssetId',
+  derivedModel: 'derivedModel',
+  derivedInfoExtracted: 'derivedInfoExtracted',
+  createdAt: 'createdAt'
+} as const
+
+export type TextToImageReferenceAssetScalarFieldEnum = (typeof TextToImageReferenceAssetScalarFieldEnum)[keyof typeof TextToImageReferenceAssetScalarFieldEnum]
+
+
+export const IllustrationExecutionManifestScalarFieldEnum = {
+  id: 'id',
+  projectId: 'projectId',
+  targetHash: 'targetHash',
+  executionNonce: 'executionNonce',
+  executionInputHashesJson: 'executionInputHashesJson',
+  executionManifestHash: 'executionManifestHash',
+  recipeSnapshotJson: 'recipeSnapshotJson',
+  compiledRequestsJson: 'compiledRequestsJson',
+  outputCount: 'outputCount',
+  knownCost: 'knownCost',
+  tokenLowerBound: 'tokenLowerBound',
+  registrationState: 'registrationState',
+  createdAt: 'createdAt'
+} as const
+
+export type IllustrationExecutionManifestScalarFieldEnum = (typeof IllustrationExecutionManifestScalarFieldEnum)[keyof typeof IllustrationExecutionManifestScalarFieldEnum]
+
+
+export const IllustrationExecutionApprovalScalarFieldEnum = {
+  id: 'id',
+  manifestId: 'manifestId',
+  executionManifestHash: 'executionManifestHash',
+  approvalHash: 'approvalHash',
+  authorizedOutputCount: 'authorizedOutputCount',
+  authorizedCostLimit: 'authorizedCostLimit',
+  authorizedTokenLimit: 'authorizedTokenLimit',
+  actorUserId: 'actorUserId',
+  approvedAt: 'approvedAt',
+  createdAt: 'createdAt'
+} as const
+
+export type IllustrationExecutionApprovalScalarFieldEnum = (typeof IllustrationExecutionApprovalScalarFieldEnum)[keyof typeof IllustrationExecutionApprovalScalarFieldEnum]
+
+
+export const TextToImageDispatchOutboxScalarFieldEnum = {
+  id: 'id',
+  dispatchKey: 'dispatchKey',
+  jobId: 'jobId',
+  manifestId: 'manifestId',
+  manifestHash: 'manifestHash',
+  registrationVersion: 'registrationVersion',
+  preparationId: 'preparationId',
+  prepareAttemptId: 'prepareAttemptId',
+  prepareVersion: 'prepareVersion',
+  state: 'state',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type TextToImageDispatchOutboxScalarFieldEnum = (typeof TextToImageDispatchOutboxScalarFieldEnum)[keyof typeof TextToImageDispatchOutboxScalarFieldEnum]
+
+
+export const IllustrationPlanningWorkflowScalarFieldEnum = {
+  id: 'id',
+  projectId: 'projectId',
+  chapterPath: 'chapterPath',
+  operation: 'operation',
+  planningRequestHash: 'planningRequestHash',
+  planningInputHash: 'planningInputHash',
+  inputJson: 'inputJson',
+  status: 'status',
+  activeAttemptId: 'activeAttemptId',
+  retryable: 'retryable',
+  staleReason: 'staleReason',
+  proposalJson: 'proposalJson',
+  validatedPlanJson: 'validatedPlanJson',
+  errorCode: 'errorCode',
+  errorMessage: 'errorMessage',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type IllustrationPlanningWorkflowScalarFieldEnum = (typeof IllustrationPlanningWorkflowScalarFieldEnum)[keyof typeof IllustrationPlanningWorkflowScalarFieldEnum]
+
+
+export const IllustrationPlanningAttemptScalarFieldEnum = {
+  id: 'id',
+  workflowId: 'workflowId',
+  status: 'status',
+  sessionId: 'sessionId',
+  invocationId: 'invocationId',
+  planningEvidenceHash: 'planningEvidenceHash',
+  evidenceJson: 'evidenceJson',
+  proposalJson: 'proposalJson',
+  errorCode: 'errorCode',
+  errorMessage: 'errorMessage',
+  createdAt: 'createdAt',
+  startedAt: 'startedAt',
+  finishedAt: 'finishedAt'
+} as const
+
+export type IllustrationPlanningAttemptScalarFieldEnum = (typeof IllustrationPlanningAttemptScalarFieldEnum)[keyof typeof IllustrationPlanningAttemptScalarFieldEnum]
+
+
+export const IllustrationPlanningApplyJournalScalarFieldEnum = {
+  id: 'id',
+  workflowId: 'workflowId',
+  projectId: 'projectId',
+  chapterPath: 'chapterPath',
+  state: 'state',
+  expectedChapterHash: 'expectedChapterHash',
+  expectedStoryboardHash: 'expectedStoryboardHash',
+  stagedStoryboardHash: 'stagedStoryboardHash',
+  appliedStoryboardHash: 'appliedStoryboardHash',
+  chapterAfterHash: 'chapterAfterHash',
+  payloadJson: 'payloadJson',
+  errorCode: 'errorCode',
+  errorMessage: 'errorMessage',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type IllustrationPlanningApplyJournalScalarFieldEnum = (typeof IllustrationPlanningApplyJournalScalarFieldEnum)[keyof typeof IllustrationPlanningApplyJournalScalarFieldEnum]
 
 
 export const SortOrder = {
@@ -2185,6 +2859,34 @@ export type EnumTextToImageSourceInsertStatusFieldRefInput<$PrismaModel> = Field
 export type FloatFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Float'>
     
 
+
+/**
+ * Reference to a field of type 'IllustrationPlanningOperation'
+ */
+export type EnumIllustrationPlanningOperationFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'IllustrationPlanningOperation'>
+    
+
+
+/**
+ * Reference to a field of type 'IllustrationPlanningWorkflowStatus'
+ */
+export type EnumIllustrationPlanningWorkflowStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'IllustrationPlanningWorkflowStatus'>
+    
+
+
+/**
+ * Reference to a field of type 'IllustrationPlanningAttemptStatus'
+ */
+export type EnumIllustrationPlanningAttemptStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'IllustrationPlanningAttemptStatus'>
+    
+
+
+/**
+ * Reference to a field of type 'IllustrationPlanningApplyState'
+ */
+export type EnumIllustrationPlanningApplyStateFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'IllustrationPlanningApplyState'>
+    
+
 /**
  * Batch Payload for updateMany & deleteMany & createMany
  */
@@ -2297,6 +2999,13 @@ export type GlobalOmitConfig = {
   worldPatch?: Prisma.WorldPatchOmit
   textToImageJob?: Prisma.TextToImageJobOmit
   textToImageAsset?: Prisma.TextToImageAssetOmit
+  textToImageReferenceAsset?: Prisma.TextToImageReferenceAssetOmit
+  illustrationExecutionManifest?: Prisma.IllustrationExecutionManifestOmit
+  illustrationExecutionApproval?: Prisma.IllustrationExecutionApprovalOmit
+  textToImageDispatchOutbox?: Prisma.TextToImageDispatchOutboxOmit
+  illustrationPlanningWorkflow?: Prisma.IllustrationPlanningWorkflowOmit
+  illustrationPlanningAttempt?: Prisma.IllustrationPlanningAttemptOmit
+  illustrationPlanningApplyJournal?: Prisma.IllustrationPlanningApplyJournalOmit
 }
 
 /* Types for Logging */

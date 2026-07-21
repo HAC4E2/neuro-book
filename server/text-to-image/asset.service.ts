@@ -5,6 +5,7 @@ import {consola} from "consola";
 import type {
     TextToImageAsset,
     TextToImageJob,
+    PrismaClient,
 } from "nbook/server/generated/project-prisma/client";
 import type {
     TextToImageAssetDto,
@@ -49,6 +50,10 @@ type TextToImageAssetWithJob = TextToImageAsset & {
     job: Pick<TextToImageJob, "status" | "sourceInsertStatus">;
 };
 
+type AssetServiceOptions = {
+    client?: (projectPath: string) => Promise<PrismaClient>;
+};
+
 /** 正文仍引用图片时用于阻止删除的稳定业务错误。 */
 export class TextToImageAssetReferencedError extends Error {
     readonly code = "TEXT_TO_IMAGE_ASSET_REFERENCED";
@@ -61,9 +66,15 @@ export class TextToImageAssetReferencedError extends Error {
 
 /** Project 级文生图资产读写服务，文件与数据库记录始终成对维护。 */
 export class TextToImageAssetService {
+    private readonly client: (projectPath: string) => Promise<PrismaClient>;
+
+    constructor(options: AssetServiceOptions = {}) {
+        this.client = options.client ?? textToImageProjectClient;
+    }
+
     /** 原子写入图片文件，并在数据库写入失败时补偿删除该文件。 */
     async save(input: SaveTextToImageAssetInput): Promise<TextToImageAssetDto> {
-        const client = await textToImageProjectClient(input.projectPath);
+        const client = await this.client(input.projectPath);
         const job = await client.textToImageJob.findUnique({where: {id: input.jobId}, select: {id: true}});
         if (!job) {
             throw new Error("文生图任务不存在");
@@ -118,7 +129,7 @@ export class TextToImageAssetService {
 
     /** 以稳定创建时间倒序分页读取历史资产，不暴露任务原始请求。 */
     async list(input: ListTextToImageAssetsInput): Promise<TextToImageAssetPageDto> {
-        const client = await textToImageProjectClient(input.projectPath);
+        const client = await this.client(input.projectPath);
         const page = Math.max(1, Math.floor(input.page ?? 1));
         const pageSize = Math.min(100, Math.max(1, Math.floor(input.pageSize ?? 30)));
         const assets = await client.textToImageAsset.findMany({
@@ -151,9 +162,17 @@ export class TextToImageAssetService {
         };
     }
 
+    /** 按 Project/assetId 读取完整持久 Asset DTO；不接受路径或浏览器 metadata。 */
+    async read(projectPath: string, assetId: string): Promise<TextToImageAssetDto> {
+        const client = await this.client(projectPath);
+        const asset = await client.textToImageAsset.findUnique({where: {id: assetId}});
+        if (!asset) throw new Error("文生图图片不存在");
+        return assetDto(asset);
+    }
+
     /** 根据资产 ID 解析已登记的实际文件，永不接收 HTTP 提供的文件路径。 */
     async content(projectPath: string, assetId: string): Promise<{absolutePath: string; mimeType: string}> {
-        const client = await textToImageProjectClient(projectPath);
+        const client = await this.client(projectPath);
         const asset = await client.textToImageAsset.findUnique({where: {id: assetId}});
         if (!asset) {
             throw new Error("文生图图片不存在");
@@ -168,7 +187,7 @@ export class TextToImageAssetService {
 
     /** 删除未被 Markdown 引用的资产；文件与数据库删除采用 tombstone 回滚策略。 */
     async delete(projectPath: string, assetId: string): Promise<void> {
-        const client = await textToImageProjectClient(projectPath);
+        const client = await this.client(projectPath);
         const asset = await client.textToImageAsset.findUnique({where: {id: assetId}});
         if (!asset) {
             throw new Error("文生图图片不存在");

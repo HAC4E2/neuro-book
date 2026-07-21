@@ -72,6 +72,30 @@ import {
 } from "nbook/server/utils/model-settings";
 import {assertProjectOpen, markProjectActivity} from "nbook/server/workspace-files/project-session";
 import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {
+    ILLUSTRATION_DIRECTOR_BINDING_ID,
+    ILLUSTRATION_DIRECTOR_PROFILE_KEY,
+} from "nbook/shared/agent/illustration-director";
+import {hashTextToImageContract} from "nbook/shared/text-to-image-contract-hash";
+import {StoryboardStableIdSchema} from "nbook/shared/text-to-image-storyboard-preset";
+
+const DEFAULT_ILLUSTRATION_DIRECTOR_SELECTOR = "storyboard-presets/default.md" as const;
+const globalConfigWriteLocks = new Map<string, Promise<void>>();
+
+export type IllustrationDirectorSelectorSnapshot = {
+    storyboardPresetKey: string;
+    configHash: string;
+};
+
+/** Director selector 的 expected-hash CAS 冲突。 */
+export class IllustrationDirectorSelectorConflictError extends Error {
+    readonly code = "GLOBAL_CONFIG_HASH_CONFLICT" as const;
+
+    constructor() {
+        super("GLOBAL_CONFIG_HASH_CONFLICT: Global Config 已变化，请刷新发布预览");
+        this.name = "IllustrationDirectorSelectorConflictError";
+    }
+}
 
 /** Global Config 路径跟随当前 State Root。 */
 function globalConfigPath(): string {
@@ -110,7 +134,7 @@ export async function readConfigEditorSnapshot(query: ConfigWorkspaceQueryDto): 
         project: project as ProjectConfigDto | null,
         effective: effective as unknown as Record<string, never>,
         meta: CONFIG_REGISTRY,
-        modelSettings: buildConfigModelSettingsDto(effective),
+        modelSettings: buildConfigModelSettingsDto(effective, readIllustrationDirectorModelKey(global)),
         embeddingSettings: buildConfigEmbeddingSettingsDto(global, project, effective),
         defaultProfileSettings: buildDefaultProfileSettingsDto({
             workspaceKind: target.workspaceKind,
@@ -179,7 +203,7 @@ export async function readConfigBootstrap(
 
     return {
         modelSettings: {
-            defaultModelLabel: buildConfigModelSettingsDto(effective).defaultModelLabel,
+            defaultModelLabel: buildConfigModelSettingsDto(effective, readIllustrationDirectorModelKey(global)).defaultModelLabel,
             enabledModels: listEnabledModels(effective.models),
         },
         defaultProfileSettings: {
@@ -205,19 +229,21 @@ export async function saveGlobalConfig(
         includeResourceMutationFinalKeys: true,
     }, "global");
     await applyProfileResourceMutations(input.agent?.profiles, query, profiles, undefined, "global");
-    const current = await readGlobalConfigFile();
-    const next = normalizeGlobalConfig({
-        ...current,
-        ...(input.agent !== undefined ? {agent: input.agent} : {}),
-        ...(input.ui !== undefined ? {ui: input.ui} : {}),
-        ...(input.editor !== undefined ? {editor: input.editor} : {}),
-        ...(input.observability !== undefined ? {observability: input.observability} : {}),
-        ...(input.history !== undefined ? {history: input.history} : {}),
-        ...(input.web !== undefined ? {web: normalizeGlobalWebForWrite(input.web, current)} : {}),
-        ...(input.models !== undefined ? {models: normalizeGlobalModelsForWrite(input.models, current)} : {}),
-        ...(input.embedding !== undefined ? {embedding: normalizeGlobalEmbeddingForWrite(input.embedding, current)} : {}),
+    await withGlobalConfigWrite(async () => {
+        const current = await readGlobalConfigFile();
+        const next = normalizeGlobalConfig({
+            ...current,
+            ...(input.agent !== undefined ? {agent: input.agent} : {}),
+            ...(input.ui !== undefined ? {ui: input.ui} : {}),
+            ...(input.editor !== undefined ? {editor: input.editor} : {}),
+            ...(input.observability !== undefined ? {observability: input.observability} : {}),
+            ...(input.history !== undefined ? {history: input.history} : {}),
+            ...(input.web !== undefined ? {web: normalizeGlobalWebForWrite(input.web, current)} : {}),
+            ...(input.models !== undefined ? {models: normalizeGlobalModelsForWrite(input.models, current)} : {}),
+            ...(input.embedding !== undefined ? {embedding: normalizeGlobalEmbeddingForWrite(input.embedding, current)} : {}),
+        });
+        await writeJsonFile(globalConfigPath(), next);
     });
-    await writeJsonFile(globalConfigPath(), next);
     return readConfigEditorSnapshot(query);
 }
 
@@ -353,12 +379,14 @@ export function loadGlobalEffectiveConfigSync(): EffectiveConfig {
  * 保存模型设置到 Global Config。
  */
 export async function saveModelSettings(config: ModelSettingsConfig, query: ConfigWorkspaceQueryDto): Promise<ConfigEditorSnapshotDto> {
-    const current = await readGlobalConfigFile();
-    const next = normalizeGlobalConfig({
-        ...current,
-        models: serializeModelSettings(config),
+    await withGlobalConfigWrite(async () => {
+        const current = await readGlobalConfigFile();
+        const next = normalizeGlobalConfig({
+            ...current,
+            models: serializeModelSettings(config),
+        });
+        await writeJsonFile(globalConfigPath(), next);
     });
-    await writeJsonFile(globalConfigPath(), next);
     return readConfigEditorSnapshot(query);
 }
 
@@ -369,16 +397,66 @@ export async function saveAgentProfileSettings(
     config: Record<string, AgentProfileConfig>,
     query: ConfigWorkspaceQueryDto,
 ): Promise<ConfigEditorSnapshotDto> {
-    const current = await readGlobalConfigFile();
-    const next = normalizeGlobalConfig({
-        ...current,
-        agent: {
-            ...(current.agent ?? {}),
-            profiles: normalizeAgentProfiles(config),
-        },
+    await withGlobalConfigWrite(async () => {
+        const current = await readGlobalConfigFile();
+        const next = normalizeGlobalConfig({
+            ...current,
+            agent: {
+                ...(current.agent ?? {}),
+                profiles: normalizeAgentProfiles(config),
+            },
+        });
+        await writeJsonFile(globalConfigPath(), next);
     });
-    await writeJsonFile(globalConfigPath(), next);
     return readConfigEditorSnapshot(query);
+}
+
+/** 读取 Director 全局 Storyboard selector 的有限快照；hash 绑定完整规范化 Global Config。 */
+export async function readIllustrationDirectorSelectorSnapshot(): Promise<IllustrationDirectorSelectorSnapshot> {
+    return createIllustrationDirectorSelectorSnapshot(await readGlobalConfigFile());
+}
+
+/**
+ * 以完整 Global Config expected hash 只更新 Director selector。
+ *
+ * 该入口与普通 Global Config 保存共用同一临界区，因此同进程并发不会发生 read-modify-write 丢更新。
+ */
+export async function updateIllustrationDirectorSelector(input: {
+    expectedConfigHash: string;
+    storyboardPresetKey: string;
+}): Promise<IllustrationDirectorSelectorSnapshot> {
+    const expectedConfigHash = /^sha256:[0-9a-f]{64}$/u.test(input.expectedConfigHash)
+        ? input.expectedConfigHash
+        : "";
+    const match = /^storyboard-presets\/([a-z0-9][a-z0-9._-]{0,199})\.md$/u.exec(input.storyboardPresetKey);
+    if (!expectedConfigHash || !match?.[1]) throw new Error("Director selector CAS 输入不合法");
+    StoryboardStableIdSchema.parse(match[1]);
+    return withGlobalConfigWrite(async () => {
+        const current = await readGlobalConfigFile();
+        const snapshot = createIllustrationDirectorSelectorSnapshot(current);
+        if (snapshot.configHash !== expectedConfigHash) throw new IllustrationDirectorSelectorConflictError();
+        const profiles = current.agent?.profiles ?? {};
+        const director = profiles[ILLUSTRATION_DIRECTOR_PROFILE_KEY];
+        const next = normalizeGlobalConfig({
+            ...current,
+            agent: {
+                ...(current.agent ?? {}),
+                profiles: {
+                    ...profiles,
+                    [ILLUSTRATION_DIRECTOR_PROFILE_KEY]: {
+                        model: director?.model ?? {},
+                        settings: {
+                            ...(director?.settings ?? {}),
+                            storyboardPresetKey: input.storyboardPresetKey,
+                        },
+                        ...(director?.runtime ? {runtime: director.runtime} : {}),
+                    },
+                },
+            },
+        });
+        await writeJsonFile(globalConfigPath(), next);
+        return createIllustrationDirectorSelectorSnapshot(next);
+    });
 }
 
 /**
@@ -496,7 +574,7 @@ function redactGlobalConfig(config: StoredGlobalConfig): GlobalConfigDto {
     });
 }
 
-function buildConfigModelSettingsDto(effective: EffectiveConfig): ConfigModelSettingsDto {
+function buildConfigModelSettingsDto(effective: EffectiveConfig, illustrationDirectorModelKey: string | null): ConfigModelSettingsDto {
     const providers = Object.entries(effective.models.providers).map(([providerId, provider]) => ({
         id: providerId,
         name: provider.name,
@@ -518,7 +596,46 @@ function buildConfigModelSettingsDto(effective: EffectiveConfig): ConfigModelSet
         defaultModelLabel: defaultModel ? buildModelLabel(defaultModel.provider.name, defaultModel.model.name) : null,
         enabledModels: listEnabledModels(effective.models),
         providers,
+        illustrationDirector: buildIllustrationDirectorModelBindingDto(effective, illustrationDirectorModelKey),
     };
+}
+
+/** 从 normalized effective config 解析插图 Director 的只读模型 binding 摘要。 */
+function buildIllustrationDirectorModelBindingDto(effective: EffectiveConfig, modelKey: string | null): ConfigModelSettingsDto["illustrationDirector"] {
+    const resolved = resolveConfiguredModel(effective.models, modelKey);
+    if (!resolved) {
+        return {
+            bindingId: ILLUSTRATION_DIRECTOR_BINDING_ID,
+            configured: false,
+            modelKey,
+            providerId: null,
+            providerName: null,
+            modelId: null,
+            modelName: null,
+        };
+    }
+    return {
+        bindingId: ILLUSTRATION_DIRECTOR_BINDING_ID,
+        configured: true,
+        modelKey,
+        providerId: resolved.providerId,
+        providerName: resolved.provider.name,
+        modelId: resolved.model.id,
+        modelName: resolved.model.name,
+    };
+}
+
+/**
+ * 读取 Global Director slot 显式保存的 model key。
+ * 通用 Profile 默认模型不能把缺失的独立 binding 伪装成已配置。
+ */
+function readIllustrationDirectorModelKey(global: StoredGlobalConfig): string | null {
+    const model = global.agent?.profiles?.[ILLUSTRATION_DIRECTOR_PROFILE_KEY]?.model;
+    if (!model || !Object.hasOwn(model, "modelKey")) {
+        return null;
+    }
+    const modelKey = model.modelKey?.trim() ?? "";
+    return modelKey || null;
 }
 
 function buildConfigEmbeddingSettingsDto(
@@ -1013,6 +1130,12 @@ function maskSecret(value: string | null | undefined): {configured: boolean; mas
 
 function resolveSecretWrite(input: {previousValue: string; configured: boolean; value?: string}): string {
     if (input.value === undefined) {
+        if (input.configured && !input.previousValue.trim()) {
+            throw createError({
+                statusCode: 400,
+                message: "无法保留当前 API key：对应的已保存 Provider 不存在，请重新输入密钥",
+            });
+        }
         return input.previousValue;
     }
     return input.value.trim();
@@ -1164,6 +1287,15 @@ function assertProjectConfigDoesNotContainGlobalOnly(input: ProjectConfigDto): v
             message: "Project Config 不能覆盖 history.enabled（文件历史总开关仅 Global）",
         });
     }
+    const agent = record.agent as Record<string, unknown> | undefined;
+    const profiles = agent?.profiles as Record<string, Record<string, unknown>> | undefined;
+    const directorModel = profiles?.[ILLUSTRATION_DIRECTOR_PROFILE_KEY]?.model as Record<string, unknown> | undefined;
+    if (directorModel && Object.keys(directorModel).length > 0) {
+        throw createError({
+            statusCode: 400,
+            message: "illustration Director model binding 只能由 Global Config 写入",
+        });
+    }
 }
 
 async function readJsonFile<T>(filePath: string): Promise<T | null> {
@@ -1191,6 +1323,39 @@ function readJsonFileSync<T>(filePath: string): T | null {
 async function writeJsonFile(filePath: string, value: unknown): Promise<void> {
     await fs.mkdir(path.dirname(filePath), {recursive: true});
     await fs.writeFile(filePath, `${JSON.stringify(value, null, 4)}\n`, "utf-8");
+}
+
+/** 从规范化 Global Config 投影不含 secret 明文的 selector 摘要与完整配置 hash。 */
+function createIllustrationDirectorSelectorSnapshot(config: StoredGlobalConfig): IllustrationDirectorSelectorSnapshot {
+    const normalized = normalizeGlobalConfig(config);
+    const configured = normalized.agent?.profiles?.[ILLUSTRATION_DIRECTOR_PROFILE_KEY]?.settings?.storyboardPresetKey;
+    const storyboardPresetKey = typeof configured === "string"
+        && /^storyboard-presets\/[a-z0-9][a-z0-9._-]{0,199}\.md$/u.test(configured)
+        ? configured
+        : DEFAULT_ILLUSTRATION_DIRECTOR_SELECTOR;
+    return {
+        storyboardPresetKey,
+        configHash: hashTextToImageContract({normalizedConfigJson: JSON.stringify(normalized)}),
+    };
+}
+
+/** 按真实 Global Config 路径串行化本进程所有 read-modify-write。 */
+async function withGlobalConfigWrite<TResult>(operation: () => Promise<TResult>): Promise<TResult> {
+    const key = path.resolve(globalConfigPath()).toLocaleLowerCase("en-US");
+    const previous = globalConfigWriteLocks.get(key) ?? Promise.resolve();
+    let release: () => void = () => undefined;
+    const current = new Promise<void>((resolve) => {
+        release = resolve;
+    });
+    const tail = previous.catch(() => undefined).then(() => current);
+    globalConfigWriteLocks.set(key, tail);
+    await previous.catch(() => undefined);
+    try {
+        return await operation();
+    } finally {
+        release();
+        if (globalConfigWriteLocks.get(key) === tail) globalConfigWriteLocks.delete(key);
+    }
 }
 
 function normalizeWorkspaceRoot(workspaceRoot: string | undefined): string | null {

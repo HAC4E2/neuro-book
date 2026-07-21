@@ -102,3 +102,38 @@ export type TextToImageJob = Prisma.TextToImageJobModel
  * 
  */
 export type TextToImageAsset = Prisma.TextToImageAssetModel
+/**
+ * Model TextToImageReferenceAsset
+ * * P5 参考资产：内容寻址的 Vibe/Character Reference/Inpaint 蒙版与派生 Vibe encoding。
+ */
+export type TextToImageReferenceAsset = Prisma.TextToImageReferenceAssetModel
+/**
+ * Model IllustrationExecutionManifest
+ * * 用户确认后一次原子注册的不可变 execution manifest。
+ */
+export type IllustrationExecutionManifest = Prisma.IllustrationExecutionManifestModel
+/**
+ * Model IllustrationExecutionApproval
+ * * 与 manifest 同事务写入的用户授权证据。
+ */
+export type IllustrationExecutionApproval = Prisma.IllustrationExecutionApprovalModel
+/**
+ * Model TextToImageDispatchOutbox
+ * * Project 注册完成后交给 App persistent Provider lane 的 durable outbox。
+ */
+export type TextToImageDispatchOutbox = Prisma.TextToImageDispatchOutboxModel
+/**
+ * Model IllustrationPlanningWorkflow
+ * 
+ */
+export type IllustrationPlanningWorkflow = Prisma.IllustrationPlanningWorkflowModel
+/**
+ * Model IllustrationPlanningAttempt
+ * 
+ */
+export type IllustrationPlanningAttempt = Prisma.IllustrationPlanningAttemptModel
+/**
+ * Model IllustrationPlanningApplyJournal
+ * 
+ */
+export type IllustrationPlanningApplyJournal = Prisma.IllustrationPlanningApplyJournalModel

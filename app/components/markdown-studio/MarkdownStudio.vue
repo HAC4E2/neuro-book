@@ -5,7 +5,10 @@ import type { IdeTheme } from "nbook/app/utils/theme/theme-tokens";
 import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES, DEFAULT_MONACO_EDITOR_PREFERENCES, type FrontmatterProfileKind, type MarkdownEditorPreferences, type MonacoEditorPreferences} from "nbook/shared/editor-workbench";
 import type {AgentTriggerMenuContext, AgentTriggerMenuState} from "nbook/app/components/novel-ide/agent/trigger-menu";
 import type {WorkspaceReferenceResolver} from "nbook/app/components/markdown-studio/tiptap/WorkspaceReference";
-import type {TextToImagePromptGeneratePayload} from "nbook/app/components/markdown-studio/tiptap/TextToImagePrompt";
+import {
+    type TextToImagePromptController,
+    unavailableTextToImagePromptController,
+} from "nbook/app/components/markdown-studio/tiptap/TextToImagePrompt";
 import type {InlineEditReference} from "nbook/app/utils/inline-editor-selection";
 
 const props = withDefaults(defineProps<{
@@ -23,6 +26,7 @@ const props = withDefaults(defineProps<{
     inlineAiReferences?: InlineEditReference[];
     inlineAiHighlightReference?: InlineEditReference | null;
     enableQuickTriggers?: boolean;
+    textToImagePromptController?: TextToImagePromptController;
 }>(), {
     readonly: false,
     theme: "sepia",
@@ -40,6 +44,7 @@ const props = withDefaults(defineProps<{
     inlineAiReferences: () => [],
     inlineAiHighlightReference: null,
     enableQuickTriggers: false,
+    textToImagePromptController: () => unavailableTextToImagePromptController,
 });
 
 const sourceEditorRef = ref<MarkdownStudioEditorHandle | null>(null);
@@ -58,8 +63,8 @@ const emit = defineEmits<{
     (e: "save-request"): void;
     (e: "open-frontmatter-profile", kind: FrontmatterProfileKind): void;
     (e: "update-monaco-temporary-font-size", value: number): void;
-    (e: "generate-text-to-image-prompt", payload: TextToImagePromptGeneratePayload): void;
     (e: "inline-ai-reference", reference: InlineEditReference): void;
+    (e: "plan-selection-illustration", reference: InlineEditReference): void;
 }>();
 
 /**
@@ -101,6 +106,7 @@ function handleSourceBlur(): void {
                     :inline-ai-references="props.inlineAiReferences"
                     :inline-ai-highlight-reference="props.inlineAiHighlightReference"
                     :enable-quick-triggers="props.enableQuickTriggers"
+                    :text-to-image-prompt-controller="props.textToImagePromptController"
                     @change="onPreviewChange"
                     @focus="controller.onPreviewFocus"
                     @blur="handlePreviewBlur"
@@ -108,8 +114,8 @@ function handleSourceBlur(): void {
                     @open-frontmatter-profile="emit('open-frontmatter-profile', $event)"
                     @inline-comments-change="controller.setInlineComments"
                     @inline-comment-select="controller.activateInlineComment"
-                    @generate-text-to-image-prompt="emit('generate-text-to-image-prompt', $event)"
                     @inline-ai-reference="emit('inline-ai-reference', $event)"
+                    @plan-selection-illustration="emit('plan-selection-illustration', $event)"
                 />
                 <template #fallback>
                     <div class="flex min-h-[65vh] items-center justify-center text-[var(--text-muted)]">

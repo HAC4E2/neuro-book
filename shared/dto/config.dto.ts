@@ -26,6 +26,11 @@ import {
 } from "nbook/shared/agent/profile-runtime-settings";
 import {MAX_AGENT_DIFF_MAX_CHARS} from "nbook/shared/agent/file-change-policy";
 import {PiSimpleRequestOptionsSchema} from "nbook/shared/dto/pi-request-options.dto";
+import {
+    ILLUSTRATION_DIRECTOR_BINDING_ID,
+    ILLUSTRATION_DIRECTOR_PROFILE_KEY,
+} from "nbook/shared/agent/illustration-director";
+import {ProjectTagPolicyConfigSchema} from "nbook/shared/text-to-image-tag-policy";
 
 const themeVarNameSet = new Set<string>(themeVarNames);
 
@@ -126,12 +131,37 @@ export const ConfiguredProviderConfigDtoSchema = z.object({
     models: z.array(ConfiguredModelDtoSchema).default([]),
 });
 
+/**
+ * 插图 Director 模型 binding 的只读摘要。
+ *
+ * 该 DTO 故意不包含 Provider secret、NovelAI 模型或任何图片生成参数。
+ */
+export const IllustrationDirectorModelBindingDtoSchema = z.object({
+    bindingId: z.literal(ILLUSTRATION_DIRECTOR_BINDING_ID),
+    configured: z.boolean(),
+    /** 非空表示 Global Config 当前保存的原始 model key；引用失效时 configured 仍为 false。 */
+    modelKey: NullableModelKeySchema,
+    providerId: ProviderIdSchema.nullable().default(null),
+    providerName: z.string().trim().min(1).nullable().default(null),
+    modelId: z.string().trim().min(1).nullable().default(null),
+    modelName: z.string().trim().min(1).nullable().default(null),
+}).strict();
+
 export const ConfigModelSettingsDtoSchema = z.object({
     defaultModelKey: NullableModelKeySchema,
     defaultModelLabel: z.string().trim().nullable().default(null),
     enabledModels: z.array(EnabledModelOptionDtoSchema).default([]),
     providers: z.array(ConfiguredProviderConfigDtoSchema).default([]),
-});
+    illustrationDirector: IllustrationDirectorModelBindingDtoSchema.default({
+        bindingId: ILLUSTRATION_DIRECTOR_BINDING_ID,
+        configured: false,
+        modelKey: null,
+        providerId: null,
+        providerName: null,
+        modelId: null,
+        modelName: null,
+    }),
+}).strict();
 
 export const EmbeddingServiceConfigDtoSchema = z.object({
     enabled: z.boolean().default(false),
@@ -405,6 +435,7 @@ export const GlobalConfigDtoSchema = z.object({
     web: WebConfigDtoSchema,
     observability: ObservabilityConfigDtoSchema,
     history: WorkspaceHistoryConfigDtoSchema,
+    illustration: z.never().optional(),
 }).partial().passthrough();
 
 export const GlobalConfigUpdateDtoSchema = z.object({
@@ -427,9 +458,10 @@ export const GlobalConfigUpdateDtoSchema = z.object({
     web: z.preprocess((value) => value === undefined ? undefined : value, WebConfigDtoSchema).optional(),
     observability: ObservabilityConfigDtoSchema.optional(),
     history: WorkspaceHistoryConfigDtoSchema.optional(),
+    illustration: z.never().optional(),
 }).partial().passthrough();
 
-export const ProjectConfigDtoSchema = z.object({
+const ProjectConfigBaseDtoSchema = z.object({
     models: z.object({
         default: NullableModelKeySchema,
     }).partial().optional(),
@@ -442,7 +474,22 @@ export const ProjectConfigDtoSchema = z.object({
     }).partial().optional(),
     editor: EditorConfigDtoSchema.partial().optional(),
     history: ProjectWorkspaceHistoryConfigDtoSchema.optional(),
+    illustration: z.object({
+        tagPolicy: ProjectTagPolicyConfigSchema,
+    }).strict().optional(),
 }).partial().passthrough();
+
+/** Project Config 可以覆盖 Director settings，但模型 binding 只能由 Global Config 写入。 */
+export const ProjectConfigDtoSchema = ProjectConfigBaseDtoSchema.superRefine((value, ctx) => {
+    const directorModel = value.agent?.profiles?.[ILLUSTRATION_DIRECTOR_PROFILE_KEY]?.model;
+    if (directorModel && Object.keys(directorModel).length > 0) {
+        ctx.addIssue({
+            code: "custom",
+            path: ["agent", "profiles", ILLUSTRATION_DIRECTOR_PROFILE_KEY, "model"],
+            message: "illustration Director model binding 只能由 Global Config 写入",
+        });
+    }
+});
 
 export const ConfigSnapshotDtoSchema = z.object({
     version: z.string().trim().min(1),
@@ -468,6 +515,7 @@ export type ConfigWorkspaceQueryDto = z.infer<typeof ConfigWorkspaceQueryDtoSche
 export type ConfigEditorSnapshotQueryDto = z.infer<typeof ConfigEditorSnapshotQueryDtoSchema>;
 export type ConfigAgentProfileSettingsQueryDto = z.infer<typeof ConfigAgentProfileSettingsQueryDtoSchema>;
 export type ConfigProfileHomeResetRequestDto = z.infer<typeof ConfigProfileHomeResetRequestDtoSchema>;
+export type IllustrationDirectorModelBindingDto = z.infer<typeof IllustrationDirectorModelBindingDtoSchema>;
 export type ConfigModelSettingsDto = z.infer<typeof ConfigModelSettingsDtoSchema>;
 export type CustomThemeDto = z.infer<typeof CustomThemeDtoSchema>;
 export type EmbeddingServiceConfigDto = z.infer<typeof EmbeddingServiceConfigDtoSchema>;

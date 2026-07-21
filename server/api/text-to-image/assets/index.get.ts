@@ -3,7 +3,7 @@ import {TextToImageAssetService} from "nbook/server/text-to-image/asset.service"
 import {requireCurrentUser} from "nbook/server/utils/auth";
 import {assertProjectOpenForRoot} from "nbook/server/workspace-files/project-open-guard";
 
-const statuses = ["queued", "running", "succeeded", "failed", "canceled", "interrupted"] as const;
+const statuses = ["queued", "running", "completing", "succeeded", "failed", "canceled", "interrupted", "configuration_stale", "outcome_unknown"] as const;
 
 export default defineEventHandler(async (event) => {
     await requireCurrentUser(event);

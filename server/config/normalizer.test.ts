@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest";
-import {normalizeGlobalConfig, resolveEffectiveConfig} from "nbook/server/config/normalizer";
+import {normalizeGlobalConfig, normalizeProjectConfig, resolveEffectiveConfig} from "nbook/server/config/normalizer";
 import type {StoredProjectConfig} from "nbook/server/config/types";
 
 describe("config normalizer theme", () => {
@@ -203,5 +203,88 @@ describe("config normalizer workspace history", () => {
         expect(effective.history.retentionFullDays).toBe(7);
         expect(effective.history.autoAcceptEnabled).toBe(false);
         expect(effective.history.autoAcceptDays).toBe(14);
+    });
+});
+
+describe("illustration Director model binding", () => {
+    it("Project model 不能覆盖 Global binding，但 Project settings 仍参与合并", () => {
+        const global = normalizeGlobalConfig({
+            agent: {
+                profiles: {
+                    "illustration.director": {
+                        model: {modelKey: "global/director-model"},
+                        settings: {storyboardId: "storyboard/global"},
+                    },
+                },
+            },
+        });
+        const project = {
+            agent: {
+                profiles: {
+                    "illustration.director": {
+                        model: {modelKey: "project/forbidden-model"},
+                        settings: {storyboardId: "storyboard/project"},
+                    },
+                },
+            },
+        } as StoredProjectConfig;
+
+        const effective = resolveEffectiveConfig(global, project);
+
+        expect(effective.agent.profiles["illustration.director"]?.model.modelKey).toBe("global/director-model");
+        expect(effective.agent.profiles["illustration.director"]?.settings).toEqual({
+            storyboardId: "storyboard/project",
+        });
+    });
+
+    it("Director runtime model 不继承 Global 或 Project 的通用 Profile 默认模型", () => {
+        const global = normalizeGlobalConfig({
+            agent: {
+                profileModelDefaults: {modelKey: "global/shared-default"},
+                profiles: {
+                    "illustration.director": {
+                        model: {modelKey: null},
+                    },
+                },
+            },
+        });
+        const project = {
+            agent: {
+                profileModelDefaults: {modelKey: "project/shared-default"},
+                profiles: {
+                    "illustration.director": {
+                        settings: {storyboardId: "storyboard/project"},
+                    },
+                },
+            },
+        } as StoredProjectConfig;
+
+        expect(resolveEffectiveConfig(global, project).agent.profiles["illustration.director"]?.model.modelKey).toBeNull();
+    });
+});
+
+describe("illustration Tag policy Project truth source", () => {
+    it("uses the safe product default and only accepts a complete strict Project override", () => {
+        const global = normalizeGlobalConfig({});
+        expect(resolveEffectiveConfig(global, null).illustration.tagPolicy).toEqual({
+            contentScope: "general",
+            unknownTagPolicy: "provider_passthrough",
+        });
+
+        const project = normalizeProjectConfig({
+            illustration: {
+                tagPolicy: {contentScope: "all", unknownTagPolicy: "review_required"},
+            },
+        });
+        expect(project.illustration?.tagPolicy).toEqual({
+            contentScope: "all",
+            unknownTagPolicy: "review_required",
+        });
+        expect(resolveEffectiveConfig(global, project).illustration.tagPolicy).toEqual(project.illustration?.tagPolicy);
+        expect(() => normalizeProjectConfig({
+            illustration: {
+                tagPolicy: {contentScope: "general", unknownTagPolicy: "block"},
+            },
+        } as never)).toThrow();
     });
 });

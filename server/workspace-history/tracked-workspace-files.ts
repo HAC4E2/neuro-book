@@ -105,6 +105,37 @@ export async function writeResolvedProjectTextFileTracked(input: {
     });
 }
 
+/**
+ * 已完成 Project root containment 校验后的单文件删除 + 记账。
+ *
+ * 后台事务使用该入口，避免把已解析绝对根再次交给依赖 State Root 的通用 workspace resolver。
+ */
+export async function deleteResolvedProjectFileTracked(input: {
+    projectPath: string;
+    projectRoot: string;
+    filePath: string;
+    actor: OperationActor;
+}): Promise<void> {
+    const expectedRoot = resolveProjectAbsolutePath(input.projectPath);
+    if (path.resolve(input.projectRoot) !== expectedRoot) {
+        throw new Error("已解析的 Project 根与 projectPath 不一致。");
+    }
+    if (path.isAbsolute(input.filePath)) {
+        throw new Error("Project 追踪删除只接受相对路径。");
+    }
+    const absolutePath = resolveWorkspacePath(expectedRoot, input.filePath);
+    const stat = await fs.stat(absolutePath);
+    if (!stat.isFile()) throw new Error("Project 追踪删除只接受普通文件。");
+    const before = await fs.readFile(absolutePath);
+    await fs.unlink(absolutePath);
+    await recordProjectDelete({
+        projectPath: input.projectPath,
+        relativePath: input.filePath,
+        actor: input.actor,
+        before,
+    });
+}
+
 /** 创建新文本文件 + 记账（已存在时核心函数拒绝，不会产生覆盖语义）。 */
 export async function createWorkspaceFileTracked(input: WorkspaceNewFileInput & {actor: OperationActor}): Promise<WorkspaceFileNode> {
     const node = await createWorkspaceFile(input);

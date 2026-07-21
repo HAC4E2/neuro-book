@@ -6,6 +6,7 @@ import {createClient} from "@libsql/client";
 import {describe, expect, it} from "vitest";
 import {
     assertProjectWorkspaceDirectory,
+    ensureIllustrationExecutionRegistrationSchema,
     initProjectDatabaseAtRoot,
     toSqliteFileUrl,
 } from "nbook/server/workspace-files/project-workspace";
@@ -23,6 +24,53 @@ describe("assertProjectWorkspaceDirectory", () => {
 });
 
 describe("initProjectDatabaseAtRoot", () => {
+    it("为旧 Job 表幂等补齐 immutable registration columns 与 idempotency unique", async () => {
+        const client = createClient({url: ":memory:"});
+        try {
+            await client.execute(`CREATE TABLE "TextToImageJob" (
+                "id" TEXT NOT NULL PRIMARY KEY,
+                "providerId" INTEGER NOT NULL,
+                "status" TEXT NOT NULL
+            )`);
+            await client.execute(`CREATE TABLE "TextToImageDispatchOutbox" (
+                "id" TEXT NOT NULL PRIMARY KEY,
+                "dispatchKey" TEXT NOT NULL,
+                "jobId" TEXT NOT NULL,
+                "manifestId" TEXT NOT NULL,
+                "manifestHash" TEXT NOT NULL,
+                "registrationVersion" TEXT NOT NULL,
+                "state" TEXT NOT NULL DEFAULT 'pending'
+            )`);
+            await ensureIllustrationExecutionRegistrationSchema(client);
+            await ensureIllustrationExecutionRegistrationSchema(client);
+            const columns = await client.execute(`PRAGMA table_info("TextToImageJob")`);
+            expect(columns.rows.map((row) => String(row.name))).toEqual(expect.arrayContaining([
+                "originJson",
+                "sourceIdentityHash",
+                "providerOwnerUserId",
+                "providerCredentialRevision",
+                "executionManifestId",
+                "executionApprovalId",
+                "compiledRequestHash",
+                "idempotencyKey",
+                "variantIndex",
+                "activeAttemptId",
+                "activeAttemptFence",
+                "outputIndex",
+            ]));
+            const outboxColumns = await client.execute(`PRAGMA table_info("TextToImageDispatchOutbox")`);
+            expect(outboxColumns.rows.map((row) => String(row.name))).toEqual(expect.arrayContaining([
+                "preparationId",
+                "prepareAttemptId",
+                "prepareVersion",
+            ]));
+            await client.execute(`INSERT INTO "TextToImageJob" ("id", "providerId", "status", "idempotencyKey") VALUES ('job-1', 1, 'queued', 'same-key')`);
+            await expect(client.execute(`INSERT INTO "TextToImageJob" ("id", "providerId", "status", "idempotencyKey") VALUES ('job-2', 1, 'queued', 'same-key')`)).rejects.toThrow();
+        } finally {
+            client.close();
+        }
+    });
+
     it("创建和升级 Project SQLite 时都会提供文生图任务与资产表", async () => {
         const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-text-to-image-project-"));
         try {
@@ -32,13 +80,25 @@ describe("initProjectDatabaseAtRoot", () => {
             try {
                 const tables = await client.execute(`
                     SELECT "name" FROM sqlite_schema
-                    WHERE type = 'table' AND "name" IN ('TextToImageJob', 'TextToImageAsset')
+                    WHERE type = 'table' AND "name" IN (
+                        'TextToImageJob', 'TextToImageAsset',
+                        'IllustrationPlanningWorkflow', 'IllustrationPlanningAttempt',
+                        'IllustrationExecutionManifest', 'IllustrationExecutionApproval', 'TextToImageDispatchOutbox'
+                    )
                     ORDER BY "name"
                 `);
                 expect(tables.rows.map((row) => String(row.name))).toEqual([
+                    "IllustrationExecutionApproval",
+                    "IllustrationExecutionManifest",
+                    "IllustrationPlanningAttempt",
+                    "IllustrationPlanningWorkflow",
                     "TextToImageAsset",
+                    "TextToImageDispatchOutbox",
                     "TextToImageJob",
                 ]);
+
+                const projectId = (await client.execute(`SELECT "value" FROM "ProjectMetadata" WHERE "key" = 'projectId'`)).rows[0]?.value;
+                expect(String(projectId)).toMatch(/^project-[a-f0-9]{32}$/u);
 
                 const columns = await client.execute(`PRAGMA table_info("TextToImageJob")`);
                 expect(columns.rows.map((row) => String(row.name))).toEqual(expect.arrayContaining([
@@ -49,9 +109,28 @@ describe("initProjectDatabaseAtRoot", () => {
                     "sourcePath",
                     "sourceAnchorId",
                     "sourceInsertStatus",
+                    "providerSnapshotJson",
                     "requestJson",
+                    "originJson",
+                    "sourceIdentityHash",
+                    "providerOwnerUserId",
+                    "providerCredentialRevision",
+                    "executionManifestId",
+                    "executionApprovalId",
+                    "compiledRequestHash",
+                    "idempotencyKey",
+                    "variantIndex",
+                    "activeAttemptId",
+                    "activeAttemptFence",
+                    "outputIndex",
                     "resultAssetIdsJson",
                     "attemptCount",
+                ]));
+                const outboxColumns = await client.execute(`PRAGMA table_info("TextToImageDispatchOutbox")`);
+                expect(outboxColumns.rows.map((row) => String(row.name))).toEqual(expect.arrayContaining([
+                    "preparationId",
+                    "prepareAttemptId",
+                    "prepareVersion",
                 ]));
             } finally {
                 client.close();

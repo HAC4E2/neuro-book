@@ -4,7 +4,10 @@ import type {MarkdownStudioController} from "nbook/app/composables/useMarkdownSt
 import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
 import type {WorkspaceEditorKind, WorkspaceEditorTab, WorkspaceEditorViewMode, WorkspaceFileNode} from "nbook/app/stores/novel-ide";
 import type {WorkspaceReferenceResolver} from "nbook/app/components/markdown-studio/tiptap/WorkspaceReference";
-import type {TextToImagePromptGeneratePayload} from "nbook/app/components/markdown-studio/tiptap/TextToImagePrompt";
+import {
+    type TextToImagePromptController,
+    unavailableTextToImagePromptController,
+} from "nbook/app/components/markdown-studio/tiptap/TextToImagePrompt";
 import type {FrontmatterProfileKind, MarkdownEditorPreferences, MonacoEditorPreferences} from "nbook/shared/editor-workbench";
 import {resolveMonacoLanguage, resolveWorkspaceFileExtension} from "nbook/shared/editor-workbench";
 import MarkdownStudio from "nbook/app/components/markdown-studio/MarkdownStudio.vue";
@@ -39,8 +42,10 @@ const props = withDefaults(defineProps<{
     inlineAiReferences?: InlineEditReference[];
     inlineAiHighlightReference?: InlineEditReference | null;
     enableQuickTriggers?: boolean;
-    canGenerateBodyImage?: boolean;
-    bodyImageBusy?: boolean;
+    canPlanIllustrations?: boolean;
+    illustrationPlanningBusy?: boolean;
+    illustrationPlanningUnavailableReason?: string;
+    textToImagePromptController?: TextToImagePromptController;
 }>(), {
     activeTabRows: 3,
     agentModeActive: false,
@@ -54,8 +59,10 @@ const props = withDefaults(defineProps<{
     openReference: () => {},
     inlineAiReferences: () => [],
     enableQuickTriggers: false,
-    canGenerateBodyImage: false,
-    bodyImageBusy: false,
+    canPlanIllustrations: false,
+    illustrationPlanningBusy: false,
+    illustrationPlanningUnavailableReason: "",
+    textToImagePromptController: () => unavailableTextToImagePromptController,
 });
 
 const emit = defineEmits<{
@@ -66,8 +73,7 @@ const emit = defineEmits<{
     (e: "keep-tab", path: string): void;
     (e: "move-tab", path: string, targetPath: string | null, targetPinned: boolean, position: "before" | "after"): void;
     (e: "set-view-mode", mode: WorkspaceEditorViewMode): void;
-    (e: "generate-body-image"): void;
-    (e: "generate-text-to-image-prompt", payload: TextToImagePromptGeneratePayload): void;
+    (e: "plan-illustrations"): void;
     (e: "save-request"): void;
     (e: "open-frontmatter-profile", kind: FrontmatterProfileKind): void;
     (e: "update-monaco-temporary-font-size", value: number): void;
@@ -84,6 +90,7 @@ const emit = defineEmits<{
     (e: "open-profile-workbench"): void;
     (e: "more"): void;
     (e: "inline-ai-reference", reference: InlineEditReference): void;
+    (e: "plan-selection-illustration", reference: InlineEditReference): void;
 }>();
 
 defineSlots<{
@@ -113,15 +120,16 @@ watch(() => props.activePath, () => {
             :comment-view-open="props.controller.commentViewOpen.value"
             :comment-count="props.controller.inlineComments.value.length"
             :active-tab-rows="props.activeTabRows"
-            :can-generate-body-image="props.canGenerateBodyImage"
-            :body-image-busy="props.bodyImageBusy"
+            :can-plan-illustrations="props.canPlanIllustrations"
+            :illustration-planning-busy="props.illustrationPlanningBusy"
+            :illustration-planning-unavailable-reason="props.illustrationPlanningUnavailableReason"
             @select-tab="emit('select-tab', $event)"
             @close-tab="emit('close-tab', $event)"
             @set-pin="(path, pinned) => emit('set-pin', path, pinned)"
             @keep-tab="emit('keep-tab', $event)"
             @move-tab="(path, targetPath, targetPinned, position) => emit('move-tab', path, targetPath, targetPinned, position)"
             @set-view-mode="emit('set-view-mode', $event)"
-            @generate-body-image="emit('generate-body-image')"
+            @plan-illustrations="emit('plan-illustrations')"
             @toggle-comment-view="props.controller.commentViewOpen.value ? props.controller.closeCommentView() : props.controller.openCommentView()"
             @more="emit('more')"
         />
@@ -169,11 +177,12 @@ watch(() => props.activePath, () => {
                         :inline-ai-references="props.inlineAiReferences"
                         :inline-ai-highlight-reference="props.inlineAiHighlightReference"
                         :enable-quick-triggers="props.enableQuickTriggers"
+                        :text-to-image-prompt-controller="props.textToImagePromptController"
                         @save-request="emit('save-request')"
                         @open-frontmatter-profile="emit('open-frontmatter-profile', $event)"
                         @update-monaco-temporary-font-size="emit('update-monaco-temporary-font-size', $event)"
-                        @generate-text-to-image-prompt="emit('generate-text-to-image-prompt', $event)"
                         @inline-ai-reference="emit('inline-ai-reference', $event)"
+                        @plan-selection-illustration="emit('plan-selection-illustration', $event)"
                     />
                     <MarkdownCommentFlowPanel
                         v-if="props.controller.commentViewOpen.value"

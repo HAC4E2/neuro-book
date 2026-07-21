@@ -6,27 +6,46 @@ import {
 } from "nbook/shared/text-to-image-markdown";
 
 describe("text-to-image Markdown contract", () => {
-    it("round-trips a compact structured prompt placeholder", () => {
+    it("round-trips a V2 reference-only prompt placeholder", () => {
         const markdown = renderTextToImagePromptMarkdown({
-            id: "tti-1",
-            prompt: "1girl, rain",
-            negativePrompt: "lowres",
-            characterIds: ["alice"],
-            sourceChapterHash: "a".repeat(64),
+            id: "image_prompt_01",
+            schema: "nbook.text-to-image-prompt/v2",
+            shotId: "shot_01",
+            shotIntentHash: `sha256:${"a".repeat(64)}`,
+            sourceChapterHash: `sha256:${"b".repeat(64)}`,
+            anchorId: "p_0001_abcdef12",
+            origin: "selection",
         });
 
-        expect(markdown).toBe(`<text-to-image-prompt id="tti-1">\n{"prompt":"1girl, rain","negativePrompt":"lowres","characterIds":["alice"],"sourceChapterHash":"${"a".repeat(64)}"}\n</text-to-image-prompt>`);
+        expect(markdown).toBe(`<text-to-image-prompt id="image_prompt_01">\n{"schema":"nbook.text-to-image-prompt/v2","shotId":"shot_01","shotIntentHash":"sha256:${"a".repeat(64)}","sourceChapterHash":"sha256:${"b".repeat(64)}","anchorId":"p_0001_abcdef12","origin":"selection"}\n</text-to-image-prompt>`);
         expect(parseTextToImagePromptMarkdown(markdown)).toEqual({
-            id: "tti-1",
-            prompt: "1girl, rain",
-            negativePrompt: "lowres",
-            characterIds: ["alice"],
-            sourceChapterHash: "a".repeat(64),
+            id: "image_prompt_01",
+            schema: "nbook.text-to-image-prompt/v2",
+            shotId: "shot_01",
+            shotIntentHash: `sha256:${"a".repeat(64)}`,
+            sourceChapterHash: `sha256:${"b".repeat(64)}`,
+            anchorId: "p_0001_abcdef12",
+            origin: "selection",
         });
     });
 
-    it("rejects malformed placeholder payloads and renders a safe standard image", () => {
+    it("rejects V1/final-prompt payloads and renders a safe standard image", () => {
         expect(parseTextToImagePromptMarkdown("<text-to-image-prompt id=\"tti-1\">not-json</text-to-image-prompt>")).toBeNull();
+        expect(parseTextToImagePromptMarkdown(`<text-to-image-prompt id="tti-1">\n${JSON.stringify({
+            prompt: "1girl, rain",
+            negativePrompt: "lowres",
+            characterIds: ["alice"],
+            sourceChapterHash: "a".repeat(64),
+        })}\n</text-to-image-prompt>`)).toBeNull();
+        expect(parseTextToImagePromptMarkdown(`<text-to-image-prompt id="tti-1">\n${JSON.stringify({
+            schema: "nbook.text-to-image-prompt/v2",
+            shotId: "shot_01",
+            shotIntentHash: `sha256:${"a".repeat(64)}`,
+            sourceChapterHash: `sha256:${"b".repeat(64)}`,
+            anchorId: "p_0001_abcdef12",
+            origin: "selection",
+            prompt: "forbidden final prompt",
+        })}\n</text-to-image-prompt>`)).toBeNull();
         expect(renderTextToImageAssetMarkdown({
             id: "asset-1",
             jobId: "job-1",

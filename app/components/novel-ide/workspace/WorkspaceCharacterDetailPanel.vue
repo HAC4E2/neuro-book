@@ -12,7 +12,13 @@ import {
 import {useNotification} from "nbook/app/composables/useNotification";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {useNovelIdeStore, type WorkspaceFileIssue, type WorkspaceFileNode} from "nbook/app/stores/novel-ide";
-import {useTextToImageStore} from "nbook/app/stores/text-to-image";
+import type {CharacterVisualMigrationSnapshot} from "nbook/shared/text-to-image-character-migration";
+import type {
+    CharacterVisualDirectorGenerateResult,
+    CharacterVisualDirectorPreview,
+    CharacterVisualMergeDecision,
+    CharacterVisualMergeField,
+} from "nbook/shared/text-to-image-character-source";
 
 type CharacterRef = {
     relation: string;
@@ -43,13 +49,6 @@ type CharacterDraft = {
     character: CharacterExt;
 };
 
-type CharacterImageTagsGenerateResponse = {
-    detailPath: string;
-    imageTagsPath: string;
-    outfitPaths: string[];
-    warnings: string[];
-};
-
 const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
 
 const props = defineProps<{
@@ -68,16 +67,17 @@ const emit = defineEmits<{
 }>();
 
 const store = useNovelIdeStore();
-const textToImageStore = useTextToImageStore();
 const notification = useNotification();
 const {t} = useI18n();
 const {currentNovelId, selectedFileContent, savingFile} = storeToRefs(store);
-const {providers, taskPrompts} = storeToRefs(textToImageStore);
 const editForm = ref<CharacterDraft | null>(null);
 const lastAppliedContent = ref("");
 const diagnostics = ref("");
 const dialogOpen = ref(false);
 const generatingImageTags = ref(false);
+const directorPreview = ref<CharacterVisualDirectorPreview | null>(null);
+const directorDecisions = ref<Partial<Record<CharacterVisualMergeField, CharacterVisualMergeDecision["choice"]>>>({});
+const preparingDirectorProposal = ref(false);
 const activeTab = ref<"overview" | "profile" | "relations">("overview");
 const expandedSections = ref({
     profile: true,
@@ -95,14 +95,9 @@ const statusOptions = computed<SelectOption[]>(() => [
     {value: "active", label: t("ide.workspace.common.statusActive"), description: t("ide.workspace.common.statusActiveDescription"), indicatorClass: getWorkspaceLorebookStatusIndicatorClass("active")},
     {value: "archived", label: t("ide.workspace.common.statusArchived"), description: t("ide.workspace.common.statusArchivedDescription"), indicatorClass: getWorkspaceLorebookStatusIndicatorClass("archived")},
 ]);
-const characterTagProviderOptions = computed<SelectOption[]>(() => providers.value
-    .filter((provider) => provider.kind === "openai_compatible")
-    .map((provider) => ({
-        value: String(provider.id),
-        label: `${provider.name} · ${provider.model}`,
-        iconClass: "i-lucide-brain-circuit",
-    })));
-const characterTagProviderId = computed(() => textToImageStore.resolveLlmTaskBinding("characterDesign").providerId);
+const allDirectorConflictsDecided = computed(() => directorPreview.value?.rows
+    .filter((row) => row.decisionRequired)
+    .every((row) => Boolean(directorDecisions.value[row.field])) ?? false);
 const isDirty = computed(() => editForm.value ? renderDraft(editForm.value) !== selectedFileContent.value : false);
 const relatedIssues = computed(() => {
     if (!props.node) {
@@ -132,7 +127,7 @@ async function saveDraft(): Promise<void> {
 }
 
 /**
- * 从当前角色详情页生成同目录 image-tags.md，并打开生成后的文件分页。
+ * 通过唯一 illustration.director binding 生成不可执行 proposal；不直接写 image-tags。
  */
 async function generateImageTags(): Promise<void> {
     if (!editForm.value || !props.node || generatingImageTags.value) {
@@ -142,52 +137,68 @@ async function generateImageTags(): Promise<void> {
         notification.error("当前没有打开的 Project Workspace。", {title: "生成角色 tag"});
         return;
     }
-    await textToImageStore.refreshProviders();
-    const {apiConfig, providerId} = textToImageStore.resolveLlmTaskBinding("characterDesign");
-    if (providerId === null) {
-        notification.error("请先为角色设计选择 OpenAI-compatible Provider。", {title: "生成角色 tag"});
-        return;
-    }
-
     generatingImageTags.value = true;
     try {
         await saveDraft();
-        const characterMarkdown = renderDraft(editForm.value);
-        const result = await $fetch<CharacterImageTagsGenerateResponse>("/api/text-to-image/character-image-tags", {
+        const result = await $fetch<CharacterVisualDirectorGenerateResult>("/api/text-to-image/character-image-tags", {
             method: "POST",
             body: {
                 projectPath: currentNovelId.value,
                 characterPath: props.node.path,
-                characterTitle: editForm.value.title,
-                characterMarkdown,
-                taskPrompt: taskPrompts.value.characterDesign.prompt,
-                llm: {
-                    providerId,
-                    parameters: apiConfig.parameters,
-                },
             },
         });
-        await store.loadWorkspaceTree({bypassPendingRequest: true});
-        await store.selectWorkspacePath(result.imageTagsPath, "permanent");
-        const warningText = result.warnings.filter(Boolean).join("\n");
-        if (warningText) {
-            notification.warning(warningText, {title: "生成角色 tag"});
-        } else {
-            const outfitText = result.outfitPaths.length > 0 ? `，同步 ${result.outfitPaths.length} 件服装` : "";
-            notification.success(`已生成 ${result.imageTagsPath}${outfitText}`, {title: "生成角色 tag"});
+        if (result.state === "blocked") {
+            directorPreview.value = null;
+            directorDecisions.value = {};
+            notification.warning([result.summary, ...result.diagnostics.map((item) => item.message)].join("\n"), {title: "角色视觉 proposal 已阻断"});
+            return;
         }
+        directorPreview.value = result.preview;
+        directorDecisions.value = {};
+        notification.info("角色视觉 proposal 已生成；请检查字段差异并确认冲突决策。", {title: "待审核 proposal"});
     } catch (error) {
-        notification.error(resolveApiErrorMessage(error, "生成角色 tag 失败"), {title: "生成角色 tag"});
+        notification.error(resolveApiErrorMessage(error, "生成角色视觉 proposal 失败"), {title: "生成角色视觉 proposal"});
     } finally {
         generatingImageTags.value = false;
     }
 }
 
-/** 角色 image-tag 生成只绑定 Provider ID，凭据永不进入组件状态。 */
-function selectCharacterTagProvider(value: string): void {
-    textToImageStore.updateLlmTaskBinding("characterDesign", {
-        providerId: value ? Number(value) : null,
-    });
+/** 把当前 preview 的全部 conflict 决策转换成统一 migration candidate。 */
+async function prepareDirectorMigration(): Promise<void> {
+    const preview = directorPreview.value;
+    if (!preview || !currentNovelId.value || !allDirectorConflictsDecided.value || preparingDirectorProposal.value) return;
+    preparingDirectorProposal.value = true;
+    try {
+        const snapshot = await $fetch<CharacterVisualMigrationSnapshot>("/api/text-to-image/character-visual-migrations/director-prepare", {
+            method: "POST",
+            body: {
+                projectPath: currentNovelId.value,
+                proposalId: preview.proposalId,
+                expectedPreviewHash: preview.previewHash,
+                decisions: preview.rows.filter((row) => row.decisionRequired).map((row) => ({
+                    field: row.field,
+                    choice: directorDecisions.value[row.field],
+                })),
+            },
+        });
+        directorPreview.value = null;
+        directorDecisions.value = {};
+        notification.success(`已创建 ${snapshot.candidate.migrationId}；请在文生图分页继续 Tag 解析、逐项接受和 apply。`, {title: "角色视觉 migration proposal"});
+    } catch (error) {
+        notification.error(resolveApiErrorMessage(error, "创建角色视觉 migration proposal 失败"), {title: "创建 proposal 失败"});
+    } finally {
+        preparingDirectorProposal.value = false;
+    }
+}
+
+/** 固定字段显示名。 */
+function directorFieldLabel(field: CharacterVisualMergeField): string {
+    return {
+        profileTraits: "角色特征", facialAppearance: "五官正面", facialBack: "五官背面",
+        upperSfw: "上身 SFW", upperBackSfw: "上身背面 SFW", lowerSfw: "全身 SFW",
+        lowerBackSfw: "全身背面 SFW", upperNsfw: "上身 NSFW", upperBackNsfw: "上身背面 NSFW",
+        lowerNsfw: "全身 NSFW", lowerBackNsfw: "全身背面 NSFW", negativePrompt: "负向提示",
+    }[field];
 }
 
 /**
@@ -263,6 +274,8 @@ watch(() => [props.node?.path, selectedFileContent.value], () => {
     editForm.value = createDraft(props.node, parsed.frontmatter, parsed.body);
     lastAppliedContent.value = selectedFileContent.value;
     diagnostics.value = parsed.error ?? "";
+    directorPreview.value = null;
+    directorDecisions.value = {};
     if (props.dialogOnly) {
         dialogOpen.value = props.modelValue === true;
     }
@@ -547,17 +560,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
                     </div>
                 </div>
                 <div class="flex shrink-0 items-center gap-1">
-                    <div class="w-48">
-                        <FormSelect
-                            :model-value="characterTagProviderId === null ? '' : String(characterTagProviderId)"
-                            :options="characterTagProviderOptions"
-                            placeholder="选择角色设计 Provider"
-                            size="sm"
-                            dropdown-direction="down"
-                            @update:model-value="selectCharacterTagProvider"
-                        />
-                    </div>
-                    <button class="icon-action" type="button" title="生成角色 tag" :disabled="savingFile || generatingImageTags" @click="void generateImageTags()">
+                    <button class="icon-action" type="button" title="用插图 Director 生成角色视觉 proposal" :disabled="savingFile || generatingImageTags" @click="void generateImageTags()">
                         <span class="h-4 w-4" :class="generatingImageTags ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-tags'"></span>
                     </button>
                     <button class="icon-action" type="button" :title="t('ide.workspace.common.refresh')" @click="emit('refresh')"><span class="i-lucide-refresh-cw h-4 w-4"></span></button>
@@ -571,6 +574,18 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
         <div v-if="editForm" class="space-y-3 text-[11px]" :class="savingFile ? 'pointer-events-none opacity-80' : ''">
             <div v-if="diagnostics" class="rounded-md border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-3 py-2 text-[var(--status-warning)]">{{ diagnostics }}</div>
             <div v-for="issue in relatedIssues" :key="`${issue.code}:${issue.path}:${issue.message}`" class="rounded-md border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-3 py-2 text-[var(--status-warning)]">[{{ issue.level }}] {{ issue.message }}</div>
+
+            <!-- illustration.director 只读字段 diff；确认后仍只创建 migration proposal -->
+            <div v-if="directorPreview" class="space-y-2 rounded-lg border border-[var(--status-info-border)] bg-[var(--status-info-bg)] p-3">
+                <div class="flex flex-wrap items-start justify-between gap-2"><div><div class="font-semibold text-[var(--status-info)]">角色视觉 proposal 待审核</div><code class="text-[9px] text-[var(--text-muted)]">{{ directorPreview.proposalId }} · {{ directorPreview.targetStatus }}</code></div><span class="text-[10px] text-[var(--text-muted)]">新增 {{ directorPreview.outfits.length }} 个 create-only outfit</span></div>
+                <div v-for="item in directorPreview.diagnostics" :key="`${item.code}:${item.message}`" class="rounded border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-2 py-1.5 text-[10px] text-[var(--status-warning)]"><strong>{{ item.code }}</strong> · {{ item.message }}</div>
+                <div v-for="row in directorPreview.rows" :key="row.field" class="grid gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-card)] p-2 lg:grid-cols-[7rem_1fr_1fr]">
+                    <div class="font-medium text-[var(--text-main)]">{{ directorFieldLabel(row.field) }}<div class="mt-1 text-[9px] text-[var(--text-muted)]">{{ row.state }}</div></div>
+                    <label class="space-y-1 text-[10px] text-[var(--text-secondary)]"><span>保留 Project</span><textarea :value="row.existingText" readonly class="h-14 w-full resize-none rounded border border-[var(--border-color)] bg-[var(--bg-input)] p-1.5 text-[9px] text-[var(--text-main)]"></textarea><input v-if="row.decisionRequired" v-model="directorDecisions[row.field]" type="radio" :name="`director-${row.field}`" value="keep_existing" class="accent-[var(--accent-main)]" /> <span v-if="row.decisionRequired">选择此项</span></label>
+                    <label class="space-y-1 text-[10px] text-[var(--text-secondary)]"><span>使用 Director proposal</span><textarea :value="row.proposalText" readonly class="h-14 w-full resize-none rounded border border-[var(--border-color)] bg-[var(--bg-input)] p-1.5 text-[9px] text-[var(--text-main)]"></textarea><input v-if="row.decisionRequired" v-model="directorDecisions[row.field]" type="radio" :name="`director-${row.field}`" value="use_proposal" class="accent-[var(--accent-main)]" /> <span v-if="row.decisionRequired">选择此项</span></label>
+                </div>
+                <div class="flex justify-end"><button type="button" class="h-8 rounded-md bg-[var(--accent-main)] px-3 text-[10px] font-medium text-[var(--text-inverse)] disabled:opacity-50" :disabled="preparingDirectorProposal || !allDirectorConflictsDecided" @click="void prepareDirectorMigration()">确认字段决策并创建 migration proposal</button></div>
+            </div>
 
             <!-- 角色表单分页 -->
             <div class="flex rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] p-1">

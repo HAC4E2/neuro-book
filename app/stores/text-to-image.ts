@@ -3,15 +3,23 @@
 import type {
     TextToImageJobDto,
     TextToImageJobPageDto,
-    TextToImageProviderDto,
+    TextToImageNovelAiInspectionDto,
 } from "nbook/shared/dto/text-to-image.dto";
+import {
+    createDefaultTextToImageRecipeSource,
+    TextToImageRecipeSourceSchema,
+    type TextToImageRecipeSnapshot,
+    type TextToImageRecipeSource,
+} from "nbook/shared/text-to-image-recipe";
+import {
+    inspectTextToImageRecipeMigration,
+    removeTextToImageRecipeMigrationKeys,
+    type TextToImageRecipeMigrationInspection,
+} from "nbook/app/utils/text-to-image-recipe-migration";
 
 export type NovelAiSmeaMode = "auto" | "off" | "on";
 
 export type NovelAiApiSettings = {
-    token: string;
-    apiBaseUrl: string;
-    imageBaseUrl: string;
     model: string;
     sampler: string;
     noiseSchedule: string;
@@ -27,70 +35,6 @@ export type NovelAiApiSettings = {
     height: number;
     steps: number;
     seed: number;
-};
-
-export type TextToImageLlmParameters = {
-    temperature: number;
-    topP: number;
-    maxTokens: number;
-};
-
-export type TextToImageLlmSettings = {
-    apiBaseUrl: string;
-    apiKey: string;
-    model: string;
-    availableModels: string[];
-    parameters: TextToImageLlmParameters;
-    stream: boolean;
-    sendImages: boolean;
-    activeApiConfigId: string;
-    apiConfigs: TextToImageLlmApiConfig[];
-};
-
-export type TextToImageLlmApiConfig = {
-    id: string;
-    name: string;
-    apiBaseUrl: string;
-    apiKey: string;
-    model: string;
-    availableModels: string[];
-    parameters: TextToImageLlmParameters;
-    stream: boolean;
-    sendImages: boolean;
-};
-
-export type TextToImageLlmContextRole = "system" | "user" | "assistant";
-export type TextToImageLlmContextTriggerMode = "always" | "trigger";
-
-export type TextToImageLlmContextEntry = {
-    id: string;
-    name: string;
-    role: TextToImageLlmContextRole;
-    triggerMode: TextToImageLlmContextTriggerMode;
-    content: string;
-    enabled: boolean;
-};
-
-export type TextToImageLlmContextPreset = {
-    id: string;
-    name: string;
-    entries: TextToImageLlmContextEntry[];
-    updatedAt: string | null;
-};
-
-export type TextToImageLlmTaskBinding = {
-    task: TextToImagePromptTask;
-    /** 服务端 Provider 主键；浏览器不保存 LLM 凭据。 */
-    providerId: number | null;
-    apiConfigId: string;
-    contextPresetId: string;
-};
-
-export type TextToImageLastLlmExchange = {
-    task: TextToImagePromptTask | "";
-    prompt: string;
-    response: string;
-    updatedAt: string | null;
 };
 
 export type TextToImageOutputSettings = {
@@ -120,35 +64,6 @@ export type TextToImageGenerationResult = {
     negativePrompt: string;
 };
 
-export type TextToImagePromptTask = "bodyImage" | "characterDesign" | "characterRevision";
-
-export type TextToImageTaskPrompt = {
-    task: TextToImagePromptTask;
-    prompt: string;
-    importedName: string;
-    updatedAt: string | null;
-};
-
-export type TextToImageVibeReference = {
-    id: string;
-    enabled: boolean;
-    displayName: string;
-    vibeEncoding: string;
-    imageDataUrl: string;
-    sourceType: "png" | "naiv4vibe" | "naiv4vibebundle" | "rawImage";
-    strength: number;
-    infoExtracted: number;
-};
-
-export type TextToImageCharacterReference = {
-    id: string;
-    enabled: boolean;
-    displayName: string;
-    imageDataUrl: string;
-    strength: number;
-    infoExtracted: number;
-};
-
 export type TextToImageNegativeQualityPreset = "none" | "heavy" | "light" | "humanFocus" | "furryFocus";
 
 export type TextToImageStylePreset = {
@@ -161,8 +76,6 @@ export type TextToImageStylePreset = {
     useFurryDataset: boolean;
     positiveQualityPreset: boolean;
     negativeQualityPreset: TextToImageNegativeQualityPreset;
-    vibeReferences: TextToImageVibeReference[];
-    characterReferences: TextToImageCharacterReference[];
 };
 
 export type TextToImageCharacter = {
@@ -218,13 +131,6 @@ export type TextToImageProjectOutfitGroup = {
     activeOutfitId: string | null;
 };
 
-export type TextToImageTagVocabularySource = {
-    id: string;
-    name: string;
-    importedAt: string;
-    entryCount: number;
-};
-
 export type TextToImageLastNovelAiExchange = {
     request: Record<string, unknown> | null;
     warnings: string[];
@@ -232,7 +138,12 @@ export type TextToImageLastNovelAiExchange = {
     updatedAt: string | null;
 };
 
-export const MAX_TEXT_TO_IMAGE_LLM_TOKENS = 30000;
+export type TextToImageRecipeDocument = {
+    exists: boolean;
+    source: TextToImageRecipeSource;
+    /** 服务端文档始终非空；仅本地无效文件修复草稿为空。 */
+    snapshot: TextToImageRecipeSnapshot | null;
+};
 
 export const TEXT_TO_IMAGE_NOVELAI_SAMPLERS: Array<{value: string; label: string}> = [
     {value: "k_euler", label: "Euler"},
@@ -275,19 +186,7 @@ export const TEXT_TO_IMAGE_NEGATIVE_QUALITY_PRESETS: Array<{value: TextToImageNe
     {value: "furryFocus", label: "Furry Focus", description: "Furry 聚焦，适合 Furry 数据集/模型"},
 ];
 
-export const TEXT_TO_IMAGE_PROMPT_TASKS: Array<{key: TextToImagePromptTask; label: string; description: string}> = [
-    {key: "bodyImage", label: "正文图片生成", description: "把正文片段转换为画面 prompt"},
-    {key: "characterDesign", label: "角色/服装设计", description: "从人物设定生成角色和服装 tag"},
-    {key: "characterRevision", label: "角色/服装修改", description: "根据修改意见重写角色和服装 tag"},
-];
-
 const DEFAULT_PROJECT_KEY = "__unbound__";
-
-const DEFAULT_LLM_PARAMETERS: TextToImageLlmParameters = {
-    temperature: 0.7,
-    topP: 0.9,
-    maxTokens: 4096,
-};
 
 const DEFAULT_OUTPUT_SETTINGS: TextToImageOutputSettings = {
     imageSavePath: "",
@@ -300,13 +199,6 @@ const DEFAULT_GENERATION_DRAFT: TextToImageGenerationDraft = {
     batchSize: 1,
 };
 
-const DEFAULT_LAST_LLM_EXCHANGE: TextToImageLastLlmExchange = {
-    task: "",
-    prompt: "",
-    response: "",
-    updatedAt: null,
-};
-
 const DEFAULT_LAST_NOVEL_AI_EXCHANGE: TextToImageLastNovelAiExchange = {
     request: null,
     warnings: [],
@@ -315,9 +207,6 @@ const DEFAULT_LAST_NOVEL_AI_EXCHANGE: TextToImageLastNovelAiExchange = {
 };
 
 const DEFAULT_NOVEL_AI_SETTINGS: NovelAiApiSettings = {
-    token: "",
-    apiBaseUrl: "https://api.novelai.net",
-    imageBaseUrl: "https://image.novelai.net",
     model: "nai-diffusion-4-5-full",
     sampler: "k_euler_ancestral",
     noiseSchedule: "karras",
@@ -340,63 +229,6 @@ const DEFAULT_NOVEL_AI_SETTINGS: NovelAiApiSettings = {
  */
 function createLocalId(prefix: string): string {
     return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-}
-
-/**
- * 创建一条本地 tag 词库来源元数据；具体 tag 条目由 IndexedDB 保存。
- */
-function createTagVocabularySource(name: string, patch: Partial<TextToImageTagVocabularySource> = {}): TextToImageTagVocabularySource {
-    return {
-        id: patch.id ?? createLocalId("tag_vocab"),
-        name: patch.name?.trim() || name || "未命名词库",
-        importedAt: patch.importedAt ?? new Date().toISOString(),
-        entryCount: Math.max(0, Math.round(Number(patch.entryCount ?? 0))),
-    };
-}
-
-/**
- * 创建一条 LLM API 配置。
- */
-function createLlmApiConfig(name = "默认", patch: Partial<TextToImageLlmApiConfig> = {}): TextToImageLlmApiConfig {
-    return {
-        id: patch.id ?? createLocalId("llm_api"),
-        name: patch.name ?? name,
-        apiBaseUrl: patch.apiBaseUrl ?? "",
-        apiKey: patch.apiKey ?? "",
-        model: patch.model ?? "",
-        availableModels: patch.availableModels ?? [],
-        parameters: normalizeLlmParameters(patch.parameters ?? DEFAULT_LLM_PARAMETERS),
-        stream: patch.stream ?? false,
-        sendImages: patch.sendImages ?? false,
-    };
-}
-
-/**
- * 创建一条上下文条目。
- */
-function createLlmContextEntry(name = "新条目", patch: Partial<TextToImageLlmContextEntry> = {}): TextToImageLlmContextEntry {
-    const role = patch.role === "user" || patch.role === "assistant" || patch.role === "system" ? patch.role : "system";
-    const triggerMode = patch.triggerMode === "trigger" ? "trigger" : "always";
-    return {
-        id: patch.id ?? createLocalId("llm_ctx_entry"),
-        name: patch.name ?? name,
-        role,
-        triggerMode,
-        content: patch.content ?? "",
-        enabled: patch.enabled ?? true,
-    };
-}
-
-/**
- * 创建一组上下文预设。
- */
-function createLlmContextPreset(name = "默认上下文", patch: Partial<TextToImageLlmContextPreset> = {}): TextToImageLlmContextPreset {
-    return {
-        id: patch.id ?? createLocalId("llm_ctx"),
-        name: patch.name ?? name,
-        entries: (patch.entries ?? []).map((entry, index) => createLlmContextEntry(entry.name || `条目 ${index + 1}`, entry)),
-        updatedAt: patch.updatedAt ?? null,
-    };
 }
 
 /**
@@ -475,9 +307,6 @@ function normalizeNovelAiSettings(settings: Partial<NovelAiApiSettings> = {}): N
     return {
         ...DEFAULT_NOVEL_AI_SETTINGS,
         ...settings,
-        token: settings.token ?? DEFAULT_NOVEL_AI_SETTINGS.token,
-        apiBaseUrl: settings.apiBaseUrl ?? DEFAULT_NOVEL_AI_SETTINGS.apiBaseUrl,
-        imageBaseUrl: settings.imageBaseUrl ?? DEFAULT_NOVEL_AI_SETTINGS.imageBaseUrl,
         model: settings.model ?? DEFAULT_NOVEL_AI_SETTINGS.model,
         sampler: settings.sampler ?? DEFAULT_NOVEL_AI_SETTINGS.sampler,
         noiseSchedule: settings.noiseSchedule ?? DEFAULT_NOVEL_AI_SETTINGS.noiseSchedule,
@@ -496,37 +325,6 @@ function normalizeNovelAiSettings(settings: Partial<NovelAiApiSettings> = {}): N
     };
 }
 
-/**
- * 创建一条 Vibe 氛围转移参考。
- */
-function createVibeReference(name = "Vibe Reference", patch: Partial<TextToImageVibeReference> = {}): TextToImageVibeReference {
-    const id = patch.id ?? createLocalId("vibe");
-    return {
-        id,
-        enabled: patch.enabled ?? true,
-        displayName: patch.displayName ?? name,
-        vibeEncoding: patch.vibeEncoding ?? "",
-        imageDataUrl: patch.imageDataUrl ?? "",
-        sourceType: patch.sourceType ?? "rawImage",
-        strength: clampNumber(Number(patch.strength ?? 0.6), 0, 1, 0.6),
-        infoExtracted: clampNumber(Number(patch.infoExtracted ?? 0.7), 0, 1, 0.7),
-    };
-}
-
-/**
- * 规整画风串，兼容没有 Vibe 字段的旧配置。
- */
-function createCharacterReference(name = "Character Reference", patch: Partial<TextToImageCharacterReference> = {}): TextToImageCharacterReference {
-    return {
-        id: patch.id ?? createLocalId("char_ref"),
-        enabled: patch.enabled ?? true,
-        displayName: patch.displayName ?? name,
-        imageDataUrl: patch.imageDataUrl ?? "",
-        strength: clampNumber(Number(patch.strength ?? 0.6), 0, 1, 0.6),
-        infoExtracted: clampNumber(Number(patch.infoExtracted ?? 0.7), 0, 1, 0.7),
-    };
-}
-
 function normalizeStylePreset(style: Partial<TextToImageStylePreset>, fallbackName: string): TextToImageStylePreset {
     const negativeQualityPreset = TEXT_TO_IMAGE_NEGATIVE_QUALITY_PRESETS.some((preset) => preset.value === style.negativeQualityPreset)
         ? style.negativeQualityPreset ?? "none"
@@ -541,8 +339,6 @@ function normalizeStylePreset(style: Partial<TextToImageStylePreset>, fallbackNa
         useFurryDataset: style.useFurryDataset ?? false,
         positiveQualityPreset: style.positiveQualityPreset ?? true,
         negativeQualityPreset,
-        vibeReferences: (style.vibeReferences ?? []).map((reference, index) => createVibeReference(reference.displayName || `Vibe ${index + 1}`, reference)),
-        characterReferences: (style.characterReferences ?? []).map((reference, index) => createCharacterReference(reference.displayName || `Character Ref ${index + 1}`, reference)),
     };
 }
 
@@ -560,8 +356,6 @@ function createStylePreset(name = "默认画风串"): TextToImageStylePreset {
         useFurryDataset: false,
         positiveQualityPreset: true,
         negativeQualityPreset: "none",
-        vibeReferences: [],
-        characterReferences: [],
     };
 }
 
@@ -660,135 +454,6 @@ function createPromptReplacementRule(name = "替换规则", patch: Partial<TextT
     };
 }
 
-function createTaskPrompt(task: TextToImagePromptTask, prompt = ""): TextToImageTaskPrompt {
-    return {
-        task,
-        prompt,
-        importedName: "",
-        updatedAt: null,
-    };
-}
-
-/**
- * 创建任务提示词默认集合。
- */
-function createDefaultTaskPrompts(): Record<TextToImagePromptTask, TextToImageTaskPrompt> {
-    return {
-        bodyImage: createTaskPrompt("bodyImage", [
-            "你是正文文生图提示词助手。请根据当前章节正文，为适合插图的位置生成 NovelAI 英文 tags。",
-            "调用方会提供当前章节、命中的角色 image-tags、角色识别报告、本地 tag 词库和 prompt 替换规则。",
-            "只使用命中的角色 image-tags，不要把未命中的角色写入画面。",
-            "角色 tag 请直接展开为英文 tags，不要输出 $角色名$ 触发符。",
-            "每个插图只输出一个 <image>...</image> 块；标签之间用英文逗号分隔；不要输出解释。",
-            "",
-            "<当前章节>",
-            "{{currentChapter}}",
-            "</当前章节>",
-            "",
-            "<命中的角色 image-tags>",
-            "{{characterImageTags}}",
-            "</命中的角色 image-tags>",
-            "",
-            "<角色识别报告>",
-            "{{characterDetectorReport}}",
-            "</角色识别报告>",
-            "",
-            "<本地 tag 词库>",
-            "{{tagData}}",
-            "</本地 tag 词库>",
-        ].join("\n")),
-        characterDesign: createTaskPrompt("characterDesign", [
-            "你是 NovelAI 角色与服装 tag 设计助手。",
-            "根据输入的人物设定，输出适合文生图使用的英文 tag。",
-            "保持字段名不变，不要输出额外解释。",
-        ].join("\n")),
-        characterRevision: createTaskPrompt("characterRevision"),
-    };
-}
-
-/**
- * 创建任务到 LLM API/上下文的默认绑定。
- */
-function createDefaultLlmTaskBindings(apiConfigId = "", contextPresetId = ""): Record<TextToImagePromptTask, TextToImageLlmTaskBinding> {
-    return {
-        bodyImage: {task: "bodyImage", providerId: null, apiConfigId, contextPresetId},
-        characterDesign: {task: "characterDesign", providerId: null, apiConfigId, contextPresetId},
-        characterRevision: {task: "characterRevision", providerId: null, apiConfigId, contextPresetId},
-    };
-}
-
-/**
- * 规整 LLM 参数。
- */
-function normalizeLlmParameters(parameters: Partial<TextToImageLlmParameters>): TextToImageLlmParameters {
-    return {
-        temperature: clampNumber(parameters.temperature ?? DEFAULT_LLM_PARAMETERS.temperature, 0, 2, DEFAULT_LLM_PARAMETERS.temperature),
-        topP: clampNumber(parameters.topP ?? DEFAULT_LLM_PARAMETERS.topP, 0, 1, DEFAULT_LLM_PARAMETERS.topP),
-        maxTokens: Math.round(clampNumber(parameters.maxTokens ?? DEFAULT_LLM_PARAMETERS.maxTokens, 1, MAX_TEXT_TO_IMAGE_LLM_TOKENS, DEFAULT_LLM_PARAMETERS.maxTokens)),
-    };
-}
-
-/**
- * 规整 LLM API 配置。
- */
-function normalizeLlmApiConfig(config: Partial<TextToImageLlmApiConfig>, fallbackName: string): TextToImageLlmApiConfig {
-    return createLlmApiConfig(fallbackName, {
-        ...config,
-        name: config.name?.trim() || fallbackName,
-        apiBaseUrl: config.apiBaseUrl ?? "",
-        apiKey: config.apiKey ?? "",
-        model: config.model ?? "",
-        availableModels: config.availableModels ?? [],
-        parameters: normalizeLlmParameters(config.parameters ?? DEFAULT_LLM_PARAMETERS),
-        stream: config.stream ?? false,
-        sendImages: config.sendImages ?? false,
-    });
-}
-
-/**
- * 规整 LLM 连接设置，兼容旧版只有单一 llm 配置的持久化数据。
- */
-function normalizeLlmSettings(settings: Partial<TextToImageLlmSettings> = {}): TextToImageLlmSettings {
-    const seededApiConfig = createLlmApiConfig("默认", {
-        apiBaseUrl: settings.apiBaseUrl ?? "",
-        apiKey: settings.apiKey ?? "",
-        model: settings.model ?? "",
-        availableModels: settings.availableModels ?? [],
-        parameters: normalizeLlmParameters(settings.parameters ?? DEFAULT_LLM_PARAMETERS),
-        stream: settings.stream ?? false,
-        sendImages: settings.sendImages ?? false,
-    });
-    const apiConfigs = (settings.apiConfigs?.length ? settings.apiConfigs : [seededApiConfig])
-        .map((config, index) => normalizeLlmApiConfig(config, index === 0 ? "默认" : `API 配置 ${index + 1}`));
-    const activeApiConfigId = apiConfigs.some((config) => config.id === settings.activeApiConfigId)
-        ? settings.activeApiConfigId ?? apiConfigs[0]?.id ?? ""
-        : apiConfigs[0]?.id ?? "";
-    const activeConfig = apiConfigs.find((config) => config.id === activeApiConfigId) ?? apiConfigs[0] ?? seededApiConfig;
-    return {
-        apiBaseUrl: settings.apiBaseUrl ?? activeConfig.apiBaseUrl,
-        apiKey: settings.apiKey ?? activeConfig.apiKey,
-        model: settings.model ?? activeConfig.model,
-        availableModels: settings.availableModels ?? activeConfig.availableModels,
-        parameters: normalizeLlmParameters(settings.parameters ?? activeConfig.parameters),
-        stream: settings.stream ?? activeConfig.stream,
-        sendImages: settings.sendImages ?? activeConfig.sendImages,
-        activeApiConfigId,
-        apiConfigs,
-    };
-}
-
-/**
- * 规整上下文预设。
- */
-function normalizeLlmContextPreset(preset: Partial<TextToImageLlmContextPreset>, fallbackName: string): TextToImageLlmContextPreset {
-    return createLlmContextPreset(fallbackName, {
-        ...preset,
-        name: preset.name?.trim() || fallbackName,
-        entries: (preset.entries ?? []).map((entry, index) => createLlmContextEntry(entry.name || `条目 ${index + 1}`, entry)),
-        updatedAt: preset.updatedAt ?? null,
-    });
-}
-
 /**
  * 规整文生图输出设置。
  */
@@ -808,23 +473,6 @@ function normalizeGenerationDraft(settings: Partial<TextToImageGenerationDraft> 
         negativePrompt: settings.negativePrompt ?? DEFAULT_GENERATION_DRAFT.negativePrompt,
         includeActiveCharacter: settings.includeActiveCharacter ?? DEFAULT_GENERATION_DRAFT.includeActiveCharacter,
         batchSize: Math.round(clampNumber(Number(settings.batchSize ?? DEFAULT_GENERATION_DRAFT.batchSize), 1, 4, DEFAULT_GENERATION_DRAFT.batchSize)),
-    };
-}
-
-/**
- * 规整 tag 词库来源元数据。
- */
-function normalizeTagVocabularySource(source: Partial<TextToImageTagVocabularySource>, fallbackName: string): TextToImageTagVocabularySource {
-    return createTagVocabularySource(fallbackName, source);
-}
-
-function normalizeLastLlmExchange(exchange: Partial<TextToImageLastLlmExchange> = {}): TextToImageLastLlmExchange {
-    const task = TEXT_TO_IMAGE_PROMPT_TASKS.some((item) => item.key === exchange.task) ? exchange.task ?? "" : "";
-    return {
-        task,
-        prompt: exchange.prompt ?? "",
-        response: exchange.response ?? "",
-        updatedAt: exchange.updatedAt ?? null,
     };
 }
 
@@ -873,34 +521,83 @@ function shouldOmitNovelAiExchangeString(key: string, value: string): boolean {
 }
 
 function isNovelAiImagePayloadKey(key: string): boolean {
-    return /(?:^|_)(?:image|img)(?:_|$)|dataUrl|vibeEncoding|reference_image|character_reference/iu.test(key);
+    return /(?:^|_)(?:image|img)(?:_|$)|dataUrl|reference_image|character_reference/iu.test(key);
 }
 
 function isLongBase64LikeString(value: string): boolean {
     return value.length > 4096 && /^[A-Za-z0-9+/=\r\n]+$/u.test(value);
 }
 
+function readRecipeMigrationStorage(): string | null {
+    const storage = typeof globalThis.localStorage === "object" ? globalThis.localStorage : null;
+    return storage && typeof storage.getItem === "function" ? storage.getItem("text.to.image") : null;
+}
+
+function cleanupRecipeMigrationStorage(): void {
+    const storage = typeof globalThis.localStorage === "object" ? globalThis.localStorage : null;
+    if (!storage || typeof storage.getItem !== "function") {
+        return;
+    }
+    const next = removeTextToImageRecipeMigrationKeys(storage.getItem("text.to.image"));
+    if (next === null) {
+        storage.removeItem("text.to.image");
+        return;
+    }
+    storage.setItem("text.to.image", next);
+}
+
+/** ofetch/H3 错误是外部未知结构，只读取稳定 Recipe invalid code 与 64 位文件 hash。 */
+function readRecipeInvalidSourceHash(error: unknown): string | null {
+    type ApiErrorNode = {
+        code?: string;
+        fileContentHash?: string | null;
+        data?: ApiErrorNode;
+    };
+    let node: ApiErrorNode | undefined = typeof error === "object" && error !== null ? error as ApiErrorNode : undefined;
+    for (let depth = 0; node && depth < 3; depth += 1) {
+        if (node.code === "TEXT_TO_IMAGE_RECIPE_INVALID"
+            && typeof node.fileContentHash === "string"
+            && /^[a-f0-9]{64}$/u.test(node.fileContentHash)) {
+            return node.fileContentHash;
+        }
+        node = node.data;
+    }
+    return null;
+}
+
 export const useTextToImageStore = defineStore("textToImage", () => {
     const defaultStyle = createStylePreset();
-    const defaultPrompts = createDefaultTaskPrompts();
 
     const novelAi = ref<NovelAiApiSettings>(createDefaultNovelAiSettings());
-    const providers = ref<TextToImageProviderDto[]>([]);
-    const activeNovelAiProviderId = ref<number | null>(null);
+    const recipeExists = ref(false);
+    const recipeSnapshot = ref<TextToImageRecipeSnapshot | null>(null);
+    const recipeSavedSource = ref<TextToImageRecipeSource | null>(null);
+    /** P5：当前 Recipe 参考资源只读投影；UI 读写经下方 actions。 */
+    const recipeReferences = computed(() => recipeSavedSource.value?.references ?? {
+        normalizeVibeStrengths: true,
+        vibeReferences: [],
+        characterReferences: [],
+        inpaint: null,
+    });
+    const recipeLoading = ref(false);
+    const recipeSaving = ref(false);
+    const recipeDirty = ref(false);
+    const recipeError = ref("");
+    const recipeMigrationPending = ref(false);
+    const recipeMigrationModelConflict = ref<TextToImageRecipeMigrationInspection["modelConflict"]>(null);
+    const recipeInvalidSourceHash = ref<string | null>(null);
+    const novelAiProviderInspection = ref<TextToImageNovelAiInspectionDto>({state: "unconfigured", provider: null, candidates: [], recipeMigrationModels: [], selectionToken: null, reconciliationKeepProviderId: null});
+    const activeNovelAiProviderId = computed(() => novelAiProviderInspection.value.state === "configured"
+        && novelAiProviderInspection.value.provider?.hasCredential
+        ? novelAiProviderInspection.value.provider.id
+        : null);
     const projectJobs = ref<TextToImageJobDto[]>([]);
     const projectJobsProjectPath = ref("");
     const projectJobsLoading = ref(false);
     const projectJobsError = ref("");
-    const llm = ref<TextToImageLlmSettings>(normalizeLlmSettings());
     const output = ref<TextToImageOutputSettings>({...DEFAULT_OUTPUT_SETTINGS});
     const generationDraft = ref<TextToImageGenerationDraft>({...DEFAULT_GENERATION_DRAFT});
     const generationResults = ref<TextToImageGenerationResult[]>([]);
-    const taskPrompts = ref<Record<TextToImagePromptTask, TextToImageTaskPrompt>>(defaultPrompts);
-    const defaultContextPreset = createLlmContextPreset();
-    const llmContextPresets = ref<TextToImageLlmContextPreset[]>([defaultContextPreset]);
-    const activeLlmContextPresetId = ref(defaultContextPreset.id);
-    const llmTaskBindings = ref<Record<TextToImagePromptTask, TextToImageLlmTaskBinding>>(createDefaultLlmTaskBindings(llm.value.activeApiConfigId, defaultContextPreset.id));
-    const lastLlmExchange = ref<TextToImageLastLlmExchange>({...DEFAULT_LAST_LLM_EXCHANGE});
     const lastNovelAiExchange = ref<TextToImageLastNovelAiExchange>({...DEFAULT_LAST_NOVEL_AI_EXCHANGE});
     const stylePresets = ref<TextToImageStylePreset[]>([defaultStyle]);
     const activeStyleId = ref(defaultStyle.id);
@@ -912,14 +609,8 @@ export const useTextToImageStore = defineStore("textToImage", () => {
         [DEFAULT_PROJECT_KEY]: createOutfitGroup(DEFAULT_PROJECT_KEY),
     });
     const promptReplacementRules = ref<TextToImagePromptReplacementRule[]>([]);
-    const tagVocabularySources = ref<TextToImageTagVocabularySource[]>([]);
-    const activeTagVocabularySourceId = ref("");
-
     const activeProjectKey = computed(() => normalizeProjectPath(currentProjectPath.value));
     const activeStyle = computed(() => stylePresets.value.find((item) => item.id === activeStyleId.value) ?? stylePresets.value[0] ?? null);
-    const activeNovelAiProvider = computed(() => providers.value.find((provider) => provider.id === activeNovelAiProviderId.value && provider.kind === "novelai") ?? null);
-    const activeLlmApiConfig = computed(() => llm.value.apiConfigs.find((config) => config.id === llm.value.activeApiConfigId) ?? llm.value.apiConfigs[0] ?? null);
-    const activeLlmContextPreset = computed(() => llmContextPresets.value.find((preset) => preset.id === activeLlmContextPresetId.value) ?? llmContextPresets.value[0] ?? null);
     const activeCharacterGroup = computed(() => characterGroups.value[activeProjectKey.value] ?? createCharacterGroup(activeProjectKey.value));
     const characters = computed(() => activeCharacterGroup.value.characters);
     const activeCharacterId = computed(() => activeCharacterGroup.value.activeCharacterId);
@@ -946,20 +637,9 @@ export const useTextToImageStore = defineStore("textToImage", () => {
         return group;
     }
 
-    /** 从服务端刷新当前用户可用的生图 Provider；credential 永不进入 Pinia。 */
+    /** 从 NovelAI singleton inspection 刷新当前用户唯一图片 Provider；credential 永不进入 Pinia。 */
     async function refreshProviders(): Promise<void> {
-        const response = await $fetch<{providers: TextToImageProviderDto[]}>("/api/text-to-image/providers");
-        providers.value = response.providers;
-        if (!activeNovelAiProvider.value) {
-            activeNovelAiProviderId.value = providers.value.find((provider) => provider.kind === "novelai")?.id ?? null;
-        }
-    }
-
-    /** 切换当前手动 NovelAI 生图 Provider。 */
-    function selectNovelAiProvider(providerId: number | null): void {
-        activeNovelAiProviderId.value = providers.value.some((provider) => provider.id === providerId && provider.kind === "novelai")
-            ? providerId
-            : null;
+        novelAiProviderInspection.value = await $fetch<TextToImageNovelAiInspectionDto>("/api/text-to-image/providers/novelai");
     }
 
     /** 读取当前 Project 的文生图任务摘要；任务与图片均由服务端持久化。 */
@@ -977,6 +657,155 @@ export const useTextToImageStore = defineStore("textToImage", () => {
         } finally {
             projectJobsLoading.value = false;
         }
+    }
+
+    /** 读取 Project Recipe 到内存草稿；GET 缺失时只展示默认草稿，不自动写盘。 */
+    async function loadRecipe(projectPath = currentProjectPath.value): Promise<void> {
+        const normalizedProjectPath = normalizeProjectPath(projectPath);
+        recipeLoading.value = true;
+        recipeError.value = "";
+        try {
+            const inspection = await $fetch<TextToImageNovelAiInspectionDto>("/api/text-to-image/providers/novelai");
+            novelAiProviderInspection.value = inspection;
+            const document = await $fetch<TextToImageRecipeDocument>(`/api/text-to-image/recipes/default?projectPath=${encodeURIComponent(normalizedProjectPath)}`);
+            const migrated = document.exists
+                ? null
+                : inspectTextToImageRecipeMigration(readRecipeMigrationStorage(), inspection.recipeMigrationModels);
+            applyRecipeDocument(document, migrated?.source ?? null);
+            recipeMigrationModelConflict.value = migrated?.modelConflict ?? null;
+            recipeInvalidSourceHash.value = null;
+        } catch (error) {
+            recipeError.value = error instanceof Error ? error.message : "读取文生图 Recipe 失败";
+            const invalidSourceHash = readRecipeInvalidSourceHash(error);
+            if (invalidSourceHash) {
+                const source = createDefaultTextToImageRecipeSource();
+                applyRecipeDocument({exists: false, source, snapshot: null}, source);
+                recipeMigrationModelConflict.value = null;
+                recipeInvalidSourceHash.value = invalidSourceHash;
+                return;
+            }
+            throw error;
+        } finally {
+            recipeLoading.value = false;
+        }
+    }
+
+    /** 显式保存当前内存草稿；服务端成功后才更新 hash，并清理一次性迁移字段。 */
+    async function saveRecipe(projectPath = currentProjectPath.value): Promise<void> {
+        const normalizedProjectPath = normalizeProjectPath(projectPath);
+        recipeSaving.value = true;
+        recipeError.value = "";
+        try {
+            if (recipeMigrationModelConflict.value) {
+                throw new Error("旧 Provider 实际模型与浏览器草稿冲突，请先明确选择要写入 Recipe 的模型。");
+            }
+            const document = await $fetch<TextToImageRecipeDocument>("/api/text-to-image/recipes/default", {
+                method: "PUT",
+                body: {
+                    projectPath: normalizedProjectPath,
+                    source: buildRecipeSource(),
+                    expectedRecipeSourceHash: recipeExists.value ? recipeSnapshot.value?.recipeSourceHash ?? null : null,
+                    ...(recipeInvalidSourceHash.value ? {expectedInvalidSourceHash: recipeInvalidSourceHash.value} : {}),
+                },
+            });
+            const shouldCleanupMigration = recipeMigrationPending.value;
+            applyRecipeDocument(document, null);
+            recipeInvalidSourceHash.value = null;
+            recipeMigrationModelConflict.value = null;
+            if (shouldCleanupMigration) {
+                cleanupRecipeMigrationStorage();
+            }
+        } catch (error) {
+            recipeError.value = error instanceof Error ? error.message : "保存文生图 Recipe 失败";
+            throw error;
+        } finally {
+            recipeSaving.value = false;
+        }
+    }
+
+    /** 将服务端 source 或迁移草稿投影到现有表单字段。 */
+    function applyRecipeDocument(document: TextToImageRecipeDocument, migrated: TextToImageRecipeSource | null): void {
+        const source = TextToImageRecipeSourceSchema.parse(migrated ?? document.source);
+        recipeExists.value = migrated ? false : document.exists;
+        recipeSnapshot.value = migrated ? null : document.snapshot;
+        recipeSavedSource.value = source;
+        recipeMigrationPending.value = migrated !== null;
+        recipeDirty.value = migrated !== null;
+        novelAi.value = normalizeNovelAiSettings({
+            model: source.model,
+            sampler: source.sampler,
+            noiseSchedule: source.noiseSchedule,
+            promptGuidance: source.promptGuidance,
+            promptGuidanceRescale: source.promptGuidanceRescale,
+            aiDefaultCharacterPosition: source.advanced.aiDefaultCharacterPosition,
+            variety: source.advanced.variety,
+            smeaMode: source.advanced.smeaMode,
+            smeaDyn: source.advanced.smeaDyn,
+            decrisper: source.advanced.decrisper,
+            width: source.dimensions.fixed.width,
+            height: source.dimensions.fixed.height,
+            steps: source.steps,
+            seed: source.seed.policy === "fixed" ? source.seed.fixed : -1,
+        });
+        const style = normalizeStylePreset({
+            id: "recipe-default",
+            name: source.title,
+            ...source.style,
+        }, source.title);
+        stylePresets.value = [style];
+        activeStyleId.value = style.id;
+    }
+
+    /** 用户显式选择迁移模型后解除冲突；候选之外的值必须通过普通模型字段编辑再保存。 */
+    function confirmRecipeMigrationModel(model: string): void {
+        const conflict = recipeMigrationModelConflict.value;
+        const normalized = model.trim();
+        const allowed = new Set([conflict?.browserModel, ...(conflict?.providerModels ?? [])].filter((value): value is string => Boolean(value)));
+        if (!conflict || !allowed.has(normalized)) {
+            throw new Error("所选模型不属于本次迁移冲突候选");
+        }
+        novelAi.value = {...novelAi.value, model: normalized};
+        recipeMigrationModelConflict.value = null;
+        recipeDirty.value = true;
+    }
+
+    /** 从表单草稿构造严格 Recipe source；未暴露的画幅意图槽位从最近一次服务端 source 保留。 */
+    function buildRecipeSource(): TextToImageRecipeSource {
+        const base = recipeSavedSource.value ?? createDefaultTextToImageRecipeSource();
+        const style = activeStyle.value ?? createStylePreset(base.title);
+        return TextToImageRecipeSourceSchema.parse({
+            ...base,
+            title: style.name.trim() || base.title,
+            model: novelAi.value.model,
+            sampler: novelAi.value.sampler,
+            noiseSchedule: novelAi.value.noiseSchedule,
+            steps: novelAi.value.steps,
+            promptGuidance: novelAi.value.promptGuidance,
+            promptGuidanceRescale: novelAi.value.promptGuidanceRescale,
+            dimensions: {
+                ...base.dimensions,
+                fixed: {width: novelAi.value.width, height: novelAi.value.height},
+            },
+            seed: novelAi.value.seed < 0
+                ? {policy: "random", fixed: 0}
+                : {policy: "fixed", fixed: novelAi.value.seed},
+            advanced: {
+                aiDefaultCharacterPosition: novelAi.value.aiDefaultCharacterPosition,
+                variety: novelAi.value.variety,
+                smeaMode: novelAi.value.smeaMode,
+                smeaDyn: novelAi.value.smeaDyn,
+                decrisper: novelAi.value.decrisper,
+            },
+            style: {
+                positivePrefix: style.positivePrefix,
+                positiveSuffix: style.positiveSuffix,
+                negativePrefix: style.negativePrefix,
+                negativeSuffix: style.negativeSuffix,
+                useFurryDataset: style.useFurryDataset,
+                positiveQualityPreset: style.positiveQualityPreset,
+                negativeQualityPreset: style.negativeQualityPreset,
+            },
+        });
     }
 
     /**
@@ -1035,57 +864,8 @@ export const useTextToImageStore = defineStore("textToImage", () => {
         novelAi.value = normalizeNovelAiSettings(novelAi.value);
         output.value = normalizeOutputSettings(output.value);
         generationDraft.value = normalizeGenerationDraft(generationDraft.value);
-        lastLlmExchange.value = normalizeLastLlmExchange(lastLlmExchange.value);
         lastNovelAiExchange.value = normalizeLastNovelAiExchange(lastNovelAiExchange.value);
         promptReplacementRules.value = promptReplacementRules.value.map((rule, index) => createPromptReplacementRule(rule.name || `替换规则 ${index + 1}`, rule));
-        tagVocabularySources.value = tagVocabularySources.value.map((source, index) => normalizeTagVocabularySource(source, index === 0 ? "默认词库" : `tagData ${index + 1}`));
-        if (activeTagVocabularySourceId.value && !tagVocabularySources.value.some((source) => source.id === activeTagVocabularySourceId.value)) {
-            activeTagVocabularySourceId.value = "";
-        }
-        llm.value = normalizeLlmSettings(llm.value);
-        if (llmContextPresets.value.length === 0) {
-            const preset = createLlmContextPreset();
-            llmContextPresets.value = [preset];
-            activeLlmContextPresetId.value = preset.id;
-        }
-        llmContextPresets.value = llmContextPresets.value.map((preset, index) => normalizeLlmContextPreset(preset, index === 0 ? "默认上下文" : `上下文预设 ${index + 1}`));
-        if (!llmContextPresets.value.some((preset) => preset.id === activeLlmContextPresetId.value)) {
-            activeLlmContextPresetId.value = llmContextPresets.value[0]?.id ?? "";
-        }
-        const defaultApiConfigId = llm.value.activeApiConfigId || (llm.value.apiConfigs[0]?.id ?? "");
-        const defaultContextPresetId = activeLlmContextPresetId.value || (llmContextPresets.value[0]?.id ?? "");
-        const defaultBindings = createDefaultLlmTaskBindings(defaultApiConfigId, defaultContextPresetId);
-        llmTaskBindings.value = {
-            bodyImage: {
-                ...defaultBindings.bodyImage,
-                ...(llmTaskBindings.value.bodyImage ?? {}),
-                task: "bodyImage",
-            },
-            characterDesign: {
-                ...defaultBindings.characterDesign,
-                ...(llmTaskBindings.value.characterDesign ?? {}),
-                task: "characterDesign",
-            },
-            characterRevision: {
-                ...defaultBindings.characterRevision,
-                ...(llmTaskBindings.value.characterRevision ?? {}),
-                task: "characterRevision",
-            },
-        };
-        taskPrompts.value = {
-            bodyImage: {
-                ...defaultPrompts.bodyImage,
-                ...(taskPrompts.value.bodyImage ?? {}),
-            },
-            characterDesign: {
-                ...defaultPrompts.characterDesign,
-                ...(taskPrompts.value.characterDesign ?? {}),
-            },
-            characterRevision: {
-                ...defaultPrompts.characterRevision,
-                ...(taskPrompts.value.characterRevision ?? {}),
-            },
-        };
         if (stylePresets.value.length === 0) {
             const style = createStylePreset();
             stylePresets.value = [style];
@@ -1125,6 +905,7 @@ export const useTextToImageStore = defineStore("textToImage", () => {
             ...novelAi.value,
             ...patch,
         });
+        recipeDirty.value = true;
     }
 
     /**
@@ -1172,314 +953,13 @@ export const useTextToImageStore = defineStore("textToImage", () => {
     }
 
     /**
-     * 更新文生图专用 LLM 连接配置。
-     */
-    function updateLlmSettings(patch: Partial<Omit<TextToImageLlmSettings, "parameters">>): void {
-        const next = normalizeLlmSettings({
-            ...llm.value,
-            ...patch,
-        });
-        const activeId = next.activeApiConfigId;
-        next.apiConfigs = next.apiConfigs.map((config) => config.id === activeId ? normalizeLlmApiConfig({
-            ...config,
-            apiBaseUrl: next.apiBaseUrl,
-            apiKey: next.apiKey,
-            model: next.model,
-            availableModels: next.availableModels,
-            parameters: next.parameters,
-            stream: next.stream,
-            sendImages: next.sendImages,
-        }, config.name || "API 配置") : config);
-        llm.value = next;
-    }
-
-    /**
-     * 更新文生图专用 LLM 参数。
-     */
-    function updateLlmParameters(patch: Partial<TextToImageLlmParameters>): void {
-        const parameters = normalizeLlmParameters({
-            ...llm.value.parameters,
-            ...patch,
-        });
-        llm.value = {
-            ...llm.value,
-            parameters,
-            apiConfigs: llm.value.apiConfigs.map((config) => config.id === llm.value.activeApiConfigId ? {
-                ...config,
-                parameters,
-            } : config),
-        };
-    }
-
-    /**
-     * 新增一条 LLM API 配置，并切换为当前配置。
-     */
-    function addLlmApiConfig(name = `API 配置 ${llm.value.apiConfigs.length + 1}`): TextToImageLlmApiConfig {
-        const config = createLlmApiConfig(name, {
-            apiBaseUrl: llm.value.apiBaseUrl,
-            apiKey: llm.value.apiKey,
-            model: llm.value.model,
-            availableModels: llm.value.availableModels,
-            parameters: llm.value.parameters,
-            stream: llm.value.stream,
-            sendImages: llm.value.sendImages,
-        });
-        llm.value = normalizeLlmSettings({
-            ...llm.value,
-            ...config,
-            activeApiConfigId: config.id,
-            apiConfigs: [...llm.value.apiConfigs, config],
-        });
-        return config;
-    }
-
-    /**
-     * 切换当前 LLM API 配置。
-     */
-    function activateLlmApiConfig(configId: string): void {
-        const config = llm.value.apiConfigs.find((item) => item.id === configId);
-        if (!config) {
-            return;
-        }
-        llm.value = normalizeLlmSettings({
-            ...llm.value,
-            ...config,
-            activeApiConfigId: config.id,
-            apiConfigs: llm.value.apiConfigs,
-        });
-    }
-
-    /**
-     * 更新指定 LLM API 配置。当前启用配置会同步到 llm 根字段。
-     */
-    function updateLlmApiConfig(configId: string, patch: Partial<TextToImageLlmApiConfig>): void {
-        const apiConfigs = llm.value.apiConfigs.map((config) => config.id === configId ? normalizeLlmApiConfig({
-            ...config,
-            ...patch,
-            id: config.id,
-        }, config.name || "API 配置") : config);
-        const activeConfig = apiConfigs.find((config) => config.id === llm.value.activeApiConfigId) ?? apiConfigs[0];
-        llm.value = normalizeLlmSettings({
-            ...llm.value,
-            ...(activeConfig ?? {}),
-            activeApiConfigId: activeConfig?.id ?? "",
-            apiConfigs,
-        });
-    }
-
-    /**
-     * 把当前 llm 根字段保存回当前启用的 API 配置。
-     */
-    function saveActiveLlmApiConfig(): void {
-        if (!llm.value.activeApiConfigId) {
-            return;
-        }
-        updateLlmApiConfig(llm.value.activeApiConfigId, {
-            apiBaseUrl: llm.value.apiBaseUrl,
-            apiKey: llm.value.apiKey,
-            model: llm.value.model,
-            availableModels: llm.value.availableModels,
-            parameters: llm.value.parameters,
-            stream: llm.value.stream,
-            sendImages: llm.value.sendImages,
-        });
-    }
-
-    /**
-     * 删除指定 LLM API 配置，至少保留一条。
-     */
-    function deleteLlmApiConfig(configId: string): void {
-        if (llm.value.apiConfigs.length <= 1) {
-            return;
-        }
-        const nextConfigs = llm.value.apiConfigs.filter((config) => config.id !== configId);
-        const nextActive = nextConfigs.find((config) => config.id === llm.value.activeApiConfigId) ?? nextConfigs[0];
-        llmTaskBindings.value = Object.fromEntries(Object.entries(llmTaskBindings.value).map(([task, binding]) => [
-            task,
-            {
-                ...binding,
-                apiConfigId: binding.apiConfigId === configId ? nextActive?.id ?? "" : binding.apiConfigId,
-            },
-        ])) as Record<TextToImagePromptTask, TextToImageLlmTaskBinding>;
-        llm.value = normalizeLlmSettings({
-            ...llm.value,
-            ...(nextActive ?? {}),
-            activeApiConfigId: nextActive?.id ?? "",
-            apiConfigs: nextConfigs,
-        });
-    }
-
-    /**
-     * 更新指定任务的提示词。
-     */
-    function updateTaskPrompt(task: TextToImagePromptTask, patch: Partial<Omit<TextToImageTaskPrompt, "task">>): void {
-        taskPrompts.value = {
-            ...taskPrompts.value,
-            [task]: {
-                ...(taskPrompts.value[task] ?? createTaskPrompt(task)),
-                ...patch,
-                task,
-                updatedAt: patch.updatedAt ?? new Date().toISOString(),
-            },
-        };
-    }
-
-    /**
-     * 导入指定任务的提示词。
-     */
-    function importTaskPrompt(task: TextToImagePromptTask, prompt: string, importedName: string): void {
-        updateTaskPrompt(task, {
-            prompt,
-            importedName,
-            updatedAt: new Date().toISOString(),
-        });
-    }
-
-    /**
-     * 新增上下文预设并设为当前启用。
-     */
-    function addLlmContextPreset(name = `上下文预设 ${llmContextPresets.value.length + 1}`, entries: Partial<TextToImageLlmContextEntry>[] = []): TextToImageLlmContextPreset {
-        const preset = createLlmContextPreset(name, {
-            entries: entries.map((entry, index) => createLlmContextEntry(entry.name || `条目 ${index + 1}`, entry)),
-            updatedAt: new Date().toISOString(),
-        });
-        llmContextPresets.value = [...llmContextPresets.value, preset];
-        activeLlmContextPresetId.value = preset.id;
-        return preset;
-    }
-
-    /**
-     * 启用指定上下文预设。
-     */
-    function activateLlmContextPreset(presetId: string): void {
-        if (llmContextPresets.value.some((preset) => preset.id === presetId)) {
-            activeLlmContextPresetId.value = presetId;
-        }
-    }
-
-    /**
-     * 更新上下文预设基础字段。
-     */
-    function updateLlmContextPreset(presetId: string, patch: Partial<TextToImageLlmContextPreset>): void {
-        llmContextPresets.value = llmContextPresets.value.map((preset) => preset.id === presetId ? normalizeLlmContextPreset({
-            ...preset,
-            ...patch,
-            id: preset.id,
-            updatedAt: new Date().toISOString(),
-        }, preset.name || "上下文预设") : preset);
-    }
-
-    /**
-     * 删除上下文预设，至少保留一条。
-     */
-    function deleteLlmContextPreset(presetId: string): void {
-        if (llmContextPresets.value.length <= 1) {
-            return;
-        }
-        const nextPresets = llmContextPresets.value.filter((preset) => preset.id !== presetId);
-        const nextActive = nextPresets.find((preset) => preset.id === activeLlmContextPresetId.value) ?? nextPresets[0];
-        llmTaskBindings.value = Object.fromEntries(Object.entries(llmTaskBindings.value).map(([task, binding]) => [
-            task,
-            {
-                ...binding,
-                contextPresetId: binding.contextPresetId === presetId ? nextActive?.id ?? "" : binding.contextPresetId,
-            },
-        ])) as Record<TextToImagePromptTask, TextToImageLlmTaskBinding>;
-        llmContextPresets.value = nextPresets;
-        activeLlmContextPresetId.value = nextActive?.id ?? "";
-    }
-
-    /**
-     * 在上下文预设中新增条目。
-     */
-    function addLlmContextEntry(presetId: string, patch: Partial<TextToImageLlmContextEntry> = {}): TextToImageLlmContextEntry | null {
-        const preset = llmContextPresets.value.find((item) => item.id === presetId);
-        if (!preset) {
-            return null;
-        }
-        const entry = createLlmContextEntry(patch.name || `条目 ${preset.entries.length + 1}`, patch);
-        updateLlmContextPreset(presetId, {
-            entries: [...preset.entries, entry],
-        });
-        return entry;
-    }
-
-    /**
-     * 更新上下文条目。
-     */
-    function updateLlmContextEntry(presetId: string, entryId: string, patch: Partial<TextToImageLlmContextEntry>): void {
-        const preset = llmContextPresets.value.find((item) => item.id === presetId);
-        if (!preset) {
-            return;
-        }
-        updateLlmContextPreset(presetId, {
-            entries: preset.entries.map((entry) => entry.id === entryId ? createLlmContextEntry(entry.name, {
-                ...entry,
-                ...patch,
-                id: entry.id,
-            }) : entry),
-        });
-    }
-
-    /**
-     * 删除上下文条目。
-     */
-    function deleteLlmContextEntry(presetId: string, entryId: string): void {
-        const preset = llmContextPresets.value.find((item) => item.id === presetId);
-        if (!preset) {
-            return;
-        }
-        updateLlmContextPreset(presetId, {
-            entries: preset.entries.filter((entry) => entry.id !== entryId),
-        });
-    }
-
-    /**
-     * 配置某个任务使用的 API 配置与上下文预设。
-     */
-    function updateLlmTaskBinding(task: TextToImagePromptTask, patch: Partial<Omit<TextToImageLlmTaskBinding, "task">>): void {
-        const fallback = createDefaultLlmTaskBindings(llm.value.activeApiConfigId, activeLlmContextPresetId.value)[task];
-        llmTaskBindings.value = {
-            ...llmTaskBindings.value,
-            [task]: {
-                ...fallback,
-                ...(llmTaskBindings.value[task] ?? {}),
-                ...patch,
-                task,
-            },
-        };
-    }
-
-    /**
-     * 解析任务运行时配置。
-     */
-    function resolveLlmTaskBinding(task: TextToImagePromptTask): {apiConfig: TextToImageLlmApiConfig; providerId: number | null; contextPreset: TextToImageLlmContextPreset | null} {
-        const binding = llmTaskBindings.value[task];
-        const apiConfig = llm.value.apiConfigs.find((config) => config.id === binding?.apiConfigId)
-            ?? activeLlmApiConfig.value
-            ?? createLlmApiConfig("默认", llm.value);
-        const contextPreset = llmContextPresets.value.find((preset) => preset.id === binding?.contextPresetId)
-            ?? activeLlmContextPreset.value;
-        const providerId = providers.value.some((provider) => provider.id === binding?.providerId && provider.kind === "openai_compatible")
-            ? binding?.providerId ?? null
-            : null;
-        return {apiConfig, providerId, contextPreset};
-    }
-
-    function recordLlmExchange(exchange: {task: TextToImagePromptTask; prompt: string; response: string}): void {
-        lastLlmExchange.value = normalizeLastLlmExchange({
-            ...exchange,
-            updatedAt: new Date().toISOString(),
-        });
-    }
-
-    /**
      * 新增画风串并设为当前启用。
      */
     function addStylePreset(): TextToImageStylePreset {
         const style = createStylePreset(`画风串 ${stylePresets.value.length + 1}`);
         stylePresets.value = [...stylePresets.value, style];
         activeStyleId.value = style.id;
+        recipeDirty.value = true;
         return style;
     }
 
@@ -1495,17 +975,10 @@ export const useTextToImageStore = defineStore("textToImage", () => {
             ...source,
             id: createLocalId("style"),
             name: `${source.name || "画风串"} 副本`,
-            vibeReferences: source.vibeReferences.map((reference, index) => createVibeReference(reference.displayName || `Vibe ${index + 1}`, {
-                ...reference,
-                id: createLocalId("vibe"),
-            })),
-            characterReferences: source.characterReferences.map((reference, index) => createCharacterReference(reference.displayName || `Character Ref ${index + 1}`, {
-                ...reference,
-                id: createLocalId("char_ref"),
-            })),
         };
         stylePresets.value = [...stylePresets.value, style];
         activeStyleId.value = style.id;
+        recipeDirty.value = true;
         return style;
     }
 
@@ -1515,6 +988,7 @@ export const useTextToImageStore = defineStore("textToImage", () => {
     function activateStylePreset(styleId: string): void {
         if (stylePresets.value.some((item) => item.id === styleId)) {
             activeStyleId.value = styleId;
+            recipeDirty.value = true;
         }
     }
 
@@ -1526,90 +1000,7 @@ export const useTextToImageStore = defineStore("textToImage", () => {
             ...item,
             ...patch,
         }, item.name || "画风串") : item);
-    }
-
-    /**
-     * 新增画风串 Vibe 参考。
-     */
-    function addStyleVibeReference(styleId: string): TextToImageVibeReference | null {
-        const style = stylePresets.value.find((item) => item.id === styleId);
-        if (!style) {
-            return null;
-        }
-        const reference = createVibeReference(`Vibe ${style.vibeReferences.length + 1}`);
-        updateStylePreset(styleId, {
-            vibeReferences: [...style.vibeReferences, reference],
-        });
-        return reference;
-    }
-
-    /**
-     * 更新画风串 Vibe 参考。
-     */
-    function updateStyleVibeReference(styleId: string, vibeId: string, patch: Partial<TextToImageVibeReference>): void {
-        const style = stylePresets.value.find((item) => item.id === styleId);
-        if (!style) {
-            return;
-        }
-        updateStylePreset(styleId, {
-            vibeReferences: style.vibeReferences.map((reference) => reference.id === vibeId ? createVibeReference(reference.displayName, {
-                ...reference,
-                ...patch,
-                id: reference.id,
-            }) : reference),
-        });
-    }
-
-    /**
-     * 删除画风串 Vibe 参考。
-     */
-    function deleteStyleVibeReference(styleId: string, vibeId: string): void {
-        const style = stylePresets.value.find((item) => item.id === styleId);
-        if (!style) {
-            return;
-        }
-        updateStylePreset(styleId, {
-            vibeReferences: style.vibeReferences.filter((reference) => reference.id !== vibeId),
-        });
-    }
-
-    /**
-     * 删除画风串；至少保留一条配置。
-     */
-    function addStyleCharacterReference(styleId: string): TextToImageCharacterReference | null {
-        const style = stylePresets.value.find((item) => item.id === styleId);
-        if (!style) {
-            return null;
-        }
-        const reference = createCharacterReference(`Character Ref ${style.characterReferences.length + 1}`);
-        updateStylePreset(styleId, {
-            characterReferences: [...style.characterReferences, reference],
-        });
-        return reference;
-    }
-
-    function updateStyleCharacterReference(styleId: string, referenceId: string, patch: Partial<TextToImageCharacterReference>): void {
-        const style = stylePresets.value.find((item) => item.id === styleId);
-        if (!style) {
-            return;
-        }
-        updateStylePreset(styleId, {
-            characterReferences: style.characterReferences.map((reference) => reference.id === referenceId ? createCharacterReference(reference.displayName, {
-                ...reference,
-                ...patch,
-                id: reference.id,
-            }) : reference),
-        });
-    }
-
-    function deleteStyleCharacterReference(styleId: string, referenceId: string): void {
-        const style = stylePresets.value.find((item) => item.id === styleId);
-        if (!style) {
-            return;
-        }
-        updateStylePreset(styleId, {
-            characterReferences: style.characterReferences.filter((reference) => reference.id !== referenceId),
-        });
+        recipeDirty.value = true;
     }
 
     function deleteStylePreset(styleId: string): void {
@@ -1621,6 +1012,100 @@ export const useTextToImageStore = defineStore("textToImage", () => {
         if (activeStyleId.value === styleId) {
             activeStyleId.value = nextStyles[0]?.id ?? "";
         }
+        recipeDirty.value = true;
+    }
+
+    /** 取当前 Recipe references；未加载 Recipe 时返回默认空引用。 */
+    function ensureRecipeReferences(): NonNullable<TextToImageRecipeSource["references"]> {
+        if (!recipeSavedSource.value) {
+            recipeSavedSource.value = createDefaultTextToImageRecipeSource();
+        }
+        return recipeSavedSource.value.references;
+    }
+
+    /** P5：新增 Vibe 引用（最多 16 条）。 */
+    function addVibeReference(contentHash: string, strength: number, informationExtracted: number): void {
+        const references = ensureRecipeReferences();
+        if (references.vibeReferences.length >= 16) return;
+        recipeSavedSource.value = {
+            ...recipeSavedSource.value!,
+            references: {
+                ...references,
+                vibeReferences: [...references.vibeReferences, {contentHash, strength, informationExtracted}],
+            },
+        };
+        recipeDirty.value = true;
+    }
+
+    /** P5：更新指定下标 Vibe 引用的强度与 infoExtracted。 */
+    function updateVibeReference(index: number, patch: {strength?: number; informationExtracted?: number | null}): void {
+        const references = ensureRecipeReferences();
+        const next = references.vibeReferences.map((item, i) => i === index ? {...item, ...patch} : item);
+        recipeSavedSource.value = {
+            ...recipeSavedSource.value!,
+            references: {...references, vibeReferences: next},
+        };
+        recipeDirty.value = true;
+    }
+
+    /** P5：移除指定下标 Vibe 引用。 */
+    function removeVibeReference(index: number): void {
+        const references = ensureRecipeReferences();
+        recipeSavedSource.value = {
+            ...recipeSavedSource.value!,
+            references: {...references, vibeReferences: references.vibeReferences.filter((_, i) => i !== index)},
+        };
+        recipeDirty.value = true;
+    }
+
+    /** P5：设置唯一的 Character Reference（最多 1 条；infoExtracted 不适用，置 null）。 */
+    function setCharacterReference(contentHash: string, strength: number): void {
+        const references = ensureRecipeReferences();
+        recipeSavedSource.value = {
+            ...recipeSavedSource.value!,
+            references: {...references, characterReferences: [{contentHash, strength, informationExtracted: null}]},
+        };
+        recipeDirty.value = true;
+    }
+
+    /** P5：移除 Character Reference。 */
+    function removeCharacterReference(): void {
+        const references = ensureRecipeReferences();
+        recipeSavedSource.value = {
+            ...recipeSavedSource.value!,
+            references: {...references, characterReferences: []},
+        };
+        recipeDirty.value = true;
+    }
+
+    /** P5：设置 Inpaint 蒙版引用（strength=1、infoExtracted=null）。 */
+    function setInpaintMask(contentHash: string): void {
+        const references = ensureRecipeReferences();
+        recipeSavedSource.value = {
+            ...recipeSavedSource.value!,
+            references: {...references, inpaint: {contentHash, strength: 1, informationExtracted: null}},
+        };
+        recipeDirty.value = true;
+    }
+
+    /** P5：移除 Inpaint 蒙版引用。 */
+    function removeInpaintMask(): void {
+        const references = ensureRecipeReferences();
+        recipeSavedSource.value = {
+            ...recipeSavedSource.value!,
+            references: {...references, inpaint: null},
+        };
+        recipeDirty.value = true;
+    }
+
+    /** P5：切换 Vibe 权重归一化开关。 */
+    function setNormalizeVibeStrengths(value: boolean): void {
+        const references = ensureRecipeReferences();
+        recipeSavedSource.value = {
+            ...recipeSavedSource.value!,
+            references: {...references, normalizeVibeStrengths: value},
+        };
+        recipeDirty.value = true;
     }
 
     /**
@@ -1710,9 +1195,7 @@ export const useTextToImageStore = defineStore("textToImage", () => {
         });
     }
 
-    /**
-     * 登记一个本地 tag 词库来源；大量条目由 IndexedDB 工具写入。
-     */
+    /** 新增当前 Project 的服装草稿。 */
     function addOutfit(projectPath = currentProjectPath.value): TextToImageOutfit {
         const group = ensureOutfitGroup(projectPath);
         const outfit = createOutfit(`服装 ${group.outfits.length + 1}`);
@@ -1800,174 +1283,96 @@ export const useTextToImageStore = defineStore("textToImage", () => {
         });
     }
 
-    function addTagVocabularySource(name: string, entryCount: number, importedAt = new Date().toISOString()): TextToImageTagVocabularySource {
-        const source = createTagVocabularySource(name, {entryCount, importedAt});
-        tagVocabularySources.value = [...tagVocabularySources.value, source];
-        activeTagVocabularySourceId.value = source.id;
-        return source;
-    }
-
-    /**
-     * 更新 tag 词库来源元数据。
-     */
-    function updateTagVocabularySource(sourceId: string, patch: Partial<TextToImageTagVocabularySource>): void {
-        tagVocabularySources.value = tagVocabularySources.value.map((source) => source.id === sourceId ? normalizeTagVocabularySource({
-            ...source,
-            ...patch,
-            id: source.id,
-        }, source.name || "tagData") : source);
-    }
-
-    /**
-     * 从本地元数据中移除一个 tag 词库来源；IndexedDB 条目由调用方先删除。
-     */
-    function deleteTagVocabularySource(sourceId: string): void {
-        tagVocabularySources.value = tagVocabularySources.value.filter((source) => source.id !== sourceId);
-        if (activeTagVocabularySourceId.value === sourceId) {
-            activeTagVocabularySourceId.value = tagVocabularySources.value[0]?.id ?? "";
-        }
-    }
-
-    /**
-     * 清空所有 tag 词库来源元数据；IndexedDB 条目由调用方先清空。
-     */
-    function clearTagVocabularySources(): void {
-        tagVocabularySources.value = [];
-        activeTagVocabularySourceId.value = "";
-    }
-
-    /**
-     * 切换当前搜索使用的 tag 词库；空字符串表示搜索全部词库。
-     */
-    function activateTagVocabularySource(sourceId: string): void {
-        activeTagVocabularySourceId.value = tagVocabularySources.value.some((source) => source.id === sourceId) ? sourceId : "";
-    }
-
     return {
         activeCharacter,
         activeCharacterGroup,
         activeCharacterId,
-        activeLlmApiConfig,
-        activeLlmContextPreset,
-        activeNovelAiProvider,
         activeNovelAiProviderId,
         activeOutfit,
         activeOutfitGroup,
         activeOutfitId,
         activeStyle,
         activeStyleId,
-        activeTagVocabularySourceId,
         addCharacter,
         addCharacterFromDraft,
-        addLlmApiConfig,
-        addLlmContextEntry,
-        addLlmContextPreset,
         addOutfit,
         addOutfitFromDraft,
         addPromptReplacementRule,
-        addStyleCharacterReference,
         addStylePreset,
-        addStyleVibeReference,
-        addTagVocabularySource,
-        activateLlmApiConfig,
-        activateLlmContextPreset,
         activateStylePreset,
-        activateTagVocabularySource,
-        activeLlmContextPresetId,
         characterGroups,
-        clearTagVocabularySources,
         clearGenerationResults,
         removeGenerationResult,
         characters,
         currentProjectPath,
         deleteCharacter,
-        deleteLlmApiConfig,
-        deleteLlmContextEntry,
-        deleteLlmContextPreset,
         deleteOutfit,
         deletePromptReplacementRule,
-        deleteStyleCharacterReference,
         deleteStylePreset,
-        deleteStyleVibeReference,
-        deleteTagVocabularySource,
         duplicateStylePreset,
         ensureDefaults,
         ensureProjectGroup,
         generationDraft,
         generationResults,
         importPromptReplacementRules,
-        importTaskPrompt,
-        lastLlmExchange,
         lastNovelAiExchange,
-        llm,
-        llmContextPresets,
-        llmTaskBindings,
         novelAi,
+        novelAiProviderInspection,
         output,
         outfitGroups,
         outfits,
         prependGenerationResults,
         promptReplacementRules,
-        providers,
         projectJobs,
         projectJobsError,
         projectJobsLoading,
         projectJobsProjectPath,
+        recipeDirty,
+        recipeError,
+        recipeExists,
+        recipeInvalidSourceHash,
+        recipeLoading,
+        recipeMigrationPending,
+        recipeMigrationModelConflict,
+        recipeSaving,
+        recipeSnapshot,
+        recipeReferences,
+        addVibeReference,
+        removeVibeReference,
+        updateVibeReference,
+        setCharacterReference,
+        removeCharacterReference,
+        setInpaintMask,
+        removeInpaintMask,
+        setNormalizeVibeStrengths,
         refreshProviders,
         refreshProjectJobs,
-        recordLlmExchange,
         recordNovelAiExchange,
-        resolveLlmTaskBinding,
-        saveActiveLlmApiConfig,
-        selectNovelAiProvider,
+        confirmRecipeMigrationModel,
+        loadRecipe,
+        saveRecipe,
         selectCharacter,
         selectOutfit,
         setCurrentProjectPath,
         stylePresets,
-        tagVocabularySources,
-        taskPrompts,
         updateCharacter,
         updateGenerationDraft,
-        updateLlmApiConfig,
-        updateLlmContextEntry,
-        updateLlmContextPreset,
-        updateLlmParameters,
-        updateLlmSettings,
-        updateLlmTaskBinding,
         updateNovelAiSettings,
         updateOutputSettings,
         updateOutfit,
         updatePromptReplacementRule,
-        updateStyleCharacterReference,
         updateStylePreset,
-        updateStyleVibeReference,
-        updateTagVocabularySource,
-        updateTaskPrompt,
     };
 }, {
     persist: {
         key: "text.to.image",
         storage: piniaPluginPersistedstate.localStorage(),
         pick: [
-            "novelAi",
-            "activeNovelAiProviderId",
-            "llm",
             "output",
             "generationDraft",
-            "taskPrompts",
-            "llmContextPresets",
-            "activeLlmContextPresetId",
-            "llmTaskBindings",
-            "lastLlmExchange",
-            "lastNovelAiExchange",
-            "stylePresets",
-            "activeStyleId",
             "currentProjectPath",
             "characterGroups",
             "outfitGroups",
-            "promptReplacementRules",
-            "tagVocabularySources",
-            "activeTagVocabularySourceId",
         ],
     },
 });

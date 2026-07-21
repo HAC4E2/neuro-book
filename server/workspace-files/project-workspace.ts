@@ -43,7 +43,23 @@ CREATE TABLE IF NOT EXISTS "TextToImageJob" (
     "sourcePath" TEXT,
     "sourceAnchorId" TEXT,
     "sourceInsertStatus" TEXT NOT NULL DEFAULT 'not_applicable',
+    "providerSnapshotJson" TEXT NOT NULL DEFAULT '{}',
     "requestJson" TEXT NOT NULL,
+    "originJson" TEXT,
+    "sourceIdentityHash" TEXT,
+    "providerOwnerUserId" INTEGER,
+    "providerCredentialRevision" INTEGER,
+    "executionManifestId" TEXT,
+    "executionApprovalId" TEXT,
+    "compiledRequestHash" TEXT,
+    "idempotencyKey" TEXT,
+    "variantIndex" INTEGER,
+    "outputIndex" INTEGER,
+    "parentJobId" TEXT,
+    "parentAssetId" TEXT,
+    "stableErrorCode" TEXT,
+    "activeAttemptId" TEXT,
+    "activeAttemptFence" INTEGER,
     "resultAssetIdsJson" TEXT NOT NULL DEFAULT '[]',
     "errorMessage" TEXT,
     "attemptCount" INTEGER NOT NULL DEFAULT 0,
@@ -76,6 +92,120 @@ CREATE TABLE IF NOT EXISTS "TextToImageAsset" (
 CREATE UNIQUE INDEX IF NOT EXISTS "TextToImageAsset_relativePath_key" ON "TextToImageAsset"("relativePath");
 CREATE INDEX IF NOT EXISTS "TextToImageAsset_jobId_createdAt_idx" ON "TextToImageAsset"("jobId", "createdAt");
 CREATE INDEX IF NOT EXISTS "TextToImageAsset_sourcePath_createdAt_idx" ON "TextToImageAsset"("sourcePath", "createdAt");
+CREATE TABLE IF NOT EXISTS "IllustrationExecutionManifest" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "projectId" TEXT NOT NULL,
+    "targetHash" TEXT NOT NULL,
+    "executionNonce" TEXT NOT NULL,
+    "executionInputHashesJson" TEXT NOT NULL,
+    "executionManifestHash" TEXT NOT NULL,
+    "recipeSnapshotJson" TEXT NOT NULL,
+    "compiledRequestsJson" TEXT NOT NULL,
+    "outputCount" INTEGER NOT NULL,
+    "knownCost" REAL,
+    "tokenLowerBound" INTEGER,
+    "registrationState" TEXT NOT NULL DEFAULT 'jobs_registered',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "IllustrationExecutionManifest_executionManifestHash_key" ON "IllustrationExecutionManifest"("executionManifestHash");
+CREATE INDEX IF NOT EXISTS "IllustrationExecutionManifest_projectId_createdAt_idx" ON "IllustrationExecutionManifest"("projectId", "createdAt");
+CREATE TABLE IF NOT EXISTS "IllustrationExecutionApproval" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "manifestId" TEXT NOT NULL,
+    "executionManifestHash" TEXT NOT NULL,
+    "approvalHash" TEXT NOT NULL,
+    "authorizedOutputCount" INTEGER NOT NULL,
+    "authorizedCostLimit" REAL,
+    "authorizedTokenLimit" INTEGER,
+    "actorUserId" INTEGER NOT NULL,
+    "approvedAt" DATETIME NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "IllustrationExecutionApproval_manifestId_fkey" FOREIGN KEY ("manifestId") REFERENCES "IllustrationExecutionManifest" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "IllustrationExecutionApproval_manifestId_key" ON "IllustrationExecutionApproval"("manifestId");
+CREATE UNIQUE INDEX IF NOT EXISTS "IllustrationExecutionApproval_approvalHash_key" ON "IllustrationExecutionApproval"("approvalHash");
+CREATE TABLE IF NOT EXISTS "TextToImageDispatchOutbox" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "dispatchKey" TEXT NOT NULL,
+    "jobId" TEXT NOT NULL,
+    "manifestId" TEXT NOT NULL,
+    "manifestHash" TEXT NOT NULL,
+    "registrationVersion" TEXT NOT NULL,
+    "preparationId" TEXT NOT NULL,
+    "prepareAttemptId" TEXT NOT NULL,
+    "prepareVersion" INTEGER NOT NULL,
+    "state" TEXT NOT NULL DEFAULT 'pending',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "TextToImageDispatchOutbox_jobId_fkey" FOREIGN KEY ("jobId") REFERENCES "TextToImageJob" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT "TextToImageDispatchOutbox_manifestId_fkey" FOREIGN KEY ("manifestId") REFERENCES "IllustrationExecutionManifest" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "TextToImageDispatchOutbox_dispatchKey_key" ON "TextToImageDispatchOutbox"("dispatchKey");
+CREATE UNIQUE INDEX IF NOT EXISTS "TextToImageDispatchOutbox_jobId_key" ON "TextToImageDispatchOutbox"("jobId");
+CREATE INDEX IF NOT EXISTS "TextToImageDispatchOutbox_state_createdAt_idx" ON "TextToImageDispatchOutbox"("state", "createdAt");
+CREATE INDEX IF NOT EXISTS "TextToImageDispatchOutbox_manifestId_createdAt_idx" ON "TextToImageDispatchOutbox"("manifestId", "createdAt");
+CREATE INDEX IF NOT EXISTS "TextToImageDispatchOutbox_preparationId_prepareVersion_idx" ON "TextToImageDispatchOutbox"("preparationId", "prepareVersion");
+CREATE TABLE IF NOT EXISTS "IllustrationPlanningWorkflow" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "projectId" TEXT NOT NULL,
+    "chapterPath" TEXT NOT NULL,
+    "operation" TEXT NOT NULL,
+    "planningRequestHash" TEXT NOT NULL,
+    "planningInputHash" TEXT NOT NULL,
+    "inputJson" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'queued',
+    "activeAttemptId" TEXT,
+    "retryable" BOOLEAN NOT NULL DEFAULT false,
+    "staleReason" TEXT,
+    "proposalJson" TEXT,
+    "validatedPlanJson" TEXT,
+    "errorCode" TEXT,
+    "errorMessage" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "IllustrationPlanningWorkflow_projectId_chapterPath_operation_planningRequestHash_key" ON "IllustrationPlanningWorkflow"("projectId", "chapterPath", "operation", "planningRequestHash");
+CREATE INDEX IF NOT EXISTS "IllustrationPlanningWorkflow_projectId_status_createdAt_idx" ON "IllustrationPlanningWorkflow"("projectId", "status", "createdAt");
+CREATE INDEX IF NOT EXISTS "IllustrationPlanningWorkflow_chapterPath_status_createdAt_idx" ON "IllustrationPlanningWorkflow"("chapterPath", "status", "createdAt");
+CREATE TABLE IF NOT EXISTS "IllustrationPlanningAttempt" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "workflowId" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'created',
+    "sessionId" INTEGER,
+    "invocationId" TEXT,
+    "planningEvidenceHash" TEXT,
+    "evidenceJson" TEXT,
+    "proposalJson" TEXT,
+    "errorCode" TEXT,
+    "errorMessage" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "startedAt" DATETIME,
+    "finishedAt" DATETIME,
+    CONSTRAINT "IllustrationPlanningAttempt_workflowId_fkey" FOREIGN KEY ("workflowId") REFERENCES "IllustrationPlanningWorkflow" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX IF NOT EXISTS "IllustrationPlanningAttempt_workflowId_createdAt_idx" ON "IllustrationPlanningAttempt"("workflowId", "createdAt");
+CREATE INDEX IF NOT EXISTS "IllustrationPlanningAttempt_status_createdAt_idx" ON "IllustrationPlanningAttempt"("status", "createdAt");
+CREATE TABLE IF NOT EXISTS "IllustrationPlanningApplyJournal" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "workflowId" TEXT NOT NULL,
+    "projectId" TEXT NOT NULL,
+    "chapterPath" TEXT NOT NULL,
+    "state" TEXT NOT NULL DEFAULT 'prepared',
+    "expectedChapterHash" TEXT NOT NULL,
+    "expectedStoryboardHash" TEXT,
+    "stagedStoryboardHash" TEXT NOT NULL,
+    "appliedStoryboardHash" TEXT NOT NULL,
+    "chapterAfterHash" TEXT NOT NULL,
+    "payloadJson" TEXT NOT NULL,
+    "errorCode" TEXT,
+    "errorMessage" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "IllustrationPlanningApplyJournal_workflowId_fkey" FOREIGN KEY ("workflowId") REFERENCES "IllustrationPlanningWorkflow" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "IllustrationPlanningApplyJournal_workflowId_key" ON "IllustrationPlanningApplyJournal"("workflowId");
+CREATE INDEX IF NOT EXISTS "IllustrationPlanningApplyJournal_projectId_state_createdAt_idx" ON "IllustrationPlanningApplyJournal"("projectId", "state", "createdAt");
+CREATE INDEX IF NOT EXISTS "IllustrationPlanningApplyJournal_chapterPath_state_createdAt_idx" ON "IllustrationPlanningApplyJournal"("chapterPath", "state", "createdAt");
 CREATE TABLE IF NOT EXISTS "Story" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "title" TEXT NOT NULL,
@@ -316,6 +446,9 @@ CREATE INDEX IF NOT EXISTS "WorldPatch_path_idx" ON "WorldPatch"("path");
 INSERT INTO "ProjectMetadata" ("key", "value", "updatedAt")
 VALUES ('schemaVersion', '1', CURRENT_TIMESTAMP)
 ON CONFLICT("key") DO UPDATE SET "value" = excluded."value", "updatedAt" = CURRENT_TIMESTAMP;
+INSERT INTO "ProjectMetadata" ("key", "value", "updatedAt")
+VALUES ('projectId', 'project-' || lower(hex(randomblob(16))), CURRENT_TIMESTAMP)
+ON CONFLICT("key") DO NOTHING;
 `;
 
 /**
@@ -521,6 +654,9 @@ export async function initProjectDatabaseAtRoot(projectRoot: string): Promise<st
         }
         await migratePlotSceneBridgeSchema(client, projectRoot);
         await migrateStorySceneChapterEntity(client);
+        await ensureTextToImageJobProviderSnapshotColumn(client);
+        await ensureIllustrationExecutionRegistrationSchema(client);
+        await ensureTextToImageReferenceAssetSchema(client);
         await ensureWorldSliceSummaryColumn(client);
         await ensurePlanningLayerColumns(client);
     } finally {
@@ -531,10 +667,102 @@ export async function initProjectDatabaseAtRoot(projectRoot: string): Promise<st
 }
 
 /**
- * SQLite file URL。
+ * 旧 Project Job 补齐脱敏 Provider snapshot；reconciliation 会直接打开缺失 manifest 的数据库，
+ * 因而该迁移能力必须可由 Project 初始化与一次性对账共同调用。
+ */
+export async function ensureTextToImageJobProviderSnapshotColumn(client: Client): Promise<void> {
+    const result = await client.execute(`PRAGMA table_info("TextToImageJob")`);
+    const hasSnapshot = result.rows.some((row) => String(row.name ?? "") === "providerSnapshotJson");
+    if (!hasSnapshot) {
+        await client.execute(`ALTER TABLE "TextToImageJob" ADD COLUMN "providerSnapshotJson" TEXT NOT NULL DEFAULT '{}'`);
+    }
+}
+
+/**
+ * 为旧 Project Job 补齐 P4 immutable registration 投影。
+ * 旧手工链在物理删除前允许这些列为空；新 Illustration repository 只写完整闭包。
+ */
+export async function ensureIllustrationExecutionRegistrationSchema(client: Client): Promise<void> {
+    const columns = await tableColumns(client, "TextToImageJob");
+    const additions = [
+        ["originJson", "TEXT"],
+        ["sourceIdentityHash", "TEXT"],
+        ["providerOwnerUserId", "INTEGER"],
+        ["providerCredentialRevision", "INTEGER"],
+        ["executionManifestId", "TEXT"],
+        ["executionApprovalId", "TEXT"],
+        ["compiledRequestHash", "TEXT"],
+        ["idempotencyKey", "TEXT"],
+        ["variantIndex", "INTEGER"],
+        ["outputIndex", "INTEGER"],
+        ["parentJobId", "TEXT"],
+        ["parentAssetId", "TEXT"],
+        ["stableErrorCode", "TEXT"],
+        ["activeAttemptId", "TEXT"],
+        ["activeAttemptFence", "INTEGER"],
+    ] as const;
+    for (const [column, type] of additions) {
+        if (!columns.has(column)) {
+            await client.execute(`ALTER TABLE "TextToImageJob" ADD COLUMN "${column}" ${type}`);
+        }
+    }
+    await client.execute(`CREATE UNIQUE INDEX IF NOT EXISTS "TextToImageJob_idempotencyKey_key" ON "TextToImageJob"("idempotencyKey")`);
+    await client.execute(`CREATE INDEX IF NOT EXISTS "TextToImageJob_executionManifestId_outputIndex_idx" ON "TextToImageJob"("executionManifestId", "outputIndex")`);
+    await client.execute(`CREATE INDEX IF NOT EXISTS "TextToImageJob_providerOwnerUserId_providerId_providerCredentialRevision_status_idx" ON "TextToImageJob"("providerOwnerUserId", "providerId", "providerCredentialRevision", "status")`);
+    await client.execute(`CREATE INDEX IF NOT EXISTS "TextToImageJob_activeAttemptId_activeAttemptFence_idx" ON "TextToImageJob"("activeAttemptId", "activeAttemptFence")`);
+    const outboxColumns = await tableColumns(client, "TextToImageDispatchOutbox");
+    const outboxAdditions = [
+        ["preparationId", "TEXT"],
+        ["prepareAttemptId", "TEXT"],
+        ["prepareVersion", "INTEGER"],
+    ] as const;
+    for (const [column, type] of outboxAdditions) {
+        if (!outboxColumns.has(column)) {
+            await client.execute(`ALTER TABLE "TextToImageDispatchOutbox" ADD COLUMN "${column}" ${type}`);
+        }
+    }
+    await client.execute(`CREATE INDEX IF NOT EXISTS "TextToImageDispatchOutbox_preparationId_prepareVersion_idx" ON "TextToImageDispatchOutbox"("preparationId", "prepareVersion")`);
+}
+
+/**
+ * P5 参考资产表：内容寻址的 Vibe/Character Reference/Inpaint 蒙版与派生 Vibe encoding。 */
+export async function ensureTextToImageReferenceAssetSchema(client: Client): Promise<void> {
+    await client.execute(`
+        CREATE TABLE IF NOT EXISTS "TextToImageReferenceAsset" (
+            "id" TEXT NOT NULL,
+            "kind" TEXT NOT NULL,
+            "contentHash" TEXT NOT NULL,
+            "relativePath" TEXT NOT NULL,
+            "fileName" TEXT NOT NULL,
+            "mimeType" TEXT NOT NULL,
+            "byteLength" INTEGER NOT NULL,
+            "parentAssetId" TEXT,
+            "derivedModel" TEXT,
+            "derivedInfoExtracted" REAL,
+            "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT "TextToImageReferenceAsset_contentHash_pkey" UNIQUE ("contentHash"),
+            CONSTRAINT "TextToImageReferenceAsset_relativePath_pkey" UNIQUE ("relativePath")
+        )
+    `);
+    await client.execute(`CREATE INDEX IF NOT EXISTS "TextToImageReferenceAsset_kind_createdAt_idx" ON "TextToImageReferenceAsset"("kind", "createdAt")`);
+    await client.execute(`CREATE INDEX IF NOT EXISTS "TextToImageReferenceAsset_parentAssetId_idx" ON "TextToImageReferenceAsset"("parentAssetId")`);
+    await client.execute(`CREATE INDEX IF NOT EXISTS "TextToImageReferenceAsset_parentAssetId_derivedModel_derivedInfoExtracted_idx" ON "TextToImageReferenceAsset"("parentAssetId", "derivedModel", "derivedInfoExtracted")`);
+}
+
+/**
+ * SQLite file URL。libsql 的 parseUri 对 `file:C:/...`、`file://?/...` 等格式解析不稳，
+ * 必须用标准 `file:///` 三斜杠绝对路径格式。Windows 扩展路径前缀 `\?\` 会被
+ * `replaceAll("\\","/")` 变成 `//?/`，拼成 `file://?/C:/...` 被 libsql 当成
+ * authority + query 误解析抛 URL_PARAM_NOT_SUPPORTED，这里要先剥离 `\?\` 前缀。
  */
 export function toSqliteFileUrl(filePath: string): string {
-    return `file:${path.resolve(filePath).replaceAll("\\", "/")}`;
+    // path.resolve 保留 Windows `\?\` 扩展前缀，replace 成 `//?/` 会污染 libsql URL。
+    const resolved = path.resolve(filePath).replace(/^[\\/\\]*\\\\\?\\/, "").replaceAll("\\", "/");
+    // Windows 扩展路径前缀经 replaceAll 后变成 //?/，libsql 会误解析为 authority+query，必须剥离。
+    const stripped = resolved.startsWith("//?/") ? resolved.slice(4) : resolved;
+    // Unix 绝对路径已以 / 开头，拼 file:// 得标准 file:///abs；Windows 盘符开头拼 file:///。
+    const prefix = stripped.startsWith("/") ? "file://" : "file:///";
+    return `${prefix}${stripped}`;
 }
 
 function splitSqlStatements(sql: string): string[] {

@@ -12,6 +12,7 @@ import {useNotification} from "nbook/app/composables/useNotification";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import type {
     CheckModelResponseDto,
+    CheckProviderResponseDto,
     ConfiguredModelDto,
     DiscoverProviderModelsResponseDto,
     DiscoveredProviderModelDto,
@@ -24,6 +25,8 @@ import type {
     UpdateModelSettingsRequestDto,
 } from "nbook/shared/dto/app-settings.dto";
 import type {ConfigEditorSnapshotDto, ConfigModelSettingsDto, ConfigWorkspaceQueryDto, GlobalConfigDto, ProjectConfigDto, SecretConfigValueDto} from "nbook/shared/dto/config.dto";
+import {ILLUSTRATION_DIRECTOR_PROFILE_KEY} from "nbook/shared/agent/illustration-director";
+import type {SettingsModelFocusTarget} from "nbook/app/utils/settings-navigation";
 
 type ProviderRequestOptions = UpdateModelSettingsRequestDto["providers"][number]["options"]["requestOptions"];
 type ConfigSettingsScope = "global" | "project";
@@ -34,10 +37,14 @@ const props = withDefaults(defineProps<{
     scope?: ConfigSettingsScope;
     targetQuery?: ConfigWorkspaceQueryDto;
     targetLabel?: string;
+    focusTarget?: SettingsModelFocusTarget;
+    focusRequestId?: number;
 }>(), {
     scope: "global",
     targetQuery: undefined,
     targetLabel: "",
+    focusTarget: undefined,
+    focusRequestId: 0,
 });
 
 type ModelDraft = {
@@ -76,6 +83,8 @@ type ManualModelDraft = {
 
 type ProviderDraft = {
     localKey: string;
+    /** 非空表示该 Provider 已持久化；Provider ID 保存后不可变。 */
+    persistedId: string | null;
     id: string;
     name: string;
     enabled: boolean;
@@ -95,6 +104,7 @@ type ProviderDraft = {
 
 type ModelSettingsDraft = {
     defaultModelKey: string | null;
+    illustrationDirectorModelKey: string | null;
     providers: ProviderDraft[];
 };
 
@@ -183,6 +193,7 @@ const activeProviderKey = ref("");
 const selectedPreset = ref<string>(fallbackProviderPresetOptions.value[0]?.value ?? "custom");
 const draft = ref<ModelSettingsDraft>({
     defaultModelKey: null,
+    illustrationDirectorModelKey: null,
     providers: [],
 });
 const snapshotText = ref("");
@@ -197,6 +208,10 @@ const manualModelDrafts = ref<Record<string, ManualModelDraft>>({});
 const libraryDialogOpen = ref(false);
 const editorSnapshot = ref<ConfigEditorSnapshotDto | null>(null);
 const projectReferencesDirty = ref(false);
+const illustrationDirectorSectionRef = ref<HTMLElement | null>(null);
+const illustrationDirectorProviderChecking = ref(false);
+const illustrationDirectorProviderCheckResult = ref<CheckProviderResponseDto | null>(null);
+const illustrationDirectorProviderCheckFingerprint = ref("");
 let providerLocalKeySeed = 0;
 let modelCheckStateVersion = 0;
 
@@ -424,6 +439,7 @@ function cloneProvider(provider: ConfigModelSettingsDto["providers"][number], lo
     const localKeyQueue = localKeyMap.get(provider.id);
     return {
         localKey: localKeyQueue?.shift() ?? createProviderLocalKey(provider.id),
+        persistedId: provider.id,
         id: provider.id,
         name: provider.name,
         enabled: provider.enabled,
@@ -452,9 +468,10 @@ function applySettings(snapshot: ConfigEditorSnapshotDto, options: {preserveUiSt
     const preferredProviderKey = options.preferredProviderKey ?? activeProviderKey.value;
     draft.value = {
         defaultModelKey: snapshot.modelSettings.defaultModelKey,
+        illustrationDirectorModelKey: snapshot.modelSettings.illustrationDirector.modelKey,
         providers: snapshot.modelSettings.providers.map((provider) => cloneProvider(provider, localKeyMap)),
     };
-    snapshotText.value = JSON.stringify(buildSavePayload());
+    snapshotText.value = JSON.stringify(buildGlobalDirtySnapshot());
     activeProviderKey.value = draft.value.providers.some((provider) => provider.localKey === preferredProviderKey)
         ? preferredProviderKey
         : draft.value.providers[0]?.localKey ?? "";
@@ -463,6 +480,7 @@ function applySettings(snapshot: ConfigEditorSnapshotDto, options: {preserveUiSt
         manualModelDrafts.value = {};
     }
     resetModelCheckState();
+    illustrationDirectorProviderCheckResult.value = null;
     resolvedContextWindowMap.value = Object.fromEntries(
         snapshot.modelSettings.enabledModels.map((model) => [model.key, model.contextWindowTokens]),
     );
@@ -487,6 +505,7 @@ function applyProjectSettings(snapshot: ConfigEditorSnapshotDto): void {
     editorSnapshot.value = snapshot;
     draft.value = {
         defaultModelKey: readProjectDefaultModelKey(snapshot),
+        illustrationDirectorModelKey: snapshot.modelSettings.illustrationDirector.modelKey,
         providers: snapshot.modelSettings.providers.map((provider) => cloneProvider(provider, localKeyMap)),
     };
     snapshotText.value = JSON.stringify({
@@ -580,15 +599,41 @@ function buildSavePayload(): UpdateModelSettingsRequestDto {
     };
 }
 
+/** 构造 Global 模型页 dirty 比较快照，包含 Director binding。 */
+function buildGlobalDirtySnapshot(): {models: UpdateModelSettingsRequestDto; illustrationDirectorModelKey: string | null} {
+    const modelKeys = availableModelKeys();
+    return {
+        models: buildSavePayload(),
+        illustrationDirectorModelKey: cleanModelKey(draft.value.illustrationDirectorModelKey, modelKeys),
+    };
+}
+
 /**
  * 构造 Global Config 写回体，secret 字段遵守“空输入保留旧值”语义。
  */
 function buildGlobalConfigPayload(): GlobalConfigDto {
     const base = editorSnapshot.value?.global ?? {};
     const modelKeys = availableModelKeys();
+    const cleanedAgent = cleanConfigAgentProfiles(base.agent, modelKeys);
+    const directorProfile = cleanedAgent?.profiles?.[ILLUSTRATION_DIRECTOR_PROFILE_KEY];
     return {
         ...base,
-        agent: cleanConfigAgentProfiles(base.agent, modelKeys),
+        agent: {
+            ...(cleanedAgent ?? {}),
+            defaultProfileKey: cleanedAgent?.defaultProfileKey ?? {novel: null, userAssets: null},
+            profileModelDefaults: cleanedAgent?.profileModelDefaults ?? {},
+            profileRuntimeDefaults: cleanedAgent?.profileRuntimeDefaults ?? {},
+            profiles: {
+                ...(cleanedAgent?.profiles ?? {}),
+                [ILLUSTRATION_DIRECTOR_PROFILE_KEY]: {
+                    ...(directorProfile ?? {}),
+                    model: {
+                        ...(directorProfile?.model ?? {}),
+                        modelKey: cleanModelKey(draft.value.illustrationDirectorModelKey, modelKeys),
+                    },
+                },
+            },
+        },
         models: {
             default: cleanModelKey(draft.value.defaultModelKey, modelKeys),
             providers: draft.value.providers.map((provider) => ({
@@ -916,7 +961,7 @@ const dirty = computed(() => {
             defaultModelKey: draft.value.defaultModelKey,
         }) !== snapshotText.value;
     }
-    return projectReferencesDirty.value || JSON.stringify(buildSavePayload()) !== snapshotText.value;
+    return projectReferencesDirty.value || JSON.stringify(buildGlobalDirtySnapshot()) !== snapshotText.value;
 });
 
 /**
@@ -933,6 +978,36 @@ const defaultModelOptions = computed<EnabledModelOptionDto[]>(() => {
             contextWindowTokens: parseContextWindowTokens(model.contextWindowTokens),
         })))
         .sort((left, right) => left.label.localeCompare(right.label));
+});
+
+/** 当前 Director binding 在本地 Provider/model 草稿中的解析结果。 */
+const illustrationDirectorSelection = computed<{provider: ProviderDraft; model: ModelDraft} | null>(() => {
+    const option = defaultModelOptions.value.find((item) => item.key === draft.value.illustrationDirectorModelKey);
+    if (!option) {
+        return null;
+    }
+    const provider = draft.value.providers.find((item) => item.enabled && item.id === option.providerId);
+    const model = provider?.models.find((item) => item.enabled && item.id === option.modelId);
+    return provider && model ? {provider, model} : null;
+});
+
+const illustrationDirectorModelCheckResult = computed(() => {
+    const selection = illustrationDirectorSelection.value;
+    return selection ? modelCheckResult(selection.provider, selection.model) : null;
+});
+
+const illustrationDirectorModelChecking = computed(() => {
+    const selection = illustrationDirectorSelection.value;
+    return selection ? isModelChecking(selection.provider, selection.model) : false;
+});
+
+/** 只展示与当前 Provider 草稿完全一致的连接测试结果。 */
+const displayedIllustrationDirectorProviderCheckResult = computed(() => {
+    const selection = illustrationDirectorSelection.value;
+    if (!selection || illustrationDirectorProviderCheckFingerprint.value !== providerCheckFingerprint(selection.provider)) {
+        return null;
+    }
+    return illustrationDirectorProviderCheckResult.value;
 });
 
 /**
@@ -1185,6 +1260,7 @@ async function addProvider(): Promise<void> {
     activeProviderKey.value = localKey;
     draft.value.providers.push({
         localKey,
+        persistedId: null,
         id: providerId,
         name: preset.providerName,
         enabled: true,
@@ -1261,6 +1337,13 @@ function renameActiveProviderId(nextProviderId: string): void {
         return;
     }
 
+    if (provider.persistedId !== null) {
+        if (nextProviderId.trim() !== provider.persistedId) {
+            notification.warning(t("settings.panels.models.providerIdImmutable"));
+        }
+        return;
+    }
+
     const previousProviderId = provider.id;
     const normalizedProviderId = nextProviderId.trim();
     cancelProviderChecks(provider, {clearBatch: true});
@@ -1272,6 +1355,9 @@ function renameActiveProviderId(nextProviderId: string): void {
 
     if (draft.value.defaultModelKey?.startsWith(`${previousProviderId}/`)) {
         draft.value.defaultModelKey = draft.value.defaultModelKey.replace(`${previousProviderId}/`, `${normalizedProviderId}/`);
+    }
+    if (draft.value.illustrationDirectorModelKey?.startsWith(`${previousProviderId}/`)) {
+        draft.value.illustrationDirectorModelKey = draft.value.illustrationDirectorModelKey.replace(`${previousProviderId}/`, `${normalizedProviderId}/`);
     }
     renameProviderModelReferences(previousProviderId, normalizedProviderId);
 
@@ -1375,6 +1461,9 @@ async function confirmDeleteActiveProvider(): Promise<void> {
     if (draft.value.defaultModelKey?.startsWith(`${deletedProviderId}/`)) {
         draft.value.defaultModelKey = null;
     }
+    if (draft.value.illustrationDirectorModelKey?.startsWith(`${deletedProviderId}/`)) {
+        draft.value.illustrationDirectorModelKey = null;
+    }
     delete discoveredModels.value[deletedProviderId];
     delete manualModelDrafts.value[deletedProviderId];
     activeProviderKey.value = draft.value.providers[0]?.localKey ?? "";
@@ -1404,7 +1493,7 @@ function buildProviderRequest(provider: ProviderDraft): {provider: ModelProvider
 }
 
 function shouldUseSavedProviderApiKey(provider: ProviderDraft): boolean {
-    return !provider.options.apiKeyCleared && !provider.options.apiKey.trim();
+    return provider.persistedId === provider.id && !provider.options.apiKeyCleared && !provider.options.apiKey.trim();
 }
 
 function buildModelCheckDraft(model: ModelDraft): Omit<ConfiguredModelDto, "enabled"> {
@@ -1577,8 +1666,31 @@ function addManualModel(): void {
     notification.success(t("settings.panels.models.manualAdded"));
 }
 
+/** 对草稿 JSON 生成不暴露 secret 明文的进程内短 fingerprint。 */
+function draftFingerprint(source: string): string {
+    let hash = 2166136261;
+    for (let index = 0; index < source.length; index += 1) {
+        hash ^= source.charCodeAt(index);
+        hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(16);
+}
+
+/** Provider 连接测试输入 fingerprint；草稿变化后旧结果立即失效。 */
+function providerCheckFingerprint(provider: ProviderDraft): string {
+    return draftFingerprint(JSON.stringify({
+        provider: buildProviderRequest(provider).provider,
+        models: provider.models.filter((model) => model.enabled).map(buildModelCheckDraft),
+        useSavedApiKey: shouldUseSavedProviderApiKey(provider),
+    }));
+}
+
 function modelCheckKey(provider: ProviderDraft, model: ModelDraft): string {
-    return `${provider.id.trim()}/${model.id.trim()}`;
+    return `${provider.localKey}:${draftFingerprint(JSON.stringify({
+        provider: buildProviderRequest(provider).provider,
+        model: buildModelCheckDraft(model),
+        useSavedApiKey: shouldUseSavedProviderApiKey(provider),
+    }))}`;
 }
 
 function modelCheckResult(provider: ProviderDraft, model: ModelDraft): ModelCheckResult | null {
@@ -1668,6 +1780,9 @@ function resetModelCheckState(): void {
     modelCheckControllers.value = {};
     modelCheckResults.value = {};
     activeModelCheckBatches.value = {};
+    illustrationDirectorProviderChecking.value = false;
+    illustrationDirectorProviderCheckResult.value = null;
+    illustrationDirectorProviderCheckFingerprint.value = "";
 }
 
 function cancelProviderChecks(provider: ProviderDraft, options: {clearBatch?: boolean} = {}): void {
@@ -1746,6 +1861,76 @@ async function checkModel(model: ModelDraft): Promise<void> {
     }
 
     await runModelCheck(provider, model);
+}
+
+/** 检测 Director binding 当前 Provider 草稿的连接能力。 */
+async function checkIllustrationDirectorProvider(): Promise<void> {
+    const selection = illustrationDirectorSelection.value;
+    if (!selection || illustrationDirectorProviderChecking.value) {
+        return;
+    }
+    const fingerprint = providerCheckFingerprint(selection.provider);
+    illustrationDirectorProviderChecking.value = true;
+    illustrationDirectorProviderCheckResult.value = null;
+    illustrationDirectorProviderCheckFingerprint.value = fingerprint;
+    try {
+        const result = await $fetch<CheckProviderResponseDto>("/api/config/models/provider-check", {
+            method: "POST",
+            body: {
+                provider: buildProviderRequest(selection.provider).provider,
+                models: selection.provider.models.filter((model) => model.enabled).map(buildModelCheckDraft),
+                useSavedApiKey: shouldUseSavedProviderApiKey(selection.provider),
+                useSavedModels: false,
+            },
+        });
+        if (illustrationDirectorSelection.value && providerCheckFingerprint(illustrationDirectorSelection.value.provider) === fingerprint) {
+            illustrationDirectorProviderCheckResult.value = result;
+        }
+    } catch (error) {
+        if (illustrationDirectorSelection.value && providerCheckFingerprint(illustrationDirectorSelection.value.provider) === fingerprint) {
+            illustrationDirectorProviderCheckResult.value = {
+                success: false,
+                latencyMs: null,
+                message: resolveApiErrorMessage(error, t("settings.panels.models.providerCheckFailed")),
+            };
+        }
+    } finally {
+        illustrationDirectorProviderChecking.value = false;
+    }
+}
+
+/** 检测 Director binding 当前选择的具体模型。 */
+async function checkIllustrationDirectorModel(): Promise<void> {
+    const selection = illustrationDirectorSelection.value;
+    if (!selection || illustrationDirectorModelChecking.value) {
+        return;
+    }
+    await runModelCheck(selection.provider, selection.model);
+}
+
+/** 取消 Director binding 当前模型的健康检查。 */
+function cancelIllustrationDirectorModelCheck(): void {
+    const selection = illustrationDirectorSelection.value;
+    if (selection) {
+        cancelModelCheck(selection.provider, selection.model);
+    }
+}
+
+/** 在下方 Provider 表单中定位 Director binding 当前使用的连接。 */
+function openIllustrationDirectorProvider(): void {
+    const selection = illustrationDirectorSelection.value;
+    if (selection) {
+        activeProviderKey.value = selection.provider.localKey;
+    }
+}
+
+/** 响应外部设置导航请求，把 Director binding 卡滚动到可见区域。 */
+async function focusIllustrationDirectorSection(): Promise<void> {
+    if (props.focusTarget !== "illustration-director" || isProjectScope.value) {
+        return;
+    }
+    await nextTick();
+    illustrationDirectorSectionRef.value?.scrollIntoView({behavior: "smooth", block: "start"});
 }
 
 /**
@@ -1915,6 +2100,12 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.p
     void loadSettings();
 });
 
+watch(() => [props.focusRequestId, props.focusTarget, loading.value] as const, () => {
+    if (!loading.value) {
+        void focusIllustrationDirectorSection();
+    }
+}, {immediate: true});
+
 defineExpose({
     dirty,
     loading,
@@ -1972,6 +2163,70 @@ defineExpose({
                 </div>
             </div>
         </div>
+
+        <!-- 插图 Director binding：Global Config 的唯一编辑入口 -->
+        <section v-if="!isProjectScope" id="illustration-director-model-binding" ref="illustrationDirectorSectionRef" class="scroll-mt-4 rounded-2xl border border-[var(--border-accent)] bg-[var(--accent-bg)] px-5 py-4 shadow-sm">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+                <div class="min-w-0 max-w-2xl">
+                    <div class="flex items-center gap-2">
+                        <span class="i-lucide-clapperboard h-4 w-4 shrink-0 text-[var(--accent-main)]"></span>
+                        <h3 class="text-sm font-semibold text-[var(--text-main)]">{{ t("settings.panels.models.illustrationDirectorTitle") }}</h3>
+                        <span class="rounded-full border px-2 py-0.5 text-[10px] font-medium" :class="illustrationDirectorSelection ? 'border-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success)]' : 'border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] text-[var(--status-warning)]'">
+                            {{ illustrationDirectorSelection ? t("settings.panels.models.illustrationDirectorConfigured") : t("settings.panels.models.illustrationDirectorNotConfigured") }}
+                        </span>
+                    </div>
+                    <p class="mt-1 text-xs leading-5 text-[var(--text-secondary)]">{{ t("settings.panels.models.illustrationDirectorDescription") }}</p>
+                </div>
+                <code class="rounded border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1 text-[11px] text-[var(--text-muted)]">illustration.director</code>
+            </div>
+
+            <div class="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
+                <div>
+                    <label class="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.models.illustrationDirectorModel") }}</label>
+                    <NovelIdeModelSelect
+                        :model-value="draft.illustrationDirectorModelKey"
+                        :models="defaultModelOptions"
+                        allow-default
+                        :default-label="t('settings.panels.models.illustrationDirectorClear')"
+                        :placeholder="t('settings.panels.models.noEnabledModels')"
+                        @update:model-value="draft.illustrationDirectorModelKey = $event"
+                    />
+                </div>
+                <div class="flex flex-wrap items-center gap-2">
+                    <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 text-xs font-medium text-[var(--text-main)] transition-colors hover:bg-[var(--bg-hover)] disabled:pointer-events-none disabled:opacity-50" :disabled="!illustrationDirectorSelection" @click="openIllustrationDirectorProvider">
+                        <span class="i-lucide-server-cog h-3.5 w-3.5"></span>
+                        {{ t("settings.panels.models.illustrationDirectorEditProvider") }}
+                    </button>
+                    <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--status-info-border)] bg-[var(--status-info-bg)] px-3 text-xs font-medium text-[var(--status-info)] transition-opacity hover:opacity-80 disabled:pointer-events-none disabled:opacity-50" :disabled="!illustrationDirectorSelection || illustrationDirectorProviderChecking" @click="void checkIllustrationDirectorProvider()">
+                        <span class="h-3.5 w-3.5" :class="illustrationDirectorProviderChecking ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-plug-zap'"></span>
+                        {{ illustrationDirectorProviderChecking ? t("settings.panels.models.checking") : t("settings.panels.models.illustrationDirectorCheckConnection") }}
+                    </button>
+                    <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--accent-main)] bg-[var(--accent-main)] px-3 text-xs font-medium text-[var(--text-inverse)] transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-50" :disabled="!illustrationDirectorSelection || illustrationDirectorModelChecking" @click="void checkIllustrationDirectorModel()">
+                        <span class="h-3.5 w-3.5" :class="illustrationDirectorModelChecking ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-play'"></span>
+                        {{ illustrationDirectorModelChecking ? t("settings.panels.models.checking") : t("settings.panels.models.illustrationDirectorCheckModel") }}
+                    </button>
+                    <button v-if="illustrationDirectorModelChecking" type="button" class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 text-xs font-medium text-[var(--status-danger)] transition-opacity hover:opacity-80" @click="cancelIllustrationDirectorModelCheck">
+                        <span class="i-lucide-circle-x h-3.5 w-3.5"></span>
+                        {{ t("settings.panels.models.cancelModelCheck") }}
+                    </button>
+                </div>
+            </div>
+
+            <div v-if="illustrationDirectorSelection" class="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-[var(--text-secondary)]">
+                <span>{{ t("settings.panels.models.illustrationDirectorProviderSummary", {provider: illustrationDirectorSelection.provider.name}) }}</span>
+                <span>{{ t("settings.panels.models.illustrationDirectorModelSummary", {model: illustrationDirectorSelection.model.name || illustrationDirectorSelection.model.id}) }}</span>
+            </div>
+            <div v-if="displayedIllustrationDirectorProviderCheckResult" class="mt-3 flex items-center gap-1.5 text-xs" :class="displayedIllustrationDirectorProviderCheckResult.success ? 'text-[var(--status-success)]' : 'text-[var(--status-danger)]'">
+                <span class="h-3.5 w-3.5 shrink-0" :class="displayedIllustrationDirectorProviderCheckResult.success ? 'i-lucide-circle-check' : 'i-lucide-circle-x'"></span>
+                <span>{{ t("settings.panels.models.illustrationDirectorConnectionResult") }}：{{ displayedIllustrationDirectorProviderCheckResult.message }}</span>
+                <span v-if="displayedIllustrationDirectorProviderCheckResult.latencyMs !== null" class="opacity-70">{{ displayedIllustrationDirectorProviderCheckResult.latencyMs }}ms</span>
+            </div>
+            <div v-if="illustrationDirectorModelCheckResult" class="mt-2 flex items-center gap-1.5 text-xs" :class="illustrationDirectorModelCheckResult.cancelled ? 'text-[var(--text-muted)]' : illustrationDirectorModelCheckResult.success ? 'text-[var(--status-success)]' : 'text-[var(--status-danger)]'">
+                <span class="h-3.5 w-3.5 shrink-0" :class="illustrationDirectorModelCheckResult.cancelled ? 'i-lucide-circle-slash' : illustrationDirectorModelCheckResult.success ? 'i-lucide-circle-check' : 'i-lucide-circle-x'"></span>
+                <span>{{ t("settings.panels.models.illustrationDirectorModelResult") }}：{{ illustrationDirectorModelCheckResult.message }}</span>
+                <span v-if="illustrationDirectorModelCheckResult.latencyMs !== null" class="opacity-70">{{ illustrationDirectorModelCheckResult.latencyMs }}ms</span>
+            </div>
+        </section>
 
         <!-- Loading State -->
         <div v-if="loading" class="flex min-h-[400px] flex-col items-center justify-center gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-sm">
@@ -2055,7 +2310,7 @@ defineExpose({
                             <div class="mt-4 grid gap-4 md:grid-cols-2">
                                 <div class="group space-y-1.5">
                                     <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">{{ t("settings.panels.models.providerId") }}</label>
-                                    <FormInput :model-value="activeProvider.id" :placeholder="t('settings.panels.models.providerIdPlaceholder')" @update:model-value="renameActiveProviderId" />
+                                    <FormInput :model-value="activeProvider.id" :placeholder="t('settings.panels.models.providerIdPlaceholder')" :disabled="activeProvider.persistedId !== null" :title="activeProvider.persistedId !== null ? t('settings.panels.models.providerIdImmutable') : undefined" @update:model-value="renameActiveProviderId" />
                                 </div>
                                 <div class="group space-y-1.5">
                                     <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">{{ t("settings.panels.models.providerName") }}</label>

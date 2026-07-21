@@ -28,11 +28,21 @@ export type AggregateTextToImageJob = {
 
 export type TextToImageJobAvgAggregateOutputType = {
   providerId: number | null
+  providerOwnerUserId: number | null
+  providerCredentialRevision: number | null
+  variantIndex: number | null
+  outputIndex: number | null
+  activeAttemptFence: number | null
   attemptCount: number | null
 }
 
 export type TextToImageJobSumAggregateOutputType = {
   providerId: number | null
+  providerOwnerUserId: number | null
+  providerCredentialRevision: number | null
+  variantIndex: number | null
+  outputIndex: number | null
+  activeAttemptFence: number | null
   attemptCount: number | null
 }
 
@@ -44,7 +54,23 @@ export type TextToImageJobMinAggregateOutputType = {
   sourcePath: string | null
   sourceAnchorId: string | null
   sourceInsertStatus: $Enums.TextToImageSourceInsertStatus | null
+  providerSnapshotJson: string | null
   requestJson: string | null
+  originJson: string | null
+  sourceIdentityHash: string | null
+  providerOwnerUserId: number | null
+  providerCredentialRevision: number | null
+  executionManifestId: string | null
+  executionApprovalId: string | null
+  compiledRequestHash: string | null
+  idempotencyKey: string | null
+  variantIndex: number | null
+  outputIndex: number | null
+  parentJobId: string | null
+  parentAssetId: string | null
+  stableErrorCode: string | null
+  activeAttemptId: string | null
+  activeAttemptFence: number | null
   resultAssetIdsJson: string | null
   errorMessage: string | null
   attemptCount: number | null
@@ -61,7 +87,23 @@ export type TextToImageJobMaxAggregateOutputType = {
   sourcePath: string | null
   sourceAnchorId: string | null
   sourceInsertStatus: $Enums.TextToImageSourceInsertStatus | null
+  providerSnapshotJson: string | null
   requestJson: string | null
+  originJson: string | null
+  sourceIdentityHash: string | null
+  providerOwnerUserId: number | null
+  providerCredentialRevision: number | null
+  executionManifestId: string | null
+  executionApprovalId: string | null
+  compiledRequestHash: string | null
+  idempotencyKey: string | null
+  variantIndex: number | null
+  outputIndex: number | null
+  parentJobId: string | null
+  parentAssetId: string | null
+  stableErrorCode: string | null
+  activeAttemptId: string | null
+  activeAttemptFence: number | null
   resultAssetIdsJson: string | null
   errorMessage: string | null
   attemptCount: number | null
@@ -78,7 +120,23 @@ export type TextToImageJobCountAggregateOutputType = {
   sourcePath: number
   sourceAnchorId: number
   sourceInsertStatus: number
+  providerSnapshotJson: number
   requestJson: number
+  originJson: number
+  sourceIdentityHash: number
+  providerOwnerUserId: number
+  providerCredentialRevision: number
+  executionManifestId: number
+  executionApprovalId: number
+  compiledRequestHash: number
+  idempotencyKey: number
+  variantIndex: number
+  outputIndex: number
+  parentJobId: number
+  parentAssetId: number
+  stableErrorCode: number
+  activeAttemptId: number
+  activeAttemptFence: number
   resultAssetIdsJson: number
   errorMessage: number
   attemptCount: number
@@ -91,11 +149,21 @@ export type TextToImageJobCountAggregateOutputType = {
 
 export type TextToImageJobAvgAggregateInputType = {
   providerId?: true
+  providerOwnerUserId?: true
+  providerCredentialRevision?: true
+  variantIndex?: true
+  outputIndex?: true
+  activeAttemptFence?: true
   attemptCount?: true
 }
 
 export type TextToImageJobSumAggregateInputType = {
   providerId?: true
+  providerOwnerUserId?: true
+  providerCredentialRevision?: true
+  variantIndex?: true
+  outputIndex?: true
+  activeAttemptFence?: true
   attemptCount?: true
 }
 
@@ -107,7 +175,23 @@ export type TextToImageJobMinAggregateInputType = {
   sourcePath?: true
   sourceAnchorId?: true
   sourceInsertStatus?: true
+  providerSnapshotJson?: true
   requestJson?: true
+  originJson?: true
+  sourceIdentityHash?: true
+  providerOwnerUserId?: true
+  providerCredentialRevision?: true
+  executionManifestId?: true
+  executionApprovalId?: true
+  compiledRequestHash?: true
+  idempotencyKey?: true
+  variantIndex?: true
+  outputIndex?: true
+  parentJobId?: true
+  parentAssetId?: true
+  stableErrorCode?: true
+  activeAttemptId?: true
+  activeAttemptFence?: true
   resultAssetIdsJson?: true
   errorMessage?: true
   attemptCount?: true
@@ -124,7 +208,23 @@ export type TextToImageJobMaxAggregateInputType = {
   sourcePath?: true
   sourceAnchorId?: true
   sourceInsertStatus?: true
+  providerSnapshotJson?: true
   requestJson?: true
+  originJson?: true
+  sourceIdentityHash?: true
+  providerOwnerUserId?: true
+  providerCredentialRevision?: true
+  executionManifestId?: true
+  executionApprovalId?: true
+  compiledRequestHash?: true
+  idempotencyKey?: true
+  variantIndex?: true
+  outputIndex?: true
+  parentJobId?: true
+  parentAssetId?: true
+  stableErrorCode?: true
+  activeAttemptId?: true
+  activeAttemptFence?: true
   resultAssetIdsJson?: true
   errorMessage?: true
   attemptCount?: true
@@ -141,7 +241,23 @@ export type TextToImageJobCountAggregateInputType = {
   sourcePath?: true
   sourceAnchorId?: true
   sourceInsertStatus?: true
+  providerSnapshotJson?: true
   requestJson?: true
+  originJson?: true
+  sourceIdentityHash?: true
+  providerOwnerUserId?: true
+  providerCredentialRevision?: true
+  executionManifestId?: true
+  executionApprovalId?: true
+  compiledRequestHash?: true
+  idempotencyKey?: true
+  variantIndex?: true
+  outputIndex?: true
+  parentJobId?: true
+  parentAssetId?: true
+  stableErrorCode?: true
+  activeAttemptId?: true
+  activeAttemptFence?: true
   resultAssetIdsJson?: true
   errorMessage?: true
   attemptCount?: true
@@ -245,7 +361,23 @@ export type TextToImageJobGroupByOutputType = {
   sourcePath: string | null
   sourceAnchorId: string | null
   sourceInsertStatus: $Enums.TextToImageSourceInsertStatus
+  providerSnapshotJson: string
   requestJson: string
+  originJson: string | null
+  sourceIdentityHash: string | null
+  providerOwnerUserId: number | null
+  providerCredentialRevision: number | null
+  executionManifestId: string | null
+  executionApprovalId: string | null
+  compiledRequestHash: string | null
+  idempotencyKey: string | null
+  variantIndex: number | null
+  outputIndex: number | null
+  parentJobId: string | null
+  parentAssetId: string | null
+  stableErrorCode: string | null
+  activeAttemptId: string | null
+  activeAttemptFence: number | null
   resultAssetIdsJson: string
   errorMessage: string | null
   attemptCount: number
@@ -285,7 +417,23 @@ export type TextToImageJobWhereInput = {
   sourcePath?: Prisma.StringNullableFilter<"TextToImageJob"> | string | null
   sourceAnchorId?: Prisma.StringNullableFilter<"TextToImageJob"> | string | null
   sourceInsertStatus?: Prisma.EnumTextToImageSourceInsertStatusFilter<"TextToImageJob"> | $Enums.TextToImageSourceInsertStatus
+  providerSnapshotJson?: Prisma.StringFilter<"TextToImageJob"> | string
   requestJson?: Prisma.StringFilter<"TextToImageJob"> | string
+  originJson?: Prisma.StringNullableFilter<"TextToImageJob"> | string | null
+  sourceIdentityHash?: Prisma.StringNullableFilter<"TextToImageJob"> | string | null
+  providerOwnerUserId?: Prisma.IntNullableFilter<"TextToImageJob"> | number | null
+  providerCredentialRevision?: Prisma.IntNullableFilter<"TextToImageJob"> | number | null
+  executionManifestId?: Prisma.StringNullableFilter<"TextToImageJob"> | string | null
+  executionApprovalId?: Prisma.StringNullableFilter<"TextToImageJob"> | string | null
+  compiledRequestHash?: Prisma.StringNullableFilter<"TextToImageJob"> | string | null
+  idempotencyKey?: Prisma.StringNullableFilter<"TextToImageJob"> | string | null
+  variantIndex?: Prisma.IntNullableFilter<"TextToImageJob"> | number | null
+  outputIndex?: Prisma.IntNullableFilter<"TextToImageJob"> | number | null
+  parentJobId?: Prisma.StringNullableFilter<"TextToImageJob"> | string | null
+  parentAssetId?: Prisma.StringNullableFilter<"TextToImageJob"> | string | null
+  stableErrorCode?: Prisma.StringNullableFilter<"TextToImageJob"> | string | null
+  activeAttemptId?: Prisma.StringNullableFilter<"TextToImageJob"> | string | null
+  activeAttemptFence?: Prisma.IntNullableFilter<"TextToImageJob"> | number | null
   resultAssetIdsJson?: Prisma.StringFilter<"TextToImageJob"> | string
   errorMessage?: Prisma.StringNullableFilter<"TextToImageJob"> | string | null
   attemptCount?: Prisma.IntFilter<"TextToImageJob"> | number
@@ -293,6 +441,7 @@ export type TextToImageJobWhereInput = {
   startedAt?: Prisma.DateTimeNullableFilter<"TextToImageJob"> | Date | string | null
   finishedAt?: Prisma.DateTimeNullableFilter<"TextToImageJob"> | Date | string | null
   assets?: Prisma.TextToImageAssetListRelationFilter
+  dispatchOutbox?: Prisma.XOR<Prisma.TextToImageDispatchOutboxNullableScalarRelationFilter, Prisma.TextToImageDispatchOutboxWhereInput> | null
 }
 
 export type TextToImageJobOrderByWithRelationInput = {
@@ -303,7 +452,23 @@ export type TextToImageJobOrderByWithRelationInput = {
   sourcePath?: Prisma.SortOrderInput | Prisma.SortOrder
   sourceAnchorId?: Prisma.SortOrderInput | Prisma.SortOrder
   sourceInsertStatus?: Prisma.SortOrder
+  providerSnapshotJson?: Prisma.SortOrder
   requestJson?: Prisma.SortOrder
+  originJson?: Prisma.SortOrderInput | Prisma.SortOrder
+  sourceIdentityHash?: Prisma.SortOrderInput | Prisma.SortOrder
+  providerOwnerUserId?: Prisma.SortOrderInput | Prisma.SortOrder
+  providerCredentialRevision?: Prisma.SortOrderInput | Prisma.SortOrder
+  executionManifestId?: Prisma.SortOrderInput | Prisma.SortOrder
+  executionApprovalId?: Prisma.SortOrderInput | Prisma.SortOrder
+  compiledRequestHash?: Prisma.SortOrderInput | Prisma.SortOrder
+  idempotencyKey?: Prisma.SortOrderInput | Prisma.SortOrder
+  variantIndex?: Prisma.SortOrderInput | Prisma.SortOrder
+  outputIndex?: Prisma.SortOrderInput | Prisma.SortOrder
+  parentJobId?: Prisma.SortOrderInput | Prisma.SortOrder
+  parentAssetId?: Prisma.SortOrderInput | Prisma.SortOrder
+  stableErrorCode?: Prisma.SortOrderInput | Prisma.SortOrder
+  activeAttemptId?: Prisma.SortOrderInput | Prisma.SortOrder
+  activeAttemptFence?: Prisma.SortOrderInput | Prisma.SortOrder
   resultAssetIdsJson?: Prisma.SortOrder
   errorMessage?: Prisma.SortOrderInput | Prisma.SortOrder
   attemptCount?: Prisma.SortOrder
@@ -311,10 +476,12 @@ export type TextToImageJobOrderByWithRelationInput = {
   startedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   finishedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   assets?: Prisma.TextToImageAssetOrderByRelationAggregateInput
+  dispatchOutbox?: Prisma.TextToImageDispatchOutboxOrderByWithRelationInput
 }
 
 export type TextToImageJobWhereUniqueInput = Prisma.AtLeast<{
   id?: string
+  idempotencyKey?: string
   AND?: Prisma.TextToImageJobWhereInput | Prisma.TextToImageJobWhereInput[]
   OR?: Prisma.TextToImageJobWhereInput[]
   NOT?: Prisma.TextToImageJobWhereInput | Prisma.TextToImageJobWhereInput[]
@@ -324,7 +491,22 @@ export type TextToImageJobWhereUniqueInput = Prisma.AtLeast<{
   sourcePath?: Prisma.StringNullableFilter<"TextToImageJob"> | string | null
   sourceAnchorId?: Prisma.StringNullableFilter<"TextToImageJob"> | string | null
   sourceInsertStatus?: Prisma.EnumTextToImageSourceInsertStatusFilter<"TextToImageJob"> | $Enums.TextToImageSourceInsertStatus
+  providerSnapshotJson?: Prisma.StringFilter<"TextToImageJob"> | string
   requestJson?: Prisma.StringFilter<"TextToImageJob"> | string
+  originJson?: Prisma.StringNullableFilter<"TextToImageJob"> | string | null
+  sourceIdentityHash?: Prisma.StringNullableFilter<"TextToImageJob"> | string | null
+  providerOwnerUserId?: Prisma.IntNullableFilter<"TextToImageJob"> | number | null
+  providerCredentialRevision?: Prisma.IntNullableFilter<"TextToImageJob"> | number | null
+  executionManifestId?: Prisma.StringNullableFilter<"TextToImageJob"> | string | null
+  executionApprovalId?: Prisma.StringNullableFilter<"TextToImageJob"> | string | null
+  compiledRequestHash?: Prisma.StringNullableFilter<"TextToImageJob"> | string | null
+  variantIndex?: Prisma.IntNullableFilter<"TextToImageJob"> | number | null
+  outputIndex?: Prisma.IntNullableFilter<"TextToImageJob"> | number | null
+  parentJobId?: Prisma.StringNullableFilter<"TextToImageJob"> | string | null
+  parentAssetId?: Prisma.StringNullableFilter<"TextToImageJob"> | string | null
+  stableErrorCode?: Prisma.StringNullableFilter<"TextToImageJob"> | string | null
+  activeAttemptId?: Prisma.StringNullableFilter<"TextToImageJob"> | string | null
+  activeAttemptFence?: Prisma.IntNullableFilter<"TextToImageJob"> | number | null
   resultAssetIdsJson?: Prisma.StringFilter<"TextToImageJob"> | string
   errorMessage?: Prisma.StringNullableFilter<"TextToImageJob"> | string | null
   attemptCount?: Prisma.IntFilter<"TextToImageJob"> | number
@@ -332,7 +514,8 @@ export type TextToImageJobWhereUniqueInput = Prisma.AtLeast<{
   startedAt?: Prisma.DateTimeNullableFilter<"TextToImageJob"> | Date | string | null
   finishedAt?: Prisma.DateTimeNullableFilter<"TextToImageJob"> | Date | string | null
   assets?: Prisma.TextToImageAssetListRelationFilter
-}, "id">
+  dispatchOutbox?: Prisma.XOR<Prisma.TextToImageDispatchOutboxNullableScalarRelationFilter, Prisma.TextToImageDispatchOutboxWhereInput> | null
+}, "id" | "idempotencyKey">
 
 export type TextToImageJobOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
@@ -342,7 +525,23 @@ export type TextToImageJobOrderByWithAggregationInput = {
   sourcePath?: Prisma.SortOrderInput | Prisma.SortOrder
   sourceAnchorId?: Prisma.SortOrderInput | Prisma.SortOrder
   sourceInsertStatus?: Prisma.SortOrder
+  providerSnapshotJson?: Prisma.SortOrder
   requestJson?: Prisma.SortOrder
+  originJson?: Prisma.SortOrderInput | Prisma.SortOrder
+  sourceIdentityHash?: Prisma.SortOrderInput | Prisma.SortOrder
+  providerOwnerUserId?: Prisma.SortOrderInput | Prisma.SortOrder
+  providerCredentialRevision?: Prisma.SortOrderInput | Prisma.SortOrder
+  executionManifestId?: Prisma.SortOrderInput | Prisma.SortOrder
+  executionApprovalId?: Prisma.SortOrderInput | Prisma.SortOrder
+  compiledRequestHash?: Prisma.SortOrderInput | Prisma.SortOrder
+  idempotencyKey?: Prisma.SortOrderInput | Prisma.SortOrder
+  variantIndex?: Prisma.SortOrderInput | Prisma.SortOrder
+  outputIndex?: Prisma.SortOrderInput | Prisma.SortOrder
+  parentJobId?: Prisma.SortOrderInput | Prisma.SortOrder
+  parentAssetId?: Prisma.SortOrderInput | Prisma.SortOrder
+  stableErrorCode?: Prisma.SortOrderInput | Prisma.SortOrder
+  activeAttemptId?: Prisma.SortOrderInput | Prisma.SortOrder
+  activeAttemptFence?: Prisma.SortOrderInput | Prisma.SortOrder
   resultAssetIdsJson?: Prisma.SortOrder
   errorMessage?: Prisma.SortOrderInput | Prisma.SortOrder
   attemptCount?: Prisma.SortOrder
@@ -367,7 +566,23 @@ export type TextToImageJobScalarWhereWithAggregatesInput = {
   sourcePath?: Prisma.StringNullableWithAggregatesFilter<"TextToImageJob"> | string | null
   sourceAnchorId?: Prisma.StringNullableWithAggregatesFilter<"TextToImageJob"> | string | null
   sourceInsertStatus?: Prisma.EnumTextToImageSourceInsertStatusWithAggregatesFilter<"TextToImageJob"> | $Enums.TextToImageSourceInsertStatus
+  providerSnapshotJson?: Prisma.StringWithAggregatesFilter<"TextToImageJob"> | string
   requestJson?: Prisma.StringWithAggregatesFilter<"TextToImageJob"> | string
+  originJson?: Prisma.StringNullableWithAggregatesFilter<"TextToImageJob"> | string | null
+  sourceIdentityHash?: Prisma.StringNullableWithAggregatesFilter<"TextToImageJob"> | string | null
+  providerOwnerUserId?: Prisma.IntNullableWithAggregatesFilter<"TextToImageJob"> | number | null
+  providerCredentialRevision?: Prisma.IntNullableWithAggregatesFilter<"TextToImageJob"> | number | null
+  executionManifestId?: Prisma.StringNullableWithAggregatesFilter<"TextToImageJob"> | string | null
+  executionApprovalId?: Prisma.StringNullableWithAggregatesFilter<"TextToImageJob"> | string | null
+  compiledRequestHash?: Prisma.StringNullableWithAggregatesFilter<"TextToImageJob"> | string | null
+  idempotencyKey?: Prisma.StringNullableWithAggregatesFilter<"TextToImageJob"> | string | null
+  variantIndex?: Prisma.IntNullableWithAggregatesFilter<"TextToImageJob"> | number | null
+  outputIndex?: Prisma.IntNullableWithAggregatesFilter<"TextToImageJob"> | number | null
+  parentJobId?: Prisma.StringNullableWithAggregatesFilter<"TextToImageJob"> | string | null
+  parentAssetId?: Prisma.StringNullableWithAggregatesFilter<"TextToImageJob"> | string | null
+  stableErrorCode?: Prisma.StringNullableWithAggregatesFilter<"TextToImageJob"> | string | null
+  activeAttemptId?: Prisma.StringNullableWithAggregatesFilter<"TextToImageJob"> | string | null
+  activeAttemptFence?: Prisma.IntNullableWithAggregatesFilter<"TextToImageJob"> | number | null
   resultAssetIdsJson?: Prisma.StringWithAggregatesFilter<"TextToImageJob"> | string
   errorMessage?: Prisma.StringNullableWithAggregatesFilter<"TextToImageJob"> | string | null
   attemptCount?: Prisma.IntWithAggregatesFilter<"TextToImageJob"> | number
@@ -384,7 +599,23 @@ export type TextToImageJobCreateInput = {
   sourcePath?: string | null
   sourceAnchorId?: string | null
   sourceInsertStatus?: $Enums.TextToImageSourceInsertStatus
+  providerSnapshotJson?: string
   requestJson: string
+  originJson?: string | null
+  sourceIdentityHash?: string | null
+  providerOwnerUserId?: number | null
+  providerCredentialRevision?: number | null
+  executionManifestId?: string | null
+  executionApprovalId?: string | null
+  compiledRequestHash?: string | null
+  idempotencyKey?: string | null
+  variantIndex?: number | null
+  outputIndex?: number | null
+  parentJobId?: string | null
+  parentAssetId?: string | null
+  stableErrorCode?: string | null
+  activeAttemptId?: string | null
+  activeAttemptFence?: number | null
   resultAssetIdsJson?: string
   errorMessage?: string | null
   attemptCount?: number
@@ -392,6 +623,7 @@ export type TextToImageJobCreateInput = {
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   assets?: Prisma.TextToImageAssetCreateNestedManyWithoutJobInput
+  dispatchOutbox?: Prisma.TextToImageDispatchOutboxCreateNestedOneWithoutJobInput
 }
 
 export type TextToImageJobUncheckedCreateInput = {
@@ -402,7 +634,23 @@ export type TextToImageJobUncheckedCreateInput = {
   sourcePath?: string | null
   sourceAnchorId?: string | null
   sourceInsertStatus?: $Enums.TextToImageSourceInsertStatus
+  providerSnapshotJson?: string
   requestJson: string
+  originJson?: string | null
+  sourceIdentityHash?: string | null
+  providerOwnerUserId?: number | null
+  providerCredentialRevision?: number | null
+  executionManifestId?: string | null
+  executionApprovalId?: string | null
+  compiledRequestHash?: string | null
+  idempotencyKey?: string | null
+  variantIndex?: number | null
+  outputIndex?: number | null
+  parentJobId?: string | null
+  parentAssetId?: string | null
+  stableErrorCode?: string | null
+  activeAttemptId?: string | null
+  activeAttemptFence?: number | null
   resultAssetIdsJson?: string
   errorMessage?: string | null
   attemptCount?: number
@@ -410,6 +658,7 @@ export type TextToImageJobUncheckedCreateInput = {
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
   assets?: Prisma.TextToImageAssetUncheckedCreateNestedManyWithoutJobInput
+  dispatchOutbox?: Prisma.TextToImageDispatchOutboxUncheckedCreateNestedOneWithoutJobInput
 }
 
 export type TextToImageJobUpdateInput = {
@@ -420,7 +669,23 @@ export type TextToImageJobUpdateInput = {
   sourcePath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceAnchorId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceInsertStatus?: Prisma.EnumTextToImageSourceInsertStatusFieldUpdateOperationsInput | $Enums.TextToImageSourceInsertStatus
+  providerSnapshotJson?: Prisma.StringFieldUpdateOperationsInput | string
   requestJson?: Prisma.StringFieldUpdateOperationsInput | string
+  originJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sourceIdentityHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  providerOwnerUserId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  providerCredentialRevision?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  executionManifestId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  executionApprovalId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  compiledRequestHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  idempotencyKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  variantIndex?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  outputIndex?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  parentJobId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentAssetId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  stableErrorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  activeAttemptId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  activeAttemptFence?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   resultAssetIdsJson?: Prisma.StringFieldUpdateOperationsInput | string
   errorMessage?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   attemptCount?: Prisma.IntFieldUpdateOperationsInput | number
@@ -428,6 +693,7 @@ export type TextToImageJobUpdateInput = {
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   assets?: Prisma.TextToImageAssetUpdateManyWithoutJobNestedInput
+  dispatchOutbox?: Prisma.TextToImageDispatchOutboxUpdateOneWithoutJobNestedInput
 }
 
 export type TextToImageJobUncheckedUpdateInput = {
@@ -438,7 +704,23 @@ export type TextToImageJobUncheckedUpdateInput = {
   sourcePath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceAnchorId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceInsertStatus?: Prisma.EnumTextToImageSourceInsertStatusFieldUpdateOperationsInput | $Enums.TextToImageSourceInsertStatus
+  providerSnapshotJson?: Prisma.StringFieldUpdateOperationsInput | string
   requestJson?: Prisma.StringFieldUpdateOperationsInput | string
+  originJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sourceIdentityHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  providerOwnerUserId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  providerCredentialRevision?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  executionManifestId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  executionApprovalId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  compiledRequestHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  idempotencyKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  variantIndex?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  outputIndex?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  parentJobId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentAssetId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  stableErrorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  activeAttemptId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  activeAttemptFence?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   resultAssetIdsJson?: Prisma.StringFieldUpdateOperationsInput | string
   errorMessage?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   attemptCount?: Prisma.IntFieldUpdateOperationsInput | number
@@ -446,6 +728,7 @@ export type TextToImageJobUncheckedUpdateInput = {
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   assets?: Prisma.TextToImageAssetUncheckedUpdateManyWithoutJobNestedInput
+  dispatchOutbox?: Prisma.TextToImageDispatchOutboxUncheckedUpdateOneWithoutJobNestedInput
 }
 
 export type TextToImageJobCreateManyInput = {
@@ -456,7 +739,23 @@ export type TextToImageJobCreateManyInput = {
   sourcePath?: string | null
   sourceAnchorId?: string | null
   sourceInsertStatus?: $Enums.TextToImageSourceInsertStatus
+  providerSnapshotJson?: string
   requestJson: string
+  originJson?: string | null
+  sourceIdentityHash?: string | null
+  providerOwnerUserId?: number | null
+  providerCredentialRevision?: number | null
+  executionManifestId?: string | null
+  executionApprovalId?: string | null
+  compiledRequestHash?: string | null
+  idempotencyKey?: string | null
+  variantIndex?: number | null
+  outputIndex?: number | null
+  parentJobId?: string | null
+  parentAssetId?: string | null
+  stableErrorCode?: string | null
+  activeAttemptId?: string | null
+  activeAttemptFence?: number | null
   resultAssetIdsJson?: string
   errorMessage?: string | null
   attemptCount?: number
@@ -473,7 +772,23 @@ export type TextToImageJobUpdateManyMutationInput = {
   sourcePath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceAnchorId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceInsertStatus?: Prisma.EnumTextToImageSourceInsertStatusFieldUpdateOperationsInput | $Enums.TextToImageSourceInsertStatus
+  providerSnapshotJson?: Prisma.StringFieldUpdateOperationsInput | string
   requestJson?: Prisma.StringFieldUpdateOperationsInput | string
+  originJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sourceIdentityHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  providerOwnerUserId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  providerCredentialRevision?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  executionManifestId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  executionApprovalId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  compiledRequestHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  idempotencyKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  variantIndex?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  outputIndex?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  parentJobId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentAssetId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  stableErrorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  activeAttemptId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  activeAttemptFence?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   resultAssetIdsJson?: Prisma.StringFieldUpdateOperationsInput | string
   errorMessage?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   attemptCount?: Prisma.IntFieldUpdateOperationsInput | number
@@ -490,7 +805,23 @@ export type TextToImageJobUncheckedUpdateManyInput = {
   sourcePath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceAnchorId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceInsertStatus?: Prisma.EnumTextToImageSourceInsertStatusFieldUpdateOperationsInput | $Enums.TextToImageSourceInsertStatus
+  providerSnapshotJson?: Prisma.StringFieldUpdateOperationsInput | string
   requestJson?: Prisma.StringFieldUpdateOperationsInput | string
+  originJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sourceIdentityHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  providerOwnerUserId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  providerCredentialRevision?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  executionManifestId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  executionApprovalId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  compiledRequestHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  idempotencyKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  variantIndex?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  outputIndex?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  parentJobId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentAssetId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  stableErrorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  activeAttemptId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  activeAttemptFence?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   resultAssetIdsJson?: Prisma.StringFieldUpdateOperationsInput | string
   errorMessage?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   attemptCount?: Prisma.IntFieldUpdateOperationsInput | number
@@ -507,7 +838,23 @@ export type TextToImageJobCountOrderByAggregateInput = {
   sourcePath?: Prisma.SortOrder
   sourceAnchorId?: Prisma.SortOrder
   sourceInsertStatus?: Prisma.SortOrder
+  providerSnapshotJson?: Prisma.SortOrder
   requestJson?: Prisma.SortOrder
+  originJson?: Prisma.SortOrder
+  sourceIdentityHash?: Prisma.SortOrder
+  providerOwnerUserId?: Prisma.SortOrder
+  providerCredentialRevision?: Prisma.SortOrder
+  executionManifestId?: Prisma.SortOrder
+  executionApprovalId?: Prisma.SortOrder
+  compiledRequestHash?: Prisma.SortOrder
+  idempotencyKey?: Prisma.SortOrder
+  variantIndex?: Prisma.SortOrder
+  outputIndex?: Prisma.SortOrder
+  parentJobId?: Prisma.SortOrder
+  parentAssetId?: Prisma.SortOrder
+  stableErrorCode?: Prisma.SortOrder
+  activeAttemptId?: Prisma.SortOrder
+  activeAttemptFence?: Prisma.SortOrder
   resultAssetIdsJson?: Prisma.SortOrder
   errorMessage?: Prisma.SortOrder
   attemptCount?: Prisma.SortOrder
@@ -518,6 +865,11 @@ export type TextToImageJobCountOrderByAggregateInput = {
 
 export type TextToImageJobAvgOrderByAggregateInput = {
   providerId?: Prisma.SortOrder
+  providerOwnerUserId?: Prisma.SortOrder
+  providerCredentialRevision?: Prisma.SortOrder
+  variantIndex?: Prisma.SortOrder
+  outputIndex?: Prisma.SortOrder
+  activeAttemptFence?: Prisma.SortOrder
   attemptCount?: Prisma.SortOrder
 }
 
@@ -529,7 +881,23 @@ export type TextToImageJobMaxOrderByAggregateInput = {
   sourcePath?: Prisma.SortOrder
   sourceAnchorId?: Prisma.SortOrder
   sourceInsertStatus?: Prisma.SortOrder
+  providerSnapshotJson?: Prisma.SortOrder
   requestJson?: Prisma.SortOrder
+  originJson?: Prisma.SortOrder
+  sourceIdentityHash?: Prisma.SortOrder
+  providerOwnerUserId?: Prisma.SortOrder
+  providerCredentialRevision?: Prisma.SortOrder
+  executionManifestId?: Prisma.SortOrder
+  executionApprovalId?: Prisma.SortOrder
+  compiledRequestHash?: Prisma.SortOrder
+  idempotencyKey?: Prisma.SortOrder
+  variantIndex?: Prisma.SortOrder
+  outputIndex?: Prisma.SortOrder
+  parentJobId?: Prisma.SortOrder
+  parentAssetId?: Prisma.SortOrder
+  stableErrorCode?: Prisma.SortOrder
+  activeAttemptId?: Prisma.SortOrder
+  activeAttemptFence?: Prisma.SortOrder
   resultAssetIdsJson?: Prisma.SortOrder
   errorMessage?: Prisma.SortOrder
   attemptCount?: Prisma.SortOrder
@@ -546,7 +914,23 @@ export type TextToImageJobMinOrderByAggregateInput = {
   sourcePath?: Prisma.SortOrder
   sourceAnchorId?: Prisma.SortOrder
   sourceInsertStatus?: Prisma.SortOrder
+  providerSnapshotJson?: Prisma.SortOrder
   requestJson?: Prisma.SortOrder
+  originJson?: Prisma.SortOrder
+  sourceIdentityHash?: Prisma.SortOrder
+  providerOwnerUserId?: Prisma.SortOrder
+  providerCredentialRevision?: Prisma.SortOrder
+  executionManifestId?: Prisma.SortOrder
+  executionApprovalId?: Prisma.SortOrder
+  compiledRequestHash?: Prisma.SortOrder
+  idempotencyKey?: Prisma.SortOrder
+  variantIndex?: Prisma.SortOrder
+  outputIndex?: Prisma.SortOrder
+  parentJobId?: Prisma.SortOrder
+  parentAssetId?: Prisma.SortOrder
+  stableErrorCode?: Prisma.SortOrder
+  activeAttemptId?: Prisma.SortOrder
+  activeAttemptFence?: Prisma.SortOrder
   resultAssetIdsJson?: Prisma.SortOrder
   errorMessage?: Prisma.SortOrder
   attemptCount?: Prisma.SortOrder
@@ -557,6 +941,11 @@ export type TextToImageJobMinOrderByAggregateInput = {
 
 export type TextToImageJobSumOrderByAggregateInput = {
   providerId?: Prisma.SortOrder
+  providerOwnerUserId?: Prisma.SortOrder
+  providerCredentialRevision?: Prisma.SortOrder
+  variantIndex?: Prisma.SortOrder
+  outputIndex?: Prisma.SortOrder
+  activeAttemptFence?: Prisma.SortOrder
   attemptCount?: Prisma.SortOrder
 }
 
@@ -595,6 +984,20 @@ export type TextToImageJobUpdateOneRequiredWithoutAssetsNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.TextToImageJobUpdateToOneWithWhereWithoutAssetsInput, Prisma.TextToImageJobUpdateWithoutAssetsInput>, Prisma.TextToImageJobUncheckedUpdateWithoutAssetsInput>
 }
 
+export type TextToImageJobCreateNestedOneWithoutDispatchOutboxInput = {
+  create?: Prisma.XOR<Prisma.TextToImageJobCreateWithoutDispatchOutboxInput, Prisma.TextToImageJobUncheckedCreateWithoutDispatchOutboxInput>
+  connectOrCreate?: Prisma.TextToImageJobCreateOrConnectWithoutDispatchOutboxInput
+  connect?: Prisma.TextToImageJobWhereUniqueInput
+}
+
+export type TextToImageJobUpdateOneRequiredWithoutDispatchOutboxNestedInput = {
+  create?: Prisma.XOR<Prisma.TextToImageJobCreateWithoutDispatchOutboxInput, Prisma.TextToImageJobUncheckedCreateWithoutDispatchOutboxInput>
+  connectOrCreate?: Prisma.TextToImageJobCreateOrConnectWithoutDispatchOutboxInput
+  upsert?: Prisma.TextToImageJobUpsertWithoutDispatchOutboxInput
+  connect?: Prisma.TextToImageJobWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.TextToImageJobUpdateToOneWithWhereWithoutDispatchOutboxInput, Prisma.TextToImageJobUpdateWithoutDispatchOutboxInput>, Prisma.TextToImageJobUncheckedUpdateWithoutDispatchOutboxInput>
+}
+
 export type TextToImageJobCreateWithoutAssetsInput = {
   id: string
   providerId: number
@@ -603,13 +1006,30 @@ export type TextToImageJobCreateWithoutAssetsInput = {
   sourcePath?: string | null
   sourceAnchorId?: string | null
   sourceInsertStatus?: $Enums.TextToImageSourceInsertStatus
+  providerSnapshotJson?: string
   requestJson: string
+  originJson?: string | null
+  sourceIdentityHash?: string | null
+  providerOwnerUserId?: number | null
+  providerCredentialRevision?: number | null
+  executionManifestId?: string | null
+  executionApprovalId?: string | null
+  compiledRequestHash?: string | null
+  idempotencyKey?: string | null
+  variantIndex?: number | null
+  outputIndex?: number | null
+  parentJobId?: string | null
+  parentAssetId?: string | null
+  stableErrorCode?: string | null
+  activeAttemptId?: string | null
+  activeAttemptFence?: number | null
   resultAssetIdsJson?: string
   errorMessage?: string | null
   attemptCount?: number
   createdAt?: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
+  dispatchOutbox?: Prisma.TextToImageDispatchOutboxCreateNestedOneWithoutJobInput
 }
 
 export type TextToImageJobUncheckedCreateWithoutAssetsInput = {
@@ -620,13 +1040,30 @@ export type TextToImageJobUncheckedCreateWithoutAssetsInput = {
   sourcePath?: string | null
   sourceAnchorId?: string | null
   sourceInsertStatus?: $Enums.TextToImageSourceInsertStatus
+  providerSnapshotJson?: string
   requestJson: string
+  originJson?: string | null
+  sourceIdentityHash?: string | null
+  providerOwnerUserId?: number | null
+  providerCredentialRevision?: number | null
+  executionManifestId?: string | null
+  executionApprovalId?: string | null
+  compiledRequestHash?: string | null
+  idempotencyKey?: string | null
+  variantIndex?: number | null
+  outputIndex?: number | null
+  parentJobId?: string | null
+  parentAssetId?: string | null
+  stableErrorCode?: string | null
+  activeAttemptId?: string | null
+  activeAttemptFence?: number | null
   resultAssetIdsJson?: string
   errorMessage?: string | null
   attemptCount?: number
   createdAt?: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
+  dispatchOutbox?: Prisma.TextToImageDispatchOutboxUncheckedCreateNestedOneWithoutJobInput
 }
 
 export type TextToImageJobCreateOrConnectWithoutAssetsInput = {
@@ -653,13 +1090,30 @@ export type TextToImageJobUpdateWithoutAssetsInput = {
   sourcePath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceAnchorId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceInsertStatus?: Prisma.EnumTextToImageSourceInsertStatusFieldUpdateOperationsInput | $Enums.TextToImageSourceInsertStatus
+  providerSnapshotJson?: Prisma.StringFieldUpdateOperationsInput | string
   requestJson?: Prisma.StringFieldUpdateOperationsInput | string
+  originJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sourceIdentityHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  providerOwnerUserId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  providerCredentialRevision?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  executionManifestId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  executionApprovalId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  compiledRequestHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  idempotencyKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  variantIndex?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  outputIndex?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  parentJobId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentAssetId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  stableErrorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  activeAttemptId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  activeAttemptFence?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   resultAssetIdsJson?: Prisma.StringFieldUpdateOperationsInput | string
   errorMessage?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   attemptCount?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  dispatchOutbox?: Prisma.TextToImageDispatchOutboxUpdateOneWithoutJobNestedInput
 }
 
 export type TextToImageJobUncheckedUpdateWithoutAssetsInput = {
@@ -670,13 +1124,182 @@ export type TextToImageJobUncheckedUpdateWithoutAssetsInput = {
   sourcePath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceAnchorId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceInsertStatus?: Prisma.EnumTextToImageSourceInsertStatusFieldUpdateOperationsInput | $Enums.TextToImageSourceInsertStatus
+  providerSnapshotJson?: Prisma.StringFieldUpdateOperationsInput | string
   requestJson?: Prisma.StringFieldUpdateOperationsInput | string
+  originJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sourceIdentityHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  providerOwnerUserId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  providerCredentialRevision?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  executionManifestId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  executionApprovalId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  compiledRequestHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  idempotencyKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  variantIndex?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  outputIndex?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  parentJobId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentAssetId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  stableErrorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  activeAttemptId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  activeAttemptFence?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   resultAssetIdsJson?: Prisma.StringFieldUpdateOperationsInput | string
   errorMessage?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   attemptCount?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  dispatchOutbox?: Prisma.TextToImageDispatchOutboxUncheckedUpdateOneWithoutJobNestedInput
+}
+
+export type TextToImageJobCreateWithoutDispatchOutboxInput = {
+  id: string
+  providerId: number
+  kind: $Enums.TextToImageJobKind
+  status: $Enums.TextToImageJobStatus
+  sourcePath?: string | null
+  sourceAnchorId?: string | null
+  sourceInsertStatus?: $Enums.TextToImageSourceInsertStatus
+  providerSnapshotJson?: string
+  requestJson: string
+  originJson?: string | null
+  sourceIdentityHash?: string | null
+  providerOwnerUserId?: number | null
+  providerCredentialRevision?: number | null
+  executionManifestId?: string | null
+  executionApprovalId?: string | null
+  compiledRequestHash?: string | null
+  idempotencyKey?: string | null
+  variantIndex?: number | null
+  outputIndex?: number | null
+  parentJobId?: string | null
+  parentAssetId?: string | null
+  stableErrorCode?: string | null
+  activeAttemptId?: string | null
+  activeAttemptFence?: number | null
+  resultAssetIdsJson?: string
+  errorMessage?: string | null
+  attemptCount?: number
+  createdAt?: Date | string
+  startedAt?: Date | string | null
+  finishedAt?: Date | string | null
+  assets?: Prisma.TextToImageAssetCreateNestedManyWithoutJobInput
+}
+
+export type TextToImageJobUncheckedCreateWithoutDispatchOutboxInput = {
+  id: string
+  providerId: number
+  kind: $Enums.TextToImageJobKind
+  status: $Enums.TextToImageJobStatus
+  sourcePath?: string | null
+  sourceAnchorId?: string | null
+  sourceInsertStatus?: $Enums.TextToImageSourceInsertStatus
+  providerSnapshotJson?: string
+  requestJson: string
+  originJson?: string | null
+  sourceIdentityHash?: string | null
+  providerOwnerUserId?: number | null
+  providerCredentialRevision?: number | null
+  executionManifestId?: string | null
+  executionApprovalId?: string | null
+  compiledRequestHash?: string | null
+  idempotencyKey?: string | null
+  variantIndex?: number | null
+  outputIndex?: number | null
+  parentJobId?: string | null
+  parentAssetId?: string | null
+  stableErrorCode?: string | null
+  activeAttemptId?: string | null
+  activeAttemptFence?: number | null
+  resultAssetIdsJson?: string
+  errorMessage?: string | null
+  attemptCount?: number
+  createdAt?: Date | string
+  startedAt?: Date | string | null
+  finishedAt?: Date | string | null
+  assets?: Prisma.TextToImageAssetUncheckedCreateNestedManyWithoutJobInput
+}
+
+export type TextToImageJobCreateOrConnectWithoutDispatchOutboxInput = {
+  where: Prisma.TextToImageJobWhereUniqueInput
+  create: Prisma.XOR<Prisma.TextToImageJobCreateWithoutDispatchOutboxInput, Prisma.TextToImageJobUncheckedCreateWithoutDispatchOutboxInput>
+}
+
+export type TextToImageJobUpsertWithoutDispatchOutboxInput = {
+  update: Prisma.XOR<Prisma.TextToImageJobUpdateWithoutDispatchOutboxInput, Prisma.TextToImageJobUncheckedUpdateWithoutDispatchOutboxInput>
+  create: Prisma.XOR<Prisma.TextToImageJobCreateWithoutDispatchOutboxInput, Prisma.TextToImageJobUncheckedCreateWithoutDispatchOutboxInput>
+  where?: Prisma.TextToImageJobWhereInput
+}
+
+export type TextToImageJobUpdateToOneWithWhereWithoutDispatchOutboxInput = {
+  where?: Prisma.TextToImageJobWhereInput
+  data: Prisma.XOR<Prisma.TextToImageJobUpdateWithoutDispatchOutboxInput, Prisma.TextToImageJobUncheckedUpdateWithoutDispatchOutboxInput>
+}
+
+export type TextToImageJobUpdateWithoutDispatchOutboxInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  providerId?: Prisma.IntFieldUpdateOperationsInput | number
+  kind?: Prisma.EnumTextToImageJobKindFieldUpdateOperationsInput | $Enums.TextToImageJobKind
+  status?: Prisma.EnumTextToImageJobStatusFieldUpdateOperationsInput | $Enums.TextToImageJobStatus
+  sourcePath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sourceAnchorId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sourceInsertStatus?: Prisma.EnumTextToImageSourceInsertStatusFieldUpdateOperationsInput | $Enums.TextToImageSourceInsertStatus
+  providerSnapshotJson?: Prisma.StringFieldUpdateOperationsInput | string
+  requestJson?: Prisma.StringFieldUpdateOperationsInput | string
+  originJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sourceIdentityHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  providerOwnerUserId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  providerCredentialRevision?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  executionManifestId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  executionApprovalId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  compiledRequestHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  idempotencyKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  variantIndex?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  outputIndex?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  parentJobId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentAssetId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  stableErrorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  activeAttemptId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  activeAttemptFence?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  resultAssetIdsJson?: Prisma.StringFieldUpdateOperationsInput | string
+  errorMessage?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  attemptCount?: Prisma.IntFieldUpdateOperationsInput | number
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  assets?: Prisma.TextToImageAssetUpdateManyWithoutJobNestedInput
+}
+
+export type TextToImageJobUncheckedUpdateWithoutDispatchOutboxInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  providerId?: Prisma.IntFieldUpdateOperationsInput | number
+  kind?: Prisma.EnumTextToImageJobKindFieldUpdateOperationsInput | $Enums.TextToImageJobKind
+  status?: Prisma.EnumTextToImageJobStatusFieldUpdateOperationsInput | $Enums.TextToImageJobStatus
+  sourcePath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sourceAnchorId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sourceInsertStatus?: Prisma.EnumTextToImageSourceInsertStatusFieldUpdateOperationsInput | $Enums.TextToImageSourceInsertStatus
+  providerSnapshotJson?: Prisma.StringFieldUpdateOperationsInput | string
+  requestJson?: Prisma.StringFieldUpdateOperationsInput | string
+  originJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sourceIdentityHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  providerOwnerUserId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  providerCredentialRevision?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  executionManifestId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  executionApprovalId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  compiledRequestHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  idempotencyKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  variantIndex?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  outputIndex?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  parentJobId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  parentAssetId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  stableErrorCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  activeAttemptId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  activeAttemptFence?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  resultAssetIdsJson?: Prisma.StringFieldUpdateOperationsInput | string
+  errorMessage?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  attemptCount?: Prisma.IntFieldUpdateOperationsInput | number
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  assets?: Prisma.TextToImageAssetUncheckedUpdateManyWithoutJobNestedInput
 }
 
 
@@ -718,7 +1341,23 @@ export type TextToImageJobSelect<ExtArgs extends runtime.Types.Extensions.Intern
   sourcePath?: boolean
   sourceAnchorId?: boolean
   sourceInsertStatus?: boolean
+  providerSnapshotJson?: boolean
   requestJson?: boolean
+  originJson?: boolean
+  sourceIdentityHash?: boolean
+  providerOwnerUserId?: boolean
+  providerCredentialRevision?: boolean
+  executionManifestId?: boolean
+  executionApprovalId?: boolean
+  compiledRequestHash?: boolean
+  idempotencyKey?: boolean
+  variantIndex?: boolean
+  outputIndex?: boolean
+  parentJobId?: boolean
+  parentAssetId?: boolean
+  stableErrorCode?: boolean
+  activeAttemptId?: boolean
+  activeAttemptFence?: boolean
   resultAssetIdsJson?: boolean
   errorMessage?: boolean
   attemptCount?: boolean
@@ -726,6 +1365,7 @@ export type TextToImageJobSelect<ExtArgs extends runtime.Types.Extensions.Intern
   startedAt?: boolean
   finishedAt?: boolean
   assets?: boolean | Prisma.TextToImageJob$assetsArgs<ExtArgs>
+  dispatchOutbox?: boolean | Prisma.TextToImageJob$dispatchOutboxArgs<ExtArgs>
   _count?: boolean | Prisma.TextToImageJobCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["textToImageJob"]>
 
@@ -737,7 +1377,23 @@ export type TextToImageJobSelectCreateManyAndReturn<ExtArgs extends runtime.Type
   sourcePath?: boolean
   sourceAnchorId?: boolean
   sourceInsertStatus?: boolean
+  providerSnapshotJson?: boolean
   requestJson?: boolean
+  originJson?: boolean
+  sourceIdentityHash?: boolean
+  providerOwnerUserId?: boolean
+  providerCredentialRevision?: boolean
+  executionManifestId?: boolean
+  executionApprovalId?: boolean
+  compiledRequestHash?: boolean
+  idempotencyKey?: boolean
+  variantIndex?: boolean
+  outputIndex?: boolean
+  parentJobId?: boolean
+  parentAssetId?: boolean
+  stableErrorCode?: boolean
+  activeAttemptId?: boolean
+  activeAttemptFence?: boolean
   resultAssetIdsJson?: boolean
   errorMessage?: boolean
   attemptCount?: boolean
@@ -754,7 +1410,23 @@ export type TextToImageJobSelectUpdateManyAndReturn<ExtArgs extends runtime.Type
   sourcePath?: boolean
   sourceAnchorId?: boolean
   sourceInsertStatus?: boolean
+  providerSnapshotJson?: boolean
   requestJson?: boolean
+  originJson?: boolean
+  sourceIdentityHash?: boolean
+  providerOwnerUserId?: boolean
+  providerCredentialRevision?: boolean
+  executionManifestId?: boolean
+  executionApprovalId?: boolean
+  compiledRequestHash?: boolean
+  idempotencyKey?: boolean
+  variantIndex?: boolean
+  outputIndex?: boolean
+  parentJobId?: boolean
+  parentAssetId?: boolean
+  stableErrorCode?: boolean
+  activeAttemptId?: boolean
+  activeAttemptFence?: boolean
   resultAssetIdsJson?: boolean
   errorMessage?: boolean
   attemptCount?: boolean
@@ -771,7 +1443,23 @@ export type TextToImageJobSelectScalar = {
   sourcePath?: boolean
   sourceAnchorId?: boolean
   sourceInsertStatus?: boolean
+  providerSnapshotJson?: boolean
   requestJson?: boolean
+  originJson?: boolean
+  sourceIdentityHash?: boolean
+  providerOwnerUserId?: boolean
+  providerCredentialRevision?: boolean
+  executionManifestId?: boolean
+  executionApprovalId?: boolean
+  compiledRequestHash?: boolean
+  idempotencyKey?: boolean
+  variantIndex?: boolean
+  outputIndex?: boolean
+  parentJobId?: boolean
+  parentAssetId?: boolean
+  stableErrorCode?: boolean
+  activeAttemptId?: boolean
+  activeAttemptFence?: boolean
   resultAssetIdsJson?: boolean
   errorMessage?: boolean
   attemptCount?: boolean
@@ -780,9 +1468,10 @@ export type TextToImageJobSelectScalar = {
   finishedAt?: boolean
 }
 
-export type TextToImageJobOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "providerId" | "kind" | "status" | "sourcePath" | "sourceAnchorId" | "sourceInsertStatus" | "requestJson" | "resultAssetIdsJson" | "errorMessage" | "attemptCount" | "createdAt" | "startedAt" | "finishedAt", ExtArgs["result"]["textToImageJob"]>
+export type TextToImageJobOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "providerId" | "kind" | "status" | "sourcePath" | "sourceAnchorId" | "sourceInsertStatus" | "providerSnapshotJson" | "requestJson" | "originJson" | "sourceIdentityHash" | "providerOwnerUserId" | "providerCredentialRevision" | "executionManifestId" | "executionApprovalId" | "compiledRequestHash" | "idempotencyKey" | "variantIndex" | "outputIndex" | "parentJobId" | "parentAssetId" | "stableErrorCode" | "activeAttemptId" | "activeAttemptFence" | "resultAssetIdsJson" | "errorMessage" | "attemptCount" | "createdAt" | "startedAt" | "finishedAt", ExtArgs["result"]["textToImageJob"]>
 export type TextToImageJobInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   assets?: boolean | Prisma.TextToImageJob$assetsArgs<ExtArgs>
+  dispatchOutbox?: boolean | Prisma.TextToImageJob$dispatchOutboxArgs<ExtArgs>
   _count?: boolean | Prisma.TextToImageJobCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type TextToImageJobIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {}
@@ -792,6 +1481,7 @@ export type $TextToImageJobPayload<ExtArgs extends runtime.Types.Extensions.Inte
   name: "TextToImageJob"
   objects: {
     assets: Prisma.$TextToImageAssetPayload<ExtArgs>[]
+    dispatchOutbox: Prisma.$TextToImageDispatchOutboxPayload<ExtArgs> | null
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -801,7 +1491,23 @@ export type $TextToImageJobPayload<ExtArgs extends runtime.Types.Extensions.Inte
     sourcePath: string | null
     sourceAnchorId: string | null
     sourceInsertStatus: $Enums.TextToImageSourceInsertStatus
+    providerSnapshotJson: string
     requestJson: string
+    originJson: string | null
+    sourceIdentityHash: string | null
+    providerOwnerUserId: number | null
+    providerCredentialRevision: number | null
+    executionManifestId: string | null
+    executionApprovalId: string | null
+    compiledRequestHash: string | null
+    idempotencyKey: string | null
+    variantIndex: number | null
+    outputIndex: number | null
+    parentJobId: string | null
+    parentAssetId: string | null
+    stableErrorCode: string | null
+    activeAttemptId: string | null
+    activeAttemptFence: number | null
     resultAssetIdsJson: string
     errorMessage: string | null
     attemptCount: number
@@ -1203,6 +1909,7 @@ readonly fields: TextToImageJobFieldRefs;
 export interface Prisma__TextToImageJobClient<T, Null = never, ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
   readonly [Symbol.toStringTag]: "PrismaPromise"
   assets<T extends Prisma.TextToImageJob$assetsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.TextToImageJob$assetsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$TextToImageAssetPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  dispatchOutbox<T extends Prisma.TextToImageJob$dispatchOutboxArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.TextToImageJob$dispatchOutboxArgs<ExtArgs>>): Prisma.Prisma__TextToImageDispatchOutboxClient<runtime.Types.Result.GetResult<Prisma.$TextToImageDispatchOutboxPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -1239,7 +1946,23 @@ export interface TextToImageJobFieldRefs {
   readonly sourcePath: Prisma.FieldRef<"TextToImageJob", 'String'>
   readonly sourceAnchorId: Prisma.FieldRef<"TextToImageJob", 'String'>
   readonly sourceInsertStatus: Prisma.FieldRef<"TextToImageJob", 'TextToImageSourceInsertStatus'>
+  readonly providerSnapshotJson: Prisma.FieldRef<"TextToImageJob", 'String'>
   readonly requestJson: Prisma.FieldRef<"TextToImageJob", 'String'>
+  readonly originJson: Prisma.FieldRef<"TextToImageJob", 'String'>
+  readonly sourceIdentityHash: Prisma.FieldRef<"TextToImageJob", 'String'>
+  readonly providerOwnerUserId: Prisma.FieldRef<"TextToImageJob", 'Int'>
+  readonly providerCredentialRevision: Prisma.FieldRef<"TextToImageJob", 'Int'>
+  readonly executionManifestId: Prisma.FieldRef<"TextToImageJob", 'String'>
+  readonly executionApprovalId: Prisma.FieldRef<"TextToImageJob", 'String'>
+  readonly compiledRequestHash: Prisma.FieldRef<"TextToImageJob", 'String'>
+  readonly idempotencyKey: Prisma.FieldRef<"TextToImageJob", 'String'>
+  readonly variantIndex: Prisma.FieldRef<"TextToImageJob", 'Int'>
+  readonly outputIndex: Prisma.FieldRef<"TextToImageJob", 'Int'>
+  readonly parentJobId: Prisma.FieldRef<"TextToImageJob", 'String'>
+  readonly parentAssetId: Prisma.FieldRef<"TextToImageJob", 'String'>
+  readonly stableErrorCode: Prisma.FieldRef<"TextToImageJob", 'String'>
+  readonly activeAttemptId: Prisma.FieldRef<"TextToImageJob", 'String'>
+  readonly activeAttemptFence: Prisma.FieldRef<"TextToImageJob", 'Int'>
   readonly resultAssetIdsJson: Prisma.FieldRef<"TextToImageJob", 'String'>
   readonly errorMessage: Prisma.FieldRef<"TextToImageJob", 'String'>
   readonly attemptCount: Prisma.FieldRef<"TextToImageJob", 'Int'>
@@ -1653,6 +2376,25 @@ export type TextToImageJob$assetsArgs<ExtArgs extends runtime.Types.Extensions.I
   take?: number
   skip?: number
   distinct?: Prisma.TextToImageAssetScalarFieldEnum | Prisma.TextToImageAssetScalarFieldEnum[]
+}
+
+/**
+ * TextToImageJob.dispatchOutbox
+ */
+export type TextToImageJob$dispatchOutboxArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the TextToImageDispatchOutbox
+   */
+  select?: Prisma.TextToImageDispatchOutboxSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the TextToImageDispatchOutbox
+   */
+  omit?: Prisma.TextToImageDispatchOutboxOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.TextToImageDispatchOutboxInclude<ExtArgs> | null
+  where?: Prisma.TextToImageDispatchOutboxWhereInput
 }
 
 /**

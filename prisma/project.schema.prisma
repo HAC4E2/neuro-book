@@ -110,15 +110,19 @@ enum TextToImageJobKind {
   body
   character
   reroll
+  illustration
 }
 
 enum TextToImageJobStatus {
   queued
   running
+  completing
   succeeded
   failed
   canceled
   interrupted
+  configuration_stale
+  outcome_unknown
 }
 
 enum TextToImageSourceInsertStatus {
@@ -126,6 +130,42 @@ enum TextToImageSourceInsertStatus {
   pending
   inserted
   missing
+}
+
+enum IllustrationPlanningOperation {
+  plan_chapter
+  plan_selection
+  review_candidates
+}
+
+enum IllustrationPlanningWorkflowStatus {
+  queued
+  running
+  validating
+  applying
+  ready
+  failed
+  canceled
+  stale
+}
+
+enum IllustrationPlanningAttemptStatus {
+  created
+  running
+  succeeded
+  failed
+  interrupted
+  canceled
+}
+
+enum IllustrationPlanningApplyState {
+  prepared
+  storyboard_written
+  chapter_written
+  storyboard_applied
+  completed
+  rolled_back
+  apply_conflict
 }
 
 model ProjectMetadata {
@@ -449,7 +489,23 @@ model TextToImageJob {
   sourcePath         String?
   sourceAnchorId     String?
   sourceInsertStatus TextToImageSourceInsertStatus @default(not_applicable)
+  providerSnapshotJson String                       @default("{}")
   requestJson        String
+  originJson         String?
+  sourceIdentityHash String?
+  providerOwnerUserId Int?
+  providerCredentialRevision Int?
+  executionManifestId String?
+  executionApprovalId String?
+  compiledRequestHash String?
+  idempotencyKey     String?                       @unique
+  variantIndex       Int?
+  outputIndex        Int?
+  parentJobId        String?
+  parentAssetId      String?
+  stableErrorCode    String?
+  activeAttemptId    String?
+  activeAttemptFence Int?
   resultAssetIdsJson String                        @default("[]")
   errorMessage       String?
   attemptCount       Int                           @default(0)
@@ -457,10 +513,14 @@ model TextToImageJob {
   startedAt          DateTime?
   finishedAt         DateTime?
   assets             TextToImageAsset[]
+  dispatchOutbox     TextToImageDispatchOutbox?
 
   @@index([status, createdAt])
   @@index([providerId, status, createdAt])
   @@index([sourcePath, createdAt])
+  @@index([executionManifestId, outputIndex])
+  @@index([providerOwnerUserId, providerId, providerCredentialRevision, status])
+  @@index([activeAttemptId, activeAttemptFence])
 }
 
 model TextToImageAsset {
@@ -484,4 +544,153 @@ model TextToImageAsset {
 
   @@index([jobId, createdAt])
   @@index([sourcePath, createdAt])
+}
+
+/** P5 参考资产：内容寻址的 Vibe/Character Reference/Inpaint 蒙版与派生 Vibe encoding。 */
+model TextToImageReferenceAsset {
+  id                   String   @id
+  kind                 String
+  contentHash          String   @unique
+  relativePath         String   @unique
+  fileName             String
+  mimeType             String
+  byteLength           Int
+  /** 仅 vibe-encoding 非空：派生自哪个源资产；其余为 null。 */
+  parentAssetId        String?
+  /** 仅 vibe-encoding 非空：派生时所用的 NovelAI model；其余为 null。 */
+  derivedModel         String?
+  /** 仅 vibe-encoding 非空：派生时所用的 infoExtracted；其余为 null。 */
+  derivedInfoExtracted Float?
+  createdAt            DateTime @default(now())
+
+  @@index([kind, createdAt])
+  @@index([parentAssetId])
+  @@index([parentAssetId, derivedModel, derivedInfoExtracted])
+}
+
+/** 用户确认后一次原子注册的不可变 execution manifest。 */
+model IllustrationExecutionManifest {
+  id                       String                         @id
+  projectId                String
+  targetHash               String
+  executionNonce           String
+  executionInputHashesJson String
+  executionManifestHash    String                         @unique
+  recipeSnapshotJson       String
+  compiledRequestsJson     String
+  outputCount              Int
+  knownCost                Float?
+  tokenLowerBound          Int?
+  registrationState        String                         @default("jobs_registered")
+  createdAt                DateTime                       @default(now())
+  approvals                IllustrationExecutionApproval[]
+  dispatchOutboxes         TextToImageDispatchOutbox[]
+
+  @@index([projectId, createdAt])
+}
+
+/** 与 manifest 同事务写入的用户授权证据。 */
+model IllustrationExecutionApproval {
+  id                    String                        @id
+  manifestId            String                        @unique
+  executionManifestHash String
+  approvalHash          String                        @unique
+  authorizedOutputCount Int
+  authorizedCostLimit   Float?
+  authorizedTokenLimit  Int?
+  actorUserId           Int
+  approvedAt            DateTime
+  createdAt             DateTime                      @default(now())
+  manifest              IllustrationExecutionManifest @relation(fields: [manifestId], references: [id], onDelete: Restrict)
+}
+
+/** Project 注册完成后交给 App persistent Provider lane 的 durable outbox。 */
+model TextToImageDispatchOutbox {
+  id                  String                        @id
+  dispatchKey         String                        @unique
+  jobId               String                        @unique
+  manifestId          String
+  manifestHash        String
+  registrationVersion String
+  preparationId       String?
+  prepareAttemptId    String?
+  prepareVersion      Int?
+  state               String                        @default("pending")
+  createdAt           DateTime                      @default(now())
+  updatedAt           DateTime                      @default(now()) @updatedAt
+  job                 TextToImageJob                @relation(fields: [jobId], references: [id], onDelete: Restrict)
+  manifest            IllustrationExecutionManifest @relation(fields: [manifestId], references: [id], onDelete: Restrict)
+
+  @@index([state, createdAt])
+  @@index([manifestId, createdAt])
+  @@index([preparationId, prepareVersion])
+}
+
+// P3 plan-only workflow；Project SQLite 本身是 project ownership 边界，projectId 仍作为可移植证据与唯一键字段。
+model IllustrationPlanningWorkflow {
+  id                  String                             @id
+  projectId           String
+  chapterPath         String
+  operation           IllustrationPlanningOperation
+  planningRequestHash String
+  planningInputHash   String
+  inputJson           String
+  status              IllustrationPlanningWorkflowStatus @default(queued)
+  activeAttemptId     String?
+  retryable           Boolean                            @default(false)
+  staleReason         String?
+  proposalJson        String?
+  validatedPlanJson   String?
+  errorCode           String?
+  errorMessage        String?
+  createdAt           DateTime                           @default(now())
+  updatedAt           DateTime                           @default(now()) @updatedAt
+  attempts            IllustrationPlanningAttempt[]
+  planningApply       IllustrationPlanningApplyJournal?
+
+  @@unique([projectId, chapterPath, operation, planningRequestHash])
+  @@index([projectId, status, createdAt])
+  @@index([chapterPath, status, createdAt])
+}
+
+model IllustrationPlanningAttempt {
+  id                   String                            @id
+  workflowId           String
+  status               IllustrationPlanningAttemptStatus @default(created)
+  sessionId            Int?
+  invocationId         String?
+  planningEvidenceHash String?
+  evidenceJson         String?
+  proposalJson         String?
+  errorCode            String?
+  errorMessage         String?
+  createdAt            DateTime                          @default(now())
+  startedAt            DateTime?
+  finishedAt           DateTime?
+  workflow             IllustrationPlanningWorkflow     @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@index([workflowId, createdAt])
+  @@index([status, createdAt])
+}
+
+model IllustrationPlanningApplyJournal {
+  id                       String                         @id
+  workflowId               String                         @unique
+  projectId                String
+  chapterPath              String
+  state                    IllustrationPlanningApplyState @default(prepared)
+  expectedChapterHash      String
+  expectedStoryboardHash   String?
+  stagedStoryboardHash     String
+  appliedStoryboardHash    String
+  chapterAfterHash         String
+  payloadJson              String
+  errorCode                String?
+  errorMessage             String?
+  createdAt                DateTime                       @default(now())
+  updatedAt                DateTime                       @default(now()) @updatedAt
+  workflow                 IllustrationPlanningWorkflow   @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, state, createdAt])
+  @@index([chapterPath, state, createdAt])
 }

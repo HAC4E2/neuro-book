@@ -12,14 +12,16 @@ const props = withDefaults(defineProps<{
     commentViewOpen?: boolean;
     commentCount?: number;
     activeTabRows?: number;
-    canGenerateBodyImage?: boolean;
-    bodyImageBusy?: boolean;
+    canPlanIllustrations?: boolean;
+    illustrationPlanningBusy?: boolean;
+    illustrationPlanningUnavailableReason?: string;
 }>(), {
     commentViewOpen: false,
     commentCount: 0,
     activeTabRows: 3,
-    canGenerateBodyImage: false,
-    bodyImageBusy: false,
+    canPlanIllustrations: false,
+    illustrationPlanningBusy: false,
+    illustrationPlanningUnavailableReason: "",
 });
 
 const emit = defineEmits<{
@@ -29,7 +31,7 @@ const emit = defineEmits<{
     (e: "keep-tab", path: string): void;
     (e: "move-tab", path: string, targetPath: string | null, targetPinned: boolean, position: TabDropPosition): void;
     (e: "set-view-mode", mode: WorkspaceEditorViewMode): void;
-    (e: "generate-body-image"): void;
+    (e: "plan-illustrations"): void;
     (e: "toggle-comment-view"): void;
     (e: "more"): void;
 }>();
@@ -63,9 +65,6 @@ const tabRowsStyle = computed(() => ({
  * 根据编辑器类型选择标签图标。
  */
 function tabIconClass(tab: WorkspaceEditorTab): string {
-    if (tab.kind === "text-to-image-llm") {
-        return "i-lucide-brain-circuit";
-    }
     if (tab.kind === "text-to-image-history") {
         return "i-lucide-images";
     }
@@ -295,11 +294,11 @@ function isDropTarget(tab: WorkspaceEditorTab, pinned: boolean, position: TabDro
                     v-if="props.editorKind === 'markdown'"
                     type="button"
                     class="flex h-7 items-center justify-center gap-1.5 rounded-md px-2 text-xs transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-45"
-                    :disabled="!props.canGenerateBodyImage || props.bodyImageBusy"
-                    title="正文生图"
-                    @click="emit('generate-body-image')"
+                    :disabled="!props.canPlanIllustrations || props.illustrationPlanningBusy"
+                    :title="props.illustrationPlanningUnavailableReason || '正文插图规划'"
+                    @click="emit('plan-illustrations')"
                 >
-                    <span class="h-4 w-4" :class="props.bodyImageBusy ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-image-plus'"></span>
+                    <span class="h-4 w-4" :class="props.illustrationPlanningBusy ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-image-plus'"></span>
                     <span class="hidden xl:inline">正文生图</span>
                 </button>
                 <button

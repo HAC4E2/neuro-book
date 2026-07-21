@@ -30,6 +30,7 @@ import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import type {ConfigAgentProfileSettingsDto, ConfigEditorSnapshotDto, ConfigWorkspaceQueryDto, GlobalConfigDto, ProfileRuntimeSettingsPatchDto, ProjectConfigDto} from "nbook/shared/dto/config.dto";
 import type {LowCodeFormDto, LowCodeFormIssueDto, LowCodeJsonObject, LowCodeResourceMutationDto} from "nbook/shared/dto/low-code-form.dto";
+import {ILLUSTRATION_DIRECTOR_PROFILE_KEY} from "nbook/shared/agent/illustration-director";
 
 type ConfigSettingsScope = "global" | "project";
 
@@ -344,11 +345,35 @@ function isEmptyObject(value: object): boolean {
     return Object.keys(value).length === 0;
 }
 
+/** Director 的模型绑定只能在 Global 模型设置页编辑。 */
+function isIllustrationDirectorProfile(profile: AgentProfileDraft): boolean {
+    return profile.profileKey === ILLUSTRATION_DIRECTOR_PROFILE_KEY;
+}
+
+/**
+ * 通用 Profile 设置保存时保留 Director 的 Global model 原值，Project 则不产生 model patch。
+ * 这样后续 Director Profile 进入 catalog 后也不会自动出现第二个 binding 写入口。
+ */
+function preserveIllustrationDirectorModel(profile: AgentProfileDraft): Partial<AgentProfileModelConfigDto> | null {
+    if (!isIllustrationDirectorProfile(profile)) {
+        return null;
+    }
+    if (isProjectScope.value) {
+        return {};
+    }
+    const model = editorSnapshot.value?.global.agent?.profiles?.[ILLUSTRATION_DIRECTOR_PROFILE_KEY]?.model;
+    return {
+        ...(model ?? {}),
+        modelKey: model?.modelKey ?? null,
+    };
+}
+
 /**
  * 构造单个 profile 的保存配置，同时保留 model 与 settings。
  */
 function buildProfileConfig(profile: AgentProfileDraft): AgentProfileConfigDraft | null {
-    const modelPatch = isProjectScope.value ? buildProjectModelPatch(profile.model) : buildModelPatch(profile.model);
+    const preservedDirectorModel = preserveIllustrationDirectorModel(profile);
+    const modelPatch = preservedDirectorModel ?? (isProjectScope.value ? buildProjectModelPatch(profile.model) : buildModelPatch(profile.model));
     const settingsPatch = buildSettingsPatch(profile.settings);
     const resourceMutations = profile.settings?.resourceMutations ?? [];
     const runtimePatch = buildProfileRuntimeSettingsPatch(profile.runtime);
@@ -1012,7 +1037,11 @@ defineExpose({
                             </div>
                         </div>
 
-                        <div class="grid gap-4 md:grid-cols-[minmax(0,1.4fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_minmax(0,0.8fr)_auto]">
+                        <div v-if="isIllustrationDirectorProfile(profile)" class="rounded-lg border border-[var(--status-info-border)] bg-[var(--status-info-bg)] px-3 py-2 text-xs text-[var(--status-info)]">
+                            {{ t("settings.panels.models.illustrationDirectorDescription") }}
+                        </div>
+
+                        <div v-else class="grid gap-4 md:grid-cols-[minmax(0,1.4fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_minmax(0,0.8fr)_auto]">
                             <!-- Profile 默认模型 -->
                             <div class="space-y-1.5">
                                 <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.defaultModel") }}</label>

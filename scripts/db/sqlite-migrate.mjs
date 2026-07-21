@@ -3,6 +3,8 @@ import {readdir, readFile} from "node:fs/promises";
 import {resolve} from "node:path";
 import {createClient} from "@libsql/client";
 import {preparePrismaEnv} from "./prisma-env.mjs";
+import {splitSqlStatements} from "./sql-statements.mjs";
+import {finalizeNovelAiProviderConstraint} from "./novelai-provider-constraint.mjs";
 
 const MIGRATIONS_DIR = resolve(process.cwd(), "prisma", "migrations", "sqlite");
 
@@ -61,6 +63,9 @@ for (const migrationName of migrationNames) {
     console.log(`Applied SQLite migration ${migrationName}`);
 }
 
+await finalizeNovelAiProviderConstraint(client);
+await client.close();
+
 async function executeMigration(sql) {
     const statements = splitSqlStatements(sql);
     await client.execute("BEGIN");
@@ -75,104 +80,3 @@ async function executeMigration(sql) {
     }
 }
 
-function splitSqlStatements(sql) {
-    const statements = [];
-    let current = "";
-    let index = 0;
-    let inSingleQuote = false;
-    let inDoubleQuote = false;
-    let inLineComment = false;
-    let inBlockComment = false;
-
-    while (index < sql.length) {
-        const char = sql[index] ?? "";
-        const nextChar = sql[index + 1] ?? "";
-
-        if (inLineComment) {
-            current += char;
-            if (char === "\n" || char === "\r") {
-                inLineComment = false;
-            }
-            index++;
-            continue;
-        }
-        if (inBlockComment) {
-            current += char;
-            if (char === "*" && nextChar === "/") {
-                current += nextChar;
-                inBlockComment = false;
-                index += 2;
-                continue;
-            }
-            index++;
-            continue;
-        }
-        if (inSingleQuote) {
-            current += char;
-            if (char === "'" && nextChar === "'") {
-                current += nextChar;
-                index += 2;
-                continue;
-            }
-            if (char === "'") {
-                inSingleQuote = false;
-            }
-            index++;
-            continue;
-        }
-        if (inDoubleQuote) {
-            current += char;
-            if (char === "\"" && nextChar === "\"") {
-                current += nextChar;
-                index += 2;
-                continue;
-            }
-            if (char === "\"") {
-                inDoubleQuote = false;
-            }
-            index++;
-            continue;
-        }
-        if (char === "-" && nextChar === "-") {
-            current += char + nextChar;
-            inLineComment = true;
-            index += 2;
-            continue;
-        }
-        if (char === "/" && nextChar === "*") {
-            current += char + nextChar;
-            inBlockComment = true;
-            index += 2;
-            continue;
-        }
-        if (char === "'") {
-            inSingleQuote = true;
-            current += char;
-            index++;
-            continue;
-        }
-        if (char === "\"") {
-            inDoubleQuote = true;
-            current += char;
-            index++;
-            continue;
-        }
-        if (char === ";") {
-            const statement = current.trim();
-            if (statement) {
-                statements.push(statement);
-            }
-            current = "";
-            index++;
-            continue;
-        }
-        current += char;
-        index++;
-    }
-
-    const last = current.trim();
-    if (last) {
-        statements.push(last);
-    }
-    return statements;
-}

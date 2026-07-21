@@ -38,6 +38,10 @@ export default defineNuxtRouteMiddleware(async (to) => {
     const session = await fetchSession();
     authSession.setSession(session);
     if (!session.authEnabled) {
+        // auth 关闭（桌面轻量版）：用户管理功能不暴露，手输 /login /admin 也回首页
+        if (to.path === "/login" || to.path.startsWith("/admin")) {
+            return navigateTo("/");
+        }
         return;
     }
 

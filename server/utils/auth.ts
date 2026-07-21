@@ -99,9 +99,45 @@ export function requireUserId(event: H3Event): number {
 }
 
 /**
- * 获取当前请求的有效用户。
+ * 桌面轻量版默认本地用户名。auth 关闭时以此用户兜底，避免 API 依赖 currentUser 处抛 401。
+ * 该用户无密码（passwordHash 为不可登录占位），仅用于本地单用户数据归属。
+ */
+const DESKTOP_DEFAULT_USERNAME = "desktop";
+
+let cachedDesktopDefaultUser: User | null = null;
+
+/**
+ * 确保桌面轻量版默认本地用户存在并缓存。auth 关闭模式下由 getCurrentUser 调用。
+ * 用 upsert by username 幂等创建 admin 用户；passwordHash 放不可登录占位，
+ * 桌面版不走登录流程，该字段永不被校验。
+ */
+export async function ensureDesktopDefaultUser(): Promise<User> {
+    if (cachedDesktopDefaultUser) {
+        return cachedDesktopDefaultUser;
+    }
+    const user = await prisma.user.upsert({
+        where: {username: DESKTOP_DEFAULT_USERNAME},
+        create: {
+            username: DESKTOP_DEFAULT_USERNAME,
+            displayName: "本地",
+            passwordHash: "!local-desktop-user",
+            role: "admin",
+            status: "active",
+        },
+        update: {},
+    });
+    cachedDesktopDefaultUser = user;
+    return user;
+}
+
+/**
+ * 获取当前请求的有效用户。auth 关闭（桌面轻量版）时直接返回默认本地用户，
+ * 不查 session，使所有依赖 currentUser 的 API 在本地免登录下可用。
  */
 export async function getCurrentUser(event: H3Event): Promise<User | null> {
+    if (!isAuthEnabled()) {
+        return ensureDesktopDefaultUser();
+    }
     const session = await getUserSession(event);
     const sessionUserId = session.user?.id;
     if (!sessionUserId) {

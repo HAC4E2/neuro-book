@@ -1,41 +1,24 @@
 import {createError} from "h3";
 import {
-    CharacterImageTagsGenerateRequestSchema,
-    generateCharacterImageTags,
-    type CharacterImageTagsGenerateResult,
+    CharacterVisualDirectorGenerateRequestSchema,
+    CharacterVisualProposalError,
+    generateCharacterVisualProposal,
 } from "nbook/server/text-to-image/character-image-tags";
-import {TextToImageProviderService} from "nbook/server/text-to-image/provider.service";
+import {throwCharacterVisualMigrationHttpError} from "nbook/server/text-to-image/character-visual-migration-http-error";
 import {requireCurrentUser} from "nbook/server/utils/auth";
+import {validateBody} from "nbook/server/utils/novel-chapter";
+import {withProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
 
-/**
- * 从角色详情页生成同目录 image-tags.md。
- */
-export default defineEventHandler(async (event): Promise<CharacterImageTagsGenerateResult> => {
-    const user = await requireCurrentUser(event);
-    const parsed = CharacterImageTagsGenerateRequestSchema.safeParse(await readBody(event));
-    if (!parsed.success) {
-        throw createError({
-            statusCode: 400,
-            statusMessage: "Invalid character image-tags request",
-            message: parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; "),
-        });
-    }
-    const resolved = await new TextToImageProviderService().resolveCredential(user.id, parsed.data.llm.providerId);
-    if (resolved.provider.kind !== "openai_compatible") {
-        throw createError({statusCode: 400, message: "角色 image-tag 生成需要 OpenAI-compatible Provider"});
-    }
+/** 通过 illustration.director 生成不可执行角色视觉 proposal；不直接写 image-tags。 */
+export default defineEventHandler((event) => withProjectNotOpenHttpError(async () => {
+    await requireCurrentUser(event);
+    const body = await validateBody(event, CharacterVisualDirectorGenerateRequestSchema);
     try {
-        return await generateCharacterImageTags(parsed.data, {
-            baseUrl: resolved.provider.baseUrl,
-            credential: resolved.credential,
-            allowPrivateNetwork: resolved.provider.settings.allowPrivateNetwork,
-            model: resolved.provider.model,
-        });
+        return await generateCharacterVisualProposal(body);
     } catch (error) {
-        throw createError({
-            statusCode: 502,
-            statusMessage: "Character image-tags generation failed",
-            message: error instanceof Error ? error.message : String(error),
-        });
+        if (error instanceof CharacterVisualProposalError) {
+            throw createError({statusCode: 409, message: error.message, data: {code: error.code}});
+        }
+        throwCharacterVisualMigrationHttpError(error);
     }
-});
+}));

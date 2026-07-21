@@ -1,129 +1,143 @@
-import {describe, expect, it} from "vitest";
+import {describe, expect, it, vi} from "vitest";
+import {ILLUSTRATION_DIRECTOR_MODEL_NOT_CONFIGURED} from "nbook/shared/agent/illustration-director";
+import {CHARACTER_IMAGE_TAG_FIELDS} from "nbook/shared/text-to-image-character-visual";
+import {createTextToImageMarkdownFileHash} from "nbook/server/text-to-image/strict-frontmatter";
 import {
-    buildCharacterOutfitArtifacts,
-    buildCharacterImageTagFromDraft,
-    resolveCharacterImageTagPaths,
+    CharacterVisualProposalError,
+    generateCharacterVisualProposal,
+    type CharacterVisualProposalRuntime,
 } from "nbook/server/text-to-image/character-image-tags";
 
-describe("character image-tags generation", () => {
-    it("uses the existing character directory when current detail is index.md", () => {
-        const paths = resolveCharacterImageTagPaths({
-            characterPath: "lorebook/character/old-slug/index.md",
-            characterTitle: "小明",
-        });
+const characterMarkdown = "---\ntitle: 艾丽丝\naliases: [Alice]\n---\n\n外貌：金发碧眼。\n";
+const sourceHash = createTextToImageMarkdownFileHash(characterMarkdown);
 
-        expect(paths.characterDirectoryPath).toBe("lorebook/character/old-slug");
-        expect(paths.detailPath).toBe("lorebook/character/old-slug/index.md");
-        expect(paths.imageTagsPath).toBe("lorebook/character/old-slug/image-tags.md");
-        expect(paths.shouldCopyDetailFile).toBe(false);
-    });
-
-    it("creates a character-name directory for flat markdown detail files", () => {
-        const paths = resolveCharacterImageTagPaths({
-            characterPath: "lorebook/character/source.md",
-            characterTitle: "小明 / 明明",
-        });
-
-        expect(paths.characterDirectoryPath).toBe("lorebook/character/小明-明明");
-        expect(paths.detailPath).toBe("lorebook/character/小明-明明/index.md");
-        expect(paths.imageTagsPath).toBe("lorebook/character/小明-明明/image-tags.md");
-        expect(paths.shouldCopyDetailFile).toBe(true);
-    });
-
-    it("builds image-tags data from an LLM character draft", () => {
-        const tag = buildCharacterImageTagFromDraft({
-            id: "xiaoming",
-            sourcePath: "lorebook/character/xiaoming/image-tags.md",
-            fallbackCnName: "小明|明明",
-            fallbackEnName: "Xiao Ming",
-            draft: {
-                facialAppearance: "blonde hair, golden brown eyes",
-                profileTraits: "innocent, candid",
-                upperSfw: "petite, slender body",
+function completedProposal() {
+    return {
+        schemaVersion: "nbook.character-visual-director-proposal/v1" as const,
+        operation: "propose-character-visual" as const,
+        state: "completed" as const,
+        summary: "已从角色事实生成视觉 proposal。",
+        sourceCharacterFileHash: sourceHash,
+        character: {
+            names: {cn: "艾丽丝", en: "Alice"},
+            fields: {
+                profileTraits: "young woman",
+                facialAppearance: "blonde hair, blue eyes",
+                facialBack: "long blonde hair",
+                upperSfw: "slender",
+                upperBackSfw: "",
+                lowerSfw: "",
+                lowerBackSfw: "",
+                upperNsfw: "",
+                upperBackNsfw: "",
+                lowerNsfw: "",
+                lowerBackNsfw: "",
+                negativePrompt: "",
             },
-        });
+        },
+        outfits: [],
+        diagnostics: [],
+    };
+}
 
-        expect(tag.cnAliases).toEqual(["小明", "明明"]);
-        expect(tag.enName).toBe("Xiao Ming");
-        expect(tag.facialAppearance).toBe("blonde hair, golden brown eyes");
-        expect(tag.upperSfw).toBe("petite, slender body");
+function runtime(patch: Partial<CharacterVisualProposalRuntime> = {}): CharacterVisualProposalRuntime {
+    return {
+        readCharacter: vi.fn(async () => characterMarkdown),
+        isDirectorConfigured: vi.fn(async () => true),
+        invoke: vi.fn(async () => ({
+            sessionId: 12,
+            invocationId: "invocation-12",
+            status: "completed",
+            data: completedProposal(),
+        })),
+        save: vi.fn(async (input) => ({
+            schemaVersion: "nbook.character-visual-director-preview/v1",
+            proposalId: "character-proposal-1234567890abcdef12345678",
+            proposalFileHash: sourceHash,
+            sourceCharacterPath: input.sourceCharacterPath,
+            sourceCharacterFileHash: input.sourceCharacterFileHash,
+            characterPath: "lorebook/character/alice/image-tags.md",
+            targetStatus: "missing_visual",
+            targetBaseSetHash: sourceHash,
+            targetNames: {cn: "艾丽丝", aliasesCn: ["Alice"], en: "Alice"},
+            rows: CHARACTER_IMAGE_TAG_FIELDS.map((field) => ({
+                field,
+                existingText: "",
+                proposalText: input.proposal.character?.fields[field] ?? "",
+                state: input.proposal.character?.fields[field] ? "proposal_only" as const : "empty" as const,
+                decisionRequired: false,
+            })),
+            outfits: [],
+            diagnostics: [],
+            previewHash: sourceHash,
+        })),
+        ...patch,
+    };
+}
+
+describe("character visual Director proposal", () => {
+    it("binding 缺失时使用稳定错误出口且不调用 Agent", async () => {
+        const testRuntime = runtime({isDirectorConfigured: vi.fn(async () => false)});
+        await expect(generateCharacterVisualProposal({
+            projectPath: "workspace/demo",
+            characterPath: "lorebook/character/alice/index.md",
+        }, testRuntime)).rejects.toMatchObject({code: ILLUSTRATION_DIRECTOR_MODEL_NOT_CONFIGURED});
+        expect(testRuntime.invoke).not.toHaveBeenCalled();
     });
 
-    it("updates returned outfits, preserves unmentioned indexes, and rejects another owner's outfit", () => {
-        const artifacts = buildCharacterOutfitArtifacts({
-            characterDirectoryPath: "lorebook/character/xiaoming",
-            characterEnName: "Xiao Ming",
-            existingOutfits: [{
-                sourcePath: "lorebook/character/xiaoming/outfits/深色水手校服.md",
-                owner: "Xiao Ming",
-                nameCn: "深色水手校服",
-                nameEn: "dark navy sailor uniform",
-                upper: "old shirt",
-                upperBack: "old shirt",
-                lower: "old skirt",
-                lowerBack: "old skirt",
-            }, {
-                sourcePath: "lorebook/character/xiaoming/outfits/白色睡裙.md",
-                owner: "Xiao Ming",
-                nameCn: "白色睡裙",
-                nameEn: "white nightgown",
-                upper: "",
-                upperBack: "",
-                lower: "",
-                lowerBack: "",
-            }],
-            drafts: [{
-                owner: "Xiao Ming",
-                nameCn: "深色水手校服",
-                nameEn: "dark navy sailor uniform",
-                upper: "new sailor shirt",
-                upperBack: "new sailor shirt",
-                lower: "new pleated skirt",
-                lowerBack: "new pleated skirt",
-            }, {
-                owner: "Other Person",
-                nameCn: "不应绑定的礼服",
-                nameEn: "unbound formalwear",
-                upper: "formal jacket",
-                upperBack: "formal jacket",
-                lower: "formal trousers",
-                lowerBack: "formal trousers",
-            }],
-        });
-
-        expect(artifacts.outfits.map((outfit) => outfit.nameCn)).toEqual(["深色水手校服", "白色睡裙"]);
-        expect(artifacts.files).toHaveLength(1);
-        expect(artifacts.files[0]?.path).toBe("lorebook/character/xiaoming/outfits/深色水手校服.md");
-        expect(artifacts.files[0]?.content).toContain("new sailor shirt");
-        expect(artifacts.warnings[0]).toContain("Other Person");
+    it("只把 source bytes/hash 交给 illustration.director，并持久化 proposal preview", async () => {
+        const testRuntime = runtime();
+        const result = await generateCharacterVisualProposal({
+            projectPath: "workspace/demo",
+            characterPath: "lorebook/character/alice/index.md",
+        }, testRuntime);
+        expect(result.state).toBe("proposal_ready");
+        expect(testRuntime.invoke).toHaveBeenCalledWith(expect.objectContaining({
+            characterMarkdown,
+            sourceCharacterFileHash: sourceHash,
+        }));
+        expect(testRuntime.save).toHaveBeenCalledWith(expect.objectContaining({
+            proposal: expect.objectContaining({operation: "propose-character-visual"}),
+        }));
     });
 
-    it("never reuses an indexed outfit path outside the current character outfits directory", () => {
-        const artifacts = buildCharacterOutfitArtifacts({
-            characterDirectoryPath: "lorebook/character/xiaoming",
-            characterEnName: "Xiao Ming",
-            existingOutfits: [{
-                sourcePath: "manuscript/chapter-1.md",
-                owner: "Xiao Ming",
-                nameCn: "旅行便装",
-                nameEn: "traveler casual outfit",
-                upper: "old shirt",
-                upperBack: "old shirt",
-                lower: "old trousers",
-                lowerBack: "old trousers",
-            }],
-            drafts: [{
-                owner: "Xiao Ming",
-                nameCn: "旅行便装",
-                nameEn: "traveler casual outfit",
-                upper: "linen shirt",
-                upperBack: "linen shirt",
-                lower: "brown trousers",
-                lowerBack: "brown trousers",
-            }],
+    it("blocked report 原样返回诊断，不创建 migration proposal", async () => {
+        const testRuntime = runtime({
+            invoke: vi.fn(async () => ({
+                sessionId: 13,
+                invocationId: "invocation-13",
+                status: "completed",
+                data: {
+                    ...completedProposal(),
+                    state: "blocked",
+                    character: null,
+                    outfits: [],
+                    summary: "角色事实不足。",
+                    diagnostics: [{code: "SOURCE_FACTS_INSUFFICIENT", message: "没有明确外貌字段。"}],
+                },
+            })),
         });
+        const result = await generateCharacterVisualProposal({
+            projectPath: "workspace/demo",
+            characterPath: "lorebook/character/alice/index.md",
+        }, testRuntime);
+        expect(result).toMatchObject({state: "blocked", summary: "角色事实不足。"});
+        expect(testRuntime.save).not.toHaveBeenCalled();
+    });
 
-        expect(artifacts.files[0]?.path).toBe("lorebook/character/xiaoming/outfits/旅行便装.md");
-        expect(artifacts.outfits[0]?.sourcePath).toBe("lorebook/character/xiaoming/outfits/旅行便装.md");
+    it("拒绝未绑定当前角色 source hash 的 Agent 输出", async () => {
+        const testRuntime = runtime({
+            invoke: vi.fn(async () => ({
+                sessionId: 14,
+                invocationId: "invocation-14",
+                status: "completed",
+                data: {...completedProposal(), sourceCharacterFileHash: `sha256:${"0".repeat(64)}`},
+            })),
+        });
+        await expect(generateCharacterVisualProposal({
+            projectPath: "workspace/demo",
+            characterPath: "lorebook/character/alice/index.md",
+        }, testRuntime)).rejects.toBeInstanceOf(CharacterVisualProposalError);
+        expect(testRuntime.save).not.toHaveBeenCalled();
     });
 });

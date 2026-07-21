@@ -38,6 +38,7 @@ const emit = defineEmits<{
     (e: "update:width", value: number): void;
     (e: "close"): void;
     (e: "openWorldEngine"): void;
+    (e: "openIllustrationDirectorSettings"): void;
 }>();
 
 const {t} = useI18n();
@@ -397,7 +398,7 @@ function handleSyncDiffAction(payload: DiffWorkbenchActionPayload): void {
 
                 <NovelPlotPanel v-else-if="activeTab === 'plot' && !props.userAssetsMode" @open-world-engine="emit('openWorldEngine')" />
 
-                <NovelTextToImagePanel v-else-if="activeTab === 'textToImage' && !props.userAssetsMode" />
+                <NovelTextToImagePanel v-else-if="activeTab === 'textToImage' && !props.userAssetsMode" @open-illustration-director-settings="emit('openIllustrationDirectorSettings')" />
             </div>
         </aside>
 

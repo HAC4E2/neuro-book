@@ -1,5 +1,5 @@
-import {appendFile, mkdir, readFile, readdir, writeFile} from "node:fs/promises";
-import {existsSync} from "node:fs";
+import {appendFile, lstat, mkdir, readFile, readdir, realpath, writeFile} from "node:fs/promises";
+import {existsSync, type Dirent} from "node:fs";
 import {dirname, join, resolve} from "node:path";
 import {randomUUID} from "node:crypto";
 import type {AgentMessage, JsonValue, Message} from "nbook/server/agent/messages/types";
@@ -39,6 +39,9 @@ type AppendEntryInput = SessionEntryDraft & {
 };
 type AppendBatchEntryInput = Exclude<AppendEntryInput, {type: "leaf"}>;
 
+/** 同一 Node 进程中所有 repository 实例按规范 root 共用 session 创建临界区。 */
+const sessionCreationTails = new Map<string, Promise<void>>();
+
 /**
  * JSONL session 仓库。所有状态变化都通过 append entry 表达。
  */
@@ -58,28 +61,47 @@ export class JsonlSessionRepository {
      * 创建一个空 session，只写 header 和初始 leaf。
      */
     async createSession(input: CreateSessionInput): Promise<SessionSnapshot> {
-        const sessionId = await this.nextSessionId();
-        const now = Date.now();
-        const metadata: SessionMetadata = {
-            sessionId,
-            profileKey: input.profileKey,
-            initial: input.initial,
-            workspaceRoot: input.workspaceRoot,
-            workspaceKey: input.workspaceKey ?? "global",
-            projectPath: input.projectPath,
-            parentSessionId: input.parentSessionId,
-            systemRole: input.systemRole,
-            createdAt: now,
-            title: input.title,
-        };
-        const sessionPath = this.sessionPath(sessionId);
-        await mkdir(dirname(sessionPath), {recursive: true});
-        await writeFile(sessionPath, `${JSON.stringify({kind: "header", metadata} satisfies SessionFileRecord)}\n`, "utf8");
-        await this.appendEntry(sessionId, {
-            type: "leaf",
-            leafId: null,
-        }, metadata.workspaceKey);
-        return this.readSession(sessionId, metadata.workspaceKey);
+        return this.withCreationLock(async () => {
+            while (true) {
+                const sessionId = await this.nextSessionId();
+                const now = Date.now();
+                const metadata: SessionMetadata = {
+                    sessionId,
+                    profileKey: input.profileKey,
+                    initial: input.initial,
+                    workspaceRoot: input.workspaceRoot,
+                    workspaceKey: input.workspaceKey ?? "global",
+                    projectPath: input.projectPath,
+                    parentSessionId: input.parentSessionId,
+                    systemRole: input.systemRole,
+                    createdAt: now,
+                    title: input.title,
+                };
+                const sessionPath = this.sessionPath(sessionId);
+                await mkdir(dirname(sessionPath), {recursive: true});
+                try {
+                    await writeFile(
+                        sessionPath,
+                        `${JSON.stringify({kind: "header", metadata} satisfies SessionFileRecord)}\n`,
+                        {encoding: "utf8", flag: "wx"},
+                    );
+                } catch (error) {
+                    if (!isFileSystemError(error, "EEXIST")) {
+                        throw error;
+                    }
+                    const existing = await lstat(sessionPath);
+                    if (!existing.isFile()) {
+                        throw new Error(`session ${String(sessionId)} 路径被非文件占用`);
+                    }
+                    continue;
+                }
+                await this.appendEntry(sessionId, {
+                    type: "leaf",
+                    leafId: null,
+                }, metadata.workspaceKey);
+                return this.readSession(sessionId, metadata.workspaceKey);
+            }
+        });
     }
 
     /**
@@ -644,17 +666,86 @@ export class JsonlSessionRepository {
     private async nextSessionId(): Promise<SessionId> {
         const seqPath = join(this.rootWorkspace, ".nbook", "agent", "session-seq.json");
         await mkdir(dirname(seqPath), {recursive: true});
-        let next = 1;
+        let next: number;
         try {
-            const current = JSON.parse(await readFile(seqPath, "utf8")) as {next?: unknown};
-            if (typeof current.next === "number" && Number.isInteger(current.next) && current.next > 0) {
-                next = current.next;
+            const currentText = await readFile(seqPath, "utf8");
+            // sequence 是本地持久状态边界；解析后逐字段收窄，损坏时从不可变 session 文件恢复。
+            const current: unknown = JSON.parse(currentText);
+            const candidate = typeof current === "object" && current !== null && "next" in current
+                ? current.next
+                : null;
+            if (typeof candidate === "number" && candidate > 0) {
+                if (!Number.isSafeInteger(candidate) || candidate >= Number.MAX_SAFE_INTEGER) {
+                    throw new Error("session sequence 必须是安全整数且可递增");
+                }
+                next = candidate;
+            } else {
+                next = await this.recoverNextSessionId();
             }
-        } catch {
-            next = 1;
+        } catch (error) {
+            if (!isFileSystemError(error, "ENOENT") && !(error instanceof SyntaxError)) {
+                throw error;
+            }
+            next = await this.recoverNextSessionId();
         }
         await writeFile(seqPath, JSON.stringify({next: next + 1}, null, 2), "utf8");
         return next;
+    }
+
+    /** sequence 缺失/损坏时只根据已有数字 JSONL 文件恢复，不猜测或覆盖历史。 */
+    private async recoverNextSessionId(): Promise<SessionId> {
+        const sessionsRoot = join(this.rootWorkspace, ".nbook", "agent", "sessions");
+        let entries: Dirent[];
+        try {
+            entries = await readdir(sessionsRoot, {withFileTypes: true});
+        } catch (error) {
+            if (isFileSystemError(error, "ENOENT")) {
+                return 1;
+            }
+            throw error;
+        }
+        const maxSessionId = entries.reduce((maximum, entry) => {
+            const matched = /^(\d+)\.jsonl$/u.exec(entry.name);
+            if (!matched) {
+                return maximum;
+            }
+            if (!entry.isFile()) {
+                throw new Error(`session 路径被非文件占用：${entry.name}`);
+            }
+            const sessionId = Number(matched[1]);
+            return Number.isSafeInteger(sessionId) && sessionId > maximum ? sessionId : maximum;
+        }, 0);
+        if (maxSessionId >= Number.MAX_SAFE_INTEGER - 1) {
+            throw new Error("session ID 已达到安全整数上限");
+        }
+        return maxSessionId + 1;
+    }
+
+    /**
+     * 串行化完整的 session ID 分配与初始 JSONL 写入。
+     *
+     * 只锁 `nextSessionId()` 仍会让失败/覆盖窗口跨到 header 初始化；creation tail 因此覆盖完整创建临界区。
+     */
+    private async withCreationLock<TResult>(task: () => Promise<TResult>): Promise<TResult> {
+        const absoluteRoot = resolve(this.rootWorkspace);
+        await mkdir(absoluteRoot, {recursive: true});
+        const realRoot = await realpath(absoluteRoot);
+        const creationKey = process.platform === "win32" ? realRoot.toLocaleLowerCase("en-US") : realRoot;
+        const previous = sessionCreationTails.get(creationKey) ?? Promise.resolve();
+        let release = (): void => undefined;
+        const current = new Promise<void>((resolveTail) => {
+            release = resolveTail;
+        });
+        sessionCreationTails.set(creationKey, current);
+        await previous;
+        try {
+            return await task();
+        } finally {
+            release();
+            if (sessionCreationTails.get(creationKey) === current) {
+                sessionCreationTails.delete(creationKey);
+            }
+        }
     }
 
     private resolveLeaf(entries: SessionEntry[]): SessionEntryId | null {
@@ -678,4 +769,9 @@ export class JsonlSessionRepository {
     private async appendLine(path: string, record: SessionFileRecord): Promise<void> {
         await appendFile(path, `${JSON.stringify(record)}\n`, "utf8");
     }
+}
+
+/** 收窄 Node 文件系统错误码，避免把 JSON/权限错误误当成可恢复碰撞。 */
+function isFileSystemError(error: unknown, code: string): error is NodeJS.ErrnoException {
+    return error instanceof Error && "code" in error && error.code === code;
 }

@@ -59,6 +59,11 @@ struct DesktopState {
     migration_progress: Mutex<Option<String>>,
 }
 
+/// 默认 Boot Config（config.yaml）：关闭全站鉴权。auth 中间件读的就是这份
+/// Boot Config 的 `auth.enabled`，而不是下方 config.json（Global Config）。
+/// 桌面版为本地单用户应用，OS 账户即安全边界，鉴权无意义。
+const DEFAULT_BOOT_CONFIG: &str = "auth:\n  enabled: false\n";
+
 /// 默认全局 config：关闭全站鉴权（本地单用户桌面应用，OS 账户即安全边界）。
 /// 与 launcher.mjs 的 renderGlobalConfig 对齐，仅 auth.enabled 改为 false。
 const DEFAULT_CONFIG: &str = r#"{
@@ -280,6 +285,14 @@ fn boot(app: tauri::AppHandle) -> Result<(), BootError> {
         fs::write(&config_path, DEFAULT_CONFIG).map_err(|e| BootError::io("写 config.json", e))?;
     }
 
+    // 3.1 写 Boot Config（data/config.yaml，auth 关闭），仅首次。auth 中间件实际读这份
+    // 文件决定是否启用全站鉴权；不写则生产环境缺省启用，导致桌面版被拦在登录页。
+    let boot_config_path = data_dir.join("config.yaml");
+    if !boot_config_path.exists() {
+        fs::write(&boot_config_path, DEFAULT_BOOT_CONFIG)
+            .map_err(|e| BootError::io("写 config.yaml", e))?;
+    }
+
     // 4. 会话密钥（持久化，跨启动稳定，避免已登录会话失效）
     let session_password = read_or_create_session_key(&data_dir)?;
 
@@ -292,7 +305,7 @@ fn boot(app: tauri::AppHandle) -> Result<(), BootError> {
         &bun_exe,
         &product_dir,
         &[".output/server/scripts/db/prisma-migrate.mjs", "--deploy"],
-        &server_env(&root, &data_dir, &logs_dir, port, &session_password),
+        &server_env(&product_dir, &data_dir, &logs_dir, port, &session_password),
         Some(&logs_dir.join("init.log")),
     )?;
 
@@ -305,7 +318,7 @@ fn boot(app: tauri::AppHandle) -> Result<(), BootError> {
             ".output/server/scripts/build/prepare-system-assets.ts",
             "--sync-user-assets",
         ],
-        &server_env(&root, &data_dir, &logs_dir, port, &session_password),
+        &server_env(&product_dir, &data_dir, &logs_dir, port, &session_password),
         Some(&logs_dir.join("init.log")),
     )?;
 
@@ -323,7 +336,7 @@ fn boot(app: tauri::AppHandle) -> Result<(), BootError> {
     let mut cmd = Command::new(&bun_exe);
     cmd.arg(&server_entry)
         .current_dir(&product_dir)
-        .envs(server_env(&root, &data_dir, &logs_dir, port, &session_password))
+        .envs(server_env(&product_dir, &data_dir, &logs_dir, port, &session_password))
         .stdout(Stdio::from(log_file))
         .stderr(Stdio::from(log_file_err));
     let child: GroupChild = cmd
@@ -578,14 +591,22 @@ fn wait_for_ready(port: u16, timeout: Duration) -> Result<(), BootError> {
 /// 服务进程环境变量。路径用相对 product cwd 的形式（与 launcher 一致，已验证 prisma-env
 /// 按 process.cwd() 解析 file: URL）。
 fn server_env(
-    _root: &Path,
-    _data_dir: &Path,
+    product_dir: &Path,
+    data_dir: &Path,
     logs_dir: &Path,
     port: u16,
     session_password: &str,
 ) -> Vec<(&'static str, String)> {
     let mut env = vec![
         ("NODE_ENV", "production".to_string()),
+        // 显式声明 application root 与 state root：server 解析 Boot Config (config.yaml)
+        // 走 installation-paths.resolveStateRoot，必须指向 data 目录，否则会回退到
+        // cwd (product/) 找不到 config.yaml，生产环境缺省启用鉴权，桌面版被拦在登录页。
+        (
+            "NEURO_BOOK_APPLICATION_ROOT",
+            product_dir.to_string_lossy().to_string(),
+        ),
+        ("NEURO_BOOK_STATE_ROOT", data_dir.to_string_lossy().to_string()),
         ("DATABASE_KIND", "sqlite".to_string()),
         // 相对 product cwd：file:../data/... -> root/data/...
         ("DATABASE_URL", "file:../data/workspace/.nbook/neuro-book.sqlite".to_string()),

@@ -10,7 +10,10 @@ import TipTapFrontmatterPanel from "nbook/app/components/markdown-studio/TipTapF
 import type {MarkdownFormatCommand, MarkdownInlineCommentItem, MarkdownStudioEditorHandle} from "nbook/app/composables/useMarkdownStudioController";
 import {createMarkdownEditorExtensions} from "nbook/app/components/markdown-studio/tiptap/markdown-editor-extensions";
 import {COMMENT_PLUGIN_KEY, type CommentItem} from "nbook/app/components/markdown-studio/tiptap/Comment";
-import type {TextToImagePromptGeneratePayload} from "nbook/app/components/markdown-studio/tiptap/TextToImagePrompt";
+import {
+    type TextToImagePromptController,
+    unavailableTextToImagePromptController,
+} from "nbook/app/components/markdown-studio/tiptap/TextToImagePrompt";
 import {useDialog} from "nbook/app/composables/useDialog";
 import {useEditorChangeDebounce} from "nbook/app/composables/useEditorChangeDebounce";
 import {useNotification} from "nbook/app/composables/useNotification";
@@ -44,6 +47,7 @@ const props = withDefaults(defineProps<{
     onSkillTriggerStart?: () => void;
     popoverDirection?: PopoverDirection;
     matchPopoverWidth?: boolean;
+    textToImagePromptController?: TextToImagePromptController;
 }>(), {
     initialValue: "",
     visible: true,
@@ -67,6 +71,7 @@ const props = withDefaults(defineProps<{
     onSkillTriggerStart: () => {},
     popoverDirection: "auto",
     matchPopoverWidth: false,
+    textToImagePromptController: () => unavailableTextToImagePromptController,
 });
 
 const emit = defineEmits<{
@@ -79,8 +84,8 @@ const emit = defineEmits<{
     (e: "open-frontmatter-profile", kind: FrontmatterProfileKind): void;
     (e: "inline-comments-change", comments: MarkdownInlineCommentItem[]): void;
     (e: "inline-comment-select", index: number): void;
-    (e: "generate-text-to-image-prompt", payload: TextToImagePromptGeneratePayload): void;
     (e: "inline-ai-reference", reference: InlineEditReference): void;
+    (e: "plan-selection-illustration", reference: InlineEditReference): void;
 }>();
 
 const {prompt} = useDialog();
@@ -242,7 +247,7 @@ const editor = useEditor({
             sourcePath: props.activePath,
             resolveReference: props.resolveReference,
             enableQuickTriggers: props.enableQuickTriggers,
-            onGenerateTextToImagePrompt: (payload) => emit("generate-text-to-image-prompt", payload),
+            textToImagePromptController: props.textToImagePromptController,
         }),
         InlineAiReferenceHighlight,
     ],
@@ -774,18 +779,18 @@ function refreshInlineAiReferenceHighlight(targetEditor?: Editor): void {
 /**
  * 把当前选区加入 Inline AI 引用。
  */
-function addAiReferenceFromSelection(): void {
+function createSelectionReference(): InlineEditReference | null {
     const currentEditor = editor.value;
     const path = props.activePath.trim();
     if (!path) {
         notification.warning(t("markdownStudio.editor.currentPathMissing"));
-        return;
+        return null;
     }
 
     const text = selectedClipboardText().trim();
     if (!text) {
         notification.warning(t("markdownStudio.editor.selectBodyFirst"));
-        return;
+        return null;
     }
 
     const locatedFromEditor: SelectionRangeLocation = currentEditor ? locateSelectionRangeFromEditor(currentEditor) : {match: "unknown"};
@@ -793,7 +798,7 @@ function addAiReferenceFromSelection(): void {
         ? locatedFromEditor
         : locateSelectionRange(getMarkdown(), text);
     const textRange = currentEditor ? locateInlineAiSelectionTextRange(currentEditor) : undefined;
-    emit("inline-ai-reference", {
+    return {
         ref: buildSelectionRefChip({
             path,
             range: located.range,
@@ -803,7 +808,19 @@ function addAiReferenceFromSelection(): void {
         textRange,
         match: located.match,
         text,
-    });
+    };
+}
+
+/** 把当前选区加入 Inline AI 引用。 */
+function addAiReferenceFromSelection(): void {
+    const reference = createSelectionReference();
+    if (reference) emit("inline-ai-reference", reference);
+}
+
+/** 把当前可信选区交给 Route B 规划入口。 */
+function planIllustrationFromSelection(): void {
+    const reference = createSelectionReference();
+    if (reference) emit("plan-selection-illustration", reference);
 }
 
 /**
@@ -1256,6 +1273,7 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
             @add-ruby="void addRubyFromMenu()"
             @add-bilingual="void addBilingualFromMenu()"
             @add-ai-reference="addAiReferenceFromSelection"
+            @plan-selection-illustration="planIllustrationFromSelection"
         />
 
         <ReferenceSelectorPopover
@@ -1498,7 +1516,9 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
 
 :deep(.nb-text-to-image-prompt-node) {
     display: flex;
-    align-items: center;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.3rem;
     margin: 0.25rem 0 1rem;
 }
 
@@ -1549,6 +1569,13 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
 
 :deep(.nb-text-to-image-prompt-button__icon--spin) {
     animation: nb-text-to-image-spin 0.9s linear infinite;
+}
+
+:deep(.nb-text-to-image-prompt-summary) {
+    max-width: min(100%, 44rem);
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    line-height: 1.35;
 }
 
 @keyframes nb-text-to-image-spin {

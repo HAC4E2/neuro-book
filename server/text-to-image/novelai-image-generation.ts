@@ -8,6 +8,15 @@ import {
     type TextToImageProviderFetch,
 } from "nbook/server/text-to-image/provider-fetch";
 import {TEXT_TO_IMAGE_NOVELAI_BASE_URL} from "nbook/server/text-to-image/schemas";
+import {
+    novelAiQualityTags,
+    resolveNovelAiNegativePreset,
+} from "nbook/shared/text-to-image-novelai-quality";
+import type {TextToImageRecipeSource} from "nbook/shared/text-to-image-recipe";
+import {
+    IllustrationCompiledRequestSchema,
+    type IllustrationCompiledRequest,
+} from "nbook/shared/text-to-image-execution";
 
 const TextToImageGenerateCharacterSchema = z.object({
     id: z.string(),
@@ -165,7 +174,13 @@ export type NovelAiRequestInput = {
         steps: number;
         seed: number;
         count: number;
+        aiDefaultCharacterPosition: boolean;
+        variety: boolean;
+        smeaMode: "auto" | "off" | "on";
+        smeaDyn: boolean;
+        decrisper: boolean;
     };
+    style: TextToImageRecipeSource["style"];
 };
 
 export type NovelAiGeneratedImage = {
@@ -176,64 +191,32 @@ export type NovelAiGeneratedImage = {
     seed: number;
 };
 
-type NegativeQualityPreset = NonNullable<TextToImageGenerateRequest["style"]>["negativeQualityPreset"];
+export class NovelAiHttpError extends Error {
+    readonly code: string;
+    readonly retryable: boolean;
+
+    constructor(readonly status: number) {
+        super(`NovelAI 请求失败：${String(status)}`);
+        this.name = "NovelAiHttpError";
+        this.code = `NOVELAI_HTTP_${String(status)}`;
+        this.retryable = status === 429 || status >= 500;
+    }
+}
+
+export type CompiledNovelAiResponse = {
+    image: NovelAiGeneratedImage;
+    request: {
+        model: string;
+        seed: number;
+        compiledRequestHash: string;
+    };
+};
+
 type NovelAiRequestBuildResult = TextToImageGenerateResponse["request"] & {
     requestData: Record<string, unknown>;
 };
 
 const MAX_SEED = 4294967295;
-const QUALITY_TAGS_BY_MODEL: Record<string, string> = {
-    "nai-diffusion-4-5-full": "very aesthetic, masterpiece, no text",
-    "nai-diffusion-4-5-curated": "very aesthetic, masterpiece, no text, -0.8::feet::, rating:general",
-    "nai-diffusion-4-full": "no text, best quality, very aesthetic, absurdres",
-    "nai-diffusion-4-curated-preview": "rating:general, best quality, very aesthetic, absurdres",
-    "nai-diffusion-3": "best quality, amazing quality, very aesthetic, absurdres",
-    "nai-diffusion-furry-3": "{best quality}, {amazing quality}",
-};
-
-const NEGATIVE_PRESETS: Record<string, Partial<Record<NegativeQualityPreset, {ucPreset: number; content: string}>>> = {
-    "nai-diffusion-4-5-full": {
-        heavy: {ucPreset: 0, content: "nsfw, lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page"},
-        light: {ucPreset: 1, content: "nsfw, lowres, artistic error, scan artifacts, worst quality, bad quality, jpeg artifacts, multiple views, very displeasing, too many watermarks, negative space, blank page"},
-        furryFocus: {ucPreset: 2, content: "nsfw, {worst quality}, distracting watermark, unfinished, bad quality, {widescreen}, upscale, {sequence}, {{grandfathered content}}, blurred foreground, chromatic aberration, sketch, everyone, [sketch background], simple, [flat colors], ych (character), outline, multiple scenes, [[horror (theme)]], comic"},
-        humanFocus: {ucPreset: 3, content: "nsfw, lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page, @_@, mismatched pupils, glowing eyes, bad anatomy"},
-        none: {ucPreset: 4, content: ""},
-    },
-    "nai-diffusion-4-5-curated": {
-        heavy: {ucPreset: 0, content: "blurry, lowres, upscaled, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, halftone, multiple views, logo, too many watermarks, negative space, blank page"},
-        light: {ucPreset: 1, content: "blurry, lowres, upscaled, artistic error, scan artifacts, jpeg artifacts, logo, too many watermarks, negative space, blank page"},
-        humanFocus: {ucPreset: 2, content: "blurry, lowres, upscaled, artistic error, film grain, scan artifacts, bad anatomy, bad hands, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, halftone, multiple views, logo, too many watermarks, @_@, mismatched pupils, glowing eyes, negative space, blank page"},
-        none: {ucPreset: 3, content: ""},
-    },
-    "nai-diffusion-4-full": {
-        heavy: {ucPreset: 0, content: "nsfw, blurry, lowres, error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, multiple views, logo, too many watermarks, white blank page, blank page"},
-        light: {ucPreset: 1, content: "nsfw, blurry, lowres, error, worst quality, bad quality, jpeg artifacts, very displeasing, white blank page, blank page"},
-        humanFocus: {ucPreset: 2, content: "blurry, lowres, error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, multiple views, logo, too many watermarks, bad anatomy, bad hands"},
-        furryFocus: {ucPreset: 2, content: "{{worst quality}}, [displeasing], {unusual pupils}, guide lines, {{unfinished}}, {bad}, url, artist name, {{tall image}}, mosaic, {sketch page}, comic panel, impact (font), [dated], {logo}, ych, distorted text, repeated text, floating head, widescreen, sequence, compression artifacts, hard translated, cropped, unknown text, high contrast"},
-        none: {ucPreset: 2, content: ""},
-    },
-    "nai-diffusion-4-curated-preview": {
-        heavy: {ucPreset: 0, content: "blurry, lowres, error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, logo, dated, signature, multiple views, gigantic breasts, white blank page, blank page"},
-        light: {ucPreset: 1, content: "blurry, lowres, error, worst quality, bad quality, jpeg artifacts, very displeasing, logo, dated, signature, white blank page, blank page"},
-        humanFocus: {ucPreset: 2, content: "blurry, lowres, error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, logo, dated, signature, multiple views, gigantic breasts, bad anatomy, bad hands"},
-        furryFocus: {ucPreset: 2, content: "{{worst quality}}, [displeasing], {unusual pupils}, guide lines, {{unfinished}}, {bad}, url, artist name, {{tall image}}, mosaic, {sketch page}, comic panel, impact (font), [dated], {logo}, ych, distorted text, repeated text, floating head, widescreen, sequence, compression artifacts, hard translated, cropped, unknown text, high contrast"},
-        none: {ucPreset: 2, content: ""},
-    },
-    "nai-diffusion-3": {
-        heavy: {ucPreset: 0, content: "nsfw, lowres, {bad}, error, fewer, extra, missing, worst quality, jpeg artifacts, bad quality, watermark, unfinished, displeasing, chromatic aberration, signature, extra digits, artistic error, username, scan, [abstract]"},
-        light: {ucPreset: 1, content: "nsfw, lowres, jpeg artifacts, worst quality, watermark, blurry, very displeasing"},
-        humanFocus: {ucPreset: 2, content: "nsfw, lowres, {bad}, error, fewer, extra, missing, worst quality, jpeg artifacts, bad quality, watermark, unfinished, displeasing, chromatic aberration, signature, extra digits, artistic error, username, scan, [abstract], bad anatomy, bad hands, @_@, mismatched pupils, heart-shaped pupils, glowing eyes"},
-        furryFocus: {ucPreset: 0, content: "{{worst quality}}, [displeasing], {unusual pupils}, guide lines, {{unfinished}}, {bad}, url, artist name, {{tall image}}, mosaic, {sketch page}, comic panel, impact (font), [dated], {logo}, ych, distorted text, repeated text, floating head, widescreen, sequence, compression artifacts, hard translated, cropped, unknown text, high contrast"},
-        none: {ucPreset: 3, content: "lowres"},
-    },
-    "nai-diffusion-furry-3": {
-        heavy: {ucPreset: 0, content: "{{worst quality}}, [displeasing], {unusual pupils}, guide lines, {{unfinished}}, {bad}, url, artist name, {{tall image}}, mosaic, {sketch page}, comic panel, impact (font), [dated], {logo}, ych, distorted text, repeated text, floating head, widescreen, sequence, compression artifacts, hard translated, cropped, unknown text, high contrast"},
-        light: {ucPreset: 1, content: "{worst quality}, guide lines, unfinished, bad, url, tall image, widescreen, compression artifacts, unknown text"},
-        furryFocus: {ucPreset: 0, content: "{{worst quality}}, [displeasing], {unusual pupils}, guide lines, {{unfinished}}, {bad}, url, artist name, {{tall image}}, mosaic, {sketch page}, comic panel, impact (font), [dated], {logo}, ych, distorted text, repeated text, floating head, widescreen, sequence, compression artifacts, hard translated, cropped, unknown text, high contrast"},
-        humanFocus: {ucPreset: 0, content: "{{worst quality}}, [displeasing], {unusual pupils}, guide lines, {{unfinished}}, {bad}, url, artist name, {{tall image}}, mosaic, {sketch page}, comic panel, impact (font), [dated], {logo}, ych, distorted text, repeated text, floating head, widescreen, sequence, compression artifacts, hard translated, cropped, unknown text, high contrast"},
-        none: {ucPreset: 2, content: ""},
-    },
-};
 
 export async function generateNovelAiImage(
     input: TextToImageGenerateRequest,
@@ -317,15 +300,13 @@ export async function requestNovelAiImages(
     const warnings: string[] = [];
     const buildResult = await buildNovelAiRequest({
         providerId: 0,
-        novelAi: {
-            ...input.novelAi,
-            aiDefaultCharacterPosition: true,
-            variety: false,
-            smeaMode: "auto",
-            smeaDyn: false,
-            decrisper: false,
+        novelAi: input.novelAi,
+        style: {
+            ...input.style,
+            name: "Recipe snapshot",
+            vibeReferences: [],
+            characterReferences: [],
         },
-        style: null,
         character: null,
         characters: [],
         outfits: [],
@@ -353,6 +334,253 @@ export async function requestNovelAiImages(
         request: {model: buildResult.model, seed: buildResult.seed},
         warnings,
     };
+}
+
+/**
+ * Route B 唯一 paid adapter：只消费自校验 CompiledRequest，不调用手工 prompt builder，且不隐藏 retry。
+ */
+export async function requestCompiledNovelAiImage(
+    requestInput: IllustrationCompiledRequest,
+    credential: string,
+    signal: AbortSignal,
+    fetchImpl: TextToImageProviderFetch = fetchTextToImageProvider,
+    resolver?: CompiledNovelAiReferenceResolver,
+): Promise<CompiledNovelAiResponse> {
+    const request = IllustrationCompiledRequestSchema.parse(requestInput);
+    const token = normalizeNovelAiToken(credential);
+    if (!token) throw new Error("NovelAI Provider 凭据不能为空");
+    const hasReferences = request.references.vibeReferences.length > 0
+        || request.references.characterReferences.length > 0
+        || request.references.inpaint !== null;
+    if (hasReferences && !resolver) {
+        throw new Error("CompiledRequest 含参考资产但未注入 resolver");
+    }
+    const resolved = hasReferences && resolver
+        ? await resolveCompiledReferences(request, resolver, token, fetchImpl, signal)
+        : undefined;
+    const parameters = buildCompiledNovelAiParameters(request, resolved);
+    const response = await postNovelAiJson("/ai/generate-image", token, {
+        input: request.prompt,
+        model: request.model,
+        action: resolved?.inpaintMaskBase64 ? "inpaint" : request.action,
+        parameters,
+        use_new_shared_trial: true,
+    }, {Accept: "application/x-zip-compressed"}, fetchImpl, signal);
+    const images = extractNovelAiImages(Buffer.from(await response.arrayBuffer()));
+    if (images.length !== 1) {
+        throw new Error(`NovelAI CompiledRequest 预期 1 张图片，实际返回 ${String(images.length)} 张`);
+    }
+    const image = images[0]!;
+    return {
+        image: {
+            bytes: new Uint8Array(image.data),
+            mimeType: image.mimeType as NovelAiGeneratedImage["mimeType"],
+            width: request.parameters.width,
+            height: request.parameters.height,
+            seed: request.parameters.seed,
+        },
+        request: {
+            model: request.model,
+            seed: request.parameters.seed,
+            compiledRequestHash: request.compiledRequestHash,
+        },
+    };
+}
+
+type CompiledCharacterCaption = {
+    centers: Array<{x: number; y: number}>;
+    char_caption: string;
+};
+
+type CompiledNovelAiParameters = {
+    params_version: 3;
+    width: number;
+    height: number;
+    scale: number;
+    sampler: string;
+    steps: number;
+    n_samples: 1;
+    ucPreset: number;
+    qualityToggle: boolean;
+    autoSmea: boolean;
+    dynamic_thresholding: boolean;
+    controlnet_strength: 1;
+    legacy: false;
+    add_original_image: true;
+    cfg_rescale: number;
+    noise_schedule: string;
+    normalize_reference_strength_multiple: boolean;
+    inpaintImg2ImgStrength: 1;
+    seed: number;
+    negative_prompt: string;
+    deliberate_euler_ancestral_bug: false;
+    prefer_brownian: true;
+    skip_cfg_above_sigma: number | null;
+    use_coords?: boolean;
+    legacy_v3_extend?: false;
+    legacy_uc?: false;
+    v4_prompt?: {caption: {base_caption: string; char_captions: CompiledCharacterCaption[]}; use_coords: boolean; use_order: true};
+    v4_negative_prompt?: {caption: {base_caption: string; char_captions: CompiledCharacterCaption[]}; legacy_uc: false};
+    characterPrompts?: Array<{center: {x: number; y: number}; prompt: string; uc: string; enabled: true}>;
+    sm?: boolean;
+    sm_dyn?: boolean;
+    uc?: string;
+    /** P5 Vibe Transfer。 */
+    reference_image_multiple?: string[];
+    reference_strength_multiple?: number[];
+    reference_information_extracted_multiple?: number[];
+    /** P5 Character Reference。 */
+    use_character_reference?: true;
+    character_reference_image_multiple?: string[];
+    character_reference_strength_multiple?: number[];
+    character_reference_information_extracted_multiple?: number[];
+    normalize_character_reference_strength_multiple?: true;
+    /** P5 Inpaint 蒙版 base64 PNG（白=重绘）。 */
+    mask?: string;
+};
+
+/**
+ * P5 参考资产字节/encoding 解析器：adapter 只消费解析产物（base64），不接触 Project 路径与凭据。
+ * 仅在 CompiledRequest.references 非空时由调用方注入生产实现。
+ */
+export interface CompiledNovelAiReferenceResolver {
+    /** 按 contentHash 读取 source-image 字节与 MIME。 */
+    readBytes(contentHash: string): Promise<{bytes: Uint8Array; mimeType: string}>;
+    /** 查询已缓存的 Vibe encoding；命中返回 encoding 字节，未命中返回 null。 */
+    findVibeEncoding(sourceContentHash: string, model: string, informationExtracted: number): Promise<Uint8Array | null>;
+    /** 缓存派生 Vibe encoding（按 sourceContentHash+model+informationExtracted）。 */
+    storeVibeEncoding(sourceContentHash: string, model: string, informationExtracted: number, encodingBytes: Uint8Array): Promise<void>;
+}
+
+/** 已解析为 base64 的参考资产产物，供 wire 投影使用；不携带 contentHash/原始字节。 */
+type ResolvedCompiledReferences = {
+    vibe: Array<{encodingBase64: string; strength: number; informationExtracted: number}>;
+    character: Array<{imageBase64: string; strength: number; informationExtracted: number}>;
+    inpaintMaskBase64: string | null;
+};
+
+/**
+ * 把 CompiledRequest.references 解析为 base64 产物：Vibe encoding 走缓存或 /ai/encode-vibe，
+ * Character Reference 与 Inpaint 蒙版直接读源字节。Resolver 仅做存储读写；encode-vibe 由本函数用凭据调用。
+ */
+async function resolveCompiledReferences(
+    request: IllustrationCompiledRequest,
+    resolver: CompiledNovelAiReferenceResolver,
+    token: string,
+    fetchImpl: TextToImageProviderFetch,
+    signal: AbortSignal,
+): Promise<ResolvedCompiledReferences> {
+    const {vibeReferences, characterReferences, inpaint} = request.references;
+    const vibe: ResolvedCompiledReferences["vibe"] = [];
+    for (const reference of vibeReferences) {
+        let encodingBytes = await resolver.findVibeEncoding(reference.contentHash, request.model, reference.informationExtracted ?? 0);
+        if (!encodingBytes) {
+            const source = await resolver.readBytes(reference.contentHash);
+            encodingBytes = await encodeVibeFromBytes(token, source.bytes, request.model, reference.informationExtracted ?? 0, fetchImpl, signal);
+            await resolver.storeVibeEncoding(reference.contentHash, request.model, reference.informationExtracted ?? 0, encodingBytes);
+        }
+        vibe.push({
+            encodingBase64: Buffer.from(encodingBytes).toString("base64"),
+            strength: reference.strength,
+            informationExtracted: reference.informationExtracted ?? 0,
+        });
+    }
+    const character: ResolvedCompiledReferences["character"] = [];
+    for (const reference of characterReferences) {
+        const source = await resolver.readBytes(reference.contentHash);
+        character.push({
+            imageBase64: Buffer.from(source.bytes).toString("base64"),
+            strength: reference.strength,
+            informationExtracted: reference.informationExtracted ?? 0,
+        });
+    }
+    let inpaintMaskBase64: string | null = null;
+    if (inpaint) {
+        const mask = await resolver.readBytes(inpaint.contentHash);
+        inpaintMaskBase64 = Buffer.from(mask.bytes).toString("base64");
+    }
+    return {vibe, character, inpaintMaskBase64};
+}
+
+/** CompiledRequest 字段到 NovelAI wire 的纯确定性投影；不做 sampler/model/prompt 纠正。 */
+function buildCompiledNovelAiParameters(request: IllustrationCompiledRequest, resolved?: ResolvedCompiledReferences): CompiledNovelAiParameters {
+    const input = request.parameters;
+    const parameters: CompiledNovelAiParameters = {
+        params_version: 3,
+        width: input.width,
+        height: input.height,
+        scale: input.promptGuidance,
+        sampler: input.sampler,
+        steps: input.steps,
+        n_samples: 1,
+        ucPreset: input.ucPreset,
+        qualityToggle: input.qualityToggle,
+        autoSmea: input.smeaMode === "auto",
+        dynamic_thresholding: input.decrisper,
+        controlnet_strength: 1,
+        legacy: false,
+        add_original_image: true,
+        cfg_rescale: input.promptGuidanceRescale,
+        noise_schedule: input.noiseSchedule,
+        normalize_reference_strength_multiple: true,
+        inpaintImg2ImgStrength: 1,
+        seed: input.seed,
+        negative_prompt: request.negativePrompt,
+        deliberate_euler_ancestral_bug: false,
+        prefer_brownian: true,
+        skip_cfg_above_sigma: input.variety ? calculateVarietySigma(input.width, input.height) : null,
+    };
+    if (isV4Model(request.model)) {
+        const useCoords = !input.aiDefaultCharacterPosition;
+        const positiveCaptions = request.characterPrompts.map((character): CompiledCharacterCaption => ({
+            centers: [character.center],
+            char_caption: character.prompt,
+        }));
+        const negativeCaptions = request.characterPrompts.map((character): CompiledCharacterCaption => ({
+            centers: [character.center],
+            char_caption: character.negativePrompt,
+        }));
+        parameters.use_coords = useCoords;
+        parameters.legacy_v3_extend = false;
+        parameters.legacy_uc = false;
+        parameters.v4_prompt = {
+            caption: {base_caption: request.prompt, char_captions: positiveCaptions},
+            use_coords: useCoords,
+            use_order: true,
+        };
+        parameters.v4_negative_prompt = {
+            caption: {base_caption: request.negativePrompt, char_captions: negativeCaptions},
+            legacy_uc: false,
+        };
+        parameters.characterPrompts = request.characterPrompts.map((character) => ({
+            center: character.center,
+            prompt: character.prompt,
+            uc: character.negativePrompt,
+            enabled: true,
+        }));
+    } else {
+        parameters.sm = input.smeaMode === "on";
+        parameters.sm_dyn = input.smeaDyn;
+        parameters.uc = request.negativePrompt;
+    }
+    if (resolved?.vibe.length) {
+        parameters.normalize_reference_strength_multiple = request.references.normalizeVibeStrengths;
+        parameters.reference_image_multiple = resolved.vibe.map((item) => item.encodingBase64);
+        parameters.reference_strength_multiple = resolved.vibe.map((item) => item.strength);
+        parameters.reference_information_extracted_multiple = resolved.vibe.map((item) => item.informationExtracted);
+    }
+    if (resolved?.character.length) {
+        parameters.use_character_reference = true;
+        parameters.character_reference_image_multiple = resolved.character.map((item) => item.imageBase64);
+        parameters.character_reference_strength_multiple = resolved.character.map((item) => item.strength);
+        parameters.character_reference_information_extracted_multiple = resolved.character.map((item) => item.informationExtracted);
+        parameters.normalize_character_reference_strength_multiple = true;
+    }
+    if (resolved?.inpaintMaskBase64) {
+        // Inpaint：蒙版 PNG（白=重绘），action 切为 inpaint；精确 wire 待 NovelAI V4 验证。
+        (parameters).mask = resolved.inpaintMaskBase64;
+    }
+    return parameters;
 }
 
 async function buildNovelAiRequest(
@@ -406,7 +634,7 @@ async function buildNovelAiRequest(
         ? basePrompt
         : applyQualityTags(basePrompt, model);
     const baseNegativePrompt = mergePromptParts(input.style?.negativePrefix, resolvedPrompt.negativePrompt, input.style?.negativeSuffix);
-    const preset = resolveNegativePreset(model, input.style?.negativeQualityPreset ?? "none");
+    const preset = resolveNovelAiNegativePreset(model, input.style?.negativeQualityPreset ?? "none");
     let negativePrompt = mergePromptParts(preset.content, baseNegativePrompt);
     if (containsNsfwTag(prompt)) {
         negativePrompt = removeNsfwTag(negativePrompt);
@@ -605,6 +833,24 @@ function collectPromptCharacters(input: TextToImageGenerateRequest): TextToImage
     return characters;
 }
 
+/** 调用 NovelAI /ai/encode-vibe 把源图片字节派生为 encoding 二进制；缓存与 wire 共用。 */
+async function encodeVibeFromBytes(
+    token: string,
+    imageBytes: Uint8Array,
+    model: string,
+    informationExtracted: number,
+    fetchImpl: TextToImageProviderFetch,
+    signal: AbortSignal,
+): Promise<Uint8Array> {
+    const imageBase64 = Buffer.from(imageBytes).toString("base64");
+    const response = await postNovelAiJson("/ai/encode-vibe", token, {
+        image: imageBase64,
+        model,
+        informationExtracted,
+    }, {}, fetchImpl, signal);
+    return new Uint8Array(await response.arrayBuffer());
+}
+
 async function encodeVibeReference(
     token: string,
     imageDataUrl: string,
@@ -641,9 +887,7 @@ async function postNovelAiJson(
         signal,
     }, {allowPrivateNetwork: false});
 
-    if (!response.ok) {
-        throw new Error(`NovelAI 请求失败：${response.status}`);
-    }
+    if (!response.ok) throw new NovelAiHttpError(response.status);
 
     return response;
 }
@@ -690,11 +934,6 @@ function extractNovelAiImages(data: Buffer): Array<{name: string; mimeType: stri
         });
 }
 
-function resolveNegativePreset(model: string, preset: NegativeQualityPreset): {ucPreset: number; content: string} {
-    const modelPresets = NEGATIVE_PRESETS[model] ?? NEGATIVE_PRESETS["nai-diffusion-3"];
-    return modelPresets?.[preset] ?? modelPresets?.none ?? {ucPreset: 3, content: ""};
-}
-
 function buildCharacterPrompt(character: TextToImageGenerateRequest["character"]): string {
     if (!character) {
         return "";
@@ -723,11 +962,7 @@ function mergePromptParts(...parts: Array<string | null | undefined>): string {
 }
 
 function applyQualityTags(prompt: string, model: string): string {
-    const tags = QUALITY_TAGS_BY_MODEL[model];
-    if (!tags) {
-        return prompt;
-    }
-    return mergePromptParts(prompt, tags);
+    return mergePromptParts(prompt, novelAiQualityTags(model));
 }
 
 function mapSamplerForModel(sampler: string, model: string): string {

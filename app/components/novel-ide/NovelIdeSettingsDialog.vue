@@ -23,6 +23,7 @@ import {downloadThemeJson, parseThemeJson} from "nbook/app/utils/theme/theme-io"
 import type {MarkdownStudioViewMode} from "nbook/app/composables/useMarkdownStudioController";
 import type {CustomThemeDto, ThemeAppearance} from "nbook/shared/theme/theme-vars";
 import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES, DEFAULT_MONACO_EDITOR_PREFERENCES, type MarkdownEditorPreferences, type MonacoEditorPreferences} from "nbook/shared/editor-workbench";
+import type {SettingsNavigationRequest} from "nbook/app/utils/settings-navigation";
 
 type SettingsSection = "security" | "frontend" | "editor" | "models" | "embedding" | "cost" | "web-tools" | "agent-profile-models" | "observability";
 type SettingsScope = "boot" | "global" | "project" | "browser";
@@ -48,6 +49,7 @@ type SettingsSavePanelExpose = {
 
 const props = defineProps<{
     modelValue: boolean;
+    navigationRequest?: SettingsNavigationRequest | null;
 }>();
 
 const emit = defineEmits<{
@@ -698,6 +700,15 @@ function updateLocale(value: string): void {
     }
 }
 
+/** 应用外部功能页的受控设置导航请求。 */
+function applyNavigationRequest(request: SettingsNavigationRequest | null | undefined): void {
+    if (!request || !canLeaveCurrentPanel()) {
+        return;
+    }
+    activeScope.value = request.scope;
+    activeSection.value = request.section;
+}
+
 /**
  * 处理默认视图模式选择。
  */
@@ -737,6 +748,10 @@ watch(() => props.modelValue, (open) => {
         activeScope.value = "global";
         activeSection.value = "models";
     }
+}, {immediate: true});
+
+watch(() => props.navigationRequest?.id ?? 0, () => {
+    applyNavigationRequest(props.navigationRequest);
 }, {immediate: true});
 
 watch(() => novelIdeStore.currentNovelId, (novelId) => {
@@ -1229,7 +1244,7 @@ watch(activeScope, alignActiveSectionToScope, {immediate: true});
                         <!-- 模型设定 -->
                         <div v-else-if="activeSection === 'models'" key="models">
                             <!-- 注意：ModelSettingsPanel 内部不使用 h-full，让外层自动撑开或根据内容滚动 -->
-                            <NovelIdeModelSettingsPanel ref="modelSettingsPanelRef" :key="`models:${settingsPanelKey}`" :scope="activeScope === 'project' ? 'project' : 'global'" :target-query="targetQuery" :target-label="targetLabel" />
+                            <NovelIdeModelSettingsPanel ref="modelSettingsPanelRef" :key="`models:${settingsPanelKey}`" :scope="activeScope === 'project' ? 'project' : 'global'" :target-query="targetQuery" :target-label="targetLabel" :focus-target="props.navigationRequest?.focus" :focus-request-id="props.navigationRequest?.id" />
                         </div>
 
                         <!-- Embedding 服务设定 -->

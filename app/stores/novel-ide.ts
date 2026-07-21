@@ -81,7 +81,7 @@ export type WorkspaceFileIssue = {
     line?: number;
 };
 
-export type WorkspaceEditorTabKind = "workspace-file" | "text-to-image-llm" | "text-to-image-history";
+export type WorkspaceEditorTabKind = "workspace-file" | "text-to-image-history";
 
 export type TextToImageHistoryWorkspaceTab = {
     projectPath: string;
@@ -99,7 +99,6 @@ export type WorkspaceEditorTab = {
     textToImageHistory?: TextToImageHistoryWorkspaceTab;
 };
 
-export const TEXT_TO_IMAGE_LLM_TAB_PATH = "text-to-image://llm/settings";
 export const TEXT_TO_IMAGE_HISTORY_TAB_PREFIX = "text-to-image://history/";
 
 export function buildTextToImageHistoryTabPath(projectPath: string): string {
@@ -666,29 +665,6 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         activeWorkspaceTabPath.value = path;
     };
 
-    /**
-     * 打开文生图 LLM 详细配置的虚拟工作区标签页。
-     */
-    const openTextToImageLlmTab = (): void => {
-        persistActiveWorkspaceBuffer();
-        const existingTab = workspaceTabs.value.find((tab) => tab.path === TEXT_TO_IMAGE_LLM_TAB_PATH);
-        const nextTab: WorkspaceEditorTab = {
-            kind: "text-to-image-llm",
-            path: TEXT_TO_IMAGE_LLM_TAB_PATH,
-            title: "LLM 大模型",
-            editorKind: "readonly",
-            viewMode: "source",
-            pinned: existingTab?.pinned ?? false,
-            preview: false,
-            dirty: false,
-        };
-        workspaceTabs.value = existingTab
-            ? workspaceTabs.value.map((tab) => tab.path === TEXT_TO_IMAGE_LLM_TAB_PATH ? {...tab, ...nextTab} : tab)
-            : [...workspaceTabs.value, nextTab];
-        activeWorkspaceTabPath.value = TEXT_TO_IMAGE_LLM_TAB_PATH;
-        activeWorkspaceFile.value = null;
-    };
-
     /** 打开当前 Project 唯一的文生图历史图片工作区。 */
     const openTextToImageHistoryTab = (projectPath: string): void => {
         const normalizedProjectPath = projectPath.trim();
@@ -849,7 +825,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
 
             for (const path of candidatePaths) {
                 const tab = workspaceTabs.value.find((item) => item.path === path);
-                if (tab?.kind === "text-to-image-llm" || tab?.kind === "text-to-image-history") {
+                if (tab?.kind === "text-to-image-history") {
                     await selectWorkspaceTab(path);
                     return;
                 }
@@ -1405,7 +1381,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
      */
     const selectWorkspaceTab = async (filePath: string): Promise<WorkspaceFileNode | null> => {
         const tab = workspaceTabs.value.find((item) => item.path === filePath);
-        if (tab?.kind === "text-to-image-llm" || tab?.kind === "text-to-image-history") {
+        if (tab?.kind === "text-to-image-history") {
             persistActiveWorkspaceBuffer();
             activeWorkspaceTabPath.value = tab.path;
             activeWorkspaceFile.value = null;
@@ -2420,7 +2396,6 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         novels,
         novelTree,
         openWorkspacePath,
-        openTextToImageLlmTab,
         openTextToImageHistoryTab,
         openWorkspaceNode,
         optimisticRenameWorkspacePath,

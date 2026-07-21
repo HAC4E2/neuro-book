@@ -32,10 +32,13 @@ const statusOptions: SelectOption[] = [
     {value: "all", label: "全部状态"},
     {value: "queued", label: "排队中"},
     {value: "running", label: "生成中"},
+    {value: "completing", label: "完成处理中"},
     {value: "succeeded", label: "已完成"},
     {value: "failed", label: "失败"},
     {value: "canceled", label: "已取消"},
     {value: "interrupted", label: "已中断"},
+    {value: "configuration_stale", label: "配置过期"},
+    {value: "outcome_unknown", label: "结果未知"},
 ];
 const orderOptions: SelectOption[] = [
     {value: "newest", label: "最新优先"},
@@ -85,10 +88,13 @@ function formatJobStatus(status: TextToImageJobStatus): string {
     const labels: Record<TextToImageJobStatus, string> = {
         queued: "排队中",
         running: "生成中",
+        completing: "完成处理中",
         succeeded: "已完成",
         failed: "失败",
         canceled: "已取消",
         interrupted: "已中断",
+        configuration_stale: "配置过期",
+        outcome_unknown: "结果未知",
     };
     return labels[status];
 }
@@ -133,7 +139,7 @@ onMounted(() => void load());
                     </span>
                 </button>
                 <div v-for="job in jobsWithoutAssets" :key="job.id" class="aspect-[3/4] border border-[var(--border-color)] bg-[var(--bg-panel)] p-3 text-[11px] text-[var(--text-secondary)]">
-                    <span class="mb-3 block h-5 w-5" :class="job.status === 'running' ? 'i-lucide-loader-2 animate-spin text-[var(--status-info)]' : job.status === 'failed' ? 'i-lucide-circle-alert text-[var(--status-danger)]' : 'i-lucide-clock-3 text-[var(--status-warning)]'"></span>
+                    <span class="mb-3 block h-5 w-5" :class="job.status === 'running' || job.status === 'completing' ? 'i-lucide-loader-2 animate-spin text-[var(--status-info)]' : job.status === 'failed' || job.status === 'outcome_unknown' ? 'i-lucide-circle-help text-[var(--status-danger)]' : 'i-lucide-clock-3 text-[var(--status-warning)]'"></span>
                     <span class="block font-medium text-[var(--text-main)]">{{ formatJobStatus(job.status) }}</span>
                     <span class="mt-1 block truncate">{{ job.kind }}</span>
                     <span class="mt-2 block line-clamp-3 text-[10px] text-[var(--text-muted)]">{{ job.errorMessage || '等待服务端处理' }}</span>

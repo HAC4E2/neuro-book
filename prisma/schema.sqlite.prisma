@@ -21,7 +21,27 @@ enum UserStatus {
 
 enum TextToImageProviderKind {
   novelai
-  openai_compatible
+}
+
+enum TextToImageDispatchPreparationState {
+  prepared
+  project_committed
+  ready
+  abandoned
+  quarantined
+}
+
+enum TextToImageProviderLaneState {
+  prepared
+  ready
+  leased
+  retry_wait
+  retry_leased
+  attempt_started
+  completed
+  failed
+  outcome_unknown
+  quarantined
 }
 
 model User {
@@ -37,6 +57,7 @@ model User {
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @default(now()) @updatedAt
   textToImageProviders TextToImageProvider[]
+  textToImageProviderReconciliation TextToImageProviderReconciliation?
 
   @@index([role, status])
   @@index([lastSeenAt])
@@ -50,16 +71,119 @@ model TextToImageProvider {
   kind                 TextToImageProviderKind
   name                 String
   baseUrl              String
-  model                String
+  model                String?
+  recipeMigrationModel String?
   credentialCiphertext String
   credentialIv         String
   credentialTag        String
+  credentialRevision   Int                     @default(1)
   settings             Json
   createdAt            DateTime                @default(now())
   updatedAt            DateTime                @default(now()) @updatedAt
 
   @@unique([ownerUserId, name])
+  // NovelAI 的每 owner partial unique 由 SQLite migration/runtime finalizer 管理；Prisma schema 无法表达 WHERE predicate。
   @@index([ownerUserId, kind])
+}
+
+model TextToImageProviderReconciliation {
+  ownerUserId               Int      @id
+  owner                     User     @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  selectionToken            String
+  keepProviderId            Int
+  discardedProvidersJson   String
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @default(now()) @updatedAt
+}
+
+model TextToImageDispatchPreparation {
+  id                         String                              @id
+  manifestHash               String                              @unique
+  ownerUserId                Int
+  providerId                 Int
+  providerCredentialRevision Int
+  projectId                  String
+  projectPath                String
+  prepareAttemptId           String
+  prepareLeaseUntil          DateTime
+  prepareVersion             Int                                 @default(1)
+  stateVersion               Int                                 @default(1)
+  state                      TextToImageDispatchPreparationState @default(prepared)
+  jobIdsJson                 String
+  dispatchKeysJson           String
+  quarantineCode             String?
+  quarantineMessage          String?
+  createdAt                  DateTime                            @default(now())
+  updatedAt                  DateTime                            @default(now()) @updatedAt
+  laneItems                  TextToImageProviderLaneItem[]
+
+  @@index([state, prepareLeaseUntil])
+  @@index([ownerUserId, providerId, state])
+  @@index([projectId, state])
+}
+
+model TextToImageProviderLaneItem {
+  dispatchKey                String                       @id
+  preparationId              String
+  preparation                TextToImageDispatchPreparation @relation(fields: [preparationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  jobId                      String
+  ownerUserId                Int
+  providerId                 Int
+  providerCredentialRevision Int
+  projectId                  String
+  projectPath                String
+  manifestHash               String
+  prepareAttemptId           String
+  prepareVersion             Int
+  state                      TextToImageProviderLaneState @default(prepared)
+  stateVersion               Int                          @default(1)
+  claimId                    String?
+  claimLeaseUntil            DateTime?
+  sendAttemptId              String?
+  sendLeaseUntil             DateTime?
+  sendFence                  Int?
+  attemptCount               Int                          @default(0)
+  errorCode                  String?
+  errorMessage               String?
+  createdAt                  DateTime                     @default(now())
+  updatedAt                  DateTime                     @default(now()) @updatedAt
+
+  @@unique([projectId, jobId])
+  @@index([ownerUserId, providerId, state, createdAt])
+  @@index([state, claimLeaseUntil])
+  @@index([state, sendLeaseUntil])
+  @@index([preparationId, prepareVersion])
+}
+
+model TextToImageProviderThrottle {
+  ownerUserId      Int
+  providerId       Int
+  nextAllowedAt    DateTime
+  activeAttemptId  String?
+  leaseUntil       DateTime?
+  fencingVersion   Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @default(now()) @updatedAt
+
+  @@id([ownerUserId, providerId])
+}
+
+model TextToImageProviderRevisionInvalidation {
+  id           String   @id
+  ownerUserId  Int
+  providerId   Int
+  oldRevision  Int
+  newRevision  Int
+  projectId    String
+  projectPath  String
+  state        String   @default("pending")
+  attemptCount Int      @default(0)
+  lastError    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now()) @updatedAt
+
+  @@unique([ownerUserId, providerId, oldRevision, newRevision, projectId])
+  @@index([state, createdAt])
 }
 
 model DatabaseLock {

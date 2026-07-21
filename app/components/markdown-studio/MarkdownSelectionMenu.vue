@@ -33,6 +33,7 @@ const emit = defineEmits<{
     (e: "add-ruby"): void;
     (e: "add-bilingual"): void;
     (e: "add-ai-reference"): void;
+    (e: "plan-selection-illustration"): void;
 }>();
 
 const {prompt} = useDialog();
@@ -312,6 +313,14 @@ onUnmounted(() => {
             >
                 <span class="i-lucide-sparkles h-3.5 w-3.5"></span>
                 <span>{{ t("markdownStudio.selection.addAiReference") }}</span>
+            </button>
+            <button
+                type="button"
+                class="markdown-selection-menu__button markdown-selection-menu__button--icon"
+                :title="t('markdownStudio.selection.planIllustration')"
+                @click="closeDropdowns(); emit('plan-selection-illustration')"
+            >
+                <span class="i-lucide-image-plus h-3.5 w-3.5"></span>
             </button>
 
             <div class="markdown-selection-menu__divider"></div>

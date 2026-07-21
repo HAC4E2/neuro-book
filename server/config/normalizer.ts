@@ -36,6 +36,11 @@ import {
 import {builtInThemeIds, themeAppearanceValues, themeVarNames, type CustomThemeDto, type ThemeAppearance, type ThemeVarName} from "nbook/shared/theme/theme-vars";
 import {mergeProfileRuntimePatches} from "nbook/server/agent/profiles/profile-runtime-settings";
 import type {ProfileRuntimeSettingsPatch} from "nbook/shared/agent/profile-runtime-settings";
+import {ILLUSTRATION_DIRECTOR_PROFILE_KEY} from "nbook/shared/agent/illustration-director";
+import {
+    createDefaultProjectTagPolicyConfig,
+    ProjectTagPolicyConfigSchema,
+} from "nbook/shared/text-to-image-tag-policy";
 
 const DEFAULT_THEME: EffectiveConfig["ui"]["theme"] = "sepia";
 const DEFAULT_COST_CURRENCY: EffectiveConfig["ui"]["costCurrency"] = "USD";
@@ -187,6 +192,9 @@ export function createDefaultEffectiveConfig(): EffectiveConfig {
         web: normalizeWebSettings(undefined),
         observability: normalizeObservability(undefined),
         history: normalizeWorkspaceHistory(undefined),
+        illustration: {
+            tagPolicy: createDefaultProjectTagPolicyConfig(),
+        },
     };
 }
 
@@ -247,7 +255,7 @@ export function normalizeProjectConfig(input: Partial<StoredProjectConfig> | nul
                 defaultProfileKey: normalizeNullableModelKey(raw.agent.defaultProfileKey),
                 profileModelDefaults: raw.agent.profileModelDefaults ? normalizeAgentProfileModelPatch(raw.agent.profileModelDefaults) : undefined,
                 profileRuntimeDefaults: raw.agent.profileRuntimeDefaults ? normalizeProfileRuntimeSettingsPatch(raw.agent.profileRuntimeDefaults) : undefined,
-                profiles: raw.agent.profiles ? normalizeAgentProfiles(raw.agent.profiles) : undefined,
+                profiles: raw.agent.profiles ? normalizeProjectAgentProfiles(raw.agent.profiles) : undefined,
             },
         } : {}),
         ...(raw.editor ? {
@@ -258,6 +266,11 @@ export function normalizeProjectConfig(input: Partial<StoredProjectConfig> | nul
         } : {}),
         ...(raw.history ? {
             history: normalizeWorkspaceHistoryPatch(raw.history),
+        } : {}),
+        ...(raw.illustration ? {
+            illustration: {
+                tagPolicy: ProjectTagPolicyConfigSchema.parse(raw.illustration.tagPolicy),
+            },
         } : {}),
     };
 }
@@ -279,6 +292,7 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
     const globalRuntimeDefaults = normalizeProfileRuntimeSettingsPatch(globalConfig.agent?.profileRuntimeDefaults);
     effective.agent.profileRuntimeDefaults = globalRuntimeDefaults;
     effective.agent.profiles = normalizeCompleteAgentProfiles(globalProfilePatches, effective.agent.profileModelDefaults, globalRuntimeDefaults);
+    enforceIllustrationDirectorModelBinding(effective.agent.profiles, globalProfilePatches);
     effective.ui.customThemes = normalizeCustomThemes(globalConfig.ui?.customThemes);
     effective.ui.theme = normalizeTheme(globalConfig.ui?.theme, effective.ui.customThemes);
     effective.ui.costCurrency = normalizeCostCurrency(globalConfig.ui?.costCurrency);
@@ -316,7 +330,7 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
     const projectRuntimeDefaults = normalizeProfileRuntimeSettingsPatch(projectConfig.agent?.profileRuntimeDefaults);
     effective.agent.profileRuntimeDefaults = mergeProfileRuntimePatches(globalRuntimeDefaults, projectRuntimeDefaults);
     if (projectConfig.agent?.profileModelDefaults || projectConfig.agent?.profileRuntimeDefaults || projectConfig.agent?.profiles) {
-        const projectProfiles = normalizeAgentProfiles(projectConfig.agent.profiles);
+        const projectProfiles = normalizeProjectAgentProfiles(projectConfig.agent.profiles);
         effective.agent.profiles = Object.fromEntries(
             [...new Set([...Object.keys(globalProfilePatches), ...Object.keys(projectProfiles)])]
                 .map((profileKey) => {
@@ -341,6 +355,7 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
                     } satisfies AgentProfileConfig];
                 }),
         );
+        enforceIllustrationDirectorModelBinding(effective.agent.profiles, globalProfilePatches);
     }
     if (projectConfig.editor?.markdown) {
         effective.editor.markdown = {
@@ -360,6 +375,9 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
             ...effective.history,
             ...normalizeWorkspaceHistoryPatch(projectConfig.history),
         };
+    }
+    if (projectConfig.illustration) {
+        effective.illustration.tagPolicy = ProjectTagPolicyConfigSchema.parse(projectConfig.illustration.tagPolicy);
     }
 
     return effective;
@@ -450,6 +468,25 @@ export function normalizeAgentProfiles(input: Record<string, Partial<StoredAgent
     return Object.fromEntries(entries.sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey)));
 }
 
+/**
+ * 规范化 Project Profile 配置，并剥离全局独占的 Director model patch。
+ * Director 的 settings/runtime 仍保留，供后续 project-scoped storyboard 等配置使用。
+ */
+function normalizeProjectAgentProfiles(input: Record<string, Partial<StoredAgentProfileConfig>> | undefined): Record<string, StoredAgentProfileConfig> {
+    const profiles = normalizeAgentProfiles(input);
+    const director = profiles[ILLUSTRATION_DIRECTOR_PROFILE_KEY];
+    if (!director) {
+        return profiles;
+    }
+    return {
+        ...profiles,
+        [ILLUSTRATION_DIRECTOR_PROFILE_KEY]: {
+            ...director,
+            model: {},
+        },
+    };
+}
+
 function normalizeCompleteAgentProfiles(
     input: Record<string, StoredAgentProfileConfig> | undefined,
     defaults: AgentProfileModelConfig,
@@ -462,6 +499,28 @@ function normalizeCompleteAgentProfiles(
             runtime: mergeProfileRuntimePatches(runtimeDefaults, profile.runtime),
         } satisfies AgentProfileConfig]),
     );
+}
+
+/**
+ * 强制 Director runtime 的 modelKey 只读取 Global 专用 slot。
+ * 其它模型参数继续使用通用 Profile defaults/patches，Project settings/runtime 也不受影响。
+ */
+function enforceIllustrationDirectorModelBinding(
+    profiles: Record<string, AgentProfileConfig>,
+    globalProfilePatches: Record<string, StoredAgentProfileConfig>,
+): void {
+    const director = profiles[ILLUSTRATION_DIRECTOR_PROFILE_KEY];
+    if (!director) {
+        return;
+    }
+    const globalModelPatch = globalProfilePatches[ILLUSTRATION_DIRECTOR_PROFILE_KEY]?.model;
+    const modelKey = globalModelPatch && Object.hasOwn(globalModelPatch, "modelKey")
+        ? normalizeNullableModelKey(globalModelPatch.modelKey)
+        : null;
+    director.model = {
+        ...director.model,
+        modelKey,
+    };
 }
 
 function mergeAgentProfileModelConfig(

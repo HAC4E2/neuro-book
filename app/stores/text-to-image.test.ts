@@ -1,6 +1,7 @@
 ﻿import {createPinia, defineStore, setActivePinia} from "pinia";
 import {computed, ref} from "vue";
 import {beforeAll, beforeEach, describe, expect, it} from "vitest";
+import {createDefaultTextToImageRecipeSource} from "nbook/shared/text-to-image-recipe";
 
 describe("useTextToImageStore", () => {
     beforeAll(() => {
@@ -120,6 +121,53 @@ describe("useTextToImageStore", () => {
         expect(requests).toEqual(["/api/text-to-image/jobs?projectPath=workspace%2Fcurrent-book&pageSize=12"]);
         expect(store.projectJobs.map((job) => job.id)).toEqual(["job-1"]);
         expect(store.projectJobsProjectPath).toBe("workspace/current-book");
+    });
+
+    it("loads and explicitly saves the Project Recipe without persisting a browser copy", async () => {
+        const globals = globalThis as typeof globalThis & Record<string, unknown>;
+        const requests: Array<{url: string; options?: {method?: string; body?: object}}> = [];
+        const source = {
+            ...createDefaultTextToImageRecipeSource(),
+            model: "recipe-model",
+            steps: 31,
+            style: {
+                ...createDefaultTextToImageRecipeSource().style,
+                positivePrefix: "cinematic",
+            },
+        };
+        const snapshot = {...source, planningConstraintsHash: "a".repeat(64), recipeSourceHash: "b".repeat(64)};
+        const fetchMock = async (url: string, options?: {method?: string; body?: object}) => {
+            requests.push({url, options});
+            if (url === "/api/text-to-image/providers/novelai") {
+                return {state: "unconfigured", provider: null, candidates: [], recipeMigrationModels: []};
+            }
+            return {exists: true, source, snapshot};
+        };
+        Reflect.set(globals, "$fetch", fetchMock);
+        const {useTextToImageStore} = await import("nbook/app/stores/text-to-image");
+        const store = useTextToImageStore();
+
+        await store.loadRecipe("workspace/current-book");
+        expect(store.novelAi).toMatchObject({model: "recipe-model", steps: 31});
+        expect(store.activeStyle).toMatchObject({positivePrefix: "cinematic"});
+        expect(store.recipeDirty).toBe(false);
+
+        store.updateNovelAiSettings({steps: 33});
+        expect(store.recipeDirty).toBe(true);
+        await store.saveRecipe("workspace/current-book");
+
+        expect(requests[2]).toMatchObject({
+            url: "/api/text-to-image/recipes/default",
+            options: {
+                method: "PUT",
+                body: {
+                    projectPath: "workspace/current-book",
+                    expectedRecipeSourceHash: "b".repeat(64),
+                    source: {model: "recipe-model", steps: 33},
+                },
+            },
+        });
+        expect(JSON.stringify(requests[2]?.options?.body)).not.toContain("token");
     });
 });
 

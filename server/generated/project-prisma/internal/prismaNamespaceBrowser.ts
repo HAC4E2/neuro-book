@@ -67,7 +67,14 @@ export const ModelName = {
   WorldSlice: 'WorldSlice',
   WorldPatch: 'WorldPatch',
   TextToImageJob: 'TextToImageJob',
-  TextToImageAsset: 'TextToImageAsset'
+  TextToImageAsset: 'TextToImageAsset',
+  TextToImageReferenceAsset: 'TextToImageReferenceAsset',
+  IllustrationExecutionManifest: 'IllustrationExecutionManifest',
+  IllustrationExecutionApproval: 'IllustrationExecutionApproval',
+  TextToImageDispatchOutbox: 'TextToImageDispatchOutbox',
+  IllustrationPlanningWorkflow: 'IllustrationPlanningWorkflow',
+  IllustrationPlanningAttempt: 'IllustrationPlanningAttempt',
+  IllustrationPlanningApplyJournal: 'IllustrationPlanningApplyJournal'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -345,7 +352,23 @@ export const TextToImageJobScalarFieldEnum = {
   sourcePath: 'sourcePath',
   sourceAnchorId: 'sourceAnchorId',
   sourceInsertStatus: 'sourceInsertStatus',
+  providerSnapshotJson: 'providerSnapshotJson',
   requestJson: 'requestJson',
+  originJson: 'originJson',
+  sourceIdentityHash: 'sourceIdentityHash',
+  providerOwnerUserId: 'providerOwnerUserId',
+  providerCredentialRevision: 'providerCredentialRevision',
+  executionManifestId: 'executionManifestId',
+  executionApprovalId: 'executionApprovalId',
+  compiledRequestHash: 'compiledRequestHash',
+  idempotencyKey: 'idempotencyKey',
+  variantIndex: 'variantIndex',
+  outputIndex: 'outputIndex',
+  parentJobId: 'parentJobId',
+  parentAssetId: 'parentAssetId',
+  stableErrorCode: 'stableErrorCode',
+  activeAttemptId: 'activeAttemptId',
+  activeAttemptFence: 'activeAttemptFence',
   resultAssetIdsJson: 'resultAssetIdsJson',
   errorMessage: 'errorMessage',
   attemptCount: 'attemptCount',
@@ -377,6 +400,139 @@ export const TextToImageAssetScalarFieldEnum = {
 } as const
 
 export type TextToImageAssetScalarFieldEnum = (typeof TextToImageAssetScalarFieldEnum)[keyof typeof TextToImageAssetScalarFieldEnum]
+
+
+export const TextToImageReferenceAssetScalarFieldEnum = {
+  id: 'id',
+  kind: 'kind',
+  contentHash: 'contentHash',
+  relativePath: 'relativePath',
+  fileName: 'fileName',
+  mimeType: 'mimeType',
+  byteLength: 'byteLength',
+  parentAssetId: 'parentAssetId',
+  derivedModel: 'derivedModel',
+  derivedInfoExtracted: 'derivedInfoExtracted',
+  createdAt: 'createdAt'
+} as const
+
+export type TextToImageReferenceAssetScalarFieldEnum = (typeof TextToImageReferenceAssetScalarFieldEnum)[keyof typeof TextToImageReferenceAssetScalarFieldEnum]
+
+
+export const IllustrationExecutionManifestScalarFieldEnum = {
+  id: 'id',
+  projectId: 'projectId',
+  targetHash: 'targetHash',
+  executionNonce: 'executionNonce',
+  executionInputHashesJson: 'executionInputHashesJson',
+  executionManifestHash: 'executionManifestHash',
+  recipeSnapshotJson: 'recipeSnapshotJson',
+  compiledRequestsJson: 'compiledRequestsJson',
+  outputCount: 'outputCount',
+  knownCost: 'knownCost',
+  tokenLowerBound: 'tokenLowerBound',
+  registrationState: 'registrationState',
+  createdAt: 'createdAt'
+} as const
+
+export type IllustrationExecutionManifestScalarFieldEnum = (typeof IllustrationExecutionManifestScalarFieldEnum)[keyof typeof IllustrationExecutionManifestScalarFieldEnum]
+
+
+export const IllustrationExecutionApprovalScalarFieldEnum = {
+  id: 'id',
+  manifestId: 'manifestId',
+  executionManifestHash: 'executionManifestHash',
+  approvalHash: 'approvalHash',
+  authorizedOutputCount: 'authorizedOutputCount',
+  authorizedCostLimit: 'authorizedCostLimit',
+  authorizedTokenLimit: 'authorizedTokenLimit',
+  actorUserId: 'actorUserId',
+  approvedAt: 'approvedAt',
+  createdAt: 'createdAt'
+} as const
+
+export type IllustrationExecutionApprovalScalarFieldEnum = (typeof IllustrationExecutionApprovalScalarFieldEnum)[keyof typeof IllustrationExecutionApprovalScalarFieldEnum]
+
+
+export const TextToImageDispatchOutboxScalarFieldEnum = {
+  id: 'id',
+  dispatchKey: 'dispatchKey',
+  jobId: 'jobId',
+  manifestId: 'manifestId',
+  manifestHash: 'manifestHash',
+  registrationVersion: 'registrationVersion',
+  preparationId: 'preparationId',
+  prepareAttemptId: 'prepareAttemptId',
+  prepareVersion: 'prepareVersion',
+  state: 'state',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type TextToImageDispatchOutboxScalarFieldEnum = (typeof TextToImageDispatchOutboxScalarFieldEnum)[keyof typeof TextToImageDispatchOutboxScalarFieldEnum]
+
+
+export const IllustrationPlanningWorkflowScalarFieldEnum = {
+  id: 'id',
+  projectId: 'projectId',
+  chapterPath: 'chapterPath',
+  operation: 'operation',
+  planningRequestHash: 'planningRequestHash',
+  planningInputHash: 'planningInputHash',
+  inputJson: 'inputJson',
+  status: 'status',
+  activeAttemptId: 'activeAttemptId',
+  retryable: 'retryable',
+  staleReason: 'staleReason',
+  proposalJson: 'proposalJson',
+  validatedPlanJson: 'validatedPlanJson',
+  errorCode: 'errorCode',
+  errorMessage: 'errorMessage',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type IllustrationPlanningWorkflowScalarFieldEnum = (typeof IllustrationPlanningWorkflowScalarFieldEnum)[keyof typeof IllustrationPlanningWorkflowScalarFieldEnum]
+
+
+export const IllustrationPlanningAttemptScalarFieldEnum = {
+  id: 'id',
+  workflowId: 'workflowId',
+  status: 'status',
+  sessionId: 'sessionId',
+  invocationId: 'invocationId',
+  planningEvidenceHash: 'planningEvidenceHash',
+  evidenceJson: 'evidenceJson',
+  proposalJson: 'proposalJson',
+  errorCode: 'errorCode',
+  errorMessage: 'errorMessage',
+  createdAt: 'createdAt',
+  startedAt: 'startedAt',
+  finishedAt: 'finishedAt'
+} as const
+
+export type IllustrationPlanningAttemptScalarFieldEnum = (typeof IllustrationPlanningAttemptScalarFieldEnum)[keyof typeof IllustrationPlanningAttemptScalarFieldEnum]
+
+
+export const IllustrationPlanningApplyJournalScalarFieldEnum = {
+  id: 'id',
+  workflowId: 'workflowId',
+  projectId: 'projectId',
+  chapterPath: 'chapterPath',
+  state: 'state',
+  expectedChapterHash: 'expectedChapterHash',
+  expectedStoryboardHash: 'expectedStoryboardHash',
+  stagedStoryboardHash: 'stagedStoryboardHash',
+  appliedStoryboardHash: 'appliedStoryboardHash',
+  chapterAfterHash: 'chapterAfterHash',
+  payloadJson: 'payloadJson',
+  errorCode: 'errorCode',
+  errorMessage: 'errorMessage',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type IllustrationPlanningApplyJournalScalarFieldEnum = (typeof IllustrationPlanningApplyJournalScalarFieldEnum)[keyof typeof IllustrationPlanningApplyJournalScalarFieldEnum]
 
 
 export const SortOrder = {

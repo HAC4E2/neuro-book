@@ -12,7 +12,11 @@ import {createMarkdownDialectExtensions} from "nbook/app/components/markdown-stu
 import {MarkdownInlineCodeShortcut} from "nbook/app/components/markdown-studio/tiptap/MarkdownInlineCodeShortcut";
 import {MarkdownLink} from "nbook/app/components/markdown-studio/tiptap/MarkdownLink";
 import {MarkdownSlashCommand} from "nbook/app/components/markdown-studio/tiptap/MarkdownSlashCommand";
-import {TextToImagePrompt, type TextToImagePromptGeneratePayload} from "nbook/app/components/markdown-studio/tiptap/TextToImagePrompt";
+import {
+    TextToImagePrompt,
+    type TextToImagePromptController,
+    unavailableTextToImagePromptController,
+} from "nbook/app/components/markdown-studio/tiptap/TextToImagePrompt";
 import {createFallbackWorkspaceReferenceMeta, WorkspaceReference, type WorkspaceReferenceResolver} from "nbook/app/components/markdown-studio/tiptap/WorkspaceReference";
 
 export interface MarkdownSuggestionController {
@@ -36,7 +40,7 @@ export interface MarkdownEditorExtensionOptions extends MarkdownSuggestionContro
     sourcePath?: string;
     resolveReference?: WorkspaceReferenceResolver;
     enableQuickTriggers?: boolean;
-    onGenerateTextToImagePrompt?: (payload: TextToImagePromptGeneratePayload) => void;
+    textToImagePromptController?: TextToImagePromptController;
 }
 
 /**
@@ -76,7 +80,7 @@ export function createMarkdownEditorExtensions(options: MarkdownEditorExtensionO
         }),
         MarkdownInlineCodeShortcut,
         TextToImagePrompt.configure({
-            onGenerate: options.onGenerateTextToImagePrompt ?? (() => {}),
+            controller: options.textToImagePromptController ?? unavailableTextToImagePromptController,
         }),
         MarkdownLink.configure({
             openOnClick: true,

@@ -14,6 +14,8 @@ describe("createBuiltinTools smoke test", () => {
         expect(keys).toContain("variable_schema");
         expect(keys).toContain("variable_read");
         expect(keys).toContain("variable_patch");
+        expect(keys).toContain("inspect_chatu8_storyboard");
+        expect(keys).toContain("submit_chatu8_storyboard_conversion");
 
         // 确认旧的固定工具已移除。
         expect(keys).not.toContain("execute_world_query");

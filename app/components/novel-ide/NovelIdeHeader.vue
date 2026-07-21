@@ -172,7 +172,7 @@ const handleUserMenuSelect = (value: string): void => {
             <div class="mx-1 h-4 w-px bg-[var(--border-color)] sm:mx-2"></div>
 
             <div class="w-8 shrink-0">
-                <Dropdown :items="userMenuItems" menu-class="right-0 top-full mt-2 w-40" @select="handleUserMenuSelect">
+                <Dropdown v-if="currentUser" :items="userMenuItems" menu-class="right-0 top-full mt-2 w-40" @select="handleUserMenuSelect">
                     <button class="flex h-8 w-8 items-center justify-center rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-secondary)] transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('ide.header.accountMenu')">
                         <span class="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--accent-bg)] text-[11px] font-semibold text-[var(--accent-text)]">{{ userInitial }}</span>
                     </button>

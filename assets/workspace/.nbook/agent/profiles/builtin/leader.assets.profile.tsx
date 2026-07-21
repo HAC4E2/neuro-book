@@ -63,7 +63,7 @@ export default defineAgentProfile({
     outputSchema: OutputSchema,
     settingsForm: LeaderAssetsSettingsForm,
     // Skill 可见性白名单：本 agent 只聚焦资产编辑相关 skill，novel-workflow 等写作流程 skill 不进 catalog。
-    skills: {include: ["profile-system-guide", "tsx-profile-editing", "skill-creator", "skill-creator-zh"]},
+    skills: {include: ["profile-system-guide", "tsx-profile-editing", "skill-creator", "skill-creator-zh", "novel-import-chatu8-storyboard-preset"]},
     tools: toolset(
         builtin.file.read,
         builtin.file.write,

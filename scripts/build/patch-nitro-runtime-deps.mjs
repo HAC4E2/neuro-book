@@ -66,6 +66,7 @@ const sourceNodeModulesFileUrlVariants = [
     sourceNodeModulesFileUrl,
     sourceNodeModulesFileUrl.replace(/^file:\/\/\//, "file://"),
 ];
+const bunStoreModuleSpecifierPattern = /(["'])((?:\.\.\/|\.\/)*node_modules\/\.bun\/([^/"']+)\/node_modules\/(@[^/"']+\/[^/"']+|[^/"']+)(\/[^"'\r\n]*)?)\1/g;
 
 const timings = [];
 const packageCopyStats = {
@@ -124,6 +125,12 @@ await measure("compile Product system profiles", async () => {
         if (previous === undefined) delete process.env.NEURO_BOOK_PRODUCT_BUILD;
         else process.env.NEURO_BOOK_PRODUCT_BUILD = previous;
     }
+});
+await measure("copy Bun store runtime closure", async () => {
+    await copyBunStoreRuntimeClosure(await collectBunStoreRuntimeSeeds(serverRoot));
+});
+await measure("assert Bun store runtime closure", async () => {
+    await assertBunStoreRuntimeImports(serverRoot);
 });
 const patchedImportMetaFiles = await measure("patch import.meta fallbacks", async () => {
     return await patchImportMetaFallbacks(resolve(serverRoot, "chunks"));
@@ -424,6 +431,115 @@ async function copyRuntimePackageClosure(seedPackages) {
 }
 
 /**
+ * 物化 Nitro 产物引用的 Bun store 包，并为每个包保留独立的依赖闭包。
+ * 不能按包名扁平化，因为同名依赖在不同 Bun store 中可能使用不同版本。
+ */
+async function copyBunStoreRuntimeClosure(seeds) {
+    const queue = [...seeds];
+    const seen = new Set();
+    while (queue.length > 0) {
+        const seed = queue.shift();
+        if (!seed || seen.has(seed.target)) {
+            continue;
+        }
+        seen.add(seed.target);
+        if (!existsSync(seed.source)) {
+            throw new Error(`Missing Bun store runtime package source: ${seed.source}`);
+        }
+        if (await isRuntimePackageCurrent(seed.source, seed.target)) {
+            packageCopyStats.skipped += 1;
+        } else {
+            await copyRuntimePackageFiles(seed.source, seed.target);
+            packageCopyStats.copied += 1;
+        }
+
+        const packageJsonPath = resolve(seed.source, "package.json");
+        if (!existsSync(packageJsonPath)) {
+            continue;
+        }
+        const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
+        const dependencies = packageJson.dependencies ?? {};
+        for (const dependencyName of Object.keys(dependencies)) {
+            const dependencySource = await resolveRuntimePackage(dependencyName, seed.source);
+            if (!dependencySource) {
+                throw new Error(`Missing Bun store dependency: ${dependencyName} (required by ${packageJson.name})`);
+            }
+            queue.push({
+                source: dependencySource,
+                target: resolve(seed.storeNodeModules, ...dependencyName.split("/")),
+                storeNodeModules: seed.storeNodeModules,
+            });
+        }
+
+        const optionalDependencies = packageJson.optionalDependencies ?? {};
+        const peerDependencies = packageJson.peerDependencies ?? {};
+        for (const dependencyName of new Set([
+            ...Object.keys(optionalDependencies),
+            ...Object.keys(peerDependencies),
+        ])) {
+            const dependencySource = await resolveRuntimePackage(dependencyName, seed.source);
+            if (dependencySource) {
+                queue.push({
+                    source: dependencySource,
+                    target: resolve(seed.storeNodeModules, ...dependencyName.split("/")),
+                    storeNodeModules: seed.storeNodeModules,
+                });
+            }
+        }
+    }
+}
+
+/**
+ * 收集 Nitro 输出中真实执行的 Bun store 模块说明符，并映射到产品内同位置的 vendor 目录。
+ */
+async function collectBunStoreRuntimeSeeds(root) {
+    const seeds = new Map();
+    // 跳过 assets：profile artifacts 是 esbuild bundle，`node_modules/.bun/...` 是 module ID
+    // 字符串而非真实 import，bundle 已内联依赖代码，不需要外部 store 文件。
+    for (const filePath of await listMjsFiles(root, {skipNodeModules: true, skipPrecomputed: true, skipAssets: true})) {
+        const text = await readFile(filePath, "utf8");
+        for (const match of text.matchAll(bunStoreModuleSpecifierPattern)) {
+            const [, , _specifier, storeKey, packageName] = match;
+            const source = resolve("node_modules", ".bun", storeKey, "node_modules", ...packageName.split("/"));
+            if (!existsSync(source)) {
+                throw new Error(`Nitro build output references missing Bun store package: ${packageName} (${storeKey})`);
+            }
+            const target = resolve(serverRoot, "node_modules", ".bun", storeKey, "node_modules", ...packageName.split("/"));
+            seeds.set(target, {
+                source,
+                target,
+                storeNodeModules: resolve(serverRoot, "node_modules", ".bun", storeKey, "node_modules"),
+            });
+        }
+    }
+    return [...seeds.values()];
+}
+
+/**
+ * 构建门禁：每一个 Bun store 模块说明符都必须能在产品目录内解析到真实文件。
+ */
+async function assertBunStoreRuntimeImports(root) {
+    const missing = [];
+    // 跳过 assets：profile artifacts 的 Bun store 路径是 esbuild module ID，非真实 import。
+    for (const filePath of await listMjsFiles(root, {skipNodeModules: true, skipPrecomputed: true, skipAssets: true})) {
+        const text = await readFile(filePath, "utf8");
+        for (const match of text.matchAll(bunStoreModuleSpecifierPattern)) {
+            const specifier = match[2];
+            if (!existsSync(resolve(dirname(filePath), specifier))) {
+                missing.push(`${relative(process.cwd(), filePath).replaceAll("\\", "/")}: ${specifier}`);
+            }
+        }
+    }
+    if (missing.length > 0) {
+        throw new Error([
+            "Nitro build output contains unresolved Bun store imports.",
+            "Imports:",
+            ...missing.map((item) => `- ${item}`),
+        ].join("\n"));
+    }
+}
+
+/**
  * 按 Node 的模块解析规则定位运行时包。Bun 的隔离安装会把传递依赖放在
  * `.bun/<package>/node_modules` 中，因此不能只从项目根 `node_modules` 查找。
  */
@@ -431,6 +547,12 @@ async function resolveRuntimePackage(packageName, importerSource = null) {
     if (!importerSource) {
         const packageRoot = resolve("node_modules", ...packageName.split("/"));
         return existsSync(packageRoot) ? packageRoot : null;
+    }
+
+    // Bun 的扁平入口通常是 junction；先沿未解析的导入路径查找，才能命中其隔离依赖树。
+    const directDependency = resolve(importerSource, "node_modules", ...packageName.split("/"));
+    if (existsSync(directDependency)) {
+        return await realpath(directDependency);
     }
 
     const importerManifest = resolve(importerSource, "package.json");
@@ -442,6 +564,16 @@ async function resolveRuntimePackage(packageName, importerSource = null) {
         const candidate = resolve(current, "node_modules", ...packageName.split("/"));
         if (existsSync(candidate)) {
             return await realpath(candidate);
+        }
+        // Bun 隔离安装的扁平 store 布局：<store>/node_modules/<所有包平铺>。
+        // 当向上查找到达本身就是 node_modules 的目录层时，标准 Node 解析会查
+        // <store>/node_modules/node_modules/<pkg>（不存在），遗漏 store 内的平铺依赖。
+        // 这里补查 <current>/<pkg>，命中 Bun store 内部的兄弟包。
+        if (current.endsWith("node_modules")) {
+            const flatCandidate = resolve(current, ...packageName.split("/"));
+            if (existsSync(flatCandidate)) {
+                return await realpath(flatCandidate);
+            }
         }
         current = dirname(current);
     }
@@ -458,8 +590,13 @@ async function collectNitroExternalPackageSeeds(root) {
         return [];
     }
     const packages = new Set();
-    const importPattern = /["'](?:\.\.\/|\.\/)*node_modules\/([^"'\/]+)(?:\/([^"'\/]+))?/g;
-    for (const filePath of await listMjsFiles(root)) {
+    // 只收集 Nitro chunks 中的扁平 external 引用 `node_modules/<pkg>`。
+    // 跳过 `assets/` 目录：profile artifacts 是 esbuild bundle，其中的
+    // `node_modules/<pkg>` 是 module ID 字符串而非真实 import，传递依赖只在
+    // Bun store 中存在（项目根 node_modules 没有），误当 seed 会导致解析失败。
+    // profile artifacts 的 Bun store 引用由 copyBunStoreRuntimeClosure 负责。
+    const importPattern = /["'](?:\.\.\/|\.\/)*node_modules\/(?!\.bun\/)([^"'\/]+)(?:\/([^"'\/]+))?/g;
+    for (const filePath of await listMjsFiles(root, {skipAssets: true})) {
         const text = await readFile(filePath, "utf8");
         for (const match of text.matchAll(importPattern)) {
             const packageName = match[1].startsWith("@") ? `${match[1]}/${match[2]}` : match[1];
@@ -516,11 +653,29 @@ async function copyDirectory(source, target) {
 }
 
 /**
+ * 复制一个 runtime 包本体。依赖由调用方在所属 Bun store 的共享 node_modules 中物化，
+ * 不能跟随复制包内 node_modules，否则会重复展开依赖树。
+ */
+async function copyRuntimePackageFiles(source, target) {
+    await rm(target, {recursive: true, force: true});
+    await mkdir(dirname(target), {recursive: true});
+    const sourceStat = await stat(source);
+    if (sourceStat.isDirectory() && process.platform === "win32") {
+        await runRobocopy(source, target, {excludeNodeModules: true});
+        return;
+    }
+    await cp(source, target, {
+        recursive: true,
+        filter: (sourcePath) => sourcePath !== resolve(source, "node_modules"),
+    });
+}
+
+/**
  * 运行 robocopy。robocopy 的 0-7 都表示成功或完成复制，8+ 才是失败。
  */
-async function runRobocopy(source, target) {
+async function runRobocopy(source, target, {excludeNodeModules = false} = {}) {
     await new Promise((resolvePromise, rejectPromise) => {
-        const child = spawn("robocopy", [
+        const args = [
             source,
             target,
             "/MIR",
@@ -529,7 +684,11 @@ async function runRobocopy(source, target) {
             "/NJH",
             "/NJS",
             "/NP",
-        ], {
+        ];
+        if (excludeNodeModules) {
+            args.push("/XD", "node_modules");
+        }
+        const child = spawn("robocopy", args, {
             stdio: ["ignore", "ignore", "pipe"],
             shell: false,
             windowsHide: true,
@@ -549,15 +708,31 @@ async function runRobocopy(source, target) {
     });
 }
 
-async function listMjsFiles(root) {
+/**
+ * 列出指定目录下的 ESM 文件。
+ * skipNodeModules：跳过 node_modules 目录，避免扫描 vendor 后的运行时依赖本身。
+ * skipAssets：跳过 assets 目录，避免扫描 profile artifacts（module ID 含 node_modules/<pkg> 字符串，非真实 import）。
+ * skipPrecomputed：跳过 Nuxt client.precomputed.mjs，它是 preload 数据映射，内部
+ *   `../node_modules/.bun/...` 路径是对象 key 而非 import，runtime 不 require 它们。
+ */
+async function listMjsFiles(root, {skipNodeModules = false, skipAssets = false, skipPrecomputed = false} = {}) {
     const result = [];
     for (const entry of await readdir(root, {withFileTypes: true})) {
         const filePath = resolve(root, entry.name);
         if (entry.isDirectory()) {
-            result.push(...await listMjsFiles(filePath));
+            if (skipNodeModules && entry.name === "node_modules") {
+                continue;
+            }
+            if (skipAssets && entry.name === "assets") {
+                continue;
+            }
+            result.push(...await listMjsFiles(filePath, {skipNodeModules, skipAssets, skipPrecomputed}));
             continue;
         }
         if (entry.isFile() && entry.name.endsWith(".mjs")) {
+            if (skipPrecomputed && entry.name === "client.precomputed.mjs") {
+                continue;
+            }
             result.push(filePath);
         }
     }

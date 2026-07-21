@@ -14,9 +14,11 @@ import {
     loadEffectiveConfigForAgentRuntime,
     readConfigBootstrap,
     readConfigEditorSnapshot,
+    readIllustrationDirectorSelectorSnapshot,
     resetProjectProfileHome,
     saveGlobalConfig,
     saveProjectConfig,
+    updateIllustrationDirectorSelector,
 } from "nbook/server/config/config-service";
 import {ProjectNotOpenError} from "nbook/server/workspace-files/project-session";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
@@ -60,6 +62,169 @@ describe("config service", {timeout: 30_000}, () => {
         expect(snapshot.effective.ui).toMatchObject({costCurrency: "USD"});
         await expect(fs.access(path.join("workspace", ".nbook", "config.json"))).rejects.toMatchObject({code: "ENOENT"});
         await expect(fs.access(path.join("workspace", "config-test-project", ".nbook", "config.json"))).rejects.toMatchObject({code: "ENOENT"});
+    });
+
+    it("以 expected config hash CAS 更新 Director selector，并保留同 profile 其他配置", async () => {
+        await fs.mkdir(path.join("workspace", ".nbook"), {recursive: true});
+        await fs.writeFile(path.join("workspace", ".nbook", "config.json"), `${JSON.stringify({
+            agent: {
+                profiles: {
+                    "illustration.director": {
+                        model: {modelKey: null},
+                        settings: {planningConcurrency: 3},
+                    },
+                },
+            },
+        }, null, 4)}\n`, "utf8");
+        const before = await readIllustrationDirectorSelectorSnapshot();
+        expect(before.storyboardPresetKey).toBe("storyboard-presets/default.md");
+
+        const updated = await updateIllustrationDirectorSelector({
+            expectedConfigHash: before.configHash,
+            storyboardPresetKey: "storyboard-presets/preset.v2.md",
+        });
+        expect(updated.storyboardPresetKey).toBe("storyboard-presets/preset.v2.md");
+        expect(updated.configHash).not.toBe(before.configHash);
+        const persisted = JSON.parse(await fs.readFile(path.join("workspace", ".nbook", "config.json"), "utf8")) as {
+            agent: {profiles: Record<string, {model: {modelKey?: string | null}; settings: Record<string, unknown>}>};
+        };
+        expect(persisted.agent.profiles["illustration.director"]?.model.modelKey).toBeNull();
+        expect(persisted.agent.profiles["illustration.director"]?.settings).toMatchObject({
+            planningConcurrency: 3,
+            storyboardPresetKey: "storyboard-presets/preset.v2.md",
+        });
+        await expect(updateIllustrationDirectorSelector({
+            expectedConfigHash: before.configHash,
+            storyboardPresetKey: "storyboard-presets/stale.md",
+        })).rejects.toMatchObject({code: "GLOBAL_CONFIG_HASH_CONFLICT"});
+
+        const concurrent = await Promise.allSettled([
+            updateIllustrationDirectorSelector({
+                expectedConfigHash: updated.configHash,
+                storyboardPresetKey: "storyboard-presets/concurrent-a.md",
+            }),
+            updateIllustrationDirectorSelector({
+                expectedConfigHash: updated.configHash,
+                storyboardPresetKey: "storyboard-presets/concurrent-b.md",
+            }),
+        ]);
+        expect(concurrent.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+        expect(concurrent.filter((result) => result.status === "rejected")).toHaveLength(1);
+        expect(concurrent.find((result) => result.status === "rejected")).toMatchObject({
+            reason: {code: "GLOBAL_CONFIG_HASH_CONFLICT"},
+        });
+    });
+
+    it("Global Config 保存并解析 illustration Director binding 摘要", async () => {
+        const snapshot = await saveGlobalConfig({
+            models: {
+                default: "openai/gpt-5",
+                providers: [{
+                    id: "openai",
+                    name: "OpenAI",
+                    enabled: true,
+                    api: "openai-completions",
+                    options: {
+                        apiKey: {configured: false, maskedValue: null, value: "sk-director"},
+                        baseURL: "https://api.openai.com/v1",
+                        proxy: "",
+                        timeoutMs: null,
+                        requestOptions: {},
+                    },
+                    models: [{
+                        id: "gpt-5",
+                        name: "GPT-5",
+                        group: null,
+                        enabled: true,
+                        contextWindowTokens: 256000,
+                    }],
+                }],
+            },
+            agent: {
+                profiles: {
+                    "illustration.director": {
+                        model: {modelKey: "openai/gpt-5"},
+                    },
+                },
+            },
+        }, {workspaceKind: "user-assets"}, catalog);
+        const binding = (snapshot.modelSettings as typeof snapshot.modelSettings & {
+            illustrationDirector: {
+                bindingId: string;
+                configured: boolean;
+                modelKey: string | null;
+                providerId: string | null;
+                providerName: string | null;
+                modelId: string | null;
+                modelName: string | null;
+            };
+        }).illustrationDirector;
+
+        expect(binding).toEqual({
+            bindingId: "illustration.director",
+            configured: true,
+            modelKey: "openai/gpt-5",
+            providerId: "openai",
+            providerName: "OpenAI",
+            modelId: "gpt-5",
+            modelName: "GPT-5",
+        });
+    });
+
+    it("Director binding 未显式选择模型时不继承通用 Profile 默认模型", async () => {
+        const snapshot = await saveGlobalConfig({
+            models: {
+                default: "openai/gpt-5",
+                providers: [{
+                    id: "openai",
+                    name: "OpenAI",
+                    enabled: true,
+                    api: "openai-completions",
+                    options: {
+                        apiKey: {configured: false, maskedValue: null, value: "sk-director"},
+                        baseURL: "https://api.openai.com/v1",
+                        proxy: "",
+                        timeoutMs: null,
+                        requestOptions: {},
+                    },
+                    models: [{
+                        id: "gpt-5",
+                        name: "GPT-5",
+                        group: null,
+                        enabled: true,
+                        contextWindowTokens: 256000,
+                    }],
+                }],
+            },
+            agent: {
+                profileModelDefaults: {modelKey: "openai/gpt-5"},
+                profiles: {
+                    "illustration.director": {
+                        model: {modelKey: null},
+                    },
+                },
+            },
+        }, {workspaceKind: "user-assets"}, catalog);
+
+        expect(snapshot.modelSettings.illustrationDirector).toMatchObject({
+            configured: false,
+            modelKey: null,
+        });
+    });
+
+    it("Project Config 拒绝写入 illustration Director model binding", async () => {
+        await expect(saveProjectConfig({
+            agent: {
+                profiles: {
+                    "illustration.director": {
+                        model: {modelKey: "openai/gpt-5"},
+                    },
+                },
+            },
+        }, {workspaceKind: "novel", projectPath: CONFIG_TEST_PROJECT_PATH}, catalog)).rejects.toMatchObject({
+            statusCode: 400,
+            message: expect.stringContaining("Director model binding"),
+        });
     });
 
     it("Provider enabled 旧配置默认 true，保存 false 时会持久化", async () => {
@@ -274,6 +439,61 @@ describe("config service", {timeout: 30_000}, () => {
         expect(snapshot.modelSettings.providers[0]?.options.apiKey).toEqual({
             configured: true,
             maskedValue: "sk-t...3456",
+        });
+    });
+
+    it("新 Provider ID 不能用 masked 状态冒充可保留的旧 API key", async () => {
+        await saveGlobalConfig({
+            models: {
+                default: "director/gpt-5",
+                providers: [{
+                    id: "director",
+                    name: "Director",
+                    enabled: true,
+                    api: "openai-completions",
+                    options: {
+                        apiKey: {configured: false, maskedValue: null, value: "sk-director-secret"},
+                        baseURL: "https://example.com/v1",
+                        proxy: "",
+                        timeoutMs: null,
+                        requestOptions: {},
+                    },
+                    models: [{id: "gpt-5", name: "GPT-5", group: null, enabled: true, contextWindowTokens: 128000}],
+                }],
+            },
+            agent: {
+                profiles: {
+                    "illustration.director": {model: {modelKey: "director/gpt-5"}},
+                },
+            },
+        }, {workspaceKind: "user-assets"});
+
+        await expect(saveGlobalConfig({
+            models: {
+                default: "renamed/gpt-5",
+                providers: [{
+                    id: "renamed",
+                    name: "Director",
+                    enabled: true,
+                    api: "openai-completions",
+                    options: {
+                        apiKey: {configured: true, maskedValue: "sk-d...cret"},
+                        baseURL: "https://example.com/v1",
+                        proxy: "",
+                        timeoutMs: null,
+                        requestOptions: {},
+                    },
+                    models: [{id: "gpt-5", name: "GPT-5", group: null, enabled: true, contextWindowTokens: 128000}],
+                }],
+            },
+            agent: {
+                profiles: {
+                    "illustration.director": {model: {modelKey: "renamed/gpt-5"}},
+                },
+            },
+        }, {workspaceKind: "user-assets"})).rejects.toMatchObject({
+            statusCode: 400,
+            message: expect.stringContaining("API key"),
         });
     });
 

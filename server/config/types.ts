@@ -4,6 +4,7 @@ import type {ThinkingLevelDto} from "nbook/shared/dto/app-settings.dto";
 import type {ModelInputKind} from "nbook/shared/dto/app-settings.dto";
 import type {CustomThemeDto} from "nbook/shared/theme/theme-vars";
 import type {ProfileRuntimeSettingsPatch} from "nbook/shared/agent/profile-runtime-settings";
+import type {ProjectTagPolicyConfig} from "nbook/shared/text-to-image-tag-policy";
 
 export type ConfigScope = "boot" | "global" | "global-workspace";
 export type ConfigEffect = "hot" | "next-run" | "next-session" | "restart-required";
@@ -186,6 +187,9 @@ export type EffectiveConfig = {
     web: WebSettingsConfig;
     observability: ObservabilityConfig;
     history: WorkspaceHistorySettingsConfig;
+    illustration: {
+        tagPolicy: ProjectTagPolicyConfig;
+    };
 };
 
 /** 可观测配置。第一版只有 Pi 请求 trace。 */
@@ -268,6 +272,10 @@ export type StoredProjectConfig = {
     };
     /** Project 侧只允许覆盖 retention / auto-accept 四项；enabled 是 Global 独有。 */
     history?: Partial<Omit<WorkspaceHistorySettingsConfig, "enabled">>;
+    /** Project Workspace 是 Tag policy scope/unknown policy 的唯一持久真相源。 */
+    illustration?: {
+        tagPolicy: ProjectTagPolicyConfig;
+    };
 };
 
 export type ConfigTarget = {
