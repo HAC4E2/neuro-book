@@ -25,6 +25,7 @@ import {
     recordProjectRename,
     recordProjectWrite,
 } from "nbook/server/workspace-history/project-history";
+import {resolveProjectAbsolutePath} from "nbook/server/text-to-image/compat";
 
 /**
  * 带记账的 workspace 写入包装层（Task 95 N2）。
@@ -90,13 +91,13 @@ export async function writeResolvedProjectTextFileTracked(input: {
     if (path.isAbsolute(input.filePath)) {
         throw new Error("Project 追踪写入只接受相对路径。");
     }
-    const absolutePath = resolveWorkspacePath(expectedRoot, input.filePath);
+    const absolutePath = resolveWorkspacePath(expectedRoot as any, input.filePath);
     const before = input.knownBefore !== undefined
         ? (input.knownBefore === null ? null : new TextEncoder().encode(input.knownBefore))
-        : await readBytesForRecord(input.projectPath, input.filePath);
+        : await readBytesForRecord(input.projectPath as any, input.filePath);
     await fs.mkdir(path.dirname(absolutePath), {recursive: true});
     await fs.writeFile(absolutePath, input.content, "utf8");
-    await recordProjectWrite({
+    await recordProjectWrite({projectRoot: expectedRoot as any,
         projectPath: input.projectPath,
         relativePath: input.filePath,
         actor: input.actor,
@@ -123,12 +124,12 @@ export async function deleteResolvedProjectFileTracked(input: {
     if (path.isAbsolute(input.filePath)) {
         throw new Error("Project 追踪删除只接受相对路径。");
     }
-    const absolutePath = resolveWorkspacePath(expectedRoot, input.filePath);
+    const absolutePath = resolveWorkspacePath(expectedRoot as any, input.filePath);
     const stat = await fs.stat(absolutePath);
     if (!stat.isFile()) throw new Error("Project 追踪删除只接受普通文件。");
     const before = await fs.readFile(absolutePath);
     await fs.unlink(absolutePath);
-    await recordProjectDelete({
+    await recordProjectDelete({projectRoot: expectedRoot as any,
         projectPath: input.projectPath,
         relativePath: input.filePath,
         actor: input.actor,

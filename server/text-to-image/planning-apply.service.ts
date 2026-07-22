@@ -1,3 +1,4 @@
+import {absoluteFsPath} from "nbook/server/text-to-image/compat";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {lock} from "proper-lockfile";
@@ -40,8 +41,8 @@ import {
     writeResolvedProjectTextFileTracked,
 } from "nbook/server/workspace-history/tracked-workspace-files";
 import {invalidateProjectWorkspaceIndexAfterMutation} from "nbook/server/workspace-files/project-workspace-index";
-import {resolveProjectAbsolutePath} from "nbook/server/workspace-files/project-workspace";
-import {assertProjectOpenForRoot} from "nbook/server/workspace-files/project-open-guard";
+import {resolveProjectAbsolutePath} from "nbook/server/text-to-image/compat";
+import {assertProjectOpen} from "nbook/server/workspace-files/project-session";
 
 type PlanningApplyIdKind = "journal" | "revision" | "shot" | "placeholder";
 type ActivePlanningApplyState = Exclude<IllustrationPlanningApplyState, "completed" | "rolled_back" | "apply_conflict">;
@@ -87,10 +88,10 @@ export class PlanningApplyService {
 
     /** 发布或恢复单个 applying Workflow。 */
     async applyValidatedPlan(input: {projectPath: string; workflowId: string}): Promise<IllustrationPlanningApplyJournal> {
-        assertProjectOpenForRoot(input.projectPath);
+        assertProjectOpen(input.projectPath);
         const detail = await this.workflowRepository.read(input.workflowId);
         const storyboardPath = storyboardPathFor(detail.workflow.chapterPath);
-        const projectRoot = resolveProjectAbsolutePath(input.projectPath);
+        const projectRoot = resolveProjectAbsolutePath(input.projectPath) as any;
         const chapterFile = path.join(projectRoot, ...detail.workflow.chapterPath.split("/"));
         const release = await lock(chapterFile, {retries: {retries: 8, minTimeout: 20, maxTimeout: 250}});
         try {
@@ -329,7 +330,7 @@ export class PlanningApplyService {
                     actor: USER_LOCAL_ACTOR,
                     knownBefore: current,
                 });
-                invalidateProjectWorkspaceIndexAfterMutation({root: input.projectPath});
+                invalidateProjectWorkspaceIndexAfterMutation({target: {kind: "project-workspace", root: input.projectPath, projectPath: ""}} as any);
             }
             journal = await this.journalRepository.advance({workflowId: payload.workflowId, from: "prepared", to: "storyboard_written"});
             await this.afterStage("storyboard_written");
@@ -358,7 +359,7 @@ export class PlanningApplyService {
                     actor: USER_LOCAL_ACTOR,
                     knownBefore: currentChapter,
                 });
-                invalidateProjectWorkspaceIndexAfterMutation({root: input.projectPath});
+                invalidateProjectWorkspaceIndexAfterMutation({target: {kind: "project-workspace", root: input.projectPath, projectPath: ""}} as any);
             }
             journal = await this.journalRepository.advance({workflowId: payload.workflowId, from: "storyboard_written", to: "chapter_written"});
             await this.afterStage("chapter_written");
@@ -376,7 +377,7 @@ export class PlanningApplyService {
                     actor: USER_LOCAL_ACTOR,
                     knownBefore: current,
                 });
-                invalidateProjectWorkspaceIndexAfterMutation({root: input.projectPath});
+                invalidateProjectWorkspaceIndexAfterMutation({target: {kind: "project-workspace", root: input.projectPath, projectPath: ""}} as any);
             }
             journal = await this.journalRepository.advance({workflowId: payload.workflowId, from: "chapter_written", to: "storyboard_applied"});
             await this.afterStage("storyboard_applied");
@@ -418,7 +419,7 @@ export class PlanningApplyService {
                 knownBefore: current,
             });
         }
-        invalidateProjectWorkspaceIndexAfterMutation({root: input.projectPath});
+        invalidateProjectWorkspaceIndexAfterMutation({target: {kind: "project-workspace", root: input.projectPath, projectPath: ""}} as any);
         const journal = await this.journalRepository.advance({
             workflowId: input.journal.workflowId,
             from: "storyboard_written",

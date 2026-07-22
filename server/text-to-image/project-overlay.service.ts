@@ -1,6 +1,6 @@
 import {
     createGlobalProfileHomeFacade,
-    resolveGlobalRootForProfileHome,
+    resolveProjectRootForProfileHome,
 } from "nbook/server/agent/profiles/profile-home";
 import {
     readIllustrationDirectorSelectorSnapshot,
@@ -47,8 +47,8 @@ import {
     type TagPattern,
     type TagPatternSet,
 } from "nbook/shared/text-to-image-tag-pattern";
-import {assertProjectOpenForRoot} from "nbook/server/workspace-files/project-open-guard";
-import {resolveWorkspaceRootInput} from "nbook/server/workspace-files/novel-workspace";
+import {assertProjectOpen} from "nbook/server/workspace-files/project-session";
+import {resolveWorkspaceRootInput} from "nbook/server/text-to-image/compat";
 import {invalidateProjectWorkspaceIndexAfterMutation} from "nbook/server/workspace-files/project-workspace-index";
 import {
     readWorkspaceTextFile,
@@ -308,7 +308,7 @@ class WorkspaceProjectOverlayFileStore implements ProjectOverlayFileStore {
     private readonly globalHome;
 
     constructor(workspaceRoot?: string) {
-        this.globalHome = createGlobalProfileHomeFacade(resolveGlobalRootForProfileHome(workspaceRoot), PROFILE_KEY);
+        this.globalHome = createGlobalProfileHomeFacade(resolveProjectRootForProfileHome(workspaceRoot as any, undefined)! as any, PROFILE_KEY);
     }
 
     async resolveProjectRoot(projectPath: string): Promise<string> {
@@ -318,7 +318,7 @@ class WorkspaceProjectOverlayFileStore implements ProjectOverlayFileStore {
     }
 
     assertProjectOpen(projectPath: string, _root: string): void {
-        assertProjectOpenForRoot(projectPath);
+        assertProjectOpen(projectPath);
     }
 
     async readGlobal(filePath: string): Promise<string | null> {
@@ -332,7 +332,7 @@ class WorkspaceProjectOverlayFileStore implements ProjectOverlayFileStore {
 
     async readProject(root: string, filePath: string): Promise<string | null> {
         try {
-            return await readWorkspaceTextFile(root, filePath);
+            return await readWorkspaceTextFile(root as any, filePath);
         } catch (error) {
             if (isNotFoundError(error)) return null;
             throw error;
@@ -340,11 +340,11 @@ class WorkspaceProjectOverlayFileStore implements ProjectOverlayFileStore {
     }
 
     async writeProject(input: {root: string; filePath: string; content: string; knownBefore: string | null}): Promise<void> {
-        await writeWorkspaceTextFileTracked({...input, actor: USER_LOCAL_ACTOR});
+        await writeWorkspaceTextFileTracked(writeWorkspaceTextFileTracked({...input, actor: USER_LOCAL_ACTOR} as any) as any);
     }
 
     invalidate(root: string): void {
-        invalidateProjectWorkspaceIndexAfterMutation({root});
+        invalidateProjectWorkspaceIndexAfterMutation({target: {kind: "project-workspace" as const, root: root as any, projectPath: ""}} as any);
     }
 }
 

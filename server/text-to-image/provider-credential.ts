@@ -2,7 +2,7 @@ import {createCipheriv, createDecipheriv, randomBytes} from "node:crypto";
 import {chmod, link, mkdir, open, readFile, unlink} from "node:fs/promises";
 import path from "node:path";
 import {setTimeout as delay} from "node:timers/promises";
-import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 
 export type SealedCredential = {ciphertext: string; iv: string; tag: string};
 

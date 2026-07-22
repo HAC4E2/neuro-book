@@ -17,7 +17,7 @@ import {
     resolveProjectAbsolutePath,
     writeProjectManifest,
 } from "nbook/server/workspace-files/project-workspace";
-import {setWorkspaceAssetRootContextForTest} from "nbook/server/workspace-files/workspace-assets-root";
+import {setWorkspaceAssetRootContextForTest} from "nbook/server/workspace-files/workspace-runtime-root";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 import type {ProjectTagPolicyConfig} from "nbook/shared/text-to-image-tag-policy";
 import {buildTagIndexVersion} from "nbook/server/text-to-image/tag-index/tag-index-builder";

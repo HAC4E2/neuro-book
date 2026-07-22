@@ -6,7 +6,7 @@ import {
     TextToImageReferenceAssetService,
 } from "nbook/server/text-to-image/reference-asset.service";
 import {requireCurrentUser} from "nbook/server/utils/auth";
-import {assertProjectOpenForRoot} from "nbook/server/workspace-files/project-open-guard";
+import {assertProjectOpen} from "nbook/server/workspace-files/project-session";
 
 const ProjectPathSchema = z.object({projectPath: z.string().trim().min(1)}).strict();
 
@@ -18,7 +18,7 @@ export default defineEventHandler(async (event) => {
     if (!assetId || !parsed.success) {
         throw createError({statusCode: 400, message: "删除参考资产参数不合法"});
     }
-    assertProjectOpenForRoot(parsed.data.projectPath);
+    assertProjectOpen(parsed.data.projectPath);
     try {
         await new TextToImageReferenceAssetService().delete(parsed.data.projectPath, assetId);
         return {ok: true};

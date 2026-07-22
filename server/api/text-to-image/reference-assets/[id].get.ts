@@ -1,7 +1,7 @@
 import {createError, getRouterParam, getQuery} from "h3";
 import {TextToImageReferenceAssetNotFoundError, TextToImageReferenceAssetService} from "nbook/server/text-to-image/reference-asset.service";
 import {requireCurrentUser} from "nbook/server/utils/auth";
-import {assertProjectOpenForRoot} from "nbook/server/workspace-files/project-open-guard";
+import {assertProjectOpen} from "nbook/server/workspace-files/project-session";
 
 /** 按 assetId 读取参考资产 DTO；不返回 bytes。 */
 export default defineEventHandler(async (event) => {
@@ -12,7 +12,7 @@ export default defineEventHandler(async (event) => {
     if (!assetId || !projectPath) {
         throw createError({statusCode: 400, message: "参数不合法"});
     }
-    assertProjectOpenForRoot(projectPath);
+    assertProjectOpen(projectPath);
     try {
         return await new TextToImageReferenceAssetService().read(projectPath, assetId);
     } catch (error) {

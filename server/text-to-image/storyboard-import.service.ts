@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import {
     createGlobalProfileHomeFacade,
-    resolveGlobalRootForProfileHome,
+    resolveProjectRootForProfileHome,
     type ProfileHomeFacade,
 } from "nbook/server/agent/profiles/profile-home";
 import {
@@ -77,10 +77,8 @@ import {
 } from "nbook/shared/text-to-image-tag-resolver";
 import type {TagResolverService} from "nbook/server/text-to-image/tag-index/tag-resolver.service";
 import {assertProjectOpen, markProjectActivity} from "nbook/server/workspace-files/project-session";
-import {
-    normalizeProjectPath,
-    resolveProjectAbsolutePath,
-} from "nbook/server/workspace-files/project-workspace";
+import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
+import {resolveProjectAbsolutePath} from "nbook/server/text-to-image/compat";
 
 const IMPORT_PROFILE_KEY = "illustration.director";
 const IMPORT_DIRECTORY = "imports/chatu8-storyboard";
@@ -997,7 +995,7 @@ function createStableId(prefix: string, ...parts: string[]): string {
 /** 创建受限全局 illustration.director Profile Home。 */
 function createImportHome(workspaceRoot: string | undefined): ProfileHomeFacade {
     return createGlobalProfileHomeFacade(
-        resolveGlobalRootForProfileHome(workspaceRoot),
+        resolveProjectRootForProfileHome(workspaceRoot as any, undefined)! as any,
         IMPORT_PROFILE_KEY,
     );
 }

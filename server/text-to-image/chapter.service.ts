@@ -9,8 +9,8 @@ import {
 import type {TextToImageAssetDto} from "nbook/shared/dto/text-to-image.dto";
 import type {IllustrationExecutionSource} from "nbook/shared/text-to-image-execution";
 import {USER_LOCAL_ACTOR, writeResolvedProjectTextFileTracked} from "nbook/server/workspace-history/tracked-workspace-files";
-import {resolveProjectAbsolutePath} from "nbook/server/workspace-files/project-workspace";
-import {assertProjectOpenForRoot} from "nbook/server/workspace-files/project-open-guard";
+import {resolveProjectAbsolutePath} from "nbook/server/text-to-image/compat";
+import {assertProjectOpen} from "nbook/server/workspace-files/project-session";
 
 export type TextToImageChapterSnapshot = {
     projectPath: string;
@@ -65,7 +65,7 @@ export class TextToImageChapterService {
 
     /** 解析并限制 Project-relative 章节路径。 */
     private resolve(projectPath: string, chapterPath: string): {projectRoot: string; chapterPath: string; absolutePath: string} {
-        if (this.requireProjectOpen) assertProjectOpenForRoot(projectPath);
+        if (this.requireProjectOpen) assertProjectOpen(projectPath);
         const normalized = chapterPath.replaceAll("\\", "/").replace(/^\/+/, "");
         if (!/^manuscript\/.+\.md$/u.test(normalized) || normalized.split("/").some((part) => part === "." || part === "..")) {
             throw new Error("正文生图只允许操作 manuscript/ 下的 Markdown 章节。");

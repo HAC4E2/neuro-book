@@ -9,8 +9,8 @@ import {
     parseCharacterImageTagsMarkdown,
     parseOutfitTagsMarkdown,
 } from "nbook/server/text-to-image/character-visual.codec";
-import {assertProjectOpenForRoot} from "nbook/server/workspace-files/project-open-guard";
-import {resolveWorkspaceRootInput} from "nbook/server/workspace-files/novel-workspace";
+import {assertProjectOpen} from "nbook/server/workspace-files/project-session";
+import {resolveWorkspaceRootInput} from "nbook/server/text-to-image/compat";
 import {readWorkspaceTextFile, scanWorkspaceTree} from "nbook/server/workspace-files/workspace-files";
 
 export type CharacterVisualRegistryFileStore = {
@@ -149,17 +149,17 @@ class WorkspaceCharacterVisualRegistryStore implements CharacterVisualRegistryFi
     }
 
     assertProjectOpen(projectPath: string, _root: string): void {
-        assertProjectOpenForRoot(projectPath);
+        assertProjectOpen(projectPath);
     }
 
     async listPaths(root: string, prefix: string): Promise<string[]> {
-        const nodes = await scanWorkspaceTree({root, targets: [prefix], depth: null, recursive: true});
+        const nodes = await scanWorkspaceTree({root: root as any, targets: [prefix], depth: null, recursive: true});
         return nodes.filter((node) => !node.isDirectory).map((node) => node.path).sort(compareText);
     }
 
     async read(root: string, filePath: string): Promise<string | null> {
         try {
-            return await readWorkspaceTextFile(root, filePath);
+            return await readWorkspaceTextFile(root as any, filePath);
         } catch (error) {
             if (isNotFoundError(error)) return null;
             throw error;

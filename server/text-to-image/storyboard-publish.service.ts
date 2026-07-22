@@ -1,6 +1,6 @@
 import {
     createGlobalProfileHomeFacade,
-    resolveGlobalRootForProfileHome,
+    resolveProjectRootForProfileHome,
     type ProfileHomeFacade,
 } from "nbook/server/agent/profiles/profile-home";
 import {
@@ -118,7 +118,7 @@ export class StoryboardGlobalPublishService {
 
     constructor(options: PublishServiceOptions = {}) {
         this.workspaceRoot = options.workspaceRoot;
-        this.lockScope = resolveGlobalRootForProfileHome(options.workspaceRoot);
+        this.lockScope = resolveProjectRootForProfileHome(options.workspaceRoot as any, undefined)! as any;
         this.home = createGlobalProfileHomeFacade(this.lockScope, PROFILE_KEY);
         this.selector = options.selector ?? {
             read: readIllustrationDirectorSelectorSnapshot,

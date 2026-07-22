@@ -1,3 +1,4 @@
+import {absoluteFsPath} from "nbook/server/text-to-image/compat";
 import {z} from "zod";
 import {
     ILLUSTRATION_DIRECTOR_MODEL_NOT_CONFIGURED,
@@ -15,7 +16,7 @@ import {createTextToImageMarkdownFileHash} from "nbook/server/text-to-image/stri
 import {loadEffectiveConfigForAgentRuntime} from "nbook/server/config/config-service";
 import {useAgentHarness} from "nbook/server/agent/http";
 import {createCharacterVisualMigrationService} from "nbook/server/text-to-image/character-visual-migration.runtime";
-import {resolveWorkspaceRootInput} from "nbook/server/workspace-files/novel-workspace";
+import {resolveWorkspaceRootInput} from "nbook/server/text-to-image/compat";
 import {readWorkspaceTextFile} from "nbook/server/workspace-files/workspace-files";
 
 export {CharacterVisualDirectorGenerateRequestSchema};
@@ -131,7 +132,7 @@ export async function generateCharacterVisualProposal(
 function createRuntime(): CharacterVisualProposalRuntime {
     return {
         async readCharacter(input) {
-            const root = await resolveWorkspaceRootInput({projectPath: input.projectPath});
+            const root = absoluteFsPath(await resolveWorkspaceRootInput({projectPath: input.projectPath}));
             return readWorkspaceTextFile(root, input.characterPath);
         },
         async isDirectorConfigured(projectPath) {

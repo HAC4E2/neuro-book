@@ -8,7 +8,7 @@ import {
     isProjectRootDeleted,
     toSqliteFileUrl,
 } from "nbook/server/workspace-files/project-workspace";
-import {resolveWorkspaceContainerRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import type {TextToImageProviderRevisionInvalidationRecord} from "nbook/server/text-to-image/provider.service";
 
 const CONFIGURATION_STALE_MESSAGE = "NovelAI Provider 已由用户显式移除；请基于当前配置重新预览并授权。";
@@ -182,7 +182,7 @@ async function readProjectId(databasePath: string): Promise<string | null> {
  * reconciliation 不能依赖有效 manifest，否则损坏但可修复的 Project 会遗留可重新调度的旧 Job。
  */
 async function discoverProjectDatabases(): Promise<ProjectDatabase[]> {
-    const workspaceRoot = resolveWorkspaceContainerRoot();
+    const workspaceRoot = resolveRuntimeWorkspaceRoot();
     let entries: Array<import("node:fs").Dirent>;
     try {
         entries = await fs.readdir(workspaceRoot, {withFileTypes: true});

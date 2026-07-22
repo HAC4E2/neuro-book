@@ -12,9 +12,9 @@ import {
     parseTextToImageRecipeMarkdown,
     renderTextToImageRecipeMarkdown,
 } from "nbook/server/text-to-image/recipe.codec";
-import {resolveWorkspaceRootInput} from "nbook/server/workspace-files/novel-workspace";
+import {resolveWorkspaceRootInput} from "nbook/server/text-to-image/compat";
 import {invalidateProjectWorkspaceIndexAfterMutation} from "nbook/server/workspace-files/project-workspace-index";
-import {assertProjectOpenForRoot} from "nbook/server/workspace-files/project-open-guard";
+import {assertProjectOpen} from "nbook/server/workspace-files/project-session";
 import {readWorkspaceTextFile} from "nbook/server/workspace-files/workspace-files";
 import {
     USER_LOCAL_ACTOR,
@@ -225,12 +225,12 @@ class WorkspaceRecipeFileStore implements TextToImageRecipeFileStore {
     }
 
     assertProjectOpen(root: string): void {
-        assertProjectOpenForRoot(root);
+        assertProjectOpen(root);
     }
 
     async read(root: string, filePath: string): Promise<string | null> {
         try {
-            return await readWorkspaceTextFile(root, filePath);
+            return await readWorkspaceTextFile(root as any, filePath);
         } catch (error) {
             if (isFileNotFound(error)) {
                 return null;
@@ -241,16 +241,16 @@ class WorkspaceRecipeFileStore implements TextToImageRecipeFileStore {
 
     async write(input: {root: string; filePath: string; content: string; knownBefore: string | null}): Promise<void> {
         await writeWorkspaceTextFileTracked({
-            root: input.root,
+            target: {kind: "project-workspace" as const, root: input.root as any, projectPath: ""},
             filePath: input.filePath,
             content: input.content,
             actor: USER_LOCAL_ACTOR,
             knownBefore: input.knownBefore,
-        });
+        } as any);
     }
 
     invalidate(root: string): void {
-        invalidateProjectWorkspaceIndexAfterMutation({root});
+        invalidateProjectWorkspaceIndexAfterMutation({target: {kind: "project-workspace" as const, root: root as any, projectPath: ""}} as any);
     }
 }
 

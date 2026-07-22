@@ -2,7 +2,7 @@ import {createReadStream} from "node:fs";
 import {createError, getRouterParam, getQuery, sendStream, setResponseHeader} from "h3";
 import {TextToImageReferenceAssetNotFoundError, TextToImageReferenceAssetService} from "nbook/server/text-to-image/reference-asset.service";
 import {requireCurrentUser} from "nbook/server/utils/auth";
-import {assertProjectOpenForRoot} from "nbook/server/workspace-files/project-open-guard";
+import {assertProjectOpen} from "nbook/server/workspace-files/project-session";
 
 /** 流式返回参考资产字节，供 Recipe 预览与 adapter 内部消费。 */
 export default defineEventHandler(async (event) => {
@@ -13,7 +13,7 @@ export default defineEventHandler(async (event) => {
     if (!assetId || !projectPath) {
         throw createError({statusCode: 400, message: "参数不合法"});
     }
-    assertProjectOpenForRoot(projectPath);
+    assertProjectOpen(projectPath);
     try {
         const content = await new TextToImageReferenceAssetService().content(projectPath, assetId);
         setResponseHeader(event, "Content-Type", content.mimeType);

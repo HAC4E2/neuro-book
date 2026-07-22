@@ -1628,7 +1628,7 @@ function buildIllustrationDirectorModelBinding(global: StoredGlobalConfig): Conf
         configured: Boolean(matched),
         modelKey: resolvedModelKey,
         providerId: matched?.providerId ?? null,
-        providerName: matched?.providerName ?? null,
+        providerName: null,
         modelId: matched?.modelId ?? null,
         modelName: matched?.label ?? null,
     };

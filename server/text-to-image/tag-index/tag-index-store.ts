@@ -14,7 +14,7 @@ import {
     type TagIndexSourcePageCache,
 } from "nbook/shared/text-to-image-tag-index";
 import {TextToImageContractHashSchema} from "nbook/shared/text-to-image-tag-resolution";
-import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {TagIndexError} from "nbook/server/text-to-image/tag-index/tag-index-error";
 import {
     hashTagIndexActivePointer,

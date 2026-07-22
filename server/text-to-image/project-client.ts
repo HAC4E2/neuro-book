@@ -1,5 +1,7 @@
 import {PrismaClient} from "nbook/server/generated/project-prisma/client";
-import {normalizeProjectPath, resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
+import {resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
+import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
+import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
 import {assertProjectOpen, markProjectActivity, registerProjectResourceOwner, type ProjectResourceOwner} from "nbook/server/workspace-files/project-session";
 import {TrackedPrismaLibSql} from "nbook/server/workspace-files/tracked-prisma-libsql";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
@@ -17,7 +19,7 @@ export async function withEphemeralTextToImageProjectClient<T>(
     operation: (client: PrismaClient) => Promise<T>,
 ): Promise<T> {
     const normalizedProjectPath = normalizeProjectPath(projectPath);
-    const databasePath = resolveProjectDatabasePath(normalizedProjectPath);
+    const databasePath = resolveProjectDatabasePath(resolveRuntimeWorkspaceRoot(), normalizedProjectPath);
     const adapter = new TrackedPrismaLibSql({url: toSqliteFileUrl(databasePath)});
     const client = new PrismaClient({adapter});
     try {
@@ -36,7 +38,7 @@ export async function textToImageProjectClient(projectPath: string): Promise<Pri
     const normalizedProjectPath = normalizeProjectPath(projectPath);
     assertProjectOpen(normalizedProjectPath);
     markProjectActivity(normalizedProjectPath);
-    const databasePath = resolveProjectDatabasePath(normalizedProjectPath);
+    const databasePath = resolveProjectDatabasePath(resolveRuntimeWorkspaceRoot(), normalizedProjectPath);
     const cacheKey = databasePath.replaceAll("\\", "/");
     const existing = clients.get(cacheKey);
     if (existing) {
@@ -50,7 +52,7 @@ export async function textToImageProjectClient(projectPath: string): Promise<Pri
 
 /** 关闭指定 Project 的文生图 Prisma client；未创建时为幂等 no-op。 */
 export async function closeTextToImageProjectClient(projectPath: string): Promise<void> {
-    const databasePath = resolveProjectDatabasePath(projectPath);
+    const databasePath = resolveProjectDatabasePath(resolveRuntimeWorkspaceRoot(), projectPath);
     const cacheKey = databasePath.replaceAll("\\", "/");
     const entry = clients.get(cacheKey);
     if (!entry) {

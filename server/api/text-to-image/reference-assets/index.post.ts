@@ -7,7 +7,7 @@ import {
 } from "nbook/shared/text-to-image-reference-asset";
 import {TextToImageReferenceAssetService} from "nbook/server/text-to-image/reference-asset.service";
 import {requireCurrentUser} from "nbook/server/utils/auth";
-import {assertProjectOpenForRoot} from "nbook/server/workspace-files/project-open-guard";
+import {assertProjectOpen} from "nbook/server/workspace-files/project-session";
 
 const MAX_REFERENCE_ASSET_BYTES = 50 * 1024 * 1024;
 
@@ -32,7 +32,7 @@ export default defineEventHandler(async (event) => {
     if (!projectPath) {
         throw createError({statusCode: 400, message: "projectPath 不能为空"});
     }
-    assertProjectOpenForRoot(projectPath);
+    assertProjectOpen(projectPath);
     const kind = readKindPart(parts);
     const file = parts.find((part) => part.name === "file" && part.filename);
     if (!file) {

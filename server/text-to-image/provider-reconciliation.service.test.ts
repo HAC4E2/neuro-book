@@ -11,7 +11,7 @@ import {
     toSqliteFileUrl,
     writeProjectManifest,
 } from "nbook/server/workspace-files/project-workspace";
-import {resolveWorkspaceContainerRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {resolveWorkspaceContainerRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {
     createIsolatedWorkspaceAssets,
     type IsolatedWorkspaceAssets,

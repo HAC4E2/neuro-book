@@ -19,7 +19,7 @@ import {
     textToImageAssetExtension,
 } from "nbook/server/text-to-image/asset-path";
 import {textToImageProjectClient} from "nbook/server/text-to-image/project-client";
-import {resolveProjectAbsolutePath} from "nbook/server/workspace-files/project-workspace";
+import {resolveProjectAbsolutePath} from "nbook/server/text-to-image/compat";
 
 type SaveTextToImageAssetInput = {
     projectPath: string;

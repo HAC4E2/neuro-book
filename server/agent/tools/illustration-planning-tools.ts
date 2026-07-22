@@ -168,7 +168,7 @@ export function createIllustrationPlanningAgentToolDefinitions(options: ToolFact
             parameters: ResolveTagsSchema,
             validationSchema: ResolveTagsSchema,
             executionMode: "sequential",
-            async executeWithContext(context, _toolCallId, params) {
+            async executeWithContext(context, _toolCallId, params, _userInput?, _signal?, _onUpdate?) {
                 const input = Value.Parse(ResolveTagsSchema, params) as ResolveTagsInput;
                 const active = await useRun(context);
                 const items = await active.run.resolver.resolveTags({
@@ -190,7 +190,7 @@ export function createIllustrationPlanningAgentToolDefinitions(options: ToolFact
             parameters: SuggestReplacementsSchema,
             validationSchema: SuggestReplacementsSchema,
             executionMode: "sequential",
-            async executeWithContext(context, _toolCallId, params) {
+            async executeWithContext(context, _toolCallId, params, _userInput?, _signal?, _onUpdate?) {
                 const input = Value.Parse(SuggestReplacementsSchema, params) as SuggestReplacementsInput;
                 const active = await useRun(context);
                 const item = TagResolutionRunSchema.parse(await active.run.resolver.suggestTagReplacements({
@@ -213,7 +213,7 @@ export function createIllustrationPlanningAgentToolDefinitions(options: ToolFact
             parameters: FinalizeResolutionSchema,
             validationSchema: FinalizeResolutionSchema,
             executionMode: "sequential",
-            async executeWithContext(context, _toolCallId, params) {
+            async executeWithContext(context, _toolCallId, params, _userInput?, _signal?, _onUpdate?) {
                 const input = Value.Parse(FinalizeResolutionSchema, params) as FinalizeResolutionInput;
                 const active = await useRun(context);
                 const item = TagResolutionRunSchema.parse(await active.run.resolver.finalizeTagResolution({
@@ -235,7 +235,7 @@ export function createIllustrationPlanningAgentToolDefinitions(options: ToolFact
             parameters: SearchTagsSchema,
             validationSchema: SearchTagsSchema,
             executionMode: "parallel",
-            async executeWithContext(context, _toolCallId, params) {
+            async executeWithContext(context, _toolCallId, params, _userInput?, _signal?, _onUpdate?) {
                 const input = Value.Parse(SearchTagsSchema, params) as SearchTagsInput;
                 const active = await useRun(context);
                 const result = await active.run.reader.search(input);
@@ -251,7 +251,7 @@ export function createIllustrationPlanningAgentToolDefinitions(options: ToolFact
             parameters: RelatedTagsSchema,
             validationSchema: RelatedTagsSchema,
             executionMode: "parallel",
-            async executeWithContext(context, _toolCallId, params) {
+            async executeWithContext(context, _toolCallId, params, _userInput?, _signal?, _onUpdate?) {
                 const input = Value.Parse(RelatedTagsSchema, params) as RelatedTagsInput;
                 const active = await useRun(context);
                 const result = await active.run.reader.findRelated(input.canonicalName, input.limit);
@@ -267,7 +267,7 @@ export function createIllustrationPlanningAgentToolDefinitions(options: ToolFact
             parameters: ValidateResolutionsSchema,
             validationSchema: ValidateResolutionsSchema,
             executionMode: "sequential",
-            async executeWithContext(context, _toolCallId, params) {
+            async executeWithContext(context, _toolCallId, params, _userInput?, _signal?, _onUpdate?) {
                 const input = Value.Parse(ValidateResolutionsSchema, params) as ValidateResolutionsInput;
                 if (new Set(input.resolutionIds).size !== input.resolutionIds.length) throw new Error("TAG_RESOLUTION_INVALID: resolutionId 不能重复");
                 const active = await useRun(context);
@@ -303,7 +303,7 @@ export function createIllustrationPlanningAgentToolDefinitions(options: ToolFact
             parameters: SearchPatternsSchema,
             validationSchema: SearchPatternsSchema,
             executionMode: "parallel",
-            async executeWithContext(context, _toolCallId, params) {
+            async executeWithContext(context, _toolCallId, params, _userInput?, _signal?, _onUpdate?) {
                 const input = Value.Parse(SearchPatternsSchema, params) as SearchPatternsInput;
                 const active = await useRun(context);
                 const terms = normalizeSearch(input.query).split(" ").filter(Boolean);
@@ -335,7 +335,7 @@ export function createIllustrationPlanningAgentToolDefinitions(options: ToolFact
             parameters: GetPatternsSchema,
             validationSchema: GetPatternsSchema,
             executionMode: "parallel",
-            async executeWithContext(context, _toolCallId, params) {
+            async executeWithContext(context, _toolCallId, params, _userInput?, _signal?, _onUpdate?) {
                 const input = Value.Parse(GetPatternsSchema, params) as GetPatternsInput;
                 const active = await useRun(context);
                 const candidates = getTagPatternCandidates({candidateSet: active.toolContext.patternCandidates, patternIds: input.patternIds});
@@ -412,6 +412,6 @@ function recordToolCall(active: ActiveToolRun, toolKey: string, args: object, re
     });
 }
 
-function toolJson(value: object, details: object) {
-    return {content: [{type: "text" as const, text: JSON.stringify(value, null, 2)}], details};
+function toolJson(value: Record<string, unknown>, details: Record<string, unknown>) {
+    return {content: [{type: "text" as const, text: JSON.stringify(value, null, 2)}], details: details as never};
 }

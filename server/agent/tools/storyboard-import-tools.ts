@@ -55,7 +55,7 @@ const inspectTool = defineAgentTool({
         const inspected = await inspectStoryboardImport({
             projectPath,
             sourceRelativePath: input.sourceRelativePath,
-            workspaceRoot: context.workspaceRoot,
+            workspaceRoot: context.workspaceFsRoot,
             converterVersion: ILLUSTRATION_DIRECTOR_CONVERTER_VERSION,
         });
         if (input.chunkIndex === undefined) {
@@ -135,7 +135,7 @@ const submitTool = defineAgentTool({
         const result = await convertStoryboardImport({
             projectPath,
             sourceRelativePath: input.sourceRelativePath,
-            workspaceRoot: context.workspaceRoot,
+            workspaceRoot: context.workspaceFsRoot,
             converterVersion: ILLUSTRATION_DIRECTOR_CONVERTER_VERSION,
             expectedImportId: input.expectedImportId,
             conversion: StoryboardConversionOutputSchema.parse(input.conversion),
@@ -205,9 +205,9 @@ function releaseToolBudget(context: ToolExecutionContext): void {
     invocationBudgets.delete(context.invocationId ?? `session:${String(context.sessionId)}`);
 }
 
-function toolJson(value: object, details: object) {
+function toolJson(value: Record<string, unknown>, details: Record<string, unknown>) {
     return {
         content: [{type: "text" as const, text: JSON.stringify(value, null, 2)}],
-        details,
+        details: details as never,
     };
 }

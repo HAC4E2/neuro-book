@@ -47,8 +47,8 @@ import {TagIndexReader} from "nbook/server/text-to-image/tag-index/tag-index-rea
 import {TagIndexStore} from "nbook/server/text-to-image/tag-index/tag-index-store";
 import {TagPolicyRegistryService} from "nbook/server/text-to-image/tag-index/tag-policy-registry";
 import {TagResolverService} from "nbook/server/text-to-image/tag-index/tag-resolver.service";
-import {assertProjectOpenForRoot} from "nbook/server/workspace-files/project-open-guard";
-import {resolveWorkspaceRootInput} from "nbook/server/workspace-files/novel-workspace";
+import {assertProjectOpen} from "nbook/server/workspace-files/project-session";
+import {resolveWorkspaceRootInput} from "nbook/server/text-to-image/compat";
 import {readWorkspaceTextFile, scanWorkspaceTree} from "nbook/server/workspace-files/workspace-files";
 
 const StyleChannelSchema = z.enum(["positivePrefix", "positiveSuffix", "negativePrefix", "negativeSuffix"]);
@@ -227,12 +227,12 @@ function createProductionDependencies(): IllustrationExecutionCompilerDependenci
 async function readPublishedTarget(input: {projectPath: string; placeholderId: string}): Promise<IllustrationExecutionTargetSnapshot> {
     const projectPath = z.string().trim().min(1).max(1_000).parse(input.projectPath);
     const placeholderId = z.string().trim().min(1).max(200).parse(input.placeholderId);
-    assertProjectOpenForRoot(projectPath);
+    assertProjectOpen(projectPath);
     const root = z.string().min(1).parse(await resolveWorkspaceRootInput({projectPath}));
     const client = await textToImageProjectClient(projectPath);
     const [metadata, nodes] = await Promise.all([
         client.projectMetadata.findUnique({where: {key: "projectId"}}),
-        scanWorkspaceTree({root, targets: ["manuscript"], depth: null, recursive: true}),
+        scanWorkspaceTree({root: root as any, targets: ["manuscript"], depth: null, recursive: true}),
     ]);
     if (!metadata) {
         throw new IllustrationExecutionCompilerError("ILLUSTRATION_PROJECT_ID_MISSING", "Project 数据库缺少可移植 projectId");
@@ -244,7 +244,7 @@ async function readPublishedTarget(input: {projectPath: string; placeholderId: s
         .sort(compareText);
     const matches: Array<{chapterPath: string; markdown: string; payload: NonNullable<ReturnType<typeof findTextToImagePromptMarkdown>>["payload"]}> = [];
     for (const chapterPath of chapterPaths) {
-        const markdown = await readWorkspaceTextFile(root, chapterPath);
+        const markdown = await readWorkspaceTextFile(root as any, chapterPath);
         const found = findTextToImagePromptMarkdown(markdown, placeholderId);
         if (!found) continue;
         if (findTextToImagePromptMarkdown(markdown.replace(found.raw, ""), placeholderId)) {
@@ -263,7 +263,7 @@ async function readPublishedTarget(input: {projectPath: string; placeholderId: s
     const storyboardPath = match.chapterPath.replace(/\/index\.md$/u, "/illustrations.md");
     let storyboardMarkdown: string;
     try {
-        storyboardMarkdown = await readWorkspaceTextFile(root, storyboardPath);
+        storyboardMarkdown = await readWorkspaceTextFile(root as any, storyboardPath);
     } catch (error) {
         if (isMissingFileError(error)) {
             throw new IllustrationExecutionCompilerError("ILLUSTRATION_EXECUTION_TARGET_INVALID", "placeholder 缺少同章 illustrations.md");

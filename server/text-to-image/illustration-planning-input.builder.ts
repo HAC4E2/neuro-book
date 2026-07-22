@@ -454,13 +454,13 @@ function createProductionPorts(): IllustrationPlanningInputPorts {
                         bindingId: ILLUSTRATION_DIRECTOR_PROFILE_KEY,
                         modelKey,
                         providerId: resolved.providerId,
-                        provider: {name: resolved.provider.name, api: resolved.provider.api, enabled: resolved.provider.enabled},
+                        provider: {name: resolved.provider.name, modelApi: resolved.provider.modelApi, enabled: resolved.provider.enabled},
                         endpoint: resolved.provider.options.baseURL,
                         model: {
                             id: resolved.model.id,
                             name: resolved.model.name,
                             api: resolved.model.api,
-                            provider: resolved.model.provider,
+                            // provider 字段已从 ConfiguredModelConfig 移除
                             reasoning: resolved.model.reasoning,
                             input: resolved.model.input,
                             maxTokens: resolved.model.maxTokens,

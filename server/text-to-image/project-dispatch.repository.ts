@@ -16,7 +16,7 @@ import {
     isProjectRootDeleted,
     toSqliteFileUrl,
 } from "nbook/server/workspace-files/project-workspace";
-import {resolveWorkspaceContainerRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 
 export type ProjectDispatchInspection =
     | {kind: "committed"; projectPath: string; receipt: IllustrationExecutionRegistrationReceipt}
@@ -40,7 +40,7 @@ export class ProjectDispatchRepository {
     private readonly workspaceRoot: string;
 
     constructor(options: RepositoryOptions = {}) {
-        this.workspaceRoot = path.resolve(options.workspaceRoot ?? resolveWorkspaceContainerRoot());
+        this.workspaceRoot = path.resolve(options.workspaceRoot ?? resolveRuntimeWorkspaceRoot());
     }
 
     /** 先尝试持久 projectPath，再仅按精确 ProjectMetadata.projectId 重定位。 */
