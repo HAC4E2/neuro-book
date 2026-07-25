@@ -283,9 +283,10 @@ program.command("update")
 
 program.command("start")
     .description("启动当前或指定安装。")
-    .action(async () => {
+    .option("--no-health-check", "Windows Portable跳过HTTP健康检查和自动打开浏览器。")
+    .action(async (options: {healthCheck: boolean}) => {
         const {root, manifest} = await currentInstallation();
-        await startInstallationApplication(root, manifest);
+        await startInstallationApplication(root, manifest, {healthCheck: options.healthCheck});
     });
 
 program.command("status")

@@ -2,6 +2,14 @@
 
 > 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`的五平台Product、原生双架构OCI/manifest merge、Windows/Linux候选、公开payload、Windows完整`0.8.6 data/`复用、Docker x64/ARM64与rootless Podman链全部通过，最终`release-manifest.json`和`SHA256SUMS`已发布；它是最新已确认完整canary。当前源码协议为Installation Manifest v4、Release Manifest v3与Operation Journal v3；Canary A→B事务更新仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
 
+## 2026-07-25：Windows Portable无健康检查临时启动参数
+
+- Issue #13显示服务可正常使用，但Manager在120秒后仍报告`/api/app/version`未通过并终止Product。当前缺少用户机器日志，不能把探测失败的具体原因写成已确认根因。
+- Manager `start`新增`--no-health-check`，仅允许`windows-portable`使用。它保留中断Operation恢复、数据库与Attachment迁移、State Root检查和前台Product等待，只跳过HTTP轮询、超时终止与自动打开浏览器；默认启动合同不变。
+- 参数通过正式Manager入口传递到`startInstallationApplication()`和`startApplication()`，不会修改Portable launcher模板。现有`0.8.19`压缩包可用公开Manager `.30`临时运行，无需重新发布应用或Portable资产。
+- 回归覆盖无HTTP/浏览器调用、迁移后选项传递、非Portable迁移前拒绝；packed CLI审计要求`start --help`包含新参数。
+- 本地验证：Runtime与Manager typecheck通过；Manager完整suite为29文件154项通过，另1文件/2项按平台跳过；pack审计生成5文件、约0.38 MiB tarball，并在临时目录真实安装后确认新参数存在。
+
 ## 2026-07-20：`0.8.18` 不可变容器镜像身份
 
 - Release workflow [`29736480814`](https://github.com/notnotype/neuro-book/actions/runs/29736480814)证明Podman `ps --quiet`与唯一容器ID Adapter生效；安装、migration、启动、管理员创建、登录和running doctor的容器查询均已越过。

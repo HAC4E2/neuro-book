@@ -84,15 +84,28 @@ describe("Journaled application migration", () => {
         const manifest = productManifest();
         migrations.plan.mockResolvedValue(null);
 
-        await startInstallationApplication(root, manifest);
+        await startInstallationApplication(root, manifest, {healthCheck: true});
 
         expect(migrations.database).toHaveBeenCalledWith(root, manifest, root);
-        expect(migrations.start).toHaveBeenCalledWith(root, manifest);
+        expect(migrations.start).toHaveBeenCalledWith(root, manifest, {healthCheck: true});
         expect(migrations.start.mock.invocationCallOrder[0]).toBeGreaterThan(migrations.plan.mock.invocationCallOrder[0]!);
         const operationFiles = await readdir(join(root, ".deploy", "operations"));
         expect(operationFiles).toHaveLength(1);
         const saved = JSON.parse(await readFile(join(root, ".deploy", "operations", operationFiles[0]!), "utf8")) as {phase: string; outcome: string};
         expect(saved).toMatchObject({phase: "committed", outcome: "success"});
+    });
+
+    it("非Windows Portable关闭健康检查时在迁移前拒绝", async () => {
+        const root = await mkdtemp(join(tmpdir(), "manager-start-no-health-check-"));
+        roots.push(root);
+        const manifest = productManifest();
+
+        await expect(startInstallationApplication(root, manifest, {healthCheck: false}))
+            .rejects.toThrow("--no-health-check仅支持Windows Portable");
+
+        expect(migrations.database).not.toHaveBeenCalled();
+        expect(migrations.plan).not.toHaveBeenCalled();
+        expect(migrations.start).not.toHaveBeenCalled();
     });
 });
 

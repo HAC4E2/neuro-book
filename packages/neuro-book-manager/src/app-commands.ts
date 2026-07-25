@@ -57,8 +57,20 @@ export type AttachmentMigrationPlan = {
     sessions: AttachmentMigrationSessionPlan[];
 };
 
+export type StartApplicationOptions = {
+    /** Windows Portable是否等待HTTP健康检查通过并自动打开浏览器；默认启用。 */
+    healthCheck?: boolean;
+};
+
 /** 启动当前安装。原生模式前台运行，Docker 模式后台运行。 */
-export async function startApplication(root: string, manifest: InstallationManifest): Promise<void> {
+export async function startApplication(
+    root: string,
+    manifest: InstallationManifest,
+    options: StartApplicationOptions = {},
+): Promise<void> {
+    if (options.healthCheck === false && manifest.profile !== "windows-portable") {
+        throw new Error("--no-health-check仅支持Windows Portable。");
+    }
     assertInstallationHostCompatible(manifest);
     const stateRoot = resolve(root, manifest.stateRoot);
     await ensureStateFiles(stateRoot, 3000, manifest.profile !== "windows-portable");
@@ -83,7 +95,7 @@ export async function startApplication(root: string, manifest: InstallationManif
     }
     const bun = resolveBun(root, manifest);
     if (manifest.profile === "windows-portable") {
-        await runPortableForeground(bun, entry, root, env, Number(env.NUXT_PORT ?? env.PORT ?? "3000"));
+        await runPortableForeground(bun, entry, root, env, Number(env.NUXT_PORT ?? env.PORT ?? "3000"), options);
         return;
     }
     await run(bun, [entry], {cwd: root, env});
@@ -279,7 +291,14 @@ async function runApplicationCommand(
     });
 }
 
-async function runPortableForeground(bun: string, entry: string, root: string, env: NodeJS.ProcessEnv, port: number): Promise<void> {
+export async function runPortableForeground(
+    bun: string,
+    entry: string,
+    root: string,
+    env: NodeJS.ProcessEnv,
+    port: number,
+    options: StartApplicationOptions = {},
+): Promise<void> {
     const child = spawn(bun, [entry], {cwd: root, env, stdio: "inherit", windowsHide: false});
     const exited = new Promise<void>((resolvePromise, rejectPromise) => {
         child.once("error", rejectPromise);
@@ -288,6 +307,10 @@ async function runPortableForeground(bun: string, entry: string, root: string, e
             else resolvePromise();
         });
     });
+    if (options.healthCheck === false) {
+        await exited;
+        return;
+    }
     const url = `http://127.0.0.1:${port}`;
     const deadline = Date.now() + 120_000;
     let opened = false;

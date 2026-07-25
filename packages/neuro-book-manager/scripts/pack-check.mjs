@@ -27,6 +27,15 @@ try {
     if (managerVersion.trim() !== packageJson.version) {
         throw new Error(`Manager --version输出错误：${managerVersion.trim()}`);
     }
+    const startHelp = await runCapture([
+        "bun",
+        join(temporaryRoot, "node_modules", "@notnotype", "neuro-book-manager", "dist", "neuro-book.mjs"),
+        "start",
+        "--help",
+    ], temporaryRoot);
+    if (!startHelp.includes("--no-health-check")) {
+        throw new Error("packed Manager缺少start --no-health-check参数。");
+    }
     await run([
         "bun",
         join(temporaryRoot, "node_modules", "@notnotype", "neuro-book-manager", "dist", "neuro-book.mjs"),

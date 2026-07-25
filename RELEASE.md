@@ -1,5 +1,21 @@
 # Release Notes
 
+## Manager 0.1.0-canary.30 - 2026-07-25
+
+本次只发布`@notnotype/neuro-book-manager`，不创建新的NeuroBook应用Release或Windows Portable压缩包。
+
+### Windows Portable临时启动参数
+
+- `start`新增`--no-health-check`。它跳过`/api/app/version`启动探测、120秒超时终止和自动打开浏览器，但仍执行中断Operation恢复、数据库与Attachment迁移、State Root检查和前台Product生命周期管理。
+- 参数只允许用于`windows-portable`；其他Profile会在启动迁移前拒绝，默认`start`行为保持不变。
+- 已解压`0.8.19` Portable的用户可在Portable根目录运行以下命令，随后手动打开`http://127.0.0.1:3000`：
+
+```cmd
+.runtime\bin\bun.cmd x --bun @notnotype/neuro-book-manager@0.1.0-canary.30 --root "%CD%" start --no-health-check
+```
+
+- 该命令临时运行公开Manager `.30`，不会替换压缩包内置的`.29`。后续重新双击原`Start Neuro Book.cmd`仍会使用内置Manager和默认健康检查。
+
 ## 0.8.19-canary - 2026-07-20
 
 本次patch统一Docker与Podman的不可变镜像身份比较。该版本需要`@notnotype/neuro-book-manager@0.1.0-canary.29`或更高版本。

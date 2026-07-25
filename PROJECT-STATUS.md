@@ -14,6 +14,7 @@ neuro-book 当前处于快速开发阶段。本轮产品主路径收敛到 **nov
 - Product Application Root按只读资产处理。Profile/Variable运行时只验证内置artifact，用户编译、同步与动态import cache统一写入State Root的`workspace/.nbook/agent/.staging/`；Docker Compose挂载State Root `.env`，不通过root用户或修改`/app`权限换取可写性。
 - `docker-compose.yml` 端口映射为 `${NUXT_PORT}:${NUXT_PORT}`（容器内按 Boot Config 监听 NUXT_PORT）；旧的 `${NUXT_PORT}:3000` 映射在非 3000 端口下不通，已修复。
 - Windows Product Portable 错误报告日志落在 `data/logs/`；后端提供 `/api/app/logs/status` 与 `/api/app/logs/download`，日志包只包含日志和 manifest，不包含 config、数据库或 workspace 正文。
+- Windows Portable可通过Manager `start --no-health-check`临时跳过HTTP启动探测、120秒终止和自动打开浏览器；恢复、迁移、State Root与前台Product生命周期合同仍保留，其他Profile拒绝该参数。
 - 数据库已硬切 SQLite-only：App SQLite默认位于 State Root的`workspace/.nbook/neuro-book.sqlite`；Project SQLite 位于每个 Project Workspace 的 `.nbook/project.sqlite`。App SQLite Location统一服务Product Runtime、Prisma CLI、Manager备份与Docker：相对`file:`值必须留在State Root，原生Profile可明确使用外部绝对文件，Docker拒绝未建模的外部数据库；配置继续保存可迁移逻辑URL，不受Product cwd影响。
 - Project Workspace 根目录 `project.yaml` 是项目身份真相源，App SQLite 不维护 Project index 或 `Novel` mapping。
 - Project Workspace File Index 使用弱一致扫描：扫描期间消失的路径仅在 `ENOENT` 时从本轮 snapshot 忽略，权限、越界与其他 I/O 错误继续失败。Project 下载在 OS 临时区对 Project SQLite 和已有 History SQLite 分别生成独立在线 snapshot，不复制 live WAL/SHM；History SQLite 可能包含全文与已删除内容，前端会提示分享隐私风险。

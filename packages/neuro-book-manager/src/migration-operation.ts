@@ -5,6 +5,7 @@ import {
     migrateDatabase,
     planAttachmentMigration,
     startApplication,
+    type StartApplicationOptions,
 } from "#manager/app-commands";
 import {ensureStateFiles} from "#manager/config";
 import {withInstallLock} from "#manager/lock";
@@ -60,12 +61,19 @@ export async function applyJournaledApplicationMigrations(
 export async function startInstallationApplication(
     root: string,
     manifest: InstallationManifest,
+    options: StartApplicationOptions = {},
 ): Promise<void> {
+    if (options.healthCheck === false && manifest.profile !== "windows-portable") {
+        throw new Error("--no-health-check仅支持Windows Portable。");
+    }
     const paths = installationPaths(root, manifest.profile === "windows-portable");
     let activeManifest = manifest;
     await withInstallLock(join(paths.deploy, "install.lock"), async () => {
         const recovered = await recoverInterruptedOperations(paths.root);
         activeManifest = recovered ?? await readInstallationManifest(paths.manifest) ?? manifest;
+        if (options.healthCheck === false && activeManifest.profile !== "windows-portable") {
+            throw new Error("--no-health-check仅支持Windows Portable。");
+        }
         assertInstallationHostCompatible(activeManifest);
         const stateRoot = resolve(paths.root, activeManifest.stateRoot);
         await ensureStateFiles(stateRoot, 3000, activeManifest.profile !== "windows-portable");
@@ -88,5 +96,5 @@ export async function startInstallationApplication(
             throw error;
         }
     });
-    await startApplication(paths.root, activeManifest);
+    await startApplication(paths.root, activeManifest, options);
 }

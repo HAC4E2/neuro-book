@@ -60,6 +60,8 @@ neuro-book --root <path> doctor
 
 Windows Portable的State Root固定为`data/`。如果Installation Root下另外出现了真实`workspace/`目录，Manager会把它视为可能的数据分叉：`doctor`报告`state.shadow-workspace`失败，`status`给出人工处理步骤，`start`只警告并继续。Manager不会自动复制、合并、删除或重命名两个目录；junction或symlink若与`data/workspace/`指向同一真实目录则不会误报。
 
+Windows Portable可使用`neuro-book --root <安装目录> start --no-health-check`跳过启动HTTP健康检查和自动打开浏览器。该参数仍执行启动前恢复与数据迁移，并保持Product前台运行；仅用于健康探测与实际服务状态不一致时的临时诊断，其他Profile会拒绝该参数。
+
 已有Manifest v4实例使用`instances import <path> --yes`执行离线完整性门禁后登记；v3不自动迁移，需要重新安装并只复用用户状态。`--yes`只接受“服务未启动”等warning，不能绕过checksum、wrapper或Operation blocker。无Manifest源码checkout使用`adopt`显式接管；三个Source Profile均在detached worktree准备，dirty、未知remote或非法branch会停止。无法证明revision/checksum的历史`.output`不会直接纳入管理。
 
 `status`只做轻量路径、Operation和服务探测；`doctor`执行完整checksum、组件版本、wrapper内容、Source/Product revision、Compose镜像和HTTP版本检查。服务正常停止是warning且`healthy=true`，下一步会提示`start`；Docker/Compose不可用、运行中镜像或版本错误、HTTP不可达和组件损坏才会使doctor失败。Docker `start`会等待真实版本接口通过，Compose命令成功不等于应用健康。

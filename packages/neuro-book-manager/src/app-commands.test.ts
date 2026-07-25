@@ -8,6 +8,7 @@ import {
     createAdmin,
     planAttachmentMigration,
     rollbackAttachmentMigration,
+    runPortableForeground,
 } from "#manager/app-commands";
 import type {ContainerEngine, InstallationManifest} from "#manager/types";
 
@@ -160,6 +161,23 @@ describe("容器管理员命令", () => {
         expect(processCommands.run).toHaveBeenCalledWith("docker", expect.arrayContaining([
             "exec", "-T", "-e", "AUTH_ADMIN_PASSWORD=test-password", "app",
         ]), {cwd: root});
+    });
+});
+
+describe("Windows Portable前台启动", () => {
+    it("关闭健康检查时不发起HTTP探测或尝试打开浏览器", async () => {
+        const fetch = vi.spyOn(globalThis, "fetch");
+
+        try {
+            await runPortableForeground(process.execPath, "--version", process.cwd(), process.env, 3000, {
+                healthCheck: false,
+            });
+
+            expect(fetch).not.toHaveBeenCalled();
+            expect(processCommands.run).not.toHaveBeenCalled();
+        } finally {
+            fetch.mockRestore();
+        }
     });
 });
 
