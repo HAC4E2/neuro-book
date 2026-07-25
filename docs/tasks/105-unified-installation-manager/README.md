@@ -9,6 +9,7 @@
 - 参数通过正式Manager入口传递到`startInstallationApplication()`和`startApplication()`，不会修改Portable launcher模板。现有`0.8.19`压缩包可用公开Manager `.30`临时运行，无需重新发布应用或Portable资产。
 - 回归覆盖无HTTP/浏览器调用、迁移后选项传递、非Portable迁移前拒绝；packed CLI审计要求`start --help`包含新参数。
 - 本地验证：Runtime与Manager typecheck通过；Manager完整suite为29文件154项通过，另1文件/2项按平台跳过；pack审计生成5文件、约0.38 MiB tarball，并在临时目录真实安装后确认新参数存在。
+- Manager `.30`发布workflow [`30152514456`](https://github.com/notnotype/neuro-book/actions/runs/30152514456)全绿；npm精确版本、`canary` dist-tag与`gitHead`一致，全新Bun缓存中的公开包返回`.30`且`start --help`包含`--no-health-check`。本轮没有创建应用Release或重新打包Windows Portable。
 
 ## 2026-07-20：`0.8.18` 不可变容器镜像身份
 

@@ -4,6 +4,8 @@
 
 本次只发布`@notnotype/neuro-book-manager`，不创建新的NeuroBook应用Release或Windows Portable压缩包。
 
+Manager发布workflow [`30152514456`](https://github.com/notnotype/neuro-book/actions/runs/30152514456)已通过；npm精确版本与`canary` dist-tag均为`0.1.0-canary.30`，`gitHead`为`e37069af1c629bba14c2b0600abc1133b9e65203`。全新Bun缓存中的真实`bunx`已验证版本和`start --help`参数。
+
 ### Windows Portable临时启动参数
 
 - `start`新增`--no-health-check`。它跳过`/api/app/version`启动探测、120秒超时终止和自动打开浏览器，但仍执行中断Operation恢复、数据库与Attachment迁移、State Root检查和前台Product生命周期管理。
