@@ -5,6 +5,7 @@ import {
     TextToImageRecipeSourceSchema,
     type TextToImageRecipeSnapshot,
     type TextToImageRecipeSource,
+    type TextToImageRecipeStyle,
 } from "nbook/shared/text-to-image-recipe";
 import {
     createTextToImageRecipeSnapshot,
@@ -64,17 +65,17 @@ export type TextToImageManualCompiledRequest = {
         smeaDyn: boolean;
         decrisper: boolean;
     };
-    style: TextToImageRecipeSource["style"];
+    style: TextToImageRecipeStyle;
     recipeSnapshot: TextToImageRecipeSnapshot;
 };
 
 /** Recipe 文件存储 seam：生产实现统一走 Project 生命周期、文件历史与索引失效。 */
 export interface TextToImageRecipeFileStore {
     resolveProjectRoot(projectPath: string): Promise<string>;
-    assertProjectOpen(root: string): void;
+    assertProjectOpen(projectPath: string): void;
     read(root: string, filePath: string): Promise<string | null>;
-    write(input: {root: string; filePath: string; content: string; knownBefore: string | null}): Promise<void>;
-    invalidate(root: string): void;
+    write(input: {root: string; projectPath: string; filePath: string; content: string; knownBefore: string | null}): Promise<void>;
+    invalidate(root: string, projectPath: string): void;
 }
 
 /** 保存前发现 Project Recipe 已被其他入口修改。 */
@@ -118,8 +119,8 @@ export class TextToImageRecipeService {
     /** 读取 Recipe；缺失时返回未持久化默认草稿，绝不在 GET 中隐式写盘。 */
     async read(projectPathInput: string): Promise<TextToImageRecipeDocument> {
         const projectPath = z.string().trim().min(1).parse(projectPathInput);
+        this.files.assertProjectOpen(projectPath);
         const root = await this.files.resolveProjectRoot(projectPath);
-        this.files.assertProjectOpen(root);
         return await withRecipeFileLock(root, async () => {
             const markdown = await this.files.read(root, DEFAULT_TEXT_TO_IMAGE_RECIPE_PATH);
             if (markdown === null) {
@@ -136,8 +137,8 @@ export class TextToImageRecipeService {
         const projectPath = z.string().trim().min(1).parse(input.projectPath);
         const source = TextToImageRecipeSourceSchema.parse(input.source);
         assertRecipeCapabilities(source);
+        this.files.assertProjectOpen(projectPath);
         const root = await this.files.resolveProjectRoot(projectPath);
-        this.files.assertProjectOpen(root);
         return await withRecipeFileLock(root, async () => {
             const existingMarkdown = await this.files.read(root, DEFAULT_TEXT_TO_IMAGE_RECIPE_PATH);
             let currentHash: string | null = null;
@@ -163,13 +164,30 @@ export class TextToImageRecipeService {
             const markdown = renderTextToImageRecipeMarkdown(source);
             await this.files.write({
                 root,
+                projectPath,
                 filePath: DEFAULT_TEXT_TO_IMAGE_RECIPE_PATH,
                 content: markdown,
                 knownBefore: existingMarkdown,
             });
-            this.files.invalidate(root);
+            this.files.invalidate(root, projectPath);
             return {exists: true, source, snapshot: createTextToImageRecipeSnapshot(source)};
         });
+    }
+
+    /**
+     * 首次使用时把默认 Recipe 落盘（"首开自动落盘"）。
+     * 已存在时原样返回；现存文件无效时保持 fail-closed（由 read 抛 Invalid，不做覆盖）；
+     * 并发首创只允许一个赢家，输家读回已落盘文档。
+     */
+    async ensurePersistedDefault(projectPathInput: string): Promise<TextToImageRecipeDocument> {
+        const existing = await this.read(projectPathInput);
+        if (existing.exists) return existing;
+        try {
+            return await this.save({projectPath: projectPathInput, source: existing.source, expectedRecipeSourceHash: null});
+        } catch (error) {
+            if (error instanceof TextToImageRecipeConflictError) return await this.read(projectPathInput);
+            throw error;
+        }
     }
 
     /**
@@ -193,6 +211,10 @@ export class TextToImageRecipeService {
         }
         const source = document.source;
         assertRecipeCapabilities(source);
+        const activeStyle = source.styles.find((item) => item.id === source.activeStyleId) ?? source.styles[0];
+        if (!activeStyle) {
+            throw new TextToImageRecipeInvalidError("Recipe 缺少画风串预设", null);
+        }
         return {
             prompt: parsed.prompt,
             negativePrompt: parsed.negativePrompt,
@@ -213,7 +235,15 @@ export class TextToImageRecipeService {
                 smeaDyn: source.advanced.smeaDyn,
                 decrisper: source.advanced.decrisper,
             },
-            style: source.style,
+            style: {
+                positivePrefix: activeStyle.positivePrefix,
+                positiveSuffix: activeStyle.positiveSuffix,
+                negativePrefix: activeStyle.negativePrefix,
+                negativeSuffix: activeStyle.negativeSuffix,
+                useFurryDataset: activeStyle.useFurryDataset,
+                positiveQualityPreset: activeStyle.positiveQualityPreset,
+                negativeQualityPreset: activeStyle.negativeQualityPreset,
+            },
             recipeSnapshot: document.snapshot,
         };
     }
@@ -224,8 +254,8 @@ class WorkspaceRecipeFileStore implements TextToImageRecipeFileStore {
         return z.string().min(1).parse(await resolveWorkspaceRootInput({projectPath}));
     }
 
-    assertProjectOpen(root: string): void {
-        assertProjectOpen(root);
+    assertProjectOpen(projectPath: string): void {
+        assertProjectOpen(projectPath);
     }
 
     async read(root: string, filePath: string): Promise<string | null> {
@@ -239,9 +269,9 @@ class WorkspaceRecipeFileStore implements TextToImageRecipeFileStore {
         }
     }
 
-    async write(input: {root: string; filePath: string; content: string; knownBefore: string | null}): Promise<void> {
+    async write(input: {root: string; projectPath: string; filePath: string; content: string; knownBefore: string | null}): Promise<void> {
         await writeWorkspaceTextFileTracked({
-            target: {kind: "project-workspace" as const, root: input.root as any, projectPath: ""},
+            target: {kind: "project-workspace" as const, root: input.root as any, projectPath: input.projectPath},
             filePath: input.filePath,
             content: input.content,
             actor: USER_LOCAL_ACTOR,
@@ -249,8 +279,8 @@ class WorkspaceRecipeFileStore implements TextToImageRecipeFileStore {
         } as any);
     }
 
-    invalidate(root: string): void {
-        invalidateProjectWorkspaceIndexAfterMutation({target: {kind: "project-workspace" as const, root: root as any, projectPath: ""}} as any);
+    invalidate(root: string, projectPath: string): void {
+        invalidateProjectWorkspaceIndexAfterMutation({target: {kind: "project-workspace" as const, root: root as any, projectPath}} as any);
     }
 }
 

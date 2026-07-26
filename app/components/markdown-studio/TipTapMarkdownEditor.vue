@@ -14,6 +14,7 @@ import {
     type TextToImagePromptController,
     unavailableTextToImagePromptController,
 } from "nbook/app/components/markdown-studio/tiptap/TextToImagePrompt";
+import type {WorkspaceImageSrcResolver} from "nbook/app/components/markdown-studio/tiptap/WorkspaceImage";
 import {useDialog} from "nbook/app/composables/useDialog";
 import {useEditorChangeDebounce} from "nbook/app/composables/useEditorChangeDebounce";
 import {useNotification} from "nbook/app/composables/useNotification";
@@ -48,6 +49,7 @@ const props = withDefaults(defineProps<{
     popoverDirection?: PopoverDirection;
     matchPopoverWidth?: boolean;
     textToImagePromptController?: TextToImagePromptController;
+    imageSrcResolver?: WorkspaceImageSrcResolver;
 }>(), {
     initialValue: "",
     visible: true,
@@ -72,6 +74,7 @@ const props = withDefaults(defineProps<{
     popoverDirection: "auto",
     matchPopoverWidth: false,
     textToImagePromptController: () => unavailableTextToImagePromptController,
+    imageSrcResolver: undefined,
 });
 
 const emit = defineEmits<{
@@ -248,6 +251,7 @@ const editor = useEditor({
             resolveReference: props.resolveReference,
             enableQuickTriggers: props.enableQuickTriggers,
             textToImagePromptController: props.textToImagePromptController,
+            ...(props.imageSrcResolver ? {imageSrcResolver: props.imageSrcResolver} : {}),
         }),
         InlineAiReferenceHighlight,
     ],

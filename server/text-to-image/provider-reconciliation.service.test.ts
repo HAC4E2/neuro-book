@@ -11,7 +11,7 @@ import {
     toSqliteFileUrl,
     writeProjectManifest,
 } from "nbook/server/workspace-files/project-workspace";
-import {resolveWorkspaceContainerRoot} from "nbook/server/workspace-files/workspace-runtime-root";
+import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {
     createIsolatedWorkspaceAssets,
     type IsolatedWorkspaceAssets,
@@ -118,14 +118,14 @@ describe("ProjectTextToImageProviderJobReconciler", () => {
 
     async function createProject(label: string): Promise<string> {
         const projectPath = `workspace/provider-reconcile-${label}-${randomUUID()}`;
-        await writeProjectManifest(projectPath, {kind: "novel", title: label, summary: ""});
+        await writeProjectManifest(resolveRuntimeWorkspaceRoot(), projectPath, {kind: "novel", title: label, summary: ""});
         await createJobTable(projectPath);
         return projectPath;
     }
 
     async function createDatabaseOnlyProject(): Promise<string> {
         const slug = `provider-reconcile-missing-manifest-${randomUUID()}`;
-        const projectRoot = path.join(resolveWorkspaceContainerRoot(), slug);
+        const projectRoot = path.join(resolveRuntimeWorkspaceRoot(), slug);
         await fs.mkdir(projectRoot, {recursive: true});
         const projectPath = `workspace/${slug}`;
         await createJobTable(projectPath);
@@ -133,7 +133,7 @@ describe("ProjectTextToImageProviderJobReconciler", () => {
     }
 
     async function createJobTable(projectPath: string): Promise<void> {
-        const databasePath = resolveProjectDatabasePath(projectPath);
+        const databasePath = resolveProjectDatabasePath(resolveRuntimeWorkspaceRoot(), projectPath);
         await fs.mkdir(path.dirname(databasePath), {recursive: true});
         const client = await database(projectPath);
         await client.execute(`CREATE TABLE "ProjectMetadata" ("key" TEXT NOT NULL PRIMARY KEY, "value" TEXT NOT NULL)`);
@@ -147,7 +147,7 @@ describe("ProjectTextToImageProviderJobReconciler", () => {
     }
 
     async function database(projectPath: string): Promise<Client> {
-        const client = createClient({url: toSqliteFileUrl(resolveProjectDatabasePath(projectPath))});
+        const client = createClient({url: toSqliteFileUrl(resolveProjectDatabasePath(resolveRuntimeWorkspaceRoot(), projectPath))});
         clients.push(client);
         return client;
     }

@@ -46,11 +46,11 @@ export class IllustrationPlaceholderStatusService {
         this.dependencies = dependencies;
     }
 
-    /** 持久 Job 优先；没有 Job 时才验证当前发布 target，绝不创建 Preview 或写入状态。 */
+    /** 持久 Job 优先；没有 Job 或最新 Job 已是可再生成终态时，验证当前发布 target，绝不创建 Preview 或写入状态。 */
     async read(rawInput: {projectPath: string; ownerUserId: number; placeholderId: string}): Promise<IllustrationPlaceholderStatus> {
         const input = PlaceholderStatusInputSchema.parse(rawInput);
         const job = await this.dependencies.readLatestJob(input);
-        if (job) return createJobStatus(input.placeholderId, job);
+        if (job && !isRegenerableTerminalJob(job)) return createJobStatus(input.placeholderId, job);
         try {
             const sourceIdentityHash = TextToImageContractHashSchema.parse(await this.dependencies.readSourceIdentity(input));
             return finalizeStatus({
@@ -113,6 +113,20 @@ function createProductionDependencies(): IllustrationPlaceholderStatusDependenci
         },
         readSourceIdentity: async (input) => (await compiler.readTarget(input)).sourceIdentityHash,
     };
+}
+
+/**
+ * 无计费不确定性的终态不再永久锁死占位块：正文里仍存在占位块时回退 target 校验，
+ * 允许用户显式再次生成（failed/canceled/interrupted 是明确未产出的终态；
+ * succeeded+missing 是结果被"还原为占位块"或占位块曾缺席的重roll路径）。
+ * outcome_unknown（可能已扣费）与 configuration_stale（凭据已更换）保持冻结七态投影，
+ * 不得静默变回 ready——这两态的出路是章节重新规划或配置修复。
+ */
+function isRegenerableTerminalJob(job: IllustrationPlaceholderJobSnapshot): boolean {
+    if (job.status === "succeeded") return job.sourceInsertStatus === "missing";
+    return job.status === "failed"
+        || job.status === "canceled"
+        || job.status === "interrupted";
 }
 
 /** 将 Project Job 生命周期收窄到冻结的七态 placeholder 合同。 */

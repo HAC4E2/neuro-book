@@ -3,6 +3,7 @@ import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 import {registerProjectResourceOwner, resetProjectSessionsForTest} from "nbook/server/workspace-files/project-session";
 import {writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
+import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {createIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/workspace-assets-test-helper";
 import {
     closeTextToImageProjectClient,
@@ -31,7 +32,7 @@ describe("文生图 Project Prisma client", () => {
 
     it("随 ProjectSession 打开，并可幂等关闭后重新连接", async () => {
         projectPath = `workspace/text-to-image-${randomUUID()}`;
-        await writeProjectManifest(projectPath, {kind: "novel", title: "测试项目", summary: ""});
+        await writeProjectManifest(resolveRuntimeWorkspaceRoot(), projectPath, {kind: "novel", title: "测试项目", summary: ""});
         await openProjectForTest(projectPath);
 
         const first = await textToImageProjectClient(projectPath);

@@ -40,6 +40,7 @@ describe("ProjectIllustrationDispatch", () => {
     });
 
     afterEach(async () => {
+        vi.unstubAllGlobals();
         await prisma.$disconnect();
         adapter.closeTrackedClients();
         collectReleasedSqliteHandles({force: true});
@@ -73,6 +74,31 @@ describe("ProjectIllustrationDispatch", () => {
         await expect(prisma.textToImageJob.findUniqueOrThrow({where: {id: projection.jobs[0]!.id}}))
             .resolves.toMatchObject({status: "succeeded", activeAttemptId: "attempt-1", activeAttemptFence: 1});
         await expect(dispatch.inspectExpiredAttempt(item("attempt_started"))).resolves.toEqual({kind: "completed"});
+    });
+
+    it("executes the real default adapter binding with fetchImpl in the correct argument slot", async () => {
+        // 回归：不注入 requestImage，走生产默认绑定（曾把 resolver 误传进 fetchImpl 参数位导致
+        // “fetchImpl is not a function”全量 outcome_unknown）。stub 全局 fetch 返回 PNG magic bytes。
+        const httpFetch = vi.fn(async () => new Response(Buffer.from([
+            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+        ])));
+        vi.stubGlobal("fetch", httpFetch);
+        const writeResult = vi.fn(async ({client, item: laneItem}: ProjectResultWriteInput) => {
+            await client.textToImageJob.update({where: {id: laneItem.jobId}, data: {status: "succeeded", finishedAt: new Date()}});
+            return "completed" as const;
+        });
+        const dispatch = new ProjectIllustrationDispatch({
+            runProject: async (_projectPath, operation) => await operation(prisma),
+            writeResult,
+        });
+
+        await expect(dispatch.execute(item("attempt_started"), "captured-token")).resolves.toEqual({kind: "completed"});
+        expect(httpFetch).toHaveBeenCalledTimes(1);
+        const [calledUrl, calledInit] = httpFetch.mock.calls[0] as unknown as [string, RequestInit];
+        expect(calledUrl).toBe("https://image.novelai.net/ai/generate-image");
+        expect(new Headers(calledInit.headers).get("authorization")).toBe("Bearer captured-token");
+        expect(JSON.parse(String(calledInit.body)) as {model: string}).toMatchObject({model: "nai-diffusion-4-5-full"});
+        expect(writeResult).toHaveBeenCalledTimes(1);
     });
 
     it("rejects a stale prepareVersion before start and never calls the adapter", async () => {

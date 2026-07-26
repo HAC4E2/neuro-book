@@ -286,6 +286,8 @@ export class ProviderLaneRepository {
     async retry(startedInput: ProviderLaneItemSnapshot, codeInput: string, messageInput: string): Promise<ProviderLaneRetryOutcome> {
         const started = ProviderLaneItemSnapshotSchema.parse(startedInput);
         if (started.state !== "attempt_started" || !started.sendAttemptId || started.sendFence === null) return null;
+        // 守卫后的非空收窄不能穿透事务闭包，提前固化为局部常量供 where 子句消费。
+        const startedSendFence = started.sendFence;
         const code = RetryableNovelAiErrorCodeSchema.parse(codeInput);
         const message = z.string().trim().min(1).max(1_000).parse(messageInput);
         try {
@@ -302,7 +304,7 @@ export class ProviderLaneRepository {
                         ownerUserId: started.ownerUserId,
                         providerId: started.providerId,
                         activeAttemptId: started.sendAttemptId,
-                        fencingVersion: started.sendFence,
+                        fencingVersion: startedSendFence,
                     },
                     data: {activeAttemptId: null, leaseUntil: null},
                 });
@@ -504,6 +506,8 @@ export class ProviderLaneRepository {
     ): Promise<boolean> {
         const started = ProviderLaneItemSnapshotSchema.parse(startedInput);
         if (started.state !== "attempt_started" || !started.sendAttemptId || started.sendFence === null) return false;
+        // 守卫后的非空收窄不能穿透事务闭包，提前固化为局部常量供 where 子句消费。
+        const startedSendFence = started.sendFence;
         try {
             return await this.client.$transaction(async (transaction) => {
                 await lockDatabaseKey(transaction, started.ownerUserId);
@@ -514,7 +518,7 @@ export class ProviderLaneRepository {
                         ownerUserId: started.ownerUserId,
                         providerId: started.providerId,
                         activeAttemptId: started.sendAttemptId,
-                        fencingVersion: started.sendFence,
+                        fencingVersion: startedSendFence,
                     },
                     data: {activeAttemptId: null, leaseUntil: null},
                 });

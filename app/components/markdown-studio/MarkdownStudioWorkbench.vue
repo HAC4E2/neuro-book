@@ -8,6 +8,7 @@ import {
     type TextToImagePromptController,
     unavailableTextToImagePromptController,
 } from "nbook/app/components/markdown-studio/tiptap/TextToImagePrompt";
+import type {WorkspaceImageSrcResolver} from "nbook/app/components/markdown-studio/tiptap/WorkspaceImage";
 import type {FrontmatterProfileKind, MarkdownEditorPreferences, MonacoEditorPreferences} from "nbook/shared/editor-workbench";
 import {resolveMonacoLanguage, resolveWorkspaceFileExtension} from "nbook/shared/editor-workbench";
 import MarkdownStudio from "nbook/app/components/markdown-studio/MarkdownStudio.vue";
@@ -46,6 +47,7 @@ const props = withDefaults(defineProps<{
     illustrationPlanningBusy?: boolean;
     illustrationPlanningUnavailableReason?: string;
     textToImagePromptController?: TextToImagePromptController;
+    imageSrcResolver?: WorkspaceImageSrcResolver;
 }>(), {
     activeTabRows: 3,
     agentModeActive: false,
@@ -63,6 +65,7 @@ const props = withDefaults(defineProps<{
     illustrationPlanningBusy: false,
     illustrationPlanningUnavailableReason: "",
     textToImagePromptController: () => unavailableTextToImagePromptController,
+    imageSrcResolver: undefined,
 });
 
 const emit = defineEmits<{
@@ -178,6 +181,7 @@ watch(() => props.activePath, () => {
                         :inline-ai-highlight-reference="props.inlineAiHighlightReference"
                         :enable-quick-triggers="props.enableQuickTriggers"
                         :text-to-image-prompt-controller="props.textToImagePromptController"
+                        :image-src-resolver="props.imageSrcResolver"
                         @save-request="emit('save-request')"
                         @open-frontmatter-profile="emit('open-frontmatter-profile', $event)"
                         @update-monaco-temporary-font-size="emit('update-monaco-temporary-font-size', $event)"

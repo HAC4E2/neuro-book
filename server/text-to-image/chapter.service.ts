@@ -5,6 +5,7 @@ import {lock} from "proper-lockfile";
 import {
     findTextToImagePromptMarkdown,
     renderTextToImageAssetMarkdown,
+    renderTextToImagePromptMarkdown,
 } from "nbook/shared/text-to-image-markdown";
 import type {TextToImageAssetDto} from "nbook/shared/dto/text-to-image.dto";
 import type {IllustrationExecutionSource} from "nbook/shared/text-to-image-execution";
@@ -60,6 +61,44 @@ export class TextToImageChapterService {
                 knownBefore: current,
             });
             return "inserted";
+        });
+    }
+
+    /**
+     * 重roll第一步：把已插入的 canonical Asset Markdown 还原为原 V2 placeholder。
+     * 只做逐字节精确匹配替换；图片被手工改动或已不在正文时零写入，返回稳定结果码。
+     */
+    async restoreIllustrationPrompt(input: {
+        projectPath: string;
+        source: IllustrationExecutionSource;
+        asset: TextToImageAssetDto;
+    }): Promise<"restored" | "already_placeholder" | "asset_markdown_missing" | "asset_markdown_ambiguous"> {
+        return await this.withLockedChapter(input.projectPath, input.source.chapterPath, async (current, resolved) => {
+            const existing = findTextToImagePromptMarkdown(current, input.source.placeholderId);
+            if (existing) return "already_placeholder";
+            const renderedAsset = renderTextToImageAssetMarkdown(input.asset);
+            const occurrences = current.split(renderedAsset).length - 1;
+            if (occurrences === 0) return "asset_markdown_missing";
+            // 用户把同一图片 Markdown 复制到多处时无法确定原插入点，拒绝还原避免占位块落错位置。
+            if (occurrences > 1) return "asset_markdown_ambiguous";
+            const placeholder = renderTextToImagePromptMarkdown({
+                id: input.source.placeholderId,
+                schema: "nbook.text-to-image-prompt/v2",
+                shotId: input.source.shotId,
+                shotIntentHash: input.source.shotIntentHash,
+                sourceChapterHash: input.source.sourceChapterHash,
+                anchorId: input.source.anchorId,
+                origin: input.source.shotOrigin,
+            });
+            await writeResolvedProjectTextFileTracked({
+                projectPath: input.projectPath,
+                projectRoot: resolved.projectRoot,
+                filePath: resolved.chapterPath,
+                content: current.replace(renderedAsset, () => placeholder),
+                actor: USER_LOCAL_ACTOR,
+                knownBefore: current,
+            });
+            return "restored";
         });
     }
 

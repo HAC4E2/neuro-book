@@ -16,6 +16,7 @@ import {
     removeTextToImageRecipeMigrationKeys,
     type TextToImageRecipeMigrationInspection,
 } from "nbook/app/utils/text-to-image-recipe-migration";
+import {useNotification} from "nbook/app/composables/useNotification";
 
 export type NovelAiSmeaMode = "auto" | "off" | "on";
 
@@ -565,6 +566,20 @@ function readRecipeInvalidSourceHash(error: unknown): string | null {
     return null;
 }
 
+/** Recipe 乐观锁冲突：expectedRecipeSourceHash 不匹配或修复无效文件时状态已变。 */
+function isRecipeConflictError(error: unknown): boolean {
+    type ConflictErrorNode = {statusCode?: number; code?: string; data?: ConflictErrorNode};
+    let node: ConflictErrorNode | undefined = typeof error === "object" && error !== null ? error as ConflictErrorNode : undefined;
+    for (let depth = 0; node && depth < 3; depth += 1) {
+        // 只认乐观锁冲突 code；NOT_CONFIGURED 同为 409，误判会让"需要保存"被当成"需要重读"。
+        if (node.code === "TEXT_TO_IMAGE_RECIPE_CONFLICT") {
+            return true;
+        }
+        node = node.data;
+    }
+    return false;
+}
+
 export const useTextToImageStore = defineStore("textToImage", () => {
     const defaultStyle = createStylePreset();
 
@@ -586,6 +601,19 @@ export const useTextToImageStore = defineStore("textToImage", () => {
     const recipeMigrationPending = ref(false);
     const recipeMigrationModelConflict = ref<TextToImageRecipeMigrationInspection["modelConflict"]>(null);
     const recipeInvalidSourceHash = ref<string | null>(null);
+    /** 自动保存节流定时器；迁移、模型冲突或无效文件等需显式确认的边界态不自动落盘。 */
+    let recipeAutoSaveTimer: ReturnType<typeof setTimeout> | null = null;
+    /** loadRecipe 的 latest-wins 票据：慢响应不得覆盖后续项目的表单与 hash 元数据。 */
+    let recipeLoadTicket = 0;
+
+    /** 冲突这类后台动作的跨入口提示；纯 store 单测没有 Nuxt 通知宿主时静默降级。 */
+    function notifyRecipeWarning(message: string): void {
+        try {
+            useNotification().warning(message, {title: "Recipe 自动保存"});
+        } catch {
+            // 非 Nuxt 上下文（vitest 纯 store 环境）无 useState 宿主，提示不可用但不影响数据收敛。
+        }
+    }
     const novelAiProviderInspection = ref<TextToImageNovelAiInspectionDto>({state: "unconfigured", provider: null, candidates: [], recipeMigrationModels: [], selectionToken: null, reconciliationKeepProviderId: null});
     const activeNovelAiProviderId = computed(() => novelAiProviderInspection.value.state === "configured"
         && novelAiProviderInspection.value.provider?.hasCredential
@@ -659,22 +687,43 @@ export const useTextToImageStore = defineStore("textToImage", () => {
         }
     }
 
-    /** 读取 Project Recipe 到内存草稿；GET 缺失时只展示默认草稿，不自动写盘。 */
+    /** 读取 Project Recipe 到内存草稿；GET 缺失时把默认草稿首开落盘（迁移候选除外）。 */
     async function loadRecipe(projectPath = currentProjectPath.value): Promise<void> {
         const normalizedProjectPath = normalizeProjectPath(projectPath);
+        const ticket = ++recipeLoadTicket;
         recipeLoading.value = true;
         recipeError.value = "";
+        if (recipeAutoSaveTimer !== null) {
+            clearTimeout(recipeAutoSaveTimer);
+            recipeAutoSaveTimer = null;
+        }
         try {
             const inspection = await $fetch<TextToImageNovelAiInspectionDto>("/api/text-to-image/providers/novelai");
+            if (ticket !== recipeLoadTicket) return;
             novelAiProviderInspection.value = inspection;
             const document = await $fetch<TextToImageRecipeDocument>(`/api/text-to-image/recipes/default?projectPath=${encodeURIComponent(normalizedProjectPath)}`);
+            if (ticket !== recipeLoadTicket) return;
             const migrated = document.exists
                 ? null
                 : inspectTextToImageRecipeMigration(readRecipeMigrationStorage(), inspection.recipeMigrationModels);
             applyRecipeDocument(document, migrated?.source ?? null);
             recipeMigrationModelConflict.value = migrated?.modelConflict ?? null;
             recipeInvalidSourceHash.value = null;
+            // 首开自动落盘：普通缺失（无迁移候选）直接把默认草稿持久化；并发首创冲突时重读一次收敛。
+            if (!document.exists && !migrated && normalizedProjectPath !== DEFAULT_PROJECT_KEY) {
+                try {
+                    await saveRecipe(normalizedProjectPath);
+                } catch (error) {
+                    if (isRecipeConflictError(error) && ticket === recipeLoadTicket) {
+                        recipeError.value = "";
+                        const persisted = await $fetch<TextToImageRecipeDocument>(`/api/text-to-image/recipes/default?projectPath=${encodeURIComponent(normalizedProjectPath)}`);
+                        if (ticket !== recipeLoadTicket) return;
+                        applyRecipeDocument(persisted, null);
+                    }
+                }
+            }
         } catch (error) {
+            if (ticket !== recipeLoadTicket) return;
             recipeError.value = error instanceof Error ? error.message : "读取文生图 Recipe 失败";
             const invalidSourceHash = readRecipeInvalidSourceHash(error);
             if (invalidSourceHash) {
@@ -686,7 +735,7 @@ export const useTextToImageStore = defineStore("textToImage", () => {
             }
             throw error;
         } finally {
-            recipeLoading.value = false;
+            if (ticket === recipeLoadTicket) recipeLoading.value = false;
         }
     }
 
@@ -699,17 +748,25 @@ export const useTextToImageStore = defineStore("textToImage", () => {
             if (recipeMigrationModelConflict.value) {
                 throw new Error("旧 Provider 实际模型与浏览器草稿冲突，请先明确选择要写入 Recipe 的模型。");
             }
+            const sentSource = buildRecipeSource();
             const document = await $fetch<TextToImageRecipeDocument>("/api/text-to-image/recipes/default", {
                 method: "PUT",
                 body: {
                     projectPath: normalizedProjectPath,
-                    source: buildRecipeSource(),
+                    source: sentSource,
                     expectedRecipeSourceHash: recipeExists.value ? recipeSnapshot.value?.recipeSourceHash ?? null : null,
                     ...(recipeInvalidSourceHash.value ? {expectedInvalidSourceHash: recipeInvalidSourceHash.value} : {}),
                 },
             });
             const shouldCleanupMigration = recipeMigrationPending.value;
-            applyRecipeDocument(document, null);
+            // 保存期间草稿漂移时只更新元数据并保留草稿重排自动保存，避免覆盖在途编辑；未漂移则照常回灌。
+            if (JSON.stringify(buildRecipeSource()) === JSON.stringify(sentSource)) {
+                applyRecipeDocument(document, null);
+            } else {
+                applyRecipeDocumentMetadata(document);
+                recipeDirty.value = true;
+                queueMicrotask(() => scheduleRecipeAutoSave());
+            }
             recipeInvalidSourceHash.value = null;
             recipeMigrationModelConflict.value = null;
             if (shouldCleanupMigration) {
@@ -722,6 +779,49 @@ export const useTextToImageStore = defineStore("textToImage", () => {
             recipeSaving.value = false;
         }
     }
+
+    /** 迁移草稿、模型冲突或无效文件需要用户显式确认后再保存，自动保存跳过这些边界态。 */
+    const recipeNeedsExplicitSave = computed(() => recipeMigrationPending.value
+        || recipeMigrationModelConflict.value !== null
+        || recipeInvalidSourceHash.value !== null);
+
+    /** 草稿变动后节流自动保存；边界态与加载/保存中不调度，避免覆盖需人工确认的改动。 */
+    function scheduleRecipeAutoSave(): void {
+        if (recipeNeedsExplicitSave.value || recipeLoading.value || recipeSaving.value || currentProjectPath.value === DEFAULT_PROJECT_KEY) {
+            return;
+        }
+        if (recipeAutoSaveTimer !== null) {
+            clearTimeout(recipeAutoSaveTimer);
+        }
+        recipeAutoSaveTimer = setTimeout(() => {
+            recipeAutoSaveTimer = null;
+            void saveRecipeAuto();
+        }, 600);
+    }
+
+    /** 自动保存失败时：乐观锁冲突提示后重读同步，其余错误写入 recipeError 并保留草稿待下次改动重试。 */
+    async function saveRecipeAuto(): Promise<void> {
+        if (!recipeDirty.value || recipeSaving.value || recipeNeedsExplicitSave.value) {
+            return;
+        }
+        try {
+            await saveRecipe();
+        } catch (error) {
+            if (isRecipeConflictError(error)) {
+                recipeError.value = "";
+                // 冲突意味着 Recipe 已在其他入口（编辑器/另一面板）被改动；不能无声丢弃用户草稿。
+                notifyRecipeWarning("文生图 Recipe 已在其他入口被修改，已重新加载最新内容；刚才未保存的改动被放弃。");
+                await loadRecipe().catch(() => undefined);
+            }
+        }
+    }
+
+    /** 草稿任意字段变化都触发节流自动保存；加载与显式保存的边界态由 recipeDirty 与 recipeLoading 守门。 */
+    watch([novelAi, stylePresets, activeStyleId, recipeSavedSource], () => {
+        if (recipeDirty.value && !recipeNeedsExplicitSave.value && !recipeLoading.value && !recipeSaving.value && currentProjectPath.value !== DEFAULT_PROJECT_KEY) {
+            scheduleRecipeAutoSave();
+        }
+    }, {deep: true});
 
     /** 将服务端 source 或迁移草稿投影到现有表单字段。 */
     function applyRecipeDocument(document: TextToImageRecipeDocument, migrated: TextToImageRecipeSource | null): void {
@@ -747,13 +847,19 @@ export const useTextToImageStore = defineStore("textToImage", () => {
             steps: source.steps,
             seed: source.seed.policy === "fixed" ? source.seed.fixed : -1,
         });
-        const style = normalizeStylePreset({
-            id: "recipe-default",
-            name: source.title,
-            ...source.style,
-        }, source.title);
-        stylePresets.value = [style];
-        activeStyleId.value = style.id;
+        stylePresets.value = source.styles.map((item) => normalizeStylePreset(item, item.name));
+        activeStyleId.value = source.styles.some((item) => item.id === source.activeStyleId)
+            ? source.activeStyleId
+            : (source.styles[0]?.id ?? "");
+    }
+
+    /** 仅更新服务端元数据（exists/snapshot/savedSource），不覆盖草稿值；保存期间草稿漂移时避免丢失在途编辑。 */
+    function applyRecipeDocumentMetadata(document: TextToImageRecipeDocument): void {
+        const source = TextToImageRecipeSourceSchema.parse(document.source);
+        recipeExists.value = document.exists;
+        recipeSnapshot.value = document.snapshot;
+        recipeSavedSource.value = source;
+        recipeMigrationPending.value = false;
     }
 
     /** 用户显式选择迁移模型后解除冲突；候选之外的值必须通过普通模型字段编辑再保存。 */
@@ -772,10 +878,14 @@ export const useTextToImageStore = defineStore("textToImage", () => {
     /** 从表单草稿构造严格 Recipe source；未暴露的画幅意图槽位从最近一次服务端 source 保留。 */
     function buildRecipeSource(): TextToImageRecipeSource {
         const base = recipeSavedSource.value ?? createDefaultTextToImageRecipeSource();
-        const style = activeStyle.value ?? createStylePreset(base.title);
+        const presets = stylePresets.value.length > 0 ? stylePresets.value : [createStylePreset(base.title)];
+        const firstPreset = presets[0];
+        if (!firstPreset) {
+            throw new Error("画风串草稿为空");
+        }
         return TextToImageRecipeSourceSchema.parse({
             ...base,
-            title: style.name.trim() || base.title,
+            title: (activeStyle.value?.name?.trim() || firstPreset.name.trim() || base.title),
             model: novelAi.value.model,
             sampler: novelAi.value.sampler,
             noiseSchedule: novelAi.value.noiseSchedule,
@@ -796,15 +906,18 @@ export const useTextToImageStore = defineStore("textToImage", () => {
                 smeaDyn: novelAi.value.smeaDyn,
                 decrisper: novelAi.value.decrisper,
             },
-            style: {
-                positivePrefix: style.positivePrefix,
-                positiveSuffix: style.positiveSuffix,
-                negativePrefix: style.negativePrefix,
-                negativeSuffix: style.negativeSuffix,
-                useFurryDataset: style.useFurryDataset,
-                positiveQualityPreset: style.positiveQualityPreset,
-                negativeQualityPreset: style.negativeQualityPreset,
-            },
+            styles: presets.map((preset) => ({
+                id: preset.id,
+                name: preset.name,
+                positivePrefix: preset.positivePrefix,
+                positiveSuffix: preset.positiveSuffix,
+                negativePrefix: preset.negativePrefix,
+                negativeSuffix: preset.negativeSuffix,
+                useFurryDataset: preset.useFurryDataset,
+                positiveQualityPreset: preset.positiveQualityPreset,
+                negativeQualityPreset: preset.negativeQualityPreset,
+            })),
+            activeStyleId: activeStyleId.value || firstPreset.id,
         });
     }
 
@@ -1334,6 +1447,7 @@ export const useTextToImageStore = defineStore("textToImage", () => {
         recipeLoading,
         recipeMigrationPending,
         recipeMigrationModelConflict,
+        recipeNeedsExplicitSave,
         recipeSaving,
         recipeSnapshot,
         recipeReferences,

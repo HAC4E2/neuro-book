@@ -6,7 +6,9 @@ import {TextToImageAssetService} from "nbook/server/text-to-image/asset.service"
 import {closeTextToImageProjectClient, textToImageProjectClient} from "nbook/server/text-to-image/project-client";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 import {resetProjectSessionsForTest} from "nbook/server/workspace-files/project-session";
-import {resolveProjectAbsolutePath, writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
+import {resolveProjectAbsolutePath} from "nbook/server/text-to-image/compat";
+import {writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
+import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {createIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/workspace-assets-test-helper";
 
 describe("TextToImageAssetService", () => {
@@ -18,7 +20,7 @@ describe("TextToImageAssetService", () => {
         resetProjectSessionsForTest();
         assets = await createIsolatedWorkspaceAssets();
         projectPath = `workspace/text-to-image-assets-${randomUUID()}`;
-        await writeProjectManifest(projectPath, {kind: "novel", title: "测试项目", summary: ""});
+        await writeProjectManifest(resolveRuntimeWorkspaceRoot(), projectPath, {kind: "novel", title: "测试项目", summary: ""});
         await openProjectForTest(projectPath);
         service = new TextToImageAssetService();
     });

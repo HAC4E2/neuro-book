@@ -6,7 +6,10 @@ import {useNotification} from "nbook/app/composables/useNotification";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import {useTextToImageStore} from "nbook/app/stores/text-to-image";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
+import {buildIllustrationGenerateBody} from "nbook/app/utils/illustration-execution-ui";
 import type {TextToImageAssetListItemDto} from "nbook/shared/dto/text-to-image.dto";
+import {IllustrationExecutionRegistrationReceiptSchema} from "nbook/shared/text-to-image-execution";
+import {IllustrationExecutionPreviewSchema, IllustrationPlaceholderStatusSchema} from "nbook/shared/text-to-image-execution-ui";
 
 const props = defineProps<{
     modelValue: boolean;
@@ -78,17 +81,67 @@ async function retry(): Promise<void> {
     }
     busyAction.value = "retry";
     try {
-        await $fetch(`/api/text-to-image/jobs/${encodeURIComponent(props.asset.jobId)}/retry`, {
-            method: "POST",
-            body: {projectPath: props.projectPath},
-        });
-        notification.success("已创建重新生成任务");
+        if (props.asset.sourceKind === "illustration") {
+            await rerollIllustration(props.asset);
+        } else {
+            await $fetch(`/api/text-to-image/jobs/${encodeURIComponent(props.asset.jobId)}/retry`, {
+                method: "POST",
+                body: {projectPath: props.projectPath},
+            });
+            notification.success("已创建重新生成任务");
+        }
         emit("changed");
     } catch (error) {
         notification.error(resolveApiErrorMessage(error, "重新生成失败"));
     } finally {
         busyAction.value = "";
     }
+}
+
+/**
+ * 插图重roll：还原正文占位块 → 读服务端占位块状态闸门 → 编译 Preview → 注册新 Job。
+ * 服务端会在还原前拒绝正文漂移与固定 seed；还原成功但注册失败时占位块保留在正文，
+ * 可回正文占位块继续点"生成图片"。
+ */
+async function rerollIllustration(asset: TextToImageAssetListItemDto): Promise<void> {
+    const placeholderId = asset.sourceAnchorId;
+    if (!placeholderId) {
+        throw new Error("该插图缺少占位块来源，无法重新生成。");
+    }
+    const restore = await $fetch<{status: "restored" | "already_placeholder" | "asset_markdown_missing" | "asset_markdown_ambiguous"}>(
+        `/api/text-to-image/jobs/${encodeURIComponent(asset.jobId)}/restore-placeholder`,
+        {method: "POST", body: {projectPath: props.projectPath, assetId: asset.id}},
+    );
+    if (restore.status === "asset_markdown_missing") {
+        notification.warning("正文中找不到这张图片的原始 Markdown（可能已被手工删除或修改），未做任何改动。", {title: "重新生成"});
+        return;
+    }
+    if (restore.status === "asset_markdown_ambiguous") {
+        notification.warning("这张图片的 Markdown 在正文中出现了多处，无法确定原插入位置；请先删除多余副本再重试。", {title: "重新生成"});
+        return;
+    }
+    // 与正文占位块相同的状态闸门：已有任务排队/进行中时不得叠加第二个付费 Job。
+    const status = IllustrationPlaceholderStatusSchema.parse(await $fetch<unknown>(
+        `/api/text-to-image/prompt-placeholders/${encodeURIComponent(placeholderId)}/status`,
+        {query: {projectPath: props.projectPath}},
+    ));
+    if (status.status !== "ready") {
+        if (status.status === "queued" || status.status === "running") {
+            notification.warning("该占位块已有生成任务在排队或进行中，请等待其完成。", {title: "重新生成"});
+        } else {
+            notification.warning(status.errorMessage || "占位块当前不可生成，请回正文查看状态。", {title: "重新生成"});
+        }
+        return;
+    }
+    const preview = IllustrationExecutionPreviewSchema.parse(await $fetch<unknown>(
+        `/api/text-to-image/prompt-placeholders/${encodeURIComponent(placeholderId)}/execution-preview`,
+        {query: {projectPath: props.projectPath}},
+    ));
+    IllustrationExecutionRegistrationReceiptSchema.parse(await $fetch<unknown>(
+        `/api/text-to-image/prompt-placeholders/${encodeURIComponent(placeholderId)}/generate`,
+        {method: "POST", body: buildIllustrationGenerateBody(props.projectPath, preview)},
+    ));
+    notification.success("插图已还原为占位块并重新排队生成。", {title: "重新生成"});
 }
 
 async function openSource(): Promise<void> {
@@ -162,7 +215,7 @@ async function deleteAsset(): Promise<void> {
                 <div class="flex flex-wrap gap-2">
                     <IconButton title="复制提示词" size="sm" @click="void copyPrompt"><span class="i-lucide-copy h-4 w-4"></span></IconButton>
                     <IconButton title="套用到手动生成" size="sm" @click="applyToManualGeneration"><span class="i-lucide-wand-sparkles h-4 w-4"></span></IconButton>
-                    <IconButton :title="providerReady ? '重新生成' : '请先收敛并配置唯一 NovelAI Provider'" size="sm" :disabled="busyAction !== '' || !providerReady" @click="void retry"><span class="i-lucide-rotate-ccw h-4 w-4"></span></IconButton>
+                    <IconButton :title="providerReady ? (props.asset.sourceKind === 'illustration' ? '还原为占位块并重新生成' : '重新生成') : '请先配置 NovelAI Provider'" size="sm" :disabled="busyAction !== '' || !providerReady" @click="void retry"><span class="i-lucide-rotate-ccw h-4 w-4"></span></IconButton>
                     <IconButton title="打开来源章节" size="sm" :disabled="!props.asset.sourcePath || busyAction !== ''" @click="void openSource"><span class="i-lucide-file-text h-4 w-4"></span></IconButton>
                     <IconButton title="删除图片" size="sm" :disabled="busyAction !== ''" @click="deleteConfirmationOpen = true"><span class="i-lucide-trash-2 h-4 w-4 text-[var(--danger-text)]"></span></IconButton>
                 </div>

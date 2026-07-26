@@ -115,7 +115,10 @@ export class ProjectIllustrationDispatch implements IllustrationDispatchProjectP
 
     constructor(options: DispatchOptions = {}) {
         this.runProject = options.runProject ?? withEphemeralTextToImageProjectClient;
-        this.requestImage = options.requestImage ?? requestCompiledNovelAiImage;
+        // requestCompiledNovelAiImage 的第 4 参是 fetchImpl、第 5 参才是 resolver；
+        // ImageRequester 端口不暴露 fetch 注入，这里必须显式占住 fetchImpl 位，否则 resolver 会被当成 fetch 调用。
+        this.requestImage = options.requestImage
+            ?? ((request, credential, signal, resolver) => requestCompiledNovelAiImage(request, credential, signal, undefined, resolver));
         this.writeResult = options.writeResult ?? writeProjectResult;
         this.signalFactory = options.signalFactory ?? (() => new AbortController().signal);
     }

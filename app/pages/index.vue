@@ -29,6 +29,7 @@ import {useMarkdownStudioController} from "nbook/app/composables/useMarkdownStud
 import {useWorkspaceFileEvents} from "nbook/app/composables/useWorkspaceFileEvents";
 import {useProjectSession} from "nbook/app/composables/useProjectSession";
 import {useIllustrationExecutionController} from "nbook/app/composables/useIllustrationExecutionController";
+import type {WorkspaceImageSrcResolver} from "nbook/app/components/markdown-studio/tiptap/WorkspaceImage";
 import {useResizablePanel} from "nbook/app/composables/useResizablePanel";
 import {useDialog} from "nbook/app/composables/useDialog";
 import {useNotification} from "nbook/app/composables/useNotification";
@@ -201,6 +202,38 @@ const workspaceFileEvents = useWorkspaceFileEvents();
 const projectSessionTarget = computed<string | null>(() => workspaceKind.value === "novel" && currentNovelId.value ? currentNovelId.value : null);
 useProjectSession(projectSessionTarget);
 const textToImagePromptController = useIllustrationExecutionController(projectSessionTarget);
+
+/** 编辑器图片展示层 URL 前缀；存储态 markdown 始终保留项目相对路径。 */
+const WORKSPACE_IMAGE_API_PREFIX = "/api/workspace-files/image?";
+
+/**
+ * 把正文 Markdown 里的项目相对图片路径改写为工作区图片路由；
+ * 绝对 URL、data/blob、站内绝对路径与越级相对路径不改写。
+ */
+const workspaceImageSrcResolver: WorkspaceImageSrcResolver = {
+    toDisplaySrc: (src) => {
+        const trimmed = src.trim();
+        if (!trimmed || /^(?:[a-z][a-z0-9+.-]*:|\/|#)/iu.test(trimmed) || trimmed.startsWith("../")) return src;
+        const stripped = trimmed.startsWith("./") ? trimmed.slice(2) : trimmed;
+        // markdown destination 是 URI 语义文本（canonical 写入器把空格转 %20），先解一层再整体编码，避免 %2520。
+        let normalized = stripped;
+        try {
+            normalized = decodeURIComponent(stripped);
+        } catch {
+            // 保留原样：非法百分号序列说明该 destination 本就不是 URI 编码文本。
+        }
+        const scope = workspaceKind.value === "user-assets"
+            ? "workspaceKind=user-assets"
+            : currentNovelId.value ? `projectPath=${encodeURIComponent(currentNovelId.value)}` : "";
+        if (!scope) return src;
+        return `${WORKSPACE_IMAGE_API_PREFIX}${scope}&path=${encodeURIComponent(normalized)}`;
+    },
+    toStoredSrc: (src) => {
+        if (!src.startsWith(WORKSPACE_IMAGE_API_PREFIX)) return src;
+        const path = new URLSearchParams(src.slice(WORKSPACE_IMAGE_API_PREFIX.length)).get("path");
+        return path ?? src;
+    },
+};
 const authSessionState = useAuthSessionState();
 const agentSurfaceRef = ref<InstanceType<typeof AgentChatSurface> | null>(null);
 
@@ -364,6 +397,7 @@ const displayCurrentWorkspaceViewMode = computed<WorkspaceEditorViewMode>(() => 
 const displayMonacoTemporaryFontSize = computed(() => displayActiveWorkspaceTabPath.value
     ? monacoFontSizeOverridesByPath.value[displayActiveWorkspaceTabPath.value] ?? null
     : null);
+const characterDetailPanelRef = ref<InstanceType<typeof WorkspaceCharacterDetailPanel> | null>(null);
 const characterProfileVisible = computed({
     get: () => frontmatterProfileKind.value === "character",
     set: (visible: boolean): void => {
@@ -406,6 +440,27 @@ const canPlanIllustrations = computed(() => workspaceKind.value === "novel"
 const illustrationPlanningUnavailableReason = computed(() => canPlanIllustrations.value
     ? "由 illustration.director 规划当前已保存章节"
     : "正文生图只对已打开 Project 的 manuscript Markdown 开放");
+const characterTagGenerationBusy = ref(false);
+/** 角色生图只对已选中角色节点时开放。 */
+const canGenerateCharacterTags = computed(() => workspaceKind.value === "novel"
+    && Boolean(currentNovelId.value)
+    && selectedFileNode.value?.entryType === "character");
+
+/** 工具栏"角色生图"：打开角色弹窗并触发Tag生成。 */
+async function generateCharacterTagsFromToolbar(): Promise<void> {
+    if (!canGenerateCharacterTags.value || !currentNovelId.value || characterTagGenerationBusy.value) return;
+    characterTagGenerationBusy.value = true;
+    try {
+        // 打开角色弹窗
+        characterProfileVisible.value = true;
+        await nextTick();
+        // 等待弹窗渲染完成后触发生成
+        await nextTick();
+        await characterDetailPanelRef.value?.generateImageTags();
+    } finally {
+        characterTagGenerationBusy.value = false;
+    }
+}
 const isPlainTextFile = computed(() => [".txt", ".text", ".markdown"].includes(currentFileExtension.value));
 const inlinePromptExpanded = ref(false);
 const inlinePromptInstruction = ref("");
@@ -886,6 +941,7 @@ async function planCurrentChapterIllustrations(): Promise<void> {
         if (selectedFileContent.value !== lastSyncedFileContent.value) await saveCurrentWorkspaceFile();
         if (novelIdeStore.workspaceWriteConflict || selectedFileContent.value !== lastSyncedFileContent.value) {
             notification.warning("请先解决正文保存冲突，再启动插图规划。", {title: "正文生图"});
+            illustrationPlanningBusy.value = false;
             return;
         }
         const workflow = await $fetch<IllustrationPlanningWorkflowDto>("/api/text-to-image/illustration-workflows", {
@@ -897,10 +953,18 @@ async function planCurrentChapterIllustrations(): Promise<void> {
             },
         });
         activeLeftTab.value = "textToImage";
-        notification.success(
-            workflow.status === "ready" ? "已恢复现有插图规划预览。" : `插图规划已启动${workflow.queuePosition ? `，当前队列 #${workflow.queuePosition}` : ""}。`,
-            {title: "正文生图"},
-        );
+        // 幂等复用可能返回终态 workflow：失败/过期不能伪装成"已启动"，要把错误与出路讲清楚。
+        if (workflow.status === "failed" || workflow.status === "canceled" || workflow.status === "stale") {
+            notification.warning(
+                `上次插图规划未完成（${workflow.errorMessage || workflow.staleReason || workflow.status}）。请在文生图面板对该章节选择"重新规划"。`,
+                {title: "正文生图"},
+            );
+        } else {
+            notification.success(
+                workflow.status === "ready" ? "已恢复现有插图规划预览。" : `插图规划已启动${workflow.queuePosition ? `，当前队列 #${workflow.queuePosition}` : ""}。`,
+                {title: "正文生图"},
+            );
+        }
     } catch (error) {
         notification.error(resolveApiErrorMessage(error, "启动插图规划失败"), {title: "正文生图"});
     } finally {
@@ -920,10 +984,12 @@ async function planSelectionIllustration(reference: InlineEditReference): Promis
         if (selectedFileContent.value !== lastSyncedFileContent.value) await saveCurrentWorkspaceFile();
         if (novelIdeStore.workspaceWriteConflict || selectedFileContent.value !== lastSyncedFileContent.value) {
             notification.warning("请先解决正文保存冲突，再启动选区插图规划。", {title: "正文生图"});
+            illustrationPlanningBusy.value = false;
             return;
         }
         if (reference.path.replaceAll("\\", "/") !== selectedFilePath.value.replaceAll("\\", "/")) {
             notification.warning("选区所属章节已切换，请重新选择正文。", {title: "正文生图"});
+            illustrationPlanningBusy.value = false;
             return;
         }
 
@@ -938,13 +1004,22 @@ async function planSelectionIllustration(reference: InlineEditReference): Promis
             },
         });
         activeLeftTab.value = "textToImage";
-        notification.success(
-            workflow.status === "ready" ? "已恢复现有选区插图规划预览。" : `选区插图规划已启动${workflow.queuePosition ? `，当前队列 #${workflow.queuePosition}` : ""}。`,
-            {title: "正文生图"},
-        );
+        // 与整章入口一致：终态复用不得伪装成"已启动"。
+        if (workflow.status === "failed" || workflow.status === "canceled" || workflow.status === "stale") {
+            notification.warning(
+                `上次选区插图规划未完成（${workflow.errorMessage || workflow.staleReason || workflow.status}）。请在文生图面板对该条目选择"重新规划"。`,
+                {title: "正文生图"},
+            );
+        } else {
+            notification.success(
+                workflow.status === "ready" ? "已恢复现有选区插图规划预览。" : `选区插图规划已启动${workflow.queuePosition ? `，当前队列 #${workflow.queuePosition}` : ""}。`,
+                {title: "正文生图"},
+            );
+        }
     } catch (error) {
         if (error instanceof IllustrationSelectionCaptureError) {
             notification.warning(error.message.slice(error.message.indexOf(":") + 1).trim(), {title: "无法定位选区"});
+            illustrationPlanningBusy.value = false;
             return;
         }
         notification.error(resolveApiErrorMessage(error, "启动选区插图规划失败"), {title: "正文生图"});
@@ -2357,7 +2432,10 @@ onBeforeUnmount(() => {
                             :can-plan-illustrations="canPlanIllustrations"
                             :illustration-planning-busy="illustrationPlanningBusy"
                             :illustration-planning-unavailable-reason="illustrationPlanningUnavailableReason"
+                            :can-generate-character-tags="canGenerateCharacterTags"
+                            :character-tag-generation-busy="characterTagGenerationBusy"
                             :text-to-image-prompt-controller="textToImagePromptController"
+                            :image-src-resolver="workspaceImageSrcResolver"
                             @select-tab="void selectWorkspaceTab($event)"
                             @close-tab="void closeEditorTab($event)"
                             @set-pin="setWorkspaceTabPinned"
@@ -2365,6 +2443,7 @@ onBeforeUnmount(() => {
                             @move-tab="moveWorkspaceTab"
                             @set-view-mode="setCurrentWorkspaceViewMode"
                             @plan-illustrations="void planCurrentChapterIllustrations()"
+                            @generate-character-tags="void generateCharacterTagsFromToolbar()"
                             @update-monaco-temporary-font-size="setMonacoFontSizeOverride(displayActiveWorkspaceTabPath, $event)"
                             @save-request="void saveCurrentWorkspaceFile()"
                             @open-frontmatter-profile="openFrontmatterProfile"
@@ -2492,7 +2571,8 @@ onBeforeUnmount(() => {
             :theme="activeThemeId"
             @resolve="void resolveWorkspaceWriteConflict($event)"
         />
-        <WorkspaceCharacterDetailPanel
+                <WorkspaceCharacterDetailPanel
+            ref="characterDetailPanelRef"
             v-model="characterProfileVisible"
             dialog-only
             :node="selectedFileNode"

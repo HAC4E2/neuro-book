@@ -9,6 +9,7 @@ import {
     type TextToImagePromptController,
     unavailableTextToImagePromptController,
 } from "nbook/app/components/markdown-studio/tiptap/TextToImagePrompt";
+import type {WorkspaceImageSrcResolver} from "nbook/app/components/markdown-studio/tiptap/WorkspaceImage";
 import type {InlineEditReference} from "nbook/app/utils/inline-editor-selection";
 
 const props = withDefaults(defineProps<{
@@ -27,6 +28,7 @@ const props = withDefaults(defineProps<{
     inlineAiHighlightReference?: InlineEditReference | null;
     enableQuickTriggers?: boolean;
     textToImagePromptController?: TextToImagePromptController;
+    imageSrcResolver?: WorkspaceImageSrcResolver;
 }>(), {
     readonly: false,
     theme: "sepia",
@@ -45,6 +47,7 @@ const props = withDefaults(defineProps<{
     inlineAiHighlightReference: null,
     enableQuickTriggers: false,
     textToImagePromptController: () => unavailableTextToImagePromptController,
+    imageSrcResolver: undefined,
 });
 
 const sourceEditorRef = ref<MarkdownStudioEditorHandle | null>(null);
@@ -107,6 +110,7 @@ function handleSourceBlur(): void {
                     :inline-ai-highlight-reference="props.inlineAiHighlightReference"
                     :enable-quick-triggers="props.enableQuickTriggers"
                     :text-to-image-prompt-controller="props.textToImagePromptController"
+                    :image-src-resolver="props.imageSrcResolver"
                     @change="onPreviewChange"
                     @focus="controller.onPreviewFocus"
                     @blur="handlePreviewBlur"

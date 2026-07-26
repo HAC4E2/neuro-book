@@ -7,9 +7,10 @@ import {
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 import {registerProjectResourceOwner, resetProjectSessionsForTest} from "nbook/server/workspace-files/project-session";
 import {writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
+import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {createIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/workspace-assets-test-helper";
 import {closeTextToImageProjectClient, textToImageProjectClient, textToImageProjectClientResourceOwner} from "nbook/server/text-to-image/project-client";
-import {createDefaultTextToImageRecipeSource} from "nbook/shared/text-to-image-recipe";
+import {createDefaultTextToImageRecipeSource, getActiveTextToImageRecipeStyle} from "nbook/shared/text-to-image-recipe";
 import {createTextToImageRecipeSnapshot} from "nbook/server/text-to-image/recipe.codec";
 import type {TextToImageProviderSnapshotDto} from "nbook/shared/dto/text-to-image.dto";
 
@@ -22,7 +23,7 @@ describe("TextToImageQueueService", () => {
         registerProjectResourceOwner(textToImageProjectClientResourceOwner);
         assets = await createIsolatedWorkspaceAssets();
         projectPath = `workspace/text-to-image-queue-${randomUUID()}`;
-        await writeProjectManifest(projectPath, {kind: "novel", title: "队列测试", summary: ""});
+        await writeProjectManifest(resolveRuntimeWorkspaceRoot(), projectPath, {kind: "novel", title: "队列测试", summary: ""});
         await openProjectForTest(projectPath);
     }, 30_000);
 
@@ -575,7 +576,7 @@ function providerSnapshot(providerId: number): TextToImageProviderSnapshotDto {
 }
 
 function baseStyleInput() {
-    return createDefaultTextToImageRecipeSource().style;
+    return getActiveTextToImageRecipeStyle(createDefaultTextToImageRecipeSource());
 }
 
 function baseRecipeSnapshot() {

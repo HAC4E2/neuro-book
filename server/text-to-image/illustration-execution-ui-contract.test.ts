@@ -43,9 +43,7 @@ describe("server-owned illustration placeholder state", () => {
         ["running", "pending", "running"],
         ["completing", "pending", "running"],
         ["configuration_stale", "pending", "stale"],
-        ["failed", "pending", "failed"],
         ["outcome_unknown", "pending", "outcome_unknown"],
-        ["succeeded", "missing", "failed"],
         ["succeeded", "pending", "running"],
     ] as const)("maps persisted Job %s/%s to %s without compiling", async (jobStatus, sourceInsertStatus, expectedStatus) => {
         const readSourceIdentity = vi.fn(async () => H("1"));
@@ -59,6 +57,28 @@ describe("server-owned illustration placeholder state", () => {
         expect(result.status).toBe(expectedStatus);
         expect(result.job?.status).toBe(jobStatus);
         expect(readSourceIdentity).not.toHaveBeenCalled();
+    });
+
+    // 重roll合同（2026-07-27）：无计费不确定性的终态（failed/canceled/interrupted/succeeded+missing）
+    // 不再永久锁死占位块，改为重新校验当前发布 target 后放行 ready；
+    // outcome_unknown 与 configuration_stale 仍保持上面的冻结投影。
+    it.each([
+        ["failed", "pending"],
+        ["canceled", "pending"],
+        ["interrupted", "pending"],
+        ["succeeded", "missing"],
+    ] as const)("re-validates the published target after terminal %s/%s and returns ready", async (jobStatus, sourceInsertStatus) => {
+        const readSourceIdentity = vi.fn(async () => H("1"));
+        const service = new IllustrationPlaceholderStatusService({
+            readLatestJob: async () => jobFixture({status: jobStatus, sourceInsertStatus}),
+            readSourceIdentity,
+        });
+
+        const result = await service.read({projectPath: "workspace/demo", ownerUserId: 7, placeholderId: "placeholder-1"});
+
+        expect(result.status).toBe("ready");
+        expect(result.job).toBeNull();
+        expect(readSourceIdentity).toHaveBeenCalledOnce();
     });
 
     it("projects a structurally invalid published target as stable stale state", async () => {

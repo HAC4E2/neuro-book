@@ -73,6 +73,15 @@ export class IllustrationWorkflowService {
         const bundle = await this.builder.build(request);
         await assertProjectIdentity(client, bundle.requestIdentity.projectId);
         const workflow = await repository.start(bundle);
+        // 幂等复用命中可重试终态时，把再次点击"正文生图"视为一次显式重试；
+        // 不可重试的终态（如 plan 严格校验失败）原样返回，由前端引导用户走"重新规划"。
+        if (workflow.retryable && (workflow.status === "failed" || workflow.status === "canceled") && workflow.activeAttemptId === null) {
+            try {
+                await repository.retry({workflowId: workflow.id, planningInputHash: bundle.planningInputHash});
+            } catch (error) {
+                if (!(error instanceof IllustrationWorkflowStateError)) throw error;
+            }
+        }
         await this.tick(request.projectPath, workflow.projectId, repository);
         return this.read({projectPath: request.projectPath, workflowId: workflow.id});
     }

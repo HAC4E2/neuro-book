@@ -284,6 +284,35 @@ export function isWorkspaceContentIndexPath(relativePath: string): boolean {
     return normalizedPath.endsWith("/index.md") && isWorkspaceContentScopePath(relativePath);
 }
 
+/** 编辑器可内联预览的图片扩展名与 MIME 映射；不在表内的文件一律拒绝按图片读取。 */
+const IMAGE_MIME_BY_EXTENSION: ReadonlyMap<string, string> = new Map([
+    [".png", "image/png"],
+    [".jpg", "image/jpeg"],
+    [".jpeg", "image/jpeg"],
+    [".webp", "image/webp"],
+    [".gif", "image/gif"],
+    [".bmp", "image/bmp"],
+    [".avif", "image/avif"],
+]);
+
+/**
+ * 解析工作区内图片文件的安全绝对路径与 MIME。
+ * 与文本读取共享同一套包含性/realpath 校验；供正文 Markdown 图片预览路由消费。
+ */
+export async function resolveWorkspaceImageFile(rootInput: AbsoluteFsPath, filePath: string): Promise<{absolutePath: AbsoluteFsPath; mimeType: string; byteLength: number}> {
+    const mimeType = IMAGE_MIME_BY_EXTENSION.get(path.extname(filePath).toLowerCase());
+    if (!mimeType) {
+        throw new Error("Only png/jpg/jpeg/webp/gif/bmp/avif images can be read");
+    }
+    const root = await resolveWorkspaceOperationRoot(rootInput, false);
+    const absolutePath = await resolveWorkspaceContentPath(root, filePath);
+    const stat = await fs.stat(absolutePath);
+    if (!stat.isFile()) {
+        throw new Error("Only files can be read");
+    }
+    return {absolutePath, mimeType, byteLength: stat.size};
+}
+
 /**
  * 读取工作区内文本文件。
  */

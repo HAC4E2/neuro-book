@@ -14,6 +14,7 @@ import {renderTextToImageAssetMarkdown, findTextToImagePromptMarkdown} from "nbo
 import {NovelAiProviderModelIdSchema, resolveProviderCapability} from "nbook/shared/text-to-image-provider-registry";
 import {
     splitTextToImageRecipeStyleAtoms,
+    getActiveTextToImageRecipeStyle,
     type TextToImageRecipeSnapshot,
 } from "nbook/shared/text-to-image-recipe";
 import type {TagResolutionRun} from "nbook/shared/text-to-image-tag-resolver";
@@ -146,7 +147,7 @@ export class ProductionIllustrationExecutionCompiler implements IllustrationExec
             this.dependencies.createResolver({projectPath: input.projectPath, executionNonce: input.executionNonce}),
         ]);
         const effectiveModel = NovelAiProviderModelIdSchema.safeParse(
-            recipe.snapshot.style.useFurryDataset ? "nai-diffusion-furry-3" : recipe.snapshot.model,
+            getActiveTextToImageRecipeStyle(recipe.snapshot).useFurryDataset ? "nai-diffusion-furry-3" : recipe.snapshot.model,
         );
         if (!effectiveModel.success) {
             throw new IllustrationExecutionCompilerError(
@@ -366,7 +367,7 @@ function assertTargetClosure(input: {
 }
 
 /** DB 明确拥有的标准生成图片不属于 sourceChapterHash 正文语义。 */
-function stripOwnedAssetMarkdown(markdown: string, ownedMarkdown: string[]): string {
+export function stripOwnedAssetMarkdown(markdown: string, ownedMarkdown: string[]): string {
     let result = markdown;
     for (const rendered of ownedMarkdown) result = result.replace(rendered, "");
     return result;
@@ -407,7 +408,7 @@ async function resolveRecipeStyle(input: {
     for (const channel of StyleChannelSchema.options) {
         let atoms: string[];
         try {
-            atoms = splitTextToImageRecipeStyleAtoms(input.recipe.style[channel]);
+            atoms = splitTextToImageRecipeStyleAtoms(getActiveTextToImageRecipeStyle(input.recipe)[channel]);
         } catch {
             throw new IllustrationExecutionCompilerError("TEXT_TO_IMAGE_RECIPE_STYLE_INVALID", `Recipe ${channel} 包含空 Tag 项`);
         }

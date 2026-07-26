@@ -1,5 +1,75 @@
 # Text To Image Panel
 
+## 2026-07-27 端到端测试暴露的六项修复（dispatch P0 / 图片渲染 / 重roll / 迁移面板 / Recipe 首开 / 失败规划出路）
+
+### 用户问题与根因
+
+- 浏览器端到端测试（新书 + 角色 tag 生成 + 正文生图 + 全新人物章节）暴露六个问题；修复顺序按用户确认的优先级执行。
+- P0：`project-illustration-dispatch.ts` 把 reference resolver 传进 `requestCompiledNovelAiImage` 的 `fetchImpl` 参数位，生产路径所有 illustration Job 100% 崩为 `outcome_unknown: fetchImpl is not a function`。能过编译的根因是 `bun run typecheck` 的 tsconfig include 从未覆盖 `server/text-to-image/**`。
+- 编辑器里项目内图片全部裂图：TipTap 官方 Image 扩展把 markdown 相对 destination 原样塞进 `img[src]`，Nuxt 对 `/assets/...` 返回 200 HTML 兜底；服务端旧预览路由 `/api/text-to-image/image` 要求绝对路径、无 Project guard 且全仓库零消费者。
+- 已插入正文的插图没有任何重roll路径：资产详情"重新生成"走旧 Queue retry（illustration kind 被四层排除）；占位块状态服务对 terminal Job 永久短路，failed 占位块死锁。
+- `TextToImageCharacterMigrationPanel` 零挂载（A1 残留），角色详情页 proposal 之后的 resolve/accept/apply 无 UI 入口。
+- 新 Project 第一次点正文生图必报"尚未保存文生图 Recipe"（首开自动落盘缺失）。
+- 规划失败后再点正文生图：`repository.start` upsert `update:{}` 原样复用 terminal failed 行，前端却弹"插图规划已启动"假成功。
+
+### 实际修复
+
+- dispatch：默认 `requestImage` 绑定改为显式占住 `fetchImpl` 位的 wrapper；新增"默认构造 + stub 全局 fetch"回归测试锁死参数位；tsconfig include 纳入 `server/text-to-image/**`（该域 `*.test.ts` 暂 exclude，测试由 vitest 把关），并修复纳入后暴露的 `provider-lane.repository.ts` 两处闭包收窄类型错误。
+- 图片渲染：新增 `WorkspaceImage`（extend 官方 Image；renderHTML 展示层把相对 src 改写为 API URL，attrs.parseHTML 反向还原，markdown 序列化始终保留相对路径）；`imageSrcResolver` 从 `pages/index.vue` 闭包（含 user-assets 分支与 `%20` 先解码）穿透 Workbench→Studio→TipTap 编辑器；新增 `/api/workspace-files/image`（projectPath+相对路径，复用 read.get.ts 同款 resolve/open-guard/包含性校验链，404 固定文案不泄露绝对路径，`assets/text-to-image/` 前缀长缓存、其余 no-cache）；删除旧无守卫绝对路径路由。
+- 重roll：`restoreAssetPlaceholder`（owner+lineage 校验 → 固定 seed 拒绝 → 与 Execution Compiler 同款管线预检 `sourceChapterHash` 漂移 → 章节锁内把 canonical 图片 Markdown 精确还原为 V2 placeholder → Job `sourceInsertStatus→missing`）；占位块状态服务对 failed/canceled/interrupted/succeeded+missing 回退 target 校验重新 ready（outcome_unknown 与 configuration_stale 保持冻结投影不放行）；资产详情"重新生成"对 illustration 走 restore→status 闸门→preview→generate 一键链；旧 Queue `cancel` 补 illustration 排除、retry 错误文案中文化。
+- 迁移面板：`NovelTextToImagePanel` 回挂 `TextToImageCharacterMigrationPanel`，`character-visual-migration-ui-contract.test.ts` 6/6 转绿。
+- Recipe 首开：`ensurePersistedDefault`（缺失才写、无效 fail-closed、并发首创冲突读回收敛）接入 plan 启动路由（有 `recipeMigrationModels` 迁移证据时跳过，保留显式迁移确认权）；前端 `loadRecipe` 对普通缺失自动落盘并加 latest-wins 票据；`isRecipeConflictError` 收紧为只认 `TEXT_TO_IMAGE_RECIPE_CONFLICT`；自动保存冲突不再无声丢草稿（通知后重读）。
+- 失败出路：`service.start()` 对复用的 retryable failed/canceled 行自动 `repository.retry`（不可重试的 plan 校验失败原样返回）；index.vue 两个规划入口对终态返回弹 warning（含 errorMessage/staleReason）引导"重新规划"。
+
+### 审查修正（5 视角 → 逐条对抗验证，19 报 15 实）
+
+- P1×4 全部收口：固定 seed 重roll的 30 秒 lease 后必然 409（改为服务端在破坏性还原前按 Recipe seed 策略拒绝）；restore 先写后验导致章节编辑过即丢图片引用（改为还原前语义 hash 预检，漂移零写入）；服务端 ensure 抢先落盘会锁死 Recipe 迁移提案（加 recipeMigrationModels 闸门）；终态放行与冻结 UI 契约测试冲突（收回 outcome_unknown/configuration_stale，双侧测试对齐新合同并注释依据）。
+- P2 收口：对话框重roll加 /status 闸门防叠加付费 Job；图片 Markdown 多处复制时拒绝还原（`asset_markdown_ambiguous`）；`replace` 第二参改 replacer 函数防 `$` 模式注入；404 文案不泄露路径；缓存分级；`%20` 双重编码；restore 路由补 `withProjectNotOpenHttpError`；store 冲突可见提示与 loadRecipe latest-wins。
+- 同轮顺手修复上游合并遗留的预存损坏：7 个测试文件的 `writeProjectManifest` 旧 2 参签名、`resolveWorkspaceContainerRoot` 已删除引用、queue 夹具还在取 v2 `.style` 字段。
+
+### 验证
+
+- 聚焦回归：dispatch 5、recipe.service 11、placeholder 12、result（含 restore 漂移/删除/越权）12、queue 17、UI 契约（migration 6 + execution-ui 契约更新后全绿）等；全量 `bun run typecheck` exit 0（首次覆盖 text-to-image 生产代码）。
+- 已知边界：outcome_unknown/configuration_stale 占位块仍无占位块级重发入口（出路是重新规划或修复配置后重新预览授权）；纯 localStorage 的 Recipe 迁移草稿在从未打开文生图分页、直接点正文生图的场景下会被服务端默认盘抢先（provider 迁移证据场景已保护）。
+
+## 2026-07-27 Tag index 文件锁半截 JSON 时序竞争修复
+
+### 现象与根因
+
+- `bunx vitest run server/text-to-image/tag-index` 多文件并行时，约 1/4 概率在 tag-index-runtime.test.ts 的 duplicate clicks + cancel 用例抛出 `Tag index operation 文件锁损坏，拒绝抢占`（SyntaxError: Unexpected end of JSON input）；单独运行稳定通过。
+- 根因在 `tag-index-store.ts` 的锁获取路径：`fs.open(lockPath, "wx")` 先创建**空**的 `.operation.lock`，再向句柄写入 JSON。并发的另一方在这个窗口内 EEXIST 后进入 `reclaimExpiredFileLock`，读到空/半截内容，JSON parse 失败即被判定为永久损坏并抛错。同进程并发即可触发，不需要跨进程；多文件并行只是放大了写入窗口。
+
+### 系统性修复
+
+- 写侧：锁创建改走既有 `writeTextAtomic(lockPath, ..., "create")`（同目录 temp + fsync 后 `fs.link` 原子发布，link 对已存在目标返回 EEXIST，create-only 互斥语义不变）。锁文件从此只会以完整内容原子出现，读端（reclaim/release）结构上不可能观察到半截 JSON。
+- 读侧防御：`reclaimExpiredFileLock` 对 JSON parse/schema 失败不再抛"损坏，拒绝抢占"，改为与 EPERM/EACCES/EBUSY 相同的短锁争用语义（返回 false 退避），由外层 `lockMaxAttempts` 有界等待兜底；极端情况下退化为"等待文件锁超时"，仍是 fail-closed。文件系统层面的非预期读错误照旧抛出。
+
+### 验证
+
+- `bunx vitest run server/text-to-image/tag-index` 连续 21 次全绿（11 files / 42 tests）；按修复前约 1/4 的失败率，偶然全绿概率不足 0.3%。
+- 既有用例 `reclaims only an expired short file lock` 写入的是完整过期锁，抢占语义不受影响；仓库内没有断言"损坏拒绝抢占"错误路径的测试，无需删改测试。
+
+## 2026-07-22 Windows Desktop 客户端模块边界修复
+
+### 现象与根因
+
+- SQLite namespace 路径修复后的 Desktop 已能完成迁移并监听端口，但 WebView 显示 `Failed to fetch dynamically imported module`。
+- 报错分块 HTTP 返回 200 且字节完整；raw CDP 也确认下载完成。真实失败发生在模块图解析：客户端分块含顶层 `import "node:crypto"`。
+- `shared/text-to-image-contract-hash.ts` 被浏览器和服务端共同消费，却使用 Node `createHash()`；Vite 的 external 配置又把非法说明符原样保留到客户端产物。
+
+### 系统性修复
+
+- 合同 canonical JSON、同步 API 和 `sha256:<hex>` 输出均保持不变；底层改为 `@noble/hashes` 的跨运行时同步 SHA-256。
+- 删除 `node:crypto` external。新增基于 `es-module-lexer` 的构建边界守卫，递归扫描 Nuxt 客户端 JavaScript，并在发现任意 `node:` 模块说明符时终止构建。
+- 浏览器 bundle 红灯稳定复现 `Could not resolve "node:crypto"`；实现后共享合同聚焦测试 19 项通过。守卫对旧 `.output` 捕获 6 个真实违规分块，对新构建的 74 个客户端 JavaScript 文件扫描通过。
+
+### 验证与计划偏差
+
+- 本轮聚焦回归最终为 5 files、34 passed、1 skipped；全量 typecheck exit 0；完整 `bun run nuxt:build` exit 0。
+- 原诊断一度怀疑 TCP ready 过早或静态大分块首取延迟；CDP 证明网络完整接收后仍拒绝 import，最终根因收敛为 Node built-in 泄漏。因此没有修改 Rust readiness 或缓存策略。
+- 最终 Product stage exit 0（15 个 Profile 重编译并清理 30 个未引用产物）；Tauri release 编译 exit 0；最终 Desktop assemble exit 0。`dist` Product 边界扫描 74 个 JS 文件通过，portable Bun + `\\?\...\data` 迁移 exit 0；最终 EXE 启动后根页面 200、入口 `/_nuxt/C6oxnHZD.js` 200/291061 bytes。
+- 按项目约束没有自动进行浏览器交互验收。服务级 smoke 结束时强制关闭 Tauri 没有触发其正常子进程清理，残留的 exact `dist/runtime/bun/bun.exe` PID 已核对路径后停止；最终 3618 listener 为 0，不属于产品运行错误。
+
 ## User Request
 
 - 在网页前端新增“文生图”分页。
@@ -169,12 +239,12 @@
 
 ### 本轮需求与设计边界
 
-- 依据已冻结设计 `docs/superpowers/specs/2026-07-17-chatu8-storyboard-agent-illustration-design.md`，`illustration.director` 不再使用文生图模块私有的 OpenAI-compatible provider/model 作为配置真相。
+- 依据已冻结设计 `docs/superpowers/specs/2026-07-17-ttp-storyboard-agent-illustration-design.md`，`illustration.director` 不再使用文生图模块私有的 OpenAI-compatible provider/model 作为配置真相。
 - Director Agent Runtime binding 的唯一持久化位置收敛为 Workspace Root Global Config：`agent.profiles["illustration.director"].model.modelKey`。
 - 全局“设置 → 模型配置”是唯一编辑与检测入口；文生图分页只读取摘要并跳转，不获得保存 Global Config 的能力。
 - Project Config 禁止覆盖 Director model binding；该限制只针对 `model`，未来 project-scoped storyboard 等 `settings` 仍保留结构空间。
 - NovelAI Provider/API、Recipe、采样与尺寸等生成参数、正负向画风串继续属于文生图域；本轮不向 Agent Profile、Skill、Storyboard 或正文按钮增加任何 NovelAI mutation DTO。
-- 本轮不实现 Chatu8 `tagData`，也不把旧正文生图 LLM 调用桥接成 Director；完整 planning operation 与旧链删除属于后续纵切。
+- 本轮不实现 TTP（text-to-picture）`tagData`，也不把旧正文生图 LLM 调用桥接成 Director；完整 planning operation 与旧链删除属于后续纵切。
 
 ### 现状差距
 
@@ -395,15 +465,15 @@
 
 ### 不在本纵切冒充完成的范围
 
-- Chatu8 import API/UI、global publish journal、Project 编辑器、角色/服装迁移、Danbooru 同步/索引、Director planning、V2 placeholder、Execution Manifest、持久 Provider lane、P5/P6 均仍是后续阶段。
-- 不实现或预留 Chatu8 `tagData/` 下载、导入、解密、enrichment 或 adapter。
+- TTP import API/UI、global publish journal、Project 编辑器、角色/服装迁移、Danbooru 同步/索引、Director planning、V2 placeholder、Execution Manifest、持久 Provider lane、P5/P6 均仍是后续阶段。
+- 不实现或预留 TTP `tagData/` 下载、导入、解密、enrichment 或 adapter。
 - 按项目规则不自动运行浏览器验证；不提交、推送或发布。
 
 ### 实际结果
 
 - 新增 `SemanticTagResolution` V1 严格终态合同：canonical exact/alias、可靠 replacement、受控 `provider_passthrough` 三分支；`modelScope` 硬切为 `generic-novelai | novelai-model + modelId`，override rank/actor/reason/approval evidence 与 `resolvedAt` hash 排除均由类型和 refinement 约束。
 - passthrough 对 `NFKC(sourceText)` 做安全校验并现场复算 `validationTextHash`；拒绝控制字符、逗号嵌套、权重/宏/参数、XML 与 Markdown，同时 `wireText` 仍只裁剪原文首尾 ASCII 空格，合法内部下划线不被改写。
-- 新增 Storyboard Preset/Overlay 七类 strict rule 合同、semantic/diagnostic hash 与批准状态；blocking risk/macro 只能 pending，Chatu8 批准 envelope 独立冻结 raw/sanitized source hash，来源漂移不污染 semantic hash 但会使状态 stale。
+- 新增 Storyboard Preset/Overlay 七类 strict rule 合同、semantic/diagnostic hash 与批准状态；blocking risk/macro 只能 pending，TTP 批准 envelope 独立冻结 raw/sanitized source hash，来源漂移不污染 semantic hash 但会使状态 stale。
 - 新增 Tag Pattern Set/Overlay strict 合同、同 Pattern resolution ref 所有权校验、planning/render 双 hash；disable/identity/operation kind 不污染 render 域，互不冲突 operation 的物理顺序经 canonical sort 不制造假 stale。
 - 新增 Storyboard/Pattern Markdown codec；YAML duplicate key、anchor、alias、merge、warning、全部显式 tag 与 strict schema 未知字段均 fail-closed，正文只影响 fileHash。
 - 新增两类领域 resolver：replace/disable/append 只做整条增量覆盖，stale/conflict 返回未修改 approved base；Effective Preset hash 覆盖 enabled/matching/defaults/macros/稳定 rules，Pattern 输出 base/project + operation + sourceEntryId provenance；companion pair 缺失或身份不一致 fail-closed。
@@ -434,15 +504,15 @@
 
 ### 后续边界
 
-- 下一纵切按 `docs/superpowers/plans/2026-07-19-route-b-p2-import-foundation.md` 实现确定性 Chatu8 inspect、secret redaction、七类 classifier 与不可批准的 `pending_unresolved` companion/report。
+- 下一纵切按 `docs/superpowers/plans/2026-07-19-route-b-p2-import-foundation.md` 实现确定性 TTP inspect、secret redaction、七类 classifier 与不可批准的 `pending_unresolved` companion/report。
 - Danbooru active index、terminal Resolver、approve/global publish、Project overlay 编辑器、角色/服装 V2 migration 仍需在 P2 后续切片完成；不得用 mock index 或自由 Tag 绕过。
 
 ## 2026-07-19 Route B P2 确定性导入第一纵切（pending_unresolved）
 
 ### 本轮目标与硬边界
 
-- 把旧前端宽松 ST JSON 导入入口硬切为 server/shared 的确定性 Chatu8 Storyboard inspect 与 Director convert 流程。
-- 只接受当前已打开 Project Workspace 顶层 `upload/*.json`，最大 16 MiB；不递归扫描 Project，不读取 Chatu8 `tagData`，不把外部 role/instruction 变成权限。
+- 把旧前端宽松 ST JSON 导入入口硬切为 server/shared 的确定性 TTP Storyboard inspect 与 Director convert 流程。
+- 只接受当前已打开 Project Workspace 顶层 `upload/*.json`，最大 16 MiB；不递归扫描 Project，不读取 TTP `tagData`，不把外部 role/instruction 变成权限。
 - 本轮只产出可审查但不可批准的 `pending_unresolved` Storyboard + Tag Pattern companion、只读 Recipe proposal 与 global archive/journal；不伪造 active Tag index，不发布 selector。
 - NovelAI Provider/API、Recipe 与生成参数仍只属于文生图域；Profile、Skill、Storyboard、导入 API 和正文按钮均无写权限。
 
@@ -456,10 +526,10 @@
 - companion identity 使用两阶段内容寻址：先由 Storyboard semanticHash、Pattern planning/render hashes 与 diagnosticHash 计算 `candidatePackageHash`，再派生共享 `packageId/resourceKey`；身份不反向进入任一内容 hash。
 - Recipe proposal 不进入 companion identity，使用独立 `recipeProposalHash`；相同 import/converter 下任一 proposal 漂移仍由 journal 报 `STORYBOARD_IMPORT_CONVERSION_CONFLICT`。
 - 新增全局 Profile Home archive 与可重放 journal：`source.sanitized.json`、`inspect.json`、两份 candidate Markdown、`report.md`、`journal.json`；raw secret 永不落盘，create-only 工件冲突、原 upload 改变/删除、journal 漂移均有稳定错误出口，且不会修改当前 approved selector。
-- 新增物理 `illustration.director` Profile、固定 `novel-import-chatu8-storyboard-preset` Skill 与 inspect/submit 两项窄工具。工具通过全局 runtime registry 注册，Profile 只用 `pluginTool` 显式绑定；无 shell、通用文件、网络、Provider/Recipe 或图片生成参数权限。
+- 新增物理 `illustration.director` Profile、固定 `novel-import-ttp-storyboard-preset` Skill 与 inspect/submit 两项窄工具。工具通过全局 runtime registry 注册，Profile 只用 `pluginTool` 显式绑定；无 shell、通用文件、网络、Provider/Recipe 或图片生成参数权限。
 - Global Profile Home 初始化同 package identity 的安全默认 Storyboard 与空 approved Pattern companion。Profile Settings 保留 typed `chapterPlanPolicy` 单一对象默认值；因 Low-Code Form 首版只支持顶层 field path，当前 UI 只展示 `storyboardPresetKey` 与 `planningConcurrency`。
 - 文生图分页新增专用导入组件：列出 Project `upload/` 顶层 JSON，显示七类统计、enabled/disabled、宏分类与 blocking、脱敏路径、chunk 数和 `TAG_INDEX_NOT_READY`；转换复用 canonical Agent session API，完成后从 preview API 复验并展示两份 pending Markdown、hash 与只读 Recipe proposal。
-- 批准按钮固定禁用，不存在“上传即激活”。组件没有 localStorage、Provider/Recipe endpoint 或 candidate 保存逻辑；旧 `parseStChatu8TextToImageSettings`、native file input 与 Pinia 写入已从宿主断开。
+- 批准按钮固定禁用，不存在“上传即激活”。组件没有 localStorage、Provider/Recipe endpoint 或 candidate 保存逻辑；旧 `parseStTtpTextToImageSettings`、native file input 与 Pinia 写入已从宿主断开。
 
 ### 错误出口与恢复
 
@@ -474,7 +544,7 @@
 - 初版候选先以 `importId+presetId` 派生 package identity，审计后确认违背“hash 先于 identity”；已追加 RED/GREEN 改为两阶段内容寻址，并让 pending Pattern/package envelope 显式携带同一 `resourceKey`。
 - Profile 初版直接绑定 self-contained tool definition，编译会把 Prisma/libsql native 依赖拉入 artifact；系统性改为全局 runtime registry + Profile `pluginTool`，不是编译兼容 hack。
 - Task 7 没有创建第二个专用 Agent orchestration endpoint；source/inspect/preview 使用文生图 API，模型执行复用现有 Agent session/invocation 真相源。
-- 旧 `app/utils/text-to-image-st-chatu8-import.ts` 已无 UI 消费者，但角色/服装 V2 migration 尚未接管其剩余语义，按计划暂不删除，也不建立 adapter。
+- 旧 `app/utils/text-to-image-st-ttp-import.ts` 已无 UI 消费者，但角色/服装 V2 migration 尚未接管其剩余语义，按计划暂不删除，也不建立 adapter。
 
 ### 验证
 
@@ -489,7 +559,7 @@
 
 - 当前只完成 P2 deterministic import foundation，不代表 P2 或 Route B 完成。
 - 下一批仍需官方 Danbooru 同步/四层 active index、TagPolicy/terminal Resolver、resolved candidate diff、global publish selector journal、Project overlay editor 与角色/服装 V2 migration。
-- active Tag index 就绪前不得开放 approve/publish，不得以自由 Tag、mock index、Chatu8 `tagData` 或浏览器缓存绕过。
+- active Tag index 就绪前不得开放 approve/publish，不得以自由 Tag、mock index、TTP `tagData` 或浏览器缓存绕过。
 
 ## 2026-07-20 Route B P2 官方 Tag index / Policy / Resolver 续作
 
@@ -497,7 +567,7 @@
 
 - 当前 import foundation 只能产出 `pending_unresolved`；仓库尚无官方 Danbooru SourceClient、watermark/reconciliation、四层工件、SQLite FTS active pointer、独立 TagPolicyRegistry 或终态 Resolver service。
 - 官方源码复核确认 JSON controller 统一走 `paginated_search`，ID sequential pagination 使用 `page=a<ID>`；live API 无 snapshot isolation，因此 NeuroBook 必须本地冻结 upper watermark并做第二轮 reconciliation，不能以一次页码抓取冒充完整。
-- 新实现只接受固定 `https://danbooru.donmai.us` 官方域，固定 inclusive 3K 阈值；不建立通用 source adapter，不下载/导入/解密 Chatu8 `tagData`，不引入 embedding/sqlite-vec。
+- 新实现只接受固定 `https://danbooru.donmai.us` 官方域，固定 inclusive 3K 阈值；不建立通用 source adapter，不下载/导入/解密 TTP `tagData`，不引入 embedding/sqlite-vec。
 - Tag index 是 Workspace Root 共享 cache；Project 只在既有 `.nbook/config.json` 选择 content scope 与 unknownTagPolicy。官方 facts、NeuroBook policy、run resolution、Project/Pattern approval 各有独立真相源。
 - 详细实施见 `docs/superpowers/plans/2026-07-20-route-b-p2-tag-index-resolver.md`。本阶段按 TDD 先落严格合同、SourceClient、可恢复同步与 builder，再接 reader/policy/resolver/import/UI；不会先开放批准。
 
@@ -571,7 +641,7 @@
 - Project overlay + Character/Outfit V2 最终聚焦组合为 `12 files / 40 tests passed`；完整 `bun run typecheck` exit code 0。中间 typecheck 捕获并修正 strict hash 的 `undefined` 投影、并发锁 tail 释放以及固定字段构造类型问题。
 - 本纵切没有 Prisma schema 变化，因此未运行 generate。按约束未自动运行浏览器验证，也未提交、推送、发布或操作前序暂存设计文档。
 - 原实施计划把旧 detector/completion/placer 的物理删除列在本纵切；冻结总规格要求 P4 替代 workflow 就绪后再硬切，因此当前只建立 V2-only 新读侧，物理删除留到 P4，不建立 adapter。
-- 现有 Project 文件迁移已完成，但 Chatu8 Context 中可确定识别的结构化角色/服装字段仍只进入 Storyboard report-only 统计；角色详情 LLM tag generation 也仍会生成旧 source Markdown。两者必须改成统一 proposal-only 入口后，P2 才能整体完成。
+- 现有 Project 文件迁移已完成，但 TTP Context 中可确定识别的结构化角色/服装字段仍只进入 Storyboard report-only 统计；角色详情 LLM tag generation 也仍会生成旧 source Markdown。两者必须改成统一 proposal-only 入口后，P2 才能整体完成。
 
 ## 2026-07-20 Route B P2 Character Visual Sources / Director Proposal-only
 
@@ -817,3 +887,125 @@
 - 独立审查后的修复聚焦回归为 `12 files / 56 tests passed`；最终 lane/P4 受影响回归为 `29 files / 143 tests passed`；completed saga 重开与 canonical saga ID 定向回归为 `4 files / 21 tests passed`；最终 `bun run typecheck` exit 0。覆盖显式 429/5xx 重试、retry 崩溃恢复、凭据/fence 线性化、大量受阻 lane 饥饿、精确 Project saga、暂不可达保留、已完成 saga 后发重开、晚到版本立即重绑、混合版本拒绝、迁移非法组合与 shutdown abort。最终独立复核无 Critical/Important，Ready verdict 为 Yes。
 - 原计划只列三类 App lane 表；实际凭证替换若没有持久 Project propagation 决定，会在“App 已提交、Project 暂时不可达”窗口失去恢复根，因此增加逐目标 revision invalidation saga。独立审查还发现原实现把 429/5xx 直接终结、`attempt_started` 后二次读取 credential、close 只等待以及晚到提交只能等后台扫描；实际以新 retry 状态、owner-transaction credential 闭包、lifecycle abort 和 authorize-time atomic rebind 系统性收口，没有使用双写 localStorage、兼容 adapter 或吞掉旧状态。
 - 未自动运行浏览器验证；未暂存、提交、推送、发布，也未改变前序设计文档的暂存状态。Route B 的持久 Provider lane 阶段完成；总计划仍有 P5/P6 与最终授权验收，不在本节冒充整份规格最终完成。
+
+## 2026-07-24 多画风串、自动保存与 illustration.director 修复
+
+### 实际结果
+
+- 用户要求精简文生图分页文案（"保存为唯一 NovelAI Provider"等）、Recipe 默认为自动保存、以及修复 `illustration.director` 无法选择模型的问题。
+- 方案选择：Recipe 总在最前、单 Recipe 无歧义，始终直接覆盖；不存在旧 Recipe 恢复问题，无需"恢复"按钮或手动"保存"。
+- Recipe v3 schema：单 `style` 改为 `styles[]` 数组，新增 `activeStyleId` 字段。v2→v3 迁移在 codec 层完成，单 style 包入数组。
+- 多画风串 UI：`NovelTextToImagePanel.vue` 新增选择器和新建/复制/删除三个按钮，通过 `stylePresetOptions` computed 绑定数据，调用 store 的 `addStylePreset`、`duplicateStylePreset`、`activateStylePreset`、`deleteStylePreset`。
+- Recipe 自动保存：watch novelAi/stylePresets/activeStyleId/recipeSavedSource 变更时自动 render+write 到 `text-to-image-recipe.md`。
+- Recipe 路由修复：`recipe.service.ts` 的 `assertProjectOpen()` 现在接受 `workspace/<slug>` 格式 projectPath。
+- 文案精简：Provicder 区"保存为唯一 NovelAI Provider" → "保存"，"重新检测连接" → "检测"，移除多余描述。
+
+### 验证
+
+- 聚焦 5 文件 29 项全部通过：store (5)、codec (5)、service (9)、migration (4)、compiler (6)。
+- 编译器测试夹具 v2→v3 升级：`illustration-compiler.test.ts` 的 recipeSnapshot helper 现在使用 `styles[] + activeStyleId`。
+- typecheck exit 0。
+
+### 主要变更文件
+
+- `shared/text-to-image-recipe.ts`：schema v3，`styles[]` + `activeStyleId`
+- `app/stores/text-to-image.ts`：多画风串 store 操作、自动保存
+- `app/components/novel-ide/text-to-image/NovelTextToImagePanel.vue`：多画风串 UI、文案精简
+- `server/text-to-image/recipe.codec.ts`：v2→v3 迁移
+- `server/text-to-image/recipe.service.ts`：修复 assertProjectOpen 接受 workspace/ 格式
+- `server/text-to-image/illustration-compiler.test.ts`：v2→v3 测试夹具
+
+## 2026-07-26 Illustration Director 三问题修复
+
+### 用户问题与根因
+
+- 正文生图报 `STORYBOARD_PRESET_STALE`：bundled Profile Home 的两个 `default.md` 实际误放了 `ttp-cinematic` pending candidate，且 Storyboard/Pattern `resourceKey` 不一致；初始化器又只检查 preset 文件是否存在，导致坏 pair 永久跳过纠正。
+- 角色视觉 proposal 一次缺少八个顶层字段：Director `OutputSchema` 是 TypeBox union，`isEmptyObjectSchema()` 只看顶层 `properties`，把 union 误判为空；模型可见 `report_result` 因此没有 `data`，执行期也允许只有 `result` 的调用终止。
+- 设置中无法更换 Director：模型设置组件化后，草稿/Global Config 保存链仍在，但专用模型卡没有迁入新面板；通用 Profile 面板仍按合同禁止编辑 Director，因此没有可用入口。
+
+### 实际修复
+
+- `ensureDefaultStoryboardPreset()` 现在始终读取并用正式 codec/resolver 验证两份默认工件。全新 Workspace Root `.nbook`、系统默认残缺 pair、以及固定身份的误置 TTP candidate 会成对恢复为 approved 默认 companion；无法识别的用户文件保持原样，继续由 strict resolver fail-closed，不做自动批准或通用覆盖。
+- bundled `storyboard-presets/default.md` 与 `tag-patterns/default.md` 已改为同 `presetId/packageId/resourceKey` 的 approved 安全默认 pair；独立 `ttp-cinematic.md` candidate 保持 pending，仍需正式审查/发布。
+- Project overlay 包装 resolver 错误时会剥离已有领域前缀，用户文案不再出现双重 `STORYBOARD_PRESET_STALE`。
+- `isEmptyObjectSchema()` 现在区分真正的空 object 与 union/composition schema。显式 `builtin.result.main({dataSchema})` 会在模型 schema 中把 `data` 标为 required，Harness 执行期也拒绝缺少 `data` 的终止调用。
+- 角色 proposal 消费端恢复严格证据边界：只读取 `reportResult.data` 并立即按 `CharacterVisualDirectorProposalSchema` 校验；删除补造 `schemaVersion/operation/state/hash/character/outfits/diagnostics` 的未完成归一化。
+- Global Model Settings 恢复 `illustration.director` 专用卡：支持清空/更换模型、定位 Provider、测试连接、测试/取消模型，并响应文生图入口的聚焦请求。Project scope 和通用 Profile 设置仍无第二编辑入口，保存继续原子写入 `agent.profiles["illustration.director"].model.modelKey`。
+
+### 验证与计划差异
+
+- TDD 红灯分别确认：已有 preset 跳过 companion、误置 candidate 不迁移、union 不暴露 data、缺 data 仍可终止、Global 设置卡缺失，以及错误码重复。
+- 最终聚焦回归：Storyboard/init/overlay/resolver、report schema/control tool、Director assets、角色 proposal 共 `7 files / 51 tests passed`；Director 唯一入口合同 `1 passed`；模型草稿与健康检查 `2 files / 9 tests passed`，合计 61 项。
+- 完整 `bun run typecheck` exit 0。
+- 原安全合同仍指向已拆除的旧文生图侧栏实现；本轮按当前架构改为检查 `NovelIdeTextToImageSettingsPanel.vue` 的只读 Director 摘要，没有恢复旧分页 LLM/Provider 链。
+
+## 2026-07-26 角色视觉 proposal 落盘与无角色正文生图
+
+### 实际修复
+
+- `WorkspaceCharacterVisualMigrationStore` 现在将 `projectPath` 和已解析的 Project Workspace `root` 作为同一上下文传入每次读写、索引失效与 CAS 写入。tracked writer 接收真实 target，不再把未等待的 Promise 当作参数，因此 proposal 完成后的控制文件可正常落盘。
+- `illustration.director` 的 plan-chapter / plan-selection 契约明确规定：无已登记角色不是阻塞条件；此时 Shot 固定使用 `characterIds: []` 与 `action: {}`，仅可把当前 run 的 resolver terminal resolution ID 写入本 Shot 的 `tagDelta`。临时人物外观不得以自由 Tag 写入 DTO、不得创建角色档案，也不得跨镜头传播。
+
+### 验证与计划差异
+
+- 新增存储 target、Director Profile/Skill 与空角色编译三类红灯合同；实现后本轮新增的 29 项断言均通过。
+- 同批执行的旧 UI 合同仍有 1 项失败：它要求已精简的 `NovelTextToImagePanel.vue` 直接挂载已迁移的角色视觉面板。这与本轮服务端落盘及临时 Tag 逻辑无关，未为使测试变绿而恢复已删除的侧栏入口。
+- `bun run typecheck`、`bun run nuxt:build`、`bun run product:stage`、`bun run desktop:tauri` 与 `bun run desktop:assemble` 均成功。新的 Portable 位于 `dist/neuro-book-desktop-x64/NeuroBook.exe`，FileVersion/ProductVersion 均为 `0.7.4-canary.20260723.153500Z`，SHA-256 为 `1B3009A4590DA6392B32EFCF0A9CB91558922847693126C405AE95A08E6BDE0F`。
+- 计划内三条根因修复均实现；额外收口了用户错误文案的重复领域前缀。按仓库规则未自动运行浏览器验证，也未提交、推送或发布。
+
+## 2026-07-27 本地 TTP 词库系统化（Tag index 源硬切）
+
+### 用户决策与边界
+
+- 用户实测 Danbooru 官方在线拉取效果差，拍板三项决策：解密后的本地 TTP tagData 成为 Tag index 唯一数据源；tagData 随应用打包、首次启动自动导入激活；Danbooru 在线同步链路整条删除。中文 `translate` 字段本轮不纳入索引（Director 产出本就是英文 danbooru tag，中文搜索留作后续增强）。
+- 背景：多智能体审查发现工作区存在未收编的调试改动——`getTagIndexRuntime()` 被偷换为 TtpSourceClient、builder/sync 校验被泛化放宽（"空即跳过"）、条款声明仍写着"不接收 TTP tagData"与实际源自相矛盾。本轮把这个 hack 系统化为正式合同，而不是回滚。
+
+### 实际结果
+
+- 合同诚实化：`sourceKind`/`sourceEndpoint` 硬切为 `ttp-local` / `local:ttp-tagdata`（shared literal，无 union、无兼容层）；`TAG_INDEX_TERMS_CONFIRMATION_VERSION` 改为 `ttp-local-terms-2026-07-v1`；manifest `sourceResponse.schemaVersion` 改为 `ttp-tagdata-v1`；条款声明重写为本地源事实，`termsUrl/attributionUrl` 保留 Danbooru 作为标签体系归属引用。
+- 能力声明式校验：`TagSourceReader` 接口新增 `descriptor.providedResources`；snapshot/manifest 持久化该声明并在 schema superRefine 交叉校验（声明资源两轮 page 必须闭合，未声明资源必须零记录零 page）；sync `resourceHash` 与 builder `assertSourceCoverage`/`buildResourceManifest` 只对声明缺席的资源放行显式空占位，声明了的资源保持全部原有 fail-closed；回滚了两处"空即跳过"泛化放宽。
+- `DanbooruSourceClient` 及其测试物理删除；reader 接口与记录类型移入中立 `tag-source-client.ts`。`TtpSourceClient` 收编：descriptor 声明只提供 tags、记录时间戳取 tagData 文件最大 mtime（同数据多次导入产出一致）、错误改用 `TagIndexError`、打包路径经 `resolveSystemNbookRoot()` 解析（生产安全）。
+- runtime 默认源即 TtpSourceClient；`status()` 对旧 schema 的 active 工件按未激活处理（不再 throw），配合既有 `text-to-image-tag-index-boot.ts` 启动插件自动重导覆盖，老用户无感迁移。乱码注释与 BOM 清理，`import-ttp-tag-index.ts` 重写为干净 UTF-8 手动导入脚本。
+- 打包：25 个 `danbooru_*.json`（11.8MB）进 `assets/workspace/.nbook/cache/text-to-image/ttp-tagdata/`；`isManagedAssetBlacklisted` 排除该目录（系统 `.nbook` 就地读取，不复制进每个用户 Workspace Root）；`product-runtime.mjs` 整体复制 `assets/workspace`，桌面端自动携带。
+- UI：`TextToImageTagIndexSection.vue` 重写文案（移除条款确认仪式、"重新导入本地词库"、Alias/Implication 标注"源不提供"、tiers 计数展示、自动导入说明），挂载进 `NovelIdeTextToImageSettingsPanel.vue` 新"Tag 词库"section；新增 `tag-index-ui-contract.test.ts` 防再次静默脱挂。
+
+### 设置面板问题修复（用户反馈）
+
+- 高级开关（SMEA/SMEA Dyn/Variety/Decrisper/AI 默认角色位置）选中态改为 accent 边框+底色整体高亮，替代原来仅 3px 原生勾选框的不可辨状态。
+- V4 系列模型下 SMEA Dyn 显示禁用态并附说明；模型切换到 V4 时自动清掉已存 `smeaDyn`/手动 SMEA，避免 Recipe 自动保存被服务端 `assertRecipeCapabilities` 422 拒绝形成报错循环。
+- 参考资产上传修复前后端合同不匹配：服务端只从 multipart form parts 读 `projectPath` 与必填 `kind`，前端此前把 projectPath 放 query 且从不发 kind（必然 400）；现随表单发送并支持多选。缩略图 URL 从 `/{id}/content` 修正为服务端实际的 `{id}.content` 点路由。补充 Vibe 派生说明（vibe-encoding 由首次生图时服务端自动派生缓存，无需手动上传）。
+
+### 验证
+
+- tag-index 聚焦回归：`12 files / 49 tests passed`（含新增 `ttp-source-client.test.ts` 临时目录现场加密 fixture 的 5 用例）；`tag-index-ui-contract.test.ts` 通过。
+- 已知残留（非本轮引入）：`character-visual-migration-ui-contract.test.ts` 仍 1 failed——角色迁移面板在此前"面板精简"重构中脱挂未收尾，属于审查报告 A1 项，待专门纵切挂回；`tag-index-runtime.test.ts` 与其他文件并行时偶发 Windows 文件锁半截 JSON 读竞争（预存时序问题，建议后续在 `tag-index-store.ts` 加读重试或原子写保护）。
+- 按仓库规则未自动运行浏览器验证；未提交、未推送。
+
+### 后续边界
+
+- 审查确认的"面板精简"重构收尾仍待做：TextToImageCharacterMigrationPanel、TextToImageStoryboardImportPanel、TextToImageProjectOverlayPanel、NovelAiProviderReconciliation 四块零挂载组件需要重新安置或删除，Director 设置一键跳转事件链需重接。
+- "三项配置直接上手"目标的其余项：默认 approved Tag Pattern companion（当前为空数组）、角色 registry 按需读取容错、Recipe 首开自动落盘、就绪检查聚合入口、placeholder 失败重试与 inserted 终态。
+
+## 2026-07-27 chatu8 → TTP（text-to-picture）全仓品牌重命名
+
+### 用户决策与边界
+
+- 用户先要求移除文生图界面上的 chatu-8 字样，随后升级为全仓重命名：所有提到 chatu-8 的地方（含缩写 `c8` 家族）统一改为 TTP（text-to-picture）品牌。
+- 明确保留的外部事实（改了会破坏功能或失真）：ST 导入 util 解析外部导出 JSON 的 key 数组 `["st-chatu8", "st_chatu8", "chatu8", "智绘姬"]`；`ttp-source-client.ts` 的开发环境回退路径 `.agent/st-chatu8/tagData`（上游仓库真实 clone 位置）；AES 密钥值；`danbooru_*` 外部格式名；spec 文档 9.6 节引用的真实用户样例文件名。
+
+### 实际结果
+
+- 文件/目录改名 16 项：`chatu8-storyboard-json/inspector/character-visual-source/source-client` 及各自测试 → `ttp-*`；`import-chatu8-tag-index.ts` → `import-ttp-tag-index.ts`；`text-to-image-st-chatu8-import.ts(+test)` → `text-to-image-st-ttp-import.ts`；skill 目录 `novel-import-chatu8-storyboard-preset` → `novel-import-ttp-storyboard-preset`；内置 companion 资产 `chatu8-cinematic.md`（storyboard + tag-pattern 两份）→ `ttp-cinematic.md`；打包数据目录 `cache/text-to-image/chatu8-tagdata` → `ttp-tagdata`；spec 文档改名为 `2026-07-17-ttp-storyboard-agent-illustration-design.md`（全部交叉链接同步）。
+- 标识符与合同字面量硬切（无兼容层）：`Chatu8*`→`Ttp*`、`CHATU8_*`→`TTP_*`；环境变量 `CHATU8_TAGDATA_DIR`→`TTP_TAGDATA_DIR`；`chatu8-local`→`ttp-local`、`local:chatu8-tagdata`→`local:ttp-tagdata`、`chatu8-local-terms-2026-07-v1`→`ttp-local-terms-2026-07-v1`、`chatu8-tagdata-v1`→`ttp-tagdata-v1`、`nbook.chatu8-storyboard-inspect-manifest/v1`→`nbook.ttp-storyboard-inspect-manifest/v1`、`nbook.chatu8-storyboard-inspection/v1`→`nbook.ttp-storyboard-inspection/v1`、`nbook.chatu8-character-visual-source/v1`→`nbook.ttp-character-visual-source/v1`、`chatu8-character-export`→`ttp-character-export`、`chatu8_character_export`→`ttp_character_export`、source kind `chatu8`→`ttp`；ID 前缀 `chatu8-character-/chatu8-outfit-`→`ttp-character-/ttp-outfit-`（schema 正则与生成端同步）；archive 目录 `imports/chatu8-storyboard`→`imports/ttp-storyboard`（publish journal 路径模板同步）。
+- `c8` 缩写家族全部换为 `ttp` 家族：稳定 ID 生成前缀 `c8i/c8p/c8e/c8pkg/c8recipe/c8pub/c8(rule|pattern)` → `ttpi/ttpp/ttpe/ttppkg/ttprecipe/ttppub/ttp`；测试 fixture 与内置资产身份字段（`ttppkg_01JQ6KX2NP`/`ttps_01JQ6KX2NP`/ruleId `ttp.*`）同步。
+- Agent 面工具与资产：工具改名 `inspect_ttp_storyboard` / `submit_ttp_storyboard_conversion`（含 `^ttpi\.` importId 校验、Profile 提示词、allowlist）；`illustration.director.profile.tsx` 默认 storyboard title 改为 "TTP 电影化分镜预设"；`leader.assets.profile.tsx` skill include 同步。
+- UI 文案恢复品牌：面板标题 "TTP Storyboard 导入"、"本地 TTP 词库（Danbooru 衍生数据）"、词库条款声明与失败诊断均以 TTP 措辞（条款 contentHash 运行时从文本计算，自动随文案更新）。
+- **系统性删除**：`storyboard-preset-init.ts` 的"误置 candidate 纠正器"（`MISPLACED_*` 常量 + `isMisplacedCandidatePair`/`hasMisplacedIdentity`）整体移除——它靠字节级匹配旧品牌字样识别老版本写坏的 default.md，改名后永远匹配不到，属死代码；按"数据不做兼容"的仓库原则删除，对应测试用例一并删除。老安装若仍有误置 default.md 将走 `invalid-existing` 日志分支，不再自动纠正。
+- 数据不兼容说明（快速开发期内可接受）：既有用户数据中的旧 importId/packageId/journal 路径（`imports/chatu8-storyboard/**`、`c8*` 前缀 ID）与新代码不再互认；旧 `chatu8-tagdata` 缓存目录变为孤儿数据，启动自动重导会以 `ttp-tagdata` 重建索引。
+
+### 验证
+
+- 多智能体（7 组改写 + 1 组对抗验证）执行；验证通过项：受管目录零 `chatu8` 文件名残留、零旧 import 说明符、`c8` 家族仅剩 `mock-data.ts` 的无关 `id:"c8"`、PROTECTED 项完整（解析 key 数组、回退路径、AES 密钥原样）、`ttp-cinematic.md` 两文件身份字段成对一致。
+- `.compiled` profile 编译产物含旧工具名/字面量，已通过 `prepare-system-assets` 重新编译刷新（manifest 只引用新品牌 artifact，4 个旧 artifact 为待 GC 孤儿）；开发 Workspace Root 中旧名 skill 副本已删除（新名副本由资产同步带入）。
+- 测试：改名核心 8 文件串行 34/34 通过（storyboard-import/publish service、tag-index 全链、preset-init、ttp-* 解析/inspector）；`shared` + `app/utils` 314/315（唯一失败在 `config.dto` Recipe 严格性，依赖用户未提交的 `shared/text-to-image-recipe.ts` WIP）；`server/agent/tools` 158/163（5 个失败在未修改的 file-tools/web-tools，环境相关）；`illustration-director-assets` 与 `builtin-tools-smoke` 通过。`server/text-to-image` 全目录并行跑存在大量超时/ENOTEMPTY 抖动（预存 Windows 文件锁问题，两次运行失败集不一致），串行复跑改名相关文件全绿；确定性失败均定位到用户 WIP 文件（`queue.service.ts` 已改未提交、`novelai-provider-discoverability-ui-contract.test.ts` 未跟踪新测试、面板脱挂即"面板精简"待收尾项）。
+- typecheck：全仓仅 2 个 error，均在用户未跟踪的 WIP 新文件（`WorkspaceImage.ts`、`image.get.ts`）；改名引入 0 个类型错误。`server/agent/profiles` 全套件因机器过慢未在时限内完整跑完，仅跑了改名相关文件；建议空闲时补跑一次全量。

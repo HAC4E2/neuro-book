@@ -26,12 +26,14 @@
     ".nuxt/**/*.d.ts",
     "app/**/*",
     "server/agent/**/*",
+    "server/text-to-image/**/*",
     "shared/**/*",
     "*.d.ts",
     "nuxt.config.ts"
   ],
   "exclude": [
     "server/agent-v2/**/*",
-    "assets/agent-v2/**/*"
+    "assets/agent-v2/**/*",
+    "server/text-to-image/**/*.test.ts"
   ]
 }

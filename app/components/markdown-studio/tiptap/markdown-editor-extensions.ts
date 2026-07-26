@@ -1,6 +1,5 @@
 import {Placeholder} from "@tiptap/extension-placeholder";
 import {TableKit} from "@tiptap/extension-table";
-import {Image} from "@tiptap/extension-image";
 import type {AnyExtension} from "@tiptap/core";
 import {AgentHardBreak} from "nbook/app/components/novel-ide/agent/tiptap/AgentHardBreak";
 import {AgentSkill} from "nbook/app/components/novel-ide/agent/tiptap/AgentSkillNode";
@@ -18,6 +17,11 @@ import {
     unavailableTextToImagePromptController,
 } from "nbook/app/components/markdown-studio/tiptap/TextToImagePrompt";
 import {createFallbackWorkspaceReferenceMeta, WorkspaceReference, type WorkspaceReferenceResolver} from "nbook/app/components/markdown-studio/tiptap/WorkspaceReference";
+import {
+    passthroughWorkspaceImageSrcResolver,
+    WorkspaceImage,
+    type WorkspaceImageSrcResolver,
+} from "nbook/app/components/markdown-studio/tiptap/WorkspaceImage";
 
 export interface MarkdownSuggestionController {
     resolveMenu: (context: AgentTriggerMenuContext) => AgentTriggerMenuState;
@@ -41,6 +45,8 @@ export interface MarkdownEditorExtensionOptions extends MarkdownSuggestionContro
     resolveReference?: WorkspaceReferenceResolver;
     enableQuickTriggers?: boolean;
     textToImagePromptController?: TextToImagePromptController;
+    /** 项目相对图片 src 的展示层解析器；不注入时保持原样透传（相对路径在浏览器里会裂图） */
+    imageSrcResolver?: WorkspaceImageSrcResolver;
 }
 
 /**
@@ -66,12 +72,13 @@ export function createMarkdownEditorExtensions(options: MarkdownEditorExtensionO
             },
         }),
         TableKit,
-        Image.configure({
+        WorkspaceImage.configure({
             inline: true,
             allowBase64: false,
             HTMLAttributes: {
                 class: "nb-markdown-image-node",
             },
+            resolveSrc: options.imageSrcResolver ?? passthroughWorkspaceImageSrcResolver,
         }),
         AgentHardBreak,
         Placeholder.configure({

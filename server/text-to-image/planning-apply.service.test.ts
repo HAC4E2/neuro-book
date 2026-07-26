@@ -20,7 +20,9 @@ import {parseChapterStoryboardMarkdown} from "nbook/server/text-to-image/chapter
 import {closeTextToImageProjectClient, textToImageProjectClient} from "nbook/server/text-to-image/project-client";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 import {registerProjectResourceOwner, resetProjectSessionsForTest} from "nbook/server/workspace-files/project-session";
-import {resolveProjectAbsolutePath, writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
+import {resolveProjectAbsolutePath} from "nbook/server/text-to-image/compat";
+import {writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
+import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {createIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/workspace-assets-test-helper";
 import {resetWorkspaceHistoryForTest, workspaceHistoryResourceOwner} from "nbook/server/workspace-history/project-history";
 
@@ -164,7 +166,7 @@ async function createContext(): Promise<TestContext> {
     registerProjectResourceOwner(workspaceHistoryResourceOwner);
     const assets = await createIsolatedWorkspaceAssets();
     const projectPath = `workspace/planning-apply-${randomUUID()}`;
-    await writeProjectManifest(projectPath, {kind: "novel", title: "Planning Apply", summary: ""});
+    await writeProjectManifest(resolveRuntimeWorkspaceRoot(), projectPath, {kind: "novel", title: "Planning Apply", summary: ""});
     const projectRoot = resolveProjectAbsolutePath(projectPath);
     const chapterFile = path.join(projectRoot, ...CHAPTER_PATH.split("/"));
     const storyboardFile = path.join(projectRoot, ...STORYBOARD_PATH.split("/"));

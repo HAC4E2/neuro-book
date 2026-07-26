@@ -16,6 +16,8 @@ import {createTextToImageRecipeSnapshot} from "nbook/server/text-to-image/recipe
 import {
     TextToImageRecipeSnapshotSchema,
     TextToImageRecipeStyleSchema,
+    getActiveTextToImageRecipeStyle,
+    type TextToImageRecipeStyle,
     type TextToImageRecipeSnapshot,
     type TextToImageRecipeSource,
 } from "nbook/shared/text-to-image-recipe";
@@ -45,7 +47,7 @@ export type EnqueueTextToImageJobInput = {
     prompt: string;
     negativePrompt: string;
     novelAi: TextToImageNovelAiInput;
-    style: TextToImageRecipeSource["style"];
+    style: TextToImageRecipeStyle;
     recipeSnapshot: TextToImageRecipeSnapshot;
     sourcePath?: string | null;
     sourceAnchorId?: string | null;
@@ -195,13 +197,17 @@ export class TextToImageQueueService {
     /** 取消 queued 或 running 任务；运行中请求会收到 AbortSignal。 */
     async cancel(projectPath: string, jobId: string): Promise<TextToImageJobDto> {
         const client = await textToImageProjectClient(projectPath);
+        // illustration Job 由持久 Provider lane 的 lease/attempt fence 管理，旧队列直接翻状态会绕过完成权 CAS。
         const canceled = await client.textToImageJob.updateMany({
-            where: {id: jobId, status: {in: ["queued", "running"]}},
+            where: {id: jobId, kind: {not: "illustration"}, status: {in: ["queued", "running"]}},
             data: {status: "canceled", finishedAt: new Date()},
         });
         const job = await client.textToImageJob.findUnique({where: {id: jobId}});
         if (!job) {
             throw new Error("文生图任务不存在");
+        }
+        if (job.kind === "illustration") {
+            throw new Error("插图任务由持久 Provider lane 管理，不能从旧队列取消。");
         }
         if (canceled.count === 1) {
             const lane = lanes.get(`${projectPath}:${job.providerId}`);
@@ -218,7 +224,7 @@ export class TextToImageQueueService {
             throw new Error("文生图任务不存在");
         }
         if (previous.kind === "illustration") {
-            throw new Error("ILLUSTRATION_JOB_RETRY_REQUIRES_NEW_PREVIEW");
+            throw new Error("插图任务不走旧队列重试；请在正文占位块或资产详情使用“还原并重新生成”。");
         }
         if (previous.status !== "failed" && previous.status !== "interrupted" && previous.status !== "canceled") {
             throw new Error("只有失败、中断或已取消的文生图任务可以重试");
@@ -494,7 +500,7 @@ function assertRecipeCompiledRequest(request: PersistedRequest): void {
         : Number.isInteger(actualSeed) && actualSeed >= 0 && actualSeed <= 4_294_967_295;
     if (!isDeepStrictEqual(actualNovelAi, expectedNovelAi)
         || !seedMatches
-        || !isDeepStrictEqual(request.style, canonical.style)) {
+        || !isDeepStrictEqual(request.style, getActiveTextToImageRecipeStyle(canonical))) {
         throw new Error("内部编译参数与 Recipe snapshot 不一致");
     }
 }

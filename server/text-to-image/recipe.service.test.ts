@@ -22,6 +22,33 @@ describe("TextToImageRecipeService", () => {
         expect(store.assertedRoots).toEqual(["workspace/novel-1"]);
     });
 
+    it("首开自动落盘：缺失时持久化默认草稿，已存在时不重复写", async () => {
+        const store = new MemoryRecipeFileStore();
+        const service = new TextToImageRecipeService(store);
+
+        const first = await service.ensurePersistedDefault("workspace/novel-1");
+        const second = await service.ensurePersistedDefault("workspace/novel-1");
+
+        expect(first.exists).toBe(true);
+        expect(first.source).toEqual(createDefaultTextToImageRecipeSource());
+        expect(second.exists).toBe(true);
+        expect(store.writes).toHaveLength(1);
+    });
+
+    it("首开自动落盘对无效现存文件保持 fail-closed，不做覆盖", async () => {
+        const store = new MemoryRecipeFileStore();
+        const service = new TextToImageRecipeService(store);
+        await service.save({
+            projectPath: "workspace/novel-1",
+            source: createDefaultTextToImageRecipeSource(),
+            expectedRecipeSourceHash: null,
+        });
+        store.externalEdit(() => "not: [valid recipe");
+
+        await expect(service.ensurePersistedDefault("workspace/novel-1")).rejects.toBeInstanceOf(TextToImageRecipeInvalidError);
+        expect(store.writes).toHaveLength(1);
+    });
+
     it("规范保存并从同一 Project Recipe 文件读回", async () => {
         const store = new MemoryRecipeFileStore();
         const service = new TextToImageRecipeService(store);
@@ -108,11 +135,12 @@ describe("TextToImageRecipeService", () => {
                 variety: true,
                 smeaMode: "on" as const,
             },
-            style: {
-                ...createDefaultTextToImageRecipeSource().style,
+            styles: [{
+                ...createDefaultTextToImageRecipeSource().styles[0],
                 positivePrefix: "cinematic light",
                 negativeSuffix: "bad anatomy",
-            },
+            }],
+            activeStyleId: "recipe-default",
         };
         const saved = await service.save({
             projectPath: "workspace/novel-1",
@@ -230,7 +258,7 @@ class MemoryRecipeFileStore implements TextToImageRecipeFileStore {
     private markdown: string | null = null;
     readonly assertedRoots: string[] = [];
     readonly invalidatedRoots: string[] = [];
-    readonly writes: Array<{root: string; filePath: string; content: string; knownBefore: string | null}> = [];
+    readonly writes: Array<{root: string; projectPath: string; filePath: string; content: string; knownBefore: string | null}> = [];
 
     constructor(private readonly delayWrites = false) {}
 
@@ -248,7 +276,7 @@ class MemoryRecipeFileStore implements TextToImageRecipeFileStore {
         return this.markdown;
     }
 
-    async write(input: {root: string; filePath: string; content: string; knownBefore: string | null}): Promise<void> {
+    async write(input: {root: string; projectPath: string; filePath: string; content: string; knownBefore: string | null}): Promise<void> {
         if (this.delayWrites) {
             await new Promise<void>((resolve) => setTimeout(resolve, 0));
         }
@@ -256,7 +284,7 @@ class MemoryRecipeFileStore implements TextToImageRecipeFileStore {
         this.markdown = input.content;
     }
 
-    invalidate(root: string): void {
+    invalidate(root: string, projectPath: string): void {
         this.invalidatedRoots.push(root);
     }
 
