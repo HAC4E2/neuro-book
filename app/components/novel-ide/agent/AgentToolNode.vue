@@ -19,6 +19,20 @@ const {t} = useI18n();
 
 const isRunning = computed(() => props.toolCall.status === "running" || props.toolCall.status === "streaming");
 const collapsedPreview = computed(() => renderConfig.value.collapsedPreviewKey ? t(renderConfig.value.collapsedPreviewKey) : renderConfig.value.collapsedPreview);
+/** 后台 workflow 的 tool success 只表示 job 已登记，头部不得显示成 workflow 完成。 */
+const isStartedWorkflowJob = computed(() => {
+    const details = props.toolCall.resultData;
+    if (props.toolCall.name !== "run_workflow" || !details || typeof details !== "object" || Array.isArray(details)) {
+        return false;
+    }
+    return details.status === "started";
+});
+const displayedStatusClass = computed(() => isStartedWorkflowJob.value
+    ? "bg-[var(--status-info-bg)] text-[var(--status-info)]"
+    : toolStatusClass(props.toolCall));
+const displayedStatusIcon = computed(() => isStartedWorkflowJob.value
+    ? "i-lucide-briefcase-business"
+    : toolStatusIcon(props.toolCall));
 
 /** 尝试将 args 解析为 JSON 对象，失败返回 null。 */
 const parsedArgs = computed<unknown | null>(() => {
@@ -47,8 +61,8 @@ const parsedResult = computed<unknown | null>(() => {
         <!-- 容器头部：点击切换展开 -->
         <button class="flex w-full items-center justify-between px-3 py-1.5 text-left transition-colors hover:bg-[var(--bg-hover)]" @click="emit('toggle')">
             <div class="flex min-w-0 items-center gap-2.5 overflow-hidden">
-                <div class="flex h-5 w-5 shrink-0 items-center justify-center rounded" :class="toolStatusClass(props.toolCall)">
-                    <span :class="[toolStatusIcon(props.toolCall), isRunning ? 'animate-spin' : '']" class="h-3 w-3"></span>
+                <div class="flex h-5 w-5 shrink-0 items-center justify-center rounded" :class="displayedStatusClass">
+                    <span :class="[displayedStatusIcon, isRunning ? 'animate-spin' : '']" class="h-3 w-3"></span>
                 </div>
                 <!-- 紧凑单行 -->
                 <div class="flex min-w-0 items-center gap-2">

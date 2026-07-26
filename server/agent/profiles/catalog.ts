@@ -1,6 +1,6 @@
 import {existsSync} from "node:fs";
 import {mkdir, readFile, readdir, stat} from "node:fs/promises";
-import {basename, dirname, join, relative, resolve} from "node:path";
+import {basename, join, relative, resolve} from "node:path";
 import {assertTypeBoxValue} from "nbook/server/agent/profiles/schema-validation";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import {
@@ -188,7 +188,7 @@ export class AgentProfileCatalog implements ProfileReleaseRegistrySink {
     constructor(systemRoot: string, userRoot: string) {
         this.systemRoot = resolve(systemRoot);
         this.userRoot = resolve(userRoot);
-        this.artifactStore = new ProfileArtifactStore(join(dirname(this.userRoot), ".staging", "runtime-artifact-import-cache"));
+        this.artifactStore = new ProfileArtifactStore();
     }
 
     /**

@@ -1,5 +1,7 @@
 import {createColors} from "picocolors";
-import type {CheckFileEntry, CheckFilterInfo, CheckJsonReport, CheckMultiJsonReport, CheckSummary, FixFileEntry, FixFileResult, FixReport, FixRuleCount, Issue, LLMRuleRecord, LLMRulesJsonReport, LoadedRules, RegistryDiagnostic, Review, RuleLevel} from "./types";
+import {mergeCompactRules, projectCheckIssues} from "./check-report";
+import {ruleDetectorKind} from "./rule-registry";
+import type {ActiveRuleRecord, CheckDetailJsonReport, CheckFileEntry, CheckFilterInfo, CheckJsonReport, CheckMultiDetailJsonReport, CheckMultiJsonReport, CheckSummary, DensityIssue, FixFileEntry, FixFileResult, FixReport, FixRuleCount, Issue, LoadedRules, RegistryDiagnostic, RegistrySummary, Review, RuleLevel, RulesJsonReport} from "./types";
 
 /** picocolors 着色器；createColors(false) 时所有方法为恒等，输出纯文本。 */
 type Painter = ReturnType<typeof createColors>;
@@ -20,6 +22,10 @@ export type CheckReportOptions = {
     includeDiagnostics?: boolean;
     /** 是否对 stylish 输出着色；由 CLI 按 TTY/NO_COLOR/非 json 决定，缺省 false。 */
     color?: boolean;
+    /** density 规则命中；缺省 = 未跑 density 扫描。 */
+    densityIssues?: DensityIssue[];
+    /** JSON 输出是否内联完整规则对象（`--rule-detail`）；缺省 = 紧凑形态。只影响 JSON，stylish 不看这个字段。 */
+    ruleDetail?: boolean;
 };
 
 export function formatCheckReport(filePath: string, issues: Issue[], loadedRules: LoadedRules, options: CheckReportOptions = {}): string {
@@ -31,7 +37,8 @@ export function formatCheckReport(filePath: string, issues: Issue[], loadedRules
     ];
     const hiddenByReview = options.hiddenByReview ?? 0;
     const hiddenByLevel = options.hiddenByLevel ?? 0;
-    if (issues.length === 0) {
+    const densityIssues = options.densityIssues ?? [];
+    if (issues.length === 0 && densityIssues.length === 0) {
         const hiddenNote = formatHiddenNote(hiddenByReview, hiddenByLevel);
         lines.push(hiddenNote ? `${pc.green("✓ No problems found in current view.")}${hiddenNote}` : pc.green("✓ No problems found"));
         return lines.join("\n");
@@ -65,6 +72,9 @@ export function formatCheckReport(filePath: string, issues: Issue[], loadedRules
                 lines.push(options.showLines
                     ? `  ${formatIssueRange(issue)}  ${formatMarkedLine(issue)}`.trimEnd()
                     : `  ${formatIssueRange(issue)}  match: ${pc.yellow(formatMatchText(issue.match))}`);
+                if (issue.detail) {
+                    lines.push(pc.dim(`    ${issue.detail}`));
+                }
                 if (options.showLines) {
                     lines.push("");
                 }
@@ -82,12 +92,37 @@ export function formatCheckReport(filePath: string, issues: Issue[], loadedRules
         }
     }
 
+    // 密度指纹段：与逐处命中分开呈现——它是「分布问题」，一条代表全文/一段的统计结论。
+    if (densityIssues.length > 0) {
+        lines.push(pc.bold(`密度指纹 (${densityIssues.length})`));
+        lines.push("");
+        for (const issue of densityIssues) {
+            const rule = issue.rule;
+            lines.push(`${pc.cyan(rule.id)} ${pc.dim(`[${rule.namespace}]`)} (${rule.title})`);
+            lines.push(pc.dim(`  来源：${rule.ruleset}；级别：${rule.level}；审查：${rule.review}；修复：${rule.fixability}`));
+            lines.push(`  ${issue.line}:${issue.column}  ${issue.hits} 处命中，${issue.perKilo}/千字`);
+            if (issue.samples.length > 0) {
+                lines.push(pc.dim(`  样本：${issue.samples.map((sample) => formatMatchText(sample)).join("、")}`));
+            }
+            lines.push(`  ${formatAction(rule.action)}`);
+            if (rule.note) {
+                lines.push(pc.dim(`  说明：${rule.note}`));
+            }
+            lines.push("");
+        }
+    }
+
     const parts = [];
     if (summary.high > 0) parts.push(`${summary.high} high`);
     if (summary.medium > 0) parts.push(`${summary.medium} medium`);
     if (summary.low > 0) parts.push(`${summary.low} low`);
     // 隐藏统计只在顶部过滤表头展示一次，总结行不重复。
-    lines.push(pc.red(`✖ ${summary.total} problem${summary.total > 1 ? "s" : ""} (${parts.join(", ")})`));
+    if (summary.total > 0) {
+        lines.push(pc.red(`✖ ${summary.total} problem${summary.total > 1 ? "s" : ""} (${parts.join(", ")})`));
+    }
+    if (densityIssues.length > 0) {
+        lines.push(pc.red(`✖ ${densityIssues.length} 条密度指纹`));
+    }
 
     return lines.join("\n");
 }
@@ -123,21 +158,39 @@ function formatHiddenNote(hiddenByReview: number, hiddenByLevel: number): string
     return parts.length > 0 ? ` 已隐藏：${parts.join("，")}。` : "";
 }
 
-export function createCheckJsonReport(filePath: string, configPath: string | null, issues: Issue[], loadedRules: LoadedRules, options: CheckReportOptions = {}): CheckJsonReport {
+export function createCheckJsonReport(filePath: string, configPath: string | null, issues: Issue[], loadedRules: LoadedRules, options: CheckReportOptions = {}): CheckJsonReport | CheckDetailJsonReport {
+    const filter: CheckFilterInfo = {
+        review: options.review ?? "agent",
+        hiddenByReview: options.hiddenByReview ?? 0,
+        minLevel: options.minLevel ?? "low",
+        hiddenByLevel: options.hiddenByLevel ?? 0,
+    };
+    if (options.ruleDetail) {
+        return {
+            kind: "check",
+            filePath,
+            configPath,
+            summary: summarizeIssues(issues),
+            filter,
+            registry: loadedRules.summary,
+            diagnostics: loadedRules.diagnostics,
+            issues,
+            ...(options.densityIssues ? {densityIssues: options.densityIssues} : {}),
+        };
+    }
+    const {namespaces, ...registry} = loadedRules.summary;
+    const projected = projectCheckIssues(issues, options.densityIssues);
     return {
         kind: "check",
         filePath,
         configPath,
         summary: summarizeIssues(issues),
-        filter: {
-            review: options.review ?? "agent",
-            hiddenByReview: options.hiddenByReview ?? 0,
-            minLevel: options.minLevel ?? "low",
-            hiddenByLevel: options.hiddenByLevel ?? 0,
-        },
-        registry: loadedRules.summary,
+        filter,
+        registry,
         diagnostics: loadedRules.diagnostics,
-        issues,
+        rules: projected.rules,
+        issues: projected.issues,
+        ...(projected.densityIssues ? {densityIssues: projected.densityIssues} : {}),
     };
 }
 
@@ -145,23 +198,49 @@ export function createCheckJsonReport(filePath: string, configPath: string | nul
 export function formatCheckAggregate(files: CheckFileEntry[], color = false): string {
     const pc = createColors(color);
     const summary = aggregateSummary(files);
-    const filesWithIssues = files.filter((file) => file.issues.length > 0).length;
+    const filesWithIssues = files.filter((file) => file.issues.length > 0 || (file.densityIssues?.length ?? 0) > 0).length;
+    const densityTotal = files.reduce((sum, file) => sum + (file.densityIssues?.length ?? 0), 0);
     const parts: string[] = [];
     if (summary.high > 0) parts.push(`${summary.high} high`);
     if (summary.medium > 0) parts.push(`${summary.medium} medium`);
     if (summary.low > 0) parts.push(`${summary.low} low`);
     const detail = parts.length > 0 ? ` (${parts.join(", ")})` : "";
-    return pc.bold(`═══ 汇总：${files.length} 个文件，${filesWithIssues} 个有命中，共 ${summary.total} problem${summary.total === 1 ? "" : "s"}${detail} ═══`);
+    const densityNote = densityTotal > 0 ? `，${densityTotal} 条密度指纹` : "";
+    return pc.bold(`═══ 汇总：${files.length} 个文件，${filesWithIssues} 个有命中，共 ${summary.total} problem${summary.total === 1 ? "" : "s"}${detail}${densityNote} ═══`);
 }
 
-export function createMultiCheckJsonReport(configPath: string | null, files: CheckFileEntry[], loadedRules: LoadedRules, filter: CheckFilterInfo): CheckMultiJsonReport {
+export function createMultiCheckJsonReport(configPath: string | null, files: CheckFileEntry[], loadedRules: LoadedRules, filter: CheckFilterInfo, ruleDetail = false): CheckMultiJsonReport | CheckMultiDetailJsonReport {
+    if (ruleDetail) {
+        return {
+            kind: "check-multi",
+            configPath,
+            filter,
+            registry: loadedRules.summary,
+            diagnostics: loadedRules.diagnostics,
+            files: files.map((file) => ({
+                filePath: file.filePath,
+                summary: file.summary,
+                issues: file.issues,
+                ...(file.densityIssues ? {densityIssues: file.densityIssues} : {}),
+            })),
+            summary: aggregateSummary(files),
+        };
+    }
+    const {namespaces, ...registry} = loadedRules.summary;
+    const projected = files.map((file) => ({file, compact: projectCheckIssues(file.issues, file.densityIssues)}));
     return {
         kind: "check-multi",
         configPath,
         filter,
-        registry: loadedRules.summary,
+        registry,
         diagnostics: loadedRules.diagnostics,
-        files: files.map((file) => ({filePath: file.filePath, summary: file.summary, issues: file.issues})),
+        rules: mergeCompactRules(projected.map((entry) => entry.compact.rules)),
+        files: projected.map(({file, compact}) => ({
+            filePath: file.filePath,
+            summary: file.summary,
+            issues: compact.issues,
+            ...(compact.densityIssues ? {densityIssues: compact.densityIssues} : {}),
+        })),
         summary: aggregateSummary(files),
     };
 }
@@ -178,18 +257,25 @@ function aggregateSummary(files: CheckFileEntry[]): CheckSummary {
     return summary;
 }
 
-export function createLLMRulesJsonReport(configPath: string | null, loadedRules: LoadedRules): LLMRulesJsonReport {
+export function createRulesJsonReport(configPath: string | null, loadedRules: LoadedRules, rules: ActiveRuleRecord[], filter: RulesJsonReport["filter"]): RulesJsonReport {
     return {
-        kind: "llm-rules",
+        kind: "rules",
         configPath,
         registry: loadedRules.summary,
         diagnostics: loadedRules.diagnostics,
-        rules: loadedRules.llmRules,
+        rules,
+        filter,
     };
 }
 
-export function formatJsonReport(report: CheckJsonReport | CheckMultiJsonReport | FixReport | LLMRulesJsonReport): string {
-    return JSON.stringify(report, null, 2);
+/**
+ * 序列化 JSON 报告。
+ *
+ * @param pretty 是否缩进。缺省缩进，便于人工与 diff 阅读；紧凑 check 报告传 false——
+ *   它的消费者是 Agent，缩进在长清单上纯属上下文开销（本仓样本上占 25%）。
+ */
+export function formatJsonReport(report: CheckJsonReport | CheckDetailJsonReport | CheckMultiJsonReport | CheckMultiDetailJsonReport | FixReport | RulesJsonReport, pretty = true): string {
+    return pretty ? JSON.stringify(report, null, 2) : JSON.stringify(report);
 }
 
 /** fix 命令的 stylish 输出：逐文件规则计数 + 变更行预览，末尾汇总。 */
@@ -271,71 +357,70 @@ function revealInvisible(text: string): string {
     return text.replace(new RegExp(`[${charClass}]`, "g"), "▯");
 }
 
-export function formatLLMRules(rules: LLMRuleRecord[], diagnostics: RegistryDiagnostic[], color = false): string {
+/** 一条规则的处置摘要：替换类给目标词，纯删除类说明是整处删除，建议类给建议原文。 */
+export function ruleActionSummary(rule: ActiveRuleRecord): string {
+    if (rule.action.type === "suggest") {
+        return rule.action.message;
+    }
+    const targets = rule.action.replacements.filter(Boolean);
+    return targets.length > 0 ? `替换为 ${targets.join(" / ")}` : "整处删除";
+}
+
+/**
+ * rules 命令的 stylish 输出：规则库检视，按 namespace 分组、一条一行。
+ *
+ * 语义规则额外展开完整判定说明与示例——对这类规则 `detector.prompt` 就是规则的
+ * 全部内容，只给 20 字标题等于没给。其余判据类别的正文是 targets/patterns，
+ * 属于实现细节，要看走 JSON 输出。
+ */
+export function formatRules(rules: ActiveRuleRecord[], filter: RulesJsonReport["filter"], registry: RegistrySummary, diagnostics: RegistryDiagnostic[], color = false): string {
     const pc = createColors(color);
+    const conditions = [
+        filter.detector === "all" ? null : `判据 ${filter.detector}`,
+        filter.namespace === null ? null : `namespace ${filter.namespace}`,
+    ].filter((item): item is string => item !== null);
     const lines: string[] = [
         ...formatDiagnostics(diagnostics, pc),
-        pc.bold("LLM 判断规则"),
-        "",
-        "说明：以下规则需要 Agent 根据上下文主动审查，不由 CLI 静态扫描命中。",
+        pc.bold(`规则库${conditions.length > 0 ? `（${conditions.join("，")}）` : ""}`),
+        pc.dim(`${rules.length} / ${registry.activeRules} 条 active；规则包 ${registry.rulesets.join(", ")}`),
         "",
     ];
 
     if (rules.length === 0) {
-        lines.push("当前没有启用需要全文语义审查的 LLM 规则。");
+        lines.push("没有符合条件的规则。");
         return lines.join("\n");
     }
 
-    for (let ruleIndex = 0; ruleIndex < rules.length; ruleIndex++) {
-        const rule = rules[ruleIndex];
-        if (!rule) {
-            continue;
-        }
-        lines.push(`规则 ${ruleIndex + 1}: ${pc.cyan(rule.id)} - ${rule.title}`);
-        lines.push("");
-        lines.push(`namespace: ${rule.namespace}`);
-        lines.push("");
-        lines.push(`来源: ${rule.ruleset}`);
-        lines.push("");
-        lines.push(`级别: ${rule.level}`);
-        lines.push("");
-        if (rule.note) {
-            lines.push(`说明: ${rule.note}`);
-            lines.push("");
-        }
-        lines.push("判断标准:");
-        lines.push("");
-        lines.push(rule.detector.prompt);
-        lines.push("");
-
-        if (rule.examples && rule.examples.length > 0) {
-            lines.push("判断示例:");
-            lines.push("");
-            for (let i = 0; i < rule.examples.length; i++) {
-                const example = rule.examples[i];
-                if (!example) {
-                    continue;
+    const byNamespace = new Map<string, ActiveRuleRecord[]>();
+    for (const rule of rules) {
+        byNamespace.set(rule.namespace, [...(byNamespace.get(rule.namespace) ?? []), rule]);
+    }
+    for (const namespace of [...byNamespace.keys()].sort((left, right) => left.localeCompare(right))) {
+        lines.push(pc.bold(namespace));
+        for (const rule of byNamespace.get(namespace) ?? []) {
+            lines.push(`  ${pc.cyan(rule.id)}  ${pc.dim(`[${rule.level}/${rule.review}/${ruleDetectorKind(rule)}]`)}  ${rule.title}`);
+            lines.push(`    ${ruleActionSummary(rule)}`);
+            if (!("handler" in rule) && rule.detector.type === "semantic") {
+                lines.push("    判定说明：");
+                for (const line of rule.detector.prompt.split("\n")) {
+                    lines.push(`      ${line}`);
                 }
-                lines.push(`示例 ${i + 1}:`);
-                lines.push("");
-                lines.push(`坏例: ${example.bad}`);
-                if (example.good) {
-                    lines.push("");
-                    lines.push(`好例: ${example.good}`);
+                for (const example of rule.examples ?? []) {
+                    const parts = [`${example.hit ? "命中例" : "对照例（不该报）"}: ${example.text}`];
+                    if (example.fix) {
+                        parts.push(`改法: ${example.fix}`);
+                    }
+                    if (example.reason) {
+                        parts.push(`理由: ${example.reason}`);
+                    }
+                    lines.push(`      - ${parts.join("｜")}`);
                 }
-                if (example.reason) {
-                    lines.push("");
-                    lines.push(`理由: ${example.reason}`);
-                }
-                lines.push("");
             }
         }
-
-        lines.push("----");
         lines.push("");
     }
 
-    return lines.join("\n");
+    return lines.join("\n").trimEnd();
 }
 
 export function hasHighLevelIssue(issues: Issue[]): boolean {

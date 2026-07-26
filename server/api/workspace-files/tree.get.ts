@@ -4,7 +4,7 @@ import {
     readProjectWorkspaceTreeSnapshot,
 } from "nbook/server/workspace-files/project-workspace-index";
 import {resolveWorkspaceFileTarget} from "nbook/server/workspace-files/novel-workspace";
-import {assertProjectOpenForTarget} from "nbook/server/workspace-files/project-open-guard";
+import {withProjectTargetOperation} from "nbook/server/workspace-files/project-open-guard";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 import {createServerTiming} from "nbook/server/utils/server-timing";
 
@@ -140,22 +140,24 @@ export default defineEventHandler(async (event) => {
     const target = await timing.measure("workspace.resolve", () => (
         resolveWorkspaceFileTarget(runtimePathsFromEnv(), {projectPath, workspaceKind})
     ));
-    assertProjectOpenForTarget(target);
-    if (target.kind !== "project-workspace") {
-        return timing.measure("workspace.tree", () => readPlainWorkspaceTreeSnapshot({
+    return withProjectTargetOperation(target, (projectHandles) => {
+        if (target.kind !== "project-workspace") {
+            return timing.measure("workspace.tree", () => readPlainWorkspaceTreeSnapshot({
+                target,
+                targets,
+                type,
+                depth: parsedDepth,
+            }));
+        }
+
+        return timing.measure("workspace.index", () => readProjectWorkspaceTreeSnapshot({
             target,
+            fileIndex: projectHandles!.fileIndex,
             targets,
             type,
             depth: parsedDepth,
         }));
-    }
-
-    return timing.measure("workspace.index", () => readProjectWorkspaceTreeSnapshot({
-        target,
-        targets,
-        type,
-        depth: parsedDepth,
-    }));
+    });
 });
 
 /**

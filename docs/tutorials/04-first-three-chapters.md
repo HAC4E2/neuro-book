@@ -4,17 +4,23 @@
 
 前三章的目标不是把整本书写完，而是建立读者愿意继续翻页的开局：主角出现、异常发生、核心问题浮出水面，并在第三章前后形成第一个清晰钩子。
 
+::: tip 章节目录不用你手动建
+上一节结束时 `manuscript/` 下只有卷目录（`001-volume/`）。**章节目录和 `index.md` 由 writer 在写作时自动创建**——你只要在提示词里给出目标路径，它会把缺的目录一起建好。
+
+如果你更想自己控制，也可以在文件树上右键新建目录和文件，效果一样。
+:::
+
 ## 先设计开局剧情
 
-在调用 writer 前，先使用 `novel-workflow-07-opening-plot-design`。
+在调用 writer 前，先使用 `novel-writing` 的开局模式。
 
 ```text
-使用novel-workflow-07-opening-plot-design为当前项目设计前三章。请读取已有 lorebook，给出每章目标、冲突、结尾钩子和需要补充的设定。
+使用novel-writing的开局模式为当前项目设计前三章。请读取已有 lorebook，给出每章目标、冲突、结尾钩子和需要补充的设定。
 ```
 
-如果项目已经有 `simulation/` 当前状态，leader 可以先看当前世界运行态。如果还没有，也可以先用普通设定和剧情讨论推进。
+如果项目已经初始化 World Engine，leader 会先查当前世界状态。如果还没有，也可以先用普通设定和剧情讨论推进。
 
-`novel-workflow-07-opening-plot-design` 最好产出这些内容：
+开局模式最好产出这些内容：
 
 - 第一章：主角的日常裂缝和第一个异常。
 - 第二章：主角主动尝试，发现问题更深。
@@ -26,17 +32,15 @@
 在调用 writer 前，请先给我前三章写作简表：每章目标、视角角色、主要冲突、结尾钩子、必须使用的 lorebook 条目。
 ```
 
-## 决定是否需要世界运行态
+## 决定是否需要世界状态追踪
 
-如果前三章涉及角色反应、势力行动、地点变化、物品持有、倒计时或隐藏状态，可以先让 leader 使用世界运行态推进流程。
+如果前三章涉及角色反应、势力行动、地点变化、物品持有、倒计时或隐藏状态，先确认 World Engine 已初始化（`novel-setup` 阶段四），再让 leader 在写作前把开局事实推进进时间线。
 
 常见说法：
 
 ```text
-在写第一章前，先判断是否需要进行一次 emulation tick。如果需要，请用 novel-workflow-05-emulation-bootstrap 初始化当前世界运行态。
+在写第一章前，先确认 World Engine 已初始化，并把前三章确定的剧情事实推进进时间线。
 ```
-
-当前实现目录仍叫 `simulation/`。写作流程里说的 emulation，可以理解为“把稳定设定推进到下一刻发生了什么”。
 
 ## 写前确认清单
 
@@ -57,13 +61,13 @@
 
 ## 调用 writer 写章节
 
-当每章目标明确后，再调用 `novel-workflow-09-chapter-writing`。
+当每章目标明确后，再走 `novel-writing` 的正文循环。
 
 ```text
-使用 novel-workflow-09-chapter-writing 写第一章。目标章节是 manuscript/001-volume/001-chapter/index.md。请只把正式正文写入该章节文件。
+使用 novel-writing 写第一章。目标章节是 manuscript/001-volume/001-chapter/index.md。请只把正式正文写入该章节文件。
 ```
 
-普通 `writer` 是正文 agent。它不负责维护 `simulation/`，也不应该自己乱翻所有文件。leader 会把章节目标、Plot、必要世界书条目和约束整理给它。
+普通 `writer` 是正文 agent。它对 World Engine 只读，也不应该自己乱翻所有文件。leader 会先编译章节 brief（目标、信息控制），writer 自己读取 brief 并查询 World Engine 当前状态，文风约束由 writer 自带。
 
 写第二章和第三章时，沿用同样方式：
 
@@ -77,13 +81,13 @@
 
 ## 写完后检查
 
-每章写完后，使用 `novel-workflow-10-revision` 做一次轻量检查：
+每章写完后，用 `novel-writing` 的评审与修订步骤做一次轻量检查：
 
 ```text
-使用 novel-workflow-10-revision 检查第一章：节奏、信息释放、角色动机、章末钩子。先给修改建议，再问我要不要执行修改。
+检查第一章：节奏、信息释放、角色动机、章末钩子。先给修改建议，再问我要不要执行修改。
 ```
 
-如果正文已经改变了世界状态，比如角色受伤、物品转移、地点被破坏，leader 应该把这些变化整理进 `simulation/subjects/` 或 `simulation/entities/`，不要只留在聊天记录里。
+如果正文已经改变了世界状态，比如角色受伤、物品转移、地点被破坏，leader 应该把这些变化写回 World Engine 时间线，不要只留在聊天记录里。
 
 作者自己也建议看这几项：
 
@@ -91,7 +95,7 @@
 - 每章结尾是否有继续阅读的理由。
 - 设定说明有没有压过角色行动。
 - 主角是否真的做了选择，而不是只被事件推着走。
-- 写完后有没有产生新事实，需要更新 lorebook、Plot 或 simulation。
+- 写完后有没有产生新事实，需要更新 lorebook、Plot 或 World Engine。
 
 ## 常见返工提示词
 
@@ -122,5 +126,21 @@
 - `manuscript/001-volume/003-chapter/index.md`
 - 对应的剧情目标或 Plot 记录。
 - 必要的 `lorebook/` 设定条目。
+
+## 把稿子拿出去
+
+写完的章节就是普通 Markdown 文件，**不需要"导出"这一步**：
+
+- **发到平台**：在编辑器里全选复制，或者直接用系统文件管理器打开 `manuscript/001-volume/001-chapter/index.md`，任何编辑器都能开。文件的物理位置见 [运行、数据与隐私](/operations#你的数据在哪)。
+- **整本打包**：`manuscript/` 目录拷走就是全书，章节顺序就是目录名顺序。
+- **字数**：编辑器状态栏显示当前文件字数。
+
+::: warning 分享前注意
+项目下载包会包含文件历史数据库，**其中含有你删除过的内容**。要把作品发给别人看，直接发 `manuscript/` 下的 Markdown 文件，不要发下载包。详见 [隐私边界](/operations#隐私边界)。
+:::
+
+## 写崩了怎么办
+
+Agent 每次改文件都会记录，顶栏的**变更**入口可以看到本轮所有文件改动，逐条审查、必要时撤回。这也是为什么建议让 Agent 写文件而不是自己复制粘贴——有账本可查。
 
 下一节会把外部角色卡导入这个项目。

@@ -8,8 +8,10 @@ describe("POST /api/workspace-files/upload-project", () => {
         vi.resetModules();
         vi.clearAllMocks();
         vi.stubGlobal("defineEventHandler", (handler: unknown) => handler);
-        vi.doMock("nbook/server/workspace-files/project-open-guard", () => ({assertProjectOpenForTarget: vi.fn()}));
-        vi.doMock("nbook/server/workspace-files/project-workspace-index", () => ({invalidateProjectWorkspaceIndexAfterMutation: vi.fn()}));
+        vi.doMock("nbook/server/workspace-files/project-open-guard", () => ({
+            withProjectTargetOperation: vi.fn((_target, handler: (handles: undefined) => unknown) => handler(undefined)),
+        }));
+        vi.doMock("nbook/server/workspace-files/project-workspace-index", () => ({invalidateWorkspaceTreeAfterMutation: vi.fn()}));
         vi.doMock("nbook/server/workspace-history/tracked-workspace-files", () => ({
             USER_LOCAL_ACTOR: {kind: "user", userId: "local"},
             recordUploadedFiles: vi.fn(),

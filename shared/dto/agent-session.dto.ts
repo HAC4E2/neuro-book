@@ -4,8 +4,8 @@ import type {SessionTreeNode} from "nbook/server/agent/session/types";
 import type {VariablePatchAck, VariablePatchRequest} from "nbook/server/agent/variables/types";
 import {ThinkingLevelSchema} from "nbook/shared/dto/app-settings.dto";
 import type {AgentChatEntryDto, AgentUserInputFormDto, PublicToolArgsDto, PublicToolResultDto} from "nbook/shared/dto/agent-public-event.dto";
-import {AGENT_IMAGE_POLICY} from "nbook/shared/agent/agent-image-policy";
 import {PublicToolCallIdSchema} from "nbook/shared/agent/public-tool-identity";
+import type {AttachmentId} from "nbook/shared/dto/agent-attachment.dto";
 
 const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
     z.string(),
@@ -17,6 +17,10 @@ const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
 ]));
 
 export const AgentSessionIdSchema = z.number().int().positive();
+export const AgentClientMessageIdSchema = z.string().uuid();
+export const AgentAttachmentIdSchema = z.string()
+    .regex(/^sha256:[0-9a-f]{64}$/u, "Attachment ID 格式非法")
+    .transform((value): AttachmentId => value as AttachmentId);
 
 /**
  * Agent 工作模式（Task 90）。
@@ -37,11 +41,6 @@ export function isReadonlyMode(mode: AgentMode): boolean {
 
 export const AgentUserMessageInputDtoSchema = z.object({
     text: z.string(),
-    images: z.array(z.object({
-        type: z.literal("image"),
-        mimeType: z.string().trim().min(1),
-        data: z.string().trim().min(1).max(AGENT_IMAGE_POLICY.maxImageEncodedChars),
-    }).strict()).max(AGENT_IMAGE_POLICY.maxInputImages).optional(),
 }).strict();
 
 export const AgentResolutionDtoSchema = z.discriminatedUnion("kind", [
@@ -89,6 +88,7 @@ export const AgentCreateSessionRequestDtoSchema = z.object({
 
 export const AgentInvokeRequestDtoSchema = z.object({
     mode: z.enum(["prompt", "continue", "steer", "followup"]),
+    clientMessageId: AgentClientMessageIdSchema.optional(),
     message: AgentUserMessageInputDtoSchema.optional(),
     input: JsonValueSchema.optional(),
     title: z.string().trim().min(1).optional(),
@@ -97,7 +97,7 @@ export const AgentInvokeRequestDtoSchema = z.object({
     clientState: z.lazy(() => ClientVariablesDtoSchema).optional(),
     caller: z.never().optional(),
     block: z.boolean().optional(),
-}).superRefine((value, ctx) => {
+}).strict().superRefine((value, ctx) => {
     if ((value.mode === "prompt" || value.mode === "steer" || value.mode === "followup") && !value.message && value.input === undefined) {
         ctx.addIssue({
             code: "custom",
@@ -110,6 +110,21 @@ export const AgentInvokeRequestDtoSchema = z.object({
             code: "custom",
             path: ["message"],
             message: "continue 模式不能提供 message 或 input",
+        });
+    }
+    const createsUserInput = value.mode === "prompt" || value.mode === "steer" || value.mode === "followup";
+    if (createsUserInput && value.clientMessageId === undefined) {
+        ctx.addIssue({
+            code: "custom",
+            path: ["clientMessageId"],
+            message: `${value.mode} 模式必须提供 clientMessageId`,
+        });
+    }
+    if (value.mode === "continue" && value.clientMessageId !== undefined) {
+        ctx.addIssue({
+            code: "custom",
+            path: ["clientMessageId"],
+            message: "continue 模式不能提供 clientMessageId",
         });
     }
     if (value.resolution && value.resolutions) {
@@ -140,6 +155,29 @@ export const AgentSessionEventsQueryDtoSchema = z.object({
     eventEpoch: z.string().trim().min(1).optional(),
 });
 
+export const AgentSessionAttachmentListQueryDtoSchema = z.object({
+    search: z.string().trim().max(200).optional(),
+    offset: z.coerce.number().int().min(0).default(0),
+    limit: z.coerce.number().int().min(1).max(100).default(40),
+}).strict();
+
+export const AgentSessionAttachmentSnapshotRequestDtoSchema = z.object({
+    sourcePath: z.string().trim().min(1).max(4096),
+    name: z.string().max(255).optional(),
+}).strict();
+
+export const AgentSessionAttachmentResolveRequestDtoSchema = z.object({
+    attachmentIds: z.array(AgentAttachmentIdSchema).min(1).max(8),
+}).strict().superRefine((value, ctx) => {
+    if (new Set(value.attachmentIds).size !== value.attachmentIds.length) {
+        ctx.addIssue({
+            code: "custom",
+            path: ["attachmentIds"],
+            message: "attachmentIds 不允许重复",
+        });
+    }
+});
+
 /**
  * Agent session 查询视图。空 query 与 recovery 等价；其它视图必须严格携带
  * 自己需要的参数，避免 cursor/include 等组合扩散到各个调用者。
@@ -154,6 +192,7 @@ export const AgentSessionQueryDtoSchema = z.union([
 export const AgentCommandRequestDtoSchema = z.discriminatedUnion("command", [
     z.object({command: z.literal("new")}),
     z.object({command: z.literal("archive"), reason: z.string().optional()}),
+    z.object({command: z.literal("restore")}),
     z.object({command: z.literal("compact"), instructions: z.string().optional()}),
     z.object({command: z.literal("mode"), mode: AgentModeSchema}),
     z.object({command: z.literal("model"), modelKey: z.string().trim().min(1).nullable()}),
@@ -179,8 +218,38 @@ export const AgentTreeRequestDtoSchema = z.union([
         next: z.object({
             type: z.literal("invoke"),
             mode: z.enum(["prompt", "continue"]),
+            clientMessageId: AgentClientMessageIdSchema.optional(),
             message: AgentUserMessageInputDtoSchema.optional(),
             clientState: z.lazy(() => ClientVariablesDtoSchema).optional(),
+        }).strict().superRefine((value, ctx) => {
+            if (value.mode === "prompt" && value.clientMessageId === undefined) {
+                ctx.addIssue({
+                    code: "custom",
+                    path: ["clientMessageId"],
+                    message: "Tree prompt 必须提供 clientMessageId",
+                });
+            }
+            if (value.mode === "prompt" && value.message === undefined) {
+                ctx.addIssue({
+                    code: "custom",
+                    path: ["message"],
+                    message: "Tree prompt 必须提供 message",
+                });
+            }
+            if (value.mode === "continue" && value.clientMessageId !== undefined) {
+                ctx.addIssue({
+                    code: "custom",
+                    path: ["clientMessageId"],
+                    message: "Tree continue 不能提供 clientMessageId",
+                });
+            }
+            if (value.mode === "continue" && value.message !== undefined) {
+                ctx.addIssue({
+                    code: "custom",
+                    path: ["message"],
+                    message: "Tree continue 不能提供 message",
+                });
+            }
         }).optional(),
     }),
 ]);
@@ -205,6 +274,9 @@ export type AgentUserMessageInputDto = z.infer<typeof AgentUserMessageInputDtoSc
 export type AgentInvokeRequestDto = z.infer<typeof AgentInvokeRequestDtoSchema>;
 export type AgentSessionListQueryDto = z.infer<typeof AgentSessionListQueryDtoSchema>;
 export type AgentSessionEventsQueryDto = z.infer<typeof AgentSessionEventsQueryDtoSchema>;
+export type AgentSessionAttachmentListQueryDto = z.infer<typeof AgentSessionAttachmentListQueryDtoSchema>;
+export type AgentSessionAttachmentSnapshotRequestDto = z.infer<typeof AgentSessionAttachmentSnapshotRequestDtoSchema>;
+export type AgentSessionAttachmentResolveRequestDto = z.infer<typeof AgentSessionAttachmentResolveRequestDtoSchema>;
 export type AgentSessionQueryDto = z.infer<typeof AgentSessionQueryDtoSchema>;
 export type AgentCommandRequestDto = z.infer<typeof AgentCommandRequestDtoSchema>;
 export type AgentTreeRequestDto = z.infer<typeof AgentTreeRequestDtoSchema>;
@@ -268,6 +340,54 @@ export type AgentSessionSummaryDto = {
     archived: boolean;
     lastMessagePreview?: string;
     usage?: Usage;
+    /** 仓储层原始摘要可以为空；HTTP runtime 投影必须填充。 */
+    interaction?: AgentSessionInteractionDto;
+};
+
+/** 当前用户在 Session 状态下可执行的交互能力。 */
+export type AgentSessionInteractionDto = {
+    canInvoke: boolean;
+    canResolveUserInput: boolean;
+    canRegisterAttachment: boolean;
+    canInsertAttachment: boolean;
+    canMutateHistory: boolean;
+    canChangeRuntime: boolean;
+    canArchive: boolean;
+    canRestore: boolean;
+    canAbort: boolean;
+};
+
+/** Session 全分支附件目录中的去重条目。 */
+export type AgentSessionAttachmentItemDto = {
+    attachment: import("nbook/shared/dto/agent-public-event.dto").PublicAttachmentDto;
+    /** Composer 使用的稳定 Markdown destination。 */
+    target: string;
+    locator: {
+        entryId: string;
+        contentIndex: number;
+    };
+    firstSeenAt: number;
+    lastSeenAt: number;
+    referenceCount: number;
+};
+
+export type AgentSessionAttachmentPageDto = {
+    items: AgentSessionAttachmentItemDto[];
+    total: number;
+    offset: number;
+    limit: number;
+    hasMore: boolean;
+    nextOffset?: number;
+};
+
+export type AgentSessionAttachmentResolveResultDto = {
+    /** 与请求 attachmentIds 严格同序。 */
+    items: AgentSessionAttachmentItemDto[];
+};
+
+/** 历史用户消息按 stored content 顺序重建的完整 Markdown。 */
+export type AgentUserMessageContentDto = {
+    text: string;
 };
 
 export type AgentSessionListPageDto = {
@@ -327,6 +447,7 @@ export type AgentPendingApprovalDto = AgentPendingUserInputDto;
 
 export type AgentQueuedMessageDto = {
     id: string;
+    clientMessageId: string;
     kind: "steer" | "followup";
     text?: import("nbook/shared/dto/agent-public-event.dto").PublicTextPreviewDto;
     images: Array<{mimeType: string; dataBytes: number; dataOmitted: true}>;
@@ -341,7 +462,9 @@ export type AgentFollowUpQueueStateDto = {
     status: "ready" | "paused";
     pausedBy?: {
         invocationId: string;
-        reason: "error" | "aborted" | "interrupted";
+        itemId?: string;
+        reason: "error" | "aborted" | "interrupted" | "admission_error";
+        message?: string;
     };
     items: AgentFollowUpQueueItemDto[];
     omittedItems: number;
@@ -398,11 +521,18 @@ export type AgentInvocationErrorInfoDto = {
     code?: string;
 };
 
+export type AgentInvocationAcceptanceDto =
+    | {state: "none"}
+    | {state: "not_accepted"; clientMessageId: string}
+    | {state: "queued"; clientMessageId: string; queueItemId: string}
+    | {state: "persisted"; clientMessageId: string; entryId: string};
+
 /** 阻塞 invocation HTTP 返回；内部 run/caller/callback 不进入公开 DTO。 */
 export type InvokeAgentResult = {
     sessionId: number;
     invocationId: string;
     status: "completed" | "waiting" | "error";
+    acceptance: AgentInvocationAcceptanceDto;
     /** Durable assistant 正文的有界公开预览；完整内容通过 session history 读取。 */
     finalMessage?: string;
     /** finalMessage 对应原始正文的 UTF-8 字节数。 */
@@ -568,6 +698,9 @@ export type AgentSessionControlEvent =
     | {
         type: "follow_up_queued";
         item: AgentQueuedMessageDto;
+    }
+    | {
+        type: "session_attachments_changed";
     }
     | {
         type: "session_entry";

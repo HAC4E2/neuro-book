@@ -4,7 +4,7 @@
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](./LICENSE)
 [![Runtime: Node.js or Bun](https://img.shields.io/badge/Runtime-Node.js%20or%20Bun-green.svg)](#requirements)
-[![Version](https://img.shields.io/badge/version-2.0.0-green.svg)](./package.json)
+[![Version](https://img.shields.io/badge/version-2.0.1-green.svg)](./package.json)
 
 **[中文](./README.md) · English**
 
@@ -21,7 +21,7 @@ It has two faces that work together:
 | **CLI** (this repo's `bin/llmlint.ts`) | Stable, reproducible **candidate location** via regex detectors. It tells you *where* something might be wrong. |
 | **Agent Skill** (`SKILL.md`) | An LLM/agent reads the candidates **in context**, scores the text, drafts a fix plan, and rewrites *only after you approve*. |
 
-The guiding principle: **a hit is a candidate, not a verdict.** The CLI never auto-rewrites your prose. Mechanical, judgment-free cleanups (invisible characters, duplicated punctuation) are the only thing `fix` touches; everything semantic stays with the human/agent.
+The guiding principle: **a hit is a candidate, not a verdict.** The CLI never auto-rewrites your prose. Mechanical, judgment-free cleanups (invisible characters, ellipsis/em-dash tails) are the only thing `fix` touches; everything semantic stays with the human/agent.
 
 ## Why
 
@@ -44,12 +44,12 @@ npx skills add notnotype/llmlint --skill llmlint --full-depth
 
 It copies / links the skill files into the agent's skills directory and drives the CLI per `SKILL.md`.
 
-**Standalone CLI** — clone and install dependencies (Bun or Node both work):
+**Standalone CLI** — clone and install dependencies with Bun; the CLI runtime still supports Bun or Node + `tsx`:
 
 ```bash
 git clone https://github.com/notnotype/llmlint.git
 cd llmlint/skill
-bun install        # or npm install / pnpm install
+bun install --frozen-lockfile
 ```
 
 Run it directly (Bun runs TS natively; for Node see [Requirements](#requirements)):
@@ -60,11 +60,15 @@ bun bin/llmlint.ts check <file>     # Node: npx tsx bin/llmlint.ts check <file>
 
 Or expose the `llmlint` command on your PATH (declared in `package.json` `bin`): run `bun link`, then `llmlint check <file>`.
 
-> The docs in `SKILL.md` / `references/` call the CLI as `bun .nbook/agent/skills/llmlint/bin/llmlint.ts …`. That path is for when llmlint is installed as an embedded agent skill (see [Using as an Agent Skill](#using-as-an-agent-skill)). Standalone, just use `bin/llmlint.ts` and swap `bun` for your Node runner.
+> `SKILL.md` and `references/` use a `<skill-root>` placeholder. The agent prefers the absolute `root` supplied by its skill catalog; if the host only exposes the absolute `SKILL.md` location, it uses that file's parent directory. In standalone use, the current directory is the skill root, so run `bun bin/llmlint.ts …` directly.
 
 ## Quick start
 
 ```bash
+# Before writing: emit writing constraints (markdown) to load into a system prompt or style preset
+bun bin/llmlint.ts guide
+bun bin/llmlint.ts guide --tier full            # include every word swap and deletion entry
+
 # Locate regex candidates in a file (or directory — recurses .md/.markdown/.txt)
 bun bin/llmlint.ts check manuscript/chapter-01.md
 bun bin/llmlint.ts check manuscript/
@@ -75,10 +79,11 @@ bun bin/llmlint.ts check chapter.md --min-level medium
 # Small file / human reading? Show full lines with <mark> around hits
 bun bin/llmlint.ts check chapter.md --show-lines
 
-# List the LLM rules that need an agent's whole-text review
-bun bin/llmlint.ts show-llm-rules
+# Inspect the rule library; semantic rules expand to full criteria and examples
+bun bin/llmlint.ts rules
+bun bin/llmlint.ts rules --detector semantic
 
-# Deterministic mechanical fix (zero-width chars, duplicated symbols) — dry-run by default
+# Deterministic mechanical fix (zero-width chars, ellipsis/em-dash tails) — dry-run by default
 bun bin/llmlint.ts fix manuscript/             # preview only (exit code 1 if anything pending)
 bun bin/llmlint.ts fix manuscript/ --write     # write back to source files
 
@@ -96,14 +101,14 @@ Every rule carries three orthogonal axes — don't conflate them:
 - **`review`** — `agent` / `human` / `none`. *Audience*: who should look at a hit. `check` defaults to `--review agent`, so author-preference noise (dashes, similes, generic adverbs) is parked in the `human` bucket and mechanical hits in `none`. Use `--review human` / `--review all` to see the rest.
 - **`fixability`** — `auto` / `candidate` / `manual`. Mechanical fix capability. `fix` only applies `auto` rules.
 
-The default ruleset has only three context-free mechanical `auto` rules, no default `candidate` rules, and treats everything else as `manual`. A user config may still promote explicitly chosen regex `replace` rules to `candidate` for one-by-one confirmation. An `action.replace` value is only a replacement template; **it does not grant permission to apply the edit**. The final authority always comes from the materialized `fixability` value.
+The default ruleset has only two context-free mechanical `auto` rules, no default `candidate` rules, and treats everything else as `manual`. A user config may still promote explicitly chosen regex `replace` rules to `candidate` for one-by-one confirmation. An `action.replace` value is only a replacement template; **it does not grant permission to apply the edit**. The final authority always comes from the materialized `fixability` value.
 
-`review` (audience) is **not** the same as `detector` (detection method):
+`review` (audience) is **not** the same as `detector` (kind of criterion):
 
-- **`detector`** decides *how* a problem is found: `regex` → matched statically by `check`; `llm` → reviewed by the agent via `show-llm-rules`.
-- **`review`** decides *who a regex hit is shown to* by default.
+- **`detector`** decides what kind of criterion the rule uses: `regex` (lexical), `density` (statistical) and `handler` (algorithmic) are matched statically by `check`; `semantic` has no stable locatable signature and goes to the agent via `rules --detector semantic`.
+- **`review`** decides *who a static hit is shown to* by default. It governs **review time only** — `human` means "confidence too low, don't let the agent rewrite it automatically", not "don't mention this rule while writing". Write-time selection is `guide --tier`.
 
-A complete review runs both `check` (regex hits for the agent) and `show-llm-rules` (whole-text semantic rules).
+A complete review runs both `check` (static hits for the agent) and `rules --detector semantic` (semantic rules).
 
 ## Configuration
 
@@ -138,7 +143,7 @@ The official recommended ruleset — ~340 rule records across 40+ namespaces, me
 
 - **agent bucket (shown by default):** `filler`, `opening.cliche`, `inflation.significance`, `transition.summary`, `attribution.vague`, `cliche.uplift`, `sycophantic`, `jargon.business`, …
 - **human bucket (high false-positive / author preference):** `punctuation.dash`, `metaphor`, `modifier`, `jargon.engineer`, `jargon.social`, `translationese`, `structure.fragment`, …
-- **none bucket (mechanical):** `punctuation.dedup`, `mechanical.zero-width`.
+- **none bucket (mechanical):** `mechanical.zero-width` and the ellipsis/em-dash-tail subset of `punctuation.dedup`. Repeated exclamation/question marks are human-review only.
 - **`mechanical.*` (language-agnostic, high precision):** zero-width characters, homoglyphs, leftover `{{placeholders}}`, chatbot copy-paste artifacts (`:contentReference`, `oaicite`, …).
 
 It ships with R18 / adult-vocabulary rules; general projects can disable them with `namespaces: {"vocabulary.r18": "off"}` rather than editing rule files.
@@ -152,16 +157,16 @@ Exit codes follow the **visible view**: hits hidden by `--review` / `--min-level
 
 ## Using as an Agent Skill
 
-This repo is also a self-contained **Agent Skill**. `SKILL.md` defines a 6-step polish workflow: get input → `check` → `show-llm-rules` + 50-point review → fix plan (user-approved) → apply → report.
+This repo is also a self-contained **Agent Skill**. `SKILL.md` defines a first-use dependency gate followed by a five-step local loop: `status` initialization → `check + detect` → combined report → approved delete/compress/rewrite repair plus one retest → ledger and local learning suggestions.
 
-Recommended install via the [`skills`](https://skills.sh) CLI — `npx skills add notnotype/llmlint --skill llmlint --full-depth` — which searches the repository recursively, installs the `llmlint` skill from `skill/`, and drops it into the agent's skills directory (e.g. `.claude/skills/llmlint/` or NeuroBook's `.nbook/agent/skills/llmlint/`). For manual installation, copy the repository's `skill/` directory and name it `llmlint/` in the target skills directory. After installing, run the dependency install once in the skill directory (`npm install` / `bun install` / `pnpm install`), and the agent can drive the CLI through the documented flow.
+Recommended install via the [`skills`](https://skills.sh) CLI — `npx skills add notnotype/llmlint --skill llmlint --full-depth` — which searches the repository recursively, installs the `llmlint` skill from `skill/`, and drops it into the agent's skills directory (e.g. `.claude/skills/llmlint/` or NeuroBook's `.nbook/agent/skills/llmlint/`). For manual installation, copy the repository's `skill/` directory and name it `llmlint/` in the target skills directory. On first activation, the agent must run `bun install --cwd "<skill-root>" --frozen-lockfile` in the catalog-provided skill root before entering the `status` initialization gate; later reviews reuse that installation. `package.json.version` is the skill version source of truth; it is not duplicated in `SKILL.md` frontmatter.
 
 ## Documentation
 
 - [`SKILL.md`](./SKILL.md) — the Agent Skill manifest and workflow contract
 - [`references/cli-usage.md`](./references/cli-usage.md) — full CLI reference (flags, output formats, JSON schema)
 - [`references/patterns.md`](./references/patterns.md) — the Chinese-text pattern library (what each rule looks for, and when to keep it)
-- [`references/workflow.md`](./references/workflow.md) — the 6-step polish workflow in detail
+- [`references/workflow.md`](./references/workflow.md) — the dependency gate and five-step local loop in detail
 
 ## License
 

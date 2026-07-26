@@ -6,12 +6,12 @@ Skill 不是一个按钮脚本。它更像一张写给 Agent 的工作卡：什�
 
 ## 第一步：探索灵感
 
-如果你还只有一个模糊想法，先让 Agent 使用 `novel-workflow-01-idea-exploration`。
+如果你还只有一个模糊想法，先让 Agent 使用 `novel-idea-exploration`。
 
 可以这样说：
 
 ```text
-使用novel-workflow-01-idea-exploration和我讨论这个想法：失忆检票员、夜行列车、梦境城市。目标是得到一个可以继续开发的故事雏形。
+使用novel-idea-exploration和我讨论这个想法：失忆检票员、夜行列车、梦境城市。目标是得到一个可以继续开发的故事雏形。
 ```
 
 这一轮不急着写正文。重点是确定题材承诺、主角欲望、核心冲突、世界奇观和读者期待。
@@ -25,10 +25,10 @@ Skill 不是一个按钮脚本。它更像一张写给 Agent 的工作卡：什�
 
 ## 第二步：初始化小说项目
 
-当故事雏形基本稳定后，使用 `novel-workflow-02-project-bootstrap`。
+当故事雏形基本稳定后，使用 `novel-setup`（阶段一：项目初始化）。
 
 ```text
-使用novel-workflow-02-project-bootstrap为当前 Project Workspace 初始化这本书。请先列出你会创建或更新的文件，再执行。
+使用novel-setup为当前 Project Workspace 初始化这本书。请先列出你会创建或更新的文件，再执行。
 ```
 
 这一阶段通常会整理：
@@ -46,7 +46,7 @@ Skill 不是一个按钮脚本。它更像一张写给 Agent 的工作卡：什�
 
 ## 第三步：建立世界书
 
-接着使用 `novel-workflow-03-lorebook-bootstrap`。世界书不是百科全书，它是 AI 的创作说明书。开局只需要足够支撑前三章，不要一口气写完整个宇宙。
+接着继续 `novel-setup` 的阶段二（世界书框架）。世界书不是百科全书，它是 AI 的创作说明书。开局只需要足够支撑前三章，不要一口气写完整个宇宙。
 
 推荐让 Agent 先做这些类型：
 
@@ -74,10 +74,10 @@ lorebook/
 
 ## 第四步：深化角色
 
-当主角和关键人物开始清晰后，使用 `novel-workflow-04-character-design`。
+当主角和关键人物开始清晰后，进入 `novel-setup` 的阶段三（角色设计与细化）。
 
 ```text
-使用novel-workflow-04-character-design深化主角和第一位重要配角。请把稳定设定写入 lorebook，暂不进入 RP。
+继续 novel-setup 的角色设计阶段，深化主角和第一位重要配角。请把稳定设定写入 lorebook。
 ```
 
 角色设计的目标不是堆背景，而是让角色能推动剧情。你至少需要知道：
@@ -86,6 +86,18 @@ lorebook/
 - 他害怕什么。
 - 他会怎么误判世界。
 - 他和开篇事件有什么关系。
+
+## 第五步：初始化世界引擎（novel-setup 阶段四）
+
+项目方向确定、要正经写的时候，让 Agent 走 `novel-setup` 的阶段四（World Engine 初始化）。这一步会和你确认这个世界的纪年方式、故事开篇的时间点，并登记需要随剧情追踪状态的角色。
+
+```text
+继续 novel-setup 阶段四，帮我把世界引擎建起来追踪角色状态。
+```
+
+Agent 会引导你确认时间格式、设计需要追踪的角色，然后写入开局状态。完成后，你就可以直接用自然语言查询状态、记录剧情事实，例如"某角色现在在哪里""上次战斗后他受了什么伤"，不需要手动维护任何文件。
+
+下一节写前三章时，会用到这里建立的 World Engine。
 
 ## 完成后你应该看到
 
@@ -98,7 +110,7 @@ lorebook/location/...
 lorebook/world/...
 lorebook/instruction/...
 manuscript/001-volume/
-simulation/
+world-engine/
 ```
 
 如果 Agent 只给你聊天回复，没有写入文件，可以直接追问：
@@ -113,13 +125,10 @@ simulation/
 
 | Skill | 适合什么时候用 |
 | --- | --- |
-| `novel-workflow-01-idea-exploration` | 只有灵感，还没有故事骨架。 |
-| `novel-workflow-02-project-bootstrap` | 要把项目从空目录变成可写状态。 |
-| `novel-workflow-03-lorebook-bootstrap` | 要建立开篇可用的 lorebook。 |
-| `novel-workflow-04-character-design` | 要深化主角、配角、反派或势力代表。 |
-| `novel-workflow-07-opening-plot-design` | 要把设定转成前三章剧情。 |
-| `novel-workflow-08-plot-planning` | 要整理中长期剧情线。 |
-| `novel-workflow-09-chapter-writing` | 要调用 writer 写正式章节。 |
-| `novel-workflow-10-revision` | 要修改、润色或检查章节节奏。 |
+| `novel-guide` | 不确定当前该用哪个 skill，先看全局路线图。 |
+| `novel-idea-exploration` | 只有灵感，还没有故事骨架。 |
+| `novel-setup` | 项目搭建四阶段：项目初始化、世界书框架、角色设计与细化、World Engine 初始化。 |
+| `novel-writing` | 剧情设计、落库、写正式章节、修改润色的主循环；开局黄金三章也在这里。 |
+| `novel-technique-character-card-workshop` | 角色还只有标签和感觉，想做重型角色问答。 |
 
 下一节会把这些准备转成前三章正文。

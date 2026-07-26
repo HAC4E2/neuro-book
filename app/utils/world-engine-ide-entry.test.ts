@@ -172,9 +172,11 @@ describe("World Engine IDE entry", () => {
         expect(previewPage).toContain("const previewProjectListLimit = 80;");
         expect(previewPage).toContain("previewProjectTestPrefixes");
         expect(previewPage).toContain("typeof route.query.project === \"string\" ? route.query.project : \"\"");
-        expect(previewPage).toContain("limit: previewProjectListLimit");
-        expect(previewPage).toContain("includeProjectPath: [preferredProjectPath, routeProjectPath, selectedProjectPath.value]");
-        expect(previewPage).toContain("excludeProjectPathPrefix: previewProjectTestPrefixes");
+        // 列表接口不再接受裁剪参数：预览页保留当前/路由选择并在客户端过滤测试项目。
+        expect(previewPage).toContain("const allProjects = await $fetch<NovelListItemDto[]>(\"/api/projects\");");
+        expect(previewPage).toContain("const keepProjectPaths = new Set([preferredProjectPath, routeProjectPath, selectedProjectPath.value].filter(Boolean));");
+        expect(previewPage).toContain("previewProjectTestPrefixes.some((prefix) => project.projectPath.startsWith(prefix))");
+        expect(previewPage).toContain("projects.value = visibleProjects.slice(0, previewProjectListLimit);");
         expect(mutationEditor).toContain("formatWorldEngineConflictMessage(resolveApiErrorMessage(error");
         expect(subjectCreator).toContain("formatWorldEngineConflictMessage(resolveApiErrorMessage(error");
         expect(previewPage.indexOf("await loadProjects(project.projectPath);")).toBeGreaterThan(-1);

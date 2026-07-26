@@ -32,7 +32,7 @@ describe("Provider Template frontend session", () => {
     });
 
     it("模板实例化为普通 Provider Config，并保留新模型 API 提示", async () => {
-        const draft = ref<ModelSettingsDraft>({defaultModelKey: null, providers: []});
+        const draft = ref<ModelSettingsDraft>({defaultModelKey: null, agentVisibleModels: [], providers: []});
         const activeProviderKey = ref("");
         const session = useProviderTemplateSession({
             draft,

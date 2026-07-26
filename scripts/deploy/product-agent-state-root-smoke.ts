@@ -21,9 +21,9 @@ import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
 import {ensureGlobalProfileHome, globalProfileHomeRoot} from "nbook/server/agent/profiles/profile-home";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {readDotPath, VariableFileStorage} from "nbook/server/agent/variables/storage";
-import {loadEffectiveConfigAtWorkspaceRoot, saveGlobalConfig} from "nbook/server/config/config-service";
+import {loadGlobalEffectiveConfigAtWorkspaceRoot, saveGlobalConfig} from "nbook/server/config/config-service";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
-import {closeProject} from "nbook/server/workspace-files/project-session";
+import {closeProject, openProject} from "nbook/server/workspace-files/project-session";
 
 if (!process.env.NEURO_BOOK_APPLICATION_ROOT?.trim() || !process.env.NEURO_BOOK_STATE_ROOT?.trim()) {
     throw new Error("Product Agent smoke必须显式设置NEURO_BOOK_APPLICATION_ROOT与NEURO_BOOK_STATE_ROOT。");
@@ -392,7 +392,11 @@ async function writeProductState(
     });
     await home.writeText("state-root-marker.txt", marker, {mode: "overwrite"});
 
-    const storage = new VariableFileStorage(paths.workspaceRoot);
+    const currentProject = await openProject(paths.workspaceRoot, currentProjectPath, {
+        kind: "job",
+        source: "product-state-root-smoke-write",
+    });
+    const storage = new VariableFileStorage(paths.workspaceRoot, currentProject.workspace);
     await storage.patch("global", "task109.productStateRoot", [{
         op: "replace",
         path: "",
@@ -402,7 +406,7 @@ async function writeProductState(
         op: "replace",
         path: "",
         value: marker,
-    }], currentProjectPath);
+    }]);
 }
 
 /** 验证三类状态服务从当前RuntimePaths读取同一份State Root数据。 */
@@ -411,7 +415,7 @@ async function assertProductState(
     currentProjectPath: string,
     expectedMarker: string,
 ): Promise<void> {
-    const config = await loadEffectiveConfigAtWorkspaceRoot({workspaceRoot: paths.workspaceRoot});
+    const config = await loadGlobalEffectiveConfigAtWorkspaceRoot({workspaceRoot: paths.workspaceRoot});
     if (config.ui.costCurrency !== configCurrency(expectedMarker)) {
         throw new Error(`Product Global Config没有命中当前State Root：${config.ui.costCurrency}`);
     }
@@ -429,10 +433,14 @@ async function assertProductState(
         throw new Error("Product Global Profile Home没有读取到当前State Root标记。");
     }
 
-    const storage = new VariableFileStorage(paths.workspaceRoot);
+    const currentProject = await openProject(paths.workspaceRoot, currentProjectPath, {
+        kind: "job",
+        source: "product-state-root-smoke-read",
+    });
+    const storage = new VariableFileStorage(paths.workspaceRoot, currentProject.workspace);
     const [globalVariables, projectVariables] = await Promise.all([
         storage.read("global"),
-        storage.read("project", currentProjectPath),
+        storage.read("project"),
     ]);
     if (readDotPath(globalVariables, "task109.productStateRoot") !== expectedMarker) {
         throw new Error("Product Global Variable Storage没有读取到当前State Root标记。");

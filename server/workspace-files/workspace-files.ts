@@ -63,8 +63,23 @@ export type WorkspaceFileIssue = {
     line?: number;
 };
 
+/** Scanner在访问节点内容前交给调用方的稳定路径信息。 */
+export type WorkspaceScanPath = Readonly<{
+    absolutePath: AbsoluteFsPath;
+    /** 相对root的正斜杠地址；root本身表示为`.`。 */
+    relativePath: string;
+    isDirectory: boolean;
+}>;
+
+/** 调用方按自身消费语义决定某个节点及其子树是否进入扫描。 */
+export type WorkspaceScanPathPredicate = (entry: WorkspaceScanPath) => boolean;
+
 export type WorkspaceScanOptions = {
     root: AbsoluteFsPath;
+    /** 传入时，扫描会在文件系统步骤边界响应取消并抛出 signal.reason。 */
+    signal?: AbortSignal;
+    /** 可选consumer策略；返回false时目录会在递归I/O前整棵剪枝。 */
+    pathPredicate?: WorkspaceScanPathPredicate;
     targets?: string[];
     depth?: number | null;
     type?: string | null;
@@ -517,27 +532,46 @@ export async function statWorkspacePath(rootInput: AbsoluteFsPath, filePath: str
  * 扫描工作区文件树。
  */
 export async function scanWorkspaceTree(options: WorkspaceScanOptions): Promise<WorkspaceFileNode[]> {
+    throwIfWorkspaceScanAborted(options.signal);
     const root = await resolveWorkspaceOperationRoot(options.root, false);
+    throwIfWorkspaceScanAborted(options.signal);
     if (!await pathExists(root)) {
+        throwIfWorkspaceScanAborted(options.signal);
         return [];
     }
-    const ignoreRules = await readWorkspaceIgnoreRules(root);
-    const iconConfig = await readWorkspaceIconConfig(root);
-    const targetInputs = options.targets?.length ? options.targets : await resolveDefaultTargets(root);
+    const ignoreRules = await readWorkspaceIgnoreRules(root, options.signal);
+    throwIfWorkspaceScanAborted(options.signal);
+    const iconConfig = await readWorkspaceIconConfig(root, options.signal);
+    throwIfWorkspaceScanAborted(options.signal);
+    const targetInputs = options.targets?.length
+        ? options.targets
+        : await resolveDefaultTargets(root, ignoreRules, options.signal);
+    throwIfWorkspaceScanAborted(options.signal);
     const nodes: WorkspaceFileNode[] = [];
 
     for (const targetInput of targetInputs) {
+        throwIfWorkspaceScanAborted(options.signal);
         const targetPath = await resolveWorkspaceContentPath(root, targetInput);
+        throwIfWorkspaceScanAborted(options.signal);
         let targetStat: Awaited<ReturnType<typeof fs.stat>>;
         try {
+            throwIfWorkspaceScanAborted(options.signal);
             targetStat = await fs.stat(targetPath);
+            throwIfWorkspaceScanAborted(options.signal);
         } catch (error) {
+            throwIfWorkspaceScanAborted(options.signal);
             if (isMissingPathError(error)) {
                 continue;
             }
             throw error;
         }
-        if (shouldSkipWorkspacePath(root, targetPath, targetStat.isDirectory(), ignoreRules)) {
+        if (shouldSkipWorkspaceScanPath(
+            root,
+            targetPath,
+            targetStat.isDirectory(),
+            ignoreRules,
+            options.pathPredicate,
+        )) {
             continue;
         }
         await visitPath(root, targetPath, {
@@ -546,12 +580,21 @@ export async function scanWorkspaceTree(options: WorkspaceScanOptions): Promise<
             chapterRoot: options.chapterRoot ?? DEFAULT_CHAPTER_ROOT,
             ignoreRules,
             iconConfig,
+            signal: options.signal,
+            pathPredicate: options.pathPredicate,
         }, nodes);
+        throwIfWorkspaceScanAborted(options.signal);
     }
 
+    throwIfWorkspaceScanAborted(options.signal);
     return nodes
         .filter((node) => !options.type || node.entryType === options.type)
         .sort((left, right) => left.path.localeCompare(right.path, "zh-Hans-CN"));
+}
+
+/** 在扫描边界保留 AbortSignal 的原始取消原因。 */
+function throwIfWorkspaceScanAborted(signal?: AbortSignal): void {
+    signal?.throwIfAborted();
 }
 
 /**
@@ -1036,12 +1079,17 @@ async function visitPath(
         chapterRoot: string;
         ignoreRules: WorkspaceIgnoreRule[];
         iconConfig: WorkspaceIconConfig;
+        signal?: AbortSignal;
+        pathPredicate?: WorkspaceScanPathPredicate;
     },
     nodes: WorkspaceFileNode[],
 ): Promise<void> {
     try {
+        throwIfWorkspaceScanAborted(options.signal);
         await assertRealPathContained(absoluteFsPath(root), absoluteFsPath(absolutePath));
+        throwIfWorkspaceScanAborted(options.signal);
         const stat = await fs.stat(absolutePath);
+        throwIfWorkspaceScanAborted(options.signal);
         const isDirectory = stat.isDirectory();
         const displayPath = toWorkspaceDisplayPath(root, absolutePath, isDirectory);
         const depth = displayPath === "./" ? 0 : displayPath.split("/").filter(Boolean).length;
@@ -1050,21 +1098,33 @@ async function visitPath(
         }
 
         const node = await buildWorkspaceNode(root, absolutePath, options);
+        throwIfWorkspaceScanAborted(options.signal);
         if (!isDirectory) {
             nodes.push(node);
             return;
         }
 
+        throwIfWorkspaceScanAborted(options.signal);
         const children = await fs.readdir(absolutePath, {withFileTypes: true});
+        throwIfWorkspaceScanAborted(options.signal);
         nodes.push(node);
         for (const child of children.sort((left, right) => left.name.localeCompare(right.name, "zh-Hans-CN"))) {
+            throwIfWorkspaceScanAborted(options.signal);
             const childPath = path.join(absolutePath, child.name);
-            if (shouldSkipWorkspacePath(root, childPath, child.isDirectory(), options.ignoreRules)) {
+            if (shouldSkipWorkspaceScanPath(
+                root,
+                childPath,
+                child.isDirectory(),
+                options.ignoreRules,
+                options.pathPredicate,
+            )) {
                 continue;
             }
             await visitPath(root, childPath, options, nodes);
+            throwIfWorkspaceScanAborted(options.signal);
         }
     } catch (error) {
+        throwIfWorkspaceScanAborted(options.signal);
         if (isMissingPathError(error)) {
             return;
         }
@@ -1087,14 +1147,19 @@ async function buildWorkspaceNode(
         lorebookRoot: string;
         chapterRoot: string;
         iconConfig: WorkspaceIconConfig;
+        signal?: AbortSignal;
     },
 ): Promise<WorkspaceFileNode> {
+    throwIfWorkspaceScanAborted(options.signal);
     await assertRealPathContained(absoluteFsPath(root), absoluteFsPath(absolutePath));
+    throwIfWorkspaceScanAborted(options.signal);
     const stat = await fs.stat(absolutePath);
+    throwIfWorkspaceScanAborted(options.signal);
     const isDirectory = stat.isDirectory();
     const relativePath = toWorkspaceDisplayPath(root, absolutePath, isDirectory);
     const indexPath = isDirectory ? path.join(absolutePath, "index.md") : null;
     const hasIndex = indexPath ? await pathExists(indexPath) : false;
+    throwIfWorkspaceScanAborted(options.signal);
     const contentDirectoryNode = isDirectory && hasIndex;
     const contentIndexNode = !isDirectory && path.basename(relativePath).toLowerCase() === "index.md";
     const contentNode = contentDirectoryNode || contentIndexNode;
@@ -1106,11 +1171,20 @@ async function buildWorkspaceNode(
     let body = "";
     let refs: string[] = [];
     let state: WorkspaceContentState | null = null;
-    if ((contentDirectoryNode || editable) && await pathExists(metadataPath)) {
+    let metadataExists = false;
+    if (contentDirectoryNode || editable) {
+        throwIfWorkspaceScanAborted(options.signal);
+        metadataExists = await pathExists(metadataPath);
+        throwIfWorkspaceScanAborted(options.signal);
+    }
+    if (metadataExists) {
         try {
+            throwIfWorkspaceScanAborted(options.signal);
             await assertRealPathContained(absoluteFsPath(root), absoluteFsPath(metadataPath));
+            throwIfWorkspaceScanAborted(options.signal);
             if (isEditableTextPath(metadataPath)) {
-                const content = await fs.readFile(metadataPath, "utf-8");
+                const content = await fs.readFile(metadataPath, {encoding: "utf-8", signal: options.signal});
+                throwIfWorkspaceScanAborted(options.signal);
                 const parsed = parseMarkdownDocument(content);
                 frontmatter = parsed.frontmatter;
                 frontmatterError = parsed.error;
@@ -1118,11 +1192,13 @@ async function buildWorkspaceNode(
                 refs = extractWorkspaceRefs(content, frontmatter);
             }
         } catch (error) {
+            throwIfWorkspaceScanAborted(options.signal);
             frontmatterError = error instanceof Error ? error.message : "文件读取失败";
         }
     }
     if (contentDirectoryNode) {
-        state = await readWorkspaceContentState(root, absolutePath);
+        state = await readWorkspaceContentState(root, absolutePath, options.signal);
+        throwIfWorkspaceScanAborted(options.signal);
     }
 
     const entryType = inferEntryType({
@@ -1168,15 +1244,24 @@ async function buildWorkspaceNode(
 /**
  * 读取内容节点同级 state.md。缺失时返回 null，表示该节点暂无当前状态。
  */
-async function readWorkspaceContentState(root: string, contentDirectoryPath: string): Promise<WorkspaceContentState | null> {
+async function readWorkspaceContentState(
+    root: string,
+    contentDirectoryPath: string,
+    signal?: AbortSignal,
+): Promise<WorkspaceContentState | null> {
     const statePath = path.join(contentDirectoryPath, "state.md");
+    throwIfWorkspaceScanAborted(signal);
     if (!await pathExists(statePath)) {
+        throwIfWorkspaceScanAborted(signal);
         return null;
     }
 
     try {
+        throwIfWorkspaceScanAborted(signal);
         await assertRealPathContained(absoluteFsPath(root), absoluteFsPath(statePath));
-        const content = await fs.readFile(statePath, "utf-8");
+        throwIfWorkspaceScanAborted(signal);
+        const content = await fs.readFile(statePath, {encoding: "utf-8", signal});
+        throwIfWorkspaceScanAborted(signal);
         const parsed = parseMarkdownDocument(content);
         return {
             path: toWorkspaceDisplayPath(root, statePath),
@@ -1188,6 +1273,7 @@ async function readWorkspaceContentState(root: string, contentDirectoryPath: str
             words: parsed.body.trim().length,
         };
     } catch (error) {
+        throwIfWorkspaceScanAborted(signal);
         return {
             path: toWorkspaceDisplayPath(root, statePath),
             absolutePath: statePath,
@@ -1337,16 +1423,21 @@ function resolveWorkspaceIcon(input: {
 /**
  * 读取工作区图标配置。
  */
-async function readWorkspaceIconConfig(root: string): Promise<WorkspaceIconConfig> {
+async function readWorkspaceIconConfig(root: string, signal?: AbortSignal): Promise<WorkspaceIconConfig> {
     const configPath = path.join(root, ".nbook", "icons.json");
     const defaultConfig = createDefaultWorkspaceIconConfig();
+    throwIfWorkspaceScanAborted(signal);
     if (!await pathExists(configPath)) {
+        throwIfWorkspaceScanAborted(signal);
         return defaultConfig;
     }
 
     try {
+        throwIfWorkspaceScanAborted(signal);
         await assertRealPathContained(absoluteFsPath(root), absoluteFsPath(configPath));
-        const content = await fs.readFile(configPath, "utf-8");
+        throwIfWorkspaceScanAborted(signal);
+        const content = await fs.readFile(configPath, {encoding: "utf-8", signal});
+        throwIfWorkspaceScanAborted(signal);
         const parsed = JSON.parse(content) as unknown;
         if (!isPlainObject(parsed)) {
             return defaultConfig;
@@ -1359,6 +1450,7 @@ async function readWorkspaceIconConfig(root: string): Promise<WorkspaceIconConfi
             entryTypes: {...defaultConfig.entryTypes, ...readStringMap(parsed.entryTypes)},
         };
     } catch {
+        throwIfWorkspaceScanAborted(signal);
         return defaultConfig;
     }
 }
@@ -1439,9 +1531,14 @@ function readIconName(value: unknown): string | null {
     return iconName ? iconName : null;
 }
 
-async function resolveDefaultTargets(root: string): Promise<string[]> {
-    const ignoreRules = await readWorkspaceIgnoreRules(root);
+async function resolveDefaultTargets(
+    root: string,
+    ignoreRules: WorkspaceIgnoreRule[],
+    signal?: AbortSignal,
+): Promise<string[]> {
+    throwIfWorkspaceScanAborted(signal);
     const entries = await fs.readdir(root, {withFileTypes: true});
+    throwIfWorkspaceScanAborted(signal);
     return entries
         .filter((entry) => !shouldSkipWorkspacePath(root, path.join(root, entry.name), entry.isDirectory(), ignoreRules))
         .map((entry) => entry.name);
@@ -1513,14 +1610,19 @@ function validateSingleContentNodeSiblingConflicts(
 /**
  * 读取工作区根目录下的 .gitignore，用于文件树显示过滤。
  */
-export async function readWorkspaceIgnoreRules(root: string): Promise<WorkspaceIgnoreRule[]> {
+export async function readWorkspaceIgnoreRules(root: string, signal?: AbortSignal): Promise<WorkspaceIgnoreRule[]> {
     const ignorePath = path.join(root, ".gitignore");
+    throwIfWorkspaceScanAborted(signal);
     if (!await pathExists(ignorePath)) {
+        throwIfWorkspaceScanAborted(signal);
         return [];
     }
 
+    throwIfWorkspaceScanAborted(signal);
     await assertRealPathContained(absoluteFsPath(path.resolve(root)), absoluteFsPath(path.resolve(ignorePath)));
-    const content = await fs.readFile(ignorePath, "utf-8");
+    throwIfWorkspaceScanAborted(signal);
+    const content = await fs.readFile(ignorePath, {encoding: "utf-8", signal});
+    throwIfWorkspaceScanAborted(signal);
     return content
         .split(/\r?\n/)
         .map((line) => parseWorkspaceIgnoreRule(line))
@@ -1577,6 +1679,28 @@ export function shouldSkipWorkspacePath(root: string, absolutePath: string, isDi
         }
     }
     return ignored;
+}
+
+/** 组合scanner通用排除与调用方typed predicate，供全部visit入口统一剪枝。 */
+function shouldSkipWorkspaceScanPath(
+    root: string,
+    absolutePath: string,
+    isDirectory: boolean,
+    ignoreRules: WorkspaceIgnoreRule[],
+    pathPredicate?: WorkspaceScanPathPredicate,
+): boolean {
+    if (shouldSkipWorkspacePath(root, absolutePath, isDirectory, ignoreRules)) {
+        return true;
+    }
+    if (!pathPredicate) {
+        return false;
+    }
+    const relativePath = path.relative(root, absolutePath).split(path.sep).join("/") || ".";
+    return !pathPredicate(Object.freeze({
+        absolutePath: absoluteFsPath(absolutePath),
+        relativePath,
+        isDirectory,
+    }));
 }
 
 /**

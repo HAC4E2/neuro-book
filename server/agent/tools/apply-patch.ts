@@ -50,13 +50,18 @@ export type PlannedFileChange = {
     updated: string | null;
 };
 
-export type ApplyCodexPatchResult = {
+export type AppliedFileChange<TCapture = undefined> = PlannedFileChange & {
+    /** 文件落盘前由调用方捕获的领域上下文。 */
+    capture: TCapture;
+};
+
+export type ApplyCodexPatchResult<TCapture = undefined> = {
     files: Array<{
         path: string;
         action: "add" | "update" | "delete";
     }>;
     /** 成功落盘的完整变更清单（含 before/after 全文），供调用方做文件历史归因记账。 */
-    changes: PlannedFileChange[];
+    changes: AppliedFileChange<TCapture>[];
     diff: string;
     firstChangedLine?: number;
 };
@@ -134,10 +139,22 @@ export function extractPatchTargetPaths(patchText: string): string[] {
 /**
  * 以 all-or-nothing 方式应用 Codex 风格 patch。
  */
-export async function applyCodexPatch(input: {
+export function applyCodexPatch(input: {
     fileScope: FileScope;
     patchText: string;
-}): Promise<ApplyCodexPatchResult> {
+    captureChange?: undefined;
+}): Promise<ApplyCodexPatchResult<undefined>>;
+export function applyCodexPatch<TCapture>(input: {
+    fileScope: FileScope;
+    patchText: string;
+    /** 在事务规划完成、任何文件写入前捕获每个 change 的领域上下文。 */
+    captureChange: (change: PlannedFileChange) => TCapture;
+}): Promise<ApplyCodexPatchResult<TCapture>>;
+export async function applyCodexPatch<TCapture>(input: {
+    fileScope: FileScope;
+    patchText: string;
+    captureChange?: (change: PlannedFileChange) => TCapture;
+}): Promise<ApplyCodexPatchResult<TCapture | undefined>> {
     const operations = parseCodexPatch(input.patchText);
     const authorizedAddresses = new Map<string, ResolvedFileAddress>();
     for (const operation of operations) {
@@ -250,6 +267,10 @@ export async function applyCodexPatch(input: {
     if (plannedChanges.length === 0) {
         throw new Error("apply_patch 没有产生文件变更。");
     }
+    const capturedChanges = plannedChanges.map((change): AppliedFileChange<TCapture | undefined> => ({
+        ...change,
+        capture: input.captureChange?.(change),
+    }));
     await writePlannedChanges(plannedChanges);
 
     const diff = plannedChanges.map((change) => {
@@ -260,7 +281,7 @@ export async function applyCodexPatch(input: {
             path: change.displayPath,
             action: change.action,
         })),
-        changes: plannedChanges,
+        changes: capturedChanges,
         diff,
         firstChangedLine: firstChangedLine(diff),
     };

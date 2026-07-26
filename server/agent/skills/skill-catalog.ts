@@ -1,6 +1,7 @@
 import {existsSync} from "node:fs";
 import {readFile, readdir} from "node:fs/promises";
 import {join, resolve} from "node:path";
+import {consola} from "consola";
 
 export type SkillCatalogSource = "system" | "user";
 
@@ -9,12 +10,21 @@ export type SkillCatalogItem = {
     name: string;
     description?: string;
     whenToUse?: string;
+    /** 仅 runnable Skill 存在，来自 package.json.version。 */
+    version?: string;
     source: SkillCatalogSource;
     rootPath: string;
     skillPath: string;
 };
 
 const DISABLED_LEGACY_SKILL_KEYS = new Set(["anti-ai-slop"]);
+const SEMVER_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
+
+type LoadedSkillRoot = {
+    skills: SkillCatalogItem[];
+    /** 含 SKILL.md 的目录都会占用 key；无效用户覆盖不能悄悄回退到同名系统 Skill。 */
+    declaredKeys: Set<string>;
+};
 
 /**
  * v3 skill catalog。用户同名目录整体覆盖系统目录。
@@ -37,10 +47,15 @@ export class SkillCatalog {
      */
     async list(): Promise<SkillCatalogItem[]> {
         const skills = new Map<string, SkillCatalogItem>();
-        for (const skill of await this.loadRoot(this.systemRoot, "system")) {
+        const systemCatalog = await this.loadRoot(this.systemRoot, "system");
+        for (const skill of systemCatalog.skills) {
             skills.set(skill.key, skill);
         }
-        for (const skill of await this.loadRoot(this.userRoot, "user")) {
+        const userCatalog = await this.loadRoot(this.userRoot, "user");
+        for (const skillKey of userCatalog.declaredKeys) {
+            skills.delete(skillKey);
+        }
+        for (const skill of userCatalog.skills) {
             skills.set(skill.key, skill);
         }
         return [...skills.values()].sort((left, right) => left.key.localeCompare(right.key));
@@ -53,12 +68,13 @@ export class SkillCatalog {
         return (await this.list()).find((skill) => skill.key === skillKey) ?? null;
     }
 
-    private async loadRoot(root: string, source: SkillCatalogSource): Promise<SkillCatalogItem[]> {
+    private async loadRoot(root: string, source: SkillCatalogSource): Promise<LoadedSkillRoot> {
         if (!existsSync(root)) {
-            return [];
+            return {skills: [], declaredKeys: new Set()};
         }
         const entries = await readdir(root, {withFileTypes: true});
         const skills: SkillCatalogItem[] = [];
+        const declaredKeys = new Set<string>();
         for (const entry of entries) {
             if (!entry.isDirectory()) {
                 continue;
@@ -71,18 +87,28 @@ export class SkillCatalog {
             if (!skillPath) {
                 continue;
             }
-            const metadata = this.readMetadata(await readFile(skillPath, "utf8"));
-            skills.push({
-                key: entry.name,
-                name: metadata.name ?? entry.name,
-                description: metadata.description,
-                whenToUse: metadata.whenToUse,
-                source,
-                rootPath,
-                skillPath,
-            });
+            declaredKeys.add(entry.name);
+            try {
+                const metadata = this.readMetadata(await readFile(skillPath, "utf8"));
+                const version = await this.readVersion(rootPath);
+                skills.push({
+                    key: entry.name,
+                    name: metadata.name ?? entry.name,
+                    description: metadata.description,
+                    whenToUse: metadata.whenToUse,
+                    version,
+                    source,
+                    rootPath,
+                    skillPath,
+                });
+            } catch (error) {
+                if (source === "system") {
+                    throw error;
+                }
+                consola.warn({skillKey: entry.name, rootPath, error}, "用户 Skill package 无效，已隔离该 Skill");
+            }
         }
-        return skills;
+        return {skills, declaredKeys};
     }
 
     private async findSkillFile(rootPath: string): Promise<string | null> {
@@ -93,6 +119,25 @@ export class SkillCatalog {
             }
         }
         return null;
+    }
+
+    /**
+     * 读取 runnable Skill 的 SemVer 真相源；纯提示词 Skill 没有 package.json 时返回 undefined。
+     */
+    private async readVersion(rootPath: string): Promise<string | undefined> {
+        const packagePath = join(rootPath, "package.json");
+        if (!existsSync(packagePath)) {
+            return undefined;
+        }
+        const packageJson = JSON.parse(await readFile(packagePath, "utf8")) as {version?: string | null};
+        if (typeof packageJson.version !== "string" || !packageJson.version.trim()) {
+            throw new Error(`runnable Skill package.json.version 不能为空: ${packagePath}`);
+        }
+        const version = packageJson.version.trim();
+        if (!SEMVER_PATTERN.test(version)) {
+            throw new Error(`runnable Skill package.json.version 必须是 SemVer: ${packagePath}`);
+        }
+        return version;
     }
 
     private readMetadata(source: string): {name?: string; description?: string; whenToUse?: string} {

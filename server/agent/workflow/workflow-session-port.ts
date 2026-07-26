@@ -30,10 +30,11 @@ export class NeuroWorkflowSessionPort implements SessionPort {
     constructor(
         private repo: JsonlSessionRepository,
         /** 真实 profile 的创建入口；为空时真实 profile 创建直接报错。model 非空时实现负责把 session 模型设为该 key */
-        private createRealSession?: (init: {profileKey: string; initial: JsonValue; parentSessionId?: SessionId; title?: string; model?: string; kind?: SessionMeta["kind"]; tags?: string[]}) => Promise<SessionId>,
+        private createRealSession?: (init: {runId?: string; profileKey: string; initial: JsonValue; parentSessionId?: SessionId; title?: string; model?: string; kind?: SessionMeta["kind"]; tags?: string[]}) => Promise<SessionId>,
     ) {}
 
     async createSession(init: {
+        runId?: string;
         profileKey: string;
         kind: SessionMeta["kind"];
         tags: string[];
@@ -45,6 +46,7 @@ export class NeuroWorkflowSessionPort implements SessionPort {
         if (!init.profileKey.startsWith(WORKFLOW_DEMO_PROFILE_PREFIX)) {
             if (!this.createRealSession) throw new Error(`真实 profile ${init.profileKey} 的创建入口未注入`);
             const sessionId = await this.createRealSession({
+                runId: init.runId,
                 profileKey: init.profileKey,
                 initial: init.initial ?? null,
                 parentSessionId: init.parentSessionId,
@@ -99,14 +101,22 @@ export class NeuroWorkflowSessionPort implements SessionPort {
         origin: "workflow" | "direct";
     }): Promise<EntryId> {
         const text = renderEntryText(entry);
-        const stored = entry.role === "user" ? createStoredUserMessage(text) : mockAssistantMessage(text);
-        const appended = await this.repo.appendEntry(sessionId, {
-            type: "message",
-            message: stored,
-            // direct = demo 直聊入口的手工写入；workflow = run 写入
-            origin: entry.origin === "workflow" ? "workflow" : "manual",
-            parentId,
-        });
+        const origin = entry.origin === "workflow" ? "workflow" : "manual";
+        const appended = entry.role === "user"
+            ? await this.repo.appendEntry(sessionId, {
+                type: "message",
+                message: createStoredUserMessage(text),
+                clientMessageId: randomUUID(),
+                intent: "normal",
+                origin,
+                parentId,
+            })
+            : await this.repo.appendEntry(sessionId, {
+                type: "message",
+                message: mockAssistantMessage(text),
+                origin,
+                parentId,
+            });
         return appended.id;
     }
 
@@ -200,3 +210,4 @@ function mockAssistantMessage(text: string): AssistantMessage {
         timestamp: Date.now(),
     };
 }
+import {randomUUID} from "node:crypto";

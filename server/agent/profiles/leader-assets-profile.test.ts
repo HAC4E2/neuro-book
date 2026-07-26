@@ -1,4 +1,4 @@
-import {join, resolve} from "node:path";
+import {basename, dirname, join, resolve} from "node:path";
 import {mkdir, rm, writeFile} from "node:fs/promises";
 import {randomUUID} from "node:crypto";
 import {describe, expect, it, vi} from "vitest";
@@ -14,6 +14,8 @@ import {DEFAULT_WRITING_STYLE_PRESET, homeStyleKeyToLegacyKey, loadWritingStyleP
 import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
 import {ensureProfileHome} from "nbook/server/agent/profiles/profile-home";
 import {validateLowCodeFormValue} from "nbook/server/low-code-form";
+import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {createProjectWorkspaceKey, projectWorkspaceRef, resolvedProjectWorkspace} from "nbook/server/workspace-files/project-identity";
 
 vi.mock("nbook/server/utils/prisma", () => ({
     prisma: {
@@ -558,14 +560,12 @@ describe("assets builtin v3 profiles", () => {
         // fork 版 renderUserAssetsSkillCatalogText 已删除，改用 DSL 默认文本的 userAssets mode。
         expect(historyText).not.toContain("Skills are reusable work methods for this turn");
         expect(modelContextText).toBe("");
-        expect(appendingText).toContain("Runtime Location:");
-        expect(appendingText).toContain("- Tool cwd: workspace/.nbook/");
-        expect(appendingText).toContain("This is the cwd itself");
-        expect(appendingText).toContain("user-assets is Workspace Root .nbook");
-        expect(appendingText).toContain("Do not write novel lorebook");
-        expect(appendingText).toContain("Project SQLite");
+        expect(prompt).toContain("当前 cwd 就是 workspace/.nbook");
+        expect(prompt).toContain("user-assets 是 Workspace Root .nbook");
+        expect(prompt).toContain("不要把单本小说的 lorebook");
+        expect(prompt).toContain("Project SQLite");
         expect(appendingText).toContain("You are in normal mode. switch_mode is available");
-        // 旧版每轮追加的裸 Message 提醒已删除；该边界规则由 system prompt 与 RuntimeLocationReminder 承载。
+        // user-assets cwd与内容边界由专用system prompt承载，不再维护第二套runtime location节点。
         expect(appendingText).not.toContain("When the user wants story content changed");
     });
 
@@ -593,12 +593,12 @@ describe("assets builtin v3 profiles", () => {
                 rootPath: resolve("assets", "workspace", ".nbook", "agent", "skills", "profile-system-guide"),
                 skillPath: resolve("assets", "workspace", ".nbook", "agent", "skills", "profile-system-guide", "SKILL.md"),
             }, {
-                key: "novel-workflow-09-chapter-writing",
-                name: "章节写作",
-                description: "章节写作流程。",
+                key: "novel-writing",
+                name: "剧情写作循环",
+                description: "剧情写作循环流程。",
                 source: "system",
-                rootPath: resolve("assets", "workspace", ".nbook", "agent", "skills", "novel-workflow-09-chapter-writing"),
-                skillPath: resolve("assets", "workspace", ".nbook", "agent", "skills", "novel-workflow-09-chapter-writing", "SKILL.md"),
+                rootPath: resolve("assets", "workspace", ".nbook", "agent", "skills", "novel-writing"),
+                skillPath: resolve("assets", "workspace", ".nbook", "agent", "skills", "novel-writing", "SKILL.md"),
             }],
             settings: {
                 customTopSystemPrompt: "资产助手置顶规则：先解释再动手。",
@@ -615,7 +615,7 @@ describe("assets builtin v3 profiles", () => {
         expect(systemPrompt.indexOf("资产助手置顶规则")).toBeLessThan(systemPrompt.indexOf("用户资产助手"));
         // skills.include 白名单：写作流程 skill 不进本 agent 的 catalog。
         expect(historyText).toContain("key: profile-system-guide");
-        expect(historyText).not.toContain("novel-workflow-09-chapter-writing");
+        expect(historyText).not.toContain("novel-writing");
     });
 
     it("writer 输入合同硬切为空 initial 和 invocation payload", () => {
@@ -1033,8 +1033,14 @@ describe("assets builtin v3 profiles", () => {
         const projectRoot = resolve(".agent", "workspace", "leader-default-home-test", randomUUID());
         await mkdir(projectRoot, {recursive: true});
         try {
+            const projectRef = projectWorkspaceRef(basename(projectRoot));
+            const projectWorkspace = resolvedProjectWorkspace(
+                projectRef,
+                absoluteFsPath(projectRoot),
+                createProjectWorkspaceKey(absoluteFsPath(dirname(projectRoot)), projectRef),
+            );
             const home = await ensureProfileHome({
-                projectRoot,
+                workspace: projectWorkspace,
                 profileKey: "leader.default",
                 profileVersion: leaderDefaultProfile.manifest.version ?? 1,
                 definition: leaderDefaultProfile.home,
@@ -1049,6 +1055,7 @@ describe("assets builtin v3 profiles", () => {
                 profileKey: "leader.default",
                 scope: "project",
                 workspaceRoot: "workspace",
+                projectWorkspace,
                 home,
             });
             const prepared = await leaderDefaultProfile.prepare!({

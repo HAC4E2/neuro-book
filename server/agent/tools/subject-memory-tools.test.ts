@@ -2,7 +2,7 @@ import {mkdir, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {tmpdir} from "node:os";
 import {Type} from "typebox";
-import {afterEach, beforeEach, describe, expect, it} from "vitest";
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {fauxAssistantMessage, fauxToolCall} from "@earendil-works/pi-ai";
 import {createFauxModels, type FauxModelsFixture} from "nbook/server/agent/test-utils/faux-models";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
@@ -13,7 +13,18 @@ import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {createRuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
-import {closeProject, openProject} from "nbook/server/workspace-files/project-session";
+import {
+    closeAllProjects,
+    closeProject,
+    openProject,
+    requireReadyModuleHandle,
+} from "nbook/server/workspace-files/project-session";
+import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
+import {PROJECT_FILE_INDEX_MODULE_TOKEN} from "nbook/server/workspace-files/project-file-index";
+import {
+    PROJECT_HISTORY_MODULE_TOKEN,
+    setHistoryEnabledOverrideForTest,
+} from "nbook/server/workspace-history/project-history";
 import memoryCuratorProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/memory.curator.profile";
 import {
     applySubjectMemoryPatch,
@@ -27,9 +38,11 @@ describe("subject memory tools", () => {
     let harness: NeuroAgentHarness;
     let context: ToolExecutionContext;
     let faux: FauxModelsFixture;
+    let invocationReady: ReadyProjectSessionRef;
     const projectPath = "workspace/demo";
 
     beforeEach(async () => {
+        setHistoryEnabledOverrideForTest(true);
         root = await mkdtemp(join(tmpdir(), "nbook-subject-memory-tools-test-"));
         workspaceRoot = join(root, "workspace");
         await mkdir(join(workspaceRoot, "demo"), {recursive: true});
@@ -87,7 +100,8 @@ describe("subject memory tools", () => {
             workspaceRoot: "workspace",
             projectPath,
         });
-        await openProject(absoluteFsPath(workspaceRoot), projectPath, {kind: "job", source: "subject-memory-tools-test"});
+        invocationReady = await openProject(absoluteFsPath(workspaceRoot), projectPath, {kind: "job", source: "subject-memory-tools-test"});
+        vi.spyOn(harness, "projectForInvocation").mockReturnValue(invocationReady);
         context = {
             harness,
             sessionId: session.sessionId,
@@ -96,13 +110,15 @@ describe("subject memory tools", () => {
             workspaceFsRoot: absoluteFsPath(workspaceRoot),
             workspaceKey: "global",
             projectPath,
+            invocationId: "subject-memory-tools-test-invocation",
         };
     });
 
     afterEach(async () => {
-        await closeProject(projectPath, "shutdown").catch(() => undefined);
+        await closeAllProjects();
         await harness.drainBackgroundTasks();
         await harness.dispose();
+        setHistoryEnabledOverrideForTest(null);
         await rm(root, {recursive: true, force: true});
     });
 
@@ -172,8 +188,17 @@ describe("subject memory tools", () => {
         await expect(tool.executeWithContext?.(context, "closed-project-subject", {
             subjectPath: "simulation/subjects/heroine",
             events: [{text: "不应写入。"}],
-        })).rejects.toThrow("Project 未打开");
+        })).rejects.toThrow("Project未打开");
         await openProject(absoluteFsPath(workspaceRoot), projectPath, {kind: "job", source: "subject-memory-tools-test"});
+
+        await expect(tool.executeWithContext?.(context, "reopened-project-subject", {
+            subjectPath: "simulation/subjects/heroine",
+            events: [{text: "不应写入新 generation。"}],
+        })).rejects.toThrow("无法捕获Current Project generation资源");
+        await expect(readFile(
+            join(workspaceRoot, "demo", "simulation", "subjects", "heroine", "events.jsonl"),
+            "utf-8",
+        )).rejects.toMatchObject({code: "ENOENT"});
     });
 
     it("subject写工具声明Workspace变更，RAG查询保持运行时写入语义", () => {
@@ -186,6 +211,11 @@ describe("subject memory tools", () => {
         const subjectRoot = join(workspaceRoot, "demo", "simulation", "subjects", "heroine");
         await mkdir(subjectRoot, {recursive: true});
         await writeFile(join(subjectRoot, "events.jsonl"), "{\"text\":\"旧事件。\"}\n", "utf-8");
+        const fileIndex = requireReadyModuleHandle(invocationReady, PROJECT_FILE_INDEX_MODULE_TOKEN);
+        const beforeNode = (await fileIndex.read()).nodes.find((node) => (
+            node.path === "simulation/subjects/heroine/events.jsonl"
+        ));
+        expect(beforeNode).toBeDefined();
         const tool = mustTool("subject_event_append", harness);
 
         await tool.executeWithContext?.(context, "append-events", {
@@ -200,7 +230,21 @@ describe("subject memory tools", () => {
             "{\"text\":\"我确认艾琳娜就是早上帮过我的女孩。\",\"tick\":\"000002\"}",
             "",
         ].join("\n"));
+        const afterNode = (await fileIndex.read()).nodes.find((node) => (
+            node.path === "simulation/subjects/heroine/events.jsonl"
+        ));
+        expect(afterNode?.size).toBeGreaterThan(beforeNode!.size);
+        const history = await requireReadyModuleHandle(invocationReady, PROJECT_HISTORY_MODULE_TOKEN).history;
+        expect(history).not.toBeNull();
+        const agentEntries = (await history!.timeline("simulation/subjects/heroine/events.jsonl"))
+            .filter((item) => item.entry.actor.kind === "agent");
+        expect(agentEntries.at(-1)?.entry.actor).toEqual({
+            kind: "agent",
+            sessionId: String(context.sessionId),
+        });
+        expect(agentEntries.at(-1)?.entry.operation.type).toBe("file.edit");
         await expect(readFile(join(workspaceRoot, "demo", ".nbook", "subject-rag-dirty.json"), "utf-8")).resolves.toContain("\"events\"");
+        expect(harness.projectForInvocation).toHaveBeenCalledWith("subject-memory-tools-test-invocation");
     });
 
     it("subject_event_append 硬切 JSONL，不导入旧 events.md", async () => {
@@ -235,6 +279,7 @@ describe("subject memory tools", () => {
             query: "艾琳娜",
             sources: ["events"],
         })).rejects.toThrow("不会执行关键词 fallback");
+        expect(harness.projectForInvocation).toHaveBeenCalledWith("subject-memory-tools-test-invocation");
     });
 
     it("subject_rag_search 必须显式指定 sources，不提供时不会默认双搜", async () => {
@@ -435,6 +480,11 @@ describe("subject memory tools", () => {
             "{\"topic\":\"艾琳娜\",\"view\":\"她是同班同学。\"}",
             "",
         ].join("\n"), "utf-8");
+        const fileIndex = requireReadyModuleHandle(invocationReady, PROJECT_FILE_INDEX_MODULE_TOKEN);
+        const beforeNode = (await fileIndex.read()).nodes.find((node) => (
+            node.path === "simulation/subjects/heroine/memory.jsonl"
+        ));
+        expect(beforeNode).toBeDefined();
         faux.setResponses([
             fauxAssistantMessage([
                 fauxToolCall("report_result", {
@@ -468,11 +518,26 @@ describe("subject memory tools", () => {
             summary: "patch ready",
             dirty: true,
         }));
-        expect(parseSubjectMemoriesJsonl(await readFile(join(subjectRoot, "memory.jsonl"), "utf-8"))).toEqual([{
+        const memoryText = await readFile(join(subjectRoot, "memory.jsonl"), "utf-8");
+        expect(parseSubjectMemoriesJsonl(memoryText)).toEqual([{
             topic: "艾琳娜",
             aliases: ["粉色头发的女孩子", "早上帮过我的女孩"],
             view: "我已经意识到艾琳娜就是早上帮过我的粉色头发女孩。",
         }]);
+        const afterNode = (await fileIndex.read()).nodes.find((node) => (
+            node.path === "simulation/subjects/heroine/memory.jsonl"
+        ));
+        expect(afterNode?.size).toBe(Buffer.byteLength(memoryText));
+        expect(afterNode?.size).not.toBe(beforeNode!.size);
+        const history = await requireReadyModuleHandle(invocationReady, PROJECT_HISTORY_MODULE_TOKEN).history;
+        expect(history).not.toBeNull();
+        const agentEntries = (await history!.timeline("simulation/subjects/heroine/memory.jsonl"))
+            .filter((item) => item.entry.actor.kind === "agent");
+        expect(agentEntries.at(-1)?.entry.actor).toEqual({
+            kind: "agent",
+            sessionId: String(context.sessionId),
+        });
+        expect(agentEntries.at(-1)?.entry.operation.type).toBe("file.edit");
         await expect(readFile(join(workspaceRoot, "demo", ".nbook", "subject-rag-dirty.json"), "utf-8")).resolves.toContain("\"memory\"");
     });
 

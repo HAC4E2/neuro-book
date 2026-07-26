@@ -8,7 +8,7 @@ import {
     resolveContainedFilePath,
     type AbsoluteFsPath,
 } from "nbook/server/runtime/paths/file-path";
-import {resolveProjectWorkspaceInput} from "nbook/server/workspace-files/project-path";
+import type {ResolvedProjectWorkspace} from "nbook/server/workspace-files/project-identity";
 
 type VariableFile = {
     schemaVersion: 1;
@@ -26,13 +26,16 @@ const locks = new Map<string, Promise<void>>();
  * Workspace Root / Project Workspace 变量文件存储。
  */
 export class VariableFileStorage {
-    constructor(private readonly globalWorkspaceRoot: AbsoluteFsPath) {}
+    constructor(
+        private readonly globalWorkspaceRoot: AbsoluteFsPath,
+        private readonly currentProject: ResolvedProjectWorkspace | null = null,
+    ) {}
 
     /**
      * 读取 namespace 变量文件。缺失文件等价于空 variables。
      */
-    async read(namespace: Extract<VariableNamespace, "global" | "project">, projectWorkspace?: string | null): Promise<Record<string, JsonValue>> {
-        const location = this.fileLocation(namespace, projectWorkspace);
+    async read(namespace: Extract<VariableNamespace, "global" | "project">): Promise<Record<string, JsonValue>> {
+        const location = this.fileLocation(namespace);
         await assertRealPathContained(location.root, location.path);
         const text = await readFile(location.path, "utf8").catch((error: NodeJS.ErrnoException) => {
             if (error.code === "ENOENT") {
@@ -53,14 +56,14 @@ export class VariableFileStorage {
     /**
      * 对变量文件执行原子 patch。
      */
-    async patch(namespace: Extract<VariableNamespace, "global" | "project">, variablePath: string, operations: VariableJsonPatchOperation[], projectWorkspace?: string | null, guard?: {
+    async patch(namespace: Extract<VariableNamespace, "global" | "project">, variablePath: string, operations: VariableJsonPatchOperation[], guard?: {
         expectedFingerprint?: string;
         fingerprintValue?: (value: JsonValue | undefined) => string;
         expectedValue?: JsonValue;
     }): Promise<JsonValue | undefined> {
-        const location = this.fileLocation(namespace, projectWorkspace);
+        const location = this.fileLocation(namespace);
         await withFileLock(location.path, async () => {
-            const variables = await this.read(namespace, projectWorkspace);
+            const variables = await this.read(namespace);
             const current = readDotPath(variables, variablePath);
             const comparableCurrent = current === undefined ? guard?.expectedValue : current;
             if (guard?.expectedFingerprint && guard.fingerprintValue && guard.fingerprintValue(comparableCurrent) !== guard.expectedFingerprint) {
@@ -73,24 +76,23 @@ export class VariableFileStorage {
                 variables,
             });
         });
-        const variables = await this.read(namespace, projectWorkspace);
+        const variables = await this.read(namespace);
         return readDotPath(variables, variablePath);
     }
 
-    private fileLocation(namespace: Extract<VariableNamespace, "global" | "project">, projectWorkspace?: string | null): VariableFileLocation {
+    private fileLocation(namespace: Extract<VariableNamespace, "global" | "project">): VariableFileLocation {
         if (namespace === "global") {
             return {
                 root: this.globalWorkspaceRoot,
                 path: resolveContainedFilePath(this.globalWorkspaceRoot, ".nbook/agent/variables.json"),
             };
         }
-        if (!projectWorkspace) {
-            throw new Error("project.* 变量需要本轮 client.currentProjectWorkspace。");
+        if (!this.currentProject) {
+            throw new Error("project.* 变量需要本轮 Current Project。");
         }
-        const projectRoot = resolveProjectWorkspaceInput(this.globalWorkspaceRoot, projectWorkspace);
         return {
-            root: projectRoot,
-            path: resolveContainedFilePath(projectRoot, ".nbook/agent/variables.json"),
+            root: this.currentProject.root,
+            path: resolveContainedFilePath(this.currentProject.root, ".nbook/agent/variables.json"),
         };
     }
 }

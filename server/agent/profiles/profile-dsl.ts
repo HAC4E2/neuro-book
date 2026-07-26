@@ -103,6 +103,11 @@ export type ProfileIfNode = {
 export type ProfileStringFragmentNode = {
     kind: "StringFragment";
     text: string | ((ctx: ProfilePrepareContext<any>) => string | Promise<string>);
+    /**
+     * 上下文归因用的来源名（Task 126）。只影响可观测，不参与渲染，也绝不进入发给模型的正文。
+     * 匿名 fragment（profile 作者手写的裸字符串片段）无需提供。
+     */
+    label?: string;
 };
 
 export type ProfileImportAs = "text";
@@ -173,7 +178,39 @@ type CompileState = {
     currentTurn: number;
     pendingToolCallIds: string[];
     plan: ProfileTurnPlan;
+    /** 当前消息渲染过程中命中的具名 fragment 标签；renderMessageNode 进出时保存 / 恢复（Task 126）。 */
+    pendingLabels: string[];
+    /** 外层作用域标签（Reminder / Watch），对其内部产生的每条消息都生效。 */
+    scopeLabels: string[];
+    /**
+     * 每条产物消息的来源名，按**对象标识**关联。
+     * 刻意不写进消息体：消息体会原样发给 provider，塞归因字段等于污染 prompt。
+     */
+    messageLabels: WeakMap<StoredAgentMessage, readonly string[]>;
 };
+
+/** 新建一份空的归因收集态。 */
+function emptyLabelState(): Pick<CompileState, "pendingLabels" | "scopeLabels" | "messageLabels"> {
+    return {pendingLabels: [], scopeLabels: [], messageLabels: new WeakMap()};
+}
+
+/** 从渲染产物按分区抽出与消息数组一一对应的来源名。无来源的位置为 null。 */
+function collectPromptSourceLabels(state: CompileState): ProfileTurnPlan["promptSourceLabels"] {
+    const pick = (messages: StoredAgentMessage[] | undefined): (readonly string[] | null)[] | undefined => {
+        if (!messages?.length) {
+            return undefined;
+        }
+        const labels = messages.map((message) => state.messageLabels.get(message) ?? null);
+        return labels.some((label) => label !== null) ? labels : undefined;
+    };
+    const collected = {
+        historyInit: pick(state.plan.historyInitMessages),
+        modelContext: pick(state.plan.modelContextMessages),
+        modelContextAppending: pick(state.plan.modelContextAppendingMessages),
+        appending: pick(state.plan.appendingMessages),
+    };
+    return Object.values(collected).some(Boolean) ? collected : undefined;
+}
 
 const PROFILE_STATE_KEY_PREFIX = "profileState.";
 
@@ -195,8 +232,13 @@ export async function compileProfileContext(
         currentTurn: context.runtime?.promptUserTurnCount ?? countUserTurns(context.session.messages),
         pendingToolCallIds: [],
         plan: {},
+        ...emptyLabelState(),
     };
     await renderRoot(state, tree);
+    const promptSourceLabels = collectPromptSourceLabels(state);
+    if (promptSourceLabels) {
+        state.plan.promptSourceLabels = promptSourceLabels;
+    }
     if (state.stateTouched) {
         state.plan.stateWrites = [{
             type: "custom",
@@ -228,6 +270,7 @@ export async function compileProfileSystemPrompt(
         currentTurn: context.runtime?.promptUserTurnCount ?? countUserTurns(context.session.messages),
         pendingToolCallIds: [],
         plan: {},
+        ...emptyLabelState(),
     };
     const systemPrompt = await renderSystemOnlyChildren(state, tree.children);
     return systemPrompt.trim() ? systemPrompt : undefined;
@@ -240,7 +283,7 @@ export function validateProfileTurnPlan(profileKey: string, plan: ProfileTurnPla
     if (!plan || typeof plan !== "object") {
         throw new Error(`profile ${profileKey} prepare/context 必须返回 ProfileTurnPlan。`);
     }
-    const allowedKeys = new Set(["systemPrompt", "historyInitMessages", "appendingMessages", "modelContextAppendingMessages", "modelContextMessages", "turnContexts", "stateWrites"]);
+    const allowedKeys = new Set(["systemPrompt", "historyInitMessages", "appendingMessages", "modelContextAppendingMessages", "modelContextMessages", "turnContexts", "promptSourceLabels", "stateWrites"]);
     const illegalKey = Object.keys(plan).find((key) => !allowedKeys.has(key));
     if (illegalKey) {
         throw new Error(`profile ${profileKey} ProfileTurnPlan 不允许返回 ${illegalKey}。`);
@@ -458,6 +501,7 @@ export function SkillCatalog(props: {mode?: "workspace" | "userAssets"; text?: s
     return {
         kind: "StringFragment",
         text: props.text ?? ((ctx) => defaultSkillCatalogText(ctx, props.mode ?? "workspace")),
+        label: "SkillCatalog",
     };
 }
 
@@ -468,6 +512,7 @@ export function AgentCatalog(props: {text?: string | ((ctx: ProfilePrepareContex
     return {
         kind: "StringFragment",
         text: props.text ?? defaultAgentCatalogText,
+        label: "AgentCatalog",
     };
 }
 
@@ -479,6 +524,7 @@ export function WorkflowCatalog(props: {text?: string | ((ctx: ProfilePrepareCon
     return {
         kind: "StringFragment",
         text: props.text ?? defaultWorkflowCatalogText,
+        label: "WorkflowCatalog",
     };
 }
 
@@ -489,6 +535,7 @@ export function ActivatedSkills(props: {text?: string | ((ctx: ProfilePrepareCon
     return {
         kind: "StringFragment",
         text: props.text ?? defaultActivatedSkillsText,
+        label: "ActivatedSkills",
     };
 }
 
@@ -499,6 +546,7 @@ export function SqlSchemaSummary(props: {text?: string | ((ctx: ProfilePrepareCo
     return {
         kind: "StringFragment",
         text: props.text ?? defaultSqlSchemaSummaryText,
+        label: "SqlSchemaSummary",
     };
 }
 
@@ -509,6 +557,8 @@ export function Import(props: ProfileImportProps): ProfileStringFragmentNode {
     return {
         kind: "StringFragment",
         text: (ctx) => renderImportedContext(props, ctx),
+        // 归因用 path 而非 label：面板要能定位到具体文件，作者的展示 label 可能重名。
+        label: `Import:${props.path}`,
     };
 }
 
@@ -522,6 +572,7 @@ export function SystemReminder(props: {children?: ProfileDslChild | ProfileDslCh
             const body = await renderStandaloneString(ctx, normalizeChildren(props.children));
             return body.trim() ? systemReminder(body) : "";
         },
+        label: "SystemReminder",
     };
 }
 
@@ -532,6 +583,7 @@ export function LinkedAgentsSummary(_props: Record<string, never> = {}): Profile
     return {
         kind: "StringFragment",
         text: (ctx) => linkedAgentsSummaryText(ctx.session),
+        label: "LinkedAgentsSummary",
     };
 }
 
@@ -550,61 +602,7 @@ export function LinkedAgentsReminder(props: {id?: string; repeatEveryTurns?: num
 }
 
 /**
- * 首轮注入 agent 文件工具与 bash 共用的 File Scope。
- */
-export function RuntimeLocationReminder(props: {id?: string; repeatEveryTurns?: number; mode?: "workspace" | "userAssets"} = {}): ProfileReminderNode {
-    return Reminder({
-        id: props.id ?? "runtime-location",
-        watch: (ctx) => ({
-            toolCwd: normalizeDisplayPath(ctx.session.projectPath ?? ctx.session.workspaceRoot),
-            sourceRoot: normalizeAbsoluteDisplayPath(process.cwd()),
-            referenceRoot: normalizeAbsoluteDisplayPath(resolve(process.cwd(), "reference")),
-            mode: props.mode ?? "workspace",
-            projectBound: Boolean(ctx.session.projectPath) && (props.mode ?? "workspace") === "workspace",
-        }),
-        repeatEveryTurns: props.repeatEveryTurns,
-        render: (change) => {
-            const location = readRuntimeLocationState(change.currentValue);
-            if (location.mode === "userAssets") {
-                return Message({children: systemReminder([
-                    "Runtime Location:",
-                    `- Tool cwd: ${ensureTrailingSlash(location.toolCwd)}`,
-                    `- This is the cwd itself. Use . for the cwd; do not prefix file paths with ${ensureTrailingSlash(location.toolCwd)}`,
-                    `- Source root: ${location.sourceRoot}`,
-                    `- Reference root: ${location.referenceRoot}`,
-                    "- user-assets is Workspace Root .nbook, not a Project Workspace.",
-                    "- Agent profiles, skills, variables, and profile default home resources live under agent/ in the current user-assets cwd.",
-                    "- Do not write novel lorebook, manuscript, plot data, chapter prose, world facts, or Project SQLite into user-assets.",
-                ].join("\n"))});
-            }
-            if (location.projectBound) {
-                return Message({children: systemReminder([
-                    "Runtime Location:",
-                    `- Tool cwd / Current Project Workspace: ${ensureTrailingSlash(location.toolCwd)}`,
-                    "- File tools and bash share this cwd. Use lorebook/..., manuscript/..., .agent/... and other Project-relative paths directly.",
-                    "- For explicit cross-project file access, use workspace/<project-slug>/<relative-path>.",
-                    `- Repository Source Root: ${location.sourceRoot}`,
-                    `- Repository Reference Root: ${location.referenceRoot}`,
-                    "- Repository paths are outside the tool cwd. Use the absolute paths above when reading source code or repository reference documents.",
-                    "- Tools that explicitly ask for projectPath still use workspace/<project-slug>.",
-                ].join("\n"))});
-            }
-            return Message({children: systemReminder([
-                "Runtime Location:",
-                `- Tool cwd / Workspace Root: ${ensureTrailingSlash(location.toolCwd)}`,
-                "- The Workspace Root is a data container. Every managed Project Workspace is accessible as a sibling directory such as project-slug/manuscript/... .",
-                "- Current Project Workspace is only the default focus for ambiguous project work; it is not an access boundary.",
-                `- Repository Source Root: ${location.sourceRoot}`,
-                `- Repository Reference Root: ${location.referenceRoot}`,
-                "- Repository paths are outside the tool cwd. Use the absolute paths above when reading source code or repository reference documents.",
-                "- File tools use Workspace Root-relative project-slug/... paths. Tools that explicitly ask for projectPath use workspace/project-slug.",
-            ].join("\n"))});
-        },
-    });
-}
-
-/**
- * 首轮注入当前用户在 IDE 中聚焦的 Project Workspace 和选中文件；后续在焦点变化时注入变化提醒。
+ * 首轮注入当前File Scope、路径合同和用户在IDE中选中的文件；后续在焦点变化时注入变化提醒。
  */
 export function WorkspaceFocusReminder(props: {id?: string; repeatEveryTurns?: number} = {}): ProfileReminderNode {
     return Reminder({
@@ -618,7 +616,9 @@ export function WorkspaceFocusReminder(props: {id?: string; repeatEveryTurns?: n
                     "Current Workspace Focus:",
                     "- Current Project Workspace: none",
                     "- Current selected file: none",
-                    "- No project is focused, but all Project Workspaces under the Workspace Root remain accessible by explicit project slug.",
+                    "- File tools and bash use the Workspace Root as their current File Scope.",
+                    "- Relative paths resolve from that File Scope. Any absolute filesystem path can be used directly.",
+                    "- Managed Project APIs still use projectPath workspace/<project-slug>.",
                 ].join("\n"))});
             }
             const projectSlug = projectSlugFromWorkspace(focus.currentProjectWorkspace);
@@ -633,7 +633,8 @@ export function WorkspaceFocusReminder(props: {id?: string; repeatEveryTurns?: n
                         "The next invocation uses this Project Workspace as the File Scope for file tools and bash.",
                         "Use lorebook/..., manuscript/..., and reference/... directly for current project files.",
                         `Use workspace/${projectSlug} when a tool explicitly asks for projectPath.`,
-                        "For another Project Workspace file, use workspace/<project-slug>/<relative-path>.",
+                        "Any absolute filesystem path can be used directly.",
+                        "For another managed Project file, prefer workspace/<project-slug>/<relative-path> when Project identity, open gate, History, or Context Access matters.",
                         `Current selected file: ${selectedFile}`,
                     ].join("\n"))});
                 }
@@ -649,7 +650,8 @@ export function WorkspaceFocusReminder(props: {id?: string; repeatEveryTurns?: n
                 `- Current Project Workspace: ${focus.currentProjectWorkspace}`,
                 "- File tools and bash use this Project Workspace as their current File Scope.",
                 "- For focused project files, use lorebook/..., manuscript/..., or reference/... directly.",
-                "- For another Project Workspace file, use workspace/<project-slug>/<relative-path>.",
+                "- Any absolute filesystem path can be used directly; cwd is only the base for relative paths, not an access boundary.",
+                "- For another managed Project file, prefer workspace/<project-slug>/<relative-path> when Project identity, open gate, History, or Context Access matters.",
                 `- Current selected file: ${selectedFile}`,
                 "- project.yaml is at project.yaml.",
                 `- Use workspace/${projectSlug} when a tool explicitly asks for projectPath.`,
@@ -716,6 +718,7 @@ export function MentionedSkillsReminder(_props: Record<string, never> = {}): Pro
     return {
         kind: "StringFragment",
         text: mentionedSkillsReminderText,
+        label: "MentionedSkillsReminder",
     };
 }
 
@@ -956,7 +959,27 @@ function validateSystemChildren(children: ProfileDslChild[]): void {
     }
 }
 
+/**
+ * 渲染一个消息节点，并把它命中的 Profile DSL 来源名登记到旁表（Task 126）。
+ *
+ * 归因是纯可观测产物：登记走 WeakMap 对象标识，绝不写进消息体（消息体会原样发给 provider）。
+ */
 async function renderMessageNode(state: CompileState, node: ProfileMessageNode): Promise<StoredAgentMessage> {
+    const outerLabels = state.pendingLabels;
+    state.pendingLabels = [];
+    try {
+        const message = await renderMessageNodeContent(state, node);
+        const labels = [...state.scopeLabels, ...state.pendingLabels];
+        if (labels.length > 0) {
+            state.messageLabels.set(message, labels);
+        }
+        return message;
+    } finally {
+        state.pendingLabels = outerLabels;
+    }
+}
+
+async function renderMessageNodeContent(state: CompileState, node: ProfileMessageNode): Promise<StoredAgentMessage> {
     if (node.kind === "Message") {
         if (node.role === "system") {
             throw new Error("<Message role=\"system\"> 不被支持，请使用 <System> 或 <AppendingSet><Message>。");
@@ -1145,7 +1168,7 @@ async function renderReminder(state: CompileState, node: ProfileReminderNode): P
     if (!rendered || rendered === true) {
         return [];
     }
-    const messages = await renderChildren(state, "reminder", normalizeChildren(rendered));
+    const messages = await withScopeLabel(state, `Reminder:${node.id}`, () => renderChildren(state, "reminder", normalizeChildren(rendered)));
     if (messages.length === 0) {
         return [];
     }
@@ -1210,7 +1233,20 @@ async function renderWatch(state: CompileState, zone: RenderZone, node: ProfileW
     if (!rendered || rendered === true) {
         return [];
     }
-    return renderChildren(state, zone === "model" ? "watch" : "watch", normalizeChildren(rendered));
+    return withScopeLabel(state, `Watch:${key}`, () => renderChildren(state, zone === "model" ? "watch" : "watch", normalizeChildren(rendered)));
+}
+
+/**
+ * 在作用域标签下渲染子树：期间产生的每条消息都会带上该标签（Task 126）。
+ * 用于 Reminder / Watch —— 它们的消息由内部 Message 节点产出，光靠 fragment 标签认不出归属。
+ */
+async function withScopeLabel<T>(state: CompileState, label: string, render: () => Promise<T>): Promise<T> {
+    state.scopeLabels.push(label);
+    try {
+        return await render();
+    } finally {
+        state.scopeLabels.pop();
+    }
 }
 
 async function renderImportedContext(props: ProfileImportProps, context: ProfilePrepareContext<any>): Promise<string> {
@@ -1394,7 +1430,12 @@ async function renderStringChildren(state: CompileState, zone: RenderZone, child
             return;
         }
         if (child.kind === "StringFragment") {
-            parts.push(typeof child.text === "function" ? await child.text(state.context) : child.text);
+            const text = typeof child.text === "function" ? await child.text(state.context) : child.text;
+            // 只登记真正产出内容的具名 fragment：空 Import / 空 catalog 不该在面板里占一行。
+            if (child.label && text.trim()) {
+                state.pendingLabels.push(child.label);
+            }
+            parts.push(text);
             return;
         }
         if (child.kind === "ModeSlot") {
@@ -1421,6 +1462,10 @@ async function renderStandaloneString(context: ProfilePrepareContext<any>, child
         currentTurn: context.runtime?.promptUserTurnCount ?? countUserTurns(context.session.messages),
         pendingToolCallIds: [],
         plan: {},
+        // 独立子渲染用一次性归因态：内嵌 fragment 的标签随之丢弃。
+        // 这是有意的——调用方（如 SystemReminder）自身的标签已经代表整块内容，
+        // 再把内部标签冒泡上去会让面板出现重复且无法定位的条目。
+        ...emptyLabelState(),
     };
     return renderStringChildren(state, "message", children);
 }
@@ -1700,17 +1745,6 @@ async function readWorkspaceFocus(ctx: ProfilePrepareContext<any>): Promise<Json
     };
 }
 
-function readRuntimeLocationState(value: JsonValue | undefined): {toolCwd: string; sourceRoot: string; referenceRoot: string; mode: string; projectBound: boolean} {
-    const record = readRecord(value);
-    return {
-        toolCwd: typeof record.toolCwd === "string" && record.toolCwd.trim() ? record.toolCwd : "workspace",
-        sourceRoot: typeof record.sourceRoot === "string" && record.sourceRoot.trim() ? record.sourceRoot : normalizeAbsoluteDisplayPath(process.cwd()),
-        referenceRoot: typeof record.referenceRoot === "string" && record.referenceRoot.trim() ? record.referenceRoot : normalizeAbsoluteDisplayPath(resolve(process.cwd(), "reference")),
-        mode: typeof record.mode === "string" && record.mode.trim() ? record.mode : "workspace",
-        projectBound: record.projectBound === true,
-    };
-}
-
 function readWorkspaceFocusState(value: JsonValue | undefined): {currentProjectWorkspace: string; selectedFilePath: string | null} {
     const record = readRecord(value);
     return {
@@ -1726,15 +1760,6 @@ function normalizeDisplayPath(value: string): string {
         return relativeToRepo.replace(/\/+$/g, "");
     }
     return normalized;
-}
-
-function normalizeAbsoluteDisplayPath(value: string): string {
-    return resolve(value).replace(/\\/g, "/").replace(/\/+$/g, "");
-}
-
-function ensureTrailingSlash(value: string): string {
-    const normalized = value.replace(/\\/g, "/").replace(/\/+$/g, "");
-    return normalized ? `${normalized}/` : "";
 }
 
 function projectSlugFromWorkspace(projectWorkspace: string): string {
@@ -2065,6 +2090,8 @@ async function defaultSkillCatalogText(ctx: ProfilePrepareContext<any>, mode: "w
             `  name: ${skillItem.name}`,
             `  description: ${skillItem.description ?? skillItem.key}`,
             skillItem.whenToUse ? `  when_to_use: ${skillItem.whenToUse}` : "",
+            skillItem.version ? `  version: ${skillItem.version}` : "",
+            `  root: ${displaySkillLocation(skillItem.rootPath)}`,
             `  location: ${displaySkillLocation(skillItem.skillPath)}`,
         ].filter(Boolean).join("\n"))
         .join("\n\n");
@@ -2120,7 +2147,8 @@ async function defaultAgentCatalogText(ctx: ProfilePrepareContext<any>): Promise
 
 async function defaultWorkflowCatalogText(ctx: ProfilePrepareContext<any>): Promise<string> {
     const workflows = ctx.workflows ?? [];
-    if (workflows.length === 0) {
+    const visibleModels = ctx.agentVisibleModels ?? [];
+    if (workflows.length === 0 && visibleModels.length === 0) {
         return "";
     }
     const workflowLines = workflows
@@ -2131,6 +2159,7 @@ async function defaultWorkflowCatalogText(ctx: ProfilePrepareContext<any>): Prom
             item.whenToUse ? `  when_to_use: ${item.whenToUse}` : "",
         ].filter(Boolean).join("\n"))
         .join("\n\n");
+    const modelLines = visibleModels.map((item) => `- ${item.modelKey}${item.note ? ` —— ${item.note}` : ""}`);
     return [
         "<system-reminder>",
         "## Workflows",
@@ -2138,10 +2167,18 @@ async function defaultWorkflowCatalogText(ctx: ProfilePrepareContext<any>): Prom
         "Workflows orchestrate multiple agent sessions as a durable script (parallel fan-out, review loops, human checkpoints, live state chart). They are heavier than a single sub-agent call; use one when the task genuinely needs multi-agent structure or the user asks for it.",
         "",
         "- Run a catalog workflow with run_workflow({ workflowKey, args }); list details with list_workflows.",
-        "- You may also write an ad-hoc workflow and pass it as run_workflow({ script }). Before writing one, read the authoring guide under reference/agent/workflow/ (start with README.md) — especially the wf.chart section so the run stays visible to the user.",
+        "- run_workflow is non-blocking by default: it registers a background job and returns a jobId immediately. Finish your current reply normally; when the workflow completes, its result card arrives as a new message in this session. Do NOT poll or busy-wait for it. Pass wait: true only for short runs whose result you need within the same reply.",
+        "- Background jobs (workflows, background invoke_agent / bash) are managed with list_jobs / get_job / cancel_job. After starting one, do not call list_jobs or get_job merely to wait. Use them only when the user explicitly asks for status, a follow-up result was truncated and you need the full result, or you need to cancel an obsolete job.",
+        "- You may also write an ad-hoc workflow and pass it as run_workflow({ script }). Before writing one, read reference/agent/workflow/README.md and reference/agent/workflow/authoring.md. Before designing wf.chart output, also read reference/agent/workflow/chart.md so the run stays visible to the user.",
         "- Every run_workflow call requires user approval; the user watches progress in the workflow panel, so keep args and script self-explanatory.",
-        "- A model may be pinned via run_workflow({ model }) only from the user-approved visible model list (see list_workflows).",
+        "- The Agent-visible Models list below is the sole allowlist for both run_workflow({ model }) and invoke_agent({ model }). list_workflows can refresh the same resolved list; job management tools do not provide a separate model list.",
+        "- Need a one-off helper agent without a profile file? Create profileKey \"adhoc\" with initial = { name?, systemPrompt, outputSchema? }. For direct use, create_agent first, then invoke_agent({ sessionId, model, ... }); for workflows use wf.agents.create(\"adhoc\", { initial, model, ephemeral: true }). Any model must come from the same Agent-visible Models list. outputSchema (a JSON Schema object) makes report_result.data required and structurally validated.",
         "- Workflow keys may be Chinese. Use the original key from the catalog exactly.",
+        "",
+        "## Agent-visible Models",
+        "",
+        "为子 agent / workflow 指定模型时只能从下列清单中选择：",
+        ...modelLines,
         "",
         "## Available Workflows",
         "",
@@ -2167,12 +2204,20 @@ async function defaultActivatedSkillsText(ctx: ProfilePrepareContext<any>): Prom
 
 async function defaultSqlSchemaSummaryText(ctx: ProfilePrepareContext<any>): Promise<string> {
     try {
-        const {getAgentSqlSchemaSummary} = await import("nbook/server/agent/tools/sql-tool");
+        const ready = ctx.runtime?.currentProject;
+        if (!ready) {
+            throw new Error("当前session没有Project Workspace");
+        }
+        const [{PROJECT_AGENT_SQL_MODULE_TOKEN}, {activateReadyProjectModule}] = await Promise.all([
+            import("nbook/server/agent/tools/agent-sql-project-module"),
+            import("nbook/server/workspace-files/project-session"),
+        ]);
+        const sql = await activateReadyProjectModule(ready, PROJECT_AGENT_SQL_MODULE_TOKEN);
         return [
             "<sql-schema-summary>",
             "Target database is current Project Workspace .nbook/project.sqlite. App SQLite is not accessible from execute_sql.",
             "Double-quote business tables with uppercase letters and camelCase columns, e.g. \"createdAt\", \"sortOrder\".",
-            await getAgentSqlSchemaSummary(ctx.session.workspaceFsRoot, ctx.session.projectPath),
+            await sql.schemaSummary(),
             "</sql-schema-summary>",
         ].join("\n");
     } catch (error) {

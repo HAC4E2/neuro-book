@@ -4,6 +4,8 @@ import {tmpdir} from "node:os";
 import {afterAll, afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {parseSubjectEventsJsonl, parseSubjectMemoriesJsonl} from "nbook/server/agent/tools/subject-memory";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
+import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import type {ProjectRagTarget} from "nbook/server/rag/project-rag-visualization";
 
 type ProjectRagVisualizationService = typeof import("nbook/server/rag/project-rag-visualization");
 type ProjectSessionTestUtils = typeof import("nbook/server/workspace-files/project-session-test-utils");
@@ -16,6 +18,7 @@ describe("project RAG visualization service", () => {
     let originalFetch: typeof fetch;
     let service: ProjectRagVisualizationService;
     let sessionUtils: ProjectSessionTestUtils | null = null;
+    let target: ProjectRagTarget;
     const projectPath = "workspace/rag-visual-test";
 
     beforeEach(async () => {
@@ -55,10 +58,18 @@ describe("project RAG visualization service", () => {
             "",
         ].join("\n"), "utf-8");
         await sessionUtils.openProjectForTest(projectPath);
+        const {requireReadyProjectPath} = await import("nbook/server/workspace-files/project-session");
+        target = Object.freeze({
+            workspaceRoot: absoluteFsPath(join(root, "workspace")),
+            project: requireReadyProjectPath(projectPath),
+        });
     });
 
     afterEach(async () => {
         await sessionUtils?.closeProjectForTest(projectPath).catch(() => undefined);
+        const {closeAllProjects, resetProjectSessionsForTest} = await import("nbook/server/workspace-files/project-session");
+        await closeAllProjects().catch(() => undefined);
+        resetProjectSessionsForTest();
         collectReleasedSqliteHandles({force: true});
         globalThis.fetch = originalFetch;
         process.chdir(originalCwd);
@@ -74,7 +85,7 @@ describe("project RAG visualization service", () => {
     });
 
     it("读取 Project 级 subject RAG 概览和详情", async () => {
-        const overview = await service.readProjectRagOverview(projectPath);
+        const overview = await service.readProjectRagOverview(target);
         expect(overview.subjects).toHaveLength(1);
         expect(overview.subjects[0]).toMatchObject({
             subjectPath: "simulation/subjects/heroine",
@@ -95,7 +106,7 @@ describe("project RAG visualization service", () => {
             stateFileExists: true,
         });
 
-        const detail = await service.readProjectRagSubject(projectPath, "simulation/subjects/heroine");
+        const detail = await service.readProjectRagSubject(target, "simulation/subjects/heroine");
         expect(detail.events[0]).toMatchObject({line: 1, time: "早晨"});
         expect(detail.memories[0]).toMatchObject({line: 1, topic: "艾琳娜"});
     });
@@ -107,7 +118,11 @@ describe("project RAG visualization service", () => {
 
         await sessionUtils.openProjectForTest(emptyProjectPath);
         try {
-            const overview = await service.readProjectRagOverview(emptyProjectPath);
+            const {requireReadyProjectPath} = await import("nbook/server/workspace-files/project-session");
+            const overview = await service.readProjectRagOverview(Object.freeze({
+                workspaceRoot: target.workspaceRoot,
+                project: requireReadyProjectPath(emptyProjectPath),
+            }));
 
             expect(overview.subjects).toEqual([]);
         } finally {
@@ -115,26 +130,38 @@ describe("project RAG visualization service", () => {
         }
     });
 
-    it("未 open 的 Project 拒绝读取 RAG 数据面", async () => {
-        const unopenedProjectPath = "workspace/unopened-rag-project";
-        const {ProjectNotOpenError} = await import("nbook/server/workspace-files/project-session");
-        await mkdir(join(root, "workspace", "unopened-rag-project"), {recursive: true});
-        await writeFile(join(root, "workspace", "unopened-rag-project", "project.yaml"), "kind: novel\ntitle: Unopened RAG\nsummary: ''\n", "utf-8");
+    it("旧 ready generation 在 close/reopen 后拒绝写入，不会转投新 generation", async () => {
+        const {ProjectNotReadyError} = await import("nbook/server/workspace-files/project-session-runtime");
+        const oldTarget = target;
+        const eventsPath = join(root, "workspace", "rag-visual-test", "simulation", "subjects", "heroine", "events.jsonl");
+        const before = await readFile(eventsPath, "utf-8");
+        await sessionUtils.closeProjectForTest(projectPath);
+        await sessionUtils.openProjectForTest(projectPath);
+        const {requireReadyProjectPath} = await import("nbook/server/workspace-files/project-session");
+        target = Object.freeze({
+            workspaceRoot: oldTarget.workspaceRoot,
+            project: requireReadyProjectPath(projectPath),
+        });
 
-        await expect(service.readProjectRagOverview(unopenedProjectPath)).rejects.toBeInstanceOf(ProjectNotOpenError);
+        expect(target.project.generation).not.toBe(oldTarget.project.generation);
+        await expect(service.createProjectRagEvent(oldTarget, {
+            subjectPath: "simulation/subjects/heroine",
+            event: {text: "不应进入新 generation。"},
+        })).rejects.toBeInstanceOf(ProjectNotReadyError);
+        await expect(readFile(eventsPath, "utf-8")).resolves.toBe(before);
     });
 
     it("events CRUD 会写回 JSONL 并标记 dirty", async () => {
-        await service.createProjectRagEvent(projectPath, {
+        await service.createProjectRagEvent(target, {
             subjectPath: "simulation/subjects/heroine",
             event: {time: "放学", text: "我向艾琳娜道谢。"},
         });
-        await service.reorderProjectRagEvent(projectPath, {
+        await service.reorderProjectRagEvent(target, {
             subjectPath: "simulation/subjects/heroine",
             fromIndex: 2,
             toIndex: 0,
         });
-        await service.deleteProjectRagEvent(projectPath, {
+        await service.deleteProjectRagEvent(target, {
             subjectPath: "simulation/subjects/heroine",
             index: 1,
         });
@@ -148,11 +175,11 @@ describe("project RAG visualization service", () => {
     });
 
     it("memory CRUD 使用 topic 定位并标记 dirty", async () => {
-        await service.createProjectRagMemory(projectPath, {
+        await service.createProjectRagMemory(target, {
             subjectPath: "simulation/subjects/heroine",
             memory: {topic: "王都学院", view: "这是我上学的地方。"},
         });
-        await service.updateProjectRagMemory(projectPath, {
+        await service.updateProjectRagMemory(target, {
             subjectPath: "simulation/subjects/heroine",
             topic: "王都学院",
             memory: {topic: "王都学院", aliases: ["学院"], view: "这是我学习和生活的地方。"},
@@ -169,14 +196,14 @@ describe("project RAG visualization service", () => {
     it("坏 JSONL 禁止 CRUD 覆盖", async () => {
         await writeFile(join(root, "workspace", "rag-visual-test", "simulation", "subjects", "heroine", "events.jsonl"), "{\"text\":\"ok\"}\n{bad}\n", "utf-8");
 
-        await expect(service.createProjectRagEvent(projectPath, {
+        await expect(service.createProjectRagEvent(target, {
             subjectPath: "simulation/subjects/heroine",
             event: {text: "不应写入。"},
         })).rejects.toThrow("events.jsonl 无效");
     });
 
     it("CRUD 不会创建不存在的 subject", async () => {
-        await expect(service.createProjectRagEvent(projectPath, {
+        await expect(service.createProjectRagEvent(target, {
             subjectPath: "simulation/subjects/new-subject",
             event: {text: "不应创建新 subject。"},
         })).rejects.toThrow("subject 不存在");
@@ -189,7 +216,7 @@ describe("project RAG visualization service", () => {
             },
         });
 
-        const result = await service.rebuildProjectSubjectRag(projectPath, {
+        const result = await service.rebuildProjectSubjectRag(target, {
             subjectPath: "simulation/subjects/heroine",
         });
 
@@ -208,11 +235,11 @@ describe("project RAG visualization service", () => {
         await configureEmbedding();
         mockEmbeddingFetch();
 
-        await service.createProjectRagEvent(projectPath, {
+        await service.createProjectRagEvent(target, {
             subjectPath: "simulation/subjects/heroine",
             event: {text: "艾琳娜后来成为我信任的人。"},
         });
-        const result = await service.searchProjectSubjectRag(projectPath, {
+        const result = await service.searchProjectSubjectRag(target, {
             subjectPath: "simulation/subjects/heroine",
             query: "艾琳娜 信任",
             sources: ["events"],
@@ -228,7 +255,7 @@ describe("project RAG visualization service", () => {
             "{\"text\":\"我直接通过文件编辑器追加了新经历。\"}",
             "",
         ].join("\n"), "utf-8");
-        const detail = await service.readProjectRagSubject(projectPath, "simulation/subjects/heroine");
+        const detail = await service.readProjectRagSubject(target, "simulation/subjects/heroine");
         expect(detail.sourceStatuses.find((status) => status.source === "events")?.status).toBe("dirty");
     });
 
@@ -236,10 +263,10 @@ describe("project RAG visualization service", () => {
         await configureEmbedding();
         mockEmbeddingFetch();
 
-        await service.rebuildProjectSubjectRag(projectPath, {
+        await service.rebuildProjectSubjectRag(target, {
             subjectPath: "simulation/subjects/heroine",
         });
-        const inspector = await service.readProjectRagInspector(projectPath, {
+        const inspector = await service.readProjectRagInspector(target, {
             subjectPath: "simulation/subjects/heroine",
             sources: ["events"],
             limit: 100,
@@ -280,12 +307,12 @@ describe("project RAG visualization service", () => {
         await configureEmbedding();
         mockEmbeddingFetch();
 
-        await service.rebuildProjectSubjectRag(projectPath, {
+        await service.rebuildProjectSubjectRag(target, {
             subjectPath: "simulation/subjects/heroine",
         });
         await dropLegacyEmbeddingColumns();
 
-        const inspector = await service.readProjectRagInspector(projectPath, {
+        const inspector = await service.readProjectRagInspector(target, {
             subjectPath: "simulation/subjects/heroine",
             sources: ["events", "memory"],
             limit: 100,
@@ -308,7 +335,7 @@ describe("project RAG visualization service", () => {
         await mkdir(join(root, "workspace", "rag-visual-test", ".nbook"), {recursive: true});
         await writeFile(join(root, "workspace", "rag-visual-test", ".nbook", "subject-rag.sqlite"), "not a sqlite database", "utf-8");
 
-        const inspector = await service.readProjectRagInspector(projectPath, {
+        const inspector = await service.readProjectRagInspector(target, {
             subjectPath: "simulation/subjects/heroine",
         });
 
@@ -321,11 +348,11 @@ describe("project RAG visualization service", () => {
     it("Inspector debug 操作只影响 RAG 缓存或 dirty state", async () => {
         await configureEmbedding();
         mockEmbeddingFetch();
-        await service.rebuildProjectSubjectRag(projectPath, {
+        await service.rebuildProjectSubjectRag(target, {
             subjectPath: "simulation/subjects/heroine",
         });
 
-        const markResult = await service.debugProjectRag(projectPath, {
+        const markResult = await service.debugProjectRag(target, {
             action: "mark-dirty",
             subjectPath: "simulation/subjects/heroine",
             sources: ["memory"],
@@ -333,24 +360,24 @@ describe("project RAG visualization service", () => {
         expect(markResult.message).toContain("memory");
         await expect(readFile(join(root, "workspace", "rag-visual-test", ".nbook", "subject-rag-dirty.json"), "utf-8")).resolves.toContain("\"memory\"");
 
-        const deleteResult = await service.debugProjectRag(projectPath, {
+        const deleteResult = await service.debugProjectRag(target, {
             action: "delete-subject-index",
             subjectPath: "simulation/subjects/heroine",
         });
         expect(deleteResult.message).toContain("heroine");
-        const afterDelete = await service.readProjectRagInspector(projectPath, {
+        const afterDelete = await service.readProjectRagInspector(target, {
             subjectPath: "simulation/subjects/heroine",
         });
         expect(afterDelete.selectedSubject?.chunks).toEqual([]);
 
-        await service.rebuildProjectSubjectRag(projectPath, {
+        await service.rebuildProjectSubjectRag(target, {
             subjectPath: "simulation/subjects/heroine",
         });
-        const clearResult = await service.debugProjectRag(projectPath, {
+        const clearResult = await service.debugProjectRag(target, {
             action: "clear-index-cache",
         });
         expect(clearResult.message).toContain("已清空");
-        const afterClear = await service.readProjectRagInspector(projectPath, {
+        const afterClear = await service.readProjectRagInspector(target, {
             subjectPath: "simulation/subjects/heroine",
         });
         expect(afterClear.index.dbExists).toBe(false);
@@ -360,7 +387,7 @@ describe("project RAG visualization service", () => {
         await mkdir(join(root, "workspace", "rag-visual-test", ".nbook"), {recursive: true});
         await writeFile(join(root, "workspace", "rag-visual-test", ".nbook", "subject-rag.sqlite"), "not a sqlite database", "utf-8");
 
-        await expect(service.debugProjectRag(projectPath, {
+        await expect(service.debugProjectRag(target, {
             action: "delete-subject-index",
             subjectPath: "simulation/subjects/heroine",
         })).rejects.toThrow();

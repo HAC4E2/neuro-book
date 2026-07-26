@@ -3,18 +3,18 @@ import {rm} from "node:fs/promises";
 import {describe, expect, it} from "vitest";
 import {
     buildAgentSqlSchemaSummary,
-    closeAgentSqliteClient,
-    clearAgentSqlSchemaSummaryCache,
-    getAgentSqlSchemaSummary,
     hasSqlStatementSeparator,
     validateExecuteSql,
-} from "nbook/server/agent/tools/sql-tool";
+} from "nbook/server/agent/tools/agent-sql-project-module";
+import {createSqlTool} from "nbook/server/agent/tools/sql-tool";
+import type {NeuroToolResult, ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {
     writeProjectManifest,
 } from "nbook/server/workspace-files/project-workspace";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {normalizeProjectPath, resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
-import {ProjectNotOpenError} from "nbook/server/workspace-files/project-session";
+import {requireReadyProjectPath} from "nbook/server/workspace-files/project-session";
+import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 
@@ -58,38 +58,91 @@ describe("v3 execute_sql tool", () => {
         }
     });
 
-    it("schema summary cache 支持显式清空", () => {
-        expect(() => clearAgentSqlSchemaSummaryCache()).not.toThrow();
+    it("没有具体Current Project时拒绝执行", async () => {
+        await expect(executeSqlTool(null, "SELECT 1")).rejects.toThrow(
+            "execute_sql 需要当前 session 位于具体 Project Workspace",
+        );
     });
 
-    it("未 open 的 Project 拒绝打开 execute_sql SQLite client", async () => {
-        await expect(getAgentSqlSchemaSummary(resolveRuntimeWorkspaceRoot(), "workspace/not-open")).rejects.toBeInstanceOf(ProjectNotOpenError);
-    });
-
-    it("关闭指定 Project SQLite client 后可以为另一个 Project 重建连接", async () => {
-        const firstProjectPath = `workspace/sql-close-${randomUUID()}`;
-        const secondProjectPath = `workspace/sql-close-${randomUUID()}`;
+    it("缺少invocationId时fail closed，不按持久化projectPath查询latest generation", async () => {
+        const projectPath = `workspace/sql-tool-missing-invocation-${randomUUID()}`;
         try {
-            await createProject(firstProjectPath);
-            await createProject(secondProjectPath);
-
-            await expect(getAgentSqlSchemaSummary(resolveRuntimeWorkspaceRoot(), firstProjectPath)).resolves.toContain('"ProjectMetadata"');
-            await closeAgentSqliteClient(firstProjectPath);
-
-            await expect(getAgentSqlSchemaSummary(resolveRuntimeWorkspaceRoot(), secondProjectPath)).resolves.toContain('"ProjectMetadata"');
+            const ready = await createProject(projectPath);
+            await expect(executeSqlTool(ready, "SELECT 1", {invocationId: undefined})).rejects.toThrow(
+                "execute_sql 缺少 invocationId",
+            );
         } finally {
-            await Promise.all([
-                closeProjectForTest(firstProjectPath).catch(() => undefined),
-                closeProjectForTest(secondProjectPath).catch(() => undefined),
-            ]);
-            await closeAgentSqliteClient();
-            await Promise.all([
-                removeProjectRoot(firstProjectPath),
-                removeProjectRoot(secondProjectPath),
-            ]);
+            await closeProjectForTest(projectPath).catch(() => undefined);
+            await removeProjectRoot(projectPath);
         }
-    }, 15_000);
+    });
+
+    it("已open的Project通过工具公开入口执行当前generation SQL", async () => {
+        const projectPath = `workspace/sql-tool-${randomUUID()}`;
+        try {
+            const ready = await createProject(projectPath);
+            await expect(executeSqlTool(ready, "SELECT 1 AS value")).resolves.toMatchObject({
+                details: {
+                    mode: "read",
+                    command: "SELECT",
+                    rowCount: 1,
+                    rows: [{value: 1}],
+                },
+            });
+        } finally {
+            await closeProjectForTest(projectPath).catch(() => undefined);
+            await removeProjectRoot(projectPath);
+        }
+    }, 30_000);
+
+    it("close/reopen后旧invocation generation拒绝执行且不会切换到新generation", async () => {
+        const projectPath = `workspace/sql-tool-exact-generation-${randomUUID()}`;
+        try {
+            const staleReady = await createProject(projectPath);
+            await closeProjectForTest(projectPath);
+            await openProjectForTest(projectPath);
+            const currentReady = requireReadyProjectPath(projectPath);
+
+            expect(currentReady.generation).not.toBe(staleReady.generation);
+            await expect(executeSqlTool(staleReady, "SELECT 1 AS stale")).rejects.toThrow(
+                "Project尚未达到最低ready",
+            );
+            await expect(executeSqlTool(currentReady, "SELECT 2 AS current")).resolves.toMatchObject({
+                details: {
+                    rows: [{current: 2}],
+                },
+            });
+        } finally {
+            await closeProjectForTest(projectPath).catch(() => undefined);
+            await removeProjectRoot(projectPath);
+        }
+    }, 30_000);
 });
+
+/** 通过NeuroAgentTool公开上下文入口执行SQL。 */
+async function executeSqlTool(
+    ready: ReadyProjectSessionRef | null,
+    sql: string,
+    overrides: Pick<Partial<ToolExecutionContext>, "invocationId"> = {},
+): Promise<NeuroToolResult> {
+    const execute = createSqlTool().executeWithContext;
+    if (!execute) {
+        throw new Error("execute_sql缺少context执行入口");
+    }
+    const harness = {} as ToolExecutionContext["harness"];
+    harness.projectForInvocation = () => ready;
+    return execute({
+        harness,
+        sessionId: 1,
+        profileKey: "leader.default",
+        workspaceRootRef: "workspace",
+        workspaceFsRoot: resolveRuntimeWorkspaceRoot(),
+        workspaceKey: "global",
+        projectPath: ready ? `workspace/${ready.workspace.ref.projectRoot}` : undefined,
+        invocationId: "execute-sql-test-invocation",
+        ...overrides,
+    }, "execute-sql-test", {sql});
+}
 
 function row(tableName: string, columnName: string, ordinalPosition: number) {
     return {
@@ -103,13 +156,14 @@ function row(tableName: string, columnName: string, ordinalPosition: number) {
     };
 }
 
-async function createProject(projectPath: string): Promise<void> {
+async function createProject(projectPath: string): Promise<ReadyProjectSessionRef> {
     await writeProjectManifest(resolveRuntimeWorkspaceRoot(), projectPath, {
         kind: "novel",
         title: projectPath,
         summary: "",
     });
     await openProjectForTest(projectPath);
+    return requireReadyProjectPath(projectPath);
 }
 
 async function removeProjectRoot(projectPath: string): Promise<void> {

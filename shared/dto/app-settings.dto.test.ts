@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest";
-import {CheckModelRequestDtoSchema, CheckProviderRequestDtoSchema, ConfiguredModelDtoSchema, ModelProviderDraftDtoSchema, ThinkingLevelSchema} from "nbook/shared/dto/app-settings.dto";
+import {CheckModelRequestDtoSchema, CheckProviderRequestDtoSchema, ConfiguredModelDtoSchema, EnabledModelOptionDtoSchema, ModelProviderDraftDtoSchema, ThinkingLevelSchema} from "nbook/shared/dto/app-settings.dto";
 import {PiSimpleRequestOptionsSchema} from "nbook/shared/dto/pi-request-options.dto";
 import {inspectModelSettings} from "nbook/shared/models/provider-config-contract";
 
@@ -31,6 +31,16 @@ describe("Pi settings contracts", () => {
         (request.providers[0]!.models[0] as {reasoning: boolean | null}).reasoning = null;
         const result = inspectModelSettings({defaultModelKey: request.defaultModelKey, providers: request.providers});
         expect(result.issues[0]?.code).toBe("missing_reasoning");
+    });
+
+    it("公开模型选项未声明输入能力时按纯文本处理", () => {
+        expect(EnabledModelOptionDtoSchema.parse({
+            key: "custom/model",
+            label: "Custom / Model",
+            providerId: "custom",
+            modelId: "model",
+            contextWindowTokens: 128000,
+        }).input).toEqual(["text"]);
     });
 
     it("cost tiers 拒绝重复 threshold", () => {

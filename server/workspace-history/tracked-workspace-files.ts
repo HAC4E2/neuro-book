@@ -24,6 +24,7 @@ import {
     recordProjectDelete,
     recordProjectRename,
     recordProjectWrite,
+    type ProjectHistoryHandle,
 } from "nbook/server/workspace-history/project-history";
 
 /**
@@ -48,6 +49,8 @@ const RECORD_READ_MAX_BYTES = 64 * 1024 * 1024;
  */
 export async function writeWorkspaceTextFileTracked(input: {
     target: WorkspaceFileTarget;
+    /** Project target必填；plain Workspace不使用History。 */
+    history?: ProjectHistoryHandle;
     filePath: string;
     content: string;
     actor: OperationActor;
@@ -61,8 +64,7 @@ export async function writeWorkspaceTextFileTracked(input: {
             : await readBytesForRecord(target.projectRoot, input.filePath);
     await writeWorkspaceTextFile(input.target.root, input.filePath, input.content);
     if (target !== null) {
-        await recordProjectWrite({
-            ...target,
+        await recordProjectWrite(requireHistory(input.history), {
             relativePath: input.filePath,
             actor: input.actor,
             before,
@@ -72,12 +74,11 @@ export async function writeWorkspaceTextFileTracked(input: {
 }
 
 /** 创建新文本文件 + 记账（已存在时核心函数拒绝，不会产生覆盖语义）。 */
-export async function createWorkspaceFileTracked(input: Omit<WorkspaceNewFileInput, "root"> & {target: WorkspaceFileTarget; actor: OperationActor}): Promise<WorkspaceFileNode> {
+export async function createWorkspaceFileTracked(input: Omit<WorkspaceNewFileInput, "root"> & {target: WorkspaceFileTarget; history?: ProjectHistoryHandle; actor: OperationActor}): Promise<WorkspaceFileNode> {
     const node = await createWorkspaceFile({...input, root: input.target.root});
     const target = historyTarget(input.target);
     if (target !== null) {
-        await recordProjectWrite({
-            ...target,
+        await recordProjectWrite(requireHistory(input.history), {
             relativePath: input.filePath,
             actor: input.actor,
             before: null,
@@ -88,14 +89,13 @@ export async function createWorkspaceFileTracked(input: Omit<WorkspaceNewFileInp
 }
 
 /** 创建目录 + 对附带的 index.md / state.md 逐个记账（目录本身不是账面对象）。 */
-export async function createWorkspaceDirectoryTracked(input: Omit<WorkspaceNewDirectoryInput, "root"> & {target: WorkspaceFileTarget; actor: OperationActor}): Promise<WorkspaceFileNode> {
+export async function createWorkspaceDirectoryTracked(input: Omit<WorkspaceNewDirectoryInput, "root"> & {target: WorkspaceFileTarget; history?: ProjectHistoryHandle; actor: OperationActor}): Promise<WorkspaceFileNode> {
     const node = await createWorkspaceDirectory({...input, root: input.target.root});
     const target = historyTarget(input.target);
     if (target !== null) {
         const dirPath = normalizeSlashes(input.dirPath);
         if (input.indexContent !== undefined && input.indexContent !== null) {
-            await recordProjectWrite({
-                ...target,
+            await recordProjectWrite(requireHistory(input.history), {
                 relativePath: `${dirPath}/index.md`,
                 actor: input.actor,
                 before: null,
@@ -103,8 +103,7 @@ export async function createWorkspaceDirectoryTracked(input: Omit<WorkspaceNewDi
             });
         }
         if (input.stateContent !== undefined && input.stateContent !== null) {
-            await recordProjectWrite({
-                ...target,
+            await recordProjectWrite(requireHistory(input.history), {
                 relativePath: `${dirPath}/state.md`,
                 actor: input.actor,
                 before: null,
@@ -119,14 +118,13 @@ export async function createWorkspaceDirectoryTracked(input: Omit<WorkspaceNewDi
  * 文件转目录节点 + 记账。语义 = 一条 rename（`foo.md` → `foo/index.md`，内容不变）：
  * 时间线跨转换连续，优于 delete + create 的断链表达。
  */
-export async function convertWorkspaceFileToDirectoryTracked(input: Omit<WorkspaceFileToDirectoryInput, "root"> & {target: WorkspaceFileTarget; actor: OperationActor}): Promise<WorkspaceFileNode> {
+export async function convertWorkspaceFileToDirectoryTracked(input: Omit<WorkspaceFileToDirectoryInput, "root"> & {target: WorkspaceFileTarget; history?: ProjectHistoryHandle; actor: OperationActor}): Promise<WorkspaceFileNode> {
     const node = await convertWorkspaceFileToDirectory({...input, root: input.target.root});
     const target = historyTarget(input.target);
     if (target !== null) {
         const fromPath = normalizeSlashes(input.filePath);
         const parsed = path.posix.parse(fromPath);
-        await recordProjectRename({
-            ...target,
+        await recordProjectRename(requireHistory(input.history), {
             fromPath,
             toPath: path.posix.join(parsed.dir, parsed.name, "index.md"),
             actor: input.actor,
@@ -138,6 +136,8 @@ export async function convertWorkspaceFileToDirectoryTracked(input: Omit<Workspa
 /** 移动 / 改名 + 记账。目录改名展开为「目录内每个受管文件一条 rename」（账面对象是文件）。 */
 export async function renameWorkspacePathTracked(input: {
     target: WorkspaceFileTarget;
+    /** Project target必填；plain Workspace不使用History。 */
+    history?: ProjectHistoryHandle;
     fromPath: string;
     toPath: string;
     actor: OperationActor;
@@ -150,11 +150,10 @@ export async function renameWorkspacePathTracked(input: {
     const node = await renameWorkspacePath(input.target.root, input.fromPath, input.toPath);
     if (target !== null) {
         if (childFiles === null) {
-            await recordProjectRename({...target, fromPath, toPath, actor: input.actor});
+            await recordProjectRename(requireHistory(input.history), {fromPath, toPath, actor: input.actor});
         } else {
             for (const child of childFiles) {
-                await recordProjectRename({
-                    ...target,
+                await recordProjectRename(requireHistory(input.history), {
                     fromPath: `${fromPath}/${child}`,
                     toPath: `${toPath}/${child}`,
                     actor: input.actor,
@@ -168,6 +167,8 @@ export async function renameWorkspacePathTracked(input: {
 /** 删除 + 记账。目录删除展开为「每个受管文件一条 delete」，删除前逐个读 before 保住找回快照。 */
 export async function deleteWorkspacePathTracked(input: {
     target: WorkspaceFileTarget;
+    /** Project target必填；plain Workspace不使用History。 */
+    history?: ProjectHistoryHandle;
     filePath: string;
     recursive: boolean;
     actor: OperationActor;
@@ -188,8 +189,7 @@ export async function deleteWorkspacePathTracked(input: {
     }
     await deleteWorkspacePath(input.target.root, input.filePath, input.recursive);
     for (const pending of pendingDeletes) {
-        await recordProjectDelete({
-            ...target!,
+        await recordProjectDelete(requireHistory(input.history), {
             relativePath: pending.relativePath,
             actor: input.actor,
             before: pending.before,
@@ -200,6 +200,8 @@ export async function deleteWorkspacePathTracked(input: {
 /** 上传结果记账：对 action === "written" 的文件补 create 账（upload 对已存在文件恒 skip，before 必为 null）。 */
 export async function recordUploadedFiles(input: {
     target: WorkspaceFileTarget;
+    /** Project target必填；plain Workspace不使用History。 */
+    history?: ProjectHistoryHandle;
     files: WorkspaceUploadedFileResult[];
     actor: OperationActor;
 }): Promise<void> {
@@ -215,8 +217,7 @@ export async function recordUploadedFiles(input: {
         if (bytes === null) {
             continue;
         }
-        await recordProjectWrite({
-            ...target,
+        await recordProjectWrite(requireHistory(input.history), {
             relativePath: file.path,
             actor: input.actor,
             before: null,
@@ -278,4 +279,12 @@ function historyTarget(target: WorkspaceFileTarget): {projectPath: string; proje
 
 function normalizeSlashes(value: string): string {
     return value.replace(/\\/g, "/").replace(/^\/+/u, "").replace(/\/+$/u, "");
+}
+
+/** Project分支必须由ReadyProjectSession显式注入同generation History handle。 */
+function requireHistory(history: ProjectHistoryHandle | undefined): ProjectHistoryHandle {
+    if (!history) {
+        throw new Error("Project Workspace mutation缺少当前generation History handle");
+    }
+    return history;
 }

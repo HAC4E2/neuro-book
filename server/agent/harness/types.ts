@@ -1,5 +1,5 @@
 import type {AgentUserMessageInput, JsonValue, Usage} from "nbook/server/agent/messages/types";
-import type {InvocationErrorInfo, InvocationErrorPhase, SessionMetadata} from "nbook/server/agent/session/types";
+import type {InvocationErrorInfo, InvocationErrorPhase, SessionEntryId, SessionMetadata} from "nbook/server/agent/session/types";
 import type {AgentResolution} from "nbook/server/agent/tools/types";
 import type {ClientStateSnapshot} from "nbook/server/agent/variables/types";
 import type {ServerTimingSink} from "nbook/server/utils/server-timing";
@@ -47,8 +47,12 @@ export type CreateAgentResult = {
 export type InvokeAgentInput = {
     sessionId: number;
     mode: "prompt" | "continue" | "steer" | "followup";
+    /** 用户提交关联 ID；prompt/steer/followup 必须存在，内部调用缺省时由 Harness 生成。 */
+    clientMessageId?: string;
     message?: AgentUserMessageInput;
     payload?: JsonValue;
+    /** 仅覆盖本次 invocation 使用的模型；不会写入或修改 session 默认模型。 */
+    modelKey?: string;
     /** 可选展示标题；提供时会在 invocation admission 成功后写入目标 session。 */
     title?: string;
     /** 向后兼容：单个 resolution */
@@ -58,8 +62,16 @@ export type InvokeAgentInput = {
     clientState?: ClientStateSnapshot;
     caller?: AgentInvokeCaller;
     block?: boolean;
+    /** false 时目标忙碌即拒绝，不写入 follow-up queue；供必须独占自身生命周期的后台 Job 使用。 */
+    queueIfBusy?: boolean;
     onEvent?: (event: AgentRuntimeStreamEventDto) => void | Promise<void>;
+    /** 内部取消传播：只绑定到本次 admission 接收的 invocation，不暴露给 HTTP DTO。 */
+    signal?: AbortSignal;
     internalQueued?: boolean;
+    /** follow-up durable queue item；只允许 queue drain 内部设置。 */
+    sourceQueueItemId?: string;
+    /** Tree 编辑/重跑的新用户 entry 显式父节点；只允许内部 preadmission 路径设置。 */
+    userMessageParentId?: SessionEntryId | null;
 };
 
 /** Harness 内部 invocation 结果；结构化 data 保持完整，不直接作为 HTTP DTO 返回。 */
@@ -67,6 +79,7 @@ export type AgentInvocationResult = {
     sessionId: number;
     invocationId: string;
     status: "completed" | "waiting" | "error";
+    acceptance: import("nbook/shared/dto/agent-session.dto").AgentInvocationAcceptanceDto;
     /** Durable assistant 正文的有界调用方预览；完整内容从 session history 读取。 */
     finalMessage?: string;
     /** finalMessage 对应原始正文的 UTF-8 字节数。 */
@@ -94,7 +107,7 @@ export type AgentTreeOperationResult = {
     invocation?: AgentInvocationResult;
 };
 
-export type AgentInvokeCallerKind = "user" | "agent" | "sidecar" | "system";
+export type AgentInvokeCallerKind = "user" | "agent" | "system";
 
 export type AgentInvokeCaller = {
     kind: AgentInvokeCallerKind;

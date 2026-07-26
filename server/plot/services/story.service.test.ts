@@ -85,6 +85,7 @@ describe("StoryService", () => {
             return phase;
         });
         const service = new StoryService(
+            {kind: "novel", title: "小说", summary: ""},
             storyRepository,
             threadRepository,
             chapterRepository,
@@ -95,7 +96,7 @@ describe("StoryService", () => {
             scopeGuard,
         );
 
-        await service.deleteStoryPhase(100, 2);
+        await service.deleteStoryPhase(2);
 
         expect(threadUpdates).toEqual([
             {threadId: 11, data: {storyPhaseId: null, sortOrder: 5}},

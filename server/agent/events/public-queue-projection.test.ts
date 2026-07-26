@@ -6,8 +6,12 @@ describe("public queue projection", () => {
         const attachmentId = `sha256:${"a".repeat(64)}` as const;
         const projected = projectQueuedMessage({
             id: "queue-1",
+            clientMessageId: "message-queue-1",
             kind: "steer",
-            message: {text: "x".repeat(100_000), attachments: [{type: "attachment", attachment: {id: attachmentId, mimeType: "image/png", bytes: 10 * 1024 * 1024}}]},
+            message: {content: [
+                {type: "text", text: "x".repeat(100_000)},
+                {type: "attachment", attachment: {id: attachmentId, mimeType: "image/png", bytes: 10 * 1024 * 1024}},
+            ]},
             input: {nested: "y".repeat(100_000)},
             createdAt: 1,
         });
@@ -21,8 +25,9 @@ describe("public queue projection", () => {
     it("recovery queue 只公开最早 64 项", () => {
         const projected = projectQueuedMessages(Array.from({length: 100}, (_, index) => ({
             id: `queue-${String(index)}`,
+            clientMessageId: `message-queue-${String(index)}`,
             kind: "followup" as const,
-            message: {text: `message-${String(index)}`},
+            message: {content: [{type: "text" as const, text: `message-${String(index)}`}]},
             createdAt: index,
         })));
 

@@ -9,8 +9,8 @@ import {
     type AbsoluteFsPath,
 } from "nbook/server/runtime/paths/file-path";
 import {
-    resolveProjectWorkspaceInput,
-} from "nbook/server/workspace-files/project-path";
+    type ResolvedProjectWorkspace,
+} from "nbook/server/workspace-files/project-identity";
 
 export type ProfileHomeWriteMode = "create" | "overwrite";
 
@@ -39,16 +39,23 @@ export type ProfileHomeFacade = {
     clear(): Promise<void>;
 };
 
-export type ProfileHomeContext = {
+type ProfileHomeContextBase = {
     profileKey: string;
     profileVersion: number;
-    scope: ProfileHomeScope;
     root: string;
-    /** global profile home所属的Workspace Root `.nbook`物理目录。 */
-    workspaceNbookRoot?: string;
-    projectRoot: string;
     home: ProfileHomeFacade;
 };
+
+/** Profile Home hook 只接收已经过生命周期 gate 的结构化所属域。 */
+export type ProfileHomeContext = ProfileHomeContextBase & ({
+    scope: "project";
+    workspace: ResolvedProjectWorkspace;
+} | {
+    scope: "global";
+    workspaceRoot: AbsoluteFsPath;
+    /** Global profile home 所属的 Workspace Root `.nbook` 物理目录。 */
+    workspaceNbookRoot: AbsoluteFsPath;
+});
 
 export type ProfileHomeDefinition = {
     init?: (ctx: ProfileHomeContext) => Promise<void> | void;
@@ -73,38 +80,22 @@ export function defineProfileHome(definition: ProfileHomeDefinition): ProfileHom
 /**
  * 计算 Project Workspace 下某个 profile 的 home 根目录。
  */
-export function profileHomeRoot(projectRoot: string, profileKey: string): string {
-    return path.join(projectRoot, "agents", safeProfileId(profileKey));
+export function profileHomeRoot(workspace: ResolvedProjectWorkspace, profileKey: string): string {
+    return path.join(workspace.root, "agents", safeProfileId(profileKey));
 }
 
 /**
  * 计算 Workspace Root `.nbook` 下某个全局 profile home 根目录。
  */
-export function globalProfileHomeRoot(workspaceNbookRoot: string, profileKey: string): string {
+export function globalProfileHomeRoot(workspaceNbookRoot: AbsoluteFsPath, profileKey: string): string {
     return path.join(workspaceNbookRoot, "agents", safeProfileId(profileKey));
-}
-
-/**
- * 将 session/config 中的 projectPath 解析为 Project Workspace 绝对路径。
- *
- * managed Workspace Root由调用方所在的Runtime Adapter决定；本Module不读取
- * cwd、State Root或进程环境。
- */
-export function resolveProjectRootForProfileHome(
-    workspaceRoot: AbsoluteFsPath,
-    projectPath: string | undefined,
-): string | null {
-    if (!projectPath) {
-        return null;
-    }
-    return resolveProjectWorkspaceInput(workspaceRoot, projectPath);
 }
 
 /**
  * 创建受限 profile home 文件 facade。
  */
-export function createProfileHomeFacade(projectRoot: string, profileKey: string): ProfileHomeFacade {
-    const containmentRoot = absoluteFsPath(path.resolve(projectRoot));
+export function createProfileHomeFacade(workspace: ResolvedProjectWorkspace, profileKey: string): ProfileHomeFacade {
+    const containmentRoot = workspace.root;
     const root = resolveContainedFilePath(containmentRoot, path.posix.join("agents", safeProfileId(profileKey)));
     return createProfileHomeFacadeAtRoot(containmentRoot, root);
 }
@@ -112,8 +103,8 @@ export function createProfileHomeFacade(projectRoot: string, profileKey: string)
 /**
  * 创建全局 profile home 文件 facade。
  */
-export function createGlobalProfileHomeFacade(workspaceNbookRoot: string, profileKey: string): ProfileHomeFacade {
-    const containmentRoot = absoluteFsPath(path.resolve(workspaceNbookRoot));
+export function createGlobalProfileHomeFacade(workspaceNbookRoot: AbsoluteFsPath, profileKey: string): ProfileHomeFacade {
+    const containmentRoot = workspaceNbookRoot;
     const root = resolveContainedFilePath(containmentRoot, path.posix.join("agents", safeProfileId(profileKey)));
     return createProfileHomeFacadeAtRoot(containmentRoot, root);
 }
@@ -227,17 +218,17 @@ function createProfileHomeFacadeAtRoot(containmentRoot: AbsoluteFsPath, root: Ab
  * 确保 profile home 已按 profile version 初始化或升级。
  */
 export async function ensureProfileHome(input: {
-    projectRoot: string;
+    workspace: ResolvedProjectWorkspace;
     profileKey: string;
     profileVersion: number;
     definition?: ProfileHomeDefinition;
 }): Promise<ProfileHomeFacade> {
-    const home = createProfileHomeFacade(input.projectRoot, input.profileKey);
+    const home = createProfileHomeFacade(input.workspace, input.profileKey);
     return ensureProfileHomeFacade({
         scope: "project",
-        containmentRoot: absoluteFsPath(path.resolve(input.projectRoot)),
+        containmentRoot: input.workspace.root,
         root: home.root,
-        projectRoot: input.projectRoot,
+        workspace: input.workspace,
         profileKey: input.profileKey,
         profileVersion: input.profileVersion,
         definition: input.definition,
@@ -262,8 +253,8 @@ export async function ensureGlobalProfileHome(input: {
         scope: "global",
         containmentRoot: workspaceNbookRoot,
         root: home.root,
+        workspaceRoot: input.workspaceRoot,
         workspaceNbookRoot,
-        projectRoot: workspaceNbookRoot,
         profileKey: input.profileKey,
         profileVersion: input.profileVersion,
         definition: input.definition,
@@ -271,30 +262,45 @@ export async function ensureGlobalProfileHome(input: {
     });
 }
 
-async function ensureProfileHomeFacade(input: {
-    scope: ProfileHomeScope;
+type ProfileHomeFacadeLifecycleInput = {
     containmentRoot: AbsoluteFsPath;
     root: string;
-    workspaceNbookRoot?: string;
-    projectRoot: string;
     profileKey: string;
     profileVersion: number;
     definition?: ProfileHomeDefinition;
     home: ProfileHomeFacade;
-}): Promise<ProfileHomeFacade> {
+} & ({
+    scope: "project";
+    workspace: ResolvedProjectWorkspace;
+} | {
+    scope: "global";
+    workspaceRoot: AbsoluteFsPath;
+    workspaceNbookRoot: AbsoluteFsPath;
+});
+
+async function ensureProfileHomeFacade(input: ProfileHomeFacadeLifecycleInput): Promise<ProfileHomeFacade> {
     const home = input.home;
     await prepareProfileHomeRoot(input.containmentRoot, absoluteFsPath(home.root));
     const now = new Date().toISOString();
     const metadata = await readMetadata(home);
-    const ctx: ProfileHomeContext = {
-        profileKey: input.profileKey,
-        profileVersion: input.profileVersion,
-        scope: input.scope,
-        root: input.root,
-        ...(input.workspaceNbookRoot ? {workspaceNbookRoot: input.workspaceNbookRoot} : {}),
-        projectRoot: input.projectRoot,
-        home,
-    };
+    const ctx: ProfileHomeContext = input.scope === "project"
+        ? {
+            profileKey: input.profileKey,
+            profileVersion: input.profileVersion,
+            scope: input.scope,
+            root: input.root,
+            workspace: input.workspace,
+            home,
+        }
+        : {
+            profileKey: input.profileKey,
+            profileVersion: input.profileVersion,
+            scope: input.scope,
+            root: input.root,
+            workspaceRoot: input.workspaceRoot,
+            workspaceNbookRoot: input.workspaceNbookRoot,
+            home,
+        };
     if (!metadata) {
         await input.definition?.init?.(ctx);
         await writeMetadata(home, {
@@ -321,17 +327,17 @@ async function ensureProfileHomeFacade(input: {
  * 重置 profile home，并刷新 home metadata。
  */
 export async function resetProfileHome(input: {
-    projectRoot: string;
+    workspace: ResolvedProjectWorkspace;
     profileKey: string;
     profileVersion: number;
     definition?: ProfileHomeDefinition;
 }): Promise<ProfileHomeFacade> {
-    const home = createProfileHomeFacade(input.projectRoot, input.profileKey);
+    const home = createProfileHomeFacade(input.workspace, input.profileKey);
     return resetProfileHomeFacade({
         scope: "project",
-        containmentRoot: absoluteFsPath(path.resolve(input.projectRoot)),
+        containmentRoot: input.workspace.root,
         root: home.root,
-        projectRoot: input.projectRoot,
+        workspace: input.workspace,
         profileKey: input.profileKey,
         profileVersion: input.profileVersion,
         definition: input.definition,
@@ -356,8 +362,8 @@ export async function resetGlobalProfileHome(input: {
         scope: "global",
         containmentRoot: workspaceNbookRoot,
         root: home.root,
+        workspaceRoot: input.workspaceRoot,
         workspaceNbookRoot,
-        projectRoot: workspaceNbookRoot,
         profileKey: input.profileKey,
         profileVersion: input.profileVersion,
         definition: input.definition,
@@ -365,28 +371,27 @@ export async function resetGlobalProfileHome(input: {
     });
 }
 
-async function resetProfileHomeFacade(input: {
-    scope: ProfileHomeScope;
-    containmentRoot: AbsoluteFsPath;
-    root: string;
-    workspaceNbookRoot?: string;
-    projectRoot: string;
-    profileKey: string;
-    profileVersion: number;
-    definition?: ProfileHomeDefinition;
-    home: ProfileHomeFacade;
-}): Promise<ProfileHomeFacade> {
+async function resetProfileHomeFacade(input: ProfileHomeFacadeLifecycleInput): Promise<ProfileHomeFacade> {
     const home = input.home;
     await prepareProfileHomeRoot(input.containmentRoot, absoluteFsPath(home.root));
-    const ctx: ProfileHomeContext = {
-        profileKey: input.profileKey,
-        profileVersion: input.profileVersion,
-        scope: input.scope,
-        root: input.root,
-        ...(input.workspaceNbookRoot ? {workspaceNbookRoot: input.workspaceNbookRoot} : {}),
-        projectRoot: input.projectRoot,
-        home,
-    };
+    const ctx: ProfileHomeContext = input.scope === "project"
+        ? {
+            profileKey: input.profileKey,
+            profileVersion: input.profileVersion,
+            scope: input.scope,
+            root: input.root,
+            workspace: input.workspace,
+            home,
+        }
+        : {
+            profileKey: input.profileKey,
+            profileVersion: input.profileVersion,
+            scope: input.scope,
+            root: input.root,
+            workspaceRoot: input.workspaceRoot,
+            workspaceNbookRoot: input.workspaceNbookRoot,
+            home,
+        };
     await input.definition?.reset?.(ctx);
     const now = new Date().toISOString();
     await writeMetadata(home, {

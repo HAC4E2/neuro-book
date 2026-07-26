@@ -1,4 +1,6 @@
 import type {AgentVisibleModelConfig, EffectiveConfig} from "nbook/server/config/types";
+import {resolvePiModelFromConfig} from "nbook/server/agent/harness/model-resolver";
+import {appLogger} from "nbook/server/app-logs/logger";
 
 /** 归一化后的可见模型条目（modelKey 已验证可解析） */
 export type AgentVisibleModel = {
@@ -6,14 +8,18 @@ export type AgentVisibleModel = {
     note: string;
 };
 
-/** modelKey 是否指向配置中已启用的模型（"provider/model" 双段且 provider/model 均 enabled） */
-function isResolvableModelKey(config: Pick<EffectiveConfig, "models">, modelKey: string): boolean {
-    const [providerId, ...rest] = modelKey.split("/");
-    const modelId = rest.join("/");
-    if (!providerId || !modelId) return false;
-    const provider = config.models.providers[providerId];
-    const model = provider?.models[modelId];
-    return Boolean(provider?.enabled && model?.enabled);
+/** 相同失效条目在进程内只告警一次，避免每轮 prompt prepare 重复刷日志。 */
+const warnedInvalidEntries = new Set<string>();
+const MAX_WARNED_INVALID_ENTRIES = 200;
+
+/** 使用正式 Pi model resolver 校验 key；返回 null 表示可解析，否则返回可记录的失败原因。 */
+function modelResolutionError(config: Pick<EffectiveConfig, "agent" | "models">, modelKey: string): string | null {
+    try {
+        resolvePiModelFromConfig(config, "leader.default", {modelKey});
+        return null;
+    } catch (error) {
+        return error instanceof Error ? error.message : String(error);
+    }
 }
 
 /**
@@ -26,10 +32,27 @@ function isResolvableModelKey(config: Pick<EffectiveConfig, "models">, modelKey:
  */
 export function resolveAgentVisibleModels(config: Pick<EffectiveConfig, "agent" | "models">): AgentVisibleModel[] {
     const configured: AgentVisibleModelConfig[] = config.agent.visibleModels ?? [];
-    const valid = configured.filter((entry) => isResolvableModelKey(config, entry.modelKey));
+    const valid = configured.filter((entry) => {
+        const error = modelResolutionError(config, entry.modelKey);
+        if (!error) {
+            return true;
+        }
+        const warningFingerprint = `${entry.modelKey}\u0000${error}`;
+        if (!warnedInvalidEntries.has(warningFingerprint)) {
+            if (warnedInvalidEntries.size >= MAX_WARNED_INVALID_ENTRIES) {
+                const oldest = warnedInvalidEntries.values().next().value;
+                if (oldest) {
+                    warnedInvalidEntries.delete(oldest);
+                }
+            }
+            warnedInvalidEntries.add(warningFingerprint);
+            void appLogger.warn("agent.visibleModels.invalid", {modelKey: entry.modelKey, error}, "Agent 可见模型条目不可用，已忽略");
+        }
+        return false;
+    });
     if (valid.length > 0) return valid.map((entry) => ({modelKey: entry.modelKey, note: entry.note}));
     const fallback = config.models.defaultModelKey;
-    if (fallback && isResolvableModelKey(config, fallback)) {
+    if (fallback && modelResolutionError(config, fallback) === null) {
         return [{modelKey: fallback, note: "默认模型"}];
     }
     return [];

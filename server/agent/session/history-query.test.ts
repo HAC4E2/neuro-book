@@ -238,6 +238,8 @@ function userEntry(index: number): SessionEntry {
         timestamp: index,
         type: "message",
         origin: "prompt",
+        clientMessageId: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+        intent: "normal",
         message: {
             role: "user",
             content: [{type: "text", text: `message ${String(index)}`}],

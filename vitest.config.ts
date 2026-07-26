@@ -16,6 +16,10 @@ export default defineConfig({
     test: {
         environment: "node",
         globals: true,
+        // run 级：回收上一次残留 fixture + 建立共享只读 system assets snapshot。
+        globalSetup: [
+            "server/agent/test/global-setup.ts",
+        ],
         setupFiles: [
             "server/agent/test/setup.ts",
         ],
@@ -28,9 +32,12 @@ export default defineConfig({
             "app/stores/**/*.test.ts",
             "app/utils/**/*.test.ts",
             "scripts/build/**/*.test.ts",
+            "scripts/db/**/*.test.ts",
             "scripts/install/**/*.test.ts",
             "scripts/release/**/*.test.ts",
             "server/**/*.test.ts",
+            // Profile DSL 用 JSX，相关测试必须是 .tsx 才能被 oxc 解析。
+            "server/**/*.test.tsx",
             "shared/**/*.test.ts",
         ],
         coverage: {

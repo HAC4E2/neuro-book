@@ -24,14 +24,6 @@ export const NovelListItemDtoSchema = z.object({
     manifestError: z.string().optional(),
     createdAt: z.string(),
     updatedAt: z.string(),
-    volumeCount: z.number().int().nonnegative(),
-    chapterCount: z.number().int().nonnegative(),
-    totalWords: z.number().int().nonnegative(),
-    lorebookCount: z.number().int().nonnegative(),
-    sessionCount: z.number().int().nonnegative(),
-    threadCount: z.number().int().nonnegative(),
-    sceneCount: z.number().int().nonnegative(),
-    plotCount: z.number().int().nonnegative(),
 });
 
 /**

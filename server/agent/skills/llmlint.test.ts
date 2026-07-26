@@ -52,7 +52,7 @@ describe("llmlint", () => {
         expect(issues.some((issue) => issue.rule.id === "firstly-secondly")).toBe(true);
         expect(issues.some((issue) => issue.rule.ruleset === "builtin/default")).toBe(true);
         expect(issues.find((issue) => issue.rule.id === "firstly-secondly")?.rule.level).toBe("high");
-        expect(loadedRules.llmRules.map((rule) => rule.id)).toContain("mechanical-elevation-ending");
+        expect(loadedRules.semanticRules.map((rule) => rule.id)).toContain("mechanical-elevation-ending");
         expect(issues.map((issue) => issue.rule.id)).toContain("cn.vocabulary.body.skull-head");
     });
 
@@ -398,13 +398,13 @@ describe("llmlint", () => {
         });
     });
 
-    it("命令行 --format json 覆盖 config output 并输出 LLM rules JSON", async () => {
+    it("命令行 --format json 覆盖 config output 并输出 rules JSON", async () => {
         const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
-        await runCli(["bun", "llmlint", "--format", "json", "show-llm-rules"]);
+        await runCli(["bun", "llmlint", "--format", "json", "rules", "--detector", "semantic"]);
 
         const report = JSON.parse(String(log.mock.calls[0]?.[0])) as {kind: string; rules: Array<{id: string}>};
-        expect(report.kind).toBe("llm-rules");
+        expect(report.kind).toBe("rules");
         expect(report.rules.map((rule) => rule.id)).toContain("mechanical-elevation-ending");
     });
 
@@ -473,7 +473,10 @@ describe("llmlint", () => {
         });
 
         expect(stdout).toContain("check [options] <files...>");
-        expect(stdout).toContain("show-llm-rules [options]");
+        expect(stdout).toContain("rules [options]");
+        // 写作期入口必须出现在 --help 第一屏，否则要动笔的 Agent 发现不了它。
+        expect(stdout).toContain("guide [options]");
+        expect(stdout).not.toContain("show-llm-rules");
         expect(stdout).not.toContain("import-legacy");
         expect(stdout).not.toContain("import-curated");
         expect(stdout).not.toContain("兼容旧用法");

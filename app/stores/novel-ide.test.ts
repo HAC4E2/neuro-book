@@ -97,7 +97,7 @@ describe("useNovelIdeStore deleteNovel", () => {
 
 function createFetchMock(): FetchMock {
     let createdProjectVisible = false;
-    return vi.fn(async (url: string, options?: {method?: string; query?: {includeProjectPath?: string}}) => {
+    return vi.fn(async (url: string, options?: {method?: string}) => {
         if (url === "/api/projects" && "method" in (options ?? {}) && (options as {method?: string}).method === "POST") {
             createdProjectVisible = true;
             return {id: "workspace/created-book"};
@@ -106,17 +106,13 @@ function createFetchMock(): FetchMock {
             return {success: true};
         }
         if (url === "/api/projects") {
+            // 列表接口返回全量 manifest，不再接受 include/exclude/limit 裁剪参数。
             const novels = [
                 createNovel("workspace/next-book"),
                 createNovel("workspace/current-book"),
+                createNovel("workspace/ming-ding-zhi-shi-2"),
             ];
-            if (options?.query?.includeProjectPath === "workspace/ming-ding-zhi-shi-2") {
-                novels.push(createNovel("workspace/ming-ding-zhi-shi-2"));
-            }
-            if (options?.query?.includeProjectPath === "workspace/created-book") {
-                novels.push(createNovel("workspace/created-book"));
-            }
-            if (createdProjectVisible && !novels.some((novel) => novel.id === "workspace/created-book")) {
+            if (createdProjectVisible) {
                 novels.push(createNovel("workspace/created-book"));
             }
             return novels;

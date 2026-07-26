@@ -1,5 +1,11 @@
 # NeuroBook 交付与运维桥梁
 
+::: tip 这一页可以直接交给 AI
+本页是写给**协助你部署或排障的 AI Agent** 看的操作手册：命令、判据、失败处理一应俱全，措辞是给机器执行的。
+
+**两种用法**：遇到部署问题时把这一页的链接或全文发给你在用的 AI，让它按这套流程帮你排查；或者你自己当作运维速查表读。日常安装看 [快速开始](/quick-start)，日常运维看 [运行、数据与隐私](/operations)。
+:::
+
 本文件面向协助部署或排障的 Agent。当前部署真相源是独立 `@notnotype/neuro-book-manager`，不要再调用已删除的旧部署入口、`local-git` 模式、`Dockerfile.source-runtime` 或旧 Windows Launcher。
 
 ## 先收集的信息
@@ -148,7 +154,6 @@ neuro-book tools list
 默认更新当前 Profile 的应用组件，不更新 Manager 自身：
 
 ```bash
-neuro-book update
 neuro-book update
 neuro-book runtime update bun
 neuro-book tools update rg

@@ -1,5 +1,3 @@
-import {existsSync} from "node:fs";
-import {createClient} from "@libsql/client";
 import {consola} from "consola";
 import {createError, getHeader, isError, readBody, type H3Event} from "h3";
 import getRawBody from "raw-body";
@@ -7,99 +5,42 @@ import type {
     NovelListItemDto,
     UpdateNovelRequestDto,
 } from "nbook/shared/dto/novel-chapter.dto";
-import type {AgentSessionListQueryDto, AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
-import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import type {ServerTimingSink} from "nbook/server/utils/server-timing";
 import {YAMLParseError} from "yaml";
 import {z} from "zod";
-import {scanWorkspaceTree, type WorkspaceFileNode} from "nbook/server/workspace-files/workspace-files";
 import {
     assertProjectWorkspaceDirectory,
     listProjectWorkspaces,
     readProjectManifest,
-    resolveProjectDatabasePath,
-    toSqliteFileUrl,
     writeProjectManifest,
     type ProjectManifest,
 } from "nbook/server/workspace-files/project-workspace";
-import {normalizeProjectPath, resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 
-type NovelStatisticCounts = Pick<
-    NovelListItemDto,
-    "volumeCount" | "chapterCount" | "totalWords" | "lorebookCount" | "sessionCount" | "threadCount" | "sceneCount" | "plotCount"
->;
-
-type SessionListProvider = {
-    listSessions(input?: AgentSessionListQueryDto): Promise<AgentSessionSummaryDto[]>;
-};
-
+/**
+ * Project 列表只读取 manifest。
+ *
+ * 这里刻意不做任何内容统计：列表请求不得成为 Project Workspace File Index、
+ * Project SQLite 或 Agent session store 的持有者，否则一次书架刷新就会把全部
+ * Project 的文件树扫描和数据库连接拖起来。
+ */
 type NovelListOptions = {
-    sessionProvider?: SessionListProvider;
-    limit?: number;
-    includeProjectPaths?: string[];
-    excludeProjectPathPrefixes?: string[];
     timingSink?: ServerTimingSink;
     diagnostics?: NovelListDiagnostics;
 };
 
-export type NovelListCacheStatus = "hit" | "miss" | "pending" | "bypass";
+export type NovelListCacheStatus = "hit" | "miss" | "pending";
 
 export type NovelListDiagnostics = {
-    cacheMode?: "default" | "filtered" | "custom";
-    fullListCache?: NovelListCacheStatus;
     projectListCache?: NovelListCacheStatus;
-    sessionCountCache?: NovelListCacheStatus;
     projectCount?: number;
-    visibleCount?: number;
-    statsCacheHits?: number;
-    statsCacheMisses?: number;
-    statsCachePending?: number;
-};
-
-const EMPTY_NOVEL_STATISTICS: NovelStatisticCounts = {
-    volumeCount: 0,
-    chapterCount: 0,
-    totalWords: 0,
-    lorebookCount: 0,
-    sessionCount: 0,
-    threadCount: 0,
-    sceneCount: 0,
-    plotCount: 0,
-};
-
-const EMPTY_PROJECT_STATISTICS: ProjectStatisticsWithoutSessions = {
-    volumeCount: 0,
-    chapterCount: 0,
-    totalWords: 0,
-    lorebookCount: 0,
-    threadCount: 0,
-    sceneCount: 0,
-    plotCount: 0,
 };
 
 const NOVEL_LIST_CACHE_TTL_MS = 5_000;
-let defaultNovelListCache: {expiresAt: number; value: NovelListItemDto[]} | null = null;
-let defaultNovelListPromise: Promise<NovelListItemDto[]> | null = null;
-let defaultNovelListCacheVersion = 0;
+let defaultProjectListCacheVersion = 0;
 let defaultProjectListCache: {expiresAt: number; value: Awaited<ReturnType<typeof listProjectWorkspaces>>} | null = null;
 let defaultProjectListPromise: Promise<Awaited<ReturnType<typeof listProjectWorkspaces>>> | null = null;
-let defaultSessionCountCache: {expiresAt: number; value: Map<string, number>} | null = null;
-let defaultSessionCountPromise: Promise<Map<string, number>> | null = null;
-const projectStatisticsCache = new Map<string, {expiresAt: number; value: ProjectStatisticsWithoutSessions}>();
-const projectStatisticsPromises = new Map<string, Promise<ProjectStatisticsWithoutSessions>>();
-
-type ProjectStatisticsWithoutSessions =
-    Pick<NovelStatisticCounts, "volumeCount" | "chapterCount" | "totalWords" | "lorebookCount" | "threadCount" | "sceneCount" | "plotCount">;
-
-type NovelListReadContext = {
-    workspaceRoot: AbsoluteFsPath;
-    useRuntimeCaches: boolean;
-    timingSink?: ServerTimingSink;
-    diagnostics?: NovelListDiagnostics;
-};
 
 type EntityIdLabel =
     | "storyId"
@@ -173,13 +114,8 @@ export function toNovelResponse(project: {
     summary: string;
     updatedAt: string;
     manifestError?: string;
-    statistics?: Partial<NovelStatisticCounts>;
 }): NovelListItemDto {
     const workspaceSlug = project.projectPath.split("/").at(-1) ?? project.projectPath;
-    const statistics = {
-        ...EMPTY_NOVEL_STATISTICS,
-        ...project.statistics,
-    };
     return {
         id: project.projectPath,
         title: project.title,
@@ -189,34 +125,22 @@ export function toNovelResponse(project: {
         manifestError: project.manifestError,
         createdAt: project.updatedAt,
         updatedAt: project.updatedAt,
-        ...statistics,
     };
 }
 
 /**
  * 获取 Project Workspace 列表。
+ *
+ * 只读 manifest 并直接映射为 DTO；不扫描文件树、不打开 Project SQLite、不读取
+ * Agent session store。列表不做裁剪，调用方需要过滤时在自己那侧筛选。
  */
 export async function listNovels(options: NovelListOptions = {}): Promise<NovelListItemDto[]> {
     const startedAt = performance.now();
-    const hasFilteringOptions = Boolean(typeof options.limit === "number" || options.excludeProjectPathPrefixes?.length);
-    const canUseDefaultList = !options.sessionProvider && !hasFilteringOptions;
     options.diagnostics ??= {};
-    options.diagnostics.cacheMode = options.sessionProvider ? "custom" : canUseDefaultList ? "default" : "filtered";
-    if (!canUseDefaultList) {
-        options.diagnostics.fullListCache = "bypass";
-    }
     try {
-        if (canUseDefaultList) {
-            return await readDefaultNovelList(options);
-        }
-
-        const workspaceRoot = resolveRuntimeWorkspaceRoot();
-        return await readNovelList(options.sessionProvider ?? new JsonlSessionRepository(workspaceRoot), options, {
-            workspaceRoot,
-            useRuntimeCaches: !options.sessionProvider,
-            timingSink: options.timingSink,
-            diagnostics: options.diagnostics,
-        });
+        const projects = await readCachedProjectList(options);
+        options.diagnostics.projectCount = projects.length;
+        return projects.map((project) => toNovelResponse(project));
     } finally {
         options.timingSink?.mark("projects.total", performance.now() - startedAt);
     }
@@ -226,184 +150,35 @@ export async function listNovels(options: NovelListOptions = {}): Promise<NovelL
  * 失效 Project Workspace 列表短缓存。
  */
 export function invalidateNovelListCache(): void {
-    defaultNovelListCacheVersion += 1;
-    defaultNovelListCache = null;
-    defaultNovelListPromise = null;
+    defaultProjectListCacheVersion += 1;
     defaultProjectListCache = null;
     defaultProjectListPromise = null;
-    defaultSessionCountCache = null;
-    defaultSessionCountPromise = null;
-    projectStatisticsCache.clear();
-    projectStatisticsPromises.clear();
-}
-
-/**
- * 渐进预热 Project 列表短缓存。这里不占用 defaultNovelListPromise，避免首个真实请求被后台全量预热捆住。
- */
-export async function prewarmNovelListCache(): Promise<void> {
-    const cacheVersion = defaultNovelListCacheVersion;
-    const diagnostics: NovelListDiagnostics = {};
-    const context: NovelListReadContext = {
-        workspaceRoot: resolveRuntimeWorkspaceRoot(),
-        useRuntimeCaches: true,
-        diagnostics,
-    };
-    const [projects, sessionCountByProject] = await Promise.all([
-        readCachedProjectList(context),
-        readCachedSessionCount(new JsonlSessionRepository(context.workspaceRoot), context),
-    ]);
-    const warmedStatistics = new Map<string, ProjectStatisticsWithoutSessions>();
-    for (const project of projects) {
-        await yieldToEventLoop();
-        warmedStatistics.set(project.projectPath, await readCachedProjectStatistics(project.projectPath, context));
-    }
-    if (cacheVersion !== defaultNovelListCacheVersion) {
-        return;
-    }
-    const list = projects.map((project) => {
-        const statistics = warmedStatistics.get(project.projectPath) ?? EMPTY_NOVEL_STATISTICS;
-        return toNovelResponse({
-            ...project,
-            statistics: {
-                ...statistics,
-                sessionCount: sessionCountByProject.get(project.projectPath) ?? 0,
-            },
-        });
-    });
-    refreshRuntimeCachesFromNovelList(list);
-    defaultNovelListCache = {
-        expiresAt: Date.now() + NOVEL_LIST_CACHE_TTL_MS,
-        value: list,
-    };
-}
-
-/**
- * 读取默认完整列表。includeProjectPath-only 不裁剪列表，复用完整列表缓存即可。
- */
-async function readDefaultNovelList(options: NovelListOptions): Promise<NovelListItemDto[]> {
-    const now = Date.now();
-    if (defaultNovelListCache && defaultNovelListCache.expiresAt > now) {
-        options.diagnostics!.fullListCache = "hit";
-        options.diagnostics!.projectCount = defaultNovelListCache.value.length;
-        options.diagnostics!.visibleCount = defaultNovelListCache.value.length;
-        markCachedNovelListTiming(options.timingSink);
-        return defaultNovelListCache.value;
-    }
-    if (defaultNovelListPromise) {
-        options.diagnostics!.fullListCache = "pending";
-        markCachedNovelListTiming(options.timingSink);
-        const list = await measureAsync(options.timingSink, "projects.pending.fullList", () => defaultNovelListPromise!);
-        options.diagnostics!.projectCount = list.length;
-        options.diagnostics!.visibleCount = list.length;
-        return list;
-    }
-
-    options.diagnostics!.fullListCache = "miss";
-    const cacheVersion = defaultNovelListCacheVersion;
-    const workspaceRoot = resolveRuntimeWorkspaceRoot();
-    defaultNovelListPromise = readNovelList(new JsonlSessionRepository(workspaceRoot), options, {
-        workspaceRoot,
-        useRuntimeCaches: true,
-        timingSink: options.timingSink,
-        diagnostics: options.diagnostics,
-    })
-        .then((list) => {
-            if (cacheVersion === defaultNovelListCacheVersion) {
-                refreshRuntimeCachesFromNovelList(list);
-                defaultNovelListCache = {
-                    expiresAt: Date.now() + NOVEL_LIST_CACHE_TTL_MS,
-                    value: list,
-                };
-            }
-            return list;
-        })
-        .finally(() => {
-            if (cacheVersion === defaultNovelListCacheVersion) {
-                defaultNovelListPromise = null;
-            }
-        });
-    return defaultNovelListPromise;
-}
-
-function markCachedNovelListTiming(timingSink: ServerTimingSink | undefined): void {
-    timingSink?.mark("projects.manifests", 0);
-    timingSink?.mark("projects.sessions", 0);
-    timingSink?.mark("projects.filter", 0);
-    timingSink?.mark("projects.stats.workspace", 0);
-    timingSink?.mark("projects.stats.plot", 0);
-}
-
-function yieldToEventLoop(): Promise<void> {
-    return new Promise((resolve) => {
-        setTimeout(resolve, 0);
-    });
-}
-
-function refreshRuntimeCachesFromNovelList(list: readonly NovelListItemDto[]): void {
-    const expiresAt = Date.now() + NOVEL_LIST_CACHE_TTL_MS;
-    if (defaultProjectListCache) {
-        defaultProjectListCache.expiresAt = expiresAt;
-    }
-    if (defaultSessionCountCache) {
-        defaultSessionCountCache.expiresAt = expiresAt;
-    }
-    for (const novel of list) {
-        projectStatisticsCache.set(novel.projectPath, {
-            expiresAt,
-            value: {
-                volumeCount: novel.volumeCount,
-                chapterCount: novel.chapterCount,
-                totalWords: novel.totalWords,
-                lorebookCount: novel.lorebookCount,
-                threadCount: novel.threadCount,
-                sceneCount: novel.sceneCount,
-                plotCount: novel.plotCount,
-            },
-        });
-    }
-}
-
-/**
- * 读取 Project Workspace 列表并汇总统计；调用方决定是否缓存。
- */
-async function readNovelList(sessionProvider: SessionListProvider, options: NovelListOptions, context: NovelListReadContext): Promise<NovelListItemDto[]> {
-    const [projects, sessionCountByProject] = await Promise.all([
-        context.useRuntimeCaches ? readCachedProjectList(context) : measureProjectList(context, () => listProjectWorkspaces(context.workspaceRoot)),
-        context.useRuntimeCaches ? readCachedSessionCount(sessionProvider, context) : measureSessionCount(context, () => readSessionCountByProject(sessionProvider)),
-    ]);
-    context.diagnostics!.projectCount = projects.length;
-    const visibleProjects = measureSync(context.timingSink, "projects.filter", () => filterNovelListProjects(projects, options));
-    context.diagnostics!.visibleCount = visibleProjects.length;
-    const statisticsByProjectPath = await readProjectStatisticsBatch(visibleProjects.map((project) => project.projectPath), context);
-    return visibleProjects.map((project) => toNovelResponse({
-        ...project,
-        statistics: {
-            ...(statisticsByProjectPath.get(project.projectPath) ?? EMPTY_NOVEL_STATISTICS),
-            sessionCount: sessionCountByProject.get(project.projectPath) ?? 0,
-        },
-    }));
 }
 
 /**
  * 读取带短缓存的 Project manifest 列表。
+ *
+ * 这是 Project 列表唯一的运行时缓存：它只覆盖 manifest 读取，不缓存任何统计，
+ * 因此失效后重建的代价只是重新读一遍 project.yaml。
  */
-async function readCachedProjectList(context: NovelListReadContext): Promise<Awaited<ReturnType<typeof listProjectWorkspaces>>> {
+async function readCachedProjectList(options: NovelListOptions): Promise<Awaited<ReturnType<typeof listProjectWorkspaces>>> {
     const now = Date.now();
     if (defaultProjectListCache && defaultProjectListCache.expiresAt > now) {
-        context.diagnostics!.projectListCache = "hit";
-        context.timingSink?.mark("projects.manifests", 0);
+        options.diagnostics!.projectListCache = "hit";
+        options.timingSink?.mark("projects.manifests", 0);
         return defaultProjectListCache.value;
     }
     if (defaultProjectListPromise) {
-        context.diagnostics!.projectListCache = "pending";
-        return measureProjectList(context, () => defaultProjectListPromise!);
+        options.diagnostics!.projectListCache = "pending";
+        return measureAsync(options.timingSink, "projects.manifests", () => defaultProjectListPromise!);
     }
 
-    context.diagnostics!.projectListCache = "miss";
-    const cacheVersion = defaultNovelListCacheVersion;
-    defaultProjectListPromise = measureProjectList(context, () => listProjectWorkspaces(context.workspaceRoot))
+    options.diagnostics!.projectListCache = "miss";
+    const cacheVersion = defaultProjectListCacheVersion;
+    const workspaceRoot = resolveRuntimeWorkspaceRoot();
+    defaultProjectListPromise = measureAsync(options.timingSink, "projects.manifests", () => listProjectWorkspaces(workspaceRoot))
         .then((projects) => {
-            if (cacheVersion === defaultNovelListCacheVersion) {
+            if (cacheVersion === defaultProjectListCacheVersion) {
                 defaultProjectListCache = {
                     expiresAt: Date.now() + NOVEL_LIST_CACHE_TTL_MS,
                     value: projects,
@@ -412,73 +187,11 @@ async function readCachedProjectList(context: NovelListReadContext): Promise<Awa
             return projects;
         })
         .finally(() => {
-            if (cacheVersion === defaultNovelListCacheVersion) {
+            if (cacheVersion === defaultProjectListCacheVersion) {
                 defaultProjectListPromise = null;
             }
         });
     return defaultProjectListPromise;
-}
-
-/**
- * 读取带短缓存的 Project session 计数。
- */
-async function readCachedSessionCount(sessionProvider: SessionListProvider, context: NovelListReadContext): Promise<Map<string, number>> {
-    const now = Date.now();
-    if (defaultSessionCountCache && defaultSessionCountCache.expiresAt > now) {
-        context.diagnostics!.sessionCountCache = "hit";
-        context.timingSink?.mark("projects.sessions", 0);
-        return defaultSessionCountCache.value;
-    }
-    if (defaultSessionCountPromise) {
-        context.diagnostics!.sessionCountCache = "pending";
-        return measureSessionCount(context, () => defaultSessionCountPromise!);
-    }
-
-    context.diagnostics!.sessionCountCache = "miss";
-    const cacheVersion = defaultNovelListCacheVersion;
-    defaultSessionCountPromise = measureSessionCount(context, () => readSessionCountByProject(sessionProvider))
-        .then((counts) => {
-            if (cacheVersion === defaultNovelListCacheVersion) {
-                defaultSessionCountCache = {
-                    expiresAt: Date.now() + NOVEL_LIST_CACHE_TTL_MS,
-                    value: counts,
-                };
-            }
-            return counts;
-        })
-        .finally(() => {
-            if (cacheVersion === defaultNovelListCacheVersion) {
-                defaultSessionCountPromise = null;
-            }
-        });
-    return defaultSessionCountPromise;
-}
-
-function measureProjectList<T>(context: NovelListReadContext, task: () => Promise<T>): Promise<T> {
-    return measureAsync(context.timingSink, "projects.manifests", task);
-}
-
-function measureSessionCount<T>(context: NovelListReadContext, task: () => Promise<T>): Promise<T> {
-    return measureAsync(context.timingSink, "projects.sessions", task);
-}
-
-/**
- * 按调用方提供的轻量列表参数裁剪 Project；include 项用于保留当前选择或 URL 目标。
- */
-function filterNovelListProjects<T extends {projectPath: string}>(projects: T[], options: NovelListOptions): T[] {
-    const includeProjectPaths = new Set(options.includeProjectPaths ?? []);
-    const excludePrefixes = options.excludeProjectPathPrefixes ?? [];
-    const filteredProjects = excludePrefixes.length
-        ? projects.filter((project) => !excludePrefixes.some((prefix) => project.projectPath.startsWith(prefix)))
-        : projects;
-    const limitedProjects = typeof options.limit === "number" ? filteredProjects.slice(0, options.limit) : filteredProjects;
-    if (includeProjectPaths.size === 0) {
-        return limitedProjects;
-    }
-
-    const selectedProjectPaths = new Set(limitedProjects.map((project) => project.projectPath));
-    const includedProjects = projects.filter((project) => includeProjectPaths.has(project.projectPath) && !selectedProjectPaths.has(project.projectPath));
-    return [...includedProjects, ...limitedProjects];
 }
 
 /**
@@ -494,207 +207,6 @@ export async function assertNovel(projectPath: string): Promise<NovelListItemDto
     });
 }
 
-async function readProjectStatisticsBatch(projectPaths: readonly string[], context: NovelListReadContext): Promise<Map<string, ProjectStatisticsWithoutSessions>> {
-    const result = new Map<string, ProjectStatisticsWithoutSessions>();
-    const now = Date.now();
-    const pendingProjects: Array<{projectPath: string; promise: Promise<ProjectStatisticsWithoutSessions>}> = [];
-    const missingProjectPaths: string[] = [];
-    for (const projectPath of projectPaths) {
-        const cached = projectStatisticsCache.get(projectPath);
-        if (cached && cached.expiresAt > now) {
-            context.diagnostics!.statsCacheHits = (context.diagnostics!.statsCacheHits ?? 0) + 1;
-            result.set(projectPath, cached.value);
-            continue;
-        }
-        const pending = projectStatisticsPromises.get(projectPath);
-        if (pending) {
-            context.diagnostics!.statsCachePending = (context.diagnostics!.statsCachePending ?? 0) + 1;
-            pendingProjects.push({projectPath, promise: pending});
-            continue;
-        }
-        context.diagnostics!.statsCacheMisses = (context.diagnostics!.statsCacheMisses ?? 0) + 1;
-        missingProjectPaths.push(projectPath);
-    }
-
-    const [pendingResults, missingResults] = await Promise.all([
-        readPendingProjectStatistics(pendingProjects, context),
-        readMissingProjectStatistics(missingProjectPaths, context),
-    ]);
-    for (const [projectPath, statistics] of [...pendingResults, ...missingResults]) {
-        result.set(projectPath, statistics);
-    }
-    return result;
-}
-
-async function readCachedProjectStatistics(projectPath: string, context: NovelListReadContext): Promise<ProjectStatisticsWithoutSessions> {
-    return (await readProjectStatisticsBatch([projectPath], context)).get(projectPath) ?? EMPTY_PROJECT_STATISTICS;
-}
-
-async function readPendingProjectStatistics(
-    pendingProjects: Array<{projectPath: string; promise: Promise<ProjectStatisticsWithoutSessions>}>,
-    context: NovelListReadContext,
-): Promise<Array<[string, ProjectStatisticsWithoutSessions]>> {
-    if (pendingProjects.length === 0) {
-        return [];
-    }
-    return measureAsync(context.timingSink, "projects.stats.pending", async () => Promise.all(pendingProjects.map(async (item) => [
-        item.projectPath,
-        await item.promise,
-    ] as [string, ProjectStatisticsWithoutSessions])));
-}
-
-async function readMissingProjectStatistics(projectPaths: readonly string[], context: NovelListReadContext): Promise<Array<[string, ProjectStatisticsWithoutSessions]>> {
-    if (projectPaths.length === 0) {
-        context.timingSink?.mark("projects.stats.workspace", 0);
-        context.timingSink?.mark("projects.stats.plot", 0);
-        return [];
-    }
-    const cacheVersion = defaultNovelListCacheVersion;
-    const workspaceCountsPromise = measureAsync(context.timingSink, "projects.stats.workspace", async () => Promise.all(projectPaths.map((projectPath) => readWorkspaceStatistics(context.workspaceRoot, projectPath))));
-    const plotCountsPromise = measureAsync(context.timingSink, "projects.stats.plot", async () => Promise.all(projectPaths.map((projectPath) => readPlotCounts(context.workspaceRoot, projectPath))));
-    const batchPromise = Promise.all([workspaceCountsPromise, plotCountsPromise]);
-    const promises = projectPaths.map((projectPath, index) => {
-        const promise = batchPromise
-            .then(([workspaceCounts, plotCounts]) => {
-                const workspaceStatistics = workspaceCounts[index] ?? EMPTY_PROJECT_STATISTICS;
-                const plotStatistics = plotCounts[index] ?? EMPTY_PROJECT_STATISTICS;
-                return {
-                    ...workspaceStatistics,
-                    ...plotStatistics,
-                };
-            })
-            .then((value) => {
-                if (cacheVersion === defaultNovelListCacheVersion) {
-                    projectStatisticsCache.set(projectPath, {
-                        expiresAt: Date.now() + NOVEL_LIST_CACHE_TTL_MS,
-                        value,
-                    });
-                }
-                return value;
-            })
-            .finally(() => {
-                if (cacheVersion === defaultNovelListCacheVersion) {
-                    projectStatisticsPromises.delete(projectPath);
-                }
-            });
-        projectStatisticsPromises.set(projectPath, promise);
-        return promise.then((statistics) => [projectPath, statistics] as [string, ProjectStatisticsWithoutSessions]);
-    });
-    return Promise.all(promises);
-}
-
-/**
- * 从 Project Workspace tree index 统计正文与 lorebook 内容节点。
- */
-async function readWorkspaceStatistics(workspaceRoot: AbsoluteFsPath, projectPath: string): Promise<Pick<NovelStatisticCounts, "volumeCount" | "chapterCount" | "totalWords" | "lorebookCount">> {
-    try {
-        const normalizedProjectPath = normalizeProjectPath(projectPath);
-        const nodes = await scanWorkspaceTree({
-            root: resolveProjectWorkspaceRoot(workspaceRoot, normalizedProjectPath),
-        });
-        const manuscriptNodes = nodes.filter((node) => isUnderRoot(node, "manuscript"));
-        const chapterNodes = manuscriptNodes.filter((node) => isCountableContentNode(node) && node.entryType === "chapter");
-
-        return {
-            volumeCount: manuscriptNodes.filter((node) => isCountableContentNode(node) && node.entryType === "volume").length,
-            chapterCount: chapterNodes.length,
-            totalWords: chapterNodes.reduce((total, node) => total + node.words, 0),
-            lorebookCount: nodes.filter(isLorebookEntryNode).length,
-        };
-    } catch (error) {
-        consola.warn({projectPath, error}, "读取 Project Workspace 统计失败");
-        return {
-            volumeCount: 0,
-            chapterCount: 0,
-            totalWords: 0,
-            lorebookCount: 0,
-        };
-    }
-}
-
-/**
- * 统计当前 Project 的非系统、非归档 Agent session。
- */
-async function readSessionCountByProject(sessionProvider: SessionListProvider): Promise<Map<string, number>> {
-    try {
-        const sessions = await sessionProvider.listSessions({
-            includeArchived: false,
-            includeSystem: false,
-            status: "active",
-        });
-        const result = new Map<string, number>();
-        for (const session of sessions) {
-            if (!session.projectPath) {
-                continue;
-            }
-            result.set(session.projectPath, (result.get(session.projectPath) ?? 0) + 1);
-        }
-        return result;
-    } catch (error) {
-        consola.warn({error}, "读取 Project Agent session 统计失败");
-        return new Map();
-    }
-}
-
-/**
- * 只读统计 Project SQLite 剧情对象数量；不得初始化数据库或 Story。
- */
-async function readPlotCounts(workspaceRoot: AbsoluteFsPath, projectPath: string): Promise<Pick<NovelStatisticCounts, "threadCount" | "sceneCount" | "plotCount">> {
-    const databasePath = resolveProjectDatabasePath(workspaceRoot, projectPath);
-    if (!existsSync(databasePath)) {
-        return {
-            threadCount: 0,
-            sceneCount: 0,
-            plotCount: 0,
-        };
-    }
-
-    const client = createClient({url: toSqliteFileUrl(databasePath)});
-    try {
-        const [threadCount, sceneCount] = await Promise.all([
-            readSqliteTableCount(client, "StoryThread"),
-            readSqliteTableCount(client, "StoryScene"),
-        ]);
-        return {
-            threadCount,
-            sceneCount,
-            plotCount: 0,
-        };
-    } catch (error) {
-        consola.warn({projectPath, error}, "读取 Project Plot 统计失败");
-        return {
-            threadCount: 0,
-            sceneCount: 0,
-            plotCount: 0,
-        };
-    } finally {
-        await client.close();
-        collectReleasedSqliteHandles();
-    }
-}
-
-/**
- * 读取 SQLite 表行数，表不存在时返回 0。
- */
-async function readSqliteTableCount(client: {execute(statement: string): Promise<{rows: Array<Record<string, unknown>>}>}, tableName: "StoryThread" | "StoryScene"): Promise<number> {
-    try {
-        const result = await client.execute(`SELECT COUNT(*) AS count FROM "${tableName}"`);
-        const value = result.rows[0]?.count;
-        if (typeof value === "number") {
-            return value;
-        }
-        if (typeof value === "bigint") {
-            return Number(value);
-        }
-        return typeof value === "string" ? Number.parseInt(value, 10) || 0 : 0;
-    } catch (error) {
-        if (isMissingSqliteTableError(error)) {
-            return 0;
-        }
-        throw error;
-    }
-}
-
 async function measureAsync<T>(timingSink: ServerTimingSink | undefined, name: string, task: () => Promise<T>): Promise<T> {
     const startedAt = performance.now();
     try {
@@ -702,50 +214,6 @@ async function measureAsync<T>(timingSink: ServerTimingSink | undefined, name: s
     } finally {
         timingSink?.mark(name, performance.now() - startedAt);
     }
-}
-
-function measureSync<T>(timingSink: ServerTimingSink | undefined, name: string, task: () => T): T {
-    const startedAt = performance.now();
-    try {
-        return task();
-    } finally {
-        timingSink?.mark(name, performance.now() - startedAt);
-    }
-}
-
-/**
- * 判断 SQLite 错误是否表示表不存在。
- */
-function isMissingSqliteTableError(error: unknown): boolean {
-    const message = error instanceof Error ? error.message : String(error);
-    return message.includes("no such table");
-}
-
-/**
- * 判断节点是否位于指定内容根下。
- */
-function isUnderRoot(node: WorkspaceFileNode, root: "manuscript" | "lorebook"): boolean {
-    return node.path === `${root}/` || node.path.startsWith(`${root}/`);
-}
-
-/**
- * 判断节点是否为 lorebook 条目；排除 lorebook 根目录自身。
- */
-function isLorebookEntryNode(node: WorkspaceFileNode): boolean {
-    if (!isCountableContentNode(node) || !isUnderRoot(node, "lorebook")) {
-        return false;
-    }
-    return node.path !== "lorebook/" && node.path !== "lorebook/index.md";
-}
-
-/**
- * 目录内容节点和独立 Markdown 内容节点计数；目录对应的 index.md 不重复计数。
- */
-function isCountableContentNode(node: WorkspaceFileNode): boolean {
-    if (!node.contentNode) {
-        return false;
-    }
-    return node.isDirectory || !node.path.endsWith("/index.md");
 }
 
 /**

@@ -1,6 +1,8 @@
 import {describe, expect, it} from "vitest";
 import {
     AgentInvokeRequestDtoSchema,
+    AgentSessionAttachmentListQueryDtoSchema,
+    AgentSessionAttachmentResolveRequestDtoSchema,
     AgentSessionQueryDtoSchema,
     ClientVariablePatchAckDtoSchema,
 } from "nbook/shared/dto/agent-session.dto";
@@ -15,16 +17,30 @@ describe("AgentInvokeRequestDtoSchema", () => {
         }).success).toBe(false);
         expect(AgentInvokeRequestDtoSchema.safeParse({
             mode: "steer",
+            clientMessageId: "00000000-0000-4000-8000-000000000001",
             message: {text: "调整"},
         }).success).toBe(true);
         expect(AgentInvokeRequestDtoSchema.safeParse({
             mode: "followup",
+            clientMessageId: "00000000-0000-4000-8000-000000000002",
             input: {plotId: "plot-1"},
         }).success).toBe(true);
         expect(AgentInvokeRequestDtoSchema.safeParse({
             mode: "prompt",
+            clientMessageId: "00000000-0000-4000-8000-000000000003",
             input: {plotId: "plot-1"},
         }).success).toBe(true);
+    });
+
+    it("要求创建用户输入的模式携带 clientMessageId，并拒绝 continue 携带", () => {
+        expect(AgentInvokeRequestDtoSchema.safeParse({
+            mode: "prompt",
+            message: {text: "缺少关联 ID"},
+        }).success).toBe(false);
+        expect(AgentInvokeRequestDtoSchema.safeParse({
+            mode: "continue",
+            clientMessageId: "00000000-0000-4000-8000-000000000004",
+        }).success).toBe(false);
     });
 
     it("拒绝 continue 携带 message 或 input", () => {
@@ -46,6 +62,16 @@ describe("AgentInvokeRequestDtoSchema", () => {
         }).success).toBe(false);
     });
 
+    it("硬切拒绝旧 message.images base64 ingress", () => {
+        expect(AgentInvokeRequestDtoSchema.safeParse({
+            mode: "prompt",
+            message: {
+                text: "旧请求",
+                images: [{type: "image", mimeType: "image/png", data: "iVBORw0KGgo="}],
+            },
+        }).success).toBe(false);
+    });
+
     it("resolution toolCallId 按UTF-8字节统一fail closed", () => {
         const request = (toolCallId: string) => ({
             mode: "continue",
@@ -63,6 +89,38 @@ describe("AgentInvokeRequestDtoSchema", () => {
         expect(ClientVariablePatchAckDtoSchema.safeParse(base).success).toBe(true);
         expect(ClientVariablePatchAckDtoSchema.safeParse({...base, toolCallId: "tool-1"}).success).toBe(true);
         expect(ClientVariablePatchAckDtoSchema.safeParse({...base, toolCallId: "工".repeat(172)}).success).toBe(false);
+    });
+});
+
+describe("AgentSessionAttachmentListQueryDtoSchema", () => {
+    it("分页默认 40、最大 100，并严格拒绝未知参数", () => {
+        expect(AgentSessionAttachmentListQueryDtoSchema.parse({})).toEqual({offset: 0, limit: 40});
+        expect(AgentSessionAttachmentListQueryDtoSchema.parse({search: "PNG", offset: "20", limit: "100"})).toEqual({
+            search: "PNG",
+            offset: 20,
+            limit: 100,
+        });
+        expect(AgentSessionAttachmentListQueryDtoSchema.safeParse({limit: 101}).success).toBe(false);
+        expect(AgentSessionAttachmentListQueryDtoSchema.safeParse({unknown: "value"}).success).toBe(false);
+    });
+});
+
+describe("AgentSessionAttachmentResolveRequestDtoSchema", () => {
+    const first = `sha256:${"1".repeat(64)}`;
+    const second = `sha256:${"2".repeat(64)}`;
+
+    it("严格接受 1–8 个不重复 Attachment ID", () => {
+        expect(AgentSessionAttachmentResolveRequestDtoSchema.parse({attachmentIds: [first, second]}))
+            .toEqual({attachmentIds: [first, second]});
+        expect(AgentSessionAttachmentResolveRequestDtoSchema.safeParse({attachmentIds: []}).success).toBe(false);
+        expect(AgentSessionAttachmentResolveRequestDtoSchema.safeParse({attachmentIds: [first, first]}).success).toBe(false);
+        expect(AgentSessionAttachmentResolveRequestDtoSchema.safeParse({
+            attachmentIds: Array.from({length: 9}, (_, index) => `sha256:${index.toString(16).repeat(64)}`),
+        }).success).toBe(false);
+        expect(AgentSessionAttachmentResolveRequestDtoSchema.safeParse({
+            attachmentIds: [first],
+            unknown: true,
+        }).success).toBe(false);
     });
 });
 

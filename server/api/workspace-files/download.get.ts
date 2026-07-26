@@ -5,10 +5,12 @@ import {
     type WorkspaceArchive,
 } from "nbook/server/workspace-files/workspace-archive";
 import {
-    USER_ASSETS_WORKSPACE_KIND,
     resolveWorkspaceFileTarget,
+    USER_ASSETS_WORKSPACE_KIND,
 } from "nbook/server/workspace-files/novel-workspace";
-import {assertProjectOpenForTarget} from "nbook/server/workspace-files/project-open-guard";
+import {
+    withProjectTargetOperation,
+} from "nbook/server/workspace-files/project-open-guard";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 
 /**
@@ -23,11 +25,18 @@ export default defineEventHandler(async (event) => {
     }
 
     const target = await resolveWorkspaceFileTarget(runtimePathsFromEnv(), {projectPath, workspaceKind});
-    assertProjectOpenForTarget(target);
-    const archive = target.kind === "project-workspace"
-        ? await createProjectWorkspaceZipStream(target.root)
-        : await createWorkspaceZipStream(target.root);
-    return sendArchive(event, archive);
+    return withProjectTargetOperation(target, async (projectHandles) => {
+        let archive: WorkspaceArchive;
+        if (target.kind === "project-workspace") {
+            if (!projectHandles) {
+                throw new Error("Project Workspace target缺少ready generation");
+            }
+            archive = await createProjectWorkspaceZipStream(projectHandles.ready.workspace);
+        } else {
+            archive = await createWorkspaceZipStream(target.root);
+        }
+        return sendArchive(event, archive);
+    });
 });
 
 /**

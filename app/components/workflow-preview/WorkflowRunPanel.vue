@@ -4,7 +4,9 @@ import WorkflowMermaid from "nbook/app/components/workflow-preview/WorkflowMerma
 import WorkflowSessionTree from "nbook/app/components/workflow-preview/WorkflowSessionTree.vue";
 import WorkflowTimeline from "nbook/app/components/workflow-preview/WorkflowTimeline.vue";
 import WorkflowAgentCards from "nbook/app/components/workflow-preview/WorkflowAgentCards.vue";
-import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
+import {useAgentJob} from "nbook/app/composables/useAgentJob";
+import {resolveApiErrorMessage, resolveApiErrorStatus} from "nbook/app/utils/api-error";
+import {shouldPollWorkflowRun} from "nbook/app/components/novel-ide/agent/workflow-bubble";
 import type {WorkflowDemoRunState} from "nbook/server/agent/workflow/workflow-demo-service";
 import type {JsonValue, WorkflowEvent} from "nbook/server/vendor/nb-workflow/index";
 
@@ -12,7 +14,31 @@ import type {JsonValue, WorkflowEvent} from "nbook/server/vendor/nb-workflow/ind
  * 单个 run 的实时面板：轮询服务端观测 VM（人话标签 / phase 进度 / session 序列图），
  * 前端只负责组装展示——「用户 ↔ 前端 ↔ workflow」中的前端包装层。
  */
-const props = defineProps<{runId: string; scenarioKey: string}>();
+const props = withDefaults(defineProps<{
+    runId: string;
+    /** demo 的场景 key；正式 Catalog run 可不传。 */
+    scenarioKey?: string;
+    /** 正式入口与 Task 110 demo 共用展示件，但 API 命名空间和动作能力不同。 */
+    mode?: "demo" | "formal";
+    /** 正式后台 run 的 AgentJobManager 身份；demo 无 job。 */
+    jobId?: string;
+}>(), {
+    scenarioKey: "",
+    mode: "demo",
+    jobId: "",
+});
+const runApiBase = computed(() => props.mode === "formal" ? "/api/agent/workflow" : "/api/agent/workflow-demo");
+const jobIdRef = computed(() => props.jobId);
+const {
+    job,
+    error: jobError,
+    unavailable: jobUnavailable,
+    cancelling: jobCancelling,
+    cancelRequested: jobCancelRequested,
+    canCancel: canCancelJob,
+    refresh: refreshJob,
+    cancel: cancelJob,
+} = useAgentJob(jobIdRef);
 
 /** ask 应答草稿值：只会是文本 / 多选 id 列表 / approve 布尔（递归 JsonValue 进 ref 的 UnwrapRef 会类型爆栈） */
 type AskDraftValue = string | string[] | boolean;
@@ -27,10 +53,10 @@ const styleModeInput = ref("工笔细描");
 const askDrafts = ref<Record<string, AskDraftValue>>({});
 /** 主视图切换：状态机 / 对话流 / 时间线 / 直播卡片 / 关系图 */
 type ViewKey = "machine" | "flow" | "timeline" | "cards" | "relation";
-const activeView = ref<ViewKey>("flow");
-/** 状态机 tab 只在场景声明了 machine 时出现 */
+const activeView = ref<ViewKey>(props.mode === "formal" ? "machine" : "flow");
+/** 正式 run 以状态图为主；demo 仍只在实际产生 machine 图时显示该 tab。 */
 const viewTabs = computed<{key: ViewKey; label: string}[]>(() => [
-    ...(state.value?.machineMermaid ? [{key: "machine" as ViewKey, label: "状态机"}] : []),
+    ...(props.mode === "formal" || state.value?.machineMermaid ? [{key: "machine" as ViewKey, label: "状态机"}] : []),
     {key: "flow", label: "对话流"},
     {key: "timeline", label: "时间线"},
     {key: "cards", label: "直播卡片"},
@@ -45,9 +71,13 @@ const elapsed = (startedAt: number) => `${Math.max(0, (nowTick.value - startedAt
 let cursor = 0;
 let timer: ReturnType<typeof setTimeout> | null = null;
 let disposed = false;
+let runUnavailable = false;
+let pollRevision = 0;
 
-const STATUS_CN: Record<string, string> = {running: "运行中", waiting: "等待你的应答", completed: "已完成", failed: "失败"};
+const STATUS_CN: Record<string, string> = {running: "运行中", waiting: "等待你的应答", completed: "已完成", failed: "失败", cancelled: "已取消"};
+const JOB_STATUS_CN: Record<string, string> = {running: "后台运行中", waiting: "后台等待应答", completed: "后台任务完成", failed: "后台任务失败", cancelled: "后台任务已取消", interrupted: "后台任务已中断"};
 const statusText = computed(() => STATUS_CN[state.value?.view.status ?? ""] ?? "…");
+const jobStatusText = computed(() => jobUnavailable.value ? "后台任务已中断" : JOB_STATUS_CN[job.value?.status ?? ""] ?? "正在连接后台任务");
 const progressText = computed(() => {
     const progress = state.value?.view.progress;
     if (!progress?.total) return "";
@@ -64,29 +94,50 @@ function pushLog(event: WorkflowEvent, labels: Record<string, string>) {
     if (logs.value.length > 200) logs.value.length = 200;
 }
 
-async function poll() {
-    if (disposed) return;
+async function poll(expectedRevision: number, expectedRunId: string, expectedApiBase: string) {
+    if (disposed || runUnavailable || expectedRevision !== pollRevision || expectedRunId !== props.runId || expectedApiBase !== runApiBase.value) return;
     try {
         // 不走 $fetch 泛型：RunView 含递归 JsonValue，Nuxt Serialize 类型展开会 TS2589 爆栈，改为显式断言
-        const next = await $fetch(`/api/agent/workflow-demo/runs/${props.runId}`, {query: {after: cursor}}) as unknown as WorkflowDemoRunState;
+        const next = await $fetch(`${expectedApiBase}/runs/${expectedRunId}`, {query: {after: cursor}}) as unknown as WorkflowDemoRunState;
+        if (disposed || expectedRevision !== pollRevision || expectedRunId !== props.runId || expectedApiBase !== runApiBase.value) return;
         cursor = next.nextCursor;
         for (const event of next.events) pushLog(event, next.labels);
         state.value = next;
         nowTick.value = Date.now();
         error.value = "";
     } catch (e) {
-        error.value = resolveApiErrorMessage(e, "轮询 run 状态失败");
+        if (disposed || expectedRevision !== pollRevision || expectedRunId !== props.runId || expectedApiBase !== runApiBase.value) return;
+        if (resolveApiErrorStatus(e) === 404) {
+            runUnavailable = true;
+            error.value = "该 workflow run 已不可查询，可能因服务重启而中断";
+        } else {
+            error.value = resolveApiErrorMessage(e, "轮询 run 状态失败");
+        }
     }
     const status = state.value?.view.status;
+    const canPollRun = shouldPollWorkflowRun({
+        hasBackgroundJob: Boolean(props.jobId),
+        jobStatus: job.value?.status,
+        jobUnavailable: jobUnavailable.value,
+        runStatus: status,
+        runUnavailable,
+    });
     // running 快轮询；waiting 慢轮询（等人）；终态停（rerun 后由动作重启）
-    if (status === "running" || !status) timer = setTimeout(poll, 500);
-    else if (status === "waiting") timer = setTimeout(poll, 2500);
+    if (!canPollRun) timer = null;
+    else if (status === "running" || !status) timer = setTimeout(() => void poll(expectedRevision, expectedRunId, expectedApiBase), 500);
+    else if (status === "waiting") timer = setTimeout(() => void poll(expectedRevision, expectedRunId, expectedApiBase), 2500);
     else timer = null;
 }
 
 function restartPolling() {
+    pollRevision++;
     if (timer) clearTimeout(timer);
-    timer = setTimeout(poll, 200);
+    runUnavailable = false;
+    const expectedRevision = pollRevision;
+    const expectedRunId = props.runId;
+    const expectedApiBase = runApiBase.value;
+    timer = setTimeout(() => void poll(expectedRevision, expectedRunId, expectedApiBase), 200);
+    refreshJob();
 }
 
 async function submitAsks() {
@@ -95,13 +146,25 @@ async function submitAsks() {
     const answers: Record<string, JsonValue> = {};
     for (const ask of view.pendingAsks) {
         const draft = askDrafts.value[ask.key];
-        answers[ask.key] = draft === undefined ? (ask.spec.kind === "approve" ? false : ask.spec.multi ? [] : "") : draft;
+        const missing = draft === undefined
+            || (typeof draft === "string" && !draft.trim())
+            || (Array.isArray(draft) && draft.length === 0);
+        if (missing) {
+            error.value = `请先完成应答：${ask.spec.title}`;
+            return;
+        }
+        answers[ask.key] = draft;
     }
+    const expectedRevision = pollRevision;
+    const expectedRunId = props.runId;
+    const expectedApiBase = runApiBase.value;
     try {
-        await $fetch(`/api/agent/workflow-demo/runs/${props.runId}/resume`, {method: "POST", body: {answers}});
+        await $fetch(`${expectedApiBase}/runs/${expectedRunId}/resume`, {method: "POST", body: {answers}});
+        if (disposed || expectedRevision !== pollRevision || expectedRunId !== props.runId || expectedApiBase !== runApiBase.value) return;
         askDrafts.value = {};
         restartPolling();
     } catch (e) {
+        if (disposed || expectedRevision !== pollRevision || expectedRunId !== props.runId || expectedApiBase !== runApiBase.value) return;
         error.value = resolveApiErrorMessage(e, "resume 失败");
     }
 }
@@ -124,8 +187,11 @@ function isSelected(askKey: string, optionId: string): boolean {
 }
 
 async function rerun(withStyleMode: boolean) {
+    if (props.mode !== "demo") {
+        return;
+    }
     try {
-        await $fetch(`/api/agent/workflow-demo/runs/${props.runId}/rerun`, {
+        await $fetch(`${runApiBase.value}/runs/${props.runId}/rerun`, {
             method: "POST",
             body: withStyleMode ? {styleMode: styleModeInput.value} : {},
         });
@@ -141,17 +207,27 @@ function toggleSession(sessionId: number) {
     else expandedSessions.value.push(sessionId);
 }
 
-watch(() => props.runId, () => {
+watch([() => props.runId, runApiBase], () => {
+    pollRevision++;
+    if (timer) clearTimeout(timer);
+    timer = null;
     cursor = 0;
     logs.value = [];
     state.value = null;
     askDrafts.value = {};
     expandedSessions.value = [];
-    restartPolling();
+    runUnavailable = false;
+    activeView.value = props.mode === "formal" ? "machine" : "flow";
+    const expectedRevision = pollRevision;
+    const expectedRunId = props.runId;
+    const expectedApiBase = runApiBase.value;
+    timer = setTimeout(() => void poll(expectedRevision, expectedRunId, expectedApiBase), 0);
+    refreshJob();
 }, {immediate: true});
 
 onBeforeUnmount(() => {
     disposed = true;
+    pollRevision++;
     if (timer) clearTimeout(timer);
 });
 </script>
@@ -167,9 +243,27 @@ onBeforeUnmount(() => {
                     'border-[var(--status-info-border)] bg-[var(--status-info-bg)] text-[var(--status-info)]': state?.view.status === 'running',
                     'border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] text-[var(--status-warning)]': state?.view.status === 'waiting',
                     'border-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success)]': state?.view.status === 'completed',
-                    'border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] text-[var(--status-danger)]': state?.view.status === 'failed',
+                    'border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] text-[var(--status-danger)]': state?.view.status === 'failed' || state?.view.status === 'cancelled',
                 }">{{ statusText }}</span>
+            <span v-if="props.jobId" class="rounded-full border px-3 py-0.5 text-xs"
+                :class="{
+                    'border-[var(--status-info-border)] bg-[var(--status-info-bg)] text-[var(--status-info)]': !job && !jobUnavailable || job?.status === 'running',
+                    'border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] text-[var(--status-warning)]': job?.status === 'waiting',
+                    'border-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success)]': job?.status === 'completed',
+                    'border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] text-[var(--status-danger)]': jobUnavailable || job?.status === 'failed' || job?.status === 'cancelled' || job?.status === 'interrupted',
+                }">{{ jobStatusText }}</span>
+            <button v-if="props.jobId && (canCancelJob || jobCancelRequested)" type="button" class="rounded border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-2.5 py-1 text-[11px] text-[var(--status-danger)] disabled:cursor-wait disabled:opacity-50" :disabled="jobCancelling || jobCancelRequested" @click="cancelJob">
+                {{ jobCancelling ? "请求中…" : jobCancelRequested ? "等待停止…" : "取消任务" }}
+            </button>
             <span v-if="error" class="text-xs text-[var(--status-danger)]">{{ error }}</span>
+        </div>
+
+        <!-- 正式后台 job 的有界预览与观测错误。 -->
+        <div v-if="props.jobId && (job?.preview || jobError)" class="mb-3 rounded border px-3 py-2 text-xs"
+            :class="jobError
+                ? 'border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] text-[var(--status-warning)]'
+                : 'border-[var(--border-color)] bg-[var(--bg-main)] text-[var(--text-secondary)]'">
+            {{ jobError || job?.preview }}
         </div>
 
         <!-- phase 步进条：workflow 走到哪一步、哪里需要人，一眼可见 -->
@@ -238,6 +332,7 @@ onBeforeUnmount(() => {
                 <template v-if="activeView === 'machine'">
                     <div class="mb-1 text-xs text-[var(--text-muted)]">状态图（零预置只增不删，随代码执行长出来；边上 ①②③=执行顺序（终图即流程记录），〔名字〕=在此干活的 agent，橙=有执行线停留，绿=走过）</div>
                     <WorkflowMermaid v-if="state?.machineMermaid" :code="state.machineMermaid" />
+                    <div v-else class="rounded border border-[var(--status-info-border)] bg-[var(--status-info-bg)] px-3 py-2 text-xs text-[var(--status-info)]">等待 workflow 发布 wf.chart 状态节点…</div>
                 </template>
                 <template v-else-if="activeView === 'flow'">
                     <div class="mb-1 text-xs text-[var(--text-muted)]">参与者对话流（编排器 ⇄ 各 agent session ⇄ 用户；writer↔critic 这类循环在这里一目了然）</div>
@@ -278,7 +373,7 @@ onBeforeUnmount(() => {
         </details>
 
         <!-- 完成后的动作区 -->
-        <div v-if="state && state.view.status !== 'running'" class="mt-3 flex flex-wrap items-center gap-2">
+        <div v-if="props.mode === 'demo' && state && (state.view.status === 'completed' || state.view.status === 'failed')" class="mt-3 flex flex-wrap items-center gap-2">
             <button class="rounded border border-[var(--border-color)] bg-[var(--bg-main)] px-3 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="rerun(false)">↺ 重放恢复（应全部命中缓存）</button>
             <template v-if="scenarioKey === 'split-book' && state.view.status === 'completed'">
                 <input v-model="styleModeInput" class="w-32 rounded border border-[var(--border-color)] bg-[var(--bg-main)] px-2 py-1 text-xs text-[var(--text-main)]">

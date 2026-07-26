@@ -45,7 +45,7 @@ describe("ChapterWriterBriefService", () => {
     it("autonomous ready：只给查询提示,不展开状态,含信息控制与建议读取", async () => {
         const {service, sceneWorldContextService} = createService([createRecord()]);
 
-        const brief = await service.getChapterWriterBrief("workspace/novel", chapterId, "autonomous");
+        const brief = await service.getChapterWriterBrief(chapterId, "autonomous");
 
         expect(brief.status).toBe("ready");
         expect(brief.mode).toBe("autonomous");
@@ -73,7 +73,7 @@ describe("ChapterWriterBriefService", () => {
     it("curated ready：展开 World Context 状态摘要供投喂", async () => {
         const {service} = createService([createRecord()]);
 
-        const brief = await service.getChapterWriterBrief("workspace/novel", chapterId, "curated");
+        const brief = await service.getChapterWriterBrief(chapterId, "curated");
 
         expect(brief.status).toBe("ready");
         expect(brief.mode).toBe("curated");
@@ -95,7 +95,7 @@ describe("ChapterWriterBriefService", () => {
             briefHintOnly: null,
         }));
 
-        const brief = await service.getChapterWriterBrief("workspace/novel", chapterId, "autonomous");
+        const brief = await service.getChapterWriterBrief(chapterId, "autonomous");
 
         expect(brief.status).toBe("needs_chapter_brief");
         expect(brief.warnings.some((warning) => warning.includes("信息控制未填写"))).toBe(true);
@@ -111,7 +111,7 @@ describe("ChapterWriterBriefService", () => {
             briefHintOnly: null,
         });
         const before = createService([createRecord()], {}, stored);
-        expect((await before.service.getChapterWriterBrief("workspace/novel", chapterId, "autonomous")).status).toBe("needs_chapter_brief");
+        expect((await before.service.getChapterWriterBrief(chapterId, "autonomous")).status).toBe("needs_chapter_brief");
 
         // 阶段二：用真实 ChapterService.updateStoryChapter 应用 save_story_chapter 工具透传的 brief patch（{brief: {mustHide}}）。
         const chapterService = new ChapterService(
@@ -133,19 +133,19 @@ describe("ChapterWriterBriefService", () => {
             } as unknown as PlotScopeGuard,
             new PlotDtoAssembler(),
         );
-        await chapterService.updateStoryChapter("workspace/novel", chapterId, {
+        await chapterService.updateStoryChapter(chapterId, {
             brief: {mustHide: "薇洛丝不知道项链是前作遗物"},
         });
 
         // 阶段三：重新编译 brief → ready，死锁解除。
         const after = createService([createRecord()], {}, stored);
-        expect((await after.service.getChapterWriterBrief("workspace/novel", chapterId, "autonomous")).status).toBe("ready");
+        expect((await after.service.getChapterWriterBrief(chapterId, "autonomous")).status).toBe("ready");
     });
 
     it("needs_plot：章节没有关联 Scene 时要求先补 Plot", async () => {
         const {service, sceneWorldContextService} = createService([]);
 
-        const brief = await service.getChapterWriterBrief("workspace/novel", chapterId, "autonomous");
+        const brief = await service.getChapterWriterBrief(chapterId, "autonomous");
 
         expect(brief.status).toBe("needs_plot");
         expect(brief.scenes).toEqual([]);
@@ -156,7 +156,7 @@ describe("ChapterWriterBriefService", () => {
     it("needs_world_anchor：Scene 缺少完整时间范围时不查询 World Context", async () => {
         const {service, sceneWorldContextService} = createService([createRecord({startInstant: null})]);
 
-        const brief = await service.getChapterWriterBrief("workspace/novel", chapterId, "autonomous");
+        const brief = await service.getChapterWriterBrief(chapterId, "autonomous");
 
         expect(brief.status).toBe("needs_world_anchor");
         expect(brief.scenes[0]?.worldContext).toBeNull();
@@ -167,7 +167,7 @@ describe("ChapterWriterBriefService", () => {
     it("needs_world_context：存在 unresolved subject 时阻断 handoff", async () => {
         const {service} = createService([createRecord()], {unresolvedSubjectIds: ["future-ally"]});
 
-        const brief = await service.getChapterWriterBrief("workspace/novel", chapterId, "autonomous");
+        const brief = await service.getChapterWriterBrief(chapterId, "autonomous");
 
         expect(brief.status).toBe("needs_world_context");
         expect(brief.warnings).toContain("Scene「神殿相遇」存在未解析 subject：future-ally。");
@@ -193,7 +193,7 @@ describe("ChapterWriterBriefService", () => {
         ]);
         const {service} = createService(records, {}, chapterEntity(), {beatsByScene});
 
-        const brief = await service.getChapterWriterBrief("workspace/novel", chapterId, "autonomous");
+        const brief = await service.getChapterWriterBrief(chapterId, "autonomous");
 
         // DTO:任务按章内 Scene 顺序平铺;payoffExpectation 只附在 payoff 任务上。
         expect(brief.promiseTasks).toHaveLength(3);
@@ -231,7 +231,7 @@ describe("ChapterWriterBriefService", () => {
         ]);
         const {service, promiseRepository} = createService(records, {}, chapterEntity(), {beatsByScene});
 
-        const brief = await service.getChapterWriterBrief("workspace/novel", chapterId, "autonomous");
+        const brief = await service.getChapterWriterBrief(chapterId, "autonomous");
 
         expect(brief.promiseTasks).toEqual([]);
         expect(brief.suggestedBriefMarkdown).not.toContain("本章 Promise 任务");
@@ -262,7 +262,7 @@ describe("ChapterWriterBriefService", () => {
         const beatsByScene = new Map<number, StoryPromiseBeatWithPromise[]>([[10, [createBeat()]]]);
         const {service} = createService([createRecord()], {}, chapterEntity(), {beatsByScene, decisions, chapters});
 
-        const brief = await service.getChapterWriterBrief("workspace/novel", chapterId, "autonomous");
+        const brief = await service.getChapterWriterBrief(chapterId, "autonomous");
 
         const touched = brief.openDecisions.map((decision) => decision.name);
         expect(touched).toEqual(["d-anchor-chapter", "d-anchor-scene", "d-anchor-thread", "d-anchor-promise", "d-deadline-near", "d-deadline-passed"]);
@@ -292,7 +292,7 @@ describe("ChapterWriterBriefService", () => {
         ];
         const {service} = createService([createRecord()], {}, chapterEntity(), {decisions});
 
-        const brief = await service.getChapterWriterBrief("workspace/novel", chapterId, "autonomous");
+        const brief = await service.getChapterWriterBrief(chapterId, "autonomous");
 
         expect(brief.openDecisions).toEqual([]);
         expect(brief.suggestedBriefMarkdown).not.toContain("未决决策警告");
@@ -303,7 +303,7 @@ describe("ChapterWriterBriefService", () => {
         const decisions = [createDecisionDto({anchorKind: "chapter", anchorTargetId: "7"})];
         const {service} = createService([createRecord()], {}, chapterEntity(), {beatsByScene, decisions});
 
-        const brief = await service.getChapterWriterBrief("workspace/novel", chapterId, "curated");
+        const brief = await service.getChapterWriterBrief(chapterId, "curated");
 
         const md = brief.suggestedBriefMarkdown;
         expect(md).toContain("World slices");
@@ -346,7 +346,7 @@ function createService(
         getSceneWorldContextForScene: vi.fn(async () => createWorldContext(contextPatch)),
     } as unknown as SceneWorldContextService & {getSceneWorldContextForScene: ReturnType<typeof vi.fn>};
     const anchorResolutionService = {
-        resolveMany: vi.fn(async (_projectPath: string, anchors: StorySceneWorldAnchorDto[]) => anchors.map(resolveAnchor)),
+        resolveMany: vi.fn(async (anchors: StorySceneWorldAnchorDto[]) => anchors.map(resolveAnchor)),
     } as unknown as SceneWorldAnchorResolutionService & {resolveMany: ReturnType<typeof vi.fn>};
     // cast 原因:测试桩只实现 brief 编译消费的单个方法,不实现全量接口。
     const promiseRepository = {

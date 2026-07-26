@@ -16,7 +16,7 @@ export type StoredContent = TextContent | StoredAttachmentContent;
 
 /** 用户消息的持久化形态；禁止 Pi ImageContent。 */
 export type StoredUserMessage = Omit<UserMessage, "content"> & {
-    content: string | StoredContent[];
+    content: StoredContent[];
 };
 
 /** 工具结果的持久化形态；details 必须是 JSON value。 */
@@ -31,28 +31,35 @@ export type StoredToolResultMessage = {
     timestamp: number;
 };
 
-/** JSONL、RunFrame、queue、hook 与 sidecar 共用的 Agent 消息真相。 */
+/** JSONL、RunFrame、queue 与 hook 共用的 Agent 消息真相。 */
 export type StoredAgentMessage = StoredUserMessage | AssistantMessage | StoredToolResultMessage;
 
 /** invocation/steer/follow-up 在 admission 后使用的引用态输入。 */
 export type StoredAgentUserMessageInput = {
-    text: string;
-    attachments?: StoredAttachmentContent[];
+    /** 正文与附件的唯一有序真相。 */
+    content: StoredContent[];
 };
 
 /** follow-up queue 中一条已经完成 attachment admission 的调用输入。 */
 export type StoredFollowUpQueueItem = {
     id: string;
+    clientMessageId: string;
     kind: "followup";
     message?: StoredAgentUserMessageInput;
     input?: JsonValue;
+    /** 该排队 invocation 的一次性模型覆盖；drain 后不得写回 session。 */
+    modelKey?: string;
     createdAt: number;
 };
 
 /** follow-up 暂停原因；只在 paused 状态存在。 */
 export type StoredFollowUpQueuePause = {
     invocationId: string;
-    reason: "error" | "aborted" | "interrupted";
+    /** admission_error 时指向仍保留在队首的失败项。 */
+    itemId?: string;
+    reason: "error" | "aborted" | "interrupted" | "admission_error";
+    /** admission_error 的有界用户可读原因。 */
+    message?: string;
 };
 
 /** 持久化在 session custom state 中的 follow-up queue 真相。 */

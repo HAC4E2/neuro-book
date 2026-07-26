@@ -1,6 +1,13 @@
 import type {StoredAgentMessage} from "nbook/server/agent/messages/stored-types";
 import {createStoredUserMessage} from "nbook/server/agent/messages/message-utils";
-import {advanceAgentCursor, readUnseenForAgent} from "nbook/server/workspace-history/project-history";
+import {requireReadyModuleHandle} from "nbook/server/workspace-files/project-session";
+import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
+import {
+    advanceAgentCursor,
+    PROJECT_HISTORY_MODULE_TOKEN,
+    readUnseenForAgent,
+    type ProjectHistoryHandle,
+} from "nbook/server/workspace-history/project-history";
 import {
     readAgentChangeDiffDetails,
     type AgentChangeDiffDetail,
@@ -12,7 +19,6 @@ import {
     MAX_AGENT_CHANGE_NOTICE_CHARS,
 } from "nbook/shared/agent/file-change-policy";
 import type {OperationActor, UnseenGroup} from "nbook/server/vendor/nb-history/index";
-import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 export type FileChangeAwareness = "off" | "minimal" | "full";
 
@@ -25,8 +31,8 @@ export type ProfileTurnContextPlan = {
 
 export type ProfileTurnContextSettlement = {
     kind: "file-change-notice";
-    projectRoot: AbsoluteFsPath;
-    projectPath: string;
+    /** 与本轮 notice 查询相同的 ProjectSession generation History handle。 */
+    history: ProjectHistoryHandle;
     sessionId: number;
     /** nb-history last_seen_entry_id，成功 ingest 后原样推进。 */
     entryId: number;
@@ -57,24 +63,31 @@ export function previewProfileTurnContexts(plans: ProfileTurnContextPlan[], diff
  */
 export async function materializeProfileTurnContexts(input: {
     plans: ProfileTurnContextPlan[];
-    projectRoot?: AbsoluteFsPath;
-    projectPath?: string;
+    project: ReadyProjectSessionRef | null;
     sessionId: number;
     diffMaxChars: number;
 }): Promise<MaterializedProfileTurnContext> {
-    if (!input.projectRoot || !input.projectPath || input.plans.length === 0) {
+    if (!input.project || input.plans.length === 0) {
+        return {insertions: [], settlements: []};
+    }
+    let history: ProjectHistoryHandle;
+    try {
+        history = requireReadyModuleHandle(
+            input.project,
+            PROJECT_HISTORY_MODULE_TOKEN,
+        );
+    } catch {
         return {insertions: [], settlements: []};
     }
     const insertions: MaterializedProfileTurnContext["insertions"] = [];
     const settlements: ProfileTurnContextSettlement[] = [];
     for (const plan of input.plans) {
-        const groups = await readUnseenForAgent(input.projectRoot, input.projectPath, input.sessionId);
+        const groups = await readUnseenForAgent(history, input.sessionId);
         if (groups.length === 0) {
             continue;
         }
         const diffDetails = await readAgentChangeDiffDetails({
-            projectRoot: input.projectRoot,
-            projectPath: input.projectPath,
+            history,
             groups,
             maxChars: input.diffMaxChars,
         });
@@ -84,8 +97,7 @@ export async function materializeProfileTurnContexts(input: {
         });
         settlements.push({
             kind: "file-change-notice",
-            projectRoot: input.projectRoot,
-            projectPath: input.projectPath,
+            history,
             sessionId: input.sessionId,
             entryId: Math.max(...groups.map((group) => group.maxEntryId)),
         });
@@ -124,8 +136,7 @@ export function mergeProfileTurnContextMessages(
 export async function settleProfileTurnContexts(settlements: ProfileTurnContextSettlement[]): Promise<void> {
     for (const settlement of settlements) {
         await advanceAgentCursor(
-            settlement.projectRoot,
-            settlement.projectPath,
+            settlement.history,
             settlement.sessionId,
             settlement.entryId,
         );

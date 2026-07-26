@@ -1,4 +1,4 @@
-import type {AgentChatEntryDto, PublicTextPreviewDto} from "nbook/shared/dto/agent-public-event.dto";
+import type {AgentChatEntryDto, AgentChatUserEntryDto} from "nbook/shared/dto/agent-public-event.dto";
 import type {
     AgentPendingUserInputDto,
     AgentRuntimeStreamEventDto,
@@ -7,6 +7,7 @@ import type {
     AgentSessionLiveStateDto,
     AgentSessionRecoveryDto,
     AgentSessionRelationsDto,
+    AgentSessionAttachmentItemDto,
     AgentSessionSystemPromptDto,
 } from "nbook/shared/dto/agent-session.dto";
 import {resolveApiErrorMessage, resolveApiErrorStatus} from "nbook/app/utils/api-error";
@@ -19,10 +20,10 @@ import {
     publicToolArgsJsonValue,
     reconcileMessages,
     toPendingUserInputSession,
-    userEntryTextPreview,
     type AgentMessage,
     type AgentPendingUserInputSession,
 } from "nbook/app/components/novel-ide/agent/agent-message";
+import {optimisticUserMessage} from "nbook/app/components/novel-ide/agent/agent-user-message-markdown";
 
 export type AgentConnectionStatus = "idle" | "connecting" | "connected" | "reconnecting" | "recovering" | "disconnected";
 
@@ -40,7 +41,6 @@ export type AgentRunPhase =
 export type AgentRecoveryShell = Omit<AgentSessionRecoveryDto, "history">;
 export type AgentHistoryLoader = (sessionId: number, cursor: string) => Promise<AgentSessionHistoryPageDto>;
 export type AgentSystemPromptLoader = (sessionId: number) => Promise<AgentSessionSystemPromptDto>;
-const UTF8_ENCODER = new TextEncoder();
 
 /** recovery 应用后的本地窗口变化，供既有副作用 seam 消费。 */
 export type AgentRecoveryApplyResult = {
@@ -113,7 +113,6 @@ export function useAgentSession() {
     let historyRequest: {sessionId: number; cursor: string; promise: Promise<boolean>} | null = null;
     let systemPromptRequest: {sessionId: number; promise: Promise<boolean>} | null = null;
     let historyWindowInvalid = false;
-    let optimisticMessageSequence = 0;
     let requestGeneration = 0;
 
     const durableMessages = computed(() => deriveMessagesFromChatEntries(durableEntries.value, {
@@ -257,37 +256,54 @@ export function useAgentSession() {
         pendingUserInputSessions.value = [];
     };
 
-    /** 追加与 durable history 分离的乐观用户消息。 */
-    const appendOptimisticUserMessage = (content: string): void => {
-        optimisticMessageSequence += 1;
+    /** 追加与 durable history 分离的保序乐观用户消息，并返回可回滚 ID。 */
+    const appendOptimisticUserMessage = (
+        clientMessageId: string,
+        content: string,
+        attachments: readonly AgentSessionAttachmentItemDto[] = [],
+        deliveryMode: "prompt" | "steer" | "followup" = "prompt",
+    ): string => {
+        const id = `optimistic-user:${clientMessageId}`;
         optimisticMessages.value = [
             ...optimisticMessages.value,
-            {
-                id: `optimistic-user-${String(optimisticMessageSequence)}`,
-                type: "user",
-                content,
-                status: "done",
+            optimisticUserMessage({
+                id,
+                clientMessageId,
+                markdown: content,
+                attachments,
                 timestamp: formatTimestamp(Date.now()),
-            },
+                deliveryMode,
+            }),
         ];
+        return id;
     };
 
-    /** durable user entry 每次只消费一条最早的匹配 optimistic message。 */
-    const consumeOptimisticUserMessages = (contents: PublicTextPreviewDto[]): void => {
-        const remaining = [...optimisticMessages.value];
-        for (const content of contents) {
-            const index = remaining.findIndex((message) => {
-                if (!content.omitted) {
-                    return message.content === content.preview;
-                }
-                return UTF8_ENCODER.encode(message.content).byteLength === content.bytes
-                    && message.content.startsWith(content.preview);
-            });
-            if (index >= 0) {
-                remaining.splice(index, 1);
-            }
-        }
-        optimisticMessages.value = remaining;
+    /** admission 或 transport 失败时按 ID 回滚尚未 durable 化的乐观消息。 */
+    const removeOptimisticUserMessage = (messageId: string): void => {
+        optimisticMessages.value = optimisticMessages.value.filter((message) => message.id !== messageId);
+    };
+
+    /** transport failure 后保留本地占位并明确标记 unknown。 */
+    const markOptimisticUserMessageUnknown = (clientMessageId: string): void => {
+        optimisticMessages.value = optimisticMessages.value.map((message) => message.clientMessageId === clientMessageId
+            ? {...message, deliveryState: "unknown"}
+            : message);
+    };
+
+    /** queue SSE/recovery 也可按 clientMessageId 消费对应 optimistic。 */
+    const consumeOptimisticClientMessageIds = (clientMessageIds: readonly string[]): void => {
+        const accepted = new Set(clientMessageIds);
+        optimisticMessages.value = optimisticMessages.value.filter((message) => {
+            return !message.clientMessageId || !accepted.has(message.clientMessageId);
+        });
+    };
+
+    /** durable user entry 按 clientMessageId 精确消费对应 optimistic message。 */
+    const consumeOptimisticUserMessages = (entries: AgentChatUserEntryDto[]): void => {
+        const accepted = new Set(entries.map((entry) => entry.clientMessageId));
+        optimisticMessages.value = optimisticMessages.value.filter((message) => {
+            return !message.clientMessageId || !accepted.has(message.clientMessageId);
+        });
     };
 
     /** 记录一次需要通过唯一 recovery GET 恢复的原因。 */
@@ -343,8 +359,8 @@ export function useAgentSession() {
             liveOverlay.value = reconciled.filter((message) => message.projectionSource === "live");
         }
         if (sameDurableRevision) {
-            consumeOptimisticUserMessages(payload.history.entries.flatMap((entry) => {
-                return entry.type === "user" && !existingEntryIds.has(entry.id) ? [userEntryTextPreview(entry)] : [];
+            consumeOptimisticUserMessages(payload.history.entries.filter((entry): entry is AgentChatUserEntryDto => {
+                return entry.type === "user" && !existingEntryIds.has(entry.id);
             }));
         }
         applyRunState(payload.activeInvocation, payload.pendingUserInputs);
@@ -604,7 +620,7 @@ export function useAgentSession() {
             durableEntries.value = mergeDurableEntries(durableEntries.value, [entry]);
             liveOverlay.value = projected.filter((message) => message.projectionSource === "live");
             if (entry.type === "user") {
-                consumeOptimisticUserMessages([userEntryTextPreview(entry)]);
+                consumeOptimisticUserMessages([entry]);
             }
             if (entry.type === "tool_result") {
                 pendingUserInputSessions.value = pendingUserInputSessions.value.filter((session) => {
@@ -684,6 +700,9 @@ export function useAgentSession() {
         previousCursor,
         recoveryReasons,
         recoveryShell,
+        removeOptimisticUserMessage,
+        markOptimisticUserMessageUnknown,
+        consumeOptimisticClientMessageIds,
         requestRecovery,
         reset,
         runPhase,
@@ -702,7 +721,12 @@ function mergeMessageLayers(durable: AgentMessage[], live: AgentMessage[], optim
     for (const message of live) {
         if (!durableIds.has(message.id)) merged.push(message);
     }
-    const optimisticWithoutDurable = optimistic.filter((message) => !merged.some((current) => current.type === "user" && current.content === message.content));
+    const durableClientMessageIds = new Set(merged.flatMap((message) => {
+        return message.type === "user" && message.clientMessageId ? [message.clientMessageId] : [];
+    }));
+    const optimisticWithoutDurable = optimistic.filter((message) => {
+        return !message.clientMessageId || !durableClientMessageIds.has(message.clientMessageId);
+    });
     return reconcileMessages(merged, [...merged, ...optimisticWithoutDurable]);
 }
 

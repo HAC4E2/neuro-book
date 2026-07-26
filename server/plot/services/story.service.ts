@@ -12,8 +12,7 @@ import {PlotDtoAssembler} from "nbook/server/plot/assemblers/plot-dto.assembler"
 import type {ParsedReorderStoryPhaseItem} from "nbook/server/plot/core/types";
 import {OrderService} from "nbook/server/plot/services/order.service";
 import {PlotScopeGuard} from "nbook/server/plot/services/plot-scope.guard";
-import {readProjectManifest} from "nbook/server/workspace-files/project-workspace";
-import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import type {ProjectManifest} from "nbook/server/workspace-files/project-workspace";
 import type {
     CreateStoryPhaseRequestDto,
     PlotWorkbenchDto,
@@ -29,7 +28,7 @@ import type {
  */
 export class StoryService {
     constructor(
-        private readonly workspaceRoot: AbsoluteFsPath,
+        private readonly project: ProjectManifest,
         private readonly storyRepository: StoryRepository,
         private readonly threadRepository: ThreadRepository,
         private readonly chapterRepository: ChapterRepository,
@@ -43,31 +42,30 @@ export class StoryService {
     /**
      * 确保当前 Project SQLite 已有唯一 Story。
      */
-    async ensureStory(projectPath: string): Promise<Story> {
+    async ensureStory(): Promise<Story> {
         const existing = await this.storyRepository.findStory();
         if (existing) {
             return existing;
         }
-        const manifest = await readProjectManifest(this.workspaceRoot, projectPath);
         return this.storyRepository.createStory({
-            title: manifest.title,
-            summary: manifest.summary,
+            title: this.project.title,
+            summary: this.project.summary,
         });
     }
 
     /**
      * 查询 Story DTO。
      */
-    async getStoryDto(projectPath: string): Promise<StoryDto> {
-        const story = await this.ensureStory(projectPath);
+    async getStoryDto(): Promise<StoryDto> {
+        const story = await this.ensureStory();
         return this.assembler.toStoryDto(story);
     }
 
     /**
      * 更新 Story。
      */
-    async updateStory(projectPath: string, patch: UpdateStoryRequestDto): Promise<StoryDto> {
-        const story = await this.ensureStory(projectPath);
+    async updateStory(patch: UpdateStoryRequestDto): Promise<StoryDto> {
+        const story = await this.ensureStory();
         const updatedStory = await this.storyRepository.updateStory(story.id, {
             title: patch.title,
             summary: patch.summary,
@@ -80,8 +78,8 @@ export class StoryService {
     /**
      * 读取剧情树(因果树 + 承载树 + 规划层摘要 openPromiseCount/openDecisionCount)。
      */
-    async getPlotTree(projectPath: string): Promise<PlotTreeDto> {
-        const story = await this.ensureStory(projectPath);
+    async getPlotTree(): Promise<PlotTreeDto> {
+        const story = await this.ensureStory();
         const [phases, ungroupedThreads, acts, ungroupedChapters, openPromiseCount, openDecisionCount] = await Promise.all([
             this.threadRepository.findPhaseThreadsWithScenes(story.id),
             this.threadRepository.findUngroupedThreads(story.id),
@@ -105,8 +103,8 @@ export class StoryService {
     /**
      * 读取剧本工作台聚合数据。
      */
-    async getPlotWorkbench(projectPath: string): Promise<PlotWorkbenchDto> {
-        const story = await this.ensureStory(projectPath);
+    async getPlotWorkbench(): Promise<PlotWorkbenchDto> {
+        const story = await this.ensureStory();
         const [phases, ungroupedThreads] = await Promise.all([
             this.threadRepository.findWorkbenchPhaseThreads(story.id),
             this.threadRepository.findUngroupedWorkbenchThreads(story.id),
@@ -122,8 +120,8 @@ export class StoryService {
     /**
      * 查询剧情阶段详情。
      */
-    async getStoryPhaseDto(projectPath: string, phaseId: number): Promise<StoryPhaseDto> {
-        const story = await this.ensureStory(projectPath);
+    async getStoryPhaseDto(phaseId: number): Promise<StoryPhaseDto> {
+        const story = await this.ensureStory();
         const phase = await this.scopeGuard.assertPhase(story.id, phaseId);
         return this.assembler.toStoryPhaseDto(phase);
     }
@@ -131,8 +129,8 @@ export class StoryService {
     /**
      * 创建剧情阶段。
      */
-    async createStoryPhase(projectPath: string, input: CreateStoryPhaseRequestDto): Promise<StoryPhaseDto> {
-        const story = await this.ensureStory(projectPath);
+    async createStoryPhase(input: CreateStoryPhaseRequestDto): Promise<StoryPhaseDto> {
+        const story = await this.ensureStory();
         await this.scopeGuard.assertPhaseNameUnique(story.id, input.name);
 
         const phase = await this.storyRepository.createPhase({
@@ -151,11 +149,10 @@ export class StoryService {
      * 更新剧情阶段。
      */
     async updateStoryPhase(
-        projectPath: string,
         phaseId: number,
         patch: UpdateStoryPhaseRequestDto,
     ): Promise<StoryPhaseDto> {
-        const story = await this.ensureStory(projectPath);
+        const story = await this.ensureStory();
         const phase = await this.scopeGuard.assertPhase(story.id, phaseId);
 
         if (patch.name !== undefined && patch.name !== phase.name) {
@@ -175,8 +172,8 @@ export class StoryService {
     /**
      * 删除剧情阶段。
      */
-    async deleteStoryPhase(projectPath: string, phaseId: number): Promise<void> {
-        const story = await this.ensureStory(projectPath);
+    async deleteStoryPhase(phaseId: number): Promise<void> {
+        const story = await this.ensureStory();
         const phase = await this.scopeGuard.assertPhase(story.id, phaseId);
         const phaseThreads = await this.threadRepository.findThreadsByStoryPhase(story.id, phase.id);
 
@@ -196,8 +193,8 @@ export class StoryService {
     /**
      * 批量重排阶段。
      */
-    async reorderStoryPhases(projectPath: string, items: ParsedReorderStoryPhaseItem[]): Promise<PlotTreeDto> {
-        const story = await this.ensureStory(projectPath);
+    async reorderStoryPhases(items: ParsedReorderStoryPhaseItem[]): Promise<PlotTreeDto> {
+        const story = await this.ensureStory();
         const existingPhaseIds = await this.scopeGuard.listPhaseIds(story.id);
         const parsedItems = this.orderService.validatePhaseReorderItems(existingPhaseIds, items);
 
@@ -205,6 +202,6 @@ export class StoryService {
             await this.storyRepository.updatePhase(item.phaseId, {sortOrder: item.sortOrder});
         }
 
-        return this.getPlotTree(projectPath);
+        return this.getPlotTree();
     }
 }

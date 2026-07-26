@@ -43,7 +43,7 @@ describe("ThreadService", () => {
             promiseService,
         );
 
-        await service.deleteStoryThread("workspace/novel-1", 5);
+        await service.deleteStoryThread(5);
 
         // 顺序不变式:收集必须发生在删除前(倒置会永远收集不到);回退用收集到的全量 id(去重在回退入口内做)。
         expect(calls).toEqual(["collect:10", "collect:11", "delete", "revert:31,31,32"]);

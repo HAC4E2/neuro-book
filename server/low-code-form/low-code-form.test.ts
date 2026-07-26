@@ -15,6 +15,12 @@ import {
 } from "nbook/server/low-code-form";
 import {ensureGlobalProfileHome, ensureProfileHome} from "nbook/server/agent/profiles/profile-home";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {
+    createProjectWorkspaceKey,
+    projectWorkspaceRef,
+    resolvedProjectWorkspace,
+    type ResolvedProjectWorkspace,
+} from "nbook/server/workspace-files/project-identity";
 
 describe("low-code form", () => {
     it("合并 defaults 并用 TypeBox 校验值", () => {
@@ -256,10 +262,10 @@ describe("low-code form", () => {
     it("Project scope 下 resource-preset 列出 Markdown 资源并校验 selected key", async () => {
         const projectRoot = await mkdtemp(path.join(tmpdir(), "nbook-low-code-resource-"));
         try {
-            const home = await ensureProfileHome({projectRoot, profileKey: "writer", profileVersion: 1});
+            const {home, projectWorkspace} = await projectHomeForTest(projectRoot);
             await home.writeText("styles/plain.md", "---\ntitle: \"朴素\"\n---\n\n正文", {mode: "overwrite"});
             const form = resourceForm();
-            const ctx = context({scope: "project", home, values: {preset: "styles/plain.md"}});
+            const ctx = context({scope: "project", projectWorkspace, home, values: {preset: "styles/plain.md"}});
 
             const dto = await resolveLowCodeForm(form, ctx);
             const result = await validateLowCodeFormValue(form, {preset: "styles/missing.md"}, ctx);
@@ -278,12 +284,12 @@ describe("low-code form", () => {
         const projectRoot = await mkdtemp(path.join(tmpdir(), "nbook-low-code-resource-"));
         const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-low-code-global-resource-"));
         try {
-            const home = await ensureProfileHome({projectRoot, profileKey: "writer", profileVersion: 1});
+            const {home, projectWorkspace} = await projectHomeForTest(projectRoot);
             const globalHome = await ensureGlobalProfileHome({workspaceRoot: absoluteFsPath(workspaceRoot), profileKey: "writer", profileVersion: 1});
             await home.writeText("styles/project.md", "---\ntitle: \"项目文风\"\n---\n\n项目正文", {mode: "overwrite"});
             await globalHome.writeText("styles/global.md", "---\ntitle: \"全局文风\"\n---\n\n全局正文", {mode: "overwrite"});
             const form = resourceForm();
-            const ctx = context({scope: "project", home, globalHome, values: {preset: "styles/global.md"}});
+            const ctx = context({scope: "project", projectWorkspace, home, globalHome, values: {preset: "styles/global.md"}});
 
             const dto = await resolveLowCodeForm(form, ctx);
             const strictValidation = await validateLowCodeFormValue(form, {preset: "styles/global.md"}, ctx);
@@ -305,9 +311,9 @@ describe("low-code form", () => {
     it("resource mutations 先执行，再允许 selected key 通过校验", async () => {
         const projectRoot = await mkdtemp(path.join(tmpdir(), "nbook-low-code-resource-"));
         try {
-            const home = await ensureProfileHome({projectRoot, profileKey: "writer", profileVersion: 1});
+            const {home, projectWorkspace} = await projectHomeForTest(projectRoot);
             const form = resourceForm();
-            const ctx = context({scope: "project", home, values: {preset: "styles/new.md"}});
+            const ctx = context({scope: "project", projectWorkspace, home, values: {preset: "styles/new.md"}});
 
             const mutationResults = await applyLowCodeResourceMutations(form, [{
                 type: "create",
@@ -329,13 +335,13 @@ describe("low-code form", () => {
     it("resource mutations 禁止删除当前 selected key", async () => {
         const projectRoot = await mkdtemp(path.join(tmpdir(), "nbook-low-code-resource-"));
         try {
-            const home = await ensureProfileHome({projectRoot, profileKey: "writer", profileVersion: 1});
+            const {home, projectWorkspace} = await projectHomeForTest(projectRoot);
             await home.writeText("styles/plain.md", "正文", {mode: "overwrite"});
             const result = await applyLowCodeResourceMutations(resourceForm(), [{
                 type: "remove",
                 fieldPath: "preset",
                 key: "styles/plain.md",
-            }], context({scope: "project", home}), {preset: "styles/plain.md"});
+            }], context({scope: "project", projectWorkspace, home}), {preset: "styles/plain.md"});
 
             expect(result[0]?.issues[0]).toMatchObject({code: "resource_in_use"});
             await expect(home.exists("styles/plain.md")).resolves.toBe(true);
@@ -347,7 +353,7 @@ describe("low-code form", () => {
     it("resource mutations 新建目标已存在时失败且不覆盖原文件", async () => {
         const projectRoot = await mkdtemp(path.join(tmpdir(), "nbook-low-code-resource-"));
         try {
-            const home = await ensureProfileHome({projectRoot, profileKey: "writer", profileVersion: 1});
+            const {home, projectWorkspace} = await projectHomeForTest(projectRoot);
             await home.writeText("styles/new.md", "旧正文", {mode: "overwrite"});
 
             const result = await applyLowCodeResourceMutations(resourceForm(), [{
@@ -356,7 +362,7 @@ describe("low-code form", () => {
                 label: "新文风",
                 slug: "new",
                 content: "新的正文",
-            }], context({scope: "project", home}), {preset: "styles/new.md"});
+            }], context({scope: "project", projectWorkspace, home}), {preset: "styles/new.md"});
 
             expect(result[0]?.issues[0]).toMatchObject({code: "resource_exists"});
             await expect(home.readText("styles/new.md")).resolves.toBe("旧正文");
@@ -368,7 +374,7 @@ describe("low-code form", () => {
     it("resource mutations 重命名目标已存在时失败且不修改目标文件", async () => {
         const projectRoot = await mkdtemp(path.join(tmpdir(), "nbook-low-code-resource-"));
         try {
-            const home = await ensureProfileHome({projectRoot, profileKey: "writer", profileVersion: 1});
+            const {home, projectWorkspace} = await projectHomeForTest(projectRoot);
             await home.writeText("styles/source.md", "源正文", {mode: "overwrite"});
             await home.writeText("styles/taken.md", "---\ntitle: \"已有\"\n---\n\n已有正文", {mode: "overwrite"});
 
@@ -378,7 +384,7 @@ describe("low-code form", () => {
                 key: "styles/source.md",
                 label: "改名",
                 slug: "taken",
-            }], context({scope: "project", home}), {preset: "styles/taken.md"});
+            }], context({scope: "project", projectWorkspace, home}), {preset: "styles/taken.md"});
 
             expect(result[0]?.issues[0]).toMatchObject({code: "resource_exists"});
             await expect(home.readText("styles/source.md")).resolves.toBe("源正文");
@@ -391,7 +397,7 @@ describe("low-code form", () => {
     it("resource mutations 执行前先整批校验，后续失败时前面的新建也不落盘", async () => {
         const projectRoot = await mkdtemp(path.join(tmpdir(), "nbook-low-code-resource-"));
         try {
-            const home = await ensureProfileHome({projectRoot, profileKey: "writer", profileVersion: 1});
+            const {home, projectWorkspace} = await projectHomeForTest(projectRoot);
             await home.writeText("styles/taken.md", "已有正文", {mode: "overwrite"});
 
             const result = await applyLowCodeResourceMutations(resourceForm(), [{
@@ -406,7 +412,7 @@ describe("low-code form", () => {
                 label: "冲突",
                 slug: "taken",
                 content: "冲突正文",
-            }], context({scope: "project", home}), {preset: "styles/first.md"});
+            }], context({scope: "project", projectWorkspace, home}), {preset: "styles/first.md"});
 
             expect(result[1]?.issues[0]).toMatchObject({code: "resource_exists"});
             await expect(home.exists("styles/first.md")).resolves.toBe(false);
@@ -419,7 +425,7 @@ describe("low-code form", () => {
     it("resource mutations 预校验使用 resolver key 规则，非法 slug 不会导致前序新建落盘", async () => {
         const projectRoot = await mkdtemp(path.join(tmpdir(), "nbook-low-code-resource-"));
         try {
-            const home = await ensureProfileHome({projectRoot, profileKey: "writer", profileVersion: 1});
+            const {home, projectWorkspace} = await projectHomeForTest(projectRoot);
 
             const result = await applyLowCodeResourceMutations(resourceForm(), [{
                 type: "create",
@@ -433,7 +439,7 @@ describe("low-code form", () => {
                 label: "非法",
                 slug: "bad/name",
                 content: "非法正文",
-            }], context({scope: "project", home}), {preset: "styles/first.md"});
+            }], context({scope: "project", projectWorkspace, home}), {preset: "styles/first.md"});
 
             expect(result[1]?.issues[0]).toMatchObject({code: "resource_key"});
             await expect(home.exists("styles/first.md")).resolves.toBe(false);
@@ -445,7 +451,7 @@ describe("low-code form", () => {
     it("resource mutations 支持新建后编辑再重命名并保留最终内容", async () => {
         const projectRoot = await mkdtemp(path.join(tmpdir(), "nbook-low-code-resource-"));
         try {
-            const home = await ensureProfileHome({projectRoot, profileKey: "writer", profileVersion: 1});
+            const {home, projectWorkspace} = await projectHomeForTest(projectRoot);
 
             const result = await applyLowCodeResourceMutations(resourceForm(), [{
                 type: "create",
@@ -464,7 +470,7 @@ describe("low-code form", () => {
                 key: "styles/draft.md",
                 label: "最终文风",
                 slug: "final",
-            }], context({scope: "project", home}), {preset: "styles/final.md"});
+            }], context({scope: "project", projectWorkspace, home}), {preset: "styles/final.md"});
 
             expect(result).toEqual([
                 {fieldPath: "preset", issues: []},
@@ -481,7 +487,7 @@ describe("low-code form", () => {
     it("resource mutations 支持连续重命名后编辑最终 key", async () => {
         const projectRoot = await mkdtemp(path.join(tmpdir(), "nbook-low-code-resource-"));
         try {
-            const home = await ensureProfileHome({projectRoot, profileKey: "writer", profileVersion: 1});
+            const {home, projectWorkspace} = await projectHomeForTest(projectRoot);
             await home.writeText("styles/source.md", "源正文", {mode: "overwrite"});
 
             const result = await applyLowCodeResourceMutations(resourceForm(), [{
@@ -501,7 +507,7 @@ describe("low-code form", () => {
                 fieldPath: "preset",
                 key: "styles/final.md",
                 content: "最终正文",
-            }], context({scope: "project", home}), {preset: "styles/final.md"});
+            }], context({scope: "project", projectWorkspace, home}), {preset: "styles/final.md"});
 
             expect(result).toEqual([
                 {fieldPath: "preset", issues: []},
@@ -537,13 +543,14 @@ describe("low-code form", () => {
             }],
         });
 
-        const dto = await resolveLowCodeForm(form, context({scope: "project"}));
+        const projectWorkspace = projectWorkspaceForTest(path.resolve(".agent", "workspace", "low-code-form-context"));
+        const dto = await resolveLowCodeForm(form, context({scope: "project", projectWorkspace}));
         const result = await applyLowCodeResourceMutations(form, [{
             type: "create",
             fieldPath: "preset",
             label: "Beta",
             slug: "beta",
-        }], context({scope: "project"}), {preset: "beta"});
+        }], context({scope: "project", projectWorkspace}), {preset: "beta"});
 
         expect(dto.fields[0]?.resource?.capabilities.create).toBe(false);
         expect(result[0]?.issues[0]).toMatchObject({code: "resource_action"});
@@ -571,13 +578,14 @@ describe("low-code form", () => {
             }],
         });
 
-        const dto = await resolveLowCodeForm(form, context({scope: "project"}));
+        const projectWorkspace = projectWorkspaceForTest(path.resolve(".agent", "workspace", "low-code-form-context"));
+        const dto = await resolveLowCodeForm(form, context({scope: "project", projectWorkspace}));
         const result = await applyLowCodeResourceMutations(form, [{
             type: "create",
             fieldPath: "preset",
             label: "Beta",
             slug: "beta",
-        }], context({scope: "project"}), {preset: "beta"});
+        }], context({scope: "project", projectWorkspace}), {preset: "beta"});
 
         expect(dto.fields[0]?.resource?.capabilities.create).toBe(false);
         expect(result[0]?.issues[0]).toMatchObject({code: "resource_action"});
@@ -602,6 +610,26 @@ function resourceForm() {
             resource: profileHomeResource({directory: "styles", template: "模板"}),
         }],
     });
+}
+
+/** 为 Profile Home 测试构造完整的结构化 Project workspace。 */
+async function projectHomeForTest(projectRoot: string) {
+    const projectWorkspace = projectWorkspaceForTest(projectRoot);
+    return {
+        projectWorkspace,
+        home: await ensureProfileHome({workspace: projectWorkspace, profileKey: "writer", profileVersion: 1}),
+    };
+}
+
+/** 把临时 Project 根包装成与运行时相同的 nominal identity。 */
+function projectWorkspaceForTest(projectRoot: string): ResolvedProjectWorkspace {
+    const root = absoluteFsPath(projectRoot);
+    const ref = projectWorkspaceRef(path.basename(projectRoot));
+    return resolvedProjectWorkspace(
+        ref,
+        root,
+        createProjectWorkspaceKey(absoluteFsPath(path.dirname(projectRoot)), ref),
+    );
 }
 
 function context(overrides: Partial<LowCodeFormResolveContext> = {}): LowCodeFormResolveContext {

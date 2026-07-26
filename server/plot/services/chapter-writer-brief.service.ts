@@ -51,15 +51,15 @@ export class ChapterWriterBriefService {
      * 生成指定章节的 writer brief DTO 与可直接交给 writer 的 markdown 草案。
      * @param mode 防全知模式;默认 autonomous。
      */
-    async getChapterWriterBrief(projectPath: string, chapterId: number, mode: ChapterWriterBriefMode = "autonomous"): Promise<ChapterWriterBriefDto> {
-        const story = await this.storyService.ensureStory(projectPath);
+    async getChapterWriterBrief(chapterId: number, mode: ChapterWriterBriefMode = "autonomous"): Promise<ChapterWriterBriefDto> {
+        const story = await this.storyService.ensureStory();
         const chapter = await this.scopeGuard.assertChapter(story.id, chapterId);
         const chapterDto = this.assembler.toStoryChapterDto(chapter);
         const records = await this.sceneRepository.findChapterScenesForBrief(chapter.id);
-        const scenes = await this.buildBriefScenes(projectPath, records);
+        const scenes = await this.buildBriefScenes(records);
         const suggestedReading = this.buildSuggestedReading(records);
         const promiseTasks = await this.buildPromiseTasks(records);
-        const openDecisions = await this.buildOpenDecisionWarnings(projectPath, story.id, chapter.id, records);
+        const openDecisions = await this.buildOpenDecisionWarnings(story.id, chapter.id, records);
         const warnings = uniqueStrings(scenes.flatMap((scene) => scene.warnings));
         const status = chooseStatus(scenes, chapterDto.brief);
         if (records.length === 0) {
@@ -90,11 +90,10 @@ export class ChapterWriterBriefService {
      * 为每个 Scene 组装 brief scene item。
      */
     private async buildBriefScenes(
-        projectPath: string,
         records: ChapterWriterBriefSceneWithThread[],
     ): Promise<ChapterWriterBriefSceneDto[]> {
         const rawAnchors = records.map((record) => this.assembler.toStorySceneWorldAnchorDto(record));
-        const resolvedAnchors = await this.anchorResolutionService.resolveMany(projectPath, rawAnchors);
+        const resolvedAnchors = await this.anchorResolutionService.resolveMany(rawAnchors);
         const result: ChapterWriterBriefSceneDto[] = [];
 
         for (const [index, record] of records.entries()) {
@@ -105,7 +104,7 @@ export class ChapterWriterBriefService {
             if (record.startInstant === null || record.endInstant === null) {
                 warnings.push(`Scene「${record.title}」尚未设置完整 World Engine 时间范围。`);
             } else {
-                worldContext = await this.readWorldContext(projectPath, record, warnings);
+                worldContext = await this.readWorldContext(record, warnings);
                 if (worldContext && worldContext.unresolvedSubjectIds.length > 0) {
                     warnings.push(`Scene「${record.title}」存在未解析 subject：${worldContext.unresolvedSubjectIds.join(", ")}。`);
                 }
@@ -202,12 +201,11 @@ export class ChapterWriterBriefService {
      * archived 场与 abandoned 线——buildPromiseTasks 的严口径只管"下发任务",与此处的宽口径分离。
      */
     private async buildOpenDecisionWarnings(
-        projectPath: string,
         storyId: number,
         chapterId: number,
         records: ChapterWriterBriefSceneWithThread[],
     ): Promise<ChapterWriterBriefOpenDecisionDto[]> {
-        const openDecisions = (await this.decisionService.listStoryDecisions(projectPath)).filter((decision) => decision.status === "open");
+        const openDecisions = (await this.decisionService.listStoryDecisions()).filter((decision) => decision.status === "open");
         if (openDecisions.length === 0) {
             return [];
         }
@@ -254,12 +252,11 @@ export class ChapterWriterBriefService {
      * 读取单个 Scene 的 World Engine 上下文，失败时只记录通用 warning。
      */
     private async readWorldContext(
-        projectPath: string,
         record: ChapterWriterBriefSceneWithThread,
         warnings: string[],
     ): Promise<SceneWorldContextDto | null> {
         try {
-            return await this.sceneWorldContextService.getSceneWorldContextForScene(projectPath, record);
+            return await this.sceneWorldContextService.getSceneWorldContextForScene(record);
         } catch {
             warnings.push(`Scene「${record.title}」的 World Engine 上下文查询失败；请先让 leader 或 world.engine 复核世界状态。`);
             return null;

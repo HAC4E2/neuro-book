@@ -31,6 +31,12 @@ const InvokeAgentSchema = Type.Object({
     mode: Type.Optional(Type.Union([Type.Literal("prompt"), Type.Literal("continue"), Type.Literal("steer"), Type.Literal("followup")], {
         description: "Default is prompt when message or input is present, otherwise continue.",
     })),
+    model: Type.Optional(Type.String({
+        description: "Override the model for this invocation only (provider/model key). It does not change the target session's default model and must come from the Agent-visible Models allowlist in your context.",
+    })),
+    background: Type.Optional(Type.Boolean({
+        description: "Default false. Set true to run in background: returns jobId immediately, the agent's result arrives later as a follow-up message. V1 requires an idle target and does not track user-input or approval waiting; use foreground mode for HITL agents.",
+    })),
 });
 
 const GetAgentSchema = Type.Object({
@@ -98,29 +104,82 @@ export const agentCollaborationTools = {
         name: "invoke_agent",
         label: "Invoke Agent",
         executionMode: "parallel",
-        description: "Invoke an agent session. Before sending input to an unfamiliar profile, call get_agent_profile({ profileKey }) and inspect PayloadSchema. message is plain text; input is a structured payload object.",
+        description: "Invoke an agent session. Before sending input to an unfamiliar profile, call get_agent_profile({ profileKey }) and inspect PayloadSchema. message is plain text; input is a structured payload object. Returns report_result when the profile reports one, otherwise the final assistant message. Set background=true for long non-interactive tasks: the target must be idle and must not request user input or approval; the result arrives later as a follow-up message, so end the current turn instead of polling the job.",
         parameters: InvokeAgentSchema,
-        async executeWithContext(context, toolCallId, params: unknown) {
+        async executeWithContext(context, toolCallId, params: unknown, _userInput, signal) {
             const invocation = params as InvokeAgentInput;
             if (invocation.sessionId === context.sessionId) {
                 throw new Error("invoke_agent 不能调用当前 session 自己；请直接继续当前对话，或 create_agent 后调用新 agent session。");
             }
-            const result = await context.harness.invokeAgent({
+            // 模型指定（PLAN-E E2）：只做 allowlist 校验，真正的单次覆盖随 invoke input 下沉到 Harness。
+            if (invocation.model) {
+                if (!context.invocationId) {
+                    throw new Error("invoke_agent缺少invocationId，无法读取已捕获的Project generation。");
+                }
+                const {loadEffectiveConfigFromTarget} = await import("nbook/server/config/config-service");
+                const {assertVisibleModel} = await import("nbook/server/agent/harness/agent-visible-models");
+                assertVisibleModel(await loadEffectiveConfigFromTarget(
+                    context.harness.configTargetForInvocation(context.invocationId),
+                ), invocation.model);
+            }
+            const invokeInput = {
                 sessionId: invocation.sessionId,
-                mode: invocation.mode ?? (invocation.message || invocation.input !== undefined ? "prompt" : "continue"),
+                mode: invocation.mode ?? (invocation.message || invocation.input !== undefined ? "prompt" as const : "continue" as const),
                 message: invocation.message ? {text: invocation.message} : undefined,
                 payload: normalizeInvokeAgentInput(invocation.input),
+                modelKey: invocation.model,
                 title: invocation.title,
                 caller: {
-                    kind: "agent",
+                    kind: "agent" as const,
                     sessionId: context.sessionId,
                     profileKey: context.profileKey,
                     toolCallId,
                 },
-            });
-            const compact = compactInvokeAgentResult(result);
+            };
+            // 后台模式（PLAN-E）：立即返回 jobId，结果以 followup 消息回流
+            if (invocation.background) {
+                const job = context.harness.jobs.spawn({
+                    kind: "invoke_agent",
+                    title: `invoke agent #${invocation.sessionId}${invocation.message ? `：${invocation.message.slice(0, 40)}` : ""}`,
+                    ownerSessionId: context.sessionId,
+                    originToolCallId: toolCallId,
+                    ref: {sessionId: invocation.sessionId},
+                    run: async (jobContext) => {
+                        const result = await context.harness.invokeAgent({
+                            ...invokeInput,
+                            block: true,
+                            queueIfBusy: false,
+                            signal: jobContext.signal,
+                        });
+                        if (result.status === "error") throw new Error(result.error ?? `agent #${invocation.sessionId} 调用失败`);
+                        if (result.status === "waiting") {
+                            throw new Error(`后台 invoke_agent V1 不追踪人工输入或审批等待；agent #${invocation.sessionId} 已停在 waiting，请先处理目标 session，后续交互改用前台调用。`);
+                        }
+                        const compact = compactInvokeAgentResult(result, invocation.sessionId);
+                        return {
+                            resultPreview: compact.finalMessage.slice(0, 300),
+                            message: `agent #${invocation.sessionId} 返回：\n${JSON.stringify(compact, null, 2)}`,
+                        };
+                    },
+                });
+                return {
+                    content: [{type: "text", text: `后台调用已启动：${job.jobId}（agent #${invocation.sessionId}）。结果将以后续消息回流；正常收尾本回合，不要轮询等待。`}],
+                    details: normalizeToolResultDetails({
+                        jobId: job.jobId,
+                        sessionId: invocation.sessionId,
+                        status: "started",
+                        data: null,
+                        finalMessage: "",
+                        background: true,
+                    }),
+                };
+            }
+            const result = await context.harness.invokeAgent({...invokeInput, signal});
+            const compact = compactInvokeAgentResult(result, invocation.sessionId);
+            const contentText = compact.finalMessage
+                || (typeof compact.error === "string" ? compact.error : compact.status);
             return {
-                content: [{type: "text", text: JSON.stringify(compact, null, 2)}],
+                content: [{type: "text", text: contentText}],
                 details: compact,
             };
         },
@@ -236,15 +295,18 @@ function compactInvokeAgentResult(result: {
     error?: string;
     usage?: {input: number; output: number; totalTokens: number};
     elapsedMs?: number;
-}): Record<string, JsonValue> {
-    const output: Record<string, JsonValue> = {status: result.status};
-    const message = result.reportResult?.result ?? result.finalMessage;
-    if (message || result.reportResult?.data !== undefined) {
-        output.result = {
-            message: message ?? "",
-            ...(result.reportResult?.data !== undefined ? {data: result.reportResult.data as JsonValue} : {}),
-        };
-    }
+}, sessionId: number): Record<string, JsonValue> & {status: "completed" | "waiting" | "error"; sessionId: number; finalMessage: string; data: JsonValue | null} {
+    const output: Record<string, JsonValue> & {
+        status: "completed" | "waiting" | "error";
+        sessionId: number;
+        finalMessage: string;
+        data: JsonValue | null;
+    } = {
+        status: result.status,
+        sessionId,
+        finalMessage: result.reportResult?.result ?? result.finalMessage ?? "",
+        data: result.reportResult?.data === undefined ? null : result.reportResult.data as JsonValue,
+    };
     if (result.error) {
         output.error = result.error;
     }

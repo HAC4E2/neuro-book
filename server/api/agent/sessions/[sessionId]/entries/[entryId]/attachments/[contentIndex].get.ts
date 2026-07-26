@@ -2,7 +2,7 @@ import {createError, getRequestHeader, getRouterParam, setResponseHeader, setRes
 import {canonicalImageMime, imageMimeType} from "nbook/server/agent/attachments/agent-attachment-codec";
 import {requireAgentSessionId, useAgentHarness} from "nbook/server/agent/http";
 import {withProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
-import {ProjectNotOpenError} from "nbook/server/workspace-files/project-session";
+import {isProjectNotOpenError} from "nbook/server/workspace-files/project-session";
 
 /** 按公开 Chat Flow locator 返回完整 Attachment；hash 本身不构成授权。 */
 export default defineEventHandler(async (event) => withProjectNotOpenHttpError(async () => {
@@ -20,7 +20,7 @@ export default defineEventHandler(async (event) => withProjectNotOpenHttpError(a
     try {
         locator = await harness.resolveSessionAttachment(sessionId, entryId, contentIndex);
     } catch (error) {
-        if (error instanceof ProjectNotOpenError) {
+        if (isProjectNotOpenError(error)) {
             throw error;
         }
         setResponseHeader(event, "Cache-Control", "no-store");

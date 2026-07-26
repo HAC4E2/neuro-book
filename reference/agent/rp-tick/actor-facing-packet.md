@@ -78,7 +78,7 @@ actor-facing packet 是 simulator.leader 发给 simulator.actor 的消息。核�
 
 注入该角色合理已知的世界知识、背景信息、专业判断依据。
 
-**解决的问题**：actor 的 sidecar 只加载了 memory/events/mind，但角色还有**常识性知识**或**专业知识**不在这些文件里。
+**解决的问题**：actor 主 run 不会自动读取 subject 文件或 Subject RAG。即使未来外部流程显式注入了相关记忆，角色的**常识性知识**或**专业知识**也未必出现在召回结果里，因此组装 packet 的调用方仍需明确提供本轮必要知识。
 
 **规则**：
 - 只注入该角色合理知道或能推断的知识

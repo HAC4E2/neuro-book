@@ -8,8 +8,12 @@ import {invalidateProjectWorkspaceIndexAfterMutation} from "nbook/server/workspa
 import {parseMarkdownDocument, renderMarkdownDocument} from "nbook/server/workspace-files/workspace-files";
 import type {WorkspaceFileNode} from "nbook/server/workspace-files/workspace-files";
 import {recordProjectWrite} from "nbook/server/workspace-history/project-history";
+import type {ProjectHistoryHandle} from "nbook/server/workspace-history/project-history";
+import type {ProjectFileIndexHandle} from "nbook/server/workspace-files/project-file-index";
 import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
+import type {WorkspaceFileTarget} from "nbook/server/workspace-files/workspace-file-target";
+
+type ProjectWorkspaceFileTarget = Extract<WorkspaceFileTarget, {kind: "project-workspace"}>;
 
 /** Bootstrap 执行结果统计。 */
 export type CarrierTreeBootstrapResult = {
@@ -55,8 +59,8 @@ export class ChapterBootstrapService {
      * 回写由 writeProsePointers 在事务提交后执行——两处慢文件 I/O 都不能进 Prisma interactive
      * transaction,否则真实项目会撑爆默认 5s 事务超时(见 Task 87 bootstrap 实测)。
      */
-    async applyCarrierTree(projectPath: string, nodes: WorkspaceFileNode[]): Promise<CarrierTreeDbResult> {
-        const story = await this.storyService.ensureStory(projectPath);
+    async applyCarrierTree(nodes: WorkspaceFileNode[]): Promise<CarrierTreeDbResult> {
+        const story = await this.storyService.ensureStory();
         const result: CarrierTreeDbResult = {
             actsCreated: 0,
             chaptersCreated: 0,
@@ -132,25 +136,22 @@ export class ChapterBootstrapService {
  * 已有 chapter 指针的文件跳过;有写入则失效 workspace 索引让反指立即可查。
  */
 export async function writeProsePointers(
-    projectRoot: AbsoluteFsPath,
-    projectPath: string,
+    target: ProjectWorkspaceFileTarget,
     pointers: PendingProsePointer[],
+    history: ProjectHistoryHandle,
+    fileIndex: ProjectFileIndexHandle,
 ): Promise<{proseFrontmatterWritten: string[]; warnings: string[]}> {
     const proseFrontmatterWritten: string[] = [];
     const warnings: string[] = [];
     for (const {node, chapterName} of pointers) {
-        const written = await writeChapterPointer(projectRoot, projectPath, node, chapterName, warnings);
+        const written = await writeChapterPointer(target.root, node, chapterName, warnings, history);
         if (written) {
             proseFrontmatterWritten.push(written);
         }
     }
     if (proseFrontmatterWritten.length > 0) {
         // frontmatter 写回绕过了常规写入口,手动失效 workspace 索引让反指立即可查。
-        invalidateProjectWorkspaceIndexAfterMutation({
-            kind: "project-workspace",
-            root: projectRoot,
-            projectPath: normalizeProjectPath(projectPath),
-        });
+        invalidateProjectWorkspaceIndexAfterMutation(target, fileIndex);
     }
     return {proseFrontmatterWritten, warnings};
 }
@@ -192,10 +193,10 @@ function findParentVolumePath(chapterPath: string, actIdByVolumePath: Map<string
  */
 async function writeChapterPointer(
     projectRoot: AbsoluteFsPath,
-    projectPath: string,
     node: WorkspaceFileNode,
     chapterName: string,
     warnings: string[],
+    history: ProjectHistoryHandle,
 ): Promise<string | null> {
     const indexPath = path.join(node.absolutePath, "index.md");
     let content: string;
@@ -217,9 +218,7 @@ async function writeChapterPointer(
     await fs.writeFile(indexPath, rendered, "utf-8");
     const relativePath = `${normalizeNodePath(node.path)}/index.md`;
     // frontmatter 反指绕过常规写入口，这里直接记 system 归因账（fail-open，不阻断 bootstrap）。
-    await recordProjectWrite({
-        projectRoot,
-        projectPath,
+    await recordProjectWrite(history, {
         relativePath,
         actor: {kind: "system", source: "chapter-bootstrap"},
         before: Buffer.from(content, "utf-8"),

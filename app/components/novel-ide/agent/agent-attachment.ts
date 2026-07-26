@@ -2,8 +2,14 @@ import type {AgentChatAttachmentDto, PublicAttachmentDto} from "nbook/shared/dto
 
 /** Chat Flow 可展示的附件定位信息。contentIndex 必须保持 stored content 的原始索引。 */
 export type AgentAttachmentDisplay = {
+    /** 消息中的保序位置；durable 消息同时也是默认读取 locator。 */
     contentIndex: number;
     attachment: PublicAttachmentDto;
+    /** 乐观消息可复用 session_attachment 登记 entry 读取图片。 */
+    locator?: {
+        entryId: string;
+        contentIndex: number;
+    };
 };
 
 /** 将 durable entry 的附件 locator 转成受 session/entry/content index 约束的读取地址。 */

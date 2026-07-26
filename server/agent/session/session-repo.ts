@@ -1,4 +1,4 @@
-import {appendFile, mkdir, readFile, readdir, writeFile} from "node:fs/promises";
+import {appendFile, mkdir, readFile, readdir, stat, writeFile} from "node:fs/promises";
 import {createReadStream} from "node:fs";
 import {createInterface} from "node:readline";
 import {dirname, join, resolve} from "node:path";
@@ -6,7 +6,7 @@ import {randomUUID} from "node:crypto";
 import {consola} from "consola";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import type {StoredAgentMessage} from "nbook/server/agent/messages/stored-types";
-import {parseStoredMessage, StoredMessageInvariantError} from "nbook/server/agent/messages/stored-message-codec";
+import {parseStoredAttachment, parseStoredMessage, StoredMessageInvariantError} from "nbook/server/agent/messages/stored-message-codec";
 import {createStoredUserMessage, sumAssistantUsage} from "nbook/server/agent/messages/message-utils";
 import type {
     CompactionSessionEntry,
@@ -29,6 +29,7 @@ import {normalizeWorkspaceRootRef, type WorkspaceRootRef} from "nbook/server/wor
 import {PUBLIC_TREE_TEXT_BYTES} from "nbook/server/agent/events/public-event-policy";
 import {projectPublicToolName, textPreview} from "nbook/server/agent/events/public-tool-projection";
 import {migrateSessionJsonlModels, parseDurableSessionModelRef} from "nbook/server/agent/session/session-model-redaction";
+import {migrateSessionUserIdentities} from "nbook/server/agent/session/session-user-identity-migration";
 
 type CreateSessionInput = {
     profileKey: string;
@@ -52,6 +53,8 @@ type AppendEntryInput = SessionEntryDraft & {
 };
 type AppendBatchEntryInput = Exclude<AppendEntryInput, {type: "leaf"}>;
 
+const CLIENT_MESSAGE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+
 export type SessionListIssue = {
     sessionId: SessionId;
     fileName: string;
@@ -69,6 +72,13 @@ export type SessionEntryContext = {
     entry: SessionEntry | null;
 };
 
+/** JSONL 外部修改检测使用的高精度文件签名。 */
+export type SessionFileSignature = {
+    identity: string;
+    size: string;
+    mtimeNs: string;
+};
+
 /**
  * JSONL session 仓库。所有状态变化都通过 append entry 表达。
  */
@@ -77,8 +87,8 @@ export class JsonlSessionRepository {
     private readonly attachmentMigrationGate: AttachmentMigrationGate;
     /** 避免同一批损坏Session在每次列表刷新时重复淹没运行日志。 */
     private issueFingerprint = "";
-    /** 每个 Session 独立执行旧模型脱敏；单文件失败不能阻断其他 Session。 */
-    private readonly modelRedactionReady = new Map<SessionId, Promise<void>>();
+    /** 每个 Session 独立执行一次性 JSONL migration；单文件失败不能阻断其他 Session。 */
+    private readonly sessionMigrationsReady = new Map<SessionId, Promise<void>>();
 
     constructor(rootWorkspace: string) {
         this.rootWorkspace = rootWorkspace;
@@ -214,6 +224,60 @@ export class JsonlSessionRepository {
                 throw new Error(`session ${sessionId} 缺少 header`);
             }
             return {metadata, entry: null};
+        } finally {
+            lines.close();
+            stream.destroy();
+        }
+    }
+
+    /** 返回 Session JSONL 的文件 identity、大小与高精度修改时间。 */
+    async sessionFileSignature(sessionId: SessionId): Promise<SessionFileSignature> {
+        await this.ensureSessionModelRedaction(sessionId);
+        const file = await stat(this.sessionPath(sessionId), {bigint: true});
+        return {
+            identity: `${file.dev.toString()}:${file.ino.toString()}`,
+            size: file.size.toString(),
+            mtimeNs: file.mtimeNs.toString(),
+        };
+    }
+
+    /**
+     * 流式遍历 Session 的全部 entry，并返回规范化 metadata。
+     *
+     * 附件目录需要覆盖所有分支，但不能为分页查询反复把完整 JSONL 载入内存。
+     */
+    async scanEntries(sessionId: SessionId, visit: (entry: SessionEntry) => void | Promise<void>): Promise<SessionMetadata> {
+        await this.ensureSessionModelRedaction(sessionId);
+        const stream = createReadStream(this.sessionPath(sessionId), {encoding: "utf8"});
+        const lines = createInterface({input: stream, crlfDelay: Infinity});
+        let metadata: SessionMetadata | null = null;
+        try {
+            for await (const line of lines) {
+                if (!line) {
+                    continue;
+                }
+                const record = JSON.parse(line) as SessionFileRecord;
+                if (record.kind === "header") {
+                    metadata = {
+                        ...record.metadata,
+                        workspaceRoot: normalizeWorkspaceRootRef(record.metadata.workspaceRoot, record.metadata.projectPath),
+                    };
+                    continue;
+                }
+                const entries = record.kind === "entry"
+                    ? [record.entry]
+                    : record.kind === "batch"
+                        ? record.entries
+                        : [];
+                for (const entry of entries) {
+                    this.assertStoredEntry(entry);
+                    await visit(entry);
+                }
+            }
+            if (!metadata) {
+                throw new Error(`session ${sessionId} 缺少 header`);
+            }
+            return metadata;
         } finally {
             lines.close();
             stream.destroy();
@@ -398,7 +462,7 @@ export class JsonlSessionRepository {
         const currentLeafId = this.resolveLeaf(snapshot.entries);
         const entry = {
             ...input,
-            origin: input.type === "custom" || input.type === "session_update" ? "projection" : undefined,
+            origin: input.type === "custom" || input.type === "session_update" || input.type === "session_attachment" ? "projection" : undefined,
             projectionScope: input.type === "custom" || input.type === "session_update" ? projectionScope : undefined,
             id: input.id ?? this.createEntryId(),
             parentId: input.parentId === undefined ? currentLeafId : input.parentId,
@@ -463,6 +527,15 @@ export class JsonlSessionRepository {
      * 追加普通 message entry。
      */
     async appendMessage(sessionId: SessionId, message: StoredAgentMessage, workspaceKey?: string, origin?: "prompt" | "harness" | "manual" | "ingest" | "workflow"): Promise<SessionEntry> {
+        if (message.role === "user") {
+            return this.appendEntry(sessionId, {
+                type: "message",
+                message,
+                clientMessageId: randomUUID(),
+                intent: "normal",
+                origin,
+            }, workspaceKey);
+        }
         return this.appendEntry(sessionId, {
             type: "message",
             message,
@@ -538,8 +611,17 @@ export class JsonlSessionRepository {
         let title = snapshot.metadata.title;
         let summary = snapshot.metadata.summary;
         let compaction: CompactionSessionEntry | null = null;
-        let archived = snapshot.entries.some((entry) => entry.type === "session_archived");
+        let archived = false;
         let agentMode: NeuroSessionContext["agentMode"] = "normal";
+
+        // archive / restore 是 Session 级事实，不随 active path 或 tree 分支回滚。
+        for (const entry of snapshot.entries) {
+            if (entry.type === "session_archived") {
+                archived = true;
+            } else if (entry.type === "session_restored") {
+                archived = false;
+            }
+        }
 
         const reduceEntries = snapshot.entries.filter((entry) => {
             if (pathIds.has(entry.id)) {
@@ -590,10 +672,6 @@ export class JsonlSessionRepository {
                     invocationId: entry.invocationId ?? null,
                     toolCallId: entry.toolCallId ?? null,
                 };
-                continue;
-            }
-            if (entry.type === "session_archived") {
-                archived = true;
                 continue;
             }
             if (entry.type === "compaction") {
@@ -851,17 +929,39 @@ export class JsonlSessionRepository {
         if (entry.type === "message" || entry.type === "custom_message") {
             parseStoredMessage(entry.message);
         }
+        if (entry.type === "message" && entry.message.role === "user") {
+            if (typeof entry.clientMessageId !== "string" || !CLIENT_MESSAGE_ID_PATTERN.test(entry.clientMessageId)) {
+                throw new StoredMessageInvariantError("corrupt", "User message entry 缺少合法 clientMessageId。");
+            }
+            if (entry.intent !== "normal" && entry.intent !== "steer") {
+                throw new StoredMessageInvariantError("corrupt", "User message entry 缺少明确 intent。");
+            }
+        }
+        if (entry.type === "session_attachment") {
+            if (entry.origin !== "projection" || (entry.source !== "upload" && entry.source !== "file_snapshot")) {
+                throw new StoredMessageInvariantError("corrupt", "Session Attachment projection entry 非法。");
+            }
+            parseStoredAttachment({
+                type: "attachment",
+                attachment: entry.attachment,
+                ...(entry.name === undefined ? {} : {name: entry.name}),
+            });
+        }
         if (entry.type === "model_change") {
             parseDurableSessionModelRef(entry.model);
         }
     }
 
-    /** 在任何现有Session进入runtime前原子脱敏完整Pi Model。 */
+    /** 在任何现有 Session 进入 runtime 前原子完成全部硬切 migration。 */
     private async ensureSessionModelRedaction(sessionId: SessionId): Promise<void> {
-        let ready = this.modelRedactionReady.get(sessionId);
+        let ready = this.sessionMigrationsReady.get(sessionId);
         if (!ready) {
-            ready = migrateSessionJsonlModels(this.sessionPath(sessionId)).then(() => undefined);
-            this.modelRedactionReady.set(sessionId, ready);
+            const sessionPath = this.sessionPath(sessionId);
+            ready = (async () => {
+                await migrateSessionJsonlModels(sessionPath);
+                await migrateSessionUserIdentities(sessionPath);
+            })();
+            this.sessionMigrationsReady.set(sessionId, ready);
         }
         await ready;
     }

@@ -1,7 +1,10 @@
 import {beforeEach, describe, expect, it, vi} from "vitest";
 import type {InboxGroup, OperationLogEntry} from "nbook/server/vendor/nb-history/index";
-import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
+type MockHistoryDependencies = {
+    readonly invalidate: ReturnType<typeof vi.fn>;
+    readonly requireProjectHandles: ReturnType<typeof vi.fn>;
+    readonly waitForWarmup: ReturnType<typeof vi.fn>;
+};
 
 describe("workspace history revision routes", () => {
     beforeEach(() => {
@@ -19,10 +22,16 @@ describe("workspace history revision routes", () => {
             afterText: "new\n",
         }));
         mockGetQuery({projectPath: "workspace/book", path: "manuscript/a.md", revision: "7", mode: "inline"});
-        mockHistory({inbox: vi.fn(async () => [group("manuscript/a.md", 7)]), textDiff});
+        const history = {inbox: vi.fn(async () => [group("manuscript/a.md", 7)]), textDiff};
+        const dependencies = mockHistory(history);
 
         const handler = (await import("nbook/server/api/workspace-history/diff.get")).default;
         await expect(handler({} as never)).resolves.toMatchObject({status: "available", original: "old\n", modified: "new\n"});
+        expect(dependencies.waitForWarmup).toHaveBeenCalledTimes(1);
+        expect(dependencies.waitForWarmup.mock.invocationCallOrder[0])
+            .toBeLessThan(history.inbox.mock.invocationCallOrder[0]!);
+        expect(dependencies.requireProjectHandles).toHaveBeenCalledOnce();
+        expect(dependencies.requireProjectHandles).toHaveBeenCalledWith("workspace/book");
         expect(textDiff).toHaveBeenCalledTimes(1);
     });
 
@@ -72,12 +81,13 @@ describe("workspace history revision routes", () => {
         expect(history.accept).toHaveBeenCalledWith("local", "manuscript/a.md");
 
         vi.resetModules();
-        mockHistory(history);
+        const revertMocks = mockHistory(history);
         vi.stubGlobal("defineEventHandler", (handler: unknown) => handler);
         vi.stubGlobal("readBody", vi.fn(async () => ({projectPath: "workspace/book", path: "manuscript/a.md", revision: 7})));
         const revertHandler = (await import("nbook/server/api/workspace-history/revert.post")).default;
         await expect(revertHandler({} as never)).resolves.toEqual({success: true});
         expect(history.revert).toHaveBeenCalledWith("local", "manuscript/a.md");
+        expect(revertMocks.invalidate).toHaveBeenCalledTimes(1);
     });
 
     it("accept-all 只接受用户确认过的 Inbox revision", async () => {
@@ -117,20 +127,24 @@ function mockGetQuery(query: Record<string, string>): void {
 }
 
 /** 注入 Project Workspace 已打开且 history 可用的最小依赖。 */
-function mockHistory(history: object): void {
-    vi.doMock("nbook/server/workspace-files/novel-workspace", () => ({
-        resolveNovelWorkspaceTarget: vi.fn(async (_runtimePaths: unknown, projectPath: string) => ({
-            kind: "project-workspace",
-            root: absoluteFsPath("C:/test/workspace/book"),
-            projectPath: normalizeProjectPath(projectPath),
-        })),
+function mockHistory(history: object): MockHistoryDependencies {
+    const invalidate = vi.fn();
+    const waitForWarmup = vi.fn(async () => undefined);
+    const requireProjectHandles = vi.fn(() => ({
+        fileIndex: {invalidate},
+        history: {history: Promise.resolve(history), waitForWarmup},
     }));
-    vi.doMock("nbook/server/workspace-files/project-open-guard", () => ({assertProjectOpenForTarget: vi.fn()}));
-    vi.doMock("nbook/server/workspace-files/project-workspace-index", () => ({invalidateProjectWorkspaceIndexAfterMutation: vi.fn()}));
+    const withProjectHandlesOperation = vi.fn((projectPath: string, handler: (handles: ReturnType<typeof requireProjectHandles>) => unknown) => (
+        handler(requireProjectHandles(projectPath))
+    ));
+    vi.doMock("nbook/server/workspace-files/project-open-guard", () => ({
+        requireProjectHandles,
+        withProjectHandlesOperation,
+    }));
     vi.doMock("nbook/server/workspace-history/project-history", () => ({
         LOCAL_USER_ID: "local",
-        ensureProjectHistory: vi.fn(async () => history),
     }));
+    return {invalidate, requireProjectHandles, waitForWarmup};
 }
 
 /** 构造 route revision 测试使用的收件箱分组。 */

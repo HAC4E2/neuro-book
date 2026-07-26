@@ -60,6 +60,8 @@ jobs:
         run: bun run test:install
       - name: Verify Manager platform contracts
         run: bun run manager:test
+      - name: Verify Owned Process platform adapter
+        run: bun run --cwd packages/owned-process test
       - run: bun run nuxt:build
       - run: bun run release:source
       - run: bun run ${{ matrix.command }}

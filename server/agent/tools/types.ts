@@ -153,11 +153,14 @@ export type ToolBinding<TKey extends string = string> = {
 export type ReportResultToolBinding = ToolBinding<"report_result"> & {
     /** 主路 report_result.data 的结构化 schema。 */
     dataSchema?: TSchema;
+    /**
+     * 按 session initial 动态解析 dataSchema（adhoc profile：outputSchema 来自创建时 initial）。
+     * 返回 undefined 时退回静态 dataSchema / profile.outputSchema。
+     */
+    dataSchemaFromInitial?: (initial: JsonValue | null) => TSchema | undefined;
 };
 
-export type ReportSidecarResultToolBinding = ToolBinding<"report_sidecar_result">;
-
-export type ProfileToolBinding<TKey extends string = string> = ToolBinding<TKey> | AgentToolDefinition<TKey> | ReportResultToolBinding | ReportSidecarResultToolBinding;
+export type ProfileToolBinding<TKey extends string = string> = ToolBinding<TKey> | AgentToolDefinition<TKey> | ReportResultToolBinding;
 
 export type ProfileTools = Record<string, ProfileToolBinding>;
 

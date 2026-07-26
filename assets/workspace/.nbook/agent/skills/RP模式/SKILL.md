@@ -16,7 +16,7 @@ when_to_use:
 - 当前 Project Workspace 应存在 `manual/README.md`、`manual/player-guide/README.md`、`manual/player-guide/character-creation.md`、`manual/gm-guide.md`、`agents/rp.leader/context.md`、`agents/simulator.leader/context.md` 与 `simulation/subjects/*`；`agents/rp.writer/context.md` 可作为上级构造 writer brief 时读取的写作偏好，不是 `rp.writer` 的 profile input。
 - `simulation/` 只保存 runtime state：`subjects/`、`entities/`、`runs/`。profile 专用说明放在 `agents/{profile}/context.md`，不要再创建或依赖旧 `simulation/config.yaml`、`simulation/cast.yaml`、`simulation/simulator.md`、`simulation/writer.md`。
 - 如果缺少 `manual/`、`simulation/` 或 `agents/` 默认文件，重新用默认 Project 模板创建项目，或手工从 `assets/workspace/.nbook/templates/project-directory-templates/` 补齐缺失文件。
-- 如果用户要从 SillyTavern 卡进入 RP，先使用 `novel-import-silly-tavern-card` 完成 `inspect -> unpack -> import`。动态机制归档在 `reference/silly-tavern/...`，后续再人工迁移到 `manual/`、`agents/`、`simulation/` 或 emulation workflow。
+- 如果用户要从 SillyTavern 卡进入 RP，先使用 `novel-import-silly-tavern-card` 完成 `inspect -> unpack -> import`。动态机制归档在 `reference/silly-tavern/...`，后续再人工迁移到 `manual/`、`agents/` 或 `simulation/`（legacy emulation skill 已归档到仓库 `docs/archived/skills/`，需要时按其文档手动执行）。
 
 ## 启动方式
 

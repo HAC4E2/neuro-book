@@ -3,6 +3,11 @@ import {Type} from "typebox";
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {
+    createProjectWorkspaceKey,
+    projectWorkspaceRef,
+    resolvedProjectWorkspace,
+} from "nbook/server/workspace-files/project-identity";
 
 const loadCompiledVariableDefinitions = vi.hoisted(() => vi.fn(async () => ({definitions: [], issues: []})));
 
@@ -24,7 +29,7 @@ afterEach(() => {
 });
 
 describe("Session Variable Registry路径", () => {
-    it("Global与managed Project定义共用调用方注入的Runtime Workspace Root", async () => {
+    it("Global与Current Project定义使用调用方注入的结构化runtime identity", async () => {
         const workspaceRoot = absoluteFsPath(path.resolve(".agent", "variable-registry-runtime", "workspace"));
         process.env.NEURO_BOOK_STATE_ROOT = path.resolve(".agent", "unrelated-state-root");
         const profile = defineAgentProfile({
@@ -35,11 +40,19 @@ describe("Session Variable Registry路径", () => {
                 return {};
             },
         });
+        const ref = projectWorkspaceRef("project-a");
 
         await createVariableRegistryForSession({
             profile,
             globalWorkspaceRoot: workspaceRoot,
-            currentProjectWorkspace: "workspace/project-a",
+            currentProject: {
+                workspace: resolvedProjectWorkspace(
+                    ref,
+                    absoluteFsPath(path.join(workspaceRoot, "project-a")),
+                    createProjectWorkspaceKey(workspaceRoot, ref),
+                ),
+                generation: 1,
+            },
         });
 
         expect(loadCompiledVariableDefinitions).toHaveBeenNthCalledWith(1, {

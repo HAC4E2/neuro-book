@@ -1,11 +1,8 @@
 import {z} from "zod";
 import {createError} from "h3";
-import {assertProjectOpenForTarget} from "nbook/server/workspace-files/project-open-guard";
+import {withProjectHandlesOperation} from "nbook/server/workspace-files/project-open-guard";
 import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
-import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
-import {resolveNovelWorkspaceTarget} from "nbook/server/workspace-files/novel-workspace";
-import {invalidateProjectWorkspaceIndexAfterMutation} from "nbook/server/workspace-files/project-workspace-index";
-import {ensureProjectHistory, LOCAL_USER_ID} from "nbook/server/workspace-history/project-history";
+import {LOCAL_USER_ID} from "nbook/server/workspace-history/project-history";
 import {matchWorkspaceHistoryInboxGroup} from "nbook/server/workspace-history/history-inbox";
 
 const RevertBodySchema = z.object({
@@ -21,20 +18,21 @@ const RevertBodySchema = z.object({
 export default defineEventHandler(async (event) => {
     const body = RevertBodySchema.parse(await readBody(event));
     const projectPath = normalizeProjectPath(body.projectPath);
-    const target = await resolveNovelWorkspaceTarget(runtimePathsFromEnv(), projectPath);
-    assertProjectOpenForTarget(target);
-    const history = await ensureProjectHistory(target.root, target.projectPath);
-    if (!history) {
-        throw createError({statusCode: 400, message: "文件历史未启用"});
-    }
-    const match = matchWorkspaceHistoryInboxGroup(await history.inbox(LOCAL_USER_ID), body.path, body.revision);
-    if (match.kind === "missing") {
-        throw createError({statusCode: 404, message: "待审文件不存在或已被接受"});
-    }
-    if (match.kind === "stale") {
-        throw createError({statusCode: 412, message: "文件已发生新变化，请刷新后重新审查"});
-    }
-    await history.revert(LOCAL_USER_ID, match.group.path);
-    invalidateProjectWorkspaceIndexAfterMutation(target);
-    return {success: true};
+    return withProjectHandlesOperation(projectPath, async (projectHandles) => {
+        await projectHandles.history.waitForWarmup();
+        const history = await projectHandles.history.history;
+        if (!history) {
+            throw createError({statusCode: 400, message: "文件历史未启用"});
+        }
+        const match = matchWorkspaceHistoryInboxGroup(await history.inbox(LOCAL_USER_ID), body.path, body.revision);
+        if (match.kind === "missing") {
+            throw createError({statusCode: 404, message: "待审文件不存在或已被接受"});
+        }
+        if (match.kind === "stale") {
+            throw createError({statusCode: 412, message: "文件已发生新变化，请刷新后重新审查"});
+        }
+        await history.revert(LOCAL_USER_ID, match.group.path);
+        projectHandles.fileIndex.invalidate();
+        return {success: true};
+    });
 });

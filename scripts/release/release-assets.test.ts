@@ -43,6 +43,7 @@ type ReleaseWorkflow = {
         "product-linux-aarch64": WorkflowJob;
         "product-darwin-x64": WorkflowJob;
         "product-windows": WorkflowJob;
+        "verify-windows": WorkflowJob;
     };
 };
 
@@ -185,5 +186,23 @@ describe("Product Release宿主合同", () => {
         expect(run).toContain("Copy-Item -LiteralPath (Join-Path $baselineRoot \"data\")");
         expect(run).toContain("$candidateManifest.schemaVersion -ne 4");
         expect(run).not.toContain("--root $root update --channel");
+    });
+
+    it("Windows候选验收直接拥有实际Manager进程", async () => {
+        const workflow = parse(await readFile(resolve(ROOT, ".github/workflows/release-container.yml"), "utf8")) as ReleaseWorkflow & {
+            jobs: ReleaseWorkflow["jobs"] & {"verify-public-windows-data-reuse": WorkflowJob};
+        };
+        const candidateRun = workflow.jobs["verify-windows"].steps.map((step) => step.run ?? "").join("\n");
+        expect(candidateRun).toContain("$managerRuntime = Join-Path $portableRoot $manifest.components.managerRuntime.path");
+        expect(candidateRun).toContain("$managerBundle = Join-Path $portableRoot $manifest.components.manager.path");
+        expect(candidateRun).toContain("Start-Process -FilePath $managerRuntime");
+        expect(candidateRun).not.toContain("Start-Process -FilePath $env:ComSpec");
+        expect(candidateRun).not.toContain("Stop-Process -Id $launcherProcess.Id");
+
+        const publicRun = workflow.jobs["verify-public-windows-data-reuse"].steps.map((step) => step.run ?? "").join("\n");
+        expect(publicRun).toContain("$managerRuntime = Join-Path $root $candidateManifest.components.managerRuntime.path");
+        expect(publicRun).toContain("$managerBundle = Join-Path $root $candidateManifest.components.manager.path");
+        expect(publicRun).toContain("Start-Process -FilePath $managerRuntime");
+        expect(publicRun).not.toContain("Start-Process -FilePath $manager -ArgumentList");
     });
 });

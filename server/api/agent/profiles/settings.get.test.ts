@@ -35,10 +35,10 @@ describe("GET /api/agent/profiles/settings", () => {
             })),
         }));
         vi.doMock("nbook/server/config/config-service", async () => {
-            const {ProjectNotOpenError} = await import("nbook/server/workspace-files/project-session");
+            const {ProjectNotOpenError} = await import("nbook/server/workspace-files/project-session-service");
             return {
                 readConfigAgentProfileSettings: vi.fn(async () => {
-                    throw new ProjectNotOpenError("workspace/settings-route-not-open");
+                    throw new ProjectNotOpenError("settings-route-not-open");
                 }),
             };
         });

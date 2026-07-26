@@ -21,6 +21,7 @@ import type {
     VariableInvocationState,
 } from "nbook/server/agent/variables/types";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 
 export type CreateVariableAccessorInput = {
     repo: JsonlSessionRepository;
@@ -30,6 +31,7 @@ export type CreateVariableAccessorInput = {
     dryRun?: boolean;
     invocationId?: string;
     variableState?: VariableInvocationState;
+    currentProject?: ReadyProjectSessionRef | null;
     writeSessionEntry?: (cause: string, entry: SessionEntryDraft) => Promise<SessionEntry>;
     onSessionEntry?: (entry: SessionEntry) => void | Promise<void>;
     onClientPatch?: ClientVariablePatchHandler;
@@ -48,11 +50,18 @@ class RuntimeVariableAccessor implements ProfileVariableAccessor {
     private readonly storage: VariableFileStorage;
     private readonly sessionOverlay: Record<string, JsonValue>;
     private readonly clientOverlay: Record<string, JsonValue>;
+    private readonly currentProject: ReadyProjectSessionRef | null;
 
     constructor(private readonly input: CreateVariableAccessorInput) {
         this.dryRun = input.dryRun ?? false;
         this.registry = input.registry ?? new VariableRegistry();
-        this.storage = new VariableFileStorage(absoluteFsPath(input.repo.rootWorkspace));
+        this.currentProject = input.variableState
+            ? input.variableState.currentProject
+            : input.currentProject ?? null;
+        this.storage = new VariableFileStorage(
+            absoluteFsPath(input.repo.rootWorkspace),
+            this.currentProject?.workspace ?? null,
+        );
         this.sessionOverlay = reduceSessionVariables(input.repo, input.snapshot);
         this.clientOverlay = input.variableState?.clientOverlay ?? normalizeClientState(input.clientState);
     }
@@ -157,8 +166,8 @@ class RuntimeVariableAccessor implements ProfileVariableAccessor {
             }
             this.writeOverlay(namespace, normalizedPath, next);
         } else {
-            if (namespace === "project" && !this.currentProjectWorkspace()) {
-                return issueResult(namespace, normalizedPath, "unavailable", "project.* 变量需要本轮 client.currentProjectWorkspace，不能 fallback 到 session metadata / novelId。");
+            if (namespace === "project" && !this.currentProject) {
+                return issueResult(namespace, normalizedPath, "unavailable", "project.* 变量需要本轮 Current Project。");
             }
             const next = applyVariableJsonPatch(current.value, operations);
             const schemaIssue = this.schemaIssue(namespace, normalizedPath, next, resolved.schema);
@@ -166,7 +175,7 @@ class RuntimeVariableAccessor implements ProfileVariableAccessor {
                 return schemaIssue;
             }
             try {
-                await this.storage.patch(namespace, normalizedPath, operations, this.currentProjectWorkspace(), source === "agent" && current.fingerprint ? {
+                await this.storage.patch(namespace, normalizedPath, operations, source === "agent" && current.fingerprint ? {
                     expectedFingerprint: current.fingerprint,
                     fingerprintValue,
                     expectedValue: current.value,
@@ -220,8 +229,8 @@ class RuntimeVariableAccessor implements ProfileVariableAccessor {
             if (resolved.definition.readable === false) {
                 return issueResult(namespace, normalizedPath, "not_readable", `变量 ${namespace}.${normalizedPath} 不可读。`);
             }
-            if (namespace === "project" && !this.currentProjectWorkspace()) {
-                return issueResult(namespace, normalizedPath, "unavailable", "project.* 变量需要本轮 client.currentProjectWorkspace，不能 fallback 到 session metadata / novelId。");
+            if (namespace === "project" && !this.currentProject) {
+                return issueResult(namespace, normalizedPath, "unavailable", "project.* 变量需要本轮 Current Project。");
             }
             const value = await this.readValue(namespace, normalizedPath, resolved.rootKey, resolved.definition.default);
             const schemaIssue = value === undefined ? null : this.schemaIssue(namespace, normalizedPath, value, resolved.schema);
@@ -246,7 +255,7 @@ class RuntimeVariableAccessor implements ProfileVariableAccessor {
         if (namespace === "session") {
             return readDotPath(this.sessionOverlay, path) ?? defaultAtPath;
         }
-        const variables = await this.storage.read(namespace, this.currentProjectWorkspace());
+        const variables = await this.storage.read(namespace);
         return readDotPath(variables, path) ?? defaultAtPath;
     }
 
@@ -276,11 +285,6 @@ class RuntimeVariableAccessor implements ProfileVariableAccessor {
         if (leaf) {
             current[leaf] = value;
         }
-    }
-
-    private currentProjectWorkspace(): string | null {
-        const value = readDotPath(this.clientOverlay, "currentProjectWorkspace");
-        return typeof value === "string" && value.trim() ? value : null;
     }
 
     private schemaIssue(namespace: VariableNamespace, path: string, value: JsonValue, schema: TSchema): VariableReadResult | null {
@@ -335,6 +339,7 @@ export function parseFullVariablePath(path: string): {namespace: VariableNamespa
 export function normalizeClientState(clientState: ClientStateSnapshot | undefined): Record<string, JsonValue> {
     const ide = cloneRecord(clientState?.ide);
     const studio = cloneRecord(clientState?.studio);
+    // 仅保留前端可观察快照；Project 身份与物理路径来自 invocation 捕获的 ReadyProjectSessionRef。
     const currentProjectWorkspace = typeof studio.workspace === "string" ? studio.workspace : null;
     return {
         ...cloneTopLevelClientState(clientState),

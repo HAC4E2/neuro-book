@@ -34,6 +34,5 @@ export default defineEventHandler((event) => withProjectNotOpenHttpError(async (
         persistedMessageCount: 0,
         variables: [],
         reportResultSchema: null,
-        reportSidecarResultSchema: null,
     };
 }));

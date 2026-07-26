@@ -28,7 +28,9 @@ export const INFLATION_RULES = [
         "namespace": "inflation.significance",
         "title": "重要性通胀",
         "level": "medium",
-        "note": "「至关重要 / 举足轻重 / 意义非凡」是没有依据的重要性宣称。改成「重要」并说明为什么重要，或给具体结果。",
+        "enabled": false,
+        "review": "human",
+        "note": "默认关闭：「至关重要 / 举足轻重 / 意义非凡」在任务规则、角色判断和说明性对白中可能合理，当前 dataset 真人侧不低于 AI 侧；保留资产给项目显式开启。",
         "detector": {
             "type": "regex",
             "targets": [
@@ -42,7 +44,8 @@ export const INFLATION_RULES = [
         "namespace": "inflation.significance",
         "title": "新颖性通胀",
         "level": "medium",
-        "note": "「前所未有 / 史无前例 / 颠覆性 / 范式转移」是夸大新颖度的 AI 套话。给对比数据或说清楚到底变了什么。",
+        "review": "human",
+        "note": "默认交人工：「前所未有 / 史无前例 / 颠覆性 / 范式转移」在小说视角和评论中都可能合法；旧报告仅 weak，当前 dataset 只剩 1 个 AI 命中。",
         "detector": {
             "type": "regex",
             "targets": [
@@ -56,7 +59,9 @@ export const INFLATION_RULES = [
         "namespace": "inflation.significance",
         "title": "惊叹式渲染",
         "level": "medium",
-        "note": "「令人瞩目 / 令人惊叹」用惊叹替代证据。给具体数据或事实。",
+        "enabled": false,
+        "review": "human",
+        "note": "默认关闭：「令人瞩目 / 令人惊叹」在新闻、评论和角色视角中可能合法，当前 dataset 真人侧高于 AI 侧；保留资产给项目显式开启。",
         "detector": {
             "type": "regex",
             "targets": [

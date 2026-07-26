@@ -1,4 +1,11 @@
 import type {AttachmentRef} from "nbook/shared/dto/agent-attachment.dto";
+import type {
+    SessionMigrationFileState,
+    SessionMigrationJournalRecord,
+    SessionMigrationManifest,
+    SessionMigrationRunTransition,
+    SessionMigrationTransition,
+} from "nbook/scripts/db/agent-session-migration/types";
 
 /** Attachment v1 迁移单个 session 的可恢复状态。 */
 export type AttachmentSessionMigrationStatus =
@@ -24,65 +31,33 @@ export type AttachmentMigrationRunStatus =
     | "rolled_back";
 
 /** 一次迁移中的 session 持久化状态。路径均相对 Workspace Root。 */
-export type AttachmentSessionMigrationState = {
+export type AttachmentSessionMigrationState = SessionMigrationFileState<AttachmentSessionMigrationStatus> & {
     sessionId: number | null;
-    sourcePath: string;
-    backupPath: string;
-    stagePath: string;
-    rollbackPath: string;
-    sourceHash: string;
-    targetHash: string;
     images: number;
     bytes: number;
     attachmentIds: string[];
-    changed: boolean;
-    status: AttachmentSessionMigrationStatus;
 };
 
 /** 初始计划与最终 checkpoint；中间进度只写 delta WAL。 */
-export type AttachmentMigrationManifest = {
-    version: 2;
-    journalVersion: 1;
-    runId: string;
-    status: AttachmentMigrationRunStatus;
-    /** manifest snapshot 已包含的最后一条 WAL seq；初始计划为 0。 */
-    appliedSeq: number;
-    startedAt: string;
-    updatedAt: string;
-    sessions: AttachmentSessionMigrationState[];
-    /** status=failed 时存在，表示 resume 应返回的先前阶段。 */
-    resumeStatus?: Exclude<AttachmentMigrationRunStatus, "failed" | "report_written" | "rolled_back">;
-    /** status=failed 时存在；内容有界，避免错误对象放大 WAL。 */
-    error?: string;
-};
+export type AttachmentMigrationManifest = SessionMigrationManifest<
+    2,
+    AttachmentSessionMigrationState,
+    AttachmentSessionMigrationStatus,
+    AttachmentMigrationRunStatus,
+    Exclude<AttachmentMigrationRunStatus, "failed" | "report_written" | "rolled_back">
+>;
 
 /** 单个 session 的可恢复状态变化。 */
-export type AttachmentSessionTransition = {
-    version: 1;
-    kind: "session_transition";
-    seq: number;
-    runId: string;
-    at: string;
-    sourcePath: string;
-    from: AttachmentSessionMigrationStatus;
-    to: AttachmentSessionMigrationStatus;
-};
+export type AttachmentSessionTransition = SessionMigrationTransition<AttachmentSessionMigrationStatus>;
 
 /** 全局迁移阶段变化。 */
-export type AttachmentRunTransition = {
-    version: 1;
-    kind: "run_transition";
-    seq: number;
-    runId: string;
-    at: string;
-    from: AttachmentMigrationRunStatus;
-    to: AttachmentMigrationRunStatus;
-    /** 仅进入 failed 时存在。 */
-    error?: string;
-};
+export type AttachmentRunTransition = SessionMigrationRunTransition<AttachmentMigrationRunStatus>;
 
 /** journal.jsonl 的唯一合法记录联合。 */
-export type AttachmentMigrationJournalRecord = AttachmentSessionTransition | AttachmentRunTransition;
+export type AttachmentMigrationJournalRecord = SessionMigrationJournalRecord<
+    AttachmentSessionMigrationStatus,
+    AttachmentMigrationRunStatus
+>;
 
 /** CLI 与集成测试消费的 machine-readable 报告。 */
 export type AttachmentMigrationReport = {

@@ -39,7 +39,7 @@ Prototype / Instance + Event Sourcing + Subject-facing View
 - 自己的 `mind.md`。
 - 自己的 `state.md`。
 - simulator leader 过滤后的 subject-facing message。
-- sidecar 过滤后的 actor-safe context。
+- 由授权 workflow/job 明确过滤并注入的 actor-safe context；当前没有内置自动注入流程。
 
 ## Subject Memory
 
@@ -146,6 +146,6 @@ simulation/entities/world-heart-fragment-c/
 - entity hidden state 如何转换为 subject-facing observation。
 - simulator leader、subject simulator、entity simulator、writer、retrieval 分别能读取哪些正文分区。
 - GraphRAG 如何表示 `who knows what`、`who holds what`、`what is where`。
-- sidecar 如何把上帝视角设定过滤成 subject-facing context。
+- 未来 workflow/job 如何把上帝视角设定过滤成 subject-facing context，并显式交给 actor。
 
 当前只固定原则：目录先分层，`lorebook/` 放 canonical / prototype，`simulation/subjects/` 放 information subject，`simulation/entities/` 放 stateful instance，`simulation/runs/` 放 run artifacts。

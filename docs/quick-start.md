@@ -2,65 +2,103 @@
 
 这页只保留最快路径。更完整的部署取舍见 [部署方式](/deployment)。
 
-## 方式一：Windows Release Zip
+## 方式一：Windows 解压即用（普通用户）
 
-Windows 普通用户优先使用 Release Zip。它适合本机点击启动，不要求你先理解 Docker 或服务部署。
+Windows 用户优先用这个。不需要理解 Docker、终端或服务部署。
 
-基本流程：
+**第 1 步：下载**
 
-1. 从 GitHub Release 下载 Windows x64 zip。
-2. 解压到一个新目录。
-3. 运行 `Start Neuro Book.cmd`。
-4. 首次启动自动初始化 `data/`。
-5. 打开本地网页；需要鉴权时运行 `Create Admin.cmd`。
+打开 [GitHub Releases 页面](https://github.com/notnotype/neuro-book/releases)，在**完整 Release** 的 Assets 里找到文件名准确为 `neuro-book-windows-x64.zip` 的压缩包下载。
 
-Release Zip 已包含源码、预构建 Product、Bun、rg 和 PortableGit/bash；首次启动不安装应用依赖、不 clone、不构建。
+不要下载名字里带 Source 或 Product overlay 的包，那些是给开发者的。
 
-不要用新版 zip 直接覆盖旧目录。更新时优先使用解压目录里的 `Update Neuro Book.cmd`。
+**第 2 步：解压**
 
-## 方式二：NeuroBook Manager
+解压到一个新建的空目录，例如 `D:\NeuroBook`。不要解压到桌面或系统盘根目录。
 
-服务器优先使用 GHCR；已有 Bun 的机器也可以选择 Product Bun 或 Source Profile。
+**第 3 步：启动**
 
-在目标机器运行：
+双击目录里的 `Start Neuro Book.cmd`。会弹出一个黑色命令行窗口——**这是正常的，不要关掉它**，它就是服务本身，关掉软件就停了。
+
+**第 4 步：打开界面**
+
+在浏览器地址栏输入：
+
+```
+http://localhost:3000
+```
+
+首次启动会自动初始化 `data/` 目录（你的作品、配置和日志都在这里面）。Windows 解压版**默认不需要密码**，直接就能用。
+
+![NeuroBook 主界面](./images/主页.png)
+
+**第 5 步：配置 AI 模型**
+
+这一步不做的话 AI 功能全部不可用，见下方 [配置 AI 模型](#配置-ai-模型)。
+
+::: tip 更新
+不要用新版 zip 直接覆盖旧目录，会丢配置。用解压目录里的 `Update Neuro Book.cmd` 更新，`data/` 里的内容会保留。
+:::
+
+::: tip 需要密码保护
+如果这台机器别人也能碰，双击 `Create Admin.cmd`，按提示输入用户名和密码即可开启登录。
+:::
+
+## 方式二：NeuroBook Manager（服务器 / 多实例）
+
+服务器优先用 GHCR 容器；已装 Bun 的机器也可以选 Product Bun 或 Source Profile。
 
 ```bash
 bunx --bun @notnotype/neuro-book-manager@canary install --profile ghcr
 ```
 
-Canary阶段使用`@canary`，稳定版和正确的npm `latest`建立前不要改成`@latest`。不要使用`bunx run @notnotype/neuro-book-manager`，该写法会把包名按本地脚本或路径解析，Manager不会启动。
+Canary 阶段固定用 `@canary`；稳定版发布前不要改成 `@latest`。也不要写成 `bunx run @notnotype/...`，那样会把包名当本地脚本解析，Manager 不会启动。
 
-Manager只选择带正式`release-manifest.json`的完整Release。仍在构建或已取消、尚未发布Manifest的版本会被安全跳过。
+不带参数会进交互向导。管道执行或自动化环境没有 TTY，必须显式传参：
 
-安装完成后进入 Installation Root，运行 `.runtime/bin/neuro-book start`。更新、状态和诊断统一使用 `neuro-book update/status/doctor`。
-
-## 创建管理员
-
-全站鉴权默认开启。首次部署后需要创建管理员账号。
-
-如果部署流程没有自动引导创建，可以在应用目录运行：
-
-```powershell
-bun run auth:create-admin admin
+```bash
+bunx --bun @notnotype/neuro-book-manager@canary install --profile ghcr --dir /opt/neuro-book --port 3000 --yes
 ```
 
-脚本会隐藏输入密码。不要把管理员密码作为命令参数传入。
+安装完成后进入 Installation Root 启动：
 
-## 配置模型 Provider
+```bash
+.runtime/bin/neuro-book start
+```
 
-部署脚本不会在开局询问 Provider API Key。启动后进入前端设置页配置模型 Provider、API Key、默认模型和 Agent Profile 模型覆盖。
+默认监听 3000 端口。更新、状态和诊断用 `neuro-book update` / `status` / `doctor`。**怎么停止服务、怎么开机自启、怎么配反代**，见 [运行、数据与隐私](/operations)。
+
+**服务器 Profile 默认开启登录鉴权**，安装后创建管理员：
+
+```bash
+neuro-book admin create
+```
+
+::: warning 鉴权默认值按 Profile 不同
+Windows Portable **默认关闭**密码保护，其余 Profile（GHCR、Product Bun、Source 系列）**默认开启**。可以用 `--auth enabled|disabled` 显式指定。
+:::
+
+## 配置 AI 模型
+
+NeuroBook 自己不提供 AI 能力，它调用你配置的**模型 Provider**——也就是提供大模型 API 的服务商。你需要在服务商那里申请一个 API Key，填进 NeuroBook。
+
+启动后进入**设置页 → 模型**，填写 Provider、Base URL、API Key 和默认模型。同一个设置页里还能给不同 Agent 单独指定模型（例如让写正文的 writer 用更强的模型，让摘要用便宜的）。
+
+关于费用：**NeuroBook 本身免费开源**，花钱的是模型调用，费用由你选的服务商计价、直接结算给服务商。NeuroBook 会把每次调用的 token 按输入 / 输出 / 缓存创建 / 缓存命中分项计量，并换算成美元和人民币显示，所以「写这一章花了多少钱」是能查到确切数字的。
+
+关于隐私：你发给 Agent 的内容（包括正文和设定）会按需发送给**你自己配置的那个 Provider**，不经过 NeuroBook 的任何服务器。完整的数据流向、本地敏感文件位置和分享前要注意什么，见 [运行、数据与隐私](/operations)。
 
 长期配置保存在 Global Config：
 
 ```text
-workspace/.nbook/config.json
+<State Root>/workspace/.nbook/config.json
 ```
 
-这个文件属于本机运行状态，不进 Git。
+State Root 默认等于安装目录；Windows 解压版是安装目录下的 `data/`，所以实际路径是 `data\workspace\.nbook\config.json`。这个文件属于本机运行状态，不进 Git。
 
 ## 常见下一步
 
-- 应用已经跑起来，想开始第一本书：读 [从第一本书到第一次 RP](/tutorials/)。
+- 应用跑起来了，想开始第一本书：读 [从第一本书到前三章](/tutorials/)。
 - 想了解 Windows、Docker、Product Bun 和 Source Profile 的差异：读 [部署方式](/deployment)。
-- 想理解项目文件放在哪里：读 [Agent 项目指南](https://github.com/notnotype/neuro-book/blob/master/reference/agent/project-workspace-guide.md)。
-- 想让 Agent 协助部署或排障：把 [交付与运维桥梁](https://github.com/notnotype/neuro-book/blob/master/docs/operator-bridge.md) 发给它。
+- 想知道数据存在哪、怎么备份、怎么停服务：读 [运行、数据与隐私](/operations)。
+- 想让 AI 协助部署或排障：把 [交付与运维桥梁](/operator-bridge) 发给它。

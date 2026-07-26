@@ -130,7 +130,6 @@ System + HistorySet/history -> ModelContext -> AppendingSet -> CurrentUserInput
 
 ```tsx
 <AppendingSet>
-    <RuntimeLocationReminder />
     <FileChangeNotice mode={ctx.settings.fileChangeAwareness} />
     <ModeAvailabilityReminder />
 </AppendingSet>

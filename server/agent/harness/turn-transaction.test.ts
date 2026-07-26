@@ -41,6 +41,7 @@ describe("turn transaction", () => {
             turn,
         });
         expect(frame.finalAssistant).toBe(assistant);
+        expect(frame.usage).toEqual(assistant.usage);
         expect(frame.messages).toEqual([assistant, toolResult]);
         expect(frame.reportResult).toEqual({result: "walkthrough"});
     });
@@ -73,6 +74,7 @@ describe("turn transaction", () => {
             result: {
                 status: "waiting",
                 finalAssistant: assistant,
+                usage: assistant.usage,
                 reportResult: undefined,
                 waiting,
             },
@@ -103,6 +105,7 @@ describe("turn transaction", () => {
             result: {
                 status: "failed",
                 finalAssistant,
+                usage: finalAssistant.usage,
                 errorInfo: outcome.errorInfo,
                 terminalStatus: "error",
             },

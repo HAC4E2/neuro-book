@@ -1,11 +1,23 @@
 import {closeProject, openProject} from "nbook/server/workspace-files/project-session";
+import {isProjectLifecycleError} from "nbook/server/workspace-files/project-identity";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 
 /**
  * 测试专用：按后台 job opener 打开 Project，会触发 openProject 的目录校验与一次性数据库初始化。
  */
 export async function openProjectForTest(projectPath: string): Promise<void> {
-    await openProject(resolveRuntimeWorkspaceRoot(), projectPath, {kind: "job", source: "test"});
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+        try {
+            await openProject(resolveRuntimeWorkspaceRoot(), projectPath, {kind: "job", source: "test"});
+            return;
+        } catch (error) {
+            // 测试通常先直接搭建fixture再open；Workspace Root watcher可能仍在收敛这批已完成写入。
+            if (!isProjectLifecycleError(error) || error.code !== "PROJECT_ROOT_REPLACED" || attempt === 4) {
+                throw error;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+    }
 }
 
 /**

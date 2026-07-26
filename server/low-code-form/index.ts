@@ -15,20 +15,28 @@ import type {
 import type {ProfileHomeFacade} from "nbook/server/agent/profiles/profile-home";
 import {defineResourcePreset, profileHomeResource, type ResourcePresetDefinition} from "nbook/server/low-code-form/resource-preset";
 import type {WorkspaceRootRef} from "nbook/server/workspace-files/workspace-root-ref";
+import type {ResolvedProjectWorkspace} from "nbook/server/workspace-files/project-identity";
 
 export {defineResourcePreset, profileHomeResource};
 
-export type LowCodeFormResolveContext = {
+type LowCodeFormResolveContextBase = {
     profileKey: string;
-    scope: "global" | "project";
     workspaceRoot: WorkspaceRootRef;
-    projectPath?: string;
     values?: LowCodeJsonObject;
     home?: ProfileHomeFacade;
     globalHome?: ProfileHomeFacade;
     allowGlobalResourceKeys?: boolean;
     resourceMutationKeyView?: LowCodeResourceMutationKeyView;
 };
+
+/** Low-code Project context 必须携带 ready gate 产生的结构化 workspace。 */
+export type LowCodeFormResolveContext = LowCodeFormResolveContextBase & ({
+    scope: "project";
+    projectWorkspace: ResolvedProjectWorkspace;
+} | {
+    scope: "global";
+    projectWorkspace?: never;
+});
 
 export type LowCodeResourceMutationKeyView = {
     knownKeys: ReadonlySet<string>;

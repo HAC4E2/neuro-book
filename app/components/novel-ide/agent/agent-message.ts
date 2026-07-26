@@ -7,6 +7,7 @@ import type {AgentAttachmentDisplay} from "nbook/app/components/novel-ide/agent/
 import type {LowCodeFormDto} from "nbook/shared/dto/low-code-form.dto";
 import {LowCodeFormDtoSchema} from "nbook/shared/dto/low-code-form.dto";
 import {toStableArgsJson} from "nbook/app/components/novel-ide/agent/tool-args-stream";
+import {userEntryContentIdentity} from "nbook/app/components/novel-ide/agent/agent-user-message-markdown";
 
 type PiAssistantContent = PiAssistantMessage["content"][number];
 type RuntimeAssistantContent = Array<PiAssistantContent | undefined>;
@@ -92,6 +93,12 @@ export type AgentMessageContentBlock =
  */
 export type AgentMessage = {
     id: string;
+    /** 用户提交与 durable entry 的稳定关联 ID。 */
+    clientMessageId?: string;
+    /** 仅 optimistic 用户消息使用；unknown 不会自动重试或持久化到刷新后。 */
+    deliveryState?: "pending" | "unknown";
+    /** unknown 显式重新发送时复用原交互意图，但始终生成新的 clientMessageId。 */
+    deliveryMode?: "prompt" | "steer" | "followup";
     type: MessageType;
     /** 用户消息意图；缺省为普通输入。 */
     intent?: UserMessageIntent;
@@ -110,6 +117,10 @@ export type AgentMessage = {
     contentBlocks?: AgentMessageContentBlock[];
     /** durable user entry 中未公开的内容块数量。 */
     omittedContentBlocks?: number;
+    /** 前端内部用户内容身份；用于精确消费交错图片的乐观消息。 */
+    userContentIdentity?: string;
+    /** 正文公开预算截断时使用的文本字节数 + 图片序列身份。 */
+    userContentFallbackIdentity?: string;
     html?: string;
     status?: MessageStatus;
     toolCalls?: AgentToolCall[];
@@ -319,6 +330,9 @@ export const toolStatusIcon = (toolCall: AgentToolCall): string => {
  * 返回消息状态文本。
  */
 export const messageStatusLabel = (message: AgentMessage): string => {
+    if (message.deliveryState === "unknown") {
+        return "发送结果未知";
+    }
     if (message.error) {
         return translate("agent.messageStatus.failed", "生成失败");
     }
@@ -461,10 +475,12 @@ export const applySessionEntryToMessages = (
         }
     }
     const withoutOptimisticDuplicate = nextMessage.type === "user"
-        ? previousMessages.filter((message) => !(message.id.startsWith("optimistic-user-") && message.content === nextMessage.content))
+        ? previousMessages.filter((message) => !(message.id.startsWith("optimistic-user:")
+            && Boolean(nextMessage.clientMessageId)
+            && message.clientMessageId === nextMessage.clientMessageId))
         : previousMessages;
     if (nextMessage.type === "system") {
-        const optimisticIndex = withoutOptimisticDuplicate.findIndex((message) => message.id.startsWith("optimistic-user-"));
+        const optimisticIndex = withoutOptimisticDuplicate.findIndex((message) => message.id.startsWith("optimistic-user:"));
         if (optimisticIndex >= 0 && !withoutOptimisticDuplicate.some((message) => message.id === nextMessage.id)) {
             const nextMessages = [...withoutOptimisticDuplicate];
             nextMessages.splice(optimisticIndex, 0, nextMessage);
@@ -525,12 +541,11 @@ export const toLocalMessage = (id: string, message: PiMessage | PiAgentMessage, 
 
     if (message.role === "user") {
         const text = messageContentText(message);
-        const steerText = unwrapSteerText(text);
         return {
             id,
             type: "user",
-            intent: steerText !== null ? "steer" : "normal",
-            content: steerText ?? text,
+            intent: "normal",
+            content: text,
             status: "done",
             timestamp: formatTimestamp(message.timestamp),
         };
@@ -951,8 +966,10 @@ const messageFromChatEntry = (entry: Exclude<AgentChatEntryDto, {type: "tool_res
             ? [{contentIndex: block.contentIndex, attachment: {...block.attachment}}]
             : []);
         const content = userEntryTextPreview(entry);
+        const identity = userEntryContentIdentity(entry);
         return {
             id: entry.id,
+            clientMessageId: entry.clientMessageId,
             type: "user",
             intent: entry.intent,
             content: content.preview,
@@ -961,6 +978,8 @@ const messageFromChatEntry = (entry: Exclude<AgentChatEntryDto, {type: "tool_res
             attachments,
             contentBlocks,
             omittedContentBlocks: entry.omittedBlocks,
+            ...(identity.exact === undefined ? {} : {userContentIdentity: identity.exact}),
+            userContentFallbackIdentity: identity.fallback,
             status: "done",
             timestamp: formatTimestamp(entry.timestamp),
             projectionSource: "durable",
@@ -1035,7 +1054,7 @@ export const userEntryTextPreview = (
     preview: entry.blocks
         .filter((block) => block.type === "text")
         .map((block) => block.content.preview)
-        .join("\n"),
+        .join(""),
     bytes: entry.textSummary.bytes,
     omitted: entry.textSummary.omitted,
 });
@@ -1068,17 +1087,6 @@ const messageContentText = (message: PiMessage): string => {
     }
     return message.content.filter((block) => block.type === "text").map((block) => block.text).join("\n");
 };
-
-const STEER_TEXT_PATTERN = /^<user_steer>\n?([\s\S]*?)\n?<\/user_steer>$/;
-
-function isSteerText(text: string): boolean {
-    return STEER_TEXT_PATTERN.test(text.trim());
-}
-
-function unwrapSteerText(text: string): string | null {
-    const match = text.trim().match(STEER_TEXT_PATTERN);
-    return match?.[1] ?? null;
-}
 
 const customMessageText = (message: Record<string, unknown>): string => {
     const content = message.content;

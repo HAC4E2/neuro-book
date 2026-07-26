@@ -1,14 +1,29 @@
+import {defineNitroPlugin} from "nitropack/runtime";
 import {closeAllProjects} from "nbook/server/workspace-files/project-session";
+import {closeAllWorkspaceTreeIndexes} from "nbook/server/workspace-files/project-workspace-index";
 import {disposeAgentHarness} from "nbook/server/agent/http";
 
 /**
- * 服务关停时统一关闭全部 ProjectSession 并级联释放 Project 级常驻资源
- * （SQLite 客户端、chokidar watcher 等）。属主清单见 project-session 注册表；
- * 不释放会在 Windows 上留下句柄悬挂，拖住进程退出或锁死 workspace 目录。
+ * 服务关停时按所有权顺序关闭Agent、ProjectSession与最终File Index cache。
+ * 即使前一步失败也继续尝试后续资源，最后统一报告全部关闭错误。
  */
 export default defineNitroPlugin((nitroApp) => {
     nitroApp.hooks.hook("close", async () => {
-        await disposeAgentHarness();
-        await closeAllProjects();
+        const failures: Error[] = [];
+        const closeSteps: ReadonlyArray<() => Promise<void>> = [
+            disposeAgentHarness,
+            closeAllProjects,
+            closeAllWorkspaceTreeIndexes,
+        ];
+        for (const close of closeSteps) {
+            try {
+                await close();
+            } catch (error) {
+                failures.push(error instanceof Error ? error : new Error(String(error)));
+            }
+        }
+        if (failures.length > 0) {
+            throw new AggregateError(failures, "Project runtime关闭不完整");
+        }
     });
 });

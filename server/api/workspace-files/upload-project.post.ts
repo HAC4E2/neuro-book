@@ -1,7 +1,9 @@
 import {createError, getRequestHeader, readMultipartFormData, type MultiPartData} from "h3";
 import {resolveWorkspaceFileTarget} from "nbook/server/workspace-files/novel-workspace";
-import {invalidateProjectWorkspaceIndexAfterMutation} from "nbook/server/workspace-files/project-workspace-index";
-import {assertProjectOpenForTarget} from "nbook/server/workspace-files/project-open-guard";
+import {
+    invalidateWorkspaceTreeAfterMutation,
+} from "nbook/server/workspace-files/project-workspace-index";
+import {withProjectTargetOperation} from "nbook/server/workspace-files/project-open-guard";
 import {
     uploadWorkspaceProjectFiles,
     uploadWorkspaceProjectZip,
@@ -22,47 +24,47 @@ export default defineEventHandler(async (event) => {
         projectPath: readTextPart(parts, "projectPath"),
         workspaceKind,
     });
-    assertProjectOpenForTarget(target);
     const mode = readTextPart(parts, "mode");
+    return withProjectTargetOperation(target, async (projectHandles) => {
+        if (mode === "zip") {
+            const zipFile = firstFilePart(parts, "zip");
+            assertZipFile(zipFile.filename ?? "");
+            try {
+                const result = await uploadWorkspaceProjectZip(target.root, {
+                    fileName: zipFile.filename ?? "project.zip",
+                    data: zipFile.data,
+                });
+                await recordUploadedFiles({target, history: projectHandles?.history, files: result.files, actor: USER_LOCAL_ACTOR});
+                invalidateWorkspaceTreeAfterMutation(target, projectHandles?.fileIndex);
+                return result;
+            } catch (error) {
+                throw toUploadError(error);
+            }
+        }
 
-    if (mode === "zip") {
-        const zipFile = firstFilePart(parts, "zip");
-        assertZipFile(zipFile.filename ?? "");
+        const relativePaths = parts
+            .filter((part) => part.name === "relativePath" && !part.filename)
+            .map((part) => part.data.toString("utf-8").trim());
+        let relativePathIndex = 0;
+        const files = parts
+            .filter((part) => part.name === "files" && part.filename)
+            .map<WorkspaceUploadFile>((part) => ({
+                fileName: part.filename ?? "upload.bin",
+                relativePath: relativePaths[relativePathIndex++] || part.filename,
+                data: part.data,
+            }));
+        if (!files.length) {
+            throw createError({statusCode: 400, message: "缺少 Project 上传文件"});
+        }
         try {
-            const result = await uploadWorkspaceProjectZip(target.root, {
-                fileName: zipFile.filename ?? "project.zip",
-                data: zipFile.data,
-            });
-            await recordUploadedFiles({target, files: result.files, actor: USER_LOCAL_ACTOR});
-            invalidateProjectWorkspaceIndexAfterMutation(target);
+            const result = await uploadWorkspaceProjectFiles(target.root, files);
+            await recordUploadedFiles({target, history: projectHandles?.history, files: result.files, actor: USER_LOCAL_ACTOR});
+            invalidateWorkspaceTreeAfterMutation(target, projectHandles?.fileIndex);
             return result;
         } catch (error) {
             throw toUploadError(error);
         }
-    }
-
-    const relativePaths = parts
-        .filter((part) => part.name === "relativePath" && !part.filename)
-        .map((part) => part.data.toString("utf-8").trim());
-    let relativePathIndex = 0;
-    const files = parts
-        .filter((part) => part.name === "files" && part.filename)
-        .map<WorkspaceUploadFile>((part) => ({
-            fileName: part.filename ?? "upload.bin",
-            relativePath: relativePaths[relativePathIndex++] || part.filename,
-            data: part.data,
-        }));
-    if (!files.length) {
-        throw createError({statusCode: 400, message: "缺少 Project 上传文件"});
-    }
-    try {
-        const result = await uploadWorkspaceProjectFiles(target.root, files);
-        await recordUploadedFiles({target, files: result.files, actor: USER_LOCAL_ACTOR});
-        invalidateProjectWorkspaceIndexAfterMutation(target);
-        return result;
-    } catch (error) {
-        throw toUploadError(error);
-    }
+    });
 });
 
 async function readRequiredMultipart(event: Parameters<typeof readMultipartFormData>[0]): Promise<MultiPartData[]> {

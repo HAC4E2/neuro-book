@@ -11,17 +11,19 @@ import {toolset} from "nbook/server/agent/profiles/profile-tools";
 import {defineLowCodeForm, defineResourcePreset, profileHomeResource, type LowCodeFieldDefinition} from "nbook/server/low-code-form";
 import {
     readConfigAgentProfileSettings,
-    loadEffectiveConfigForAgentRuntime,
+    inspectProviderReferences,
+    loadEffectiveConfigFromTarget,
     readConfigBootstrap,
     readConfigEditorSnapshot,
+    readConfigSnapshot,
     resolveConfigTarget,
     resetProjectProfileHome,
     saveGlobalConfig,
     saveProjectConfig,
 } from "nbook/server/config/config-service";
-import {ProjectNotOpenError} from "nbook/server/workspace-files/project-session";
+import {ProjectNotOpenError, resetProjectSessionsForTest} from "nbook/server/workspace-files/project-session";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
-import {createIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/workspace-assets-test-helper";
+import {createIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/test-workspace-fixture";
 import type {GlobalConfigUpdateDto} from "nbook/shared/dto/config.dto";
 import {disposeAgentHarness} from "nbook/server/agent/http";
 
@@ -38,11 +40,16 @@ describe("config service", {timeout: 30_000}, () => {
     });
 
     afterEach(async () => {
-        await closeProjectForTest(CONFIG_TEST_PROJECT_PATH).catch(() => undefined);
-        await disposeAgentHarness();
-        await Promise.all(createdRoots.splice(0).map((root) => fs.rm(root, {recursive: true, force: true})));
-        await isolatedAssets?.dispose();
-        isolatedAssets = null;
+        try {
+            await closeProjectForTest(CONFIG_TEST_PROJECT_PATH).catch(() => undefined);
+            resetProjectSessionsForTest();
+            await disposeAgentHarness();
+            await Promise.all(createdRoots.splice(0).map((root) => fs.rm(root, {recursive: true, force: true})));
+        } finally {
+            // dispose 内部已聚合错误并保证最终 rm(root)，这里只保证它一定被调用。
+            await isolatedAssets?.dispose();
+            isolatedAssets = null;
+        }
     });
 
     it("无配置文件时返回默认 Global + Project 快照且不创建文件", async () => {
@@ -54,26 +61,13 @@ describe("config service", {timeout: 30_000}, () => {
         await expect(fs.access(path.join("workspace", "config-test-project", ".nbook", "config.json"))).rejects.toMatchObject({code: "ENOENT"});
     });
 
-    it("分离 State Root 时 Project Config 路径不回退到 cwd", async () => {
-        const previousStateRoot = process.env.NEURO_BOOK_STATE_ROOT;
-        const stateRoot = path.join(isolatedAssets!.root, "separate-state");
-        const projectRoot = path.join(stateRoot, "workspace", "separate-project");
-        await fs.mkdir(projectRoot, {recursive: true});
-        process.env.NEURO_BOOK_STATE_ROOT = stateRoot;
-        try {
-            const target = await resolveConfigTarget({
-                workspaceKind: "novel",
-                projectPath: "workspace/separate-project",
-            });
-            expect(target.projectConfigPath).toBe(path.join(projectRoot, ".nbook", "config.json"));
-            expect(target.projectConfigPath).not.toBe(path.resolve(process.cwd(), "workspace", "separate-project", ".nbook", "config.json"));
-        } finally {
-            if (previousStateRoot === undefined) {
-                delete process.env.NEURO_BOOK_STATE_ROOT;
-            } else {
-                process.env.NEURO_BOOK_STATE_ROOT = previousStateRoot;
-            }
-        }
+    it("Config target 复用 ready Project 的已解析 workspace", async () => {
+        const target = await resolveConfigTarget({
+            workspaceKind: "novel",
+            projectPath: CONFIG_TEST_PROJECT_PATH,
+        });
+
+        expect(target.project?.workspace.root).toBe(await fs.realpath(path.resolve("workspace", "config-test-project")));
     });
 
     it("Global Config 写入在文件 mutation 前拒绝不可运行模型", async () => {
@@ -285,7 +279,7 @@ describe("config service", {timeout: 30_000}, () => {
         });
     });
 
-    it("删除 Provider 前扫描 managed Project 的显式模型引用", async () => {
+    it("Provider 引用检查读取已打开与未打开 managed Project 的显式模型引用", async () => {
         const models = validModelsInput();
         await saveGlobalConfig({models}, {workspaceKind: "user-assets"});
         const modelKey = `${models.providers[0]!.id}/${models.providers[0]!.models[0]!.id}`;
@@ -294,12 +288,14 @@ describe("config service", {timeout: 30_000}, () => {
             models: {default: modelKey},
         }), "utf8");
 
-        await expect(saveGlobalConfig({
-            models: {default: null, providers: []},
-        }, {workspaceKind: "user-assets"})).rejects.toMatchObject({
-            statusCode: 400,
-            data: {issues: expect.arrayContaining([expect.objectContaining({modelKey})])},
-        });
+        await expect(inspectProviderReferences(models.providers[0]!.id)).resolves.toEqual(
+            expect.arrayContaining([expect.objectContaining({modelKey})]),
+        );
+
+        await closeProjectForTest(CONFIG_TEST_PROJECT_PATH);
+        await expect(inspectProviderReferences(models.providers[0]!.id)).resolves.toEqual(
+            expect.arrayContaining([expect.objectContaining({modelKey})]),
+        );
     });
 
     it("Agent-only Global 保存拒绝不可运行 modelKey 且不写文件", async () => {
@@ -319,6 +315,24 @@ describe("config service", {timeout: 30_000}, () => {
             data: {issues: expect.arrayContaining([expect.objectContaining({code: "invalid_model_reference"})])},
         });
         expect(await fs.readFile(configPath, "utf-8")).toBe(before);
+    });
+
+    it("Agent 可见模型清单通过设置快照与 Global 保存链持久化", async () => {
+        const models = validModelsInput();
+        const modelKey = `${models.providers[0]!.id}/${models.providers[0]!.models[0]!.id}`;
+        const snapshot = await saveGlobalConfig({
+            models,
+            agent: {
+                defaultProfileKey: {novel: null, userAssets: null},
+                profileModelDefaults: {},
+                profileRuntimeDefaults: {},
+                profiles: {},
+                visibleModels: [{modelKey, note: " 高性能编码 "}],
+            },
+        }, {workspaceKind: "user-assets"}, catalog);
+
+        expect(snapshot.global.agent?.visibleModels).toEqual([{modelKey, note: "高性能编码"}]);
+        expect(snapshot.modelSettings.agentVisibleModels).toEqual([{modelKey, note: "高性能编码"}]);
     });
 
     it("Global Config 写入拒绝无效 Profile 模型引用", async () => {
@@ -463,6 +477,26 @@ describe("config service", {timeout: 30_000}, () => {
         await expect(saveProjectConfig({
             agent: {defaultProfileKey: "custom.agent"},
         }, {workspaceKind: "novel", projectPath: CONFIG_TEST_PROJECT_PATH}, catalog)).rejects.toBeInstanceOf(ProjectNotOpenError);
+    });
+
+    it("Project 未 open 时拒绝读取 Project Config 快照", async () => {
+        await closeProjectForTest(CONFIG_TEST_PROJECT_PATH);
+        const query = {workspaceKind: "novel", projectPath: CONFIG_TEST_PROJECT_PATH} as const;
+
+        await expect(readConfigSnapshot(query)).rejects.toBeInstanceOf(ProjectNotOpenError);
+        await expect(readConfigEditorSnapshot(query)).rejects.toBeInstanceOf(ProjectNotOpenError);
+        await expect(readConfigBootstrap(query)).rejects.toBeInstanceOf(ProjectNotOpenError);
+    });
+
+    it("Project 未 open 时 Global Config 仍可独立保存", async () => {
+        await closeProjectForTest(CONFIG_TEST_PROJECT_PATH);
+
+        const snapshot = await saveGlobalConfig({ui: {theme: "dark", customThemes: [], costCurrency: "USD"}}, {
+            workspaceKind: "user-assets",
+        });
+
+        expect(snapshot.workspaceKind).toBe("user-assets");
+        expect(snapshot.global.ui?.theme).toBe("dark");
     });
 
     it("Project 未 open 时拒绝重置 Project Profile Home", async () => {
@@ -1015,9 +1049,10 @@ describe("config service", {timeout: 30_000}, () => {
             },
         }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"});
 
-        const effective = await loadEffectiveConfigForAgentRuntime({
+        const effective = await loadEffectiveConfigFromTarget(await resolveConfigTarget({
+            workspaceKind: "novel",
             projectPath: "workspace/config-test-project",
-        });
+        }));
 
         expect(effective.embedding).toMatchObject({
             enabled: true,
@@ -1029,7 +1064,7 @@ describe("config service", {timeout: 30_000}, () => {
         });
     });
 
-    it("Agent runtime 配置读取支持外部 Project Workspace 绝对 projectPath", async () => {
+    it("Agent runtime 配置读取拒绝外部 Project Workspace 绝对 projectPath", async () => {
         const externalProjectRoot = path.join(await fs.mkdtemp(path.join(os.tmpdir(), "nbook-external-project-")), "external-project");
         createdRoots.push(path.dirname(externalProjectRoot));
         await fs.mkdir(path.join(externalProjectRoot, ".nbook"), {recursive: true});
@@ -1058,18 +1093,10 @@ describe("config service", {timeout: 30_000}, () => {
             },
         }, null, 4), "utf-8");
 
-        const effective = await loadEffectiveConfigForAgentRuntime({
+        await expect(resolveConfigTarget({
+            workspaceKind: "novel",
             projectPath: externalProjectRoot,
-        });
-
-        expect(effective.embedding).toMatchObject({
-            enabled: true,
-            provider: "openai-compatible",
-            model: "external-embed",
-            dimensions: 384,
-            apiKey: "sk-embedding",
-            baseURL: "https://embedding.example/v1",
-        });
+        })).rejects.toThrow("projectPath 必须形如 workspace/<project>");
     });
 
     it("Agent Profile 模型默认参数支持 Project 覆盖并被 profile 继承", async () => {

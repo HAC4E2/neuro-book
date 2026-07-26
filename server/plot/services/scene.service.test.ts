@@ -88,7 +88,7 @@ describe("SceneService", () => {
             {} as PromiseService,
         );
 
-        await service.reorderStoryScenes(1, [
+        await service.reorderStoryScenes([
             {sceneId: 101, threadId: 11, chapterId: null, threadSortOrder: 1, chapterSortOrder: null},
             {sceneId: 102, threadId: 11, chapterId: null, threadSortOrder: 0, chapterSortOrder: null},
         ]);
@@ -144,7 +144,7 @@ describe("SceneService", () => {
             {} as PromiseService,
         );
 
-        await service.reorderStoryScenes(1, [
+        await service.reorderStoryScenes([
             {sceneId: 101, threadId: 11, chapterId: null, threadSortOrder: 1, chapterSortOrder: null},
             {sceneId: 102, threadId: 11, chapterId: null, threadSortOrder: 0, chapterSortOrder: null},
         ]);
@@ -184,7 +184,7 @@ describe("SceneService", () => {
             {} as PromiseService,
         );
 
-        await expect(service.reorderStoryScenes(1, [
+        await expect(service.reorderStoryScenes([
             {sceneId: 101, threadId: 11, chapterId: null, threadSortOrder: 0, chapterSortOrder: null},
         ])).rejects.toThrow("剧情线程 11 下的 Scene 重排必须覆盖当前 Thread 的全部 Scene");
         expect(sceneRepository.updateScene).not.toHaveBeenCalled();
@@ -217,11 +217,11 @@ describe("SceneService", () => {
             promiseService,
         );
 
-        await service.updateStoryScene("workspace/novel-1", 10, {status: "archived"});
+        await service.updateStoryScene(10, {status: "archived"});
         expect(promiseService.syncFulfilledAfterSceneChange).toHaveBeenCalledTimes(1);
         expect(promiseService.syncFulfilledAfterSceneChange).toHaveBeenCalledWith(10);
 
-        await service.updateStoryScene("workspace/novel-1", 10, {title: "改名不触发回退"});
+        await service.updateStoryScene(10, {title: "改名不触发回退"});
         expect(promiseService.syncFulfilledAfterSceneChange).toHaveBeenCalledTimes(1);
     });
 
@@ -260,7 +260,7 @@ describe("SceneService", () => {
             promiseService,
         );
 
-        await service.deleteStoryScene("workspace/novel-1", 10);
+        await service.deleteStoryScene(10);
 
         expect(calls).toEqual(["collect", "delete", "revert:31,32"]);
     });

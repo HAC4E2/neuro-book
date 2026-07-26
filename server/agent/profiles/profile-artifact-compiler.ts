@@ -1,6 +1,6 @@
 import {createHash, randomUUID} from "node:crypto";
 import {existsSync} from "node:fs";
-import {copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile} from "node:fs/promises";
+import {copyFile, mkdir, readFile, readdir, rename, rm, stat, utimes, writeFile} from "node:fs/promises";
 import {basename, dirname, isAbsolute, join, relative, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
 import {builtinModules, createRequire} from "node:module";
@@ -25,6 +25,15 @@ export const PROFILE_COMPILED_ARTIFACTS_DIR_NAME = "artifacts";
 export const PROFILE_COMPILED_MANIFEST_FILE = "manifest.json";
 export const PROFILE_COMPILED_PUBLISH_LOCK = ".publish.lock";
 export const PROFILE_COMPILED_ARTIFACT_GC_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
+/**
+ * 未引用 artifact 的最小安全年龄。硬预算不得突破这条地板。
+ *
+ * 它保护的是**在途读者**：进程 A 已读到 manifest v1、正准备 import 其中的 artifact 时，
+ * 进程 B 发布 v2 并触发预算回收。没有这条地板，A 会拿到 ENOENT 变成 compiled_load_failed。
+ */
+export const PROFILE_COMPILED_ARTIFACT_GC_MIN_AGE_MS = 10 * 60 * 1000;
+/** 单个 profile root 允许保留的未引用 artifact 字节预算。current 引用不计入，永不驱逐。 */
+export const PROFILE_COMPILED_ORPHAN_BUDGET_BYTES = 512 * 1024 * 1024;
 const PROFILE_COMPILE_MAX_FILE_CONCURRENCY = 4;
 const PROFILE_DEPENDENCY_HASH_CONCURRENCY = 16;
 
@@ -32,6 +41,33 @@ export type ProfileArtifactDependency = {
     path: string;
     sha256: string;
     bytes: number;
+};
+
+/** artifact 回收的触发入口。 */
+export type ProfileArtifactGcTrigger = "publish";
+
+/** 一次内容寻址 artifact 回收的完整账目。current 引用永不计入可驱逐字节。 */
+export type ProfileArtifactGcReport = {
+    trigger: ProfileArtifactGcTrigger;
+    /** current manifest 引用的 artifact 数与字节数。 */
+    currentFiles: number;
+    currentBytes: number;
+    /** 回收前未被 current manifest 引用的 artifact 数与字节数。 */
+    orphanFiles: number;
+    orphanBytes: number;
+    /** 本次实际删除的数量与字节数。 */
+    deletedFiles: number;
+    deletedBytes: number;
+    /** rm 失败的文件数（Windows 文件占用等）；不影响 release 主结果。 */
+    failedFiles: number;
+    /** 因未过最小安全年龄而拒绝驱逐的字节数。 */
+    protectedBytes: number;
+    /** 回收后仍超预算的字节数；>0 表示地板挡住了预算，需要关注写入速度。 */
+    overBudgetBytes: number;
+    /** 目录内最大的单个 artifact，用于定位 bundle 膨胀；目录为空时为 null。 */
+    largestArtifact: {fileName: string; bytes: number} | null;
+    /** true 表示命中退化状态守卫（loaded entry 为 0），本次跳过了预算回收。 */
+    skippedDegenerate: boolean;
 };
 
 export type ProfileArtifactDependencyMismatch = {
@@ -939,7 +975,7 @@ async function compileProfileFile(profileRoot: string, compiledDir: string, file
         const artifactHash = await hashFile(temporaryOutputPath);
         const artifactFileName = `${PROFILE_COMPILED_ARTIFACTS_DIR_NAME}/${artifactHash.sha256}.mjs`;
         const artifactPath = join(compiledDir, ...artifactFileName.split("/"));
-        const profile = await importCompiledProfile(temporaryOutputPath, artifactHash);
+        const profile = await importCompiledProfile(temporaryOutputPath);
         const typeFileName = `${PROFILE_COMPILED_ARTIFACTS_DIR_NAME}/${artifactHash.sha256}.${VARIABLE_TYPES_FILE_NAME}`;
         const typePath = join(compiledDir, ...typeFileName.split("/"));
         const generatedTypes = generateVariableTypes(profile.variableDefinitions ?? [], {
@@ -972,13 +1008,14 @@ async function compileProfileFile(profileRoot: string, compiledDir: string, file
     }
 }
 
-async function importCompiledProfile(artifactPath: string, artifactHash: {sha256: string; bytes: number}): Promise<AgentProfile> {
-    const mod = await importRuntimeArtifact<{default?: unknown}>(artifactPath, {
-        cacheKey: artifactHash.sha256,
-        cacheNamespace: "profile-compiler",
-        cacheRoot: dirname(artifactPath),
-        expectedBytes: artifactHash.bytes,
-    });
+/**
+ * 导入刚编译出的 staging artifact，用于读取 profile manifest 与 variable 定义。
+ *
+ * 不建立 Runtime Import Cache 物理副本：`temporaryOutputPath` 本身带 `randomUUID()`，
+ * 每轮编译路径都不同，不存在 Bun 按 pathname 复用旧模块的问题。
+ */
+async function importCompiledProfile(artifactPath: string): Promise<AgentProfile> {
+    const mod = await importRuntimeArtifact<{default?: unknown}>(artifactPath);
     const profile = mod.default;
     if (!isProfile(profile)) {
         throw new Error(`compiled profile 没有默认导出有效的 defineAgentProfile 结果：${artifactPath}`);
@@ -1133,7 +1170,7 @@ async function commitCompiledArtifacts(buildCompiledDir: string, compiledDir: st
             await installManifestEntryArtifacts(buildCompiledDir, compiledDir, item);
         }
         await writeJsonIfChanged(join(compiledDir, PROFILE_COMPILED_MANIFEST_FILE), serializeProfileArtifactManifest(manifest));
-        await pruneCompiledArtifacts(compiledDir, manifest);
+        logProfileArtifactGc(compiledDir, await pruneCompiledArtifacts(compiledDir, manifest, "publish"));
     });
 }
 
@@ -1164,9 +1201,22 @@ async function commitCompiledArtifactEntries(buildCompiledDir: string, compiledD
             profiles: nextEntries.filter(isLoadedManifestEntry),
         };
         await writeJsonIfChanged(join(compiledDir, PROFILE_COMPILED_MANIFEST_FILE), serializeProfileArtifactManifest(manifest));
-        await pruneCompiledArtifacts(compiledDir, manifest);
+        logProfileArtifactGc(compiledDir, await pruneCompiledArtifacts(compiledDir, manifest, "publish"));
         return manifest;
     });
+}
+
+/**
+ * 上报一次 artifact 回收账目。
+ * 命中退化守卫或仍然超预算时升为 warn，让这两种需要关注的状态显性化。
+ */
+function logProfileArtifactGc(compiledDir: string, report: ProfileArtifactGcReport): void {
+    const payload = {compiledDir, ...report};
+    if (report.skippedDegenerate || report.overBudgetBytes > 0) {
+        appLogger.warn("agent.profileArtifact.gc", payload);
+        return;
+    }
+    appLogger.debug("agent.profileArtifact.gc", payload);
 }
 
 async function withProfileReleaseQueue<T>(profileRoot: string, task: () => Promise<T>): Promise<T> {
@@ -1322,36 +1372,132 @@ function isTransientRenameError(error: unknown): boolean {
     return error.code === "EPERM" || error.code === "EBUSY" || error.code === "EACCES";
 }
 
-async function pruneCompiledArtifacts(compiledDir: string, manifest: ProfileArtifactManifest): Promise<void> {
+/**
+ * 回收一个 `.compiled/` 目录里不再可达的 artifact。
+ *
+ * 由发布路径在 publish lock 内调用。`budgetBytes` 是显式参数而非只读常量，
+ * 这样预算行为可以被直接测试，不必伪造 512 MiB 的磁盘数据。
+ */
+export async function pruneCompiledArtifacts(
+    compiledDir: string,
+    manifest: ProfileArtifactManifest,
+    trigger: ProfileArtifactGcTrigger,
+    budgetBytes: number = PROFILE_COMPILED_ORPHAN_BUDGET_BYTES,
+): Promise<ProfileArtifactGcReport> {
     const keep = new Set([
         PROFILE_COMPILED_MANIFEST_FILE,
         ...manifest.profiles.flatMap((item) => [item.artifactFileName, item.typeFileName].filter((name): name is string => Boolean(name))),
     ]);
     const entries = await readdir(compiledDir, {withFileTypes: true}).catch(() => []);
+    // `.compiled/` 根目录的历史扁平 artifact 是 Task 79 迁移残留，无 grace 立即删。
     await Promise.all(entries
         .filter((entry) => entry.isFile() && /\.(mjs|types\.d\.ts)$/.test(entry.name) && !keep.has(entry.name))
         .map((entry) => rm(join(compiledDir, entry.name), {force: true})));
-    await pruneContentAddressedArtifacts(compiledDir, keep);
+    // manifest 没有任何 loaded entry 属于退化态（例如宿主依赖临时缺失导致全量编译失败）。
+    // 此时可达集合为空，按预算回收会删光整个 artifacts 目录，因此只保留 grace 行为。
+    const degenerate = manifest.profiles.length === 0;
+    return pruneContentAddressedArtifacts(compiledDir, keep, trigger, budgetBytes, degenerate);
 }
 
-async function pruneContentAddressedArtifacts(compiledDir: string, keep: Set<string>): Promise<void> {
+/**
+ * 回收 `.compiled/artifacts/` 中不再被 current manifest 引用的 artifact。
+ *
+ * 优先级：最小安全年龄地板 > 硬字节预算 > 7 天 grace。
+ * 即地板内的 orphan 绝不删；地板外先按 grace 删一批，仍超预算就继续按
+ * “最久未被引用优先”删到预算内（此时突破 grace）。
+ */
+async function pruneContentAddressedArtifacts(
+    compiledDir: string,
+    keep: Set<string>,
+    trigger: ProfileArtifactGcTrigger,
+    budgetBytes: number,
+    degenerate: boolean,
+): Promise<ProfileArtifactGcReport> {
     const artifactsDir = join(compiledDir, PROFILE_COMPILED_ARTIFACTS_DIR_NAME);
     const entries = await readdir(artifactsDir, {withFileTypes: true}).catch(() => []);
     const now = Date.now();
-    await Promise.all(entries
-        .filter((entry) => entry.isFile() && /\.(mjs|types\.d\.ts)$/.test(entry.name))
-        .map(async (entry) => {
-            const relativeName = `${PROFILE_COMPILED_ARTIFACTS_DIR_NAME}/${entry.name}`;
-            if (keep.has(relativeName)) {
-                return;
-            }
-            const filePath = join(artifactsDir, entry.name);
-            const fileStat = await stat(filePath).catch(() => null);
-            if (!fileStat || now - fileStat.mtimeMs < PROFILE_COMPILED_ARTIFACT_GC_GRACE_MS) {
-                return;
-            }
-            await rm(filePath, {force: true});
-        }));
+    const report: ProfileArtifactGcReport = {
+        trigger,
+        currentFiles: 0,
+        currentBytes: 0,
+        orphanFiles: 0,
+        orphanBytes: 0,
+        deletedFiles: 0,
+        deletedBytes: 0,
+        failedFiles: 0,
+        protectedBytes: 0,
+        overBudgetBytes: 0,
+        largestArtifact: null,
+        skippedDegenerate: false,
+    };
+    const orphans: {path: string; bytes: number; mtimeMs: number}[] = [];
+    const files = entries.filter((entry) => entry.isFile() && /\.(mjs|types\.d\.ts)$/.test(entry.name));
+    await mapConcurrent(files, PROFILE_DEPENDENCY_HASH_CONCURRENCY, async (entry) => {
+        const filePath = join(artifactsDir, entry.name);
+        const fileStat = await stat(filePath).catch(() => null);
+        if (!fileStat) {
+            return;
+        }
+        if (!report.largestArtifact || fileStat.size > report.largestArtifact.bytes) {
+            report.largestArtifact = {fileName: entry.name, bytes: fileStat.size};
+        }
+        if (keep.has(`${PROFILE_COMPILED_ARTIFACTS_DIR_NAME}/${entry.name}`)) {
+            report.currentFiles += 1;
+            report.currentBytes += fileStat.size;
+            // 幂等复用 artifact 时 installImmutableArtifact 不会刷新 mtime，
+            // 于是一个被连续引用很久的 artifact 会带着很旧的 mtime。这里把它刷新成
+            // “最后一次仍被 current 引用的时间”，驱逐序才是正确的最久未引用优先。
+            await utimes(filePath, now / 1000, now / 1000).catch(() => undefined);
+            return;
+        }
+        report.orphanFiles += 1;
+        report.orphanBytes += fileStat.size;
+        orphans.push({path: filePath, bytes: fileStat.size, mtimeMs: fileStat.mtimeMs});
+    });
+
+    const removeOrphan = async (orphan: {path: string; bytes: number}): Promise<void> => {
+        try {
+            await rm(orphan.path, {force: true});
+            report.deletedFiles += 1;
+            report.deletedBytes += orphan.bytes;
+        } catch {
+            // 单个 artifact 删不掉（Windows 文件占用等）不得让整个发布失败。
+            report.failedFiles += 1;
+        }
+    };
+
+    const remaining: {path: string; bytes: number; mtimeMs: number}[] = [];
+    for (const orphan of orphans) {
+        if (now - orphan.mtimeMs >= PROFILE_COMPILED_ARTIFACT_GC_GRACE_MS) {
+            await removeOrphan(orphan);
+            continue;
+        }
+        remaining.push(orphan);
+    }
+
+    if (degenerate) {
+        report.skippedDegenerate = true;
+        report.overBudgetBytes = Math.max(0, report.orphanBytes - report.deletedBytes - budgetBytes);
+        return report;
+    }
+
+    report.protectedBytes = remaining
+        .filter((orphan) => now - orphan.mtimeMs < PROFILE_COMPILED_ARTIFACT_GC_MIN_AGE_MS)
+        .reduce((total, orphan) => total + orphan.bytes, 0);
+    const evictable = remaining
+        .filter((orphan) => now - orphan.mtimeMs >= PROFILE_COMPILED_ARTIFACT_GC_MIN_AGE_MS)
+        .sort((left, right) => left.mtimeMs - right.mtimeMs);
+    // 预算回收必须串行：要知道删完这一个之后的累计剩余字节，才能决定要不要删下一个。
+    let live = report.orphanBytes - report.deletedBytes;
+    for (const orphan of evictable) {
+        if (live <= budgetBytes) {
+            break;
+        }
+        await removeOrphan(orphan);
+        live -= orphan.bytes;
+    }
+    report.overBudgetBytes = Math.max(0, live - budgetBytes);
+    return report;
 }
 
 /**
@@ -1394,11 +1540,23 @@ function repoAliasBundlePlugin(context: RuntimeArtifactCompilerContext): Plugin 
                     path: resolveRuntimeArtifactNbookPath(context, relativePath),
                 };
             });
-            buildApi.onResolve({filter: /^[^./].*/}, (args) => nodeModuleNames.has(args.path)
+            buildApi.onResolve({filter: /^[^./].*/}, (args) => isPlatformBuiltinModule(args.path, nodeModuleNames)
                 ? {path: args.path, external: true}
                 : resolveBarePackage(args.path, requireFromRuntime));
         },
     };
+}
+
+/**
+ * 判断 specifier 是否宿主运行时自带的内置模块。
+ *
+ * Node builtins（含 `node:` 前缀）与 Bun builtins（`bun`、`bun:ffi` 等）都由宿主提供，
+ * 必须整体 external。它们不能交给 `require.resolve()`：编译进程运行在 Node 下时
+ * `bun:*` 必然解析失败并返回 undefined，会让整张 profile 依赖图编译中断。
+ * 平台能力代码（例如 Windows reparse 检测）本来就只在对应运行时才会执行到。
+ */
+function isPlatformBuiltinModule(specifier: string, nodeModuleNames: ReadonlySet<string>): boolean {
+    return nodeModuleNames.has(specifier) || specifier === "bun" || specifier.startsWith("bun:");
 }
 
 function resolveBarePackage(specifier: string, requireFromRuntime: NodeJS.Require): {path: string; external?: boolean} | undefined {

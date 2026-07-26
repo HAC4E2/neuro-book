@@ -4,7 +4,7 @@ import type {Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
 import {SimulatorLeaderInitialSchema, SimulatorLeaderOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
-import {AgentCatalog, AppendingSet, HistorySet, Import, LinkedAgentsReminder, Message, ModelContext, ProfilePrompt, RuntimeLocationReminder, System, WorkspaceFocusReminder} from "nbook/server/agent/profiles/profile-dsl";
+import {AgentCatalog, AppendingSet, HistorySet, Import, LinkedAgentsReminder, Message, ModelContext, ProfilePrompt, System, WorkspaceFocusReminder} from "nbook/server/agent/profiles/profile-dsl";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
 
 export const profileManifest = {
@@ -62,7 +62,6 @@ export default defineAgentProfile({
                     <Message>{renderRuntimeInput(ctx.session.projectPath)}</Message>
                 </ModelContext>
                 <AppendingSet>
-                    <RuntimeLocationReminder />
                     <WorkspaceFocusReminder />
                     <LinkedAgentsReminder />
                 </AppendingSet>
@@ -90,7 +89,7 @@ function renderSystemPrompt(): string {
 
         - 不写正式章节正文。
         - 不设计长期 Thread / Scene；只输出剧情机会和因果后果。RP/simulation 模式下的 Plot 落库由调用方（director 或 rp.leader）负责；普通写作模式的 Plot 由 leader.default 管理。
-        - 不直接维护 subject 的 events.jsonl、memory.jsonl、mind.md；这些由 subject simulator sidecar 或后续 memory 机制维护。
+        - 不直接维护 subject 的 events.jsonl、memory.jsonl、mind.md；这些由后续 memory 机制维护。
         - 不替用户决定核心行动。重大不可逆结果、核心剧情方向和用户角色关键选择写入 open_questions。
 
         # 路径与目录

@@ -41,3 +41,17 @@ model DatabaseLock {
   key       Int      @id
   updatedAt DateTime @default(now()) @updatedAt
 }
+
+// Passport 凭据：一个账号槽位持有一份官方站授权（Task 112 spec §11；v1 只有 default 槽位）
+model PassportCredential {
+  id                 Int      @id @default(autoincrement())
+  slotId             String   @unique @default("default") // 账号槽位，v1 恒为 default，预留多槽位切换
+  siteBaseUrl        String // 官方站地址（自部署可指向任意站点）
+  accountId          Int // 官方站账号 id（展示用）
+  accountUsername    String
+  accountDisplayName String
+  scopesJson         String // JSON string[]，已授权 scope
+  refreshToken       String // 官方站 refresh token；存 State Root 内 App SQLite，与 .env 同级安全边界
+  linkedAt           DateTime @default(now())
+  updatedAt          DateTime @default(now()) @updatedAt
+}

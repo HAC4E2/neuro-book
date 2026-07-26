@@ -1,5 +1,5 @@
 import {WORKFLOW_DEMO_PROFILE_PREFIX} from "nbook/server/agent/workflow/workflow-session-port";
-import type {AgentInvokeOutcome, AgentPort, EntryId, InvokeOptions, JsonValue, SessionId, SessionPort} from "nbook/server/vendor/nb-workflow/index";
+import type {AgentInvokeOutcome, AgentInvokeUsage, AgentPort, EntryId, InvokeOptions, JsonValue, SessionId, SessionPort} from "nbook/server/vendor/nb-workflow/index";
 import type {MockAgentPort} from "nbook/server/vendor/nb-workflow/index";
 import type {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 
@@ -30,6 +30,7 @@ export class HarnessAgentPort implements AgentPort {
             payload: opts.input,
             caller: {kind: "user"},
             block: true,
+            signal: opts.signal,
         });
         if (result.queuedItem) {
             throw new Error(`session ${sessionId} 的 invocation 被排队：workflow run 期望独占该 session`);
@@ -38,13 +39,29 @@ export class HarnessAgentPort implements AgentPort {
             throw new Error(result.error ?? `session ${sessionId} invocation 失败`);
         }
         const after = await this.harness.repo.readSession(sessionId);
+        const usage: AgentInvokeUsage | null = result.usage ? {
+            inputTokens: result.usage.input,
+            outputTokens: result.usage.output,
+            cacheReadTokens: result.usage.cacheRead,
+            cacheWriteTokens: result.usage.cacheWrite,
+            ...(result.usage.cacheWrite1h === undefined ? {} : {cacheWrite1hTokens: result.usage.cacheWrite1h}),
+            ...(result.usage.reasoning === undefined ? {} : {reasoningTokens: result.usage.reasoning}),
+            totalTokens: result.usage.totalTokens,
+            cost: {
+                input: result.usage.cost.input,
+                output: result.usage.cost.output,
+                cacheRead: result.usage.cost.cacheRead,
+                cacheWrite: result.usage.cost.cacheWrite,
+                total: result.usage.cost.total,
+            },
+        } : null;
         return {
             status: result.status,
             message: result.reportResult?.result ?? result.finalMessage ?? "",
             data: result.reportResult?.data ?? null,
             newLeaf: after.leafId,
             // 本轮 token 用量：随 journal 持久，run 级汇总（Task 111 返回契约）
-            usage: result.usage ? {inputTokens: result.usage.input, outputTokens: result.usage.output} : null,
+            usage,
         };
     }
 }

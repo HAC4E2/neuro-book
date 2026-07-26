@@ -4,11 +4,14 @@ import type {JsonValue as AgentJsonValue} from "nbook/server/agent/messages/type
 import type {NeuroAgentTool, NeuroToolResult, ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {buildExecuteWorldDescription} from "nbook/server/agent/world-engine-tool-description";
 import type {ExecuteWorldMode} from "nbook/server/world-engine/world-engine.facade";
-import {randomBytes} from "node:crypto";
-import {mkdir, writeFile} from "node:fs/promises";
-import {join} from "node:path";
-import {resolveSessionFileScope} from "nbook/server/agent/workspace/session-file-scope";
-import {worldEngineFacadeForWorkspaceRoot} from "nbook/server/world-engine";
+import {PROJECT_PLOT_WORLD_MODULE_TOKEN} from "nbook/server/plot";
+import {
+    activateReadyProjectModule,
+    requireReadyProjectPath,
+    runReadyProjectOperation,
+} from "nbook/server/workspace-files/project-session";
+import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
+import {normalizeProjectPath, projectSlug} from "nbook/server/workspace-files/project-path";
 
 const NonEmptyString = (description: string) => Type.String({minLength: 1, description});
 
@@ -29,17 +32,35 @@ export function createWorldEngineTools(): NeuroAgentTool[] {
             async (context, input) => {
                 const mode = modeForContext(context);
                 try {
-                    const facade = worldEngineFacadeForWorkspaceRoot(context.workspaceFsRoot);
-                    const result = await facade.executeCodeActWorld(input.projectPath, input.code, mode);
-                    return worldResult(result);
+                    const ready = worldProjectForTool(context, input.projectPath);
+                    return await runReadyProjectOperation(ready, async () => {
+                        const {world: facade} = await activateReadyProjectModule(
+                            ready,
+                            PROJECT_PLOT_WORLD_MODULE_TOKEN,
+                        );
+                        const result = await facade.executeCodeActWorld(input.code, mode);
+                        return worldResult(result);
+                    });
                 } catch (error) {
-                    const tempPath = await saveTempCode(context, input.code);
                     const errorMessage = error instanceof Error ? error.message : String(error);
-                    throw new Error(`世界引擎脚本执行失败：${errorMessage}\n失败的代码已保存到：${tempPath}`);
+                    throw new Error(`世界引擎脚本执行失败：${errorMessage}`, {cause: error});
                 }
             },
         ),
     ];
+}
+
+/** Current Project复用invocation exact ref；只有显式override才在入口解析旧字符串。 */
+function worldProjectForTool(context: ToolExecutionContext, projectPathInput: string): ReadyProjectSessionRef {
+    if (!context.invocationId) {
+        throw new Error("World Engine工具缺少invocationId，无法读取已捕获的Project generation。");
+    }
+    const projectPath = normalizeProjectPath(projectPathInput);
+    const currentProject = context.harness.projectForInvocation(context.invocationId);
+    if (currentProject?.workspace.ref.projectRoot === projectSlug(projectPath)) {
+        return currentProject;
+    }
+    return requireReadyProjectPath(projectPath);
 }
 
 function tool<TSchemaValue extends TSchema>(
@@ -107,17 +128,4 @@ function normalizeToolDetails(value: unknown): AgentJsonValue {
         return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined).map(([key, item]) => [key, normalizeToolDetails(item)]));
     }
     return String(value);
-}
-
-/** 保存失败的 CodeAct 脚本，方便用户或后续 agent 复查。 */
-async function saveTempCode(context: ToolExecutionContext, code: string): Promise<string> {
-    const tempDir = join(resolveSessionFileScope(context).root, ".temp");
-    await mkdir(tempDir, {recursive: true});
-
-    const hash = randomBytes(6).toString("hex");
-    const filename = `world-execute-${hash}.js`;
-    const fullPath = join(tempDir, filename);
-
-    await writeFile(fullPath, code, "utf-8");
-    return `.temp/${filename}`;
 }

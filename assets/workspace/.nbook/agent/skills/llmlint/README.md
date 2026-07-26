@@ -4,7 +4,7 @@
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](./LICENSE)
 [![Runtime: Node.js or Bun](https://img.shields.io/badge/Runtime-Node.js%20or%20Bun-green.svg)](#运行要求)
-[![Version](https://img.shields.io/badge/version-2.0.0-green.svg)](./package.json)
+[![Version](https://img.shields.io/badge/version-2.0.1-green.svg)](./package.json)
 
 **中文 · [English](./README.en.md)**
 
@@ -21,7 +21,7 @@
 | **CLI**（本仓库 `bin/llmlint.ts`） | 用 regex detector 做**稳定、可复现的候选定位**，告诉你*哪里*可能有问题。 |
 | **Agent Skill**（`SKILL.md`） | 由 LLM/Agent 结合**语境**复核候选、给文本评分、生成修复计划，并*在你审批之后*才改写。 |
 
-核心理念：**命中只是候选，不是判决。** CLI 永远不会自动改写正文。只有无需判断的机械清理（零宽字符、连续符号去重）才由 `fix` 处理；所有语义级修复都交给人/Agent。
+核心理念：**命中只是候选，不是判决。** CLI 永远不会自动改写正文。只有无需判断的机械清理（零宽字符、省略号/破折号尾部清理）才由 `fix` 处理；所有语义级修复都交给人/Agent。
 
 ## 为什么需要它
 
@@ -44,12 +44,12 @@ npx skills add notnotype/llmlint --skill llmlint --full-depth
 
 它会把 skill 文件复制 / 链接进 Agent 的 skills 目录，并按 `SKILL.md` 驱动 CLI。
 
-**独立 CLI 使用** —— 克隆后安装依赖（Bun 或 Node 均可）：
+**独立 CLI 使用** —— 克隆后用 Bun 安装依赖；CLI 运行时仍支持 Bun 或 Node + `tsx`：
 
 ```bash
 git clone https://github.com/notnotype/llmlint.git
 cd llmlint/skill
-bun install        # 或 npm install / pnpm install
+bun install --frozen-lockfile
 ```
 
 直接运行（Bun 原生跑 TS；Node 见[运行要求](#运行要求)）：
@@ -60,11 +60,15 @@ bun bin/llmlint.ts check <文件>     # Node：npx tsx bin/llmlint.ts check <文
 
 或把 `llmlint` 注册到 PATH（`package.json` 已声明 `bin`）：`bun link` 后 `llmlint check <文件>`。
 
-> `SKILL.md` / `references/` 里把 CLI 写成 `bun .nbook/agent/skills/llmlint/bin/llmlint.ts …`，那是 llmlint 作为**内嵌 Agent Skill** 安装时的路径（见 [作为 Agent Skill 使用](#作为-agent-skill-使用)）；独立使用时直接 `bin/llmlint.ts` 即可，`bun` 可替换为你的 Node 运行方式。
+> `SKILL.md` / `references/` 使用 `<skill-root>` 占位符。Agent 优先使用 SkillCatalog 给出的绝对 `root`；宿主只提供 `SKILL.md` 的绝对位置时使用其父目录。独立使用时当前目录就是 skill 根，可直接运行 `bun bin/llmlint.ts …`。
 
 ## 快速开始
 
 ```bash
+# 写之前：输出写作约束要点（markdown），可注入系统提示词或存成文风预设
+bun bin/llmlint.ts guide
+bun bin/llmlint.ts guide --tier full            # 带上全部逐词替换与删除词表
+
 # 定位文件（或目录，递归 .md/.markdown/.txt）中的 regex 候选
 bun bin/llmlint.ts check manuscript/chapter-01.md
 bun bin/llmlint.ts check manuscript/
@@ -75,10 +79,11 @@ bun bin/llmlint.ts check chapter.md --min-level medium
 # 小文件 / 人类阅读：显示完整命中行，用 <mark> 标出命中片段
 bun bin/llmlint.ts check chapter.md --show-lines
 
-# 列出需要 Agent 全文审查的 LLM 规则
-bun bin/llmlint.ts show-llm-rules
+# 检视规则库；语义规则展开完整判定说明与示例
+bun bin/llmlint.ts rules
+bun bin/llmlint.ts rules --detector semantic
 
-# 确定性机械修复（零宽字符、连续符号去重）—— 默认 dry-run
+# 确定性机械修复（零宽字符、省略号/破折号尾部清理）—— 默认 dry-run
 bun bin/llmlint.ts fix manuscript/             # 仅预览（有待修项时退出码 1）
 bun bin/llmlint.ts fix manuscript/ --write     # 写回原文件
 
@@ -98,12 +103,12 @@ bun bin/llmlint.ts check chapter.md --format json
 
 默认规则集中只有 3 条无需语境判断的机械规则是 `auto`，没有默认 `candidate`，其余规则均为 `manual`。用户仍可在配置中把明确选中的 regex `replace` 规则提升为 `candidate`，供逐条人工确认。规则数据里的 `action.replace` 只是替换模板，**不代表允许直接应用**；最终权限始终由 materialize 后的 `fixability` 决定。
 
-`review`（受众）和 `detector`（检测手段）是**两个不同概念**：
+`review`（受众）和 `detector`（判据类别）是**两个不同概念**：
 
-- **`detector`** 决定问题*怎么被发现*：`regex` 由 `check` 静态扫描命中；`llm` 由 `show-llm-rules` 交给 Agent 全文审查。
-- **`review`** 决定一条 regex 命中*默认给谁看*。
+- **`detector`** 决定判据是什么性质：`regex` 词法、`density` 统计、`handler` 算法由 `check` 静态扫描命中；`semantic` 没有可稳定定位的特征，靠 `rules --detector semantic` 交给 Agent 读全文判断。
+- **`review`** 决定一条静态命中*默认给谁看*。它**只管审查期**——`human` 表示「置信度不足，别让 Agent 自动改」，不表示这条规则在写作期不该提。写作期的取舍是 `guide --tier`。
 
-一次完整审查要同时跑 `check`（给 Agent 的 regex 命中）和 `show-llm-rules`（全文语义规则）。
+一次完整审查要同时跑 `check`（给 Agent 的静态命中）和 `rules --detector semantic`（语义规则）。
 
 ## 配置
 
@@ -152,16 +157,16 @@ export default {
 
 ## 作为 Agent Skill 使用
 
-本仓库同时是一个自包含的 **Agent Skill**。`SKILL.md` 定义了 6 步润色流程：获取输入 → `check` → `show-llm-rules` + 50 分快速审查 → 修复计划（用户审批）→ 执行修复 → 生成报告。
+本仓库同时是一个自包含的 **Agent Skill**。`SKILL.md` 定义了“首次 install 依赖门 + 五步本地闭环”：`status` 初始化 → `check + detect` → 合成报告 → 审批后按删/压/换修复并复测一轮 → 台账与本地学习建议。
 
-推荐用 [`skills`](https://skills.sh) CLI 安装 —— `npx skills add notnotype/llmlint --skill llmlint --full-depth` —— 它会在仓库中递归发现 `skill/` 下的 `llmlint`，并把文件装进对应 Agent 的 skills 目录（如 `.claude/skills/llmlint/` 或 NeuroBook 的 `.nbook/agent/skills/llmlint/`）。也可手动复制仓库里的 `skill/` 目录，并在目标 skills 目录中命名为 `llmlint/`。装好后在 skill 目录运行一次依赖安装（`npm install` / `bun install` / `pnpm install`），Agent 即可按文档流程驱动 CLI。
+推荐用 [`skills`](https://skills.sh) CLI 安装 —— `npx skills add notnotype/llmlint --skill llmlint --full-depth` —— 它会在仓库中递归发现 `skill/` 下的 `llmlint`，并把文件装进对应 Agent 的 skills 目录（如 `.claude/skills/llmlint/` 或 NeuroBook 的 `.nbook/agent/skills/llmlint/`）。也可手动复制仓库里的 `skill/` 目录，并在目标 skills 目录中命名为 `llmlint/`。首次启用时，Agent 必须先在 SkillCatalog 给出的 skill 根目录运行 `bun install --cwd "<skill-root>" --frozen-lockfile`；安装成功后才进入 `status` 初始化门，后续审稿复用该安装。Skill 版本真相源是 `package.json.version`，不写入 `SKILL.md` frontmatter。
 
 ## 文档
 
 - [`SKILL.md`](./SKILL.md) —— Agent Skill 清单与工作流契约
 - [`references/cli-usage.md`](./references/cli-usage.md) —— CLI 完整参考（参数、输出格式、JSON schema）
 - [`references/patterns.md`](./references/patterns.md) —— 中文文本模式库（每条规则查什么、何时该保留）
-- [`references/workflow.md`](./references/workflow.md) —— 6 步润色流程详解
+- [`references/workflow.md`](./references/workflow.md) —— 依赖门 + 五步本地闭环详解
 
 ## 许可证
 

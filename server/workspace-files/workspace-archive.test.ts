@@ -15,6 +15,12 @@ import {
 } from "nbook/server/workspace-files/workspace-archive";
 import {toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
+import {
+    createProjectWorkspaceKey,
+    projectWorkspaceRef,
+    resolvedProjectWorkspace,
+    type ResolvedProjectWorkspace,
+} from "nbook/server/workspace-files/project-identity";
 
 const execFileAsync = promisify(execFile);
 
@@ -65,6 +71,7 @@ describe("workspace-archive", () => {
         await writeFile(".nbook/config.json", "{}\n");
         await writeFile("ignored.tmp", "skip\n");
         await writeFile(".nbook/private.txt", "ignored by directory rule\n");
+        await writeFile(".nbook/recovery/project-manifest-original.yaml", "broken manifest bytes\n");
         await writeFile(".nbook/runtime-artifact-import-cache/world-engine-calendar/a.mjs", "export {};\n");
         await writeFile("world-engine/.runtime-artifact-import-cache/world-engine-schema/a.mjs", "export {};\n");
         await writeFile("world-engine/calendar.ts", "export default {};\n");
@@ -108,7 +115,7 @@ describe("workspace-archive", () => {
         });
 
         try {
-            const archive = await createProjectWorkspaceZipStream(absoluteFsPath(path.resolve(root)));
+            const archive = await createProjectWorkspaceZipStream(projectWorkspace(root));
             const buffer = await readStreamBuffer(archive.stream);
             const files = unzipSync(buffer);
             const entries = Object.keys(files).sort((left, right) => left.localeCompare(right, "zh-Hans-CN"));
@@ -118,6 +125,7 @@ describe("workspace-archive", () => {
                 ".nbook/config.json",
                 ".nbook/history.sqlite",
                 ".nbook/project.sqlite",
+                ".nbook/recovery/project-manifest-original.yaml",
                 "project.yaml",
                 "world-engine/calendar.ts",
             ]));
@@ -205,7 +213,7 @@ describe("workspace-archive", () => {
             return originalStat(target, options);
         });
 
-        await expect(createProjectWorkspaceZipStream(absoluteFsPath(path.resolve(root))))
+        await expect(createProjectWorkspaceZipStream(projectWorkspace(root)))
             .rejects.toMatchObject({code: "EACCES"});
     });
 
@@ -221,6 +229,14 @@ describe("workspace-archive", () => {
 
 const PROJECT_DATABASE_ENTRY = ".nbook/project.sqlite";
 const HISTORY_DATABASE_ENTRY = ".nbook/history.sqlite";
+
+/** 为归档单测构造一个不进入DTO的ResolvedProjectWorkspace identity。 */
+function projectWorkspace(projectRoot: string): ResolvedProjectWorkspace {
+    const rootPath = absoluteFsPath(path.resolve(projectRoot));
+    const workspaceRoot = absoluteFsPath(path.dirname(rootPath));
+    const ref = projectWorkspaceRef(path.basename(rootPath));
+    return resolvedProjectWorkspace(ref, rootPath, createProjectWorkspaceKey(workspaceRoot, ref));
+}
 
 /**
  * 读取 Node stream 的完整 Buffer。
@@ -299,6 +315,7 @@ import {createClient} from "@libsql/client";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {createProjectWorkspaceZipStream} from "nbook/server/workspace-files/workspace-archive";
 import {toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
+import {createProjectWorkspaceKey, projectWorkspaceRef, resolvedProjectWorkspace} from "nbook/server/workspace-files/project-identity";
 
 const root = process.argv[2];
 if (!root) throw new Error("missing root");
@@ -312,7 +329,11 @@ await client.execute("PRAGMA writable_schema = OFF");
 await client.close();
 
 try {
-    await createProjectWorkspaceZipStream(absoluteFsPath(root));
+    const resolvedRoot = absoluteFsPath(root);
+    const workspaceRoot = absoluteFsPath(path.dirname(root));
+    const ref = projectWorkspaceRef(path.basename(root));
+    const workspace = resolvedProjectWorkspace(ref, resolvedRoot, createProjectWorkspaceKey(workspaceRoot, ref));
+    await createProjectWorkspaceZipStream(workspace);
     throw new Error("corrupt Project SQLite unexpectedly archived");
 } catch (error) {
     if (!(error instanceof Error) || !error.message.includes("Project SQLite 在线快照失败")) {

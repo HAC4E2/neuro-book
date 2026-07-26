@@ -12,7 +12,7 @@
 | `subject.md` | 跨剧情恒定 | 仅 simulator.leader | 全知秘密档：隐藏真相、作者意图、角色不知道的设定 |
 | `events.jsonl` | 剧情累积 | RAG 索引 | 角色第一人称经历流：发生了什么、我当时怎么想/误解/推理 |
 | `memory.jsonl` | 剧情累积 | RAG 索引 | 角色对特定主体的稳定看法：我对 XX 的态度/关系/误解 |
-| `mind.md` | 易变 | actor.context-load 读 | 当前想法：此刻在想什么、疑虑、短期意图 |
+| `mind.md` | 易变 | 授权上级或外部记忆流程读取 | 当前想法：此刻在想什么、疑虑、短期意图 |
 | `state.md` | 易变 | 上级读取 | 可见状态：位置、装备、伤势、外观变化 |
 
 ## 信息分流铁律
@@ -83,20 +83,20 @@
 
 ### 索引源与检索逻辑
 
-actor.context-load 通过 `subject_rag_search` 工具从 events.jsonl / memory.jsonl 检索相关记忆注入主路。
+`subject_rag_search` 可以从 events.jsonl / memory.jsonl 检索相关记忆。当前没有内置自动消费者；`simulator.actor` 主 run 只允许 `report_result`，不会自行检索。未来 workflow/job 若重建记忆流程，必须在调用 actor 前显式检索、过滤并注入。
 
 **索引源**：只有 events.jsonl 和 memory.jsonl 进入 RAG 索引。
 
 **不进索引的文件**：
 - soul.md：永不进 RAG 索引（始终全文 Import，是信息控制最后一道闸）
 - subject.md：永不进 RAG 索引（仅 leader 可见，actor 不可知）
-- mind.md / state.md：不进索引（actor.context-load 直接读全文）
+- mind.md / state.md：不进索引；仅由具备权限的上级或外部流程按信息边界显式读取
 
 ### 初始化种子的重要性
 
 **问题**：如果初始化时 events.jsonl 和 memory.jsonl 是空的，会发生什么？
 
-**答案**：RAG 检索不到任何东西——actor 只有 soul.md 撑场。
+**答案**：RAG 检索不到任何东西；若外部流程也没有显式注入记忆，actor 只拥有 `soul.md` 和当前 actor-facing packet。
 
 **后果**：
 - 角色技能/知识无法溯源（例如"我是资深管家"但没有 events 记录学徒经历）

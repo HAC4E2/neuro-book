@@ -197,6 +197,8 @@ export type PublicToolResultDto = {
 
 export type AgentChatUserEntryDto = {
     id: string;
+    /** 前端提交与 durable entry 的稳定关联 ID。 */
+    clientMessageId: string;
     timestamp: number;
     type: "user";
     /** 唯一正文来源；按 stored contentIndex 保序。 */

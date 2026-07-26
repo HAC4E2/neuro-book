@@ -4,7 +4,7 @@ import type {Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
 import {RpWriterInitialSchema, RpWriterOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
-import {AppendingSet, HistorySet, If, Import, Message, ModelContext, ProfilePrompt, RuntimeLocationReminder, System} from "nbook/server/agent/profiles/profile-dsl";
+import {AppendingSet, HistorySet, If, Import, Message, ModelContext, ProfilePrompt, System, WorkspaceFocusReminder} from "nbook/server/agent/profiles/profile-dsl";
 import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
 import {buildWritingReference} from "nbook/server/agent/profiles/writer-writing-reference";
@@ -252,7 +252,7 @@ async function buildRpWriterPrompt(_ctx: ProfilePrepareContext<Initial>) {
                 <Message>{renderInvocationReminder()}</Message>
             </ModelContext>
             <AppendingSet>
-                <RuntimeLocationReminder />
+                <WorkspaceFocusReminder />
             </AppendingSet>
         </ProfilePrompt>
     );

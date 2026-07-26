@@ -2,11 +2,14 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import {createClient} from "@libsql/client";
 import {afterAll, beforeEach, describe, expect, it, vi} from "vitest";
-import {worldEngineFacadeForWorkspaceRoot} from "nbook/server/world-engine";
-import {plotFacadeForWorkspaceRoot} from "nbook/server/plot";
+import {
+    PROJECT_PLOT_WORLD_MODULE_TOKEN,
+    type ProjectPlotWorldHandle,
+} from "nbook/server/plot";
 import {resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
+import {activateReadyProjectModule, requireReadyProjectPath} from "nbook/server/workspace-files/project-session";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 
 vi.unmock("nbook/server/plot");
@@ -21,9 +24,6 @@ vi.mock("h3", async () => {
 });
 
 const createdProjects: string[] = [];
-const workspaceRoot = resolveRuntimeWorkspaceRoot();
-const worldEngineFacade = worldEngineFacadeForWorkspaceRoot(workspaceRoot);
-const plotFacade = plotFacadeForWorkspaceRoot(workspaceRoot);
 
 describe("/api/projects/plot", {timeout: 30_000}, () => {
     beforeEach(() => {
@@ -43,8 +43,6 @@ describe("/api/projects/plot", {timeout: 30_000}, () => {
     afterAll(async () => {
         for (const projectPath of createdProjects) {
             await closeProjectForTest(projectPath).catch(() => undefined);
-            await plotFacade.closeProject(projectPath);
-            await worldEngineFacade.closeProject(projectPath);
             await removeProjectRoot(projectPath);
         }
         createdProjects.splice(0);
@@ -52,12 +50,13 @@ describe("/api/projects/plot", {timeout: 30_000}, () => {
 
     it("GET /scenes/:sceneId/world-context 返回已解析 subject 上下文和 unresolved 占位", async () => {
         const projectPath = await createProject();
+        const {world: worldEngineFacade} = await plotWorldForProject(projectPath);
         const handler = (await import("nbook/server/api/projects/plot/[...segments]")).default;
         const thread = await callApi(handler, projectPath, "POST", "threads", {
             name: "main",
             title: "主线",
         });
-        await worldEngineFacade.writeSlice(projectPath, {
+        await worldEngineFacade.writeSlice({
             instant: 120n,
             title: "抵达神殿",
             summary: "主角进入神殿，发现灯火昏暗。",
@@ -66,7 +65,7 @@ describe("/api/projects/plot", {timeout: 30_000}, () => {
                 {subjectId: "temple", type: "location", name: "荒野神殿", path: "/light", op: "replace", value: "dim"},
             ],
         });
-        await worldEngineFacade.writeSlice(projectPath, {
+        await worldEngineFacade.writeSlice({
             instant: 140n,
             title: "远方商队",
             patches: [{subjectId: "merchant", type: "character", name: "商人", path: "/hp", op: "replace", value: 10}],
@@ -105,6 +104,7 @@ describe("/api/projects/plot", {timeout: 30_000}, () => {
 
     it("GET /chapter-writer-brief 返回章节 Scene / World Context brief", async () => {
         const projectPath = await createProject();
+        const {world: worldEngineFacade} = await plotWorldForProject(projectPath);
         const handler = (await import("nbook/server/api/projects/plot/[...segments]")).default;
         const chapter = await callApi(handler, projectPath, "POST", "chapters", {
             name: "001-opening",
@@ -117,7 +117,7 @@ describe("/api/projects/plot", {timeout: 30_000}, () => {
             summary: "主线推进到神殿。",
             writingTip: "保持紧张。",
         });
-        await worldEngineFacade.writeSlice(projectPath, {
+        await worldEngineFacade.writeSlice({
             instant: 120n,
             title: "神殿灯火",
             summary: "神殿灯火变暗。",
@@ -398,6 +398,15 @@ async function createProject(options: {withCalendar?: boolean; calendarSource?: 
         await openProjectForTest(projectPath);
     }
     return projectPath;
+}
+
+/** 取得测试Project当前generation的Plot/World lazy handle。 */
+async function plotWorldForProject(projectPath: string): Promise<ProjectPlotWorldHandle> {
+    const ready = requireReadyProjectPath(projectPath);
+    return activateReadyProjectModule(
+        ready,
+        PROJECT_PLOT_WORLD_MODULE_TOKEN,
+    );
 }
 
 async function callApi(

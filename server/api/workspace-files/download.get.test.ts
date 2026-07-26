@@ -1,6 +1,11 @@
 import {Readable} from "node:stream";
 import {beforeEach, describe, expect, it, vi} from "vitest";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {
+    createProjectWorkspaceKey,
+    projectWorkspaceRef,
+    resolvedProjectWorkspace,
+} from "nbook/server/workspace-files/project-identity";
 import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
 
 describe("GET /api/workspace-files/download", () => {
@@ -17,6 +22,12 @@ describe("GET /api/workspace-files/download", () => {
             projectPath: normalizeProjectPath("workspace/novel-1"),
         };
         const resolveWorkspaceFileTarget = vi.fn(async () => target);
+        const ref = projectWorkspaceRef("novel-1");
+        const workspace = resolvedProjectWorkspace(
+            ref,
+            target.root,
+            createProjectWorkspaceKey(absoluteFsPath("C:/test/workspace"), ref),
+        );
         const createProjectWorkspaceZipStream = vi.fn(async () => ({
             root: target.root,
             filename: "novel-1.zip",
@@ -42,7 +53,11 @@ describe("GET /api/workspace-files/download", () => {
             createWorkspaceZipStream: vi.fn(),
         }));
         vi.doMock("nbook/server/workspace-files/project-open-guard", () => ({
-            assertProjectOpenForTarget: vi.fn(),
+            withProjectTargetOperation: vi.fn((_target, handler: (handles: unknown) => unknown) => handler({
+                ready: {workspace, generation: 1},
+                fileIndex: {},
+                history: {},
+            })),
         }));
         vi.doMock("nbook/server/utils/prisma", () => ({
             prisma: {},
@@ -55,7 +70,7 @@ describe("GET /api/workspace-files/download", () => {
             projectPath: "workspace/novel-1",
             workspaceKind: undefined,
         });
-        expect(createProjectWorkspaceZipStream).toHaveBeenCalledWith(target.root);
+        expect(createProjectWorkspaceZipStream).toHaveBeenCalledWith(workspace);
     });
 
     it("user-assets 继续使用普通 workspace archive", async () => {
@@ -86,7 +101,9 @@ describe("GET /api/workspace-files/download", () => {
             createProjectWorkspaceZipStream,
             createWorkspaceZipStream,
         }));
-        vi.doMock("nbook/server/workspace-files/project-open-guard", () => ({assertProjectOpenForTarget: vi.fn()}));
+        vi.doMock("nbook/server/workspace-files/project-open-guard", () => ({
+            withProjectTargetOperation: vi.fn((_target, handler: (handles: undefined) => unknown) => handler(undefined)),
+        }));
 
         const handler = (await import("nbook/server/api/workspace-files/download.get")).default;
         await handler({} as never);

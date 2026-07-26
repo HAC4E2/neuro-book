@@ -6,6 +6,7 @@ import {isNovelIdeTab, type NovelIdeTab} from "nbook/app/components/novel-ide/mo
 import MarkdownStudioWorkbench from "nbook/app/components/markdown-studio/MarkdownStudioWorkbench.vue";
 import AgentChatSurface from "nbook/app/components/novel-ide/agent/AgentChatSurface.vue";
 import AgentTraceViewerDialog from "nbook/app/components/novel-ide/agent/trace-viewer/AgentTraceViewerDialog.vue";import WorkspaceHistoryInboxDialog from "nbook/app/components/novel-ide/history/WorkspaceHistoryInboxDialog.vue";import AgentModeSessionSidebar from "nbook/app/components/novel-ide/agent/AgentModeSessionSidebar.vue";
+import AgentJobsDialog from "nbook/app/components/novel-ide/jobs/AgentJobsDialog.vue";
 import NovelIdeHeader from "nbook/app/components/novel-ide/NovelIdeHeader.vue";
 import NovelIdeSidebar from "nbook/app/components/novel-ide/NovelIdeSidebar.vue";
 import NovelIdeSettingsDialog from "nbook/app/components/novel-ide/NovelIdeSettingsDialog.vue";
@@ -22,6 +23,7 @@ import WorkspaceLocationProfileDialog from "nbook/app/components/novel-ide/works
 import WorkspaceRuleProfileDialog from "nbook/app/components/novel-ide/workspace/WorkspaceRuleProfileDialog.vue";
 import type {WorkspaceReferencePreviewMeta} from "nbook/app/components/markdown-studio/tiptap/WorkspaceReference";
 import {useIdeTheme} from "nbook/app/composables/useIdeTheme";
+import {useAgentJobsFeed} from "nbook/app/composables/useAgentJobsFeed";
 import {useAuthSessionState} from "nbook/app/composables/useAuthSessionState";
 import {useMarkdownStudioController} from "nbook/app/composables/useMarkdownStudioController";
 import {useWorkspaceFileEvents} from "nbook/app/composables/useWorkspaceFileEvents";
@@ -62,6 +64,9 @@ const bookshelfOpen = ref(false);
 const settingsDialogOpen = ref(false);
 const traceViewerOpen = ref(false);
 const historyInboxOpen = ref(false);
+// 后台任务中心：共享 feed 喂 Header 徽标与面板（调用即启动常驻慢轮询）
+const agentJobsOpen = ref(false);
+const {activeCount: agentJobsActiveCount} = useAgentJobsFeed();
 const historyInboxRefreshKey = ref(0);
 const worldEngineWorkbenchOpen = ref(false);
 const worldEngineWorkbenchHasUnsavedDrafts = ref(false);
@@ -2127,6 +2132,7 @@ onBeforeUnmount(() => {
             :novel-items="displayNovelItems"
             :current-user="currentUser"
             :workspace-mode="isUserAssetsWorkspace ? 'user-assets' : 'novel'"
+            :agent-jobs-active-count="agentJobsActiveCount"
             @toggle-layout-mode="void toggleAgentLayoutMode()"
             @toggle-agent="isAgentMode ? toggleAgentModeStudio() : rightPanelOpen = !rightPanelOpen"
             @open-bookshelf="bookshelfOpen = true"
@@ -2136,6 +2142,7 @@ onBeforeUnmount(() => {
             @open-profile-workbench="profileWorkbenchOpen = true"
             @open-trace-viewer="traceViewerOpen = true"
             @open-history-inbox="historyInboxOpen = true"
+            @open-agent-jobs="agentJobsOpen = true"
             @switch-novel="handleSwitchNovel"
             @open-admin="void openAdmin()"
             @logout="void logout()"
@@ -2342,6 +2349,7 @@ onBeforeUnmount(() => {
         <NovelIdeSettingsDialog v-model="settingsDialogOpen" />
         <AgentTraceViewerDialog v-model="traceViewerOpen" @open-session="void openTraceSession($event)" />
         <WorkspaceHistoryInboxDialog v-model="historyInboxOpen" :project-path="isUserAssetsWorkspace ? null : currentNovelId" :theme="activeThemeId" />
+        <AgentJobsDialog v-model="agentJobsOpen" />
         <UserProfileWorkbenchDialog v-model="profileWorkbenchOpen" />
         <WorkspaceFileConflictDialog
             v-model="novelIdeStore.workspaceConflictDialogOpen"

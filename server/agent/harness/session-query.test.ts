@@ -42,6 +42,8 @@ describe("NeuroAgentHarness session query", () => {
                 const entry = await repo.appendEntry(created.metadata.sessionId, {
                     type: "message",
                     origin: "prompt",
+                    clientMessageId: randomUUID(),
+                    intent: "normal",
                     message: {
                         role: "user",
                         content: [{type: "text", text: "cursor 之后写入"}],
@@ -97,6 +99,8 @@ describe("NeuroAgentHarness session query", () => {
         const entry = await repo.appendEntry(created.metadata.sessionId, {
             type: "message",
             origin: "prompt",
+            clientMessageId: randomUUID(),
+            intent: "normal",
             message: {
                 role: "user",
                 content: [{type: "text", text: "需要重试"}],

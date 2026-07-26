@@ -99,6 +99,7 @@ export const EnabledModelOptionDtoSchema = z.object({
     label: z.string().trim().min(1, "模型标签不能为空"),
     providerId: ProviderIdSchema,
     modelId: ModelIdSchema,
+    input: z.array(ModelInputKindSchema).min(1).default(["text"]),
     contextWindowTokens: ContextWindowTokensSchema,
 });
 

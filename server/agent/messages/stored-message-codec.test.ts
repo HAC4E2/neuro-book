@@ -63,15 +63,19 @@ describe("stored message codec", () => {
             pausedBy: {invocationId: "inv-1", reason: "aborted" as const},
             items: [{
                 id: "item-1",
+                clientMessageId: "00000000-0000-4000-8000-000000000001",
                 kind: "followup" as const,
                 message: {
-                    text: "继续",
-                    attachments: [{
-                        type: "attachment" as const,
-                        attachment: {id: `sha256:${"b".repeat(64)}` as const, mimeType: "image/png", bytes: 4},
-                        name: "cover.png",
-                    }],
+                    content: [
+                        {type: "text" as const, text: "继续"},
+                        {
+                            type: "attachment" as const,
+                            attachment: {id: `sha256:${"b".repeat(64)}` as const, mimeType: "image/png", bytes: 4},
+                            name: "cover.png",
+                        },
+                    ],
                 },
+                modelKey: "local/reviewer",
                 createdAt: 1,
             }],
         };
@@ -80,6 +84,10 @@ describe("stored message codec", () => {
         expect(() => parseFollowUpQueue({
             status: "ready",
             items: [{id: "bad", kind: "followup", message: {text: "继续", images: []}, createdAt: 1}],
+        })).toThrowError(expect.objectContaining<Partial<StoredMessageInvariantError>>({code: "corrupt"}));
+        expect(() => parseFollowUpQueue({
+            status: "ready",
+            items: [{id: "bad-model", kind: "followup", message: {text: "继续"}, modelKey: " ", createdAt: 1}],
         })).toThrowError(expect.objectContaining<Partial<StoredMessageInvariantError>>({code: "corrupt"}));
     });
 

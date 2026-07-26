@@ -68,9 +68,7 @@ export function now(): number {
 /**
  * 构造 Pi user message。
  */
-export function createUserMessage(input: {text: string; images?: undefined}, timestamp?: number): StoredUserMessage;
-export function createUserMessage(input: AgentUserMessageInput, timestamp?: number): Message;
-export function createUserMessage(input: AgentUserMessageInput, timestamp = now()): Message | StoredUserMessage {
+export function createUserMessage(input: AgentUserMessageInput, timestamp = now()): Message & StoredUserMessage {
     const textBlock: TextContent = {
         type: "text",
         text: input.text,
@@ -78,7 +76,7 @@ export function createUserMessage(input: AgentUserMessageInput, timestamp = now(
 
     return {
         role: "user",
-        content: input.images?.length ? [textBlock, ...input.images] : [textBlock],
+        content: [textBlock],
         timestamp,
     };
 }

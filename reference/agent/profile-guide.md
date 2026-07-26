@@ -19,9 +19,11 @@
 - `tools`
 - `context(ctx)`
 
-需要每轮结构化调用载荷时声明 `payloadSchema`。需要结构化结果时声明 `outputSchema`。需要 profile 自定义默认预设时声明 `settingsForm`，运行时通过 `ctx.settings` 读取合并后的设置；settings 不属于创建期 initial，也不属于单次 invocation payload。存在 `outputSchema` 时，`report_result.data` 是主路结构化输出的 runtime 校验依据；provider-visible schema 中该字段保持 optional，方便任务失败或只返回可读错误说明时仍能结束主 run。旁路结构化结果不要复用 `report_result`，必须通过 `report_sidecar_result.data` 返回。
+需要每轮结构化调用载荷时声明 `payloadSchema`。需要结构化结果时声明 `outputSchema`。需要 profile 自定义默认预设时声明 `settingsForm`，运行时通过 `ctx.settings` 读取合并后的设置；settings 不属于创建期 initial，也不属于单次 invocation payload。存在 `outputSchema` 时，`report_result.data` 是结构化输出的 runtime 校验依据；provider-visible schema 中该字段保持 optional，方便任务失败或只返回可读错误说明时仍能结束 run。
 
-`tools` 是 profile 的根工具绑定对象，决定模型可见工具 schema 和 profile 最大执行权限。推荐用 `toolset(builtin...)` 显式声明工具集合；需要定制 `report_result.data` schema 时使用 `builtin.result.main({ dataSchema: OutputSchema })`。如果 profile 有 sidecar，root `tools` 需要同时声明 `builtin.result.sidecar()`；其 `data` schema 会由当前 profile 全部 `sidecarDataSchema` 汇总成 sidecar-name keyed 的 profile-stable union。sidecar 调用时必须传 `data: { "<sidecar-name>": payload }`，payload 才按该 sidecar 的 `sidecarDataSchema` 校验。主 run 需要收窄执行权限时声明顶层 `toolKeys`，sidecar 需要收窄执行权限时声明 `sidecar.toolKeys`，二者都只能引用根 `tools` 中已有的 key。
+`tools` 是 profile 的根工具绑定对象，决定模型可见工具 schema 和 profile 最大执行权限。推荐用 `toolset(builtin...)` 显式声明工具集合；需要定制 `report_result.data` schema 时使用 `builtin.result.main({ dataSchema: OutputSchema })`。需要收窄执行权限时声明顶层 `toolKeys`，它只能引用根 `tools` 中已有的 key。
+
+检索、反思、维护等独立工作应由普通 agent invocation、Agent Workflow 和后台 Job 显式编排。
 
 `tools` 支持三种来源：
 
@@ -130,8 +132,7 @@ context() {
                 </Message>
             </HistorySet>
             <AppendingSet>
-                <WorkdirReminder />
-                <ProjectWorkspaceReminder />
+                <WorkspaceFocusReminder />
                 <ModeReminder />
             </AppendingSet>
         </ProfilePrompt>
@@ -145,11 +146,12 @@ context() {
 - `HistorySet`
 - `ModelContext`
 - `AppendingSet`
-- `Compaction`
 - `If`
 - `Fragment`
 
 非空文本必须放在支持 string 的节点内，例如 `System` 或 `Message`。不要在 `ProfilePrompt` 顶层放裸文本。
+
+压缩（compaction）与摘要策略不是 TSX 节点，写在 `defineAgentProfile({runtimeDefaults: {...}})` 里。
 
 ## System
 
@@ -210,7 +212,7 @@ context() {
 - `label`
 - `as`，V1 只支持 `text`
 
-V1 只允许 `AGENTS.md`、`reference/**` 和 `docs/**`。不要用 `Import` 读取 Project Workspace 文件；项目内容应通过 agent 文件工具、sidecar 或 runtime 注入读取。
+V1 只允许 `AGENTS.md`、`reference/**` 和 `docs/**`。不要用 `Import` 读取 Project Workspace 文件；项目内容应通过 agent 文件工具、workflow/job 或其他显式 runtime 注入读取。
 
 详见 [profile-import.md](profile-import.md)。
 
@@ -235,8 +237,7 @@ V1 只允许 `AGENTS.md`、`reference/**` 和 `docs/**`。不要用 `Import` 读
 
 适合放：
 
-- `WorkdirReminder`
-- `ProjectWorkspaceReminder`
+- `WorkspaceFocusReminder`
 - `ModeAvailabilityReminder`
 - `ModeReminder`
 - `LinkedAgentsReminder`
@@ -266,10 +267,9 @@ import {
     Message,
     ModelContext,
     ProfilePrompt,
-    ProjectWorkspaceReminder,
     SkillCatalog,
     System,
-    WorkdirReminder,
+    WorkspaceFocusReminder,
 } from "nbook/server/agent/profiles/profile-dsl";
 
 export const profileManifest = {
@@ -310,8 +310,7 @@ export default defineAgentProfile({
                     </Message>
                 </HistorySet>
                 <AppendingSet>
-                    <WorkdirReminder />
-                    <ProjectWorkspaceReminder />
+                    <WorkspaceFocusReminder />
                 </AppendingSet>
             </ProfilePrompt>
         );
@@ -354,8 +353,8 @@ const profileTools = toolset(
 - `initialSchema` 是否只包含创建期初始化数据，不混入每轮动态状态。
 - `payloadSchema` 是否只包含单次 invocation 的结构化载荷；自然语言 message 不要塞进 payload。
 - 需要结构化结果时是否声明 `outputSchema`。
-- `tools` 是否是 profile 最大工具集合；顶层 `toolKeys` / `sidecar.toolKeys` 是否只是它的子集。
-- sidecar 是否使用 `report_sidecar_result` 而不是 `report_result` 返回旁路结果；是否声明了对应 `sidecarDataSchema`。
+- `tools` 是否是 profile 最大工具集合；顶层 `toolKeys` 是否只是它的子集。
+- 独立工作是否由普通 agent invocation、workflow 或后台 Job 显式编排。
 - `System` 是否只放 profile 身份、职责和长期行为边界。
 - `HistorySet` 是否只放稳定前缀。
 - 共享规范是否用 `Import` 引用，而不是复制长 prompt。

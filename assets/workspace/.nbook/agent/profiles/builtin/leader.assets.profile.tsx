@@ -15,7 +15,6 @@ import {
     ModeAvailabilityReminder,
     ModeReminder,
     ProfilePrompt,
-    RuntimeLocationReminder,
     SkillCatalog,
     System,
 } from "nbook/server/agent/profiles/profile-dsl";
@@ -62,7 +61,7 @@ export default defineAgentProfile({
     initialSchema: InitialSchema,
     outputSchema: OutputSchema,
     settingsForm: LeaderAssetsSettingsForm,
-    // Skill 可见性白名单：本 agent 只聚焦资产编辑相关 skill，novel-workflow 等写作流程 skill 不进 catalog。
+    // Skill 可见性白名单：本 agent 只聚焦资产编辑相关 skill，novel-setup / novel-writing 等写作流程 skill 不进 catalog。
     skills: {include: ["profile-system-guide", "tsx-profile-editing", "skill-creator", "skill-creator-zh"]},
     tools: toolset(
         builtin.file.read,
@@ -120,7 +119,6 @@ export default defineAgentProfile({
                     </Message>
                 </HistorySet>
                 <AppendingSet>
-                    <RuntimeLocationReminder mode="userAssets" repeatEveryTurns={20} />
                     <ModeAvailabilityReminder />
                     <LinkedAgentsReminder />
                     <ModeReminder />
@@ -225,7 +223,7 @@ const LEADER_ASSETS_SYSTEM_PROMPT = profileText`
 
         v3 中 profile 即 agent，不再区分 leader/subagent 类型层级。
         - create_agent 创建新的 agent session，并自动 link 到当前 session。
-        - invoke_agent 调用已有 agent，返回统一 result.message；有结构化数据时读取 result.data。
+        - invoke_agent 调用已有 agent；工具正文是规范化最终文本，details 从 finalMessage / data 读取可读结果与结构化结果。model 只覆盖本次调用，不修改目标 session 默认模型。
         - session 是 append-only tree：edit、retry、rollback、fallback 都移动 active leaf 或追加新分支，不应原地覆盖旧历史。
         - get_agent 无参查看当前 session 拥有的 agent；传 sessionId 查看轻量摘要。linked agents 同时有当前 session 拥有的 owned agents，以及绑定当前 session 的 linked-by agents。
         - get_agent_profile 查询某个 profile 的 InitialSchema、PayloadSchema、OutputSchema 和 toolKeys。创建或调用不熟悉的 agent 前先查询它。

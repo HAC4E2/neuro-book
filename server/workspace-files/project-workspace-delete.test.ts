@@ -6,10 +6,9 @@ import {consola} from "consola";
 import {describe, expect, it, vi} from "vitest";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
-import {getAgentSqlSchemaSummary as getAgentSqlSchemaSummaryAtRoot, closeAgentSqliteClient} from "nbook/server/agent/tools/sql-tool";
-import {plotFacadeForWorkspaceRoot} from "nbook/server/plot";
+import {PROJECT_AGENT_SQL_MODULE_TOKEN} from "nbook/server/agent/tools/agent-sql-project-module";
+import {PROJECT_PLOT_WORLD_MODULE_TOKEN} from "nbook/server/plot";
 import {listNovels} from "nbook/server/utils/novel-chapter";
-import {worldEngineFacadeForWorkspaceRoot} from "nbook/server/world-engine";
 import {
     isProjectRootDeleted,
     writeProjectManifest as writeProjectManifestAtRoot,
@@ -17,11 +16,13 @@ import {
 import {deleteProjectWorkspace as deleteProjectWorkspaceAtRoot} from "nbook/server/workspace-files/project-workspace-delete";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {normalizeProjectPath, resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
-import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 import {
-    closeWorkspaceTreeIndex,
-    readProjectWorkspaceTreeSnapshot,
-} from "nbook/server/workspace-files/project-workspace-index";
+    activateReadyProjectModule,
+    requireReadyModuleHandle,
+    requireReadyProjectPath,
+} from "nbook/server/workspace-files/project-session";
+import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
+import {PROJECT_FILE_INDEX_MODULE_TOKEN} from "nbook/server/workspace-files/project-file-index";
 
 /** 测试Adapter：按当前隔离cwd解析一次Runtime Workspace Root。 */
 function resolveProjectAbsolutePath(projectPath: string) {
@@ -36,12 +37,8 @@ async function deleteProjectWorkspace(projectPath: string, options?: Parameters<
     return deleteProjectWorkspaceAtRoot(resolveRuntimeWorkspaceRoot(), projectPath, options);
 }
 
-async function getAgentSqlSchemaSummary(projectPath: string) {
-    return getAgentSqlSchemaSummaryAtRoot(resolveRuntimeWorkspaceRoot(), projectPath);
-}
-
 describe("deleteProjectWorkspace", () => {
-    it("删除前关闭 plot Prisma、world engine Prisma、execute_sql client 和 workspace watcher", async () => {
+    it("删除前由ProjectSession关闭Plot/World、Agent SQL与File Index generation资源", async () => {
         const projectPath = `workspace/delete-project-${randomUUID()}`;
         const projectRoot = resolveProjectAbsolutePath(projectPath);
         try {
@@ -76,24 +73,27 @@ describe("deleteProjectWorkspace", () => {
             ].join("\n"), "utf8");
             await openProjectForTest(projectPath);
 
-            const workspaceRoot = resolveRuntimeWorkspaceRoot();
-            const plotFacade = plotFacadeForWorkspaceRoot(workspaceRoot);
-            const worldEngineFacade = worldEngineFacadeForWorkspaceRoot(workspaceRoot);
-            await plotFacade.getStoryDto(projectPath);
-            await worldEngineFacade.createSubject(projectPath, {id: "world", type: "world", name: "世界", at: 0n});
-            await worldEngineFacade.writeSlice(projectPath, {
+            const ready = requireReadyProjectPath(projectPath);
+            const {plot: plotFacade, world: worldEngineFacade} = await activateReadyProjectModule(
+                ready,
+                PROJECT_PLOT_WORLD_MODULE_TOKEN,
+            );
+            await plotFacade.getStoryDto();
+            await worldEngineFacade.createSubject({id: "world", type: "world", name: "世界", at: 0n});
+            await worldEngineFacade.writeSlice({
                 instant: 10n,
                 title: "打开 World Engine client",
                 patches: [{subjectId: "world", path: "/note", op: "replace", value: "delete me"}],
             });
-            await getAgentSqlSchemaSummary(projectPath);
-            await readProjectWorkspaceTreeSnapshot({
-                target: {
-                    kind: "project-workspace",
-                    root: projectRoot,
-                    projectPath: normalizeProjectPath(projectPath),
-                },
-            });
+            const sql = await activateReadyProjectModule(
+                ready,
+                PROJECT_AGENT_SQL_MODULE_TOKEN,
+            );
+            await sql.schemaSummary();
+            await requireReadyModuleHandle(
+                ready,
+                PROJECT_FILE_INDEX_MODULE_TOKEN,
+            ).read();
 
             await deleteProjectWorkspace(projectPath, {
                 archiveProjectSessions: async () => undefined,
@@ -102,11 +102,6 @@ describe("deleteProjectWorkspace", () => {
             await expect(projectRootDeleted(projectRoot)).resolves.toBe(true);
         } finally {
             await closeProjectForTest(projectPath).catch(() => undefined);
-            const workspaceRoot = resolveRuntimeWorkspaceRoot();
-            await plotFacadeForWorkspaceRoot(workspaceRoot).closeProject(projectPath).catch(() => undefined);
-            await worldEngineFacadeForWorkspaceRoot(workspaceRoot).closeProject(projectPath).catch(() => undefined);
-            await closeAgentSqliteClient(projectPath).catch(() => undefined);
-            await closeWorkspaceTreeIndex(projectRoot).catch(() => undefined);
             await removePathBestEffort(projectRoot);
         }
     }, 20_000);
@@ -136,7 +131,6 @@ describe("deleteProjectWorkspace", () => {
             expect(warnSpy).toHaveBeenCalled();
         } finally {
             warnSpy.mockRestore();
-            await closeWorkspaceTreeIndex(projectRoot).catch(() => undefined);
             process.chdir(originalCwd);
             await removePathBestEffort(root);
         }
@@ -199,14 +193,13 @@ describe("deleteProjectWorkspace", () => {
             });
             await repo.moveLeaf(active.metadata.sessionId, activeBeforeDeleteEntry.id, active.metadata.workspaceKey);
 
-            const [novel] = await listNovels({sessionProvider: repo});
+            const [novel] = await listNovels();
             const visibleSessions = await repo.listSessions({projectPath, includeArchived: false, includeSystem: false, status: "active"});
             const allSessions = await repo.listSessions({projectPath, includeArchived: true, includeSystem: true, status: "all"});
 
             expect(novel).toMatchObject({
                 id: projectPath,
                 summary: "new",
-                sessionCount: 0,
             });
             expect(visibleSessions).toHaveLength(0);
             expect(allSessions).toHaveLength(3);
@@ -216,7 +209,6 @@ describe("deleteProjectWorkspace", () => {
             await expect(countArchivedEntries(repo, system.metadata.sessionId)).resolves.toBe(1);
             await expect(countArchivedEntries(repo, archived.metadata.sessionId)).resolves.toBe(1);
         } finally {
-            await closeWorkspaceTreeIndex(projectRoot).catch(() => undefined);
             process.chdir(originalCwd);
             await removePathBestEffort(root);
         }

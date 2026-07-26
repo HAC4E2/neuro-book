@@ -16,21 +16,26 @@ import {storedMessageText} from "nbook/server/agent/messages/stored-message-pres
 import {buildFileChangeReminder, mergeProfileTurnContextMessages} from "nbook/server/agent/profiles/profile-turn-context";
 import type {AgentChangeDiffDetail} from "nbook/server/workspace-history/agent-change-diff";
 import type {UnseenGroup} from "nbook/server/vendor/nb-history/index";
-import {registerProjectResourceOwner, resetProjectSessionsForTest} from "nbook/server/workspace-files/project-session";
+import {
+    closeAllProjects,
+    requireReadyModuleHandle,
+    requireReadyProjectPath,
+    resetProjectSessionsForTest,
+} from "nbook/server/workspace-files/project-session";
 import {openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 import {writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
 import {setWorkspaceRuntimeRootContextForTest} from "nbook/server/workspace-files/workspace-runtime-root";
 import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import {normalizeProjectPath, resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
 import {WORKSPACE_CONTAINER_ROOT} from "nbook/server/workspace-files/workspace-root-ref";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 import {MAX_AGENT_CHANGE_NOTICE_CHARS} from "nbook/shared/agent/file-change-policy";
 import {
     LOCAL_USER_ID,
+    PROJECT_HISTORY_MODULE_TOKEN,
     recordProjectWrite,
     resetWorkspaceHistoryForTest,
     setHistoryEnabledOverrideForTest,
-    workspaceHistoryResourceOwner,
+    type ProjectHistoryHandle,
 } from "nbook/server/workspace-history/project-history";
 
 describe("file-change-reminder 纯函数", () => {
@@ -372,7 +377,6 @@ describe("file-change notice 端到端（FauxProvider 黑盒）", () => {
 
     beforeEach(async () => {
         resetProjectSessionsForTest();
-        registerProjectResourceOwner(workspaceHistoryResourceOwner);
         setHistoryEnabledOverrideForTest(true);
         tempRoot = join(os.tmpdir(), `nb-file-change-notice-${randomUUID()}`);
         await mkdir(join(tempRoot, "workspace"), {recursive: true});
@@ -393,6 +397,7 @@ describe("file-change notice 端到端（FauxProvider 黑盒）", () => {
 
     afterEach(async () => {
         await harness.drainBackgroundTasks();
+        await closeAllProjects().catch(() => undefined);
         await resetWorkspaceHistoryForTest();
         resetProjectSessionsForTest();
         setWorkspaceRuntimeRootContextForTest(null);
@@ -408,6 +413,15 @@ describe("file-change notice 端到端（FauxProvider 黑盒）", () => {
         return context.messages
             .filter((message) => storedMessageText(message).includes("<file-change-notice>"))
             .length;
+    }
+
+    /** 取得当前 ready ProjectSession generation 的精确 History handle。 */
+    function historyHandle(projectPath: string): ProjectHistoryHandle {
+        const ready = requireReadyProjectPath(projectPath);
+        return requireReadyModuleHandle(
+            ready,
+            PROJECT_HISTORY_MODULE_TOKEN,
+        );
     }
 
     it("他人变更注入 notice，成功轮推进游标，下轮不重复；首轮懒基线不淹没", async () => {
@@ -439,9 +453,7 @@ describe("file-change notice 端到端（FauxProvider 黑盒）", () => {
         expect(await countNotices(created.sessionId)).toBe(0);
 
         // 他人（用户）改文件
-        await recordProjectWrite({
-            projectRoot: resolveProjectWorkspaceRoot(workspaceRoot, normalizeProjectPath(projectPath)),
-            projectPath,
+        await recordProjectWrite(historyHandle(projectPath), {
             relativePath: "manuscript/ch1.md",
             actor: {kind: "user", userId: LOCAL_USER_ID},
             before: null,
@@ -491,9 +503,7 @@ describe("file-change notice 端到端（FauxProvider 黑盒）", () => {
 
         faux.setResponses([fauxAssistantMessage("建立基线")]);
         await harness.invokeAgent({sessionId: created.sessionId, mode: "prompt", message: {text: "基线轮"}});
-        await recordProjectWrite({
-            projectRoot: resolveProjectWorkspaceRoot(workspaceRoot, normalizeProjectPath(projectPath)),
-            projectPath,
+        await recordProjectWrite(historyHandle(projectPath), {
             relativePath: "manuscript/retry.md",
             actor: {kind: "user", userId: LOCAL_USER_ID},
             before: null,
@@ -574,9 +584,7 @@ describe("file-change notice 端到端（FauxProvider 黑盒）", () => {
 
         faux.setResponses([fauxAssistantMessage("第一轮完成")]);
         await harness.invokeAgent({sessionId: created.sessionId, mode: "prompt", message: {text: "第一轮"}});
-        await recordProjectWrite({
-            projectRoot: resolveProjectWorkspaceRoot(workspaceRoot, normalizeProjectPath(projectPath)),
-            projectPath,
+        await recordProjectWrite(historyHandle(projectPath), {
             relativePath: ".env.local",
             actor: {kind: "user", userId: LOCAL_USER_ID},
             before: null,
@@ -617,9 +625,7 @@ describe("file-change notice 端到端（FauxProvider 黑盒）", () => {
 
         faux.setResponses([fauxAssistantMessage("第一轮完成")]);
         await harness.invokeAgent({sessionId: created.sessionId, mode: "prompt", message: {text: "第一轮"}});
-        await recordProjectWrite({
-            projectRoot: resolveProjectWorkspaceRoot(workspaceRoot, normalizeProjectPath(projectPath)),
-            projectPath,
+        await recordProjectWrite(historyHandle(projectPath), {
             relativePath: "manuscript/ch1.md",
             actor: {kind: "user", userId: LOCAL_USER_ID},
             before: null,

@@ -72,7 +72,6 @@ const DELETED_MANAGED_SYSTEM_ASSET_PATHS = new Set([
 const DELETED_MANAGED_SYSTEM_ASSET_PREFIXES = [
     "agent/skills/anti-ai-slop/",
     "agent/skills/llmlint/.git/",
-    "agent/skills/llmlint/node_modules/",
     "agent/skills/llmlint/evals/",
     "agent/skills/llmlint/presets/",
     "agent/skills/llmlint/rulesets/builtin/anti-ai-slop/",
@@ -102,7 +101,6 @@ export function setUserAssetsProfileArtifactStagedHookForTest(hook: ((fileName: 
 }
 const HARD_CUT_DELETED_MANAGED_SYSTEM_ASSET_PREFIXES = [
     "agent/skills/llmlint/.git/",
-    "agent/skills/llmlint/node_modules/",
     "agent/skills/llmlint/evals/",
     "agent/skills/llmlint/presets/",
     "agent/skills/llmlint/rulesets/builtin/anti-ai-slop/",
@@ -118,6 +116,26 @@ const HARD_CUT_DELETED_MANAGED_SYSTEM_ASSET_PATHS = new Set([
 const STALE_MANAGED_SYSTEM_ASSET_PREFIXES = [
     "agent/skills/llmlint/rulesets/builtin/default/rules/",
 ];
+const SKILL_DEPENDENCY_FILES = new Set(["package.json", "bun.lock"]);
+const SKILL_PACKAGE_INSTALL_FIELDS = [
+    "dependencies",
+    "devDependencies",
+    "optionalDependencies",
+    "peerDependencies",
+    "peerDependenciesMeta",
+    "bundledDependencies",
+    "bundleDependencies",
+    "overrides",
+    "resolutions",
+    "trustedDependencies",
+    "patchedDependencies",
+    "workspaces",
+    "packageManager",
+    "engines",
+    "os",
+    "cpu",
+    "scripts",
+] as const;
 const LEGACY_WORKSPACE_MANIFEST_FILE = "workspace.yaml";
 const USER_ASSETS_DIFF_MAX_BYTES = 512 * 1024;
 
@@ -153,8 +171,8 @@ function projectDirectoryTemplateRoot(): string {
     return path.join(systemNbookRoot(), "templates", "project-directory-templates");
 }
 
-function userProjectDirectoryTemplateRoot(): string {
-    return path.join(userNbookAbsoluteRoot(), "templates", "project-directory-templates");
+function userProjectDirectoryTemplateRoot(userNbookRoot = userNbookAbsoluteRoot()): string {
+    return path.join(userNbookRoot, "templates", "project-directory-templates");
 }
 
 export type WorkspaceRootKind = "novel" | typeof USER_ASSETS_WORKSPACE_KIND;
@@ -455,10 +473,17 @@ export async function sha256File(filePath: string): Promise<{sha256: string; byt
     };
 }
 
-/**
- * 把小说目录脚手架复制到 workspace，只补缺失文件，不覆盖用户已编辑内容。
- */
-export async function copyNovelDirectoryTemplate(projectRoot: AbsoluteFsPath): Promise<void> {
+export type NovelDirectoryTemplateOptions = {
+    /** 为空时按当前runtime解析Workspace Root `.nbook`；Lifecycle必须显式传入自身绑定的路径。 */
+    readonly userNbookRoot?: AbsoluteFsPath;
+};
+
+/** 把小说目录脚手架复制到Project Workspace，只补缺失文件，不覆盖用户已编辑内容。 */
+export async function copyNovelDirectoryTemplate(
+    projectRoot: AbsoluteFsPath,
+    options: NovelDirectoryTemplateOptions = {},
+): Promise<void> {
+    const userTemplateRoot = userProjectDirectoryTemplateRoot(options.userNbookRoot);
     const mergedRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-novel-template-"));
     try {
         await fs.cp(projectDirectoryTemplateRoot(), mergedRoot, {
@@ -466,8 +491,8 @@ export async function copyNovelDirectoryTemplate(projectRoot: AbsoluteFsPath): P
             force: true,
             errorOnExist: false,
         });
-        if (await isDirectory(userProjectDirectoryTemplateRoot())) {
-            await fs.cp(userProjectDirectoryTemplateRoot(), mergedRoot, {
+        if (await isDirectory(userTemplateRoot)) {
+            await fs.cp(userTemplateRoot, mergedRoot, {
                 recursive: true,
                 force: true,
                 errorOnExist: false,
@@ -512,11 +537,13 @@ async function syncManagedSystemAssetsToUserAssets(result: UserAssetsSyncResult,
     const syncState = await readUserSystemAssetsSyncState();
     const assets = await listManagedSystemAssets();
     const activeAssetPaths = new Set(assets.map((asset) => asset.assetPath));
+    const invalidatedSkills = new Set<string>();
     let stateChanged = false;
     for (const item of assets) {
         const systemPath = resolveInsideRoot(systemNbookRoot(), item.assetPath);
         const userPath = resolveInsideRoot(userNbookAbsoluteRoot(), item.assetPath);
         const stateItem = findUserAssetSyncState(syncState, item.assetPath);
+        const dependencySkillKey = skillDependencyKey(item.assetPath);
         if (!stateItem && await pathExists(userPath) && await sameFile(systemPath, userPath)) {
             const hash = await sha256File(userPath);
             upsertUserAssetSyncState(syncState, item, hash.sha256);
@@ -526,6 +553,9 @@ async function syncManagedSystemAssetsToUserAssets(result: UserAssetsSyncResult,
         if (!await pathExists(userPath)) {
             await fs.mkdir(path.dirname(userPath), {recursive: true});
             await fs.copyFile(systemPath, userPath);
+            if (dependencySkillKey) {
+                invalidatedSkills.add(dependencySkillKey);
+            }
             const hash = await sha256File(userPath);
             upsertUserAssetSyncState(syncState, item, hash.sha256);
             result.copied += 1;
@@ -541,7 +571,13 @@ async function syncManagedSystemAssetsToUserAssets(result: UserAssetsSyncResult,
             continue;
         }
         if (options.force) {
+            const invalidateDependencies = dependencySkillKey
+                ? await skillInstallChanged(item.assetPath, systemPath, userPath)
+                : false;
             await fs.copyFile(systemPath, userPath);
+            if (dependencySkillKey && invalidateDependencies) {
+                invalidatedSkills.add(dependencySkillKey);
+            }
             const hash = await sha256File(userPath);
             upsertUserAssetSyncState(syncState, item, hash.sha256);
             result.updatedAssets = (result.updatedAssets ?? 0) + 1;
@@ -567,18 +603,97 @@ async function syncManagedSystemAssetsToUserAssets(result: UserAssetsSyncResult,
         if (item.sha256 === stateItem.upstreamHash) {
             continue;
         }
+        const invalidateDependencies = dependencySkillKey
+            ? await skillInstallChanged(item.assetPath, systemPath, userPath)
+            : false;
         await fs.copyFile(systemPath, userPath);
+        if (dependencySkillKey && invalidateDependencies) {
+            invalidatedSkills.add(dependencySkillKey);
+        }
         const hash = await sha256File(userPath);
         upsertUserAssetSyncState(syncState, item, hash.sha256);
         result.updatedAssets = (result.updatedAssets ?? 0) + 1;
         stateChanged = true;
     }
+    await invalidateSkillDependencies(invalidatedSkills);
     const preservedDeletedAssetPaths = new Set<string>();
     stateChanged = await removeDeletedManagedSystemAssets(syncState, activeAssetPaths, result, preservedDeletedAssetPaths) || stateChanged;
     stateChanged = await removeHardCutDeletedManagedSystemAssetPrefixes(syncState, result, preservedDeletedAssetPaths) || stateChanged;
     stateChanged = await removeStaleManagedSystemAssets(syncState, activeAssetPaths, result, preservedDeletedAssetPaths) || stateChanged;
     if (stateChanged) {
         await writeUserSystemAssetsSyncState(syncState);
+    }
+}
+
+/**
+ * 识别会改变 runnable Skill 本地安装结果的受管文件。
+ */
+function skillDependencyKey(assetPath: string): string | null {
+    const parts = assetPath.split("/");
+    if (parts.length !== 4 || parts[0] !== "agent" || parts[1] !== "skills" || !parts[2] || !parts[3]) {
+        return null;
+    }
+    return SKILL_DEPENDENCY_FILES.has(parts[3]) ? parts[2] : null;
+}
+
+type SkillPackageJsonValue = null | boolean | number | string | SkillPackageJsonValue[] | {[key: string]: SkillPackageJsonValue};
+
+/**
+ * 比较真正影响 Bun 安装结果的 package 字段；发布版本等元数据变化不要求重装依赖。
+ */
+async function skillInstallChanged(assetPath: string, systemPath: string, userPath: string): Promise<boolean> {
+    if (assetPath.endsWith("/bun.lock")) {
+        return !await sameFile(systemPath, userPath);
+    }
+    const systemPackage = await readSkillPackageContract(systemPath);
+    let userPackage: string;
+    try {
+        userPackage = await readSkillPackageContract(userPath);
+    } catch {
+        // force sync 必须能修复损坏的用户 manifest；旧安装结果也不能继续复用。
+        return true;
+    }
+    return systemPackage !== userPackage;
+}
+
+/**
+ * 从外部 package.json 提取 Bun install 输入，忽略 version、description 等发布元数据。
+ */
+async function readSkillPackageContract(packagePath: string): Promise<string> {
+    const packageJson = JSON.parse(await fs.readFile(packagePath, "utf8")) as {[key: string]: SkillPackageJsonValue};
+    const contract: {[key: string]: SkillPackageJsonValue} = {};
+    for (const field of SKILL_PACKAGE_INSTALL_FIELDS) {
+        const value = packageJson[field];
+        if (value !== undefined) {
+            contract[field] = value;
+        }
+    }
+    return stableSkillPackageJson(contract);
+}
+
+/**
+ * 稳定序列化 package 安装合同，避免仅对象键顺序变化导致依赖误失效。
+ */
+function stableSkillPackageJson(value: SkillPackageJsonValue): string {
+    if (value === null || typeof value !== "object") {
+        return JSON.stringify(value);
+    }
+    if (Array.isArray(value)) {
+        return `[${value.map((item) => stableSkillPackageJson(item)).join(",")}]`;
+    }
+    return `{${Object.keys(value).sort().map((key) => {
+        const child = value[key];
+        return `${JSON.stringify(key)}:${stableSkillPackageJson(child ?? null)}`;
+    }).join(",")}}`;
+}
+
+/**
+ * 仅在依赖合同已发布到用户目录时失效对应 Skill 的本地派生依赖。
+ */
+async function invalidateSkillDependencies(skillKeys: ReadonlySet<string>): Promise<void> {
+    for (const skillKey of skillKeys) {
+        const nodeModulesPath = resolveInsideRoot(userNbookAbsoluteRoot(), `agent/skills/${skillKey}/node_modules`);
+        await fs.rm(nodeModulesPath, {recursive: true, force: true});
     }
 }
 
@@ -1083,7 +1198,7 @@ function isManagedAssetBlacklisted(assetPath: string): boolean {
         || normalized === "agent/variables/definitions.ts"
         // llmlint 独立仓开发资产不随系统 assets 同步到用户 workspace。
         || normalized.startsWith("agent/skills/llmlint/.git/")
-        || normalized.startsWith("agent/skills/llmlint/node_modules/")
+        || (parts[0] === "agent" && parts[1] === "skills" && parts[3] === "node_modules")
         || normalized.startsWith("agent/skills/llmlint/evals/")
         || parts.includes(".compiled")
         || parts.includes(".staging");

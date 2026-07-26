@@ -15,7 +15,19 @@ const emit = defineEmits<{
     (e: "copy", toolCall: AgentToolCall): void;
 }>();
 
-const { isCollapsed, toggle } = useCollapsible(true);
+/** Workflow 运行态需要立即可见并挂载轮询；普通工具与已完成历史保持原有默认折叠。 */
+const workflowDetailsStatus = props.toolCall.resultData
+    && typeof props.toolCall.resultData === "object"
+    && !Array.isArray(props.toolCall.resultData)
+    && typeof props.toolCall.resultData.status === "string"
+    ? props.toolCall.resultData.status
+    : "";
+const startsExpanded = props.toolCall.name === "run_workflow"
+    && (props.toolCall.status === "streaming"
+        || props.toolCall.status === "running"
+        || workflowDetailsStatus === "started"
+        || workflowDetailsStatus === "waiting");
+const { isCollapsed, toggle } = useCollapsible(!startsExpanded);
 
 const renderConfig = computed(() => resolveToolRenderConfig(props.toolCall));
 const resultAttachments = computed(() => (props.toolCall.publicResult?.content ?? [])

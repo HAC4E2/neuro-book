@@ -24,7 +24,6 @@ export const ProfileTemplateNodeTypeSchema = z.enum([
     "SystemReminder",
     "LinkedAgentsSummary",
     "LinkedAgentsReminder",
-    "RuntimeLocationReminder",
     "WorkspaceFocusReminder",
     "ModeAvailabilityReminder",
     "TaskReminder",

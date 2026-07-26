@@ -22,7 +22,6 @@ const components = {
     SystemReminder: dsl.SystemReminder,
     LinkedAgentsSummary: dsl.LinkedAgentsSummary,
     LinkedAgentsReminder: dsl.LinkedAgentsReminder,
-    RuntimeLocationReminder: dsl.RuntimeLocationReminder,
     WorkspaceFocusReminder: dsl.WorkspaceFocusReminder,
     ModeAvailabilityReminder: dsl.ModeAvailabilityReminder,
     TaskReminder: dsl.TaskReminder,
@@ -78,7 +77,6 @@ export namespace JSX {
         SystemReminder: Parameters<typeof dsl.SystemReminder>[0];
         LinkedAgentsSummary: Parameters<typeof dsl.LinkedAgentsSummary>[0];
         LinkedAgentsReminder: Parameters<typeof dsl.LinkedAgentsReminder>[0];
-        RuntimeLocationReminder: Parameters<typeof dsl.RuntimeLocationReminder>[0];
         WorkspaceFocusReminder: Parameters<typeof dsl.WorkspaceFocusReminder>[0];
         ModeAvailabilityReminder: Parameters<typeof dsl.ModeAvailabilityReminder>[0];
         TaskReminder: Parameters<typeof dsl.TaskReminder>[0];

@@ -16,9 +16,12 @@ const PUBLIC_QUEUE_IMAGES = 8;
 /** Harness 内部队列真相；图片和 payload 只在执行路径中使用。 */
 export type AgentQueuedInvocationTruth = {
     id: string;
+    clientMessageId: string;
     kind: "steer" | "followup";
     message?: StoredAgentUserMessageInput;
     input?: JsonValue;
+    /** 仅供后续 invocation 执行；公共 queue DTO 不暴露运行时模型覆盖。 */
+    modelKey?: string;
     createdAt: number;
 };
 
@@ -27,11 +30,17 @@ export function projectQueuedMessage(
     item: AgentQueuedInvocationTruth,
     budget: PublicProjectionBudget = createPublicProjectionBudget(PUBLIC_QUEUE_ITEM_BYTES),
 ): AgentQueuedMessageDto {
-    const images = item.message?.attachments ?? [];
+    const content = item.message?.content ?? [];
+    const text = content
+        .filter((block) => block.type === "text")
+        .map((block) => block.text)
+        .join("");
+    const images = content.filter((block) => block.type === "attachment");
     return {
         id: item.id,
+        clientMessageId: item.clientMessageId,
         kind: item.kind,
-        ...(item.message?.text ? {text: budgetText(item.message.text, budget, 2 * 1024)} : {}),
+        ...(text ? {text: budgetText(text, budget, 2 * 1024)} : {}),
         images: images.slice(0, PUBLIC_QUEUE_IMAGES).map((image) => ({
             mimeType: budgetText(image.attachment.mimeType, budget, 256).preview || "application/octet-stream",
             dataBytes: image.attachment.bytes,

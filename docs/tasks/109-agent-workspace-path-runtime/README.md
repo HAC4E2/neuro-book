@@ -1,6 +1,19 @@
 # Task 109：统一 File Scope、File Address 与 Product Runtime 路径合同
 
 > 当前状态：实现中 / Implementing。2026-07-18补漏审查确认canonical relative path、managed Project链接隔离和Manager容器健康合同仍有缺口；`0.8.5`/`0.8.6`公开证据继续作为历史基线，但在新门禁与下一公开canary通过前不再标记Verified。
+>
+> 2026-07-22 后续合同：用户已在 [Task 115：Workspace Root Agent 路径合同硬切](../115-workspace-root-agent-path-contract/README.md) 中确认下一阶段改为 Workspace Root cwd、相对/绝对两类统一地址，并删除 `workspace/<slug>` Project Path 字符串语法。本 Task 保留当前实现与历史验证记录；在 Task 115 实施完成前，以下 2026-07-21 条目仍描述现行代码，不应被误读为最终目标合同。
+
+## 2026-07-21：绝对路径能力与cwd提示合同收口
+
+- 用户明确将普通文件工具合同调整为：`read`、`write`、`edit`、`apply_patch`允许任意绝对文件系统路径。授权层不再把Project外绝对路径套入当前File Scope containment；访问能力由宿主进程文件系统权限决定。
+- cwd继续保持Current Project Workspace，不改成NeuroBook Installation Root。它只决定相对路径解析起点，使`lorebook/...`、`manuscript/...`、`reference/...`与`workspace node ...`保持直接语义；Windows Portable或分离State Root下，Installation Root本来也不是Workspace Root。
+- `workspace/<project-slug>/<relative-path>`继续作为显式managed Project File Address。它不是跨Project访问的唯一能力入口，而是在需要目标Project身份、open gate、History或Context Access时使用的领域地址。
+- 绝对路径不从物理位置反推另一个managed Project身份。当前Project内的绝对路径仍因File Scope已知而保留当前Project归属；Project外绝对路径不进入Project History、Inbox或Context Access。
+- 相对路径仍执行lexical与realpath containment；`..`、symlink和junction不能越过File Scope。Bash继续是完整受信任Shell，只校验cwd，不纳入文件级授权。
+- 删除`RuntimeLocationReminder`。它把cwd、源码根和仓库Reference根绑定成第二套提示合同，并与`WorkspaceFocusReminder`重复；Project-bound cwd、相对/绝对路径合同统一由`WorkspaceFocusReminder`说明，SkillCatalog等调用方直接提供所需绝对资源路径。`leader.assets`的`workspace/.nbook` cwd继续由其专用system prompt说明。
+- Discuss/Plan模式不按目标路径分类，而按`mutatesWorkspace`工具能力注入审批；因此Project外绝对写入仍会请求只读模式审批，normal模式按新合同直接执行。
+- 聚焦回归已覆盖授权层四种文件操作、当前Project内绝对路径归属、Project外绝对read/write/edit/apply_patch以及相对junction逃逸；Profile编译/metadata/check和公开Product验收记录见本节后续更新。
 
 ## 2026-07-19：Authorized File Operation集成
 
@@ -21,6 +34,7 @@
 - [Workspace tool use](../../../reference/agent/workspace-tool-use.md)
 - [Task 105：统一安装与 Manager](../105-unified-installation-manager/README.md)
 - [Task 108：Agent 图片附件引用](../108-agent-image-attachment-references/README.md)
+- [Task 115：Workspace Root Agent 路径合同硬切](../115-workspace-root-agent-path-contract/README.md)
 
 ## User Request / Topic
 
@@ -36,7 +50,7 @@
 完成后应同时满足以下结果：
 
 - 调用方先确定“在哪里操作”的 `File Scope`，再解析“操作哪个文件”的 `File Address`；路径 Module 不从 cwd、目录名或字符串前缀猜测领域身份。
-- Project-bound Agent 的文件工具与 bash 共享当前 Project Workspace 作为 File Scope；当前项目使用 Project-relative 路径，跨项目只使用正式 Project File Address。
+- Project-bound Agent 的文件工具与 bash 共享当前 Project Workspace 作为 File Scope；当前项目优先使用 Project-relative 路径，任意绝对路径可直接访问，需要 managed Project 领域身份时使用正式 Project File Address。
 - 逻辑引用、领域定位符和物理路径通过明确类型与 Interface 分层；DTO 可以接收字符串，但进入运行时 Module 时必须立即规范化。
 - Config、Profile Home、Variable、Workspace API、History、World Engine 和 Agent 不再各自复制 `workspaceRoot` / `projectPath` 字符串解析。
 - 生产 Runtime 从显式 Application Root / State Root 建立 `RuntimePaths`；cwd 推断只存在于开发和测试 Adapter。
@@ -144,13 +158,14 @@ flowchart TD
 ```text
 relative/path                         # 相对当前 File Scope
 workspace/<project-slug>/relative     # 显式 Project File Address
-<absolute-path>                       # 仅调用方明确允许时
+<absolute-path>                       # 文件工具直接访问任意文件系统目标
 ```
 
 规则固定为：
 
 - 当前 Project Workspace 使用 `lorebook/...`、`manuscript/...`、`.agent/...` 等普通相对路径。
-- `workspace/<project-slug>/...` 是由 Project Path Module 解析的正式地址，不是从 cwd 剥离字符串的 alias。
+- `workspace/<project-slug>/...` 是由 Project Path Module 解析的正式地址，不是从 cwd 剥离字符串的 alias；在需要目标Project身份、open gate、History或Context Access时使用。
+- 绝对路径保持直接文件系统语义，不从物理路径反推另一个managed Project身份；Project外绝对地址不进入Project记账。
 - 旧 `<project-slug>/...` 输入明确拒绝，防止在当前 Project Workspace 下静默创建嵌套同名目录。
 - `workspace` 或 `workspace/<project>` 缺少文件相对部分时，按具体操作决定是否允许 Project Workspace 根；不能靠空字符串偶然解析。
 - 任意其他相对 `workspaceRoot` 引用拒绝，不相对 `process.cwd()` 猜测。
@@ -247,10 +262,9 @@ type ResolvedFileAddress =
 
 路径解析与访问能力必须分开：
 
-- Agent read/write/edit 可以按其公开 Interface 支持绝对路径，但需由调用方明确承担该能力。
+- Agent read/write/edit/apply_patch允许任意绝对路径；Project外目标由宿主文件系统权限约束，不套用当前File Scope containment。
 - Workspace API、Profile Home、Variable Storage 等受根保护的操作只接受 root-relative 地址。
-- `apply_patch` 只允许当前 managed Workspace Root 或 external File Scope 内的目标。
-- lexical containment 负责拒绝 `..` 和绝对越界。
+- lexical containment 负责拒绝相对地址的 `..` 越界。
 - realpath containment 负责拒绝已存在 symlink/junction 及新文件最近已存在父目录的真实路径逃逸。
 - 不能对所有地址无条件 `realpath`：新文件可能尚不存在，明确授权的绝对路径也不属于 root containment 场景。
 

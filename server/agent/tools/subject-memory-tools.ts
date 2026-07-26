@@ -5,7 +5,9 @@ import type {Static} from "typebox";
 import {resolveSessionFileScope} from "nbook/server/agent/workspace/session-file-scope";
 import type {ResolvedFileAddress} from "nbook/server/workspace-files/file-scope";
 import {authorizeFileOperation, type AuthorizedFileOperation} from "nbook/server/workspace-files/authorized-file-operation";
-import {recordAgentWorkspaceWrite} from "nbook/server/workspace-history/agent-file-recorder";
+import {captureAgentWorkspaceWrite, recordAgentWorkspaceWrite} from "nbook/server/workspace-history/agent-file-recorder";
+import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
+import {projectSlug} from "nbook/server/workspace-files/project-path";
 import type {NeuroAgentTool, ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {normalizeToolResultDetails} from "nbook/server/agent/messages/message-utils";
 import {
@@ -24,6 +26,7 @@ import {
     markSubjectRagDirty,
     searchSubjectRag,
     type SubjectRagCandidate,
+    type SubjectRagConfigTarget,
 } from "nbook/server/agent/tools/subject-rag-index";
 
 const SubjectEventAppendSchema = Type.Object({
@@ -74,7 +77,9 @@ function createSubjectEventAppendTool(): NeuroAgentTool {
         parameters: SubjectEventAppendSchema,
         async executeWithContext(context, _toolCallId, params: unknown) {
             const input = params as SubjectEventAppendInput;
-            const subject = await resolveSubjectPaths(context, input.subjectPath, {events: "write", ragState: "write"});
+            const project = requireSubjectProject(context);
+            const subject = await resolveSubjectPaths(context, project, input.subjectPath, {events: "write", ragState: "write"});
+            const historyCapture = requireSubjectWriteCapture(subject.eventsAddress, project);
             const events = input.events.map((event, index) => parseSubjectEvent(event, `events[${index}]`));
             await mkdir(subject.absolutePath, {recursive: true});
             const existing = await readTextIfExists(subject.eventsPath);
@@ -82,8 +87,7 @@ function createSubjectEventAppendTool(): NeuroAgentTool {
             await writeFile(subject.eventsPath, appended, "utf-8");
             await recordAgentWorkspaceWrite({
                 sessionId: context.sessionId,
-                workspaceRoot: context.workspaceFsRoot,
-                address: subject.eventsAddress,
+                capture: historyCapture,
                 before: existing || null,
                 after: appended,
             });
@@ -115,14 +119,16 @@ function createSubjectRagSearchTool(): NeuroAgentTool {
         async executeWithContext(context, _toolCallId, params: unknown) {
             const input = params as SubjectRagSearchInput;
             const sources = normalizeSearchSources(input.sources);
-            const subject = await resolveSubjectPaths(context, input.subjectPath, {
+            const project = requireSubjectProject(context);
+            const configTarget = subjectRagConfigTarget(context, project);
+            const subject = await resolveSubjectPaths(context, project, input.subjectPath, {
                 events: sources[0] === "events" ? "read" : undefined,
                 memory: sources[0] === "memory" ? "read" : undefined,
                 ragState: "write",
             });
             await ensureSubjectJsonlReadable(subject, sources);
             const candidates = await searchSubjectRag({
-                context,
+                configTarget,
                 subject,
                 query: input.query,
                 sources,
@@ -140,6 +146,30 @@ function createSubjectRagSearchTool(): NeuroAgentTool {
         async execute() {
             throw new Error("subject_rag_search 必须在 agent session workspace 内执行。");
         },
+    };
+}
+
+/** 从 invocation admission 复用 exact Project generation，禁止按 projectPath 查询 latest。 */
+function requireSubjectProject(context: ToolExecutionContext): ReadyProjectSessionRef {
+    if (!context.invocationId) {
+        throw new Error("subject工具缺少invocationId，无法读取已捕获的Project generation。");
+    }
+    const project = context.harness.projectForInvocation(context.invocationId);
+    if (!project) {
+        throw new Error("subject工具只允许在当前Project Workspace中运行。");
+    }
+    return project;
+}
+
+/** 使用调用入口捕获的 exact Project 构造 RAG 配置目标。 */
+function subjectRagConfigTarget(
+    context: ToolExecutionContext,
+    project: ReadyProjectSessionRef,
+): SubjectRagConfigTarget {
+    return {
+        scope: "project",
+        workspaceRoot: context.workspaceFsRoot,
+        project,
     };
 }
 
@@ -169,7 +199,9 @@ function createSubjectMemoryUpdateTool(): NeuroAgentTool {
         parameters: SubjectMemoryUpdateSchema,
         async executeWithContext(context, _toolCallId, params: unknown) {
             const input = params as SubjectMemoryUpdateInput;
-            const subject = await resolveSubjectPaths(context, input.subjectPath, {memory: "edit", ragState: "write"});
+            const project = requireSubjectProject(context);
+            const subject = await resolveSubjectPaths(context, project, input.subjectPath, {memory: "edit", ragState: "write"});
+            const historyCapture = requireSubjectWriteCapture(subject.memoryAddress, project);
             const currentText = await readTextIfExists(subject.memoryPath);
             const currentMemories = parseSubjectMemoriesJsonl(currentText, subject.memoryPath);
             const result = await runMemoryCurator(context, input, currentMemories);
@@ -202,8 +234,7 @@ function createSubjectMemoryUpdateTool(): NeuroAgentTool {
             await writeFile(subject.memoryPath, nextText, "utf-8");
             await recordAgentWorkspaceWrite({
                 sessionId: context.sessionId,
-                workspaceRoot: context.workspaceFsRoot,
-                address: subject.memoryAddress,
+                capture: historyCapture,
                 before: currentText || null,
                 after: nextText,
             });
@@ -364,6 +395,7 @@ function parseJsonPatchValue(value: unknown): SubjectMemory | string | string[] 
 
 async function resolveSubjectPaths(
     context: ToolExecutionContext,
+    project: ReadyProjectSessionRef,
     subjectPath: string,
     access: Readonly<{
         events?: AuthorizedFileOperation;
@@ -382,6 +414,9 @@ async function resolveSubjectPaths(
     if (scope.kind !== "managed-project") {
         throw new Error("subject工具只允许在当前managed Project Workspace中运行");
     }
+    if (project.workspace.ref.projectRoot !== projectSlug(scope.currentProjectPath)) {
+        throw new Error("subject工具的Current Project与invocation generation不一致");
+    }
     const normalized = subjectPath.trim().replaceAll("\\", "/");
     const segments = normalized.split("/");
     if (isAbsolute(subjectPath) || segments.length !== 3 || segments[0] !== "simulation" || segments[1] !== "subjects" || !segments[2] || segments[2] === "." || segments[2] === "..") {
@@ -398,6 +433,18 @@ async function resolveSubjectPaths(
         eventsAddress,
         memoryAddress,
     };
+}
+
+/** Subject写入必须同时捕获当前generation的History与File Index，缺失时在落盘前失败。 */
+function requireSubjectWriteCapture(
+    address: ResolvedFileAddress,
+    project: ReadyProjectSessionRef,
+): NonNullable<ReturnType<typeof captureAgentWorkspaceWrite>> {
+    const capture = captureAgentWorkspaceWrite(address, project);
+    if (!capture) {
+        throw new Error("subject写入无法捕获Current Project generation资源。");
+    }
+    return capture;
 }
 
 async function readTextIfExists(filePath: string): Promise<string> {

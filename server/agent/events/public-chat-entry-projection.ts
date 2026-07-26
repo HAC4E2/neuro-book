@@ -1,5 +1,6 @@
-import type {Message, ToolCall, ToolResultMessage} from "@earendil-works/pi-ai";
+import type {ToolCall, ToolResultMessage} from "@earendil-works/pi-ai";
 import type {StoredAgentMessage} from "nbook/server/agent/messages/stored-types";
+import {visibleStoredUserContent} from "nbook/server/agent/messages/stored-user-markdown";
 import {
     CHAT_ENTRY_MAX_BLOCKS,
     CHAT_ENTRY_PREVIEW_BYTES,
@@ -101,18 +102,21 @@ function projectMessageEntry(
 ): AgentChatEntryDto | null {
     const message = entry.message;
     if (message.role === "user") {
-        const content = messageText(message);
-        const steer = steerText(content);
-        if (entry.origin !== "prompt" && steer === null) {
+        if (entry.origin !== "prompt" && entry.intent !== "steer") {
             return null;
         }
-        const publicContent = projectUserContent(message, steer);
+        if (!entry.clientMessageId || !entry.intent) {
+            throw new Error(`公开用户消息 ${entry.id} 缺少 clientMessageId 或 intent`);
+        }
+        const visible = visibleStoredUserContent(message, entry.intent);
+        const publicContent = projectUserContent(visible.blocks);
         return {
             id: entry.id,
+            clientMessageId: entry.clientMessageId,
             timestamp: entry.timestamp,
             type: "user",
             ...publicContent,
-            intent: steer === null ? "normal" : "steer",
+            intent: entry.intent,
         };
     }
     if (message.role === "assistant") {
@@ -158,45 +162,18 @@ function projectMessageEntry(
     return projectToolResultEntry(entry.id, entry.timestamp, message);
 }
 
-/** 投影 user message 的唯一保序公开内容；steer envelope 的文本使用解包后正文。 */
+/** 投影 user message 的唯一保序公开内容；steer envelope 已由 intent 驱动解包。 */
 function projectUserContent(
-    message: Message | StoredAgentMessage,
-    steer: string | null,
+    visibleBlocks: ReturnType<typeof visibleStoredUserContent>["blocks"],
 ): Pick<AgentChatUserEntryDto, "blocks" | "omittedBlocks" | "textSummary"> {
     const textBudget = createPublicTextBudget(CHAT_ENTRY_PREVIEW_BYTES, CHAT_ENTRY_SERIALIZED_TEXT_BYTES);
-    if (steer !== null) {
-        const text = projectPublicText(steer, textBudget);
-        const blocks: AgentChatUserEntryDto["blocks"] = [
-            {type: "text" as const, contentIndex: 0, content: text},
-            ...messageAttachmentBlocks(message),
-        ].slice(0, CHAT_ENTRY_MAX_BLOCKS);
-        const rawBlocks = Array.isArray(message.content) ? message.content.length : 1;
-        return {
-            blocks,
-            omittedBlocks: Math.max(0, rawBlocks - blocks.length),
-            textSummary: {bytes: text.bytes, omitted: text.omitted},
-        };
-    }
-    if (typeof message.content === "string") {
-        const content = projectPublicText(message.content, textBudget);
-        return {
-            blocks: [{type: "text", contentIndex: 0, content}],
-            omittedBlocks: 0,
-            textSummary: {bytes: content.bytes, omitted: content.omitted},
-        };
-    }
     const blocks: AgentChatUserEntryDto["blocks"] = [];
     let textBytes = 0;
-    let textBlocks = 0;
     let textOmitted = false;
-    message.content.forEach((block, contentIndex) => {
+    visibleBlocks.forEach(({block, contentIndex}) => {
         if (block.type === "text") {
-            if (textBlocks > 0) {
-                textBytes += 1;
-            }
-            textBlocks += 1;
             textBytes += Buffer.byteLength(block.text, "utf8");
-            if (contentIndex >= CHAT_ENTRY_MAX_BLOCKS) {
+            if (blocks.length >= CHAT_ENTRY_MAX_BLOCKS) {
                 textOmitted = textOmitted || block.text.length > 0;
                 return;
             }
@@ -205,12 +182,11 @@ function projectUserContent(
             blocks.push({type: "text", contentIndex, content});
             return;
         }
-        if (contentIndex >= CHAT_ENTRY_MAX_BLOCKS) {
+        if (blocks.length >= CHAT_ENTRY_MAX_BLOCKS) {
             return;
         }
-        if (block && typeof block === "object" && "type" in block && block.type === "attachment") {
-            const record = block as unknown as {attachment?: unknown; name?: unknown};
-            const attachment = projectPublicAttachment(record.attachment, record.name);
+        if (block.type === "attachment") {
+            const attachment = projectPublicAttachment(block.attachment, block.name);
             if (attachment) {
                 blocks.push({type: "attachment", contentIndex, attachment});
             }
@@ -218,24 +194,9 @@ function projectUserContent(
     });
     return {
         blocks,
-        omittedBlocks: Math.max(0, message.content.length - blocks.length),
+        omittedBlocks: Math.max(0, visibleBlocks.length - blocks.length),
         textSummary: {bytes: textBytes, omitted: textOmitted},
     };
-}
-
-/** 投影 steer message 的 attachment blocks，并保留原 stored content index。 */
-function messageAttachmentBlocks(message: Message | StoredAgentMessage): AgentChatUserEntryDto["blocks"] {
-    if (!Array.isArray(message.content)) {
-        return [];
-    }
-    return message.content.flatMap((block, contentIndex) => {
-        if (block === null || typeof block !== "object" || !("type" in block) || block.type !== "attachment") {
-            return [];
-        }
-        const record = block as unknown as {attachment?: unknown; name?: unknown};
-        const attachment = projectPublicAttachment(record.attachment, record.name);
-        return attachment ? [{type: "attachment" as const, contentIndex, attachment}] : [];
-    });
 }
 
 /**
@@ -258,27 +219,6 @@ function projectToolResultEntry(
         }),
         isError: message.isError,
     };
-}
-
-/**
- * 标准 user/toolResult 文本提取，不读取图片 data。
- */
-function messageText(message: StoredAgentMessage): string {
-    if (typeof message.content === "string") {
-        return message.content;
-    }
-    return message.content
-        .filter((block) => block.type === "text")
-        .map((block) => block.text)
-        .join("\n");
-}
-
-/**
- * 提取 steer envelope；普通文本返回 null。
- */
-function steerText(value: string): string | null {
-    const match = /^<user_steer>\n?([\s\S]*?)\n?<\/user_steer>$/.exec(value.trim());
-    return match?.[1] ?? null;
 }
 
 /**

@@ -12,6 +12,14 @@ describe("GET /api/workspace-files/read", () => {
             projectPath: "workspace/not-open",
             path: "note.md",
         }));
+        vi.doMock("nbook/server/workspace-files/project-open-guard", () => ({
+            withProjectTargetOperation: vi.fn((target: {projectPath: string}) => {
+                throw Object.assign(new Error("Project未打开"), {
+                    statusCode: 409,
+                    data: {code: "PROJECT_NOT_OPEN", projectPath: target.projectPath},
+                });
+            }),
+        }));
     });
 
     it("Project root 未 open 时返回 PROJECT_NOT_OPEN", async () => {

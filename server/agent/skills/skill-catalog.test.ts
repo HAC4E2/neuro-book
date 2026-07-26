@@ -1,7 +1,8 @@
 import {randomUUID} from "node:crypto";
 import {mkdir, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
-import {afterEach, beforeEach, describe, expect, it} from "vitest";
+import {consola} from "consola";
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {SkillCatalog} from "nbook/server/agent/skills/skill-catalog";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 import {resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
@@ -31,6 +32,7 @@ when_to_use:
 ---
 # Body
 `);
+        await writePackage(systemRoot, "writer", "1.2.3");
         const catalog = new SkillCatalog(systemRoot, userRoot);
 
         await expect(catalog.get("writer")).resolves.toEqual(expect.objectContaining({
@@ -38,6 +40,7 @@ when_to_use:
             name: "Writer Skill",
             description: "Write prose.",
             whenToUse: "用户需要写正文时；用户显式提到写作 skill 时",
+            version: "1.2.3",
             source: "system",
         }));
     });
@@ -67,6 +70,49 @@ name: User Writer
         const catalog = new SkillCatalog(systemRoot, userRoot);
 
         await expect(catalog.get("empty")).resolves.toBeNull();
+    });
+
+    it("runnable Skill 拒绝非 SemVer package 版本", async () => {
+        await writeSkill(systemRoot, "broken", `---
+name: Broken Skill
+description: Broken version fixture.
+---
+`);
+        await writePackage(systemRoot, "broken", "latest");
+        const catalog = new SkillCatalog(systemRoot, userRoot);
+
+        await expect(catalog.list()).rejects.toThrow("package.json.version 必须是 SemVer");
+    });
+
+    it("无效用户 Skill 只隔离自身并继续遮蔽同名系统 Skill", async () => {
+        await writeSkill(systemRoot, "writer", `---
+name: System Writer
+---
+`);
+        await writePackage(systemRoot, "writer", "1.0.0");
+        await writeSkill(systemRoot, "editor", `---
+name: System Editor
+---
+`);
+        await writeSkill(userRoot, "writer", `---
+name: Broken User Writer
+---
+`);
+        await writePackage(userRoot, "writer", "latest");
+        const warn = vi.spyOn(consola, "warn").mockImplementation(() => undefined);
+        const catalog = new SkillCatalog(systemRoot, userRoot);
+
+        try {
+            await expect(catalog.list()).resolves.toEqual([
+                expect.objectContaining({key: "editor", source: "system"}),
+            ]);
+            expect(warn).toHaveBeenCalledWith(
+                expect.objectContaining({skillKey: "writer", rootPath: join(userRoot, "writer")}),
+                "用户 Skill package 无效，已隔离该 Skill",
+            );
+        } finally {
+            warn.mockRestore();
+        }
     });
 
     it("硬切下线的 legacy skill key 不再进入 catalog", async () => {
@@ -99,20 +145,14 @@ name: user anti-ai-slop
         expect(skill?.description).toContain("harness");
         expect(keys).toEqual(expect.arrayContaining([
             "novel-import-tomato-reference",
-            "novel-workflow-04-character-design",
-            "novel-workflow-08-plot-planning",
-            "novel-workflow-07-opening-plot-design",
-            "novel-workflow-03-lorebook-bootstrap",
-            "novel-workflow-02-project-bootstrap",
-            "novel-workflow-01-idea-exploration",
-            "novel-workflow-05-emulation-bootstrap",
-            "novel-workflow-06-emulation-tick",
-            "novel-workflow-09-chapter-writing",
-            "novel-workflow-10-revision",
+            "novel-guide",
+            "novel-setup",
+            "novel-writing",
+            "novel-idea-exploration",
+            "novel-genre-research",
             "novel-import-silly-tavern-card",
             "novel-technique-character-card-workshop",
-            "novel-workflow-world-engine-init",
-            "novel-workflow-writer-execution",
+            "novel-writer-execution",
             "llmlint",
             "profile-system-guide",
             "RP模式",
@@ -125,6 +165,7 @@ name: user anti-ai-slop
         expect(skills.find((item) => item.key === "llmlint")).toEqual(expect.objectContaining({
             name: "llmlint",
             description: expect.stringContaining("Lint and polish LLM-generated Chinese text"),
+            version: "2.0.1",
         }));
         expect(skills.find((item) => item.key === "stop-slop")).toEqual(expect.objectContaining({
             name: "stop-slop",
@@ -137,4 +178,8 @@ async function writeSkill(root: string, key: string, source: string): Promise<vo
     const skillRoot = join(root, key);
     await mkdir(skillRoot, {recursive: true});
     await writeFile(join(skillRoot, "SKILL.md"), source, "utf8");
+}
+
+async function writePackage(root: string, key: string, version: string): Promise<void> {
+    await writeFile(join(root, key, "package.json"), `${JSON.stringify({name: key, version}, null, 4)}\n`, "utf8");
 }

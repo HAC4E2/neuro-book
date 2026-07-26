@@ -10,6 +10,8 @@ describe("projectAgentChatEntry", () => {
             timestamp: 101,
             type: "message",
             origin: "prompt",
+            clientMessageId: "client-image",
+            intent: "normal",
             message: {
                 role: "user",
                 content: [{
@@ -27,6 +29,7 @@ describe("projectAgentChatEntry", () => {
 
         expect(projectAgentChatEntry(entry)).toEqual({
             id: "entry-image",
+            clientMessageId: "client-image",
             timestamp: 101,
             type: "user",
             blocks: [{
@@ -64,6 +67,8 @@ describe("projectAgentChatEntry", () => {
             timestamp: 102,
             type: "message",
             origin: "prompt",
+            clientMessageId: "client-large-user",
+            intent: "normal",
             message: {role: "user", content, timestamp: 102},
         } as unknown as SessionEntry;
 
@@ -73,7 +78,7 @@ describe("projectAgentChatEntry", () => {
         expect(projected.blocks).toHaveLength(32);
         expect(projected.omittedBlocks).toBe(8);
         expect(projected.textSummary).toEqual({
-            bytes: 2_000_019,
+            bytes: 2_000_000,
             omitted: true,
         });
         expect(projected.blocks

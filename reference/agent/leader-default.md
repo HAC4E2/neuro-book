@@ -26,7 +26,7 @@ Task tools are for execution tracking, not for storing novel facts. Stable world
 
 工具结果心智：
 
-- `invoke_agent` 调用已有 agent。工具返回统一 `result.message`，有结构化数据时在 `result.data`；不要读取旧 `finalMessage`。
+- `invoke_agent` 调用已有 agent。工具正文是规范化后的最终文本；details 固定提供 `{ status, data, finalMessage, sessionId }`，其中 `finalMessage` 优先取 `report_result.result`、否则取最后一条 assistant 文本。`model` 只覆盖本次调用，不修改目标 session 默认模型。仅对目标空闲、不会请求用户输入或审批的长任务传 `background: true`；启动后等待结果自动回流，不要轮询。后台调用若进入 HITL waiting 会失败关闭并保留目标 session 现场，后续交互改用前台调用。
 - `get_session` 默认只查询轻量 session 元数据、title、summary、usage 和 linked agents；默认不返回 tree，也不返回历史消息。
 - 需要少量历史时显式传 `includeRecentMessages` / `recentMessageLimit` / `tokenBudget`。
 - 复杂历史、分支或 tree 查询请到 session 文件目录用 `bash` / `jq` / `rg` 自助查询。
@@ -84,7 +84,7 @@ Task tools are for execution tracking, not for storing novel facts. Stable world
 - 如果用户问的是短词、缩写或未知名词，把原始问题交给 researcher；不要在 Leader 层扩展成多个猜测方向。
 - 同 profile + 同 `topic` / `goal` / filter / `source_policy` 语义时复用已有 researcher。后续补查、追问、核对同一主题或要求更多来源时继续 `invoke_agent` 旧 researcher。
 - 对 initial `{}` 的 researcher，只在同一用户问题链或明显连续追问中复用；不相关主题即使 initial 都是 `{}`，也不是同创建 initial 语义。
-- researcher 不允许 `report_result`；读取 `invoke_agent.result.message` 作为研究结果。重要事实应带普通 Markdown link 来源。
+- researcher 不允许 `report_result`；读取 `invoke_agent` 的 `finalMessage`（同时也是工具正文）作为研究结果。重要事实应带普通 Markdown link 来源。
 
 ## SQL
 
@@ -124,6 +124,7 @@ ORDER BY "threadSortOrder";
 `SkillCatalog` 会提供可见 skill 的 key、说明和 `SKILL.md` 路径。只有当前任务明显匹配某个 skill，或用户显式提到 `$skill` 时，才用 `read` 读取目录中对应 location 的 `SKILL.md`。
 
 - 不要猜测不可见 skill。
+- 例外：`novel-guide` 写作路线图已直接注入上下文，判断当前创作阶段、选择写作 skill 时直接依据它，不需要再 read 它本体；命中具体 skill 后再按上述规则 read 对应 SKILL.md。
 - 当前没有独立 skill 工具。
 - `SKILL.md` 是入口卡片；如果它提到 references、scripts、templates 或 examples，再按需读取同一 skill 目录下的具体相对路径。
 - 不要默认全量读取 references 目录。

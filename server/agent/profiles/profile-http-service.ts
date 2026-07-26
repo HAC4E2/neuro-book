@@ -24,12 +24,16 @@ import type {
     AgentProfileSchemaDetailDto,
     AgentProfileVariableGroupDto,
 } from "nbook/shared/dto/agent-profile.dto";
-import {reportResultSchemaForProfile, reportSidecarResultSchemaForProfile} from "nbook/server/agent/profiles/report-result-schema";
+import {reportResultSchemaForProfile} from "nbook/server/agent/profiles/report-result-schema";
 import {resolveRuntimeProfileSettings} from "nbook/server/agent/profiles/profile-settings";
-import {createLayeredProfileHomeFacade, ensureGlobalProfileHome, ensureProfileHome, resolveProjectRootForProfileHome} from "nbook/server/agent/profiles/profile-home";
+import {createLayeredProfileHomeFacade, ensureGlobalProfileHome, ensureProfileHome} from "nbook/server/agent/profiles/profile-home";
 import type {ProfileTemplateNodeDto} from "nbook/shared/dto/profile-template.dto";
 import {buildProfilePromptRoot} from "nbook/server/agent/profiles/profile-dsl-source-parser";
-import {assertManagedProjectDataPlaneOpen} from "nbook/server/workspace-files/project-data-plane-guard";
+import {
+    requireReadyProjectPath,
+    runReadyProjectOperation,
+} from "nbook/server/workspace-files/project-session";
+import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 import {assembleProfilePromptMessages} from "nbook/server/agent/profiles/prompt-order";
 import {mergeProfileTurnContextMessages, previewProfileTurnContexts} from "nbook/server/agent/profiles/profile-turn-context";
 import {resolveProfileRuntimeSettings} from "nbook/server/agent/profiles/profile-runtime-settings";
@@ -37,6 +41,7 @@ import type {ProfileRuntimeSettings} from "nbook/shared/agent/profile-runtime-se
 import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {resolveWorkspaceRootRef, WORKSPACE_CONTAINER_ROOT} from "nbook/server/workspace-files/workspace-root-ref";
 import {resolvePiModelFromConfig} from "nbook/server/agent/harness/model-resolver";
+import {resolveAgentVisibleModels} from "nbook/server/agent/harness/agent-visible-models";
 
 /**
  * 列出 v3 Agent Profile catalog，并适配旧 profile 工作台 DTO。
@@ -100,9 +105,6 @@ export async function readAgentProfileDetail(
         reportResultSchema: runtimeProfile && runtimeProfile.rootToolKeys.includes("report_result")
             ? cloneJsonObject(reportResultSchemaForProfile(runtimeProfile))
             : null,
-        reportSidecarResultSchema: runtimeProfile && runtimeProfile.rootToolKeys.includes("report_sidecar_result")
-            ? cloneJsonObject(reportSidecarResultSchemaForProfile(runtimeProfile))
-            : null,
         root: buildSystemPromptRoot(source),
     };
 }
@@ -121,130 +123,142 @@ export async function previewAgentProfilePrepare(
     const session = createProfilePreviewSessionFacade(harness, request.profileKey, initial, previewSnapshot, sessionContext);
     const catalog = await harness.profiles.snapshot();
     const skills = await harness.skills.list();
-    const effectiveConfig = await loadPreviewEffectiveConfig(sessionContext);
     const needsHome = profileNeedsHome(profile);
     const workspaceRoot = absoluteFsPath(harness.repo.rootWorkspace);
-    const projectRoot = resolveProjectRootForProfileHome(workspaceRoot, sessionContext.projectPath);
-    if (projectRoot && needsHome) {
-        assertManagedProjectDataPlaneOpen(sessionContext.projectPath);
-    }
-    const globalHome = needsHome
-        ? await ensureGlobalProfileHome({
-            workspaceRoot,
-            profileKey: profile.manifest.key,
-            profileVersion: profile.manifest.version ?? 1,
-            definition: profile.home,
-        })
+    const readyProject = sessionContext.projectPath
+        ? requireReadyProjectPath(sessionContext.projectPath)
         : undefined;
-    const projectHome = projectRoot && needsHome
-        ? await ensureProfileHome({
-            projectRoot,
-            profileKey: profile.manifest.key,
-            profileVersion: profile.manifest.version ?? 1,
-            definition: profile.home,
-        })
-        : undefined;
-    const home = projectHome ? createLayeredProfileHomeFacade(projectHome, globalHome) : globalHome;
-    const customSettings = await resolveRuntimeProfileSettings(profile, effectiveConfig.agent.profiles[request.profileKey]?.settings, {
-        profileKey: request.profileKey,
-        scope: sessionContext.projectPath ? "project" : "global",
-        workspaceRoot: sessionContext.workspaceRoot,
-        ...(sessionContext.projectPath ? {projectPath: sessionContext.projectPath} : {}),
-        ...(home ? {home, allowGlobalResourceKeys: true} : {}),
-    });
-    const runtimeSettings = resolveProfileRuntimeSettings(
-        profile.runtimeDefaults,
-        effectiveConfig.agent.profiles[request.profileKey]?.runtime ?? effectiveConfig.agent.profileRuntimeDefaults,
-    );
-
-    try {
-        const prepared = await profile.prepare!({
-            session,
-            initial,
-            settings: customSettings as never,
-            ...(home ? {home} : {}),
-            vars: createProfileVariableAccessor({
-                repo: harness.repo,
-                snapshot: previewSnapshot ?? previewSessionSnapshot(request.profileKey, sessionContext),
-                registry: await createPreviewVariableRegistry(profile, absoluteFsPath(harness.repo.rootWorkspace)),
-                dryRun: true,
-            }),
-            catalog,
-            skills,
-            workflows: await harness.workflows.list(),
-            runtime: {
-                now: new Date().toISOString(),
-                promptUserTurnCount: sessionContext.messages.filter((message) => message.role === "user").length,
-            },
-        });
-        const historyMessages = prepared.historyInitMessages ?? [];
-        const modelContextAppendingMessages = prepared.modelContextAppendingMessages ?? [];
-        const explicitAppendingMessages = mergeProfileTurnContextMessages(
-            prepared.appendingMessages ?? [],
-            previewProfileTurnContexts(prepared.turnContexts ?? [], runtimeSettings.fileChangeNotice.diffMaxChars),
+    const prepare = async (): Promise<AgentProfilePreparePreviewDto> => {
+        const projectWorkspace = readyProject?.workspace;
+        const effectiveConfig = await loadPreviewEffectiveConfig(workspaceRoot, readyProject);
+        const globalHome = needsHome
+            ? await ensureGlobalProfileHome({
+                workspaceRoot,
+                profileKey: profile.manifest.key,
+                profileVersion: profile.manifest.version ?? 1,
+                definition: profile.home,
+            })
+            : undefined;
+        const projectHome = projectWorkspace && needsHome
+            ? await ensureProfileHome({
+                workspace: projectWorkspace,
+                profileKey: profile.manifest.key,
+                profileVersion: profile.manifest.version ?? 1,
+                definition: profile.home,
+            })
+            : undefined;
+        const home = projectHome ? createLayeredProfileHomeFacade(projectHome, globalHome) : globalHome;
+        const customSettings = await resolveRuntimeProfileSettings(
+            profile,
+            effectiveConfig.agent.profiles[request.profileKey]?.settings,
+            projectWorkspace
+                ? {
+                    profileKey: request.profileKey,
+                    scope: "project",
+                    workspaceRoot: sessionContext.workspaceRoot,
+                    projectWorkspace,
+                    ...(home ? {home, allowGlobalResourceKeys: true} : {}),
+                }
+                : {
+                    profileKey: request.profileKey,
+                    scope: "global",
+                    workspaceRoot: sessionContext.workspaceRoot,
+                    ...(home ? {home, allowGlobalResourceKeys: true} : {}),
+                },
         );
-        const appendingMessages = [
-            ...modelContextAppendingMessages,
-            ...explicitAppendingMessages,
-        ];
-        const modelContextMessages = prepared.modelContextMessages ?? [];
-        const historyMessagesForReact = sessionContext.messages.length === 0 ? historyMessages : [];
-        const finalMessages = assembleProfilePromptMessages({
-            history: [...sessionContext.messages, ...historyMessagesForReact],
-            modelContext: modelContextMessages,
-            appending: appendingMessages,
-            currentUserInput: [],
-        });
-        const messages = [
-            ...prepared.systemPrompt ? [systemPromptPreviewMessage(prepared.systemPrompt)] : [],
-            ...historyMessages.map((message) => toPreviewMessage(message, "history")),
-            ...modelContextMessages.map((message) => toPreviewMessage(message, "modelContext")),
-            ...modelContextAppendingMessages.map((message) => toPreviewMessage(message, "modelContextAppending")),
-            ...explicitAppendingMessages.map((message) => toPreviewMessage(message, "appending")),
-            compactionPreviewMessage(runtimeSettings.compaction, resolvePreviewModel(effectiveConfig, sessionContext)),
-            ...finalMessages.map((message) => toPreviewMessage(message, "reactMessages")),
-            ...(prepared.stateWrites ?? []).map((write) => ({
-                role: "custom",
-                text: JSON.stringify(write, null, 2),
-                source: "stateWrites",
-            })),
-        ];
+        const runtimeSettings = resolveProfileRuntimeSettings(
+            profile.runtimeDefaults,
+            effectiveConfig.agent.profiles[request.profileKey]?.runtime ?? effectiveConfig.agent.profileRuntimeDefaults,
+        );
 
-        return {
-            profileKey: request.profileKey,
-            ok: true,
-            issues: [],
-            messages,
-            persistedMessageCount: historyMessages.length + appendingMessages.length,
-            variables: buildProfileVariableGroups(catalog.profiles.find((item) => item.key === request.profileKey), profile),
-            reportResultSchema: profile.rootToolKeys.includes("report_result")
-                ? cloneJsonObject(reportResultSchemaForProfile(profile))
-                : null,
-            reportSidecarResultSchema: profile.rootToolKeys.includes("report_sidecar_result")
-                ? cloneJsonObject(reportSidecarResultSchemaForProfile(profile))
-                : null,
-        };
-    } catch (error) {
-        return {
-            profileKey: request.profileKey,
-            ok: false,
-            issues: [{
-                severity: "error",
-                message: error instanceof Error ? error.message : String(error),
-                code: "prepare_failed",
+        try {
+            const prepared = await profile.prepare!({
+                session,
+                initial,
+                settings: customSettings as never,
+                ...(home ? {home} : {}),
+                vars: createProfileVariableAccessor({
+                    repo: harness.repo,
+                    snapshot: previewSnapshot ?? previewSessionSnapshot(request.profileKey, sessionContext),
+                    registry: await createPreviewVariableRegistry(profile, absoluteFsPath(harness.repo.rootWorkspace)),
+                    dryRun: true,
+                }),
+                catalog,
+                skills,
+                workflows: await harness.workflows.list(projectWorkspace),
+                agentVisibleModels: resolveAgentVisibleModels(effectiveConfig),
+                runtime: {
+                    now: new Date().toISOString(),
+                    promptUserTurnCount: sessionContext.messages.filter((message) => message.role === "user").length,
+                    currentProject: readyProject ?? null,
+                },
+            });
+            const historyMessages = prepared.historyInitMessages ?? [];
+            const modelContextAppendingMessages = prepared.modelContextAppendingMessages ?? [];
+            const explicitAppendingMessages = mergeProfileTurnContextMessages(
+                prepared.appendingMessages ?? [],
+                previewProfileTurnContexts(prepared.turnContexts ?? [], runtimeSettings.fileChangeNotice.diffMaxChars),
+            );
+            const appendingMessages = [
+                ...modelContextAppendingMessages,
+                ...explicitAppendingMessages,
+            ];
+            const modelContextMessages = prepared.modelContextMessages ?? [];
+            const historyMessagesForReact = sessionContext.messages.length === 0 ? historyMessages : [];
+            const finalMessages = assembleProfilePromptMessages({
+                history: [...sessionContext.messages, ...historyMessagesForReact],
+                modelContext: modelContextMessages,
+                appending: appendingMessages,
+                currentUserInput: [],
+            });
+            const messages = [
+                ...prepared.systemPrompt ? [systemPromptPreviewMessage(prepared.systemPrompt)] : [],
+                ...historyMessages.map((message) => toPreviewMessage(message, "history")),
+                ...modelContextMessages.map((message) => toPreviewMessage(message, "modelContext")),
+                ...modelContextAppendingMessages.map((message) => toPreviewMessage(message, "modelContextAppending")),
+                ...explicitAppendingMessages.map((message) => toPreviewMessage(message, "appending")),
+                compactionPreviewMessage(runtimeSettings.compaction, resolvePreviewModel(effectiveConfig, sessionContext)),
+                ...finalMessages.map((message) => toPreviewMessage(message, "reactMessages")),
+                ...(prepared.stateWrites ?? []).map((write) => ({
+                    role: "custom",
+                    text: JSON.stringify(write, null, 2),
+                    source: "stateWrites",
+                })),
+            ];
+
+            return {
                 profileKey: request.profileKey,
-            }],
-            messages: [],
-            persistedMessageCount: 0,
-            variables: buildProfileVariableGroups(catalog.profiles.find((item) => item.key === request.profileKey), profile),
-            reportResultSchema: profile.rootToolKeys.includes("report_result")
-                ? cloneJsonObject(reportResultSchemaForProfile(profile))
-                : null,
-            reportSidecarResultSchema: profile.rootToolKeys.includes("report_sidecar_result")
-                ? cloneJsonObject(reportSidecarResultSchemaForProfile(profile))
-                : null,
-        };
-    }
+                ok: true,
+                issues: [],
+                messages,
+                persistedMessageCount: historyMessages.length + appendingMessages.length,
+                variables: buildProfileVariableGroups(catalog.profiles.find((item) => item.key === request.profileKey), profile),
+                reportResultSchema: profile.rootToolKeys.includes("report_result")
+                    ? cloneJsonObject(reportResultSchemaForProfile(profile))
+                    : null,
+            };
+        } catch (error) {
+            return {
+                profileKey: request.profileKey,
+                ok: false,
+                issues: [{
+                    severity: "error",
+                    message: error instanceof Error ? error.message : String(error),
+                    code: "prepare_failed",
+                    profileKey: request.profileKey,
+                }],
+                messages: [],
+                persistedMessageCount: 0,
+                variables: buildProfileVariableGroups(catalog.profiles.find((item) => item.key === request.profileKey), profile),
+                reportResultSchema: profile.rootToolKeys.includes("report_result")
+                    ? cloneJsonObject(reportResultSchemaForProfile(profile))
+                    : null,
+            };
+        }
+    };
+    return readyProject
+        ? runReadyProjectOperation(readyProject, async () => prepare())
+        : prepare();
 }
 
 function profileNeedsHome(profile: AgentProfile): boolean {
@@ -546,7 +560,7 @@ function buildProfileVariableGroups(profile: AgentCatalogItem | undefined, runti
 }
 
 async function createPreviewVariableRegistry(profile: AgentProfile, globalWorkspaceRoot: AbsoluteFsPath): Promise<VariableRegistry> {
-    return createVariableRegistryForSession({profile, globalWorkspaceRoot, currentProjectWorkspace: null});
+    return createVariableRegistryForSession({profile, globalWorkspaceRoot, currentProject: null});
 }
 
 /** Profile Preview也从当前Config按durable selection重新解析完整模型。 */
@@ -581,11 +595,14 @@ function previewSessionSnapshot(profileKey: string, session: NeuroSessionContext
 /**
  * 工作台 prepare 预览应尽量复用真实运行的 profile settings。
  */
-async function loadPreviewEffectiveConfig(session: Pick<NeuroSessionContext, "workspaceRoot" | "projectPath">) {
-    const {loadEffectiveConfigForAgentRuntime} = await import("nbook/server/config/config-service");
-    return loadEffectiveConfigForAgentRuntime({
-        ...(session.projectPath ? {projectPath: session.projectPath} : {}),
-    });
+async function loadPreviewEffectiveConfig(
+    workspaceRoot: AbsoluteFsPath,
+    project: ReadyProjectSessionRef | undefined,
+) {
+    const {loadEffectiveConfigFromTarget} = await import("nbook/server/config/config-service");
+    return project
+        ? loadEffectiveConfigFromTarget({scope: "project", workspaceRoot, project})
+        : loadEffectiveConfigFromTarget({scope: "global", workspaceRoot, project: null});
 }
 
 function cloneJsonObject(value: unknown): Record<string, JsonValue> | null {

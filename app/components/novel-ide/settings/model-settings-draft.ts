@@ -72,12 +72,21 @@ export type ModelSettingsProviderDraft = ContractProviderDraft<ModelSettingsMode
     };
 };
 
+/** Agent 可见模型清单的前端草稿。顺序就是 prompt 中的展示顺序。 */
+export type AgentVisibleModelDraft = {
+    modelKey: string;
+    note: string;
+};
+
 /** 设置页的完整模型草稿文档。 */
-export type ModelSettingsDraft = ContractSettingsDraft<ModelSettingsProviderDraft>;
+export type ModelSettingsDraft = ContractSettingsDraft<ModelSettingsProviderDraft> & {
+    agentVisibleModels: AgentVisibleModelDraft[];
+};
 
 type AgentModelConfig = {
     profileModelDefaults?: {modelKey?: string | null};
     profiles?: Record<string, {model?: {modelKey?: string | null}}>;
+    visibleModels?: AgentVisibleModelDraft[];
 };
 
 /** Model Library 批量补全中单个模型的可审计变更。 */
@@ -190,6 +199,19 @@ export function buildModelsSection(draft: ModelSettingsDraft): NonNullable<Globa
     };
 }
 
+/** 将可见模型草稿转换为 Global Agent Config；空数组保留运行时默认模型兜底语义。 */
+export function buildAgentVisibleModels(draft: Pick<ModelSettingsDraft, "agentVisibleModels">): NonNullable<GlobalConfigUpdateDto["agent"]>["visibleModels"] {
+    const seen = new Set<string>();
+    return draft.agentVisibleModels.flatMap((entry) => {
+        const modelKey = entry.modelKey.trim();
+        if (!modelKey || seen.has(modelKey)) {
+            return [];
+        }
+        seen.add(modelKey);
+        return [{modelKey, note: entry.note.trim()}];
+    });
+}
+
 /** 清理失效模型 key；Project 的 null 仍表示继承 Global。 */
 export function cleanModelKey(modelKey: string | null | undefined, modelKeys: ReadonlySet<string>): string | null {
     const normalized = modelKey?.trim() ?? "";
@@ -214,6 +236,7 @@ export function cleanGlobalAgent<T extends AgentModelConfig>(agent: T | undefine
                     : profile.model,
             }]))
             : agent.profiles,
+        visibleModels: agent.visibleModels ? cleanVisibleModels(agent.visibleModels, modelKeys) : agent.visibleModels,
     };
 }
 
@@ -268,9 +291,26 @@ export function renameAgentProvider<T extends AgentModelConfig>(
                     model: profile.model ? {...profile.model, modelKey: rename(profile.model.modelKey)} : profile.model,
                 }]))
                 : agent.profiles,
+            visibleModels: agent.visibleModels?.map((entry) => ({
+                ...entry,
+                modelKey: rename(entry.modelKey) ?? entry.modelKey,
+            })),
         },
         changed,
     };
+}
+
+/** 清理重复或失效的 Agent 可见模型引用，保留原顺序与用途说明。 */
+function cleanVisibleModels(entries: readonly AgentVisibleModelDraft[], modelKeys: ReadonlySet<string>): AgentVisibleModelDraft[] {
+    const seen = new Set<string>();
+    return entries.flatMap((entry) => {
+        const modelKey = cleanModelKey(entry.modelKey, modelKeys);
+        if (!modelKey || seen.has(modelKey)) {
+            return [];
+        }
+        seen.add(modelKey);
+        return [{modelKey, note: entry.note.trim()}];
+    });
 }
 
 /** 将设置页草稿转换成 shared Provider Config contract 输入。 */

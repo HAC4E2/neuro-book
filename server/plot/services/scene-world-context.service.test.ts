@@ -80,7 +80,7 @@ function createService(scene: StoryScene | null = createScene()) {
             {id: "hero", name: "主角"},
             {id: "temple", name: "荒野神殿"},
         ]),
-        formatTime: vi.fn(async (_projectPath: string, instant: bigint) => `T${instant.toString()}`),
+        formatTime: vi.fn(async (instant: bigint) => `T${instant.toString()}`),
     } as unknown as WorldEngineFacade & {
         listSlices: ReturnType<typeof vi.fn>;
         queryState: ReturnType<typeof vi.fn>;
@@ -101,17 +101,17 @@ describe("SceneWorldContextService", () => {
     it("按 Scene 时间范围和 subject/location 收窄 World Engine 上下文", async () => {
         const {service, worldEngineFacade, scopeGuard} = createService();
 
-        const result = await service.getSceneWorldContext("workspace/novel", 10);
+        const result = await service.getSceneWorldContext(10);
 
         expect(scopeGuard.assertScene).toHaveBeenCalledWith(1, 10);
-        expect(worldEngineFacade.listSlices).toHaveBeenCalledWith("workspace/novel", {
+        expect(worldEngineFacade.listSlices).toHaveBeenCalledWith({
             from: 100n,
             to: 200n,
             withPatches: true,
             subjectIds: ["hero", "temple"],
             subjectMode: "any",
         });
-        expect(worldEngineFacade.queryState).toHaveBeenCalledWith("workspace/novel", {
+        expect(worldEngineFacade.queryState).toHaveBeenCalledWith({
             subjectIds: ["hero", "temple"],
             at: 200n,
         });
@@ -135,7 +135,7 @@ describe("SceneWorldContextService", () => {
     it("Scene 未设置完整时间范围时拒绝查询", async () => {
         const {service, worldEngineFacade} = createService(createScene({startInstant: null}));
 
-        await expect(service.getSceneWorldContext("workspace/novel", 10)).rejects.toThrow("Scene 尚未设置完整 World Engine 时间范围");
+        await expect(service.getSceneWorldContext(10)).rejects.toThrow("Scene 尚未设置完整 World Engine 时间范围");
         expect(worldEngineFacade.listSlices).not.toHaveBeenCalled();
     });
 
@@ -145,7 +145,7 @@ describe("SceneWorldContextService", () => {
             locationSubjectId: null,
         }));
 
-        await expect(service.getSceneWorldContext("workspace/novel", 10)).resolves.toEqual({
+        await expect(service.getSceneWorldContext(10)).resolves.toEqual({
             slices: [],
             subjectStates: [],
             unresolvedSubjectIds: [],
@@ -161,7 +161,7 @@ describe("SceneWorldContextService", () => {
             locationSubjectId: "future-place",
         }));
 
-        await expect(service.getSceneWorldContext("workspace/novel", 10)).resolves.toEqual({
+        await expect(service.getSceneWorldContext(10)).resolves.toEqual({
             slices: [],
             subjectStates: [],
             unresolvedSubjectIds: ["future-hero", "future-place"],

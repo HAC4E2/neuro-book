@@ -1,14 +1,9 @@
 <script setup lang="ts">
-import type {PublicAttachmentDto} from "nbook/shared/dto/agent-public-event.dto";
 import AgentAttachmentImage from "nbook/app/components/novel-ide/agent/AgentAttachmentImage.vue";
-
-type AttachmentDisplay = {
-    contentIndex: number;
-    attachment: PublicAttachmentDto;
-};
+import type {AgentAttachmentDisplay} from "nbook/app/components/novel-ide/agent/agent-attachment";
 
 const props = defineProps<{
-    attachments: AttachmentDisplay[];
+    attachments: AgentAttachmentDisplay[];
     sessionId?: number | null;
     entryId: string;
 }>();
@@ -20,8 +15,8 @@ const props = defineProps<{
             v-for="item in props.attachments"
             :key="`${props.entryId}:${item.contentIndex}`"
             :session-id="props.sessionId"
-            :entry-id="props.entryId"
-            :content-index="item.contentIndex"
+            :entry-id="item.locator?.entryId ?? props.entryId"
+            :content-index="item.locator?.contentIndex ?? item.contentIndex"
             :attachment="item.attachment"
         />
     </div>

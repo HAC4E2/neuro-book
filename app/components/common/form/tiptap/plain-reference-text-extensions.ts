@@ -22,6 +22,13 @@ export interface PlainReferenceTextExtensionOptions extends AgentSuggestionContr
     placeholder: string;
     resolveMenu: (context: AgentTriggerMenuContext) => AgentTriggerMenuState;
     enableQuickTriggers: boolean;
+    onPendingImageRetry: (uploadId: string) => void;
+    onPendingImageRemove: (uploadId: string) => void;
+}
+
+interface PlainPendingImageOptions {
+    onRetry: (uploadId: string) => void;
+    onRemove: (uploadId: string) => void;
 }
 
 interface PlainReferenceOptions extends AgentSuggestionController {
@@ -75,6 +82,11 @@ export function createPlainReferenceTextExtensions(options: PlainReferenceTextEx
             setActiveIndex: options.setActiveIndex,
         }),
         PlainSelectionReference,
+        PlainImage,
+        PlainPendingImage.configure({
+            onRetry: options.onPendingImageRetry,
+            onRemove: options.onPendingImageRemove,
+        }),
         PlainSlashCommand.configure({
             resolveMenu: options.resolveMenu,
             onMenuStateChange: options.onMenuStateChange,
@@ -345,6 +357,145 @@ const PlainSelectionReference = Node.create({
     },
 });
 
+/** 已上传图片的稳定 inline chip；正文仍只序列化 Markdown。 */
+const PlainImage = Node.create({
+    name: "plainImage",
+    group: "inline",
+    inline: true,
+    atom: true,
+    selectable: false,
+    priority: 1180,
+
+    addAttributes() {
+        return {
+            label: {default: ""},
+            target: {default: ""},
+            attachmentId: {default: null},
+            mimeType: {default: null},
+            bytes: {default: null},
+            name: {default: null},
+            locatorEntryId: {default: null},
+            locatorContentIndex: {default: null},
+        };
+    },
+
+    parseHTML() {
+        return [{tag: "span[data-plain-image-target]"}];
+    },
+
+    renderHTML({HTMLAttributes}) {
+        return ["span", mergeAttributes(HTMLAttributes, {
+            "data-plain-image-label": HTMLAttributes.label,
+            "data-plain-image-target": HTMLAttributes.target,
+            contenteditable: "false",
+        })];
+    },
+
+    addNodeView() {
+        return ({node}) => ({dom: createImageChipElement({
+            label: String(node.attrs.label ?? "") || "图片",
+            target: String(node.attrs.target ?? ""),
+        })});
+    },
+});
+
+/** 上传期间的临时节点；不进入 modelValue、localStorage 或 HTTP 正文。 */
+const PlainPendingImage = Node.create<PlainPendingImageOptions>({
+    name: "plainPendingImage",
+    group: "inline",
+    inline: true,
+    atom: true,
+    selectable: false,
+    priority: 1175,
+
+    addOptions() {
+        return {
+            onRetry: () => {},
+            onRemove: () => {},
+        };
+    },
+
+    addAttributes() {
+        return {
+            uploadId: {default: ""},
+            name: {default: ""},
+            status: {default: "uploading"},
+            error: {default: ""},
+        };
+    },
+
+    parseHTML() {
+        return [{tag: "span[data-plain-pending-image-id]"}];
+    },
+
+    renderHTML({HTMLAttributes}) {
+        return ["span", mergeAttributes(HTMLAttributes, {
+            "data-plain-pending-image-id": HTMLAttributes.uploadId,
+            contenteditable: "false",
+        })];
+    },
+
+    addNodeView() {
+        return ({node}) => {
+            const dom = document.createElement("span");
+            const render = (currentNode: typeof node): void => {
+                const uploadId = String(currentNode.attrs.uploadId ?? "");
+                const status = currentNode.attrs.status === "failed" ? "failed" : "uploading";
+                dom.className = `nb-plain-pending-image-node is-${status}`;
+                dom.dataset.plainPendingImageId = uploadId;
+                dom.contentEditable = "false";
+                dom.title = status === "failed"
+                    ? String(currentNode.attrs.error ?? "图片上传失败")
+                    : "图片上传中";
+                dom.replaceChildren();
+
+                const icon = document.createElement("span");
+                icon.className = status === "failed" ? "i-lucide-image-off" : "i-lucide-loader-circle nb-plain-pending-image-node__spin";
+                const label = document.createElement("span");
+                label.className = "nb-plain-pending-image-node__label";
+                label.textContent = String(currentNode.attrs.name ?? "图片");
+                dom.append(icon, label);
+
+                if (status === "failed") {
+                    const retry = document.createElement("button");
+                    retry.type = "button";
+                    retry.className = "nb-plain-pending-image-node__action";
+                    retry.textContent = "重试";
+                    retry.addEventListener("click", (event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        this.options.onRetry(uploadId);
+                    });
+                    dom.append(retry);
+                }
+
+                const remove = document.createElement("button");
+                remove.type = "button";
+                remove.className = "nb-plain-pending-image-node__remove";
+                remove.setAttribute("aria-label", "移除图片");
+                remove.textContent = "×";
+                remove.addEventListener("click", (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    this.options.onRemove(uploadId);
+                });
+                dom.append(remove);
+            };
+            render(node);
+            return {
+                dom,
+                update: (nextNode) => {
+                    if (nextNode.type.name !== this.name) {
+                        return false;
+                    }
+                    render(nextNode);
+                    return true;
+                },
+            };
+        };
+    },
+});
+
 /**
  * 纯文本 / 命令入口。只插入普通文本，不执行 Markdown 格式命令。
  */
@@ -435,6 +586,13 @@ function insertPlainReferenceSuggestion(options: {
     nodeName: string;
 }): void {
     if (options.item.disabled) {
+        return;
+    }
+
+    if (options.item.action) {
+        const nextRange = expandSuggestionRange(options.editor, options.range, false);
+        options.editor.chain().focus().deleteRange(nextRange).setTextSelection(nextRange.from).run();
+        void options.item.action({position: nextRange.from});
         return;
     }
 
@@ -555,5 +713,26 @@ function createReferenceElement(options: {
 
     chip.append(icon, label, badge);
     wrapper.append(chip);
+    return wrapper;
+}
+
+function createImageChipElement(options: {label: string; target: string}): HTMLElement {
+    const wrapper = document.createElement("span");
+    wrapper.className = "nb-plain-image-node";
+    wrapper.dataset.plainImageLabel = options.label;
+    wrapper.dataset.plainImageTarget = options.target;
+    wrapper.contentEditable = "false";
+    wrapper.title = options.target;
+
+    const icon = document.createElement("span");
+    icon.className = "i-lucide-image h-3 w-3";
+    icon.setAttribute("aria-hidden", "true");
+    const label = document.createElement("span");
+    label.className = "nb-plain-image-node__label";
+    label.textContent = options.label;
+    const badge = document.createElement("span");
+    badge.className = "nb-plain-image-node__badge";
+    badge.textContent = "图片";
+    wrapper.append(icon, label, badge);
     return wrapper;
 }

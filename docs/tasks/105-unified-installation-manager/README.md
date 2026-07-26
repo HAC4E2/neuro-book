@@ -962,6 +962,15 @@ uninstall
 - 验证：Archive Adapter 2项、Manager完整29文件/143项（另1文件/2项按平台跳过）、Release资产/checksum 2文件/8项通过。下一发布顺序固定为Manager `.22`公开后再创建应用`0.8.10` patch canary；不复用失败tag，不等待应用Release workflow。
 - 实际发布：Manager `.22` workflow `29693189437`全绿，npm精确版本、`canary`和真实bunx均返回`.22`；应用`v0.8.10-canary.20260719.153805Z.13c85b2c`随后创建，workflow `29693247437`按`--no-watch`约定在后台运行。本轮没有把尚未完成的Product/GHCR/最终索引门禁写成通过。
 
+### 2026-07-22：Windows Portable 前台 Product 生命周期接入 Owned Process
+
+- `runPortableForeground()`不再只持有一个直接ChildProcess；它通过`@notnotype/owned-process`启动Product，健康检查失败使用`startup-failure`终止完整Job，CMD/Manager宿主断连由监督IPC与`KILL_ON_JOB_CLOSE`收口全部后代。
+- 健康检查前退出码0现在明确属于启动失败；健康前非零退出继续保留真实Product退出码，避免“服务从未就绪但Manager成功返回”的假成功。
+- Manager仍拥有Installation/Profile/健康检查状态；Owned Process只提供本次前台invocation的OS进程树lease，没有扩展成跨Manager invocation的stop/restart协议。
+- Manager package将私有workspace package作为build-time devDependency，Bun build把实现内联进公开单文件产物；pack审计通过，发布包没有私有production dependency。
+- Windows Release在Product构建阶段运行Owned Process与Agent Bash smoke，候选zip阶段再用包内Bun + PortableGit运行自包含Owned Process smoke。Launcher参数转交单独验证；浏览器、鉴权和完整data复用链直接从候选Manifest启动实际Manager Runtime + 版本化bundle，只终止该Manager PID，随后要求IPC断连收口Product Job且端口在10秒内可重绑。这样门禁不再依赖外层CMD/wrapper或已否定的PID子树扫描。
+- Manager本地验证为typecheck与pack审计通过；完整suite默认并行与串行均为153项通过、2项按平台跳过。真实Bun Stage 0大文件复制/校验在并行高I/O下曾超过30秒，测试预算调整为60秒后默认并行重跑通过；候选Release workflow仍待执行。
+
 ### 2026-07-20：`0.8.10`原生Manager门禁失败
 
 - Windows失败于`process.test.ts`：真实PowerShell/Bun冷启动在并行runner负载下超过Vitest默认5秒。macOS x64失败于`instance-import.test.ts`：`runCapture()`监听`exit`后立即返回，而该事件不保证stdout已经关闭，短命令`bun --version`因此读到空字符串。

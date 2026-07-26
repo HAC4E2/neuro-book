@@ -24,7 +24,7 @@ ext: {}
 
 ## 目录用途
 
-`manual/player-guide/playable-characters/` 列出所有可供玩家选择的预设化身，每个化身是一个快速开局的入口，玩家可以直接使用或在此基础上修改。与 `simulation/subjects/` 不同，这里是"可选的角色模板"，不是"正在运行的角色状态"。
+`manual/player-guide/playable-characters/` 列出所有可供玩家选择的预设化身，每个化身是一个快速开局的入口，玩家可以直接使用或在此基础上修改。与 World Engine subject 不同，这里是"可选的角色模板"，不是"正在运行的角色状态"——化身一旦进入剧情追踪，其动态状态登记为 World Engine subject。
 
 ## 基本结构
 

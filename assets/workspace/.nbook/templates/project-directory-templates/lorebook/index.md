@@ -20,11 +20,11 @@ ext: {}
 
 # 世界书
 
-本目录保存稳定设定、世界规则、角色/地点/势力/物品资料和可复用 AI instruction。运行态状态放入 `simulation/`，临时计划放入 `.agent/plan/` 或 Plot System。
+本目录保存稳定设定、世界规则、角色/地点/势力/物品资料和可复用 AI instruction。会随剧情变化的动态状态记录进 World Engine 时间线，临时计划放入 `.agent/plan/` 或 Plot System。
 
 ## 目录用途
 
-`lorebook/` 是项目的静态知识库，存储全知视角的世界设定和创作规范。这里的内容是"真相"和"原型"，不随剧情推进变化。运行态数据（角色当前想法、物品实时状态）应放入 `simulation/` 目录。
+`lorebook/` 是项目的静态知识库，存储全知视角的世界设定和创作规范。这里的内容是"真相"和"原型"，不随剧情推进变化。会变化的运行态数据（角色当前想法、物品实时状态）由 World Engine 时间线记录，不放进 `lorebook/`。
 
 ## 基本结构
 
@@ -43,4 +43,4 @@ ext: {}
 ## 相关文档
 
 - Lorebook 分类规则与内容指南：[reference/content/lorebook.md](../../reference/content/lorebook.md)
-- Lorebook vs Simulation 边界：[reference/content/project-structure.md](../../reference/content/project-structure.md)
+- Lorebook 与 World Engine 的分工边界：[reference/content/project-structure.md](../../reference/content/project-structure.md)

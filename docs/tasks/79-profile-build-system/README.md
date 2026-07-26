@@ -12,6 +12,7 @@
 - [74 Agent Command Performance](../74-agent-command-performance/README.md) — profile catalog watcher 显式生命周期 + dirty cache generation race 防护。
 - [29 Agent Profile Import Node](../29-agent-profile-import-node/README.md) — profile 编译/import 节点契约（如存在）。
 - [37 System Assets Preflight](../37-system-assets-preflight/README.md) — 系统 assets 预热与 profile 预编译。
+- [125 Runtime Artifact Storage Lifecycle](../125-runtime-artifact-storage-lifecycle/README.md) — 延续本任务的 current manifest/Publisher 合同，补齐 orphan 硬预算、重复 import cache 移除与 Profile artifact 减重；不重开本任务已冻结的原子发布决策。
 
 ## User Request / Topic
 

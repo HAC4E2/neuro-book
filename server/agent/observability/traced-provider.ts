@@ -14,7 +14,7 @@
  */
 import type {Api, AssistantMessage, AssistantMessageEvent, Context, Model, Models, ProviderResponse, SimpleStreamOptions} from "@earendil-works/pi-ai";
 import {PiRequestRecorder} from "nbook/server/agent/observability/pi-request-recorder";
-import type {PiTraceCorrelation, PiTraceDraft} from "nbook/server/agent/observability/pi-request-recorder";
+import type {PiTraceCorrelation, PiTraceDraft, PiTraceSegment} from "nbook/server/agent/observability/pi-request-recorder";
 import {providerErrorText, sanitizeProviderErrorMessage} from "nbook/server/agent/observability/provider-error-sanitizer";
 
 /** 每次调用的 trace 开关（由 config 解析后传入；recorder/代理都不读 config）。 */
@@ -34,6 +34,13 @@ export type PiTraceBinding = {
 /** 调用方提供的 bounded trace 投影；与真实 Provider Context 分离。 */
 export type PiTraceProjection = {
     context: Context;
+    /**
+     * 上下文分区归因（Task 126）。只有走 profile prepare 的主 turn 能算出它；
+     * compaction / health-check 不提供，落盘时该字段缺省。
+     */
+    segments?: PiTraceSegment[];
+    /** 工具集指纹，用于跨请求检测缓存断点前移。 */
+    toolsHash?: string;
     /** attachment 请求不捕获 provider 原生 payload。 */
     payloadOmittedReason?: "attachment";
 };
@@ -94,7 +101,8 @@ class TraceCollector {
         private readonly model: Model<Api>,
         private readonly context: Context,
         private readonly binding: PiTraceBinding,
-        private readonly payloadOmittedReason?: "attachment",
+        /** 投影中除 context 外的附加事实（分区归因、工具指纹、payload 省略原因）。 */
+        private readonly extras: Omit<PiTraceProjection, "context"> = {},
     ) {}
 
     /** 合并 onPayload/onResponse，链式保留调用方原有回调，不覆盖。 */
@@ -105,7 +113,7 @@ class TraceCollector {
         return {
             ...options,
             onPayload: async (payload: unknown, model: Model<Api>) => {
-                if (this.binding.settings.capturePayload && !this.payloadOmittedReason) {
+                if (this.binding.settings.capturePayload && !this.extras.payloadOmittedReason) {
                     this.capturedPayload = payload;
                 }
                 return prevPayload ? prevPayload(payload, model) : undefined;
@@ -146,8 +154,10 @@ class TraceCollector {
                 baseUrl: this.model.baseUrl,
                 reasoning: this.reasoning,
                 context: this.context,
+                segments: this.extras.segments,
+                toolsHash: this.extras.toolsHash,
                 payload: this.capturedPayload,
-                payloadOmittedReason: this.payloadOmittedReason,
+                payloadOmittedReason: this.extras.payloadOmittedReason,
             },
             response: {
                 httpStatus: this.httpStatus,
@@ -190,7 +200,11 @@ export function tracedStreamSimple(
     if (!binding?.settings.enabled) {
         return models.streamSimple(model, context, options);
     }
-    const collector = new TraceCollector(model, structuredClone(projection?.context ?? context), binding, projection?.payloadOmittedReason);
+    const collector = new TraceCollector(model, structuredClone(projection?.context ?? context), binding, {
+        segments: projection?.segments,
+        toolsHash: projection?.toolsHash,
+        payloadOmittedReason: projection?.payloadOmittedReason,
+    });
     const original = models.streamSimple(model, context, collector.mergeOptions(options));
     // finalize 挂 result()：无论 caller 是否消费/abort 都能落记录；error/abort 也 resolve 成最终 message。
     void original.result().then((message) => collector.finalize(message)).catch((error: unknown) => collector.finalize(undefined, providerErrorText(error)));
@@ -224,7 +238,11 @@ export async function tracedCompleteSimple(
     if (!binding?.settings.enabled) {
         return models.completeSimple(model, context, options);
     }
-    const collector = new TraceCollector(model, structuredClone(projection?.context ?? context), binding, projection?.payloadOmittedReason);
+    const collector = new TraceCollector(model, structuredClone(projection?.context ?? context), binding, {
+        segments: projection?.segments,
+        toolsHash: projection?.toolsHash,
+        payloadOmittedReason: projection?.payloadOmittedReason,
+    });
     try {
         const message = await models.completeSimple(model, context, collector.mergeOptions(options));
         collector.finalize(message);

@@ -319,7 +319,7 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
                     <execution_pattern>
                         收到 brief 后：读取目标文件 → 查证世界状态 → 按需加载上下文 → 构思并写入正文 → 报告结果。
 
-                        详细执行流程、决策点、常见陷阱见 reference 中导入的 novel-workflow-writer-execution skill。
+                        详细执行流程、决策点、常见陷阱见 reference 中导入的 novel-writer-execution skill。
                     </execution_pattern>
 
                     <tool_permissions>
@@ -342,7 +342,7 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
                         查询某时间段的切面：const recentSlices = await world.slice.list(options);
                         查询返回规则：已知道 subject schema 字段含义时，在 CodeAct 脚本内把状态整理成文本摘要并 return string；不要默认回传原始 attrs JSON。
 
-                        工具使用详情见 reference/world-engine/workflow.md 和 novel-workflow-writer-execution skill。
+                        工具使用详情见 reference/world-engine/workflow.md 和 novel-writer-execution skill。
                     </tool_permissions>
                     
                     <content_nodes>
@@ -442,7 +442,7 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
                 <Message><Import path="reference/content/information-control.md" /></Message>
                 <Message><Import path="reference/world-engine/workflow.md" /></Message>
                 <Message><Import path="reference/agent/profile-context-memory.md" /></Message>
-                <Message><Import path="assets/workspace/.nbook/agent/skills/novel-workflow-writer-execution/SKILL.md" /></Message>
+                <Message><Import path="assets/workspace/.nbook/agent/skills/novel-writer-execution/SKILL.md" /></Message>
                 <Message>{inputContext}</Message>
             </HistorySet>
             <AppendingSet>

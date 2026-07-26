@@ -130,7 +130,7 @@ describe("DecisionService", () => {
     it("decide(status=decided)缺 risk 时拒绝并返回可读诊断", async () => {
         const {service} = createService({decision: decisionEntity()});
 
-        await expect(service.updateStoryDecision("workspace/novel-1", 8, {
+        await expect(service.updateStoryDecision(8, {
             status: "decided",
             decision: "第15章交汇事件时揭示",
             motivation: "与项链伏笔同场收束,戏剧密度最高",
@@ -140,7 +140,7 @@ describe("DecisionService", () => {
     it("decide 转换把 options 未选项转 rejectedAlternatives 骨架(chosenOption 排除,whyRejected 留空)", async () => {
         const {service, repository} = createService({decision: decisionEntity()});
 
-        await service.updateStoryDecision("workspace/novel-1", 8, {
+        await service.updateStoryDecision(8, {
             status: "decided",
             decision: "第15章交汇事件时揭示",
             motivation: "与项链伏笔同场收束",
@@ -157,7 +157,7 @@ describe("DecisionService", () => {
     it("decide 不传 chosenOption 时全部候选转骨架(结论是全新方案)", async () => {
         const {service, repository} = createService({decision: decisionEntity()});
 
-        await service.updateStoryDecision("workspace/novel-1", 8, {
+        await service.updateStoryDecision(8, {
             status: "decided",
             decision: "拆成两段:第10章半揭示+第15章全揭示",
             motivation: "兼顾节奏与冲击",
@@ -175,7 +175,7 @@ describe("DecisionService", () => {
     it("chosenOption 未命中 options 时拒绝", async () => {
         const {service} = createService({decision: decisionEntity()});
 
-        await expect(service.updateStoryDecision("workspace/novel-1", 8, {
+        await expect(service.updateStoryDecision(8, {
             status: "decided",
             decision: "结论",
             motivation: "理由",
@@ -187,7 +187,7 @@ describe("DecisionService", () => {
     it("拍板时 chosenOption 与显式 rejectedAlternatives 同时提供被拒绝(防止 chosenOption 静默失效)", async () => {
         const {service, repository} = createService({decision: decisionEntity()});
 
-        await expect(service.updateStoryDecision("workspace/novel-1", 8, {
+        await expect(service.updateStoryDecision(8, {
             status: "decided",
             decision: "第15章交汇事件时揭示",
             motivation: "与项链伏笔同场收束",
@@ -201,7 +201,7 @@ describe("DecisionService", () => {
     it("options 候选文本重复(trim 后同名)被拒绝:拍板按候选文本识别被选项,重复会让否决骨架错乱", async () => {
         const {service, repository} = createService({decision: decisionEntity()});
 
-        await expect(service.updateStoryDecision("workspace/novel-1", 8, {
+        await expect(service.updateStoryDecision(8, {
             options: [{option: "第15章揭示", note: null}, {option: " 第15章揭示 ", note: "trim 后同名"}],
         })).rejects.toThrow("候选文本重复");
         expect(repository.updateDecision).not.toHaveBeenCalled();
@@ -211,7 +211,7 @@ describe("DecisionService", () => {
         const {service} = createService({decision: decisionEntity()});
 
         for (const path of ["../../etc", "/abs/path", "C:\\evil", "promise://3"]) {
-            await expect(service.updateStoryDecision("workspace/novel-1", 8, {
+            await expect(service.updateStoryDecision(8, {
                 anchor: {kind: "content", path},
             })).rejects.toThrow("anchor.path 格式非法");
         }
@@ -226,7 +226,7 @@ describe("DecisionService", () => {
             rejectedAlternatives: [{option: "第10章揭示", whyRejected: "太早,悬念不足"}],
         })});
 
-        await service.updateStoryDecision("workspace/novel-1", 8, {title: "新标题"});
+        await service.updateStoryDecision(8, {title: "新标题"});
 
         expect(repository.updateDecision).toHaveBeenCalledWith(8, expect.objectContaining({
             title: "新标题",
@@ -237,11 +237,11 @@ describe("DecisionService", () => {
     it("drop(status=dropped)缺失效原因时拒绝;note 承载失效原因后成功", async () => {
         const {service, repository} = createService({decision: decisionEntity()});
 
-        await expect(service.updateStoryDecision("workspace/novel-1", 8, {
+        await expect(service.updateStoryDecision(8, {
             status: "dropped",
         })).rejects.toThrow("失效的原因");
 
-        await service.updateStoryDecision("workspace/novel-1", 8, {
+        await service.updateStoryDecision(8, {
             status: "dropped",
             note: "鉴定异常子情节整体删除,问题不复存在",
         });
@@ -254,11 +254,11 @@ describe("DecisionService", () => {
     it("superseded 需要 supersededById;指向自身时拒绝", async () => {
         const {service} = createService({decision: decisionEntity()});
 
-        await expect(service.updateStoryDecision("workspace/novel-1", 8, {
+        await expect(service.updateStoryDecision(8, {
             status: "superseded",
         })).rejects.toThrow("supersededById");
 
-        await expect(service.updateStoryDecision("workspace/novel-1", 8, {
+        await expect(service.updateStoryDecision(8, {
             status: "superseded",
             supersededById: 8,
         })).rejects.toThrow("不能指向自身");
@@ -266,12 +266,12 @@ describe("DecisionService", () => {
 
     it("anchor 读时归一化:anchorKind=scene 而 anchorSceneId 为 null(外键 SetNull)时视同 story", async () => {
         const orphaned = createService({decision: decisionEntity({anchorKind: "scene", anchorSceneId: null})});
-        const dto = await orphaned.service.getStoryDecisionDto("workspace/novel-1", 8);
+        const dto = await orphaned.service.getStoryDecisionDto(8);
         expect(dto.anchorKind).toBe("story");
         expect(dto.anchorTargetId).toBeNull();
 
         const anchored = createService({decision: decisionEntity({anchorKind: "scene", anchorSceneId: 42})});
-        const anchoredDto = await anchored.service.getStoryDecisionDto("workspace/novel-1", 8);
+        const anchoredDto = await anchored.service.getStoryDecisionDto(8);
         expect(anchoredDto.anchorKind).toBe("scene");
         expect(anchoredDto.anchorTargetId).toBe("42");
     });
@@ -279,11 +279,11 @@ describe("DecisionService", () => {
     it("serves 写入:格式非法拒绝;剧情对象 id 不存在拒绝并点名条目", async () => {
         const {service} = createService({decision: decisionEntity()});
 
-        await expect(service.updateStoryDecision("workspace/novel-1", 8, {
+        await expect(service.updateStoryDecision(8, {
             serves: ["banana://1"],
         })).rejects.toThrow("引用格式非法");
 
-        await expect(service.updateStoryDecision("workspace/novel-1", 8, {
+        await expect(service.updateStoryDecision(8, {
             serves: ["promise://99"],
         })).rejects.toThrow("serves: promise://99");
     });
@@ -301,7 +301,7 @@ describe("DecisionService", () => {
             },
         });
 
-        const dto = await service.getStoryDecisionDto("workspace/novel-1", 8);
+        const dto = await service.getStoryDecisionDto(8);
 
         expect(dto.serves).toEqual([
             {target: "promise://5", valid: true},
@@ -337,7 +337,7 @@ describe("DecisionService", () => {
             new PlotDtoAssembler(),
         );
 
-        const result = await service.listStoryDecisions("workspace/novel-1");
+        const result = await service.listStoryDecisions();
 
         expect(result.map((item) => item.id)).toEqual(["3", "1", "2"]);
     });

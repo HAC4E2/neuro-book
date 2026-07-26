@@ -42,7 +42,7 @@ A stronger version gives Codex a fuller operating contract:
 
 - 
 
-## Decisions / Discussion
+## ADR / Decisions / Discussion
 
 -
 
@@ -52,6 +52,8 @@ A stronger version gives Codex a fuller operating contract:
 -
 
 ## Implementation Walkthrough
+
+你能直接把 Walkthrough 记录在这一节。如果任务量较重。把实现计划放到同目录下的 walkthroughs/ 文件夹
 
 -
 

@@ -4,15 +4,22 @@ import {basename, isAbsolute, join, relative} from "node:path";
 import {z} from "zod";
 import {parseSubjectEvent, parseSubjectEventsJsonl, serializeSubjectEventsJsonl, type SubjectEvent} from "nbook/server/agent/tools/subject-memory";
 import {markSubjectRagDirty, type SubjectPaths} from "nbook/server/agent/tools/subject-rag-index";
-import {worldEngineFacadeForWorkspaceRoot, type WorldEngineFacade} from "nbook/server/world-engine";
+import {PROJECT_PLOT_WORLD_MODULE_TOKEN} from "nbook/server/plot";
+import type {WorldEngineFacade} from "nbook/server/world-engine";
 import type {JsonValue, PatchInput, SliceInput, SliceListItem, WorldSliceSubjectFilterMode, WorldState} from "nbook/server/world-engine";
 import {requireProjectPathQuery, validateBody} from "nbook/server/utils/novel-chapter";
-import {assertProjectWorkspaceDirectory} from "nbook/server/workspace-files/project-workspace";
-import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
-import {resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
-import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import {assertProjectOpen, ProjectNotOpenError} from "nbook/server/workspace-files/project-session";
+import {
+    activateReadyProjectModule,
+    isProjectNotOpenError,
+    requireReadyProjectPath,
+    runReadyProjectOperation,
+} from "nbook/server/workspace-files/project-session";
+import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 import {createProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
+import {
+    captureUserProjectFileWrite,
+    recordUserProjectFileWrite,
+} from "nbook/server/workspace-history/user-file-recorder";
 
 const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
     z.null(),
@@ -90,7 +97,7 @@ export default defineEventHandler(async (event) => {
     try {
         return await handleWorldEngineApi(event);
     } catch (error) {
-        if (error instanceof ProjectNotOpenError) {
+        if (isProjectNotOpenError(error)) {
             throw createProjectNotOpenHttpError(error);
         }
         throw error;
@@ -101,109 +108,109 @@ export default defineEventHandler(async (event) => {
  * 处理 World Engine 数据面 API。先守卫 open，避免时间/schema 预处理在未 open 时绕过会话模型。
  */
 async function handleWorldEngineApi(event: H3Event): Promise<unknown> {
-    const workspaceRoot = runtimePathsFromEnv().workspaceRoot;
-    const worldEngineFacade = worldEngineFacadeForWorkspaceRoot(workspaceRoot);
-    const projectPath = await assertProjectWorkspaceDirectory(workspaceRoot, requireProjectPathQuery(event));
-    const projectRoot = resolveProjectWorkspaceRoot(workspaceRoot, projectPath);
-    assertProjectOpen(projectPath);
-    const segments = readSegments(event);
-    const method = event.method.toUpperCase();
+    const projectPath = requireProjectPathQuery(event);
+    const ready = requireReadyProjectPath(projectPath);
+    return runReadyProjectOperation(ready, async () => {
+        const {world: worldEngineFacade} = await activateReadyProjectModule(ready, PROJECT_PLOT_WORLD_MODULE_TOKEN);
+        const segments = readSegments(event);
+        const method = event.method.toUpperCase();
 
-    if (method === "GET" && matchSegments(segments, ["schema"])) {
-        return worldEngineFacade.getWorldSchema(projectPath);
-    }
-    if (method === "GET" && matchSegments(segments, ["subjects"])) {
-        return worldEngineFacade.listSubjects(projectPath, {type: readOptionalStringQuery(event, "type")});
-    }
-    if (method === "POST" && matchSegments(segments, ["subjects"])) {
-        return createSubject(worldEngineFacade, projectPath, await validateBody<CreateSubjectBody>(event, CreateSubjectBodySchema));
-    }
-    if (method === "GET" && matchSegments(segments, ["slices"])) {
-        return listSlices(worldEngineFacade, projectPath, event);
-    }
-    if (method === "GET" && segments.length === 2 && segments[0] === "slices") {
-        return serializeSlice(worldEngineFacade, projectPath, await worldEngineFacade.getSlice(projectPath, requireSegment("sliceId", segments[1])));
-    }
-    if (method === "POST" && matchSegments(segments, ["slices"])) {
-        return writeSlice(worldEngineFacade, projectPath, await validateBody<SliceBody>(event, SliceBodySchema));
-    }
-    if (method === "POST" && segments.length === 3 && segments[0] === "slices" && segments[2] === "edit") {
-        return editSlice(worldEngineFacade, projectPath, requireSegment("sliceId", segments[1]), await validateBody<SliceBody>(event, SliceBodySchema));
-    }
-    if (method === "POST" && segments.length === 3 && segments[0] === "slices" && segments[2] === "delete") {
-        return worldEngineFacade.deleteSlice(projectPath, requireSegment("sliceId", segments[1]));
-    }
-    if (method === "DELETE" && segments.length === 2 && segments[0] === "slices") {
-        return worldEngineFacade.deleteSlice(projectPath, requireSegment("sliceId", segments[1]));
-    }
-    if (method === "GET" && matchSegments(segments, ["state"])) {
-        return readFullState(worldEngineFacade, projectPath, event);
-    }
-    if (method === "POST" && matchSegments(segments, ["state", "query"])) {
-        return queryState(worldEngineFacade, projectPath, await validateBody<QueryStateBody>(event, QueryStateBodySchema));
-    }
-    if (method === "POST" && matchSegments(segments, ["subject-file-proposals", "events", "commit"])) {
-        return commitSubjectFileEvent(projectRoot, projectPath, await validateBody<SubjectFileEventCommitBody>(event, SubjectFileEventCommitBodySchema));
-    }
+        if (method === "GET" && matchSegments(segments, ["schema"])) {
+            return worldEngineFacade.getWorldSchema();
+        }
+        if (method === "GET" && matchSegments(segments, ["subjects"])) {
+            return worldEngineFacade.listSubjects({type: readOptionalStringQuery(event, "type")});
+        }
+        if (method === "POST" && matchSegments(segments, ["subjects"])) {
+            return createSubject(worldEngineFacade, await validateBody<CreateSubjectBody>(event, CreateSubjectBodySchema));
+        }
+        if (method === "GET" && matchSegments(segments, ["slices"])) {
+            return listSlices(worldEngineFacade, event);
+        }
+        if (method === "GET" && segments.length === 2 && segments[0] === "slices") {
+            return serializeSlice(worldEngineFacade, await worldEngineFacade.getSlice(requireSegment("sliceId", segments[1])));
+        }
+        if (method === "POST" && matchSegments(segments, ["slices"])) {
+            return writeSlice(worldEngineFacade, await validateBody<SliceBody>(event, SliceBodySchema));
+        }
+        if (method === "POST" && segments.length === 3 && segments[0] === "slices" && segments[2] === "edit") {
+            return editSlice(worldEngineFacade, requireSegment("sliceId", segments[1]), await validateBody<SliceBody>(event, SliceBodySchema));
+        }
+        if (method === "POST" && segments.length === 3 && segments[0] === "slices" && segments[2] === "delete") {
+            return worldEngineFacade.deleteSlice(requireSegment("sliceId", segments[1]));
+        }
+        if (method === "DELETE" && segments.length === 2 && segments[0] === "slices") {
+            return worldEngineFacade.deleteSlice(requireSegment("sliceId", segments[1]));
+        }
+        if (method === "GET" && matchSegments(segments, ["state"])) {
+            return readFullState(worldEngineFacade, event);
+        }
+        if (method === "POST" && matchSegments(segments, ["state", "query"])) {
+            return queryState(worldEngineFacade, await validateBody<QueryStateBody>(event, QueryStateBodySchema));
+        }
+        if (method === "POST" && matchSegments(segments, ["subject-file-proposals", "events", "commit"])) {
+            return commitSubjectFileEvent(ready, await validateBody<SubjectFileEventCommitBody>(event, SubjectFileEventCommitBodySchema));
+        }
 
-    throw createError({statusCode: 404, message: "未知 World Engine API"});
+        throw createError({statusCode: 404, message: "未知 World Engine API"});
+    });
 }
 
-async function createSubject(worldEngineFacade: WorldEngineFacade, projectPath: string, body: CreateSubjectBody): Promise<unknown> {
-    return worldEngineFacade.createSubject(projectPath, {
+async function createSubject(worldEngineFacade: WorldEngineFacade, body: CreateSubjectBody): Promise<unknown> {
+    return worldEngineFacade.createSubject({
         id: body.id,
         type: body.type,
         name: body.name,
-        at: await parsePublicTime(worldEngineFacade, projectPath, body.time, "time"),
+        at: await parsePublicTime(worldEngineFacade, body.time, "time"),
         attrs: body.attrs,
     });
 }
 
-async function listSlices(worldEngineFacade: WorldEngineFacade, projectPath: string, event: H3Event): Promise<unknown> {
-    const slices = await worldEngineFacade.listSlices(projectPath, {
+async function listSlices(worldEngineFacade: WorldEngineFacade, event: H3Event): Promise<unknown> {
+    const slices = await worldEngineFacade.listSlices({
         limit: readPositiveIntQuery(event, "limit"),
-        from: await readOptionalTimeQuery(worldEngineFacade, projectPath, event, "from"),
-        to: await readOptionalTimeQuery(worldEngineFacade, projectPath, event, "to"),
+        from: await readOptionalTimeQuery(worldEngineFacade, event, "from"),
+        to: await readOptionalTimeQuery(worldEngineFacade, event, "to"),
         withPatches: readBooleanQuery(event, "withPatches"),
         subjectIds: readStringListQuery(event, "subjectIds"),
         subjectMode: readSubjectModeQuery(event),
     });
-    return Promise.all(slices.map((slice) => serializeSlice(worldEngineFacade, projectPath, slice)));
+    return Promise.all(slices.map((slice) => serializeSlice(worldEngineFacade, slice)));
 }
 
-async function writeSlice(worldEngineFacade: WorldEngineFacade, projectPath: string, body: SliceBody): Promise<unknown> {
-    return worldEngineFacade.writeSlice(projectPath, await toSliceInput(worldEngineFacade, projectPath, body));
+async function writeSlice(worldEngineFacade: WorldEngineFacade, body: SliceBody): Promise<unknown> {
+    return worldEngineFacade.writeSlice(await toSliceInput(worldEngineFacade, body));
 }
 
-async function editSlice(worldEngineFacade: WorldEngineFacade, projectPath: string, sliceId: string, body: SliceBody): Promise<unknown> {
-    return worldEngineFacade.editSlice(projectPath, sliceId, await toSliceInput(worldEngineFacade, projectPath, body));
+async function editSlice(worldEngineFacade: WorldEngineFacade, sliceId: string, body: SliceBody): Promise<unknown> {
+    return worldEngineFacade.editSlice(sliceId, await toSliceInput(worldEngineFacade, body));
 }
 
-async function readFullState(worldEngineFacade: WorldEngineFacade, projectPath: string, event: H3Event): Promise<unknown> {
-    return serializeWorldState(worldEngineFacade, projectPath, await worldEngineFacade.queryState(projectPath, {
-        at: await readOptionalTimeQuery(worldEngineFacade, projectPath, event, "at"),
+async function readFullState(worldEngineFacade: WorldEngineFacade, event: H3Event): Promise<unknown> {
+    return serializeWorldState(worldEngineFacade, await worldEngineFacade.queryState({
+        at: await readOptionalTimeQuery(worldEngineFacade, event, "at"),
     }));
 }
 
-async function queryState(worldEngineFacade: WorldEngineFacade, projectPath: string, body: QueryStateBody): Promise<unknown> {
+async function queryState(worldEngineFacade: WorldEngineFacade, body: QueryStateBody): Promise<unknown> {
     if (!body.subjectIds?.length && !body.type) {
         throw createError({statusCode: 400, message: "state/query 必须提供 subjectIds 或 type"});
     }
-    const result = await worldEngineFacade.queryState(projectPath, {
+    const result = await worldEngineFacade.queryState({
         subjectIds: body.subjectIds,
         type: body.type,
         attrs: body.attrs,
-        at: body.at ? await parsePublicTime(worldEngineFacade, projectPath, body.at, "at") : undefined,
+        at: body.at ? await parsePublicTime(worldEngineFacade, body.at, "at") : undefined,
         listLimit: body.listLimit,
     });
     return {subjects: result.subjects, issues: result.issues};
 }
 
 async function commitSubjectFileEvent(
-    projectRoot: AbsoluteFsPath,
-    projectPath: string,
+    ready: ReadyProjectSessionRef,
     body: SubjectFileEventCommitBody,
 ): Promise<unknown> {
+    const projectRoot = ready.workspace.root;
     const subjectPath = normalizeCommitSubjectPath(body.subjectPath);
     if (body.subjectId !== basename(subjectPath)) {
         throw createError({statusCode: 400, message: "subjectId 必须匹配 subjectPath 末段"});
@@ -247,7 +254,9 @@ async function commitSubjectFileEvent(
     const nextEvents = [...events, event];
     const serialized = serializeSubjectEventsJsonl(nextEvents);
     const nextText = serialized ? `${serialized}\n` : "";
+    const writeCapture = captureUserProjectFileWrite(ready, eventsPath);
     await writeFile(subject.eventsPath, nextText, "utf-8");
+    await recordUserProjectFileWrite({capture: writeCapture, before: currentText, after: nextText});
     await markSubjectRagDirty(subject, "events", nextText);
     return {
         status: "appended",
@@ -261,9 +270,9 @@ async function commitSubjectFileEvent(
     };
 }
 
-async function toSliceInput(worldEngineFacade: WorldEngineFacade, projectPath: string, body: SliceBody): Promise<SliceInput> {
+async function toSliceInput(worldEngineFacade: WorldEngineFacade, body: SliceBody): Promise<SliceInput> {
     return {
-        instant: await parsePublicTime(worldEngineFacade, projectPath, body.time, "time"),
+        instant: await parsePublicTime(worldEngineFacade, body.time, "time"),
         title: body.title,
         summary: body.summary,
         kind: body.kind,
@@ -279,11 +288,11 @@ async function toSliceInput(worldEngineFacade: WorldEngineFacade, projectPath: s
     };
 }
 
-async function serializeSlice(worldEngineFacade: WorldEngineFacade, projectPath: string, slice: SliceListItem): Promise<unknown> {
+async function serializeSlice(worldEngineFacade: WorldEngineFacade, slice: SliceListItem): Promise<unknown> {
     return {
         id: slice.id,
-        time: await worldEngineFacade.formatTime(projectPath, slice.instant),
-        ...(slice.previousInstant !== undefined ? {previousTime: await worldEngineFacade.formatTime(projectPath, slice.previousInstant)} : {}),
+        time: await worldEngineFacade.formatTime(slice.instant),
+        ...(slice.previousInstant !== undefined ? {previousTime: await worldEngineFacade.formatTime(slice.previousInstant)} : {}),
         title: slice.title,
         summary: slice.summary,
         kind: slice.kind,
@@ -292,9 +301,9 @@ async function serializeSlice(worldEngineFacade: WorldEngineFacade, projectPath:
     };
 }
 
-async function serializeWorldState(worldEngineFacade: WorldEngineFacade, projectPath: string, state: WorldState): Promise<unknown> {
+async function serializeWorldState(worldEngineFacade: WorldEngineFacade, state: WorldState): Promise<unknown> {
     return {
-        time: await worldEngineFacade.formatTime(projectPath, state.instant),
+        time: await worldEngineFacade.formatTime(state.instant),
         subjects: state.subjects,
         issues: state.issues,
     };
@@ -302,7 +311,6 @@ async function serializeWorldState(worldEngineFacade: WorldEngineFacade, project
 
 async function readOptionalTimeQuery(
     worldEngineFacade: WorldEngineFacade,
-    projectPath: string,
     event: H3Event,
     key: string,
 ): Promise<bigint | undefined> {
@@ -313,7 +321,7 @@ async function readOptionalTimeQuery(
     if (value !== value.trim()) {
         throw createError({statusCode: 400, message: `${key} 不能包含前后空白：${value}`});
     }
-    return parsePublicTime(worldEngineFacade, projectPath, value, key);
+    return parsePublicTime(worldEngineFacade, value, key);
 }
 
 function readOptionalStringQuery(event: H3Event, key: string): string | undefined {
@@ -378,7 +386,6 @@ function readSubjectModeQuery(event: H3Event): WorldSliceSubjectFilterMode | und
 /** HTTP 公开边界只接受项目日历字符串；raw instant 仅保留给 facade/calendar 底层调试。 */
 async function parsePublicTime(
     worldEngineFacade: WorldEngineFacade,
-    projectPath: string,
     input: string,
     label: string,
 ): Promise<bigint> {
@@ -388,7 +395,7 @@ async function parsePublicTime(
     if (isRawInstantTime(input)) {
         throw createError({statusCode: 400, message: `${label} 必须使用项目日历字符串，不能使用 instant:<number>`});
     }
-    return worldEngineFacade.parseTime(projectPath, input);
+    return worldEngineFacade.parseTime(input);
 }
 
 function isRawInstantTime(input: string): boolean {

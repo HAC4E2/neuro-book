@@ -45,6 +45,7 @@ describe("GET /api/workspace-files/events", () => {
         const subscribePromise = new Promise<() => void>((resolve) => {
             resolveSubscribe = resolve;
         });
+        let operationCompletion: Promise<void> | null = null;
         const eventStream = createEventStreamMock({
             onClosed: vi.fn((handler: () => void) => {
                 closeHandler = handler;
@@ -55,6 +56,12 @@ describe("GET /api/workspace-files/events", () => {
             runtimePaths: vi.fn(() => ({} as never)),
             resolveWorkspaceFileTarget: vi.fn(async () => target),
             subscribeWorkspaceTreeIndex: vi.fn(() => subscribePromise) as never,
+            startProjectTargetOperation: vi.fn((_target, start) => {
+                const started = start({fileIndex: {}} as never, new AbortController().signal);
+                operationCompletion = started.completion;
+                return started.result;
+            }) as never,
+            workspaceTreeIndexOptionsForTarget: projectIndexOptions,
         });
 
         const resultPromise = handler({} as never);
@@ -63,9 +70,16 @@ describe("GET /api/workspace-files/events", () => {
         expect(eventStream.onClosed).toHaveBeenCalledTimes(1);
         closeHandler?.();
         expect(unsubscribe).not.toHaveBeenCalled();
+        let operationSettled = false;
+        void operationCompletion?.then(() => {
+            operationSettled = true;
+        });
+        await Promise.resolve();
+        expect(operationSettled).toBe(false);
 
         resolveSubscribe?.(unsubscribe);
         await expect(resultPromise).resolves.toBe("sent");
+        await expect(operationCompletion).resolves.toBeUndefined();
 
         expect(unsubscribe).toHaveBeenCalledTimes(1);
         expect(eventStream.close).toHaveBeenCalledTimes(1);
@@ -78,11 +92,38 @@ describe("GET /api/workspace-files/events", () => {
             runtimePaths: vi.fn(() => ({} as never)),
             resolveWorkspaceFileTarget: vi.fn(async () => target),
             subscribeWorkspaceTreeIndex: vi.fn(async () => vi.fn()) as never,
+            workspaceTreeIndexOptionsForTarget: projectIndexOptions,
         });
 
         await expect(handler({} as never)).resolves.toBe("sent");
 
         expect(eventStream.send).toHaveBeenCalledTimes(1);
+    });
+
+    it("operation start 时 signal 已 abort 不会再建立迟到订阅", async () => {
+        const controller = new AbortController();
+        controller.abort(new Error("Project generation closing"));
+        const eventStream = createEventStreamMock();
+        const subscribeWorkspaceTreeIndex = vi.fn(async () => vi.fn());
+        let completion: Promise<void> | null = null;
+        const handler = createWorkspaceFileEventsHandler({
+            createEventStream: vi.fn(() => eventStream) as never,
+            runtimePaths: vi.fn(() => ({} as never)),
+            resolveWorkspaceFileTarget: vi.fn(async () => target),
+            subscribeWorkspaceTreeIndex: subscribeWorkspaceTreeIndex as never,
+            startProjectTargetOperation: vi.fn((_target, start) => {
+                const started = start({fileIndex: {}} as never, controller.signal);
+                completion = started.completion;
+                return started.result;
+            }) as never,
+            workspaceTreeIndexOptionsForTarget: projectIndexOptions,
+        });
+
+        await expect(handler({} as never)).resolves.toBe("sent");
+        await expect(completion).resolves.toBeUndefined();
+
+        expect(subscribeWorkspaceTreeIndex).not.toHaveBeenCalled();
+        expect(eventStream.close).toHaveBeenCalledOnce();
     });
 
     it("客户端断开导致 push closed-stream 错误时会清理订阅", async () => {
@@ -101,6 +142,7 @@ describe("GET /api/workspace-files/events", () => {
                 subscribedHandler = indexHandler;
                 return unsubscribe;
             }) as never,
+            workspaceTreeIndexOptionsForTarget: projectIndexOptions,
         });
 
         await expect(handler({} as never)).resolves.toBe("sent");
@@ -129,6 +171,7 @@ describe("GET /api/workspace-files/events", () => {
                 subscribedHandler = indexHandler;
                 return vi.fn();
             }) as never,
+            workspaceTreeIndexOptionsForTarget: projectIndexOptions,
         });
 
         await expect(handler({} as never)).resolves.toBe("sent");
@@ -167,3 +210,9 @@ function createEventStreamMock(overrides: Partial<TestEventStream> = {}): TestEv
         ...overrides,
     };
 }
+
+/** SSE handler测试显式提供当前Project generation的File Index options。 */
+const projectIndexOptions = vi.fn((resolvedTarget: typeof target) => ({
+    target: resolvedTarget,
+    fileIndex: {},
+})) as never;

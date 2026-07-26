@@ -14,6 +14,7 @@ import type {LowCodeFormDefinition} from "nbook/server/low-code-form";
 import type {LowCodeJsonObject} from "nbook/shared/dto/low-code-form.dto";
 import type {ProfileHomeDefinition, ProfileHomeFacade} from "nbook/server/agent/profiles/profile-home";
 import type {ProfileTurnContextPlan} from "nbook/server/agent/profiles/profile-turn-context";
+import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 
 export type AgentProfileManifest<TKey extends string = string> = {
     key: TKey;
@@ -110,10 +111,17 @@ export type ProfilePrepareContext<TInitial = JsonValue, TPayload = unknown, TSet
     /** 当前可见 skill 快照，用于 SkillCatalog。 */
     skills: SkillCatalogItem[];
     /** 当前可见 workflow 快照，用于 WorkflowCatalog fragment（Task 111）。为空 = 宿主未注入（测试/旧路径），fragment 渲染为空。 */
-    workflows?: {key: string; title: string; description: string; whenToUse?: string; source: "system" | "user"}[];
+    workflows?: {key: string; title: string; description: string; whenToUse?: string; source: "system" | "user" | "project"}[];
+    /** 已通过统一 helper 校验并应用默认兜底的 Agent 可见模型清单。 */
+    agentVisibleModels?: {modelKey: string; note: string}[];
     runtime?: {
         now: string;
         promptUserTurnCount: number;
+        /**
+         * 生产 runtime 在调用入口捕获的精确 Project generation。
+         * `null` 表示本次运行属于 Workspace Root；`undefined` 仅允许直接调用 profile 的测试/离线工具。
+         */
+        currentProject?: ReadyProjectSessionRef | null;
         /** prompt 模式下尚未写入 session 的本轮用户输入；continue 时为空。 */
         pendingUserMessage?: StoredUserMessage;
     };
@@ -130,55 +138,20 @@ export type ProfileTurnPlan = {
     modelContextMessages?: StoredAgentMessage[];
     /** 每个 provider turn 由 profile 显式声明并动态物化的 AppendingSet 上下文。 */
     turnContexts?: ProfileTurnContextPlan[];
+    /**
+     * 上下文归因来源名（Task 126）。各字段与同名消息数组一一对应，无来源的位置为 null；
+     * 整个分区都无来源时该字段缺省。纯可观测产物，不影响发给模型的内容。
+     */
+    promptSourceLabels?: {
+        historyInit?: (readonly string[] | null)[];
+        modelContext?: (readonly string[] | null)[];
+        modelContextAppending?: (readonly string[] | null)[];
+        appending?: (readonly string[] | null)[];
+    };
     stateWrites?: SessionEntryDraft[];
 };
 
 export type AgentProfileRuntimeDefaults<TKey extends string = string> = ProfileRuntimeDefaults;
-
-export type SidecarProfilePassStage = "prepareRun" | "settleRun";
-
-export type SidecarContext<TInitial = JsonValue> = {
-    name: string;
-    stage: SidecarProfilePassStage;
-    sessionId: number;
-    session: RuntimeSessionFacade;
-    initial: TInitial;
-    invocationId: string;
-    profileKey: string;
-    caller: AgentInvokeCaller;
-    runResult?: {
-        status: "completed" | "waiting";
-        finalMessage?: string;
-        reportResult?: {
-            result: string;
-            success?: boolean;
-            /** 为空表示主路未返回结构化 data。 */
-            data?: unknown;
-        };
-    };
-};
-
-export type SidecarResult<TSidecarData = JsonValue> = {
-    result: string;
-    sidecarData: TSidecarData;
-};
-
-export type SidecarMergePlan = {
-    runtimeMessages?: StoredAgentMessage[];
-    persistedMessages?: StoredAgentMessage[];
-    runtimeState?: JsonValue;
-    writePlans?: SessionWritePlan[];
-};
-
-export type SidecarProfilePass<TInitial = JsonValue, TSidecarData = JsonValue> = {
-    name: string;
-    stage: SidecarProfilePassStage;
-    enterPrompt: string | ((ctx: SidecarContext<TInitial>) => string);
-    toolKeys?: readonly string[];
-    sidecarDataSchema?: TSchema;
-    outputFallback?: "final_message_as_result" | "parse_final_message_json";
-    merge(ctx: SidecarContext<TInitial>, result: SidecarResult<TSidecarData>): SidecarMergePlan | Promise<SidecarMergePlan>;
-};
 
 export type AgentProfileDefinition<
     TInitialSchema extends TSchema = TSchema,
@@ -199,14 +172,13 @@ export type AgentProfileDefinition<
     settingsForm?: TSettingsSchema extends TSchema ? LowCodeFormDefinition<TSettingsSchema> : undefined;
     home?: ProfileHomeDefinition;
     tools: TTools;
-    /** 主 run 实际可执行工具；不声明时等于 tools 的全部 key。sidecar 仍可声明自己的执行子集。 */
+    /** 主 run 实际可执行工具；不声明时等于 tools 的全部 key。 */
     toolKeys?: readonly (keyof TTools & string)[];
     /**
      * Skill catalog 可见性白名单。声明 include 后，prepare ctx.skills 只保留列表内的 skill key。
      * 这是提示层可见性过滤，不是文件级权限隔离：文件工具仍可读取任何 skill 目录。不声明时全量可见。
      */
     skills?: {include: readonly string[]};
-    sidecars?: readonly SidecarProfilePass<Static<TInitialSchema>, JsonValue>[];
     /** Harness 通用运行策略的最低优先级出厂默认；用户配置始终可以覆盖。 */
     runtimeDefaults?: AgentProfileRuntimeDefaults<TSummarizerKey>;
     runtime?: AgentRuntimeDefinition<Static<TInitialSchema>> | NormalizedAgentRuntimeDefinition<Static<TInitialSchema>>;
@@ -223,9 +195,7 @@ export type AgentProfile<
     TSettingsSchema extends TSchema | undefined = TSchema | undefined,
     TSummarizerKey extends string = string,
     TTools extends ProfileTools = ProfileTools,
-> = Omit<AgentProfileDefinition<TInitialSchema, TPayloadSchema, TOutputSchema, TSettingsSchema, TSummarizerKey, TTools>, "sidecars"> & {
-    /** 运行时只需要 sidecar 合同本身；profile 定义阶段仍按 InitialSchema 约束 ctx.initial。 */
-    sidecars?: readonly SidecarProfilePass<any, JsonValue>[];
+> = AgentProfileDefinition<TInitialSchema, TPayloadSchema, TOutputSchema, TSettingsSchema, TSummarizerKey, TTools> & {
     /** 由 tools 对象派生的稳定 root 工具 key 列表。运行时以 tools 为真相源，此字段只供便捷读取。 */
     rootToolKeys: readonly (keyof TTools & string)[];
 };

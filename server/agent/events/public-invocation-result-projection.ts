@@ -52,6 +52,7 @@ export function projectPublicInvocationResult(input: AgentInvocationResult): Inv
         sessionId: input.sessionId,
         invocationId: input.invocationId,
         status: input.status,
+        acceptance: input.acceptance,
         ...(final.preview === undefined ? {} : {
             finalMessage: final.preview,
             finalMessageBytes: final.bytes,

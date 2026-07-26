@@ -1,9 +1,12 @@
 import {describe, expect, it} from "vitest";
 import {
+    buildAgentVisibleModels,
+    cleanGlobalAgent,
     ensureRunnableDefault,
     inspectSettingsDraft,
     previewModelLibraryRepairs,
     previewProviderModelApiRepairs,
+    renameAgentProvider,
     removeIncompleteDisabledModels,
     modelContractInput,
     type ContractSettingsDraft,
@@ -118,6 +121,38 @@ describe("model settings draft contract", () => {
         expect(inspectSettingsDraft(draft).issues).toEqual(expect.arrayContaining([
             expect.objectContaining({code: "missing_context_window"}),
         ]));
+    });
+
+    it("Agent 可见模型保存前去重、清理已删除或停用的模型引用", () => {
+        const agent = cleanGlobalAgent({
+            visibleModels: buildAgentVisibleModels({
+                agentVisibleModels: [
+                    {modelKey: " local/available ", note: " 编码 "},
+                    {modelKey: "local/removed", note: "已删除"},
+                    {modelKey: "local/available", note: "重复"},
+                ],
+            }),
+        }, new Set(["local/available"]));
+
+        expect(agent?.visibleModels).toEqual([{
+            modelKey: "local/available",
+            note: "编码",
+        }]);
+    });
+
+    it("Provider ID 重命名同步迁移 Agent 可见模型 key 和用途顺序", () => {
+        const result = renameAgentProvider({
+            visibleModels: [
+                {modelKey: "provider/first", note: "高性能"},
+                {modelKey: "other/second", note: "便宜"},
+            ],
+        }, "provider", "renamed");
+
+        expect(result.changed).toBe(true);
+        expect(result.agent?.visibleModels).toEqual([
+            {modelKey: "renamed/first", note: "高性能"},
+            {modelKey: "other/second", note: "便宜"},
+        ]);
     });
 });
 

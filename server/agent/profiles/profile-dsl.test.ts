@@ -1,7 +1,7 @@
 import {resolve} from "node:path";
-import {describe, expect, it} from "vitest";
+import {describe, expect, it, vi} from "vitest";
 import {Type} from "typebox";
-import type {Static, TSchema} from "typebox";
+import type {TSchema} from "typebox";
 import {createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 import {
     AIMessage,
@@ -21,7 +21,6 @@ import {
     ModelContext,
     ProfilePrompt,
     Reminder,
-    RuntimeLocationReminder,
     SqlSchemaSummary,
     System,
     SkillCatalog,
@@ -30,34 +29,37 @@ import {
     ToolResult,
     validateProfileTurnPlan,
     Watch,
+    WorkflowCatalog,
     WorkspaceFocusReminder,
 } from "nbook/server/agent/profiles/profile-dsl";
 import {defineAgentProfile as defineRuntimeAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {validateProfileRuntimeSettingsPatch} from "nbook/server/agent/profiles/profile-runtime-settings";
 import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
 import type {ProfileTools} from "nbook/server/agent/profiles/profile-tools";
-import type {AgentProfileDefinition, ProfilePrepareContext, SidecarProfilePass} from "nbook/server/agent/profiles/types";
+import type {AgentProfileDefinition, ProfilePrepareContext} from "nbook/server/agent/profiles/types";
 import {createTestRuntimeSession} from "nbook/server/agent/profiles/test/runtime-session";
-import type {JsonValue} from "nbook/server/agent/messages/types";
 import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
 import {defineLowCodeForm} from "nbook/server/low-code-form";
-
-type LegacyTestSidecar<TInput = JsonValue> = Omit<SidecarProfilePass<TInput, JsonValue>, "toolKeys"> & {
-    toolKeys?: readonly string[];
-    allowedToolKeys?: readonly string[];
-};
+import type {ProjectAgentSqlHandle} from "nbook/server/agent/tools/agent-sql-project-module";
+import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {
+    createProjectWorkspaceKey,
+    projectWorkspaceRef,
+    resolvedProjectWorkspace,
+} from "nbook/server/workspace-files/project-identity";
+import * as projectSession from "nbook/server/workspace-files/project-session";
+import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 
 type LegacyTestProfile<
     TInitialSchema extends TSchema = TSchema,
     TOutputSchema extends TSchema = TSchema,
     TSummarizerKey extends string = string,
     TTools extends ProfileTools = ProfileTools,
-> = Omit<AgentProfileDefinition<TInitialSchema, TSchema, TOutputSchema, undefined, TSummarizerKey, TTools>, "tools" | "toolKeys" | "sidecars"> & {
+> = Omit<AgentProfileDefinition<TInitialSchema, TSchema, TOutputSchema, undefined, TSummarizerKey, TTools>, "tools" | "toolKeys"> & {
     tools?: ProfileTools;
     allowedToolKeys?: readonly string[];
     mainRunAllowedToolKeys?: readonly string[];
     toolKeys?: readonly string[];
-    sidecars?: readonly LegacyTestSidecar<Static<TInitialSchema>>[];
 };
 
 function defineAgentProfile<
@@ -69,7 +71,6 @@ function defineAgentProfile<
     const {
         allowedToolKeys,
         mainRunAllowedToolKeys,
-        sidecars,
         toolKeys,
         ...rest
     } = profile;
@@ -77,17 +78,6 @@ function defineAgentProfile<
         ...rest,
         tools: rest.tools ?? profileToolsFromKeys(allowedToolKeys ?? []),
         toolKeys: toolKeys ?? mainRunAllowedToolKeys,
-        // 测试 helper 只做旧字段到新字段的机械迁移，最终运行时校验仍由 defineRuntimeAgentProfile 负责。
-        sidecars: sidecars?.map((sidecar) => {
-            const {
-                allowedToolKeys: sidecarAllowedToolKeys,
-                ...sidecarRest
-            } = sidecar;
-            return {
-                ...sidecarRest,
-                toolKeys: sidecarRest.toolKeys ?? sidecarAllowedToolKeys,
-            };
-        }) as AgentProfileDefinition<TInitialSchema, TSchema, TOutputSchema, undefined, TSummarizerKey, TTools>["sidecars"],
     });
 }
 
@@ -567,6 +557,70 @@ describe("profile TSX DSL", () => {
         expect((plan.modelContextMessages ?? []).map((message) => message.role === "user" ? messageText(message) : "")).toEqual(["SQL_SCHEMA"]);
     });
 
+    it("SqlSchemaSummary只使用prepare注入的exact ready，不按session projectPath查询latest", async () => {
+        const workspaceRoot = absoluteFsPath(resolve(".agent", "profile-dsl-exact-ready"));
+        const ref = projectWorkspaceRef("captured-project");
+        const exactReady: ReadyProjectSessionRef = Object.freeze({
+            workspace: resolvedProjectWorkspace(
+                ref,
+                absoluteFsPath(resolve(workspaceRoot, ref.projectRoot)),
+                createProjectWorkspaceKey(workspaceRoot, ref),
+            ),
+            generation: 17,
+        });
+        const schemaSummary = vi.fn(async () => "MOCK_EXACT_SCHEMA");
+        const sqlHandle: ProjectAgentSqlHandle = {
+            ready: Promise.resolve(),
+            execute: async () => {
+                throw new Error("本测试不执行SQL");
+            },
+            schemaSummary,
+            close: async () => undefined,
+        };
+        const activationSpy = vi.spyOn(projectSession, "activateReadyProjectModule").mockResolvedValue(sqlHandle);
+        const profile = defineAgentProfile({
+            manifest: {
+                key: "test.sql-summary-exact-ready",
+                name: "SQL Summary Exact Ready",
+            },
+            initialSchema: Type.Object({}),
+            allowedToolKeys: [],
+            context() {
+                return ProfilePrompt({
+                    children: ModelContext({
+                        children: Message({children: SqlSchemaSummary({})}),
+                    }),
+                });
+            },
+        });
+        const base = context();
+
+        try {
+            const plan = await profile.prepare!({
+                ...base,
+                session: {
+                    ...base.session,
+                    projectPath: "workspace/different-latest-project",
+                },
+                runtime: {
+                    ...base.runtime!,
+                    currentProject: exactReady,
+                },
+            });
+
+            expect(activationSpy).toHaveBeenCalledWith(
+                exactReady,
+                expect.objectContaining({name: "agent-sql", kind: "lazy"}),
+            );
+            expect(schemaSummary).toHaveBeenCalledTimes(1);
+            expect((plan.modelContextMessages ?? []).map((message) => message.role === "user" ? messageText(message) : "")).toEqual([
+                expect.stringContaining("MOCK_EXACT_SCHEMA"),
+            ]);
+        } finally {
+            activationSpy.mockRestore();
+        }
+    });
+
     it("Import 可导入共享 Markdown，并支持 heading 与 maxBytes", async () => {
         const profile = defineAgentProfile({
             manifest: {
@@ -755,6 +809,7 @@ describe("profile TSX DSL", () => {
                 name: "Draft Skill",
                 description: "Write a draft.",
                 whenToUse: "用户需要起草正文时",
+                version: "1.2.3",
                 source: "system",
                 rootPath: "assets/workspace/.nbook/agent/skills/draft",
                 skillPath: "assets/workspace/.nbook/agent/skills/draft/SKILL.md",
@@ -765,6 +820,8 @@ describe("profile TSX DSL", () => {
         expect(text).toContain("## Available Skills");
         expect(text).toContain("key: draft");
         expect(text).toContain("Draft Skill");
+        expect(text).toContain("version: 1.2.3");
+        expect(text).toContain(`root: ${resolve("assets", "workspace", ".nbook", "agent", "skills", "draft")}`);
         expect(text).toContain(`location: ${resolve("assets", "workspace", ".nbook", "agent", "skills", "draft", "SKILL.md")}`);
         expect(text).toContain("read the SKILL.md file at the catalog location");
         expect(text).toContain("when_to_use");
@@ -820,6 +877,50 @@ describe("profile TSX DSL", () => {
         expect(userAssetsText).toContain("After using a skill, the final response should report key output");
     });
 
+    it("WorkflowCatalog 渲染统一模型清单与后台任务纪律", async () => {
+        const profile = defineAgentProfile({
+            manifest: {key: "test.workflow-catalog", name: "Workflow Catalog"},
+            initialSchema: Type.Object({}),
+            allowedToolKeys: [],
+            context() {
+                return ProfilePrompt({
+                    children: HistorySet({
+                        children: Message({children: WorkflowCatalog({})}),
+                    }),
+                });
+            },
+        });
+        const plan = await profile.prepare!({
+            ...context(),
+            workflows: [{
+                key: "split-book",
+                title: "拆书",
+                description: "并行分析章节",
+                whenToUse: "需要分析整本书",
+                source: "system",
+            }],
+            agentVisibleModels: [
+                {modelKey: "fast/coder", note: "高性能编码"},
+                {modelKey: "writer/pro", note: "长文写作"},
+            ],
+        });
+        const text = (plan.historyInitMessages ?? []).map(messageText).join("\n");
+
+        expect(text).toContain("为子 agent / workflow 指定模型时只能从下列清单中选择");
+        expect(text).toContain("- fast/coder —— 高性能编码");
+        expect(text).toContain("- writer/pro —— 长文写作");
+        expect(text).toContain("run_workflow is non-blocking by default");
+        expect(text).toContain("Pass wait: true only for short runs");
+        expect(text).toContain("do not call list_jobs or get_job merely to wait");
+        expect(text).toContain("sole allowlist for both run_workflow({ model }) and invoke_agent({ model })");
+        expect(text).toContain("job management tools do not provide a separate model list");
+        expect(text).toContain("invoke_agent({ sessionId, model, ... })");
+        expect(text).toContain("wf.agents.create(\"adhoc\", { initial, model, ephemeral: true })");
+        expect(text).toContain("reference/agent/workflow/authoring.md");
+        expect(text).toContain("reference/agent/workflow/chart.md");
+        expect(text).not.toContain("Use get_job({ jobId }) to inspect progress");
+    });
+
     it("profile skills.include 白名单在 prepare 层过滤可见 skill", async () => {
         const profile = defineAgentProfile({
             manifest: {
@@ -851,18 +952,18 @@ describe("profile TSX DSL", () => {
                 rootPath: "assets/workspace/.nbook/agent/skills/profile-system-guide",
                 skillPath: "assets/workspace/.nbook/agent/skills/profile-system-guide/SKILL.md",
             }, {
-                key: "novel-workflow-09-chapter-writing",
-                name: "Chapter Writing",
-                description: "章节写作流程。",
+                key: "novel-writing",
+                name: "Novel Writing",
+                description: "剧情写作循环流程。",
                 source: "system",
-                rootPath: "assets/workspace/.nbook/agent/skills/novel-workflow-09-chapter-writing",
-                skillPath: "assets/workspace/.nbook/agent/skills/novel-workflow-09-chapter-writing/SKILL.md",
+                rootPath: "assets/workspace/.nbook/agent/skills/novel-writing",
+                skillPath: "assets/workspace/.nbook/agent/skills/novel-writing/SKILL.md",
             }],
         });
         const text = (plan.historyInitMessages ?? []).map(messageText).join("\n");
 
         expect(text).toContain("key: profile-system-guide");
-        expect(text).not.toContain("novel-workflow-09-chapter-writing");
+        expect(text).not.toContain("novel-writing");
 
         expect(() => defineAgentProfile({
             manifest: {key: "test.skill-include-dup", name: "Dup"},
@@ -971,7 +1072,6 @@ describe("profile TSX DSL", () => {
                         }),
                         AppendingSet({
                             children: [
-                                RuntimeLocationReminder(),
                                 WorkspaceFocusReminder(),
                                 ModeAvailabilityReminder(),
                                 LinkedAgentsReminder(),
@@ -1021,14 +1121,12 @@ describe("profile TSX DSL", () => {
 
         expect(modelText).toBe("SQL_SCHEMA");
         expect(modelText).not.toContain("<dynamic-context>");
-        expect(appendingText).toContain("Runtime Location:");
-        expect(appendingText).toContain("- Tool cwd / Current Project Workspace: workspace/novel-7/");
-        expect(appendingText).toContain("- Repository Source Root:");
-        expect(appendingText).toContain("- Repository Reference Root:");
-        expect(appendingText).toContain("current File Scope");
         expect(appendingText).toContain("Current Workspace Focus:");
         expect(appendingText).toContain("Current Project Workspace: workspace/novel-7");
         expect(appendingText).toContain("use lorebook/..., manuscript/..., or reference/... directly");
+        expect(appendingText).toContain("Any absolute filesystem path can be used directly");
+        expect(appendingText).toContain("cwd is only the base for relative paths, not an access boundary");
+        expect(appendingText).toContain("History, or Context Access matters");
         expect(appendingText).toContain("Current selected file: manuscript/001-opening/index.md");
         expect(appendingText).not.toContain("You are in normal mode. switch_mode is available");
         expect(appendingText).toContain("Current linked agents:");
@@ -1216,6 +1314,7 @@ describe("profile TSX DSL", () => {
         expect(text).toContain("next invocation uses this Project Workspace as the File Scope");
         expect(text).toContain("Use lorebook/..., manuscript/..., and reference/... directly");
         expect(text).toContain("Use workspace/b when a tool explicitly asks for projectPath");
+        expect(text).toContain("Any absolute filesystem path can be used directly");
 
         const fileText = (fileChanged.appendingMessages ?? []).map(messageText).join("\n");
         expect(fileText).toContain("Current selected file changed to manuscript/002/index.md");

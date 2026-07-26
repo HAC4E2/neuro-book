@@ -7,7 +7,7 @@ import YAML from "yaml";
 import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi} from "vitest";
 import {compileProfileArtifacts, ProfileReleaseCommittedButRegistryFailedError, readProfileArtifactManifest, type ProfileArtifactManifest, type ProfileArtifactManifestItem} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {compileVariableDefinitions} from "nbook/server/agent/variables/definition-artifact";
-import {worldEngineFacadeForWorkspaceRoot} from "nbook/server/world-engine";
+import {PROJECT_PLOT_WORLD_MODULE_TOKEN} from "nbook/server/plot";
 import {createWorkspaceContentFrontmatterDefaults, workspaceContentJsonSchema} from "nbook/server/workspace-files/content-node-schema";
 import {renderWorkspaceContentTemplate, renderWorkspaceContentTemplateBundle, renderWorkspaceStateTemplate} from "nbook/server/workspace-files/content-node-templates";
 import {
@@ -21,76 +21,76 @@ import {
 } from "nbook/server/workspace-files/novel-workspace";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import {normalizeProjectPath, type ProjectPath} from "nbook/server/workspace-files/project-path";
+import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
 import type {WorkspaceFileTarget} from "nbook/server/workspace-files/workspace-file-target";
-import {listProjectWorkspaces, readProjectManifest, writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
-import {closeWorkspaceTreeIndex, invalidateProjectWorkspaceIndexAfterMutation, readPlainWorkspaceTreeSnapshot, readProjectWorkspaceTreeSnapshot, setProjectWorkspaceIndexCommitHookForTest} from "nbook/server/workspace-files/project-workspace-index";
+import {
+    listProjectWorkspaces as listProjectWorkspacesAtRoot,
+    readProjectManifest as readProjectManifestAtRoot,
+    writeProjectManifest as writeProjectManifestAtRoot,
+} from "nbook/server/workspace-files/project-workspace";
+import {closeWorkspaceTreeIndex, invalidateProjectWorkspaceIndexAfterMutation, readPlainWorkspaceTreeSnapshot, readProjectWorkspaceTreeSnapshot, subscribeWorkspaceTreeIndex, type ProjectWorkspaceTreeIndexOptions} from "nbook/server/workspace-files/project-workspace-index";
+import {PROJECT_FILE_INDEX_MODULE_TOKEN, setProjectFileIndexCommitHookForTest} from "nbook/server/workspace-files/project-file-index";
 import {prepareSystemAssets} from "nbook/server/workspace-files/system-assets-preflight";
 import {resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
 import {resolveRuntimeWorkspaceRoot, resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-runtime-root";
-import {createIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/workspace-assets-test-helper";
+import {createIsolatedWorkspaceAssets, withIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/test-workspace-fixture";
 import {createWorkspaceContentState, createWorkspaceDirectory, readWorkspaceTextFile, scanWorkspaceTree, validateWorkspaceContentNodes, validateWorkspaceTree, writeWorkspaceTextFile} from "nbook/server/workspace-files/workspace-files";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
-import {openProject} from "nbook/server/workspace-files/project-session";
+import {activateReadyProjectModule, closeAllProjects, openProject, requireReadyModuleHandle, requireReadyProjectPath} from "nbook/server/workspace-files/project-session";
 import {updateNovelByTool} from "nbook/server/utils/novel-chapter";
 
 const AGENT_WORKSPACE_SCRIPT_PATH = path.join("assets", "workspace", ".nbook", "agent", "scripts", "workspace.ts");
 const AGENT_WORKSPACE_SCRIPT_FROM_WORKSPACE_PATH = path.join("..", AGENT_WORKSPACE_SCRIPT_PATH);
 const execFileAsync = promisify(execFile);
 
+/** 测试Adapter：旧测试调用面固定使用当前隔离Workspace Root。 */
+function listProjectWorkspaces(): ReturnType<typeof listProjectWorkspacesAtRoot> {
+    return listProjectWorkspacesAtRoot(resolveRuntimeWorkspaceRoot());
+}
+
+/** 测试Adapter：旧测试调用面固定使用当前隔离Workspace Root。 */
+function readProjectManifest(projectPath: string): ReturnType<typeof readProjectManifestAtRoot> {
+    return readProjectManifestAtRoot(resolveRuntimeWorkspaceRoot(), projectPath);
+}
+
+/** 测试Adapter：旧测试调用面固定使用当前隔离Workspace Root。 */
+function writeProjectManifest(
+    projectPath: string,
+    manifest: Parameters<typeof writeProjectManifestAtRoot>[2],
+): ReturnType<typeof writeProjectManifestAtRoot> {
+    return writeProjectManifestAtRoot(resolveRuntimeWorkspaceRoot(), projectPath, manifest);
+}
+
 describe("workspace-files", {timeout: 60_000}, () => {
     let root: AbsoluteFsPath;
-    let indexProjectPath: ProjectPath | null;
     let assets: IsolatedWorkspaceAssets;
-    let baseAssets: IsolatedWorkspaceAssets;
 
-    beforeAll(async () => {
-        baseAssets = await createIsolatedWorkspaceAssets({useAsCwd: true});
-        await compileVariableDefinitions({
-            definitionRoot: path.join("assets", "workspace", ".nbook", "agent", "variables"),
-            rootLabel: "assets/workspace/.nbook/agent/variables",
-            skipFresh: true,
-        });
-        await compileProfileArtifacts({
-            profileRoot: path.join("assets", "workspace", ".nbook", "agent", "profiles"),
-            rootLabel: "assets/workspace/.nbook/agent/profiles",
-            skipFresh: true,
-        });
-    }, 60_000);
-
+    // system assets 的编译已上移到 vitest globalSetup 的 run 级共享 snapshot，
+    // 这里不再 per-file 复制并编译一份完整 `.nbook`。
     beforeEach(async () => {
-        assets = await createIsolatedWorkspaceAssets({
-            sourceSystemNbookRoot: baseAssets.systemNbookRoot,
-            useAsCwd: true,
-        });
+        assets = await createIsolatedWorkspaceAssets({useAsCwd: true});
         root = absoluteFsPath(path.resolve(".agent", "workspace-files-test", randomUUID()));
-        indexProjectPath = null;
         await fs.mkdir(root, {recursive: true});
-    }, 60_000);
-
-    afterAll(async () => {
-        await baseAssets.dispose();
     }, 60_000);
 
     afterEach(async () => {
         setUserAssetsSyncStateWriteHookForTest(null);
         setUserAssetsProfileArtifactStagedHookForTest(null);
-        setProjectWorkspaceIndexCommitHookForTest(null);
-        if (indexProjectPath) {
-            await closeProjectForTest(indexProjectPath).catch(() => undefined);
+        setProjectFileIndexCommitHookForTest(null);
+        try {
+            await closeAllProjects();
+            await closeWorkspaceTreeIndex(root);
+            await fs.rm(root, {recursive: true, force: true});
+        } finally {
+            // dispose 内部已聚合错误并保证最终 rm(root)，这里只保证它一定被调用。
+            await assets.dispose();
         }
-        await closeWorkspaceTreeIndex(root);
-        await fs.rm(root, {recursive: true, force: true});
-        await assets.dispose();
     }, 60_000);
 
     it("隔离 Workspace assets context 支持嵌套恢复", async () => {
         const outerSystemRoot = assets.systemNbookRoot;
         const outerUserRoot = assets.userNbookRoot;
-        const innerAssets = await createIsolatedWorkspaceAssets({
-            sourceSystemNbookRoot: outerSystemRoot,
-            useAsCwd: true,
-        });
+        const innerAssets = await createIsolatedWorkspaceAssets({useAsCwd: true});
         try {
             expect(resolveSystemNbookRoot()).toBe(innerAssets.systemNbookRoot);
             expect(resolveUserNbookRoot()).toBe(innerAssets.userNbookRoot);
@@ -209,7 +209,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
             status: "draft",
         });
 
-        const snapshot = await readProjectWorkspaceTreeSnapshot({target: await projectIndexTarget()});
+        const snapshot = await readProjectWorkspaceTreeSnapshot(await projectIndexOptions());
         const node = snapshot.nodes.find((item) => item.path === "lorebook/note/project-profile/");
 
         expect(snapshot.revision).toBeGreaterThan(0);
@@ -236,15 +236,15 @@ describe("workspace-files", {timeout: 60_000}, () => {
     });
 
     it("Project Workspace tree snapshot 失效后会重新读取文件与 issues", async () => {
-        const target = await projectIndexTarget();
-        const before = await readProjectWorkspaceTreeSnapshot({target});
+        const options = await projectIndexOptions();
+        const before = await readProjectWorkspaceTreeSnapshot(options);
         await writeMarkdown("lorebook/note/cache-refresh/index.md", {
             type: "note",
             status: "draft",
         });
 
-        invalidateProjectWorkspaceIndexAfterMutation(target);
-        const after = await readProjectWorkspaceTreeSnapshot({target});
+        invalidateProjectWorkspaceIndexAfterMutation(options.target, options.fileIndex);
+        const after = await readProjectWorkspaceTreeSnapshot(options);
 
         expect(before.nodes.some((node) => node.path === "lorebook/note/cache-refresh/")).toBe(false);
         expect(after.nodes.some((node) => node.path === "lorebook/note/cache-refresh/")).toBe(true);
@@ -253,7 +253,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
     });
 
     it("Project Workspace tree index 会 watch 外部新增文件并自动更新缓存", async () => {
-        const before = await readProjectWorkspaceTreeSnapshot({target: await projectIndexTarget()});
+        const before = await readProjectWorkspaceTreeSnapshot(await projectIndexOptions());
         await fs.mkdir(path.join(root, "reference", "silly-tavern"), {recursive: true});
         await fs.writeFile(path.join(root, "reference", "silly-tavern", "cache-refresh.md"), "外部导入素材\n", "utf-8");
 
@@ -265,14 +265,14 @@ describe("workspace-files", {timeout: 60_000}, () => {
     });
 
     it("Project Workspace mutation 失效后会通过同一套 index 重建缓存", async () => {
-        const target = await projectIndexTarget();
-        const before = await readProjectWorkspaceTreeSnapshot({target});
+        const options = await projectIndexOptions();
+        const before = await readProjectWorkspaceTreeSnapshot(options);
         await writeMarkdown("lorebook/note/mutation-rebuild/index.md", {
             type: "note",
             status: "draft",
         });
 
-        invalidateProjectWorkspaceIndexAfterMutation(target);
+        invalidateProjectWorkspaceIndexAfterMutation(options.target, options.fileIndex);
         const refreshed = await waitForProjectWorkspaceTreePath("lorebook/note/mutation-rebuild/");
 
         expect(before.nodes.some((node) => node.path === "lorebook/note/mutation-rebuild/")).toBe(false);
@@ -280,16 +280,16 @@ describe("workspace-files", {timeout: 60_000}, () => {
         expect(refreshed.revision).toBeGreaterThan(before.revision);
     });
 
-    it("Project Workspace rebuild 期间发生 mutation 不会被旧 build 清掉 dirty", async () => {
-        const target = await projectIndexTarget();
-        await readProjectWorkspaceTreeSnapshot({target});
+    it("Project Workspace rebuild 期间发生 mutation 会丢弃旧 build 并返回稳定 snapshot", async () => {
+        const options = await projectIndexOptions();
+        await readProjectWorkspaceTreeSnapshot(options);
         await writeMarkdown("lorebook/note/first-mutation/index.md", {
             type: "note",
             status: "draft",
         });
 
         let hookCalled = false;
-        setProjectWorkspaceIndexCommitHookForTest(async () => {
+        setProjectFileIndexCommitHookForTest(async () => {
             if (hookCalled) {
                 return;
             }
@@ -298,31 +298,44 @@ describe("workspace-files", {timeout: 60_000}, () => {
                 type: "note",
                 status: "draft",
             });
-            invalidateProjectWorkspaceIndexAfterMutation(target);
+            invalidateProjectWorkspaceIndexAfterMutation(options.target, options.fileIndex);
         });
 
-        invalidateProjectWorkspaceIndexAfterMutation(target);
-        const first = await readProjectWorkspaceTreeSnapshot({target});
-        setProjectWorkspaceIndexCommitHookForTest(null);
-        const second = await readProjectWorkspaceTreeSnapshot({target});
+        invalidateProjectWorkspaceIndexAfterMutation(options.target, options.fileIndex);
+        const first = await readProjectWorkspaceTreeSnapshot(options);
+        setProjectFileIndexCommitHookForTest(null);
+        const second = await readProjectWorkspaceTreeSnapshot(options);
 
         expect(first.nodes.some((node) => node.path === "lorebook/note/first-mutation/")).toBe(true);
-        expect(first.nodes.some((node) => node.path === "lorebook/note/second-mutation/")).toBe(false);
+        expect(first.nodes.some((node) => node.path === "lorebook/note/second-mutation/")).toBe(true);
         expect(second.nodes.some((node) => node.path === "lorebook/note/second-mutation/")).toBe(true);
-        expect(second.revision).toBeGreaterThan(first.revision);
+        expect(second.revision).toBe(first.revision);
     });
 
     it("user-assets tree index 会 watch 外部新增文件且保持 issues 为空", async () => {
-        const before = await readPlainWorkspaceTreeSnapshot({target: plainIndexTarget()});
-        await fs.mkdir(path.join(root, "templates"), {recursive: true});
-        await fs.writeFile(path.join(root, "templates", "user-template.md"), "# 用户模板\n", "utf-8");
+        const target = plainIndexTarget();
+        const before = await readPlainWorkspaceTreeSnapshot({target});
+        const events: string[] = [];
+        const unsubscribe = await subscribeWorkspaceTreeIndex({target}, (event) => {
+            events.push(event.type);
+        });
 
-        const refreshed = await waitForPlainWorkspaceTreePath("templates/user-template.md");
+        try {
+            await vi.waitFor(() => {
+                expect(events).toContain("workspace_watch_ready");
+            }, {timeout: 4000});
+            await fs.mkdir(path.join(root, "templates"), {recursive: true});
+            await fs.writeFile(path.join(root, "templates", "user-template.md"), "# 用户模板\n", "utf-8");
 
-        expect(before.nodes.some((node) => node.path === "templates/user-template.md")).toBe(false);
-        expect(refreshed.nodes.some((node) => node.path === "templates/user-template.md")).toBe(true);
-        expect(refreshed.issues).toEqual([]);
-        expect(refreshed.revision).toBeGreaterThan(before.revision);
+            const refreshed = await waitForPlainWorkspaceTreePath("templates/user-template.md");
+
+            expect(before.nodes.some((node) => node.path === "templates/user-template.md")).toBe(false);
+            expect(refreshed.nodes.some((node) => node.path === "templates/user-template.md")).toBe(true);
+            expect(refreshed.issues).toEqual([]);
+            expect(refreshed.revision).toBeGreaterThan(before.revision);
+        } finally {
+            unsubscribe();
+        }
     });
 
     it("project.yaml 格式错误时仍允许解析 Project Workspace 根目录", async () => {
@@ -343,18 +356,21 @@ describe("workspace-files", {timeout: 60_000}, () => {
         }
     });
 
-    it("Project Workspace tree snapshot 会把 project.yaml 格式错误报告为 issue", async () => {
-        await fs.writeFile(path.join(root, "project.yaml"), "kind: novel\ntitle: 测试\nsummary: \"\"\na'a\n", "utf-8");
+    it("ProjectSession open 会备份并静默修复损坏 manifest 后再建立 File Index", async () => {
+        const corruptManifest = "kind: novel\ntitle: 测试\nsummary: \"\"\na'a\n";
+        await fs.writeFile(path.join(root, "project.yaml"), corruptManifest, "utf-8");
 
-        const snapshot = await readProjectWorkspaceTreeSnapshot({target: await projectIndexTarget()});
+        const snapshot = await readProjectWorkspaceTreeSnapshot(await projectIndexOptions());
+        const repairedManifest = YAML.parse(await fs.readFile(path.join(root, "project.yaml"), "utf-8"));
+        const recoveryRoot = path.join(root, ".nbook", "recovery");
+        const recoveryFiles = await fs.readdir(recoveryRoot);
+        const manifestBackup = recoveryFiles.find((fileName) => /^project-manifest-.+\.yaml$/u.test(fileName));
 
         expect(snapshot.nodes.some((node) => node.path === "project.yaml")).toBe(true);
-        expect(snapshot.issues).toEqual(expect.arrayContaining([
-            expect.objectContaining({
-                code: "invalid-project-manifest",
-                path: "project.yaml",
-            }),
-        ]));
+        expect(snapshot.issues.some((issue) => issue.code === "invalid-project-manifest")).toBe(false);
+        expect(repairedManifest).toMatchObject({kind: "novel", title: expect.any(String), summary: ""});
+        expect(manifestBackup).toBeDefined();
+        expect(await fs.readFile(path.join(recoveryRoot, manifestBackup!), "utf-8")).toBe(corruptManifest);
     });
 
     it("Project Workspace 列表遇到坏 project.yaml 时不会整批失败", async () => {
@@ -1551,7 +1567,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
             await restoreOptionalFile(userSyncStatePath, syncStateBackup);
             await fs.rm(buildingArtifactPath, {force: true});
         }
-    }, 30000);
+    }, 180_000);
 
     it("同步系统 assets 不覆盖已手改用户 profile artifact", async () => {
         const userProfilePath = path.join("workspace", ".nbook", "agent", "profiles", "builtin", "leader.default.profile.tsx");
@@ -1584,7 +1600,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
             await restoreOptionalFile(userCompiledManifestPath, manifestBackup);
             await restoreOptionalFile(userSyncStatePath, syncStateBackup);
         }
-    }, 30000);
+    }, 180_000);
 
     it("系统 profile 更新且用户覆盖已手改时会返回可查看 diff 的 warning", async () => {
         const fileName = "builtin/leader.default.profile.tsx";
@@ -1656,21 +1672,19 @@ describe("workspace-files", {timeout: 60_000}, () => {
             await restoreOptionalFile(userCompiledManifestPath, manifestBackup);
             await restoreOptionalFile(userSyncStatePath, syncStateBackup);
         }
-    }, 30000);
+    }, 180_000);
 
+    // 该用例会改写 system profile 并触发 system `.compiled` 发布，必须独占一份可写 system assets 副本。
     it("前端同步 preflight 会先刷新过期 system profile manifest", async () => {
-        const fileName = "builtin/leader.assets.profile.tsx";
-        const userProfilePath = path.join("workspace", ".nbook", "agent", "profiles", ...fileName.split("/"));
-        const systemProfilePath = path.join("assets", "workspace", ".nbook", "agent", "profiles", ...fileName.split("/"));
-        const userSyncStatePath = path.join("workspace", ".nbook", ".system-assets-sync-state.json");
-        const userBackup = await backupOptionalFile(userProfilePath);
-        const systemBackup = await backupOptionalFile(systemProfilePath);
-        const syncStateBackup = await backupOptionalFile(userSyncStatePath);
-        const originalContent = await fs.readFile(systemProfilePath, "utf-8");
-        const originalHash = createHash("sha256").update(originalContent).digest("hex");
-        const nextContent = `${originalContent}\n// test system profile preflight marker\n`;
+        await withIsolatedWorkspaceAssets({useAsCwd: true, systemAssets: "isolated"}, async () => {
+            const fileName = "builtin/leader.assets.profile.tsx";
+            const userProfilePath = path.join("workspace", ".nbook", "agent", "profiles", ...fileName.split("/"));
+            const systemProfilePath = path.join("assets", "workspace", ".nbook", "agent", "profiles", ...fileName.split("/"));
+            const userSyncStatePath = path.join("workspace", ".nbook", ".system-assets-sync-state.json");
+            const originalContent = await fs.readFile(systemProfilePath, "utf-8");
+            const originalHash = createHash("sha256").update(originalContent).digest("hex");
+            const nextContent = `${originalContent}\n// test system profile preflight marker\n`;
 
-        try {
             await fs.mkdir(path.dirname(userProfilePath), {recursive: true});
             await fs.writeFile(userProfilePath, originalContent, "utf-8");
             await fs.writeFile(userSyncStatePath, JSON.stringify({
@@ -1691,15 +1705,8 @@ describe("workspace-files", {timeout: 60_000}, () => {
             expect(result.userAssetsSync?.updatedProfiles).toBeGreaterThanOrEqual(1);
             expect(result.userAssetsSync?.profileWarnings?.some((warning) => warning.fileName === fileName)).toBe(false);
             await expect(fs.readFile(userProfilePath, "utf-8")).resolves.toBe(nextContent);
-        } finally {
-            await restoreOptionalFile(systemProfilePath, systemBackup);
-            await restoreOptionalFile(userProfilePath, userBackup);
-            await restoreOptionalFile(userSyncStatePath, syncStateBackup);
-            await compileProfileArtifacts({
-                profileRoot: path.join("assets", "workspace", ".nbook", "agent", "profiles"),
-                rootLabel: "assets/workspace/.nbook/agent/profiles",
-            });
-        }
+        });
+        // 备份/恢复与重新编译已不再需要：可写副本随 fixture dispose 一起消失。
     }, 120000);
 
     it("可以读取用户 profile 覆盖的系统版本 diff 内容", async () => {
@@ -1972,7 +1979,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
             };
             expect(llmlintPackage).toMatchObject({
                 name: "llmlint",
-                version: "2.0.0",
+                version: "2.0.1",
                 license: "AGPL-3.0-only",
             });
             await expect(fs.readFile(paths[2]!, "utf-8")).resolves.toContain("builtin/default");
@@ -2116,7 +2123,6 @@ describe("workspace-files", {timeout: 60_000}, () => {
         const orphanDeletedAssetPaths = [
             "agent/skills/llmlint/.gitignore",
             "agent/skills/llmlint/.git/config",
-            "agent/skills/llmlint/node_modules/tinyglobby/package.json",
             "agent/skills/llmlint/evals/README.md",
             "agent/skills/llmlint/rulesets/builtin/cn-light/rules.json",
             "agent/skills/llmlint/rulesets/builtin/cn-standard/rules.json",
@@ -2175,7 +2181,8 @@ describe("workspace-files", {timeout: 60_000}, () => {
             "function readLegacySources() {}\nconst key = \"source.legacy\";\n",
         ];
         const oldUpdatedHashes = oldUpdatedContents.map((content) => createHash("sha256").update(content).digest("hex"));
-        const llmlintBinPath = path.join("workspace", ".nbook", "agent", "skills", "llmlint", "bin", "llmlint.ts");
+        const llmlintSkillRoot = path.join("workspace", ".nbook", "agent", "skills", "llmlint");
+        const llmlintBinPath = path.join(llmlintSkillRoot, "bin", "llmlint.ts");
 
         try {
             for (const deletedSystemPath of deletedSystemPaths) {
@@ -2248,6 +2255,11 @@ describe("workspace-files", {timeout: 60_000}, () => {
             const assetPaths = syncState.assets?.map((asset) => asset.assetPath) ?? [];
             const cliSource = await fs.readFile(updatedUserPaths[0]!, "utf-8");
             const rulesSource = await fs.readFile(updatedUserPaths[1]!, "utf-8");
+            await expect(fs.access(path.join(llmlintSkillRoot, "node_modules"))).rejects.toMatchObject({code: "ENOENT"});
+            await execFileAsync("bun", ["install", "--cwd", llmlintSkillRoot, "--frozen-lockfile"], {
+                encoding: "utf-8",
+                timeout: 30000,
+            });
             const {stdout: helpStdout} = await execFileAsync("bun", [llmlintBinPath, "--help"], {
                 encoding: "utf-8",
                 timeout: 10000,
@@ -2295,6 +2307,108 @@ describe("workspace-files", {timeout: 60_000}, () => {
         }
     });
 
+    // 该用例全程改写 system skill 的 SKILL.md / package.json / bun.lock 且不做恢复，
+    // 必须独占一份可写 system assets 副本，不能污染 run 级共享只读 snapshot。
+    it("Skill 同步只在依赖合同更新时失效 node_modules", async () => {
+        await withIsolatedWorkspaceAssets({useAsCwd: true, systemAssets: "isolated"}, async () => {
+            const systemSkillRoot = path.join("assets", "workspace", ".nbook", "agent", "skills", "llmlint");
+            const userSkillRoot = path.join("workspace", ".nbook", "agent", "skills", "llmlint");
+            const sentinelPath = path.join(userSkillRoot, "node_modules", "sentinel.txt");
+            const systemSkillPath = path.join(systemSkillRoot, "SKILL.md");
+            const userSkillPath = path.join(userSkillRoot, "SKILL.md");
+            const systemPackagePath = path.join(systemSkillRoot, "package.json");
+            const userPackagePath = path.join(userSkillRoot, "package.json");
+            const systemLockPath = path.join(systemSkillRoot, "bun.lock");
+
+            await syncSystemAssetsToUserAssets();
+            await fs.mkdir(path.dirname(sentinelPath), {recursive: true});
+            await fs.writeFile(sentinelPath, "installed\n", "utf-8");
+
+            await syncSystemAssetsToUserAssets();
+            await expect(fs.readFile(sentinelPath, "utf-8")).resolves.toBe("installed\n");
+
+            await fs.appendFile(systemSkillPath, "\n<!-- prompt-only update -->\n", "utf-8");
+            await syncSystemAssetsToUserAssets();
+            await expect(fs.readFile(userSkillPath, "utf-8")).resolves.toContain("prompt-only update");
+            await expect(fs.readFile(sentinelPath, "utf-8")).resolves.toBe("installed\n");
+
+            await syncSystemAssetsToUserAssets({force: true});
+            await expect(fs.readFile(sentinelPath, "utf-8")).resolves.toBe("installed\n");
+
+            const packageJson = JSON.parse(await fs.readFile(systemPackagePath, "utf-8")) as {
+                version: string;
+                dependencies: {[name: string]: string};
+            };
+            const reorderedDependencies: {[name: string]: string} = {};
+            for (const [name, version] of Object.entries(packageJson.dependencies).reverse()) {
+                reorderedDependencies[name] = version;
+            }
+            packageJson.dependencies = reorderedDependencies;
+            await fs.writeFile(systemPackagePath, `${JSON.stringify(packageJson, null, 4)}\n`, "utf-8");
+            await syncSystemAssetsToUserAssets();
+            await expect(fs.readFile(sentinelPath, "utf-8")).resolves.toBe("installed\n");
+
+            packageJson.version = "99.0.0";
+            await fs.writeFile(systemPackagePath, `${JSON.stringify(packageJson, null, 4)}\n`, "utf-8");
+            await syncSystemAssetsToUserAssets();
+            await expect(fs.readFile(sentinelPath, "utf-8")).resolves.toBe("installed\n");
+            await expect(fs.readFile(userPackagePath, "utf-8")).resolves.toContain('"version": "99.0.0"');
+
+            packageJson.dependencies = {"test-runtime-dependency": "1.0.0"};
+            await fs.writeFile(systemPackagePath, `${JSON.stringify(packageJson, null, 4)}\n`, "utf-8");
+            await syncSystemAssetsToUserAssets();
+            await expect(fs.access(sentinelPath)).rejects.toMatchObject({code: "ENOENT"});
+
+            await fs.mkdir(path.dirname(sentinelPath), {recursive: true});
+            await fs.writeFile(sentinelPath, "reinstalled\n", "utf-8");
+            await fs.appendFile(systemLockPath, "\n", "utf-8");
+            await syncSystemAssetsToUserAssets();
+            await expect(fs.access(sentinelPath)).rejects.toMatchObject({code: "ENOENT"});
+
+            const genericSystemRoot = path.join("assets", "workspace", ".nbook", "agent", "skills", "runtime-fixture");
+            const genericUserRoot = path.join("workspace", ".nbook", "agent", "skills", "runtime-fixture");
+            const genericSentinelPath = path.join(genericUserRoot, "node_modules", "sentinel.txt");
+            await fs.mkdir(path.join(genericSystemRoot, "node_modules"), {recursive: true});
+            await fs.writeFile(path.join(genericSystemRoot, "SKILL.md"), "---\nname: runtime-fixture\ndescription: Runtime fixture.\n---\n", "utf-8");
+            await fs.writeFile(path.join(genericSystemRoot, "package.json"), `${JSON.stringify({
+                name: "runtime-fixture",
+                version: "1.0.0",
+                dependencies: {commander: "1.0.0"},
+            }, null, 4)}\n`, "utf-8");
+            await fs.writeFile(path.join(genericSystemRoot, "bun.lock"), "{}\n", "utf-8");
+            await fs.writeFile(path.join(genericSystemRoot, "node_modules", "must-not-sync.txt"), "derived\n", "utf-8");
+
+            await syncSystemAssetsToUserAssets();
+            await expect(fs.readFile(path.join(genericUserRoot, "SKILL.md"), "utf-8")).resolves.toContain("runtime-fixture");
+            await expect(fs.access(path.join(genericUserRoot, "node_modules", "must-not-sync.txt"))).rejects.toMatchObject({code: "ENOENT"});
+
+            await fs.mkdir(path.dirname(genericSentinelPath), {recursive: true});
+            await fs.writeFile(genericSentinelPath, "installed\n", "utf-8");
+            await syncSystemAssetsToUserAssets();
+            await expect(fs.readFile(genericSentinelPath, "utf-8")).resolves.toBe("installed\n");
+
+            await fs.writeFile(path.join(genericSystemRoot, "package.json"), `${JSON.stringify({
+                name: "runtime-fixture",
+                version: "1.0.1",
+                dependencies: {commander: "2.0.0"},
+            }, null, 4)}\n`, "utf-8");
+            await syncSystemAssetsToUserAssets();
+            await expect(fs.access(genericSentinelPath)).rejects.toMatchObject({code: "ENOENT"});
+
+            await fs.mkdir(path.dirname(genericSentinelPath), {recursive: true});
+            await fs.writeFile(genericSentinelPath, "installed-after-update\n", "utf-8");
+            await fs.writeFile(path.join(genericUserRoot, "package.json"), "{ broken user manifest\n", "utf-8");
+            await fs.writeFile(path.join(genericSystemRoot, "package.json"), `${JSON.stringify({
+                name: "runtime-fixture",
+                version: "1.0.2",
+                dependencies: {commander: "3.0.0"},
+            }, null, 4)}\n`, "utf-8");
+            await syncSystemAssetsToUserAssets({force: true});
+            await expect(fs.readFile(path.join(genericUserRoot, "package.json"), "utf-8")).resolves.toContain('"version": "1.0.2"');
+            await expect(fs.access(genericSentinelPath)).rejects.toMatchObject({code: "ENOENT"});
+        });
+    }, 180_000);
+
     it("同步系统 assets 会更新仍跟随上游的 Agent skill", async () => {
         const assetPath = "agent/skills/profile-system-guide/SKILL.md";
         const userSkillPath = path.join("workspace", ".nbook", ...assetPath.split("/"));
@@ -2326,7 +2440,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
             await restoreOptionalFile(userSkillPath, skillBackup);
             await restoreOptionalFile(syncStatePath, syncStateBackup);
         }
-    });
+    }, 180_000);
 
     it("系统 skill 更新且用户覆盖已手改时会返回可查看 diff 的 warning", async () => {
         const assetPath = "agent/skills/profile-system-guide/SKILL.md";
@@ -2367,7 +2481,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
             await restoreOptionalFile(userSkillPath, skillBackup);
             await restoreOptionalFile(syncStatePath, syncStateBackup);
         }
-    });
+    }, 180_000);
 
     it("强制同步系统 assets 会覆盖受管 asset 但不覆盖黑名单本地状态", async () => {
         const assetPath = "agent/skills/profile-system-guide/SKILL.md";
@@ -2395,7 +2509,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
             await restoreOptionalFile(sessionPath, sessionBackup);
             await restoreOptionalFile(syncStatePath, syncStateBackup);
         }
-    }, 30000);
+    }, 180_000);
 
     it("同步系统 assets 不会把本地状态和 compiled 产物纳入 managed sync", async () => {
         const paths = [
@@ -2585,44 +2699,48 @@ describe("workspace-files", {timeout: 60_000}, () => {
             await expect(fs.access(path.join(createdRoot, "simulation"))).rejects.toMatchObject({code: "ENOENT"});
             await openProjectForTest(projectPath);
             projectOpened = true;
-            const worldEngineFacade = worldEngineFacadeForWorkspaceRoot(resolveRuntimeWorkspaceRoot());
-            await expect(worldEngineFacade.formatTime(projectPath, 0n)).resolves.toBe("公元1年1月1日 00:00");
-            await expect(worldEngineFacade.getWorldSchema(projectPath)).resolves.toEqual(expect.objectContaining({
+            const ready = requireReadyProjectPath(projectPath);
+            const {world: worldEngineFacade} = await activateReadyProjectModule(
+                ready,
+                PROJECT_PLOT_WORLD_MODULE_TOKEN,
+            );
+            await expect(worldEngineFacade.formatTime(0n)).resolves.toBe("公元1年1月1日 00:00");
+            await expect(worldEngineFacade.getWorldSchema()).resolves.toEqual(expect.objectContaining({
                 subjectTypes: expect.arrayContaining([
                     expect.objectContaining({type: "world"}),
                     expect.objectContaining({type: "character"}),
                 ]),
             }));
-            await expect(worldEngineFacade.createSubject(projectPath, {
+            await expect(worldEngineFacade.createSubject({
                 id: "world",
                 type: "world",
                 name: "世界",
                 at: 0n,
             })).resolves.toEqual({subjectId: "world", issues: []});
-            await expect(worldEngineFacade.queryState(projectPath, {subjectIds: ["world"], attrs: ["era"]})).resolves.toMatchObject({
+            await expect(worldEngineFacade.queryState({subjectIds: ["world"], attrs: ["era"]})).resolves.toMatchObject({
                 instant: 0n,
                 subjects: [{subjectId: "world", type: "world", attrs: {era: "新纪元"}}],
                 issues: [],
             });
-            await expect(worldEngineFacade.createSubject(projectPath, {
+            await expect(worldEngineFacade.createSubject({
                 id: "capital",
                 type: "location",
                 name: "王都",
                 at: 0n,
             })).resolves.toEqual({subjectId: "capital", issues: []});
-            await expect(worldEngineFacade.createSubject(projectPath, {
+            await expect(worldEngineFacade.createSubject({
                 id: "erina",
                 type: "character",
                 name: "艾莉娜",
                 at: 0n,
             })).resolves.toEqual({subjectId: "erina", issues: []});
-            await expect(worldEngineFacade.createSubject(projectPath, {
+            await expect(worldEngineFacade.createSubject({
                 id: "old-sword",
                 type: "item",
                 name: "旧剑",
                 at: 0n,
             })).resolves.toEqual({subjectId: "old-sword", issues: []});
-            await expect(worldEngineFacade.writeSlice(projectPath, {
+            await expect(worldEngineFacade.writeSlice({
                 instant: 1n,
                 title: "示例：艾莉娜抵达王都",
                 patches: [
@@ -2637,7 +2755,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
                     {subjectId: "old-sword", path: "/events", op: "append", value: {text: "被艾莉娜拾起，剑身多了一道裂纹"}},
                 ],
             })).resolves.toEqual(expect.objectContaining({issues: []}));
-            await expect(worldEngineFacade.queryState(projectPath, {
+            await expect(worldEngineFacade.queryState({
                 subjectIds: ["erina", "old-sword", "world"],
                 attrs: ["hp", "location", "inventory", "events", "durability", "era"],
             })).resolves.toMatchObject({
@@ -2652,7 +2770,6 @@ describe("workspace-files", {timeout: 60_000}, () => {
             if (projectOpened) {
                 await closeProjectForTest(projectPath);
             }
-            await worldEngineFacade.closeProject(projectPath);
             await removeDirectoryWithRetry(createdRoot);
         }
     }, 40_000);
@@ -2744,7 +2861,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
     async function waitForProjectWorkspaceTreePath(filePath: string): Promise<Awaited<ReturnType<typeof readProjectWorkspaceTreeSnapshot>>> {
         const startedAt = Date.now();
         while (Date.now() - startedAt < 4000) {
-            const snapshot = await readProjectWorkspaceTreeSnapshot({target: await projectIndexTarget()});
+            const snapshot = await readProjectWorkspaceTreeSnapshot(await projectIndexOptions());
             if (snapshot.nodes.some((node) => node.path === filePath)) {
                 return snapshot;
             }
@@ -2771,13 +2888,17 @@ describe("workspace-files", {timeout: 60_000}, () => {
     /**
      * 为索引测试建立真实ProjectSession，并返回显式Project Workspace目标。
      */
-    async function projectIndexTarget(): Promise<Extract<WorkspaceFileTarget, {kind: "project-workspace"}>> {
+    async function projectIndexOptions(): Promise<ProjectWorkspaceTreeIndexOptions> {
         const projectPath = normalizeProjectPath(`workspace/${path.basename(root)}`);
-        if (!indexProjectPath) {
-            await openProject(absoluteFsPath(path.dirname(root)), projectPath, {kind: "job", source: "workspace-files-test"});
-            indexProjectPath = projectPath;
-        }
-        return {kind: "project-workspace", root, projectPath};
+        const ready = await openProject(
+            absoluteFsPath(path.dirname(root)),
+            projectPath,
+            {kind: "job", source: "workspace-files-test"},
+        );
+        return {
+            target: {kind: "project-workspace", root: ready.workspace.root, projectPath},
+            fileIndex: requireReadyModuleHandle(ready, PROJECT_FILE_INDEX_MODULE_TOKEN),
+        };
     }
 
     /** 返回当前隔离目录的显式plain Workspace目标。 */

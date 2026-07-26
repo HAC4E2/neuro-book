@@ -12,6 +12,8 @@ import {
     type WorkspaceIgnoreRule,
 } from "nbook/server/workspace-files/workspace-files";
 import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import type {ResolvedProjectWorkspace} from "nbook/server/workspace-files/project-identity";
+import {projectWorkspacePathPolicy} from "nbook/server/workspace-files/project-workspace-path-policy";
 import {toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 
@@ -55,7 +57,10 @@ export async function createWorkspaceZipStream(root: AbsoluteFsPath): Promise<Wo
  * Project SQLite 与 History SQLite 均通过独立在线快照进入压缩包；实时主库及 WAL/SHM
  * 不会被直接复制。两个数据库分别一致，但不提供跨文件系统与数据库的全局事务快照。
  */
-export async function createProjectWorkspaceZipStream(root: AbsoluteFsPath): Promise<WorkspaceArchive> {
+export async function createProjectWorkspaceZipStream(
+    workspace: ResolvedProjectWorkspace,
+): Promise<WorkspaceArchive> {
+    const root = workspace.root;
     const stat = await fs.stat(root);
     if (!stat.isDirectory()) {
         throw new Error("Project Workspace root is not a directory");
@@ -93,7 +98,7 @@ export async function createProjectWorkspaceZipStream(root: AbsoluteFsPath): Pro
         }
 
         const excludedPaths = projectArchiveExcludedPaths();
-        await addWorkspaceEntries(zipFile, root, root, ignoreRules, excludedPaths);
+        await addWorkspaceEntries(zipFile, root, root, ignoreRules, excludedPaths, workspace);
         attachStagingCleanup(zipFile.outputStream, stagingRoot);
         zipFile.end();
 
@@ -117,6 +122,8 @@ async function addWorkspaceEntries(
     currentPath: string,
     ignoreRules: WorkspaceIgnoreRule[],
     excludedPaths: ReadonlySet<string> = new Set(),
+    workspace?: ResolvedProjectWorkspace,
+    inheritedIgnore: boolean = false,
 ): Promise<boolean> {
     const entries = await fs.readdir(currentPath, {withFileTypes: true});
     let added = false;
@@ -127,16 +134,35 @@ async function addWorkspaceEntries(
         if (excludedPaths.has(archivePath)) {
             continue;
         }
-        if (shouldSkipWorkspacePath(root, absolutePath, entry.isDirectory(), ignoreRules)) {
+        const policy = workspace
+            ? projectWorkspacePathPolicy({workspace, relativePath: archivePath, consumer: "archive"})
+            : null;
+        if (policy?.disposition === "ignore") {
+            continue;
+        }
+        const ignoredByWorkspaceRules = inheritedIgnore
+            || shouldSkipWorkspacePath(root, absolutePath, entry.isDirectory(), ignoreRules);
+        const skippedByIgnore = policy?.disposition !== "preserve" && ignoredByWorkspaceRules;
+        // recovery是Archive强制保留项；根.nbook被忽略时仍只向下寻找它，不自动纳入其他控制面文件。
+        const traverseForPreservedChildren = workspace && entry.isDirectory() && archivePath === ".nbook";
+        if (skippedByIgnore && !traverseForPreservedChildren) {
             continue;
         }
 
         if (entry.isDirectory()) {
-            const childAdded = await addWorkspaceEntries(zipFile, root, absolutePath, ignoreRules, excludedPaths);
-            if (!childAdded) {
+            const childAdded = await addWorkspaceEntries(
+                zipFile,
+                root,
+                absolutePath,
+                ignoreRules,
+                excludedPaths,
+                workspace,
+                skippedByIgnore,
+            );
+            if (!childAdded && !skippedByIgnore) {
                 zipFile.addEmptyDirectory(`${archivePath}/`);
             }
-            added = true;
+            added = childAdded || !skippedByIgnore || added;
             continue;
         }
 

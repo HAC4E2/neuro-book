@@ -3,8 +3,10 @@ import {createError} from "h3";
 import {readWorkspaceTextFile, statWorkspacePath, type WorkspaceFileNode} from "nbook/server/workspace-files/workspace-files";
 import {buildWorkspaceWriteConflict} from "nbook/server/workspace-files/workspace-file-conflict";
 import {resolveWorkspaceFileTarget} from "nbook/server/workspace-files/novel-workspace";
-import {invalidateProjectWorkspaceIndexAfterMutation} from "nbook/server/workspace-files/project-workspace-index";
-import {assertProjectOpenForTarget} from "nbook/server/workspace-files/project-open-guard";
+import {
+    invalidateWorkspaceTreeAfterMutation,
+} from "nbook/server/workspace-files/project-workspace-index";
+import {withProjectTargetOperation} from "nbook/server/workspace-files/project-open-guard";
 import {USER_LOCAL_ACTOR, writeWorkspaceTextFileTracked} from "nbook/server/workspace-history/tracked-workspace-files";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
@@ -85,36 +87,37 @@ const WriteWorkspaceFileBodySchema = z.object({
 export default defineEventHandler(async (event) => {
     const body = WriteWorkspaceFileBodySchema.parse(await readBody(event));
     const target = await resolveWorkspaceFileTarget(runtimePathsFromEnv(), body);
-    assertProjectOpenForTarget(target);
-    // 冲突检测已读到的写前内容，直接作为记账 before 复用（省一次读盘）。
-    let knownBefore: string | null | undefined = undefined;
-    if (!body.force && body.expectedMtimeMs !== undefined) {
-        const remoteState = await readRemoteState(target.root, body.path);
-        knownBefore = remoteState.node === null ? null : remoteState.content;
-        const actualMtimeMs = remoteState.node?.mtimeMs ?? null;
-        if (actualMtimeMs !== body.expectedMtimeMs) {
-            const conflict = await buildWorkspaceWriteConflict({
-                path: body.path,
-                expectedMtimeMs: body.expectedMtimeMs,
-                actualMtimeMs,
-                baseContent: body.baseContent ?? "",
-                localContent: body.content,
-                remoteContent: remoteState.content,
-                remoteExists: remoteState.node !== null,
-                node: remoteState.node,
-            });
-            throw createError({
-                statusCode: 409,
-                statusMessage: "Workspace file write conflict",
-                message: "真实文件已被修改，请先处理冲突",
-                data: conflict,
-            });
+    return withProjectTargetOperation(target, async (projectHandles) => {
+        // 冲突检测已读到的写前内容，直接作为记账 before 复用（省一次读盘）。
+        let knownBefore: string | null | undefined = undefined;
+        if (!body.force && body.expectedMtimeMs !== undefined) {
+            const remoteState = await readRemoteState(target.root, body.path);
+            knownBefore = remoteState.node === null ? null : remoteState.content;
+            const actualMtimeMs = remoteState.node?.mtimeMs ?? null;
+            if (actualMtimeMs !== body.expectedMtimeMs) {
+                const conflict = await buildWorkspaceWriteConflict({
+                    path: body.path,
+                    expectedMtimeMs: body.expectedMtimeMs,
+                    actualMtimeMs,
+                    baseContent: body.baseContent ?? "",
+                    localContent: body.content,
+                    remoteContent: remoteState.content,
+                    remoteExists: remoteState.node !== null,
+                    node: remoteState.node,
+                });
+                throw createError({
+                    statusCode: 409,
+                    statusMessage: "Workspace file write conflict",
+                    message: "真实文件已被修改，请先处理冲突",
+                    data: conflict,
+                });
+            }
         }
-    }
 
-    await writeWorkspaceTextFileTracked({target, filePath: body.path, content: body.content, actor: USER_LOCAL_ACTOR, knownBefore});
-    invalidateProjectWorkspaceIndexAfterMutation(target);
-    return statWorkspacePath(target.root, body.path);
+        await writeWorkspaceTextFileTracked({target, history: projectHandles?.history, filePath: body.path, content: body.content, actor: USER_LOCAL_ACTOR, knownBefore});
+        invalidateWorkspaceTreeAfterMutation(target, projectHandles?.fileIndex);
+        return statWorkspacePath(target.root, body.path);
+    });
 });
 
 /**

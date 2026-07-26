@@ -63,6 +63,13 @@
 - `bun workspace/.nbook/agent/skills/llmlint/bin/llmlint.ts check workspace/ming-ding-zhi-shi-2/manuscript/001-volume/001-chapter/index.md --min-level medium`：可运行，输出紧凑 `line:start-end match:` 格式。
 - 残留检查：`assets/.../llmlint` 与 `workspace/.nbook/.../llmlint` 均无 `.git`、`node_modules`、`evals`；文档当前口径不再推荐旧嵌套仓或旧 scratch 规则目录。
 
+### 2026-07-26 Skill package contract follow-up
+
+- llmlint 升级至 `2.0.1`；Skill 版本真相源收敛到 `skill/package.json.version`。
+- `SKILL.md` / `references` 不再假定 `.nbook` 安装位置，统一从 SkillCatalog `location` 推导 `<skill-root>`。
+- NeuroBook user-assets 同步不再把 `node_modules` 当已删除官方资产；仅依赖安装合同或 lockfile 发布时失效本地依赖。
+- 完整设计与验证记录见 [Task 120](../120-agent-skill-package-contract/README.md)。
+
 历史阻塞复查：
 
 - 早先 `cd ../llmlint && bun install` 曾卡在 `Resolving dependencies`，根 `typecheck` 因开发依赖未安装而失败。2026-07-01 链路复查时，根 `bun.lock` / `node_modules` 已生成，`bun install --frozen-lockfile`、`bun run typecheck` 和 `bun run verify` 均通过；该阻塞已关闭。

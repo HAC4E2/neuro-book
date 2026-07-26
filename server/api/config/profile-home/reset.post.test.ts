@@ -33,10 +33,10 @@ describe("POST /api/config/profile-home/reset", () => {
             })),
         }));
         vi.doMock("nbook/server/config/config-service", async () => {
-            const {ProjectNotOpenError} = await import("nbook/server/workspace-files/project-session");
+            const {ProjectNotOpenError} = await import("nbook/server/workspace-files/project-session-service");
             return {
                 resetProjectProfileHome: vi.fn(async () => {
-                    throw new ProjectNotOpenError("workspace/config-route-not-open");
+                    throw new ProjectNotOpenError("config-route-not-open");
                 }),
             };
         });

@@ -16,7 +16,7 @@ Project-bound Agent sessions use the Current Project Workspace as the shared Fil
 - Use `simulation/...`.
 - Use `reference/...`.
 
-The Project Slug is a single directory name such as `my-novel`. Project-level APIs use the Project Path `workspace/{project-slug}`. Explicit cross-project file access uses a Project File Address such as `workspace/other-novel/lorebook/...`; this is a formal address resolved through the Project Path Module, not a cwd compatibility alias.
+The Project Slug is a single directory name such as `my-novel`. Project-level APIs use the Project Path `workspace/{project-slug}`. File tools may access any known absolute filesystem path directly. When accessing another managed Project and its Project identity matters, use a Project File Address such as `workspace/other-novel/lorebook/...`; this formal address preserves the target Project open gate, History and Context Access semantics and is not a cwd compatibility alias.
 
 Tool inputs and profile initial values often need different path shapes:
 
@@ -25,11 +25,14 @@ Tool inputs and profile initial values often need different path shapes:
 | File tools from current Project File Scope | `manuscript/001-volume/001-chapter/index.md` |
 | Content node tool target | `lorebook/character/hero/` |
 | Explicit cross-project file | `workspace/{project}/lorebook/character/hero/index.md` |
+| Known filesystem target outside the File Scope | an absolute OS path |
 | Plot `projectPath` | `workspace/{project}` |
 | Plot stored chapter path | `manuscript/001-volume/001-chapter/` |
 | Human-facing explanation | readable project or chapter name first, path only when useful |
 
 See `reference/workspace/TERMS.md` for canonical workspace terminology.
+
+The cwd is only the base for relative paths, not an access boundary. An absolute path outside the current Project is treated as an external filesystem address and does not acquire managed Project identity by physical-location guessing. Use `workspace/{project}/...` when the operation should participate in that Project's lifecycle and bookkeeping.
 
 ## Basic Project Tree
 

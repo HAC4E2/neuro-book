@@ -13,8 +13,7 @@ import {
     WORKSPACE_CONTAINER_ROOT,
     type WorkspaceRootKind,
 } from "nbook/server/workspace-files/novel-workspace";
-import {assertProjectWorkspaceDirectory, listProjectWorkspaces} from "nbook/server/workspace-files/project-workspace";
-import {normalizeProjectPath, resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
+import {projectPathFromRef} from "nbook/server/workspace-files/project-path";
 import {GlobalConfigDtoSchema} from "nbook/shared/dto/config.dto";
 import type {
     ConfigAgentProfileSettingsDto,
@@ -48,6 +47,7 @@ import type {
     EmbeddingServiceConfig,
     EffectiveConfig,
     ModelProviderOptionsConfig,
+    RuntimeConfigTarget,
     StoredGlobalConfig,
     StoredProjectConfig,
     StoredProviderConfig,
@@ -62,7 +62,7 @@ import {
     type LowCodeResourceMutationKeyView,
 } from "nbook/server/low-code-form";
 import type {LowCodeJsonObject, LowCodeJsonValue, LowCodeResourceMutationDto} from "nbook/shared/dto/low-code-form.dto";
-import {ensureGlobalProfileHome, ensureProfileHome, resetProfileHome, resolveProjectRootForProfileHome, type ProfileHomeDefinition} from "nbook/server/agent/profiles/profile-home";
+import {ensureGlobalProfileHome, ensureProfileHome, resetProfileHome, type ProfileHomeDefinition} from "nbook/server/agent/profiles/profile-home";
 import {
     buildModelLabel,
 } from "nbook/server/utils/model-settings";
@@ -73,9 +73,17 @@ import {
     type ModelReferenceInput,
     type ModelSettingsContractInput,
 } from "nbook/shared/models/provider-config-contract";
-import {assertProjectOpen, markProjectActivity} from "nbook/server/workspace-files/project-session";
+import {
+    isProjectNotOpenError,
+    listProjects,
+    requireReadyProject,
+    requireReadyProjectPath,
+    runReadyProjectOperation,
+} from "nbook/server/workspace-files/project-session";
 import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {sameProviderConnection} from "nbook/shared/models/provider-connection-identity";
+import type {ResolvedProjectWorkspace} from "nbook/server/workspace-files/project-identity";
+import {ProjectRootIdentityModule} from "nbook/server/workspace-files/project-root-identity";
 
 /** Global Config 路径跟随当前 State Root。 */
 function globalConfigPath(): string {
@@ -90,13 +98,16 @@ type ConfigAgentProfileSettingsOptions = {
  * 读取业务运行使用的最新配置快照。
  */
 export async function readConfigSnapshot(query: ConfigWorkspaceQueryDto): Promise<ConfigSnapshotDto> {
-    const {global, project} = await readConfigFiles(query);
-    const effective = resolveEffectiveConfig(global, project);
-    return {
-        version: CONFIG_VERSION,
-        effective: effective as unknown as Record<string, never>,
-        meta: CONFIG_REGISTRY,
-    };
+    const target = await resolveConfigTarget(query);
+    return runConfigTargetOperation(target, async () => {
+        const {global, project} = await readConfigFiles(target);
+        const effective = resolveEffectiveConfig(global, project);
+        return {
+            version: CONFIG_VERSION,
+            effective: effective as unknown as Record<string, never>,
+            meta: CONFIG_REGISTRY,
+        };
+    });
 }
 
 /**
@@ -104,7 +115,12 @@ export async function readConfigSnapshot(query: ConfigWorkspaceQueryDto): Promis
  */
 export async function readConfigEditorSnapshot(query: ConfigWorkspaceQueryDto): Promise<ConfigEditorSnapshotDto> {
     const target = await resolveConfigTarget(query);
-    const {global, project} = await readConfigFiles(query, target);
+    return runConfigTargetOperation(target, async () => readConfigEditorSnapshotForTarget(target));
+}
+
+/** 使用已经解析的 Config target 构造编辑快照，避免 mutation 后重新解析公开路径。 */
+async function readConfigEditorSnapshotForTarget(target: ConfigTarget): Promise<ConfigEditorSnapshotDto> {
+    const {global, project} = await readConfigFiles(target);
     const effective = resolveEffectiveConfig(global, project);
 
     return {
@@ -118,7 +134,7 @@ export async function readConfigEditorSnapshot(query: ConfigWorkspaceQueryDto): 
         embeddingSettings: buildConfigEmbeddingSettingsDto(global, project, effective),
         defaultProfileSettings: buildDefaultProfileSettingsDto({
             workspaceKind: target.workspaceKind,
-            projectConfigAvailable: Boolean(target.projectConfigPath),
+            projectConfigAvailable: target.project !== null,
             global,
             project,
         }),
@@ -133,23 +149,24 @@ export async function readConfigAgentProfileSettings(
     profiles: AgentProfileCatalog = useAgentHarness().profiles,
     options: ConfigAgentProfileSettingsOptions = {},
 ): Promise<ConfigAgentProfileSettingsDto> {
-    const target = await resolveConfigTarget(query);
-    const settingsScope = options.agentProfileSettingsScope ?? (target.workspaceKind === "novel" ? "project" : "global");
-    if (settingsScope === "project") {
-        assertProjectConfigDataPlaneOpen(target, query);
-    }
-    const {global, project} = await readConfigFiles(query, target);
-    const effective = resolveEffectiveConfig(global, project);
-    const catalog = await profiles.snapshot();
-    return buildConfigAgentProfileSettingsDto({
-        effective,
-        global,
-        project,
-        profiles,
-        catalogProfiles: catalog.profiles,
-        query,
-        includeSettings: true,
-        settingsScope,
+    const settingsScope = options.agentProfileSettingsScope ?? (query.workspaceKind === "novel" ? "project" : "global");
+    const target = settingsScope === "project"
+        ? await resolveConfigTarget(query)
+        : globalConfigTarget();
+    return runConfigTargetOperation(target, async () => {
+        const {global, project} = await readConfigFiles(target);
+        const effective = resolveEffectiveConfig(global, project);
+        const catalog = await profiles.snapshot();
+        return buildConfigAgentProfileSettingsDto({
+            effective,
+            global,
+            project,
+            profiles,
+            catalogProfiles: catalog.profiles,
+            target,
+            includeSettings: true,
+            settingsScope,
+        });
     });
 }
 
@@ -178,23 +195,25 @@ export async function readConfigBootstrap(
     query: ConfigWorkspaceQueryDto,
 ): Promise<ConfigBootstrapDto> {
     const target = await resolveConfigTarget(query);
-    const {global, project} = await readConfigFiles(query, target);
-    const effective = resolveEffectiveConfig(global, project);
+    return runConfigTargetOperation(target, async () => {
+        const {global, project} = await readConfigFiles(target);
+        const effective = resolveEffectiveConfig(global, project);
 
-    return {
-        modelSettings: {
-            defaultModelLabel: buildConfigModelSettingsDto(global, project, target.workspaceKind).defaultModelLabel,
-            enabledModels: listRawEnabledModels(global),
-        },
-        defaultProfileSettings: {
-            effectiveProfileKey: resolveDefaultProfileKeyFromConfig(target.workspaceKind, global, project),
-        },
-        ui: {
-            theme: effective.ui.theme,
-            customThemes: effective.ui.customThemes,
-            costCurrency: effective.ui.costCurrency,
-        },
-    };
+        return {
+            modelSettings: {
+                defaultModelLabel: buildConfigModelSettingsDto(global, project, target.workspaceKind).defaultModelLabel,
+                enabledModels: listRawEnabledModels(global),
+            },
+            defaultProfileSettings: {
+                effectiveProfileKey: resolveDefaultProfileKeyFromConfig(target.workspaceKind, global, project),
+            },
+            ui: {
+                theme: effective.ui.theme,
+                customThemes: effective.ui.customThemes,
+                costCurrency: effective.ui.costCurrency,
+            },
+        };
+    });
 }
 
 /**
@@ -205,32 +224,37 @@ export async function saveGlobalConfig(
     query: ConfigWorkspaceQueryDto,
     profiles: AgentProfileCatalog = useAgentHarness().profiles,
 ): Promise<ConfigEditorSnapshotDto> {
-    const current = await readGlobalConfigFile();
-    if (input.models !== undefined) {
-        assertProviderConnectionsStable(input.models.providers, current);
-    }
-    const next = normalizeGlobalConfig({
-        ...current,
-        ...(input.agent !== undefined ? {agent: input.agent} : {}),
-        ...(input.ui !== undefined ? {ui: input.ui} : {}),
-        ...(input.editor !== undefined ? {editor: input.editor} : {}),
-        ...(input.observability !== undefined ? {observability: input.observability} : {}),
-        ...(input.history !== undefined ? {history: input.history} : {}),
-        ...(input.web !== undefined ? {web: normalizeGlobalWebForWrite(input.web, current)} : {}),
-        ...(input.models !== undefined ? {models: normalizeGlobalModelsForWrite(input.models, current)} : {}),
-        ...(input.embedding !== undefined ? {embedding: normalizeGlobalEmbeddingForWrite(input.embedding, current)} : {}),
+    const responseTarget = await resolveConfigTarget(query);
+    return runConfigTargetOperation(responseTarget, async () => {
+        const mutationTarget = globalConfigTarget();
+        const current = await readGlobalConfigFile();
+        if (input.models !== undefined) {
+            assertProviderConnectionsStable(input.models.providers, current);
+        }
+        const next = normalizeGlobalConfig({
+            ...current,
+            ...(input.agent !== undefined ? {agent: input.agent} : {}),
+            ...(input.ui !== undefined ? {ui: input.ui} : {}),
+            ...(input.editor !== undefined ? {editor: input.editor} : {}),
+            ...(input.observability !== undefined ? {observability: input.observability} : {}),
+            ...(input.history !== undefined ? {history: input.history} : {}),
+            ...(input.novelData !== undefined ? {novelData: input.novelData} : {}),
+            ...(input.web !== undefined ? {web: normalizeGlobalWebForWrite(input.web, current)} : {}),
+            ...(input.models !== undefined ? {models: normalizeGlobalModelsForWrite(input.models, current)} : {}),
+            ...(input.embedding !== undefined ? {embedding: normalizeGlobalEmbeddingForWrite(input.embedding, current)} : {}),
+        });
+        if (input.models !== undefined) {
+            assertGlobalProviderConfig(input.models, next);
+        } else if (input.agent !== undefined) {
+            assertReferencesRunnable(current.models, globalModelReferences(next));
+        }
+        await assertProfileSettingsInput(input.agent?.profiles, mutationTarget, profiles, undefined, {
+            includeResourceMutationFinalKeys: true,
+        }, "global");
+        await applyProfileResourceMutations(input.agent?.profiles, mutationTarget, profiles, undefined, "global");
+        await writeJsonFile(globalConfigPath(), next);
+        return readConfigEditorSnapshotForTarget(responseTarget);
     });
-    if (input.models !== undefined) {
-        assertGlobalProviderConfig(input.models, next);
-    } else if (input.agent !== undefined) {
-        assertReferencesRunnable(current.models, globalModelReferences(next));
-    }
-    await assertProfileSettingsInput(input.agent?.profiles, query, profiles, undefined, {
-        includeResourceMutationFinalKeys: true,
-    }, "global");
-    await applyProfileResourceMutations(input.agent?.profiles, query, profiles, undefined, "global");
-    await writeJsonFile(globalConfigPath(), next);
-    return readConfigEditorSnapshot(query);
 }
 
 /**
@@ -242,28 +266,30 @@ export async function saveProjectConfig(
     profiles: AgentProfileCatalog = useAgentHarness().profiles,
 ): Promise<ConfigEditorSnapshotDto> {
     const target = await resolveConfigTarget(query);
-    if (!target.projectConfigPath) {
-        throw createError({
-            statusCode: 400,
-            message: "user-assets 入口没有独立 Project Config",
-        });
-    }
-    assertProjectConfigDataPlaneOpen(target, query);
-    assertProjectConfigDoesNotContainGlobalOnly(input);
-    const [global, current] = await Promise.all([
-        readGlobalConfigFile(),
-        readProjectConfigFile(target.projectConfigPath),
-    ]);
-    const next = mergeProjectConfig(current, stripProfileResourceMutations(input) as StoredProjectConfig);
-    if (projectModelReferencesChanged(input)) {
-        assertProjectModelReferences(global, next);
-    }
-    await assertProfileSettingsInput(input.agent?.profiles, query, profiles, global.agent?.profiles, {
-        includeResourceMutationFinalKeys: true,
-    }, "project");
-    await applyProfileResourceMutations(input.agent?.profiles, query, profiles, global.agent?.profiles);
-    await writeJsonFile(target.projectConfigPath, next);
-    return readConfigEditorSnapshot(query);
+    return runConfigTargetOperation(target, async () => {
+        if (!target.project) {
+            throw createError({
+                statusCode: 400,
+                message: "user-assets 入口没有独立 Project Config",
+            });
+        }
+        assertProjectConfigDoesNotContainGlobalOnly(input);
+        const projectConfigPath = path.join(target.project.workspace.root, ".nbook", "config.json");
+        const [global, current] = await Promise.all([
+            readGlobalConfigFile(),
+            readProjectConfigFile(projectConfigPath),
+        ]);
+        const next = mergeProjectConfig(current, stripProfileResourceMutations(input) as StoredProjectConfig);
+        if (projectModelReferencesChanged(input)) {
+            assertProjectModelReferences(global, next);
+        }
+        await assertProfileSettingsInput(input.agent?.profiles, target, profiles, global.agent?.profiles, {
+            includeResourceMutationFinalKeys: true,
+        }, "project");
+        await applyProfileResourceMutations(input.agent?.profiles, target, profiles, global.agent?.profiles);
+        await writeJsonFile(projectConfigPath, next);
+        return readConfigEditorSnapshotForTarget(target);
+    });
 }
 
 /**
@@ -275,79 +301,79 @@ export async function resetProjectProfileHome(
     profiles: AgentProfileCatalog = useAgentHarness().profiles,
 ): Promise<ConfigEditorSnapshotDto> {
     const target = await resolveConfigTarget(query);
-    if (!target.projectConfigPath || target.workspaceKind !== "novel") {
-        throw createError({statusCode: 400, message: "只有 Project Config 支持重置 profile home。"});
-    }
-    assertProjectConfigDataPlaneOpen(target, query);
-    const projectRoot = resolveProjectRootForProfileHome(
-        absoluteFsPath(resolveStateWorkspaceRoot()),
-        query.projectPath,
-    );
-    if (!projectRoot) {
-        throw createError({statusCode: 400, message: "重置 profile home 需要 Project Workspace。"});
-    }
-    const profile = await profiles.get(input.profileKey).catch(() => null);
-    if (!profile) {
-        throw createError({statusCode: 404, message: `profile ${input.profileKey} 不存在。`});
-    }
-    if (!profile.home?.reset) {
-        throw createError({statusCode: 400, message: `profile ${input.profileKey} 未声明 home reset。`});
-    }
-    await resetProfileHome({
-        projectRoot,
-        profileKey: profile.manifest.key,
-        profileVersion: profile.manifest.version ?? 1,
-        definition: profile.home,
+    return runConfigTargetOperation(target, async () => {
+        if (!target.project || target.workspaceKind !== "novel") {
+            throw createError({statusCode: 400, message: "只有 Project Config 支持重置 profile home。"});
+        }
+        const profile = await profiles.get(input.profileKey).catch(() => null);
+        if (!profile) {
+            throw createError({statusCode: 404, message: `profile ${input.profileKey} 不存在。`});
+        }
+        if (!profile.home?.reset) {
+            throw createError({statusCode: 400, message: `profile ${input.profileKey} 未声明 home reset。`});
+        }
+        await resetProfileHome({
+            workspace: target.project.workspace,
+            profileKey: profile.manifest.key,
+            profileVersion: profile.manifest.version ?? 1,
+            definition: profile.home,
+        });
+        return readConfigEditorSnapshotForTarget(target);
     });
-    return readConfigEditorSnapshot(query);
 }
 
 /**
  * 读取 effective config，供后端运行路径直接使用。
  */
 export async function loadEffectiveConfig(query: ConfigWorkspaceQueryDto = {workspaceKind: "user-assets"}): Promise<EffectiveConfig> {
-    const {global, project} = await readConfigFiles(query);
-    return resolveEffectiveConfig(global, project);
-}
-
-/**
- * 按Agent runtime的Project Path读取effective config。
- *
- * Global Config始终属于当前Runtime Paths的Workspace Root `.nbook`；外部绝对
- * Project Workspace只改变Project Config来源，不能冒充Global Config根。
- */
-export async function loadEffectiveConfigForAgentRuntime(input: {projectPath?: string}): Promise<EffectiveConfig> {
-    return loadEffectiveConfigAtWorkspaceRoot({
-        workspaceRoot: absoluteFsPath(resolveStateWorkspaceRoot()),
-        projectPath: input.projectPath,
+    const target = await resolveConfigTarget(query);
+    return runConfigTargetOperation(target, async () => {
+        const {global, project} = await readConfigFiles(target);
+        return resolveEffectiveConfig(global, project);
     });
 }
 
 /**
- * 在调用方已经确定的 Workspace Root 下读取 Agent runtime Config。
- * 核心运行时使用此 Interface，避免再次从 cwd 或环境猜测 State Root。
+ * 从已经过生命周期 gate 的结构化目标读取 Agent runtime Config。
+ * 调用方必须传播同一个 ReadyProjectSessionRef，禁止在下游重新解析 projectPath。
  */
-export async function loadEffectiveConfigAtWorkspaceRoot(input: {
+export async function loadEffectiveConfigFromTarget(target: RuntimeConfigTarget): Promise<EffectiveConfig> {
+    if (target.scope === "global") {
+        return resolveEffectiveConfig(await readGlobalConfigFileAtWorkspaceRoot(target.workspaceRoot), null);
+    }
+    return runReadyProjectOperation(target.project, async () => (
+        loadEffectiveProjectConfig(target.workspaceRoot, target.project.workspace)
+    ));
+}
+
+/**
+ * Project required Module opening 阶段读取配置。
+ * 此时 generation 尚未 ready，因此只接受 Lifecycle 已解析的 Project Workspace 与显式 Workspace Root。
+ */
+export async function loadProjectModuleConfig(input: {
     workspaceRoot: AbsoluteFsPath;
-    projectPath?: string;
+    projectWorkspace: ResolvedProjectWorkspace;
 }): Promise<EffectiveConfig> {
-    if (!input.projectPath) {
-        return resolveEffectiveConfig(await readGlobalConfigFileAtWorkspaceRoot(input.workspaceRoot), null);
-    }
+    return loadEffectiveProjectConfig(input.workspaceRoot, input.projectWorkspace);
+}
 
-    if (path.isAbsolute(input.projectPath)) {
-        const [global, project] = await Promise.all([
-            readGlobalConfigFileAtWorkspaceRoot(input.workspaceRoot),
-            readProjectConfigFile(path.join(path.resolve(input.projectPath), ".nbook", "config.json")),
-        ]);
-        return resolveEffectiveConfig(global, project);
-    }
+/** 结构化读取 Global + Project Config，不接收字符串路径或自行推断 Workspace Root。 */
+async function loadEffectiveProjectConfig(
+    workspaceRoot: AbsoluteFsPath,
+    projectWorkspace: ResolvedProjectWorkspace,
+): Promise<EffectiveConfig> {
+    const [global, project] = await Promise.all([
+        readGlobalConfigFileAtWorkspaceRoot(workspaceRoot),
+        readProjectConfigFile(path.join(projectWorkspace.root, ".nbook", "config.json")),
+    ]);
+    return resolveEffectiveConfig(global, project);
+}
 
-    const projectRoot = resolveProjectWorkspaceRoot(input.workspaceRoot, normalizeProjectPath(input.projectPath));
-    return resolveEffectiveConfig(
-        await readGlobalConfigFileAtWorkspaceRoot(input.workspaceRoot),
-        await readProjectConfigFile(path.join(projectRoot, ".nbook", "config.json")),
-    );
+/** 在调用方已经确定的 Workspace Root 下只读取 Global Config。 */
+export async function loadGlobalEffectiveConfigAtWorkspaceRoot(input: {
+    workspaceRoot: AbsoluteFsPath;
+}): Promise<EffectiveConfig> {
+    return resolveEffectiveConfig(await readGlobalConfigFileAtWorkspaceRoot(input.workspaceRoot), null);
 }
 
 /**
@@ -363,8 +389,10 @@ export function loadGlobalEffectiveConfigSync(): EffectiveConfig {
  */
 export async function resolveDefaultProfileKey(query: ConfigWorkspaceQueryDto): Promise<string> {
     const target = await resolveConfigTarget(query);
-    const {global, project} = await readConfigFiles(query, target);
-    return resolveDefaultProfileKeyFromConfig(target.workspaceKind, global, project);
+    return runConfigTargetOperation(target, async () => {
+        const {global, project} = await readConfigFiles(target);
+        return resolveDefaultProfileKeyFromConfig(target.workspaceKind, global, project);
+    });
 }
 
 /**
@@ -373,10 +401,7 @@ export async function resolveDefaultProfileKey(query: ConfigWorkspaceQueryDto): 
 export async function resolveConfigTarget(query: ConfigWorkspaceQueryDto): Promise<ConfigTarget> {
     const workspaceKind: WorkspaceRootKind = query.workspaceKind === USER_ASSETS_WORKSPACE_KIND ? USER_ASSETS_WORKSPACE_KIND : "novel";
     if (workspaceKind === USER_ASSETS_WORKSPACE_KIND) {
-        return {
-            workspaceKind,
-            projectConfigPath: null,
-        };
+        return globalConfigTarget();
     }
 
     if (!query.projectPath) {
@@ -385,44 +410,42 @@ export async function resolveConfigTarget(query: ConfigWorkspaceQueryDto): Promi
             message: "Project Workspace 配置必须提供有效 projectPath",
         });
     }
-    const workspaceRoot = absoluteFsPath(resolveStateWorkspaceRoot());
-    const projectPath = await assertProjectWorkspaceDirectory(workspaceRoot, query.projectPath);
-    const projectRoot = resolveProjectWorkspaceRoot(workspaceRoot, projectPath);
     return {
         workspaceKind,
-        projectConfigPath: path.join(projectRoot, ".nbook", "config.json"),
+        workspaceRoot: absoluteFsPath(resolveStateWorkspaceRoot()),
+        project: requireReadyProjectPath(query.projectPath),
     };
 }
 
-/**
- * Project Config / Project Profile Home 都是 Project Workspace 数据面，必须在显式 open 后访问。
- */
-function assertProjectConfigDataPlaneOpen(target: ConfigTarget, query: ConfigWorkspaceQueryDto): void {
-    if (target.workspaceKind !== "novel" || !target.projectConfigPath) {
-        return;
-    }
-    assertProjectPathOpen(query.projectPath);
+/** Global Config 与 Global Profile Home 不要求 Project ready。 */
+function globalConfigTarget(): ConfigTarget {
+    return {
+        workspaceKind: USER_ASSETS_WORKSPACE_KIND,
+        workspaceRoot: absoluteFsPath(resolveStateWorkspaceRoot()),
+        project: null,
+    };
 }
 
-/**
- * 校验 Project 数据面生命周期并刷新 activity。无 projectPath 是调用方契约错误，按 400 暴露。
- */
-function assertProjectPathOpen(projectPath: string | undefined): void {
-    if (!projectPath) {
-        throw createError({statusCode: 400, message: "Project 数据面访问必须提供 projectPath。"});
-    }
-    assertProjectOpen(projectPath);
-    markProjectActivity(projectPath);
+/** Config service的唯一Project数据面边界；Global Config不属于ProjectSession。 */
+function runConfigTargetOperation<TResult>(
+    target: ConfigTarget,
+    operation: () => Promise<TResult>,
+): Promise<TResult> {
+    return target.project
+        ? runReadyProjectOperation(target.project, async () => operation())
+        : operation();
 }
 
-async function readConfigFiles(query: ConfigWorkspaceQueryDto, knownTarget?: ConfigTarget): Promise<{
+async function readConfigFiles(target: ConfigTarget): Promise<{
     global: StoredGlobalConfig;
     project: StoredProjectConfig | null;
 }> {
-    const target = knownTarget ?? await resolveConfigTarget(query);
+    const projectConfigPath = target.project
+        ? path.join(target.project.workspace.root, ".nbook", "config.json")
+        : null;
     const [global, project] = await Promise.all([
         readGlobalConfigFile(),
-        target.projectConfigPath ? readProjectConfigFile(target.projectConfigPath) : Promise.resolve(null),
+        projectConfigPath ? readProjectConfigFile(projectConfigPath) : Promise.resolve(null),
     ]);
     return {global, project};
 }
@@ -445,6 +468,8 @@ function redactGlobalConfig(config: StoredGlobalConfig): GlobalConfigDto {
         ui: config.ui,
         editor: config.editor,
         observability: config.observability,
+        // 注意：这里是显式对象字面量，新配置段必须手动带上，否则设置面板读不到（history 段曾因此被静默丢）。
+        novelData: config.novelData,
         web: {
             search: {
                 order: config.web?.search?.order ?? [],
@@ -514,6 +539,7 @@ function buildConfigModelSettingsDto(
         defaultModelKey,
         defaultModelLabel: defaultModel?.label ?? null,
         enabledModels,
+        agentVisibleModels: global.agent?.visibleModels ?? [],
         providers,
         validationIssues,
     };
@@ -570,6 +596,7 @@ function listRawEnabledModels(global: StoredGlobalConfig): ConfigModelSettingsDt
                 label: buildModelLabel(provider.name, model.name),
                 providerId: provider.id,
                 modelId: model.id,
+                input: model.input ?? ["text"],
                 contextWindowTokens: model.contextWindowTokens,
             });
         }
@@ -595,37 +622,11 @@ function assertReferencesRunnable(
 }
 
 /**
- * Global Provider mutation 前扫描所有 managed Project 引用。
- * 这是控制面完整性检查，不隐式 open Project，也不修改 Project Config。
+ * 删除Provider前列出Global与全部Project中的引用。
+ *
+ * 这是冷门只读控制面例外：消费唯一轻量ProjectListSnapshot；已打开Project持exact operation，
+ * 未打开Project只用Root Identity解析物理root并读取config，不为一次完整性检查初始化DB/History/File Index。
  */
-async function assertManagedProjectModelReferences(global: StoredGlobalConfig): Promise<void> {
-    const workspaceRoot = absoluteFsPath(resolveStateWorkspaceRoot());
-    const runnableModelKeys = inspectProviderConfigDocument(rawModelSettingsInput(global.models, null)).runnableModelKeys;
-    const issues = [] as ReturnType<typeof inspectModelReferences>;
-    for (const project of await listProjectWorkspaces(workspaceRoot)) {
-        const projectRoot = resolveProjectWorkspaceRoot(workspaceRoot, normalizeProjectPath(project.projectPath));
-        const config = await readProjectConfigFile(path.join(projectRoot, ".nbook", "config.json"));
-        const references: ModelReferenceInput[] = [{
-            modelKey: config.models?.default ?? global.models?.default ?? null,
-            path: [project.projectPath, "models", "default"],
-            label: `${project.projectPath} 默认模型`,
-        }, ...projectModelReferences(config).map((reference) => ({
-            ...reference,
-            path: [project.projectPath, ...reference.path],
-            label: `${project.projectPath} ${reference.label}`,
-        }))];
-        issues.push(...inspectModelReferences(runnableModelKeys, references));
-    }
-    if (issues.length > 0) {
-        throw createError({
-            statusCode: 400,
-            message: issues[0]?.message ?? "Project 模型引用校验失败。",
-            data: {issues},
-        });
-    }
-}
-
-/** 删除 Provider 前列出 Global 与全部 managed Project 中仍指向它的模型引用。 */
 export async function inspectProviderReferences(providerId: string): Promise<Array<{label: string; modelKey: string}>> {
     const global = await readGlobalConfigFile();
     const prefix = `${providerId}/`;
@@ -636,12 +637,31 @@ export async function inspectProviderReferences(providerId: string): Promise<Arr
         }
     }
     const workspaceRoot = absoluteFsPath(resolveStateWorkspaceRoot());
-    for (const project of await listProjectWorkspaces(workspaceRoot)) {
-        const projectRoot = resolveProjectWorkspaceRoot(workspaceRoot, normalizeProjectPath(project.projectPath));
-        const config = await readProjectConfigFile(path.join(projectRoot, ".nbook", "config.json"));
+    const snapshot = await listProjects();
+    const knownDirectoryNames = snapshot.projects.map((project) => project.projectRoot);
+    const rootIdentity = new ProjectRootIdentityModule(workspaceRoot);
+    for (const project of snapshot.projects) {
+        const projectPath = projectPathFromRef(project);
+        let ready: ReturnType<typeof requireReadyProject> | null = null;
+        try {
+            ready = requireReadyProject(project);
+        } catch (error) {
+            if (!isProjectNotOpenError(error)) {
+                throw error;
+            }
+        }
+        let config: StoredProjectConfig;
+        if (ready) {
+            config = await runReadyProjectOperation(ready, async () => (
+                readProjectConfigFile(path.join(ready.workspace.root, ".nbook", "config.json"))
+            ));
+        } else {
+            const workspace = await rootIdentity.resolve(project, knownDirectoryNames);
+            config = await readProjectConfigFile(path.join(workspace.root, ".nbook", "config.json"));
+        }
         for (const reference of [
-            {modelKey: config.models?.default ?? global.models?.default ?? null, label: `${project.projectPath} 默认模型`},
-            ...projectModelReferences(config).map((item) => ({...item, label: `${project.projectPath} ${item.label}`})),
+            {modelKey: config.models?.default ?? global.models?.default ?? null, label: `${projectPath} 默认模型`},
+            ...projectModelReferences(config).map((item) => ({...item, label: `${projectPath} ${item.label}`})),
         ]) {
             if (reference.modelKey?.startsWith(prefix)) {
                 references.push({label: reference.label, modelKey: reference.modelKey});
@@ -669,6 +689,13 @@ function globalModelReferences(config: StoredGlobalConfig): ModelReferenceInput[
             modelKey: profile.model.modelKey ?? null,
             path: ["agent", "profiles", profileKey, "model", "modelKey"],
             label: `Agent Profile ${profileKey} 模型`,
+        });
+    }
+    for (const [index, entry] of (config.agent?.visibleModels ?? []).entries()) {
+        references.push({
+            modelKey: entry.modelKey,
+            path: ["agent", "visibleModels", index, "modelKey"],
+            label: `Agent 可见模型 ${String(index + 1)}`,
         });
     }
     return references;
@@ -803,7 +830,7 @@ async function buildConfigAgentProfileSettingsDto(input: {
     project: StoredProjectConfig | null;
     profiles: AgentProfileCatalog;
     catalogProfiles: AgentCatalogItem[];
-    query: ConfigWorkspaceQueryDto;
+    target: ConfigTarget;
     includeSettings: boolean;
     settingsScope: "global" | "project";
 }): Promise<ConfigAgentProfileSettingsDto> {
@@ -861,7 +888,7 @@ async function buildProfileSettingsDto(input: {
     global: StoredGlobalConfig;
     project: StoredProjectConfig | null;
     profiles: AgentProfileCatalog;
-    query: ConfigWorkspaceQueryDto;
+    target: ConfigTarget;
     settingsScope: "global" | "project";
 }, definition: AgentCatalogItem, profile: Awaited<ReturnType<AgentProfileCatalog["get"]>> | null): Promise<ConfigAgentProfileSettingsDto["agentProfiles"][number]["settings"]> {
     if (definition.loadStatus !== "loaded") {
@@ -877,7 +904,7 @@ async function buildProfileSettingsDto(input: {
     const globalPatch = normalizeAgentProfileSettings(input.global.agent?.profiles?.[definition.key]?.settings);
     const projectPatch = normalizeAgentProfileSettings(input.project?.agent?.profiles?.[definition.key]?.settings);
     const ctx = {
-        ...await lowCodeFormContext(definition.key, input.query, input.settingsScope, profile, effectivePatch),
+        ...await lowCodeFormContext(definition.key, input.target, input.settingsScope, profile, effectivePatch),
         allowGlobalResourceKeys: input.settingsScope === "project",
     };
     const resolution = await resolveProfileSettings(profile, effectivePatch, ctx);
@@ -898,7 +925,7 @@ async function buildProfileSettingsDto(input: {
  */
 async function assertProfileSettingsInput(
     profilesInput: Record<string, {settings?: LowCodeJsonObject; resourceMutations?: LowCodeResourceMutationDto[]}> | undefined,
-    query: ConfigWorkspaceQueryDto,
+    target: ConfigTarget,
     profiles: AgentProfileCatalog,
     inheritedProfilesInput?: Record<string, {settings?: LowCodeJsonObject}>,
     options: {includeResourceMutationFinalKeys?: boolean} = {},
@@ -927,7 +954,7 @@ async function assertProfileSettingsInput(
                 ...normalizeAgentProfileSettings(profileConfig.settings),
             }
             : profileConfig.settings;
-        const ctx = await lowCodeFormContext(profileKey, query, scope, profile, settingsForValidation);
+        const ctx = await lowCodeFormContext(profileKey, target, scope, profile, settingsForValidation);
         const resourceKeyView = options.includeResourceMutationFinalKeys
             ? await buildResourceMutationKeyView(profile.settingsForm, profileConfig.resourceMutations, ctx, settingsForValidation)
             : null;
@@ -955,7 +982,7 @@ async function assertProfileSettingsInput(
 
 async function applyProfileResourceMutations(
     profilesInput: Record<string, {settings?: LowCodeJsonObject; resourceMutations?: LowCodeResourceMutationDto[]}> | undefined,
-    query: ConfigWorkspaceQueryDto,
+    target: ConfigTarget,
     profiles: AgentProfileCatalog,
     inheritedProfilesInput?: Record<string, {settings?: LowCodeJsonObject}>,
     scope: "global" | "project" = "project",
@@ -978,7 +1005,7 @@ async function applyProfileResourceMutations(
         const results = await applyLowCodeResourceMutations(
             profile.settingsForm,
             profileConfig.resourceMutations,
-            await lowCodeFormContext(profileKey, query, scope, profile, currentValues),
+            await lowCodeFormContext(profileKey, target, scope, profile, currentValues),
             currentValues,
         );
         const issue = results.flatMap((result) => result.issues).find((item) => item.severity === "error");
@@ -1084,49 +1111,54 @@ function readLowCodePath(value: LowCodeJsonObject, fieldPath: string): LowCodeJs
 }
 
 /**
- * 根据 Config query 构造低代码 form 解析上下文。
+ * 根据已经通过 ready gate 的 Config target 构造低代码 form 解析上下文。
  */
 async function lowCodeFormContext(
     profileKey: string,
-    query: ConfigWorkspaceQueryDto,
+    target: ConfigTarget,
     scope: "global" | "project",
     profile?: {manifest: {version?: number}; home?: ProfileHomeDefinition; settingsForm?: LowCodeFormDefinition},
     values?: LowCodeJsonObject,
 ): Promise<LowCodeFormResolveContext> {
-    const workspaceRoot = query.workspaceKind === "novel" ? WORKSPACE_CONTAINER_ROOT : USER_ASSETS_WORKSPACE_ROOT;
+    const workspaceRoot = target.workspaceKind === "novel" ? WORKSPACE_CONTAINER_ROOT : USER_ASSETS_WORKSPACE_ROOT;
     const needsHome = profileNeedsHome(profile);
-    const runtimeWorkspaceRoot = absoluteFsPath(resolveStateWorkspaceRoot());
-    const projectRoot = scope === "project" && query.workspaceKind === "novel"
-        ? resolveProjectRootForProfileHome(runtimeWorkspaceRoot, query.projectPath)
-        : null;
-    if (projectRoot && profile && needsHome) {
-        assertProjectPathOpen(query.projectPath);
-    }
-    const projectHome = projectRoot && profile && needsHome
-        ? await ensureProfileHome({
-            projectRoot,
-            profileKey,
-            profileVersion: profile.manifest.version ?? 1,
-            definition: profile.home,
-        })
-        : undefined;
     const globalHome = profile && needsHome
         ? await ensureGlobalProfileHome({
-            workspaceRoot: runtimeWorkspaceRoot,
+            workspaceRoot: target.workspaceRoot,
             profileKey,
             profileVersion: profile.manifest.version ?? 1,
             definition: profile.home,
         })
         : undefined;
-    const home = scope === "global" ? globalHome : projectHome;
+    if (scope === "project") {
+        const project = target.project;
+        if (!project) {
+            throw new Error("Project scope low-code form 缺少 ready Project workspace");
+        }
+        const projectHome = profile && needsHome
+            ? await ensureProfileHome({
+                workspace: project.workspace,
+                profileKey,
+                profileVersion: profile.manifest.version ?? 1,
+                definition: profile.home,
+            })
+            : undefined;
+        return {
+            profileKey,
+            scope,
+            workspaceRoot,
+            projectWorkspace: project.workspace,
+            ...(values ? {values} : {}),
+            ...(projectHome ? {home: projectHome} : {}),
+            ...(globalHome ? {globalHome} : {}),
+        };
+    }
     return {
         profileKey,
         scope,
         workspaceRoot,
-        ...(query.projectPath ? {projectPath: query.projectPath} : {}),
         ...(values ? {values} : {}),
-        ...(home ? {home} : {}),
-        ...(scope === "project" && globalHome ? {globalHome} : {}),
+        ...(globalHome ? {home: globalHome} : {}),
     };
 }
 
@@ -1173,20 +1205,21 @@ function withResourceMutationKeyView(
     ctx: LowCodeFormResolveContext,
     keyView: LowCodeResourceMutationKeyView,
 ): LowCodeFormResolveContext {
-    if (!ctx.home || keyView.knownKeys.size === 0) {
+    const home = ctx.home;
+    if (!home || keyView.knownKeys.size === 0) {
         return ctx;
     }
     return {
         ...ctx,
         resourceMutationKeyView: keyView,
         home: {
-            ...ctx.home,
+            ...home,
             async exists(filePath) {
                 const key = normalizeResourceKeyForView(filePath);
                 if (keyView.knownKeys.has(key)) {
                     return keyView.finalKeys.has(key);
                 }
-                return ctx.home!.exists(filePath);
+                return home.exists(filePath);
             },
         },
     };

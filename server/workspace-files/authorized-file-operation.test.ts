@@ -57,6 +57,10 @@ describe("Authorized File Operation", () => {
         await expect(authorizeFileOperation(scope, "manuscript/chapter.md", "write")).resolves.toMatchObject({
             address: {projectPath, relativePath: "manuscript/chapter.md"},
         });
+        await expect(authorizeFileOperation(scope, join(workspaceRoot, "novel", "manuscript", "chapter.md"), "read"))
+            .resolves.toMatchObject({
+                address: {kind: "absolute", projectPath, relativePath: "manuscript/chapter.md"},
+            });
         await expect(authorizeProcessCwd(scope)).resolves.toMatchObject({root: join(workspaceRoot, "novel")});
     });
 
@@ -79,7 +83,7 @@ describe("Authorized File Operation", () => {
             .resolves.toMatchObject({address: {projectPath: beta, relativePath: "lorebook/index.md"}});
     });
 
-    it("managed Project拒绝用绝对路径或真实路径链接绕过跨Project地址", async () => {
+    it("任意绝对路径按文件系统地址授权，但相对路径仍不能通过链接越过File Scope", async () => {
         const root = await temporaryRoot();
         const workspaceRoot = join(root, "workspace");
         const alphaRoot = join(workspaceRoot, "alpha");
@@ -92,12 +96,20 @@ describe("Authorized File Operation", () => {
         const beta = normalizeProjectPath("workspace/beta");
         const scope = createFileScope({kind: "managed-project", workspaceRoot: absoluteFsPath(workspaceRoot), projectPath: alpha});
         await openProject(absoluteFsPath(workspaceRoot), alpha, {kind: "job", source: "authorized-file-operation-test"});
-        await openProject(absoluteFsPath(workspaceRoot), beta, {kind: "job", source: "authorized-file-operation-test"});
         openedProjects.add(alpha);
-        openedProjects.add(beta);
 
-        await expect(authorizeFileOperation(scope, join(betaRoot, "lorebook", "index.md"), "read"))
-            .rejects.toThrow("绝对路径只能指向当前Project Workspace");
+        for (const operation of ["read", "write", "edit", "apply_patch"] as const) {
+            await expect(authorizeFileOperation(scope, join(betaRoot, "lorebook", "index.md"), operation))
+                .resolves.toMatchObject({
+                    operation,
+                    address: {
+                        kind: "absolute",
+                        absolutePath: join(betaRoot, "lorebook", "index.md"),
+                        projectPath: null,
+                    },
+                    containmentRoot: null,
+                });
+        }
         await expect(authorizeFileOperation(scope, "linked-beta/lorebook/index.md", "read"))
             .rejects.toThrow("真实路径越过文件系统根");
     });

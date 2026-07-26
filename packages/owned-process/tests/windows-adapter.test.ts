@@ -1,0 +1,104 @@
+import {EventEmitter} from "node:events";
+
+import {afterEach, describe, expect, it, vi} from "vitest";
+
+afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.resetModules();
+    vi.doUnmock("node:child_process");
+});
+
+describe("Windows Adapter protocol", () => {
+    it("同步IPC断开后等待supervisor close并清理watchdog", async () => {
+        vi.useFakeTimers();
+        const supervisor = new FakeSupervisor();
+        const spawnWindowsOwnedProcess = await loadAdapter(supervisor);
+        const lease = spawnWindowsOwnedProcess({command: "target", graceMs: 10, hardKillWaitMs: 20});
+        supervisor.connected = false;
+
+        const termination = lease.terminate("timeout");
+        let settled = false;
+        void termination.then(
+            () => { settled = true; },
+            () => { settled = true; },
+        );
+        await Promise.resolve();
+        expect(settled).toBe(false);
+
+        supervisor.emit("close", 1, null);
+        await expect(termination).rejects.toMatchObject({stage: "control-ipc"});
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it("supervisor error消息只有在close后才提交失败终态", async () => {
+        vi.useFakeTimers();
+        const supervisor = new FakeSupervisor();
+        const spawnWindowsOwnedProcess = await loadAdapter(supervisor);
+        const lease = spawnWindowsOwnedProcess({command: "target", hardKillWaitMs: 20});
+        let settled = false;
+        void lease.completion.then(
+            () => { settled = true; },
+            () => { settled = true; },
+        );
+
+        supervisor.emit("message", {
+            kind: "error",
+            stage: "terminate-job",
+            message: "TerminateJobObject失败",
+            osError: 6,
+        });
+        await Promise.resolve();
+        expect(settled).toBe(false);
+
+        supervisor.connected = false;
+        supervisor.emit("close", 1, null);
+        await expect(lease.completion).rejects.toMatchObject({stage: "terminate-job", osError: 6});
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it("supervisor进程error事件也只有在close后才提交失败终态", async () => {
+        vi.useFakeTimers();
+        const supervisor = new FakeSupervisor();
+        const spawnWindowsOwnedProcess = await loadAdapter(supervisor);
+        const lease = spawnWindowsOwnedProcess({command: "target", graceMs: 10, hardKillWaitMs: 20});
+        let settled = false;
+        void lease.completion.then(
+            () => { settled = true; },
+            () => { settled = true; },
+        );
+
+        supervisor.emit("error", new Error("spawn failed"));
+        await Promise.resolve();
+        expect(settled).toBe(false);
+
+        supervisor.emit("close", 1, null);
+        await expect(lease.completion).rejects.toMatchObject({stage: "supervisor-spawn"});
+        expect(vi.getTimerCount()).toBe(0);
+    });
+});
+
+/** 动态加载Adapter，让每个测试拥有独立的监督进程替身。 */
+async function loadAdapter(supervisor: FakeSupervisor) {
+    vi.doMock("node:child_process", () => ({
+        spawn: vi.fn(() => supervisor),
+    }));
+    const module = await import("#owned-process/windows-adapter");
+    return module.spawnWindowsOwnedProcess;
+}
+
+/** 仅实现Windows Adapter消费的ChildProcess协议表面。 */
+class FakeSupervisor extends EventEmitter {
+    connected = true;
+    stdout = null;
+    stderr = null;
+
+    send(_message: object, callback?: (error: Error | null) => void): boolean {
+        callback?.(null);
+        return true;
+    }
+
+    disconnect(): void {
+        this.connected = false;
+    }
+}
