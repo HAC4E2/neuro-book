@@ -55,6 +55,7 @@ features:
 - [Profile](/profile/)：内置 profile 分工与边界。
 - [Profile TSX](/profile-tsx/)：写自己的 Agent profile。
 - [部署与运维](/deployment)：安装方式、运行与停止、数据在哪、隐私边界。
+- [更新日志](/changelog/)：历史版本改了什么、升级要注意什么。
 - [设计文章](/blog-agent-rp-harness)：为什么要把写作拆成多个 Agent。
 
 ## 关于 AI 角色扮演

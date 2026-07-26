@@ -336,7 +336,8 @@ agent-profile-routing               agent-composer-plain-text-input
 - [x] R4：修正 `docs/tasks/README.md` 里失效的三天归档规则，改成本任务 D5 的判据（轮次 1 已做）。
 - [x] R4：消解剩余的 `120` 号编号冲突。2026-07-26 由 Task 125 自行改号解决：`120-runtime-artifact-storage-lifecycle` → `125-runtime-artifact-storage-lifecycle`（`124` 已被写作产品线第三批占用），`120-agent-skill-package-contract` 保持原号不动（它被 `reference/agent/skill-package.md` 和 Task 84 引用）。ADR 0002、Task 79、`PROJECT-STATUS.md` 的反向链接已同步。防撞号规则已在轮次 2 写进 `docs/tasks/README.md`「命名」段（建目录前必须 `ls` 确认），若仍不够可再补脚本校验。
 - [ ] R4：处理剩余 31 个「陈旧但有外链」的任务目录——归档时必须同步改写反向链接。
-- [ ] R4：`PROJECT-STATUS.md`（75 KB）、`RELEASE.md`（71 KB）按时间切分。
+- [x] R4：`RELEASE.md` 按发布线切分（2026-07-27）。79 KB / 29 个版本块 → 只保留当前待发布版本；历史全部按新语言风格重写并迁到 `docs/changelog/`（`index.md` 说明与索引 + `v0.8.md` / `v0.7.md` / `v0.5.md`），英文镜像 `docs/en/changelog/` 同步建立。VitePress 中英 nav + sidebar 已接入（未加 `srcExclude`，故真正上站），`docs:build` 85 页通过、锚点在双语两侧都生成。`docs/deployment.md` 与 `docs/en/deployment.md` 原本指向 `RELEASE.md#旧agent-session模型引用` 的 GitHub 绝对链接改为站内相对链接 + 固定锚点 `{#session-model-refs}`，该段迁移操作步骤已完整保留在 `docs/changelog/v0.8.md` 的 0.8.9 小节。`docs/README.md`、`docs/index.md`、`docs/en/index.md` 的目录清单已同步。配套在 `AGENTS.md` 新增「面向用户的语言风格」小节（读者假设 + 八条写法 + RELEASE.md 固定四段结构），把这次的口径固定成长期约束。
+- [ ] R4：`PROJECT-STATUS.md`（93 KB）按时间切分——本轮未做。
 
 ### 已登记但暂不执行
 

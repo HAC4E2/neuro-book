@@ -10,6 +10,7 @@ const zhNav = [
   { text: '教程', link: '/tutorials/' },
   { text: '核心能力', link: '/core/world-engine' },
   { text: '部署', link: '/deployment' },
+  { text: '更新日志', link: '/changelog/' },
   { text: '理念', link: '/blog-agent-rp-harness' },
   { text: 'Agent', link: '/agent/' },
   { text: 'Profile', link: '/profile/' },
@@ -94,6 +95,15 @@ const zhSidebar = [
     ]
   },
   {
+    text: '更新日志',
+    items: [
+      { text: '历史版本', link: '/changelog/' },
+      { text: '0.8.x', link: '/changelog/v0.8' },
+      { text: '0.7.x', link: '/changelog/v0.7' },
+      { text: '0.5.x', link: '/changelog/v0.5' }
+    ]
+  },
+  {
     text: '设计文章',
     items: [
       { text: 'Agent、创意写作与角色扮演', link: '/blog-agent-rp-harness' }
@@ -109,6 +119,7 @@ const enNav = [
   { text: 'Tutorials', link: '/en/tutorials/' },
   { text: 'Core', link: '/en/core/world-engine' },
   { text: 'Deployment', link: '/en/deployment' },
+  { text: 'Changelog', link: '/en/changelog/' },
   { text: 'Concepts', link: '/en/blog-agent-rp-harness' },
   { text: 'Agent', link: '/en/agent/' },
   { text: 'Profile', link: '/en/profile/' },
@@ -190,6 +201,15 @@ const enSidebar = [
       { text: 'Deployment', link: '/en/deployment' },
       { text: 'Running, Data and Privacy', link: '/en/operations' },
       { text: 'Operator Bridge', link: '/en/operator-bridge' }
+    ]
+  },
+  {
+    text: 'Release Notes',
+    items: [
+      { text: 'Release History', link: '/en/changelog/' },
+      { text: '0.8.x', link: '/en/changelog/v0.8' },
+      { text: '0.7.x', link: '/en/changelog/v0.7' },
+      { text: '0.5.x', link: '/en/changelog/v0.5' }
     ]
   },
   {

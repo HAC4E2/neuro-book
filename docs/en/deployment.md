@@ -266,7 +266,7 @@ Release manifest v3 records the application version, Git revision, channel, mini
 - Reinstall the same profile into a new Installation Root and reuse only the State Root; do not copy the old `.deploy`, `.runtime`, `.output`, generated Compose file or wrapper.
 - If a portable install used an absolute `DATABASE_URL` as a temporary login fix, restore it to `file:./workspace/.nbook/neuro-book.sqlite` after migrating.
 - Unfinished operation journals at v1/v2 need a manual review of the manifest, product, Git, Compose and SQLite; the v3 Manager will neither convert nor ignore them.
-- When an old agent session carries a full Pi model and cannot prove its provider config ID, use the per-entry mapping maintenance command described in the [RELEASE migration guide](https://github.com/notnotype/neuro-book/blob/master/RELEASE.md#旧agent-session模型引用).
+- When an old agent session carries a full Pi model and cannot prove its provider config ID, use the per-entry mapping maintenance command described in the [0.8.9 migration notes](./changelog/v0.8#session-model-refs).
 
 ## Recommended Acceptance Checks
 

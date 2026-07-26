@@ -48,6 +48,38 @@
 - 移动文档或改名时，必须同步更新交叉链接，避免留下绝对路径链接和旧路径引用。
 - 纯问答、只读探索、无状态变化的失败尝试，不强制更新 `PROJECT-STATUS.md` 或任务 walkthrough。
 
+### 面向用户的语言风格
+
+适用于所有用户会读到的文字：`RELEASE.md` 与 `docs/changelog/`、`README`、文档站页面、UI 文案、错误提示。**不适用**于 `PROJECT-STATUS.md`、`docs/tasks/**`、`reference/**` 和代码注释——那些是给开发者和 Agent 看的，该多技术就多技术。
+
+读者假设：一个会用电脑、对写小说感兴趣、但从没读过本仓库任何一行代码的大学生。
+
+- **写他能做什么，不写我们改了什么。** 「现在可以让 AI 一次写完一整章并自动检查」，不是「run_workflow 接入 AgentJobManager」。
+- **不出现内部名词。** 模块名、类名、文件名、Task 编号、Phase 编号一律不写。确实要提某个界面，就用界面上的原字。
+- **必须用的术语，当场一句话解释。** 「工作流（把「写正文 → 检查 → 修订」这种多步骤活儿打包成一条命令）」。同一篇里解释一次就够。
+- **给前后对比。** 「以前设了 30 秒超时也可能跑满 5 分钟，现在到点真的会停」比「修复超时不生效」有用得多。
+- **每条 1–2 句，动词开头。** 写不下就说明这条该拆成两条，或者根本不该进更新日志。
+- **能用日常词就别用专有名词**：「后台任务」别写「job」，「界面」别写「UI」，「装到本地」别写「部署」。
+- **回退和限制要如实写。** 砍掉的功能、需要手动操作的步骤、还没验证的部分，一律照直说，不藏进「优化」里。
+- **别夸。** 不写「大幅提升」「全新体验」「强大」。有数字就给数字，没数字就描述现象。
+
+`RELEASE.md` 的固定结构：
+
+```markdown
+## <版本> - <日期>
+
+一段话说清这个版本主要解决了什么问题，两三句即可。
+
+### 新功能
+### 改进
+### 修复
+### 升级须知
+```
+
+四个小节按需出现，没内容就整节删掉，不要留空标题。`### 升级须知` 只写用户真的要动手做的事（备份、换目录、改配置），没有就不写。
+
+`RELEASE.md` 只保留当前版本；历史版本按发布线归档到 `docs/changelog/`（中文）与 `docs/en/changelog/`（英文镜像），文件开头留一行指向那里。
+
 ### JS/TS
 
 - 不要使用相对路径导入，使用 `import {Sessions} from "nb/types/session"`
@@ -136,8 +168,9 @@
 ## 发布流程
 
 - 发布前先阅读 `PROJECT-STATUS.md` 和相关 `docs/tasks/**/README.md` / walkthrough，确认本轮改动、验证记录和任务状态。
-- 发布前必须更新 `RELEASE.md`，用用户可读的话概括本轮变更、影响范围和已知验证结果；不要只写内部任务编号。
+- 发布前必须更新 `RELEASE.md`，严格按「面向用户的语言风格」小节写：只留当前版本，历史版本移到 `docs/changelog/` 并同步英文镜像 `docs/en/changelog/`。release 脚本不读 `RELEASE.md`（GitHub prerelease 正文是硬编码模板），所以它纯粹是给人看的，写不好没有任何机器会拦你。
 - 提交前用 `git status --short --branch` 确认工作区范围；用户明确要求“提交全部改动”时，才使用 `git add -A` 纳入全部 tracked / untracked 改动。
+- **在 `.agent/workspace/` 的 git worktree（`codex/*` 分支）里推过 master 之后，主工作区必须立刻 `git fetch && git merge --ff-only origin/master`。** 否则主工作区的 `master` 永远停在旧提交，下次提交就变成分叉；同一份改动也不要在主工作区和 worktree 各提交一次，那会产出 patch-id 相同、SHA 不同的重复提交。
 - 业务提交 message 要覆盖主要任务和用户可见能力；提交后先 `git push origin HEAD:master`。如果远端拒绝，停止并报告，不要 force push。
 - canary patch 发布使用 `bun run release -- canary --next patch --push --yes --no-watch`；canary minor 发布使用 `bun run release -- canary --next minor --push --yes --no-watch`。
 - release 脚本会自动更新 `package.json.version`、创建 `chore(release): v...` 提交、push 当前分支并创建 GitHub prerelease。

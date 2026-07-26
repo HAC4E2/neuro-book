@@ -266,7 +266,7 @@ Release Manifest v3记录应用版本、Git revision、channel、最低Manager�
 - 在新的Installation Root重新安装相同Profile，只复用State Root；不要复制旧`.deploy`、`.runtime`、`.output`、generated Compose或wrapper。
 - Portable曾使用绝对`DATABASE_URL`临时修复登录时，迁移后恢复`file:./workspace/.nbook/neuro-book.sqlite`。
 - 未完成的Operation Journal v1/v2需要人工核对Manifest、Product、Git、Compose和SQLite；v3 Manager不会自动转换或忽略。
-- 旧Agent Session包含完整Pi Model且无法证明Provider Config ID时，按[RELEASE迁移指南](https://github.com/notnotype/neuro-book/blob/master/RELEASE.md#旧agent-session模型引用)使用逐entry mapping维护命令。
+- 旧Agent Session包含完整Pi Model且无法证明Provider Config ID时，按[0.8.9 的迁移说明](./changelog/v0.8#session-model-refs)使用逐entry mapping维护命令。
 
 ## 验收建议
 
