@@ -16,6 +16,10 @@ export default defineConfig({
     test: {
         environment: "node",
         globals: true,
+        // 默认 10s 不够：beforeEach 里开 Project 会加载 14 个 profile artifact，
+        // 而单个 artifact 目前有 27.3 MiB（宿主实现被打进 bundle，见 Task 125 Phase 3）。
+        // 这是承认当前 artifact 体积的真实成本，不是掩盖挂起——真正的修复是把 artifact 压小。
+        hookTimeout: 60_000,
         // run 级：回收上一次残留 fixture + 建立共享只读 system assets snapshot。
         globalSetup: [
             "server/agent/test/global-setup.ts",

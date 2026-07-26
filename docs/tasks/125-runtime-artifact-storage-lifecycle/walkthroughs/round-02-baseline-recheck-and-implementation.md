@@ -74,7 +74,9 @@
 | fixture 磁盘峰值 | 60 个用例期间 `%TEMP%` 只有 1 份 snapshot 386 MB + 单个 fixture **1 MB**；改造前是 60 × 6.3 GB |
 | 运行结束后残留 | **0 MB**（dispose + teardown 都生效） |
 | snapshot manifest | `{"loaded":14}` |
-| **新增测试** | `profile-artifact-gc.test.ts` 7 项 + `test-workspace-fixture.test.ts` 6 项 + `profile-artifact-store.test.ts` 2 项 + `runtime-artifact-import.test.ts` 4 项 = **19/19 通过** |
+| **新增测试** | `profile-artifact-gc.test.ts` 9 项 + `test-workspace-fixture.test.ts` 6 项 + `profile-artifact-store.test.ts` 2 项 + `runtime-artifact-import.test.ts` 4 项 = **21/21 通过** |
+| 空间收敛（5 轮） | TEMP 残留与 `.compiled` 文件数/字节 **5 轮完全持平**，无随运行次数增长 |
+| `config-service.test.ts` | 提高 `hookTimeout` 后 **60/60 通过** |
 | `catalog.test.ts` | 26/44 失败，**全部**由 Task 118 的 `bun:ffi` 破坏导致（见 §7），非本任务 |
 | `workspace-files.test.ts` | **8/85 失败，未收敛**（详见下） |
 
@@ -137,7 +139,11 @@
 ## 8. 计划 vs 实际的出入
 
 - 计划写「per-test root 下不需要真的存在 `assets/workspace/.nbook`」——**这是错的**。profile 编译按 cwd 相对记录依赖路径，user-assets sync 又按 `assets/workspace/.nbook/agent/profiles` 字符串标签 rehome，把 system root 挪出 cwd 会让依赖标签退化成临时目录绝对路径。最终方案改为「物理路径始终存在，只是背后从真实副本换成 junction」。
-- 计划把「零写入路径跳过 GC」记为 TODO 不实施，本轮维持该决定。
+- 计划把「零写入路径跳过 GC」记为 TODO 不实施，理由是「每次真实发布都会 GC，够用」。**这个判断被实测推翻，本轮改为实施。**
+
+  反例：最小安全年龄地板会在发布时挡下刚变成 orphan 的一整代（382 MiB）。那一刻确实不该删（可能有在途读者），但 GC 只在发布时跑，于是这批 orphan 要等**下一次真实发布**才被重新考虑。长期不发布的 root 就一直超预算——实测 765 MiB 可驱逐 orphan 稳稳停在 512 MiB 预算之上，没有任何东西会来收它。
+
+  补上的 `sweepProfileArtifactBudget(profileRoot, budgetBytes?)` 挂在 `!publishRequired` 早退分支：两阶段（先无锁 `readdir` 预检，全部可达就返回 `null`；确有 orphan 才进 publish lock），锁内重读磁盘 manifest 重建可达集合（不能用预检那份，并发 Publisher 可能已加 entry），`writePolicy: "forbid"` 时一个文件都不删（Product 内置 assets 是只读安装目录）。
 - 计划的「单个用户 Profile artifact 64 MiB 上限」本轮未实施（属 Phase 3 门禁）。
 - 任务改号目标从 124 调整为 **125**（124 当天已被写作产品线第三批占用）。
 
@@ -148,8 +154,31 @@
 - [x] fixture 所有权测试（`test-workspace-fixture.test.ts`，6 项，含 junction sentinel）。
 - [ ] `前端同步 preflight` 的顺序相关 flake：定位跨用例泄漏的模块级缓存。
 - [ ] 两条既有失败按各自归属处理：`init-db` 的绝对/相对路径断言口径、llmlint `show-llm-rules` 版本漂移。
-- [ ] 5 轮重复运行的空间收敛曲线与强杀恢复实测。
+- [x] 5 轮重复运行的空间收敛曲线：TEMP 残留与 `.compiled` 完全持平，不随运行次数增长。
+- [x] 强杀恢复：由 `test-workspace-fixture.test.ts` 的 sweep 三态用例确定性覆盖（死 PID + 过窗口 → 回收；活 owner / 窗口内 / schema 不匹配 / 无 marker → 一律保留），不需要真等 24 小时。
 - [ ] Source checkout / Product Bun / Windows Portable 三环境 Profile 导入验收（被 Task 118 的 `bun:ffi` 阻塞）。
+
+## 9b. 预算标定问题（Task 118 修复 `bun:ffi` 之后暴露）
+
+Task 118 补上 reparse 边界后 `Could not resolve "bun:ffi"` 归零，esbuild 从此**真的**去打包整张依赖图。结果：单个 profile artifact 27.3 MiB，且里面确实含 `ProjectRootIdentityModule` / `GetFileAttributesW` 这类宿主实现。
+
+有一份报告据此认为「512 MiB 预算被单次发布就撑爆了」。**按实测这句不成立**，但它指出的问题是真的，只是位置不同：
+
+```
+current = 382 MiB（14 loaded，按合同永不驱逐、不计入预算）
+orphan  = 492 MiB（预算 512 MiB → 未超，GC 正常工作）
+盘上合计 875 MB / 64 files
+```
+
+预算治的是 orphan，orphan 492 MiB 确实在 512 MiB 以内，GC 没有失效。真正的问题是**标定**：
+
+1. **一代 release 就吃掉 75% 的 orphan 预算。** 一次全量发布 382 MiB，被下一次发布顶下来就整代变成 orphan。512 MiB 只买得到约 1.3 代回滚余量 —— 第二次发布必然触发驱逐。
+2. **「512 MiB」这个数字容易被读成总量上限，其实不是。** current 按合同不可驱逐、天然无界，所以单 root 稳态是 `current + orphan ≈ 894 MiB`，约为标称值的 1.75 倍；system + user 两个 root 合计约 1.75 GB。
+3. 这个数是 Round 01 按「381 MiB/次全量发布」定的，数字没错，但没人把「一代 = 3/4 预算」这层含义写出来。
+
+**结论：机制没问题，分母不对。** 把 orphan 预算调小只会让每次发布都清空上一代（回滚余量归零），调大则失去意义。真正的解法是 Phase 3 把单 artifact 压下来 —— Product build 实测只有 5.9 MiB，同样 512 MiB 就能装约 5 代。上面那两个符号是 Phase 3 现成的抓手。
+
+同一份体积也解释了测试侧的两个现象：vitest 主进程内编译 14 个 profile 直接 4 GB OOM；`config-service.test.ts` 单跑 58/60、与 `workspace-files.test.ts` 并行时掉到 55/60，失败全是 10s 整的超时形状 —— 加载 14 × 27.3 MiB 模块本身就慢。
 
 ## 10. sync 成本的权衡（本轮按用户决定处理）
 

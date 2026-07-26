@@ -10,6 +10,7 @@ import {
     PROFILE_COMPILED_MANIFEST_FILE,
     PROFILE_COMPILED_PUBLISH_LOCK,
     pruneCompiledArtifacts,
+    sweepProfileArtifactBudget,
     type ProfileArtifactManifest,
     type ProfileArtifactManifestItem,
 } from "nbook/server/agent/profiles/profile-artifact-compiler";
@@ -61,6 +62,30 @@ function manifestWith(shas: string[]): ProfileArtifactManifest {
         generatedAt: new Date(0).toISOString(),
         profilesRoot: "assets/workspace/.nbook/agent/profiles",
         entries: profiles,
+        profiles,
+    };
+}
+
+/** 磁盘 manifest 是 profileKey 映射，且字段名与内存形态不同（artifactSha256 -> artifactSha）。 */
+function serializedManifest(shas: string[]): {compilerVersion: number; generatedAt: string; profilesRoot: string; profiles: Record<string, unknown>} {
+    const profiles: Record<string, unknown> = {};
+    manifestWith(shas).profiles.forEach((item, index) => {
+        profiles[`p${index}`] = {
+            status: "loaded",
+            fileName: item.fileName,
+            profileKey: item.profileKey,
+            sourceSha256: item.sourceSha256,
+            sourceBytes: item.sourceBytes,
+            dependencyHash: item.dependencyHash,
+            artifactSha: item.artifactSha256,
+            artifactBytes: item.artifactBytes,
+            dependencies: [],
+        };
+    });
+    return {
+        compilerVersion: PROFILE_ARTIFACT_COMPILER_VERSION,
+        generatedAt: new Date(0).toISOString(),
+        profilesRoot: "assets/workspace/.nbook/agent/profiles",
         profiles,
     };
 }
@@ -152,6 +177,35 @@ describe("Profile artifact GC", () => {
 
         await expect(stat(join(compiledDir, PROFILE_COMPILED_MANIFEST_FILE))).resolves.toBeTruthy();
         await expect(stat(join(compiledDir, PROFILE_COMPILED_PUBLISH_LOCK))).resolves.toBeTruthy();
+    });
+
+    it("零写入 sweep 也能把超预算 orphan 收敛回预算内", async () => {
+        // 发布时被最小安全年龄地板挡下的 orphan，只有等下一次真实发布才会被重新考虑。
+        // 长期不发布时这份超预算会一直留在盘上，所以 sweep 入口不能依赖 publishRequired。
+        const compiledDir = await createCompiledDir();
+        const profileRoot = join(compiledDir, "..");
+        const hour = 60 * 60 * 1000;
+        await writeArtifact(compiledDir, "current", 100, hour);
+        await writeArtifact(compiledDir, "stale1", 100, 5 * hour);
+        await writeArtifact(compiledDir, "stale2", 100, 4 * hour);
+        await writeFile(join(compiledDir, PROFILE_COMPILED_MANIFEST_FILE), JSON.stringify(serializedManifest(["current"])), "utf8");
+
+        const report = await sweepProfileArtifactBudget(profileRoot, 100);
+
+        expect(report).not.toBeNull();
+        expect(report?.trigger).toBe("sweep");
+        expect(await artifactNames(compiledDir)).toEqual(["current.mjs", "stale2.mjs"]);
+    });
+
+    it("sweep 预检发现全部可达时直接返回 null，不取发布锁", async () => {
+        const compiledDir = await createCompiledDir();
+        const profileRoot = join(compiledDir, "..");
+        await writeArtifact(compiledDir, "current", 100, 60 * 60 * 1000);
+        await writeFile(join(compiledDir, PROFILE_COMPILED_MANIFEST_FILE), JSON.stringify(serializedManifest(["current"])), "utf8");
+
+        await expect(sweepProfileArtifactBudget(profileRoot, 1)).resolves.toBeNull();
+        // 没取过锁：稳态下每次启动只付一次 readdir。
+        await expect(stat(join(compiledDir, PROFILE_COMPILED_PUBLISH_LOCK))).rejects.toMatchObject({code: "ENOENT"});
     });
 
     it("把 current artifact 的 mtime 刷新成最后一次被引用的时间", async () => {

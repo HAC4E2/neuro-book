@@ -44,7 +44,7 @@ export type ProfileArtifactDependency = {
 };
 
 /** artifact 回收的触发入口。 */
-export type ProfileArtifactGcTrigger = "publish";
+export type ProfileArtifactGcTrigger = "publish" | "sweep";
 
 /** 一次内容寻址 artifact 回收的完整账目。current 引用永不计入可驱逐字节。 */
 export type ProfileArtifactGcReport = {
@@ -147,6 +147,8 @@ export type CompileProfileArtifactsResult = {
     compiledDir: string;
     manifestPath: string;
     compiled: ProfileArtifactManifestItem[];
+    /** 本次回收账目；只读 root 或预检判定无孤儿时为空。 */
+    gc?: ProfileArtifactGcReport | null;
 };
 
 export type StagedProfileArtifactsResult = CompileProfileArtifactsResult & {
@@ -380,11 +382,18 @@ export async function compileProfileArtifacts(options: CompileProfileArtifactsOp
             await assertProfileFullReleaseFresh(staged.profileRoot, staged.sourceFilesAtStart, staged.manifest.entries);
         }
         if (!staged.publishRequired) {
+            // 零写入路径也必须能回收。发布时被最小安全年龄地板挡下的 orphan，
+            // 只有等下一次真实发布才会被重新考虑；如果之后长期没有发布，这份超预算
+            // 会一直留在盘上。实测到过 765 MiB 可驱逐 orphan 停在 512 MiB 预算之上。
+            const gc = options.writePolicy === "forbid"
+                ? undefined
+                : await sweepProfileArtifactBudget(staged.profileRoot);
             return {
                 manifest: staged.manifest,
                 compiledDir: staged.compiledDir,
                 manifestPath: staged.manifestPath,
                 compiled: staged.compiled,
+                gc,
             };
         }
         await new ProfileReleasePublisher({
@@ -1203,6 +1212,46 @@ async function commitCompiledArtifactEntries(buildCompiledDir: string, compiledD
         await writeJsonIfChanged(join(compiledDir, PROFILE_COMPILED_MANIFEST_FILE), serializeProfileArtifactManifest(manifest));
         logProfileArtifactGc(compiledDir, await pruneCompiledArtifacts(compiledDir, manifest, "publish"));
         return manifest;
+    });
+}
+
+/**
+ * 不发布新 release，只把 `.compiled/artifacts` 收敛回预算内。
+ *
+ * 只读 root（`writePolicy: "forbid"`，即 Product 内置 assets）不得调用：那是只读安装目录，
+ * 在那里删文件等于篡改 Product 安装。
+ *
+ * 两阶段，避免每次启动都付取锁的代价：先无锁 readdir 做廉价预检，全部可达就直接返回；
+ * 确实有 orphan 才进 publish lock，并**在锁内重读磁盘 manifest**重建可达集合
+ * ——不能用预检时那份，并发 Publisher 可能已经加了 entry。
+ *
+ * 返回 null 表示预检认定无事可做，未取锁。
+ */
+export async function sweepProfileArtifactBudget(
+    profileRoot: string,
+    budgetBytes: number = PROFILE_COMPILED_ORPHAN_BUDGET_BYTES,
+): Promise<ProfileArtifactGcReport | null> {
+    const compiledDir = join(resolve(profileRoot), PROFILE_COMPILED_DIR_NAME);
+    const artifactsDir = join(compiledDir, PROFILE_COMPILED_ARTIFACTS_DIR_NAME);
+    const names = await readdir(artifactsDir).catch(() => []);
+    if (names.length === 0) {
+        return null;
+    }
+    const preflight = await readProfileArtifactManifest(dirname(compiledDir)).catch(() => null);
+    if (!preflight) {
+        return null;
+    }
+    const reachable = new Set(preflight.profiles.flatMap((item) => [item.artifactFileName, item.typeFileName]
+        .filter((name): name is string => Boolean(name))
+        .map((name) => name.split("/").pop() ?? name)));
+    if (names.every((name) => reachable.has(name))) {
+        return null;
+    }
+    return withCompiledPublishLock(compiledDir, async () => {
+        const manifest = await readProfileArtifactManifest(dirname(compiledDir));
+        const report = await pruneCompiledArtifacts(compiledDir, manifest, "sweep", budgetBytes);
+        logProfileArtifactGc(compiledDir, report);
+        return report;
     });
 }
 

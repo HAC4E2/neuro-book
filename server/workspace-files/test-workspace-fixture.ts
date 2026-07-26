@@ -45,9 +45,9 @@ const processRunId = randomUUID();
 /**
  * system assets 的投影方式。
  *
- * - `shared`：`<root>/assets` 由 run 级 snapshot 硬链接投影而来，几乎零字节、零耗时，但内容与
- *   其它 fixture 共享，**只可读**。
- * - `isolated`：真实拷贝，供**会写入 system assets** 的测试独占。
+ * - `shared`：`<root>/assets` 由 run 级 snapshot 投影而来。可变文件各自持有独立副本（约 4 MB），
+ *   只有内容寻址的不可变 artifact 走硬链接（约 382 MiB 共享 inode）。
+ * - `isolated`：整棵树真实拷贝，供**会写入 system `.compiled` artifact** 的测试独占。
  */
 export type SystemAssetsMode = "shared" | "isolated";
 
@@ -171,11 +171,11 @@ async function initializeFixture(root: string, options: IsolatedWorkspaceAssetsO
     await mkdir(path.dirname(systemNbookRoot), {recursive: true});
     const snapshotNbookRoot = path.join(snapshotRoot, "assets", "workspace", ".nbook");
     if (systemAssets === "shared") {
-        // 共享模式用硬链接投影，而不是 junction。
+        // 共享模式：真实目录项投影，只有不可变 artifact 走硬链接。
         // junction 会被子进程 realpath 穿透：测试里 `bun <fixture>/assets/.../agent/scripts/workspace.ts`
         // 解析出的入口是 snapshot 内的真实路径，脚本随之把 snapshot 当成自己的 Workspace Root。
         // 硬链接是真实目录项，没有 reparse point，既不会被穿透，又不额外占空间。
-        await linkTreeWithHardLinks(snapshotNbookRoot, systemNbookRoot);
+        await projectSystemAssets(snapshotNbookRoot, systemNbookRoot);
     } else {
         // 独占可写副本：来源已经是投影结果，这里不再重复过滤。
         await cp(snapshotNbookRoot, systemNbookRoot, {recursive: true, force: true});
@@ -408,34 +408,43 @@ export function systemAssetsProjectionFilter(
 }
 
 /**
- * 用硬链接把 snapshot 的 system assets 投影到 fixture root。
+ * 把 snapshot 的 system assets 投影到 fixture root：**只对不可变 artifact 用硬链接，其余真实复制**。
  *
- * 目录逐级真实创建，文件一律硬链接；硬链接是真实目录项，子进程 realpath 不会穿透到
- * snapshot，同时 14 个约 27 MiB 的 artifact 不产生任何额外字节。
- * 跨卷等无法建链接的情况回退到普通复制。
+ * 体积几乎全在 `.compiled/artifacts/<sha>.mjs`（14 个约 27 MiB），它们是内容寻址的不可变文件，
+ * 换内容就换文件名，永远不会被原地改写，因此硬链接共享 inode 是安全的。
+ * 其余源码、manifest、skill 等都是可能被测试改写的可变文件，必须各自持有独立副本 ——
+ * 否则一个 fixture 的写入会经由共享 inode 污染 snapshot 和所有并行 fixture 的视图。
  *
- * 语义前提：共享模式下测试**只读** system assets。会写 system assets 的测试必须显式
- * 申请 `systemAssets: "isolated"`，否则会经由硬链接改到所有 fixture 共享的那份内容。
+ * 全部用真实目录项（不用 junction）：junction 会被子进程 realpath 穿透，
+ * 让 `bun <fixture>/assets/.../workspace.ts` 把 snapshot 当成自己的 Workspace Root。
  */
-async function linkTreeWithHardLinks(sourceRoot: string, targetRoot: string): Promise<void> {
-    await mkdir(targetRoot, {recursive: true});
-    const entries = await readdir(sourceRoot, {withFileTypes: true});
-    for (const entry of entries) {
-        const source = path.join(sourceRoot, entry.name);
-        const target = path.join(targetRoot, entry.name);
-        if (entry.isDirectory()) {
-            await linkTreeWithHardLinks(source, target);
-            continue;
+async function projectSystemAssets(sourceRoot: string, targetRoot: string): Promise<void> {
+    const artifactsSegment = `${path.sep}${PROFILE_COMPILED_DIR_NAME}${path.sep}${PROFILE_COMPILED_ARTIFACTS_DIR_NAME}${path.sep}`;
+    const walk = async (source: string, target: string): Promise<void> => {
+        await mkdir(target, {recursive: true});
+        for (const entry of await readdir(source, {withFileTypes: true})) {
+            const sourcePath = path.join(source, entry.name);
+            const targetPath = path.join(target, entry.name);
+            if (entry.isDirectory()) {
+                await walk(sourcePath, targetPath);
+                continue;
+            }
+            if (!entry.isFile()) {
+                continue;
+            }
+            if (!sourcePath.includes(artifactsSegment)) {
+                await copyFile(sourcePath, targetPath);
+                continue;
+            }
+            // 内容寻址 artifact：共享 inode 安全，且省掉每个 fixture 约 382 MiB 的复制。
+            try {
+                await link(sourcePath, targetPath);
+            } catch {
+                await copyFile(sourcePath, targetPath);
+            }
         }
-        if (!entry.isFile()) {
-            continue;
-        }
-        try {
-            await link(source, target);
-        } catch {
-            await copyFile(source, target);
-        }
-    }
+    };
+    await walk(sourceRoot, targetRoot);
 }
 
 /**

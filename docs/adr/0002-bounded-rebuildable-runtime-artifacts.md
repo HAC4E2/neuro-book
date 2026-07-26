@@ -33,6 +33,7 @@ Published Profile Artifacts 与 Runtime Import Cache 分开拥有生命周期：
 实施时补充了两条本 ADR 原文没有写、但属于同一原则的约束：
 
 - **最小安全年龄地板优先于硬预算。** 硬预算不得删除刚脱离 current 集合的 artifact，因为并发读者可能已经读到上一版 manifest 并正准备 import 其中的 artifact。因此硬预算是「稳态上界」而非「瞬时上界」，短时间高频发布可以短暂超出并被上报。
+- **预算只约束不可达集合，不是目录总量上限。** current release 按合同不可驱逐，因此单个 root 的稳态是 `current + orphan`。定预算时必须同时看「一代 release 有多大」：一代占满预算的大部分时，预算实际只买到一代多一点的回滚余量，此时该调的是 artifact 体积而不是预算数字。
 - **可达集合为空时不执行预算回收。** manifest 没有任何 loaded entry 属于退化态（例如宿主依赖临时缺失导致全量编译失败），此时把「全部 artifact 都不可达」当成「全部都是垃圾」会在一个瞬时故障窗口里清空整个 release 目录。
 
 ## 原因

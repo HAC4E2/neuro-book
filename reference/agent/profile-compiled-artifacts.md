@@ -87,7 +87,12 @@ Runtime reader 会规范化为：
 
 ## GC
 
-GC 在 publish lock 内、manifest 写入之后执行，只清理 `.compiled/artifacts/` 中不被 current manifest 引用的 artifact/type artifact。
+GC 有两个入口，都在 publish lock 内执行，都只清理 `.compiled/artifacts/` 中不被 current manifest 引用的 artifact/type artifact：
+
+- **发布后回收**（`trigger: "publish"`）：manifest 写入之后。
+- **零写入 sweep**（`trigger: "sweep"`）：`compileProfileArtifacts` 在 `publishRequired === false` 早退时调用 `sweepProfileArtifactBudget()`。**这个入口不可省**——最小安全年龄地板会在发布时挡下刚变成 orphan 的一整代，若只在发布时回收，长期不发布的 root 会一直停在预算之上。sweep 先无锁 `readdir` 预检，全部可达就直接返回不取锁；`writePolicy: "forbid"` 的只读 Product root 一个文件都不删。
+
+**预算只约束不可达集合，不是目录总量上限。** current release 不可驱逐且天然无界，单 root 稳态是 `current + orphan`；定预算时要同时看「一代 release 有多大」。
 
 优先级：**最小安全年龄地板 > 硬字节预算 > orphan grace**。
 
