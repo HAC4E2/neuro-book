@@ -9,10 +9,10 @@ import {
     type TagIndexSourceTag,
 } from "nbook/shared/text-to-image-tag-index";
 import {hashTextToImageContract} from "nbook/shared/text-to-image-contract-hash";
-import {
-    DANBOORU_SOURCE_CLIENT_VERSION,
-    type DanbooruSourceReader,
-} from "nbook/server/text-to-image/tag-index/danbooru-source-client";
+import type {
+    TagSourceDescriptor,
+    TagSourceReader,
+} from "nbook/server/text-to-image/tag-index/tag-source-client";
 import {buildTagIndexVersion} from "nbook/server/text-to-image/tag-index/tag-index-builder";
 import {TagIndexError, TagIndexErrorCodeSchema} from "nbook/server/text-to-image/tag-index/tag-index-error";
 import {normalizeTagIndexSnapshot} from "nbook/server/text-to-image/tag-index/tag-index-normalizer";
@@ -29,7 +29,7 @@ type TagIndexTerms = {
 
 type TagIndexInstallServiceOptions = {
     store: TagIndexStore;
-    sourceClient: DanbooruSourceReader;
+    sourceClient: TagSourceReader;
     workerId: string;
     idFactory: () => string;
     capabilityVersion: string;
@@ -43,6 +43,7 @@ type TagIndexInstallServiceOptions = {
 export class TagIndexInstallService {
     private readonly store: TagIndexStore;
     private readonly sourceSync: TagIndexSyncService;
+    private readonly sourceDescriptor: TagSourceDescriptor;
     private readonly workerId: string;
     private readonly capabilityVersion: string;
     private readonly terms: TagIndexTerms;
@@ -51,6 +52,7 @@ export class TagIndexInstallService {
 
     constructor(options: TagIndexInstallServiceOptions) {
         this.store = options.store;
+        this.sourceDescriptor = options.sourceClient.descriptor;
         this.workerId = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,199}$/u).parse(options.workerId);
         this.capabilityVersion = z.string().trim().min(1).max(160).parse(options.capabilityVersion);
         this.terms = {
@@ -105,7 +107,7 @@ export class TagIndexInstallService {
             operation = await this.checkCanceled(operation);
             if (operation.state === "canceled") return operation;
             operation = await this.transition(operation, "normalizing");
-            const snapshot = await createSourceSnapshot(this.store, operation);
+            const snapshot = await createSourceSnapshot(this.store, operation, this.sourceDescriptor);
             const normalized = normalizeTagIndexSnapshot({snapshot, capabilityVersion: this.capabilityVersion});
 
             operation = await this.checkCanceled(operation);
@@ -205,7 +207,7 @@ export class TagIndexInstallService {
 }
 
 /** 从 create-only page cache 构造 builder 唯一 source snapshot。 */
-async function createSourceSnapshot(store: TagIndexStore, operation: TagIndexOperation) {
+async function createSourceSnapshot(store: TagIndexStore, operation: TagIndexOperation, descriptor: TagSourceDescriptor) {
     if (!operation.source.verifiedHashes) {
         throw new TagIndexError({code: "TAG_INDEX_SYNC_INCOMPLETE", message: "source reconciliation 尚未完成"});
     }
@@ -217,10 +219,11 @@ async function createSourceSnapshot(store: TagIndexStore, operation: TagIndexOpe
     const factsHash = hashTextToImageContract({tags, aliases, implications});
     return TagIndexSourceSnapshotSchema.parse({
         schemaVersion: "nbook.tag-index-source-snapshot/v1",
-        sourceKind: "danbooru-api",
-        sourceEndpoint: "https://danbooru.donmai.us",
+        sourceKind: descriptor.kind,
+        sourceEndpoint: descriptor.endpoint,
         minPostCount: 3000,
-        sourceClientVersion: DANBOORU_SOURCE_CLIENT_VERSION,
+        sourceClientVersion: descriptor.clientVersion,
+        providedResources: [...descriptor.providedResources],
         fetchedAt: operation.requestedAt,
         pages: pages.map((page) => page.provenance),
         tags,

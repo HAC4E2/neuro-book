@@ -3,11 +3,15 @@ import os from "node:os";
 import path from "node:path";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import type {
-    DanbooruSourcePage,
-    DanbooruSourcePass,
-    DanbooruSourceReader,
-    DanbooruSourceResource,
-} from "nbook/server/text-to-image/tag-index/danbooru-source-client";
+    TagSourcePage,
+    TagSourcePass,
+    TagSourceReader,
+    TagSourceResource,
+} from "nbook/server/text-to-image/tag-index/tag-source-client";
+import {
+    TAG_INDEX_SOURCE_ENDPOINT,
+    TAG_INDEX_SOURCE_KIND,
+} from "nbook/shared/text-to-image-tag-index";
 import {TagIndexStore} from "nbook/server/text-to-image/tag-index/tag-index-store";
 import {TagIndexSyncService} from "nbook/server/text-to-image/tag-index/tag-index-sync.service";
 
@@ -15,13 +19,19 @@ const HASH_A = `sha256:${"a".repeat(64)}`;
 const WATERMARKS = {tags: 2, aliases: 1, implications: 1} as const;
 
 /** 构造两轮一致的最小 source reader。 */
-function sourceReader(options: {failOnceAt?: DanbooruSourceResource; driftReconciliation?: boolean} = {}): {
-    reader: DanbooruSourceReader;
-    calls: Array<{resource: DanbooruSourceResource; pass: DanbooruSourcePass}>;
+function sourceReader(options: {failOnceAt?: TagSourceResource; driftReconciliation?: boolean} = {}): {
+    reader: TagSourceReader;
+    calls: Array<{resource: TagSourceResource; pass: TagSourcePass}>;
 } {
     let failed = false;
-    const calls: Array<{resource: DanbooruSourceResource; pass: DanbooruSourcePass}> = [];
-    const reader: DanbooruSourceReader = {
+    const calls: Array<{resource: TagSourceResource; pass: TagSourcePass}> = [];
+    const reader: TagSourceReader = {
+        descriptor: {
+            kind: TAG_INDEX_SOURCE_KIND,
+            endpoint: TAG_INDEX_SOURCE_ENDPOINT,
+            clientVersion: "test-source-v1",
+            providedResources: ["tags", "aliases", "implications"],
+        },
         readWatermark: vi.fn(async (resource) => WATERMARKS[resource]),
         readPage: vi.fn(async (input) => {
             calls.push({resource: input.resource, pass: input.pass});
@@ -70,7 +80,7 @@ function sourceReader(options: {failOnceAt?: DanbooruSourceResource; driftReconc
                         },
                     ],
                     ...common,
-                } satisfies DanbooruSourcePage;
+                } satisfies TagSourcePage;
             }
             return {
                 resource: input.resource,
@@ -82,7 +92,7 @@ function sourceReader(options: {failOnceAt?: DanbooruSourceResource; driftReconc
                     updatedAt: "2026-07-20T00:00:00.000Z",
                 }],
                 ...common,
-            } satisfies DanbooruSourcePage;
+            } satisfies TagSourcePage;
         }),
     };
     return {reader, calls};

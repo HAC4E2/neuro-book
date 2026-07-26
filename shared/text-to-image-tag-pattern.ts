@@ -26,9 +26,9 @@ const PatternReviewSchema = z.discriminatedUnion("status", [
         status: z.literal("approved"),
         approvedPlanningHash: TextToImageContractHashSchema,
         approvedRenderHash: TextToImageContractHashSchema,
-        /** Chatu8 来源冻结批准时的原始字节 hash；非 Chatu8 来源固定为 null。 */
+        /** TTP 来源冻结批准时的原始字节 hash；非 TTP 来源固定为 null。 */
         approvedRawSourceHash: TextToImageContractHashSchema.nullable(),
-        /** Chatu8 来源冻结批准时的脱敏归档 hash；非 Chatu8 来源固定为 null。 */
+        /** TTP 来源冻结批准时的脱敏归档 hash；非 TTP 来源固定为 null。 */
         approvedSanitizedSourceHash: TextToImageContractHashSchema.nullable(),
     }).strict(),
     z.object({status: z.literal("rejected"), rejectedReason: z.string().trim().min(1).max(500)}).strict(),
@@ -313,7 +313,7 @@ export function resolveTagPatternReviewState(input: TagPatternSet): TagPatternRe
     if (patternSet.risks.some((risk) => risk.severity === "blocking")) {
         return "pending";
     }
-    const sourceMatches = patternSet.source.kind === "chatu8"
+    const sourceMatches = patternSet.source.kind === "ttp"
         ? patternSet.review.approvedRawSourceHash === patternSet.source.rawSourceHash
             && patternSet.review.approvedSanitizedSourceHash === patternSet.source.sanitizedSourceHash
         : patternSet.review.approvedRawSourceHash === null

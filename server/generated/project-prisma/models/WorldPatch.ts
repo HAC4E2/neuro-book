@@ -245,7 +245,7 @@ export type WorldPatchGroupByOutputType = {
   _max: WorldPatchMaxAggregateOutputType | null
 }
 
-export type GetWorldPatchGroupByPayload<T extends WorldPatchGroupByArgs> = Prisma.PrismaPromise<
+type GetWorldPatchGroupByPayload<T extends WorldPatchGroupByArgs> = Prisma.PrismaPromise<
   Array<
     Prisma.PickEnumerable<WorldPatchGroupByOutputType, T['by']> &
       {
@@ -1581,11 +1581,6 @@ export type WorldPatchFindManyArgs<ExtArgs extends runtime.Types.Extensions.Inte
    * Skip the first `n` WorldPatches.
    */
   skip?: number
-  /**
-   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
-   * 
-   * Filter by unique combinations of WorldPatches.
-   */
   distinct?: Prisma.WorldPatchScalarFieldEnum | Prisma.WorldPatchScalarFieldEnum[]
 }
 

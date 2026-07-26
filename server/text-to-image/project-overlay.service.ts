@@ -1,6 +1,5 @@
 import {
     createGlobalProfileHomeFacade,
-    resolveProjectRootForProfileHome,
 } from "nbook/server/agent/profiles/profile-home";
 import {
     readIllustrationDirectorSelectorSnapshot,
@@ -48,7 +47,8 @@ import {
     type TagPatternSet,
 } from "nbook/shared/text-to-image-tag-pattern";
 import {assertProjectOpen} from "nbook/server/workspace-files/project-session";
-import {resolveWorkspaceRootInput} from "nbook/server/text-to-image/compat";
+import {ensureDefaultStoryboardPreset} from "nbook/server/text-to-image/storyboard-preset-init";
+import {resolveGlobalProfileNbookRoot, resolveWorkspaceRootInput} from "nbook/server/text-to-image/compat";
 import {invalidateProjectWorkspaceIndexAfterMutation} from "nbook/server/workspace-files/project-workspace-index";
 import {
     readWorkspaceTextFile,
@@ -265,6 +265,8 @@ export class ProjectOverlayService {
     }
 
     private async readActiveCompanion(): Promise<ActiveCompanion> {
+        // 确保默认预设存在后再读取
+        await ensureDefaultStoryboardPreset();
         const selector = await this.selector.read();
         const presetPath = selector.storyboardPresetKey;
         const patternPath = presetPath.replace(/^storyboard-presets\//u, "tag-patterns/");
@@ -297,8 +299,11 @@ export class ProjectOverlayService {
             };
         } catch (error) {
             if (error instanceof ProjectOverlayError) throw error;
-            const message = error instanceof Error ? error.message : String(error);
-            const code = message.includes("TAG_PATTERN") ? "TAG_PATTERN_SET_STALE" : "STORYBOARD_PRESET_STALE";
+            const rawMessage = error instanceof Error ? error.message : String(error);
+            const code = rawMessage.includes("TAG_PATTERN") ? "TAG_PATTERN_SET_STALE" : "STORYBOARD_PRESET_STALE";
+            const message = rawMessage.startsWith(`${code}: `)
+                ? rawMessage.slice(code.length + 2)
+                : rawMessage;
             throw new ProjectOverlayError(code, message);
         }
     }
@@ -308,7 +313,7 @@ class WorkspaceProjectOverlayFileStore implements ProjectOverlayFileStore {
     private readonly globalHome;
 
     constructor(workspaceRoot?: string) {
-        this.globalHome = createGlobalProfileHomeFacade(resolveProjectRootForProfileHome(workspaceRoot as any, undefined)! as any, PROFILE_KEY);
+        this.globalHome = createGlobalProfileHomeFacade(resolveGlobalProfileNbookRoot(workspaceRoot), PROFILE_KEY);
     }
 
     async resolveProjectRoot(projectPath: string): Promise<string> {

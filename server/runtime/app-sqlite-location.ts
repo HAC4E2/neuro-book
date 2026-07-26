@@ -1,5 +1,6 @@
 import path from "node:path";
 import {existsSync, realpathSync} from "node:fs";
+import {localPathForFileUrl} from "nbook/server/runtime/paths/file-path";
 
 /** App SQLite在宿主机与容器中的统一位置描述。 */
 export type AppSqliteLocation = {
@@ -50,7 +51,7 @@ export function resolveAppSqliteLocation(configuredUrl: string, stateRoot: strin
         throw new Error("SQLite DATABASE_URL 不支持Windows UNC路径。" );
     }
 
-    const statePath = path.resolve(stateRoot);
+    const statePath = path.resolve(localPathForFileUrl(stateRoot));
     let hostPath: string;
     let explicitAbsolute = false;
     if (windowsDrivePath) {

@@ -101,6 +101,19 @@ describe("SQLite Location", () => {
         expect(location.hostPath).toBe("C:\\NeuroBook\\data\\app.sqlite");
         expect(location.connectionUrl).toBe("file:C:/NeuroBook/data/app.sqlite");
     });
+
+    it.runIf(process.platform === "win32")("Windows namespace State Root生成可重复解析的URL", () => {
+        const stateRoot = "\\\\?\\C:\\NeuroBook\\data";
+        const firstLocation = resolveAppSqliteLocation("file:./workspace/.nbook/app.sqlite", stateRoot);
+        const secondLocation = resolveAppSqliteLocation(firstLocation.connectionUrl, stateRoot);
+
+        expect(firstLocation.hostPath).toBe("C:\\NeuroBook\\data\\workspace\\.nbook\\app.sqlite");
+        expect(firstLocation.connectionUrl).toBe("file:C:/NeuroBook/data/workspace/.nbook/app.sqlite");
+        expect(secondLocation).toEqual({
+            ...firstLocation,
+            configuredUrl: firstLocation.connectionUrl,
+        });
+    });
 });
 
 /** 将绝对路径编码为当前libsql已验证的本机file URL格式。 */

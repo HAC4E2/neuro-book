@@ -36,6 +36,30 @@ describe("Illustration Compiler", () => {
         expect(result.executionManifestHash).toMatch(/^sha256:/u);
     });
 
+    it("compiles a no-registered-character shot from terminal transient visual tags", async () => {
+        const base = compileInput();
+        const transientFigure = canonical("young traveler, dark cloak", 4001);
+        const result = await compileIllustration({
+            ...base,
+            shot: {
+                ...base.shot,
+                characterIds: [],
+                outfitRefs: [],
+                action: {},
+                tagResolutions: {transientFigure},
+                tagDelta: {prefer: ["transientFigure"], avoid: []},
+            },
+            characters: {
+                ...base.characters,
+                characters: [],
+                renderTagFactsHash: hashTextToImageContract({characters: []}),
+            },
+        }, {resolutionValidator: modelValidator()});
+
+        expect(result.request.characterPrompts).toEqual([]);
+        expect(result.request.prompt).toContain("young traveler, dark cloak");
+    });
+
     it("dedupes deterministically, lets shot avoid remove a non-mandatory Pattern suggestion, and blocks mandatory conflicts", async () => {
         const base = compileInput();
         const duplicateRain = resolvedStyle("rain", 1001);
@@ -270,7 +294,7 @@ function recipeSnapshot(style: {
     negativeQualityPreset?: "none" | "heavy" | "light" | "humanFocus" | "furryFocus";
 }) {
     const source = {
-        schemaVersion: 2 as const,
+        schemaVersion: 3 as const,
         recipeId: "default" as const,
         title: "Route B",
         model: "nai-diffusion-4-5-full",
@@ -282,7 +306,9 @@ function recipeSnapshot(style: {
         dimensions: {mode: "byIntent" as const, fixed: {width: 832, height: 1216}, portrait: {width: 832, height: 1216}, landscape: {width: 1216, height: 832}, square: {width: 1024, height: 1024}},
         seed: {policy: "random" as const, fixed: 0},
         advanced: {aiDefaultCharacterPosition: true, variety: false, smeaMode: "auto" as const, smeaDyn: false, decrisper: false},
-        style: {
+        styles: [{
+            id: "compiler-test",
+            name: "编译测试画风",
             positivePrefix: style.positivePrefix ?? "",
             positiveSuffix: "",
             negativePrefix: style.negativePrefix ?? "",
@@ -290,7 +316,8 @@ function recipeSnapshot(style: {
             useFurryDataset: false,
             positiveQualityPreset: style.positiveQualityPreset ?? false,
             negativeQualityPreset: style.negativeQualityPreset ?? "none",
-        },
+        }],
+        activeStyleId: "compiler-test",
         references: {
             normalizeVibeStrengths: true,
             vibeReferences: [],

@@ -206,8 +206,8 @@ function createResolvedPreview(): StoryboardImportResolvedPreview {
         title: "Candidate",
         enabled: true,
         source: {
-            kind: "chatu8",
-            importId: "c8i.publish",
+            kind: "ttp",
+            importId: "ttpi.publish",
             rawSourceHash: HASH_RAW,
             sanitizedSourceHash: HASH_SANITIZED,
             converterVersion: "converter-v1",
@@ -248,12 +248,12 @@ function createResolvedPreview(): StoryboardImportResolvedPreview {
         diagnosticHash: HASH_DIAGNOSTIC,
     });
     const digest = candidatePackageHash.slice("sha256:".length);
-    const identity = {packageId: `c8pkg.${digest}`, resourceKey: `candidate.preset--${digest}`};
+    const identity = {packageId: `ttppkg.${digest}`, resourceKey: `candidate.preset--${digest}`};
     const storyboard = StoryboardPresetSchema.parse({...unboundStoryboard, ...identity});
     const patterns = TagPatternSetSchema.parse({...unboundPatterns, ...identity});
     const report = {
         schemaVersion: "nbook.storyboard-import-report/v1" as const,
-        importId: "c8i.publish",
+        importId: "ttpi.publish",
         sourceProjectPath: "workspace/demo",
         sourceRelativePath: "upload/source.json" as const,
         sourceShape: "direct_entries" as const,
@@ -275,7 +275,7 @@ function createResolvedPreview(): StoryboardImportResolvedPreview {
     const packageBase = {
         schemaVersion: "nbook.storyboard-import-candidate-package/v1" as const,
         state: "pending" as const,
-        importId: "c8i.publish",
+        importId: "ttpi.publish",
         presetId: storyboard.presetId,
         patternSetId: patterns.patternSetId,
         ...identity,

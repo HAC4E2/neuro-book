@@ -2,6 +2,7 @@ import {createHash} from "node:crypto";
 import YAML from "yaml";
 import {
     TextToImageRecipeSourceSchema,
+    normalizeTextToImageRecipeSourceInput,
     type TextToImageRecipeSnapshot,
     type TextToImageRecipeSource,
 } from "nbook/shared/text-to-image-recipe";
@@ -39,7 +40,7 @@ export function parseTextToImageRecipeMarkdown(markdown: string): TextToImageRec
     if (!isPlainObject(ext) || !("textToImageRecipe" in ext)) {
         throw new Error("Recipe frontmatter 缺少 ext.textToImageRecipe");
     }
-    return TextToImageRecipeSourceSchema.parse(ext.textToImageRecipe);
+    return TextToImageRecipeSourceSchema.parse(normalizeTextToImageRecipeSourceInput(ext.textToImageRecipe));
 }
 
 /** 规范渲染 Project Recipe 内容节点；正文仅作人类说明，不参与执行 hash。 */

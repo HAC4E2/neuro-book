@@ -1,10 +1,10 @@
 import {z} from "zod";
 import {TextToImageContractHashSchema} from "nbook/shared/text-to-image-tag-resolution";
 
-export const CHATU8_CHARACTER_VISUAL_SOURCE_SCHEMA_VERSION = "nbook.chatu8-character-visual-source/v1" as const;
+export const TTP_CHARACTER_VISUAL_SOURCE_SCHEMA_VERSION = "nbook.ttp-character-visual-source/v1" as const;
 
-export const Chatu8SourceCharacterIdSchema = z.string().regex(/^chatu8-character-[a-f0-9]{24}$/u);
-export const Chatu8SourceOutfitIdSchema = z.string().regex(/^chatu8-outfit-[a-f0-9]{24}$/u);
+export const TtpSourceCharacterIdSchema = z.string().regex(/^ttp-character-[a-f0-9]{24}$/u);
+export const TtpSourceOutfitIdSchema = z.string().regex(/^ttp-outfit-[a-f0-9]{24}$/u);
 const SourceKeySchema = z.string().trim().min(1).max(500);
 export const CharacterVisualSourceRelativePathSchema = z.string()
     .regex(/^upload\/[^/\\]+\.json$/u)
@@ -38,7 +38,7 @@ const SourceOutfitFieldsSchema = z.object({
     lowerBack: z.string().max(120000),
 }).strict();
 
-export const Chatu8CharacterVisualSourceDiagnosticSchema = z.object({
+export const TtpCharacterVisualSourceDiagnosticSchema = z.object({
     code: z.enum([
         "ENCRYPTED_EXPORT_UNSUPPORTED",
         "TAGDATA_FORBIDDEN",
@@ -60,22 +60,22 @@ export const Chatu8CharacterVisualSourceDiagnosticSchema = z.object({
     message: z.string().min(1).max(1000),
 }).strict();
 
-export type Chatu8CharacterVisualSourceDiagnostic = z.infer<typeof Chatu8CharacterVisualSourceDiagnosticSchema>;
+export type TtpCharacterVisualSourceDiagnostic = z.infer<typeof TtpCharacterVisualSourceDiagnosticSchema>;
 
-export const Chatu8CharacterVisualSourceOutfitSchema = z.object({
-    sourceOutfitId: Chatu8SourceOutfitIdSchema,
+export const TtpCharacterVisualSourceOutfitSchema = z.object({
+    sourceOutfitId: TtpSourceOutfitIdSchema,
     sourceKey: SourceKeySchema,
-    ownerSourceCharacterId: Chatu8SourceCharacterIdSchema,
+    ownerSourceCharacterId: TtpSourceCharacterIdSchema,
     names: z.object({cn: z.string().trim().max(160), en: z.string().trim().max(160)}).strict(),
     fields: SourceOutfitFieldsSchema,
 }).strict();
 
-export const Chatu8CharacterVisualSourceCharacterSchema = z.object({
-    sourceCharacterId: Chatu8SourceCharacterIdSchema,
+export const TtpCharacterVisualSourceCharacterSchema = z.object({
+    sourceCharacterId: TtpSourceCharacterIdSchema,
     sourceKey: SourceKeySchema,
     names: z.object({cn: z.string().trim().max(160), en: z.string().trim().max(160)}).strict(),
     fields: SourceCharacterFieldsSchema,
-    outfits: z.array(Chatu8CharacterVisualSourceOutfitSchema).max(256),
+    outfits: z.array(TtpCharacterVisualSourceOutfitSchema).max(256),
 }).strict().superRefine((character, context) => {
     const outfitIds = character.outfits.map((outfit) => outfit.sourceOutfitId);
     if (new Set(outfitIds).size !== outfitIds.length) {
@@ -88,16 +88,16 @@ export const Chatu8CharacterVisualSourceCharacterSchema = z.object({
     });
 });
 
-/** 公开明文 Chatu8 角色/服装 export 的脱敏、非执行 proposal source。 */
-export const Chatu8CharacterVisualSourcePackageSchema = z.object({
-    schemaVersion: z.literal(CHATU8_CHARACTER_VISUAL_SOURCE_SCHEMA_VERSION),
-    sourceKind: z.literal("chatu8-character-export"),
+/** 公开明文 TTP 角色/服装 export 的脱敏、非执行 proposal source。 */
+export const TtpCharacterVisualSourcePackageSchema = z.object({
+    schemaVersion: z.literal(TTP_CHARACTER_VISUAL_SOURCE_SCHEMA_VERSION),
+    sourceKind: z.literal("ttp-character-export"),
     state: z.enum(["proposal_ready", "report_only"]),
     rawSourceHash: TextToImageContractHashSchema,
     sanitizedSourceHash: TextToImageContractHashSchema,
     visualSourceHash: TextToImageContractHashSchema,
-    characters: z.array(Chatu8CharacterVisualSourceCharacterSchema).max(10000),
-    diagnostics: z.array(Chatu8CharacterVisualSourceDiagnosticSchema).max(10000),
+    characters: z.array(TtpCharacterVisualSourceCharacterSchema).max(10000),
+    diagnostics: z.array(TtpCharacterVisualSourceDiagnosticSchema).max(10000),
 }).strict().superRefine((source, context) => {
     if ((source.characters.length > 0) !== (source.state === "proposal_ready")) {
         context.addIssue({code: "custom", path: ["state"], message: "有可用角色时 state 必须是 proposal_ready，否则必须 report_only"});
@@ -108,7 +108,7 @@ export const Chatu8CharacterVisualSourcePackageSchema = z.object({
     }
 });
 
-export type Chatu8CharacterVisualSourcePackage = z.infer<typeof Chatu8CharacterVisualSourcePackageSchema>;
+export type TtpCharacterVisualSourcePackage = z.infer<typeof TtpCharacterVisualSourcePackageSchema>;
 
 /** 可作为公开角色视觉源合并目标的 Project 角色目录。 */
 export const CharacterVisualSourceTargetSchema = z.object({
@@ -121,7 +121,7 @@ export const CharacterVisualSourceTargetSchema = z.object({
 export const CharacterVisualSourceInspectionSchema = z.object({
     schemaVersion: z.literal("nbook.character-visual-source-inspection/v1"),
     sourcePath: CharacterVisualSourceRelativePathSchema,
-    source: Chatu8CharacterVisualSourcePackageSchema,
+    source: TtpCharacterVisualSourcePackageSchema,
     targets: z.array(CharacterVisualSourceTargetSchema).max(10000),
 }).strict();
 export type CharacterVisualSourceInspection = z.infer<typeof CharacterVisualSourceInspectionSchema>;
@@ -146,7 +146,7 @@ export const CharacterVisualMergeRowSchema = z.object({
 
 /** 外部服装始终作为 create-only proposal，不覆盖 Project 既有服装。 */
 export const CharacterVisualSourceOutfitPreviewSchema = z.object({
-    sourceOutfitId: Chatu8SourceOutfitIdSchema,
+    sourceOutfitId: TtpSourceOutfitIdSchema,
     sourceKey: SourceKeySchema,
     targetPath: z.string().regex(/^lorebook\/character\/[^/\\]+\/outfits\/[^/\\]+\.md$/u).max(500),
     names: z.object({cn: z.string().trim().max(160), en: z.string().trim().max(160)}).strict(),
@@ -156,7 +156,7 @@ export const CharacterVisualSourceOutfitPreviewSchema = z.object({
 export const CharacterVisualSourceMergePreviewSchema = z.object({
     schemaVersion: z.literal("nbook.character-visual-source-merge-preview/v1"),
     sourcePath: CharacterVisualSourceRelativePathSchema,
-    sourceCharacterId: Chatu8SourceCharacterIdSchema,
+    sourceCharacterId: TtpSourceCharacterIdSchema,
     sourceHashes: z.object({
         rawSourceHash: TextToImageContractHashSchema,
         sanitizedSourceHash: TextToImageContractHashSchema,
@@ -178,7 +178,7 @@ export const CharacterVisualSourceMergePreviewSchema = z.object({
 export type CharacterVisualSourceMergePreview = z.infer<typeof CharacterVisualSourceMergePreviewSchema>;
 
 export const CharacterVisualSourcePreviewRequestSchema = CharacterVisualSourceInspectRequestSchema.extend({
-    sourceCharacterId: Chatu8SourceCharacterIdSchema,
+    sourceCharacterId: TtpSourceCharacterIdSchema,
     characterPath: CharacterVisualSourceTargetSchema.shape.characterPath,
 }).strict();
 

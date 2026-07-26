@@ -1,5 +1,5 @@
 ﻿import {createPinia, defineStore, setActivePinia} from "pinia";
-import {computed, ref} from "vue";
+import {computed, ref, watch} from "vue";
 import {beforeAll, beforeEach, describe, expect, it} from "vitest";
 import {createDefaultTextToImageRecipeSource} from "nbook/shared/text-to-image-recipe";
 
@@ -9,6 +9,7 @@ describe("useTextToImageStore", () => {
         globals.defineStore = defineStore;
         globals.ref = ref;
         globals.computed = computed;
+        globals.watch = watch;
         globals.piniaPluginPersistedstate = {
             localStorage: () => ({}),
         };
@@ -130,10 +131,11 @@ describe("useTextToImageStore", () => {
             ...createDefaultTextToImageRecipeSource(),
             model: "recipe-model",
             steps: 31,
-            style: {
-                ...createDefaultTextToImageRecipeSource().style,
+            styles: [{
+                ...createDefaultTextToImageRecipeSource().styles[0],
                 positivePrefix: "cinematic",
-            },
+            }],
+            activeStyleId: "recipe-default",
         };
         const snapshot = {...source, planningConstraintsHash: "a".repeat(64), recipeSourceHash: "b".repeat(64)};
         const fetchMock = async (url: string, options?: {method?: string; body?: object}) => {

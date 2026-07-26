@@ -10,26 +10,54 @@ export function isEmptyObjectSchema(schema: TSchema | undefined): boolean {
     if (!schema || typeof schema !== "object") {
         return true;
     }
+    if ("anyOf" in schema || "oneOf" in schema || "allOf" in schema || "not" in schema || "$ref" in schema) {
+        return false;
+    }
+    if (!("type" in schema) || schema.type !== "object") {
+        return false;
+    }
     const properties = "properties" in schema && schema.properties && typeof schema.properties === "object"
         ? schema.properties
         : {};
     return Object.keys(properties).length === 0;
 }
 
+export type ReportResultDataContract = {
+    /** 空 object schema 时为空，表示 report_result 不暴露 data。 */
+    schema?: TSchema;
+    /** Profile 显式声明 dataSchema 时为 true，模型与执行期都必须提交 data。 */
+    required: boolean;
+};
+
+/** 解析 Profile 的结构化主路输出合同，统一模型可见 schema 与执行期校验语义。 */
+export function reportResultDataContractForProfile(profile: AgentProfile): ReportResultDataContract {
+    const binding = profile.tools.report_result;
+    const explicitSchema = isReportResultBinding(binding) ? binding.dataSchema : undefined;
+    const dataSchema = explicitSchema ?? profile.outputSchema;
+    if (isEmptyObjectSchema(dataSchema)) {
+        return {required: false};
+    }
+    return {
+        schema: dataSchema,
+        required: explicitSchema !== undefined,
+    };
+}
+
 /**
  * 从目标 profile 的 OutputSchema 派生 report_result 的模型可见参数 schema。
  */
 export function reportResultSchemaForProfile(profile: AgentProfile): TSchema {
-    const reportBinding = profile.tools.report_result;
-    const dataSchema = isReportResultBinding(reportBinding) ? reportBinding.dataSchema ?? profile.outputSchema : profile.outputSchema;
+    const dataContract = reportResultDataContractForProfile(profile);
     const properties = {
         result: Type.String({
             description: "本次工具调用的可读结果；需要时可以写简短 walkthrough。",
         }),
-        ...isEmptyObjectSchema(dataSchema)
+        ...dataContract.schema === undefined
             ? {}
             : {
-                data: Type.Optional(dataSchema as TSchema),
+                data: dataContract.required
+                    ? dataContract.schema
+                    : Type.Optional(dataContract.schema),
             },
     };
     return Type.Object(properties);

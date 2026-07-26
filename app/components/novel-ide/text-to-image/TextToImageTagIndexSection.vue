@@ -35,7 +35,6 @@ const status = ref<TagIndexStatus | null>(null);
 const statusLoading = ref(false);
 const starting = ref(false);
 const canceling = ref(false);
-const termsConfirmed = ref(false);
 const searchQuery = ref("");
 const searching = ref(false);
 const searchResults = ref<TagIndexSearchResponse["candidates"]>([]);
@@ -62,7 +61,7 @@ onUnmounted(() => {
     if (pollTimer) clearTimeout(pollTimer);
 });
 
-/** 只轮询 NeuroBook 本地状态端点；该 GET 不会访问 Danbooru。 */
+/** 只轮询 NeuroBook 本地状态端点；打开本节不会触发任何网络请求。 */
 async function loadStatus(): Promise<void> {
     if (statusLoading.value) return;
     statusLoading.value = true;
@@ -71,7 +70,7 @@ async function loadStatus(): Promise<void> {
         status.value = await $fetch<TagIndexStatus>("/api/text-to-image/tag-index");
         schedulePoll();
     } catch (caught) {
-        error.value = resolveApiErrorMessage(caught, "读取 Danbooru 3K+ Tag 索引状态失败");
+        error.value = resolveApiErrorMessage(caught, "读取本地 Tag 词库状态失败");
     } finally {
         statusLoading.value = false;
     }
@@ -85,9 +84,12 @@ function schedulePoll(): void {
     pollTimer = setTimeout(() => void loadStatus(), 1500);
 }
 
-/** 用户确认当前 terms/attribution 后才启动 official 同步。 */
+/**
+ * 手动触发本地词库重新导入。请求体沿用固定条款确认结构（confirmed/version/hash 均取自 status 响应）；
+ * 数据源已是随应用打包的本地文件，不再需要用户逐次勾选条款确认，这里直接透传服务端返回的当前版本与 hash。
+ */
 async function startSync(): Promise<void> {
-    if (!status.value || !termsConfirmed.value || starting.value) return;
+    if (!status.value || starting.value) return;
     starting.value = true;
     error.value = "";
     try {
@@ -99,11 +101,10 @@ async function startSync(): Promise<void> {
                 termsContentHash: status.value.terms.contentHash,
             },
         });
-        notification.info("Danbooru 3K+ Tag 索引同步已启动");
-        termsConfirmed.value = false;
+        notification.info("本地词库导入已启动");
         await loadStatus();
     } catch (caught) {
-        error.value = resolveApiErrorMessage(caught, "启动 Tag 索引同步失败");
+        error.value = resolveApiErrorMessage(caught, "启动本地词库导入失败");
     } finally {
         starting.value = false;
     }
@@ -117,10 +118,10 @@ async function cancelSync(): Promise<void> {
     error.value = "";
     try {
         await $fetch(`/api/text-to-image/tag-index/sync/${encodeURIComponent(operationId)}/cancel`, {method: "POST"});
-        notification.info("已请求取消 Tag 索引同步");
+        notification.info("已请求取消词库导入");
         await loadStatus();
     } catch (caught) {
-        error.value = resolveApiErrorMessage(caught, "取消 Tag 索引同步失败");
+        error.value = resolveApiErrorMessage(caught, "取消词库导入失败");
     } finally {
         canceling.value = false;
     }
@@ -139,7 +140,7 @@ async function runSearch(): Promise<void> {
         searchResults.value = result.candidates;
     } catch (caught) {
         searchResults.value = [];
-        error.value = resolveApiErrorMessage(caught, "搜索 active Tag 索引失败");
+        error.value = resolveApiErrorMessage(caught, "搜索 active 词库失败");
     } finally {
         searching.value = false;
     }
@@ -157,8 +158,8 @@ function insertTag(tag: string): void {
 /** operation 状态使用固定用户文案。 */
 function operationLabel(operation: TagIndexOperation): string {
     const labels: Record<TagIndexOperation["state"], string> = {
-        fetching: "同步官方分页",
-        source_verified: "来源双轮校验完成",
+        fetching: "读取本地分页",
+        source_verified: "本地来源校验完成",
         normalizing: "规范化与关系闭包",
         indexing: "构建分层索引",
         validating: "校验 SQLite / FTS",
@@ -178,8 +179,9 @@ function formatTime(value: string): string {
 </script>
 
 <template>
-    <!-- Workspace Root Danbooru 3K+ 索引：服务端唯一真相源与显式同步入口 -->
+    <!-- 本地 TTP 词库（Danbooru 衍生数据）状态：服务端唯一真相源，应用启动时自动后台导入，此处仅查看状态与手动重导 -->
     <div class="space-y-3">
+        <p class="m-0 text-[10px] text-[var(--text-muted)]">应用启动时会自动在后台导入本地词库；此处仅用于查看状态与手动重新导入。</p>
         <p v-if="error" class="m-0 rounded-md border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-2 text-[11px] text-[var(--status-danger)]">{{ error }}</p>
 
         <div v-if="status?.active" class="space-y-2 rounded-md border border-[var(--status-success-border)] bg-[var(--status-success-bg)] px-3 py-3">
@@ -192,15 +194,15 @@ function formatTime(value: string): string {
             </div>
             <div class="grid gap-2 text-[10px] text-[var(--text-secondary)] sm:grid-cols-2 lg:grid-cols-4">
                 <div>主 Tag：{{ status.active.counts.mainTags }}</div>
-                <div>Alias：{{ status.active.counts.aliases }}</div>
-                <div>Implication：{{ status.active.counts.implications }}</div>
+                <div>Core / High：{{ status.active.tiers.core.count }} / {{ status.active.tiers.high.count }}</div>
+                <div>Common / Tail：{{ status.active.tiers.common.count }} / {{ status.active.tiers.tail.count }}</div>
                 <div>FTS：{{ status.active.validation.ftsRowCount }}</div>
             </div>
-            <div class="text-[10px] text-[var(--text-muted)]">watermark：Tag {{ status.active.watermarks.tags }} · Alias {{ status.active.watermarks.aliases }} · Implication {{ status.active.watermarks.implications }}</div>
+            <div class="text-[10px] text-[var(--text-muted)]">watermark：Tag {{ status.active.watermarks.tags }} · Alias / Implication：源不提供</div>
         </div>
-        <div v-else class="rounded-md border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-3 py-3 text-[11px] text-[var(--status-warning)]">尚无 active Danbooru 3K+ Tag 索引。打开本页不会联网；请在下方确认条款后显式同步。</div>
+        <div v-else class="rounded-md border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-3 py-3 text-[11px] text-[var(--status-warning)]">尚无 active 本地词库索引；通常由应用启动自动导入完成，如长时间未就绪可在下方手动重导。</div>
 
-        <!-- 当前同步 operation -->
+        <!-- 当前导入 operation -->
         <div v-if="status?.operation" class="space-y-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-3">
             <div class="flex flex-wrap items-center justify-between gap-2">
                 <div class="text-[11px] font-medium text-[var(--text-main)]">{{ operationLabel(status.operation) }}</div>
@@ -213,24 +215,22 @@ function formatTime(value: string): string {
             <div v-if="status.oldActiveContinuing" class="text-[10px] text-[var(--status-info)]">重建期间旧 active 版本继续提供查询与 Resolver 服务。</div>
             <div v-if="operationRunning" class="flex justify-end">
                 <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 text-[11px] text-[var(--status-danger)] disabled:opacity-50" :disabled="canceling" @click="void cancelSync()">
-                    <span class="i-lucide-square h-3.5 w-3.5"></span>{{ canceling ? "取消中" : "取消同步" }}
+                    <span class="i-lucide-square h-3.5 w-3.5"></span>{{ canceling ? "取消中" : "取消导入" }}
                 </button>
             </div>
         </div>
 
-        <!-- 固定 official source 与 terms 确认 -->
+        <!-- 本地源信息与手动重导 -->
         <div v-if="status && !operationRunning" class="space-y-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-3">
-            <div class="text-[11px] font-medium text-[var(--text-main)]">{{ status.active ? "重建官方索引" : "安装官方索引" }}</div>
+            <div class="text-[11px] font-medium text-[var(--text-main)]">本地 TTP 词库（Danbooru 衍生数据）</div>
             <p class="m-0 text-[10px] leading-5 text-[var(--text-muted)]">{{ status.terms.statement }}</p>
             <div class="flex flex-wrap gap-x-3 gap-y-1 text-[10px]">
-                <a class="text-[var(--accent-main)] hover:underline" :href="status.terms.termsUrl" target="_blank" rel="noreferrer">Danbooru Terms</a>
-                <a class="text-[var(--accent-main)] hover:underline" :href="status.terms.attributionUrl" target="_blank" rel="noreferrer">来源与归属</a>
+                <a class="text-[var(--accent-main)] hover:underline" :href="status.terms.attributionUrl" target="_blank" rel="noreferrer">数据归属</a>
                 <span class="text-[var(--text-muted)]">固定阈值 post_count ≥ {{ status.source.minPostCount }}</span>
             </div>
-            <label class="flex items-start gap-2 text-[11px] text-[var(--text-secondary)]"><input v-model="termsConfirmed" type="checkbox" class="mt-0.5 accent-[var(--accent-main)]" />我已阅读并确认当前条款与来源说明</label>
             <div class="flex justify-end gap-2">
                 <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-[11px] text-[var(--text-secondary)] disabled:opacity-50" :disabled="statusLoading" @click="void loadStatus()"><span class="i-lucide-refresh-cw h-3.5 w-3.5" :class="{'animate-spin': statusLoading}"></span>刷新状态</button>
-                <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md bg-[var(--accent-main)] px-3 text-[11px] font-medium text-[var(--text-inverse)] disabled:opacity-50" :disabled="!termsConfirmed || starting" @click="void startSync()"><span class="i-lucide-cloud-download h-3.5 w-3.5"></span>{{ starting ? "启动中" : status.active ? "确认并重建" : "确认并同步" }}</button>
+                <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md bg-[var(--accent-main)] px-3 text-[11px] font-medium text-[var(--text-inverse)] disabled:opacity-50" :disabled="starting" @click="void startSync()"><span class="i-lucide-database h-3.5 w-3.5"></span>{{ starting ? "导入中" : "重新导入本地词库" }}</button>
             </div>
         </div>
 

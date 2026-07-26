@@ -9,7 +9,7 @@ export const StoryboardStableIdSchema = z.string().trim().min(1).max(160).regex(
 
 export const StoryboardSourceSchema = z.discriminatedUnion("kind", [
     z.object({
-        kind: z.literal("chatu8"),
+        kind: z.literal("ttp"),
         importId: StoryboardStableIdSchema,
         rawSourceHash: TextToImageContractHashSchema,
         sanitizedSourceHash: TextToImageContractHashSchema,
@@ -30,9 +30,9 @@ const StoryboardReviewSchema = z.discriminatedUnion("status", [
         status: z.literal("approved"),
         approvedSemanticHash: TextToImageContractHashSchema,
         approvedDiagnosticHash: TextToImageContractHashSchema,
-        /** Chatu8 来源冻结批准时的原始字节 hash；非 Chatu8 来源固定为 null。 */
+        /** TTP 来源冻结批准时的原始字节 hash；非 TTP 来源固定为 null。 */
         approvedRawSourceHash: TextToImageContractHashSchema.nullable(),
-        /** Chatu8 来源冻结批准时的脱敏归档 hash；非 Chatu8 来源固定为 null。 */
+        /** TTP 来源冻结批准时的脱敏归档 hash；非 TTP 来源固定为 null。 */
         approvedSanitizedSourceHash: TextToImageContractHashSchema.nullable(),
     }).strict(),
     z.object({
@@ -319,7 +319,7 @@ export function resolveStoryboardReviewState(input: StoryboardPreset): Storyboar
         || preset.macros.unresolved.some((macro) => macro.blocking)) {
         return "pending";
     }
-    const sourceMatches = preset.source.kind === "chatu8"
+    const sourceMatches = preset.source.kind === "ttp"
         ? preset.review.approvedRawSourceHash === preset.source.rawSourceHash
             && preset.review.approvedSanitizedSourceHash === preset.source.sanitizedSourceHash
         : preset.review.approvedRawSourceHash === null

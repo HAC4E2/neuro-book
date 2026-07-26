@@ -41,9 +41,12 @@ import {
     createDefaultProjectTagPolicyConfig,
     ProjectTagPolicyConfigSchema,
 } from "nbook/shared/text-to-image-tag-policy";
+import {isSupportedPiApi} from "nbook/shared/models/provider-config-contract";
 
 const DEFAULT_THEME: EffectiveConfig["ui"]["theme"] = "sepia";
 const DEFAULT_COST_CURRENCY: EffectiveConfig["ui"]["costCurrency"] = "USD";
+/** 把此前运行时最终回退的接口显式物化到严格 Provider Config。 */
+const DEFAULT_MODEL_API = "openai-completions";
 const builtInThemeIdSet = new Set<string>(builtInThemeIds);
 const themeAppearanceSet = new Set<string>(themeAppearanceValues);
 const themeVarNameSet = new Set<string>(themeVarNames);
@@ -613,14 +616,18 @@ function normalizeStoredProviders(input: StoredProviderConfig[] | undefined): St
         return [];
     }
     return input
-        .map((provider) => ({
-            id: normalizeText(provider.id),
-            name: normalizeText(provider.name),
-            enabled: provider.enabled ?? true,
-            modelApi: normalizeNullableText(provider.modelApi),
-            options: normalizeProviderOptions(provider.options),
-            models: Array.isArray(provider.models) ? provider.models.map(normalizeModel) : [],
-        }))
+        .map((provider) => {
+            const modelApi = normalizeNullableText(provider.modelApi) ?? DEFAULT_MODEL_API;
+            const missingModelApi = isSupportedPiApi(modelApi) ? modelApi : null;
+            return {
+                id: normalizeText(provider.id),
+                name: normalizeText(provider.name),
+                enabled: provider.enabled ?? true,
+                modelApi,
+                options: normalizeProviderOptions(provider.options),
+                models: Array.isArray(provider.models) ? provider.models.map((model) => normalizeModel(model, missingModelApi)) : [],
+            };
+        })
         .filter((provider) => provider.id)
         .sort((left, right) => left.id.localeCompare(right.id));
 }
@@ -634,14 +641,14 @@ function countIds(values: string[]): Map<string, number> {
     return counts;
 }
 
-function normalizeModel(input: Partial<ConfiguredModelConfig>): ConfiguredModelConfig {
+function normalizeModel(input: Partial<ConfiguredModelConfig>, missingApi: string | null = null): ConfiguredModelConfig {
     const id = normalizeText(input.id);
     return {
         name: normalizeText(input.name) || id,
         id,
         group: normalizeNullableText(input.group),
         enabled: input.enabled ?? true,
-        api: normalizeNullableText(input.api),
+        api: normalizeNullableText(input.api) ?? missingApi,
         reasoning: typeof input.reasoning === "boolean" ? input.reasoning : null,
         input: normalizeModelInput(input.input),
         maxTokens: normalizeNullablePositiveInteger(input.maxTokens),

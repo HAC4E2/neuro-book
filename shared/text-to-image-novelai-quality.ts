@@ -1,7 +1,7 @@
 import {NovelAiProviderModelIdSchema, type NovelAiProviderModelId} from "nbook/shared/text-to-image-provider-registry";
-import type {TextToImageRecipeSnapshot} from "nbook/shared/text-to-image-recipe";
+import type {TextToImageRecipeStyle} from "nbook/shared/text-to-image-recipe";
 
-export type NovelAiNegativeQualityPreset = TextToImageRecipeSnapshot["style"]["negativeQualityPreset"];
+export type NovelAiNegativeQualityPreset = TextToImageRecipeStyle["negativeQualityPreset"];
 
 const QUALITY_TAGS: Record<NovelAiProviderModelId, string> = {
     "nai-diffusion-4-5-full": "very aesthetic, masterpiece, no text",

@@ -381,17 +381,13 @@ export class TagIndexStore {
         for (let attempt = 0; attempt < this.lockMaxAttempts; attempt += 1) {
             let acquired = false;
             try {
-                const handle = await fs.open(lockPath, "wx", 0o600);
-                try {
-                    await handle.writeFile(renderJson({
-                        schemaVersion: "nbook.tag-index-file-lock/v1",
-                        ownerToken,
-                        expiresAt: new Date(this.now() + DEFAULT_FILE_LOCK_LEASE_MS).toISOString(),
-                    }));
-                    await handle.sync();
-                } finally {
-                    await handle.close();
-                }
+                // 锁文件必须以完整内容原子出现：create 模式先写 temp 再 link 发布，
+                // 并发读端（reclaim/release）永远不会观察到半截 JSON。
+                await writeTextAtomic(lockPath, renderJson({
+                    schemaVersion: "nbook.tag-index-file-lock/v1",
+                    ownerToken,
+                    expiresAt: new Date(this.now() + DEFAULT_FILE_LOCK_LEASE_MS).toISOString(),
+                }), "create");
                 acquired = true;
             } catch (error) {
                 if (!isFsError(error, "EEXIST")) throw error;
@@ -409,15 +405,23 @@ export class TagIndexStore {
         throw syncError("等待 Tag index operation 文件锁超时");
     }
 
-    /** 原子重命名过期短锁；未过期或损坏时不抢占。 */
+    /** 原子重命名过期短锁；未过期不抢占，读不到完整锁内容时按短锁争用退避。 */
     private async reclaimExpiredFileLock(lockPath: string): Promise<boolean> {
-        let lock: z.infer<typeof FileLockSchema>;
+        let lockText: string;
         try {
-            lock = FileLockSchema.parse(JSON.parse(await fs.readFile(lockPath, "utf8")) as unknown);
+            lockText = await fs.readFile(lockPath, "utf8");
         } catch (error) {
             if (isFsError(error, "ENOENT")) return true;
             if (isFsError(error, "EPERM") || isFsError(error, "EACCES") || isFsError(error, "EBUSY")) return false;
-            throw syncError("Tag index operation 文件锁损坏，拒绝抢占", error);
+            throw error;
+        }
+        let lock: z.infer<typeof FileLockSchema>;
+        try {
+            lock = FileLockSchema.parse(JSON.parse(lockText) as unknown);
+        } catch {
+            // Windows 下 rename/link 与读取交错仍可能读到瞬时不完整内容；
+            // 视为持锁方尚在争用，交给外层有界等待重试，不判定为永久损坏。
+            return false;
         }
         if (Date.parse(lock.expiresAt) > this.now()) return false;
         const stalePath = `${lockPath}.stale.${randomUUID()}`;

@@ -1,6 +1,9 @@
 import {describe, expect, it} from "vitest";
 import {parseCharacterImageTagsMarkdown, parseOutfitTagsMarkdown} from "nbook/server/text-to-image/character-visual.codec";
 import {createTextToImageMarkdownFileHash} from "nbook/server/text-to-image/strict-frontmatter";
+import {absoluteFsPath} from "nbook/server/text-to-image/compat";
+import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import type {ProjectPath} from "nbook/server/workspace-files/project-path";
 import {
     CharacterVisualMigrationError,
     CharacterVisualMigrationService,
@@ -23,7 +26,7 @@ function outfitMarkdown() {
     ].join("\n");
 }
 
-function chatu8CharacterSource(profileTraits = "brave") {
+function ttpCharacterSource(profileTraits = "brave") {
     return `${JSON.stringify({
         characters: {
             hero_source: {
@@ -83,38 +86,40 @@ class MemoryStore implements CharacterVisualMigrationFileStore {
         ["lorebook/character/hero/image-tags.md", characterMarkdown()],
         ["lorebook/character/hero/outfits/travel.md", outfitMarkdown()],
     ]);
+    readonly writes: Array<{projectPath: ProjectPath; filePath: string}> = [];
     failOncePath: string | null = null;
     private failed = false;
 
-    async resolveProjectRoot(): Promise<string> {
-        return "C:/project";
+    async resolveProjectRoot(): Promise<AbsoluteFsPath> {
+        return absoluteFsPath("C:/project");
     }
 
-    assertProjectOpen(): void {}
+    assertProjectOpen(_projectPath: ProjectPath, _root: AbsoluteFsPath): void {}
 
-    async listPaths(_root: string, prefix: string): Promise<string[]> {
+    async listPaths(_root: AbsoluteFsPath, prefix: string): Promise<string[]> {
         return [...this.files.keys()].filter((filePath) => filePath.startsWith(prefix)).sort();
     }
 
-    async read(_root: string, filePath: string): Promise<string | null> {
+    async read(_root: AbsoluteFsPath, filePath: string): Promise<string | null> {
         return this.files.get(filePath) ?? null;
     }
 
-    async readBytes(_root: string, filePath: string): Promise<Uint8Array | null> {
+    async readBytes(_root: AbsoluteFsPath, filePath: string): Promise<Uint8Array | null> {
         const content = this.files.get(filePath);
         return content === undefined ? null : new TextEncoder().encode(content);
     }
 
-    async write(input: {root: string; filePath: string; content: string; knownBefore: string | null}): Promise<void> {
+    async write(input: {projectPath: ProjectPath; root: AbsoluteFsPath; filePath: string; content: string; knownBefore: string | null}): Promise<void> {
         if (input.filePath === this.failOncePath && !this.failed) {
             this.failed = true;
             throw new Error("simulated interruption");
         }
         expect(this.files.get(input.filePath) ?? null).toBe(input.knownBefore);
+        this.writes.push({projectPath: input.projectPath, filePath: input.filePath});
         this.files.set(input.filePath, input.content);
     }
 
-    invalidate(): void {}
+    invalidate(_input: {projectPath: ProjectPath; root: AbsoluteFsPath}): void {}
 }
 
 function readyResolver(): CharacterVisualMigrationResolver {
@@ -197,6 +202,10 @@ describe("Character visual migration service", () => {
             },
         });
         expect(preview.targetStatus).toBe("legacy");
+        expect(store.writes).toContainEqual(expect.objectContaining({
+            projectPath: "workspace/demo",
+            filePath: expect.stringMatching(/^\.nbook\/text-to-image\/character-visual-proposals\//u),
+        }));
         expect(preview.rows.find((row) => row.field === "profileTraits")?.state).toBe("conflict");
         expect([...store.files.keys()].some((filePath) => filePath.endsWith("/proposal.json"))).toBe(true);
         expect(store.files.get("lorebook/character/hero/image-tags.md")).toBe(characterMarkdown());
@@ -238,16 +247,16 @@ describe("Character visual migration service", () => {
 
     it("strict inspect 只列出公开明文源与真实 Project 角色目标", async () => {
         const store = new MemoryStore();
-        store.files.set("upload/chatu8.json", chatu8CharacterSource());
+        store.files.set("upload/ttp.json", ttpCharacterSource());
         store.files.set("upload/not-json.txt", "ignored");
         store.files.set("lorebook/character/mage/index.md", "# 法师\n");
         const service = new CharacterVisualMigrationService({store, resolver: readyResolver()});
 
         const scan = await service.scan({projectPath: "workspace/demo"});
-        expect(scan.sourcePaths).toEqual(["upload/chatu8.json"]);
+        expect(scan.sourcePaths).toEqual(["upload/ttp.json"]);
         const inspection = await service.inspectSource({
             projectPath: "workspace/demo",
-            sourcePath: "upload/chatu8.json",
+            sourcePath: "upload/ttp.json",
         });
         expect(inspection.source.state).toBe("proposal_ready");
         expect(inspection.source.characters).toHaveLength(1);
@@ -259,27 +268,27 @@ describe("Character visual migration service", () => {
 
     it("外部源字段冲突必须逐项显式选择，prepare 复用统一 candidate/resolution", async () => {
         const store = new MemoryStore();
-        store.files.set("upload/chatu8.json", chatu8CharacterSource());
+        store.files.set("upload/ttp.json", ttpCharacterSource());
         const service = new CharacterVisualMigrationService({
             store,
             resolver: readyResolver(),
             now: () => "2026-07-20T00:00:00.000Z",
         });
-        const inspection = await service.inspectSource({projectPath: "workspace/demo", sourcePath: "upload/chatu8.json"});
+        const inspection = await service.inspectSource({projectPath: "workspace/demo", sourcePath: "upload/ttp.json"});
         const sourceCharacterId = inspection.source.characters[0]!.sourceCharacterId;
         const preview = await service.previewSource({
             projectPath: "workspace/demo",
-            sourcePath: "upload/chatu8.json",
+            sourcePath: "upload/ttp.json",
             sourceCharacterId,
             characterPath: "lorebook/character/hero/image-tags.md",
         });
         expect(preview.rows.find((row) => row.field === "profileTraits")).toMatchObject({state: "conflict", decisionRequired: true});
         expect(preview.rows.find((row) => row.field === "facialAppearance")).toMatchObject({state: "same", decisionRequired: false});
-        expect(preview.outfits[0]!.targetPath).toMatch(/\/outfits\/chatu8-outfit-[a-f0-9]{24}\.md$/u);
+        expect(preview.outfits[0]!.targetPath).toMatch(/\/outfits\/ttp-outfit-[a-f0-9]{24}\.md$/u);
         store.files.set("lorebook/character/hero/outfits/travel.md", `${outfitMarkdown()}\n用户在预览后修改\n`);
         await expect(service.prepareSource({
             projectPath: "workspace/demo",
-            sourcePath: "upload/chatu8.json",
+            sourcePath: "upload/ttp.json",
             sourceCharacterId,
             characterPath: preview.characterPath,
             expectedMergePreviewHash: preview.mergePreviewHash,
@@ -289,7 +298,7 @@ describe("Character visual migration service", () => {
         store.files.set("lorebook/character/hero/outfits/travel.md", outfitMarkdown());
         await expect(service.prepareSource({
             projectPath: "workspace/demo",
-            sourcePath: "upload/chatu8.json",
+            sourcePath: "upload/ttp.json",
             sourceCharacterId,
             characterPath: preview.characterPath,
             expectedMergePreviewHash: preview.mergePreviewHash,
@@ -298,7 +307,7 @@ describe("Character visual migration service", () => {
 
         const snapshot = await service.prepareSource({
             projectPath: "workspace/demo",
-            sourcePath: "upload/chatu8.json",
+            sourcePath: "upload/ttp.json",
             sourceCharacterId,
             characterPath: preview.characterPath,
             expectedMergePreviewHash: preview.mergePreviewHash,
@@ -306,8 +315,8 @@ describe("Character visual migration service", () => {
                 .map((row) => ({field: row.field, choice: "use_proposal" as const})),
         });
         expect(snapshot.candidate.source).toMatchObject({
-            kind: "chatu8_character_export",
-            sourcePath: "upload/chatu8.json",
+            kind: "ttp_character_export",
+            sourcePath: "upload/ttp.json",
             mergePreviewHash: preview.mergePreviewHash,
         });
         expect(snapshot.stage).toBe("pending_unresolved");
@@ -316,24 +325,24 @@ describe("Character visual migration service", () => {
 
     it("missing_visual 目标与外部服装均 create-only，apply 前源 bytes 漂移会零覆盖", async () => {
         const store = new MemoryStore();
-        store.files.set("upload/chatu8.json", chatu8CharacterSource());
+        store.files.set("upload/ttp.json", ttpCharacterSource());
         store.files.set("lorebook/character/mage/index.md", "# 法师\n");
         const service = new CharacterVisualMigrationService({
             store,
             resolver: readyResolver(),
             now: () => "2026-07-20T00:00:00.000Z",
         });
-        const inspection = await service.inspectSource({projectPath: "workspace/demo", sourcePath: "upload/chatu8.json"});
+        const inspection = await service.inspectSource({projectPath: "workspace/demo", sourcePath: "upload/ttp.json"});
         const sourceCharacterId = inspection.source.characters[0]!.sourceCharacterId;
         const preview = await service.previewSource({
             projectPath: "workspace/demo",
-            sourcePath: "upload/chatu8.json",
+            sourcePath: "upload/ttp.json",
             sourceCharacterId,
             characterPath: "lorebook/character/mage/image-tags.md",
         });
         const preparedSnapshot = await service.prepareSource({
             projectPath: "workspace/demo",
-            sourcePath: "upload/chatu8.json",
+            sourcePath: "upload/ttp.json",
             sourceCharacterId,
             characterPath: preview.characterPath,
             expectedMergePreviewHash: preview.mergePreviewHash,
@@ -347,7 +356,7 @@ describe("Character visual migration service", () => {
             expectedPreviewToken: preparedSnapshot.previewToken,
             approvals: [],
         });
-        store.files.set("upload/chatu8.json", chatu8CharacterSource("changed after prepare"));
+        store.files.set("upload/ttp.json", ttpCharacterSource("changed after prepare"));
         await expect(service.apply({
             projectPath: "workspace/demo",
             migrationId: resolved.candidate.migrationId,
@@ -360,24 +369,24 @@ describe("Character visual migration service", () => {
 
     it("外部源 missing_visual proposal 通过统一 Resolver 与 create-only journal 写入 V2", async () => {
         const store = new MemoryStore();
-        store.files.set("upload/chatu8.json", chatu8CharacterSource());
+        store.files.set("upload/ttp.json", ttpCharacterSource());
         store.files.set("lorebook/character/mage/index.md", "# 法师\n");
         const service = new CharacterVisualMigrationService({
             store,
             resolver: readyResolver(),
             now: () => "2026-07-20T00:00:00.000Z",
         });
-        const inspection = await service.inspectSource({projectPath: "workspace/demo", sourcePath: "upload/chatu8.json"});
+        const inspection = await service.inspectSource({projectPath: "workspace/demo", sourcePath: "upload/ttp.json"});
         const sourceCharacterId = inspection.source.characters[0]!.sourceCharacterId;
         const preview = await service.previewSource({
             projectPath: "workspace/demo",
-            sourcePath: "upload/chatu8.json",
+            sourcePath: "upload/ttp.json",
             sourceCharacterId,
             characterPath: "lorebook/character/mage/image-tags.md",
         });
         const proposal = await service.prepareSource({
             projectPath: "workspace/demo",
-            sourcePath: "upload/chatu8.json",
+            sourcePath: "upload/ttp.json",
             sourceCharacterId,
             characterPath: preview.characterPath,
             expectedMergePreviewHash: preview.mergePreviewHash,

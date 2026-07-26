@@ -1,6 +1,8 @@
 import {describe, expect, it} from "vitest";
 import {
     DANBOORU_MIN_POST_COUNT,
+    TAG_INDEX_SOURCE_ENDPOINT,
+    TAG_INDEX_SOURCE_KIND,
     TAG_INDEX_TERMS_CONFIRMATION_VERSION,
     TagIndexActivePointerSchema,
     TagIndexManifestSchema,
@@ -35,10 +37,11 @@ function manifestFixture(): Record<string, object | string | number> {
         sourceClientVersion: "danbooru-v1",
         capabilityVersion: "nai-cap-v1",
         normalizedHash: HASH_A,
-        sourceKind: "danbooru-api",
-        sourceEndpoint: "https://danbooru.donmai.us",
+        sourceKind: TAG_INDEX_SOURCE_KIND,
+        sourceEndpoint: TAG_INDEX_SOURCE_ENDPOINT,
         apiVersion: "json-v1",
         minPostCount: DANBOORU_MIN_POST_COUNT,
+        providedResources: ["tags", "aliases", "implications"],
         fetchedAt: "2026-07-20T00:00:00.000Z",
         snapshotDate: "2026-07-20",
         terms: {
@@ -49,7 +52,7 @@ function manifestFixture(): Record<string, object | string | number> {
             retrievalPolicyVersion: "nbook-danbooru-retrieval-v1",
         },
         sourceResponse: {
-            schemaVersion: "danbooru-json-v1",
+            schemaVersion: "ttp-tagdata-v1",
             contentType: "application/json",
             compression: "transport-decoded",
         },
@@ -204,7 +207,7 @@ describe("text-to-image Tag index contracts", () => {
         };
         const status = {
             schemaVersion: "nbook.tag-index-status/v1",
-            source: {kind: "danbooru-api", endpoint: "https://danbooru.donmai.us", minPostCount: 3000},
+            source: {kind: TAG_INDEX_SOURCE_KIND, endpoint: TAG_INDEX_SOURCE_ENDPOINT, minPostCount: 3000},
             terms: {
                 confirmationVersion: TAG_INDEX_TERMS_CONFIRMATION_VERSION,
                 retrievalPolicyVersion: "nbook-danbooru-retrieval-v1",

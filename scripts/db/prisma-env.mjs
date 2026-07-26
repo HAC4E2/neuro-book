@@ -52,6 +52,26 @@ export function preparePrismaEnv() {
     return {kind, databaseUrl: location.connectionUrl};
 }
 
+/**
+ * 为 Prisma 子进程建立唯一的数据库环境变量视图。
+ *
+ * Windows 环境变量名称不区分大小写，但 Bun spawn 会把 JS 对象里的大小写变体
+ * 同时序列化，子进程可能因此读到旧的 `database_url`。覆盖前必须先清除全部变体。
+ */
+export function prismaChildEnvironment(environment, database) {
+    const childEnvironment = {};
+    for (const [key, value] of Object.entries(environment)) {
+        const normalizedKey = key.toUpperCase();
+        if (normalizedKey === "DATABASE_KIND" || normalizedKey === "DATABASE_URL") {
+            continue;
+        }
+        childEnvironment[key] = value;
+    }
+    childEnvironment.DATABASE_KIND = database.kind;
+    childEnvironment.DATABASE_URL = database.databaseUrl;
+    return childEnvironment;
+}
+
 function readBootDatabaseConfig() {
     const bootConfigPath = resolveBootConfigPath();
     if (!existsSync(bootConfigPath)) {

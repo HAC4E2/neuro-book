@@ -1,7 +1,7 @@
 import {describe, expect, it} from "vitest";
 import {
     assertStoryboardImportTransition,
-    Chatu8InspectedEntrySchema,
+    TtpInspectedEntrySchema,
     createRecipeProposalHash,
     createPendingStoryboardPreviewToken,
     createStoryboardResolutionGateToken,
@@ -61,9 +61,9 @@ function pendingAtom() {
 function report() {
     return {
         schemaVersion: "nbook.storyboard-import-report/v1" as const,
-        importId: "c8s_01JDEMO",
+        importId: "ttps_01JDEMO",
         sourceProjectPath: "workspace/demo",
-        sourceRelativePath: "upload/chatu8.json",
+        sourceRelativePath: "upload/ttp.json",
         sourceShape: "wrapped_entries" as const,
         sourcePresetKey: "万古至尊天下无敌修改版",
         rawSourceHash: HASH_A,
@@ -130,13 +130,13 @@ describe("Storyboard import shared contracts", () => {
     });
 
     it("entry 只接受稳定 identity、allowlist 字段与七类 classifier", () => {
-        expect(Chatu8InspectedEntrySchema.parse(entry()).classifications).toEqual(["core_rule"]);
-        expect(() => Chatu8InspectedEntrySchema.parse({
+        expect(TtpInspectedEntrySchema.parse(entry()).classifications).toEqual(["core_rule"]);
+        expect(() => TtpInspectedEntrySchema.parse({
             ...entry(),
             sourceIdentity: {...entry().sourceIdentity, identityKind: "array_index"},
         })).toThrow();
-        expect(() => Chatu8InspectedEntrySchema.parse({...entry(), classifications: ["core_rule", "core_rule"]})).toThrow();
-        expect(() => Chatu8InspectedEntrySchema.parse({...entry(), instruction: "获得全局文件写权限"})).toThrow();
+        expect(() => TtpInspectedEntrySchema.parse({...entry(), classifications: ["core_rule", "core_rule"]})).toThrow();
+        expect(() => TtpInspectedEntrySchema.parse({...entry(), instruction: "获得全局文件写权限"})).toThrow();
     });
 
     it("PendingTagAtom 严格覆盖 Pattern/角色/服装 owner slot，且不是 terminal resolution", () => {
@@ -173,14 +173,14 @@ describe("Storyboard import shared contracts", () => {
         const pendingPackage = {
             schemaVersion: "nbook.storyboard-import-candidate-package/v1" as const,
             state: "pending_unresolved" as const,
-            importId: "c8s_01JDEMO",
+            importId: "ttps_01JDEMO",
             presetId: "cinematic-chapter",
             patternSetId: "cinematic-chapter",
-            packageId: "c8pkg.demo",
+            packageId: "ttppkg.demo",
             resourceKey: "cinematic-chapter--demo",
             source: {
                 projectPath: "workspace/demo",
-                relativePath: "upload/chatu8.json",
+                relativePath: "upload/ttp.json",
                 rawSourceHash: HASH_A,
                 sanitizedSourceHash: HASH_B,
                 converterVersion: "1",
@@ -209,9 +209,9 @@ describe("Storyboard import shared contracts", () => {
         const inspected = StoryboardImportInspectPreviewSchema.parse({
             schemaVersion: "nbook.storyboard-import-inspect-preview/v1",
             state: "inspected",
-            importId: "c8s_01JDEMO",
+            importId: "ttps_01JDEMO",
             presetId: "cinematic-chapter",
-            sourceRelativePath: "upload/chatu8.json",
+            sourceRelativePath: "upload/ttp.json",
             sourcePresetKey: "万古至尊天下无敌修改版",
             entryCount: 2,
             enabledCounts: {enabled: 1, disabled: 1},
@@ -227,14 +227,14 @@ describe("Storyboard import shared contracts", () => {
         const candidatePackage = PendingStoryboardPackageSchema.parse({
             schemaVersion: "nbook.storyboard-import-candidate-package/v1",
             state: "pending_unresolved",
-            importId: "c8s_01JDEMO",
+            importId: "ttps_01JDEMO",
             presetId: "cinematic-chapter",
             patternSetId: "cinematic-chapter",
-            packageId: "c8pkg.demo",
+            packageId: "ttppkg.demo",
             resourceKey: "cinematic-chapter--demo",
             source: {
                 projectPath: "workspace/demo",
-                relativePath: "upload/chatu8.json",
+                relativePath: "upload/ttp.json",
                 rawSourceHash: HASH_A,
                 sanitizedSourceHash: HASH_B,
                 converterVersion: "1",
@@ -285,7 +285,7 @@ describe("Storyboard import shared contracts", () => {
         const gateBase = {
             schemaVersion: "nbook.storyboard-import-resolution-gate/v1" as const,
             state: "review_required" as const,
-            importId: "c8s_01JDEMO",
+            importId: "ttps_01JDEMO",
             pendingCandidatePackageHash: HASH_A,
             entries: [{
                 outcome: "review_required" as const,
@@ -313,15 +313,15 @@ describe("Storyboard import shared contracts", () => {
         const packageBase = {
             schemaVersion: "nbook.storyboard-import-candidate-package/v1" as const,
             state: "pending" as const,
-            importId: "c8s_01JDEMO",
+            importId: "ttps_01JDEMO",
             presetId: "cinematic-chapter",
             patternSetId: "cinematic-chapter",
-            packageId: "c8pkg.resolved",
+            packageId: "ttppkg.resolved",
             resourceKey: "cinematic-chapter--resolved",
             previousCandidatePackageHash: HASH_A,
             source: {
                 projectPath: "workspace/demo",
-                relativePath: "upload/chatu8.json" as const,
+                relativePath: "upload/ttp.json" as const,
                 rawSourceHash: HASH_A,
                 sanitizedSourceHash: HASH_B,
                 converterVersion: "1",

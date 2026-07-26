@@ -9,10 +9,10 @@ import {
 } from "nbook/shared/text-to-image-tag-index";
 import {hashTextToImageContract} from "nbook/shared/text-to-image-contract-hash";
 import type {
-    DanbooruSourcePage,
-    DanbooruSourceReader,
-    DanbooruSourceResource,
-} from "nbook/server/text-to-image/tag-index/danbooru-source-client";
+    TagSourcePage,
+    TagSourceReader,
+    TagSourceResource,
+} from "nbook/server/text-to-image/tag-index/tag-source-client";
 import {TagIndexError, TagIndexErrorCodeSchema} from "nbook/server/text-to-image/tag-index/tag-index-error";
 import {TagIndexStore} from "nbook/server/text-to-image/tag-index/tag-index-store";
 
@@ -21,7 +21,7 @@ const MAX_PAGES_PER_RESOURCE = 1_000_000;
 
 type TagIndexSyncServiceOptions = {
     store: TagIndexStore;
-    sourceClient: DanbooruSourceReader;
+    sourceClient: TagSourceReader;
     workerId: string;
     idFactory: () => string;
     now?: () => number;
@@ -29,10 +29,10 @@ type TagIndexSyncServiceOptions = {
     signal?: AbortSignal;
 };
 
-/** 持久化 official source 两轮同步；本阶段只推进到 source_verified。 */
+/** 持久化 source 两轮同步；本阶段只推进到 source_verified。 */
 export class TagIndexSyncService {
     private readonly store: TagIndexStore;
-    private readonly sourceClient: DanbooruSourceReader;
+    private readonly sourceClient: TagSourceReader;
     private readonly workerId: string;
     private readonly idFactory: () => string;
     private readonly now: () => number;
@@ -112,7 +112,7 @@ export class TagIndexSyncService {
             implications: await this.sourceClient.readWatermark("implications", this.signal),
         };
         if (Object.values(watermarks).some((watermark) => !Number.isSafeInteger(watermark) || watermark <= 0)) {
-            throw new TagIndexError({code: "TAG_INDEX_SYNC_INCOMPLETE", message: "Danbooru source watermark 必须为正安全整数"});
+            throw new TagIndexError({code: "TAG_INDEX_SYNC_INCOMPLETE", message: "tag source watermark 必须为正安全整数"});
         }
         return this.renewCheckpoint(TagIndexOperationSchema.parse({
             ...operation,
@@ -125,7 +125,7 @@ export class TagIndexSyncService {
     private async fetchResource(
         input: TagIndexOperation,
         pass: "source" | "reconciliation",
-        resource: DanbooruSourceResource,
+        resource: TagSourceResource,
     ): Promise<TagIndexOperation> {
         let operation = input;
         if (operation.source.completedResources[pass].includes(resource)) return operation;
@@ -144,7 +144,7 @@ export class TagIndexSyncService {
                 await this.store.writeSourcePage(operation, toPageCache(operation.operationId, page));
             }
             if (!page.done && page.nextCursor <= cursor) {
-                throw new TagIndexError({code: "TAG_INDEX_SYNC_INCOMPLETE", message: "Danbooru source cursor 未推进"});
+                throw new TagIndexError({code: "TAG_INDEX_SYNC_INCOMPLETE", message: "tag source cursor 未推进"});
             }
             if (page.done && page.nextCursor !== watermark) {
                 throw new TagIndexError({
@@ -179,12 +179,13 @@ export class TagIndexSyncService {
         throw new TagIndexError({code: "TAG_INDEX_SYNC_INCOMPLETE", message: `${resource}/${pass} page 数超过安全上限`});
     }
 
-    /** 对两轮 normalized facts 做逐资源完整 hash 比较。 */
+    /** 对两轮 normalized facts 做逐资源完整 hash 比较；未声明资源要求两轮均为空。 */
     private async verifyReconciliation(operationId: string): Promise<{tags: string; aliases: string; implications: string}> {
         const pages = await this.store.readSourcePages(operationId);
-        const tags = verifyResourceHash(pages, "tags");
-        const aliases = verifyResourceHash(pages, "aliases");
-        const implications = verifyResourceHash(pages, "implications");
+        const provided = this.sourceClient.descriptor.providedResources;
+        const tags = verifyResourceHash(pages, "tags", provided.includes("tags"));
+        const aliases = verifyResourceHash(pages, "aliases", provided.includes("aliases"));
+        const implications = verifyResourceHash(pages, "implications", provided.includes("implications"));
         return {tags, aliases, implications};
     }
 
@@ -239,7 +240,7 @@ export class TagIndexSyncService {
 }
 
 /** 把 SourceClient page 冻结为 create-only cache。 */
-function toPageCache(operationId: string, page: DanbooruSourcePage): TagIndexSourcePageCache {
+function toPageCache(operationId: string, page: TagSourcePage): TagIndexSourcePageCache {
     if (!page.provenance) throw new TagIndexError({code: "TAG_INDEX_SYNC_INCOMPLETE", message: "非空 source page 缺少 provenance"});
     return TagIndexSourcePageCacheSchema.parse({
         schemaVersion: "nbook.tag-index-source-page/v1",
@@ -252,9 +253,9 @@ function toPageCache(operationId: string, page: DanbooruSourcePage): TagIndexSou
 }
 
 /** 比较一个资源两轮的全量 normalized fact hash。 */
-function verifyResourceHash(pages: TagIndexSourcePageCache[], resource: DanbooruSourceResource): string {
-    const sourceHash = resourceHash(pages, resource, "source");
-    const reconciliationHash = resourceHash(pages, resource, "reconciliation");
+function verifyResourceHash(pages: TagIndexSourcePageCache[], resource: TagSourceResource, provided: boolean): string {
+    const sourceHash = resourceHash(pages, resource, "source", provided);
+    const reconciliationHash = resourceHash(pages, resource, "reconciliation", provided);
     if (sourceHash !== reconciliationHash) {
         throw new TagIndexError({
             code: "TAG_INDEX_RECONCILIATION_FAILED",
@@ -264,27 +265,28 @@ function verifyResourceHash(pages: TagIndexSourcePageCache[], resource: Danbooru
     return sourceHash;
 }
 
-/** 对一个 pass/resource 的 records 按 ID 稳定排序并检查跨页重复。 */
+/** 对一个 pass/resource 的 records 按 ID 稳定排序并检查跨页重复；未声明资源必须为空。 */
 function resourceHash(
     pages: TagIndexSourcePageCache[],
-    resource: DanbooruSourceResource,
+    resource: TagSourceResource,
     pass: "source" | "reconciliation",
+    provided: boolean,
 ): string {
-    if (resource === "tags") {
-        const records = pages
+    const records = resource === "tags"
+        ? pages
             .filter((page): page is Extract<TagIndexSourcePageCache, {resource: "tags"}> => page.resource === "tags" && page.pass === pass)
             .flatMap((page) => page.records)
+            .sort((left, right) => left.id - right.id)
+        : pages
+            .filter((page): page is Extract<TagIndexSourcePageCache, {resource: "aliases" | "implications"}> => page.resource === resource && page.pass === pass)
+            .flatMap((page) => page.records)
             .sort((left, right) => left.id - right.id);
-        const ids = records.map((record) => record.id);
-        if (records.length === 0 || new Set(ids).size !== ids.length) {
-            throw new TagIndexError({code: "TAG_INDEX_SYNC_INCOMPLETE", message: `${resource}/${pass} records 缺失或跨页重复`});
+    if (!provided) {
+        if (records.length > 0) {
+            throw new TagIndexError({code: "TAG_INDEX_SYNC_INCOMPLETE", message: `${resource}/${pass} 声明不提供却出现记录`});
         }
-        return hashTextToImageContract({resource, records});
+        return hashTextToImageContract({resource, records: []});
     }
-    const records = pages
-        .filter((page): page is Extract<TagIndexSourcePageCache, {resource: "aliases" | "implications"}> => page.resource === resource && page.pass === pass)
-        .flatMap((page) => page.records)
-        .sort((left, right) => left.id - right.id);
     const ids = records.map((record) => record.id);
     if (records.length === 0 || new Set(ids).size !== ids.length) {
         throw new TagIndexError({code: "TAG_INDEX_SYNC_INCOMPLETE", message: `${resource}/${pass} records 缺失或跨页重复`});
@@ -293,7 +295,7 @@ function resourceHash(
 }
 
 /** source resource 的固定顺序。 */
-function nextSourceResource(resource: DanbooruSourceResource): DanbooruSourceResource {
+function nextSourceResource(resource: TagSourceResource): TagSourceResource {
     if (resource === "tags") return "aliases";
     if (resource === "aliases") return "implications";
     return "tags";

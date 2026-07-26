@@ -14,7 +14,7 @@
  * 运行态由 Rust 主进程编排：建 data、写 config、migrate、启服务、开窗口。
  */
 import {existsSync} from "node:fs";
-import {cp, mkdir, readFile, rm, writeFile} from "node:fs/promises";
+import {cp, mkdir, readFile, rm, rmdir, writeFile} from "node:fs/promises";
 import {basename, dirname, join, relative, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {runCapture} from "../utils/process.mjs";
@@ -35,6 +35,15 @@ async function main() {
 
     const stageRoot = resolve(options.output ?? DEFAULT_OUTPUT);
     // 保留 data/（用户配置、小说、sqlite），只更新 exe / product / runtime
+    // Windows 首次启动会创建 product/workspace -> data/workspace junction。
+    // 递归删除 product 会跟随该 junction 并可能在受保护 data 下报 EACCES；先仅 unlink junction。
+    try {
+        await rmdir(join(stageRoot, "product", "workspace"));
+    } catch (error) {
+        if (error?.code !== "ENOENT") {
+            throw error;
+        }
+    }
     await rm(join(stageRoot, "product"), {recursive: true, force: true});
     await rm(join(stageRoot, EXE_NAME), {force: true});
     await rm(join(stageRoot, "runtime"), {recursive: true, force: true});
@@ -43,6 +52,9 @@ async function main() {
 
     await copyExe(stageRoot);
     await copyProduct(stageRoot);
+    // 写入产品版本标记，供桌面端启动时判断是否需要 migrate/sync
+    const pkg = JSON.parse(await readFile(join(REPO_ROOT, "package.json"), "utf8"));
+    await writeFile(join(stageRoot, "product", ".neuro-book-version"), pkg.version + "\n", "utf8");
     const bunRuntime = await stageBunRuntime(stageRoot);
     await writePortableMeta(stageRoot, bunRuntime);
 

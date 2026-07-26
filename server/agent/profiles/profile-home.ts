@@ -494,6 +494,7 @@ async function writeMetadata(home: ProfileHomeFacade, metadata: ProfileHomeMetad
 
 /** 安全创建Profile Home根，并确认父级链接没有逃出所属Project/Global根。 */
 async function prepareProfileHomeRoot(containmentRoot: AbsoluteFsPath, root: AbsoluteFsPath): Promise<void> {
+    await fs.mkdir(containmentRoot, {recursive: true});
     await assertRealPathContained(containmentRoot, root);
     await fs.mkdir(root, {recursive: true});
     await assertRealPathContained(containmentRoot, root);

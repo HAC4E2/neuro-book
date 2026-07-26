@@ -47,4 +47,22 @@ describe("importRuntimeArtifact", () => {
             await rm(root, {recursive: true, force: true});
         }
     });
+
+    it.runIf(process.platform === "win32")("通过 Windows namespace cache root 加载 artifact", async () => {
+        const root = await mkdtemp(join(tmpdir(), "nbook-runtime-artifact-namespace-"));
+        try {
+            const artifactPath = resolve(root, "namespace-artifact.mjs");
+            await writeFile(artifactPath, "export const value = 'namespace-loaded';\n", "utf8");
+
+            const mod = await importRuntimeArtifact<{value: string}>(artifactPath, {
+                cacheKey: "namespace-test",
+                cacheNamespace: "profile",
+                cacheRoot: `\\\\?\\${resolve(root, "cache")}`,
+            });
+
+            expect(mod.value).toBe("namespace-loaded");
+        } finally {
+            await rm(root, {recursive: true, force: true});
+        }
+    });
 });

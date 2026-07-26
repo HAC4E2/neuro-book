@@ -17,30 +17,27 @@ describe("NovelIdeSettingsDialog security contract", () => {
         expect(securityBlock).not.toContain("saveSettings");
     });
 
-    it("Director binding 只有全局模型设置可编辑，文生图只读并跳转", async () => {
-        const [settingsSource, profileSettingsSource, textToImageSource, llmWorkspaceSource, pageSource, storeSource] = await Promise.all([
+    it("Director binding 只有全局模型设置可编辑，文生图设置只读", async () => {
+        const [settingsSource, draftSessionSource, profileSettingsSource, textToImageSource, pageSource] = await Promise.all([
             readFile("app/components/novel-ide/settings/NovelIdeModelSettingsPanel.vue", "utf-8"),
+            readFile("app/components/novel-ide/settings/useModelSettingsDraftSession.ts", "utf-8"),
             readFile("app/components/novel-ide/settings/NovelIdeAgentProfileModelSettingsPanel.vue", "utf-8"),
-            readFile("app/components/novel-ide/text-to-image/NovelTextToImagePanel.vue", "utf-8"),
-            readFile("app/components/novel-ide/text-to-image/TextToImageLlmWorkspace.vue", "utf-8"),
+            readFile("app/components/novel-ide/settings/NovelIdeTextToImageSettingsPanel.vue", "utf-8"),
             readFile("app/pages/index.vue", "utf-8"),
-            readFile("app/stores/text-to-image.ts", "utf-8"),
         ]);
 
-        expect(settingsSource).toContain("ILLUSTRATION_DIRECTOR_PROFILE_KEY");
-        expect(settingsSource).toContain("checkIllustrationDirectorModel");
-        expect(settingsSource).toContain("persistedId");
-        expect(settingsSource).toContain("providerIdImmutable");
+        expect(settingsSource).toContain("illustration-director-model-binding");
+        expect(settingsSource).toContain("draft.illustrationDirectorModelKey");
+        expect(settingsSource).toContain('v-if="!isProjectScope"');
+        expect(draftSessionSource).toContain("ILLUSTRATION_DIRECTOR_PROFILE_KEY");
+        expect(draftSessionSource).toContain("illustrationDirectorModelKey");
         expect(profileSettingsSource).toContain("isIllustrationDirectorProfile");
         expect(profileSettingsSource).toContain("preserveIllustrationDirectorModel");
-        expect(textToImageSource).toContain("illustrationDirectorBinding");
-        expect(textToImageSource).toContain("open-illustration-director-settings");
-        expect(textToImageSource).not.toContain('resolveLlmTaskBinding("bodyImage")');
-        expect(llmWorkspaceSource).not.toContain("bodyImage");
+        expect(textToImageSource).toContain("directorBinding");
+        expect(textToImageSource).not.toContain("illustrationDirectorModelKey");
         expect(pageSource).not.toContain("/api/text-to-image/body-prompts");
         expect(pageSource).not.toContain('resolveLlmTaskBinding("bodyImage")');
         expect(pageSource).not.toContain("generateImageForBodyPrompt");
-        expect(storeSource).toContain("Record<TextToImageAuxiliaryPromptTask, TextToImageLlmTaskBinding>");
     });
 
     it("Recipe 只由 Project API 持久化，手工 Job 不提交 NovelAI 标量", async () => {
@@ -63,13 +60,11 @@ describe("NovelIdeSettingsDialog security contract", () => {
     });
 
     it("NovelAI Provider 只暴露 singleton API", async () => {
-        const [collectionSource, singletonSource, panelSource] = await Promise.all([
-            readFile("server/api/text-to-image/providers/index.post.ts", "utf-8"),
+        const [singletonSource, panelSource] = await Promise.all([
             readFile("server/api/text-to-image/providers/novelai.put.ts", "utf-8"),
             readFile("app/components/novel-ide/text-to-image/NovelTextToImagePanel.vue", "utf-8"),
         ]);
 
-        expect(collectionSource).toContain("TEXT_TO_IMAGE_PROVIDER_SINGLETON_REQUIRED");
         expect(singletonSource).toContain("saveNovelAi");
         expect(panelSource).toContain("/api/text-to-image/providers/novelai");
         expect(panelSource).not.toContain("新增 NovelAI Provider");

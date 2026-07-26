@@ -207,6 +207,8 @@ export const controlTools = {
  */
 export function createReportResultTool(parameters: TSchema, options: {
     dataSchema?: TSchema;
+    /** true 时 report_result 必须显式提交 data，不能只用可读 result 终止。 */
+    requireData?: boolean;
     activeSidecar?: {
         name: string;
     };
@@ -223,6 +225,9 @@ export function createReportResultTool(parameters: TSchema, options: {
             const report = params as {result: string; data?: unknown};
             if (options.activeSidecar) {
                 throw new Error(`当前处于 sidecar ${options.activeSidecar.name} 旁路阶段，不能使用 report_result；请改用 report_sidecar_result，并通过 report_sidecar_result.data 返回旁路结果。`);
+            }
+            if (options.requireData && !("data" in report)) {
+                throw new Error("report_result 必须通过 data 返回结构化结果");
             }
             if (options.dataSchema && "data" in report) {
                 try {

@@ -17,7 +17,7 @@ import {
     type CharacterVisualDirectorPreview,
     type CharacterVisualDirectorProposal,
     type CharacterVisualDirectorProposalRecord,
-    type Chatu8CharacterVisualSourcePackage,
+    type TtpCharacterVisualSourcePackage,
 } from "nbook/shared/text-to-image-character-source";
 import {
     CharacterVisualMigrationBlockedEntrySchema,
@@ -44,7 +44,7 @@ import {
     materializeCharacterVisualV2,
     type CharacterVisualDraftGroupInput,
 } from "nbook/server/text-to-image/character-visual-migration";
-import {parseChatu8CharacterVisualSource} from "nbook/server/text-to-image/chatu8-character-visual-source";
+import {parseTtpCharacterVisualSource} from "nbook/server/text-to-image/ttp-character-visual-source";
 import {
     createCharacterImageTagsFileHash,
     createOutfitTagsFileHash,
@@ -54,8 +54,10 @@ import {
     renderOutfitTagsMarkdown,
 } from "nbook/server/text-to-image/character-visual.codec";
 import type {TagResolverService} from "nbook/server/text-to-image/tag-index/tag-resolver.service";
+import {absoluteFsPath, resolveWorkspaceRootInput} from "nbook/server/text-to-image/compat";
+import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {assertProjectOpen} from "nbook/server/workspace-files/project-session";
-import {resolveWorkspaceRootInput} from "nbook/server/text-to-image/compat";
+import {normalizeProjectPath, type ProjectPath} from "nbook/server/workspace-files/project-path";
 import {invalidateProjectWorkspaceIndexAfterMutation} from "nbook/server/workspace-files/project-workspace-index";
 import {
     parseMarkdownDocument,
@@ -103,15 +105,17 @@ type ApplyJournal = z.infer<typeof ApplyJournalSchema>;
 export type CharacterVisualMigrationResolver = Pick<TagResolverService, "resolveExplicitImportTag">;
 
 export type CharacterVisualMigrationFileStore = {
-    resolveProjectRoot(projectPath: string): Promise<string>;
-    assertProjectOpen(projectPath: string, root: string): void;
-    listPaths(root: string, prefix: string): Promise<string[]>;
-    read(root: string, filePath: string): Promise<string | null>;
+    resolveProjectRoot(projectPath: ProjectPath): Promise<AbsoluteFsPath>;
+    assertProjectOpen(projectPath: ProjectPath, root: AbsoluteFsPath): void;
+    listPaths(root: AbsoluteFsPath, prefix: string): Promise<string[]>;
+    read(root: AbsoluteFsPath, filePath: string): Promise<string | null>;
     /** upload JSON 必须按原始 bytes 读取，不能经 UTF-8 string 往返后伪造 raw hash。 */
-    readBytes(root: string, filePath: string): Promise<Uint8Array | null>;
-    write(input: {root: string; filePath: string; content: string; knownBefore: string | null}): Promise<void>;
-    invalidate(root: string): void;
+    readBytes(root: AbsoluteFsPath, filePath: string): Promise<Uint8Array | null>;
+    write(input: {projectPath: ProjectPath; root: AbsoluteFsPath; filePath: string; content: string; knownBefore: string | null}): Promise<void>;
+    invalidate(input: {projectPath: ProjectPath; root: AbsoluteFsPath}): void;
 };
+
+type CharacterVisualMigrationProject = {projectPath: ProjectPath; root: AbsoluteFsPath};
 
 export type CharacterVisualMigrationErrorCode =
     | "MIGRATION_NOT_FOUND"
@@ -140,8 +144,8 @@ type MigrationServiceOptions = {
 
 type CharacterVisualSourceMergeBuild = {
     preview: CharacterVisualSourceMergePreview;
-    source: Chatu8CharacterVisualSourcePackage;
-    sourceCharacter: Chatu8CharacterVisualSourcePackage["characters"][number];
+    source: TtpCharacterVisualSourcePackage;
+    sourceCharacter: TtpCharacterVisualSourcePackage["characters"][number];
     characterId: string;
     existing: CharacterVisualDraftGroupInput | null;
 };
@@ -237,7 +241,7 @@ export class CharacterVisualMigrationService {
                 outfits.push({path: filePath, markdown: await this.requireFile(context.root, filePath)});
             }
             const candidate = inspectLegacyCharacterVisualGroup({characterPath, characterMarkdown, outfits});
-            return this.persistCandidate(context.root, candidate);
+            return this.persistCandidate(context, candidate);
         });
     }
 
@@ -286,7 +290,7 @@ export class CharacterVisualMigrationService {
             const source = merge.source;
             const candidate = inspectCharacterVisualDraftGroup({
                 source: {
-                    kind: "chatu8_character_export",
+                    kind: "ttp_character_export",
                     sourcePath: merge.preview.sourcePath,
                     rawSourceHash: source.rawSourceHash,
                     sanitizedSourceHash: source.sanitizedSourceHash,
@@ -315,7 +319,7 @@ export class CharacterVisualMigrationService {
                 ],
                 issues: merge.existing?.issues ?? [],
             });
-            return this.persistCandidate(context.root, candidate);
+            return this.persistCandidate(context, candidate);
         });
     }
 
@@ -366,8 +370,8 @@ export class CharacterVisualMigrationService {
             throw new CharacterVisualMigrationError("MIGRATION_STALE", "稳定 proposalId 的持久记录冲突");
         }
         if (existing === null) {
-            await this.store.write({root: context.root, filePath: proposalPath, content, knownBefore: null});
-            this.store.invalidate(context.root);
+            await this.store.write({...context, filePath: proposalPath, content, knownBefore: null});
+            this.store.invalidate(context);
         }
         return (await this.buildDirectorPreview(context.root, record, content)).preview;
     }
@@ -426,7 +430,7 @@ export class CharacterVisualMigrationService {
                 ],
                 issues: build.existing?.issues ?? [],
             });
-            return this.persistCandidate(context.root, candidate);
+            return this.persistCandidate(context, candidate);
         });
     }
 
@@ -484,7 +488,7 @@ export class CharacterVisualMigrationService {
                 blocked,
                 updatedAt: this.now(),
             });
-            await this.writeResolution(context.root, current, next);
+            await this.writeResolution(context, current, next);
             return snapshot(candidate, next);
         });
     }
@@ -505,7 +509,7 @@ export class CharacterVisualMigrationService {
                 throw new CharacterVisualMigrationError("MIGRATION_NOT_READY", "全部 atom terminal 且无 review/block 后才能 apply");
             }
             assertAcceptedKeys(resolution.resolutions, input.acceptedResolutionKeys);
-            if (candidate.source.kind === "chatu8_character_export") {
+            if (candidate.source.kind === "ttp_character_export") {
                 const externalSource = candidate.source;
                 const currentSource = await this.readSource(context.root, externalSource.sourcePath);
                 if (currentSource.rawSourceHash !== externalSource.rawSourceHash
@@ -569,9 +573,9 @@ export class CharacterVisualMigrationService {
             if (existingJournal) {
                 throw new CharacterVisualMigrationError("MIGRATION_STALE", "apply journal 已存在；请使用恢复入口");
             }
-            await this.store.write({root: context.root, filePath: journalPath, content: renderJson(journal), knownBefore: null});
-            await this.writeResolution(context.root, resolution, {...resolution, stage: "applying", updatedAt: this.now()});
-            return this.executeJournal(context.root, candidate, journal, renderJson(journal));
+            await this.store.write({...context, filePath: journalPath, content: renderJson(journal), knownBefore: null});
+            await this.writeResolution(context, resolution, {...resolution, stage: "applying", updatedAt: this.now()});
+            return this.executeJournal(context, candidate, journal, renderJson(journal));
         });
     }
 
@@ -583,13 +587,13 @@ export class CharacterVisualMigrationService {
             const journalPath = this.file(candidate.migrationId, "apply-journal.json");
             const raw = await this.store.read(context.root, journalPath);
             if (!raw) throw new CharacterVisualMigrationError("MIGRATION_NOT_FOUND", "apply journal 不存在");
-            return this.executeJournal(context.root, candidate, ApplyJournalSchema.parse(parseJson(raw, journalPath)), raw);
+            return this.executeJournal(context, candidate, ApplyJournalSchema.parse(parseJson(raw, journalPath)), raw);
         });
     }
 
     /** 串行推进目标文件与 journal；崩溃后可由 target hash 判断已完成阶段。 */
     private async executeJournal(
-        root: string,
+        context: CharacterVisualMigrationProject,
         candidate: CharacterVisualMigrationCandidate,
         initial: ApplyJournal,
         initialRaw: string,
@@ -599,13 +603,13 @@ export class CharacterVisualMigrationService {
         const journalPath = this.file(candidate.migrationId, "apply-journal.json");
         for (let index = 0; index < journal.writes.length; index += 1) {
             const write = journal.writes[index]!;
-            const current = await this.store.read(root, write.path);
+            const current = await this.store.read(context.root, write.path);
             const currentHash = current === null ? null : createOutfitTagsFileHash(current);
             if (currentHash === write.targetHash) {
                 if (write.state !== "applied") {
                     journal = updateJournalWrite(journal, index, "applied", this.now());
                     const nextRaw = renderJson(journal);
-                    await this.store.write({root, filePath: journalPath, content: nextRaw, knownBefore: journalRaw});
+                    await this.store.write({...context, filePath: journalPath, content: nextRaw, knownBefore: journalRaw});
                     journalRaw = nextRaw;
                 }
                 continue;
@@ -616,34 +620,34 @@ export class CharacterVisualMigrationService {
             if (journal.state === "prepared") {
                 journal = {...journal, state: "writing", updatedAt: this.now()};
                 const nextRaw = renderJson(journal);
-                await this.store.write({root, filePath: journalPath, content: nextRaw, knownBefore: journalRaw});
+                await this.store.write({...context, filePath: journalPath, content: nextRaw, knownBefore: journalRaw});
                 journalRaw = nextRaw;
             }
-            await this.store.write({root, filePath: write.path, content: write.targetContent, knownBefore: current});
+            await this.store.write({...context, filePath: write.path, content: write.targetContent, knownBefore: current});
             journal = updateJournalWrite(journal, index, "applied", this.now());
             const nextRaw = renderJson(journal);
-            await this.store.write({root, filePath: journalPath, content: nextRaw, knownBefore: journalRaw});
+            await this.store.write({...context, filePath: journalPath, content: nextRaw, knownBefore: journalRaw});
             journalRaw = nextRaw;
         }
         journal = ApplyJournalSchema.parse({...journal, state: "completed", updatedAt: this.now()});
         const completedRaw = renderJson(journal);
         if (completedRaw !== journalRaw) {
-            await this.store.write({root, filePath: journalPath, content: completedRaw, knownBefore: journalRaw});
+            await this.store.write({...context, filePath: journalPath, content: completedRaw, knownBefore: journalRaw});
         }
-        const resolution = await this.readResolution(root, candidate.migrationId);
+        const resolution = await this.readResolution(context.root, candidate.migrationId);
         const applied = MigrationResolutionSchema.parse({...resolution, stage: "applied", updatedAt: this.now()});
-        if (resolution.stage !== "applied") await this.writeResolution(root, resolution, applied);
-        this.store.invalidate(root);
+        if (resolution.stage !== "applied") await this.writeResolution(context, resolution, applied);
+        this.store.invalidate(context);
         return snapshot(candidate, applied);
     }
 
     /** 读取并 strict parse upload 原始 bytes；report-only package 仍可由 inspect 展示。 */
-    private async readSource(root: string, sourcePathInput: string): Promise<Chatu8CharacterVisualSourcePackage> {
+    private async readSource(root: AbsoluteFsPath, sourcePathInput: string): Promise<TtpCharacterVisualSourcePackage> {
         const sourcePath = normalizeSourcePath(sourcePathInput);
         const bytes = await this.store.readBytes(root, sourcePath);
         if (!bytes) throw new CharacterVisualMigrationError("MIGRATION_NOT_FOUND", `外部角色源不存在：${sourcePath}`);
         try {
-            return parseChatu8CharacterVisualSource(bytes);
+            return parseTtpCharacterVisualSource(bytes);
         } catch (error) {
             throw new CharacterVisualMigrationError(
                 "MIGRATION_INVALID",
@@ -653,7 +657,7 @@ export class CharacterVisualMigrationService {
     }
 
     /** 只从含 index.md 的真实角色目录派生目标，避免凭空猜测 Project 角色。 */
-    private async listSourceTargets(root: string): Promise<CharacterVisualSourceInspection["targets"]> {
+    private async listSourceTargets(root: AbsoluteFsPath): Promise<CharacterVisualSourceInspection["targets"]> {
         const paths = await this.store.listPaths(root, "lorebook/character");
         const directories = paths
             .filter((filePath) => /^lorebook\/character\/[^/\\]+\/index\.md$/u.test(filePath))
@@ -675,7 +679,7 @@ export class CharacterVisualMigrationService {
 
     /** 目标状态判定以完整 Character/Outfit V2 owner/ref 验证为准。 */
     private async classifyTarget(
-        root: string,
+        root: AbsoluteFsPath,
         characterPath: string,
         knownPaths?: string[],
     ): Promise<"missing_visual" | "legacy" | "v2" | "invalid_v2"> {
@@ -701,7 +705,7 @@ export class CharacterVisualMigrationService {
 
     /** 重建 source/target draft、固定 create-only outfit 路径并生成 deterministic merge hash。 */
     private async buildSourceMerge(input: {
-        root: string;
+        root: AbsoluteFsPath;
         sourcePath: string;
         sourceCharacterId: string;
         characterPath: string;
@@ -797,7 +801,7 @@ export class CharacterVisualMigrationService {
 
     /** 从已持久 Director record 重建预览；角色详情、proposal 与视觉 target 任一漂移都会改变/阻断 hash。 */
     private async buildDirectorPreview(
-        root: string,
+        root: AbsoluteFsPath,
         recordInput: CharacterVisualDirectorProposalRecord,
         proposalRaw: string,
     ): Promise<CharacterVisualDirectorBuild> {
@@ -891,49 +895,50 @@ export class CharacterVisualMigrationService {
 
     /** 以相同 create/CAS 规则持久化任一 source 的统一 candidate/report/resolution。 */
     private async persistCandidate(
-        root: string,
+        context: CharacterVisualMigrationProject,
         candidate: CharacterVisualMigrationCandidate,
     ): Promise<CharacterVisualMigrationSnapshot> {
         const candidatePath = this.file(candidate.migrationId, "candidate.json");
         const reportPath = this.file(candidate.migrationId, "report.json");
         const resolutionPath = this.file(candidate.migrationId, "resolution.json");
-        const existingCandidate = await this.store.read(root, candidatePath);
+        const existingCandidate = await this.store.read(context.root, candidatePath);
         if (existingCandidate) {
             const parsed = CharacterVisualMigrationCandidateSchema.parse(parseJson(existingCandidate, candidatePath));
             if (parsed.sourceSetHash !== candidate.sourceSetHash) {
                 throw new CharacterVisualMigrationError("MIGRATION_STALE", "稳定 migrationId 的 sourceSetHash 冲突");
             }
-            if (!await this.store.read(root, reportPath)) {
-                await this.store.write({root, filePath: reportPath, content: renderReport(parsed), knownBefore: null});
+            if (!await this.store.read(context.root, reportPath)) {
+                await this.store.write({...context, filePath: reportPath, content: renderReport(parsed), knownBefore: null});
             }
-            if (!await this.store.read(root, resolutionPath)) {
+            if (!await this.store.read(context.root, resolutionPath)) {
                 await this.store.write({
-                    root,
+                    ...context,
                     filePath: resolutionPath,
                     content: renderJson(createInitialResolution(parsed, this.now())),
                     knownBefore: null,
                 });
             }
-            return this.readSnapshot(root, parsed);
+            return this.readSnapshot(context.root, parsed);
         }
         const resolution = createInitialResolution(candidate, this.now());
-        await this.store.write({root, filePath: candidatePath, content: renderJson(candidate), knownBefore: null});
-        await this.store.write({root, filePath: reportPath, content: renderReport(candidate), knownBefore: null});
-        await this.store.write({root, filePath: resolutionPath, content: renderJson(resolution), knownBefore: null});
-        this.store.invalidate(root);
+        await this.store.write({...context, filePath: candidatePath, content: renderJson(candidate), knownBefore: null});
+        await this.store.write({...context, filePath: reportPath, content: renderReport(candidate), knownBefore: null});
+        await this.store.write({...context, filePath: resolutionPath, content: renderJson(resolution), knownBefore: null});
+        this.store.invalidate(context);
         return snapshot(candidate, resolution);
     }
 
     /** 解析并守卫当前 Project。 */
-    private async project(projectPath: string): Promise<{root: string}> {
+    private async project(projectPathInput: string): Promise<CharacterVisualMigrationProject> {
+        const projectPath = normalizeProjectPath(projectPathInput);
         const root = await this.store.resolveProjectRoot(projectPath);
         if (!root) throw new CharacterVisualMigrationError("MIGRATION_INVALID", "Project Workspace root 缺失");
         this.store.assertProjectOpen(projectPath, root);
-        return {root};
+        return {projectPath, root};
     }
 
     /** 从持久 candidate.json 读取并 strict parse。 */
-    private async readCandidate(root: string, migrationId: string): Promise<CharacterVisualMigrationCandidate> {
+    private async readCandidate(root: AbsoluteFsPath, migrationId: string): Promise<CharacterVisualMigrationCandidate> {
         if (!/^character-migration-[a-f0-9]{24}$/u.test(migrationId)) {
             throw new CharacterVisualMigrationError("MIGRATION_INVALID", "migrationId 非法");
         }
@@ -944,7 +949,7 @@ export class CharacterVisualMigrationService {
     }
 
     /** 读取 strict resolution state。 */
-    private async readResolution(root: string, migrationId: string): Promise<MigrationResolution> {
+    private async readResolution(root: AbsoluteFsPath, migrationId: string): Promise<MigrationResolution> {
         const filePath = this.file(migrationId, "resolution.json");
         const raw = await this.store.read(root, filePath);
         if (!raw) throw new CharacterVisualMigrationError("MIGRATION_NOT_FOUND", "migration resolution 不存在");
@@ -952,21 +957,21 @@ export class CharacterVisualMigrationService {
     }
 
     /** 读取 candidate 与 resolution 并生成只读快照。 */
-    private async readSnapshot(root: string, candidate: CharacterVisualMigrationCandidate): Promise<CharacterVisualMigrationSnapshot> {
+    private async readSnapshot(root: AbsoluteFsPath, candidate: CharacterVisualMigrationCandidate): Promise<CharacterVisualMigrationSnapshot> {
         return snapshot(candidate, await this.readResolution(root, candidate.migrationId));
     }
 
     /** CAS 覆盖 resolution state。 */
-    private async writeResolution(root: string, before: MigrationResolution, after: MigrationResolution): Promise<void> {
+    private async writeResolution(context: CharacterVisualMigrationProject, before: MigrationResolution, after: MigrationResolution): Promise<void> {
         const filePath = this.file(before.migrationId, "resolution.json");
-        const current = await this.store.read(root, filePath);
+        const current = await this.store.read(context.root, filePath);
         const expected = renderJson(MigrationResolutionSchema.parse(before));
         if (current !== expected) throw new CharacterVisualMigrationError("MIGRATION_STALE", "resolution state 已变化");
-        await this.store.write({root, filePath, content: renderJson(MigrationResolutionSchema.parse(after)), knownBefore: current});
+        await this.store.write({...context, filePath, content: renderJson(MigrationResolutionSchema.parse(after)), knownBefore: current});
     }
 
     /** 要求文件存在。 */
-    private async requireFile(root: string, filePath: string): Promise<string> {
+    private async requireFile(root: AbsoluteFsPath, filePath: string): Promise<string> {
         const content = await this.store.read(root, filePath);
         if (content === null) throw new CharacterVisualMigrationError("MIGRATION_NOT_FOUND", `文件不存在：${filePath}`);
         return content;
@@ -1006,31 +1011,31 @@ export class CharacterVisualMigrationService {
 
 /** 生产 Project 文件存储：原路径 guard、tracked write 与 workspace index invalidate。 */
 class WorkspaceCharacterVisualMigrationStore implements CharacterVisualMigrationFileStore {
-    async resolveProjectRoot(projectPath: string): Promise<string> {
+    async resolveProjectRoot(projectPath: ProjectPath): Promise<AbsoluteFsPath> {
         const root = await resolveWorkspaceRootInput({projectPath});
         if (!root) throw new CharacterVisualMigrationError("MIGRATION_INVALID", "Project Workspace root 缺失");
-        return root;
+        return absoluteFsPath(root);
     }
 
-    assertProjectOpen(projectPath: string, _root: string): void {
+    assertProjectOpen(projectPath: ProjectPath, _root: AbsoluteFsPath): void {
         assertProjectOpen(projectPath);
     }
 
-    async listPaths(root: string, prefix: string): Promise<string[]> {
-        const nodes = await scanWorkspaceTree({root: root as any, targets: [prefix], depth: null, recursive: true});
+    async listPaths(root: AbsoluteFsPath, prefix: string): Promise<string[]> {
+        const nodes = await scanWorkspaceTree({root, targets: [prefix], depth: null, recursive: true});
         return nodes.filter((node) => !node.isDirectory).map((node) => node.path).sort(compareText);
     }
 
-    async read(root: string, filePath: string): Promise<string | null> {
+    async read(root: AbsoluteFsPath, filePath: string): Promise<string | null> {
         try {
-            return await readWorkspaceTextFile(root as any, filePath);
+            return await readWorkspaceTextFile(root, filePath);
         } catch (error) {
             if (isNotFoundError(error)) return null;
             throw error;
         }
     }
 
-    async readBytes(root: string, filePath: string): Promise<Uint8Array | null> {
+    async readBytes(root: AbsoluteFsPath, filePath: string): Promise<Uint8Array | null> {
         const sourcePath = normalizeSourcePath(filePath);
         let projectReal: string;
         let uploadReal: string;
@@ -1055,12 +1060,22 @@ class WorkspaceCharacterVisualMigrationStore implements CharacterVisualMigration
         return fs.readFile(sourceReal);
     }
 
-    async write(input: {root: string; filePath: string; content: string; knownBefore: string | null}): Promise<void> {
-        await writeWorkspaceTextFileTracked(writeWorkspaceTextFileTracked({...input, actor: USER_LOCAL_ACTOR} as any) as any);
+    async write(input: {projectPath: ProjectPath; root: AbsoluteFsPath; filePath: string; content: string; knownBefore: string | null}): Promise<void> {
+        await writeWorkspaceTextFileTracked({
+            target: {kind: "project-workspace", projectPath: input.projectPath, root: input.root},
+            filePath: input.filePath,
+            content: input.content,
+            knownBefore: input.knownBefore,
+            actor: USER_LOCAL_ACTOR,
+        });
     }
 
-    invalidate(root: string): void {
-        invalidateProjectWorkspaceIndexAfterMutation({target: {kind: "project-workspace", root: root, projectPath: ""}} as any);
+    invalidate(input: {projectPath: ProjectPath; root: AbsoluteFsPath}): void {
+        invalidateProjectWorkspaceIndexAfterMutation({
+            kind: "project-workspace",
+            projectPath: input.projectPath,
+            root: input.root,
+        });
     }
 }
 

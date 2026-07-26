@@ -3,9 +3,9 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import {
     createGlobalProfileHomeFacade,
-    resolveProjectRootForProfileHome,
     type ProfileHomeFacade,
 } from "nbook/server/agent/profiles/profile-home";
+import {resolveGlobalProfileNbookRoot} from "nbook/server/text-to-image/compat";
 import {
     StoryboardImportInspectPreviewSchema,
     StoryboardImportPendingPreviewSchema,
@@ -29,20 +29,20 @@ import {
     type TextToImageContractValue,
 } from "nbook/shared/text-to-image-contract-hash";
 import {TextToImageContractHashSchema} from "nbook/shared/text-to-image-tag-resolution";
-import type {Chatu8InspectedEntry} from "nbook/shared/text-to-image-storyboard-import";
+import type {TtpInspectedEntry} from "nbook/shared/text-to-image-storyboard-import";
 import {
     StoryboardStableIdSchema,
     type StoryboardPreset,
 } from "nbook/shared/text-to-image-storyboard-preset";
 import type {PendingTagPatternSet} from "nbook/shared/text-to-image-storyboard-candidate";
 import {
-    parseChatu8StoryboardJson,
-    type ParsedChatu8StoryboardJson,
-} from "nbook/server/text-to-image/chatu8-storyboard-json";
+    parseTtpStoryboardJson,
+    type ParsedTtpStoryboardJson,
+} from "nbook/server/text-to-image/ttp-storyboard-json";
 import {
-    inspectChatu8Storyboard,
-    type Chatu8StoryboardInspection,
-} from "nbook/server/text-to-image/chatu8-storyboard-inspector";
+    inspectTtpStoryboard,
+    type TtpStoryboardInspection,
+} from "nbook/server/text-to-image/ttp-storyboard-inspector";
 import {
     buildPendingStoryboardCompanion,
     buildResolvedStoryboardCompanion,
@@ -81,7 +81,7 @@ import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
 import {resolveProjectAbsolutePath} from "nbook/server/text-to-image/compat";
 
 const IMPORT_PROFILE_KEY = "illustration.director";
-const IMPORT_DIRECTORY = "imports/chatu8-storyboard";
+const IMPORT_DIRECTORY = "imports/ttp-storyboard";
 const IMPORT_TAG_GROUPS = ["scene", "composition", "lighting", "action", "negativeGlobal", "negativeCharacter"] as const;
 
 export type StoryboardImportErrorCode =
@@ -119,7 +119,7 @@ export type InspectStoryboardImportInput = {
 export type InspectedStoryboardImport = {
     importId: string;
     presetId: string;
-    inspection: Chatu8StoryboardInspection;
+    inspection: TtpStoryboardInspection;
     secretPaths: string[];
     journal: StoryboardImportJournal;
 };
@@ -167,32 +167,32 @@ export type VerifiedResolvedStoryboardImport = {
 type ReadImportSource = {
     projectPath: string;
     sourceRelativePath: `upload/${string}.json`;
-    parsed: ParsedChatu8StoryboardJson;
-    inspection: Chatu8StoryboardInspection;
+    parsed: ParsedTtpStoryboardJson;
+    inspection: TtpStoryboardInspection;
     importId: string;
     presetId: string;
 };
 
 type PersistedInspection = {
-    schemaVersion: "nbook.chatu8-storyboard-inspect-manifest/v1";
-    sourceShape: Chatu8StoryboardInspection["sourceShape"];
+    schemaVersion: "nbook.ttp-storyboard-inspect-manifest/v1";
+    sourceShape: TtpStoryboardInspection["sourceShape"];
     sourcePresetKey: string;
     rawSourceHash: string;
     sanitizedSourceHash: string;
     entries: Array<{
-        sourceIdentity: Chatu8InspectedEntry["sourceIdentity"];
+        sourceIdentity: TtpInspectedEntry["sourceIdentity"];
         enabled: boolean;
-        role: Chatu8InspectedEntry["role"];
-        triggerMode: Chatu8InspectedEntry["triggerMode"];
+        role: TtpInspectedEntry["role"];
+        triggerMode: TtpInspectedEntry["triggerMode"];
         triggerWords: string[];
         andTriggerWords: string[];
         contentHash: string;
         unknownFields: string[];
-        classifications: Chatu8InspectedEntry["classifications"];
-        flags: Chatu8InspectedEntry["flags"];
+        classifications: TtpInspectedEntry["classifications"];
+        flags: TtpInspectedEntry["flags"];
     }>;
-    macroTokens: Chatu8StoryboardInspection["macroTokens"];
-    chunks: Chatu8StoryboardInspection["chunks"];
+    macroTokens: TtpStoryboardInspection["macroTokens"];
+    chunks: TtpStoryboardInspection["chunks"];
     inspectionHash: string;
 };
 
@@ -658,13 +658,13 @@ async function readImportSource(
         }
         throw error;
     }
-    const importId = createStableId("c8i", sha256Bytes(bytes), input.converterVersion);
+    const importId = createStableId("ttpi", sha256Bytes(bytes), input.converterVersion);
     if (expectedImportId && importId !== expectedImportId) {
         throw new StoryboardImportError("STORYBOARD_IMPORT_SOURCE_CHANGED", "原 upload 文件内容或 converterVersion 已改变");
     }
-    const parsed = parseChatu8StoryboardJson(bytes);
-    const inspection = inspectChatu8Storyboard(parsed);
-    const presetId = createStableId("c8p", projectPath, sourceRelativePath, inspection.sourcePresetKey);
+    const parsed = parseTtpStoryboardJson(bytes);
+    const inspection = inspectTtpStoryboard(parsed);
+    const presetId = createStableId("ttpp", projectPath, sourceRelativePath, inspection.sourcePresetKey);
     return {projectPath, sourceRelativePath, parsed, inspection, importId, presetId};
 }
 
@@ -714,9 +714,9 @@ async function persistInspection(
 }
 
 /** 把 inspect 持久化投影限制为 hash/分类/来源映射，不复制完整 content。 */
-function createInspectManifest(inspection: Chatu8StoryboardInspection): PersistedInspection {
+function createInspectManifest(inspection: TtpStoryboardInspection): PersistedInspection {
     return {
-        schemaVersion: "nbook.chatu8-storyboard-inspect-manifest/v1",
+        schemaVersion: "nbook.ttp-storyboard-inspect-manifest/v1",
         sourceShape: inspection.sourceShape,
         sourcePresetKey: inspection.sourcePresetKey,
         rawSourceHash: inspection.rawSourceHash,
@@ -970,7 +970,7 @@ async function requireJournal(home: ProfileHomeFacade, importId: string): Promis
 /** report.md 同时展示 bounded report 与 pair/package hash，不复制完整外部 Prompt。 */
 function renderImportReport(pendingPackage: PendingStoryboardPackage): string {
     return [
-        `# Chatu8 Storyboard Import ${pendingPackage.importId}`,
+        `# TTP Storyboard Import ${pendingPackage.importId}`,
         "",
         "状态：pending_unresolved（不可批准）",
         "",
@@ -995,7 +995,7 @@ function createStableId(prefix: string, ...parts: string[]): string {
 /** 创建受限全局 illustration.director Profile Home。 */
 function createImportHome(workspaceRoot: string | undefined): ProfileHomeFacade {
     return createGlobalProfileHomeFacade(
-        resolveProjectRootForProfileHome(workspaceRoot as any, undefined)! as any,
+        resolveGlobalProfileNbookRoot(workspaceRoot),
         IMPORT_PROFILE_KEY,
     );
 }

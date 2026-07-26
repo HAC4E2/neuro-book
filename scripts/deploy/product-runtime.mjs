@@ -13,6 +13,17 @@ import {pruneRuntimeTestSources} from "../utils/runtime-source-prune.mjs";
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const PRODUCT_ROOT = resolve(REPO_ROOT, process.env.NEURO_BOOK_PRODUCT_STAGE_DIR?.trim() || "product");
 const BUILD_OUTPUT_ROOT = resolve(REPO_ROOT, process.env.NEURO_BOOK_OUTPUT_DIR?.trim() || ".output");
+const PRODUCT_PROFILE_COMPILED_ROOT = resolve(
+    PRODUCT_ROOT,
+    ".output",
+    "server",
+    "assets",
+    "workspace",
+    ".nbook",
+    "agent",
+    "profiles",
+    ".compiled",
+);
 
 const command = process.argv[2] ?? "stage";
 
@@ -66,7 +77,7 @@ async function stageProduct() {
  * 确认 Product profile artifacts 不把构建机绝对路径写进 runtime require。
  */
 async function assertProductProfileArtifactsPortable() {
-    const compiledRoot = resolve(PRODUCT_ROOT, "assets", "workspace", ".nbook", "agent", "profiles", ".compiled");
+    const compiledRoot = PRODUCT_PROFILE_COMPILED_ROOT;
     if (!existsSync(resolve(compiledRoot, "manifest.json"))) {
         throw new Error(`Product profile artifact 缺少 manifest：${resolve(compiledRoot, "manifest.json")}`);
     }
@@ -391,7 +402,7 @@ async function prepareProductSystemAssets() {
  * 只保留 manifest 当前引用的内容寻址 Profile artifacts，避免把开发机历史产物带入产品包。
  */
 async function pruneProductProfileArtifacts() {
-    const compiledRoot = resolve(PRODUCT_ROOT, "assets", "workspace", ".nbook", "agent", "profiles", ".compiled");
+    const compiledRoot = PRODUCT_PROFILE_COMPILED_ROOT;
     const profiles = await readProductProfileManifestProfiles(compiledRoot);
     const keep = new Set(profiles.flatMap((profile) => [profile.artifactFileName, profile.typeFileName].filter((fileName) => typeof fileName === "string")));
     if (keep.size === 0) {

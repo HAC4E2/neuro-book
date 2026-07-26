@@ -7,7 +7,7 @@ export const ILLUSTRATION_DIRECTOR_BINDING_ID = "illustration.director" as const
 /** Agent operation 在 Director binding 缺失时使用的稳定错误码。 */
 export const ILLUSTRATION_DIRECTOR_MODEL_NOT_CONFIGURED = "ILLUSTRATION_DIRECTOR_MODEL_NOT_CONFIGURED" as const;
 
-/** Chatu8 converter 语义变化必须显式提升该版本，不能复用旧批准。 */
+/** TTP converter 语义变化必须显式提升该版本，不能复用旧批准。 */
 export const ILLUSTRATION_DIRECTOR_CONVERTER_VERSION = "route-b-p2.1" as const;
 
 /** plan-chapter / plan-selection 输入与提示协议版本。 */

@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import {spawn} from "node:child_process";
 import {setTimeout as sleep} from "node:timers/promises";
-import {preparePrismaEnv} from "./prisma-env.mjs";
+import {preparePrismaEnv, prismaChildEnvironment} from "./prisma-env.mjs";
 
 const env = preparePrismaEnv();
 const bunCommand = process.execPath;
@@ -43,7 +43,7 @@ async function spawnPrismaGenerate(schema) {
         "--schema",
         schema,
     ], {
-        env: {...process.env, DATABASE_KIND: env.kind, DATABASE_URL: env.databaseUrl},
+        env: prismaChildEnvironment(process.env, env),
         stdio: ["inherit", "inherit", "pipe"],
     });
     let stderr = "";

@@ -1,4 +1,9 @@
-import {TagIndexSourceSnapshotSchema, type TagIndexSourceSnapshot} from "nbook/shared/text-to-image-tag-index";
+import {
+    TAG_INDEX_SOURCE_ENDPOINT,
+    TAG_INDEX_SOURCE_KIND,
+    TagIndexSourceSnapshotSchema,
+    type TagIndexSourceSnapshot,
+} from "nbook/shared/text-to-image-tag-index";
 
 export const TAG_INDEX_TEST_HASH_A = `sha256:${"a".repeat(64)}`;
 export const TAG_INDEX_TEST_HASH_B = `sha256:${"b".repeat(64)}`;
@@ -12,10 +17,11 @@ export function createTagIndexTestSnapshot(): TagIndexSourceSnapshot {
     ]);
     return TagIndexSourceSnapshotSchema.parse({
         schemaVersion: "nbook.tag-index-source-snapshot/v1",
-        sourceKind: "danbooru-api",
-        sourceEndpoint: "https://danbooru.donmai.us",
+        sourceKind: TAG_INDEX_SOURCE_KIND,
+        sourceEndpoint: TAG_INDEX_SOURCE_ENDPOINT,
         minPostCount: 3000,
         sourceClientVersion: "danbooru-source-v1",
+        providedResources: ["tags", "aliases", "implications"],
         fetchedAt: "2026-07-20T00:00:00.000Z",
         pages,
         tags: [

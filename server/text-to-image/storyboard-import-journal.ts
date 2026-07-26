@@ -56,7 +56,7 @@ export const StoryboardImportResolutionJournalSchema = z.discriminatedUnion("sta
 
 export type StoryboardImportResolutionJournal = z.infer<typeof StoryboardImportResolutionJournalSchema>;
 
-/** 全局 Chatu8 import 的可重放 journal；不含原始 secret 或当前 selector 写权限。 */
+/** 全局 TTP import 的可重放 journal；不含原始 secret 或当前 selector 写权限。 */
 export const StoryboardImportJournalSchema = z.object({
     schemaVersion: z.literal(STORYBOARD_IMPORT_JOURNAL_SCHEMA_VERSION),
     importId: StoryboardStableIdSchema,
@@ -113,7 +113,7 @@ export const STORYBOARD_IMPORT_JOURNAL_STAGES: readonly StoryboardImportJournalS
 
 /** 返回 import 目录下 journal 的受限 Profile Home 相对路径。 */
 export function storyboardImportJournalPath(importId: string): string {
-    return `imports/chatu8-storyboard/${StoryboardStableIdSchema.parse(importId)}/journal.json`;
+    return `imports/ttp-storyboard/${StoryboardStableIdSchema.parse(importId)}/journal.json`;
 }
 
 /** 读取并严格验证 journal；不存在时返回 null。 */

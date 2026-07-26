@@ -242,7 +242,7 @@ function formatTime(value: string): string {
         <div class="flex items-center justify-between gap-3 border-b border-[var(--border-color)] px-3 py-2.5">
             <div class="min-w-0">
                 <h3 class="m-0 truncate text-[12px] font-medium text-[var(--text-main)]">插图规划 Workflow</h3>
-                <p class="m-0 mt-0.5 text-[10px] text-[var(--text-muted)]">管理持久规划状态并只读预览 Director 结果；本区不保存 LLM、NovelAI、Recipe 或生成参数。</p>
+                <p class="m-0 mt-0.5 text-[10px] text-[var(--text-muted)]">查看插图规划状态与 Director 结果预览。</p>
             </div>
             <button type="button" class="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-[var(--border-color)] px-2 text-[10px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-50" :disabled="loading" @click="void loadWorkflows()">
                 <span class="h-3 w-3" :class="loading ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-refresh-cw'"></span>

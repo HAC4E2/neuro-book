@@ -42,7 +42,7 @@ const ClassificationCountsSchema = z.object({
     macro: CountSchema,
 }).strict();
 
-/** Chatu8 inspect 与后续发布流程共享的冻结状态枚举。 */
+/** TTP inspect 与后续发布流程共享的冻结状态枚举。 */
 export const StoryboardImportStageSchema = z.enum([
     "uploaded",
     "inspected",
@@ -116,7 +116,7 @@ export function assertStoryboardImportTransition(from: StoryboardImportStage, to
 }
 
 /** inspect 只保留可稳定复现的 source entry 身份，不使用数组序号作为 identity。 */
-export const Chatu8SourceIdentitySchema = z.object({
+export const TtpSourceIdentitySchema = z.object({
     sourcePresetKey: z.string().trim().min(1).max(500),
     sourceEntryId: StoryboardStableIdSchema,
     identityKind: z.enum(["explicit_id", "map_key", "canonical_hash"]),
@@ -124,8 +124,8 @@ export const Chatu8SourceIdentitySchema = z.object({
     jsonPointer: JsonPointerSchema,
 }).strict();
 
-/** 固定七类 Chatu8 内容路由；类别只影响 proposal 去向，不扩大权限。 */
-export const Chatu8EntryClassificationSchema = z.enum([
+/** 固定七类 TTP 内容路由；类别只影响 proposal 去向，不扩大权限。 */
+export const TtpEntryClassificationSchema = z.enum([
     "core_rule",
     "atomic_group",
     "scene_recipe",
@@ -135,11 +135,11 @@ export const Chatu8EntryClassificationSchema = z.enum([
     "macro",
 ]);
 
-export type Chatu8EntryClassification = z.infer<typeof Chatu8EntryClassificationSchema>;
+export type TtpEntryClassification = z.infer<typeof TtpEntryClassificationSchema>;
 
 /** 脱敏 inspect entry 的 allowlist DTO。 */
-export const Chatu8InspectedEntrySchema = z.object({
-    sourceIdentity: Chatu8SourceIdentitySchema,
+export const TtpInspectedEntrySchema = z.object({
+    sourceIdentity: TtpSourceIdentitySchema,
     enabled: z.boolean(),
     role: z.enum(["system", "user", "assistant"]),
     triggerMode: z.enum(["always", "trigger"]),
@@ -147,7 +147,7 @@ export const Chatu8InspectedEntrySchema = z.object({
     andTriggerWords: z.array(z.string().trim().min(1).max(160)).max(256),
     content: z.string().max(120000),
     unknownFields: z.array(z.string().trim().min(1).max(160)).max(256),
-    classifications: z.array(Chatu8EntryClassificationSchema).max(7),
+    classifications: z.array(TtpEntryClassificationSchema).max(7),
     flags: z.object({
         characterOrOutfit: z.boolean(),
         outputTemplate: z.boolean(),
@@ -164,7 +164,7 @@ export const Chatu8InspectedEntrySchema = z.object({
     });
 });
 
-export type Chatu8InspectedEntry = z.infer<typeof Chatu8InspectedEntrySchema>;
+export type TtpInspectedEntry = z.infer<typeof TtpInspectedEntrySchema>;
 
 export const PatternTagFieldSchema = z.enum([
     "scene",

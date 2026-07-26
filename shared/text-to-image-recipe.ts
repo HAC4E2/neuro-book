@@ -1,7 +1,7 @@
 import {z} from "zod";
 import {TextToImageReferenceSelectionSchema} from "nbook/shared/text-to-image-reference-asset";
 
-export const TEXT_TO_IMAGE_RECIPE_SCHEMA_VERSION = 2 as const;
+export const TEXT_TO_IMAGE_RECIPE_SCHEMA_VERSION = 3 as const;
 export const DEFAULT_TEXT_TO_IMAGE_RECIPE_ID = "default" as const;
 
 export const TextToImageRecipeDimensionsSchema = z.object({
@@ -39,6 +39,15 @@ export const TextToImageRecipeStyleSchema = z.object({
     negativeQualityPreset: z.enum(["none", "heavy", "light", "humanFocus", "furryFocus"]),
 }).strict();
 
+/** Recipe 单条画风串的窄风格字段类型（不含 id/name），供手工编译与队列持久化消费。 */
+export type TextToImageRecipeStyle = z.infer<typeof TextToImageRecipeStyleSchema>;
+
+/** Recipe 画风串预设：窄风格字段 + id + name；Recipe 以数组持久化全部预设。 */
+export const TextToImageRecipeStylePresetSchema = TextToImageRecipeStyleSchema.extend({
+    id: z.string().trim().min(1),
+    name: z.string().trim().min(1),
+}).strict();
+
 export const TextToImageRecipeAdvancedSchema = z.object({
     aiDefaultCharacterPosition: z.boolean(),
     variety: z.boolean(),
@@ -65,7 +74,8 @@ export const TextToImageRecipeSourceSchema = z.object({
     dimensions: TextToImageRecipeDimensionsSchema,
     seed: TextToImageRecipeSeedSchema,
     advanced: TextToImageRecipeAdvancedSchema,
-    style: TextToImageRecipeStyleSchema,
+    styles: z.array(TextToImageRecipeStylePresetSchema).min(1),
+    activeStyleId: z.string().trim().min(1),
     /** P5 参考资源区：Compiler 冻结 contentHash + strength；不存 bytes/Data URL。 */
     references: z.object({
         /** NovelAI 归一化 Vibe 权重开关。 */
@@ -77,6 +87,23 @@ export const TextToImageRecipeSourceSchema = z.object({
 }).strict();
 
 export type TextToImageRecipeSource = z.infer<typeof TextToImageRecipeSourceSchema>;
+
+/** 取 Recipe source/snapshot 当前启用画风串的窄风格字段；schema 保证 styles 非空，空时抛错。 */
+export function getActiveTextToImageRecipeStyle(source: Pick<TextToImageRecipeSource, "styles" | "activeStyleId">): TextToImageRecipeStyle {
+    const active = source.styles.find((item) => item.id === source.activeStyleId) ?? source.styles[0];
+    if (!active) {
+        throw new Error("Recipe 缺少画风串预设");
+    }
+    return {
+        positivePrefix: active.positivePrefix,
+        positiveSuffix: active.positiveSuffix,
+        negativePrefix: active.negativePrefix,
+        negativeSuffix: active.negativeSuffix,
+        useFurryDataset: active.useFurryDataset,
+        positiveQualityPreset: active.positiveQualityPreset,
+        negativeQualityPreset: active.negativeQualityPreset,
+    };
+}
 
 export const TextToImageRecipeSnapshotSchema = TextToImageRecipeSourceSchema.extend({
     /** 只覆盖画幅与尺寸规划约束；画风或采样参数变化不触发重新规划。 */
@@ -128,7 +155,9 @@ export function createDefaultTextToImageRecipeSource(): TextToImageRecipeSource 
             smeaDyn: false,
             decrisper: false,
         },
-        style: {
+        styles: [{
+            id: "recipe-default",
+            name: "默认画风串",
             positivePrefix: "",
             positiveSuffix: "",
             negativePrefix: "",
@@ -136,7 +165,8 @@ export function createDefaultTextToImageRecipeSource(): TextToImageRecipeSource 
             useFurryDataset: false,
             positiveQualityPreset: true,
             negativeQualityPreset: "none",
-        },
+        }],
+        activeStyleId: "recipe-default",
         references: {
             normalizeVibeStrengths: true,
             vibeReferences: [],
@@ -144,4 +174,31 @@ export function createDefaultTextToImageRecipeSource(): TextToImageRecipeSource 
             inpaint: null,
         },
     };
+}
+
+/** 把历史版本的 Recipe raw 规范到当前 schema；v2 单 style 包进 styles 数组，已有 styles 仅校正版本号。 */
+export function normalizeTextToImageRecipeSourceInput(raw: unknown): unknown {
+    if (!isRecipePlainObject(raw)) {
+        return raw;
+    }
+    const obj = raw as Record<string, unknown>;
+    const schemaVersion = TEXT_TO_IMAGE_RECIPE_SCHEMA_VERSION;
+    if (Array.isArray(obj.styles)) {
+        return {...obj, schemaVersion};
+    }
+    if (isRecipePlainObject(obj.style)) {
+        const {style, ...rest} = obj;
+        const name = typeof rest.title === "string" && rest.title.trim() ? rest.title.trim() : "默认画风串";
+        return {
+            ...rest,
+            schemaVersion,
+            styles: [{id: "recipe-default", name, ...(style as Record<string, unknown>)}],
+            activeStyleId: "recipe-default",
+        };
+    }
+    return {...obj, schemaVersion};
+}
+
+function isRecipePlainObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
 }

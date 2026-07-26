@@ -2,7 +2,13 @@ import {mkdtemp, readFile, readdir, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
-import {TagIndexManifestSchema, TagIndexSourceSnapshotSchema, type TagIndexSourceSnapshot} from "nbook/shared/text-to-image-tag-index";
+import {
+    TAG_INDEX_SOURCE_ENDPOINT,
+    TAG_INDEX_SOURCE_KIND,
+    TagIndexManifestSchema,
+    TagIndexSourceSnapshotSchema,
+    type TagIndexSourceSnapshot,
+} from "nbook/shared/text-to-image-tag-index";
 import {buildTagIndexVersion} from "nbook/server/text-to-image/tag-index/tag-index-builder";
 import {openTagIndexDatabase} from "nbook/server/text-to-image/tag-index/tag-index-database";
 import {normalizeTagIndexSnapshot} from "nbook/server/text-to-image/tag-index/tag-index-normalizer";
@@ -31,10 +37,11 @@ function sourceSnapshot(): TagIndexSourceSnapshot {
     ]);
     return TagIndexSourceSnapshotSchema.parse({
         schemaVersion: "nbook.tag-index-source-snapshot/v1",
-        sourceKind: "danbooru-api",
-        sourceEndpoint: "https://danbooru.donmai.us",
+        sourceKind: TAG_INDEX_SOURCE_KIND,
+        sourceEndpoint: TAG_INDEX_SOURCE_ENDPOINT,
         minPostCount: 3000,
         sourceClientVersion: "danbooru-source-v1",
+        providedResources: ["tags", "aliases", "implications"],
         fetchedAt: "2026-07-20T00:00:00.000Z",
         pages,
         tags: [

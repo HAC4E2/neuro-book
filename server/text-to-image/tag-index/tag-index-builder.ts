@@ -378,10 +378,11 @@ function buildManifest(input: {
         sourceClientVersion: input.normalized.sourceClientVersion,
         capabilityVersion: input.normalized.capabilityVersion,
         normalizedHash: input.normalized.normalizedHash,
-        sourceKind: "danbooru-api",
-        sourceEndpoint: "https://danbooru.donmai.us",
+        sourceKind: input.snapshot.sourceKind,
+        sourceEndpoint: input.snapshot.sourceEndpoint,
         apiVersion: "json-v1",
         minPostCount: 3000,
+        providedResources: input.snapshot.providedResources,
         fetchedAt: input.snapshot.fetchedAt,
         snapshotDate: input.snapshot.fetchedAt.slice(0, 10),
         terms: {
@@ -390,7 +391,7 @@ function buildManifest(input: {
             ...input.terms,
         },
         sourceResponse: {
-            schemaVersion: "danbooru-json-v1",
+            schemaVersion: "ttp-tagdata-v1",
             contentType: "application/json",
             compression: "transport-decoded",
         },
@@ -423,12 +424,18 @@ function buildManifest(input: {
     });
 }
 
-/** 校验 source page 的双轮 record coverage、watermark 与 identity。 */
+/** 校验 source page 的双轮 record coverage、watermark 与 identity；未声明资源必须零记录零 page。 */
 function assertSourceCoverage(snapshot: TagIndexSourceSnapshot): void {
     const identities = snapshot.pages.map((page) => page.pageIdentity);
     if (new Set(identities).size !== identities.length) throw buildError("source page identity 重复");
     for (const resource of TagIndexSourceResourceSchema.options) {
         const expectedCount = sourceRecords(snapshot, resource).length;
+        if (!snapshot.providedResources.includes(resource)) {
+            if (expectedCount !== 0 || snapshot.pages.some((page) => page.resource === resource)) {
+                throw buildError(`${resource} 未在 providedResources 声明却携带 source 证据`);
+            }
+            continue;
+        }
         for (const pass of TagIndexSourcePassSchema.options) {
             const pages = snapshot.pages.filter((page) => page.resource === resource && page.pass === pass);
             const recordCount = pages.reduce((sum, page) => sum + page.recordCount, 0);
@@ -454,6 +461,23 @@ function buildResourceManifest(snapshot: TagIndexSourceSnapshot, resource: "tags
     const ids = records.map((record) => record.id).sort((left, right) => left - right);
     const sourcePages = snapshot.pages.filter((page) => page.resource === resource && page.pass === "source");
     const reconciliationPages = snapshot.pages.filter((page) => page.resource === resource && page.pass === "reconciliation");
+    // 未声明的资源（如 TTP 不提供 alias/implication）返回显式空占位；声明了的资源保持全量校验
+    if (!snapshot.providedResources.includes(resource)) {
+        if (records.length !== 0 || sourcePages.length !== 0 || reconciliationPages.length !== 0) {
+            throw buildError(`${resource} 未在 providedResources 声明却携带记录或 page`);
+        }
+        return {
+            watermark: 1,
+            pageCount: 1,
+            firstId: 1,
+            lastId: 1,
+            sourceRecordCount: 0,
+            reconciliationRecordCount: 0,
+            sourceHash: hashTextToImageContract({resource, records: []}),
+            reconciliationHash: hashTextToImageContract({resource, records: []}),
+            consistency: "reconciled" as const,
+        };
+    }
     const watermark = sourcePages[0]?.watermark;
     if (!watermark || reconciliationPages.some((page) => page.watermark !== watermark)) {
         throw buildError(`${resource} watermark 漂移`);

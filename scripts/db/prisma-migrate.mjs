@@ -2,14 +2,14 @@
 import {spawn} from "node:child_process";
 import {dirname, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
-import {preparePrismaEnv} from "./prisma-env.mjs";
+import {preparePrismaEnv, prismaChildEnvironment} from "./prisma-env.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const env = preparePrismaEnv();
 const mode = process.argv.includes("--deploy") ? "deploy" : "dev";
 if (mode === "deploy") {
     const child = spawn(process.execPath, [resolve(scriptDir, "sqlite-migrate.mjs")], {
-        env: {...process.env, DATABASE_KIND: env.kind, DATABASE_URL: env.databaseUrl},
+        env: prismaChildEnvironment(process.env, env),
         stdio: "inherit",
     });
     child.on("exit", (code, signal) => {
@@ -27,7 +27,7 @@ if (mode === "deploy") {
     const args = ["prisma", "migrate", mode, "--config", "./prisma.config.ts"];
     const bunCommand = process.execPath;
     const child = spawn(bunCommand, ["x", ...args], {
-        env: {...process.env, DATABASE_KIND: env.kind, DATABASE_URL: env.databaseUrl},
+        env: prismaChildEnvironment(process.env, env),
         stdio: "inherit",
     });
 

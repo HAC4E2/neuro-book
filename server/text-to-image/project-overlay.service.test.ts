@@ -105,6 +105,20 @@ describe("ProjectOverlayService", () => {
         })).rejects.toMatchObject({code: "STORYBOARD_PRESET_STALE"});
         expect(fixture.writes).toHaveLength(0);
     });
+
+    it("active preset stale 时领域错误码只出现一次", async () => {
+        const fixture = createFixture();
+        const pending = StoryboardPresetSchema.parse({
+            ...createApprovedStoryboard(2),
+            review: {status: "pending"},
+        });
+        fixture.globalFiles.set("storyboard-presets/default.md", renderStoryboardPresetMarkdown(pending));
+
+        await expect(fixture.service.read({projectPath: "workspace/demo"})).rejects.toMatchObject({
+            code: "STORYBOARD_PRESET_STALE",
+            message: "STORYBOARD_PRESET_STALE: Storyboard Preset 未获批准或已漂移",
+        });
+    });
 });
 
 function createFixture(): {

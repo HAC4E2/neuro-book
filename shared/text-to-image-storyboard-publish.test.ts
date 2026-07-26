@@ -14,7 +14,7 @@ function previewInput() {
     return {
         schemaVersion: "nbook.storyboard-global-publish-preview/v1" as const,
         state: "ready" as const,
-        importId: "c8i.import",
+        importId: "ttpi.import",
         target: {mode: "candidate" as const, confirmReplaceActive: true},
         sourceCandidatePackageHash: HASH_A,
         publishedCandidatePackageHash: HASH_B,

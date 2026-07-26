@@ -4,6 +4,7 @@ import {
     inspectSettingsDraft,
     previewModelLibraryRepairs,
     previewProviderModelApiRepairs,
+    repairMissingModelApis,
     removeIncompleteDisabledModels,
     modelContractInput,
     type ContractSettingsDraft,
@@ -108,6 +109,45 @@ describe("model settings draft contract", () => {
 
         draft.providers[0]!.models[0]!.api = "unknown-api";
         expect(previewProviderModelApiRepairs(draft)).toEqual([]);
+    });
+
+    it("一键修复用受支持的 Provider 默认 API 补空值但不覆盖已有模型 API", () => {
+        const draft = createDraft();
+        draft.providers[0]!.modelApi = "openai-responses";
+        draft.providers[0]!.models = [
+            {...draft.providers[0]!.models[0]!, api: ""},
+            {...draft.providers[0]!.models[0]!, id: "explicit", api: "anthropic-messages"},
+        ];
+
+        expect(repairMissingModelApis(draft)).toEqual([{
+            providerIndex: 0,
+            modelIndex: 0,
+            providerId: "local",
+            modelId: "model",
+            api: "openai-responses",
+        }]);
+        expect(draft.providers[0]!.models.map((model) => model.api)).toEqual(["openai-responses", "anthropic-messages"]);
+    });
+
+    it("一键修复不使用未知 Provider API，也跳过重复 Provider 和重复模型", () => {
+        const unknownApiDraft = createDraft();
+        unknownApiDraft.providers[0]!.modelApi = "unknown-api";
+        unknownApiDraft.providers[0]!.models[0]!.api = "";
+        expect(repairMissingModelApis(unknownApiDraft)).toEqual([]);
+        expect(unknownApiDraft.providers[0]!.models[0]!.api).toBe("");
+
+        const duplicateProviderDraft = createDraft();
+        duplicateProviderDraft.providers[0]!.models[0]!.api = "";
+        duplicateProviderDraft.providers.push({
+            ...duplicateProviderDraft.providers[0]!,
+            models: [{...duplicateProviderDraft.providers[0]!.models[0]!}],
+        });
+        expect(repairMissingModelApis(duplicateProviderDraft)).toEqual([]);
+
+        const duplicateModelDraft = createDraft();
+        duplicateModelDraft.providers[0]!.models[0]!.api = "";
+        duplicateModelDraft.providers[0]!.models.push({...duplicateModelDraft.providers[0]!.models[0]!});
+        expect(repairMissingModelApis(duplicateModelDraft)).toEqual([]);
     });
 
     it("小数 token limit 作为无效字段处理，不会截断后进入 payload", () => {

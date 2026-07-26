@@ -53,7 +53,7 @@ import {assertProjectOpen} from "nbook/server/workspace-files/project-session";
 import {createBuiltinTools, createReportResultTool, createReportSidecarResultTool} from "nbook/server/agent";
 import {AgentToolRegistry} from "nbook/server/agent/tools/tool-registry";
 import {isAgentToolDefinition} from "nbook/server/agent/tools/types";
-import type {AgentResolution, NeuroAgentTool, NeuroToolResult, ProfileToolBinding, ReportResultToolBinding, ToolExecutionContext, ToolExecutionMode, UserInputFormSpec} from "nbook/server/agent/tools/types";
+import type {AgentResolution, NeuroAgentTool, NeuroToolResult, ProfileToolBinding, ToolExecutionContext, ToolExecutionMode, UserInputFormSpec} from "nbook/server/agent/tools/types";
 import {projectRuntimeEvent} from "nbook/server/agent/events/public-event-projection";
 import {projectAgentChatEntry} from "nbook/server/agent/events/public-chat-entry-projection";
 import {publicAgentUserInputFormSpec} from "nbook/server/agent/events/public-user-input-form";
@@ -88,7 +88,7 @@ import {applyNextTurnPreparation} from "nbook/server/agent/harness/prepare-next-
 import {assertValidProfileStateWrite, compilePrepareRunWritePlan} from "nbook/server/agent/harness/prepare-run";
 import {toRunKernelErrorInfo, withRunKernelPhase} from "nbook/server/agent/harness/run-kernel-error";
 import {consumeNextTurnModelMessages, createRunFrame} from "nbook/server/agent/harness/run-frame-state";
-import {isEmptyObjectSchema, reportResultSchemaForProfile, reportSidecarResultSchemaForProfile} from "nbook/server/agent/profiles/report-result-schema";
+import {isEmptyObjectSchema, reportResultDataContractForProfile, reportResultSchemaForProfile, reportSidecarResultSchemaForProfile} from "nbook/server/agent/profiles/report-result-schema";
 import {resolveRuntimeProfileSettings} from "nbook/server/agent/profiles/profile-settings";
 import {createLayeredProfileHomeFacade, ensureGlobalProfileHome, ensureProfileHome, resolveProjectRootForProfileHome} from "nbook/server/agent/profiles/profile-home";
 import {normalizeProjectPath, resolveProjectWorkspaceInput} from "nbook/server/workspace-files/project-path";
@@ -7061,9 +7061,10 @@ export class NeuroAgentHarness {
                 continue;
             }
             if (toolKey === "report_result") {
-                const dataSchema = isReportResultBinding(binding) ? binding.dataSchema ?? profile.outputSchema : profile.outputSchema;
+                const dataContract = reportResultDataContractForProfile(profile);
                 overrides.report_result = createReportResultTool(reportResultSchemaForProfile(profile), {
-                    dataSchema: isEmptyObjectSchema(dataSchema) ? undefined : dataSchema,
+                    dataSchema: dataContract.schema,
+                    requireData: dataContract.required,
                     activeSidecar: activeSidecar ? {name: activeSidecar.name} : undefined,
                 });
                 continue;
@@ -7188,10 +7189,6 @@ function resolveAgentModelLogName(model: Model<any>): string {
 
 function isResultToolName(toolName: string): toolName is "report_result" | "report_sidecar_result" {
     return toolName === "report_result" || toolName === "report_sidecar_result";
-}
-
-function isReportResultBinding(binding: ProfileToolBinding | undefined): binding is ReportResultToolBinding {
-    return Boolean(binding && typeof binding === "object" && binding.key === "report_result" && "dataSchema" in binding);
 }
 
 function sidecarSchemaType(pass: SidecarProfilePass): string | undefined {

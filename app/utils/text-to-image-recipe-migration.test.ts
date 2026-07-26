@@ -48,7 +48,8 @@ describe("text-to-image Recipe local draft migration", () => {
             dimensions: {fixed: {width: 1024, height: 1536}},
             seed: {policy: "fixed", fixed: 42},
             advanced: {smeaMode: "on", smeaDyn: true, decrisper: true},
-            style: {positivePrefix: "cinematic", negativeQualityPreset: "humanFocus"},
+            styles: [{positivePrefix: "cinematic", negativeQualityPreset: "humanFocus"}],
+            activeStyleId: "recipe-default",
         });
         expect(JSON.stringify(source)).not.toContain("must-not-migrate");
         expect(JSON.stringify(source)).not.toContain("data:image");

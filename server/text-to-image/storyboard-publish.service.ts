@@ -1,8 +1,8 @@
 import {
     createGlobalProfileHomeFacade,
-    resolveProjectRootForProfileHome,
     type ProfileHomeFacade,
 } from "nbook/server/agent/profiles/profile-home";
+import {resolveGlobalProfileNbookRoot} from "nbook/server/text-to-image/compat";
 import {
     IllustrationDirectorSelectorConflictError,
     readIllustrationDirectorSelectorSnapshot,
@@ -118,7 +118,7 @@ export class StoryboardGlobalPublishService {
 
     constructor(options: PublishServiceOptions = {}) {
         this.workspaceRoot = options.workspaceRoot;
-        this.lockScope = resolveProjectRootForProfileHome(options.workspaceRoot as any, undefined)! as any;
+        this.lockScope = resolveGlobalProfileNbookRoot(options.workspaceRoot);
         this.home = createGlobalProfileHomeFacade(this.lockScope, PROFILE_KEY);
         this.selector = options.selector ?? {
             read: readIllustrationDirectorSelectorSnapshot,
@@ -641,7 +641,7 @@ async function withPublishLock<TResult>(key: string, operation: () => Promise<TR
 }
 
 function createPublishId(publishPreviewToken: string): string {
-    return `c8pub.${publishPreviewToken.slice("sha256:".length)}`;
+    return `ttppub.${publishPreviewToken.slice("sha256:".length)}`;
 }
 
 function isNotFoundError(error: unknown): boolean {

@@ -12,6 +12,7 @@ const runtimePackageSeeds = [
     "@earendil-works/pi-ai",
     "@libsql/client",
     "@libsql/isomorphic-ws",
+    "@prisma/debug",
     "chokidar",
     "commander",
     "consola",

@@ -299,6 +299,22 @@ fn boot(app: tauri::AppHandle) -> Result<(), BootError> {
     // 5. 选空闲端口
     let port = pick_free_port()?;
 
+    // 6-7. 版本标记：仅在首次启动或版本更新时执行 migrate + asset-sync
+    let mut needs_boot_init = true;
+    {
+        let product_version_path = product_dir.join(".neuro-book-version");
+        let boot_stamp_path = data_dir.join(".boot-stamp");
+        if let (Ok(product_ver), Ok(boot_ver)) = (
+            fs::read_to_string(&product_version_path),
+            fs::read_to_string(&boot_stamp_path),
+        ) {
+            if product_ver.trim() == boot_ver.trim() {
+                needs_boot_init = false;
+                log_line("跳过 migrate / asset-sync（版本未变更）");
+            }
+        }
+    }
+    if needs_boot_init {
     // 6. migrate
     log_line(&format!("migrate (port={port})"));
     run_bun_capture(
@@ -321,6 +337,12 @@ fn boot(app: tauri::AppHandle) -> Result<(), BootError> {
         &server_env(&product_dir, &data_dir, &logs_dir, port, &session_password),
         Some(&logs_dir.join("init.log")),
     )?;
+
+    // 写入启动标记，下次启动时可跳过 migrate + asset-sync
+    if let Ok(product_ver) = fs::read_to_string(&product_dir.join(".neuro-book-version")) {
+        let _ = fs::write(&data_dir.join(".boot-stamp"), product_ver.trim().as_bytes());
+    }
+    } // needs_boot_init
 
     // 8. 启动 Nitro 服务（进程组，日志落盘）
     let server_log = logs_dir.join("server.log");
@@ -361,7 +383,7 @@ fn boot(app: tauri::AppHandle) -> Result<(), BootError> {
     // 9. 轮询就绪
     let url = format!("http://localhost:{port}");
     log_line(&format!("等待服务就绪 {url}"));
-    wait_for_ready(port, Duration::from_secs(90))?;
+    wait_for_ready(port, Duration::from_secs(300))?;
 
     // 10. 写入地址，加载页轮询到后跳转
     if let Some(state) = app.try_state::<DesktopState>() {

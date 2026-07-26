@@ -52,7 +52,7 @@ import {
     type StoryboardPreset,
     type StoryboardRule,
 } from "nbook/shared/text-to-image-storyboard-preset";
-import type {Chatu8StoryboardInspection} from "nbook/server/text-to-image/chatu8-storyboard-inspector";
+import type {TtpStoryboardInspection} from "nbook/server/text-to-image/ttp-storyboard-inspector";
 
 export const STORYBOARD_CONVERSION_OUTPUT_SCHEMA_VERSION = "nbook.storyboard-conversion-output/v1" as const;
 
@@ -73,7 +73,7 @@ export type BuildPendingStoryboardInput = {
     sourceProjectPath: string;
     sourceRelativePath: `upload/${string}.json`;
     converterVersion: string;
-    inspection: Chatu8StoryboardInspection;
+    inspection: TtpStoryboardInspection;
     secretPaths: string[];
     conversion: StoryboardConversionOutput;
 };
@@ -151,7 +151,7 @@ export function buildPendingStoryboardCompanion(input: BuildPendingStoryboardInp
         assertSourcePath(candidate.sourcePath, source, candidate.sourceEntryId);
         return RecipeStyleProposalSchema.parse({
             schemaVersion: "nbook.recipe-style-proposal/v1",
-            proposalId: createStableId("c8recipe", candidate.sourceEntryId, "style-quality", "primary"),
+            proposalId: createStableId("ttprecipe", candidate.sourceEntryId, "style-quality", "primary"),
             sourceEntryId: candidate.sourceEntryId,
             sourcePath: candidate.sourcePath,
             positiveAtoms: normalizeTagTexts(candidate.positiveAtoms),
@@ -614,7 +614,7 @@ function buildRule(candidate: StoryboardRuleCandidate, sourceEntries: Map<string
     const {semanticSlot, ...rule} = candidate;
     return StoryboardRuleSchema.parse({
         ...rule,
-        ruleId: createStableId("c8", candidate.sourceEntryId, candidate.kind, semanticSlot),
+        ruleId: createStableId("ttp", candidate.sourceEntryId, candidate.kind, semanticSlot),
     });
 }
 
@@ -633,7 +633,7 @@ function buildPattern(candidate: TagPatternCandidate, sourceEntries: Map<string,
         negativeCharacter: createPendingAtoms(candidate.tags.negativeCharacter, candidate.sourcePath, "negative_character"),
     };
     return {
-        patternId: createStableId("c8", candidate.sourceEntryId, candidate.patternKind, candidate.semanticSlot),
+        patternId: createStableId("ttp", candidate.sourceEntryId, candidate.patternKind, candidate.semanticSlot),
         patternKind: candidate.patternKind,
         semanticSlot: candidate.semanticSlot,
         sourceEntryId: candidate.sourceEntryId,
@@ -830,15 +830,15 @@ function createCandidatePackageIdentity(presetId: string, candidatePackageHash: 
     const digest = candidatePackageHash.slice("sha256:".length);
     const suffix = `--${digest}`;
     return {
-        packageId: `c8pkg.${digest}`,
+        packageId: `ttppkg.${digest}`,
         resourceKey: `${presetId.slice(0, 160 - suffix.length)}${suffix}`,
     };
 }
 
-/** 创建 Chatu8 source provenance。 */
+/** 创建 TTP source provenance。 */
 function createSource(input: BuildPendingStoryboardInput) {
     return {
-        kind: "chatu8" as const,
+        kind: "ttp" as const,
         importId: input.importId,
         rawSourceHash: input.inspection.rawSourceHash,
         sanitizedSourceHash: input.inspection.sanitizedSourceHash,

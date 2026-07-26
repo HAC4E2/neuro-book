@@ -1,5 +1,26 @@
 # Pi Models Runtime Upgrade
 
+## 2026-07-22：旧配置 Pi API 显式迁移
+
+- 用户复测后确认上一轮“一键修复”仍无法处理真实 Portable 配置：5 个 Provider 的 `modelApi` 和 13 个模型的 `api` 两级均为空，草稿修复没有可消费的明确 Provider API。
+- 根因追溯到旧运行时解析顺序：模型、Provider 和 Pi Registry 均未声明 API 时，最终实际使用 `openai-completions`。新版严格合同移除了运行时隐式回退，却没有在 stored config 归一化边界把旧有效语义物化为新必填字段。
+- `normalizeStoredProviders` 现在会把缺失 Provider API 显式物化为 `openai-completions`，并把受支持的 Provider API 写入仍为空的模型；已有非空模型 API 保持不变，无效的非空 Provider API 保持原值且不传播，继续由严格合同报告。
+- 编辑快照读取前必经同一归一化，因此旧文件无需用户逐项手填即可显示明确 API；后续任意正常保存会把显式值持久化。runtime 仍只读取模型自己的 `api`，没有恢复隐式继承。
+- TDD：红灯准确收到 `null` 而非 `openai-completions`；GREEN 后归一化测试 16/16，通过序列化、明确 Provider API、混合模型 API 和无效值 fail-closed 保护。模型配置聚焦回归 6 个文件、51 项通过；全量 typecheck exit 0。
+- Config Service 全文件测试在当前 Windows 环境中 57 项均被测试 fixture 创建 `package.json` 文件符号链接的 EPERM 阻断，未进入业务断言；本轮改用纯归一化/序列化回归和最终 Product API smoke 验证读取链路。
+- 最终实际验证：完整 `bun run nuxt:build` exit 0，客户端边界扫描 74 个 JavaScript 文件通过；Product stage、Tauri release 和 Portable assemble exit 0；包内 Prisma deploy exit 0。最终 EXE 的真实 `/api/config/editor-snapshot` 返回 5 个 Provider/13 个模型，Provider API 缺失 0、模型 API 缺失 0、`missing_provider_model_api`/`missing_api` 问题合计 0；首页和入口模块均返回 200。
+- 计划差异：第一次误把 `product:stage` 当成包含 Nuxt build，导致 staged 源文件已更新但实际执行的 Nitro bundle 仍旧，真实 smoke 以 18 条 API 缺失失败。确认 stage 只复制 `.output` 后，改用 `nuxt:build -> product:stage -> assemble`，并以相同 smoke 复测转为 0。最终聚焦回归 4 个文件、36 项通过。
+
+## 2026-07-22：已有模型缺少 Pi API 的一键修复
+
+- 复核 Windows Portable 的真实配置后确认：5 个 Provider 均缺少默认 `modelApi`，13 个已有模型均缺少 `model.api`，总计产生 57 条合同问题，当前可运行模型为 0。设置页持续提示“缺少 Pi API”不是 Secret Key 问题，而是旧配置没有保存模型级接口类型。
+- “一键修复”现在会先沿用原有的确定性 Provider 默认接口推导，再把用户明确选择且受支持的 Provider `modelApi` 填入该 Provider 下仍为空白的已有模型。已有非空模型接口保持不变，因此同一 Provider 下的混合接口不会被覆盖。
+- 修复对重复 Provider ID、重复模型 ID 和无效 Provider 接口保持 fail closed，不猜测协议；随后再由 Model Library 补齐已知模型能力，并按原规则处理仍不完整的 disabled 模型。
+- 整个修复只作用于前端草稿，用户仍需检查并保存；没有直接改写真实 `.nbook/config.json`，也没有放宽 runtime 对模型级 `api` 的严格要求。
+- TDD 记录：先新增失败测试确认旧实现无法补已有模型接口，再实现纯函数和一键修复编排。本次改动的 2 个测试文件、16 项测试通过；扩展相关回归 5 个文件、28 项测试通过；`bun run typecheck` exit 0；完整 `bun run nuxt:build` exit 0，客户端边界扫描 74 个 JavaScript 文件通过。本轮未自动执行浏览器交互验证。
+- 额外把 `shared/dto/config.dto.test.ts` 纳入更宽回归时，发现其“拒绝顶层 NovelAI Recipe 数据”既有断言失败：当前 Zod schema 会剥离未知字段而不是抛错。该测试与本次模型 API 草稿修复无依赖，本轮未混入修复范围。
+- Windows 最终产物已重新执行 Product stage、Tauri release 编译和 Portable assemble，均 exit 0。最终包内 Bun 执行 Prisma deploy exit 0；`NeuroBook.exe` 启动后首页和入口 JavaScript 均返回 200，测试进程已清理且 3618 端口已释放。
+
 > Status: Implementing（核心模型发现与设置页重构已完成；Provider连接身份、凭据来源和Session脱敏已本地收口，完整Config Service/产品验收仍待完成）
 
 ## 2026-07-19：Provider连接身份与Session模型脱敏收口
@@ -977,3 +998,19 @@ Automatic Discovery Dialog 只展示：
 - [x] 强化 Provider Config：disabled 模型也必须能力完整，删除“禁用模型草稿”语义。
 - [x] 完成设置页 Module 重构：发现列表与 Model Library 已分离，三个展示 Module与四个状态/行为 Module 已抽出；宿主降至 695 行，相关 Vue 文件全部满足 `<800` 行门禁。
 - [x] 用户确认后硬切清理当前 Global Config 中的不完整 disabled 模型；已删除 5 条，清理后 validation issue 为 0。
+
+## 2026-07-22 Windows Portable Agent Session 与路径边界修复
+
+用户在最终 Portable 中新建 Agent Session 时持续收到 500。服务日志确认 `leader.default` 编译产物已存在，但 State Root 以 Windows namespace 路径 `\\?\C:\...` 进入 `pathToFileURL()` 后变成 Bun 无法解析的 `file://%3F\C:\...`。同一 artifact 改用普通盘符路径可以正常导入，因此根因不是 Profile 内容或编译失败。
+
+本轮实际修复：
+
+- Runtime Paths 新增唯一的本地盘 namespace → file URL 边界规范化函数；文件系统内部继续保留 namespace 的长路径能力，只在 URL 转换前移除本地盘前缀。
+- Profile、Agent Variable 与 World Engine 共用的 `importRuntimeArtifact()` 使用该边界；SQLite State Root 位置删除私有重复实现并复用同一函数。
+- 日志审计另行发现插图服务的两个当前回归：`resolveWorkspaceRootInput()` 忽略 `projectPath`，以及 Global Profile Home 错用 Project resolver 并以 `as any` 把 `null` 传给 `path.resolve()`。已将 Project Path 固定解析到具体 Project Workspace，并为 Storyboard import/publish 与 Project overlay 建立统一 Global `.nbook` adapter。
+- Profile Home 的写入准备允许安全创建尚不存在的 containment root，保持 symlink/junction 真实路径检查；Storyboard 导入测试同步到当前 Runtime Workspace Root 与 Project manifest 接口。
+- 最终 Product smoke 又暴露 Workspace History vendor 手工拼接 `file:${databasePath}`，namespace SQLite 路径因此被 libSQL 当成不支持的 URL 参数。该入口已改用同一 `localPathForFileUrl() -> pathToFileURL()` 边界，并以真实 Windows namespace 数据库测试锁定。
+
+最终验证：原路径与文生图相关 83 项、Workspace History 12 项，共 95 项通过、1 项跳过；`bun run typecheck` exit 0。完整 Nuxt/Nitro build、Product stage、Tauri release、Portable assemble 均 exit 0，客户端 runtime boundary 扫描 74 个 JavaScript 文件通过。最终 EXE 真实启动时 Prisma migration 与 assets sync 均 exit 0；首页、动态入口、真实 Agent Session 创建与 recovery、Workspace History inbox、插图 Workflow 均返回 200，最终请求窗口 42 条日志无 error。模型配置快照仍保持 Provider/模型 API 缺失与相关 validation issue 全部为 0。
+
+计划差异：原计划仅修 runtime artifact namespace。用户要求同时排查其他问题后，范围扩大到日志中仍可复现的 Project/Global 路径错误，并在最终 smoke 中继续修复 Workspace History 的独立 URL 拼接入口；历史日志里的旧 `/api/projects` 与 `/api/config/models/pi-catalog` 接口在当前源码已不存在或已替换，没有为旧接口添加兼容层。

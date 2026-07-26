@@ -32,6 +32,26 @@ describe("Prisma CLI State Root", () => {
         expect(result.databaseUrl).toBe(`file:${expectedPath}`);
         expect(process.env.DATABASE_URL).toBe(`file:${expectedPath}`);
     });
+
+    it("为 Windows 子进程清除数据库环境变量的大小写冲突", async () => {
+        const prismaEnv = await import("../db/prisma-env.mjs");
+
+        expect(prismaEnv.prismaChildEnvironment).toBeTypeOf("function");
+        const environment = prismaEnv.prismaChildEnvironment({
+            Path: "C:/Windows/System32",
+            database_url: "file:C:/stale.sqlite?mode=ro",
+            Database_Kind: "postgresql",
+        }, {
+            kind: "sqlite",
+            databaseUrl: "file:C:/data/neuro-book.sqlite",
+        });
+
+        expect(Object.keys(environment).filter((key) => key.toUpperCase() === "DATABASE_URL")).toEqual(["DATABASE_URL"]);
+        expect(Object.keys(environment).filter((key) => key.toUpperCase() === "DATABASE_KIND")).toEqual(["DATABASE_KIND"]);
+        expect(environment.DATABASE_URL).toBe("file:C:/data/neuro-book.sqlite");
+        expect(environment.DATABASE_KIND).toBe("sqlite");
+        expect(environment.Path).toBe("C:/Windows/System32");
+    });
 });
 
 function restoreEnv(name: "NEURO_BOOK_STATE_ROOT" | "DATABASE_KIND" | "DATABASE_URL", value: string | undefined): void {

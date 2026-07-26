@@ -1,6 +1,7 @@
 import {copyFile, mkdir, stat} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
+import {localPathForFileUrl} from "nbook/server/runtime/paths/file-path";
 
 type NativeImport = (specifier: string) => Promise<unknown>;
 type RuntimeArtifactQuery = Record<string, string | number | bigint | boolean>;
@@ -66,7 +67,7 @@ function safeSegment(value: string): string {
 }
 
 function runtimeArtifactSpecifier(artifactPath: string, query: RuntimeArtifactQuery): string {
-    const artifactUrl = pathToFileURL(artifactPath);
+    const artifactUrl = pathToFileURL(localPathForFileUrl(artifactPath));
     for (const [key, value] of Object.entries(query)) {
         artifactUrl.searchParams.set(key, String(value));
     }

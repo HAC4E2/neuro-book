@@ -3,6 +3,7 @@ import {Type} from "typebox";
 import {reportResultSchemaForProfile, reportSidecarResultSchemaForProfile} from "nbook/server/agent/profiles/report-result-schema";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
+import {builtin} from "nbook/server/agent/profiles/profile-tools";
 import type {TSchema} from "typebox";
 
 describe("reportResultSchemaForProfile", () => {
@@ -40,6 +41,31 @@ describe("reportResultSchemaForProfile", () => {
 
         expect(reportResultSchemaForProfile(profile)).toEqual(expect.objectContaining({
             required: ["result"],
+            properties: expect.objectContaining({
+                data: outputSchema,
+            }),
+        }));
+    });
+
+    it("显式 dataSchema 为 union 时必须向模型暴露并要求 data", () => {
+        const outputSchema = Type.Union([
+            Type.Object({summary: Type.String()}),
+            Type.Object({diagnostics: Type.Array(Type.String())}),
+        ]);
+        const profile = defineAgentProfile({
+            manifest: {key: "agent.required-union-data", name: "Required Union Data"},
+            initialSchema: Type.Object({}),
+            outputSchema,
+            tools: {
+                report_result: builtin.result.main({dataSchema: outputSchema}),
+            },
+            prepare() {
+                return {};
+            },
+        });
+
+        expect(reportResultSchemaForProfile(profile)).toEqual(expect.objectContaining({
+            required: ["result", "data"],
             properties: expect.objectContaining({
                 data: outputSchema,
             }),

@@ -325,7 +325,7 @@ export type StorySceneGroupByOutputType = {
   _max: StorySceneMaxAggregateOutputType | null
 }
 
-export type GetStorySceneGroupByPayload<T extends StorySceneGroupByArgs> = Prisma.PrismaPromise<
+type GetStorySceneGroupByPayload<T extends StorySceneGroupByArgs> = Prisma.PrismaPromise<
   Array<
     Prisma.PickEnumerable<StorySceneGroupByOutputType, T['by']> &
       {
@@ -2859,11 +2859,6 @@ export type StorySceneFindManyArgs<ExtArgs extends runtime.Types.Extensions.Inte
    * Skip the first `n` StoryScenes.
    */
   skip?: number
-  /**
-   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
-   * 
-   * Filter by unique combinations of StoryScenes.
-   */
   distinct?: Prisma.StorySceneScalarFieldEnum | Prisma.StorySceneScalarFieldEnum[]
 }
 

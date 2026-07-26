@@ -1,15 +1,19 @@
-import {z} from "zod";
+﻿import {z} from "zod";
 import {TextToImageContractHashSchema} from "nbook/shared/text-to-image-tag-resolution";
 import {PROVIDER_CAPABILITY_REGISTRY_VERSION} from "nbook/shared/text-to-image-provider-registry";
 
 export const DANBOORU_MIN_POST_COUNT = 3000 as const;
+/** 索引数据源：随应用打包的本地 TTP tagData（Danbooru 标签衍生数据），不联网抓取。 */
+export const TAG_INDEX_SOURCE_KIND = "ttp-local" as const;
+/** 本地源没有网络 endpoint；固定标识符用于 manifest/status 溯源。 */
+export const TAG_INDEX_SOURCE_ENDPOINT = "local:ttp-tagdata" as const;
 export const TAG_INDEX_MANIFEST_SCHEMA_VERSION = "nbook.tag-index-manifest/v1" as const;
 export const TAG_INDEX_CURRENT_SCHEMA_VERSION = "nbook.tag-index-current/v1" as const;
 export const TAG_INDEX_SOURCE_SNAPSHOT_SCHEMA_VERSION = "nbook.tag-index-source-snapshot/v1" as const;
 export const TAG_INDEX_OPERATION_SCHEMA_VERSION = "nbook.tag-index-operation/v1" as const;
 export const TAG_INDEX_BUILD_REPORT_SCHEMA_VERSION = "nbook.tag-index-build-report/v1" as const;
 export const TAG_INDEX_STATUS_SCHEMA_VERSION = "nbook.tag-index-status/v1" as const;
-export const TAG_INDEX_TERMS_CONFIRMATION_VERSION = "danbooru-terms-2026-07-v1" as const;
+export const TAG_INDEX_TERMS_CONFIRMATION_VERSION = "ttp-local-terms-2026-07-v1" as const;
 export const TAG_INDEX_RETRIEVAL_POLICY_VERSION = "nbook-danbooru-retrieval-v1" as const;
 export const TAG_INDEX_CAPABILITY_VERSION = PROVIDER_CAPABILITY_REGISTRY_VERSION;
 
@@ -237,20 +241,34 @@ export type TagIndexSourcePageCache = z.infer<typeof TagIndexSourcePageCacheSche
 
 export const TagIndexSourceSnapshotSchema = z.object({
     schemaVersion: z.literal(TAG_INDEX_SOURCE_SNAPSHOT_SCHEMA_VERSION),
-    sourceKind: z.literal("danbooru-api"),
-    sourceEndpoint: z.literal("https://danbooru.donmai.us"),
+    sourceKind: z.literal(TAG_INDEX_SOURCE_KIND),
+    sourceEndpoint: z.literal(TAG_INDEX_SOURCE_ENDPOINT),
     minPostCount: z.literal(DANBOORU_MIN_POST_COUNT),
     sourceClientVersion: StableVersionSchema,
+    /** source client 显式声明提供哪些资源；未声明资源必须零记录、零 page。 */
+    providedResources: z.array(TagIndexSourceResourceSchema).min(1).max(3),
     fetchedAt: IsoTimestampSchema,
-    pages: z.array(TagIndexPageProvenanceSchema).min(6),
+    pages: z.array(TagIndexPageProvenanceSchema).min(2),
     tags: z.array(TagIndexSourceTagSchema),
     aliases: z.array(TagIndexSourceRelationshipSchema),
     implications: z.array(TagIndexSourceRelationshipSchema),
     sourceHash: TextToImageContractHashSchema,
     reconciliationHash: TextToImageContractHashSchema,
-}).strict().refine((snapshot) => snapshot.sourceHash === snapshot.reconciliationHash, {
-    path: ["reconciliationHash"],
-    message: "source snapshot 必须完成 reconciliation",
+}).strict().superRefine((snapshot, context) => {
+    if (snapshot.sourceHash !== snapshot.reconciliationHash) {
+        context.addIssue({code: "custom", path: ["reconciliationHash"], message: "source snapshot 必须完成 reconciliation"});
+    }
+    if (new Set(snapshot.providedResources).size !== snapshot.providedResources.length
+        || !snapshot.providedResources.includes("tags")) {
+        context.addIssue({code: "custom", path: ["providedResources"], message: "providedResources 必须去重且至少包含 tags"});
+    }
+    for (const resource of TagIndexSourceResourceSchema.options) {
+        if (snapshot.providedResources.includes(resource)) continue;
+        const records = resource === "tags" ? snapshot.tags : resource === "aliases" ? snapshot.aliases : snapshot.implications;
+        if (records.length > 0 || snapshot.pages.some((page) => page.resource === resource)) {
+            context.addIssue({code: "custom", path: [resource], message: "未声明的资源不能携带记录或 page 证据"});
+        }
+    }
 });
 export type TagIndexSourceSnapshot = z.infer<typeof TagIndexSourceSnapshotSchema>;
 
@@ -356,10 +374,12 @@ export const TagIndexManifestSchema = z.object({
     sourceClientVersion: StableVersionSchema,
     capabilityVersion: StableVersionSchema,
     normalizedHash: TextToImageContractHashSchema,
-    sourceKind: z.literal("danbooru-api"),
-    sourceEndpoint: z.literal("https://danbooru.donmai.us"),
+    sourceKind: z.literal(TAG_INDEX_SOURCE_KIND),
+    sourceEndpoint: z.literal(TAG_INDEX_SOURCE_ENDPOINT),
     apiVersion: z.literal("json-v1"),
     minPostCount: z.literal(DANBOORU_MIN_POST_COUNT),
+    /** source client 显式声明的资源集合；未声明资源在 resources 中只允许空占位。 */
+    providedResources: z.array(TagIndexSourceResourceSchema).min(1).max(3),
     fetchedAt: IsoTimestampSchema,
     snapshotDate: IsoDateSchema,
     terms: z.object({
@@ -370,11 +390,11 @@ export const TagIndexManifestSchema = z.object({
         retrievalPolicyVersion: StableVersionSchema,
     }).strict(),
     sourceResponse: z.object({
-        schemaVersion: z.literal("danbooru-json-v1"),
+        schemaVersion: z.literal("ttp-tagdata-v1"),
         contentType: z.literal("application/json"),
         compression: z.literal("transport-decoded"),
     }).strict(),
-    sourcePages: z.array(TagIndexPageProvenanceSchema).min(6),
+    sourcePages: z.array(TagIndexPageProvenanceSchema).min(2),
     resources: z.object({
         tags: TagIndexResourceManifestSchema,
         aliases: TagIndexResourceManifestSchema,
@@ -413,10 +433,19 @@ export const TagIndexManifestSchema = z.object({
     if (new Set(pageIdentities).size !== pageIdentities.length) {
         context.addIssue({code: "custom", path: ["sourcePages"], message: "source page identity 不能重复"});
     }
+    if (new Set(manifest.providedResources).size !== manifest.providedResources.length
+        || !manifest.providedResources.includes("tags")) {
+        context.addIssue({code: "custom", path: ["providedResources"], message: "providedResources 必须去重且至少包含 tags"});
+    }
     for (const pass of TagIndexSourcePassSchema.options) {
         for (const resource of TagIndexSourceResourceSchema.options) {
-            if (!manifest.sourcePages.some((page) => page.pass === pass && page.resource === resource)) {
+            const provided = manifest.providedResources.includes(resource);
+            const hasPages = manifest.sourcePages.some((page) => page.pass === pass && page.resource === resource);
+            if (provided && !hasPages) {
                 context.addIssue({code: "custom", path: ["sourcePages"], message: "source manifest 缺少完整双轮资源证据"});
+            }
+            if (!provided && (hasPages || manifest.resources[resource].sourceRecordCount !== 0)) {
+                context.addIssue({code: "custom", path: ["sourcePages"], message: "未声明的资源不能携带 source 证据或记录"});
             }
         }
     }
@@ -553,8 +582,8 @@ export type TagIndexActiveSummary = z.infer<typeof TagIndexActiveSummarySchema>;
 export const TagIndexStatusSchema = z.object({
     schemaVersion: z.literal(TAG_INDEX_STATUS_SCHEMA_VERSION),
     source: z.object({
-        kind: z.literal("danbooru-api"),
-        endpoint: z.literal("https://danbooru.donmai.us"),
+        kind: z.literal(TAG_INDEX_SOURCE_KIND),
+        endpoint: z.literal(TAG_INDEX_SOURCE_ENDPOINT),
         minPostCount: z.literal(DANBOORU_MIN_POST_COUNT),
     }).strict(),
     terms: z.object({

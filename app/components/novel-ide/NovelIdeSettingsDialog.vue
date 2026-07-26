@@ -10,6 +10,7 @@ import ThemeEditorDialog from "nbook/app/components/novel-ide/settings/theme/The
 import NovelIdeModelSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeModelSettingsPanel.vue";
 import NovelIdeObservabilitySettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeObservabilitySettingsPanel.vue";
 import NovelIdeWebSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeWebSettingsPanel.vue";
+import NovelIdeTextToImageSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeTextToImageSettingsPanel.vue";
 import DesktopDataDirDialog from "nbook/app/components/novel-ide/DesktopDataDirDialog.vue";
 import {useDesktopBridge} from "nbook/app/composables/useDesktopBridge";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
@@ -25,7 +26,7 @@ import type {CustomThemeDto, ThemeAppearance} from "nbook/shared/theme/theme-var
 import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES, DEFAULT_MONACO_EDITOR_PREFERENCES, type MarkdownEditorPreferences, type MonacoEditorPreferences} from "nbook/shared/editor-workbench";
 import type {SettingsNavigationRequest} from "nbook/app/utils/settings-navigation";
 
-type SettingsSection = "security" | "frontend" | "editor" | "models" | "embedding" | "cost" | "web-tools" | "agent-profile-models" | "observability";
+type SettingsSection = "security" | "frontend" | "editor" | "models" | "embedding" | "cost" | "web-tools" | "agent-profile-models" | "observability" | "textToImage";
 type SettingsScope = "boot" | "global" | "project" | "browser";
 type AppVersionKind = "release" | "tag" | "commit" | "package";
 type ThemeEditorMode = "create" | "edit" | "copy";
@@ -82,6 +83,7 @@ const costSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 const webSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 const agentProfileModelSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 const observabilitySettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
+const textToImageSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 const themeEditorOpen = ref(false);
 const themeEditorMode = ref<ThemeEditorMode>("create");
 const themeEditorInitialTheme = ref<CustomThemeDto | null>(null);
@@ -146,6 +148,12 @@ const frontendSectionItems = computed<Array<{value: SettingsSection; label: stri
         description: t("settings.section.observability.description"),
         iconClass: "i-lucide-activity",
     },
+    {
+        value: "textToImage",
+        label: "文生图",
+        description: "NovelAI Recipe、画风串与参考资产",
+        iconClass: "i-lucide-image-plus",
+    }
 ]);
 
 const scopeOptions = computed<Array<{value: SettingsScope; label: string; description: string; iconClass: string}>>(() => [
@@ -175,7 +183,7 @@ const scopeOptions = computed<Array<{value: SettingsScope; label: string; descri
     },
 ]);
 
-const globalConfigSections: SettingsSection[] = ["models", "embedding", "cost", "web-tools", "agent-profile-models", "observability"];
+const globalConfigSections: SettingsSection[] = ["models", "embedding", "cost", "web-tools", "agent-profile-models", "observability", "textToImage"];
 const projectConfigSections: SettingsSection[] = ["agent-profile-models"];
 const browserSections: SettingsSection[] = ["frontend", "editor"];
 const bootConfigSections: SettingsSection[] = ["security"];
@@ -326,6 +334,8 @@ const activeSavePanel = computed<SettingsSavePanelExpose | null>(() => {
             return agentProfileModelSettingsPanelRef.value;
         case "observability":
             return observabilitySettingsPanelRef.value;
+        case "textToImage":
+            return textToImageSettingsPanelRef.value;
         case "frontend":
         case "editor":
         case "security":
@@ -1271,7 +1281,12 @@ watch(activeScope, alignActiveSectionToScope, {immediate: true});
                         <div v-else-if="activeSection === 'observability'" key="observability">
                             <NovelIdeObservabilitySettingsPanel ref="observabilitySettingsPanelRef" :key="`observability:${settingsPanelKey}`" :target-query="targetQuery" />
                         </div>
-                    </Transition>
+                    
+                        <!-- 文生图设置 -->
+                        <div v-else-if="activeSection === 'textToImage'" key="textToImage">
+                            <NovelIdeTextToImageSettingsPanel ref="textToImageSettingsPanelRef" :key="`textToImage:${settingsPanelKey}`" />
+                        </div>
+</Transition>
                 </div>
             </section>
             </div>

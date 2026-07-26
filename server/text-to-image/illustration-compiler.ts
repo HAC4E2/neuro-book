@@ -29,6 +29,7 @@ import {
 import {novelAiQualityTags, resolveNovelAiNegativePreset} from "nbook/shared/text-to-image-novelai-quality";
 import {
     splitTextToImageRecipeStyleAtoms,
+    getActiveTextToImageRecipeStyle,
     TextToImageRecipeSnapshotSchema,
     type TextToImageRecipeSnapshot,
 } from "nbook/shared/text-to-image-recipe";
@@ -181,7 +182,7 @@ export async function compileIllustration(
     }
 
     const parsedModel = NovelAiProviderModelIdSchema.safeParse(
-        recipeSnapshot.style.useFurryDataset ? "nai-diffusion-furry-3" : recipeSnapshot.model,
+        getActiveTextToImageRecipeStyle(recipeSnapshot).useFurryDataset ? "nai-diffusion-furry-3" : recipeSnapshot.model,
     );
     if (!parsedModel.success) {
         throw new IllustrationCompileError("TEXT_TO_IMAGE_RECIPE_INVALID", `Recipe model 未注册：${recipeSnapshot.model}`);
@@ -253,10 +254,10 @@ export async function compileIllustration(
     }
 
     const dimensions = resolveDimensions(recipeSnapshot, shot.composition.canvasIntent);
-    const negativePreset = resolveNovelAiNegativePreset(effectiveModel, recipeSnapshot.style.negativeQualityPreset);
+    const negativePreset = resolveNovelAiNegativePreset(effectiveModel, getActiveTextToImageRecipeStyle(recipeSnapshot).negativeQualityPreset);
     const prompt = mergePrompt(
         positive.map((token) => token.wireText).join(", "),
-        recipeSnapshot.style.positiveQualityPreset ? novelAiQualityTags(effectiveModel) : "",
+        getActiveTextToImageRecipeStyle(recipeSnapshot).positiveQualityPreset ? novelAiQualityTags(effectiveModel) : "",
     );
     const negativePrompt = mergePrompt(negativePreset.content, negative.map((token) => token.wireText).join(", "));
     const patternSnapshots = patterns.map((pattern) => ({patternId: pattern.patternId, renderHash: createTagPatternRenderHash(pattern)}));
@@ -316,7 +317,7 @@ export async function compileIllustration(
             smeaMode: recipeSnapshot.advanced.smeaMode,
             smeaDyn: recipeSnapshot.advanced.smeaDyn,
             decrisper: recipeSnapshot.advanced.decrisper,
-            qualityToggle: recipeSnapshot.style.positiveQualityPreset,
+            qualityToggle: getActiveTextToImageRecipeStyle(recipeSnapshot).positiveQualityPreset,
             ucPreset: negativePreset.ucPreset,
         },
         recipeSnapshot,
@@ -423,7 +424,7 @@ function parseRecipeStyle(
     for (const key of ["positivePrefix", "positiveSuffix", "negativePrefix", "negativeSuffix"] as const) {
         let expected: string[];
         try {
-            expected = splitTextToImageRecipeStyleAtoms(recipe.style[key]);
+            expected = splitTextToImageRecipeStyleAtoms(getActiveTextToImageRecipeStyle(recipe)[key]);
         } catch {
             throw new IllustrationCompileError("TEXT_TO_IMAGE_RECIPE_INVALID", "Recipe 画风串不能包含空 Tag 项");
         }

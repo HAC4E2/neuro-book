@@ -739,7 +739,7 @@ const zhCN = {
                 oneClickRepair: "一键修复",
                 oneClickRepairDone: "模型草稿已修复",
                 oneClickRepairNeedsReview: "仍有问题需要手工处理",
-                oneClickRepairResult: "已补全 {providerRepaired} 个 Provider 默认接口，应用 {repaired} 个 Model Library 补全，删除 {removed} 个不完整已停用模型；仍有 {remaining} 个问题。请检查后手动保存。",
+                oneClickRepairResult: "已补全 {providerRepaired} 个 Provider 默认接口、{modelApiRepaired} 个已有模型接口，应用 {repaired} 个 Model Library 补全，删除 {removed} 个不完整已停用模型；仍有 {remaining} 个问题。请检查后手动保存。",
                 oneClickRepairNoChange: "没有可自动修复的模型问题，请根据提示手工调整。",
                 oneClickRepairFailed: "一键修复模型配置失败",
                 providerAdded: "已新增 Provider：{label}",

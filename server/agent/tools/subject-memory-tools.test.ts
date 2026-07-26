@@ -404,14 +404,14 @@ describe("subject memory tools", () => {
                 requestOptions: {},
             },
         }), "utf-8");
-        const timeoutFetch: typeof fetch = Object.assign(async (_url: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+        const timeoutFetch: typeof fetch = async (_url: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
             await new Promise((_resolve, reject) => {
                 init?.signal?.addEventListener("abort", () => {
                     reject(new DOMException("This operation was aborted", "AbortError"));
                 });
             });
             throw new Error("unreachable");
-        }, {preconnect: originalFetch.preconnect});
+        };
         globalThis.fetch = timeoutFetch;
         try {
             const tool = mustTool("subject_rag_search", harness);

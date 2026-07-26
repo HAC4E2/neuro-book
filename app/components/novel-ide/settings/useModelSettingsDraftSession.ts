@@ -19,6 +19,7 @@ import {
     parseStringMap,
     previewModelLibraryRepairs,
     previewProviderModelApiRepairs,
+    repairMissingModelApis,
     removeIncompleteDisabledModels,
     renameAgentProvider,
     type ModelSettingsDraft,
@@ -27,6 +28,7 @@ import {
 } from "nbook/app/components/novel-ide/settings/model-settings-draft";
 import type {CheckProviderReferencesResponseDto, ConfiguredModelDto, EnabledModelOptionDto, ModelLibraryDto, ModelProviderDraftDto} from "nbook/shared/dto/app-settings.dto";
 import type {ConfigEditorSnapshotDto, ConfigModelSettingsDto, ConfigWorkspaceQueryDto, GlobalConfigUpdateDto, ProjectConfigDto} from "nbook/shared/dto/config.dto";
+import {ILLUSTRATION_DIRECTOR_PROFILE_KEY} from "nbook/shared/agent/illustration-director";
 import {selectModelApi, type ModelReferenceInput} from "nbook/shared/models/provider-config-contract";
 import {deriveModelGroup} from "nbook/shared/models/model-group";
 
@@ -61,7 +63,7 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
     const loading = ref(false);
     const saving = ref(false);
     const activeProviderKey = ref("");
-    const draft = ref<ModelSettingsDraft>({defaultModelKey: null, providers: []});
+    const draft = ref<ModelSettingsDraft>({defaultModelKey: null, illustrationDirectorModelKey: null, providers: []});
     const snapshotText = ref("");
     const scopeAgentSnapshotText = ref("");
     const resolvedContextWindowMap = ref<Record<string, number | null>>({});
@@ -147,6 +149,7 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
         const preferredProviderKey = activeProviderKey.value;
         draft.value = {
             defaultModelKey: snapshot.modelSettings.defaultModelKey,
+            illustrationDirectorModelKey: snapshot.modelSettings.illustrationDirector.modelKey,
             providers: snapshot.modelSettings.providers.map((provider) => cloneProvider(provider, localKeys)),
         };
         snapshotText.value = JSON.stringify(draft.value);
@@ -164,6 +167,7 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
         const localKeys = providerLocalKeys();
         draft.value = {
             defaultModelKey: snapshot.project?.models && Object.hasOwn(snapshot.project.models, "default") ? snapshot.project.models.default ?? null : null,
+            illustrationDirectorModelKey: null,
             providers: snapshot.modelSettings.providers.map((provider) => cloneProvider(provider, localKeys)),
         };
         snapshotText.value = JSON.stringify({defaultModelKey: draft.value.defaultModelKey});
@@ -335,8 +339,24 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
     function globalPayload(): GlobalConfigUpdateDto {
         const modelKeys = availableModelKeys();
         const cleanedAgent = cleanGlobalAgent(editorSnapshot.value?.global.agent, modelKeys);
-        const agentChanged = JSON.stringify(cleanedAgent ?? null) !== scopeAgentSnapshotText.value;
-        return {...(agentChanged && cleanedAgent ? {agent: cleanedAgent} : {}), models: buildModelsSection(draft.value)};
+        const directorProfile = cleanedAgent?.profiles?.[ILLUSTRATION_DIRECTOR_PROFILE_KEY];
+        const agent = {
+            ...(cleanedAgent ?? {}),
+            defaultProfileKey: cleanedAgent?.defaultProfileKey ?? {novel: null, userAssets: null},
+            profileModelDefaults: cleanedAgent?.profileModelDefaults ?? {},
+            profileRuntimeDefaults: cleanedAgent?.profileRuntimeDefaults ?? {},
+            profiles: {
+                ...(cleanedAgent?.profiles ?? {}),
+                [ILLUSTRATION_DIRECTOR_PROFILE_KEY]: {
+                    ...(directorProfile ?? {}),
+                    model: {
+                        ...(directorProfile?.model ?? {}),
+                        modelKey: cleanModelKey(draft.value.illustrationDirectorModelKey, modelKeys),
+                    },
+                },
+            },
+        };
+        return {agent, models: buildModelsSection(draft.value)};
     }
 
     /** Project Config 写回体。 */
@@ -426,6 +446,9 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
         if (draft.value.defaultModelKey?.startsWith(`${previousId}/`)) {
             draft.value.defaultModelKey = draft.value.defaultModelKey.replace(`${previousId}/`, `${normalizedId}/`);
         }
+        if (draft.value.illustrationDirectorModelKey?.startsWith(`${previousId}/`)) {
+            draft.value.illustrationDirectorModelKey = draft.value.illustrationDirectorModelKey.replace(`${previousId}/`, `${normalizedId}/`);
+        }
         if (editorSnapshot.value?.global.agent) {
             const renamed = renameAgentProvider(editorSnapshot.value.global.agent, previousId, normalizedId);
             editorSnapshot.value.global.agent = renamed.agent ?? editorSnapshot.value.global.agent;
@@ -493,6 +516,7 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
         const currentAgent = isProjectScope.value ? editorSnapshot.value?.project?.agent : editorSnapshot.value?.global.agent;
         const localReferences = [
             {modelKey: draft.value.defaultModelKey, label: isProjectScope.value ? "Project 默认模型" : "Global 默认模型"},
+            ...(!isProjectScope.value ? [{modelKey: draft.value.illustrationDirectorModelKey, label: "插图 Director 模型"}] : []),
             ...agentReferences(currentAgent, ["agent"], isProjectScope.value ? "Project" : "Global"),
         ].filter((reference) => reference.modelKey?.startsWith(prefix));
         if (localReferences.length > 0) {
@@ -579,6 +603,7 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
         try {
             const repairs = [] as ReturnType<typeof previewModelLibraryRepairs>;
             const providerApiRepairs = [] as ReturnType<typeof previewProviderModelApiRepairs>;
+            const modelApiRepairs = [] as ReturnType<typeof repairMissingModelApis>;
             let removedCount = 0;
             if (!isProjectScope.value) {
                 const library = await options.loadLibraries();
@@ -589,6 +614,7 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
                         provider.modelApi = repairItem.api;
                     }
                 }
+                modelApiRepairs.push(...repairMissingModelApis(draft.value));
                 repairs.push(...previewModelLibraryRepairs(draft.value, library.models));
                 for (const repairItem of repairs) {
                     const model = draft.value.providers[repairItem.providerIndex]?.models[repairItem.modelIndex];
@@ -605,10 +631,10 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
             const referencesChanged = cleanScopeReferences(availableModelKeys());
             options.resetChecks();
             await nextTick();
-            const message = t("settings.panels.models.oneClickRepairResult", {providerRepaired: providerApiRepairs.length, repaired: repairs.length, removed: removedCount, remaining: validationIssues.value.length});
+            const message = t("settings.panels.models.oneClickRepairResult", {providerRepaired: providerApiRepairs.length, modelApiRepaired: modelApiRepairs.length, repaired: repairs.length, removed: removedCount, remaining: validationIssues.value.length});
             if (validationIssues.value.length > 0) {
                 notification.warning(message, {title: t("settings.panels.models.oneClickRepairNeedsReview")});
-            } else if (providerApiRepairs.length > 0 || repairs.length > 0 || removedCount > 0 || referencesChanged) {
+            } else if (providerApiRepairs.length > 0 || modelApiRepairs.length > 0 || repairs.length > 0 || removedCount > 0 || referencesChanged) {
                 notification.success(message, {title: t("settings.panels.models.oneClickRepairDone")});
             } else {
                 notification.info(t("settings.panels.models.oneClickRepairNoChange"));

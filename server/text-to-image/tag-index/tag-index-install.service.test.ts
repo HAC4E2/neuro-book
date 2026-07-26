@@ -3,9 +3,13 @@ import os from "node:os";
 import path from "node:path";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import type {
-    DanbooruSourcePage,
-    DanbooruSourceReader,
-} from "nbook/server/text-to-image/tag-index/danbooru-source-client";
+    TagSourcePage,
+    TagSourceReader,
+} from "nbook/server/text-to-image/tag-index/tag-source-client";
+import {
+    TAG_INDEX_SOURCE_ENDPOINT,
+    TAG_INDEX_SOURCE_KIND,
+} from "nbook/shared/text-to-image-tag-index";
 import {TagIndexInstallService} from "nbook/server/text-to-image/tag-index/tag-index-install.service";
 import {TagIndexReader} from "nbook/server/text-to-image/tag-index/tag-index-reader";
 import {TagIndexStore} from "nbook/server/text-to-image/tag-index/tag-index-store";
@@ -15,15 +19,21 @@ import {
 } from "nbook/server/text-to-image/tag-index/tag-index-test-fixture";
 
 /** 把已闭合 fixture 投影成两轮 official reader。 */
-function createSourceReader(): DanbooruSourceReader {
+function createSourceReader(): TagSourceReader {
     const snapshot = createTagIndexTestSnapshot();
     return {
+        descriptor: {
+            kind: TAG_INDEX_SOURCE_KIND,
+            endpoint: TAG_INDEX_SOURCE_ENDPOINT,
+            clientVersion: "test-source-v1",
+            providedResources: ["tags", "aliases", "implications"],
+        },
         readWatermark: vi.fn(async (resource) => {
             const page = snapshot.pages.find((candidate) => candidate.resource === resource && candidate.pass === "source");
             if (!page) throw new Error(`缺少 ${resource} watermark fixture`);
             return page.watermark;
         }),
-        readPage: vi.fn(async (input): Promise<DanbooruSourcePage> => {
+        readPage: vi.fn(async (input): Promise<TagSourcePage> => {
             const provenance = snapshot.pages.find((candidate) => candidate.resource === input.resource
                 && candidate.pass === input.pass);
             if (!provenance) throw new Error(`缺少 ${input.resource}/${input.pass} page fixture`);
@@ -82,7 +92,13 @@ describe("TagIndexInstallService", () => {
         await first.run(firstOperation.operationId);
         const currentBefore = await fs.readFile(path.join(root, "current.json"), "utf8");
 
-        const unavailable: DanbooruSourceReader = {
+        const unavailable: TagSourceReader = {
+            descriptor: {
+                kind: TAG_INDEX_SOURCE_KIND,
+                endpoint: TAG_INDEX_SOURCE_ENDPOINT,
+                clientVersion: "test-source-v1",
+                providedResources: ["tags", "aliases", "implications"],
+            },
             readWatermark: vi.fn(async () => {
                 throw Object.assign(new Error("offline"), {code: "TAG_INDEX_SOURCE_UNAVAILABLE"});
             }),

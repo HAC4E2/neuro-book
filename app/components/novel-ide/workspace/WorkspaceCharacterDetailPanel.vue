@@ -488,6 +488,8 @@ function basename(filePath: string): string {
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
+
+defineExpose({ generateImageTags });
 </script>
 
 <template>
@@ -506,6 +508,9 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
         </template>
 
         <template #actions>
+            <button class="rounded-md px-2 py-1 text-[10px] text-[var(--accent-text)] hover:bg-[var(--bg-hover)]" type="button" :disabled="savingFile || generatingImageTags" @click="void generateImageTags()">
+                <span class="mr-1 inline-block h-3 w-3 align-middle" :class="generatingImageTags ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-tags'"></span>{{ generatingImageTags ? "生成中..." : "生成Tag" }}
+            </button>
             <button class="rounded-md px-2 py-1 text-[10px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" type="button" @click="emit('refresh')">{{ t("ide.workspace.common.refresh") }}</button>
             <button class="rounded-md px-2 py-1 text-[10px] text-[var(--accent-text)] hover:bg-[var(--bg-hover)]" type="button" @click="dialogOpen = true">{{ t("ide.workspace.character.profile") }}</button>
         </template>

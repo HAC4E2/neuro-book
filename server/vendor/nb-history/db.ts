@@ -1,4 +1,6 @@
 import {createClient, type Client} from "@libsql/client";
+import {pathToFileURL} from "node:url";
+import {localPathForFileUrl} from "nbook/server/runtime/paths/file-path";
 
 /**
  * 建库建表(schema 由模块全权管理,宿主不直接碰表)。
@@ -52,9 +54,9 @@ CREATE TABLE IF NOT EXISTS file_acceptance (
 );
 `;
 
-/** libsql 的 file URL 要求正斜杠(Windows 反斜杠路径需转换)。 */
+/** libsql 使用标准 file URL；Windows 本地盘 namespace 必须先在共享边界还原。 */
 function fileUrl(databasePath: string): string {
-    return `file:${databasePath.replace(/\\/g, "/")}`;
+    return pathToFileURL(localPathForFileUrl(databasePath)).href;
 }
 
 /** 打开写连接:WAL 模式 + 建表。databasePath 用绝对路径。 */

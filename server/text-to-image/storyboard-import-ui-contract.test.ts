@@ -31,8 +31,8 @@ describe("Storyboard import pending preview UI contract", () => {
         expect(component).not.toContain("/api/text-to-image/providers");
 
         expect(host).toContain("TextToImageStoryboardImportPanel");
-        expect(host).not.toContain("parseStChatu8TextToImageSettings");
-        expect(host).not.toContain("stChatu8FileInputRef");
-        expect(host).not.toContain("importStChatu8Settings");
+        expect(host).not.toContain("parseStTtpTextToImageSettings");
+        expect(host).not.toContain("stTtpFileInputRef");
+        expect(host).not.toContain("importStTtpSettings");
     });
 });

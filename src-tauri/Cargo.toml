@@ -1,6 +1,6 @@
 [package]
 name = "neuro-book-desktop"
-version = "0.4.2"
+version = "0.7.4-canary.20260723.153500Z"
 description = "NeuroBook Desktop Shell"
 edition = "2021"
 rust-version = "1.77"

@@ -71,6 +71,18 @@ describe("vendored nb-history 冒烟", () => {
             await fs.rm(databasePath, {force: true}).catch(() => undefined);
         }
     }, 15_000);
+
+    it.runIf(process.platform === "win32")("Windows namespace 路径可以打开 history SQLite", async () => {
+        const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nb-history-namespace-"));
+        tempRoots.push(workspaceRoot);
+        const namespacedRoot = `\\\\?\\${workspaceRoot}`;
+        const databasePath = path.join(namespacedRoot, ".nbook", "history.sqlite");
+        await fs.mkdir(path.dirname(databasePath), {recursive: true});
+
+        const history = await WorkspaceHistory.open({workspaceRoot: namespacedRoot, databasePath});
+        await expect(history.inbox("local")).resolves.toEqual([]);
+        await history.close();
+    });
 });
 
 /**

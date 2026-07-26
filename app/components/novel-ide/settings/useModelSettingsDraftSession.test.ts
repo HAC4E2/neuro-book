@@ -1,7 +1,7 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {useModelSettingsDraftSession} from "nbook/app/components/novel-ide/settings/useModelSettingsDraftSession";
 import type {ModelSettingsProviderDraft} from "nbook/app/components/novel-ide/settings/model-settings-draft";
-import type {ConfiguredModelDto} from "nbook/shared/dto/app-settings.dto";
+import type {ConfiguredModelDto, ModelLibraryEntryDto} from "nbook/shared/dto/app-settings.dto";
 
 vi.mock("nbook/app/composables/useNotification", () => ({
     useNotification: () => ({success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn()}),
@@ -54,6 +54,19 @@ describe("Provider Config draft frontend session", () => {
         expect(cancelProviderChecks).toHaveBeenCalledWith(provider, true);
     });
 
+    it("Provider ID 重命名会迁移全局插图 Director 的唯一模型绑定", () => {
+        const session = createSession();
+        const provider = createProvider();
+        provider.models.push(session.cloneModel(configuredModel()));
+        session.draft.value.providers.push(provider);
+        session.activeProviderKey.value = provider.localKey;
+        session.draft.value.illustrationDirectorModelKey = "provider/model";
+
+        session.renameActiveProviderId("renamed");
+
+        expect(session.draft.value.illustrationDirectorModelKey).toBe("renamed/model");
+    });
+
     it("已保存 Provider ID 不可修改，显式复制不会继承 Secret 或模型引用", () => {
         const session = createSession();
         const provider = createProvider();
@@ -90,6 +103,26 @@ describe("Provider Config draft frontend session", () => {
         await session.repair();
 
         expect(provider.modelApi).toBe("openai-responses");
+    });
+
+    it("一键修复先用 Provider 默认 API 补已有模型，再应用 Model Library 能力", async () => {
+        const session = createSession({loadLibraries: async () => ({models: [mimoKnowledge()]})});
+        const provider = createProvider();
+        const model = session.cloneModel({...configuredModel(), id: "mimo-v2.5-pro"});
+        Object.assign(model, {api: "", reasoning: "inherit", input: "", contextWindowTokens: "", maxTokens: ""});
+        provider.models.push(model);
+        session.draft.value.providers.push(provider);
+        session.activeProviderKey.value = provider.localKey;
+
+        await session.repair();
+
+        expect(model).toMatchObject({
+            api: "openai-responses",
+            reasoning: "true",
+            input: "text",
+            contextWindowTokens: "1048576",
+            maxTokens: "131072",
+        });
     });
 });
 
@@ -146,5 +179,19 @@ function configuredModel(): ConfiguredModelDto {
         headers: null,
         thinkingLevelMap: null,
         contextWindowTokens: 8192,
+    };
+}
+
+/** 创建精确 ID 的 Model Library 能力资料。 */
+function mimoKnowledge(): ModelLibraryEntryDto {
+    return {
+        id: "mimo-v2.5-pro",
+        name: "MiMo V2.5 Pro",
+        source: "xiaomi",
+        reasoning: true,
+        thinkingLevelMap: null,
+        input: ["text"],
+        contextWindowTokens: 1_048_576,
+        maxTokens: 131_072,
     };
 }

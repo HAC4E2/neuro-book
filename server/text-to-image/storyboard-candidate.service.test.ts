@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest";
-import {parseChatu8StoryboardJson} from "nbook/server/text-to-image/chatu8-storyboard-json";
-import {inspectChatu8Storyboard} from "nbook/server/text-to-image/chatu8-storyboard-inspector";
+import {parseTtpStoryboardJson} from "nbook/server/text-to-image/ttp-storyboard-json";
+import {inspectTtpStoryboard} from "nbook/server/text-to-image/ttp-storyboard-inspector";
 import {
     buildPendingStoryboardCompanion,
     buildResolvedStoryboardCompanion,
@@ -14,8 +14,8 @@ import {TagPatternSetSchema} from "nbook/shared/text-to-image-tag-pattern";
 import {hashTextToImageContract} from "nbook/shared/text-to-image-contract-hash";
 
 function inspect(entries: object[]) {
-    const parsed = parseChatu8StoryboardJson(new TextEncoder().encode(JSON.stringify({entries})));
-    return inspectChatu8Storyboard(parsed);
+    const parsed = parseTtpStoryboardJson(new TextEncoder().encode(JSON.stringify({entries})));
+    return inspectTtpStoryboard(parsed);
 }
 
 function createRule(sourceEntryId: string, sourcePath: string) {
@@ -307,7 +307,7 @@ describe("pending Storyboard companion builder", () => {
         });
         const digest = first.package.candidatePackageHash.slice("sha256:".length);
 
-        expect(first.package.packageId).toBe(`c8pkg.${digest}`);
+        expect(first.package.packageId).toBe(`ttppkg.${digest}`);
         expect(first.package.resourceKey).toBe(`${input.presetId}--${digest}`);
         expect(first.storyboard.packageId).toBe(first.package.packageId);
         expect(first.storyboard.resourceKey).toBe(first.package.resourceKey);

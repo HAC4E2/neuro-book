@@ -15,6 +15,8 @@ const props = withDefaults(defineProps<{
     canPlanIllustrations?: boolean;
     illustrationPlanningBusy?: boolean;
     illustrationPlanningUnavailableReason?: string;
+    canGenerateCharacterTags?: boolean;
+    characterTagGenerationBusy?: boolean;
 }>(), {
     commentViewOpen: false,
     commentCount: 0,
@@ -22,6 +24,8 @@ const props = withDefaults(defineProps<{
     canPlanIllustrations: false,
     illustrationPlanningBusy: false,
     illustrationPlanningUnavailableReason: "",
+    canGenerateCharacterTags: false,
+    characterTagGenerationBusy: false,
 });
 
 const emit = defineEmits<{
@@ -32,6 +36,7 @@ const emit = defineEmits<{
     (e: "move-tab", path: string, targetPath: string | null, targetPinned: boolean, position: TabDropPosition): void;
     (e: "set-view-mode", mode: WorkspaceEditorViewMode): void;
     (e: "plan-illustrations"): void;
+    (e: "generate-character-tags"): void;
     (e: "toggle-comment-view"): void;
     (e: "more"): void;
 }>();
@@ -300,6 +305,17 @@ function isDropTarget(tab: WorkspaceEditorTab, pinned: boolean, position: TabDro
                 >
                     <span class="h-4 w-4" :class="props.illustrationPlanningBusy ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-image-plus'"></span>
                     <span class="hidden xl:inline">正文生图</span>
+                </button>
+                <button
+                    v-if="props.editorKind === 'markdown'"
+                    type="button"
+                    class="flex h-7 items-center justify-center gap-1.5 rounded-md px-2 text-xs transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-45"
+                    :disabled="!props.canGenerateCharacterTags || props.characterTagGenerationBusy"
+                    title="生成当前角色视觉Tag"
+                    @click="emit('generate-character-tags')"
+                >
+                    <span class="h-4 w-4" :class="props.characterTagGenerationBusy ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-tags'"></span>
+                    <span class="hidden xl:inline">角色生图</span>
                 </button>
                 <button
                     v-if="props.editorKind === 'markdown'"

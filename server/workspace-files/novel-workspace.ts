@@ -1085,6 +1085,8 @@ function isManagedAssetBlacklisted(assetPath: string): boolean {
         || normalized.startsWith("agent/skills/llmlint/.git/")
         || normalized.startsWith("agent/skills/llmlint/node_modules/")
         || normalized.startsWith("agent/skills/llmlint/evals/")
+        // 打包的 TTP tagData 只在系统 .nbook 就地读取，不复制进用户 workspace。
+        || normalized.startsWith("cache/text-to-image/ttp-tagdata/")
         || parts.includes(".compiled")
         || parts.includes(".staging");
 }

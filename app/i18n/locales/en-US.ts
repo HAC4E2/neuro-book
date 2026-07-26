@@ -741,7 +741,7 @@ const enUS = {
                 oneClickRepair: "Repair all",
                 oneClickRepairDone: "Model draft repaired",
                 oneClickRepairNeedsReview: "Some issues still need manual review",
-                oneClickRepairResult: "Completed {providerRepaired} Provider default APIs, applied {repaired} Model Library completions, and removed {removed} incomplete disabled models; {remaining} issues remain. Review the draft, then save manually.",
+                oneClickRepairResult: "Completed {providerRepaired} Provider default APIs and {modelApiRepaired} existing model APIs, applied {repaired} Model Library completions, and removed {removed} incomplete disabled models; {remaining} issues remain. Review the draft, then save manually.",
                 oneClickRepairNoChange: "No model issue could be repaired automatically. Follow the issue details to update the draft manually.",
                 oneClickRepairFailed: "Failed to repair model configuration",
                 providerAdded: "Added Provider: {label}",

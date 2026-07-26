@@ -12,7 +12,7 @@ import {
     novelAiQualityTags,
     resolveNovelAiNegativePreset,
 } from "nbook/shared/text-to-image-novelai-quality";
-import type {TextToImageRecipeSource} from "nbook/shared/text-to-image-recipe";
+import type {TextToImageRecipeSource, TextToImageRecipeStyle} from "nbook/shared/text-to-image-recipe";
 import {
     IllustrationCompiledRequestSchema,
     type IllustrationCompiledRequest,
@@ -180,7 +180,7 @@ export type NovelAiRequestInput = {
         smeaDyn: boolean;
         decrisper: boolean;
     };
-    style: TextToImageRecipeSource["style"];
+    style: TextToImageRecipeStyle;
 };
 
 export type NovelAiGeneratedImage = {

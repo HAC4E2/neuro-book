@@ -30,6 +30,11 @@ function shortHash(hash: string): string {
     return hash.slice(0, 8);
 }
 
+/** 内容路由是 `/reference-assets/:id.content` 点路由，不是 `/:id/content` 子路径。 */
+function assetContentUrl(assetId: string): string {
+    return `/api/text-to-image/reference-assets/${encodeURIComponent(assetId)}.content?projectPath=${encodeURIComponent(props.projectPath)}`;
+}
+
 async function loadAssets(): Promise<void> {
     if (!props.projectPath) return;
     loading.value = true;
@@ -44,26 +49,32 @@ async function loadAssets(): Promise<void> {
     }
 }
 
-/** 上传参考资产；服务端做内容寻址去重，同内容返回既有资产。 */
+/**
+ * 上传参考图片；服务端做内容寻址去重，同内容返回既有资产。
+ * projectPath 与 kind 必须作为 multipart 字段随表单发送——服务端只从 form parts 读取，不读 query。
+ */
 async function uploadAsset(event: Event): Promise<void> {
     const input = event.target as HTMLInputElement;
-    const file = input.files?.[0];
-    if (!file) return;
+    const files = [...(input.files ?? [])];
+    if (files.length === 0) return;
     uploading.value = true;
     try {
-        const form = new FormData();
-        form.append("file", file);
-        const created = await $fetch<TextToImageReferenceAssetDto>("/api/text-to-image/reference-assets", {
-            method: "POST",
-            params: {projectPath: props.projectPath},
-            body: form,
-        });
-        if (!assets.value.some((asset) => asset.id === created.id)) {
-            assets.value = [...assets.value, created];
+        for (const file of files) {
+            const form = new FormData();
+            form.append("projectPath", props.projectPath);
+            form.append("kind", "source-image");
+            form.append("file", file);
+            const created = await $fetch<TextToImageReferenceAssetDto>("/api/text-to-image/reference-assets", {
+                method: "POST",
+                body: form,
+            });
+            if (!assets.value.some((asset) => asset.id === created.id)) {
+                assets.value = [...assets.value, created];
+            }
         }
-        notification.success(`已上传参考资产 ${shortHash(created.contentHash)}`);
+        notification.success(files.length > 1 ? `已上传 ${files.length} 张参考图片` : "已上传参考图片");
     } catch (error) {
-        notification.error(resolveApiErrorMessage(error, "上传参考资产失败"));
+        notification.error(resolveApiErrorMessage(error, "上传参考图片失败"));
     } finally {
         uploading.value = false;
         input.value = "";
@@ -135,20 +146,23 @@ watch(() => props.projectPath, loadAssets, {immediate: true});
     <!-- P5 参考资产：内容寻址上传 + Vibe/CharRef/Inpaint 槽位绑定 -->
     <div class="flex flex-col gap-3">
         <div class="flex flex-wrap items-center gap-2">
-            <label class="inline-flex cursor-pointer items-center gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 py-1 text-xs text-[var(--text-secondary)] hover:border-[var(--border-accent)]">
-                <span>上传参考资产</span>
-                <input type="file" accept="image/png,image/jpeg,image/webp" class="hidden" :disabled="uploading" @change="uploadAsset" />
+            <label class="inline-flex items-center gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 py-1 text-xs text-[var(--text-secondary)] hover:border-[var(--border-accent)]" :class="uploading || !props.projectPath ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'">
+                <span class="h-3.5 w-3.5" :class="uploading ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-image-plus'"></span>
+                <span>{{ uploading ? "上传中…" : "上传参考图片" }}</span>
+                <input type="file" accept="image/png,image/jpeg,image/webp" multiple class="hidden" :disabled="uploading || !props.projectPath" @change="uploadAsset" />
             </label>
             <button type="button" class="rounded-md border border-[var(--border-color)] px-2 py-1 text-xs text-[var(--text-secondary)] hover:border-[var(--border-accent)]" :disabled="loading" @click="loadAssets">刷新</button>
-            <button type="button" class="ml-auto rounded-md border border-[var(--border-accent)] bg-[var(--accent-bg)] px-2.5 py-1 text-xs text-[var(--accent-text)] hover:opacity-80" :disabled="saving || !store.recipeDirty" @click="saveRecipe">保存 Recipe</button>
+            <button type="button" class="ml-auto rounded-md border border-[var(--border-accent)] bg-[var(--accent-bg)] px-2.5 py-1 text-xs text-[var(--accent-text)] hover:opacity-80 disabled:opacity-50" :disabled="saving || !store.recipeDirty" @click="saveRecipe">保存 Recipe</button>
         </div>
+        <p class="m-0 text-[10px] text-[var(--text-muted)]">上传图片后，用下方 <span class="text-[var(--text-secondary)]">+Vibe</span> / <span class="text-[var(--text-secondary)]">CharRef</span> / <span class="text-[var(--text-secondary)]">Inpaint</span> 绑定到对应槽位；Vibe 编码在首次生图时由服务端自动派生并缓存，无需手动上传。</p>
 
         <!-- 资产列表 -->
-        <div v-if="loading" class="text-xs text-[var(--text-muted)]">读取中…</div>
-        <div v-else-if="sourceImages.length === 0" class="text-xs text-[var(--text-muted)]">尚无参考资产，上传后将按内容寻址去重。</div>
+        <div v-if="!props.projectPath" class="text-xs text-[var(--text-muted)]">请先打开一个小说 Project。</div>
+        <div v-else-if="loading" class="text-xs text-[var(--text-muted)]">读取中…</div>
+        <div v-else-if="sourceImages.length === 0" class="text-xs text-[var(--text-muted)]">尚无参考图片，上传后将按内容寻址去重。</div>
         <ul v-else class="flex flex-col gap-1.5">
             <li v-for="asset in sourceImages" :key="asset.id" class="flex flex-wrap items-center gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/45 px-2 py-1.5">
-                <img :src="`/api/text-to-image/reference-assets/${asset.id}/content?projectPath=${encodeURIComponent(props.projectPath)}`" class="h-10 w-10 rounded object-cover" alt="" />
+                <img :src="assetContentUrl(asset.id)" class="h-10 w-10 rounded object-cover" alt="" />
                 <span class="font-mono text-[10px] text-[var(--text-muted)]">{{ shortHash(asset.contentHash) }}</span>
                 <span class="text-[10px] text-[var(--text-muted)]">{{ asset.mimeType }}</span>
                 <div class="ml-auto flex items-center gap-1">

@@ -31,6 +31,13 @@ describe("TextToImageCharacterMigrationPanel", () => {
         expect(source).not.toMatch(/readSillyTavernPngJson|loadCardInput|png-chunks|character_book/iu);
     });
 
+    it("Director proposal 的生产写入保留 Project Workspace target，不把 Promise 作为 tracked write 参数", async () => {
+        const source = await fs.readFile(path.join(process.cwd(), "server/text-to-image/character-visual-migration.service.ts"), "utf8");
+        expect(source).toContain('target: {kind: "project-workspace", projectPath: input.projectPath, root: input.root}');
+        expect(source).not.toContain("writeWorkspaceTextFileTracked(writeWorkspaceTextFileTracked");
+        expect(source).not.toMatch(/writeWorkspaceTextFileTracked\([^\n]*as any/iu);
+    });
+
     it("公开角色源入口使用服务端 inspect/preview/prepare hash，不持有 Provider 或生成参数", async () => {
         const source = await fs.readFile(path.join(process.cwd(), "app/components/novel-ide/text-to-image/TextToImageCharacterSourcePanel.vue"), "utf8");
         expect(source).toContain("character-visual-migrations/source-inspect");

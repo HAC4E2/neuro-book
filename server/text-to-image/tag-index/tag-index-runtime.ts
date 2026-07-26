@@ -3,6 +3,8 @@ import {
     DANBOORU_MIN_POST_COUNT,
     TAG_INDEX_CAPABILITY_VERSION,
     TAG_INDEX_RETRIEVAL_POLICY_VERSION,
+    TAG_INDEX_SOURCE_ENDPOINT,
+    TAG_INDEX_SOURCE_KIND,
     TAG_INDEX_TERMS_CONFIRMATION_VERSION,
     TagIndexSearchResponseSchema,
     TagIndexStatusSchema,
@@ -15,20 +17,16 @@ import {
     type TagIndexSyncRequest,
 } from "nbook/shared/text-to-image-tag-index";
 import {hashTextToImageContract} from "nbook/shared/text-to-image-contract-hash";
-import {
-    DANBOORU_SOURCE_ENDPOINT,
-    DanbooruSourceClient,
-    type DanbooruSourceReader,
-    type DanbooruSourceRetry,
-} from "nbook/server/text-to-image/tag-index/danbooru-source-client";
 import {TagIndexInstallService} from "nbook/server/text-to-image/tag-index/tag-index-install.service";
+import {TtpSourceClient} from "nbook/server/text-to-image/tag-index/ttp-source-client";
+import type {TagSourceReader, TagSourceRetry} from "nbook/server/text-to-image/tag-index/tag-source-client";
 import {TagIndexError} from "nbook/server/text-to-image/tag-index/tag-index-error";
 import {TagIndexReader} from "nbook/server/text-to-image/tag-index/tag-index-reader";
 import {TagIndexStore} from "nbook/server/text-to-image/tag-index/tag-index-store";
 
-export const TAG_INDEX_TERMS_STATEMENT = "仅在用户显式确认后，从 Danbooru 官方 JSON API 同步 post_count >= 3000 的 Tag 及相关 active Alias/Implication；索引保留官方归属信息，不接收 Chatu8 tagData 或任意第三方来源。" as const;
+export const TAG_INDEX_TERMS_STATEMENT = "从随应用打包的本地 TTP tagData（Danbooru 标签衍生数据）导入 post_count >= 3000 的 Tag；不联网抓取，别名/蕴含关系由数据源声明为不提供；标签归属与术语参见 Danbooru。" as const;
 export const TAG_INDEX_TERMS_CONTENT_HASH = hashTextToImageContract({
-    sourceEndpoint: DANBOORU_SOURCE_ENDPOINT,
+    sourceEndpoint: TAG_INDEX_SOURCE_ENDPOINT,
     termsUrl: "https://danbooru.donmai.us/terms_of_service",
     attributionUrl: "https://danbooru.donmai.us/",
     minPostCount: DANBOORU_MIN_POST_COUNT,
@@ -45,8 +43,8 @@ type RuntimeJob = {
 type TagIndexRuntimeOptions = {
     root?: string;
     createSourceClient?: (input: {
-        onRetry: (retry: DanbooruSourceRetry | null) => Promise<void>;
-    }) => DanbooruSourceReader;
+        onRetry: (retry: TagSourceRetry | null) => Promise<void>;
+    }) => TagSourceReader;
 };
 
 /** Workspace Root Tag index 的进程内编排器；持久真相仍全部位于 TagIndexStore。 */
@@ -60,21 +58,28 @@ export class TagIndexRuntime {
         this.store = new TagIndexStore(options.root ? {root: options.root} : {});
         this.reader = new TagIndexReader({root: this.store.root});
         this.createSourceClient = options.createSourceClient
-            ?? ((input) => new DanbooruSourceClient({onRetry: input.onRetry}));
+            ?? (() => new TtpSourceClient());
     }
 
-    /** 只读本地状态；绝不因页面打开访问 official source。 */
+    /** 只读本地状态；本地 tagData 源不联网。旧 schema 的 active 工件按未激活处理，等待重新导入覆盖。 */
     async status(): Promise<TagIndexStatus> {
         const [activePointer, operation] = await Promise.all([
             this.store.readActivePointer(),
             this.store.readActiveOperation(),
         ]);
-        const active = activePointer ? summarizeActive(await this.reader.readActiveContext()) : null;
+        let active: TagIndexActiveSummary | null = null;
+        if (activePointer) {
+            try {
+                active = summarizeActive(await this.reader.readActiveContext());
+            } catch {
+                active = null;
+            }
+        }
         const pages = operation ? await this.store.readSourcePages(operation.operationId) : [];
         const operationInProgress = operation !== null && !["active", "failed", "canceled"].includes(operation.state);
         return TagIndexStatusSchema.parse({
             schemaVersion: "nbook.tag-index-status/v1",
-            source: {kind: "danbooru-api", endpoint: DANBOORU_SOURCE_ENDPOINT, minPostCount: DANBOORU_MIN_POST_COUNT},
+            source: {kind: TAG_INDEX_SOURCE_KIND, endpoint: TAG_INDEX_SOURCE_ENDPOINT, minPostCount: DANBOORU_MIN_POST_COUNT},
             terms: {
                 confirmationVersion: TAG_INDEX_TERMS_CONFIRMATION_VERSION,
                 retrievalPolicyVersion: TAG_INDEX_RETRIEVAL_POLICY_VERSION,
@@ -208,8 +213,10 @@ function summarizeActive(context: Awaited<ReturnType<TagIndexReader["readActiveC
 
 let runtime: TagIndexRuntime | null = null;
 
-/** Nitro 进程内唯一 runtime；文件 lease/CAS 仍负责多进程正确性。 */
+/** Nitro 进程内唯一 runtime；tag 数据源为随应用打包的本地 TTP tagData，文件 lease/CAS 仍负责多进程正确性。 */
 export function getTagIndexRuntime(): TagIndexRuntime {
-    runtime ??= new TagIndexRuntime();
+    if (!runtime) {
+        runtime = new TagIndexRuntime();
+    }
     return runtime;
 }

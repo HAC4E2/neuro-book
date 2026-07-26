@@ -176,7 +176,7 @@ async function inspectSource(): Promise<void> {
         });
     } catch (caught) {
         inspected.value = null;
-        error.value = resolveApiErrorMessage(caught, "检查 Chatu8 Storyboard JSON 失败");
+        error.value = resolveApiErrorMessage(caught, "检查 TTP Storyboard JSON 失败");
     } finally {
         inspecting.value = false;
     }
@@ -401,13 +401,13 @@ function formatBytes(value: number): string {
 </script>
 
 <template>
-    <!-- Chatu8 Storyboard：Project upload 显式选择，服务端 inspect/Agent convert/只读 preview -->
+    <!-- TTP Storyboard：Project upload 显式选择，服务端 inspect/Agent convert/只读 preview -->
     <section class="mb-4 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/45">
         <div class="flex min-h-9 items-center justify-between gap-2 border-b border-[var(--border-color)] px-3 py-2">
             <div class="flex min-w-0 items-center gap-2">
                 <span class="i-lucide-file-json h-4 w-4 shrink-0 text-[var(--accent-main)]"></span>
                 <div class="min-w-0">
-                    <h3 class="truncate text-[12px] font-medium text-[var(--text-main)]">Chatu8 Storyboard 导入</h3>
+                    <h3 class="truncate text-[12px] font-medium text-[var(--text-main)]">TTP Storyboard 导入</h3>
                     <p class="m-0 mt-0.5 text-[10px] text-[var(--text-muted)]">只检查 Project upload 顶层 JSON；不会上传即激活。</p>
                 </div>
             </div>
@@ -428,7 +428,7 @@ function formatBytes(value: number): string {
                 </button>
             </div>
 
-            <p v-if="!sourceLoading && sources.length === 0" class="m-0 rounded-md border border-[var(--status-info-border)] bg-[var(--status-info-bg)] px-3 py-2 text-[11px] text-[var(--status-info)]">请先把 Chatu8 JSON 放入当前 Project Workspace 的 <code>upload/</code> 顶层。</p>
+            <p v-if="!sourceLoading && sources.length === 0" class="m-0 rounded-md border border-[var(--status-info-border)] bg-[var(--status-info-bg)] px-3 py-2 text-[11px] text-[var(--status-info)]">请先把 TTP JSON 放入当前 Project Workspace 的 <code>upload/</code> 顶层。</p>
             <p v-if="error" class="m-0 rounded-md border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-2 text-[11px] text-[var(--status-danger)]">{{ error }}</p>
 
             <!-- Inspect 摘要 -->

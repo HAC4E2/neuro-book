@@ -30,7 +30,7 @@ const ConversionOutputToolSchema = Type.Unsafe<StoryboardConversionOutput>(
 
 export const StoryboardImportSubmitToolSchema = Type.Object({
     sourceRelativePath: Type.String({pattern: "^upload/[^/\\\\]+\\.json$"}),
-    expectedImportId: Type.String({pattern: "^c8i\\.[a-f0-9]{32}$"}),
+    expectedImportId: Type.String({pattern: "^ttpi\\.[a-f0-9]{32}$"}),
     conversion: ConversionOutputToolSchema,
 }, {additionalProperties: false});
 
@@ -40,9 +40,9 @@ type SubmitToolInput = Static<typeof StoryboardImportSubmitToolSchema>;
 const invocationBudgets = new Map<string, number>();
 
 const inspectTool = defineAgentTool({
-    key: "inspect_chatu8_storyboard",
-    name: "inspect_chatu8_storyboard",
-    label: "Inspect Chatu8 Storyboard",
+    key: "inspect_ttp_storyboard",
+    name: "inspect_ttp_storyboard",
+    label: "Inspect TTP Storyboard",
     description: "Strictly inspect one explicit upload/*.json. Without chunkIndex returns bounded metadata; with chunkIndex returns one sanitized deterministic conversion chunk.",
     parameters: StoryboardImportInspectToolSchema,
     validationSchema: StoryboardImportInspectToolSchema,
@@ -115,14 +115,14 @@ const inspectTool = defineAgentTool({
         });
     },
     async execute() {
-        throw new Error("inspect_chatu8_storyboard 必须在 illustration.director session 内执行");
+        throw new Error("inspect_ttp_storyboard 必须在 illustration.director session 内执行");
     },
 });
 
 const submitTool = defineAgentTool({
-    key: "submit_chatu8_storyboard_conversion",
-    name: "submit_chatu8_storyboard_conversion",
-    label: "Submit Chatu8 Storyboard Conversion",
+    key: "submit_ttp_storyboard_conversion",
+    name: "submit_ttp_storyboard_conversion",
+    label: "Submit TTP Storyboard Conversion",
     description: "Submit one strict convert-preset DTO. The server assigns final IDs, revalidates source bytes and writes only a pending_unresolved companion package.",
     parameters: StoryboardImportSubmitToolSchema,
     validationSchema: StoryboardImportSubmitToolSchema,
@@ -163,7 +163,7 @@ const submitTool = defineAgentTool({
         });
     },
     async execute() {
-        throw new Error("submit_chatu8_storyboard_conversion 必须在 illustration.director session 内执行");
+        throw new Error("submit_ttp_storyboard_conversion 必须在 illustration.director session 内执行");
     },
 });
 
@@ -172,8 +172,8 @@ export const storyboardImportAgentTools = {
     inspect: inspectTool,
     submit: submitTool,
 } as const satisfies {
-    inspect: AgentToolDefinition<"inspect_chatu8_storyboard">;
-    submit: AgentToolDefinition<"submit_chatu8_storyboard_conversion">;
+    inspect: AgentToolDefinition<"inspect_ttp_storyboard">;
+    submit: AgentToolDefinition<"submit_ttp_storyboard_conversion">;
 };
 
 /** 测试/诊断用 runtime 构造入口。 */

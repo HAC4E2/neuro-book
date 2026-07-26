@@ -72,8 +72,10 @@ export type ModelSettingsProviderDraft = ContractProviderDraft<ModelSettingsMode
     };
 };
 
-/** 设置页的完整模型草稿文档。 */
-export type ModelSettingsDraft = ContractSettingsDraft<ModelSettingsProviderDraft>;
+/** 设置页的完整模型草稿文档；Project 草稿的 Director binding 固定为 null。 */
+export type ModelSettingsDraft = ContractSettingsDraft<ModelSettingsProviderDraft> & {
+    illustrationDirectorModelKey: string | null;
+};
 
 type AgentModelConfig = {
     profileModelDefaults?: {modelKey?: string | null};
@@ -95,6 +97,15 @@ export type ModelLibraryRepair = {
 export type ProviderModelApiRepair = {
     providerIndex: number;
     providerId: string;
+    api: SupportedPiApi;
+};
+
+/** 一键修复中由用户明确选择的 Provider 默认接口补齐空白模型 API 的可审计变更。 */
+export type ModelApiRepair = {
+    providerIndex: number;
+    modelIndex: number;
+    providerId: string;
+    modelId: string;
     api: SupportedPiApi;
 };
 
@@ -378,6 +389,33 @@ export function previewProviderModelApiRepairs(draft: ContractSettingsDraft): Pr
         const api = uniqueApis.size === 1 ? uniqueApis.values().next().value : undefined;
         if (api) {
             repairs.push({providerIndex, providerId: provider.id.trim(), api});
+        }
+    }
+    return repairs;
+}
+
+/**
+ * 用受支持的 Provider 默认接口补齐已有模型的空白 API。
+ *
+ * 该动作只修改当前前端草稿；非空模型值以及重复 Provider/model 组保持不变。
+ */
+export function repairMissingModelApis(draft: ContractSettingsDraft): ModelApiRepair[] {
+    const repairs: ModelApiRepair[] = [];
+    const providerCounts = countIds(draft.providers.map((provider) => provider.id));
+    for (const [providerIndex, provider] of draft.providers.entries()) {
+        const providerId = provider.id.trim();
+        const api = provider.modelApi.trim();
+        if ((providerCounts.get(providerId) ?? 0) > 1 || !isSupportedPiApi(api)) {
+            continue;
+        }
+        const modelCounts = countIds(provider.models.map((model) => model.id));
+        for (const [modelIndex, model] of provider.models.entries()) {
+            const modelId = model.id.trim();
+            if ((modelCounts.get(modelId) ?? 0) > 1 || model.api.trim()) {
+                continue;
+            }
+            model.api = api;
+            repairs.push({providerIndex, modelIndex, providerId, modelId, api});
         }
     }
     return repairs;

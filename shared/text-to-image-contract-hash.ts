@@ -1,4 +1,5 @@
-import {createHash} from "node:crypto";
+import {sha256} from "@noble/hashes/sha2.js";
+import {bytesToHex, utf8ToBytes} from "@noble/hashes/utils.js";
 
 export type TextToImageContractValue = null | boolean | number | string | TextToImageContractValue[] | {
     [key: string]: TextToImageContractValue;
@@ -15,7 +16,8 @@ export function canonicalizeTextToImageContract(value: TextToImageContractValue)
 
 /** 为规范合同生成带算法前缀的 SHA-256。 */
 export function hashTextToImageContract(value: TextToImageContractValue): string {
-    return `sha256:${createHash("sha256").update(canonicalizeTextToImageContract(value), "utf8").digest("hex")}`;
+    const canonicalValue = canonicalizeTextToImageContract(value);
+    return `sha256:${bytesToHex(sha256(utf8ToBytes(canonicalValue)))}`;
 }
 
 /**

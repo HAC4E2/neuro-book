@@ -91,3 +91,19 @@ Tauri 2 提供 `app.handle().restart()`（同进程 relaunch）。change_data_di
 - 迁移进度粒度：当前仅文案，大数据迁移可加百分比
 - 跨盘空间预校验：当前复制失败才回滚，可加目标盘可用空间预检
 - build-setup.mjs 中 runCapture 调 ISCC 会累积压缩日志到内存，可改流式输出
+
+## 2026-07-22：Windows Desktop Prisma 子进程环境变量冲突
+
+- 现象：Desktop 外层 `prisma-migrate.mjs` 能解析明确传入的 SQLite URL，但 Bun 1.3.14 在 Windows spawn 第二层 `sqlite-migrate.mjs` 时，如果继承环境还存在大小写不同的 `database_url`，会把键归一为 `DATABASE_URL` 并保留旧值；旧值带 query 时命中 SQLite URL 门禁，启动中止。
+- 根因通过最小 Bun spawn 实验确认：父进程环境对象同时包含正确 `DATABASE_URL` 与旧 `database_url` 时，子进程实际读到旧的 `file:C:/bad.sqlite?mode=ro`。
+- 修复：`prisma-env.mjs` 提供唯一的 `prismaChildEnvironment()`，覆盖数据库变量前按大小写不敏感规则清除全部变体；`prisma-migrate.mjs` 和 `prisma-generate.mjs` 统一使用该入口，不放宽 SQLite URL 安全校验。
+- 验证：回归测试 2/2 通过；向 staged Product 注入冲突变量后，在临时 State Root 成功执行全部 9 个 SQLite migration；最终 Desktop portable 重新组装到 `dist/neuro-book-desktop-x64`，保留原 `data/`。
+
+## 2026-07-22：Windows namespace State Root 导致迁移二次解析失败
+
+- 现象：上一轮环境变量大小写去重后，真实 Desktop EXE 仍在第二层 `sqlite-migrate.mjs` 报“SQLite DATABASE_URL 不支持 query 或 fragment”。
+- 真实复现：仅对 portable 运行副本加入临时诊断，确认子进程收到 `file://?/C:/Users/.../data/workspace/.nbook/neuro-book.sqlite`；诊断行随后撤除。
+- 根因：Windows `current_exe()` 可能返回 `\\?\C:\...` namespace 路径。`resolveAppSqliteLocation()` 原先直接把反斜杠替换为 `/`，把 namespace 前缀错误序列化为 `file://?/C:/...`；第一次解析生成该值，第二次解析把 namespace 中的 `?` 误判为 query。
+- 系统性修复：在 App SQLite 的公共位置解析边界规范化本地盘符 namespace State Root，再进行路径约束与 file URL 生成；没有在 Rust 启动器或迁移脚本局部绕过，UNC 禁止规则保持不变。
+- 回归约束：新增 Windows namespace State Root 连续解析测试，要求连接 URL 稳定为 `file:C:/...`。TDD 红灯准确命中原 query/fragment 错误，修复后 SQLite Location 与打包聚焦组合共 18 项通过、1 项平台跳过。
+- 最终验证：`bun run nuxt:build` 与 `bun run product:stage` 成功；portable 重新组装到 `dist/neuro-book-desktop-x64` 并保留既有 `data/`。对最终 `dist/product` 使用 portable Bun 1.3.14、`\\?\C:\...\data` State Root 和 Desktop 同款 `DATABASE_URL` 执行 `prisma-migrate.mjs --deploy`，返回 `FINAL_DIST_MIGRATION_EXIT=0`；完成前聚焦回归仍为 4 文件通过、18 项通过、1 项平台跳过。

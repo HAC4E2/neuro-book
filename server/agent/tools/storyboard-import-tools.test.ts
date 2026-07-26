@@ -7,13 +7,13 @@ import {
 } from "nbook/server/agent/tools/storyboard-import-tools";
 
 describe("illustration.director import tools", () => {
-    const importId = `c8i.${"a".repeat(32)}`;
+    const importId = `ttpi.${"a".repeat(32)}`;
 
     it("只暴露 inspect/submit 两个窄工具，且都不能从参数注入 project/global path", () => {
         const tools = createStoryboardImportAgentTools();
         expect(tools.map((tool) => tool.key)).toEqual([
-            "inspect_chatu8_storyboard",
-            "submit_chatu8_storyboard_conversion",
+            "inspect_ttp_storyboard",
+            "submit_ttp_storyboard_conversion",
         ]);
         expect(tools.every((tool) => tool.mutatesWorkspace)).toBe(true);
         expect(Value.Check(StoryboardImportInspectToolSchema, {

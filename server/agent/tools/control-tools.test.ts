@@ -4,6 +4,8 @@ import type {NeuroToolResult} from "nbook/server/agent/tools/types";
 import {controlTools} from "nbook/server/agent/tools/control-tools";
 import type {UserInputRequestContext, ToolExecutionContext, UserInputFormSpec} from "nbook/server/agent/tools/types";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {Type} from "typebox";
+import {createReportResultTool} from "nbook/server/agent/tools/control-tools";
 
 describe("request_user_input userInputRequest", () => {
     const requestUserInputTool = controlTools.requestUserInput.runtime();
@@ -417,6 +419,23 @@ describe("协议边界", () => {
             reason: "done",
             planFilePath: ".agent/plan/test.md",
         })).toBe(true);
+    });
+});
+
+describe("report_result 结构化输出", () => {
+    it("显式要求 data 时拒绝只有 result 的终止调用", async () => {
+        const schema = Type.Object({
+            result: Type.String(),
+            data: Type.Object({summary: Type.String()}),
+        });
+        const tool = createReportResultTool(schema, {
+            dataSchema: Type.Object({summary: Type.String()}),
+            requireData: true,
+        });
+
+        await expect(tool.execute!("call-report", {result: "完成"})).rejects.toThrow(
+            "report_result 必须通过 data 返回结构化结果",
+        );
     });
 });
 

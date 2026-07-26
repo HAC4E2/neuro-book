@@ -140,4 +140,23 @@ describe("character visual Director proposal", () => {
         }, testRuntime)).rejects.toBeInstanceOf(CharacterVisualProposalError);
         expect(testRuntime.save).not.toHaveBeenCalled();
     });
+
+    it("拒绝缺字段的 Agent 输出，不在消费端补造 proposal", async () => {
+        const testRuntime = runtime({
+            invoke: vi.fn(async () => ({
+                sessionId: 15,
+                invocationId: "invocation-15",
+                status: "completed",
+                data: {summary: "只有自然语言摘要"},
+            })),
+        });
+
+        await expect(generateCharacterVisualProposal({
+            projectPath: "workspace/demo",
+            characterPath: "lorebook/character/alice/index.md",
+        }, testRuntime)).rejects.toMatchObject({
+            code: "CHARACTER_VISUAL_DIRECTOR_OUTPUT_INVALID",
+        });
+        expect(testRuntime.save).not.toHaveBeenCalled();
+    });
 });

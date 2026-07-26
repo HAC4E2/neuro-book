@@ -14,10 +14,10 @@ import {StoryboardImportJournalSchema} from "nbook/server/text-to-image/storyboa
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 import {resetProjectSessionsForTest} from "nbook/server/workspace-files/project-session";
 import {
-    resolveProjectAbsolutePath,
     writeProjectManifest,
 } from "nbook/server/workspace-files/project-workspace";
-import {setWorkspaceAssetRootContextForTest} from "nbook/server/workspace-files/workspace-runtime-root";
+import {resolveProjectAbsolutePath} from "nbook/server/text-to-image/compat";
+import {resolveRuntimeWorkspaceRoot, setWorkspaceRuntimeRootContextForTest} from "nbook/server/workspace-files/workspace-runtime-root";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 import type {ProjectTagPolicyConfig} from "nbook/shared/text-to-image-tag-policy";
 import {buildTagIndexVersion} from "nbook/server/text-to-image/tag-index/tag-index-builder";
@@ -42,10 +42,10 @@ describe("Storyboard import Project inspect/journal", () => {
         tempRoot = path.join(os.tmpdir(), `nbook-storyboard-import-${randomUUID()}`);
         workspaceRoot = path.join(tempRoot, "global-workspace");
         await fs.mkdir(path.join(tempRoot, "workspace"), {recursive: true});
-        setWorkspaceAssetRootContextForTest({workspaceContainerRoot: path.join(tempRoot, "workspace")});
+        setWorkspaceRuntimeRootContextForTest({workspaceRoot: path.join(tempRoot, "workspace")});
         vi.spyOn(process, "cwd").mockReturnValue(tempRoot);
         projectPath = "workspace/storyboard-import";
-        await writeProjectManifest(projectPath, {kind: "novel", title: "导入测试", summary: ""});
+        await writeProjectManifest(resolveRuntimeWorkspaceRoot(), projectPath, {kind: "novel", title: "导入测试", summary: ""});
         await openProjectForTest(projectPath);
         projectRoot = resolveProjectAbsolutePath(projectPath);
         await fs.mkdir(path.join(projectRoot, "upload"), {recursive: true});
@@ -54,7 +54,7 @@ describe("Storyboard import Project inspect/journal", () => {
     afterEach(async () => {
         await closeProjectForTest(projectPath).catch(() => undefined);
         resetProjectSessionsForTest();
-        setWorkspaceAssetRootContextForTest(null);
+        setWorkspaceRuntimeRootContextForTest(null);
         collectReleasedSqliteHandles({force: true});
         vi.restoreAllMocks();
         await fs.rm(tempRoot, {recursive: true, force: true}).catch(() => undefined);
@@ -442,7 +442,7 @@ describe("Storyboard import Project inspect/journal", () => {
             "agents",
             "illustration.director",
             "imports",
-            "chatu8-storyboard",
+            "ttp-storyboard",
             importId,
         );
     }

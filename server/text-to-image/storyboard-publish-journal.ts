@@ -44,8 +44,8 @@ export const StoryboardGlobalPublishJournalSchema = z.object({
         globalConfigHash: TextToImageContractHashSchema,
     }).strict(),
     staged: z.object({
-        presetArchivePath: z.string().regex(/^imports\/chatu8-storyboard\/[a-z0-9][a-z0-9._-]{0,199}\/publishes\/[a-z0-9][a-z0-9._-]{0,199}\/approved\.storyboard\.md$/u),
-        patternArchivePath: z.string().regex(/^imports\/chatu8-storyboard\/[a-z0-9][a-z0-9._-]{0,199}\/publishes\/[a-z0-9][a-z0-9._-]{0,199}\/approved\.tag-patterns\.md$/u),
+        presetArchivePath: z.string().regex(/^imports\/ttp-storyboard\/[a-z0-9][a-z0-9._-]{0,199}\/publishes\/[a-z0-9][a-z0-9._-]{0,199}\/approved\.storyboard\.md$/u),
+        patternArchivePath: z.string().regex(/^imports\/ttp-storyboard\/[a-z0-9][a-z0-9._-]{0,199}\/publishes\/[a-z0-9][a-z0-9._-]{0,199}\/approved\.tag-patterns\.md$/u),
         presetFileHash: TextToImageContractHashSchema,
         patternFileHash: TextToImageContractHashSchema,
     }).strict(),
@@ -78,7 +78,7 @@ export function storyboardGlobalPublishJournalPath(importId: string, publishId: 
 
 /** staged approved pair 所在的 create-only archive 目录。 */
 export function storyboardGlobalPublishDirectory(importId: string, publishId: string): string {
-    return `imports/chatu8-storyboard/${StoryboardStableIdSchema.parse(importId)}/publishes/${StoryboardStableIdSchema.parse(publishId)}`;
+    return `imports/ttp-storyboard/${StoryboardStableIdSchema.parse(importId)}/publishes/${StoryboardStableIdSchema.parse(publishId)}`;
 }
 
 /** strict 读取 publish journal；不存在返回 null。 */

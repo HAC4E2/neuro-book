@@ -8,6 +8,18 @@ declare const absoluteFsPathBrand: unique symbol;
 export type AbsoluteFsPath = string & {readonly [absoluteFsPathBrand]: "absolute-fs-path"};
 
 /**
+ * 将 Windows 本地盘 namespace 路径还原为可安全转换成 file URL 的普通绝对路径。
+ *
+ * `\\?\C:\...` 只用于文件系统长路径访问；Node/Bun 的 `pathToFileURL()` 不应直接接收该前缀。
+ * 普通本地路径、POSIX 路径、UNC 与 namespace UNC 均保持原样，避免扩大路径语义。
+ */
+export function localPathForFileUrl(input: string): string {
+    const normalizedPath = input.replaceAll("/", "\\");
+    const match = /^\\\\\?\\([A-Za-z]:\\.*)$/u.exec(normalizedPath);
+    return match?.[1] ?? input;
+}
+
+/**
  * 校验并规范化绝对文件系统路径。
  *
  * 领域引用和相对文件地址必须先由各自 Module 解析，不能直接伪装成绝对路径。

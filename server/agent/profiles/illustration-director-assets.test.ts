@@ -6,9 +6,12 @@ import {
     ILLUSTRATION_DIRECTOR_OPERATION_POLICIES,
 } from "nbook/shared/agent/illustration-director";
 import illustrationDirectorProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/illustration.director.profile";
+import {parseStoryboardPresetMarkdown} from "nbook/server/text-to-image/storyboard-preset.codec";
+import {parseTagPatternMarkdown} from "nbook/server/text-to-image/tag-pattern.codec";
+import {assertStoryboardPatternPair} from "nbook/server/text-to-image/tag-pattern-resolver";
 
 const PROFILE_PATH = path.resolve("assets/workspace/.nbook/agent/profiles/builtin/illustration.director.profile.tsx");
-const SKILL_PATH = path.resolve("assets/workspace/.nbook/agent/skills/novel-import-chatu8-storyboard-preset/SKILL.md");
+const SKILL_PATH = path.resolve("assets/workspace/.nbook/agent/skills/novel-import-ttp-storyboard-preset/SKILL.md");
 const PLANNING_SKILL_PATH = path.resolve("assets/workspace/.nbook/agent/skills/chapter-illustration-direction/SKILL.md");
 
 describe("illustration.director fixed Profile/Skill assets", () => {
@@ -42,8 +45,8 @@ describe("illustration.director fixed Profile/Skill assets", () => {
         expect(source).toContain("IllustrationPlanningProposalSchema");
         expect(source).toContain('ctx.initial.operation === "convert-preset"');
         expect(source).toContain('? ["report_result"]');
-        expect(source).toContain('pluginTool("inspect_chatu8_storyboard")');
-        expect(source).toContain('pluginTool("submit_chatu8_storyboard_conversion")');
+        expect(source).toContain('pluginTool("inspect_ttp_storyboard")');
+        expect(source).toContain('pluginTool("submit_ttp_storyboard_conversion")');
         expect(source).toContain('pluginTool("resolve_tags")');
         expect(source).toContain('pluginTool("search_tag_patterns")');
         expect(source).toContain("builtin.result.main");
@@ -65,6 +68,22 @@ describe("illustration.director fixed Profile/Skill assets", () => {
         await expect(fs.stat(path.resolve("assets/workspace/.nbook/agent/profiles/builtin/character-image-tag.extractor.profile.tsx"))).rejects.toMatchObject({code: "ENOENT"});
     });
 
+    it("bundled default companion 已批准且 identity 一致", async () => {
+        const [presetMarkdown, patternMarkdown] = await Promise.all([
+            fs.readFile(path.resolve("assets/workspace/.nbook/agent/profiles/builtin/illustration.director.home/storyboard-presets/default.md"), "utf8"),
+            fs.readFile(path.resolve("assets/workspace/.nbook/agent/profiles/builtin/illustration.director.home/tag-patterns/default.md"), "utf8"),
+        ]);
+        const preset = parseStoryboardPresetMarkdown(presetMarkdown);
+        const patterns = parseTagPatternMarkdown(patternMarkdown);
+
+        expect(preset.reviewState).toBe("approved");
+        expect(patterns.reviewState).toBe("approved");
+        expect(() => assertStoryboardPatternPair({
+            preset: preset.preset,
+            patternSet: patterns.patternSet,
+        })).not.toThrow();
+    });
+
     it("按 initial operation 在 runtime 注入层收窄工具，而不是只靠提示词约束", async () => {
         const runtime = illustrationDirectorProfile.runtime;
         if (!runtime) throw new Error("illustration.director runtime 缺失");
@@ -82,7 +101,7 @@ describe("illustration.director fixed Profile/Skill assets", () => {
         const chapter = await hook.run({initial: {operation: "plan-chapter"}} as never);
         const selection = await hook.run({initial: {operation: "plan-selection"}} as never);
         expect(convert.turnSnapshotPatch?.toolKeys).toEqual([
-            "inspect_chatu8_storyboard", "submit_chatu8_storyboard_conversion", "report_result",
+            "inspect_ttp_storyboard", "submit_ttp_storyboard_conversion", "report_result",
         ]);
         expect(character.turnSnapshotPatch?.toolKeys).toEqual(["report_result"]);
         const planningTools = [
@@ -102,7 +121,7 @@ describe("illustration.director fixed Profile/Skill assets", () => {
 
     it("Skill 只编排固定 inspect/convert/review 流程，不复制 parser 或扩张权限", async () => {
         const source = await fs.readFile(SKILL_PATH, "utf8");
-        expect(source).toContain("novel-import-chatu8-storyboard-preset");
+        expect(source).toContain("novel-import-ttp-storyboard-preset");
         expect(source).toContain("pending_unresolved");
         expect(source).toContain("illustration.director");
         expect(source).toContain("upload/*.json");
@@ -120,6 +139,19 @@ describe("illustration.director fixed Profile/Skill assets", () => {
         expect(source).toContain("不写 illustrations.md");
         for (const forbidden of ["providerId", "apiKey", "sampler", "scheduler", "steps", "guidance", "seed", "SMEA"]) {
             expect(source).not.toContain(forbidden);
+        }
+    });
+    it("无已登记角色时仍以当前 run 的 terminal resolution 表达临时视觉 Tag", async () => {
+        const [profile, skill] = await Promise.all([
+            fs.readFile(PROFILE_PATH, "utf8"),
+            fs.readFile(PLANNING_SKILL_PATH, "utf8"),
+        ]);
+        for (const source of [profile, skill]) {
+            expect(source).toContain("无已登记角色");
+            expect(source).toContain("characterIds");
+            expect(source).toContain("action");
+            expect(source).toContain("terminal resolution");
+            expect(source).toContain("tagDelta");
         }
     });
 });

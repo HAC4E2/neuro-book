@@ -1,6 +1,64 @@
 import {describe, expect, it} from "vitest";
-import {normalizeGlobalConfig, normalizeProjectConfig, resolveEffectiveConfig} from "nbook/server/config/normalizer";
-import type {StoredProjectConfig} from "nbook/server/config/types";
+import {normalizeGlobalConfig, normalizeModelSettings, normalizeProjectConfig, resolveEffectiveConfig, serializeModelSettings} from "nbook/server/config/normalizer";
+import type {StoredProjectConfig, StoredProviderConfig} from "nbook/server/config/types";
+
+/** 创建模型 API 归一化用的完整 stored Provider fixture。 */
+function modelApiProvider(modelApi: string | null, modelApis: Array<string | null>): StoredProviderConfig {
+    return {
+        id: "openai-compatible",
+        name: "OpenAI Compatible",
+        enabled: true,
+        modelApi,
+        options: {
+            apiKey: "saved-secret",
+            baseURL: "https://example.com/v1",
+            proxy: "",
+            timeoutMs: null,
+            requestOptions: {},
+        },
+        models: modelApis.map((api, index) => ({
+            id: `model-${String(index + 1)}`,
+            name: `Model ${String(index + 1)}`,
+            group: null,
+            enabled: true,
+            api,
+            reasoning: false,
+            input: ["text"],
+            maxTokens: 8192,
+            cost: null,
+            compat: null,
+            headers: null,
+            thinkingLevelMap: null,
+            contextWindowTokens: 65536,
+        })),
+    };
+}
+
+describe("config normalizer model API migration", () => {
+    it("把旧版两级缺失的 Pi API 显式物化为旧运行时默认值", () => {
+        const normalized = normalizeModelSettings({default: "openai-compatible/model-1", providers: [modelApiProvider(null, [null])]});
+        const serialized = serializeModelSettings(normalized);
+
+        expect(normalized.providers["openai-compatible"]?.modelApi).toBe("openai-completions");
+        expect(normalized.providers["openai-compatible"]?.models["model-1"]?.api).toBe("openai-completions");
+        expect(serialized.providers?.[0]?.modelApi).toBe("openai-completions");
+        expect(serialized.providers?.[0]?.models[0]?.api).toBe("openai-completions");
+    });
+
+    it("用明确的 Provider API 补空模型但保留已有模型 API", () => {
+        const normalized = normalizeModelSettings({providers: [modelApiProvider("openai-responses", [null, "anthropic-messages"])]});
+
+        expect(normalized.providers["openai-compatible"]?.models["model-1"]?.api).toBe("openai-responses");
+        expect(normalized.providers["openai-compatible"]?.models["model-2"]?.api).toBe("anthropic-messages");
+    });
+
+    it("保留无效的非空 Provider API 且不把它传播给模型", () => {
+        const normalized = normalizeModelSettings({providers: [modelApiProvider("unsupported-api", [null])]});
+
+        expect(normalized.providers["openai-compatible"]?.modelApi).toBe("unsupported-api");
+        expect(normalized.providers["openai-compatible"]?.models["model-1"]?.api).toBeNull();
+    });
+});
 
 describe("config normalizer theme", () => {
     it("允许内置 8 主题并保留自定义主题选择", () => {

@@ -967,3 +967,9 @@ uninstall
 - 最终修复让smoke首次阶段通过正式Config Service写入最小Provider/Model配置，Faux runtime model携带相同本地ID；移动阶段复用随完整State Root一起移动的Config，不重建Provider。
 - 同一脚本的源码入口和Nuxt Product `.output`副本均在隔离Application/State Root完成五工具、Attachment、State Root移动和旧Session恢复。Release preflight新增约5秒的同链门禁，避免再次在40分钟OCI后才发现Session合同漂移。
 - 本地根typecheck、Session model 4项、Release合同8项、完整Nuxt/Product build通过。Manager bundle未变化，下一应用patch`0.8.12`继续使用公开`.23`。
+
+### 2026-07-22：本地 Desktop 重打包的 Product Profile assets root 修复
+
+- 本地重新组装 Desktop portable 时，Product Runtime 已在 `product/.output/server/assets/.../.compiled` 成功生成 15 个系统 Profile，但 staging 的清理与便携性门禁仍读取 `product/assets/.../.compiled`，因此错误消费源码拷贝中的旧失败 manifest，并以“没有可保留的 artifact 引用”中止。
+- Product system artifact 的既有真值源本来就是 `.output/server/assets`。`product-runtime.mjs` 现在通过唯一的 `PRODUCT_PROFILE_COMPILED_ROOT` 同时约束清理与便携性校验，避免两处路径再次漂移；没有复制或放宽失败 manifest，也没有绕过内容寻址产物门禁。
+- 新增发布脚本目录契约回归测试，并完成红灯到绿灯验证。最终 `dist/neuro-book-desktop-x64` 已重新组装：15 个 Profile 全部 loaded，30 个 manifest 引用产物均存在，最终客户端 bundle 包含本轮 NovelAI Provider 首屏入口。

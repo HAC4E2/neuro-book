@@ -6,6 +6,7 @@ import {
     absoluteFsPath,
     assertRealParentContained,
     assertRealPathContained,
+    localPathForFileUrl,
     relativeFilePathInside,
     resolveContainedFilePath,
     resolveFilePath,
@@ -17,6 +18,18 @@ describe("通用文件系统路径解析", () => {
 
     afterEach(async () => {
         await Promise.all(cleanupRoots.splice(0).map((entry) => rm(entry, {recursive: true, force: true})));
+    });
+
+    it("仅移除 Windows 本地盘路径的 namespace 前缀", () => {
+        expect(localPathForFileUrl("\\\\?\\C:\\Users\\tester\\artifact.mjs"))
+            .toBe("C:\\Users\\tester\\artifact.mjs");
+        expect(localPathForFileUrl("C:\\Users\\tester\\artifact.mjs"))
+            .toBe("C:\\Users\\tester\\artifact.mjs");
+        expect(localPathForFileUrl("\\\\server\\share\\artifact.mjs"))
+            .toBe("\\\\server\\share\\artifact.mjs");
+        expect(localPathForFileUrl("\\\\?\\UNC\\server\\share\\artifact.mjs"))
+            .toBe("\\\\?\\UNC\\server\\share\\artifact.mjs");
+        expect(localPathForFileUrl("/tmp/artifact.mjs")).toBe("/tmp/artifact.mjs");
     });
 
     it("相对路径以明确物理根解析", () => {

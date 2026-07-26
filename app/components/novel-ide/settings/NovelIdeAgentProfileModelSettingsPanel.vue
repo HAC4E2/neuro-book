@@ -353,8 +353,8 @@ function isIllustrationDirectorProfile(profile: AgentProfileDraft): boolean {
 }
 
 /**
- * 通用 Profile 设置保存时保留 Director 的 Global model 原值，Project 则不产生 model patch。
- * 这样后续 Director Profile 进入 catalog 后也不会自动出现第二个 binding 写入口。
+ * illustration.director 的 model 切换跟随用户 UI 选择，不再强制保留旧值。
+ * Project scope 下返回空对象（不产生覆盖），由外层 merge 决定。
  */
 function preserveIllustrationDirectorModel(profile: AgentProfileDraft): Partial<AgentProfileModelConfigDto> | null {
     if (!isIllustrationDirectorProfile(profile)) {
@@ -363,11 +363,7 @@ function preserveIllustrationDirectorModel(profile: AgentProfileDraft): Partial<
     if (isProjectScope.value) {
         return {};
     }
-    const model = editorSnapshot.value?.global.agent?.profiles?.[ILLUSTRATION_DIRECTOR_PROFILE_KEY]?.model;
-    return {
-        ...(model ?? {}),
-        modelKey: model?.modelKey ?? null,
-    };
+    return null;
 }
 
 /**

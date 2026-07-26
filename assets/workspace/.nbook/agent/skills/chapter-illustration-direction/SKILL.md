@@ -19,6 +19,7 @@ description: 为已保存章节或可信选区生成严格、可校验的 plan-o
 2. `plan-selection` 只返回一条 Shot Intent，不返回锚点；服务端持有固定插入位置。
 3. 组合知识只通过已曝光 Pattern refs 表达。最小增量只通过 Tag 窄工具取得 terminal resolution ref。
 4. 最终只调用 `report_result` 提交严格 DTO。
+5. 无已登记角色不是阻塞条件：该 Shot 的 `characterIds` 必须为 `[]`、`action` 必须为 `{}`；根据镜头需要调用 `resolve_tags`，仅将当前运行得到的 terminal resolution ID 放入该 Shot 的 `tagDelta`。不得提交自由 Tag 字符串，不得创建或修改角色档案，也不得把临时外观带入其他 Shot。
 
 ## 硬边界
 

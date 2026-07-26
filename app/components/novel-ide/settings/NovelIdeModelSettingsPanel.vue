@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
+import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from "vue";
 import type {SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
@@ -19,18 +19,23 @@ import {useModelSettingsDraftSession, type ModelSettingsPanelProps, type ModelSe
 import {useProviderTemplateSession} from "nbook/app/components/novel-ide/settings/useProviderTemplateSession";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
-import type {ConfiguredModelDto, ModelInputKind, ModelLibraryDto} from "nbook/shared/dto/app-settings.dto";
+import type {CheckProviderResponseDto, ConfiguredModelDto, ModelInputKind, ModelLibraryDto} from "nbook/shared/dto/app-settings.dto";
 import type {ConfigWorkspaceQueryDto} from "nbook/shared/dto/config.dto";
 import {deriveModelGroup} from "nbook/shared/models/model-group";
+import type {SettingsModelFocusTarget} from "nbook/app/utils/settings-navigation";
 
 const props = withDefaults(defineProps<{
     scope?: ModelSettingsScope;
     targetQuery?: ConfigWorkspaceQueryDto;
     targetLabel?: string;
+    focusTarget?: SettingsModelFocusTarget;
+    focusRequestId?: number;
 }>(), {
     scope: "global",
     targetQuery: undefined,
     targetLabel: "",
+    focusTarget: undefined,
+    focusRequestId: 0,
 });
 
 type ModelDraft = ModelSettingsModelDraft;
@@ -203,6 +208,116 @@ resetChecks = checkSession.reset;
 cancelProviderChecks = (provider, clearBatch) => checkSession.cancelProvider(provider, clearBatch);
 cancelModelCheck = checkSession.cancelModel;
 
+const illustrationDirectorSectionRef = ref<HTMLElement | null>(null);
+const illustrationDirectorProviderChecking = ref(false);
+const illustrationDirectorProviderCheckResult = ref<CheckProviderResponseDto | null>(null);
+let illustrationDirectorProviderCheckVersion = 0;
+
+/** 当前 Director binding 在可运行 Provider/model 草稿中的解析结果。 */
+const illustrationDirectorSelection = computed<{provider: ProviderDraft; model: ModelDraft} | null>(() => {
+    const option = defaultModelOptions.value.find((item) => item.key === draft.value.illustrationDirectorModelKey);
+    if (!option) {
+        return null;
+    }
+    const provider = draft.value.providers.find((item) => item.enabled && item.id === option.providerId);
+    const model = provider?.models.find((item) => item.enabled && item.id === option.modelId);
+    return provider && model ? {provider, model} : null;
+});
+
+const illustrationDirectorModelCheckResult = computed(() => {
+    const selection = illustrationDirectorSelection.value;
+    return selection ? modelCheckResult(selection.provider, selection.model) : null;
+});
+
+const illustrationDirectorModelChecking = computed(() => {
+    const selection = illustrationDirectorSelection.value;
+    return selection ? isModelChecking(selection.provider, selection.model) : false;
+});
+
+/** 为 Provider 连接测试生成只包含请求合同的稳定指纹。 */
+function illustrationDirectorProviderFingerprint(provider: ProviderDraft): string {
+    return JSON.stringify({
+        provider: buildProviderRequest(provider),
+        models: provider.models.filter((model) => model.enabled).map(buildModelCheckDraft),
+        credentialSource: credentialSource(provider),
+    });
+}
+
+/** 测试 Director 当前绑定的 Provider 连接，不修改配置草稿。 */
+async function checkIllustrationDirectorProvider(): Promise<void> {
+    const selection = illustrationDirectorSelection.value;
+    if (!selection || illustrationDirectorProviderChecking.value) {
+        return;
+    }
+    const fingerprint = illustrationDirectorProviderFingerprint(selection.provider);
+    const version = ++illustrationDirectorProviderCheckVersion;
+    illustrationDirectorProviderChecking.value = true;
+    illustrationDirectorProviderCheckResult.value = null;
+    try {
+        const result = await $fetch<CheckProviderResponseDto>("/api/config/models/provider-check", {
+            method: "POST",
+            body: {
+                provider: buildProviderRequest(selection.provider),
+                models: selection.provider.models.filter((model) => model.enabled).map(buildModelCheckDraft),
+                credentialSource: credentialSource(selection.provider),
+                useSavedModels: false,
+            },
+        });
+        if (version === illustrationDirectorProviderCheckVersion
+            && illustrationDirectorSelection.value
+            && illustrationDirectorProviderFingerprint(illustrationDirectorSelection.value.provider) === fingerprint) {
+            illustrationDirectorProviderCheckResult.value = result;
+        }
+    } catch (error) {
+        if (version === illustrationDirectorProviderCheckVersion) {
+            illustrationDirectorProviderCheckResult.value = {
+                success: false,
+                latencyMs: null,
+                message: resolveApiErrorMessage(error, t("settings.panels.models.providerCheckFailed")),
+            };
+        }
+    } finally {
+        if (version === illustrationDirectorProviderCheckVersion) {
+            illustrationDirectorProviderChecking.value = false;
+        }
+    }
+}
+
+/** 测试 Director 当前绑定的具体模型，并同步定位其 Provider。 */
+async function checkIllustrationDirectorModel(): Promise<void> {
+    const selection = illustrationDirectorSelection.value;
+    if (!selection || illustrationDirectorModelChecking.value) {
+        return;
+    }
+    activeProviderKey.value = selection.provider.localKey;
+    await checkModel(selection.model);
+}
+
+/** 取消 Director 当前绑定模型的健康检查。 */
+function cancelIllustrationDirectorModelCheck(): void {
+    const selection = illustrationDirectorSelection.value;
+    if (selection) {
+        cancelModelCheck(selection.provider, selection.model);
+    }
+}
+
+/** 在下方 Provider 表单中定位 Director 当前使用的连接。 */
+function openIllustrationDirectorProvider(): void {
+    const selection = illustrationDirectorSelection.value;
+    if (selection) {
+        activeProviderKey.value = selection.provider.localKey;
+    }
+}
+
+/** 响应文生图入口的受控导航请求，把 Director 卡滚动到可见区域。 */
+async function focusIllustrationDirectorSection(): Promise<void> {
+    if (props.focusTarget !== "illustration-director" || isProjectScope.value || loading.value) {
+        return;
+    }
+    await nextTick();
+    illustrationDirectorSectionRef.value?.scrollIntoView({behavior: "smooth", block: "start"});
+}
+
 const discoverySession = useModelDiscoverySession({
     activeProvider,
     modelLibrary: modelLibraryData,
@@ -372,9 +487,20 @@ watch(modelEditDialogOpen, (open) => {
         editingModel.value = null;
     }
 });
+watch(() => illustrationDirectorSelection.value
+    ? illustrationDirectorProviderFingerprint(illustrationDirectorSelection.value.provider)
+    : "", () => {
+    illustrationDirectorProviderCheckVersion += 1;
+    illustrationDirectorProviderChecking.value = false;
+    illustrationDirectorProviderCheckResult.value = null;
+});
 watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.projectPath] as const, () => void loadSettings());
+watch(() => [props.focusRequestId, props.focusTarget, loading.value] as const, () => void focusIllustrationDirectorSection(), {immediate: true});
 onMounted(() => void loadSettings());
-onBeforeUnmount(() => checkSession.reset());
+onBeforeUnmount(() => {
+    illustrationDirectorProviderCheckVersion += 1;
+    checkSession.reset();
+});
 
 defineExpose({dirty, loading, saving, saveSettings, restoreSettings});
 </script>
@@ -402,6 +528,8 @@ defineExpose({dirty, loading, saving, saveSettings, restoreSettings});
                 {{ t("settings.panels.models.oneClickRepair") }}
             </button>
         </div>
+
+        
 
         <!-- 顶部默认模型与新增 Provider -->
         <div class="grid gap-4" :class="isProjectScope ? '' : 'lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]'">
@@ -440,6 +568,70 @@ defineExpose({dirty, loading, saving, saveSettings, restoreSettings});
                 </div>
             </div>
         </div>
+
+        <!-- 插图 Director binding：Global Config 的唯一编辑入口 -->
+        <section v-if="!isProjectScope" id="illustration-director-model-binding" ref="illustrationDirectorSectionRef" class="scroll-mt-4 rounded-2xl border border-[var(--border-accent)] bg-[var(--accent-bg)] px-5 py-4 shadow-sm">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+                <div class="min-w-0 max-w-2xl">
+                    <div class="flex items-center gap-2">
+                        <span class="i-lucide-clapperboard h-4 w-4 shrink-0 text-[var(--accent-main)]"></span>
+                        <h3 class="text-sm font-semibold text-[var(--text-main)]">{{ t("settings.panels.models.illustrationDirectorTitle") }}</h3>
+                        <span class="rounded-full border px-2 py-0.5 text-[10px] font-medium" :class="illustrationDirectorSelection ? 'border-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success)]' : 'border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] text-[var(--status-warning)]'">
+                            {{ illustrationDirectorSelection ? t("settings.panels.models.illustrationDirectorConfigured") : t("settings.panels.models.illustrationDirectorNotConfigured") }}
+                        </span>
+                    </div>
+                    <p class="mt-1 text-xs leading-5 text-[var(--text-secondary)]">{{ t("settings.panels.models.illustrationDirectorDescription") }}</p>
+                </div>
+                <code class="rounded border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1 text-[11px] text-[var(--text-muted)]">illustration.director</code>
+            </div>
+
+            <div class="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
+                <div>
+                    <label class="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.models.illustrationDirectorModel") }}</label>
+                    <NovelIdeModelSelect
+                        :model-value="draft.illustrationDirectorModelKey"
+                        :models="defaultModelOptions"
+                        allow-default
+                        :default-label="t('settings.panels.models.illustrationDirectorClear')"
+                        :placeholder="t('settings.panels.models.noEnabledModels')"
+                        @update:model-value="draft.illustrationDirectorModelKey = $event"
+                    />
+                </div>
+                <div class="flex flex-wrap items-center gap-2">
+                    <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 text-xs font-medium text-[var(--text-main)] transition-colors hover:bg-[var(--bg-hover)] disabled:pointer-events-none disabled:opacity-50" :disabled="!illustrationDirectorSelection" @click="openIllustrationDirectorProvider">
+                        <span class="i-lucide-server-cog h-3.5 w-3.5"></span>
+                        {{ t("settings.panels.models.illustrationDirectorEditProvider") }}
+                    </button>
+                    <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--status-info-border)] bg-[var(--status-info-bg)] px-3 text-xs font-medium text-[var(--status-info)] transition-opacity hover:opacity-80 disabled:pointer-events-none disabled:opacity-50" :disabled="!illustrationDirectorSelection || illustrationDirectorProviderChecking" @click="void checkIllustrationDirectorProvider()">
+                        <span class="h-3.5 w-3.5" :class="illustrationDirectorProviderChecking ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-plug-zap'"></span>
+                        {{ illustrationDirectorProviderChecking ? t("settings.panels.models.checking") : t("settings.panels.models.illustrationDirectorCheckConnection") }}
+                    </button>
+                    <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--accent-main)] bg-[var(--accent-main)] px-3 text-xs font-medium text-[var(--text-inverse)] transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-50" :disabled="!illustrationDirectorSelection || illustrationDirectorModelChecking" @click="void checkIllustrationDirectorModel()">
+                        <span class="h-3.5 w-3.5" :class="illustrationDirectorModelChecking ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-play'"></span>
+                        {{ illustrationDirectorModelChecking ? t("settings.panels.models.checking") : t("settings.panels.models.illustrationDirectorCheckModel") }}
+                    </button>
+                    <button v-if="illustrationDirectorModelChecking" type="button" class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 text-xs font-medium text-[var(--status-danger)] transition-opacity hover:opacity-80" @click="cancelIllustrationDirectorModelCheck">
+                        <span class="i-lucide-circle-x h-3.5 w-3.5"></span>
+                        {{ t("settings.panels.models.cancelModelCheck") }}
+                    </button>
+                </div>
+            </div>
+
+            <div v-if="illustrationDirectorSelection" class="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-[var(--text-secondary)]">
+                <span>{{ t("settings.panels.models.illustrationDirectorProviderSummary", {provider: illustrationDirectorSelection.provider.name}) }}</span>
+                <span>{{ t("settings.panels.models.illustrationDirectorModelSummary", {model: illustrationDirectorSelection.model.name || illustrationDirectorSelection.model.id}) }}</span>
+            </div>
+            <div v-if="illustrationDirectorProviderCheckResult" class="mt-3 flex items-center gap-1.5 text-xs" :class="illustrationDirectorProviderCheckResult.success ? 'text-[var(--status-success)]' : 'text-[var(--status-danger)]'">
+                <span class="h-3.5 w-3.5 shrink-0" :class="illustrationDirectorProviderCheckResult.success ? 'i-lucide-circle-check' : 'i-lucide-circle-x'"></span>
+                <span>{{ t("settings.panels.models.illustrationDirectorConnectionResult") }}：{{ illustrationDirectorProviderCheckResult.message }}</span>
+                <span v-if="illustrationDirectorProviderCheckResult.latencyMs !== null" class="opacity-70">{{ illustrationDirectorProviderCheckResult.latencyMs }}ms</span>
+            </div>
+            <div v-if="illustrationDirectorModelCheckResult" class="mt-2 flex items-center gap-1.5 text-xs" :class="illustrationDirectorModelCheckResult.cancelled ? 'text-[var(--text-muted)]' : illustrationDirectorModelCheckResult.success ? 'text-[var(--status-success)]' : 'text-[var(--status-danger)]'">
+                <span class="h-3.5 w-3.5 shrink-0" :class="illustrationDirectorModelCheckResult.cancelled ? 'i-lucide-circle-slash' : illustrationDirectorModelCheckResult.success ? 'i-lucide-circle-check' : 'i-lucide-circle-x'"></span>
+                <span>{{ t("settings.panels.models.illustrationDirectorModelResult") }}：{{ illustrationDirectorModelCheckResult.message }}</span>
+                <span v-if="illustrationDirectorModelCheckResult.latencyMs !== null" class="opacity-70">{{ illustrationDirectorModelCheckResult.latencyMs }}ms</span>
+            </div>
+        </section>
 
         <!-- Loading State -->
         <div v-if="loading" class="flex min-h-[400px] flex-col items-center justify-center gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-sm">

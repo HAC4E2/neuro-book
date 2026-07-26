@@ -19,19 +19,19 @@ describe("text-to-image Recipe codec", () => {
         expect(parsed).toEqual(source);
         expect(markdown).toContain("type: instruction");
         expect(markdown).toContain("textToImageRecipe:");
-        expect(markdown).toContain("schemaVersion: 2");
+        expect(markdown).toContain("schemaVersion: 3");
     });
 
     it("拒绝 Recipe 扩展中的未知字段", () => {
         const markdown = renderTextToImageRecipeMarkdown(createDefaultTextToImageRecipeSource())
-            .replace("schemaVersion: 2", "schemaVersion: 2\n    providerId: 99");
+            .replace("schemaVersion: 3", "schemaVersion: 3\n    providerId: 99");
 
         expect(() => parseTextToImageRecipeMarkdown(markdown)).toThrow(/providerId|unrecognized|未知/u);
     });
 
     it("拒绝重复 frontmatter key", () => {
         const markdown = renderTextToImageRecipeMarkdown(createDefaultTextToImageRecipeSource())
-            .replace("schemaVersion: 2", "schemaVersion: 2\n    schemaVersion: 2");
+            .replace("schemaVersion: 3", "schemaVersion: 3\n    schemaVersion: 3");
 
         expect(() => parseTextToImageRecipeMarkdown(markdown)).toThrow(/duplicate|Map keys|重复/u);
     });
@@ -41,7 +41,7 @@ describe("text-to-image Recipe codec", () => {
         const baseline = createTextToImageRecipeSnapshot(source);
         const styleChanged: TextToImageRecipeSource = {
             ...source,
-            style: {...source.style, positivePrefix: "cinematic lighting"},
+            styles: [{...source.styles[0], positivePrefix: "cinematic lighting"}],
         };
         const dimensionChanged: TextToImageRecipeSource = {
             ...source,

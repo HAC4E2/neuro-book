@@ -70,6 +70,7 @@ export type CharacterVisualProposalRuntime = {
  *
  * 该函数不接收 provider/model/Recipe/NovelAI 参数，也不直接写 image-tags 或 outfit。
  */
+
 export async function generateCharacterVisualProposal(
     inputValue: z.input<typeof CharacterVisualDirectorGenerateRequestSchema>,
     runtime: CharacterVisualProposalRuntime = createRuntime(),

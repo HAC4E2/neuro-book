@@ -25,12 +25,12 @@ const MigrationSourceSchema = z.discriminatedUnion("kind", [
         }).strict()).min(1).max(257),
     }).strict(),
     z.object({
-        kind: z.literal("chatu8_character_export"),
+        kind: z.literal("ttp_character_export"),
         sourcePath: MigrationPathSchema.regex(/^upload\/[^/\\]+\.json$/u),
         rawSourceHash: TextToImageContractHashSchema,
         sanitizedSourceHash: TextToImageContractHashSchema,
         visualSourceHash: TextToImageContractHashSchema,
-        sourceCharacterId: z.string().regex(/^chatu8-character-[a-f0-9]{24}$/u),
+        sourceCharacterId: z.string().regex(/^ttp-character-[a-f0-9]{24}$/u),
         mergePreviewHash: TextToImageContractHashSchema,
     }).strict(),
     z.object({
@@ -165,7 +165,7 @@ export const CharacterVisualMigrationScanSchema = z.object({
         migrationId: MigrationIdSchema,
         characterPath: MigrationPathSchema,
         stage: CharacterVisualMigrationStageSchema.exclude(["applied"]),
-        sourceKind: z.enum(["project_files", "chatu8_character_export", "illustration_director_character"]),
+        sourceKind: z.enum(["project_files", "ttp_character_export", "illustration_director_character"]),
     }).strict()).max(10000),
 }).strict();
 export type CharacterVisualMigrationScan = z.infer<typeof CharacterVisualMigrationScanSchema>;

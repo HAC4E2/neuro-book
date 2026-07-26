@@ -80,6 +80,10 @@ export function inspectTextToImageRecipeMigration(
             return null;
         }
         const defaults = createDefaultTextToImageRecipeSource();
+        const defaultStyle = defaults.styles[0];
+        if (!defaultStyle) {
+            throw new Error("默认 Recipe 缺少画风串预设");
+        }
         const novelAi = parsed.data.novelAi ?? {};
         const style = parsed.data.stylePresets?.find((item) => item.id === parsed.data.activeStyleId)
             ?? parsed.data.stylePresets?.[0]
@@ -109,15 +113,18 @@ export function inspectTextToImageRecipeMigration(
                 smeaDyn: novelAi.smeaDyn ?? defaults.advanced.smeaDyn,
                 decrisper: novelAi.decrisper ?? defaults.advanced.decrisper,
             },
-            style: {
-                positivePrefix: style.positivePrefix ?? defaults.style.positivePrefix,
-                positiveSuffix: style.positiveSuffix ?? defaults.style.positiveSuffix,
-                negativePrefix: style.negativePrefix ?? defaults.style.negativePrefix,
-                negativeSuffix: style.negativeSuffix ?? defaults.style.negativeSuffix,
-                useFurryDataset: style.useFurryDataset ?? defaults.style.useFurryDataset,
-                positiveQualityPreset: style.positiveQualityPreset ?? defaults.style.positiveQualityPreset,
-                negativeQualityPreset: style.negativeQualityPreset ?? defaults.style.negativeQualityPreset,
-            },
+            styles: [{
+                id: "recipe-default",
+                name: style.name?.trim() || defaults.title,
+                positivePrefix: style.positivePrefix ?? defaultStyle.positivePrefix,
+                positiveSuffix: style.positiveSuffix ?? defaultStyle.positiveSuffix,
+                negativePrefix: style.negativePrefix ?? defaultStyle.negativePrefix,
+                negativeSuffix: style.negativeSuffix ?? defaultStyle.negativeSuffix,
+                useFurryDataset: style.useFurryDataset ?? defaultStyle.useFurryDataset,
+                positiveQualityPreset: style.positiveQualityPreset ?? defaultStyle.positiveQualityPreset,
+                negativeQualityPreset: style.negativeQualityPreset ?? defaultStyle.negativeQualityPreset,
+            }],
+            activeStyleId: "recipe-default",
         });
         const modelConflict = providerModels.length > 0 && (
             browserModel === null

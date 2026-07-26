@@ -79,12 +79,12 @@ describe("Character visual legacy migration", () => {
     it("外部结构化 source 使用同一 candidate，允许 create-only target base", () => {
         const inspected = inspectCharacterVisualDraftGroup({
             source: {
-                kind: "chatu8_character_export",
+                kind: "ttp_character_export",
                 sourcePath: "upload/characters.json",
                 rawSourceHash: HASH_A,
                 sanitizedSourceHash: HASH_B,
                 visualSourceHash: HASH_A,
-                sourceCharacterId: "chatu8-character-1234567890abcdef12345678",
+                sourceCharacterId: "ttp-character-1234567890abcdef12345678",
                 mergePreviewHash: HASH_B,
             },
             character: {
@@ -98,12 +98,12 @@ describe("Character visual legacy migration", () => {
                     upperNsfw: "", upperBackNsfw: "", lowerNsfw: "", lowerBackNsfw: "",
                     negativePrompt: "",
                 },
-                outfitRefs: ["outfits/chatu8-outfit-1234567890abcdef12345678.md"],
+                outfitRefs: ["outfits/ttp-outfit-1234567890abcdef12345678.md"],
             },
             outfits: [{
-                path: "lorebook/character/hero/outfits/chatu8-outfit-1234567890abcdef12345678.md",
+                path: "lorebook/character/hero/outfits/ttp-outfit-1234567890abcdef12345678.md",
                 targetBaseFileHash: null,
-                outfitId: "chatu8-outfit-1234567890abcdef12345678",
+                outfitId: "ttp-outfit-1234567890abcdef12345678",
                 ownerCharacterId: "hero",
                 names: {cn: "旅行装", en: "travel outfit"},
                 fields: {upper: "coat", upperBack: "", lower: "trousers", lowerBack: ""},
@@ -111,7 +111,7 @@ describe("Character visual legacy migration", () => {
             issues: [],
         });
 
-        expect(inspected.source.kind).toBe("chatu8_character_export");
+        expect(inspected.source.kind).toBe("ttp_character_export");
         expect(inspected.character.targetBaseFileHash).toBeNull();
         expect(inspected.outfits[0]?.targetBaseFileHash).toBeNull();
         expect(inspected.pendingAtoms.map((item) => item.atom.sourceText)).toEqual([
