@@ -13,8 +13,9 @@
 - **Project Path**：项目级 API 使用的稳定标识，形态固定为 `workspace/{project-slug}`；它不是文件工具的 cwd-relative 路径。
 - **Agent Workspace Root Reference**：Agent session中持久化的逻辑工作区引用。managed值只使用`workspace`或`workspace/.nbook`；外部Project Workspace可以使用用户明确给出的绝对路径。
 - **Agent Workspace Filesystem Root**：每次Agent invocation按当前State Root解析出的绝对文件系统根。它只用于运行时文件访问，不写入managed session元数据。
-- **File Scope**：文件工具与 bash 在一次 Agent invocation 中共用的物理 cwd。绑定 Project Path 时是当前 Project Workspace；未绑定项目时是 Workspace Root；user-assets 时是 Workspace Root `.nbook`；外部 Project Workspace 时是其绝对目录。
-- **Project File Address**：显式跨项目文件地址，形态为 `workspace/{project-slug}/{relative-path}`。它由 Project Path Resolver 解析，不是通过 cwd 字符串剥离得到的 alias。
+- **File Scope**：文件工具与 bash 在一次 Agent invocation 中共用的物理 cwd。绑定 Project Path 时是当前 Project Workspace；未绑定项目时是 Workspace Root；user-assets 时是 Workspace Root `.nbook`；外部 Project Workspace 时是其绝对目录。File Scope只决定相对路径的解析基准，不是绝对路径权限边界。
+- **Project File Address**：显式 managed Project文件地址，形态为 `workspace/{project-slug}/{relative-path}`。它由 Project Path Resolver 解析，保留目标Project身份、open gate、History与Context Access语义，不是通过 cwd 字符串剥离得到的alias。
+- **Workspace Root `.nbook` File Address**：显式 Workspace Root 全局控制区地址，形态为 `workspace/.nbook/{relative-path}`。它固定映射到 Workspace Root `.nbook`，不属于任何 Project，也不携带 Project History 或 Context Access 身份。
 - **Project Workspace `.nbook`**：Project Workspace 的项目级控制区，默认是 `workspace/{project}/.nbook/`。它保存 Project Config、项目状态和项目私有元数据。
 - **Project Runtime Artifact**：NeuroBook 从 Project Workspace 源文件派生、可随时重建、仅供运行时执行或缓存使用的文件。canonical 位置在 Project Workspace `.nbook`；它不是项目内容，不进入文件历史、Agent 文件变更提醒、Project Workspace File Index 或 Project 下载包。
 - **Project Workspace Download Archive**：Project Workspace 的可携带完整备份。普通文件继续遵守 `.gitignore`，`project.yaml`、Project Config、Project SQLite 和已有 History SQLite 强制纳入；两个 SQLite 使用独立在线 snapshot，不复制 live WAL/SHM。History SQLite 可能包含全文、删除内容、acceptance 与 session cursor，分享前必须评估隐私风险。
@@ -30,12 +31,14 @@
 - `assets/workspace/global.config.example.json` 对应运行时 `workspace/.nbook/config.json` 的示例。
 - `assets/workspace/workspace.config.example.json` 对应运行时 `workspace/{project}/.nbook/config.json` 的示例。
 - user-assets 入口直接编辑 `workspace/.nbook`，不再使用 `workspace/.nbook/assets` 作为嵌套资产根。
-- Project-bound Agent 的 File Scope 是当前 Project Workspace。当前项目使用 `manuscript/...`、`lorebook/...`、`reference/...`；跨项目使用完整 Project File Address `workspace/{project-slug}/...`。
+- Project-bound Agent 的 File Scope 是当前 Project Workspace。当前项目优先使用 `manuscript/...`、`lorebook/...`、`reference/...`；任意已知文件系统目标可直接使用绝对路径；访问另一个managed Project且需要保留Project领域身份时，使用完整Project File Address `workspace/{project-slug}/...`。
+- 统一 File Address resolver 将 `workspace/.nbook/...` 明确映射到 Workspace Root `.nbook`。Agent 图片附件的 canonical Markdown 目标固定为 `workspace/.nbook/agent/attachments/sha256/<2位>/<62位>`，但公开读取仍必须经过当前 Session 的 Authority 与 entry locator；该地址本身不是 Attachment 授权凭证，也不能作为 snapshot 读取 Attachment Store 的旁路。
 - Project Runtime Artifact 固定写入 Project Workspace `.nbook` 控制区；源码目录旁的旧 runtime artifact 位置只用于迁移清理，不再作为当前写入位置。
 - Project Workspace Download Archive 在 OS 临时目录准备 SQLite snapshot，不向 Project Workspace 写入打包中转文件；Project SQLite 与 History SQLite 分别一致，但不承诺与普通文件构成跨存储全局事务。
 - Agent session保存Agent Workspace Root Reference和Project Path；每次invocation据此投影File Scope，不持久化managed绝对cwd。Windows Portable中当前Project因此解析到`data/workspace/{project-slug}/`。
-- Current Project Workspace决定Project-bound invocation的File Scope；它不是权限边界，跨项目访问必须使用显式Project File Address。
-- 仓库源码根与仓库级 `reference/` 位于Project File Scope外，使用runtime reminder提供的绝对路径访问。
+- Current Project Workspace决定Project-bound invocation的File Scope；它只决定相对路径起点，不限制绝对路径可访问范围。
+- 绝对路径是直接文件系统地址，不从物理位置反推managed Project身份；Project外绝对写入不进入Project History、Inbox或Context Access。若这些Project语义重要，使用显式Project File Address。
+- 仓库源码根、仓库级 `reference/` 与其他File Scope外文件可通过调用方已知或提供的绝对路径访问；运行时不再注入一套仓库根专用提醒。
 
 ## Naming Rules
 

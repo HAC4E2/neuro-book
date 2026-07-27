@@ -47,7 +47,8 @@ const OLD_RUNTIME_TOKENS = [
 ] as const;
 
 describe("Route B old body-image chain removal", () => {
-    it("has no old runtime artifact, endpoint, Profile, Skill, store or Provider kind", async () => {
+    // 全仓运行时源码扫描；上游合并后文件量增大，默认 5s 超时不够。
+    it("has no old runtime artifact, endpoint, Profile, Skill, store or Provider kind", {timeout: 60_000}, async () => {
         const existingFiles = (await Promise.all(OLD_RUNTIME_FILES.map(async (relativePath) =>
             await exists(path.join(ROOT, ...relativePath.split("/"))) ? relativePath : null)))
             .filter((relativePath): relativePath is string => relativePath !== null);

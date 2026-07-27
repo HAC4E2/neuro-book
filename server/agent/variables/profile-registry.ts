@@ -4,7 +4,7 @@ import {VariableRegistry, builtinVariableDefinitions} from "nbook/server/agent/v
 import {loadCompiledVariableDefinitions} from "nbook/server/agent/variables/definition-artifact";
 import type {VariableAccessorIssue} from "nbook/server/agent/variables/types";
 import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import {resolveProjectWorkspaceInput} from "nbook/server/workspace-files/project-path";
+import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 
 /**
  * 创建 profile 运行时变量 registry。内建变量由 VariableRegistry 自带，
@@ -27,7 +27,7 @@ export function createVariableRegistryForProfile(profile: AgentProfile): Variabl
 export async function createVariableRegistryForSession(input: {
     profile: AgentProfile;
     globalWorkspaceRoot: AbsoluteFsPath;
-    currentProjectWorkspace?: string | null;
+    currentProject: ReadyProjectSessionRef | null;
 }): Promise<VariableRegistry> {
     const definitions = [...builtinVariableDefinitions()];
     const issues: VariableAccessorIssue[] = [];
@@ -37,13 +37,9 @@ export async function createVariableRegistryForSession(input: {
     });
     definitions.push(...globalLoaded.definitions);
     issues.push(...globalLoaded.issues);
-    if (input.currentProjectWorkspace) {
-        const projectRoot = resolveProjectWorkspaceInput(
-            input.globalWorkspaceRoot,
-            input.currentProjectWorkspace,
-        );
+    if (input.currentProject) {
         const projectLoaded = await loadCompiledVariableDefinitions({
-            definitionRoot: resolve(projectRoot, ".nbook", "agent", "variables"),
+            definitionRoot: resolve(input.currentProject.workspace.root, ".nbook", "agent", "variables"),
             namespace: "project",
         });
         definitions.push(...projectLoaded.definitions);

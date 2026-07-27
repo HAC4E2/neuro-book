@@ -49,5 +49,8 @@ export function canEditHistoryMessage(input: {
     type: "user" | "ai" | "system";
     contentOmitted?: boolean;
 }): boolean {
-    return (input.type === "user" || input.type === "ai") && !input.contentOmitted;
+    if (input.type === "user") {
+        return true;
+    }
+    return input.type === "ai" && !input.contentOmitted;
 }

@@ -1,9 +1,8 @@
 import {structuredPatch} from "diff";
-import {ensureProjectHistory} from "nbook/server/workspace-history/project-history";
+import type {ProjectHistoryHandle} from "nbook/server/workspace-history/project-history";
 import {readWorkspaceHistoryDiff} from "nbook/server/workspace-history/history-diff";
 import type {UnseenGroup} from "nbook/server/vendor/nb-history/index";
 import type {WorkspaceHistoryDiffDto} from "nbook/shared/dto/workspace-history.dto";
-import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {
     agentDiffLineLimit,
     agentDiffTotalLimit,
@@ -63,15 +62,16 @@ export function toAgentChangeDiffDetail(input: {
  * 为本轮 unseen 文件读取安全 diff。单文件失败只降级该文件，不阻断 Agent turn。
  */
 export async function readAgentChangeDiffDetails(input: {
-    projectRoot: AbsoluteFsPath;
-    projectPath: string;
+    history: ProjectHistoryHandle;
     groups: UnseenGroup[];
     maxChars: number;
 }): Promise<Map<string, AgentChangeDiffDetail>> {
     const details = new Map<string, AgentChangeDiffDetail>();
     const totalInlineLimit = agentDiffTotalLimit(input.maxChars);
     let inlineChars = 0;
-    const history = await ensureProjectHistory(input.projectRoot, input.projectPath).catch(() => null);
+    const history = await input.history.waitForWarmup()
+        .then(() => input.history.history)
+        .catch(() => null);
     if (!history) {
         return details;
     }

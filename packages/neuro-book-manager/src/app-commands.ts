@@ -1,7 +1,7 @@
-import {spawn} from "node:child_process";
 import {join, resolve} from "node:path";
 import {Type, type Static} from "typebox";
 import {Value} from "typebox/value";
+import {spawnOwnedProcess} from "@notnotype/owned-process";
 
 import {enableAuthentication, ensureStateFiles, loadStateEnv} from "#manager/config";
 import {containerComposeOptions, runDockerApplicationCommand, startDocker} from "#manager/docker";
@@ -55,6 +55,16 @@ export type AttachmentMigrationPlan = {
     runId: string;
     migratedSessions: number;
     sessions: AttachmentMigrationSessionPlan[];
+};
+
+export type StartApplicationOptions = {
+    /** Windows Portable是否等待HTTP健康检查通过并自动打开浏览器；默认启用。 */
+    healthCheck?: boolean;
+};
+
+export type PortableForegroundOptions = StartApplicationOptions & {
+    /** 健康检查总时长，缺省120秒；只有测试需要缩短，生产不传。 */
+    startupTimeoutMs?: number;
 };
 
 /** 启动当前安装。原生模式前台运行，Docker 模式后台运行。 */
@@ -279,40 +289,76 @@ async function runApplicationCommand(
     });
 }
 
-async function runPortableForeground(bun: string, entry: string, root: string, env: NodeJS.ProcessEnv, port: number): Promise<void> {
-    const child = spawn(bun, [entry], {cwd: root, env, stdio: "inherit", windowsHide: false});
-    const exited = new Promise<void>((resolvePromise, rejectPromise) => {
-        child.once("error", rejectPromise);
-        child.once("exit", (code, signal) => {
-            if (signal || code !== 0) rejectPromise(new Error(`NeuroBook 服务退出：${signal ?? code}`));
-            else resolvePromise();
-        });
+export async function runPortableForeground(
+    bun: string,
+    entry: string,
+    root: string,
+    env: NodeJS.ProcessEnv,
+    port: number,
+    options: PortableForegroundOptions = {},
+): Promise<void> {
+    const startupTimeoutMs = options.startupTimeoutMs ?? 120_000;
+    const lease = spawnOwnedProcess({
+        command: bun,
+        args: [entry],
+        cwd: root,
+        env,
+        stdin: "inherit",
+        stdout: "inherit",
+        stderr: "inherit",
+        windowsHide: false,
+        graceMs: 2_000,
+        hardKillWaitMs: 5_000,
     });
+    let exited = false;
+    let completionError: unknown;
+    const completion = lease.completion.then(
+        (result) => {
+            exited = true;
+            return result;
+        },
+        (error: unknown) => {
+            exited = true;
+            completionError = error;
+            return null;
+        },
+    );
     const url = `http://127.0.0.1:${port}`;
-    const deadline = Date.now() + 120_000;
+    const healthCheck = options.healthCheck !== false;
     let opened = false;
-    let nextProgressAt = Date.now() + 10_000;
-    while (Date.now() < deadline && child.exitCode === null) {
-        try {
-            const response = await fetch(`${url}/api/app/version`, {signal: AbortSignal.timeout(1_000)});
-            if (response.ok) {
-                await run("cmd.exe", ["/c", "start", "", url], {cwd: root, stdio: "ignore"});
-                opened = true;
-                break;
+    // healthCheck 关闭时不做 HTTP 探测、不自动开浏览器，只等 Product 自己结束。
+    if (healthCheck) {
+        const deadline = Date.now() + startupTimeoutMs;
+        let nextProgressAt = Date.now() + 10_000;
+        while (Date.now() < deadline && !exited) {
+            try {
+                const response = await fetch(`${url}/api/app/version`, {signal: AbortSignal.timeout(1_000)});
+                if (response.ok) {
+                    await run("cmd.exe", ["/c", "start", "", url], {cwd: root, stdio: "ignore"});
+                    opened = true;
+                    break;
+                }
+            } catch {
+                // 服务启动期间连接失败属于预期状态。
             }
-        } catch {
-            // 服务启动期间连接失败属于预期状态。
+            if (Date.now() >= nextProgressAt) {
+                console.log(`Windows Portable仍在启动：${url}`);
+                nextProgressAt = Date.now() + 10_000;
+            }
+            await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
         }
-        if (Date.now() >= nextProgressAt) {
-            console.log(`Windows Portable仍在启动：${url}`);
-            nextProgressAt = Date.now() + 10_000;
+        if (!opened && !exited) {
+            await lease.terminate("startup-failure");
+            throw new Error(`Windows Portable 启动后 ${startupTimeoutMs / 1000} 秒内未通过健康检查：${url}`);
         }
-        await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
     }
-    if (!opened && child.exitCode === null) {
-        child.kill();
-        await exited.catch(() => undefined);
-        throw new Error(`Windows Portable 启动后 120 秒内未通过健康检查：${url}`);
+    const result = await completion;
+    if (completionError) throw completionError;
+    if (!result) throw new Error("Windows Portable Product没有返回进程终态。");
+    if (healthCheck && !opened && !result.signal && result.exitCode === 0) {
+        throw new Error("Windows Portable Product在通过健康检查前以退出码0结束。");
     }
-    await exited;
+    if (result.signal || result.exitCode !== 0) {
+        throw new Error(`NeuroBook 服务退出：${result.signal ?? result.exitCode}`);
+    }
 }

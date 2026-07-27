@@ -23,7 +23,7 @@ export interface AgentTriggerMatch {
     hasPlainTextBeforeTrigger: boolean;
 }
 
-const ROOT_REFERENCE_TRIGGER_PATTERN = /(?:^|[\s(])(@[a-z-]*)$/i;
+const ROOT_REFERENCE_TRIGGER_PATTERN = /(?:^|[\s(])(@(?:<[^>\n]*>?|[^\s)]*))$/u;
 const CHAPTER_TRIGGER_PATTERN = /(?:^|[\s(])(@chapter:\/\/[^\s)]*)$/i;
 const VOLUME_TRIGGER_PATTERN = /(?:^|[\s(])(@volume:\/\/[^\s)]*)$/i;
 const LOREBOOK_TRIGGER_PATTERN = /(?:^|[\s(])(@lorebook:\/\/[^\s)]*)$/i;

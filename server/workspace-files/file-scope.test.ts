@@ -88,6 +88,31 @@ describe("统一File Scope与File Address", () => {
         });
     });
 
+    it("workspace/.nbook地址始终映射到Workspace Root控制区", () => {
+        const managedScope = createFileScope({
+            kind: "managed-project",
+            workspaceRoot,
+            projectPath: normalizeProjectPath("workspace/alpha"),
+        });
+        expect(resolveFileAddress(managedScope, "workspace/.nbook/agent/attachments/example.png")).toEqual({
+            kind: "workspace-nbook-address",
+            absolutePath: path.join(workspaceRoot, ".nbook", "agent", "attachments", "example.png"),
+            projectPath: null,
+            relativePath: "agent/attachments/example.png",
+        });
+
+        const userAssetsRoot = absoluteFsPath(path.join(workspaceRoot, ".nbook"));
+        const userAssetsScope = createFileScope({kind: "user-assets", root: userAssetsRoot});
+        expect(resolveFileAddress(userAssetsScope, "workspace/.nbook/config.json")).toEqual({
+            kind: "workspace-nbook-address",
+            absolutePath: path.join(userAssetsRoot, "config.json"),
+            projectPath: null,
+            relativePath: "config.json",
+        });
+        expect(() => resolveFileAddress(managedScope, "workspace/.nbook"))
+            .toThrow("必须指向具体文件或目录项");
+    });
+
     it("外部Project scope保持绝对根且拒绝managed Project命名空间", () => {
         const externalRoot = absoluteFsPath(path.resolve(".agent", "external-project"));
         const scope = createFileScope({kind: "external-project", root: externalRoot});

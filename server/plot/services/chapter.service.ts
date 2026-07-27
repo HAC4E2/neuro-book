@@ -27,8 +27,8 @@ export class ChapterService {
     /**
      * 查询卷详情。
      */
-    async getStoryActDto(projectPath: string, actId: number): Promise<StoryActDto> {
-        const story = await this.storyService.ensureStory(projectPath);
+    async getStoryActDto(actId: number): Promise<StoryActDto> {
+        const story = await this.storyService.ensureStory();
         const act = await this.scopeGuard.assertAct(story.id, actId);
         return this.assembler.toStoryActDto(act);
     }
@@ -36,8 +36,8 @@ export class ChapterService {
     /**
      * 创建卷;sortOrder 追加到末尾。
      */
-    async createStoryAct(projectPath: string, input: ParsedCreateStoryActInput): Promise<StoryActDto> {
-        const story = await this.storyService.ensureStory(projectPath);
+    async createStoryAct(input: ParsedCreateStoryActInput): Promise<StoryActDto> {
+        const story = await this.storyService.ensureStory();
         await this.scopeGuard.assertActNameUnique(story.id, input.name);
 
         const acts = await this.chapterRepository.findActsByStory(story.id);
@@ -55,8 +55,8 @@ export class ChapterService {
     /**
      * 更新卷。
      */
-    async updateStoryAct(projectPath: string, actId: number, patch: ParsedUpdateStoryActInput): Promise<StoryActDto> {
-        const story = await this.storyService.ensureStory(projectPath);
+    async updateStoryAct(actId: number, patch: ParsedUpdateStoryActInput): Promise<StoryActDto> {
+        const story = await this.storyService.ensureStory();
         const act = await this.scopeGuard.assertAct(story.id, actId);
 
         if (patch.name !== undefined && patch.name !== act.name) {
@@ -76,8 +76,8 @@ export class ChapterService {
     /**
      * 删除卷;旗下章节按外键 SetNull 回落到未归卷区。
      */
-    async deleteStoryAct(projectPath: string, actId: number): Promise<void> {
-        const story = await this.storyService.ensureStory(projectPath);
+    async deleteStoryAct(actId: number): Promise<void> {
+        const story = await this.storyService.ensureStory();
         const act = await this.scopeGuard.assertAct(story.id, actId);
         await this.chapterRepository.deleteAct(act.id);
     }
@@ -85,8 +85,8 @@ export class ChapterService {
     /**
      * 查询章详情(含 ChapterBrief)。
      */
-    async getStoryChapterDto(projectPath: string, chapterId: number): Promise<StoryChapterDto> {
-        const story = await this.storyService.ensureStory(projectPath);
+    async getStoryChapterDto(chapterId: number): Promise<StoryChapterDto> {
+        const story = await this.storyService.ensureStory();
         const chapter = await this.scopeGuard.assertChapter(story.id, chapterId);
         return this.assembler.toStoryChapterDto(chapter);
     }
@@ -94,8 +94,8 @@ export class ChapterService {
     /**
      * 创建章;sortOrder 追加到末尾,ChapterBrief 可在创建时一并写入。
      */
-    async createStoryChapter(projectPath: string, input: ParsedCreateStoryChapterInput): Promise<StoryChapterDto> {
-        const story = await this.storyService.ensureStory(projectPath);
+    async createStoryChapter(input: ParsedCreateStoryChapterInput): Promise<StoryChapterDto> {
+        const story = await this.storyService.ensureStory();
         await this.scopeGuard.assertChapterNameUnique(story.id, input.name);
         if (input.actId !== null) {
             await this.scopeGuard.assertAct(story.id, input.actId);
@@ -117,8 +117,8 @@ export class ChapterService {
     /**
      * 更新章;brief 字段按键更新:undefined 不改,null 清空。
      */
-    async updateStoryChapter(projectPath: string, chapterId: number, patch: ParsedUpdateStoryChapterInput): Promise<StoryChapterDto> {
-        const story = await this.storyService.ensureStory(projectPath);
+    async updateStoryChapter(chapterId: number, patch: ParsedUpdateStoryChapterInput): Promise<StoryChapterDto> {
+        const story = await this.storyService.ensureStory();
         const chapter = await this.scopeGuard.assertChapter(story.id, chapterId);
 
         if (patch.name !== undefined && patch.name !== chapter.name) {
@@ -142,7 +142,7 @@ export class ChapterService {
     /**
      * 列出 Story 下全部 Chapter name(供 Prose 孤儿指针检测等按 name 反查的场景)。
      */
-    async listChapterNames(_projectPath: string, storyId: number): Promise<string[]> {
+    async listChapterNames(storyId: number): Promise<string[]> {
         const chapters = await this.chapterRepository.findChaptersByStory(storyId);
         return chapters.map((chapter) => chapter.name);
     }
@@ -151,8 +151,8 @@ export class ChapterService {
      * 删除章;旗下 Scene 按外键 SetNull 脱离章节承载。
      * 注意:指向本章 name 的 Prose frontmatter 会成为孤儿,由 workspace validate 提示。
      */
-    async deleteStoryChapter(projectPath: string, chapterId: number): Promise<void> {
-        const story = await this.storyService.ensureStory(projectPath);
+    async deleteStoryChapter(chapterId: number): Promise<void> {
+        const story = await this.storyService.ensureStory();
         const chapter = await this.scopeGuard.assertChapter(story.id, chapterId);
         await this.chapterRepository.deleteChapter(chapter.id);
     }

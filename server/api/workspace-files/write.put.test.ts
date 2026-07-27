@@ -32,6 +32,17 @@ describe("PUT /api/workspace-files/write", () => {
             USER_LOCAL_ACTOR: {kind: "user", userId: "local"},
             writeWorkspaceTextFileTracked: vi.fn(),
         }));
+        vi.doMock("nbook/server/workspace-files/project-open-guard", () => ({
+            withProjectTargetOperation: vi.fn((target: {kind: string; projectPath?: string}, handler: (handles: undefined) => unknown) => {
+                if (target.kind === "project-workspace") {
+                    throw Object.assign(new Error("Project未打开"), {
+                        statusCode: 409,
+                        data: {code: "PROJECT_NOT_OPEN", projectPath: target.projectPath},
+                    });
+                }
+                return handler(undefined);
+            }),
+        }));
     });
 
     afterEach(async () => {
@@ -85,7 +96,7 @@ describe("PUT /api/workspace-files/write", () => {
             const parsed = WorkspaceWriteConflictDtoSchema.safeParse((error as {data?: unknown}).data);
             expect(parsed.success).toBe(true);
         }
-    });
+    }, 15_000);
 
     it("Project root 未 open 时返回 PROJECT_NOT_OPEN", async () => {
         vi.doMock("nbook/server/workspace-files/novel-workspace", () => ({

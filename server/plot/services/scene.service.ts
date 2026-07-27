@@ -37,8 +37,8 @@ export class SceneService {
     /**
      * 查询场景详情。
      */
-    async getStorySceneDetailDto(projectPath: string, sceneId: number): Promise<StorySceneDetailDto> {
-        const story = await this.storyService.ensureStory(projectPath);
+    async getStorySceneDetailDto(sceneId: number): Promise<StorySceneDetailDto> {
+        const story = await this.storyService.ensureStory();
         await this.scopeGuard.assertScene(story.id, sceneId);
         const scene = await this.sceneRepository.findSceneWithDetailsById(sceneId);
         if (!scene) {
@@ -51,8 +51,8 @@ export class SceneService {
     /**
      * 查询章节下的剧情 Scene。
      */
-    async getChapterPlotDetailDto(projectPath: string, chapterId: number): Promise<ChapterPlotDetailDto> {
-        const story = await this.storyService.ensureStory(projectPath);
+    async getChapterPlotDetailDto(chapterId: number): Promise<ChapterPlotDetailDto> {
+        const story = await this.storyService.ensureStory();
         const chapter = await this.scopeGuard.assertChapter(story.id, chapterId);
         const scenes = await this.sceneRepository.findChapterScenes(chapter.id);
         return this.assembler.toChapterPlotDetailDto(chapter, scenes);
@@ -61,8 +61,8 @@ export class SceneService {
     /**
      * 创建场景。
      */
-    async createStoryScene(projectPath: string, input: ParsedCreateStorySceneInput): Promise<StorySceneDetailDto> {
-        const story = await this.storyService.ensureStory(projectPath);
+    async createStoryScene(input: ParsedCreateStorySceneInput): Promise<StorySceneDetailDto> {
+        const story = await this.storyService.ensureStory();
 
         await this.scopeGuard.assertThread(story.id, input.threadId);
         const chapterId = input.chapterId === null ? null : (await this.scopeGuard.assertChapter(story.id, input.chapterId)).id;
@@ -90,18 +90,17 @@ export class SceneService {
         });
 
         await this.sceneRepository.replaceRefs(scene.id, refs);
-        return this.getStorySceneDetailDto(projectPath, scene.id);
+        return this.getStorySceneDetailDto(scene.id);
     }
 
     /**
      * 更新场景。
      */
     async updateStoryScene(
-        projectPath: string,
         sceneId: number,
         patch: ParsedUpdateStorySceneInput,
     ): Promise<StorySceneDetailDto> {
-        const story = await this.storyService.ensureStory(projectPath);
+        const story = await this.storyService.ensureStory();
         const scene = await this.scopeGuard.assertScene(story.id, sceneId);
         const nextThreadId = patch.threadId === undefined ? scene.threadId : patch.threadId;
         const nextChapterId = patch.chapterId === undefined
@@ -161,14 +160,14 @@ export class SceneService {
             await this.promiseService.syncFulfilledAfterSceneChange(scene.id);
         }
 
-        return this.getStorySceneDetailDto(projectPath, scene.id);
+        return this.getStorySceneDetailDto(scene.id);
     }
 
     /**
      * 删除场景。级联删除其 beats,删除后同步受影响 Promise 的 fulfilled 回退边界(D5)。
      */
-    async deleteStoryScene(projectPath: string, sceneId: number): Promise<void> {
-        const story = await this.storyService.ensureStory(projectPath);
+    async deleteStoryScene(sceneId: number): Promise<void> {
+        const story = await this.storyService.ensureStory();
         const scene = await this.scopeGuard.assertScene(story.id, sceneId);
         // beats 随 Scene 级联删除,必须先收集受影响 promise 再删。
         const affectedPromiseIds = await this.promiseService.promiseIdsWithBeatOnScene(scene.id);
@@ -181,8 +180,8 @@ export class SceneService {
     /**
      * 批量重排场景。
      */
-    async reorderStoryScenes(projectPath: string, items: ParsedReorderStorySceneItem[]): Promise<PlotTreeDto> {
-        const story = await this.storyService.ensureStory(projectPath);
+    async reorderStoryScenes(items: ParsedReorderStorySceneItem[]): Promise<PlotTreeDto> {
+        const story = await this.storyService.ensureStory();
         const [existingSceneIds, existingThreadIds] = await Promise.all([
             this.sceneRepository.findSceneIdsByStory(story.id),
             this.scopeGuard.listThreadIds(story.id),
@@ -225,6 +224,6 @@ export class SceneService {
             });
         }
 
-        return this.storyService.getPlotTree(projectPath);
+        return this.storyService.getPlotTree();
     }
 }

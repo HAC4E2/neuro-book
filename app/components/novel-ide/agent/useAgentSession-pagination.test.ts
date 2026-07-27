@@ -164,10 +164,10 @@ describe("useAgentSession durable history", () => {
         expect(session.messages.value).toEqual([]);
     });
 
-    it("durable user entry 到达后收敛同正文 optimistic message", () => {
+    it("durable user entry 到达后按 clientMessageId 收敛 optimistic message", () => {
         const session = useAgentSession();
         session.applyRecovery(recovery("rev-1", [], null));
-        session.appendOptimisticUserMessage("你好");
+        session.appendOptimisticUserMessage("message-1", "你好");
         expect(session.optimisticMessages.value).toHaveLength(1);
 
         session.applyEvent({
@@ -175,19 +175,19 @@ describe("useAgentSession durable history", () => {
             seq: 1,
             sessionId: 1,
             kind: "session",
-            event: {type: "session_entry", entry: user("user-1", "你好")},
+            event: {type: "session_entry", entry: user("user-1", "你好", "message-1")},
         });
 
         expect(session.optimisticMessages.value).toEqual([]);
         expect(session.messages.value.map((message) => message.id)).toEqual(["user-1"]);
     });
 
-    it("截断的长文本 durable entry 按 UTF-8 bytes 与 preview 收敛 optimistic message", () => {
+    it("截断的长文本 durable entry 仍只按 clientMessageId 收敛 optimistic message", () => {
         const session = useAgentSession();
         session.applyRecovery(recovery("rev-1", [], null));
         const content = `${"中文🙂".repeat(20_000)}结尾`;
         const preview = "中文🙂".repeat(4_000);
-        session.appendOptimisticUserMessage(content);
+        session.appendOptimisticUserMessage("message-long", content);
 
         session.applyEvent({
             eventEpoch: "epoch-1",
@@ -196,7 +196,7 @@ describe("useAgentSession durable history", () => {
             kind: "session",
             event: {
                 type: "session_entry",
-                entry: userPreview("user-long", preview, Buffer.byteLength(content, "utf8"), true),
+                entry: userPreview("user-long", preview, Buffer.byteLength(content, "utf8"), true, "message-long"),
             },
         });
 
@@ -204,11 +204,11 @@ describe("useAgentSession durable history", () => {
         expect(session.messages.value.map((message) => message.id)).toEqual(["user-long"]);
     });
 
-    it("截断文本的 preview 或 UTF-8 bytes 不匹配时不消费 optimistic message", () => {
+    it("正文与字节相同但 clientMessageId 不匹配时不消费 optimistic message", () => {
         const session = useAgentSession();
         session.applyRecovery(recovery("rev-1", [], null));
         const content = `${"中文🙂".repeat(2_000)}甲`;
-        session.appendOptimisticUserMessage(content);
+        session.appendOptimisticUserMessage("message-correct", content);
 
         session.applyEvent({
             eventEpoch: "epoch-1",
@@ -217,7 +217,7 @@ describe("useAgentSession durable history", () => {
             kind: "session",
             event: {
                 type: "session_entry",
-                entry: userPreview("wrong-prefix", "其它前缀", Buffer.byteLength(content, "utf8"), true),
+                entry: userPreview("wrong-prefix", "其它前缀", Buffer.byteLength(content, "utf8"), true, "message-wrong-prefix"),
             },
         });
         session.applyEvent({
@@ -227,36 +227,36 @@ describe("useAgentSession durable history", () => {
             kind: "session",
             event: {
                 type: "session_entry",
-                entry: userPreview("wrong-bytes", "中文🙂".repeat(100), Buffer.byteLength(content, "utf8") + 1, true),
+                entry: userPreview("wrong-bytes", "中文🙂".repeat(100), Buffer.byteLength(content, "utf8") + 1, true, "message-wrong-bytes"),
             },
         });
 
         expect(session.optimisticMessages.value).toHaveLength(1);
     });
 
-    it("recovery 中两条截断长文本按出现顺序逐条收敛", () => {
+    it("recovery 中两条截断长文本按各自 clientMessageId 精确收敛", () => {
         const session = useAgentSession();
         session.applyRecovery(recovery("rev-1", [], null));
         const first = `${"共同前缀🙂".repeat(2_000)}甲`;
         const second = `${"共同前缀🙂".repeat(2_000)}乙乙`;
         const preview = "共同前缀🙂".repeat(100);
-        session.appendOptimisticUserMessage(first);
-        session.appendOptimisticUserMessage(second);
+        session.appendOptimisticUserMessage("message-long-1", first);
+        session.appendOptimisticUserMessage("message-long-2", second);
 
         session.applyRecovery(recovery("rev-1", [
-            userPreview("long-1", preview, Buffer.byteLength(first, "utf8"), true),
-            userPreview("long-2", preview, Buffer.byteLength(second, "utf8"), true),
+            userPreview("long-1", preview, Buffer.byteLength(first, "utf8"), true, "message-long-1"),
+            userPreview("long-2", preview, Buffer.byteLength(second, "utf8"), true, "message-long-2"),
         ], null));
 
         expect(session.optimisticMessages.value).toEqual([]);
         expect(session.messages.value.map((message) => message.id)).toEqual(["long-1", "long-2"]);
     });
 
-    it("相同正文 optimistic message 按 durable entry 逐条收敛", () => {
+    it("相同正文 optimistic message 按 clientMessageId 分别收敛", () => {
         const session = useAgentSession();
         session.applyRecovery(recovery("rev-1", [], null));
-        session.appendOptimisticUserMessage("重复");
-        session.appendOptimisticUserMessage("重复");
+        session.appendOptimisticUserMessage("message-1", "重复");
+        session.appendOptimisticUserMessage("message-2", "重复");
 
         expect(new Set(session.optimisticMessages.value.map((message) => message.id)).size).toBe(2);
 
@@ -265,11 +265,14 @@ describe("useAgentSession durable history", () => {
             seq: 1,
             sessionId: 1,
             kind: "session",
-            event: {type: "session_entry", entry: user("user-1", "重复")},
+            event: {type: "session_entry", entry: user("user-1", "重复", "message-1")},
         });
         expect(session.optimisticMessages.value).toHaveLength(1);
 
-        session.applyRecovery(recovery("rev-1", [user("user-1", "重复"), user("user-2", "重复")], null));
+        session.applyRecovery(recovery("rev-1", [
+            user("user-1", "重复", "message-1"),
+            user("user-2", "重复", "message-2"),
+        ], null));
         expect(session.optimisticMessages.value).toEqual([]);
     });
 
@@ -277,7 +280,7 @@ describe("useAgentSession durable history", () => {
         const session = useAgentSession();
         const existing = user("user-old", "重复");
         session.applyRecovery(recovery("rev-1", [existing], null));
-        session.appendOptimisticUserMessage("重复");
+        session.appendOptimisticUserMessage("message-new", "重复");
 
         session.applyRecovery(recovery("rev-1", [existing], null));
 
@@ -287,7 +290,7 @@ describe("useAgentSession durable history", () => {
     it("revision 变化时不使用新分支中的同正文历史消费 optimistic message", () => {
         const session = useAgentSession();
         session.applyRecovery(recovery("rev-1", [user("old", "旧分支")], null));
-        session.appendOptimisticUserMessage("重复");
+        session.appendOptimisticUserMessage("message-new", "重复");
 
         const result = session.applyRecovery(recovery("rev-2", [user("new-branch-old", "重复")], null));
 
@@ -327,9 +330,10 @@ function history(revision: string, entries: AgentChatEntryDto[], previousCursor:
     };
 }
 
-function user(id: string, content: string): AgentChatEntryDto {
+function user(id: string, content: string, clientMessageId = `message-${id}`): AgentChatEntryDto {
     return {
         id,
+        clientMessageId,
         timestamp: Number(id.replace(/\D/g, "")) || 1,
         type: "user",
         intent: "normal",
@@ -343,9 +347,10 @@ function user(id: string, content: string): AgentChatEntryDto {
     };
 }
 
-function userPreview(id: string, preview: string, bytes: number, omitted: boolean): AgentChatEntryDto {
+function userPreview(id: string, preview: string, bytes: number, omitted: boolean, clientMessageId = `message-${id}`): AgentChatEntryDto {
     return {
         id,
+        clientMessageId,
         timestamp: Number(id.replace(/\D/g, "")) || 1,
         type: "user",
         intent: "normal",

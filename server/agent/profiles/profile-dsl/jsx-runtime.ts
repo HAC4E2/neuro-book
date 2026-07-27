@@ -22,7 +22,6 @@ const components = {
     SystemReminder: dsl.SystemReminder,
     LinkedAgentsSummary: dsl.LinkedAgentsSummary,
     LinkedAgentsReminder: dsl.LinkedAgentsReminder,
-    RuntimeLocationReminder: dsl.RuntimeLocationReminder,
     WorkspaceFocusReminder: dsl.WorkspaceFocusReminder,
     ModeAvailabilityReminder: dsl.ModeAvailabilityReminder,
     TaskReminder: dsl.TaskReminder,
@@ -31,6 +30,7 @@ const components = {
     MentionedSkillsReminder: dsl.MentionedSkillsReminder,
     AgentCatalog: dsl.AgentCatalog,
     SkillCatalog: dsl.SkillCatalog,
+    WorkflowCatalog: dsl.WorkflowCatalog,
     ActivatedSkills: dsl.ActivatedSkills,
     SqlSchemaSummary: dsl.SqlSchemaSummary,
     Import: dsl.Import,
@@ -77,7 +77,6 @@ export namespace JSX {
         SystemReminder: Parameters<typeof dsl.SystemReminder>[0];
         LinkedAgentsSummary: Parameters<typeof dsl.LinkedAgentsSummary>[0];
         LinkedAgentsReminder: Parameters<typeof dsl.LinkedAgentsReminder>[0];
-        RuntimeLocationReminder: Parameters<typeof dsl.RuntimeLocationReminder>[0];
         WorkspaceFocusReminder: Parameters<typeof dsl.WorkspaceFocusReminder>[0];
         ModeAvailabilityReminder: Parameters<typeof dsl.ModeAvailabilityReminder>[0];
         TaskReminder: Parameters<typeof dsl.TaskReminder>[0];
@@ -86,6 +85,7 @@ export namespace JSX {
         MentionedSkillsReminder: Record<string, never>;
         AgentCatalog: Parameters<typeof dsl.AgentCatalog>[0];
         SkillCatalog: Parameters<typeof dsl.SkillCatalog>[0];
+        WorkflowCatalog: Parameters<typeof dsl.WorkflowCatalog>[0];
         ActivatedSkills: Parameters<typeof dsl.ActivatedSkills>[0];
         SqlSchemaSummary: Parameters<typeof dsl.SqlSchemaSummary>[0];
         Import: Parameters<typeof dsl.Import>[0];

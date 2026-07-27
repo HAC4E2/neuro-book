@@ -127,7 +127,7 @@ describe("PromiseService", () => {
     it("setPromiseBeat kind=payoff 默认自动把 open 置为 fulfilled", async () => {
         const {service, repository} = createService({promise: promiseEntity()});
 
-        await service.setPromiseBeat("workspace/novel-1", 5, {sceneId: 20, kind: "payoff"});
+        await service.setPromiseBeat(5, {sceneId: 20, kind: "payoff"});
 
         expect(repository.upsertBeat).toHaveBeenCalledWith({promiseId: 5, sceneId: 20, kind: "payoff", note: null});
         expect(repository.updatePromise).toHaveBeenCalledWith(5, {status: "fulfilled"});
@@ -136,7 +136,7 @@ describe("PromiseService", () => {
     it("setPromiseBeat autoFulfill=false 不自动置(弧光线里程碑后仍延续)", async () => {
         const {service, repository} = createService({promise: promiseEntity()});
 
-        await service.setPromiseBeat("workspace/novel-1", 5, {sceneId: 20, kind: "payoff", autoFulfill: false});
+        await service.setPromiseBeat(5, {sceneId: 20, kind: "payoff", autoFulfill: false});
 
         expect(repository.updatePromise).not.toHaveBeenCalled();
     });
@@ -144,7 +144,7 @@ describe("PromiseService", () => {
     it("setPromiseBeat 目标场 archived 时 payoff 不参与派生,不自动置", async () => {
         const {service, repository} = createService({promise: promiseEntity(), scene: {status: "archived"}});
 
-        await service.setPromiseBeat("workspace/novel-1", 5, {sceneId: 20, kind: "payoff"});
+        await service.setPromiseBeat(5, {sceneId: 20, kind: "payoff"});
 
         expect(repository.updatePromise).not.toHaveBeenCalled();
     });
@@ -157,7 +157,7 @@ describe("PromiseService", () => {
             existingBeat: beatWithScene({id: 1, kind: "payoff", sceneId: 20, sceneStatus: "active"}),
         });
 
-        await service.setPromiseBeat("workspace/novel-1", 5, {sceneId: 20, kind: "advance"});
+        await service.setPromiseBeat(5, {sceneId: 20, kind: "advance"});
 
         expect(repository.updatePromise).toHaveBeenCalledWith(5, {status: "open"});
     });
@@ -169,7 +169,7 @@ describe("PromiseService", () => {
             existingBeat: beatWithScene({id: 1, kind: "payoff", sceneId: 20, sceneStatus: "written"}),
         });
 
-        await service.removePromiseBeat("workspace/novel-1", 5, 20);
+        await service.removePromiseBeat(5, 20);
 
         expect(repository.deleteBeat).toHaveBeenCalledWith(5, 20);
         expect(repository.updatePromise).toHaveBeenCalledWith(5, {status: "open"});
@@ -182,7 +182,7 @@ describe("PromiseService", () => {
             existingBeat: beatWithScene({id: 1, kind: "payoff", sceneId: 20, sceneStatus: "written"}),
         });
 
-        await service.removePromiseBeat("workspace/novel-1", 5, 20);
+        await service.removePromiseBeat(5, 20);
 
         expect(repository.updatePromise).not.toHaveBeenCalled();
     });
@@ -239,7 +239,7 @@ describe("PromiseService", () => {
             new PlotDtoAssembler(),
         );
 
-        const result = await service.listStoryPromises("workspace/novel-1");
+        const result = await service.listStoryPromises();
 
         // open 优先(高 importance 在前),fulfilled 殿后。
         expect(result.map((item) => item.id)).toEqual(["3", "2", "1"]);

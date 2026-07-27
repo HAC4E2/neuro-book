@@ -39,8 +39,7 @@ export async function deleteProjectWorkspace(
     const archiveProjectSessions = options.archiveProjectSessions
         ?? ((targetProjectPath, reason) => useAgentHarness().archiveSessionsByProjectPath(targetProjectPath, reason));
 
-    // 统一关闭该 Project 的会话并释放本进程内常驻资源（Plot PrismaClient、execute_sql client、tree index watcher 等），
-    // 属主清单由 project-session 注册表维护，新资源种类自注册即可，不再手工逐模块枚举。
+    // ProjectSession按当前generation逆序关闭lazy/required Module，再释放Occupancy；删除流程不逐项枚举资源。
     await closeProject(normalizedProjectPath, "delete");
     await deleteProjectRoot(projectRoot);
     try {

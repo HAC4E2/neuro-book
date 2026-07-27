@@ -24,7 +24,7 @@ ext: {}
 
 ## 目录用途
 
-`lorebook/character/` 存储全知视角的角色设定，包括角色的真实动机、隐藏背景、作者意图和剧情真相。与 `simulation/subjects/` 不同，lorebook 角色是无状态原型，不追踪剧情中的记忆和心理变化。
+`lorebook/character/` 存储全知视角的角色设定，包括角色的真实动机、隐藏背景、作者意图和剧情真相。与 World Engine subject 不同，lorebook 角色是无状态原型，不追踪剧情中的记忆和心理变化——这些随时间演变的状态记录在 World Engine 时间线。
 
 ## 基本结构
 
@@ -37,4 +37,4 @@ ext: {}
 ## 相关文档
 
 - Lorebook 目录总览与分类规则：[reference/content/lorebook.md](../../../reference/content/lorebook.md)
-- Lorebook vs Simulation 边界：[reference/content/project-structure.md](../../../reference/content/project-structure.md)
+- Lorebook 与 World Engine 的分工边界：[reference/content/project-structure.md](../../../reference/content/project-structure.md)

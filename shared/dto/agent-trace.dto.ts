@@ -22,6 +22,27 @@ export type AgentTraceCorrelationDto = {
     mode?: string;
 };
 
+/** Prompt 分区种类。前五种对齐 Profile DSL 分区合同，system/tools 是 messages 之外的开销面。 */
+export type AgentTraceSegmentKindDto =
+    | "system"
+    | "tools"
+    | "historySet"
+    | "conversation"
+    | "modelContext"
+    | "appending"
+    | "currentInput";
+
+/** 一个 prompt 分区。同一 kind 可出现多段，消费方按 kind 求和。 */
+export type AgentTraceSegmentDto = {
+    kind: AgentTraceSegmentKindDto;
+    /** messages 下标区间 [start, end)；system / tools 为 null。 */
+    range: {start: number; end: number} | null;
+    /** 与区间内消息一一对应的来源名；无来源位置为 null，整段无来源时缺省。 */
+    labels?: (readonly string[] | null)[];
+    /** 纯估算（chars/4）。展示真实值时由前端按 provider usage 比例校准。 */
+    estimatedTokens: number;
+};
+
 /** 请求侧。context = pi 规范化上下文（跨 provider 统一），payload = provider 原生请求体。 */
 export type AgentTraceRequestDto = {
     provider: string;
@@ -31,6 +52,10 @@ export type AgentTraceRequestDto = {
     reasoning?: string;
     /** pi 规范化 {systemPrompt, messages, tools}；内容是任意 JSON，前端只透传给渲染层。 */
     context?: unknown;
+    /** 上下文分区归因；无 profile prepare 的调用（compaction / health-check）缺省。 */
+    segments?: AgentTraceSegmentDto[];
+    /** 工具集指纹，用于跨请求检测工具变化导致的缓存断点前移。 */
+    toolsHash?: string;
     /** provider 原生请求体；capturePayload 关闭或 faux provider 时缺省。任意 JSON，透传 JsonViewer。 */
     payload?: unknown;
     /** 原生 payload 因附件安全边界被省略时为 attachment。 */
@@ -86,6 +111,10 @@ export type AgentTraceIndexEntryDto = {
     model: string;
     stopReason?: string;
     totalTokens?: number;
+    /** 缓存拆分。缓存时间轴只读 index，不为这四个数去读完整记录。provider 无 usage 时缺省。 */
+    usage?: {input: number; output: number; cacheRead: number; cacheWrite: number};
+    /** 工具集指纹，跨请求比对即可发现工具变化导致的缓存失效。 */
+    toolsHash?: string;
     ttftMs?: number;
     durationMs?: number;
     bytes: number;

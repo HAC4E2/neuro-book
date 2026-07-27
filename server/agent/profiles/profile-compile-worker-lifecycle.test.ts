@@ -5,8 +5,8 @@ import {describe, expect, it} from "vitest";
 import {ProfileCompileWorkerService} from "nbook/server/agent/profiles/profile-compile-worker";
 import {runProfileCompile} from "nbook/server/agent/profiles/profile-compile-worker-runtime";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
-import {ProjectNotOpenError} from "nbook/server/workspace-files/project-session";
-import {withIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/workspace-assets-test-helper";
+import {ProjectNotOpenError} from "nbook/server/workspace-files/project-session-service";
+import {withIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/test-workspace-fixture";
 
 describe("profile compile worker Project lifecycle", () => {
     it("worker runtime 将 Project lifecycle error 返回为内部字段", async () => {
@@ -68,7 +68,7 @@ describe("profile compile worker Project lifecycle", () => {
 
 /** 使用隔离Workspace Root和单一Writer源码运行生命周期测试。 */
 async function withWriterProfile(run: (assets: IsolatedWorkspaceAssets) => Promise<void>): Promise<void> {
-    await withIsolatedWorkspaceAssets({seedUserAssets: false, useAsCwd: true}, async (assets) => {
+    await withIsolatedWorkspaceAssets({useAsCwd: true}, async (assets) => {
         const fileName = "builtin/writer.profile.tsx";
         const target = resolve(assets.userProfileRoot, fileName);
         await mkdir(dirname(target), {recursive: true});

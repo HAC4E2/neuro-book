@@ -1,8 +1,20 @@
 import {isAbsolute} from "node:path";
-import {normalizeProjectPath, resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
+import {
+    requireReadyModuleHandle,
+} from "nbook/server/workspace-files/project-session";
 import type {ResolvedFileAddress} from "nbook/server/workspace-files/file-scope";
-import {recordProjectDelete, recordProjectWrite} from "nbook/server/workspace-history/project-history";
-import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
+import {normalizeProjectPath, projectSlug} from "nbook/server/workspace-files/project-path";
+import {
+    PROJECT_FILE_INDEX_MODULE_TOKEN,
+    type ProjectFileIndexHandle,
+} from "nbook/server/workspace-files/project-file-index";
+import {
+    PROJECT_HISTORY_MODULE_TOKEN,
+    recordProjectDelete,
+    recordProjectWrite,
+    type ProjectHistoryHandle,
+} from "nbook/server/workspace-history/project-history";
 
 /**
  * Agent 文件工具（write / edit / apply_patch）的文件历史归因记账（Task 95 S5）。
@@ -28,39 +40,81 @@ function toRecordBytes(content: string | Uint8Array | null): Uint8Array | null {
  */
 export async function recordAgentWorkspaceWrite(input: {
     sessionId: number;
-    workspaceRoot: AbsoluteFsPath;
-    address: ResolvedFileAddress;
+    capture: AgentWorkspaceWriteCapture | null;
     before: string | Uint8Array | null;
     after: string | Uint8Array | null;
 }): Promise<void> {
-    const projectPath = input.address.projectPath;
-    const relativePath = "relativePath" in input.address ? input.address.relativePath : null;
-    if (!projectPath || isAbsolute(projectPath) || !relativePath || relativePath === ".") {
+    if (!input.capture) {
         return;
     }
-    // N5：sessionId number→string 集中在此转换，模块侧 actor 恒为 string
-    const actor = {kind: "agent" as const, sessionId: String(input.sessionId)};
-    const after = toRecordBytes(input.after);
-    if (after === null) {
-        const before = toRecordBytes(input.before);
-        if (before === null) {
-            return;
+    try {
+        const {history, relativePath} = input.capture;
+        // N5：sessionId number→string 集中在此转换，模块侧 actor 恒为 string
+        const actor = {kind: "agent" as const, sessionId: String(input.sessionId)};
+        const after = toRecordBytes(input.after);
+        if (after === null) {
+            const before = toRecordBytes(input.before);
+            if (before !== null) {
+                await recordProjectDelete(history, {
+                    relativePath,
+                    actor,
+                    before,
+                });
+            }
+        } else {
+            await recordProjectWrite(history, {
+                relativePath,
+                actor,
+                before: toRecordBytes(input.before),
+                after,
+            });
         }
-        await recordProjectDelete({
-            projectRoot: resolveProjectWorkspaceRoot(input.workspaceRoot, normalizeProjectPath(projectPath)),
-            projectPath,
-            relativePath,
-            actor,
-            before,
-        });
-        return;
+    } catch {
+        // History generation可能在文件落盘后、记账前关闭；记账永远不能反向破坏文件写入。
     }
-    await recordProjectWrite({
-        projectRoot: resolveProjectWorkspaceRoot(input.workspaceRoot, normalizeProjectPath(projectPath)),
-        projectPath,
-        relativePath,
-        actor,
-        before: toRecordBytes(input.before),
-        after,
-    });
+
+    try {
+        input.capture.fileIndex.invalidate();
+    } catch {
+        // 文件已经落盘；精确generation关闭导致的失效失败不能反向破坏主写入。
+    }
+}
+
+/** 落盘前捕获的目标 Project generation 记账上下文。 */
+export type AgentWorkspaceWriteCapture = Readonly<{
+    history: ProjectHistoryHandle;
+    fileIndex: ProjectFileIndexHandle;
+    relativePath: string;
+}>;
+
+/**
+ * 在文件 mutation 前按统一 File Address 捕获目标 Project 的精确 History handle。
+ * 未打开/非 Project 地址返回 null；落盘后不得再次按地址查询当前 generation。
+ */
+export function captureAgentWorkspaceWrite(
+    address: ResolvedFileAddress,
+    exactProject: ReadyProjectSessionRef | undefined,
+): AgentWorkspaceWriteCapture | null {
+    const projectPath = address.projectPath;
+    const relativePath = "relativePath" in address ? address.relativePath : null;
+    if (!exactProject || !projectPath || isAbsolute(projectPath) || !relativePath || relativePath === ".") {
+        return null;
+    }
+    try {
+        const normalizedProjectPath = normalizeProjectPath(projectPath);
+        if (exactProject.workspace.ref.projectRoot !== projectSlug(normalizedProjectPath)) {
+            return null;
+        }
+        const history = requireReadyModuleHandle(
+            exactProject,
+            PROJECT_HISTORY_MODULE_TOKEN,
+        );
+        const fileIndex = requireReadyModuleHandle(
+            exactProject,
+            PROJECT_FILE_INDEX_MODULE_TOKEN,
+        );
+        return Object.freeze({history, fileIndex, relativePath});
+    } catch {
+        return null;
+    }
 }

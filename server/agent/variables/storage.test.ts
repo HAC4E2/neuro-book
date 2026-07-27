@@ -7,6 +7,12 @@ import {
     VariableFileStorage,
 } from "nbook/server/agent/variables/storage";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {
+    createProjectWorkspaceKey,
+    projectWorkspaceRef,
+    resolvedProjectWorkspace,
+    type ResolvedProjectWorkspace,
+} from "nbook/server/workspace-files/project-identity";
 
 const roots: string[] = [];
 
@@ -18,27 +24,29 @@ describe("VariableFileStorage文件范围", () => {
     it("同一路径串行写入且不同路径完成后都会释放队列", async () => {
         const fixture = await fixtureRoot();
         const workspaceRoot = absoluteFsPath(path.join(fixture, "workspace"));
-        await mkdir(path.join(workspaceRoot, "project-a"), {recursive: true});
-        const storage = new VariableFileStorage(workspaceRoot);
+        const projectRoot = absoluteFsPath(path.join(workspaceRoot, "project-a"));
+        await mkdir(projectRoot, {recursive: true});
+        const storage = new VariableFileStorage(workspaceRoot, projectWorkspace(workspaceRoot, projectRoot));
 
         await Promise.all([
             storage.patch("global", "first", [{op: "replace", path: "", value: 1}]),
             storage.patch("global", "second", [{op: "replace", path: "", value: 2}]),
-            storage.patch("project", "third", [{op: "replace", path: "", value: 3}], "workspace/project-a"),
+            storage.patch("project", "third", [{op: "replace", path: "", value: 3}]),
         ]);
 
         await expect(storage.read("global")).resolves.toEqual({first: 1, second: 2});
-        await expect(storage.read("project", "workspace/project-a")).resolves.toEqual({third: 3});
+        await expect(storage.read("project")).resolves.toEqual({third: 3});
         expect(pendingVariableFileLockCountForTest()).toBe(0);
     });
 
-    it("Project变量只使用构造时注入的Runtime Workspace Root", async () => {
+    it("Project变量只使用构造时绑定的Resolved Project Workspace", async () => {
         const fixture = await fixtureRoot();
         const workspaceRoot = absoluteFsPath(path.join(fixture, "workspace"));
-        await mkdir(path.join(workspaceRoot, "project-a"), {recursive: true});
-        const storage = new VariableFileStorage(workspaceRoot);
+        const projectRoot = absoluteFsPath(path.join(workspaceRoot, "project-a"));
+        await mkdir(projectRoot, {recursive: true});
+        const storage = new VariableFileStorage(workspaceRoot, projectWorkspace(workspaceRoot, projectRoot));
 
-        await storage.patch("project", "preferences", [{op: "replace", path: "", value: {theme: "dark"}}], "workspace/project-a");
+        await storage.patch("project", "preferences", [{op: "replace", path: "", value: {theme: "dark"}}]);
 
         const storedPath = path.join(workspaceRoot, "project-a", ".nbook", "agent", "variables.json");
         await expect(access(storedPath)).resolves.toBeUndefined();
@@ -71,4 +79,10 @@ async function fixtureRoot(): Promise<string> {
     const root = await mkdtemp(path.join(tmpdir(), "nbook-variable-storage-"));
     roots.push(root);
     return root;
+}
+
+/** 为Variable storage测试构造Lifecycle已经验证过的Project Workspace。 */
+function projectWorkspace(workspaceRoot: ReturnType<typeof absoluteFsPath>, projectRoot: ReturnType<typeof absoluteFsPath>): ResolvedProjectWorkspace {
+    const ref = projectWorkspaceRef(path.basename(projectRoot));
+    return resolvedProjectWorkspace(ref, projectRoot, createProjectWorkspaceKey(workspaceRoot, ref));
 }

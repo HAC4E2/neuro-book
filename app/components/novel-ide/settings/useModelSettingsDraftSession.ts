@@ -5,6 +5,7 @@ import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {createModelCostDraft, parseModelCostDraft} from "nbook/app/components/novel-ide/settings/model-cost-draft";
 import {
+    buildAgentVisibleModels,
     buildModelsSection,
     cleanGlobalAgent,
     cleanModelKey,
@@ -63,7 +64,7 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
     const loading = ref(false);
     const saving = ref(false);
     const activeProviderKey = ref("");
-    const draft = ref<ModelSettingsDraft>({defaultModelKey: null, illustrationDirectorModelKey: null, providers: []});
+    const draft = ref<ModelSettingsDraft>({defaultModelKey: null, illustrationDirectorModelKey: null, agentVisibleModels: [], providers: []});
     const snapshotText = ref("");
     const scopeAgentSnapshotText = ref("");
     const resolvedContextWindowMap = ref<Record<string, number | null>>({});
@@ -150,6 +151,7 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
         draft.value = {
             defaultModelKey: snapshot.modelSettings.defaultModelKey,
             illustrationDirectorModelKey: snapshot.modelSettings.illustrationDirector.modelKey,
+            agentVisibleModels: snapshot.modelSettings.agentVisibleModels.map((entry) => ({...entry})),
             providers: snapshot.modelSettings.providers.map((provider) => cloneProvider(provider, localKeys)),
         };
         snapshotText.value = JSON.stringify(draft.value);
@@ -168,6 +170,7 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
         draft.value = {
             defaultModelKey: snapshot.project?.models && Object.hasOwn(snapshot.project.models, "default") ? snapshot.project.models.default ?? null : null,
             illustrationDirectorModelKey: null,
+            agentVisibleModels: [],
             providers: snapshot.modelSettings.providers.map((provider) => cloneProvider(provider, localKeys)),
         };
         snapshotText.value = JSON.stringify({defaultModelKey: draft.value.defaultModelKey});
@@ -223,23 +226,30 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
         if (!snapshot) {
             return false;
         }
-        const currentAgent = isProjectScope.value ? snapshot.project?.agent : snapshot.global.agent;
-        const nextAgent = isProjectScope.value
-            ? cleanProjectAgent(snapshot.project?.agent, modelKeys)
-            : cleanGlobalAgent(snapshot.global.agent, modelKeys);
-        if (JSON.stringify(nextAgent) === JSON.stringify(currentAgent)) {
+        if (isProjectScope.value) {
+            const nextAgent = cleanProjectAgent(snapshot.project?.agent, modelKeys);
+            if (JSON.stringify(nextAgent) === JSON.stringify(snapshot.project?.agent)) {
+                return false;
+            }
+            if (snapshot.project) {
+                snapshot.project.agent = nextAgent as typeof snapshot.project.agent;
+            }
+            return true;
+        }
+        const currentAgent = snapshot.global.agent
+            ? {...snapshot.global.agent, visibleModels: buildAgentVisibleModels(draft.value)}
+            : snapshot.global.agent;
+        const nextAgent = cleanGlobalAgent(currentAgent, modelKeys);
+        draft.value.agentVisibleModels = nextAgent?.visibleModels?.map((entry) => ({...entry})) ?? [];
+        if (JSON.stringify(nextAgent) === JSON.stringify(snapshot.global.agent)) {
             return false;
         }
-        if (isProjectScope.value && snapshot.project) {
-            snapshot.project.agent = nextAgent as typeof snapshot.project.agent;
-        } else if (!isProjectScope.value) {
-            snapshot.global.agent = nextAgent as typeof snapshot.global.agent;
-        }
+        snapshot.global.agent = nextAgent as typeof snapshot.global.agent;
         return true;
     }
 
     /** 收集 Agent Config 中显式模型引用。 */
-    function agentReferences(agent: {profileModelDefaults?: {modelKey?: string | null}; profiles?: Record<string, {model?: {modelKey?: string | null}}>} | undefined, path: Array<string | number>, label: string): ModelReferenceInput[] {
+    function agentReferences(agent: {profileModelDefaults?: {modelKey?: string | null}; profiles?: Record<string, {model?: {modelKey?: string | null}}>; visibleModels?: Array<{modelKey: string}>} | undefined, path: Array<string | number>, label: string): ModelReferenceInput[] {
         if (!agent) {
             return [];
         }
@@ -252,15 +262,21 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
                 references.push({modelKey: profile.model.modelKey ?? null, path: [...path, "profiles", profileKey, "model", "modelKey"], label: `${label} Profile ${profileKey} 模型`});
             }
         }
+        for (const [index, entry] of (agent.visibleModels ?? []).entries()) {
+            references.push({modelKey: entry.modelKey, path: [...path, "visibleModels", index, "modelKey"], label: `${label} Agent 可见模型 ${String(index + 1)}`});
+        }
         return references;
     }
 
     const validationState = computed(() => {
         const globalDefault = editorSnapshot.value?.global.models?.default ?? null;
         const contractDraft = isProjectScope.value ? {...draft.value, defaultModelKey: draft.value.defaultModelKey ?? globalDefault} : draft.value;
+        const globalAgent = editorSnapshot.value?.global.agent
+            ? {...editorSnapshot.value.global.agent, visibleModels: buildAgentVisibleModels(draft.value)}
+            : editorSnapshot.value?.global.agent;
         const references = isProjectScope.value
             ? agentReferences(editorSnapshot.value?.project?.agent, ["project", "agent"], "Project")
-            : agentReferences(editorSnapshot.value?.global.agent, ["agent"], "Global");
+            : agentReferences(globalAgent, ["agent"], "Global");
         return inspectSettingsDraft(contractDraft, references);
     });
     const validationIssues = computed(() => validationState.value.issues);
@@ -276,7 +292,7 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
 
     const defaultModelOptions = computed<EnabledModelOptionDto[]>(() => draft.value.providers.flatMap((provider) => provider.models
         .filter((model) => model.id.trim() && validationState.value.runnableModelKeys.has(`${provider.id.trim()}/${model.id.trim()}`))
-        .map((model) => ({key: `${provider.id}/${model.id.trim()}`, label: `${provider.name} / ${model.name || model.id}`, providerId: provider.id, modelId: model.id.trim(), contextWindowTokens: parseDraftInteger(model.contextWindowTokens)})))
+        .map((model) => ({key: `${provider.id}/${model.id.trim()}`, label: `${provider.name} / ${model.name || model.id}`, providerId: provider.id, modelId: model.id.trim(), input: parseModelInput(model.input) ?? ["text"], contextWindowTokens: parseDraftInteger(model.contextWindowTokens)})))
         .sort((left, right) => left.label.localeCompare(right.label)));
 
     const enabledModelGroups = computed(() => {
@@ -338,13 +354,20 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
     /** Global Config 写回体。 */
     function globalPayload(): GlobalConfigUpdateDto {
         const modelKeys = availableModelKeys();
-        const cleanedAgent = cleanGlobalAgent(editorSnapshot.value?.global.agent, modelKeys);
+        // 合并两侧写回语义：上游的 agentVisibleModels 注入 + 本地 Director binding 唯一持久化 slot；
+        // agent 段保持无条件写回，避免 Director modelKey 因 changed 判定漏写。
+        const currentAgent = editorSnapshot.value?.global.agent;
+        const cleanedAgent = cleanGlobalAgent(currentAgent
+            ? {...currentAgent, visibleModels: buildAgentVisibleModels(draft.value)}
+            : currentAgent, modelKeys);
         const directorProfile = cleanedAgent?.profiles?.[ILLUSTRATION_DIRECTOR_PROFILE_KEY];
         const agent = {
             ...(cleanedAgent ?? {}),
             defaultProfileKey: cleanedAgent?.defaultProfileKey ?? {novel: null, userAssets: null},
             profileModelDefaults: cleanedAgent?.profileModelDefaults ?? {},
             profileRuntimeDefaults: cleanedAgent?.profileRuntimeDefaults ?? {},
+            // z.infer 输出侧 visibleModels 必填；currentAgent 缺席时仍按草稿无条件写回。
+            visibleModels: cleanedAgent?.visibleModels ?? buildAgentVisibleModels(draft.value),
             profiles: {
                 ...(cleanedAgent?.profiles ?? {}),
                 [ILLUSTRATION_DIRECTOR_PROFILE_KEY]: {
@@ -450,9 +473,18 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
             draft.value.illustrationDirectorModelKey = draft.value.illustrationDirectorModelKey.replace(`${previousId}/`, `${normalizedId}/`);
         }
         if (editorSnapshot.value?.global.agent) {
-            const renamed = renameAgentProvider(editorSnapshot.value.global.agent, previousId, normalizedId);
+            const renamed = renameAgentProvider({
+                ...editorSnapshot.value.global.agent,
+                visibleModels: buildAgentVisibleModels(draft.value),
+            }, previousId, normalizedId);
             editorSnapshot.value.global.agent = renamed.agent ?? editorSnapshot.value.global.agent;
         }
+        draft.value.agentVisibleModels = draft.value.agentVisibleModels.map((entry) => ({
+            ...entry,
+            modelKey: entry.modelKey.startsWith(`${previousId}/`)
+                ? entry.modelKey.replace(`${previousId}/`, `${normalizedId}/`)
+                : entry.modelKey,
+        }));
         options.renameDiscovery(previousId, normalizedId);
     }
 
@@ -513,7 +545,11 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
         const providerId = provider.id;
         const providerName = provider.name;
         const prefix = `${providerId}/`;
-        const currentAgent = isProjectScope.value ? editorSnapshot.value?.project?.agent : editorSnapshot.value?.global.agent;
+        const currentAgent = isProjectScope.value
+            ? editorSnapshot.value?.project?.agent
+            : editorSnapshot.value?.global.agent
+                ? {...editorSnapshot.value.global.agent, visibleModels: buildAgentVisibleModels(draft.value)}
+                : editorSnapshot.value?.global.agent;
         const localReferences = [
             {modelKey: draft.value.defaultModelKey, label: isProjectScope.value ? "Project 默认模型" : "Global 默认模型"},
             ...(!isProjectScope.value ? [{modelKey: draft.value.illustrationDirectorModelKey, label: "插图 Director 模型"}] : []),

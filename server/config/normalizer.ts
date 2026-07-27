@@ -8,6 +8,7 @@ import type {
     AgentProfileConfig,
     AgentProfileModelConfig,
     AgentProfileSettingsConfig,
+    AgentVisibleModelConfig,
     ConfiguredModelConfig,
     ConfiguredProviderConfig,
     EffectiveConfig,
@@ -25,6 +26,7 @@ import type {
     ObservabilityConfig,
     PiTraceConfig,
     WorkspaceHistorySettingsConfig,
+    NovelDataConfig,
 } from "nbook/server/config/types";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import {ThinkingLevelSchema} from "nbook/shared/dto/app-settings.dto";
@@ -121,6 +123,20 @@ function normalizeObservability(input: StoredGlobalConfig["observability"]): Obs
     };
 }
 
+const DEFAULT_NOVEL_DATA: NovelDataConfig = {
+    baseUrl: "http://localhost:3000",
+};
+
+/**
+ * 归一化 novel-api 榜单服务配置：从存储层 partial 覆盖默认值。
+ * baseUrl 显式写成空串时保留空串（表示用户明确未配置，工具侧给配置引导），未写该字段才落默认地址。
+ */
+function normalizeNovelData(input: StoredGlobalConfig["novelData"]): NovelDataConfig {
+    return {
+        baseUrl: typeof input?.baseUrl === "string" ? input.baseUrl.trim() : DEFAULT_NOVEL_DATA.baseUrl,
+    };
+}
+
 const DEFAULT_WORKSPACE_HISTORY: WorkspaceHistorySettingsConfig = {
     enabled: true,
     retentionFullDays: 90,
@@ -182,6 +198,7 @@ export function createDefaultEffectiveConfig(): EffectiveConfig {
             profileModelDefaults: {...DEFAULT_AGENT_PROFILE_MODEL_DEFAULTS},
             profileRuntimeDefaults: {},
             profiles: {},
+            visibleModels: [],
         },
         ui: {
             theme: DEFAULT_THEME,
@@ -198,6 +215,7 @@ export function createDefaultEffectiveConfig(): EffectiveConfig {
         illustration: {
             tagPolicy: createDefaultProjectTagPolicyConfig(),
         },
+        novelData: normalizeNovelData(undefined),
     };
 }
 
@@ -222,6 +240,7 @@ export function normalizeGlobalConfig(input: Partial<StoredGlobalConfig> | null 
             profileModelDefaults: normalizeAgentProfileModelPatch(raw.agent?.profileModelDefaults),
             profileRuntimeDefaults: normalizeProfileRuntimeSettingsPatch(raw.agent?.profileRuntimeDefaults),
             profiles: normalizeAgentProfiles(raw.agent?.profiles),
+            visibleModels: normalizeAgentVisibleModels(raw.agent?.visibleModels),
         },
         ui: {
             theme: normalizeTheme(raw.ui?.theme, customThemes),
@@ -278,6 +297,20 @@ export function normalizeProjectConfig(input: Partial<StoredProjectConfig> | nul
     };
 }
 
+/** 规范化 agent 可见模型清单：丢弃缺 modelKey 的条目并去重（首见优先）；note 缺省为空串 */
+function normalizeAgentVisibleModels(input: AgentVisibleModelConfig[] | null | undefined): AgentVisibleModelConfig[] {
+    if (!Array.isArray(input)) return [];
+    const seen = new Set<string>();
+    const out: AgentVisibleModelConfig[] = [];
+    for (const raw of input) {
+        const modelKey = typeof raw?.modelKey === "string" ? raw.modelKey.trim() : "";
+        if (!modelKey || seen.has(modelKey)) continue;
+        seen.add(modelKey);
+        out.push({modelKey, note: typeof raw.note === "string" ? raw.note.trim() : ""});
+    }
+    return out;
+}
+
 /**
  * 将 Global + Project 合并为业务运行使用的 effective config。
  */
@@ -296,6 +329,7 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
     effective.agent.profileRuntimeDefaults = globalRuntimeDefaults;
     effective.agent.profiles = normalizeCompleteAgentProfiles(globalProfilePatches, effective.agent.profileModelDefaults, globalRuntimeDefaults);
     enforceIllustrationDirectorModelBinding(effective.agent.profiles, globalProfilePatches);
+    effective.agent.visibleModels = normalizeAgentVisibleModels(globalConfig.agent?.visibleModels);
     effective.ui.customThemes = normalizeCustomThemes(globalConfig.ui?.customThemes);
     effective.ui.theme = normalizeTheme(globalConfig.ui?.theme, effective.ui.customThemes);
     effective.ui.costCurrency = normalizeCostCurrency(globalConfig.ui?.costCurrency);
@@ -304,6 +338,7 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
     effective.web = normalizeWebSettings(globalConfig.web);
     effective.observability = normalizeObservability(globalConfig.observability);
     effective.history = normalizeWorkspaceHistory(globalConfig.history);
+    effective.novelData = normalizeNovelData(globalConfig.novelData);
 
     if (!projectConfig) {
         return effective;

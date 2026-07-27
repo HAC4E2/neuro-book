@@ -16,10 +16,9 @@ import {
     Message,
     ModelContext,
     ProfilePrompt,
-    RuntimeLocationReminder,
     SkillCatalog,
+    SqlSchemaSummary,
     System,
-    VariableSchema,
     WorkspaceFocusReminder,
 } from "nbook/server/agent/profiles/profile-dsl";
 
@@ -53,10 +52,11 @@ export default defineAgentProfile({
                     </Message>
                 </HistorySet>
                 <ModelContext>
-                    <VariableSchema paths={["client.currentProjectWorkspace"]} includeToolGuide />
+                    <Message>
+                        <SqlSchemaSummary />
+                    </Message>
                 </ModelContext>
                 <AppendingSet>
-                    <RuntimeLocationReminder />
                     <WorkspaceFocusReminder />
                 </AppendingSet>
             </ProfilePrompt>
@@ -80,27 +80,40 @@ export default defineAgentProfile({
 
 适合把长期共享规则放进 `reference/`，避免复制大段 prompt。
 
-## 只给本轮模型看的变量 schema
+## Catalog 节点该放在哪一层
+
+`AgentCatalog`、`SkillCatalog`、`WorkflowCatalog` 描述的是**这个 profile 长期可用的能力**，属于稳定前缀，放 `HistorySet`：
+
+```tsx
+<HistorySet>
+    <Message>
+        <AgentCatalog />
+    </Message>
+    <Message>
+        <SkillCatalog />
+    </Message>
+    <Message>
+        <WorkflowCatalog />
+    </Message>
+</HistorySet>
+```
+
+`SqlSchemaSummary` 描述的是**当前项目此刻的数据结构**，会随项目变化，放 `ModelContext`：
 
 ```tsx
 <ModelContext>
-    <VariableSchema
-        paths={[
-            "client.currentProjectWorkspace",
-            "client.studio.selectedFilePath",
-        ]}
-        includeToolGuide
-    />
+    <Message>
+        <SqlSchemaSummary />
+    </Message>
 </ModelContext>
 ```
 
-变量 schema 不应该写进稳定历史；它属于当前运行环境。
+判据是"这段内容下一轮还成立吗"：成立的进 `HistorySet` 写一次，不成立的进 `ModelContext` 每轮重算。以上写法取自 `leader.default` 实际实现。
 
 ## 贴近用户输入的提醒
 
 ```tsx
 <AppendingSet>
-    <RuntimeLocationReminder />
     <WorkspaceFocusReminder />
     <ModeReminder />
 </AppendingSet>
@@ -108,12 +121,29 @@ export default defineAgentProfile({
 
 这些提醒会靠近当前用户消息，帮助模型在执行前记住当前工作边界。
 
-## 检查命令
+## 检查与编译命令
 
-系统 profile 示例：
+命令面是 `status | check | compile | preview`，可选 `--system`（改内置 profile）、`--all`、`--project <path>`、`--strict-variables`。
+
+写自己的 profile（用户层，不加 `--system`）：
 
 ```bash
-bun scripts/build/profile.ts check builtin/leader.default.profile.tsx --system
+# 1. 校验源码：只报错，不产出 .compiled
+profile check agent.example
+
+# 2. 编译：产出 .compiled，运行时才会真正生效
+profile compile agent.example
+
+# 3. 预览：看 prepare 之后模型实际收到的 context，调 prompt 时最有用
+profile preview agent.example
 ```
 
-编译系统 profile 后，还需要根据任务需要刷新 metadata 或跑对应窄测试。用户 profile 优先用 Workbench 或 Agent runtime `profile check/compile/preview`。
+`profile` 是 Agent runtime 的稳定入口，由 `.nbook/agent/bin` 注入 PATH。在仓库里开发内置 profile 时用完整路径加 `--system`：
+
+```bash
+bun scripts/build/profile.ts compile builtin/leader.default.profile.tsx --system
+```
+
+::: warning 保存不等于生效
+`.profile.tsx` 是源码真相源，`.compiled` 才是运行时真相源。只保存 TSX 不编译，运行时仍然用旧产物，profile 会挂 `compile_stale`。
+:::

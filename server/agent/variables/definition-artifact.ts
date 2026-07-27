@@ -7,7 +7,7 @@ import {build, type Metafile, type Plugin} from "esbuild";
 import type {VariableDefinition, VariableNamespace, VariableAccessorIssue} from "nbook/server/agent/variables/types";
 import {hashFile, resolveArtifactPath} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {generateVariableTypes, VARIABLE_TYPES_FILE_NAME, type VariableTypeGenerationDiagnostic} from "nbook/server/agent/variables/generated-types";
-import {importRuntimeArtifact} from "nbook/server/utils/runtime-artifact-import";
+import {DEFAULT_RUNTIME_ARTIFACT_RETENTION, importRuntimeArtifact, type RuntimeArtifactCacheSpec} from "nbook/server/utils/runtime-artifact-import";
 import {
     resolveRuntimeArtifactCompilerContext,
     resolveRuntimeArtifactNbookPath,
@@ -158,9 +158,12 @@ export async function loadCompiledVariableDefinitions(input: {
         }
         try {
             const loaded = await importDefinitions(join(root, VARIABLE_DEFINITION_COMPILED_DIR, item.artifactFileName), {
-                sha256: item.artifactSha256,
+                root: join(dirname(root), ".staging", "runtime-artifact-import-cache"),
+                namespace: "variable-definition",
+                key: item.artifactSha256,
                 bytes: item.artifactBytes,
-            }, join(dirname(root), ".staging", "runtime-artifact-import-cache"));
+                retention: DEFAULT_RUNTIME_ARTIFACT_RETENTION,
+            });
             for (const definition of loaded) {
                 if (definition.namespace !== input.namespace) {
                     throw new Error(`${file.fileName} 只能注册 ${input.namespace}.*，实际为 ${definition.namespace}.${definition.key}`);
@@ -273,7 +276,8 @@ async function compileDefinitionFile(root: string, compiledDir: string, file: De
         const artifactFileName = `${artifactStem}.mjs`;
         const artifactPath = join(compiledDir, artifactFileName);
         const artifactHash = await hashFile(temporaryOutputPath);
-        const definitions = await importDefinitions(temporaryOutputPath, artifactHash);
+        // 源路径已含 randomUUID()，每轮编译都不同，不需要物理副本换路径。
+        const definitions = await importDefinitions(temporaryOutputPath);
         const typeFileName = `${artifactStem}.${VARIABLE_TYPES_FILE_NAME}`;
         const typePath = join(compiledDir, typeFileName);
         const generatedTypes = generateVariableTypes(definitions, {
@@ -304,17 +308,17 @@ async function compileDefinitionFile(root: string, compiledDir: string, file: De
     }
 }
 
+/**
+ * 导入编译后的 variable definition artifact。
+ *
+ * `cache` 为空表示直接 import 源路径，适用于源路径本身唯一的编译期调用；
+ * 运行期调用方的源是固定文件名 `definitions.mjs`，必须传 cache 才能换内容换路径。
+ */
 async function importDefinitions(
     artifactPath: string,
-    artifactHash: {sha256: string; bytes: number},
-    runtimeCacheRoot?: string,
+    cache?: RuntimeArtifactCacheSpec,
 ): Promise<VariableDefinition[]> {
-    const mod = await importRuntimeArtifact<{default?: unknown; definitions?: unknown}>(artifactPath, {
-        cacheKey: artifactHash.sha256,
-        cacheNamespace: "variable-definition",
-        cacheRoot: resolve(runtimeCacheRoot ?? dirname(artifactPath)),
-        expectedBytes: artifactHash.bytes,
-    });
+    const mod = await importRuntimeArtifact<{default?: unknown; definitions?: unknown}>(artifactPath, {cache});
     const value = mod.definitions ?? mod.default;
     if (!Array.isArray(value) || !value.every(isVariableDefinition)) {
         throw new Error(`compiled variable definition 没有导出 VariableDefinition[]：${artifactPath}`);

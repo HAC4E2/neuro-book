@@ -36,10 +36,10 @@ describe("POST /api/agent/profiles/compile", () => {
             })),
         }));
         vi.doMock("nbook/server/agent/profiles/profile-http-service", async () => {
-            const {ProjectNotOpenError} = await import("nbook/server/workspace-files/project-session");
+            const {ProjectNotOpenError} = await import("nbook/server/workspace-files/project-session-service");
             return {
                 previewAgentProfilePrepare: vi.fn(async () => {
-                    throw new ProjectNotOpenError("workspace/profile-compile-not-open");
+                    throw new ProjectNotOpenError("profile-compile-not-open");
                 }),
             };
         });

@@ -75,6 +75,8 @@ export async function compactIfNeeded(input: {
     thinkingLevel?: ThinkingLevel;
     compaction?: ProfileCompactionRuntimePatch;
     trace?: PiTraceBinding;
+    /** 为空表示调用方没有可取消生命周期；非空时透传给摘要 Provider。 */
+    signal?: AbortSignal;
     writeCompactionEntry: (entry: Omit<CompactionSessionEntry, "id" | "parentId" | "timestamp">) => Promise<void>;
 }): Promise<boolean> {
     if (!input.compaction) {
@@ -102,6 +104,7 @@ export async function compactIfNeeded(input: {
         thinkingLevel: input.thinkingLevel,
         options,
         trace: input.trace,
+        signal: input.signal,
         writeCompactionEntry: input.writeCompactionEntry,
     });
     return true;
@@ -125,6 +128,8 @@ export async function appendCompaction(input: {
     compaction?: ProfileCompactionRuntimePatch;
     options?: CompactionOptions;
     trace?: PiTraceBinding;
+    /** 为空表示调用方没有可取消生命周期；非空时透传给摘要 Provider。 */
+    signal?: AbortSignal;
     writeCompactionEntry: (entry: Omit<CompactionSessionEntry, "id" | "parentId" | "timestamp">) => Promise<void>;
 }): Promise<void> {
     if (!input.options && !input.compaction) {
@@ -148,6 +153,7 @@ export async function appendCompaction(input: {
         reserveTokens: options.reserveTokens,
         prompt: options.prompt,
         trace: input.trace,
+        signal: input.signal,
     });
     const summary = `${options.summaryPrefix}\n\n${generatedSummary}`;
     const tokensBefore = input.tokensBefore ?? estimateStoredContextTokens(input.messages).tokens;
@@ -175,6 +181,7 @@ export async function appendCompaction(input: {
         },
     } satisfies Omit<CompactionSessionEntry, "id" | "parentId" | "timestamp">;
 
+    input.signal?.throwIfAborted();
     await input.writeCompactionEntry(entry);
 }
 
@@ -231,6 +238,8 @@ async function generateCompactionSummary(input: {
     reserveTokens: number;
     prompt: string;
     trace?: PiTraceBinding;
+    /** 为空表示此次摘要不可由上层取消；非空时直接传给 Pi Provider。 */
+    signal?: AbortSignal;
 }): Promise<string> {
     const conversation = input.messages.length
         ? input.messages.map((message) => `${message.role}: ${messageText(message)}`).join("\n\n")
@@ -244,7 +253,7 @@ async function generateCompactionSummary(input: {
     const requestOptions = parsePiSimpleRequestOptions(input.requestOptions);
     const completeContext = {
         systemPrompt: input.prompt,
-        messages: [createUserMessage({text: prompt, images: []})],
+        messages: [createUserMessage({text: prompt})],
     };
     const completeOptions = {
         ...requestOptions,
@@ -257,9 +266,12 @@ async function generateCompactionSummary(input: {
         timeoutMs: input.timeoutMs ?? undefined,
         maxTokens: Math.min(Math.floor(input.reserveTokens * 0.8), input.model.maxTokens),
         reasoning: input.thinkingLevel && input.thinkingLevel !== "off" ? input.thinkingLevel as never : undefined,
+        signal: input.signal,
     };
     // 统一入口：trace 缺省时 tracedCompleteSimple 等同裸 completeSimple（不落记录、零开销）。
+    input.signal?.throwIfAborted();
     const response = await tracedCompleteSimple(input.models, input.model, completeContext, completeOptions, input.trace);
+    input.signal?.throwIfAborted();
 
     if (response.stopReason === "error" || response.stopReason === "aborted") {
         throw new Error(sanitizeProviderErrorMessage(response.errorMessage || "compaction summary 生成失败"));

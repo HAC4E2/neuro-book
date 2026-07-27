@@ -28,10 +28,7 @@ export type JsonValue =
     | JsonValue[]
     | {[key: string]: JsonValue};
 
-/**
- * Agent 用户输入。文本必填，图片后续由前端按 Pi image block 传入。
- */
+/** Agent 用户输入。图片通过正文 Markdown 标记引用 Session Attachment。 */
 export type AgentUserMessageInput = {
     text: string;
-    images?: ImageContent[];
 };

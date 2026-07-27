@@ -7,9 +7,17 @@ import type {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-har
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {WORKSPACE_CONTAINER_ROOT} from "nbook/server/workspace-files/workspace-root-ref";
 import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
+import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 
-vi.mock("nbook/server/plot", () => {
-    const plotFacade = {
+const {
+    plotFacade,
+    currentReady,
+    overrideReady,
+    requireReadyProjectPathMock,
+    activateReadyProjectModuleMock,
+    runReadyProjectOperationMock,
+} = vi.hoisted(() => {
+    const facade = {
         getChapterWriterBrief: vi.fn(),
         getSceneWorldContext: vi.fn(),
         getStorySceneDetailDto: vi.fn(),
@@ -27,10 +35,29 @@ vi.mock("nbook/server/plot", () => {
         createStoryDecision: vi.fn(),
         updateStoryDecision: vi.fn(),
     };
+    const current = {generation: 1, workspace: {ref: {projectRoot: "novel-1"}}} as ReadyProjectSessionRef;
+    const override = {generation: 2, workspace: {ref: {projectRoot: "novel-2"}}} as ReadyProjectSessionRef;
     return {
-        plotFacadeForWorkspaceRoot: vi.fn(() => plotFacade),
+        plotFacade: facade,
+        currentReady: current,
+        overrideReady: override,
+        requireReadyProjectPathMock: vi.fn(() => override),
+        activateReadyProjectModuleMock: vi.fn(async () => ({plot: facade})),
+        runReadyProjectOperationMock: vi.fn(async (_ready, operation) => operation(new AbortController().signal)),
     };
 });
+
+vi.mock("nbook/server/plot", () => {
+    return {
+        PROJECT_PLOT_WORLD_MODULE_TOKEN: {name: "plot-world", kind: "lazy"},
+    };
+});
+
+vi.mock("nbook/server/workspace-files/project-session", () => ({
+    requireReadyProjectPath: requireReadyProjectPathMock,
+    activateReadyProjectModule: activateReadyProjectModuleMock,
+    runReadyProjectOperation: runReadyProjectOperationMock,
+}));
 
 describe("plot tools", () => {
     it("save_story_scene 的 refs.note 可以省略", () => {
@@ -128,7 +155,7 @@ describe("plot tools", () => {
     });
 
     it("save_story_chapter action=update 透传 ChapterBrief 信息控制字段（F1 修复链路）", async () => {
-        const plotFacadeMock = (await import("nbook/server/plot")).plotFacadeForWorkspaceRoot(absoluteFsPath(path.resolve(".agent", "plot-tools-test"))) as unknown as {
+        const plotFacadeMock = plotFacade as {
             updateStoryChapter: ReturnType<typeof vi.fn>;
         };
         plotFacadeMock.updateStoryChapter.mockResolvedValueOnce({
@@ -149,7 +176,7 @@ describe("plot tools", () => {
             },
         });
 
-        expect(plotFacadeMock.updateStoryChapter).toHaveBeenCalledWith("workspace/novel-1", 7, {
+        expect(plotFacadeMock.updateStoryChapter).toHaveBeenCalledWith(7, {
             brief: {
                 readerKnows: "读者已知封印松动",
                 mustHide: "薇洛丝不知道项链是前作遗物",
@@ -159,7 +186,7 @@ describe("plot tools", () => {
     });
 
     it("save_story_scene action=archive 把 status 置为 archived", async () => {
-        const plotFacadeMock = (await import("nbook/server/plot")).plotFacadeForWorkspaceRoot(absoluteFsPath(path.resolve(".agent", "plot-tools-test"))) as unknown as {
+        const plotFacadeMock = plotFacade as {
             updateStoryScene: ReturnType<typeof vi.fn>;
         };
         plotFacadeMock.updateStoryScene.mockResolvedValueOnce({id: "20", threadId: "2", status: "archived"});
@@ -171,7 +198,7 @@ describe("plot tools", () => {
             sceneId: "20",
         });
 
-        expect(plotFacadeMock.updateStoryScene).toHaveBeenCalledWith("workspace/novel-1", 20, {status: "archived"});
+        expect(plotFacadeMock.updateStoryScene).toHaveBeenCalledWith(20, {status: "archived"});
     });
 
     it("save_story_thread action=archive 与显式 status 冲突时返回可读中文诊断", async () => {
@@ -196,7 +223,7 @@ describe("plot tools", () => {
     });
 
     it("save_story_promise action=abandon 置 status=abandoned;与显式 status 冲突时报诊断", async () => {
-        const plotFacadeMock = (await import("nbook/server/plot")).plotFacadeForWorkspaceRoot(absoluteFsPath(path.resolve(".agent", "plot-tools-test"))) as unknown as {
+        const plotFacadeMock = plotFacade as {
             updateStoryPromise: ReturnType<typeof vi.fn>;
         };
         plotFacadeMock.updateStoryPromise.mockResolvedValueOnce({id: "5", status: "abandoned"});
@@ -207,7 +234,7 @@ describe("plot tools", () => {
             action: "abandon",
             promiseId: "5",
         });
-        expect(plotFacadeMock.updateStoryPromise).toHaveBeenCalledWith("workspace/novel-1", 5, {status: "abandoned"});
+        expect(plotFacadeMock.updateStoryPromise).toHaveBeenCalledWith(5, {status: "abandoned"});
 
         await expect(tool?.executeWithContext?.(testContext(emptyHarness()), "plot-1", {
             projectPath: "workspace/novel-1",
@@ -237,7 +264,7 @@ describe("plot tools", () => {
     });
 
     it("get_story_promise 无 promiseId 走列表模式,有 promiseId 走详情", async () => {
-        const plotFacadeMock = (await import("nbook/server/plot")).plotFacadeForWorkspaceRoot(absoluteFsPath(path.resolve(".agent", "plot-tools-test"))) as unknown as {
+        const plotFacadeMock = plotFacade as {
             listStoryPromises: ReturnType<typeof vi.fn>;
             getStoryPromiseDetailDto: ReturnType<typeof vi.fn>;
         };
@@ -248,18 +275,18 @@ describe("plot tools", () => {
         const listResult = await tool!.executeWithContext!(testContext(emptyHarness()), "plot-1", {
             projectPath: "workspace/novel-1",
         });
-        expect(plotFacadeMock.listStoryPromises).toHaveBeenCalledWith("workspace/novel-1");
+        expect(plotFacadeMock.listStoryPromises).toHaveBeenCalledWith();
         expect(listResult.details).toMatchObject([{id: "5"}]);
 
         await tool!.executeWithContext!(testContext(emptyHarness()), "plot-1", {
             projectPath: "workspace/novel-1",
             promiseId: "5",
         });
-        expect(plotFacadeMock.getStoryPromiseDetailDto).toHaveBeenCalledWith("workspace/novel-1", 5);
+        expect(plotFacadeMock.getStoryPromiseDetailDto).toHaveBeenCalledWith(5);
     });
 
     it("get_story_decision 无 decisionId 走列表模式,有 decisionId 走详情", async () => {
-        const plotFacadeMock = (await import("nbook/server/plot")).plotFacadeForWorkspaceRoot(absoluteFsPath(path.resolve(".agent", "plot-tools-test"))) as unknown as {
+        const plotFacadeMock = plotFacade as {
             listStoryDecisions: ReturnType<typeof vi.fn>;
             getStoryDecisionDto: ReturnType<typeof vi.fn>;
         };
@@ -270,14 +297,14 @@ describe("plot tools", () => {
         const listResult = await tool!.executeWithContext!(testContext(emptyHarness()), "plot-1", {
             projectPath: "workspace/novel-1",
         });
-        expect(plotFacadeMock.listStoryDecisions).toHaveBeenCalledWith("workspace/novel-1");
+        expect(plotFacadeMock.listStoryDecisions).toHaveBeenCalledWith();
         expect(listResult.details).toMatchObject([{id: "8"}]);
 
         await tool!.executeWithContext!(testContext(emptyHarness()), "plot-1", {
             projectPath: "workspace/novel-1",
             decisionId: "8",
         });
-        expect(plotFacadeMock.getStoryDecisionDto).toHaveBeenCalledWith("workspace/novel-1", 8);
+        expect(plotFacadeMock.getStoryDecisionDto).toHaveBeenCalledWith(8);
     });
 
     it("save_story_decision action=create 拒绝 decided 态字段并要求 name/title/question", async () => {
@@ -301,7 +328,7 @@ describe("plot tools", () => {
     });
 
     it("save_story_decision action=decide 置 status=decided;与显式 status 冲突时报诊断;action=drop 置 dropped", async () => {
-        const plotFacadeMock = (await import("nbook/server/plot")).plotFacadeForWorkspaceRoot(absoluteFsPath(path.resolve(".agent", "plot-tools-test"))) as unknown as {
+        const plotFacadeMock = plotFacade as {
             updateStoryDecision: ReturnType<typeof vi.fn>;
         };
         plotFacadeMock.updateStoryDecision.mockResolvedValue({id: "8", status: "decided"});
@@ -316,7 +343,7 @@ describe("plot tools", () => {
             risk: "前置章需微量提示",
             chosenOption: "第15章揭示",
         });
-        expect(plotFacadeMock.updateStoryDecision).toHaveBeenCalledWith("workspace/novel-1", 8, expect.objectContaining({
+        expect(plotFacadeMock.updateStoryDecision).toHaveBeenCalledWith(8, expect.objectContaining({
             status: "decided",
             decision: "第15章揭示",
             risk: "前置章需微量提示",
@@ -336,7 +363,7 @@ describe("plot tools", () => {
             decisionId: "8",
             note: "子情节删除,问题失效",
         });
-        expect(plotFacadeMock.updateStoryDecision).toHaveBeenLastCalledWith("workspace/novel-1", 8, expect.objectContaining({
+        expect(plotFacadeMock.updateStoryDecision).toHaveBeenLastCalledWith(8, expect.objectContaining({
             status: "dropped",
             note: "子情节删除,问题失效",
         }));
@@ -367,7 +394,7 @@ describe("plot tools", () => {
 
     it("get_scene_world_context 返回 Scene 的 World Engine 上下文并更新 selection", async () => {
         const appended: unknown[] = [];
-        const plotFacadeMock = (await import("nbook/server/plot")).plotFacadeForWorkspaceRoot(absoluteFsPath(path.resolve(".agent", "plot-tools-test"))) as unknown as {
+        const plotFacadeMock = plotFacade as {
             getSceneWorldContext: ReturnType<typeof vi.fn>;
             getStorySceneDetailDto: ReturnType<typeof vi.fn>;
             getStoryThreadDetailDto: ReturnType<typeof vi.fn>;
@@ -398,7 +425,7 @@ describe("plot tools", () => {
             sceneId: "20",
         });
 
-        expect(plotFacadeMock.getSceneWorldContext).toHaveBeenCalledWith("workspace/novel-1", 20);
+        expect(plotFacadeMock.getSceneWorldContext).toHaveBeenCalledWith(20);
         expect(result.details).toEqual({
             slices: [expect.objectContaining({id: "slice-1"})],
             subjectStates: [expect.objectContaining({subjectId: "hero"})],
@@ -414,7 +441,7 @@ describe("plot tools", () => {
     });
 
     it("get_chapter_writer_brief 返回 markdown text 和完整 details，且不读写 plot.selection", async () => {
-        const plotFacadeMock = (await import("nbook/server/plot")).plotFacadeForWorkspaceRoot(absoluteFsPath(path.resolve(".agent", "plot-tools-test"))) as unknown as {
+        const plotFacadeMock = plotFacade as {
             getChapterWriterBrief: ReturnType<typeof vi.fn>;
         };
         plotFacadeMock.getChapterWriterBrief.mockResolvedValueOnce({
@@ -446,7 +473,7 @@ describe("plot tools", () => {
             chapterId: "7",
         });
 
-        expect(plotFacadeMock.getChapterWriterBrief).toHaveBeenCalledWith("workspace/novel-1", 7, "autonomous");
+        expect(plotFacadeMock.getChapterWriterBrief).toHaveBeenCalledWith(7, "autonomous");
         expect(result.content).toEqual([{type: "text", text: "# Brief\n\n写作交接。"}]);
         expect(result.details).toMatchObject({
             chapter: {id: "7", name: "001-opening"},
@@ -456,12 +483,60 @@ describe("plot tools", () => {
         expect(harness.readSessionContext).not.toHaveBeenCalled();
         expect(harness.appendCustomState).not.toHaveBeenCalled();
     });
+
+    it("同路径 reopen 后拒绝旧 invocation generation，不查询 latest", async () => {
+        const staleReady = {generation: 1, workspace: {ref: {projectRoot: "novel-1"}}} as ReadyProjectSessionRef;
+        const harness = emptyHarness() as NeuroAgentHarness & {
+            projectForInvocation: ReturnType<typeof vi.fn>;
+        };
+        harness.projectForInvocation = vi.fn(() => staleReady);
+        requireReadyProjectPathMock.mockClear();
+        runReadyProjectOperationMock.mockImplementationOnce(async (ready) => {
+            if (ready === staleReady) {
+                throw new Error("stale Project generation");
+            }
+            throw new Error("unexpected generation");
+        });
+        const tool = createPlotTools().find((item) => item.key === "get_chapter_writer_brief");
+
+        await expect(tool!.executeWithContext!(testContext(harness), "plot-stale-generation", {
+            projectPath: "workspace/novel-1",
+            chapterId: "7",
+        })).rejects.toThrow("stale Project generation");
+        expect(requireReadyProjectPathMock).not.toHaveBeenCalled();
+    });
+
+    it("显式跨 Project override 在目标 generation operation 内执行", async () => {
+        const plotFacadeMock = plotFacade as {
+            getChapterWriterBrief: ReturnType<typeof vi.fn>;
+        };
+        plotFacadeMock.getChapterWriterBrief.mockResolvedValueOnce({
+            suggestedBriefMarkdown: "# Override",
+        });
+        requireReadyProjectPathMock.mockClear();
+        runReadyProjectOperationMock.mockClear();
+        const tool = createPlotTools().find((item) => item.key === "get_chapter_writer_brief");
+
+        await tool!.executeWithContext!(testContext(emptyHarness()), "plot-cross-project", {
+            projectPath: "workspace/novel-2",
+            chapterId: "7",
+        });
+
+        expect(requireReadyProjectPathMock).toHaveBeenCalledWith("workspace/novel-2");
+        expect(runReadyProjectOperationMock).toHaveBeenCalledWith(overrideReady, expect.any(Function));
+        expect(activateReadyProjectModuleMock).toHaveBeenCalledWith(overrideReady, expect.anything());
+    });
 });
 
 /**
  * 构造工具执行上下文。
  */
 function testContext(harness: NeuroAgentHarness, profileKey = "leader.default"): ToolExecutionContext {
+    if (!("projectForInvocation" in harness)) {
+        Object.assign(harness, {
+            projectForInvocation: vi.fn(() => currentReady),
+        });
+    }
     return {
         harness,
         sessionId: 1,
@@ -469,6 +544,8 @@ function testContext(harness: NeuroAgentHarness, profileKey = "leader.default"):
         workspaceRootRef: WORKSPACE_CONTAINER_ROOT,
         workspaceFsRoot: absoluteFsPath(path.resolve(".agent", "plot-tools-test")),
         workspaceKey: "plot-tools-test",
+        projectPath: "workspace/novel-1",
+        invocationId: "plot-tools-test-invocation",
     };
 }
 

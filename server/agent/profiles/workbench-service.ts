@@ -166,7 +166,6 @@ export async function readProfileSource(profiles: AgentProfileCatalog, request: 
                 sourceRange: null,
             },
             reportResultSchema: null,
-            reportSidecarResultSchema: null,
             root: buildSystemPromptRoot(source),
         };
     }

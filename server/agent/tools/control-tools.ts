@@ -17,16 +17,6 @@ const ReportResultValidationSchema = Type.Object({
     data: Type.Optional(Type.Unknown()),
 }, {additionalProperties: false});
 
-export const ReportSidecarResultSchema = Type.Object({
-    result: Type.String(),
-    data: Type.Record(Type.String(), Type.Unknown()),
-}, {additionalProperties: false});
-
-const ReportSidecarResultValidationSchema = Type.Object({
-    result: Type.String(),
-    data: Type.Optional(Type.Unknown()),
-}, {additionalProperties: false});
-
 const RequestUserInputQuestionOptionSchema = Type.Object({
     label: Type.String({description: "User-facing option label, preferably 1-5 words."}),
     description: Type.Optional(Type.String({description: "Optional short sentence explaining the impact or tradeoff of this option."})),
@@ -77,23 +67,6 @@ export const controlTools = {
         parameters: ReportResultSchema,
         async execute(_toolCallId, params: unknown) {
             const report = params as Static<typeof ReportResultSchema>;
-            return {
-                content: [{type: "text", text: report.result}],
-                details: normalizeToolResultDetails(report),
-                terminate: true,
-            };
-        },
-    }),
-    reportSidecarResult: defineAgentTool({
-        key: "report_sidecar_result",
-        name: "report_sidecar_result",
-        label: "Report Sidecar Result",
-        executionMode: "sequential",
-        description: "Report final sidecar result to the harness.",
-        parameters: ReportSidecarResultSchema,
-        validationSchema: ReportSidecarResultValidationSchema,
-        async execute(_toolCallId, params: unknown) {
-            const report = params as Static<typeof ReportSidecarResultValidationSchema>;
             return {
                 content: [{type: "text", text: report.result}],
                 details: normalizeToolResultDetails(report),
@@ -207,11 +180,8 @@ export const controlTools = {
  */
 export function createReportResultTool(parameters: TSchema, options: {
     dataSchema?: TSchema;
-    /** true 时 report_result 必须显式提交 data，不能只用可读 result 终止。 */
-    requireData?: boolean;
-    activeSidecar?: {
-        name: string;
-    };
+    /** 调用方声明了结构化输出合同时为 true：report_result 必须显式提交 data，不能只用可读 result 终止。 */
+    dataRequired?: boolean;
 } = {}): NeuroAgentTool {
     return {
         key: "report_result",
@@ -223,10 +193,7 @@ export function createReportResultTool(parameters: TSchema, options: {
         validationSchema: ReportResultValidationSchema,
         async execute(_toolCallId, params: unknown) {
             const report = params as {result: string; data?: unknown};
-            if (options.activeSidecar) {
-                throw new Error(`当前处于 sidecar ${options.activeSidecar.name} 旁路阶段，不能使用 report_result；请改用 report_sidecar_result，并通过 report_sidecar_result.data 返回旁路结果。`);
-            }
-            if (options.requireData && !("data" in report)) {
+            if (options.dataRequired && !("data" in report)) {
                 throw new Error("report_result 必须通过 data 返回结构化结果");
             }
             if (options.dataSchema && "data" in report) {
@@ -244,74 +211,6 @@ export function createReportResultTool(parameters: TSchema, options: {
             };
         },
     };
-}
-
-/**
- * 创建带当前 profile keyed sidecarDataSchema 的 report_sidecar_result 工具。
- */
-export function createReportSidecarResultTool(parameters: TSchema, options: {
-    activeSidecar?: {
-        name: string;
-        sidecarDataSchema?: TSchema;
-    };
-} = {}): NeuroAgentTool {
-    return {
-        key: "report_sidecar_result",
-        name: "report_sidecar_result",
-        label: "Report Sidecar Result",
-        executionMode: "sequential",
-        description: "Report final sidecar result to the harness.",
-        parameters,
-        validationSchema: ReportSidecarResultValidationSchema,
-        async execute(_toolCallId, params: unknown) {
-            const report = params as {result: string; data?: unknown};
-            if (!options.activeSidecar) {
-                throw new Error("当前是主 run，不能使用 report_sidecar_result；请改用 report_result 返回主路结果。");
-            }
-            if (!("data" in report)) {
-                throw new Error(`sidecar ${options.activeSidecar.name} 必须通过 report_sidecar_result.data 返回旁路结果。`);
-            }
-            if (typeof report.data === "string") {
-                throw new Error(`sidecar ${options.activeSidecar.name} report_sidecar_result.data 校验失败：收到的是字符串；请直接传对象 data: { "${options.activeSidecar.name}": ... }，不要传 JSON.stringify 后的文本。`);
-            }
-            if (!isRecord(report.data)) {
-                throw new Error(`sidecar ${options.activeSidecar.name} report_sidecar_result.data 校验失败：必须是对象 { "${options.activeSidecar.name}": ... }。`);
-            }
-            if (!options.activeSidecar.sidecarDataSchema) {
-                throw new Error(`sidecar ${options.activeSidecar.name} 未声明 sidecarDataSchema，不能使用 report_sidecar_result。`);
-            }
-            const dataKeys = Object.keys(report.data);
-            if (dataKeys.length !== 1) {
-                throw new Error(`sidecar ${options.activeSidecar.name} report_sidecar_result.data 校验失败：只能包含一个 sidecar key，当前应为 "${options.activeSidecar.name}"。`);
-            }
-            if (!hasOwn(report.data, options.activeSidecar.name)) {
-                throw new Error(`sidecar ${options.activeSidecar.name} report_sidecar_result.data 校验失败：只能包含当前 sidecar key "${options.activeSidecar.name}"。`);
-            }
-            const sidecarData = report.data[options.activeSidecar.name];
-            try {
-                assertStrictSchemaValue(options.activeSidecar.sidecarDataSchema, sidecarData);
-            } catch (error) {
-                const message = error instanceof Error ? error.message : String(error);
-                throw new Error(`sidecar ${options.activeSidecar.name} report_sidecar_result.data["${options.activeSidecar.name}"] 校验失败：${message}`);
-            }
-            return {
-                content: [{type: "text", text: report.result}],
-                details: normalizeToolResultDetails({
-                    result: report.result,
-                    data: report.data,
-                }),
-                terminate: true,
-            };
-        },
-    };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return Boolean(value && typeof value === "object" && !Array.isArray(value));
-}
-
-function hasOwn(value: Record<string, unknown>, key: string): boolean {
-    return Object.prototype.hasOwnProperty.call(value, key);
 }
 
 /**

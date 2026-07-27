@@ -1,8 +1,14 @@
 # Writer
 
+::: tip 普通作者不用读这一页
+这页讲的是 `writer` profile 的内部合同（输入格式、字段、工具边界），面向 profile 作者和开发者。
+
+**你只是想让 AI 写章节的话**，直接跟 leader 说就行，它会自动调用 writer——看 [写出前三章](/tutorials/04-first-three-chapters) 即可。
+:::
+
 `writer` 是正式正文写作 agent。它的任务是把已经明确的写作目标、Plot 上下文、设定引用和写作约束落实到本轮指定的 Markdown 文件。
 
-它不是 planner，不是 retrieval，不是 RP writer，也不维护 `simulation/`、Plot System 或 subject memory。
+它不是 planner，不是 retrieval，也不维护剧情结构或世界状态——它对剧情和 World Engine **只读**。
 
 ## 长期 Writer Session
 

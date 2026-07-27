@@ -186,17 +186,18 @@ describe("agent message projection helpers", () => {
         expect(views).toEqual([expect.objectContaining({text: undefined, note: "补充", omitted: true})]);
     });
 
-    it("session_entry 先插入 system reminder，再替换同内容乐观用户消息", () => {
+    it("session_entry 先插入 system reminder，再按 clientMessageId 替换乐观用户消息", () => {
         const withReminder = applySessionEntryToMessages([{
             id: "system-prompt:1:leader.default",
             type: "system",
             systemDisplayKind: "prompt",
             content: "SYSTEM",
         }, {
-            id: "optimistic-user-1",
+            id: "optimistic-user:message-prompt-1",
             type: "user",
             content: "你好",
             status: "done",
+            clientMessageId: "message-prompt-1",
         }], {
             id: "reminder-1",
             timestamp: Date.now(),
@@ -207,6 +208,7 @@ describe("agent message projection helpers", () => {
         });
         const withPrompt = applySessionEntryToMessages(withReminder, {
             id: "prompt-1",
+            clientMessageId: "message-prompt-1",
             timestamp: Date.now(),
             type: "user",
             intent: "normal",

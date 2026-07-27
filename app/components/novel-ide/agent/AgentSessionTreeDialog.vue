@@ -15,6 +15,7 @@ const props = defineProps<{
     tree: SessionTreeNode[];
     activeLeafId: string | null;
     running: boolean;
+    canActivate: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -426,7 +427,7 @@ function nearestCollapsedBranchId(entryId: string): string | null {
  * 切换当前 session leaf 到选中节点。
  */
 function activateSelected(): void {
-    if (!selectedNode.value || props.running) {
+    if (!selectedNode.value || props.running || !props.canActivate) {
         return;
     }
     emit("select", selectedNode.value.id);
@@ -654,7 +655,7 @@ function handleKeyDown(e: KeyboardEvent): void {
                     {{ t("agent.sessionTree.selectNodeHint") }}
                 </div>
                 <div class="border-t border-[var(--border-color)] bg-[var(--bg-main)] px-4 py-3">
-                    <button type="button" class="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-[var(--accent-main)] text-sm font-medium text-[var(--text-inverse)] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.running || !selectedNode" @click="activateSelected">
+                    <button type="button" class="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-[var(--accent-main)] text-sm font-medium text-[var(--text-inverse)] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.running || !props.canActivate || !selectedNode" @click="activateSelected">
                         <span class="i-lucide-git-branch h-4 w-4"></span>
                         {{ t("agent.sessionTree.activateNode") }}
                     </button>

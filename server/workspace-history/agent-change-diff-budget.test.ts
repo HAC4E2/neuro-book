@@ -1,5 +1,7 @@
 import {beforeEach, describe, expect, it, vi} from "vitest";
 import type {UnseenGroup} from "nbook/server/vendor/nb-history/index";
+import type {WorkspaceHistory} from "nbook/server/vendor/nb-history/index";
+import type {ProjectHistoryHandle} from "nbook/server/workspace-history/project-history";
 
 describe("agent change diff 整轮预算", () => {
     beforeEach(() => {
@@ -14,13 +16,10 @@ describe("agent change diff 整轮预算", () => {
             beforeText: "old\n",
             afterText: "new\n",
         }));
-        vi.doMock("nbook/server/workspace-history/project-history", () => ({
-            ensureProjectHistory: vi.fn(async () => ({textDiff})),
-        }));
         const {readAgentChangeDiffDetails} = await import("nbook/server/workspace-history/agent-change-diff");
 
         const details = await readAgentChangeDiffDetails({
-            projectPath: "workspace/book",
+            history: historyHandle(textDiff),
             groups: Array.from({length: 20}, (_, index) => unseenGroup(index + 1)),
             maxChars: 512,
         });
@@ -37,13 +36,10 @@ describe("agent change diff 整轮预算", () => {
             beforeText: `${"旧".repeat(2_700)}\n`,
             afterText: `${"新".repeat(2_700)}\n`,
         }));
-        vi.doMock("nbook/server/workspace-history/project-history", () => ({
-            ensureProjectHistory: vi.fn(async () => ({textDiff})),
-        }));
         const {readAgentChangeDiffDetails} = await import("nbook/server/workspace-history/agent-change-diff");
 
         const details = await readAgentChangeDiffDetails({
-            projectPath: "workspace/book",
+            history: historyHandle(textDiff),
             groups: Array.from({length: 4}, (_, index) => unseenGroup(index + 1)),
             maxChars: 8_192,
         });
@@ -55,6 +51,14 @@ describe("agent change diff 整轮预算", () => {
         expect(references.every((detail) => !("diff" in detail))).toBe(true);
     });
 });
+
+/** 构造只暴露 textDiff 的 generation-scoped History 测试 handle。 */
+function historyHandle(textDiff: WorkspaceHistory["textDiff"]): ProjectHistoryHandle {
+    return {
+        waitForWarmup: async () => undefined,
+        history: Promise.resolve({textDiff} as WorkspaceHistory),
+    } as ProjectHistoryHandle;
+}
 
 /** 构造整轮预算测试使用的 unseen 文件。 */
 function unseenGroup(id: number): UnseenGroup {

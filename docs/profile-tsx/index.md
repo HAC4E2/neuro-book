@@ -17,10 +17,11 @@ TSX Profile 是 NeuroBook 编写 Agent profile 的主要方式。它使用 TSX �
         </Message>
     </HistorySet>
     <ModelContext>
-        <VariableSchema paths={["client.currentProjectWorkspace"]} includeToolGuide />
+        <Message>
+            <SqlSchemaSummary />
+        </Message>
     </ModelContext>
     <AppendingSet>
-        <RuntimeLocationReminder />
         <WorkspaceFocusReminder />
     </AppendingSet>
 </ProfilePrompt>
@@ -29,7 +30,7 @@ TSX Profile 是 NeuroBook 编写 Agent profile 的主要方式。它使用 TSX �
 四个区域的直觉：
 
 - `System`：长期身份和职责。
-- `HistorySet`：History，首次写入 session 的稳定前缀。
+- `HistorySet`：History，session 缺少前缀时写入；已有前缀时不每轮重复。
 - `ModelContext`：Dynamic Context，只给本轮模型看的临时上下文。
 - `AppendingSet`：Reminder，贴近当前用户输入、通常会写入历史的运行期提醒。
 
@@ -37,16 +38,25 @@ TSX Profile 是 NeuroBook 编写 Agent profile 的主要方式。它使用 TSX �
 
 TSX 源文件不是 runtime 真相源。运行时使用 `.compiled` artifact。
 
-修改 profile 后，需要在 Workbench 或 CLI 中执行 check / compile。系统 profile 的开发验证通常使用：
+修改 profile 后，需要执行 check / compile，否则运行时仍在用旧产物。写自己的 profile 用 runtime CLI：
 
 ```bash
-bun scripts/build/profile.ts check builtin/leader.default.profile.tsx --system
+profile check agent.example      # 只校验
+profile compile agent.example    # 产出 .compiled，运行时才生效
+profile preview agent.example    # 看模型实际收到的 context
 ```
 
-用户 profile 则应通过 user-assets 的 Workbench 或 runtime `profile` CLI 检查。
+在仓库里开发内置 profile 时加 `--system`：
+
+```bash
+bun scripts/build/profile.ts compile builtin/leader.default.profile.tsx --system
+```
+
+可视化编辑用 TSX Profile 工作台。注意它的入口只在 **User Assets 模式**下出现（顶栏切到用户资产后才可见），普通小说项目的顶栏里没有这个按钮。
 
 ## 继续阅读
 
+- [从零写一个 Profile](./authoring.md)
 - [节点说明](./nodes.md)
 - [示例](./examples.md)
 - [Profile Guide](https://github.com/notnotype/neuro-book/blob/master/reference/agent/profile-guide.md)

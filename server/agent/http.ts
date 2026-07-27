@@ -15,12 +15,18 @@ import {
     type ClientVariablePatchAckDto,
     type AgentInvokeRequestDto,
     type AgentSessionEventsQueryDto,
+    type AgentSessionAttachmentItemDto,
+    type AgentSessionAttachmentListQueryDto,
+    type AgentSessionAttachmentPageDto,
+    type AgentSessionAttachmentResolveResultDto,
+    type AgentSessionAttachmentSnapshotRequestDto,
     type AgentSessionListPageDto,
     type AgentSessionListQueryDto,
     type AgentSessionQueryDto,
     type AgentSessionQueryResultDto,
     type AgentTreeRequestDto,
     type AgentTreeResult,
+    type AgentUserMessageContentDto,
     type InvokeAgentResult,
 } from "nbook/shared/dto/agent-session.dto";
 
@@ -141,29 +147,81 @@ export async function invokeAgentSession(sessionId: number, body: AgentInvokeReq
         const result = await harness.invokeAgent(toInvokeInput(sessionId, body));
         return projectPublicInvocationResult(result);
     } catch (error) {
-        if (!isAttachmentError(error)) {
-            throw error;
-        }
-        if (error.code === "limit_exceeded") {
-            throw createError({
-                statusCode: 413,
-                message: "图片超过允许预算",
-                data: {code: "AGENT_IMAGE_LIMIT_EXCEEDED", retryable: false},
-            });
-        }
-        if (error.code === "storage_failed") {
-            throw createError({
-                statusCode: 503,
-                message: "Attachment 存储暂不可用",
-                data: {code: "ATTACHMENT_STORAGE_UNAVAILABLE", retryable: true},
-            });
-        }
-        throw createError({
-            statusCode: 400,
-            message: "图片输入无效",
-            data: {code: "INVALID_IMAGE_INPUT", retryable: false},
-        });
+        throw mapAgentAttachmentHttpError(error);
     }
+}
+
+/** 查询 Session 全分支附件目录。 */
+export async function listAgentSessionAttachments(
+    sessionId: number,
+    query: AgentSessionAttachmentListQueryDto,
+    harness = useAgentHarness(),
+): Promise<AgentSessionAttachmentPageDto> {
+    try {
+        return await harness.listSessionAttachments(sessionId, query);
+    } catch (error) {
+        throw mapAgentAttachmentHttpError(error);
+    }
+}
+
+/** 按请求顺序批量解析当前 Session 已授权附件。 */
+export async function resolveAgentSessionAttachments(
+    sessionId: number,
+    attachmentIds: readonly import("nbook/shared/dto/agent-attachment.dto").AttachmentId[],
+    harness = useAgentHarness(),
+): Promise<AgentSessionAttachmentResolveResultDto> {
+    try {
+        return {items: await harness.resolveSessionAttachments(sessionId, attachmentIds)};
+    } catch (error) {
+        throw mapAgentAttachmentHttpError(error);
+    }
+}
+
+/** 保存 multipart 上传图片并登记到 Session。 */
+export async function uploadAgentSessionAttachment(
+    sessionId: number,
+    input: {bytes: Uint8Array; mimeType?: string; name?: string},
+    harness = useAgentHarness(),
+): Promise<AgentSessionAttachmentItemDto> {
+    try {
+        return await harness.uploadSessionAttachment(sessionId, input);
+    } catch (error) {
+        throw mapAgentAttachmentHttpError(error);
+    }
+}
+
+/** 上传路由在消费 multipart body 前执行的 Session 交互门禁。 */
+export async function preflightAgentSessionAttachmentRegistration(
+    sessionId: number,
+    harness = useAgentHarness(),
+): Promise<void> {
+    try {
+        await harness.preflightSessionAttachmentRegistration(sessionId);
+    } catch (error) {
+        throw mapAgentAttachmentHttpError(error);
+    }
+}
+
+/** 快照本地图片并登记到 Session。 */
+export async function snapshotAgentSessionAttachment(
+    sessionId: number,
+    input: AgentSessionAttachmentSnapshotRequestDto,
+    harness = useAgentHarness(),
+): Promise<AgentSessionAttachmentItemDto> {
+    try {
+        return await harness.snapshotSessionAttachment(sessionId, input);
+    } catch (error) {
+        throw mapAgentAttachmentHttpError(error);
+    }
+}
+
+/** 返回历史用户消息按 stored content 顺序重建的完整 Markdown。 */
+export async function getAgentSessionUserContent(
+    sessionId: number,
+    entryId: string,
+    harness = useAgentHarness(),
+): Promise<AgentUserMessageContentDto> {
+    return harness.getSessionUserContent(sessionId, entryId);
 }
 
 /**
@@ -229,6 +287,7 @@ export function toInvokeInput(
     return {
         sessionId,
         mode: body.mode,
+        clientMessageId: body.clientMessageId,
         message: body.message,
         payload: body.input,
         title: body.title,
@@ -239,4 +298,44 @@ export function toInvokeInput(
         block: body.block,
         onEvent,
     };
+}
+
+/** 将 Attachment 稳定错误映射为前端可处理的 HTTP 合同。 */
+function mapAgentAttachmentHttpError(error: unknown): Error {
+    if (!isAttachmentError(error)) {
+        return error instanceof Error ? error : new Error(String(error));
+    }
+    if (error.code === "limit_exceeded") {
+        return createError({
+            statusCode: 413,
+            message: "图片超过允许预算",
+            data: {code: "AGENT_IMAGE_LIMIT_EXCEEDED", retryable: false},
+        });
+    }
+    if (error.code === "storage_failed") {
+        return createError({
+            statusCode: 503,
+            message: "Attachment 存储暂不可用",
+            data: {code: "ATTACHMENT_STORAGE_UNAVAILABLE", retryable: true},
+        });
+    }
+    if (error.code === "not_found") {
+        return createError({
+            statusCode: 404,
+            message: error.message,
+            data: {code: "ATTACHMENT_NOT_FOUND", retryable: false},
+        });
+    }
+    if (error.code === "corrupt") {
+        return createError({
+            statusCode: 409,
+            message: "Session Attachment 数据已损坏",
+            data: {code: "ATTACHMENT_CATALOG_CORRUPT", retryable: false},
+        });
+    }
+    return createError({
+        statusCode: 400,
+        message: error.message || "图片输入无效",
+        data: {code: "INVALID_IMAGE_INPUT", retryable: false},
+    });
 }

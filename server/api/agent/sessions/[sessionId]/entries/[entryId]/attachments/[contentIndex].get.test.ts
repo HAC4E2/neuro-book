@@ -135,23 +135,22 @@ describe("GET /api/agent/sessions/:sessionId/entries/:entryId/attachments/:conte
 
     it("Project 未 open 保留 typed 409，不降级成 Attachment 404", async () => {
         const setResponseHeader = vi.fn();
-        const projectPath = "workspace/closed-attachment";
+        const projectRoot = "closed-attachment";
+        const projectPath = `workspace/${projectRoot}`;
+        const {ProjectNotOpenError} = await import("nbook/server/workspace-files/project-session-service");
         vi.doMock("h3", async (importOriginal) => ({
             ...(await importOriginal<typeof import("h3")>()),
             getRouterParam: vi.fn((_event: unknown, key: string) => key === "entryId" ? "entry-image" : "0"),
             setResponseHeader,
         }));
-        vi.doMock("nbook/server/agent/http", async () => {
-            const {ProjectNotOpenError} = await import("nbook/server/workspace-files/project-session");
-            return {
-                requireAgentSessionId: vi.fn(() => 12),
-                useAgentHarness: vi.fn(() => ({
-                    resolveSessionAttachment: vi.fn(async () => {
-                        throw new ProjectNotOpenError(projectPath);
-                    }),
-                })),
-            };
-        });
+        vi.doMock("nbook/server/agent/http", () => ({
+            requireAgentSessionId: vi.fn(() => 12),
+            useAgentHarness: vi.fn(() => ({
+                resolveSessionAttachment: vi.fn(async () => {
+                    throw new ProjectNotOpenError(projectRoot);
+                }),
+            })),
+        }));
 
         const event = {};
         const handler = (await import("nbook/server/api/agent/sessions/[sessionId]/entries/[entryId]/attachments/[contentIndex].get")).default;

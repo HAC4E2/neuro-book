@@ -6,7 +6,6 @@ import {
     TextToImageReferenceAssetNotFoundError,
     TextToImageReferenceAssetService,
 } from "nbook/server/text-to-image/reference-asset.service";
-import {closeTextToImageProjectClient} from "nbook/server/text-to-image/project-client";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 import {resetProjectSessionsForTest} from "nbook/server/workspace-files/project-session";
 import {writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
@@ -28,7 +27,6 @@ describe("TextToImageReferenceAssetService", () => {
     });
 
     afterEach(async () => {
-        await closeTextToImageProjectClient(projectPath).catch(() => undefined);
         await closeProjectForTest(projectPath).catch(() => undefined);
         resetProjectSessionsForTest();
         await assets.dispose();

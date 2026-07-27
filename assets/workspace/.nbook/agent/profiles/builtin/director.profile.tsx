@@ -4,7 +4,7 @@ import type {Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {builtin, plotReadBindings, plotWriteBindings, toolset} from "nbook/server/agent/profiles/profile-tools";
 import {DirectorInitialSchema, DirectorOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
-import {AgentCatalog, AppendingSet, HistorySet, Import, LinkedAgentsReminder, Message, ModelContext, ProfilePrompt, RuntimeLocationReminder, System, WorkspaceFocusReminder} from "nbook/server/agent/profiles/profile-dsl";
+import {AgentCatalog, AppendingSet, HistorySet, Import, LinkedAgentsReminder, Message, ModelContext, ProfilePrompt, System, WorkspaceFocusReminder} from "nbook/server/agent/profiles/profile-dsl";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
 
 export const profileManifest = {
@@ -50,7 +50,6 @@ export default defineAgentProfile({
                     <Message>{renderRuntimeInput(ctx.initial)}</Message>
                 </ModelContext>
                 <AppendingSet>
-                    <RuntimeLocationReminder />
                     <WorkspaceFocusReminder />
                     <LinkedAgentsReminder />
                 </AppendingSet>

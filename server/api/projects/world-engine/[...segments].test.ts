@@ -1,13 +1,16 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import {afterAll, beforeEach, describe, expect, it, vi} from "vitest";
-import {worldEngineFacadeForWorkspaceRoot} from "nbook/server/world-engine";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
+import {requireReadyModuleHandle, requireReadyProjectPath} from "nbook/server/workspace-files/project-session";
+import {
+    PROJECT_HISTORY_MODULE_TOKEN,
+    readUnseenForAgent,
+} from "nbook/server/workspace-history/project-history";
 
 const createdProjects: string[] = [];
-const worldEngineFacade = worldEngineFacadeForWorkspaceRoot(resolveRuntimeWorkspaceRoot());
 
 vi.mock("h3", async () => {
     const actual = await vi.importActual<typeof import("h3")>("h3");
@@ -35,7 +38,6 @@ describe("/api/projects/world-engine", {timeout: 30_000}, () => {
     afterAll(async () => {
         for (const projectPath of createdProjects) {
             await closeProjectForTest(projectPath).catch(() => undefined);
-            await worldEngineFacade.closeProject(projectPath);
             await removeProjectRoot(projectPath);
         }
         createdProjects.splice(0);
@@ -173,6 +175,31 @@ describe("/api/projects/world-engine", {timeout: 30_000}, () => {
             {id: "moran", type: "character", name: "莫然"},
         ]);
         expect(readSlices(await callApi(handler, projectPath, "GET", "slices", undefined, {subjectIds: "erina,moran", subjectMode: "all"})).map((slice) => slice.title)).toEqual(["双人登场"]);
+    });
+
+    it("subject event commit 通过 exact generation 记录本地用户 History", async () => {
+        const projectPath = await createProject();
+        const subjectPath = "simulation/subjects/erina";
+        const eventsPath = `${subjectPath}/events.jsonl`;
+        await fs.mkdir(path.join(projectRoot(projectPath), subjectPath), {recursive: true});
+        await fs.writeFile(path.join(projectRoot(projectPath), eventsPath), "", "utf-8");
+        const handler = (await import("nbook/server/api/projects/world-engine/[...segments]")).default;
+        const ready = requireReadyProjectPath(projectPath);
+        const history = requireReadyModuleHandle(ready, PROJECT_HISTORY_MODULE_TOKEN);
+        await readUnseenForAgent(history, 987_654);
+
+        const result = await callApi(handler, projectPath, "POST", "subject-file-proposals/events/commit", {
+            subjectId: "erina",
+            subjectPath,
+            eventsPath,
+            event: {time: "复兴纪元1日 00:00:10", text: "抵达学院"},
+        });
+
+        expect(result).toMatchObject({status: "appended", subjectId: "erina", eventsPath, dirty: true});
+        expect(await fs.readFile(path.join(projectRoot(projectPath), eventsPath), "utf-8")).toContain("抵达学院");
+        const groups = await readUnseenForAgent(history, 987_654);
+        const eventGroup = groups.find((group) => group.path === eventsPath);
+        expect(eventGroup?.entries.at(-1)?.actor).toEqual({kind: "user", userId: "local"});
     });
 });
 

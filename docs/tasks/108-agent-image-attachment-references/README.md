@@ -1,6 +1,100 @@
 # Agent Attachment 存储内核与图片引用
 
-> 当前状态：实现中 / Integrated locally。Stored Codec与Local Adapter已收口；Project授权、migration路径ownership已补齐，公开Product与浏览器图片验收待完成。
+> 当前状态：Implemented locally / Manual browser acceptance pending。原子 Session mutation、Attachment Authority、invocation receipt/unknown 对账、可靠 follow-up、归档关系视图、Composer 图片事务与安全上传/快照入口均已接通；本轮未自动执行浏览器验收。
+
+## 2026-07-24：二次审查收口
+
+本轮沿 prompt、steer、follow-up、Tree/history、上传、snapshot、归档、abort、SSE/recovery 和草稿切换重新走查，集中关闭 check-then-act 与迟到响应窗口，没有重写已经稳定的 Markdown、Provider hydration、follow-up durable drain 或 effective relation 设计：
+
+- Harness 的 per-Session admission queue 深化为 `withSessionMutation()` / `withSessionMutations()`。invocation claim、terminal transition、Tree/history、runtime command、附件最终登记、archive/restore 和 abort 都在线性化边界内读取最新 policy 并提交；relation -> sorted Session -> sorted write executor 是固定锁顺序。
+- invocation 拆分为锁内 admission/claim 与锁外 Provider 执行。`commitInvocationState()` 统一提交 waiting/end/error/aborted lifecycle、active state 和 queue 清理；已 claim 为 aborting 的 invocation 不能再落 waiting/end，public abort 与 signal abort 不再经过二次锁窗口。
+- Tree 编辑/重跑在移动 active leaf 前完成 Profile、Project、附件和 interaction admission，成功后以显式 parent 写入目标分支；任何 preadmission 失败都不改变 leaf、branch 或 claim。
+- 上传和 snapshot 保留 body/file 读取前快速 preflight，但只在文件处理完成后进入 Session mutation 临界区重新校验并登记。最终校验失败时可能留下内容寻址孤儿 blob，但不会产生 Session 授权 entry。
+- `SessionAttachmentAuthority` 重建每轮比较前后签名：第一次变化丢弃 candidate 后完整重扫，第二次仍变化则 fail closed；重建开始即失效旧 cache，pending observer 增量只补偿内部写入，不能掩盖外部修改。
+- `StableAttachmentSnapshotReader` 固定执行 `realpath -> stat -> open -> fstat` 身份校验，使用同一 FileHandle 读取最多 16 MiB + 1，并在读取后复核 bigint identity、size、mtime 和 ctime。Attachment Store 的逻辑路径、绝对路径和链接真实目标均拒绝。
+- 前端建立共享 invocation reconciliation，HTTP receipt、SSE、queue 和 recovery 只按 `clientMessageId` 对账。无 receipt transport failure 为 `unknown`：不自动恢复、重试或回滚；保留 optimistic 与草稿，后续普通 durable 证据再收敛。该决策记录在 [ADR 0001](../../adr/0001-agent-input-transport-unknown.md)。
+- 草稿上下文固定包含 workspace、Session、generation 和 revision。切换时同步 flush 旧 key、取消 debounce、dispose 图片事务再加载新上下文；acceptance compare-and-clear 只能删除原上下文中仍等于提交快照的草稿。
+- Composer 图片 transaction 增加明确 metadata error 与批量 retry。pending、upload failure 和 metadata failure 在主 Composer 与历史编辑器中都阻止提交；旧 generation 或迟到请求不能覆盖当前 registry。
+- Attachment v1 migration 在内存中组合 user identity migration，最终只发布一次 JSONL，原子补齐 ordered content、queue/user `clientMessageId` 和 explicit intent；runtime 不接受中间 schema，也没有复制 migration 规则。
+
+实际实现与计划的出入：
+
+- 按既定产品取舍，unknown attempt 不持久化，刷新页面只恢复纯文本草稿；没有增加 durable inbox/outbox、自动 retry、发送专用 recovery 或幂等执行。
+- 附件最终登记失败后允许孤儿 blob；本任务仍不增加 GC 或 sidecar。
+- snapshot 稳定性依靠生产不变量和 FileHandle 边界，没有为了制造 pathname 竞态加入测试专用生产 seam。
+- Session 附件测试接入正式 `resetProjectSessionsForTest()` 清理，以符合 ProjectSession 进程内固定 Workspace Root 的运行时合同；没有放宽生产 singleton。
+- 未修改 `CONTEXT.md`，也未处理文本附件、远程 URL、OCR、删除、Provider File API、缩略图转换或其它任务的改动。
+
+验证结果：
+
+- Task 108 聚焦集合：`20 files / 109 tests` 通过。
+- Session Attachment Harness：`14/14` 通过。
+- mutation/terminal/Tree/relation 定向 Harness：`13/13` 通过。
+- Agent black-box：`25/25` 通过。
+- 完整 Harness：`163/165` 通过。两条失败分别是既有“删除模型后 recovery 返回 `model: null`”期望差异，以及测试文件内其它用例遗留 ProjectSession Root；后者在独立进程复跑 `1/1` 通过，均未借 Task 108 修改业务代码。
+- `bun run typecheck` 通过。
+- 未自动执行浏览器验收。
+
+实际验证命令：
+
+```powershell
+bun run test -- shared/agent/agent-image-markdown.test.ts shared/agent/session-interaction-policy.test.ts app/components/novel-ide/agent/useComposerImageTransaction.test.ts app/components/novel-ide/agent/agent-invocation-reconciliation.test.ts app/components/novel-ide/agent/agent-composer-draft.test.ts app/components/novel-ide/agent/agent-attachment.test.ts app/components/novel-ide/agent/agent-user-message-markdown.test.ts server/agent/messages/stored-user-markdown.test.ts server/agent/attachments/agent-attachment-codec.test.ts server/agent/attachments/attachment-store.test.ts server/agent/attachments/local-attachment-blob-adapter.test.ts server/agent/attachments/stable-attachment-snapshot-reader.test.ts server/agent/attachments/session-attachment-authority.test.ts 'server/api/agent/sessions/[sessionId]/attachments.post.test.ts' 'server/api/agent/sessions/[sessionId]/entries/[entryId]/attachments/[contentIndex].get.test.ts' server/agent/events/public-chat-entry-projection.test.ts server/agent/events/public-event-projection.test.ts server/agent/events/public-queue-projection.test.ts server/agent/session/session-user-identity-migration.test.ts server/agent/session/agent-attachment-migration.test.ts
+bun run test -- server/agent/harness/session-attachment.test.ts
+bun run test -- server/agent/harness/neuro-agent-harness.black-box.test.ts
+bun run test -- server/agent/harness/neuro-agent-harness.test.ts -t 'waiting 状态 abort|abort clearQueue|模型错误结束|模型错误后暂停|running 状态 abort|provider error 会作为|模型前 harness 错误|compact command 失败|invocation preflight|Tree 编辑在附件|归档隐藏关系|create 与 archive|后端恢复 waiting 后 abort'
+bun run test -- server/agent/harness/neuro-agent-harness.test.ts
+bun run test -- server/agent/harness/neuro-agent-harness.test.ts -t 'Plan Mode 使用 Project Workspace .agent/plan 并支持 exit preview'
+bun run typecheck
+```
+
+## 2026-07-24：第一次系统性收口
+
+本轮不是在既有图片入口上继续增加条件分支，而是把附件授权、Session 交互、用户输入接收和前端上传生命周期分别收口到单一边界：
+
+- 后端新增 `SessionAttachmentAuthority`。JSONL 仍是唯一持久化真相；Authority 冷访问时流式扫描全部 branch/batch，热访问使用可重建内存索引，并由 `SessionWriteExecutor` after-write observer 增量维护。索引用文件 identity、size、mtime 纳秒签名识别外部修改；构建期间的写入通过 pending entries 补入并按 entry ID 去重。
+- Authority 统一承担 list/search、批量 resolve、ownership、canonical metadata、locator 和 Provider hydration 预检。同一 Attachment ID 的 MIME/bytes 冲突会让目录、locator、continue/rerun 和 Provider hydration 全部 fail closed。
+- 新增 `POST /attachments/resolve`，严格接受 1–8 个不重复 Attachment ID，按请求顺序返回；任一 ID 不属于当前 Session 时整体失败。`resolve([])` 仅作为内部 Authority 短路，不是合法 HTTP 请求。
+- 新增共享 `sessionInteraction()`，recovery、live state、Session summary、前端控件和后端 mutation gate 消费同一能力矩阵。Waiting User Input 只允许回答、停止和查看；Profile 缺失/不可运行只允许查看、复制和归档；Archived 只允许查看、复制和恢复。
+- prompt、steer、follow-up 和 Tree prompt 使用 `clientMessageId`；durable user entry、queue item、公开 Chat/Queue DTO 都暴露同一 ID。`InvokeAgentResult.acceptance` 明确区分 `not_accepted`、`queued` 和 `persisted`，前端不再按正文或字节数猜测乐观消息身份。
+- durable user entry 新增明确 `intent: "normal" | "steer"`；`<user_steer>` 只保留为 Provider envelope，公开投影和前端不再通过正文正则判断 steer。一次性 Session migration 为既有 entry/queue item 写入身份与 intent，runtime 不保留兼容 decoder。
+- follow-up drain 改为 peek → admission → durable user commit → queue ack。user entry 保存 `sourceQueueItemId`；commit 后 ack 失败时，恢复过程只补 ack，不重复运行；重新 admission 失败会保留队首并公开有界 `admission_error`。
+- Tree 编辑/重跑在移动 leaf 前完成 Profile、Project、interaction 和附件 admission；预检失败不会改变 active path，成功的新 prompt 使用显式 parent 写入目标分支。
+- archive 只向自身追加 `session_archived`，restore 追加 `session_restored`，都不跨 Session 写 detach。effective relation view 隐藏任一归档端；恢复后仍 linked 的关系自动重新显现，归档期间发生的显式 detach 仍是最终账本事实。
+- 前端以编辑器 document 作为图片存在性与顺序的唯一真相，`useComposerImageTransaction` 只管理 File、AbortController、上传结果和失败状态。主 Composer 与历史编辑器共享同一 controller；Session generation 同时约束草稿、上传事务、debounce 和迟到响应。
+- 上传路由在消费 body 前执行 Session/Profile/Project/interaction preflight，再由直接依赖的 `busboy` 流式限制 multipart。snapshot 使用同一个已打开 FileHandle 完成 `fstat`、最多 16 MiB + 1 的有界读取和二次稳定性检查，并拒绝 Attachment Store 的逻辑地址、绝对路径和链接真实目标。
+- Markdown HTTP/草稿/历史边界统一使用直接依赖的 mdast parser/serializer；Composer 按键热路径直接投影 TipTap document，不重复解析全文。inline/reference image、title、angle destination、跨行 alt、blockquote、code 和 HTML `<pre>` 均有回归。
+
+实际实现与计划的偏差：
+
+- Busboy `partsLimit` 和 file `limit` 都会在达到阈值时触发。实现使用 `parts: 2` 来允许唯一合法 file part 并探测第二个 part，使用 `fileSize: 16 MiB + 1` 作为溢出哨兵；业务层仍严格拒绝第二个 part 和 `> 16 MiB`，因此公开合同没有放宽。
+- Attachment Authority 在损坏数据上不持久化 sidecar，也不缓存伪造的空 metadata；扫描失败直接抛错，下一次访问仍从 JSONL 重建并 fail closed。
+- snapshot 的读取前后 bigint `fstat` 已实现；自动测试覆盖稳定副本、大小边界和 Store 自引用拒绝，没有为了制造“读取中修改”而给生产实现增加测试专用 seam。
+- 按计划未实现文本附件、远程 URL、OCR、删除、GC、Provider File API 或缩略图转换，也未自动执行浏览器验收。
+
+当次验证（已由上方二次审查的最新结果取代）：Task 108 聚焦集合 `16 files / 107 tests` 通过；Agent black-box `25/25` 通过。完整 Harness 首轮审查暴露的 interaction、receipt、turn admission batch、Waiting queue 和 Tree 旧期望已经按新合同修正；当时还确认一条不属于本任务 diff 的模型 recovery 期望失败（删除模型后公开 `model` 为 `null` 还是保留旧 ID），未借 Task 108 修改。最终复跑随后被工作区另一组 Project resource registry 改动在收集阶段阻断（`registerProjectResourceOwner is not a function`），同一时点无 Harness 聚合入口的抽样仍为 `4 files / 25 tests` 通过，未虚报完整 Harness 全绿。`bun run typecheck` 同样被 Project Workspace/File Index 改动阻断，报错集中在缺失 project-history/plot/world-engine exports 与新增 `fileIndex` 参数，输出没有 Task 108 文件错误；浏览器验收未执行。
+
+## 2026-07-23：Session 图片附件与 Composer 图片输入
+
+本轮在既有 Attachment Store 上完成用户可见图片输入闭环：
+
+- Composer 正文成为图片顺序的唯一真相源，统一 parser/serializer 只识别真实 Markdown 图片节点，忽略普通链接、转义、行内代码、fenced code 和缩进代码块。
+- 新增 `session_attachment` projection entry，以及 multipart 上传、Project/Workspace Root `.nbook`/绝对路径快照、Session 全分支附件目录和完整历史 user-content 接口。
+- invoke HTTP 合同硬切为 `{text}`；旧 `message.images` base64 ingress 由严格 schema 拒绝。prompt、steer、follow-up、payload 和 queue drain 全部消费同一有序 `StoredContent[]`。
+- Composer 已支持拖拽、文件选择、剪贴板、`@` Session 附件、`@` Project 图片和 `@C:/...` 绝对路径图片；多图最多两个请求并发，pending 节点按唯一 ID 原位替换，失败可重试或移除。
+- 头部附件面板覆盖 Session 全 branch/batch，支持搜索、分页和重新插入；面板搜索结果与 Composer 已知附件缓存分离，`@` 菜单按 query 直接查询服务端目录。
+- 缩略图完全从正文图片节点派生；Session 切换会 abort 客户端 pending 请求并忽略迟到响应，已由服务端登记的附件继续保留在原 Session。
+- 草稿按 `agent:composer-draft:v1:<workspaceKey>:<sessionId>` 保存纯 Markdown，300ms 防抖、256 KiB、最多 10 条、30 天清理，并拒绝 data/blob 图片目标。
+- 乐观用户消息、历史复制/编辑和重新运行均保持文字与图片 contentIndex 顺序；公开正文被截断时按需读取完整 user-content。
+- `EnabledModelOptionDto` 增加 `input`，缺省按纯文本模型处理；非视觉模型前端提示但允许发送，后端继续使用原位置文本占位且不读取 blob。
+
+实际实现与计划的差异：
+
+- `@` Session 附件菜单每次 query 取最近 20 项，完整翻页仍由附件面板承担，避免同步 trigger resolver 预加载整个大型目录。
+- pending 节点以 ProseMirror node attr 中的唯一 upload ID 定位，没有建立第二套外部 transaction registry；乱序响应仍按 ID 原位替换。
+- 草稿后台清理其它 Session 的坏记录时不逐条弹通知；只有当前 Session 恢复时发现记录被丢弃才提示，避免启动时通知风暴。
+- 按计划未实现文本附件、远程 URL、OCR、删除或 GC，也未自动执行浏览器验证。
+
+该阶段验证：聚焦回归 `17 files / 102 tests`，图片 follow-up / Provider 恢复 / Session snapshot 选择性 Harness `3 passed`，`bun run typecheck` 通过。最终收口结果以上方 2026-07-24 记录为准。
 
 ## 2026-07-19：Session Entry授权与Migration路径ownership
 
@@ -21,7 +115,7 @@
 
 ## Status
 
-Implementing（2026-07-18 补漏审查重新打开：Local Attachment Adapter链接逃逸与Stored Message exact-key门禁待收口；既有公开发布证据保留为历史记录。）
+Implemented locally（2026-07-24：Session 图片附件、原子准入与 transport unknown 对账已完成；自动化验证见最新 walkthrough，浏览器人工验收由用户决定是否执行。）
 
 ## User Request / Topic
 
@@ -40,7 +134,7 @@ Implementing（2026-07-18 补漏审查重新打开：Local Attachment Adapter链
 - [x] 完整解除 NeuroBook stored/tool result 类型与 Pi `AgentToolResult` / `ToolResultMessage` 图片类型的持久化耦合，不采用 commit 前临时 normalize 的过渡方案。
 - [x] 本次硬切新的 stored attachment 格式；提供一次性迁移脚本，不在 runtime 长期维护内联图片和引用图片两套格式。
 - [x] Attachment 内核从第一天支持通用 MIME 与 bytes；第一版 Provider presentation 只实现图片，不实现文本提取、全文注入、摘要、OCR 或 Provider File API。
-- [x] 当前用户图片 base64 HTTP ingress 在本阶段继续作为正式图片输入合同，但必须在 admission/queue 前立即转换为 Attachment；它不是未来文本附件上传合同。multipart 上传接口留到真正实现用户文件上传时再加入，不在 runtime 建立两套 stored image 格式。
+- [x] 用户图片 HTTP ingress 硬切为 Session multipart 上传/本地文件快照 + Composer Markdown 引用；`AgentUserMessageInputDto` 只接收 `{text}`，严格拒绝旧 `message.images` base64 请求。
 
 ## Goal
 
@@ -357,10 +451,11 @@ return {
 
 ### 用户图片
 
-- 当前 `AgentUserMessageInputDto.images[].data` 可以暂时保留为输入格式，但必须严格解析 raw base64/data URL、验证声明 MIME 与魔数一致，并在 invocation admission、steer/follow-up 入队前保存为 attachment ref。
+- `AgentUserMessageInputDto` 固定为 `{text: string}`，图片通过 Composer Markdown 中的稳定 Session Attachment 目标表达。
+- 上传使用 session-scoped multipart 接口；Project File Address、Workspace Root `.nbook` 地址和绝对路径图片先经 snapshot 接口生成稳定副本。
+- admission 解析 Markdown 后按 Session 目录校验 Attachment ID；Project/绝对路径、远程 URL和其它 Session 的哈希目标不能直接进入模型。
 - queue truth 只保存 stored attachment ref，不能保存 base64。
 - steer、follow-up 和 next-turn 都必须保留附件，不得静默丢弃。
-- 未来实现用户文本/文件上传时新增 session-scoped multipart attachment upload，并让 invoke 接收 refs；本任务不提前实现该 UI/上传协议。
 
 ### 工具图片
 
@@ -707,8 +802,8 @@ Windows 发布允许短暂的 `original → rollback`、`temp → original` 两�
 
 - Attachment GC、引用计数和自动删除。
 - OSS/数据库 Adapter 的具体实现。
-- 用户文本文件上传 UI 和 multipart upload endpoint。
-- 文本提取、全文注入、摘要、OCR、缩略图或格式转换。
+- 用户文本文件上传 UI；当前 multipart endpoint 只接受图片。
+- 文本提取、全文注入、摘要、OCR、服务端缩略图生成或格式转换。
 - Provider File API。
 - Project zip 携带全局 Agent session/Attachment。
 - 旧 trace 迁移。

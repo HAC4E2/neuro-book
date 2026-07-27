@@ -65,5 +65,6 @@ describe("portable manager wrapper", () => {
         } finally {
             process.env = previous;
         }
-    }, 30_000);
+    // Windows会复制并多次校验真实Bun大文件；并行完整suite下30秒会把高I/O负载误判为挂死。
+    }, 60_000);
 });

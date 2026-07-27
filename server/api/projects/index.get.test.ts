@@ -11,15 +11,12 @@ vi.mock("nbook/server/utils/novel-chapter", () => ({
     listNovels: listNovelsMock,
 }));
 
+// 共享测试 setup 的 afterAll 会调用 appLogger.flush()，mock 必须补齐该方法，否则整个 suite 在收尾阶段失败。
 vi.mock("nbook/server/app-logs/logger", () => ({
     appLogger: {
         warn: warnMock,
+        flush: vi.fn(async () => undefined),
     },
-}));
-
-vi.mock("h3", async (importOriginal) => ({
-    ...await importOriginal<typeof import("h3")>(),
-    getQuery: (event: {query?: Record<string, unknown>}) => event.query ?? {},
 }));
 
 describe("GET /api/projects", () => {
@@ -34,97 +31,63 @@ describe("GET /api/projects", () => {
         vi.restoreAllMocks();
     });
 
-    it("把 query、Server-Timing sink 和 diagnostics 传给 Project 列表服务", async () => {
+    it("只把 Server-Timing sink 与 diagnostics 传给列表服务，不再转发裁剪参数", async () => {
         listNovelsMock.mockImplementation(async (options: {
-            limit?: number;
-            includeProjectPaths?: string[];
-            excludeProjectPathPrefixes?: string[];
             timingSink?: {mark(name: string, durationMs: number): void};
             diagnostics?: NovelListDiagnostics;
         }) => {
             options.timingSink?.mark("projects.manifests", 1.2);
             options.timingSink?.mark("projects.total", 3.4);
             if (options.diagnostics) {
-                options.diagnostics.cacheMode = "filtered";
                 options.diagnostics.projectCount = 2;
-                options.diagnostics.visibleCount = 1;
             }
             return [{id: "workspace/a"}];
         });
         const handler = (await import("nbook/server/api/projects/index.get")).default as (event: H3Event) => Promise<unknown>;
-        const {event, headers} = createProjectsEvent({
-            limit: "20",
-            includeProjectPath: ["workspace/a", "workspace/b"],
-            excludeProjectPathPrefix: "workspace/tmp-",
-        });
+        const {event, headers} = createProjectsEvent();
 
         const result = await handler(event);
         flushServerTiming(event, {headers: {}});
 
         expect(result).toEqual([{id: "workspace/a"}]);
-        expect(listNovelsMock).toHaveBeenCalledWith(expect.objectContaining({
-            limit: 20,
-            includeProjectPaths: ["workspace/a", "workspace/b"],
-            excludeProjectPathPrefixes: ["workspace/tmp-"],
+        expect(listNovelsMock).toHaveBeenCalledWith({
             timingSink: expect.objectContaining({mark: expect.any(Function)}),
             diagnostics: expect.any(Object),
-        }));
+        });
         expect(headers["server-timing"]).toContain("projects.manifests;dur=1.2");
         expect(headers["server-timing"]).toContain("projects.total;dur=3.4");
         expect(warnMock).not.toHaveBeenCalled();
     });
 
-    it("慢请求 warn 包含 query shape 和 cache diagnostics", async () => {
+    it("慢请求 warn 只包含 Project 数量与 manifest 缓存状态", async () => {
         vi.spyOn(performance, "now")
             .mockReturnValueOnce(0)
             .mockReturnValueOnce(750);
         listNovelsMock.mockImplementation(async (options: {diagnostics?: NovelListDiagnostics}) => {
             if (options.diagnostics) {
                 Object.assign(options.diagnostics, {
-                    cacheMode: "default",
-                    fullListCache: "pending",
                     projectListCache: "hit",
-                    sessionCountCache: "hit",
                     projectCount: 12,
-                    visibleCount: 12,
-                    statsCacheHits: 10,
-                    statsCacheMisses: 1,
-                    statsCachePending: 1,
                 } satisfies NovelListDiagnostics);
             }
             return [{id: "workspace/a"}];
         });
         const handler = (await import("nbook/server/api/projects/index.get")).default as (event: H3Event) => Promise<unknown>;
-        const {event} = createProjectsEvent({includeProjectPath: "workspace/a"});
+        const {event} = createProjectsEvent();
 
         await handler(event);
 
-        expect(warnMock).toHaveBeenCalledWith("projects.list.slow", expect.objectContaining({
+        expect(warnMock).toHaveBeenCalledWith("projects.list.slow", {
             durationMs: 750,
-            queryShape: {
-                hasLimit: false,
-                includeProjectPathCount: 1,
-                excludePrefixCount: 0,
-            },
             projectCount: 12,
-            visibleCount: 12,
-            cache: {
-                mode: "default",
-                fullList: "pending",
-                projectList: "hit",
-                sessions: "hit",
-                statsHits: 10,
-                statsMisses: 1,
-                statsPending: 1,
-            },
-        }), "Project 列表请求过慢");
+            cache: {projectList: "hit"},
+        }, "Project 列表请求过慢");
     });
 });
 
-function createProjectsEvent(query: Record<string, unknown>): {event: H3Event; headers: Record<string, string>} {
+function createProjectsEvent(): {event: H3Event; headers: Record<string, string>} {
     const headers: Record<string, string> = {};
     const event = {
-        query,
         context: {},
         node: {
             res: {

@@ -16,38 +16,37 @@ export class SceneWorldAnchorResolutionService {
     /**
      * 解析单个 Scene World Anchor。
      */
-    async resolve(projectPath: string, anchor: StorySceneWorldAnchorDto): Promise<StorySceneWorldAnchorDto> {
-        return (await this.resolveMany(projectPath, [anchor]))[0] ?? anchor;
+    async resolve(anchor: StorySceneWorldAnchorDto): Promise<StorySceneWorldAnchorDto> {
+        return (await this.resolveMany([anchor]))[0] ?? anchor;
     }
 
     /**
      * 批量解析 Scene World Anchor，并共享一次 subject identity 读取。
      */
-    async resolveMany(projectPath: string, anchors: StorySceneWorldAnchorDto[]): Promise<StorySceneWorldAnchorDto[]> {
+    async resolveMany(anchors: StorySceneWorldAnchorDto[]): Promise<StorySceneWorldAnchorDto[]> {
         const subjectIds = uniqueSubjectIds(anchors.flatMap((anchor) => [
             ...anchor.subjectIds,
             ...(anchor.locationSubjectId === null ? [] : [anchor.locationSubjectId]),
         ]));
         const subjects = subjectIds.length === 0
             ? []
-            : await this.worldEngineFacade.listSubjectIdentities(projectPath, {ids: subjectIds});
+            : await this.worldEngineFacade.listSubjectIdentities({ids: subjectIds});
         const subjectMap = new Map(subjects.map((subject) => [subject.id, subject]));
-        return Promise.all(anchors.map((anchor) => this.resolveWithSubjectMap(projectPath, anchor, subjectMap)));
+        return Promise.all(anchors.map((anchor) => this.resolveWithSubjectMap(anchor, subjectMap)));
     }
 
     /**
      * 使用已加载的 subject 身份表解析单个 anchor。
      */
     private async resolveWithSubjectMap(
-        projectPath: string,
         anchor: StorySceneWorldAnchorDto,
         subjectMap: WorldSubjectMap,
     ): Promise<StorySceneWorldAnchorDto> {
         const subjects = anchor.subjectIds.map((subjectId) => resolveAnchorSubject(subjectId, subjectMap));
         const locationSubject = anchor.locationSubjectId === null ? null : resolveAnchorSubject(anchor.locationSubjectId, subjectMap);
         const [startTime, endTime] = await Promise.all([
-            this.formatAnchorTime(projectPath, anchor.startInstant),
-            this.formatAnchorTime(projectPath, anchor.endInstant),
+            this.formatAnchorTime(anchor.startInstant),
+            this.formatAnchorTime(anchor.endInstant),
         ]);
 
         return {
@@ -66,12 +65,12 @@ export class SceneWorldAnchorResolutionService {
     /**
      * 格式化 raw instant；缺少 calendar.ts 时只降级当前展示字段。
      */
-    private async formatAnchorTime(projectPath: string, instant: string | null): Promise<string | null> {
+    private async formatAnchorTime(instant: string | null): Promise<string | null> {
         if (instant === null) {
             return null;
         }
         try {
-            return await this.worldEngineFacade.formatTime(projectPath, BigInt(instant));
+            return await this.worldEngineFacade.formatTime(BigInt(instant));
         } catch (error: unknown) {
             if (isMissingCalendarError(error)) {
                 return null;

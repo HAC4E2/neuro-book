@@ -40,7 +40,7 @@ import {
     USER_LOCAL_ACTOR,
     writeResolvedProjectTextFileTracked,
 } from "nbook/server/workspace-history/tracked-workspace-files";
-import {invalidateProjectWorkspaceIndexAfterMutation} from "nbook/server/workspace-files/project-workspace-index";
+import {invalidateProjectTreeIndex} from "nbook/server/text-to-image/compat";
 import {resolveProjectAbsolutePath} from "nbook/server/text-to-image/compat";
 import {assertProjectOpen} from "nbook/server/workspace-files/project-session";
 
@@ -330,7 +330,7 @@ export class PlanningApplyService {
                     actor: USER_LOCAL_ACTOR,
                     knownBefore: current,
                 });
-                invalidateProjectWorkspaceIndexAfterMutation({target: {kind: "project-workspace", root: input.projectPath, projectPath: ""}} as any);
+                invalidateProjectTreeIndex(input.projectPath);
             }
             journal = await this.journalRepository.advance({workflowId: payload.workflowId, from: "prepared", to: "storyboard_written"});
             await this.afterStage("storyboard_written");
@@ -359,7 +359,7 @@ export class PlanningApplyService {
                     actor: USER_LOCAL_ACTOR,
                     knownBefore: currentChapter,
                 });
-                invalidateProjectWorkspaceIndexAfterMutation({target: {kind: "project-workspace", root: input.projectPath, projectPath: ""}} as any);
+                invalidateProjectTreeIndex(input.projectPath);
             }
             journal = await this.journalRepository.advance({workflowId: payload.workflowId, from: "storyboard_written", to: "chapter_written"});
             await this.afterStage("chapter_written");
@@ -377,7 +377,7 @@ export class PlanningApplyService {
                     actor: USER_LOCAL_ACTOR,
                     knownBefore: current,
                 });
-                invalidateProjectWorkspaceIndexAfterMutation({target: {kind: "project-workspace", root: input.projectPath, projectPath: ""}} as any);
+                invalidateProjectTreeIndex(input.projectPath);
             }
             journal = await this.journalRepository.advance({workflowId: payload.workflowId, from: "chapter_written", to: "storyboard_applied"});
             await this.afterStage("storyboard_applied");
@@ -419,7 +419,7 @@ export class PlanningApplyService {
                 knownBefore: current,
             });
         }
-        invalidateProjectWorkspaceIndexAfterMutation({target: {kind: "project-workspace", root: input.projectPath, projectPath: ""}} as any);
+        invalidateProjectTreeIndex(input.projectPath);
         const journal = await this.journalRepository.advance({
             workflowId: input.journal.workflowId,
             from: "storyboard_written",

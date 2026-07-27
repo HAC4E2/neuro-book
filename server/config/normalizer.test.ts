@@ -346,3 +346,61 @@ describe("illustration Tag policy Project truth source", () => {
         } as never)).toThrow();
     });
 });
+
+describe("config normalizer novel data", () => {
+    it("默认值：baseUrl 落 http://localhost:3000", () => {
+        const effective = resolveEffectiveConfig(normalizeGlobalConfig({}), null);
+        expect(effective.novelData).toEqual({baseUrl: "http://localhost:3000"});
+    });
+
+    it("partial 覆盖合并：显式 baseUrl 生效并 trim；显式空串保留（表示未配置）", () => {
+        expect(resolveEffectiveConfig(normalizeGlobalConfig({
+            novelData: {baseUrl: "  http://127.0.0.1:4100  "},
+        }), null).novelData).toEqual({baseUrl: "http://127.0.0.1:4100"});
+
+        // 用户清空 baseUrl 时不回落默认地址，工具侧据此给出配置引导
+        expect(resolveEffectiveConfig(normalizeGlobalConfig({
+            novelData: {baseUrl: ""},
+        }), null).novelData).toEqual({baseUrl: ""});
+    });
+});
+
+describe("config normalizer Provider Config identity", () => {
+    it("runtime Record 化会跳过重复 Provider 组而不是以后项覆盖前项", () => {
+        const provider = {
+            id: "duplicate",
+            name: "First",
+            enabled: true,
+            modelApi: "openai-completions",
+            options: {apiKey: "", baseURL: "https://example.com/v1", proxy: "", timeoutMs: null, requestOptions: {}},
+            models: [{id: "model", name: "Model", enabled: true}],
+        };
+        const effective = resolveEffectiveConfig(normalizeGlobalConfig({
+            models: {default: "duplicate/model", providers: [provider, {...provider, name: "Second"}]},
+        }), null);
+
+        expect(effective.models.providers).toEqual({});
+    });
+
+    it("runtime Record 化会跳过 Provider 内重复模型组并保留其他唯一模型", () => {
+        const effective = resolveEffectiveConfig(normalizeGlobalConfig({
+            models: {
+                default: "provider/unique",
+                providers: [{
+                    id: "provider",
+                    name: "Provider",
+                    enabled: true,
+                    modelApi: "openai-completions",
+                    options: {apiKey: "", baseURL: "https://example.com/v1", proxy: "", timeoutMs: null, requestOptions: {}},
+                    models: [
+                        {id: "duplicate", name: "First", enabled: true},
+                        {id: "duplicate", name: "Second", enabled: false},
+                        {id: "unique", name: "Unique", enabled: false},
+                    ],
+                }],
+            },
+        }), null);
+
+        expect(Object.keys(effective.models.providers.provider?.models ?? {})).toEqual(["unique"]);
+    });
+});

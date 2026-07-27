@@ -33,6 +33,7 @@ const emit = defineEmits<{
     (e: "select", sessionId: number): void;
     (e: "create", profileKey?: string): void;
     (e: "archive", session: AgentSessionSummaryDto): void;
+    (e: "restore", session: AgentSessionSummaryDto): void;
     (e: "rename", session: AgentSessionSummaryDto): void;
     (e: "refresh", query: AgentSessionListQueryDto): void;
     (e: "loadMore", query: AgentSessionListQueryDto): void;
@@ -83,7 +84,9 @@ const query = computed<AgentSessionListQueryDto>(() => ({
 const listedSessions = computed(() => props.sessions);
 const sessionTitle = (session: AgentSessionSummaryDto) => session.title || `Session #${String(session.sessionId)}`;
 const sessionPreview = (session: AgentSessionSummaryDto) => session.summary || session.lastMessagePreview || t("agent.session.noRecentMessages");
-const canArchiveSession = (session: AgentSessionSummaryDto): boolean => session.status !== "running" && session.status !== "waiting";
+const canArchiveSession = (session: AgentSessionSummaryDto): boolean => session.interaction?.canArchive === true;
+const canRestoreSession = (session: AgentSessionSummaryDto): boolean => session.interaction?.canRestore === true;
+const canRenameSession = (session: AgentSessionSummaryDto): boolean => session.interaction?.canChangeRuntime === true;
 
 /**
  * 关闭弹窗。
@@ -310,10 +313,14 @@ onClickOutside(filterPanelRef, () => {
                         </div>
                     </div>
                     <div class="flex shrink-0 flex-col gap-1">
-                        <button class="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-muted)] opacity-50 transition-all hover:bg-[var(--bg-input)] hover:text-[var(--accent-text)] hover:opacity-100 group-hover:opacity-100 disabled:opacity-40" :disabled="actionId === session.sessionId || loading" :title="t('agent.session.rename')" @click.stop="emit('rename', session)">
+                        <button class="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-muted)] opacity-50 transition-all hover:bg-[var(--bg-input)] hover:text-[var(--accent-text)] hover:opacity-100 group-hover:opacity-100 disabled:opacity-40" :disabled="actionId === session.sessionId || loading || !canRenameSession(session)" :title="t('agent.session.rename')" @click.stop="emit('rename', session)">
                             <span class="i-lucide-pencil-line h-4 w-4"></span>
                         </button>
-                        <button class="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-muted)] opacity-50 transition-all hover:bg-[var(--status-danger-bg)] hover:text-[var(--status-danger)] hover:opacity-100 group-hover:opacity-100 disabled:opacity-40" :disabled="actionId === session.sessionId || loading || !canArchiveSession(session)" :title="t('agent.session.archive')" @click.stop="emit('archive', session)">
+                        <button v-if="canRestoreSession(session)" class="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-muted)] opacity-50 transition-all hover:bg-[var(--status-success-bg)] hover:text-[var(--status-success)] hover:opacity-100 group-hover:opacity-100 disabled:opacity-40" :disabled="actionId === session.sessionId || loading" :title="t('agent.session.restore')" @click.stop="emit('restore', session)">
+                            <span v-if="actionId === session.sessionId" class="i-lucide-loader-circle h-4 w-4 animate-spin"></span>
+                            <span v-else class="i-lucide-archive-restore h-4 w-4"></span>
+                        </button>
+                        <button v-else class="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-muted)] opacity-50 transition-all hover:bg-[var(--status-danger-bg)] hover:text-[var(--status-danger)] hover:opacity-100 group-hover:opacity-100 disabled:opacity-40" :disabled="actionId === session.sessionId || loading || !canArchiveSession(session)" :title="t('agent.session.archive')" @click.stop="emit('archive', session)">
                             <span v-if="actionId === session.sessionId" class="i-lucide-loader-circle h-4 w-4 animate-spin"></span>
                             <span v-else class="i-lucide-archive h-4 w-4"></span>
                         </button>

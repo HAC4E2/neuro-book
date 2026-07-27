@@ -3,6 +3,7 @@ import {
     type ProfileHomeFacade,
 } from "nbook/server/agent/profiles/profile-home";
 import {resolveGlobalProfileNbookRoot} from "nbook/server/text-to-image/compat";
+import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {
     IllustrationDirectorSelectorConflictError,
     readIllustrationDirectorSelectorSnapshot,
@@ -109,7 +110,7 @@ type PreparedPublishPreview = {
 /** 跨 Profile Home pair + Global Config selector 的可恢复发布服务。 */
 export class StoryboardGlobalPublishService {
     private readonly workspaceRoot?: string;
-    private readonly lockScope: string;
+    private readonly lockScope: AbsoluteFsPath;
     private readonly home: ProfileHomeFacade;
     private readonly selector: StoryboardGlobalPublishSelectorStore;
     private readonly verifyResolvedImport: PublishVerifier;

@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {TextToImageAssetService} from "nbook/server/text-to-image/asset.service";
-import {closeTextToImageProjectClient, textToImageProjectClient} from "nbook/server/text-to-image/project-client";
+import {textToImageProjectClient} from "nbook/server/text-to-image/project-client";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 import {resetProjectSessionsForTest} from "nbook/server/workspace-files/project-session";
 import {resolveProjectAbsolutePath} from "nbook/server/text-to-image/compat";
@@ -26,7 +26,6 @@ describe("TextToImageAssetService", () => {
     });
 
     afterEach(async () => {
-        await closeTextToImageProjectClient(projectPath).catch(() => undefined);
         await closeProjectForTest(projectPath).catch(() => undefined);
         resetProjectSessionsForTest();
         await assets.dispose();

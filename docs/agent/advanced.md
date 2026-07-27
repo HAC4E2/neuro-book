@@ -19,7 +19,7 @@ Agent Harness 是 NeuroBook 的 Agent 运行内核。它负责创建 session、�
 
 ## Runtime Hooks
 
-Runtime hooks 把 profile prompt、session context、transcript persistence、report_result、compact、sidecar 等行为拆成可组合机制。
+Runtime hooks 把 profile prompt、session context、transcript persistence、report_result 和 compact 等行为拆成可组合机制。多阶段旁路工作不再由 runtime hook 内嵌执行，而是交给显式 Workflow 与后台 Job。
 
 这让 profile 不需要把所有运行逻辑塞进提示词，也让 Harness 能在 prepareRun、prepareTurn、ingestTurn、prepareNextTurn、settleRun 等阶段做明确处理。
 
@@ -29,7 +29,7 @@ Agent session 使用 JSONL append-only 存储，前端通过 snapshot + SSE even
 
 ## 继续阅读
 
-- [Harness Reference](https://github.com/notnotype/neuro-book/blob/master/reference/agent/harness.md)
-- [Runtime Hooks](https://github.com/notnotype/neuro-book/blob/master/reference/agent/runtime-hooks.md)
-- [Harness Black-Box Contract](https://github.com/notnotype/neuro-book/blob/master/reference/agent/harness-black-box-contract.md)
-- [Agent SSE](https://github.com/notnotype/neuro-book/blob/master/reference/agent/sse.md)
+- [Runtime Hooks](https://github.com/notnotype/neuro-book/blob/master/reference/agent/runtime-hooks.md)：五个生命周期阶段的实现参考。
+- [Agent SSE](https://github.com/notnotype/neuro-book/blob/master/reference/agent/sse.md)：前端同步事件合同。
+- [Harness Black-Box Contract](https://github.com/notnotype/neuro-book/blob/master/docs/tasks/18-agent-runtime-pipeline-hooks/HARNESS-BLACK-BOX-CONTRACT.md)：prompt / continue / steer / followup 的外部行为合同。
+- [Agent 上下文构成](https://github.com/notnotype/neuro-book/blob/master/reference/agent/context.md)：一次 invocation 的上下文如何拼装。

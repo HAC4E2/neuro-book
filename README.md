@@ -168,7 +168,7 @@ NeuroBook 的每个核心功能都有双重血统——软件工程的成熟实�
 
 - **Profile**：声明式定义 Agent 的工具白名单、输入 / 输出 Schema、系统提示词、压缩与摘要策略和 Runtime Hooks。
 - **TSX Profile**：用类型安全的 TSX 模板描述 Agent 上下文结构（System、History、Dynamic Context、Reminder、Import），可预览、可低代码编辑，还有「用户资产助手」Agent 协助你改——让 Agent 帮你改 Agent。
-- **Sidecar Context**：在主任务前后 fork runtime-only 分支做检索、反思和记忆维护，旁路 transcript 不进入主 history，只把整理结果合并回主线。
+- **Agent Workflow + 后台 Job**：用可重放 TypeScript 编排多 Agent 并发、循环和人工参与点，以状态图展示过程；长任务拥有可查询、可取消、可回流的独立生命周期。
 
 本地开发：
 
@@ -181,13 +181,15 @@ bun run dev
 
 ## 文档
 
+**在线文档站：[中文](https://blog.notnotype.com/neuro-book/) ｜ [English](https://blog.notnotype.com/neuro-book/en/)**（带搜索和语言切换）。下面是仓库内的 Markdown 源文件：
+
 - [官网文档首页](docs/index.md)
 - [快速开始](docs/quick-start.md)
-- [基础教程：从第一本书到第一次 RP](docs/tutorials/index.md)
-- [部署方式](docs/deployment.md)
-- [Agent 心智模型](docs/agent/index.md)
-- [Profile 介绍](docs/profile/index.md) / [Profile TSX 介绍](docs/profile-tsx/index.md)
-- [Sidecar Context](docs/agent/sidecar.md)
+- [基础教程：从第一本书到前三章](docs/tutorials/index.md)
+- 核心能力：[World Engine](docs/core/world-engine.md) / [Plot 剧情工坊](docs/core/plot-workbench.md) / [Markdown Studio](docs/core/markdown-studio.md) / [llmlint](docs/core/llmlint.md)
+- [部署方式](docs/deployment.md) / [运行、数据与隐私](docs/operations.md)
+- [Agent 心智模型](docs/agent/index.md) / [Workflow 与 Job](docs/agent/workflow.md) / [三种模式](docs/agent/modes.md)
+- [Profile 介绍](docs/profile/index.md) / [从零写一个 Profile](docs/profile-tsx/authoring.md)
 - [NeuroBook Reference Bookshelf](reference/README.md)
 - [PROJECT-STATUS.md](PROJECT-STATUS.md)
 

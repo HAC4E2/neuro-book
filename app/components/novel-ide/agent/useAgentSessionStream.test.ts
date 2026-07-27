@@ -268,7 +268,7 @@ describe("useAgentSessionStream", () => {
                     options?.onOpen?.();
                     await onEvent(control(2, {type: "client_variable_patch_requested", request: {namespace: "client", path: "ide.selection", operations: []}}));
                     appliedSeq.push(session.lastSeq.value);
-                    await onEvent(control(3, {type: "follow_up_queued", item: {id: "follow-1", kind: "followup", text: {preview: "继续", bytes: 6, omitted: false}, images: [], omittedImages: 0, createdAt: 1}}));
+                    await onEvent(control(3, {type: "follow_up_queued", item: {id: "follow-1", clientMessageId: "message-follow-1", kind: "followup", text: {preview: "继续", bytes: 6, omitted: false}, images: [], omittedImages: 0, createdAt: 1}}));
                     appliedSeq.push(session.lastSeq.value);
                     await never();
                 }),
@@ -342,6 +342,7 @@ function userEntry(id: string, content: string): AgentChatEntryDto {
     const bytes = Buffer.byteLength(content, "utf8");
     return {
         id,
+        clientMessageId: `message-${id}`,
         timestamp: 1,
         type: "user",
         intent: "normal",

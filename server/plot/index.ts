@@ -1,78 +1,114 @@
 import {PlotFacade} from "nbook/server/plot/facade/plot.facade";
 import {
-    disposeWorldEngineFacade,
-    disposeWorldEngineFacades,
-    worldEngineFacadeForWorkspaceRoot,
-} from "nbook/server/world-engine";
-import {registerProjectResourceOwner} from "nbook/server/workspace-files/project-session";
-import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import {
     requirePhaseId,
     requirePlotId,
     requireSceneId,
     requireStoryThreadId,
 } from "nbook/server/plot/http/plot-route";
+import {WorldEngineFacade} from "nbook/server/world-engine";
+import {
+    PROJECT_FILE_INDEX_MODULE_TOKEN,
+    type ProjectFileIndexHandle,
+} from "nbook/server/workspace-files/project-file-index";
+import {
+    PROJECT_DATABASE_MODULE_TOKEN,
+    type ProjectDatabaseModuleHandle,
+} from "nbook/server/workspace-files/project-database-module";
+import {
+    PROJECT_HISTORY_MODULE_TOKEN,
+    type ProjectHistoryHandle,
+} from "nbook/server/workspace-history/project-history";
+import {
+    projectModuleToken,
+    registerProjectModule,
+    type ProjectModule,
+    type ProjectModuleHandle,
+} from "nbook/server/workspace-files/project-module";
 
-const facades = new Map<AbsoluteFsPath, PlotFacade>();
+/** 单个ProjectSession generation拥有的Plot与World Engine门面。 */
+export interface ProjectPlotWorldHandle extends ProjectModuleHandle {
+    /** 只允许访问本generation绑定Project的Plot数据面。 */
+    readonly plot: PlotFacade;
+    /** 只允许访问本generation绑定Project的World Engine数据面。 */
+    readonly world: WorldEngineFacade;
+}
+
+/** Plot/World lazy Module的稳定typed token。 */
+export const PROJECT_PLOT_WORLD_MODULE_TOKEN = projectModuleToken<ProjectPlotWorldHandle>(
+    "plot-world",
+    "lazy",
+);
 
 /**
- * 返回绑定到明确 Workspace Root 的 Plot 门面。
+ * lazy Plot/World Module。
  *
- * Plot 的 Prisma client 生命周期跟随物理 Workspace Root 分区；同一进程管理多个
- * NeuroBook 实例时不会把 Project SQLite 或 World Engine 连接到另一个 State Root。
+ * start同步捕获当前ResolvedProjectWorkspace并创建一对generation专属facade；最低ready不打开数据库，
+ * 后续按需创建的全部client都登记在这两个精确实例内，由同一handle关闭。
  */
-export function plotFacadeForWorkspaceRoot(workspaceRoot: AbsoluteFsPath): PlotFacade {
-    const normalizedRoot = absoluteFsPath(workspaceRoot);
-    const existing = facades.get(normalizedRoot);
-    if (existing) {
-        return existing;
-    }
-    const facade = new PlotFacade(normalizedRoot, worldEngineFacadeForWorkspaceRoot(normalizedRoot));
-    facades.set(normalizedRoot, facade);
-    return facade;
-}
+export const projectPlotWorldModule: ProjectModule<ProjectPlotWorldHandle> = Object.freeze({
+    token: PROJECT_PLOT_WORLD_MODULE_TOKEN,
 
-/**
- * 释放一个 Workspace Root 下的 Plot 与共享 World Engine runtime。
- *
- * 先从 registry 移除再关闭连接，避免关闭期间的新调用拿到正在销毁的实例。
- */
-export async function disposePlotFacade(workspaceRoot: AbsoluteFsPath): Promise<void> {
-    const normalizedRoot = absoluteFsPath(workspaceRoot);
-    const facade = facades.get(normalizedRoot);
-    if (!facade) {
-        disposeWorldEngineFacade(normalizedRoot);
-        return;
-    }
-    facades.delete(normalizedRoot);
-    try {
-        await facade.closeAllProjects();
-    } finally {
-        disposeWorldEngineFacade(normalizedRoot);
-    }
-}
+    start(context): ProjectPlotWorldHandle {
+        const database: ProjectDatabaseModuleHandle = context.require(PROJECT_DATABASE_MODULE_TOKEN);
+        const fileIndex: ProjectFileIndexHandle = context.require(PROJECT_FILE_INDEX_MODULE_TOKEN);
+        const history: ProjectHistoryHandle = context.require(PROJECT_HISTORY_MODULE_TOKEN);
+        const world = new WorldEngineFacade(
+            context.prepared.workspaceRoot,
+            context.prepared.workspace,
+            database,
+        );
+        const plot = new PlotFacade(
+            context.prepared.workspace,
+            context.prepared.project,
+            database,
+            fileIndex,
+            history,
+            world,
+        );
+        let plotClosed = false;
+        let worldClosed = false;
+        let closing: Promise<void> | null = null;
+        let closed = false;
 
-/** 释放全部 Plot/World Engine runtime；供进程关闭与测试隔离使用。 */
-export async function disposePlotFacades(): Promise<void> {
-    const activeFacades = [...facades.values()];
-    facades.clear();
-    try {
-        await Promise.all(activeFacades.map((facade) => facade.closeAllProjects()));
-    } finally {
-        disposeWorldEngineFacades();
-    }
-}
+        const handle: ProjectPlotWorldHandle = {
+            plot,
+            world,
+            ready: Promise.resolve().then(() => context.signal.throwIfAborted()),
 
-// Project 资源生命周期：Plot 的 Project PrismaClient 缓存交由统一注册表关闭（删除/空闲/关停）。
-registerProjectResourceOwner({
-    name: "plot-facade",
-    async close(projectPath) {
-        await Promise.all([...facades.values()].map((facade) => facade.closeProject(projectPath)));
-    },
-    async closeAll() {
-        await disposePlotFacades();
+            async close(): Promise<void> {
+                if (closed) {
+                    return;
+                }
+                if (closing) {
+                    return closing;
+                }
+                const attempt = (async () => {
+                    // Plot依赖World Engine，必须先完成Plot释放；失败时保留整条依赖供同handle重试。
+                    if (!plotClosed) {
+                        await plot.close();
+                        plotClosed = true;
+                    }
+                    if (!worldClosed) {
+                        await world.close();
+                        worldClosed = true;
+                    }
+                    closed = true;
+                })();
+                closing = attempt;
+                try {
+                    await attempt;
+                } finally {
+                    if (!closed && closing === attempt) {
+                        closing = null;
+                    }
+                }
+            },
+        };
+        return Object.freeze(handle);
     },
 });
+
+registerProjectModule(projectPlotWorldModule);
 
 export {
     requirePhaseId,

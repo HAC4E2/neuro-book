@@ -4,18 +4,66 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {readInstallationManifest, writeInstallationManifest} from "#manager/manifest-store";
-import {createOperation} from "#manager/operation";
+import {createOperation, updateOperation} from "#manager/operation";
 import {installationPaths} from "#manager/paths";
 import {currentProductPlatform, PRODUCT_ASSET_NAMES} from "#manager/platform";
-import type {InstallationManifest, ReleaseManifest} from "#manager/types";
+import type {GitUpdateTarget} from "#manager/git";
+import type {InstallationManifest, OperationJournal, ReleaseManifest} from "#manager/types";
 import {updateInstallation} from "#manager/updater";
 import {planGitProfileUpdate, planReleaseProfileUpdate} from "#manager/update-planner";
 import {MANAGER_VERSION} from "#manager/version-info";
 
 const manifestStore = vi.hoisted(() => ({resolve: vi.fn()}));
+const git = vi.hoisted(() => ({
+    fetchUpdateTarget: vi.fn<(root: string) => Promise<GitUpdateTarget>>(),
+    createStagedWorktree: vi.fn<(root: string, path: string, revision: string) => Promise<void>>(),
+    removeStagedWorktree: vi.fn<(root: string, path: string) => Promise<void>>(),
+    commitFastForward: vi.fn<(root: string, target: GitUpdateTarget) => Promise<void>>(),
+    repositoryRevision: vi.fn<(root: string) => Promise<string>>(),
+}));
+const product = vi.hoisted(() => ({
+    installSourceDependencies: vi.fn<(root: string, bun?: string) => Promise<void>>(),
+}));
+const migration = vi.hoisted(() => ({
+    apply: vi.fn<(
+        root: string,
+        manifest: InstallationManifest,
+        journal: OperationJournal,
+        applicationRoot?: string,
+    ) => Promise<OperationJournal>>(),
+}));
+const appCommands = vi.hoisted(() => ({
+    rollbackAttachmentMigration: vi.fn<(
+        root: string,
+        manifest: InstallationManifest,
+        runId: string,
+        allowNotStarted?: boolean,
+        applicationRoot?: string,
+    ) => Promise<void>>(),
+}));
 vi.mock("#manager/manifest-store", async (importOriginal) => ({
     ...await importOriginal<typeof import("#manager/manifest-store")>(),
     resolveReleaseManifest: manifestStore.resolve,
+}));
+vi.mock("#manager/git", async (importOriginal) => ({
+    ...await importOriginal<typeof import("#manager/git")>(),
+    fetchUpdateTarget: git.fetchUpdateTarget,
+    createStagedWorktree: git.createStagedWorktree,
+    removeStagedWorktree: git.removeStagedWorktree,
+    commitFastForward: git.commitFastForward,
+    repositoryRevision: git.repositoryRevision,
+}));
+vi.mock("#manager/product", async (importOriginal) => ({
+    ...await importOriginal<typeof import("#manager/product")>(),
+    installSourceDependencies: product.installSourceDependencies,
+}));
+vi.mock("#manager/migration-operation", async (importOriginal) => ({
+    ...await importOriginal<typeof import("#manager/migration-operation")>(),
+    applyJournaledApplicationMigrations: migration.apply,
+}));
+vi.mock("#manager/app-commands", async (importOriginal) => ({
+    ...await importOriginal<typeof import("#manager/app-commands")>(),
+    rollbackAttachmentMigration: appCommands.rollbackAttachmentMigration,
 }));
 
 const SHA_A = "a".repeat(64);
@@ -26,6 +74,14 @@ let root: string | null = null;
 
 afterEach(async () => {
     manifestStore.resolve.mockReset();
+    git.fetchUpdateTarget.mockReset();
+    git.createStagedWorktree.mockReset();
+    git.removeStagedWorktree.mockReset();
+    git.commitFastForward.mockReset();
+    git.repositoryRevision.mockReset();
+    product.installSourceDependencies.mockReset();
+    migration.apply.mockReset();
+    appCommands.rollbackAttachmentMigration.mockReset();
     if (root) {
         await rm(root, {recursive: true, force: true});
         root = null;
@@ -150,6 +206,63 @@ describe("Git Profile Update Planner", () => {
     it("同revision、同channel且Manager未变化时无操作", () => {
         const manifest = gitManifest("source-dev");
         expect(planGitProfileUpdate(manifest, manifest.sourceRevision, manifest.channel, false).alreadyCurrent).toBe(true);
+    });
+});
+
+describe("Source Dev Update恢复", () => {
+    it("迁移失败时先用staged executor恢复Operation，再删除worktree", async () => {
+        root = await fixtureRoot();
+        const manifest = gitManifest("source-dev");
+        const targetRevision = "2".repeat(40);
+        const events: string[] = [];
+        let stagedWorktree: string | null = null;
+        git.fetchUpdateTarget.mockResolvedValue({
+            previousRevision: manifest.sourceRevision,
+            targetRevision,
+            branch: "master",
+        });
+        git.repositoryRevision.mockResolvedValue(manifest.sourceRevision);
+        git.createStagedWorktree.mockImplementation(async (_root, path) => {
+            stagedWorktree = path;
+            await mkdir(path, {recursive: true});
+            await writeFile(join(path, "package.json"), JSON.stringify({name: "neuro-book", version: "0.8.7-canary.1"}), "utf8");
+        });
+        git.removeStagedWorktree.mockImplementation(async (_root, path) => {
+            events.push("remove-worktree");
+            await rm(path, {recursive: true, force: true});
+        });
+        product.installSourceDependencies.mockResolvedValue();
+        migration.apply.mockImplementation(async (_root, _manifest, journal, applicationRoot) => {
+            if (!applicationRoot) throw new Error("测试缺少staged migrationRoot");
+            await updateOperation(journal, journal.phase, {
+                migrationRoot: applicationRoot,
+                attachmentMigration: {
+                    runId: `${journal.id}-attachment`,
+                    state: "planned",
+                    migratedSessions: 1,
+                    sessions: [{
+                        sessionId: 1,
+                        sourcePath: "workspace/project/.nbook/sessions/1/attachments/source.png",
+                        sourceHash: SHA_A,
+                        targetHash: SHA_B,
+                    }],
+                },
+            });
+            throw new Error("模拟迁移失败");
+        });
+        appCommands.rollbackAttachmentMigration.mockImplementation(async (_root, _manifest, _runId, _allowNotStarted, applicationRoot) => {
+            const executorExists = applicationRoot
+                ? await stat(applicationRoot).then(() => true).catch(() => false)
+                : false;
+            events.push(`recover:${executorExists ? "executor-present" : "executor-missing"}`);
+        });
+
+        await expect(updateInstallation({root, manifest, managerExecutable: join(root, "manager-source.mjs")}))
+            .rejects.toThrow("模拟迁移失败");
+
+        expect(stagedWorktree).not.toBeNull();
+        expect(events).toEqual(["recover:executor-present", "remove-worktree"]);
+        expect(appCommands.rollbackAttachmentMigration).toHaveBeenCalledOnce();
     });
 });
 

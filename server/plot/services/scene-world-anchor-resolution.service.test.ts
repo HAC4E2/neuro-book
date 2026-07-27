@@ -30,7 +30,7 @@ function createService(patch: Partial<WorldEngineFacade> = {}) {
             {id: "hero", type: "character", name: "主角"},
             {id: "temple", type: "location", name: "荒野神殿"},
         ]),
-        formatTime: vi.fn(async (_projectPath: string, instant: bigint) => `T${instant.toString()}`),
+        formatTime: vi.fn(async (instant: bigint) => `T${instant.toString()}`),
         ...patch,
     } as unknown as WorldEngineFacade & {
         listSubjectIdentities: ReturnType<typeof vi.fn>;
@@ -47,9 +47,9 @@ describe("SceneWorldAnchorResolutionService", () => {
     it("解析已存在 subject，并把缺失 subject 标记为 unresolved", async () => {
         const {service, worldEngineFacade} = createService();
 
-        const result = await service.resolve("workspace/novel", createAnchor());
+        const result = await service.resolve(createAnchor());
 
-        expect(worldEngineFacade.listSubjectIdentities).toHaveBeenCalledWith("workspace/novel", {
+        expect(worldEngineFacade.listSubjectIdentities).toHaveBeenCalledWith({
             ids: ["hero", "future-ally", "temple"],
         });
         expect(result).toMatchObject({
@@ -67,11 +67,11 @@ describe("SceneWorldAnchorResolutionService", () => {
     it("地点 subject 覆盖 resolved、unresolved、null 三种读取态", async () => {
         const {service} = createService();
 
-        await expect(service.resolve("workspace/novel", createAnchor({locationSubjectId: null}))).resolves.toMatchObject({
+        await expect(service.resolve(createAnchor({locationSubjectId: null}))).resolves.toMatchObject({
             locationSubject: null,
             unresolvedSubjectIds: ["future-ally"],
         });
-        await expect(service.resolve("workspace/novel", createAnchor({locationSubjectId: "future-place"}))).resolves.toMatchObject({
+        await expect(service.resolve(createAnchor({locationSubjectId: "future-place"}))).resolves.toMatchObject({
             locationSubject: {id: "future-place", name: "future-place", type: "unknown", resolved: false},
             unresolvedSubjectIds: ["future-ally", "future-place"],
         });
@@ -87,7 +87,7 @@ describe("SceneWorldAnchorResolutionService", () => {
             }),
         } as Partial<WorldEngineFacade>);
 
-        const result = await service.resolve("workspace/novel", createAnchor());
+        const result = await service.resolve(createAnchor());
 
         expect(result).toMatchObject({
             startInstant: "100",
@@ -112,6 +112,6 @@ describe("SceneWorldAnchorResolutionService", () => {
             }),
         } as Partial<WorldEngineFacade>);
 
-        await expect(service.resolve("workspace/novel", createAnchor())).rejects.toThrow("calendar.ts 加载失败");
+        await expect(service.resolve(createAnchor())).rejects.toThrow("calendar.ts 加载失败");
     });
 });

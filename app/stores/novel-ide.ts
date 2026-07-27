@@ -2089,11 +2089,8 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     /**
      * 加载小说列表。
      */
-    const loadNovels = async (options: {includeProjectPath?: string} = {}): Promise<NovelListItemDto[]> => {
-        const query = options.includeProjectPath ? {includeProjectPath: options.includeProjectPath} : undefined;
-        const list = query
-            ? await $fetch<NovelListItemDto[]>("/api/projects", {query})
-            : await $fetch<NovelListItemDto[]>("/api/projects");
+    const loadNovels = async (): Promise<NovelListItemDto[]> => {
+        const list = await $fetch<NovelListItemDto[]>("/api/projects");
         novels.value = list;
         return list;
     };

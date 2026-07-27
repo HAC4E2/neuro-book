@@ -46,10 +46,12 @@ describe("Provider Config draft frontend session", () => {
         session.draft.value.providers.push(provider);
         session.activeProviderKey.value = provider.localKey;
         session.draft.value.defaultModelKey = "provider/model";
+        session.draft.value.agentVisibleModels = [{modelKey: "provider/model", note: "编码"}];
 
         session.renameActiveProviderId("renamed");
 
         expect(session.draft.value.defaultModelKey).toBe("renamed/model");
+        expect(session.draft.value.agentVisibleModels).toEqual([{modelKey: "renamed/model", note: "编码"}]);
         expect(renameDiscovery).toHaveBeenCalledWith("provider", "renamed");
         expect(cancelProviderChecks).toHaveBeenCalledWith(provider, true);
     });

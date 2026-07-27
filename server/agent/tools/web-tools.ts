@@ -1,7 +1,7 @@
 import {Type} from "typebox";
 import type {Static} from "typebox";
 import type {EffectiveConfig, WebSearchProviderKey} from "nbook/server/config/types";
-import {loadEffectiveConfigForAgentRuntime} from "nbook/server/config/config-service";
+import {loadEffectiveConfigFromTarget} from "nbook/server/config/config-service";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import type {NeuroAgentTool, ToolExecutionContext} from "nbook/server/agent/tools/types";
 
@@ -141,9 +141,12 @@ export function createWebTools(configLoader: (context: ToolExecutionContext) => 
 }
 
 async function defaultConfigLoader(context: ToolExecutionContext): Promise<EffectiveConfig> {
-    return loadEffectiveConfigForAgentRuntime({
-        projectPath: context.projectPath,
-    });
+    if (!context.invocationId) {
+        throw new Error("Web工具缺少invocationId，无法读取已捕获的Project generation。");
+    }
+    return loadEffectiveConfigFromTarget(
+        context.harness.configTargetForInvocation(context.invocationId),
+    );
 }
 
 /**

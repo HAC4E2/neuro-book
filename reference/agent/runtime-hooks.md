@@ -22,7 +22,7 @@ Agent runtime 分三层：
 - `prepareTurn`：每个 provider request 前构造 turn snapshot。
 - `ingestTurn`：一个 assistant / toolResult turn 完成后决定 transcript 是否持久化。
 - `prepareNextTurn`：turn save point 后、下一轮前处理 steer、report_result reminder、compaction 等 continuation。
-- `settleRun`：run 结束后处理 report_result、projection、sidecar 或后续写入。
+- `settleRun`：run 结束后处理 report_result、projection 或后续写入。
 
 ## Built-In Runtime
 
@@ -43,10 +43,12 @@ Agent runtime 分三层：
 适合：
 
 - summarizer 的隐藏运行。
-- sidecar 的检索、反思和维护分支。
+- 明确不应进入产品历史的 profile 内部处理。
 - 不希望污染主对话的 profile 内部处理。
 
 不适合 waiting turn，因为 approval / user input resume 需要 durable pending tool call。
+
+`runtime_only` 只描述 transcript 的持久化策略。需要独立执行检索、反思或维护任务时，使用普通 agent invocation、Agent Workflow 或后台 Job。
 
 ## Profile Turn Context
 

@@ -1,8 +1,10 @@
-import {mkdir, readFile, rename, rm, unlink, writeFile} from "node:fs/promises";
-import {basename, dirname, join, relative} from "node:path";
-import {loadEffectiveConfigAtWorkspaceRoot} from "nbook/server/config/config-service";
-import type {EmbeddingServiceConfig} from "nbook/server/config/types";
-import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
+import {randomUUID} from "node:crypto";
+import {mkdir, readFile, rename, rm, writeFile} from "node:fs/promises";
+import {basename, dirname, join, relative, resolve} from "node:path";
+import {appLogger} from "nbook/server/app-logs/logger";
+import {loadEffectiveConfigFromTarget} from "nbook/server/config/config-service";
+import type {EmbeddingServiceConfig, RuntimeConfigTarget} from "nbook/server/config/types";
+import {currentSqliteRuntime, openSqliteHandle} from "nbook/server/rag/sqlite-handle-initialization";
 import {
     parseSubjectEventsJsonl,
     parseSubjectMemoriesJsonl,
@@ -30,7 +32,19 @@ export type SubjectRagCandidate = {
     sourcePath: string;
 };
 
-export type SubjectRagRuntimeContext = Pick<ToolExecutionContext, "workspaceRootRef" | "workspaceFsRoot" | "projectPath">;
+export type SubjectRagConfigTarget = Extract<RuntimeConfigTarget, {scope: "project"}>;
+
+/**
+ * RAG embedding 配置来源。Agent 工具传播 invocation 已捕获的 Project config target；
+ * Product 数据面可直接注入同 generation 的结构化 Config 快照。
+ */
+type SubjectRagEmbeddingSource = {
+    configTarget: SubjectRagConfigTarget;
+    embedding?: never;
+} | {
+    configTarget?: never;
+    embedding: EmbeddingServiceConfig;
+};
 
 type SubjectRagDatabase = {
     run(sql: string, ...params: unknown[]): unknown;
@@ -96,18 +110,18 @@ const MAX_EMBED_BATCH = 32;
 const INTERNAL_NORMALIZED_DISTANCE_CUTOFF = 1.15;
 const INTERNAL_FETCH_MULTIPLIER = 4;
 const INTERNAL_MAX_FETCH_LIMIT = 80;
+const subjectRagDirtyWriteQueues = new Map<string, Promise<void>>();
 
 /**
  * 检索当前 subject 的 events / memory RAG 候选。
  */
-export async function searchSubjectRag(input: {
-    context: SubjectRagRuntimeContext;
+export async function searchSubjectRag(input: SubjectRagEmbeddingSource & {
     subject: SubjectPaths;
     query: string;
     sources: SubjectRagSourceType[];
     limit: number;
 }): Promise<SubjectRagCandidate[]> {
-    const embedding = await resolveSubjectRagEmbedding(input.context);
+    const embedding = await resolveSubjectRagEmbedding(input);
     const ragDbPath = resolveSubjectRagDbPath(input.subject);
     await mkdir(dirname(ragDbPath), {recursive: true});
     const db = await openSubjectRagDatabase(ragDbPath, embedding.dimensions);
@@ -145,12 +159,11 @@ export async function searchSubjectRag(input: {
 /**
  * 强制重建当前 subject 的指定 RAG source。JSONL 仍是事实源，SQLite 只做缓存。
  */
-export async function rebuildSubjectRag(input: {
-    context: SubjectRagRuntimeContext;
+export async function rebuildSubjectRag(input: SubjectRagEmbeddingSource & {
     subject: SubjectPaths;
     sources: SubjectRagSourceType[];
 }): Promise<void> {
-    const embedding = await resolveSubjectRagEmbedding(input.context);
+    const embedding = await resolveSubjectRagEmbedding(input);
     const ragDbPath = resolveSubjectRagDbPath(input.subject);
     await mkdir(dirname(ragDbPath), {recursive: true});
     const db = await openSubjectRagDatabase(ragDbPath, embedding.dimensions);
@@ -163,45 +176,52 @@ export async function rebuildSubjectRag(input: {
 }
 
 /**
- * 把 subject source 标记为 dirty。JSON 文件是事实源，SQLite 只做可重建缓存。
+ * 把 subject source 标记为 dirty。dirty state 是可重建辅助状态，维护失败只告警，
+ * 不能让已经提交事实源的调用方误判失败后重试。
  */
 export async function markSubjectRagDirty(subject: SubjectPaths, sourceType: SubjectRagSourceType, content: string): Promise<void> {
-    await mkdir(dirname(subject.ragStatePath), {recursive: true});
-    const currentText = await readTextIfExists(subject.ragStatePath);
-    const current = currentText.trim() ? JSON.parse(currentText) as Record<string, Record<string, unknown>> : {};
-    current[subject.absolutePath] = {
-        ...(current[subject.absolutePath] ?? {}),
-        [sourceType]: {
-            dirty: true,
-            sourceHash: subjectMemorySourceHash(content),
-            updatedAt: new Date().toISOString(),
-        },
-    };
-    await writeJsonFile(subject.ragStatePath, current);
+    try {
+        await withSubjectRagDirtyWriteLock(subject.ragStatePath, async () => {
+            const current = await readSubjectRagDirtyState(subject.ragStatePath);
+            current[subject.absolutePath] = {
+                ...(current[subject.absolutePath] ?? {}),
+                [sourceType]: {
+                    dirty: true,
+                    sourceHash: subjectMemorySourceHash(content),
+                    updatedAt: new Date().toISOString(),
+                },
+            };
+            await writeJsonFile(subject.ragStatePath, current);
+        });
+    } catch (error) {
+        void appLogger.warn("agent.subjectRag.dirtyStateMarkFailed", {
+            ragStatePath: subject.ragStatePath,
+            subjectPath: subject.absolutePath,
+            sourceType,
+            error: error instanceof Error ? error.message : String(error),
+        }, "subject RAG dirty state 标记失败，事实源已保留并将在后续按 source hash 自愈");
+    }
 }
 
 async function openSubjectRagDatabase(dbPath: string, dimensions: number): Promise<SubjectRagDatabase> {
-    const db = await createSqliteDatabase(dbPath);
-    const sqliteVec = await import("sqlite-vec") as unknown as SqliteVecModule;
-    try {
-        sqliteVec.load(db);
-        createSchema(db, dimensions);
-        return db;
-    } catch (error) {
-        db.close();
-        throw error;
-    }
-}
-
-async function createSqliteDatabase(dbPath: string): Promise<SubjectRagDatabase> {
-    if ("Bun" in globalThis) {
-        const sqliteSpecifier = "bun:sqlite";
-        const sqlite = await import(sqliteSpecifier) as BunSqliteModule;
-        return new sqlite.Database(dbPath);
-    }
-    const sqliteSpecifier = "node:sqlite";
-    const sqlite = await import(sqliteSpecifier) as unknown as NodeSqliteModule;
-    return wrapNodeSqliteDatabase(new sqlite.DatabaseSync(dbPath, {allowExtension: true}));
+    return openSqliteHandle({
+        runtime: currentSqliteRuntime(),
+        async openBun() {
+            const sqliteSpecifier = "bun:sqlite";
+            const sqlite = await import(sqliteSpecifier) as BunSqliteModule;
+            return new sqlite.Database(dbPath);
+        },
+        async openNode() {
+            const sqliteSpecifier = "node:sqlite";
+            const sqlite = await import(sqliteSpecifier) as unknown as NodeSqliteModule;
+            return wrapNodeSqliteDatabase(new sqlite.DatabaseSync(dbPath, {allowExtension: true}));
+        },
+        async initialize(db) {
+            const sqliteVec = await import("sqlite-vec") as unknown as SqliteVecModule;
+            sqliteVec.load(db);
+            createSchema(db, dimensions);
+        },
+    });
 }
 
 function wrapNodeSqliteDatabase(db: NodeSqliteDatabase): SubjectRagDatabase {
@@ -461,7 +481,7 @@ async function syncSubjectSource(
     });
     run();
     if (externalDirty) {
-        await clearSubjectRagDirty(subject, sourceType);
+        await clearSubjectRagDirty(subject, sourceType, sourceHash);
     }
 }
 
@@ -554,12 +574,8 @@ function splitLongText(text: string): string[] {
     return chunks;
 }
 
-async function resolveSubjectRagEmbedding(context: SubjectRagRuntimeContext): Promise<RagEmbeddingModel> {
-    const config = await loadEffectiveConfigAtWorkspaceRoot({
-        workspaceRoot: context.workspaceFsRoot,
-        projectPath: context.projectPath,
-    });
-    const embedding = config.embedding;
+async function resolveSubjectRagEmbedding(source: SubjectRagEmbeddingSource): Promise<RagEmbeddingModel> {
+    const embedding = source.embedding ?? (await loadEffectiveConfigFromTarget(source.configTarget)).embedding;
     if (!embedding.enabled) {
         throw new Error("subject_rag_search 尚未启用 embedding 服务，因此不会执行关键词 fallback。请在 Embedding 设置中启用嵌入服务。");
     }
@@ -721,40 +737,102 @@ async function readSubjectRagDirty(subject: SubjectPaths, sourceType: SubjectRag
     return record.dirty === true && (typeof record.sourceHash !== "string" || record.sourceHash === currentHash);
 }
 
-async function clearSubjectRagDirty(subject: SubjectPaths, sourceType: SubjectRagSourceType): Promise<void> {
-    const state = await readSubjectRagDirtyState(subject.ragStatePath);
-    const subjectState = state[subject.absolutePath];
-    if (!subjectState?.[sourceType]) {
-        return;
+/**
+ * 清理已经完成索引的精确 source hash；若并发 mark 已写入更新 hash，则保留新 dirty 标记。
+ */
+export async function clearSubjectRagDirty(
+    subject: SubjectPaths,
+    sourceType: SubjectRagSourceType,
+    indexedSourceHash: string,
+): Promise<void> {
+    try {
+        await withSubjectRagDirtyWriteLock(subject.ragStatePath, async () => {
+            const state = await readSubjectRagDirtyState(subject.ragStatePath);
+            const subjectState = state[subject.absolutePath];
+            const sourceState = subjectState?.[sourceType];
+            if (!sourceState || typeof sourceState !== "object" || Array.isArray(sourceState)) {
+                return;
+            }
+            const sourceHash = (sourceState as Record<string, unknown>).sourceHash;
+            if (sourceHash !== indexedSourceHash) {
+                return;
+            }
+            delete subjectState[sourceType];
+            if (Object.keys(subjectState).length === 0) {
+                delete state[subject.absolutePath];
+            }
+            await writeJsonFile(subject.ragStatePath, state);
+        });
+    } catch (error) {
+        void appLogger.warn("agent.subjectRag.dirtyStateClearFailed", {
+            ragStatePath: subject.ragStatePath,
+            subjectPath: subject.absolutePath,
+            sourceType,
+            error: error instanceof Error ? error.message : String(error),
+        }, "subject RAG dirty state 清理失败，保留标记供后续重建");
     }
-    delete subjectState[sourceType];
-    if (Object.keys(subjectState).length === 0) {
-        delete state[subject.absolutePath];
-    }
-    await writeJsonFile(subject.ragStatePath, state);
 }
 
 async function readSubjectRagDirtyState(filePath: string): Promise<Record<string, Record<string, unknown>>> {
-    const currentText = await readTextIfExists(filePath);
-    if (!currentText.trim()) {
+    try {
+        const currentText = await readFile(filePath, "utf-8");
+        if (!currentText.trim()) {
+            return {};
+        }
+        const parsed = JSON.parse(currentText) as unknown;
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            return parsed as Record<string, Record<string, unknown>>;
+        }
+        void appLogger.warn("agent.subjectRag.dirtyStateInvalid", {ragStatePath: filePath}, "subject RAG dirty state 顶层结构损坏，按空的可重建状态处理");
+        return {};
+    } catch (error) {
+        if (typeof error === "object" && error && "code" in error && error.code === "ENOENT") {
+            return {};
+        }
+        void appLogger.warn("agent.subjectRag.dirtyStateReadFailed", {
+            ragStatePath: filePath,
+            error: error instanceof Error ? error.message : String(error),
+        }, "subject RAG dirty state 不可读取，按空的可重建状态处理");
         return {};
     }
-    const parsed = JSON.parse(currentText) as unknown;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-        ? parsed as Record<string, Record<string, unknown>>
-        : {};
 }
 
 async function writeJsonFile(filePath: string, value: unknown): Promise<void> {
     const text = `${JSON.stringify(value, null, 2)}\n`;
-    await rm(`${filePath}.tmp`, {force: true});
-    await writeFile(`${filePath}.tmp`, text, "utf-8");
-    await unlink(filePath).catch((error) => {
-        if (typeof error !== "object" || !error || !("code" in error) || error.code !== "ENOENT") {
-            throw error;
-        }
+    const directory = dirname(filePath);
+    const temporaryPath = join(
+        directory,
+        `.${basename(filePath)}.${String(process.pid)}.${randomUUID()}.tmp`,
+    );
+    await mkdir(directory, {recursive: true});
+    try {
+        await writeFile(temporaryPath, text, {encoding: "utf-8", flag: "wx"});
+        await rename(temporaryPath, filePath);
+    } finally {
+        await rm(temporaryPath, {force: true}).catch(() => undefined);
+    }
+}
+
+/** 同一个 dirty state 文件的完整读改写按调用顺序串行，且失败不会污染后续队列。 */
+async function withSubjectRagDirtyWriteLock<T>(filePath: string, action: () => Promise<T>): Promise<T> {
+    const lockKey = resolve(filePath);
+    const previous = subjectRagDirtyWriteQueues.get(lockKey) ?? Promise.resolve();
+    let release: () => void = () => {};
+    const current = new Promise<void>((resolvePromise) => {
+        release = resolvePromise;
     });
-    await rename(`${filePath}.tmp`, filePath);
+    const queued = previous.catch(() => undefined).then(() => current);
+    subjectRagDirtyWriteQueues.set(lockKey, queued);
+
+    await previous.catch(() => undefined);
+    try {
+        return await action();
+    } finally {
+        release();
+        if (subjectRagDirtyWriteQueues.get(lockKey) === queued) {
+            subjectRagDirtyWriteQueues.delete(lockKey);
+        }
+    }
 }
 
 function sanitizeProviderError(message: string): string {

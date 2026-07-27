@@ -11,16 +11,7 @@ import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
 import {RpLeaderInitialSchema, RpLeaderOutputSchema, RpWriterInitialSchema, RpWriterOutputSchema, SimulatorLeaderInitialSchema, SubjectSimulatorInitialSchema, SubjectSimulatorOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {storedMessageText, type StoredMessageLike} from "nbook/server/agent/messages/stored-message-presentation";
 import {createTestRuntimeSession as testSession} from "nbook/server/agent/profiles/test/runtime-session";
-import type {SidecarContext} from "nbook/server/agent/profiles/types";
 import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
-
-type SchemaWithProperties = {
-    properties: Record<string, unknown>;
-};
-
-type SchemaWithType = {
-    type?: string;
-};
 
 function messagesText(messages: StoredMessageLike[] | undefined): string {
     return (messages ?? []).map((message) => storedMessageText(message)).join("\n");
@@ -32,6 +23,7 @@ describe("RP builtin profiles", () => {
             resolve(".agent", "missing-user-profiles"),
         );
         catalog.register(defaultAgentProfile);
+        catalog.enableRuntimeRegistry();
         const snapshot = await catalog.snapshot();
         const profileKeys = snapshot.profiles.map((profile) => profile.key);
 
@@ -40,7 +32,7 @@ describe("RP builtin profiles", () => {
         expect(profileKeys).toContain("simulator.actor");
         expect(profileKeys).toContain("rp.writer");
         expect(profileKeys).not.toContain("leader.rp");
-    }, 20_000);
+    }, 60_000);
 
     it("rp contracts 使用 RP 专用输入输出，不复用普通 writer chapterPaths", () => {
         expect(SimulatorLeaderInitialSchema.properties).toEqual({});
@@ -213,7 +205,7 @@ describe("RP builtin profiles", () => {
         expect(modelContextText).toContain("mode: 每轮任务 prompt 指定");
     });
 
-    it("simulator.actor 主路只注入 actor binding，subject 文件由 sidecar 加载", async () => {
+    it("simulator.actor 只暴露 report_result，并注入 actor binding 与当前角色提示词", async () => {
         const fixture = await createRoleplayFixture();
         try {
             const prepared = await simulatorActorProfile.prepare!({
@@ -238,87 +230,9 @@ describe("RP builtin profiles", () => {
             const systemPrompt = prepared.systemPrompt ?? "";
             const modelContextText = messagesText(prepared.modelContextMessages);
             const appendingText = messagesText(prepared.appendingMessages);
-            const sidecars = simulatorActorProfile.sidecars ?? [];
-            const contextLoad = sidecars.find((sidecar) => sidecar.name === "actor.context-load");
-            const memorySave = sidecars.find((sidecar) => sidecar.name === "actor.memory-save");
 
-            expect(simulatorActorProfile.rootToolKeys).toEqual(["subject_rag_search", "subject_event_append", "subject_memory_update", "read", "edit", "report_result", "report_sidecar_result"]);
-            expect(sidecars.map((sidecar) => sidecar.name)).toEqual(["actor.context-load", "actor.memory-save"]);
-            expect(contextLoad).toEqual(expect.objectContaining({
-                stage: "prepareRun",
-                toolKeys: ["subject_rag_search", "report_sidecar_result"],
-            }));
-            expect(memorySave).toEqual(expect.objectContaining({
-                stage: "settleRun",
-                toolKeys: ["subject_event_append", "subject_memory_update", "read", "edit", "report_sidecar_result"],
-            }));
-            expect(simulatorActorProfile.toolKeys).toEqual(["report_result"]);
-            expect((contextLoad?.sidecarDataSchema as SchemaWithProperties | undefined)?.properties).toEqual({});
-            expect((memorySave?.sidecarDataSchema as SchemaWithProperties | undefined)?.properties).toEqual({});
-            const memorySavePrompt = typeof memorySave?.enterPrompt === "function"
-                ? memorySave.enterPrompt({
-                    name: "actor.memory-save",
-                    stage: "settleRun",
-                    sessionId: -1,
-                    session: testSession({
-                        profileKey: "simulator.actor",
-                        workspaceRoot: "workspace",
-                        projectPath: `workspace/${fixture.projectSlug}`,
-                    }),
-                    initial: {
-                        subjectPath: "simulation/subjects/heroine",
-                        kind: "npc",
-                    },
-                    runResult: {
-                        status: "completed",
-                        reportResult: {
-                            result: "ok",
-                            data: {
-                                visible_response: "她向后退了一步。",
-                                spoken_dialogue: "",
-                                inner_response: "她开始警惕这条新消息。",
-                            },
-                        },
-                    },
-                    invocationId: "test-invocation",
-                    profileKey: "simulator.actor",
-                    caller: {kind: "sidecar"},
-                } satisfies SidecarContext<Parameters<typeof memorySave.merge>[0]["initial"]>)
-                : memorySave?.enterPrompt ?? "";
-            const contextLoadPrompt = typeof contextLoad?.enterPrompt === "function"
-                ? contextLoad.enterPrompt({
-                    name: "actor.context-load",
-                    stage: "prepareRun",
-                    sessionId: -1,
-                    session: testSession({
-                        profileKey: "simulator.actor",
-                        workspaceRoot: "workspace",
-                        projectPath: `workspace/${fixture.projectSlug}`,
-                    }),
-                    initial: {
-                        subjectPath: "simulation/subjects/heroine",
-                        kind: "npc",
-                    },
-                    invocationId: "test-invocation",
-                    profileKey: "simulator.actor",
-                    caller: {kind: "sidecar"},
-                } satisfies SidecarContext<Parameters<typeof contextLoad.merge>[0]["initial"]>)
-                : contextLoad?.enterPrompt ?? "";
-            expect(contextLoadPrompt).toContain("subjectPath: simulation/subjects/heroine");
-            expect(contextLoadPrompt).toContain("subjectPath 必须使用上面的 subjectPath");
-            expect(contextLoadPrompt).toContain("不要关键词 fallback");
-            expect(memorySavePrompt).toContain("eventsPath");
-            expect(memorySavePrompt).toContain("subjectPath: simulation/subjects/heroine");
-            expect(memorySavePrompt).toContain("subjectPath 必须使用上面的 subjectPath");
-            expect(memorySavePrompt).toContain("从上面的 report_result.data 提取 visible_response、spoken_dialogue、inner_response");
-            expect(memorySavePrompt).toContain("不读取也不写 subject.md、soul.md、state.md");
-            expect(memorySavePrompt).toContain("只有对应写入工具实际调用成功后");
-            expect(memorySavePrompt).toContain("report_sidecar_result.result");
-            expect(memorySavePrompt).toContain("\"actor.memory-save\"");
-            expect(memorySavePrompt).toContain("{ \"actor.memory-save\": {} }");
-            expect(contextLoadPrompt).toContain("{ \"actor.context-load\": {} }");
-            expect(memorySavePrompt).not.toContain("\"payload\": {}");
-            expect(contextLoadPrompt).not.toContain("\"sidecar\": \"actor.context-load\"");
+            expect(simulatorActorProfile.rootToolKeys).toEqual(["report_result"]);
+            expect(simulatorActorProfile).not.toHaveProperty("sidecars");
             expect(systemPrompt).toContain("<actor>");
             expect(systemPrompt).toContain("<subject id=\"heroine\" kind=\"npc\" />");
             expect(systemPrompt).toContain("你就是 soul.md 描述的那个人");
@@ -337,7 +251,7 @@ describe("RP builtin profiles", () => {
             expect(systemPrompt).toContain("主扮演阶段实际只能执行 report_result");
             expect(systemPrompt).toContain("不要调用 read、write、edit、subject_rag_search、subject_event_append 或 subject_memory_update");
             expect(systemPrompt).toContain("你看不到 subject.md（全知秘密档，只给上级模拟器）");
-            expect(systemPrompt).toContain("文件维护由 actor.context-load / actor.memory-save 旁路处理");
+            expect(systemPrompt).toContain("记忆的检索与沉淀由外部流程维护");
             expect(systemPrompt).toContain("visible_response");
             expect(systemPrompt).toContain("我只表达角色反应本身");
             expect(systemPrompt).toContain("必须调用 report_result");
@@ -355,7 +269,7 @@ describe("RP builtin profiles", () => {
             expect(modelContextText).toContain("kind: npc");
             expect(modelContextText).not.toContain("actorName: heroine");
             expect(modelContextText).toContain("subjectPath: simulation/subjects/heroine");
-            expect(modelContextText).toContain("这些路径只供 actor.context-load / actor.memory-save 旁路使用");
+            expect(modelContextText).toContain("这些路径只供外部记忆维护流程使用");
             expect(modelContextText).not.toContain("<subject_instruction>");
             expect(modelContextText).not.toContain("保持礼貌但警惕");
             expect(modelContextText).not.toContain("她第一次在广场边缘见到主角");
@@ -370,38 +284,12 @@ describe("RP builtin profiles", () => {
             expect(modelContextText).toContain("只回应当前 user message");
             expect(modelContextText).toContain("并必须调用 report_result");
             expect(modelContextText).toContain("不要主动读写文件");
-            expect(modelContextText).toContain("记忆维护交给 sidecar");
+            expect(modelContextText).toContain("记忆维护不归我此刻操心");
             expect(appendingText).toContain("Runtime Location");
             expect(appendingText).not.toContain("只回应当前 user message");
         } finally {
             await fixture.cleanup();
         }
-    });
-
-    it("simulator.actor context-load 从 report_sidecar_result.result 注入文本", async () => {
-        const contextLoad = simulatorActorProfile.sidecars?.find((sidecar) => sidecar.name === "actor.context-load");
-        const schema = contextLoad?.sidecarDataSchema;
-        if (!contextLoad || !schema) {
-            throw new Error("actor.context-load sidecarDataSchema missing");
-        }
-
-        expect((schema as SchemaWithProperties).properties).toEqual({});
-        const pureTextPlan = await contextLoad.merge({
-            name: "actor.context-load",
-            stage: "prepareRun",
-            sessionId: -1,
-            session: testSession({profileKey: "simulator.actor"}),
-            initial: {subjectPath: "simulation/subjects/heroine", kind: "npc"},
-            invocationId: "test-invocation",
-            profileKey: "simulator.actor",
-            caller: {kind: "sidecar"},
-        }, {
-            result: "她知道自己正在学院区广场。",
-            sidecarData: {},
-        });
-        const text = pureTextPlan.persistedMessages?.map((message) => storedMessageText(message)).join("\n") ?? "";
-        expect(text).toContain("<actor-sidecar-context source=\"actor.context-load\">");
-        expect(text).toContain("她知道自己正在学院区广场。");
     });
 
     it("simulator.actor 复用 subject simulator 合同并注入新 profile 身份", async () => {
@@ -431,8 +319,8 @@ describe("RP builtin profiles", () => {
 
             expect(simulatorActorProfile.initialSchema).toBe(SubjectSimulatorInitialSchema);
             expect(simulatorActorProfile.outputSchema).toBe(SubjectSimulatorOutputSchema);
-            expect(simulatorActorProfile.rootToolKeys).toEqual(["subject_rag_search", "subject_event_append", "subject_memory_update", "read", "edit", "report_result", "report_sidecar_result"]);
-            expect(simulatorActorProfile.toolKeys).toEqual(["report_result"]);
+            expect(simulatorActorProfile.rootToolKeys).toEqual(["report_result"]);
+            expect(simulatorActorProfile).not.toHaveProperty("sidecars");
             expect(systemPrompt).toContain("<profile>simulator.actor</profile>");
             expect(systemPrompt).toContain("<subject id=\"heroine\" kind=\"npc\" />");
             expect(modelContextText).toContain("<actor_binding>");

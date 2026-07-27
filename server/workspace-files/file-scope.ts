@@ -79,6 +79,14 @@ export type ProjectFileAddress = Readonly<{
     relativePath: string;
 }>;
 
+/** 显式 `workspace/.nbook/...` Workspace Root 控制区文件地址。 */
+export type WorkspaceNbookFileAddress = Readonly<{
+    kind: "workspace-nbook-address";
+    absolutePath: AbsoluteFsPath;
+    projectPath: null;
+    relativePath: string;
+}>;
+
 /** 明确绝对 File Address 的解析结果。 */
 export type AbsoluteFileAddress =
     | Readonly<{
@@ -98,6 +106,7 @@ export type AbsoluteFileAddress =
 export type ResolvedFileAddress =
     | ScopeRelativeFileAddress
     | ProjectFileAddress
+    | WorkspaceNbookFileAddress
     | AbsoluteFileAddress;
 
 /**
@@ -173,6 +182,24 @@ export function resolveFileAddress(scope: FileScope, input: string): ResolvedFil
 
     const segments = normalizedInput.split("/");
     if (segments[0] === "workspace") {
+        if (segments[1] === ".nbook") {
+            if (scope.kind === "external-project") {
+                throw new Error("外部 File Scope不能解析Workspace Root .nbook File Address");
+            }
+            if (segments.some((segment) => segment.length === 0) || segments.length < 3) {
+                throw new Error("Workspace Root .nbook File Address必须指向具体文件或目录项");
+            }
+            const nbookRoot = scope.kind === "user-assets"
+                ? scope.root
+                : resolveContainedFilePath(scope.workspaceRoot, ".nbook");
+            const relativePath = segments.slice(2).join("/");
+            return {
+                kind: "workspace-nbook-address",
+                absolutePath: resolveContainedFilePath(nbookRoot, relativePath),
+                projectPath: null,
+                relativePath,
+            };
+        }
         if (scope.kind !== "workspace" && scope.kind !== "managed-project") {
             throw new Error(`${scope.kind === "external-project" ? "外部" : "user-assets"} File Scope不能解析managed Project File Address`);
         }

@@ -117,7 +117,6 @@ const nodeIconMap: Record<ProfileTemplateNodeType, string> = {
     SystemReminder: "i-lucide-badge-alert",
     LinkedAgentsSummary: "i-lucide-git-merge",
     LinkedAgentsReminder: "i-lucide-network",
-    RuntimeLocationReminder: "i-lucide-folder-code",
     WorkspaceFocusReminder: "i-lucide-folder-kanban",
     ModeAvailabilityReminder: "i-lucide-clipboard-plus",
     TaskReminder: "i-lucide-list-checks",
@@ -126,6 +125,7 @@ const nodeIconMap: Record<ProfileTemplateNodeType, string> = {
     MentionedSkillsReminder: "i-lucide-at-sign",
     AgentCatalog: "i-lucide-bot",
     SkillCatalog: "i-lucide-library",
+    WorkflowCatalog: "i-lucide-workflow",
     ActivatedSkills: "i-lucide-sparkles",
     SqlSchemaSummary: "i-lucide-database",
     Import: "i-lucide-file-input",
@@ -166,7 +166,7 @@ function nodeMeta(node: ProfileTemplateNodeDto): string {
     if (node.type === "ToolResult") {
         return `tool: ${String(node.props.toolName ?? "tool")}`;
     }
-    if (node.type === "Reminder" || node.type === "RuntimeLocationReminder" || node.type === "WorkspaceFocusReminder" || node.type === "ModeAvailabilityReminder" || node.type === "TaskReminder" || node.type === "ModeReminder") {
+    if (node.type === "Reminder" || node.type === "WorkspaceFocusReminder" || node.type === "ModeAvailabilityReminder" || node.type === "TaskReminder" || node.type === "ModeReminder") {
         return ["id", "watchPath", "watchValue", "repeatEveryTurns"]
             .filter((key) => node.props[key] !== undefined && node.props[key] !== "")
             .map((key) => `${key}: ${formatPropValue(node.props[key])}`)
@@ -248,11 +248,8 @@ function nodeSummary(node: ProfileTemplateNodeDto): string {
     if (node.type === "LinkedAgentsReminder" || node.type === "LinkedAgentsSummary") {
         return "Linked agents summary.";
     }
-    if (node.type === "RuntimeLocationReminder") {
-        return "Runtime location reminder.";
-    }
     if (node.type === "WorkspaceFocusReminder") {
-        return "Workspace focus reminder.";
+        return "File scope and workspace focus reminder.";
     }
     if (node.type === "ModeAvailabilityReminder") {
         return "switch_mode availability reminder in normal mode.";
@@ -358,7 +355,7 @@ function prepareDrag(): void {
                     :depth="props.depth + 1"
                     :index="childIndex"
                     :parent-id="props.node.id"
-                    :can-have-children="!['Text', 'ToolCall', 'ToolResult', 'AgentCatalog', 'SkillCatalog', 'ActivatedSkills', 'SqlSchemaSummary', 'Import', 'LinkedAgentsSummary', 'LinkedAgentsReminder', 'RuntimeLocationReminder', 'WorkspaceFocusReminder', 'ModeAvailabilityReminder', 'TaskReminder', 'MentionedSkillsReminder', 'FileChangeNotice'].includes(child.type)"
+                    :can-have-children="!['Text', 'ToolCall', 'ToolResult', 'AgentCatalog', 'SkillCatalog', 'WorkflowCatalog', 'ActivatedSkills', 'SqlSchemaSummary', 'Import', 'LinkedAgentsSummary', 'LinkedAgentsReminder', 'WorkspaceFocusReminder', 'ModeAvailabilityReminder', 'TaskReminder', 'MentionedSkillsReminder', 'FileChangeNotice'].includes(child.type)"
                     :disabled-drop-node-ids="props.disabledDropNodeIds"
                     @select="emit('select', $event)"
                     @prepare-drag="emit('prepareDrag', $event)"
@@ -542,7 +539,6 @@ function prepareDrag(): void {
 .node-SystemReminder::before,
 .node-LinkedAgentsSummary::before,
 .node-LinkedAgentsReminder::before,
-.node-RuntimeLocationReminder::before,
 .node-WorkspaceFocusReminder::before,
 .node-ModeAvailabilityReminder::before,
 .node-TaskReminder::before,
@@ -620,7 +616,6 @@ function prepareDrag(): void {
     --profile-node-accent: #4f8c8f;
 }
 
-.node-RuntimeLocationReminder,
 .node-WorkspaceFocusReminder,
 .node-ModeAvailabilityReminder {
     --profile-node-accent: #b65f5b;

@@ -3,6 +3,8 @@ import type {WorkspaceFileNode} from "nbook/server/workspace-files/workspace-fil
 import {beforeEach, describe, expect, it, vi} from "vitest";
 import path from "node:path";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import type {ProjectFileIndexHandle} from "nbook/server/workspace-files/project-file-index";
+import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
 
 const snapshotMock = vi.fn();
 vi.mock("nbook/server/workspace-files/project-workspace-index", () => ({
@@ -22,7 +24,13 @@ function node(patch: Partial<WorkspaceFileNode>): WorkspaceFileNode {
 
 describe("ChapterProseService", () => {
     const workspaceRoot = absoluteFsPath(path.resolve(".agent", "chapter-prose-service-test", "workspace"));
-    const service = new ChapterProseService(workspaceRoot);
+    const fileIndex = {} as ProjectFileIndexHandle;
+    const target = {
+        kind: "project-workspace" as const,
+        root: absoluteFsPath(path.join(workspaceRoot, "novel")),
+        projectPath: normalizeProjectPath("workspace/novel"),
+    };
+    const service = new ChapterProseService(target, fileIndex);
 
     beforeEach(() => {
         snapshotMock.mockReset();
@@ -42,7 +50,7 @@ describe("ChapterProseService", () => {
             node({path: "manuscript/readme.md", isDirectory: false, contentNode: false, frontmatter: {chapter: "x"}}),
         ]});
 
-        const result = await service.listChapterPointers("workspace/novel");
+        const result = await service.listChapterPointers();
 
         expect(result.map((item) => item.path)).toEqual([
             "manuscript/002-vol/001-ch",
@@ -55,11 +63,8 @@ describe("ChapterProseService", () => {
             words: 20,
         });
         expect(snapshotMock).toHaveBeenCalledWith({
-            target: {
-                kind: "project-workspace",
-                root: absoluteFsPath(path.join(workspaceRoot, "novel")),
-                projectPath: "workspace/novel",
-            },
+            target,
+            fileIndex,
         });
     });
 
@@ -71,7 +76,7 @@ describe("ChapterProseService", () => {
             node({path: "manuscript/a-draft/", frontmatter: {chapter: "ch-1"}}),
         ]});
 
-        const result = await service.findProseForChapter("workspace/novel", "ch-1");
+        const result = await service.findProseForChapter("ch-1");
         expect(result.map((item) => item.path)).toEqual(["manuscript/a", "manuscript/a-draft"]);
     });
 
@@ -81,7 +86,7 @@ describe("ChapterProseService", () => {
             node({path: "manuscript/b/", frontmatter: {chapter: "ghost"}}),
         ]});
 
-        const orphans = await service.findOrphanPointers("workspace/novel", new Set(["ch-1"]));
+        const orphans = await service.findOrphanPointers(new Set(["ch-1"]));
         expect(orphans.map((item) => item.chapterName)).toEqual(["ghost"]);
     });
 });

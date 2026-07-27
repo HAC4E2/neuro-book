@@ -1,36 +1,42 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type {NeuroToolResult} from "nbook/server/agent/tools/types";
-import {afterEach, beforeEach, describe, expect, it} from "vitest";
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {createBuiltinTools} from "nbook/server/agent/tools";
 import {createWorldEngineTools} from "nbook/server/agent/tools/world-engine-tools";
 import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
-import {worldEngineFacadeForWorkspaceRoot} from "nbook/server/world-engine";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
+import {requireReadyProjectPath} from "nbook/server/workspace-files/project-session";
+import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 describe("world engine agent tools", {timeout: 30_000}, () => {
     let projectPath: string;
     let projectRoot: string;
+    let invocationReady: ReadyProjectSessionRef;
     let context: ToolExecutionContext;
 
     beforeEach(async () => {
         projectPath = await createProject();
         projectRoot = path.join(resolveRuntimeWorkspaceRoot(), projectPath.slice("workspace/".length));
+        invocationReady = requireReadyProjectPath(projectPath);
         context = {
-            harness: {} as ToolExecutionContext["harness"],
+            harness: {
+                projectForInvocation: vi.fn(() => invocationReady),
+            } as unknown as ToolExecutionContext["harness"],
             sessionId: 1,
             profileKey: "leader.default",
             workspaceRootRef: "workspace",
             workspaceFsRoot: resolveRuntimeWorkspaceRoot(),
             workspaceKey: "global",
+            projectPath,
+            invocationId: "world-engine-tools-test-invocation",
         };
     }, 30_000);
 
     afterEach(async () => {
         await closeProjectForTest(projectPath).catch(() => undefined);
-        await worldEngineFacadeForWorkspaceRoot(context.workspaceFsRoot).closeProject(projectPath);
         await removeProjectRoot(projectRoot);
     }, 30_000);
 
@@ -236,8 +242,7 @@ describe("world engine agent tools", {timeout: 30_000}, () => {
         `)).rejects.toThrow();
     });
 
-    it("execute_world 失败时保存调试脚本", async () => {
-        let savedPath: string | undefined;
+    it("execute_world 失败时保留原始错误且不在 gate 外写调试文件", async () => {
         try {
             await executeWorld(context, projectPath, `
                 const hero = await world.subject.get("erina");
@@ -249,17 +254,45 @@ describe("world engine agent tools", {timeout: 30_000}, () => {
                 throw error;
             }
             expect(error.message).toContain("世界引擎脚本执行失败");
-            const match = error.message.match(/失败的代码已保存到：(\.temp\/world-execute-[a-f0-9]+\.js)/);
-            expect(match?.[1]).toBeDefined();
-            savedPath = match?.[1];
-            if (savedPath) {
-                const savedCode = await fs.readFile(path.join(context.workspaceFsRoot, savedPath), "utf-8");
-                expect(savedCode).toContain("return hero.name + (;");
-            }
+            expect(error.cause).toBeInstanceOf(Error);
+        }
+        await expect(fs.stat(path.join(projectRoot, ".temp"))).rejects.toMatchObject({code: "ENOENT"});
+    });
+
+    it("同路径 reopen 后拒绝旧 invocation generation", async () => {
+        await closeProjectForTest(projectPath);
+        await openProjectForTest(projectPath);
+        expect(requireReadyProjectPath(projectPath)).not.toBe(invocationReady);
+
+        await expect(executeWorld(context, projectPath, `return "不应改查新 generation";`))
+            .rejects.toThrow("世界引擎脚本执行失败");
+    });
+
+    it("显式跨 Project override 的脚本执行期间持有目标 operation gate", async () => {
+        const targetProjectPath = await createProject();
+        const targetProjectRoot = path.join(
+            resolveRuntimeWorkspaceRoot(),
+            targetProjectPath.slice("workspace/".length),
+        );
+        try {
+            await executeWorld(context, targetProjectPath, `return "target-warmed";`);
+            const execution = executeWorld(context, targetProjectPath, `
+                await new Promise((resolve) => setTimeout(resolve, 250));
+                return "target-finished";
+            `);
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            const closing = closeProjectForTest(targetProjectPath);
+            const closeState = await Promise.race([
+                closing.then(() => "closed" as const),
+                new Promise<"pending">((resolve) => setTimeout(() => resolve("pending"), 20)),
+            ]);
+
+            expect(closeState).toBe("pending");
+            await expect(execution).resolves.toMatchObject({details: {data: "target-finished"}});
+            await closing;
         } finally {
-            if (savedPath) {
-                await fs.rm(path.join(context.workspaceFsRoot, savedPath), {force: true});
-            }
+            await closeProjectForTest(targetProjectPath).catch(() => undefined);
+            await removeProjectRoot(targetProjectRoot);
         }
     });
 });

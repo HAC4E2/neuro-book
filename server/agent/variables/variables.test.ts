@@ -1,5 +1,5 @@
 import {mkdir, readFile, rm, unlink, writeFile} from "node:fs/promises";
-import {join, resolve} from "node:path";
+import {basename, dirname, join, resolve} from "node:path";
 import {randomUUID} from "node:crypto";
 import {describe, expect, it} from "vitest";
 import {Type} from "typebox";
@@ -13,6 +13,12 @@ import {defineClientVariable, defineProjectVariable, defineSessionVariable, defi
 import {createVariableTools} from "nbook/server/agent/variables/tools";
 import type {VariableInvocationState} from "nbook/server/agent/variables/types";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {
+    createProjectWorkspaceKey,
+    projectWorkspaceRef,
+    resolvedProjectWorkspace,
+} from "nbook/server/workspace-files/project-identity";
+import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 
 describe("Agent variable system", () => {
     it("外部Project Workspace不会重绑定global变量物理根", async () => {
@@ -248,7 +254,7 @@ describe("Agent variable system", () => {
 
     it("变量文件 JSON 损坏时返回 storage_error，而不是 not_registered", async () => {
         const root = resolve(".agent", "workspace", "variable-storage-error-test", randomUUID());
-        const projectRoot = resolve(".agent", "workspace", "variable-storage-error-project", randomUUID());
+        const projectRoot = resolve(root, "project-a");
         await mkdir(resolve(projectRoot, ".nbook", "agent"), {recursive: true});
         await writeFile(resolve(projectRoot, ".nbook", "agent", "variables.json"), "{ broken", "utf8");
         const repo = new JsonlSessionRepository(root);
@@ -270,8 +276,9 @@ describe("Agent variable system", () => {
                 repo,
                 snapshot,
                 registry,
+                currentProject: readyProject(projectRoot),
                 clientState: {
-                    studio: {workspace: projectRoot},
+                    studio: {workspace: "workspace/project-b"},
                 },
             });
 
@@ -283,7 +290,60 @@ describe("Agent variable system", () => {
             }));
         } finally {
             await rm(root, {recursive: true, force: true});
-            await rm(projectRoot, {recursive: true, force: true});
+        }
+    });
+
+    it("project.* 固定使用invocation捕获的Current Project，client overlay不能重绑定", async () => {
+        const root = resolve(".agent", "workspace", "variable-project-capture-test", randomUUID());
+        const projectA = resolve(root, "project-a");
+        const projectB = resolve(root, "project-b");
+        await Promise.all([
+            writeVariableFixture(projectA, {scope: "project-a"}),
+            writeVariableFixture(projectB, {scope: "project-b"}),
+        ]);
+        const repo = new JsonlSessionRepository(root);
+        const snapshot = await repo.createSession({
+            profileKey: "test.vars",
+            initial: {},
+            workspaceRoot: absoluteFsPath(root),
+            workspaceKey: "test",
+        });
+        const currentProject = readyProject(projectA);
+        const variableState: VariableInvocationState = {
+            readFingerprints: new Map(),
+            clientOverlay: {
+                studio: {workspace: "workspace/project-b"},
+                currentProjectWorkspace: "workspace/project-b",
+            },
+            currentProject,
+        };
+        const registry = new VariableRegistry([defineProjectVariable({
+            key: "scope",
+            schema: Type.String(),
+            writableBy: ["agent"],
+        })]);
+        try {
+            const accessor = createProfileVariableAccessor({
+                repo,
+                snapshot,
+                registry,
+                invocationId: "invoke-1",
+                variableState,
+            });
+
+            await expect(accessor.read("project.scope")).resolves.toMatchObject({value: "project-a"});
+            await expect(accessor.patch("project", "scope", [{
+                op: "replace",
+                path: "",
+                value: "project-a-next",
+            }])).resolves.toMatchObject({value: "project-a-next"});
+
+            await expect(readFile(resolve(projectA, ".nbook", "agent", "variables.json"), "utf8"))
+                .resolves.toContain("project-a-next");
+            await expect(readFile(resolve(projectB, ".nbook", "agent", "variables.json"), "utf8"))
+                .resolves.toContain("project-b");
+        } finally {
+            await rm(root, {recursive: true, force: true});
         }
     });
 
@@ -341,6 +401,7 @@ describe("Agent variable system", () => {
         const variableState: VariableInvocationState = {
             readFingerprints: new Map(),
             clientOverlay: {},
+            currentProject: null,
         };
         const registry = new VariableRegistry([
             defineSessionVariable({
@@ -401,6 +462,7 @@ describe("Agent variable system", () => {
                     theme: "light",
                 },
             },
+            currentProject: null,
         };
         const registry = new VariableRegistry([
             defineClientVariable({
@@ -465,6 +527,7 @@ describe("Agent variable system", () => {
         const variableState: VariableInvocationState = {
             readFingerprints: new Map(),
             clientOverlay: {},
+            currentProject: null,
         };
         const registry = new VariableRegistry([
             defineProjectVariable({
@@ -474,11 +537,13 @@ describe("Agent variable system", () => {
                 writableBy: ["agent"],
             }),
         ]);
-        const projectRoot = resolve(".agent", "workspace", "variable-audit-failure-project", randomUUID());
+        const projectRoot = resolve(root, "project-a");
         await mkdir(projectRoot, {recursive: true});
+        const currentProject = readyProject(projectRoot);
+        variableState.currentProject = currentProject;
         variableState.clientOverlay = {
-            studio: {workspace: projectRoot},
-            currentProjectWorkspace: projectRoot,
+            studio: {workspace: "workspace/project-b"},
+            currentProjectWorkspace: "workspace/project-b",
         };
         try {
             const accessor = createProfileVariableAccessor({
@@ -488,7 +553,7 @@ describe("Agent variable system", () => {
                 invocationId: "invoke-1",
                 variableState,
                 clientState: {
-                    studio: {workspace: projectRoot},
+                    studio: {workspace: "workspace/project-b"},
                 },
             });
 
@@ -507,14 +572,14 @@ describe("Agent variable system", () => {
                 repo,
                 snapshot,
                 registry,
+                currentProject,
                 clientState: {
-                    studio: {workspace: projectRoot},
+                    studio: {workspace: "workspace/project-b"},
                 },
             });
             await expect(confirmAccessor.get("project.affections.alice")).resolves.toBe(1);
         } finally {
             await rm(root, {recursive: true, force: true});
-            await rm(projectRoot, {recursive: true, force: true});
         }
     });
 
@@ -811,3 +876,28 @@ describe("Agent variable system", () => {
         }
     });
 });
+
+/** 把临时一级目录包装成与ProjectSession相同的ready identity。 */
+function readyProject(projectRoot: string): ReadyProjectSessionRef {
+    const root = absoluteFsPath(projectRoot);
+    const workspaceRoot = absoluteFsPath(dirname(projectRoot));
+    const ref = projectWorkspaceRef(basename(projectRoot));
+    return Object.freeze({
+        workspace: resolvedProjectWorkspace(
+            ref,
+            root,
+            createProjectWorkspaceKey(workspaceRoot, ref),
+        ),
+        generation: 1,
+    });
+}
+
+/** 写入一个最小Project变量文件。 */
+async function writeVariableFixture(projectRoot: string, variables: Record<string, string>): Promise<void> {
+    const variableRoot = resolve(projectRoot, ".nbook", "agent");
+    await mkdir(variableRoot, {recursive: true});
+    await writeFile(resolve(variableRoot, "variables.json"), `${JSON.stringify({
+        schemaVersion: 1,
+        variables,
+    }, null, 2)}\n`, "utf8");
+}

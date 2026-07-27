@@ -1,5 +1,6 @@
 import type {TSchema} from "typebox";
 import type {JsonValue} from "nbook/server/agent/messages/types";
+import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 
 export type VariableNamespace = "client" | "global" | "project" | "session";
 
@@ -152,4 +153,6 @@ export type ProfileVariableAccessor = {
 export type VariableInvocationState = {
     readFingerprints: Map<string, string>;
     clientOverlay: Record<string, JsonValue>;
+    /** invocation进入Project数据面时捕获；null表示本轮没有Current Project。 */
+    currentProject: ReadyProjectSessionRef | null;
 };

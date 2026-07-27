@@ -5,8 +5,10 @@ import { useCollapsible } from "nbook/app/composables/useCollapsible";
 import AgentMarkdownContent from "nbook/app/components/novel-ide/agent/AgentMarkdownContent.vue";
 import AgentAttachmentGallery from "nbook/app/components/novel-ide/agent/AgentAttachmentGallery.vue";
 import AgentAttachmentImage from "nbook/app/components/novel-ide/agent/AgentAttachmentImage.vue";
-import StructuredTextEditor from "nbook/app/components/common/form/StructuredTextEditor.vue";
+import AgentHistoryMessageEditor from "nbook/app/components/novel-ide/agent/AgentHistoryMessageEditor.vue";
+import type {AgentSessionAttachmentItemDto} from "nbook/shared/dto/agent-session.dto";
 import {formatCost, formatCostExact, type CostDisplayOptions} from "nbook/app/utils/cost-format";
+import {promptCacheHitRate, promptCacheTotalTokens, type PromptCacheUsage} from "nbook/app/utils/prompt-cache";
 import type {
     AgentTriggerMenuContext,
     AgentTriggerMenuState,
@@ -22,9 +24,17 @@ const props = defineProps<{
     /** 当前 durable session；附件读取 locator 不能脱离 session 构造。 */
     sessionId?: number | null;
     editingMessageId?: string | null;
+    /** 当前历史消息按 stored block 顺序重建的完整 Markdown。 */
+    editingContent?: string;
     actionDisabled?: boolean;
     runActionDisabled?: boolean;
     savingEdit?: boolean;
+    sessionAttachments: AgentSessionAttachmentItemDto[];
+    canRegisterAttachments: boolean;
+    canInsertAttachments: boolean;
+    projectPath: string | null;
+    modelSupportsImages: boolean;
+    attachmentInsertRequest?: {id: number; item: AgentSessionAttachmentItemDto} | null;
     branchSwitcher?: {
         nodeIds: string[];
         currentIndex: number;
@@ -47,6 +57,9 @@ const emit = defineEmits<{
     (e: "retry", message: AgentMessage): void;
     (e: "delete", message: AgentMessage): void;
     (e: "cycle-branch", payload: {messageId: string; direction: -1 | 1}): void;
+    (e: "attachment-registered", item: AgentSessionAttachmentItemDto): void;
+    (e: "resend-unknown", message: AgentMessage): void;
+    (e: "dismiss-unknown", message: AgentMessage): void;
 }>();
 
 const { isCollapsed: isThinkingCollapsed, toggle: toggleThinking } = useCollapsible(true);
@@ -90,7 +103,7 @@ const decodeEditableContent = (content: string): string => {
 
 /** 同步当前消息到编辑草稿。 */
 const syncEditingDraft = (): void => {
-    editingDraft.value = decodeEditableContent(props.node.message.content);
+    editingDraft.value = decodeEditableContent(props.editingContent ?? props.node.message.content);
 };
 
 /** 是否显示思维链。 */
@@ -135,7 +148,8 @@ const isEditing = computed(() => canEdit.value && props.editingMessageId === pro
 const isContentOmitted = computed(() => props.node.message.contentOmitted === true);
 
 /** 当前消息是否允许重试。 */
-const canRetry = computed(() => props.node.message.type === "user" || props.node.message.type === "ai");
+const isUnknownDelivery = computed(() => props.node.message.deliveryState === "unknown");
+const canRetry = computed(() => !isUnknownDelivery.value && (props.node.message.type === "user" || props.node.message.type === "ai"));
 
 /** 是否为已进入历史的 steer 引导消息。 */
 const isSteerMessage = computed(() => props.node.message.type === "user" && props.node.message.intent === "steer");
@@ -217,7 +231,7 @@ const messageUsageTitle = computed(() => {
 /** 当前调用是否有可计算的 prompt cache 命中率。 */
 const messageCacheHitRateLabel = computed(() => {
     const usage = messageUsage.value;
-    if (!usage || usage.input + usage.cacheRead <= 0) {
+    if (!usage || promptCacheTotalTokens(usage) <= 0) {
         return "";
     }
     return formatCacheHitRate(usage);
@@ -261,13 +275,10 @@ function formatPercent(value: number): string {
     }).format(value)}%`;
 }
 
-/** 计算 prompt cache 命中率：缓存读 / 本次输入 prompt 总量。 */
-function formatCacheHitRate(usage: {input: number; cacheRead: number}): string {
-    const promptTokens = usage.input + usage.cacheRead;
-    if (promptTokens <= 0) {
-        return "0%";
-    }
-    return formatPercent(usage.cacheRead / promptTokens * 100);
+/** 格式化 prompt cache 命中率；口径见 `app/utils/prompt-cache.ts`，无从计算时显示 —。 */
+function formatCacheHitRate(usage: PromptCacheUsage): string {
+    const rate = promptCacheHitRate(usage);
+    return rate === null ? "—" : formatPercent(rate);
 }
 
 /** 系统消息折叠摘要。 */
@@ -300,6 +311,12 @@ watch(() => props.node.message.id, () => {
     isSystemCollapsed.value = !isSystemError.value;
 }, {immediate: true});
 
+watch(() => props.editingContent, () => {
+    if (isEditing.value) {
+        syncEditingDraft();
+    }
+});
+
 /**
  * 开始编辑当前消息。
  */
@@ -323,8 +340,8 @@ const cancelEdit = (): void => {
  * 保存编辑内容。
  */
 const saveEdit = (): void => {
-    const content = decodeEditableContent(editingDraft.value).trim();
-    if (!canEdit.value || !content || props.savingEdit || props.runActionDisabled) {
+    const content = decodeEditableContent(editingDraft.value);
+    if (!canEdit.value || !content.trim() || props.savingEdit || props.runActionDisabled) {
         return;
     }
     emit("save-edit", {
@@ -438,15 +455,21 @@ const endSwipe = (event: PointerEvent): void => {
             <div class="flex-1"></div>
 
             <div class="mr-4 flex items-center gap-1 text-[var(--text-muted)]">
+                <button v-if="isUnknownDelivery" class="rounded p-1 text-[var(--status-warning)] transition-colors hover:bg-[var(--bg-hover)]" title="确认可能重复后重新发送" @click="emit('resend-unknown', props.node.message)">
+                    <span class="i-lucide-send h-3.5 w-3.5"></span>
+                </button>
+                <button v-if="isUnknownDelivery" class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--status-danger)]" title="移除本地未知占位" @click="emit('dismiss-unknown', props.node.message)">
+                    <span class="i-lucide-x h-3.5 w-3.5"></span>
+                </button>
                 <div v-if="props.branchSwitcher" class="mr-1 inline-flex h-7 items-center overflow-hidden rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-muted)]" :title="branchSwitcherTitle">
-                    <button class="flex h-7 w-7 items-center justify-center border-r border-[var(--border-color)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled" :title="t('agent.textBubble.previousBranch')" @click="cycleBranch(-1)">
+                    <button class="flex h-7 w-7 items-center justify-center border-r border-[var(--border-color)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled || props.runActionDisabled" :title="t('agent.textBubble.previousBranch')" @click="cycleBranch(-1)">
                         <span class="i-lucide-chevron-left h-3.5 w-3.5"></span>
                     </button>
                     <span class="inline-flex h-7 items-center gap-1 px-2 text-[10px] tabular-nums text-[var(--text-secondary)]">
                         <span class="i-lucide-git-branch h-3 w-3 text-[var(--accent-text)]"></span>
                         {{ props.branchSwitcher.currentIndex + 1 }} / {{ props.branchSwitcher.total }}
                     </span>
-                    <button class="flex h-7 w-7 items-center justify-center border-l border-[var(--border-color)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled" :title="t('agent.textBubble.nextBranch')" @click="cycleBranch(1)">
+                    <button class="flex h-7 w-7 items-center justify-center border-l border-[var(--border-color)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled || props.runActionDisabled" :title="t('agent.textBubble.nextBranch')" @click="cycleBranch(1)">
                         <span class="i-lucide-chevron-right h-3.5 w-3.5"></span>
                     </button>
                 </div>
@@ -459,7 +482,7 @@ const endSwipe = (event: PointerEvent): void => {
                 <button v-if="canRetry" class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled || props.runActionDisabled" :title="t('agent.textBubble.retry')" @click="emit('retry', props.node.message)">
                     <span class="i-lucide-rotate-cw h-3.5 w-3.5"></span>
                 </button>
-                <button class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--status-danger)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled" :title="t('agent.textBubble.rollback')" @click="emit('delete', props.node.message)">
+                <button class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--status-danger)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled || props.runActionDisabled" :title="t('agent.textBubble.rollback')" @click="emit('delete', props.node.message)">
                     <span class="i-lucide-undo-2 h-3.5 w-3.5"></span>
                 </button>
             </div>
@@ -503,30 +526,24 @@ const endSwipe = (event: PointerEvent): void => {
             >
                 <div v-if="isEditing" class="space-y-3">
                     <!-- 消息编辑器 -->
-                    <StructuredTextEditor
-                        :model-value="editingDraft"
-                        :placeholder="t('agent.textBubble.editPlaceholder')"
-                        :min-height="180"
-                        :max-height="420"
-                        mode="source"
-                        :show-toolbar="false"
-                        popover-direction="auto"
-                        :submit-on-enter="false"
-                        :readonly="props.runActionDisabled"
-                        :enable-quick-triggers="true"
-                        :menu-refresh-key="props.menuRefreshKey ?? ''"
+                    <AgentHistoryMessageEditor
+                        v-model="editingDraft"
+                        :session-id="props.sessionId ?? null"
+                        :session-attachments="props.sessionAttachments"
+                        :can-register-attachments="props.canRegisterAttachments"
+                        :can-insert-attachments="props.canInsertAttachments"
+                        :readonly="Boolean(props.runActionDisabled)"
+                        :saving="Boolean(props.savingEdit)"
+                        :menu-refresh-key="props.menuRefreshKey"
                         :resolve-menu="props.resolveMenu"
                         :on-skill-trigger-start="props.onSkillTriggerStart"
-                        @update:model-value="editingDraft = $event"
+                        :project-path="props.projectPath"
+                        :model-supports-images="props.modelSupportsImages"
+                        :attachment-insert-request="props.attachmentInsertRequest"
+                        @cancel="cancelEdit"
+                        @save="saveEdit"
+                        @attachment-registered="emit('attachment-registered', $event)"
                     />
-                    <div class="flex items-center justify-end gap-2">
-                        <button class="inline-flex h-7 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-[11px] text-[var(--text-main)] transition-colors hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.savingEdit" @click="cancelEdit">
-                            {{ t("agent.textBubble.cancel") }}
-                        </button>
-                        <button class="inline-flex h-7 items-center justify-center rounded-md border border-transparent bg-[var(--accent-main)] px-2.5 text-[11px] text-[var(--text-inverse)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.savingEdit || props.runActionDisabled || !editingDraft.trim()" @click="saveEdit">
-                            {{ props.savingEdit ? t("agent.textBubble.saving") : t("agent.textBubble.save") }}
-                        </button>
-                    </div>
                 </div>
                 <div v-else class="min-w-0 text-sm leading-relaxed text-[var(--text-main)]">
                     <!-- 新 durable user DTO 按原始 contentIndex 保序；其他消息继续走原正文路径。 -->
@@ -536,8 +553,8 @@ const endSwipe = (event: PointerEvent): void => {
                             <AgentAttachmentImage
                                 v-else
                                 :session-id="props.sessionId"
-                                :entry-id="props.node.message.id"
-                                :content-index="block.contentIndex"
+                                :entry-id="block.locator?.entryId ?? props.node.message.id"
+                                :content-index="block.locator?.contentIndex ?? block.contentIndex"
                                 :attachment="block.attachment"
                             />
                         </div>

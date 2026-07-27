@@ -2,6 +2,7 @@ import {createHash} from "node:crypto";
 import {basename} from "node:path";
 import {canonicalImageMime, imageMimeType} from "nbook/server/agent/attachments/agent-attachment-codec";
 import {parseFollowUpQueue, parseStoredMessage} from "nbook/server/agent/messages/stored-message-codec";
+import {migrateSessionUserIdentityText} from "nbook/server/agent/session/session-user-identity-migration";
 import type {AttachmentRef} from "nbook/shared/dto/agent-attachment.dto";
 import type {AttachmentSessionPlan, DecodedAttachment} from "nbook/scripts/db/agent-attachment-v1/types";
 
@@ -56,10 +57,20 @@ export function decodeLegacySession(input: {sourcePath: string; text: string}): 
         return result.record;
     });
 
-    const targetText = changed
+    const attachmentTargetText = changed
         ? `${records.map((record) => JSON.stringify(record)).join("\n")}${trailingNewline ? "\n" : ""}`
         : input.text;
-    validateStoredRecords(records, input.sourcePath);
+    const identityMigration = migrateSessionUserIdentityText(attachmentTargetText);
+    changed ||= identityMigration.changed;
+    const targetText = identityMigration.text;
+    const targetRecords = targetText.split(/\r?\n/u).filter(Boolean).map((line) => {
+        const record = JSON.parse(line) as JsonNode;
+        if (!isObject(record)) {
+            throw new Error(`${input.sourcePath}: 迁移后 record 必须是对象`);
+        }
+        return record;
+    });
+    validateStoredRecords(targetRecords, input.sourcePath);
     return {
         sessionId,
         sourcePath: input.sourcePath,

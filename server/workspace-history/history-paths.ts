@@ -1,4 +1,3 @@
-import {managedProjectPath} from "nbook/server/workspace-files/project-data-plane-guard";
 import {isRuntimeGeneratedWorkspacePath} from "nbook/server/workspace-files/runtime-generated-path";
 
 /**
@@ -12,15 +11,6 @@ const EXCLUDED_ANY_SEGMENTS = new Set([".git", ".nbook", ".agent"]);
  * 纳管时应接 system actor 而非放任 external 噪声）；深层同名目录是普通内容不受影响。
  */
 const EXCLUDED_TOP_SEGMENTS = new Set(["agents"]);
-
-/**
- * 从 workspace root 输入解析出受文件历史记账管理的项目路径（`workspace/<slug>` 归一形）。
- * user-assets（`workspace/.nbook`）、容器根、绝对路径与其它非 managed 形态由 managedProjectPath
- * 统一排除（单一权威）——非 managed 即不记账。
- */
-export function historyProjectPathFromRoot(rootInput: string | undefined): string | null {
-    return managedProjectPath(rootInput);
-}
 
 /**
  * 相对路径（相对项目根、正斜杠）是否属于记账范围。写入收口与 watcher 对账共用同一份谓词，

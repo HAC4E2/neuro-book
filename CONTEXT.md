@@ -20,6 +20,10 @@ _Avoid_: Workspace Root, source root
 面向 Windows x64 用户的 GitHub Release 资产。解压目录就是 Installation Root，包内包含完整源码、`.output`、托管 Bun/rg/PortableGit/bash、版本化 Manager 和根启动入口；用户状态位于 `data/`。
 _Avoid_: deploy mode, source bootstrap zip, app sub-root
 
+**Owned Process**:
+NeuroBook 在一个有界 lease 内创建并拥有完整后代集合的外部进程。Windows x64 通过目标启动前已建立的 Job Object、POSIX 通过独立 process group 实现；timeout、abort、cancel、shutdown、启动失败或宿主断连只有在进程树和继承资源收口后才完成。它不表示 NeuroBook 可以扫描或终止用户与系统进程。
+_Avoid_: direct child process, PID tree scan, global process killer
+
 **NeuroBook Manager**:
 独立 npm 包 `@notnotype/neuro-book-manager` 提供的安装、更新、启动、诊断、Runtime 和 Tool 管理器，公开命令为 `neuro-book`。
 _Avoid_: application dependency installer
@@ -67,6 +71,18 @@ _Avoid_: tree cache, validation table
 **Project Runtime Artifact**:
 NeuroBook 从 Project Workspace 源文件派生、可随时重建、只供运行时执行或缓存使用的文件。它属于 Project Workspace `.nbook` 控制区，不是项目内容，不进入文件历史、Agent 文件变更提醒、Project Workspace File Index 或 Project 下载包。
 _Avoid_: project content, source file, Project SQLite
+
+**Rebuildable Runtime Artifact**:
+NeuroBook 从源码、配置或发布真相源派生并持久化的运行文件，删除后可以重建且不会丢失用户内容，但必须有明确 owner、可达集合和硬容量预算。
+_Avoid_: user data, source asset, unbounded cache
+
+**Published Profile Artifact**:
+由 Profile Publisher 发布、受 current manifest 引用的内容寻址不可变 Profile 编译产物，是 Profile 的运行真相而不是普通缓存。
+_Avoid_: runtime import cache, source profile, temporary bundle
+
+**Runtime Import Cache**:
+为保证 Bun 和 Product 能按内容身份动态导入 ESM 而创建的可删除物理副本，不是发布真相源并必须受 retention policy 约束。
+_Avoid_: published artifact, release manifest, permanent module store
 
 **Project Workspace Download Archive**:
 Project Workspace 的可携带完整备份。它包含普通项目文件、独立一致的 Project SQLite snapshot，以及项目已存在时的完整 History SQLite snapshot；不复制 live WAL/SHM。History SQLite 可能包含全文快照、已删除内容、acceptance 和 session cursor，分享前必须评估隐私风险。
@@ -214,6 +230,8 @@ _Avoid_: files-only panel, workspace switcher
 - An **Installation Root** owns Source, Product, Runtime and Deployment State components.
 - A **State Root** belongs to one Installation Root and owns Boot Config、Product Env、logs and one logical Workspace Root.
 - A **Windows Release Zip** extracts directly into one **Installation Root**.
+- An **Owned Process** belongs to one runtime lease; terminating that lease must not affect another Owned Process or an external user process.
+- Agent Bash and the Windows Portable foreground Product are **Owned Process** consumers; their Agent Job and Installation state machines remain separate domain owners.
 - Windows Portable uses `data/` as State Root, so its physical Workspace Root is `data/workspace/` while Project Path remains `workspace/{project-slug}`.
 - **NeuroBook Manager** updates component-owned paths and must not overwrite State Root user data.
 - **Global Config** lives in **Workspace Root `.nbook`**.
@@ -238,6 +256,9 @@ _Avoid_: files-only panel, workspace switcher
 - **Project Workspace Issue Index** is derived from **Project Workspace File Index** plus validation rules.
 - A **Project Runtime Artifact** is derived from Project Workspace source files and may be deleted and rebuilt without losing project content.
 - A **Project Runtime Artifact** must not enter Project Workspace file history, Agent file-change notices, Project Workspace File Index or Project downloads.
+- A **Project Runtime Artifact** is one kind of **Rebuildable Runtime Artifact**.
+- A **Published Profile Artifact** is a **Rebuildable Runtime Artifact**, but a current manifest reference makes it non-evictable.
+- A **Runtime Import Cache** contains evictable copies of **Rebuildable Runtime Artifacts** and never defines the current Profile release.
 - A **Project Workspace Download Archive** contains standalone snapshots of Project SQLite and, when present, History SQLite; it never copies their live WAL/SHM sidecars.
 - History SQLite in a **Project Workspace Download Archive** is complete backup data and may retain full text, deleted content, acceptance state and session cursors.
 - Every History consumer must obtain its `WorkspaceHistory` through the host opening seam, which purges no-longer-managed paths before returning the instance; a ProjectSession that never uses History does not open the database solely for this maintenance.

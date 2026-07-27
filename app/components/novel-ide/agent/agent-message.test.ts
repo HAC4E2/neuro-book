@@ -51,6 +51,7 @@ describe("agent-message public projection", () => {
     it("durable user entry 保留纯图片附件 locator", () => {
         const messages = deriveMessagesFromChatEntries([{
             id: "user-image",
+            clientMessageId: "message-user-image",
             timestamp: 1,
             type: "user",
             intent: "normal",
@@ -92,6 +93,7 @@ describe("agent-message public projection", () => {
         };
         const messages = deriveMessagesFromChatEntries([{
             id: "mixed-user",
+            clientMessageId: "message-mixed-user",
             timestamp: 1,
             type: "user",
             intent: "normal",
@@ -168,6 +170,7 @@ describe("agent-message public projection", () => {
 function user(id: string, preview: string, bytes: number, omitted: boolean): AgentChatEntryDto {
     return {
         id,
+        clientMessageId: `message-${id}`,
         timestamp: 1,
         type: "user",
         intent: "normal",

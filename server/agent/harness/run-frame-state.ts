@@ -1,6 +1,7 @@
 import type {RunFrame, RuntimeTurn, TurnIngestResult} from "nbook/server/agent/harness/run-kernel-types";
 import type {AppliedFailedTurn} from "nbook/server/agent/harness/turn-failure";
 import {createPublicRuntimeProjectionState} from "nbook/server/agent/events/public-event-projection";
+import {sumUsage} from "nbook/server/agent/messages/message-utils";
 
 export type CreateRunFrameInput = {
     invocationId?: RunFrame["invocationId"];
@@ -11,6 +12,7 @@ export type CreateRunFrameInput = {
     projectPath?: RunFrame["projectPath"];
     systemPrompt: RunFrame["systemPrompt"];
     messages: RunFrame["messages"];
+    promptPrefix?: RunFrame["promptPrefix"];
     models: RunFrame["models"];
     model: RunFrame["model"];
     apiKey?: RunFrame["apiKey"];
@@ -33,15 +35,7 @@ export type CreateRunFrameInput = {
     caller: RunFrame["caller"];
     abortSignal?: RunFrame["abortSignal"];
     onEvent?: RunFrame["onEvent"];
-    forceRuntimeOnlyTranscript?: RunFrame["forceRuntimeOnlyTranscript"];
-    forcePersistTranscript?: RunFrame["forcePersistTranscript"];
     transcriptParentLeafId?: RunFrame["transcriptParentLeafId"];
-    restoreLeafAfterTranscript?: RunFrame["restoreLeafAfterTranscript"];
-    restoreLeafIdAfterTranscript?: RunFrame["restoreLeafIdAfterTranscript"];
-    suppressEvents?: RunFrame["suppressEvents"];
-    disableSteer?: RunFrame["disableSteer"];
-    disableAutomaticCompaction?: RunFrame["disableAutomaticCompaction"];
-    activeSidecar?: RunFrame["activeSidecar"];
 };
 
 /**
@@ -57,6 +51,7 @@ export function createRunFrame(input: CreateRunFrameInput): RunFrame {
         projectPath: input.projectPath,
         systemPrompt: input.systemPrompt,
         messages: input.messages.slice(),
+        promptPrefix: input.promptPrefix,
         models: input.models,
         model: input.model,
         apiKey: input.apiKey,
@@ -82,15 +77,7 @@ export function createRunFrame(input: CreateRunFrameInput): RunFrame {
         turnIndex: 0,
         reportResultReminderSent: false,
         reportResultReminderEnabled: input.reportResultReminderEnabled,
-        forceRuntimeOnlyTranscript: input.forceRuntimeOnlyTranscript,
-        forcePersistTranscript: input.forcePersistTranscript,
         transcriptParentLeafId: input.transcriptParentLeafId,
-        restoreLeafAfterTranscript: input.restoreLeafAfterTranscript,
-        restoreLeafIdAfterTranscript: input.restoreLeafIdAfterTranscript,
-        suppressEvents: input.suppressEvents,
-        disableSteer: input.disableSteer,
-        disableAutomaticCompaction: input.disableAutomaticCompaction,
-        activeSidecar: input.activeSidecar,
         automaticCompactionDoneForTurn: false,
         pendingWritePlans: [],
         publicEventProjection: createPublicRuntimeProjectionState(),
@@ -112,18 +99,16 @@ export function consumeNextTurnModelMessages(frame: RunFrame): RunFrame["message
  */
 export function applySuccessfulTurn(frame: RunFrame, turn: RuntimeTurn, ingest: TurnIngestResult): void {
     frame.finalAssistant = turn.assistant;
+    frame.usage = sumUsage([frame.usage, turn.assistant.usage]);
     frame.messages.push(turn.assistant);
     frame.messages.push(...turn.toolResults.map((toolResult) => toolResult.stored));
     frame.reportResult = turn.reportResult ?? frame.reportResult;
-    frame.sidecarResult = turn.sidecarResult ?? frame.sidecarResult;
-    if (turn.reportResult || turn.sidecarResult) {
+    if (turn.reportResult) {
         frame.reportResultErrorCount = 0;
         frame.lastReportResultError = undefined;
-        frame.lastReportResultErrorTool = undefined;
-    } else if (turn.reportResultError || turn.sidecarResultError) {
+    } else if (turn.reportResultError) {
         frame.reportResultErrorCount += 1;
-        frame.lastReportResultError = turn.reportResultError ?? turn.sidecarResultError;
-        frame.lastReportResultErrorTool = turn.reportResultError ? "report_result" : "report_sidecar_result";
+        frame.lastReportResultError = turn.reportResultError;
     }
     frame.lastTurnIngest = ingest;
     if (ingest.transcriptLeafId !== undefined) {
@@ -137,6 +122,7 @@ export function applySuccessfulTurn(frame: RunFrame, turn: RuntimeTurn, ingest: 
  */
 export function applyFailedTurn(frame: RunFrame, turn: AppliedFailedTurn): void {
     frame.finalAssistant = turn.finalAssistant;
+    frame.usage = sumUsage([frame.usage, turn.finalAssistant.usage]);
     frame.messages.push(turn.finalAssistant);
     if (turn.ingest) {
         frame.lastTurnIngest = turn.ingest;

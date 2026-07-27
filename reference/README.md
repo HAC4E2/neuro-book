@@ -9,7 +9,9 @@
 
 ## Modules
 
-- [agent/](agent/)：Agent runtime、profile、TSX DSL、Import、Run Kernel、Sidecar、SSE 和默认协作协议。
+- [agent/](agent/)：Agent runtime、profile、TSX DSL、Import、Run Kernel、Workflow、后台 Job、SSE 和默认协作协议。
+- [agent/workflow/](agent/workflow/)：Agent Workflow 的选用、目录覆盖、编写 API、确定性与 `wf.chart` 状态图规范。
+- [agent/skill-package.md](agent/skill-package.md)：Agent Skill package、版本、可移植路径、安装和依赖同步合同。
 - [content/](content/)：Project Workspace 内容目录、lorebook、simulation、Subject RAG memory、information control、Markdown 方言、retrieval 和内容节点状态。
 - [agent/profile-context-memory.md](agent/profile-context-memory.md)：profile context memory、generated recommendations 和 `.nbook/context-access` 边界。
 - [plot/](plot/)：Project SQLite 剧情系统、Story / Phase / Thread / Scene 合同和 Agent 消费方式。Scene 是最小剧情单位，通过 World Anchor 连接 World Engine。
@@ -21,9 +23,11 @@
 ## Reading Order
 
 - 修改 Agent profile 或 prompt：先读 [agent/README.md](agent/README.md)。
+- 创建或更新 runnable Skill、版本和依赖同步：读 [agent/skill-package.md](agent/skill-package.md)。
+- 编写或运行 Agent Workflow：先读 [agent/workflow/README.md](agent/workflow/README.md)，再按需读 [authoring](agent/workflow/authoring.md) 与 [`wf.chart` 规范](agent/workflow/chart.md)。
 - 处理 Project Workspace 文件、lorebook、simulation 或导入素材：先读 [agent/project-workspace-guide.md](agent/project-workspace-guide.md) 和 [content/README.md](content/README.md)。
-- 处理 subject 长期记忆、`events.jsonl` / `memory.jsonl`、`subject_rag_search` 或 actor sidecar 记忆注入：读 [content/subject-rag-memory.md](content/subject-rag-memory.md)。
-- 处理小说写作标准流程、World Engine 剧情推进、writer handoff 或 workflow skill 命名：读 [agent/novel-writing-workflow.md](agent/novel-writing-workflow.md)。只有处理 legacy RP / simulation 时才继续看 emulation tick 资料。
+- 处理 subject 长期记忆、`events.jsonl` / `memory.jsonl` 或 `subject_rag_search`：读 [content/subject-rag-memory.md](content/subject-rag-memory.md)。
+- 处理小说写作标准流程、World Engine 剧情推进、writer handoff 或写作 skill 三层体系（novel-guide / novel-setup / novel-writing）：读 [agent/novel-writing-workflow.md](agent/novel-writing-workflow.md)。只有处理 legacy RP / simulation 时才继续看 emulation tick 资料（skill 本体已归档到 `docs/archived/skills/`）。
 - 处理 RP Tick 交互协议、LOD 世界模拟、actor-facing packet 格式或 Writer Brief 格式：读 [agent/rp-tick/README.md](agent/rp-tick/README.md)。
 - 处理旧 Plot 系统、历史剧情结构或 Plot 工具维护：先读 [plot/system.md](plot/system.md)。Plot System 负责剧情结构（Story / Thread / Scene / Chapter Plot）；动态世界状态走 World Engine。
 - 处理写作模式世界状态、时间线、subject、切面、reduce 或 leader/writer 协作：先读 [world-engine/README.md](world-engine/README.md)。

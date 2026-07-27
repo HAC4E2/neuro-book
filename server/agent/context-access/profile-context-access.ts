@@ -1,7 +1,23 @@
+import {randomUUID} from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import type {
+    ProjectWorkspaceKey,
+    ResolvedProjectWorkspace,
+} from "nbook/server/workspace-files/project-identity";
+import {
+    PROJECT_FILE_INDEX_MODULE_TOKEN,
+    type ProjectFileIndexHandle,
+} from "nbook/server/workspace-files/project-file-index";
+import {
+    requireReadyModuleHandle,
+    runReadyProjectOperation,
+} from "nbook/server/workspace-files/project-session";
+import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 
 type ContextAccessSignal = "index-read" | "state-read" | "read" | "explicitInput";
+
+const contextAccessWriteQueues = new Map<ProjectWorkspaceKey, Map<string, Promise<void>>>();
 
 export type ContextAccessEntrySession = {
     sessionId: string;
@@ -34,8 +50,8 @@ export type ContextAccessState = {
 };
 
 export type RecordContextAccessInput = {
-    projectRoot: string;
-    projectSlug: string;
+    /** 本次访问开始时捕获的精确 Project ready generation。 */
+    project: ReadyProjectSessionRef;
     profileKey: string;
     sessionId: string;
     filePath: string;
@@ -44,8 +60,8 @@ export type RecordContextAccessInput = {
 };
 
 export type RecordExplicitContextEntriesInput = {
-    projectRoot: string;
-    projectSlug: string;
+    /** 本次 invocation 开始时捕获的精确 Project ready generation。 */
+    project: ReadyProjectSessionRef;
     profileKey: string;
     sessionId: string;
     entries: Array<{path: string}>;
@@ -60,15 +76,18 @@ export async function recordContextAccess(input: RecordContextAccessInput): Prom
     if (!normalized) {
         return;
     }
-    const profileKey = contextProfileKey(input.profileKey);
-    await updateContextAccessState({
-        projectRoot: input.projectRoot,
-        projectSlug: input.projectSlug,
-        profileKey,
-        sessionId: input.sessionId,
-        path: normalized.path,
-        signal: input.signal ?? normalized.signal,
-        now: input.now ?? new Date(),
+    await runReadyProjectOperation(input.project, async () => {
+        const fileIndex = requireReadyModuleHandle(input.project, PROJECT_FILE_INDEX_MODULE_TOKEN);
+        const profileKey = contextProfileKey(input.profileKey);
+        await updateContextAccessState({
+            project: input.project,
+            fileIndex,
+            profileKey,
+            sessionId: input.sessionId,
+            path: normalized.path,
+            signal: input.signal ?? normalized.signal,
+            now: input.now ?? new Date(),
+        });
     });
 }
 
@@ -76,25 +95,34 @@ export async function recordContextAccess(input: RecordContextAccessInput): Prom
  * 记录 writer 等 profile invocation 中显式传入的 context entries。
  */
 export async function recordExplicitContextEntries(input: RecordExplicitContextEntriesInput): Promise<void> {
-    const profileKey = contextProfileKey(input.profileKey);
-    for (const entry of input.entries) {
-        await updateContextAccessState({
-            projectRoot: input.projectRoot,
-            projectSlug: input.projectSlug,
-            profileKey,
-            sessionId: input.sessionId,
-            path: normalizeEntryPath(entry.path),
-            signal: "explicitInput",
-            now: input.now ?? new Date(),
-        });
+    const entries = input.entries
+        .map((entry) => normalizeContentAccessPath(entry.path))
+        .filter((entry): entry is {path: string; signal: ContextAccessSignal} => entry !== null);
+    if (entries.length === 0) {
+        return;
     }
+    await runReadyProjectOperation(input.project, async () => {
+        const fileIndex = requireReadyModuleHandle(input.project, PROJECT_FILE_INDEX_MODULE_TOKEN);
+        const profileKey = contextProfileKey(input.profileKey);
+        for (const normalized of entries) {
+            await updateContextAccessState({
+                project: input.project,
+                fileIndex,
+                profileKey,
+                sessionId: input.sessionId,
+                path: normalized.path,
+                signal: "explicitInput",
+                now: input.now ?? new Date(),
+            });
+        }
+    });
 }
 
 /**
  * 归一化工具读取路径。内容节点的 index.md 和同级 state.md 都归到节点目录。
  */
 export function normalizeContentAccessPath(filePath: string): {path: string; signal: ContextAccessSignal} | null {
-    const rawPath = filePath.trim().replaceAll("\\", "/").replace(/^workspace\/[^/]+\//, "").replace(/^\/+/, "");
+    const rawPath = filePath.trim().replaceAll("\\", "/").replace(/^\/+/, "");
     const normalized = normalizeEntryPath(filePath);
     if (!normalized.startsWith("lorebook/") && !normalized.startsWith("manuscript/")) {
         return null;
@@ -134,58 +162,66 @@ export function renderGeneratedRecommendations(state: ContextAccessState): strin
 }
 
 async function updateContextAccessState(input: {
-    projectRoot: string;
-    projectSlug: string;
+    project: ReadyProjectSessionRef;
+    fileIndex: ProjectFileIndexHandle;
     profileKey: string;
     sessionId: string;
     path: string;
     signal: ContextAccessSignal;
     now: Date;
 }): Promise<void> {
-    const statePath = contextAccessStatePath(input.projectRoot, input.profileKey);
-    const nowText = input.now.toISOString();
-    const state = await readContextAccessState(statePath, input.projectSlug, input.profileKey, nowText);
-    const existing = state.entries.find((entry) => entry.path === input.path);
-    const entry = existing ?? {
-        path: input.path,
-        kind: readEntryKind(input.path),
-        title: readEntryTitle(input.path),
-        lastAccessedAt: nowText,
-        accessCount: 0,
-        sessions: [],
-        signals: {},
-        score: {
-            value: 0,
-            updatedAt: nowText,
-        },
-    };
-
-    entry.lastAccessedAt = nowText;
-    entry.accessCount += 1;
-    entry.signals[input.signal] = (entry.signals[input.signal] ?? 0) + 1;
-    entry.score = {
-        value: scoreEntry(entry),
-        updatedAt: nowText,
-    };
-    const session = entry.sessions.find((item) => item.sessionId === input.sessionId);
-    if (session) {
-        session.lastAccessedAt = nowText;
-        session.accessCount += 1;
-    } else {
-        entry.sessions.push({
-            sessionId: input.sessionId,
+    await withContextAccessWriteLock(input.project, input.profileKey, async () => {
+        const workspace = input.project.workspace;
+        const statePath = contextAccessStatePath(workspace, input.profileKey);
+        const nowText = input.now.toISOString();
+        const state = await readContextAccessState(
+            statePath,
+            workspace.ref.projectRoot,
+            input.profileKey,
+            nowText,
+        );
+        const existing = state.entries.find((entry) => entry.path === input.path);
+        const entry = existing ?? {
+            path: input.path,
+            kind: readEntryKind(input.path),
+            title: readEntryTitle(input.path),
             lastAccessedAt: nowText,
-            accessCount: 1,
-        });
-    }
+            accessCount: 0,
+            sessions: [],
+            signals: {},
+            score: {
+                value: 0,
+                updatedAt: nowText,
+            },
+        };
 
-    if (!existing) {
-        state.entries.push(entry);
-    }
-    state.updatedAt = nowText;
-    await fs.mkdir(path.dirname(statePath), {recursive: true});
-    await fs.writeFile(statePath, `${JSON.stringify(state, null, 4)}\n`, "utf-8");
-    await writeGeneratedRecommendations(input.projectRoot, state);
+        entry.lastAccessedAt = nowText;
+        entry.accessCount += 1;
+        entry.signals[input.signal] = (entry.signals[input.signal] ?? 0) + 1;
+        entry.score = {
+            value: scoreEntry(entry),
+            updatedAt: nowText,
+        };
+        const session = entry.sessions.find((item) => item.sessionId === input.sessionId);
+        if (session) {
+            session.lastAccessedAt = nowText;
+            session.accessCount += 1;
+        } else {
+            entry.sessions.push({
+                sessionId: input.sessionId,
+                lastAccessedAt: nowText,
+                accessCount: 1,
+            });
+        }
+
+        if (!existing) {
+            state.entries.push(entry);
+        }
+        state.updatedAt = nowText;
+        await writeTextAtomically(statePath, `${JSON.stringify(state, null, 4)}\n`);
+        await writeGeneratedRecommendations(workspace, state);
+        input.fileIndex.invalidate();
+    });
 }
 
 async function readContextAccessState(statePath: string, projectSlug: string, profileKey: string, nowText: string): Promise<ContextAccessState> {
@@ -194,7 +230,7 @@ async function readContextAccessState(statePath: string, projectSlug: string, pr
         if (parsed.version === 1 && Array.isArray(parsed.entries)) {
             return {
                 version: 1,
-                project: {slug: parsed.project?.slug ?? projectSlug},
+                project: {slug: projectSlug},
                 profile: parsed.profile ?? profileKey,
                 updatedAt: parsed.updatedAt ?? nowText,
                 entries: parsed.entries.filter(isContextAccessEntry),
@@ -214,18 +250,67 @@ async function readContextAccessState(statePath: string, projectSlug: string, pr
     };
 }
 
-async function writeGeneratedRecommendations(projectRoot: string, state: ContextAccessState): Promise<void> {
-    const generatedPath = path.join(projectRoot, "agents", safeProfileFileName(state.profile), "generated.md");
-    await fs.mkdir(path.dirname(generatedPath), {recursive: true});
-    await fs.writeFile(generatedPath, renderGeneratedRecommendations(state), "utf-8");
+async function writeGeneratedRecommendations(workspace: ResolvedProjectWorkspace, state: ContextAccessState): Promise<void> {
+    const generatedPath = path.join(workspace.root, "agents", safeProfileFileName(state.profile), "generated.md");
+    await writeTextAtomically(generatedPath, renderGeneratedRecommendations(state));
 }
 
-function contextAccessStatePath(projectRoot: string, profileKey: string): string {
-    return path.join(projectRoot, ".nbook", "context-access", `${safeProfileFileName(profileKey)}.json`);
+/** 同一 Project generation 与 profile 的完整读改写必须按调用顺序执行。 */
+async function withContextAccessWriteLock<T>(
+    project: ReadyProjectSessionRef,
+    profileKey: string,
+    action: () => Promise<T>,
+): Promise<T> {
+    let projectQueues = contextAccessWriteQueues.get(project.workspace.key);
+    if (!projectQueues) {
+        projectQueues = new Map<string, Promise<void>>();
+        contextAccessWriteQueues.set(project.workspace.key, projectQueues);
+    }
+    const queueKey = `${String(project.generation)}\0${safeProfileFileName(profileKey)}`;
+    const previous = projectQueues.get(queueKey) ?? Promise.resolve();
+    let release: () => void = () => {};
+    const current = new Promise<void>((resolve) => {
+        release = resolve;
+    });
+    const queued = previous.catch(() => undefined).then(() => current);
+    projectQueues.set(queueKey, queued);
+
+    await previous.catch(() => undefined);
+    try {
+        return await action();
+    } finally {
+        release();
+        if (projectQueues.get(queueKey) === queued) {
+            projectQueues.delete(queueKey);
+        }
+        if (projectQueues.size === 0 && contextAccessWriteQueues.get(project.workspace.key) === projectQueues) {
+            contextAccessWriteQueues.delete(project.workspace.key);
+        }
+    }
+}
+
+/** 通过同目录唯一临时文件原子替换文本，避免并发读观察到半份 JSON 或 Markdown。 */
+async function writeTextAtomically(filePath: string, text: string): Promise<void> {
+    const directory = path.dirname(filePath);
+    const temporaryPath = path.join(
+        directory,
+        `.${path.basename(filePath)}.${String(process.pid)}.${randomUUID()}.tmp`,
+    );
+    await fs.mkdir(directory, {recursive: true});
+    try {
+        await fs.writeFile(temporaryPath, text, {encoding: "utf-8", flag: "wx"});
+        await fs.rename(temporaryPath, filePath);
+    } finally {
+        await fs.rm(temporaryPath, {force: true}).catch(() => undefined);
+    }
+}
+
+function contextAccessStatePath(workspace: ResolvedProjectWorkspace, profileKey: string): string {
+    return path.join(workspace.root, ".nbook", "context-access", `${safeProfileFileName(profileKey)}.json`);
 }
 
 function normalizeEntryPath(filePath: string): string {
-    const normalized = filePath.trim().replaceAll("\\", "/").replace(/^workspace\/[^/]+\//, "").replace(/^\/+/, "").replace(/\/+$/g, (match) => match ? "/" : "");
+    const normalized = filePath.trim().replaceAll("\\", "/").replace(/^\/+/, "").replace(/\/+$/g, (match) => match ? "/" : "");
     if (normalized.endsWith("/index.md")) {
         return normalized.slice(0, -"index.md".length);
     }

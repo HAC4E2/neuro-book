@@ -1,15 +1,11 @@
 import {randomUUID} from "node:crypto";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
-import {registerProjectResourceOwner, resetProjectSessionsForTest} from "nbook/server/workspace-files/project-session";
+import {resetProjectSessionsForTest} from "nbook/server/workspace-files/project-session";
 import {writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {createIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/workspace-assets-test-helper";
-import {
-    closeTextToImageProjectClient,
-    textToImageProjectClient,
-    textToImageProjectClientResourceOwner,
-} from "nbook/server/text-to-image/project-client";
+import {textToImageProjectClient} from "nbook/server/text-to-image/project-client";
 
 describe("文生图 Project Prisma client", () => {
     let assets: IsolatedWorkspaceAssets;
@@ -17,14 +13,12 @@ describe("文生图 Project Prisma client", () => {
 
     beforeEach(async () => {
         resetProjectSessionsForTest();
-        registerProjectResourceOwner(textToImageProjectClientResourceOwner);
         assets = await createIsolatedWorkspaceAssets();
     });
 
     afterEach(async () => {
         if (projectPath) {
             await closeProjectForTest(projectPath).catch(() => undefined);
-            await closeTextToImageProjectClient(projectPath).catch(() => undefined);
         }
         resetProjectSessionsForTest();
         await assets.dispose();

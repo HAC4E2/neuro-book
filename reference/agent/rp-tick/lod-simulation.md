@@ -120,9 +120,9 @@ Pending Events 是 [simulation.md](../../content/simulation.md) 中 current.md "
 
 `<knowledge>`（见 [actor-facing-packet.md](actor-facing-packet.md)）是**新信息注入**通道；mind.md / memory.jsonl 是**信息存储**。组装 packet 做信息控制检查时：
 
-- 只注入"本轮场景需要、且角色长期记忆（subject.md / mind.md / memory.jsonl）尚未覆盖"的知识。判断依据是读取到的 subject 文件内容。
-- 角色记忆已覆盖的知识不要重复注入——sidecar 会自动加载。
-- 角色通过 `<knowledge>` 第一次接触的知识，是否沉淀为长期记忆由 actor 的 memory-save sidecar 决定，simulator.leader 不直接写 subject 记忆文件。
+- 只注入“本轮场景需要、且角色长期信息（`soul.md` / `events.jsonl` / `memory.jsonl` / `mind.md`）尚未覆盖”的知识。判断依据是授权上级或外部流程读取到的 subject 文件内容；不要把 `subject.md` 的隐藏真相直接交给 actor。
+- 角色记忆已覆盖的知识，在外部流程已经显式检索并注入时不要重复放进 `<knowledge>`。当前没有自动 context-load，组装 packet 时不能假定 actor 已经看到记忆文件。
+- 当前没有自动 memory-save。角色通过 `<knowledge>` 第一次接触的信息若需沉淀，必须由授权 workflow/job 或其他外部流程显式维护；`simulator.actor` 自身不读写 subject 记忆文件。
 
 ## LOD 事件数量的动态调整
 

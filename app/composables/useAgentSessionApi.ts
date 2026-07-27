@@ -8,6 +8,11 @@ import type {
     AgentInvokeRequestDto,
     AgentSessionEventDto,
     AgentSessionEventsQueryDto,
+    AgentSessionAttachmentItemDto,
+    AgentSessionAttachmentListQueryDto,
+    AgentSessionAttachmentPageDto,
+    AgentSessionAttachmentSnapshotRequestDto,
+    AgentSessionAttachmentResolveResultDto,
     AgentSessionHistoryPageDto,
     AgentSessionListPageDto,
     AgentSessionListQueryDto,
@@ -16,6 +21,7 @@ import type {
     AgentSessionSystemPromptDto,
     AgentTreeResult,
     AgentTreeRequestDto,
+    AgentUserMessageContentDto,
     ClientVariablePatchAckDto,
     InvokeAgentResult,
 } from "nbook/shared/dto/agent-session.dto";
@@ -60,6 +66,48 @@ export function useAgentSessionApi() {
 
     const getSessionRelations = (sessionId: number) => {
         return $fetch<AgentSessionRelationsDto>(`/api/agent/sessions/${sessionId}/relations`);
+    };
+
+    /** 搜索并分页读取 Session 全分支附件。 */
+    const getSessionAttachments = (sessionId: number, query: Partial<AgentSessionAttachmentListQueryDto> = {}) => {
+        return $fetch<AgentSessionAttachmentPageDto>(`/api/agent/sessions/${sessionId}/attachments`, {query});
+    };
+
+    /** 一次请求补齐正文中稳定图片节点的 canonical metadata。 */
+    const resolveSessionAttachments = (sessionId: number, attachmentIds: string[]) => {
+        return $fetch<AgentSessionAttachmentResolveResultDto>(`/api/agent/sessions/${sessionId}/attachments/resolve`, {
+            method: "POST",
+            body: {attachmentIds},
+        });
+    };
+
+    /** 上传单张图片；AbortSignal 只终止客户端等待，服务端已完成的登记仍属于原 Session。 */
+    const uploadSessionAttachment = (sessionId: number, file: File, signal?: AbortSignal) => {
+        const body = new FormData();
+        body.append("file", file, file.name);
+        return $fetch<AgentSessionAttachmentItemDto>(`/api/agent/sessions/${sessionId}/attachments`, {
+            method: "POST",
+            body,
+            signal,
+        });
+    };
+
+    /** 把 Project File Address、workspace/.nbook 地址或绝对路径快照为稳定附件。 */
+    const snapshotSessionAttachment = (
+        sessionId: number,
+        body: AgentSessionAttachmentSnapshotRequestDto,
+        signal?: AbortSignal,
+    ) => {
+        return $fetch<AgentSessionAttachmentItemDto>(`/api/agent/sessions/${sessionId}/attachments/snapshot`, {
+            method: "POST",
+            body,
+            signal,
+        });
+    };
+
+    /** 按需读取历史用户消息的完整 Markdown。 */
+    const getSessionUserContent = (sessionId: number, entryId: string) => {
+        return $fetch<AgentUserMessageContentDto>(`/api/agent/sessions/${sessionId}/entries/${encodeURIComponent(entryId)}/user-content`);
     };
 
     const invokeSession = (sessionId: number, body: AgentInvokeRequestDto) => {
@@ -123,13 +171,18 @@ export function useAgentSessionApi() {
         abortSession,
         createSession,
         getSessionHistory,
+        getSessionAttachments,
         getSessionRecovery,
         getSessionRelations,
         getSessionSystemPrompt,
+        getSessionUserContent,
         invokeSession,
         listSessions,
         moveTree,
         runCommand,
+        resolveSessionAttachments,
+        snapshotSessionAttachment,
         subscribeSessionEvents,
+        uploadSessionAttachment,
     };
 }

@@ -20,7 +20,7 @@ const { confirm, choose } = useDialog();
 const novelIdeStore = useNovelIdeStore();
 const { novels, currentNovelId, hasUnsavedWorkspaceChanges } = storeToRefs(novelIdeStore);
 const { switchNovel, createNovel, deleteNovel, saveDirtyWorkspaceFiles, ensureDefaultNovel } = novelIdeStore;
-const {t, locale} = useI18n();
+const {t} = useI18n();
 
 const isInitializing = ref(false);
 const isCreating = ref(false);
@@ -154,24 +154,6 @@ const formatDate = (dateString: string) => {
     } catch {
         return dateString;
     }
-};
-
-/**
- * 格式化数字统计，避免卡片拥挤。
- */
-const formatCount = (value: number) => {
-    return new Intl.NumberFormat(locale.value).format(Number.isFinite(value) ? value : 0);
-};
-
-/**
- * 格式化字数统计。
- */
-const formatWords = (value: number) => {
-    const words = Number.isFinite(value) ? value : 0;
-    if (words >= 10000) {
-        return new Intl.NumberFormat(locale.value, {notation: "compact", maximumFractionDigits: words >= 100000 ? 0 : 1}).format(words);
-    }
-    return formatCount(words);
 };
 
 watch(() => props.modelValue, async (open) => {
@@ -310,23 +292,7 @@ watch(() => props.modelValue, async (open) => {
                                 </div>
                             </div>
 
-                            <div class="grid grid-cols-2 gap-2">
-                                <div class="min-w-0 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1.5">
-                                    <div class="flex items-center gap-1 text-[10px] text-[var(--text-muted)]"><span class="i-lucide-pen-tool h-3 w-3"></span>{{ t("ide.bookshelf.words") }}</div>
-                                    <div class="truncate text-sm font-semibold text-[var(--text-main)]">{{ formatWords(novel.totalWords) }}</div>
-                                </div>
-                                <div class="min-w-0 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1.5">
-                                    <div class="flex items-center gap-1 text-[10px] text-[var(--text-muted)]"><span class="i-lucide-layers h-3 w-3"></span>{{ t("ide.bookshelf.chapters") }}</div>
-                                    <div class="truncate text-sm font-semibold text-[var(--text-main)]">{{ formatCount(novel.chapterCount) }}</div>
-                                </div>
-                            </div>
-
-                            <div class="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[var(--text-secondary)]">
-                                <span class="inline-flex items-center gap-1"><span class="i-lucide-book-open h-3 w-3 text-[var(--text-muted)]"></span>{{ t("ide.bookshelf.volume") }} {{ formatCount(novel.volumeCount) }}</span>
-                                <span class="inline-flex items-center gap-1"><span class="i-lucide-library h-3 w-3 text-[var(--text-muted)]"></span>Lore {{ formatCount(novel.lorebookCount) }}</span>
-                                <span class="inline-flex items-center gap-1"><span class="i-lucide-messages-square h-3 w-3 text-[var(--text-muted)]"></span>Session {{ formatCount(novel.sessionCount) }}</span>
-                                <span class="inline-flex items-center gap-1" :title="`Thread: ${formatCount(novel.threadCount)} / Scene: ${formatCount(novel.sceneCount)} / Plot: ${formatCount(novel.plotCount)}`"><span class="i-lucide-route h-3 w-3 text-[var(--text-muted)]"></span>{{ t("ide.bookshelf.plot") }} {{ formatCount(novel.threadCount + novel.sceneCount + novel.plotCount) }}</span>
-                            </div>
+                            <p v-if="novel.summary" class="line-clamp-3 text-[11px] leading-relaxed text-[var(--text-secondary)]">{{ novel.summary }}</p>
                         </div>
 
                         <!-- 悬浮操作菜单 -->

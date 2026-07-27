@@ -2,7 +2,8 @@ import {readFileSync, statSync} from "node:fs";
 import {readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
 import {basename, isAbsolute, join, relative, resolve} from "node:path";
 import {createError} from "h3";
-import {loadEffectiveConfigForAgentRuntime} from "nbook/server/config/config-service";
+import {loadEffectiveConfigFromTarget} from "nbook/server/config/config-service";
+import type {EffectiveConfig} from "nbook/server/config/types";
 import {
     parseSubjectEvent,
     parseSubjectEventsJsonl,
@@ -22,12 +23,16 @@ import {
     type SubjectPaths,
     type SubjectRagSourceType,
 } from "nbook/server/agent/tools/subject-rag-index";
-import {normalizeProjectPath, resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
-import {assertProjectOpen, markProjectActivity} from "nbook/server/workspace-files/project-session";
 import {parseMarkdownDocument} from "nbook/server/workspace-files/workspace-files";
-import {WORKSPACE_CONTAINER_ROOT} from "nbook/server/workspace-files/novel-workspace";
-import {normalizeWorkspaceRootRef} from "nbook/server/workspace-files/workspace-root-ref";
 import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
+import {projectPathFromRef} from "nbook/server/workspace-files/project-path";
+import {currentSqliteRuntime, openSqliteHandle} from "nbook/server/rag/sqlite-handle-initialization";
+import {
+    captureUserProjectFileWrite,
+    recordUserProjectFileWrite,
+    type UserProjectFileWriteCapture,
+} from "nbook/server/workspace-history/user-file-recorder";
 import type {
     ProjectRagEventDeleteRequestDto,
     ProjectRagEventReorderRequestDto,
@@ -53,6 +58,17 @@ type SourceError = {
     source: SubjectRagSourceType;
     message: string;
 };
+
+/** HTTP 字符串 seam 完成一次生命周期解析后，RAG 数据面唯一接受的结构化目标。 */
+export type ProjectRagTarget = Readonly<{
+    workspaceRoot: AbsoluteFsPath;
+    project: ReadyProjectSessionRef;
+}>;
+
+type ProjectRagWorkspace = Readonly<{
+    projectPath: string;
+    root: AbsoluteFsPath;
+}>;
 
 const RAG_SOURCES: SubjectRagSourceType[] = ["events", "memory"];
 const INSPECTOR_VECTOR_PREVIEW_DIMENSIONS = 8;
@@ -94,8 +110,8 @@ type SqliteVecModule = {
 /**
  * 读取当前 Project 的 RAG subject 概览。
  */
-export async function readProjectRagOverview(workspaceRoot: AbsoluteFsPath, projectPathInput: string): Promise<ProjectRagOverviewDto> {
-    const project = resolveProject(workspaceRoot, projectPathInput);
+export async function readProjectRagOverview(target: ProjectRagTarget): Promise<ProjectRagOverviewDto> {
+    const project = projectWorkspace(target);
     const subjects = await listSubjectPaths(project.root);
     const summaries = await Promise.all(subjects.map((subjectPath) => readSubjectSummary(project, subjectPath)));
     return {
@@ -107,8 +123,8 @@ export async function readProjectRagOverview(workspaceRoot: AbsoluteFsPath, proj
 /**
  * 读取单个 subject 的 events / memory 展示数据。
  */
-export async function readProjectRagSubject(workspaceRoot: AbsoluteFsPath, projectPathInput: string, subjectPathInput: string): Promise<ProjectRagSubjectDto> {
-    const project = resolveProject(workspaceRoot, projectPathInput);
+export async function readProjectRagSubject(target: ProjectRagTarget, subjectPathInput: string): Promise<ProjectRagSubjectDto> {
+    const project = projectWorkspace(target);
     const subject = resolveSubject(project, subjectPathInput);
     const [eventsResult, memoriesResult, sourceStatuses] = await Promise.all([
         readEvents(subject.paths.eventsPath),
@@ -135,17 +151,13 @@ export async function readProjectRagSubject(workspaceRoot: AbsoluteFsPath, proje
 /**
  * 在当前 subject 上执行真实 RAG 搜索。
  */
-export async function searchProjectSubjectRag(workspaceRoot: AbsoluteFsPath, projectPathInput: string, input: ProjectRagSearchRequestDto): Promise<ProjectRagSearchResultDto> {
-    const project = resolveProject(workspaceRoot, projectPathInput);
+export async function searchProjectSubjectRag(target: ProjectRagTarget, input: ProjectRagSearchRequestDto): Promise<ProjectRagSearchResultDto> {
+    const project = projectWorkspace(target);
     const subject = resolveSubject(project, input.subjectPath);
-    const workspaceRootRef = normalizeWorkspaceRootRef(WORKSPACE_CONTAINER_ROOT);
+    const config = await loadProjectRagConfig(target);
     ensureSubjectSourcesReadable(subject.paths, input.sources?.length ? input.sources : RAG_SOURCES);
     const candidates = await searchSubjectRag({
-        context: {
-            workspaceRootRef,
-            workspaceFsRoot: workspaceRoot,
-            projectPath: project.projectPath,
-        },
+        embedding: config.embedding,
         subject: subject.paths,
         query: input.query,
         sources: input.sources?.length ? input.sources : RAG_SOURCES,
@@ -161,10 +173,9 @@ export async function searchProjectSubjectRag(workspaceRoot: AbsoluteFsPath, pro
 /**
  * 重建当前 subject 或当前 Project 的 RAG 索引。
  */
-export async function rebuildProjectSubjectRag(workspaceRoot: AbsoluteFsPath, projectPathInput: string, input: ProjectRagRebuildRequestDto): Promise<ProjectRagRebuildResultDto> {
-    const project = resolveProject(workspaceRoot, projectPathInput);
-    const workspaceRootRef = normalizeWorkspaceRootRef(WORKSPACE_CONTAINER_ROOT);
-    const workspaceFsRoot = workspaceRoot;
+export async function rebuildProjectSubjectRag(target: ProjectRagTarget, input: ProjectRagRebuildRequestDto): Promise<ProjectRagRebuildResultDto> {
+    const project = projectWorkspace(target);
+    const config = await loadProjectRagConfig(target);
     const subjectPaths = input.subjectPath ? [input.subjectPath] : await listSubjectPaths(project.root);
     const results: ProjectRagRebuildResultDto["results"] = [];
     let rebuiltSubjects = 0;
@@ -174,11 +185,7 @@ export async function rebuildProjectSubjectRag(workspaceRoot: AbsoluteFsPath, pr
             const subject = resolveSubject(project, subjectPath);
             ensureSubjectSourcesReadable(subject.paths, RAG_SOURCES);
             await rebuildSubjectRag({
-                context: {
-                    workspaceRootRef,
-                    workspaceFsRoot,
-                    projectPath: project.projectPath,
-                },
+                embedding: config.embedding,
                 subject: subject.paths,
                 sources: RAG_SOURCES,
             });
@@ -204,13 +211,13 @@ export async function rebuildProjectSubjectRag(workspaceRoot: AbsoluteFsPath, pr
 /**
  * 读取 Project RAG Inspector 所需的索引、chunk 和向量预览信息。
  */
-export async function readProjectRagInspector(workspaceRoot: AbsoluteFsPath, projectPathInput: string, input: ProjectRagInspectorRequestDto): Promise<ProjectRagInspectorDto> {
-    const project = resolveProject(workspaceRoot, projectPathInput);
+export async function readProjectRagInspector(target: ProjectRagTarget, input: ProjectRagInspectorRequestDto): Promise<ProjectRagInspectorDto> {
+    const project = projectWorkspace(target);
     const sourceFilter = input.sources?.length ? uniqueSources(input.sources) : RAG_SOURCES;
     const limit = input.limit ?? DEFAULT_INSPECTOR_LIMIT;
     const subjects = await Promise.all((await listSubjectPaths(project.root)).map((subjectPath) => readSubjectSummary(project, subjectPath)));
     const selectedSubjectPath = resolveInspectorSubjectPath(subjects, input.subjectPath);
-    const embedding = await readEmbeddingSnapshot(project.projectPath);
+    const embedding = await readEmbeddingSnapshot(target);
     const dbPath = resolveRagDbPath(project.root);
     const dbExists = await fileExists(dbPath);
     const dbSnapshot = dbExists
@@ -244,8 +251,8 @@ export async function readProjectRagInspector(workspaceRoot: AbsoluteFsPath, pro
 /**
  * 执行 RAG Inspector 的调试操作。只影响可重建缓存或 dirty state。
  */
-export async function debugProjectRag(workspaceRoot: AbsoluteFsPath, projectPathInput: string, input: ProjectRagDebugRequestDto): Promise<ProjectRagDebugResultDto> {
-    const project = resolveProject(workspaceRoot, projectPathInput);
+export async function debugProjectRag(target: ProjectRagTarget, input: ProjectRagDebugRequestDto): Promise<ProjectRagDebugResultDto> {
+    const project = projectWorkspace(target);
     if (input.action === "mark-dirty") {
         const subjectPaths = input.subjectPath ? [input.subjectPath] : await listSubjectPaths(project.root);
         const sources = input.sources?.length ? uniqueSources(input.sources) : RAG_SOURCES;
@@ -282,7 +289,7 @@ export async function debugProjectRag(workspaceRoot: AbsoluteFsPath, projectPath
     }
 
     await clearRagIndexCache(project.root);
-    const rebuild = await rebuildProjectSubjectRag(workspaceRoot, project.projectPath, {subjectPath: input.subjectPath});
+    const rebuild = await rebuildProjectSubjectRag(target, {subjectPath: input.subjectPath});
     return {
         projectPath: project.projectPath,
         action: input.action,
@@ -294,80 +301,85 @@ export async function debugProjectRag(workspaceRoot: AbsoluteFsPath, projectPath
 /**
  * 新增一条 subject event。
  */
-export async function createProjectRagEvent(workspaceRoot: AbsoluteFsPath, projectPath: string, input: ProjectRagEventWriteRequestDto): Promise<ProjectRagSubjectDto> {
-    const {project, subject} = resolveProjectSubject(workspaceRoot, projectPath, input.subjectPath);
-    const events = parseEventsForWrite(subject.paths.eventsPath);
+export async function createProjectRagEvent(target: ProjectRagTarget, input: ProjectRagEventWriteRequestDto): Promise<ProjectRagSubjectDto> {
+    const {subject} = resolveProjectSubject(target, input.subjectPath);
+    const {before, events} = readEventsForWrite(subject.paths.eventsPath);
     events.push(parseSubjectEvent(input.event, "event"));
-    await writeEventsAndMarkDirty(subject.paths, events);
-    return readProjectRagSubject(workspaceRoot, project.projectPath, subject.subjectPath);
+    const capture = captureSubjectWrite(target, subject, "events");
+    await writeEventsAndMarkDirty(subject.paths, events, capture, before);
+    return readProjectRagSubject(target, subject.subjectPath);
 }
 
 /**
  * 修改一条 subject event。
  */
-export async function updateProjectRagEvent(workspaceRoot: AbsoluteFsPath, projectPath: string, input: ProjectRagEventWriteRequestDto): Promise<ProjectRagSubjectDto> {
-    const {project, subject} = resolveProjectSubject(workspaceRoot, projectPath, input.subjectPath);
+export async function updateProjectRagEvent(target: ProjectRagTarget, input: ProjectRagEventWriteRequestDto): Promise<ProjectRagSubjectDto> {
+    const {subject} = resolveProjectSubject(target, input.subjectPath);
     const index = requireIndex(input.index, "index");
-    const events = parseEventsForWrite(subject.paths.eventsPath);
+    const {before, events} = readEventsForWrite(subject.paths.eventsPath);
     assertArrayIndex(events, index, "event");
     events[index] = parseSubjectEvent(input.event, "event");
-    await writeEventsAndMarkDirty(subject.paths, events);
-    return readProjectRagSubject(workspaceRoot, project.projectPath, subject.subjectPath);
+    const capture = captureSubjectWrite(target, subject, "events");
+    await writeEventsAndMarkDirty(subject.paths, events, capture, before);
+    return readProjectRagSubject(target, subject.subjectPath);
 }
 
 /**
  * 删除一条 subject event。
  */
-export async function deleteProjectRagEvent(workspaceRoot: AbsoluteFsPath, projectPath: string, input: ProjectRagEventDeleteRequestDto): Promise<ProjectRagSubjectDto> {
-    const {project, subject} = resolveProjectSubject(workspaceRoot, projectPath, input.subjectPath);
-    const events = parseEventsForWrite(subject.paths.eventsPath);
+export async function deleteProjectRagEvent(target: ProjectRagTarget, input: ProjectRagEventDeleteRequestDto): Promise<ProjectRagSubjectDto> {
+    const {subject} = resolveProjectSubject(target, input.subjectPath);
+    const {before, events} = readEventsForWrite(subject.paths.eventsPath);
     assertArrayIndex(events, input.index, "event");
     events.splice(input.index, 1);
-    await writeEventsAndMarkDirty(subject.paths, events);
-    return readProjectRagSubject(workspaceRoot, project.projectPath, subject.subjectPath);
+    const capture = captureSubjectWrite(target, subject, "events");
+    await writeEventsAndMarkDirty(subject.paths, events, capture, before);
+    return readProjectRagSubject(target, subject.subjectPath);
 }
 
 /**
  * 重排一条 subject event。
  */
-export async function reorderProjectRagEvent(workspaceRoot: AbsoluteFsPath, projectPath: string, input: ProjectRagEventReorderRequestDto): Promise<ProjectRagSubjectDto> {
-    const {project, subject} = resolveProjectSubject(workspaceRoot, projectPath, input.subjectPath);
-    const events = parseEventsForWrite(subject.paths.eventsPath);
+export async function reorderProjectRagEvent(target: ProjectRagTarget, input: ProjectRagEventReorderRequestDto): Promise<ProjectRagSubjectDto> {
+    const {subject} = resolveProjectSubject(target, input.subjectPath);
+    const {before, events} = readEventsForWrite(subject.paths.eventsPath);
     assertArrayIndex(events, input.fromIndex, "event");
     assertArrayIndex(events, input.toIndex, "event");
     const [event] = events.splice(input.fromIndex, 1);
     if (event) {
         events.splice(input.toIndex, 0, event);
     }
-    await writeEventsAndMarkDirty(subject.paths, events);
-    return readProjectRagSubject(workspaceRoot, project.projectPath, subject.subjectPath);
+    const capture = captureSubjectWrite(target, subject, "events");
+    await writeEventsAndMarkDirty(subject.paths, events, capture, before);
+    return readProjectRagSubject(target, subject.subjectPath);
 }
 
 /**
  * 新增一条 subject memory。
  */
-export async function createProjectRagMemory(workspaceRoot: AbsoluteFsPath, projectPath: string, input: ProjectRagMemoryWriteRequestDto): Promise<ProjectRagSubjectDto> {
-    const {project, subject} = resolveProjectSubject(workspaceRoot, projectPath, input.subjectPath);
-    const memories = parseMemoriesForWrite(subject.paths.memoryPath);
+export async function createProjectRagMemory(target: ProjectRagTarget, input: ProjectRagMemoryWriteRequestDto): Promise<ProjectRagSubjectDto> {
+    const {subject} = resolveProjectSubject(target, input.subjectPath);
+    const {before, memories} = readMemoriesForWrite(subject.paths.memoryPath);
     const next = parseSubjectMemory(input.memory, "memory");
     if (memories.some((memory) => memory.topic === next.topic)) {
         throwConflict(`memory topic 已存在：${next.topic}`);
     }
     memories.push(next);
-    await writeMemoriesAndMarkDirty(subject.paths, memories);
-    return readProjectRagSubject(workspaceRoot, project.projectPath, subject.subjectPath);
+    const capture = captureSubjectWrite(target, subject, "memory");
+    await writeMemoriesAndMarkDirty(subject.paths, memories, capture, before);
+    return readProjectRagSubject(target, subject.subjectPath);
 }
 
 /**
  * 修改一条 subject memory。旧 topic 用于定位，memory.topic 可用于改名。
  */
-export async function updateProjectRagMemory(workspaceRoot: AbsoluteFsPath, projectPath: string, input: ProjectRagMemoryWriteRequestDto): Promise<ProjectRagSubjectDto> {
-    const {project, subject} = resolveProjectSubject(workspaceRoot, projectPath, input.subjectPath);
+export async function updateProjectRagMemory(target: ProjectRagTarget, input: ProjectRagMemoryWriteRequestDto): Promise<ProjectRagSubjectDto> {
+    const {subject} = resolveProjectSubject(target, input.subjectPath);
     const topic = input.topic?.trim();
     if (!topic) {
         throwBadRequest("topic 不能为空");
     }
-    const memories = parseMemoriesForWrite(subject.paths.memoryPath);
+    const {before, memories} = readMemoriesForWrite(subject.paths.memoryPath);
     const index = memories.findIndex((memory) => memory.topic === topic);
     if (index < 0) {
         throwConflict(`memory topic 不存在：${topic}`);
@@ -377,40 +389,40 @@ export async function updateProjectRagMemory(workspaceRoot: AbsoluteFsPath, proj
         throwConflict(`memory topic 已存在：${next.topic}`);
     }
     memories[index] = next;
-    await writeMemoriesAndMarkDirty(subject.paths, memories);
-    return readProjectRagSubject(workspaceRoot, project.projectPath, subject.subjectPath);
+    const capture = captureSubjectWrite(target, subject, "memory");
+    await writeMemoriesAndMarkDirty(subject.paths, memories, capture, before);
+    return readProjectRagSubject(target, subject.subjectPath);
 }
 
 /**
  * 删除一条 subject memory。
  */
-export async function deleteProjectRagMemory(workspaceRoot: AbsoluteFsPath, projectPath: string, input: ProjectRagMemoryDeleteRequestDto): Promise<ProjectRagSubjectDto> {
-    const {project, subject} = resolveProjectSubject(workspaceRoot, projectPath, input.subjectPath);
-    const memories = parseMemoriesForWrite(subject.paths.memoryPath);
+export async function deleteProjectRagMemory(target: ProjectRagTarget, input: ProjectRagMemoryDeleteRequestDto): Promise<ProjectRagSubjectDto> {
+    const {subject} = resolveProjectSubject(target, input.subjectPath);
+    const {before, memories} = readMemoriesForWrite(subject.paths.memoryPath);
     const index = memories.findIndex((memory) => memory.topic === input.topic);
     if (index < 0) {
         throwConflict(`memory topic 不存在：${input.topic}`);
     }
     memories.splice(index, 1);
-    await writeMemoriesAndMarkDirty(subject.paths, memories);
-    return readProjectRagSubject(workspaceRoot, project.projectPath, subject.subjectPath);
+    const capture = captureSubjectWrite(target, subject, "memory");
+    await writeMemoriesAndMarkDirty(subject.paths, memories, capture, before);
+    return readProjectRagSubject(target, subject.subjectPath);
 }
 
-function resolveProjectSubject(workspaceRoot: AbsoluteFsPath, projectPathInput: string, subjectPathInput: string): {
-    project: ReturnType<typeof resolveProject>;
+function resolveProjectSubject(target: ProjectRagTarget, subjectPathInput: string): {
+    project: ProjectRagWorkspace;
     subject: ReturnType<typeof resolveSubject>;
 } {
-    const project = resolveProject(workspaceRoot, projectPathInput);
+    const project = projectWorkspace(target);
     return {
         project,
         subject: resolveSubject(project, subjectPathInput),
     };
 }
 
-async function readEmbeddingSnapshot(projectPath: string): Promise<ProjectRagInspectorDto["embedding"]> {
-    const config = await loadEffectiveConfigForAgentRuntime({
-        projectPath,
-    });
+async function readEmbeddingSnapshot(target: ProjectRagTarget): Promise<ProjectRagInspectorDto["embedding"]> {
+    const config = await loadProjectRagConfig(target);
     const embedding = config.embedding;
     return {
         enabled: embedding.enabled,
@@ -447,20 +459,24 @@ function uniqueSources(sources: SubjectRagSourceType[]): SubjectRagSourceType[] 
     return RAG_SOURCES.filter((source) => sources.includes(source));
 }
 
-function resolveProject(workspaceRoot: AbsoluteFsPath, projectPathInput: string): {
-    projectPath: string;
-    root: string;
-} {
-    const projectPath = normalizeProjectPath(projectPathInput);
-    assertProjectOpen(projectPath);
-    markProjectActivity(projectPath);
-    return {
-        projectPath,
-        root: resolveProjectWorkspaceRoot(workspaceRoot, projectPath),
-    };
+/** 从 HTTP seam 已捕获的 Project generation 投影旧公开 DTO 路径与物理根。 */
+function projectWorkspace(target: ProjectRagTarget): ProjectRagWorkspace {
+    return Object.freeze({
+        projectPath: projectPathFromRef(target.project.workspace.ref),
+        root: target.project.workspace.root,
+    });
 }
 
-function resolveSubject(project: ReturnType<typeof resolveProject>, subjectPathInput: string): {
+/** 使用同 generation 的结构化 Project Config target 读取有效配置。 */
+function loadProjectRagConfig(target: ProjectRagTarget): Promise<EffectiveConfig> {
+    return loadEffectiveConfigFromTarget({
+        scope: "project",
+        workspaceRoot: target.workspaceRoot,
+        project: target.project,
+    });
+}
+
+function resolveSubject(project: ProjectRagWorkspace, subjectPathInput: string): {
     subjectPath: string;
     subjectId: string;
     paths: SubjectPaths;
@@ -483,6 +499,18 @@ function resolveSubject(project: ReturnType<typeof resolveProject>, subjectPathI
             ragStatePath: join(project.root, ".nbook", "subject-rag-dirty.json"),
         },
     };
+}
+
+/** 在源文件落盘前捕获同 generation 的用户记账与索引资源。 */
+function captureSubjectWrite(
+    target: ProjectRagTarget,
+    subject: ReturnType<typeof resolveSubject>,
+    source: SubjectRagSourceType,
+): UserProjectFileWriteCapture {
+    return captureUserProjectFileWrite(
+        target.project,
+        `${subject.subjectPath}/${source === "events" ? "events.jsonl" : "memory.jsonl"}`,
+    );
 }
 
 function normalizeSubjectPath(value: string): string {
@@ -528,7 +556,7 @@ async function listSubjectPaths(projectRoot: string): Promise<string[]> {
         .sort((left, right) => left.localeCompare(right));
 }
 
-async function readSubjectSummary(project: ReturnType<typeof resolveProject>, subjectPath: string): Promise<ProjectRagSubjectSummaryDto> {
+async function readSubjectSummary(project: ProjectRagWorkspace, subjectPath: string): Promise<ProjectRagSubjectSummaryDto> {
     const subject = resolveSubject(project, subjectPath);
     const [eventsResult, memoriesResult, sourceStatuses, subjectFileText, soulFileExists, mindFileExists, stateFileExists] = await Promise.all([
         readEvents(subject.paths.eventsPath),
@@ -617,43 +645,76 @@ async function readMemories(filePath: string): Promise<{memories: SubjectMemory[
     }
 }
 
-function parseEventsForWrite(filePath: string): SubjectEvent[] {
+function readEventsForWrite(filePath: string): {before: Uint8Array | null; events: SubjectEvent[]} {
+    const source = readSourceForWrite(filePath);
     try {
-        return parseSubjectEventsJsonl(readTextSync(filePath), filePath);
+        return {
+            before: source.before,
+            events: parseSubjectEventsJsonl(source.text, filePath),
+        };
     } catch (error) {
         throwConflict(`events.jsonl 无效，请先修复源文件：${errorMessage(error)}`);
     }
 }
 
-function parseMemoriesForWrite(filePath: string): SubjectMemory[] {
+function readMemoriesForWrite(filePath: string): {before: Uint8Array | null; memories: SubjectMemory[]} {
+    const source = readSourceForWrite(filePath);
     try {
-        return parseSubjectMemoriesJsonl(readTextSync(filePath), filePath);
+        return {
+            before: source.before,
+            memories: parseSubjectMemoriesJsonl(source.text, filePath),
+        };
     } catch (error) {
         throwConflict(`memory.jsonl 无效，请先修复源文件：${errorMessage(error)}`);
+    }
+}
+
+/** 同一次读盘同时提供解析文本与 History before 快照。 */
+function readSourceForWrite(filePath: string): {before: Uint8Array | null; text: string} {
+    try {
+        const before = readFileSync(filePath);
+        return {before, text: before.toString("utf-8")};
+    } catch (error) {
+        if (isNodeError(error, "ENOENT")) {
+            return {before: null, text: ""};
+        }
+        throw error;
     }
 }
 
 function ensureSubjectSourcesReadable(subject: SubjectPaths, sources: SubjectRagSourceType[]): void {
     for (const source of sources) {
         if (source === "events") {
-            parseEventsForWrite(subject.eventsPath);
+            readEventsForWrite(subject.eventsPath);
         } else {
-            parseMemoriesForWrite(subject.memoryPath);
+            readMemoriesForWrite(subject.memoryPath);
         }
     }
 }
 
-async function writeEventsAndMarkDirty(subject: SubjectPaths, events: SubjectEvent[]): Promise<void> {
+async function writeEventsAndMarkDirty(
+    subject: SubjectPaths,
+    events: SubjectEvent[],
+    capture: UserProjectFileWriteCapture,
+    before: Uint8Array | null,
+): Promise<void> {
     const text = serializeSubjectEventsJsonl(events);
     const nextText = text ? `${text}\n` : "";
     await writeFile(subject.eventsPath, nextText, "utf-8");
+    await recordUserProjectFileWrite({capture, before, after: nextText});
     await markSubjectRagDirty(subject, "events", nextText);
 }
 
-async function writeMemoriesAndMarkDirty(subject: SubjectPaths, memories: SubjectMemory[]): Promise<void> {
+async function writeMemoriesAndMarkDirty(
+    subject: SubjectPaths,
+    memories: SubjectMemory[],
+    capture: UserProjectFileWriteCapture,
+    before: Uint8Array | null,
+): Promise<void> {
     const text = serializeSubjectMemoriesJsonl(memories);
     const nextText = text ? `${text}\n` : "";
     await writeFile(subject.memoryPath, nextText, "utf-8");
+    await recordUserProjectFileWrite({capture, before, after: nextText});
     await markSubjectRagDirty(subject, "memory", nextText);
 }
 
@@ -1007,23 +1068,24 @@ async function clearRagIndexCache(projectRoot: string): Promise<void> {
 }
 
 async function openProjectRagSqliteDatabase(dbPath: string, options: {readonly: boolean; loadVec: boolean}): Promise<ProjectRagSqliteDatabase> {
-    if ("Bun" in globalThis) {
-        const sqliteSpecifier = "bun:sqlite";
-        const sqlite = await import(sqliteSpecifier) as BunSqliteModule;
-        const db = new sqlite.Database(dbPath, {readonly: options.readonly});
-        if (options.loadVec) {
-            await loadSqliteVec(db);
-        }
-        return db;
-    }
-    const sqliteSpecifier = "node:sqlite";
-    const sqlite = await import(sqliteSpecifier) as unknown as NodeSqliteModule;
-    const db = new sqlite.DatabaseSync(dbPath, {readOnly: options.readonly, allowExtension: options.loadVec});
-    const wrapped = wrapNodeSqliteDatabase(db);
-    if (options.loadVec) {
-        await loadSqliteVec(wrapped);
-    }
-    return wrapped;
+    return openSqliteHandle({
+        runtime: currentSqliteRuntime(),
+        async openBun() {
+            const sqliteSpecifier = "bun:sqlite";
+            const sqlite = await import(sqliteSpecifier) as BunSqliteModule;
+            return new sqlite.Database(dbPath, {readonly: options.readonly});
+        },
+        async openNode() {
+            const sqliteSpecifier = "node:sqlite";
+            const sqlite = await import(sqliteSpecifier) as unknown as NodeSqliteModule;
+            return wrapNodeSqliteDatabase(new sqlite.DatabaseSync(dbPath, {readOnly: options.readonly, allowExtension: options.loadVec}));
+        },
+        async initialize(db) {
+            if (options.loadVec) {
+                await loadSqliteVec(db);
+            }
+        },
+    });
 }
 
 function wrapNodeSqliteDatabase(db: NodeSqliteDatabase): ProjectRagSqliteDatabase {

@@ -9,7 +9,7 @@ import {ProfileCompileWorkerService, profileSourceFileSetChangedSinceCompile, re
 import {runProfileCompile, runProfileCompileAll, runProfileCompileEntry} from "nbook/server/agent/profiles/profile-compile-worker-runtime";
 import {assertProfileFullReleaseFresh, PROFILE_COMPILED_DIR_NAME, readProfileArtifactManifest, stageProfileArtifacts} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import type {ProfileCompileWorkerResult} from "nbook/server/agent/profiles/profile-compile-worker-types";
-import {withIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/workspace-assets-test-helper";
+import {withIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/test-workspace-fixture";
 
 describe("profile compile worker runtime", () => {
     it("Product Root 仅有 .output package manifest 时从 .output/server vendor 解析 tsx API", async () => {
@@ -532,7 +532,7 @@ async function withCompiledRootSnapshot(
     run: (assets: IsolatedWorkspaceAssets) => Promise<void>,
     extraProfileFiles: string[] = [],
 ): Promise<void> {
-    await withIsolatedWorkspaceAssets({seedUserAssets: false}, async (assets) => {
+    await withIsolatedWorkspaceAssets({}, async (assets) => {
         await seedProfileSources(assets, [
             "builtin/leader.default.profile.tsx",
             "builtin/researcher.profile.tsx",

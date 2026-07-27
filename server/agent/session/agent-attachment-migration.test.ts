@@ -121,6 +121,7 @@ describe("Agent Attachment v1 migration", () => {
         expect(target).not.toContain(PNG_BYTES.toString("base64"));
         expect(target.match(/"type":"attachment"/g)).toHaveLength(2);
         expect(target).not.toContain('"images"');
+        expect(target).toContain('"clientMessageId"');
 
         const hash = sha256(PNG_BYTES);
         const blobPath = join(root, ".nbook", "agent", "attachments", "sha256", hash.slice(0, 2), hash.slice(2));
@@ -664,6 +665,8 @@ async function writeStoredSession(root: string, sessionId: number): Promise<stri
                 parentId: null,
                 timestamp: 2,
                 type: "message",
+                clientMessageId: randomUUID(),
+                intent: "normal",
                 message: {
                     role: "user",
                     content: [{type: "text", text: "already stored"}],

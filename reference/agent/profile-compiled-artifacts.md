@@ -87,8 +87,24 @@ Runtime reader 会规范化为：
 
 ## GC
 
-- GC 只清理 `.compiled/artifacts/` 中不被 current manifest 引用、且超过 grace period 的 artifact/type artifact。
-- current manifest 引用的 sha 永不删除；未过 grace 的未引用 sha 保留，避免并发发布、降级或外部写者留下的短期残留被误删。
+GC 有两个入口，都在 publish lock 内执行，都只清理 `.compiled/artifacts/` 中不被 current manifest 引用的 artifact/type artifact：
+
+- **发布后回收**（`trigger: "publish"`）：manifest 写入之后。
+- **零写入 sweep**（`trigger: "sweep"`）：`compileProfileArtifacts` 在 `publishRequired === false` 早退时调用 `sweepProfileArtifactBudget()`。**这个入口不可省**——最小安全年龄地板会在发布时挡下刚变成 orphan 的一整代，若只在发布时回收，长期不发布的 root 会一直停在预算之上。sweep 先无锁 `readdir` 预检，全部可达就直接返回不取锁；`writePolicy: "forbid"` 的只读 Product root 一个文件都不删。
+
+**预算只约束不可达集合，不是目录总量上限。** current release 不可驱逐且天然无界，单 root 稳态是 `current + orphan`；定预算时要同时看「一代 release 有多大」。
+
+优先级：**最小安全年龄地板 > 硬字节预算 > orphan grace**。
+
+- **current manifest 引用的 sha 永不删除。**
+- **最小安全年龄地板**（`PROFILE_COMPILED_ARTIFACT_GC_MIN_AGE_MS`，10 分钟）：预算回收不得删除年龄小于该值的 orphan，即使仍然超预算。它保护的是**在途读者**——进程 A 已读到 manifest v1 并准备 import 其中的 artifact 时，进程 B 发布 v2；没有这条地板 A 会拿到 ENOENT 变成 `compiled_load_failed`。因此 512 MiB 不是绝对硬上限，短时间内高频发布可以短暂超预算，`overBudgetBytes > 0` 会被 warn 出来。
+- **硬字节预算**（`PROFILE_COMPILED_ORPHAN_BUDGET_BYTES`，512 MiB/root）：orphan 总字节超预算时，从**最久未被引用**的开始回收，此时突破 7 天 grace。
+- **orphan grace**（`PROFILE_COMPILED_ARTIFACT_GC_GRACE_MS`，7 天）：超过 grace 的未引用 sha 无条件回收。
+- **mtime 语义 = 最后一次仍被 current 引用的时间。** `installImmutableArtifact` 幂等复用已存在 artifact 时不刷新 mtime，所以 GC 会对 keep 集合内每个文件 `utimes(now)`。没有这一步，一个被连续引用很久的 artifact 会带着很旧的 mtime，刚脱离 current 就成为最优先驱逐对象——正好是最可能马上被重新引用的那一个。
+- **退化状态守卫**：`manifest.profiles` 为空（没有任何 loaded entry，例如宿主依赖临时缺失导致全量编译失败）时，可达集合为空、全部 artifact 都会成为驱逐对象。此时**跳过预算回收**，只保留 grace 行为，并以 warn 上报 `skippedDegenerate`。
+- GC 返回 `ProfileArtifactGcReport`（current/orphan/deleted/failed/protected/overBudget 字节与最大 artifact），由发布路径按 `agent.profileArtifact.gc` 上报；命中退化守卫或仍超预算时升为 warn。
+- 单个 artifact 删除失败（Windows 文件占用等）只累计 `failedFiles`，不影响 release 主结果。
+- staging 位于 profile root **同级** `.staging/`，不在 `.compiled/` 下；`.publish.lock` 是目录且不匹配扩展名过滤，两者都不会被 GC 误伤。
 
 ## Sync
 
@@ -100,6 +116,11 @@ user-assets sync 的发布点是不可回滚边界：磁盘 release 一旦提交
 
 ## Tests
 
-- profile/workspace 测试不得直接写真实 `workspace/.nbook` user-assets。需要覆盖 user/system assets 时，使用隔离 root context 或 `workspace-assets-test-helper`。
+- profile/workspace 测试不得直接写真实 `workspace/.nbook` user-assets。需要覆盖 user/system assets 时，使用隔离 root context 或 `server/workspace-files/test-workspace-fixture`。
+- Test Workspace Fixture 默认共享 vitest `globalSetup` 建立的 **run 级只读 system assets snapshot**（`<root>/assets` 是指向 snapshot 的 junction）。snapshot 是对已发布 release 的纯投影：源码 + manifest + manifest 当前引用的 artifact，排除 orphan、`.staging` 和 runtime import cache；它**不做编译**，系统 assets 的编译由 `bun run dev` / `system-assets:prepare` 负责。
+- **会修改 system assets 的测试必须显式声明 `systemAssets: "isolated"`**，拿到一份可写副本。默认共享模式下写 system assets 会污染整个 run。
+- `<root>/assets/workspace/.nbook` 这个**物理相对路径必须始终存在**：profile 编译按 cwd 相对记录依赖路径（`normalizeArtifactPath`），user-assets sync 又按 `assets/workspace/.nbook/agent/profiles` 这个字符串标签把 system entry rehome 成 user entry。把 system root 挪到 cwd 之外会让依赖标签退化成临时目录绝对路径，rehome 随之失配。
+- 每个 fixture root 写 `.nbook-fixture.json` owner marker（schema/createdAt/pid/runId/purpose）。`globalSetup` 启动时保守回收残留：必须是真实目录、marker schema 一致、超过 24 小时、owner PID 不活跃，任何一步无法证明安全一律保留并报告。
+- fixture root 下含指向仓库本体的 junction，清理必须先 `lstat` 判定 reparse point 再 `rm(recursive)`（`fs.rm` 对 symlink/junction 只解链接、不进入目标）。**绝不能直接对 root 递归删除。**
 - 隔离 root context 必须支持嵌套恢复；内层 fixture 结束时恢复外层 context，不能直接清空全局测试 root。
 - 并行测试必须能独立运行；禁止用备份/恢复真实 `.compiled` 目录作为长期隔离方案。

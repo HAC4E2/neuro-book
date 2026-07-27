@@ -4,6 +4,7 @@ import type {SelectOption} from "nbook/app/components/common/form/FormSelect.vue
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
 import Dialog from "nbook/app/components/common/Dialog.vue";
+import AgentVisibleModelsEditor from "nbook/app/components/novel-ide/settings/AgentVisibleModelsEditor.vue";
 import NovelIdeModelSelect from "nbook/app/components/novel-ide/settings/NovelIdeModelSelect.vue";
 import NovelIdeModelEditDialog from "nbook/app/components/novel-ide/settings/NovelIdeModelEditDialog.vue";
 import ModelDiscoveryDialog from "nbook/app/components/novel-ide/settings/ModelDiscoveryDialog.vue";
@@ -632,6 +633,8 @@ defineExpose({dirty, loading, saving, saveSettings, restoreSettings});
                 <span v-if="illustrationDirectorModelCheckResult.latencyMs !== null" class="opacity-70">{{ illustrationDirectorModelCheckResult.latencyMs }}ms</span>
             </div>
         </section>
+
+        <AgentVisibleModelsEditor v-if="!isProjectScope" v-model="draft.agentVisibleModels" :models="defaultModelOptions" :default-model-key="draft.defaultModelKey" />
 
         <!-- Loading State -->
         <div v-if="loading" class="flex min-h-[400px] flex-col items-center justify-center gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-sm">

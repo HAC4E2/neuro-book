@@ -10,6 +10,7 @@ import type {AgentInvocationResult} from "nbook/server/agent/harness/types";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {defineAgentProfile as defineRuntimeAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+import {agentRuntimeBuiltins} from "nbook/server/agent/profiles/define-agent-runtime";
 import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
 import {createStoredUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 import type {Message as RuntimeMessage} from "nbook/server/agent/messages/types";
@@ -18,6 +19,9 @@ import {storedMessageText} from "nbook/server/agent/messages/stored-message-pres
 import type {AgentSessionEventDto} from "nbook/shared/dto/agent-session.dto";
 import type {NeuroSessionContext, SessionEntry} from "nbook/server/agent/session/types";
 import {normalizeWorkspaceRootRef} from "nbook/server/workspace-files/workspace-root-ref";
+import {AgentJobCancelledError} from "nbook/server/agent/jobs/agent-job-manager";
+import {serializeAgentImageMarkdown} from "nbook/shared/agent/agent-image-markdown";
+import {AGENT_FOLLOW_UP_QUEUE_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
 
 const pngBytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
 
@@ -47,7 +51,6 @@ function defineAgentProfile(profile: any): ReturnType<typeof defineRuntimeAgentP
     const {
         allowedToolKeys,
         mainRunAllowedToolKeys,
-        sidecars,
         toolKeys,
         ...rest
     } = profile;
@@ -55,16 +58,6 @@ function defineAgentProfile(profile: any): ReturnType<typeof defineRuntimeAgentP
         ...rest,
         tools: rest.tools ?? profileToolsFromKeys(allowedToolKeys ?? []),
         toolKeys: toolKeys ?? mainRunAllowedToolKeys,
-        sidecars: sidecars?.map((sidecar: any) => {
-            const {
-                allowedToolKeys: sidecarAllowedToolKeys,
-                ...sidecarRest
-            } = sidecar;
-            return {
-                ...sidecarRest,
-                toolKeys: sidecarRest.toolKeys ?? sidecarAllowedToolKeys,
-            };
-        }),
     });
 }
 
@@ -275,6 +268,24 @@ describe("NeuroAgentHarness black-box contract", () => {
         }));
 
         expect(observed.result.status).toBe("completed");
+        const assistantUsages = observed.context.messages
+            .filter((message) => message.role === "assistant")
+            .map((message) => message.usage);
+        expect(assistantUsages).toHaveLength(2);
+        expect(observed.result.usage).toEqual({
+            input: assistantUsages.reduce((sum, value) => sum + value.input, 0),
+            output: assistantUsages.reduce((sum, value) => sum + value.output, 0),
+            cacheRead: assistantUsages.reduce((sum, value) => sum + value.cacheRead, 0),
+            cacheWrite: assistantUsages.reduce((sum, value) => sum + value.cacheWrite, 0),
+            totalTokens: assistantUsages.reduce((sum, value) => sum + value.totalTokens, 0),
+            cost: {
+                input: assistantUsages.reduce((sum, value) => sum + value.cost.input, 0),
+                output: assistantUsages.reduce((sum, value) => sum + value.cost.output, 0),
+                cacheRead: assistantUsages.reduce((sum, value) => sum + value.cost.cacheRead, 0),
+                cacheWrite: assistantUsages.reduce((sum, value) => sum + value.cost.cacheWrite, 0),
+                total: assistantUsages.reduce((sum, value) => sum + value.cost.total, 0),
+            },
+        });
         expect(sessionRoles(observed.context)).toEqual(["user", "assistant", "toolResult", "assistant"]);
         expect(lifecycleStatuses(observed.snapshot)).toEqual(["start", "end"]);
         expect(eventTypes(observed.events)).toEqual(expect.arrayContaining([
@@ -448,9 +459,11 @@ describe("NeuroAgentHarness black-box contract", () => {
                 message: {text: "start"},
             });
             await waitUntil(() => eventTypes(observer.events).includes("tool_execution_start"), "tool execution start before steer");
+            const steerClientMessageId = randomUUID();
             const queued = await harness.invokeAgent({
                 sessionId: created.sessionId,
                 mode: "steer",
+                clientMessageId: steerClientMessageId,
                 message: {text: "adjust while running"},
             });
             const beforeDrain = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
@@ -462,6 +475,11 @@ describe("NeuroAgentHarness black-box contract", () => {
             const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
 
             expect(queued.queuedItem).toEqual(expect.objectContaining({kind: "steer"}));
+            expect(queued.acceptance).toEqual({
+                state: "queued",
+                clientMessageId: steerClientMessageId,
+                queueItemId: queued.queuedItem?.id,
+            });
             expect(visibleText(beforeDrain.messages)).not.toContain("adjust while running");
             expect(result.status).toBe("completed");
             expect(visibleText(context.messages)).toContain("adjust while running");
@@ -520,6 +538,11 @@ describe("NeuroAgentHarness black-box contract", () => {
             initial: {},
             workspaceRoot: root,
         });
+        const registered = await harness.uploadSessionAttachment(created.sessionId, {
+            bytes: pngBytes,
+            mimeType: "image/png",
+            name: "queued.png",
+        });
 
         // 锚定 tool_execution_start（与上方 steer 用例同款）：createAgent 已产生事件使 lastSeq>0 恒真，
         // 旧锚点会让 followup 赶在 prompt admission 之前提交而被拒（active_invocation_required 竞态）。
@@ -531,16 +554,13 @@ describe("NeuroAgentHarness black-box contract", () => {
                 message: {text: "start"},
             });
             await waitUntil(() => eventTypes(observer.events).includes("tool_execution_start"), "tool execution start before followup");
+            const followUpClientMessageId = randomUUID();
             const queued = await harness.invokeAgent({
                 sessionId: created.sessionId,
                 mode: "followup",
+                clientMessageId: followUpClientMessageId,
                 message: {
-                    text: "queued followup",
-                    images: [{
-                        type: "image",
-                        mimeType: "image/png",
-                        data: Buffer.from(pngBytes).toString("base64"),
-                    }],
+                    text: `queued followup${serializeAgentImageMarkdown("queued.png", registered.target)}`,
                 },
             });
             const beforeDrain = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
@@ -550,6 +570,11 @@ describe("NeuroAgentHarness black-box contract", () => {
             const snapshot = await harness.getSessionRecovery(created.sessionId);
 
             expect(queued.queuedItem).toEqual(expect.objectContaining({kind: "followup"}));
+            expect(queued.acceptance).toEqual({
+                state: "queued",
+                clientMessageId: followUpClientMessageId,
+                queueItemId: queued.queuedItem?.id,
+            });
             expect(visibleText(beforeDrain.messages)).not.toContain("queued followup");
             expect(result.status).toBe("completed");
             expect(visibleText(context.messages)).toContain("queued followup");
@@ -573,6 +598,187 @@ describe("NeuroAgentHarness black-box contract", () => {
             ]);
             expect(snapshot.followUpQueue.items).toEqual([]);
         } finally {
+            releaseTool();
+            await observer.stop();
+        }
+    });
+
+    it("follow-up drain 重新 admission 失败时保留队首且不写 durable user entry", async () => {
+        let releaseTool = (): void => undefined;
+        const toolGate = new Promise<void>((resolve) => {
+            releaseTool = resolve;
+        });
+        harness.tools.register({
+            key: "bb_followup_admission_gate",
+            name: "bb_followup_admission_gate",
+            label: "BlackBox Follow-up Admission Gate",
+            description: "Keeps the first invocation running while the attachment authority changes.",
+            parameters: Type.Object({}),
+            async execute() {
+                await toolGate;
+                return {content: [{type: "text", text: "released"}], details: {}, terminate: true};
+            },
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {key: "test.blackbox.followup-admission", name: "BlackBox Follow-up Admission"},
+            initialSchema: Type.Object({}),
+            allowedToolKeys: ["bb_followup_admission_gate"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([fauxToolCall("bb_followup_admission_gate", {}, {id: "admission-gate"})], {stopReason: "toolUse"}),
+            fauxAssistantMessage("must not run"),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.blackbox.followup-admission",
+            initial: {},
+            workspaceRoot: root,
+        });
+        const registered = await harness.uploadSessionAttachment(created.sessionId, {
+            bytes: pngBytes,
+            mimeType: "image/png",
+            name: "queued.png",
+        });
+        const observer = await observeSession(harness, created.sessionId);
+        try {
+            const running = harness.invokeAgent({
+                sessionId: created.sessionId,
+                mode: "prompt",
+                message: {text: "start"},
+            });
+            await waitUntil(() => eventTypes(observer.events).includes("tool_execution_start"), "tool execution start before corrupt follow-up");
+            const queued = await harness.invokeAgent({
+                sessionId: created.sessionId,
+                mode: "followup",
+                message: {text: serializeAgentImageMarkdown("queued.png", registered.target)},
+            });
+            await harness.repo.appendProjectionEntry(created.sessionId, {
+                type: "session_attachment",
+                origin: "projection",
+                source: "upload",
+                attachment: {
+                    id: registered.attachment.attachmentId,
+                    mimeType: registered.attachment.mimeType,
+                    bytes: registered.attachment.bytes + 1,
+                },
+                name: "conflict.png",
+            });
+            releaseTool();
+            await running;
+
+            const recovery = await harness.getSessionRecovery(created.sessionId);
+            const ledger = await harness.repo.readSession(created.sessionId);
+            expect(recovery.followUpQueue).toEqual({
+                status: "paused",
+                pausedBy: expect.objectContaining({
+                    itemId: queued.queuedItem?.id,
+                    reason: "admission_error",
+                }),
+                items: [expect.objectContaining({id: queued.queuedItem?.id})],
+                omittedItems: 0,
+            });
+            expect(ledger.entries.some((entry) => entry.type === "message"
+                && entry.message.role === "user"
+                && entry.sourceQueueItemId === queued.queuedItem?.id)).toBe(false);
+            expect(faux.getPendingResponseCount()).toBe(1);
+        } finally {
+            releaseTool();
+            await observer.stop();
+        }
+    });
+
+    it("follow-up durable user commit 后 ack 失败，恢复时只补 ack 而不重复运行", async () => {
+        let releaseTool = (): void => undefined;
+        const toolGate = new Promise<void>((resolve) => {
+            releaseTool = resolve;
+        });
+        harness.tools.register({
+            key: "bb_followup_ack_gate",
+            name: "bb_followup_ack_gate",
+            label: "BlackBox Follow-up Ack Gate",
+            description: "Keeps the first invocation running until the queue ack failure is installed.",
+            parameters: Type.Object({}),
+            async execute() {
+                await toolGate;
+                return {content: [{type: "text", text: "released"}], details: {}};
+            },
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {key: "test.blackbox.followup-ack", name: "BlackBox Follow-up Ack"},
+            initialSchema: Type.Object({}),
+            allowedToolKeys: ["bb_followup_ack_gate"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([fauxToolCall("bb_followup_ack_gate", {}, {id: "ack-gate"})], {stopReason: "toolUse"}),
+            fauxAssistantMessage("first run done"),
+            fauxAssistantMessage("manual recovery run"),
+            fauxAssistantMessage("duplicate follow-up must not run"),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.blackbox.followup-ack",
+            initial: {},
+            workspaceRoot: root,
+        });
+        const observer = await observeSession(harness, created.sessionId);
+        const originalAppendProjection = harness.repo.appendProjectionEntry.bind(harness.repo);
+        let injectedAckFailure = false;
+        try {
+            const running = harness.invokeAgent({
+                sessionId: created.sessionId,
+                mode: "prompt",
+                message: {text: "start"},
+            });
+            await waitUntil(() => eventTypes(observer.events).includes("tool_execution_start"), "tool execution start before ack failure");
+            const queued = await harness.invokeAgent({
+                sessionId: created.sessionId,
+                mode: "followup",
+                message: {text: "queued exactly once"},
+            });
+            harness.repo.appendProjectionEntry = async (...args: Parameters<JsonlSessionRepository["appendProjectionEntry"]>): ReturnType<JsonlSessionRepository["appendProjectionEntry"]> => {
+                const input = args[1];
+                if (!injectedAckFailure
+                    && input.type === "custom"
+                    && input.key === AGENT_FOLLOW_UP_QUEUE_STATE_KEY
+                    && typeof input.value === "object"
+                    && input.value !== null
+                    && !Array.isArray(input.value)
+                    && input.value.status === "ready"
+                    && Array.isArray(input.value.items)
+                    && input.value.items.length === 0) {
+                    injectedAckFailure = true;
+                    throw new Error("injected follow-up ack failure");
+                }
+                return originalAppendProjection(...args);
+            };
+            releaseTool();
+            await running;
+            harness.repo.appendProjectionEntry = originalAppendProjection;
+
+            const afterFailure = await harness.repo.readSession(created.sessionId);
+            expect(injectedAckFailure).toBe(true);
+            expect(afterFailure.entries.filter((entry) => entry.type === "message"
+                && entry.message.role === "user"
+                && entry.sourceQueueItemId === queued.queuedItem?.id)).toHaveLength(1);
+            expect((await harness.getSessionRecovery(created.sessionId)).followUpQueue.items).toHaveLength(1);
+
+            await harness.invokeAgent({
+                sessionId: created.sessionId,
+                mode: "prompt",
+                message: {text: "recover queue"},
+            });
+            const recovered = await harness.repo.readSession(created.sessionId);
+            expect(recovered.entries.filter((entry) => entry.type === "message"
+                && entry.message.role === "user"
+                && entry.sourceQueueItemId === queued.queuedItem?.id)).toHaveLength(1);
+            expect((await harness.getSessionRecovery(created.sessionId)).followUpQueue.items).toEqual([]);
+            expect(faux.getPendingResponseCount()).toBe(1);
+        } finally {
+            harness.repo.appendProjectionEntry = originalAppendProjection;
             releaseTool();
             await observer.stop();
         }
@@ -633,7 +839,7 @@ describe("NeuroAgentHarness black-box contract", () => {
         expect(sessionRoles(context)).toEqual(["user", "assistant", "toolResult", "assistant"]);
     });
 
-    it("WaitingUser 期间 prompt/followup/steer 入队但不写 durable history", async () => {
+    it("WaitingUser 期间只接受回答，prompt/followup/steer 均不进入队列或 durable history", async () => {
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.blackbox.waiting-queue",
@@ -652,8 +858,6 @@ describe("NeuroAgentHarness black-box contract", () => {
                 }, {id: "ask-queue"}),
             ], {stopReason: "toolUse"}),
             (context) => fauxAssistantMessage(fauxText(context.messages.map(messageText).join("|"))),
-            fauxAssistantMessage("queued prompt answered"),
-            fauxAssistantMessage("queued followup answered"),
         ]);
         const created = await harness.createAgent({
             profileKey: "test.blackbox.waiting-queue",
@@ -666,19 +870,22 @@ describe("NeuroAgentHarness black-box contract", () => {
             message: {text: "start"},
         });
 
-        const queuedPrompt = await harness.invokeAgent({
+        const rejectedPrompt = await harness.invokeAgent({
             sessionId: created.sessionId,
             mode: "prompt",
+            clientMessageId: randomUUID(),
             message: {text: "queued prompt"},
         });
-        const queuedFollowup = await harness.invokeAgent({
+        const rejectedFollowup = await harness.invokeAgent({
             sessionId: created.sessionId,
             mode: "followup",
+            clientMessageId: randomUUID(),
             message: {text: "queued followup"},
         });
-        const queuedSteer = await harness.invokeAgent({
+        const rejectedSteer = await harness.invokeAgent({
             sessionId: created.sessionId,
             mode: "steer",
+            clientMessageId: randomUUID(),
             message: {text: "queued steer"},
         });
         const beforeResume = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
@@ -691,20 +898,24 @@ describe("NeuroAgentHarness black-box contract", () => {
                 answers: [{questionIndex: 0, text: "go"}],
             },
         });
-        const context = await waitForSessionText(harness, created.sessionId, "queued followup");
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
         const snapshot = await harness.getSessionRecovery(created.sessionId);
 
         expect(waiting.status).toBe("waiting");
-        expect(queuedPrompt.queuedItem).toEqual(expect.objectContaining({kind: "followup"}));
-        expect(queuedFollowup.queuedItem).toEqual(expect.objectContaining({kind: "followup"}));
-        expect(queuedSteer.queuedItem).toEqual(expect.objectContaining({kind: "steer"}));
+        for (const rejected of [rejectedPrompt, rejectedFollowup, rejectedSteer]) {
+            expect(rejected).toMatchObject({
+                status: "error",
+                acceptance: {state: "not_accepted"},
+                errorPhase: "prepare",
+            });
+        }
         expect(visibleText(beforeResume.messages)).not.toContain("queued prompt");
         expect(visibleText(beforeResume.messages)).not.toContain("queued followup");
         expect(visibleText(beforeResume.messages)).not.toContain("queued steer");
         expect(continued.status).toBe("completed");
-        expect(visibleText(context.messages)).toContain("queued steer");
-        expect(visibleText(context.messages)).toContain("queued prompt");
-        expect(visibleText(context.messages)).toContain("queued followup");
+        expect(visibleText(context.messages)).not.toContain("queued steer");
+        expect(visibleText(context.messages)).not.toContain("queued prompt");
+        expect(visibleText(context.messages)).not.toContain("queued followup");
         expect(snapshot.steerQueue).toEqual({items: [], omittedItems: 0});
         expect(snapshot.followUpQueue.items).toEqual([]);
     });
@@ -721,10 +932,12 @@ describe("NeuroAgentHarness black-box contract", () => {
             initial: {},
             workspaceRoot: root,
         });
+        const clientMessageId = randomUUID();
 
         const observed = await runAndObserve(harness, created.sessionId, () => harness.invokeAgent({
             sessionId: created.sessionId,
             mode: "prompt",
+            clientMessageId,
             message: {text: "start"},
         }));
 
@@ -733,6 +946,11 @@ describe("NeuroAgentHarness black-box contract", () => {
             message: "provider failed",
             phase: "model",
         }));
+        expect(observed.result.acceptance).toEqual({
+            state: "persisted",
+            clientMessageId,
+            entryId: expect.any(String),
+        });
         expect(sessionRoles(observed.context)).toEqual(["user"]);
         expect(lifecycleStatuses(observed.snapshot)).toEqual(["start", "error"]);
         expect(eventTypes(observed.events)).toContain("agent_end");
@@ -1069,6 +1287,288 @@ describe("NeuroAgentHarness black-box contract", () => {
         } finally {
             await observer.stop();
         }
+    });
+
+    it("Running provider 忽略 AbortSignal 时 cancel 仍有界释放调用方，并隔离迟到结果", async () => {
+        const profileKey = registerPlainProfile(harness, {
+            key: "test.blackbox.forced-running-abort",
+        });
+        let releaseProvider: (() => void) | undefined;
+        const providerGate = new Promise<void>((resolve) => {
+            releaseProvider = resolve;
+        });
+        faux.setResponses([
+            async () => {
+                await providerGate;
+                return fauxAssistantMessage("late provider result");
+            },
+            fauxAssistantMessage("fresh invocation result"),
+        ]);
+        const created = await harness.createAgent({
+            profileKey,
+            initial: {},
+            workspaceRoot: root,
+        });
+        const running = harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "start hanging provider"},
+        });
+        await waitUntil(async () => (await harness.getSessionRecovery(created.sessionId)).activeInvocation?.status === "running", "hanging provider active");
+
+        const aborted = await harness.abortInvocation(created.sessionId, {reason: "force stop"});
+        const result = await Promise.race([
+            running,
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error("running invocation did not settle after cancel")), 300)),
+        ]);
+        const recovery = await harness.getSessionRecovery(created.sessionId);
+
+        expect(aborted).toEqual({status: "aborted", sessionId: created.sessionId});
+        expect(result).toMatchObject({status: "error", invocationId: expect.any(String)});
+        expect(recovery.activeInvocation).toBeNull();
+
+        const next = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "start fresh invocation"},
+        });
+        expect(next).toMatchObject({status: "completed", finalMessage: "fresh invocation result"});
+
+        releaseProvider!();
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        const snapshot = await harness.repo.readSession(created.sessionId);
+        expect(visibleText(harness.repo.reduce(snapshot).messages)).not.toContain("late provider result");
+        expect(lifecycleStatuses(snapshot)).toEqual(["start", "aborted", "start", "end"]);
+    });
+
+    it("外部 signal 只取消 admission 接收的精确 invocation，不影响同 session 后续调用", async () => {
+        const profileKey = registerPlainProfile(harness, {
+            key: "test.blackbox.exact-signal-abort",
+        });
+        let releaseProvider: (() => void) | undefined;
+        const providerGate = new Promise<void>((resolve) => {
+            releaseProvider = resolve;
+        });
+        faux.setResponses([
+            async () => {
+                await providerGate;
+                return fauxAssistantMessage("late exact-signal result");
+            },
+            fauxAssistantMessage("new invocation survived"),
+        ]);
+        const created = await harness.createAgent({
+            profileKey,
+            initial: {},
+            workspaceRoot: root,
+        });
+        const controller = new AbortController();
+        const running = harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "start signal-owned invocation"},
+            signal: controller.signal,
+        });
+        await waitUntil(async () => (await harness.getSessionRecovery(created.sessionId)).activeInvocation?.status === "running", "signal-owned invocation active");
+
+        controller.abort(new Error("parent invocation cancelled"));
+        const cancelled = await Promise.race([
+            running,
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error("signal-owned invocation did not settle")), 1_000)),
+        ]);
+        expect(cancelled).toMatchObject({status: "error", invocationId: expect.any(String)});
+
+        const next = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "start new invocation"},
+        });
+        expect(next).toMatchObject({status: "completed", finalMessage: "new invocation survived"});
+
+        releaseProvider!();
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        const snapshot = await harness.repo.readSession(created.sessionId);
+        expect(visibleText(harness.repo.reduce(snapshot).messages)).not.toContain("late exact-signal result");
+        expect(lifecycleStatuses(snapshot)).toEqual(["start", "aborted", "start", "end"]);
+    });
+
+    it("Running tool 忽略 AbortSignal 时 cancel 仍有界释放调用方，并隔离迟到结果", async () => {
+        let releaseTool: (() => void) | undefined;
+        const toolGate = new Promise<void>((resolve) => {
+            releaseTool = resolve;
+        });
+        harness.tools.register({
+            key: "hanging_tool",
+            name: "hanging_tool",
+            label: "Hanging Tool",
+            description: "A test tool that deliberately ignores AbortSignal.",
+            parameters: Type.Object({}),
+            async execute() {
+                await toolGate;
+                return {
+                    content: [{type: "text", text: "late tool result"}],
+                    details: null,
+                };
+            },
+        });
+        const profileKey = registerPlainProfile(harness, {
+            key: "test.blackbox.forced-tool-abort",
+            allowedToolKeys: ["hanging_tool"],
+        });
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("hanging_tool", {}, {id: "hanging-tool-call"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage("fresh invocation after tool cancel"),
+        ]);
+        const created = await harness.createAgent({
+            profileKey,
+            initial: {},
+            workspaceRoot: root,
+        });
+        const observer = await observeSession(harness, created.sessionId);
+        try {
+            const running = harness.invokeAgent({
+                sessionId: created.sessionId,
+                mode: "prompt",
+                message: {text: "start hanging tool"},
+            });
+            await waitUntil(() => eventTypes(observer.events).includes("tool_execution_start"), "hanging tool execution start");
+
+            const aborted = await harness.abortInvocation(created.sessionId, {reason: "force stop tool"});
+            const result = await Promise.race([
+                running,
+                new Promise<never>((_, reject) => setTimeout(() => reject(new Error("tool invocation did not settle after cancel")), 300)),
+            ]);
+            expect(aborted).toEqual({status: "aborted", sessionId: created.sessionId});
+            expect(result).toMatchObject({status: "error", invocationId: expect.any(String)});
+            await expect(harness.getSessionRecovery(created.sessionId)).resolves.toMatchObject({activeInvocation: null});
+
+            const next = await harness.invokeAgent({
+                sessionId: created.sessionId,
+                mode: "prompt",
+                message: {text: "start fresh invocation"},
+            });
+            expect(next).toMatchObject({status: "completed", finalMessage: "fresh invocation after tool cancel"});
+
+            releaseTool!();
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            const snapshot = await harness.repo.readSession(created.sessionId);
+            const context = harness.repo.reduce(snapshot);
+            expect(visibleText(context.messages)).not.toContain("late tool result");
+            expect(lifecycleStatuses(snapshot)).toEqual(["start", "aborted", "start", "end"]);
+        } finally {
+            releaseTool?.();
+            await observer.stop();
+        }
+    });
+
+    it("settleRun hook 迟到恢复时不能在强制取消后写入 session", async () => {
+        let notifySettleStarted: (() => void) | undefined;
+        const settleStarted = new Promise<void>((resolve) => {
+            notifySettleStarted = resolve;
+        });
+        let releaseSettle: (() => void) | undefined;
+        const settleGate = new Promise<void>((resolve) => {
+            releaseSettle = resolve;
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.blackbox.forced-settle-abort",
+                name: "Forced Settle Abort",
+            },
+            initialSchema: Type.Object({}),
+            tools: profileToolsFromKeys([]),
+            runtime: {
+                hooks: [
+                    agentRuntimeBuiltins.sessionRuntime(),
+                    {
+                        name: "test.hangingSettle",
+                        stage: "settleRun",
+                        async run(ctx: {sessionId: number}) {
+                            notifySettleStarted!();
+                            await settleGate;
+                            return {
+                                writePlans: [{
+                                    target: {sessionId: ctx.sessionId},
+                                    cause: "test.late-settle",
+                                    ops: [{
+                                        kind: "append",
+                                        entry: {
+                                            type: "custom",
+                                            key: "test.late-settle",
+                                            value: true,
+                                        },
+                                    }],
+                                }],
+                            };
+                        },
+                    },
+                ],
+            },
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage("provider already completed"),
+            fauxAssistantMessage("fresh invocation after settle cancel"),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.blackbox.forced-settle-abort",
+            initial: {},
+            workspaceRoot: root,
+        });
+        const running = harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "hang in settle hook"},
+        });
+        await settleStarted;
+
+        const aborted = await harness.abortInvocation(created.sessionId, {reason: "cancel hanging settle"});
+        const result = await Promise.race([
+            running,
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error("settle invocation did not stop after cancel")), 300)),
+        ]);
+        expect(aborted).toEqual({status: "aborted", sessionId: created.sessionId});
+        expect(result).toMatchObject({status: "error"});
+
+        releaseSettle!();
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        const afterLateSettle = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+        expect(afterLateSettle.customState["test.late-settle"]).toBeUndefined();
+
+        const next = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "start fresh invocation"},
+        });
+        expect(next).toMatchObject({status: "completed", finalMessage: "fresh invocation after settle cancel"});
+        const snapshot = await harness.repo.readSession(created.sessionId);
+        expect(lifecycleStatuses(snapshot)).toEqual(["start", "aborted", "start", "end"]);
+    });
+
+    it("dispose 会取消 waiting Job 并在固定期限内完成", async () => {
+        const job = harness.jobs.spawn({
+            kind: "workflow",
+            title: "waiting workflow",
+            deliver: "none",
+            run: async (context) => {
+                context.setWaiting("等待用户输入");
+                await new Promise<void>((resolve) => {
+                    context.signal.addEventListener("abort", () => resolve(), {once: true});
+                });
+                throw new AgentJobCancelledError();
+            },
+        });
+        await waitUntil(() => harness.jobs.get(job.jobId)?.status === "waiting", "job enters waiting");
+
+        await Promise.race([
+            harness.dispose(),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error("harness dispose did not settle")), 300)),
+        ]);
+
+        expect(harness.jobs.get(job.jobId)).toMatchObject({status: "cancelled"});
     });
 
     it("SSE replay 和 snapshot_required 合同可从 Harness event hub 观察", async () => {

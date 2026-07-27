@@ -150,8 +150,8 @@ describe("useAgentSession event reducer", () => {
         session.applyRecovery({...recovery(0), history: {entries: [userEntry("user-1", "你好")], previousCursor: null}});
 
         session.applyRelations({sessionId: 1, linkedAgents: [{...summary(), sessionId: 2}], linkedByAgents: []});
-        session.applyEvent(control(1, {type: "steer_queued", item: {id: "steer-1", kind: "steer", text: {preview: "调整", bytes: 6, omitted: false}, images: [], omittedImages: 0, createdAt: 1}}));
-        session.applyEvent(control(2, {type: "follow_up_queued", item: {id: "follow-1", kind: "followup", text: {preview: "继续", bytes: 6, omitted: false}, images: [], omittedImages: 0, createdAt: 2}}));
+        session.applyEvent(control(1, {type: "steer_queued", item: {id: "steer-1", clientMessageId: "message-steer-1", kind: "steer", text: {preview: "调整", bytes: 6, omitted: false}, images: [], omittedImages: 0, createdAt: 1}}));
+        session.applyEvent(control(2, {type: "follow_up_queued", item: {id: "follow-1", clientMessageId: "message-follow-1", kind: "followup", text: {preview: "继续", bytes: 6, omitted: false}, images: [], omittedImages: 0, createdAt: 2}}));
 
         expect(session.recoveryShell.value?.linkedAgents.map((item) => item.sessionId)).toEqual([2]);
         expect(session.recoveryShell.value?.steerQueue.items.map((item) => item.id)).toEqual(["steer-1"]);
@@ -219,6 +219,7 @@ function userEntry(id: string, content: string, timestamp = 1): AgentChatEntryDt
     const bytes = Buffer.byteLength(content, "utf8");
     return {
         id,
+        clientMessageId: `message-${id}`,
         timestamp,
         type: "user",
         intent: "normal",

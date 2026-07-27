@@ -4,32 +4,13 @@ import {describe, expect, it} from "vitest";
 import {ProfileCompileWorkerService} from "nbook/server/agent/profiles/profile-compile-worker";
 import {runProfileCompile} from "nbook/server/agent/profiles/profile-compile-worker-runtime";
 import type {ProfileCompileWorkerResult} from "nbook/server/agent/profiles/profile-compile-worker-types";
-import {withIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/workspace-assets-test-helper";
+import {withIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/test-workspace-fixture";
 
 describe("profile compile worker preview 与 lifecycle", () => {
-    it("源码覆盖编译不写入全局 profile module cache", async () => {
-        await withProfileAssets(["builtin/leader.default.profile.tsx"], async (assets) => {
-            const globalCacheRoot = resolve(".agent", "workspace", "profile-module-cache");
-            await rm(globalCacheRoot, {recursive: true, force: true});
-            await mkdir(globalCacheRoot, {recursive: true});
-            const source = await readFile(profilePath(assets, "builtin/leader.default.profile.tsx"), "utf8");
-
-            const result = await runProfileCompile({
-                fileName: "builtin/leader.default.profile.tsx",
-                source,
-                dryRun: false,
-                preview: false,
-            });
-            const cacheEntries = await readdir(globalCacheRoot).catch(() => []);
-
-            try {
-                expect(result.ok).toBe(true);
-                expect(cacheEntries.filter((name) => name.endsWith(".mjs"))).toEqual([]);
-            } finally {
-                await cleanupStagedResult(result);
-            }
-        });
-    }, 120_000);
+    // 原「源码覆盖编译不写入全局 profile module cache」用例已删除（Task 125）。
+    // 它守的 `.agent/workspace/profile-module-cache` 全仓再无任何写入方，断言恒真；
+    // 而且它按 cwd 相对解析，实际是在 rm/mkdir 真实仓库目录。dry-run 不写真实
+    // 用户源码与 `.compiled` 由本文件后面的 preview 用例覆盖。
 
     it("worker crash 返回结构化 issue，不向 endpoint 抛 rejected promise", async () => {
         const worker = new ProfileCompileWorkerService("test-crash");
@@ -86,7 +67,7 @@ async function withProfileAssets(
     fileNames: string[],
     run: (assets: IsolatedWorkspaceAssets) => Promise<void>,
 ): Promise<void> {
-    await withIsolatedWorkspaceAssets({seedUserAssets: false}, async (assets) => {
+    await withIsolatedWorkspaceAssets({}, async (assets) => {
         for (const fileName of fileNames) {
             const target = resolve(assets.userProfileRoot, fileName);
             await mkdir(dirname(target), {recursive: true});

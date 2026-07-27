@@ -3,6 +3,7 @@ import {AgentAttachmentCodec, attachmentMarker} from "nbook/server/agent/attachm
 import {AttachmentStore} from "nbook/server/agent/attachments/attachment-store";
 import type {AttachmentBlobAdapter} from "nbook/server/agent/attachments/types";
 import type {StoredAgentMessage} from "nbook/server/agent/messages/stored-types";
+import {AGENT_IMAGE_POLICY} from "nbook/shared/agent/agent-image-policy";
 
 const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
 
@@ -15,63 +16,42 @@ function memoryAdapter(): AttachmentBlobAdapter {
 }
 
 describe("AgentAttachmentCodec", () => {
-    it("批量图片任一项无效时不会提前写入 Store", async () => {
+    it("saveImage 在写入前校验大小、魔数与声明 MIME", async () => {
         const adapter = memoryAdapter();
         const put = vi.spyOn(adapter, "put");
         const codec = new AgentAttachmentCodec(new AttachmentStore(adapter));
 
-        await expect(codec.saveImageInputs([
-            {type: "image", mimeType: "image/png", data: Buffer.from(png).toString("base64")},
-            {type: "image", mimeType: "image/png", data: "invalid"},
-        ])).rejects.toMatchObject({code: "invalid_input"});
-        expect(put).not.toHaveBeenCalled();
-    });
-
-    it("批量图片数量超限时不会写入 Store", async () => {
-        const adapter = memoryAdapter();
-        const put = vi.spyOn(adapter, "put");
-        const codec = new AgentAttachmentCodec(new AttachmentStore(adapter));
-        const image = {type: "image" as const, mimeType: "image/png", data: Buffer.from(png).toString("base64")};
-
-        await expect(codec.saveImageInputs(Array.from({length: 9}, () => image))).rejects.toMatchObject({code: "limit_exceeded"});
-        expect(put).not.toHaveBeenCalled();
-    });
-
-    it("单图和整批预算在超限一字节时预检失败且不写 Store", async () => {
-        const adapter = memoryAdapter();
-        const put = vi.spyOn(adapter, "put");
-        const codec = new AgentAttachmentCodec(new AttachmentStore(adapter));
-
-        await expect(codec.saveImageInputs([{
-            type: "image",
+        await expect(codec.saveImage({
+            bytes: new Uint8Array(16 * 1024 * 1024 + 1),
             mimeType: "image/png",
-            data: base64ForBytes(16 * 1024 * 1024 + 1),
-        }])).rejects.toMatchObject({code: "limit_exceeded"});
-        await expect(codec.saveImageInputs([
-            {type: "image", mimeType: "image/png", data: base64ForBytes(10 * 1024 * 1024)},
-            {type: "image", mimeType: "image/png", data: base64ForBytes(11 * 1024 * 1024)},
-            {type: "image", mimeType: "image/png", data: base64ForBytes(11 * 1024 * 1024 + 1)},
-        ])).rejects.toMatchObject({code: "limit_exceeded"});
+        })).rejects.toMatchObject({code: "limit_exceeded"});
+        await expect(codec.saveImage({bytes: Uint8Array.from([1, 2, 3]), mimeType: "image/png"}))
+            .rejects.toMatchObject({code: "invalid_input"});
+        await expect(codec.saveImage({bytes: png, mimeType: "image/jpeg"}))
+            .rejects.toMatchObject({code: "invalid_input"});
         expect(put).not.toHaveBeenCalled();
     });
 
-    it("批量保存最多并发 2 且保持输入顺序", async () => {
-        let active = 0;
-        let maxActive = 0;
+    it("saveImage 接受 PNG、JPEG、GIF、WebP 魔数和精确 16 MiB 边界", async () => {
         const adapter = memoryAdapter();
-        adapter.put = vi.fn(async () => {
-            active += 1;
-            maxActive = Math.max(maxActive, active);
-            await new Promise((resolve) => setTimeout(resolve, 5));
-            active -= 1;
-        });
         const codec = new AgentAttachmentCodec(new AttachmentStore(adapter));
-        const image = {type: "image" as const, mimeType: "image/png", data: Buffer.from(png).toString("base64")};
+        const exactLimitPng = new Uint8Array(AGENT_IMAGE_POLICY.maxImageBytes);
+        exactLimitPng.set(png.subarray(0, 8));
+        const samples: Array<{mimeType: string; bytes: Uint8Array}> = [
+            {mimeType: "image/png", bytes: exactLimitPng},
+            {mimeType: "image/jpeg", bytes: Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0, 0])},
+            {mimeType: "image/gif", bytes: Uint8Array.from(Buffer.from("GIF89a", "ascii"))},
+            {mimeType: "image/webp", bytes: Uint8Array.from(Buffer.from("RIFF\u0000\u0000\u0000\u0000WEBP", "binary"))},
+        ];
 
-        const result = await codec.saveImageInputs(Array.from({length: 5}, () => image), ["0.png", "1.png", "2.png", "3.png", "4.png"]);
-
-        expect(maxActive).toBe(2);
-        expect(result.map((item) => item.name)).toEqual(["0.png", "1.png", "2.png", "3.png", "4.png"]);
+        for (const sample of samples) {
+            await expect(codec.saveImage(sample)).resolves.toMatchObject({
+                attachment: {
+                    mimeType: sample.mimeType,
+                    bytes: sample.bytes.byteLength,
+                },
+            });
+        }
     });
 
     it("Provider 预算按 attachment 出现次数计算且超限前不读取 blob", async () => {
@@ -117,13 +97,6 @@ describe("AgentAttachmentCodec", () => {
         ], model(["text", "image"]));
         expect(get).toHaveBeenCalledTimes(1);
     });
-
-    it("严格校验 data URL MIME 与魔数", async () => {
-        const codec = new AgentAttachmentCodec(new AttachmentStore(memoryAdapter()));
-        const data = Buffer.from(png).toString("base64");
-        await expect(codec.saveImageData({data: `data:image/jpeg;base64,${data}`, mimeType: "image/jpeg"})).rejects.toThrow("MIME 与文件内容不一致");
-        await expect(codec.saveImageData({data: "not base64", mimeType: "image/png"})).rejects.toThrow("base64 格式无效");
-    });
 });
 
 function model(input: Array<"text" | "image">) {
@@ -139,10 +112,4 @@ function model(input: Array<"text" | "image">) {
         contextWindow: 1000,
         maxTokens: 100,
     };
-}
-
-function base64ForBytes(bytes: number): string {
-    const completeGroups = Math.floor(bytes / 3);
-    const remainder = bytes % 3;
-    return `${"A".repeat(completeGroups * 4)}${remainder === 1 ? "AA==" : remainder === 2 ? "AAA=" : ""}`;
 }

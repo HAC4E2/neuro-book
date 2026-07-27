@@ -84,6 +84,14 @@ export const CONFIG_REGISTRY: ConfigItemMeta[] = [
         description: "Agent Profile 模型、自定义 settings 与通用运行策略覆盖。",
     },
     {
+        key: "agent.visibleModels",
+        scope: "global",
+        effect: "next-run",
+        merge: "replace",
+        secret: false,
+        description: "Agent 与 Workflow 可以显式选择的模型清单及用途说明。",
+    },
+    {
         key: "ui.theme",
         scope: "global",
         effect: "hot",
@@ -146,5 +154,13 @@ export const CONFIG_REGISTRY: ConfigItemMeta[] = [
         merge: "deep-merge",
         secret: false,
         description: "工作区文件历史（操作日志）配置。Global 持有总开关 enabled；retentionFullDays / keepDailyLastAfterWindow / autoAcceptEnabled / autoAcceptDays 可被 Project Config 覆盖。改动在项目下次 open 时生效。",
+    },
+    {
+        key: "novelData",
+        scope: "global",
+        effect: "next-run",
+        merge: "deep-merge",
+        secret: false,
+        description: "novel-api 榜单服务（sibling 仓 ../novel-api）的 HTTP 地址。Agent 榜单选题工具 novel_rankings / novel_book_detail 读取该地址；Project Config 不能覆盖。",
     },
 ];

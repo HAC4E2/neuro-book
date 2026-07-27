@@ -1,5 +1,38 @@
 # Text To Image Panel
 
+## 2026-07-27 上游同步合并（text-to-picture ← HAC4E2/master）与集成修复
+
+### 合并谱系修复
+
+- 历史上的"合并"提交 `6ec38173` 是单亲快照式假合并，直接 merge origin/master 产生 247 个 add/add 冲突。通过内容指纹扫描定位真实快照基线为上游提交 `97c698f7`，用 `git replace --graft 6ec38173 5749ef21 97c698f7` 修正 merge-base 后冲突收敛为 25 个真实语义冲突，逐个手工解决。合并提交落地后已删除 replace ref（graft 只在本地生效，不随 push 传播）。
+
+### 上游 Task 118 适配：文生图 Prisma client 迁入 ProjectModule
+
+- 上游删除了 `registerProjectResourceOwner`/`ProjectResourceOwner`，close/readiness 真相源统一为 ProjectModule registry。`server/text-to-image/project-client.ts` 的进程级缓存 Map 迁移为 lazy ProjectModule：新增 `project-client-module.ts`（`ProjectModuleName` 闭合并集扩展 `"text-to-image"`，进 `LAZY_MODULE_ORDER`），handle 首次数据面访问才打开 client，Project close/重开由 Session generation 统一驱动 close；`project-session.ts` composition root 增加副作用注册导入。`textToImageProjectClient()` 签名不变（内部改走 `requireReadyProjectPath` + `activateReadyProjectModule`），`withEphemeralTextToImageProjectClient` 短连接入口保持原样。`closeTextToImageProjectClient` 删除，6 个测试文件清理旧 owner 注册（清理统一由 `closeProjectForTest` 驱动）。
+
+### 跟随上游 sidecar 机制删除（Task 111 PLAN-E）
+
+- 合并中 harness 的 sidecar 引擎"消失"最初被误判为 automerge 丢代码并做了部分恢复；核查 `simulator.actor.profile.tsx` 注释确认是上游有意删除（"后续由 workflow/job 形态重建"）。已回滚全部恢复：`profiles/types.ts` sidecar 类型块、`control-tools.ts` sidecar 工具与 `activeSidecar` 守卫、`tools/index.ts` 导出、`report-result-schema.ts` 两个 sidecar 函数与对应测试、harness 四处引用。保留我们自己的 dataContract 改进（显式 `dataSchema` 必填、union schema 不被误判为空、adhoc 动态 schema 优先）。
+
+### 树索引失效与后台记账合同修复（比类型错误更重的运行期问题）
+
+- 上游新合同：project-workspace 的树索引失效必须携带当前 generation 的 file-index handle，缺失直接 throw。我们分支有 7 处调用是 `{target: ...} as any` 伪造形状（静默失效丢失）或缺 handle（运行期必炸）：planning-apply×4、recipe、project-overlay、character-visual-migration。统一改为 `compat.ts` 新增的 `invalidateProjectTreeIndex(projectPath)`（内部 `requireReadyModuleHandle(file-index).invalidate()`；Project 已关闭时静默跳过）。
+- `writeResolvedProjectTextFileTracked`/`deleteResolvedProjectFileTracked` 原来把 `{projectRoot, projectPath, ...}` 伪 handle 传给 `recordProjectWrite`，记账永远 fail-open 漏账；改为 `tryReadyProjectHistoryHandle` 解析真实 generation handle（Project 开着就正常记账，关了才 fail-open 交对账）。project-overlay 一处 `writeWorkspaceTextFileTracked(writeWorkspaceTextFileTracked(...))` 嵌套双调用 bug 一并修正为 `writeResolvedProjectTextFileTracked`。
+- 循环导入根因修复：`tracked-workspace-files.ts` 在 module init 期用 `LOCAL_USER_ID` 构造 `USER_LOCAL_ACTOR`，而 project-history → config-service → agent harness → file-tools → tracked-workspace-files 成环，vite SSR 转换不抛 TDZ 而是静默捕获 undefined，导致 vitest 环境下所有 user 写入记账 `actor_user_id: undefined` 入库报错（fail-open 后账面为空）。`USER_LOCAL_ACTOR` 定义移入 project-history 与 `LOCAL_USER_ID` 同模块，tracked 侧 re-export 保持消费方 import 路径不变。`tracked-workspace-files.test.ts` 6/6 转绿。
+
+### 依赖与 typecheck 收敛
+
+- 补 `ofetch@1.5.1` 直接依赖（上游 4 个文件裸导入但未声明）、`@types/mdast`（`shared/agent/agent-image-markdown.ts`）；`bun run generate` 重新生成 Prisma client（PassportCredential）。
+- 新增根级 `bun-ffi.d.ts` 最小环境声明：上游 tsconfig include 不含 `server/workspace-files/**`，我们把 `server/text-to-image/**` 纳入后 `project-root-reparse-windows.ts` 的 `bun:ffi` 导入被传递性检查；不引入完整 bun-types 避免 Bun/Node 全局类型冲突。
+- `resolveGlobalProfileNbookRoot` 返回类型收窄为 `AbsoluteFsPath`（一次修掉 overlay/storyboard-import/storyboard-publish 三处 branded 报错）；`useModelSettingsDraftSession` 的 `visibleModels` 显式提升修 TS2719。
+- 全量 typecheck 收敛到已记录的 llmlint 基线（27 个，全部在 vendored skill 内）。
+
+### 验证与已知问题
+
+- 聚焦测试：text-to-image 全目录（低并发下全绿）、tracked-workspace-files 6/6、project-module/database/plot module、report-result-schema/control-tools/builtin-smoke 全部通过。本机全并发跑大套件会因 import 开销把部分重测试推过 5s 默认超时（route-b-old-chain-removal 审计已按仓库增大显式提到 60s）。
+- 测试夹具可移植性：上游 `test-workspace-fixture.ts` 对 package.json 等文件用 file symlink（Windows 非开发者模式 EPERM），加了 EPERM→copyFile 降级。
+- 已知上游测试债（origin/master 同样失败，不属于本合并）：`rp-profiles.test.ts`/`leader-assets-profile.test.ts` 断言的 "Runtime Location" 字样在上游源码中已不存在（reminder 措辞改为 File Scope 后测试未同步）；catalog 全量 profile 编译在本机可超 60s。
+
 ## 2026-07-27 端到端测试暴露的六项修复（dispatch P0 / 图片渲染 / 重roll / 迁移面板 / Recipe 首开 / 失败规划出路）
 
 ### 用户问题与根因

@@ -1,9 +1,9 @@
 import type {TSchema} from "typebox";
-import type {ProfileToolBinding, ProfileTools, ReportResultToolBinding, ReportSidecarResultToolBinding, ToolBinding} from "nbook/server/agent/tools/types";
+import type {ProfileToolBinding, ProfileTools, ReportResultToolBinding, ToolBinding} from "nbook/server/agent/tools/types";
 import {buildExecuteWorldDescription} from "nbook/server/agent/world-engine-tool-description";
 import type {ExecuteWorldMode} from "nbook/server/world-engine/world-engine.facade";
 
-export type {ProfileTools, ReportResultToolBinding, ReportSidecarResultToolBinding, ToolBinding} from "nbook/server/agent/tools/types";
+export type {ProfileTools, ReportResultToolBinding, ToolBinding} from "nbook/server/agent/tools/types";
 export {defineAgentTool as defineProfileTool} from "nbook/server/agent/tools/types";
 export type {AgentToolDefinition} from "nbook/server/agent/tools/types";
 
@@ -72,6 +72,20 @@ export const builtin = {
     sql: {
         execute: registeredTool("execute_sql"),
     },
+    workflow: {
+        run: registeredTool("run_workflow"),
+        list: registeredTool("list_workflows"),
+    },
+    jobs: {
+        list: registeredTool("list_jobs"),
+        get: registeredTool("get_job"),
+        cancel: registeredTool("cancel_job"),
+    },
+    novelData: {
+        // novel-api 榜单选题只读工具：查缓存榜单快照 / 书籍详情
+        rankings: registeredTool("novel_rankings"),
+        bookDetail: registeredTool("novel_book_detail"),
+    },
     subject: {
         ragSearch: registeredTool("subject_rag_search"),
         eventAppend: registeredTool("subject_event_append"),
@@ -89,12 +103,10 @@ export const builtin = {
         fetch: registeredTool("web_fetch"),
     },
     result: {
-        main: (options: {dataSchema?: TSchema} = {}): ReportResultToolBinding => ({
+        main: (options: {dataSchema?: TSchema; dataSchemaFromInitial?: ReportResultToolBinding["dataSchemaFromInitial"]} = {}): ReportResultToolBinding => ({
             key: "report_result",
             dataSchema: options.dataSchema,
-        }),
-        sidecar: (): ReportSidecarResultToolBinding => ({
-            key: "report_sidecar_result",
+            dataSchemaFromInitial: options.dataSchemaFromInitial,
         }),
     },
 };

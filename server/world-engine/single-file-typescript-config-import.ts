@@ -7,7 +7,7 @@ import {fileURLToPath, pathToFileURL} from "node:url";
 import {build, type Plugin} from "esbuild";
 import {consola} from "consola";
 import type * as TypeScript from "typescript";
-import {importRuntimeArtifact} from "nbook/server/utils/runtime-artifact-import";
+import {DEFAULT_RUNTIME_ARTIFACT_RETENTION, importRuntimeArtifact} from "nbook/server/utils/runtime-artifact-import";
 
 const require = createRequire(import.meta.url);
 const ts = require("typescript") as typeof TypeScript;
@@ -231,10 +231,13 @@ async function importHashedTypeScript<TModule extends object>(
         await fs.writeFile(cachePath, compiled, "utf-8");
         try {
             const imported = await importRuntimeArtifact<TModule>(cachePath, {
-                cacheKey: hash,
-                cacheNamespace: `world-engine-${input.label}`,
-                cacheRoot: input.runtimeCacheRoot,
-                expectedBytes: Buffer.byteLength(compiled, "utf-8"),
+                cache: {
+                    root: input.runtimeCacheRoot,
+                    namespace: `world-engine-${input.label}`,
+                    key: hash,
+                    bytes: Buffer.byteLength(compiled, "utf-8"),
+                    retention: DEFAULT_RUNTIME_ARTIFACT_RETENTION,
+                },
             });
             await removeOldRuntimeCache(input.filePath);
             return imported;

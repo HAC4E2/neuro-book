@@ -75,6 +75,65 @@ describe("compaction", () => {
         expect(messageText(context.messages[1] as never)).toBe("user 6");
     });
 
+    it("AbortSignal透传给摘要Provider，取消后不写compaction entry", async () => {
+        let receivedSignal: AbortSignal | undefined;
+        let markProviderStarted: () => void = () => undefined;
+        const providerStarted = new Promise<void>((resolve) => {
+            markProviderStarted = resolve;
+        });
+        faux.setResponses([
+            async (_context, options) => {
+                receivedSignal = options?.signal;
+                markProviderStarted();
+                if (!receivedSignal) {
+                    throw new Error("测试未收到 compaction AbortSignal");
+                }
+                await new Promise<void>((resolve) => {
+                    if (receivedSignal?.aborted) {
+                        resolve();
+                        return;
+                    }
+                    receivedSignal?.addEventListener("abort", () => resolve(), {once: true});
+                });
+                return fauxAssistantMessage([], {
+                    stopReason: "aborted",
+                    errorMessage: "compaction cancelled",
+                });
+            },
+        ]);
+        const session = await repo.createSession({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "old context"}), session.metadata.workspaceKey);
+        const snapshot = await repo.readSession(session.metadata.sessionId);
+        const controller = new AbortController();
+        let writeCalled = false;
+
+        const compacting = appendCompaction({
+            repo,
+            snapshot,
+            messages: repo.reduce(snapshot).messages,
+            models: faux.runtime,
+            model: faux.getModel(),
+            signal: controller.signal,
+            writeCompactionEntry: async () => {
+                writeCalled = true;
+            },
+            compaction: {
+                reserveTokens: 2_000,
+                keepRecent: {kind: "tokens", value: 1},
+            },
+        });
+        await providerStarted;
+        controller.abort(new Error("project closing"));
+
+        await expect(compacting).rejects.toThrow("project closing");
+        expect(receivedSignal).toBe(controller.signal);
+        expect(writeCalled).toBe(false);
+    });
+
     it("cut point 不会从 toolResult 半截开始", async () => {
         faux.setResponses([fauxAssistantMessage(fauxText("TOOL SUMMARY"))]);
         const session = await repo.createSession({
@@ -325,6 +384,8 @@ describe("compaction", () => {
         await repo.appendEntry(session.metadata.sessionId, {
             type: "message",
             message: createUserMessage({text: "PERSISTED SIDECAR CONTEXT"}),
+            clientMessageId: randomUUID(),
+            intent: "normal",
             origin: "harness",
         }, session.metadata.workspaceKey);
         await repo.appendEntry(session.metadata.sessionId, {

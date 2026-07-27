@@ -21,11 +21,10 @@ import type {
     WorldIssue,
 } from "nbook/server/world-engine/types";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
-import {assertProjectOpen, markProjectActivity} from "nbook/server/workspace-files/project-session";
-import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
-import {resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
+import type {ResolvedProjectWorkspace} from "nbook/server/workspace-files/project-identity";
 import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import {resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
+import {toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
+import type {ProjectDatabaseModuleHandle} from "nbook/server/workspace-files/project-database-module";
 
 type WorldEngineModule = {
     service: WorldEngineService;
@@ -34,7 +33,8 @@ type WorldEngineModule = {
 };
 
 type WorldEngineClientEntry = {
-    client: Client | null;
+    client: Client;
+    closed: boolean;
 };
 
 type TransactionMode = "write" | "read" | "deferred";
@@ -54,61 +54,90 @@ export type ExecuteWorldOptions = {
 export class WorldEngineFacade {
     private readonly schemaLoader = new WorldSchemaLoader();
     private readonly calendarLoader = new WorldCalendarLoader();
+    private readonly clients = new Set<WorldEngineClientEntry>();
+    private accepting = true;
+    private closed = false;
+    private closing: Promise<void> | null = null;
 
-    constructor(private readonly workspaceRoot: AbsoluteFsPath) {}
+    constructor(
+        private readonly workspaceRoot: AbsoluteFsPath,
+        private readonly workspace: ResolvedProjectWorkspace,
+        private readonly database: ProjectDatabaseModuleHandle,
+    ) {}
 
     /**
-     * 释放 World Engine 对该 Project 的句柄占用。World Engine 不缓存 client（每次调用即开即关），
-     * 方法体只做强制 GC 兜底。Task 94 后已不再注册为 ProjectSession 资源属主——生产的删除/关停
-     * 由 ProjectSession closeProject 统一收尾，本方法现仅供测试清理直接调用。
+     * 关闭当前generation仍持有的全部World Engine client。
+     *
+     * client只有在close成功后才从本handle registry移除；失败保留原entry供同一generation重试。
      */
-    async closeProject(_projectPath: string): Promise<void> {
-        collectReleasedSqliteHandles({force: true});
+    async close(): Promise<void> {
+        if (this.closed) {
+            return;
+        }
+        if (this.closing) {
+            return this.closing;
+        }
+        this.accepting = false;
+        const attempt = (async () => {
+            for (const entry of [...this.clients]) {
+                await this.closeClientEntry(entry);
+            }
+            collectReleasedSqliteHandles({force: true});
+            this.closed = true;
+        })();
+        this.closing = attempt;
+        try {
+            await attempt;
+        } finally {
+            if (!this.closed && this.closing === attempt) {
+                this.closing = null;
+            }
+        }
     }
 
     /** 创建 subject + 初始化切面。 */
-    async createSubject(projectPath: string, input: CreateWorldSubjectInput): Promise<CreateWorldSubjectResult> {
-        return this.runInTransaction(projectPath, (module) => module.service.createSubject(input));
+    async createSubject(input: CreateWorldSubjectInput): Promise<CreateWorldSubjectResult> {
+        return this.runInTransaction((module) => module.service.createSubject(input));
     }
 
     /** 写入新切面。 */
-    async writeSlice(projectPath: string, input: SliceInput): Promise<SliceWriteResult> {
-        return this.runInTransaction(projectPath, (module) => module.service.writeSlice(input));
+    async writeSlice(input: SliceInput): Promise<SliceWriteResult> {
+        return this.runInTransaction((module) => module.service.writeSlice(input));
     }
 
     /** 整块编辑已有切面。 */
-    async editSlice(projectPath: string, sliceId: string, input: SliceInput): Promise<SliceWriteResult> {
-        return this.runInTransaction(projectPath, (module) => module.service.editSlice(sliceId, input));
+    async editSlice(sliceId: string, input: SliceInput): Promise<SliceWriteResult> {
+        return this.runInTransaction((module) => module.service.editSlice(sliceId, input));
     }
 
     /** 物理删除一个切面。 */
-    async deleteSlice(projectPath: string, sliceId: string): Promise<DeleteSliceResult> {
-        return this.runInTransaction(projectPath, (module) => module.service.deleteSlice(sliceId));
+    async deleteSlice(sliceId: string): Promise<DeleteSliceResult> {
+        return this.runInTransaction((module) => module.service.deleteSlice(sliceId));
     }
 
     /** 读取单个切面及 patch。 */
-    async getSlice(projectPath: string, sliceId: string): Promise<SliceListItem> {
-        return this.runWithModule(projectPath, (module) => module.service.getSlice(sliceId));
+    async getSlice(sliceId: string): Promise<SliceListItem> {
+        return this.runWithModule((module) => module.service.getSlice(sliceId));
     }
 
     /** 查询世界状态；公开入口负责决定是否允许全量查询。 */
-    async queryState(projectPath: string, query: {subjectIds?: string[]; type?: string; attrs?: string[]; at?: bigint; listLimit?: number}): Promise<QueryStateResult> {
-        return this.runWithModule(projectPath, (module) => module.service.queryState(query));
+    async queryState(query: {subjectIds?: string[]; type?: string; attrs?: string[]; at?: bigint; listLimit?: number}): Promise<QueryStateResult> {
+        return this.runWithModule((module) => module.service.queryState(query));
     }
 
     /** 列出切面。 */
-    async listSlices(projectPath: string, query: {from?: bigint; to?: bigint; limit?: number; withPatches?: boolean; subjectIds?: string[]; subjectMode?: WorldSliceSubjectFilterMode} = {}): Promise<SliceListItem[]> {
-        return this.runWithModule(projectPath, (module) => module.service.listSlices(query));
+    async listSlices(query: {from?: bigint; to?: bigint; limit?: number; withPatches?: boolean; subjectIds?: string[]; subjectMode?: WorldSliceSubjectFilterMode} = {}): Promise<SliceListItem[]> {
+        return this.runWithModule((module) => module.service.listSlices(query));
     }
 
     /** 列出 subject 身份。 */
-    async listSubjects(projectPath: string, query: {type?: string} = {}): Promise<WorldSubjectListItem[]> {
-        return this.runWithModule(projectPath, (module) => module.service.listSubjects(query));
+    async listSubjects(query: {type?: string} = {}): Promise<WorldSubjectListItem[]> {
+        return this.runWithModule((module) => module.service.listSubjects(query));
     }
 
     /** 语义搜索 EmbeddingText 字段。 */
-    async searchText(projectPath: string, query: string, options: {k?: number; threshold?: number; types?: string[]; attrs?: string[]; at?: bigint} = {}): Promise<Array<{subjectId: string; attr: string; text: string; score: number}>> {
-        return this.runWithModule(projectPath, (module) => module.service.searchText(query, options));
+    async searchText(query: string, options: {k?: number; threshold?: number; types?: string[]; attrs?: string[]; at?: bigint} = {}): Promise<Array<{subjectId: string; attr: string; text: string; score: number}>> {
+        return this.runWithModule((module) => module.service.searchText(query, options));
     }
 
     /**
@@ -117,8 +146,8 @@ export class WorldEngineFacade {
      * 该入口只服务 Plot ↔ World Engine 桥接读取：Plot 需要判断 subject 是否已登记，
      * 但不应该因为旧 Project 尚未初始化 calendar.ts 而无法打开。
      */
-    async listSubjectIdentities(projectPath: string, query: {ids?: string[]; type?: string} = {}): Promise<WorldSubjectListItem[]> {
-        const entry = await this.createClientEntry(projectPath);
+    async listSubjectIdentities(query: {ids?: string[]; type?: string} = {}): Promise<WorldSubjectListItem[]> {
+        const entry = await this.createClientEntry();
         const client = this.requireClient(entry);
         try {
             const repository = new WorldEngineRepository(client);
@@ -134,11 +163,10 @@ export class WorldEngineFacade {
     }
 
     /** 返回 Agent 友好的 world schema 投影。 */
-    async getWorldSchema(projectPath: string): Promise<WorldSchemaProjection> {
-        const normalizedProjectPath = normalizeProjectPath(projectPath);
-        const projectRoot = resolveProjectWorkspaceRoot(this.workspaceRoot, normalizedProjectPath);
-        const schema = await this.schemaLoader.load(projectRoot);
-        const calendar = await this.calendarLoader.load(projectRoot);
+    async getWorldSchema(): Promise<WorldSchemaProjection> {
+        this.assertAccepting();
+        const schema = await this.schemaLoader.load(this.workspace.root);
+        const calendar = await this.calendarLoader.load(this.workspace.root);
         return {
             subjectTypes: Object.entries(schema.subjectTypes).map(([type, subjectType]) => ({
                 type,
@@ -150,27 +178,27 @@ export class WorldEngineFacade {
     }
 
     /** 解析项目日历字符串。 */
-    async parseTime(projectPath: string, input: string): Promise<bigint> {
-        const normalizedProjectPath = normalizeProjectPath(projectPath);
-        const calendar = await this.calendarLoader.load(resolveProjectWorkspaceRoot(this.workspaceRoot, normalizedProjectPath));
+    async parseTime(input: string): Promise<bigint> {
+        this.assertAccepting();
+        const calendar = await this.calendarLoader.load(this.workspace.root);
         return calendar.parse(input);
     }
 
     /** 格式化项目时间。 */
-    async formatTime(projectPath: string, instant: bigint): Promise<string> {
-        const normalizedProjectPath = normalizeProjectPath(projectPath);
-        const calendar = await this.calendarLoader.load(resolveProjectWorkspaceRoot(this.workspaceRoot, normalizedProjectPath));
+    async formatTime(instant: bigint): Promise<string> {
+        this.assertAccepting();
+        const calendar = await this.calendarLoader.load(this.workspace.root);
         return calendar.format(instant);
     }
 
     /** 执行 CodeAct 查询代码。 */
-    async executeCodeActQuery(projectPath: string, code: string): Promise<unknown> {
-        return (await this.executeCodeActWorld(projectPath, code, "readonly")).data;
+    async executeCodeActQuery(code: string): Promise<unknown> {
+        return (await this.executeCodeActWorld(code, "readonly")).data;
     }
 
     /** 在同一 deferred 事务内执行 CodeAct 世界读写代码。 */
-    async executeCodeActWorld(projectPath: string, code: string, mode: ExecuteWorldMode = "readwrite", options: ExecuteWorldOptions = {}): Promise<ExecuteWorldResult> {
-        return this.runInTransaction(projectPath, async (module) => {
+    async executeCodeActWorld(code: string, mode: ExecuteWorldMode = "readwrite", options: ExecuteWorldOptions = {}): Promise<ExecuteWorldResult> {
+        return this.runInTransaction(async (module) => {
             const currentInstant = await module.service.getCurrentInstant();
             const issues: WorldIssue[] = [];
 
@@ -194,13 +222,12 @@ export class WorldEngineFacade {
         }, "deferred");
     }
 
-    private async runInTransaction<TResult>(projectPath: string, callback: (module: WorldEngineModule) => Promise<TResult>, mode: TransactionMode = "write"): Promise<TResult> {
-        const entry = await this.createClientEntry(projectPath);
-        const normalizedProjectPath = normalizeProjectPath(projectPath);
+    private async runInTransaction<TResult>(callback: (module: WorldEngineModule) => Promise<TResult>, mode: TransactionMode = "write"): Promise<TResult> {
+        const entry = await this.createClientEntry();
         const client = this.requireClient(entry);
         await client.execute(transactionBeginStatement(mode));
         try {
-            const result = await callback(await this.createModuleFromExecutor(client, normalizedProjectPath));
+            const result = await callback(await this.createModuleFromExecutor(client));
             await client.execute("COMMIT");
             return result;
         } catch (error) {
@@ -215,51 +242,63 @@ export class WorldEngineFacade {
         }
     }
 
-    private async runWithModule<TResult>(projectPath: string, callback: (module: WorldEngineModule) => Promise<TResult>): Promise<TResult> {
-        const entry = await this.createClientEntry(projectPath);
-        const normalizedProjectPath = normalizeProjectPath(projectPath);
+    private async runWithModule<TResult>(callback: (module: WorldEngineModule) => Promise<TResult>): Promise<TResult> {
+        const entry = await this.createClientEntry();
         const client = this.requireClient(entry);
         try {
-            return await callback(await this.createModuleFromExecutor(client, normalizedProjectPath));
+            return await callback(await this.createModuleFromExecutor(client));
         } finally {
             await this.closeClientEntry(entry);
         }
     }
 
-    private async createClientEntry(projectPath: string): Promise<WorldEngineClientEntry> {
-        const normalizedProjectPath = normalizeProjectPath(projectPath);
-        assertProjectOpen(normalizedProjectPath);
-        markProjectActivity(normalizedProjectPath);
-        const databasePath = resolveProjectDatabasePath(this.workspaceRoot, normalizedProjectPath);
-        return {client: createClient({url: toSqliteFileUrl(databasePath)})};
+    private async createClientEntry(): Promise<WorldEngineClientEntry> {
+        this.assertAccepting();
+        const databasePath = await this.database.databasePath;
+        const entry = {client: createClient({url: toSqliteFileUrl(databasePath)}), closed: false};
+        this.clients.add(entry);
+        return entry;
     }
 
     private async closeClientEntry(entry: WorldEngineClientEntry): Promise<void> {
-        const client = this.requireClient(entry);
-        client.close();
-        entry.client = null;
+        if (entry.closed) {
+            this.clients.delete(entry);
+            return;
+        }
+        entry.client.close();
+        entry.closed = true;
         await Promise.resolve();
         collectReleasedSqliteHandles();
+        this.clients.delete(entry);
     }
 
     private requireClient(entry: WorldEngineClientEntry): Client {
-        if (!entry.client) {
+        if (entry.closed) {
             throw new Error("World Engine SQLite client 已关闭");
         }
         return entry.client;
     }
 
-    private async createModuleFromExecutor(executor: Client, projectPath: string): Promise<WorldEngineModule> {
-        const normalizedProjectPath = normalizeProjectPath(projectPath);
-        const projectRoot = resolveProjectWorkspaceRoot(this.workspaceRoot, normalizedProjectPath);
-        const schema = await this.schemaLoader.load(projectRoot);
-        const calendar = await this.calendarLoader.load(projectRoot);
+    private async createModuleFromExecutor(executor: Client): Promise<WorldEngineModule> {
+        this.assertAccepting();
+        const schema = await this.schemaLoader.load(this.workspace.root);
+        const calendar = await this.calendarLoader.load(this.workspace.root);
         const repository = new WorldEngineRepository(executor);
         return {
-            service: new WorldEngineService(repository, schema, calendar, projectPath),
+            service: new WorldEngineService(repository, schema, calendar, {
+                workspaceRoot: this.workspaceRoot,
+                projectWorkspace: this.workspace,
+            }),
             repository,
             calendar,
         };
+    }
+
+    /** generation开始关闭后拒绝创建新连接或读取配置文件。 */
+    private assertAccepting(): void {
+        if (!this.accepting) {
+            throw new Error(`World Engine facade已进入关闭状态：${this.workspace.ref.projectRoot}`);
+        }
     }
 }
 

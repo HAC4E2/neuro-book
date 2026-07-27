@@ -4,6 +4,7 @@ import {
     resolveContainedFilePath,
     type AbsoluteFsPath,
 } from "nbook/server/runtime/paths/file-path";
+import type {ProjectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 
 declare const projectPathBrand: unique symbol;
 
@@ -54,6 +55,11 @@ export function normalizeProjectPath(input: string): ProjectPath {
 /** 返回 Project Path 中唯一的 Project Slug。 */
 export function projectSlug(projectPath: ProjectPath): string {
     return projectPath.slice("workspace/".length);
+}
+
+/** 将已经通过Identity Module校验的结构化Project ref投影为过渡期Project Path。 */
+export function projectPathFromRef(ref: ProjectWorkspaceRef): ProjectPath {
+    return `workspace/${ref.projectRoot}` as ProjectPath;
 }
 
 /**

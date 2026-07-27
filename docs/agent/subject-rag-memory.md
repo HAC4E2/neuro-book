@@ -1,8 +1,12 @@
-# Subject RAG 记忆
+# Subject RAG 记忆（历史系统）
 
-Subject RAG 是 NeuroBook 在世界模拟 / RP 中使用的第一版长期记忆机制。它不是整本书的搜索，也不是 lorebook 搜索；它只帮助某个 `simulator.actor` 想起“自己经历过什么”和“自己现在怎么看某些人或事”。
+::: danger 当前状态：未接通
+这是 RP / 世界模拟时代的第一版长期记忆机制。**当前没有任何内置消费者**——数据结构、索引和三个底层工具都保留着，但内置 `simulator.actor` 只开放 `report_result`，不会自动检索或保存记忆，而 RP 入口本身也已从常规界面下线。
 
-多数时候你不需要手动调用 RAG 工具。进入世界模拟后，`actor.context-load` 和 `actor.memory-save` sidecar 会自动使用这些机制。你需要关心的是：subject 文件是否准备好，Embedding 服务是否配置好，以及不要把上帝视角真相写进角色记忆。
+把它当作"可供未来 workflow / job 接入的基础能力"来读，不是现在就能用的功能。**写小说不需要读这一页**——写作模式的世界状态真相源是 [World Engine](/core/world-engine)。
+:::
+
+Subject RAG 不是整本书的搜索，也不是 lorebook 搜索；它只帮助某个 `simulator.actor` 想起"自己经历过什么"和"自己现在怎么看某些人或事"。
 
 ## 它解决什么
 
@@ -10,8 +14,8 @@ Subject RAG 是 NeuroBook 在世界模拟 / RP 中使用的第一版长期记忆
 
 - 角色经历和稳定认知写在自己的 subject 文件里。
 - actor 主 run 不直接读取完整文件。
-- sidecar 在主 run 前检索少量相关记忆，压缩成 actor-safe context。
-- 主 run 只根据这些 actor-safe 信息进行扮演。
+- 显式外部流程可以检索少量相关记忆，压缩成 actor-safe context，再通过 actor-facing message 注入。
+- 主 run 只根据明确提供的 actor-safe 信息进行扮演。
 
 这样角色能回忆过去，但不会自动知道 lorebook、entity 或其他 subject 中的隐藏真相。
 
@@ -61,19 +65,19 @@ subject 侧 `events.md` / `knowledge.md` 是旧合同，当前运行时不再读
 
 `events.jsonl` 更适合追加；`memory.jsonl` 更适合更新、合并、改名和删除。
 
-## 一次 actor run 怎么使用记忆
+## 当前 actor 集成边界
 
-`simulator.actor` 主 run 不直接读取完整 `events.jsonl` 或 `memory.jsonl`。它通过两个 sidecar 工作：
+`simulator.actor` 主 run 不直接读取完整 `events.jsonl` 或 `memory.jsonl`，但当前也没有自动流程替它检索。一次调用只会消费 `soul.md`、当前 actor-facing message，以及调用方已经显式放进消息的 actor-safe 信息。
 
-1. `actor.context-load` 在主 run 前执行。
-2. 它读取小文件 `subject.md`、`mind.md`、`state.md`。
-3. 它调用 `subject_rag_search` 检索当前 subject 的 `events.jsonl` 和 `memory.jsonl`。工具只暴露 `limit` 作为查询调参，内部会过滤明显不相关的候选。
-4. 它自己 rerank、去重、过滤和压缩。
-5. 它把少量相关记忆注入 `<actor-sidecar-context>`。
-6. actor 主 run 只根据 actor-facing packet 和这个 sidecar context 扮演角色。
-7. 主 run 后，`actor.memory-save` 追加新 events，并在稳定认知变化时调用 `subject_memory_update` 维护 `memory.jsonl`。
+未来的 workflow/job 应显式完成下面的链路：
 
-`actor.context-load` 的注入会写入 actor session，所以后续 run 和 compaction 也能看到这次整理过的上下文。
+1. 根据当前 actor-facing packet 构造检索 query。
+2. 用 `subject_rag_search` 分别检索当前 subject 的 `events` / `memory`。
+3. rerank、去重、过滤并压缩为 actor-safe context。
+4. 通过 actor-facing message 注入 actor-safe context。
+5. actor 返回后，再由外部流程按明确规则调用 `subject_event_append` / `subject_memory_update`。
+
+仓库当前尚未提供这条内置自动 workflow。因此，仅配置 Embedding 或准备 JSONL 文件不会让 actor 自动获得长期记忆。
 
 ## RAG 索引
 
@@ -108,7 +112,7 @@ POST {baseURL}/embeddings
 
 如果 embedding 没启用，或缺少 model、dimensions、API Key、Base URL，`subject_rag_search` 会明确失败，不会偷偷退回关键词搜索。
 
-这个失败通常会出现在 actor context-load 阶段，表现为当前 actor run 无法继续。它不是角色没想起来，而是长期记忆检索没有真正运行。
+只有显式调用 `subject_rag_search` 时才会出现这类配置错误。当前 actor run 不会自动触发检索；没有错误也不能证明长期记忆已经生效。
 
 ## 使用边界
 
@@ -116,8 +120,8 @@ Subject RAG 第一版只做这些事：
 
 - 检索当前 subject 的 `events.jsonl`。
 - 检索当前 subject 的 `memory.jsonl`。
-- 帮助 actor 主 run 获得 actor-safe 记忆摘要。
-- 帮助 memory-save sidecar 维护 subject-facing 记忆。
+- 为显式 workflow/job 构造 actor-safe 记忆摘要提供底层能力。
+- 为受控的外部记忆维护流程提供追加和整理工具。
 
 它暂时不做：
 
@@ -129,7 +133,6 @@ Subject RAG 第一版只做这些事：
 
 ## 继续阅读
 
-- [Sidecar Context](./sidecar.md)
+- [Agent Workflow 与 Job](./workflow.md)
 - [Agent 工具](./tools.md)
-- [进入世界模拟](/tutorials/06-enter-world-simulation)
 - [Subject RAG Reference](https://github.com/notnotype/neuro-book/blob/master/reference/content/subject-rag-memory.md)

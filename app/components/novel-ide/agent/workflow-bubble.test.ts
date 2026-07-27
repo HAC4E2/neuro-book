@@ -1,0 +1,186 @@
+import {describe, expect, it} from "vitest";
+import {
+    isAgentJobTerminalStatus,
+    isWorkflowTerminalStatus,
+    parseRunWorkflowArgs,
+    parseRunWorkflowDetails,
+    resolveWorkflowBubbleStatus,
+    resolveWorkflowDisplaySummary,
+    shouldPollWorkflowRun,
+    workflowPollDelay,
+} from "nbook/app/components/novel-ide/agent/workflow-bubble";
+
+const usage = (inputTokens: number, outputTokens: number) => ({
+    inputTokens,
+    outputTokens,
+    cacheReadTokens: 4,
+    cacheWriteTokens: 2,
+    cacheWrite1hTokens: 1,
+    reasoningTokens: 3,
+    totalTokens: inputTokens + outputTokens + 6,
+    cost: {input: 0.1, output: 0.2, cacheRead: 0.01, cacheWrite: 0.02, total: 0.33},
+});
+
+describe("workflow bubble view model", () => {
+    it("识别默认后台启动 details", () => {
+        expect(parseRunWorkflowDetails({
+            jobId: "job_abcd1234",
+            runId: "run-1",
+            workflowKey: "split-book",
+            status: "started",
+            background: true,
+        })).toMatchObject({
+            jobId: "job_abcd1234",
+            runId: "run-1",
+            status: "started",
+            background: true,
+        });
+    });
+
+    it("兼容运行期 partial 与最终 details", () => {
+        expect(parseRunWorkflowDetails({
+            runId: "run-1",
+            workflowKey: "split-book",
+            status: "running",
+            chartMermaid: "graph LR\nA-->B",
+        })).toMatchObject({runId: "run-1", status: "running"});
+
+        expect(parseRunWorkflowDetails({
+            runId: "run-1",
+            workflowKey: "split-book",
+            status: "completed",
+            result: {summary: "done"},
+            error: null,
+            pendingAsks: [],
+            sessions: [{
+                sessionId: 12,
+                profileKey: "writer.default",
+                title: "拆书合并",
+                tokens: usage(120, 30),
+            }],
+            usage: usage(120, 30),
+            chartMermaid: "graph LR\nA-->B",
+        })).toMatchObject({
+            status: "completed",
+            result: {summary: "done"},
+            usage: usage(120, 30),
+            sessions: [{sessionId: 12, tokens: usage(120, 30)}],
+        });
+    });
+
+    it("拒绝非 workflow details，并容忍流式参数未闭合", () => {
+        expect(parseRunWorkflowDetails({status: "running"})).toBeNull();
+        expect(parseRunWorkflowArgs('{"workflowKey":"split-book"')).toEqual({});
+        expect(parseRunWorkflowArgs('{"workflowKey":"split-book","model":"openai/gpt-5"}')).toEqual({
+            workflowKey: "split-book",
+            model: "openai/gpt-5",
+            script: undefined,
+            args: undefined,
+            wait: undefined,
+        });
+    });
+
+    it("completed/failed/cancelled 都停止轮询，waiting 降频", () => {
+        expect(isWorkflowTerminalStatus("waiting")).toBe(false);
+        expect(isWorkflowTerminalStatus("completed")).toBe(true);
+        expect(isWorkflowTerminalStatus("failed")).toBe(true);
+        expect(isWorkflowTerminalStatus("cancelled")).toBe(true);
+        expect(isAgentJobTerminalStatus("waiting")).toBe(false);
+        expect(isAgentJobTerminalStatus("cancelled")).toBe(true);
+        expect(isAgentJobTerminalStatus("interrupted")).toBe(true);
+        expect(workflowPollDelay("running")).toBe(500);
+        expect(workflowPollDelay("waiting")).toBe(2000);
+    });
+
+    it("Job cancelled 后仍轮询到 Run 自己进入终态", () => {
+        expect(shouldPollWorkflowRun({
+            hasBackgroundJob: true,
+            jobStatus: "cancelled",
+            runStatus: "running",
+        })).toBe(true);
+        expect(shouldPollWorkflowRun({
+            hasBackgroundJob: true,
+            jobStatus: "cancelled",
+            runStatus: "cancelled",
+        })).toBe(false);
+        expect(shouldPollWorkflowRun({
+            hasBackgroundJob: true,
+            jobStatus: "interrupted",
+            runStatus: "running",
+        })).toBe(false);
+        expect(shouldPollWorkflowRun({
+            hasBackgroundJob: true,
+            jobUnavailable: true,
+            runStatus: "running",
+        })).toBe(false);
+    });
+
+    it("后台模式在 Run 可见后以 Run 真实状态为准，Job 只负责尚未观测到 Run 时兜底", () => {
+        const base = {
+            pendingApproval: false,
+            toolCallStatus: "success",
+            detailsStatus: "started" as const,
+            hasBackgroundJob: true,
+        };
+        expect(resolveWorkflowBubbleStatus(base)).toBe("starting");
+        expect(resolveWorkflowBubbleStatus({...base, runStatus: "waiting"})).toBe("waiting");
+        expect(resolveWorkflowBubbleStatus({...base, jobStatus: "running", runStatus: "completed"})).toBe("completed");
+        expect(resolveWorkflowBubbleStatus({...base, jobStatus: "cancelled", runStatus: "running"})).toBe("running");
+        expect(resolveWorkflowBubbleStatus({...base, jobStatus: "waiting", runStatus: "waiting"})).toBe("waiting");
+        expect(resolveWorkflowBubbleStatus({...base, jobStatus: "completed", runStatus: "completed"})).toBe("completed");
+        expect(resolveWorkflowBubbleStatus({...base, jobStatus: "failed", runStatus: "failed"})).toBe("failed");
+        expect(resolveWorkflowBubbleStatus({...base, jobStatus: "cancelled"})).toBe("cancelled");
+        expect(resolveWorkflowBubbleStatus({...base, jobStatus: "running", jobUnavailable: true})).toBe("interrupted");
+    });
+
+    it("wait:true 继续按 run 终态，并把刷新后丢失的非终态 run 标为中断", () => {
+        expect(resolveWorkflowBubbleStatus({
+            pendingApproval: false,
+            toolCallStatus: "success",
+            detailsStatus: "completed",
+            hasBackgroundJob: false,
+        })).toBe("completed");
+        expect(resolveWorkflowBubbleStatus({
+            pendingApproval: false,
+            toolCallStatus: "success",
+            detailsStatus: "cancelled",
+            hasBackgroundJob: false,
+        })).toBe("cancelled");
+        expect(resolveWorkflowBubbleStatus({
+            pendingApproval: false,
+            toolCallStatus: "success",
+            detailsStatus: "waiting",
+            hasBackgroundJob: false,
+            runUnavailable: true,
+        })).toBe("interrupted");
+    });
+
+    it("ask 续跑完成后优先展示终态 RunState summary", () => {
+        const waitingDetails = parseRunWorkflowDetails({
+            runId: "run-ask",
+            status: "waiting",
+            sessions: [{sessionId: 1, profileKey: "leader.default", title: "第一段", tokens: null}],
+            usage: usage(10, 5),
+        });
+        const summary = resolveWorkflowDisplaySummary({
+            sessions: [
+                {sessionId: 1, profileKey: "leader.default", title: "第一段", tokens: usage(10, 5)},
+                {sessionId: 2, profileKey: "researcher", title: "续跑分析", tokens: usage(20, 8)},
+            ],
+            usage: usage(30, 13),
+        }, waitingDetails);
+
+        expect(summary.sessions.map((session) => session.sessionId)).toEqual([1, 2]);
+        expect(summary.usage).toEqual(usage(30, 13));
+    });
+
+    it("保留完整 usage 并拒绝不完整旧结构", () => {
+        const full = usage(90, 10);
+        expect(parseRunWorkflowDetails({runId: "run-usage", status: "completed", usage: full})?.usage).toEqual(full);
+        expect(parseRunWorkflowDetails({
+            runId: "run-usage",
+            status: "completed",
+            usage: {inputTokens: 90, outputTokens: 10},
+        })?.usage).toBeUndefined();
+    });
+});

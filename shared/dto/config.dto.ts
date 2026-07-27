@@ -153,10 +153,17 @@ export const IllustrationDirectorModelBindingDtoSchema = z.object({
     modelName: z.string().trim().min(1).nullable().default(null),
 }).strict();
 
+/** Agent / Workflow 可选择的模型清单条目。 */
+export const AgentVisibleModelConfigDtoSchema = z.object({
+    modelKey: z.string().trim().min(1),
+    note: z.string().trim().default(""),
+});
+
 export const ConfigModelSettingsDtoSchema = z.object({
     defaultModelKey: NullableModelKeySchema,
     defaultModelLabel: z.string().trim().nullable().default(null),
     enabledModels: z.array(EnabledModelOptionDtoSchema).default([]),
+    agentVisibleModels: z.array(AgentVisibleModelConfigDtoSchema).default([]),
     providers: z.array(ConfiguredProviderConfigDtoSchema).default([]),
     illustrationDirector: IllustrationDirectorModelBindingDtoSchema.default({
         bindingId: ILLUSTRATION_DIRECTOR_BINDING_ID,
@@ -406,6 +413,11 @@ export const ObservabilityConfigDtoSchema = z.object({
     }).partial().default({}),
 }).partial().default({});
 
+/** novel-api 榜单服务配置（baseUrl 指向 sibling 仓 ../novel-api 的 HTTP 服务）。无 secret 字段。 */
+export const NovelDataConfigDtoSchema = z.object({
+    baseUrl: z.string().trim(),
+}).partial().default({});
+
 /** 文件历史（操作日志）字段集。enabled 是 Global 独有总开关；其余四项 Project 可覆盖。 */
 const WorkspaceHistoryFieldsDtoSchema = z.object({
     enabled: z.boolean(),
@@ -434,7 +446,8 @@ export const GlobalConfigDtoSchema = z.object({
         profileModelDefaults: AgentProfileModelConfigDtoSchema.partial().default({}),
         profileRuntimeDefaults: ProfileRuntimeSettingsPatchDtoSchema.default({}),
         profiles: ConfigAgentProfileMapDtoSchema,
-    }).default({defaultProfileKey: {novel: null, userAssets: null}, profileModelDefaults: {}, profileRuntimeDefaults: {}, profiles: {}}),
+        visibleModels: z.array(AgentVisibleModelConfigDtoSchema).default([]),
+    }).default({defaultProfileKey: {novel: null, userAssets: null}, profileModelDefaults: {}, profileRuntimeDefaults: {}, profiles: {}, visibleModels: []}),
     ui: UiConfigDtoSchema.default({theme: "sepia", customThemes: [], costCurrency: "USD"}),
     editor: EditorConfigDtoSchema.default({
         markdown: DEFAULT_MARKDOWN_EDITOR_PREFERENCES,
@@ -444,6 +457,7 @@ export const GlobalConfigDtoSchema = z.object({
     observability: ObservabilityConfigDtoSchema,
     history: WorkspaceHistoryConfigDtoSchema,
     illustration: z.never().optional(),
+    novelData: NovelDataConfigDtoSchema,
 }).partial().passthrough();
 
 export const GlobalConfigUpdateDtoSchema = z.object({
@@ -460,6 +474,7 @@ export const GlobalConfigUpdateDtoSchema = z.object({
         profileModelDefaults: AgentProfileModelConfigDtoSchema.partial().default({}),
         profileRuntimeDefaults: ProfileRuntimeSettingsPatchDtoSchema.default({}),
         profiles: ConfigAgentProfileMapDtoSchema,
+        visibleModels: z.array(AgentVisibleModelConfigDtoSchema).default([]),
     }).optional(),
     ui: UiConfigDtoSchema.optional(),
     editor: EditorConfigDtoSchema.optional(),
@@ -467,6 +482,7 @@ export const GlobalConfigUpdateDtoSchema = z.object({
     observability: ObservabilityConfigDtoSchema.optional(),
     history: WorkspaceHistoryConfigDtoSchema.optional(),
     illustration: z.never().optional(),
+    novelData: NovelDataConfigDtoSchema.optional(),
 }).partial().passthrough();
 
 const ProjectConfigBaseDtoSchema = z.object({
@@ -537,6 +553,7 @@ export type ConfigAgentProfileBuildStatusDto = z.infer<typeof ConfigAgentProfile
 export type ConfigDefaultProfileSettingsDto = z.infer<typeof ConfigDefaultProfileSettingsDtoSchema>;
 export type WebConfigDto = z.infer<typeof WebConfigDtoSchema>;
 export type ObservabilityConfigDto = z.infer<typeof ObservabilityConfigDtoSchema>;
+export type NovelDataConfigDto = z.infer<typeof NovelDataConfigDtoSchema>;
 export type GlobalConfigDto = z.infer<typeof GlobalConfigDtoSchema>;
 export type GlobalConfigUpdateDto = z.infer<typeof GlobalConfigUpdateDtoSchema>;
 export type ProjectConfigDto = z.infer<typeof ProjectConfigDtoSchema>;

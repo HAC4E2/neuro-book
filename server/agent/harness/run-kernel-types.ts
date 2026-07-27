@@ -1,8 +1,7 @@
-import type {AgentToolCall, AssistantMessage, JsonValue, Model, ThinkingLevel, ToolResultMessage} from "nbook/server/agent/messages/types";
+import type {AgentToolCall, AssistantMessage, JsonValue, Model, ThinkingLevel, ToolResultMessage, Usage} from "nbook/server/agent/messages/types";
 import type {StoredAgentMessage, StoredToolResultMessage, StoredUserMessage} from "nbook/server/agent/messages/stored-types";
 import type {AgentProfile} from "nbook/server/agent/profiles/types";
 import type {ProfileRuntimeSettings} from "nbook/shared/agent/profile-runtime-settings";
-import type {TSchema} from "typebox";
 import type {AgentRuntimeHookStage} from "nbook/server/agent/profiles/define-agent-runtime";
 import type {NeuroSessionContext, InvocationErrorInfo, SessionEntryId, SessionSnapshot} from "nbook/server/agent/session/types";
 import type {SessionWritePlan} from "nbook/server/agent/session/write-plan";
@@ -13,6 +12,7 @@ import type {AgentRuntimeStreamEventDto} from "nbook/shared/dto/agent-session.dt
 import type {AgentMode} from "nbook/shared/dto/agent-session.dto";
 import type {UserInputFormSpec} from "nbook/server/agent/tools/types";
 import type {PiTraceSettings} from "nbook/server/agent/observability/traced-provider";
+import type {PromptPrefixAttribution} from "nbook/server/agent/observability/trace-segments";
 import type {ProfileTurnContextPlan, ProfileTurnContextSettlement} from "nbook/server/agent/profiles/profile-turn-context";
 import type {Models} from "@earendil-works/pi-ai";
 import type {PublicRuntimeProjectionState} from "nbook/server/agent/events/public-event-projection";
@@ -42,9 +42,7 @@ export type RuntimeToolResult = {
 export type RunToolBatchResult = {
     toolResults: RuntimeToolResult[];
     reportResult?: AgentInvocationResult["reportResult"];
-    sidecarResult?: RunSidecarToolResult;
     reportResultError?: string;
-    sidecarResultError?: string;
     toolOverrides?: Record<string, NeuroAgentTool>;
     /** 向后兼容：单个 waiting approval */
     waiting?: {
@@ -58,12 +56,6 @@ export type RunToolBatchResult = {
         toolName: string;
     }>;
     shouldContinue: boolean;
-};
-
-export type RunSidecarToolResult = {
-    result: string;
-    /** 旁路结构化结果；成功 report_sidecar_result 后必须存在。 */
-    data?: unknown;
 };
 
 export type RuntimeHookExecutionInput = {
@@ -107,28 +99,32 @@ export type RuntimeHookExecutionResult = {
 
 export type TurnIngestResult = {
     transcript: "persist" | "runtime_only";
-    /** 非空表示本轮 transcript 实际写入后的末端 entry，用于 sidecar 继续追加同一条旁路分支。 */
+    /** 非空表示本轮 transcript 实际写入后的末端 entry，用于后续 turn 继续追加同一分支。 */
     transcriptLeafId?: SessionEntryId | null;
 };
 
 export type CompletedRunLoopResult = {
     status: "completed";
     finalAssistant?: AssistantMessage;
+    /** 本次 invoke 内所有 provider turn 的累计用量。 */
+    usage?: Usage;
     reportResult?: AgentInvocationResult["reportResult"];
-    sidecarResult?: RunSidecarToolResult;
 };
 
 export type WaitingRunLoopResult = {
     status: "waiting";
     finalAssistant?: AssistantMessage;
+    /** 挂起前所有 provider turn 的累计用量。 */
+    usage?: Usage;
     reportResult?: AgentInvocationResult["reportResult"];
-    sidecarResult?: RunSidecarToolResult;
     waiting: NonNullable<RunToolBatchResult["waiting"]>;
 };
 
 export type FailedRunLoopResult = {
     status: "failed";
     finalAssistant?: AssistantMessage;
+    /** 失败前（含失败响应）所有 provider turn 的累计用量。 */
+    usage?: Usage;
     errorInfo: InvocationErrorInfo;
     terminalStatus?: "error" | "aborted" | "interrupted";
 };
@@ -150,11 +146,6 @@ export type RunTurnTransactionResult =
     };
 
 export type RunKernelPhase = "model" | "ingest" | "compaction" | "settleRun" | "unknown";
-
-export type ActiveSidecarRun = {
-    name: string;
-    sidecarDataSchema?: TSchema;
-};
 
 export type RunFrame = {
     invocationId?: string;
@@ -191,40 +182,27 @@ export type RunFrame = {
     abortSignal?: AbortSignal;
     /** RunFrame 持有 durable 引用态消息；attachment 仅在 Provider 调用前 hydrate。 */
     messages: StoredAgentMessage[];
+    /**
+     * prepareRun 算出的 messages 前缀分区归因（Task 126，只读可观测）。
+     * 只覆盖 prepareRun 当时的长度；本 invocation 内后续追加的消息落入 conversation。
+     */
+    promptPrefix?: PromptPrefixAttribution;
     /** prepareNextTurn 注入的下一轮临时上下文；进入一次 provider snapshot 后清空。 */
     nextTurnRuntimeMessages: StoredAgentMessage[];
     reportResult?: AgentInvocationResult["reportResult"];
-    /** 当前 sidecar run 通过 report_sidecar_result 返回的结构化结果。 */
-    sidecarResult?: RunSidecarToolResult;
     /** 连续 report_result 工具错误次数；成功 report_result 后清零。 */
     reportResultErrorCount: number;
     /** 最近一次 report_result 工具错误文本；用于超过错误预算后的 Runtime Error。 */
     lastReportResultError?: string;
-    /** 最近一次结果工具错误的工具名；用于超过错误预算后的 Runtime Error。 */
-    lastReportResultErrorTool?: "report_result" | "report_sidecar_result";
     finalAssistant?: AssistantMessage;
+    /** 当前 invoke 已完成 provider turn 的累计用量；不能只取最后一轮 assistant。 */
+    usage?: Usage;
     turnIndex: number;
     reportResultReminderSent: boolean;
     reportResultReminderEnabled: boolean;
     caller: AgentInvokeCaller;
-    /** sidecar run 强制不把 assistant/toolResult transcript 写入 session。 */
-    forceRuntimeOnlyTranscript?: boolean;
-    /** sidecar run 强制把 assistant/toolResult transcript 写入 session。 */
-    forcePersistTranscript?: boolean;
-    /** sidecar transcript 写入的父节点；为空时使用当前 active leaf。 */
+    /** turn transcript 写入的父节点；为空时使用当前 active leaf。 */
     transcriptParentLeafId?: SessionEntryId | null;
-    /** sidecar transcript 写入后恢复原 active leaf，避免旁路分支成为主路径。 */
-    restoreLeafAfterTranscript?: boolean;
-    /** transcript 写入后要恢复到的 active leaf。 */
-    restoreLeafIdAfterTranscript?: SessionEntryId | null;
-    /** sidecar run 默认不向公开事件流发送内部 turn 事件。 */
-    suppressEvents?: boolean;
-    /** sidecar run 不消费用户 steer，避免旁路吃掉主 run 的引导。 */
-    disableSteer?: boolean;
-    /** sidecar run 不触发自动压缩，避免旁路写入 compaction entry。 */
-    disableAutomaticCompaction?: boolean;
-    /** 非空表示当前 RunFrame 正在执行指定 sidecar pass。 */
-    activeSidecar?: ActiveSidecarRun;
     /** 当前 turn 内已经执行过自动压缩。 */
     automaticCompactionDoneForTurn: boolean;
     lastTurnIngest?: TurnIngestResult;
@@ -241,6 +219,8 @@ export type TurnSnapshot = {
     systemPrompt: string;
     /** Provider 请求前的冻结 stored truth；禁止提前投影 marker 或 hydrate base64。 */
     modelMessages: StoredAgentMessage[];
+    /** 与 modelMessages 前缀对应的分区归因（Task 126）；缺省表示本次调用无 profile prepare 归因。 */
+    promptPrefix?: PromptPrefixAttribution;
     models: Models;
     model: Model<any>;
     apiKey?: string;
@@ -260,9 +240,7 @@ export type RuntimeTurn = {
     toolCalls: AgentToolCall[];
     toolResults: RuntimeToolResult[];
     reportResult?: AgentInvocationResult["reportResult"];
-    sidecarResult?: RunSidecarToolResult;
     reportResultError?: string;
-    sidecarResultError?: string;
     waiting?: RunToolBatchResult["waiting"];
     shouldContinue: boolean;
 };

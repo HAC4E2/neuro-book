@@ -77,40 +77,4 @@ describe("harness → pi trace 集成", () => {
         expect(serialized).not.toContain("apiKey");
     }, 40_000);
 
-    it("sidecar pass 的 provider 请求同样落 trace，mode 区分 sidecar 与主 turn", async () => {
-        harness.profiles.register(defineAgentProfile({
-            manifest: {key: "trace.sidecar", name: "Trace Sidecar"},
-            initialSchema: Type.Object({}),
-            tools: profileToolsFromKeys([]),
-            sidecars: [{
-                name: "ctx-load",
-                stage: "prepareRun",
-                enterPrompt: "load context",
-                outputFallback: "final_message_as_result",
-                merge() {
-                    return {};
-                },
-            }],
-            prepare() {
-                return {systemPrompt: "you are a test assistant"};
-            },
-        }), false);
-        // 第一条响应给 sidecar 内层 runLoop，第二条给主 turn。
-        faux.setResponses([fauxAssistantMessage("ctx ok"), fauxAssistantMessage("ok")]);
-        const created = await harness.createAgent({profileKey: "trace.sidecar", initial: {}, workspaceRoot: root});
-
-        const result = await harness.invokeAgent({sessionId: created.sessionId, mode: "prompt", message: {text: "hello"}});
-        expect(result.status).toBe("completed");
-
-        const records = await waitForTrace(root, created.sessionId, 2);
-        const sidecarRecord = records.find((record) => record.correlation.mode === "sidecar:ctx-load");
-        const mainRecord = records.find((record) => record.correlation.mode === "user");
-        expect(sidecarRecord).toBeDefined();
-        expect(mainRecord).toBeDefined();
-        expect(sidecarRecord!.correlation.kind).toBe("turn");
-        expect(sidecarRecord!.correlation.sessionId).toBe(created.sessionId);
-        expect(sidecarRecord!.correlation.invocationId).toBe(result.invocationId);
-        expect(sidecarRecord!.status).toBe("ok");
-        expect(JSON.stringify(records)).not.toContain("apiKey");
-    }, 40_000);
 });

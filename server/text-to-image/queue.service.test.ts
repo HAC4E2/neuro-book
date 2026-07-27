@@ -5,11 +5,11 @@ import {
     TextToImageQueueService,
 } from "nbook/server/text-to-image/queue.service";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
-import {registerProjectResourceOwner, resetProjectSessionsForTest} from "nbook/server/workspace-files/project-session";
+import {resetProjectSessionsForTest} from "nbook/server/workspace-files/project-session";
 import {writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {createIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/workspace-assets-test-helper";
-import {closeTextToImageProjectClient, textToImageProjectClient, textToImageProjectClientResourceOwner} from "nbook/server/text-to-image/project-client";
+import {textToImageProjectClient} from "nbook/server/text-to-image/project-client";
 import {createDefaultTextToImageRecipeSource, getActiveTextToImageRecipeStyle} from "nbook/shared/text-to-image-recipe";
 import {createTextToImageRecipeSnapshot} from "nbook/server/text-to-image/recipe.codec";
 import type {TextToImageProviderSnapshotDto} from "nbook/shared/dto/text-to-image.dto";
@@ -20,7 +20,6 @@ describe("TextToImageQueueService", () => {
 
     beforeEach(async () => {
         resetProjectSessionsForTest();
-        registerProjectResourceOwner(textToImageProjectClientResourceOwner);
         assets = await createIsolatedWorkspaceAssets();
         projectPath = `workspace/text-to-image-queue-${randomUUID()}`;
         await writeProjectManifest(resolveRuntimeWorkspaceRoot(), projectPath, {kind: "novel", title: "队列测试", summary: ""});
@@ -29,7 +28,6 @@ describe("TextToImageQueueService", () => {
 
     afterEach(async () => {
         await closeProjectForTest(projectPath).catch(() => undefined);
-        await closeTextToImageProjectClient(projectPath).catch(() => undefined);
         resetProjectSessionsForTest();
         await assets?.dispose();
     }, 30_000);

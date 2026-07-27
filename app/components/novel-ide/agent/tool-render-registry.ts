@@ -6,6 +6,7 @@ import AgentSwitchModeBubble from "nbook/app/components/novel-ide/agent/AgentSwi
 import AgentWriteFileBubble from "nbook/app/components/novel-ide/agent/AgentWriteFileBubble.vue";
 import AgentApplyPatchBubble from "nbook/app/components/novel-ide/agent/AgentApplyPatchBubble.vue";
 import AgentTaskBubble from "nbook/app/components/novel-ide/agent/AgentTaskBubble.vue";
+import AgentWorkflowBubble from "nbook/app/components/novel-ide/agent/AgentWorkflowBubble.vue";
 
 /** Tool 节点渲染模式。 */
 export type AgentToolRenderMode = "inline" | "block" | "message" | "hidden";
@@ -54,6 +55,12 @@ const TOOL_RENDER_REGISTRY: Record<string, AgentToolRenderConfig> = {
         typeLabel: "Patch",
         collapsedPreviewKey: "agent.tool.applyPatch",
         component: markRaw(AgentApplyPatchBubble),
+    },
+    run_workflow: {
+        mode: "block",
+        typeLabel: "Workflow",
+        collapsedPreview: "多 Agent workflow 运行详情",
+        component: markRaw(AgentWorkflowBubble),
     },
     task_create: {
         mode: "message",

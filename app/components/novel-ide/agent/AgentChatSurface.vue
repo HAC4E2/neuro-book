@@ -21,6 +21,7 @@ import type {AgentSessionModelDraft} from "nbook/app/components/novel-ide/agent/
 import AgentLinkedAgentPanel from "nbook/app/components/novel-ide/agent/AgentLinkedAgentPanel.vue";
 import AgentSessionDialog from "nbook/app/components/novel-ide/agent/AgentSessionDialog.vue";
 import AgentSessionTreeDialog from "nbook/app/components/novel-ide/agent/AgentSessionTreeDialog.vue";
+import AgentSessionAttachmentPanel from "nbook/app/components/novel-ide/agent/AgentSessionAttachmentPanel.vue";
 import {deriveAgentTreeState, resolveBranchSwitchTarget} from "nbook/app/components/novel-ide/agent/session-tree";
 import {AgentSessionListRequestGuard} from "nbook/app/components/novel-ide/agent/session-list-request-guard";
 import {assertPublicToolCallId} from "nbook/shared/agent/public-tool-identity";
@@ -29,8 +30,9 @@ import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {useThemeManager} from "nbook/app/composables/useThemeManager";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {formatCost, formatCostExact, usingCnyRate} from "nbook/app/utils/cost-format";
+import {promptCacheHitRate, type PromptCacheUsage} from "nbook/app/utils/prompt-cache";
 import type {ConfigModelSettingsDto} from "nbook/shared/dto/config.dto";
-import type {AgentQueuedMessageDto, AgentSessionListPageDto, AgentSessionListQueryDto, AgentSessionRecoveryDto, AgentSessionSummaryDto, AgentPendingUserInputDto, AgentMode} from "nbook/shared/dto/agent-session.dto";
+import type {AgentQueuedMessageDto, AgentSessionAttachmentItemDto, AgentSessionInteractionDto, AgentSessionListPageDto, AgentSessionListQueryDto, AgentSessionRecoveryDto, AgentSessionSummaryDto, AgentPendingUserInputDto, AgentMode} from "nbook/shared/dto/agent-session.dto";
 import {AgentModeSchema} from "nbook/shared/dto/agent-session.dto";
 import type {AgentCommandResult, InvokeAgentResult} from "nbook/shared/dto/agent-session.dto";
 import type {DropdownItem} from "nbook/app/components/common/dropdown.types";
@@ -38,11 +40,40 @@ import type {ThinkingLevelDto} from "nbook/shared/dto/app-settings.dto";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import type {InlineEditPayload} from "nbook/app/utils/inline-editor-selection";
 import {LowCodeJsonObjectSchema} from "nbook/shared/dto/low-code-form.dto";
+import {
+    AgentComposerDraftSession,
+    type AgentComposerDraftContext,
+    type AgentComposerDraftSaveResult,
+    type AgentComposerSubmission,
+} from "nbook/app/components/novel-ide/agent/agent-composer-draft";
+import {
+    agentMessageMarkdown,
+} from "nbook/app/components/novel-ide/agent/agent-user-message-markdown";
+import {
+    attachmentIdFromMarkdownTarget,
+    parseAgentImageMarkdown,
+} from "nbook/shared/agent/agent-image-markdown";
+import {
+    reconcileInvocationReceipt,
+    reconcileInvocationTransportFailure,
+} from "nbook/app/components/novel-ide/agent/agent-invocation-reconciliation";
 
 type LeaderCreateProfileOption = {
     profileKey: string;
     label: string;
     iconClass: string;
+};
+
+const NO_SESSION_INTERACTION: AgentSessionInteractionDto = {
+    canInvoke: false,
+    canResolveUserInput: false,
+    canRegisterAttachment: false,
+    canInsertAttachment: false,
+    canMutateHistory: false,
+    canChangeRuntime: false,
+    canArchive: false,
+    canRestore: false,
+    canAbort: false,
 };
 
 const INLINE_EDITOR_PROFILE_KEY = "inline.editor";
@@ -87,8 +118,19 @@ const selectionVersion = ref(0);
 const sessionDialogOpen = ref(false);
 const sessionTreeDialogOpen = ref(false);
 const systemPromptPanelOpen = ref(false);
+const attachmentPanelOpen = ref(false);
+const sessionAttachments = ref<AgentSessionAttachmentItemDto[]>([]);
+const knownSessionAttachments = ref<AgentSessionAttachmentItemDto[]>([]);
+const sessionAttachmentUniqueTotal = ref(0);
+const sessionAttachmentPageTotal = ref(0);
+const sessionAttachmentHasMore = ref(false);
+const sessionAttachmentNextOffset = ref<number | null>(null);
+const sessionAttachmentLoading = ref(false);
+const sessionAttachmentSearch = ref("");
 const sessionActionId = ref<number | null>(null);
 const editingMessageId = ref<string | null>(null);
+const editingMessageText = ref("");
+const historyAttachmentInsertRequest = ref<{id: number; item: AgentSessionAttachmentItemDto} | null>(null);
 const messageActionId = ref<string | null>(null);
 const selectableModels = ref<ConfigModelSettingsDto["enabledModels"]>([]);
 const resolvedDefaultProfileKey = ref("leader.default");
@@ -111,6 +153,12 @@ let defaultProfileResolveRequest = 0;
 let ensureSessionRequest: Promise<AgentSessionSummaryDto[]> | null = null;
 let suppressLeaderProfileReset = false;
 let inlineEditorSessionRequestId = 0;
+let sessionAttachmentRequestId = 0;
+let historyAttachmentInsertRequestId = 0;
+let sessionAttachmentSearchTimer: ReturnType<typeof setTimeout> | null = null;
+let composerDraftWarning = "";
+let composerDraftSession: AgentComposerDraftSession | null = null;
+const composerContextGeneration = ref(0);
 const sessionListRequestGuard = new AgentSessionListRequestGuard();
 const hiddenWritingModeProfileKeys = new Set(["rp.leader", "simulator.leader"]);
 
@@ -194,6 +242,7 @@ provide("sanitizeHtml", sanitizeHtml);
 
 const activeRecovery = computed(() => session.recoveryShell.value);
 const activeSummary = computed(() => activeRecovery.value?.summary ?? null);
+const activeInteraction = computed(() => activeSummary.value?.interaction ?? NO_SESSION_INTERACTION);
 const activeSummarizer = computed(() => activeRecovery.value?.summarizer ?? null);
 const linkedAgents = computed(() => activeRecovery.value?.linkedAgents ?? []);
 const linkedByAgents = computed(() => activeRecovery.value?.linkedByAgents ?? []);
@@ -203,6 +252,14 @@ const queuedMessages = computed<AgentQueuedMessageDto[]>(() => [
 ].sort((left, right) => left.createdAt - right.createdAt));
 const linkedAgentCount = computed(() => linkedAgents.value.length + linkedByAgents.value.length);
 const agentMode = computed<AgentMode>(() => activeRecovery.value?.agentMode ?? "normal");
+const activeModelSupportsImages = computed(() => {
+    const selectedKey = sessionModelDraft.value.modelKey;
+    const selected = selectedKey
+        ? selectableModels.value.find((model) => model.key === selectedKey)
+        : selectableModels.value.find((model) => model.providerId === activeRecovery.value?.model?.providerConfigId
+            && model.modelId === activeRecovery.value?.model?.modelId);
+    return selected?.input.includes("image") ?? false;
+});
 const renderNodes = computed(() => messages.value);
 const inlineEditorCurrentTurnMessages = computed<AgentMessage[]>(() => {
     const latestUserIndex = inlineEditorMessages.value.findLastIndex((message) => message.type === "user");
@@ -244,9 +301,25 @@ const inlineEditorSessionLabel = computed(() => {
     }
     return selected.title || `Inline AI #${String(selected.sessionId)}`;
 });
-const messageActionsDisabled = computed(() => running.value || Boolean(messageActionId.value));
+const messageActionsDisabled = computed(() => Boolean(messageActionId.value));
+const historyMutationDisabled = computed(() => Boolean(messageActionId.value) || !activeInteraction.value.canMutateHistory);
+const composerReadonly = computed(() => pendingUserInputSession.value
+    ? !activeInteraction.value.canResolveUserInput
+    : !activeInteraction.value.canInvoke);
+const composerReadonlyReason = computed(() => {
+    if (activeSummary.value?.archived) {
+        return "当前 Session 已归档；恢复后才能继续交互。";
+    }
+    if (activeSummary.value?.profileAvailability !== "loaded") {
+        return activeSummary.value?.profileIssueMessage || "当前 Profile 缺失或不可运行。";
+    }
+    if (pendingUserInputSession.value && !activeInteraction.value.canResolveUserInput) {
+        return "当前等待输入状态不可回答。";
+    }
+    return "当前 Session 暂不可交互。";
+});
 const canContinueWithoutInput = computed(() => {
-    if (running.value || inputText.value.trim() || messages.value.length === 0) {
+    if (!activeInteraction.value.canInvoke || running.value || inputText.value.trim() || messages.value.length === 0) {
         return false;
     }
     return isContinuationPointMessage(messages.value.at(-1), {
@@ -602,14 +675,14 @@ function formatPercent(value: number): string {
 }
 
 /**
- * 计算 prompt cache 命中率：缓存读 / 本次输入 prompt 总量。
+ * 格式化 prompt cache 命中率；口径见 `app/utils/prompt-cache.ts`，无从计算时显示 —。
+ *
+ * 这里传入的是**会话累计** usage，只适合当粗略指示。首轮全量 cacheWrite 会永久压在
+ * 累计分母里，判断缓存健康度要看上下文面板的逐请求时间轴。
  */
-function formatCacheHitRate(usage: {input: number; cacheRead: number}): string {
-    const promptTokens = usage.input + usage.cacheRead;
-    if (promptTokens <= 0) {
-        return "0%";
-    }
-    return formatPercent(usage.cacheRead / promptTokens * 100);
+function formatCacheHitRate(usage: PromptCacheUsage): string {
+    const rate = promptCacheHitRate(usage);
+    return rate === null ? "—" : formatPercent(rate);
 }
 
 /**
@@ -796,14 +869,212 @@ const createSession = async (profileKey?: string): Promise<AgentSessionSummaryDt
     return sessions.value;
 };
 
+/** 草稿保存结果只使用控制器捕获的 context，不能读取已经切换后的响应式 key。 */
+function handleComposerDraftSave(result: AgentComposerDraftSaveResult, context: AgentComposerDraftContext): void {
+    if (result === "oversize" && composerDraftWarning !== `${context.workspaceKey}:${String(context.sessionId)}:oversize`) {
+        composerDraftWarning = `${context.workspaceKey}:${String(context.sessionId)}:oversize`;
+        notification.warning("Composer 草稿超过 256 KiB，已停止保存该草稿。", {title: "草稿过大"});
+    }
+    if (result === "unsafe" && composerDraftWarning !== `${context.workspaceKey}:${String(context.sessionId)}:unsafe`) {
+        composerDraftWarning = `${context.workspaceKey}:${String(context.sessionId)}:unsafe`;
+        notification.warning("草稿包含 data/blob 图片地址，已按安全规则丢弃。", {title: "草稿未保存"});
+    }
+}
+
+function ensureComposerDraftSession(): AgentComposerDraftSession | null {
+    if (!import.meta.client) {
+        return null;
+    }
+    composerDraftSession ??= new AgentComposerDraftSession(localStorage, handleComposerDraftSave);
+    return composerDraftSession;
+}
+
+/** 立即持久化控制器当前 context；pending File 永远不进入 inputText。 */
+function saveComposerDraftNow(): void {
+    const drafts = ensureComposerDraftSession();
+    if (!drafts) return;
+    drafts.update(inputText.value);
+    drafts.flush();
+}
+
+/** 原子切换草稿 context，并返回用于 remount Composer 的 generation。 */
+function switchComposerDraftContext(sessionId: number): void {
+    const drafts = ensureComposerDraftSession();
+    if (!drafts) {
+        composerContextGeneration.value += 1;
+        inputText.value = "";
+        return;
+    }
+    const result = drafts.switchContext(workspaceKey.value, sessionId);
+    composerContextGeneration.value = result.generation;
+    inputText.value = result.text;
+    if (result.discarded) {
+        notification.warning("检测到损坏、过期或不安全的 Composer 草稿，已自动丢弃。", {title: "草稿已清理"});
+    }
+}
+
+/** 捕获本次提交的 context/revision，供迟到 acceptance compare-and-clear。 */
+function captureComposerSubmission(sessionId: number, text: string): AgentComposerSubmission | null {
+    if (activeSessionId.value !== sessionId) return null;
+    const drafts = ensureComposerDraftSession();
+    drafts?.update(text);
+    return drafts?.capture(text) ?? null;
+}
+
+function clearComposerAfterAccepted(
+    sessionId: number,
+    acceptedText: string,
+    submission = captureComposerSubmission(sessionId, acceptedText),
+): void {
+    if (!submission) {
+        return;
+    }
+    const result = ensureComposerDraftSession()?.accept(submission);
+    if (result?.clearEditor && activeSessionId.value === sessionId && inputText.value === acceptedText) {
+        inputText.value = "";
+    }
+}
+
+/** 重置附件分页状态；Session 切换时旧请求通过 requestId 失效。 */
+function resetSessionAttachments(): void {
+    sessionAttachmentRequestId += 1;
+    sessionAttachments.value = [];
+    knownSessionAttachments.value = [];
+    sessionAttachmentUniqueTotal.value = 0;
+    sessionAttachmentPageTotal.value = 0;
+    sessionAttachmentHasMore.value = false;
+    sessionAttachmentNextOffset.value = null;
+    sessionAttachmentLoading.value = false;
+    sessionAttachmentSearch.value = "";
+    attachmentPanelOpen.value = false;
+    if (sessionAttachmentSearchTimer) {
+        clearTimeout(sessionAttachmentSearchTimer);
+        sessionAttachmentSearchTimer = null;
+    }
+}
+
+/** 附件控制事件只使目录缓存失效；刷新目录与计数，不触发完整 Session recovery。 */
+function invalidateSessionAttachments(): void {
+    const sessionId = activeSessionId.value;
+    if (!sessionId) {
+        return;
+    }
+    sessionAttachmentRequestId += 1;
+    sessionAttachmentLoading.value = false;
+    knownSessionAttachments.value = [];
+    void loadSessionAttachments(true);
+    if (sessionAttachmentSearch.value) {
+        void agentApi.getSessionAttachments(sessionId, {offset: 0, limit: 1}).then((page) => {
+            if (activeSessionId.value === sessionId) {
+                sessionAttachmentUniqueTotal.value = page.total;
+            }
+        }).catch(() => {});
+    }
+}
+
+/** 合并已经看见的附件，避免附件面板搜索结果覆盖 Composer 的 Session 附件来源。 */
+function rememberSessionAttachments(items: AgentSessionAttachmentItemDto[]): void {
+    const byId = new Map(knownSessionAttachments.value.map((item) => [item.attachment.attachmentId, item]));
+    for (const item of items) {
+        byId.set(item.attachment.attachmentId, item);
+    }
+    knownSessionAttachments.value = [...byId.values()].sort((left, right) =>
+        right.lastSeenAt - left.lastSeenAt
+        || left.attachment.attachmentId.localeCompare(right.attachment.attachmentId));
+}
+
+/** 加载附件目录；搜索与分页结果都由服务端按 Attachment ID 去重。 */
+async function loadSessionAttachments(reset = true): Promise<void> {
+    const sessionId = activeSessionId.value;
+    if (!sessionId || sessionAttachmentLoading.value || (!reset && !sessionAttachmentHasMore.value)) {
+        return;
+    }
+    const requestId = ++sessionAttachmentRequestId;
+    sessionAttachmentLoading.value = true;
+    try {
+        const page = await agentApi.getSessionAttachments(sessionId, {
+            search: sessionAttachmentSearch.value || undefined,
+            offset: reset ? 0 : sessionAttachmentNextOffset.value ?? sessionAttachments.value.length,
+            limit: 40,
+        });
+        if (requestId !== sessionAttachmentRequestId || sessionId !== activeSessionId.value) {
+            return;
+        }
+        const currentIds = new Set(reset ? [] : sessionAttachments.value.map((item) => item.attachment.attachmentId));
+        sessionAttachments.value = reset
+            ? page.items
+            : [...sessionAttachments.value, ...page.items.filter((item) => !currentIds.has(item.attachment.attachmentId))];
+        rememberSessionAttachments(page.items);
+        sessionAttachmentPageTotal.value = page.total;
+        if (!sessionAttachmentSearch.value) {
+            sessionAttachmentUniqueTotal.value = page.total;
+        }
+        sessionAttachmentHasMore.value = page.hasMore;
+        sessionAttachmentNextOffset.value = page.nextOffset ?? null;
+    } catch (error) {
+        if (requestId === sessionAttachmentRequestId) {
+            notifyAgentError(error, "加载 Session 附件失败");
+        }
+    } finally {
+        if (requestId === sessionAttachmentRequestId) {
+            sessionAttachmentLoading.value = false;
+        }
+    }
+}
+
+function toggleAttachmentPanel(): void {
+    if (!activeSessionId.value) {
+        return;
+    }
+    attachmentPanelOpen.value = !attachmentPanelOpen.value;
+    if (attachmentPanelOpen.value) {
+        void loadSessionAttachments(true);
+    }
+}
+
+function updateAttachmentSearch(value: string): void {
+    sessionAttachmentSearch.value = value;
+    if (sessionAttachmentSearchTimer) {
+        clearTimeout(sessionAttachmentSearchTimer);
+    }
+    sessionAttachmentSearchTimer = setTimeout(() => {
+        sessionAttachmentSearchTimer = null;
+        void loadSessionAttachments(true);
+    }, 250);
+}
+
+function registerSessionAttachment(item: AgentSessionAttachmentItemDto): void {
+    rememberSessionAttachments([item]);
+    const remaining = sessionAttachments.value.filter((current) => current.attachment.attachmentId !== item.attachment.attachmentId);
+    sessionAttachments.value = [item, ...remaining];
+    sessionAttachmentRequestId += 1;
+    sessionAttachmentLoading.value = false;
+    void loadSessionAttachments(true);
+}
+
+function insertSessionAttachment(item: AgentSessionAttachmentItemDto): void {
+    if (!activeInteraction.value.canInsertAttachment) {
+        return;
+    }
+    if (editingMessageId.value) {
+        historyAttachmentInsertRequest.value = {id: ++historyAttachmentInsertRequestId, item};
+    } else {
+        inputRef.value?.insertAttachment(item);
+    }
+    attachmentPanelOpen.value = false;
+}
+
 /**
  * 切换到指定 session，并拉取 recovery。
  */
 const loadSession = async (sessionId: number): Promise<void> => {
+    saveComposerDraftNow();
     sessionStream.stop();
+    resetSessionAttachments();
     activeSessionId.value = sessionId;
+    switchComposerDraftContext(sessionId);
     session.reset();
-    editingMessageId.value = null;
+    cancelEditingMessage();
     messageActionId.value = null;
     linkedAgentPanelOpen.value = false;
     systemPromptPanelOpen.value = false;
@@ -813,6 +1084,7 @@ const loadSession = async (sessionId: number): Promise<void> => {
         const recovery = await agentApi.getSessionRecovery(sessionId);
         session.applyRecovery(recovery);
         syncSessionModelState(recovery.summary);
+        void loadSessionAttachments(true);
         void sessionStream.start(sessionId);
         fileChangedSinceLastSend.value = false;
         await nextTick();
@@ -1001,7 +1273,7 @@ const submitUserInputForm = async (payload: {
     toolCallId: string;
     data: import("nbook/shared/dto/low-code-form.dto").LowCodeJsonObject;
 }): Promise<void> => {
-    if (!activeSessionId.value || !pendingUserInputSession.value) {
+    if (!activeSessionId.value || !pendingUserInputSession.value || !activeInteraction.value.canResolveUserInput) {
         return;
     }
     const pendingSession = pendingUserInputSession.value;
@@ -1062,7 +1334,7 @@ const submitUserInputAnswers = async (payload: {
         ignored?: boolean;
     }>;
 }): Promise<void> => {
-    if (!activeSessionId.value || !pendingUserInputSession.value) {
+    if (!activeSessionId.value || !pendingUserInputSession.value || !activeInteraction.value.canResolveUserInput) {
         return;
     }
     const pendingSession = pendingUserInputSession.value;
@@ -1198,7 +1470,7 @@ const submitUserInputAnswers = async (payload: {
  * 提交当前挂起中的整组结构化答案。
  */
 const submitPendingUserInputAnswers = (): void => {
-    if (!pendingUserInputSession.value || submittingCurrentUserInput.value) {
+    if (!pendingUserInputSession.value || submittingCurrentUserInput.value || !activeInteraction.value.canResolveUserInput) {
         return;
     }
     void submitUserInputAnswers({
@@ -1230,7 +1502,7 @@ provide(AGENT_REQUEST_USER_INPUT_CONTEXT_KEY, {
  * 取消当前等待中的用户输入并终止本轮 ReAct loop。
  */
 const cancelPendingUserInput = async (payload?: {assistantMessageId: string}): Promise<void> => {
-    if (!activeSessionId.value || !pendingUserInputSession.value) {
+    if (!activeSessionId.value || !pendingUserInputSession.value || !activeInteraction.value.canAbort) {
         return;
     }
     const pendingSession = pendingUserInputSession.value;
@@ -1266,7 +1538,7 @@ const cancelPendingUserInput = async (payload?: {assistantMessageId: string}): P
  * 停止当前运行。
  */
 const stopRun = async (): Promise<void> => {
-    if (!activeSessionId.value || !running.value) {
+    if (!activeSessionId.value || !running.value || !activeInteraction.value.canAbort) {
         return;
     }
     try {
@@ -1281,7 +1553,7 @@ const stopRun = async (): Promise<void> => {
  * 切换到指定 Agent 模式（三态按钮、Shift+Tab 与 /mode 命令共用）。
  */
 const setAgentMode = async (mode: AgentMode): Promise<void> => {
-    if (!activeSessionId.value || running.value) {
+    if (!activeSessionId.value || !activeInteraction.value.canChangeRuntime) {
         return;
     }
     try {
@@ -1305,6 +1577,66 @@ const cycleAgentMode = async (): Promise<void> => {
     await setAgentMode(next);
 };
 
+/** 为乐观图片预览补齐当前正文引用的 Session Attachment metadata。 */
+async function resolveComposerAttachmentItems(
+    sessionId: number,
+    markdown: string,
+): Promise<AgentSessionAttachmentItemDto[]> {
+    const attachmentIds = [...new Set(parseAgentImageMarkdown(markdown).flatMap((part) => {
+        if (part.type !== "image") {
+            return [];
+        }
+        const attachmentId = attachmentIdFromMarkdownTarget(part.target);
+        return attachmentId ? [attachmentId] : [];
+    }))];
+    const byId = new Map(knownSessionAttachments.value.map((item) => [item.attachment.attachmentId, item]));
+    const missingIds = attachmentIds.filter((attachmentId) => !byId.has(attachmentId));
+    if (missingIds.length > 0) {
+        const resolved = await agentApi.resolveSessionAttachments(sessionId, missingIds);
+        rememberSessionAttachments(resolved.items);
+        for (const item of resolved.items) {
+            byId.set(item.attachment.attachmentId, item);
+        }
+    }
+    return attachmentIds.flatMap((attachmentId) => {
+        const item = byId.get(attachmentId);
+        return item ? [item] : [];
+    });
+}
+
+/** 等待 durable user entry 或 queue item，二者都是输入已接受的 SSE 旁证。 */
+function waitForOptimisticAdmission(
+    clientMessageId: string,
+): {promise: Promise<void>; stop: () => void} {
+    let stopWatch = (): void => {};
+    let settled = false;
+    const promise = new Promise<void>((resolve) => {
+        const check = (): void => {
+            if (settled) {
+                return;
+            }
+            const accepted = session.durableEntries.value.some((entry) => {
+                return entry.type === "user" && entry.clientMessageId === clientMessageId;
+            }) || queuedMessages.value.some((item) => item.clientMessageId === clientMessageId);
+            if (!accepted) {
+                return;
+            }
+            settled = true;
+            stopWatch();
+            resolve();
+        };
+        stopWatch = watch([session.durableEntries, queuedMessages], check);
+        check();
+    });
+    return {
+        promise,
+        stop: () => {
+            settled = true;
+            stopWatch();
+        },
+    };
+}
+
 /**
  * 发送输入内容。
  */
@@ -1318,34 +1650,104 @@ const send = async (): Promise<void> => {
         sessionDialogOpen.value = true;
         return;
     }
-
-    if (message.startsWith("/") && await handleSlashCommand(message)) {
-        resetInput();
+    if (!activeInteraction.value.canInvoke) {
         return;
+    }
+    const sessionId = activeSessionId.value;
+
+    if (message.startsWith("/")) {
+        try {
+            if (await handleSlashCommand(message)) {
+                clearComposerAfterAccepted(sessionId, inputText.value);
+                return;
+            }
+        } catch (error) {
+            console.error("执行 Agent 命令失败", error);
+            notifyAgentError(error, t("agent.chatSurface.runFailed"));
+            return;
+        }
     }
 
     if (!message) {
         if (canContinueWithoutInput.value) {
-            await ensureActiveSessionEvents();
-            const result = await agentApi.invokeSession(activeSessionId.value, {
-                mode: "continue",
-                clientState: buildClientState(),
-            });
-            await handleInvokeResult(result);
+            try {
+                await ensureActiveSessionEvents();
+                const result = await agentApi.invokeSession(sessionId, {
+                    mode: "continue",
+                    clientState: buildClientState(),
+                });
+                await handleInvokeResult(result);
+            } catch (error) {
+                console.error("继续 Agent 运行失败", error);
+                notifyAgentError(error, t("agent.chatSurface.runFailed"));
+            }
         }
         return;
     }
 
     const prompt = inputText.value;
-    resetInput();
-    session.appendOptimisticUserMessage(prompt);
-    await ensureActiveSessionEvents();
-    const result = await agentApi.invokeSession(activeSessionId.value, {
-        mode: "prompt",
-        message: {text: prompt},
-        clientState: buildClientState(),
-    });
-    await handleInvokeResult(result);
+    const attachmentItems = await resolveComposerAttachmentItems(sessionId, prompt);
+    if (activeSessionId.value !== sessionId || inputText.value !== prompt) {
+        return;
+    }
+    const clientMessageId = crypto.randomUUID();
+    const draftSubmission = captureComposerSubmission(sessionId, prompt);
+    const optimisticMessageId = session.appendOptimisticUserMessage(clientMessageId, prompt, attachmentItems);
+    const admission = waitForOptimisticAdmission(clientMessageId);
+    let accepted = false;
+    const request = (async () => {
+        await ensureActiveSessionEvents();
+        return agentApi.invokeSession(sessionId, {
+            mode: "prompt",
+            clientMessageId,
+            message: {text: prompt},
+            clientState: buildClientState(),
+        });
+    })();
+    try {
+        const first = await Promise.race([
+            admission.promise.then(() => ({kind: "accepted" as const})),
+            request.then(
+                (result) => ({kind: "result" as const, result}),
+                (error: unknown) => ({kind: "error" as const, error}),
+            ),
+        ]);
+        let result: InvokeAgentResult;
+        if (first.kind === "accepted") {
+            accepted = true;
+            clearComposerAfterAccepted(sessionId, prompt, draftSubmission);
+            result = await request;
+        } else if (first.kind === "result") {
+            result = first.result;
+            const reconciliation = reconcileInvocationReceipt(clientMessageId, result.acceptance);
+            accepted = reconciliation.state === "accepted";
+            if (reconciliation.state === "accepted") {
+                clearComposerAfterAccepted(sessionId, prompt, draftSubmission);
+            } else {
+                session.removeOptimisticUserMessage(optimisticMessageId);
+                notification.error(result.error ?? t("agent.chatSurface.runFailed"), {title: t("agent.chatSurface.runFailed")});
+                return;
+            }
+        } else {
+            throw first.error;
+        }
+        await handleInvokeResult(result);
+    } catch (error) {
+        if (!accepted) {
+            const reconciliation = reconcileInvocationTransportFailure();
+            if (reconciliation.state === "unknown") {
+                session.markOptimisticUserMessageUnknown(clientMessageId);
+            }
+        }
+        console.error("发送 Agent 消息失败", error);
+        if (accepted) {
+            notification.warning("消息已被 Session 接受，但请求连接提前中断；后续状态将由事件流继续收敛。", {title: "连接中断"});
+        } else {
+            notification.warning("未收到服务器 acceptance；消息结果未知，未自动重试。", {title: "发送结果未知"});
+        }
+    } finally {
+        admission.stop();
+    }
 };
 
 /**
@@ -1361,15 +1763,31 @@ const sendInlineEditorPrompt = async (payload: InlineEditPayload, visibleMessage
     }
 
     inlineEditorResultText.value = "";
-    inlineEditorSession.appendOptimisticUserMessage(visibleMessage);
-    await ensureInlineEditorEvents();
-    const result = await agentApi.invokeSession(targetSession.sessionId, {
-        mode: "prompt",
-        message: {text: visibleMessage},
-        input: inlineEditPayloadToJson(payload),
-        clientState: buildClientState(),
-    });
-    await handleInlineEditorInvokeResult(result);
+    const clientMessageId = crypto.randomUUID();
+    const optimisticId = inlineEditorSession.appendOptimisticUserMessage(clientMessageId, visibleMessage);
+    let receivedReceipt = false;
+    try {
+        await ensureInlineEditorEvents();
+        const result = await agentApi.invokeSession(targetSession.sessionId, {
+            mode: "prompt",
+            clientMessageId,
+            message: {text: visibleMessage},
+            input: inlineEditPayloadToJson(payload),
+            clientState: buildClientState(),
+        });
+        receivedReceipt = true;
+        const reconciliation = reconcileInvocationReceipt(clientMessageId, result.acceptance);
+        if (reconciliation.state === "rejected") {
+            inlineEditorSession.removeOptimisticUserMessage(optimisticId);
+            throw new Error(result.error ?? t("agent.chatSurface.runFailed"));
+        }
+        await handleInlineEditorInvokeResult(result);
+    } catch (error) {
+        if (!receivedReceipt) {
+            inlineEditorSession.markOptimisticUserMessageUnknown(clientMessageId);
+        }
+        throw error;
+    }
 };
 
 /**
@@ -1396,54 +1814,93 @@ const stopInlineEditorPrompt = async (): Promise<void> => {
     await refreshInlineEditorSessions();
 };
 
-/**
- * 运行中引导当前 Agent loop。
- */
-const steer = async (): Promise<void> => {
+/** 运行中的 steer/follow-up 共用同一 receipt、SSE 与 transport unknown 对账。 */
+const sendRunningMessage = async (mode: "steer" | "followup"): Promise<void> => {
     const message = inputText.value.trim();
-    if (!activeSessionId.value || !running.value || !message) {
+    if (!activeSessionId.value || !running.value || !activeInteraction.value.canInvoke || !message) {
         return;
     }
-    try {
+    const sessionId = activeSessionId.value;
+    const prompt = inputText.value;
+    const attachmentItems = await resolveComposerAttachmentItems(sessionId, prompt);
+    if (activeSessionId.value !== sessionId || inputText.value !== prompt) {
+        return;
+    }
+    const clientMessageId = crypto.randomUUID();
+    const draftSubmission = captureComposerSubmission(sessionId, prompt);
+    const optimisticMessageId = session.appendOptimisticUserMessage(
+        clientMessageId,
+        prompt,
+        attachmentItems,
+        mode,
+    );
+    const admission = waitForOptimisticAdmission(clientMessageId);
+    let accepted = false;
+    const request = (async () => {
         await ensureActiveSessionEvents();
-        const prompt = inputText.value;
-        const result = await agentApi.invokeSession(activeSessionId.value, {
-            mode: "steer",
+        return agentApi.invokeSession(sessionId, {
+            mode,
+            clientMessageId,
             message: {text: prompt},
             clientState: buildClientState(),
         });
+    })();
+    try {
+        const first = await Promise.race([
+            admission.promise.then(() => ({kind: "accepted" as const})),
+            request.then(
+                (result) => ({kind: "result" as const, result}),
+                (error: unknown) => ({kind: "error" as const, error}),
+            ),
+        ]);
+        let result: InvokeAgentResult;
+        if (first.kind === "accepted") {
+            accepted = true;
+            clearComposerAfterAccepted(sessionId, prompt, draftSubmission);
+            result = await request;
+        } else if (first.kind === "result") {
+            result = first.result;
+            const reconciliation = reconcileInvocationReceipt(clientMessageId, result.acceptance);
+            accepted = reconciliation.state === "accepted";
+            if (!accepted) {
+                session.removeOptimisticUserMessage(optimisticMessageId);
+                notification.error(result.error ?? t("agent.chatSurface.runFailed"), {
+                    title: mode === "steer" ? t("agent.chatSurface.steerFailed") : t("agent.chatSurface.queueFailed"),
+                });
+                return;
+            }
+            clearComposerAfterAccepted(sessionId, prompt, draftSubmission);
+            if (result.acceptance.state === "queued") {
+                session.removeOptimisticUserMessage(optimisticMessageId);
+            }
+        } else {
+            throw first.error;
+        }
         await handleInvokeResult(result);
-        resetInput();
-        notification.success(t("agent.chatSurface.steered"));
+        if (result.status !== "error") {
+            notification.success(mode === "steer" ? t("agent.chatSurface.steered") : t("agent.chatSurface.queued"));
+        }
     } catch (error) {
-        console.error("引导消息失败", error);
-        notifyAgentError(error, t("agent.chatSurface.steerFailed"));
+        if (!accepted) {
+            session.markOptimisticUserMessageUnknown(clientMessageId);
+            notification.warning("未收到服务器 acceptance；消息结果未知，未自动重试。", {title: "发送结果未知"});
+        } else {
+            notification.warning("消息已被 Session 接受，但请求连接提前中断；后续状态将由事件流继续收敛。", {title: "连接中断"});
+        }
+        console.error(mode === "steer" ? "引导消息失败" : "排队消息失败", error);
+    } finally {
+        admission.stop();
     }
 };
 
 /**
- * 运行中把消息排到当前 loop 结束后继续执行。
+ * 运行中引导当前 Agent loop。
  */
+const steer = async (): Promise<void> => sendRunningMessage("steer");
+
+/** 运行中把消息排到当前 loop 结束后继续执行。 */
 const followup = async (): Promise<void> => {
-    const message = inputText.value.trim();
-    if (!activeSessionId.value || !running.value || !message) {
-        return;
-    }
-    try {
-        await ensureActiveSessionEvents();
-        const prompt = inputText.value;
-        const result = await agentApi.invokeSession(activeSessionId.value, {
-            mode: "followup",
-            message: {text: prompt},
-            clientState: buildClientState(),
-        });
-        await handleInvokeResult(result);
-        resetInput();
-        notification.success(t("agent.chatSurface.queued"));
-    } catch (error) {
-        console.error("排队消息失败", error);
-        notifyAgentError(error, t("agent.chatSurface.queueFailed"));
-    }
+    await sendRunningMessage("followup");
 };
 
 /**
@@ -1459,6 +1916,9 @@ const handleSlashCommand = async (message: string): Promise<boolean> => {
         return true;
     }
     if (command === "/clear") {
+        if (!activeInteraction.value.canMutateHistory) {
+            return true;
+        }
         const result = await agentApi.moveTree(activeSessionId.value, {
             position: "empty",
         });
@@ -1484,6 +1944,9 @@ const handleSlashCommand = async (message: string): Promise<boolean> => {
         return true;
     }
     if (command === "/model") {
+        if (!activeInteraction.value.canChangeRuntime) {
+            return true;
+        }
         const result = await agentApi.runCommand(activeSessionId.value, {
             command: "model",
             modelKey: rest[0] ?? null,
@@ -1492,6 +1955,9 @@ const handleSlashCommand = async (message: string): Promise<boolean> => {
         return true;
     }
     if (command === "/rename") {
+        if (!activeInteraction.value.canChangeRuntime) {
+            return true;
+        }
         // 用原始剩余文本作为标题，保留标题内部的连续空格。
         const title = message.trim().slice("/rename".length).trim();
         if (!title) {
@@ -1502,6 +1968,9 @@ const handleSlashCommand = async (message: string): Promise<boolean> => {
         return true;
     }
     if (command === "/summarize") {
+        if (!activeInteraction.value.canChangeRuntime) {
+            return true;
+        }
         try {
             const result = await agentApi.runCommand(activeSessionId.value, {
                 command: "summarize",
@@ -1521,7 +1990,7 @@ const handleSlashCommand = async (message: string): Promise<boolean> => {
  * 手动压缩当前 Session 上下文。压缩过程走 session SSE，同步一次 recovery 让 UI 立刻进入 running。
  */
 const compactSession = async (instructions?: string): Promise<void> => {
-    if (!activeSessionId.value || running.value) {
+    if (!activeSessionId.value || !activeInteraction.value.canChangeRuntime) {
         return;
     }
     try {
@@ -1538,21 +2007,35 @@ const compactSession = async (instructions?: string): Promise<void> => {
 };
 
 /**
- * 清空输入态。
+ * 返回复制/编辑使用的完整正文；被公开预算截断的用户消息按需读取。
  */
-function resetInput(): void {
-    inputText.value = "";
+async function resolveMessageMarkdown(message: AgentMessage): Promise<{text: string; complete: boolean}> {
+    const local = agentMessageMarkdown(message);
+    if (local !== null) {
+        return {text: local, complete: true};
+    }
+    if (message.type === "user" && activeSessionId.value && !message.id.startsWith("optimistic-user-")) {
+        const result = await agentApi.getSessionUserContent(activeSessionId.value, message.id);
+        return {text: result.text, complete: true};
+    }
+    return {text: message.content, complete: false};
 }
 
 /**
- * 复制消息正文。
+ * 复制消息正文；用户消息始终输出文字与图片 Markdown 的完整原顺序。
  */
 const copyMessage = async (message: AgentMessage): Promise<void> => {
-    if (!message.content.trim()) {
-        return;
+    try {
+        const resolved = await resolveMessageMarkdown(message);
+        if (!resolved.text.trim()) {
+            return;
+        }
+        await navigator.clipboard.writeText(resolved.text);
+        notification.success(resolved.complete ? t("agent.chatSurface.copied") : t("agent.chatSurface.previewCopied"));
+    } catch (error) {
+        console.error("复制 Agent 消息失败", error);
+        notifyAgentError(error, "读取完整用户消息失败");
     }
-    await navigator.clipboard.writeText(message.content);
-    notification.success(message.contentOmitted ? t("agent.chatSurface.previewCopied") : t("agent.chatSurface.copied"));
 };
 
 /**
@@ -1569,15 +2052,30 @@ const copyToolCall = async (toolCall: AgentToolCall): Promise<void> => {
     notification.success(t("agent.chatSurface.toolCopied"));
 };
 
-const startEditingMessage = (message: AgentMessage): void => {
-    if (messageActionsDisabled.value || message.contentOmitted) {
+const startEditingMessage = async (message: AgentMessage): Promise<void> => {
+    if (historyMutationDisabled.value) {
         return;
     }
-    editingMessageId.value = message.id;
+    messageActionId.value = message.id;
+    try {
+        const resolved = await resolveMessageMarkdown(message);
+        if (!resolved.complete) {
+            return;
+        }
+        editingMessageText.value = resolved.text;
+        editingMessageId.value = message.id;
+    } catch (error) {
+        console.error("读取待编辑 Agent 消息失败", error);
+        notifyAgentError(error, "读取完整用户消息失败");
+    } finally {
+        messageActionId.value = null;
+    }
 };
 
 const cancelEditingMessage = (): void => {
     editingMessageId.value = null;
+    editingMessageText.value = "";
+    historyAttachmentInsertRequest.value = null;
 };
 
 /**
@@ -1589,7 +2087,7 @@ const updateSessionModelSelection = async (modelKey: string | null): Promise<voi
         modelKey,
     };
 
-    if (!activeSessionId.value || running.value || sessionModelSaving.value) {
+    if (!activeSessionId.value || !activeInteraction.value.canChangeRuntime || sessionModelSaving.value) {
         return;
     }
     sessionModelSaving.value = true;
@@ -1616,7 +2114,7 @@ const updateSessionThinkingLevel = async (thinkingLevel: ThinkingLevelDto | null
         reasoningEffort: thinkingLevel,
     };
 
-    if (!activeSessionId.value || running.value || sessionModelSaving.value) {
+    if (!activeSessionId.value || !activeInteraction.value.canChangeRuntime || sessionModelSaving.value) {
         return;
     }
     sessionModelSaving.value = true;
@@ -1635,10 +2133,16 @@ const updateSessionThinkingLevel = async (thinkingLevel: ThinkingLevelDto | null
 };
 
 function toggleSessionModelPopover(): void {
+    if (!activeInteraction.value.canChangeRuntime) {
+        return;
+    }
     sessionModelPopoverOpen.value = !sessionModelPopoverOpen.value;
 }
 
 async function applySessionModelSettings(): Promise<void> {
+    if (!activeInteraction.value.canChangeRuntime) {
+        return;
+    }
     const nextModelKey = sessionModelDraft.value.modelKey;
     const nextThinkingLevel = sessionModelDraft.value.reasoningEffort;
     await updateSessionModelSelection(nextModelKey);
@@ -1652,6 +2156,9 @@ async function applySessionModelSettings(): Promise<void> {
 }
 
 async function resetSessionModelSettings(): Promise<void> {
+    if (!activeInteraction.value.canChangeRuntime) {
+        return;
+    }
     await updateSessionModelSelection(null);
     await updateSessionThinkingLevel(null);
     sessionModelPopoverOpen.value = false;
@@ -1833,6 +2340,9 @@ const sessionStream = useAgentSessionStream({
         }
     },
     onEvent: async (event) => {
+        if (event.kind === "session" && event.event.type === "session_attachments_changed") {
+            invalidateSessionAttachments();
+        }
         if (event.kind === "session" && event.event.type === "client_variable_patch_requested" && activeSessionId.value) {
             await acknowledgeClientPatch(activeSessionId.value, event.event.request);
         }
@@ -1862,7 +2372,7 @@ const inlineEditorStream = useAgentSessionStream({
 });
 
 const cycleMessageBranch = async (messageId: string, direction: -1 | 1): Promise<void> => {
-    if (!activeSessionId.value || messageActionId.value || running.value) {
+    if (!activeSessionId.value || messageActionId.value || !activeInteraction.value.canMutateHistory) {
         return;
     }
     const target = resolveBranchSwitchTarget(sessionTreeState.value, messageId, direction);
@@ -1886,7 +2396,7 @@ const cycleMessageBranch = async (messageId: string, direction: -1 | 1): Promise
 };
 
 const selectTreeNode = async (entryId: string): Promise<void> => {
-    if (!activeSessionId.value || messageActionId.value || running.value) {
+    if (!activeSessionId.value || messageActionId.value || !activeInteraction.value.canMutateHistory) {
         return;
     }
     messageActionId.value = entryId;
@@ -1906,27 +2416,34 @@ const selectTreeNode = async (entryId: string): Promise<void> => {
 };
 
 const saveEditedMessage = async (payload: {message: AgentMessage; content: string}): Promise<void> => {
-    if (!activeSessionId.value || messageActionId.value || running.value || payload.message.contentOmitted) {
+    if (!activeSessionId.value || messageActionId.value || !activeInteraction.value.canMutateHistory) {
         return;
     }
     messageActionId.value = payload.message.id;
     try {
         await ensureActiveSessionEvents();
+        const clientMessageId = crypto.randomUUID();
         const result = await agentApi.moveTree(activeSessionId.value, {
             targetEntryId: payload.message.id,
             position: "before",
             next: {
                 type: "invoke",
                 mode: "prompt",
+                clientMessageId,
                 message: {text: payload.content},
                 clientState: buildClientState(),
             },
         });
         session.applyLiveState(result.state);
         if (result.invocation) {
+            const reconciliation = reconcileInvocationReceipt(clientMessageId, result.invocation.acceptance);
+            if (reconciliation.state === "rejected") {
+                notification.error(result.invocation.error ?? t("agent.chatSurface.rewriteFailed"), {title: t("agent.chatSurface.rewriteFailed")});
+                return;
+            }
             await handleInvokeResult(result.invocation);
         }
-        editingMessageId.value = null;
+        cancelEditingMessage();
         await syncActiveSessionRecovery();
         notification.success(t("agent.chatSurface.messageUpdated"));
     } catch (error) {
@@ -1938,7 +2455,7 @@ const saveEditedMessage = async (payload: {message: AgentMessage; content: strin
 };
 
 const refreshMessage = async (message: AgentMessage): Promise<void> => {
-    if (!activeSessionId.value || messageActionId.value || running.value) {
+    if (!activeSessionId.value || messageActionId.value || !activeInteraction.value.canMutateHistory) {
         return;
     }
     messageActionId.value = message.id;
@@ -1957,7 +2474,7 @@ const refreshMessage = async (message: AgentMessage): Promise<void> => {
         if (result.invocation) {
             await handleInvokeResult(result.invocation);
         }
-        editingMessageId.value = null;
+        cancelEditingMessage();
         await syncActiveSessionRecovery();
     } catch (error) {
         console.error("刷新消息失败", error);
@@ -1968,7 +2485,7 @@ const refreshMessage = async (message: AgentMessage): Promise<void> => {
 };
 
 const rollbackMessage = async (message: AgentMessage): Promise<void> => {
-    if (!activeSessionId.value || messageActionId.value || running.value) {
+    if (!activeSessionId.value || messageActionId.value || !activeInteraction.value.canMutateHistory) {
         return;
     }
     const confirmed = await confirm(t("agent.chatSurface.rollbackConfirm"), t("agent.chatSurface.rollbackTitle"));
@@ -1983,7 +2500,7 @@ const rollbackMessage = async (message: AgentMessage): Promise<void> => {
         });
         session.applyLiveState(result.state);
         await syncMutationRecovery();
-        editingMessageId.value = null;
+        cancelEditingMessage();
         notification.success(t("agent.chatSurface.rollbackSuccess"));
     } catch (error) {
         console.error("回退消息失败", error);
@@ -2068,7 +2585,7 @@ const renameSession = async (sessionId: number, title: string): Promise<void> =>
  * 手动重命名 session：弹输入框后走共享 renameSession 核心。
  */
 const renameSessionFromDialog = async (target: AgentSessionSummaryDto): Promise<void> => {
-    if (loadingSession.value || sessionActionId.value) {
+    if (loadingSession.value || sessionActionId.value || target.interaction?.canChangeRuntime !== true) {
         return;
     }
     const title = (await prompt(t("agent.session.renamePrompt"), target.title ?? "", t("agent.session.rename")))?.trim();
@@ -2084,7 +2601,7 @@ const renameSessionFromDialog = async (target: AgentSessionSummaryDto): Promise<
 };
 
 const archiveSessionFromDialog = async (target: AgentSessionSummaryDto): Promise<void> => {
-    if (target.status === "running" || target.status === "waiting" || loadingSession.value || sessionActionId.value) {
+    if (loadingSession.value || sessionActionId.value || target.interaction?.canArchive !== true) {
         return;
     }
     sessionActionId.value = target.sessionId;
@@ -2093,18 +2610,72 @@ const archiveSessionFromDialog = async (target: AgentSessionSummaryDto): Promise
             command: "archive",
             reason: "archived from drawer",
         });
-        const nextSessions = await refreshSessions();
+        await refreshSessions();
         if (target.sessionId !== activeSessionId.value) {
             return;
         }
-        if (nextSessions[0]?.sessionId) {
-            await loadSession(nextSessions[0].sessionId);
-            return;
+        await loadSession(target.sessionId);
+    } finally {
+        sessionActionId.value = null;
+    }
+};
+
+/** unknown attempt 只有用户确认可能重复后才以新 clientMessageId 重新发送。 */
+const resendUnknownMessage = async (message: AgentMessage): Promise<void> => {
+    if (message.deliveryState !== "unknown" || !activeSessionId.value) {
+        return;
+    }
+    const markdown = agentMessageMarkdown(message);
+    if (markdown === null) {
+        notification.error("无法重建这条未知消息的完整正文。", {title: "无法重新发送"});
+        return;
+    }
+    if (inputText.value && inputText.value !== markdown) {
+        notification.warning("Composer 中已有其它草稿，请先处理当前草稿。", {title: "未重新发送"});
+        return;
+    }
+    const accepted = await confirm(
+        "服务器可能已经接受原消息。重新发送会生成新的 clientMessageId，并可能产生重复内容。",
+        "确认重新发送",
+    );
+    if (!accepted) {
+        return;
+    }
+    inputText.value = markdown;
+    await nextTick();
+    if (running.value && message.deliveryMode === "steer") {
+        await steer();
+        return;
+    }
+    if (running.value && message.deliveryMode === "followup") {
+        await followup();
+        return;
+    }
+    await send();
+};
+
+/** 用户可移除仅存在于当前页面内存中的 unknown optimistic 占位。 */
+const dismissUnknownMessage = (message: AgentMessage): void => {
+    if (message.deliveryState === "unknown") {
+        session.removeOptimisticUserMessage(message.id);
+    }
+};
+
+/** 恢复归档 Session；关系账本未 detach 的关系会由 effective view 自动重新显现。 */
+const restoreSessionFromDialog = async (target: AgentSessionSummaryDto): Promise<void> => {
+    if (loadingSession.value || sessionActionId.value || target.interaction?.canRestore !== true) {
+        return;
+    }
+    sessionActionId.value = target.sessionId;
+    try {
+        await agentApi.runCommand(target.sessionId, {command: "restore"});
+        await refreshSessions();
+        if (target.sessionId === activeSessionId.value) {
+            await loadSession(target.sessionId);
         }
-        sessionStream.stop();
-        activeSessionId.value = null;
-        session.reset();
-        syncSessionModelState(null);
+        notification.success("Session 已恢复");
+    } catch (error) {
+        notifyAgentError(error, "恢复 Session 失败");
     } finally {
         sessionActionId.value = null;
     }
@@ -2115,6 +2686,11 @@ const archiveSessionFromDialog = async (target: AgentSessionSummaryDto): Promise
  * 避免同 profile 的不同 Project Workspace 复用旧会话。
  */
 function resetWorkspaceSessionState(): void {
+    const drafts = ensureComposerDraftSession();
+    if (drafts) {
+        drafts.update(inputText.value);
+        composerContextGeneration.value = drafts.clearContext();
+    }
     sessionStream.stop();
     inlineEditorStream.stop();
     activeSessionId.value = null;
@@ -2127,9 +2703,10 @@ function resetWorkspaceSessionState(): void {
     sessionModelPopoverOpen.value = false;
     inlineSessionModelPopoverOpen.value = false;
     inlineSessionModelSaving.value = false;
-    editingMessageId.value = null;
+    cancelEditingMessage();
     messageActionId.value = null;
     inputText.value = "";
+    resetSessionAttachments();
     session.reset();
     inlineEditorSession.reset();
     inlineEditorResultText.value = "";
@@ -2154,7 +2731,8 @@ watch(() => props.active, async (active) => {
         linkedAgentPanelOpen.value = false;
         sessionModelPopoverOpen.value = false;
         inlineSessionModelPopoverOpen.value = false;
-        editingMessageId.value = null;
+        attachmentPanelOpen.value = false;
+        cancelEditingMessage();
         messageActionId.value = null;
         return;
     }
@@ -2216,8 +2794,19 @@ watch(() => ideStore.configRevision, async () => {
 });
 
 onBeforeUnmount(() => {
+    composerDraftSession?.dispose();
+    composerDraftSession = null;
     sessionStream.stop();
     inlineEditorStream.stop();
+    resetSessionAttachments();
+});
+
+watch(queuedMessages, (items) => {
+    session.consumeOptimisticClientMessageIds(items.map((item) => item.clientMessageId));
+});
+
+watch(inputText, () => {
+    composerDraftSession?.update(inputText.value);
 });
 
 onMounted(() => {
@@ -2259,6 +2848,7 @@ defineExpose({
     selectSession,
     createSession: createSessionFromHeader,
     archiveSessionFromDialog,
+    restoreSessionFromDialog,
     renameSessionFromDialog,
     openInlineEditorSession,
     refreshInlineEditorSessions,
@@ -2441,7 +3031,7 @@ function isApprovalApproved(answer?: {
 <template>
     <!-- Agent Chat Surface -->
     <section
-        class="flex h-full min-h-0 min-w-0 flex-col bg-[var(--bg-panel)]"
+        class="relative flex h-full min-h-0 min-w-0 flex-col bg-[var(--bg-panel)]"
         :class="[props.layout === 'workbench' ? 'border-x border-[var(--border-color)]' : '', props.active ? '' : 'pointer-events-none opacity-0']"
         :aria-hidden="!props.active"
     >
@@ -2474,11 +3064,15 @@ function isApprovalApproved(answer?: {
                     <button v-else class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :title="t('agent.session.newChat')" :disabled="loadingSession" @click="void createSessionFromHeader()">
                         <span class="i-lucide-plus h-4 w-4"></span>
                     </button>
+                    <button class="flex items-center gap-1 rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :class="{'bg-[var(--bg-hover)] text-[var(--accent-main)]': attachmentPanelOpen}" title="查看当前 Session 的全部附件" :disabled="!activeSessionId" @click="toggleAttachmentPanel">
+                        <span class="i-lucide-paperclip h-4 w-4"></span>
+                        <span v-if="sessionAttachmentUniqueTotal" class="rounded-sm bg-[var(--accent-main)] px-1 text-[9px] font-bold text-[var(--text-inverse)]">{{ sessionAttachmentUniqueTotal }}</span>
+                    </button>
                     <button class="flex items-center gap-1.5 rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :class="{'bg-[var(--bg-hover)] text-[var(--accent-main)]': linkedAgentPanelOpen}" :title="t('agent.chatSurface.linkedAgentsTitle')" @click="linkedAgentPanelOpen = !linkedAgentPanelOpen">
                         <span class="i-lucide-users h-4 w-4"></span>
                         <span v-if="linkedAgentCount" class="rounded-sm bg-[var(--accent-main)] px-1 text-[9px] font-bold text-[var(--text-inverse)]">{{ linkedAgentCount }}</span>
                     </button>
-                    <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :title="t('agent.chatSurface.sessionTreeTitle')" :disabled="!activeSessionId" @click="sessionTreeDialogOpen = true">
+                    <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :title="t('agent.chatSurface.sessionTreeTitle')" :disabled="!activeSessionId || !activeInteraction.canMutateHistory" @click="sessionTreeDialogOpen = true">
                         <span class="i-lucide-git-branch h-4 w-4"></span>
                     </button>
                     <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :class="{'bg-[var(--bg-hover)] text-[var(--accent-main)]': systemPromptPanelOpen}" :title="t('agent.systemPrompt.open')" :disabled="!activeSessionId" @click="systemPromptPanelOpen = !systemPromptPanelOpen">
@@ -2492,6 +3086,21 @@ function isApprovalApproved(answer?: {
                     </button>
                 </div>
             </div>
+
+            <AgentSessionAttachmentPanel
+                v-if="attachmentPanelOpen && activeSessionId"
+                :session-id="activeSessionId"
+                :items="sessionAttachments"
+                :total="sessionAttachmentPageTotal"
+                :has-more="sessionAttachmentHasMore"
+                :loading="sessionAttachmentLoading"
+                :search="sessionAttachmentSearch"
+                :insert-disabled="!activeInteraction.canInsertAttachment"
+                @update:search="updateAttachmentSearch"
+                @load-more="void loadSessionAttachments(false)"
+                @insert="insertSessionAttachment"
+                @close="attachmentPanelOpen = false"
+            />
 
             <!-- Linked Agent 面板 -->
             <AgentLinkedAgentPanel
@@ -2523,8 +3132,16 @@ function isApprovalApproved(answer?: {
                 :running="running"
                 mode="main"
                 :editing-message-id="editingMessageId"
+                :editing-message-text="editingMessageText"
                 :message-action-disabled="messageActionsDisabled"
+                :run-action-disabled="historyMutationDisabled"
                 :saving-edit="Boolean(messageActionId)"
+                :session-attachments="knownSessionAttachments"
+                :can-register-attachments="activeInteraction.canRegisterAttachment"
+                :can-insert-attachments="activeInteraction.canInsertAttachment"
+                :project-path="props.novelId || null"
+                :model-supports-images="activeModelSupportsImages"
+                :attachment-insert-request="historyAttachmentInsertRequest"
                 :branch-switcher-state-by-message-id="branchSwitcherStateByMessageId"
                 :menu-refresh-key="agentMenuRefreshKey"
                 :resolve-editor-menu="resolveInputMenu"
@@ -2537,16 +3154,18 @@ function isApprovalApproved(answer?: {
                 :history-error="session.historyError.value"
                 @copy="void copyMessage($event)"
                 @copy-tool="void copyToolCall($event)"
-                @start-edit="startEditingMessage"
+                @start-edit="void startEditingMessage($event)"
                 @cancel-edit="cancelEditingMessage"
                 @save-edit="void saveEditedMessage($event)"
                 @retry="void refreshMessage($event)"
                 @delete="void rollbackMessage($event)"
                 @cycle-branch="void cycleMessageBranch($event.messageId, $event.direction)"
                 @load-previous="void loadPreviousHistory()"
+                @attachment-registered="registerSessionAttachment"
             />
 
             <AgentComposer
+                :key="composerContextGeneration"
                 ref="inputRef"
                 v-model:input-text="inputText"
                 v-model:selected-answers="userInputSelectedAnswers"
@@ -2556,6 +3175,11 @@ function isApprovalApproved(answer?: {
                 :pending-session="pendingUserInputSession"
                 :submitting-user-input="submittingCurrentUserInput"
                 :running="running"
+                :readonly="composerReadonly"
+                :readonly-reason="composerReadonlyReason"
+                :can-register-attachments="activeInteraction.canRegisterAttachment"
+                :can-insert-attachments="activeInteraction.canInsertAttachment"
+                :can-abort="activeInteraction.canAbort"
                 :loading-session="loadingSession"
                 :session-model-saving="sessionModelSaving"
                 :session-model-selection-value="sessionModelSelectionValue"
@@ -2581,6 +3205,9 @@ function isApprovalApproved(answer?: {
                 :project-path="props.novelId || null"
                 :history-inbox-refresh-key="props.historyInboxRefreshKey ?? 0"
                 :history-inbox-active="props.active"
+                :session-id="activeSessionId"
+                :session-attachments="knownSessionAttachments"
+                :model-supports-images="activeModelSupportsImages"
                 :resolve-menu="resolveInputMenu"
                 :on-skill-trigger-start="refreshSkillCatalog"
                 @submit-user-input="void submitUserInputAnswers($event)"
@@ -2599,6 +3226,9 @@ function isApprovalApproved(answer?: {
                 @refresh-history="void syncActiveSessionRecovery()"
                 @open-history-inbox="emit('open-history-inbox')"
                 @open-workspace-file="openMessageReference"
+                @attachment-registered="registerSessionAttachment"
+                @resend-unknown="void resendUnknownMessage($event)"
+                @dismiss-unknown="dismissUnknownMessage($event)"
             />
 
             <!-- Session 管理弹窗 -->
@@ -2617,6 +3247,7 @@ function isApprovalApproved(answer?: {
                 @select="void selectSession($event)"
                 @create="void createSessionFromDialog($event)"
                 @archive="void archiveSessionFromDialog($event)"
+                @restore="void restoreSessionFromDialog($event)"
                 @rename="void renameSessionFromDialog($event)"
                 @refresh="void refreshSessionsWithQuery($event)"
                 @load-more="void refreshSessionsWithQuery($event)"
@@ -2627,6 +3258,7 @@ function isApprovalApproved(answer?: {
                 :tree="activeRecovery?.tree ?? []"
                 :active-leaf-id="activeRecovery?.activeLeafId ?? null"
                 :running="running"
+                :can-activate="activeInteraction.canMutateHistory"
                 @select="void selectTreeNode($event)"
             />
     </section>

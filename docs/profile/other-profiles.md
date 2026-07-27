@@ -22,18 +22,27 @@ researcher 通常返回普通 Markdown 结果和来源链接，不使用 `report
 
 `leader.assets` 帮助用户维护 `workspace/.nbook` 下的 profile、Skill、模板、profile 默认 home 资源和配置覆盖层。它适合解释 user-assets 机制、创建 profile 模板、检查 profile 编译状态。
 
-## Simulation profiles
+## world.engine
 
-RP / 世界模拟主要使用：
+`world.engine` 负责复杂 World Engine 的维护与校验，使用 readwrite 模式的 `execute_world`。日常写作不需要它——`leader.default` 自己就能推进世界状态；只有 schema 设计、批量修正或疑难 issue 排查才需要它。
 
-- `simulator.leader`：写作模式和 RP 共用的世界模拟主管。
-- `simulator.actor`：subject simulator，只处理 actor-facing message。
-- `rp.writer`：RP prose renderer。
+## inline.editor
 
-`simulator.actor` 已接入 sidecar，用于主 run 前加载 actor-safe context、主 run 后维护记忆文件。主 run 不直接读取 subject 文件原文。
+`inline.editor` 是 Markdown Studio 里 Inline AI 的 profile。它跑在独立后台会话上，不占用主 Agent 会话，也不会自动弹开 Agent 面板。
+
+## memory.curator
+
+`memory.curator` 为 `subject_memory_update` 工具生成记忆补丁，由工具层调用，不由用户直接创建。
+
+## Simulation profiles（入口已下线）
+
+::: warning
+`simulator.leader`、`simulator.actor`、`rp.writer` 属于 RP / 世界模拟体系，**已从新建 Agent 菜单隐藏**，正在按写作模式的标准重新设计。profile 文件和历史会话保留。
+
+`simulator.actor` 当前只开放 `report_result`，不会自动检索或保存记忆。Subject RAG 的数据与工具仍保留但**没有内置消费者**，见 [Subject RAG 记忆](/agent/subject-rag-memory)。
+:::
 
 ## 继续阅读
 
 - [Agent Reference](https://github.com/notnotype/neuro-book/blob/master/reference/agent/README.md)
-- [Sidecar](../agent/sidecar.md)
-- [进入世界模拟](/tutorials/06-enter-world-simulation)
+- [Agent Workflow 与 Job](/agent/workflow)

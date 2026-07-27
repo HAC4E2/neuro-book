@@ -4,6 +4,8 @@ import type {
     AgentTriggerMenuContext,
     AgentTriggerMenuState,
 } from "nbook/app/components/novel-ide/agent/trigger-menu";
+import type {ComposerImageNode} from "nbook/app/components/novel-ide/agent/composer-image-transaction";
+import type {PlainImageNodeAttrs} from "nbook/app/utils/plain-reference-text";
 
 const props = withDefaults(defineProps<{
     modelValue: string;
@@ -14,6 +16,8 @@ const props = withDefaults(defineProps<{
     borderless?: boolean;
     expanded?: boolean;
     readonly?: boolean;
+    generation?: number;
+    enableImageFiles?: boolean;
 }>(), {
     placeholder: "",
     menuRefreshKey: "",
@@ -21,12 +25,19 @@ const props = withDefaults(defineProps<{
     borderless: false,
     expanded: false,
     readonly: false,
+    generation: 0,
+    enableImageFiles: true,
 });
 
 const emit = defineEmits<{
     (e: "update:modelValue", value: string): void;
     (e: "submit", payload?: {ctrlKey?: boolean; metaKey?: boolean}): void;
     (e: "cycle-mode"): void;
+    (e: "image-files", payload: {files: File[]; position?: number}): void;
+    (e: "pending-image-retry", uploadId: string): void;
+    (e: "pending-image-remove", uploadId: string): void;
+    (e: "image-document", nodes: ComposerImageNode[]): void;
+    (e: "image-files-blocked"): void;
 }>();
 
 const editorRef = ref<InstanceType<typeof ReferencePlainTextEditor> | null>(null);
@@ -53,16 +64,61 @@ const insertText = (text: string): void => {
  */
 const getText = (): string => editorRef.value?.getText() ?? props.modelValue;
 
+const insertImage = (image: PlainImageNodeAttrs, position?: number): void => {
+    editorRef.value?.insertImage(image, position);
+};
+
+const insertPendingImages = (items: Array<{uploadId: string; name: string}>, position?: number): void => {
+    editorRef.value?.insertPendingImages(items, position);
+};
+
+const replacePendingImage = (uploadId: string, image: PlainImageNodeAttrs): void => {
+    editorRef.value?.replacePendingImage(uploadId, image);
+};
+
+const failPendingImage = (uploadId: string, error: string): void => {
+    editorRef.value?.failPendingImage(uploadId, error);
+};
+
+const startPendingImage = (uploadId: string): void => {
+    editorRef.value?.startPendingImage(uploadId);
+};
+
+const removePendingImage = (uploadId: string): void => {
+    editorRef.value?.removePendingImage(uploadId);
+};
+
+const clearPendingImages = (): void => {
+    editorRef.value?.clearPendingImages();
+};
+
+const removeImageAt = (imageIndex: number): void => {
+    editorRef.value?.removeImageAt(imageIndex);
+};
+
+const hydrateImages = (items: readonly PlainImageNodeAttrs[]): void => {
+    editorRef.value?.hydrateImages(items);
+};
+
 defineExpose({
+    clearPendingImages,
+    failPendingImage,
     focus,
+    insertImage,
+    insertPendingImages,
     insertText,
     getText,
+    hydrateImages,
+    removePendingImage,
+    removeImageAt,
+    replacePendingImage,
+    startPendingImage,
 });
 </script>
 
 <template>
     <ReferencePlainTextEditor
-        :key="props.placeholder"
+        :key="`${String(props.generation)}:${props.placeholder}`"
         ref="editorRef"
         :model-value="props.modelValue"
         :placeholder="props.placeholder || t('agent.composer.messagePlaceholder')"
@@ -76,8 +132,14 @@ defineExpose({
         :resolve-menu="props.resolveMenu"
         :on-skill-trigger-start="props.onSkillTriggerStart"
         :borderless="props.borderless"
+        :enable-image-files="props.enableImageFiles"
         @update:model-value="emit('update:modelValue', $event)"
         @submit="emit('submit', $event)"
         @shift-tab="emit('cycle-mode')"
+        @image-files="emit('image-files', $event)"
+        @image-files-blocked="emit('image-files-blocked')"
+        @pending-image-retry="emit('pending-image-retry', $event)"
+        @pending-image-remove="emit('pending-image-remove', $event)"
+        @image-document="emit('image-document', $event)"
     />
 </template>

@@ -3,9 +3,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
-import type {AgentSessionListQueryDto, AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
-import {initProjectDatabase, readProjectManifest, resolveProjectDatabasePath, writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
+import {initProjectDatabase, writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
 import {closeWorkspaceTreeIndex} from "nbook/server/workspace-files/project-workspace-index";
 import {writeWorkspaceTextFile} from "nbook/server/workspace-files/workspace-files";
 import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
@@ -13,35 +12,7 @@ import {normalizeProjectPath, resolveProjectWorkspaceRoot} from "nbook/server/wo
 import {isProjectOpen} from "nbook/server/workspace-files/project-session";
 import {invalidateNovelListCache, listNovels} from "nbook/server/utils/novel-chapter";
 
-class FilteringSessionProvider {
-    constructor(private readonly sessions: AgentSessionSummaryDto[]) {}
-
-    /**
-     * 模拟 Agent session 列表筛选，覆盖书架统计依赖的 projectPath / archived / systemRole 条件。
-     */
-    async listSessions(input: AgentSessionListQueryDto = {}): Promise<AgentSessionSummaryDto[]> {
-        return this.sessions.filter((session) => {
-            if (input.projectPath && session.projectPath !== input.projectPath) {
-                return false;
-            }
-            if (!input.includeArchived && session.archived) {
-                return false;
-            }
-            if (!input.includeSystem && session.systemRole) {
-                return false;
-            }
-            if (input.status === "active") {
-                return !session.archived;
-            }
-            if (input.status && input.status !== "all" && session.status !== input.status) {
-                return false;
-            }
-            return true;
-        });
-    }
-}
-
-describe("novel-chapter project list statistics", () => {
+describe("Project 列表只读 manifest", () => {
     const originalCwd = process.cwd();
     let root: string;
     let workspaceRoot: AbsoluteFsPath;
@@ -51,337 +22,102 @@ describe("novel-chapter project list statistics", () => {
         await fs.mkdir(path.join(root, "assets", "workspace", ".nbook"), {recursive: true});
         process.chdir(root);
         workspaceRoot = absoluteFsPath(path.join(root, "workspace"));
+        invalidateNovelListCache();
     });
 
     afterEach(async () => {
         invalidateNovelListCache();
         await closeWorkspaceTreeIndex(absoluteFsPath(path.join(root, "workspace", "novel-a")));
         await closeWorkspaceTreeIndex(absoluteFsPath(path.join(root, "workspace", "novel-b")));
-        await closeWorkspaceTreeIndex(absoluteFsPath(path.join(root, "workspace", "empty-plot")));
-        await closeWorkspaceTreeIndex(absoluteFsPath(path.join(root, "workspace", "world-engine-test-hidden")));
-        await closeWorkspaceTreeIndex(absoluteFsPath(path.join(root, "workspace", "world-engine-api-test-selected")));
         process.chdir(originalCwd);
         await removeDirectoryWithRetry(root);
     });
 
-    it("从 Project Workspace 与 Agent session 汇总书架统计", async () => {
-        const projectPath = "workspace/novel-a";
-        await writeProjectManifest(workspaceRoot, projectPath, {
+    it("列表项只包含 manifest 元数据，不含任何内容统计字段", async () => {
+        await writeProjectManifest(workspaceRoot, "workspace/novel-a", {
             kind: "novel",
-            title: "统计测试",
-            summary: "项目简介",
+            title: "小说 A",
+            summary: "摘要 A",
         });
-        await writeMarkdown(workspaceRoot, projectPath, "manuscript/001-volume/index.md", {
-            title: "第一卷",
-            type: "volume",
-        }, "卷简介");
-        await writeMarkdown(workspaceRoot, projectPath, "manuscript/001-volume/001-chapter/index.md", {
-            title: "第一章",
-            type: "chapter",
-        }, "正文一二三");
-        await writeMarkdown(workspaceRoot, projectPath, "manuscript/001-volume/002-chapter/index.md", {
-            title: "第二章",
-            type: "chapter",
-        }, "第二章正文");
-        await writeMarkdown(workspaceRoot, projectPath, "lorebook/index.md", {
-            title: "设定根",
-        }, "根目录说明不算 lorebook 条目");
-        await writeMarkdown(workspaceRoot, projectPath, "lorebook/character/hero/index.md", {
-            title: "主角",
-            type: "character",
-        }, "角色设定");
-        await writeMarkdown(workspaceRoot, projectPath, "lorebook/location/city/index.md", {
-            title: "城市",
-            type: "location",
-        }, "地点设定");
 
-        const provider = new FilteringSessionProvider([
-            createSessionSummary({sessionId: 1, projectPath}),
-            createSessionSummary({sessionId: 2, projectPath, archived: true}),
-            createSessionSummary({sessionId: 3, projectPath, systemRole: "summarizer"}),
-            createSessionSummary({sessionId: 4, projectPath: "workspace/other"}),
-        ]);
+        const [novel] = await listNovels();
 
-        expect(isProjectOpen(projectPath)).toBe(false);
-        const [novel] = await listNovels({sessionProvider: provider});
-        expect(isProjectOpen(projectPath)).toBe(false);
-
-        expect(novel).toMatchObject({
-            id: projectPath,
-            title: "统计测试",
-            volumeCount: 1,
-            chapterCount: 2,
-            totalWords: "正文一二三".length + "第二章正文".length,
-            lorebookCount: 2,
-            sessionCount: 1,
-            threadCount: 0,
-            sceneCount: 0,
-            plotCount: 0,
+        expect(novel).toEqual({
+            id: "workspace/novel-a",
+            title: "小说 A",
+            summary: "摘要 A",
+            workspaceSlug: "novel-a",
+            projectPath: "workspace/novel-a",
+            manifestError: undefined,
+            createdAt: expect.any(String),
+            updatedAt: expect.any(String),
         });
     });
 
-    it("Project SQLite 不存在或没有 Story 时 Plot 统计为 0 且不创建 Story", async () => {
-        const projectPath = "workspace/empty-plot";
-        await writeProjectManifest(workspaceRoot, projectPath, {
+    it("列表读取使用短 TTL 缓存，失效后重新读取 manifest", async () => {
+        await writeProjectManifest(workspaceRoot, "workspace/novel-a", {
             kind: "novel",
-            title: "空剧情",
+            title: "初始标题",
             summary: "",
         });
 
-        const [beforeInit] = await listNovels({
-            sessionProvider: new FilteringSessionProvider([]),
-        });
-
-        expect(beforeInit?.threadCount).toBe(0);
-        expect(beforeInit?.sceneCount).toBe(0);
-        expect(beforeInit?.plotCount).toBe(0);
-
-        await initProjectDatabase(workspaceRoot, projectPath);
-        const [afterInit] = await listNovels({
-            sessionProvider: new FilteringSessionProvider([]),
-        });
-
-        expect(afterInit?.threadCount).toBe(0);
-        expect(afterInit?.sceneCount).toBe(0);
-        expect(afterInit?.plotCount).toBe(0);
-        await expect(readProjectManifest(workspaceRoot, projectPath)).resolves.toEqual({
+        const first = createTimingRecorder();
+        await listNovels({timingSink: first.sink});
+        await writeProjectManifest(workspaceRoot, "workspace/novel-a", {
             kind: "novel",
-            title: "空剧情",
+            title: "改后标题",
             summary: "",
         });
-        await expect(fs.stat(resolveProjectDatabasePath(workspaceRoot, projectPath))).resolves.toBeTruthy();
-    });
 
-    it("默认列表读取使用短 TTL 缓存，失效后重新汇总", async () => {
-        const projectPath = "workspace/novel-a";
-        await writeProjectManifest(workspaceRoot, projectPath, {
-            kind: "novel",
-            title: "缓存测试",
-            summary: "",
-        });
-        const repo = new JsonlSessionRepository(path.join(root, "workspace"));
-        await repo.createSession({
-            profileKey: "leader.default",
-            input: {},
-            workspaceRoot: "workspace",
-            workspaceKey: "global",
-            projectPath,
-        });
-
-        const first = await listNovels();
-        expect(first[0]?.sessionCount).toBe(1);
-
-        await repo.createSession({
-            profileKey: "leader.default",
-            input: {},
-            workspaceRoot: "workspace",
-            workspaceKey: "global",
-            projectPath,
-        });
-
-        const cached = await listNovels();
-        expect(cached[0]?.sessionCount).toBe(1);
+        // 缓存未失效：仍返回旧标题。
+        const cachedDiagnostics: {projectListCache?: string} = {};
+        const cached = await listNovels({diagnostics: cachedDiagnostics});
+        expect(cached[0]?.title).toBe("初始标题");
+        expect(cachedDiagnostics.projectListCache).toBe("hit");
 
         invalidateNovelListCache();
-        const refreshed = await listNovels();
-        expect(refreshed[0]?.sessionCount).toBe(2);
+        const refreshedDiagnostics: {projectListCache?: string} = {};
+        const refreshed = await listNovels({diagnostics: refreshedDiagnostics});
+        expect(refreshed[0]?.title).toBe("改后标题");
+        expect(refreshedDiagnostics.projectListCache).toBe("miss");
     });
 
-    it("includeProjectPath-only 与默认完整列表共享短缓存", async () => {
-        const projectPath = "workspace/novel-a";
-        await writeProjectManifest(workspaceRoot, projectPath, {
-            kind: "novel",
-            title: "include 缓存测试",
-            summary: "",
-        });
-        const repo = new JsonlSessionRepository(path.join(root, "workspace"));
-        await repo.createSession({
-            profileKey: "leader.default",
-            input: {},
-            workspaceRoot: "workspace",
-            workspaceKey: "global",
-            projectPath,
-        });
-
-        const firstDiagnostics = {};
-        const timingMarks: string[] = [];
-        const first = await listNovels({
-            includeProjectPaths: [projectPath],
-            diagnostics: firstDiagnostics,
-            timingSink: {
-                mark(name) {
-                    timingMarks.push(name);
-                },
-            },
-        });
-        expect(first[0]?.sessionCount).toBe(1);
-        expect(firstDiagnostics).toMatchObject({
-            cacheMode: "default",
-            fullListCache: "miss",
-        });
-        expect(timingMarks).toEqual(expect.arrayContaining([
-            "projects.manifests",
-            "projects.sessions",
-            "projects.filter",
-            "projects.stats.workspace",
-            "projects.stats.plot",
-            "projects.total",
-        ]));
-
-        await repo.createSession({
-            profileKey: "leader.default",
-            input: {},
-            workspaceRoot: "workspace",
-            workspaceKey: "global",
-            projectPath,
-        });
-
-        const secondDiagnostics = {};
-        const cached = await listNovels({
-            includeProjectPaths: [projectPath],
-            diagnostics: secondDiagnostics,
-        });
-        expect(cached[0]?.sessionCount).toBe(1);
-        expect(secondDiagnostics).toMatchObject({
-            cacheMode: "default",
-            fullListCache: "hit",
-        });
-
+    /**
+     * Phase 4B 退出条件：列表请求不得成为 File Index、Project SQLite 或 Agent session store 的持有者。
+     *
+     * 这里用 timing 分段作为判据——统计链的每一段都有独立 mark，只要它们从不出现，
+     * 对应的扫描/查询就从未发生；再补一条 ProjectSession 未被打开的断言。
+     */
+    it("连续 100 次列表读取不触碰 File Index、Project SQLite 或 Agent session", async () => {
+        for (const slug of ["novel-a", "novel-b"]) {
+            const projectPath = `workspace/${slug}`;
+            await writeProjectManifest(workspaceRoot, projectPath, {
+                kind: "novel",
+                title: slug,
+                summary: "",
+            });
+            // 真实内容与真实 SQLite：旧统计链会扫描前者、打开后者。
+            await writeMarkdown(workspaceRoot, projectPath, "manuscript/001.md", {
+                entryType: "chapter",
+                title: "第一章",
+            }, "正文内容");
+            await initProjectDatabase(workspaceRoot, projectPath);
+        }
         invalidateNovelListCache();
-        const refreshed = await listNovels({includeProjectPaths: [projectPath]});
-        expect(refreshed[0]?.sessionCount).toBe(2);
-    });
 
-    it("并发默认列表等待 pending 时记录等待分段", async () => {
-        await writeProjectManifest(workspaceRoot, "workspace/novel-a", {
-            kind: "novel",
-            title: "并发默认列表",
-            summary: "",
-        });
-        const firstTiming = createTimingRecorder();
-        const secondTiming = createTimingRecorder();
-        const first = listNovels({timingSink: firstTiming.sink});
-        const secondDiagnostics = {};
-        const second = listNovels({
-            diagnostics: secondDiagnostics,
-            timingSink: secondTiming.sink,
-        });
+        const recorder = createTimingRecorder();
+        for (let index = 0; index < 100; index += 1) {
+            invalidateNovelListCache();
+            await listNovels({timingSink: recorder.sink});
+        }
 
-        await Promise.all([first, second]);
-
-        expect(secondDiagnostics).toMatchObject({
-            cacheMode: "default",
-            fullListCache: "pending",
-        });
-        expect(timingNames(secondTiming.marks)).toEqual(expect.arrayContaining([
-            "projects.manifests",
-            "projects.sessions",
-            "projects.stats.workspace",
-            "projects.stats.plot",
-            "projects.pending.fullList",
-            "projects.total",
-        ]));
-    });
-
-    it("并发过滤列表等待 manifest/session pending 时记录对应分段", async () => {
-        await writeProjectManifest(workspaceRoot, "workspace/novel-a", {
-            kind: "novel",
-            title: "并发过滤 A",
-            summary: "",
-        });
-        const firstTiming = createTimingRecorder();
-        const secondTiming = createTimingRecorder();
-        const first = listNovels({limit: 1, timingSink: firstTiming.sink});
-        const secondDiagnostics = {};
-        const second = listNovels({
-            limit: 1,
-            diagnostics: secondDiagnostics,
-            timingSink: secondTiming.sink,
-        });
-
-        await Promise.all([first, second]);
-
-        expect(secondDiagnostics).toMatchObject({
-            cacheMode: "filtered",
-            projectListCache: "pending",
-            sessionCountCache: "pending",
-        });
-        expect(timingNames(secondTiming.marks)).toEqual(expect.arrayContaining([
-            "projects.manifests",
-            "projects.sessions",
-            "projects.total",
-        ]));
-    });
-
-    it("并发统计等待 project stats pending 时记录等待分段", async () => {
-        await writeProjectManifest(workspaceRoot, "workspace/novel-a", {
-            kind: "novel",
-            title: "并发统计",
-            summary: "",
-        });
-        await listNovels({limit: 0});
-
-        const firstTiming = createTimingRecorder();
-        const secondTiming = createTimingRecorder();
-        const first = listNovels({limit: 1, timingSink: firstTiming.sink});
-        const secondDiagnostics = {};
-        const second = listNovels({
-            limit: 1,
-            diagnostics: secondDiagnostics,
-            timingSink: secondTiming.sink,
-        });
-
-        await Promise.all([first, second]);
-
-        expect(secondDiagnostics).toMatchObject({
-            statsCachePending: 1,
-        });
-        expect(timingNames(secondTiming.marks)).toContain("projects.stats.pending");
-    });
-
-    it("支持按 Preview 入口裁剪 Project 列表并补回当前选择", async () => {
-        await writeProjectManifest(workspaceRoot, "workspace/novel-a", {
-            kind: "novel",
-            title: "普通项目 A",
-            summary: "",
-        });
-        await writeProjectManifest(workspaceRoot, "workspace/novel-b", {
-            kind: "novel",
-            title: "普通项目 B",
-            summary: "",
-        });
-        await writeProjectManifest(workspaceRoot, "workspace/world-engine-test-hidden", {
-            kind: "novel",
-            title: "应被排除的测试项目",
-            summary: "",
-        });
-        await writeProjectManifest(workspaceRoot, "workspace/world-engine-api-test-selected", {
-            kind: "novel",
-            title: "当前选中的测试项目",
-            summary: "",
-        });
-
-        const diagnostics = {};
-        const timing = createTimingRecorder();
-        const projects = await listNovels({
-            sessionProvider: new FilteringSessionProvider([]),
-            limit: 1,
-            excludeProjectPathPrefixes: ["workspace/world-engine-test-", "workspace/world-engine-api-test-"],
-            includeProjectPaths: ["workspace/world-engine-api-test-selected"],
-            diagnostics,
-            timingSink: timing.sink,
-        });
-
-        expect(projects.map((project) => project.projectPath)).toContain("workspace/world-engine-api-test-selected");
-        expect(projects.map((project) => project.projectPath)).not.toContain("workspace/world-engine-test-hidden");
-        expect(projects.filter((project) => project.projectPath !== "workspace/world-engine-api-test-selected")).toHaveLength(1);
-        expect(diagnostics).toMatchObject({
-            cacheMode: "custom",
-            visibleCount: 2,
-            statsCacheMisses: 2,
-        });
-        expect(timingDuration(timing.marks, "projects.stats.workspace")).toBeLessThanOrEqual(timingDuration(timing.marks, "projects.total"));
-        expect(timingDuration(timing.marks, "projects.stats.plot")).toBeLessThanOrEqual(timingDuration(timing.marks, "projects.total"));
+        const names = new Set(timingNames(recorder.marks));
+        expect([...names].sort()).toEqual(["projects.manifests", "projects.total"]);
+        for (const marker of ["projects.stats.workspace", "projects.stats.plot", "projects.stats.pending", "projects.sessions", "projects.filter"]) {
+            expect(names.has(marker)).toBe(false);
+        }
+        expect(isProjectOpen("workspace/novel-a")).toBe(false);
+        expect(isProjectOpen("workspace/novel-b")).toBe(false);
     });
 });
 
@@ -424,25 +160,6 @@ describe("JsonlSessionRepository projectPath filter", () => {
     });
 });
 
-function createSessionSummary(input: {
-    sessionId: number;
-    projectPath: string;
-    archived?: boolean;
-    systemRole?: "summarizer";
-}): AgentSessionSummaryDto {
-    return {
-        sessionId: input.sessionId,
-        profileKey: "leader.default",
-        workspaceKey: "global",
-        workspaceRoot: "workspace",
-        projectPath: input.projectPath,
-        systemRole: input.systemRole,
-        status: input.archived ? "archived" : "idle",
-        updatedAt: input.sessionId,
-        archived: input.archived ?? false,
-    };
-}
-
 async function writeMarkdown(
     workspaceRoot: AbsoluteFsPath,
     projectPath: string,
@@ -476,12 +193,6 @@ function createTimingRecorder(): {marks: TimingMark[]; sink: {mark(name: string,
 
 function timingNames(marks: readonly TimingMark[]): string[] {
     return marks.map((mark) => mark.name);
-}
-
-function timingDuration(marks: readonly TimingMark[], name: string): number {
-    const mark = marks.find((item) => item.name === name);
-    expect(mark).toBeDefined();
-    return mark?.durationMs ?? 0;
 }
 
 async function removeDirectoryWithRetry(target: string): Promise<void> {

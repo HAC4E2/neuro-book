@@ -2,8 +2,13 @@ import {createEventStream} from "h3";
 import type {H3Event} from "h3";
 import type {WorkspaceFileStreamEventDto} from "nbook/shared/dto/workspace-file-events.dto";
 import {resolveWorkspaceFileTarget} from "nbook/server/workspace-files/novel-workspace";
-import {subscribeWorkspaceTreeIndex} from "nbook/server/workspace-files/project-workspace-index";
-import {assertProjectOpenForTarget} from "nbook/server/workspace-files/project-open-guard";
+import {
+    subscribeWorkspaceTreeIndex,
+    workspaceTreeIndexOptionsForTarget,
+} from "nbook/server/workspace-files/project-workspace-index";
+import {
+    startProjectTargetOperation,
+} from "nbook/server/workspace-files/project-open-guard";
 import {isClosingEventStreamError} from "nbook/server/utils/event-stream";
 import {runtimePathsFromEnv, type RuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
 
@@ -12,7 +17,8 @@ type WorkspaceFileEventsDependencies = {
     runtimePaths: () => RuntimePaths;
     resolveWorkspaceFileTarget: typeof resolveWorkspaceFileTarget;
     subscribeWorkspaceTreeIndex: typeof subscribeWorkspaceTreeIndex;
-    assertProjectOpenForTarget?: typeof assertProjectOpenForTarget;
+    startProjectTargetOperation?: typeof startProjectTargetOperation;
+    workspaceTreeIndexOptionsForTarget?: typeof workspaceTreeIndexOptionsForTarget;
 };
 
 /**
@@ -23,7 +29,8 @@ export function createWorkspaceFileEventsHandler(dependencies: WorkspaceFileEven
     runtimePaths: runtimePathsFromEnv,
     resolveWorkspaceFileTarget,
     subscribeWorkspaceTreeIndex,
-    assertProjectOpenForTarget,
+    startProjectTargetOperation,
+    workspaceTreeIndexOptionsForTarget,
 }) {
     return async (event: H3Event) => {
         const query = getQuery(event);
@@ -33,46 +40,88 @@ export function createWorkspaceFileEventsHandler(dependencies: WorkspaceFileEven
             dependencies.runtimePaths(),
             {projectPath, workspaceKind},
         );
-        dependencies.assertProjectOpenForTarget?.(target);
-        const eventStream = dependencies.createEventStream(event);
-        let streamClosed = false;
-        let unsubscribe: (() => void) | null = null;
+        const startOperation = dependencies.startProjectTargetOperation ?? ((_, start) => (
+            start(undefined, new AbortController().signal).result
+        ));
+        return startOperation(target, (projectHandles, signal) => {
+            const eventStream = dependencies.createEventStream(event);
+            let streamClosed = false;
+            let setupSettled = false;
+            let closeSettled = false;
+            let unsubscribe: (() => void) | null = null;
+            let settleCompletion: () => void = () => undefined;
+            const completion = new Promise<void>((resolve) => {
+                settleCompletion = resolve;
+            });
 
-        const pushWorkspaceEvent = async (payload: WorkspaceFileStreamEventDto): Promise<void> => {
-            if (streamClosed) {
-                return;
-            }
-            try {
-                await eventStream.push({
-                    event: payload.type,
-                    data: JSON.stringify(payload),
-                });
-            } catch (error) {
-                if (isClosingEventStreamError(error)) {
-                    streamClosed = true;
-                    unsubscribe?.();
+            const settleIfClosed = () => {
+                if (streamClosed && setupSettled && closeSettled) {
+                    settleCompletion();
+                }
+            };
+
+            const finish = () => {
+                if (streamClosed) {
                     return;
                 }
-                throw error;
+                streamClosed = true;
+                unsubscribe?.();
+                signal.removeEventListener("abort", finish);
+                void eventStream.close().catch(() => undefined).finally(() => {
+                    closeSettled = true;
+                    settleIfClosed();
+                });
+            };
+
+            const pushWorkspaceEvent = async (payload: WorkspaceFileStreamEventDto): Promise<void> => {
+                if (streamClosed) {
+                    return;
+                }
+                try {
+                    await eventStream.push({
+                        event: payload.type,
+                        data: JSON.stringify(payload),
+                    });
+                } catch (error) {
+                    if (isClosingEventStreamError(error)) {
+                        finish();
+                        return;
+                    }
+                    throw error;
+                }
+            };
+
+            eventStream.onClosed(finish);
+            if (signal.aborted) {
+                finish();
+            } else {
+                signal.addEventListener("abort", finish, {once: true});
             }
-        };
 
-        eventStream.onClosed(() => {
-            streamClosed = true;
-            unsubscribe?.();
-            eventStream.close();
+            const result = (async () => {
+                try {
+                    if (!streamClosed) {
+                        const indexOptions = dependencies.workspaceTreeIndexOptionsForTarget
+                            ? dependencies.workspaceTreeIndexOptionsForTarget(target, projectHandles?.fileIndex)
+                            : workspaceTreeIndexOptionsForTarget(target, projectHandles?.fileIndex);
+                        unsubscribe = await dependencies.subscribeWorkspaceTreeIndex(indexOptions, async (payload) => {
+                            await pushWorkspaceEvent(payload);
+                        });
+                        if (streamClosed) {
+                            unsubscribe();
+                        }
+                    }
+                    return await eventStream.send();
+                } catch (error) {
+                    finish();
+                    throw error;
+                } finally {
+                    setupSettled = true;
+                    settleIfClosed();
+                }
+            })();
+            return {result, completion};
         });
-
-        unsubscribe = await dependencies.subscribeWorkspaceTreeIndex({
-            target,
-        }, async (payload) => {
-            await pushWorkspaceEvent(payload);
-        });
-        if (streamClosed) {
-            unsubscribe();
-        }
-
-        return eventStream.send();
     };
 }
 

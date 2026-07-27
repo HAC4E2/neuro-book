@@ -14,7 +14,7 @@
 | 核心（后端） | `server/agent/observability/pi-trace-reader.ts` | 只读 reader：listBuckets / listIndex / readRecord。只依赖 node:fs + recorder 类型。 |
 | 核心（后端） | `server/agent/observability/traced-provider.ts` | 统一入口透明代理：`tracedStreamSimple` / `tracedCompleteSimple`，采集 + finalize 兜底 + 响应头过滤。只依赖 pi-ai + recorder。 |
 | 核心（前端） | `trace-viewer/trace-view-model.ts`、`AgentTraceList.vue`、`AgentTraceDetail.vue` | 纯 props/events，只吃 `shared/dto/agent-trace.dto.ts`。注意：仍依赖 useI18n / CSS 主题变量 / JsonViewer（见「抽库剩余工作」）。 |
-| 粘合 | `neuro-agent-harness.ts` 注入点 | 持有全局唯一 recorder 实例（注入 `repo.tracesRoot` + appLogger 包装的 onWriteError）；`piTraceSettings/piTraceBinding` 从 config 组装 binding；turn / compaction / sidecar 调用点。 |
+| 粘合 | `neuro-agent-harness.ts` 注入点 | 持有全局唯一 recorder 实例（注入 `repo.tracesRoot` + appLogger 包装的 onWriteError）；`piTraceSettings/piTraceBinding` 从 config 组装 binding；turn / compaction 等 provider 调用点。 |
 | 粘合 | `server/api/agent/traces/**`（3 GET + 1 DELETE） | 参数校验转 4xx、从 `useAgentHarness().repo.tracesRoot` 取根；DELETE 必须复用 harness 的 recorder 实例。 |
 | 粘合 | `AgentTraceViewerDialog.vue`、`useAgentTraceApi.ts`、设置面板 | $fetch、session 标题 join、trace↔session 跳转、config 开关 UI。 |
 

@@ -64,6 +64,18 @@ export const DEFAULT_NAMESPACE_ALIASES: Record<string, string> = {
     "自媒体腔": "jargon.social",
     "翻译腔": "translationese",
     "戏剧化碎句": "structure.fragment",
+    "音量反差腔": "cliche.voice-contrast",
+    "预告式收尾": "ending.trailer",
+    "章尾预告腔": "ending.trailer",
+    "解释链": "explanation.chain",
+    "动作清单": "rhythm.action-list",
+    "监控动作清单": "rhythm.action-list",
+    "碎句号": "rhythm.period-stutter",
+    "过度精炼": "rhythm.overcompressed",
+    "低连接密度": "rhythm.low-connective",
+    "公文腔公告": "register.notice",
+    "工程词泄漏": "mechanical.stage-leak",
+    "微动作复读": "rhythm.micro-action",
 };
 
 /** 命名空间级审查策略：curation 的主交付物，决定哪些命名空间默认不喂给 Agent。 */
@@ -76,14 +88,14 @@ export type NamespacePolicy = {
  * 内置命名空间的审查受众与修复能力默认策略。
  *
  * 设计意图：默认 `check --review agent` 只展示真正值得 Agent 处理的 AI 痕迹（填充、机械过渡、
- * 二元对比、喉舌开头、陈词滥调、商务黑话、词汇替换等），把在中文小说里误伤率高、更偏作者
+ * 二元对比、喉舌开头、陈词滥调等），把在中文小说里误伤率高、更偏作者
  * 风格偏好的命名空间（破折号、比喻、泛词形副词、段落结构、节奏评分）降到 `human` 桶，把纯
  * 机械去重降到 `none` 桶。未列出的命名空间走 detector/action 推导，默认 `agent`。
  *
  * 这张表是“默认降噪”的真正杠杆，可按项目偏好继续调整，调整这里不需要重生成规则文件。
  */
 export const DEFAULT_NAMESPACE_POLICY: Record<string, NamespacePolicy> = {
-    // 纯机械：连续符号去重，确定性替换，无需审查
+    // 纯机械：省略号/破折号尾部清理。重复感叹/问号由规则级补丁降级为人工提示。
     "punctuation.dedup": {review: "none", fixability: "auto"},
 
     // 标点风格：破折号及其增殖在中文小说里高度依赖作者偏好，默认交人工
@@ -104,6 +116,16 @@ export const DEFAULT_NAMESPACE_POLICY: Record<string, NamespacePolicy> = {
     "absolute": {review: "human", fixability: "manual"},
     "abstraction.hollow": {review: "human", fixability: "manual"},
 
+    // 题材 / 词表偏好：商业、人体、R18、解剖、颜色和“一声”替换都高度依赖项目文风。
+    // 这些规则可提示作者复核，但不应在默认 Agent 视图里和 blocking 结构规则同权重出现。
+    "jargon.business": {review: "human", fixability: "manual"},
+    "vocabulary.body": {review: "human", fixability: "manual"},
+    "vocabulary.r18": {review: "human", fixability: "manual"},
+    "vocabulary.academic-anatomy": {review: "human", fixability: "manual"},
+    "color-description": {review: "human", fixability: "manual"},
+    "sound.once": {review: "human", fixability: "manual"},
+    "regex.advanced": {review: "human", fixability: "manual"},
+
     // 结构与评分：段落切分、节奏评分属于宏观风格，不适合逐条喂 Agent
     "paragraph.merge-short": {review: "human", fixability: "manual"},
     "paragraph.split-long": {review: "human", fixability: "manual"},
@@ -121,15 +143,26 @@ export const DEFAULT_NAMESPACE_POLICY: Record<string, NamespacePolicy> = {
     // 占位符 / chatbot 泄漏走 derive=agent 默认展示（成稿里出现即明显错误）。
     "mechanical.zero-width": {review: "none", fixability: "auto"},
     "mechanical.homoglyph": {review: "human", fixability: "manual"},
+
+    // story-deslop 校准导入：blocking 规则默认交 Agent；高误杀宏观分布默认交人工。
+    "cliche.voice-contrast": {review: "agent", fixability: "manual"},
+    "ending.trailer": {review: "agent", fixability: "manual"},
+    "explanation.chain": {review: "agent", fixability: "manual"},
+    "rhythm.action-list": {review: "human", fixability: "manual"},
+    "rhythm.period-stutter": {review: "agent", fixability: "manual"},
+    "rhythm.micro-action": {review: "agent", fixability: "manual"},
+    "rhythm.overcompressed": {review: "human", fixability: "manual"},
+    "rhythm.low-connective": {review: "human", fixability: "manual"},
+    "register.notice": {review: "agent", fixability: "manual"},
+    "mechanical.stage-leak": {review: "agent", fixability: "manual"},
 };
 
 /**
- * 第一版创作语料报告确认的 strong 规则级路由覆盖。
+ * 当前创作语料报告确认的 strong 规则级路由覆盖。
  * 这些规则所在 namespace 默认偏人工，但规则本身有稳定区分力，应交 Agent 结合上下文判断。
+ * 旧版曾把 absolute-claim / optional-mood 提权；当前正式 report 已降为 weak，回到 modifier human 桶。
  */
 export const DEFAULT_RULE_POLICY: Record<string, NamespacePolicy> = {
     "cn.modifier.measure.subject-measure-word": {review: "agent"},
     "cn.proliferation.mixed.repeated-de-pairs": {review: "agent"},
-    "cn.modifier.absolute-claim-modifier": {review: "agent"},
-    "cn.modifier.optional-mood-modifiers": {review: "agent"},
 };

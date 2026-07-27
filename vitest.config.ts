@@ -16,6 +16,14 @@ export default defineConfig({
     test: {
         environment: "node",
         globals: true,
+        // 默认 10s 不够：beforeEach 里开 Project 会加载 14 个 profile artifact，
+        // 而单个 artifact 目前有 27.3 MiB（宿主实现被打进 bundle，见 Task 125 Phase 3）。
+        // 这是承认当前 artifact 体积的真实成本，不是掩盖挂起——真正的修复是把 artifact 压小。
+        hookTimeout: 60_000,
+        // run 级：回收上一次残留 fixture + 建立共享只读 system assets snapshot。
+        globalSetup: [
+            "server/agent/test/global-setup.ts",
+        ],
         setupFiles: [
             "server/agent/test/setup.ts",
         ],
@@ -28,9 +36,12 @@ export default defineConfig({
             "app/stores/**/*.test.ts",
             "app/utils/**/*.test.ts",
             "scripts/build/**/*.test.ts",
+            "scripts/db/**/*.test.ts",
             "scripts/install/**/*.test.ts",
             "scripts/release/**/*.test.ts",
             "server/**/*.test.ts",
+            // Profile DSL 用 JSX，相关测试必须是 .tsx 才能被 oxc 解析。
+            "server/**/*.test.tsx",
             "shared/**/*.test.ts",
         ],
         coverage: {

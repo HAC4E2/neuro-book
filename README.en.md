@@ -146,7 +146,7 @@ Use `@canary` during the canary phase. Do not use `bunx run @notnotype/neuro-boo
 | `source-product` | Build a production Product from Git source in local staging |
 | `source-docker` | Use Git source as context and install/build entirely inside Docker |
 
-Full deployment, update, administrator, and model configuration instructions: [docs/deployment.md](docs/deployment.md). To have another AI Agent assist with deployment or troubleshooting, just send it [docs/operator-bridge.md](docs/operator-bridge.md).
+Full deployment, update, administrator, and model configuration instructions: [docs/en/deployment.md](docs/en/deployment.md). To have another AI Agent assist with deployment or troubleshooting, just send it [docs/en/operator-bridge.md](docs/en/operator-bridge.md).
 
 ## For Developers: a Programmable Agent Foundation
 
@@ -166,7 +166,7 @@ All of this runs on the homegrown NeuroAgentHarness (built on the Pi framework's
 
 - **Profile**: declaratively defines an Agent's tool allowlist, input / output schemas, system prompts, compaction and summary policies, and Runtime Hooks.
 - **TSX Profile**: describes an Agent's context structure (System, History, Dynamic Context, Reminder, Import) with type-safe TSX templates — previewable, low-code editable, with a "user asset assistant" Agent that helps you edit them: an Agent that helps you modify Agents.
-- **Sidecar Context**: forks runtime-only branches before or after the main task for retrieval, reflection, and memory maintenance; sidecar transcripts stay out of the main history — only the distilled results merge back.
+- **Agent Workflow + background Jobs**: orchestrates multi-agent fan-out, loops, and human checkpoints with replayable TypeScript and a live state chart; long-running work has a queryable, cancellable lifecycle with result delivery.
 
 Local development:
 
@@ -179,15 +179,18 @@ Common commands: `bun run typecheck`, `bun run test`, `bun run docs:dev`.
 
 ## Documentation
 
-Most documentation is currently in Chinese.
+**The documentation site is fully translated: [English documentation](https://blog.notnotype.com/neuro-book/en/).** It is the same 37 pages as the Chinese site, with search and a language switcher in the top bar.
 
-- [Documentation home](docs/index.md)
-- [Quick start](docs/quick-start.md)
-- [Tutorials: from your first book to your first RP](docs/tutorials/index.md)
-- [Deployment](docs/deployment.md)
-- [Agent mental model](docs/agent/index.md)
-- [Profile introduction](docs/profile/index.md) / [Profile TSX introduction](docs/profile-tsx/index.md)
-- [Sidecar Context](docs/agent/sidecar.md)
+- [English docs home](https://blog.notnotype.com/neuro-book/en/) — start here
+- [Quick start](https://blog.notnotype.com/neuro-book/en/quick-start) — download, launch, configure a model
+- [Tutorials: from your first book to your first three chapters](https://blog.notnotype.com/neuro-book/en/tutorials/)
+- Core capabilities: [World Engine](https://blog.notnotype.com/neuro-book/en/core/world-engine) / [Plot Workbench](https://blog.notnotype.com/neuro-book/en/core/plot-workbench) / [Markdown Studio](https://blog.notnotype.com/neuro-book/en/core/markdown-studio) / [llmlint](https://blog.notnotype.com/neuro-book/en/core/llmlint)
+- [Deployment](https://blog.notnotype.com/neuro-book/en/deployment) / [Running, data and privacy](https://blog.notnotype.com/neuro-book/en/operations)
+- [Agent mental model](https://blog.notnotype.com/neuro-book/en/agent/) / [Workflows and Jobs](https://blog.notnotype.com/neuro-book/en/agent/workflow) / [Three modes](https://blog.notnotype.com/neuro-book/en/agent/modes)
+- [What is a profile](https://blog.notnotype.com/neuro-book/en/profile/) / [Write a profile from scratch](https://blog.notnotype.com/neuro-book/en/profile-tsx/authoring)
+
+The Markdown sources live under [`docs/en/`](docs/en/) (English) and [`docs/`](docs/) (Chinese). Deeper implementation references are Chinese-only for now:
+
 - [NeuroBook Reference Bookshelf](reference/README.md)
 - [PROJECT-STATUS.md](PROJECT-STATUS.md)
 

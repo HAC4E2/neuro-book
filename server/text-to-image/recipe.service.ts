@@ -13,13 +13,12 @@ import {
     parseTextToImageRecipeMarkdown,
     renderTextToImageRecipeMarkdown,
 } from "nbook/server/text-to-image/recipe.codec";
-import {resolveWorkspaceRootInput} from "nbook/server/text-to-image/compat";
-import {invalidateProjectWorkspaceIndexAfterMutation} from "nbook/server/workspace-files/project-workspace-index";
+import {absoluteFsPath, invalidateProjectTreeIndex, resolveWorkspaceRootInput} from "nbook/server/text-to-image/compat";
 import {assertProjectOpen} from "nbook/server/workspace-files/project-session";
 import {readWorkspaceTextFile} from "nbook/server/workspace-files/workspace-files";
 import {
     USER_LOCAL_ACTOR,
-    writeWorkspaceTextFileTracked,
+    writeResolvedProjectTextFileTracked,
 } from "nbook/server/workspace-history/tracked-workspace-files";
 
 export type TextToImageRecipeDocument = {
@@ -260,7 +259,7 @@ class WorkspaceRecipeFileStore implements TextToImageRecipeFileStore {
 
     async read(root: string, filePath: string): Promise<string | null> {
         try {
-            return await readWorkspaceTextFile(root as any, filePath);
+            return await readWorkspaceTextFile(absoluteFsPath(root), filePath);
         } catch (error) {
             if (isFileNotFound(error)) {
                 return null;
@@ -270,17 +269,18 @@ class WorkspaceRecipeFileStore implements TextToImageRecipeFileStore {
     }
 
     async write(input: {root: string; projectPath: string; filePath: string; content: string; knownBefore: string | null}): Promise<void> {
-        await writeWorkspaceTextFileTracked({
-            target: {kind: "project-workspace" as const, root: input.root as any, projectPath: input.projectPath},
+        await writeResolvedProjectTextFileTracked({
+            projectPath: input.projectPath,
+            projectRoot: input.root,
             filePath: input.filePath,
             content: input.content,
             actor: USER_LOCAL_ACTOR,
             knownBefore: input.knownBefore,
-        } as any);
+        });
     }
 
     invalidate(root: string, projectPath: string): void {
-        invalidateProjectWorkspaceIndexAfterMutation({target: {kind: "project-workspace" as const, root: root as any, projectPath}} as any);
+        invalidateProjectTreeIndex(projectPath);
     }
 }
 

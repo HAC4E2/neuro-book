@@ -452,6 +452,7 @@ function buildGlobalConfigPayload(): GlobalConfigUpdateDto {
             profileModelDefaults: buildCompleteModelConfig(profileModelDefaults.value),
             profileRuntimeDefaults: buildProfileRuntimeSettingsPatch(profileRuntimeDefaults.value),
             profiles: buildGlobalProfileConfigMap(),
+            visibleModels: base.agent?.visibleModels ?? [],
         },
     };
 }
@@ -871,6 +872,7 @@ function modelOptions(modelKey: string | null): EnabledModelOptionDto[] {
         label: t("settings.panels.profileModels.unrunnableModel", {key: normalized}),
         providerId,
         modelId: modelId || "invalid",
+        input: ["text"],
         contextWindowTokens: null,
     }, ...enabledModels.value];
 }

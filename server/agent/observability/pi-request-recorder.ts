@@ -28,8 +28,34 @@ export type PiTraceCorrelation = {
     invocationId?: string;
     profileKey?: string;
     turnIndex?: number;
-    /** 运行形态：主 run 为 caller.kind（user/agent/sidecar/system），sidecar pass 内为 `sidecar:<passName>`。 */
+    /** 运行形态：caller.kind（user/agent/system）。 */
     mode?: string;
+};
+
+/**
+ * Prompt 分区种类（Task 126）。
+ *
+ * 前五种对齐 Profile DSL 的 Prompt 分区合同；`system` / `tools` 是不在 messages
+ * 数组里的两个额外开销面，`conversation` 是普通对话流量。
+ */
+export type PiTraceSegmentKind =
+    | "system"
+    | "tools"
+    | "historySet"
+    | "conversation"
+    | "modelContext"
+    | "appending"
+    | "currentInput";
+
+/** 一个 prompt 分区。同一 kind 允许出现多段（历史里散落的旧提醒与本轮提醒之间隔着对话）。 */
+export type PiTraceSegment = {
+    kind: PiTraceSegmentKind;
+    /** messages 数组下标区间 [start, end)；system / tools 不在 messages 里，为 null。 */
+    range: {start: number; end: number} | null;
+    /** 与区间内消息一一对应的 Profile DSL 来源名；无来源的位置为 null。整段无来源时省略本字段。 */
+    labels?: (readonly string[] | null)[];
+    /** 纯估算（chars/4，与 compaction 同口径）。真实值由消费方按 provider usage 比例校准。 */
+    estimatedTokens: number;
 };
 
 /** 请求侧（pi 层）。context = pi 规范化（跨 provider 统一），payload = provider 原生（wire-truth）。 */
@@ -41,6 +67,10 @@ export type PiTraceRequest = {
     reasoning?: string;
     /** pi 规范化上下文（systemPrompt/messages/tools），供 UI 归一化渲染。 */
     context?: unknown;
+    /** 上下文分区归因；调用方未提供前缀归因时缺省（compaction / health-check 等无 profile prepare 的调用）。 */
+    segments?: PiTraceSegment[];
+    /** 工具集指纹；用于跨请求检测工具变化导致的缓存断点前移。无工具时缺省。 */
+    toolsHash?: string;
     /** onPayload 拿到的 provider 原生请求体；capturePayload 关时为 undefined。 */
     payload?: unknown;
     /** 原生 payload 因安全边界被主动省略时说明原因。 */
@@ -99,6 +129,13 @@ export type PiTraceIndexEntry = {
     model: string;
     stopReason?: string;
     totalTokens?: number;
+    /**
+     * 缓存拆分（Task 126）。缓存时间轴只读 index，不能为了拿这四个数去读 N 份含全量
+     * prompt 正文的完整记录。provider 未返回 usage 时缺省。
+     */
+    usage?: {input: number; output: number; cacheRead: number; cacheWrite: number};
+    /** 工具集指纹；跨请求比对即可发现工具变化导致的缓存失效。无工具时缺省。 */
+    toolsHash?: string;
     ttftMs?: number;
     durationMs?: number;
     bytes: number;
@@ -188,6 +225,15 @@ export class PiRequestRecorder {
             model: record.request.model,
             stopReason: record.response.stopReason,
             totalTokens: record.response.usage?.totalTokens,
+            usage: record.response.usage
+                ? {
+                    input: record.response.usage.input,
+                    output: record.response.usage.output,
+                    cacheRead: record.response.usage.cacheRead,
+                    cacheWrite: record.response.usage.cacheWrite,
+                }
+                : undefined,
+            toolsHash: record.request.toolsHash,
             ttftMs: record.timing.ttftMs,
             durationMs: record.timing.durationMs,
             bytes: Buffer.byteLength(body, "utf8"),

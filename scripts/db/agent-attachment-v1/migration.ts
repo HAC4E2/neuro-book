@@ -1,16 +1,13 @@
 import {constants} from "node:fs";
 import {
     access,
-    copyFile,
     mkdir,
     open,
     readFile,
-    readdir,
-    rename,
     rm,
 } from "node:fs/promises";
-import {dirname, relative, resolve, sep} from "node:path";
-import {createHash, randomUUID} from "node:crypto";
+import {dirname, resolve} from "node:path";
+import {randomUUID} from "node:crypto";
 import {AttachmentStore} from "nbook/server/agent/attachments/attachment-store";
 import {LocalAttachmentBlobAdapter} from "nbook/server/agent/attachments/local-attachment-blob-adapter";
 import {AttachmentError} from "nbook/server/agent/attachments/types";
@@ -23,6 +20,7 @@ import {
     transitionRun,
     transitionSession,
     writeInitialManifest,
+    ATTACHMENT_MIGRATION_STATUS,
 } from "nbook/scripts/db/agent-attachment-v1/journal";
 import type {
     AttachmentMigrationManifest,
@@ -35,7 +33,18 @@ import type {
     RunAttachmentRollbackOptions,
     AttachmentMigrationRollbackReport,
 } from "nbook/scripts/db/agent-attachment-v1/types";
-import {syncParentDirectories} from "nbook/scripts/db/agent-attachment-v1/durable-file";
+import {
+    assertFileHash,
+    pathExists,
+    portableRelative,
+    sessionJsonlFiles,
+    workspacePath,
+    writeDurableJson,
+} from "nbook/scripts/db/agent-session-migration/durable-file";
+import {
+    executeSessionTransaction,
+    rollbackSessionTransaction,
+} from "nbook/scripts/db/agent-session-migration/transaction";
 
 const RUN_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
@@ -346,88 +355,31 @@ async function executeSession(
     store: AttachmentStore,
     observer: RunAttachmentMigrationOptions["observer"],
 ): Promise<void> {
-    while (session.status !== "verified") {
-        if (!session.changed && session.status === "pending") {
-            const plan = await planFromPath(rootWorkspace, session.sourcePath);
-            assertPlanHashes(session, plan);
-            await verifyPlanRefs(plan, store, new Set());
-            await advanceSession(paths, manifest, session, "verified", observer);
-            continue;
-        }
-        if (session.status === "pending") {
-            const sourcePath = workspacePath(rootWorkspace, session.sourcePath);
-            const backupPath = workspacePath(rootWorkspace, session.backupPath);
-            await assertFileHash(sourcePath, session.sourceHash, "迁移前 source 已变化");
-            const backupHash = await optionalFileHash(backupPath);
-            if (backupHash === null) {
-                await mkdir(dirname(backupPath), {recursive: true});
-                await copyFile(sourcePath, backupPath, constants.COPYFILE_EXCL);
-                await syncFile(backupPath);
-            } else if (backupHash !== session.sourceHash) {
-                throw new Error(`${session.sourcePath}: 已存在 backup 与 source 不一致`);
-            }
-            await assertFileHash(backupPath, session.sourceHash, "backup hash 与 source 不一致");
-            await advanceSession(paths, manifest, session, "backed_up", observer);
-            continue;
-        }
-        if (session.status === "backed_up") {
-            const plan = await planFromPath(rootWorkspace, session.backupPath);
-            assertPlanHashes(session, plan);
-            for (const attachment of plan.attachments) {
-                const saved = await store.save({bytes: attachment.bytes, mimeType: attachment.ref.mimeType});
-                if (saved.id !== attachment.ref.id || saved.bytes !== attachment.ref.bytes) {
-                    throw new Error(`${session.sourcePath}: AttachmentStore 返回了不一致的引用`);
+    await executeSessionTransaction({
+        rootWorkspace,
+        session,
+        status: ATTACHMENT_MIGRATION_STATUS.session,
+        adapter: {
+            loadPlan: (path) => planFromPath(rootWorkspace, path),
+            assertPlan: (state, plan) => assertPlanHashes(state, plan),
+            prepareArtifacts: async (state, plan) => {
+                for (const attachment of plan.attachments) {
+                    const saved = await store.save({bytes: attachment.bytes, mimeType: attachment.ref.mimeType});
+                    if (saved.id !== attachment.ref.id || saved.bytes !== attachment.ref.bytes) {
+                        throw new Error(`${state.sourcePath}: AttachmentStore 返回了不一致的引用`);
+                    }
+                    const loaded = await store.load(saved);
+                    if (imageMimeType(loaded) !== saved.mimeType) {
+                        throw new Error(`${state.sourcePath}: Attachment hydration readiness 校验失败`);
+                    }
                 }
-                const loaded = await store.load(saved);
-                if (imageMimeType(loaded) !== saved.mimeType) {
-                    throw new Error(`${session.sourcePath}: Attachment hydration readiness 校验失败`);
-                }
-            }
-            await verifyPlanRefs(plan, store, new Set(plan.attachments.map((item) => item.ref.id)));
-            await advanceSession(paths, manifest, session, "attachments_written", observer);
-            continue;
-        }
-        if (session.status === "attachments_written") {
-            const plan = await planFromPath(rootWorkspace, session.backupPath);
-            assertPlanHashes(session, plan);
-            const stagePath = workspacePath(rootWorkspace, session.stagePath);
-            const stageHash = await optionalFileHash(stagePath);
-            if (stageHash === null) {
-                await writeDurableText(stagePath, plan.targetText, true);
-            } else if (stageHash !== session.targetHash) {
-                throw new Error(`${session.sourcePath}: 已存在 stage 与目标计划不一致`);
-            }
-            const staged = await planFromPath(rootWorkspace, session.stagePath);
-            if (staged.changed || staged.targetHash !== session.targetHash) {
-                throw new Error(`${session.sourcePath}: stage 仍包含旧图片或 hash 不一致`);
-            }
-            await verifyPlanRefs(staged, store, new Set());
-            await advanceSession(paths, manifest, session, "temp_verified", observer);
-            continue;
-        }
-        if (session.status === "temp_verified") {
-            await assertFileHash(workspacePath(rootWorkspace, session.stagePath), session.targetHash, "stage hash 无效");
-            await advanceSession(paths, manifest, session, "publishing", observer);
-            continue;
-        }
-        if (session.status === "publishing") {
-            const recovered = await recoverPublishing(rootWorkspace, session);
-            await advanceSession(paths, manifest, session, recovered === "published" ? "published" : "attachments_written", observer);
-            continue;
-        }
-        if (session.status === "published") {
-            const sourcePath = workspacePath(rootWorkspace, session.sourcePath);
-            await assertFileHash(sourcePath, session.targetHash, "published JSONL hash 无效");
-            const plan = await planFromPath(rootWorkspace, session.sourcePath);
-            if (plan.changed) {
-                throw new Error(`${session.sourcePath}: published JSONL 仍包含旧图片`);
-            }
-            await verifyPlanRefs(plan, store, new Set());
-            await rm(workspacePath(rootWorkspace, session.rollbackPath), {force: true});
-            await rm(workspacePath(rootWorkspace, session.stagePath), {force: true});
-            await advanceSession(paths, manifest, session, "verified", observer);
-        }
-    }
+                await verifyPlanRefs(plan, store, new Set(plan.attachments.map((item) => item.ref.id)));
+            },
+            verifyTarget: (_state, plan) => verifyPlanRefs(plan, store, new Set()),
+            targetText: (_state, plan) => plan.targetText,
+        },
+        transition: (status) => advanceSession(paths, manifest, session, status, observer),
+    });
 }
 
 /** 按现有WAL状态恢复一个session；磁盘hash使checkpoint写入前后的崩溃都可重入。 */
@@ -438,124 +390,17 @@ async function rollbackSession(
     session: AttachmentSessionMigrationState,
     observer: RunAttachmentRollbackOptions["observer"],
 ): Promise<void> {
-    while (session.status !== "rolled_back") {
-        if (session.status === "verified") {
-            await transitionSession(paths, manifest, session, "rollback_pending");
-            await observer?.({sourcePath: session.sourcePath, status: "rollback_pending"});
-            continue;
-        }
-        if (session.status === "rollback_pending") {
-            const backupPath = workspacePath(rootWorkspace, session.backupPath);
-            const stagePath = workspacePath(rootWorkspace, session.stagePath);
-            await assertFileHash(backupPath, session.sourceHash, `${session.sourcePath}: rollback backup hash无效`);
-            const stageHash = await optionalFileHash(stagePath);
-            if (stageHash === null) {
-                await mkdir(dirname(stagePath), {recursive: true});
-                await copyFile(backupPath, stagePath, constants.COPYFILE_EXCL);
-                await syncFile(stagePath);
-            } else if (stageHash !== session.sourceHash) {
-                throw new Error(`${session.sourcePath}: rollback stage内容无法识别`);
+    await rollbackSessionTransaction({
+        rootWorkspace,
+        session,
+        status: ATTACHMENT_MIGRATION_STATUS.session,
+        transition: async (status) => {
+            await transitionSession(paths, manifest, session, status);
+            if (status === "rollback_pending" || status === "rollback_publishing" || status === "rolled_back") {
+                await observer?.({sourcePath: session.sourcePath, status});
             }
-            await transitionSession(paths, manifest, session, "rollback_publishing");
-            await observer?.({sourcePath: session.sourcePath, status: "rollback_publishing"});
-            continue;
-        }
-        if (session.status === "rollback_publishing") {
-            await recoverRollbackPublishing(rootWorkspace, session);
-            await transitionSession(paths, manifest, session, "rolled_back");
-            await observer?.({sourcePath: session.sourcePath, status: "rolled_back"});
-            continue;
-        }
-        throw new Error(`${session.sourcePath}: session状态无法回滚：${session.status}`);
-    }
-}
-
-/** Windows两步替换的反向恢复；source/target hash是唯一可接受的磁盘身份。 */
-async function recoverRollbackPublishing(
-    rootWorkspace: string,
-    session: AttachmentSessionMigrationState,
-): Promise<void> {
-    const original = workspacePath(rootWorkspace, session.sourcePath);
-    const stage = workspacePath(rootWorkspace, session.stagePath);
-    const rollback = workspacePath(rootWorkspace, session.rollbackPath);
-    const originalHash = await optionalFileHash(original);
-    const stageHash = await optionalFileHash(stage);
-    const rollbackHash = await optionalFileHash(rollback);
-
-    if (originalHash === session.sourceHash) {
-        await rm(stage, {force: true});
-        await rm(rollback, {force: true});
-        return;
-    }
-    if (originalHash === session.targetHash) {
-        if (stageHash !== session.sourceHash) {
-            throw new Error(`${session.sourcePath}: rollback stage缺失或hash无效`);
-        }
-        if (rollbackHash !== null && rollbackHash !== session.targetHash) {
-            throw new Error(`${session.sourcePath}: rollback临时文件内容无法识别`);
-        }
-        if (rollbackHash === session.targetHash) {
-            await rm(rollback, {force: true});
-        }
-        await mkdir(dirname(rollback), {recursive: true});
-        await renameDurable(original, rollback);
-        await renameDurable(stage, original);
-        await assertFileHash(original, session.sourceHash, `${session.sourcePath}: restored source hash无效`);
-        await rm(rollback, {force: true});
-        return;
-    }
-    if (originalHash === null && rollbackHash === session.targetHash && stageHash === session.sourceHash) {
-        await renameDurable(stage, original);
-        await assertFileHash(original, session.sourceHash, `${session.sourcePath}: crash recovery source hash无效`);
-        await rm(rollback, {force: true});
-        return;
-    }
-    throw new Error(`${session.sourcePath}: rollback publishing磁盘状态无法安全恢复`);
-}
-
-/** Windows 两步发布窗口恢复：优先确认已发布 target，其次继续 stage，最后恢复 source 重建 stage。 */
-async function recoverPublishing(
-    rootWorkspace: string,
-    session: AttachmentSessionMigrationState,
-): Promise<"published" | "rebuild_stage"> {
-    const original = workspacePath(rootWorkspace, session.sourcePath);
-    const stage = workspacePath(rootWorkspace, session.stagePath);
-    const rollback = workspacePath(rootWorkspace, session.rollbackPath);
-    const originalHash = await optionalFileHash(original);
-    const stageHash = await optionalFileHash(stage);
-    const rollbackHash = await optionalFileHash(rollback);
-
-    if (originalHash === session.targetHash) {
-        await rm(stage, {force: true});
-        return "published";
-    }
-    if (originalHash === session.sourceHash) {
-        if (stageHash !== session.targetHash) {
-            return "rebuild_stage";
-        }
-        if (rollbackHash && rollbackHash !== session.sourceHash) {
-            throw new Error(`${session.sourcePath}: rollback 内容无法识别`);
-        }
-        if (rollbackHash === session.sourceHash) {
-            await rm(rollback, {force: true});
-        }
-        await mkdir(dirname(rollback), {recursive: true});
-        await renameDurable(original, rollback);
-        await renameDurable(stage, original);
-        await assertFileHash(original, session.targetHash, "发布后的 original hash 无效");
-        return "published";
-    }
-    if (originalHash === null && rollbackHash === session.sourceHash && stageHash === session.targetHash) {
-        await renameDurable(stage, original);
-        await assertFileHash(original, session.targetHash, "恢复发布后的 original hash 无效");
-        return "published";
-    }
-    if (originalHash === null && rollbackHash === session.sourceHash && stageHash === null) {
-        await mkdir(dirname(original), {recursive: true});
-        await renameDurable(rollback, original);
-        return "rebuild_stage";
-    }
-    throw new Error(`${session.sourcePath}: publishing 磁盘状态无法安全恢复`);
+        },
+    });
 }
 
 /** rollback复用同一个全局sentinel；同run残留lock表示上次回滚需继续。 */
@@ -696,12 +541,11 @@ async function planFromPath(rootWorkspace: string, relativePath: string): Promis
 
 /** 递归枚举当前 repository session 根下的 JSONL，旧分目录同样纳入硬切复扫。 */
 async function planWorkspace(rootWorkspace: string): Promise<AttachmentSessionPlan[]> {
-    const sessionsRoot = resolve(rootWorkspace, ".nbook", "agent", "sessions");
-    const paths = await jsonlFiles(sessionsRoot);
+    const files = await sessionJsonlFiles(rootWorkspace);
     const plans: AttachmentSessionPlan[] = [];
-    for (const path of paths) {
-        const sourcePath = portableRelative(rootWorkspace, path);
-        const text = await readFile(path, "utf8");
+    for (const file of files) {
+        const text = await readFile(file.absolutePath, "utf8");
+        const sourcePath = file.sourcePath;
         const plan = decodeLegacySession({sourcePath, text});
         // Workspace preflight 只保留 hashes/ref/bytes；避免数百个 session 的完整 JSONL 字符串同时存活。
         plans.push({...plan, sourceText: "", targetText: ""});
@@ -791,77 +635,9 @@ function reportFromManifest(manifest: AttachmentMigrationManifest): AttachmentMi
     };
 }
 
-async function jsonlFiles(directory: string): Promise<string[]> {
-    const entries = await readdir(directory, {withFileTypes: true}).catch((error: NodeJS.ErrnoException) => {
-        if (error.code === "ENOENT") {
-            return [];
-        }
-        throw error;
-    });
-    const paths: string[] = [];
-    for (const entry of entries) {
-        const path = resolve(directory, entry.name);
-        if (entry.isDirectory()) {
-            paths.push(...await jsonlFiles(path));
-        } else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
-            paths.push(path);
-        }
-    }
-    return paths;
-}
-
 function attachmentKey(id: string): string {
     const hash = id.slice("sha256:".length);
     return `sha256/${hash.slice(0, 2)}/${hash.slice(2)}`;
-}
-
-function portableRelative(root: string, path: string): string {
-    return relative(root, path).split(sep).join("/");
-}
-
-function workspacePath(rootWorkspace: string, relativePath: string): string {
-    const path = resolve(rootWorkspace, ...relativePath.split("/"));
-    const relativePathCheck = relative(rootWorkspace, path);
-    if (relativePathCheck.startsWith("..") || resolve(rootWorkspace, relativePathCheck) !== path) {
-        throw new Error("migration manifest 包含越界路径");
-    }
-    return path;
-}
-
-async function assertFileHash(path: string, expected: string, message: string): Promise<void> {
-    const actual = await optionalFileHash(path);
-    if (actual !== expected) {
-        throw new Error(`${message}：expected=${expected} actual=${actual ?? "missing"}`);
-    }
-}
-
-async function optionalFileHash(path: string): Promise<string | null> {
-    return readFile(path).then((bytes) => sha256(bytes)).catch((error: NodeJS.ErrnoException) => {
-        if (error.code === "ENOENT") {
-            return null;
-        }
-        throw error;
-    });
-}
-
-async function writeDurableText(path: string, text: string, exclusive = false): Promise<void> {
-    await mkdir(dirname(path), {recursive: true});
-    const handle = await open(path, exclusive ? "wx" : "w");
-    try {
-        await handle.writeFile(text, "utf8");
-        await handle.sync();
-    } finally {
-        await handle.close();
-    }
-    await syncParentDirectories(path);
-}
-
-async function writeDurableJson(path: string, value: object): Promise<void> {
-    await writeDurableText(path, `${JSON.stringify(value, null, 2)}\n`);
-}
-
-function sha256(value: string | Uint8Array): string {
-    return createHash("sha256").update(value).digest("hex");
 }
 
 function validatedRunId(value: string): string {
@@ -880,31 +656,6 @@ async function assertLockAbsent(rootWorkspace: string): Promise<void> {
     if (await pathExists(lockPath)) {
         throw new Error("Attachment migration lock 已存在；dry-run/新 apply 不能读取迁移中的 session");
     }
-}
-
-async function pathExists(path: string): Promise<boolean> {
-    return access(path).then(() => true).catch((error: NodeJS.ErrnoException) => {
-        if (error.code === "ENOENT") {
-            return false;
-        }
-        throw error;
-    });
-}
-
-async function syncFile(path: string): Promise<void> {
-    const handle = await open(path, "r+");
-    try {
-        await handle.sync();
-    } finally {
-        await handle.close();
-    }
-    await syncParentDirectories(path);
-}
-
-/** rename成功后同步源/目标父目录；跨目录发布同样获得确定的目录项持久性。 */
-async function renameDurable(source: string, target: string): Promise<void> {
-    await rename(source, target);
-    await syncParentDirectories(source, target);
 }
 
 function sameBytes(left: Uint8Array, right: Uint8Array): boolean {

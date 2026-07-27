@@ -1,26 +1,32 @@
-import {spawn} from "node:child_process";
 import {existsSync} from "node:fs";
 import {mkdir, readFile, stat, writeFile} from "node:fs/promises";
-import {basename, dirname, isAbsolute, join, resolve, win32} from "node:path";
+import {dirname, isAbsolute, join, resolve, win32} from "node:path";
 import {createPatch} from "diff";
 import {Type} from "typebox";
 import type {Static} from "typebox";
+import {spawnOwnedProcess} from "@notnotype/owned-process";
 import {recordContextAccess} from "nbook/server/agent/context-access/profile-context-access";
 import {detectImageMimeType, firstChangedLine} from "nbook/server/agent/tools/file-tool-utils";
 import {formatSize, DEFAULT_MAX_BYTES, truncateHead, type TruncationResult} from "nbook/server/agent/tools/truncate";
 import {OutputAccumulator} from "nbook/server/agent/tools/output-accumulator";
 import type {NeuroAgentTool, NeuroToolUpdateCallback, ToolExecutionContext} from "nbook/server/agent/tools/types";
-import {applyCodexPatch} from "nbook/server/agent/tools/apply-patch";
-import {recordAgentWorkspaceWrite} from "nbook/server/workspace-history/agent-file-recorder";
+import {applyCodexPatch, extractPatchTargetPaths} from "nbook/server/agent/tools/apply-patch";
+import {captureAgentWorkspaceWrite, recordAgentWorkspaceWrite} from "nbook/server/workspace-history/agent-file-recorder";
 import {resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
 import {normalizeToolResultDetails} from "nbook/server/agent/messages/message-utils";
 import {resolveSessionFileScope} from "nbook/server/agent/workspace/session-file-scope";
 import {authorizeFileOperation, authorizeProcessCwd} from "nbook/server/workspace-files/authorized-file-operation";
 import type {ResolvedFileAddress} from "nbook/server/workspace-files/file-scope";
+import {
+    runProjectFileOperation,
+    type ProjectFileOperationProjects,
+} from "nbook/server/workspace-files/project-data-plane-guard";
 import {imageMimeType} from "nbook/server/agent/attachments/agent-attachment-codec";
 import {AttachmentError} from "nbook/server/agent/attachments/types";
 import {AGENT_IMAGE_POLICY} from "nbook/server/agent/attachments/agent-attachment-policy";
-import {normalizeProjectPath, projectSlug, resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
+import {ProjectNotOpenError} from "nbook/server/workspace-files/project-session";
+import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
+import {normalizeProjectPath, projectSlug} from "nbook/server/workspace-files/project-path";
 
 const ReadSchema = Type.Object({
     path: Type.String({description: "Path to the file to read (relative or absolute)."}),
@@ -49,6 +55,7 @@ const ApplyPatchSchema = Type.Object({
 const BashSchema = Type.Object({
     command: Type.String({description: "Bash command to execute."}),
     timeout: Type.Optional(Type.Number({description: "Timeout in seconds."})),
+    background: Type.Optional(Type.Boolean({description: "Default false. Set true to run in background: returns jobId immediately, output arrives later as a follow-up message. Use for long-running commands (builds, test suites, servers)."})),
 }, {additionalProperties: false});
 
 type ReadInput = Static<typeof ReadSchema>;
@@ -92,7 +99,7 @@ export function createFileTools(): NeuroAgentTool[] {
 async function resolveToolFile(
     context: ToolExecutionContext,
     inputPath: string,
-    operation: "read" | "write" | "edit",
+    operation: "read" | "write" | "edit" | "apply_patch",
 ): Promise<ResolvedFileAddress> {
     const authorized = await authorizeFileOperation(resolveSessionFileScope(context), inputPath, operation);
     return authorized.address;
@@ -104,78 +111,81 @@ function createReadTool(): NeuroAgentTool {
         name: "read",
         label: "read",
         executionMode: "parallel",
-        description: `Read the contents of a file. Supports text files and images (jpg, png, gif, webp). Images are sent as attachments. For text files, output is truncated to 2000 lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete. Text output includes line numbers automatically when offset/limit is used or output is truncated; pass lineNumbers=true to force them for short full-file reads. In a Project-bound session, cwd is the current Project Workspace, so use lorebook/..., manuscript/... or other Project-relative paths. Use workspace/<project>/... only as an explicit cross-project address. Use read to examine files instead of cat/head/tail/sed.`,
+        description: `Read the contents of a file. Supports text files and images (jpg, png, gif, webp). Images are sent as attachments. For text files, output is truncated to 2000 lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete. Text output includes line numbers automatically when offset/limit is used or output is truncated; pass lineNumbers=true to force them for short full-file reads. In a Project-bound session, cwd is the current Project Workspace, so use lorebook/..., manuscript/... or other Project-relative paths. Any absolute filesystem path can be used directly. For another managed Project, prefer workspace/<project>/... when Project identity, open gate, History, or Context Access matters. Use read to examine files instead of cat/head/tail/sed.`,
         parameters: ReadSchema,
         async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown, _userInput?: unknown, signal?: AbortSignal) {
             const input = params as ReadInput;
             const address = await resolveToolFile(context, input.path, "read");
-            const absolutePath = address.absolutePath;
-            const imageCandidate = detectImageMimeType(absolutePath) !== null;
-            if (imageCandidate && (await stat(absolutePath)).size > AGENT_IMAGE_POLICY.maxImageBytes) {
-                throw new AttachmentError("limit_exceeded", "图片超过 read 工具允许大小。");
-            }
-            const buffer = await readFile(absolutePath);
-            if (imageCandidate) {
-                if (buffer.byteLength > AGENT_IMAGE_POLICY.maxImageBytes) {
+            return runProjectFileOperation([address], async (projects) => {
+                const contextAccess = captureReadContextAccess(address, projectForAddress(projects, address));
+                const absolutePath = address.absolutePath;
+                const imageCandidate = detectImageMimeType(absolutePath) !== null;
+                if (imageCandidate && (await stat(absolutePath)).size > AGENT_IMAGE_POLICY.maxImageBytes) {
                     throw new AttachmentError("limit_exceeded", "图片超过 read 工具允许大小。");
                 }
-                const mimeType = imageMimeType(buffer);
-                if (!mimeType) {
-                    throw new AttachmentError("invalid_input", "图片扩展名对应的文件内容不是受支持图片。");
+                const buffer = await readFile(absolutePath);
+                if (imageCandidate) {
+                    if (buffer.byteLength > AGENT_IMAGE_POLICY.maxImageBytes) {
+                        throw new AttachmentError("limit_exceeded", "图片超过 read 工具允许大小。");
+                    }
+                    const mimeType = imageMimeType(buffer);
+                    if (!mimeType) {
+                        throw new AttachmentError("invalid_input", "图片扩展名对应的文件内容不是受支持图片。");
+                    }
+                    if (!context.attachments) {
+                        throw new Error("图片工具缺少 AttachmentStore。");
+                    }
+                    const attachment = await context.attachments.save({
+                        bytes: buffer,
+                        mimeType,
+                    });
+                    await recordReadContextAccess(context, contextAccess);
+                    return {
+                        content: [
+                            {type: "text", text: `Read image file [${mimeType}]`},
+                            {type: "attachment", attachment, name: absolutePath.split(/[\\/]/).pop()},
+                        ],
+                        details: normalizeToolResultDetails({path: absolutePath}),
+                    };
                 }
-                if (!context.attachments) {
-                    throw new Error("图片工具缺少 AttachmentStore。");
-                }
-                const attachment = await context.attachments.save({
-                    bytes: buffer,
-                    mimeType,
-                });
-                await recordReadContextAccess(context, address);
-                return {
-                    content: [
-                        {type: "text", text: `Read image file [${mimeType}]`},
-                        {type: "attachment", attachment, name: absolutePath.split(/[\\/]/).pop()},
-                    ],
-                    details: normalizeToolResultDetails({path: absolutePath}),
-                };
-            }
 
-            await recordReadContextAccess(context, address);
-            const text = buffer.toString("utf-8");
-            const lines = text.split("\n");
-            const startLine = input.offset ? Math.max(0, input.offset - 1) : 0;
-            if (startLine >= lines.length) {
-                throw new Error(`Offset ${input.offset} is beyond end of file (${lines.length} lines total)`);
-            }
-            const selected = input.limit !== undefined
-                ? lines.slice(startLine, startLine + input.limit).join("\n")
-                : lines.slice(startLine).join("\n");
-            const truncation = truncateHead(selected);
-            const shouldShowLineNumbers = input.lineNumbers ?? (input.offset !== undefined || input.limit !== undefined || truncation.truncated);
-            const endLine = startLine + truncation.outputLines;
-            const nextOffset = truncation.truncated
-                ? endLine + 1
-                : input.limit !== undefined && startLine + input.limit < lines.length ? startLine + input.limit + 1 : undefined;
-            let outputText = shouldShowLineNumbers ? addLineNumbers(truncation.content, startLine + 1) : truncation.content;
-            if (truncation.firstLineExceedsLimit) {
-                const firstLineSize = formatSize(Buffer.byteLength(lines[startLine] ?? "", "utf-8"));
-                outputText = `[Line ${startLine + 1} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n '${startLine + 1}p' ${input.path} | head -c ${DEFAULT_MAX_BYTES}]`;
-            } else if (truncation.truncated) {
-                outputText += `\n\n[Showing lines ${startLine + 1}-${endLine} of ${lines.length}. Use offset=${endLine + 1} to continue.]`;
-            } else if (nextOffset !== undefined) {
-                outputText += `\n\n[${lines.length - startLine - input.limit!} more lines in file. Use offset=${nextOffset} to continue.]`;
-            }
-            return {
-                content: [{type: "text", text: outputText}],
-                details: normalizeToolResultDetails({
-                    path: absolutePath,
-                    startLine: startLine + 1,
-                    endLine,
-                    totalLines: lines.length,
-                    nextOffset,
-                    truncation: truncation.truncated ? truncation : undefined,
-                }),
-            };
+                await recordReadContextAccess(context, contextAccess);
+                const text = buffer.toString("utf-8");
+                const lines = text.split("\n");
+                const startLine = input.offset ? Math.max(0, input.offset - 1) : 0;
+                if (startLine >= lines.length) {
+                    throw new Error(`Offset ${input.offset} is beyond end of file (${lines.length} lines total)`);
+                }
+                const selected = input.limit !== undefined
+                    ? lines.slice(startLine, startLine + input.limit).join("\n")
+                    : lines.slice(startLine).join("\n");
+                const truncation = truncateHead(selected);
+                const shouldShowLineNumbers = input.lineNumbers ?? (input.offset !== undefined || input.limit !== undefined || truncation.truncated);
+                const endLine = startLine + truncation.outputLines;
+                const nextOffset = truncation.truncated
+                    ? endLine + 1
+                    : input.limit !== undefined && startLine + input.limit < lines.length ? startLine + input.limit + 1 : undefined;
+                let outputText = shouldShowLineNumbers ? addLineNumbers(truncation.content, startLine + 1) : truncation.content;
+                if (truncation.firstLineExceedsLimit) {
+                    const firstLineSize = formatSize(Buffer.byteLength(lines[startLine] ?? "", "utf-8"));
+                    outputText = `[Line ${startLine + 1} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n '${startLine + 1}p' ${input.path} | head -c ${DEFAULT_MAX_BYTES}]`;
+                } else if (truncation.truncated) {
+                    outputText += `\n\n[Showing lines ${startLine + 1}-${endLine} of ${lines.length}. Use offset=${endLine + 1} to continue.]`;
+                } else if (nextOffset !== undefined) {
+                    outputText += `\n\n[${lines.length - startLine - input.limit!} more lines in file. Use offset=${nextOffset} to continue.]`;
+                }
+                return {
+                    content: [{type: "text", text: outputText}],
+                    details: normalizeToolResultDetails({
+                        path: absolutePath,
+                        startLine: startLine + 1,
+                        endLine,
+                        totalLines: lines.length,
+                        nextOffset,
+                        truncation: truncation.truncated ? truncation : undefined,
+                    }),
+                };
+            });
         },
         async execute() {
             throw new Error("read 必须在 agent session workspace 内执行。");
@@ -183,18 +193,54 @@ function createReadTool(): NeuroAgentTool {
     };
 }
 
-async function recordReadContextAccess(context: ToolExecutionContext, address: ResolvedFileAddress): Promise<void> {
-    const project = resolveContextAccessProject(context, address);
-    if (!project) {
+type ReadContextAccessCapture = Readonly<{
+    project: ReadyProjectSessionRef;
+    filePath: string;
+}>;
+
+/** 在文件读取前捕获目标 Project 的精确 ready generation，读取后不得按 path 重新求根。 */
+function captureReadContextAccess(
+    address: ResolvedFileAddress,
+    exactProject: ReadyProjectSessionRef | undefined,
+): ReadContextAccessCapture | null {
+    const projectPath = address.projectPath;
+    const filePath = "relativePath" in address ? address.relativePath : null;
+    if (!projectPath || isAbsolute(projectPath) || !filePath) {
+        return null;
+    }
+    if (!filePath.startsWith("lorebook/") && !filePath.startsWith("manuscript/")) {
+        return null;
+    }
+    const projectRoot = projectSlug(normalizeProjectPath(projectPath));
+    if (!exactProject || exactProject.workspace.ref.projectRoot !== projectRoot) {
+        throw new ProjectNotOpenError(projectRoot);
+    }
+    return Object.freeze({
+        project: exactProject,
+        filePath,
+    });
+}
+
+/** 从本次文件操作已经登记的 generation 集合取得地址所属 exact Project。 */
+function projectForAddress(
+    projects: ProjectFileOperationProjects,
+    address: ResolvedFileAddress,
+): ReadyProjectSessionRef | undefined {
+    const projectPath = address.projectPath;
+    return projectPath && !isAbsolute(projectPath) ? projects.get(projectPath) : undefined;
+}
+
+/** 使用读取前捕获的 Project generation 记录辅助访问状态。 */
+async function recordReadContextAccess(context: ToolExecutionContext, capture: ReadContextAccessCapture | null): Promise<void> {
+    if (!capture) {
         return;
     }
     try {
         await recordContextAccess({
-            projectRoot: project.root,
-            projectSlug: project.slug,
+            project: capture.project,
             profileKey: context.profileKey,
             sessionId: String(context.sessionId),
-            filePath: project.filePath,
+            filePath: capture.filePath,
         });
     } catch {
         // 访问推荐是辅助状态，不能影响 read 主流程。
@@ -204,25 +250,6 @@ async function recordReadContextAccess(context: ToolExecutionContext, address: R
 function addLineNumbers(content: string, firstLine: number): string {
     const lines = content.split("\n");
     return lines.map((line, index) => `${firstLine + index} | ${line}`).join("\n");
-}
-
-function resolveContextAccessProject(context: ToolExecutionContext, address: ResolvedFileAddress): {root: string; slug: string; filePath: string} | null {
-    if (!address.projectPath) {
-        return null;
-    }
-    const filePath = address.relativePath;
-    if (!filePath.startsWith("lorebook/") && !filePath.startsWith("manuscript/")) {
-        return null;
-    }
-    if (isAbsolute(address.projectPath)) {
-        return {root: address.projectPath, slug: basename(address.projectPath), filePath};
-    }
-    const targetProjectPath = normalizeProjectPath(address.projectPath);
-    return {
-        root: resolveProjectWorkspaceRoot(context.workspaceFsRoot, targetProjectPath),
-        slug: projectSlug(targetProjectPath),
-        filePath,
-    };
 }
 
 function createWriteTool(): NeuroAgentTool {
@@ -237,22 +264,24 @@ function createWriteTool(): NeuroAgentTool {
         async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown, _userInput?: unknown, signal?: AbortSignal) {
             const input = params as WriteInput;
             const address = await resolveToolFile(context, input.path, "write");
-            const absolutePath = address.absolutePath;
-            // 记账 before：覆盖写前补读一次旧内容（不存在 = null，file.create 语义）
-            const before = await readFile(absolutePath).catch(() => null);
-            await mkdir(dirname(absolutePath), {recursive: true});
-            await writeFile(absolutePath, input.content, "utf-8");
-            await recordAgentWorkspaceWrite({
-                sessionId: context.sessionId,
-                workspaceRoot: context.workspaceFsRoot,
-                address,
-                before,
-                after: input.content,
+            return runProjectFileOperation([address], async (projects) => {
+                const absolutePath = address.absolutePath;
+                const historyCapture = captureAgentWorkspaceWrite(address, projectForAddress(projects, address));
+                // 记账 before：覆盖写前补读一次旧内容（不存在 = null，file.create 语义）
+                const before = await readFile(absolutePath).catch(() => null);
+                await mkdir(dirname(absolutePath), {recursive: true});
+                await writeFile(absolutePath, input.content, "utf-8");
+                await recordAgentWorkspaceWrite({
+                    sessionId: context.sessionId,
+                    capture: historyCapture,
+                    before,
+                    after: input.content,
+                });
+                return {
+                    content: [{type: "text", text: `Successfully wrote ${Buffer.byteLength(input.content, "utf-8")} bytes to ${input.path}`}],
+                    details: undefined,
+                };
             });
-            return {
-                content: [{type: "text", text: `Successfully wrote ${Buffer.byteLength(input.content, "utf-8")} bytes to ${input.path}`}],
-                details: undefined,
-            };
         },
         async execute() {
             throw new Error("write 必须在 agent session workspace 内执行。");
@@ -293,25 +322,27 @@ function createEditTool(): NeuroAgentTool {
                 throw new Error("edits must contain at least one replacement.");
             }
             const address = await resolveToolFile(context, input.path, "edit");
-            const absolutePath = address.absolutePath;
-            const original = await readFile(absolutePath, "utf-8");
-            const updated = applyExactEdits(original, input.edits, input.path);
-            await writeFile(absolutePath, updated, "utf-8");
-            await recordAgentWorkspaceWrite({
-                sessionId: context.sessionId,
-                workspaceRoot: context.workspaceFsRoot,
-                address,
-                before: original,
-                after: updated,
+            return runProjectFileOperation([address], async (projects) => {
+                const absolutePath = address.absolutePath;
+                const historyCapture = captureAgentWorkspaceWrite(address, projectForAddress(projects, address));
+                const original = await readFile(absolutePath, "utf-8");
+                const updated = applyExactEdits(original, input.edits, input.path);
+                await writeFile(absolutePath, updated, "utf-8");
+                await recordAgentWorkspaceWrite({
+                    sessionId: context.sessionId,
+                    capture: historyCapture,
+                    before: original,
+                    after: updated,
+                });
+                const diff = createPatch(input.path, original, updated, undefined, undefined, {context: 4});
+                return {
+                    content: [{type: "text", text: `Successfully replaced ${input.edits.length} block(s) in ${input.path}.`}],
+                    details: normalizeToolResultDetails({
+                        diff,
+                        firstChangedLine: firstChangedLine(diff),
+                    }),
+                };
             });
-            const diff = createPatch(input.path, original, updated, undefined, undefined, {context: 4});
-            return {
-                content: [{type: "text", text: `Successfully replaced ${input.edits.length} block(s) in ${input.path}.`}],
-                details: normalizeToolResultDetails({
-                    diff,
-                    firstChangedLine: firstChangedLine(diff),
-                }),
-            };
         },
         async execute() {
             throw new Error("edit 必须在 agent session workspace 内执行。");
@@ -330,29 +361,42 @@ function createApplyPatchTool(): NeuroAgentTool {
         parameters: ApplyPatchSchema,
         async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown, _userInput?: unknown, signal?: AbortSignal) {
             const input = params as {patch: string};
-            const result = await applyCodexPatch({
-                fileScope: resolveSessionFileScope(context),
-                patchText: input.patch,
-            });
-            // 逐 change 归因记账。moveTo 形态在 planned changes 中已拆成源 delete + 目标 add/update，
-            // 按拆分结果各记一条（改名+改内容不满足 rename 的「内容不变」语义，不聚合，v1 接受时间线在此断链）。
-            for (const change of result.changes) {
-                await recordAgentWorkspaceWrite({
-                    sessionId: context.sessionId,
-                    workspaceRoot: context.workspaceFsRoot,
-                    address: change.address,
-                    before: change.originalExists ? change.original : null,
-                    after: change.updated,
-                });
+            const addresses: ResolvedFileAddress[] = [];
+            for (const targetPath of extractPatchTargetPaths(input.patch)) {
+                addresses.push(await resolveToolFile(context, targetPath, "apply_patch"));
             }
-            return {
-                content: [{type: "text", text: `Patch applied to ${result.files.map((file) => file.path).join(", ")}.`}],
-                details: normalizeToolResultDetails({
-                    files: result.files,
-                    diff: result.diff,
-                    firstChangedLine: result.firstChangedLine,
-                }),
-            };
+            return runProjectFileOperation(addresses, async (projects) => {
+                const captures = new Map<string, ReturnType<typeof captureAgentWorkspaceWrite>>();
+                for (const address of addresses) {
+                    captures.set(
+                        address.absolutePath,
+                        captureAgentWorkspaceWrite(address, projectForAddress(projects, address)),
+                    );
+                }
+                const result = await applyCodexPatch({
+                    fileScope: resolveSessionFileScope(context),
+                    patchText: input.patch,
+                    captureChange: (change) => captures.get(change.absolutePath) ?? null,
+                });
+                // 逐 change 归因记账。moveTo 形态在 planned changes 中已拆成源 delete + 目标 add/update，
+                // 按拆分结果各记一条（改名+改内容不满足 rename 的「内容不变」语义，不聚合，v1 接受时间线在此断链）。
+                for (const change of result.changes) {
+                    await recordAgentWorkspaceWrite({
+                        sessionId: context.sessionId,
+                        capture: change.capture,
+                        before: change.originalExists ? change.original : null,
+                        after: change.updated,
+                    });
+                }
+                return {
+                    content: [{type: "text", text: `Patch applied to ${result.files.map((file) => file.path).join(", ")}.`}],
+                    details: normalizeToolResultDetails({
+                        files: result.files,
+                        diff: result.diff,
+                        firstChangedLine: result.firstChangedLine,
+                    }),
+                };
+            });
         },
         async execute() {
             throw new Error("apply_patch 必须在 agent session workspace 内执行。");
@@ -380,41 +424,95 @@ function createBashTool(): NeuroAgentTool {
             const bash = resolveBashPath();
             const fileScope = resolveSessionFileScope(context);
             const authorizedScope = await authorizeProcessCwd(fileScope);
-            const output = new OutputAccumulator();
-            const result = await runBash({
-                bash,
-                command: input.command,
-                cwd: authorizedScope.root,
-                env: createBashEnvironment(context),
-                timeout: input.timeout,
-                signal,
-                onData(data) {
-                    output.append(data);
-                    const snapshot = output.snapshot(true);
-                    onUpdate?.({
-                        content: [{type: "text", text: snapshot.content}],
-                        details: snapshot.truncation.truncated ? normalizeToolResultDetails({
-                            truncation: snapshot.truncation,
-                            fullOutputPath: snapshot.fullOutputPath,
-                        }) : undefined,
-                    });
-                },
-            }).finally(async () => {
-                output.finish();
-            });
-            const snapshot = output.snapshot(true);
-            await output.closeTempFile();
-            const formatted = formatBashOutput(snapshot, result.exitCode);
-            if (result.exitCode !== 0) {
-                throw new Error(formatted);
+            // 后台模式（PLAN-E）：立即返回 jobId，输出以 followup 消息回流；取消经 job signal 直接 kill 进程
+            if (input.background) {
+                const job = context.harness.jobs.spawn({
+                    kind: "bash",
+                    title: `bash: ${input.command.length > 60 ? `${input.command.slice(0, 60)}…` : input.command}`,
+                    ownerSessionId: context.sessionId,
+                    originToolCallId: _toolCallId,
+                    ref: {command: input.command},
+                    run: async (ctx) => {
+                        const output = new OutputAccumulator();
+                        try {
+                            const result = await runBash({
+                                bash,
+                                command: input.command,
+                                cwd: authorizedScope.root,
+                                env: createBashEnvironment(context),
+                                timeout: input.timeout,
+                                signal: ctx.signal,
+                                onData(data) {
+                                    output.append(data);
+                                    ctx.setPreview(output.snapshot().content.slice(-300));
+                                },
+                            });
+                            const snapshot = output.snapshot(true);
+                            const formatted = formatBashOutput(snapshot, result.exitCode);
+                            if (result.exitCode !== 0) throw new Error(formatted.length > 4000 ? `${formatted.slice(0, 4000)}…` : formatted);
+                            return {
+                                resultPreview: `exit 0（输出 ${snapshot.content.length} 字符）`,
+                                message: [
+                                    `后台 bash 命令完成：\`${input.command}\``,
+                                    "```",
+                                    formatted.length > 6000 ? `${formatted.slice(0, 6000)}\n…（截断${snapshot.fullOutputPath ? `，完整输出见 ${snapshot.fullOutputPath}` : ""}）` : formatted,
+                                    "```",
+                                ].join("\n"),
+                            };
+                        } finally {
+                            try {
+                                output.finish();
+                            } finally {
+                                await output.closeTempFile();
+                            }
+                        }
+                    },
+                });
+                return {
+                    content: [{type: "text", text: `后台命令已启动：${job.jobId}。输出将以后续消息回流；正常收尾本回合，不要轮询等待。`}],
+                    details: normalizeToolResultDetails({jobId: job.jobId, command: input.command, status: "started", background: true}),
+                };
             }
-            return {
-                content: [{type: "text", text: formatted}],
-                details: snapshot.truncation.truncated ? normalizeToolResultDetails({
-                    truncation: snapshot.truncation,
-                    fullOutputPath: snapshot.fullOutputPath,
-                }) : undefined,
-            };
+            const output = new OutputAccumulator();
+            try {
+                const result = await runBash({
+                    bash,
+                    command: input.command,
+                    cwd: authorizedScope.root,
+                    env: createBashEnvironment(context),
+                    timeout: input.timeout,
+                    signal,
+                    onData(data) {
+                        output.append(data);
+                        const snapshot = output.snapshot(true);
+                        onUpdate?.({
+                            content: [{type: "text", text: snapshot.content}],
+                            details: snapshot.truncation.truncated ? normalizeToolResultDetails({
+                                truncation: snapshot.truncation,
+                                fullOutputPath: snapshot.fullOutputPath,
+                            }) : undefined,
+                        });
+                    },
+                });
+                const snapshot = output.snapshot(true);
+                const formatted = formatBashOutput(snapshot, result.exitCode);
+                if (result.exitCode !== 0) {
+                    throw new Error(formatted);
+                }
+                return {
+                    content: [{type: "text", text: formatted}],
+                    details: snapshot.truncation.truncated ? normalizeToolResultDetails({
+                        truncation: snapshot.truncation,
+                        fullOutputPath: snapshot.fullOutputPath,
+                    }) : undefined,
+                };
+            } finally {
+                try {
+                    output.finish();
+                } finally {
+                    await output.closeTempFile();
+                }
+            }
         },
         async execute() {
             throw new Error("bash 必须在 agent session workspace 内执行。");
@@ -629,7 +727,7 @@ function firstCommandOnPath(commands: string[], pathValue: string | undefined, p
     });
 }
 
-async function runBash(input: {
+export async function runBash(input: {
     bash: string;
     command: string;
     cwd: string;
@@ -642,44 +740,57 @@ async function runBash(input: {
         throw new Error(`Working directory does not exist: ${input.cwd}`);
     }
     const command = withAgentPathPrefix(input.command);
-    return new Promise((resolve, reject) => {
-        const child = spawn(input.bash, ["-lc", command], {
-            cwd: input.cwd,
-            env: input.env,
-            stdio: ["ignore", "pipe", "pipe"],
-            windowsHide: true,
-        });
-        let timeoutHandle: NodeJS.Timeout | undefined;
-        let timedOut = false;
-        if (input.timeout !== undefined && input.timeout > 0) {
-            timeoutHandle = setTimeout(() => {
-                timedOut = true;
-                child.kill("SIGTERM");
-            }, input.timeout * 1000);
-        }
-        const onAbort = () => {
-            child.kill("SIGTERM");
-        };
-        input.signal?.addEventListener("abort", onAbort, {once: true});
-        child.stdout?.on("data", input.onData);
-        child.stderr?.on("data", input.onData);
-        child.once("error", reject);
-        child.once("close", (exitCode) => {
-            if (timeoutHandle) {
-                clearTimeout(timeoutHandle);
-            }
-            input.signal?.removeEventListener("abort", onAbort);
-            if (input.signal?.aborted) {
-                reject(new Error("Command aborted"));
-                return;
-            }
-            if (timedOut) {
-                reject(new Error(`Command timed out after ${input.timeout} seconds`));
-                return;
-            }
-            resolve({exitCode});
-        });
+    const lease = spawnOwnedProcess({
+        command: input.bash,
+        args: ["-lc", command],
+        cwd: input.cwd,
+        env: input.env,
+        stdout: "pipe",
+        stderr: "pipe",
+        windowsHide: true,
+        graceMs: 250,
+        hardKillWaitMs: 3_000,
     });
+    let timeoutHandle: NodeJS.Timeout | undefined;
+    let acceptsOutput = true;
+    const onAbort = () => {
+        acceptsOutput = false;
+        void lease.terminate("abort").catch(() => undefined);
+    };
+    if (input.timeout !== undefined && input.timeout > 0) {
+        timeoutHandle = setTimeout(() => {
+            acceptsOutput = false;
+            void lease.terminate("timeout").catch(() => undefined);
+        }, input.timeout * 1000);
+    }
+    if (input.signal?.aborted) {
+        onAbort();
+    } else {
+        input.signal?.addEventListener("abort", onAbort, {once: true});
+    }
+    const onData = (data: Buffer) => {
+        if (acceptsOutput) input.onData(data);
+    };
+    lease.stdout?.on("data", onData);
+    lease.stderr?.on("data", onData);
+    try {
+        const completion = await lease.completion;
+        if (completion.terminationReason === "timeout") {
+            throw new Error(`Command timed out after ${input.timeout} seconds`);
+        }
+        if (completion.terminationReason === "abort"
+            || completion.terminationReason === "cancel"
+            || completion.terminationReason === "shutdown") {
+            throw new Error("Command aborted");
+        }
+        if (completion.terminationReason) {
+            throw new Error(`Command terminated: ${completion.terminationReason}`);
+        }
+        return {exitCode: completion.exitCode};
+    } finally {
+        if (timeoutHandle) clearTimeout(timeoutHandle);
+        input.signal?.removeEventListener("abort", onAbort);
+    }
 }
 
 /**

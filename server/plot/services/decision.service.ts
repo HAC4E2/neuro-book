@@ -68,8 +68,8 @@ export class DecisionService {
     /**
      * Decision 列表(open 优先,再按 id 稳定),含死引用标注与期限章摘要。
      */
-    async listStoryDecisions(projectPath: string): Promise<StoryDecisionDto[]> {
-        const story = await this.storyService.ensureStory(projectPath);
+    async listStoryDecisions(): Promise<StoryDecisionDto[]> {
+        const story = await this.storyService.ensureStory();
         const decisions = await this.decisionRepository.findDecisionsByStory(story.id);
         // 引用存在性与期限章摘要都整批解析,避免逐条 N+1。
         const existing = await this.findExistingRefIdsFor(story.id, decisions);
@@ -85,8 +85,8 @@ export class DecisionService {
     /**
      * Decision 详情(含死引用标注与期限章摘要)。
      */
-    async getStoryDecisionDto(projectPath: string, decisionId: number): Promise<StoryDecisionDto> {
-        const story = await this.storyService.ensureStory(projectPath);
+    async getStoryDecisionDto(decisionId: number): Promise<StoryDecisionDto> {
+        const story = await this.storyService.ensureStory();
         const decision = await this.scopeGuard.assertDecision(story.id, decisionId);
         const existing = await this.findExistingRefIdsFor(story.id, [decision]);
         const deadlineChapter = decision.deadlineChapterId === null
@@ -98,8 +98,8 @@ export class DecisionService {
     /**
      * 创建 Decision(恒 open 态;decided 走 decide 转换,防止绕过 risk 必填)。
      */
-    async createStoryDecision(projectPath: string, input: ParsedCreateStoryDecisionInput): Promise<StoryDecisionDto> {
-        const story = await this.storyService.ensureStory(projectPath);
+    async createStoryDecision(input: ParsedCreateStoryDecisionInput): Promise<StoryDecisionDto> {
+        const story = await this.storyService.ensureStory();
         await this.scopeGuard.assertDecisionNameUnique(story.id, input.name);
         if (input.deadlineChapterId !== null) {
             await this.scopeGuard.assertChapter(story.id, input.deadlineChapterId);
@@ -121,7 +121,7 @@ export class DecisionService {
             note: input.note ?? null,
             ...anchor,
         });
-        return this.getStoryDecisionDto(projectPath, decision.id);
+        return this.getStoryDecisionDto(decision.id);
     }
 
     /**
@@ -129,11 +129,10 @@ export class DecisionService {
      * 状态不变式对合并后的最终字段状态校验,decide 转换在此统一发生。
      */
     async updateStoryDecision(
-        projectPath: string,
         decisionId: number,
         patch: ParsedUpdateStoryDecisionInput,
     ): Promise<StoryDecisionDto> {
-        const story = await this.storyService.ensureStory(projectPath);
+        const story = await this.storyService.ensureStory();
         const decision = await this.scopeGuard.assertDecision(story.id, decisionId);
         const {chosenOption, anchor, ...fields} = patch;
 
@@ -206,14 +205,14 @@ export class DecisionService {
             note: fields.note,
             ...(resolvedAnchor ?? {}),
         });
-        return this.getStoryDecisionDto(projectPath, decision.id);
+        return this.getStoryDecisionDto(decision.id);
     }
 
     /**
      * 物理删除 Decision。不开放给 Agent,留给 UI/人(Task 97 D4;Agent 软删出口是 action=drop)。
      */
-    async deleteStoryDecision(projectPath: string, decisionId: number): Promise<void> {
-        const story = await this.storyService.ensureStory(projectPath);
+    async deleteStoryDecision(decisionId: number): Promise<void> {
+        const story = await this.storyService.ensureStory();
         const decision = await this.scopeGuard.assertDecision(story.id, decisionId);
         await this.decisionRepository.deleteDecision(decision.id);
     }

@@ -2,7 +2,12 @@ import {createError} from "h3";
 import {collectDefaultAttrs, findAttrSchema, flattenAttrs, normalizeAttrKind} from "nbook/server/world-engine/schema-loader";
 import {WorldEngineRepository} from "nbook/server/world-engine/world-engine.repository";
 import {cosineSimilarity, decodeVector, encodeVector} from "nbook/server/world-engine/embedding-vector";
-import {embedTexts, resolveWorldEmbedding, type WorldEmbeddingModel} from "nbook/server/world-engine/world-embedding";
+import {
+    embedTexts,
+    resolveWorldEmbedding,
+    type WorldEmbeddingModel,
+    type WorldEmbeddingTarget,
+} from "nbook/server/world-engine/world-embedding";
 import {applyPatch} from "nbook/server/world-engine/patch-operations";
 import {worldIssueCatalogItem} from "nbook/server/world-engine/world-issue-catalog";
 import {buildWorldIssue, dedupeWorldIssues} from "nbook/server/world-engine/world-issue-builder";
@@ -47,7 +52,7 @@ export class WorldEngineService {
         private readonly repository: WorldEngineRepository,
         private readonly schema: WorldSchema,
         private readonly calendar: WorldCalendar,
-        private readonly projectPath: string,
+        private readonly embeddingTarget: WorldEmbeddingTarget,
     ) {}
 
     /** 创建 subject；只有 schema default 或初始化 attrs 非空时才写入 init slice。 */
@@ -403,7 +408,7 @@ export class WorldEngineService {
         if (!trimmed) {
             return [];
         }
-        const model = await resolveWorldEmbedding({projectPath: this.projectPath});
+        const model = await resolveWorldEmbedding(this.embeddingTarget);
         const at = options.at ?? await this.repository.latestInstant() ?? undefined;
         const rows = await this.repository.findEmbeddingRows({types: options.types, attrs: options.attrs, at});
         const live = this.liveEmbeddingRows(rows);
@@ -431,7 +436,7 @@ export class WorldEngineService {
         if (!subject) {
             throw createError({statusCode: 404, message: `subject 不存在：${subjectId}`});
         }
-        const model = await resolveWorldEmbedding({projectPath: this.projectPath});
+        const model = await resolveWorldEmbedding(this.embeddingTarget);
         const at = await this.repository.latestInstant() ?? undefined;
         const rows = await this.repository.findEmbeddingRows({types: [subject.type], attrs: [attr], at});
         const live = this.liveEmbeddingRows(rows).filter((row) => row.subjectId === subjectId);

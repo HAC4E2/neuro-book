@@ -6,8 +6,10 @@
  * WorldPatch 的 vector 列（Decision #8）。
  */
 
-import {loadEffectiveConfigForAgentRuntime} from "nbook/server/config/config-service";
+import {loadProjectModuleConfig} from "nbook/server/config/config-service";
 import type {EmbeddingServiceConfig} from "nbook/server/config/types";
+import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import type {ResolvedProjectWorkspace} from "nbook/server/workspace-files/project-identity";
 
 /** 解析出的嵌入模型句柄。 */
 export type WorldEmbeddingModel = {
@@ -22,17 +24,21 @@ export type WorldEmbeddingModel = {
     requestOptions: Record<string, unknown>;
 };
 
+/** World Engine generation固定的结构化配置目标。 */
+export type WorldEmbeddingTarget = {
+    readonly workspaceRoot: AbsoluteFsPath;
+    readonly projectWorkspace: ResolvedProjectWorkspace;
+};
+
 const MAX_EMBED_BATCH = 64;
 
 /**
  * 解析当前项目生效的 embedding 模型；未启用 / 配置缺失时抛出可读错误。
  *
- * @param input.projectPath - 项目路径（相对或绝对）；用于读取项目级 embedding 配置
+ * 调用方必须传入当前ProjectSession generation捕获的结构化Workspace，禁止重新按路径查询当前generation。
  */
-export async function resolveWorldEmbedding(input: {projectPath: string}): Promise<WorldEmbeddingModel> {
-    const config = await loadEffectiveConfigForAgentRuntime({
-        projectPath: input.projectPath,
-    });
+export async function resolveWorldEmbedding(target: WorldEmbeddingTarget): Promise<WorldEmbeddingModel> {
+    const config = await loadProjectModuleConfig(target);
     const embedding = config.embedding;
     if (!embedding.enabled) {
         throw new Error("world.search.text 需要 embedding 服务，但尚未启用。请在 Embedding 设置中启用嵌入服务。");

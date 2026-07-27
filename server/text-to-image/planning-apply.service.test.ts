@@ -17,14 +17,14 @@ import {IllustrationChapterParser} from "nbook/server/text-to-image/illustration
 import {PlanningApplyService} from "nbook/server/text-to-image/planning-apply.service";
 import {PlanningApplyRepository} from "nbook/server/text-to-image/planning-apply.repository";
 import {parseChapterStoryboardMarkdown} from "nbook/server/text-to-image/chapter-storyboard.codec";
-import {closeTextToImageProjectClient, textToImageProjectClient} from "nbook/server/text-to-image/project-client";
+import {textToImageProjectClient} from "nbook/server/text-to-image/project-client";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
-import {registerProjectResourceOwner, resetProjectSessionsForTest} from "nbook/server/workspace-files/project-session";
+import {resetProjectSessionsForTest} from "nbook/server/workspace-files/project-session";
 import {resolveProjectAbsolutePath} from "nbook/server/text-to-image/compat";
 import {writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {createIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/workspace-assets-test-helper";
-import {resetWorkspaceHistoryForTest, workspaceHistoryResourceOwner} from "nbook/server/workspace-history/project-history";
+import {resetWorkspaceHistoryForTest} from "nbook/server/workspace-history/project-history";
 
 const H = (digit: string) => `sha256:${digit.repeat(64)}`;
 const CHAPTER_PATH = "manuscript/v1/c1/index.md";
@@ -163,7 +163,6 @@ type TestContext = {
 
 async function createContext(): Promise<TestContext> {
     resetProjectSessionsForTest();
-    registerProjectResourceOwner(workspaceHistoryResourceOwner);
     const assets = await createIsolatedWorkspaceAssets();
     const projectPath = `workspace/planning-apply-${randomUUID()}`;
     await writeProjectManifest(resolveRuntimeWorkspaceRoot(), projectPath, {kind: "novel", title: "Planning Apply", summary: ""});
@@ -203,7 +202,6 @@ async function createContext(): Promise<TestContext> {
 }
 
 async function disposeContext(context: TestContext): Promise<void> {
-    await closeTextToImageProjectClient(context.projectPath);
     await closeProjectForTest(context.projectPath).catch(() => undefined);
     await resetWorkspaceHistoryForTest();
     resetProjectSessionsForTest();

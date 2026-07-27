@@ -5,6 +5,7 @@
 - 使用 *中文* 为默认语言与用户交互
 - 安装新依赖时，使用 bun 安装最新版本的依赖
 - 当前是沙盒环境，执行 bun 命令时，提权在沙盒外执行
+- **学会在需求和实现复杂度之间妥协：当你制定计划、需求、审查用户需求或者设计系统的时候，多进行一步思考：这个需求是否很冷门？如果对需求进行妥协是否能大幅度降低复杂度？**
 - 执行命令时注意 PowerShell 路径转义
 - Agent runtime 中内容节点 CLI 的稳定入口是 `workspace node ...`，由 `.nbook/agent/bin` 注入 `bash` PATH；不要提示 Agent 直接调用项目根 `scripts/workspace.ts`。手工在 PowerShell 管道传中文路径给 `workspace node ... --stdin` 时，必须保证三层 UTF-8 初始化：`chcp 65001`、`[Console]::OutputEncoding = [System.Text.Encoding]::UTF8`、`$OutputEncoding = [System.Text.Encoding]::UTF8`。Agent 的 `bash` 工具第一版不负责 PowerShell 管道编码；如果手工在 PowerShell 运行，使用同样前缀。
 - Agent 文件工具读取当前小说 workspace 时，优先传 `lorebook/...`、`manuscript/...` 或 `workspace/...`；这些路径应映射到活跃小说 workspace，不应按项目根解析。
@@ -12,7 +13,11 @@
 - **Bug 诊断流程**：当用户要求排查、诊断、debug 报错或性能回归时，参考 `$diagnose`；先阅读相关上下文并定位可能原因，再用最小测试、脚本、请求或日志尝试复现并确认症状。不要直接修改业务代码修复；诊断完成后先给出报告，说明现象、复现结果、根因判断、影响范围和建议修复方案，等待用户确认后再进入实现。若无法复现，报告已尝试路径和下一步需要的信息。
 - 没有收到用户明确的指令，永远不要擅自改代码、文件。优先做只读调研、讨论、分析
 - 任务完成后不要主动运行 git 命令查看变更
-- **Important: 永远不要用 shell 工具代替文件编辑工具。当你想这样做的时候，停止你的行为，请求用户同意**
+- **Important: 单点、少量、需要判断的修改一律用文件编辑工具，不要用 shell 绕过。** 例外是**大范围机械替换**（同一个确定的模式改多个文件、批量改名、批量调整 import 路径等）：这种情况推荐用 shell 或 codeact（python / js 脚本）批处理，比逐个编辑更可靠。但必须满足两条：
+  1. **先 dry run**：先只输出「会改哪些文件、每处改成什么」，确认命中范围和改动内容都符合预期，再实际写入。
+  2. **有把握**才批处理。只要模式不确定、需要逐处判断上下文、或者 dry run 结果里出现意料之外的命中，立刻停手改回逐个编辑。
+
+  批处理完成后要报告实际改了哪些文件，不要只说「已统一」。
 - **不要自动进行浏览器验证，你可以建议用户让你进行浏览器验证**
 - **代码审查报告使用直白的话语再解释一次**
 - 任务完成后的 walkthrough 要报告实际结果与任务计划的出入
@@ -42,6 +47,38 @@
 - `docs/` 放文档入口、模块说明、调研、草案、归档和任务 walkthrough。调研资料放 `docs/research/`，未定稿草案放 `docs/drafts/`，过期但仍有参考价值的内容放 `docs/archived/`。
 - 移动文档或改名时，必须同步更新交叉链接，避免留下绝对路径链接和旧路径引用。
 - 纯问答、只读探索、无状态变化的失败尝试，不强制更新 `PROJECT-STATUS.md` 或任务 walkthrough。
+
+### 面向用户的语言风格
+
+适用于所有用户会读到的文字：`RELEASE.md` 与 `docs/changelog/`、`README`、文档站页面、UI 文案、错误提示。**不适用**于 `PROJECT-STATUS.md`、`docs/tasks/**`、`reference/**` 和代码注释——那些是给开发者和 Agent 看的，该多技术就多技术。
+
+读者假设：一个会用电脑、对写小说感兴趣、但从没读过本仓库任何一行代码的大学生。
+
+- **写他能做什么，不写我们改了什么。** 「现在可以让 AI 一次写完一整章并自动检查」，不是「run_workflow 接入 AgentJobManager」。
+- **不出现内部名词。** 模块名、类名、文件名、Task 编号、Phase 编号一律不写。确实要提某个界面，就用界面上的原字。
+- **必须用的术语，当场一句话解释。** 「工作流（把「写正文 → 检查 → 修订」这种多步骤活儿打包成一条命令）」。同一篇里解释一次就够。
+- **给前后对比。** 「以前设了 30 秒超时也可能跑满 5 分钟，现在到点真的会停」比「修复超时不生效」有用得多。
+- **每条 1–2 句，动词开头。** 写不下就说明这条该拆成两条，或者根本不该进更新日志。
+- **能用日常词就别用专有名词**：「后台任务」别写「job」，「界面」别写「UI」，「装到本地」别写「部署」。
+- **回退和限制要如实写。** 砍掉的功能、需要手动操作的步骤、还没验证的部分，一律照直说，不藏进「优化」里。
+- **别夸。** 不写「大幅提升」「全新体验」「强大」。有数字就给数字，没数字就描述现象。
+
+`RELEASE.md` 的固定结构：
+
+```markdown
+## <版本> - <日期>
+
+一段话说清这个版本主要解决了什么问题，两三句即可。
+
+### 新功能
+### 改进
+### 修复
+### 升级须知
+```
+
+四个小节按需出现，没内容就整节删掉，不要留空标题。`### 升级须知` 只写用户真的要动手做的事（备份、换目录、改配置），没有就不写。
+
+`RELEASE.md` 只保留当前版本；历史版本按发布线归档到 `docs/changelog/`（中文）与 `docs/en/changelog/`（英文镜像），文件开头留一行指向那里。
 
 ### JS/TS
 
@@ -116,6 +153,10 @@
 - JS/TS 代码缩进 4 空格，遵循现有代码格式风格
 - HTML 标签尽量保持一行，开闭标签尽量保持在一行
 
+## subagents
+
+- 如果不是困难的任务，例如探索代码，调研等。不要使用 fable 作为模型
+
 ## 信息、文档获取
 
 - 可读取 node_modules 下的源代码
@@ -127,8 +168,9 @@
 ## 发布流程
 
 - 发布前先阅读 `PROJECT-STATUS.md` 和相关 `docs/tasks/**/README.md` / walkthrough，确认本轮改动、验证记录和任务状态。
-- 发布前必须更新 `RELEASE.md`，用用户可读的话概括本轮变更、影响范围和已知验证结果；不要只写内部任务编号。
+- 发布前必须更新 `RELEASE.md`，严格按「面向用户的语言风格」小节写：只留当前版本，历史版本移到 `docs/changelog/` 并同步英文镜像 `docs/en/changelog/`。release 脚本不读 `RELEASE.md`（GitHub prerelease 正文是硬编码模板），所以它纯粹是给人看的，写不好没有任何机器会拦你。
 - 提交前用 `git status --short --branch` 确认工作区范围；用户明确要求“提交全部改动”时，才使用 `git add -A` 纳入全部 tracked / untracked 改动。
+- **在 `.agent/workspace/` 的 git worktree（`codex/*` 分支）里推过 master 之后，主工作区必须立刻 `git fetch && git merge --ff-only origin/master`。** 否则主工作区的 `master` 永远停在旧提交，下次提交就变成分叉；同一份改动也不要在主工作区和 worktree 各提交一次，那会产出 patch-id 相同、SHA 不同的重复提交。
 - 业务提交 message 要覆盖主要任务和用户可见能力；提交后先 `git push origin HEAD:master`。如果远端拒绝，停止并报告，不要 force push。
 - canary patch 发布使用 `bun run release -- canary --next patch --push --yes --no-watch`；canary minor 发布使用 `bun run release -- canary --next minor --push --yes --no-watch`。
 - release 脚本会自动更新 `package.json.version`、创建 `chore(release): v...` 提交、push 当前分支并创建 GitHub prerelease。

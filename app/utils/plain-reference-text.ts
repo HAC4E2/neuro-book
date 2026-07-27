@@ -1,5 +1,6 @@
 import {parseReferenceUri} from "nbook/shared/reference-core";
 import {buildSelectionRefChip, readSelectionRefChipAt, type InlineEditReferenceRange} from "nbook/app/utils/inline-editor-selection";
+import {parseAgentImageMarkdown, serializeAgentImageMarkdown} from "nbook/shared/agent/agent-image-markdown";
 
 export interface PlainReferenceNodeAttrs {
     label: string;
@@ -8,6 +9,24 @@ export interface PlainReferenceNodeAttrs {
 
 export interface PlainSkillNodeAttrs {
     name: string;
+}
+
+export interface PlainImageNodeAttrs {
+    label: string;
+    target: string;
+    attachmentId?: string;
+    mimeType?: string;
+    bytes?: number;
+    name?: string;
+    locatorEntryId?: string;
+    locatorContentIndex?: number;
+}
+
+export interface PlainPendingImageNodeAttrs {
+    uploadId: string;
+    name: string;
+    status: "uploading" | "failed";
+    error?: string;
 }
 
 export interface PlainSelectionReferenceNodeAttrs {
@@ -21,16 +40,17 @@ export interface PlainSelectionReferenceNodeAttrs {
 export interface PlainTextProseMirrorNode {
     type: string;
     text?: string;
-    attrs?: Record<string, string>;
+    attrs?: Record<string, string | number | null>;
     content?: PlainTextProseMirrorNode[];
 }
 
 export interface PlainTextToken {
-    kind: "text" | "reference" | "skill" | "selection";
+    kind: "text" | "reference" | "skill" | "selection" | "image";
     raw: string;
     reference?: PlainReferenceNodeAttrs;
     skill?: PlainSkillNodeAttrs;
     selection?: PlainSelectionReferenceNodeAttrs;
+    image?: PlainImageNodeAttrs;
 }
 
 const SKILL_PATTERN = /(^|[\s(])(\$(?:([\p{L}_-][\p{L}\p{N}_-]*)|\{([\p{L}_-][\p{L}\p{N}_-]*)\}))/gu;
@@ -51,12 +71,11 @@ const WORKSPACE_REFERENCE_PREFIXES = [
  * 将普通文本解析成 plain reference editor 使用的 ProseMirror doc。
  */
 export function parsePlainReferenceText(value: string): PlainTextProseMirrorNode {
-    const paragraphs = value.split(/\n/);
     return {
         type: "doc",
-        content: paragraphs.map((paragraph) => ({
+        content: tokensToParagraphs(tokenizePlainReferenceText(value)).map((content) => ({
             type: "paragraph",
-            content: tokensToNodes(tokenizePlainReferenceText(paragraph)),
+            content,
         })),
     };
 }
@@ -65,14 +84,7 @@ export function parsePlainReferenceText(value: string): PlainTextProseMirrorNode
  * 将普通文本解析成可直接插入当前光标的 inline content。
  */
 export function parsePlainReferenceInlineContent(value: string): PlainTextProseMirrorNode[] {
-    const lines = value.split(/\n/);
-    return lines.flatMap((line, index) => {
-        const nodes = tokensToNodes(tokenizePlainReferenceText(line));
-        if (index >= lines.length - 1) {
-            return nodes;
-        }
-        return [...nodes, {type: "hardBreak"}];
-    });
+    return tokensToInlineNodes(tokenizePlainReferenceText(value));
 }
 
 /**
@@ -92,12 +104,12 @@ export function serializePlainReferenceDoc(doc: PlainTextProseMirrorNode): strin
         return "\n";
     }
     if (doc.type === "plainReference") {
-        const label = doc.attrs?.label ?? "";
-        const target = doc.attrs?.target ?? "";
+        const label = String(doc.attrs?.label ?? "");
+        const target = String(doc.attrs?.target ?? "");
         return label && target ? `[${label}](${serializeReferenceTarget(target)})` : "";
     }
     if (doc.type === "plainSelectionReference") {
-        const target = doc.attrs?.target ?? "";
+        const target = String(doc.attrs?.target ?? "");
         const startLine = Number(doc.attrs?.startLine ?? "");
         const endLine = Number(doc.attrs?.endLine ?? "");
         const range = Number.isInteger(startLine) && startLine > 0 && Number.isInteger(endLine) && endLine >= startLine
@@ -106,8 +118,17 @@ export function serializePlainReferenceDoc(doc: PlainTextProseMirrorNode): strin
         return target ? buildSelectionRefChip({path: target, range}) : "";
     }
     if (doc.type === "agentSkill") {
-        const name = doc.attrs?.name ?? "";
+        const name = String(doc.attrs?.name ?? "");
         return name ? `$${name}` : "";
+    }
+    if (doc.type === "plainImage") {
+        const label = String(doc.attrs?.label ?? "");
+        const target = String(doc.attrs?.target ?? "");
+        return target ? serializeAgentImageMarkdown(label, target) : "";
+    }
+    if (doc.type === "plainPendingImage") {
+        // pending File 不属于草稿或正文真相；上传完成后才替换为稳定 Markdown。
+        return "";
     }
     return (doc.content ?? []).map(serializePlainReferenceDoc).join("");
 }
@@ -116,9 +137,10 @@ export function serializePlainReferenceDoc(doc: PlainTextProseMirrorNode): strin
  * 把普通文本切分成文本、系统引用和 skill token。
  */
 export function tokenizePlainReferenceText(value: string): PlainTextToken[] {
+    const imageMatches = collectImageMatches(value);
     const selectionMatches = collectSelectionMatches(value);
-    const referenceMatches = collectReferenceMatches(value, selectionMatches);
-    const occupiedMatches = [...selectionMatches, ...referenceMatches];
+    const referenceMatches = collectReferenceMatches(value, [...imageMatches, ...selectionMatches]);
+    const occupiedMatches = [...imageMatches, ...selectionMatches, ...referenceMatches];
     const skillMatches = collectSkillMatches(value, occupiedMatches);
     const matches = [...occupiedMatches, ...skillMatches].sort((left, right) => left.start - right.start);
     const tokens: PlainTextToken[] = [];
@@ -142,9 +164,7 @@ export function tokenizePlainReferenceText(value: string): PlainTextToken[] {
     return tokens;
 }
 
-function tokensToNodes(tokens: PlainTextToken[]): PlainTextProseMirrorNode[] {
-    return tokens
-        .map((token): PlainTextProseMirrorNode | null => {
+function tokenToNode(token: PlainTextToken): PlainTextProseMirrorNode | null {
             if (token.kind === "text") {
                 return token.raw ? {type: "text", text: token.raw} : null;
             }
@@ -177,15 +197,93 @@ function tokensToNodes(tokens: PlainTextToken[]): PlainTextProseMirrorNode[] {
                     },
                 };
             }
+            if (token.kind === "image" && token.image) {
+                return {
+                    type: "plainImage",
+                    attrs: {
+                        label: token.image.label,
+                        target: token.image.target,
+                    },
+                };
+            }
             return null;
-        })
-        .filter((node): node is PlainTextProseMirrorNode => node !== null);
+}
+
+function tokensToParagraphs(tokens: PlainTextToken[]): PlainTextProseMirrorNode[][] {
+    const paragraphs: PlainTextProseMirrorNode[][] = [[]];
+    for (const token of tokens) {
+        if (token.kind !== "text" || !token.raw.includes("\n")) {
+            const node = tokenToNode(token);
+            if (node) {
+                paragraphs.at(-1)?.push(node);
+            }
+            continue;
+        }
+        const lines = token.raw.split("\n");
+        lines.forEach((line, index) => {
+            if (line) {
+                paragraphs.at(-1)?.push({type: "text", text: line});
+            }
+            if (index < lines.length - 1) {
+                paragraphs.push([]);
+            }
+        });
+    }
+    return paragraphs;
+}
+
+function tokensToInlineNodes(tokens: PlainTextToken[]): PlainTextProseMirrorNode[] {
+    const nodes: PlainTextProseMirrorNode[] = [];
+    for (const token of tokens) {
+        if (token.kind !== "text" || !token.raw.includes("\n")) {
+            const node = tokenToNode(token);
+            if (node) {
+                nodes.push(node);
+            }
+            continue;
+        }
+        const lines = token.raw.split("\n");
+        lines.forEach((line, index) => {
+            if (line) {
+                nodes.push({type: "text", text: line});
+            }
+            if (index < lines.length - 1) {
+                nodes.push({type: "hardBreak"});
+            }
+        });
+    }
+    return nodes;
 }
 
 interface TokenMatch {
     start: number;
     end: number;
     token: PlainTextToken;
+}
+
+function collectImageMatches(value: string): TokenMatch[] {
+    const matches: TokenMatch[] = [];
+    let cursor = 0;
+    for (const part of parseAgentImageMarkdown(value)) {
+        if (part.type === "text") {
+            cursor += part.text.length;
+            continue;
+        }
+        matches.push({
+            start: cursor,
+            end: cursor + part.raw.length,
+            token: {
+                kind: "image",
+                raw: part.raw,
+                image: {
+                    label: part.label,
+                    target: part.target,
+                },
+            },
+        });
+        cursor += part.raw.length;
+    }
+    return matches;
 }
 
 function collectSelectionMatches(value: string): TokenMatch[] {

@@ -9,8 +9,11 @@ import {
     parsePlainReferenceInlineContent,
     parsePlainReferenceText,
     serializePlainReferenceDoc,
+    type PlainImageNodeAttrs,
+    type PlainPendingImageNodeAttrs,
     type PlainTextProseMirrorNode,
 } from "nbook/app/utils/plain-reference-text";
+import type {ComposerImageNode} from "nbook/app/components/novel-ide/agent/composer-image-transaction";
 
 const props = withDefaults(defineProps<{
     modelValue: string;
@@ -26,6 +29,7 @@ const props = withDefaults(defineProps<{
     menuRefreshKey?: string | number;
     resolveMenu?: (context: AgentTriggerMenuContext) => AgentTriggerMenuState;
     onSkillTriggerStart?: () => void;
+    enableImageFiles?: boolean;
 }>(), {
     placeholder: "",
     minHeight: 36,
@@ -43,6 +47,7 @@ const props = withDefaults(defineProps<{
         sections: [],
     }),
     onSkillTriggerStart: () => {},
+    enableImageFiles: false,
 });
 
 const emit = defineEmits<{
@@ -51,6 +56,11 @@ const emit = defineEmits<{
     (e: "shift-tab"): void;
     (e: "focus"): void;
     (e: "blur"): void;
+    (e: "image-files", payload: {files: File[]; position?: number}): void;
+    (e: "image-files-blocked"): void;
+    (e: "pending-image-retry", uploadId: string): void;
+    (e: "pending-image-remove", uploadId: string): void;
+    (e: "image-document", nodes: ComposerImageNode[]): void;
 }>();
 
 const wrapperRef = ref<HTMLDivElement | null>(null);
@@ -68,6 +78,7 @@ let resizeFrame: number | null = null;
 // 外部替换内容时从顶部开始；用户在编辑器内继续输入时仍按 sticky-bottom 状态处理。
 let scrollToTopOnNextMeasure = Boolean(props.modelValue);
 const STICKY_BOTTOM_THRESHOLD_PX = 12;
+const COMPOSER_IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
 const menuVisible = computed(() => Boolean(suggestionMenuState.value && suggestionMenuState.value.items.length > 0));
 const skillTriggerActive = computed(() => suggestionMenuState.value?.contextKind === "skill");
@@ -100,6 +111,45 @@ function readEditorText(currentEditor: Editor | null | undefined): string {
     return json ? serializePlainReferenceDoc(json) : editorSnapshot.value;
 }
 
+/** 直接投影 TipTap 文档中的图片节点；按键热路径不重新解析 Markdown。 */
+function readImageDocument(currentEditor: Editor | null | undefined): ComposerImageNode[] {
+    const nodes: ComposerImageNode[] = [];
+    currentEditor?.state.doc.descendants((node) => {
+        if (node.type.name === "plainImage") {
+            const bytes = finiteNumber(node.attrs.bytes);
+            const locatorContentIndex = finiteNumber(node.attrs.locatorContentIndex);
+            nodes.push({
+                kind: "stable",
+                index: nodes.length,
+                label: String(node.attrs.label ?? ""),
+                target: String(node.attrs.target ?? ""),
+                ...(typeof node.attrs.attachmentId === "string" ? {attachmentId: node.attrs.attachmentId} : {}),
+                ...(typeof node.attrs.mimeType === "string" ? {mimeType: node.attrs.mimeType} : {}),
+                ...(bytes === null ? {} : {bytes}),
+                ...(typeof node.attrs.name === "string" ? {name: node.attrs.name} : {}),
+                ...(typeof node.attrs.locatorEntryId === "string" ? {locatorEntryId: node.attrs.locatorEntryId} : {}),
+                ...(locatorContentIndex === null ? {} : {locatorContentIndex}),
+            });
+            return;
+        }
+        if (node.type.name === "plainPendingImage") {
+            nodes.push({
+                kind: "pending",
+                index: nodes.length,
+                uploadId: String(node.attrs.uploadId ?? ""),
+                name: String(node.attrs.name ?? "图片"),
+                status: node.attrs.status === "failed" ? "failed" : "uploading",
+                ...(typeof node.attrs.error === "string" && node.attrs.error ? {error: node.attrs.error} : {}),
+            });
+        }
+    });
+    return nodes;
+}
+
+function emitImageDocument(currentEditor: Editor | null | undefined = editor.value): void {
+    emit("image-document", readImageDocument(currentEditor));
+}
+
 const editor = useEditor({
     content: parsePlainReferenceText(props.modelValue) as Content,
     extensions: createPlainReferenceTextExtensions({
@@ -112,6 +162,8 @@ const editor = useEditor({
             activeIndex.value = index;
         },
         enableQuickTriggers: props.enableQuickTriggers,
+        onPendingImageRetry: (uploadId) => emit("pending-image-retry", uploadId),
+        onPendingImageRemove: (uploadId) => emit("pending-image-remove", uploadId),
     }),
     editable: !props.readonly,
     editorProps: {
@@ -145,8 +197,22 @@ const editor = useEditor({
                 return false;
             },
             paste: (_view, event) => {
+                const files = supportedImageFiles(event.clipboardData?.files);
                 if (props.readonly) {
                     event.preventDefault();
+                    if (files.length > 0) {
+                        emit("image-files-blocked");
+                    }
+                    return true;
+                }
+                if (!props.enableImageFiles && files.length > 0) {
+                    event.preventDefault();
+                    emit("image-files-blocked");
+                    return true;
+                }
+                if (props.enableImageFiles && files.length > 0) {
+                    event.preventDefault();
+                    emit("image-files", {files});
                     return true;
                 }
                 const text = event.clipboardData?.getData("text/plain") ?? "";
@@ -157,17 +223,50 @@ const editor = useEditor({
                 insertTextIntoEditor(editor.value, text);
                 return true;
             },
+            dragover: (_view, event) => {
+                if (!props.readonly && props.enableImageFiles && supportedImageFiles(event.dataTransfer?.files).length > 0) {
+                    event.preventDefault();
+                    if (event.dataTransfer) {
+                        event.dataTransfer.dropEffect = "copy";
+                    }
+                    return true;
+                }
+                return false;
+            },
+            drop: (view, event) => {
+                const files = supportedImageFiles(event.dataTransfer?.files);
+                if (files.length === 0) {
+                    return false;
+                }
+                if (props.readonly || !props.enableImageFiles) {
+                    event.preventDefault();
+                    emit("image-files-blocked");
+                    return true;
+                }
+                event.preventDefault();
+                const position = view.posAtCoords({left: event.clientX, top: event.clientY})?.pos;
+                emit("image-files", {
+                    files,
+                    ...(position === undefined ? {} : {position}),
+                });
+                return true;
+            },
         },
     },
     onCreate: () => {
         scheduleHeightMeasure();
+        queueMicrotask(() => emitImageDocument());
     },
     onUpdate: ({editor: currentEditor}) => {
         scheduleHeightMeasure();
+        emitImageDocument(currentEditor);
         if (syncingFromOutside.value) {
             return;
         }
         const nextValue = readEditorText(currentEditor);
+        if (nextValue === editorSnapshot.value) {
+            return;
+        }
         editorSnapshot.value = nextValue;
         emit("update:modelValue", nextValue);
     },
@@ -187,6 +286,7 @@ watch(() => props.modelValue, (nextValue) => {
     scheduleHeightMeasure();
     queueMicrotask(() => {
         syncingFromOutside.value = false;
+        emitImageDocument();
     });
 });
 
@@ -244,6 +344,165 @@ function focus(): void {
  */
 function insertText(text: string): void {
     insertTextIntoEditor(editor.value, text);
+}
+
+/** 在当前光标或拖拽落点插入稳定图片节点。 */
+function insertImage(image: PlainImageNodeAttrs, position?: number): void {
+    if (!editor.value || props.readonly) {
+        return;
+    }
+    editor.value.chain().focus().insertContentAt(position ?? editor.value.state.selection.from, {
+        type: "plainImage",
+        attrs: image,
+    }).run();
+    scheduleHeightMeasure();
+}
+
+/** 按文件原顺序插入唯一 pending 节点，后续响应按 uploadId 原位替换。 */
+function insertPendingImages(
+    items: Array<{uploadId: string; name: string}>,
+    position?: number,
+): void {
+    if (!editor.value || props.readonly || items.length === 0) {
+        return;
+    }
+    editor.value.chain().focus().insertContentAt(
+        position ?? editor.value.state.selection.from,
+        items.map((item) => ({
+            type: "plainPendingImage",
+            attrs: {...item, status: "uploading", error: ""},
+        })),
+    ).run();
+    scheduleHeightMeasure();
+}
+
+/** 上传成功后只替换对应 pending 节点，不依赖请求返回顺序。 */
+function replacePendingImage(uploadId: string, image: PlainImageNodeAttrs): void {
+    const match = findPendingImage(uploadId);
+    if (!editor.value || !match) {
+        return;
+    }
+    const imageType = editor.value.state.schema.nodes.plainImage;
+    if (!imageType) {
+        return;
+    }
+    editor.value.view.dispatch(editor.value.state.tr
+        .replaceWith(match.position, match.position + match.size, imageType.create(image))
+        .setMeta("addToHistory", false));
+    scheduleHeightMeasure();
+}
+
+/** 标记上传失败，保留原位置供重试或移除。 */
+function failPendingImage(uploadId: string, error: string): void {
+    const match = findPendingImage(uploadId);
+    if (!editor.value || !match) {
+        return;
+    }
+    editor.value.view.dispatch(editor.value.state.tr
+        .setNodeMarkup(match.position, undefined, {...match.attrs, status: "failed", error})
+        .setMeta("addToHistory", false));
+    scheduleHeightMeasure();
+}
+
+/** 把失败节点恢复为上传中。 */
+function startPendingImage(uploadId: string): void {
+    const match = findPendingImage(uploadId);
+    if (!editor.value || !match) {
+        return;
+    }
+    editor.value.view.dispatch(editor.value.state.tr
+        .setNodeMarkup(match.position, undefined, {...match.attrs, status: "uploading", error: ""})
+        .setMeta("addToHistory", false));
+}
+
+/** 移除指定 pending 节点。 */
+function removePendingImage(uploadId: string): void {
+    const match = findPendingImage(uploadId);
+    if (!editor.value || !match || props.readonly) {
+        return;
+    }
+    editor.value.view.dispatch(editor.value.state.tr.delete(match.position, match.position + match.size));
+    scheduleHeightMeasure();
+}
+
+/** Session 切换时一次性清除全部临时节点。 */
+function clearPendingImages(): void {
+    if (!editor.value) {
+        return;
+    }
+    const matches: Array<{position: number; size: number}> = [];
+    editor.value.state.doc.descendants((node, position) => {
+        if (node.type.name === "plainPendingImage") {
+            matches.push({position, size: node.nodeSize});
+        }
+    });
+    if (matches.length === 0) {
+        return;
+    }
+    const transaction = matches
+        .sort((left, right) => right.position - left.position)
+        .reduce((current, match) => current.delete(match.position, match.position + match.size), editor.value.state.tr)
+        .setMeta("addToHistory", false);
+    editor.value.view.dispatch(transaction);
+    scheduleHeightMeasure();
+}
+
+/** 删除正文中的第 N 个稳定图片标记；不会删除 Session Attachment 登记。 */
+function removeImageAt(imageIndex: number): void {
+    if (!editor.value || props.readonly || imageIndex < 0) {
+        return;
+    }
+    let currentIndex = 0;
+    let match: {position: number; size: number} | null = null;
+    editor.value.state.doc.descendants((node, position) => {
+        if (!match && node.type.name === "plainImage") {
+            if (currentIndex === imageIndex) {
+                match = {position, size: node.nodeSize};
+            }
+            currentIndex += 1;
+        }
+    });
+    if (!match) {
+        return;
+    }
+    const resolvedMatch = match as {position: number; size: number};
+    editor.value.view.dispatch(editor.value.state.tr.delete(
+        resolvedMatch.position,
+        resolvedMatch.position + resolvedMatch.size,
+    ));
+    scheduleHeightMeasure();
+}
+
+/** 为草稿/历史恢复出的稳定节点批量补齐 canonical metadata，不进入 Undo 历史。 */
+function hydrateImages(items: readonly PlainImageNodeAttrs[]): void {
+    if (!editor.value || items.length === 0) {
+        return;
+    }
+    const byTarget = new Map(items.map((item) => [item.target, item]));
+    let transaction = editor.value.state.tr;
+    editor.value.state.doc.descendants((node, position) => {
+        if (node.type.name !== "plainImage") {
+            return;
+        }
+        const item = byTarget.get(String(node.attrs.target ?? ""));
+        if (!item) {
+            return;
+        }
+        if (node.attrs.label === item.label
+            && node.attrs.target === item.target
+            && node.attrs.attachmentId === (item.attachmentId ?? null)
+            && node.attrs.mimeType === (item.mimeType ?? null)
+            && node.attrs.bytes === (item.bytes ?? null)
+            && node.attrs.name === (item.name ?? null)
+            && node.attrs.locatorEntryId === (item.locatorEntryId ?? null)
+            && node.attrs.locatorContentIndex === (item.locatorContentIndex ?? null)) {
+            return;
+        }
+        transaction = transaction.setNodeMarkup(position, undefined, {...node.attrs, ...item});
+    });
+    if (transaction.docChanged) {
+        editor.value.view.dispatch(transaction.setMeta("addToHistory", false));
+    }
 }
 
 /**
@@ -408,10 +667,50 @@ function insertTextIntoEditor(currentEditor: Editor | null | undefined, text: st
     scheduleHeightMeasure();
 }
 
+function supportedImageFiles(list: FileList | null | undefined): File[] {
+    return Array.from(list ?? []).filter((file) => COMPOSER_IMAGE_MIME_TYPES.has(file.type.toLowerCase()));
+}
+
+function findPendingImage(uploadId: string): {
+    position: number;
+    size: number;
+    attrs: PlainPendingImageNodeAttrs;
+} | null {
+    let result: {position: number; size: number; attrs: PlainPendingImageNodeAttrs} | null = null;
+    editor.value?.state.doc.descendants((node, position) => {
+        if (!result && node.type.name === "plainPendingImage" && node.attrs.uploadId === uploadId) {
+            result = {
+                position,
+                size: node.nodeSize,
+                attrs: {
+                    uploadId: String(node.attrs.uploadId ?? ""),
+                    name: String(node.attrs.name ?? "图片"),
+                    status: node.attrs.status === "failed" ? "failed" : "uploading",
+                    ...(typeof node.attrs.error === "string" ? {error: node.attrs.error} : {}),
+                },
+            };
+        }
+    });
+    return result;
+}
+
+function finiteNumber(value: string | number | null | undefined): number | null {
+    return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 defineExpose({
+    clearPendingImages,
+    failPendingImage,
     focus,
     insertText,
+    insertImage,
+    insertPendingImages,
     getText,
+    hydrateImages,
+    removePendingImage,
+    removeImageAt,
+    replacePendingImage,
+    startPendingImage,
 });
 </script>
 
@@ -503,6 +802,59 @@ defineExpose({
     display: inline-flex;
     margin: 0 0.1rem;
     vertical-align: baseline;
+}
+
+:deep(.nb-plain-image-node),
+:deep(.nb-plain-pending-image-node) {
+    display: inline-flex;
+    max-width: 18rem;
+    align-items: center;
+    gap: 0.25rem;
+    margin: 0 0.1rem;
+    padding: 0.1rem 0.35rem;
+    border: 1px solid var(--status-info-border);
+    border-radius: 0.35rem;
+    background: var(--status-info-bg);
+    color: var(--status-info);
+    font-size: 0.72rem;
+    line-height: 1.15rem;
+    vertical-align: baseline;
+}
+
+:deep(.nb-plain-image-node__label),
+:deep(.nb-plain-pending-image-node__label) {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+:deep(.nb-plain-image-node__badge) {
+    color: var(--text-muted);
+    font-size: 0.62rem;
+}
+
+:deep(.nb-plain-pending-image-node.is-failed) {
+    border-color: var(--status-danger-border);
+    background: var(--status-danger-bg);
+    color: var(--status-danger);
+}
+
+:deep(.nb-plain-pending-image-node__action),
+:deep(.nb-plain-pending-image-node__remove) {
+    border: 0;
+    background: transparent;
+    color: currentColor;
+    cursor: pointer;
+    font-size: 0.65rem;
+}
+
+:deep(.nb-plain-pending-image-node__spin) {
+    animation: plain-image-spin 1s linear infinite;
+}
+
+@keyframes plain-image-spin {
+    to { transform: rotate(360deg); }
 }
 
 :deep(.nb-plain-reference-node .nb-reference-chip),

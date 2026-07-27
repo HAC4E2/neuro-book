@@ -10,8 +10,11 @@ import type {
     AgentTriggerMenuState,
 } from "nbook/app/components/novel-ide/agent/trigger-menu";
 import type {EnabledModelOptionDto} from "nbook/shared/dto/app-settings.dto";
-import type {AgentQueuedMessageDto, AgentMode} from "nbook/shared/dto/agent-session.dto";
+import type {AgentQueuedMessageDto, AgentMode, AgentSessionAttachmentItemDto} from "nbook/shared/dto/agent-session.dto";
 import {publicValuePreviewJsonValue} from "nbook/app/components/novel-ide/agent/agent-message";
+import {agentAttachmentUrl} from "nbook/app/components/novel-ide/agent/agent-attachment";
+import type {ComposerImageNode} from "nbook/app/components/novel-ide/agent/composer-image-transaction";
+import {useComposerImageTransaction} from "nbook/app/components/novel-ide/agent/useComposerImageTransaction";
 
 const props = defineProps<{
     inputText: string;
@@ -22,6 +25,9 @@ const props = defineProps<{
     running: boolean;
     readonly?: boolean;
     readonlyReason?: string;
+    canRegisterAttachments: boolean;
+    canInsertAttachments: boolean;
+    canAbort: boolean;
     loadingSession: boolean;
     sessionModelSaving: boolean;
     sessionModelPopoverOpen: boolean;
@@ -49,6 +55,9 @@ const props = defineProps<{
     projectPath: string | null;
     historyInboxRefreshKey: string | number;
     historyInboxActive: boolean;
+    sessionId: number | null;
+    sessionAttachments: AgentSessionAttachmentItemDto[];
+    modelSupportsImages: boolean;
     resolveMenu: (context: AgentTriggerMenuContext) => AgentTriggerMenuState;
     onSkillTriggerStart?: () => void;
 }>();
@@ -90,17 +99,36 @@ const emit = defineEmits<{
     (e: "refresh-history"): void;
     (e: "open-history-inbox"): void;
     (e: "open-workspace-file", path: string): void;
+    (e: "attachment-registered", item: AgentSessionAttachmentItemDto): void;
 }>();
 
 const inputRef = ref<InstanceType<typeof AgentComposerInput> | null>(null);
 const userInputPromptRef = ref<InstanceType<typeof AgentUserInputPrompt> | null>(null);
 const {t} = useI18n();
+const imageFileInputRef = ref<HTMLInputElement | null>(null);
 const activeQuestionKey = ref("");
 const composerExpanded = ref(false);
 const activeQuestionState = ref({
     canContinue: false,
     submitButtonLabel: t("agent.composer.continue"),
 });
+
+const images = useComposerImageTransaction({
+    editor: () => inputRef.value,
+    sessionId: () => props.sessionId,
+    value: () => props.inputText,
+    sessionAttachments: () => props.sessionAttachments,
+    canRegister: () => props.canRegisterAttachments && !props.readonly && !props.pendingSession,
+    canInsert: () => props.canInsertAttachments && !props.readonly && !props.pendingSession,
+    blockedReason: () => props.pendingSession
+        ? "等待用户回答期间不能上传或插入图片。"
+        : props.readonlyReason || "当前 Session 不能上传或插入图片。",
+    projectPath: () => props.projectPath,
+    onAttachmentRegistered: (item) => emit("attachment-registered", item),
+});
+const composerGeneration = images.generation;
+const imageDocument = images.imageDocument;
+const resolvedImageItems = images.resolvedItems;
 
 const activeComposerValue = computed(() => {
     if (!props.pendingSession || !activeQuestionKey.value) {
@@ -134,7 +162,25 @@ const composerPlaceholder = computed(() => {
 });
 
 const runInputText = computed(() => props.inputText);
-const canStopReadonlyRun = computed(() => props.readonly && props.running && !runInputText.value.trim());
+const canStopReadonlyRun = computed(() => props.readonly && props.running && props.canAbort && !runInputText.value.trim());
+const composerImages = computed(() => props.pendingSession
+    ? []
+    : images.stableImages.value);
+const sessionAttachmentByTarget = computed(() => new Map(
+    [...resolvedImageItems.value, ...props.sessionAttachments].map((item) => [item.target, item]),
+));
+const documentPendingImages = computed(() => props.pendingSession
+    ? []
+    : images.pendingImages.value);
+const pendingImageCount = computed(() => documentPendingImages.value.length);
+const imageUsage = images.usage;
+const failedPendingImage = images.failed;
+const canRegisterImages = images.canRegister;
+const composerMenuRefreshKey = computed(() => [
+    props.menuRefreshKey,
+    images.menuRefreshKey.value,
+].join(":"));
+const imageCapabilityWarning = computed(() => composerImages.value.length > 0 && !props.modelSupportsImages);
 
 const sendDisabled = computed(() => {
     if (props.readonly) {
@@ -143,6 +189,18 @@ const sendDisabled = computed(() => {
     if (props.pendingSession) {
         return props.submittingUserInput || !activeQuestionState.value.canContinue;
     }
+    if (pendingImageCount.value > 0) {
+        return true;
+    }
+    if (imageUsage.value.unresolvedStable > 0) {
+        return true;
+    }
+    if (images.metadataError.value) {
+        return true;
+    }
+    if (images.budgetError.value) {
+        return true;
+    }
     if (props.running) {
         return false;
     }
@@ -150,6 +208,11 @@ const sendDisabled = computed(() => {
 });
 
 const sendIconClass = computed(() => {
+    if (pendingImageCount.value > 0) {
+        return failedPendingImage.value
+            ? "i-lucide-image-off"
+            : "i-lucide-loader-2 animate-spin";
+    }
     if (props.pendingSession && props.submittingUserInput) {
         return "i-lucide-loader-2 animate-spin";
     }
@@ -169,6 +232,20 @@ const sendIconClass = computed(() => {
 });
 
 const sendButtonTitle = computed(() => {
+    if (pendingImageCount.value > 0) {
+        return failedPendingImage.value
+            ? "请重试或移除上传失败的图片"
+            : "图片上传完成后才能发送";
+    }
+    if (imageUsage.value.unresolvedStable > 0) {
+        return "正在校验 Session 图片附件";
+    }
+    if (images.metadataError.value) {
+        return images.metadataError.value;
+    }
+    if (images.budgetError.value) {
+        return images.budgetError.value;
+    }
     if (canStopReadonlyRun.value) {
         return t("agent.composer.stop");
     }
@@ -210,24 +287,22 @@ const queuedMessageLabel = (item: AgentQueuedMessageDto): string => item.kind ==
 
 const resolveComposerMenu = (context: AgentTriggerMenuContext): AgentTriggerMenuState => {
     const state = props.resolveMenu(context);
-    if (context.kind !== "command") {
-        return state;
+    if (context.kind === "command") {
+        if (!context.hasPlainTextBeforeTrigger) {
+            return state;
+        }
+        const blockedIds = new Set(["command:compact", "command:clear", "command:new"]);
+        return {
+            ...state,
+            sections: state.sections
+                .map((section) => ({
+                    ...section,
+                    items: section.items.filter((item) => !blockedIds.has(item.id)),
+                }))
+                .filter((section) => section.items.length > 0),
+        };
     }
-
-    if (!context.hasPlainTextBeforeTrigger) {
-        return state;
-    }
-
-    const blockedIds = new Set(["command:compact", "command:clear", "command:new"]);
-    return {
-        ...state,
-        sections: state.sections
-            .map((section) => ({
-                ...section,
-                items: section.items.filter((item) => !blockedIds.has(item.id)),
-            }))
-            .filter((section) => section.items.length > 0),
-    };
+    return images.decorateMenu(context, state);
 };
 
 /**
@@ -236,6 +311,66 @@ const resolveComposerMenu = (context: AgentTriggerMenuContext): AgentTriggerMenu
 const focus = (): void => {
     inputRef.value?.focus();
 };
+
+/** 文件选择、粘贴和拖拽统一进入有序 pending 节点队列。 */
+function queueImageFiles(payload: {files: File[]; position?: number}): void {
+    images.queueFiles(payload);
+}
+
+/** 重试失败图片。 */
+function retryPendingImage(uploadId: string): void {
+    images.retry(uploadId);
+}
+
+/** 移除 pending 图片并中止请求。 */
+function removePendingImage(uploadId: string): void {
+    images.remove(uploadId);
+}
+
+function selectImageFiles(): void {
+    if (canRegisterImages.value) {
+        imageFileInputRef.value?.click();
+    }
+}
+
+function handleImageFileSelection(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    queueImageFiles({files: Array.from(input.files ?? [])});
+    input.value = "";
+}
+
+function notifyImageFilesBlocked(): void {
+    images.notifyBlocked();
+}
+
+/** 附件面板重新插入时只改正文，不创建新的 Session 登记。 */
+function insertAttachment(item: AgentSessionAttachmentItemDto): void {
+    images.insertAttachment(item);
+}
+
+function composerImageUrl(target: string): string | null {
+    const item = sessionAttachmentByTarget.value.get(target);
+    return item ? agentAttachmentUrl(props.sessionId, item.locator.entryId, item.locator.contentIndex) : null;
+}
+
+function removeComposerImage(index: number): void {
+    inputRef.value?.removeImageAt(index);
+}
+
+/** TipTap 文档变化是 pending 存在性、顺序和发送门禁的唯一输入。 */
+function handleImageDocument(nodes: ComposerImageNode[]): void {
+    if (props.pendingSession) {
+        imageDocument.value = [];
+        return;
+    }
+    images.applyDocument(nodes);
+}
+
+watch(() => props.pendingSession, (pendingSession) => {
+    if (pendingSession) {
+        images.reset();
+    }
+});
 
 /**
  * 同步输入框内容。
@@ -266,7 +401,7 @@ function setActiveQuestion(payload: {toolNodeId: string; questionIndex: number; 
  * 处理回答备注输入提交。
  */
 function submitComposer(payload?: {ctrlKey?: boolean; metaKey?: boolean}): void {
-    if (props.readonly) {
+    if (props.readonly || pendingImageCount.value > 0) {
         return;
     }
     if (props.pendingSession) {
@@ -298,7 +433,7 @@ function submitActiveQuestion(): void {
  * 处理右下角按钮点击。
  */
 function submitButton(event: MouseEvent): void {
-    if (props.readonly && !canStopReadonlyRun.value) {
+    if ((props.readonly && !canStopReadonlyRun.value) || pendingImageCount.value > 0) {
         return;
     }
     if (props.pendingSession) {
@@ -320,7 +455,7 @@ function submitButton(event: MouseEvent): void {
     emit("send");
 }
 
-defineExpose({focus});
+defineExpose({focus, insertAttachment});
 </script>
 
 <template>
@@ -362,19 +497,51 @@ defineExpose({focus});
 
         <!-- 消息输入栏 -->
         <div class="flex flex-col rounded-xl border border-[var(--border-color)] bg-[var(--bg-input)] shadow-sm transition-all focus-within:border-[var(--accent-main)] focus-within:ring-1 focus-within:ring-[var(--accent-main)]" style="--composer-radius: 0.75rem;">
+            <!-- 正文图片派生缩略图：删除只移除对应 Markdown 标记。 -->
+            <div v-if="composerImages.length > 0" class="flex min-w-0 gap-1.5 overflow-x-auto border-b border-[var(--border-color)]/50 px-2 py-1.5">
+                <div v-for="(image, index) in composerImages" :key="`${image.target}:${String(index)}`" class="group relative h-12 w-16 shrink-0 overflow-hidden rounded border border-[var(--border-color)] bg-[var(--bg-panel)]">
+                    <img v-if="composerImageUrl(image.target)" :src="composerImageUrl(image.target) || undefined" :alt="image.label" class="h-full w-full object-cover" />
+                    <div v-else class="flex h-full w-full items-center justify-center text-[var(--text-muted)]"><span class="i-lucide-image h-4 w-4"></span></div>
+                    <button type="button" class="absolute right-0.5 top-0.5 rounded bg-[var(--bg-panel)]/90 p-0.5 text-[var(--text-muted)] opacity-0 shadow-sm transition-opacity hover:text-[var(--status-danger)] group-hover:opacity-100 disabled:hidden" :disabled="props.readonly" title="从正文移除图片" @click="removeComposerImage(index)">
+                        <span class="i-lucide-x h-3 w-3"></span>
+                    </button>
+                    <div class="absolute inset-x-0 bottom-0 truncate bg-[var(--bg-panel)]/85 px-1 text-[8px] text-[var(--text-secondary)]" :title="image.label">{{ image.label }}</div>
+                </div>
+            </div>
+
+            <div v-if="imageCapabilityWarning" class="flex items-center gap-1.5 border-b border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-2 py-1 text-[10px] text-[var(--status-warning)]">
+                <span class="i-lucide-triangle-alert h-3.5 w-3.5 shrink-0"></span>
+                <span>当前模型未声明图片输入能力；仍可发送，后端会使用文本占位。</span>
+            </div>
+
+            <div v-if="images.metadataError.value" class="flex items-center gap-1.5 border-b border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-2 py-1 text-[10px] text-[var(--status-danger)]">
+                <span class="i-lucide-image-off h-3.5 w-3.5 shrink-0"></span>
+                <span class="min-w-0 flex-1 truncate" :title="images.metadataError.value">{{ images.metadataError.value }}</span>
+                <button type="button" class="rounded p-1 hover:bg-[var(--bg-hover)]" title="重新校验图片附件" @click="images.retryMetadata">
+                    <span class="i-lucide-refresh-cw h-3 w-3"></span>
+                </button>
+            </div>
+
             <AgentComposerInput
                 ref="inputRef"
                 borderless
+                :generation="composerGeneration"
                 :model-value="activeComposerValue"
                 :placeholder="composerPlaceholder"
                 :expanded="composerExpanded"
                 :readonly="props.readonly"
-                :menu-refresh-key="props.menuRefreshKey"
+                :enable-image-files="canRegisterImages"
+                :menu-refresh-key="composerMenuRefreshKey"
                 :resolve-menu="resolveComposerMenu"
                 :on-skill-trigger-start="props.onSkillTriggerStart"
                 @update:model-value="updateComposerValue"
                 @submit="submitComposer"
                 @cycle-mode="emit('cycle-mode')"
+                @image-files="queueImageFiles"
+                @image-files-blocked="notifyImageFilesBlocked"
+                @image-document="handleImageDocument"
+                @pending-image-retry="retryPendingImage"
+                @pending-image-remove="removePendingImage"
             />
 
             <div class="flex items-center justify-between border-t border-[var(--border-color)]/50 px-2 py-2">
@@ -399,6 +566,17 @@ defineExpose({focus});
                         @apply-session-model-settings="emit('apply-session-model-settings')"
                         @reset-session-model-settings="emit('reset-session-model-settings')"
                     />
+
+                    <input ref="imageFileInputRef" class="hidden" type="file" multiple accept="image/png,image/jpeg,image/gif,image/webp" @change="handleImageFileSelection" />
+                    <button
+                        type="button"
+                        class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40"
+                        :disabled="!canRegisterImages"
+                        title="选择图片（可多选，也可拖拽或粘贴）"
+                        @click="selectImageFiles"
+                    >
+                        <span class="i-lucide-image-plus h-3.5 w-3.5"></span>
+                    </button>
 
                     <button
                         class="rounded p-1.5 transition-colors hover:bg-[var(--bg-hover)]"

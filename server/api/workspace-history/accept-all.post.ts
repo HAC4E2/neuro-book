@@ -1,10 +1,8 @@
 import {z} from "zod";
 import {createError} from "h3";
-import {assertProjectOpenForTarget} from "nbook/server/workspace-files/project-open-guard";
+import {withProjectHandlesOperation} from "nbook/server/workspace-files/project-open-guard";
 import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
-import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
-import {resolveNovelWorkspaceTarget} from "nbook/server/workspace-files/novel-workspace";
-import {ensureProjectHistory, LOCAL_USER_ID} from "nbook/server/workspace-history/project-history";
+import {LOCAL_USER_ID} from "nbook/server/workspace-history/project-history";
 import {workspaceHistoryInboxRevision} from "nbook/server/workspace-history/history-inbox";
 
 const AcceptAllBodySchema = z.object({
@@ -19,18 +17,19 @@ const AcceptAllBodySchema = z.object({
 export default defineEventHandler(async (event) => {
     const body = AcceptAllBodySchema.parse(await readBody(event));
     const projectPath = normalizeProjectPath(body.projectPath);
-    const target = await resolveNovelWorkspaceTarget(runtimePathsFromEnv(), projectPath);
-    assertProjectOpenForTarget(target);
-    const history = await ensureProjectHistory(target.root, target.projectPath);
-    if (!history) {
-        throw createError({statusCode: 400, message: "文件历史未启用"});
-    }
-    const groups = await history.inbox(LOCAL_USER_ID);
-    if (workspaceHistoryInboxRevision(groups) !== body.revision) {
-        throw createError({statusCode: 412, message: "收件箱已发生新变化，请刷新后重新审查"});
-    }
-    for (const group of groups) {
-        await history.accept(LOCAL_USER_ID, group.path);
-    }
-    return {success: true, accepted: groups.length};
+    return withProjectHandlesOperation(projectPath, async (projectHandles) => {
+        await projectHandles.history.waitForWarmup();
+        const history = await projectHandles.history.history;
+        if (!history) {
+            throw createError({statusCode: 400, message: "文件历史未启用"});
+        }
+        const groups = await history.inbox(LOCAL_USER_ID);
+        if (workspaceHistoryInboxRevision(groups) !== body.revision) {
+            throw createError({statusCode: 412, message: "收件箱已发生新变化，请刷新后重新审查"});
+        }
+        for (const group of groups) {
+            await history.accept(LOCAL_USER_ID, group.path);
+        }
+        return {success: true, accepted: groups.length};
+    });
 });

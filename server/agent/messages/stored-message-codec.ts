@@ -11,7 +11,7 @@ import {assertPublicToolCallId} from "nbook/shared/agent/public-tool-identity";
 
 const ATTACHMENT_ID_PATTERN = /^sha256:[0-9a-f]{64}$/;
 const ASSISTANT_STOP_REASONS = new Set(["stop", "length", "toolUse", "error", "aborted"]);
-const FOLLOW_UP_PAUSE_REASONS = new Set(["error", "aborted", "interrupted"]);
+const FOLLOW_UP_PAUSE_REASONS = new Set(["error", "aborted", "interrupted", "admission_error"]);
 const USER_MESSAGE_KEYS = new Set(["role", "content", "timestamp"]);
 const TOOL_RESULT_MESSAGE_KEYS = new Set(["role", "toolCallId", "toolName", "content", "details", "isError", "timestamp"]);
 const ASSISTANT_MESSAGE_KEYS = new Set(["role", "content", "api", "provider", "model", "responseModel", "responseId", "diagnostics", "usage", "stopReason", "errorMessage", "timestamp"]);
@@ -42,9 +42,6 @@ export function parseStoredMessage(value: unknown): StoredAgentMessage {
     if (message.role === "user") {
         requireExactKeys(message, USER_MESSAGE_KEYS, "Stored user message 包含未声明字段。");
         requireFiniteNumber(message.timestamp, "Stored user message 缺少合法 timestamp。");
-        if (typeof message.content === "string") {
-            return value as StoredAgentMessage;
-        }
         parseStoredContentArray(message.content, "user");
         return value as StoredAgentMessage;
     }
@@ -81,16 +78,11 @@ export function parseStoredMessages(value: unknown): StoredAgentMessage[] {
 /** 严格解析 admission 后的用户输入引用态。 */
 export function parseStoredInput(value: unknown): StoredAgentUserMessageInput {
     const input = objectValue(value, "Stored user input 必须是对象。");
-    requireExactKeys(input, new Set(["text", "attachments"]), "Stored user input 包含未声明字段。");
-    requireString(input.text, "Stored user input 缺少 text。");
-    if (input.attachments !== undefined) {
-        if (!Array.isArray(input.attachments)) {
-            corrupt("Stored user input attachments 必须是数组。");
-        }
-        for (const attachment of input.attachments) {
-            parseStoredAttachment(attachment);
-        }
+    requireExactKeys(input, new Set(["content"]), "Stored user input 包含未声明字段。");
+    if (!Array.isArray(input.content)) {
+        corrupt("Stored user input content 必须是数组。");
     }
+    parseStoredContentArray(input.content, "user");
     return value as StoredAgentUserMessageInput;
 }
 
@@ -123,9 +115,11 @@ export function encodeFollowUpQueue(value: StoredFollowUpQueueState): JsonValue 
     const queue = parseFollowUpQueue(value);
     const items: JsonValue[] = queue.items.map((item) => ({
         id: item.id,
+        clientMessageId: item.clientMessageId,
         kind: item.kind,
         ...(item.message ? {message: encodeStoredInput(item.message)} : {}),
         ...(item.input === undefined ? {} : {input: item.input}),
+        ...(item.modelKey === undefined ? {} : {modelKey: item.modelKey}),
         createdAt: item.createdAt,
     }));
     if (queue.status === "ready") {
@@ -135,7 +129,9 @@ export function encodeFollowUpQueue(value: StoredFollowUpQueueState): JsonValue 
         status: "paused",
         pausedBy: {
             invocationId: queue.pausedBy.invocationId,
+            ...(queue.pausedBy.itemId === undefined ? {} : {itemId: queue.pausedBy.itemId}),
             reason: queue.pausedBy.reason,
+            ...(queue.pausedBy.message === undefined ? {} : {message: queue.pausedBy.message}),
         },
         items,
     };
@@ -143,7 +139,7 @@ export function encodeFollowUpQueue(value: StoredFollowUpQueueState): JsonValue 
 
 function parseStoredContentArray(value: unknown, owner: "user" | "toolResult"): void {
     if (!Array.isArray(value)) {
-        corrupt(`Stored ${owner} content 必须是 string 或数组。`);
+        corrupt(`Stored ${owner} content 必须是数组。`);
     }
     for (const block of value) {
         const content = objectValue(block, `Stored ${owner} content block 必须是对象。`);
@@ -166,7 +162,8 @@ function parseStoredContentArray(value: unknown, owner: "user" | "toolResult"): 
     }
 }
 
-function parseStoredAttachment(value: unknown): StoredAttachmentContent {
+/** 严格解析单个 stored attachment block，供 projection entry 复用同一不变量。 */
+export function parseStoredAttachment(value: unknown): StoredAttachmentContent {
     const block = objectValue(value, "Stored attachment block 必须是对象。");
     requireExactKeys(block, new Set(["type", "attachment", "name"]), "Stored attachment block 包含未声明字段。");
     if (block.type !== "attachment") {
@@ -271,8 +268,9 @@ function parseAssistantMessage(message: Record<string, unknown>): void {
 
 function parseFollowUpQueueItem(value: unknown): StoredFollowUpQueueItem {
     const item = objectValue(value, "Stored follow-up item 必须是对象。");
-    requireExactKeys(item, new Set(["id", "kind", "message", "input", "createdAt"]), "Stored follow-up item 包含未声明字段。");
+    requireExactKeys(item, new Set(["id", "clientMessageId", "kind", "message", "input", "modelKey", "createdAt"]), "Stored follow-up item 包含未声明字段。");
     requireString(item.id, "Stored follow-up item 缺少 id。");
+    requireString(item.clientMessageId, "Stored follow-up item 缺少 clientMessageId。");
     if (item.kind !== "followup") {
         corrupt("Stored follow-up item kind 非法。");
     }
@@ -283,42 +281,56 @@ function parseFollowUpQueueItem(value: unknown): StoredFollowUpQueueItem {
     if (item.input !== undefined && !isJsonValue(item.input)) {
         corrupt("Stored follow-up item input 不是 JSON value。");
     }
+    if (item.modelKey !== undefined) {
+        requireString(item.modelKey, "Stored follow-up item modelKey 非法。");
+        if (!item.modelKey.trim()) {
+            corrupt("Stored follow-up item modelKey 不能为空。");
+        }
+    }
     requireFiniteNumber(item.createdAt, "Stored follow-up item createdAt 非法。");
     return {
         id: item.id,
+        clientMessageId: item.clientMessageId,
         kind: "followup",
         ...(message ? {message} : {}),
         ...(item.input === undefined ? {} : {input: item.input}),
+        ...(item.modelKey === undefined ? {} : {modelKey: item.modelKey}),
         createdAt: item.createdAt,
     };
 }
 
 function parseFollowUpQueuePause(value: unknown): StoredFollowUpQueuePause {
     const pause = objectValue(value, "Paused follow-up queue 缺少 pausedBy。");
-    requireExactKeys(pause, new Set(["invocationId", "reason"]), "Stored follow-up pausedBy 包含未声明字段。");
+    requireExactKeys(pause, new Set(["invocationId", "itemId", "reason", "message"]), "Stored follow-up pausedBy 包含未声明字段。");
     requireString(pause.invocationId, "Stored follow-up pausedBy 缺少 invocationId。");
+    if (pause.itemId !== undefined) {
+        requireString(pause.itemId, "Stored follow-up pausedBy itemId 非法。");
+    }
     if (typeof pause.reason !== "string" || !FOLLOW_UP_PAUSE_REASONS.has(pause.reason)) {
         corrupt("Stored follow-up pausedBy reason 非法。");
     }
     return {
         invocationId: pause.invocationId,
+        ...(pause.itemId === undefined ? {} : {itemId: pause.itemId}),
         reason: pause.reason as StoredFollowUpQueuePause["reason"],
+        ...(typeof pause.message === "string" ? {message: pause.message} : {}),
     };
 }
 
 function encodeStoredInput(value: StoredAgentUserMessageInput): JsonValue {
     const input = parseStoredInput(value);
     return {
-        text: input.text,
-        ...(input.attachments ? {attachments: input.attachments.map((block) => ({
-            type: "attachment",
-            attachment: {
-                id: block.attachment.id,
-                mimeType: block.attachment.mimeType,
-                bytes: block.attachment.bytes,
-            },
-            ...(block.name === undefined ? {} : {name: block.name}),
-        }))} : {}),
+        content: input.content.map((block): JsonValue => block.type === "text"
+            ? {type: "text", text: block.text}
+            : {
+                type: "attachment",
+                attachment: {
+                    id: block.attachment.id,
+                    mimeType: block.attachment.mimeType,
+                    bytes: block.attachment.bytes,
+                },
+                ...(block.name === undefined ? {} : {name: block.name}),
+            }),
     };
 }
 

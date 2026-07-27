@@ -1,11 +1,17 @@
 import {randomUUID} from "node:crypto";
 import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
-import {afterEach, beforeEach, describe, expect, it} from "vitest";
-import {fauxAssistantMessage, fauxText, fauxToolCall} from "@earendil-works/pi-ai";
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
+import {
+    fauxAssistantMessage,
+    fauxText,
+    fauxToolCall,
+    type AssistantMessageEvent,
+    type AssistantMessageEventStream,
+} from "@earendil-works/pi-ai";
 import {createFauxModels, fauxProviderConfig, type FauxModelsFixture} from "nbook/server/agent/test-utils/faux-models";
 import {Type} from "typebox";
-import type {Static, TSchema} from "typebox";
+import type {TSchema} from "typebox";
 import {Value} from "typebox/value";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import type {ResolvedPiModel} from "nbook/server/agent/harness/pi-model-metadata";
@@ -17,27 +23,27 @@ import {defineLowCodeForm} from "nbook/server/low-code-form";
 import {defineProfileHome} from "nbook/server/agent/profiles/profile-home";
 import type {ProfileTools} from "nbook/server/agent/profiles/profile-tools";
 import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
-import type {AgentCatalogSnapshot, AgentProfile, AgentProfileDefinition, SidecarProfilePass} from "nbook/server/agent/profiles/types";
+import type {AgentCatalogSnapshot, AgentProfile, AgentProfileDefinition} from "nbook/server/agent/profiles/types";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
-import simulatorActorProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/simulator.actor.profile";
 import {createAssistantTextMessage, createTextToolResult, createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 import type {StoredAgentMessage, StoredToolResultMessage} from "nbook/server/agent/messages/stored-types";
 import {storedMessageText} from "nbook/server/agent/messages/stored-message-presentation";
 import {HistorySet, Message, ModelContext, ProfilePrompt, Reminder, System} from "nbook/server/agent/profiles/profile-dsl";
-import type {AgentMessage, JsonValue, Message as RuntimeMessage, Usage} from "nbook/server/agent/messages/types";
+import type {AgentMessage, Message as RuntimeMessage, Usage} from "nbook/server/agent/messages/types";
 import type {AgentSessionEventDto} from "nbook/shared/dto/agent-session.dto";
 import type {PublishedAgentSessionEvent} from "nbook/server/agent/events/session-event-hub";
 import {AGENT_MODE_STATE_KEY, AGENT_PENDING_USER_RESOLUTION_STATE_PREFIX, AGENT_TASKS_STATE_KEY, SESSION_SUMMARIZER_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
 import {defineSessionVariable} from "nbook/server/agent/variables/registry";
+import {compileVariableDefinitions} from "nbook/server/agent/variables/definition-artifact";
 import type {VariablePatchAck, VariablePatchRequest} from "nbook/server/agent/variables/types";
-import {openProject, ProjectNotOpenError} from "nbook/server/workspace-files/project-session";
+import {closeAllProjects, openProject, projectOccupancy, ProjectNotOpenError, resetProjectSessionsForTest} from "nbook/server/workspace-files/project-session";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
+import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
+import {projectModuleToken, replaceProjectModulesForTest, type ProjectModule, type ProjectModuleHandle} from "nbook/server/workspace-files/project-module";
 import {withWorkspaceRuntimeRootContextForTest} from "nbook/server/workspace-files/workspace-runtime-root";
+import {serializeAgentImageMarkdown} from "nbook/shared/agent/agent-image-markdown";
 
-type LegacyTestSidecar<TInput = JsonValue> = Omit<SidecarProfilePass<TInput, JsonValue>, "toolKeys"> & {
-    toolKeys?: readonly string[];
-    allowedToolKeys?: readonly string[];
-};
+const PNG_BYTES = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 type LegacyTestProfile<
     TInitialSchema extends TSchema = TSchema,
@@ -45,12 +51,11 @@ type LegacyTestProfile<
     TOutputSchema extends TSchema = TSchema,
     TSummarizerKey extends string = string,
     TTools extends ProfileTools = ProfileTools,
-> = Omit<AgentProfileDefinition<TInitialSchema, TPayloadSchema, TOutputSchema, undefined, TSummarizerKey, TTools>, "tools" | "toolKeys" | "sidecars"> & {
+> = Omit<AgentProfileDefinition<TInitialSchema, TPayloadSchema, TOutputSchema, undefined, TSummarizerKey, TTools>, "tools" | "toolKeys"> & {
     tools?: ProfileTools;
     allowedToolKeys?: readonly string[];
     mainRunAllowedToolKeys?: readonly string[];
     toolKeys?: readonly string[];
-    sidecars?: readonly LegacyTestSidecar<Static<TInitialSchema>>[];
 };
 
 function defineAgentProfile<
@@ -63,31 +68,14 @@ function defineAgentProfile<
     const {
         allowedToolKeys,
         mainRunAllowedToolKeys,
-        sidecars,
         toolKeys,
         ...rest
     } = profile;
-    const migratedSidecars = sidecars?.map((sidecar) => {
-        const {
-            allowedToolKeys: sidecarAllowedToolKeys,
-            ...sidecarRest
-        } = sidecar;
-        const legacyToolKeys = sidecarRest.toolKeys ?? sidecarAllowedToolKeys;
-        return {
-            ...sidecarRest,
-            toolKeys: legacyToolKeys?.map((toolKey) => toolKey === "report_result" ? "report_sidecar_result" : toolKey),
-        };
-    });
     const migratedAllowedToolKeys = [...allowedToolKeys ?? []];
-    if (!rest.tools && migratedSidecars?.some((sidecar) => sidecar.toolKeys?.includes("report_sidecar_result")) && !migratedAllowedToolKeys.includes("report_sidecar_result")) {
-        migratedAllowedToolKeys.push("report_sidecar_result");
-    }
     return defineRuntimeAgentProfile({
         ...rest,
         tools: rest.tools ?? profileToolsFromKeys(migratedAllowedToolKeys),
         toolKeys: toolKeys ?? mainRunAllowedToolKeys,
-        // 测试 helper 只做旧字段到新字段的机械迁移，最终运行时校验仍由 defineRuntimeAgentProfile 负责。
-        sidecars: migratedSidecars as AgentProfileDefinition<TInitialSchema, TPayloadSchema, TOutputSchema, undefined, TSummarizerKey, TTools>["sidecars"],
     });
 }
 
@@ -105,6 +93,39 @@ function usage(input: number, output: number, cacheRead = 0, cacheWrite = 0): Us
             cacheWrite,
             total: input + output + cacheRead + cacheWrite,
         },
+    };
+}
+
+/** 构造 provider iterator / result 各自拒绝的最小 stream，锁定 Harness 错误收口边界。 */
+function brokenProviderStream(kind: "iterator" | "result"): AssistantMessageEventStream {
+    if (kind === "iterator") {
+        return {
+            [Symbol.asyncIterator]: () => ({
+                next: async (): Promise<IteratorResult<AssistantMessageEvent>> => {
+                    throw new Error("provider iterator exploded");
+                },
+            }),
+            result: async () => {
+                throw new Error("provider iterator exploded");
+            },
+        } as unknown as AssistantMessageEventStream;
+    }
+    return {
+        [Symbol.asyncIterator]: () => ({
+            next: async (): Promise<IteratorResult<AssistantMessageEvent>> => ({done: true, value: undefined}),
+        }),
+        result: async () => {
+            throw new Error("provider stream.result exploded");
+        },
+    } as unknown as AssistantMessageEventStream;
+}
+
+/** 使用正常 faux model 元数据，仅替换 runtime stream，保持 Harness 真实解析链。 */
+function installBrokenProviderStream(faux: FauxModelsFixture, kind: "iterator" | "result"): () => void {
+    const original = faux.runtime.streamSimple;
+    faux.runtime.streamSimple = () => brokenProviderStream(kind);
+    return () => {
+        faux.runtime.streamSimple = original;
     };
 }
 
@@ -404,6 +425,53 @@ describe("NeuroAgentHarness", () => {
         expect(result.errorInfo?.message).toBe(result.error);
         expect(Buffer.byteLength(result.error ?? "", "utf8")).toBeLessThan(16 * 1024);
         expect(Buffer.byteLength(JSON.stringify(result), "utf8")).toBeLessThan(96 * 1024);
+    });
+
+    it.each(["iterator", "result"] as const)("provider %s rejection 释放 admission 并只写一个 error lifecycle", async (kind) => {
+        await harness.dispose();
+        const restoreProvider = installBrokenProviderStream(faux, kind);
+        harness = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: false,
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {key: "test.provider-rejection", name: "Provider Rejection"},
+            initialSchema: Type.Object({}),
+            allowedToolKeys: [],
+            prepare() {
+                return {};
+            },
+        }), false);
+        const created = await harness.createAgent({
+            profileKey: "test.provider-rejection",
+            initial: {},
+            workspaceRoot: root,
+        });
+
+        const failed = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: `provider ${kind} failure`},
+        });
+        expect(failed.status).toBe("error");
+        expect(failed.error).toContain(kind === "iterator" ? "provider iterator exploded" : "provider stream.result exploded");
+
+        const failedSnapshot = await harness.repo.readSession(created.sessionId);
+        const errorLifecycles = failedSnapshot.entries.filter((entry) => entry.type === "invocation_lifecycle" && entry.status === "error");
+        expect(errorLifecycles).toHaveLength(1);
+
+        restoreProvider();
+        faux.setResponses([fauxAssistantMessage("recovered")]);
+        await expect(harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "retry after provider failure"},
+        })).resolves.toMatchObject({status: "completed"});
+        const recoveredSnapshot = await harness.repo.readSession(created.sessionId);
+        expect(recoveredSnapshot.entries.filter((entry) => entry.type === "invocation_lifecycle" && entry.status === "error")).toHaveLength(1);
+        expect(recoveredSnapshot.entries.filter((entry) => entry.type === "invocation_lifecycle" && entry.status === "end")).toHaveLength(1);
     });
 
     it("大 invocation payload 校验错误不会撑大 InvokeAgentResult", async () => {
@@ -1643,23 +1711,28 @@ describe("NeuroAgentHarness", () => {
         ]);
         await restored.drainBackgroundTasks();
 
-        const fulfilled = results.filter((result): result is PromiseFulfilledResult<Awaited<ReturnType<NeuroAgentHarness["invokeAgent"]>>> => result.status === "fulfilled");
-        const rejected = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+        const completed = results.filter((result) => result.status === "fulfilled" && result.value.status === "completed");
+        const notAccepted = results.filter((result) => result.status === "fulfilled" && result.value.status === "error");
         const snapshot = await restored.repo.readSession(created.sessionId);
         const context = restored.repo.reduce(snapshot);
         const resolutionMessages = context.messages.filter((message) => message.role === "toolResult" && messageText(message as never).includes("Alice"));
         const resumedLifecycles = snapshot.entries.filter((entry) => entry.type === "invocation_lifecycle" && entry.invocationId === waiting.invocationId && entry.status === "resumed");
 
-        expect(fulfilled).toHaveLength(1);
-        expect(rejected).toHaveLength(1);
-        expect(String(rejected[0]?.reason instanceof Error ? rejected[0].reason.message : rejected[0]?.reason)).toContain("waiting_invocation_not_recoverable");
-        expect(fulfilled[0]?.value.invocationId).toBe(waiting.invocationId);
+        expect(completed).toHaveLength(1);
+        expect(notAccepted).toHaveLength(1);
+        expect(notAccepted[0]).toMatchObject({
+            value: {
+                acceptance: {state: "none"},
+                error: "当前 Session 状态不允许执行该操作。",
+            },
+        });
+        expect(completed[0]).toMatchObject({value: {invocationId: waiting.invocationId}});
         expect(resolutionMessages).toHaveLength(1);
         expect(resumedLifecycles).toHaveLength(1);
     }, 120_000);
 
-    it("pending approval 没有可靠 waiting lifecycle 时拒绝 resolution", async () => {
-        harness.profiles.register(defineAgentProfile({
+    it("pending approval 没有可靠 waiting lifecycle 时返回未接受", async () => {
+        const profile = defineAgentProfile({
             manifest: {
                 key: "test.approval-unrecoverable",
                 name: "Approval Unrecoverable",
@@ -1669,7 +1742,8 @@ describe("NeuroAgentHarness", () => {
             prepare() {
                 return {};
             },
-        }), false);
+        });
+        harness.profiles.register(profile, false);
         faux.setResponses([
             fauxAssistantMessage([
                 fauxToolCall("request_user_input", {
@@ -1694,12 +1768,14 @@ describe("NeuroAgentHarness", () => {
         });
         const restored = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
+            profiles: new AgentProfileCatalog(join(root, "restored-system-profiles"), join(root, "restored-user-profiles")),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
         });
+        restored.profiles.register(profile, false);
 
-        await expect(restored.invokeAgent({
+        const rejected = await restored.invokeAgent({
             sessionId: created.sessionId,
             mode: "continue",
             resolution: {
@@ -1707,7 +1783,12 @@ describe("NeuroAgentHarness", () => {
                 toolCallId: "ask-unrecoverable",
                 answers: [{questionIndex: 0, text: "继续"}],
             },
-        })).rejects.toThrow("waiting_invocation_not_recoverable");
+        });
+        expect(rejected).toMatchObject({
+            status: "error",
+            acceptance: {state: "none"},
+            error: "当前 Session 状态不允许执行该操作。",
+        });
         await restored.drainBackgroundTasks();
     }, 120_000);
 
@@ -1764,7 +1845,7 @@ describe("NeuroAgentHarness", () => {
         }));
     });
 
-    it("后端恢复 waiting 后 abort 和 resolution 并发只能有一个 claim 成功", async () => {
+    it("后端恢复 waiting 后 abort 和 resolution 并发只产生一份 resolution 与 aborted 终态", async () => {
         const profile = defineAgentProfile({
             manifest: {
                 key: "test.approval-abort-resolution-race",
@@ -1822,23 +1903,25 @@ describe("NeuroAgentHarness", () => {
         ]);
         await restored.drainBackgroundTasks();
 
-        const fulfilled = results.filter((result) => result.status === "fulfilled");
-        const rejected = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
         const snapshot = await restored.repo.readSession(created.sessionId);
         const context = restored.repo.reduce(snapshot);
         const resolutionMessages = context.messages.filter((message) => {
             return message.role === "toolResult" && message.toolCallId === "ask-abort-resolution-race";
         });
-        const terminalLifecycles = snapshot.entries.filter((entry) => {
+        const terminalStatuses = snapshot.entries.flatMap((entry) => {
             return entry.type === "invocation_lifecycle"
                 && entry.invocationId === waiting.invocationId
-                && (entry.status === "resumed" || entry.status === "aborted");
+                && (entry.status === "resumed" || entry.status === "aborted")
+                ? [entry.status]
+                : [];
         });
 
-        expect(fulfilled).toHaveLength(1);
-        expect(rejected).toHaveLength(1);
+        expect(results[0]).toMatchObject({status: "fulfilled", value: {status: "aborted"}});
+        expect(results[1]).toMatchObject({status: "fulfilled", value: {status: "error"}});
         expect(resolutionMessages).toHaveLength(1);
-        expect(terminalLifecycles).toHaveLength(1);
+        expect(terminalStatuses.filter((status) => status === "resumed").length).toBeLessThanOrEqual(1);
+        expect(terminalStatuses.filter((status) => status === "aborted")).toHaveLength(1);
+        expect(terminalStatuses.at(-1)).toBe("aborted");
     }, 45_000);
 
     it("新 harness 对未完成普通 running snapshot 投影为 interrupted", async () => {
@@ -2058,6 +2141,7 @@ describe("NeuroAgentHarness", () => {
             .filter((record) => record.kind === "batch")
             .map((record) => record.entries?.filter((entry) => entry.type === "message").map((entry) => entry.message?.role));
         expect(turnBatches).toEqual([
+            ["user"],
             ["assistant", "toolResult"],
             ["assistant"],
         ]);
@@ -2127,6 +2211,7 @@ describe("NeuroAgentHarness", () => {
             .flatMap((record) => record.entries ?? [])
             .filter((entry) => entry.type !== "leaf");
         expect(batchEntries.map((entry) => entry.type === "message" ? entry.message?.role : entry.key)).toEqual([
+            "user",
             "assistant",
             "toolResult",
             "test.tool.savePoint",
@@ -2275,6 +2360,7 @@ describe("NeuroAgentHarness", () => {
             .flatMap((record) => record.entries ?? [])
             .filter((entry) => entry.type !== "leaf");
         expect(batchEntries.map((entry) => entry.type === "message" ? entry.message?.role : entry.key)).toEqual([
+            "user",
             "assistant",
             "toolResult",
             "toolResult",
@@ -2628,163 +2714,6 @@ describe("NeuroAgentHarness", () => {
         expect(result.status).toBe("error");
         expect(result.errorInfo?.message).toContain("已关闭 Compaction");
         expect(result.errorInfo?.message).toContain("超过模型");
-    }, 30_000);
-
-    it("prepareRun sidecar 注入后超出模型窗口时不会进入主 provider", async () => {
-        let mainProviderCalls = 0;
-        const smallWindowHarness = new NeuroAgentHarness({
-            repo: harness.repo,
-            modelResolver: () => ({
-                ...faux.getModel(),
-                contextWindow: 1,
-            }),
-            runtimeResolver: () => faux.runtime,
-            enableSessionSummarizer: false,
-        });
-        harness = smallWindowHarness;
-        harness.profiles.register(defineAgentProfile({
-            manifest: {
-                key: "test.sidecar-overflow",
-                name: "Sidecar Overflow",
-            },
-            initialSchema: Type.Object({}),
-            allowedToolKeys: ["report_result"],
-            sidecars: [{
-                name: "actor.context-load",
-                stage: "prepareRun",
-                allowedToolKeys: ["report_result"],
-                sidecarDataSchema: Type.Object({}),
-                enterPrompt: "检索并整理本轮 actor 可知设定。",
-                merge() {
-                    return {
-                        persistedMessages: [
-                            createUserMessage({text: "this persisted sidecar context is too large for the tiny window"}),
-                        ],
-                    };
-                },
-            }],
-            prepare() {
-                return {};
-            },
-        }), false);
-        faux.setResponses([
-            () => fauxAssistantMessage([
-                fauxToolCall("report_sidecar_result", {
-                    result: "loaded",
-                    data: {
-                        "actor.context-load": {},
-                    },
-                }, {id: "sidecar-report"}),
-            ], {stopReason: "toolUse"}),
-            () => {
-                mainProviderCalls += 1;
-                return fauxAssistantMessage("main should not run");
-            },
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "test.sidecar-overflow",
-            initial: {},
-            workspaceRoot: root,
-        });
-
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "run"},
-        });
-        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
-
-        expect(result.status).toBe("error");
-        expect(result.errorInfo?.message).toContain("超过模型");
-        expect(mainProviderCalls).toBe(0);
-        expect(visibleMessageText(context.messages)).toContain("this persisted sidecar context is too large");
-    }, 30_000);
-
-    it("prepareRun sidecar 注入超窗后不会继续执行后续 sidecar", async () => {
-        let secondSidecarCalls = 0;
-        const smallWindowHarness = new NeuroAgentHarness({
-            repo: harness.repo,
-            modelResolver: () => ({
-                ...faux.getModel(),
-                contextWindow: 1,
-            }),
-            runtimeResolver: () => faux.runtime,
-            enableSessionSummarizer: false,
-        });
-        harness = smallWindowHarness;
-        harness.profiles.register(defineAgentProfile({
-            manifest: {
-                key: "test.sidecar-overflow-before-next-sidecar",
-                name: "Sidecar Overflow Before Next Sidecar",
-            },
-            initialSchema: Type.Object({}),
-            allowedToolKeys: ["report_result"],
-            sidecars: [
-                {
-                    name: "actor.context-load",
-                    stage: "prepareRun",
-                    allowedToolKeys: ["report_result"],
-                    sidecarDataSchema: Type.Object({}),
-                    enterPrompt: "检索并整理本轮 actor 可知设定。",
-                    merge() {
-                        return {
-                            persistedMessages: [
-                                createUserMessage({text: "the first sidecar injects too much context for the tiny window"}),
-                            ],
-                        };
-                    },
-                },
-                {
-                    name: "actor.second-context-load",
-                    stage: "prepareRun",
-                    allowedToolKeys: ["report_result"],
-                    sidecarDataSchema: Type.Object({}),
-                    enterPrompt: "第二个 sidecar 不应该执行。",
-                    merge() {
-                        return {};
-                    },
-                },
-            ],
-            prepare() {
-                return {};
-            },
-        }), false);
-        faux.setResponses([
-            () => fauxAssistantMessage([
-                fauxToolCall("report_sidecar_result", {
-                    result: "loaded",
-                    data: {
-                        "actor.context-load": {},
-                    },
-                }, {id: "first-sidecar-report"}),
-            ], {stopReason: "toolUse"}),
-            () => {
-                secondSidecarCalls += 1;
-                return fauxAssistantMessage([
-                    fauxToolCall("report_sidecar_result", {
-                        result: "second",
-                        data: {
-                            "actor.second-context-load": {},
-                        },
-                    }, {id: "second-sidecar-report"}),
-                ], {stopReason: "toolUse"});
-            },
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "test.sidecar-overflow-before-next-sidecar",
-            initial: {},
-            workspaceRoot: root,
-        });
-
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "run"},
-        });
-
-        expect(result.status).toBe("error");
-        expect(result.errorInfo?.message).toContain("sidecar actor.context-load 注入后上下文");
-        expect(secondSidecarCalls).toBe(0);
     }, 30_000);
 
     it("profile reasoningEffort 会传给支持 reasoning 的模型", async () => {
@@ -3207,6 +3136,75 @@ describe("NeuroAgentHarness", () => {
             providerConfigId: "default-provider",
             modelId: "default-command-model",
         });
+
+    });
+
+    it("invoke modelKey 只覆盖本次运行，下一次恢复 session 默认模型", async () => {
+        const defaultModel = {
+            ...faux.getModel(),
+            id: "invoke-default-model",
+            name: "Invoke Default Model",
+            provider: "faux",
+            providerConfigId: "faux",
+        };
+        const overrideModel = {
+            ...faux.getModel(),
+            id: "invoke-override-model",
+            name: "Invoke Override Model",
+            provider: "faux",
+            providerConfigId: "faux",
+        };
+        const runtimeModelIds: string[] = [];
+        harness = new NeuroAgentHarness({
+            repo: harness.repo,
+            profiles: harness.profiles,
+            modelResolver: (_config, _profileKey, override) => {
+                if (override?.modelKey === "faux/invoke-override-model") return overrideModel;
+                if (!override?.modelKey || override.modelKey === "faux/invoke-default-model") return defaultModel;
+                throw new Error(`模型未启用或不存在：${override.modelKey}`);
+            },
+            runtimeResolver: (_config, model) => {
+                runtimeModelIds.push(model.id);
+                return faux.runtime;
+            },
+            enableSessionSummarizer: false,
+        });
+        faux.setResponses([
+            fauxAssistantMessage("override done"),
+            fauxAssistantMessage("default done"),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+
+        const overridden = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "use override"},
+            modelKey: "faux/invoke-override-model",
+        });
+
+        expect(overridden.status).toBe("completed");
+        expect(harness.repo.reduce(await harness.repo.readSession(created.sessionId)).model).toEqual({
+            providerConfigId: "faux",
+            modelId: "invoke-default-model",
+        });
+
+        const restored = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "use session default"},
+        });
+
+        expect(restored.status).toBe("completed");
+        expect(runtimeModelIds).toEqual(["invoke-override-model", "invoke-default-model"]);
+        const modelChanges = (await harness.repo.readSession(created.sessionId)).entries.filter((entry) => entry.type === "model_change");
+        expect(modelChanges).toHaveLength(1);
+        expect(modelChanges[0]).toEqual(expect.objectContaining({
+            model: {providerConfigId: "faux", modelId: "invoke-default-model"},
+        }));
     });
 
     it("已删除的session模型不回退默认模型并只阻断当前session", async () => {
@@ -4000,1553 +3998,6 @@ describe("NeuroAgentHarness", () => {
         });
     });
 
-    it("prepareRun sidecar 可以注入主 run runtime context，且旁路 transcript 只落 side branch", async () => {
-        const providerPrompts: string[] = [];
-        harness.profiles.register(defineAgentProfile({
-            manifest: {
-                key: "test.sidecar-context-load",
-                name: "Sidecar Context Load",
-            },
-            initialSchema: Type.Object({}),
-            allowedToolKeys: ["report_result"],
-            sidecars: [{
-                name: "actor.context-load",
-                stage: "prepareRun",
-                allowedToolKeys: ["report_result"],
-                sidecarDataSchema: Type.Object({
-                    context: Type.String(),
-                }),
-                enterPrompt: "检索并整理本轮 actor 可知设定。",
-                merge(ctx, result) {
-                    const sidecarData = result.sidecarData as {context: string};
-                    return {
-                        runtimeMessages: [
-                            createUserMessage({text: `ACTOR_SAFE_CONTEXT:${sidecarData.context}`}),
-                            createUserMessage({text: `SIDECAR_CALLER:${ctx.caller.kind}`}),
-                        ],
-                    };
-                },
-            }],
-            prepare() {
-                return {};
-            },
-        }), false);
-        faux.setResponses([
-            (context) => {
-                providerPrompts.push(context.messages.map((message) => messageText(message as RuntimeMessage)).join("\n"));
-                return fauxAssistantMessage([
-                    fauxToolCall("report_sidecar_result", {
-                        result: "loaded",
-                        data: {
-                            "actor.context-load": {
-                                context: "SAFE_LORE",
-                            },
-                        },
-                    }, {id: "sidecar-report"}),
-                ], {stopReason: "toolUse"});
-            },
-            (context) => {
-                providerPrompts.push(context.messages.map((message) => messageText(message as RuntimeMessage)).join("\n"));
-                return fauxAssistantMessage([
-                    fauxText("main done"),
-                    fauxToolCall("report_result", {
-                        result: "main",
-                    }, {id: "main-report"}),
-                ], {stopReason: "toolUse"});
-            },
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "test.sidecar-context-load",
-            initial: {},
-            workspaceRoot: root,
-        });
-        const subscription = harness.subscribeSessionEvents(created.sessionId);
-        const publicRuntimeTypes: string[] = [];
-        const collector = (async () => {
-            for await (const published of subscription) {
-                if (published.payload.kind !== "runtime") {
-                    continue;
-                }
-                publicRuntimeTypes.push(published.payload.event.type);
-                if (published.payload.event.type === "agent_end") {
-                    return;
-                }
-            }
-        })();
-
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "run"},
-        });
-        subscription.close();
-        await collector;
-        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
-        const snapshot = await harness.repo.readSession(created.sessionId);
-        const sidecarEntry = snapshot.entries.find((entry) => {
-            return entry.type === "message" && messageText(entry.message).includes("sidecar: actor.context-load");
-        });
-        const sidecarReportEntry = snapshot.entries.find((entry) => {
-            return entry.type === "message" && messageText(entry.message).includes("loaded");
-        });
-
-        expect(result).toEqual(expect.objectContaining({status: "completed"}));
-        expect(result.reportResult).toEqual({result: "main"});
-        expect(providerPrompts[0]).toContain("sidecar: actor.context-load");
-        expect(providerPrompts[1]).toContain("ACTOR_SAFE_CONTEXT:SAFE_LORE");
-        expect(providerPrompts[1]).toContain("SIDECAR_CALLER:sidecar");
-        expect(context.messages.map((message) => message.role)).toEqual(["user", "assistant", "toolResult"]);
-        expect(visibleMessageText(context.messages)).not.toContain("SAFE_LORE");
-        expect(visibleMessageText(context.messages)).not.toContain("loaded");
-        expect(sidecarEntry).toEqual(expect.objectContaining({type: "message", origin: "harness"}));
-        expect(sidecarReportEntry).toEqual(expect.objectContaining({type: "message", origin: "harness"}));
-        expect(publicRuntimeTypes.filter((type) => type.startsWith("sidecar"))).toEqual([]);
-    }, 30_000);
-
-    it("prepareRun sidecar 多轮 transcript parent 不会被 savePoint write 覆盖", async () => {
-        harness.tools.register({
-            key: "sidecar_save_point_state",
-            name: "sidecar_save_point_state",
-            label: "Sidecar Save Point State",
-            description: "Writes custom state from sidecar.",
-            parameters: Type.Object({}),
-            async execute() {
-                return {
-                    content: [{type: "text", text: "missing context"}],
-                    details: {},
-                    terminate: false,
-                };
-            },
-            async executeWithContext(context) {
-                context.sessionWrites?.savePointCustomState("test.sidecar.savePointState", "test.sidecar.savePoint", "queued");
-                return {
-                    content: [{type: "text", text: "queued"}],
-                    details: {},
-                    terminate: false,
-                };
-            },
-        });
-        harness.profiles.register(defineAgentProfile({
-            manifest: {
-                key: "test.sidecar-savepoint-parent",
-                name: "Sidecar SavePoint Parent",
-            },
-            initialSchema: Type.Object({}),
-            allowedToolKeys: ["report_result", "sidecar_save_point_state"],
-            sidecars: [{
-                name: "actor.context-load",
-                stage: "prepareRun",
-                allowedToolKeys: ["report_result", "sidecar_save_point_state"],
-                sidecarDataSchema: Type.Object({
-                    context: Type.String(),
-                }),
-                enterPrompt: "加载上下文。",
-                merge() {
-                    return {};
-                },
-            }],
-            prepare() {
-                return {};
-            },
-        }), false);
-        faux.setResponses([
-            fauxAssistantMessage([
-                fauxToolCall("sidecar_save_point_state", {}, {id: "sidecar-savepoint"}),
-            ], {stopReason: "toolUse"}),
-            fauxAssistantMessage([
-                fauxToolCall("report_sidecar_result", {
-                    result: "loaded",
-                    data: {
-                        "actor.context-load": {
-                            context: "ok",
-                        },
-                    },
-                }, {id: "sidecar-report"}),
-            ], {stopReason: "toolUse"}),
-            fauxAssistantMessage([
-                fauxToolCall("report_result", {
-                    result: "main",
-                }, {id: "main-report"}),
-            ], {stopReason: "toolUse"}),
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "test.sidecar-savepoint-parent",
-            initial: {},
-            workspaceRoot: root,
-        });
-
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "run"},
-        });
-        const snapshot = await harness.repo.readSession(created.sessionId);
-        const sidecarToolResult = snapshot.entries.find((entry) => {
-            return entry.type === "message"
-                && entry.message.role === "toolResult"
-                && entry.message.toolName === "sidecar_save_point_state";
-        });
-        const sidecarSavePointEntry = snapshot.entries.find((entry) => {
-            return entry.type === "custom" && entry.key === "test.sidecar.savePoint";
-        });
-        const sidecarReportAssistant = snapshot.entries.find((entry) => {
-            return entry.type === "message"
-                && entry.message.role === "assistant"
-                && entry.message.content.some((block) => block.type === "toolCall" && block.id === "sidecar-report");
-        });
-
-        expect(result.status).toBe("completed");
-        expect(sidecarToolResult).toEqual(expect.objectContaining({type: "message"}));
-        expect(sidecarSavePointEntry).toEqual(expect.objectContaining({type: "custom"}));
-        expect(sidecarReportAssistant).toEqual(expect.objectContaining({type: "message"}));
-        expect(sidecarReportAssistant?.parentId).toBe(sidecarToolResult?.id);
-        expect(sidecarReportAssistant?.parentId).not.toBe(sidecarSavePointEntry?.id);
-    }, 30_000);
-
-    it("prepareRun sidecar 可以持久化注入主 run context", async () => {
-        const providerPrompts: string[] = [];
-        harness.profiles.register(defineAgentProfile({
-            manifest: {
-                key: "test.sidecar-persisted-context-load",
-                name: "Sidecar Persisted Context Load",
-            },
-            initialSchema: Type.Object({}),
-            allowedToolKeys: ["report_result"],
-            sidecars: [{
-                name: "actor.context-load",
-                stage: "prepareRun",
-                allowedToolKeys: ["report_result"],
-                sidecarDataSchema: Type.Object({
-                    context: Type.String(),
-                }),
-                enterPrompt: "检索并整理本轮 actor 可知设定。",
-                merge(_ctx, result) {
-                    const sidecarData = result.sidecarData as {context: string};
-                    return {
-                        persistedMessages: [
-                            createUserMessage({text: `PERSISTED_ACTOR_SAFE_CONTEXT:${sidecarData.context}`}),
-                        ],
-                    };
-                },
-            }],
-            prepare() {
-                return {};
-            },
-        }), false);
-        faux.setResponses([
-            () => fauxAssistantMessage([
-                fauxToolCall("report_sidecar_result", {
-                    result: "loaded",
-                    data: {
-                        "actor.context-load": {
-                            context: "SAFE_LORE",
-                        },
-                    },
-                }, {id: "sidecar-report"}),
-            ], {stopReason: "toolUse"}),
-            (context) => {
-                providerPrompts.push(context.messages.map((message) => messageText(message as RuntimeMessage)).join("\n"));
-                return fauxAssistantMessage([
-                    fauxText("main done"),
-                    fauxToolCall("report_result", {
-                        result: "main",
-                    }, {id: "main-report"}),
-                ], {stopReason: "toolUse"});
-            },
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "test.sidecar-persisted-context-load",
-            initial: {},
-            workspaceRoot: root,
-        });
-
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "run"},
-        });
-        const snapshot = await harness.repo.readSession(created.sessionId);
-        const context = harness.repo.reduce(snapshot);
-        const sidecarEntry = snapshot.entries.find((entry) => {
-            return entry.type === "message" && messageText(entry.message).includes("PERSISTED_ACTOR_SAFE_CONTEXT:SAFE_LORE");
-        });
-
-        expect(result.status).toBe("completed");
-        expect(providerPrompts[0]).toContain("PERSISTED_ACTOR_SAFE_CONTEXT:SAFE_LORE");
-        expect(context.messages.map((message) => message.role)).toEqual(["user", "user", "assistant", "toolResult"]);
-        expect(visibleMessageText(context.messages)).toContain("PERSISTED_ACTOR_SAFE_CONTEXT:SAFE_LORE");
-        expect(sidecarEntry).toEqual(expect.objectContaining({
-            type: "message",
-            origin: "harness",
-        }));
-        expect(visibleMessageText(context.messages)).not.toContain("loaded");
-    }, 30_000);
-
-    it("prepareRun sidecar 同时支持 runtime-only 和 persisted 注入", async () => {
-        const providerPrompts: string[] = [];
-        harness.profiles.register(defineAgentProfile({
-            manifest: {
-                key: "test.sidecar-mixed-context-load",
-                name: "Sidecar Mixed Context Load",
-            },
-            initialSchema: Type.Object({}),
-            allowedToolKeys: ["report_result"],
-            sidecars: [{
-                name: "actor.context-load",
-                stage: "prepareRun",
-                allowedToolKeys: ["report_result"],
-                sidecarDataSchema: Type.Object({}),
-                enterPrompt: "检索并整理本轮 actor 可知设定。",
-                merge() {
-                    return {
-                        persistedMessages: [
-                            createUserMessage({text: "PERSISTED_CONTEXT"}),
-                        ],
-                        runtimeMessages: [
-                            createUserMessage({text: "RUNTIME_ONLY_CONTEXT"}),
-                        ],
-                    };
-                },
-            }],
-            prepare() {
-                return {};
-            },
-        }), false);
-        faux.setResponses([
-            () => fauxAssistantMessage([
-                fauxToolCall("report_sidecar_result", {
-                    result: "loaded",
-                    data: {
-                        "actor.context-load": {},
-                    },
-                }, {id: "sidecar-report"}),
-            ], {stopReason: "toolUse"}),
-            (context) => {
-                providerPrompts.push(context.messages.map((message) => messageText(message as RuntimeMessage)).join("\n"));
-                return fauxAssistantMessage("main done");
-            },
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "test.sidecar-mixed-context-load",
-            initial: {},
-            workspaceRoot: root,
-        });
-
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "run"},
-        });
-        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
-        const mainPrompt = providerPrompts[0];
-
-        expect(result.status).toBe("completed");
-        expect(mainPrompt).toBeDefined();
-        if (!mainPrompt) {
-            throw new Error("缺少 main run prompt。");
-        }
-        expect(mainPrompt).toContain("PERSISTED_CONTEXT");
-        expect(mainPrompt).toContain("RUNTIME_ONLY_CONTEXT");
-        expect(mainPrompt.indexOf("PERSISTED_CONTEXT")).toBeLessThan(mainPrompt.indexOf("RUNTIME_ONLY_CONTEXT"));
-        expect(visibleMessageText(context.messages)).toContain("PERSISTED_CONTEXT");
-        expect(visibleMessageText(context.messages)).not.toContain("RUNTIME_ONLY_CONTEXT");
-    }, 30_000);
-
-    it("prepareRun 多个 sidecar 持久化注入时不会冲掉先前 runtime-only 注入", async () => {
-        const providerPrompts: string[] = [];
-        harness.profiles.register(defineAgentProfile({
-            manifest: {
-                key: "test.sidecar-runtime-before-persisted-context",
-                name: "Sidecar Runtime Before Persisted Context",
-            },
-            initialSchema: Type.Object({}),
-            allowedToolKeys: ["report_result"],
-            sidecars: [
-                {
-                    name: "actor.runtime-context-load",
-                    stage: "prepareRun",
-                    allowedToolKeys: ["report_result"],
-                    sidecarDataSchema: Type.Object({}),
-                    enterPrompt: "注入本轮 runtime-only 设定。",
-                    merge() {
-                        return {
-                            runtimeMessages: [
-                                createUserMessage({text: "FIRST_RUNTIME_ONLY_CONTEXT"}),
-                            ],
-                        };
-                    },
-                },
-                {
-                    name: "actor.persisted-context-load",
-                    stage: "prepareRun",
-                    allowedToolKeys: ["report_result"],
-                    sidecarDataSchema: Type.Object({}),
-                    enterPrompt: "注入本轮 persisted 设定。",
-                    merge() {
-                        return {
-                            persistedMessages: [
-                                createUserMessage({text: "SECOND_PERSISTED_CONTEXT"}),
-                            ],
-                        };
-                    },
-                },
-            ],
-            prepare() {
-                return {};
-            },
-        }), false);
-        faux.setResponses([
-            () => fauxAssistantMessage([
-                fauxToolCall("report_sidecar_result", {
-                    result: "runtime loaded",
-                    data: {
-                        "actor.runtime-context-load": {},
-                    },
-                }, {id: "runtime-sidecar-report"}),
-            ], {stopReason: "toolUse"}),
-            () => fauxAssistantMessage([
-                fauxToolCall("report_sidecar_result", {
-                    result: "persisted loaded",
-                    data: {
-                        "actor.persisted-context-load": {},
-                    },
-                }, {id: "persisted-sidecar-report"}),
-            ], {stopReason: "toolUse"}),
-            (context) => {
-                providerPrompts.push(context.messages.map((message) => messageText(message as RuntimeMessage)).join("\n"));
-                return fauxAssistantMessage("main done");
-            },
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "test.sidecar-runtime-before-persisted-context",
-            initial: {},
-            workspaceRoot: root,
-        });
-
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "run"},
-        });
-        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
-        const mainPrompt = providerPrompts[0];
-
-        expect(result.status).toBe("completed");
-        expect(mainPrompt).toBeDefined();
-        if (!mainPrompt) {
-            throw new Error("缺少 main run prompt。");
-        }
-        expect(mainPrompt).toContain("FIRST_RUNTIME_ONLY_CONTEXT");
-        expect(mainPrompt).toContain("SECOND_PERSISTED_CONTEXT");
-        expect(mainPrompt.indexOf("SECOND_PERSISTED_CONTEXT")).toBeLessThan(mainPrompt.indexOf("FIRST_RUNTIME_ONLY_CONTEXT"));
-        expect(visibleMessageText(context.messages)).not.toContain("FIRST_RUNTIME_ONLY_CONTEXT");
-        expect(visibleMessageText(context.messages)).toContain("SECOND_PERSISTED_CONTEXT");
-    }, 30_000);
-
-    it("settleRun sidecar 可以在主 run 后执行并写入 merge writePlans", async () => {
-        harness.profiles.register(defineAgentProfile({
-            manifest: {
-                key: "test.sidecar-memory-save",
-                name: "Sidecar Memory Save",
-            },
-            initialSchema: Type.Object({}),
-            allowedToolKeys: ["report_result"],
-            sidecars: [{
-                name: "actor.memory-save",
-                stage: "settleRun",
-                allowedToolKeys: ["report_result"],
-                sidecarDataSchema: Type.Object({
-                    summary: Type.String(),
-                }),
-                enterPrompt: (ctx) => `保存本轮 actor 记忆。主结果：${ctx.runResult?.reportResult?.result ?? ""}`,
-                merge(ctx, result) {
-                    return {
-                        writePlans: [{
-                            target: {sessionId: ctx.sessionId},
-                            cause: "test.sidecar.memory-save",
-                            ops: [{
-                                kind: "append",
-                                projection: true,
-                                entry: {
-                                    type: "custom",
-                                    key: "test.sidecar.memory",
-                                    value: result.sidecarData,
-                                },
-                            }],
-                        }],
-                    };
-                },
-            }],
-            prepare() {
-                return {};
-            },
-        }), false);
-        faux.setResponses([
-            fauxAssistantMessage([
-                fauxText("main done"),
-                fauxToolCall("report_result", {
-                    result: "main",
-                }, {id: "main-report"}),
-            ], {stopReason: "toolUse"}),
-            (context) => {
-                expect(visibleMessageText(context.messages)).toContain("主结果：main");
-                return fauxAssistantMessage([
-                    fauxToolCall("report_sidecar_result", {
-                        result: "saved",
-                        data: {
-                            "actor.memory-save": {
-                                summary: "memory saved",
-                            },
-                        },
-                    }, {id: "memory-report"}),
-                ], {stopReason: "toolUse"});
-            },
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "test.sidecar-memory-save",
-            initial: {},
-            workspaceRoot: root,
-        });
-
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "run"},
-        });
-        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
-
-        expect(result.status).toBe("completed");
-        expect(context.customState["test.sidecar.memory"]).toEqual({
-            summary: "memory saved",
-        });
-        expect(context.messages.map((message) => message.role)).toEqual(["user", "assistant", "toolResult"]);
-        expect(visibleMessageText(context.messages)).not.toContain("saved");
-    }, 30_000);
-
-    it("settleRun sidecar 返回非法 runtimeMessages 时不会先写 persistedMessages", async () => {
-        harness.profiles.register(defineAgentProfile({
-            manifest: {
-                key: "test.sidecar-invalid-settle-merge",
-                name: "Sidecar Invalid Settle Merge",
-            },
-            initialSchema: Type.Object({}),
-            allowedToolKeys: ["report_result"],
-            sidecars: [{
-                name: "actor.memory-save",
-                stage: "settleRun",
-                allowedToolKeys: ["report_result"],
-                sidecarDataSchema: Type.Object({}),
-                enterPrompt: "保存本轮 actor 记忆。",
-                merge() {
-                    return {
-                        persistedMessages: [
-                            createUserMessage({text: "SHOULD_NOT_BE_WRITTEN"}),
-                        ],
-                        runtimeMessages: [
-                            createUserMessage({text: "INVALID_RUNTIME_MESSAGE"}),
-                        ],
-                    };
-                },
-            }],
-            prepare() {
-                return {};
-            },
-        }), false);
-        faux.setResponses([
-            () => fauxAssistantMessage([
-                fauxText("main done"),
-                fauxToolCall("report_result", {
-                    result: "main",
-                }, {id: "main-report"}),
-            ], {stopReason: "toolUse"}),
-            () => fauxAssistantMessage([
-                fauxToolCall("report_sidecar_result", {
-                    result: "saved",
-                    data: {
-                        "actor.memory-save": {},
-                    },
-                }, {id: "sidecar-report"}),
-            ], {stopReason: "toolUse"}),
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "test.sidecar-invalid-settle-merge",
-            initial: {},
-            workspaceRoot: root,
-        });
-
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "run"},
-        });
-        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
-
-        expect(result.status).toBe("error");
-        expect(result.errorInfo?.message).toContain("runtimeMessages 只能在 prepareRun");
-        expect(visibleMessageText(context.messages)).not.toContain("SHOULD_NOT_BE_WRITTEN");
-    }, 30_000);
-
-    it("simulator.actor 会通过 context-load 注入 actor-safe 设定，并通过 memory-save 更新 events/memory/mind", async () => {
-        const profiles = new AgentProfileCatalog(
-            join(root, "missing-system-profiles"),
-            join(root, "missing-user-profiles"),
-        );
-        profiles.register(simulatorActorProfile, false);
-        const rpHarness = new NeuroAgentHarness({
-            repo: harness.repo,
-            profiles,
-            modelResolver: () => faux.getModel(),
-            runtimeResolver: () => faux.runtime,
-            enableSessionSummarizer: false,
-        });
-        const projectSlug = `rp-project-${randomUUID()}`;
-        const actorRoot = join(root, projectSlug, "simulation", "subjects", "heroine");
-        rpHarness.tools.register({
-            key: "subject_rag_search",
-            name: "subject_rag_search",
-            label: "Search Subject RAG",
-            executionMode: "parallel",
-            description: "test subject rag search",
-            parameters: Type.Object({}),
-            async executeWithContext() {
-                return {
-                    content: [{type: "text", text: "RAG: 她知道这块五彩石被一些传闻称为世界之心。"}],
-                    details: {
-                        candidates: [{
-                            source: "memory",
-                            text: "她知道这块五彩石被一些传闻称为世界之心。",
-                            topic: "世界之心",
-                            rank: 1,
-                            sourcePath: "memory.jsonl",
-                        }],
-                    },
-                };
-            },
-            async execute() {
-                throw new Error("test only");
-            },
-        });
-        rpHarness.tools.register({
-            key: "subject_event_append",
-            name: "subject_event_append",
-            label: "Append Subject Events",
-            executionMode: "sequential",
-            description: "test subject event append",
-            parameters: Type.Object({}),
-            async executeWithContext() {
-                await writeFile(join(actorRoot, "events.jsonl"), [
-                    "{\"text\":\"她刚抵达学院区广场。\"}",
-                    "{\"text\":\"主角把一块疑似被称为世界之心的五彩石交给了她。\"}",
-                    "",
-                ].join("\n"), "utf-8");
-                return {
-                    content: [{type: "text", text: "appended event"}],
-                    details: {appended: 1},
-                };
-            },
-            async execute() {
-                throw new Error("test only");
-            },
-        });
-        rpHarness.tools.register({
-            key: "subject_memory_update",
-            name: "subject_memory_update",
-            label: "Curate Subject Memory",
-            executionMode: "sequential",
-            description: "test subject memory update",
-            parameters: Type.Object({}),
-            async executeWithContext() {
-                await writeFile(join(actorRoot, "memory.jsonl"), "{\"topic\":\"世界之心\",\"view\":\"我知道主角把一块疑似被称为世界之心的五彩石交给了我，但我不知道它的隐藏真相。\"}\n", "utf-8");
-                return {
-                    content: [{type: "text", text: "curated memory"}],
-                    details: {status: "updated"},
-                };
-            },
-            async execute() {
-                throw new Error("test only");
-            },
-        });
-        await mkdir(actorRoot, {recursive: true});
-        await mkdir(join(root, projectSlug, "lorebook", "world"), {recursive: true});
-        await writeFile(join(actorRoot, "soul.md"), "我会保持礼貌但警惕，遇到未知物品会先询问来源。\n", "utf-8");
-        await writeFile(join(actorRoot, "subject.md"), "保持礼貌但警惕，遇到未知物品会先询问来源。", "utf-8");
-        await writeFile(join(actorRoot, "events.jsonl"), "{\"text\":\"她刚抵达学院区广场。\"}\n", "utf-8");
-        await writeFile(join(actorRoot, "memory.jsonl"), "{\"topic\":\"世界之心\",\"view\":\"她不知道世界之心的真名。\"}\n", "utf-8");
-        await writeFile(join(actorRoot, "mind.md"), "她正在判断主角的用意。\n", "utf-8");
-        await writeFile(join(actorRoot, "state.md"), "她位于学院区广场边缘，状态正常。\n", "utf-8");
-        await writeFile(join(root, projectSlug, "lorebook", "world", "world-heart.md"), "世界之心公开表现为五彩石，隐藏真相是旧神核心。", "utf-8");
-        const providerPrompts: string[] = [];
-
-        faux.setResponses([
-            (context) => {
-                const promptText = visibleMessageText(context.messages);
-                providerPrompts.push(promptText);
-                expect(promptText).toContain("sidecar: actor.context-load");
-                expect(promptText).toContain("五彩缤纷的石头");
-                expect(promptText).toContain("memoryPath");
-                expect(promptText).not.toContain("她不知道世界之心的真名");
-                return fauxAssistantMessage([
-                    fauxToolCall("subject_rag_search", {
-                        subjectPath: "simulation/subjects/heroine",
-                        query: "五彩缤纷的石头 世界之心",
-                        sources: ["events"],
-                    }, {id: "context-rag"}),
-                ], {stopReason: "toolUse"});
-            },
-            (context) => {
-                const promptText = visibleMessageText(context.messages);
-                providerPrompts.push(promptText);
-                expect(promptText).toContain("RAG: 她知道这块五彩石被一些传闻称为世界之心。");
-                return fauxAssistantMessage([
-                    fauxToolCall("report_sidecar_result", {
-                        result: "你知道这块五彩石被一些传闻称为世界之心，但不知道它的隐藏真相。",
-                        data: {
-                            "actor.context-load": {},
-                        },
-                    }, {id: "context-report"}),
-                ], {stopReason: "toolUse"});
-            },
-            (context) => {
-                const promptText = visibleMessageText(context.messages);
-                providerPrompts.push(promptText);
-                expect(promptText).toContain("<actor-sidecar-context source=\"actor.context-load\">");
-                expect(promptText).toContain("被一些传闻称为世界之心");
-                expect(promptText).not.toContain("旧神核心隐藏真相");
-                return fauxAssistantMessage([
-                    fauxToolCall("report_result", {
-                        result: "actor responded",
-                        data: {
-                            visible_response: "她垂眸看向掌心的五彩石，指尖微微收紧。",
-                            spoken_dialogue: "这是什么？你从哪里得到它的？",
-                            inner_response: "她想先确认石头来源，再决定是否交还。",
-                        },
-                    }, {id: "main-report"}),
-                ], {stopReason: "toolUse"});
-            },
-            (context) => {
-                const promptText = visibleMessageText(context.messages);
-                providerPrompts.push(promptText);
-                expect(promptText).toContain("sidecar: actor.memory-save");
-                expect(promptText).toContain("世界的状态（state.md）由上级裁决");
-                return fauxAssistantMessage([
-                    fauxToolCall("subject_event_append", {
-                        subjectPath: "simulation/subjects/heroine",
-                        events: [{
-                            text: "主角把一块疑似被称为世界之心的五彩石交给了她。",
-                        }],
-                    }, {id: "memory-append-event"}),
-                    fauxToolCall("subject_memory_update", {
-                        subjectPath: "simulation/subjects/heroine",
-                        facts: ["主角把一块疑似被称为世界之心的五彩石交给了她。", "她仍不知道隐藏真相。"],
-                    }, {id: "subject-memory-update"}),
-                    fauxToolCall("edit", {
-                        path: "simulation/subjects/heroine/mind.md",
-                        edits: [{
-                            oldText: "她正在判断主角的用意。\n",
-                            newText: "她正在判断主角的用意。\n她开始怀疑主角知道更多内情，但暂时不追问过深。\n",
-                        }],
-                    }, {id: "memory-edit-mind"}),
-                ], {stopReason: "toolUse"});
-            },
-            fauxAssistantMessage([
-                fauxToolCall("report_sidecar_result", {
-                    result: "memory saved",
-                    data: {
-                        "actor.memory-save": {},
-                    },
-                }, {id: "memory-report"}),
-            ], {stopReason: "toolUse"}),
-        ]);
-        const created = await rpHarness.createAgent({
-            profileKey: "simulator.actor",
-            initial: {
-                subjectPath: "simulation/subjects/heroine",
-                kind: "npc",
-            },
-            workspaceRoot: "workspace",
-            projectPath: `workspace/${projectSlug}`,
-        });
-
-        const result = await rpHarness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "主角把一块五彩缤纷的石头交到你手里。石头隐约有异常力量感。"},
-        });
-        const snapshot = await rpHarness.repo.readSession(created.sessionId);
-        const context = rpHarness.repo.reduce(snapshot);
-        const events = await readFile(join(actorRoot, "events.jsonl"), "utf-8");
-        const memory = await readFile(join(actorRoot, "memory.jsonl"), "utf-8");
-        const mind = await readFile(join(actorRoot, "mind.md"), "utf-8");
-        const state = await readFile(join(actorRoot, "state.md"), "utf-8");
-        const visibleText = visibleMessageText(context.messages);
-        const sidecarContextEntry = snapshot.entries.find((entry) => {
-            return entry.type === "message" && messageText(entry.message).includes("<actor-sidecar-context");
-        });
-        const sidecarContextEntries = snapshot.entries.filter((entry) => {
-            return entry.type === "message" && messageText(entry.message).includes("<actor-sidecar-context source=\"actor.context-load\">");
-        });
-        const sidecarTranscriptEntries = snapshot.entries.filter((entry) => {
-            return entry.type === "message" && messageText(entry.message).includes("sidecar: actor.context-load");
-        });
-
-        await rpHarness.dispose();
-        await closeProjectForTest(`workspace/${projectSlug}`).catch(() => undefined);
-        await rm(join(root, projectSlug), {recursive: true, force: true});
-        expect(result.status, result.error ?? result.errorInfo?.message).toBe("completed");
-        expect(result.reportResult?.data).toEqual(expect.objectContaining({
-            spoken_dialogue: "这是什么？你从哪里得到它的？",
-        }));
-        expect(providerPrompts).toHaveLength(4);
-        expect(events).toContain("疑似被称为世界之心的五彩石");
-        expect(memory).toContain("疑似被称为世界之心的五彩石");
-        expect(mind).toContain("怀疑主角知道更多内情");
-        expect(state).toBe("她位于学院区广场边缘，状态正常。\n");
-        expect(context.messages.map((message) => message.role).slice(-2)).toEqual(["assistant", "toolResult"]);
-        expect(sidecarContextEntries).toHaveLength(1);
-        expect(sidecarContextEntry).toEqual(expect.objectContaining({
-            type: "message",
-            origin: "harness",
-        }));
-        expect(sidecarTranscriptEntries).toHaveLength(1);
-        expect(visibleText).toContain("<actor-sidecar-context");
-        expect(visibleText).not.toContain("loaded actor-safe lore");
-        expect(visibleText).not.toContain("memory saved");
-        expect(visibleText).not.toContain("旧神核心");
-        expect(context.messages.at(-1)?.role).toBe("toolResult");
-        expect(messageText(context.messages.at(-1) as RuntimeMessage)).not.toContain("<actor-sidecar-context");
-    });
-
-    it("report_sidecar_result.data 不符合 schema 时返回工具错误并允许同 run 修正", async () => {
-        let observedSidecarData: {context: string} | undefined;
-        harness.profiles.register(defineAgentProfile({
-            manifest: {
-                key: "test.sidecar-schema-failure",
-                name: "Sidecar Schema Failure",
-            },
-            initialSchema: Type.Object({}),
-            allowedToolKeys: ["report_result"],
-            sidecars: [{
-                name: "actor.context-load",
-                stage: "prepareRun",
-                allowedToolKeys: ["report_result"],
-                sidecarDataSchema: Type.Object({
-                    context: Type.String(),
-                }),
-                enterPrompt: "加载上下文。",
-                merge(_ctx, result) {
-                    observedSidecarData = result.sidecarData as {context: string};
-                    return {};
-                },
-            }],
-            prepare() {
-                return {};
-            },
-        }), false);
-        faux.setResponses([
-            fauxAssistantMessage([
-                fauxToolCall("report_sidecar_result", {
-                    result: "bad",
-                    data: {
-                        "actor.context-load": {
-                            context: 1,
-                        },
-                    },
-                }, {id: "bad-sidecar-report"}),
-            ], {stopReason: "toolUse"}),
-            fauxAssistantMessage([
-                fauxToolCall("report_sidecar_result", {
-                    result: "fixed",
-                    data: {
-                        "actor.context-load": {
-                            context: "已加载 actor 可知上下文。",
-                        },
-                    },
-                }, {id: "fixed-sidecar-report"}),
-            ], {stopReason: "toolUse"}),
-            fauxAssistantMessage([
-                fauxToolCall("report_result", {
-                    result: "main",
-                }, {id: "main-report"}),
-            ], {stopReason: "toolUse"}),
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "test.sidecar-schema-failure",
-            initial: {},
-            workspaceRoot: root,
-        });
-
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "run"},
-        });
-        const snapshot = await harness.repo.readSession(created.sessionId);
-        const sidecarErrorText = snapshot.entries
-            .filter((entry) => entry.type === "message")
-            .map((entry) => messageText(entry.message))
-            .join("\n");
-
-        expect(result.status).toBe("completed");
-        expect(observedSidecarData?.context).toBe("已加载 actor 可知上下文。");
-        expect(sidecarErrorText).toContain("report_sidecar_result.data");
-        expect(sidecarErrorText).toContain("/context：must be string");
-        expect(sidecarErrorText).not.toMatch(/校验失败：Parse(?:\.|\s|$)/);
-    }, 30_000);
-
-    it("report_sidecar_result.data 不是当前 sidecar key 时返回工具错误并允许同 run 修正", async () => {
-        let observedSidecarData: {context: string} | undefined;
-        harness.profiles.register(defineAgentProfile({
-            manifest: {
-                key: "test.sidecar-missing-key",
-                name: "Sidecar Missing Key",
-            },
-            initialSchema: Type.Object({}),
-            allowedToolKeys: ["report_result"],
-            sidecars: [{
-                name: "actor.context-load",
-                stage: "prepareRun",
-                allowedToolKeys: ["report_result"],
-                sidecarDataSchema: Type.Object({
-                    context: Type.String(),
-                }),
-                enterPrompt: "加载上下文。",
-                merge(_ctx, result) {
-                    observedSidecarData = result.sidecarData as {context: string};
-                    return {};
-                },
-            }],
-            prepare() {
-                return {};
-            },
-        }), false);
-        faux.setResponses([
-            fauxAssistantMessage([
-                fauxToolCall("report_sidecar_result", {
-                    result: "bad",
-                    data: {
-                        "actor.other": {
-                            context: "错误 key。",
-                        },
-                    },
-                }, {id: "bad-sidecar-report"}),
-            ], {stopReason: "toolUse"}),
-            fauxAssistantMessage([
-                fauxToolCall("report_sidecar_result", {
-                    result: "fixed",
-                    data: {
-                        "actor.context-load": {
-                            context: "已加载 actor 可知上下文。",
-                        },
-                    },
-                }, {id: "fixed-sidecar-report"}),
-            ], {stopReason: "toolUse"}),
-            fauxAssistantMessage([
-                fauxToolCall("report_result", {
-                    result: "main",
-                }, {id: "main-report"}),
-            ], {stopReason: "toolUse"}),
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "test.sidecar-missing-key",
-            initial: {},
-            workspaceRoot: root,
-        });
-
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "run"},
-        });
-        const snapshot = await harness.repo.readSession(created.sessionId);
-        const sidecarErrorText = snapshot.entries
-            .filter((entry) => entry.type === "message")
-            .map((entry) => messageText(entry.message))
-            .join("\n");
-
-        expect(result.status).toBe("completed");
-        expect(observedSidecarData?.context).toBe("已加载 actor 可知上下文。");
-        expect(sidecarErrorText).toContain("只能包含当前 sidecar key \"actor.context-load\"");
-    }, 30_000);
-
-    it("report_sidecar_result.data 缺少当前 sidecar key 时返回工具错误并允许同 run 修正", async () => {
-        let observedSidecarData: {context: string} | undefined;
-        harness.profiles.register(defineAgentProfile({
-            manifest: {
-                key: "test.sidecar-missing-discriminator",
-                name: "Sidecar Missing Discriminator",
-            },
-            initialSchema: Type.Object({}),
-            allowedToolKeys: ["report_result"],
-            sidecars: [{
-                name: "actor.context-load",
-                stage: "prepareRun",
-                allowedToolKeys: ["report_result"],
-                sidecarDataSchema: Type.Object({
-                    context: Type.String(),
-                }),
-                enterPrompt: "加载上下文。",
-                merge(_ctx, result) {
-                    observedSidecarData = result.sidecarData as {context: string};
-                    return {};
-                },
-            }],
-            prepare() {
-                return {};
-            },
-        }), false);
-        faux.setResponses([
-            fauxAssistantMessage([
-                fauxToolCall("report_sidecar_result", {
-                    result: "bad",
-                    data: {
-                        wrong: {
-                            context: "缺少 sidecar。",
-                        },
-                    },
-                }, {id: "bad-sidecar-report"}),
-            ], {stopReason: "toolUse"}),
-            fauxAssistantMessage([
-                fauxToolCall("report_sidecar_result", {
-                    result: "fixed",
-                    data: {
-                        "actor.context-load": {
-                            context: "已加载 actor 可知上下文。",
-                        },
-                    },
-                }, {id: "fixed-sidecar-report"}),
-            ], {stopReason: "toolUse"}),
-            fauxAssistantMessage([
-                fauxToolCall("report_result", {
-                    result: "main",
-                }, {id: "main-report"}),
-            ], {stopReason: "toolUse"}),
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "test.sidecar-missing-discriminator",
-            initial: {},
-            workspaceRoot: root,
-        });
-
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "run"},
-        });
-        const snapshot = await harness.repo.readSession(created.sessionId);
-        const sidecarErrorText = snapshot.entries
-            .filter((entry) => entry.type === "message")
-            .map((entry) => messageText(entry.message))
-            .join("\n");
-
-        expect(result.status).toBe("completed");
-        expect(observedSidecarData?.context).toBe("已加载 actor 可知上下文。");
-        expect(sidecarErrorText).toContain("只能包含当前 sidecar key \"actor.context-load\"");
-    }, 30_000);
-
-    it("report_sidecar_result.data 同时含多个 sidecar key 时返回工具错误并允许同 run 修正", async () => {
-        let observedSidecarData: {context: string} | undefined;
-        harness.profiles.register(defineAgentProfile({
-            manifest: {
-                key: "test.sidecar-extra-data-field",
-                name: "Sidecar Extra Data Field",
-            },
-            initialSchema: Type.Object({}),
-            allowedToolKeys: ["report_result"],
-            sidecars: [{
-                name: "actor.context-load",
-                stage: "prepareRun",
-                allowedToolKeys: ["report_result"],
-                sidecarDataSchema: Type.Object({
-                    context: Type.String(),
-                }),
-                enterPrompt: "加载上下文。",
-                merge(_ctx, result) {
-                    observedSidecarData = result.sidecarData as {context: string};
-                    return {};
-                },
-            }],
-            prepare() {
-                return {};
-            },
-        }), false);
-        faux.setResponses([
-            fauxAssistantMessage([
-                fauxToolCall("report_sidecar_result", {
-                    result: "bad",
-                    data: {
-                        "actor.context-load": {
-                            context: "额外字段。",
-                        },
-                        "actor.other": {
-                            context: "多余 key。",
-                        },
-                    },
-                }, {id: "bad-sidecar-report"}),
-            ], {stopReason: "toolUse"}),
-            fauxAssistantMessage([
-                fauxToolCall("report_sidecar_result", {
-                    result: "fixed",
-                    data: {
-                        "actor.context-load": {
-                            context: "已加载 actor 可知上下文。",
-                        },
-                    },
-                }, {id: "fixed-sidecar-report"}),
-            ], {stopReason: "toolUse"}),
-            fauxAssistantMessage([
-                fauxToolCall("report_result", {
-                    result: "main",
-                }, {id: "main-report"}),
-            ], {stopReason: "toolUse"}),
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "test.sidecar-extra-data-field",
-            initial: {},
-            workspaceRoot: root,
-        });
-
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "run"},
-        });
-        const snapshot = await harness.repo.readSession(created.sessionId);
-        const sidecarErrorText = snapshot.entries
-            .filter((entry) => entry.type === "message")
-            .map((entry) => messageText(entry.message))
-            .join("\n");
-
-        expect(result.status).toBe("completed");
-        expect(observedSidecarData?.context).toBe("已加载 actor 可知上下文。");
-        expect(sidecarErrorText).toContain("只能包含一个 sidecar key");
-    }, 30_000);
-
-    it("object report_sidecar_result.data 被模型包成 schema 字符串时返回工具错误并等待直接对象", async () => {
-        let observedSidecarData: {changed_files: string[]} | undefined;
-        harness.profiles.register(defineAgentProfile({
-            manifest: {
-                key: "test.sidecar-schema-string-wrapper",
-                name: "Sidecar Schema String Wrapper",
-            },
-            initialSchema: Type.Object({}),
-            allowedToolKeys: ["report_result"],
-            sidecars: [{
-                name: "actor.memory-save",
-                stage: "prepareRun",
-                allowedToolKeys: ["report_result"],
-                sidecarDataSchema: Type.Object({
-                    changed_files: Type.Array(Type.String()),
-                    events_summary: Type.String(),
-                    memory_summary: Type.String(),
-                    mind_summary: Type.String(),
-                    skipped: Type.Array(Type.String()),
-                    needs_review: Type.Array(Type.String()),
-                }),
-                enterPrompt: "保存记忆。",
-                merge(_ctx, result) {
-                    observedSidecarData = result.sidecarData as {changed_files: string[]};
-                    return {};
-                },
-            }],
-            prepare() {
-                return {};
-            },
-        }), false);
-        faux.setResponses([
-            fauxAssistantMessage([
-                fauxToolCall("report_sidecar_result", {
-                    result: "saved",
-                    data: JSON.stringify({
-                        type: "object",
-                        required: ["changed_files", "events_summary", "memory_summary", "mind_summary", "skipped", "needs_review"],
-                        properties: {
-                            changed_files: ["subject/events.jsonl"],
-                            events_summary: "追加经历。",
-                            memory_summary: "",
-                            mind_summary: "",
-                            skipped: [],
-                            needs_review: [],
-                        },
-                    }),
-                }, {id: "sidecar-report"}),
-            ], {stopReason: "toolUse"}),
-            fauxAssistantMessage([
-                fauxToolCall("report_sidecar_result", {
-                    result: "saved",
-                    data: {
-                        "actor.memory-save": {
-                            changed_files: ["subject/events-fixed.jsonl"],
-                            events_summary: "追加经历。",
-                            memory_summary: "",
-                            mind_summary: "",
-                            skipped: [],
-                            needs_review: [],
-                        },
-                    },
-                }, {id: "sidecar-report-fixed"}),
-            ], {stopReason: "toolUse"}),
-            fauxAssistantMessage([
-                fauxToolCall("report_result", {
-                    result: "main",
-                }, {id: "main-report"}),
-            ], {stopReason: "toolUse"}),
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "test.sidecar-schema-string-wrapper",
-            initial: {},
-            workspaceRoot: root,
-        });
-
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "run"},
-        });
-
-        expect(result.status).toBe("completed");
-        expect(observedSidecarData?.changed_files).toEqual(["subject/events-fixed.jsonl"]);
-    }, 30_000);
-
-    it("object report_sidecar_result.data 被模型包成字符串时返回工具错误并允许同 run 修正", async () => {
-        let observedSidecarData: {changed_files: string[]; memory_summary: string} | undefined;
-        harness.profiles.register(defineAgentProfile({
-            manifest: {
-                key: "test.sidecar-data-tool-error",
-                name: "Sidecar Data Tool Error",
-            },
-            initialSchema: Type.Object({}),
-            allowedToolKeys: ["report_result"],
-            sidecars: [{
-                name: "actor.memory-save",
-                stage: "prepareRun",
-                allowedToolKeys: ["report_result"],
-                sidecarDataSchema: Type.Object({
-                    changed_files: Type.Array(Type.String()),
-                    events_summary: Type.String(),
-                    memory_summary: Type.String(),
-                    mind_summary: Type.String(),
-                    skipped: Type.Array(Type.String()),
-                    needs_review: Type.Array(Type.String()),
-                }),
-                enterPrompt: "保存记忆。",
-                merge(_ctx, result) {
-                    observedSidecarData = result.sidecarData as {changed_files: string[]; memory_summary: string};
-                    return {};
-                },
-            }],
-            prepare() {
-                return {};
-            },
-        }), false);
-        faux.setResponses([
-            fauxAssistantMessage([
-                fauxToolCall("report_sidecar_result", {
-                    result: "saved",
-                    data: JSON.stringify({
-                        changed_files: ["subject/events.jsonl"],
-                        events_summary: "追加经历。",
-                        memory_summary: "更新同行者 topic。",
-                        mind_summary: "更新心理状态。",
-                        skipped: [],
-                        needs_review: [],
-                    }),
-                }, {id: "sidecar-report"}),
-            ], {stopReason: "toolUse"}),
-            fauxAssistantMessage([
-                fauxToolCall("report_sidecar_result", {
-                    result: "saved",
-                    data: {
-                        "actor.memory-save": {
-                            changed_files: ["subject/events.jsonl"],
-                            events_summary: "追加经历。",
-                            memory_summary: "更新同行者 topic。",
-                            mind_summary: "更新心理状态。",
-                            skipped: [],
-                            needs_review: [],
-                        },
-                    },
-                }, {id: "sidecar-report-fixed"}),
-            ], {stopReason: "toolUse"}),
-            fauxAssistantMessage([
-                fauxToolCall("report_result", {
-                    result: "main",
-                }, {id: "main-report"}),
-            ], {stopReason: "toolUse"}),
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "test.sidecar-data-tool-error",
-            initial: {},
-            workspaceRoot: root,
-        });
-
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "run"},
-        });
-        const snapshot = await harness.repo.readSession(created.sessionId);
-        const sidecarErrorText = snapshot.entries
-            .filter((entry) => entry.type === "message")
-            .map((entry) => messageText(entry.message))
-            .join("\n");
-
-        expect(result.status).toBe("completed");
-        expect(observedSidecarData?.changed_files).toEqual(["subject/events.jsonl"]);
-        expect(observedSidecarData?.memory_summary).toContain("更新同行者 topic");
-        expect(sidecarErrorText).toContain("收到的是字符串");
-    }, 30_000);
-
-    it("sidecar report_sidecar_result 连续失败 3 次后保留真实工具错误", async () => {
-        harness.profiles.register(defineAgentProfile({
-            manifest: {
-                key: "test.sidecar-report-error-limit",
-                name: "Sidecar Report Error Limit",
-            },
-            initialSchema: Type.Object({}),
-            allowedToolKeys: ["report_result"],
-            sidecars: [{
-                name: "actor.memory-save",
-                stage: "settleRun",
-                allowedToolKeys: ["report_result"],
-                sidecarDataSchema: Type.Object({
-                    changed_files: Type.Array(Type.String()),
-                    events_summary: Type.String(),
-                    memory_summary: Type.String(),
-                    mind_summary: Type.String(),
-                    skipped: Type.Array(Type.String()),
-                    needs_review: Type.Array(Type.String()),
-                }),
-                enterPrompt: "保存记忆。",
-                merge() {
-                    return {};
-                },
-            }],
-            prepare() {
-                return {};
-            },
-        }), false);
-        const stringifiedResult = JSON.stringify({
-            changed_files: ["subject/events.jsonl"],
-            events_summary: "追加经历。",
-            memory_summary: "",
-            mind_summary: "",
-            skipped: [],
-            needs_review: [],
-        });
-        faux.setResponses([
-            fauxAssistantMessage([
-                fauxToolCall("report_result", {
-                    result: "main",
-                }, {id: "main-report"}),
-            ], {stopReason: "toolUse"}),
-            fauxAssistantMessage([
-                fauxToolCall("report_sidecar_result", {
-                    result: "bad-1",
-                    data: stringifiedResult,
-                }, {id: "sidecar-bad-report-1"}),
-            ], {stopReason: "toolUse"}),
-            fauxAssistantMessage([
-                fauxToolCall("report_sidecar_result", {
-                    result: "bad-2",
-                    data: stringifiedResult,
-                }, {id: "sidecar-bad-report-2"}),
-            ], {stopReason: "toolUse"}),
-            fauxAssistantMessage([
-                fauxToolCall("report_sidecar_result", {
-                    result: "bad-3",
-                    data: stringifiedResult,
-                }, {id: "sidecar-bad-report-3"}),
-            ], {stopReason: "toolUse"}),
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "test.sidecar-report-error-limit",
-            initial: {},
-            workspaceRoot: root,
-        });
-
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "run"},
-        });
-
-        expect(result.status).toBe("error");
-        expect(result.error).toContain("sidecar actor.memory-save 执行失败");
-        expect(result.error).toContain("report_sidecar_result 连续失败 3 次");
-        expect(result.error).toContain("report_sidecar_result.data 校验失败");
-        expect(result.error).toContain("收到的是字符串");
-        expect(result.error).not.toContain("没有返回 report_sidecar_result.data");
-    }, 30_000);
-
-    it("sidecar 错用 report_result 连续失败时按期望结果工具名收口", async () => {
-        harness.profiles.register(defineAgentProfile({
-            manifest: {
-                key: "test.sidecar-wrong-result-tool-limit",
-                name: "Sidecar Wrong Result Tool Limit",
-            },
-            initialSchema: Type.Object({}),
-            allowedToolKeys: ["report_result"],
-            sidecars: [{
-                name: "actor.context-load",
-                stage: "prepareRun",
-                allowedToolKeys: ["report_result"],
-                sidecarDataSchema: Type.Object({
-                    context: Type.String(),
-                }),
-                enterPrompt: "加载上下文。",
-                merge() {
-                    return {};
-                },
-            }],
-            prepare() {
-                return {};
-            },
-        }), false);
-        faux.setResponses([
-            fauxAssistantMessage([
-                fauxToolCall("report_result", {
-                    result: "wrong-1",
-                    data: {context: "bad"},
-                }, {id: "wrong-report-1"}),
-            ], {stopReason: "toolUse"}),
-            fauxAssistantMessage([
-                fauxToolCall("report_result", {
-                    result: "wrong-2",
-                    data: {context: "bad"},
-                }, {id: "wrong-report-2"}),
-            ], {stopReason: "toolUse"}),
-            fauxAssistantMessage([
-                fauxToolCall("report_result", {
-                    result: "wrong-3",
-                    data: {context: "bad"},
-                }, {id: "wrong-report-3"}),
-            ], {stopReason: "toolUse"}),
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "test.sidecar-wrong-result-tool-limit",
-            initial: {},
-            workspaceRoot: root,
-        });
-
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "run"},
-        });
-
-        expect(result.status).toBe("error");
-        expect(result.error).toContain("sidecar actor.context-load 执行失败");
-        expect(result.error).toContain("report_sidecar_result 连续失败 3 次");
-        expect(result.error).toContain("不能使用 report_result");
-    }, 30_000);
-
-    it("sidecar 缺少 report_sidecar_result 时复用现有 reminder 并继续收集结果", async () => {
-        let observedSidecarData: {context: string} | undefined;
-        const sidecarPrompts: string[] = [];
-        harness.profiles.register(defineAgentProfile({
-            manifest: {
-                key: "test.sidecar-report-reminder",
-                name: "Sidecar Report Reminder",
-            },
-            initialSchema: Type.Object({}),
-            allowedToolKeys: ["report_result"],
-            sidecars: [{
-                name: "actor.context-load",
-                stage: "prepareRun",
-                allowedToolKeys: ["report_result"],
-                sidecarDataSchema: Type.Object({
-                    context: Type.String(),
-                }),
-                enterPrompt: "加载上下文。",
-                merge(_ctx, result) {
-                    observedSidecarData = result.sidecarData as {context: string};
-                    return {};
-                },
-            }],
-            prepare() {
-                return {};
-            },
-        }), false);
-        faux.setResponses([
-            (context) => {
-                sidecarPrompts.push(context.messages.map((message) => messageText(message as RuntimeMessage)).join("\n"));
-                return fauxAssistantMessage("plain sidecar answer");
-            },
-            (context) => {
-                sidecarPrompts.push(context.messages.map((message) => messageText(message as RuntimeMessage)).join("\n"));
-                return fauxAssistantMessage([
-                    fauxToolCall("report_sidecar_result", {
-                        result: "loaded",
-                        data: {
-                            "actor.context-load": {
-                                context: "已加载 actor 可知上下文。",
-                            },
-                        },
-                    }, {id: "sidecar-report-after-reminder"}),
-                ], {stopReason: "toolUse"});
-            },
-            fauxAssistantMessage([
-                fauxToolCall("report_result", {
-                    result: "main",
-                }, {id: "main-report"}),
-            ], {stopReason: "toolUse"}),
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "test.sidecar-report-reminder",
-            initial: {},
-            workspaceRoot: root,
-        });
-
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "run"},
-        });
-
-        expect(result.status).toBe("completed");
-        expect(observedSidecarData?.context).toBe("已加载 actor 可知上下文。");
-        expect(sidecarPrompts[1]).toContain("必须使用 report_sidecar_result");
-    }, 30_000);
-
-    it("outputFallback sidecar 的 reminder 不要求调用 report_sidecar_result", async () => {
-        const reminder = (harness as unknown as {
-            sidecarReminder(pass: SidecarProfilePass, context: never, executionToolKeys: readonly string[]): string;
-        }).sidecarReminder({
-            name: "actor.context-load",
-            stage: "prepareRun",
-            sidecarDataSchema: Type.String(),
-            outputFallback: "final_message_as_result",
-            enterPrompt: "加载上下文。",
-            merge() {
-                return {};
-            },
-        }, {} as never, []);
-
-        expect(reminder).toContain("当前旁路未开放 report_sidecar_result");
-        expect(reminder).not.toContain("完成旁路后优先调用 report_sidecar_result");
-        expect(reminder).not.toContain("report_sidecar_result.data 期望结构");
-    });
-
-    it("非空 object sidecar reminder 不把 keyed data 示例写成空对象", () => {
-        const reminder = (harness as unknown as {
-            sidecarReminder(pass: SidecarProfilePass, context: never, executionToolKeys: readonly string[]): string;
-        }).sidecarReminder({
-            name: "actor.memory-save",
-            stage: "settleRun",
-            sidecarDataSchema: Type.Object({
-                changed_files: Type.Array(Type.String()),
-            }),
-            enterPrompt: "保存记忆。",
-            merge() {
-                return {};
-            },
-        }, {} as never, ["report_sidecar_result"]);
-
-        expect(reminder).toContain("\"actor.memory-save\": <按下方 schema 填写的 JSON object>");
-        expect(reminder).toContain("report_sidecar_result.data[\"actor.memory-save\"] 的 schema");
-        expect(reminder).not.toContain("\"actor.memory-save\": {}");
-    });
-
     it("profile 自带工具可见并可执行", async () => {
         let observedToolNames: string[] = [];
         let executedText = "";
@@ -5783,7 +4234,7 @@ describe("NeuroAgentHarness", () => {
         expect(visibleMessageText(context.messages)).toContain("Tool missing_plugin not found");
     }, 20_000);
 
-    it("profile 自带审批工具可以 suspend 并通过 resolution 恢复", async () => {
+    it("profile 自带审批工具 suspend 后批准会真实执行并以执行结果落库", async () => {
         let privateApprovalExecuted = false;
         const privateApproval = defineProfileTool({
             key: "private_approval",
@@ -5797,9 +4248,8 @@ describe("NeuroAgentHarness", () => {
             async executeWithContext() {
                 privateApprovalExecuted = true;
                 return {
-                    content: [{type: "text", text: "should not execute"}],
+                    content: [{type: "text", text: "private approval executed"}],
                     details: {},
-                    terminate: true,
                 };
             },
         });
@@ -5854,94 +4304,8 @@ describe("NeuroAgentHarness", () => {
         expect(waiting.status).toBe("waiting");
         expect(continued.status).toBe("completed");
         expect(continued.reportResult?.result).toBe("approved done");
-        expect(privateApprovalExecuted).toBe(false);
-    }, 20_000);
-
-    it("sidecar 保持 profile 最大工具 schema 可见，但执行权限使用旁路子集", async () => {
-        const observedToolNames: string[][] = [];
-        const observedReportSidecarSchemas: unknown[] = [];
-        harness.tools.register({
-            key: "sidecar_extra",
-            name: "sidecar_extra",
-            label: "Sidecar Extra",
-            description: "Should be visible but not executable in sidecar.",
-            parameters: Type.Object({}),
-            async execute() {
-                return {
-                    content: [{type: "text", text: "extra"}],
-                    details: {},
-                    terminate: true,
-                };
-            },
-        });
-        harness.profiles.register(defineAgentProfile({
-            manifest: {
-                key: "test.sidecar-tool-policy",
-                name: "Sidecar Tool Policy",
-            },
-            initialSchema: Type.Object({}),
-            allowedToolKeys: ["report_result", "sidecar_extra"],
-            sidecars: [{
-                name: "actor.context-load",
-                stage: "prepareRun",
-                allowedToolKeys: ["report_result"],
-                sidecarDataSchema: Type.Object({
-                    context: Type.String(),
-                }),
-                enterPrompt: "加载上下文。",
-                merge() {
-                    return {};
-                },
-            }],
-            prepare() {
-                return {};
-            },
-        }), false);
-        faux.setResponses([
-            (context) => {
-                observedToolNames.push((context.tools ?? []).map((tool) => tool.name));
-                observedReportSidecarSchemas.push((context.tools ?? []).find((tool) => tool.name === "report_sidecar_result")?.parameters);
-                const promptText = visibleMessageText(context.messages);
-                expect(promptText).toContain("allowed tools: report_sidecar_result");
-                expect(promptText).toContain("provider-visible tool schema 仍保持 profile 最大工具集合");
-                return fauxAssistantMessage([
-                    fauxToolCall("report_sidecar_result", {
-                        result: "loaded",
-                        data: {
-                            "actor.context-load": {
-                                context: "ok",
-                            },
-                        },
-                    }, {id: "sidecar-report"}),
-                ], {stopReason: "toolUse"});
-            },
-            (context) => {
-                observedToolNames.push((context.tools ?? []).map((tool) => tool.name));
-                observedReportSidecarSchemas.push((context.tools ?? []).find((tool) => tool.name === "report_sidecar_result")?.parameters);
-                return fauxAssistantMessage([
-                    fauxToolCall("report_result", {
-                        result: "main",
-                    }, {id: "main-report"}),
-                ], {stopReason: "toolUse"});
-            },
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "test.sidecar-tool-policy",
-            initial: {},
-            workspaceRoot: root,
-        });
-
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "run"},
-        });
-
-        expect(result.status).toBe("completed");
-        expect(observedToolNames[0]).toEqual(expect.arrayContaining(["report_result", "sidecar_extra"]));
-        expect(observedToolNames[1]).toEqual(expect.arrayContaining(["report_result", "sidecar_extra"]));
-        expect(observedReportSidecarSchemas).toHaveLength(2);
-        expect(observedReportSidecarSchemas[0]).toEqual(observedReportSidecarSchemas[1]);
+        // Task 111 契约：批准不是结果，执行才是——approvalRequired 工具在批准后真实执行
+        expect(privateApprovalExecuted).toBe(true);
     }, 20_000);
 
     it("主 run 可见 profile 最大工具 schema，但执行权限使用 mainRunAllowedToolKeys", async () => {
@@ -6172,101 +4536,6 @@ describe("NeuroAgentHarness", () => {
         expect(observedToolNames[0]).toEqual(["report_result", "reminder_patch_extra"]);
         expect(visibleMessageText(context.messages)).not.toContain("必须使用 report_result");
     }, 20_000);
-
-    it("prepareRun sidecar 不会关闭父 run 的 steer 窗口", async () => {
-        let releaseMainTool: (() => void) | undefined;
-        const mainToolStarted = new Promise<void>((resolve) => {
-            harness.tools.register({
-                key: "sidecar_steer_gate",
-                name: "sidecar_steer_gate",
-                label: "Sidecar Steer Gate",
-                description: "等待测试注入 steer。",
-                parameters: Type.Object({}),
-                async execute() {
-                    resolve();
-                    await new Promise<void>((done) => {
-                        releaseMainTool = done;
-                    });
-                    return {
-                        content: [{type: "text", text: "gate done"}],
-                        details: {},
-                        terminate: true,
-                    };
-                },
-            });
-        });
-        harness.profiles.register(defineAgentProfile({
-            manifest: {
-                key: "test.sidecar-keeps-steerable",
-                name: "Sidecar Keeps Steerable",
-            },
-            initialSchema: Type.Object({}),
-            allowedToolKeys: ["report_result", "sidecar_steer_gate"],
-            sidecars: [{
-                name: "actor.context-load",
-                stage: "prepareRun",
-                allowedToolKeys: ["report_result"],
-                sidecarDataSchema: Type.Object({
-                    context: Type.String(),
-                }),
-                enterPrompt: "加载上下文。",
-                merge() {
-                    return {};
-                },
-            }],
-            prepare() {
-                return {};
-            },
-        }), false);
-        faux.setResponses([
-            fauxAssistantMessage([
-                fauxToolCall("report_sidecar_result", {
-                    result: "loaded",
-                    data: {
-                        "actor.context-load": {
-                            context: "ok",
-                        },
-                    },
-                }, {id: "sidecar-report"}),
-            ], {stopReason: "toolUse"}),
-            fauxAssistantMessage([
-                fauxToolCall("sidecar_steer_gate", {}, {id: "main-gate"}),
-            ], {stopReason: "toolUse"}),
-            (context) => {
-                expect(visibleMessageText(context.messages)).toContain("after sidecar steer");
-                return fauxAssistantMessage([
-                    fauxToolCall("report_result", {
-                        result: "main",
-                    }, {id: "main-report"}),
-                ], {stopReason: "toolUse"});
-            },
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "test.sidecar-keeps-steerable",
-            initial: {},
-            workspaceRoot: root,
-        });
-
-        const running = harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "run"},
-        });
-        await mainToolStarted;
-        const steered = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "steer",
-            message: {text: "after sidecar steer"},
-        });
-        releaseMainTool?.();
-        const result = await running;
-        const recovery = await harness.getSessionRecovery(created.sessionId);
-        const snapshot = await harness.repo.readSession(created.sessionId);
-
-        expect(steered.status).toBe("waiting");
-        expect(result.status).toBe("completed");
-        expect(recovery.steerQueue).toEqual({items: [], omittedItems: 0});
-    }, 30_000);
 
     it("prepareRun hook 可以注入 runtime-only 首轮上下文且不落 session", async () => {
         const providerPrompts: string[] = [];
@@ -8656,7 +6925,6 @@ describe("NeuroAgentHarness", () => {
             workspaceRoot: root,
             parentSessionId: parent.sessionId,
         });
-
         await expect(harness.detachAgent(child.sessionId, parent.sessionId)).resolves.toEqual({
             sessionId: child.sessionId,
             status: "detached",
@@ -8671,7 +6939,7 @@ describe("NeuroAgentHarness", () => {
         });
     });
 
-    it("create 与 archive 并发时由关系队列串行，最终不会留下 active link", async () => {
+    it("create 与 archive 并发时由关系队列串行，账本保留 link 但 effective view 隐藏归档端", async () => {
         const parent = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
@@ -8707,7 +6975,7 @@ describe("NeuroAgentHarness", () => {
         expect((await harness.getSessionRelations(child.sessionId)).linkedByAgents).toEqual([]);
         expect(harness.repo.reduce(await originalReadSession(parent.sessionId)).linkedAgents).toContainEqual(expect.objectContaining({
             sessionId: child.sessionId,
-            detached: true,
+            detached: false,
         }));
     });
 
@@ -9185,22 +7453,14 @@ describe("NeuroAgentHarness", () => {
             role: "toolResult",
             details: expect.objectContaining({
                 status: "completed",
-                result: expect.objectContaining({
-                    message: "child done",
-                    data: {
-                        answer: "structured child data",
-                    },
-                }),
-            }),
-        }));
-        expect(JSON.parse(storedMessageText(toolResult!))).toEqual(expect.objectContaining({
-            status: "completed",
-            result: expect.objectContaining({
+                sessionId: child.sessionId,
+                finalMessage: "child done",
                 data: {
                     answer: "structured child data",
                 },
             }),
         }));
+        expect(storedMessageText(toolResult!)).toBe("child done");
         expect(toolResult?.details).not.toHaveProperty("events");
         expect(context.messages.some((message) => message.role === "toolResult" && Boolean((message.details as {events?: unknown} | undefined)?.events))).toBe(false);
         expect(harness.repo.reduce(await harness.repo.readSession(child.sessionId)).title).toBe("Child Work Session");
@@ -9426,7 +7686,7 @@ describe("NeuroAgentHarness", () => {
         expect(text).toContain("outputSchema");
     }, 30_000);
 
-    it("session snapshot 暴露 linked agents、pending approval、plan/model/followUp 状态", async () => {
+    it("session snapshot 暴露 linked agents 与 pending approval，Waiting 状态拒绝新消息入队", async () => {
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.snapshot-approval",
@@ -9456,6 +7716,11 @@ describe("NeuroAgentHarness", () => {
             workspaceRoot: root,
             parentSessionId: parent.sessionId,
         });
+        const registered = await harness.uploadSessionAttachment(parent.sessionId, {
+            bytes: PNG_BYTES,
+            mimeType: "image/png",
+            name: "queued.png",
+        });
 
         const waiting = await harness.invokeAgent({
             sessionId: parent.sessionId,
@@ -9466,12 +7731,7 @@ describe("NeuroAgentHarness", () => {
             sessionId: parent.sessionId,
             mode: "prompt",
             message: {
-                text: "queued",
-                images: [{
-                    type: "image",
-                    mimeType: "image/png",
-                    data: "data:image/png;base64,iVBORw0KGgo=",
-                }],
+                text: `queued${serializeAgentImageMarkdown("queued.png", registered.target)}`,
             },
             title: "Queued Follow-up Title",
         });
@@ -9480,34 +7740,27 @@ describe("NeuroAgentHarness", () => {
             mode: "steer",
             message: {text: "adjust"},
         });
+        const backgroundRejected = await harness.invokeAgent({
+            sessionId: parent.sessionId,
+            mode: "prompt",
+            message: {text: "background must not queue"},
+            queueIfBusy: false,
+        });
 
         const snapshot = await harness.getSessionRecovery(parent.sessionId);
 
         expect(waiting.status).toBe("waiting");
-        expect(queued.status).toBe("waiting");
-        expect(steered.status).toBe("waiting");
-        expect(snapshot.summary.title).toBe("Queued Follow-up Title");
-        expect(steered.queuedItem).toEqual(expect.objectContaining({
-            kind: "steer",
-            text: expect.objectContaining({preview: "adjust", omitted: false}),
-        }));
+        expect(queued).toMatchObject({status: "error", acceptance: {state: "not_accepted"}});
+        expect(steered).toMatchObject({status: "error", acceptance: {state: "not_accepted"}});
+        expect(backgroundRejected).toMatchObject({status: "error", acceptance: {state: "not_accepted"}});
         expect(snapshot.pendingUserInputs[0]).toEqual(expect.objectContaining({
             toolCallId: "ask-snapshot",
             toolName: "request_user_input",
             args: expect.objectContaining({kind: "generic"}),
         }));
-        expect(snapshot.followUpQueue.items).toEqual([
-            expect.objectContaining({
-                kind: "followup",
-                text: expect.objectContaining({preview: "queued", omitted: false}),
-                images: [expect.objectContaining({mimeType: "image/png", dataOmitted: true})],
-            }),
-        ]);
+        expect(snapshot.followUpQueue.items).toEqual([]);
         expect(snapshot.steerQueue).toEqual({
-            items: [expect.objectContaining({
-                kind: "steer",
-                text: expect.objectContaining({preview: "adjust", omitted: false}),
-            })],
+            items: [],
             omittedItems: 0,
         });
         expect(snapshot.linkedAgents).toEqual([
@@ -9607,7 +7860,93 @@ describe("NeuroAgentHarness", () => {
         }
     });
 
-    it("waiting_user 期间入队的 steer 会在 resolution 后下一次模型调用前注入", async () => {
+    it("排队 followup 保留 invocation modelKey 且不修改 session 默认模型", async () => {
+        const defaultModel = {
+            ...faux.getModel(),
+            id: "queued-default-model",
+            providerConfigId: "faux",
+        };
+        const overrideModel = {
+            ...faux.getModel(),
+            id: "queued-override-model",
+            providerConfigId: "faux",
+        };
+        const runtimeModelIds: string[] = [];
+        harness = new NeuroAgentHarness({
+            repo: harness.repo,
+            profiles: harness.profiles,
+            modelResolver: (_config, _profileKey, override) => {
+                if (override?.modelKey === "faux/queued-override-model") return overrideModel;
+                if (!override?.modelKey || override.modelKey === "faux/queued-default-model") return defaultModel;
+                throw new Error(`模型未启用或不存在：${override.modelKey}`);
+            },
+            runtimeResolver: (_config, model) => {
+                runtimeModelIds.push(model.id);
+                return faux.runtime;
+            },
+            enableSessionSummarizer: false,
+        });
+        const toolStarted = createDeferred();
+        const releaseTool = createDeferred();
+        harness.tools.register({
+            key: "queue_model_gate",
+            name: "queue_model_gate",
+            label: "Queue Model Gate",
+            description: "保持首个 invocation 运行中。",
+            parameters: Type.Object({}),
+            async execute() {
+                toolStarted.resolve();
+                await releaseTool.promise;
+                return {content: [{type: "text", text: "released"}], details: {}};
+            },
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {key: "test.queued-model", name: "Queued Model"},
+            initialSchema: Type.Object({}),
+            allowedToolKeys: ["queue_model_gate"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([fauxToolCall("queue_model_gate", {}, {id: "queue-model-gate"})], {stopReason: "toolUse"}),
+            fauxAssistantMessage("first completed"),
+            fauxAssistantMessage("followup completed"),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.queued-model",
+            initial: {},
+            workspaceRoot: root,
+        });
+        const running = harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "start"},
+        });
+
+        try {
+            await toolStarted.promise;
+            const queued = await harness.invokeAgent({
+                sessionId: created.sessionId,
+                mode: "followup",
+                message: {text: "run with override"},
+                modelKey: "faux/queued-override-model",
+            });
+            expect(queued.status).toBe("waiting");
+            releaseTool.resolve();
+            await expect(running).resolves.toMatchObject({status: "completed"});
+            expect(runtimeModelIds).toEqual(["queued-default-model", "queued-override-model"]);
+            expect(harness.repo.reduce(await harness.repo.readSession(created.sessionId)).model).toEqual({
+                providerConfigId: "faux",
+                modelId: "queued-default-model",
+            });
+        } finally {
+            releaseTool.resolve();
+            await running.catch(() => undefined);
+        }
+    });
+
+    it("waiting_user 期间拒绝 steer，resolution 后不会注入未接受正文", async () => {
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.waiting-steer",
@@ -9640,9 +7979,10 @@ describe("NeuroAgentHarness", () => {
             mode: "prompt",
             message: {text: "start"},
         });
-        await harness.invokeAgent({
+        const rejected = await harness.invokeAgent({
             sessionId: created.sessionId,
             mode: "steer",
+            clientMessageId: randomUUID(),
             message: {text: "adjust while waiting"},
         });
         const continued = await harness.invokeAgent({
@@ -9656,11 +7996,16 @@ describe("NeuroAgentHarness", () => {
         });
 
         expect(waiting.status).toBe("waiting");
+        expect(rejected).toMatchObject({
+            status: "error",
+            acceptance: {state: "not_accepted"},
+            errorPhase: "prepare",
+        });
         expect(continued.status).toBe("completed");
         const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
         const assistantText = [...context.messages].reverse().find((message) => message.role === "assistant");
-        expect(assistantText ? messageText(assistantText as never) : "").toContain("adjust while waiting");
-        expect(context.messages.map((message) => message.role)).toEqual(["user", "assistant", "toolResult", "user", "assistant"]);
+        expect(assistantText ? messageText(assistantText as never) : "").not.toContain("adjust while waiting");
+        expect(context.messages.map((message) => message.role)).toEqual(["user", "assistant", "toolResult", "assistant"]);
         const recovery = await harness.getSessionRecovery(created.sessionId);
         const snapshot = await harness.repo.readSession(created.sessionId);
         expect(recovery.steerQueue).toEqual({items: [], omittedItems: 0});
@@ -9806,61 +8151,50 @@ describe("NeuroAgentHarness", () => {
     });
 
     it("abort clearQueue 会清空已持久化的 followUp queue projection", async () => {
-        harness.profiles.register(defineAgentProfile({
-            manifest: {
-                key: "test.abort-persisted-queue",
-                name: "Abort Persisted Queue",
-            },
-            initialSchema: Type.Object({}),
-            allowedToolKeys: ["request_user_input"],
-            prepare() {
-                return {};
-            },
-        }), false);
+        let releaseProvider: (() => void) | undefined;
+        const providerGate = new Promise<void>((resolve) => {
+            releaseProvider = resolve;
+        });
         faux.setResponses([
-            fauxAssistantMessage([
-                fauxToolCall("request_user_input", {
-                    questions: [{question: "Wait?"}],
-                }, {id: "abort-persisted-queue"}),
-            ], {stopReason: "toolUse"}),
+            async () => {
+                await providerGate;
+                return fauxAssistantMessage("stopped", {stopReason: "aborted", errorMessage: "user stopped"});
+            },
         ]);
         const created = await harness.createAgent({
-            profileKey: "test.abort-persisted-queue",
+            profileKey: "leader.default",
             initial: {},
             workspaceRoot: root,
         });
-        const waiting = await harness.invokeAgent({
+        const running = harness.invokeAgent({
             sessionId: created.sessionId,
             mode: "prompt",
             message: {text: "start"},
         });
-        await harness.invokeAgent({
+        await waitFor(async () => {
+            const snapshot = await harness.getSessionRecovery(created.sessionId);
+            expect(snapshot.activeInvocation).not.toBeNull();
+        });
+        const queued = await harness.invokeAgent({
             sessionId: created.sessionId,
             mode: "followup",
             message: {text: "queued followup"},
         });
 
         await harness.abortInvocation(created.sessionId, {reason: "stop", clearQueue: true});
+        await running;
+        releaseProvider!();
+        await new Promise((resolve) => setTimeout(resolve, 20));
         const restored = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
+            profiles: new AgentProfileCatalog(join(root, "restored-system-profiles"), join(root, "restored-user-profiles")),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
         });
-        restored.profiles.register(defineAgentProfile({
-            manifest: {
-                key: "test.abort-persisted-queue",
-                name: "Abort Persisted Queue",
-            },
-            initialSchema: Type.Object({}),
-            allowedToolKeys: ["request_user_input"],
-            prepare() {
-                return {};
-            },
-        }), false);
         const recovery = await restored.getSessionRecovery(created.sessionId);
 
-        expect(waiting.status).toBe("waiting");
+        expect(queued.acceptance.state).toBe("queued");
         expect(recovery.followUpQueue).toEqual({
             status: "ready",
             items: [],
@@ -10224,6 +8558,105 @@ describe("NeuroAgentHarness", () => {
         expect(await harness.listSessions({workspaceKey: "global", includeArchived: true})).toHaveLength(1);
     });
 
+    it("invocation preflight 后并发 archive 时最终 admission 使用最新状态且不提交用户输入", async () => {
+        faux.setResponses([fauxAssistantMessage(fauxText("不应运行"))]);
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+        const originalReadSession = harness.repo.readSession.bind(harness.repo);
+        const releasePreflight = createDeferred();
+        let preflightBlocked = false;
+        harness.repo.readSession = async (...args: Parameters<JsonlSessionRepository["readSession"]>): ReturnType<JsonlSessionRepository["readSession"]> => {
+            const snapshot = await originalReadSession(...args);
+            if (args[0] === created.sessionId && !preflightBlocked) {
+                preflightBlocked = true;
+                await releasePreflight.promise;
+            }
+            return snapshot;
+        };
+        const clientMessageId = randomUUID();
+        const invocation = harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            clientMessageId,
+            message: {text: "stale preflight"},
+        });
+        await waitFor(() => expect(preflightBlocked).toBe(true));
+
+        await harness.runCommand(created.sessionId, {command: "archive", reason: "race winner"});
+        releasePreflight.resolve();
+        const result = await invocation;
+        const snapshot = await originalReadSession(created.sessionId);
+
+        expect(result).toMatchObject({
+            status: "error",
+            acceptance: {state: "not_accepted", clientMessageId},
+            error: "当前 Session 已归档，只能查看或恢复。",
+        });
+        expect(snapshot.entries.some((entry) => entry.type === "message" && entry.clientMessageId === clientMessageId)).toBe(false);
+        expect(snapshot.entries.some((entry) => entry.type === "invocation_lifecycle" && entry.status === "start")).toBe(false);
+    });
+
+    it("Tree 编辑在附件 preadmission 失败时不移动 leaf，成功 prompt 使用目标分支作为 parent", async () => {
+        faux.setResponses([
+            fauxAssistantMessage(fauxText("first")),
+            fauxAssistantMessage(fauxText("edited")),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+        await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "original"},
+        });
+        const before = await harness.repo.readSession(created.sessionId);
+        const originalUser = before.entries.find((entry) => entry.type === "message" && entry.message.role === "user");
+        const originalAssistant = before.entries.find((entry) => entry.type === "message" && entry.message.role === "assistant");
+        const forgedTarget = `workspace/.nbook/agent/attachments/sha256/aa/${"b".repeat(62)}`;
+
+        await expect(harness.moveTree(created.sessionId, {
+            targetEntryId: originalAssistant!.id,
+            position: "before",
+            next: {
+                type: "invoke",
+                mode: "prompt",
+                clientMessageId: randomUUID(),
+                message: {text: serializeAgentImageMarkdown("forged.png", forgedTarget)},
+            },
+        })).rejects.toMatchObject({code: "invalid_reference"});
+        const afterRejected = await harness.repo.readSession(created.sessionId);
+        expect(afterRejected.leafId).toBe(before.leafId);
+        expect(afterRejected.entries).toEqual(before.entries);
+
+        const clientMessageId = randomUUID();
+        const moved = await harness.moveTree(created.sessionId, {
+            targetEntryId: originalAssistant!.id,
+            position: "before",
+            next: {
+                type: "invoke",
+                mode: "prompt",
+                clientMessageId,
+                message: {text: "replacement"},
+            },
+        });
+        expect(moved.invocation?.acceptance).toEqual({
+            state: "persisted",
+            clientMessageId,
+            entryId: expect.any(String),
+        });
+        const afterSuccess = await harness.repo.readSession(created.sessionId);
+        const replacement = afterSuccess.entries.find((entry) => entry.type === "message"
+            && entry.message.role === "user"
+            && entry.clientMessageId === clientMessageId);
+        expect(replacement?.parentId).toBe(originalUser?.id);
+        expect(visibleMessageText(harness.repo.reduce(afterSuccess).messages)).toContain("edited");
+    });
+
     it("从用户消息刷新时保留该用户消息，并从其后继续生成", async () => {
         faux.setResponses([
             fauxAssistantMessage(fauxText("first")),
@@ -10390,7 +8823,7 @@ describe("NeuroAgentHarness", () => {
         expect(detachedSnapshot.linkedByAgents).toEqual([]);
     });
 
-    it("归档 session 会解除全部入站和出站当前关系", async () => {
+    it("归档隐藏关系但不 detach，恢复后仍 linked 的关系重新显现", async () => {
         const owner = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
@@ -10420,8 +8853,34 @@ describe("NeuroAgentHarness", () => {
         const ownerLedger = harness.repo.reduce(await harness.repo.readSession(owner.sessionId));
         expect(ownerLedger.linkedAgents).toContainEqual(expect.objectContaining({
             sessionId: archived.sessionId,
-            detached: true,
+            detached: false,
         }));
+
+        await harness.runCommand(archived.sessionId, {command: "restore"});
+        await harness.runCommand(archived.sessionId, {command: "restore"});
+        expect((await harness.getSessionRelations(owner.sessionId)).linkedAgents).toEqual([
+            expect.objectContaining({sessionId: archived.sessionId}),
+        ]);
+        expect((await harness.getSessionRelations(child.sessionId)).linkedByAgents).toEqual([
+            expect.objectContaining({sessionId: archived.sessionId}),
+        ]);
+
+        await harness.runCommand(archived.sessionId, {command: "archive", reason: "detach while archived"});
+        await harness.runCommand(archived.sessionId, {command: "archive", reason: "duplicate archive"});
+        await harness.detachAgent(archived.sessionId, owner.sessionId);
+        await harness.runCommand(archived.sessionId, {command: "restore"});
+        expect((await harness.getSessionRelations(owner.sessionId)).linkedAgents).toEqual([]);
+        expect((await harness.getSessionRelations(child.sessionId)).linkedByAgents).toEqual([
+            expect.objectContaining({sessionId: archived.sessionId}),
+        ]);
+        const lifecycleEntries = (await harness.repo.readSession(archived.sessionId)).entries
+            .filter((entry) => entry.type === "session_archived" || entry.type === "session_restored");
+        expect(lifecycleEntries.map((entry) => entry.type)).toEqual([
+            "session_archived",
+            "session_restored",
+            "session_archived",
+            "session_restored",
+        ]);
     });
 
     it("缺失 profile 的历史 session 仍可读取但不能继续运行", async () => {
@@ -10517,7 +8976,7 @@ describe("NeuroAgentHarness", () => {
                 type: "invoke",
                 mode: "continue",
             },
-        })).rejects.toThrow("已不存在或不可运行");
+        })).rejects.toThrow("状态不允许编辑历史并重新运行");
         const afterTreeInvoke = await restored.getSessionRecovery(parent.sessionId);
 
         expect(waiting.status).toBe("waiting");
@@ -10901,6 +9360,430 @@ describe("NeuroAgentHarness", () => {
         expect(result.kind).toBe("live_state");
     });
 
+    it("Project ready发布后close先进入terminal gate时admission fail closed", async () => {
+        await closeAllProjects();
+        resetProjectSessionsForTest();
+        const projectPath = "workspace/admission-close-race";
+        const projectRoot = join(root, "admission-close-race");
+        await mkdir(join(projectRoot, ".nbook"), {recursive: true});
+        await writeFile(join(projectRoot, "project.yaml"), "kind: novel\ntitle: Admission Close Race\nsummary: ''\n", "utf8");
+        await writeFile(join(projectRoot, ".nbook", "config.json"), "{}\n", "utf8");
+
+        const openGate = createDeferred();
+        const moduleStarted = createDeferred();
+        const captureStarted = createDeferred();
+        const restoreModules = replaceProjectModulesForTest(gatedProjectModules(openGate.promise, moduleStarted.resolve));
+        const captureInvocationProject = harness["captureInvocationProject"].bind(harness);
+        harness["captureInvocationProject"] = async (sessionId, currentProjectPath) => {
+            captureStarted.resolve();
+            return captureInvocationProject(sessionId, currentProjectPath);
+        };
+        let providerCalls = 0;
+        faux.setResponses([
+            () => {
+                providerCalls += 1;
+                return fauxAssistantMessage(fauxText("must not run"));
+            },
+        ]);
+        let opening: Promise<ReadyProjectSessionRef> | null = null;
+        let closing: Promise<void> | null = null;
+
+        try {
+            const created = await harness.createAgent({
+                profileKey: "leader.default",
+                initial: {},
+                workspaceRoot: "workspace",
+                projectPath,
+            });
+            opening = openProject(harness.workspaceRoot, projectPath, {
+                kind: "job",
+                source: "admission-close-race",
+            });
+            await moduleStarted.promise;
+            closing = opening.then(() => closeProjectForTest(projectPath));
+
+            const invoking = harness.invokeAgent({
+                sessionId: created.sessionId,
+                mode: "prompt",
+                message: {text: "must fail before start"},
+            });
+            const rejected = expect(invoking).rejects.toBeInstanceOf(ProjectNotOpenError);
+            await captureStarted.promise;
+            openGate.resolve();
+
+            await rejected;
+            await closing;
+            const snapshot = await harness.repo.readSession(created.sessionId);
+            const recovery = await harness.getSessionRecovery(created.sessionId);
+
+            expect(providerCalls).toBe(0);
+            expect(recovery.activeInvocation).toBeNull();
+            expect(snapshot.entries.some((entry) => entry.type === "invocation_lifecycle")).toBe(false);
+        } finally {
+            openGate.resolve();
+            await opening?.catch(() => undefined);
+            await closing?.catch(() => undefined);
+            harness["captureInvocationProject"] = captureInvocationProject;
+            await closeProjectForTest(projectPath).catch(() => undefined);
+            await closeAllProjects();
+            resetProjectSessionsForTest();
+            restoreModules();
+        }
+    }, 20_000);
+
+    it("manual compact持有Project operation，忽略取消的迟到结果不得落盘", async () => {
+        await closeAllProjects();
+        resetProjectSessionsForTest();
+        const projectPath = "workspace/manual-compact-project";
+        const projectRoot = join(root, "manual-compact-project");
+        await mkdir(join(projectRoot, ".nbook"), {recursive: true});
+        await writeFile(join(projectRoot, "project.yaml"), "kind: novel\ntitle: Manual Compact\nsummary: ''\n", "utf8");
+        await writeFile(join(projectRoot, ".nbook", "config.json"), "{}\n", "utf8");
+
+        const providerStarted = createDeferred();
+        const releaseProvider = createDeferred();
+        let receivedSignal: AbortSignal | undefined;
+        faux.setResponses([
+            async (_context, options) => {
+                receivedSignal = options?.signal;
+                providerStarted.resolve();
+                await releaseProvider.promise;
+                return fauxAssistantMessage(fauxText("LATE COMPACTION"));
+            },
+        ]);
+
+        try {
+            const created = await harness.createAgent({
+                profileKey: "leader.default",
+                initial: {},
+                workspaceRoot: "workspace",
+                projectPath,
+            });
+            await harness.repo.appendMessage(created.sessionId, createUserMessage({text: "old context"}));
+            const command = await harness.runCommand(created.sessionId, {
+                command: "compact",
+                instructions: "hold until close",
+            });
+            if (command.kind !== "live_state" || !command.state.activeInvocation) {
+                throw new Error("测试未观察到 manual compact active invocation");
+            }
+            const invocationId = command.state.activeInvocation.invocationId;
+            const capturedProject = harness.projectForInvocation(invocationId);
+            if (!capturedProject) {
+                throw new Error("测试 manual compact 未捕获 Project");
+            }
+            await providerStarted.promise;
+
+            let closeSettled = false;
+            const closing = closeProjectForTest(projectPath);
+            void closing.then(
+                () => {
+                    closeSettled = true;
+                },
+                () => {
+                    closeSettled = true;
+                },
+            );
+            await waitFor(() => {
+                expect(receivedSignal?.aborted).toBe(true);
+            });
+
+            expect(closeSettled).toBe(false);
+            expect(projectOccupancy(projectPath)).toBeNull();
+            await closing;
+            const reopened = await openProject(harness.workspaceRoot, projectPath, {
+                kind: "job",
+                source: "manual-compact-late-test",
+            });
+
+            releaseProvider.resolve();
+            await harness.drainBackgroundTasks();
+            const snapshot = await harness.repo.readSession(created.sessionId);
+            const lifecycle = snapshot.entries.flatMap((entry) => entry.type === "invocation_lifecycle" && entry.invocationId === invocationId
+                ? [entry.status]
+                : []);
+
+            expect(receivedSignal).toBeDefined();
+            expect(reopened.generation).not.toBe(capturedProject.generation);
+            expect(lifecycle).toEqual(["start", "aborted"]);
+            expect(snapshot.entries.some((entry) => entry.type === "compaction")).toBe(false);
+            expect(() => harness.projectForInvocation(invocationId)).toThrow(`invocation variable state不存在：${invocationId}`);
+        } finally {
+            releaseProvider.resolve();
+            await harness.drainBackgroundTasks().catch(() => undefined);
+            await closeProjectForTest(projectPath).catch(() => undefined);
+            await closeAllProjects();
+            resetProjectSessionsForTest();
+        }
+    }, 20_000);
+
+    it("Project invocation持有exact generation到terminal，close abort后才允许reopen", async () => {
+        await closeAllProjects();
+        resetProjectSessionsForTest();
+        const projectPath = "workspace/exact-config";
+        const projectRoot = join(root, "exact-config");
+        await mkdir(join(projectRoot, ".nbook"), {recursive: true});
+        await writeFile(join(projectRoot, "project.yaml"), "kind: novel\ntitle: Exact Config\nsummary: ''\n", "utf8");
+        await writeFile(join(projectRoot, ".nbook", "config.json"), "{}\n", "utf8");
+
+        let captured: ReadyProjectSessionRef | null = null;
+        let markHookStarted: () => void = () => undefined;
+        const hookStarted = new Promise<void>((resolve) => {
+            markHookStarted = resolve;
+        });
+        let releaseHook: () => void = () => undefined;
+        const hookPause = new Promise<void>((resolve) => {
+            releaseHook = resolve;
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {key: "test.exact-project-config", name: "Exact Project Config"},
+            initialSchema: Type.Object({}),
+            allowedToolKeys: [],
+            runtime: defineAgentRuntime<object>({
+                hooks: [{
+                    name: "pause-after-project-capture",
+                    stage: "prepareRun",
+                    async run(ctx) {
+                        captured = harness.projectForInvocation(ctx.invocationId);
+                        if (!captured) {
+                            throw new Error("测试 invocation 未捕获 Project");
+                        }
+                        markHookStarted();
+                        await hookPause;
+                        return {};
+                    },
+                }],
+            }),
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([fauxAssistantMessage(fauxText("done"))]);
+
+        try {
+            const created = await harness.createAgent({
+                profileKey: "test.exact-project-config",
+                initial: {},
+                workspaceRoot: "workspace",
+                projectPath,
+            });
+            const invoking = harness.invokeAgent({
+                sessionId: created.sessionId,
+                mode: "prompt",
+                message: {text: "run"},
+            });
+            await hookStarted;
+            const capturedReady = captured as ReadyProjectSessionRef | null;
+            if (!capturedReady) {
+                throw new Error("测试未观察到 Project capture");
+            }
+            let closeSettled = false;
+            const closing = closeProjectForTest(projectPath);
+            void closing.then(
+                () => {
+                    closeSettled = true;
+                },
+                () => {
+                    closeSettled = true;
+                },
+            );
+
+            await Promise.resolve();
+            expect(closeSettled).toBe(false);
+            expect(projectOccupancy(projectPath)).toBeNull();
+
+            releaseHook();
+            const result = await invoking;
+            await closing;
+            const reopened = await openProject(harness.workspaceRoot, projectPath, {kind: "job", source: "exact-config-test"});
+
+            expect(result.status).toBe("error");
+            expect(reopened.generation).not.toBe(capturedReady.generation);
+            expect(() => harness.projectForInvocation(result.invocationId)).toThrow(`invocation variable state不存在：${result.invocationId}`);
+        } finally {
+            releaseHook();
+            await closeProjectForTest(projectPath).catch(() => undefined);
+            await closeAllProjects();
+            resetProjectSessionsForTest();
+        }
+    }, 20_000);
+
+    it("Project invocation在waiting释放operation，resume同id捕获新generation", async () => {
+        await closeAllProjects();
+        resetProjectSessionsForTest();
+        const projectPath = "workspace/waiting-resume-generation";
+        const projectRoot = join(root, "waiting-resume-generation");
+        await mkdir(join(projectRoot, ".nbook"), {recursive: true});
+        await writeFile(join(projectRoot, "project.yaml"), "kind: novel\ntitle: Waiting Resume\nsummary: ''\n", "utf8");
+        await writeFile(join(projectRoot, ".nbook", "config.json"), "{}\n", "utf8");
+
+        const capturedProjects: ReadyProjectSessionRef[] = [];
+        harness.profiles.register(defineAgentProfile({
+            manifest: {key: "test.waiting-resume-project", name: "Waiting Resume Project"},
+            initialSchema: Type.Object({}),
+            allowedToolKeys: ["request_user_input"],
+            runtime: defineAgentRuntime<object>({
+                hooks: [
+                    {
+                        name: "persist-waiting-transcript",
+                        stage: "ingestTurn",
+                        run() {
+                            return {transcript: "persist"};
+                        },
+                    },
+                    {
+                        name: "capture-running-project-generation",
+                        stage: "prepareRun",
+                        run(ctx) {
+                            const currentProject = harness.projectForInvocation(ctx.invocationId);
+                            if (!currentProject) {
+                                throw new Error("测试 invocation 未捕获 Project");
+                            }
+                            capturedProjects.push(currentProject);
+                            return {};
+                        },
+                    },
+                ],
+            }),
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("request_user_input", {
+                    questions: [{question: "Continue?"}],
+                }, {id: "ask-project-resume"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage(fauxText("done")),
+        ]);
+
+        try {
+            const created = await harness.createAgent({
+                profileKey: "test.waiting-resume-project",
+                initial: {},
+                workspaceRoot: "workspace",
+                projectPath,
+            });
+            const waiting = await harness.invokeAgent({
+                sessionId: created.sessionId,
+                mode: "prompt",
+                message: {text: "wait"},
+            });
+
+            expect(
+                waiting.status,
+                waiting.status === "error" ? `${waiting.errorPhase}: ${waiting.error}` : JSON.stringify(waiting),
+            ).toBe("waiting");
+            expect(capturedProjects).toHaveLength(1);
+            expect(harness.projectForInvocation(waiting.invocationId)).toBeNull();
+
+            await closeProjectForTest(projectPath);
+            const afterClose = await harness.repo.readSession(created.sessionId);
+            expect(afterClose.entries).not.toContainEqual(expect.objectContaining({
+                type: "invocation_lifecycle",
+                invocationId: waiting.invocationId,
+                status: "aborted",
+            }));
+            const reopened = await openProject(harness.workspaceRoot, projectPath, {
+                kind: "job",
+                source: "waiting-resume-test",
+            });
+            const resumed = await harness.invokeAgent({
+                sessionId: created.sessionId,
+                mode: "continue",
+                resolution: {
+                    kind: "user_input",
+                    toolCallId: "ask-project-resume",
+                    answers: [{questionIndex: 0, text: "continue"}],
+                },
+            });
+            const finalSnapshot = await harness.repo.readSession(created.sessionId);
+            const lifecycle = finalSnapshot.entries.flatMap((entry) => entry.type === "invocation_lifecycle" && entry.invocationId === waiting.invocationId
+                ? [entry.status]
+                : []);
+
+            expect(resumed.status).toBe("completed");
+            expect(resumed.invocationId).toBe(waiting.invocationId);
+            expect(capturedProjects).toHaveLength(2);
+            expect(capturedProjects[1]?.generation).toBe(reopened.generation);
+            expect(capturedProjects[1]?.generation).not.toBe(capturedProjects[0]?.generation);
+            expect(lifecycle).toEqual(["start", "waiting", "resumed", "end"]);
+            expect(() => harness.projectForInvocation(resumed.invocationId)).toThrow(`invocation variable state不存在：${resumed.invocationId}`);
+        } finally {
+            await closeProjectForTest(projectPath).catch(() => undefined);
+            await closeAllProjects();
+            resetProjectSessionsForTest();
+        }
+    }, 20_000);
+
+    it("Project invocation固定使用session捕获的ready workspace，client snapshot不能重绑定变量", async () => {
+        await closeAllProjects();
+        resetProjectSessionsForTest();
+        const projectA = join(root, "project-a");
+        const projectB = join(root, "project-b");
+        const definitionSource = [
+            "import {Type} from \"typebox\";",
+            "import {defineProjectVariable} from \"nbook/server/agent/variables/registry\";",
+            "export const definitions = [defineProjectVariable({",
+            "    key: \"scope\",",
+            "    schema: Type.String(),",
+            "})];",
+            "export default definitions;",
+            "",
+        ].join("\n");
+        for (const [projectRoot, value] of [[projectA, "project-a"], [projectB, "project-b"]] as const) {
+            const definitionRoot = join(projectRoot, ".nbook", "agent", "variables");
+            await mkdir(definitionRoot, {recursive: true});
+            await writeFile(join(definitionRoot, "definitions.ts"), definitionSource, "utf8");
+            await writeFile(join(projectRoot, ".nbook", "agent", "variables.json"), `${JSON.stringify({
+                schemaVersion: 1,
+                variables: {scope: value},
+            }, null, 2)}\n`, "utf8");
+            await compileVariableDefinitions({definitionRoot});
+        }
+        harness.profiles.register(defineAgentProfile({
+            manifest: {key: "test.project-vars", name: "Project Vars"},
+            initialSchema: Type.Object({}),
+            allowedToolKeys: ["variable_read"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("variable_read", {namespace: "project", path: "scope"}, {id: "project-var-read"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage(fauxText("done")),
+        ]);
+        const projectPath = "workspace/project-a";
+        try {
+            const created = await harness.createAgent({
+                profileKey: "test.project-vars",
+                initial: {},
+                workspaceRoot: "workspace",
+                projectPath,
+            });
+
+            const result = await harness.invokeAgent({
+                sessionId: created.sessionId,
+                mode: "prompt",
+                message: {text: "read project scope"},
+                clientState: {studio: {workspace: "workspace/project-b"}},
+            });
+            const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+            const readResult = context.messages.find((message) => message.role === "toolResult" && message.toolCallId === "project-var-read");
+
+            expect(result.status).toBe("completed");
+            expect(readResult ? messageText(readResult) : "").toContain('"value": "project-a"');
+            expect(readResult ? messageText(readResult) : "").not.toContain('"value": "project-b"');
+        } finally {
+            await closeProjectForTest(projectPath).catch(() => undefined);
+            await closeAllProjects();
+            resetProjectSessionsForTest();
+        }
+    }, 20_000);
+
     it("profile 内 session variable definition 会进入工具 registry", async () => {
         harness.profiles.register(defineAgentProfile({
             manifest: {key: "test.session-vars", name: "Session Vars"},
@@ -11137,6 +10020,25 @@ function createDeferred(): {promise: Promise<void>; resolve: () => void} {
         resolve = nextResolve;
     });
     return {promise, resolve};
+}
+
+/** 构造可控ready门禁的最小required Module集合，用于精确排列open/close admission竞态。 */
+function gatedProjectModules(openGate: Promise<void>, moduleStarted: () => void): ProjectModule[] {
+    return (["database", "history", "file-index"] as const).map((name): ProjectModule => ({
+        token: projectModuleToken<ProjectModuleHandle>(name, "required"),
+        start() {
+            const ready = name === "file-index" ? openGate : Promise.resolve();
+            if (name === "file-index") {
+                moduleStarted();
+            }
+            return {
+                ready,
+                async close(): Promise<void> {
+                    return undefined;
+                },
+            };
+        },
+    }));
 }
 
 async function waitFor(assertion: () => Promise<void> | void, timeoutMs = 1_000): Promise<void> {

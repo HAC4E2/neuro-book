@@ -24,7 +24,7 @@ ext: {}
 
 ## 目录用途
 
-`lorebook/item/` 存储物品的全知设定，包括外观、功能、历史、制作方式和隐藏属性。这里是物品的"原型"，不追踪"谁持有这个物品"或"物品当前耐久度"等动态状态，动态状态放入 `simulation/entities/`。
+`lorebook/item/` 存储物品的全知设定，包括外观、功能、历史、制作方式和隐藏属性。这里是物品的"原型"，不追踪"谁持有这个物品"或"物品当前耐久度"等动态状态，需要追踪的关键物品登记为 World Engine subject，动态状态记录进时间线。
 
 ## 基本结构
 
@@ -36,5 +36,4 @@ ext: {}
 
 ## 相关文档
 
-- Lorebook Item vs Simulation Entity：[reference/content/lorebook.md](../../../reference/content/lorebook.md)
-- Simulation Entity 用途：[reference/content/simulation.md](../../../reference/content/simulation.md)
+- Lorebook Item 与 World Engine subject 的分工：[reference/content/lorebook.md](../../../reference/content/lorebook.md)

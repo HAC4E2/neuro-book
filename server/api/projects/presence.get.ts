@@ -1,6 +1,6 @@
 import {createError, createEventStream} from "h3";
 import {requireProjectPathQuery} from "nbook/server/utils/novel-chapter";
-import {acquireUserPresence, ProjectNotOpenError} from "nbook/server/workspace-files/project-session";
+import {acquireUserPresence, isProjectNotOpenError} from "nbook/server/workspace-files/project-session";
 import {isClosingEventStreamError} from "nbook/server/utils/event-stream";
 
 /** 心跳间隔：保持 SSE 连接活性，避免代理层按空闲断连；也让断连能在下个心跳被发现。 */
@@ -21,7 +21,7 @@ export default defineEventHandler(async (event) => {
     try {
         release = acquireUserPresence(projectPath);
     } catch (error) {
-        if (error instanceof ProjectNotOpenError) {
+        if (isProjectNotOpenError(error)) {
             throw createError({
                 statusCode: 409,
                 message: "项目未打开，请先打开项目",

@@ -4,6 +4,7 @@ import { toChatNodes } from "nbook/app/components/novel-ide/agent/agent-message"
 import AgentTextBubble from "nbook/app/components/novel-ide/agent/AgentTextBubble.vue";
 import AgentToolBubble from "nbook/app/components/novel-ide/agent/AgentToolBubble.vue";
 import type {CostDisplayOptions} from "nbook/app/utils/cost-format";
+import type {AgentSessionAttachmentItemDto} from "nbook/shared/dto/agent-session.dto";
 import type {
     AgentTriggerMenuContext,
     AgentTriggerMenuState,
@@ -27,12 +28,20 @@ const props = defineProps<{
     mode: "main" | "compact";
     /** 当前处于编辑态的消息 ID。 */
     editingMessageId?: string | null;
+    /** 当前编辑消息的完整 Markdown；可能来自按需 user-content 请求。 */
+    editingMessageText?: string;
     /** 是否禁用消息工具栏动作。 */
     messageActionDisabled?: boolean;
     /** 是否禁用会重新触发运行的消息动作。 */
     runActionDisabled?: boolean;
     /** 当前是否正在提交编辑。 */
     savingEdit?: boolean;
+    sessionAttachments: AgentSessionAttachmentItemDto[];
+    canRegisterAttachments: boolean;
+    canInsertAttachments: boolean;
+    projectPath: string | null;
+    modelSupportsImages: boolean;
+    attachmentInsertRequest?: {id: number; item: AgentSessionAttachmentItemDto} | null;
     /** 消息级分支切换状态。 */
     branchSwitcherStateByMessageId?: Record<string, {nodeIds: string[]; currentIndex: number; total: number}>;
     /** 编辑器触发菜单刷新 key。 */
@@ -65,6 +74,9 @@ const emit = defineEmits<{
     (e: "delete", message: AgentMessage): void;
     (e: "cycle-branch", payload: {messageId: string; direction: -1 | 1}): void;
     (e: "load-previous"): void;
+    (e: "attachment-registered", item: AgentSessionAttachmentItemDto): void;
+    (e: "resend-unknown", message: AgentMessage): void;
+    (e: "dismiss-unknown", message: AgentMessage): void;
 }>();
 
 const scrollRef = ref<HTMLDivElement | null>(null);
@@ -338,9 +350,16 @@ defineExpose({ scrollToBottom: forceScrollToBottom, scrollRef });
                     :node="node"
                     :session-id="props.sessionId"
                     :editing-message-id="props.editingMessageId"
+                    :editing-content="props.editingMessageText"
                     :action-disabled="props.messageActionDisabled"
                     :run-action-disabled="props.runActionDisabled"
                     :saving-edit="props.savingEdit"
+                    :session-attachments="props.sessionAttachments"
+                    :can-register-attachments="props.canRegisterAttachments"
+                    :can-insert-attachments="props.canInsertAttachments"
+                    :project-path="props.projectPath"
+                    :model-supports-images="props.modelSupportsImages"
+                    :attachment-insert-request="props.attachmentInsertRequest"
                     :branch-switcher="props.branchSwitcherStateByMessageId?.[node.message.id]"
                     :menu-refresh-key="props.menuRefreshKey"
                     :resolve-menu="props.resolveEditorMenu"
@@ -355,6 +374,9 @@ defineExpose({ scrollToBottom: forceScrollToBottom, scrollRef });
                     @retry="emit('retry', $event)"
                     @delete="emit('delete', $event)"
                     @cycle-branch="emit('cycle-branch', $event)"
+                    @attachment-registered="emit('attachment-registered', $event)"
+                    @resend-unknown="emit('resend-unknown', $event)"
+                    @dismiss-unknown="emit('dismiss-unknown', $event)"
                 />
                 <AgentToolBubble
                     v-else-if="node.kind === 'tool'"

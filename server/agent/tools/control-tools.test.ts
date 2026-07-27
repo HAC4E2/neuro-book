@@ -430,7 +430,7 @@ describe("report_result 结构化输出", () => {
         });
         const tool = createReportResultTool(schema, {
             dataSchema: Type.Object({summary: Type.String()}),
-            requireData: true,
+            dataRequired: true,
         });
 
         await expect(tool.execute!("call-report", {result: "完成"})).rejects.toThrow(

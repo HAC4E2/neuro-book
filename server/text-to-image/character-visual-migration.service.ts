@@ -54,11 +54,10 @@ import {
     renderOutfitTagsMarkdown,
 } from "nbook/server/text-to-image/character-visual.codec";
 import type {TagResolverService} from "nbook/server/text-to-image/tag-index/tag-resolver.service";
-import {absoluteFsPath, resolveWorkspaceRootInput} from "nbook/server/text-to-image/compat";
+import {absoluteFsPath, invalidateProjectTreeIndex, resolveWorkspaceRootInput} from "nbook/server/text-to-image/compat";
 import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {assertProjectOpen} from "nbook/server/workspace-files/project-session";
 import {normalizeProjectPath, type ProjectPath} from "nbook/server/workspace-files/project-path";
-import {invalidateProjectWorkspaceIndexAfterMutation} from "nbook/server/workspace-files/project-workspace-index";
 import {
     parseMarkdownDocument,
     readWorkspaceTextFile,
@@ -66,7 +65,7 @@ import {
 } from "nbook/server/workspace-files/workspace-files";
 import {
     USER_LOCAL_ACTOR,
-    writeWorkspaceTextFileTracked,
+    writeResolvedProjectTextFileTracked,
 } from "nbook/server/workspace-history/tracked-workspace-files";
 
 const RESOLUTION_SCHEMA_VERSION = "nbook.character-visual-migration-resolution/v1" as const;
@@ -1061,8 +1060,9 @@ class WorkspaceCharacterVisualMigrationStore implements CharacterVisualMigration
     }
 
     async write(input: {projectPath: ProjectPath; root: AbsoluteFsPath; filePath: string; content: string; knownBefore: string | null}): Promise<void> {
-        await writeWorkspaceTextFileTracked({
-            target: {kind: "project-workspace", projectPath: input.projectPath, root: input.root},
+        await writeResolvedProjectTextFileTracked({
+            projectPath: input.projectPath,
+            projectRoot: input.root,
             filePath: input.filePath,
             content: input.content,
             knownBefore: input.knownBefore,
@@ -1071,11 +1071,7 @@ class WorkspaceCharacterVisualMigrationStore implements CharacterVisualMigration
     }
 
     invalidate(input: {projectPath: ProjectPath; root: AbsoluteFsPath}): void {
-        invalidateProjectWorkspaceIndexAfterMutation({
-            kind: "project-workspace",
-            projectPath: input.projectPath,
-            root: input.root,
-        });
+        invalidateProjectTreeIndex(input.projectPath);
     }
 }
 

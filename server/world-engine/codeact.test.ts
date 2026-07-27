@@ -11,6 +11,11 @@ import {rm} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
+import {PROJECT_DATABASE_MODULE_TOKEN} from "nbook/server/workspace-files/project-database-module";
+import {
+    requireReadyModuleHandle,
+    requireReadyProjectPath,
+} from "nbook/server/workspace-files/project-session";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 import {WorldEngineFacade} from "./world-engine.facade";
 
@@ -37,12 +42,17 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
 
         createdProjects.push(testProjectPath);
         await openProjectForTest(testProjectPath);
-        facade = new WorldEngineFacade(resolveRuntimeWorkspaceRoot());
+        const ready = requireReadyProjectPath(testProjectPath);
+        facade = new WorldEngineFacade(
+            resolveRuntimeWorkspaceRoot(),
+            ready.workspace,
+            requireReadyModuleHandle(ready, PROJECT_DATABASE_MODULE_TOKEN),
+        );
     }, 30_000);
 
     afterEach(async () => {
+        await facade.close();
         await closeProjectForTest(testProjectPath).catch(() => undefined);
-        await facade.closeProject(testProjectPath);
     }, 30_000);
 
     afterAll(async () => {
@@ -57,7 +67,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
     }, 60_000);
 
     test("Execute simple query with world.subject.get()", async () => {
-        const createResult = await facade.createSubject(testProjectPath, {
+        const createResult = await facade.createSubject({
             id: "hero",
             type: "character",
             name: "英雄",
@@ -66,7 +76,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
 
         expect(createResult.subjectId).toBe("hero");
 
-        await facade.writeSlice(testProjectPath, {
+        await facade.writeSlice({
             instant: BigInt(1001),
             title: "设置英雄属性",
             patches: [
@@ -76,7 +86,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
             ],
         });
 
-        const result = await facade.executeCodeActQuery(testProjectPath, `
+        const result = await facade.executeCodeActQuery(`
             const hero = await world.subject.get("hero");
             return hero;
         `);
@@ -90,14 +100,14 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
     });
 
     test("Execute batch query with world.subject.gets()", async () => {
-        await facade.createSubject(testProjectPath, {
+        await facade.createSubject({
             id: "hero",
             type: "character",
             name: "英雄",
             at: BigInt(1000),
         });
 
-        await facade.writeSlice(testProjectPath, {
+        await facade.writeSlice({
             instant: BigInt(1001),
             title: "设置英雄属性",
             patches: [
@@ -106,7 +116,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
             ],
         });
 
-        const result = await facade.executeCodeActQuery(testProjectPath, `
+        const result = await facade.executeCodeActQuery(`
             return await world.subject.gets(["hero", "missing"]);
         `);
 
@@ -122,13 +132,13 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
     });
 
     test("Execute query with deref", async () => {
-        await facade.createSubject(testProjectPath, {
+        await facade.createSubject({
             id: "village",
             type: "location",
             name: "新手村",
             at: BigInt(1000),
         });
-        await facade.writeSlice(testProjectPath, {
+        await facade.writeSlice({
             instant: BigInt(1001),
             title: "设置地点属性",
             patches: [
@@ -137,13 +147,13 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
             ],
         });
 
-        await facade.createSubject(testProjectPath, {
+        await facade.createSubject({
             id: "hero",
             type: "character",
             name: "英雄",
             at: BigInt(1002),
         });
-        await facade.writeSlice(testProjectPath, {
+        await facade.writeSlice({
             instant: BigInt(1003),
             title: "到达新手村",
             patches: [
@@ -154,7 +164,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
             ],
         });
 
-        const result = await facade.executeCodeActQuery(testProjectPath, `
+        const result = await facade.executeCodeActQuery(`
             const hero = await world.subject.get("hero", { deref: true });
             return hero;
         `);
@@ -173,19 +183,19 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
     });
 
     test("findRefs 返回 JSON Pointer 路径", async () => {
-        await facade.createSubject(testProjectPath, {
+        await facade.createSubject({
             id: "village",
             type: "location",
             name: "新手村",
             at: BigInt(1000),
         });
-        await facade.createSubject(testProjectPath, {
+        await facade.createSubject({
             id: "hero",
             type: "character",
             name: "英雄",
             at: BigInt(1001),
         });
-        await facade.writeSlice(testProjectPath, {
+        await facade.writeSlice({
             instant: BigInt(1002),
             title: "到达新手村",
             patches: [
@@ -193,7 +203,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
             ],
         });
 
-        const result = await facade.executeCodeActQuery(testProjectPath, `
+        const result = await facade.executeCodeActQuery(`
             return await world.subject.findRefs("village", "character");
         `);
 
@@ -201,7 +211,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
     });
 
     test("slices withPatches 返回 patchId", async () => {
-        await facade.writeSlice(testProjectPath, {
+        await facade.writeSlice({
             instant: BigInt(1000),
             title: "英雄登场",
             patches: [
@@ -209,7 +219,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
             ],
         });
 
-        const result = await facade.executeCodeActQuery(testProjectPath, `
+        const result = await facade.executeCodeActQuery(`
             const slices = await world.slice.list({withPatches: true});
             return slices.map((slice) => ({
                 title: slice.title,
@@ -221,7 +231,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
     });
 
     test("world.slice.list 支持按 subjectIds 查询相关切面", async () => {
-        await facade.writeSlice(testProjectPath, {
+        await facade.writeSlice({
             instant: BigInt(1000),
             title: "双人登场",
             patches: [
@@ -229,7 +239,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
                 {subjectId: "village", type: "location", name: "村庄", path: "/name", op: "replace", value: "村庄"},
             ],
         });
-        await facade.writeSlice(testProjectPath, {
+        await facade.writeSlice({
             instant: BigInt(1001),
             title: "英雄独行",
             patches: [
@@ -237,7 +247,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
             ],
         });
 
-        const result = await facade.executeCodeActQuery(testProjectPath, `
+        const result = await facade.executeCodeActQuery(`
             const any = await world.slice.list({subjectIds: ["hero"], withPatches: true});
             const all = await world.slice.list({subjectIds: ["hero", "village"], subjectMode: "all"});
             const solo = any.find((slice) => slice.title === "英雄独行");
@@ -256,7 +266,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
     });
 
     test("executeCodeActWorld 删除切面后同脚本查询返回重算状态", async () => {
-        const result = await facade.executeCodeActWorld(testProjectPath, `
+        const result = await facade.executeCodeActWorld(`
             const first = await world.slice.write({
                 time: world.time.parse("测试纪元1日 00:30:00"),
                 title: "英雄受伤",
@@ -288,7 +298,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
 
     test("calendar.ts 修改后同 facade 再读使用新内容", async () => {
         const projectRoot = join(resolveRuntimeWorkspaceRoot(), testProjectPath.slice("workspace/".length));
-        expect(await facade.parseTime(testProjectPath, "测试纪元1日 00:00:00")).toBe(0n);
+        expect(await facade.parseTime("测试纪元1日 00:00:00")).toBe(0n);
 
         writeFileSync(join(projectRoot, "world-engine/calendar.ts"), [
             "export default {",
@@ -306,18 +316,18 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
             "",
         ].join("\n"), "utf-8");
 
-        expect(await facade.parseTime(testProjectPath, "新纪元1日 00:00:00")).toBe(0n);
-        await expect(facade.parseTime(testProjectPath, "测试纪元1日 00:00:00")).rejects.toThrow();
+        expect(await facade.parseTime("新纪元1日 00:00:00")).toBe(0n);
+        await expect(facade.parseTime("测试纪元1日 00:00:00")).rejects.toThrow();
     });
 
     test("schema/index.ts 修改后同 facade 再读使用新内容", async () => {
         const projectRoot = join(resolveRuntimeWorkspaceRoot(), testProjectPath.slice("workspace/".length));
-        const before = await facade.getWorldSchema(testProjectPath);
+        const before = await facade.getWorldSchema();
         expect(before.subjectTypes.find((item) => item.type === "character")?.attrs.map((attr) => attr.name)).not.toContain("mana");
 
         writeFileSync(join(projectRoot, "world-engine/schema/index.ts"), zodSchemaWithManaFixture(), "utf-8");
 
-        const after = await facade.getWorldSchema(testProjectPath);
+        const after = await facade.getWorldSchema();
         expect(after.subjectTypes.find((item) => item.type === "character")?.attrs.map((attr) => attr.name)).toContain("mana");
     });
 
@@ -354,11 +364,11 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
         ].join("\n");
         writeFileSync(join(projectRoot, "world-engine/schema/index.ts"), schemaSource, "utf-8");
 
-        const schema = await facade.getWorldSchema(testProjectPath);
+        const schema = await facade.getWorldSchema();
         const character = schema.subjectTypes.find((item) => item.type === "character");
         expect(character?.attrs.map((attr) => attr.name)).toEqual(expect.arrayContaining(["name", "location", "tags", "memory", "events"]));
 
-        await facade.parseTime(testProjectPath, "测试纪元1日 00:00:00");
+        await facade.parseTime("测试纪元1日 00:00:00");
         expect(listWorldEngineTempFiles(join(projectRoot, "world-engine"))).toEqual([]);
         expect(listWorldEngineTempFiles(join(projectRoot, "world-engine/schema"))).toEqual([]);
         expect(listWorldEngineTempFiles(join(projectRoot, ".nbook", "runtime-artifact-import-cache", ".staging"))).toEqual([]);
@@ -391,9 +401,9 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
             "",
         ].join("\n"), "utf-8");
 
-        await expect(facade.parseTime(testProjectPath, "拆分纪元1日 00:00:00"))
+        await expect(facade.parseTime("拆分纪元1日 00:00:00"))
             .rejects.toThrow("calendar 配置必须是单文件");
-        await expect(facade.parseTime(testProjectPath, "拆分纪元1日 00:00:00"))
+        await expect(facade.parseTime("拆分纪元1日 00:00:00"))
             .rejects.toThrow("./calendar-config");
     });
 
@@ -412,8 +422,8 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
             "",
         ].join("\n"), "utf-8");
 
-        await expect(facade.getWorldSchema(testProjectPath)).rejects.toThrow("schema 配置必须是单文件");
-        await expect(facade.getWorldSchema(testProjectPath)).rejects.toThrow("./character");
+        await expect(facade.getWorldSchema()).rejects.toThrow("schema 配置必须是单文件");
+        await expect(facade.getWorldSchema()).rejects.toThrow("./character");
     });
 
     test("schema/index.ts 使用 Project 本地 import type 时加载失败", async () => {
@@ -434,8 +444,8 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
             "",
         ].join("\n"), "utf-8");
 
-        await expect(facade.getWorldSchema(testProjectPath)).rejects.toThrow("schema 配置必须是单文件");
-        await expect(facade.getWorldSchema(testProjectPath)).rejects.toThrow("./types");
+        await expect(facade.getWorldSchema()).rejects.toThrow("schema 配置必须是单文件");
+        await expect(facade.getWorldSchema()).rejects.toThrow("./types");
     });
 
     test("schema/index.ts 使用 TS import type expression 时加载失败", async () => {
@@ -456,8 +466,8 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
             "",
         ].join("\n"), "utf-8");
 
-        await expect(facade.getWorldSchema(testProjectPath)).rejects.toThrow("schema 配置必须是单文件");
-        await expect(facade.getWorldSchema(testProjectPath)).rejects.toThrow("./types");
+        await expect(facade.getWorldSchema()).rejects.toThrow("schema 配置必须是单文件");
+        await expect(facade.getWorldSchema()).rejects.toThrow("./types");
     });
 
     test("schema/index.ts 使用 file URL import 时加载失败", async () => {
@@ -480,8 +490,8 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
             "",
         ].join("\n"), "utf-8");
 
-        await expect(facade.getWorldSchema(testProjectPath)).rejects.toThrow("不支持本地文件、绝对路径或 URL import/export");
-        await expect(facade.getWorldSchema(testProjectPath)).rejects.toThrow("file:");
+        await expect(facade.getWorldSchema()).rejects.toThrow("不支持本地文件、绝对路径或 URL import/export");
+        await expect(facade.getWorldSchema()).rejects.toThrow("file:");
     });
 
     test("schema/index.ts 使用 Windows 或 POSIX 绝对路径 import 时加载失败", async () => {
@@ -496,8 +506,8 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
                 "",
             ].join("\n"), "utf-8");
 
-            await expect(facade.getWorldSchema(testProjectPath)).rejects.toThrow("不支持本地文件、绝对路径或 URL import/export");
-            await expect(facade.getWorldSchema(testProjectPath)).rejects.toThrow(specifier);
+            await expect(facade.getWorldSchema()).rejects.toThrow("不支持本地文件、绝对路径或 URL import/export");
+            await expect(facade.getWorldSchema()).rejects.toThrow(specifier);
         }
     });
 
@@ -515,8 +525,8 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
             "",
         ].join("\n"), "utf-8");
 
-        await expect(facade.getWorldSchema(testProjectPath)).rejects.toThrow("动态 import/require 必须使用静态字符串");
-        await expect(facade.getWorldSchema(testProjectPath)).rejects.toThrow("动态 import(<non-literal>)");
+        await expect(facade.getWorldSchema()).rejects.toThrow("动态 import/require 必须使用静态字符串");
+        await expect(facade.getWorldSchema()).rejects.toThrow("动态 import(<non-literal>)");
     });
 
     test("schema/index.ts 允许 zod 与 nbook/world-engine/schema 包级 import", async () => {
@@ -537,7 +547,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
             "",
         ].join("\n"), "utf-8");
 
-        const schema = await facade.getWorldSchema(testProjectPath);
+        const schema = await facade.getWorldSchema();
         const characterAttrs = schema.subjectTypes.find((item) => item.type === "character")?.attrs.map((attr) => attr.name);
         expect(characterAttrs).toEqual(expect.arrayContaining(["location", "events"]));
     });
@@ -556,13 +566,13 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
             "",
         ].join("\n"), "utf-8");
 
-        const schema = await facade.getWorldSchema(testProjectPath);
+        const schema = await facade.getWorldSchema();
         const characterAttrs = schema.subjectTypes.find((item) => item.type === "character")?.attrs.map((attr) => attr.name);
         expect(characterAttrs).toEqual(expect.arrayContaining(["name"]));
     });
 
     test("Failed code rejects", async () => {
-        await facade.createSubject(testProjectPath, {
+        await facade.createSubject({
             id: "hero",
             type: "character",
             name: "英雄",
@@ -570,7 +580,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
         });
 
         await expect(
-            facade.executeCodeActQuery(testProjectPath, `
+            facade.executeCodeActQuery(`
                 const hero = await world.subject.get("hero");
                 return hero.name + (;
             `),
@@ -578,20 +588,20 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
     });
 
     test("Execute query with world.subject.list()", async () => {
-        await facade.createSubject(testProjectPath, {
+        await facade.createSubject({
             id: "hero1",
             type: "character",
             name: "英雄1",
             at: BigInt(1000),
         });
-        await facade.createSubject(testProjectPath, {
+        await facade.createSubject({
             id: "hero2",
             type: "character",
             name: "英雄2",
             at: BigInt(1001),
         });
 
-        const result = await facade.executeCodeActQuery(testProjectPath, `
+        const result = await facade.executeCodeActQuery(`
             const characters = await world.subject.list("character");
             return characters;
         `);
@@ -603,14 +613,14 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
     });
 
     test("Execute query with world.time.now()", async () => {
-        await facade.createSubject(testProjectPath, {
+        await facade.createSubject({
             id: "hero",
             type: "character",
             name: "英雄",
             at: BigInt(1000),
         });
 
-        const result = await facade.executeCodeActQuery(testProjectPath, `
+        const result = await facade.executeCodeActQuery(`
             const currentTime = world.time.now();
             return currentTime;
         `);
@@ -620,7 +630,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
     });
 
     test("executeCodeActWorld 读写合一并统一返回 issues", async () => {
-        const result = await facade.executeCodeActWorld(testProjectPath, `
+        const result = await facade.executeCodeActWorld(`
             const time = world.time.parse("测试纪元1日 00:20:00");
             const written = await world.slice.write({
                 time,
@@ -653,7 +663,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
         writeFileSync(join(projectRoot, "world-engine/calendar.ts"), userGregorianCalendarFixture(), "utf-8");
         writeFileSync(join(projectRoot, "world-engine/schema/index.ts"), userBasicSchemaFixture(), "utf-8");
 
-        const result = await facade.executeCodeActWorld(testProjectPath, `
+        const result = await facade.executeCodeActWorld(`
             const time = world.time.parse("公元2026年6月1日 08:30");
             await world.slice.write({
                 time,
@@ -683,7 +693,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
     });
 
     test("executeCodeActWorld slice.editPatches 精确修正 patch", async () => {
-        const result = await facade.executeCodeActWorld(testProjectPath, `
+        const result = await facade.executeCodeActWorld(`
             const written = await world.slice.write({
                 time: world.time.parse("测试纪元1日 00:21:00"),
                 title: "误写 HP",
@@ -720,7 +730,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
     });
 
     test("executeCodeActWorld throw 后回滚写入", async () => {
-        await expect(facade.executeCodeActWorld(testProjectPath, `
+        await expect(facade.executeCodeActWorld(`
             await world.slice.write({
                 time: world.time.parse("测试纪元1日 00:22:00"),
                 title: "应回滚",
@@ -731,7 +741,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
             throw new Error("主动回滚");
         `, "readwrite")).rejects.toThrow("主动回滚");
 
-        const result = await facade.executeCodeActWorld(testProjectPath, `
+        const result = await facade.executeCodeActWorld(`
             const subjects = await world.subject.list("character");
             return subjects.map((subject) => subject.id);
         `, "readonly");
@@ -740,7 +750,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
     });
 
     test("executeCodeActWorld 同 instant 冲突后回滚事务内临时 slice", async () => {
-        await expect(facade.executeCodeActWorld(testProjectPath, `
+        await expect(facade.executeCodeActWorld(`
             const time = world.time.parse("测试纪元1日 00:25:00");
             await world.slice.write({
                 time,
@@ -759,14 +769,14 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
             return "不应到达";
         `, "readwrite")).rejects.toThrow("请读取 existingSliceId 并合并 patches");
 
-        const instant = await facade.parseTime(testProjectPath, "测试纪元1日 00:25:00");
-        const slices = await facade.listSlices(testProjectPath, {from: instant, to: instant, withPatches: true});
+        const instant = await facade.parseTime("测试纪元1日 00:25:00");
+        const slices = await facade.listSlices({from: instant, to: instant, withPatches: true});
 
         expect(slices).toEqual([]);
     });
 
     test("executeCodeActWorld 超时后回滚写入", async () => {
-        await expect(facade.executeCodeActWorld(testProjectPath, `
+        await expect(facade.executeCodeActWorld(`
             await world.slice.write({
                 time: world.time.parse("测试纪元1日 00:23:00"),
                 title: "超时回滚",
@@ -778,7 +788,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
             return "done";
         `, "readwrite", {timeout: 50})).rejects.toThrow("执行超时");
 
-        const result = await facade.executeCodeActWorld(testProjectPath, `
+        const result = await facade.executeCodeActWorld(`
             const subjects = await world.subject.list("character");
             return subjects.map((subject) => subject.id);
         `, "readonly");
@@ -787,7 +797,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
     });
 
     test("executeCodeActWorld 超时关闭事务后后台写入不能落库", async () => {
-        await expect(facade.executeCodeActWorld(testProjectPath, `
+        await expect(facade.executeCodeActWorld(`
             setTimeout(async () => {
                 try {
                     await world.slice.write({
@@ -807,7 +817,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
 
         await new Promise((resolve) => setTimeout(resolve, 250));
 
-        const result = await facade.executeCodeActWorld(testProjectPath, `
+        const result = await facade.executeCodeActWorld(`
             const subjects = await world.subject.list("character");
             return subjects.map((subject) => subject.id);
         `, "readonly");

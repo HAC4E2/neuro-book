@@ -5,7 +5,15 @@ import type {JsonValue} from "nbook/server/agent/messages/types";
 import {PLOT_SELECTION_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
 import type {NeuroAgentTool, NeuroToolResult, ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {normalizeToolResultDetails} from "nbook/server/agent/messages/message-utils";
-import {plotFacadeForWorkspaceRoot} from "nbook/server/plot";
+import {PROJECT_PLOT_WORLD_MODULE_TOKEN} from "nbook/server/plot";
+import type {PlotFacade} from "nbook/server/plot/facade/plot.facade";
+import {
+    activateReadyProjectModule,
+    requireReadyProjectPath,
+    runReadyProjectOperation,
+} from "nbook/server/workspace-files/project-session";
+import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
+import {normalizeProjectPath, projectSlug} from "nbook/server/workspace-files/project-path";
 
 const NonEmptyString = (description: string) => Type.String({minLength: 1, description});
 const NullableString = (description: string) => Type.Union([Type.String({minLength: 1, description}), Type.Null({description: "显式清空。"})]);
@@ -298,245 +306,258 @@ type SceneRefPayloadWithNote = Omit<SceneRefPayload, "note"> & {
  */
 export function createPlotTools(): NeuroAgentTool[] {
     return [
-        tool("get_story_tree", "Return the story tree (carrier acts/chapters + causal phases/threads) for the given Project Workspace.", GetStoryTreeSchema, {mutates: false}, async (_context, input) => {
-            const facade = loadPlotFacade(_context);
-            return plotResult(await facade.getPlotTree(input.projectPath));
-        }),
+        tool("get_story_tree", "Return the story tree (carrier acts/chapters + causal phases/threads) for the given Project Workspace.", GetStoryTreeSchema, {mutates: false}, async (context, input) => (
+            runPlotOperation(context, input.projectPath, async (facade) => plotResult(await facade.getPlotTree()))
+        )),
         tool("get_story_thread", "Read the full detail of a story thread. threadId defaults to plot.selection.", GetStoryThreadSchema, {mutates: false}, async (context, input) => {
             const threadId = await resolveThreadId(context, input.projectPath, input.threadId);
-            const facade = loadPlotFacade(context);
-            const result = await facade.getStoryThreadDetailDto(input.projectPath, threadId);
+            const result = await runPlotOperation(context, input.projectPath, (facade) => facade.getStoryThreadDetailDto(threadId));
             await writeSelection(context, {projectPath: input.projectPath, threadId: String(threadId), sceneId: undefined});
             return plotResult(result);
         }),
         tool("get_story_scene_context", "Read a story scene with its parent thread and chapter plot view. sceneId defaults to plot.selection.", GetStorySceneContextSchema, {mutates: false}, async (context, input) => {
             const sceneId = await resolveSceneId(context, input.projectPath, input.sceneId);
-            const facade = loadPlotFacade(context);
-            const scene = await facade.getStorySceneDetailDto(input.projectPath, sceneId);
-            const thread = await facade.getStoryThreadDetailDto(input.projectPath, parseEntityId("threadId", scene.threadId));
-            const chapterPlot = scene.chapterId ? await facade.getChapterPlotDetailDto(input.projectPath, parseEntityId("chapterId", scene.chapterId)) : null;
+            const result = await runPlotOperation(context, input.projectPath, async (facade) => {
+                const scene = await facade.getStorySceneDetailDto(sceneId);
+                const thread = await facade.getStoryThreadDetailDto(parseEntityId("threadId", scene.threadId));
+                const chapterPlot = scene.chapterId ? await facade.getChapterPlotDetailDto(parseEntityId("chapterId", scene.chapterId)) : null;
+                return {thread, scene, chapterPlot};
+            });
+            const {scene} = result;
             await writeSelection(context, {projectPath: input.projectPath, threadId: scene.threadId, sceneId: String(sceneId)});
-            return plotResult({thread, scene, chapterPlot});
+            return plotResult(result);
         }),
         tool("get_scene_world_context", "Read filtered World Engine slices and subject states for a story scene. sceneId defaults to plot.selection.", GetStorySceneContextSchema, {mutates: false}, async (context, input) => {
             const sceneId = await resolveSceneId(context, input.projectPath, input.sceneId);
-            const facade = loadPlotFacade(context);
-            const result = await facade.getSceneWorldContext(input.projectPath, sceneId);
+            const result = await runPlotOperation(context, input.projectPath, (facade) => facade.getSceneWorldContext(sceneId));
             await writeSelection(context, {projectPath: input.projectPath, sceneId: String(sceneId)});
             return plotResult(result);
         }),
-        tool("get_story_chapter", "Read a StoryChapter detail (including its ChapterBrief fields) and the scenes attached to it.", GetStoryChapterSchema, {mutates: false}, async (_context, input) => {
-            const facade = loadPlotFacade(_context);
-            return plotResult(await facade.getChapterPlotDetailDto(input.projectPath, parseEntityId("chapterId", input.chapterId)));
-        }),
-        tool("get_chapter_writer_brief", "Compile a chapter writer brief from ChapterBrief, Plot Scenes and filtered World Engine context. mode=autonomous (default) gives query hints; mode=curated expands state summaries. Returns markdown text for writer handoff and full DTO in details.", GetChapterWriterBriefSchema, {mutates: false}, async (_context, input) => {
-            const facade = loadPlotFacade(_context);
-            const result = await facade.getChapterWriterBrief(input.projectPath, parseEntityId("chapterId", input.chapterId), input.mode ?? "autonomous");
-            return {
-                content: [{type: "text" as const, text: result.suggestedBriefMarkdown}],
-                details: result as JsonValue,
-            };
-        }),
-        tool("get_story_promise", "Read the reader-promise ledger. Without promiseId: list all promises (open first) with derived stage (unplanted/planted/echoed/paid_off) and beat stats. With promiseId: full detail including beats and the scene/chapter each beat lands on.", GetStoryPromiseSchema, {mutates: false}, async (_context, input) => {
-            const facade = loadPlotFacade(_context);
-            if (input.promiseId === undefined) {
-                return plotResult(await facade.listStoryPromises(input.projectPath));
-            }
-            return plotResult(await facade.getStoryPromiseDetailDto(input.projectPath, parseEntityId("promiseId", input.promiseId)));
-        }),
-        tool("get_story_decision", "Read story decisions (ADR ledger). Without decisionId: list all decisions (open first — check before planning so you neither re-litigate settled questions nor write dead open ones). With decisionId: full detail including options, rejected alternatives, risk and references (dangling references are marked valid=false).", GetStoryDecisionSchema, {mutates: false}, async (_context, input) => {
-            const facade = loadPlotFacade(_context);
-            if (input.decisionId === undefined) {
-                return plotResult(await facade.listStoryDecisions(input.projectPath));
-            }
-            return plotResult(await facade.getStoryDecisionDto(input.projectPath, parseEntityId("decisionId", input.decisionId)));
-        }),
-        tool("save_story_act", "Create or update a story act (volume) in the carrier tree. action=create requires name + title; action=update requires actId.", SaveStoryActSchema, {mutates: true}, async (_context, input) => {
-            const facade = loadPlotFacade(_context);
+        tool("get_story_chapter", "Read a StoryChapter detail (including its ChapterBrief fields) and the scenes attached to it.", GetStoryChapterSchema, {mutates: false}, async (context, input) => (
+            runPlotOperation(context, input.projectPath, async (facade) => (
+                plotResult(await facade.getChapterPlotDetailDto(parseEntityId("chapterId", input.chapterId)))
+            ))
+        )),
+        tool("get_chapter_writer_brief", "Compile a chapter writer brief from ChapterBrief, Plot Scenes and filtered World Engine context. mode=autonomous (default) gives query hints; mode=curated expands state summaries. Returns markdown text for writer handoff and full DTO in details.", GetChapterWriterBriefSchema, {mutates: false}, async (context, input) => (
+            runPlotOperation(context, input.projectPath, async (facade) => {
+                const result = await facade.getChapterWriterBrief(parseEntityId("chapterId", input.chapterId), input.mode ?? "autonomous");
+                return {
+                    content: [{type: "text" as const, text: result.suggestedBriefMarkdown}],
+                    details: result as JsonValue,
+                };
+            })
+        )),
+        tool("get_story_promise", "Read the reader-promise ledger. Without promiseId: list all promises (open first) with derived stage (unplanted/planted/echoed/paid_off) and beat stats. With promiseId: full detail including beats and the scene/chapter each beat lands on.", GetStoryPromiseSchema, {mutates: false}, async (context, input) => (
+            runPlotOperation(context, input.projectPath, async (facade) => (
+                input.promiseId === undefined
+                    ? plotResult(await facade.listStoryPromises())
+                    : plotResult(await facade.getStoryPromiseDetailDto(parseEntityId("promiseId", input.promiseId)))
+            ))
+        )),
+        tool("get_story_decision", "Read story decisions (ADR ledger). Without decisionId: list all decisions (open first — check before planning so you neither re-litigate settled questions nor write dead open ones). With decisionId: full detail including options, rejected alternatives, risk and references (dangling references are marked valid=false).", GetStoryDecisionSchema, {mutates: false}, async (context, input) => (
+            runPlotOperation(context, input.projectPath, async (facade) => (
+                input.decisionId === undefined
+                    ? plotResult(await facade.listStoryDecisions())
+                    : plotResult(await facade.getStoryDecisionDto(parseEntityId("decisionId", input.decisionId)))
+            ))
+        )),
+        tool("save_story_act", "Create or update a story act (volume) in the carrier tree. action=create requires name + title; action=update requires actId.", SaveStoryActSchema, {mutates: true}, async (context, input) => {
             const {projectPath, action, actId, ...payload} = input;
-            if (action === "create") {
-                if (actId !== undefined) {
-                    throw new Error("save_story_act 参数校验失败：action=create 不接受 actId；如要修改已有 Act，请改用 action=update。");
+            return runPlotOperation(context, projectPath, async (facade) => {
+                if (action === "create") {
+                    if (actId !== undefined) {
+                        throw new Error("save_story_act 参数校验失败：action=create 不接受 actId；如要修改已有 Act，请改用 action=update。");
+                    }
+                    const {name, title} = payload;
+                    if (!name || !title) {
+                        throw new Error("save_story_act 参数校验失败：action=create 必须提供 name 和 title。");
+                    }
+                    return plotResult(await facade.createStoryAct({...payload, name, title}));
                 }
-                const {name, title} = payload;
-                if (!name || !title) {
-                    throw new Error("save_story_act 参数校验失败：action=create 必须提供 name 和 title。");
+                if (!actId) {
+                    throw new Error("save_story_act 参数校验失败：action=update 必须提供 actId；可先用 get_story_tree 查看现有 Act。");
                 }
-                return plotResult(await facade.createStoryAct(projectPath, {...payload, name, title}));
-            }
-            if (!actId) {
-                throw new Error("save_story_act 参数校验失败：action=update 必须提供 actId；可先用 get_story_tree 查看现有 Act。");
-            }
-            return plotResult(await facade.updateStoryAct(projectPath, parseEntityId("actId", actId), payload));
+                return plotResult(await facade.updateStoryAct(parseEntityId("actId", actId), payload));
+            });
         }),
-        tool("save_story_chapter", "Create or update a StoryChapter (carrier tree), including its ChapterBrief fields via `brief` (undefined keeps, null clears). action=create requires name + title; action=update requires chapterId. Prose files link back via frontmatter `chapter: <name>`.", SaveStoryChapterSchema, {mutates: true}, async (_context, input) => {
-            const facade = loadPlotFacade(_context);
+        tool("save_story_chapter", "Create or update a StoryChapter (carrier tree), including its ChapterBrief fields via `brief` (undefined keeps, null clears). action=create requires name + title; action=update requires chapterId. Prose files link back via frontmatter `chapter: <name>`.", SaveStoryChapterSchema, {mutates: true}, async (context, input) => {
             const {projectPath, action, chapterId, ...payload} = input;
-            if (action === "create") {
-                if (chapterId !== undefined) {
-                    throw new Error("save_story_chapter 参数校验失败：action=create 不接受 chapterId；如要修改已有章，请改用 action=update。");
+            return runPlotOperation(context, projectPath, async (facade) => {
+                if (action === "create") {
+                    if (chapterId !== undefined) {
+                        throw new Error("save_story_chapter 参数校验失败：action=create 不接受 chapterId；如要修改已有章，请改用 action=update。");
+                    }
+                    const {name, title} = payload;
+                    if (!name || !title) {
+                        throw new Error("save_story_chapter 参数校验失败：action=create 必须提供 name 和 title。");
+                    }
+                    return plotResult(await facade.createStoryChapter({...payload, name, title}));
                 }
-                const {name, title} = payload;
-                if (!name || !title) {
-                    throw new Error("save_story_chapter 参数校验失败：action=create 必须提供 name 和 title。");
+                if (!chapterId) {
+                    throw new Error("save_story_chapter 参数校验失败：action=update 必须提供 chapterId；可先用 get_story_tree 查看现有章。");
                 }
-                return plotResult(await facade.createStoryChapter(projectPath, {...payload, name, title}));
-            }
-            if (!chapterId) {
-                throw new Error("save_story_chapter 参数校验失败：action=update 必须提供 chapterId；可先用 get_story_tree 查看现有章。");
-            }
-            return plotResult(await facade.updateStoryChapter(projectPath, parseEntityId("chapterId", chapterId), payload));
+                return plotResult(await facade.updateStoryChapter(parseEntityId("chapterId", chapterId), payload));
+            });
         }),
         tool("save_story_thread", "Create, update or archive a story thread. action=create requires name + title; action=update/archive targets threadId (defaults to plot.selection); archive sets status to archived (soft delete).", SaveStoryThreadSchema, {mutates: true}, async (context, input) => {
-            const facade = loadPlotFacade(context);
             const {projectPath, action, threadId, ...payload} = input;
+            const result = await runPlotOperation(context, projectPath, async (facade) => {
+                if (action === "create") {
+                    if (threadId !== undefined) {
+                        throw new Error("save_story_thread 参数校验失败：action=create 不接受 threadId；如要修改已有 Thread，请改用 action=update。");
+                    }
+                    const {name, title} = payload;
+                    if (!name || !title) {
+                        throw new Error("save_story_thread 参数校验失败：action=create 必须提供 name 和 title。");
+                    }
+                    return facade.createStoryThread({...payload, name, title});
+                }
+                const resolvedThreadId = await resolveThreadId(context, projectPath, threadId);
+                if (action === "archive" && payload.status !== undefined && payload.status !== "archived") {
+                    throw new Error(`save_story_thread 参数校验失败：action=archive 会把 status 置为 archived，不能同时传入 status=${payload.status}；如要设置其他状态请用 action=update。`);
+                }
+                const patch = action === "archive" ? {...payload, status: "archived" as const} : payload;
+                return facade.updateStoryThread(resolvedThreadId, patch);
+            });
             if (action === "create") {
-                if (threadId !== undefined) {
-                    throw new Error("save_story_thread 参数校验失败：action=create 不接受 threadId；如要修改已有 Thread，请改用 action=update。");
-                }
-                const {name, title} = payload;
-                if (!name || !title) {
-                    throw new Error("save_story_thread 参数校验失败：action=create 必须提供 name 和 title。");
-                }
-                const result = await facade.createStoryThread(projectPath, {...payload, name, title});
                 await writeSelection(context, {projectPath, threadId: result.id, sceneId: undefined});
                 return plotResult(result);
             }
-            const resolvedThreadId = await resolveThreadId(context, projectPath, threadId);
-            if (action === "archive" && payload.status !== undefined && payload.status !== "archived") {
-                throw new Error(`save_story_thread 参数校验失败：action=archive 会把 status 置为 archived，不能同时传入 status=${payload.status}；如要设置其他状态请用 action=update。`);
-            }
-            const patch = action === "archive" ? {...payload, status: "archived" as const} : payload;
-            const result = await facade.updateStoryThread(projectPath, resolvedThreadId, patch);
             await writeSelection(context, {projectPath, threadId: result.id, sceneId: undefined});
             return plotResult(result);
         }),
         tool("save_story_scene", "Create, update or archive a story scene. action=create requires title (threadId defaults to plot.selection); action=update/archive targets sceneId (defaults to plot.selection); archive sets status to archived (soft delete).", SaveStorySceneSchema, {mutates: true}, async (context, input) => {
-            const facade = loadPlotFacade(context);
             const {projectPath, action, sceneId, ...payload} = input;
+            const result = await runPlotOperation(context, projectPath, async (facade) => {
+                if (action === "create") {
+                    if (sceneId !== undefined) {
+                        throw new Error("save_story_scene 参数校验失败：action=create 不接受 sceneId；如要修改已有 Scene，请改用 action=update。");
+                    }
+                    const {title} = payload;
+                    if (!title) {
+                        throw new Error("save_story_scene 参数校验失败：action=create 必须提供 title。");
+                    }
+                    const threadId = await resolveThreadId(context, projectPath, payload.threadId);
+                    return facade.createStoryScene(normalizeScenePayload({...payload, title, threadId: String(threadId)}));
+                }
+                const resolvedSceneId = await resolveSceneId(context, projectPath, sceneId);
+                if (action === "archive" && payload.status !== undefined && payload.status !== "archived") {
+                    throw new Error(`save_story_scene 参数校验失败：action=archive 会把 status 置为 archived，不能同时传入 status=${payload.status}；如要设置其他状态请用 action=update。`);
+                }
+                const patch = action === "archive" ? {...payload, status: "archived" as const} : payload;
+                return facade.updateStoryScene(resolvedSceneId, normalizeScenePayload(patch));
+            });
             if (action === "create") {
-                if (sceneId !== undefined) {
-                    throw new Error("save_story_scene 参数校验失败：action=create 不接受 sceneId；如要修改已有 Scene，请改用 action=update。");
-                }
-                const {title} = payload;
-                if (!title) {
-                    throw new Error("save_story_scene 参数校验失败：action=create 必须提供 title。");
-                }
-                const threadId = await resolveThreadId(context, projectPath, payload.threadId);
-                const result = await facade.createStoryScene(projectPath, normalizeScenePayload({...payload, title, threadId: String(threadId)}));
                 await writeSelection(context, {projectPath, threadId: result.threadId, sceneId: result.id});
                 return plotResult(result);
             }
-            const resolvedSceneId = await resolveSceneId(context, projectPath, sceneId);
-            if (action === "archive" && payload.status !== undefined && payload.status !== "archived") {
-                throw new Error(`save_story_scene 参数校验失败：action=archive 会把 status 置为 archived，不能同时传入 status=${payload.status}；如要设置其他状态请用 action=update。`);
-            }
-            const patch = action === "archive" ? {...payload, status: "archived" as const} : payload;
-            const result = await facade.updateStoryScene(projectPath, resolvedSceneId, normalizeScenePayload(patch));
             await writeSelection(context, {projectPath, threadId: result.threadId, sceneId: result.id});
             return plotResult(result);
         }),
-        tool("save_story_promise", "Create or update a reader promise (ledger entry), or mark it abandoned/fulfilled. action=create requires name + title; other actions require promiseId. Reopen with action=update + status=open. Payoff usually fulfills automatically via save_promise_beat.", SaveStoryPromiseSchema, {mutates: true}, async (_context, input) => {
-            const facade = loadPlotFacade(_context);
+        tool("save_story_promise", "Create or update a reader promise (ledger entry), or mark it abandoned/fulfilled. action=create requires name + title; other actions require promiseId. Reopen with action=update + status=open. Payoff usually fulfills automatically via save_promise_beat.", SaveStoryPromiseSchema, {mutates: true}, async (context, input) => {
             const {projectPath, action, promiseId, ...payload} = input;
-            if (action === "create") {
-                if (promiseId !== undefined) {
-                    throw new Error("save_story_promise 参数校验失败：action=create 不接受 promiseId；如要修改已有 Promise，请改用 action=update。");
+            return runPlotOperation(context, projectPath, async (facade) => {
+                if (action === "create") {
+                    if (promiseId !== undefined) {
+                        throw new Error("save_story_promise 参数校验失败：action=create 不接受 promiseId；如要修改已有 Promise，请改用 action=update。");
+                    }
+                    if (payload.status !== undefined) {
+                        throw new Error("save_story_promise 参数校验失败：action=create 不接受 status（新建 Promise 恒为 open）；生命周期用 action=abandon/fulfill。");
+                    }
+                    const {name, title} = payload;
+                    if (!name || !title) {
+                        throw new Error("save_story_promise 参数校验失败：action=create 必须提供 name 和 title。");
+                    }
+                    return plotResult(await facade.createStoryPromise({...payload, name, title}));
                 }
-                if (payload.status !== undefined) {
-                    throw new Error("save_story_promise 参数校验失败：action=create 不接受 status（新建 Promise 恒为 open）；生命周期用 action=abandon/fulfill。");
+                if (!promiseId) {
+                    throw new Error(`save_story_promise 参数校验失败：action=${action} 必须提供 promiseId；可先用 get_story_promise 查看现有 Promise。`);
                 }
-                const {name, title} = payload;
-                if (!name || !title) {
-                    throw new Error("save_story_promise 参数校验失败：action=create 必须提供 name 和 title。");
+                const resolvedPromiseId = parseEntityId("promiseId", promiseId);
+                if (action === "abandon" || action === "fulfill") {
+                    const targetStatus = action === "abandon" ? "abandoned" as const : "fulfilled" as const;
+                    if (payload.status !== undefined && payload.status !== targetStatus) {
+                        throw new Error(`save_story_promise 参数校验失败：action=${action} 会把 status 置为 ${targetStatus}，不能同时传入 status=${payload.status}；如要设置其他状态请用 action=update。`);
+                    }
+                    return plotResult(await facade.updateStoryPromise(resolvedPromiseId, {...payload, status: targetStatus}));
                 }
-                return plotResult(await facade.createStoryPromise(projectPath, {...payload, name, title}));
-            }
-            if (!promiseId) {
-                throw new Error(`save_story_promise 参数校验失败：action=${action} 必须提供 promiseId；可先用 get_story_promise 查看现有 Promise。`);
-            }
-            const resolvedPromiseId = parseEntityId("promiseId", promiseId);
-            if (action === "abandon" || action === "fulfill") {
-                const targetStatus = action === "abandon" ? "abandoned" as const : "fulfilled" as const;
-                if (payload.status !== undefined && payload.status !== targetStatus) {
-                    throw new Error(`save_story_promise 参数校验失败：action=${action} 会把 status 置为 ${targetStatus}，不能同时传入 status=${payload.status}；如要设置其他状态请用 action=update。`);
-                }
-                return plotResult(await facade.updateStoryPromise(projectPath, resolvedPromiseId, {...payload, status: targetStatus}));
-            }
-            return plotResult(await facade.updateStoryPromise(projectPath, resolvedPromiseId, payload));
+                return plotResult(await facade.updateStoryPromise(resolvedPromiseId, payload));
+            });
         }),
         tool("save_promise_beat", "Set (upsert) or remove a promise beat on a story scene — the planned/factual touchpoint of a promise. One beat per promise x scene; setting again overwrites kind/note. kind=payoff auto-fulfills the promise unless autoFulfill=false. sceneId defaults to plot.selection.", SavePromiseBeatSchema, {mutates: true}, async (context, input) => {
-            const facade = loadPlotFacade(context);
             const promiseId = parseEntityId("promiseId", input.promiseId);
             const sceneId = await resolveSceneId(context, input.projectPath, input.sceneId);
-            if (input.action === "set") {
-                if (!input.kind) {
-                    throw new Error("save_promise_beat 参数校验失败：action=set 必须提供 kind（plant/advance/setback/payoff）。");
+            return runPlotOperation(context, input.projectPath, async (facade) => {
+                if (input.action === "set") {
+                    if (!input.kind) {
+                        throw new Error("save_promise_beat 参数校验失败：action=set 必须提供 kind（plant/advance/setback/payoff）。");
+                    }
+                    return plotResult(await facade.setPromiseBeat(promiseId, {
+                        sceneId: String(sceneId),
+                        kind: input.kind,
+                        note: input.note,
+                        autoFulfill: input.autoFulfill,
+                    }));
                 }
-                return plotResult(await facade.setPromiseBeat(input.projectPath, promiseId, {
-                    sceneId: String(sceneId),
-                    kind: input.kind,
-                    note: input.note,
-                    autoFulfill: input.autoFulfill,
-                }));
-            }
-            if (input.kind !== undefined || input.note !== undefined || input.autoFulfill !== undefined) {
-                throw new Error("save_promise_beat 参数校验失败：action=remove 只需要 promiseId 与 sceneId，不接受 kind/note/autoFulfill。");
-            }
-            return plotResult(await facade.removePromiseBeat(input.projectPath, promiseId, sceneId));
+                if (input.kind !== undefined || input.note !== undefined || input.autoFulfill !== undefined) {
+                    throw new Error("save_promise_beat 参数校验失败：action=remove 只需要 promiseId 与 sceneId，不接受 kind/note/autoFulfill。");
+                }
+                return plotResult(await facade.removePromiseBeat(promiseId, sceneId));
+            });
         }),
-        tool("save_story_decision", "Create or update a story decision (ADR entry), settle it (decide) or drop it as moot. Record a decision whenever the reasoning, if unwritten, would let the next agent make a different or worse choice. action=create requires name + title + question; action=decide requires decision + motivation + risk (the brake point — enforced) and turns unchosen options into rejectedAlternatives skeletons (fill whyRejected afterwards); action=drop requires note explaining why the question became moot. Reopen with action=update + status=open; supersede with action=update + status=superseded + supersededById.", SaveStoryDecisionSchema, {mutates: true}, async (_context, input) => {
-            const facade = loadPlotFacade(_context);
+        tool("save_story_decision", "Create or update a story decision (ADR entry), settle it (decide) or drop it as moot. Record a decision whenever the reasoning, if unwritten, would let the next agent make a different or worse choice. action=create requires name + title + question; action=decide requires decision + motivation + risk (the brake point — enforced) and turns unchosen options into rejectedAlternatives skeletons (fill whyRejected afterwards); action=drop requires note explaining why the question became moot. Reopen with action=update + status=open; supersede with action=update + status=superseded + supersededById.", SaveStoryDecisionSchema, {mutates: true}, async (context, input) => {
             const {projectPath, action, decisionId, ...rawPayload} = input;
-            // options/rejectedAlternatives 的可省备注统一补 null,对齐 DTO 的显式清空语义。
-            const payload = {
-                ...rawPayload,
-                options: rawPayload.options?.map((item) => ({option: item.option, note: item.note ?? null})),
-                rejectedAlternatives: rawPayload.rejectedAlternatives?.map((item) => ({option: item.option, whyRejected: item.whyRejected ?? null})),
-            };
-            if (action === "create") {
-                if (decisionId !== undefined) {
-                    throw new Error("save_story_decision 参数校验失败：action=create 不接受 decisionId；如要修改已有 Decision，请改用 action=update。");
+            return runPlotOperation(context, projectPath, async (facade) => {
+                // options/rejectedAlternatives 的可省备注统一补 null,对齐 DTO 的显式清空语义。
+                const payload = {
+                    ...rawPayload,
+                    options: rawPayload.options?.map((item) => ({option: item.option, note: item.note ?? null})),
+                    rejectedAlternatives: rawPayload.rejectedAlternatives?.map((item) => ({option: item.option, whyRejected: item.whyRejected ?? null})),
+                };
+                if (action === "create") {
+                    if (decisionId !== undefined) {
+                        throw new Error("save_story_decision 参数校验失败：action=create 不接受 decisionId；如要修改已有 Decision，请改用 action=update。");
+                    }
+                    const decidedOnlyFields: string[] = [];
+                    if (payload.status !== undefined) decidedOnlyFields.push("status");
+                    if (payload.decision !== undefined) decidedOnlyFields.push("decision");
+                    if (payload.motivation !== undefined) decidedOnlyFields.push("motivation");
+                    if (payload.risk !== undefined) decidedOnlyFields.push("risk");
+                    if (payload.rejectedAlternatives !== undefined) decidedOnlyFields.push("rejectedAlternatives");
+                    if (payload.supersededById !== undefined) decidedOnlyFields.push("supersededById");
+                    if (payload.chosenOption !== undefined) decidedOnlyFields.push("chosenOption");
+                    if (decidedOnlyFields.length > 0) {
+                        throw new Error(`save_story_decision 参数校验失败：action=create 建立 open 态决策，不接受 ${decidedOnlyFields.join("/")}；拍板请随后用 action=decide。`);
+                    }
+                    const {name, title, question} = payload;
+                    if (!name || !title || !question) {
+                        throw new Error("save_story_decision 参数校验失败：action=create 必须提供 name、title 和 question（待决问题是 open 态的核心）。");
+                    }
+                    return plotResult(await facade.createStoryDecision({
+                        name,
+                        title,
+                        question,
+                        options: payload.options,
+                        deadlineChapterId: payload.deadlineChapterId,
+                        serves: payload.serves,
+                        dependsOn: payload.dependsOn,
+                        anchor: payload.anchor,
+                        note: payload.note,
+                    }));
                 }
-                const decidedOnlyFields: string[] = [];
-                if (payload.status !== undefined) decidedOnlyFields.push("status");
-                if (payload.decision !== undefined) decidedOnlyFields.push("decision");
-                if (payload.motivation !== undefined) decidedOnlyFields.push("motivation");
-                if (payload.risk !== undefined) decidedOnlyFields.push("risk");
-                if (payload.rejectedAlternatives !== undefined) decidedOnlyFields.push("rejectedAlternatives");
-                if (payload.supersededById !== undefined) decidedOnlyFields.push("supersededById");
-                if (payload.chosenOption !== undefined) decidedOnlyFields.push("chosenOption");
-                if (decidedOnlyFields.length > 0) {
-                    throw new Error(`save_story_decision 参数校验失败：action=create 建立 open 态决策，不接受 ${decidedOnlyFields.join("/")}；拍板请随后用 action=decide。`);
+                if (!decisionId) {
+                    throw new Error(`save_story_decision 参数校验失败：action=${action} 必须提供 decisionId；可先用 get_story_decision 查看现有 Decision。`);
                 }
-                const {name, title, question} = payload;
-                if (!name || !title || !question) {
-                    throw new Error("save_story_decision 参数校验失败：action=create 必须提供 name、title 和 question（待决问题是 open 态的核心）。");
+                const resolvedDecisionId = parseEntityId("decisionId", decisionId);
+                if (action === "decide" || action === "drop") {
+                    const targetStatus = action === "decide" ? "decided" as const : "dropped" as const;
+                    if (payload.status !== undefined && payload.status !== targetStatus) {
+                        throw new Error(`save_story_decision 参数校验失败：action=${action} 会把 status 置为 ${targetStatus}，不能同时传入 status=${payload.status}；如要设置其他状态请用 action=update。`);
+                    }
+                    return plotResult(await facade.updateStoryDecision(resolvedDecisionId, {...payload, status: targetStatus}));
                 }
-                return plotResult(await facade.createStoryDecision(projectPath, {
-                    name,
-                    title,
-                    question,
-                    options: payload.options,
-                    deadlineChapterId: payload.deadlineChapterId,
-                    serves: payload.serves,
-                    dependsOn: payload.dependsOn,
-                    anchor: payload.anchor,
-                    note: payload.note,
-                }));
-            }
-            if (!decisionId) {
-                throw new Error(`save_story_decision 参数校验失败：action=${action} 必须提供 decisionId；可先用 get_story_decision 查看现有 Decision。`);
-            }
-            const resolvedDecisionId = parseEntityId("decisionId", decisionId);
-            if (action === "decide" || action === "drop") {
-                const targetStatus = action === "decide" ? "decided" as const : "dropped" as const;
-                if (payload.status !== undefined && payload.status !== targetStatus) {
-                    throw new Error(`save_story_decision 参数校验失败：action=${action} 会把 status 置为 ${targetStatus}，不能同时传入 status=${payload.status}；如要设置其他状态请用 action=update。`);
-                }
-                return plotResult(await facade.updateStoryDecision(projectPath, resolvedDecisionId, {...payload, status: targetStatus}));
-            }
-            return plotResult(await facade.updateStoryDecision(projectPath, resolvedDecisionId, payload));
+                return plotResult(await facade.updateStoryDecision(resolvedDecisionId, payload));
+            });
         }),
     ];
 }
@@ -641,6 +662,31 @@ function plotResult(details: unknown): NeuroToolResult {
     };
 }
 
-function loadPlotFacade(context: ToolExecutionContext) {
-    return plotFacadeForWorkspaceRoot(context.workspaceFsRoot);
+/** 在调用方选定的 exact Project generation 内执行一次 Plot 操作。 */
+async function runPlotOperation<TResult>(
+    context: ToolExecutionContext,
+    projectPathInput: string,
+    operation: (facade: PlotFacade) => Promise<TResult>,
+): Promise<TResult> {
+    const ready = plotProjectForTool(context, projectPathInput);
+    return runReadyProjectOperation(ready, async () => {
+        const {plot} = await activateReadyProjectModule(
+            ready,
+            PROJECT_PLOT_WORLD_MODULE_TOKEN,
+        );
+        return operation(plot);
+    });
+}
+
+/** Current Project复用invocation exact ref；只有显式override才从旧字符串seam解析当前ready。 */
+function plotProjectForTool(context: ToolExecutionContext, projectPathInput: string): ReadyProjectSessionRef {
+    if (!context.invocationId) {
+        throw new Error("Plot工具缺少invocationId，无法读取已捕获的Project generation。");
+    }
+    const projectPath = normalizeProjectPath(projectPathInput);
+    const currentProject = context.harness.projectForInvocation(context.invocationId);
+    if (currentProject?.workspace.ref.projectRoot === projectSlug(projectPath)) {
+        return currentProject;
+    }
+    return requireReadyProjectPath(projectPath);
 }

@@ -38,8 +38,8 @@ export class PromiseService {
     /**
      * Promise 摘要列表(含派生阶段与 beat 计数)。open 优先,importance 高在前。
      */
-    async listStoryPromises(projectPath: string): Promise<StoryPromiseDto[]> {
-        const story = await this.storyService.ensureStory(projectPath);
+    async listStoryPromises(): Promise<StoryPromiseDto[]> {
+        const story = await this.storyService.ensureStory();
         const promises = await this.promiseRepository.findPromisesByStory(story.id);
         return promises
             .map((promise) => this.assembler.toStoryPromiseDto(promise))
@@ -53,8 +53,8 @@ export class PromiseService {
     /**
      * Promise 详情(字段 + beats 及各 beat 所在 Scene/章位 + 派生态)。
      */
-    async getStoryPromiseDetailDto(projectPath: string, promiseId: number): Promise<StoryPromiseDetailDto> {
-        const story = await this.storyService.ensureStory(projectPath);
+    async getStoryPromiseDetailDto(promiseId: number): Promise<StoryPromiseDetailDto> {
+        const story = await this.storyService.ensureStory();
         await this.scopeGuard.assertPromise(story.id, promiseId);
         const promise = await this.promiseRepository.findPromiseWithBeatsById(promiseId);
         if (!promise) {
@@ -66,8 +66,8 @@ export class PromiseService {
     /**
      * 创建 Promise。deadlineChapterId 需指向当前 Story 下的章。
      */
-    async createStoryPromise(projectPath: string, input: ParsedCreateStoryPromiseInput): Promise<StoryPromiseDetailDto> {
-        const story = await this.storyService.ensureStory(projectPath);
+    async createStoryPromise(input: ParsedCreateStoryPromiseInput): Promise<StoryPromiseDetailDto> {
+        const story = await this.storyService.ensureStory();
         await this.scopeGuard.assertPromiseNameUnique(story.id, input.name);
         if (input.deadlineChapterId !== null) {
             await this.scopeGuard.assertChapter(story.id, input.deadlineChapterId);
@@ -83,18 +83,17 @@ export class PromiseService {
             deadlineChapterId: input.deadlineChapterId,
             tags: input.tags ?? [],
         });
-        return this.getStoryPromiseDetailDto(projectPath, promise.id);
+        return this.getStoryPromiseDetailDto(promise.id);
     }
 
     /**
      * 更新 Promise。status 直改承载 abandon/fulfill/reopen(存储态是作者意图,重置幂等)。
      */
     async updateStoryPromise(
-        projectPath: string,
         promiseId: number,
         patch: ParsedUpdateStoryPromiseInput,
     ): Promise<StoryPromiseDetailDto> {
-        const story = await this.storyService.ensureStory(projectPath);
+        const story = await this.storyService.ensureStory();
         const promise = await this.scopeGuard.assertPromise(story.id, promiseId);
         if (patch.name !== undefined && patch.name !== promise.name) {
             await this.scopeGuard.assertPromiseNameUnique(story.id, patch.name, promise.id);
@@ -113,14 +112,14 @@ export class PromiseService {
             deadlineChapterId: patch.deadlineChapterId,
             tags: patch.tags,
         });
-        return this.getStoryPromiseDetailDto(projectPath, promise.id);
+        return this.getStoryPromiseDetailDto(promise.id);
     }
 
     /**
      * 物理删除 Promise(beats 级联)。不开放给 Agent,留给 UI/人(Task 97 D4)。
      */
-    async deleteStoryPromise(projectPath: string, promiseId: number): Promise<void> {
-        const story = await this.storyService.ensureStory(projectPath);
+    async deleteStoryPromise(promiseId: number): Promise<void> {
+        const story = await this.storyService.ensureStory();
         const promise = await this.scopeGuard.assertPromise(story.id, promiseId);
         await this.promiseRepository.deletePromise(promise.id);
     }
@@ -132,8 +131,8 @@ export class PromiseService {
      * 目标场已 archived 的 beat 不参与派生,因此不触发自动置。
      * beat 从 payoff 改为其他 kind 时跑回退检查(可能撤走最后一个有效 payoff)。
      */
-    async setPromiseBeat(projectPath: string, promiseId: number, input: ParsedSetPromiseBeatInput): Promise<StoryPromiseDetailDto> {
-        const story = await this.storyService.ensureStory(projectPath);
+    async setPromiseBeat(promiseId: number, input: ParsedSetPromiseBeatInput): Promise<StoryPromiseDetailDto> {
+        const story = await this.storyService.ensureStory();
         const promise = await this.scopeGuard.assertPromise(story.id, promiseId);
         const scene = await this.scopeGuard.assertScene(story.id, input.sceneId);
 
@@ -152,14 +151,14 @@ export class PromiseService {
         if (existing?.kind === "payoff" && input.kind !== "payoff") {
             await this.revertFulfilledWithoutValidPayoff([promise.id]);
         }
-        return this.getStoryPromiseDetailDto(projectPath, promise.id);
+        return this.getStoryPromiseDetailDto(promise.id);
     }
 
     /**
      * remove beat。删除后跑回退检查(可能撤走最后一个有效 payoff)。
      */
-    async removePromiseBeat(projectPath: string, promiseId: number, sceneId: number): Promise<StoryPromiseDetailDto> {
-        const story = await this.storyService.ensureStory(projectPath);
+    async removePromiseBeat(promiseId: number, sceneId: number): Promise<StoryPromiseDetailDto> {
+        const story = await this.storyService.ensureStory();
         const promise = await this.scopeGuard.assertPromise(story.id, promiseId);
         const existing = await this.promiseRepository.findBeat(promise.id, sceneId);
         if (!existing) {
@@ -167,7 +166,7 @@ export class PromiseService {
         }
         await this.promiseRepository.deleteBeat(promise.id, sceneId);
         await this.revertFulfilledWithoutValidPayoff([promise.id]);
-        return this.getStoryPromiseDetailDto(projectPath, promise.id);
+        return this.getStoryPromiseDetailDto(promise.id);
     }
 
     /**

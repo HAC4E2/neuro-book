@@ -14,7 +14,7 @@ import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {resolveBashPathForPlatform} from "nbook/server/agent/tools/file-tools";
 import {resolveSessionFileScope} from "nbook/server/agent/workspace/session-file-scope";
 import {resolveFileAddress} from "nbook/server/workspace-files/file-scope";
-import {closeProject, openProject} from "nbook/server/workspace-files/project-session";
+import {closeAllProjects, openProject} from "nbook/server/workspace-files/project-session";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {createRuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
 
@@ -23,7 +23,6 @@ describe("v3 file tools", () => {
     let workspaceRoot: string;
     let harness: NeuroAgentHarness;
     let context: ToolExecutionContext;
-    const openedProjects = new Set<string>();
 
     beforeEach(async () => {
         root = await mkdtemp(join(tmpdir(), "nbook-agent-file-tools-test-"));
@@ -66,17 +65,13 @@ describe("v3 file tools", () => {
     }, 60_000);
 
     afterEach(async () => {
-        for (const projectPath of openedProjects) {
-            await closeProject(projectPath, "shutdown").catch(() => undefined);
-        }
-        openedProjects.clear();
+        await closeAllProjects();
         await harness.dispose();
         await rm(root, {recursive: true, force: true, maxRetries: 10, retryDelay: 100});
     }, 60_000);
 
     async function openManagedProject(projectPath: string): Promise<void> {
         await openProject(absoluteFsPath(workspaceRoot), projectPath, {kind: "job", source: "file-tools-test"});
-        openedProjects.add(projectPath);
     }
 
     it("read 支持 offset/limit 和 continuation 提示", async () => {
@@ -363,6 +358,47 @@ describe("v3 file tools", () => {
         });
 
         await expect(readFile(join(workspaceRoot, "nested", "file.txt"), "utf-8")).resolves.toBe("hello");
+    });
+
+    it("Project-bound文件工具可直接读写任意绝对路径", async () => {
+        const projectRoot = join(workspaceRoot, "alpha");
+        const externalRoot = join(root, "external");
+        const externalFile = join(externalRoot, "notes.md");
+        const patchPath = externalFile.replaceAll("\\", "/");
+        await mkdir(projectRoot, {recursive: true});
+        await mkdir(externalRoot, {recursive: true});
+        await writeFile(externalFile, "one\ntwo\n", "utf-8");
+        await openManagedProject("workspace/alpha");
+        const projectContext = {...context, projectPath: "workspace/alpha"};
+
+        const read = mustTool("read", harness);
+        const write = mustTool("write", harness);
+        const edit = mustTool("edit", harness);
+        const applyPatch = mustTool("apply_patch", harness);
+
+        await expect(read.executeWithContext?.(projectContext, "read-absolute", {path: externalFile}))
+            .resolves.toMatchObject({content: [{type: "text", text: "one\ntwo\n"}]});
+        await write.executeWithContext?.(projectContext, "write-absolute", {
+            path: join(externalRoot, "created.md"),
+            content: "created",
+        });
+        await edit.executeWithContext?.(projectContext, "edit-absolute", {
+            path: externalFile,
+            edits: [{oldText: "two", newText: "TWO"}],
+        });
+        await applyPatch.executeWithContext?.(projectContext, "patch-absolute", patchInput([
+            "*** Begin Patch",
+            `*** Update File: ${patchPath}`,
+            "@@",
+            "-one",
+            "+ONE",
+            " TWO",
+            "*** End Patch",
+        ]));
+
+        await expect(readFile(externalFile, "utf-8")).resolves.toBe("ONE\nTWO\n");
+        await expect(readFile(join(externalRoot, "created.md"), "utf-8")).resolves.toBe("created");
+        await expect(access(join(externalRoot, ".nbook"))).rejects.toThrow();
     });
 
     it("edit 执行精确替换并拒绝重复 oldText", async () => {

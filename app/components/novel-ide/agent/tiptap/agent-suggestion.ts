@@ -186,6 +186,12 @@ export function insertAgentSuggestionItem(options: InsertAgentSuggestionItemOpti
     if (options.item.disabled) {
         return;
     }
+    if (options.item.action) {
+        const nextRange = expandSuggestionRange(options.editor, options.range, false);
+        options.editor.chain().focus().deleteRange(nextRange).setTextSelection(nextRange.from).run();
+        void options.item.action({position: nextRange.from});
+        return;
+    }
     const trailingSpace = Boolean(options.item.reference) || Boolean(options.item.skill) || options.item.trailingSpace !== false;
     const nextRange = expandSuggestionRange(options.editor, options.range, trailingSpace);
 

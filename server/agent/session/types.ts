@@ -4,6 +4,7 @@ import type {DurableSessionModelRef} from "nbook/server/agent/session/session-mo
 import type {VariableJsonPatchOperation, VariableNamespace} from "nbook/server/agent/variables/types";
 import type {AgentMode} from "nbook/shared/dto/agent-session.dto";
 import type {WorkspaceRootRef} from "nbook/server/workspace-files/workspace-root-ref";
+import type {AttachmentRef} from "nbook/shared/dto/agent-attachment.dto";
 
 export type SessionId = number;
 export type SessionEntryId = string;
@@ -21,6 +22,13 @@ export type SessionMetadata = {
     summary?: string;
     /** system session 默认从普通列表隐藏；summarizer 表示 session 展示元数据维护者。 */
     systemRole?: "summarizer";
+    /**
+     * Session 类别（Task 110 D15）：为空视为 chat。
+     * workflow = workflow run 载体或 workflow 创建的参与者；system 将吸收 systemRole（迁移未做）。
+     */
+    kind?: "chat" | "workflow" | "system";
+    /** 寻址标签（Task 110 acquire 持久参与者按 (profileKey, tag) 复用）；为空视为无标签。 */
+    tags?: string[];
 };
 
 export type SessionProjectionScope = {
@@ -28,17 +36,33 @@ export type SessionProjectionScope = {
     leafId: SessionEntryId | null;
 };
 
-export type MessageSessionEntry = {
+type MessageSessionEntryBase = {
     id: SessionEntryId;
     parentId: SessionEntryId | null;
     timestamp: number;
     type: "message";
-    message: StoredAgentMessage;
-    /** 为空表示旧 entry 或手工追加；prompt 表示真实用户 prompt。 */
-    origin?: "prompt" | "harness" | "manual" | "ingest";
+    /** 为空表示旧 entry 或手工追加；prompt 表示真实用户 prompt；workflow 表示 workflow run 写入。 */
+    origin?: "prompt" | "harness" | "manual" | "ingest" | "workflow";
     /** partial 表示 provider stream 中途失败后保存的半截 assistant。 */
     status?: "partial" | "interrupted" | "error";
 };
+
+/** message entry 按 role 约束关联字段；正文不再承担用户消息身份或 steer 判断。 */
+export type MessageSessionEntry = MessageSessionEntryBase & (
+    | {
+        message: Extract<StoredAgentMessage, {role: "user"}>;
+        clientMessageId: string;
+        intent: "normal" | "steer";
+        /** follow-up drain 对应的 durable queue item；普通消息为空。 */
+        sourceQueueItemId?: string;
+    }
+    | {
+        message: Exclude<StoredAgentMessage, {role: "user"}>;
+        clientMessageId?: never;
+        intent?: never;
+        sourceQueueItemId?: never;
+    }
+);
 
 export type SessionUpdateEntry = {
     id: SessionEntryId;
@@ -68,6 +92,20 @@ export type CustomSessionEntry = {
     value: JsonValue;
 };
 
+/** 用户上传或文件快照对当前 Session 建立的附件授权事实。 */
+export type SessionAttachmentEntry = {
+    id: SessionEntryId;
+    parentId: SessionEntryId | null;
+    timestamp: number;
+    type: "session_attachment";
+    /** projection entry 不移动 active leaf，也不进入模型上下文。 */
+    origin: "projection";
+    attachment: AttachmentRef;
+    /** 本次登记使用的展示名称；为空表示来源没有名称。 */
+    name?: string;
+    source: "upload" | "file_snapshot";
+};
+
 export type CustomMessageSessionEntry = {
     id: SessionEntryId;
     parentId: SessionEntryId | null;
@@ -75,6 +113,26 @@ export type CustomMessageSessionEntry = {
     type: "custom_message";
     message: StoredAgentMessage;
     visibleToModel: boolean;
+    /**
+     * Profile Prompt 归因（Task 126）。纯可观测：不参与 reduce、不影响可见性、不进入发给模型的消息体。
+     *
+     * 之所以必须落盘——HistorySet 只在首轮注入，第二轮从 session 读回时已无从判断
+     * 哪条来自哪个文件，也无从把它和历史里沉淀的旧 AppendingSet 提醒区分开。
+     * 旧 session 无此字段，上下文面板显示「未标注」，不做数据迁移。
+     */
+    promptSource?: {
+        /**
+         * 该消息的运行时分区语义。
+         *
+         * 只有这两个值会落盘：ModelContext 本体每轮重新生成且从不写入 session，
+         * 而 ModelContext 内的 Reminder 走的是 AppendingSet 写入语义，因此记为 appending
+         * ——它在消息数组里的位置和生命周期都与 AppendingSet 一致。DSL 里的书写位置
+         * 仍可从 labels 看出（如 `Reminder:agent-mode`）。
+         */
+        zone: "historySet" | "appending";
+        /** Profile DSL 具名节点来源，如 `Import:AGENTS.md`、`SkillCatalog`。匿名消息无此字段。 */
+        labels?: readonly string[];
+    };
 };
 
 export type LeafSessionEntry = {
@@ -193,6 +251,14 @@ export type SessionArchivedEntry = {
     reason?: string;
 };
 
+/** 恢复已归档 Session；关系账本不随归档或恢复改写。 */
+export type SessionRestoredEntry = {
+    id: SessionEntryId;
+    parentId: SessionEntryId | null;
+    timestamp: number;
+    type: "session_restored";
+};
+
 export type InvocationErrorPhase = "prepare" | "pre_loop" | "model" | "tool" | "ingest" | "compaction" | "settleRun" | "unknown";
 
 export type InvocationErrorInfo = {
@@ -217,6 +283,7 @@ export type SessionEntry =
     | MessageSessionEntry
     | SessionUpdateEntry
     | CustomSessionEntry
+    | SessionAttachmentEntry
     | CustomMessageSessionEntry
     | LeafSessionEntry
     | CompactionSessionEntry
@@ -228,6 +295,7 @@ export type SessionEntry =
     | VariablePatchSessionEntry
     | ClientVariablePatchAckEntry
     | SessionArchivedEntry
+    | SessionRestoredEntry
     | InvocationLifecycleEntry;
 
 export type SessionFileRecord =

@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import {randomUUID} from "node:crypto";
 import {afterEach, describe, expect, it} from "vitest";
-import {closeWorkspaceTreeIndex, readProjectWorkspaceTreeSnapshot, subscribeWorkspaceTreeIndex} from "nbook/server/workspace-files/project-workspace-index";
+import {closeWorkspaceTreeIndex, readPlainWorkspaceTreeSnapshot, subscribeWorkspaceTreeIndex} from "nbook/server/workspace-files/project-workspace-index";
 import type {WorkspaceFileStreamEventDto} from "nbook/shared/dto/workspace-file-events.dto";
 import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
@@ -35,11 +35,12 @@ describe("workspace file events", () => {
         await fs.mkdir(root, {recursive: true});
 
         const events: WorkspaceFileStreamEventDto[] = [];
-        await readProjectWorkspaceTreeSnapshot({target});
+        await readPlainWorkspaceTreeSnapshot({target});
         const unsubscribe = await subscribeWorkspaceTreeIndex({target}, (event) => {
             events.push(event);
         });
 
+        await waitForCondition(() => events.some((event) => event.type === "workspace_watch_ready"));
         await fs.writeFile(path.join(root, "note.md"), "第一版", "utf-8");
         await waitForCondition(() => events.some((event) => event.type === "workspace_files_changed"));
 
@@ -60,17 +61,18 @@ describe("workspace file events", () => {
         await fs.mkdir(path.join(root, "reference", "silly-tavern"), {recursive: true});
         await fs.writeFile(path.join(root, "reference", "silly-tavern", "card.md"), "角色卡\n", "utf-8");
 
-        const before = await readProjectWorkspaceTreeSnapshot({target});
+        const before = await readPlainWorkspaceTreeSnapshot({target});
         const events: WorkspaceFileStreamEventDto[] = [];
         const unsubscribe = await subscribeWorkspaceTreeIndex({target}, (event) => {
             events.push(event);
         });
 
+        await waitForCondition(() => events.some((event) => event.type === "workspace_watch_ready"));
         await fs.rm(path.join(root, "reference", "silly-tavern"), {recursive: true, force: true});
         await waitForCondition(() => events.some((event) => event.type === "workspace_files_changed"));
 
+        const after = await readPlainWorkspaceTreeSnapshot({target});
         unsubscribe();
-        const after = await readProjectWorkspaceTreeSnapshot({target});
         const changedEvent = events.find((event) => event.type === "workspace_files_changed");
         expect(before.nodes.some((node) => node.path === "reference/silly-tavern/")).toBe(true);
         expect(changedEvent?.events).toEqual(expect.arrayContaining([

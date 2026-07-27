@@ -271,8 +271,9 @@ export async function updateInstallation(input: UpdateOptions): Promise<UpdateRe
             await removePath(staging);
             return {manifest: result.manifest, changed: true, reason: "updated"};
         } catch (error) {
-            if (stagedWorktree) await removeStagedWorktree(paths.root, stagedWorktree).catch(() => undefined);
+            // Source Dev的migrationRoot位于staged worktree，rollback完成前必须保留executor。
             await recoverInterruptedOperations(paths.root).catch(() => undefined);
+            if (stagedWorktree) await removeStagedWorktree(paths.root, stagedWorktree).catch(() => undefined);
             throw error;
         }
     });

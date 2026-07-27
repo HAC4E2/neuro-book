@@ -2,6 +2,10 @@
 
 这篇文章不是 NeuroBook 的系统介绍。系统介绍应该放在教程、Reference 和产品文档里。
 
+::: warning 这是一篇探索笔记，不是当前版本的功能说明
+文中描述的 RP / 世界模拟三层结构是设计探索方向。**当前版本已把 RP 入口从常规界面下线**，产品重心收敛到长篇写作。要了解现在实际能用的能力，看 [核心能力](/core/world-engine) 或 [基础教程](/tutorials/)。
+:::
+
 这篇文章记录的是一个探索过程：为什么我会觉得现有 AI 创作工具还不够，为什么 SillyTavern 的模式会在长线写作和 RP 中遇到瓶颈，为什么 code agent 给了一个新的方向，以及为什么 NeuroBook 最后会走向“写作特化 Agent Harness”。
 
 ## 起因：SillyTavern 模式下的巨大缺陷
@@ -211,7 +215,7 @@ writer 负责写草稿。critic 负责检查节奏、信息释放、人物动机
 
 写作模式中，`leader.default` 负责理解用户意图，按需调用 retrieval、writer、researcher 或 simulation tick。writer 不直接维护世界状态，只负责正式章节正文。
 
-RP 模式中，`simulator.leader` 承担 GM / simulator leader，调度 `simulator.actor` 和 `rp.writer`。actor 不读取完整 lorebook，而是通过 sidecar 和 GM packet 获得 actor-safe context。writer 只渲染用户可见正文，不承担 GM 裁决。
+RP 模式中，`simulator.leader` 承担 GM / simulator leader，调度 `simulator.actor` 和 `rp.writer`。actor 不读取完整 lorebook，只消费经过筛选的 GM packet。writer 只渲染用户可见正文，不承担 GM 裁决。
 
 导入 SillyTavern 角色卡时，流程分为：
 
@@ -227,7 +231,7 @@ inspect 只看概览。unpack 保存原始材料。import 把稳定 worldbook �
 - writer 不再承担所有职责。
 - actor 不再被迫全知。
 - GM / simulator leader 负责信息过滤和世界裁决。
-- Harness 负责让检索、旁路、审查、记忆保存和状态提交成为可运行流程。
+- Harness 负责让检索、审查、记忆保存和状态提交成为可运行流程。
 
 ## 为什么 Harness 必不可少
 
@@ -238,7 +242,7 @@ inspect 只看概览。unpack 保存原始材料。import 把稳定 worldbook �
 - 哪些消息写入历史？
 - 哪些上下文只给本轮模型看？
 - 哪些检索 run 不污染主对话？
-- 哪些工具在主 run 禁用、在 sidecar 中允许？
+- 不同职责的 Agent 分别允许使用哪些工具？
 - actor 回应后如何保存 `events.jsonl`、`memory.jsonl`、`mind.md`？
 - writer 生成后是否进入 critic，再返回 writer 修订？
 - 状态变化由谁提交，提交到哪里？
@@ -262,14 +266,13 @@ Code agent 展示了另一个方向：模型可以先检索、再行动，可以
 - 用 `simulation/entities/` 管理有状态实例。
 - 用 `reference/` 保留外部素材和迁移证据。
 - 用 `manuscript/` 保存正式正文。
-- 用 Agent Harness 组织 retrieval、writer、critic、actor、GM、sidecar 和状态提交。
+- 用 Agent Harness 组织 retrieval、writer、critic、actor、GM 和状态提交。
 
 最终目标不是让 AI 一次生成更长的文本，而是让 AI 创作进入一个可检索、可审查、可记忆、可分发、可长期维护的系统。
 
-## 延伸阅读
+## 继续阅读
 
 - [Agent Runtime Hooks](https://github.com/notnotype/neuro-book/blob/master/reference/agent/runtime-hooks.md)
-- [Sidecar Profile Pass](https://github.com/notnotype/neuro-book/blob/master/reference/agent/sidecar-profile-pass.md)
 - [Subject RAG Memory](https://github.com/notnotype/neuro-book/blob/master/reference/content/subject-rag-memory.md)
 - [Novel Writing Workflow](https://github.com/notnotype/neuro-book/blob/master/reference/agent/novel-writing-workflow.md)
 - [Content Reference](https://github.com/notnotype/neuro-book/blob/master/reference/content/README.md)

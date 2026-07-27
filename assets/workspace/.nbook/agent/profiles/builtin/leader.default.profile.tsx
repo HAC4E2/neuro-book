@@ -17,11 +17,11 @@ import {
     ModeAvailabilityReminder,
     ModeReminder,
     ProfilePrompt,
-    RuntimeLocationReminder,
     SkillCatalog,
     SqlSchemaSummary,
     System,
     TaskReminder,
+    WorkflowCatalog,
     WorkspaceFocusReminder,
 } from "nbook/server/agent/profiles/profile-dsl";
 import {defineProfileHome, type ProfileHomeFacade} from "nbook/server/agent/profiles/profile-home";
@@ -152,8 +152,6 @@ const DEFAULT_LEADER_PERSONA = profileText`
 
     你和用户的对话气质熟悉、活泼、直率，有创作陪伴感。
     你可以轻松自然地接住用户的灵感，也可以直接指出设定、节奏或表达里的问题。
-    保持普通写作 Leader 的职责边界：协助小说创作、设定整理、剧情设计、文件编辑和多 agent 调度。
-    不引入 RP 小屋、万华镜、第三人称动作回复或思维劫持式表达。
 `;
 
 export default defineAgentProfile({
@@ -194,6 +192,14 @@ export default defineAgentProfile({
         ...plotReadBindings,
         ...plotWriteBindings,
         builtin.sql.execute,
+        builtin.workflow.run,
+        builtin.workflow.list,
+        builtin.jobs.list,
+        builtin.jobs.get,
+        builtin.jobs.cancel,
+        // novel-api 榜单选题只读工具（novel-genre-research skill 消费）
+        builtin.novelData.rankings,
+        builtin.novelData.bookDetail,
     ),
     runtimeDefaults: {
         summarizer: {
@@ -274,6 +280,10 @@ export default defineAgentProfile({
                     <Message>
                         <SkillCatalog />
                     </Message>
+                    <Message><Import path="assets/workspace/.nbook/agent/skills/novel-guide/SKILL.md" /></Message>
+                    <Message>
+                        <WorkflowCatalog />
+                    </Message>
                     <Message>
                         <Import path="AGENTS.md" />
                     </Message>
@@ -308,7 +318,6 @@ export default defineAgentProfile({
                     </Message>
                 </ModelContext>
                 <AppendingSet>
-                    <RuntimeLocationReminder />
                     <WorkspaceFocusReminder />
                     <FileChangeNotice mode={ctx.settings.fileChangeAwareness} />
                     <ModeAvailabilityReminder />
@@ -386,7 +395,7 @@ const LEADER_SYSTEM_PROMPT = profileText`
         - 技术细节对用户透明：用户只讲故事、设计角色、推进剧情，不需要理解 slice / patch / reduce / instant / op / schema。回复用户时给「时间线 + 当前状态」的人读摘要，不要把 slice id、patch JSON、op 名字甩给用户。
         - execute_world 查询结果也要便于你自己阅读：如果已经知道 subject schema 字段含义，在 CodeAct 脚本内把 attrs 整理成文本摘要再 return string；只有后续代码确实需要结构化数据时才 return object/array，不要默认回传原始状态 JSON。
         - 时间对用户一律说项目日历字符串；默认项目使用公历格式，例如 world.time.parse("公元2020年4月12日 18:00") 转成 instant，再传给 world.slice.write / world.slice.editPatches。给人看时用 world.time.format(instant)。如果项目自定义了 calendar.ts，以当前项目日历格式为准，不要照抄不匹配的时间字符串。
-        - **初始化时机**：当项目有明确时间线、且有需要追踪状态的角色时再引入 World Engine（通常是用户从"探索想法"转向"正经写这个故事"，或明确说"建立 World Engine"）。纯灵感探索阶段不要初始化。初始化要和用户确认纪年、故事"现在"时间点、开局追踪哪些角色，再通过 world.slice.write 写入 world subject（纪元锚点）和初始角色的首条切面（首次写入会自动创建 subject）。具体引导见 novel-workflow 系列 skill。
+        - **初始化时机**：当项目有明确时间线、且有需要追踪状态的角色时再引入 World Engine（通常是用户从"探索想法"转向"正经写这个故事"，或明确说"建立 World Engine"）。纯灵感探索阶段不要初始化。初始化要和用户确认纪年、故事"现在"时间点、开局追踪哪些角色，再通过 world.slice.write 写入 world subject（纪元锚点）和初始角色的首条切面（首次写入会自动创建 subject）。具体引导见 novel-setup skill 阶段四；写作阶段路由按已注入的 novel-guide 路线图判断。
         - **记录原则（最少支持当前叙事）**：只记录会被后续剧情读取 / 引用 / 依赖的事实。群体角色先用单一 subject、需要时再拆分重要个体；每个 subject 通常 1-2 条切面（起因 + 当前状态）；临时龙套不建 subject，只在主角切面 events 文本里提及；背景按需向更早 instant 插切面溯源，不预先填满。
         - **关注度等级**：lorebook 角色标题标注星级（如 [★★★★☆ 主角]），决定 backstory 切片数量。★★★★★ 需 5-10 条完整生命线，★★★☆☆ 需 2-4 条关键背景，★★☆☆☆ 只需 1-2 条当前处境，★☆☆☆☆ 不建 subject。
         - **切片粒度**：主角当前场景（视角附近）要细，每个对话回合或动作；视角之外要粗，整个事件一条切片。新事件细，旧事件（backstory）粗。战斗场景每回合一条，日常/赶路整段一条。

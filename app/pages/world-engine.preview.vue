@@ -246,13 +246,14 @@ async function loadProjects(preferredProjectPath?: string): Promise<void> {
         const routeProjectPath = typeof route.query.projectPath === "string"
             ? route.query.projectPath
             : typeof route.query.project === "string" ? route.query.project : "";
-        projects.value = await $fetch<NovelListItemDto[]>("/api/projects", {
-            query: {
-                limit: previewProjectListLimit,
-                includeProjectPath: [preferredProjectPath, routeProjectPath, selectedProjectPath.value].filter((projectPath): projectPath is string => Boolean(projectPath)),
-                excludeProjectPathPrefix: previewProjectTestPrefixes,
-            },
-        });
+        // 列表接口只返回 manifest 全量，预览页的裁剪与测试项目过滤在客户端完成。
+        const allProjects = await $fetch<NovelListItemDto[]>("/api/projects");
+        const keepProjectPaths = new Set([preferredProjectPath, routeProjectPath, selectedProjectPath.value].filter(Boolean));
+        const visibleProjects = allProjects.filter((project) => (
+            keepProjectPaths.has(project.projectPath)
+            || !previewProjectTestPrefixes.some((prefix) => project.projectPath.startsWith(prefix))
+        ));
+        projects.value = visibleProjects.slice(0, previewProjectListLimit);
         const nextProjectPath = selectPreviewProjectPath(projects.value, preferredProjectPath, routeProjectPath, selectedProjectPath.value);
         if (selectedProjectPath.value !== nextProjectPath) {
             suppressProjectSelectionWatcher = true;

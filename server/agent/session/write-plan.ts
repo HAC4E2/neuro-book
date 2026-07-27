@@ -64,6 +64,11 @@ export type SessionWriteExecutorInput = {
     eventHub: AgentSessionEventHub;
     liveStateProvider: (sessionId: SessionId) => Promise<AgentSessionLiveStateDto>;
     onEntriesWritten?: (batch: SessionWriteEntryBatch) => void | Promise<void>;
+    /**
+     * invocation 归属校验。Harness 强制取消并释放执行权后，旧异步路径不得再写 session。
+     * 没有 invocationId 的用户/系统写入不经过该约束。
+     */
+    invocationWriteAllowed?: (sessionId: SessionId, invocationId: string) => boolean;
 };
 
 /**
@@ -77,6 +82,7 @@ export class SessionWriteExecutor {
     private readonly eventHub: AgentSessionEventHub;
     private readonly liveStateProvider: (sessionId: SessionId) => Promise<AgentSessionLiveStateDto>;
     private readonly onEntriesWritten?: (batch: SessionWriteEntryBatch) => void | Promise<void>;
+    private readonly invocationWriteAllowed?: (sessionId: SessionId, invocationId: string) => boolean;
     private readonly writeQueues = new Map<SessionId, Promise<void>>();
 
     constructor(input: SessionWriteExecutorInput) {
@@ -84,6 +90,7 @@ export class SessionWriteExecutor {
         this.eventHub = input.eventHub;
         this.liveStateProvider = input.liveStateProvider;
         this.onEntriesWritten = input.onEntriesWritten;
+        this.invocationWriteAllowed = input.invocationWriteAllowed;
     }
 
     /**
@@ -106,6 +113,7 @@ export class SessionWriteExecutor {
             if (plan.durability === "savePoint" && this.canMergeSavePoint(plan)) {
                 const merge = this.collectSavePointPlans(plans, index);
                 await this.measureWritePlan(options, async () => {
+                    this.assertInvocationWriteAllowed(plan.target.sessionId, invocationId);
                     const entries = await this.repo.appendEntries(plan.target.sessionId, merge.entries);
                     for (const entry of entries) {
                         written.push(entry);
@@ -119,6 +127,7 @@ export class SessionWriteExecutor {
             }
             for (const op of plan.ops) {
                 await this.measureWritePlan(options, async () => {
+                    this.assertInvocationWriteAllowed(plan.target.sessionId, invocationId);
                     const entries = await this.executeOp(plan.target.sessionId, op);
                     for (const entry of entries) {
                         written.push(entry);
@@ -136,6 +145,16 @@ export class SessionWriteExecutor {
         }
 
         return {entries: written, liveStates};
+    }
+
+    /** 在物理写入锁内复核 invocation ownership，关闭 cancel 与迟到异步结果之间的写入窗口。 */
+    private assertInvocationWriteAllowed(sessionId: SessionId, invocationId: string | undefined): void {
+        if (!invocationId || !this.invocationWriteAllowed) {
+            return;
+        }
+        if (!this.invocationWriteAllowed(sessionId, invocationId)) {
+            throw new Error(`invocation ${invocationId} 已失去 session ${sessionId} 的写入权`);
+        }
     }
 
     private async withSessionWriteLocks<TResult>(sessionIds: SessionId[], task: () => Promise<TResult>): Promise<TResult> {

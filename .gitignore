@@ -35,6 +35,8 @@ product/
 .agent/agent-smoke/
 .agent/agent-*/
 .playwright-cli/
+# 外部工具产生的调试 trace（与运行时 .nbook/agent/traces 无关）
+.traces/
 .agent/manual-retrieval-e2e-build-check/
 .agent/workspace
 /workspace/
@@ -45,6 +47,8 @@ docs/.vitepress/dist
 docs/.vitepress/cache
 assets/workspace/.nbook/agent/profiles/.compiled/
 assets/workspace/.nbook/agent/variables/.compiled/
+# Profile / Variable 编译的 staging 中间产物：进程崩溃时会残留，永远不进 git
+assets/workspace/.nbook/agent/.staging/
 assets/workspace/.nbook/agent/profiles/.system-profile-metadata.json
 # 本地 Writer 文风、写作参考与旧致谢来源含个人或第三方素材，不进入公开仓库和 Product source snapshot
 /assets/workspace/.nbook/agent/writing-presets/references/
@@ -61,6 +65,8 @@ server/agent/variables/generated-profile-variable-types.d.ts
 Imagine/
 # Tauri 桌面壳 Rust 构建产物
 src-tauri/target/
+# 基准测试的原始结果：带本机 CPU 型号、内存、OS build 和绝对路径，只保留同目录 .md 摘要
+**/benchmarks/results/*.json
 # Crash dumps
 *.stackdump
 # Test output

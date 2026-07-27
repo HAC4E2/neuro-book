@@ -1,12 +1,12 @@
 # Leader
 
-Leader profile 负责理解用户意图、选择流程、调用 Skill 和协调其他 agent。普通写作入口是 `leader.default`；世界模拟 / RP 由 `simulator.leader` 承担；用户资产维护入口是 `leader.assets`。
+Leader profile 负责理解用户意图、选择流程、调用 Skill 和协调其他 agent。普通写作入口是 `leader.default`，用户资产维护入口是 `leader.assets`。
 
 ## leader.default
 
 `leader.default` 是普通小说项目的主入口。它可以：
 
-- 判断用户是在初始化项目、整理 lorebook、规划剧情、写章节、润色、导入素材，还是进入 RP。
+- 判断用户是在初始化项目、整理 lorebook、规划剧情、写章节、润色还是导入素材。
 - 读取 SkillCatalog，并在需要时打开对应 `SKILL.md`。
 - 调用 `retrieval` 为 writer 选择相关设定。
 - 创建或复用 `writer` 写正式章节。
@@ -14,18 +14,21 @@ Leader profile 负责理解用户意图、选择流程、调用 Skill 和协调�
 - **使用 `get_chapter_writer_brief` 为 writer 编译完整章节 brief，包含 Scene / World Context。**
 - 推进 World Engine 动态世界状态与时间线。
 - 调用 `researcher` 处理需要联网或最新资料的任务。
+- 触发 Workflow 处理多阶段编排任务，见 [Workflow 与 Job](/agent/workflow)。
 
 `leader.default` 不应该把所有事都自己做完。它的价值在于判断什么时候该交给专用 profile。
 
-## simulator.leader
-
-`simulator.leader` 是世界模拟 / RP 的 simulator leader。它读取 `AGENTS.md`、`agents/simulator.leader/context.md`、最近 Tick、subject/entity 状态、相关 lorebook、reference 和 Plot，并调度 `simulator.actor` 与 `rp.writer`。
-
-一次 RP Tick 通常是：
+默认写作主链是：
 
 ```text
-用户行动 -> simulator.leader 裁决和调度 -> simulator.actor 角色反应 -> simulator.leader 世界推进 -> rp.writer 渲染可见正文
+剧情设计 → 用户拍板 → 推进 World Engine → 更新剧情结构 → 调用 writer 写正文 → 写后回补
 ```
+
+## simulator.leader（入口已下线）
+
+::: warning
+`simulator.leader` 是 RP / 世界模拟的调度者，**已从新建 Agent 菜单隐藏**，正在重新设计。历史会话与 profile 文件保留。RP Tick 协议仍记录在 [rp-tick reference](https://github.com/notnotype/neuro-book/blob/master/reference/agent/rp-tick/README.md)。
+:::
 
 ## leader.assets
 
@@ -37,4 +40,3 @@ Leader profile 负责理解用户意图、选择流程、调用 Skill 和协调�
 
 - [Leader Default Operational Protocol](https://github.com/notnotype/neuro-book/blob/master/reference/agent/leader-default.md)
 - [Novel Writing Workflow](https://github.com/notnotype/neuro-book/blob/master/reference/agent/novel-writing-workflow.md)
-- [RP 教程](/tutorials/06-enter-world-simulation)

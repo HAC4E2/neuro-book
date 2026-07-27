@@ -45,9 +45,14 @@ export function reportResultDataContractForProfile(profile: AgentProfile): Repor
 
 /**
  * 从目标 profile 的 OutputSchema 派生 report_result 的模型可见参数 schema。
+ * dataSchemaOverride 非空时优先（per-session 动态 schema：adhoc profile 从 initial 解析）。
  */
-export function reportResultSchemaForProfile(profile: AgentProfile): TSchema {
-    const dataContract = reportResultDataContractForProfile(profile);
+export function reportResultSchemaForProfile(profile: AgentProfile, dataSchemaOverride?: TSchema): TSchema {
+    // 动态 override（adhoc 从 initial 解析）是调用方合同，必须返回；
+    // 静态路径沿用 dataContract：显式 dataSchema 必填，仅 outputSchema 推导时可选。
+    const dataContract: ReportResultDataContract = dataSchemaOverride !== undefined
+        ? {schema: dataSchemaOverride, required: true}
+        : reportResultDataContractForProfile(profile);
     const properties = {
         result: Type.String({
             description: "本次工具调用的可读结果；需要时可以写简短 walkthrough。",
@@ -61,46 +66,6 @@ export function reportResultSchemaForProfile(profile: AgentProfile): TSchema {
             },
     };
     return Type.Object(properties);
-}
-
-/**
- * 从目标 profile 的 sidecarDataSchema 派生 report_sidecar_result 的模型可见参数 schema。
- *
- * 注意：这里生成的是 profile-stable schema，不随当前 active sidecar 变化，避免破坏 provider tool cache。
- * 执行期仍会按当前 active sidecar 的 sidecarDataSchema 做严格校验。
- */
-export function reportSidecarResultSchemaForProfile(profile: AgentProfile): TSchema {
-    return Type.Object({
-        result: Type.String({
-            description: "旁路阶段的可读结果；写简短摘要即可。",
-        }),
-        data: sidecarDataKeyedObjectSchema(profile),
-    });
-}
-
-/**
- * 生成当前 profile 所有 sidecarDataSchema 的稳定 keyed object。
- *
- * 模型可见结构为 { "<sidecar-name>": <sidecarDataSchema> }，一次只能返回一个
- * sidecar key；这样可以保留每个 sidecar 的精确 schema，同时避开 provider 对
- * anyOf/oneOf 工具参数的不稳定支持。
- */
-export function sidecarDataKeyedObjectSchema(profile: AgentProfile): TSchema {
-    const properties = Object.fromEntries((profile.sidecars ?? [])
-        .flatMap((pass) => pass.sidecarDataSchema
-            ? [[pass.name, Type.Optional(pass.sidecarDataSchema)]]
-            : []));
-    if (Object.keys(properties).length === 0) {
-        return Type.Never({
-            description: "当前 profile 没有声明 sidecarDataSchema；不应调用 report_sidecar_result。",
-        });
-    }
-    return Type.Object(properties, {
-        additionalProperties: false,
-        minProperties: 1,
-        maxProperties: 1,
-        description: "当前 profile 所有 sidecarDataSchema 的稳定 keyed object；当前旁路只填写自己的 sidecar key。",
-    });
 }
 
 function isReportResultBinding(binding: ProfileToolBinding | undefined): binding is ReportResultToolBinding {

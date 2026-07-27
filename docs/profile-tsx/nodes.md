@@ -10,11 +10,14 @@ Profile TSX 节点会被编译成 `ProfileTurnPlan`。不同节点进入不同�
 - `HistorySet`
 - `ModelContext`
 - `AppendingSet`
-- `Compaction`
 - `If`
 - `Fragment`
 
 不要在根节点下放非空裸文本。
+
+::: tip 压缩策略不是节点
+压缩（compaction）与摘要策略写在 `defineAgentProfile({runtimeDefaults: {...}})` 里，不是 TSX 节点。运行时最终值还会叠加 Global / Project 的配置，见 [Profile 介绍](/profile/)。
+:::
 
 ## System
 
@@ -35,12 +38,13 @@ Profile TSX 节点会被编译成 `ProfileTurnPlan`。不同节点进入不同�
 
 适合放：
 
-- `AgentCatalog`
-- `SkillCatalog`
+- `AgentCatalog`：可创建 / 可调用的 linked agent 清单
+- `SkillCatalog`：可用 Skill 清单
+- `WorkflowCatalog`：可用 Workflow 清单
 - `<Import path="reference/..." />`
 - 稳定共享规范
 
-`Import`、`SkillCatalog`、`AgentCatalog` 都是 string fragment，必须包在 `Message` 或 `System` 这类 string 容器里。
+`Import`、`SkillCatalog`、`AgentCatalog`、`WorkflowCatalog` 都是 string fragment，必须包在 `Message` 或 `System` 这类 string 容器里。
 
 ## ModelContext
 
@@ -48,13 +52,12 @@ Profile TSX 节点会被编译成 `ProfileTurnPlan`。不同节点进入不同�
 
 适合放：
 
-- `VariableSchema`
-- `Variable`
-- SQL schema summary
+- `SqlSchemaSummary`：当前 Project SQLite 的结构摘要
+- `LinkedAgentsSummary`：当前 linked agent 状态
 - 本轮临时摘要
 - 不应持久化的 `Reminder` / `Watch`
 
-变量第一版只能直接放在 `ModelContext`。
+判据是"这段内容下一轮还成立吗"：成立的进 `HistorySet` 写一次，不成立的进 `ModelContext` 每轮重算。
 
 ## AppendingSet
 
@@ -62,7 +65,6 @@ Profile TSX 节点会被编译成 `ProfileTurnPlan`。不同节点进入不同�
 
 适合放：
 
-- `RuntimeLocationReminder`
 - `WorkspaceFocusReminder`
 - `ModeAvailabilityReminder`
 - `ModeReminder`
@@ -70,8 +72,25 @@ Profile TSX 节点会被编译成 `ProfileTurnPlan`。不同节点进入不同�
 - `TaskReminder`
 - `MentionedSkillsReminder`
 - `ActivatedSkills`
+- `FileChangeNotice`：把本轮外部文件变更以 Git 风格 notice 注入，`mode` 取自 profile settings
+- `ModeSlot`：按当前 Agent 模式（normal / discuss / plan）替换文案的插槽
 
 `AppendingSet` 也不接受非空裸文本，文本要放在 `Message` 内。
+
+## 完整节点表
+
+DSL 的可用节点是**穷举**的——写了表外的名字会直接抛「未知 Profile DSL JSX 节点」，编译不过。当前全部 28 个：
+
+| 分类 | 节点 |
+| --- | --- |
+| 结构 | `ProfilePrompt`、`System`、`HistorySet`、`ModelContext`、`AppendingSet` |
+| 消息 | `Message`、`AIMessage`、`ToolCall`、`ToolResult` |
+| 控制 | `If`、`Watch`、`Import` |
+| 清单 | `AgentCatalog`、`SkillCatalog`、`WorkflowCatalog`、`LinkedAgentsSummary`、`SqlSchemaSummary` |
+| 提醒 | `Reminder`、`SystemReminder`、`WorkspaceFocusReminder`、`LinkedAgentsReminder`、`TaskReminder`、`MentionedSkillsReminder`、`ActivatedSkills`、`FileChangeNotice` |
+| 模式 | `ModeReminder`、`ModeAvailabilityReminder`、`ModeSlot` |
+
+模式相关三个节点的语义见 [Agent 模式](/agent/modes)。
 
 ## Import
 

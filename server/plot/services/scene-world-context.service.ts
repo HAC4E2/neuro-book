@@ -20,20 +20,20 @@ export class SceneWorldContextService {
     /**
      * 查询指定 Scene 相关的 World Engine 切面与 subject 终态。
      */
-    async getSceneWorldContext(projectPath: string, sceneId: number): Promise<SceneWorldContextDto> {
-        const story = await this.storyService.ensureStory(projectPath);
+    async getSceneWorldContext(sceneId: number): Promise<SceneWorldContextDto> {
+        const story = await this.storyService.ensureStory();
         await this.scopeGuard.assertScene(story.id, sceneId);
         const scene = await this.sceneRepository.findSceneById(sceneId);
         if (!scene) {
             throwPlotNotFound("剧情场景不存在");
         }
-        return this.getSceneWorldContextForScene(projectPath, scene);
+        return this.getSceneWorldContextForScene(scene);
     }
 
     /**
      * 使用已加载的 Scene 实体查询 World Engine 上下文。
      */
-    async getSceneWorldContextForScene(projectPath: string, scene: Pick<
+    async getSceneWorldContextForScene(scene: Pick<
         StoryScene,
         "startInstant" | "endInstant" | "subjectIdsJson" | "locationSubjectId"
     >): Promise<SceneWorldContextDto> {
@@ -49,7 +49,7 @@ export class SceneWorldContextService {
             return {slices: [], subjectStates: [], unresolvedSubjectIds: []};
         }
 
-        const subjects = await this.worldEngineFacade.listSubjectIdentities(projectPath, {ids: subjectIds});
+        const subjects = await this.worldEngineFacade.listSubjectIdentities({ids: subjectIds});
         const subjectNameMap = new Map(subjects.map((subject) => [subject.id, subject.name || subject.id]));
         const resolvedSubjectIds = subjectIds.filter((subjectId) => subjectNameMap.has(subjectId));
         const unresolvedSubjectIds = subjectIds.filter((subjectId) => !subjectNameMap.has(subjectId));
@@ -59,14 +59,14 @@ export class SceneWorldContextService {
 
         const subjectIdSet = new Set(resolvedSubjectIds);
         const [slices, state] = await Promise.all([
-            this.worldEngineFacade.listSlices(projectPath, {
+            this.worldEngineFacade.listSlices({
                 from: scene.startInstant,
                 to: scene.endInstant,
                 withPatches: true,
                 subjectIds: resolvedSubjectIds,
                 subjectMode: "any",
             }),
-            this.worldEngineFacade.queryState(projectPath, {
+            this.worldEngineFacade.queryState({
                 subjectIds: resolvedSubjectIds,
                 at: scene.endInstant,
             }),
@@ -74,7 +74,7 @@ export class SceneWorldContextService {
 
         const contextSlices = await Promise.all(slices.map(async (slice) => ({
             id: slice.id,
-            time: await this.worldEngineFacade.formatTime(projectPath, slice.instant),
+            time: await this.worldEngineFacade.formatTime(slice.instant),
             title: slice.title,
             summary: slice.summary,
             kind: slice.kind,

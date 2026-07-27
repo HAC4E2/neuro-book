@@ -13,17 +13,14 @@ import {createDefaultTextToImageRecipeSource} from "nbook/shared/text-to-image-r
 import {createTextToImageRecipeSnapshot} from "nbook/server/text-to-image/recipe.codec";
 import {IllustrationChapterParser} from "nbook/server/text-to-image/illustration-chapter-parser";
 import {IllustrationResultService} from "nbook/server/text-to-image/illustration-result.service";
-import {
-    textToImageProjectClient,
-    textToImageProjectClientResourceOwner,
-} from "nbook/server/text-to-image/project-client";
+import {textToImageProjectClient} from "nbook/server/text-to-image/project-client";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
-import {registerProjectResourceOwner, resetProjectSessionsForTest} from "nbook/server/workspace-files/project-session";
+import {resetProjectSessionsForTest} from "nbook/server/workspace-files/project-session";
 import {resolveProjectAbsolutePath} from "nbook/server/text-to-image/compat";
 import {writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {createIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/workspace-assets-test-helper";
-import {resetWorkspaceHistoryForTest, workspaceHistoryResourceOwner} from "nbook/server/workspace-history/project-history";
+import {resetWorkspaceHistoryForTest} from "nbook/server/workspace-history/project-history";
 
 const H = (digit: string): string => `sha256:${digit.repeat(64)}`;
 const CHAPTER_PATH = "manuscript/v1/c1/index.md";
@@ -40,8 +37,6 @@ describe("IllustrationResultService", () => {
 
     beforeEach(async () => {
         resetProjectSessionsForTest();
-        registerProjectResourceOwner(workspaceHistoryResourceOwner);
-        registerProjectResourceOwner(textToImageProjectClientResourceOwner);
         workspaceAssets = await createIsolatedWorkspaceAssets();
         projectPath = `workspace/illustration-result-${randomUUID()}`;
         await writeProjectManifest(resolveRuntimeWorkspaceRoot(), projectPath, {kind: "novel", title: "插图结果测试", summary: ""});

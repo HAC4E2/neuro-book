@@ -23,7 +23,11 @@ export {profileSourceFileSetChangedSinceCompile} from "nbook/server/agent/profil
 import type {ProfileCompilePublishOptions, ProfileCompileWorkerResult} from "nbook/server/agent/profiles/profile-compile-worker-types";
 import {appLogger} from "nbook/server/app-logs/logger";
 import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-runtime-root";
-import {ProjectNotOpenError} from "nbook/server/workspace-files/project-session";
+import {
+    isProjectNotOpenError,
+    ProjectNotOpenError,
+} from "nbook/server/workspace-files/project-session-service";
+import {normalizeProjectPath, projectSlug} from "nbook/server/workspace-files/project-path";
 import type {
     AgentProfileCompileAllRequestDto,
     AgentProfileCompileRequestDto,
@@ -284,7 +288,7 @@ export class ProfileCompileWorkerService {
         }, (error) => {
             slot.task = null;
             this.running.delete(task.id);
-            if (error instanceof ProjectNotOpenError) {
+            if (isProjectNotOpenError(error)) {
                 task.reject(error);
             } else {
                 task.resolve(workerFailedResult(task.input, error instanceof Error ? error : new Error(String(error))));
@@ -626,7 +630,7 @@ function throwLifecycleError(result: ProfileCompileWorkerResult): void {
         return;
     }
     if (result.lifecycleError.code === "PROJECT_NOT_OPEN") {
-        throw new ProjectNotOpenError(result.lifecycleError.projectPath);
+        throw new ProjectNotOpenError(projectSlug(normalizeProjectPath(result.lifecycleError.projectPath)));
     }
 }
 

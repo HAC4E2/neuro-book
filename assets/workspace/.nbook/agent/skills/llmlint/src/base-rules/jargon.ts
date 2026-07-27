@@ -4,8 +4,8 @@ import type {LintRuleRecord} from "../types";
  * 黑话三类：商业黑话扩展（jargon.business）、工程师/调试腔（jargon.engineer）、自媒体腔（jargon.social）。
  *
  * 取材自 shuorenhua/references/phrases-zh.md「商业/互联网黑话 / 工程师腔 / 暴力动作腔 / 自媒体腔」段。
- * engineer / social 误杀率高（技术语境、网络用语都可能合理），按命名空间策略默认归 human 桶，
- * 默认不刷 agent 视图；business 在小说里少见但出现即明显，保持默认展示。
+ * business / engineer / social 都可能是准确术语或刻意文体，按命名空间策略默认归 human 桶，
+ * 默认不刷 agent 视图；只在项目明确要清商业/网络腔时打开。
  */
 export const JARGON_RULES = [
     {
@@ -27,11 +27,11 @@ export const JARGON_RULES = [
         "namespace": "jargon.engineer",
         "title": "工程师 / 调试腔",
         "level": "low",
-        "note": "AI 把 debug 术语用到日常对话，像写 postmortem。误杀防护：纯技术报告/incident/变更日志里「根因/收口/收敛」是标准术语应保留；若描述系统主语行为（如网关返回 504）也保留。小说叙述里出现这类姿态词才是 AI 味。",
+        "note": "AI 把 debug 术语用到日常对话，像写 postmortem。误杀防护：纯技术报告/incident/变更日志里「根因/收口」是标准术语应保留；小说里的“收敛/收束/锁住”多为普通动作或状态，已从默认 detector 移除。",
         "detector": {
             "type": "regex",
             "targets": [
-                "稳稳兜住|砍一刀|收口|收窄|打掉问题|避免漂移|落盘|兜底|压实|收敛|收束|锁住|口径|对上了|坐实了"
+                "稳稳兜住|砍一刀|收口|收窄|打掉问题|避免漂移|落盘|兜底|压实|口径|对上了|坐实了"
             ]
         },
         "action": {"type": "suggest", "message": "非纯技术语境时，改成自然说法：处理好、缩小范围、收尾、确认、保存、吻合等。"}
@@ -83,11 +83,11 @@ export const JARGON_RULES = [
         "namespace": "jargon.social",
         "title": "自媒体腔（补充）",
         "level": "low",
-        "note": "「狠狠 XX 了 / 拿捏 / 天花板 / 封神 / 一键三连」等爆款文风词，AI 批量堆砌时暴露机器痕迹。",
+        "note": "默认收窄：移除裸“狠狠…了”，避免误伤小说动作强度；保留“拿捏 / 天花板 / 封神 / 一键三连”等更明确爆款文风词。",
         "detector": {
             "type": "regex",
             "targets": [
-                "狠狠(?:地)?[^，。！？\\n]{1,4}了|拿捏(?:得)?死死的?|(?:是|算)[^，。！？\\n]{0,6}天花板|直接封神|一键三连|记得(?:点赞|关注|收藏)"
+                "拿捏(?:得)?死死的?|(?:是|算)[^，。！？\\n]{0,6}天花板|直接封神|一键三连|记得(?:点赞|关注|收藏)"
             ]
         },
         "action": {"type": "suggest", "message": "删掉爆款腔，改成中性、具体的说法。"}

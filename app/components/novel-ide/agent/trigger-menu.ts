@@ -61,6 +61,8 @@ export interface AgentTriggerMenuItem {
      * 是否在插入文本后补一个空格。
      */
     trailingSpace?: boolean;
+    /** 选中后先删除 trigger，再在原位置执行异步动作（例如图片快照）。 */
+    action?: (context: {position: number}) => void | Promise<void>;
 }
 
 /**

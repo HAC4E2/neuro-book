@@ -1,23 +1,23 @@
 # 介绍
 
-NeuroBook 是一款基于 Nuxt 构建的长篇小说创作与 AI 角色扮演 IDE。
+NeuroBook 是一款让你**写完**长篇的创意写作 IDE。
 
-它解决的不是“生成一段文字”这种短问题，而是长篇创作中的持续管理问题：设定会变，剧情会推进，角色会记住过去，章节会互相影响，草稿会分叉，写作任务会积压。NeuroBook 把这些内容放进同一个可见、可编辑、可协作的 Project Workspace 中，并用领域化 Agent 系统支撑写作、检索、世界模拟和 RP。
+它解决的不是"生成一段文字"这种短问题，而是长篇创作中的持续管理问题：设定会变，剧情会推进，伏笔会积压，章节会互相影响，三个月前的决定会被自己忘掉。这些问题不是靠更强的模型解决的，是靠**工程**解决的。
 
 ## 产品定位
 
 NeuroBook 更像小说作者使用的本地 IDE，而不是普通聊天框。
 
-它同时提供四层能力：
+它提供四层能力：
 
-- 内容管理：设定、正文、草稿、章节资料、引用和状态文件。
-- 剧情管理：长期剧情线、场景和情节点。
-- 世界模拟：用 `simulation/` 管理 subject、entity、run 和 RP Tick。
-- AI 协作：基于 NeuroAgentHarness 的检索、写作、规划、审批和多 Agent 任务协作。
+- **世界状态**：World Engine 用时间线加切面记录会变的世界，任意时刻的状态由引擎推算——不靠模型记忆，所以不会漂移。
+- **剧情结构**：两棵树分开管"故事在哪讲"和"故事为什么发生"；伏笔进承诺账本记账，创作决策进 ADR 式存档。
+- **内容管理**：设定、正文、草稿、引用全是本地 Markdown 文件，任何编辑器都能打开。
+- **AI 协作**：leader 规划、writer 写正文、retrieval 查设定、researcher 查资料，加上可编排的 Workflow 与后台 Job。
 
-这些能力会落到同一个 Project Workspace 中。作者可以直接看到自己的文件，也可以让 Agent 在明确边界内读取、整理和修改这些文件。
+这些能力落在同一个 Project Workspace 里。你能直接看到自己的文件，也能让 Agent 在明确边界内读取、整理和修改它们。
 
-底层运行时基于 Pi 框架扩展，复用了 multi-provider、tool calling、append-only session tree 等基础抽象，并进一步引入 Profile、TSX Profile 和 Sidecar Context。Profile 定义 Agent 的行为边界；TSX Profile 用类型安全的上下文模板描述动态上下文；Sidecar Context 在主 run 前后执行 runtime-only 旁路任务，让检索、反思、记忆维护和状态整理不污染主对话。
+底层运行时基于 Pi 框架扩展，复用 multi-provider、tool calling、append-only session tree 等基础抽象，并引入 Profile 和 TSX Profile：Profile 定义 Agent 的行为边界，TSX Profile 用类型安全的上下文模板描述动态上下文。
 
 ## 适合谁
 
@@ -30,16 +30,34 @@ NeuroBook 适合这些使用者：
 
 如果你只需要一次性生成短文，普通 AI 聊天工具通常更轻。如果你要持续经营一部长篇作品，NeuroBook 的文件、剧情和 Agent 协作结构会更适合。
 
+## 常见疑问
+
+**我能不能只用它管设定、正文自己写？**
+
+可以，而且这是完全成立的用法。World Engine、承诺账本、决策记录、一致性审计这些都不要求 AI 代笔——你自己在编辑器里写正文，让 AI 只负责查前文有没有矛盾、提醒你哪个伏笔该收了。把 Agent 切到[讨论模式](/agent/modes)，它就只出主意不动稿。
+
+**AI 写的能直接发吗？**
+
+不建议直接发。当前 AI 的定位是助手不是代笔：它擅长整理资料、查证细节、陪你头脑风暴、写初稿骨架，但成稿的判断权在你。[llmlint](/core/llmlint) 是专门用来检查"AI 味"的——它存在本身就说明这个问题真实存在。各写作平台对 AI 生成内容的政策不同，发布前请自行确认。
+
+**我已经写了很多稿子和一份 Excel 设定表，能搬进来吗？**
+
+正文可以：`manuscript/` 就是普通目录，把你的 `.txt` / `.md` 按章拷进去即可，或者用[拆书 workflow](/agent/workflow) 让 AI 帮你切章并生成摘要。设定表目前没有 Excel 一键导入，实际做法是把表格内容贴给 Agent，让它按 `lorebook/` 的结构写成条目。
+
+**对电脑有什么要求？**
+
+Windows 解压版包含运行所需的一切，普通笔记本即可，不需要显卡——**模型是在云端跑的**，你的电脑只负责编辑和存储。占用主要是你自己的稿子和 SQLite，量级很小。只有选择从源码构建（`source-product` / `source-docker`）时才需要较大内存，见[部署方式](/deployment)。
+
 ## 核心工作流
 
 一个典型创作流程是：
 
 1. 创建 Project Workspace。
 2. 在 `lorebook/` 中整理角色、地点、组织、规则和笔记。
-3. 在 Plot System 中规划 Thread、Scene 和 Plot。
-4. 在 `manuscript/` 中编写章节正文。
-5. 让 Agent 检索相关设定、规划下一步、调用 writer 写作或整理已有文件。
-6. 通过 Markdown 文件和 Project SQLite 长期维护作品状态。
+3. 初始化 World Engine：建立时间线，录入开局状态。
+4. 在剧情工坊里规划剧情线与场景，登记伏笔承诺。
+5. 剧情拍板后推进 World Engine，再让 writer 写正文进 `manuscript/`。
+6. 写完回补新产生的世界事实，用 llmlint 检查文风。
 
 NeuroBook 的目标不是替作者做所有决定，而是让作者把复杂创作过程拆成可见、可回看、可继续的工作单元。
 
@@ -51,9 +69,15 @@ NeuroBook 的目标不是替作者做所有决定，而是让作者把复杂创�
 
 普通项目管理工具只记录任务。NeuroBook 的任务、设定、正文和剧情结构都围绕小说创作服务。
 
+## 关于 AI 角色扮演
+
+早期版本包含 AI 角色扮演（RP）与世界模拟模块。**当前版本已把 RP 入口从常规界面下线**，正在按写作模式的标准重新设计，暂无时间表。相关 profile 和数据结构保留在代码库中。
+
+SillyTavern 角色卡导入仍然可用，但导入后的用途是**辅助小说写作**，不会自动开启 RP 会话。
+
 ## 下一步
 
 - 想先跑起来：读 [快速开始](/quick-start)。
+- 想看核心能力：[World Engine](/core/world-engine)、[Plot 剧情工坊](/core/plot-workbench)、[Markdown Studio](/core/markdown-studio)、[llmlint](/core/llmlint)。
 - 要选择部署方式：读 [部署方式](/deployment)。
-- 想理解 Agent：读 [Agent Reference](https://github.com/notnotype/neuro-book/blob/master/reference/agent/README.md)。
-- 想理解 Profile：读 [Profile Guide](https://github.com/notnotype/neuro-book/blob/master/reference/agent/profile-guide.md)。
+- 想理解 Agent：读 [Agent 心智模型](/agent/)。

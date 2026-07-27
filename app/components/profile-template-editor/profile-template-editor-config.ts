@@ -23,8 +23,7 @@ export const componentLibrary: ComponentLibraryItem[] = [
     {type: "SystemReminder", label: "SystemReminder", description: "通用系统提醒片段。自动包裹 <system-reminder>，适合放在 Message 内。", iconClass: "i-lucide-badge-alert", group: "privileged"},
     {type: "LinkedAgentsSummary", label: "LinkedAgentsSummary", description: "已关联 agent 摘要，可嵌入消息或提醒。", iconClass: "i-lucide-git-merge", group: "privileged"},
     {type: "LinkedAgentsReminder", label: "LinkedAgentsReminder", description: "已关联 agent 变化提醒。适合放在 AppendingSet。", iconClass: "i-lucide-network", group: "privileged"},
-    {type: "RuntimeLocationReminder", label: "RuntimeLocationReminder", description: "运行位置提醒。说明工具 cwd、源码根和 reference 根。适合放在 AppendingSet。", iconClass: "i-lucide-folder-code", group: "privileged"},
-    {type: "WorkspaceFocusReminder", label: "WorkspaceFocusReminder", description: "工作区焦点提醒。说明当前 Project Workspace 和选中文件。适合放在 AppendingSet。", iconClass: "i-lucide-folder-kanban", group: "privileged"},
+    {type: "WorkspaceFocusReminder", label: "WorkspaceFocusReminder", description: "文件范围与工作区焦点提醒。说明当前 Project Workspace、相对/绝对路径合同和选中文件。适合放在 AppendingSet。", iconClass: "i-lucide-folder-kanban", group: "privileged"},
     {type: "ModeAvailabilityReminder", label: "ModeAvailabilityReminder", description: "normal 模式下的 switch_mode 可用性提醒。适合放在 AppendingSet。", iconClass: "i-lucide-clipboard-plus", group: "privileged"},
     {type: "TaskReminder", label: "TaskReminder", description: "任务清单提醒。默认读取 agent.tasks 并提示更新 task_set_status。", iconClass: "i-lucide-list-checks", group: "privileged"},
     {type: "ModeReminder", label: "ModeReminder", description: "Agent 模式生命周期提醒。可放入 ModeSlot 插槽覆盖各阶段默认文案。", iconClass: "i-lucide-clipboard-check", group: "privileged"},
@@ -34,6 +33,7 @@ export const componentLibrary: ComponentLibraryItem[] = [
     {type: "ActivatedSkills", label: "ActivatedSkills", description: "激活技能内容。把本轮启用的 skill 文本注入 prompt，通常由运行时维护。", iconClass: "i-lucide-sparkles", group: "privileged"},
     {type: "AgentCatalog", label: "AgentCatalog", description: "Agent 目录索引。展示可创建/调用的 profile 基础信息，详情用 get_agent_profile 查询。", iconClass: "i-lucide-bot", group: "privileged"},
     {type: "SkillCatalog", label: "SkillCatalog", description: "技能目录节点。展示可用 skill 列表，帮助模型理解当前可调用的工作流能力。", iconClass: "i-lucide-library", group: "privileged"},
+    {type: "WorkflowCatalog", label: "WorkflowCatalog", description: "Workflow 目录节点。展示可通过 run_workflow 运行的 workflow 索引与使用纪律。", iconClass: "i-lucide-workflow", group: "privileged"},
     {type: "SqlSchemaSummary", label: "SqlSchemaSummary", description: "SQL schema 摘要节点。注入当前数据库业务表与字段提示，辅助 execute_sql。", iconClass: "i-lucide-database", group: "privileged"},
     {type: "Import", label: "Import", description: "共享文本导入节点。显式加载 AGENTS.md、reference/ 或 docs/ 中的稳定上下文。", iconClass: "i-lucide-file-input", group: "privileged"},
 ];

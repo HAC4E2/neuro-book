@@ -4,14 +4,34 @@ NeuroBook 的所有安装形式由独立包 `@notnotype/neuro-book-manager` 管�
 
 ## 推荐顺序
 
-| Profile | 适合场景 | Source | Product | Runtime / Tool |
+先按这张表选，选完再看下面各 Profile 的细节。
+
+| Profile | 选它当且仅当 | 前置要求 | 本机构建 | 不适合 |
 | --- | --- | --- | --- | --- |
-| `windows-portable` | Windows x64 普通用户 | Release 源码 | Windows `.output` | 托管 Bun、rg、PortableGit/bash |
-| `ghcr` | Linux/macOS Docker或Podman | 镜像 `/app` | 镜像 `.output` | container |
-| `product-bun` | 已有 Bun 的 Windows/Linux/macOS | Release 源码 | 平台 `.output` | system Bun/Tool |
-| `source-dev` | 本机开发 | Git | 无 | system Bun/Tool |
-| `source-product` | 从 Git 构建生产 Product | Git | 本机 staging build | system Bun/Tool |
-| `source-docker` | 需要从源码构建镜像 | Git build context | 容器内 build | container |
+| `windows-portable` | Windows 用户，想解压即用 | 无 | 否 | 非 Windows；需要多实例 |
+| `ghcr` | Linux/macOS 服务器部署 | Docker 或 Podman + Compose | 否，拉固定 digest 镜像 | 无容器环境；需要改源码 |
+| `product-bun` | 不想用容器，机器已有 Bun | Bun | 否，下载预构建 `.output` | 需要改源码 |
+| `source-dev` | 开发 NeuroBook 本身 | Git + Bun | dev server | 生产环境 |
+| `source-product` | 需要从自己的源码构建生产版 | Git + Bun + **构建内存（建议 2G+）** | **是**，本机跑 Nuxt build | 低配 VPS |
+| `source-docker` | 需要从源码构建镜像 | Git + Docker/Podman | **是**，容器内构建 | 低配 VPS；不改源码时没必要 |
+
+选择要点：
+
+- **只有 `source-*` 会在你的机器上构建**，`ghcr` / `product-bun` / `windows-portable` 都是下载现成产物。低配机器不要选 source-product / source-docker。
+- **`ghcr` 是服务器首选**。除非你要改源码、跑在非官方架构上、或者内网访问不了 GHCR，否则不需要 `source-docker`。
+- **迁移**：所有 Profile 的数据都在 State Root 里，换 Profile 或换机器就是搬这个目录，见 [运行、数据与隐私](/operations#你的数据在哪)。
+- **停止服务和开机自启**不由 Manager 负责，部署前先看 [运行与停止](/operations#服务运行与停止)。
+
+各 Profile 的组件来源：
+
+| Profile | Source | Product | Runtime / Tool |
+| --- | --- | --- | --- |
+| `windows-portable` | Release 源码 | Windows `.output` | 托管 Bun、rg、PortableGit/bash |
+| `ghcr` | 镜像 `/app` | 镜像 `.output` | container |
+| `product-bun` | Release 源码 | 平台 `.output` | system Bun/Tool |
+| `source-dev` | Git | 无 | system Bun/Tool |
+| `source-product` | Git | 本机 staging build | system Bun/Tool |
+| `source-docker` | Git build context | 容器内 build | container |
 
 正式平台为Windows x64、Linux x64/AArch64 glibc和macOS x64/ARM64。Windows ARM64、Linux musl和其他架构明确拒绝，不会回退到x64资产。
 
@@ -150,10 +170,12 @@ Managed Bun、ripgrep和PortableGit的版本目录是不可变组件。统一Man
 
 ## Windows Portable
 
-从 GitHub Release 下载 `neuro-book-windows-x64.zip`，解压到新目录后运行：
+从 GitHub Release 下载 `neuro-book-windows-x64.zip`，解压到新目录后**双击 `Start Neuro Book.cmd`** 启动。
+
+如果要在 PowerShell 里启动，文件名含空格，必须用调用运算符加引号，否则 PowerShell 会把 `.\Start` 当成命令：
 
 ```powershell
-.\Start Neuro Book.cmd
+& '.\Start Neuro Book.cmd'
 ```
 
 包内已经包含源码、Windows Product、Bun、rg、PortableGit/bash 和 Manager。`Update Neuro Book.cmd` 调用统一 Manager；`Create Admin.cmd` 调用 `neuro-book admin create`。更新保留整个 `data/`。
@@ -244,8 +266,14 @@ Release Manifest v3记录应用版本、Git revision、channel、最低Manager�
 - 在新的Installation Root重新安装相同Profile，只复用State Root；不要复制旧`.deploy`、`.runtime`、`.output`、generated Compose或wrapper。
 - Portable曾使用绝对`DATABASE_URL`临时修复登录时，迁移后恢复`file:./workspace/.nbook/neuro-book.sqlite`。
 - 未完成的Operation Journal v1/v2需要人工核对Manifest、Product、Git、Compose和SQLite；v3 Manager不会自动转换或忽略。
-- 旧Agent Session包含完整Pi Model且无法证明Provider Config ID时，按[RELEASE迁移指南](https://github.com/notnotype/neuro-book/blob/master/RELEASE.md#旧agent-session模型引用)使用逐entry mapping维护命令。
+- 旧Agent Session包含完整Pi Model且无法证明Provider Config ID时，按[0.8.9 的迁移说明](./changelog/v0.8#session-model-refs)使用逐entry mapping维护命令。
 
 ## 验收建议
 
-Release/PR workflow会对原生Product执行Manager、Stage 0、native package、HTTP与浏览器smoke。最终Release索引还必须等待公开Linux x64 Docker、Linux ARM64 Docker、Linux x64 rootless Podman和Windows Portable数据复用门禁；GHCR链覆盖migration、管理员、登录、restart、doctor与Operation恢复。仍建议人工验证首次启动、登录、创建项目、更新提示和更新后数据保留。Apple Silicon上的Docker Desktop与rootless Podman Source Docker/GHCR双引擎实机验收本次合并明确豁免，但仍是Task 105未完成项；原生Product CI不能替代这些设备证据，也不能把豁免写成已验证。
+Release/PR workflow会对原生Product执行Manager、Stage 0、native package、HTTP与浏览器smoke。最终Release索引还必须等待公开Linux x64 Docker、Linux ARM64 Docker、Linux x64 rootless Podman和Windows Portable数据复用门禁；GHCR链覆盖migration、管理员、登录、restart、doctor与Operation恢复。仍建议人工验证首次启动、登录、创建项目、更新提示和更新后数据保留。
+
+::: warning 当前已知未验证 / 已知问题
+- **Apple Silicon 上的 Docker Desktop 与 rootless Podman 部署尚未实机验证**。
+- rootless Podman 环境下 `podman-compose stop` 会连带删除容器。
+- Manager 只安装已发布完整索引的 Release，你实际装到的版本可能低于最新版本号，用 `neuro-book status` 确认。
+:::

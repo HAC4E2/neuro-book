@@ -1,14 +1,20 @@
-import {describe, expect, it} from "vitest";
+import {afterEach, describe, expect, it, vi} from "vitest";
 import {Type} from "typebox";
 import {Value} from "typebox/value";
 import {agentCollaborationTools, createBuiltinTools} from "nbook/server/agent/tools/index";
 import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import * as configService from "nbook/server/config/config-service";
+import {createDefaultEffectiveConfig} from "nbook/server/config/normalizer";
 
 const collaborationEntries = Object.entries(agentCollaborationTools).map(([name, definition]) => ({
     name,
     definition,
 }));
+
+afterEach(() => {
+    vi.restoreAllMocks();
+});
 
 describe("agent collaboration tool definitions", () => {
     it.each(collaborationEntries)("$name 必须通过 executeWithContext 执行", async ({definition}) => {
@@ -52,6 +58,8 @@ describe("agent collaboration tool definitions", () => {
             sessionId: 2,
             mode: "followup",
             message: "继续",
+            model: "local/allowed",
+            background: true,
         })).toBe(true);
         expect(Value.Check(invokeAgent.parameters, {
             sessionId: 2,
@@ -100,10 +108,9 @@ describe("agent collaboration tool definitions", () => {
         }));
         expect(result.details).toEqual({
             status: "completed",
-            result: {
-                message: "structured result",
-                data: {plotId: "plot-1"},
-            },
+            sessionId: 2,
+            finalMessage: "structured result",
+            data: {plotId: "plot-1"},
             stats: {
                 inputTokens: 10,
                 outputTokens: 5,
@@ -111,10 +118,142 @@ describe("agent collaboration tool definitions", () => {
                 elapsedMs: 42,
             },
         });
+        expect(result.content).toEqual([{type: "text", text: "structured result"}]);
         expect(JSON.stringify(result.details)).not.toContain("invocationId");
-        expect(JSON.stringify(result.details)).not.toContain("finalMessage");
         expect(JSON.stringify(result.details)).not.toContain("reportResult");
         expect(JSON.stringify(result.details)).not.toContain("\"usage\"");
+    });
+
+    it("invoke_agent 前台调用把父 invocation signal 传给精确子调用", async () => {
+        let capturedSignal: AbortSignal | undefined;
+        const controller = new AbortController();
+        const context = toolContext({
+            invokeAgent: vi.fn(async (input: {signal?: AbortSignal}) => {
+                capturedSignal = input.signal;
+                return {
+                    sessionId: 2,
+                    invocationId: "child-invocation",
+                    status: "completed" as const,
+                    finalMessage: "done",
+                };
+            }),
+        });
+        const tool = agentCollaborationTools.invokeAgent.runtime();
+
+        await tool.executeWithContext!(context, "tool-signal", {sessionId: 2, message: "执行"}, undefined, controller.signal);
+
+        expect(capturedSignal).toBe(controller.signal);
+    });
+
+    it("invoke_agent model 与 run_workflow 共用 Agent 可见模型校验", async () => {
+        const config = createVisibleModelConfig();
+        vi.spyOn(configService, "loadEffectiveConfigFromTarget").mockResolvedValue(config);
+        const runCommand = vi.fn(async () => undefined);
+        const invokeAgent = vi.fn(async () => ({
+            status: "completed" as const,
+            finalMessage: "done",
+        }));
+        const context = toolContext({runCommand, invokeAgent});
+        const tool = agentCollaborationTools.invokeAgent.runtime();
+
+        await tool.executeWithContext!(context, "tool-visible", {
+            sessionId: 2,
+            message: "执行任务",
+            model: "local/allowed",
+        });
+
+        expect(runCommand).not.toHaveBeenCalled();
+        expect(invokeAgent).toHaveBeenCalledWith(expect.objectContaining({
+            sessionId: 2,
+            modelKey: "local/allowed",
+        }));
+        await expect(tool.executeWithContext!(context, "tool-hidden", {
+            sessionId: 2,
+            message: "执行任务",
+            model: "local/hidden",
+        })).rejects.toThrow("不在 agent 可见模型清单内");
+        expect(invokeAgent).toHaveBeenCalledTimes(1);
+    });
+
+    it("invoke_agent background 即时返回 job，完成结果卡沿用规范化结果合同", async () => {
+        let runJob: ((context: {signal: AbortSignal}) => Promise<{resultPreview: string; message?: string}>) | undefined;
+        const invokeAgent = vi.fn(async () => ({
+            sessionId: 2,
+            invocationId: "background-invocation",
+            status: "completed" as const,
+            finalMessage: "plain fallback",
+            reportResult: {result: "background result", data: {chapterCount: 3}},
+        }));
+        const context = toolContext({
+            invokeAgent,
+            abortInvocation: vi.fn(async () => undefined),
+            jobs: {
+                spawn(spec: {run: (context: {signal: AbortSignal}) => Promise<{resultPreview: string; message?: string}>}) {
+                    runJob = spec.run;
+                    return {jobId: "job-test"};
+                },
+            },
+        });
+        const tool = agentCollaborationTools.invokeAgent.runtime();
+
+        const started = await tool.executeWithContext!(context, "tool-background", {
+            sessionId: 2,
+            message: "分析章节",
+            background: true,
+        });
+
+        expect(started.details).toEqual({
+            jobId: "job-test",
+            sessionId: 2,
+            status: "started",
+            data: null,
+            finalMessage: "",
+            background: true,
+        });
+        expect(started.content[0]).toEqual(expect.objectContaining({text: expect.stringContaining("不要轮询等待")}));
+        expect(runJob).toBeTypeOf("function");
+
+        const controller = new AbortController();
+        const outcome = await runJob!({signal: controller.signal});
+        expect(outcome.resultPreview).toBe("background result");
+        expect(outcome.message).toContain('"status": "completed"');
+        expect(outcome.message).toContain('"sessionId": 2');
+        expect(outcome.message).toContain('"finalMessage": "background result"');
+        expect(outcome.message).toContain('"chapterCount": 3');
+        expect(invokeAgent).toHaveBeenCalledWith(expect.objectContaining({
+            sessionId: 2,
+            block: true,
+            queueIfBusy: false,
+            signal: controller.signal,
+        }));
+    });
+
+    it("invoke_agent background 遇到 HITL waiting 时失败关闭，不伪报完成", async () => {
+        let runJob: ((context: {signal: AbortSignal}) => Promise<{resultPreview: string; message?: string}>) | undefined;
+        const context = toolContext({
+            invokeAgent: vi.fn(async () => ({
+                sessionId: 2,
+                invocationId: "background-waiting",
+                status: "waiting" as const,
+                finalMessage: "waiting for request_user_input",
+            })),
+            abortInvocation: vi.fn(async () => undefined),
+            jobs: {
+                spawn(spec: {run: (context: {signal: AbortSignal}) => Promise<{resultPreview: string; message?: string}>}) {
+                    runJob = spec.run;
+                    return {jobId: "job-waiting"};
+                },
+            },
+        });
+        const tool = agentCollaborationTools.invokeAgent.runtime();
+
+        await tool.executeWithContext!(context, "tool-background-waiting", {
+            sessionId: 2,
+            message: "需要人工确认的任务",
+            background: true,
+        });
+
+        await expect(runJob!({signal: new AbortController().signal})).rejects.toThrow("不追踪人工输入或审批等待");
     });
 
     it("get_agent_profile 只返回 agent-facing schema 摘要", async () => {
@@ -168,13 +307,68 @@ describe("agent collaboration tool definitions", () => {
 });
 
 function toolContext(harness: Record<string, unknown>): ToolExecutionContext {
+    const workspaceRoot = absoluteFsPath(process.cwd());
     return {
-        harness: harness as never,
+        harness: {
+            configTargetForInvocation: vi.fn(() => ({scope: "global", workspaceRoot, project: null})),
+            ...harness,
+        } as never,
         sessionId: 1,
         profileKey: "leader.default",
         workspaceRootRef: "workspace",
-        workspaceFsRoot: absoluteFsPath(process.cwd()),
+        workspaceFsRoot: workspaceRoot,
         workspaceKey: "global",
         projectPath: "workspace/project",
+        invocationId: "parent-invocation",
     };
+}
+
+/** 构造 invoke_agent 模型覆盖测试所需的完整有效配置。 */
+function createVisibleModelConfig() {
+    const config = createDefaultEffectiveConfig();
+    config.models = {
+        defaultModelKey: "local/allowed",
+        providers: {
+            local: {
+                name: "Local",
+                enabled: true,
+                modelApi: "openai-completions",
+                options: {apiKey: "secret", baseURL: "https://example.com/v1", proxy: "", timeoutMs: null, requestOptions: {}},
+                models: {
+                    allowed: {
+                        name: "Allowed",
+                        id: "allowed",
+                        group: null,
+                        enabled: true,
+                        api: "openai-completions",
+                        reasoning: false,
+                        input: ["text"],
+                        maxTokens: 8_192,
+                        cost: null,
+                        compat: null,
+                        headers: null,
+                        thinkingLevelMap: null,
+                        contextWindowTokens: 128_000,
+                    },
+                    hidden: {
+                        name: "Hidden",
+                        id: "hidden",
+                        group: null,
+                        enabled: true,
+                        api: "openai-completions",
+                        reasoning: false,
+                        input: ["text"],
+                        maxTokens: 8_192,
+                        cost: null,
+                        compat: null,
+                        headers: null,
+                        thinkingLevelMap: null,
+                        contextWindowTokens: 128_000,
+                    },
+                },
+            },
+        },
+    };
+    config.agent.visibleModels = [{modelKey: "local/allowed", note: "允许"}];
+    return config;
 }

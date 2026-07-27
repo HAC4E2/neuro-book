@@ -1,3 +1,4 @@
+import {randomUUID} from "node:crypto";
 import {createStoredUserMessage} from "nbook/server/agent/messages/message-utils";
 import type {StoredUserMessage} from "nbook/server/agent/messages/stored-types";
 import type {RunFrame, TurnContinuationDecision} from "nbook/server/agent/harness/run-kernel-types";
@@ -35,7 +36,7 @@ function appendReportResultReminder(frame: RunFrame): SessionWritePlan | undefin
     if (frame.reportResultReminderSent) {
         return undefined;
     }
-    const reminder = createReportResultReminder(frame);
+    const reminder = createReportResultReminder();
     frame.messages.push(reminder);
     frame.reportResultReminderSent = true;
 
@@ -45,7 +46,7 @@ function appendReportResultReminder(frame: RunFrame): SessionWritePlan | undefin
 
     return {
         target: {sessionId: frame.sessionId},
-        cause: `${requiredResultToolName(frame)}.reminder`,
+        cause: "report_result.reminder",
         durability: "savePoint",
         ops: [{
             kind: "append",
@@ -53,6 +54,8 @@ function appendReportResultReminder(frame: RunFrame): SessionWritePlan | undefin
                 type: "message",
                 message: reminder,
                 origin: "harness",
+                clientMessageId: randomUUID(),
+                intent: "normal",
             },
         }],
     };
@@ -61,11 +64,6 @@ function appendReportResultReminder(frame: RunFrame): SessionWritePlan | undefin
 /**
  * 构造 harness 注入的 report_result 提醒消息。
  */
-function createReportResultReminder(frame: RunFrame): StoredUserMessage {
-    const toolName = requiredResultToolName(frame);
-    return createStoredUserMessage(`你必须使用 ${toolName} 工具返回最终结果。请不要只回复普通文本。`);
-}
-
-function requiredResultToolName(frame: RunFrame): "report_result" | "report_sidecar_result" {
-    return frame.activeSidecar ? "report_sidecar_result" : "report_result";
+function createReportResultReminder(): StoredUserMessage {
+    return createStoredUserMessage("你必须使用 report_result 工具返回最终结果。请不要只回复普通文本。");
 }
