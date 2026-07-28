@@ -1,6 +1,6 @@
 # GitHub 贡献体系第一期
 
-> 当前状态：Implemented and verified (2026-07-28) / GitHub Issue chooser 人工验收待执行。
+> 当前状态：Implemented and verified (2026-07-28) / 审查修复与 GitHub Actions 干净 Runner 验收通过；Issue chooser 人工验收待执行。
 
 ## User Request / Topic
 
@@ -63,10 +63,10 @@
 
 ## Verification / Test
 
-- `bun scripts/ci/validate-community-files.ts` 通过：22 个标签、3 个 Issue Form、7 个 YAML；标签引用、字段 ID、必填字段、隐私确认和中英文贡献指南章节合同全部成立。
+- `bun scripts/ci/validate-community-files.ts` 通过：22 个标签、3 个 Issue Form、8 个 YAML；标签引用、字段 ID、必填字段、隐私确认、中英文贡献指南和三条工作流结构合同全部成立。
 - `bun run docs:build` 通过；只有既有 chunk size warning。
 - `git diff --check` 对本任务文件通过；只有仓库既有 CRLF 转换提示。
-- 中英文贡献指南均为 170 行、10 个二级章节，并通过互链和章节数量自动校验。
+- 中英文贡献指南均为 10 个二级章节，并通过互链、章节数量和分流状态关键合同自动校验。
 - 已知非本任务基线：typecheck 26 处 llmlint fixture 错误；全量 Vitest 本地 240 秒未收敛。
 - GitHub 远端复核通过：22 个标签的名称、颜色和双语描述与 `.github/labels.yml` 一致；#5、#6、#10、#12、#14 的分流符合本任务决定；CI 基线 Issue 为 [#15](https://github.com/notnotype/neuro-book/issues/15)。
 - GitHub Private Vulnerability Reporting、Secret Scanning 和 Push Protection 均为 enabled；两条新增工作流均被 GitHub 识别为 active。
@@ -77,7 +77,7 @@
 
 - 默认 `bug`、`enhancement`、`documentation`、`question` 已原地重命名为对应 `type:*` 标签，保留历史关联；保留的 `good first issue`、`help wanted`、`duplicate` 已更新双语描述；`invalid`、`wontfix` 已删除。
 - 新增 15 个 type/status/area/platform 标签，远端标签总数为 22。
-- 已分流开放 Issue：#14 feature/agent/needs-design；#12 feature/localization/help-wanted/needs-design；#10 bug/install-release/macos/needs-triage；#6 bug/agent/needs-triage；#5 bug/install-release/windows/needs-design。
+- 已分流开放 Issue：#14 feature/agent/needs-design；#12 feature/localization/needs-design；#10 bug/install-release/macos/needs-triage；#6 bug/agent/needs-triage；#5 bug/install-release/windows/needs-design。
 - 已创建 [#15](https://github.com/notnotype/neuro-book/issues/15) 追踪可强制执行的 PR 质量门禁基线。
 - 已开启 Private Vulnerability Reporting、Secret Scanning 和 Push Protection。
 - 本期不创建 branch ruleset，不调整 merge/rebase/squash 设置。
@@ -85,6 +85,33 @@
 ## Deviations
 
 - GitHub Community Profile API 只确认贡献指南和 PR 模板；它在本次查询中没有返回 YAML Issue Form 或 Security Policy 的识别字段。没有为了追求 API 健康度改回旧 Markdown Issue Template；YAML Form 是本项目需要的结构化入口，文件存在性和静态合同已经验证。
+
+## Audit Remediation (2026-07-28)
+
+### Findings and Decisions
+
+- 审查发现新建 Community workflow 与既有 Deploy Docs 都在 `bun install` 后直接执行 `docs:build`。本地残留 `.nuxt` 使第一期验证误判为通过；GitHub 干净 Runner 最近 5 次均因缺少 `.nuxt/tsconfig.json` 失败。
+- Code Baseline paths 漏掉 Nuxt plugin、Prisma/Uno/Bun 配置、根类型声明、Docker Compose、配置样例和 Release migration 声明；这些入口此前可以在不触发新代码检查的情况下变更。
+- `.github/labels.yml` 当时只有仓库内静态引用校验，没有可重复的远端 drift 检查或同步命令。开放 Issue 也没有机器可执行的 type/status 唯一性和社区发现标签合同。
+- `PROJECT-STATUS.md` 已公开链接本地未提交的 Task 129/130 文档，远端均返回 404。对应文档分别为 179/479 行且关联大量在途实现，不应夹带到本任务。
+- 采用维护者显式命令同步标签，不给 Actions 增加 `issues: write`；`help wanted` 与 `good first issue` 只允许出现在 `status: ready` Issue。
+
+### Implementation and Verification
+
+- Community and Docs Checks 与 Deploy Docs 现在都执行 `bun run nuxt:prepare` 后再构建文档；静态校验锁定安装、prepare、校验、构建的顺序以及只读/Pages 权限和 15/10 分钟超时。
+- Code Baseline 补齐审查发现的真实源码、类型和构建配置 paths；typecheck/test 继续保持独立 Advisory job 和 15/30 分钟超时，不建立 required check。
+- 新增共享标签清单解析、精确远端差异和开放 Issue 分流审计，以及 `github:labels check/apply` 维护命令。默认 apply 只 upsert；额外标签只有显式 `--delete-extra --yes` 才删除。
+- `bun run test -- scripts/ci/community-labels.test.ts --reporter=dot`：4/4 通过，覆盖完全匹配、缺失/元数据/额外差异、type/status 唯一性和社区标签 ready 前置条件。
+- `bun scripts/ci/validate-community-files.ts`：通过，22 个标签、3 个 Issue Form、8 个 YAML。
+- `bun run nuxt:prepare` 与 `bun run docs:build`：通过；文档构建只有既有 chunk size warning。
+- 修正前 `github:labels check` 只报告 #12 的 `help wanted + needs-design` 冲突；移除 `help wanted` 后远端 22 个标签和全部开放 Issue 分流合同通过。
+- 第一笔修复提交为 `e5fc30a8`。GitHub [Community and Docs Checks #30328099856](https://github.com/notnotype/neuro-book/actions/runs/30328099856) 与 [Deploy Docs #30328077845](https://github.com/notnotype/neuro-book/actions/runs/30328077845) 均在干净 Ubuntu Runner 上成功。
+- 远端 `PROJECT-STATUS.md` 暂时移除 Task 129/130 状态行；当前工作副本和未提交 Task 文档均保留，待对应实现正式提交时恢复。
+
+### Remaining Boundaries
+
+- 没有 dispatch Code Baseline：它的 typecheck 和全量 Vitest 仍是 #15 记录的已知失败/超时基线，本轮只验证结构合同，没有把它描述成通过。
+- 没有自动进行浏览器验收；登录后的 Issue chooser 三表单视觉检查仍由人工执行。
 
 ## TODO / Follow-ups
 
