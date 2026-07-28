@@ -1,6 +1,6 @@
 # GitHub 贡献体系第一期
 
-> 当前状态：Implemented and verified locally / 远端同步待执行。
+> 当前状态：Implemented and verified (2026-07-28) / GitHub Issue chooser 人工验收待执行。
 
 ## User Request / Topic
 
@@ -68,16 +68,23 @@
 - `git diff --check` 对本任务文件通过；只有仓库既有 CRLF 转换提示。
 - 中英文贡献指南均为 170 行、10 个二级章节，并通过互链和章节数量自动校验。
 - 已知非本任务基线：typecheck 26 处 llmlint fixture 错误；全量 Vitest 本地 240 秒未收敛。
+- GitHub 远端复核通过：22 个标签的名称、颜色和双语描述与 `.github/labels.yml` 一致；#5、#6、#10、#12、#14 的分流符合本任务决定；CI 基线 Issue 为 [#15](https://github.com/notnotype/neuro-book/issues/15)。
+- GitHub Private Vulnerability Reporting、Secret Scanning 和 Push Protection 均为 enabled；两条新增工作流均被 GitHub 识别为 active。
+- Community Profile 健康度从 42% 升至 85%，已识别 `CONTRIBUTING.md` 和 PR 模板。该 API 不返回 Security 字段，且本次查询仍未把 YAML Issue Form 填入 `issue_template` 字段；表单文件、YAML 校验和配置路径均已独立验证，实际 Issue chooser 留作人工验收。
 - 按仓库规则不自动执行浏览器验收；Issue chooser 视觉检查留作可选人工验收。
 
 ## Remote Changes
 
-- 待推送后同步：标签重命名/创建/删除、开放 Issue 分流、CI 基线 Issue、Private Vulnerability Reporting、Secret Scanning 和 Push Protection。
+- 默认 `bug`、`enhancement`、`documentation`、`question` 已原地重命名为对应 `type:*` 标签，保留历史关联；保留的 `good first issue`、`help wanted`、`duplicate` 已更新双语描述；`invalid`、`wontfix` 已删除。
+- 新增 15 个 type/status/area/platform 标签，远端标签总数为 22。
+- 已分流开放 Issue：#14 feature/agent/needs-design；#12 feature/localization/help-wanted/needs-design；#10 bug/install-release/macos/needs-triage；#6 bug/agent/needs-triage；#5 bug/install-release/windows/needs-design。
+- 已创建 [#15](https://github.com/notnotype/neuro-book/issues/15) 追踪可强制执行的 PR 质量门禁基线。
+- 已开启 Private Vulnerability Reporting、Secret Scanning 和 Push Protection。
 - 本期不创建 branch ruleset，不调整 merge/rebase/squash 设置。
 
 ## Deviations
 
-- 当前没有实现偏差；最终以验证和 GitHub API 实际能力回填。
+- GitHub Community Profile API 只确认贡献指南和 PR 模板；它在本次查询中没有返回 YAML Issue Form 或 Security Policy 的识别字段。没有为了追求 API 健康度改回旧 Markdown Issue Template；YAML Form 是本项目需要的结构化入口，文件存在性和静态合同已经验证。
 
 ## TODO / Follow-ups
 
