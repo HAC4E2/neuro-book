@@ -15,6 +15,7 @@
 
 ## 关键入口
 
+- [../CONTRIBUTING.md](../CONTRIBUTING.md)：参与贡献的主入口，说明 Issue、开发规范、Agent 协作、Task 与 PR 流程；英文镜像见 [../CONTRIBUTING.en.md](../CONTRIBUTING.en.md)。
 - [English README](https://github.com/notnotype/neuro-book/blob/master/README.en.md)：英文项目入口。
 - [../PROJECT-STATUS.md](../PROJECT-STATUS.md)：仓库现状和近期任务。
 - [operator-bridge.md](operator-bridge.md)：交付与运维桥梁，面向用户和用户 Agent，说明部署、更新、排障和关键文档索引。

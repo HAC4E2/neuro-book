@@ -192,6 +192,7 @@ bun run dev
 - [Profile 介绍](docs/profile/index.md) / [从零写一个 Profile](docs/profile-tsx/authoring.md)
 - [NeuroBook Reference Bookshelf](reference/README.md)
 - [PROJECT-STATUS.md](PROJECT-STATUS.md)
+- [参与贡献](CONTRIBUTING.md)：Issue、开发规范、Agent 协作、Task 与 PR 流程
 
 ## 社区
 

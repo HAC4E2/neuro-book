@@ -193,6 +193,7 @@ The Markdown sources live under [`docs/en/`](docs/en/) (English) and [`docs/`](d
 
 - [NeuroBook Reference Bookshelf](reference/README.md)
 - [PROJECT-STATUS.md](PROJECT-STATUS.md)
+- [Contributing](CONTRIBUTING.en.md): issues, development conventions, coding-agent collaboration, tasks, and pull requests
 
 ## Community
 

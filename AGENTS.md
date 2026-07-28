@@ -1,5 +1,7 @@
 # AGENTS.md
 
+面向人类贡献者的开发入口、Issue/PR 流程和 Task 责任边界见 [`CONTRIBUTING.md`](CONTRIBUTING.md)；本文件继续作为开发 Agent 和仓库实现细则的权威来源。
+
 ## Core Rules
 
 - 使用 *中文* 为默认语言与用户交互

@@ -1,0 +1,45 @@
+name: Community and Docs Checks
+
+on:
+  pull_request:
+    paths:
+      - "CONTRIBUTING.md"
+      - "CONTRIBUTING.en.md"
+      - "README.md"
+      - "README.en.md"
+      - "AGENTS.md"
+      - "PROJECT-STATUS.md"
+      - "docs/**"
+      - "reference/**"
+      - ".github/**"
+      - "scripts/ci/validate-community-files.ts"
+      - "package.json"
+      - "bun.lock"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: community-docs-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  community-docs:
+    name: Community files and docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Validate community files
+        run: bun scripts/ci/validate-community-files.ts
+      - name: Build documentation
+        run: bun run docs:build

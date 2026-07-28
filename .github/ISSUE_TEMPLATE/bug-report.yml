@@ -1,0 +1,104 @@
+name: "错误报告 / Bug report"
+description: "报告可以复现的故障、回归或异常行为 / Report a reproducible defect, regression, or unexpected behavior"
+title: "[Bug] "
+labels:
+  - "type: bug"
+  - "status: needs-triage"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你帮助改进 NeuroBook。请尽量提供最小复现，并在上传日志或截图前删除 API Key、Token、小说正文和私人会话内容。
+
+        Thank you for helping improve NeuroBook. Please provide the smallest reproduction you can and remove API keys, tokens, manuscript content, and private session data before uploading logs or screenshots.
+  - type: input
+    id: version
+    attributes:
+      label: "NeuroBook 版本 / Version"
+      description: "Release 版本、canary tag 或 commit SHA / Release version, canary tag, or commit SHA"
+      placeholder: "例如 / e.g. v0.8.19-canary..."
+    validations:
+      required: true
+  - type: dropdown
+    id: installation
+    attributes:
+      label: "安装方式 / Installation method"
+      options:
+        - "Windows 免安装包 / Windows portable"
+        - "Product Bun / Native Product"
+        - "Docker 或 Podman / Docker or Podman"
+        - "源码开发 / Source development"
+        - "在线站点 / Hosted site"
+        - "其它 / Other"
+    validations:
+      required: true
+  - type: input
+    id: operating-system
+    attributes:
+      label: "操作系统 / Operating system"
+      placeholder: "例如 Windows 11 24H2、macOS 15.5、Ubuntu 24.04"
+    validations:
+      required: true
+  - type: input
+    id: architecture
+    attributes:
+      label: "CPU 架构 / CPU architecture"
+      placeholder: "例如 x64、ARM64 / aarch64"
+    validations:
+      required: true
+  - type: dropdown
+    id: reproducibility
+    attributes:
+      label: "复现概率 / Reproducibility"
+      options:
+        - "每次都能复现 / Every time"
+        - "经常复现 / Often"
+        - "偶尔复现 / Sometimes"
+        - "只发生过一次 / Once"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: "复现步骤 / Steps to reproduce"
+      description: "从启动方式开始，写出最短、可重复的步骤 / Start with how NeuroBook was launched and provide the shortest repeatable sequence"
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: actual-result
+    attributes:
+      label: "实际结果 / Actual result"
+      description: "发生了什么，包含完整错误文字 / What happened, including the complete error message"
+    validations:
+      required: true
+  - type: textarea
+    id: expected-result
+    attributes:
+      label: "预期结果 / Expected result"
+      description: "你原本预期发生什么 / What you expected to happen"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: "日志、截图或最小样例 / Logs, screenshots, or minimal sample"
+      description: "可选。请只上传定位问题需要的最小材料，并先脱敏 / Optional. Upload only the minimum material needed and redact it first"
+      render: shell
+  - type: checkboxes
+    id: privacy-confirmation
+    attributes:
+      label: "隐私确认 / Privacy confirmation"
+      options:
+        - label: "我已删除 API Key、Token、设备码、小说正文、完整提示词和私人会话内容。 / I removed API keys, tokens, device codes, manuscript content, full prompts, and private session data."
+          required: true
+  - type: checkboxes
+    id: duplicate-check
+    attributes:
+      label: "重复问题 / Duplicate check"
+      options:
+        - label: "我搜索过现有 Issue，没有找到相同报告。 / I searched existing issues and did not find the same report."
+          required: true
