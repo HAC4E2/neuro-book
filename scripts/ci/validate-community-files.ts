@@ -2,11 +2,7 @@ import {readFile} from "node:fs/promises";
 import {resolve} from "node:path";
 import {parse} from "yaml";
 
-interface LabelEntry {
-    name: string;
-    color: string;
-    description: string;
-}
+import {readLabelManifest} from "nbook/scripts/ci/community-labels";
 
 interface FormOption {
     label: string;
@@ -45,6 +41,28 @@ interface FormContract {
     path: string;
     typeLabel: string;
     requiredIds: string[];
+}
+
+interface WorkflowStep {
+    name?: string;
+    run?: string;
+}
+
+interface WorkflowJob {
+    name?: string;
+    "timeout-minutes"?: number;
+    steps?: WorkflowStep[];
+}
+
+interface WorkflowConfig {
+    name: string;
+    on: {
+        pull_request?: {
+            paths?: string[];
+        };
+    };
+    permissions: Record<string, string>;
+    jobs: Record<string, WorkflowJob>;
 }
 
 const root = resolve(import.meta.dir, "../..");
@@ -102,6 +120,35 @@ const yamlPaths = [
     ".github/ISSUE_TEMPLATE/config.yml",
     ".github/workflows/community-docs.yml",
     ".github/workflows/code-baseline.yml",
+    ".github/workflows/deploy-docs.yml",
+];
+
+const codeBaselinePaths = [
+    "app/**",
+    "assets/**",
+    "packages/**",
+    "plugins/**",
+    "prisma/**",
+    "scripts/**",
+    "server/**",
+    "shared/**",
+    "world-engine/**",
+    "*.d.ts",
+    ".env.example",
+    ".env.docker.example",
+    "Dockerfile*",
+    "bunfig.toml",
+    "config.example.yaml",
+    "docker-compose*.yml",
+    "nuxt.config.ts",
+    "prisma.config.ts",
+    "release-state-migration.json",
+    "tsconfig.json",
+    "uno.config.ts",
+    "vitest.config.ts",
+    "package.json",
+    "bun.lock",
+    ".github/workflows/code-baseline.yml",
 ];
 
 /** 读取仓库内的 UTF-8 文本文件。 */
@@ -123,19 +170,8 @@ function ensure(condition: boolean, message: string): asserts condition {
 
 /** 验证标签名称、颜色和描述可以作为仓库标签真相源。 */
 async function validateLabels(): Promise<Set<string>> {
-    const labels = await readYaml<LabelEntry[]>(".github/labels.yml");
-    ensure(Array.isArray(labels) && labels.length > 0, ".github/labels.yml 必须包含标签列表");
-
-    const names = new Set<string>();
-    for (const label of labels) {
-        ensure(Boolean(label.name), "每个标签必须有 name");
-        ensure(!names.has(label.name), `标签名称重复: ${label.name}`);
-        ensure(/^[0-9A-F]{6}$/.test(label.color), `标签颜色必须是六位大写十六进制: ${label.name}`);
-        ensure(label.description.includes(" / "), `标签描述必须中英双语: ${label.name}`);
-        names.add(label.name);
-    }
-
-    return names;
+    const labels = await readLabelManifest(resolve(root, ".github/labels.yml"));
+    return new Set(labels.map((label) => label.name));
 }
 
 /** 判断表单字段是否通过字段级或 checkbox option 声明为必填。 */
@@ -190,6 +226,18 @@ async function validateGuides(): Promise<void> {
     const englishHeadings = english.match(/^## .+$/gm) ?? [];
     ensure(chineseHeadings.length === 10, `中文贡献指南应有 10 个二级章节，实际 ${chineseHeadings.length}`);
     ensure(englishHeadings.length === chineseHeadings.length, "中英文贡献指南二级章节数量不一致");
+    for (const phrase of [
+        "needs-triage",
+        "needs-info",
+        "needs-design",
+        "status: ready",
+        "status: blocked",
+        "help wanted",
+        "good first issue",
+    ]) {
+        ensure(chinese.includes(phrase), `中文贡献指南缺少分流合同: ${phrase}`);
+        ensure(english.includes(phrase), `英文贡献指南缺少分流合同: ${phrase}`);
+    }
 }
 
 /** 验证公开 Issue 配置、PR 模板和安全政策的关键入口。 */
@@ -211,10 +259,74 @@ async function validatePublicTemplates(): Promise<void> {
     ]) {
         ensure(pullRequest.includes(heading), `PR 模板缺少章节: ${heading}`);
     }
+    ensure(pullRequest.includes("无 / None"), "PR 模板必须允许轻量文档修正不关联 Issue");
 
     const security = await readRepoFile(".github/SECURITY.md");
     ensure(security.includes("Private Vulnerability Reporting"), "安全政策必须说明私密漏洞报告");
     ensure(security.includes("/security/advisories/new"), "安全政策必须链接私密漏洞报告入口");
+}
+
+/** 取得工作流 job 的 run 命令列表。 */
+function jobCommands(job: WorkflowJob | undefined, label: string): readonly string[] {
+    ensure(Boolean(job), `工作流缺少 job: ${label}`);
+    ensure(Array.isArray(job!.steps), `工作流 job 缺少 steps: ${label}`);
+    return job!.steps!.flatMap((step) => step.run ? [step.run] : []);
+}
+
+/** 验证若干命令存在并保持给定顺序。 */
+function ensureCommandOrder(commands: readonly string[], expected: readonly string[], label: string): void {
+    let previousIndex = -1;
+    for (const command of expected) {
+        const index = commands.indexOf(command);
+        ensure(index > previousIndex, `${label} 缺少命令或顺序错误: ${command}`);
+        previousIndex = index;
+    }
+}
+
+/** 验证社区、文档部署和代码基线工作流的稳定合同。 */
+async function validateWorkflows(): Promise<void> {
+    const community = await readYaml<WorkflowConfig>(".github/workflows/community-docs.yml");
+    ensure(community.permissions.contents === "read", "Community workflow 必须保持 contents: read");
+    ensure(Object.keys(community.permissions).length === 1, "Community workflow 不得获得写权限");
+    const communityJob = community.jobs["community-docs"];
+    ensure(communityJob?.["timeout-minutes"] === 15, "Community workflow 超时必须为 15 分钟");
+    ensureCommandOrder(jobCommands(communityJob, "community-docs"), [
+        "bun install --frozen-lockfile",
+        "bun run nuxt:prepare",
+        "bun scripts/ci/validate-community-files.ts",
+        "bun run docs:build",
+    ], "Community workflow");
+
+    const deployDocs = await readYaml<WorkflowConfig>(".github/workflows/deploy-docs.yml");
+    ensure(deployDocs.permissions.contents === "read", "Deploy Docs 必须保持 contents: read");
+    ensure(deployDocs.permissions.pages === "write", "Deploy Docs 必须声明 pages: write");
+    ensure(deployDocs.permissions["id-token"] === "write", "Deploy Docs 必须声明 id-token: write");
+    const deployBuild = deployDocs.jobs.build;
+    ensure(deployBuild?.["timeout-minutes"] === 15, "Deploy Docs build 超时必须为 15 分钟");
+    ensure(deployDocs.jobs.deploy?.["timeout-minutes"] === 10, "Deploy Docs deploy 超时必须为 10 分钟");
+    ensureCommandOrder(jobCommands(deployBuild, "deploy-docs/build"), [
+        "bun install --frozen-lockfile",
+        "bun run nuxt:prepare",
+        "bun run docs:build",
+    ], "Deploy Docs");
+
+    const baseline = await readYaml<WorkflowConfig>(".github/workflows/code-baseline.yml");
+    ensure(baseline.name === "Code Baseline (Advisory)", "Code Baseline 必须明确标记 Advisory");
+    ensure(baseline.permissions.contents === "read", "Code Baseline 必须保持 contents: read");
+    ensure(Object.keys(baseline.permissions).length === 1, "Code Baseline 不得获得写权限");
+    const paths = baseline.on.pull_request?.paths ?? [];
+    for (const path of codeBaselinePaths) {
+        ensure(paths.includes(path), `Code Baseline 缺少 paths 合同: ${path}`);
+    }
+
+    const typecheck = baseline.jobs.typecheck;
+    const test = baseline.jobs.test;
+    ensure(typecheck?.name?.includes("advisory") === true, "Typecheck job 必须标记 advisory");
+    ensure(test?.name?.includes("advisory") === true, "Test job 必须标记 advisory");
+    ensure(typecheck?.["timeout-minutes"] === 15, "Typecheck 超时必须为 15 分钟");
+    ensure(test?.["timeout-minutes"] === 30, "Full tests 超时必须为 30 分钟");
+    ensure(jobCommands(typecheck, "code-baseline/typecheck").includes("bun run typecheck"), "缺少 typecheck 命令");
+    ensure(jobCommands(test, "code-baseline/test").includes("bun run test -- --reporter=dot"), "缺少全量测试命令");
 }
 
 /** 解析所有新增 YAML，提前发现 GitHub 无法读取的配置。 */
@@ -233,6 +345,7 @@ async function main(): Promise<void> {
     }
     await validateGuides();
     await validatePublicTemplates();
+    await validateWorkflows();
     console.log(`贡献体系校验通过：${labelNames.size} 个标签、${formContracts.length} 个 Issue Form、${yamlPaths.length} 个 YAML。`);
 }
 

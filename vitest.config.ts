@@ -36,6 +36,7 @@ export default defineConfig({
             "app/stores/**/*.test.ts",
             "app/utils/**/*.test.ts",
             "scripts/build/**/*.test.ts",
+            "scripts/ci/**/*.test.ts",
             "scripts/db/**/*.test.ts",
             "scripts/install/**/*.test.ts",
             "scripts/release/**/*.test.ts",

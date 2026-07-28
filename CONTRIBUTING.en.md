@@ -116,6 +116,18 @@ In this section, a “coding agent” means Codex, Claude, Copilot, or another t
 
 Issues track public problems and requests. Task walkthroughs preserve the ongoing context for major implementation work. A task is not a copy of an issue.
 
+### Maintainer Triage
+
+The three issue forms automatically add one `type:*` label and `status: needs-triage`. Maintainers use the following state contract when triaging:
+
+- Every open issue keeps exactly one `type:*` and one `status:*`. Add zero or more `area:*` and `platform:*` labels according to the actual impact.
+- `status: needs-triage` means the first review is pending. Move an issue to `status: needs-info` when information is missing, then triage it again after the reporter responds.
+- Use `status: needs-design` while direction, scope, or contracts remain unsettled; implementation must not start in this state. Move it to `status: ready` after a maintainer accepts a clear scope.
+- Use `status: blocked` when an external condition or prerequisite prevents progress. Return to the most accurate state after the blocker clears.
+- Use `help wanted` and `good first issue` only with `status: ready`. A good first issue must also be small, self-contained, and have independently verifiable acceptance criteria.
+
+`.github/labels.yml` is the source of truth for repository labels. Maintainers run `bun run github:labels -- check` for a read-only remote audit and `bun run github:labels -- apply --yes` to create or update labels. Extra remote labels are only reported by default; delete them only with `--delete-extra --yes`. Rename labels in place on GitHub first to preserve historical associations instead of creating a replacement and deleting the old label.
+
 | Change | Issue | Task walkthrough | `PROJECT-STATUS.md` |
 | --- | --- | --- | --- |
 | Typo or small documentation fix | Optional | Not needed | Not needed |
@@ -148,7 +160,7 @@ docs(contributing): clarify task ownership
 
 Use the repository PR template and explain:
 
-- The linked issue and the problem this change solves.
+- Link the issue when this guide requires one; write “none” for a small documentation fix that may go directly to a PR.
 - What is in scope and explicitly out of scope.
 - User-visible behavior, implementation details, and affected contracts.
 - Exact verification commands and results.

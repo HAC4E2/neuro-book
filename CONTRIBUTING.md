@@ -116,6 +116,18 @@ bun run build
 
 Issue 负责公开问题和需求分流；Task walkthrough 负责重大实现的持续上下文。Task 不是 Issue 的副本。
 
+### 维护者分流
+
+三个 Issue Form 会自动添加一个 `type:*` 和 `status: needs-triage`。维护者分流时遵守以下状态合同：
+
+- 每个开放 Issue 恰好保留一个 `type:*` 和一个 `status:*`；`area:*`、`platform:*` 可以按实际影响添加多个或不添加。
+- `status: needs-triage` 表示等待首次确认。信息不足时转为 `status: needs-info`；报告者补充后重新分流。
+- 方向、范围或合同未确定时使用 `status: needs-design`，此时不要开始实现。范围明确并得到维护者接受后转为 `status: ready`。
+- 外部依赖或前置任务阻止继续时使用 `status: blocked`；阻塞解除后回到最符合当前情况的状态。
+- `help wanted` 和 `good first issue` 只用于 `status: ready` 的 Issue。后者还必须范围小、上下文完整，并有可独立验证的验收条件。
+
+`.github/labels.yml` 是标签清单真相源。维护者使用 `bun run github:labels -- check` 只读检查远端；使用 `bun run github:labels -- apply --yes` 创建或更新标签。清单外标签默认只报告，确认删除时才使用 `--delete-extra --yes`。标签改名必须先在 GitHub 原地重命名以保留历史关联，不要用“新建后删除旧标签”代替。
+
 | 改动类型 | Issue | Task walkthrough | `PROJECT-STATUS.md` |
 | --- | --- | --- | --- |
 | 拼写或小型文档修正 | 可选 | 不需要 | 不需要 |
@@ -148,7 +160,7 @@ docs(contributing): clarify task ownership
 
 PR 应使用仓库模板，并完整说明：
 
-- 关联的 Issue，以及本次解决的问题。
+- 按本指南要求先建 Issue 的改动应关联编号；允许直接提交的轻量文档修正写“无 / None”。
 - 范围内和明确不在范围内的内容。
 - 用户可见结果、技术实现和可能受影响的合同。
 - 实际执行的验证命令和结果。

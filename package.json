@@ -39,6 +39,7 @@
     "migrate:writer-session-initial": "bun scripts/db/migrate-writer-session-initial.ts",
     "generate": "bun scripts/db/prisma-generate.mjs",
     "generate:openapi": "bun scripts/build/generate-openapi-meta.ts",
+    "github:labels": "bun scripts/ci/github-labels.ts",
     "sync:nb-history": "bun scripts/cli/sync-nb-history.ts",
     "sync:nb-workflow": "bun scripts/cli/sync-nb-workflow.ts",
     "config:migrate": "bun scripts/db/migrate-config-system.ts",

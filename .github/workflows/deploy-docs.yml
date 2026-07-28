@@ -26,6 +26,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -40,6 +41,9 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Prepare Nuxt types
+        run: bun run nuxt:prepare
 
       - name: Build with VitePress
         env:
@@ -57,6 +61,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Deploy to GitHub Pages
         id: deployment

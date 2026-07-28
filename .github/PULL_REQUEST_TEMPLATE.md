@@ -5,7 +5,8 @@ Thank you for contributing. Keep every section; write “none” or “not run�
 
 ## 关联 Issue / Related issue
 
-Closes #
+<!-- 需要 Issue 时写 Closes #123；允许直接提交的轻量文档修正写“无 / None”。 -->
+<!-- Write Closes #123 when an issue is required; write “无 / None” for an allowed small documentation fix. -->
 
 ## 解决的问题 / Problem
 
