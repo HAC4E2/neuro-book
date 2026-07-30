@@ -14,6 +14,7 @@ import {Type} from "typebox";
 import type {TSchema} from "typebox";
 import {Value} from "typebox/value";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
+import {HarnessInvocationExecutionLeaseStore} from "nbook/server/agent/harness/invocation-execution-lease";
 import type {ResolvedPiModel} from "nbook/server/agent/harness/pi-model-metadata";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {defineAgentProfile as defineRuntimeAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
@@ -9958,6 +9959,510 @@ describe("NeuroAgentHarness", () => {
                 .rejects.toMatchObject({code: "invalid_public_tool_identity"});
         }
         expect(harness.eventHub.metrics(991_001).replayCount).toBe(0);
+    });
+
+    it("acquireAgent concurrency and reconstruction reuse one durable Session", async () => {
+        const input = {
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+            workspaceKey: "global",
+            kind: "workflow" as const,
+            acquisitionTag: "character-direct:actor-1",
+        };
+        const [first, second] = await Promise.all([
+            harness.acquireAgent(input),
+            harness.acquireAgent(input),
+        ]);
+        expect(second.sessionId).toBe(first.sessionId);
+        expect([first.reused, second.reused].sort()).toEqual([false, true]);
+
+        const restored = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            profiles: harness.profiles,
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: false,
+        });
+        await expect(restored.acquireAgent(input)).resolves.toEqual({...first, reused: true});
+        await restored.dispose();
+    });
+
+    it("same acquisition identity with different Initial fails closed", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {key: "test.acquire", name: "Acquire"},
+            initialSchema: Type.Object({value: Type.String()}),
+            allowedToolKeys: [],
+            prepare() {
+                return {};
+            },
+        }), false);
+        const base = {
+            profileKey: "test.acquire",
+            workspaceRoot: root,
+            workspaceKey: "global",
+            acquisitionTag: "character-direct:actor-2",
+        };
+        await harness.acquireAgent({...base, initial: {value: "a"}});
+        await expect(harness.acquireAgent({...base, initial: {value: "b"}}))
+            .rejects.toThrow("acquisition");
+        const ordinary = await harness.createAgent({
+            profileKey: base.profileKey,
+            workspaceRoot: base.workspaceRoot,
+            workspaceKey: base.workspaceKey,
+            initial: {value: "b"},
+            tags: [base.acquisitionTag],
+        });
+        expect(ordinary.sessionId).toBeGreaterThan(0);
+    });
+
+    it("durable admission runs onAccepted before Provider starts", async () => {
+        const order: string[] = [];
+        faux.setResponses([fauxAssistantMessage("done")]);
+        const originalStream = faux.runtime.streamSimple;
+        faux.runtime.streamSimple = (...args) => {
+            order.push("provider");
+            return originalStream.apply(faux.runtime, args);
+        };
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            queueIfBusy: false,
+            clientMessageId: "00000000-0000-4000-8000-000000000001",
+            message: {text: "run"},
+            onAccepted: async ({sessionId, invocationId, clientMessageId}) => {
+                order.push(`accepted:${invocationId}`);
+                expect(sessionId).toBe(created.sessionId);
+                expect(clientMessageId).toBe("00000000-0000-4000-8000-000000000001");
+                expect(await harness.repo.readSession(sessionId)).toBeDefined();
+            },
+        });
+
+        expect(result.status, result.error).toBe("completed");
+        expect(order).toEqual([`accepted:${result.invocationId}`, "provider"]);
+        const reconstructed = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: false,
+        });
+        await expect(reconstructed.readDurableInvocationResult({
+            sessionId: created.sessionId,
+            clientMessageId: "00000000-0000-4000-8000-000000000001",
+        })).resolves.toEqual({
+            state: "completed_without_result",
+            invocationId: result.invocationId,
+        });
+        await expect(reconstructed.readDurableInvocationResult({
+            sessionId: created.sessionId,
+            clientMessageId: "00000000-0000-4000-8000-ffffffffffff",
+        })).resolves.toEqual({state: "missing"});
+        await reconstructed.dispose();
+    });
+
+    it("onAccepted failure prevents Provider and seals an error lifecycle", async () => {
+        let providerCalls = 0;
+        const originalStream = faux.runtime.streamSimple;
+        faux.runtime.streamSimple = (...args) => {
+            providerCalls += 1;
+            return originalStream.apply(faux.runtime, args);
+        };
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            queueIfBusy: false,
+            clientMessageId: "00000000-0000-4000-8000-000000000002",
+            message: {text: "run"},
+            onAccepted: async () => {
+                throw new Error("caller admission failed");
+            },
+        });
+
+        expect(result.status).toBe("error");
+        expect(providerCalls).toBe(0);
+        const snapshot = await harness.repo.readSession(created.sessionId);
+        expect(snapshot.entries).toContainEqual(expect.objectContaining({
+            type: "invocation_lifecycle",
+            invocationId: result.invocationId,
+            status: "error",
+        }));
+        const reconstructed = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: false,
+        });
+        await expect(reconstructed.readDurableInvocationResult({
+            sessionId: created.sessionId,
+            clientMessageId: "00000000-0000-4000-8000-000000000002",
+        })).resolves.toMatchObject({
+            state: "failed",
+            invocationId: result.invocationId,
+        });
+        await reconstructed.dispose();
+    });
+
+    it("reconstructed Harness reads completed report_result.data by clientMessageId", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {key: "test.durable-result", name: "Durable Result"},
+            initialSchema: Type.Object({}),
+            allowedToolKeys: ["report_result"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([fauxAssistantMessage([
+            fauxToolCall("report_result", {
+                result: "ok",
+                data: {paths: ["lorebook/characters/actor-1.md"]},
+            }, {id: "durable-report-1"}),
+        ], {stopReason: "toolUse"})]);
+        const created = await harness.createAgent({
+            profileKey: "test.durable-result",
+            initial: {},
+            workspaceRoot: root,
+        });
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            queueIfBusy: false,
+            clientMessageId: "00000000-0000-4000-8000-000000000003",
+            message: {text: "run"},
+            onAccepted: async () => undefined,
+        });
+        expect(result.status, result.error).toBe("completed");
+
+        const restored = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            profiles: harness.profiles,
+            modelResolver: () => {
+                throw new Error("durable result read must not resolve a model");
+            },
+            enableSessionSummarizer: false,
+        });
+        await expect(restored.readDurableInvocationResult({
+            sessionId: created.sessionId,
+            clientMessageId: "00000000-0000-4000-8000-000000000003",
+        })).resolves.toEqual({
+            state: "completed",
+            invocationId: result.invocationId,
+            reportResult: {paths: ["lorebook/characters/actor-1.md"]},
+        });
+        await restored.dispose();
+    });
+
+    it("runtime rejects onAccepted unless queueIfBusy is the literal false", async () => {
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+        // Runtime guard 必须覆盖绕过 TypeScript 或使用旧生成代码的调用方，因此此处有意跨越静态类型边界。
+        const staleCaller = {
+            sessionId: created.sessionId,
+            mode: "prompt",
+            clientMessageId: "00000000-0000-4000-8000-000000000004",
+            message: {text: "run"},
+            onAccepted: async () => undefined,
+        } as unknown as Parameters<NeuroAgentHarness["invokeAgent"]>[0];
+
+        await expect(harness.invokeAgent(staleCaller))
+            .rejects.toThrow("onAccepted requires queueIfBusy: false");
+    });
+
+    it("known-bad execution store rejects before Session admission and starts no Provider", async () => {
+        const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root);
+        await executionLeaseStore.ensureHealthy();
+        await writeFile(
+            join(root, ".nbook", "agent", "invocation-execution.json"),
+            "{\"version\":2}\n",
+            "utf8",
+        );
+        await harness.dispose();
+        harness = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: false,
+            executionLeaseStore,
+        });
+        let providerCalls = 0;
+        const originalStream = faux.runtime.streamSimple;
+        faux.runtime.streamSimple = (...args) => {
+            providerCalls += 1;
+            return originalStream.apply(faux.runtime, args);
+        };
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+
+        await expect(harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            queueIfBusy: false,
+            clientMessageId: "00000000-0000-4000-8000-000000000009",
+            message: {text: "run"},
+            onAccepted: async () => undefined,
+        })).rejects.toMatchObject({code: "execution_evidence_lost"});
+        const path = harness.repo.activePath(await harness.repo.readSession(created.sessionId));
+        expect(path.some((entry) => entry.type === "custom"
+            && entry.key.startsWith("harness.invocation_admission:"))).toBe(false);
+        expect(providerCalls).toBe(0);
+    });
+
+    it("execution-store corruption after preflight seals admitted work as failed without Provider", async () => {
+        const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root);
+        const originalEstablish = executionLeaseStore.establish.bind(executionLeaseStore);
+        executionLeaseStore.establish = async (...args: Parameters<typeof executionLeaseStore.establish>) => {
+            await writeFile(
+                join(root, ".nbook", "agent", "invocation-execution.json"),
+                "{corrupt-after-preflight",
+                "utf8",
+            );
+            return originalEstablish(...args);
+        };
+        await harness.dispose();
+        harness = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: false,
+            executionLeaseStore,
+        });
+        let providerCalls = 0;
+        const originalStream = faux.runtime.streamSimple;
+        faux.runtime.streamSimple = (...args) => {
+            providerCalls += 1;
+            return originalStream.apply(faux.runtime, args);
+        };
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            queueIfBusy: false,
+            clientMessageId: "00000000-0000-4000-8000-00000000000a",
+            message: {text: "run"},
+            onAccepted: async () => undefined,
+        });
+        expect(result.status).toBe("error");
+        expect(providerCalls).toBe(0);
+        const path = harness.repo.activePath(await harness.repo.readSession(created.sessionId));
+        expect(path).toContainEqual(expect.objectContaining({
+            type: "invocation_lifecycle",
+            invocationId: result.invocationId,
+            status: "error",
+        }));
+    });
+
+    it("durable reader reports an accepted live lease, then reconstruction fences it after expiry", async () => {
+        let now = Date.parse("2026-07-30T00:00:00.000Z");
+        const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root, {
+            now: () => now,
+            ownerId: () => "owner-harness-restart",
+            leaseDurationMs: 3_600_000,
+        });
+        await harness.dispose();
+        harness = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: false,
+            executionLeaseStore,
+        });
+        const callbackEntered = createDeferred();
+        const releaseCallback = createDeferred();
+        let providerCalls = 0;
+        const originalStream = faux.runtime.streamSimple;
+        faux.runtime.streamSimple = (...args) => {
+            providerCalls += 1;
+            return originalStream.apply(faux.runtime, args);
+        };
+        faux.setResponses([fauxAssistantMessage("must not start")]);
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+        const invocation = harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            queueIfBusy: false,
+            clientMessageId: "00000000-0000-4000-8000-000000000008",
+            message: {text: "run"},
+            onAccepted: async () => {
+                callbackEntered.resolve();
+                await releaseCallback.promise;
+            },
+        });
+        await callbackEntered.promise;
+
+        await expect(harness.readDurableInvocationResult({
+            sessionId: created.sessionId,
+            clientMessageId: "00000000-0000-4000-8000-000000000008",
+        })).resolves.toMatchObject({
+            state: "active",
+            lifecycle: "accepted",
+        });
+
+        const reconstructed = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: false,
+            executionLeaseStore,
+        });
+        now += 3_600_001;
+        await expect(reconstructed.readDurableInvocationResult({
+            sessionId: created.sessionId,
+            clientMessageId: "00000000-0000-4000-8000-000000000008",
+        })).resolves.toMatchObject({
+            state: "orphaned",
+            lifecycle: "accepted",
+            providerStartRecorded: false,
+        });
+
+        releaseCallback.resolve();
+        const fenced = await invocation;
+        expect(fenced.status).not.toBe("completed");
+        expect(providerCalls).toBe(0);
+        await reconstructed.dispose();
+    });
+
+    it("hooked invocation entering waiting releases its execution lease before same-id resume", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.hooked-waiting-resume",
+                name: "Hooked Waiting Resume",
+            },
+            initialSchema: Type.Object({}),
+            allowedToolKeys: ["request_user_input", "report_result"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("request_user_input", {
+                    questions: [{question: "继续？"}],
+                }, {id: "hooked-waiting-input"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage([
+                fauxToolCall("report_result", {
+                    result: "resumed",
+                }, {id: "hooked-waiting-report"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.hooked-waiting-resume",
+            initial: {},
+            workspaceRoot: root,
+        });
+        const waiting = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            queueIfBusy: false,
+            clientMessageId: "00000000-0000-4000-8000-000000000007",
+            message: {text: "run"},
+            onAccepted: async () => undefined,
+        });
+        expect(waiting.status).toBe("waiting");
+        await expect(harness.readDurableInvocationResult({
+            sessionId: created.sessionId,
+            clientMessageId: "00000000-0000-4000-8000-000000000007",
+        })).resolves.toMatchObject({
+            state: "waiting",
+            invocationId: waiting.invocationId,
+        });
+
+        const continued = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "continue",
+            resolution: {
+                kind: "user_input",
+                toolCallId: "hooked-waiting-input",
+                answers: [{questionIndex: 0, note: "继续"}],
+            },
+        });
+        expect(continued).toMatchObject({
+            status: "completed",
+            invocationId: waiting.invocationId,
+            reportResult: {result: "resumed"},
+        });
+    });
+
+    it("busy hooked invocation creates no follow-up and calls neither callback nor Provider", async () => {
+        const firstAccepted = createDeferred();
+        const releaseFirst = createDeferred();
+        let providerCalls = 0;
+        let secondCallbacks = 0;
+        const originalStream = faux.runtime.streamSimple;
+        faux.runtime.streamSimple = (...args) => {
+            providerCalls += 1;
+            return originalStream.apply(faux.runtime, args);
+        };
+        faux.setResponses([fauxAssistantMessage("first done")]);
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+        const first = harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            queueIfBusy: false,
+            clientMessageId: "00000000-0000-4000-8000-000000000005",
+            message: {text: "first"},
+            onAccepted: async () => {
+                firstAccepted.resolve();
+                await releaseFirst.promise;
+            },
+        });
+        await firstAccepted.promise;
+
+        const busy = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            queueIfBusy: false,
+            clientMessageId: "00000000-0000-4000-8000-000000000006",
+            message: {text: "second"},
+            onAccepted: async () => {
+                secondCallbacks += 1;
+            },
+        });
+        expect(busy.status).toBe("error");
+        expect(busy.acceptance.state).not.toBe("queued");
+        expect(secondCallbacks).toBe(0);
+        expect(providerCalls).toBe(0);
+
+        releaseFirst.resolve();
+        await expect(first).resolves.toMatchObject({status: "completed"});
+        expect(providerCalls).toBe(1);
+        expect((await harness.getSessionRecovery(created.sessionId)).followUpQueue.items).toEqual([]);
     });
 
 });
