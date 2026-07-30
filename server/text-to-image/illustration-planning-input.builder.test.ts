@@ -148,7 +148,7 @@ function ports(): IllustrationPlanningInputPorts {
     return {
         readProjectId: async () => "project-portable-id",
         readChapter: async () => ({chapterPath, markdown}),
-        readEffectiveOverlays: async () => ({
+        readPlanningRules: async () => ({
             preset: {presetId: "default", semanticHash: H("1"), rules: [], provenance: []},
             patterns: {patternSetId: "default", planningHash: H("2"), renderHash: H("4"), patterns: [pattern], provenance: [{
                 patternId: pattern.patternId,

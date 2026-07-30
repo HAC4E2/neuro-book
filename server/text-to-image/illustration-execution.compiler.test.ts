@@ -9,6 +9,7 @@ import {
 } from "nbook/shared/text-to-image-execution";
 import {createDefaultTextToImageRecipeSource} from "nbook/shared/text-to-image-recipe";
 import {createTextToImageRecipeSnapshot} from "nbook/server/text-to-image/recipe.codec";
+import {illustrationCompiledRequestFixture} from "nbook/server/text-to-image/execution.test-fixtures";
 import {
     IllustrationExecutionCompilerError,
     ProductionIllustrationExecutionCompiler,
@@ -52,15 +53,58 @@ describe("Production Illustration Execution Compiler", () => {
         })).rejects.toMatchObject<Partial<IllustrationExecutionCompilerError>>({
             code: "ILLUSTRATION_EXECUTION_TARGET_INVALID",
         });
-        expect(fixture.dependencies.readOverlays).not.toHaveBeenCalled();
+        expect(fixture.dependencies.readPlanningRules).not.toHaveBeenCalled();
         expect(fixture.dependencies.readCharacters).not.toHaveBeenCalled();
         expect(fixture.dependencies.readProviderSnapshot).not.toHaveBeenCalled();
+    });
+
+    it("passes the approved global planning rules to the illustration compiler", async () => {
+        const fixture = createFixture();
+        fixture.dependencies.readCharacters = async () => ({
+            characters: [],
+            visualPlanningFactsHash: fixture.target.planningSource.visualPlanningFactsHash,
+            renderTagFactsHash: H("d"),
+        });
+        fixture.dependencies.readProviderSnapshot = async () => ({ownerUserId: 7, providerId: 1, credentialRevision: 1});
+        fixture.dependencies.createResolver = async () => ({
+            resolveTags: fixture.fail,
+            suggestTagReplacements: fixture.fail,
+            finalizeTagResolution: fixture.fail,
+            revalidateForExecution: fixture.fail,
+        });
+        const compiler = new ProductionIllustrationExecutionCompiler(fixture.dependencies);
+
+        await expect(compiler.compile({
+            projectPath: "workspace/demo",
+            ownerUserId: 7,
+            placeholderId: "placeholder-1",
+            expectedSourceIdentityHash: createIllustrationExecutionSourceIdentityHash(fixture.target.source),
+            executionNonce: "nonce-1",
+            variantIndex: 0,
+            outputIndex: 0,
+            outputCount: 1,
+            seed: 123,
+        })).resolves.toBeDefined();
+
+        expect(fixture.dependencies.readPlanningRules).toHaveBeenCalledOnce();
+        expect(fixture.dependencies.compile).toHaveBeenCalledWith(expect.objectContaining({
+            effectivePatterns: {
+                presetSemanticHash: fixture.planningRules.preset.semanticHash,
+                planningHash: fixture.planningRules.patterns.planningHash,
+                patterns: fixture.planningRules.patterns.patterns,
+            },
+        }), expect.anything());
     });
 });
 
 /** 构造不触发真实文件、Provider 或 Tag index 的 strict target/Recipe seam。 */
 function createFixture(): {
     target: IllustrationExecutionTargetSnapshot;
+    planningRules: {
+        preset: {presetId: string; semanticHash: string; rules: []; provenance: []};
+        patterns: {patternSetId: string; planningHash: string; renderHash: string; patterns: []; provenance: []};
+    };
+    fail: () => Promise<never>;
     dependencies: IllustrationExecutionCompilerDependencies;
 } {
     const source = IllustrationExecutionSourceSchema.parse({
@@ -139,18 +183,30 @@ function createFixture(): {
     const target = {source, publicationJournalId: publication.journalId, shot, planningSource};
     const recipeSource = {...createDefaultTextToImageRecipeSource(), seed: {policy: "fixed" as const, fixed: 123}};
     const recipe = {exists: true, source: recipeSource, snapshot: createTextToImageRecipeSnapshot(recipeSource)};
+    const planningRules = {
+        preset: {presetId: "default", semanticHash: H("2"), rules: [], provenance: []},
+        patterns: {patternSetId: "default", planningHash: H("3"), renderHash: H("4"), patterns: [], provenance: []},
+    };
     const fail = async (): Promise<never> => {
         throw new Error("unexpected dependency call");
     };
     const dependencies = {
         readTarget: vi.fn(async () => target),
         readRecipe: vi.fn(async () => recipe),
-        readOverlays: vi.fn(fail),
+        readPlanningRules: vi.fn(async () => planningRules),
         readCharacters: vi.fn(fail),
         readProviderSnapshot: vi.fn(fail),
         createResolver: vi.fn(fail),
         verifyReferenceAssets: vi.fn(fail),
-        compile: vi.fn(fail),
+        compile: vi.fn(async () => {
+            const request = illustrationCompiledRequestFixture(0);
+            return {
+                request,
+                executionInputHash: H("a"),
+                compiledRequestHash: request.compiledRequestHash,
+                executionManifestHash: H("b"),
+            };
+        }),
     } satisfies IllustrationExecutionCompilerDependencies;
-    return {target, dependencies};
+    return {target, planningRules, fail, dependencies};
 }

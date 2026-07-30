@@ -43,9 +43,9 @@ import {
     type CharacterVisualRegistrySnapshot,
 } from "nbook/server/text-to-image/character-visual-registry.service";
 import {
-    ProjectOverlayService,
-    type ProjectIllustrationPlanningSnapshot,
-} from "nbook/server/text-to-image/project-overlay.service";
+    StoryboardPlanningSnapshotService,
+    type StoryboardPlanningSnapshot,
+} from "nbook/server/text-to-image/storyboard-planning-snapshot.service";
 import {
     TextToImageRecipeNotConfiguredError,
     TextToImageRecipeService,
@@ -82,7 +82,7 @@ export type IllustrationPlanningDirectorSnapshot = {
 export type IllustrationPlanningInputPorts = {
     readProjectId(projectPath: string): Promise<string>;
     readChapter(projectPath: string, chapterPath: string): Promise<{chapterPath: string; markdown: string}>;
-    readEffectiveOverlays(projectPath: string): Promise<ProjectIllustrationPlanningSnapshot>;
+    readPlanningRules(): Promise<StoryboardPlanningSnapshot>;
     readCharacters(projectPath: string): Promise<CharacterVisualRegistrySnapshot>;
     readRecipe(projectPath: string): Promise<TextToImageRecipeDocument>;
     readRuntimeContext(projectPath: string): Promise<{
@@ -175,9 +175,9 @@ export class IllustrationPlanningInputBuilder {
         chapter: IllustrationChapterSnapshot,
         selection: IllustrationPlanningSelection | null,
     ): Promise<IllustrationPlanningInputBundle> {
-        const [projectId, overlays, characters, recipe, runtimeContext, tagQuerySnapshot] = await Promise.all([
+        const [projectId, planningRules, characters, recipe, runtimeContext, tagQuerySnapshot] = await Promise.all([
             this.ports.readProjectId(request.projectPath),
-            this.ports.readEffectiveOverlays(request.projectPath),
+            this.ports.readPlanningRules(),
             this.ports.readCharacters(request.projectPath),
             this.ports.readRecipe(request.projectPath),
             this.ports.readRuntimeContext(request.projectPath),
@@ -227,8 +227,8 @@ export class IllustrationPlanningInputBuilder {
             selectionHash: selection?.selectionHash ?? null,
             userIntent: request.userIntent,
             replan: request.replan,
-            effectivePresetSemanticHash: overlays.preset.semanticHash,
-            effectivePatternPlanningHash: overlays.patterns.planningHash,
+            effectivePresetSemanticHash: planningRules.preset.semanticHash,
+            effectivePatternPlanningHash: planningRules.patterns.planningHash,
             visualPlanningFactsHash: characters.visualPlanningFactsHash,
             recipePlanningConstraintsHash: recipePlanningConstraints.constraintsHash,
             continuityBaselineHash,
@@ -255,9 +255,9 @@ export class IllustrationPlanningInputBuilder {
         ].join(" "));
         const mentionedCharacterCount = characterCandidates.filter((character) => character.names.some((name) => planningText.includes(name.normalize("NFKC")))).length;
         const patternCandidates = retrieveTagPatterns({
-            effectivePlanningHash: overlays.patterns.planningHash,
-            patterns: overlays.patterns.patterns,
-            provenance: overlays.patterns.provenance,
+            effectivePlanningHash: planningRules.patterns.planningHash,
+            patterns: planningRules.patterns.patterns,
+            provenance: planningRules.patterns.provenance,
             request: {
                 query: planningText,
                 applicability: {
@@ -304,9 +304,9 @@ export class IllustrationPlanningInputBuilder {
             characters: characterCandidates,
             continuityBaseline,
             effectivePreset: {
-                presetId: overlays.preset.presetId,
-                semanticHash: overlays.preset.semanticHash,
-                rules: overlays.preset.rules,
+                presetId: planningRules.preset.presetId,
+                semanticHash: planningRules.preset.semanticHash,
+                rules: planningRules.preset.rules,
             },
             patternCandidates,
             recipePlanningConstraints,
@@ -415,7 +415,7 @@ export class IllustrationPlanningInputError extends Error {
 /** 生产端口只读取既有真相源；唯一数据库写入是独立 Workflow repository 的 start/upsert。 */
 function createProductionPorts(): IllustrationPlanningInputPorts {
     const chapters = new TextToImageChapterService();
-    const overlays = new ProjectOverlayService();
+    const planningRules = new StoryboardPlanningSnapshotService();
     const characters = new CharacterVisualRegistryService();
     const recipes = new TextToImageRecipeService();
     const tagReader = new TagIndexReader({root: new TagIndexStore().root});
@@ -430,7 +430,7 @@ function createProductionPorts(): IllustrationPlanningInputPorts {
             const snapshot = await chapters.snapshot(projectPath, chapterPath);
             return {chapterPath: snapshot.chapterPath, markdown: snapshot.markdown};
         },
-        readEffectiveOverlays: async (projectPath) => overlays.readEffective({projectPath}),
+        readPlanningRules: async () => planningRules.read(),
         readCharacters: async (projectPath) => characters.read({projectPath}),
         readRecipe: async (projectPath) => recipes.read(projectPath),
         async readRuntimeContext(projectPath) {

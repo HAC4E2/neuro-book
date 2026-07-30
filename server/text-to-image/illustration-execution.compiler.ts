@@ -34,7 +34,7 @@ import {
 import {IllustrationChapterParser} from "nbook/server/text-to-image/illustration-chapter-parser";
 import type {IllustrationExecutionCompilePort} from "nbook/server/text-to-image/illustration-execution.service";
 import {textToImageProjectClient} from "nbook/server/text-to-image/project-client";
-import {ProjectOverlayService} from "nbook/server/text-to-image/project-overlay.service";
+import {StoryboardPlanningSnapshotService} from "nbook/server/text-to-image/storyboard-planning-snapshot.service";
 import {
     DEFAULT_TEXT_TO_IMAGE_RECIPE_PATH,
 } from "nbook/server/text-to-image/recipe.codec";
@@ -85,7 +85,7 @@ export type IllustrationExecutionResolver = Pick<
 export type IllustrationExecutionCompilerDependencies = {
     readTarget(input: {projectPath: string; placeholderId: string}): Promise<IllustrationExecutionTargetSnapshot>;
     readRecipe(projectPath: string): Promise<TextToImageRecipeDocument>;
-    readOverlays: ProjectOverlayService["readEffective"];
+    readPlanningRules: StoryboardPlanningSnapshotService["read"];
     readCharacters: CharacterVisualRegistryService["read"];
     readProviderSnapshot: TextToImageProviderService["resolveNovelAiSnapshot"];
     createResolver(input: {projectPath: string; executionNonce: string}): Promise<IllustrationExecutionResolver>;
@@ -139,9 +139,9 @@ export class ProductionIllustrationExecutionCompiler implements IllustrationExec
                 "placeholder source identity 已变化，请刷新 Execution Preview",
             );
         }
-        const [recipe, overlays, characters, provider, resolver] = await Promise.all([
+        const [recipe, planningRules, characters, provider, resolver] = await Promise.all([
             this.requireRecipe(input.projectPath),
-            this.dependencies.readOverlays({projectPath: input.projectPath}),
+            this.dependencies.readPlanningRules(),
             this.dependencies.readCharacters({projectPath: input.projectPath}),
             this.dependencies.readProviderSnapshot(input.ownerUserId),
             this.dependencies.createResolver({projectPath: input.projectPath, executionNonce: input.executionNonce}),
@@ -176,9 +176,9 @@ export class ProductionIllustrationExecutionCompiler implements IllustrationExec
             },
             shot: target.shot,
             effectivePatterns: {
-                presetSemanticHash: overlays.preset.semanticHash,
-                planningHash: overlays.patterns.planningHash,
-                patterns: overlays.patterns.patterns,
+                presetSemanticHash: planningRules.preset.semanticHash,
+                planningHash: planningRules.patterns.planningHash,
+                patterns: planningRules.patterns.patterns,
             },
             characters,
             recipeSnapshot: recipe.snapshot,
@@ -208,14 +208,14 @@ export class ProductionIllustrationExecutionCompiler implements IllustrationExec
 
 /** 创建只读生产端口；所有文件与数据库读取均绑定当前打开的 Project/owner。 */
 function createProductionDependencies(): IllustrationExecutionCompilerDependencies {
-    const overlays = new ProjectOverlayService();
+    const planningRules = new StoryboardPlanningSnapshotService();
     const characters = new CharacterVisualRegistryService();
     const recipes = new TextToImageRecipeService();
     const providers = new TextToImageProviderService();
     return {
         readTarget: readPublishedTarget,
         readRecipe: async (projectPath) => await recipes.read(projectPath),
-        readOverlays: async (input) => await overlays.readEffective(input),
+        readPlanningRules: async () => await planningRules.read(),
         readCharacters: async (input) => await characters.read(input),
         readProviderSnapshot: async (ownerUserId) => await providers.resolveNovelAiSnapshot(ownerUserId),
         createResolver: createExecutionResolver,
