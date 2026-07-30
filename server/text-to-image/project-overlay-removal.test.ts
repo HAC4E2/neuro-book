@@ -25,11 +25,14 @@ const REMOVED_FILES = [
 const PRODUCTION_ROOTS = [
     "app",
     "shared",
-    "server/api/text-to-image",
-    "server/text-to-image",
+    "server",
+    "assets/workspace/.nbook/agent",
 ] as const;
 
 const BANNED_TOKENS = [
+    "ProjectOverlay",
+    "StoryboardOverlay",
+    "TagPatternOverlay",
     "ProjectOverlayService",
     "ProjectOverlayError",
     "ProjectOverlayEditorSnapshot",
@@ -37,8 +40,23 @@ const BANNED_TOKENS = [
     "StoryboardOverlaySchema",
     "TAG_PATTERN_OVERLAY_SCHEMA",
     "TagPatternOverlaySchema",
+    "createStoryboardOverlaySemanticHash",
+    "resolveStoryboardOverlayReviewState",
+    "createTagPatternOverlayHashes",
+    "resolveTagPatternOverlayReviewState",
     "throwProjectOverlayHttpError",
+    "nbook/server/text-to-image/storyboard-overlay.codec",
+    "nbook/server/text-to-image/tag-pattern-overlay.codec",
+    "nbook/server/text-to-image/storyboard-rule-resolver",
     "nbook/server/text-to-image/tag-pattern-resolver",
+    "nbook/server/text-to-image/project-overlay.service",
+    "nbook/server/text-to-image/project-overlay-http-error",
+    "nbook/shared/text-to-image-project-overlays",
+    "nbook.storyboard-overlay/v1",
+    "nbook.tag-pattern-overlay/v1",
+    "nbook.project-overlay-editor/v1",
+    "storyboard-overlays/",
+    "tag-pattern-overlays/",
     "/api/text-to-image/project-overlays",
     "TextToImageProjectOverlayPanel",
 ] as const;
@@ -74,7 +92,7 @@ describe("Project overlay removal", () => {
     });
 });
 
-/** 递归收集真正进入构建的源码；测试、fixture 与生成物不参与 token 审计。 */
+/** 递归收集真正进入构建的源码与 bundled runtime 文本；测试、fixture、staging 与生成物不参与 token 审计。 */
 async function collectProductionFiles(relativeEntries: readonly string[]): Promise<string[]> {
     const files: string[] = [];
     for (const entry of relativeEntries) {
@@ -86,16 +104,17 @@ async function collectProductionFiles(relativeEntries: readonly string[]): Promi
         }
         const children = await fs.readdir(absolutePath, {withFileTypes: true});
         const nested = children
-            .filter((child) => child.name !== "fixtures" && child.name !== "generated")
+            .filter((child) => !["fixtures", "__fixtures__", "generated", ".compiled", ".staging"].includes(child.name))
             .map((child) => path.relative(ROOT, path.join(absolutePath, child.name)).replaceAll("\\", "/"));
         files.push(...await collectProductionFiles(nested));
     }
     return files;
 }
 
-/** 只扫描源码，不扫描测试文件。 */
+/** 只扫描会影响运行的源码、Markdown 与文本配置，不扫描测试或二进制文件。 */
 function isProductionSource(file: string): boolean {
-    return /\.(?:[cm]?[jt]sx?|vue)$/u.test(file) && !/\.test\.[cm]?[jt]sx?$/u.test(file);
+    return /\.(?:[cm]?[jt]sx?|vue|md|jsonc?|ya?ml|toml)$/u.test(file)
+        && !/\.(?:test|spec)\.[^/\\]+$/u.test(file);
 }
 
 /** 读取仓库内 UTF-8 源码。 */
