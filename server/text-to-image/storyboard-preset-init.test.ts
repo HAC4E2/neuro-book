@@ -5,7 +5,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {ensureDefaultStoryboardPreset} from "nbook/server/text-to-image/storyboard-preset-init";
 import {parseStoryboardPresetMarkdown} from "nbook/server/text-to-image/storyboard-preset.codec";
 import {parseTagPatternMarkdown} from "nbook/server/text-to-image/tag-pattern.codec";
-import {assertStoryboardPatternPair} from "nbook/server/text-to-image/tag-pattern-resolver";
+import {assertStoryboardPatternPair} from "nbook/server/text-to-image/storyboard-companion";
 
 vi.mock("nbook/server/app-logs/logger", () => ({
     appLogger: {

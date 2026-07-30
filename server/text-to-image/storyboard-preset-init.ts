@@ -12,7 +12,7 @@ import {
 } from "nbook/shared/text-to-image-tag-pattern";
 import {parseStoryboardPresetMarkdown, renderStoryboardPresetMarkdown} from "nbook/server/text-to-image/storyboard-preset.codec";
 import {parseTagPatternMarkdown, renderTagPatternMarkdown} from "nbook/server/text-to-image/tag-pattern.codec";
-import {assertStoryboardPatternPair} from "nbook/server/text-to-image/tag-pattern-resolver";
+import {assertStoryboardPatternPair} from "nbook/server/text-to-image/storyboard-companion";
 
 const PROFILE_KEY = "illustration.director";
 const DEFAULT_PRESET_ID = "default";

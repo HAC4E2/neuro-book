@@ -5,9 +5,7 @@ import {
     TagPatternOverlaySchema,
     TagPatternSetSchema,
 } from "nbook/shared/text-to-image-tag-pattern";
-import {createStoryboardPresetHashes, StoryboardPresetSchema} from "nbook/shared/text-to-image-storyboard-preset";
 import {
-    assertStoryboardPatternPair,
     resolveTagPatterns,
 } from "nbook/server/text-to-image/tag-pattern-resolver";
 
@@ -62,36 +60,6 @@ function approvedPatternSet() {
             status: "approved",
             approvedPlanningHash: hashes.planningHash,
             approvedRenderHash: hashes.renderHash,
-            approvedRawSourceHash: null,
-            approvedSanitizedSourceHash: null,
-        },
-    });
-}
-
-function approvedPreset() {
-    const pending = StoryboardPresetSchema.parse({
-        schema: "nbook.storyboard-preset/v1",
-        presetId: "cinematic",
-        patternSetId: "cinematic",
-        packageId: "package-one",
-        resourceKey: "cinematic--one",
-        title: "Preset",
-        enabled: true,
-        source: {kind: "manual"},
-        review: {status: "pending"},
-        matching: {normalization: "nfkc-casefold"},
-        defaults: {preferredShotCount: {min: 2, max: 4}, minimumParagraphGap: 1},
-        macros: {bindings: {}, unresolved: []},
-        rules: [],
-        risks: [],
-    });
-    const hashes = createStoryboardPresetHashes(pending);
-    return StoryboardPresetSchema.parse({
-        ...pending,
-        review: {
-            status: "approved",
-            approvedSemanticHash: hashes.semanticHash,
-            approvedDiagnosticHash: hashes.diagnosticHash,
             approvedRawSourceHash: null,
             approvedSanitizedSourceHash: null,
         },
@@ -158,20 +126,4 @@ describe("Tag Pattern resolver", () => {
         expect(conflict.effectivePatterns).toEqual(approvedPatternSet().patterns);
     });
 
-    it("companion 缺失或 preset/package/resource identity 不一致时 fail-closed", () => {
-        expect(() => assertStoryboardPatternPair({preset: approvedPreset(), patternSet: null})).toThrow();
-        expect(() => assertStoryboardPatternPair({
-            preset: approvedPreset(),
-            patternSet: TagPatternSetSchema.parse({...approvedPatternSet(), packageId: "package-two"}),
-        })).toThrow();
-        expect(() => assertStoryboardPatternPair({
-            preset: approvedPreset(),
-            patternSet: TagPatternSetSchema.parse({...approvedPatternSet(), resourceKey: "cinematic--two"}),
-        })).toThrow();
-        expect(assertStoryboardPatternPair({preset: approvedPreset(), patternSet: approvedPatternSet()})).toEqual({
-            presetId: "cinematic",
-            packageId: "package-one",
-            resourceKey: "cinematic--one",
-        });
-    });
 });
