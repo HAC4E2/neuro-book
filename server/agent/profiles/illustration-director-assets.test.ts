@@ -8,7 +8,7 @@ import {
 import illustrationDirectorProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/illustration.director.profile";
 import {parseStoryboardPresetMarkdown} from "nbook/server/text-to-image/storyboard-preset.codec";
 import {parseTagPatternMarkdown} from "nbook/server/text-to-image/tag-pattern.codec";
-import {assertStoryboardPatternPair} from "nbook/server/text-to-image/tag-pattern-resolver";
+import {assertStoryboardPatternPair} from "nbook/server/text-to-image/storyboard-companion";
 
 const PROFILE_PATH = path.resolve("assets/workspace/.nbook/agent/profiles/builtin/illustration.director.profile.tsx");
 const SKILL_PATH = path.resolve("assets/workspace/.nbook/agent/skills/novel-import-ttp-storyboard-preset/SKILL.md");

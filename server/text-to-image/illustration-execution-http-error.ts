@@ -8,7 +8,6 @@ import {
 import {IllustrationExecutionServiceError} from "nbook/server/text-to-image/illustration-execution.service";
 import {ExecutionPreviewTokenError} from "nbook/server/text-to-image/execution-preview-token";
 import {IllustrationExecutionRegistrationError} from "nbook/server/text-to-image/execution.repository";
-import {ProjectOverlayError} from "nbook/server/text-to-image/project-overlay.service";
 import {resolveTextToImageProviderHttpError} from "nbook/server/text-to-image/provider-http-error";
 import {
     TextToImageRecipeConflictError,
@@ -29,9 +28,6 @@ export function throwIllustrationExecutionHttpError(error: unknown): never {
     const providerError = resolveTextToImageProviderHttpError(error);
     if (providerError) throw providerError;
     if (isTagIndexError(error)) throwTagIndexHttpError(error);
-    if (error instanceof ProjectOverlayError) {
-        throw createError({statusCode: 409, message: error.message, data: {code: error.code}});
-    }
     if (error instanceof CharacterVisualRegistryError) {
         throw createError({
             statusCode: error.code === "CHARACTER_VISUAL_MIGRATION_REQUIRED" ? 409 : 422,

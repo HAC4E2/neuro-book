@@ -9,12 +9,16 @@ import {
 } from "nbook/shared/text-to-image-tag-pattern-retrieval";
 import {TextToImageContractHashSchema, type TextToImageModelScope} from "nbook/shared/text-to-image-tag-resolution";
 import {type TagPattern} from "nbook/shared/text-to-image-tag-pattern";
-import type {TagPatternProvenance} from "nbook/server/text-to-image/tag-pattern-resolver";
 
 type RetrievalInput = {
     effectivePlanningHash: string;
     patterns: TagPattern[];
-    provenance: TagPatternProvenance[];
+    provenance: Array<{
+        patternId: string;
+        scope: "base";
+        operation: "base";
+        sourceEntryId: string | null;
+    }>;
     request: TagPatternSearchRequest;
 };
 
@@ -42,7 +46,7 @@ export function retrieveTagPatterns(input: RetrievalInput): TagPatternCandidateS
         const match = scorePattern(pattern, normalizedQuery, request);
         if (!match) return [];
         const source = provenance.get(pattern.patternId);
-        if (!source || source.operation === "disable") return [];
+        if (!source) return [];
         return [{
             patternId: pattern.patternId,
             sourceEntryId: pattern.sourceEntryId ?? null,

@@ -1,10 +1,8 @@
 import {describe, expect, it} from "vitest";
 import {
-    createTagPatternOverlayHashes,
     createTagPatternSetHashes,
     listEnabledTagPatterns,
     resolveTagPatternReviewState,
-    TagPatternOverlaySchema,
     TagPatternSetSchema,
 } from "nbook/shared/text-to-image-tag-pattern";
 import {hashTextToImageContract} from "nbook/shared/text-to-image-contract-hash";
@@ -298,71 +296,5 @@ describe("Tag Pattern strict contract", () => {
             ...blocked,
             review: {...approvedReview, approvedPlanningHash: blockedHashes.planningHash, approvedRenderHash: blockedHashes.renderHash},
         }))).toBe("pending");
-    });
-});
-
-describe("Tag Pattern Overlay strict contract", () => {
-    function overlay() {
-        return {
-            schema: "nbook.tag-pattern-overlay/v1" as const,
-            overlayId: "project-patterns",
-            patternSetId: "cinematic-chapter",
-            enabled: true,
-            basePlanningHash: HASH_A,
-            baseRenderHash: HASH_B,
-            review: {status: "pending" as const},
-            operations: [
-                {op: "replace" as const, patternId: "pattern.rainy-night", pattern: pattern()},
-                {op: "disable" as const, patternId: "pattern.disabled"},
-            ],
-        };
-    }
-
-    it("拒绝错配 patternId、重复 operation 与 NovelAI 字段", () => {
-        expect(TagPatternOverlaySchema.parse(overlay()).operations).toHaveLength(2);
-        expect(() => TagPatternOverlaySchema.parse({
-            ...overlay(),
-            operations: [{op: "append", patternId: "outer", pattern: pattern("inner")}],
-        })).toThrow();
-        expect(() => TagPatternOverlaySchema.parse({...overlay(), operations: [overlay().operations[0], overlay().operations[0]]})).toThrow();
-        expect(() => TagPatternOverlaySchema.parse({...overlay(), guidance: 5})).toThrow();
-    });
-
-    it("disable、operation kind 与 identity 只改变 planning hash，不污染 render hash", () => {
-        const base = TagPatternOverlaySchema.parse(overlay());
-        const withoutDisable = TagPatternOverlaySchema.parse({...overlay(), operations: [overlay().operations[0]]});
-        const appendInstead = TagPatternOverlaySchema.parse({
-            ...overlay(),
-            operations: [{op: "append", patternId: "project.same-render", pattern: pattern("project.same-render")}],
-        });
-        const replaceOnly = TagPatternOverlaySchema.parse({...overlay(), operations: [overlay().operations[0]]});
-
-        expect(createTagPatternOverlayHashes(base).planningHash).not.toBe(createTagPatternOverlayHashes(withoutDisable).planningHash);
-        expect(createTagPatternOverlayHashes(base).renderHash).toBe(createTagPatternOverlayHashes(withoutDisable).renderHash);
-        expect(createTagPatternOverlayHashes(appendInstead).planningHash).not.toBe(createTagPatternOverlayHashes(replaceOnly).planningHash);
-        expect(createTagPatternOverlayHashes(appendInstead).renderHash).toBe(createTagPatternOverlayHashes(replaceOnly).renderHash);
-    });
-
-    it("互不影响的 operation 交换物理顺序不改变 render hash", () => {
-        const firstPattern = {
-            ...pattern("project.first"),
-            providerSyntaxRefs: ["syntax.first"],
-            providerSyntaxNodes: {"syntax.first": {kind: "novelai-tag-weight" as const, weight: 1.1, resolutionKeys: ["tr-night"]}},
-        };
-        const secondPattern = {
-            ...pattern("project.second"),
-            providerSyntaxRefs: ["syntax.second"],
-            providerSyntaxNodes: {"syntax.second": {kind: "novelai-tag-weight" as const, weight: 1.1, resolutionKeys: ["tr-night"]}},
-        };
-        const first = TagPatternOverlaySchema.parse({
-            ...overlay(),
-            operations: [
-                {op: "append", patternId: firstPattern.patternId, pattern: firstPattern},
-                {op: "append", patternId: secondPattern.patternId, pattern: secondPattern},
-            ],
-        });
-        const reversed = TagPatternOverlaySchema.parse({...first, operations: [...first.operations].reverse()});
-
-        expect(createTagPatternOverlayHashes(first).renderHash).toBe(createTagPatternOverlayHashes(reversed).renderHash);
     });
 });

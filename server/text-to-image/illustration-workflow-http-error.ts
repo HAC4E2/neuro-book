@@ -3,8 +3,6 @@ import {ZodError} from "zod";
 import {IllustrationSelectionError} from "nbook/server/text-to-image/illustration-chapter-parser";
 import {CharacterVisualRegistryError} from "nbook/server/text-to-image/character-visual-registry.service";
 import {IllustrationPlanningInputError} from "nbook/server/text-to-image/illustration-planning-input.builder";
-import {ProjectOverlayError} from "nbook/server/text-to-image/project-overlay.service";
-import {throwProjectOverlayHttpError} from "nbook/server/text-to-image/project-overlay-http-error";
 import {
     TextToImageRecipeConflictError,
     TextToImageRecipeInvalidError,
@@ -23,7 +21,6 @@ export function throwIllustrationWorkflowHttpError(error: unknown): never {
         || error instanceof TextToImageRecipeNotConfiguredError) {
         throwTextToImageRecipeHttpError(error);
     }
-    if (error instanceof ProjectOverlayError) throwProjectOverlayHttpError(error);
     if (isTagIndexError(error)) throwTagIndexHttpError(error);
     if (error instanceof IllustrationWorkflowAccessError) {
         throw createError({

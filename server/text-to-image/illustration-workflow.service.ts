@@ -24,7 +24,6 @@ import {
 import {IllustrationWorkflowScheduler} from "nbook/server/text-to-image/illustration-workflow.scheduler";
 import {PlanningApplyService} from "nbook/server/text-to-image/planning-apply.service";
 import {textToImageProjectClient} from "nbook/server/text-to-image/project-client";
-import {ProjectOverlayError} from "nbook/server/text-to-image/project-overlay.service";
 import {
     TextToImageRecipeConflictError,
     TextToImageRecipeInvalidError,
@@ -276,7 +275,6 @@ function planningDriftReason(error: unknown): string | null {
     const known = error instanceof IllustrationPlanningInputError
         || error instanceof IllustrationSelectionError
         || error instanceof CharacterVisualRegistryError
-        || error instanceof ProjectOverlayError
         || error instanceof TextToImageRecipeConflictError
         || error instanceof TextToImageRecipeInvalidError
         || error instanceof TextToImageRecipeNotConfiguredError

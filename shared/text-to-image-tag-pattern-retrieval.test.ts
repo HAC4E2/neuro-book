@@ -1,5 +1,6 @@
 import {describe, expect, it} from "vitest";
 import {
+    TagPatternCandidateProvenanceSchema,
     TagPatternCandidateSetSchema,
     TagPatternSearchRequestSchema,
 } from "nbook/shared/text-to-image-tag-pattern-retrieval";
@@ -59,6 +60,14 @@ describe("Tag Pattern retrieval contracts", () => {
         expect(() => TagPatternCandidateSetSchema.parse({
             ...parsed,
             candidates: [{...candidate, finalPrompt: "forbidden"}],
+        })).toThrow();
+    });
+
+    it("rejects Project overlay provenance", () => {
+        expect(() => TagPatternCandidateProvenanceSchema.parse({
+            scope: "project",
+            operation: "replace",
+            sourceEntryId: "entry-1",
         })).toThrow();
     });
 });

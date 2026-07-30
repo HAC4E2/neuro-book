@@ -2,7 +2,6 @@ import {describe, expect, it} from "vitest";
 import {
     createStoryboardPresetHashes,
     resolveStoryboardReviewState,
-    StoryboardOverlaySchema,
     StoryboardPresetSchema,
 } from "nbook/shared/text-to-image-storyboard-preset";
 
@@ -213,37 +212,5 @@ describe("Storyboard Preset strict contract", () => {
             ...preset(),
             review: {status: "rejected", rejectedReason: "不采用"},
         }))).toBe("rejected");
-    });
-});
-
-describe("Storyboard Overlay strict contract", () => {
-    function overlay() {
-        return {
-            schema: "nbook.storyboard-overlay/v1" as const,
-            overlayId: "project-cinematic",
-            presetId: "cinematic-chapter",
-            enabled: true,
-            baseSemanticHash: HASH_A,
-            review: {status: "pending" as const},
-            macroBindings: {},
-            operations: [
-                {op: "replace" as const, ruleId: "rule.shot-selection", rule: rules()[0]!},
-                {op: "disable" as const, ruleId: "rule.composition"},
-                {op: "append" as const, ruleId: "project.palette", rule: {...rules()[4]!, ruleId: "project.palette"}},
-            ],
-        };
-    }
-
-    it("拒绝内外 ruleId 不一致、重复 operation 和未知字段", () => {
-        expect(StoryboardOverlaySchema.parse(overlay()).operations).toHaveLength(3);
-        expect(() => StoryboardOverlaySchema.parse({
-            ...overlay(),
-            operations: [{op: "append", ruleId: "outer", rule: {...rules()[4]!, ruleId: "inner"}}],
-        })).toThrow();
-        expect(() => StoryboardOverlaySchema.parse({
-            ...overlay(),
-            operations: [overlay().operations[0], overlay().operations[0]],
-        })).toThrow();
-        expect(() => StoryboardOverlaySchema.parse({...overlay(), model: "nai-diffusion"})).toThrow();
     });
 });

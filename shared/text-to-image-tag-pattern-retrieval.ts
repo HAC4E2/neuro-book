@@ -41,8 +41,8 @@ const ResolutionRefsSchema = z.object({
 }).strict();
 
 export const TagPatternCandidateProvenanceSchema = z.object({
-    scope: z.enum(["base", "project"]),
-    operation: z.enum(["base", "replace", "disable", "append"]),
+    scope: z.literal("base"),
+    operation: z.literal("base"),
     /** Pattern 没有来源 entry 时固定为 null。 */
     sourceEntryId: StoryboardStableIdSchema.nullable(),
 }).strict();

@@ -3,7 +3,6 @@ import {canonicalizeTextToImageContract, hashTextToImageContract} from "nbook/sh
 import {TextToImageContractHashSchema} from "nbook/shared/text-to-image-tag-resolution";
 
 export const STORYBOARD_PRESET_SCHEMA = "nbook.storyboard-preset/v1" as const;
-export const STORYBOARD_OVERLAY_SCHEMA = "nbook.storyboard-overlay/v1" as const;
 
 export const StoryboardStableIdSchema = z.string().trim().min(1).max(160).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/u);
 
@@ -39,12 +38,6 @@ const StoryboardReviewSchema = z.discriminatedUnion("status", [
         status: z.literal("rejected"),
         rejectedReason: z.string().trim().min(1).max(500),
     }).strict(),
-]);
-
-const StoryboardOverlayReviewSchema = z.discriminatedUnion("status", [
-    z.object({status: z.literal("pending")}).strict(),
-    z.object({status: z.literal("approved"), approvedSemanticHash: TextToImageContractHashSchema}).strict(),
-    z.object({status: z.literal("rejected"), rejectedReason: z.string().trim().min(1).max(500)}).strict(),
 ]);
 
 export const StoryboardWhenSchema = z.object({
@@ -246,37 +239,6 @@ export const StoryboardPresetSchema = z.object({
 });
 
 export type StoryboardPreset = z.infer<typeof StoryboardPresetSchema>;
-
-const StoryboardOverlayOperationSchema = z.discriminatedUnion("op", [
-    z.object({op: z.literal("replace"), ruleId: StoryboardStableIdSchema, rule: StoryboardRuleSchema}).strict(),
-    z.object({op: z.literal("disable"), ruleId: StoryboardStableIdSchema}).strict(),
-    z.object({op: z.literal("append"), ruleId: StoryboardStableIdSchema, rule: StoryboardRuleSchema}).strict(),
-]);
-
-/** Project Storyboard 增量覆盖合同。 */
-export const StoryboardOverlaySchema = z.object({
-    schema: z.literal(STORYBOARD_OVERLAY_SCHEMA),
-    overlayId: StoryboardStableIdSchema,
-    presetId: StoryboardStableIdSchema,
-    enabled: z.boolean(),
-    baseSemanticHash: TextToImageContractHashSchema,
-    review: StoryboardOverlayReviewSchema,
-    macroBindings: z.record(z.string().trim().min(1).max(160), MacroBindingSchema),
-    operations: z.array(StoryboardOverlayOperationSchema).max(10000),
-}).strict().superRefine((overlay, context) => {
-    addDuplicateIssues(overlay.operations.map((operation) => operation.ruleId), ["operations"], "operation ruleId", context);
-    overlay.operations.forEach((operation, index) => {
-        if (operation.op !== "disable" && operation.rule.ruleId !== operation.ruleId) {
-            context.addIssue({
-                code: "custom",
-                path: ["operations", index, "rule", "ruleId"],
-                message: "内嵌 ruleId 必须与 operation ruleId 一致",
-            });
-        }
-    });
-});
-
-export type StoryboardOverlay = z.infer<typeof StoryboardOverlaySchema>;
 export type StoryboardReviewState = "pending" | "approved" | "stale" | "rejected";
 
 /** 计算分镜语义与诊断分域 hash。 */
@@ -330,36 +292,6 @@ export function resolveStoryboardReviewState(input: StoryboardPreset): Storyboar
         && preset.review.approvedDiagnosticHash === hashes.diagnosticHash
         ? "approved"
         : "stale";
-}
-
-/** 计算 Project Storyboard overlay 的可批准语义 hash。 */
-export function createStoryboardOverlaySemanticHash(input: StoryboardOverlay): string {
-    const overlay = StoryboardOverlaySchema.parse(input);
-    const operations = overlay.operations.map((operation) => {
-        if (operation.op === "disable") {
-            return operation;
-        }
-        const {provenance: _provenance, ...rule} = operation.rule;
-        return {...operation, rule};
-    });
-    return hashTextToImageContract({
-        schema: overlay.schema,
-        overlayId: overlay.overlayId,
-        presetId: overlay.presetId,
-        enabled: overlay.enabled,
-        baseSemanticHash: overlay.baseSemanticHash,
-        macroBindings: overlay.macroBindings,
-        operations,
-    });
-}
-
-/** Overlay 的 approved hash 漂移时返回 stale。 */
-export function resolveStoryboardOverlayReviewState(input: StoryboardOverlay): StoryboardReviewState {
-    const overlay = StoryboardOverlaySchema.parse(input);
-    if (overlay.review.status === "pending" || overlay.review.status === "rejected") {
-        return overlay.review.status;
-    }
-    return overlay.review.approvedSemanticHash === createStoryboardOverlaySemanticHash(overlay) ? "approved" : "stale";
 }
 
 function compareCanonical(left: object, right: object): number {

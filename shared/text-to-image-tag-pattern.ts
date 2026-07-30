@@ -1,6 +1,5 @@
 import {z} from "zod";
 import {
-    canonicalizeTextToImageContract,
     hashTextToImageContract,
     type TextToImageContractValue,
 } from "nbook/shared/text-to-image-contract-hash";
@@ -18,7 +17,6 @@ import {ProviderSyntaxNodeSchema} from "nbook/shared/text-to-image-provider-regi
 import {StoryboardSourceSchema, StoryboardStableIdSchema} from "nbook/shared/text-to-image-storyboard-preset";
 
 export const TAG_PATTERN_SET_SCHEMA = "nbook.tag-pattern-set/v1" as const;
-export const TAG_PATTERN_OVERLAY_SCHEMA = "nbook.tag-pattern-overlay/v1" as const;
 
 const PatternReviewSchema = z.discriminatedUnion("status", [
     z.object({status: z.literal("pending")}).strict(),
@@ -30,16 +28,6 @@ const PatternReviewSchema = z.discriminatedUnion("status", [
         approvedRawSourceHash: TextToImageContractHashSchema.nullable(),
         /** TTP 来源冻结批准时的脱敏归档 hash；非 TTP 来源固定为 null。 */
         approvedSanitizedSourceHash: TextToImageContractHashSchema.nullable(),
-    }).strict(),
-    z.object({status: z.literal("rejected"), rejectedReason: z.string().trim().min(1).max(500)}).strict(),
-]);
-
-const PatternOverlayReviewSchema = z.discriminatedUnion("status", [
-    z.object({status: z.literal("pending")}).strict(),
-    z.object({
-        status: z.literal("approved"),
-        approvedPlanningHash: TextToImageContractHashSchema,
-        approvedRenderHash: TextToImageContractHashSchema,
     }).strict(),
     z.object({status: z.literal("rejected"), rejectedReason: z.string().trim().min(1).max(500)}).strict(),
 ]);
@@ -244,37 +232,6 @@ export const TagPatternSetSchema = z.object({
 });
 
 export type TagPatternSet = z.infer<typeof TagPatternSetSchema>;
-
-const PatternOverlayOperationSchema = z.discriminatedUnion("op", [
-    z.object({op: z.literal("replace"), patternId: StoryboardStableIdSchema, pattern: TagPatternSchema}).strict(),
-    z.object({op: z.literal("disable"), patternId: StoryboardStableIdSchema}).strict(),
-    z.object({op: z.literal("append"), patternId: StoryboardStableIdSchema, pattern: TagPatternSchema}).strict(),
-]);
-
-/** Project Tag Pattern 增量覆盖合同。 */
-export const TagPatternOverlaySchema = z.object({
-    schema: z.literal(TAG_PATTERN_OVERLAY_SCHEMA),
-    overlayId: StoryboardStableIdSchema,
-    patternSetId: StoryboardStableIdSchema,
-    enabled: z.boolean(),
-    basePlanningHash: TextToImageContractHashSchema,
-    baseRenderHash: TextToImageContractHashSchema,
-    review: PatternOverlayReviewSchema,
-    operations: z.array(PatternOverlayOperationSchema).max(10000),
-}).strict().superRefine((overlay, context) => {
-    addUniqueIssues(overlay.operations.map((operation) => operation.patternId), ["operations"], "operation patternId", context);
-    overlay.operations.forEach((operation, index) => {
-        if (operation.op !== "disable" && operation.pattern.patternId !== operation.patternId) {
-            context.addIssue({
-                code: "custom",
-                path: ["operations", index, "pattern", "patternId"],
-                message: "内嵌 patternId 必须与 operation patternId 一致",
-            });
-        }
-    });
-});
-
-export type TagPatternOverlay = z.infer<typeof TagPatternOverlaySchema>;
 export type TagPatternReviewState = "pending" | "approved" | "stale" | "rejected";
 
 /** 计算 Pattern planning/render 两个独立 hash。 */
@@ -322,46 +279,6 @@ export function resolveTagPatternReviewState(input: TagPatternSet): TagPatternRe
     return sourceMatches
         && patternSet.review.approvedPlanningHash === hashes.planningHash
         && patternSet.review.approvedRenderHash === hashes.renderHash
-        ? "approved"
-        : "stale";
-}
-
-/** 计算 Project Pattern overlay 自身的 planning/render 批准 hash。 */
-export function createTagPatternOverlayHashes(input: TagPatternOverlay): {planningHash: string; renderHash: string} {
-    const overlay = TagPatternOverlaySchema.parse(input);
-    return {
-        planningHash: hashTextToImageContract({
-            schema: overlay.schema,
-            overlayId: overlay.overlayId,
-            patternSetId: overlay.patternSetId,
-            enabled: overlay.enabled,
-            basePlanningHash: overlay.basePlanningHash,
-            operations: overlay.operations.map((operation) => operation.op === "disable" ? operation : {
-                op: operation.op,
-                patternId: operation.patternId,
-                pattern: createPatternPlanningValue(operation.pattern),
-            }),
-        }),
-        renderHash: hashTextToImageContract({
-            schema: overlay.schema,
-            baseRenderHash: overlay.baseRenderHash,
-            // disable、operation kind 与 pattern identity 属于 planning 域；render 只冻结实际 Tag/Provider 结构。
-            operations: overlay.operations
-                .flatMap((operation) => operation.op === "disable" ? [] : [createPatternRenderValue(operation.pattern)])
-                .sort((left, right) => canonicalizeTextToImageContract(left).localeCompare(canonicalizeTextToImageContract(right))),
-        }),
-    };
-}
-
-/** Pattern overlay 的任一批准 hash 漂移时返回 stale。 */
-export function resolveTagPatternOverlayReviewState(input: TagPatternOverlay): TagPatternReviewState {
-    const overlay = TagPatternOverlaySchema.parse(input);
-    if (overlay.review.status === "pending" || overlay.review.status === "rejected") {
-        return overlay.review.status;
-    }
-    const hashes = createTagPatternOverlayHashes(overlay);
-    return overlay.review.approvedPlanningHash === hashes.planningHash
-        && overlay.review.approvedRenderHash === hashes.renderHash
         ? "approved"
         : "stale";
 }
