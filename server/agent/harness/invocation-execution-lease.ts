@@ -20,8 +20,17 @@ type InvocationExecutionRecord = {
 type InvocationExecutionStore = {
     version: typeof STORE_VERSION;
     nextFence: number;
-    providerStartedFences: number[];
     records: InvocationExecutionRecord[];
+};
+
+type ProviderStartWitness = {
+    version: typeof STORE_VERSION;
+    sessionId: number;
+    invocationId: string;
+    clientMessageId: string;
+    ownerId: string;
+    fence: number;
+    providerStartedAt: string;
 };
 
 export type InvocationExecutionLease = {
@@ -34,12 +43,17 @@ export type InvocationExecutionLease = {
 };
 
 export type InvocationExecutionSessionTruth =
-    | {state: "terminal"}
+    | {
+        state: "terminal";
+        invocationId: string;
+        executionFence: number | null;
+    }
     | {
         state: "nonterminal";
         /** null 表示 Session 中没有与 clientMessageId 对应的 durable admission。 */
         invocationId: string | null;
         executionLeaseEstablished: boolean;
+        executionFence: number | null;
     };
 
 export type InvocationExecutionResolution =
@@ -57,6 +71,16 @@ export type InvocationExecutionResolution =
         providerStartRecorded: boolean | null;
     };
 
+type DurableFileHandle = {
+    writeFile(content: string, encoding: "utf8"): Promise<void>;
+    sync(): Promise<void>;
+    close(): Promise<void>;
+};
+
+type InvocationExecutionFileIo = {
+    open(path: string, flags: "r" | "wx"): Promise<DurableFileHandle>;
+};
+
 type InvocationExecutionLeaseStoreOptions = {
     /** 测试注入单调推进的墙钟；生产默认使用 Date.now。 */
     now?: () => number;
@@ -64,6 +88,8 @@ type InvocationExecutionLeaseStoreOptions = {
     ownerId?: () => string;
     /** 每次 lease/renewal 的有效期。 */
     leaseDurationMs?: number;
+    /** 仅注入 durable write 的最窄 I/O 边界，避免测试全局 mock。 */
+    fileIo?: InvocationExecutionFileIo;
 };
 
 /** execution sidecar 已初始化但证据丢失或格式损坏时的 fail-closed 错误。 */
@@ -86,9 +112,11 @@ export class HarnessInvocationExecutionLeaseStore {
     private readonly storePath: string;
     private readonly lockTarget: string;
     private readonly sentinelPath: string;
+    private readonly witnessRoot: string;
     private readonly now: () => number;
     private readonly ownerId: () => string;
     private readonly leaseDurationMs: number;
+    private readonly fileIo: InvocationExecutionFileIo;
 
     constructor(
         workspaceRoot: string,
@@ -98,9 +126,11 @@ export class HarnessInvocationExecutionLeaseStore {
         this.storePath = join(agentRoot, "invocation-execution.json");
         this.lockTarget = join(agentRoot, "invocation-execution.lock-target");
         this.sentinelPath = join(this.lockTarget, "initialized");
+        this.witnessRoot = join(this.lockTarget, "provider-start-witnesses");
         this.now = options.now ?? Date.now;
         this.ownerId = options.ownerId ?? randomUUID;
         this.leaseDurationMs = options.leaseDurationMs ?? 30_000;
+        this.fileIo = options.fileIo ?? {open};
         if (!Number.isSafeInteger(this.leaseDurationMs) || this.leaseDurationMs <= 0) {
             throw new Error("execution lease duration 必须是正安全整数");
         }
@@ -120,7 +150,7 @@ export class HarnessInvocationExecutionLeaseStore {
                     throw new InvocationExecutionEvidenceLostError("execution store 有记录但 initialized sentinel 缺失");
                 }
                 await this.publishStore(emptyStore());
-                await writeDurableFile(this.sentinelPath, INITIALIZED_SENTINEL);
+                await writeDurableFile(this.sentinelPath, INITIALIZED_SENTINEL, this.fileIo);
                 return;
             }
             await this.readInitializedStore();
@@ -148,6 +178,9 @@ export class HarnessInvocationExecutionLeaseStore {
                 || record.invocationId === input.invocationId
                 || record.clientMessageId === input.clientMessageId)) {
                 throw new Error("execution lease identity 已存在");
+            }
+            if (await pathExists(this.providerStartWitnessPath(store.nextFence))) {
+                throw new InvocationExecutionEvidenceLostError("execution fence 已有残留 Provider start witness");
             }
             const lease: InvocationExecutionLease = {
                 ...input,
@@ -178,11 +211,33 @@ export class HarnessInvocationExecutionLeaseStore {
             if (!record) {
                 throw new InvocationExecutionEvidenceLostError("execution lease 已失效，禁止启动 Provider");
             }
-            if (!record.providerStartedAt) {
-                record.providerStartedAt = new Date(this.now()).toISOString();
-                store.providerStartedFences.push(record.fence);
-                await this.publishStore(store);
+            const existingWitness = await this.readProviderStartWitness(record.fence);
+            if (record.providerStartedAt) {
+                if (!existingWitness || !matchesProviderStartWitness(existingWitness, record)) {
+                    throw new InvocationExecutionEvidenceLostError("Provider start witness 与 execution store 不一致");
+                }
+                return;
             }
+            if (existingWitness) {
+                throw new InvocationExecutionEvidenceLostError("Provider start witness 已存在但 execution store 缺少 start 记录");
+            }
+            const providerStartedAt = new Date(this.now()).toISOString();
+            const witness: ProviderStartWitness = {
+                version: STORE_VERSION,
+                sessionId: record.sessionId,
+                invocationId: record.invocationId,
+                clientMessageId: record.clientMessageId,
+                ownerId: record.ownerId,
+                fence: record.fence,
+                providerStartedAt,
+            };
+            await writeDurableFile(
+                this.providerStartWitnessPath(record.fence),
+                `${JSON.stringify(witness)}\n`,
+                this.fileIo,
+            );
+            record.providerStartedAt = providerStartedAt;
+            await this.publishStore(store);
         });
     }
 
@@ -219,8 +274,8 @@ export class HarnessInvocationExecutionLeaseStore {
             }
             const value = await commit();
             store.records = store.records.filter((candidate) => candidate !== record);
-            store.providerStartedFences = store.providerStartedFences.filter((fence) => fence !== record.fence);
             await this.publishStore(store);
+            await rm(this.providerStartWitnessPath(record.fence), {force: true});
             return {committed: true, value};
         });
     }
@@ -247,17 +302,26 @@ export class HarnessInvocationExecutionLeaseStore {
 
             const truth = await readSessionTruth();
             if (truth.state === "terminal") {
+                const witnessFences = new Set<number>();
                 if (store) {
                     const previousLength = store.records.length;
-                    store.records = store.records.filter((record) => !(
-                        record.sessionId === input.sessionId
-                        && record.clientMessageId === input.clientMessageId
-                    ));
+                    store.records = store.records.filter((record) => {
+                        const matched = record.sessionId === input.sessionId
+                            && record.clientMessageId === input.clientMessageId;
+                        if (matched) {
+                            witnessFences.add(record.fence);
+                        }
+                        return !matched;
+                    });
                     if (store.records.length !== previousLength) {
-                        const liveFences = new Set(store.records.map((record) => record.fence));
-                        store.providerStartedFences = store.providerStartedFences.filter((fence) => liveFences.has(fence));
                         await this.publishStore(store);
                     }
+                }
+                if (truth.executionFence && Number.isSafeInteger(truth.executionFence)) {
+                    witnessFences.add(truth.executionFence);
+                }
+                for (const fence of witnessFences) {
+                    await rm(this.providerStartWitnessPath(fence), {force: true});
                 }
                 return {state: "terminal"};
             }
@@ -268,7 +332,7 @@ export class HarnessInvocationExecutionLeaseStore {
                 return {
                     state: "orphaned",
                     invocationId: truth.invocationId,
-                    providerStartRecorded: truth.executionLeaseEstablished ? null : false,
+                    providerStartRecorded: null,
                 };
             }
 
@@ -277,6 +341,13 @@ export class HarnessInvocationExecutionLeaseStore {
             if (!record) {
                 if (!truth.executionLeaseEstablished) {
                     const fence = store.nextFence;
+                    if (await pathExists(this.providerStartWitnessPath(fence))) {
+                        return {
+                            state: "orphaned",
+                            invocationId: truth.invocationId,
+                            providerStartRecorded: null,
+                        };
+                    }
                     store.nextFence += 1;
                     store.records.push({
                         sessionId: input.sessionId,
@@ -307,18 +378,34 @@ export class HarnessInvocationExecutionLeaseStore {
                     providerStartRecorded: null,
                 };
             }
+            const expectedFence = truth.executionFence;
+            let witness: ProviderStartWitness | null = null;
+            let witnessLost = false;
+            try {
+                witness = await this.readProviderStartWitness(record.fence);
+            } catch (error) {
+                if (!(error instanceof InvocationExecutionEvidenceLostError)) {
+                    throw error;
+                }
+                witnessLost = true;
+            }
+            const providerStartRecorded = witnessLost
+                ? null
+                : resolveProviderStartEvidence(record, witness, expectedFence);
+            const evidenceConsistent = expectedFence === record.fence
+                && providerStartRecorded !== null;
             if (record.state === "orphaned") {
                 return {
                     state: "orphaned",
                     invocationId: record.invocationId,
-                    providerStartRecorded: Boolean(record.providerStartedAt),
+                    providerStartRecorded,
                 };
             }
-            if (Date.parse(record.leaseUntil) > this.now()) {
+            if (evidenceConsistent && Date.parse(record.leaseUntil) > this.now()) {
                 return {
                     state: "active",
                     invocationId: record.invocationId,
-                    lifecycle: record.providerStartedAt ? "running" : "accepted",
+                    lifecycle: providerStartRecorded === true ? "running" : "accepted",
                     executionLeaseUntil: record.leaseUntil,
                 };
             }
@@ -327,9 +414,29 @@ export class HarnessInvocationExecutionLeaseStore {
             return {
                 state: "orphaned",
                 invocationId: record.invocationId,
-                providerStartRecorded: Boolean(record.providerStartedAt),
+                providerStartRecorded,
             };
         });
+    }
+
+    /** 每个 fence 的 Provider start witness 都位于不会被 store rename 替换的稳定锁目标中。 */
+    private providerStartWitnessPath(fence: number): string {
+        return join(this.witnessRoot, `${fence}.json`);
+    }
+
+    /** 缺失表示尚无 witness；存在但不可严格解析时必须 fail closed。 */
+    private async readProviderStartWitness(fence: number): Promise<ProviderStartWitness | null> {
+        try {
+            return parseProviderStartWitness(await readFile(this.providerStartWitnessPath(fence), "utf8"));
+        } catch (error) {
+            if (isNodeError(error, "ENOENT")) {
+                return null;
+            }
+            if (error instanceof InvocationExecutionEvidenceLostError) {
+                throw error;
+            }
+            throw new InvocationExecutionEvidenceLostError("Provider start witness 不可读", {cause: error});
+        }
     }
 
     /** 取得 stable sibling lock；绝不锁会被 rename 替换的 JSON 文件。 */
@@ -384,7 +491,7 @@ export class HarnessInvocationExecutionLeaseStore {
 
     /** temp fsync + rename 发布完整 store。 */
     private async publishStore(store: InvocationExecutionStore): Promise<void> {
-        await writeDurableFile(this.storePath, `${JSON.stringify(store)}\n`);
+        await writeDurableFile(this.storePath, `${JSON.stringify(store)}\n`, this.fileIo);
     }
 
     /** 查找并校验精确、未过期的 live owner/fence。 */
@@ -409,7 +516,6 @@ function emptyStore(): InvocationExecutionStore {
     return {
         version: STORE_VERSION,
         nextFence: 1,
-        providerStartedFences: [],
         records: [],
     };
 }
@@ -423,28 +529,17 @@ function parseStore(text: string): InvocationExecutionStore {
         throw new InvocationExecutionEvidenceLostError("execution store 不是合法 JSON", {cause: error});
     }
     if (!isPlainObject(value)
-        || !hasExactKeys(value, ["version", "nextFence", "providerStartedFences", "records"])
+        || !hasExactKeys(value, ["version", "nextFence", "records"])
         || value.version !== STORE_VERSION
         || !Number.isSafeInteger(value.nextFence)
         || (value.nextFence as number) < 1
-        || !Array.isArray(value.providerStartedFences)
         || !Array.isArray(value.records)) {
         throw new InvocationExecutionEvidenceLostError("execution store 不是 strict v1");
     }
     const records = value.records.map(parseRecord);
-    const providerStartedFences = value.providerStartedFences;
-    if (!providerStartedFences.every((fence) => Number.isSafeInteger(fence) && (fence as number) > 0)
-        || new Set(providerStartedFences).size !== providerStartedFences.length) {
-        throw new InvocationExecutionEvidenceLostError("execution store provider start fence 损坏");
-    }
-    const providerStartedFenceSet = new Set(providerStartedFences as number[]);
-    if (records.some((record) => providerStartedFenceSet.has(record.fence) !== Boolean(record.providerStartedAt))) {
-        throw new InvocationExecutionEvidenceLostError("execution store provider start 证据不一致");
-    }
     const highestFence = Math.max(
         0,
         ...records.map((record) => record.fence),
-        ...(providerStartedFences as number[]),
     );
     if ((value.nextFence as number) <= highestFence) {
         throw new InvocationExecutionEvidenceLostError("execution store nextFence 不是单调递增值");
@@ -465,7 +560,6 @@ function parseStore(text: string): InvocationExecutionStore {
     return {
         version: STORE_VERSION,
         nextFence: value.nextFence as number,
-        providerStartedFences: providerStartedFences as number[],
         records,
     };
 }
@@ -515,6 +609,81 @@ function parseRecord(value: unknown): InvocationExecutionRecord {
     };
 }
 
+/** 独立 witness 使用严格 schema，避免损坏内容被降级为“尚未启动”。 */
+function parseProviderStartWitness(text: string): ProviderStartWitness {
+    let value: unknown;
+    try {
+        value = JSON.parse(text) as unknown;
+    } catch (error) {
+        throw new InvocationExecutionEvidenceLostError("Provider start witness 不是合法 JSON", {cause: error});
+    }
+    const keys = [
+        "version",
+        "sessionId",
+        "invocationId",
+        "clientMessageId",
+        "ownerId",
+        "fence",
+        "providerStartedAt",
+    ];
+    if (!isPlainObject(value)
+        || !hasExactKeys(value, keys)
+        || value.version !== STORE_VERSION
+        || !Number.isSafeInteger(value.sessionId)
+        || (value.sessionId as number) <= 0
+        || typeof value.invocationId !== "string"
+        || value.invocationId.length === 0
+        || typeof value.clientMessageId !== "string"
+        || value.clientMessageId.length === 0
+        || typeof value.ownerId !== "string"
+        || value.ownerId.length === 0
+        || !Number.isSafeInteger(value.fence)
+        || (value.fence as number) <= 0
+        || !isIsoTimestamp(value.providerStartedAt)) {
+        throw new InvocationExecutionEvidenceLostError("Provider start witness 格式损坏");
+    }
+    return {
+        version: STORE_VERSION,
+        sessionId: value.sessionId as number,
+        invocationId: value.invocationId,
+        clientMessageId: value.clientMessageId,
+        ownerId: value.ownerId,
+        fence: value.fence as number,
+        providerStartedAt: value.providerStartedAt,
+    };
+}
+
+/** store 与独立 witness 只有完全一致才证明已启动；确凿均无才证明未启动。 */
+function resolveProviderStartEvidence(
+    record: InvocationExecutionRecord,
+    witness: ProviderStartWitness | null,
+    expectedFence: number | null,
+): boolean | null {
+    if (expectedFence !== record.fence) {
+        return null;
+    }
+    if (!record.providerStartedAt && !witness) {
+        return false;
+    }
+    if (record.providerStartedAt && witness && matchesProviderStartWitness(witness, record)) {
+        return true;
+    }
+    return null;
+}
+
+/** witness 必须绑定完整 invocation identity、owner/fence 与相同的时间戳。 */
+function matchesProviderStartWitness(
+    witness: ProviderStartWitness,
+    record: InvocationExecutionRecord,
+): boolean {
+    return witness.sessionId === record.sessionId
+        && witness.invocationId === record.invocationId
+        && witness.clientMessageId === record.clientMessageId
+        && witness.ownerId === record.ownerId
+        && witness.fence === record.fence
+        && witness.providerStartedAt === record.providerStartedAt;
+}
+
 /** 只接受无原型歧义的 JSON object。 */
 function isPlainObject(value: unknown): value is {[key: string]: unknown} {
     return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -551,24 +720,28 @@ async function pathExists(path: string): Promise<boolean> {
 }
 
 /** 同目录 temp 写入、文件 fsync、rename，并在平台允许时 fsync 父目录。 */
-async function writeDurableFile(path: string, content: string): Promise<void> {
+async function writeDurableFile(
+    path: string,
+    content: string,
+    fileIo: InvocationExecutionFileIo,
+): Promise<void> {
     await mkdir(dirname(path), {recursive: true});
     const temporaryPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
-    const handle = await open(temporaryPath, "wx");
     try {
-        await handle.writeFile(content, "utf8");
-        await handle.sync();
-    } finally {
-        await handle.close();
-    }
-    try {
+        const handle = await fileIo.open(temporaryPath, "wx");
+        try {
+            await handle.writeFile(content, "utf8");
+            await handle.sync();
+        } finally {
+            await handle.close();
+        }
         await rename(temporaryPath, path);
     } catch (error) {
         await rm(temporaryPath, {force: true}).catch(() => undefined);
         throw error;
     }
     try {
-        const directory = await open(dirname(path), "r");
+        const directory = await fileIo.open(dirname(path), "r");
         try {
             await directory.sync();
         } finally {

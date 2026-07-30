@@ -14,7 +14,10 @@ import {Type} from "typebox";
 import type {TSchema} from "typebox";
 import {Value} from "typebox/value";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
-import {HarnessInvocationExecutionLeaseStore} from "nbook/server/agent/harness/invocation-execution-lease";
+import {
+    HarnessInvocationExecutionLeaseStore,
+    InvocationExecutionEvidenceLostError,
+} from "nbook/server/agent/harness/invocation-execution-lease";
 import type {ResolvedPiModel} from "nbook/server/agent/harness/pi-model-metadata";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {defineAgentProfile as defineRuntimeAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
@@ -10351,6 +10354,233 @@ describe("NeuroAgentHarness", () => {
         expect(fenced.status).not.toBe("completed");
         expect(providerCalls).toBe(0);
         await reconstructed.dispose();
+    });
+
+    it("revalidates the execution fence before every Provider turn", async () => {
+        let now = Date.parse("2026-07-30T00:00:00.000Z");
+        const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root, {
+            now: () => now,
+            ownerId: () => "owner-multi-turn",
+            leaseDurationMs: 1_000,
+        });
+        await harness.dispose();
+        harness = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: false,
+            executionLeaseStore,
+            toolExecution: "sequential",
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {key: "test.multi-turn-fence", name: "Multi-turn Fence"},
+            initialSchema: Type.Object({}),
+            allowedToolKeys: ["fence_after_first_turn"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        const created = await harness.createAgent({
+            profileKey: "test.multi-turn-fence",
+            initial: {},
+            workspaceRoot: root,
+        });
+        const reconstructed = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            profiles: harness.profiles,
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: false,
+            executionLeaseStore,
+        });
+        let toolCalls = 0;
+        harness.tools.register({
+            key: "fence_after_first_turn",
+            name: "fence_after_first_turn",
+            label: "Fence after first turn",
+            description: "Atomically fences the current execution before the next model turn.",
+            executionMode: "sequential",
+            parameters: Type.Object({}),
+            async execute() {
+                toolCalls += 1;
+                now += 1_001;
+                await reconstructed.readDurableInvocationResult({
+                    sessionId: created.sessionId,
+                    clientMessageId: "00000000-0000-4000-8000-00000000000b",
+                });
+                return {
+                    content: [{type: "text", text: "fenced"}],
+                    details: {},
+                };
+            },
+        });
+        let providerCalls = 0;
+        let acceptedCalls = 0;
+        const originalStream = faux.runtime.streamSimple;
+        faux.runtime.streamSimple = (...args) => {
+            providerCalls += 1;
+            return originalStream.apply(faux.runtime, args);
+        };
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("fence_after_first_turn", {}, {id: "fence-turn-1"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage("must not reach second Provider"),
+        ]);
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            queueIfBusy: false,
+            clientMessageId: "00000000-0000-4000-8000-00000000000b",
+            message: {text: "run"},
+            onAccepted: async () => {
+                acceptedCalls += 1;
+            },
+        });
+
+        expect(providerCalls).toBe(1);
+        expect(toolCalls).toBe(1);
+        expect(acceptedCalls).toBe(1);
+        expect(result.status).not.toBe("completed");
+        const lifecycle = harness.repo.activePath(await harness.repo.readSession(created.sessionId))
+            .filter((entry) => entry.type === "invocation_lifecycle" && entry.invocationId === result.invocationId);
+        expect(lifecycle.map((entry) => entry.type === "invocation_lifecycle" ? entry.status : "")).toEqual(["start"]);
+        await reconstructed.dispose();
+    });
+
+    it.each([
+        {
+            failureKind: "stale fence",
+            failure: () => new InvocationExecutionEvidenceLostError("heartbeat stale fence"),
+            expectedDiagnostic: "heartbeat stale fence",
+            terminalFenceFailure: false,
+        },
+        {
+            failureKind: "I/O evidence",
+            failure: () => Object.assign(new Error("heartbeat storage EIO"), {code: "EIO"}),
+            expectedDiagnostic: "heartbeat storage EIO",
+            terminalFenceFailure: false,
+        },
+        {
+            failureKind: "stale fence followed by terminal I/O",
+            failure: () => new InvocationExecutionEvidenceLostError("heartbeat stale fence"),
+            expectedDiagnostic: "heartbeat stale fence",
+            terminalFenceFailure: true,
+        },
+    ])("fails closed when heartbeat renewal reports $failureKind failure", async ({
+        failure,
+        expectedDiagnostic,
+        terminalFenceFailure,
+    }) => {
+        const fixedNow = Date.parse("2026-07-30T00:00:00.000Z");
+        const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root, {
+            now: () => fixedNow,
+            ownerId: () => "owner-heartbeat-failure",
+            leaseDurationMs: 30,
+        });
+        const heartbeatHandled = createDeferred();
+        const toolStarted = createDeferred();
+        let renewCalls = 0;
+        executionLeaseStore.renew = async () => {
+            renewCalls += 1;
+            await toolStarted.promise;
+            setImmediate(() => heartbeatHandled.resolve());
+            throw failure();
+        };
+        let terminalFenceCalls = 0;
+        if (terminalFenceFailure) {
+            (executionLeaseStore as unknown as {
+                withLiveExecutionFence(): Promise<never>;
+            }).withLiveExecutionFence = async () => {
+                terminalFenceCalls += 1;
+                throw Object.assign(new Error("terminal sidecar EIO"), {code: "EIO"});
+            };
+        }
+        await harness.dispose();
+        harness = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: false,
+            executionLeaseStore,
+            toolExecution: "sequential",
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {key: "test.heartbeat-failure", name: "Heartbeat Failure"},
+            initialSchema: Type.Object({}),
+            allowedToolKeys: ["wait_for_heartbeat_failure"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        let toolCalls = 0;
+        harness.tools.register({
+            key: "wait_for_heartbeat_failure",
+            name: "wait_for_heartbeat_failure",
+            label: "Wait for heartbeat failure",
+            description: "Keeps the first turn open until the execution heartbeat fails.",
+            executionMode: "sequential",
+            parameters: Type.Object({}),
+            async execute() {
+                toolCalls += 1;
+                toolStarted.resolve();
+                await heartbeatHandled.promise;
+                return {
+                    content: [{type: "text", text: "heartbeat failed"}],
+                    details: {},
+                };
+            },
+        });
+        let providerCalls = 0;
+        const originalStream = faux.runtime.streamSimple;
+        faux.runtime.streamSimple = (...args) => {
+            providerCalls += 1;
+            return originalStream.apply(faux.runtime, args);
+        };
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("wait_for_heartbeat_failure", {}, {id: "heartbeat-turn-1"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage("must not continue after heartbeat failure"),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.heartbeat-failure",
+            initial: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            queueIfBusy: false,
+            clientMessageId: "00000000-0000-4000-8000-00000000000c",
+            message: {text: "run"},
+            onAccepted: async () => undefined,
+        });
+
+        expect(providerCalls).toBe(1);
+        expect(toolCalls).toBe(1);
+        expect(renewCalls).toBe(1);
+        expect(result.status).not.toBe("completed");
+        expect(result.error).toContain(expectedDiagnostic);
+        const lifecycle = harness.repo.activePath(await harness.repo.readSession(created.sessionId))
+            .filter((entry) => entry.type === "invocation_lifecycle" && entry.invocationId === result.invocationId);
+        expect(lifecycle.some((entry) => entry.type === "invocation_lifecycle"
+            && (entry.status === "error" || entry.status === "aborted"))).toBe(!terminalFenceFailure);
+        expect(terminalFenceCalls > 0).toBe(terminalFenceFailure);
+        const runtimeMaps = harness as unknown as {
+            activeInvocations: Map<number, unknown>;
+            abortControllers: Map<number, unknown>;
+            invocationExecutionHeartbeats: Map<string, unknown>;
+            invocationExecutionLeases: Map<string, unknown>;
+        };
+        expect(runtimeMaps.activeInvocations.has(created.sessionId)).toBe(false);
+        expect(runtimeMaps.abortControllers.has(created.sessionId)).toBe(false);
+        expect(runtimeMaps.invocationExecutionHeartbeats.has(result.invocationId)).toBe(false);
+        expect(runtimeMaps.invocationExecutionLeases.has(result.invocationId)).toBe(false);
     });
 
     it("hooked invocation entering waiting releases its execution lease before same-id resume", async () => {

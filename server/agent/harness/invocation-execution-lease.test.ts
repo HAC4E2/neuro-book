@@ -1,5 +1,5 @@
 import {randomUUID} from "node:crypto";
-import {readFile, rm, writeFile} from "node:fs/promises";
+import {open as openFile, readFile, readdir, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {
@@ -36,7 +36,6 @@ describe("HarnessInvocationExecutionLeaseStore", () => {
         expect(persisted).toEqual({
             version: 1,
             nextFence: 1,
-            providerStartedFences: [],
             records: [],
         });
         await expect(readFile(
@@ -60,6 +59,7 @@ describe("HarnessInvocationExecutionLeaseStore", () => {
             state: "nonterminal",
             invocationId: "invocation-7",
             executionLeaseEstablished: true,
+            executionFence: lease.fence,
         }))).resolves.toMatchObject({
             state: "active",
             invocationId: "invocation-7",
@@ -74,6 +74,7 @@ describe("HarnessInvocationExecutionLeaseStore", () => {
             state: "nonterminal",
             invocationId: "invocation-7",
             executionLeaseEstablished: true,
+            executionFence: lease.fence,
         }))).resolves.toEqual({
             state: "orphaned",
             invocationId: "invocation-7",
@@ -94,6 +95,7 @@ describe("HarnessInvocationExecutionLeaseStore", () => {
             state: "nonterminal",
             invocationId: "invocation-10",
             executionLeaseEstablished: false,
+            executionFence: null,
         }))).resolves.toEqual({
             state: "orphaned",
             invocationId: "invocation-10",
@@ -146,7 +148,7 @@ describe("HarnessInvocationExecutionLeaseStore", () => {
 
     it("corrupt sidecar never overwrites terminal Session truth or the corrupt bytes", async () => {
         await store.ensureHealthy();
-        await store.establish({
+        const lease = await store.establish({
             sessionId: 11,
             invocationId: "invocation-11",
             clientMessageId: "client-11",
@@ -158,7 +160,11 @@ describe("HarnessInvocationExecutionLeaseStore", () => {
         await expect(store.resolve({
             sessionId: 11,
             clientMessageId: "client-11",
-        }, async () => ({state: "terminal"}))).resolves.toEqual({state: "terminal"});
+        }, async () => ({
+            state: "terminal",
+            invocationId: "invocation-11",
+            executionFence: lease.fence,
+        }))).resolves.toEqual({state: "terminal"});
         await expect(readFile(path, "utf8")).resolves.toBe(corruptBytes);
     });
 
@@ -174,6 +180,7 @@ describe("HarnessInvocationExecutionLeaseStore", () => {
             state: "nonterminal",
             invocationId: "invocation-12",
             executionLeaseEstablished: true,
+            executionFence: 1,
         }))).resolves.toEqual({
             state: "orphaned",
             invocationId: "invocation-12",
@@ -198,6 +205,7 @@ describe("HarnessInvocationExecutionLeaseStore", () => {
             state: "nonterminal",
             invocationId: "invocation-8",
             executionLeaseEstablished: true,
+            executionFence: lease.fence,
         }))).resolves.toMatchObject({
             state: "active",
             lifecycle: "running",
@@ -209,7 +217,11 @@ describe("HarnessInvocationExecutionLeaseStore", () => {
         await expect(store.resolve({
             sessionId: 8,
             clientMessageId: "client-8",
-        }, async () => ({state: "terminal"}))).resolves.toEqual({state: "terminal"});
+        }, async () => ({
+            state: "terminal",
+            invocationId: "invocation-8",
+            executionFence: lease.fence,
+        }))).resolves.toEqual({state: "terminal"});
     });
 
     it("deleting providerStartedAt after the start fence degrades to null, never false", async () => {
@@ -235,12 +247,79 @@ describe("HarnessInvocationExecutionLeaseStore", () => {
             state: "nonterminal",
             invocationId: "invocation-9",
             executionLeaseEstablished: true,
+            executionFence: lease.fence,
         }))).resolves.toEqual({
             state: "orphaned",
             invocationId: "invocation-9",
             providerStartRecorded: null,
         });
     });
+
+    it("rolling the whole sidecar back to a valid pre-start snapshot never downgrades Provider evidence to false", async () => {
+        await store.ensureHealthy();
+        const lease = await store.establish({
+            sessionId: 16,
+            invocationId: "invocation-16",
+            clientMessageId: "client-16",
+        }, async () => undefined);
+        const path = join(root, ".nbook", "agent", "invocation-execution.json");
+        const beforeProviderStart = await readFile(path, "utf8");
+        await store.recordProviderStarted(lease);
+        await writeFile(path, beforeProviderStart, "utf8");
+
+        now += 1_001;
+        await expect(store.resolve({
+            sessionId: 16,
+            clientMessageId: "client-16",
+        }, async () => ({
+            state: "nonterminal",
+            invocationId: "invocation-16",
+            executionLeaseEstablished: true,
+            executionFence: lease.fence,
+        }))).resolves.toEqual({
+            state: "orphaned",
+            invocationId: "invocation-16",
+            providerStartRecorded: null,
+        });
+    });
+
+    it.each(["write", "sync"] as const)(
+        "cleans the durable temp file when %s fails after open",
+        async (failureStage) => {
+            const caseRoot = join(root, `temp-${failureStage}`);
+            const failingStore = new HarnessInvocationExecutionLeaseStore(caseRoot, {
+                fileIo: {
+                    async open(path: string, flags: "r" | "wx") {
+                        const handle = await openFile(path, flags);
+                        return {
+                            async writeFile(content: string): Promise<void> {
+                                if (failureStage === "write") {
+                                    await handle.writeFile("partial", "utf8");
+                                    throw new Error("injected temp write failure");
+                                }
+                                await handle.writeFile(content, "utf8");
+                            },
+                            async sync(): Promise<void> {
+                                if (failureStage === "sync") {
+                                    throw new Error("injected temp sync failure");
+                                }
+                                await handle.sync();
+                            },
+                            async close(): Promise<void> {
+                                await handle.close();
+                            },
+                        };
+                    },
+                },
+            } as unknown as ConstructorParameters<typeof HarnessInvocationExecutionLeaseStore>[1]);
+
+            await expect(failingStore.ensureHealthy()).rejects.toThrow(`injected temp ${failureStage} failure`);
+            const agentRoot = join(caseRoot, ".nbook", "agent");
+            const temporaryFiles = (await readdir(agentRoot))
+                .filter((name) => name.endsWith(".tmp"));
+            expect(temporaryFiles).toEqual([]);
+        },
+    );
 
     it("terminal commit winning the execution lock makes an orphan reader wait for terminal truth", async () => {
         await store.ensureHealthy();
@@ -269,11 +348,16 @@ describe("HarnessInvocationExecutionLeaseStore", () => {
             sessionId: 13,
             clientMessageId: "client-13",
         }, async () => terminal
-            ? {state: "terminal"}
+            ? {
+                state: "terminal",
+                invocationId: "invocation-13",
+                executionFence: lease.fence,
+            }
             : {
                 state: "nonterminal",
                 invocationId: "invocation-13",
                 executionLeaseEstablished: true,
+                executionFence: lease.fence,
             });
         releaseCommit();
 
@@ -307,6 +391,7 @@ describe("HarnessInvocationExecutionLeaseStore", () => {
                 state: "nonterminal",
                 invocationId: "invocation-14",
                 executionLeaseEstablished: true,
+                executionFence: lease.fence,
             };
         });
         await sessionReadEnteredPromise;
@@ -343,11 +428,16 @@ describe("HarnessInvocationExecutionLeaseStore", () => {
             sessionId: 15,
             clientMessageId: "client-15",
         }, async () => terminal
-            ? {state: "terminal"}
+            ? {
+                state: "terminal",
+                invocationId: "invocation-15",
+                executionFence: lease.fence,
+            }
             : {
                 state: "nonterminal",
                 invocationId: "invocation-15",
                 executionLeaseEstablished: true,
+                executionFence: lease.fence,
             })).resolves.toEqual({state: "terminal"});
         const persisted = JSON.parse(await readFile(
             join(root, ".nbook", "agent", "invocation-execution.json"),

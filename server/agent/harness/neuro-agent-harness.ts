@@ -161,6 +161,7 @@ import type {
 } from "nbook/server/agent/harness/types";
 import {
     HarnessInvocationExecutionLeaseStore,
+    InvocationExecutionEvidenceLostError,
     type InvocationExecutionLease,
 } from "nbook/server/agent/harness/invocation-execution-lease";
 import type {
@@ -372,11 +373,13 @@ type DurableInvocationSessionRead =
         state: "active";
         invocationId: string;
         executionLeaseEstablished: boolean;
+        executionFence: number | null;
         executionManaged: boolean;
     }
     | {
         state: "terminal";
         invocationId: string;
+        executionFence: number | null;
         executionManaged: boolean;
         result: Exclude<DurableInvocationResult, {state: "missing" | "active" | "orphaned"}>;
     };
@@ -558,6 +561,20 @@ class InvocationTerminalCommitRejected extends Error {
     }
 }
 
+/** heartbeat 失效后的稳定诊断；stale fence 与 durable I/O 必须可区分。 */
+class InvocationExecutionHeartbeatFailure extends Error {
+    readonly kind: "stale_fence" | "durable_io";
+    override readonly cause: unknown;
+
+    constructor(kind: "stale_fence" | "durable_io", cause: unknown) {
+        const detail = cause instanceof Error ? cause.message : String(cause);
+        super(`execution lease heartbeat ${kind === "stale_fence" ? "stale fence" : "durable I/O"} failure: ${detail}`);
+        this.name = "InvocationExecutionHeartbeatFailure";
+        this.kind = kind;
+        this.cause = cause;
+    }
+}
+
 export class NeuroAgentHarness {
     readonly repo: JsonlSessionRepository;
     /** Harness所有managed session共享的物理Workspace Root。 */
@@ -602,6 +619,8 @@ export class NeuroAgentHarness {
     /** 仅 hooked invocation 拥有；terminal 后与 sidecar record 一起释放。 */
     private readonly invocationExecutionLeases = new Map<string, InvocationExecutionLease>();
     private readonly invocationExecutionHeartbeats = new Map<string, ReturnType<typeof setInterval>>();
+    /** heartbeat 一旦失败即永久关闭本 running 段，后续 Provider/tool 边界统一从这里 fail closed。 */
+    private readonly invocationExecutionFailures = new Map<string, InvocationExecutionHeartbeatFailure>();
     /** waiting/resume 期间保留 invocation 级模型覆盖；terminal 时随 invocation 状态一并释放。 */
     private readonly invocationModelOverrides = new Map<string, string>();
     /** 每个 Session 的 mutation 临界区；状态读取、interaction admission 与提交必须在同一区间完成。 */
@@ -1034,19 +1053,25 @@ export class NeuroAgentHarness {
             const current = await this.readDurableInvocationSession(input);
             if (current.state === "terminal") {
                 terminalResult = current.result;
-                return {state: "terminal"};
+                return {
+                    state: "terminal",
+                    invocationId: current.invocationId,
+                    executionFence: current.executionFence,
+                };
             }
             if (current.state === "missing") {
                 return {
                     state: "nonterminal",
                     invocationId: null,
                     executionLeaseEstablished: false,
+                    executionFence: null,
                 };
             }
             return {
                 state: "nonterminal",
                 invocationId: current.invocationId,
                 executionLeaseEstablished: current.executionLeaseEstablished,
+                executionFence: current.executionFence,
             };
         });
         if (resolution.state === "terminal") {
@@ -1099,14 +1124,23 @@ export class NeuroAgentHarness {
             ? [{entry, index}]
             : []);
         const latest = lifecycles.at(-1);
-        const executionLeaseEstablished = path.some((entry) => entry.type === "custom"
+        const executionMarker = path.findLast((entry) => entry.type === "custom"
             && entry.key === `${EXECUTION_LEASE_MARKER_PREFIX}${invocationId}`);
+        const executionLeaseEstablished = Boolean(executionMarker);
+        const executionFence = executionMarker?.type === "custom"
+            && isRecord(executionMarker.value)
+            && executionMarker.value.invocationId === invocationId
+            && Number.isSafeInteger(executionMarker.value.fence)
+            && (executionMarker.value.fence as number) > 0
+            ? executionMarker.value.fence as number
+            : null;
         const executionManaged = Boolean(admission) || executionLeaseEstablished;
         if (!latest || latest.entry.status === "start" || latest.entry.status === "resumed") {
             return {
                 state: "active",
                 invocationId,
                 executionLeaseEstablished,
+                executionFence,
                 executionManaged,
             };
         }
@@ -1114,6 +1148,7 @@ export class NeuroAgentHarness {
             return {
                 state: "terminal",
                 invocationId,
+                executionFence,
                 executionManaged,
                 result: {state: "waiting", invocationId},
             };
@@ -1124,6 +1159,7 @@ export class NeuroAgentHarness {
             return {
                 state: "terminal",
                 invocationId,
+                executionFence,
                 executionManaged,
                 result: {
                     state: "failed",
@@ -1150,6 +1186,7 @@ export class NeuroAgentHarness {
             return {
                 state: "terminal",
                 invocationId,
+                executionFence,
                 executionManaged,
                 result: {
                     state: "completed",
@@ -1161,6 +1198,7 @@ export class NeuroAgentHarness {
         return {
             state: "terminal",
             invocationId,
+            executionFence,
             executionManaged,
             result: {state: "completed_without_result", invocationId},
         };
@@ -1542,10 +1580,6 @@ export class NeuroAgentHarness {
                 hasResolutions,
             });
 
-            const executionLease = this.invocationExecutionLeases.get(invocationId);
-            if (executionLease) {
-                await this.executionLeaseStore.recordProviderStarted(executionLease);
-            }
             const result = await this.runLoop({
                 sessionId: input.sessionId,
                 workspaceKey: preparedRun.snapshot.metadata.workspaceKey,
@@ -1633,6 +1667,9 @@ export class NeuroAgentHarness {
             // watchdog 强制返回时，底层不合作 Promise 可能永不 settle；解绑必须跟公开 completion boundary 走。
             removeAbortListener?.();
             this.invocationAcceptances.delete(invocationId);
+            if (this.invocationExecutionFailures.has(invocationId)) {
+                this.cleanupFailedExecutionLease(input.sessionId, invocationId, abortController);
+            }
         }
     }
 
@@ -2098,17 +2135,33 @@ export class NeuroAgentHarness {
             return this.forcedAbortResult(input.sessionId, input.invocationId, input.startedAt);
         }
         const errorInfo = toRunKernelErrorInfo(input.error, input.aborted ? "unknown" : input.errorPhase);
-        const committed = await this.commitInvocationState({
-            sessionId: input.sessionId,
-            invocationId: input.invocationId,
-            lifecycleStatus: input.aborted ? "aborted" : "error",
-            error: errorInfo.message,
-            errorInfo,
-            nextState: "finished",
-            pauseReason: input.aborted ? "aborted" : "error",
-        });
+        let committed: boolean;
+        try {
+            committed = await this.commitInvocationState({
+                sessionId: input.sessionId,
+                invocationId: input.invocationId,
+                lifecycleStatus: input.aborted ? "aborted" : "error",
+                error: errorInfo.message,
+                errorInfo,
+                nextState: "finished",
+                pauseReason: input.aborted ? "aborted" : "error",
+            });
+        } catch (terminalError) {
+            if (!this.invocationExecutionFailures.has(input.invocationId)) {
+                throw terminalError;
+            }
+            void appLogger.error("agent.invoke.executionLeaseTerminalFailed", {
+                sessionId: input.sessionId,
+                invocationId: input.invocationId,
+                heartbeatError: errorInfo.message,
+                terminalError: terminalError instanceof Error ? terminalError.message : String(terminalError),
+            }, terminalError, "Execution lease heartbeat failure could not commit terminal lifecycle");
+            return this.executionLeaseFailureResult(input, errorInfo);
+        }
         if (!committed) {
-            return this.forcedAbortResult(input.sessionId, input.invocationId, input.startedAt);
+            return this.invocationExecutionFailures.has(input.invocationId)
+                ? this.executionLeaseFailureResult(input, errorInfo)
+                : this.forcedAbortResult(input.sessionId, input.invocationId, input.startedAt);
         }
         void appLogger.error("agent.invoke.error", {
             sessionId: input.sessionId,
@@ -2118,6 +2171,27 @@ export class NeuroAgentHarness {
             elapsedMs: Date.now() - input.startedAt,
             errorMessage: errorInfo.message,
         }, input.error, "Agent invocation failed");
+        return {
+            sessionId: input.sessionId,
+            invocationId: input.invocationId,
+            status: "error",
+            acceptance: input.acceptance,
+            error: errorInfo.message,
+            errorPhase: errorInfo.phase,
+            errorInfo,
+            elapsedMs: Date.now() - input.startedAt,
+        };
+    }
+
+    /** heartbeat 主错误优先于随后 terminal fence 的二次失败，保证调用方得到可诊断结果。 */
+    private executionLeaseFailureResult(
+        input: Pick<Parameters<NeuroAgentHarness["failInvocation"]>[0], "sessionId" | "invocationId" | "startedAt" | "acceptance">,
+        fallback: InvocationErrorInfo,
+    ): AgentInvocationResult {
+        const failure = this.invocationExecutionFailures.get(input.invocationId);
+        const errorInfo: InvocationErrorInfo = failure
+            ? {message: failure.message, phase: "unknown"}
+            : fallback;
         return {
             sessionId: input.sessionId,
             invocationId: input.invocationId,
@@ -4993,10 +5067,12 @@ export class NeuroAgentHarness {
             const assistant = await this.streamAssistant({
                 snapshot,
                 sessionId: frame.sessionId,
+                invocationId: frame.invocationId,
                 abortSignal: frame.abortSignal,
                 emit: (event) => this.emitFrameEvent(frame, event),
                 trace: this.piTraceBinding(frame),
             });
+            this.assertExecutionLeaseHealthy(frame.invocationId);
             if (assistant.stopReason === "error" || assistant.stopReason === "aborted") {
                 return {
                     kind: "failed",
@@ -5305,6 +5381,7 @@ export class NeuroAgentHarness {
     private async streamAssistant(input: {
         snapshot: TurnSnapshot;
         sessionId: number;
+        invocationId?: string;
         abortSignal?: AbortSignal;
         emit: (event: AgentEvent) => Promise<void>;
         trace: PiTraceBinding;
@@ -5345,6 +5422,14 @@ export class NeuroAgentHarness {
             timeoutMs: input.snapshot.timeoutMs ?? undefined,
             signal: input.abortSignal,
         };
+        if (input.invocationId) {
+            this.assertExecutionLeaseHealthy(input.invocationId);
+            const executionLease = this.invocationExecutionLeases.get(input.invocationId);
+            if (executionLease) {
+                await this.executionLeaseStore.recordProviderStarted(executionLease);
+            }
+            this.assertExecutionLeaseHealthy(input.invocationId);
+        }
         const stream = tracedStreamSimple(input.snapshot.models, input.snapshot.model, context, options, input.trace, {
             context: traceContext,
             segments: traceSegments,
@@ -5791,6 +5876,7 @@ export class NeuroAgentHarness {
         isError: boolean;
     }> {
         const {toolCall} = input;
+        this.assertExecutionLeaseHealthy(input.invocationId);
         await input.emit({
             type: "tool_execution_start",
             toolCallId: toolCall.id,
@@ -5813,6 +5899,7 @@ export class NeuroAgentHarness {
             toolCall,
             messages: input.messages,
         });
+        this.assertExecutionLeaseHealthy(input.invocationId);
         await input.emit({
             type: "tool_execution_end",
             toolCallId: toolCall.id,
@@ -6698,9 +6785,16 @@ export class NeuroAgentHarness {
     private async commitInvocationState(input: InvocationStateCommit): Promise<boolean> {
         const lease = this.invocationExecutionLeases.get(input.invocationId);
         if (lease) {
+            const successfulTerminal = input.lifecycleStatus === "end" || input.lifecycleStatus === "waiting";
+            if (successfulTerminal) {
+                this.assertExecutionLeaseHealthy(input.invocationId);
+            }
             let committed: Awaited<ReturnType<HarnessInvocationExecutionLeaseStore["withLiveExecutionFence"]>>;
             try {
                 committed = await this.executionLeaseStore.withLiveExecutionFence(lease, async () => {
+                    if (successfulTerminal) {
+                        this.assertExecutionLeaseHealthy(input.invocationId);
+                    }
                     const sessionCommitted = await this.commitInvocationStateWithSession(input);
                     if (!sessionCommitted) {
                         throw new InvocationTerminalCommitRejected();
@@ -6766,32 +6860,95 @@ export class NeuroAgentHarness {
         this.invocationProjectOperations.delete(invocationId);
     }
 
-    /** 从 lease 建立后持续续租，直到 durable terminal 或 execution fence 失效。 */
+    /** 从 lease 建立后串行续租；上一轮完成前绝不启动下一轮 heartbeat。 */
     private startExecutionLeaseHeartbeat(lease: InvocationExecutionLease): void {
-        const timer = setInterval(() => {
-            const current = this.invocationExecutionLeases.get(lease.invocationId);
-            if (!current || current.ownerId !== lease.ownerId || current.fence !== lease.fence) {
-                this.stopExecutionLeaseHeartbeat(lease.invocationId);
-                return;
-            }
-            void this.executionLeaseStore.renew(current).then((renewed) => {
-                if (this.invocationExecutionLeases.get(lease.invocationId) === current) {
-                    this.invocationExecutionLeases.set(lease.invocationId, renewed);
+        const schedule = (): void => {
+            const timer = setTimeout(() => {
+                const current = this.invocationExecutionLeases.get(lease.invocationId);
+                if (!current || current.ownerId !== lease.ownerId || current.fence !== lease.fence) {
+                    this.stopExecutionLeaseHeartbeat(lease.invocationId);
+                    return;
                 }
-            }).catch(() => {
-                this.stopExecutionLeaseHeartbeat(lease.invocationId);
-            });
-        }, this.executionLeaseStore.heartbeatIntervalMs);
-        timer.unref?.();
-        this.invocationExecutionHeartbeats.set(lease.invocationId, timer);
+                void this.executionLeaseStore.renew(current).then((renewed) => {
+                    if (this.invocationExecutionLeases.get(lease.invocationId) === current) {
+                        this.invocationExecutionLeases.set(lease.invocationId, renewed);
+                        schedule();
+                    }
+                }).catch((error) => {
+                    this.failExecutionLeaseHeartbeat(lease, current, error);
+                });
+            }, this.executionLeaseStore.heartbeatIntervalMs);
+            timer.unref?.();
+            this.invocationExecutionHeartbeats.set(lease.invocationId, timer);
+        };
+        schedule();
     }
 
     /** 停止一个 invocation 的 heartbeat，不触碰 durable sidecar。 */
     private stopExecutionLeaseHeartbeat(invocationId: string): void {
         const timer = this.invocationExecutionHeartbeats.get(invocationId);
         if (timer) {
-            clearInterval(timer);
+            clearTimeout(timer);
             this.invocationExecutionHeartbeats.delete(invocationId);
+        }
+    }
+
+    /** renew 失败即永久关闭当前 owner/fence，并用同一失败对象中断 Provider/tool。 */
+    private failExecutionLeaseHeartbeat(
+        lease: InvocationExecutionLease,
+        current: InvocationExecutionLease,
+        error: unknown,
+    ): void {
+        if (this.invocationExecutionLeases.get(lease.invocationId) !== current
+            || current.ownerId !== lease.ownerId
+            || current.fence !== lease.fence) {
+            return;
+        }
+        const failure = new InvocationExecutionHeartbeatFailure(
+            error instanceof InvocationExecutionEvidenceLostError ? "stale_fence" : "durable_io",
+            error,
+        );
+        this.invocationExecutionFailures.set(lease.invocationId, failure);
+        this.stopExecutionLeaseHeartbeat(lease.invocationId);
+        const controller = this.abortControllers.get(lease.sessionId);
+        if (controller && !controller.signal.aborted) {
+            controller.abort(failure);
+        }
+        void appLogger.error("agent.invoke.executionLeaseHeartbeatFailed", {
+            sessionId: lease.sessionId,
+            invocationId: lease.invocationId,
+            fence: lease.fence,
+            failureKind: failure.kind,
+            error: failure.message,
+        }, error, "Execution lease heartbeat failed");
+    }
+
+    /** Provider/tool 共享的 fail-closed gate。 */
+    private assertExecutionLeaseHealthy(invocationId: string | undefined): void {
+        if (!invocationId) {
+            return;
+        }
+        const failure = this.invocationExecutionFailures.get(invocationId);
+        if (failure) {
+            throw failure;
+        }
+    }
+
+    /** heartbeat 失败后的公开 completion boundary 无条件释放本 running 段内存资源。 */
+    private cleanupFailedExecutionLease(
+        sessionId: number,
+        invocationId: string,
+        abortController: AbortController,
+    ): void {
+        this.finishInvocationState(sessionId, invocationId);
+        this.stopExecutionLeaseHeartbeat(invocationId);
+        this.invocationExecutionLeases.delete(invocationId);
+        this.invocationExecutionFailures.delete(invocationId);
+        if (this.abortControllers.get(sessionId) === abortController) {
+            this.abortControllers.delete(sessionId);
+        }
+        if (this.activeInvocations.get(sessionId)?.invocationId === invocationId) {
+            this.activeInvocations.delete(sessionId);
         }
     }
 
