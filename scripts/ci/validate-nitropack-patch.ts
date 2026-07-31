@@ -36,13 +36,19 @@ export async function validateNitropackPatch(root = repositoryRoot): Promise<voi
     );
 
     const packageRoots = new Set<string>();
-    packageRoots.add(await realpath(resolve(root, "node_modules", "nitropack")));
+    const topLevelPackage = resolve(root, "node_modules", "nitropack");
+    try {
+        packageRoots.add(await realpath(topLevelPackage));
+    } catch {
+        // Bun Linux 安装可能只保留被 Nuxt 依赖链接到的 .bun 包副本。
+    }
     const bunPackageStore = resolve(root, "node_modules", ".bun");
     for (const name of await readdir(bunPackageStore)) {
         if (name.startsWith("@nuxt+nitro-server@")) {
             packageRoots.add(await realpath(join(bunPackageStore, name, "node_modules", "nitropack")));
         }
     }
+    ensure(packageRoots.size > 0, "未找到 Nuxt 实际使用的 nitropack 安装产物");
 
     for (const packageRoot of packageRoots) {
         for (const modulePath of patchedModules) {
