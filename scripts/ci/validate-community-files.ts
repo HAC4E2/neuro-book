@@ -30,7 +30,7 @@ interface IssueForm {
 
 interface IssueTemplateConfig {
     blank_issues_enabled: boolean;
-    contact_links: Array<{
+    contact_links?: Array<{
         name: string;
         url: string;
         about: string;
@@ -40,6 +40,7 @@ interface IssueTemplateConfig {
 interface FormContract {
     path: string;
     typeLabel: string;
+    requiredLabels?: string[];
     requiredIds: string[];
 }
 
@@ -110,6 +111,32 @@ const formContracts: FormContract[] = [
             "duplicate-check",
         ],
     },
+    {
+        path: ".github/ISSUE_TEMPLATE/prompt-contribution.yml",
+        typeLabel: "type: feature",
+        requiredLabels: ["area: agent"],
+        requiredIds: [
+            "contribution-kind",
+            "asset-kind",
+            "target",
+            "use-case",
+            "desired-behavior",
+            "content-authorization",
+            "privacy-confirmation",
+            "duplicate-check",
+        ],
+    },
+    {
+        path: ".github/ISSUE_TEMPLATE/other-request.yml",
+        typeLabel: "type: other",
+        requiredIds: [
+            "topic",
+            "why-other",
+            "details",
+            "privacy-confirmation",
+            "duplicate-check",
+        ],
+    },
 ];
 
 const yamlPaths = [
@@ -117,6 +144,8 @@ const yamlPaths = [
     ".github/ISSUE_TEMPLATE/bug-report.yml",
     ".github/ISSUE_TEMPLATE/feature-request.yml",
     ".github/ISSUE_TEMPLATE/support-request.yml",
+    ".github/ISSUE_TEMPLATE/prompt-contribution.yml",
+    ".github/ISSUE_TEMPLATE/other-request.yml",
     ".github/ISSUE_TEMPLATE/config.yml",
     ".github/workflows/community-docs.yml",
     ".github/workflows/code-baseline.yml",
@@ -187,8 +216,13 @@ function isRequired(field: FormField): boolean {
 async function validateForm(contract: FormContract, labelNames: Set<string>): Promise<void> {
     const form = await readYaml<IssueForm>(contract.path);
     ensure(Boolean(form.name) && Boolean(form.description), `${contract.path} 缺少 name 或 description`);
+    ensure(form.labels.filter((label) => label.startsWith("type: ")).length === 1, `${contract.path} 必须恰好引用一个 type:* 标签`);
+    ensure(form.labels.filter((label) => label.startsWith("status: ")).length === 1, `${contract.path} 必须恰好引用一个 status:* 标签`);
     ensure(form.labels.includes(contract.typeLabel), `${contract.path} 缺少 ${contract.typeLabel}`);
     ensure(form.labels.includes("status: needs-triage"), `${contract.path} 缺少 status: needs-triage`);
+    for (const label of contract.requiredLabels ?? []) {
+        ensure(form.labels.includes(label), `${contract.path} 缺少 ${label}`);
+    }
 
     for (const label of form.labels) {
         ensure(labelNames.has(label), `${contract.path} 引用了未登记标签: ${label}`);
@@ -244,9 +278,9 @@ async function validateGuides(): Promise<void> {
 async function validatePublicTemplates(): Promise<void> {
     const config = await readYaml<IssueTemplateConfig>(".github/ISSUE_TEMPLATE/config.yml");
     ensure(config.blank_issues_enabled === false, "Issue 配置必须禁止空白 Issue");
-    const securityLink = config.contact_links.find((link) => link.url.endsWith("/security/advisories/new"));
-    ensure(Boolean(securityLink), "Issue 配置必须提供私密安全报告入口");
-    ensure(securityLink!.name.includes("安全") && securityLink!.name.includes("Security"), "安全入口必须中英双语");
+    const duplicateSecurityLinks = (config.contact_links ?? [])
+        .filter((link) => link.url.includes("/security/advisories"));
+    ensure(duplicateSecurityLinks.length === 0, "Issue chooser 不得重复配置私密安全报告入口；GitHub 会提供原生 Security 入口");
 
     const pullRequest = await readRepoFile(".github/PULL_REQUEST_TEMPLATE.md");
     for (const heading of [

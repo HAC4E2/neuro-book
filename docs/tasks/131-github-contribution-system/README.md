@@ -1,12 +1,13 @@
 # GitHub 贡献体系第一期
 
-> 当前状态：Implemented and verified (2026-07-28) / 审查修复与 GitHub Actions 干净 Runner 验收通过；Issue chooser 人工验收待执行。
+> 当前状态：Implemented and locally verified (2026-07-31) / Issue chooser 已扩展为五类结构化表单并收敛 Security 入口；远端与人工验收待执行。
 
 ## User Request / Topic
 
 - 为公开仓库建立可实际使用的 GitHub contribution 体系，包括贡献指南、Issue 规范、标签、PR 模板、安全报告和 PR 检查。
 - 贡献指南需要覆盖开发规范、开发 Agent 协作以及现有 Task walkthrough 体系。
 - GitHub Issues 同时承载错误、功能建议和使用帮助，不把使用问题导向外部社区。
+- 2026-07-31 追加提示词与内置 Agent 资产入口、其它问题兜底入口，并移除重复的 Security chooser 链接。
 
 ## Goal
 
@@ -36,7 +37,7 @@
 - 新功能、跨模块改动和架构变化先经过 Issue 讨论并进入 `status: ready`；拼写、链接和小型文档修正可直接提交。
 - Task 是重大实现的持续上下文，不是 Issue 副本。外部贡献者默认不自行分配 Task 编号或修改 `RELEASE.md`。
 - 第一批标签保持四个维度：type、status、area、platform；保留 GitHub 发现入口 `good first issue`、`help wanted` 和 `duplicate`。
-- Issue chooser 禁止空白 Issue，提供错误、功能建议、使用与安装三个双语表单。安全漏洞只走 GitHub Private Vulnerability Reporting。
+- Issue chooser 禁止公开空白 Issue，提供错误、功能建议、使用与安装、提示词与内置 Agent 资产、其它问题五个双语结构化表单。安全漏洞只走 GitHub Private Vulnerability Reporting 的原生入口。
 - 暂不创建 `CODE_OF_CONDUCT.md`，等待确定可执行的私密投诉渠道后再讨论。
 - 代码基线工作流标记为 Advisory，不设置 branch required checks；基线修复另建公开 Issue。
 - 不建立 Discussions、CODEOWNERS、stale bot、欢迎机器人或其它当前贡献规模不需要的自动化。
@@ -51,8 +52,8 @@
 
 ### Issue 与标签
 
-- 新建错误报告、功能建议、使用与安装问题三个 Issue Form；每个表单都要求隐私确认和重复检查。
-- 新建 `.github/labels.yml` 作为 22 个标签的仓库内真相源。
+- 建立错误报告、功能建议、使用与安装问题、提示词与内置 Agent 资产、其它问题五个 Issue Form；每个表单都要求隐私确认和重复检查，提示词贡献额外要求内容授权确认。
+- `.github/labels.yml` 当前作为 23 个标签的仓库内真相源。
 - 表单只自动添加 type 和 needs-triage；area、platform 和后续状态由维护者根据内容分流。
 
 ### 自动校验与 CI
@@ -63,7 +64,7 @@
 
 ## Verification / Test
 
-- `bun scripts/ci/validate-community-files.ts` 通过：22 个标签、3 个 Issue Form、8 个 YAML；标签引用、字段 ID、必填字段、隐私确认、中英文贡献指南和三条工作流结构合同全部成立。
+- 第一阶段首次验收时 `bun scripts/ci/validate-community-files.ts` 通过：22 个标签、3 个 Issue Form、8 个 YAML；标签引用、字段 ID、必填字段、隐私确认、中英文贡献指南和三条工作流结构合同全部成立。
 - `bun run docs:build` 通过；只有既有 chunk size warning。
 - `git diff --check` 对本任务文件通过；只有仓库既有 CRLF 转换提示。
 - 中英文贡献指南均为 10 个二级章节，并通过互链、章节数量和分流状态关键合同自动校验。
@@ -76,7 +77,7 @@
 ## Remote Changes
 
 - 默认 `bug`、`enhancement`、`documentation`、`question` 已原地重命名为对应 `type:*` 标签，保留历史关联；保留的 `good first issue`、`help wanted`、`duplicate` 已更新双语描述；`invalid`、`wontfix` 已删除。
-- 新增 15 个 type/status/area/platform 标签，远端标签总数为 22。
+- 第一阶段新增 15 个 type/status/area/platform 标签，当时远端标签总数为 22。
 - 已分流开放 Issue：#14 feature/agent/needs-design；#12 feature/localization/needs-design；#10 bug/install-release/macos/needs-triage；#6 bug/agent/needs-triage；#5 bug/install-release/windows/needs-design。
 - 已创建 [#15](https://github.com/notnotype/neuro-book/issues/15) 追踪可强制执行的 PR 质量门禁基线。
 - 已开启 Private Vulnerability Reporting、Secret Scanning 和 Push Protection。
@@ -102,19 +103,41 @@
 - Code Baseline 补齐审查发现的真实源码、类型和构建配置 paths；typecheck/test 继续保持独立 Advisory job 和 15/30 分钟超时，不建立 required check。
 - 新增共享标签清单解析、精确远端差异和开放 Issue 分流审计，以及 `github:labels check/apply` 维护命令。默认 apply 只 upsert；额外标签只有显式 `--delete-extra --yes` 才删除。
 - `bun run test -- scripts/ci/community-labels.test.ts --reporter=dot`：4/4 通过，覆盖完全匹配、缺失/元数据/额外差异、type/status 唯一性和社区标签 ready 前置条件。
-- `bun scripts/ci/validate-community-files.ts`：通过，22 个标签、3 个 Issue Form、8 个 YAML。
+- 审查修复当时 `bun scripts/ci/validate-community-files.ts`：通过，22 个标签、3 个 Issue Form、8 个 YAML。
 - `bun run nuxt:prepare` 与 `bun run docs:build`：通过；文档构建只有既有 chunk size warning。
-- 修正前 `github:labels check` 只报告 #12 的 `help wanted + needs-design` 冲突；移除 `help wanted` 后远端 22 个标签和全部开放 Issue 分流合同通过。
+- 审查修正前 `github:labels check` 只报告 #12 的 `help wanted + needs-design` 冲突；移除 `help wanted` 后当时远端 22 个标签和全部开放 Issue 分流合同通过。
 - 第一笔修复提交为 `e5fc30a8`。GitHub [Community and Docs Checks #30328099856](https://github.com/notnotype/neuro-book/actions/runs/30328099856) 与 [Deploy Docs #30328077845](https://github.com/notnotype/neuro-book/actions/runs/30328077845) 均在干净 Ubuntu Runner 上成功。
 - 远端 `PROJECT-STATUS.md` 暂时移除 Task 129/130 状态行；当前工作副本和未提交 Task 文档均保留，待对应实现正式提交时恢复。
 
 ### Remaining Boundaries
 
 - 没有 dispatch Code Baseline：它的 typecheck 和全量 Vitest 仍是 #15 记录的已知失败/超时基线，本轮只验证结构合同，没有把它描述成通过。
-- 没有自动进行浏览器验收；登录后的 Issue chooser 三表单视觉检查仍由人工执行。
+- 没有自动进行浏览器验收；登录后的 Issue chooser 视觉检查仍由人工执行。
+
+## Issue Intake Follow-up (2026-07-31)
+
+### Findings and Decisions
+
+- 人工截图确认 Issue chooser 同时显示 GitHub 根据安全政策生成的原生 “Report a security vulnerability” 和 `config.yml` 手工添加的安全链接，形成重复入口。保留原生入口，删除手工 `contact_links`。
+- 禁用公开 Blank issue 后，外部贡献者在现有三类表单都不适用时没有公开逃生口；维护者专用 Blank issue 不能替代公开贡献入口。新增“其它问题”结构化表单，并继续保持 `blank_issues_enabled: false`。
+- 通用功能建议无法稳定收集 Profile、Skill、Workflow 和其它提示词资产所需的目标路径、真实场景、预期行为、评测样例与内容授权。新增独立表单，但继续复用 `type: feature`、`area: agent` 和现有状态机。
+- “其它问题”新增 `type: other`；`area: agent` 的双语描述扩展到 Skill 和其它提示词，不为每类 Agent 资产继续拆分更多标签。
+
+### Implementation
+
+- 新增 `prompt-contribution.yml`，覆盖优化现有资产和贡献新资产两类请求；要求资产类型、目标名称或路径、实际场景、期望行为、内容授权、隐私与重复检查，可选提交草案和脱敏评测样例。
+- 新增 `other-request.yml`，要求主题、现有入口不适用的原因和详细情况，并明确安全漏洞仍需私密报告。
+- 社区校验把表单合同从 3 个扩展到 5 个、YAML 清单从 8 个扩展到 10 个，锁定每个表单恰好一个 `type:*` 与一个 `status:*`，并禁止再次手工加入 Private Vulnerability Reporting chooser 链接。
+- 中英文贡献指南同步增加两个入口并说明“其它问题”不能绕过安全报告或必要设计讨论。
+
+### Local Verification
+
+- `bun scripts/ci/validate-community-files.ts`：通过，当前清单为 23 个标签、5 个 Issue Form、10 个 YAML。
+- `bun run docs:build`：通过，VitePress 约 15 秒完成；只出现既有的大 chunk warning。
+- `git diff --check` 对本轮贡献体系文件通过；PowerShell 仅提示仓库既有的 LF/CRLF 转换行为。
 
 ## TODO / Follow-ups
 
 - 修复类型检查和全量测试基线后，再讨论 required checks 与 `master` ruleset。
 - 确定社区行为投诉的私密处理渠道后，再讨论 `CODE_OF_CONDUCT.md`。
-- 人工打开 GitHub Issue chooser，检查三个表单在桌面和窄屏下的实际呈现。
+- 人工打开 GitHub Issue chooser，检查五个表单在桌面和窄屏下的实际呈现，并确认只显示一个原生 Security 入口。

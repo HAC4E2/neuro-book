@@ -12,6 +12,8 @@
 - 边界明确的小 Bug 应关联现有 Issue；没有对应 Issue 时，先提交错误报告。
 - 新功能、跨模块修改、数据结构调整、运行时合同变化和高成本重构必须先提交 Issue。维护者将需求标记为 `status: ready` 后再开始实现。
 - 安装或使用问题请提交“使用与安装问题”，不需要前往外部社区。
+- 优化或贡献 Profile、Skill、Workflow 和其它提示词时，请提交“提示词与内置 Agent 资产”。
+- 以上公开分类都不适用时，请使用“其它问题”结构化表单，不要借此绕过安全报告或必要的设计讨论。
 - 安全漏洞不要创建公开 Issue 或 PR，请按照[安全政策](.github/SECURITY.md)使用 GitHub 私密漏洞报告。
 
 冷门或实现成本很高的需求会先讨论能否缩小范围。Issue 被接受表示方向可以实现，不保证具体方案或完成时间。
@@ -118,7 +120,7 @@ Issue 负责公开问题和需求分流；Task walkthrough 负责重大实现的
 
 ### 维护者分流
 
-三个 Issue Form 会自动添加一个 `type:*` 和 `status: needs-triage`。维护者分流时遵守以下状态合同：
+五个 Issue Form 会自动添加一个 `type:*` 和 `status: needs-triage`。维护者分流时遵守以下状态合同：
 
 - 每个开放 Issue 恰好保留一个 `type:*` 和一个 `status:*`；`area:*`、`platform:*` 可以按实际影响添加多个或不添加。
 - `status: needs-triage` 表示等待首次确认。信息不足时转为 `status: needs-info`；报告者补充后重新分流。
