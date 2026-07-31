@@ -1,0 +1,23 @@
+{
+    "compilerOptions": {
+        "target": "ESNext",
+        "module": "ESNext",
+        "moduleResolution": "Bundler",
+        "strict": true,
+        "skipLibCheck": true,
+        "types": [
+            "node",
+            "bun"
+        ],
+        "baseUrl": "..",
+        "paths": {
+            "nbook/*": [
+                "./*"
+            ]
+        }
+    },
+    "include": [
+        "../proper-lockfile.d.ts",
+        "build/product-runtime-image-builder.ts"
+    ]
+}

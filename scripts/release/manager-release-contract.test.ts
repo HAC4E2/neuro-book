@@ -13,6 +13,7 @@ type RootPackage = {
 
 type GeneratedTsConfig = {
     extends?: string;
+    include?: string[];
     compilerOptions: {
         module: string;
         moduleResolution: string;
@@ -28,6 +29,11 @@ describe("Manager release clean-checkout contract", () => {
             (await readFile(resolve(ROOT, "server", "generated", "tsconfig.json"), "utf8"))
                 .replace(/^\s*\/\/.*$/gmu, ""),
         ) as GeneratedTsConfig;
+        const managerSourceTsConfigs = await Promise.all(
+            ["scripts", "shared"].map(async (directory) => JSON.parse(
+                await readFile(resolve(ROOT, directory, "tsconfig.json"), "utf8"),
+            ) as GeneratedTsConfig),
+        );
 
         expect(packageJson.scripts["runtime:typecheck"]).toMatch(/^bun run generate && /u);
         expect(packageJson.scripts["manager:test"]).toContain("scripts/release/manager-release-contract.test.ts");
@@ -37,5 +43,17 @@ describe("Manager release clean-checkout contract", () => {
             module: "ESNext",
             moduleResolution: "Bundler",
         });
+        for (const tsConfig of managerSourceTsConfigs) {
+            expect(tsConfig.extends).toBeUndefined();
+            expect(tsConfig.compilerOptions).toMatchObject({
+                module: "ESNext",
+                moduleResolution: "Bundler",
+            });
+        }
+        expect(managerSourceTsConfigs[0]?.include).toContain("build/product-runtime-image-builder.ts");
+        expect(managerSourceTsConfigs[1]?.include).toEqual(expect.arrayContaining([
+            "product-runtime-contract.ts",
+            "product-runtime-environment.ts",
+        ]));
     });
 });
