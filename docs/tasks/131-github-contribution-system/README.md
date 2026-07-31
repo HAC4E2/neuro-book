@@ -54,7 +54,7 @@
 
 - 建立错误报告、功能建议、使用与安装问题、提示词与内置 Agent 资产、其它问题五个 Issue Form；每个表单都要求隐私确认和重复检查，提示词贡献额外要求内容授权确认。
 - `.github/labels.yml` 当前作为 23 个标签的仓库内真相源。
-- 表单只自动添加 type 和 needs-triage；area、platform 和后续状态由维护者根据内容分流。
+- 五个表单都自动添加一个 `type:*` 和 `status: needs-triage`；提示词与内置 Agent 资产表单另外自动添加 `area: agent`，platform、其它 area 和后续状态由维护者根据内容分流。
 
 ### 自动校验与 CI
 
@@ -143,6 +143,29 @@
 - GitHub Private Vulnerability Reporting API 返回 `enabled: true`；移除手工 contact link 后仍保留 GitHub 原生私密漏洞报告能力。
 - [Deploy Docs #30611776367](https://github.com/notnotype/neuro-book/actions/runs/30611776367) 与手动触发的 [Community and Docs Checks #30611854690](https://github.com/notnotype/neuro-book/actions/runs/30611854690) 均在提交 `146375d0` 上成功。
 - 按仓库规则没有自动执行浏览器验收；API 能确认文件与配置落地，但不把它描述成 Issue chooser 的视觉呈现已经通过。
+
+## Clean-runner CI Follow-up (2026-07-31)
+
+### Findings and Remediation
+
+- 第一轮审查修复没有覆盖干净 Runner 的 Nuxt 生成前置；`ff26055e` 为两个文档工作流加入 `bun run nuxt:prepare`，并将 Issue Form 文件改为带数字前缀的确定顺序 `01`、`02`、`03`、`04`、`99`。
+- Community workflow 原先只在 pull request 触发，已补 `master` push；Community、Deploy Docs 和 Code Baseline 三条贡献体系工作流显式使用 Node 24。Code Baseline 的 paths 也补齐 plugins、根类型声明、Prisma/Uno/Bun 配置、Docker、配置样例和 release migration 等入口。
+- `9551c27e` 把 Nitro patch 校验从依赖 Vitest bootstrap 的测试中抽为 standalone 脚本；`a6f27f81` 再兼容 Linux clean Runner 的 Bun nested `.bun/.../node_modules/nitropack` 布局。标签描述的 `null` 远端值统一归一为空字符串，避免静态清单与 API 结果误报漂移。
+- Nitro patch 的实际 unified diff 坐标也被校正：第二个 hunk 从 `1280` 开始，第三个旧起点 `1496` 在前面累计增加三行后应为 `1499`。Task 130 另行记录该根因；非法安装产物由 standalone 校验直接解析语法和语义，不再由 Vitest 启动间接覆盖。
+
+### Verification Evidence
+
+- 本地 `bun install --frozen-lockfile`、`bun scripts/ci/validate-nitropack-patch.ts`、`bun scripts/ci/validate-community-files.ts`、Nitro 与标签聚焦测试（2 files / 6 tests）、`bun run github:labels -- check`、`bun run nuxt:prepare` 和 `bun run docs:build` 均通过；文档构建只有既有大 chunk warning。`bun.lock` 没有因 patch 文本坐标变化而产生变更。
+- `ff26055e` 后的 [Community and Docs Checks 30620002275](https://github.com/notnotype/neuro-book/actions/runs/30620002275) 与 [Deploy Docs 30620002220](https://github.com/notnotype/neuro-book/actions/runs/30620002220) 失败，原因是 clean checkout 中 Vitest bootstrap 被仓库另一项未提交的 tsconfig 修复阻断；不是贡献文件合同失败。
+- `9551c27e` 后的 [Community and Docs Checks 30620260863](https://github.com/notnotype/neuro-book/actions/runs/30620260863) 与 [Deploy Docs 30620260853](https://github.com/notnotype/neuro-book/actions/runs/30620260853) 失败，原因是 standalone 校验错误假设顶层 `node_modules/nitropack` 存在；随后由 `a6f27f81` 修复 nested Bun 路径。
+- 最终 [Deploy Docs 30620354444](https://github.com/notnotype/neuro-book/actions/runs/30620354444) 与 [Community and Docs Checks 30620354426](https://github.com/notnotype/neuro-book/actions/runs/30620354426) 在 GitHub Ubuntu clean Runner 上成功。Deploy 仍有既有 Actions Node 20 deprecation warning，但仓库已用 `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` 强制 Node 24，未影响结果。
+- 没有 dispatch Code Baseline：typecheck 的 26 处 llmlint fixture 漂移和全量 Vitest 超时仍由 #15 跟踪，不能描述成通过，也没有建立 required checks。
+
+### Remote and Acceptance Boundaries
+
+- 三笔实现提交 `ff26055e`、`9551c27e`、`a6f27f81` 均已推送到 `master`；GitHub API 复核确认五个数字前缀表单、旧文件名消失、`config.yml` 只有 `blank_issues_enabled: false`、Private Vulnerability Reporting 为 enabled，`bun run github:labels -- check` 通过。Secret Scanning 与 Push Protection 也保持 enabled。
+- 本轮没有修改 `bun.lock`，没有触碰 Product Platform、发布工作流、branch rules 或 required-check 策略；早期审查为避免夹带 Task 129/130 在途实现而做的状态行索引补丁没有覆盖工作副本，后续对应任务提交已使这些状态行重新出现在远端，当前工作副本仍保留用户的完整改动。
+- 按仓库规则没有自动进行浏览器验收；Issue chooser 的登录后桌面/窄屏视觉检查，以及确认只显示一个原生 Security 入口，继续留作人工验收。
 
 ## TODO / Follow-ups
 

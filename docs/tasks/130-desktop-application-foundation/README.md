@@ -515,6 +515,8 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - Manager 专用收尾检查 `bun run manager:test` 通过（33 files，211 passed，2 skipped），`bun run manager:typecheck` 通过；根 `.output` 清理后再次通过 `openVerified()`，仍为 4,683 个 payload 文件、161,274,231 bytes，且 `staging`、`staging-leases`、全局 builder/publisher lease 均为空/未持有。根 `product/`、本轮验证副本和旧 candidate 已删除，旧 `dist/` 归档未删除。
 - 2026-07-31 发布准备补齐独立 Runtime 编译边界：跨边界代码显式导入 `h3.createError`，Runtime tsconfig 显式消费既有 Web extraction 声明与 Bun host 类型，根 package 直接持有 `@types/bun`，不再依赖兄弟 workspace 的偶然 hoist。`bun run runtime:typecheck`、Manager typecheck/test/pack、install tests 与 Release contract 28 项均通过；根 typecheck 仍只剩上条已登记的 llmlint fixture 漂移。
 - 同日 clean-checkout Manager 发布连续暴露隐式前置：Prisma client 来自 ignored 生成目录，`mdast` 类型来自传递依赖偶然 hoist，Manager 新增的 `scripts/**` / `shared/**` Product Builder 导入又会让 Vite/OXC 回退到根 Nuxt tsconfig。`runtime:typecheck` 现自行生成两套 Prisma client，Prisma 输出、scripts、shared 与 server/runtime 各有不继承 Nuxt 的边界 tsconfig，根 package 直接持有 `@types/mdast`；发布合同测试已并入 `manager:test`。失败的 Manager `.31` / `.32` 只保留审计，后续使用 `.33`。
+- 贡献体系 clean-runner 修复期间复核了本 Task 使用的 Nitro patch：第二个 unified diff hunk 的旧起点应为 `1280`，第三个 hunk 的旧起点原为 `1496`，因前面累计新增三行后新起点应为 `1499`。此前坐标错误会让 patch 在安装产物上应用到错误位置，不能只靠本地残留构建产物判断通过。
+- 同一轮发现 Linux Bun clean Runner 可能只提供 `.bun/@nuxt+nitro-server.../node_modules/nitropack`，没有顶层 `node_modules/nitropack`；现由 standalone `scripts/ci/validate-nitropack-patch.ts` 解析候选安装路径、检查 `.mjs` 语法与 patch 语义，避免依赖 Vitest bootstrap 或偶然 hoist。该校验只覆盖安装产物和 patch 合同，不替代 Task 130 的 Runtime Image、平台 owner baseline 或浏览器验收。
 - 仍未完成：Linux/macOS owner baseline 未在真实平台构建，继续 fail closed；当前 dirty 构建不能替代 clean Release runner；浏览器验收和 Tauri/Electron spike 未执行。
 
 ## TODO / Follow-ups
