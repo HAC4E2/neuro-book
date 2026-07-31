@@ -514,6 +514,7 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - 回归结果：Task 130 聚焦 Vitest 27 files / 114 tests；Manager 33 files / 211 tests（另 1 file / 2 tests 按平台跳过）；Manager `pack:check` 通过，包内 5 个文件、unpacked 2.23 MiB、packed 0.41 MiB。根 `bun run typecheck` 仍只有其他任务的 llmlint fixture `ignoreTerms` 与 `module`/`builtin` 基线错误，本轮不修改。
 - Manager 专用收尾检查 `bun run manager:test` 通过（33 files，211 passed，2 skipped），`bun run manager:typecheck` 通过；根 `.output` 清理后再次通过 `openVerified()`，仍为 4,683 个 payload 文件、161,274,231 bytes，且 `staging`、`staging-leases`、全局 builder/publisher lease 均为空/未持有。根 `product/`、本轮验证副本和旧 candidate 已删除，旧 `dist/` 归档未删除。
 - 2026-07-31 发布准备补齐独立 Runtime 编译边界：跨边界代码显式导入 `h3.createError`，Runtime tsconfig 显式消费既有 Web extraction 声明与 Bun host 类型，根 package 直接持有 `@types/bun`，不再依赖兄弟 workspace 的偶然 hoist。`bun run runtime:typecheck`、Manager typecheck/test/pack、install tests 与 Release contract 28 项均通过；根 typecheck 仍只剩上条已登记的 llmlint fixture 漂移。
+- 同日首次 clean-checkout Manager 发布证明上述本地绿灯仍被两个隐式前置条件污染：Prisma client 来自 ignored 生成目录，`mdast` 类型来自传递依赖的偶然 hoist。`runtime:typecheck` 现自行生成 App/Project Prisma client，Prisma 输出目录用独立 tsconfig 隔离 Nuxt 生成态，根 package 直接持有 `@types/mdast`；发布合同测试已并入 `manager:test`，本地与 GitHub 不再拥有两套准备语义。失败的 Manager `.31` 只保留为审计记录，后续使用 `.32`。
 - 仍未完成：Linux/macOS owner baseline 未在真实平台构建，继续 fail closed；当前 dirty 构建不能替代 clean Release runner；浏览器验收和 Tauri/Electron spike 未执行。
 
 ## TODO / Follow-ups

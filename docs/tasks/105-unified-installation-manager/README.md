@@ -1014,3 +1014,11 @@ uninstall
 - 最终修复让smoke首次阶段通过正式Config Service写入最小Provider/Model配置，Faux runtime model携带相同本地ID；移动阶段复用随完整State Root一起移动的Config，不重建Provider。
 - 同一脚本的源码入口和Nuxt Product `.output`副本均在隔离Application/State Root完成五工具、Attachment、State Root移动和旧Session恢复。Release preflight新增约5秒的同链门禁，避免再次在40分钟OCI后才发现Session合同漂移。
 - 本地根typecheck、Session model 4项、Release合同8项、完整Nuxt/Product build通过。Manager bundle未变化，下一应用patch`0.8.12`继续使用公开`.23`。
+
+### 2026-07-31：Manager `.31` clean-checkout Runtime 类型门禁失败
+
+- `manager-v0.1.0-canary.31` 已保留 release commit 与 tag，但 workflow `30612238085` 在 `Verify package` 阶段失败，npm publish 未执行，因此 `.31` 不是公开可安装版本。
+- 干净检出稳定复现 `server/generated/prisma/client` 缺失：`runtime:typecheck` 依赖被 `.gitignore` 排除的既有 Prisma client，本地 release 被工作区残留生成物掩盖。GitHub Linux runner 还暴露 `mdast` 类型缺失；根源码直接导入 `mdast`，却只通过 Markdown utility 的传递依赖和本机偶然 hoist 获得 `@types/mdast`。
+- 修复没有给 workflow 增加特例：共享 `runtime:typecheck` 先执行 canonical `bun run generate` 再运行独立 tsconfig，保证本地 helper、GitHub workflow和其它调用方使用相同准备合同；Prisma 输出父目录新增不继承 Nuxt 的专用 tsconfig，避免生成器在 clean checkout 解析不存在的 `.nuxt/tsconfig.json`。根 package 直接持有 `@types/mdast@4.0.4`，不改 Runtime tsconfig types、不切 hoisted linker、不增加 ambient 声明。
+- 新增 Manager release clean-checkout 合同测试，固定 Prisma 自准备、生成目录 tsconfig 与类型依赖所有权，并并入 `manager:test`，保证本地打 tag 和 GitHub workflow 都会执行。隔离 clone 在修复前先稳定得到三处 Prisma TS2307，串接生成后又暴露缺少 `.nuxt/tsconfig.json`；最终从 `generated-before=False` 开始完整生成 App/Project 两套 client 并通过 Runtime typecheck。合同测试先红后绿。
+- `.31` tag 不移动、不删除、不复用；下一公开候选固定为 `0.1.0-canary.32`，npm 精确版本和 provenance 验证通过前不启动应用 minor release。
