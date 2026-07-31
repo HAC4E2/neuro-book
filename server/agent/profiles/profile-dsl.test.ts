@@ -600,7 +600,7 @@ describe("profile TSX DSL", () => {
                 ...base,
                 session: {
                     ...base.session,
-                    projectPath: "workspace/different-latest-project",
+                    currentProjectRoot: "different-latest-project",
                 },
                 runtime: {
                     ...base.runtime!,
@@ -1098,7 +1098,7 @@ describe("profile TSX DSL", () => {
             },
             session: {
                 ...context().session,
-                projectPath: "workspace/novel-7",
+                currentProjectRoot: "novel-7",
                 messages: [createUserMessage({text: "use $draft please"})],
                 customState: {
                     "agent.tasks": {
@@ -1399,7 +1399,7 @@ describe("profile TSX DSL", () => {
             session: {
                 ...base.session,
                 profileKey: "test.mode-reminder-steady",
-                projectPath: "workspace/alpha",
+                currentProjectRoot: "alpha",
                 agentMode: "plan",
                 customState: modeState,
             },
@@ -1424,7 +1424,7 @@ describe("profile TSX DSL", () => {
             session: {
                 ...base.session,
                 profileKey: "test.mode-reminder-steady",
-                projectPath: "workspace/alpha",
+                currentProjectRoot: "alpha",
                 agentMode: "plan",
                 customState: {
                     ...modeState,

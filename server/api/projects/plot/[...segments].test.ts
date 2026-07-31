@@ -9,8 +9,9 @@ import {
 import {resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
-import {activateReadyProjectModule, requireReadyProjectPath} from "nbook/server/workspace-files/project-session";
+import {activateReadyProjectModule, requireActiveReadyProject} from "nbook/server/workspace-files/project-session";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
+import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 
 vi.unmock("nbook/server/plot");
 
@@ -41,18 +42,18 @@ describe("/api/projects/plot", {timeout: 30_000}, () => {
     }, 30_000);
 
     afterAll(async () => {
-        for (const projectPath of createdProjects) {
-            await closeProjectForTest(projectPath).catch(() => undefined);
-            await removeProjectRoot(projectPath);
+        for (const projectRootName of createdProjects) {
+            await closeProjectForTest(projectRootName).catch(() => undefined);
+            await removeProjectRoot(projectRootName);
         }
         createdProjects.splice(0);
     });
 
     it("GET /scenes/:sceneId/world-context 返回已解析 subject 上下文和 unresolved 占位", async () => {
-        const projectPath = await createProject();
-        const {world: worldEngineFacade} = await plotWorldForProject(projectPath);
+        const projectRootName = await createProject();
+        const {world: worldEngineFacade} = await plotWorldForProject(projectRootName);
         const handler = (await import("nbook/server/api/projects/plot/[...segments]")).default;
-        const thread = await callApi(handler, projectPath, "POST", "threads", {
+        const thread = await callApi(handler, projectRootName, "POST", "threads", {
             name: "main",
             title: "主线",
         });
@@ -71,7 +72,7 @@ describe("/api/projects/plot", {timeout: 30_000}, () => {
             patches: [{subjectId: "merchant", type: "character", name: "商人", path: "/hp", op: "replace", value: 10}],
         });
 
-        const scene = await callApi(handler, projectPath, "POST", "scenes", {
+        const scene = await callApi(handler, projectRootName, "POST", "scenes", {
             threadId: readId(thread),
             title: "神殿相遇",
             worldAnchor: {
@@ -84,7 +85,7 @@ describe("/api/projects/plot", {timeout: 30_000}, () => {
             },
         });
 
-        const context = await callApi(handler, projectPath, "GET", `scenes/${readId(scene)}/world-context`);
+        const context = await callApi(handler, projectRootName, "GET", `scenes/${readId(scene)}/world-context`);
 
         expect(context).toMatchObject({
             unresolvedSubjectIds: ["future-ally"],
@@ -103,15 +104,15 @@ describe("/api/projects/plot", {timeout: 30_000}, () => {
     });
 
     it("GET /chapter-writer-brief 返回章节 Scene / World Context brief", async () => {
-        const projectPath = await createProject();
-        const {world: worldEngineFacade} = await plotWorldForProject(projectPath);
+        const projectRootName = await createProject();
+        const {world: worldEngineFacade} = await plotWorldForProject(projectRootName);
         const handler = (await import("nbook/server/api/projects/plot/[...segments]")).default;
-        const chapter = await callApi(handler, projectPath, "POST", "chapters", {
+        const chapter = await callApi(handler, projectRootName, "POST", "chapters", {
             name: "001-opening",
             title: "开篇",
             brief: {mustHide: "薇洛丝不知道项链是前作遗物"},
         });
-        const thread = await callApi(handler, projectPath, "POST", "threads", {
+        const thread = await callApi(handler, projectRootName, "POST", "threads", {
             name: "main",
             title: "主线",
             summary: "主线推进到神殿。",
@@ -126,7 +127,7 @@ describe("/api/projects/plot", {timeout: 30_000}, () => {
                 {subjectId: "temple", type: "location", name: "荒野神殿", path: "/light", op: "replace", value: "dim"},
             ],
         });
-        await callApi(handler, projectPath, "POST", "scenes", {
+        await callApi(handler, projectRootName, "POST", "scenes", {
             threadId: readId(thread),
             chapterId: readId(chapter),
             title: "神殿相遇",
@@ -143,7 +144,7 @@ describe("/api/projects/plot", {timeout: 30_000}, () => {
             },
         });
 
-        const brief = await callApi(handler, projectPath, "GET", "chapter-writer-brief", undefined, {chapterId: readId(chapter)});
+        const brief = await callApi(handler, projectRootName, "GET", "chapter-writer-brief", undefined, {chapterId: readId(chapter)});
 
         expect(brief).toMatchObject({
             chapter: {
@@ -174,13 +175,13 @@ describe("/api/projects/plot", {timeout: 30_000}, () => {
         expect((brief as {suggestedBriefMarkdown: string}).suggestedBriefMarkdown).not.toContain("神殿灯火");
 
         // curated:同一章展开 World Context 状态摘要,供 leader 投喂。
-        const curated = await callApi(handler, projectPath, "GET", "chapter-writer-brief", undefined, {chapterId: readId(chapter), mode: "curated"});
+        const curated = await callApi(handler, projectRootName, "GET", "chapter-writer-brief", undefined, {chapterId: readId(chapter), mode: "curated"});
         expect((curated as {mode: string}).mode).toBe("curated");
         expect((curated as {suggestedBriefMarkdown: string}).suggestedBriefMarkdown).toContain("神殿灯火");
         expect((curated as {suggestedBriefMarkdown: string}).suggestedBriefMarkdown).not.toContain("\"hp\"");
     });
 
-    it("缺 projectPath query 时返回 400", async () => {
+    it("缺 projectRoot query 时返回 400", async () => {
         const handler = (await import("nbook/server/api/projects/plot/[...segments]")).default;
 
         await expect(handler({
@@ -190,51 +191,51 @@ describe("/api/projects/plot", {timeout: 30_000}, () => {
             context: {params: {segments: "story"}},
         })).rejects.toMatchObject({
             statusCode: 400,
-            message: "projectPath query 不能为空",
+            data: {code: "INVALID_PROJECT_ROOT"},
         });
     });
 
     it("未 open 的 Project 返回 PROJECT_NOT_OPEN", async () => {
-        const projectPath = await createProject({open: false});
+        const projectRootName = await createProject({open: false});
         const handler = (await import("nbook/server/api/projects/plot/[...segments]")).default;
 
-        await expect(callApi(handler, projectPath, "GET", "story")).rejects.toMatchObject({
+        await expect(callApi(handler, projectRootName, "GET", "story")).rejects.toMatchObject({
             statusCode: 409,
             data: {
                 code: "PROJECT_NOT_OPEN",
-                projectPath,
+                projectRoot: projectRootName,
             },
         });
     });
 
     it("非法 sceneId 返回 400", async () => {
-        const projectPath = await createProject();
+        const projectRootName = await createProject();
         const handler = (await import("nbook/server/api/projects/plot/[...segments]")).default;
 
-        await expect(callApi(handler, projectPath, "GET", "scenes/not-a-number/world-context")).rejects.toMatchObject({
+        await expect(callApi(handler, projectRootName, "GET", "scenes/not-a-number/world-context")).rejects.toMatchObject({
             statusCode: 400,
             message: "sceneId 必须是正整数",
         });
     });
 
     it("Scene 不存在时返回 404", async () => {
-        const projectPath = await createProject();
+        const projectRootName = await createProject();
         const handler = (await import("nbook/server/api/projects/plot/[...segments]")).default;
 
-        await expect(callApi(handler, projectPath, "GET", "scenes/999/world-context")).rejects.toMatchObject({
+        await expect(callApi(handler, projectRootName, "GET", "scenes/999/world-context")).rejects.toMatchObject({
             statusCode: 404,
             message: "剧情场景不存在",
         });
     });
 
     it("Scene 时间未连接时返回 400", async () => {
-        const projectPath = await createProject();
+        const projectRootName = await createProject();
         const handler = (await import("nbook/server/api/projects/plot/[...segments]")).default;
-        const thread = await callApi(handler, projectPath, "POST", "threads", {
+        const thread = await callApi(handler, projectRootName, "POST", "threads", {
             name: "main",
             title: "主线",
         });
-        const scene = await callApi(handler, projectPath, "POST", "scenes", {
+        const scene = await callApi(handler, projectRootName, "POST", "scenes", {
             threadId: readId(thread),
             title: "未定时间",
             worldAnchor: {
@@ -247,20 +248,20 @@ describe("/api/projects/plot", {timeout: 30_000}, () => {
             },
         });
 
-        await expect(callApi(handler, projectPath, "GET", `scenes/${readId(scene)}/world-context`)).rejects.toMatchObject({
+        await expect(callApi(handler, projectRootName, "GET", `scenes/${readId(scene)}/world-context`)).rejects.toMatchObject({
             statusCode: 400,
             message: "Scene 尚未设置完整 World Engine 时间范围",
         });
     });
 
     it("全部 subject 都是占位时返回空上下文和 unresolved 列表", async () => {
-        const projectPath = await createProject();
+        const projectRootName = await createProject();
         const handler = (await import("nbook/server/api/projects/plot/[...segments]")).default;
-        const thread = await callApi(handler, projectPath, "POST", "threads", {
+        const thread = await callApi(handler, projectRootName, "POST", "threads", {
             name: "main",
             title: "主线",
         });
-        const scene = await callApi(handler, projectPath, "POST", "scenes", {
+        const scene = await callApi(handler, projectRootName, "POST", "scenes", {
             threadId: readId(thread),
             title: "未来伏笔",
             worldAnchor: {
@@ -273,7 +274,7 @@ describe("/api/projects/plot", {timeout: 30_000}, () => {
             },
         });
 
-        await expect(callApi(handler, projectPath, "GET", `scenes/${readId(scene)}/world-context`)).resolves.toEqual({
+        await expect(callApi(handler, projectRootName, "GET", `scenes/${readId(scene)}/world-context`)).resolves.toEqual({
             slices: [],
             subjectStates: [],
             unresolvedSubjectIds: ["future-hero", "future-place"],
@@ -281,13 +282,13 @@ describe("/api/projects/plot", {timeout: 30_000}, () => {
     });
 
     it("Project 缺少 calendar.ts 时 GET tree 和 workbench 仍可读取 Plot", async () => {
-        const projectPath = await createProject({withCalendar: false});
+        const projectRootName = await createProject({withCalendar: false});
         const handler = (await import("nbook/server/api/projects/plot/[...segments]")).default;
-        const thread = await callApi(handler, projectPath, "POST", "threads", {
+        const thread = await callApi(handler, projectRootName, "POST", "threads", {
             name: "main",
             title: "主线",
         });
-        const scene = await callApi(handler, projectPath, "POST", "scenes", {
+        const scene = await callApi(handler, projectRootName, "POST", "scenes", {
             threadId: readId(thread),
             title: "未来伏笔",
             worldAnchor: {
@@ -300,7 +301,7 @@ describe("/api/projects/plot", {timeout: 30_000}, () => {
             },
         });
 
-        await expect(callApi(handler, projectPath, "GET", "tree")).resolves.toMatchObject({
+        await expect(callApi(handler, projectRootName, "GET", "tree")).resolves.toMatchObject({
             ungroupedThreads: [
                 {
                     scenes: [
@@ -316,7 +317,7 @@ describe("/api/projects/plot", {timeout: 30_000}, () => {
                 },
             ],
         });
-        await expect(callApi(handler, projectPath, "GET", "workbench")).resolves.toMatchObject({
+        await expect(callApi(handler, projectRootName, "GET", "workbench")).resolves.toMatchObject({
             ungroupedThreads: [
                 {
                     scenes: [
@@ -333,19 +334,19 @@ describe("/api/projects/plot", {timeout: 30_000}, () => {
     });
 
     it("Project 缺少 calendar.ts 且 Scene 已有 raw instant 时保留 raw 时间并降级 formatted time", async () => {
-        const projectPath = await createProject({withCalendar: false});
+        const projectRootName = await createProject({withCalendar: false});
         const handler = (await import("nbook/server/api/projects/plot/[...segments]")).default;
-        const thread = await callApi(handler, projectPath, "POST", "threads", {
+        const thread = await callApi(handler, projectRootName, "POST", "threads", {
             name: "main",
             title: "主线",
         });
-        const scene = await callApi(handler, projectPath, "POST", "scenes", {
+        const scene = await callApi(handler, projectRootName, "POST", "scenes", {
             threadId: readId(thread),
             title: "旧数据 Scene",
         });
-        await updateSceneRawInstants(projectPath, readId(scene), 100n, 200n);
+        await updateSceneRawInstants(projectRootName, readId(scene), 100n, 200n);
 
-        await expect(callApi(handler, projectPath, "GET", "tree")).resolves.toMatchObject({
+        await expect(callApi(handler, projectRootName, "GET", "tree")).resolves.toMatchObject({
             ungroupedThreads: [
                 {
                     scenes: [
@@ -365,26 +366,26 @@ describe("/api/projects/plot", {timeout: 30_000}, () => {
     });
 
     it("calendar.ts 损坏且 Scene 需要格式化 raw instant 时继续返回配置错误", async () => {
-        const projectPath = await createProject({calendarSource: brokenCalendarSource()});
+        const projectRootName = await createProject({calendarSource: brokenCalendarSource()});
         const handler = (await import("nbook/server/api/projects/plot/[...segments]")).default;
-        const thread = await callApi(handler, projectPath, "POST", "threads", {
+        const thread = await callApi(handler, projectRootName, "POST", "threads", {
             name: "main",
             title: "主线",
         });
-        const scene = await callApi(handler, projectPath, "POST", "scenes", {
+        const scene = await callApi(handler, projectRootName, "POST", "scenes", {
             threadId: readId(thread),
             title: "坏日历 Scene",
         });
-        await updateSceneRawInstants(projectPath, readId(scene), 100n, 200n);
+        await updateSceneRawInstants(projectRootName, readId(scene), 100n, 200n);
 
-        await expect(callApi(handler, projectPath, "GET", "tree")).rejects.toThrow("calendar.ts 加载失败");
+        await expect(callApi(handler, projectRootName, "GET", "tree")).rejects.toThrow("calendar.ts 加载失败");
     });
 });
 
 async function createProject(options: {withCalendar?: boolean; calendarSource?: string; open?: boolean} = {}): Promise<string> {
     const slug = `plot-api-test-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    const projectPath = `workspace/${slug}`;
-    const root = projectRoot(projectPath);
+    const projectRootName = slug;
+    const root = projectDirectory(projectRootName);
     await fs.mkdir(path.join(root, "world-engine", "schema"), {recursive: true});
     await fs.mkdir(path.join(root, "manuscript", "001", "001-opening"), {recursive: true});
     await fs.writeFile(path.join(root, "project.yaml"), "kind: novel\ntitle: Plot API Test\nsummary: ''\n", "utf-8");
@@ -393,16 +394,16 @@ async function createProject(options: {withCalendar?: boolean; calendarSource?: 
     if (options.withCalendar !== false) {
         await fs.writeFile(path.join(root, "world-engine", "calendar.ts"), options.calendarSource ?? calendarSource(), "utf-8");
     }
-    createdProjects.push(projectPath);
+    createdProjects.push(projectRootName);
     if (options.open !== false) {
-        await openProjectForTest(projectPath);
+        await openProjectForTest(projectRootName);
     }
-    return projectPath;
+    return projectRootName;
 }
 
 /** 取得测试Project当前generation的Plot/World lazy handle。 */
-async function plotWorldForProject(projectPath: string): Promise<ProjectPlotWorldHandle> {
-    const ready = requireReadyProjectPath(projectPath);
+async function plotWorldForProject(projectRootName: string): Promise<ProjectPlotWorldHandle> {
+    const ready = requireActiveReadyProject(projectWorkspaceRef(projectRootName));
     return activateReadyProjectModule(
         ready,
         PROJECT_PLOT_WORLD_MODULE_TOKEN,
@@ -411,7 +412,7 @@ async function plotWorldForProject(projectPath: string): Promise<ProjectPlotWorl
 
 async function callApi(
     handler: (event: unknown) => Promise<unknown>,
-    projectPath: string,
+    projectRootName: string,
     method: string,
     segments: string,
     body?: unknown,
@@ -420,7 +421,7 @@ async function callApi(
     return handler({
         method,
         path: `/api/projects/plot/${segments}`,
-        query: {projectPath, ...query},
+        query: {projectRoot: projectRootName, ...query},
         body,
         context: {params: {segments}},
     });
@@ -433,11 +434,11 @@ function readId(input: unknown): string {
     throw new Error("测试没有拿到 id");
 }
 
-async function removeProjectRoot(projectPath: string): Promise<void> {
+async function removeProjectRoot(projectRootName: string): Promise<void> {
     for (let attempt = 0; attempt < 5; attempt++) {
         collectReleasedSqliteHandles();
         try {
-            await fs.rm(projectRoot(projectPath), {recursive: true, force: true});
+            await fs.rm(projectDirectory(projectRootName), {recursive: true, force: true});
             return;
         } catch (error) {
             if ((error as NodeJS.ErrnoException).code !== "EBUSY" || attempt === 4) {
@@ -448,9 +449,12 @@ async function removeProjectRoot(projectPath: string): Promise<void> {
     }
 }
 
-async function updateSceneRawInstants(projectPath: string, sceneId: string, startInstant: bigint, endInstant: bigint): Promise<void> {
+async function updateSceneRawInstants(projectRootName: string, sceneId: string, startInstant: bigint, endInstant: bigint): Promise<void> {
     const client = createClient({
-        url: toSqliteFileUrl(resolveProjectDatabasePath(resolveRuntimeWorkspaceRoot(), projectPath)),
+        url: toSqliteFileUrl(resolveProjectDatabasePath(
+            resolveRuntimeWorkspaceRoot(),
+            projectWorkspaceRef(projectRootName),
+        )),
     });
     try {
         await client.execute({
@@ -463,8 +467,8 @@ async function updateSceneRawInstants(projectPath: string, sceneId: string, star
     }
 }
 
-function projectRoot(projectPath: string): string {
-    return path.join(resolveRuntimeWorkspaceRoot(), projectPath.slice("workspace/".length));
+function projectDirectory(projectRootName: string): string {
+    return path.join(resolveRuntimeWorkspaceRoot(), projectRootName);
 }
 
 function schemaSource(): string {

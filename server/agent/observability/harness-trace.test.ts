@@ -57,7 +57,7 @@ describe("harness → pi trace 集成", () => {
             },
         }), false);
         faux.setResponses([fauxAssistantMessage("ok")]);
-        const created = await harness.createAgent({profileKey: "trace.plain", initial: {}, workspaceRoot: root});
+        const created = await harness.createAgent({profileKey: "trace.plain", initial: {}});
 
         const result = await harness.invokeAgent({sessionId: created.sessionId, mode: "prompt", message: {text: "hello"}});
         expect(result.status).toBe("completed");

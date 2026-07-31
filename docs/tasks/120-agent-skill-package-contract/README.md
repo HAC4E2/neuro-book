@@ -57,6 +57,8 @@
 ## References
 
 - [Skill package contract](../../../reference/agent/skill-package.md)
+- [统一 Agent 资产发布包协议](../../../reference/agent/agent-asset-package.md)：在本任务的本地 Skill 依赖合同之上，统一 Workshop 的 Skill / Workflow / Profile 外壳与发布 SemVer。
+- [ADR 0011：Agent 资产安装身份](../../adr/0011-agent-asset-install-identity.md)：发布包只以 `package.json.name` 为安装身份；不新增别名字段。
 - [Task 84 llmlint standalone repo](../84-llmlint-standalone-repo/README.md)
 - [Workspace terms](../../../reference/workspace/TERMS.md)
 - sibling llmlint source: `../llmlint/skill/`

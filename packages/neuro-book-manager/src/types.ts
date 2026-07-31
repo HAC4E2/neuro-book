@@ -27,7 +27,7 @@ export type InspectionIssue = {code: string; message: string; remediation?: stri
 export type CandidateKind = "managed-installation" | "neuro-book-checkout" | "portable-state" | "invalid-installation" | "unrelated";
 export type GitInspection = {repository: string; branch: string; upstream?: string; revision: string; dirty: boolean};
 export type ProductInspection = {exists: boolean; trusted: boolean; revision?: string};
-export type StateInspection = {root: StateRootPath; configExists: boolean; workspaceExists: boolean; databaseExists: boolean};
+export type StateInspection = {root: string; configExists: boolean; workspaceExists: boolean; databaseExists: boolean};
 
 /** 目录身份和离线完整性检查；不包含运行状态。 */
 export type OfflineInspection = {
@@ -93,7 +93,7 @@ export type InstallationStatus = {
     appVersion: string;
     channel: ReleaseChannel;
     sourceRevision: string;
-    stateRoot: string;
+    roots: ResolvedInstallationRoots;
     port: number;
     productReady: boolean;
     service: InstallationServiceStatus;
@@ -110,7 +110,7 @@ export type DoctorReport = {
     checks: InstallationCheck[];
     paths: {
         root: string;
-        stateRoot: string;
+        roots: ResolvedInstallationRoots;
         workspace: string;
         bootConfig: string;
         stateIntegrity: StateRootIntegrityResult;
@@ -178,8 +178,30 @@ export type HostPlatform = {
     libc: "glibc" | null;
 };
 
-/** 安装根允许的 State Root 映射。 */
-export type StateRootPath = "." | "data";
+/** Root Locator 的物理基准；清单不持久化不可迁移的绝对路径。 */
+export type RootLocatorBase = "installation-root" | "local-app-data";
+
+/** 从受控物理基准定位一个非根目录。 */
+export type RootLocator = {
+    base: RootLocatorBase;
+    path: string;
+};
+
+/** Installation Manifest 持久化的四类数据根。 */
+export type InstallationRootLocators = {
+    state: RootLocator;
+    cache: RootLocator;
+    desktop: RootLocator;
+    webview: RootLocator;
+};
+
+/** 当前机器上解析后的四类绝对数据根。 */
+export type ResolvedInstallationRoots = {
+    state: string;
+    cache: string;
+    desktop: string;
+    webview: string;
+};
 
 /** 托管下载资产必须保存的审计信息。 */
 export type ManagedAssetMetadata = {
@@ -187,6 +209,14 @@ export type ManagedAssetMetadata = {
     sourceUrl: string;
     license: string;
     redistribution: string;
+};
+
+/** Product Runtime Image 由 Builder 生成并由消费方原样持久化的代次身份。 */
+export type ProductRuntimeImageIdentity = {
+    imageId: string;
+    sourceDigest: string;
+    lockfileSha256: string;
+    builderContractVersion: string;
 };
 
 export type SourceComponent =
@@ -213,27 +243,32 @@ export type SourceComponent =
     };
 
 export type ProductComponent =
-    | {
+    | ({
         provider: "git";
         version: string;
         revision: string;
         path: ".output";
         platform: ProductPlatform;
-    }
+    } & ProductRuntimeImageIdentity)
     | ({
         provider: "release";
         version: string;
         revision: string;
         path: ".output";
         platform: ProductPlatform;
-    } & ManagedAssetMetadata)
+    } & ManagedAssetMetadata & ProductRuntimeImageIdentity)
     | {
         provider: "container";
         version: string;
         revision: string;
         image: string;
-        /** GHCR 必填；Source Docker 的本地 revision image 不设置。 */
+        /** GHCR 必填，并作为容器 Product 的外层内容寻址 identity。 */
         digest?: string;
+        /** 单平台容器若能读取镜像内 manifest，可附带 Builder identity；OCI digest 已是外层真相源。 */
+        imageId?: string;
+        sourceDigest?: string;
+        lockfileSha256?: string;
+        builderContractVersion?: string;
     };
 
 export type ManagerComponent = {
@@ -305,7 +340,7 @@ export type InstallationComponents = {
 
 /** 本机安装状态真相源。 */
 export type InstallationManifest = {
-    schemaVersion: 4;
+    schemaVersion: 5;
     profile: InstallProfile;
     /** Container Profile记录实际引擎；原生Profile固定为null。 */
     containerEngine: ContainerEngine | null;
@@ -313,7 +348,7 @@ export type InstallationManifest = {
     appVersion: string;
     channel: ReleaseChannel;
     sourceRevision: string;
-    stateRoot: StateRootPath;
+    roots: InstallationRootLocators;
     components: InstallationComponents;
     installedAt: string;
     updatedAt: string;
@@ -327,12 +362,12 @@ export type ReleaseAsset = {
 };
 
 /** 平台 Product 资产。 */
-export type ProductReleaseAsset = ReleaseAsset & {
+export type ProductReleaseAsset = ReleaseAsset & ProductRuntimeImageIdentity & {
     platform: ProductPlatform;
     sourceRevision: string;
 };
 
-/** GHCR 镜像信息。 */
+/** GHCR 多架构镜像使用 OCI digest 作为等价的不可变 Product identity。 */
 export type ReleaseImage = {
     ref: string;
     digest: string;
@@ -341,7 +376,7 @@ export type ReleaseImage = {
 
 /** GitHub Release 附带的统一组件清单。 */
 export type ReleaseManifest = {
-    schemaVersion: 3;
+    schemaVersion: 4;
     version: string;
     channel: ReleaseChannel;
     sourceRevision: string;
@@ -350,6 +385,11 @@ export type ReleaseManifest = {
     products: ProductReleaseAsset[];
     windowsPortable: ReleaseAsset;
     ghcr: ReleaseImage;
+    stateMigration: {
+        policy: "none" | "automatic" | "manual";
+        steps: string[];
+        guide?: string;
+    };
 };
 
 /** Profile 对组件来源的声明。 */
@@ -495,6 +535,17 @@ export type ComposeEffect = {
     targetImage?: string;
 };
 
+/** 本次 Operation 启动的候选容器身份；健康提交前必须由 Manager 持久化。 */
+export type CandidateContainerEffect = {
+    kind: "candidate-container";
+    state: OperationEffectState;
+    owner: "application";
+    /** applied 时必填；planned 表示 Compose 已进入可能创建候选容器的阶段。 */
+    containerId?: string;
+    /** true 表示候选已按上述精确身份停止，可以继续恢复持久化状态。 */
+    stopped: boolean;
+};
+
 export type SqliteBackupEffect = {
     kind: "sqlite-backup";
     state: OperationEffectState;
@@ -516,12 +567,13 @@ export type OperationEffect =
     | GitFastForwardEffect
     | DockerImageEffect
     | ComposeEffect
+    | CandidateContainerEffect
     | SqliteBackupEffect;
 
 export type OperationJournal = {
-    schemaVersion: 3;
+    schemaVersion: 5;
     id: string;
-    action: "install" | "update";
+    action: "install" | "update" | "start";
     phase: OperationPhase;
     root: string;
     /** 本次事务固定使用的容器引擎；非容器事务为null。 */
@@ -533,19 +585,10 @@ export type OperationJournal = {
     nextManifest: InstallationManifest | null;
     /** Source Dev迁移使用的目标revision staged root；默认使用Installation Root。 */
     migrationRoot?: string;
-    /** Product数据格式迁移必须先于Product/Compose回滚恢复。 */
-    attachmentMigration?: {
+    /** Product-owned Application State migration 必须先于数据库与 Product 回滚。 */
+    applicationStateMigration?: {
         runId: string;
         state: "planned" | "applied" | "rolled_back";
-        migratedSessions: number;
-        sessions: Array<{
-            sessionId: number | null;
-            sourcePath: string;
-            sourceHash: string;
-            targetHash: string;
-            /** apply完成后由migration报告提供；planned阶段为空。 */
-            backupPath?: string;
-        }>;
     };
     outcome?: "success" | "rolled-back";
     createdAt: string;

@@ -8,6 +8,7 @@ import type {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-har
 import type {JobRunContext, SpawnJobSpec} from "nbook/server/agent/jobs/agent-job-manager";
 import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {createRuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
 
 const ownedProcess = vi.hoisted(() => ({
     spawn: vi.fn(),
@@ -28,7 +29,7 @@ const output = vi.hoisted(() => ({
         },
     })),
     finish: vi.fn(),
-    closeTempFile: vi.fn(async () => undefined),
+    closeOutput: vi.fn(async () => undefined),
 }));
 
 vi.mock("@notnotype/owned-process", () => ({
@@ -40,7 +41,7 @@ vi.mock("nbook/server/agent/tools/output-accumulator", () => ({
         append = output.append;
         snapshot = output.snapshot;
         finish = output.finish;
-        closeTempFile = output.closeTempFile;
+        closeOutput = output.closeOutput;
     },
 }));
 
@@ -62,7 +63,7 @@ describe("bash OutputAccumulator cleanup", () => {
         output.append.mockClear();
         output.snapshot.mockClear();
         output.finish.mockClear();
-        output.closeTempFile.mockClear();
+        output.closeOutput.mockClear();
         await rm(root, {recursive: true, force: true});
     });
 
@@ -75,7 +76,7 @@ describe("bash OutputAccumulator cleanup", () => {
         })).rejects.toThrow("owned process failed");
 
         expect(output.finish).toHaveBeenCalledOnce();
-        expect(output.closeTempFile).toHaveBeenCalledOnce();
+        expect(output.closeOutput).toHaveBeenCalledOnce();
     });
 
     it("后台ownership failure仍结束输出并关闭临时文件", async () => {
@@ -86,10 +87,14 @@ describe("bash OutputAccumulator cleanup", () => {
         const tool = createFileTools().find((candidate) => candidate.key === "bash");
         if (!tool?.executeWithContext) throw new Error("bash工具缺少上下文执行入口。");
 
-        await tool.executeWithContext(context, "bash-background-cleanup", {
+        const started = await tool.executeWithContext(context, "bash-background-cleanup", {
             command: "exit 1",
             background: true,
         });
+        expect(started.details).toEqual(expect.objectContaining({
+            jobId: "job_output_cleanup",
+            jobEventCursor: {eventEpoch: "epoch-jobs", after: 1},
+        }));
         if (!backgroundRun) throw new Error("后台bash没有登记Job执行器。");
 
         const controller = new AbortController();
@@ -102,7 +107,7 @@ describe("bash OutputAccumulator cleanup", () => {
         await expect(backgroundRun(jobContext)).rejects.toThrow("owned process failed");
 
         expect(output.finish).toHaveBeenCalledOnce();
-        expect(output.closeTempFile).toHaveBeenCalledOnce();
+        expect(output.closeOutput).toHaveBeenCalledOnce();
     });
 
     it("finish自身失败时仍关闭临时文件", async () => {
@@ -116,7 +121,7 @@ describe("bash OutputAccumulator cleanup", () => {
             command: "exit 1",
         })).rejects.toThrow("finish failed");
 
-        expect(output.closeTempFile).toHaveBeenCalledOnce();
+        expect(output.closeOutput).toHaveBeenCalledOnce();
     });
 });
 
@@ -125,19 +130,25 @@ function createContext(root: string, onSpawn?: (spec: SpawnJobSpec) => void): To
     const jobs = {
         spawn(spec: SpawnJobSpec) {
             onSpawn?.(spec);
-            return {jobId: "job_output_cleanup"};
+            return {
+                job: {jobId: "job_output_cleanup"},
+                jobEventCursor: {eventEpoch: "epoch-jobs", after: 1},
+            };
         },
     };
     const harness = {
         workspaceRoot: root,
+        runtimePaths: createRuntimePaths({
+            applicationRoot: absoluteFsPath(root),
+            stateRoot: absoluteFsPath(root),
+        }),
         jobs,
     } as unknown as NeuroAgentHarness;
     return {
         harness,
         sessionId: 1,
         profileKey: "test.output-cleanup",
-        workspaceRootRef: "workspace",
-        workspaceFsRoot: absoluteFsPath(root),
-        workspaceKey: "global",
+        workspaceRoot: absoluteFsPath(root),
+        currentProject: null,
     };
 }

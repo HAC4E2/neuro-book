@@ -23,7 +23,7 @@ import {
     previewAttrValueType,
     replaceMutationAt,
     resolvePreviewAttrPath,
-    selectPreviewProjectPath,
+    selectPreviewProjectRoot,
     suggestAdjacentPreviewTime,
     suggestNextPreviewTime,
     suggestSliceTime,
@@ -39,9 +39,9 @@ describe("world-engine-preview utils", () => {
 
     it("按 Project 标题、路径和摘要过滤 preview project 列表", () => {
         const projects = [
-            {title: "龙眠纪事", projectPath: "workspace/dragon-sleep", summary: "主线项目"},
-            {title: "世界引擎浏览器试用", projectPath: "workspace/world-engine-browser", summary: "World Engine preview project"},
-            {title: "灰塔短篇", projectPath: "workspace/gray-tower", summary: "短篇"},
+            {title: "龙眠纪事", projectRoot: "dragon-sleep", summary: "主线项目"},
+            {title: "世界引擎浏览器试用", projectRoot: "world-engine-browser", summary: "World Engine preview project"},
+            {title: "灰塔短篇", projectRoot: "gray-tower", summary: "短篇"},
         ];
 
         expect(filterPreviewProjects(projects, "world-engine")).toEqual([projects[1]]);
@@ -51,23 +51,23 @@ describe("world-engine-preview utils", () => {
     });
 
     it("搜索过滤后仍保留当前选中的 Project", () => {
-        const selected = {title: "当前项目", projectPath: "workspace/current", summary: ""};
-        const filtered = [{title: "其他项目", projectPath: "workspace/other", summary: ""}];
+        const selected = {title: "当前项目", projectRoot: "current", summary: ""};
+        const filtered = [{title: "其他项目", projectRoot: "other", summary: ""}];
 
         expect(keepSelectedPreviewProject(filtered, selected)).toEqual([selected, ...filtered]);
         expect(keepSelectedPreviewProject([selected], selected)).toEqual([selected]);
         expect(keepSelectedPreviewProject(filtered, null)).toBe(filtered);
     });
 
-    it("选择仍存在的 Preview Project path，候选失效时回退到列表第一项", () => {
+    it("选择仍存在的 Preview Project root，候选失效时回退到列表第一项", () => {
         const projects = [
-            {title: "当前项目", projectPath: "workspace/current", summary: ""},
-            {title: "新建项目", projectPath: "workspace/new", summary: ""},
+            {title: "当前项目", projectRoot: "current", summary: ""},
+            {title: "新建项目", projectRoot: "new", summary: ""},
         ];
 
-        expect(selectPreviewProjectPath(projects, "workspace/missing", " workspace/new ")).toBe("workspace/new");
-        expect(selectPreviewProjectPath(projects, "workspace/missing", "", null)).toBe("workspace/current");
-        expect(selectPreviewProjectPath([], "workspace/missing")).toBe("");
+        expect(selectPreviewProjectRoot(projects, "missing", " new ")).toBe("new");
+        expect(selectPreviewProjectRoot(projects, "missing", "", null)).toBe("current");
+        expect(selectPreviewProjectRoot([], "missing")).toBe("");
     });
 
     it("把同 instant 冲突提示改写为 UI 可执行动作", () => {

@@ -1,5 +1,6 @@
 import process from "node:process";
 import {createClient, type Client} from "@libsql/client";
+import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 import {resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 
@@ -8,7 +9,12 @@ type PatchRow = {id: string; value: string | null};
 type SceneRow = {id: string; subjectIdsJson: string; locationSubjectId: string | null};
 
 const args = parseArgs(process.argv.slice(2));
-const client = createClient({url: toSqliteFileUrl(resolveProjectDatabasePath(resolveRuntimeWorkspaceRoot(), args.projectPath))});
+const client = createClient({
+    url: toSqliteFileUrl(resolveProjectDatabasePath(
+        resolveRuntimeWorkspaceRoot(),
+        projectWorkspaceRef(args.projectRoot),
+    )),
+});
 
 try {
     const subject = await queryOne<SubjectRow>(client, `SELECT "id", "type", "name" FROM "WorldSubject" WHERE "id" = ?`, [args.id]);
@@ -35,7 +41,7 @@ try {
 
     console.log(JSON.stringify({
         mode: args.apply ? "apply" : "dry-run",
-        projectPath: args.projectPath,
+        projectRoot: args.projectRoot,
         subject,
         checks: {ownedPatches: 0, worldPatchRefs: 0, plotAnchors: 0},
     }, null, 2));
@@ -79,14 +85,20 @@ try {
     client.close();
 }
 
-function parseArgs(argv: string[]): {projectPath: string; id: string; type: string; name: string; apply: boolean} {
+function parseArgs(argv: string[]): {projectRoot: string; id: string; type: string; name: string; apply: boolean} {
     const read = (flag: string): string => {
         const index = argv.indexOf(flag);
         const value = index < 0 ? undefined : argv[index + 1];
         if (!value) throw new Error(`缺少参数 ${flag}`);
         return value;
     };
-    return {projectPath: read("--project"), id: read("--id"), type: read("--type"), name: read("--name"), apply: argv.includes("--apply")};
+    return {
+        projectRoot: projectWorkspaceRef(read("--project")).projectRoot,
+        id: read("--id"),
+        type: read("--type"),
+        name: read("--name"),
+        apply: argv.includes("--apply"),
+    };
 }
 
 async function queryAll<T>(db: Client, sql: string, args: Array<string> = []): Promise<T[]> {

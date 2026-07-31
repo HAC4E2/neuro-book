@@ -10,7 +10,10 @@ import type {PassportBackupDto, PassportJobDto, PassportJobProgress} from "nbook
 import type {RuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
 import {BackupArchiveService} from "nbook/server/backup/backup-archive-service";
 import {BackupRestoreService} from "nbook/server/backup/backup-restore-service";
+import {useBackupKeyringService} from "nbook/server/backup/backup-keyring-service";
 import {usePassportClient} from "nbook/server/passport/passport-client-service";
+import {officialSiteFetch} from "nbook/server/passport/official-site-transport";
+import {redactSensitiveText} from "nbook/server/utils/sensitive-text";
 
 // 备份/恢复后台任务管理器（Task 112）：打包与传输耗时可能远超请求超时，
 // 路由只负责启动任务并立即返回 jobId，前端轮询任务状态。
@@ -37,12 +40,12 @@ const FINISHED_JOB_KEEP = 20;
 async function fileAsBlob(path: string): Promise<Blob> {
     try {
         if (typeof fs.openAsBlob === "function") {
-            return await fs.openAsBlob(path, {type: "application/zip"});
+            return await fs.openAsBlob(path, {type: "application/vnd.neurobook.backup"});
         }
     } catch {
         // 落到整读兜底
     }
-    return new Blob([await readFile(path)], {type: "application/zip"});
+    return new Blob([await readFile(path)], {type: "application/vnd.neurobook.backup"});
 }
 
 export class PassportJobManager {
@@ -112,45 +115,52 @@ export class PassportJobManager {
         try {
             const client = usePassportClient();
             // 打包前先确认凭据可用，避免打包几分钟后才发现未关联
-            const {token, siteBaseUrl} = await client.getAccessToken();
+            await client.getAccessToken();
+            const encryptionKey = await useBackupKeyringService().activeKey(paths);
+            if (!encryptionKey) {
+                throw new Error("请先保存并确认云备份恢复码");
+            }
 
             tmpDir = await mkdtemp(join(tmpdir(), "nbook-backup-"));
-            const archive = await new BackupArchiveService().createArchive(paths, tmpDir, (done, total) => {
+            const archive = await new BackupArchiveService().createArchive(paths, tmpDir, encryptionKey, (done, total) => {
                 job.progress = {phase: "packing", done, total};
             });
             job.warnings = archive.warnings;
 
             job.progress = {phase: "uploading", done: 0, total: archive.fileSize};
             // token 可能在长打包期间过期，上传前再取一次（缓存命中则无额外请求）
-            const fresh = await client.getAccessToken();
+            const token = await client.getAccessToken();
             const form = new FormData();
             form.append("meta", JSON.stringify({
                 sha256: archive.sha256,
+                keyId: archive.keyId,
                 appVersion: archive.appVersion,
                 kind: "manual",
                 comment,
                 rotate: false,
             }));
-            form.append("file", await fileAsBlob(archive.zipPath), "backup.zip");
+            form.append("file", await fileAsBlob(archive.backupPath), "backup.nbbackup");
             try {
-                job.backup = await $fetch<PassportBackupDto>(`${fresh.siteBaseUrl}/api/v1/backups`, {
+                job.backup = await officialSiteFetch<PassportBackupDto>("backup.upload", "/api/v1/backups", {
                     method: "POST",
-                    headers: {authorization: `Bearer ${fresh.token}`},
+                    headers: {authorization: `Bearer ${token}`},
                     body: form,
-                });
+                }, null);
             } catch (error) {
                 const fetchError = error as FetchError<{message?: string; data?: {error?: string}}>;
                 if (fetchError?.data?.data?.error === "quota_exceeded") {
                     throw new Error("云端备份配额不足：请在官方站或下方列表删除旧备份后重试");
                 }
+                if (fetchError?.data?.data?.error === "storage_capacity_exceeded") {
+                    throw new Error("官方站存储空间不足，请删除旧文件或稍后重试");
+                }
                 throw error;
             }
-            void siteBaseUrl;
             job.state = "done";
             job.progress = null;
         } catch (error) {
             job.state = "error";
-            job.error = error instanceof Error ? error.message : String(error);
+            job.error = redactSensitiveText(error instanceof Error ? error.message : String(error));
         } finally {
             if (tmpDir) {
                 await rm(tmpDir, {recursive: true, force: true}).catch(() => undefined);
@@ -161,18 +171,23 @@ export class PassportJobManager {
     private async runRestore(job: JobInternal, paths: RuntimePaths, backupId: number): Promise<void> {
         try {
             const client = usePassportClient();
-            const {token, siteBaseUrl} = await client.getAccessToken();
+            const token = await client.getAccessToken();
             // 先取云端元数据：sha256 真相源 + 下载进度总量
-            const meta = await $fetch<PassportBackupDto>(`${siteBaseUrl}/api/v1/backups/${backupId}`, {
+            const meta = await officialSiteFetch<PassportBackupDto>("backup.metadata", `/api/v1/backups/${backupId}`, {
                 headers: {authorization: `Bearer ${token}`},
             });
+            const encryptionKey = await useBackupKeyringService().key(paths, meta.keyId);
+            if (!encryptionKey) {
+                throw new Error(`本地缺少备份所需密钥（keyId: ${meta.keyId}），请先导入恢复码`);
+            }
             job.restore = null;
             const result = await new BackupRestoreService().restore({
                 paths,
-                siteBaseUrl,
                 token,
                 backupId,
                 expectedSha256: meta.sha256,
+                expectedKeyId: meta.keyId,
+                encryptionKey,
                 fileSizeHint: meta.fileSize,
                 onProgress: (phase, done, total) => {
                     job.progress = {phase, done, total};
@@ -183,7 +198,7 @@ export class PassportJobManager {
             job.progress = null;
         } catch (error) {
             job.state = "error";
-            job.error = error instanceof Error ? error.message : String(error);
+            job.error = redactSensitiveText(error instanceof Error ? error.message : String(error));
         }
     }
 

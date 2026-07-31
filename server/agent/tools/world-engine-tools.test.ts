@@ -7,37 +7,34 @@ import {createWorldEngineTools} from "nbook/server/agent/tools/world-engine-tool
 import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
-import {requireReadyProjectPath} from "nbook/server/workspace-files/project-session";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 describe("world engine agent tools", {timeout: 30_000}, () => {
-    let projectPath: string;
     let projectRoot: string;
+    let projectDirectory: string;
     let invocationReady: ReadyProjectSessionRef;
     let context: ToolExecutionContext;
 
     beforeEach(async () => {
-        projectPath = await createProject();
-        projectRoot = path.join(resolveRuntimeWorkspaceRoot(), projectPath.slice("workspace/".length));
-        invocationReady = requireReadyProjectPath(projectPath);
+        projectRoot = await createProject();
+        projectDirectory = path.join(resolveRuntimeWorkspaceRoot(), projectRoot);
+        invocationReady = await openProjectForTest(projectRoot);
         context = {
             harness: {
                 projectForInvocation: vi.fn(() => invocationReady),
             } as unknown as ToolExecutionContext["harness"],
             sessionId: 1,
             profileKey: "leader.default",
-            workspaceRootRef: "workspace",
-            workspaceFsRoot: resolveRuntimeWorkspaceRoot(),
-            workspaceKey: "global",
-            projectPath,
+            workspaceRoot: resolveRuntimeWorkspaceRoot(),
+            currentProject: invocationReady,
             invocationId: "world-engine-tools-test-invocation",
         };
     }, 30_000);
 
     afterEach(async () => {
-        await closeProjectForTest(projectPath).catch(() => undefined);
-        await removeProjectRoot(projectRoot);
+        await closeProjectForTest(projectRoot).catch(() => undefined);
+        await removeProjectRoot(projectDirectory);
     }, 30_000);
 
     it("内置工具注册只暴露 execute_world", () => {
@@ -71,7 +68,7 @@ describe("world engine agent tools", {timeout: 30_000}, () => {
     });
 
     it("execute_world 在一个脚本内写入并查询，统一返回 data 和 issues", async () => {
-        const result = await executeWorld(context, projectPath, `
+        const result = await executeWorld(context, projectRoot, `
             const time = world.time.parse("复兴纪元1日 00:00:10");
             const written = await world.slice.write({
                 time,
@@ -100,7 +97,7 @@ describe("world engine agent tools", {timeout: 30_000}, () => {
     });
 
     it("execute_world 字符串 data 直接作为工具文本返回", async () => {
-        const result = await executeWorld(context, projectPath, `
+        const result = await executeWorld(context, projectRoot, `
             await world.slice.write({
                 time: world.time.parse("复兴纪元1日 00:00:13"),
                 title: "艾莉娜状态记录",
@@ -117,7 +114,7 @@ describe("world engine agent tools", {timeout: 30_000}, () => {
     });
 
     it("execute_world 字符串 data 带 issues 时保留 issue 明细", async () => {
-        const result = await executeWorld(context, projectPath, `
+        const result = await executeWorld(context, projectRoot, `
             const first = await world.slice.write({
                 time: world.time.parse("复兴纪元1日 00:00:14"),
                 title: "初始生命值",
@@ -149,7 +146,7 @@ describe("world engine agent tools", {timeout: 30_000}, () => {
     });
 
     it("execute_world 支持 collection 按值 remove", async () => {
-        const result = await executeWorld(context, projectPath, `
+        const result = await executeWorld(context, projectRoot, `
             await world.slice.write({
                 time: world.time.parse("复兴纪元1日 00:00:11"),
                 title: "获得旧剑",
@@ -172,7 +169,7 @@ describe("world engine agent tools", {timeout: 30_000}, () => {
     });
 
     it("slice.editPatches 能精确修正已有 patch path，编辑后 patchId 失效需重读", async () => {
-        const result = await executeWorld(context, projectPath, `
+        const result = await executeWorld(context, projectRoot, `
             const written = await world.slice.write({
                 time: world.time.parse("复兴纪元1日 00:00:20"),
                 title: "误写 HP",
@@ -209,7 +206,7 @@ describe("world engine agent tools", {timeout: 30_000}, () => {
     });
 
     it("脚本 throw 会回滚前面已经执行的写入", async () => {
-        await expect(executeWorld(context, projectPath, `
+        await expect(executeWorld(context, projectRoot, `
             await world.slice.write({
                 time: world.time.parse("复兴纪元1日 00:00:30"),
                 title: "应回滚",
@@ -218,7 +215,7 @@ describe("world engine agent tools", {timeout: 30_000}, () => {
             throw new Error("主动回滚");
         `)).rejects.toThrow("主动回滚");
 
-        const result = await executeWorld(context, projectPath, `
+        const result = await executeWorld(context, projectRoot, `
             const subjects = await world.subject.list("character");
             return subjects.map((item) => item.id);
         `);
@@ -228,12 +225,12 @@ describe("world engine agent tools", {timeout: 30_000}, () => {
     it("writer profile 下 execute_world 保持只读", async () => {
         const writerContext = {...context, profileKey: "writer"};
 
-        await expect(executeWorld(writerContext, projectPath, `
+        await expect(executeWorld(writerContext, projectRoot, `
             return typeof world.slice.write;
         `)).resolves.toMatchObject({
             details: {data: "undefined", issues: []},
         });
-        await expect(executeWorld(writerContext, projectPath, `
+        await expect(executeWorld(writerContext, projectRoot, `
             await world.slice.write({
                 time: world.time.parse("复兴纪元1日 00:00:40"),
                 title: "writer 不应写入",
@@ -244,7 +241,7 @@ describe("world engine agent tools", {timeout: 30_000}, () => {
 
     it("execute_world 失败时保留原始错误且不在 gate 外写调试文件", async () => {
         try {
-            await executeWorld(context, projectPath, `
+            await executeWorld(context, projectRoot, `
                 const hero = await world.subject.get("erina");
                 return hero.name + (;
             `);
@@ -256,32 +253,29 @@ describe("world engine agent tools", {timeout: 30_000}, () => {
             expect(error.message).toContain("世界引擎脚本执行失败");
             expect(error.cause).toBeInstanceOf(Error);
         }
-        await expect(fs.stat(path.join(projectRoot, ".temp"))).rejects.toMatchObject({code: "ENOENT"});
+        await expect(fs.stat(path.join(projectDirectory, ".temp"))).rejects.toMatchObject({code: "ENOENT"});
     });
 
     it("同路径 reopen 后拒绝旧 invocation generation", async () => {
-        await closeProjectForTest(projectPath);
-        await openProjectForTest(projectPath);
-        expect(requireReadyProjectPath(projectPath)).not.toBe(invocationReady);
+        await closeProjectForTest(projectRoot);
+        const reopened = await openProjectForTest(projectRoot);
+        expect(reopened).not.toBe(invocationReady);
 
-        await expect(executeWorld(context, projectPath, `return "不应改查新 generation";`))
+        await expect(executeWorld(context, projectRoot, `return "不应改查新 generation";`))
             .rejects.toThrow("世界引擎脚本执行失败");
     });
 
     it("显式跨 Project override 的脚本执行期间持有目标 operation gate", async () => {
-        const targetProjectPath = await createProject();
-        const targetProjectRoot = path.join(
-            resolveRuntimeWorkspaceRoot(),
-            targetProjectPath.slice("workspace/".length),
-        );
+        const targetProjectRoot = await createProject();
+        const targetProjectDirectory = path.join(resolveRuntimeWorkspaceRoot(), targetProjectRoot);
         try {
-            await executeWorld(context, targetProjectPath, `return "target-warmed";`);
-            const execution = executeWorld(context, targetProjectPath, `
+            await executeWorld(context, targetProjectRoot, `return "target-warmed";`);
+            const execution = executeWorld(context, targetProjectRoot, `
                 await new Promise((resolve) => setTimeout(resolve, 250));
                 return "target-finished";
             `);
             await new Promise((resolve) => setTimeout(resolve, 50));
-            const closing = closeProjectForTest(targetProjectPath);
+            const closing = closeProjectForTest(targetProjectRoot);
             const closeState = await Promise.race([
                 closing.then(() => "closed" as const),
                 new Promise<"pending">((resolve) => setTimeout(() => resolve("pending"), 20)),
@@ -291,18 +285,18 @@ describe("world engine agent tools", {timeout: 30_000}, () => {
             await expect(execution).resolves.toMatchObject({details: {data: "target-finished"}});
             await closing;
         } finally {
-            await closeProjectForTest(targetProjectPath).catch(() => undefined);
-            await removeProjectRoot(targetProjectRoot);
+            await closeProjectForTest(targetProjectRoot).catch(() => undefined);
+            await removeProjectRoot(targetProjectDirectory);
         }
     });
 });
 
-async function executeWorld(context: ToolExecutionContext, projectPath: string, code: string): Promise<NeuroToolResult> {
+async function executeWorld(context: ToolExecutionContext, projectRoot: string, code: string): Promise<NeuroToolResult> {
     const tool = createWorldEngineTools().find((item) => item.key === "execute_world");
     if (!tool?.executeWithContext) {
         throw new Error("missing world engine tool: execute_world");
     }
-    return tool.executeWithContext(context, "execute_world-call", {projectPath, code});
+    return tool.executeWithContext(context, "execute_world-call", {projectRoot, code});
 }
 
 function readText(result: NeuroToolResult): string {
@@ -315,14 +309,13 @@ function readText(result: NeuroToolResult): string {
 
 async function createProject(): Promise<string> {
     const slug = `world-tools-test-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    const projectPath = `workspace/${slug}`;
     const root = path.join(resolveRuntimeWorkspaceRoot(), slug);
     await fs.mkdir(path.join(root, "world-engine/schema"), {recursive: true});
     await fs.writeFile(path.join(root, "project.yaml"), "kind: novel\ntitle: World Tools Test\nsummary: ''\n", "utf-8");
     await fs.writeFile(path.join(root, "world-engine/schema/index.ts"), schemaFixture(), "utf-8");
     await fs.writeFile(path.join(root, "world-engine/calendar.ts"), calendarFixture(), "utf-8");
-    await openProjectForTest(projectPath);
-    return projectPath;
+    await openProjectForTest(slug);
+    return slug;
 }
 
 function schemaFixture(): string {

@@ -1,26 +1,38 @@
 import {parseAgentImageMarkdown} from "nbook/shared/agent/agent-image-markdown";
+import {
+    AgentComposerDraftScopeKeySchema,
+    type AgentComposerDraftIdentity,
+    type AgentComposerDraftLoadResult,
+    type AgentComposerDraftMigrationRecord,
+    type AgentComposerDraftMigrationResult,
+    type AgentComposerDraftSaveRequest,
+    type AgentComposerDraftSaveResult,
+} from "nbook/shared/dto/agent-composer-draft.dto";
 
-const DRAFT_PREFIX = "agent:composer-draft:v1:";
-const DRAFT_VERSION = 1;
+export type {AgentComposerDraftSaveResult} from "nbook/shared/dto/agent-composer-draft.dto";
+
+const LEGACY_DRAFT_PREFIX = "agent:composer-draft:v1:";
+const LEGACY_DRAFT_VERSION = 1;
 const MAX_DRAFT_BYTES = 256 * 1024;
 const MAX_DRAFTS = 10;
 const MAX_DRAFT_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const UTF8_ENCODER = new TextEncoder();
 
-export type AgentComposerDraft = {
+type LegacyAgentComposerDraft = {
     version: 1;
     text: string;
     updatedAt: number;
 };
 
-export type AgentComposerDraftLoadResult = {
-    text: string;
-    discarded?: "corrupt" | "version" | "oversize" | "unsafe" | "expired";
+/** Composer Draft HTTP 能力的最小类型化边界。 */
+export type AgentComposerDraftApi = {
+    getComposerDraft(identity: AgentComposerDraftIdentity): Promise<AgentComposerDraftLoadResult>;
+    saveComposerDraft(request: AgentComposerDraftSaveRequest): Promise<AgentComposerDraftSaveResult>;
+    clearComposerDraft(identity: AgentComposerDraftIdentity): Promise<{cleared: true}>;
+    migrateComposerDrafts(request: {drafts: AgentComposerDraftMigrationRecord[]}): Promise<AgentComposerDraftMigrationResult>;
 };
 
-export type AgentComposerDraftContext = {
-    workspaceKey: string;
-    sessionId: number;
+export type AgentComposerDraftContext = AgentComposerDraftIdentity & {
     generation: number;
     revision: number;
     text: string;
@@ -28,54 +40,106 @@ export type AgentComposerDraftContext = {
 
 export type AgentComposerSubmission = Readonly<AgentComposerDraftContext>;
 
-export type AgentComposerDraftSaveResult = ReturnType<typeof saveAgentComposerDraft>;
+export type AgentComposerDraftSwitchResult = AgentComposerDraftLoadResult & {
+    generation: number;
+    /** false 表示另一次 context 切换已使本次异步 load 失效。 */
+    active: boolean;
+};
+
+/** 前端只通过这个 Adapter 访问磁盘 Store；localStorage 只作为一次性迁移源。 */
+export class AgentComposerDraftClientStore {
+    private initialization: Promise<void> | null = null;
+
+    constructor(
+        private readonly api: AgentComposerDraftApi,
+        private readonly legacyStorage: Storage,
+    ) {}
+
+    /** 首次调用迁移全部合法旧草稿；服务端确认后立即删除旧 key。 */
+    async initialize(now = Date.now()): Promise<void> {
+        this.initialization ??= this.migrateLegacy(now).catch((error) => {
+            this.initialization = null;
+            throw error;
+        });
+        await this.initialization;
+    }
+
+    async load(identity: AgentComposerDraftIdentity): Promise<AgentComposerDraftLoadResult> {
+        await this.initialize();
+        return await this.api.getComposerDraft(identity);
+    }
+
+    async save(context: AgentComposerDraftSaveRequest): Promise<AgentComposerDraftSaveResult> {
+        await this.initialize();
+        return await this.api.saveComposerDraft(context);
+    }
+
+    async clear(identity: AgentComposerDraftIdentity): Promise<void> {
+        await this.initialize();
+        await this.api.clearComposerDraft(identity);
+    }
+
+    private async migrateLegacy(now: number): Promise<void> {
+        const migration = collectLegacyAgentComposerDrafts(this.legacyStorage, now);
+        if (migration.drafts.length === 0) return;
+        await this.api.migrateComposerDrafts({drafts: migration.drafts});
+        migration.keys.forEach((key) => this.legacyStorage.removeItem(key));
+    }
+}
 
 /**
- * 绑定 Workspace/Session 的草稿生命周期。
+ * 绑定 Workspace Root / Session 的异步草稿生命周期。
  *
- * Module 持有旧 context，因此切换时的同步 flush、debounce 和迟到 acceptance 不会读取
- * 调用方已经变化的响应式 workspaceKey/sessionId。
+ * 所有磁盘动作进入同一 Promise 队列，保证 debounce save、context switch 与
+ * accepted clear 不会因 HTTP 完成顺序不同而覆盖彼此。
  */
 export class AgentComposerDraftSession {
     private context: AgentComposerDraftContext | null = null;
     private generation = 0;
     private timer: ReturnType<typeof setTimeout> | null = null;
+    private queue: Promise<void> = Promise.resolve();
 
     constructor(
-        private readonly storage: Storage,
+        private readonly store: AgentComposerDraftClientStore,
         private readonly onSave?: (result: AgentComposerDraftSaveResult, context: AgentComposerDraftContext) => void,
+        private readonly onError?: (error: unknown) => void,
     ) {}
 
-    /** 原子 flush 旧 context 并加载新 Session 草稿。 */
-    switchContext(workspaceKey: string, sessionId: number): AgentComposerDraftLoadResult & {generation: number} {
-        this.flush();
+    /** 保存旧 context 后加载新 Session；过时 load 不会成为当前 context。 */
+    async switchContext(scopeKey: string, sessionId: number): Promise<AgentComposerDraftSwitchResult> {
+        const parsedScopeKey = AgentComposerDraftScopeKeySchema.parse(scopeKey);
+        const previous = this.context ? {...this.context} : null;
         this.cancelTimer();
         this.generation += 1;
-        const loaded = loadAgentComposerDraft(this.storage, workspaceKey, sessionId);
-        this.context = {
-            workspaceKey,
-            sessionId,
-            generation: this.generation,
-            revision: 0,
-            text: loaded.text,
-        };
-        return {...loaded, generation: this.generation};
+        const generation = this.generation;
+        this.context = null;
+        if (previous) {
+            await this.persist(previous).catch((error) => this.onError?.(error));
+        }
+        const loaded = await this.enqueue(() => this.store.load({scopeKey: parsedScopeKey, sessionId})).catch((error) => {
+            this.onError?.(error);
+            return {text: ""};
+        });
+        if (generation !== this.generation) return {...loaded, generation, active: false};
+        this.context = {scopeKey: parsedScopeKey, sessionId, generation, revision: 0, text: loaded.text};
+        return {...loaded, generation, active: true};
     }
 
     /** 关闭当前 context；用于 Project Workspace 切换和组件销毁。 */
-    clearContext(): number {
-        this.flush();
+    async clearContext(): Promise<number> {
+        const previous = this.context ? {...this.context} : null;
         this.cancelTimer();
         this.generation += 1;
         this.context = null;
+        if (previous) {
+            await this.persist(previous).catch((error) => this.onError?.(error));
+        }
         return this.generation;
     }
 
-    /** 更新当前正文，并捕获 generation 的 300ms 延迟保存。 */
+    /** 更新内存正文，并捕获 generation 的 300ms 延迟保存。 */
     update(text: string): void {
-        if (!this.context || this.context.text === text) {
-            return;
-        }
+        if (!this.context || this.context.text === text) return;
         this.context.text = text;
         this.context.revision += 1;
         const generation = this.context.generation;
@@ -83,45 +147,27 @@ export class AgentComposerDraftSession {
         this.timer = setTimeout(() => {
             this.timer = null;
             if (this.context?.generation === generation) {
-                this.flush();
+                void this.flush().catch((error) => this.onError?.(error));
             }
         }, 300);
     }
 
-    /** 同步保存当前 context；空正文由底层 helper 删除对应 key。 */
-    flush(): AgentComposerDraftSaveResult | null {
-        if (!this.context) {
-            return null;
-        }
-        const snapshot = {...this.context};
-        const result = saveAgentComposerDraft(
-            this.storage,
-            snapshot.workspaceKey,
-            snapshot.sessionId,
-            snapshot.text,
-        );
-        this.onSave?.(result, snapshot);
-        return result;
+    /** 立即把当前 context 排入持久化队列。 */
+    async flush(): Promise<AgentComposerDraftSaveResult | null> {
+        if (!this.context) return null;
+        return await this.persist({...this.context});
     }
 
     /** 捕获一次发送对应的不可变 context/revision。 */
     capture(expectedText: string): AgentComposerSubmission | null {
-        if (!this.context || this.context.text !== expectedText) {
-            return null;
-        }
+        if (!this.context || this.context.text !== expectedText) return null;
         return Object.freeze({...this.context});
     }
 
-    /**
-     * accepted 后 compare-and-clear。
-     *
-     * 当前 context 已变化时只处理原 key；同一个 key 已进入新 generation 时保持新草稿。
-     */
-    accept(submission: AgentComposerSubmission): {clearEditor: boolean} {
+    /** accepted 后 compare-and-clear；迟到 acceptance 不删除后来编辑的新正文。 */
+    async accept(submission: AgentComposerSubmission): Promise<{clearEditor: boolean}> {
         const current = this.context;
-        if (current
-            && current.workspaceKey === submission.workspaceKey
-            && current.sessionId === submission.sessionId) {
+        if (current && current.scopeKey === submission.scopeKey && current.sessionId === submission.sessionId) {
             if (current.generation !== submission.generation
                 || current.revision !== submission.revision
                 || current.text !== submission.text) {
@@ -130,129 +176,98 @@ export class AgentComposerDraftSession {
             this.cancelTimer();
             current.text = "";
             current.revision += 1;
-            clearAgentComposerDraft(this.storage, submission.workspaceKey, submission.sessionId);
+            await this.enqueue(() => this.store.clear(submission)).catch((error) => this.onError?.(error));
             return {clearEditor: true};
         }
 
-        const stored = loadAgentComposerDraft(this.storage, submission.workspaceKey, submission.sessionId);
+        const stored = await this.enqueue(() => this.store.load(submission)).catch((error) => {
+            this.onError?.(error);
+            return {text: ""};
+        });
         if (stored.text === submission.text) {
-            clearAgentComposerDraft(this.storage, submission.workspaceKey, submission.sessionId);
+            await this.enqueue(() => this.store.clear(submission)).catch((error) => this.onError?.(error));
         }
         return {clearEditor: false};
     }
 
-    dispose(): void {
-        this.clearContext();
+    async dispose(): Promise<void> {
+        await this.clearContext();
+    }
+
+    private async persist(snapshot: AgentComposerDraftContext): Promise<AgentComposerDraftSaveResult> {
+        const result = await this.enqueue(() => this.store.save(snapshot));
+        this.onSave?.(result, snapshot);
+        return result;
+    }
+
+    /** 失败不会毒化后续队列；调用方仍能观察本次错误。 */
+    private async enqueue<TResult>(action: () => Promise<TResult>): Promise<TResult> {
+        const operation = this.queue.then(action, action);
+        this.queue = operation.then(() => undefined, () => undefined);
+        return await operation;
     }
 
     private cancelTimer(): void {
-        if (this.timer) {
-            clearTimeout(this.timer);
-            this.timer = null;
-        }
+        if (!this.timer) return;
+        clearTimeout(this.timer);
+        this.timer = null;
     }
 }
 
-export function agentComposerDraftKey(workspaceKey: string, sessionId: number): string {
-    return `${DRAFT_PREFIX}${workspaceKey}:${String(sessionId)}`;
-}
-
-/** 读取并严格校验单个 Session 草稿；坏记录直接删除。 */
-export function loadAgentComposerDraft(storage: Storage, workspaceKey: string, sessionId: number, now = Date.now()): AgentComposerDraftLoadResult {
-    const key = agentComposerDraftKey(workspaceKey, sessionId);
-    const raw = storage.getItem(key);
-    if (!raw) {
-        return {text: ""};
-    }
-    try {
-        const value = JSON.parse(raw) as Partial<AgentComposerDraft>;
-        if (value.version !== DRAFT_VERSION) {
-            storage.removeItem(key);
-            return {text: "", discarded: "version"};
-        }
-        if (typeof value.text !== "string" || typeof value.updatedAt !== "number" || !Number.isFinite(value.updatedAt)) {
-            storage.removeItem(key);
-            return {text: "", discarded: "corrupt"};
-        }
-        if (now - value.updatedAt > MAX_DRAFT_AGE_MS) {
-            storage.removeItem(key);
-            return {text: "", discarded: "expired"};
-        }
-        if (UTF8_ENCODER.encode(value.text).byteLength > MAX_DRAFT_BYTES) {
-            storage.removeItem(key);
-            return {text: "", discarded: "oversize"};
-        }
-        if (hasUnsafeImageTarget(value.text)) {
-            storage.removeItem(key);
-            return {text: "", discarded: "unsafe"};
-        }
-        return {text: value.text};
-    } catch {
-        storage.removeItem(key);
-        return {text: "", discarded: "corrupt"};
-    }
-}
-
-/** 300ms debounce 的调用方最终写入这里；空正文等价于删除草稿。 */
-export function saveAgentComposerDraft(storage: Storage, workspaceKey: string, sessionId: number, text: string, now = Date.now()): "saved" | "cleared" | "oversize" | "unsafe" {
-    const key = agentComposerDraftKey(workspaceKey, sessionId);
-    if (!text) {
-        storage.removeItem(key);
-        cleanupAgentComposerDrafts(storage, now);
-        return "cleared";
-    }
-    if (UTF8_ENCODER.encode(text).byteLength > MAX_DRAFT_BYTES) {
-        storage.removeItem(key);
-        cleanupAgentComposerDrafts(storage, now);
-        return "oversize";
-    }
-    if (hasUnsafeImageTarget(text)) {
-        storage.removeItem(key);
-        cleanupAgentComposerDrafts(storage, now);
-        return "unsafe";
-    }
-    storage.setItem(key, JSON.stringify({version: DRAFT_VERSION, text, updatedAt: now} satisfies AgentComposerDraft));
-    cleanupAgentComposerDrafts(storage, now);
-    return "saved";
-}
-
-export function clearAgentComposerDraft(storage: Storage, workspaceKey: string, sessionId: number): void {
-    storage.removeItem(agentComposerDraftKey(workspaceKey, sessionId));
-}
-
-/** 清理过期/损坏记录，并只保留最近更新的十个草稿。 */
-export function cleanupAgentComposerDrafts(storage: Storage, now = Date.now()): void {
-    const drafts: Array<{key: string; updatedAt: number}> = [];
-    for (let index = 0; index < storage.length; index += 1) {
-        const key = storage.key(index);
-        if (!key?.startsWith(DRAFT_PREFIX)) {
-            continue;
-        }
+/** 扫描旧 localStorage；非法/过期/超额记录就地删除，合法记录等待迁移确认。 */
+export function collectLegacyAgentComposerDrafts(storage: Storage, now = Date.now()): {
+    drafts: AgentComposerDraftMigrationRecord[];
+    keys: string[];
+} {
+    const candidates: Array<{key: string; draft: AgentComposerDraftMigrationRecord}> = [];
+    const keys = Array.from({length: storage.length}, (_, index) => storage.key(index)).filter((key): key is string => Boolean(key));
+    for (const key of keys) {
+        if (!key.startsWith(LEGACY_DRAFT_PREFIX)) continue;
+        const identity = legacyIdentity(key);
         const raw = storage.getItem(key);
         try {
-            const value = raw ? JSON.parse(raw) as Partial<AgentComposerDraft> : null;
-            if (!value
-                || value.version !== DRAFT_VERSION
+            const value = raw ? JSON.parse(raw) as Partial<LegacyAgentComposerDraft> : null;
+            if (!identity
+                || !value
+                || value.version !== LEGACY_DRAFT_VERSION
                 || typeof value.text !== "string"
                 || typeof value.updatedAt !== "number"
                 || !Number.isFinite(value.updatedAt)
+                || value.updatedAt < 0
                 || now - value.updatedAt > MAX_DRAFT_AGE_MS
                 || UTF8_ENCODER.encode(value.text).byteLength > MAX_DRAFT_BYTES
                 || hasUnsafeImageTarget(value.text)) {
                 storage.removeItem(key);
-                index -= 1;
                 continue;
             }
-            drafts.push({key, updatedAt: value.updatedAt});
+            candidates.push({key, draft: {...identity, text: value.text, updatedAt: value.updatedAt}});
         } catch {
             storage.removeItem(key);
-            index -= 1;
         }
     }
-    drafts
-        .sort((left, right) => right.updatedAt - left.updatedAt)
-        .slice(MAX_DRAFTS)
-        .forEach((draft) => storage.removeItem(draft.key));
+    candidates.sort((left, right) => right.draft.updatedAt - left.draft.updatedAt);
+    candidates.slice(MAX_DRAFTS).forEach(({key}) => storage.removeItem(key));
+    const retained = candidates.slice(0, MAX_DRAFTS);
+    return {drafts: retained.map(({draft}) => draft), keys: retained.map(({key}) => key)};
+}
+
+/** 仅用于识别旧 localStorage key；新磁盘 Store 不使用字符串拼接 identity。 */
+export function legacyAgentComposerDraftKey(scopeKey: string, sessionId: number): string {
+    return `${LEGACY_DRAFT_PREFIX}${scopeKey}:${String(sessionId)}`;
+}
+
+function legacyIdentity(key: string): AgentComposerDraftIdentity | null {
+    const suffix = key.slice(LEGACY_DRAFT_PREFIX.length);
+    const separator = suffix.lastIndexOf(":");
+    if (separator <= 0) return null;
+    const parsed = {
+        scopeKey: suffix.slice(0, separator),
+        sessionId: Number(suffix.slice(separator + 1)),
+    };
+    const result = AgentComposerDraftScopeKeySchema.safeParse(parsed.scopeKey);
+    return result.success && Number.isInteger(parsed.sessionId) && parsed.sessionId > 0
+        ? {scopeKey: result.data, sessionId: parsed.sessionId}
+        : null;
 }
 
 function hasUnsafeImageTarget(text: string): boolean {

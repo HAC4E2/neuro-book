@@ -1,9 +1,19 @@
 import {randomUUID} from "node:crypto";
 import {copyFile, readFile, readdir, rename} from "node:fs/promises";
 import {tmpdir} from "node:os";
-import {join, relative, resolve} from "node:path";
+import {dirname, join, relative, resolve} from "node:path";
 
-import {applyJournaledApplicationMigrations} from "#manager/migration-operation";
+import {
+    applyJournaledApplicationMigrations,
+    backupJournaledApplicationDatabase,
+    inspectApplicationService,
+    planJournaledApplicationMigrations,
+} from "#manager/migration-operation";
+import {
+    launchApplication,
+    terminateFailedLaunch,
+    type ApplicationLaunch,
+} from "#manager/app-commands";
 import {
     stageReleaseProduct,
     stageReleaseSource,
@@ -13,10 +23,9 @@ import {
     type StagedReleaseSource,
 } from "#manager/component";
 import {ensureStateFiles} from "#manager/config";
-import {buildSourceDockerImage, inspectDockerApplication, resolveContainerEngine, startDocker, stopDocker, writeDockerCompose} from "#manager/docker";
+import {buildSourceDockerImage, inspectDockerApplication, resolveContainerEngine, stopDocker, writeDockerCompose} from "#manager/docker";
 import {ensureDirectory, pathExists, removePath} from "#manager/files";
 import {assertCleanWorktree, createStagedWorktree, materializeRepository, removeStagedWorktree, repositoryRevision} from "#manager/git";
-import {assertNativeProductStopped, backupApplicationDatabase, verifyNativeProduct} from "#manager/health";
 import {withInstallLock} from "#manager/lock";
 import {assertInstallPreflight, inspectInstallPreflight, type InstallPreflightResult} from "#manager/install-preflight";
 import {readInstallationManifest, resolveReleaseManifest, writeInstallationManifest} from "#manager/manifest-store";
@@ -24,15 +33,20 @@ import {
     completeRuntimeWrapperSwitch,
     commitOperation,
     createOperation,
+    operationEffect,
     pathCreateEffect,
     pathRetireEffect,
+    prepareCandidateContainer,
     prepareRuntimeWrapperSwitch,
+    recordCandidateContainer,
+    recoverFailedOperation,
     recoverInterruptedOperations,
     setOperationEffect,
     updateOperation,
 } from "#manager/operation";
 import {assertProfileSupported, currentProductPlatform} from "#manager/platform";
 import {installationPaths} from "#manager/paths";
+import {installationRootLocators} from "#manager/root-locators";
 import {portableLaunchers, writePortableLaunchers} from "#manager/portable-launchers";
 import {buildSourceProduct, installSourceDependencies} from "#manager/product";
 import {profileDefinition} from "#manager/profiles";
@@ -82,7 +96,8 @@ export function installPlan(options: InstallOptions): OperationPlan {
         `准备 Source：${definition.source}`,
     ];
     if (definition.product !== "none") steps.push(`准备 Product：${definition.product}`);
-    steps.push(`初始化 State Root：${options.profile === "windows-portable" ? "data" : "."}`);
+    const stateLocator = installationRootLocators(options.profile).state;
+    steps.push(`初始化 State Root：${stateLocator.base}/${stateLocator.path}`);
     if (definition.docker) steps.push("生成 Docker Compose");
     steps.push("迁移与健康检查", "提交 installation.json 与稳定 wrapper");
     return {action: "install", root: options.root, profile: options.profile, steps};
@@ -110,12 +125,12 @@ async function installInternal(options: InstallOptions, mode: "fresh" | "adopt",
     if (options.dryRun) throw new Error("dry-run 应通过 installPlan 输出，不应调用 install。" );
     assertProfileSupported(options.profile);
     const definition = profileDefinition(options.profile);
+    const portable = options.profile === "windows-portable";
     const containerEngine = definition.docker
         ? mode === "fresh" ? preflight?.report.containerEngine ?? null : await resolveContainerEngine()
         : null;
     if (definition.docker && !containerEngine) throw new Error(`${options.profile}预检没有选择可用的Container Engine。`);
-    const portable = options.profile === "windows-portable";
-    const paths = installationPaths(options.root, portable);
+    const paths = installationPaths(options.root, installationRootLocators(options.profile));
     if (mode === "adopt") await preflightAdoptionRoot(paths.root, options.profile);
     await ensureDirectory(paths.root);
     await ensureDirectory(paths.deploy);
@@ -142,35 +157,45 @@ async function installInternal(options: InstallOptions, mode: "fresh" | "adopt",
         const createdComponents: string[] = [];
         const retiredComponents: string[] = [];
         let stagedWorktree: string | null = null;
+        let healthLaunch: ApplicationLaunch | null = null;
         try {
-            if (mode === "adopt" && (options.profile === "source-product" || options.profile === "source-docker")) {
-                await assertNativeProductStopped(paths.state);
-                const database = await backupApplicationDatabase(paths.state, backup, async (intent) => {
-                    journal = await setOperationEffect(journal, {
-                        kind: "sqlite-backup",
-                        state: "planned",
-                        owner: "app-sqlite",
-                        configuredUrl: intent.configuredUrl,
-                        stateRoot: intent.stateRoot,
-                        hostPath: intent.databasePath,
-                        backupPath: intent.backupPath,
-                        checkpoint: {busy: 0, log: -1, checkpointed: -1},
-                    });
-                });
-                if (database) journal = await setOperationEffect(journal, {
-                    kind: "sqlite-backup",
-                    state: "applied",
-                    owner: "app-sqlite",
-                    configuredUrl: database.configuredUrl,
-                    stateRoot: paths.state,
-                    hostPath: database.databasePath,
-                    backupPath: database.backupPath,
-                    checkpoint: database.checkpoint,
-                });
-            }
             const result = await prepareInstallation(options, journal, staging, backup, createdComponents, retiredComponents, mode, preflight?.release ?? null);
             stagedWorktree = result.stagedWorktree;
             journal = result.journal;
+            healthLaunch = await launchApplication(paths.root, result.manifest, {
+                onContainerStarting: async () => {
+                    journal = await prepareCandidateContainer(journal);
+                },
+                onContainerStarted: async (containerId) => {
+                    journal = await recordCandidateContainer(journal, containerId, false);
+                },
+                onContainerStopped: async (containerId) => {
+                    journal = await recordCandidateContainer(journal, containerId, true);
+                },
+            });
+            await healthLaunch.ready;
+            const previousContainerState = operationEffect(journal, "compose")?.previousState;
+            const keepContainerRunning = (options.profile === "ghcr" || options.profile === "source-docker")
+                && (mode === "fresh" || previousContainerState === "running");
+            if (!keepContainerRunning) {
+                await healthLaunch.shutdown();
+                healthLaunch = null;
+            }
+            if (portable) {
+                await writePortableLaunchers(paths.root, async (path) => {
+                    journal = await setOperationEffect(journal, pathCreateEffect(relative(paths.root, path).replaceAll("\\", "/")));
+                });
+                for (const launcher of portableLaunchers()) {
+                    journal = await setOperationEffect(journal, pathCreateEffect(launcher.name, "applied"));
+                }
+            }
+            journal = await updateOperation(journal, "healthy");
+            if (mode === "adopt") {
+                await assertCleanWorktree(paths.root, [".deploy", ".runtime", ".output", "data", ".cache", ".desktop", "node_modules"]);
+                if (await repositoryRevision(paths.root) !== result.manifest.sourceRevision) {
+                    throw new Error("接管期间Git HEAD发生变化，停止提交Manifest。" );
+                }
+            }
             journal = await prepareRuntimeWrapperSwitch(journal);
             if (result.manifest.components.managerRuntime.provider === "managed") {
                 await writeRuntimeWrapper(paths.root, result.manifest.components.managerRuntime);
@@ -182,12 +207,16 @@ async function installInternal(options: InstallOptions, mode: "fresh" | "adopt",
             await writeInstallationManifest(paths.manifest, result.manifest);
             journal = await setOperationEffect(journal, {kind: "manifest-switch", state: "applied", owner: "manifest"});
             await commitOperation(journal);
+            healthLaunch = null;
             if (stagedWorktree) await removeStagedWorktree(paths.root, stagedWorktree);
             await removePath(staging);
             return result.manifest;
         } catch (error) {
-            if (stagedWorktree || mode === "adopt") await removeStagedWorktree(paths.root, stagedWorktree ?? join(tmpdir(), `nbook-adopt-worktree-${id}`)).catch(() => undefined);
-            await recoverInterruptedOperations(paths.root).catch(() => undefined);
+            if (healthLaunch) await terminateFailedLaunch(healthLaunch, error);
+            await recoverFailedOperation(paths.root, error);
+            if (stagedWorktree || mode === "adopt") {
+                await removeStagedWorktree(paths.root, stagedWorktree ?? join(tmpdir(), `nbook-adopt-worktree-${id}`)).catch(() => undefined);
+            }
             throw error;
         }
     });
@@ -204,7 +233,8 @@ async function prepareInstallation(
     preflightRelease: ReleaseManifest | null,
 ): Promise<{manifest: InstallationManifest; journal: OperationJournal; stagedWorktree: string | null}> {
     const portable = options.profile === "windows-portable";
-    const paths = installationPaths(options.root, portable);
+    const rootLocators = installationRootLocators(options.profile);
+    const paths = installationPaths(options.root, rootLocators);
     const definition = profileDefinition(options.profile);
     let journal = initialJournal;
     journal = await setOperationEffect(journal, {kind: "component-switch", state: "planned", owner: "managed-assets"});
@@ -340,20 +370,53 @@ async function prepareInstallation(
     const components: InstallationComponents = {source, product, manager, managerRuntime, applicationRuntime, tools};
     const now = new Date().toISOString();
     const manifest: InstallationManifest = {
-        schemaVersion: 4,
+        schemaVersion: 5,
         profile: options.profile,
         containerEngine: journal.containerEngine,
         managerVersion: MANAGER_VERSION,
         appVersion,
         channel: options.channel,
         sourceRevision,
-        stateRoot: portable ? "data" : ".",
+        roots: rootLocators,
         components,
         installedAt: now,
         updatedAt: now,
     };
     parseInstallationManifest(manifest);
     journal = await updateOperation(journal, "validated", {nextManifest: manifest});
+    let stagedCompose: string | undefined;
+    let migrationPlanStateRoot: string | undefined;
+    if ((options.profile === "source-docker" || options.profile === "ghcr") && product?.provider === "container") {
+        const engine = journal.containerEngine;
+        if (!engine) throw new Error(`${options.profile}安装缺少Container Engine。`);
+        migrationPlanStateRoot = mode === "fresh" ? join(staging, "migration-plan-state") : paths.state;
+        if (mode === "fresh") await ensureStateFiles(migrationPlanStateRoot, options.port, options.authEnabled);
+        stagedCompose = await writeDockerCompose({
+            engine,
+            root: paths.root,
+            stateRoot: migrationPlanStateRoot,
+            cacheRoot: mode === "fresh" ? join(staging, "migration-plan-cache") : paths.cache,
+            profile: options.profile,
+            image: options.profile === "ghcr" ? `${product.image}@${product.digest}` : product.image,
+            port: options.port,
+            output: join(staging, "docker-compose.generated.yml"),
+            layoutPath: join(paths.deploy, "docker-compose.generated.yml"),
+        });
+    }
+    const migrationPlan = await planJournaledApplicationMigrations(paths.root, manifest, journal, {
+        planRoot: stagedProduct ? dirname(stagedProduct.outputRoot) : stagedWorktree ?? paths.root,
+        migrationRoot: options.profile === "source-dev" && stagedWorktree ? stagedWorktree : paths.root,
+        ...(stagedCompose ? {composePath: stagedCompose} : {}),
+        ...(migrationPlanStateRoot ? {containerStateRoot: migrationPlanStateRoot} : {}),
+    });
+    journal = migrationPlan.journal;
+    const nativeProfile = options.profile !== "source-docker" && options.profile !== "ghcr";
+    if (nativeProfile) {
+        await inspectApplicationService(paths.root, manifest, paths.state);
+        if (mode === "adopt") {
+            journal = await backupJournaledApplicationDatabase(journal, paths.state);
+        }
+    }
     if (stagedSource) {
         await switchReleaseSource({
             root: paths.root,
@@ -379,6 +442,19 @@ async function prepareInstallation(
         const previousCompose = composeCreated ? undefined : join(backup, "docker-compose.generated.yml");
         const engine = journal.containerEngine;
         if (!engine) throw new Error(`${options.profile}安装缺少Container Engine。`);
+        if (migrationPlanStateRoot !== paths.state) {
+            stagedCompose = await writeDockerCompose({
+                engine,
+                root: paths.root,
+                stateRoot: paths.state,
+                cacheRoot: paths.cache,
+                profile: options.profile,
+                image: options.profile === "ghcr" ? `${product.image}@${product.digest}` : product.image,
+                port: options.port,
+                output: stagedCompose,
+                layoutPath: finalCompose,
+            });
+        }
         const previousInspection = composeCreated ? null : await inspectDockerApplication(engine, paths.root, paths.state);
         const previousState = !previousInspection?.containerId
             ? "missing" as const
@@ -398,17 +474,11 @@ async function prepareInstallation(
             await ensureDirectory(backup);
             await copyFile(finalCompose, previousCompose);
         }
-        const stagedCompose = await writeDockerCompose({
-            engine,
-            root: paths.root,
-            stateRoot: paths.state,
-            profile: options.profile,
-            image: options.profile === "ghcr" ? `${product.image}@${product.digest}` : product.image,
-            port: options.port,
-            output: join(staging, "docker-compose.generated.yml"),
-            layoutPath: finalCompose,
-        });
+        if (!stagedCompose) throw new Error("Container migration plan 缺少候选 Compose。" );
         if (previousState === "running") await stopDocker(engine, paths.root, paths.state);
+        if (mode === "adopt") {
+            journal = await backupJournaledApplicationDatabase(journal, paths.state);
+        }
         await removePath(finalCompose);
         await rename(stagedCompose, finalCompose);
         journal = await setOperationEffect(journal, {
@@ -424,36 +494,22 @@ async function prepareInstallation(
         });
     }
     journal = await updateOperation(journal, "switched");
-    const createdStatePaths = await ensureStateFiles(paths.state, options.port, options.authEnabled, async (path) => {
-        const ownedPath = relative(paths.root, path).replaceAll("\\", "/");
-        journal = await setOperationEffect(journal, {kind: "path-create", state: "planned", owner: "state", path: ownedPath});
-    });
-    for (const path of createdStatePaths) {
-        journal = await setOperationEffect(journal, {kind: "path-create", state: "applied", owner: "state", path: relative(paths.root, path).replaceAll("\\", "/")});
+    const createdStatePaths = await ensureStateFiles(
+        paths.state,
+        options.port,
+        options.authEnabled,
+        rootLocators.state.base === "installation-root" ? async (path) => {
+            const ownedPath = relative(paths.root, path).replaceAll("\\", "/");
+            journal = await setOperationEffect(journal, {kind: "path-create", state: "planned", owner: "state", path: ownedPath});
+        } : undefined,
+    );
+    if (rootLocators.state.base === "installation-root") {
+        for (const path of createdStatePaths) {
+            journal = await setOperationEffect(journal, {kind: "path-create", state: "applied", owner: "state", path: relative(paths.root, path).replaceAll("\\", "/")});
+        }
     }
     journal = await applyJournaledApplicationMigrations(paths.root, manifest, journal);
     journal = await updateOperation(journal, "migrated");
-    if (options.profile === "source-product" || options.profile === "product-bun" || options.profile === "windows-portable") {
-        await assertNativeProductStopped(paths.state);
-        if (!bun) throw new Error("原生 Product 健康检查缺少 Application Runtime。" );
-        await verifyNativeProduct(paths.root, paths.state, bun, appVersion);
-    } else if (options.profile === "ghcr" || options.profile === "source-docker") {
-        if (!journal.containerEngine) throw new Error(`${options.profile}启动缺少Container Engine。`);
-        await startDocker(journal.containerEngine, paths.root, paths.state, options.profile, appVersion);
-    }
-    if (portable) {
-        await writePortableLaunchers(paths.root, async (path) => {
-            journal = await setOperationEffect(journal, pathCreateEffect(relative(paths.root, path).replaceAll("\\", "/")));
-        });
-        for (const launcher of portableLaunchers()) {
-            journal = await setOperationEffect(journal, pathCreateEffect(launcher.name, "applied"));
-        }
-    }
-    journal = await updateOperation(journal, "healthy");
-    if (mode === "adopt") {
-        await assertCleanWorktree(paths.root, [".deploy", ".runtime", ".output", "workspace", "config.yaml", ".env", "logs", "node_modules"]);
-        if (await repositoryRevision(paths.root) !== sourceRevision) throw new Error("接管期间Git HEAD发生变化，停止提交Manifest。" );
-    }
     return {manifest, journal, stagedWorktree};
 }
 

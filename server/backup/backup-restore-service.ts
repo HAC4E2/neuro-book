@@ -8,6 +8,16 @@ import {finished} from "node:stream/promises";
 import {Unzip, UnzipInflate} from "fflate";
 import type {RuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
 import {sanitizeZipEntryName} from "nbook/server/backup/backup-archive-rules";
+import type {BackupEncryptionKey} from "nbook/server/backup/backup-keyring-service";
+import {BackupKeyringService} from "nbook/server/backup/backup-keyring-service";
+import {officialSiteResponse} from "nbook/server/passport/official-site-transport";
+import {
+    createBackupCiphertextStream,
+    createBackupEnvelopeDecipher,
+    inspectBackupEnvelope,
+    type BackupEnvelopeInfo,
+    verifyBackupEnvelope,
+} from "nbook/server/backup/backup-envelope";
 
 // 恢复服务（Task 112 spec §9.5，已拍板 staging 方案）：下载归档 → 校验 sha256 →
 // 流式解包到 State Root 同级 restore-<timestamp>/ → 校验 nb-backup.json。
@@ -19,30 +29,43 @@ export type RestoreResult = {
     appVersion: string;
 };
 
-export type RestoreProgress = (phase: "downloading" | "unpacking", done: number, total: number | null) => void;
+export type RestoreProgress = (phase: "downloading" | "verifying" | "unpacking", done: number, total: number | null) => void;
+
+type RestoreFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 export class BackupRestoreService {
+    public constructor(private readonly fetchImplementation: RestoreFetch = fetch) {}
+
     /**
      * 下载官方站备份并解包到 restore 目录。expectedSha256 取云端备份元数据（真相源）。
      */
     async restore(input: {
         paths: RuntimePaths;
-        siteBaseUrl: string;
         token: string;
         backupId: number;
         expectedSha256: string;
+        expectedKeyId: string;
+        encryptionKey: BackupEncryptionKey;
         fileSizeHint: number; // 云端元数据的 fileSize，用于下载进度
         onProgress?: RestoreProgress;
     }): Promise<RestoreResult> {
         const timestamp = new Date().toISOString().replaceAll(/[:.]/g, "-");
         // State Root 同级：Portable 下即 data/ 旁边的 restore-<ts>/
         const restoreDir = join(input.paths.stateRoot, "..", `restore-${timestamp}`);
-        const partPath = `${restoreDir}.zip.part`;
+        const partPath = `${restoreDir}.nbbackup.part`;
 
         try {
             await this.download(input, partPath);
-            const fileCount = await this.unpack(partPath, restoreDir, input.onProgress);
+            const envelope = await inspectBackupEnvelope(partPath);
+            if (envelope.header.keyId !== input.expectedKeyId) {
+                throw new Error("备份密文的 keyId 与云端记录不一致");
+            }
+            await verifyBackupEnvelope(partPath, envelope, input.encryptionKey, (done, total) => {
+                input.onProgress?.("verifying", done, total);
+            });
+            const fileCount = await this.unpack(partPath, envelope, input.encryptionKey, restoreDir, input.onProgress);
             const appVersion = await this.verifyManifest(restoreDir);
+            await new BackupKeyringService().writeRestoreKeyring(restoreDir, input.encryptionKey);
             return {restoreDir, fileCount, appVersion};
         } catch (error) {
             // 失败清理半成品，避免残留误导用户
@@ -57,12 +80,12 @@ export class BackupRestoreService {
      * 流式下载归档到 part 文件，边写边算 sha256 并与云端元数据比对。
      */
     private async download(
-        input: {siteBaseUrl: string; token: string; backupId: number; expectedSha256: string; fileSizeHint: number; onProgress?: RestoreProgress},
+        input: {token: string; backupId: number; expectedSha256: string; fileSizeHint: number; onProgress?: RestoreProgress},
         partPath: string,
     ): Promise<void> {
-        const response = await fetch(`${input.siteBaseUrl}/api/v1/backups/${input.backupId}/download`, {
+        const response = await officialSiteResponse("backup.download", `/api/v1/backups/${input.backupId}/download`, {
             headers: {authorization: `Bearer ${input.token}`},
-        });
+        }, this.fetchImplementation);
         if (!response.ok || !response.body) {
             throw new Error(`备份下载失败（HTTP ${response.status}）`);
         }
@@ -91,12 +114,19 @@ export class BackupRestoreService {
     }
 
     /**
-     * 流式解包 zip 到 restore 目录；条目名经 zip-slip 防护，非法条目直接失败。
+     * 第二遍流式解密并解包到 restore 目录；第一遍 GCM 验证已在调用前完成。
      */
-    private async unpack(zipPath: string, restoreDir: string, onProgress?: RestoreProgress): Promise<number> {
+    private async unpack(
+        backupPath: string,
+        envelope: BackupEnvelopeInfo,
+        encryptionKey: BackupEncryptionKey,
+        restoreDir: string,
+        onProgress?: RestoreProgress,
+    ): Promise<number> {
         await mkdir(restoreDir, {recursive: true});
         const openStreams = new Set<WriteStream>();
         const streamsDone: Promise<unknown>[] = [];
+        const extractedPaths = new Set<string>();
         let fileCount = 0;
         let failure: Error | null = null;
         // 最近一次写入触发背压的流：推下一块源数据前先等它排空。
@@ -109,6 +139,15 @@ export class BackupRestoreService {
                 failure = failure ?? new Error(`归档包含非法路径条目：${file.name}`);
                 return;
             }
+            if (safeName === "secrets" || safeName.startsWith("secrets/")) {
+                failure = failure ?? new Error("归档不得包含 secrets 目录");
+                return;
+            }
+            if (extractedPaths.has(safeName)) {
+                failure = failure ?? new Error(`归档包含重复路径条目：${safeName}`);
+                return;
+            }
+            extractedPaths.add(safeName);
             if (file.name.endsWith("/")) {
                 mkdirSync(join(restoreDir, safeName), {recursive: true});
                 return;
@@ -142,8 +181,9 @@ export class BackupRestoreService {
         });
         unzip.register(UnzipInflate);
 
-        const source = createReadStream(zipPath, {highWaterMark: 1 << 18});
-        for await (const chunk of source) {
+        const decrypted = createBackupCiphertextStream(backupPath, envelope)
+            .pipe(createBackupEnvelopeDecipher(envelope, encryptionKey));
+        for await (const chunk of decrypted) {
             unzip.push(chunk as Buffer);
             const drainTarget = drainRef.stream;
             if (drainTarget && !drainTarget.destroyed && drainTarget.writableNeedDrain) {
@@ -163,16 +203,20 @@ export class BackupRestoreService {
     }
 
     /**
-     * 校验解包产物的 nb-backup.json（formatVersion 必须为 1），返回归档记录的 appVersion。
+     * 校验解包产物的 v2 nb-backup.json，拒绝旧明文归档合同。
      */
     private async verifyManifest(restoreDir: string): Promise<string> {
-        let manifest: {formatVersion?: number; appVersion?: string};
+        let manifest: {formatVersion?: number; appVersion?: string; encryption?: string};
         try {
-            manifest = JSON.parse(await readFile(join(restoreDir, "nb-backup.json"), "utf8")) as {formatVersion?: number; appVersion?: string};
+            manifest = JSON.parse(await readFile(join(restoreDir, "nb-backup.json"), "utf8")) as {
+                formatVersion?: number;
+                appVersion?: string;
+                encryption?: string;
+            };
         } catch {
             throw new Error("归档缺少 nb-backup.json，不是合法的 NeuroBook 备份");
         }
-        if (manifest.formatVersion !== 1) {
+        if (manifest.formatVersion !== 2 || manifest.encryption !== "AES-256-GCM") {
             throw new Error(`不支持的备份格式版本：${manifest.formatVersion ?? "unknown"}`);
         }
         return manifest.appVersion ?? "unknown";

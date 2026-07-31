@@ -1,5 +1,5 @@
 import {randomUUID} from "node:crypto";
-import {readFile, readdir} from "node:fs/promises";
+import {readFile, readdir, rm} from "node:fs/promises";
 import {resolve} from "node:path";
 import {
     acquireAgentSessionStoreExclusiveLease,
@@ -71,6 +71,13 @@ export async function runSessionSchemaV2Migration(
 ): Promise<SessionSchemaV2Report> {
     const rootWorkspace = resolve(options.rootWorkspace);
     const runId = validatedRunId(options.runId ?? randomUUID());
+    if (options.mode === "dry-run") {
+        if (options.resume) throw new Error("Session schema v2 dry-run 不能 resume");
+        const current = await readCompleteSessionSchemaV2Migration(rootWorkspace);
+        if (current) return reportFromManifest(current.manifest, "dry-run", "already_current");
+        const inventory = await planWorkspace(rootWorkspace, options.migrationTimestamp ?? Date.now());
+        return reportFromPlans(runId, inventory.plans);
+    }
     const releaseLease = await acquireAgentSessionStoreExclusiveLease(rootWorkspace);
     try {
         if (options.resume) {
@@ -79,14 +86,11 @@ export async function runSessionSchemaV2Migration(
             }
             return await resumeApply(rootWorkspace, options);
         }
-        const current = await trustedCompleteStore(rootWorkspace);
+        const current = await readCompleteSessionSchemaV2Migration(rootWorkspace);
         if (current) {
             return reportFromManifest(current.manifest, options.mode, "already_current");
         }
         const inventory = await planWorkspace(rootWorkspace, options.migrationTimestamp ?? Date.now());
-        if (options.mode === "dry-run") {
-            return reportFromPlans(runId, inventory.plans);
-        }
         return startApply(rootWorkspace, runId, inventory, options);
     } finally {
         await releaseLease();
@@ -117,7 +121,9 @@ export async function rollbackSessionSchemaV2Migration(
             if (!await pathExists(paths.runRoot)) {
                 return {version: 1, runId, status: "not_started", restoredSessions: 0};
             }
-            throw new AgentSessionStoreCorruptError("Session migration run存在但sentinel缺失", {cause: error});
+            await loadUnpublishedInitialRun(paths);
+            await rm(paths.runRoot, {recursive: true, force: true});
+            return {version: 1, runId, status: "not_started", restoredSessions: 0};
         }
         const runId = validatedRunId(options.runId ?? sentinel.runId);
         if (sentinel.runId !== runId) {
@@ -190,7 +196,17 @@ async function resumeApply(
     rootWorkspace: string,
     options: RunSessionSchemaV2Options,
 ): Promise<SessionSchemaV2Report> {
-    const sentinel = await readAgentSessionStoreSentinel(rootWorkspace);
+    let sentinel: AgentSessionStoreSentinel;
+    try {
+        sentinel = await readAgentSessionStoreSentinel(rootWorkspace);
+    } catch (error) {
+        if (!(error instanceof AgentSessionMigrationRequiredError) || !options.runId) throw error;
+        const runId = validatedRunId(options.runId);
+        const paths = migrationPaths(rootWorkspace, runId);
+        const manifest = await loadUnpublishedInitialRun(paths);
+        await publishSentinel(rootWorkspace, paths, manifest, "pending", options.observer);
+        sentinel = await readAgentSessionStoreSentinel(rootWorkspace);
+    }
     if (sentinel.targetSchemaVersion !== TARGET_SCHEMA_VERSION
         || sentinel.sourceSchemaVersion !== SOURCE_SCHEMA_VERSION) {
         throw new Error("当前 Agent Session Store sentinel 不是 schema v1 -> v2 migration");
@@ -199,7 +215,7 @@ async function resumeApply(
         throw new Error(`当前 Session migration 属于 run ${sentinel.runId}，不能恢复 ${options.runId}`);
     }
     if (sentinel.state === "complete") {
-        const current = await trustedCompleteStore(rootWorkspace);
+        const current = await readCompleteSessionSchemaV2Migration(rootWorkspace);
         if (!current) throw new Error("complete sentinel不是当前Session schema");
         return reportFromManifest(current.manifest, "apply", "already_current");
     }
@@ -272,8 +288,40 @@ async function recoveryManifest(
     return manifest;
 }
 
+/**
+ * 恢复初始 manifest 已落盘、sentinel 尚未发布的唯一无数据写入窗口。
+ *
+ * 只有 appliedSeq=0、全部 Session 尚未开始且没有 backup/stage/rollback artifact 时
+ * 才能重建 pending sentinel 或把该 run 视为 not_started；其余情况一律 fail closed。
+ */
+async function loadUnpublishedInitialRun(
+    paths: ReturnType<typeof migrationPaths>,
+): Promise<SessionSchemaV2Manifest> {
+    const manifest = await loadManifest(paths);
+    if (!manifest
+        || manifest.status !== "running"
+        || manifest.appliedSeq !== 0
+        || manifest.sessions.some((session) => session.status !== "pending" && session.status !== "verified")) {
+        throw new AgentSessionStoreCorruptError("Session migration sentinel缺失且run不是未发布初始状态");
+    }
+    for (const session of manifest.sessions) {
+        for (const relativePath of [session.backupPath, session.stagePath, session.rollbackPath]) {
+            if (await pathExists(workspacePath(paths.rootWorkspace, relativePath))) {
+                throw new AgentSessionStoreCorruptError("Session migration sentinel缺失但run已产生事务artifact");
+            }
+        }
+    }
+    return manifest;
+}
+
 /** 在独占 lease 内验证 complete sentinel 与最终 manifest 的 hash/checkpoint 绑定。 */
-async function trustedCompleteStore(rootWorkspace: string): Promise<{
+/**
+ * 读取并验证当前 complete Session v2 migration。
+ *
+ * 这是 migration-only 的历史证明接口。apply/repair 调用方必须持有 Agent Session
+ * Store 独占 lease；纯只读 plan 可在无锁快照上调用，Nitro runtime 不得导入。
+ */
+export async function readCompleteSessionSchemaV2Migration(rootWorkspace: string): Promise<{
     sentinel: AgentSessionStoreSentinel;
     manifest: SessionSchemaV2Manifest;
 } | null> {
@@ -498,6 +546,7 @@ function createManifest(
             classification: plan.classification,
             currentProjectRoot: plan.currentProjectRoot ?? null,
             reviewReasons: [...plan.reviewReasons],
+            decoderFormat: plan.decoderFormat,
             ambiguousLocations: [...plan.ambiguousLocations],
             migrationTimestamp: plan.migrationTimestamp,
             rewrittenPaths: plan.stats.rewrittenPaths,
@@ -623,6 +672,7 @@ async function planFromPath(
         migrationTimestamp: session.migrationTimestamp,
         knownProjectRoots,
         profileBySessionId,
+        decoderFormat: session.decoderFormat,
     });
     return {
         ...decoded,
@@ -649,6 +699,7 @@ function planFromTarget(session: SessionSchemaV2State, text: string): SessionSch
         profileKey: session.profileKey,
         classification: session.classification,
         ...(session.currentProjectRoot ? {currentProjectRoot: session.currentProjectRoot} : {}),
+        decoderFormat: session.decoderFormat,
         reviewReasons: [...session.reviewReasons],
         ambiguousLocations: [...session.ambiguousLocations],
         stats: stateStats(session),
@@ -668,6 +719,7 @@ function assertPlan(session: SessionSchemaV2State, plan: SessionSchemaV2Plan): v
         profileKey: plan.profileKey,
         classification: plan.classification,
         currentProjectRoot: plan.currentProjectRoot ?? null,
+        decoderFormat: plan.decoderFormat,
         reviewReasons: plan.reviewReasons,
         ambiguousLocations: plan.ambiguousLocations,
         migrationTimestamp: plan.migrationTimestamp,
@@ -680,6 +732,7 @@ function assertPlan(session: SessionSchemaV2State, plan: SessionSchemaV2Plan): v
         profileKey: session.profileKey,
         classification: session.classification,
         currentProjectRoot: session.currentProjectRoot,
+        decoderFormat: session.decoderFormat,
         reviewReasons: session.reviewReasons,
         ambiguousLocations: session.ambiguousLocations,
         migrationTimestamp: session.migrationTimestamp,
@@ -705,9 +758,11 @@ async function verifyTargetPlan(session: SessionSchemaV2State, plan: SessionSche
         throw new Error(`${session.sourcePath}: schema v2 target缺少唯一header`);
     }
     const metadata = headers[0] as {[key: string]: unknown};
-    const expectedReview = session.reviewReasons.length > 0
-        ? {status: "required", reasons: session.reviewReasons}
-        : undefined;
+    const expectedReview = session.reviewReasons.length === 0
+        ? undefined
+        : session.decoderFormat === 1
+            ? {status: "required", reasons: session.reviewReasons}
+            : {status: "required", reason: "current_project_unresolved"};
     if (metadata.schemaVersion !== TARGET_SCHEMA_VERSION
         || metadata.sessionId !== session.sessionId
         || metadata.profileKey !== session.profileKey

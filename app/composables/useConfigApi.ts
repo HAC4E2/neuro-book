@@ -33,10 +33,10 @@ export function useConfigApi() {
     /**
      * 指定 Project Workspace 查询参数。
      */
-    function novelProjectQuery(projectPath: string): ConfigWorkspaceQueryDto {
+    function novelProjectQuery(projectRoot: string): ConfigWorkspaceQueryDto {
         return {
             workspaceKind: "novel",
-            projectPath,
+            projectRoot,
         };
     }
 
@@ -44,15 +44,15 @@ export function useConfigApi() {
      * 当前设置页对应的 Workspace Root / Project Workspace 查询参数。
      *
      * 小说工作区还没完成初始化时，只能读取 Workspace Root 配置；否则会生成
-     * `workspaceKind=novel` 但缺少 `projectPath` 的无效请求。
+     * `workspaceKind=novel` 但缺少 `projectRoot` 的无效请求。
      */
     function currentQuery(): ConfigWorkspaceQueryDto {
-        if (novelIdeStore.workspaceKind === "user-assets" || !novelIdeStore.currentNovelId) {
+        if (novelIdeStore.workspaceKind === "user-assets" || !novelIdeStore.currentProjectRoot) {
             return {workspaceKind: "user-assets"};
         }
         return {
             workspaceKind: "novel",
-            projectPath: novelIdeStore.currentNovelId,
+            projectRoot: novelIdeStore.currentProjectRoot,
         };
     }
 
@@ -60,10 +60,10 @@ export function useConfigApi() {
      * 当前 Project Workspace 查询参数；只有小说工作区初始化完成后才存在。
      */
     function projectQuery(): ConfigWorkspaceQueryDto {
-        if (novelIdeStore.workspaceKind === "user-assets" || !novelIdeStore.currentNovelId) {
+        if (novelIdeStore.workspaceKind === "user-assets" || !novelIdeStore.currentProjectRoot) {
             throw new Error(t("composables.config.noWritableProjectWorkspace"));
         }
-        return novelProjectQuery(novelIdeStore.currentNovelId);
+        return novelProjectQuery(novelIdeStore.currentProjectRoot);
     }
 
     /**

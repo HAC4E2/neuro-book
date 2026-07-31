@@ -77,6 +77,13 @@ export function buildPromptPrefixAttribution(input: {
             sources.set(entry.message, entry.promptSource);
         }
     }
+    // 一条都没有 = 该 session 建于归因功能之前，退化到位置推断（见 legacyPromptSources 的局限说明）。
+    const mode: PromptPrefixAttribution["mode"] = sources.size > 0 ? "full" : "legacy";
+    if (mode === "legacy") {
+        for (const [message, source] of legacyPromptSources(input.snapshot)) {
+            sources.set(message, source);
+        }
+    }
 
     const kinds: PiTraceSegmentKind[] = [];
     const labels: (readonly string[] | null)[] = [];
@@ -99,7 +106,32 @@ export function buildPromptPrefixAttribution(input: {
     for (let index = 0; index < input.currentUserInputCount; index += 1) {
         push("currentInput", null);
     }
-    return {kinds, labels};
+    return {kinds, labels, mode};
+}
+
+/**
+ * 旧 session 的位置推断归因。
+ *
+ * 依据：`compilePrepareRunWritePlan` 只在 `context.messages.length === 0` 时写 HistorySet，
+ * 因此首条真实 `message` 之前的那段连续 `custom_message` 必定是首轮 prepare 的产物，
+ * 之后出现的 `custom_message` 必定是后续轮次的 AppendingSet。
+ *
+ * **已知局限**：首轮的 AppendingSet 提醒和 HistorySet 写在同一批、同样排在首条用户消息之前，
+ * 没有标签就分不开，会被一并计入 historySet。调用方据此把 mode 标成 legacy，由 UI 披露。
+ */
+function legacyPromptSources(snapshot: SessionSnapshot): Map<StoredAgentMessage, NonNullable<CustomMessageSessionEntry["promptSource"]>> {
+    const inferred = new Map<StoredAgentMessage, NonNullable<CustomMessageSessionEntry["promptSource"]>>();
+    let seenRealMessage = false;
+    for (const entry of snapshot.entries) {
+        if (entry.type === "message") {
+            seenRealMessage = true;
+            continue;
+        }
+        if (entry.type === "custom_message" && entry.visibleToModel) {
+            inferred.set(entry.message, {zone: seenRealMessage ? "appending" : "historySet"});
+        }
+    }
+    return inferred;
 }
 
 /**

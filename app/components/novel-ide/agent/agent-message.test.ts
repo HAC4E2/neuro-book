@@ -2,6 +2,7 @@ import {describe, expect, it} from "vitest";
 import {applyRuntimeEventToMessages, applySessionEntryToMessages, deriveMessagesFromChatEntries, isContinuationPointMessage, type AgentMessage} from "nbook/app/components/novel-ide/agent/agent-message";
 import type {AgentChatEntryDto} from "nbook/shared/dto/agent-public-event.dto";
 import {assertPublicToolCallId} from "nbook/shared/agent/public-tool-identity";
+import {agentAttachmentUrl} from "nbook/app/components/novel-ide/agent/agent-attachment";
 
 describe("agent-message public projection", () => {
     it("durable history 保留正文 preview 的 bytes/omitted 元数据", () => {
@@ -150,6 +151,69 @@ describe("agent-message public projection", () => {
                 content: [expect.objectContaining({type: "attachment", contentIndex: 2})],
             }),
         }));
+    });
+
+    it("live 工具附件先展示无 locator 状态，durable entry 到达后生成授权地址", () => {
+        const toolCallId = assertPublicToolCallId("call-live-attachment");
+        const result = {
+            content: [
+                {
+                    type: "attachment" as const,
+                    contentIndex: 1,
+                    attachment: {
+                        attachmentId: `sha256:${"e".repeat(64)}` as const,
+                        mimeType: "image/png",
+                        bytes: 128,
+                        name: "cover.png",
+                        dataOmitted: true as const,
+                    },
+                },
+                {
+                    type: "attachment" as const,
+                    contentIndex: 2,
+                    attachment: {
+                        attachmentId: `sha256:${"f".repeat(64)}` as const,
+                        mimeType: "application/pdf",
+                        bytes: 256,
+                        name: "notes.pdf",
+                        dataOmitted: true as const,
+                    },
+                },
+            ],
+            omittedContentBlocks: 0,
+        };
+        let messages = applyRuntimeEventToMessages([], {
+            type: "tool_execution_end",
+            toolCallId,
+            toolName: "read",
+            result,
+            isError: false,
+        }, "run-live-attachment");
+        const liveToolCall = messages[0]?.toolCalls?.[0];
+
+        expect(liveToolCall?.publicResult?.content).toHaveLength(2);
+        expect(liveToolCall?.resultEntryId).toBeUndefined();
+        expect(agentAttachmentUrl(42, liveToolCall?.resultEntryId, 1, "attachment-chat")).toBeNull();
+        expect(agentAttachmentUrl(42, liveToolCall?.resultEntryId, 2)).toBeNull();
+
+        messages = applySessionEntryToMessages(messages, {
+            id: "result-live-attachment",
+            timestamp: 2,
+            type: "tool_result",
+            toolCallId,
+            toolName: "read",
+            result,
+            isError: false,
+        });
+        const durableToolCall = messages[0]?.toolCalls?.[0];
+
+        expect(durableToolCall?.resultEntryId).toBe("result-live-attachment");
+        expect(agentAttachmentUrl(42, durableToolCall?.resultEntryId, 1, "attachment-chat")).toBe(
+            "/api/agent/sessions/42/entries/result-live-attachment/attachments/1?preset=attachment-chat",
+        );
+        expect(agentAttachmentUrl(42, durableToolCall?.resultEntryId, 2)).toBe(
+            "/api/agent/sessions/42/entries/result-live-attachment/attachments/2",
+        );
     });
 
     it("delta-first runtime event 按 messageId/contentIndex 合并", () => {

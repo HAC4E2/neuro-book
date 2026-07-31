@@ -29,8 +29,7 @@ describe("world.engine profile", () => {
         const prepared = await worldEngineProfile.prepare!({
             session: testSession({
                 profileKey: "world.engine",
-                workspaceRoot: "workspace",
-                projectPath: "workspace/world-engine-demo",
+                currentProjectRoot: "world-engine-demo",
                 customState: {},
                 linkedAgents: [],
                 archived: false,

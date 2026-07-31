@@ -13,8 +13,7 @@ const CreateAgentSchema = Type.Object({
     title: Type.Optional(Type.String({
         description: "Optional display title for the new agent session. Omit to use the target profile name.",
     })),
-    workspaceRoot: Type.Optional(Type.String({description: "Advanced override. Omit to inherit the current agent workspace root."})),
-    projectPath: Type.Optional(Type.String({description: "Project Workspace path, for example workspace/<project>. Omit to inherit the current project."})),
+    currentProjectRoot: Type.Optional(Type.String({description: "Optional Project root name. Omit to inherit the current session Current Project."})),
 });
 
 const InvokeAgentSchema = Type.Object({
@@ -44,7 +43,9 @@ const GetAgentSchema = Type.Object({
 });
 
 const GetSessionSchema = Type.Object({
-    sessionId: Type.Optional(Type.Number()),
+    sessionId: Type.Optional(Type.Number({
+        description: "Omit this field to inspect the current session: call get_session({}). Set it only when you already know the real target session id. Never guess, invent, or default it to 1.",
+    })),
     includeRecentMessages: Type.Optional(Type.Boolean({description: "Default false. Set true to include recent messages from the current active path only."})),
     recentMessageLimit: Type.Optional(Type.Integer({minimum: 1, maximum: 10, description: "Number of recent active-path message entries to return when includeRecentMessages is true. Default 3, max 10. By default this counts user, assistant, and toolResult messages; set recentMessageRoles to filter first."})),
     recentMessageRoles: Type.Optional(Type.Array(Type.Union([
@@ -88,9 +89,7 @@ export const agentCollaborationTools = {
                 profileKey: agentInput.profileKey,
                 initial: normalizeCreateAgentInitial(agentInput.profileKey, agentInput.initial) as never,
                 title: agentInput.title,
-                workspaceRoot: agentInput.workspaceRoot ?? context.workspaceRootRef,
-                workspaceKey: context.workspaceKey,
-                projectPath: agentInput.projectPath ?? context.projectPath,
+                currentProjectRoot: agentInput.currentProjectRoot,
                 parentSessionId: context.sessionId,
             });
             return {
@@ -138,7 +137,7 @@ export const agentCollaborationTools = {
             };
             // 后台模式（PLAN-E）：立即返回 jobId，结果以 followup 消息回流
             if (invocation.background) {
-                const job = context.harness.jobs.spawn({
+                const {job, jobEventCursor} = context.harness.jobs.spawn({
                     kind: "invoke_agent",
                     title: `invoke agent #${invocation.sessionId}${invocation.message ? `：${invocation.message.slice(0, 40)}` : ""}`,
                     ownerSessionId: context.sessionId,
@@ -166,6 +165,7 @@ export const agentCollaborationTools = {
                     content: [{type: "text", text: `后台调用已启动：${job.jobId}（agent #${invocation.sessionId}）。结果将以后续消息回流；正常收尾本回合，不要轮询等待。`}],
                     details: normalizeToolResultDetails({
                         jobId: job.jobId,
+                        jobEventCursor,
                         sessionId: invocation.sessionId,
                         status: "started",
                         data: null,
@@ -223,6 +223,8 @@ export const agentCollaborationTools = {
         executionMode: "parallel",
         description: [
             "Get lightweight session metadata, title, summary, usage, and linked agents.",
+            "To inspect your current session, call get_session({}) and omit sessionId. The runtime automatically uses the current session id.",
+            "Only pass sessionId when you already know the real target id from session context or another tool result. Never guess, invent, or default sessionId to 1.",
             "Default does not return history messages and never returns tree.",
             "Set includeRecentMessages=true for a small active-path-only recent message query.",
             "recentMessageLimit counts user, assistant, and toolResult messages by default; set recentMessageRoles to filter, for example [\"assistant\"].",

@@ -16,14 +16,10 @@ import {
     type ProfileReleasePublishOptions,
 } from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {readVariableDefinitionManifest, validateVariableDefinitionArtifact, type VariableDefinitionManifestItem} from "nbook/server/agent/variables/definition-artifact";
-import {normalizeProjectPath, resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
+import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 import {absoluteFsPath, assertRealPathContained, relativeFilePathInside, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {assertProjectWorkspaceDirectory} from "nbook/server/workspace-files/project-workspace";
 import type {WorkspaceFileTarget} from "nbook/server/workspace-files/workspace-file-target";
-import {
-    WORKSPACE_CONTAINER_ROOT as WORKSPACE_CONTAINER_ROOT_VALUE,
-    WORKSPACE_NBOOK_ROOT,
-} from "nbook/server/workspace-files/workspace-root-ref";
 import {resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
 import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {appLogger} from "nbook/server/app-logs/logger";
@@ -36,9 +32,9 @@ import type {
 } from "nbook/shared/dto/user-assets-sync.dto";
 
 export const USER_ASSETS_WORKSPACE_KIND = "user-assets";
-export const WORKSPACE_CONTAINER_ROOT: typeof WORKSPACE_CONTAINER_ROOT_VALUE = WORKSPACE_CONTAINER_ROOT_VALUE;
-export const USER_ASSETS_WORKSPACE_ROOT: typeof WORKSPACE_NBOOK_ROOT = WORKSPACE_NBOOK_ROOT;
-export const USER_NBOOK_ROOT: typeof WORKSPACE_NBOOK_ROOT = WORKSPACE_NBOOK_ROOT;
+export const WORKSPACE_CONTAINER_ROOT = "workspace" as const;
+export const USER_ASSETS_WORKSPACE_ROOT = "workspace/.nbook" as const;
+export const USER_NBOOK_ROOT = USER_ASSETS_WORKSPACE_ROOT;
 export const DEFAULT_NOVEL_WORKSPACE_SLUG = "silver-dragon-hime";
 
 const PROJECT_DIRECTORY_TEMPLATE_ASSET_PREFIX = "templates/project-directory-templates/";
@@ -300,33 +296,32 @@ export function buildWorkspaceSlugBase(title: string): string {
 }
 
 /**
- * 从显式Runtime Paths解析指定Project Path的文件操作目标。
+ * 从显式Runtime Paths解析指定 projectRoot 的文件操作目标。
+ *
+ * 入参是 HTTP 公开合同的单段 `projectRoot`；返回目标只保留单段 root 与物理根。
  */
 export async function resolveNovelWorkspaceTarget(
     runtimePaths: RuntimePaths,
-    projectPathInput: string,
+    projectRootInput: string,
 ): Promise<Extract<WorkspaceFileTarget, {kind: "project-workspace"}>> {
-    const projectPath = await assertProjectWorkspaceDirectory(
-        runtimePaths.workspaceRoot,
-        normalizeProjectPath(projectPathInput),
-    );
-    const root = resolveProjectWorkspaceRoot(runtimePaths.workspaceRoot, projectPath);
+    const ref = projectWorkspaceRef(projectRootInput);
+    const root = await assertProjectWorkspaceDirectory(runtimePaths.workspaceRoot, ref);
     return {
         kind: "project-workspace",
         root,
-        projectPath,
+        projectRoot: ref.projectRoot,
     };
 }
 
 /**
  * 从DTO输入与显式Runtime Paths建立Workspace文件操作目标。
  *
- * 这是逻辑Project Path / workspaceKind到物理Workspace Root的Adapter；返回后核心Module
+ * 这是公开 `projectRoot` / workspaceKind 到物理Workspace Root的入口；返回后核心Module
  * 不得再次读取cwd、State Root或进程环境。
  */
 export async function resolveWorkspaceFileTarget(
     runtimePaths: RuntimePaths,
-    input: {projectPath?: string; workspaceKind?: WorkspaceRootKind},
+    input: {projectRoot?: string; workspaceKind?: WorkspaceRootKind},
 ): Promise<WorkspaceFileTarget> {
     if (input.workspaceKind === USER_ASSETS_WORKSPACE_KIND) {
         await ensureUserAssetsWorkspaceRootAt(runtimePaths);
@@ -336,8 +331,8 @@ export async function resolveWorkspaceFileTarget(
             root: runtimePaths.userNbookRoot,
         };
     }
-    if (input.projectPath?.trim()) {
-        return resolveNovelWorkspaceTarget(runtimePaths, input.projectPath);
+    if (input.projectRoot?.trim()) {
+        return resolveNovelWorkspaceTarget(runtimePaths, input.projectRoot);
     }
     await assertRealPathContained(runtimePaths.stateRoot, runtimePaths.workspaceRoot);
     return {

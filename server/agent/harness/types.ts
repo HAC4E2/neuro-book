@@ -2,7 +2,8 @@ import type {AgentUserMessageInput, JsonValue, Usage} from "nbook/server/agent/m
 import type {InvocationErrorInfo, InvocationErrorPhase, SessionEntryId, SessionMetadata} from "nbook/server/agent/session/types";
 import type {AgentResolution} from "nbook/server/agent/tools/types";
 import type {ClientStateSnapshot} from "nbook/server/agent/variables/types";
-import type {ServerTimingSink} from "nbook/server/utils/server-timing";
+import type {ServerTimingSink} from "nbook/server/utils/server-timing-sink";
+import type {AgentInvokeCaller} from "nbook/server/agent/harness/invocation-caller";
 import type {
     AgentAbortRequestDto,
     AgentAbortResult,
@@ -28,9 +29,7 @@ export type CreateAgentInput = {
     initial?: JsonValue;
     /** 可选展示标题；为空时使用 profile manifest name。 */
     title?: string;
-    workspaceRoot?: string;
-    workspaceKey?: string;
-    projectPath?: string;
+    currentProjectRoot?: string;
     parentSessionId?: number;
     /** session 类别（D15）：workflow 创建的参与者/run session 标注用；缺省 = chat。 */
     kind?: "chat" | "workflow" | "system";
@@ -107,19 +106,10 @@ export type AgentTreeOperationResult = {
     invocation?: AgentInvocationResult;
 };
 
-export type AgentInvokeCallerKind = "user" | "agent" | "system";
-
-export type AgentInvokeCaller = {
-    kind: AgentInvokeCallerKind;
-    sessionId?: number;
-    profileKey?: string;
-    toolCallId?: string;
-};
-
 export type AgentSummary = {
     sessionId: number;
     profileKey: string;
-    workspaceRoot: string;
+    currentProjectRoot?: string;
     title?: string;
     summary?: string;
     status: "idle";

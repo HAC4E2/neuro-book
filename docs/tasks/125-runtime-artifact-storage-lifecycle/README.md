@@ -4,6 +4,13 @@
 >
 > 编号说明：本任务最初建为 `120`，与 [Task 120 Agent Skill Package Contract](../120-agent-skill-package-contract/README.md) 撞号（Task 123 的 R4）。因 `124` 已被写作产品线第三批占用，本任务改号为 `125`。
 
+## 2026-07-28：Image Variant Cache 新 owner
+
+- 新增独立 Image Variant Cache，固定在 `Cache Root/image-variants/`；未配置独立 Cache Root 时才默认落在 `State Root/cache/image-variants/`。它从各领域 canonical 原图重建，不与 Published Profile Artifact、Runtime Import Cache 或 Project Runtime Artifact 共用 Store。
+- 硬预算为 512 MiB、10000 项、每 source 32 项；首次使用清 temp/建 inventory，成功写入后仅在超预算时按生成时间淘汰，命中不更新访问时间。
+- 缓存初始化、写入、损坏项删除或回收失败会关闭本进程后续持久写入，但当前转换仍可返回内存 bytes。它不进入 Application State migration、备份、File Index、History 或 Project 下载。
+- 该 owner 遵循 ADR 0002 的“明确 owner/真相源/硬预算”，领域特有授权与变体参数由 [ADR 0006](../../adr/0006-image-variant-and-original-ownership.md) 冻结。
+
 ## Relative documents refs
 
 - [诊断与推荐架构](walkthroughs/round-01-diagnosis-and-recommended-architecture.md)
@@ -246,6 +253,7 @@ Phase 0 需要把 `defineAgentProfile -> profile-dsl / low-code-form / runtime s
 
 - Round 01 已完成只读诊断、最小实验与推荐架构，见 [walkthrough](walkthroughs/round-01-diagnosis-and-recommended-architecture.md)。
 - Round 02 复核基线、执行一次性清理并实施 Phase 1/2，见 [walkthrough](walkthroughs/round-02-baseline-recheck-and-implementation.md)。
+- Round 03 实施 Phase 3 artifact 减重（四处切边 + 依赖门禁），见 [walkthrough](walkthroughs/round-03-phase3-artifact-diet.md)。
 
 ### 实际结果与原计划差异
 
@@ -261,6 +269,6 @@ Phase 0 需要把 `defineAgentProfile -> profile-dsl / low-code-form / runtime s
 - [x] Phase 1：Test Workspace Fixture 所有权收口。
 - [x] Phase 2：有界 artifact 生命周期（Profile orphan 硬预算 + 移除冗余 import cache + retention policy 类型门禁）。
 - [ ] Phase 2 补测：预算 GC 四条聚焦测试、`profile-artifact-store.test.ts`、fixture 所有权测试。
-- [ ] Phase 3：Profile artifact 减重。**新线索**：Product build 单 artifact 只有 5.9 MB，source checkout 是 21.9–27 MB（4x 差距），先查这个差异比直接拆 SDK/DSL seam 便宜。
-- [ ] Phase 4：跨环境验收（Source / Product Bun / Windows Portable 三形态 Profile 导入）与 5 轮空间收敛曲线。
-- [ ] **阻塞项（不属本任务）**：Task 118 未提交的 `server/workspace-files/project-root-reparse-windows.ts` 引入 `bun:ffi`，经 `project-root-identity.ts` 进入 profile 依赖图，导致 esbuild 无法解析、所有需要现场编译 profile 的测试失败（`catalog.test.ts` 26/44）。Phase 4 验收必须等这条修复后才有意义。
+- [x] Phase 3：Profile artifact 减重（Round 03：单 artifact 27.3→1.2 MiB、一代 release 382→17.24 MiB；「Product 只有 5.9 MB」的差距根因即渗漏边——Product 是对 Nitro tree-shake 后的 `.output/server` 编译，天然没有 jsdom/prisma；切边后 source 反而更小）。
+- [x] Phase 3 门禁：编译器 metafile 依赖白名单 + 禁止依赖族 + 4 MiB 字节上限，违规 `compile_failed`，合同见 `reference/agent/profile-compiled-artifacts.md` 的 Dependency Gate 小节。
+- [ ] Phase 4：跨环境验收（Source / Product Bun / Windows Portable 三形态 Profile 导入）与 5 轮空间收敛曲线。原 `bun:ffi` 阻塞已在 Round 02/03 解除（`isPlatformBuiltinModule` external + 依赖图切边），`catalog.test.ts` 已回到 44/44。

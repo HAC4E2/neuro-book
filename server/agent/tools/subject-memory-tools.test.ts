@@ -13,12 +13,11 @@ import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {createRuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
-import {
-    closeAllProjects,
+import {closeAllProjects,
     closeProject,
     openProject,
-    requireReadyModuleHandle,
-} from "nbook/server/workspace-files/project-session";
+    requireReadyModuleHandle} from "nbook/server/workspace-files/project-session";
+import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 import {PROJECT_FILE_INDEX_MODULE_TOKEN} from "nbook/server/workspace-files/project-file-index";
 import {
@@ -39,7 +38,7 @@ describe("subject memory tools", () => {
     let context: ToolExecutionContext;
     let faux: FauxModelsFixture;
     let invocationReady: ReadyProjectSessionRef;
-    const projectPath = "workspace/demo";
+    const projectRef = projectWorkspaceRef("demo");
 
     beforeEach(async () => {
         setHistoryEnabledOverrideForTest(true);
@@ -94,22 +93,18 @@ describe("subject memory tools", () => {
                 return {};
             },
         }), false);
+        invocationReady = await openProject(projectRef, {kind: "job", source: "subject-memory-tools-test"}, absoluteFsPath(workspaceRoot));
         const session = await harness.createAgent({
             profileKey: "test.subject-memory-tools",
             initial: {},
-            workspaceRoot: "workspace",
-            projectPath,
+            currentProjectRoot: "demo",
         });
-        invocationReady = await openProject(absoluteFsPath(workspaceRoot), projectPath, {kind: "job", source: "subject-memory-tools-test"});
-        vi.spyOn(harness, "projectForInvocation").mockReturnValue(invocationReady);
         context = {
             harness,
             sessionId: session.sessionId,
             profileKey: "test.subject-memory-tools",
-            workspaceRootRef: "workspace",
-            workspaceFsRoot: absoluteFsPath(workspaceRoot),
-            workspaceKey: "global",
-            projectPath,
+            workspaceRoot: absoluteFsPath(workspaceRoot),
+            currentProject: invocationReady,
             invocationId: "subject-memory-tools-test-invocation",
         };
     });
@@ -184,17 +179,17 @@ describe("subject memory tools", () => {
             events: [{text: "不应写入。"}],
         })).rejects.toThrow("subjectPath必须是当前Project内");
 
-        await closeProject(projectPath, "shutdown");
+        await closeProject(projectRef, "shutdown");
         await expect(tool.executeWithContext?.(context, "closed-project-subject", {
             subjectPath: "simulation/subjects/heroine",
             events: [{text: "不应写入。"}],
         })).rejects.toThrow("Project未打开");
-        await openProject(absoluteFsPath(workspaceRoot), projectPath, {kind: "job", source: "subject-memory-tools-test"});
+        await openProject(projectRef, {kind: "job", source: "subject-memory-tools-test"}, absoluteFsPath(workspaceRoot));
 
         await expect(tool.executeWithContext?.(context, "reopened-project-subject", {
             subjectPath: "simulation/subjects/heroine",
             events: [{text: "不应写入新 generation。"}],
-        })).rejects.toThrow("无法捕获Current Project generation资源");
+        })).rejects.toThrow("Project未打开");
         await expect(readFile(
             join(workspaceRoot, "demo", "simulation", "subjects", "heroine", "events.jsonl"),
             "utf-8",
@@ -244,7 +239,6 @@ describe("subject memory tools", () => {
         });
         expect(agentEntries.at(-1)?.entry.operation.type).toBe("file.edit");
         await expect(readFile(join(workspaceRoot, "demo", ".nbook", "subject-rag-dirty.json"), "utf-8")).resolves.toContain("\"events\"");
-        expect(harness.projectForInvocation).toHaveBeenCalledWith("subject-memory-tools-test-invocation");
     });
 
     it("subject_event_append 硬切 JSONL，不导入旧 events.md", async () => {
@@ -279,7 +273,6 @@ describe("subject memory tools", () => {
             query: "艾琳娜",
             sources: ["events"],
         })).rejects.toThrow("不会执行关键词 fallback");
-        expect(harness.projectForInvocation).toHaveBeenCalledWith("subject-memory-tools-test-invocation");
     });
 
     it("subject_rag_search 必须显式指定 sources，不提供时不会默认双搜", async () => {

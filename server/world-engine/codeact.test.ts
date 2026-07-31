@@ -14,7 +14,6 @@ import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspac
 import {PROJECT_DATABASE_MODULE_TOKEN} from "nbook/server/workspace-files/project-database-module";
 import {
     requireReadyModuleHandle,
-    requireReadyProjectPath,
 } from "nbook/server/workspace-files/project-session";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 import {WorldEngineFacade} from "./world-engine.facade";
@@ -23,11 +22,11 @@ const createdProjects: string[] = [];
 
 describe("CodeAct Integration", {timeout: 30_000}, () => {
     let facade: WorldEngineFacade;
-    let testProjectPath: string;
+    let testProjectRoot: string;
 
     beforeEach(async () => {
         const slug = `codeact-test-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-        testProjectPath = `workspace/${slug}`;
+        testProjectRoot = slug;
         const projectRoot = join(resolveRuntimeWorkspaceRoot(), slug);
 
         mkdirSync(join(projectRoot, "world-engine/schema"), {recursive: true});
@@ -40,9 +39,8 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
         writeFileSync(join(projectRoot, "world-engine/schema/index.ts"), zodSchemaFixture(), "utf-8");
         writeFileSync(join(projectRoot, "world-engine/calendar.ts"), calendarFixture(), "utf-8");
 
-        createdProjects.push(testProjectPath);
-        await openProjectForTest(testProjectPath);
-        const ready = requireReadyProjectPath(testProjectPath);
+        createdProjects.push(testProjectRoot);
+        const ready = await openProjectForTest(testProjectRoot);
         facade = new WorldEngineFacade(
             resolveRuntimeWorkspaceRoot(),
             ready.workspace,
@@ -52,16 +50,12 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
 
     afterEach(async () => {
         await facade.close();
-        await closeProjectForTest(testProjectPath).catch(() => undefined);
+        await closeProjectForTest(testProjectRoot).catch(() => undefined);
     }, 30_000);
 
     afterAll(async () => {
-        for (const projectPath of createdProjects) {
-            const projectRoot = join(
-                resolveRuntimeWorkspaceRoot(),
-                projectPath.slice("workspace/".length),
-            );
-            await removeProjectRoot(projectRoot);
+        for (const projectRoot of createdProjects) {
+            await removeProjectRoot(join(resolveRuntimeWorkspaceRoot(), projectRoot));
         }
         createdProjects.splice(0);
     }, 60_000);
@@ -297,7 +291,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
     });
 
     test("calendar.ts 修改后同 facade 再读使用新内容", async () => {
-        const projectRoot = join(resolveRuntimeWorkspaceRoot(), testProjectPath.slice("workspace/".length));
+        const projectRoot = join(resolveRuntimeWorkspaceRoot(), testProjectRoot);
         expect(await facade.parseTime("测试纪元1日 00:00:00")).toBe(0n);
 
         writeFileSync(join(projectRoot, "world-engine/calendar.ts"), [
@@ -321,7 +315,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
     });
 
     test("schema/index.ts 修改后同 facade 再读使用新内容", async () => {
-        const projectRoot = join(resolveRuntimeWorkspaceRoot(), testProjectPath.slice("workspace/".length));
+        const projectRoot = join(resolveRuntimeWorkspaceRoot(), testProjectRoot);
         const before = await facade.getWorldSchema();
         expect(before.subjectTypes.find((item) => item.type === "character")?.attrs.map((attr) => attr.name)).not.toContain("mana");
 
@@ -332,7 +326,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
     });
 
     test("schema/index.ts 支持 TS-only 语法和 nbook helper，并走 runtime artifact cache", async () => {
-        const projectRoot = join(resolveRuntimeWorkspaceRoot(), testProjectPath.slice("workspace/".length));
+        const projectRoot = join(resolveRuntimeWorkspaceRoot(), testProjectRoot);
         const oldCalendarCache = join(projectRoot, "world-engine", ".runtime-artifact-import-cache");
         const oldSchemaCache = join(projectRoot, "world-engine", "schema", ".runtime-artifact-import-cache");
         mkdirSync(join(oldCalendarCache, "world-engine-calendar"), {recursive: true});
@@ -379,7 +373,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
     });
 
     test("calendar.ts 使用 Project 本地相对 import 时加载失败", async () => {
-        const projectRoot = join(resolveRuntimeWorkspaceRoot(), testProjectPath.slice("workspace/".length));
+        const projectRoot = join(resolveRuntimeWorkspaceRoot(), testProjectRoot);
         writeFileSync(join(projectRoot, "world-engine/calendar-config.ts"), [
             "export default {",
             "    type: 'simple',",
@@ -408,7 +402,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
     });
 
     test("schema/index.ts 使用 Project 本地相对 import 时加载失败", async () => {
-        const projectRoot = join(resolveRuntimeWorkspaceRoot(), testProjectPath.slice("workspace/".length));
+        const projectRoot = join(resolveRuntimeWorkspaceRoot(), testProjectRoot);
         writeFileSync(join(projectRoot, "world-engine/schema/character.ts"), [
             'import {z} from "zod";',
             "export const Character = z.object({",
@@ -427,7 +421,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
     });
 
     test("schema/index.ts 使用 Project 本地 import type 时加载失败", async () => {
-        const projectRoot = join(resolveRuntimeWorkspaceRoot(), testProjectPath.slice("workspace/".length));
+        const projectRoot = join(resolveRuntimeWorkspaceRoot(), testProjectRoot);
         writeFileSync(join(projectRoot, "world-engine/schema/types.ts"), [
             "export type CharacterName = string;",
             "",
@@ -449,7 +443,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
     });
 
     test("schema/index.ts 使用 TS import type expression 时加载失败", async () => {
-        const projectRoot = join(resolveRuntimeWorkspaceRoot(), testProjectPath.slice("workspace/".length));
+        const projectRoot = join(resolveRuntimeWorkspaceRoot(), testProjectRoot);
         writeFileSync(join(projectRoot, "world-engine/schema/types.ts"), [
             "export type CharacterName = string;",
             "",
@@ -471,7 +465,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
     });
 
     test("schema/index.ts 使用 file URL import 时加载失败", async () => {
-        const projectRoot = join(resolveRuntimeWorkspaceRoot(), testProjectPath.slice("workspace/".length));
+        const projectRoot = join(resolveRuntimeWorkspaceRoot(), testProjectRoot);
         const typesPath = join(projectRoot, "world-engine/schema/types.ts");
         const typesUrl = pathToFileURL(typesPath).href;
         writeFileSync(typesPath, [
@@ -495,7 +489,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
     });
 
     test("schema/index.ts 使用 Windows 或 POSIX 绝对路径 import 时加载失败", async () => {
-        const projectRoot = join(resolveRuntimeWorkspaceRoot(), testProjectPath.slice("workspace/".length));
+        const projectRoot = join(resolveRuntimeWorkspaceRoot(), testProjectRoot);
         for (const specifier of ["C:/world-engine-helper.ts", "/world-engine-helper.ts"]) {
             writeFileSync(join(projectRoot, "world-engine/schema/index.ts"), [
                 'import {z} from "zod";',
@@ -512,7 +506,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
     });
 
     test("schema/index.ts 使用非静态 dynamic import 时加载失败", async () => {
-        const projectRoot = join(resolveRuntimeWorkspaceRoot(), testProjectPath.slice("workspace/".length));
+        const projectRoot = join(resolveRuntimeWorkspaceRoot(), testProjectRoot);
         writeFileSync(join(projectRoot, "world-engine/schema/index.ts"), [
             'import {z} from "zod";',
             "const helperPath = './character';",
@@ -530,7 +524,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
     });
 
     test("schema/index.ts 允许 zod 与 nbook/world-engine/schema 包级 import", async () => {
-        const projectRoot = join(resolveRuntimeWorkspaceRoot(), testProjectPath.slice("workspace/".length));
+        const projectRoot = join(resolveRuntimeWorkspaceRoot(), testProjectRoot);
         writeFileSync(join(projectRoot, "world-engine/schema/index.ts"), [
             'import {z} from "zod";',
             'import {Ref, EmbeddingText} from "nbook/world-engine/schema";',
@@ -553,7 +547,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
     });
 
     test("schema/index.ts 允许 node: 内置模块 import", async () => {
-        const projectRoot = join(resolveRuntimeWorkspaceRoot(), testProjectPath.slice("workspace/".length));
+        const projectRoot = join(resolveRuntimeWorkspaceRoot(), testProjectRoot);
         writeFileSync(join(projectRoot, "world-engine/schema/index.ts"), [
             'import {z} from "zod";',
             'import {basename} from "node:path";',
@@ -659,7 +653,7 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
     });
 
     test("executeCodeActWorld 支持用户提供形态的 Gregorian calendar 与基础 schema", async () => {
-        const projectRoot = join(resolveRuntimeWorkspaceRoot(), testProjectPath.slice("workspace/".length));
+        const projectRoot = join(resolveRuntimeWorkspaceRoot(), testProjectRoot);
         writeFileSync(join(projectRoot, "world-engine/calendar.ts"), userGregorianCalendarFixture(), "utf-8");
         writeFileSync(join(projectRoot, "world-engine/schema/index.ts"), userBasicSchemaFixture(), "utf-8");
 

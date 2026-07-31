@@ -6,7 +6,7 @@ import type {
 } from "nbook/scripts/db/agent-session-migration/types";
 import type {
     LegacySessionClassification,
-    SessionMigrationReviewReason,
+    SessionMigrationRecordedReviewReason,
 } from "nbook/scripts/db/agent-session-v2/legacy-decoder";
 import type {
     SessionSchemaV2Manifest,
@@ -22,7 +22,11 @@ const CLASSIFICATIONS = new Set<LegacySessionClassification>([
     "external",
     "workspace_root",
 ]);
-const REVIEW_REASONS = new Set<SessionMigrationReviewReason>(["external_project", "ambiguous_path"]);
+const REVIEW_REASONS = new Set<SessionMigrationRecordedReviewReason>([
+    "external_project",
+    "ambiguous_path",
+    "current_project_unresolved",
+]);
 
 /** Session v2 使用语义化 prepared/staged 名称的通用事务阶段映射。 */
 export const SESSION_SCHEMA_V2_STATUS = {
@@ -78,6 +82,7 @@ const journal = new SessionMigrationJournal<
         "clearedPendingResolutions",
         "clearedFollowUpQueue",
     ],
+    optionalSessionFields: ["decoderFormat"],
     parseSessionFields: (value, base) => parseSessionFields(value, base),
 });
 
@@ -137,6 +142,7 @@ function parseSessionFields(
         || !isClassification(value.classification)
         || !(value.currentProjectRoot === null || isProjectRoot(value.currentProjectRoot))
         || !isReviewReasons(value.reviewReasons)
+        || (value.decoderFormat !== undefined && value.decoderFormat !== 1 && value.decoderFormat !== 2)
         || !isStringArray(value.ambiguousLocations)
         || !isNonNegativeInteger(value.migrationTimestamp)
         || !isNonNegativeInteger(value.rewrittenPaths)
@@ -157,6 +163,7 @@ function parseSessionFields(
         classification: value.classification,
         currentProjectRoot: value.currentProjectRoot,
         reviewReasons: value.reviewReasons,
+        decoderFormat: value.decoderFormat === 2 ? 2 : 1,
         ambiguousLocations: value.ambiguousLocations,
         migrationTimestamp: value.migrationTimestamp,
         rewrittenPaths: value.rewrittenPaths,
@@ -194,13 +201,15 @@ function isProjectRoot(value: unknown): value is string {
 }
 
 /** review reason 必须唯一并保持 decoder 的稳定顺序。 */
-function isReviewReasons(value: unknown): value is SessionMigrationReviewReason[] {
+function isReviewReasons(value: unknown): value is SessionMigrationRecordedReviewReason[] {
     if (!Array.isArray(value)
-        || !value.every((item) => typeof item === "string" && REVIEW_REASONS.has(item as SessionMigrationReviewReason))) {
+        || !value.every((item) => typeof item === "string" && REVIEW_REASONS.has(item as SessionMigrationRecordedReviewReason))) {
         return false;
     }
-    const expected = ["external_project", "ambiguous_path"].filter((reason) => value.includes(reason));
-    return JSON.stringify(value) === JSON.stringify(expected);
+    const historical = ["external_project", "ambiguous_path"].filter((reason) => value.includes(reason));
+    const current = value.includes("current_project_unresolved") ? ["current_project_unresolved"] : [];
+    return JSON.stringify(value) === JSON.stringify(historical)
+        || JSON.stringify(value) === JSON.stringify(current);
 }
 
 /** ambiguous location 必须是去重、排序后的非空字符串数组。 */

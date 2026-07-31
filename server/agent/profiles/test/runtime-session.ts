@@ -4,10 +4,16 @@ import type {AgentDialogueContent} from "nbook/server/agent/session/dialogue-con
 import type {RuntimeSessionFacade} from "nbook/server/agent/profiles/define-agent-runtime";
 import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {
-    normalizeWorkspaceRootRef,
-    resolveWorkspaceRootRef,
-} from "nbook/server/workspace-files/workspace-root-ref";
-import {WORKSPACE_CONTAINER_ROOT} from "nbook/server/workspace-files/workspace-root-ref";
+    createProjectWorkspaceKey,
+    projectWorkspaceRef,
+    resolvedProjectWorkspace,
+} from "nbook/server/workspace-files/project-identity";
+import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
+
+type TestRuntimeSessionInput = Partial<NeuroSessionContext> & {
+    workspaceRoot?: AbsoluteFsPath;
+    currentProject?: ReadyProjectSessionRef | null;
+};
 
 /**
  * 创建遵守正式逻辑引用与物理root分离合同的Profile测试session。
@@ -16,33 +22,37 @@ import {WORKSPACE_CONTAINER_ROOT} from "nbook/server/workspace-files/workspace-r
  * Root的测试必须显式传入第二个参数，不能让fixture自行从session字符串猜cwd。
  */
 export function createTestRuntimeSession(
-    input: Partial<NeuroSessionContext> = {},
+    input: TestRuntimeSessionInput = {},
     managedWorkspaceRoot: AbsoluteFsPath = absoluteFsPath(resolve("workspace")),
 ): RuntimeSessionFacade {
-    const workspaceRoot = input.workspaceRoot ?? WORKSPACE_CONTAINER_ROOT;
-    const workspaceRootRef = normalizeWorkspaceRootRef(workspaceRoot, input.projectPath);
+    const workspaceRoot = input.workspaceRoot ?? managedWorkspaceRoot;
+    const currentProjectRoot = input.currentProjectRoot ?? input.currentProject?.workspace.ref.projectRoot;
+    const currentProject = input.currentProject ?? (currentProjectRoot
+        ? createTestReadyProject(workspaceRoot, currentProjectRoot)
+        : null);
     const session: RuntimeSessionFacade = {
         systemPrompt: "",
         messages: [],
         model: null,
         thinkingLevel: "off",
         profileKey: "test",
-        workspaceRoot,
         customState: {},
         linkedAgents: [],
         archived: false,
         agentMode: "normal",
         ...input,
-        workspaceFsRoot: resolveWorkspaceRootRef(workspaceRootRef, managedWorkspaceRoot),
+        workspaceRoot,
+        currentProjectRoot,
+        currentProject,
         async read() {
             return {
                 snapshot: {
                     metadata: {
+                        schemaVersion: 2,
                         sessionId: -1,
                         profileKey: session.profileKey,
                         initial: {},
-                        workspaceRoot: session.workspaceRoot,
-                        workspaceKey: "test",
+                        currentProjectRoot: session.currentProjectRoot,
                         createdAt: 0,
                     },
                     entries: [],
@@ -61,4 +71,17 @@ export function createTestRuntimeSession(
         },
     };
     return session;
+}
+
+/** 从单段Current Project root构造Profile测试使用的exact ready generation。 */
+function createTestReadyProject(workspaceRoot: AbsoluteFsPath, projectRoot: string): ReadyProjectSessionRef {
+    const ref = projectWorkspaceRef(projectRoot);
+    return Object.freeze({
+        workspace: resolvedProjectWorkspace(
+            ref,
+            absoluteFsPath(resolve(workspaceRoot, projectRoot)),
+            createProjectWorkspaceKey(workspaceRoot, ref),
+        ),
+        generation: 1,
+    });
 }

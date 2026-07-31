@@ -5,21 +5,20 @@ import path from "node:path";
 import process from "node:process";
 import {consola} from "consola";
 import {useAgentHarness} from "nbook/server/agent/http";
-import {invalidateNovelListCache} from "nbook/server/utils/novel-chapter";
 import {closeProject} from "nbook/server/workspace-files/project-session";
 import {
     assertProjectWorkspaceDirectory,
     PROJECT_DELETED_MARKER_RELATIVE_PATH,
     PROJECT_MANIFEST_FILE,
 } from "nbook/server/workspace-files/project-workspace";
-import {resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
 import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import type {ProjectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 
 type ProjectWorkspaceDeleteOptions = {
     /**
      * 归档与 Project 绑定的 Agent sessions。测试可注入临时 harness，运行时默认使用全局 harness。
      */
-    archiveProjectSessions?: (projectPath: string, reason: string) => Promise<unknown>;
+    archiveProjectSessions?: (projectRoot: string, reason: string) => Promise<unknown>;
 };
 
 const projectRootDeleteMaxRetries = 20;
@@ -31,23 +30,20 @@ const projectRootMoveTimeoutMs = 10_000;
  */
 export async function deleteProjectWorkspace(
     workspaceRoot: AbsoluteFsPath,
-    projectPath: string,
+    ref: ProjectWorkspaceRef,
     options: ProjectWorkspaceDeleteOptions = {},
 ): Promise<void> {
-    const normalizedProjectPath = await assertProjectWorkspaceDirectory(workspaceRoot, projectPath);
-    const projectRoot = resolveProjectWorkspaceRoot(workspaceRoot, normalizedProjectPath);
+    const projectRoot = await assertProjectWorkspaceDirectory(workspaceRoot, ref);
     const archiveProjectSessions = options.archiveProjectSessions
-        ?? ((targetProjectPath, reason) => useAgentHarness().archiveSessionsByProjectPath(targetProjectPath, reason));
+        ?? ((targetProjectRoot, reason) => useAgentHarness().archiveSessionsByProjectRoot(targetProjectRoot, reason));
 
     // ProjectSession按当前generation逆序关闭lazy/required Module，再释放Occupancy；删除流程不逐项枚举资源。
-    await closeProject(normalizedProjectPath, "delete");
+    await closeProject(ref, "delete");
     await deleteProjectRoot(projectRoot);
     try {
-        await archiveProjectSessions(normalizedProjectPath, "project.deleted");
+        await archiveProjectSessions(ref.projectRoot, "project.deleted");
     } catch (error) {
-        consola.warn({projectPath: normalizedProjectPath, error}, "删除 Project Workspace 后归档 Agent sessions 失败");
-    } finally {
-        invalidateNovelListCache();
+        consola.warn({projectRoot: ref.projectRoot, error}, "删除 Project Workspace 后归档 Agent sessions 失败");
     }
 }
 

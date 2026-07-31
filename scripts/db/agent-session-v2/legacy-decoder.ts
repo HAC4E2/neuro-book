@@ -6,13 +6,16 @@ const TARGET_SCHEMA_VERSION = 2;
 const FOLLOW_UP_QUEUE_KEY = "agent.followUpQueue";
 const PENDING_RESOLUTION_PREFIX = "agent.pendingUserResolution.";
 const MIGRATION_CANCEL_CODE = "SESSION_PATH_CONTRACT_MIGRATION";
-const REVIEW_REASON_ORDER = ["external_project", "ambiguous_path"] as const;
+const REVIEW_REASON_ORDER = ["current_project_unresolved"] as const;
+const HISTORICAL_REVIEW_REASON_ORDER = ["external_project", "ambiguous_path"] as const;
 const PROFILE_REMINDERS_TO_RESET = ["runtime-location", "workspace-focus"] as const;
 
 type JsonNode = null | boolean | number | string | JsonNode[] | JsonObject;
 type JsonObject = {[key: string]: JsonNode};
 
 export type SessionMigrationReviewReason = typeof REVIEW_REASON_ORDER[number];
+export type SessionMigrationRecordedReviewReason = SessionMigrationReviewReason
+    | typeof HISTORICAL_REVIEW_REASON_ORDER[number];
 
 export type LegacySessionClassification =
     | "managed"
@@ -34,7 +37,8 @@ export type SessionSchemaV2MigrationPlan = {
     sessionId: number;
     classification: LegacySessionClassification;
     currentProjectRoot?: string;
-    reviewReasons: SessionMigrationReviewReason[];
+    decoderFormat: 1 | 2;
+    reviewReasons: SessionMigrationRecordedReviewReason[];
     ambiguousLocations: string[];
     targetText: string;
     stats: SessionSchemaV2MigrationStats;
@@ -49,6 +53,8 @@ export type DecodeSessionSchemaV1Input = {
     knownProjectRoots?: readonly string[];
     /** invoke_agent 只有 sessionId，runner 通过全库 header inventory 注入目标 profile。 */
     profileBySessionId?: Readonly<Record<string, string>>;
+    /** 1仅用于恢复旧catalog中断run；普通新迁移固定使用2。 */
+    decoderFormat?: 1 | 2;
 };
 
 type ManagedScope = {
@@ -72,7 +78,8 @@ type MigrationContext = {
     profileKey: string;
     scope: SessionScope;
     profileBySessionId: Readonly<Record<string, string>>;
-    reviewReasons: Set<SessionMigrationReviewReason>;
+    reviewReasons: Set<SessionMigrationRecordedReviewReason>;
+    decoderFormat: 1 | 2;
     ambiguousLocations: Set<string>;
     stats: SessionSchemaV2MigrationStats;
 };
@@ -106,13 +113,17 @@ export function decodeSessionSchemaV1(input: DecodeSessionSchemaV1Input): Sessio
     const sessionId = safePositiveInteger(metadata.sessionId, `${input.sourcePath}: header.metadata.sessionId`);
     const profileKey = requiredString(metadata.profileKey, `${input.sourcePath}: header.metadata.profileKey`);
     const scopeResult = classifyScope(metadata, input.knownProjectRoots);
+    const decoderFormat = input.decoderFormat ?? 2;
     const context: MigrationContext = {
         sourcePath: input.sourcePath,
         sessionId,
         profileKey,
         scope: scopeResult.scope,
         profileBySessionId: input.profileBySessionId ?? {},
-        reviewReasons: new Set(scopeResult.ambiguous ? ["ambiguous_path"] : []),
+        reviewReasons: new Set(scopeResult.ambiguous
+            ? [decoderFormat === 1 ? "ambiguous_path" : "current_project_unresolved"]
+            : []),
+        decoderFormat,
         ambiguousLocations: new Set(scopeResult.ambiguous ? ["header.metadata.projectPath"] : []),
         stats: {
             rewrittenPaths: 0,
@@ -123,7 +134,7 @@ export function decodeSessionSchemaV1(input: DecodeSessionSchemaV1Input): Sessio
         },
     };
     if (context.scope.kind === "external") {
-        context.reviewReasons.add("external_project");
+        context.reviewReasons.add(decoderFormat === 1 ? "external_project" : "current_project_unresolved");
     }
 
     migrateProfileValue(profileKey, metadata.initial, "initial", context, "header.metadata.initial");
@@ -144,6 +155,7 @@ export function decodeSessionSchemaV1(input: DecodeSessionSchemaV1Input): Sessio
         sessionId,
         classification: classification(context.scope),
         ...(context.scope.kind === "managed" ? {currentProjectRoot: context.scope.projectRoot} : {}),
+        decoderFormat,
         reviewReasons: orderedReviewReasons(context.reviewReasons),
         ambiguousLocations: [...context.ambiguousLocations].sort(),
         targetText: `${records.map((record) => JSON.stringify(record)).join("\n")}${trailingNewline ? "\n" : ""}`,
@@ -236,7 +248,12 @@ function writeV2Metadata(metadata: JsonObject, context: MigrationContext): void 
     }
     const reasons = orderedReviewReasons(context.reviewReasons);
     if (reasons.length > 0) {
-        metadata.migrationReview = {status: "required", reasons};
+        if (context.decoderFormat === 1) {
+            metadata.migrationReview = {status: "required", reasons};
+        } else {
+            delete metadata.currentProjectRoot;
+            metadata.migrationReview = {status: "required", reason: "current_project_unresolved"};
+        }
     } else {
         delete metadata.migrationReview;
     }
@@ -336,7 +353,7 @@ function migrateToolCall(block: JsonObject, context: MigrationContext, location:
     }
 
     for (const field of projectRelativeToolFields(name)) {
-        rewriteStringField(args, field, "project", context, `${location}.arguments.${field}`, true);
+        rewriteStringField(args, field, "project", context, `${location}.arguments.${field}`, true, true);
     }
     migrateProjectLocatorField(args, context, `${location}.arguments`);
     if (name === "report_result" || name === "report_sidecar_result") {
@@ -349,7 +366,7 @@ function migrateCreateAgent(args: JsonObject, context: MigrationContext, locatio
     if (args.workspaceRoot !== undefined) {
         if (typeof args.workspaceRoot !== "string") {
             markAmbiguous(context, `${location}.arguments.workspaceRoot`);
-        } else if (isAnyAbsolute(args.workspaceRoot)) {
+        } else if (context.decoderFormat === 1 && isAnyAbsolute(args.workspaceRoot)) {
             context.reviewReasons.add("external_project");
         }
         delete args.workspaceRoot;
@@ -392,10 +409,22 @@ function migrateWorkflow(args: JsonObject, context: MigrationContext, location: 
         return;
     }
     if (args.workflowKey === "split-book") {
-        rewriteStringField(workflowArgs, "path", "project", context, `${location}.arguments.args.path`, true);
-        if (workflowArgs.filePath !== undefined) {
-            markAmbiguous(context, `${location}.arguments.args.filePath`);
+        if (context.decoderFormat === 1) {
+            rewriteStringField(workflowArgs, "path", "project", context, `${location}.arguments.args.path`, true);
+            if (workflowArgs.filePath !== undefined) {
+                markAmbiguous(context, `${location}.arguments.args.filePath`);
+            }
+            return;
         }
+        if (workflowArgs.filePath !== undefined) {
+            if (workflowArgs.path === undefined) {
+                workflowArgs.path = workflowArgs.filePath;
+            } else {
+                markAmbiguous(context, `${location}.arguments.args.filePath`);
+            }
+            delete workflowArgs.filePath;
+        }
+        rewriteStringField(workflowArgs, "path", "project", context, `${location}.arguments.args.path`, true);
         return;
     }
     if (hasTopLevelPathField(workflowArgs)) {
@@ -478,7 +507,7 @@ function migrateToolResult(message: JsonObject, context: MigrationContext, locat
         return;
     }
     for (const field of projectRelativeToolFields(toolName)) {
-        rewriteStringField(details, field, "project", context, `${location}.details.${field}`, true);
+        rewriteStringField(details, field, "project", context, `${location}.details.${field}`, true, true);
     }
     if (projectRelativeToolFields(toolName).length > 0) {
         return;
@@ -581,7 +610,7 @@ function migrateNestedProjectIdentity(
     if (scopeResult.ambiguous) {
         markAmbiguous(context, `${location}.projectPath`);
     }
-    if (scopeResult.scope.kind === "external") {
+    if (context.decoderFormat === 1 && scopeResult.scope.kind === "external") {
         context.reviewReasons.add("external_project");
     }
     for (const key of ["workspaceRoot", "workspaceKey", "projectPath"] as const) {
@@ -599,7 +628,7 @@ function migrateNestedProjectIdentity(
     return scopeResult.scope;
 }
 
-/** bash.fullOutputPath 是 OutputAccumulator 的绝对临时文件地址，不按 cwd 解释。 */
+/** 旧绝对临时文件不能跨生命周期迁移；删除路径并明确标记已回收。 */
 function migrateBashResult(details: JsonObject, context: MigrationContext, location: string): void {
     if (details.fullOutputPath === undefined) {
         return;
@@ -607,6 +636,9 @@ function migrateBashResult(details: JsonObject, context: MigrationContext, locat
     if (typeof details.fullOutputPath !== "string" || !isAnyAbsolute(details.fullOutputPath)) {
         markAmbiguous(context, `${location}.fullOutputPath`);
     }
+    delete details.fullOutputPath;
+    details.fullOutput = {state: "reclaimed"};
+    context.stats.rewrittenPaths += 1;
 }
 
 /** 迁移已知 custom projection；关系账本和 Attachment 不含路径，原样保留。 */
@@ -845,9 +877,13 @@ function rewriteStringField(
     context: MigrationContext,
     location: string,
     optional = false,
+    nullable = false,
 ): void {
     const value = object[key];
     if (value === undefined && optional) {
+        return;
+    }
+    if (value === null && nullable && context.decoderFormat === 2) {
         return;
     }
     if (typeof value !== "string") {
@@ -1063,9 +1099,11 @@ function hasTopLevelPathField(value: JsonNode | undefined, ignoredKeys: Readonly
     }));
 }
 
-/** 登记 schema 无法证明的 structured path，并触发 durable migration review。 */
+/** 登记 schema 无法证明的 structured path；历史警告不阻断整个 Session。 */
 function markAmbiguous(context: MigrationContext, location: string): void {
-    context.reviewReasons.add("ambiguous_path");
+    if (context.decoderFormat === 1) {
+        context.reviewReasons.add("ambiguous_path");
+    }
     context.ambiguousLocations.add(location);
 }
 
@@ -1077,6 +1115,11 @@ function markAmbiguous(context: MigrationContext, location: string): void {
  */
 function buildMigrationEntries(entries: JsonObject[], migrationTimestamp: number, context: MigrationContext): JsonObject[] {
     const path = activePath(entries, context.sourcePath);
+    const tailTimestamp = path.at(-1)?.timestamp;
+    const logicalTimestamp = context.decoderFormat === 2
+        && typeof tailTimestamp === "number" && Number.isSafeInteger(tailTimestamp) && tailTimestamp > 0
+        ? tailTimestamp
+        : migrationTimestamp;
     const pathIds = new Set(path.map((entry) => requiredString(entry.id, "active entry.id")));
     const existingIds = new Set(entries.map((entry) => requiredString(entry.id, "entry.id")));
     const customState = new Map<string, JsonNode>();
@@ -1105,7 +1148,7 @@ function buildMigrationEntries(entries: JsonObject[], migrationTimestamp: number
             ...entry,
             id,
             parentId,
-            timestamp: migrationTimestamp,
+            timestamp: logicalTimestamp,
         };
         output.push(stored);
         parentId = id;
@@ -1133,7 +1176,7 @@ function buildMigrationEntries(entries: JsonObject[], migrationTimestamp: number
                     code: MIGRATION_CANCEL_CODE,
                 },
                 isError: true,
-                timestamp: migrationTimestamp,
+                timestamp: logicalTimestamp,
             },
         });
         context.stats.cancelledToolCalls += 1;
@@ -1193,7 +1236,7 @@ function buildMigrationEntries(entries: JsonObject[], migrationTimestamp: number
                     "</system-reminder>",
                 ].join("\n"),
             }],
-            timestamp: migrationTimestamp,
+            timestamp: logicalTimestamp,
         },
     });
     const reminderId = parentId;
@@ -1354,10 +1397,12 @@ function validateTarget(records: JsonObject[], context: MigrationContext): void 
         if (metadata.migrationReview !== undefined) {
             throw new Error(`${context.sourcePath}: 无 review reason 时不得写 migrationReview`);
         }
-    } else if (!migrationReview
-        || migrationReview.status !== "required"
-        || !Array.isArray(migrationReview.reasons)
-        || JSON.stringify(migrationReview.reasons) !== JSON.stringify(expectedReasons)) {
+    } else if (!migrationReview || migrationReview.status !== "required"
+        || (context.decoderFormat === 1
+            ? !Array.isArray(migrationReview.reasons)
+                || JSON.stringify(migrationReview.reasons) !== JSON.stringify(expectedReasons)
+            : migrationReview.reason !== "current_project_unresolved"
+                || migrationReview.reasons !== undefined)) {
         throw new Error(`${context.sourcePath}: migrationReview 与收集到的 reason 不一致`);
     }
 
@@ -1432,9 +1477,9 @@ function assertMigrationTimestamp(value: number): void {
 }
 
 /** review reason 去重后按公开合同固定排序。 */
-function orderedReviewReasons(reasons: Iterable<SessionMigrationReviewReason>): SessionMigrationReviewReason[] {
+function orderedReviewReasons(reasons: Iterable<SessionMigrationRecordedReviewReason>): SessionMigrationRecordedReviewReason[] {
     const values = new Set(reasons);
-    return REVIEW_REASON_ORDER.filter((reason) => values.has(reason));
+    return [...HISTORICAL_REVIEW_REASON_ORDER, ...REVIEW_REASON_ORDER].filter((reason) => values.has(reason));
 }
 
 /** 从不可信 JSON 中读取正安全整数。 */

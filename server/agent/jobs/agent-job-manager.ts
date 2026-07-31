@@ -3,38 +3,23 @@ import {appendFile, mkdir, readFile} from "node:fs/promises";
 import {dirname} from "node:path";
 import {randomUUID} from "node:crypto";
 import {appLogger} from "nbook/server/app-logs/logger";
-import type {JsonValue} from "nbook/server/agent/messages/types";
 import type {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
+import {
+    AgentJobEventHub,
+    type AgentJobEventSubscription,
+    type PublishedAgentJobEvent,
+} from "nbook/server/agent/jobs/agent-job-event-hub";
+import type {
+    AgentJobDetail,
+    AgentJobEventCursor,
+    AgentJobKind,
+    AgentJobListResponseDto,
+    AgentJobSnapshot,
+    AgentJobStatus,
+    JsonValue,
+} from "nbook/shared/dto/agent-job.dto";
 
-export type AgentJobKind = "workflow" | "invoke_agent" | "bash";
-
-export type AgentJobStatus = "running" | "waiting" | "completed" | "failed" | "cancelled" | "interrupted";
-
-/** 对外快照（管理工具 / HTTP / 气泡消费的稳定形状） */
-export type AgentJobSnapshot = {
-    jobId: string;
-    kind: AgentJobKind;
-    /** 人话标题（任务列表与气泡展示） */
-    title: string;
-    /** 发起者 = 结果回流收件人；用户从 UI 直接触发时为 null */
-    ownerSessionId: number | null;
-    /** 发起工具调用 id（前端气泡锚定）；非工具发起为空 */
-    originToolCallId?: string;
-    status: AgentJobStatus;
-    createdAt: number;
-    endedAt?: number;
-    /** kind 专属观测指针：workflow→{runId}；bash→{command}；invoke_agent→{sessionId} */
-    ref: JsonValue;
-    /** 有界进行中预览 / 结果摘要；完整结果走 kind 专属查询面 */
-    preview?: string;
-    error?: string;
-};
-
-/** 单个 Job 的完整详情。列表只返回快照，避免把大型结果重复传给所有消费者。 */
-export type AgentJobDetail = AgentJobSnapshot & {
-    /** completed 时保存执行器返回的完整结构化结果；其他状态或无结构化结果时为空。 */
-    result?: JsonValue;
-};
+export type {AgentJobDetail, AgentJobKind, AgentJobSnapshot, AgentJobStatus} from "nbook/shared/dto/agent-job.dto";
 
 /** job 执行回调拿到的运行上下文 */
 export type JobRunContext = {
@@ -77,6 +62,12 @@ export type SpawnJobSpec = {
     deliver?: "followup" | "none";
 };
 
+/** Manager 启动结果；游标来自首次 running 快照的实际发布帧。 */
+export type SpawnedAgentJob = {
+    job: AgentJobSnapshot;
+    jobEventCursor: AgentJobEventCursor;
+};
+
 /** 登记表行（append-only 状态翻转；不存观测载荷） */
 type RegistryLine = {
     at: number;
@@ -107,10 +98,13 @@ type JobRecord = {
  *   完整数据让 agent 用 get_job / workflow runs API 查询；
  * - 崩溃恢复：jobs.jsonl 薄登记表（只记身份与状态翻转），启动扫描把 running/waiting 标 interrupted
  *   并给 owner 补发中断通知——「重启丢回流」从静默变显式；
- * - 观测：一期 HTTP 轮询（/api/agent/jobs），SSE 面记 TODO。
+ * - 观测：HTTP 原子恢复快照 + 全局 Jobs SSE；完整 result 仍按 Job 详情读取。
  */
 export class AgentJobManager {
     private readonly jobs = new Map<string, JobRecord>();
+    private readonly events = new AgentJobEventHub();
+    /** bash 输出 preview 采用每 Job 独立的 250ms 尾沿合并。 */
+    private readonly previewTimers = new Map<string, ReturnType<typeof setTimeout>>();
     /** jobs.jsonl 必须保持状态翻转顺序，避免迟到的 running 行覆盖 terminal 行。 */
     private persistQueue: Promise<void> = Promise.resolve();
     /** clearFinished 移除的条目若回流投递仍在途，其 promise 挂在此链上，waitIdle 仍会等它。 */
@@ -128,7 +122,10 @@ export class AgentJobManager {
     ) {}
 
     /** 启动一个后台 job：登记 + 落盘 + 后台执行 + settle 回流 */
-    spawn(spec: SpawnJobSpec): AgentJobSnapshot {
+    spawn(spec: SpawnJobSpec): SpawnedAgentJob {
+        if (this.shuttingDown) {
+            throw new Error("Agent Job Manager 已关闭，不能启动新任务");
+        }
         const snapshot: AgentJobSnapshot = {
             jobId: `job_${randomUUID().slice(0, 8)}`,
             kind: spec.kind,
@@ -142,9 +139,30 @@ export class AgentJobManager {
         const controller = new AbortController();
         const record: JobRecord = {snapshot, controller, spec, promise: Promise.resolve()};
         this.jobs.set(snapshot.jobId, record);
+        const createdEvent = this.publishSnapshot(record);
+        if (!createdEvent || createdEvent.payload.event.type !== "job_upserted") {
+            this.jobs.delete(snapshot.jobId);
+            throw new Error("Agent Job 创建事件未发布");
+        }
         void this.persist(snapshot);
         record.promise = this.execute(record);
-        return {...snapshot};
+        return {
+            job: {...snapshot},
+            jobEventCursor: {
+                eventEpoch: createdEvent.payload.eventEpoch,
+                after: createdEvent.payload.seq,
+            },
+        };
+    }
+
+    /** 原子读取过滤后的任务列表与对应事件恢复游标。 */
+    recovery(filter?: {ownerSessionId?: number; status?: AgentJobStatus}): AgentJobListResponseDto {
+        return {jobs: this.list(filter), eventCursor: this.events.cursor()};
+    }
+
+    /** 从恢复游标订阅全局 Job 事件。 */
+    subscribeEvents(cursor: Partial<AgentJobEventCursor> = {}): AgentJobEventSubscription {
+        return this.events.subscribe(cursor);
     }
 
     list(filter?: {ownerSessionId?: number; status?: AgentJobStatus}): AgentJobSnapshot[] {
@@ -195,16 +213,19 @@ export class AgentJobManager {
      * 仅内存回收——jobs.jsonl 登记表是 append-only 审计面，不受影响。
      */
     clearFinished(): number {
-        let removed = 0;
+        const removedJobIds: string[] = [];
         for (const [jobId, record] of this.jobs) {
             const status = record.snapshot.status;
             if (status === "running" || status === "waiting") continue;
             this.jobs.delete(jobId);
             // 终态翻转发生在回流投递之前：被清条目可能仍有在途 followup，保住 waitIdle 合同
             this.removedSettle = Promise.allSettled([this.removedSettle, record.promise]).then(() => {});
-            removed++;
+            removedJobIds.push(jobId);
         }
-        return removed;
+        if (removedJobIds.length > 0 && !this.shuttingDown) {
+            this.events.publish({type: "jobs_removed", jobIds: removedJobIds});
+        }
+        return removedJobIds.length;
     }
 
     /** 取消所有仍活跃的 Job；Harness dispose 用它解除 waiting Job。 */
@@ -218,6 +239,9 @@ export class AgentJobManager {
     /** 停服收口：先取消活跃任务，再等待执行、结果投递和登记表写入全部完成。 */
     async shutdown(): Promise<void> {
         this.shuttingDown = true;
+        this.events.close();
+        for (const timer of this.previewTimers.values()) clearTimeout(timer);
+        this.previewTimers.clear();
         this.deliveryController.abort(new Error("agent job manager shutdown"));
         await this.cancelActive();
         await this.waitIdle();
@@ -260,14 +284,19 @@ export class AgentJobManager {
             signal: controller.signal,
             setPreview: (text) => {
                 snapshot.preview = clip(text, 400);
+                this.schedulePreview(record);
             },
             setWaiting: (text) => {
                 snapshot.status = "waiting";
                 snapshot.preview = clip(text, 400);
+                this.cancelPreview(record);
+                this.publishSnapshot(record);
                 void this.persist(snapshot);
             },
             setRunning: () => {
                 snapshot.status = "running";
+                this.cancelPreview(record);
+                this.publishSnapshot(record);
                 void this.persist(snapshot);
             },
         };
@@ -293,6 +322,8 @@ export class AgentJobManager {
             snapshot.preview = clip(outcome!.resultPreview, 400);
             record.result = outcome!.result;
         }
+        this.cancelPreview(record);
+        this.publishSnapshot(record);
         await this.persist(snapshot);
         await this.deliverResult(record, outcome, failure);
     }
@@ -347,6 +378,33 @@ export class AgentJobManager {
             status: snapshot.status,
             error: snapshot.error,
         });
+    }
+
+    /** 合并高频 preview，只在最后一次更新静默 250ms 后发布。 */
+    private schedulePreview(record: JobRecord): void {
+        if (this.shuttingDown) return;
+        const jobId = record.snapshot.jobId;
+        const pending = this.previewTimers.get(jobId);
+        if (pending) clearTimeout(pending);
+        this.previewTimers.set(jobId, setTimeout(() => {
+            this.previewTimers.delete(jobId);
+            this.publishSnapshot(record);
+        }, 250));
+    }
+
+    /** 取消尚未发布的 preview，供离散状态变化抢先发布最新快照。 */
+    private cancelPreview(record: JobRecord): void {
+        const jobId = record.snapshot.jobId;
+        const pending = this.previewTimers.get(jobId);
+        if (!pending) return;
+        clearTimeout(pending);
+        this.previewTimers.delete(jobId);
+    }
+
+    /** 发布 detached Job 快照；shutdown 后的迟到状态变化不再进入事件流。 */
+    private publishSnapshot(record: JobRecord): PublishedAgentJobEvent | null {
+        if (this.shuttingDown) return null;
+        return this.events.publish({type: "job_upserted", job: {...record.snapshot}});
     }
 
     private async persistLine(line: RegistryLine): Promise<void> {

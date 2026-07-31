@@ -6,7 +6,7 @@ import type {StoredAgentMessage} from "nbook/server/agent/messages/stored-types"
 import {createAssistantTextMessage, createStoredTextToolResult, createStoredUserMessage} from "nbook/server/agent/messages/message-utils";
 import {storedMessageText} from "nbook/server/agent/messages/stored-message-presentation";
 import type {AgentCatalogItem, AgentProfile, ProfilePrepareContext, ProfileTurnPlan} from "nbook/server/agent/profiles/types";
-import {planModeToolDirectory} from "nbook/server/agent/plan-mode-path";
+import {planModeToolDirectory} from "nbook/server/agent/plan-mode-directory";
 import {AGENT_MODE_STATE_KEY, AGENT_TASKS_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
 import type {NeuroSessionContext, SessionEntryDraft} from "nbook/server/agent/session/types";
 import type {ProfileVariablePathInput} from "nbook/server/agent/variables/types";
@@ -602,7 +602,7 @@ export function LinkedAgentsReminder(props: {id?: string; repeatEveryTurns?: num
 }
 
 /**
- * 首轮注入当前File Scope、路径合同和用户在IDE中选中的文件；后续在焦点变化时注入变化提醒。
+ * 首轮注入当前 cwd、路径合同和用户在IDE中选中的文件；后续在焦点变化时注入变化提醒。
  */
 export function WorkspaceFocusReminder(props: {id?: string; repeatEveryTurns?: number} = {}): ProfileReminderNode {
     return Reminder({
@@ -616,13 +616,13 @@ export function WorkspaceFocusReminder(props: {id?: string; repeatEveryTurns?: n
                     "Current Workspace Focus:",
                     "- Current Project Workspace: none",
                     "- Current selected file: none",
-                    "- File tools and bash use the Workspace Root as their current File Scope.",
-                    "- Relative paths resolve from that File Scope. Any absolute filesystem path can be used directly.",
-                    "- Managed Project APIs still use projectPath workspace/<project-slug>.",
+                    "- File tools and bash use the Workspace Root as cwd.",
+                    "- Relative paths resolve from cwd. Any absolute filesystem path can be used directly.",
+                    "- Managed Project APIs use a single-segment projectRoot.",
                 ].join("\n"))});
             }
-            const projectSlug = projectSlugFromWorkspace(focus.currentProjectWorkspace);
-            const selectedFile = renderSelectedWorkspaceFile(projectSlug, focus.selectedFilePath);
+            const projectRoot = projectRootFromWorkspace(focus.currentProjectWorkspace);
+            const selectedFile = renderSelectedWorkspaceFile(projectRoot, focus.selectedFilePath);
             if (change.hasPreviousValue && change.didChange) {
                 const previous = readWorkspaceFocusState(change.previousValue);
                 const projectChanged = previous.currentProjectWorkspace !== focus.currentProjectWorkspace;
@@ -630,9 +630,9 @@ export function WorkspaceFocusReminder(props: {id?: string; repeatEveryTurns?: n
                 if (projectChanged) {
                     return Message({children: systemReminder([
                         `User switched Current Project Workspace to ${focus.currentProjectWorkspace}.`,
-                        "The next invocation uses this Project Workspace as the File Scope for file tools and bash.",
+                        "The next invocation uses this Project Workspace as cwd for file tools and bash.",
                         "Use lorebook/..., manuscript/..., and reference/... directly for current project files.",
-                        `Use workspace/${projectSlug} when a tool explicitly asks for projectPath.`,
+                        `Use ${projectRoot} when a tool explicitly asks for projectRoot.`,
                         "Any absolute filesystem path can be used directly.",
                         "For another managed Project file, prefer workspace/<project-slug>/<relative-path> when Project identity, open gate, History, or Context Access matters.",
                         `Current selected file: ${selectedFile}`,
@@ -648,13 +648,13 @@ export function WorkspaceFocusReminder(props: {id?: string; repeatEveryTurns?: n
             return Message({children: systemReminder([
                 "Current Workspace Focus:",
                 `- Current Project Workspace: ${focus.currentProjectWorkspace}`,
-                "- File tools and bash use this Project Workspace as their current File Scope.",
+                "- File tools and bash use this Project Workspace as cwd.",
                 "- For focused project files, use lorebook/..., manuscript/..., or reference/... directly.",
                 "- Any absolute filesystem path can be used directly; cwd is only the base for relative paths, not an access boundary.",
                 "- For another managed Project file, prefer workspace/<project-slug>/<relative-path> when Project identity, open gate, History, or Context Access matters.",
                 `- Current selected file: ${selectedFile}`,
                 "- project.yaml is at project.yaml.",
-                `- Use workspace/${projectSlug} when a tool explicitly asks for projectPath.`,
+                `- Use ${projectRoot} when a tool explicitly asks for projectRoot.`,
             ].join("\n"))});
         },
     });
@@ -1306,7 +1306,7 @@ function isAllowedImportPath(path: string): boolean {
 
 async function readImportFile(path: string, required: boolean, context: ProfilePrepareContext<any>): Promise<{exists: true; text: string} | {exists: false}> {
     const target = path.startsWith("workspace/")
-        ? resolveContainedFilePath(absoluteFsPath(context.session.workspaceFsRoot), path.slice("workspace/".length))
+        ? resolveContainedFilePath(context.session.workspaceRoot, path.slice("workspace/".length))
         : resolveApplicationImportPath(path);
     try {
         return {
@@ -1733,7 +1733,9 @@ function readRecord(value: unknown): Record<string, unknown> {
 
 async function readCurrentProjectWorkspace(ctx: ProfilePrepareContext<any>): Promise<string> {
     const value = ctx.invocation?.clientState?.studio?.workspace;
-    const projectWorkspace = typeof value === "string" && value.trim() ? value : ctx.session.projectPath ?? "";
+    const projectWorkspace = typeof value === "string" && value.trim()
+        ? value
+        : ctx.session.currentProject ? `workspace/${ctx.session.currentProject.workspace.ref.projectRoot}` : "";
     return projectWorkspace ? normalizeDisplayPath(projectWorkspace) : "";
 }
 
@@ -1762,32 +1764,32 @@ function normalizeDisplayPath(value: string): string {
     return normalized;
 }
 
-function projectSlugFromWorkspace(projectWorkspace: string): string {
+function projectRootFromWorkspace(projectWorkspace: string): string {
     const normalized = projectWorkspace.replace(/\\/g, "/").replace(/\/+$/g, "");
     return normalized.startsWith("workspace/") ? normalized.slice("workspace/".length) : normalized;
 }
 
-function renderSelectedWorkspaceFile(projectSlug: string, selectedFilePath: string | null): string {
+function renderSelectedWorkspaceFile(projectRoot: string, selectedFilePath: string | null): string {
     if (!selectedFilePath) {
         return "none";
     }
     const normalized = selectedFilePath.replace(/\\/g, "/").replace(/^\/+/g, "").replace(/\/+$/g, "");
-    if (!projectSlug) {
+    if (!projectRoot) {
         return normalized;
     }
-    if (normalized === projectSlug) {
+    if (normalized === projectRoot) {
         return ".";
     }
-    if (normalized.startsWith(`${projectSlug}/`)) {
-        return normalized.slice(projectSlug.length + 1);
+    if (normalized.startsWith(`${projectRoot}/`)) {
+        return normalized.slice(projectRoot.length + 1);
     }
     if (normalized.startsWith("workspace/")) {
         const withoutWorkspace = normalized.slice("workspace/".length);
-        if (withoutWorkspace === projectSlug) {
+        if (withoutWorkspace === projectRoot) {
             return ".";
         }
-        return withoutWorkspace.startsWith(`${projectSlug}/`)
-            ? withoutWorkspace.slice(projectSlug.length + 1)
+        return withoutWorkspace.startsWith(`${projectRoot}/`)
+            ? withoutWorkspace.slice(projectRoot.length + 1)
             : normalized;
     }
     if (/^(manuscript|lorebook|reference|upload|simulation|\.nbook)(\/|$)/.test(normalized)) {
@@ -1898,12 +1900,11 @@ function ModeReminderText(props: {stateKey: string; slots: Partial<Record<ModeSl
                 ? modeState.fromMode
                 : "normal";
             const toolDirectory = planModeToolDirectory({
-                workspaceRootRef: ctx.session.workspaceRoot,
-                workspaceFsRoot: ctx.session.workspaceFsRoot,
-                projectPath: ctx.session.projectPath,
+                workspaceRoot: ctx.session.workspaceRoot,
+                currentProject: ctx.session.currentProject,
             });
             // workDirectory是运行时投影，不信任旧session可能持久化的安装机绝对路径。
-            // File Scope移动后始终展示当前工具可直接使用的逻辑目录。
+            // cwd切换后始终展示当前工具可直接使用的逻辑目录。
             const workDirectory = toolDirectory;
             // 周期重放只出 steady 档；状态变化按 phase 出全文
             const slotKind = resolveModeSlotKind(mode, props.steadyOnly ? "steady" : phase, fromMode);
@@ -2024,7 +2025,7 @@ function renderModeReminderText(kind: ModeSlotKind, workDirectory: string, toolD
         "## Plan Work Directory",
         "",
         `- The Project Workspace plan directory is ${workDirectory}. It can contain plan files, walkthrough files, or research notes for this project.`,
-        `- File tools and bash use the current Project Workspace as their File Scope. Write plan files via ${toolDirectory}/<slug>.md. The switch_mode planFilePath argument uses the same Project-relative path, so the approval UI can preview the file.`,
+        `- File tools and bash use the current Project Workspace as cwd. Write plan files via ${toolDirectory}/<slug>.md. The switch_mode planFilePath argument uses the same Project-relative path, so the approval UI can preview the file.`,
         "- No file is bound when entering plan mode. Choose a short readable Markdown file name when the task needs persisted planning or walkthrough notes. Do not create files just for formality for small non-editing tasks.",
         "- If a relevant Markdown file already exists in this exact plan directory, you can read it and make incremental edits using read and edit.",
         "- Do not put scratch/cache/command-output drafts under Project Workspace .agent; use the system temp directory for temporary files.",
@@ -2204,20 +2205,16 @@ async function defaultActivatedSkillsText(ctx: ProfilePrepareContext<any>): Prom
 
 async function defaultSqlSchemaSummaryText(ctx: ProfilePrepareContext<any>): Promise<string> {
     try {
-        const ready = ctx.runtime?.currentProject;
-        if (!ready) {
-            throw new Error("当前session没有Project Workspace");
+        // SQL schema 摘要经宿主注入获得；artifact 依赖图不允许携带 project-session / @libsql。
+        const sqlSchemaSummary = ctx.runtime?.sqlSchemaSummary;
+        if (!sqlSchemaSummary) {
+            throw new Error("当前运行环境没有注入 SQL schema 摘要");
         }
-        const [{PROJECT_AGENT_SQL_MODULE_TOKEN}, {activateReadyProjectModule}] = await Promise.all([
-            import("nbook/server/agent/tools/agent-sql-project-module"),
-            import("nbook/server/workspace-files/project-session"),
-        ]);
-        const sql = await activateReadyProjectModule(ready, PROJECT_AGENT_SQL_MODULE_TOKEN);
         return [
             "<sql-schema-summary>",
             "Target database is current Project Workspace .nbook/project.sqlite. App SQLite is not accessible from execute_sql.",
             "Double-quote business tables with uppercase letters and camelCase columns, e.g. \"createdAt\", \"sortOrder\".",
-            await sql.schemaSummary(),
+            await sqlSchemaSummary(),
             "</sql-schema-summary>",
         ].join("\n");
     } catch (error) {

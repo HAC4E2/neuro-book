@@ -47,8 +47,10 @@ describe("AgentProfileCatalog", () => {
     let root: string;
     let systemRoot: string;
     let userRoot: string;
+    let applicationRootBeforeTest: string | undefined;
 
     beforeEach(async () => {
+        applicationRootBeforeTest = process.env.NEURO_BOOK_APPLICATION_ROOT;
         root = resolve(".agent", "workspace", "agent-profile-catalog-test", randomUUID());
         systemRoot = join(root, "assets", ".nbook", "agent", "profiles");
         userRoot = join(root, "workspace", ".nbook", "agent", "profiles");
@@ -57,14 +59,14 @@ describe("AgentProfileCatalog", () => {
     });
 
     afterEach(async () => {
+        if (applicationRootBeforeTest === undefined) delete process.env.NEURO_BOOK_APPLICATION_ROOT;
+        else process.env.NEURO_BOOK_APPLICATION_ROOT = applicationRootBeforeTest;
         await rm(root, {recursive: true, force: true});
     });
 
     it("坏 profile 进入 issue，不阻断其他 profile", async () => {
         await writeProfile(systemRoot, "good.profile.tsx", `
-            import {Type} from "typebox";
-            import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-            import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
+            import {Type, defineAgentProfile, toolset} from "nbook/profile-sdk";
             export const profileManifest = { key: "custom.good", name: "Good" } as const;
             export type Initial = { topic: string };
             export type Output = { result: string };
@@ -72,7 +74,7 @@ describe("AgentProfileCatalog", () => {
                 manifest: profileManifest,
                 initialSchema: Type.Object({ topic: Type.String() }),
                 outputSchema: Type.Object({ result: Type.String() }),
-                tools: profileToolsFromKeys([]),
+                tools: toolset(),
                 prepare() { return { systemPrompt: "ok" }; },
             });
         `);
@@ -202,9 +204,7 @@ describe("AgentProfileCatalog", () => {
     it("profile watcher 会把外部源码和 compiled artifact 变化标记为 dirty", async () => {
         await writeProfile(systemRoot, "prompt-helper.ts", `export const helperText = "watch-v1";`);
         await writeProfile(systemRoot, "custom.watch.profile.tsx", `
-            import {Type} from "typebox";
-            import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-            import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
+            import {Type, defineAgentProfile, toolset} from "nbook/profile-sdk";
             import {helperText} from "./prompt-helper";
 
             export const profileManifest = { key: "custom.watch", name: "Watch" } as const;
@@ -212,7 +212,7 @@ describe("AgentProfileCatalog", () => {
                 manifest: profileManifest,
                 initialSchema: Type.Object({}),
                 outputSchema: Type.Object({}),
-                tools: profileToolsFromKeys([]),
+                tools: toolset(),
                 prepare() { return { systemPrompt: helperText }; },
             });
         `);
@@ -291,19 +291,16 @@ describe("AgentProfileCatalog", () => {
 
     it("加载 TSX DSL profile 时使用自动 JSX runtime", async () => {
         await writeProfile(systemRoot, "custom.jsx.profile.tsx", `
-            /** @jsxImportSource nbook/server/agent/profiles/profile-dsl */
+            /** @jsxImportSource nbook/profile-sdk */
             /** @jsxRuntime automatic */
-            import {Type} from "typebox";
-            import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-            import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
-            import {AppendingSet, Message, ProfilePrompt, System} from "nbook/server/agent/profiles/profile-dsl";
+            import {Type, defineAgentProfile, toolset, AppendingSet, Message, ProfilePrompt, System} from "nbook/profile-sdk";
 
             export const profileManifest = { key: "custom.jsx", name: "JSX" } as const;
             export default defineAgentProfile({
                 manifest: profileManifest,
                 initialSchema: Type.Object({}),
                 outputSchema: Type.Object({}),
-                tools: profileToolsFromKeys([]),
+                tools: toolset(),
                 context() {
                     return (
                         <ProfilePrompt>
@@ -328,17 +325,14 @@ describe("AgentProfileCatalog", () => {
 
     it("profile 编译产物包含 session variable authoring types", async () => {
         await writeProfile(systemRoot, "custom.session-types.profile.tsx", `
-            import {Type} from "typebox";
-            import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-            import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
-            import {defineSessionVariable} from "nbook/server/agent/variables/registry";
+            import {Type, defineAgentProfile, defineSessionVariable, toolset} from "nbook/profile-sdk";
 
             export const profileManifest = { key: "custom.sessionTypes", name: "Session Types" } as const;
             export default defineAgentProfile({
                 manifest: profileManifest,
                 initialSchema: Type.Object({}),
                 outputSchema: Type.Object({}),
-                tools: profileToolsFromKeys([]),
+                tools: toolset(),
                 variableDefinitions: [
                     defineSessionVariable({
                         key: "draftGoal",
@@ -382,6 +376,45 @@ describe("AgentProfileCatalog", () => {
         expect(head).toContain("__nbookCreateRequire(import.meta.url)");
         expect(head).not.toContain("globalThis._importMeta_");
         await expect(validateProfileArtifact(systemRoot, item)).resolves.toEqual({fresh: true});
+    });
+
+    it("相同 Profile 从不同物理根编译时生成同一内容寻址 artifact", async () => {
+        const firstRoot = join(root, "profile-root-a", "profiles");
+        const secondRoot = join(root, "profile-root-b", "profiles");
+        const fileName = "builtin/custom.reproducible.profile.tsx";
+        const source = `
+            import {Type, defineAgentProfile, toolset} from "nbook/profile-sdk";
+            export default defineAgentProfile({
+                manifest: {key: "custom.reproducible", name: "Reproducible"},
+                initialSchema: Type.Object({}),
+                tools: toolset(),
+                context() { return []; },
+            });
+        `;
+        await writeProfile(firstRoot, fileName, source);
+        await writeProfile(secondRoot, fileName, source);
+
+        const productCompileOptions = {
+            fileName,
+            rootLabel: "assets/workspace/.nbook/agent/profiles",
+            manifestGeneratedAt: new Date(0).toISOString(),
+        } as const;
+        const first = await compileProfileArtifacts({profileRoot: firstRoot, ...productCompileOptions});
+        const second = await compileProfileArtifacts({profileRoot: secondRoot, ...productCompileOptions});
+        expect(first.compiled, JSON.stringify(first.manifest.entries, null, 2)).toHaveLength(1);
+        expect(second.compiled, JSON.stringify(second.manifest.entries, null, 2)).toHaveLength(1);
+        const firstItem = first.compiled[0]!;
+        const secondItem = second.compiled[0]!;
+        const firstArtifact = await readFile(compiledArtifactPath(firstRoot, firstItem), "utf8");
+        const secondArtifact = await readFile(compiledArtifactPath(secondRoot, secondItem), "utf8");
+
+        expect(secondItem.artifactSha256).toBe(firstItem.artifactSha256);
+        expect(secondItem.artifactFileName).toBe(firstItem.artifactFileName);
+        expect(secondArtifact).toBe(firstArtifact);
+        expect(first.manifest.generatedAt).toBe("1970-01-01T00:00:00.000Z");
+        expect(second.manifest.generatedAt).toBe(first.manifest.generatedAt);
+        expect(firstArtifact).not.toContain("profile-root-a");
+        expect(secondArtifact).not.toContain("profile-root-b");
     });
 
     it("profile 编译产物包含 Nitro importMeta shim 时强制过期", async () => {
@@ -798,9 +831,7 @@ describe("AgentProfileCatalog", () => {
     it("TSX profile 依赖 helper 文件变化时重新编译缓存", async () => {
         await writeProfile(systemRoot, "prompt-helper.ts", `export const helperText = "v1";`);
         await writeProfile(systemRoot, "custom.helper.profile.tsx", `
-            import {Type} from "typebox";
-            import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-            import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
+            import {Type, defineAgentProfile, toolset} from "nbook/profile-sdk";
             import {helperText} from "./prompt-helper";
 
             export const profileManifest = { key: "custom.helper", name: "Helper" } as const;
@@ -808,7 +839,7 @@ describe("AgentProfileCatalog", () => {
                 manifest: profileManifest,
                 initialSchema: Type.Object({}),
                 outputSchema: Type.Object({}),
-                tools: profileToolsFromKeys([]),
+                tools: toolset(),
                 prepare() { return { systemPrompt: helperText }; },
             });
         `);
@@ -833,9 +864,7 @@ describe("AgentProfileCatalog", () => {
     it("用户 profile 依赖变化不会由 catalog reader 重复 rehash", async () => {
         await writeProfile(userRoot, "prompt-helper.ts", `export const helperText = "v1";`);
         await writeProfile(userRoot, "custom.user-helper.profile.tsx", `
-            import {Type} from "typebox";
-            import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-            import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
+            import {Type, defineAgentProfile, toolset} from "nbook/profile-sdk";
             import {helperText} from "./prompt-helper";
 
             export const profileManifest = { key: "custom.user-helper", name: "User Helper" } as const;
@@ -843,7 +872,7 @@ describe("AgentProfileCatalog", () => {
                 manifest: profileManifest,
                 initialSchema: Type.Object({}),
                 outputSchema: Type.Object({}),
-                tools: profileToolsFromKeys([]),
+                tools: toolset(),
                 prepare() { return { systemPrompt: helperText }; },
             });
         `);
@@ -890,9 +919,7 @@ describe("AgentProfileCatalog", () => {
     it("用户 profile 依赖变化且 artifact 损坏时不可运行", async () => {
         await writeProfile(userRoot, "prompt-helper.ts", `export const helperText = "v1";`);
         await writeProfile(userRoot, "custom.broken-artifact.profile.tsx", `
-            import {Type} from "typebox";
-            import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-            import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
+            import {Type, defineAgentProfile, toolset} from "nbook/profile-sdk";
             import {helperText} from "./prompt-helper";
 
             export const profileManifest = { key: "custom.broken-artifact", name: "Broken Artifact" } as const;
@@ -900,7 +927,7 @@ describe("AgentProfileCatalog", () => {
                 manifest: profileManifest,
                 initialSchema: Type.Object({}),
                 outputSchema: Type.Object({}),
-                tools: profileToolsFromKeys([]),
+                tools: toolset(),
                 prepare() { return { systemPrompt: helperText }; },
             });
         `);
@@ -924,9 +951,7 @@ describe("AgentProfileCatalog", () => {
 
     it("builtin 覆盖只替换运行时实现，不替换锁定 schema", async () => {
         await writeProfile(userRoot, "leader.default.profile.tsx", `
-            import {Type} from "typebox";
-            import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-            import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
+            import {Type, defineAgentProfile, toolset} from "nbook/profile-sdk";
             export const profileManifest = { key: "leader.default", name: "User Leader" } as const;
             export type Initial = { changed: string };
             export type Output = { changed: string };
@@ -934,7 +959,7 @@ describe("AgentProfileCatalog", () => {
                 manifest: profileManifest,
                 initialSchema: Type.Object({ changed: Type.String() }),
                 outputSchema: Type.Object({ changed: Type.String() }),
-                tools: profileToolsFromKeys([]),
+                tools: toolset(),
                 prepare() { return { systemPrompt: "user" }; },
             });
         `);
@@ -957,9 +982,7 @@ describe("AgentProfileCatalog", () => {
 
     it("系统 leader.default schema 与 builtin contract 一致时不产生 schema lock issue", async () => {
         await writeProfile(systemRoot, "leader.default.profile.tsx", `
-            import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-            import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
-            import {LeaderDefaultInitialSchema, LeaderDefaultOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
+            import {defineAgentProfile, toolset, LeaderDefaultInitialSchema, LeaderDefaultOutputSchema} from "nbook/profile-sdk";
             export const profileManifest = { key: "leader.default", name: "System Leader" } as const;
             export type Initial = typeof LeaderDefaultInitialSchema.static;
             export type Output = typeof LeaderDefaultOutputSchema.static;
@@ -967,7 +990,7 @@ describe("AgentProfileCatalog", () => {
                 manifest: profileManifest,
                 initialSchema: LeaderDefaultInitialSchema,
                 outputSchema: LeaderDefaultOutputSchema,
-                tools: profileToolsFromKeys([]),
+                tools: toolset(),
                 prepare() { return { systemPrompt: "system" }; },
             });
         `);
@@ -1157,25 +1180,29 @@ describe("AgentProfileCatalog", () => {
         const outputServerRoot = join(productRoot, ".output", "server");
         systemRoot = join(outputServerRoot, "assets", "workspace", ".nbook", "agent", "profiles");
         userRoot = join(productRoot, "workspace", ".nbook", "agent", "profiles");
-        await mkdir(join(outputServerRoot, "node_modules", "nbook", "server", "test"), {recursive: true});
+        await mkdir(join(outputServerRoot, "node_modules", "@nbook", "product-marker"), {recursive: true});
         await writeFile(join(productRoot, "package.json"), "{\"name\":\"neuro-book-product\",\"version\":\"0.0.0\",\"type\":\"module\"}\n", "utf8");
         await writeFile(join(productRoot, "tsconfig.json"), "{}\n", "utf8");
         await writeFile(join(outputServerRoot, "tsconfig.json"), "{}\n", "utf8");
         await writeFile(join(outputServerRoot, "index.mjs"), "", "utf8");
-        await writeFile(join(outputServerRoot, "node_modules", "nbook", "server", "test", "product-marker.ts"), 'export const marker = "output";\n', "utf8");
+        await writeProductAuthoringFixture(outputServerRoot);
+        await writeFile(join(outputServerRoot, "node_modules", "@nbook", "product-marker", "index.js"), 'module.exports = {marker: "output"};\n', "utf8");
         await writeProfile(systemRoot, "custom.product.profile.mjs", `
-            import {marker} from "nbook/server/test/product-marker";
             export default {
                 manifest: { key: "custom.product", name: "Product" },
                 initialSchema: { type: "object", properties: {} },
                 outputSchema: { type: "object", properties: {} },
                 tools: {},
                 rootToolKeys: [],
-                prepare() { return { systemPrompt: marker }; },
+                prepare() {
+                    const marker = require("@nbook/" + "product-marker");
+                    return { systemPrompt: marker.marker };
+                },
             };
         `);
 
         const previousCwd = process.cwd();
+        process.env.NEURO_BOOK_APPLICATION_ROOT = productRoot;
         process.chdir(productRoot);
         try {
             await compileProfileArtifacts({
@@ -1190,14 +1217,18 @@ describe("AgentProfileCatalog", () => {
         const manifestItem = manifest.profiles.find((item) => item.profileKey === "custom.product")!;
         const artifact = await readFile(compiledArtifactPath(systemRoot, manifestItem), "utf8");
         expect(artifact.slice(0, 2048)).toContain("__nbookResolveProductRequireRoot");
+        expect(artifact.slice(0, 2048)).toContain("NEURO_BOOK_APPLICATION_ROOT");
+        expect(artifact.slice(0, 2048)).not.toContain("process.cwd()");
         expect(artifact.slice(0, 2048)).not.toContain("globalThis._importMeta_");
         expect(artifact.slice(0, 2048)).not.toMatch(/file:\/\/\/[A-Za-z]:/u);
         expect(artifact).not.toContain("D:/a/neuro-book/");
         expect(manifestItem.dependencies.every((dependency) => dependency.path.startsWith(".output/server/"))).toBe(true);
-        expect(manifestItem.dependencies.some((dependency) => dependency.path.endsWith("node_modules/nbook/server/test/product-marker.ts"))).toBe(true);
         process.chdir(productRoot);
         try {
             await expect(validateProfileArtifact(systemRoot, manifestItem, {requireTypeArtifact: true})).resolves.toEqual({fresh: true});
+            delete process.env.NEURO_BOOK_APPLICATION_ROOT;
+            const catalog = new AgentProfileCatalog(systemRoot, userRoot);
+            await expect(catalog.get("custom.product")).rejects.toThrow("缺少 NEURO_BOOK_APPLICATION_ROOT 或已验证的 runtime require root");
         } finally {
             process.chdir(previousCwd);
         }
@@ -1212,6 +1243,7 @@ describe("AgentProfileCatalog", () => {
         await writeFile(join(productRoot, ".output", "server", "tsconfig.json"), "{}\n", "utf8");
         await writeFile(join(productRoot, ".output", "server", "index.mjs"), "", "utf8");
         await writeFile(join(productRoot, ".output", "server", "package.json"), "{\"name\":\"neuro-book-output\",\"version\":\"0.0.0\",\"type\":\"module\"}\n", "utf8");
+        await writeProductAuthoringFixture(join(productRoot, ".output", "server"));
         await writeFile(join(productRoot, ".output", "server", "node_modules", "@nbook", "output-marker", "index.js"), `module.exports = {marker: "output-vendor"};\n`, "utf8");
         await writeProfile(systemRoot, "custom.output.profile.mjs", `
             export default {
@@ -1228,6 +1260,7 @@ describe("AgentProfileCatalog", () => {
         `);
 
         const previousCwd = process.cwd();
+        process.env.NEURO_BOOK_APPLICATION_ROOT = productRoot;
         process.chdir(productRoot);
         try {
             await compileProfileArtifacts({
@@ -1259,6 +1292,7 @@ describe("AgentProfileCatalog", () => {
         await writeFile(join(productRoot, ".output", "server", "tsconfig.json"), "{}\n", "utf8");
         await writeFile(join(productRoot, ".output", "server", "index.mjs"), "", "utf8");
         await writeFile(join(productRoot, ".output", "server", "package.json"), "{\"name\":\"neuro-book-output\",\"version\":\"0.0.0\",\"type\":\"module\"}\n", "utf8");
+        await writeProductAuthoringFixture(join(productRoot, ".output", "server"));
         await writeProfile(systemRoot, "custom.output.profile.mjs", `
             export default {
                 manifest: { key: "custom.output", name: "Output" },
@@ -1289,6 +1323,7 @@ describe("AgentProfileCatalog", () => {
             {recursive: true},
         );
         process.chdir(productRoot);
+        process.env.NEURO_BOOK_APPLICATION_ROOT = productRoot;
         try {
             const staleManifest = await readProfileArtifactManifest(systemRoot);
             await expect(validateProfileArtifact(systemRoot, staleManifest.profiles[0]!)).resolves.toEqual({
@@ -1323,6 +1358,7 @@ describe("AgentProfileCatalog", () => {
         await writeFile(join(productRoot, "tsconfig.json"), "{}\n", "utf8");
         await writeFile(join(productRoot, ".output", "server", "tsconfig.json"), "{}\n", "utf8");
         await writeFile(join(productRoot, ".output", "server", "index.mjs"), "", "utf8");
+        await writeProductAuthoringFixture(join(productRoot, ".output", "server"));
         await writeFile(join(productRoot, ".output", "server", "node_modules", "@nbook", "portable-marker", "index.js"), `module.exports = {marker: "portable-vendor"};\n`, "utf8");
         await writeProfile(userRoot, "custom.portable.profile.mjs", `
             export default {
@@ -1339,6 +1375,7 @@ describe("AgentProfileCatalog", () => {
         `);
 
         const previousCwd = process.cwd();
+        process.env.NEURO_BOOK_APPLICATION_ROOT = productRoot;
         process.chdir(productRoot);
         try {
             await compileProfileArtifacts({
@@ -1361,6 +1398,14 @@ async function writeProfile(root: string, name: string, source: string): Promise
     await writeFile(join(root, name), source, "utf8");
 }
 
+/** Product fixture 必须具备真实编译上下文要求的最小 Authoring Kit。 */
+async function writeProductAuthoringFixture(outputServerRoot: string): Promise<void> {
+    const authoringRoot = join(outputServerRoot, "authoring");
+    await mkdir(authoringRoot, {recursive: true});
+    await writeFile(join(authoringRoot, "package.json"), "{\"name\":\"neuro-book-profile-authoring\",\"type\":\"module\"}\n", "utf8");
+    await writeFile(join(authoringRoot, "tsconfig.json"), "{}\n", "utf8");
+}
+
 function compiledArtifactPath(root: string, item: ProfileArtifactManifestItem): string {
     return join(root, PROFILE_COMPILED_DIR_NAME, ...item.artifactFileName.split("/"));
 }
@@ -1380,9 +1425,7 @@ function expectContentAddressedArtifact(item: ProfileArtifactManifestItem): void
 
 function profileSource(key: string, name: string): string {
     return `
-            import {Type} from "typebox";
-            import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-            import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
+        import {Type, defineAgentProfile, toolset} from "nbook/profile-sdk";
         export const profileManifest = { key: ${JSON.stringify(key)}, name: ${JSON.stringify(name)} } as const;
         export type Initial = {};
         export type Output = {};
@@ -1390,7 +1433,7 @@ function profileSource(key: string, name: string): string {
             manifest: profileManifest,
             initialSchema: Type.Object({}),
             outputSchema: Type.Object({}),
-            tools: profileToolsFromKeys([]),
+            tools: toolset(),
             prepare() { return { systemPrompt: ${JSON.stringify(name)} }; },
         });
     `;

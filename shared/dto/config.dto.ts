@@ -82,18 +82,18 @@ export const ConfigItemMetaDtoSchema = z.object({
 
 const ConfigWorkspaceQueryBaseDtoSchema = z.object({
     workspaceKind: z.enum(["novel", "user-assets"]).default("novel"),
-    projectPath: z.string().trim().min(1).optional(),
+    projectRoot: z.string().trim().min(1).optional(),
 });
 
 function refineConfigWorkspaceQuery(
     value: z.infer<typeof ConfigWorkspaceQueryBaseDtoSchema>,
     ctx: z.RefinementCtx,
 ): void {
-    if (value.workspaceKind === "novel" && !value.projectPath) {
+    if (value.workspaceKind === "novel" && !value.projectRoot) {
         ctx.addIssue({
             code: "custom",
-            path: ["projectPath"],
-            message: "Project Workspace 配置必须提供 projectPath",
+            path: ["projectRoot"],
+            message: "Project Workspace 配置必须提供 projectRoot",
         });
     }
 }
@@ -383,11 +383,6 @@ export const ObservabilityConfigDtoSchema = z.object({
     }).partial().default({}),
 }).partial().default({});
 
-/** novel-api 榜单服务配置（baseUrl 指向 sibling 仓 ../novel-api 的 HTTP 服务）。无 secret 字段。 */
-export const NovelDataConfigDtoSchema = z.object({
-    baseUrl: z.string().trim(),
-}).partial().default({});
-
 /** 文件历史（操作日志）字段集。enabled 是 Global 独有总开关；其余四项 Project 可覆盖。 */
 const WorkspaceHistoryFieldsDtoSchema = z.object({
     enabled: z.boolean(),
@@ -426,7 +421,6 @@ export const GlobalConfigDtoSchema = z.object({
     web: WebConfigDtoSchema,
     observability: ObservabilityConfigDtoSchema,
     history: WorkspaceHistoryConfigDtoSchema,
-    novelData: NovelDataConfigDtoSchema,
 }).partial().passthrough();
 
 export const GlobalConfigUpdateDtoSchema = z.object({
@@ -450,7 +444,6 @@ export const GlobalConfigUpdateDtoSchema = z.object({
     web: z.preprocess((value) => value === undefined ? undefined : value, WebConfigDtoSchema).optional(),
     observability: ObservabilityConfigDtoSchema.optional(),
     history: WorkspaceHistoryConfigDtoSchema.optional(),
-    novelData: NovelDataConfigDtoSchema.optional(),
 }).partial().passthrough();
 
 export const ProjectConfigDtoSchema = z.object({
@@ -505,7 +498,6 @@ export type ConfigAgentProfileBuildStatusDto = z.infer<typeof ConfigAgentProfile
 export type ConfigDefaultProfileSettingsDto = z.infer<typeof ConfigDefaultProfileSettingsDtoSchema>;
 export type WebConfigDto = z.infer<typeof WebConfigDtoSchema>;
 export type ObservabilityConfigDto = z.infer<typeof ObservabilityConfigDtoSchema>;
-export type NovelDataConfigDto = z.infer<typeof NovelDataConfigDtoSchema>;
 export type GlobalConfigDto = z.infer<typeof GlobalConfigDtoSchema>;
 export type GlobalConfigUpdateDto = z.infer<typeof GlobalConfigUpdateDtoSchema>;
 export type ProjectConfigDto = z.infer<typeof ProjectConfigDtoSchema>;

@@ -31,8 +31,6 @@ describe("SessionWriteExecutor", () => {
                     summary: {
                         sessionId,
                         profileKey: "leader.default",
-                        workspaceKey: "global",
-                        workspaceRoot: root,
                         status: "idle",
                         updatedAt: 1,
                         archived: false,
@@ -78,8 +76,6 @@ describe("SessionWriteExecutor", () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
-            workspaceKey: "global",
         });
         const events: string[] = [];
         let stateChangedEvent: AgentSessionEventDto | undefined;
@@ -152,8 +148,6 @@ describe("SessionWriteExecutor", () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
-            workspaceKey: "global",
         });
         const timing = createTimingRecorder();
 
@@ -220,8 +214,6 @@ describe("SessionWriteExecutor", () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
-            workspaceKey: "global",
         });
         const observed: Array<{
             sessionId: number;
@@ -239,8 +231,6 @@ describe("SessionWriteExecutor", () => {
                     summary: {
                         sessionId,
                         profileKey: "leader.default",
-                        workspaceKey: "global",
-                        workspaceRoot: root,
                         status: "idle",
                         updatedAt: 1,
                         archived: false,
@@ -318,8 +308,6 @@ describe("SessionWriteExecutor", () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
-            workspaceKey: "global",
         });
         executor = new SessionWriteExecutor({
             repo,
@@ -330,8 +318,6 @@ describe("SessionWriteExecutor", () => {
                     summary: {
                         sessionId,
                         profileKey: "leader.default",
-                        workspaceKey: "global",
-                        workspaceRoot: root,
                         status: "idle",
                         updatedAt: 1,
                         archived: false,
@@ -380,8 +366,6 @@ describe("SessionWriteExecutor", () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
-            workspaceKey: "global",
         });
         const user = await repo.appendUserMessage(session.metadata.sessionId, "hello");
 
@@ -409,8 +393,6 @@ describe("SessionWriteExecutor", () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
-            workspaceKey: "global",
         });
         const originalAppendEntry = repo.appendEntry.bind(repo);
         let activeAppends = 0;
@@ -461,8 +443,6 @@ describe("SessionWriteExecutor", () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
-            workspaceKey: "global",
         });
         const user = await repo.appendUserMessage(session.metadata.sessionId, "hello");
         const subscription = eventHub.subscribe(session.metadata.sessionId);

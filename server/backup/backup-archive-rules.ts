@@ -2,12 +2,13 @@
 // 抽成纯函数便于直接单测，也让打包/恢复两侧共享同一判据。
 
 /**
- * 打包排除规则：logs/ 整目录、锁文件、临时文件、SQLite wal/shm 伴生文件。
+ * 打包排除规则：secrets/、logs/ 整目录、锁文件、临时文件、SQLite wal/shm 伴生文件。
  * relativePath 以 State Root 为基准、使用 / 分隔。
  */
 export function shouldExcludeFromBackup(relativePath: string): boolean {
     const normalized = relativePath.replaceAll("\\", "/");
-    if (normalized === "logs" || normalized.startsWith("logs/")) {
+    if (normalized === "secrets" || normalized.startsWith("secrets/")
+        || normalized === "logs" || normalized.startsWith("logs/")) {
         return true;
     }
     const name = normalized.split("/").pop() ?? "";

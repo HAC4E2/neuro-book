@@ -52,7 +52,7 @@ const props = defineProps<{
     connectionNeedsAction: boolean;
     queuedMessages: AgentQueuedMessageDto[];
     menuRefreshKey: string | number;
-    projectPath: string | null;
+    projectRoot: string | null;
     historyInboxRefreshKey: string | number;
     historyInboxActive: boolean;
     sessionId: number | null;
@@ -87,6 +87,8 @@ const emit = defineEmits<{
         data: import("nbook/shared/dto/low-code-form.dto").LowCodeJsonObject;
     }): void;
     (e: "cancel-user-input", payload: {assistantMessageId: string}): void;
+    /** 打开上下文检查面板（Task 126）；宿主持有开关状态。 */
+    (e: "open-context-inspector"): void;
     (e: "send"): void;
     (e: "steer"): void;
     (e: "followup"): void;
@@ -123,7 +125,8 @@ const images = useComposerImageTransaction({
     blockedReason: () => props.pendingSession
         ? "等待用户回答期间不能上传或插入图片。"
         : props.readonlyReason || "当前 Session 不能上传或插入图片。",
-    projectPath: () => props.projectPath,
+    unsupportedAttachmentMessage: () => t("agent.attachments.imageInsertUnsupported"),
+    projectRoot: () => props.projectRoot,
     onAttachmentRegistered: (item) => emit("attachment-registered", item),
 });
 const composerGeneration = images.generation;
@@ -493,7 +496,7 @@ defineExpose({focus, insertAttachment});
             </div>
         </div>
 
-        <AgentWorkspaceChanges :project-path="props.projectPath" :refresh-key="props.historyInboxRefreshKey" :active="props.historyInboxActive" @open-full="emit('open-history-inbox')" @open-file="emit('open-workspace-file', $event)" />
+        <AgentWorkspaceChanges :project-root="props.projectRoot" :refresh-key="props.historyInboxRefreshKey" :active="props.historyInboxActive" @open-full="emit('open-history-inbox')" @open-file="emit('open-workspace-file', $event)" />
 
         <!-- 消息输入栏 -->
         <div class="flex flex-col rounded-xl border border-[var(--border-color)] bg-[var(--bg-input)] shadow-sm transition-all focus-within:border-[var(--accent-main)] focus-within:ring-1 focus-within:ring-[var(--accent-main)]" style="--composer-radius: 0.75rem;">
@@ -611,11 +614,12 @@ defineExpose({focus, insertAttachment});
 
         <!-- token 与运行状态 -->
         <div class="mt-1.5 flex flex-wrap items-center justify-center gap-1 text-[9px] text-[var(--text-muted)]">
-            <div :title="props.contextUsageExactLabel" class="inline-flex max-w-full items-center gap-1 rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5">
+            <!-- gauge 芯片：点击打开上下文检查面板（Task 126） -->
+            <button :title="props.contextUsageExactLabel" class="inline-flex max-w-full items-center gap-1 rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5 transition-colors hover:bg-[var(--bg-hover)]" @click="emit('open-context-inspector')">
                 <span class="i-lucide-gauge h-3 w-3 shrink-0"></span>
                 <span class="truncate font-medium text-[var(--text-secondary)]">{{ props.contextUsageCompactLabel }}</span>
                 <span v-if="props.contextPercentCompactLabel" class="rounded-full bg-[var(--accent-bg)] px-1 py-[1px] text-[8px] font-semibold text-[var(--accent-text)]">{{ props.contextPercentCompactLabel }}</span>
-            </div>
+            </button>
             <div :title="props.cumulativeUsageExactLabel" class="inline-flex items-center gap-1 rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5">
                 <span class="i-lucide-arrow-down h-3 w-3"></span>
                 <span>{{ props.cumulativeInputCompactLabel }}</span>

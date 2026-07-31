@@ -21,10 +21,9 @@ import {
 } from "nbook/server/workspace-files/novel-workspace";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
+import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 import type {WorkspaceFileTarget} from "nbook/server/workspace-files/workspace-file-target";
 import {
-    listProjectWorkspaces as listProjectWorkspacesAtRoot,
     readProjectManifest as readProjectManifestAtRoot,
     writeProjectManifest as writeProjectManifestAtRoot,
 } from "nbook/server/workspace-files/project-workspace";
@@ -36,29 +35,23 @@ import {resolveRuntimeWorkspaceRoot, resolveUserNbookRoot} from "nbook/server/wo
 import {createIsolatedWorkspaceAssets, withIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/test-workspace-fixture";
 import {createWorkspaceContentState, createWorkspaceDirectory, readWorkspaceTextFile, scanWorkspaceTree, validateWorkspaceContentNodes, validateWorkspaceTree, writeWorkspaceTextFile} from "nbook/server/workspace-files/workspace-files";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
-import {activateReadyProjectModule, closeAllProjects, openProject, requireReadyModuleHandle, requireReadyProjectPath} from "nbook/server/workspace-files/project-session";
-import {updateNovelByTool} from "nbook/server/utils/novel-chapter";
+import {activateReadyProjectModule, closeAllProjects, openProject, requireReadyModuleHandle, requireReadyProject} from "nbook/server/workspace-files/project-session";
 
 const AGENT_WORKSPACE_SCRIPT_PATH = path.join("assets", "workspace", ".nbook", "agent", "scripts", "workspace.ts");
 const AGENT_WORKSPACE_SCRIPT_FROM_WORKSPACE_PATH = path.join("..", AGENT_WORKSPACE_SCRIPT_PATH);
 const execFileAsync = promisify(execFile);
 
-/** 测试Adapter：旧测试调用面固定使用当前隔离Workspace Root。 */
-function listProjectWorkspaces(): ReturnType<typeof listProjectWorkspacesAtRoot> {
-    return listProjectWorkspacesAtRoot(resolveRuntimeWorkspaceRoot());
+/** 测试Adapter：把单段 Project root 投影到当前隔离 Workspace Root。 */
+function readProjectManifest(projectRoot: string): ReturnType<typeof readProjectManifestAtRoot> {
+    return readProjectManifestAtRoot(resolveRuntimeWorkspaceRoot(), projectWorkspaceRef(projectRoot));
 }
 
-/** 测试Adapter：旧测试调用面固定使用当前隔离Workspace Root。 */
-function readProjectManifest(projectPath: string): ReturnType<typeof readProjectManifestAtRoot> {
-    return readProjectManifestAtRoot(resolveRuntimeWorkspaceRoot(), projectPath);
-}
-
-/** 测试Adapter：旧测试调用面固定使用当前隔离Workspace Root。 */
+/** 测试Adapter：把单段 Project root 投影到当前隔离 Workspace Root。 */
 function writeProjectManifest(
-    projectPath: string,
+    projectRoot: string,
     manifest: Parameters<typeof writeProjectManifestAtRoot>[2],
 ): ReturnType<typeof writeProjectManifestAtRoot> {
-    return writeProjectManifestAtRoot(resolveRuntimeWorkspaceRoot(), projectPath, manifest);
+    return writeProjectManifestAtRoot(resolveRuntimeWorkspaceRoot(), projectWorkspaceRef(projectRoot), manifest);
 }
 
 describe("workspace-files", {timeout: 60_000}, () => {
@@ -339,20 +332,20 @@ describe("workspace-files", {timeout: 60_000}, () => {
     });
 
     it("project.yaml 格式错误时仍允许解析 Project Workspace 根目录", async () => {
-        const projectPath = `workspace/workspace-files-test-${randomUUID()}`;
-        const projectRoot = path.join("workspace", projectPath.split("/").at(-1) ?? "");
+        const projectRoot = `workspace-files-test-${randomUUID()}`;
+        const projectDirectory = path.join("workspace", projectRoot);
 
         try {
-            await fs.mkdir(projectRoot, {recursive: true});
-            await fs.writeFile(path.join(projectRoot, "project.yaml"), "kind: novel\ntitle: 测试\nsummary: \"\"\na'a\n", "utf-8");
+            await fs.mkdir(projectDirectory, {recursive: true});
+            await fs.writeFile(path.join(projectDirectory, "project.yaml"), "kind: novel\ntitle: 测试\nsummary: \"\"\na'a\n", "utf-8");
 
-            await expect(resolveWorkspaceFileTarget(runtimePathsFromEnv(), {projectPath})).resolves.toEqual({
+            await expect(resolveWorkspaceFileTarget(runtimePathsFromEnv(), {projectRoot})).resolves.toEqual({
                 kind: "project-workspace",
-                root: path.resolve(projectRoot),
-                projectPath,
+                root: path.resolve(projectDirectory),
+                projectRoot,
             });
         } finally {
-            await removeDirectoryWithRetry(projectRoot);
+            await removeDirectoryWithRetry(projectDirectory);
         }
     });
 
@@ -371,80 +364,6 @@ describe("workspace-files", {timeout: 60_000}, () => {
         expect(repairedManifest).toMatchObject({kind: "novel", title: expect.any(String), summary: ""});
         expect(manifestBackup).toBeDefined();
         expect(await fs.readFile(path.join(recoveryRoot, manifestBackup!), "utf-8")).toBe(corruptManifest);
-    });
-
-    it("Project Workspace 列表遇到坏 project.yaml 时不会整批失败", async () => {
-        const projectPath = `workspace/workspace-files-test-${randomUUID()}`;
-        const projectRoot = path.join("workspace", projectPath.split("/").at(-1) ?? "");
-
-        try {
-            await fs.mkdir(projectRoot, {recursive: true});
-            await fs.writeFile(path.join(projectRoot, "project.yaml"), "kind: novel\ntitle: 测试\nsummary: \"\"\na'a\n", "utf-8");
-
-            const projects = await listProjectWorkspaces();
-            const project = projects.find((item) => item.projectPath === projectPath);
-
-            expect(project?.title).toBe(projectPath.split("/").at(-1));
-            expect(project?.manifestError).toContain("Implicit map keys");
-        } finally {
-            await removeDirectoryWithRetry(projectRoot);
-        }
-    });
-
-    it("Project manifest 更新在 project.yaml 损坏时可以覆盖写回合法 YAML", async () => {
-        const projectPath = `workspace/workspace-files-test-${randomUUID()}`;
-        const projectRoot = path.join("workspace", projectPath.split("/").at(-1) ?? "");
-
-        try {
-            await fs.mkdir(projectRoot, {recursive: true});
-            await fs.writeFile(path.join(projectRoot, "project.yaml"), "kind: novel\ntitle: 测试\nsummary: \"\"\na'a\n", "utf-8");
-
-            const result = await updateNovelByTool(projectPath, {
-                title: "修复后的标题",
-                summary: "修复后的简介",
-            });
-
-            await expect(readProjectManifest(projectPath)).resolves.toEqual({
-                kind: "novel",
-                title: "修复后的标题",
-                summary: "修复后的简介",
-            });
-            expect(result.title).toBe("修复后的标题");
-        } finally {
-            await removeDirectoryWithRetry(projectRoot);
-        }
-    });
-
-    it("Project manifest 更新遇到 IO 错误时不会按坏 YAML 兜底覆盖", async () => {
-        const projectPath = `workspace/workspace-files-test-${randomUUID()}`;
-        const projectRoot = path.join("workspace", projectPath.split("/").at(-1) ?? "");
-
-        try {
-            await fs.mkdir(projectRoot, {recursive: true});
-            await fs.writeFile(path.join(projectRoot, "project.yaml"), "kind: novel\ntitle: 原标题\nsummary: 原简介\n", "utf-8");
-            const originalReadFile = fs.readFile;
-            const readFile = vi.spyOn(fs, "readFile").mockImplementation(async (filePath, options) => {
-                if (String(filePath).endsWith("project.yaml")) {
-                    const error = new Error("permission denied") as NodeJS.ErrnoException;
-                    error.code = "EACCES";
-                    throw error;
-                }
-                return originalReadFile(filePath, options);
-            });
-
-            try {
-                await expect(updateNovelByTool(projectPath, {title: "不应写入"})).rejects.toMatchObject({code: "EACCES"});
-            } finally {
-                readFile.mockRestore();
-            }
-            await expect(readProjectManifest(projectPath)).resolves.toEqual({
-                kind: "novel",
-                title: "原标题",
-                summary: "原简介",
-            });
-        } finally {
-            await removeDirectoryWithRetry(projectRoot);
-        }
     });
 
     it("解析结构化 refs 和 inline 引用中的相对路径", async () => {
@@ -2663,7 +2582,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
         const projectPath = `workspace/${workspaceSlug}`;
         const createdRoot = path.join("workspace", workspaceSlug);
 
-        await writeProjectManifest(projectPath, {
+        await writeProjectManifest(workspaceSlug, {
             kind: "novel",
             title: "测试小说",
             summary: "测试简介",
@@ -2681,7 +2600,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
         let projectOpened = false;
         try {
             expect(stderr).toBe("");
-            await expect(readProjectManifest(projectPath)).resolves.toEqual({
+            await expect(readProjectManifest(workspaceSlug)).resolves.toEqual({
                 kind: "novel",
                 title: "测试小说",
                 summary: "测试简介",
@@ -2697,9 +2616,9 @@ describe("workspace-files", {timeout: 60_000}, () => {
             await expect(readWorkspaceTextFile(createdRoot, "world-engine/calendar.ts")).resolves.toContain("type: 'gregorian'");
             await expect(fs.access(path.join(createdRoot, "world-engine", "calendar.yaml"))).rejects.toMatchObject({code: "ENOENT"});
             await expect(fs.access(path.join(createdRoot, "simulation"))).rejects.toMatchObject({code: "ENOENT"});
-            await openProjectForTest(projectPath);
+            await openProjectForTest(workspaceSlug);
             projectOpened = true;
-            const ready = requireReadyProjectPath(projectPath);
+            const ready = requireReadyProject(projectWorkspaceRef(workspaceSlug));
             const {world: worldEngineFacade} = await activateReadyProjectModule(
                 ready,
                 PROJECT_PLOT_WORLD_MODULE_TOKEN,
@@ -2768,7 +2687,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
             });
         } finally {
             if (projectOpened) {
-                await closeProjectForTest(projectPath);
+                await closeProjectForTest(workspaceSlug);
             }
             await removeDirectoryWithRetry(createdRoot);
         }
@@ -2889,14 +2808,14 @@ describe("workspace-files", {timeout: 60_000}, () => {
      * 为索引测试建立真实ProjectSession，并返回显式Project Workspace目标。
      */
     async function projectIndexOptions(): Promise<ProjectWorkspaceTreeIndexOptions> {
-        const projectPath = normalizeProjectPath(`workspace/${path.basename(root)}`);
+        const ref = projectWorkspaceRef(path.basename(root));
         const ready = await openProject(
-            absoluteFsPath(path.dirname(root)),
-            projectPath,
+            ref,
             {kind: "job", source: "workspace-files-test"},
+            absoluteFsPath(path.dirname(root)),
         );
         return {
-            target: {kind: "project-workspace", root: ready.workspace.root, projectPath},
+            target: {kind: "project-workspace", root: ready.workspace.root, projectRoot: ref.projectRoot},
             fileIndex: requireReadyModuleHandle(ready, PROJECT_FILE_INDEX_MODULE_TOKEN),
         };
     }

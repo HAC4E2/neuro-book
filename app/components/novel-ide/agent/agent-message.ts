@@ -1386,7 +1386,7 @@ const publicToolResultDetails = (result: PublicToolResultDto): JsonValue | undef
             ...(details.truncatedBy ? {truncatedBy: details.truncatedBy} : {}),
             ...(details.totalLines === undefined ? {} : {totalLines: details.totalLines}),
             ...(details.totalBytes === undefined ? {} : {totalBytes: details.totalBytes}),
-            ...(details.fullOutputPath ? {fullOutputPath: details.fullOutputPath} : {}),
+            ...(details.fullOutput ? {fullOutput: details.fullOutput} : {}),
         };
     }
     if (details.kind === "request_user_input") {

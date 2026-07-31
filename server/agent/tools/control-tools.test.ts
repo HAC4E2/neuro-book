@@ -435,7 +435,7 @@ function requestContext(args: unknown): UserInputRequestContext {
             sessionId: 1,
             profileKey: "test-profile",
             workspaceRoot: absoluteFsPath("/test/workspace"),
-            workspaceKey: "test-workspace",
+            currentProject: null,
         },
     };
 }
@@ -453,11 +453,10 @@ function expectUserInputFormSpec(value: UserInputFormSpec | true | null): UserIn
 
 function createToolContext(): ToolExecutionContext {
     return {
-        harness: {} as any,
+        harness: {} as ToolExecutionContext["harness"],
         sessionId: 1,
         profileKey: "test-profile",
-        workspaceRootRef: absoluteFsPath(process.cwd()),
-        workspaceFsRoot: absoluteFsPath(process.cwd()),
-        workspaceKey: "test-workspace",
+        workspaceRoot: absoluteFsPath(process.cwd()),
+        currentProject: null,
     };
 }

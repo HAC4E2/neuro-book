@@ -87,8 +87,7 @@ async function createUnopenedProjectSession(assets: IsolatedWorkspaceAssets): Pr
     const snapshot = await new JsonlSessionRepository(assets.workspaceContainerRoot).createSession({
         profileKey: "writer",
         initial: {},
-        workspaceRoot: "workspace",
-        projectPath,
+        currentProjectRoot: slug,
     });
     return {projectPath, sessionId: snapshot.metadata.sessionId};
 }

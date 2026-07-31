@@ -90,6 +90,7 @@ export async function writeDockerCompose(input: {
     engine: ContainerEngine;
     root: string;
     stateRoot: string;
+    cacheRoot: string;
     profile: "source-docker" | "ghcr";
     image: string;
     port: number;
@@ -99,6 +100,7 @@ export async function writeDockerCompose(input: {
 }): Promise<string> {
     const composePath = input.output ?? join(input.root, ".deploy", "docker-compose.generated.yml");
     const stateRelative = relative(dirname(input.layoutPath ?? composePath), input.stateRoot).replaceAll("\\", "/") || ".";
+    const cacheRelative = relative(dirname(input.layoutPath ?? composePath), input.cacheRoot).replaceAll("\\", "/") || ".";
     const database = resolveAppSqliteLocation(await resolveStateDatabaseUrl(input.stateRoot), input.stateRoot);
     if (!database.containerUrl) throw new Error("Docker Profile的App SQLite必须位于State Root内。" );
     const service = input.profile === "ghcr"
@@ -111,6 +113,8 @@ export async function writeDockerCompose(input: {
                 `${stateRelative}/config.yaml:/app/config.yaml`,
                 `${stateRelative}/.env:/app/.env`,
                 `${stateRelative}/logs:/app/logs`,
+                `${stateRelative}/tool-state:/app/tool-state`,
+                `${cacheRelative}:/app/cache`,
             ],
             restart: "unless-stopped",
         }
@@ -123,6 +127,8 @@ export async function writeDockerCompose(input: {
                 `${stateRelative}/config.yaml:/app/config.yaml`,
                 `${stateRelative}/.env:/app/.env`,
                 `${stateRelative}/logs:/app/logs`,
+                `${stateRelative}/tool-state:/app/tool-state`,
+                `${cacheRelative}:/app/cache`,
             ],
             restart: "unless-stopped",
         };
@@ -155,16 +161,34 @@ export async function verifyDockerApplication(port: number, expectedVersion: str
     throw new Error(`Docker HTTP 健康检查超时：${lastError}`);
 }
 
-/** 启动 Docker Profile，并等待真实HTTP版本健康。 */
-export async function startDocker(engine: ContainerEngine, root: string, stateRoot: string, profile: InstallProfile, expectedVersion: string): Promise<void> {
+/** 启动 Docker Profile，并在健康检查前发布本次候选容器的精确身份。 */
+export async function startDocker(
+    engine: ContainerEngine,
+    root: string,
+    stateRoot: string,
+    profile: InstallProfile,
+    expectedVersion: string,
+    onStarting?: () => Promise<void>,
+    onStarted?: (containerId: string) => Promise<void>,
+): Promise<void> {
+    const existing = await inspectDockerApplication(engine, root, stateRoot);
+    if (existing.containerId && existing.status === "running") {
+        await verifyDockerApplication(await statePort(stateRoot), expectedVersion);
+        return;
+    }
     const compose = join(root, ".deploy", "docker-compose.generated.yml");
     const args = ["compose", "--env-file", join(stateRoot, ".env"), "-f", compose];
     if (profile === "ghcr") {
         await run(engine, [...args, "pull", "app"], containerComposeOptions(engine, root));
+        await onStarting?.();
         await run(engine, [...args, "up", "-d"], containerComposeOptions(engine, root));
     } else {
+        await onStarting?.();
         await run(engine, [...args, "up", "-d"], containerComposeOptions(engine, root));
     }
+    const containerId = await readApplicationContainerId(engine, root, stateRoot);
+    if (!containerId) throw new Error("Compose启动后未返回app容器ID。");
+    await onStarted?.(containerId);
     await verifyDockerApplication(await statePort(stateRoot), expectedVersion);
 }
 
@@ -216,6 +240,14 @@ export async function stopDocker(engine: ContainerEngine, root: string, stateRoo
     await run(engine, ["stop", "--time", "10", containerId], {cwd: root});
 }
 
+/** 只终止调用方持有身份的候选容器，不重新解释当前 Compose ownership。 */
+export async function stopDockerContainer(engine: ContainerEngine, root: string, containerId: string): Promise<void> {
+    if (!/^[a-f0-9]{12,64}$/u.test(containerId)) {
+        throw new Error(`拒绝停止非法候选容器ID：${containerId || "<missing>"}`);
+    }
+    await run(engine, ["stop", "--time", "10", containerId], {cwd: root});
+}
+
 /** 回滚或Fresh Install失败时移除当前Compose创建的容器与网络。 */
 export async function removeDockerDeployment(engine: ContainerEngine, root: string, stateRoot: string): Promise<void> {
     await run(engine, [...composeArgs(root, stateRoot), "down", "--remove-orphans"], containerComposeOptions(engine, root));
@@ -232,11 +264,12 @@ export async function runDockerApplicationCommand(
     root: string,
     stateRoot: string,
     command: string[],
+    composePath?: string,
 ): Promise<string> {
     const [entrypoint, ...args] = command;
     if (!entrypoint) throw new Error("Docker一次性应用命令不能为空。");
     return runCapture(engine, [
-        ...composeArgs(root, stateRoot),
+        ...composeArgs(root, stateRoot, composePath),
         "run",
         "--rm",
         "--no-deps",
@@ -250,12 +283,25 @@ export async function runDockerApplicationCommand(
 
 /** 从 staged Git worktree 构建带 revision tag 的 Source Docker image。 */
 export async function buildSourceDockerImage(engine: ContainerEngine, sourceRoot: string, image: string): Promise<void> {
-    await run(engine, ["build", "--file", join(sourceRoot, "Dockerfile"), "--tag", image, sourceRoot], {cwd: sourceRoot});
+    const revision = (await runCapture("git", ["rev-parse", "--verify", "HEAD"], {cwd: sourceRoot})).trim().toLowerCase();
+    if (!/^[a-f0-9]{40,64}$/u.test(revision)) {
+        throw new Error(`Source Docker无法读取有效revision：${revision || "<missing>"}`);
+    }
+    await run(engine, [
+        "build",
+        "--file",
+        join(sourceRoot, "Dockerfile"),
+        "--build-arg",
+        `NEURO_BOOK_SOURCE_REVISION=${revision}`,
+        "--tag",
+        image,
+        sourceRoot,
+    ], {cwd: sourceRoot});
 }
 
 /** 生成所有Docker生命周期命令共用的Compose参数。 */
-function composeArgs(root: string, stateRoot: string): string[] {
-    return ["compose", "--env-file", join(stateRoot, ".env"), "-f", join(root, ".deploy", "docker-compose.generated.yml")];
+function composeArgs(root: string, stateRoot: string, composePath?: string): string[] {
+    return ["compose", "--env-file", join(stateRoot, ".env"), "-f", composePath ?? join(root, ".deploy", "docker-compose.generated.yml")];
 }
 
 /**
@@ -304,6 +350,10 @@ function commonEnvironment(port: number, databaseUrl: string): Record<string, st
         DATABASE_KIND: "sqlite",
         DATABASE_URL: databaseUrl,
         NEURO_BOOK_STATE_ROOT: "/app",
+        NEURO_BOOK_CACHE_ROOT: "/app/cache",
+        LLMLINT_HOME: "/app/tool-state/llmlint",
+        LLMLINT_CACHE_DIR: "/app/cache/llmlint",
+        BUN_INSTALL_CACHE_DIR: "/app/cache/bun/install",
     };
 }
 

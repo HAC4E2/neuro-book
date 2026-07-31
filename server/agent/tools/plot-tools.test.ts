@@ -5,7 +5,6 @@ import {PLOT_SELECTION_STATE_KEY} from "nbook/server/agent/session/custom-state-
 import {createPlotTools} from "nbook/server/agent/tools/plot-tools";
 import type {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import {WORKSPACE_CONTAINER_ROOT} from "nbook/server/workspace-files/workspace-root-ref";
 import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 
@@ -13,7 +12,7 @@ const {
     plotFacade,
     currentReady,
     overrideReady,
-    requireReadyProjectPathMock,
+    requireActiveReadyProjectMock,
     activateReadyProjectModuleMock,
     runReadyProjectOperationMock,
 } = vi.hoisted(() => {
@@ -41,7 +40,7 @@ const {
         plotFacade: facade,
         currentReady: current,
         overrideReady: override,
-        requireReadyProjectPathMock: vi.fn(() => override),
+        requireActiveReadyProjectMock: vi.fn(() => override),
         activateReadyProjectModuleMock: vi.fn(async () => ({plot: facade})),
         runReadyProjectOperationMock: vi.fn(async (_ready, operation) => operation(new AbortController().signal)),
     };
@@ -54,7 +53,7 @@ vi.mock("nbook/server/plot", () => {
 });
 
 vi.mock("nbook/server/workspace-files/project-session", () => ({
-    requireReadyProjectPath: requireReadyProjectPathMock,
+    requireActiveReadyProject: requireActiveReadyProjectMock,
     activateReadyProjectModule: activateReadyProjectModuleMock,
     runReadyProjectOperation: runReadyProjectOperationMock,
 }));
@@ -65,7 +64,7 @@ describe("plot tools", () => {
 
         expect(tool).toBeDefined();
         expect(Value.Check(tool!.parameters, {
-            projectPath: "workspace/novel-1",
+            projectRoot: "novel-1",
             action: "create",
             threadId: "2",
             title: "Scene",
@@ -82,7 +81,7 @@ describe("plot tools", () => {
 
         expect(tool).toBeDefined();
         expect(Value.Check(tool!.parameters, {
-            projectPath: "workspace/novel-1",
+            projectRoot: "novel-1",
             action: "create",
             threadId: "2",
             title: "Scene",
@@ -102,7 +101,7 @@ describe("plot tools", () => {
 
         expect(tool).toBeDefined();
         expect(Value.Check(tool!.parameters, {
-            projectPath: "workspace/novel-1",
+            projectRoot: "novel-1",
             threadId: "2",
             title: "Scene",
         })).toBe(false);
@@ -138,7 +137,7 @@ describe("plot tools", () => {
         const tool = createPlotTools().find((item) => item.key === "save_story_act");
 
         await expect(tool?.executeWithContext?.(testContext(emptyHarness()), "plot-1", {
-            projectPath: "workspace/novel-1",
+            projectRoot: "novel-1",
             action: "update",
             title: "第一卷",
         })).rejects.toThrow("action=update 必须提供 actId");
@@ -148,7 +147,7 @@ describe("plot tools", () => {
         const tool = createPlotTools().find((item) => item.key === "save_story_chapter");
 
         await expect(tool?.executeWithContext?.(testContext(emptyHarness()), "plot-1", {
-            projectPath: "workspace/novel-1",
+            projectRoot: "novel-1",
             action: "create",
             title: "开篇",
         })).rejects.toThrow("action=create 必须提供 name 和 title");
@@ -167,7 +166,7 @@ describe("plot tools", () => {
         const tool = createPlotTools().find((item) => item.key === "save_story_chapter");
 
         const result = await tool!.executeWithContext!(testContext(emptyHarness()), "plot-1", {
-            projectPath: "workspace/novel-1",
+            projectRoot: "novel-1",
             action: "update",
             chapterId: "7",
             brief: {
@@ -193,7 +192,7 @@ describe("plot tools", () => {
         const tool = createPlotTools().find((item) => item.key === "save_story_scene");
 
         await tool!.executeWithContext!(testContext(emptyHarness()), "plot-1", {
-            projectPath: "workspace/novel-1",
+            projectRoot: "novel-1",
             action: "archive",
             sceneId: "20",
         });
@@ -205,7 +204,7 @@ describe("plot tools", () => {
         const tool = createPlotTools().find((item) => item.key === "save_story_thread");
 
         await expect(tool?.executeWithContext?.(testContext(emptyHarness()), "plot-1", {
-            projectPath: "workspace/novel-1",
+            projectRoot: "novel-1",
             action: "archive",
             threadId: "2",
             status: "active",
@@ -216,7 +215,7 @@ describe("plot tools", () => {
         const tool = createPlotTools().find((item) => item.key === "save_story_promise");
 
         await expect(tool?.executeWithContext?.(testContext(emptyHarness()), "plot-1", {
-            projectPath: "workspace/novel-1",
+            projectRoot: "novel-1",
             action: "create",
             title: "银钥匙之谜",
         })).rejects.toThrow("action=create 必须提供 name 和 title");
@@ -230,14 +229,14 @@ describe("plot tools", () => {
         const tool = createPlotTools().find((item) => item.key === "save_story_promise");
 
         await tool!.executeWithContext!(testContext(emptyHarness()), "plot-1", {
-            projectPath: "workspace/novel-1",
+            projectRoot: "novel-1",
             action: "abandon",
             promiseId: "5",
         });
         expect(plotFacadeMock.updateStoryPromise).toHaveBeenCalledWith(5, {status: "abandoned"});
 
         await expect(tool?.executeWithContext?.(testContext(emptyHarness()), "plot-1", {
-            projectPath: "workspace/novel-1",
+            projectRoot: "novel-1",
             action: "fulfill",
             promiseId: "5",
             status: "open",
@@ -248,14 +247,14 @@ describe("plot tools", () => {
         const tool = createPlotTools().find((item) => item.key === "save_promise_beat");
 
         await expect(tool?.executeWithContext?.(testContext(emptyHarness()), "plot-1", {
-            projectPath: "workspace/novel-1",
+            projectRoot: "novel-1",
             action: "set",
             promiseId: "5",
             sceneId: "20",
         })).rejects.toThrow("action=set 必须提供 kind");
 
         await expect(tool?.executeWithContext?.(testContext(emptyHarness()), "plot-1", {
-            projectPath: "workspace/novel-1",
+            projectRoot: "novel-1",
             action: "remove",
             promiseId: "5",
             sceneId: "20",
@@ -273,13 +272,13 @@ describe("plot tools", () => {
         const tool = createPlotTools().find((item) => item.key === "get_story_promise");
 
         const listResult = await tool!.executeWithContext!(testContext(emptyHarness()), "plot-1", {
-            projectPath: "workspace/novel-1",
+            projectRoot: "novel-1",
         });
         expect(plotFacadeMock.listStoryPromises).toHaveBeenCalledWith();
         expect(listResult.details).toMatchObject([{id: "5"}]);
 
         await tool!.executeWithContext!(testContext(emptyHarness()), "plot-1", {
-            projectPath: "workspace/novel-1",
+            projectRoot: "novel-1",
             promiseId: "5",
         });
         expect(plotFacadeMock.getStoryPromiseDetailDto).toHaveBeenCalledWith(5);
@@ -295,13 +294,13 @@ describe("plot tools", () => {
         const tool = createPlotTools().find((item) => item.key === "get_story_decision");
 
         const listResult = await tool!.executeWithContext!(testContext(emptyHarness()), "plot-1", {
-            projectPath: "workspace/novel-1",
+            projectRoot: "novel-1",
         });
         expect(plotFacadeMock.listStoryDecisions).toHaveBeenCalledWith();
         expect(listResult.details).toMatchObject([{id: "8"}]);
 
         await tool!.executeWithContext!(testContext(emptyHarness()), "plot-1", {
-            projectPath: "workspace/novel-1",
+            projectRoot: "novel-1",
             decisionId: "8",
         });
         expect(plotFacadeMock.getStoryDecisionDto).toHaveBeenCalledWith(8);
@@ -311,7 +310,7 @@ describe("plot tools", () => {
         const tool = createPlotTools().find((item) => item.key === "save_story_decision");
 
         await expect(tool?.executeWithContext?.(testContext(emptyHarness()), "plot-1", {
-            projectPath: "workspace/novel-1",
+            projectRoot: "novel-1",
             action: "create",
             name: "d-liya-truth",
             title: "莉雅误召真相",
@@ -320,7 +319,7 @@ describe("plot tools", () => {
         })).rejects.toThrow("action=create 建立 open 态决策");
 
         await expect(tool?.executeWithContext?.(testContext(emptyHarness()), "plot-1", {
-            projectPath: "workspace/novel-1",
+            projectRoot: "novel-1",
             action: "create",
             name: "d-liya-truth",
             title: "莉雅误召真相",
@@ -335,7 +334,7 @@ describe("plot tools", () => {
         const tool = createPlotTools().find((item) => item.key === "save_story_decision");
 
         await tool!.executeWithContext!(testContext(emptyHarness()), "plot-1", {
-            projectPath: "workspace/novel-1",
+            projectRoot: "novel-1",
             action: "decide",
             decisionId: "8",
             decision: "第15章揭示",
@@ -351,14 +350,14 @@ describe("plot tools", () => {
         }));
 
         await expect(tool?.executeWithContext?.(testContext(emptyHarness()), "plot-1", {
-            projectPath: "workspace/novel-1",
+            projectRoot: "novel-1",
             action: "decide",
             decisionId: "8",
             status: "open",
         })).rejects.toThrow("action=decide 会把 status 置为 decided");
 
         await tool!.executeWithContext!(testContext(emptyHarness()), "plot-1", {
-            projectPath: "workspace/novel-1",
+            projectRoot: "novel-1",
             action: "drop",
             decisionId: "8",
             note: "子情节删除,问题失效",
@@ -375,7 +374,7 @@ describe("plot tools", () => {
                 return {
                     customState: {
                         [PLOT_SELECTION_STATE_KEY]: {
-                            projectPath: "workspace/novel-1",
+                            projectRoot: "novel-1",
                             threadId: "10",
                             sceneId: "20",
                         },
@@ -386,10 +385,10 @@ describe("plot tools", () => {
         const tool = createPlotTools().find((item) => item.key === "save_story_thread");
 
         await expect(tool?.executeWithContext?.(testContext(harness), "plot-1", {
-            projectPath: "workspace/novel-2",
+            projectRoot: "novel-2",
             action: "update",
             title: "Other novel thread",
-        })).rejects.toThrow("plot.selection 属于 projectPath=workspace/novel-1");
+        })).rejects.toThrow("plot.selection 属于 projectRoot=novel-1");
     });
 
     it("get_scene_world_context 返回 Scene 的 World Engine 上下文并更新 selection", async () => {
@@ -417,11 +416,11 @@ describe("plot tools", () => {
 
         expect(tool).toBeDefined();
         expect(Value.Check(tool!.parameters, {
-            projectPath: "workspace/novel-1",
+            projectRoot: "novel-1",
             sceneId: "20",
         })).toBe(true);
         const result = await tool!.executeWithContext!(testContext(harness, "writer"), "plot-1", {
-            projectPath: "workspace/novel-1",
+            projectRoot: "novel-1",
             sceneId: "20",
         });
 
@@ -434,7 +433,7 @@ describe("plot tools", () => {
         expect(appended).toEqual([{
             key: PLOT_SELECTION_STATE_KEY,
             value: expect.objectContaining({
-                projectPath: "workspace/novel-1",
+                projectRoot: "novel-1",
                 sceneId: "20",
             }),
         }]);
@@ -465,11 +464,11 @@ describe("plot tools", () => {
 
         expect(tool).toBeDefined();
         expect(Value.Check(tool!.parameters, {
-            projectPath: "workspace/novel-1",
+            projectRoot: "novel-1",
             chapterId: "7",
         })).toBe(true);
         const result = await tool!.executeWithContext!(testContext(harness), "plot-brief-1", {
-            projectPath: "workspace/novel-1",
+            projectRoot: "novel-1",
             chapterId: "7",
         });
 
@@ -490,7 +489,7 @@ describe("plot tools", () => {
             projectForInvocation: ReturnType<typeof vi.fn>;
         };
         harness.projectForInvocation = vi.fn(() => staleReady);
-        requireReadyProjectPathMock.mockClear();
+        requireActiveReadyProjectMock.mockClear();
         runReadyProjectOperationMock.mockImplementationOnce(async (ready) => {
             if (ready === staleReady) {
                 throw new Error("stale Project generation");
@@ -499,11 +498,14 @@ describe("plot tools", () => {
         });
         const tool = createPlotTools().find((item) => item.key === "get_chapter_writer_brief");
 
-        await expect(tool!.executeWithContext!(testContext(harness), "plot-stale-generation", {
-            projectPath: "workspace/novel-1",
+        await expect(tool!.executeWithContext!({
+            ...testContext(harness),
+            currentProject: staleReady,
+        }, "plot-stale-generation", {
+            projectRoot: "novel-1",
             chapterId: "7",
         })).rejects.toThrow("stale Project generation");
-        expect(requireReadyProjectPathMock).not.toHaveBeenCalled();
+        expect(requireActiveReadyProjectMock).not.toHaveBeenCalled();
     });
 
     it("显式跨 Project override 在目标 generation operation 内执行", async () => {
@@ -513,16 +515,16 @@ describe("plot tools", () => {
         plotFacadeMock.getChapterWriterBrief.mockResolvedValueOnce({
             suggestedBriefMarkdown: "# Override",
         });
-        requireReadyProjectPathMock.mockClear();
+        requireActiveReadyProjectMock.mockClear();
         runReadyProjectOperationMock.mockClear();
         const tool = createPlotTools().find((item) => item.key === "get_chapter_writer_brief");
 
         await tool!.executeWithContext!(testContext(emptyHarness()), "plot-cross-project", {
-            projectPath: "workspace/novel-2",
+            projectRoot: "novel-2",
             chapterId: "7",
         });
 
-        expect(requireReadyProjectPathMock).toHaveBeenCalledWith("workspace/novel-2");
+        expect(requireActiveReadyProjectMock).toHaveBeenCalledWith({projectRoot: "novel-2"});
         expect(runReadyProjectOperationMock).toHaveBeenCalledWith(overrideReady, expect.any(Function));
         expect(activateReadyProjectModuleMock).toHaveBeenCalledWith(overrideReady, expect.anything());
     });
@@ -541,10 +543,8 @@ function testContext(harness: NeuroAgentHarness, profileKey = "leader.default"):
         harness,
         sessionId: 1,
         profileKey,
-        workspaceRootRef: WORKSPACE_CONTAINER_ROOT,
-        workspaceFsRoot: absoluteFsPath(path.resolve(".agent", "plot-tools-test")),
-        workspaceKey: "plot-tools-test",
-        projectPath: "workspace/novel-1",
+        workspaceRoot: absoluteFsPath(path.resolve(".agent", "plot-tools-test")),
+        currentProject: currentReady,
         invocationId: "plot-tools-test-invocation",
     };
 }

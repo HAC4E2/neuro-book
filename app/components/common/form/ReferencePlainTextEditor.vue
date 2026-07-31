@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {canonicalImageMime} from "nbook/shared/media/raster-image";
 import {EditorContent, useEditor} from "@tiptap/vue-3";
 import type {Content, Editor} from "@tiptap/core";
 import ReferenceSelectorPopover from "nbook/app/components/common/form/ReferenceSelectorPopover.vue";
@@ -78,7 +79,6 @@ let resizeFrame: number | null = null;
 // 外部替换内容时从顶部开始；用户在编辑器内继续输入时仍按 sticky-bottom 状态处理。
 let scrollToTopOnNextMeasure = Boolean(props.modelValue);
 const STICKY_BOTTOM_THRESHOLD_PX = 12;
-const COMPOSER_IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
 const menuVisible = computed(() => Boolean(suggestionMenuState.value && suggestionMenuState.value.items.length > 0));
 const skillTriggerActive = computed(() => suggestionMenuState.value?.contextKind === "skill");
@@ -668,7 +668,7 @@ function insertTextIntoEditor(currentEditor: Editor | null | undefined, text: st
 }
 
 function supportedImageFiles(list: FileList | null | undefined): File[] {
-    return Array.from(list ?? []).filter((file) => COMPOSER_IMAGE_MIME_TYPES.has(file.type.toLowerCase()));
+    return Array.from(list ?? []).filter((file) => canonicalImageMime(file.type) !== null);
 }
 
 function findPendingImage(uploadId: string): {

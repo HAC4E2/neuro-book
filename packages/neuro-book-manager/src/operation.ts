@@ -1,17 +1,18 @@
 import {copyFile, cp, readdir, rename, rm} from "node:fs/promises";
 import {join, relative, resolve} from "node:path";
 
-import {rollbackAttachmentMigration} from "#manager/app-commands";
+import {rollbackApplicationStateMigration} from "#manager/app-commands";
 import {rollbackProduct, rollbackReleaseSource} from "#manager/component";
-import {removeDockerDeployment, removeDockerImage, startDocker} from "#manager/docker";
+import {removeDockerDeployment, removeDockerImage, startDocker, stopDockerContainer} from "#manager/docker";
 import {ensureDirectory, pathExists, readJson, removePath, writeJsonAtomic} from "#manager/files";
 import {removeMaterializedRepository, repositoryRevision} from "#manager/git";
 import {installationTarget} from "#manager/installation-path";
 import {readInstallationManifest, writeInstallationManifest} from "#manager/manifest-store";
 import {installationPaths} from "#manager/paths";
 import {installSourceDependencies} from "#manager/product";
+import {resolveInstallationRoots} from "#manager/root-locators";
 import {runtimeExecutable, writeManagerWrapper, writeRuntimeWrapper} from "#manager/runtime";
-import {parseOperationJournal} from "#manager/schema";
+import {migrateOperationJournal, parseOperationJournal} from "#manager/schema";
 import {writeManagedToolWrappers} from "#manager/tools";
 import type {
     InstallationManifest,
@@ -37,7 +38,7 @@ export async function createOperation(input: OperationInput): Promise<OperationJ
     });
     const journal: OperationJournal = {
         ...input,
-        schemaVersion: 3,
+        schemaVersion: 5,
         phase: "planned",
         effects,
         createdAt: now,
@@ -65,7 +66,36 @@ export async function setOperationEffect(journal: OperationJournal, effect: Oper
     if (effect.state === "applied" && !previous) {
         throw new Error(`Operation effect缺少planned intent：${effectIdentity(effect)}`);
     }
+    if (previous?.kind === "candidate-container" && effect.kind === "candidate-container"
+        && previous.containerId && effect.containerId !== previous.containerId) {
+        throw new Error(`Operation candidate-container不能更换容器身份：${previous.containerId}`);
+    }
     return updateOperation(journal, journal.phase, {effects: upsertEffect(journal.effects, effect)});
+}
+
+/** 在 Compose 进入可能创建容器的阶段前持久化恢复屏障。 */
+export function prepareCandidateContainer(journal: OperationJournal): Promise<OperationJournal> {
+    return setOperationEffect(journal, {
+        kind: "candidate-container",
+        state: "planned",
+        owner: "application",
+        stopped: false,
+    });
+}
+
+/** 持久化本次候选容器的精确身份或停止结果。 */
+export function recordCandidateContainer(
+    journal: OperationJournal,
+    containerId: string,
+    stopped: boolean,
+): Promise<OperationJournal> {
+    return setOperationEffect(journal, {
+        kind: "candidate-container",
+        state: "applied",
+        owner: "application",
+        containerId,
+        stopped,
+    });
 }
 
 /** 在任何wrapper写入前记录旧状态，并以临时目录原子提交恢复副本。 */
@@ -131,7 +161,10 @@ export async function recoverInterruptedOperations(root: string): Promise<Instal
             if ("phase" in value && value.phase === "committed") continue;
             throw new Error(`发现未完成的Operation Journal v${String(value.schemaVersion)}，v3 Manager拒绝自动恢复：${path}\n请备份实例并人工核对Manifest、Product、数据库、Git和Compose状态。`);
         }
-        const journal = parseOperationJournal(value, path);
+        const journal = migrateOperationJournal(value, path);
+        if ("schemaVersion" in value && (value.schemaVersion === 3 || value.schemaVersion === 4)) {
+            await writeJsonAtomic(path, journal);
+        }
         if (resolve(journal.root) !== resolve(root)) throw new Error(`Operation journal的Installation Root不匹配：${path}`);
         if (journal.phase === "committed") {
             await cleanupCommittedEffects(journal, journal.outcome === "success");
@@ -176,6 +209,23 @@ export async function recoverInterruptedOperations(root: string): Promise<Instal
     return readInstallationManifest(paths.manifest);
 }
 
+/**
+ * 在一次 Manager 操作失败后执行持久化恢复。
+ *
+ * 恢复失败时同时保留原始错误，并阻止调用方清理 staging/backup；这些资产可能仍是
+ * Journal 指向的 Product migration runner 或逐字节恢复依据。
+ */
+export async function recoverFailedOperation(root: string, failure: unknown): Promise<void> {
+    try {
+        await recoverInterruptedOperations(root);
+    } catch (recoveryError) {
+        throw new AggregateError(
+            [failure, recoveryError],
+            "Manager 操作失败，自动恢复也未完成；已保留 Operation Journal、staging 与 backup。",
+        );
+    }
+}
+
 /** 清理提交后Effect；失败信息保存在具体Effect并由下一次mutating command重试。 */
 async function cleanupCommittedEffects(journal: OperationJournal, includeRetired: boolean): Promise<OperationJournal> {
     let changed = false;
@@ -215,15 +265,41 @@ export async function rollbackOperation(initialJournal: OperationJournal): Promi
     let journal = initialJournal;
     const root = journal.root;
     const currentCompose = join(root, ".deploy", "docker-compose.generated.yml");
-    const stateRoot = resolve(root, journal.previousManifest?.stateRoot ?? journal.nextManifest?.stateRoot ?? ".");
+    const manifest = journal.previousManifest ?? journal.nextManifest;
+    const stateRoot = manifest
+        ? resolveInstallationRoots(root, manifest.roots).state
+        : installationPaths(root).state;
+    const candidate = operationEffect(journal, "candidate-container");
+    if (candidate && !candidate.stopped) {
+        if (candidate.state !== "applied" || !candidate.containerId) {
+            throw new Error(
+                `Operation ${journal.id} 已进入候选容器启动阶段，但没有可验证的容器身份；拒绝回滚 Application State。`,
+            );
+        }
+        await stopDockerContainer(requiredContainerEngine(journal), root, candidate.containerId);
+        journal = await recordCandidateContainer(journal, candidate.containerId, true);
+    }
     const compose = operationEffect(journal, "compose");
-    if (compose && await pathExists(currentCompose)) {
+    const composeChanged = Boolean(compose && (
+        compose.created
+        || compose.previousCompose
+        || compose.targetImage !== compose.previousImage
+    ));
+    if (compose && await pathExists(currentCompose)
+        && (composeChanged || compose.previousState === "missing")) {
         await removeDockerDeployment(requiredContainerEngine(journal), root, stateRoot);
     }
-    if (journal.attachmentMigration && journal.attachmentMigration.state !== "rolled_back") {
-        if (!journal.nextManifest) throw new Error("Attachment migration回滚缺少nextManifest。");
-        await rollbackAttachmentMigration(root, journal.nextManifest, journal.attachmentMigration.runId, journal.attachmentMigration.state === "planned", journal.migrationRoot ?? root);
-        journal = await updateOperation(journal, journal.phase, {attachmentMigration: {...journal.attachmentMigration, state: "rolled_back"}});
+    if (journal.applicationStateMigration && journal.applicationStateMigration.state !== "rolled_back") {
+        if (!journal.nextManifest) throw new Error("Application State migration 回滚缺少 nextManifest。");
+        await rollbackApplicationStateMigration(root, journal.nextManifest, journal.applicationStateMigration.runId, journal.applicationStateMigration.state === "planned", journal.migrationRoot ?? root);
+        journal = await updateOperation(journal, journal.phase, {applicationStateMigration: {...journal.applicationStateMigration, state: "rolled_back"}});
+    }
+    const database = operationEffect(journal, "sqlite-backup");
+    if (database && await pathExists(database.backupPath)) {
+        await ensureDirectory(resolve(database.hostPath, ".."));
+        await rm(`${database.hostPath}-wal`, {force: true});
+        await rm(`${database.hostPath}-shm`, {force: true});
+        await copyFile(database.backupPath, database.hostPath);
     }
     const previousProduct = journal.previousManifest?.components.product;
     const nextProduct = journal.nextManifest?.components.product;
@@ -236,17 +312,16 @@ export async function rollbackOperation(initialJournal: OperationJournal): Promi
     if ((componentSwitchEffect(journal, "source") || switched) && nextSource?.provider === "release" && previousSource?.provider !== "git") {
         await rollbackReleaseSource(root, join(journal.backupRoot, "source"), previousSource?.provider === "release" ? previousSource.files : [], nextSource.files);
     }
-    const database = operationEffect(journal, "sqlite-backup");
-    if (database && await pathExists(database.backupPath)) {
-        await ensureDirectory(resolve(database.hostPath, ".."));
-        await rm(`${database.hostPath}-wal`, {force: true});
-        await rm(`${database.hostPath}-shm`, {force: true});
-        await copyFile(database.backupPath, database.hostPath);
-    }
     if (compose?.previousCompose && await pathExists(compose.previousCompose)) await copyFile(compose.previousCompose, currentCompose);
     else if (compose?.created) await removePath(currentCompose);
     if (journal.previousManifest && isDockerProfile(journal.previousManifest.profile) && compose?.previousState === "running") {
-        await startDocker(requiredContainerEngine(journal), root, resolve(root, journal.previousManifest.stateRoot), journal.previousManifest.profile, journal.previousManifest.appVersion);
+        await startDocker(
+            requiredContainerEngine(journal),
+            root,
+            resolveInstallationRoots(root, journal.previousManifest.roots).state,
+            journal.previousManifest.profile,
+            journal.previousManifest.appVersion,
+        );
     }
     const wrapper = operationEffect(journal, "wrapper-switch");
     if (wrapper) {

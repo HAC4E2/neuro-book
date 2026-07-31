@@ -151,6 +151,39 @@ describe("Composer image transaction", () => {
         expect(harness.editor.hydrated).toEqual([expect.objectContaining({attachmentId: item.attachment.attachmentId})]);
         harness.dispose();
     });
+
+    it("非图片 Attachment 不能绕过面板插入 Composer 图片节点", () => {
+        const harness = createHarness();
+        const textAttachment: AgentSessionAttachmentItemDto = {
+            ...attachment("7", "notes.html"),
+            attachment: {
+                ...attachment("7", "notes.html").attachment,
+                mimeType: "text/html",
+            },
+        };
+
+        harness.controller.insertAttachment(textAttachment);
+
+        expect(harness.editor.document).toEqual([]);
+        expect(mocks.warning).toHaveBeenCalledTimes(1);
+        harness.dispose();
+    });
+
+    it("允许浏览器未声明 MIME 的文件进入服务端裁决，但拒绝具体非图片 MIME", () => {
+        mocks.upload.mockImplementation(async (_sessionId, file) => attachment("6", file.name));
+        const harness = createHarness();
+        const unspecified = new File([new Uint8Array(8)], "unknown.png", {type: ""});
+        const transportPlaceholder = new File([new Uint8Array(8)], "placeholder.png", {type: "application/octet-stream"});
+        const text = new File([new Uint8Array(8)], "notes.txt", {type: "text/plain"});
+
+        harness.controller.queueFiles({files: [unspecified, transportPlaceholder]});
+        expect(mocks.upload.mock.calls.map((call) => call[1].name)).toEqual(["unknown.png", "placeholder.png"]);
+
+        harness.controller.queueFiles({files: [text]});
+        expect(mocks.upload).toHaveBeenCalledTimes(2);
+        expect(mocks.warning).toHaveBeenCalledTimes(1);
+        harness.dispose();
+    });
 });
 
 /** 构造隔离 controller、响应式 Session ID 与同步 TipTap 端口。 */
@@ -169,7 +202,8 @@ function createHarness(initialValue = "") {
             canRegister: () => true,
             canInsert: () => true,
             blockedReason: () => "blocked",
-            projectPath: () => "workspace/book",
+            unsupportedAttachmentMessage: () => "unsupported attachment",
+            projectRoot: () => "book",
             onAttachmentRegistered: (item) => registered.push(item),
         });
     });

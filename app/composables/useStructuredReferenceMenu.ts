@@ -206,8 +206,8 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
         }
     }
 
-    function projectPlotOptions(): {query: {projectPath: string}} {
-        return {query: {projectPath: options.novelId.value}};
+    function projectPlotOptions(): {query: {projectRoot: string}} {
+        return {query: {projectRoot: options.novelId.value}};
     }
 
     function resolveMenu(context: AgentTriggerMenuContext): AgentTriggerMenuState {

@@ -26,34 +26,50 @@ import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-fi
 import {createIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/test-workspace-fixture";
 import type {GlobalConfigUpdateDto} from "nbook/shared/dto/config.dto";
 import {disposeAgentHarness} from "nbook/server/agent/http";
+import {
+    startAgentSessionStoreRuntime,
+    stopAgentSessionStoreRuntime,
+} from "nbook/server/agent/session/agent-session-store-runtime";
+import {runSessionSchemaV2Migration} from "nbook/scripts/db/agent-session-v2/migration";
 
 const createdRoots: string[] = [];
 const catalog = createCatalog(["leader.default", "leader.assets", "custom.agent", "writer"]);
-const CONFIG_TEST_PROJECT_PATH = "workspace/config-test-project";
+const CONFIG_TEST_PROJECT_ROOT = "config-test-project";
 let isolatedAssets: IsolatedWorkspaceAssets | null = null;
 
 describe("config service", {timeout: 30_000}, () => {
     beforeEach(async () => {
         isolatedAssets = await createIsolatedWorkspaceAssets({useAsCwd: true});
+        await runSessionSchemaV2Migration({
+            rootWorkspace: isolatedAssets.workspaceContainerRoot,
+            mode: "apply",
+            runId: `config-test-${randomUUID()}`,
+        });
+        await startAgentSessionStoreRuntime(isolatedAssets.workspaceContainerRoot);
         await createProjectFixture();
-        await openProjectForTest(CONFIG_TEST_PROJECT_PATH);
+        await openProjectForTest(CONFIG_TEST_PROJECT_ROOT);
     });
 
     afterEach(async () => {
+        const workspaceRoot = isolatedAssets?.workspaceContainerRoot;
         try {
-            await closeProjectForTest(CONFIG_TEST_PROJECT_PATH).catch(() => undefined);
+            await closeProjectForTest(CONFIG_TEST_PROJECT_ROOT).catch(() => undefined);
             resetProjectSessionsForTest();
             await disposeAgentHarness();
             await Promise.all(createdRoots.splice(0).map((root) => fs.rm(root, {recursive: true, force: true})));
         } finally {
-            // dispose 内部已聚合错误并保证最终 rm(root)，这里只保证它一定被调用。
-            await isolatedAssets?.dispose();
-            isolatedAssets = null;
+            try {
+                if (workspaceRoot) await stopAgentSessionStoreRuntime(workspaceRoot);
+            } finally {
+                // dispose 内部已聚合错误并保证最终 rm(root)，这里只保证它一定被调用。
+                await isolatedAssets?.dispose();
+                isolatedAssets = null;
+            }
         }
     });
 
     it("无配置文件时返回默认 Global + Project 快照且不创建文件", async () => {
-        const snapshot = await readConfigEditorSnapshot({workspaceKind: "novel", projectPath: "workspace/config-test-project"}, catalog);
+        const snapshot = await readConfigEditorSnapshot({workspaceKind: "novel", projectRoot: "config-test-project"}, catalog);
 
         expect(snapshot.defaultProfileSettings.effectiveProfileKey).toBe("leader.default");
         expect(snapshot.effective.ui).toMatchObject({costCurrency: "USD"});
@@ -64,7 +80,7 @@ describe("config service", {timeout: 30_000}, () => {
     it("Config target 复用 ready Project 的已解析 workspace", async () => {
         const target = await resolveConfigTarget({
             workspaceKind: "novel",
-            projectPath: CONFIG_TEST_PROJECT_PATH,
+            projectRoot: CONFIG_TEST_PROJECT_ROOT,
         });
 
         expect(target.project?.workspace.root).toBe(await fs.realpath(path.resolve("workspace", "config-test-project")));
@@ -292,7 +308,7 @@ describe("config service", {timeout: 30_000}, () => {
             expect.arrayContaining([expect.objectContaining({modelKey})]),
         );
 
-        await closeProjectForTest(CONFIG_TEST_PROJECT_PATH);
+        await closeProjectForTest(CONFIG_TEST_PROJECT_ROOT);
         await expect(inspectProviderReferences(models.providers[0]!.id)).resolves.toEqual(
             expect.arrayContaining([expect.objectContaining({modelKey})]),
         );
@@ -465,23 +481,23 @@ describe("config service", {timeout: 30_000}, () => {
 
         const snapshot = await saveProjectConfig({
             agent: {defaultProfileKey: "custom.agent"},
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"});
+        }, {workspaceKind: "novel", projectRoot: "config-test-project"});
 
         expect(snapshot.defaultProfileSettings.effectiveProfileKey).toBe("custom.agent");
         await fs.access(path.join("workspace", "config-test-project", ".nbook", "config.json"));
     });
 
     it("Project 未 open 时拒绝保存 Project Config", async () => {
-        await closeProjectForTest(CONFIG_TEST_PROJECT_PATH);
+        await closeProjectForTest(CONFIG_TEST_PROJECT_ROOT);
 
         await expect(saveProjectConfig({
             agent: {defaultProfileKey: "custom.agent"},
-        }, {workspaceKind: "novel", projectPath: CONFIG_TEST_PROJECT_PATH}, catalog)).rejects.toBeInstanceOf(ProjectNotOpenError);
+        }, {workspaceKind: "novel", projectRoot: CONFIG_TEST_PROJECT_ROOT}, catalog)).rejects.toBeInstanceOf(ProjectNotOpenError);
     });
 
     it("Project 未 open 时拒绝读取 Project Config 快照", async () => {
-        await closeProjectForTest(CONFIG_TEST_PROJECT_PATH);
-        const query = {workspaceKind: "novel", projectPath: CONFIG_TEST_PROJECT_PATH} as const;
+        await closeProjectForTest(CONFIG_TEST_PROJECT_ROOT);
+        const query = {workspaceKind: "novel", projectRoot: CONFIG_TEST_PROJECT_ROOT} as const;
 
         await expect(readConfigSnapshot(query)).rejects.toBeInstanceOf(ProjectNotOpenError);
         await expect(readConfigEditorSnapshot(query)).rejects.toBeInstanceOf(ProjectNotOpenError);
@@ -489,7 +505,7 @@ describe("config service", {timeout: 30_000}, () => {
     });
 
     it("Project 未 open 时 Global Config 仍可独立保存", async () => {
-        await closeProjectForTest(CONFIG_TEST_PROJECT_PATH);
+        await closeProjectForTest(CONFIG_TEST_PROJECT_ROOT);
 
         const snapshot = await saveGlobalConfig({ui: {theme: "dark", customThemes: [], costCurrency: "USD"}}, {
             workspaceKind: "user-assets",
@@ -501,19 +517,19 @@ describe("config service", {timeout: 30_000}, () => {
 
     it("Project 未 open 时拒绝重置 Project Profile Home", async () => {
         const resourceCatalog = createCatalog(["writer"], {writingStyleResource: true, homeReset: true});
-        await closeProjectForTest(CONFIG_TEST_PROJECT_PATH);
+        await closeProjectForTest(CONFIG_TEST_PROJECT_ROOT);
 
         await expect(resetProjectProfileHome({
             profileKey: "writer",
-        }, {workspaceKind: "novel", projectPath: CONFIG_TEST_PROJECT_PATH}, resourceCatalog)).rejects.toBeInstanceOf(ProjectNotOpenError);
+        }, {workspaceKind: "novel", projectRoot: CONFIG_TEST_PROJECT_ROOT}, resourceCatalog)).rejects.toBeInstanceOf(ProjectNotOpenError);
     });
 
     it("Project 未 open 时拒绝读取 project scope Profile settings", async () => {
-        await closeProjectForTest(CONFIG_TEST_PROJECT_PATH);
+        await closeProjectForTest(CONFIG_TEST_PROJECT_ROOT);
 
         await expect(readConfigAgentProfileSettings({
             workspaceKind: "novel",
-            projectPath: CONFIG_TEST_PROJECT_PATH,
+            projectRoot: CONFIG_TEST_PROJECT_ROOT,
         }, catalog, {
             agentProfileSettingsScope: "project",
         })).rejects.toBeInstanceOf(ProjectNotOpenError);
@@ -521,11 +537,11 @@ describe("config service", {timeout: 30_000}, () => {
 
     it("Project 未 open 时 global scope Profile settings 仍只初始化 Global Profile Home", async () => {
         const resourceCatalog = createCatalog(["writer"], {writingStyleResource: true});
-        await closeProjectForTest(CONFIG_TEST_PROJECT_PATH);
+        await closeProjectForTest(CONFIG_TEST_PROJECT_ROOT);
 
         const settings = await readConfigAgentProfileSettings({
             workspaceKind: "novel",
-            projectPath: CONFIG_TEST_PROJECT_PATH,
+            projectRoot: CONFIG_TEST_PROJECT_ROOT,
         }, resourceCatalog, {
             agentProfileSettingsScope: "global",
         });
@@ -861,13 +877,13 @@ describe("config service", {timeout: 30_000}, () => {
                 defaultProfileKey: {novel: "leader.default", userAssets: "leader.assets"},
                 profiles: {},
             },
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"});
+        }, {workspaceKind: "novel", projectRoot: "config-test-project"});
 
         const snapshot = await saveProjectConfig({
             models: {default: "deepseek/b"},
             embedding: {model: "project-embed", dimensions: 768},
             agent: {defaultProfileKey: "custom.agent"},
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"});
+        }, {workspaceKind: "novel", projectRoot: "config-test-project"});
 
         expect(snapshot.effective.models.defaultModelKey).toBe("deepseek/b");
         expect(snapshot.effective.embedding).toMatchObject({
@@ -895,13 +911,13 @@ describe("config service", {timeout: 30_000}, () => {
                 default: "deepseek/b",
                 providers: [],
             } as never,
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"})).rejects.toMatchObject({statusCode: 400});
+        }, {workspaceKind: "novel", projectRoot: "config-test-project"})).rejects.toMatchObject({statusCode: 400});
         await expect(saveProjectConfig({
             embedding: {
                 model: "bad",
                 baseURL: "https://project-should-not-own-service.example/v1",
             } as never,
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"})).rejects.toMatchObject({statusCode: 400});
+        }, {workspaceKind: "novel", projectRoot: "config-test-project"})).rejects.toMatchObject({statusCode: 400});
     });
 
     it("Project section patch 保留未提交的 models、agent、editor 与 history", async () => {
@@ -915,11 +931,11 @@ describe("config service", {timeout: 30_000}, () => {
             },
             editor: {markdown: {fontSize: 18}},
             history: {retentionFullDays: 30},
-        }, {workspaceKind: "novel", projectPath: CONFIG_TEST_PROJECT_PATH});
+        }, {workspaceKind: "novel", projectRoot: CONFIG_TEST_PROJECT_ROOT});
 
         await saveProjectConfig({
             embedding: {model: "project-embed", dimensions: 768},
-        }, {workspaceKind: "novel", projectPath: CONFIG_TEST_PROJECT_PATH});
+        }, {workspaceKind: "novel", projectRoot: CONFIG_TEST_PROJECT_ROOT});
         const raw = JSON.parse(await fs.readFile(path.join("workspace", "config-test-project", ".nbook", "config.json"), "utf-8")) as {
             models: {default: string};
             agent: {profileModelDefaults: {modelKey: string}; profiles: {writer: {model: {modelKey: string}}}};
@@ -941,13 +957,13 @@ describe("config service", {timeout: 30_000}, () => {
 
         await expect(saveProjectConfig({
             models: {default: "missing/model"},
-        }, {workspaceKind: "novel", projectPath: CONFIG_TEST_PROJECT_PATH})).rejects.toMatchObject({
+        }, {workspaceKind: "novel", projectRoot: CONFIG_TEST_PROJECT_ROOT})).rejects.toMatchObject({
             statusCode: 400,
             data: {issues: expect.arrayContaining([expect.objectContaining({code: "invalid_model_reference"})])},
         });
         await expect(saveProjectConfig({
             agent: {profiles: {writer: {model: {modelKey: "missing/model"}}}},
-        }, {workspaceKind: "novel", projectPath: CONFIG_TEST_PROJECT_PATH})).rejects.toMatchObject({
+        }, {workspaceKind: "novel", projectRoot: CONFIG_TEST_PROJECT_ROOT})).rejects.toMatchObject({
             statusCode: 400,
             data: {issues: expect.arrayContaining([expect.objectContaining({code: "invalid_model_reference"})])},
         });
@@ -964,7 +980,7 @@ describe("config service", {timeout: 30_000}, () => {
 
         await saveGlobalConfig({models: validModelsInput()}, {
             workspaceKind: "novel",
-            projectPath: CONFIG_TEST_PROJECT_PATH,
+            projectRoot: CONFIG_TEST_PROJECT_ROOT,
         });
 
         expect(await fs.readFile(projectConfigPath, "utf-8")).toBe(before);
@@ -989,12 +1005,12 @@ describe("config service", {timeout: 30_000}, () => {
                 defaultProfileKey: {novel: "leader.default", userAssets: "leader.assets"},
                 profiles: {},
             },
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"});
+        }, {workspaceKind: "novel", projectRoot: "config-test-project"});
 
         const snapshot = await saveProjectConfig({
             models: {default: null},
             agent: {defaultProfileKey: null},
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"});
+        }, {workspaceKind: "novel", projectRoot: "config-test-project"});
 
         expect(snapshot.effective.models.defaultModelKey).toBe("deepseek/a");
         expect(snapshot.effective.agent.defaultProfileKey.novel).toBe("leader.default");
@@ -1013,7 +1029,7 @@ describe("config service", {timeout: 30_000}, () => {
                 timeoutMs: 30000,
                 requestOptions: {},
             },
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"});
+        }, {workspaceKind: "novel", projectRoot: "config-test-project"});
 
         expect(snapshot.global.embedding).toMatchObject({
             enabled: true,
@@ -1041,17 +1057,17 @@ describe("config service", {timeout: 30_000}, () => {
                 timeoutMs: 30000,
                 requestOptions: {},
             },
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"});
+        }, {workspaceKind: "novel", projectRoot: "config-test-project"});
         await saveProjectConfig({
             embedding: {
                 model: "project-embed",
                 dimensions: 768,
             },
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"});
+        }, {workspaceKind: "novel", projectRoot: "config-test-project"});
 
         const effective = await loadEffectiveConfigFromTarget(await resolveConfigTarget({
             workspaceKind: "novel",
-            projectPath: "workspace/config-test-project",
+            projectRoot: "config-test-project",
         }));
 
         expect(effective.embedding).toMatchObject({
@@ -1064,7 +1080,7 @@ describe("config service", {timeout: 30_000}, () => {
         });
     });
 
-    it("Agent runtime 配置读取拒绝外部 Project Workspace 绝对 projectPath", async () => {
+    it("Agent runtime 配置读取拒绝绝对 currentProjectRoot", async () => {
         const externalProjectRoot = path.join(await fs.mkdtemp(path.join(os.tmpdir(), "nbook-external-project-")), "external-project");
         createdRoots.push(path.dirname(externalProjectRoot));
         await fs.mkdir(path.join(externalProjectRoot, ".nbook"), {recursive: true});
@@ -1085,7 +1101,7 @@ describe("config service", {timeout: 30_000}, () => {
                 timeoutMs: 30000,
                 requestOptions: {},
             },
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"});
+        }, {workspaceKind: "novel", projectRoot: "config-test-project"});
         await fs.writeFile(path.join(externalProjectRoot, ".nbook", "config.json"), JSON.stringify({
             embedding: {
                 model: "external-embed",
@@ -1095,8 +1111,8 @@ describe("config service", {timeout: 30_000}, () => {
 
         await expect(resolveConfigTarget({
             workspaceKind: "novel",
-            projectPath: externalProjectRoot,
-        })).rejects.toThrow("projectPath 必须形如 workspace/<project>");
+            projectRoot: externalProjectRoot,
+        })).rejects.toThrow("projectRoot 必须是 Workspace Root 下的一级目录名");
     });
 
     it("Agent Profile 模型默认参数支持 Project 覆盖并被 profile 继承", async () => {
@@ -1115,7 +1131,7 @@ describe("config service", {timeout: 30_000}, () => {
                     },
                 },
             },
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"});
+        }, {workspaceKind: "novel", projectRoot: "config-test-project"});
 
         await saveProjectConfig({
             agent: {
@@ -1131,9 +1147,9 @@ describe("config service", {timeout: 30_000}, () => {
                     },
                 },
             },
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"});
+        }, {workspaceKind: "novel", projectRoot: "config-test-project"});
 
-        const settings = await readConfigAgentProfileSettings({workspaceKind: "novel", projectPath: "workspace/config-test-project"}, catalog, {
+        const settings = await readConfigAgentProfileSettings({workspaceKind: "novel", projectRoot: "config-test-project"}, catalog, {
             agentProfileSettingsScope: "project",
         });
         const leader = settings.agentProfiles.find((profile) => profile.profileKey === "leader.default");
@@ -1173,7 +1189,7 @@ describe("config service", {timeout: 30_000}, () => {
                     },
                 },
             },
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"});
+        }, {workspaceKind: "novel", projectRoot: "config-test-project"});
 
         await saveProjectConfig({
             agent: {
@@ -1181,9 +1197,9 @@ describe("config service", {timeout: 30_000}, () => {
                     reasoningEffort: "xhigh",
                 },
             },
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"});
+        }, {workspaceKind: "novel", projectRoot: "config-test-project"});
 
-        const settings = await readConfigAgentProfileSettings({workspaceKind: "novel", projectPath: "workspace/config-test-project"}, catalog, {
+        const settings = await readConfigAgentProfileSettings({workspaceKind: "novel", projectRoot: "config-test-project"}, catalog, {
             agentProfileSettingsScope: "project",
         });
         const leader = settings.agentProfiles.find((profile) => profile.profileKey === "leader.default");
@@ -1245,8 +1261,8 @@ describe("config service", {timeout: 30_000}, () => {
                     },
                 },
             },
-        }, {workspaceKind: "novel", projectPath: CONFIG_TEST_PROJECT_PATH}, catalog);
-        const settings = await readConfigAgentProfileSettings({workspaceKind: "novel", projectPath: CONFIG_TEST_PROJECT_PATH}, catalog, {
+        }, {workspaceKind: "novel", projectRoot: CONFIG_TEST_PROJECT_ROOT}, catalog);
+        const settings = await readConfigAgentProfileSettings({workspaceKind: "novel", projectRoot: CONFIG_TEST_PROJECT_ROOT}, catalog, {
             agentProfileSettingsScope: "global",
         });
         const custom = settings.agentProfiles.find((profile) => profile.profileKey === "custom.agent");
@@ -1308,7 +1324,7 @@ describe("config service", {timeout: 30_000}, () => {
                     },
                 },
             },
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, catalog);
+        }, {workspaceKind: "novel", projectRoot: "config-test-project"}, catalog);
 
         await saveProjectConfig({
             agent: {
@@ -1321,8 +1337,8 @@ describe("config service", {timeout: 30_000}, () => {
                     },
                 },
             },
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, catalog);
-        const overrideSettings = await readConfigAgentProfileSettings({workspaceKind: "novel", projectPath: "workspace/config-test-project"}, catalog, {
+        }, {workspaceKind: "novel", projectRoot: "config-test-project"}, catalog);
+        const overrideSettings = await readConfigAgentProfileSettings({workspaceKind: "novel", projectRoot: "config-test-project"}, catalog, {
             agentProfileSettingsScope: "project",
         });
         const overridden = overrideSettings.agentProfiles.find((profile) => profile.profileKey === "writer");
@@ -1348,8 +1364,8 @@ describe("config service", {timeout: 30_000}, () => {
                     },
                 },
             },
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, catalog);
-        const inheritedSettings = await readConfigAgentProfileSettings({workspaceKind: "novel", projectPath: "workspace/config-test-project"}, catalog, {
+        }, {workspaceKind: "novel", projectRoot: "config-test-project"}, catalog);
+        const inheritedSettings = await readConfigAgentProfileSettings({workspaceKind: "novel", projectRoot: "config-test-project"}, catalog, {
             agentProfileSettingsScope: "project",
         });
         const inherited = inheritedSettings.agentProfiles.find((profile) => profile.profileKey === "writer");
@@ -1374,7 +1390,7 @@ describe("config service", {timeout: 30_000}, () => {
                     },
                 },
             },
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, catalog);
+        }, {workspaceKind: "novel", projectRoot: "config-test-project"}, catalog);
 
         await expect(saveProjectConfig({
             agent: {
@@ -1387,7 +1403,7 @@ describe("config service", {timeout: 30_000}, () => {
                     },
                 },
             },
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, catalog)).rejects.toMatchObject({statusCode: 400});
+        }, {workspaceKind: "novel", projectRoot: "config-test-project"}, catalog)).rejects.toMatchObject({statusCode: 400});
     });
 
     it("Agent Profile settings 保存时拒绝非法 option 与自定义校验错误", async () => {
@@ -1403,7 +1419,7 @@ describe("config service", {timeout: 30_000}, () => {
                     },
                 },
             },
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, catalog)).rejects.toMatchObject({statusCode: 400});
+        }, {workspaceKind: "novel", projectRoot: "config-test-project"}, catalog)).rejects.toMatchObject({statusCode: 400});
 
         await expect(saveGlobalConfig({
             agent: {
@@ -1417,7 +1433,7 @@ describe("config service", {timeout: 30_000}, () => {
                     },
                 },
             },
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, catalog)).rejects.toMatchObject({statusCode: 400});
+        }, {workspaceKind: "novel", projectRoot: "config-test-project"}, catalog)).rejects.toMatchObject({statusCode: 400});
     });
 
     it("Project 保存应用 resource mutations 且不把 mutations 写入 config", async () => {
@@ -1441,7 +1457,7 @@ describe("config service", {timeout: 30_000}, () => {
                     },
                 },
             },
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog);
+        }, {workspaceKind: "novel", projectRoot: "config-test-project"}, resourceCatalog);
         const raw = JSON.parse(await fs.readFile(path.join("workspace", "config-test-project", ".nbook", "config.json"), "utf-8")) as {
             agent?: {profiles?: {writer?: {resourceMutations?: unknown; settings?: {writingStylePreset?: string}}}}
         };
@@ -1474,7 +1490,7 @@ describe("config service", {timeout: 30_000}, () => {
                     },
                 },
             },
-        } as never, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog)).rejects.toMatchObject({statusCode: 400});
+        } as never, {workspaceKind: "novel", projectRoot: "config-test-project"}, resourceCatalog)).rejects.toMatchObject({statusCode: 400});
         await expect(fs.access(resourcePath)).rejects.toMatchObject({code: "ENOENT"});
     });
 
@@ -1505,7 +1521,7 @@ describe("config service", {timeout: 30_000}, () => {
                     },
                 },
             },
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog)).rejects.toMatchObject({statusCode: 400});
+        }, {workspaceKind: "novel", projectRoot: "config-test-project"}, resourceCatalog)).rejects.toMatchObject({statusCode: 400});
 
         await expect(fs.access(path.join("workspace", "config-test-project", "agents", "writer", "styles", "first.md"))).rejects.toMatchObject({code: "ENOENT"});
         await expect(fs.access(path.join("workspace", "config-test-project", "agents", "writer", "styles", "second.md"))).rejects.toMatchObject({code: "ENOENT"});
@@ -1532,8 +1548,8 @@ describe("config service", {timeout: 30_000}, () => {
                     },
                 },
             },
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog);
-        const settings = await readConfigAgentProfileSettings({workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog, {
+        }, {workspaceKind: "novel", projectRoot: "config-test-project"}, resourceCatalog);
+        const settings = await readConfigAgentProfileSettings({workspaceKind: "novel", projectRoot: "config-test-project"}, resourceCatalog, {
             agentProfileSettingsScope: "project",
         });
         const writer = settings.agentProfiles.find((profile) => profile.profileKey === "writer");
@@ -1564,7 +1580,7 @@ describe("config service", {timeout: 30_000}, () => {
                     },
                 },
             },
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog)).rejects.toMatchObject({statusCode: 400});
+        }, {workspaceKind: "novel", projectRoot: "config-test-project"}, resourceCatalog)).rejects.toMatchObject({statusCode: 400});
 
         await expect(fs.readFile(path.join("workspace", "config-test-project", "agents", "writer", "styles", "old.md"), "utf-8")).resolves.toBe("旧正文");
     });
@@ -1590,7 +1606,7 @@ describe("config service", {timeout: 30_000}, () => {
                     },
                 },
             },
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog)).rejects.toMatchObject({statusCode: 400});
+        }, {workspaceKind: "novel", projectRoot: "config-test-project"}, resourceCatalog)).rejects.toMatchObject({statusCode: 400});
 
         await expect(fs.readFile(path.join("workspace", "config-test-project", "agents", "writer", "styles", "old.md"), "utf-8")).resolves.toBe("旧正文");
     });
@@ -1628,7 +1644,7 @@ describe("config service", {timeout: 30_000}, () => {
                     },
                 },
             },
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog)).rejects.toMatchObject({
+        }, {workspaceKind: "novel", projectRoot: "config-test-project"}, resourceCatalog)).rejects.toMatchObject({
             statusCode: 400,
             message: expect.stringContaining("请先复制到项目"),
         });
@@ -1674,8 +1690,8 @@ describe("config service", {timeout: 30_000}, () => {
                     },
                 },
             },
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog);
-        const settings = await readConfigAgentProfileSettings({workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog, {
+        }, {workspaceKind: "novel", projectRoot: "config-test-project"}, resourceCatalog);
+        const settings = await readConfigAgentProfileSettings({workspaceKind: "novel", projectRoot: "config-test-project"}, resourceCatalog, {
             agentProfileSettingsScope: "project",
         });
         const writer = settings.agentProfiles.find((profile) => profile.profileKey === "writer");
@@ -1692,8 +1708,8 @@ describe("config service", {timeout: 30_000}, () => {
 
         await resetProjectProfileHome({
             profileKey: "writer",
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog);
-        const settings = await readConfigAgentProfileSettings({workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog, {
+        }, {workspaceKind: "novel", projectRoot: "config-test-project"}, resourceCatalog);
+        const settings = await readConfigAgentProfileSettings({workspaceKind: "novel", projectRoot: "config-test-project"}, resourceCatalog, {
             agentProfileSettingsScope: "project",
         });
         const writer = settings.agentProfiles.find((profile) => profile.profileKey === "writer");
@@ -1727,8 +1743,8 @@ describe("config service", {timeout: 30_000}, () => {
                     },
                 },
             },
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog);
-        const settings = await readConfigAgentProfileSettings({workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog, {
+        }, {workspaceKind: "novel", projectRoot: "config-test-project"}, resourceCatalog);
+        const settings = await readConfigAgentProfileSettings({workspaceKind: "novel", projectRoot: "config-test-project"}, resourceCatalog, {
             agentProfileSettingsScope: "global",
         });
         const writer = settings.agentProfiles.find((profile) => profile.profileKey === "writer");

@@ -10,7 +10,7 @@ import type {
     AgentSessionAttachmentItemDto,
     AgentSessionSystemPromptDto,
 } from "nbook/shared/dto/agent-session.dto";
-import {resolveApiErrorMessage, resolveApiErrorStatus} from "nbook/app/utils/api-error";
+import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {computed, getCurrentScope, onScopeDispose, ref, shallowRef} from "vue";
 import {
     applyRuntimeEventToMessages,
@@ -415,11 +415,10 @@ export function useAgentSession() {
                 if (generation !== requestGeneration || recoveryShell.value?.summary.sessionId !== sessionId) {
                     return false;
                 }
-                const status = resolveApiErrorStatus(error);
                 const code = apiErrorCode(error);
-                if (status === 409 && code === "ACTIVE_PATH_CHANGED") {
+                if (code === "ACTIVE_PATH_CHANGED") {
                     requestRecovery("active_path_changed");
-                } else if (status === 400 && code === "INVALID_HISTORY_CURSOR") {
+                } else if (code === "INVALID_HISTORY_CURSOR") {
                     historyWindowInvalid = true;
                     requestRecovery("invalid_history_cursor");
                 }

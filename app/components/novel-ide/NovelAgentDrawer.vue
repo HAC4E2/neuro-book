@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import {useResizablePanel} from "nbook/app/composables/useResizablePanel";
-import type {AgentWorkspaceSyncPayload} from "nbook/app/stores/novel-ide";
 import AgentChatSurface from "nbook/app/components/novel-ide/agent/AgentChatSurface.vue";
 
 const MIN_DRAWER_WIDTH = 320;
@@ -18,7 +17,6 @@ const props = defineProps<{
 const emit = defineEmits<{
     (e: "update:width", value: number): void;
     (e: "close"): void;
-    (e: "sync-workspace", payload: AgentWorkspaceSyncPayload): void;
     (e: "open-reference", target: string): void;
 }>();
 
@@ -57,7 +55,6 @@ const drawerStyle = computed(() => props.isOpen ? panelStyle.value : {width: "0p
                 :selected-file-path="props.selectedFilePath"
                 :open-reference="props.openReference"
                 @close="emit('close')"
-                @sync-workspace="emit('sync-workspace', $event)"
                 @open-reference="emit('open-reference', $event)"
             />
         </template>

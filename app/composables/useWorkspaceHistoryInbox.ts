@@ -3,7 +3,7 @@ import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import type {WorkspaceHistoryInboxDto, WorkspaceHistoryInboxGroupDto} from "nbook/shared/dto/workspace-history.dto";
 
 type WorkspaceHistoryInboxState = {
-    projectPath: string | null;
+    projectRoot: string | null;
     revision: number;
     groups: WorkspaceHistoryInboxGroupDto[];
     loading: boolean;
@@ -16,11 +16,11 @@ type WorkspaceHistoryInboxState = {
  * Header Dialog 与 Agent Composer 共用的文件变更收件箱状态。
  */
 export function useWorkspaceHistoryInbox(
-    projectPath: MaybeRefOrGetter<string | null>,
+    projectRoot: MaybeRefOrGetter<string | null>,
     enabled: MaybeRefOrGetter<boolean> = true,
 ) {
     const state = useState<WorkspaceHistoryInboxState>("workspace-history-inbox", () => ({
-        projectPath: null,
+        projectRoot: null,
         revision: 0,
         groups: [],
         loading: false,
@@ -34,10 +34,10 @@ export function useWorkspaceHistoryInbox(
         if (!toValue(enabled)) {
             return;
         }
-        const target = toValue(projectPath);
+        const target = toValue(projectRoot);
         const requestId = state.value.requestId + 1;
         state.value.requestId = requestId;
-        state.value.projectPath = target;
+        state.value.projectRoot = target;
         state.value.error = null;
         state.value.loaded = false;
         if (!target) {
@@ -49,16 +49,16 @@ export function useWorkspaceHistoryInbox(
         state.value.loading = true;
         try {
             const dto = await $fetch<WorkspaceHistoryInboxDto>("/api/workspace-history/inbox", {
-                query: {projectPath: target},
+                query: {projectRoot: target},
             });
-            if (state.value.requestId !== requestId || state.value.projectPath !== target) {
+            if (state.value.requestId !== requestId || state.value.projectRoot !== target) {
                 return;
             }
             state.value.revision = dto.revision;
             state.value.groups = dto.groups;
             state.value.loaded = true;
         } catch (cause) {
-            if (state.value.requestId !== requestId || state.value.projectPath !== target) {
+            if (state.value.requestId !== requestId || state.value.projectRoot !== target) {
                 return;
             }
             state.value.revision = 0;
@@ -72,14 +72,14 @@ export function useWorkspaceHistoryInbox(
         }
     }
 
-    watch([() => toValue(projectPath), () => toValue(enabled)] as const, ([target, active], [previousTarget, previousActive]) => {
+    watch([() => toValue(projectRoot), () => toValue(enabled)] as const, ([target, active], [previousTarget, previousActive]) => {
         if (!active) {
             return;
         }
-        if (state.value.projectPath === target && (state.value.loading || state.value.loaded || (target === previousTarget && active === previousActive))) {
+        if (state.value.projectRoot === target && (state.value.loading || state.value.loaded || (target === previousTarget && active === previousActive))) {
             return;
         }
-        state.value.projectPath = target;
+        state.value.projectRoot = target;
         state.value.revision = 0;
         state.value.groups = [];
         state.value.loaded = false;

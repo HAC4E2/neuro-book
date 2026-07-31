@@ -25,7 +25,6 @@ import {SceneWorldAnchorResolutionService} from "nbook/server/plot/services/scen
 import {SceneWorldContextService} from "nbook/server/plot/services/scene-world-context.service";
 import {StoryService} from "nbook/server/plot/services/story.service";
 import {ThreadService} from "nbook/server/plot/services/thread.service";
-import {projectPathFromRef} from "nbook/server/workspace-files/project-path";
 import {toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
 import type {ProjectDatabaseModuleHandle} from "nbook/server/workspace-files/project-database-module";
 import {readProjectWorkspaceTreeSnapshot} from "nbook/server/workspace-files/project-workspace-index";
@@ -128,7 +127,7 @@ export class PlotFacade {
         this.fileTarget = {
             kind: "project-workspace",
             root: workspace.root,
-            projectPath: projectPathFromRef(workspace.ref),
+            projectRoot: workspace.ref.projectRoot,
         };
         this.sceneWorldAnchorResolutionService = new SceneWorldAnchorResolutionService(worldEngine);
         this.chapterProseService = new ChapterProseService(this.fileTarget, this.fileIndex);

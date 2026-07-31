@@ -118,9 +118,8 @@ describe("turn transaction", () => {
 function fakeFrame(): RunFrame {
     return {
         sessionId: 1,
-        workspaceKey: "global",
-        workspaceRootRef: "workspace",
-        workspaceFsRoot: absoluteFsPath(process.cwd()),
+        workspaceRoot: absoluteFsPath(process.cwd()),
+        currentProject: null,
         systemPrompt: "",
         models: {} as RunFrame["models"],
         model: {} as RunFrame["model"],

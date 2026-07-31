@@ -2,12 +2,13 @@ import {mkdir, readFile, writeFile} from "node:fs/promises";
 import {isAbsolute, join} from "node:path";
 import {Type} from "typebox";
 import type {Static} from "typebox";
-import {resolveSessionFileScope} from "nbook/server/agent/workspace/session-file-scope";
-import type {ResolvedFileAddress} from "nbook/server/workspace-files/file-scope";
-import {authorizeFileOperation, type AuthorizedFileOperation} from "nbook/server/workspace-files/authorized-file-operation";
+import {
+    authorizeFileOperation,
+    type AuthorizedFileOperation,
+    type ResolvedFileTarget,
+} from "nbook/server/workspace-files/authorized-file-operation";
 import {captureAgentWorkspaceWrite, recordAgentWorkspaceWrite} from "nbook/server/workspace-history/agent-file-recorder";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
-import {projectSlug} from "nbook/server/workspace-files/project-path";
 import type {NeuroAgentTool, ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {normalizeToolResultDetails} from "nbook/server/agent/messages/message-utils";
 import {
@@ -79,7 +80,7 @@ function createSubjectEventAppendTool(): NeuroAgentTool {
             const input = params as SubjectEventAppendInput;
             const project = requireSubjectProject(context);
             const subject = await resolveSubjectPaths(context, project, input.subjectPath, {events: "write", ragState: "write"});
-            const historyCapture = requireSubjectWriteCapture(subject.eventsAddress, project);
+            const historyCapture = requireSubjectWriteCapture(subject.eventsTarget, project);
             const events = input.events.map((event, index) => parseSubjectEvent(event, `events[${index}]`));
             await mkdir(subject.absolutePath, {recursive: true});
             const existing = await readTextIfExists(subject.eventsPath);
@@ -149,12 +150,9 @@ function createSubjectRagSearchTool(): NeuroAgentTool {
     };
 }
 
-/** 从 invocation admission 复用 exact Project generation，禁止按 projectPath 查询 latest。 */
+/** 复用 invocation admission 捕获的 exact Project generation。 */
 function requireSubjectProject(context: ToolExecutionContext): ReadyProjectSessionRef {
-    if (!context.invocationId) {
-        throw new Error("subject工具缺少invocationId，无法读取已捕获的Project generation。");
-    }
-    const project = context.harness.projectForInvocation(context.invocationId);
+    const project = context.currentProject;
     if (!project) {
         throw new Error("subject工具只允许在当前Project Workspace中运行。");
     }
@@ -168,7 +166,7 @@ function subjectRagConfigTarget(
 ): SubjectRagConfigTarget {
     return {
         scope: "project",
-        workspaceRoot: context.workspaceFsRoot,
+        workspaceRoot: context.workspaceRoot,
         project,
     };
 }
@@ -201,7 +199,7 @@ function createSubjectMemoryUpdateTool(): NeuroAgentTool {
             const input = params as SubjectMemoryUpdateInput;
             const project = requireSubjectProject(context);
             const subject = await resolveSubjectPaths(context, project, input.subjectPath, {memory: "edit", ragState: "write"});
-            const historyCapture = requireSubjectWriteCapture(subject.memoryAddress, project);
+            const historyCapture = requireSubjectWriteCapture(subject.memoryTarget, project);
             const currentText = await readTextIfExists(subject.memoryPath);
             const currentMemories = parseSubjectMemoriesJsonl(currentText, subject.memoryPath);
             const result = await runMemoryCurator(context, input, currentMemories);
@@ -280,9 +278,7 @@ async function runMemoryCurator(context: ToolExecutionContext, input: SubjectMem
                         facts: input.facts,
                         currentMemories,
                     },
-                    workspaceRoot: context.workspaceRootRef,
-                    workspaceKey: context.workspaceKey,
-                    projectPath: context.projectPath,
+                    currentProjectRoot: context.currentProject?.workspace.ref.projectRoot,
                 });
                 sessionId = created.sessionId;
             }
@@ -407,14 +403,10 @@ async function resolveSubjectPaths(
     eventsPath: string;
     memoryPath: string;
     ragStatePath: string;
-    eventsAddress: ResolvedFileAddress;
-    memoryAddress: ResolvedFileAddress;
+    eventsTarget: ResolvedFileTarget;
+    memoryTarget: ResolvedFileTarget;
 }> {
-    const scope = resolveSessionFileScope(context);
-    if (scope.kind !== "managed-project") {
-        throw new Error("subject工具只允许在当前managed Project Workspace中运行");
-    }
-    if (project.workspace.ref.projectRoot !== projectSlug(scope.currentProjectPath)) {
+    if (context.currentProject !== project) {
         throw new Error("subject工具的Current Project与invocation generation不一致");
     }
     const normalized = subjectPath.trim().replaceAll("\\", "/");
@@ -422,25 +414,28 @@ async function resolveSubjectPaths(
     if (isAbsolute(subjectPath) || segments.length !== 3 || segments[0] !== "simulation" || segments[1] !== "subjects" || !segments[2] || segments[2] === "." || segments[2] === "..") {
         throw new Error("subjectPath必须是当前Project内的simulation/subjects/<id>");
     }
-    const eventsAddress = (await authorizeFileOperation(scope, `${normalized}/events.jsonl`, access.events ?? "read")).address;
-    const memoryAddress = (await authorizeFileOperation(scope, `${normalized}/memory.jsonl`, access.memory ?? "read")).address;
-    const ragStateAddress = (await authorizeFileOperation(scope, ".nbook/subject-rag-dirty.json", access.ragState)).address;
+    const eventsTarget = (await authorizeFileOperation(context, `${normalized}/events.jsonl`, access.events ?? "read")).target;
+    const memoryTarget = (await authorizeFileOperation(context, `${normalized}/memory.jsonl`, access.memory ?? "read")).target;
+    const ragStateTarget = (await authorizeFileOperation(context, ".nbook/subject-rag-dirty.json", access.ragState)).target;
     return {
-        absolutePath: join(scope.root, ...segments),
-        eventsPath: eventsAddress.absolutePath,
-        memoryPath: memoryAddress.absolutePath,
-        ragStatePath: ragStateAddress.absolutePath,
-        eventsAddress,
-        memoryAddress,
+        absolutePath: join(project.workspace.root, ...segments),
+        eventsPath: eventsTarget.absolutePath,
+        memoryPath: memoryTarget.absolutePath,
+        ragStatePath: ragStateTarget.absolutePath,
+        eventsTarget,
+        memoryTarget,
     };
 }
 
 /** Subject写入必须同时捕获当前generation的History与File Index，缺失时在落盘前失败。 */
 function requireSubjectWriteCapture(
-    address: ResolvedFileAddress,
+    target: ResolvedFileTarget,
     project: ReadyProjectSessionRef,
 ): NonNullable<ReturnType<typeof captureAgentWorkspaceWrite>> {
-    const capture = captureAgentWorkspaceWrite(address, project);
+    if (target.project !== project) {
+        throw new Error("subject写入目标与Current Project generation不一致。");
+    }
+    const capture = captureAgentWorkspaceWrite(target);
     if (!capture) {
         throw new Error("subject写入无法捕获Current Project generation资源。");
     }

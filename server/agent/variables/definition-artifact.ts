@@ -4,6 +4,8 @@ import {copyFile, mkdir, readFile, readdir, rename, rm, writeFile} from "node:fs
 import {basename, dirname, isAbsolute, join, relative, resolve} from "node:path";
 import {builtinModules} from "node:module";
 import {build, type Metafile, type Plugin} from "esbuild";
+import {lock as lockFile, type LockOptions} from "proper-lockfile";
+import {appLogger} from "nbook/server/app-logs/logger";
 import type {VariableDefinition, VariableNamespace, VariableAccessorIssue} from "nbook/server/agent/variables/types";
 import {hashFile, resolveArtifactPath} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {generateVariableTypes, VARIABLE_TYPES_FILE_NAME, type VariableTypeGenerationDiagnostic} from "nbook/server/agent/variables/generated-types";
@@ -11,12 +13,20 @@ import {DEFAULT_RUNTIME_ARTIFACT_RETENTION, importRuntimeArtifact, type RuntimeA
 import {
     resolveRuntimeArtifactCompilerContext,
     resolveRuntimeArtifactNbookPath,
+    normalizeRuntimeArtifactPath,
     type RuntimeArtifactCompilerContext,
 } from "nbook/server/utils/runtime-artifact-compiler-context";
 
-export const VARIABLE_DEFINITION_COMPILER_VERSION = 1;
+export const VARIABLE_DEFINITION_COMPILER_VERSION = 2;
 export const VARIABLE_DEFINITION_COMPILED_DIR = ".compiled";
 export const VARIABLE_DEFINITION_MANIFEST_FILE = "manifest.json";
+export const VARIABLE_DEFINITION_STAGING_DIR_NAME = "variable-definition-build";
+export const VARIABLE_DEFINITION_STAGING_OWNER_FILE = ".nbook-staging-owner.json";
+export const VARIABLE_DEFINITION_STAGING_LEASE_LOCK = ".nbook-staging-lease.lock";
+export const VARIABLE_DEFINITION_STAGING_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+export const VARIABLE_DEFINITION_STAGING_OWNER = "nbook.variable-definition-compiler";
+export const VARIABLE_DEFINITION_STAGING_OWNER_SCHEMA = 1;
+const VARIABLE_DEFINITION_STAGING_HEARTBEAT_MS = 10_000;
 
 export type VariableDefinitionDependency = {
     path: string;
@@ -61,10 +71,256 @@ export type VariableDefinitionManifest = {
     definitions: VariableDefinitionManifestItem[];
 };
 
+/** Variable definition staging owner marker 的稳定磁盘格式。 */
+export type VariableDefinitionStagingOwner = {
+    schema: typeof VARIABLE_DEFINITION_STAGING_OWNER_SCHEMA;
+    owner: typeof VARIABLE_DEFINITION_STAGING_OWNER;
+    operationId: string;
+    pid: number;
+    startedAt: string;
+};
+
+/** 一次 Variable definition staging 回收扫描的结果；未识别 owner 的目录始终保留。 */
+export type VariableDefinitionStagingSweepReport = {
+    scanned: number;
+    fresh: number;
+    active: number;
+    deleted: number;
+    malformed: number;
+    failed: number;
+};
+
 type DefinitionFileEntry = {
     fileName: string;
     absolutePath: string;
 };
+
+const variableDefinitionStagingLeases = new Map<string, {
+    token: object;
+    release: () => Promise<void>;
+}>();
+
+/**
+ * 为一次 Variable definition 编译建立 owner marker，并持有带 heartbeat 的 lease。
+ * lease 保持到显式 cleanup；进程崩溃后 heartbeat 停止，后续 sweep 才能回收。
+ */
+async function createVariableDefinitionStaging(buildCompiledDir: string, operationId: string): Promise<void> {
+    const resolvedDir = resolve(buildCompiledDir);
+    let ownsDirectory = false;
+    const token = {};
+    try {
+        await mkdir(dirname(resolvedDir), {recursive: true});
+        await mkdir(resolvedDir);
+        ownsDirectory = true;
+        const marker: VariableDefinitionStagingOwner = {
+            schema: VARIABLE_DEFINITION_STAGING_OWNER_SCHEMA,
+            owner: VARIABLE_DEFINITION_STAGING_OWNER,
+            operationId,
+            pid: process.pid,
+            startedAt: new Date().toISOString(),
+        };
+        await writeFile(
+            join(resolvedDir, VARIABLE_DEFINITION_STAGING_OWNER_FILE),
+            `${JSON.stringify(marker, null, 2)}\n`,
+            {encoding: "utf8", flag: "wx"},
+        );
+        const release = await lockFile(resolvedDir, variableDefinitionStagingLockOptions(resolvedDir, (error) => {
+            const lease = variableDefinitionStagingLeases.get(resolvedDir);
+            if (lease?.token === token) {
+                variableDefinitionStagingLeases.delete(resolvedDir);
+            }
+            // 其它线程按既有 finally 递归删除 staging 时，锁随目录消失属于正常清理。
+            if (existsSync(resolvedDir)) {
+                void appLogger.warn("agent.variableDefinition.stagingLeaseCompromised", {
+                    buildCompiledDir: resolvedDir,
+                    error: error.message,
+                });
+            }
+        }));
+        variableDefinitionStagingLeases.set(resolvedDir, {token, release});
+    } catch (error) {
+        if (ownsDirectory) {
+            await rm(resolvedDir, {recursive: true, force: true}).catch(() => undefined);
+        }
+        throw error;
+    }
+}
+
+/**
+ * 回收同 owner、超过 24 小时且无法证明活跃的 Variable definition staging。
+ * 未知或损坏 marker 一律保留；只有成功取得 lease 并二次确认 marker 后才删除。
+ */
+export async function sweepVariableDefinitionStaging(
+    stagingRoot: string,
+    now: number = Date.now(),
+): Promise<VariableDefinitionStagingSweepReport> {
+    const ownerRoot = join(resolve(stagingRoot), VARIABLE_DEFINITION_STAGING_DIR_NAME);
+    const report: VariableDefinitionStagingSweepReport = {
+        scanned: 0,
+        fresh: 0,
+        active: 0,
+        deleted: 0,
+        malformed: 0,
+        failed: 0,
+    };
+    const entries = await readdir(ownerRoot, {withFileTypes: true}).catch(() => []);
+    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+        if (!entry.isDirectory()) {
+            continue;
+        }
+        report.scanned += 1;
+        const candidate = join(ownerRoot, entry.name);
+        const marker = await readVariableDefinitionStagingOwner(candidate);
+        if (!marker || marker.operationId !== entry.name) {
+            report.malformed += 1;
+            continue;
+        }
+        if (!variableDefinitionStagingExpired(marker, now)) {
+            report.fresh += 1;
+            continue;
+        }
+
+        let release: (() => Promise<void>) | undefined;
+        try {
+            release = await lockFile(candidate, variableDefinitionStagingLockOptions(candidate, (error) => {
+                void appLogger.warn("agent.variableDefinition.stagingSweepLeaseCompromised", {
+                    buildCompiledDir: candidate,
+                    error: error.message,
+                });
+            }));
+        } catch (error) {
+            const code = variableDefinitionErrorCode(error);
+            if (code === "ELOCKED") {
+                report.active += 1;
+            } else if (code !== "ENOENT") {
+                report.failed += 1;
+                void appLogger.warn("agent.variableDefinition.stagingSweepFailed", {
+                    buildCompiledDir: candidate,
+                    error: error instanceof Error ? error.message : String(error),
+                });
+            }
+            continue;
+        }
+
+        try {
+            const confirmed = await readVariableDefinitionStagingOwner(candidate);
+            if (!confirmed || !variableDefinitionStagingOwnersEqual(marker, confirmed)) {
+                report.malformed += 1;
+                continue;
+            }
+            if (!variableDefinitionStagingExpired(confirmed, now)) {
+                report.fresh += 1;
+                continue;
+            }
+            await rm(candidate, {recursive: true, force: true});
+            report.deleted += 1;
+        } catch (error) {
+            report.failed += 1;
+            void appLogger.warn("agent.variableDefinition.stagingSweepFailed", {
+                buildCompiledDir: candidate,
+                error: error instanceof Error ? error.message : String(error),
+            });
+        } finally {
+            await release().catch((error) => {
+                const code = variableDefinitionErrorCode(error);
+                if (code !== "ERELEASED" && code !== "ENOENT") {
+                    void appLogger.warn("agent.variableDefinition.stagingSweepReleaseFailed", {
+                        buildCompiledDir: candidate,
+                        error: error instanceof Error ? error.message : String(error),
+                    });
+                }
+            });
+        }
+    }
+    if (report.deleted > 0 || report.malformed > 0 || report.failed > 0) {
+        appLogger.debug("agent.variableDefinition.stagingSweep", {stagingRoot: resolve(stagingRoot), ...report});
+    }
+    return report;
+}
+
+/** 读取并严格校验 Variable definition staging owner marker。 */
+async function readVariableDefinitionStagingOwner(buildCompiledDir: string): Promise<VariableDefinitionStagingOwner | null> {
+    try {
+        // owner marker 来自磁盘 JSON，解析后必须先作为 unknown 收窄。
+        const parsed: unknown = JSON.parse(await readFile(join(buildCompiledDir, VARIABLE_DEFINITION_STAGING_OWNER_FILE), "utf8"));
+        if (!parsed || typeof parsed !== "object") {
+            return null;
+        }
+        if (!("schema" in parsed) || parsed.schema !== VARIABLE_DEFINITION_STAGING_OWNER_SCHEMA
+            || !("owner" in parsed) || parsed.owner !== VARIABLE_DEFINITION_STAGING_OWNER
+            || !("operationId" in parsed) || typeof parsed.operationId !== "string" || !parsed.operationId
+            || !("pid" in parsed) || typeof parsed.pid !== "number" || !Number.isInteger(parsed.pid) || parsed.pid <= 0
+            || !("startedAt" in parsed) || typeof parsed.startedAt !== "string" || !Number.isFinite(Date.parse(parsed.startedAt))) {
+            return null;
+        }
+        return {
+            schema: parsed.schema,
+            owner: parsed.owner,
+            operationId: parsed.operationId,
+            pid: parsed.pid,
+            startedAt: parsed.startedAt,
+        };
+    } catch {
+        return null;
+    }
+}
+
+/** 判断 owner marker 是否已经超过保守回收年龄。 */
+function variableDefinitionStagingExpired(marker: VariableDefinitionStagingOwner, now: number): boolean {
+    return now - Date.parse(marker.startedAt) >= VARIABLE_DEFINITION_STAGING_MAX_AGE_MS;
+}
+
+/** 二次确认锁内读取的 marker 仍对应同一个 staging operation。 */
+function variableDefinitionStagingOwnersEqual(left: VariableDefinitionStagingOwner, right: VariableDefinitionStagingOwner): boolean {
+    return left.schema === right.schema
+        && left.owner === right.owner
+        && left.operationId === right.operationId
+        && left.pid === right.pid
+        && left.startedAt === right.startedAt;
+}
+
+/** Variable definition lease 与 sweeper 必须共享同一 stale/heartbeat 合同。 */
+function variableDefinitionStagingLockOptions(buildCompiledDir: string, onCompromised: (error: Error) => void): LockOptions {
+    return {
+        lockfilePath: join(buildCompiledDir, VARIABLE_DEFINITION_STAGING_LEASE_LOCK),
+        realpath: false,
+        stale: VARIABLE_DEFINITION_STAGING_MAX_AGE_MS,
+        update: VARIABLE_DEFINITION_STAGING_HEARTBEAT_MS,
+        retries: 0,
+        onCompromised,
+    };
+}
+
+/** 提取 Node/proper-lockfile 的稳定错误 code。 */
+function variableDefinitionErrorCode(error: unknown): string | undefined {
+    return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+        ? error.code
+        : undefined;
+}
+
+/** 清理 Variable definition staging；清理失败不覆盖编译主结果。 */
+export async function cleanupVariableDefinitionStaging(buildCompiledDir: string): Promise<void> {
+    const resolvedDir = resolve(buildCompiledDir);
+    const lease = variableDefinitionStagingLeases.get(resolvedDir);
+    if (lease) {
+        variableDefinitionStagingLeases.delete(resolvedDir);
+        await lease.release().catch((error) => {
+            const code = variableDefinitionErrorCode(error);
+            if (code !== "ERELEASED" && code !== "ENOENT") {
+                void appLogger.warn("agent.variableDefinition.stagingLeaseReleaseFailed", {
+                    buildCompiledDir: resolvedDir,
+                    error: error instanceof Error ? error.message : String(error),
+                });
+            }
+        });
+    }
+    await rm(resolvedDir, {recursive: true, force: true}).catch((error) => {
+        void appLogger.warn("agent.variableDefinition.stagingCleanupFailed", {
+            buildCompiledDir: resolvedDir,
+            error: error instanceof Error ? error.message : String(error),
+        });
+    });
+}
 
 /**
  * 编译变量 definition root，生成运行时 `.compiled` artifact。
@@ -73,6 +329,8 @@ export async function compileVariableDefinitions(options: {
     definitionRoot: string;
     rootLabel?: string;
     skipFresh?: boolean;
+    /** Product 可复现构建传入固定时间；普通 Source/User 编译为空并记录真实发布时间。 */
+    manifestGeneratedAt?: string;
     /** Product 内置系统 assets 使用 forbid；新鲜时零写入，过期时要求重建 Product。 */
     writePolicy?: "allow" | "forbid";
     /** 非空时覆盖默认的 definition root 同级 Agent staging 根。 */
@@ -80,15 +338,15 @@ export async function compileVariableDefinitions(options: {
 }): Promise<VariableDefinitionManifest> {
     const definitionRoot = resolve(options.definitionRoot);
     const compiledDir = join(definitionRoot, VARIABLE_DEFINITION_COMPILED_DIR);
-    const buildCompiledDir = join(
-        resolve(options.stagingRoot ?? join(dirname(definitionRoot), ".staging")),
-        "variable-definition-build",
-        randomUUID(),
-    );
+    const stagingRoot = resolve(options.stagingRoot ?? join(dirname(definitionRoot), ".staging"));
+    await sweepVariableDefinitionStaging(stagingRoot);
+    const operationId = randomUUID();
+    const buildCompiledDir = join(stagingRoot, VARIABLE_DEFINITION_STAGING_DIR_NAME, operationId);
     const existingManifest = await readVariableDefinitionManifest(definitionRoot);
     const files = await findDefinitionFiles(definitionRoot);
     const definitions: VariableDefinitionManifestItem[] = [];
     let compiledCount = 0;
+    let stagingCreated = false;
     try {
         for (const file of files) {
             const existingItem = existingManifest.definitions.find((item) => item.fileName === file.fileName);
@@ -106,14 +364,19 @@ export async function compileVariableDefinitions(options: {
                     : validation?.reason ?? "manifest_missing";
                 throw new Error(`Product 内置 variable definition 已过期或缺失：${file.fileName}（${detail}）。请重新构建或安装与源码匹配的 Product。`);
             }
-            await mkdir(buildCompiledDir, {recursive: true});
+            if (!stagingCreated) {
+                await createVariableDefinitionStaging(buildCompiledDir, operationId);
+                stagingCreated = true;
+            }
             definitions.push(await compileDefinitionFile(definitionRoot, buildCompiledDir, file));
             compiledCount += 1;
         }
         const nextDefinitions = definitions.sort((left, right) => left.fileName.localeCompare(right.fileName));
         const manifest: VariableDefinitionManifest = {
             compilerVersion: VARIABLE_DEFINITION_COMPILER_VERSION,
-            generatedAt: definitionsEqual(existingManifest.definitions, nextDefinitions) ? existingManifest.generatedAt : new Date().toISOString(),
+            generatedAt: definitionsEqual(existingManifest.definitions, nextDefinitions)
+                ? existingManifest.generatedAt
+                : options.manifestGeneratedAt ?? new Date().toISOString(),
             definitionsRoot: options.rootLabel ?? normalizeArtifactPath(definitionRoot),
             definitions: nextDefinitions,
         };
@@ -129,7 +392,9 @@ export async function compileVariableDefinitions(options: {
         await commitArtifacts(buildCompiledDir, compiledDir, manifest);
         return manifest;
     } finally {
-        await rm(buildCompiledDir, {recursive: true, force: true});
+        if (stagingCreated) {
+            await cleanupVariableDefinitionStaging(buildCompiledDir);
+        }
     }
 }
 
@@ -255,7 +520,9 @@ async function compileDefinitionFile(root: string, compiledDir: string, file: De
     const tsconfigPath = compilerContext.tsconfigPath;
     try {
         const result = await build({
-            absWorkingDir: process.cwd(),
+            // esbuild 会把 entry 相对 absWorkingDir 写入 boundary comment；绑定 definition root
+            // 后，artifact 内容不再受 Product candidate 的 staging UUID 影响。
+            absWorkingDir: root,
             bundle: true,
             entryPoints: [file.absolutePath],
             format: "esm",
@@ -271,7 +538,7 @@ async function compileDefinitionFile(root: string, compiledDir: string, file: De
         if (!result.metafile) {
             throw new Error(`variable definition ${file.fileName} 编译缺少 esbuild metafile。`);
         }
-        const dependencies = await readDependencies(result.metafile, tsconfigPath);
+        const dependencies = await readDependencies(result.metafile, tsconfigPath, root);
         const dependencyHash = hashDependencies(file.absolutePath, dependencies);
         const artifactFileName = `${artifactStem}.mjs`;
         const artifactPath = join(compiledDir, artifactFileName);
@@ -348,11 +615,15 @@ async function findDefinitionFiles(root: string): Promise<DefinitionFileEntry[]>
     return result.sort((left, right) => left.fileName.localeCompare(right.fileName));
 }
 
-async function readDependencies(metafile: Metafile, tsconfigPath: string): Promise<VariableDefinitionDependency[]> {
+async function readDependencies(
+    metafile: Metafile,
+    tsconfigPath: string,
+    metafileWorkingDir: string,
+): Promise<VariableDefinitionDependency[]> {
     const paths = new Set<string>([tsconfigPath]);
     for (const inputPath of Object.keys(metafile.inputs)) {
         if (!inputPath.startsWith("<")) {
-            paths.add(resolve(process.cwd(), inputPath));
+            paths.add(resolve(metafileWorkingDir, inputPath));
         }
     }
     return Promise.all([...paths].sort((left, right) => left.localeCompare(right)).map(async (filePath) => ({
@@ -445,10 +716,7 @@ function repoAliasBundlePlugin(context: RuntimeArtifactCompilerContext): Plugin 
 }
 
 function normalizeArtifactPath(filePath: string): string {
-    if (isAbsolute(filePath)) {
-        return relative(process.cwd(), filePath).split(/[\\/]+/).join("/");
-    }
-    return filePath.split(/[\\/]+/).join("/");
+    return normalizeRuntimeArtifactPath(filePath);
 }
 
 function emptyManifest(root: string): VariableDefinitionManifest {

@@ -8,9 +8,7 @@ import NovelIdeCostSettingsPanel from "nbook/app/components/novel-ide/settings/N
 import NovelIdeEmbeddingSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeEmbeddingSettingsPanel.vue";
 import ThemeEditorDialog from "nbook/app/components/novel-ide/settings/theme/ThemeEditorDialog.vue";
 import NovelIdeModelSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeModelSettingsPanel.vue";
-import NovelIdeNovelDataSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeNovelDataSettingsPanel.vue";
 import NovelIdeObservabilitySettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeObservabilitySettingsPanel.vue";
-import NovelIdePassportSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdePassportSettingsPanel.vue";
 import NovelIdeWebSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeWebSettingsPanel.vue";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import {useNotification} from "nbook/app/composables/useNotification";
@@ -24,7 +22,7 @@ import type {MarkdownStudioViewMode} from "nbook/app/composables/useMarkdownStud
 import type {CustomThemeDto, ThemeAppearance} from "nbook/shared/theme/theme-vars";
 import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES, DEFAULT_MONACO_EDITOR_PREFERENCES, type MarkdownEditorPreferences, type MonacoEditorPreferences} from "nbook/shared/editor-workbench";
 
-type SettingsSection = "security" | "frontend" | "editor" | "models" | "embedding" | "cost" | "web-tools" | "agent-profile-models" | "novel-data" | "observability" | "passport";
+type SettingsSection = "security" | "frontend" | "editor" | "models" | "embedding" | "cost" | "web-tools" | "agent-profile-models" | "observability";
 type SettingsScope = "boot" | "global" | "project" | "browser";
 type AppVersionKind = "release" | "tag" | "commit" | "package";
 type ThemeEditorMode = "create" | "edit" | "copy";
@@ -75,7 +73,6 @@ const embeddingSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 const costSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 const webSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 const agentProfileModelSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
-const novelDataSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 const observabilitySettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 const themeEditorOpen = ref(false);
 const themeEditorMode = ref<ThemeEditorMode>("create");
@@ -133,22 +130,10 @@ const frontendSectionItems = computed<Array<{value: SettingsSection; label: stri
         iconClass: "i-lucide-bot-message-square",
     },
     {
-        value: "novel-data",
-        label: t("settings.section.novelData.label"),
-        description: t("settings.section.novelData.description"),
-        iconClass: "i-lucide-book-open-text",
-    },
-    {
         value: "observability",
         label: t("settings.section.observability.label"),
         description: t("settings.section.observability.description"),
         iconClass: "i-lucide-activity",
-    },
-    {
-        value: "passport",
-        label: t("settings.section.passport.label"),
-        description: t("settings.section.passport.description"),
-        iconClass: "i-lucide-id-card",
     },
 ]);
 
@@ -179,7 +164,7 @@ const scopeOptions = computed<Array<{value: SettingsScope; label: string; descri
     },
 ]);
 
-const globalConfigSections: SettingsSection[] = ["models", "embedding", "cost", "web-tools", "agent-profile-models", "novel-data", "observability", "passport"];
+const globalConfigSections: SettingsSection[] = ["models", "embedding", "cost", "web-tools", "agent-profile-models", "observability"];
 const projectConfigSections: SettingsSection[] = ["agent-profile-models"];
 const browserSections: SettingsSection[] = ["frontend", "editor"];
 const bootConfigSections: SettingsSection[] = ["security"];
@@ -276,18 +261,18 @@ const monacoFontOptions = computed<SelectOption[]>(() => [
 ]);
 
 const projectOptions = computed<SelectOption[]>(() => novelIdeStore.novels.map((novel) => ({
-    value: novel.id,
-    label: novel.title || novel.workspaceSlug || novel.id,
-    description: novel.workspaceSlug ? `workspace/${novel.workspaceSlug}` : novel.id,
+    value: novel.projectRoot,
+    label: novel.title || novel.projectRoot,
+    description: novel.projectRoot,
 })));
 
-const targetNovel = computed(() => novelIdeStore.novels.find((novel) => novel.id === targetNovelId.value) ?? null);
+const targetNovel = computed(() => novelIdeStore.novels.find((novel) => novel.projectRoot === targetNovelId.value) ?? null);
 const targetQuery = computed(() => activeScope.value === "project" && targetNovelId.value
-    ? {workspaceKind: "novel" as const, projectPath: targetNovelId.value}
+    ? {workspaceKind: "novel" as const, projectRoot: targetNovelId.value}
     : {workspaceKind: "user-assets" as const});
-const settingsPanelKey = computed(() => `${activeScope.value}:${targetQuery.value.workspaceKind}:${targetQuery.value.projectPath ?? "global"}`);
+const settingsPanelKey = computed(() => `${activeScope.value}:${targetQuery.value.workspaceKind}:${targetQuery.value.projectRoot ?? "global"}`);
 const targetLabel = computed(() => activeScope.value === "project"
-    ? targetNovel.value?.title || targetNovel.value?.workspaceSlug || targetNovelId.value || "Project Workspace"
+    ? targetNovel.value?.title || targetNovel.value?.projectRoot || targetNovelId.value || "Project Workspace"
     : activeScope.value === "boot" ? "config.yaml" : "Workspace Root");
 const visibleSectionItems = computed(() => {
     const allowed = activeScope.value === "boot"
@@ -328,14 +313,11 @@ const activeSavePanel = computed<SettingsSavePanelExpose | null>(() => {
             return webSettingsPanelRef.value;
         case "agent-profile-models":
             return agentProfileModelSettingsPanelRef.value;
-        case "novel-data":
-            return novelDataSettingsPanelRef.value;
         case "observability":
             return observabilitySettingsPanelRef.value;
         case "frontend":
         case "editor":
         case "security":
-        case "passport":
             return null;
     }
 });
@@ -739,16 +721,16 @@ watch(() => props.modelValue, (open) => {
     }
     void loadAppVersion();
     if (novelIdeStore.novels.length === 0) {
-        void novelIdeStore.loadNovels();
+        void novelIdeStore.loadProjects();
     }
-    targetNovelId.value = novelIdeStore.currentNovelId || novelIdeStore.novels[0]?.id || "";
+    targetNovelId.value = novelIdeStore.currentProjectRoot || novelIdeStore.novels[0]?.projectRoot || "";
     if (novelIdeStore.workspaceKind === "user-assets" && activeScope.value === "project") {
         activeScope.value = "global";
         activeSection.value = "models";
     }
 }, {immediate: true});
 
-watch(() => novelIdeStore.currentNovelId, (novelId) => {
+watch(() => novelIdeStore.currentProjectRoot, (novelId) => {
     if (!targetNovelId.value) {
         targetNovelId.value = novelId;
     }
@@ -756,7 +738,7 @@ watch(() => novelIdeStore.currentNovelId, (novelId) => {
 
 watch(() => novelIdeStore.novels, (novels) => {
     if (!targetNovelId.value) {
-        targetNovelId.value = novelIdeStore.currentNovelId || novels[0]?.id || "";
+        targetNovelId.value = novelIdeStore.currentProjectRoot || novels[0]?.projectRoot || "";
     }
 }, {deep: true});
 
@@ -1241,20 +1223,11 @@ watch(activeScope, alignActiveSectionToScope, {immediate: true});
                             <NovelIdeAgentProfileModelSettingsPanel ref="agentProfileModelSettingsPanelRef" :key="`profile-models:${settingsPanelKey}`" :scope="activeScope === 'project' ? 'project' : 'global'" :target-query="targetQuery" :target-label="targetLabel" />
                         </div>
 
-                        <!-- 小说数据设定（novel-api 榜单服务） -->
-                        <div v-else-if="activeSection === 'novel-data'" key="novel-data">
-                            <NovelIdeNovelDataSettingsPanel ref="novelDataSettingsPanelRef" :key="`novel-data:${settingsPanelKey}`" :target-query="targetQuery" />
-                        </div>
-
                         <!-- 可观测设定（Pi 请求 trace） -->
                         <div v-else-if="activeSection === 'observability'" key="observability">
                             <NovelIdeObservabilitySettingsPanel ref="observabilitySettingsPanelRef" :key="`observability:${settingsPanelKey}`" :target-query="targetQuery" />
                         </div>
 
-                        <!-- NeuroBook 账号（Passport 关联与云备份） -->
-                        <div v-else-if="activeSection === 'passport'" key="passport">
-                            <NovelIdePassportSettingsPanel :key="`passport:${settingsPanelKey}`" />
-                        </div>
                     </Transition>
                 </div>
             </section>

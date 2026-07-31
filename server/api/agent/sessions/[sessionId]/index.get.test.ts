@@ -9,7 +9,6 @@ describe("GET /api/agent/sessions/:sessionId", () => {
 
     it("Project 未 open 时返回稳定 PROJECT_NOT_OPEN", async () => {
         const projectRoot = "session-route-not-open";
-        const projectPath = `workspace/${projectRoot}`;
         const {ProjectNotOpenError} = await import("nbook/server/workspace-files/project-session-service");
         vi.doMock("h3", async (importOriginal) => ({
             ...(await importOriginal<typeof import("h3")>()),
@@ -33,7 +32,7 @@ describe("GET /api/agent/sessions/:sessionId", () => {
             statusCode: 409,
             data: {
                 code: "PROJECT_NOT_OPEN",
-                projectPath,
+                projectRoot,
             },
         });
     });

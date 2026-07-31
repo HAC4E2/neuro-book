@@ -54,7 +54,6 @@ describe("NeuroAgentHarness invocation payload", () => {
         await expect(harness.createAgent({
             profileKey: "test.initial-required",
             initial: {},
-            workspaceRoot: root,
         })).rejects.toThrow("initial 校验失败：/topic：缺少必填字段");
     }, 20_000);
 
@@ -75,7 +74,6 @@ describe("NeuroAgentHarness invocation payload", () => {
         await expect(harness.createAgent({
             profileKey: "test.system-only",
             initial: {sourceSessionId: 1},
-            workspaceRoot: root,
         })).rejects.toThrow("仅供系统内部创建");
     });
 
@@ -105,7 +103,6 @@ describe("NeuroAgentHarness invocation payload", () => {
         const created = await harness.createAgent({
             profileKey: "test.payload-aware",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -147,7 +144,6 @@ describe("NeuroAgentHarness invocation payload", () => {
         const created = await harness.createAgent({
             profileKey: "test.message-payload",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -181,7 +177,6 @@ describe("NeuroAgentHarness invocation payload", () => {
         const created = await harness.createAgent({
             profileKey: "test.no-payload",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -212,7 +207,6 @@ describe("NeuroAgentHarness invocation payload", () => {
         const created = await harness.createAgent({
             profileKey: "test.payload-contract",
             initial: {},
-            workspaceRoot: root,
         });
 
         const invalidPayload = await harness.invokeAgent({
@@ -255,7 +249,6 @@ describe("NeuroAgentHarness invocation payload", () => {
         const created = await harness.createAgent({
             profileKey: "test.followup-queued-payload",
             initial: {},
-            workspaceRoot: root,
         });
 
         const waiting = await harness.invokeAgent({
@@ -299,7 +292,6 @@ describe("NeuroAgentHarness invocation payload", () => {
         const created = await harness.createAgent({
             profileKey: "test.steer-queued-payload",
             initial: {},
-            workspaceRoot: root,
         });
 
         const waiting = await harness.invokeAgent({

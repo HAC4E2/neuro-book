@@ -1,14 +1,8 @@
 import type {
-    ChapterDetailDto,
-    ChapterDetailWriteResponseDto,
-    ChapterSummaryDto,
-    NovelListItemDto,
-    NovelTreeDto,
-    ReorderChaptersRequestDto,
-    ReorderVolumesRequestDto,
-    UpdateVolumeRequestDto,
-    VolumeDto,
-} from "nbook/shared/dto/novel-chapter.dto";
+    ProjectCreateResponseDto,
+    ProjectListResponseDto,
+    ProjectMetadataDto,
+} from "nbook/shared/dto/project.dto";
 import type {ThemeVars} from "nbook/app/utils/theme/theme-tokens";
 import {resolveTheme} from "nbook/app/utils/theme/resolve-theme";
 import {triggerBrowserDownload} from "nbook/app/utils/browser-download";
@@ -138,7 +132,7 @@ export type WorkspaceUploadResult = {
 };
 
 export type WorkspaceKind = "novel" | "user-assets";
-type WorkspaceQueryInput = {projectPath: string} | {workspaceKind: "user-assets"};
+type WorkspaceQueryInput = {projectRoot: string} | {workspaceKind: "user-assets"};
 
 type WorkspaceSessionState = {
     activeWorkspaceTabPath: string;
@@ -152,28 +146,6 @@ export type WorkspaceFileConflictResolution =
     | {action: "overwrite-local"}
     | {action: "save-merged"; content: string}
     | {action: "cancel"};
-
-type SwitchNovelOptions = {
-    discardWorkspaceChanges?: boolean;
-};
-
-/**
- * Agent 推送工作区同步事件。
- */
-export type AgentWorkspaceSyncPayload = {
-    kind: "chapter_content";
-    chapterId: string;
-    toolName: string;
-    toolCallId: string;
-} | {
-    kind: "chapter_tree";
-    toolName: string;
-    toolCallId: string;
-} | {
-    kind: "plot_tree";
-    toolName: string;
-    toolCallId: string;
-};
 
 export type WorkspaceDiskSyncResult = {
     activeFile: "unchanged" | "reloaded" | "dirty" | "deleted";
@@ -203,17 +175,7 @@ export function readWorkspaceWriteConflict(error: unknown): WorkspaceWriteConfli
     return null;
 }
 
-/**
- * Agent 写回当前章节但用户仍有未保存改动时，先暂存这份刷新。
- */
-export type PendingAgentChapterUpdate = {
-    detail: ChapterDetailDto;
-    toolName: string;
-    toolCallId: string;
-};
-
 const REASONING_OPTIONS = ["超高", "高", "中", "低"] as const;
-const DEFAULT_NOVEL_TITLE = "未命名小说";
 const DETAIL_UNDO_LIMIT = 20;
 const DEFAULT_MODEL_LABEL = "未配置模型";
 
@@ -221,15 +183,13 @@ const DEFAULT_MODEL_LABEL = "未配置模型";
  * 统一管理小说 IDE 的业务状态与核心数据动作。
  */
 export const useNovelIdeStore = defineStore("novelIde", () => {
-    const novels = ref<NovelListItemDto[]>([]);
-    const currentNovelId = ref("");
-    const selectedChapterId = ref("");
+    const novels = ref<ProjectMetadataDto[]>([]);
+    const currentProjectRoot = ref("");
     const selectedStoryThreadId = ref<string | null>(null);
     const selectedStorySceneId = ref<string | null>(null);
     const selectedLorebookEntryId = ref<string | null>(null);
     const selectedCharacterId = ref<string | null>(null);
     const plotRefreshVersion = ref(0);
-    const novelTree = ref<NovelTreeDto | null>(null);
     const workspaceTree = ref<WorkspaceFileNode[]>([]);
     const workspaceTabs = ref<WorkspaceEditorTab[]>([]);
     const activeWorkspaceTabPath = ref("");
@@ -241,18 +201,12 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     const workspaceIssues = ref<WorkspaceFileIssue[]>([]);
     const workspaceWriteConflict = ref<WorkspaceWriteConflictDto | null>(null);
     const workspaceConflictDialogOpen = ref(false);
-    const content = ref("");
-    const lastSyncedChapterContent = ref("");
-    const pendingAgentChapterUpdate = ref<PendingAgentChapterUpdate | null>(null);
     const detailUndoStacks = ref<Record<string, string[]>>({});
 
     const loadingWorkspace = ref(false);
     const loadingWorkspaceTree = ref(false);
     const restoringWorkspaceFile = ref(false);
     const savingFile = ref(false);
-    const hydratingChapter = ref(false);
-    const creatingChapterTree = ref(false);
-    const mutatingChapterTree = ref(false);
 
     const activeLeftTab = ref<NovelIdeTab | null>("files");
     const layoutMode = ref<NovelIdeLayoutMode>("ide");
@@ -285,8 +239,6 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     });
     const monacoFontSizeOverridesByPath = ref<Record<string, number>>({});
 
-    let volumeReorderRevision = 0;
-    let chapterReorderRevision = 0;
     let workspaceTreeRequest: {
         key: string;
         promise: Promise<WorkspaceFileNode[]>;
@@ -346,30 +298,18 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     };
 
     /**
-     * 当前选中的章节摘要。
-     */
-    const selectedChapter = computed<ChapterSummaryDto | null>(() => {
-        for (const volume of novelTree.value?.volumes ?? []) {
-            const chapter = volume.chapters.find((item) => item.id === selectedChapterId.value);
-            if (chapter) {
-                return chapter;
-            }
-        }
-        return null;
-    });
-
-    /**
      * 当前选中的小说详情
      */
-    const currentNovel = computed<NovelListItemDto | null>(() => {
-        return novels.value.find((novel) => novel.id === currentNovelId.value) ?? null;
+    const currentNovel = computed<ProjectMetadataDto | null>(() => {
+        return novels.value.find((novel) => novel.projectRoot === currentProjectRoot.value) ?? null;
     });
     const currentWorkspaceRoot = computed(() => workspaceKind.value === "user-assets"
         ? "workspace/.nbook"
-        : currentNovel.value?.workspaceSlug ? `workspace/${currentNovel.value.workspaceSlug}` : "");
-    const workspaceSessionKey = computed(() => workspaceKind.value === "user-assets" ? "user-assets" : `novel:${currentNovelId.value}`);
+        // Composer/变量层仍用跨 Project File Address；Session Project identity 已独立使用 currentProjectRoot。
+        : currentNovel.value?.projectRoot ? `workspace/${currentNovel.value.projectRoot}` : "");
+    const workspaceSessionKey = computed(() => workspaceKind.value === "user-assets" ? "user-assets" : `novel:${currentProjectRoot.value}`);
     const isUserAssetsWorkspace = computed(() => workspaceKind.value === "user-assets");
-    const canAccessWorkspace = computed(() => workspaceKind.value === "user-assets" || Boolean(currentNovelId.value));
+    const canAccessWorkspace = computed(() => workspaceKind.value === "user-assets" || Boolean(currentProjectRoot.value));
 
     /**
      * 当前活动文件路径。对外保留 selected 命名，内部只从 activeWorkspaceFile 投影。
@@ -410,8 +350,6 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     /**
      * 当前正文是否仍有未保存改动。
      */
-    const hasUnsavedChapterChanges = computed(() => content.value !== lastSyncedChapterContent.value);
-
     /**
      * 当前文件是否有未保存改动。
      */
@@ -425,32 +363,16 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     });
 
     /**
-     * 章节树相关操作是否忙碌。
-     */
-    const chapterPanelBusy = computed(() => creatingChapterTree.value || mutatingChapterTree.value);
-
-    /**
      * 是否已经选中了一个可编辑章节。
      */
     const showEditorWorkspace = computed(() => selectedFileNode.value?.editable === true);
 
-    /**
-     * 当前正文字符数。
-     */
-    const wordCount = computed(() => selectedFileContent.value.trim().length);
-
-    /**
-     * 清空当前章节上下文，回到空白工作区。
-     */
-    const clearActiveChapter = (): void => {
-        selectedChapterId.value = "";
+    /** 清空当前 Project 内的业务选择。 */
+    const clearWorkspaceSelection = (): void => {
         selectedStoryThreadId.value = null;
         selectedStorySceneId.value = null;
         selectedLorebookEntryId.value = null;
         selectedCharacterId.value = null;
-        content.value = "";
-        lastSyncedChapterContent.value = "";
-        pendingAgentChapterUpdate.value = null;
     };
 
     /**
@@ -518,8 +440,8 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     /**
      * 清理指定 Project Workspace 的本地编辑会话，避免同名重建后复用旧标签和 buffer。
      */
-    const clearNovelWorkspaceSession = (novelId: string): void => {
-        const key = `novel:${novelId}`;
+    const clearNovelWorkspaceSession = (projectRoot: string): void => {
+        const key = `novel:${projectRoot}`;
         if (!(key in workspaceSessions.value)) {
             return;
         }
@@ -535,10 +457,10 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         if (workspaceKind.value === "user-assets") {
             return {workspaceKind: "user-assets"};
         }
-        if (!currentNovelId.value) {
+        if (!currentProjectRoot.value) {
             throw new Error("当前未选择小说，无法访问 workspace");
         }
-        return {projectPath: currentNovelId.value};
+        return {projectRoot: currentProjectRoot.value};
     };
 
     /**
@@ -546,7 +468,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
      */
     const workspaceTreeRequestKey = (): string => {
         const query = workspaceQuery();
-        return "workspaceKind" in query ? `kind:${query.workspaceKind}` : `project:${query.projectPath}`;
+        return "workspaceKind" in query ? `kind:${query.workspaceKind}` : `project:${query.projectRoot}`;
     };
 
     /** 活动编辑器防抖结算钩子，见 registerActiveEditorFlush */
@@ -1058,7 +980,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
      * 保存未落盘内容后下载当前 Project Workspace 或 Workspace Root .nbook 压缩包。
      */
     const downloadCurrentWorkspace = async (): Promise<string> => {
-        if (workspaceKind.value !== "user-assets" && !currentNovelId.value) {
+        if (workspaceKind.value !== "user-assets" && !currentProjectRoot.value) {
             throw new Error("当前没有可下载的 Project Workspace");
         }
 
@@ -1138,7 +1060,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         if ("workspaceKind" in query) {
             formData.append("workspaceKind", query.workspaceKind);
         } else {
-            formData.append("projectPath", query.projectPath);
+            formData.append("projectRoot", query.projectRoot);
         }
         return formData;
     };
@@ -1392,7 +1314,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
      * 从磁盘同步外部文件变化。dirty 文件只标记冲突，不自动覆盖用户输入。
      */
     const syncWorkspaceFromDisk = async (events: WorkspaceFileChangeEventDto[]): Promise<WorkspaceDiskSyncResult> => {
-        if ((workspaceKind.value !== "user-assets" && !currentNovelId.value) || events.length === 0) {
+        if ((workspaceKind.value !== "user-assets" && !currentProjectRoot.value) || events.length === 0) {
             return {
                 activeFile: "unchanged",
                 dirtyPaths: [],
@@ -1728,343 +1650,27 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     };
 
     /**
-     * 用详情响应回填树上的章节摘要信息。
-     */
-    const syncChapterSummary = (chapter: ChapterDetailDto): void => {
-        if (!novelTree.value) {
-            return;
-        }
-
-        novelTree.value = {
-            ...novelTree.value,
-            volumes: novelTree.value.volumes.map((volume) => ({
-                ...volume,
-                chapters: volume.chapters.map((item) => item.id === chapter.id ? {
-                    ...item,
-                    volumeId: chapter.volumeId,
-                    title: chapter.title,
-                    status: chapter.status,
-                    summary: chapter.summary,
-                    characters: chapter.characters,
-                    todos: chapter.todos,
-                    wordCount: chapter.wordCount,
-                    updatedAt: chapter.updatedAt,
-                } : item),
-            })),
-            totalWords: novelTree.value.volumes.reduce((sum, volume) => (
-                sum + volume.chapters.reduce((chapterSum, item) => (
-                    chapterSum + (item.id === chapter.id ? chapter.wordCount : item.wordCount)
-                ), 0)
-            ), 0),
-        };
-    };
-
-    /**
-     * 用分卷响应回填树上的篇信息。
-     */
-    const syncVolumeSummary = (nextVolume: VolumeDto): void => {
-        if (!novelTree.value) {
-            return;
-        }
-
-        novelTree.value = {
-            ...novelTree.value,
-            volumes: novelTree.value.volumes.map((volume) => volume.id === nextVolume.id ? {
-                ...volume,
-                title: nextVolume.title,
-                summary: nextVolume.summary,
-                sortOrder: nextVolume.sortOrder,
-                updatedAt: nextVolume.updatedAt,
-            } : volume),
-        };
-    };
-
-    /**
-     * 直接替换本地树结构。
-     */
-    const syncNovelTree = (tree: NovelTreeDto): void => {
-        novelTree.value = tree;
-    };
-
-    /**
-     * 将章节详情同步到中央编辑区状态。
-     */
-    const applyChapterDetail = async (detail: ChapterDetailDto): Promise<ChapterDetailDto> => {
-        hydratingChapter.value = true;
-        selectedChapterId.value = detail.id;
-        syncChapterSummary(detail);
-        content.value = detail.content;
-        lastSyncedChapterContent.value = detail.content;
-        await nextTick();
-        hydratingChapter.value = false;
-        return detail;
-    };
-
-    /**
-     * 获取指定章节详情。
-     */
-    const fetchChapterDetail = async (chapterId: string): Promise<ChapterDetailDto> => {
-        return await $fetch<ChapterDetailDto>(`/api/novels/${currentNovelId.value}/chapters/${chapterId}`);
-    };
-
-    /**
-     * 加载当前小说树。
-     */
-    const loadNovelTree = async (novelId: string): Promise<NovelTreeDto> => {
-        const tree = await $fetch<NovelTreeDto>(`/api/novels/${novelId}/tree`);
-        novelTree.value = tree;
-        return tree;
-    };
-
-    /**
-     * 创建默认小说工作区。
-     */
-    const createDefaultWorkspace = async (): Promise<string> => {
-        const novel = await $fetch<{id: string}>("/api/projects", {
-            method: "POST",
-            body: {
-                title: DEFAULT_NOVEL_TITLE,
-                summary: "",
-            },
-        });
-
-        return novel.id;
-    };
-
-    /**
-     * 确保至少存在一个默认 Project Workspace，并刷新本地小说列表。
-     */
-    const ensureDefaultNovel = async (): Promise<NovelListItemDto[]> => {
-        let list = await loadNovels();
-        if (list.length > 0) {
-            return list;
-        }
-
-        const novelId = await createDefaultWorkspace();
-        currentNovelId.value = novelId;
-        list = await loadNovels();
-        return list;
-    };
-
-    /**
-     * 读取并应用指定章节详情。
-     */
-    const loadChapterDetail = async (chapterId: string): Promise<ChapterDetailDto | null> => {
-        if (!currentNovelId.value) {
-            return null;
-        }
-
-        const detail = await fetchChapterDetail(chapterId);
-        pendingAgentChapterUpdate.value = null;
-        return await applyChapterDetail(detail);
-    };
-
-    /**
-     * 刷新章节树并切到指定章节。
-     */
-    const refreshTreeAndLoadChapter = async (chapterId: string): Promise<ChapterDetailDto | null> => {
-        if (!currentNovelId.value) {
-            return null;
-        }
-
-        await loadNovelTree(currentNovelId.value);
-        return await loadChapterDetail(chapterId);
-    };
-
-    /**
-     * 应用 Agent 推送的工作区同步事件。
-     * 返回值用于让页面决定是否追加 UI 副作用（例如滚动）。
-     */
-    const applyAgentWorkspaceSync = async (
-        payload: AgentWorkspaceSyncPayload,
-    ): Promise<"tree" | "applied" | "pending" | "ignored"> => {
-        if (!currentNovelId.value) {
-            return "ignored";
-        }
-
-        if (payload.kind === "chapter_tree") {
-            await loadWorkspaceTree();
-            return "tree";
-        }
-
-        if (payload.kind === "plot_tree") {
-            plotRefreshVersion.value += 1;
-            return "tree";
-        }
-
-        if (payload.chapterId !== selectedChapterId.value) {
-            return "ignored";
-        }
-
-        const detail = await fetchChapterDetail(payload.chapterId);
-        syncChapterSummary(detail);
-
-        if (hasUnsavedChapterChanges.value) {
-            pendingAgentChapterUpdate.value = {
-                detail,
-                toolName: payload.toolName,
-                toolCallId: payload.toolCallId,
-            };
-            return "pending";
-        }
-
-        pendingAgentChapterUpdate.value = null;
-        await applyChapterDetail(detail);
-        return "applied";
-    };
-
-    /**
-     * 接受挂起中的 Agent 章节写回。
-     */
-    const acceptPendingAgentChapterUpdate = async (): Promise<ChapterDetailDto | null> => {
-        const nextUpdate = pendingAgentChapterUpdate.value;
-        if (!nextUpdate) {
-            return null;
-        }
-
-        pendingAgentChapterUpdate.value = null;
-        return await applyChapterDetail(nextUpdate.detail);
-    };
-
-    /**
-     * 忽略本次 Agent 写回，保留本地编辑内容。
-     */
-    const dismissPendingAgentChapterUpdate = (): void => {
-        pendingAgentChapterUpdate.value = null;
-    };
-
-    /**
-     * 保存当前章节正文。
-     */
-    const saveCurrentChapterContent = async (): Promise<ChapterDetailWriteResponseDto | null> => {
-        if (hydratingChapter.value || !currentNovelId.value || !selectedChapterId.value) {
-            return null;
-        }
-
-        const detail = await $fetch<ChapterDetailWriteResponseDto>(`/api/novels/${currentNovelId.value}/chapters/${selectedChapterId.value}/content`, {
-            method: "PUT",
-            body: {
-                content: content.value,
-            },
-        });
-
-        syncChapterSummary(detail);
-        lastSyncedChapterContent.value = detail.content;
-        return detail;
-    };
-
-    /**
-     * 在前端本地应用分卷排序，避免接口回包时整树闪动。
-     */
-    const applyLocalVolumeReorder = (items: ReorderVolumesRequestDto["items"]): void => {
-        if (!novelTree.value) {
-            return;
-        }
-
-        const volumeMap = new Map(novelTree.value.volumes.map((volume) => [volume.id, volume]));
-        const nextVolumes = [...items]
-            .sort((left, right) => left.sortOrder - right.sortOrder)
-            .map((item) => {
-                const volume = volumeMap.get(item.volumeId);
-                return volume ? {
-                    ...volume,
-                    sortOrder: item.sortOrder,
-                } : null;
-            })
-            .filter((item): item is VolumeDto => item !== null);
-
-        if (nextVolumes.length !== novelTree.value.volumes.length) {
-            return;
-        }
-
-        novelTree.value = {
-            ...novelTree.value,
-            volumes: nextVolumes,
-        };
-    };
-
-    /**
-     * 在前端本地应用章节排序，避免接口回包时整树闪动。
-     */
-    const applyLocalChapterReorder = (items: ReorderChaptersRequestDto["items"]): void => {
-        if (!novelTree.value) {
-            return;
-        }
-
-        const chapterMap = new Map(
-            novelTree.value.volumes.flatMap((volume) => volume.chapters.map((chapter) => [chapter.id, chapter] as const))
-        );
-        const chapterGroups = new Map<string, ReorderChaptersRequestDto["items"]>();
-
-        for (const item of items) {
-            const group = chapterGroups.get(item.volumeId) ?? [];
-            group.push(item);
-            chapterGroups.set(item.volumeId, group);
-        }
-
-        let totalMappedChapters = 0;
-        const nextVolumes = novelTree.value.volumes.map((volume) => {
-            const group = [...(chapterGroups.get(volume.id) ?? [])].sort((left, right) => left.sortOrder - right.sortOrder);
-            totalMappedChapters += group.length;
-
-            return {
-                ...volume,
-                chapters: group.map((item) => {
-                    const chapter = chapterMap.get(item.chapterId);
-                    if (!chapter) {
-                        return null;
-                    }
-
-                    return {
-                        ...chapter,
-                        volumeId: item.volumeId,
-                        sortOrder: item.sortOrder,
-                    };
-                }).filter((item): item is VolumeDto["chapters"][number] => item !== null),
-            };
-        });
-
-        if (totalMappedChapters !== chapterMap.size || nextVolumes.some((volume, index) => volume.chapters.length !== (chapterGroups.get(novelTree.value?.volumes[index]?.id ?? "")?.length ?? 0))) {
-            return;
-        }
-
-        novelTree.value = {
-            ...novelTree.value,
-            volumes: nextVolumes,
-        };
-    };
-
-    /**
      * 加载小说列表。
      */
-    const loadNovels = async (): Promise<NovelListItemDto[]> => {
-        const list = await $fetch<NovelListItemDto[]>("/api/projects");
+    const loadProjects = async (): Promise<ProjectMetadataDto[]> => {
+        const snapshot = await $fetch<ProjectListResponseDto>("/api/projects");
+        const list = [...snapshot.projects];
         novels.value = list;
         return list;
     };
 
     /**
-     * 切换小说。
+     * 关闭当前 Project，进入「未选择 Project」状态（首页项目选择界面）。
+     *
+     * 只清理内存视图状态并落盘会话记忆，不发任何请求；presence 由页面侧显式释放。
      */
-    const switchNovel = async (novelId: string, options: SwitchNovelOptions = {}): Promise<void> => {
-        if (novelId === currentNovelId.value) {
-            return;
-        }
-
-        if (hydratingChapter.value) {
-            return;
-        }
-        persistActiveWorkspaceBuffer();
-        if (hasUnsavedWorkspaceChanges.value && !options.discardWorkspaceChanges) {
-            throw new Error("当前 workspace 仍有未保存修改，切换小说前请先保存或放弃修改");
-        }
-
+    const closeProjectWorkspace = (): void => {
         persistWorkspaceSession();
         workspaceKind.value = "novel";
-        currentNovelId.value = novelId;
-        selectedChapterId.value = "";
-        restoreWorkspaceSession();
-        await initializeWorkspace();
+        currentProjectRoot.value = "";
+        clearWorkspaceSelection();
+        clearActiveFile();
+        clearWorkspaceState();
     };
 
     /**
@@ -2084,20 +1690,17 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     };
 
     /**
-     * 切换到小说 workspace；传入 novelId 时优先打开指定小说。
+     * 提交已经通过 Project 激活事务的目标，并初始化其文件树与标签。
      */
-    const switchToNovelWorkspace = async (novelId?: string): Promise<void> => {
-        if (workspaceKind.value === "novel" && (!novelId || novelId === currentNovelId.value)) {
+    const switchToNovelWorkspace = async (projectRoot: string): Promise<void> => {
+        if (workspaceKind.value === "novel" && projectRoot === currentProjectRoot.value) {
             await initializeWorkspace();
             return;
         }
 
         persistWorkspaceSession();
         workspaceKind.value = "novel";
-        if (novelId) {
-            currentNovelId.value = novelId;
-        }
-        selectedChapterId.value = "";
+        currentProjectRoot.value = projectRoot;
         restoreWorkspaceSession();
         await initializeWorkspace();
     };
@@ -2105,38 +1708,33 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     /**
      * 新建小说。
      */
-    const createNovel = async (title: string, summary: string = ""): Promise<string> => {
-        const novel = await $fetch<{id: string}>("/api/projects", {
+    const createProject = async (title: string, summary: string = ""): Promise<string> => {
+        const project = await $fetch<ProjectCreateResponseDto>("/api/projects", {
             method: "POST",
             body: { title, summary },
         });
 
-        await loadNovels();
-        return novel.id;
+        await loadProjects();
+        return project.project.projectRoot;
     };
 
     /**
      * 删除小说。
      */
-    const deleteNovel = async (novelId: string): Promise<void> => {
+    const deleteProject = async (projectRoot: string): Promise<void> => {
         await $fetch("/api/projects/item", {
             method: "DELETE",
-            query: {projectPath: novelId},
+            query: {projectRoot},
         });
 
-        clearNovelWorkspaceSession(novelId);
-        await loadNovels();
-
-        if (currentNovelId.value === novelId) {
-            currentNovelId.value = novels.value[0]?.id ?? "";
-            selectedChapterId.value = "";
-            restoreWorkspaceSession();
-            await initializeWorkspace();
-        }
+        const deletingCurrentProject = currentProjectRoot.value === projectRoot;
+        if (deletingCurrentProject) closeProjectWorkspace();
+        clearNovelWorkspaceSession(projectRoot);
+        await loadProjects();
     };
 
     /**
-     * 初始化小说工作区，并校验持久化后的小说/章节选择是否合法。
+     * 初始化已激活的 Project Workspace；缺失目标进入未选择状态，绝不自动挑选其它 Project。
      */
     const initializeWorkspace = async (): Promise<void> => {
         if (workspaceKind.value === "user-assets") {
@@ -2153,118 +1751,32 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         loadingWorkspace.value = true;
 
         try {
-            const list = await ensureDefaultNovel();
-
-            if (!list.length) {
-                clearActiveChapter();
+            if (!currentProjectRoot.value) {
+                clearWorkspaceSelection();
                 clearActiveFile();
                 clearWorkspaceState();
-                currentNovelId.value = "";
-                novelTree.value = null;
                 return;
             }
 
-            const previousNovelId = currentNovelId.value;
-            const persistedNovel = list.find((item) => item.id === currentNovelId.value);
-            currentNovelId.value = persistedNovel?.id ?? list[0]?.id ?? "";
+            const list = await loadProjects();
+
+            if (!list.some((item) => item.projectRoot === currentProjectRoot.value)) {
+                clearWorkspaceSelection();
+                clearActiveFile();
+                clearWorkspaceState();
+                currentProjectRoot.value = "";
+                return;
+            }
+
             if (workspaceKind.value !== "novel") {
                 workspaceKind.value = "novel";
             }
-            if (previousNovelId && previousNovelId !== currentNovelId.value) {
-                restoreWorkspaceSession();
-            }
-            if (!currentNovelId.value) {
-                clearActiveChapter();
-                clearActiveFile();
-                clearWorkspaceState();
-                novelTree.value = null;
-                return;
-            }
 
-            novelTree.value = null;
             await loadWorkspaceTree();
 
             await restoreWorkspaceTabFromPersistedState();
         } finally {
             loadingWorkspace.value = false;
-        }
-    };
-
-    /**
-     * 更新章节元数据。
-     */
-    const updateChapter = async (chapterId: string, payload: Partial<ChapterDetailDto>): Promise<ChapterDetailDto> => {
-        const detail = await $fetch<ChapterDetailDto>(`/api/novels/${currentNovelId.value}/chapters/${chapterId}`, {
-            method: "PATCH",
-            body: payload,
-        });
-
-        syncChapterSummary(detail);
-        return detail;
-    };
-
-    /**
-     * 更新分卷元数据。
-     */
-    const updateVolume = async (volumeId: string, payload: UpdateVolumeRequestDto): Promise<VolumeDto> => {
-        mutatingChapterTree.value = true;
-        try {
-            const volume = await $fetch<VolumeDto>(`/api/novels/${currentNovelId.value}/volumes/${volumeId}`, {
-                method: "PATCH",
-                body: payload,
-            });
-            syncVolumeSummary(volume);
-            return volume;
-        } finally {
-            mutatingChapterTree.value = false;
-        }
-    };
-
-    /**
-     * 保存分卷排序。
-     */
-    const reorderVolumes = async (items: ReorderVolumesRequestDto["items"]): Promise<void> => {
-        if (!currentNovelId.value || items.length === 0) {
-            return;
-        }
-
-        const currentRevision = ++volumeReorderRevision;
-        applyLocalVolumeReorder(items);
-
-        try {
-            await $fetch<NovelTreeDto>(`/api/novels/${currentNovelId.value}/volumes/reorder`, {
-                method: "POST",
-                body: { items },
-            });
-        } catch (error) {
-            if (currentRevision === volumeReorderRevision) {
-                await loadNovelTree(currentNovelId.value);
-            }
-            throw error;
-        }
-    };
-
-    /**
-     * 保存章节排序。
-     */
-    const reorderChapters = async (items: ReorderChaptersRequestDto["items"]): Promise<void> => {
-        if (!currentNovelId.value || items.length === 0) {
-            return;
-        }
-
-        const currentRevision = ++chapterReorderRevision;
-        applyLocalChapterReorder(items);
-
-        try {
-            await $fetch<NovelTreeDto>(`/api/novels/${currentNovelId.value}/chapters/reorder`, {
-                method: "POST",
-                body: { items },
-            });
-        } catch (error) {
-            if (currentRevision === chapterReorderRevision) {
-                await loadNovelTree(currentNovelId.value);
-            }
-            throw error;
         }
     };
 
@@ -2280,43 +1792,28 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         activeThemeAppearance,
         activeThemeId,
         activeWorkspaceTabPath,
-        acceptPendingAgentChapterUpdate,
-        applyAgentWorkspaceSync,
-        applyChapterDetail,
         applyCustomThemes,
         applyThemeConfig,
         applyThemeSelection,
         applyWorkspaceConflictMergedContent,
         applyWorkspaceConflictRemote,
-        chapterPanelBusy,
-        clearActiveChapter,
         clearActiveFile,
         closeWorkspaceTab,
-        content,
         convertWorkspaceFileToDirectory,
         createWorkspaceDirectory,
         createWorkspaceFile,
-        createDefaultWorkspace,
-        ensureDefaultNovel,
-        createNovel,
-        creatingChapterTree,
+        createProject,
         currentNovel,
-        currentNovelId,
+        currentProjectRoot,
         currentWorkspaceRoot,
         customThemes,
         canAccessWorkspace,
-        deleteNovel,
+        deleteProject,
         deleteWorkspacePath,
-        dismissPendingAgentChapterUpdate,
         downloadCurrentWorkspace,
-        fetchChapterDetail,
-        hasUnsavedChapterChanges,
         hasUnsavedFileChanges,
         hasUnsavedWorkspaceChanges,
-        hydratesChapter: hydratingChapter,
-        hydratingChapter,
         initializeWorkspace,
-        lastSyncedChapterContent,
         lastSyncedFileContent,
         layoutMode,
         agentSessionPanelOpen,
@@ -2325,11 +1822,8 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         agentStudioPanelWidth,
         agentStudioFileTreeWidth,
         leftPanelWidth,
-        loadChapterDetail,
         loadingWorkspace,
-        loadNovels,
-        loadNovelTree,
-        mutatingChapterTree,
+        loadProjects,
         loadWorkspaceFile,
         loadWorkspaceTree,
         registerActiveEditorFlush,
@@ -2339,11 +1833,9 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         keepWorkspaceTab,
         moveWorkspaceTab,
         novels,
-        novelTree,
         openWorkspacePath,
         openWorkspaceNode,
         optimisticRenameWorkspacePath,
-        pendingAgentChapterUpdate,
         plotWorkbenchOpen,
         plotWorkbenchTab,
         plotPlanningFocusId,
@@ -2355,16 +1847,10 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         configRevision,
         bumpConfigRevision,
         reasoningOptions,
-        refreshTreeAndLoadChapter,
-        reorderChapters,
-        reorderVolumes,
         rightPanelOpen,
         rightPanelWidth,
-        saveCurrentChapterContent,
         saveCurrentFile,
         saveDirtyWorkspaceFiles,
-        selectedChapter,
-        selectedChapterId,
         selectedStoryThreadId,
         selectedStorySceneId,
         selectedLorebookEntryId,
@@ -2383,26 +1869,20 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         setWorkspaceTabPinned,
         setWorkspaceTabViewMode,
         toggleWorkspaceTabPinned,
-        switchNovel,
         switchToNovelWorkspace,
+        closeProjectWorkspace,
         switchToUserAssetsWorkspace,
         syncUserAssetsFromSystem,
         fetchUserAssetsSyncConflictDetail,
         uploadFileToUploadFolder,
         uploadProjectFiles,
         uploadProjectZip,
-        syncChapterSummary,
-        syncNovelTree,
-        syncVolumeSummary,
         theme,
         themeVarsSnapshot,
         markdownEditorPreferences,
         monacoEditorPreferences,
         monacoFontSizeOverridesByPath,
-        updateChapter,
-        updateVolume,
         viewMode,
-        wordCount,
         plotRefreshVersion,
         loadingWorkspaceTree,
         renameWorkspacePath,
@@ -2426,8 +1906,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             key: "novel.ide.session",
             storage: piniaPluginPersistedstate.sessionStorage(),
             pick: [
-            "currentNovelId",
-            "selectedChapterId",
+            "currentProjectRoot",
             "selectedLorebookEntryId",
             "selectedCharacterId",
             "workspaceSessions",

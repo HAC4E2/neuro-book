@@ -1,98 +1,132 @@
 import {execFile} from "node:child_process";
-import {mkdtemp, mkdir, readFile, realpath, rm, writeFile} from "node:fs/promises";
+import {mkdtemp, mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {dirname, join, resolve} from "node:path";
 import {promisify} from "node:util";
 import {fileURLToPath} from "node:url";
-import {resolveApplicationRoot, resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
-import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-runtime-root";
-import {describe, expect, it} from "vitest";
+import {afterEach, describe, expect, it} from "vitest";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const agentBinRoot = join(repoRoot, "assets", "workspace", ".nbook", "agent", "bin");
 const execFileAsync = promisify(execFile);
+const temporaryRoots: string[] = [];
 
-describe("profile CLI path resolution", () => {
-    it("从 Workspace Root .nbook 推导应用根和用户 profile root", () => {
-        const userNbookRoot = join(repoRoot, "workspace", ".nbook");
+const cliCases = [
+    {id: "profile", source: "scripts/build/profile.ts"},
+    {id: "variable", source: "scripts/build/variable.ts"},
+    {id: "workspace", source: "assets/workspace/.nbook/agent/scripts/workspace.ts"},
+] as const;
 
-        expect(resolveApplicationRoot(userNbookRoot)).toBe(repoRoot);
-        expect(resolveUserNbookRoot(userNbookRoot)).toBe(userNbookRoot);
-        expect(resolveSystemNbookRoot(userNbookRoot)).toBe(join(repoRoot, "assets", "workspace", ".nbook"));
-    });
+afterEach(async () => {
+    await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, {recursive: true, force: true})));
+});
 
-    it("profile script 在 Product Root 有根源码脚本时仍选择 .output 入口", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-profile-product-"));
-        try {
-            const launcher = await writeProfileLauncherFixture(root);
-            await writeFile(join(root, "package.json"), JSON.stringify({name: "neuro-book-product", type: "module"}), "utf8");
-            await mkdir(join(root, ".output", "server"), {recursive: true});
-            await writeFile(join(root, ".output", "server", "index.mjs"), "", "utf8");
-            await writeEntry(join(root, ".output", "server", "scripts", "build", "profile.ts"), "product");
-            await writeEntry(join(root, "scripts", "build", "profile.ts"), "source");
+describe("Agent CLI Product Runtime path", () => {
+    it.each(cliCases)("$id 的 POSIX 与 Windows wrapper 只通过逻辑命令进入 Product", async ({id}) => {
+        const [shellWrapper, cmdWrapper] = await Promise.all([
+            readFile(join(agentBinRoot, id), "utf8"),
+            readFile(join(agentBinRoot, `${id}.cmd`), "utf8"),
+        ]);
 
-            const {stdout} = await execFileAsync(bunExecutable(), [launcher], {cwd: tmpdir()});
-            const lines = stdout.trim().split(/\r?\n/);
-            expect(lines[0]).toBe("product");
-            expect(normalizePath(lines[1] ?? "")).toBe(normalizePath(await realpath(root)));
-        } finally {
-            await rm(root, {recursive: true, force: true});
+        for (const wrapper of [shellWrapper, cmdWrapper]) {
+            expect(wrapper).toContain("NEURO_BOOK_APPLICATION_ROOT");
+            expect(wrapper).toContain("product-command.mjs");
+            expect(wrapper).toContain(`command ${id}`);
+            expect(wrapper).toContain("--no-install");
+            expect(wrapper).not.toMatch(/server[\\/]scripts/u);
+            expect(wrapper).not.toContain(`commands/${id}.mjs`);
+            expect(wrapper).not.toContain(`commands\\${id}.mjs`);
         }
     });
 
-    it("profile script 在源码仓存在 .output 时仍选择源码入口并切换 cwd", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-profile-source-"));
-        try {
-            const launcher = await writeProfileLauncherFixture(root);
-            await writeFile(join(root, "package.json"), JSON.stringify({name: "neuro-book", type: "module"}), "utf8");
-            await mkdir(join(root, "node_modules"), {recursive: true});
-            await mkdir(join(root, ".output", "server"), {recursive: true});
-            await writeFile(join(root, ".output", "server", "index.mjs"), "", "utf8");
-            await writeFile(join(root, ".output", "server", "package.json"), JSON.stringify({name: "neuro-book-output", type: "module"}), "utf8");
-            await writeEntry(join(root, ".output", "server", "scripts", "build", "profile.ts"), "product");
-            await writeEntry(join(root, "scripts", "build", "profile.ts"), "source");
+    it.each(cliCases)("$id 在 Product 中通过 bootstrap 转发参数", async ({id}) => {
+        const root = await productFixture();
+        const result = await runWrapper(id, root, ["first", "two words"], "production");
+        const report = JSON.parse(result.stdout.trim()) as {args: string[]; cwd: string; applicationRoot?: string};
 
-            const {stdout} = await execFileAsync(bunExecutable(), [launcher], {cwd: tmpdir()});
-            const lines = stdout.trim().split(/\r?\n/);
-            expect(lines[0]).toBe("source");
-            expect(normalizePath(lines[1] ?? "")).toBe(normalizePath(await realpath(root)));
-        } finally {
-            await rm(root, {recursive: true, force: true});
-        }
+        expect(report.args).toEqual(["command", id, "first", "two words"]);
+        expect(normalizePath(report.cwd)).toBe(normalizePath(result.invocationRoot));
+        expect(normalizePath(report.applicationRoot ?? "")).toBe(normalizePath(root));
     });
 
-    it("profile script 包含 Product Runtime manifest 判定", async () => {
-        const script = await readFile(join(repoRoot, "assets", "workspace", ".nbook", "agent", "scripts", "profile.ts"), "utf8");
+    it.each(cliCases)("$id 只在明确源码开发布局中执行源码入口", async ({id, source}) => {
+        const root = await sourceFixture(source);
+        const result = await runWrapper(id, root, ["check"], "development");
+        const report = JSON.parse(result.stdout.trim()) as {args: string[]; cwd: string};
 
-        expect(script).toContain("process.chdir(profileEntry.applicationRoot)");
-        expect(script).toContain("neuro-book-product");
-        expect(script).toContain("neuro-book-output");
+        expect(report.args).toEqual(["check"]);
+        expect(normalizePath(report.cwd)).toBe(normalizePath(result.invocationRoot));
     });
 
-    it("系统 profile wrapper 的 Product 分支会先切到 Product Root", async () => {
-        const shellWrapper = await readFile(join(repoRoot, "assets", "workspace", ".nbook", "agent", "bin", "profile"), "utf8");
-        const cmdWrapper = await readFile(join(repoRoot, "assets", "workspace", ".nbook", "agent", "bin", "profile.cmd"), "utf8");
+    it.each(cliCases)("$id 遇到残缺 Product 时不回退源码", async ({id, source}) => {
+        const root = await sourceFixture(source);
+        await mkdir(join(root, ".output"), {recursive: true});
+        await writeFile(join(root, ".output", "runtime-image.json"), "{}\n", "utf8");
 
-        expect(shellWrapper).toContain("cd \"$PRODUCT_ROOT\" || exit 1");
-        expect(shellWrapper).toContain("is_product_runtime_root");
-        expect(shellWrapper).not.toContain("SOURCE_PROFILE_SCRIPT");
-        expect(cmdWrapper).toContain("pushd \"%PRODUCT_ROOT%\" || exit /b 1");
-        expect(cmdWrapper).toContain("IS_PRODUCT_RUNTIME");
-        expect(cmdWrapper).not.toContain("SOURCE_PROFILE_SCRIPT");
-        expect(cmdWrapper).not.toContain("EnableDelayedExpansion");
+        await expect(runWrapper(id, root, [], "production")).rejects.toMatchObject({
+            stderr: expect.stringContaining("Product Runtime"),
+        });
     });
 });
 
-async function writeProfileLauncherFixture(root: string): Promise<string> {
-    const launcher = join(root, "assets", "workspace", ".nbook", "agent", "scripts", "profile.ts");
-    await mkdir(dirname(launcher), {recursive: true});
-    const source = await readFile(join(repoRoot, "assets", "workspace", ".nbook", "agent", "scripts", "profile.ts"), "utf8");
-    await writeFile(launcher, source, "utf8");
-    return launcher;
+/** 创建只包含稳定 bootstrap 的最小 Product fixture。 */
+async function productFixture(): Promise<string> {
+    const root = await temporaryRoot("nbook-agent-cli-product-");
+    const bootstrap = join(root, ".output", "server", "commands", "product-command.mjs");
+    await mkdir(dirname(bootstrap), {recursive: true});
+    await writeFile(join(root, "package.json"), JSON.stringify({name: "neuro-book"}), "utf8");
+    await writeFile(bootstrap, reportScript(), "utf8");
+    return root;
 }
 
-async function writeEntry(filePath: string, label: string): Promise<void> {
-    await mkdir(dirname(filePath), {recursive: true});
-    await writeFile(filePath, `console.log(${JSON.stringify(label)});\nconsole.log(process.cwd());\n`, "utf8");
+/** 创建具备源码入口和开发依赖目录的明确 Source dev fixture。 */
+async function sourceFixture(source: string): Promise<string> {
+    const root = await temporaryRoot("nbook-agent-cli-source-");
+    const entry = join(root, ...source.split("/"));
+    await mkdir(dirname(entry), {recursive: true});
+    await mkdir(join(root, "node_modules"), {recursive: true});
+    await writeFile(join(root, "package.json"), JSON.stringify({name: "neuro-book"}), "utf8");
+    await writeFile(entry, reportScript(), "utf8");
+    return root;
+}
+
+/** 执行当前平台的真实 wrapper。 */
+async function runWrapper(
+    id: string,
+    root: string,
+    args: string[],
+    nodeEnv: string,
+): Promise<{stdout: string; stderr: string; invocationRoot: string}> {
+    const invocationRoot = join(root, "invocation");
+    await mkdir(invocationRoot, {recursive: true});
+    const env = {
+        ...process.env,
+        BUN: bunExecutable(),
+        NEURO_BOOK_APPLICATION_ROOT: root,
+        NODE_ENV: nodeEnv,
+    };
+    if (process.platform === "win32") {
+        const wrapper = join(agentBinRoot, `${id}.cmd`);
+        const result = await execFileAsync(process.env.ComSpec ?? "cmd.exe", ["/d", "/c", "call", wrapper, ...args], {
+            cwd: invocationRoot,
+            env,
+            windowsHide: true,
+        });
+        return {...result, invocationRoot};
+    }
+    const result = await execFileAsync("sh", [join(agentBinRoot, id), ...args], {cwd: invocationRoot, env});
+    return {...result, invocationRoot};
+}
+
+/** fixture 输出实际收到的参数和 wrapper 建立的运行根。 */
+function reportScript(): string {
+    return "console.log(JSON.stringify({args: process.argv.slice(2), cwd: process.cwd(), applicationRoot: process.env.NEURO_BOOK_APPLICATION_ROOT}));\n";
+}
+
+async function temporaryRoot(prefix: string): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), prefix));
+    temporaryRoots.push(root);
+    return root;
 }
 
 function bunExecutable(): string {
@@ -100,5 +134,5 @@ function bunExecutable(): string {
 }
 
 function normalizePath(filePath: string): string {
-    return resolve(filePath).replaceAll("\\", "/");
+    return resolve(filePath).replaceAll("\\", "/").toLowerCase();
 }

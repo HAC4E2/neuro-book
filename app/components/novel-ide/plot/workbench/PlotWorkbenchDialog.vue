@@ -43,7 +43,7 @@ type WorkbenchInlineRef = {
 };
 const props = defineProps<{
     modelValue: boolean;
-    projectPath: string;
+    projectRoot: string;
     story: PlotWorkbenchStory;
     phases: PlotWorkbenchPhase[];
     threads: PlotThreadPanelThread[];
@@ -390,7 +390,7 @@ function toPanelRefs(refs: WorkbenchManualRef[]): PlotThreadPanelRef[] {
                         <PlotWorkbenchInspector
                             v-if="inspectorMode"
                             :mode="inspectorMode"
-                            :project-path="props.projectPath"
+                            :project-root="props.projectRoot"
                             :thread="selectedThread"
                             :scene="selectedScene"
                             :chapters="props.chapters"
@@ -412,7 +412,7 @@ function toPanelRefs(refs: WorkbenchManualRef[]): PlotThreadPanelRef[] {
                 <!-- 承诺账本 tab:自含数据加载,节拍行点场景跳回线程规划;写操作成功经 mutated 转发宿主刷新计数与场景缓存 -->
                 <PlotPromiseLedgerTab
                     v-else-if="activeTab === 'promises'"
-                    :project-path="props.projectPath"
+                    :project-root="props.projectRoot"
                     :chapters="props.chapters"
                     :threads="props.threads"
                     :scenes="props.scenes"
@@ -423,7 +423,7 @@ function toPanelRefs(refs: WorkbenchManualRef[]): PlotThreadPanelRef[] {
                 <!-- 决策记录 tab:自含数据加载,引用/锚点点场景同样跳回线程规划 -->
                 <PlotDecisionLedgerTab
                     v-else
-                    :project-path="props.projectPath"
+                    :project-root="props.projectRoot"
                     :acts="props.acts ?? []"
                     :chapters="props.chapters"
                     :threads="props.threads"

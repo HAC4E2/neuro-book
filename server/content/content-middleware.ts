@@ -1,3 +1,5 @@
+import {createError} from "h3";
+
 import {
     buildReferenceUri,
     parseStructuredReferenceTarget,

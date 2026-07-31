@@ -12,10 +12,11 @@ import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-
 import {TrackedPrismaLibSql} from "nbook/server/workspace-files/tracked-prisma-libsql";
 import {
     ProjectNotOpenError,
+    requireActiveReadyProject,
     requireReadyModuleHandle,
-    requireReadyProjectPath,
 } from "nbook/server/workspace-files/project-session";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
+import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 
 const createdProjects: string[] = [];
 const createdFacades: WorldEngineFacade[] = [];
@@ -675,11 +676,11 @@ describe("WorldEngineFacade", {timeout: 30_000}, () => {
     });
 });
 
-function createFacade(projectPath = createdProjects.at(-1)): WorldEngineFacade {
-    if (!projectPath) {
-        throw new Error("WorldEngineFacade测试缺少Project Path");
+function createFacade(projectRoot = createdProjects.at(-1)): WorldEngineFacade {
+    if (!projectRoot) {
+        throw new Error("WorldEngineFacade测试缺少Project root");
     }
-    const ready = requireReadyProjectPath(projectPath);
+    const ready = requireActiveReadyProject(projectWorkspaceRef(projectRoot));
     const database = requireReadyModuleHandle(ready, PROJECT_DATABASE_MODULE_TOKEN);
     const facade = new WorldEngineFacade(resolveRuntimeWorkspaceRoot(), ready.workspace, database);
     createdFacades.push(facade);
@@ -688,37 +689,37 @@ function createFacade(projectPath = createdProjects.at(-1)): WorldEngineFacade {
 
 async function cleanupCreatedProjects(): Promise<void> {
     const facades = createdFacades.splice(0);
-    const projectPaths = createdProjects.splice(0);
+    const projectRoots = createdProjects.splice(0);
     for (const facade of facades) {
         await facade.close();
     }
-    for (const projectPath of projectPaths) {
-        await closeProjectForTest(projectPath).catch(() => undefined);
-        await removeProjectRoot(projectPath);
+    for (const projectRoot of projectRoots) {
+        await closeProjectForTest(projectRoot).catch(() => undefined);
+        await removeProjectRoot(projectRoot);
     }
 }
 
 async function createProject(schema = schemaSource(), options: {open?: boolean} = {}): Promise<string> {
     const slug = `world-engine-test-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    const projectPath = `workspace/${slug}`;
-    const root = projectRoot(projectPath);
+    const projectRoot = slug;
+    const root = projectDirectory(projectRoot);
     await fs.mkdir(path.join(root, "world-engine", "schema"), {recursive: true});
     await fs.writeFile(path.join(root, "project.yaml"), "kind: novel\ntitle: World Engine Test\nsummary: ''\n", "utf-8");
     await fs.writeFile(path.join(root, "world-engine", "schema", "index.ts"), schema, "utf-8");
     await fs.writeFile(path.join(root, "world-engine", "calendar.ts"), calendarSource(), "utf-8");
-    createdProjects.push(projectPath);
+    createdProjects.push(projectRoot);
     if (options.open !== false) {
-        await openProjectForTest(projectPath);
+        await openProjectForTest(projectRoot);
     }
-    return projectPath;
+    return projectRoot;
 }
 
-function projectRoot(projectPath: string): string {
-    return path.join(resolveRuntimeWorkspaceRoot(), projectPath.slice("workspace/".length));
+function projectDirectory(projectRoot: string): string {
+    return path.join(resolveRuntimeWorkspaceRoot(), projectRoot);
 }
 
-async function tableExists(projectPath: string, table: string): Promise<boolean> {
-    const adapter = new TrackedPrismaLibSql({url: toSqliteFileUrl(resolveProjectDatabasePath(resolveRuntimeWorkspaceRoot(), projectPath))});
+async function tableExists(projectRoot: string, table: string): Promise<boolean> {
+    const adapter = new TrackedPrismaLibSql({url: toSqliteFileUrl(resolveProjectDatabasePath(resolveRuntimeWorkspaceRoot(), projectWorkspaceRef(projectRoot)))});
     const client = new PrismaClient({adapter});
     try {
         const rows = await client.$queryRawUnsafe<Array<{name: string}>>("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table);
@@ -730,8 +731,8 @@ async function tableExists(projectPath: string, table: string): Promise<boolean>
     }
 }
 
-async function deleteWorldSubject(projectPath: string, subjectId: string): Promise<void> {
-    const adapter = new TrackedPrismaLibSql({url: toSqliteFileUrl(resolveProjectDatabasePath(resolveRuntimeWorkspaceRoot(), projectPath))});
+async function deleteWorldSubject(projectRoot: string, subjectId: string): Promise<void> {
+    const adapter = new TrackedPrismaLibSql({url: toSqliteFileUrl(resolveProjectDatabasePath(resolveRuntimeWorkspaceRoot(), projectWorkspaceRef(projectRoot)))});
     const client = new PrismaClient({adapter});
     try {
         const patchCount = await client.worldPatch.count({where: {subjectId}});
@@ -746,8 +747,8 @@ async function deleteWorldSubject(projectPath: string, subjectId: string): Promi
     }
 }
 
-async function insertRawWorldSubject(projectPath: string, input: {id: string; type: string; name: string}): Promise<void> {
-    const client = createClient({url: toSqliteFileUrl(resolveProjectDatabasePath(resolveRuntimeWorkspaceRoot(), projectPath))});
+async function insertRawWorldSubject(projectRoot: string, input: {id: string; type: string; name: string}): Promise<void> {
+    const client = createClient({url: toSqliteFileUrl(resolveProjectDatabasePath(resolveRuntimeWorkspaceRoot(), projectWorkspaceRef(projectRoot)))});
     try {
         await client.execute({
             sql: `INSERT INTO "WorldSubject" ("id", "type", "name") VALUES (?, ?, ?)`,
@@ -759,7 +760,7 @@ async function insertRawWorldSubject(projectPath: string, input: {id: string; ty
     }
 }
 
-async function insertRawWorldPatch(projectPath: string, input: {
+async function insertRawWorldPatch(projectRoot: string, input: {
     sliceId: string;
     patchId: string;
     instant: bigint;
@@ -769,7 +770,7 @@ async function insertRawWorldPatch(projectPath: string, input: {
     op: string;
     valueJson: string;
 }): Promise<void> {
-    const client = createClient({url: toSqliteFileUrl(resolveProjectDatabasePath(resolveRuntimeWorkspaceRoot(), projectPath))});
+    const client = createClient({url: toSqliteFileUrl(resolveProjectDatabasePath(resolveRuntimeWorkspaceRoot(), projectWorkspaceRef(projectRoot)))});
     try {
         await client.execute({
             sql: `INSERT INTO "WorldSlice" ("id", "instant", "title", "summary", "kind") VALUES (?, ?, ?, ?, ?)`,
@@ -785,8 +786,8 @@ async function insertRawWorldPatch(projectPath: string, input: {
     }
 }
 
-async function removeProjectRoot(projectPath: string): Promise<void> {
-    const root = projectRoot(projectPath);
+async function removeProjectRoot(projectRoot: string): Promise<void> {
+    const root = projectDirectory(projectRoot);
     for (let attempt = 0; attempt < 30; attempt += 1) {
         collectReleasedSqliteHandles({force: true});
         try {

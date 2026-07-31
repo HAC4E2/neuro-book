@@ -18,13 +18,13 @@ import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
  */
 export default defineEventHandler(async (event) => {
     const query = getQuery(event);
-    const projectPath = typeof query.projectPath === "string" ? query.projectPath : undefined;
+    const projectRoot = typeof query.projectRoot === "string" ? query.projectRoot : undefined;
     const workspaceKind = query.workspaceKind === USER_ASSETS_WORKSPACE_KIND ? query.workspaceKind : undefined;
-    if (workspaceKind !== USER_ASSETS_WORKSPACE_KIND && !projectPath?.trim()) {
-        throw createError({statusCode: 400, message: "projectPath 不能为空"});
+    if (workspaceKind !== USER_ASSETS_WORKSPACE_KIND && !projectRoot?.trim()) {
+        throw createError({statusCode: 400, message: "projectRoot 不能为空"});
     }
 
-    const target = await resolveWorkspaceFileTarget(runtimePathsFromEnv(), {projectPath, workspaceKind});
+    const target = await resolveWorkspaceFileTarget(runtimePathsFromEnv(), {projectRoot, workspaceKind});
     return withProjectTargetOperation(target, async (projectHandles) => {
         let archive: WorkspaceArchive;
         if (target.kind === "project-workspace") {

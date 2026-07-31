@@ -1,89 +1,169 @@
-import {assertProjectOpen} from "nbook/server/workspace-files/project-session";
+import path from "node:path";
 import {
+    absoluteFsPath,
     assertRealPathContained,
+    relativeFilePathInside,
+    relativeRealPathInside,
     resolveContainedFilePath,
     type AbsoluteFsPath,
 } from "nbook/server/runtime/paths/file-path";
+import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 import {
-    resolveFileAddress,
-    type FileScope,
-    type ResolvedFileAddress,
-} from "nbook/server/workspace-files/file-scope";
-import {resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
+    ProjectNotOpenError,
+    requireActiveReadyProject,
+} from "nbook/server/workspace-files/project-session";
+import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 
-/** Agent 文件操作的能力种类；所有数据面操作都需要同一份授权结果。 */
+/** Agent 文件操作的能力种类；所有数据面操作都使用同一授权边界。 */
 export type AuthorizedFileOperation = "read" | "write" | "edit" | "apply_patch";
+
+/** RunFrame 与工具上下文提供的完整文件定位能力。 */
+export type FileOperationContext = Readonly<{
+    workspaceRoot: AbsoluteFsPath;
+    currentProject: ReadyProjectSessionRef | null;
+}>;
+
+/** 已解析并捕获 exact Project generation 的文件目标。 */
+export type ResolvedFileTarget = Readonly<{
+    kind: "relative" | "project" | "workspace-control" | "absolute";
+    absolutePath: AbsoluteFsPath;
+    /** null 表示该目标不携带 Project 领域归属。 */
+    project: ReadyProjectSessionRef | null;
+    /** Project 相对路径或 Workspace Root `.nbook` 内的相对路径。 */
+    relativePath?: string;
+}>;
 
 /** 已完成领域解析、Project 生命周期和真实路径检查的文件操作目标。 */
 export type AuthorizedFileTarget = Readonly<{
     operation: AuthorizedFileOperation;
-    address: ResolvedFileAddress;
-    /** 外部绝对路径没有File Scope containment；null表示直接受宿主文件系统权限约束。 */
+    target: ResolvedFileTarget;
+    /** null 表示绝对地址直接受宿主文件系统权限约束。 */
     containmentRoot: AbsoluteFsPath | null;
 }>;
 
 /**
  * 授权一次文件操作。
  *
- * 调用方只提供 File Scope 和用户地址；本 Module 负责 Project open gate、规范化
- * File Address 以及受File Scope约束地址的真实路径 containment。外部绝对地址
- * 不套用当前File Scope边界，直接受宿主文件系统权限约束。写入不存在的受约束
- * 文件时，检查会落到最近已存在父目录，因此不会为了授权而隐式 mkdir。
+ * 普通相对路径以 Current Project Workspace 为根；无 Current Project 时以
+ * Workspace Root 为根。`workspace/<project>/<relative-path>` 只是一条跨 Project
+ * 输入语法，解析结果直接携带 exact ready generation，不再产生 Project Path 身份。
  */
 export async function authorizeFileOperation(
-    scope: FileScope,
+    context: FileOperationContext,
     inputPath: string,
     operation: AuthorizedFileOperation,
 ): Promise<AuthorizedFileTarget> {
-    if (scope.kind === "managed-project") {
-        assertProjectOpen(scope.currentProjectPath);
+    const currentProject = currentReadyProject(context.currentProject);
+    const normalizedInput = inputPath.trim().replaceAll("\\", "/");
+    if (!normalizedInput) {
+        throw new Error("文件路径不能为空");
     }
-    const address = resolveFileAddress(scope, inputPath);
-    if (address.kind === "project-address") {
-        assertProjectOpen(address.projectPath);
+
+    const resolved = await resolveFileTarget(context.workspaceRoot, currentProject, normalizedInput);
+    if (resolved.containmentRoot) {
+        await assertRealPathContained(resolved.containmentRoot, resolved.target.absolutePath);
     }
-    const containmentRoot = resolveContainmentRoot(scope, address);
-    if (containmentRoot) {
-        await assertRealPathContained(containmentRoot, address.absolutePath);
-    }
-    return {operation, address, containmentRoot};
+    return {
+        operation,
+        target: resolved.target,
+        containmentRoot: resolved.containmentRoot,
+    };
 }
 
-/** 根据已经解析出的地址种类收窄 File Scope，避免用非空断言绕过领域约束。 */
-function resolveContainmentRoot(scope: FileScope, address: ResolvedFileAddress): AbsoluteFsPath | null {
-    if (address.kind === "absolute" && address.projectPath === null) {
+/** 授权受信任进程使用本次 session 的 cwd。 */
+export async function authorizeProcessCwd(
+    context: FileOperationContext,
+): Promise<Readonly<{root: AbsoluteFsPath}>> {
+    const currentProject = currentReadyProject(context.currentProject);
+    const root = currentProject?.workspace.root ?? context.workspaceRoot;
+    await assertRealPathContained(root, root);
+    return {root};
+}
+
+/** 确认 admission 捕获的 handle 仍是当前 exact ready generation。 */
+function currentReadyProject(
+    currentProject: ReadyProjectSessionRef | null,
+): ReadyProjectSessionRef | null {
+    if (!currentProject) {
         return null;
     }
-    if (address.kind === "workspace-nbook-address") {
-        if (scope.kind === "user-assets") {
-            return scope.root;
-        }
-        if (scope.kind === "workspace" || scope.kind === "managed-project") {
-            return resolveContainedFilePath(scope.workspaceRoot, ".nbook");
-        }
-        throw new Error("外部 File Scope不能解析Workspace Root .nbook File Address");
+    const ready = requireActiveReadyProject(currentProject.workspace.ref);
+    if (ready !== currentProject) {
+        throw new ProjectNotOpenError(currentProject.workspace.ref.projectRoot);
     }
-    if (address.kind === "project-address") {
-        if (scope.kind !== "workspace" && scope.kind !== "managed-project") {
-            throw new Error("当前 File Scope不能解析managed Project File Address");
-        }
-        return resolveProjectWorkspaceRoot(scope.workspaceRoot, address.projectPath);
-    }
-    return scope.root;
+    return ready;
 }
 
-/**
- * 授权受信任进程使用当前 File Scope 根作为 cwd。
- *
- * 本接口只验证 managed Project 已打开且 cwd 本身可信；它不限制命令随后可访问的
- * 文件。bash 是完整 Shell，明确不属于文件级 Authorized File Operation 承诺。
- */
-export async function authorizeProcessCwd(
-    scope: FileScope,
-): Promise<Readonly<{root: AbsoluteFsPath}>> {
-    if (scope.kind === "managed-project") {
-        assertProjectOpen(scope.currentProjectPath);
+/** 将用户输入解析成绝对目标，并在 Project 地址上捕获 exact generation。 */
+async function resolveFileTarget(
+    workspaceRoot: AbsoluteFsPath,
+    currentProject: ReadyProjectSessionRef | null,
+    inputPath: string,
+): Promise<Readonly<{target: ResolvedFileTarget; containmentRoot: AbsoluteFsPath | null}>> {
+    if (path.isAbsolute(inputPath)) {
+        const absolutePath = absoluteFsPath(inputPath);
+        const relativePath = currentProject
+            ? await relativeRealPathInside(currentProject.workspace.root, absolutePath)
+            : null;
+        if (currentProject && relativePath && relativePath !== ".") {
+            return {
+                target: {kind: "absolute", absolutePath, project: currentProject, relativePath},
+                containmentRoot: currentProject.workspace.root,
+            };
+        }
+        return {
+            target: {kind: "absolute", absolutePath, project: null},
+            containmentRoot: null,
+        };
     }
-    await assertRealPathContained(scope.root, scope.root);
-    return {root: scope.root};
+
+    const segments = inputPath.split("/");
+    if (segments[0] === "workspace") {
+        if (segments.some((segment) => segment.length === 0) || segments.length < 3) {
+            throw new Error("跨 Project 路径必须使用 workspace/<project>/<relative-path>");
+        }
+        if (segments[1] === ".nbook") {
+            const controlRoot = resolveContainedFilePath(workspaceRoot, ".nbook");
+            const relativePath = segments.slice(2).join("/");
+            return {
+                target: {
+                    kind: "workspace-control",
+                    absolutePath: resolveContainedFilePath(controlRoot, relativePath),
+                    project: null,
+                    relativePath,
+                },
+                containmentRoot: controlRoot,
+            };
+        }
+
+        const project = requireActiveReadyProject(projectWorkspaceRef(segments[1]!));
+        const absolutePath = resolveContainedFilePath(project.workspace.root, segments.slice(2).join("/"));
+        const relativePath = relativeFilePathInside(project.workspace.root, absolutePath);
+        if (!relativePath || relativePath === ".") {
+            throw new Error("跨 Project 路径必须指向 Project Workspace 内的文件或目录项");
+        }
+        return {
+            target: {kind: "project", absolutePath, project, relativePath},
+            containmentRoot: project.workspace.root,
+        };
+    }
+
+    const root = currentProject?.workspace.root ?? workspaceRoot;
+    if (currentProject && segments[0] === currentProject.workspace.ref.projectRoot) {
+        throw new Error(`当前 Project Workspace 内请使用相对路径，不要重复添加 ${segments[0]}/ 前缀`);
+    }
+    const absolutePath = resolveContainedFilePath(root, inputPath);
+    const relativePath = relativeFilePathInside(root, absolutePath);
+    if (!relativePath) {
+        throw new Error(`路径越过文件系统根：${inputPath}`);
+    }
+    return {
+        target: {
+            kind: "relative",
+            absolutePath,
+            project: currentProject,
+            ...(currentProject && relativePath !== "." ? {relativePath} : {}),
+        },
+        containmentRoot: root,
+    };
 }

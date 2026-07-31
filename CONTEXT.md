@@ -12,9 +12,29 @@ _Avoid_: workspace, project root
 NeuroBook 源码、`.output`、`.runtime` 和 `.deploy` 的统一程序根。Git checkout、Product Bun 和 Windows Portable 都使用这一底座。
 _Avoid_: Workspace Root, State Root, app checkout
 
+**Product Runtime Image**:
+由 Product Runtime Image Builder 从一个锁定身份的 Source 投影出的、经过完整验证并以 `runtime-image.ready` 提交的自包含 `.output`。它包含前端、Nitro/命令 bundle、Profile Authoring Kit、System Assets 和显式 package islands；正式运行不得回退读取 Installation Root 根 `node_modules` 或可变 Source。
+_Avoid_: Nuxt build output, product staging directory, copied node_modules
+
+**Product Runtime Contract**:
+Product Runtime Image 内 `server/runtime-contract.json` 声明的唯一逻辑命令与发布检查接口。Manager、Docker、Release、Portable 和稳定 Agent CLI 只解析逻辑 ID，不依赖 bundle 文件名或旧 `server/scripts` 路径。
+_Avoid_: command bundle filename, deployment script fallback, Product manifest
+
+**Profile Authoring Kit**:
+与一个 Product Runtime Image revision 绑定的 Profile 编译包根，包含 `nbook/profile-sdk`、编译 worker、声明投影和显式批准的 authoring 依赖。普通 Product 的 Profile 编译不得向上借用 Source Root 或根 `node_modules`。
+_Avoid_: root development dependencies, arbitrary npm environment, Product package islands
+
 **State Root**:
-用户状态的物理根目录。默认等于 Installation Root；Windows Portable 固定为 `Installation Root/data/`。Boot Config、Product Env、日志和 Workspace Root 都从这里解析。
+用户真相源的物理根目录。受管 Installed Windows 固定为 `%LOCALAPPDATA%/NeuroBook/data`，Windows Portable 固定为 `Installation Root/data/`；Boot Config、Product Env、日志、secrets 和 Workspace Root 都从这里解析，更新永不覆盖。
 _Avoid_: Workspace Root, source root
+
+**Cache Root**:
+NeuroBook 可删除、可重建数据的物理根。受管 Installed Windows 固定为 `%LOCALAPPDATA%/NeuroBook/cache`，Portable 固定为 `Installation Root/.cache/`；图片变体、llmlint detect cache、Bun install cache 和 Bash 完整输出分别由自己的 Module 管理预算。Bun cache 当前只有路径隔离，尚无受管 `bun install` 消费者；硬预算在该安装命令落地时执行，不把普通 Product 启动变成全盘扫描。
+_Avoid_: State Root, temporary directory, one global cache owner
+
+**Desktop Local Root**:
+Desktop Envelope 拥有的设备本地状态根；WebView Root 是其受管子路径。正常更新保留、内容备份排除，只有显式 desktop reset 或卸载删除；Product RuntimePaths 不消费该 root。
+_Avoid_: Cache Root, State Root, browser localStorage truth source
 
 **Windows Release Zip**:
 面向 Windows x64 用户的 GitHub Release 资产。解压目录就是 Installation Root，包内包含完整源码、`.output`、托管 Bun/rg/PortableGit/bash、版本化 Manager 和根启动入口；用户状态位于 `data/`。
@@ -36,24 +56,32 @@ _Avoid_: assets folder, user workspace
 一个具体内容项目的工作区，当前主要是单本小说。
 _Avoid_: workspace
 
-**Project Path**:
-公开 API 和运行时定位 Project Workspace 的稳定标识，固定为 `workspace/{project-slug}`。
-_Avoid_: projectId, novelId, database id
+**Project Root**:
+Project Workspace 在 Workspace Root 下的单段相对 root，例如 `ming-ding-zhi-shi-2`。公开 API 使用 `projectRoot`，不带 `workspace/` 前缀。
+_Avoid_: Project Path, projectId, novelId, database id
 
-**Agent Workspace Root Reference**:
-Agent session持久化的可迁移逻辑引用。managed Workspace Root使用`workspace`，user-assets使用`workspace/.nbook`；用户明确选择的外部Project Workspace可使用绝对路径。它不是文件系统cwd。
-_Avoid_: workspace cwd, State Root path, Installation Root path
+**Current Project**:
+Agent Session 或前端工作面当前绑定的 Project，由可选 `currentProjectRoot` 持久化。为空表示没有 Current Project；运行时 admission 必须把它解析成精确 ready Project handle。
+_Avoid_: workspaceKey, projectPath, route intent
 
-**Agent Workspace Filesystem Root**:
-每次Agent invocation根据当前State Root从Agent Workspace Root Reference解析出的绝对文件系统根。文件工具、bash、Plan Mode、World Engine临时文件和Agent文件历史只能使用该物理根。
-_Avoid_: session workspaceRoot, Project Path, persisted workspace path
+**Project Surface**:
+前端当前已完成 `open + presence_ready + bootstrap`、可以挂载 Project 数据面的工作面。切换 Project 时先释放旧 surface 和本标签页 presence，再打开目标；route intent、opening 和 reconnecting 都不是 Project Surface。
+_Avoid_: candidate handoff, route project, globally closed Project
+
+**Session Recovery**:
+Session schema v2 中因无法确定 Current Project 而需要用户确认的状态，只用 `migrationReview.reason = "current_project_unresolved"` 表达。它不表示历史工具参数需要重放，也不阻断其他 Session 或整个实例升级。
+_Avoid_: migration warning list, release-level manual migration
+
+**Runtime Workspace Root**:
+每次 Agent invocation 从当前 State Root 注入的绝对 Workspace Root。它不写入 Session metadata；`RunFrame` 与工具上下文只携带该绝对 root 和可选的 exact ready Project handle。
+_Avoid_: session workspaceRoot, persisted cwd, Installation Root
 
 **File Scope**:
-文件工具与bash在一次Agent invocation中共用的物理cwd。绑定Project Path时是当前Project Workspace；未绑定项目时是Workspace Root；user-assets时是Workspace Root `.nbook`；外部Project Workspace时是其绝对目录。
-_Avoid_: Agent cwd alias, persisted workspace path, Project Path
+文件工具与 bash 在一次 Agent invocation 中共用的物理 cwd。绑定 Current Project 时是该 Project Workspace；未绑定时是 Workspace Root。它只决定普通相对路径的解析基准，不是绝对路径权限边界，也不是持久化 identity。
+_Avoid_: WorkspaceRootRef, persisted workspace path, Project Path
 
 **Project File Address**:
-显式跨Project Workspace的文件地址，固定为`workspace/{project-slug}/{relative-path}`。它由Project Path Resolver解析，不是根据物理cwd或目录名猜测的兼容路径。
+显式跨 Project Workspace 的文件地址，固定为 `workspace/{project-root}/{relative-path}`。它经过 Project open gate并保留 History、Context Access 和变更记账身份；它是文件输入语法，不是 Session 持久化 identity。
 _Avoid_: project-slug relative alias, inferred project path
 
 **Project Manifest**:
@@ -75,6 +103,22 @@ _Avoid_: project content, source file, Project SQLite
 **Rebuildable Runtime Artifact**:
 NeuroBook 从源码、配置或发布真相源派生并持久化的运行文件，删除后可以重建且不会丢失用户内容，但必须有明确 owner、可达集合和硬容量预算。
 _Avoid_: user data, source asset, unbounded cache
+
+**Canonical Image**:
+由具体业务领域拥有、保持上传或快照时原始 bytes 的当前图片。Agent Attachment 的 canonical image 属于 Attachment Store；Project 封面属于 Project Workspace。它不等于派生缩略图，也不要求跨领域统一 ID。
+_Avoid_: media asset, thumbnail, transcoded original
+
+**Image Variant**:
+领域路由完成授权后，由共享 Image Variant Module 按规范化尺寸、fit 和 quality 从 Canonical Image 派生的固定 WebP。它只用于显示，不进入 Agent Provider、Project 内容或原图持久化。
+_Avoid_: canonical image, uploaded cover, provider image
+
+**Image Variant Cache**:
+位于 `Cache Root/image-variants/` 的有界可重建缓存；只有未显式配置 Cache Root 时，它才默认落在 `State Root/cache/image-variants/`。它不属于 Application State migration、Project Runtime Artifact、Project Workspace File Index、History 或下载归档。
+_Avoid_: media library, project asset, backup data
+
+**Application State Catalog**:
+由 Product 定义的有序持久状态迁移合同。Manager 只消费严格 JSON plan/apply/resume/rollback 报告并在候选 Product 健康后提交；历史 catalog parser 只存在于 migration Module，runtime 只接受 current complete sentinel。
+_Avoid_: application-version migration, Nitro auto migration, Manager-owned Session decoder
 
 **Published Profile Artifact**:
 由 Profile Publisher 发布、受 current manifest 引用的内容寻址不可变 Profile 编译产物，是 Profile 的运行真相而不是普通缓存。
@@ -228,7 +272,12 @@ _Avoid_: files-only panel, workspace switcher
 
 - **Workspace Root `.nbook`** belongs to exactly one **Workspace Root**.
 - An **Installation Root** owns Source, Product, Runtime and Deployment State components.
+- A **Product Runtime Image** belongs to one exact Source identity and platform; only its ready marker makes it publishable.
+- A **Product Runtime Contract** belongs to one Product Runtime Image; every executable consumer must resolve logical commands through it.
+- A **Profile Authoring Kit** belongs to one Product Runtime Image revision and is the only ordinary Product package root for Profile compilation.
 - A **State Root** belongs to one Installation Root and owns Boot Config、Product Env、logs and one logical Workspace Root.
+- A **Cache Root** belongs to one installation locator set, but each cache Module owns its own reachable set and hard budget.
+- A **Desktop Local Root** belongs to the Desktop Envelope; its WebView Root is not part of Product RuntimePaths or content backup.
 - A **Windows Release Zip** extracts directly into one **Installation Root**.
 - An **Owned Process** belongs to one runtime lease; terminating that lease must not affect another Owned Process or an external user process.
 - Agent Bash and the Windows Portable foreground Product are **Owned Process** consumers; their Agent Job and Installation state machines remain separate domain owners.

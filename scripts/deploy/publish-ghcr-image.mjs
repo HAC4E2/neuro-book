@@ -1,13 +1,15 @@
 #!/usr/bin/env bun
-import {spawn} from "node:child_process";
+import {execFile, spawn} from "node:child_process";
 import {readFile} from "node:fs/promises";
 import {resolve} from "node:path";
 import {pathToFileURL} from "node:url";
+import {promisify} from "node:util";
 import {Command} from "commander";
 import * as p from "@clack/prompts";
 
 const DEFAULT_APP_IMAGE = "ghcr.io/notnotype/neuro-book";
 const DEFAULT_RUNTIME_IMAGE = "ghcr.io/notnotype/neuro-book-runtime";
+const execFileAsync = promisify(execFile);
 
 const program = new Command()
     .name("publish-ghcr-image")
@@ -17,6 +19,7 @@ const program = new Command()
     .option("--runtime-image <name>", "Target runtime image name.", process.env.NEURO_BOOK_RUNTIME_IMAGE ?? DEFAULT_RUNTIME_IMAGE)
     .option("--tag <tag...>", "Image tag. Can be passed multiple times.")
     .option("--platform <platform>", "Docker build platform.", process.env.NEURO_BOOK_IMAGE_PLATFORM ?? "linux/amd64")
+    .option("--revision <sha>", "Source revision embedded in the Product Runtime Image.", process.env.NEURO_BOOK_SOURCE_REVISION)
     .option("--dry-run", "Print the docker buildx commands without running them.", false);
 
 /** 读取 package.json 版本，用于默认镜像 tag。 */
@@ -84,12 +87,47 @@ export function defaultImageTags(packageVersion) {
     return version.includes("-") ? [versionTag] : [versionTag, "latest"];
 }
 
+/** 校验并规范化传给Git-less Product Runtime Image Builder的Source revision。 */
+export function normalizeSourceRevision(value) {
+    const revision = String(value ?? "").trim().toLowerCase();
+    if (!/^[a-f0-9]{40,64}$/u.test(revision)) {
+        throw new Error(`Source revision无效：${revision || "<missing>"}`);
+    }
+    return revision;
+}
+
+/** 优先消费显式revision；本地发布默认只接受干净Git HEAD。 */
+export async function resolveSourceRevision(explicitRevision) {
+    if (explicitRevision?.trim()) {
+        return normalizeSourceRevision(explicitRevision);
+    }
+
+    try {
+        const [{stdout: revisionOutput}, {stdout: statusOutput}] = await Promise.all([
+            execFileAsync("git", ["rev-parse", "--verify", "HEAD"], {cwd: process.cwd(), encoding: "utf8", windowsHide: true}),
+            execFileAsync("git", ["status", "--porcelain=v1", "--untracked-files=all"], {cwd: process.cwd(), encoding: "utf8", windowsHide: true}),
+        ]);
+        if (statusOutput.trim()) {
+            throw new Error("本地Source存在未提交变更；请先提交，或从已验证的Source snapshot显式传入--revision。");
+        }
+        return normalizeSourceRevision(revisionOutput);
+    } catch (error) {
+        if (error instanceof Error && (error.message.includes("未提交变更") || error.message.includes("Source revision无效"))) {
+            throw error;
+        }
+        throw new Error("无法读取Source revision；请在Git checkout中运行，或显式传入--revision。", {cause: error});
+    }
+}
+
 /** 组装 docker buildx build --push 命令参数。 */
-function buildArgs({image, platform, tags, target}) {
+export function buildArgs({image, platform, tags, target, sourceRevision}) {
     const args = ["buildx", "build", "--platform", platform, "--push"];
 
     if (target) {
         args.push("--target", target);
+    }
+    if (sourceRevision) {
+        args.push("--build-arg", `NEURO_BOOK_SOURCE_REVISION=${normalizeSourceRevision(sourceRevision)}`);
     }
 
     for (const tag of tags) {
@@ -104,6 +142,7 @@ function buildArgs({image, platform, tags, target}) {
 async function main() {
     const options = program.opts();
     const tags = await resolveTags(options);
+    const sourceRevision = await resolveSourceRevision(options.revision);
     const {appImage, runtimeImage} = resolveImages(options);
     const commands = [
         {
@@ -121,6 +160,7 @@ async function main() {
                 image: appImage,
                 platform: options.platform,
                 tags,
+                sourceRevision,
             }),
         },
     ];

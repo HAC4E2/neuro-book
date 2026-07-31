@@ -3,31 +3,20 @@ import path from "node:path";
 import {createClient, type Client} from "@libsql/client";
 import {createError} from "h3";
 import * as yaml from "yaml";
-import {absoluteFsPath, assertRealPathContained, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {absoluteFsPath, assertRealPathContained, resolveContainedFilePath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {
-    normalizeProjectPath,
     resolveProjectWorkspaceRoot,
-    type ProjectPath,
-} from "nbook/server/workspace-files/project-path";
+    type ProjectWorkspaceRef,
+} from "nbook/server/workspace-files/project-identity";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 
-export const PROJECT_MANIFEST_FILE = "project.yaml";
+// manifest 读取与类型在 project-manifest.ts（纯模块，可进 profile artifact）；re-export 保持 API 不变。
+export {PROJECT_MANIFEST_FILE, readProjectManifest, readProjectManifestIssue, readProjectManifestIssueFromRoot, type ProjectManifest} from "nbook/server/workspace-files/project-manifest";
+import {PROJECT_MANIFEST_FILE, readProjectManifest, type ProjectManifest} from "nbook/server/workspace-files/project-manifest";
 export const PROJECT_DATABASE_RELATIVE_PATH = ".nbook/project.sqlite";
 export const PROJECT_CONFIG_RELATIVE_PATH = ".nbook/config.json";
 export const PROJECT_DELETED_MARKER_RELATIVE_PATH = ".nbook/deleted-project.json";
 const STORY_PLOT_BACKUP_RELATIVE_PATH = ".nbook/story-plot-backup.json";
-
-export type ProjectManifest = {
-    kind: "novel";
-    title: string;
-    summary: string;
-};
-
-export type ProjectListItem = ProjectManifest & {
-    projectPath: string;
-    updatedAt: string;
-    manifestError?: string;
-};
 
 const PROJECT_MIGRATION_SQL = `
 CREATE TABLE IF NOT EXISTS "ProjectMetadata" (
@@ -283,14 +272,13 @@ ON CONFLICT("key") DO UPDATE SET "value" = excluded."value", "updatedAt" = CURRE
 `;
 
 /**
- * 判断 Project Path 是否指向现有 Project Workspace 目录。不读取 project.yaml，用于文件修复链路。
+ * 判断 Project ref 是否指向现有 Project Workspace 目录。不读取 project.yaml，用于文件修复链路。
  */
 export async function assertProjectWorkspaceDirectory(
     workspaceRoot: AbsoluteFsPath,
-    projectPath: string,
-): Promise<ProjectPath> {
-    const normalizedProjectPath = normalizeProjectPath(projectPath);
-    const projectRoot = resolveProjectWorkspaceRoot(workspaceRoot, normalizedProjectPath);
+    ref: ProjectWorkspaceRef,
+): Promise<AbsoluteFsPath> {
+    const projectRoot = resolveContainedFilePath(workspaceRoot, ref.projectRoot);
     let stat: Awaited<ReturnType<typeof fs.lstat>>;
     try {
         stat = await fs.lstat(projectRoot);
@@ -304,31 +292,13 @@ export async function assertProjectWorkspaceDirectory(
         throw createError({statusCode: 400, message: "managed Project Workspace根不能是symlink或junction；请改用外部绝对Project Workspace"});
     }
     if (!stat.isDirectory()) {
-        throw createError({statusCode: 400, message: "projectPath 必须指向 Project Workspace 目录"});
+        throw createError({statusCode: 400, message: "projectRoot 必须指向 Project Workspace 目录"});
     }
     await assertRealPathContained(workspaceRoot, projectRoot);
     if (await isProjectRootDeleted(projectRoot)) {
         throw createError({statusCode: 404, message: "Project Workspace 已删除"});
     }
-    return normalizedProjectPath;
-}
-
-/**
- * 判断 Project Workspace 目录是否存在。包含已标记删除但尚未物理清理的目录。
- */
-export async function projectWorkspaceDirectoryExists(
-    workspaceRoot: AbsoluteFsPath,
-    projectPath: string,
-): Promise<boolean> {
-    try {
-        const stat = await fs.stat(resolveProjectWorkspaceRoot(workspaceRoot, normalizeProjectPath(projectPath)));
-        return stat.isDirectory();
-    } catch (error) {
-        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
-            return false;
-        }
-        throw error;
-    }
+    return projectRoot;
 }
 
 /**
@@ -336,60 +306,10 @@ export async function projectWorkspaceDirectoryExists(
  */
 export function resolveProjectDatabasePath(
     workspaceRoot: AbsoluteFsPath,
-    projectPath: string,
+    ref: ProjectWorkspaceRef,
 ): AbsoluteFsPath {
-    const projectRoot = resolveProjectWorkspaceRoot(workspaceRoot, normalizeProjectPath(projectPath));
+    const projectRoot = resolveProjectWorkspaceRoot(workspaceRoot, ref);
     return absoluteFsPath(path.join(projectRoot, PROJECT_DATABASE_RELATIVE_PATH));
-}
-
-/**
- * 读取 Project manifest。
- */
-export async function readProjectManifest(
-    workspaceRoot: AbsoluteFsPath,
-    projectPath: string,
-): Promise<ProjectManifest> {
-    const projectRoot = resolveProjectWorkspaceRoot(workspaceRoot, normalizeProjectPath(projectPath));
-    const manifestPath = path.join(projectRoot, PROJECT_MANIFEST_FILE);
-    const parsed = yaml.parse(await fs.readFile(manifestPath, "utf-8")) as Partial<ProjectManifest> | null;
-    if (!parsed || parsed.kind !== "novel" || typeof parsed.title !== "string") {
-        throw createError({statusCode: 400, message: `${projectPath}/${PROJECT_MANIFEST_FILE} 不是有效 Project manifest`});
-    }
-    return {
-        kind: "novel",
-        title: parsed.title,
-        summary: typeof parsed.summary === "string" ? parsed.summary : "",
-    };
-}
-
-/**
- * 安全读取 Project manifest。解析失败时返回错误文本，避免拖垮文件树和保存链路。
- */
-export async function readProjectManifestIssue(
-    workspaceRoot: AbsoluteFsPath,
-    projectPath: string,
-): Promise<string | null> {
-    const projectRoot = resolveProjectWorkspaceRoot(workspaceRoot, normalizeProjectPath(projectPath));
-    return readProjectManifestIssueFromRoot(projectRoot);
-}
-
-/**
- * 从 Project Workspace 根目录安全读取 manifest issue。root 已经由调用方完成定位。
- */
-export async function readProjectManifestIssueFromRoot(projectRoot: string): Promise<string | null> {
-    try {
-        const manifestPath = path.join(projectRoot, PROJECT_MANIFEST_FILE);
-        const parsed = yaml.parse(await fs.readFile(manifestPath, "utf-8")) as Partial<ProjectManifest> | null;
-        if (!parsed || parsed.kind !== "novel" || typeof parsed.title !== "string") {
-            return `${PROJECT_MANIFEST_FILE} 不是有效 Project manifest`;
-        }
-        return null;
-    } catch (error) {
-        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
-            return "Project Workspace 缺少 project.yaml";
-        }
-        return error instanceof Error ? error.message : "project.yaml 解析失败";
-    }
 }
 
 /**
@@ -397,57 +317,12 @@ export async function readProjectManifestIssueFromRoot(projectRoot: string): Pro
  */
 export async function writeProjectManifest(
     workspaceRoot: AbsoluteFsPath,
-    projectPath: string,
+    ref: ProjectWorkspaceRef,
     manifest: ProjectManifest,
 ): Promise<void> {
-    const projectRoot = resolveProjectWorkspaceRoot(workspaceRoot, normalizeProjectPath(projectPath));
+    const projectRoot = resolveProjectWorkspaceRoot(workspaceRoot, ref);
     await fs.mkdir(projectRoot, {recursive: true});
     await fs.writeFile(path.join(projectRoot, PROJECT_MANIFEST_FILE), yaml.stringify(manifest), "utf-8");
-}
-
-/**
- * 扫描 workspace 下一级 Project manifest。
- */
-export async function listProjectWorkspaces(workspaceRoot: AbsoluteFsPath): Promise<ProjectListItem[]> {
-    let entries: Array<import("node:fs").Dirent>;
-    try {
-        entries = await fs.readdir(workspaceRoot, {withFileTypes: true});
-    } catch (error) {
-        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
-            return [];
-        }
-        throw error;
-    }
-
-    const projects: ProjectListItem[] = [];
-    for (const entry of entries) {
-        if (!entry.isDirectory() || entry.name === ".nbook") {
-            continue;
-        }
-        if (await isProjectRootDeleted(path.join(workspaceRoot, entry.name))) {
-            continue;
-        }
-        const projectPath = path.posix.join("workspace", entry.name);
-        try {
-            const manifest = await readProjectManifest(workspaceRoot, projectPath);
-            const stat = await fs.stat(path.join(workspaceRoot, entry.name, PROJECT_MANIFEST_FILE));
-            projects.push({...manifest, projectPath, updatedAt: stat.mtime.toISOString()});
-        } catch (error) {
-            if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
-                continue;
-            }
-            const stat = await fs.stat(path.join(workspaceRoot, entry.name));
-            projects.push({
-                kind: "novel",
-                title: entry.name,
-                summary: "",
-                projectPath,
-                updatedAt: stat.mtime.toISOString(),
-                manifestError: error instanceof Error ? error.message : "project.yaml 解析失败",
-            });
-        }
-    }
-    return projects.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
 
 /**
@@ -470,9 +345,9 @@ export async function isProjectRootDeleted(projectRoot: string): Promise<boolean
  */
 export async function initProjectDatabase(
     workspaceRoot: AbsoluteFsPath,
-    projectPath: string,
+    ref: ProjectWorkspaceRef,
 ): Promise<string> {
-    const projectRoot = resolveProjectWorkspaceRoot(workspaceRoot, normalizeProjectPath(projectPath));
+    const projectRoot = resolveProjectWorkspaceRoot(workspaceRoot, ref);
     return initProjectDatabaseAtRoot(projectRoot);
 }
 

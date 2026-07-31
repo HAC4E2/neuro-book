@@ -28,9 +28,8 @@ export default defineConfig({
             "server/agent/test/setup.ts",
         ],
         include: [
-            "app/components/novel-ide/agent/**/*.test.ts",
-            "app/components/novel-ide/rag/**/*.test.ts",
-            "app/components/novel-ide/settings/**/*.test.ts",
+            "app/composables/**/*.test.ts",
+            "app/components/novel-ide/**/*.test.ts",
             "app/components/markdown-studio/**/*.test.ts",
             "app/components/profile-template-editor/**/*.test.ts",
             "app/stores/**/*.test.ts",

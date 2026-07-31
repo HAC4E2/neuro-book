@@ -26,7 +26,6 @@ import {
 import {parseMarkdownDocument} from "nbook/server/workspace-files/workspace-files";
 import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
-import {projectPathFromRef} from "nbook/server/workspace-files/project-path";
 import {currentSqliteRuntime, openSqliteHandle} from "nbook/server/rag/sqlite-handle-initialization";
 import {
     captureUserProjectFileWrite,
@@ -66,7 +65,7 @@ export type ProjectRagTarget = Readonly<{
 }>;
 
 type ProjectRagWorkspace = Readonly<{
-    projectPath: string;
+    projectRoot: string;
     root: AbsoluteFsPath;
 }>;
 
@@ -115,7 +114,7 @@ export async function readProjectRagOverview(target: ProjectRagTarget): Promise<
     const subjects = await listSubjectPaths(project.root);
     const summaries = await Promise.all(subjects.map((subjectPath) => readSubjectSummary(project, subjectPath)));
     return {
-        projectPath: project.projectPath,
+        projectRoot: project.projectRoot,
         subjects: summaries,
     };
 }
@@ -132,7 +131,7 @@ export async function readProjectRagSubject(target: ProjectRagTarget, subjectPat
         readSourceStatuses(project.root, subject.paths),
     ]);
     return {
-        projectPath: project.projectPath,
+        projectRoot: project.projectRoot,
         subjectPath: subject.subjectPath,
         subjectId: subject.subjectId,
         events: eventsResult.events.map((event, index) => ({
@@ -164,7 +163,7 @@ export async function searchProjectSubjectRag(target: ProjectRagTarget, input: P
         limit: input.limit ?? 10,
     });
     return {
-        projectPath: project.projectPath,
+        projectRoot: project.projectRoot,
         subjectPath: subject.subjectPath,
         candidates,
     };
@@ -201,7 +200,7 @@ export async function rebuildProjectSubjectRag(target: ProjectRagTarget, input: 
         }
     }
     return {
-        projectPath: project.projectPath,
+        projectRoot: project.projectRoot,
         rebuiltSubjects,
         skippedSubjects,
         results,
@@ -224,7 +223,7 @@ export async function readProjectRagInspector(target: ProjectRagTarget, input: P
         ? await readInspectorDbSnapshot(dbPath, selectedSubjectPath ? resolveSubject(project, selectedSubjectPath) : null, sourceFilter, limit)
         : createEmptyInspectorDbSnapshot();
     return {
-        projectPath: project.projectPath,
+        projectRoot: project.projectRoot,
         selectedSubjectPath,
         sourceFilter,
         limit,
@@ -263,7 +262,7 @@ export async function debugProjectRag(target: ProjectRagTarget, input: ProjectRa
             }
         }
         return {
-            projectPath: project.projectPath,
+            projectRoot: project.projectRoot,
             action: input.action,
             message: `已标记 ${String(subjectPaths.length)} 个 subject 的 ${sources.join(", ")} 待索引。`,
         };
@@ -273,7 +272,7 @@ export async function debugProjectRag(target: ProjectRagTarget, input: ProjectRa
         const subject = resolveSubject(project, input.subjectPath);
         const deleted = await deleteSubjectIndexRows(resolveRagDbPath(project.root), subject.paths.absolutePath);
         return {
-            projectPath: project.projectPath,
+            projectRoot: project.projectRoot,
             action: input.action,
             message: `已删除 ${subject.subjectId} 的 ${String(deleted)} 条索引缓存行。`,
         };
@@ -282,7 +281,7 @@ export async function debugProjectRag(target: ProjectRagTarget, input: ProjectRa
     if (input.action === "clear-index-cache") {
         await clearRagIndexCache(project.root);
         return {
-            projectPath: project.projectPath,
+            projectRoot: project.projectRoot,
             action: input.action,
             message: "已清空 RAG SQLite 缓存。索引不会自动恢复，请手动重建或执行搜索触发重建。",
         };
@@ -291,7 +290,7 @@ export async function debugProjectRag(target: ProjectRagTarget, input: ProjectRa
     await clearRagIndexCache(project.root);
     const rebuild = await rebuildProjectSubjectRag(target, {subjectPath: input.subjectPath});
     return {
-        projectPath: project.projectPath,
+        projectRoot: project.projectRoot,
         action: input.action,
         message: "已清空 RAG SQLite 缓存并执行重建。",
         rebuild,
@@ -459,10 +458,10 @@ function uniqueSources(sources: SubjectRagSourceType[]): SubjectRagSourceType[] 
     return RAG_SOURCES.filter((source) => sources.includes(source));
 }
 
-/** 从 HTTP seam 已捕获的 Project generation 投影旧公开 DTO 路径与物理根。 */
+/** 从 HTTP seam 已捕获的 Project generation 投影单段 root 与物理根。 */
 function projectWorkspace(target: ProjectRagTarget): ProjectRagWorkspace {
     return Object.freeze({
-        projectPath: projectPathFromRef(target.project.workspace.ref),
+        projectRoot: target.project.workspace.ref.projectRoot,
         root: target.project.workspace.root,
     });
 }

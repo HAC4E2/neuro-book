@@ -27,7 +27,6 @@ import {
     isProjectNotOpenError,
     ProjectNotOpenError,
 } from "nbook/server/workspace-files/project-session-service";
-import {normalizeProjectPath, projectSlug} from "nbook/server/workspace-files/project-path";
 import type {
     AgentProfileCompileAllRequestDto,
     AgentProfileCompileRequestDto,
@@ -61,10 +60,13 @@ type ProfileCompileEntryTask = {
 
 type CompileWorkerPaths = {
     entry: string;
-    runtime: string;
-    tsconfig: string;
-    tsxApiUrl: string;
-    tsxLoaderUrl: string;
+    /** Product 使用预编译 worker 时为空；Source Node worker 才需要 TS runtime。 */
+    runtime?: string;
+    /** Product 使用预编译 worker 时为空；Source Node worker 才需要 TS loader。 */
+    tsconfig?: string;
+    tsxApiUrl?: string;
+    tsxLoaderUrl?: string;
+    precompiled: boolean;
 };
 
 type CompileWorkerSlot = {
@@ -630,7 +632,7 @@ function throwLifecycleError(result: ProfileCompileWorkerResult): void {
         return;
     }
     if (result.lifecycleError.code === "PROJECT_NOT_OPEN") {
-        throw new ProjectNotOpenError(projectSlug(normalizeProjectPath(result.lifecycleError.projectPath)));
+        throw new ProjectNotOpenError(result.lifecycleError.projectRoot);
     }
 }
 
@@ -671,9 +673,12 @@ function withWorkerRoot<T extends AgentProfileCompileRequestDto | AgentProfileCo
 
 function createCompileWorker(): Worker {
     const workerPaths = resolveCompileWorkerPaths();
+    if (workerPaths.precompiled) {
+        return new Worker(pathToFileURL(workerPaths.entry));
+    }
     if (process.versions.bun) {
         return new Worker(pathToFileURL(workerPaths.entry), {
-            execArgv: ["--import", workerPaths.tsxLoaderUrl],
+            execArgv: ["--import", requiredWorkerPath(workerPaths.tsxLoaderUrl, "tsx loader")],
         });
     }
     return new Worker(renderNodeWorkerSource(workerPaths), {
@@ -694,16 +699,12 @@ function resolveCompileWorkerPaths(root = process.cwd()): CompileWorkerPaths {
  */
 export function resolveProfileCompileWorkerPathsForRoot(root: string): CompileWorkerPaths {
     const outputRoot = resolve(root, ".output", "server");
-    const outputEntry = resolve(outputRoot, "server", "agent", "profiles", "profile-compile-worker-entry.ts");
-    const outputRuntime = resolve(outputRoot, "server", "agent", "profiles", "profile-compile-worker-runtime.ts");
-    if (isProductRuntimeRoot(root) && existsSync(outputEntry) && existsSync(outputRuntime)) {
-        const tsxUrls = resolveTsxPackageUrls(resolve(outputRoot, "index.mjs"), true);
-        return {
-            entry: outputEntry,
-            runtime: outputRuntime,
-            tsconfig: resolvePreferredTsconfig(outputRoot),
-            ...tsxUrls,
-        };
+    const bundledEntry = resolve(outputRoot, "authoring", "profile-compile-worker.mjs");
+    if (isProductRuntimeRoot(root)) {
+        if (!existsSync(bundledEntry)) {
+            throw new Error("Product runtime 缺少预编译 Profile Authoring Kit worker，请重新构建或安装 Product Runtime Image。");
+        }
+        return {entry: bundledEntry, precompiled: true};
     }
 
     const entry = resolve(root, "server", "agent", "profiles", "profile-compile-worker-entry.ts");
@@ -715,6 +716,7 @@ export function resolveProfileCompileWorkerPathsForRoot(root: string): CompileWo
         entry,
         runtime,
         tsconfig: resolvePreferredTsconfig(root),
+        precompiled: false,
         ...resolveTsxPackageUrls(existsSync(resolve(root, "package.json")) ? resolve(root, "package.json") : entry, false),
     };
 }
@@ -787,6 +789,10 @@ function resolvePreferredTsconfig(root: string): string {
 }
 
 function renderNodeWorkerSource(paths: CompileWorkerPaths): string {
+    const entry = requiredWorkerPath(paths.entry, "entry");
+    const runtime = requiredWorkerPath(paths.runtime, "runtime");
+    const tsconfig = requiredWorkerPath(paths.tsconfig, "tsconfig");
+    const tsxApiUrl = requiredWorkerPath(paths.tsxApiUrl, "tsx API");
     return `
     import {parentPort} from "node:worker_threads";
     import {pathToFileURL} from "node:url";
@@ -795,10 +801,10 @@ function renderNodeWorkerSource(paths: CompileWorkerPaths): string {
         throw new Error("profile compile worker parentPort missing");
     }
 
-    const parentURL = pathToFileURL(${JSON.stringify(paths.entry)}).href;
-    const runtimeURL = pathToFileURL(${JSON.stringify(paths.runtime)}).href;
-    const tsconfig = ${JSON.stringify(paths.tsconfig)};
-    const {tsImport} = await import(${JSON.stringify(paths.tsxApiUrl)});
+    const parentURL = pathToFileURL(${JSON.stringify(entry)}).href;
+    const runtimeURL = pathToFileURL(${JSON.stringify(runtime)}).href;
+    const tsconfig = ${JSON.stringify(tsconfig)};
+    const {tsImport} = await import(${JSON.stringify(tsxApiUrl)});
     const {runProfileCompile, runProfileCompileAll, runProfileCompileEntry} = await tsImport(runtimeURL, {parentURL, tsconfig});
 
     parentPort.on("message", async (message) => {
@@ -813,4 +819,12 @@ function renderNodeWorkerSource(paths: CompileWorkerPaths): string {
         });
     });
 `;
+}
+
+/** 可选 Product/Source 路径在进入具体执行分支后必须完整。 */
+function requiredWorkerPath(value: string | undefined, label: string): string {
+    if (!value) {
+        throw new Error(`Profile compile worker 缺少 ${label}。`);
+    }
+    return value;
 }

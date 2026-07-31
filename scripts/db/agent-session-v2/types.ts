@@ -1,5 +1,6 @@
 import type {
     LegacySessionClassification,
+    SessionMigrationRecordedReviewReason,
     SessionMigrationReviewReason,
     SessionSchemaV2MigrationStats,
 } from "nbook/scripts/db/agent-session-v2/legacy-decoder";
@@ -44,7 +45,8 @@ export type SessionSchemaV2Plan = {
     profileKey: string;
     classification: LegacySessionClassification;
     currentProjectRoot?: string;
-    reviewReasons: SessionMigrationReviewReason[];
+    decoderFormat: 1 | 2;
+    reviewReasons: SessionMigrationRecordedReviewReason[];
     ambiguousLocations: string[];
     stats: SessionSchemaV2MigrationStats;
 };
@@ -56,7 +58,9 @@ export type SessionSchemaV2State = SessionMigrationFileState<SessionSchemaV2Stat
     classification: LegacySessionClassification;
     /** manifest 固定字段；Workspace Root/user-assets/external Session 为 null。 */
     currentProjectRoot: string | null;
-    reviewReasons: SessionMigrationReviewReason[];
+    reviewReasons: SessionMigrationRecordedReviewReason[];
+    /** 1表示历史 path-review decoder；2表示仅按Project归属写review。 */
+    decoderFormat: 1 | 2;
     ambiguousLocations: string[];
     migrationTimestamp: number;
     rewrittenPaths: number;
@@ -91,7 +95,7 @@ export type SessionSchemaV2Report = {
         sourcePath: string;
         classification: LegacySessionClassification;
         currentProjectRoot?: string;
-        reviewReasons: SessionMigrationReviewReason[];
+        reviewReasons: SessionMigrationRecordedReviewReason[];
         sourceHash: string;
         targetHash: string;
         status: SessionSchemaV2Status;

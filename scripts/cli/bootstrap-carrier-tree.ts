@@ -1,6 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import {plotFacade} from "nbook/server/plot";
+import {PROJECT_PLOT_WORLD_MODULE_TOKEN} from "nbook/server/plot";
+import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
+import {
+    activateReadyProjectModule,
+    closeProject,
+    openProject,
+} from "nbook/server/workspace-files/project-session";
 
 /**
  * 承载树 Bootstrap CLI。
@@ -13,25 +19,28 @@ import {plotFacade} from "nbook/server/plot";
  * 幂等:同 name 的 Act/Chapter 不重建,已有 chapter 指针的 Prose 不改写,可反复运行。
  *
  * 用法:
- *   bun scripts/cli/bootstrap-carrier-tree.ts workspace/ming-ding-zhi-shi-2
+ *   bun scripts/cli/bootstrap-carrier-tree.ts ming-ding-zhi-shi-2
  *   bun scripts/cli/bootstrap-carrier-tree.ts --all            # 扫描 workspace/ 下全部项目
  */
 async function main(): Promise<number> {
     const args = process.argv.slice(2);
-    const projectPaths = args.includes("--all")
+    const projectRoots = args.includes("--all")
         ? await collectWorkspaceProjects()
         : args.filter((arg) => !arg.startsWith("--"));
 
-    if (projectPaths.length === 0) {
-        console.log("用法: bun scripts/cli/bootstrap-carrier-tree.ts <workspace/project-slug ...> | --all");
+    if (projectRoots.length === 0) {
+        console.log("用法: bun scripts/cli/bootstrap-carrier-tree.ts <project-root ...> | --all");
         process.exit(1);
     }
 
     let hadError = false;
-    for (const projectPath of projectPaths) {
-        console.log(`\n▸ ${projectPath}`);
+    for (const projectRoot of projectRoots) {
+        console.log(`\n▸ ${projectRoot}`);
+        const ref = projectWorkspaceRef(projectRoot);
         try {
-            const result = await plotFacade.bootstrapCarrierTree(projectPath);
+            const ready = await openProject(ref, {kind: "job", source: "bootstrap-carrier-tree"});
+            const handle = await activateReadyProjectModule(ready, PROJECT_PLOT_WORLD_MODULE_TOKEN);
+            const result = await handle.plot.bootstrapCarrierTree();
             console.log(`  Act 新建 ${result.actsCreated}、Chapter 新建 ${result.chaptersCreated}、补卷归属 ${result.chaptersLinkedToAct}`);
             console.log(`  Prose frontmatter 写回 ${result.proseFrontmatterWritten.length} 处`);
             for (const written of result.proseFrontmatterWritten) {
@@ -44,7 +53,7 @@ async function main(): Promise<number> {
             hadError = true;
             console.error(`  ✗ 失败: ${error instanceof Error ? error.message : String(error)}`);
         } finally {
-            await plotFacade.closeProject(projectPath);
+            await closeProject(ref, "shutdown").catch(() => undefined);
         }
     }
     return hadError ? 1 : 0;
@@ -58,7 +67,7 @@ async function collectWorkspaceProjects(): Promise<string[]> {
     const entries = await fs.readdir(workspaceRoot, {withFileTypes: true}).catch(() => []);
     return entries
         .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
-        .map((entry) => `workspace/${entry.name}`)
+        .map((entry) => entry.name)
         .sort();
 }
 

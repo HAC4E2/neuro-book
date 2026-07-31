@@ -1,4 +1,3 @@
-import {spawn} from "node:child_process";
 import {copyFile} from "node:fs/promises";
 import {createConnection} from "node:net";
 import {dirname, join} from "node:path";
@@ -16,7 +15,6 @@ export async function assertNativeProductStopped(stateRoot: string): Promise<voi
         throw new Error(`NeuroBook 仍在监听 127.0.0.1:${port}；请先退出服务后再更新。`);
     }
 }
-
 export type ApplicationDatabaseBackup = {
     configuredUrl: string;
     databasePath: string;
@@ -60,62 +58,6 @@ export async function backupApplicationDatabase(
     }
 }
 
-/** 临时启动 Product，验证基础 HTTP 与版本接口后关闭进程。 */
-export async function verifyNativeProduct(root: string, stateRoot: string, bun: string, expectedVersion: string): Promise<void> {
-    const entry = join(root, ".output", "server", "index.mjs");
-    if (!await pathExists(entry)) throw new Error("Product 健康检查缺少 .output/server/index.mjs。" );
-    const port = await statePort(stateRoot);
-    const child = spawn(bun, [entry], {
-        cwd: root,
-        env: {
-            ...process.env,
-            ...await loadStateEnv(stateRoot),
-            HOST: "127.0.0.1",
-            PORT: String(port),
-            NUXT_PORT: String(port),
-            NODE_ENV: "production",
-            NEURO_BOOK_STATE_ROOT: stateRoot,
-            NEURO_BOOK_APPLICATION_ROOT: root,
-        },
-        stdio: "ignore",
-        windowsHide: true,
-    });
-    try {
-        const deadline = Date.now() + 120_000;
-        let lastError = "服务尚未响应";
-        let nextProgressAt = Date.now() + 10_000;
-        while (Date.now() < deadline) {
-            if (child.exitCode !== null) throw new Error(`Product 健康检查进程提前退出：${child.exitCode}`);
-            try {
-                const response = await fetch(`http://127.0.0.1:${port}/api/app/version`, {signal: AbortSignal.timeout(1_000)});
-                if (response.ok) {
-                    const value = await response.json() as {versionLabel?: string};
-                    const expected = expectedVersion.startsWith("v") ? expectedVersion : `v${expectedVersion}`;
-                    if (value.versionLabel !== expected) throw new Error(`Product 版本接口返回 ${value.versionLabel ?? "<missing>"}，期望 ${expected}。`);
-                    return;
-                }
-                lastError = `HTTP ${response.status}`;
-            } catch (error) {
-                lastError = error instanceof Error ? error.message : String(error);
-            }
-            if (Date.now() >= nextProgressAt) {
-                console.log(`Product健康检查仍在等待：${lastError}`);
-                nextProgressAt = Date.now() + 10_000;
-            }
-            await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
-        }
-        throw new Error(`Product HTTP 健康检查超时：${lastError}`);
-    } finally {
-        if (child.exitCode === null && child.signalCode === null) child.kill();
-        if (!await waitForProcessExit(child, 5_000)) {
-            child.kill("SIGKILL");
-            if (!await waitForProcessExit(child, 5_000)) {
-                throw new Error("Product 健康检查进程无法停止；请先结束该进程再重试更新。" );
-            }
-        }
-    }
-}
-
 /** 读取 State Root 端口。 */
 export async function statePort(stateRoot: string): Promise<number> {
     const env = await loadStateEnv(stateRoot);
@@ -135,20 +77,5 @@ async function portOpen(port: number): Promise<boolean> {
         socket.once("connect", () => finish(true));
         socket.once("timeout", () => finish(false));
         socket.once("error", () => finish(false));
-    });
-}
-
-/** 等待临时健康检查进程完全退出，确保其已释放Attachment runtime lease。 */
-async function waitForProcessExit(child: ReturnType<typeof spawn>, timeoutMs: number): Promise<boolean> {
-    if (child.exitCode !== null || child.signalCode !== null) return true;
-    return new Promise<boolean>((resolvePromise) => {
-        const finish = (exited: boolean): void => {
-            clearTimeout(timer);
-            child.off("exit", onExit);
-            resolvePromise(exited);
-        };
-        const onExit = (): void => finish(true);
-        const timer = setTimeout(() => finish(false), timeoutMs);
-        child.once("exit", onExit);
     });
 }

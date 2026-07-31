@@ -155,12 +155,4 @@ export const CONFIG_REGISTRY: ConfigItemMeta[] = [
         secret: false,
         description: "工作区文件历史（操作日志）配置。Global 持有总开关 enabled；retentionFullDays / keepDailyLastAfterWindow / autoAcceptEnabled / autoAcceptDays 可被 Project Config 覆盖。改动在项目下次 open 时生效。",
     },
-    {
-        key: "novelData",
-        scope: "global",
-        effect: "next-run",
-        merge: "deep-merge",
-        secret: false,
-        description: "novel-api 榜单服务（sibling 仓 ../novel-api）的 HTTP 地址。Agent 榜单选题工具 novel_rankings / novel_book_detail 读取该地址；Project Config 不能覆盖。",
-    },
 ];

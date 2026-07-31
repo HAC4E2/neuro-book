@@ -13,7 +13,8 @@ export {OwnedProcessError} from "#owned-process/types";
 
 /**
  * 启动NeuroBook拥有的进程树。
- * Windows在目标创建前建立Job Object；POSIX使用独立process group。
+ * Windows在目标创建前建立Job Object；POSIX监督器持有独立process group。
+ * 两个平台都在宿主IPC断开时收口目标树。
  */
 export function spawnOwnedProcess(spec: OwnedProcessSpec): OwnedProcessLease {
     return process.platform === "win32"

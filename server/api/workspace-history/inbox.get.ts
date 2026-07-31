@@ -1,6 +1,5 @@
 import {createError, getQuery} from "h3";
 import {withProjectHandlesOperation} from "nbook/server/workspace-files/project-open-guard";
-import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
 import {LOCAL_USER_ID} from "nbook/server/workspace-history/project-history";
 import {toWorkspaceHistoryInboxGroupDto} from "nbook/server/workspace-history/history-dto";
 import {workspaceHistoryInboxRevision} from "nbook/server/workspace-history/history-inbox";
@@ -12,11 +11,10 @@ import type {WorkspaceHistoryInboxDto} from "nbook/shared/dto/workspace-history.
  */
 export default defineEventHandler(async (event): Promise<WorkspaceHistoryInboxDto> => {
     const query = getQuery(event);
-    if (typeof query.projectPath !== "string" || !query.projectPath.trim()) {
-        throw createError({statusCode: 400, message: "projectPath 不能为空"});
+    if (typeof query.projectRoot !== "string" || !query.projectRoot.trim()) {
+        throw createError({statusCode: 400, message: "projectRoot 不能为空"});
     }
-    const projectPath = normalizeProjectPath(query.projectPath);
-    return withProjectHandlesOperation(projectPath, async (projectHandles) => {
+    return withProjectHandlesOperation(query.projectRoot, async (projectHandles) => {
         await projectHandles.history.waitForWarmup();
         const history = await projectHandles.history.history;
         if (!history) {

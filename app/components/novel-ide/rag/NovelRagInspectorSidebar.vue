@@ -2,7 +2,7 @@
 import type {ProjectRagSubjectSummaryDto} from "nbook/shared/dto/project-rag.dto";
 
 const props = defineProps<{
-    projectPath: string | null;
+    projectRoot: string | null;
     subjects: ProjectRagSubjectSummaryDto[];
     selectedSubjectPath: string;
     loading: boolean;
@@ -47,7 +47,7 @@ function statusLabel(subject: ProjectRagSubjectSummaryDto): string {
         </div>
 
         <div class="min-h-0 flex-1 overflow-auto p-2">
-            <div v-if="!props.projectPath" class="py-10 text-center text-[12px] text-[var(--text-muted)]">当前没有 Project Workspace。</div>
+            <div v-if="!props.projectRoot" class="py-10 text-center text-[12px] text-[var(--text-muted)]">当前没有 Project Workspace。</div>
             <div v-else-if="!loading && subjects.length === 0" class="py-10 text-center text-[12px] text-[var(--text-muted)]">当前 Project 暂无 subject RAG 数据。</div>
             <button
                 v-for="subject in subjects"

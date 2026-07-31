@@ -6,10 +6,8 @@ import {sumUsage} from "nbook/server/agent/messages/message-utils";
 export type CreateRunFrameInput = {
     invocationId?: RunFrame["invocationId"];
     sessionId: RunFrame["sessionId"];
-    workspaceKey: RunFrame["workspaceKey"];
-    workspaceRootRef: RunFrame["workspaceRootRef"];
-    workspaceFsRoot: RunFrame["workspaceFsRoot"];
-    projectPath?: RunFrame["projectPath"];
+    workspaceRoot: RunFrame["workspaceRoot"];
+    currentProject: RunFrame["currentProject"];
     systemPrompt: RunFrame["systemPrompt"];
     messages: RunFrame["messages"];
     promptPrefix?: RunFrame["promptPrefix"];
@@ -45,10 +43,8 @@ export function createRunFrame(input: CreateRunFrameInput): RunFrame {
     return {
         invocationId: input.invocationId,
         sessionId: input.sessionId,
-        workspaceKey: input.workspaceKey,
-        workspaceRootRef: input.workspaceRootRef,
-        workspaceFsRoot: input.workspaceFsRoot,
-        projectPath: input.projectPath,
+        workspaceRoot: input.workspaceRoot,
+        currentProject: input.currentProject,
         systemPrompt: input.systemPrompt,
         messages: input.messages.slice(),
         promptPrefix: input.promptPrefix,

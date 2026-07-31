@@ -1,3 +1,4 @@
+import {createError} from "h3";
 import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {
     isIgnoredProjectFileIndexPath,
@@ -104,7 +105,7 @@ export async function subscribeWorkspaceTreeIndex(
     return unsubscribe;
 }
 
-/** Project mutation 必须携带当前 generation handle，禁止按 projectPath/root 回查全局 entry。 */
+/** Project mutation 必须携带当前 generation handle，禁止按字符串 root 回查全局 entry。 */
 export function invalidateProjectWorkspaceIndexAfterMutation(
     target: ProjectWorkspaceTarget,
     fileIndex: ProjectFileIndexHandle,

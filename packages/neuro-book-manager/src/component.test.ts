@@ -1,12 +1,15 @@
 import {createHash} from "node:crypto";
-import {mkdir, mkdtemp, readFile, stat, writeFile} from "node:fs/promises";
+import {mkdir, mkdtemp, readFile, readdir, stat, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
-import {join} from "node:path";
+import {join, relative} from "node:path";
 import {zipSync, strToU8} from "fflate";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {rollbackProduct, rollbackReleaseSource, stageReleaseSource, switchReleaseSource} from "#manager/component";
+import {rollbackProduct, rollbackReleaseSource, stageReleaseProduct, stageReleaseSource, switchReleaseSource} from "#manager/component";
+import {buildTestRuntimeImage} from "#manager/fixtures/runtime-image";
 import {removePath} from "#manager/files";
+import {currentProductPlatform} from "#manager/platform";
+import type {VerifiedProductRuntimeImage} from "nbook/scripts/build/product-runtime-image-builder";
 
 const roots: string[] = [];
 
@@ -72,6 +75,34 @@ describe("Release Source component", () => {
 });
 
 describe("Product component rollback", () => {
+    it("下载后验证 Runtime Image identity 与 ready marker", async () => {
+        const root = await mkdtemp(join(tmpdir(), "manager-product-archive-"));
+        roots.push(root);
+        const revision = "b".repeat(40);
+        const platform = currentProductPlatform();
+        const archive = await productArchive(join(root, "fixture-source"), revision, platform);
+        const identity = {
+            imageId: archive.image.manifest.imageId,
+            sourceDigest: archive.image.manifest.sourceDigest,
+            lockfileSha256: archive.image.manifest.lockfileSha256,
+            builderContractVersion: archive.image.manifest.builderContractVersion,
+        };
+        const staged = await stageReleaseProduct({
+            staging: join(root, "staging"),
+            asset: {
+                ...dataAsset(archive.bytes),
+                ...identity,
+                platform,
+                sourceRevision: revision,
+            },
+            version: "1.0.0",
+            revision,
+        });
+
+        expect(staged.component).toMatchObject(identity);
+        expect(await readFile(join(staged.outputRoot, "runtime-image.ready"), "utf8")).toContain(identity.imageId);
+    });
+
     it("首次安装没有旧 Product 时删除已切换的新 Product", async () => {
         const root = await mkdtemp(join(tmpdir(), "manager-product-root-"));
         const backup = await mkdtemp(join(tmpdir(), "manager-product-backup-"));
@@ -106,4 +137,28 @@ function dataAsset(bytes: Uint8Array): {url: string; sha256: string; bytes: numb
         sha256: createHash("sha256").update(bytes).digest("hex"),
         bytes: bytes.byteLength,
     };
+}
+
+/** 把 Builder 生成的完整 Runtime Image 原样打包成 Product archive。 */
+async function productArchive(
+    sourceRoot: string,
+    revision: string,
+    platform: ReturnType<typeof currentProductPlatform>,
+): Promise<{bytes: Uint8Array; image: VerifiedProductRuntimeImage}> {
+    const image = await buildTestRuntimeImage({sourceRoot, version: "1.0.0", revision, platform});
+    const files: Record<string, Uint8Array> = {};
+    const visit = async (directory: string): Promise<void> => {
+        for (const entry of await readdir(directory, {withFileTypes: true})) {
+            const path = join(directory, entry.name);
+            if (entry.isDirectory()) {
+                await visit(path);
+                continue;
+            }
+            if (!entry.isFile()) throw new Error(`测试 Runtime Image 包含不受支持的文件：${path}`);
+            const archivePath = `.output/${relative(image.path, path).replaceAll("\\", "/")}`;
+            files[archivePath] = await readFile(path);
+        }
+    };
+    await visit(image.path);
+    return {bytes: zipSync(files), image};
 }

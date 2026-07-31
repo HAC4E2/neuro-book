@@ -88,7 +88,7 @@ import type {
 
 const props = defineProps<{
     modelValue: boolean;
-    projectPath: string;
+    projectRoot: string;
     projectTitle: string;
 }>();
 
@@ -229,7 +229,7 @@ const selectedSlice = computed(() => slices.value.find((slice) => slice.id === s
 const selectedSliceIndex = computed(() => selectedSlice.value ? slices.value.findIndex((slice) => slice.id === selectedSlice.value?.id) : -1);
 const subjectNameMap = computed(() => new Map(subjects.value.map((subject) => [subject.id, subject.name || subject.id])));
 const worldSubjectIdSet = computed(() => new Set(worldSubjects.value.map((subject) => subject.id)));
-const previewHref = computed(() => router.resolve(`/world-engine.preview?${new URLSearchParams({projectPath: props.projectPath}).toString()}`).href);
+const previewHref = computed(() => router.resolve(`/world-engine.preview?${new URLSearchParams({projectRoot: props.projectRoot}).toString()}`).href);
 const issueTriageMap = computed(() => {
     const map = new Map<string, WorldWorkbenchPreviewIssueStatus>();
     for (const item of issueTriageStates.value) {
@@ -393,7 +393,7 @@ function mergeKnownSliceTimes(sourceSlices: WorldWorkbenchPreviewSlice[]): void 
 
 /** 读取当前 Project 的真实 World Engine 数据。 */
 async function loadWorld(options: LoadWorldOptions = {}): Promise<void> {
-    if (!props.projectPath) {
+    if (!props.projectRoot) {
         resetWorkbenchSessionState();
         setWorkbenchError("当前没有 Project Workspace。");
         return;
@@ -475,7 +475,7 @@ async function refreshWorldForCurrentTimeline(options: LoadWorldOptions = {}): P
 
 /** 只刷新 timeline slices，用于 subject 过滤后的真实时间线查询。 */
 async function reloadTimelineForCurrentSubjectFilter(options: LoadWorldOptions = {}): Promise<void> {
-    if (!props.modelValue || !props.projectPath || loading.value) {
+    if (!props.modelValue || !props.projectRoot || loading.value) {
         return;
     }
     const requestId = ++timelineRequestId;
@@ -520,7 +520,7 @@ async function loadSelectedSliceSnapshots(): Promise<void> {
     fullSnapshotSubjects.value = null;
     fullSnapshotIssues.value = null;
     fullSnapshotError.value = "";
-    if (!slice || !props.projectPath) {
+    if (!slice || !props.projectRoot) {
         snapshotSubjects.value = [];
         previousSnapshotSubjects.value = [];
         snapshotIssues.value = [];
@@ -584,7 +584,7 @@ async function loadSliceDetailForSnapshot(slice: WorldWorkbenchPreviewSlice): Pr
 /** 按需读取当前 slice 的完整世界状态。 */
 async function loadFullSnapshot(): Promise<void> {
     const slice = selectedSlice.value;
-    if (!slice || !props.projectPath || fullSnapshotLoading.value) {
+    if (!slice || !props.projectRoot || fullSnapshotLoading.value) {
         return;
     }
     const requestId = ++fullSnapshotRequestId;
@@ -730,7 +730,7 @@ async function createWorldSubject(): Promise<void> {
     if (blockWorkbenchActionBusy("World Engine 工作台正在同步，请稍候再创建 world subject。")) {
         return;
     }
-    if (!props.projectPath || !schema.value) {
+    if (!props.projectRoot || !schema.value) {
         setWorkbenchError("Schema 未加载，无法创建 world subject。");
         return;
     }
@@ -1737,8 +1737,8 @@ function resetWorkbenchSessionState(): void {
     resetVersion.value += 1;
 }
 
-function projectQuery(): {projectPath: string} {
-    return {projectPath: props.projectPath};
+function projectQuery(): {projectRoot: string} {
+    return {projectRoot: props.projectRoot};
 }
 
 function sliceSubjectFilterQuery(): {subjectIds?: string; subjectMode?: WorldWorkbenchPreviewSubjectFilterMode} {
@@ -1793,7 +1793,7 @@ watch(() => props.modelValue, (visible) => {
     }
 });
 
-watch(() => props.projectPath, () => {
+watch(() => props.projectRoot, () => {
     resetWorkbenchSessionState();
     if (props.modelValue) {
         void loadWorld();
@@ -1849,7 +1849,7 @@ watch(() => reviewQueueItems.value.map((item) => item.key).join("\u0000"), clear
                 <div class="min-w-0">
                     <div class="text-[16px] font-semibold text-[var(--text-main)]">World Engine Workbench</div>
                     <div class="flex min-w-0 items-center gap-2 truncate text-[12px] text-[var(--text-muted)]">
-                        <span class="truncate">{{ props.projectTitle || props.projectPath || "未选择 Project" }}</span>
+                        <span class="truncate">{{ props.projectTitle || props.projectRoot || "未选择 Project" }}</span>
                         <span v-if="workbenchSchema.calendar.format" class="hidden rounded-md border border-[var(--border-color)] px-1.5 py-0.5 text-[10px] md:inline">{{ workbenchSchema.calendar.format }}</span>
                         <span class="hidden truncate lg:inline">{{ worldViewLabel }}</span>
                     </div>
@@ -1930,7 +1930,7 @@ watch(() => reviewQueueItems.value.map((item) => item.key).join("\u0000"), clear
                     <WorldEngineMutationEditor
                         ref="sliceComposerEditorRef"
                         :key="sliceComposerEditorKey"
-                        :project-path="props.projectPath"
+                        :project-root="props.projectRoot"
                         :schema="schema"
                         :subjects="worldSubjects"
                         :selected-subject-id="sliceComposerSubjectId"
@@ -1999,7 +1999,7 @@ watch(() => reviewQueueItems.value.map((item) => item.key).join("\u0000"), clear
                         <details class="rounded-md border border-[var(--we-border)] bg-[var(--we-bg-panel)]" :open="subjectCreatorOpen" @toggle="updateSubjectCreatorOpen">
                             <summary class="cursor-pointer px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--we-text-secondary)]">创建 Subject</summary>
                             <WorldEngineSubjectCreator
-                                :project-path="props.projectPath"
+                                :project-root="props.projectRoot"
                                 :schema="schema"
                                 :busy="workbenchActionBusy"
                                 @created="void handleSubjectCreated($event)"

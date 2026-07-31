@@ -373,7 +373,7 @@ watch(modelEditDialogOpen, (open) => {
         editingModel.value = null;
     }
 });
-watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.projectPath] as const, () => void loadSettings());
+watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.projectRoot] as const, () => void loadSettings());
 onMounted(() => void loadSettings());
 onBeforeUnmount(() => checkSession.reset());
 

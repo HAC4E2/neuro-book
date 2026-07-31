@@ -2,8 +2,11 @@ import {lstat, mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {dirname} from "node:path";
 import {createPatch} from "diff";
 import {firstChangedLine} from "nbook/server/agent/tools/file-tool-utils";
-import type {FileScope, ResolvedFileAddress} from "nbook/server/workspace-files/file-scope";
-import {authorizeFileOperation} from "nbook/server/workspace-files/authorized-file-operation";
+import {
+    authorizeFileOperation,
+    type FileOperationContext,
+    type ResolvedFileTarget,
+} from "nbook/server/workspace-files/authorized-file-operation";
 
 type AddOperation = {
     type: "add";
@@ -33,7 +36,7 @@ type PatchChunk = {
 
 type VirtualFileState = {
     displayPath: string;
-    address: ResolvedFileAddress;
+    target: ResolvedFileTarget;
     absolutePath: string;
     content: string | null;
     original: string;
@@ -42,7 +45,7 @@ type VirtualFileState = {
 
 export type PlannedFileChange = {
     displayPath: string;
-    address: ResolvedFileAddress;
+    target: ResolvedFileTarget;
     absolutePath: string;
     action: "add" | "update" | "delete";
     original: string;
@@ -140,31 +143,31 @@ export function extractPatchTargetPaths(patchText: string): string[] {
  * 以 all-or-nothing 方式应用 Codex 风格 patch。
  */
 export function applyCodexPatch(input: {
-    fileScope: FileScope;
+    context: FileOperationContext;
     patchText: string;
     captureChange?: undefined;
 }): Promise<ApplyCodexPatchResult<undefined>>;
 export function applyCodexPatch<TCapture>(input: {
-    fileScope: FileScope;
+    context: FileOperationContext;
     patchText: string;
     /** 在事务规划完成、任何文件写入前捕获每个 change 的领域上下文。 */
     captureChange: (change: PlannedFileChange) => TCapture;
 }): Promise<ApplyCodexPatchResult<TCapture>>;
 export async function applyCodexPatch<TCapture>(input: {
-    fileScope: FileScope;
+    context: FileOperationContext;
     patchText: string;
     captureChange?: (change: PlannedFileChange) => TCapture;
 }): Promise<ApplyCodexPatchResult<TCapture | undefined>> {
     const operations = parseCodexPatch(input.patchText);
-    const authorizedAddresses = new Map<string, ResolvedFileAddress>();
+    const authorizedTargets = new Map<string, ResolvedFileTarget>();
     for (const operation of operations) {
         const paths = operation.type === "update" && operation.moveTo
             ? [operation.path, operation.moveTo]
             : [operation.path];
         for (const patchPath of paths) {
-            if (!authorizedAddresses.has(patchPath)) {
-                const authorized = await authorizeFileOperation(input.fileScope, patchPath, "apply_patch");
-                authorizedAddresses.set(patchPath, authorized.address);
+            if (!authorizedTargets.has(patchPath)) {
+                const authorized = await authorizeFileOperation(input.context, patchPath, "apply_patch");
+                authorizedTargets.set(patchPath, authorized.target);
             }
         }
     }
@@ -173,7 +176,7 @@ export async function applyCodexPatch<TCapture>(input: {
 
     for (const operation of operations) {
         if (operation.type === "add") {
-            const target = await readVirtualFile(fileState, authorizedPatchAddress(authorizedAddresses, operation.path), operation.path);
+            const target = await readVirtualFile(fileState, authorizedPatchTarget(authorizedTargets, operation.path), operation.path);
             if (target.exists && target.content !== null) {
                 throw new Error(`文件已存在，不能 Add File：${operation.path}`);
             }
@@ -185,7 +188,7 @@ export async function applyCodexPatch<TCapture>(input: {
             });
             changes.set(target.absolutePath, {
                 displayPath: operation.path,
-                address: target.address,
+                target: target.target,
                 absolutePath: target.absolutePath,
                 action: "add",
                 original: target.original,
@@ -196,7 +199,7 @@ export async function applyCodexPatch<TCapture>(input: {
         }
 
         if (operation.type === "delete") {
-            const target = await readVirtualFile(fileState, authorizedPatchAddress(authorizedAddresses, operation.path), operation.path);
+            const target = await readVirtualFile(fileState, authorizedPatchTarget(authorizedTargets, operation.path), operation.path);
             await assertPatchTargetIsFile(target.absolutePath, operation.path);
             fileState.set(target.absolutePath, {
                 ...target,
@@ -205,7 +208,7 @@ export async function applyCodexPatch<TCapture>(input: {
             });
             changes.set(target.absolutePath, {
                 displayPath: operation.path,
-                address: target.address,
+                target: target.target,
                 absolutePath: target.absolutePath,
                 action: "delete",
                 original: target.original,
@@ -215,7 +218,7 @@ export async function applyCodexPatch<TCapture>(input: {
             continue;
         }
 
-        const source = await readVirtualFile(fileState, authorizedPatchAddress(authorizedAddresses, operation.path), operation.path);
+        const source = await readVirtualFile(fileState, authorizedPatchTarget(authorizedTargets, operation.path), operation.path);
         await assertPatchTargetIsFile(source.absolutePath, operation.path);
         if (source.content === null) {
             throw new Error(`无法更新已删除文件：${operation.path}`);
@@ -223,7 +226,7 @@ export async function applyCodexPatch<TCapture>(input: {
         const updated = applyUpdateChunks(source.content, operation);
         const sourceChange: PlannedFileChange = {
             displayPath: operation.path,
-            address: source.address,
+            target: source.target,
             absolutePath: source.absolutePath,
             action: operation.moveTo ? "delete" : "update",
             original: source.original,
@@ -232,7 +235,7 @@ export async function applyCodexPatch<TCapture>(input: {
         };
         if (operation.moveTo) {
             const targetPath = operation.moveTo;
-            const target = await readVirtualFile(fileState, authorizedPatchAddress(authorizedAddresses, targetPath), targetPath);
+            const target = await readVirtualFile(fileState, authorizedPatchTarget(authorizedTargets, targetPath), targetPath);
             fileState.set(source.absolutePath, {
                 ...source,
                 content: null,
@@ -246,7 +249,7 @@ export async function applyCodexPatch<TCapture>(input: {
             changes.set(source.absolutePath, sourceChange);
             changes.set(target.absolutePath, {
                 displayPath: targetPath,
-                address: target.address,
+                target: target.target,
                 absolutePath: target.absolutePath,
                 action: target.original ? "update" : "add",
                 original: target.original,
@@ -386,10 +389,10 @@ function isPatchBoundary(line: string): boolean {
 
 async function readVirtualFile(
     fileState: Map<string, VirtualFileState>,
-    address: ResolvedFileAddress,
+    target: ResolvedFileTarget,
     displayPath: string,
 ): Promise<VirtualFileState> {
-    const absolutePath = address.absolutePath;
+    const absolutePath = target.absolutePath;
     const existing = fileState.get(absolutePath);
     if (existing) {
         return existing;
@@ -407,7 +410,7 @@ async function readVirtualFile(
     });
     return {
         displayPath,
-        address,
+        target,
         absolutePath,
         content: original,
         original,
@@ -444,12 +447,12 @@ async function rollbackPlannedChanges(plannedChanges: PlannedFileChange[]): Prom
 }
 
 /** 读取预授权地址；缺失表示调用方破坏了“全部授权后再读写”的事务边界。 */
-function authorizedPatchAddress(addresses: Map<string, ResolvedFileAddress>, displayPath: string): ResolvedFileAddress {
-    const address = addresses.get(displayPath);
-    if (!address) {
+function authorizedPatchTarget(targets: Map<string, ResolvedFileTarget>, displayPath: string): ResolvedFileTarget {
+    const target = targets.get(displayPath);
+    if (!target) {
         throw new Error(`apply_patch 缺少预授权地址：${displayPath}`);
     }
-    return address;
+    return target;
 }
 
 async function assertPatchTargetIsFile(absolutePath: string, displayPath: string): Promise<void> {

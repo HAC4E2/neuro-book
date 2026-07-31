@@ -1,5 +1,7 @@
 # NeuroBook Workshop（创意工坊平台）
 
+> 2026-07-29 协议更新：本文保留第一版整数版本与 `nbook-package.json` 的历史过程；当前发布真相源已改为 [Agent Asset Package Protocol](../../../reference/agent/agent-asset-package.md)，安装身份见 [ADR 0011](../../adr/0011-agent-asset-install-identity.md)。现行站点支持 Skill / Workflow / Profile、根 `package.json` 和 SemVer；站点 AST 检查不是安全沙箱，客户端安装/更新和第三方 Workflow 隔离仍是后续任务。
+
 ## Relative documents refs
 
 - [../../README.md](../../README.md)：NeuroBook 文档入口。
@@ -7,6 +9,8 @@
 - [../85-fullstack-template-ui-library/README.md](../85-fullstack-template-ui-library/README.md)：`nb-fullstack-template` / `nb-ui`，Workshop 的工程基座。
 - [../84-llmlint-standalone-repo/README.md](../84-llmlint-standalone-repo/README.md)：sibling 仓协作模式先例。
 - [../../../reference/workspace/TERMS.md](../../../reference/workspace/TERMS.md)：Workspace 术语；Workshop 资产的最终安装目标是 Workspace Root `.nbook`。
+- [../../../reference/agent/agent-asset-package.md](../../../reference/agent/agent-asset-package.md)：现行统一发布包、SemVer、三类入口与旧包迁移合同。
+- [../../adr/0011-agent-asset-install-identity.md](../../adr/0011-agent-asset-install-identity.md)：`package.json.name` 是唯一安装身份；Profile 点分 key 不再是待定冲突。
 
 ## User Request / Topic
 
@@ -211,6 +215,7 @@ admin：
 
 ## Implementation Walkthrough
 
+- 2026-07-29：Task 01 系统性收口覆盖旧结论：Skill / Workflow 安装身份使用 kebab-case，Profile 保留点分 key，三类都只以 `package.json.name` 为安装身份；不新增 alias。首版改为不可公开草稿加原子版本提交，旧包迁移增加确定性 sidecar、只读 preflight、启动 guard 与 readiness。本文后续 2026-07-05 记录继续作为历史过程，不再作为现行协议。
 - 2026-07-05：需求讨论与设计定稿，本文档落档。代码未开始。
 - 2026-07-05：设计审查查漏补缺。安全面补 zip bomb（解压总大小 / 条目数上限）、symlink 条目拒绝、markdown sanitize、登录防爆破；数据面补 `WorkshopItem.name` 入库（安装名一等字段）、status 升三态（published / unlisted / removed）、非首版 manifest type/name 一致性校验、version 真相源理由；产品面补 profile 依赖 skill 的 description 约定、种子内容策略、Phase 2 安装同名冲突语义；验收面补 profile round-trip 与新增拒绝用例；新增"已知局限"小节（刷量 / minAppVersion 手填 / tag 分裂 / slug 抢注）。
 - 2026-07-05：二轮范围调整（用户决策）。① 资产格式按仓库实物确认并写入文档：skill = `agent/skills/<name>/` 目录（SKILL.md frontmatter name/description/when_to_use + 附属，轻至单文件重至 llmlint 完整 runtime package）；profile = `profiles/builtin/<key>.profile.tsx` + 可选 `<key>.home/`，DSL import `nbook/server/...` 内部 API 强耦合 NeuroBook 版本，用户层落点 `workspace/.nbook/agent/profiles|skills/`，`profileManifest.version` 与 Workshop version 独立。② 第一版完全信任用户：全部安全防线（zip slip / bomb / symlink / sanitize / 频率 / 防爆破 / 计数去重）从实现范围移除，改为 TODO 安全债清单，按"公网开放前 / Phase 2 客户端安装前"两个门回补；上传只保留数据正确性校验。③ 文件存储确认本地磁盘并配置化：`WORKSHOP_FILES_DIR`（默认 `./data/files`）。④ 社区功能扩充：新增评论（扁平一级、纯文本、软删、admin 兜底）、收藏（Favorite 表 + `/me` 列表）、作者公开页（`/users/:username`），点赞保留并与收藏分工。
@@ -252,20 +257,21 @@ admin：
 - [x] 创建 sibling 仓 `nb-workshop`（从 `nb-fullstack-template` 派生），实现第一版**后端**（2026-07-05 完成，见 Implementation Walkthrough）。
 - [x] Workshop Web 页面 UI（列表 / 详情 / 上传 / `/me` / admin 面板，见 Design 的 Web 页面节）：2026-07-06 完成，全量页面一次做完，已补后端 `GET /api/v1/me/items`（见 Implementation Walkthrough / Verification 与 nb-workshop `docs/tasks/web-ui/README.md`）。
 - [x] 友好上传改造（在线编辑 / 单文件 / 目录压缩包，平台生成 manifest + 自增 version，保留完整包高级模式）：2026-07-06 完成，后端零改动，测试 41→50（见 Implementation Walkthrough）。
-- [ ] 上线前完成 ToS 文案：上传即授权平台分发、下架权、内容免责，以及**下载内容的使用许可口径**（下载者能拿这些内容做什么，第一版在 ToS 统一约定，不做逐条目 license 字段）。
-- [ ] 上线前确定备份方案：SQLite 与文件目录同 volume，定期快照或 litestream 类流式备份——社区内容丢了不可重建，这条是上线硬前置。
+- [ ] 对外发放邀请码前完成 ToS 文案：上传即授权平台分发、下架权、内容免责，以及**下载内容的使用许可口径**（下载者能拿这些内容做什么，第一版在 ToS 统一约定，不做逐条目 license 字段）。Task 128 的 owner-only 私有内测不自动开放此 Gate。
+- [ ] 对外发放邀请码前完成官方站异地备份：数据库与文件必须来自同一停写窗口或可证明一致的快照，并完成异机恢复。Task 128 按用户决策暂不做 DMIT → arch 站点备份，只接受 owner-only 内测；DMIT 整盘丢失风险不能带入公开邀请。
 - [ ] 实现时：分页返回结构对齐 NeuroBook 的 `Page` 惯例（Task 73），降低 Phase 2 客户端接入的心智成本。
 - [ ] Phase 2：NeuroBook 客户端安装闭环（另立任务，含 installed.json、代码档警示、安装路径约定、同名冲突语义、user-assets sync 第三来源、manifest `requires` 依赖字段评估）。
 - [ ] Phase 2+：PAT / API token、更新检查接口（如 `batch-latest`）、更多资产类型（lorebook / 角色卡 / project 模板 / World Engine schema）按需评估。
 
 ### 安全债清单（第一版明确不做；按两个门分批回补）
 
-**门 A：公网开放前必须回补**（当前灰度邀请码 + 小圈子期间豁免）：
+**门 A：对外发放邀请码前全部回补**。Task 128 的真实 DMIT 私有内测会提前完成其中会威胁主机可用性的上传大小、zip bomb、解析库与上传/评论限频；其余项仍留在 Public Invite Gate。checkbox 保持未完成，直到代码与拒绝用例落地：
 
 - [ ] 上传大小上限（multipart 层，默认建议 20MB）——否则任意大文件直接打满磁盘。
 - [ ] zip bomb 解压防护：解压后总大小上限（建议 100MB）+ 条目数上限（建议 500）——服务端解析 manifest 必须解包，缺这层平台自己先被炸。
-- [ ] markdown sanitize：详情页 description 渲染禁 raw HTML / script / `javascript:` 链接——存储型 XSS，所有访客受影响。
-- [ ] 登录防爆破（按用户名 + IP 失败次数限制）与上传 / 评论频率限制。
+- [x] markdown sanitize：详情页 description 已使用 marked + DOMPurify，外链强制安全属性。
+- [x] 登录防爆破（Task 119 已完成）。
+- [ ] 上传 / 评论频率限制由 Task 128 接管。
 - [ ] 下载计数去重（防刷量，IP + 条目窗口级即可）。
 - [ ] zip 解析库选型复核 symlink 识别与流式大小控制能力（做防护时的前置调研）。
 

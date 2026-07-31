@@ -25,7 +25,7 @@ export async function createAppLogsZipStream(directory = resolveAppLogDirectory(
     for (const file of files) {
         zipFile.addFile(file.path, `logs/${file.name}`);
     }
-    (zipFile as ZipFileWithBuffer).addBuffer(Buffer.from(`${JSON.stringify(await buildManifest(directory, files), null, 4)}\n`, "utf8"), "manifest.json");
+    (zipFile as ZipFileWithBuffer).addBuffer(Buffer.from(`${JSON.stringify(await buildManifest(files), null, 4)}\n`, "utf8"), "manifest.json");
     zipFile.end();
 
     return {
@@ -35,11 +35,9 @@ export async function createAppLogsZipStream(directory = resolveAppLogDirectory(
     };
 }
 
-async function buildManifest(directory: string, files: AppLogFileSummary[]): Promise<Record<string, unknown>> {
+async function buildManifest(files: AppLogFileSummary[]): Promise<Record<string, unknown>> {
     return {
         createdAt: new Date().toISOString(),
-        logDirectory: directory,
-        cwd: process.cwd(),
         platform: process.platform,
         arch: process.arch,
         nodeVersion: process.version,

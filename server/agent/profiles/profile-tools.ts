@@ -81,11 +81,6 @@ export const builtin = {
         get: registeredTool("get_job"),
         cancel: registeredTool("cancel_job"),
     },
-    novelData: {
-        // novel-api 榜单选题只读工具：查缓存榜单快照 / 书籍详情
-        rankings: registeredTool("novel_rankings"),
-        bookDetail: registeredTool("novel_book_detail"),
-    },
     subject: {
         ragSearch: registeredTool("subject_rag_search"),
         eventAppend: registeredTool("subject_event_append"),

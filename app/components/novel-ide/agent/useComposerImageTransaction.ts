@@ -17,6 +17,7 @@ import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {AGENT_IMAGE_POLICY} from "nbook/shared/agent/agent-image-policy";
 import {attachmentIdFromMarkdownTarget, parseAgentImageMarkdown} from "nbook/shared/agent/agent-image-markdown";
 import {completeProjectFileAddress} from "nbook/app/components/novel-ide/agent/agent-composer-reference";
+import {canonicalImageMime, isUnspecifiedImageMime} from "nbook/shared/media/raster-image";
 
 /** 图片 transaction 操作的最小编辑器端口；主 Composer 与历史编辑器共用。 */
 export type ComposerImageEditorPort = {
@@ -50,7 +51,9 @@ export type ComposerImageTransactionOptions = {
     canRegister: () => boolean;
     canInsert: () => boolean;
     blockedReason: () => string;
-    projectPath: () => string | null;
+    /** 非图片 Attachment 从其它入口传入时显示的本地化提示。 */
+    unsupportedAttachmentMessage: () => string;
+    projectRoot: () => string | null;
     onAttachmentRegistered?: (item: AgentSessionAttachmentItemDto) => void;
 };
 
@@ -110,7 +113,9 @@ export function useComposerImageTransaction(options: ComposerImageTransactionOpt
             notifyBlocked();
             return;
         }
-        const files = payload.files.filter((file) => ["image/png", "image/jpeg", "image/gif", "image/webp"].includes(file.type.toLowerCase()));
+        const files = payload.files.filter((file) => (
+            isUnspecifiedImageMime(file.type) || canonicalImageMime(file.type) !== null
+        ));
         if (files.length !== payload.files.length) {
             notification.warning("仅支持 PNG、JPEG、GIF 和 WebP 图片。", {title: "图片格式不支持"});
             return;
@@ -169,6 +174,10 @@ export function useComposerImageTransaction(options: ComposerImageTransactionOpt
 
     /** Session 面板重新插入稳定附件，不产生新的登记 entry。 */
     function insertAttachment(item: AgentSessionAttachmentItemDto, position?: number): void {
+        if (!canonicalImageMime(item.attachment.mimeType)) {
+            notification.warning(options.unsupportedAttachmentMessage());
+            return;
+        }
         if (!canInsert.value) {
             notifyBlocked();
             return;
@@ -453,7 +462,7 @@ export function useComposerImageTransaction(options: ComposerImageTransactionOpt
     /** Project 图片引用改为 snapshot action；非图片仍只规范化 Project File Address。 */
     function normalizeReferenceItem(item: AgentTriggerMenuItem): AgentTriggerMenuItem {
         if (!item.workspaceReference) return item;
-        const target = completeProjectFileAddress(item.workspaceReference.target, options.projectPath());
+        const target = completeProjectFileAddress(item.workspaceReference.target, options.projectRoot());
         if (!isImagePath(target)) return {...item, workspaceReference: {...item.workspaceReference, target}};
         const {workspaceReference: _workspaceReference, ...rest} = item;
         return {

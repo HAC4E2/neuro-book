@@ -6,6 +6,8 @@ import {
 } from "nbook/server/workspace-files/project-identity";
 import {
     type ProjectCandidateSnapshot,
+    type ProjectCoverUpdateInput,
+    type ProjectCoverUpdateResult,
     type ProjectCreateInput,
     type ProjectCreateResult,
     type ProjectDeleteResult,
@@ -45,6 +47,10 @@ export type ProjectControlLifecycle = {
         input: ProjectMetadataUpdateInput,
         access?: ProjectMetadataAccess,
     ): Promise<ProjectMetadataUpdateResult>;
+    updateCover(
+        input: ProjectCoverUpdateInput,
+        access?: ProjectMetadataAccess,
+    ): Promise<ProjectCoverUpdateResult>;
     delete(ref: ProjectWorkspaceRef): Promise<ProjectDeleteResult>;
     prepareOpen(ref: ProjectWorkspaceRef): Promise<PreparedProjectOpen>;
     /** 观察同一Lifecycle捕获的物理root identity；replacement通知必须是generation-scoped。 */
@@ -76,14 +82,11 @@ export type ProjectSessionListEntry = ProjectSessionPresence & {
 export class ProjectNotOpenError extends ProjectDomainError {
     readonly code = "PROJECT_NOT_OPEN";
     readonly statusCode = 409;
-    /** Phase 7 DTO hard cut前的HTTP Project Path；内部identity仍只使用projectRoot。 */
-    readonly projectPath: string;
 
     /** 保留稳定Project root供HTTP层返回。 */
     constructor(readonly projectRoot: string, options?: ErrorOptions) {
         super("session-not-open", `Project未打开：${projectRoot}`, options);
         this.name = "ProjectNotOpenError";
-        this.projectPath = `workspace/${projectRoot}`;
     }
 }
 
@@ -271,32 +274,51 @@ export class ProjectSessionService {
      * 更新Project metadata：ready generation借用其Occupancy；未运行Project由Lifecycle自行取得。
      */
     async updateProjectMetadata(input: ProjectMetadataUpdateInput): Promise<ProjectMetadataUpdateResult> {
+        return this.updateProjectManifest(
+            input.ref,
+            (access) => this.lifecycle.updateMetadata(input, access),
+        );
+    }
+
+    /** 更新 Project 封面，并复用 metadata mutation 的 Session generation 借用合同。 */
+    async updateProjectCover(input: ProjectCoverUpdateInput): Promise<ProjectCoverUpdateResult> {
+        return this.updateProjectManifest(
+            input.ref,
+            (access) => this.lifecycle.updateCover(input, access),
+        );
+    }
+
+    /** 为 manifest mutation 选择 owned / borrowed Occupancy 并同步 ready publication。 */
+    private async updateProjectManifest<TResult extends ProjectMetadataUpdateResult>(
+        ref: ProjectWorkspaceRef,
+        execute: (access: ProjectMetadataAccess) => Promise<TResult>,
+    ): Promise<TResult> {
         if (this.state !== "running") {
             throw new ProjectSessionRuntimeClosedError();
         }
-        const locator = canonicalProjectLocator(this.workspaceRoot, input.ref);
+        const locator = canonicalProjectLocator(this.workspaceRoot, ref);
         let entry = this.entries.get(locator);
         if (entry?.opening && !entry.ready) {
             const openingEntry = entry;
             try {
                 await entry.opening;
             } catch (error) {
-                throw new ProjectNotOpenError(input.ref.projectRoot, {cause: error});
+                throw new ProjectNotOpenError(ref.projectRoot, {cause: error});
             }
             if (this.entries.get(locator) !== openingEntry) {
-                throw new ProjectNotOpenError(input.ref.projectRoot);
+                throw new ProjectNotOpenError(ref.projectRoot);
             }
             entry = openingEntry;
         }
         const ready = entry?.ready;
         if (!entry) {
-            return await this.lifecycle.updateMetadata(input, {kind: "acquire"});
+            return await execute({kind: "acquire"});
         }
         if (!ready) {
-            throw new ProjectNotOpenError(input.ref.projectRoot);
+            throw new ProjectNotOpenError(ref.projectRoot);
         }
         if (entry.maintenanceGates.size > 0 || entry.terminalGates.size > 0) {
-            throw new ProjectNotOpenError(input.ref.projectRoot);
+            throw new ProjectNotOpenError(ref.projectRoot);
         }
         const assertActive = () => {
             if (
@@ -304,16 +326,16 @@ export class ProjectSessionService {
                 || this.entries.get(locator) !== entry
                 || entry.ready !== ready
             ) {
-                throw new ProjectNotOpenError(input.ref.projectRoot);
+                throw new ProjectNotOpenError(ref.projectRoot);
             }
             try {
                 this.runtime.projectPresence(ready);
             } catch (error) {
-                throw new ProjectNotOpenError(input.ref.projectRoot, {cause: error});
+                throw new ProjectNotOpenError(ref.projectRoot, {cause: error});
             }
         };
         assertActive();
-        const operation = this.lifecycle.updateMetadata(input, {
+        const operation = execute({
             kind: "borrowed",
             workspace: ready.workspace,
             assertActive,

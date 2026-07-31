@@ -39,7 +39,7 @@ const props = defineProps<{
     sessionAttachments: AgentSessionAttachmentItemDto[];
     canRegisterAttachments: boolean;
     canInsertAttachments: boolean;
-    projectPath: string | null;
+    projectRoot: string | null;
     modelSupportsImages: boolean;
     attachmentInsertRequest?: {id: number; item: AgentSessionAttachmentItemDto} | null;
     /** 消息级分支切换状态。 */
@@ -357,7 +357,7 @@ defineExpose({ scrollToBottom: forceScrollToBottom, scrollRef });
                     :session-attachments="props.sessionAttachments"
                     :can-register-attachments="props.canRegisterAttachments"
                     :can-insert-attachments="props.canInsertAttachments"
-                    :project-path="props.projectPath"
+                    :project-root="props.projectRoot"
                     :model-supports-images="props.modelSupportsImages"
                     :attachment-insert-request="props.attachmentInsertRequest"
                     :branch-switcher="props.branchSwitcherStateByMessageId?.[node.message.id]"

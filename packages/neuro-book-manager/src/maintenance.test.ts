@@ -2,8 +2,10 @@ import {mkdir, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 
+import {TEST_RUNTIME_IMAGE_IDENTITY} from "#manager/fixtures/runtime-image";
 import {sha256File} from "#manager/files";
 import {doctor, installationStatus} from "#manager/maintenance";
+import {PORTABLE_ROOT_LOCATORS} from "#manager/root-locators";
 import type {InstallationManifest} from "#manager/types";
 
 const roots: string[] = [];
@@ -45,17 +47,17 @@ describe("Manager State Root诊断", () => {
             redistribution: "test",
         };
         const manifest: InstallationManifest = {
-            schemaVersion: 4,
+            schemaVersion: 5,
             profile: "windows-portable",
             containerEngine: null,
             managerVersion: "0.1.0",
             appVersion: "0.8.0",
             channel: "canary",
             sourceRevision: revision,
-            stateRoot: "data",
+            roots: PORTABLE_ROOT_LOCATORS,
             components: {
                 source: {provider: "release", version: "0.8.0", revision, path: ".", files: ["package.json"], ...asset},
-                product: {provider: "release", version: "0.8.0", revision, path: ".output", platform: "windows-x64", ...asset},
+                product: {provider: "release", version: "0.8.0", revision, path: ".output", platform: "windows-x64", ...asset, ...TEST_RUNTIME_IMAGE_IDENTITY},
                 manager: {provider: "managed", version: "0.1.0", path: ".runtime/manager/0.1.0/neuro-book.mjs", bundleSha256: managerSha256},
                 managerRuntime: {provider: "managed", version: "1.3.0", path: relativePath(root, bunPath), executableSha256: bunSha256, ...asset},
                 applicationRuntime: {provider: "managed", version: "1.3.0", path: relativePath(root, bunPath), executableSha256: bunSha256, ...asset},

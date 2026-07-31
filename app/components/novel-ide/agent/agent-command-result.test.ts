@@ -53,8 +53,6 @@ function summary(sessionId: number): AgentSessionSummaryDto {
     return {
         sessionId,
         profileKey: "leader.default",
-        workspaceKey: "global",
-        workspaceRoot: "workspace",
         status: "idle",
         updatedAt: 1,
         archived: false,

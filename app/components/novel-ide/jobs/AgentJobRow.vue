@@ -3,20 +3,18 @@
  * 任务中心单行（Task 111 PLAN-F）：
  * 行头（kind 图标/标题/状态 chip）+ meta（jobId/发起者/时间/时长）+ preview 摘要；
  * 点击展开详情：ref 观测指针（可复制）、preview/error 全文、completed 时按需拉取 result。
- * 取消动作直接走 job cancel API（与气泡语义一致），成功后由父组件刷新共享 feed。
+ * 取消动作直接走 job cancel API（与气泡语义一致），终态由共享 SSE 确认。
  */
 import JsonViewer from "nbook/app/components/common/JsonViewer.vue";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {resolveApiErrorMessage, resolveApiErrorStatus} from "nbook/app/utils/api-error";
 import {formatTimestamp} from "nbook/app/components/novel-ide/agent/agent-message";
-import type {AgentJobDetail, AgentJobSnapshot} from "nbook/server/agent/jobs/agent-job-manager";
+import type {AgentJobDetail, AgentJobSnapshot} from "nbook/shared/dto/agent-job.dto";
 
 const props = defineProps<{
     job: AgentJobSnapshot;
-}>();
-
-const emit = defineEmits<{
-    (e: "cancelled"): void;
+    /** 任务中心唯一秒表的当前时间；仅面板打开且有活跃任务时更新。 */
+    now: number;
 }>();
 
 const notification = useNotification();
@@ -24,10 +22,10 @@ const {t} = useI18n();
 
 const expanded = ref(false);
 const cancelling = ref(false);
-/** 取消请求已发出（best-effort）；实际翻转到 cancelled 由后续轮询快照确认 */
+/** 取消请求已发出（best-effort）；实际翻转到 cancelled 由 SSE 快照确认。 */
 const cancelRequested = ref(false);
 
-// AgentJobDetail.result 含递归 JsonValue，整体替换不做深响应展开（F6 同款）
+// AgentJobDetail.result 含递归 JsonValue，整体替换不做深响应展开。
 const detail = shallowRef<AgentJobDetail | null>(null);
 const detailLoading = ref(false);
 /** 404：job 已不在内存（服务重启），结果不可查询且不再重试 */
@@ -59,8 +57,8 @@ const ownerLabel = computed(() => props.job.ownerSessionId === null
     ? t("ide.agentJobs.ownerNone")
     : `Agent #${props.job.ownerSessionId}`);
 
-/** 时长：终态用 endedAt；运行中取当下（props.job 每轮轮询都是新对象，自然刷新） */
-const durationLabel = computed(() => formatDuration((props.job.endedAt ?? Date.now()) - props.job.createdAt));
+/** 时长：终态用 endedAt；运行中消费任务中心唯一秒表。 */
+const durationLabel = computed(() => formatDuration((props.job.endedAt ?? props.now) - props.job.createdAt));
 
 /** ref 观测指针结构化摘要（workflow→runId / bash→command / invoke_agent→sessionId）；解析不出时降级 JSON 文本 */
 const refEntries = computed<Array<{key: string; label: string; value: string}>>(() => {
@@ -103,7 +101,6 @@ async function cancel(): Promise<void> {
     try {
         await $fetch(`/api/agent/jobs/${props.job.jobId}/cancel`, {method: "POST"});
         cancelRequested.value = true;
-        emit("cancelled");
     } catch (caught) {
         notification.error(resolveApiErrorMessage(caught, t("ide.agentJobs.cancelFailed")));
     } finally {
@@ -133,6 +130,7 @@ async function loadDetail(): Promise<void> {
 }
 
 watch([expanded, () => props.job.status], () => {
+    if (!isActive.value) cancelRequested.value = false;
     void loadDetail();
 });
 </script>
@@ -179,7 +177,7 @@ watch([expanded, () => props.job.status], () => {
                     <span class="i-lucide-copy h-3.5 w-3.5"></span>
                 </button>
             </div>
-            <!-- preview 全文（运行中随轮询刷新） -->
+            <!-- preview 全文（运行中随 SSE 快照刷新） -->
             <p v-if="job.preview" class="whitespace-pre-wrap break-words text-[12px] leading-relaxed text-[var(--text-secondary)]">{{ job.preview }}</p>
             <!-- error 全文 + 复制 -->
             <div v-if="job.error" class="flex items-start gap-2">

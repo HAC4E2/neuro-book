@@ -1,5 +1,6 @@
 import {z} from "zod";
 import {createError} from "h3";
+import {ProjectRootDtoSchema} from "nbook/shared/dto/project.dto";
 import {readWorkspaceTextFile, statWorkspacePath, type WorkspaceFileNode} from "nbook/server/workspace-files/workspace-files";
 import {buildWorkspaceWriteConflict} from "nbook/server/workspace-files/workspace-file-conflict";
 import {resolveWorkspaceFileTarget} from "nbook/server/workspace-files/novel-workspace";
@@ -24,12 +25,8 @@ defineRouteMeta({
                 "schema": {
                     "type": "object",
                     "properties": {
-                        "root": {
-                            "description": "Workspace root directory",
-                            "type": "string"
-                        },
-                        "novelId": {
-                            "description": "Novel id used to resolve isolated workspace",
+                        "projectRoot": {
+                            "description": "Project Workspace root, single directory name under Workspace Root",
                             "type": "string"
                         },
                         "workspaceKind": {
@@ -71,8 +68,10 @@ defineRouteMeta({
 
 
 
+
+
 const WriteWorkspaceFileBodySchema = z.object({
-    projectPath: z.string().optional(),
+    projectRoot: ProjectRootDtoSchema.optional(),
     workspaceKind: z.literal("user-assets").optional(),
     path: z.string().trim().min(1, "path 不能为空"),
     content: z.string(),

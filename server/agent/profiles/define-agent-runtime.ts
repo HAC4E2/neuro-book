@@ -3,8 +3,9 @@ import type {StoredAgentMessage, StoredToolResultMessage, StoredUserMessage} fro
 import type {SessionWritePlan} from "nbook/server/agent/session/write-plan";
 import type {NeuroSessionContext, SessionId, SessionSnapshot} from "nbook/server/agent/session/types";
 import type {AgentDialogueContent} from "nbook/server/agent/session/dialogue-content";
-import type {AgentInvokeCaller} from "nbook/server/agent/harness/types";
+import type {AgentInvokeCaller} from "nbook/server/agent/harness/invocation-caller";
 import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 
 export type AgentRuntimeHookStage =
     | "prepareRun"
@@ -30,8 +31,9 @@ export type RuntimeAgentDialogueContentInput = {
 };
 
 export type RuntimeSessionFacade = NeuroSessionContext & {
-    /** 本次runtime按当前State Root解析出的Agent Workspace Filesystem Root。 */
-    workspaceFsRoot: AbsoluteFsPath;
+    /** 本次runtime的绝对Workspace Root与admission捕获的精确Project generation。 */
+    workspaceRoot: AbsoluteFsPath;
+    currentProject: ReadyProjectSessionRef | null;
     /**
      * 只读读取 session，并返回 snapshot 与 reduce 后的 context。
      *

@@ -1,8 +1,19 @@
 import {randomUUID} from "node:crypto";
 import {copyFile, readFile, rename} from "node:fs/promises";
-import {join, relative, resolve} from "node:path";
+import {dirname, join, relative} from "node:path";
 
-import {applyJournaledApplicationMigrations} from "#manager/migration-operation";
+import {
+    applyJournaledApplicationMigrations,
+    backupJournaledApplicationDatabase,
+    inspectApplicationService,
+    migrateCurrentApplicationState,
+    planJournaledApplicationMigrations,
+} from "#manager/migration-operation";
+import {
+    launchApplication,
+    terminateFailedLaunch,
+    type ApplicationLaunch,
+} from "#manager/app-commands";
 import {
     stageReleaseProduct,
     stageReleaseSource,
@@ -11,9 +22,9 @@ import {
     type StagedProduct,
     type StagedReleaseSource,
 } from "#manager/component";
-import {buildSourceDockerImage, inspectDockerApplication, startDocker, stopDocker, writeDockerCompose} from "#manager/docker";
+import {buildSourceDockerImage, inspectDockerApplication, stopDocker, writeDockerCompose} from "#manager/docker";
 import {ensureDirectory, pathExists, removePath} from "#manager/files";
-import {assertNativeProductStopped, backupApplicationDatabase, statePort, verifyNativeProduct} from "#manager/health";
+import {statePort} from "#manager/health";
 import {
     commitFastForward,
     createStagedWorktree,
@@ -28,7 +39,10 @@ import {
     createOperation,
     operationEffect,
     pathCreateEffect,
+    prepareCandidateContainer,
     prepareRuntimeWrapperSwitch,
+    recordCandidateContainer,
+    recoverFailedOperation,
     recoverInterruptedOperations,
     setOperationEffect,
     updateOperation,
@@ -70,7 +84,7 @@ export type UpdateResult = {
 
 /** 使用统一 journal 更新应用组件，Git commit point 永远位于健康检查之后。 */
 export async function updateInstallation(input: UpdateOptions): Promise<UpdateResult> {
-    const paths = installationPaths(input.root, input.manifest.profile === "windows-portable");
+    const paths = installationPaths(input.root, input.manifest.roots);
     return withInstallLock(join(paths.deploy, "install.lock"), async () => {
         const recovered = await recoverInterruptedOperations(paths.root);
         const stored = await readInstallationManifest(paths.manifest);
@@ -78,7 +92,10 @@ export async function updateInstallation(input: UpdateOptions): Promise<UpdateRe
         assertInstallationHostCompatible(options.manifest);
         const preflight = await resolveUpdatePreflight(options);
         if (preflight.alreadyCurrent) {
-            return {manifest: options.manifest, changed: false, reason: "already-current"};
+            const migrated = await migrateCurrentApplicationState(paths.root, options.manifest);
+            return migrated
+                ? {manifest: options.manifest, changed: true, reason: "updated"}
+                : {manifest: options.manifest, changed: false, reason: "already-current"};
         }
         const id = randomUUID();
         const staging = join(paths.staging, id);
@@ -98,6 +115,7 @@ export async function updateInstallation(input: UpdateOptions): Promise<UpdateRe
         journal = await setOperationEffect(journal, pathCreateEffect(stagingRelative, "applied"));
         let stagedWorktree: string | null = null;
         let gitTarget: GitUpdateTarget | null = null;
+        let healthLaunch: ApplicationLaunch | null = null;
         const createdComponents: string[] = [];
         try {
             journal = await setOperationEffect(journal, {kind: "component-switch", state: "planned", owner: "managed-assets"});
@@ -109,7 +127,7 @@ export async function updateInstallation(input: UpdateOptions): Promise<UpdateRe
             };
             const manager = await installManagerExecutable(paths.root, MANAGER_VERSION, options.managerExecutable, createdComponents, recordManagerCreated, recordManagerCreatedApplied);
             journal = await setOperationEffect(journal, {kind: "component-switch", state: "applied", owner: "managed-assets"});
-            const nativeProduct = isNativeProduct(options.manifest.profile) && preflight.components.has("product");
+            const nativeApplication = isNativeApplication(options.manifest.profile) && preflight.applicationChanged;
             const result = await prepareUpdate(options, preflight.components, staging, backup, journal, preflight.release, preflight.gitTarget, manager);
             stagedWorktree = result.stagedWorktree;
             gitTarget = result.gitTarget;
@@ -123,29 +141,29 @@ export async function updateInstallation(input: UpdateOptions): Promise<UpdateRe
                 previousRevision: gitTarget.previousRevision,
                 targetRevision: gitTarget.targetRevision,
             });
-            if (nativeProduct) {
-                const stateRoot = resolve(paths.root, options.manifest.stateRoot);
-                await assertNativeProductStopped(stateRoot);
-                const database = await backupApplicationDatabase(stateRoot, backup, async (intent) => {
-                    journal = await setOperationEffect(journal, {
-                        kind: "sqlite-backup", state: "planned", owner: "app-sqlite",
-                        configuredUrl: intent.configuredUrl, stateRoot: intent.stateRoot,
-                        hostPath: intent.databasePath, backupPath: intent.backupPath,
-                        checkpoint: {busy: 0, log: -1, checkpointed: -1},
-                    });
+            if (preflight.applicationChanged) {
+                const migrationPlan = await planJournaledApplicationMigrations(paths.root, result.manifest, journal, {
+                    planRoot: result.stagedProduct
+                        ? dirname(result.stagedProduct.outputRoot)
+                        : stagedWorktree ?? paths.root,
+                    migrationRoot: result.manifest.profile === "source-dev" && stagedWorktree
+                        ? stagedWorktree
+                        : paths.root,
+                    ...(result.stagedCompose ? {composePath: result.stagedCompose} : {}),
+                    ...(result.stagedCompose ? {containerStateRoot: installationPaths(paths.root, result.manifest.roots).state} : {}),
                 });
-                if (database) journal = await setOperationEffect(journal, {
-                    kind: "sqlite-backup", state: "applied", owner: "app-sqlite",
-                    configuredUrl: database.configuredUrl, stateRoot,
-                    hostPath: database.databasePath, backupPath: database.backupPath,
-                    checkpoint: database.checkpoint,
-                });
+                journal = migrationPlan.journal;
+            }
+            if (nativeApplication) {
+                const stateRoot = paths.state;
+                await inspectApplicationService(paths.root, result.manifest, stateRoot);
+                journal = await backupJournaledApplicationDatabase(journal, stateRoot);
             }
             if (result.stagedCompose) {
                 const compose = join(paths.deploy, "docker-compose.generated.yml");
                 const previousCompose = join(backup, "docker-compose.generated.yml");
                 if (!await pathExists(compose)) throw new Error("Docker Profile缺少当前generated Compose，无法事务更新。" );
-                const stateRoot = resolve(paths.root, options.manifest.stateRoot);
+                const stateRoot = paths.state;
                 const engine = requiredContainerEngine(options.manifest);
                 const previousInspection = await inspectDockerApplication(engine, paths.root, stateRoot);
                 const previousState = !previousInspection.containerId
@@ -168,20 +186,7 @@ export async function updateInstallation(input: UpdateOptions): Promise<UpdateRe
                 await ensureDirectory(backup);
                 await copyFile(compose, previousCompose);
                 if (previousState === "running") await stopDocker(engine, paths.root, stateRoot);
-                const database = await backupApplicationDatabase(stateRoot, backup, async (intent) => {
-                    journal = await setOperationEffect(journal, {
-                        kind: "sqlite-backup", state: "planned", owner: "app-sqlite",
-                        configuredUrl: intent.configuredUrl, stateRoot: intent.stateRoot,
-                        hostPath: intent.databasePath, backupPath: intent.backupPath,
-                        checkpoint: {busy: 0, log: -1, checkpointed: -1},
-                    });
-                });
-                if (database) journal = await setOperationEffect(journal, {
-                    kind: "sqlite-backup", state: "applied", owner: "app-sqlite",
-                    configuredUrl: database.configuredUrl, stateRoot,
-                    hostPath: database.databasePath, backupPath: database.backupPath,
-                    checkpoint: database.checkpoint,
-                });
+                journal = await backupJournaledApplicationDatabase(journal, stateRoot);
                 await removePath(compose);
                 await rename(result.stagedCompose, compose);
                 journal = await setOperationEffect(journal, {
@@ -218,20 +223,27 @@ export async function updateInstallation(input: UpdateOptions): Promise<UpdateRe
                     result.manifest.profile === "source-dev" && stagedWorktree ? stagedWorktree : paths.root,
                 );
                 journal = await updateOperation(journal, "migrated");
-                if (nativeProduct) {
-                    const runtime = result.manifest.components.applicationRuntime;
-                    if (runtime.provider === "container") throw new Error("原生 Product 健康检查不能使用 container Runtime。" );
-                    await verifyNativeProduct(
-                        paths.root,
-                        resolve(paths.root, result.manifest.stateRoot),
-                        runtimeExecutable(paths.root, runtime),
-                        result.manifest.appVersion,
-                    );
-                } else if (result.manifest.profile === "ghcr" || result.manifest.profile === "source-docker") {
-                    const stateRoot = resolve(paths.root, result.manifest.stateRoot);
-                    const engine = requiredContainerEngine(result.manifest);
-                    await startDocker(engine, paths.root, stateRoot, result.manifest.profile, result.manifest.appVersion);
-                    if (operationEffect(journal, "compose")?.previousState !== "running") await stopDocker(engine, paths.root, stateRoot);
+                const launchRoot = result.manifest.profile === "source-dev" && stagedWorktree
+                    ? stagedWorktree
+                    : paths.root;
+                healthLaunch = await launchApplication(launchRoot, result.manifest, {
+                    stateRoot: installationPaths(paths.root, result.manifest.roots).state,
+                    onContainerStarting: async () => {
+                        journal = await prepareCandidateContainer(journal);
+                    },
+                    onContainerStarted: async (containerId) => {
+                        journal = await recordCandidateContainer(journal, containerId, false);
+                    },
+                    onContainerStopped: async (containerId) => {
+                        journal = await recordCandidateContainer(journal, containerId, true);
+                    },
+                });
+                await healthLaunch.ready;
+                const keepContainerRunning = (result.manifest.profile === "ghcr" || result.manifest.profile === "source-docker")
+                    && operationEffect(journal, "compose")?.previousState === "running";
+                if (!keepContainerRunning) {
+                    await healthLaunch.shutdown();
+                    healthLaunch = null;
                 }
             }
             journal = await updateOperation(journal, "healthy");
@@ -267,20 +279,22 @@ export async function updateInstallation(input: UpdateOptions): Promise<UpdateRe
             await writeInstallationManifest(paths.manifest, result.manifest);
             journal = await setOperationEffect(journal, {kind: "manifest-switch", state: "applied", owner: "manifest"});
             await commitOperation(journal);
+            healthLaunch = null;
             if (stagedWorktree) await removeStagedWorktree(paths.root, stagedWorktree);
             await removePath(staging);
             return {manifest: result.manifest, changed: true, reason: "updated"};
         } catch (error) {
             // Source Dev的migrationRoot位于staged worktree，rollback完成前必须保留executor。
-            await recoverInterruptedOperations(paths.root).catch(() => undefined);
+            if (healthLaunch) await terminateFailedLaunch(healthLaunch, error);
+            await recoverFailedOperation(paths.root, error);
             if (stagedWorktree) await removeStagedWorktree(paths.root, stagedWorktree).catch(() => undefined);
             throw error;
         }
     });
 }
 
-function isNativeProduct(profile: InstallationManifest["profile"]): boolean {
-    return profile === "source-product" || profile === "product-bun" || profile === "windows-portable";
+function isNativeApplication(profile: InstallationManifest["profile"]): boolean {
+    return profile !== "source-docker" && profile !== "ghcr";
 }
 
 async function prepareUpdate(
@@ -302,7 +316,7 @@ async function prepareUpdate(
     journal: Awaited<ReturnType<typeof createOperation>>;
 }> {
     const profile = options.manifest.profile;
-    const paths = installationPaths(options.root, profile === "windows-portable");
+    const paths = installationPaths(options.root, options.manifest.roots);
     const channel = options.channel ?? options.manifest.channel;
     if (release && release.sourceRevision !== options.manifest.sourceRevision && profile !== "ghcr"
         && (!selected.has("source") || !selected.has("product"))) {
@@ -338,7 +352,7 @@ async function prepareUpdate(
                 staging: join(staging, "build"),
                 version: appVersion,
                 revision: sourceRevision,
-                stateRoot: resolve(paths.root, options.manifest.stateRoot),
+                stateRoot: paths.state,
                 bun,
             });
             product = stagedProduct.component;
@@ -416,10 +430,11 @@ async function prepareUpdate(
         stagedCompose = await writeDockerCompose({
             engine: requiredContainerEngine(options.manifest),
             root: paths.root,
-            stateRoot: resolve(paths.root, options.manifest.stateRoot),
+            stateRoot: paths.state,
+            cacheRoot: paths.cache,
             profile: "ghcr",
             image: `${product.image}@${product.digest}`,
-            port: await statePort(resolve(paths.root, options.manifest.stateRoot)),
+            port: await statePort(paths.state),
             output: join(staging, "docker-compose.generated.yml"),
             layoutPath: finalCompose,
         });
@@ -428,10 +443,11 @@ async function prepareUpdate(
         stagedCompose = await writeDockerCompose({
             engine: requiredContainerEngine(options.manifest),
             root: paths.root,
-            stateRoot: resolve(paths.root, options.manifest.stateRoot),
+            stateRoot: paths.state,
+            cacheRoot: paths.cache,
             profile: "source-docker",
             image: product.image,
-            port: await statePort(resolve(paths.root, options.manifest.stateRoot)),
+            port: await statePort(paths.state),
             output: join(staging, "docker-compose.generated.yml"),
             layoutPath: finalCompose,
         });

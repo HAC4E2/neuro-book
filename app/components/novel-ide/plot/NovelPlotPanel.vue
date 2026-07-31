@@ -49,7 +49,7 @@ const toneCycle: PlotThreadTone[] = ["amber", "sky", "emerald", "rose"];
 
 const novelIdeStore = useNovelIdeStore();
 const {
-    currentNovelId,
+    currentProjectRoot,
     currentNovel,
     loadingWorkspace,
     plotWorkbenchOpen,
@@ -121,7 +121,7 @@ function projectPlotOptions(options: Record<string, unknown> = {}): Record<strin
         ...options,
         query: {
             ...(typeof options.query === "object" && options.query !== null ? options.query : {}),
-            projectPath: currentNovelId.value,
+            projectRoot: currentProjectRoot.value,
         },
     };
 }
@@ -219,7 +219,7 @@ const editingScene = computed(() => {
 const workbenchStory = computed(() => {
     const story = plotWorkbenchData.value?.story;
     return {
-        id: story?.id ?? currentNovelId.value ?? "current-novel",
+        id: story?.id ?? currentProjectRoot.value ?? "current-novel",
         title: story?.title ?? currentNovel.value?.title ?? "当前小说",
         summary: story?.summary ?? currentNovel.value?.summary ?? "",
     };
@@ -680,7 +680,7 @@ async function loadPlotTree(options: {
     preferredThreadId?: string | null;
     preferredSceneId?: string | null;
 } = {}): Promise<void> {
-    if (!currentNovelId.value) {
+    if (!currentProjectRoot.value) {
         threads.value = [];
         scenes.value = [];
         selectedThreadId.value = null;
@@ -754,7 +754,7 @@ function openActDialog(): void {
  * 保存新建卷:POST /acts,成功后刷新剧情树。name 空时按 title 派生 slug。
  */
 async function saveAct(): Promise<void> {
-    if (!currentNovelId.value || savingAct.value) {
+    if (!currentProjectRoot.value || savingAct.value) {
         return;
     }
     const title = actDraftTitle.value.trim();
@@ -793,7 +793,7 @@ async function saveAct(): Promise<void> {
  * 保存章节:新建走 POST /chapters,编辑走 PATCH /chapters/:id,成功后刷新剧情树。
  */
 async function saveChapter(payload: PlotChapterEditorSave): Promise<void> {
-    if (!currentNovelId.value || savingChapter.value) {
+    if (!currentProjectRoot.value || savingChapter.value) {
         return;
     }
     if (!payload.name.trim()) {
@@ -844,7 +844,7 @@ async function saveChapter(payload: PlotChapterEditorSave): Promise<void> {
 /**
  * 拉取剧本工作台聚合数据。
  */
-async function loadPlotWorkbench(force = false): Promise<void> {    if (!currentNovelId.value) {
+async function loadPlotWorkbench(force = false): Promise<void> {    if (!currentProjectRoot.value) {
         plotWorkbenchData.value = null;
         workbenchError.value = "";
         return;
@@ -881,7 +881,7 @@ async function loadPlotWorkbench(force = false): Promise<void> {    if (!current
  * 确保 Thread 详情已加载。
  */
 async function ensureThreadDetail(threadId: string, force = false): Promise<void> {
-    if (!currentNovelId.value || (!force && threadDetailMap.value[threadId])) {
+    if (!currentProjectRoot.value || (!force && threadDetailMap.value[threadId])) {
         return;
     }
 
@@ -897,7 +897,7 @@ async function ensureThreadDetail(threadId: string, force = false): Promise<void
  * 确保 Scene 详情已加载。
  */
 async function ensureSceneDetail(sceneId: string, force = false): Promise<void> {
-    if (!currentNovelId.value || (!force && sceneDetailMap.value[sceneId])) {
+    if (!currentProjectRoot.value || (!force && sceneDetailMap.value[sceneId])) {
         return;
     }
 
@@ -918,7 +918,7 @@ async function ensureSceneDetail(sceneId: string, force = false): Promise<void> 
  * 为当前 Thread 预加载所有 Scene 详情，用来补齐 Plot 统计。
  */
 async function preloadThreadScenes(threadId: string): Promise<void> {
-    if (!currentNovelId.value) {
+    if (!currentProjectRoot.value) {
         return;
     }
 
@@ -1231,7 +1231,7 @@ function openWorldEngineFromPlot(): void {
  * 快速更新 Thread 字段。
  */
 async function updateWorkbenchThread(threadId: string, patch: Partial<PlotThreadPanelThread>): Promise<void> {
-    if (!currentNovelId.value) {
+    if (!currentProjectRoot.value) {
         return;
     }
 
@@ -1266,7 +1266,7 @@ async function updateWorkbenchThread(threadId: string, patch: Partial<PlotThread
  * 快速更新 Scene 字段。
  */
 async function updateWorkbenchScene(sceneId: string, patch: Partial<PlotThreadPanelScene>): Promise<void> {
-    if (!currentNovelId.value) {
+    if (!currentProjectRoot.value) {
         return;
     }
 
@@ -1301,7 +1301,7 @@ async function updateWorkbenchScene(sceneId: string, patch: Partial<PlotThreadPa
  * 快速保存当前 Scene 常用字段。
  */
 async function quickUpdateScene(payload: PlotThreadQuickSceneUpdate): Promise<void> {
-    if (!currentNovelId.value || savingQuickScene.value) {
+    if (!currentProjectRoot.value || savingQuickScene.value) {
         return;
     }
 
@@ -1334,7 +1334,7 @@ async function quickUpdateScene(payload: PlotThreadQuickSceneUpdate): Promise<vo
  * 保存 Thread 编辑结果。
  */
 async function saveThread(payload: PlotThreadEditorSave): Promise<void> {
-    if (!currentNovelId.value || payload.target !== "thread" || savingEditor.value) {
+    if (!currentProjectRoot.value || payload.target !== "thread" || savingEditor.value) {
         return;
     }
 
@@ -1404,7 +1404,7 @@ async function saveThread(payload: PlotThreadEditorSave): Promise<void> {
  * 保存 Scene 和它下属的 Plot。
  */
 async function saveScene(payload: PlotThreadEditorSave): Promise<void> {
-    if (!currentNovelId.value || payload.target !== "scene" || savingEditor.value || !selectedThreadId.value) {
+    if (!currentProjectRoot.value || payload.target !== "scene" || savingEditor.value || !selectedThreadId.value) {
         return;
     }
 
@@ -1492,7 +1492,7 @@ async function handleEditorSave(payload: PlotThreadEditorSave): Promise<void> {
  * 删除 Thread。
  */
 async function deleteThread(threadId: string): Promise<void> {
-    if (!currentNovelId.value) {
+    if (!currentProjectRoot.value) {
         return;
     }
 
@@ -1509,7 +1509,7 @@ async function deleteThread(threadId: string): Promise<void> {
  * 删除 Scene。
  */
 async function deleteScene(sceneId: string): Promise<void> {
-    if (!currentNovelId.value) {
+    if (!currentProjectRoot.value) {
         return;
     }
 
@@ -1529,7 +1529,7 @@ async function deleteScene(sceneId: string): Promise<void> {
  * 在指定 Thread 下创建一个 Scene 草稿。
  */
 async function createWorkbenchScene(threadId: string): Promise<void> {
-    if (!currentNovelId.value) {
+    if (!currentProjectRoot.value) {
         return;
     }
 
@@ -1600,7 +1600,7 @@ async function confirmDelete(): Promise<void> {
  * 保存当前 Thread 下的 Scene 排序。
  */
 async function reorderScenes(sceneIds: string[]): Promise<void> {
-    if (!currentNovelId.value || !selectedThreadId.value || reorderingScenes.value) {
+    if (!currentProjectRoot.value || !selectedThreadId.value || reorderingScenes.value) {
         return;
     }
 
@@ -1652,7 +1652,7 @@ async function reorderScenes(sceneIds: string[]): Promise<void> {
 }
 
 watch(() => ({
-    novelId: currentNovelId.value,
+    novelId: currentProjectRoot.value,
     workspaceLoading: loadingWorkspace.value,
 }), async ({novelId, workspaceLoading}, previousState) => {
     const isInitialMount = previousState === undefined;
@@ -1693,7 +1693,7 @@ watch(plotWorkbenchOpen, (open) => {
 });
 
 watch(plotRefreshVersion, async (version, previousVersion) => {
-    if (!version || version === previousVersion || loadingWorkspace.value || !currentNovelId.value) {
+    if (!version || version === previousVersion || loadingWorkspace.value || !currentProjectRoot.value) {
         return;
     }
 
@@ -1851,7 +1851,7 @@ watch(plotRefreshVersion, async (version, previousVersion) => {
 
         <PlotWorkbenchDialog
             v-model="plotWorkbenchOpen"
-            :project-path="currentNovelId ?? ''"
+            :project-root="currentProjectRoot ?? ''"
             :story="workbenchStory"
             :phases="workbenchPhases"
             :threads="workbenchThreads"
@@ -1898,7 +1898,7 @@ watch(plotRefreshVersion, async (version, previousVersion) => {
             :mode="chapterEditorMode"
             :chapter="editingChapter"
             :acts="actNodes"
-            :project-path="currentNovelId ?? ''"
+            :project-root="currentProjectRoot ?? ''"
             :saving="savingChapter"
             :error="chapterEditorError"
             @update:visible="chapterEditorVisible = $event"

@@ -218,6 +218,15 @@ export function throwProjectHttpError(error: unknown): never {
     throw createProjectHttpError(error) ?? error;
 }
 
+/** Project HTTP seam 的唯一异步 wrapper；未知错误保持原对象与堆栈。 */
+export async function withProjectHttpError<TResult>(handler: () => Promise<TResult> | TResult): Promise<TResult> {
+    try {
+        return await handler();
+    } catch (error) {
+        throwProjectHttpError(error);
+    }
+}
+
 /** 使用字符串入口避免 H3 把配置对象保存在 cause；随后只赋值白名单公开字段。 */
 function projectError(
     statusCode: number,

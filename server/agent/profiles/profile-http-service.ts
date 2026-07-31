@@ -29,17 +29,15 @@ import {resolveRuntimeProfileSettings} from "nbook/server/agent/profiles/profile
 import {createLayeredProfileHomeFacade, ensureGlobalProfileHome, ensureProfileHome} from "nbook/server/agent/profiles/profile-home";
 import type {ProfileTemplateNodeDto} from "nbook/shared/dto/profile-template.dto";
 import {buildProfilePromptRoot} from "nbook/server/agent/profiles/profile-dsl-source-parser";
-import {
-    requireReadyProjectPath,
-    runReadyProjectOperation,
-} from "nbook/server/workspace-files/project-session";
+import {requireActiveReadyProject, runReadyProjectOperation} from "nbook/server/workspace-files/project-session";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
+import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
+import {projectSqlSchemaSummary} from "nbook/server/agent/tools/project-sql-schema-summary";
 import {assembleProfilePromptMessages} from "nbook/server/agent/profiles/prompt-order";
 import {mergeProfileTurnContextMessages, previewProfileTurnContexts} from "nbook/server/agent/profiles/profile-turn-context";
 import {resolveProfileRuntimeSettings} from "nbook/server/agent/profiles/profile-runtime-settings";
 import type {ProfileRuntimeSettings} from "nbook/shared/agent/profile-runtime-settings";
 import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import {resolveWorkspaceRootRef, WORKSPACE_CONTAINER_ROOT} from "nbook/server/workspace-files/workspace-root-ref";
 import {resolvePiModelFromConfig} from "nbook/server/agent/harness/model-resolver";
 import {resolveAgentVisibleModels} from "nbook/server/agent/harness/agent-visible-models";
 
@@ -120,14 +118,14 @@ export async function previewAgentProfilePrepare(
     const initial = harness.profiles.parseInitial(profile, buildPreviewInitial(request));
     const previewSnapshot = request.sessionId ? await harness.repo.readSession(Number(request.sessionId)).catch(() => null) : null;
     const sessionContext = previewSnapshot ? harness.repo.reduce(previewSnapshot) : await buildPreviewSession(harness, request);
-    const session = createProfilePreviewSessionFacade(harness, request.profileKey, initial, previewSnapshot, sessionContext);
+    const workspaceRoot = absoluteFsPath(harness.repo.rootWorkspace);
+    const readyProject = sessionContext.currentProjectRoot
+        ? requireActiveReadyProject(projectWorkspaceRef(sessionContext.currentProjectRoot))
+        : null;
+    const session = createProfilePreviewSessionFacade(harness, request.profileKey, initial, previewSnapshot, sessionContext, workspaceRoot, readyProject);
     const catalog = await harness.profiles.snapshot();
     const skills = await harness.skills.list();
     const needsHome = profileNeedsHome(profile);
-    const workspaceRoot = absoluteFsPath(harness.repo.rootWorkspace);
-    const readyProject = sessionContext.projectPath
-        ? requireReadyProjectPath(sessionContext.projectPath)
-        : undefined;
     const prepare = async (): Promise<AgentProfilePreparePreviewDto> => {
         const projectWorkspace = readyProject?.workspace;
         const effectiveConfig = await loadPreviewEffectiveConfig(workspaceRoot, readyProject);
@@ -155,14 +153,12 @@ export async function previewAgentProfilePrepare(
                 ? {
                     profileKey: request.profileKey,
                     scope: "project",
-                    workspaceRoot: sessionContext.workspaceRoot,
                     projectWorkspace,
                     ...(home ? {home, allowGlobalResourceKeys: true} : {}),
                 }
                 : {
                     profileKey: request.profileKey,
                     scope: "global",
-                    workspaceRoot: sessionContext.workspaceRoot,
                     ...(home ? {home, allowGlobalResourceKeys: true} : {}),
                 },
         );
@@ -190,7 +186,8 @@ export async function previewAgentProfilePrepare(
                 runtime: {
                     now: new Date().toISOString(),
                     promptUserTurnCount: sessionContext.messages.filter((message) => message.role === "user").length,
-                    currentProject: readyProject ?? null,
+                    currentProject: readyProject,
+                    sqlSchemaSummary: () => projectSqlSchemaSummary(readyProject),
                 },
             });
             const historyMessages = prepared.historyInitMessages ?? [];
@@ -349,7 +346,6 @@ async function buildPreviewSession(harness: NeuroAgentHarness, request: AgentPro
         model: null,
         thinkingLevel: "off",
         profileKey: request.profileKey,
-        workspaceRoot: WORKSPACE_CONTAINER_ROOT,
         customState: {},
         linkedAgents: [],
         archived: false,
@@ -363,13 +359,13 @@ function createProfilePreviewSessionFacade(
     initial: JsonValue,
     snapshot: SessionSnapshot | null,
     context: NeuroSessionContext,
+    workspaceRoot: AbsoluteFsPath,
+    currentProject: ReadyProjectSessionRef | null,
 ): ProfilePrepareContext["session"] {
     const facade: ProfilePrepareContext["session"] = {
         ...context,
-        workspaceFsRoot: resolveWorkspaceRootRef(
-            context.workspaceRoot,
-            absoluteFsPath(harness.repo.rootWorkspace),
-        ),
+        workspaceRoot,
+        currentProject,
         read: async (sessionId) => {
             if (typeof sessionId === "number" && sessionId > 0) {
                 const realSnapshot = await harness.repo.readSession(sessionId);
@@ -580,11 +576,11 @@ function resolvePreviewModel(
 function previewSessionSnapshot(profileKey: string, session: NeuroSessionContext): SessionSnapshot {
     return {
         metadata: {
+            schemaVersion: 2,
             sessionId: -1,
             profileKey,
             initial: {},
-            workspaceRoot: session.workspaceRoot,
-            workspaceKey: "preview",
+            currentProjectRoot: session.currentProjectRoot,
             createdAt: Date.now(),
         },
         entries: [],
@@ -597,7 +593,7 @@ function previewSessionSnapshot(profileKey: string, session: NeuroSessionContext
  */
 async function loadPreviewEffectiveConfig(
     workspaceRoot: AbsoluteFsPath,
-    project: ReadyProjectSessionRef | undefined,
+    project: ReadyProjectSessionRef | null,
 ) {
     const {loadEffectiveConfigFromTarget} = await import("nbook/server/config/config-service");
     return project

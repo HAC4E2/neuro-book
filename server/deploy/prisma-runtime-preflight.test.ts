@@ -138,23 +138,25 @@ describe("Prisma runtime preflight", () => {
         })).rejects.toThrow("Prisma generate 失败：generate missing");
     });
 
-    it("Product 模式缺少打包 Prisma Client 时只报错不生成", async () => {
+    it("Product 模式信任已验证 bundle，不再寻找或生成源码 Prisma Client", async () => {
         const root = await tempRoot();
         const calls: string[] = [];
+        const commandPath = join(root, ".output", "server", "commands", "chunks", "create-admin.mjs");
         const plan = resolvePrismaRuntimePlan({
             cwd: root,
-            scriptPath: join(root, ".output", "server", "scripts", "cli", "has-users.ts"),
+            scriptPath: commandPath,
         });
 
         await expect(ensurePrismaRuntime({
             cwd: root,
-            scriptPath: join(root, ".output", "server", "scripts", "cli", "has-users.ts"),
+            scriptPath: commandPath,
+            exists: (path) => path.replaceAll("\\", "/") === commandPath.replaceAll("\\", "/"),
             runCommand: async (command) => {
                 calls.push(command);
             },
-        })).rejects.toThrow("Product Runtime 缺少打包后的 Prisma Client");
+        })).resolves.toBeUndefined();
         expect(plan.mode).toBe("product");
-        expect(plan.clientPath).toBe(join(root, ".output", "server", "node_modules", "nbook", "server", "generated", "prisma", "client.ts"));
+        expect(plan.clientPath).toBe(commandPath.replaceAll("\\", "/"));
         expect(calls).toEqual([]);
     });
 

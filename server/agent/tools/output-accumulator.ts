@@ -1,17 +1,15 @@
-import {randomBytes} from "node:crypto";
 import {createWriteStream, type WriteStream} from "node:fs";
-import {tmpdir} from "node:os";
-import {join} from "node:path";
 import {DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncateTail, type TruncationResult} from "nbook/server/agent/tools/truncate";
+import type {BashOutputReference, BashOutputReservation} from "nbook/server/agent/tools/bash-output-store";
 
 export type OutputSnapshot = {
     content: string;
     truncation: TruncationResult;
-    fullOutputPath?: string;
+    fullOutput?: BashOutputReference;
 };
 
 /**
- * 增量收集 bash 输出。内存只保留尾部，截断时把完整输出写入临时日志。
+ * 增量收集bash输出。内存只保留尾部，截断时写入Store预留的Cache Root lease。
  */
 export class OutputAccumulator {
     private readonly decoder = new TextDecoder();
@@ -24,10 +22,11 @@ export class OutputAccumulator {
     private totalLines = 1;
     private currentLineBytes = 0;
     private finished = false;
-    private tempFilePath: string | undefined;
-    private tempFileStream: WriteStream | undefined;
+    private outputStream: WriteStream | undefined;
+    private persistedBytes = 0;
+    private capped = false;
 
-    constructor(private readonly tempFilePrefix = "neuro-bash") {}
+    constructor(private readonly reservation: BashOutputReservation | null) {}
 
     /**
      * 追加原始输出 chunk。
@@ -38,9 +37,9 @@ export class OutputAccumulator {
         }
         this.totalRawBytes += data.length;
         this.appendDecodedText(this.decoder.decode(data, {stream: true}));
-        if (this.tempFileStream || this.shouldUseTempFile()) {
-            this.ensureTempFile();
-            this.tempFileStream?.write(data);
+        if (this.outputStream || this.shouldUseOutputFile()) {
+            this.ensureOutputFile();
+            this.persist(data);
             return;
         }
         this.rawChunks.push(data);
@@ -55,8 +54,8 @@ export class OutputAccumulator {
         }
         this.finished = true;
         this.appendDecodedText(this.decoder.decode());
-        if (this.shouldUseTempFile()) {
-            this.ensureTempFile();
+        if (this.shouldUseOutputFile()) {
+            this.ensureOutputFile();
         }
     }
 
@@ -77,29 +76,43 @@ export class OutputAccumulator {
             totalBytes: this.totalDecodedBytes,
         };
         if (persistIfTruncated && finalTruncation.truncated) {
-            this.ensureTempFile();
+            this.ensureOutputFile();
         }
         return {
             content: finalTruncation.content,
             truncation: finalTruncation,
-            fullOutputPath: this.tempFilePath,
+            fullOutput: !finalTruncation.truncated
+                ? undefined
+                : this.reservation
+                    ? {
+                        locator: this.reservation.reference.locator,
+                        state: this.capped ? "partial" : "available",
+                    }
+                    : {state: "reclaimed"},
         };
     }
 
     /**
      * 关闭临时文件流。
      */
-    async closeTempFile(): Promise<void> {
-        if (!this.tempFileStream) {
+    async closeOutput(): Promise<void> {
+        if (!this.outputStream) {
+            await this.reservation?.discard();
             return;
         }
-        const stream = this.tempFileStream;
-        this.tempFileStream = undefined;
-        await new Promise<void>((resolve, reject) => {
-            stream.once("error", reject);
-            stream.once("finish", resolve);
-            stream.end();
-        });
+        const stream = this.outputStream;
+        this.outputStream = undefined;
+        try {
+            await new Promise<void>((resolve, reject) => {
+                stream.once("error", reject);
+                stream.once("finish", resolve);
+                stream.end();
+            });
+        } catch (error) {
+            await this.reservation?.discard();
+            throw error;
+        }
+        await this.reservation?.complete(this.persistedBytes, this.capped);
     }
 
     get lastLineBytes(): number {
@@ -134,19 +147,34 @@ export class OutputAccumulator {
         this.currentLineBytes = Buffer.byteLength(text.slice(lastNewline + 1), "utf-8");
     }
 
-    private shouldUseTempFile(): boolean {
+    private shouldUseOutputFile(): boolean {
         return this.totalRawBytes > DEFAULT_MAX_BYTES || this.totalDecodedBytes > DEFAULT_MAX_BYTES || this.totalLines > DEFAULT_MAX_LINES;
     }
 
-    private ensureTempFile(): void {
-        if (this.tempFilePath) {
+    private ensureOutputFile(): void {
+        if (this.outputStream || !this.reservation) {
             return;
         }
-        this.tempFilePath = join(tmpdir(), `${this.tempFilePrefix}-${randomBytes(8).toString("hex")}.log`);
-        this.tempFileStream = createWriteStream(this.tempFilePath);
+        this.outputStream = createWriteStream(this.reservation.physicalPath, {flags: "wx"});
         for (const chunk of this.rawChunks) {
-            this.tempFileStream.write(chunk);
+            this.persist(chunk);
         }
         this.rawChunks = [];
+    }
+
+    /** 单文件硬预算只影响Cache副本；模型可见尾部继续完整统计并照常返回。 */
+    private persist(data: Buffer): void {
+        if (!this.outputStream || !this.reservation || this.capped) return;
+        const remaining = this.reservation.maxBytes - this.persistedBytes;
+        if (remaining <= 0) {
+            this.capped = true;
+            return;
+        }
+        const persisted = data.length <= remaining ? data : data.subarray(0, remaining);
+        this.outputStream.write(persisted);
+        this.persistedBytes += persisted.length;
+        if (persisted.length !== data.length) {
+            this.capped = true;
+        }
     }
 }

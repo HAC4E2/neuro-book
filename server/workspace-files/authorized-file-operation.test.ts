@@ -3,20 +3,25 @@ import {join} from "node:path";
 import {tmpdir} from "node:os";
 import {afterEach, describe, expect, it} from "vitest";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import {authorizeFileOperation, authorizeProcessCwd} from "nbook/server/workspace-files/authorized-file-operation";
-import {createFileScope} from "nbook/server/workspace-files/file-scope";
-import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
-import {closeProject, openProject, ProjectNotOpenError} from "nbook/server/workspace-files/project-session";
+import {
+    authorizeFileOperation,
+    authorizeProcessCwd,
+    type FileOperationContext,
+} from "nbook/server/workspace-files/authorized-file-operation";
+import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
+import {
+    closeAllProjects,
+    closeProject,
+    openProject,
+    ProjectNotOpenError,
+} from "nbook/server/workspace-files/project-session";
+import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 
 describe("Authorized File Operation", () => {
     const roots: string[] = [];
-    const openedProjects = new Set<string>();
 
     afterEach(async () => {
-        for (const projectPath of openedProjects) {
-            await closeProject(projectPath, "shutdown").catch(() => undefined);
-        }
-        openedProjects.clear();
+        await closeAllProjects().catch(() => undefined);
         for (const root of roots.splice(0)) {
             await rm(root, {recursive: true, force: true, maxRetries: 5, retryDelay: 50});
         }
@@ -30,89 +35,111 @@ describe("Authorized File Operation", () => {
         await mkdir(outsideRoot, {recursive: true});
         await writeFile(join(outsideRoot, "secret.md"), "secret", "utf8");
         await symlink(outsideRoot, join(workspaceRoot, "escape"), process.platform === "win32" ? "junction" : "dir");
-        const scope = createFileScope({kind: "workspace", workspaceRoot: absoluteFsPath(workspaceRoot)});
+        const context: FileOperationContext = {
+            workspaceRoot: absoluteFsPath(workspaceRoot),
+            currentProject: null,
+        };
 
         for (const operation of ["read", "write", "edit"] as const) {
-            await expect(authorizeFileOperation(scope, "escape/secret.md", operation))
+            await expect(authorizeFileOperation(context, "escape/secret.md", operation))
                 .rejects.toThrow("真实路径越过文件系统根");
         }
     });
 
-    it("managed Project 数据面未 open 时失败，open 后允许文件与 bash cwd", async () => {
+    it("exact Current Project 失效后拒绝文件操作，ready 时允许文件与 bash cwd", async () => {
         const root = await temporaryRoot();
-        const workspaceRoot = join(root, "workspace");
-        const projectPath = normalizeProjectPath("workspace/novel");
-        await mkdir(join(workspaceRoot, "novel"), {recursive: true});
-        const scope = createFileScope({
-            kind: "managed-project",
-            workspaceRoot: absoluteFsPath(workspaceRoot),
-            projectPath,
-        });
+        const workspaceRoot = absoluteFsPath(join(root, "workspace"));
+        const ready = await openReady(workspaceRoot, "novel");
+        const context: FileOperationContext = {workspaceRoot, currentProject: ready};
 
-        await expect(authorizeFileOperation(scope, "manuscript/chapter.md", "write"))
-            .rejects.toBeInstanceOf(ProjectNotOpenError);
-        await openProject(absoluteFsPath(workspaceRoot), projectPath, {kind: "job", source: "authorized-file-operation-test"});
-        openedProjects.add(projectPath);
-
-        await expect(authorizeFileOperation(scope, "manuscript/chapter.md", "write")).resolves.toMatchObject({
-            address: {projectPath, relativePath: "manuscript/chapter.md"},
+        await expect(authorizeFileOperation(context, "manuscript/chapter.md", "write")).resolves.toMatchObject({
+            target: {
+                kind: "relative",
+                project: ready,
+                relativePath: "manuscript/chapter.md",
+            },
         });
-        await expect(authorizeFileOperation(scope, join(workspaceRoot, "novel", "manuscript", "chapter.md"), "read"))
+        await expect(authorizeFileOperation(context, join(workspaceRoot, "novel", "manuscript", "chapter.md"), "read"))
             .resolves.toMatchObject({
-                address: {kind: "absolute", projectPath, relativePath: "manuscript/chapter.md"},
+                target: {kind: "absolute", project: ready, relativePath: "manuscript/chapter.md"},
             });
-        await expect(authorizeProcessCwd(scope)).resolves.toMatchObject({root: join(workspaceRoot, "novel")});
+        await expect(authorizeProcessCwd(context)).resolves.toMatchObject({root: ready.workspace.root});
+
+        await closeProject(ready.workspace.ref, "shutdown");
+        await expect(authorizeFileOperation(context, "manuscript/chapter.md", "write"))
+            .rejects.toBeInstanceOf(ProjectNotOpenError);
     });
 
-    it("跨 Project File Address 要求当前和目标 Project 都已 open", async () => {
+    it("跨 Project 路径必须捕获目标 exact ready generation", async () => {
         const root = await temporaryRoot();
-        const workspaceRoot = join(root, "workspace");
-        await mkdir(join(workspaceRoot, "alpha"), {recursive: true});
-        await mkdir(join(workspaceRoot, "beta"), {recursive: true});
-        const alpha = normalizeProjectPath("workspace/alpha");
-        const beta = normalizeProjectPath("workspace/beta");
-        const scope = createFileScope({kind: "managed-project", workspaceRoot: absoluteFsPath(workspaceRoot), projectPath: alpha});
-        await openProject(absoluteFsPath(workspaceRoot), alpha, {kind: "job", source: "authorized-file-operation-test"});
-        openedProjects.add(alpha);
+        const workspaceRoot = absoluteFsPath(join(root, "workspace"));
+        const alpha = await openReady(workspaceRoot, "alpha");
+        await createProjectDirectory(workspaceRoot, "beta");
+        const context: FileOperationContext = {workspaceRoot, currentProject: alpha};
 
-        await expect(authorizeFileOperation(scope, "workspace/beta/lorebook/index.md", "read"))
-            .rejects.toMatchObject({projectPath: beta});
-        await openProject(absoluteFsPath(workspaceRoot), beta, {kind: "job", source: "authorized-file-operation-test"});
-        openedProjects.add(beta);
-        await expect(authorizeFileOperation(scope, "workspace/beta/lorebook/index.md", "write"))
-            .resolves.toMatchObject({address: {projectPath: beta, relativePath: "lorebook/index.md"}});
+        await expect(authorizeFileOperation(context, "workspace/beta/lorebook/index.md", "read"))
+            .rejects.toMatchObject({projectRoot: "beta"});
+        const beta = await openProject(projectWorkspaceRef("beta"), {kind: "job", source: "authorized-file-operation-test"}, workspaceRoot);
+        await expect(authorizeFileOperation(context, "workspace/beta/lorebook/index.md", "write"))
+            .resolves.toMatchObject({
+                target: {
+                    kind: "project",
+                    project: beta,
+                    relativePath: "lorebook/index.md",
+                },
+            });
     });
 
-    it("任意绝对路径按文件系统地址授权，但相对路径仍不能通过链接越过File Scope", async () => {
+    it("绝对路径不推断其他 Project 身份，相对路径仍不能通过链接越界", async () => {
         const root = await temporaryRoot();
-        const workspaceRoot = join(root, "workspace");
-        const alphaRoot = join(workspaceRoot, "alpha");
+        const workspaceRoot = absoluteFsPath(join(root, "workspace"));
+        const alpha = await openReady(workspaceRoot, "alpha");
         const betaRoot = join(workspaceRoot, "beta");
-        await mkdir(alphaRoot, {recursive: true});
         await mkdir(join(betaRoot, "lorebook"), {recursive: true});
         await writeFile(join(betaRoot, "lorebook", "index.md"), "beta", "utf8");
-        await symlink(betaRoot, join(alphaRoot, "linked-beta"), process.platform === "win32" ? "junction" : "dir");
-        const alpha = normalizeProjectPath("workspace/alpha");
-        const beta = normalizeProjectPath("workspace/beta");
-        const scope = createFileScope({kind: "managed-project", workspaceRoot: absoluteFsPath(workspaceRoot), projectPath: alpha});
-        await openProject(absoluteFsPath(workspaceRoot), alpha, {kind: "job", source: "authorized-file-operation-test"});
-        openedProjects.add(alpha);
+        await symlink(betaRoot, join(alpha.workspace.root, "linked-beta"), process.platform === "win32" ? "junction" : "dir");
+        const context: FileOperationContext = {workspaceRoot, currentProject: alpha};
 
         for (const operation of ["read", "write", "edit", "apply_patch"] as const) {
-            await expect(authorizeFileOperation(scope, join(betaRoot, "lorebook", "index.md"), operation))
+            await expect(authorizeFileOperation(context, join(betaRoot, "lorebook", "index.md"), operation))
                 .resolves.toMatchObject({
                     operation,
-                    address: {
-                        kind: "absolute",
-                        absolutePath: join(betaRoot, "lorebook", "index.md"),
-                        projectPath: null,
-                    },
+                    target: {kind: "absolute", project: null},
                     containmentRoot: null,
                 });
         }
-        await expect(authorizeFileOperation(scope, "linked-beta/lorebook/index.md", "read"))
+        await expect(authorizeFileOperation(context, "linked-beta/lorebook/index.md", "read"))
             .rejects.toThrow("真实路径越过文件系统根");
     });
+
+    it("Workspace Root control 路径不携带 Project 身份", async () => {
+        const root = await temporaryRoot();
+        const workspaceRoot = absoluteFsPath(join(root, "workspace"));
+        await mkdir(join(workspaceRoot, ".nbook"), {recursive: true});
+
+        await expect(authorizeFileOperation(
+            {workspaceRoot, currentProject: null},
+            "workspace/.nbook/config.json",
+            "read",
+        )).resolves.toMatchObject({
+            target: {
+                kind: "workspace-control",
+                project: null,
+                relativePath: "config.json",
+            },
+        });
+    });
+
+    async function openReady(workspaceRoot: ReturnType<typeof absoluteFsPath>, projectRoot: string): Promise<ReadyProjectSessionRef> {
+        await createProjectDirectory(workspaceRoot, projectRoot);
+        return openProject(projectWorkspaceRef(projectRoot), {kind: "job", source: "authorized-file-operation-test"}, workspaceRoot);
+    }
+
+    async function createProjectDirectory(workspaceRoot: string, projectRoot: string): Promise<void> {
+        const root = join(workspaceRoot, projectRoot);
+        await mkdir(root, {recursive: true});
+        await writeFile(join(root, "project.yaml"), `kind: novel\ntitle: ${projectRoot}\nsummary: ''\n`, "utf8");
+    }
 
     async function temporaryRoot(): Promise<string> {
         const root = await mkdtemp(join(tmpdir(), "nbook-authorized-file-operation-"));

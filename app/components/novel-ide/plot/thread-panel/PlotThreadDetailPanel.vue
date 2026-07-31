@@ -52,12 +52,12 @@ const panelHeight = ref(0);
 const aiDialogOpen = ref(false);
 const ideStore = useNovelIdeStore();
 const {
-    currentNovelId,
+    currentProjectRoot,
     selectedStoryThreadId,
     selectedStorySceneId,
 } = storeToRefs(ideStore);
 const {resolveMenu, menuRefreshKey} = useStructuredReferenceMenu({
-    novelId: currentNovelId,
+    novelId: currentProjectRoot,
     selectedStoryThreadId,
     selectedStorySceneId,
 });

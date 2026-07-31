@@ -80,12 +80,12 @@ describe("useAgentSession durable history", () => {
         expect(session.durableEntries.value.map((entry) => entry.id)).toEqual(["other"]);
     });
 
-    it("409 ACTIVE_PATH_CHANGED 请求统一 recovery，不把旧页并入当前窗口", async () => {
+    it("ACTIVE_PATH_CHANGED 稳定业务码请求统一 recovery，不把旧页并入当前窗口", async () => {
         const session = useAgentSession();
         session.applyRecovery(recovery("rev-1", [user("entry-2", "二")], "cursor-1"));
 
         await expect(session.loadPrevious(async () => {
-            throw {statusCode: 409, data: {code: "ACTIVE_PATH_CHANGED", message: "历史分支已变化"}};
+            throw {data: {code: "ACTIVE_PATH_CHANGED", message: "历史分支已变化"}};
         })).resolves.toBe(false);
 
         expect(session.needsRecovery.value).toBe(true);
@@ -93,12 +93,12 @@ describe("useAgentSession durable history", () => {
         expect(session.historyError.value).toBe("历史分支已变化");
     });
 
-    it("400 INVALID_HISTORY_CURSOR 在 recovery 成功后重置到最新尾页", async () => {
+    it("INVALID_HISTORY_CURSOR 稳定业务码在 recovery 成功后重置到最新尾页", async () => {
         const session = useAgentSession();
         session.applyRecovery(recovery("rev-1", [user("entry-1", "旧页"), user("entry-2", "当前")], "invalid-cursor"));
 
         await expect(session.loadPrevious(async () => {
-            throw {statusCode: 400, data: {code: "INVALID_HISTORY_CURSOR", message: "history cursor 已失效"}};
+            throw {data: {code: "INVALID_HISTORY_CURSOR", message: "history cursor 已失效"}};
         })).resolves.toBe(false);
 
         expect(session.durableEntries.value.map((entry) => entry.id)).toEqual(["entry-1", "entry-2"]);
@@ -364,8 +364,6 @@ function summary(sessionId: number): AgentSessionRecoveryDto["summary"] {
     return {
         sessionId,
         profileKey: "leader.default",
-        workspaceKey: "global",
-        workspaceRoot: ".",
         status: "idle",
         updatedAt: 1,
         archived: false,

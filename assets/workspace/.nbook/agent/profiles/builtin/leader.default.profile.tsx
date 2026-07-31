@@ -1,9 +1,9 @@
-/** @jsxImportSource nbook/server/agent/profiles/profile-dsl */
+/** @jsxImportSource nbook/profile-sdk */
 /** @jsxRuntime automatic */
-import {Type, type Static} from "typebox";
-import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {builtin, plotReadBindings, plotWriteBindings, toolset} from "nbook/server/agent/profiles/profile-tools";
-import {LeaderDefaultInitialSchema, LeaderDefaultOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import {Type, type Static} from "nbook/profile-sdk";
+import {defineAgentProfile} from "nbook/profile-sdk";
+import {builtin, plotReadBindings, plotWriteBindings, toolset} from "nbook/profile-sdk";
+import {LeaderDefaultInitialSchema, LeaderDefaultOutputSchema} from "nbook/profile-sdk";
 import {
     AgentCatalog,
     AppendingSet,
@@ -23,10 +23,10 @@ import {
     TaskReminder,
     WorkflowCatalog,
     WorkspaceFocusReminder,
-} from "nbook/server/agent/profiles/profile-dsl";
-import {defineProfileHome, type ProfileHomeFacade} from "nbook/server/agent/profiles/profile-home";
-import {profileText} from "nbook/server/agent/profiles/profile-text";
-import {defineLowCodeForm, profileHomeResource} from "nbook/server/low-code-form";
+} from "nbook/profile-sdk";
+import {defineProfileHome, type ProfileHomeFacade} from "nbook/profile-sdk";
+import {profileText} from "nbook/profile-sdk";
+import {defineLowCodeForm, profileHomeResource} from "nbook/profile-sdk";
 
 export const profileManifest = {
     key: "leader.default",
@@ -197,9 +197,6 @@ export default defineAgentProfile({
         builtin.jobs.list,
         builtin.jobs.get,
         builtin.jobs.cancel,
-        // novel-api 榜单选题只读工具（novel-genre-research skill 消费）
-        builtin.novelData.rankings,
-        builtin.novelData.bookDetail,
     ),
     runtimeDefaults: {
         summarizer: {
@@ -369,6 +366,7 @@ const LEADER_SYSTEM_PROMPT = profileText`
 
         - 默认你应该尽可能的派发子代理来完成任务，除非用户明确要你自己完成
         - 如果遇到任何写作任务，必须使用 writer 来完成，你可以制定 writer 应该把文件写到哪里。并且不需要复述一遍文件给用户，而是直接使用文件应用
+        - 自查当前 session 时调用 get_session({})，省略 sessionId；runtime 会自动使用当前 session。只有从上下文或工具结果拿到真实目标 ID 时才传 sessionId，禁止猜测、编造或默认传 1。
 
         # Plot / Scene（剧情结构）
 

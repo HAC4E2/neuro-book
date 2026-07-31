@@ -206,24 +206,6 @@ describe("config normalizer workspace history", () => {
     });
 });
 
-describe("config normalizer novel data", () => {
-    it("默认值：baseUrl 落 http://localhost:3000", () => {
-        const effective = resolveEffectiveConfig(normalizeGlobalConfig({}), null);
-        expect(effective.novelData).toEqual({baseUrl: "http://localhost:3000"});
-    });
-
-    it("partial 覆盖合并：显式 baseUrl 生效并 trim；显式空串保留（表示未配置）", () => {
-        expect(resolveEffectiveConfig(normalizeGlobalConfig({
-            novelData: {baseUrl: "  http://127.0.0.1:4100  "},
-        }), null).novelData).toEqual({baseUrl: "http://127.0.0.1:4100"});
-
-        // 用户清空 baseUrl 时不回落默认地址，工具侧据此给出配置引导
-        expect(resolveEffectiveConfig(normalizeGlobalConfig({
-            novelData: {baseUrl: ""},
-        }), null).novelData).toEqual({baseUrl: ""});
-    });
-});
-
 describe("config normalizer Provider Config identity", () => {
     it("runtime Record 化会跳过重复 Provider 组而不是以后项覆盖前项", () => {
         const provider = {

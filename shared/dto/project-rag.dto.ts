@@ -45,7 +45,7 @@ export const ProjectRagSubjectSummaryDtoSchema = z.object({
 });
 
 export const ProjectRagOverviewDtoSchema = z.object({
-    projectPath: z.string().trim().min(1),
+    projectRoot: z.string().trim().min(1),
     subjects: z.array(ProjectRagSubjectSummaryDtoSchema),
 });
 
@@ -64,7 +64,7 @@ export const ProjectRagMemoryDtoSchema = z.object({
 });
 
 export const ProjectRagSubjectDtoSchema = z.object({
-    projectPath: z.string().trim().min(1),
+    projectRoot: z.string().trim().min(1),
     subjectPath: ProjectRagSubjectPathSchema,
     subjectId: z.string().trim().min(1),
     events: z.array(ProjectRagEventDtoSchema),
@@ -84,7 +84,7 @@ export const ProjectRagSearchRequestDtoSchema = z.object({
 });
 
 export const ProjectRagSearchResultDtoSchema = z.object({
-    projectPath: z.string().trim().min(1),
+    projectRoot: z.string().trim().min(1),
     subjectPath: ProjectRagSubjectPathSchema,
     candidates: z.array(z.object({
         source: ProjectRagSourceSchema,
@@ -102,7 +102,7 @@ export const ProjectRagRebuildRequestDtoSchema = z.object({
 });
 
 export const ProjectRagRebuildResultDtoSchema = z.object({
-    projectPath: z.string().trim().min(1),
+    projectRoot: z.string().trim().min(1),
     rebuiltSubjects: z.number().int().nonnegative(),
     skippedSubjects: z.number().int().nonnegative(),
     results: z.array(z.object({
@@ -166,7 +166,7 @@ export const ProjectRagInspectorRequestDtoSchema = z.object({
 });
 
 export const ProjectRagInspectorDtoSchema = z.object({
-    projectPath: z.string().trim().min(1),
+    projectRoot: z.string().trim().min(1),
     selectedSubjectPath: ProjectRagSubjectPathSchema.nullable(),
     sourceFilter: z.array(ProjectRagSourceSchema).min(1),
     limit: ProjectRagInspectorLimitSchema,
@@ -247,7 +247,7 @@ export const ProjectRagDebugRequestDtoSchema = z.discriminatedUnion("action", [
 ]);
 
 export const ProjectRagDebugResultDtoSchema = z.object({
-    projectPath: z.string().trim().min(1),
+    projectRoot: z.string().trim().min(1),
     action: ProjectRagDebugActionDtoSchema,
     message: z.string(),
     rebuild: ProjectRagRebuildResultDtoSchema.optional(),

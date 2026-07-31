@@ -52,7 +52,8 @@ import type {AppendManySessionEntryDraft, SessionWriteEntryBatch, SessionWritePl
 import {ToolSessionWriteSink} from "nbook/server/agent/session/tool-session-write-sink";
 import {relationLedgerChange} from "nbook/server/agent/session/relation-ledger";
 import {AGENT_FOLLOW_UP_QUEUE_STATE_KEY, AGENT_MODE_STATE_KEY, AGENT_MODE_UI_STATE_KEY, AGENT_PENDING_USER_RESOLUTION_STATE_PREFIX, SESSION_SUMMARIZER_STATE_KEY, SESSION_TITLE_OWNER_STATE_KEY, readTitleOwner, type SessionTitleOwnerState} from "nbook/server/agent/session/custom-state-keys";
-import type {InvocationErrorInfo, InvocationErrorPhase, ModelChangeEntry, NeuroSessionContext, SessionEntry, SessionEntryDraft, SessionEntryId, SessionSnapshot} from "nbook/server/agent/session/types";
+import type {InvocationErrorInfo, InvocationErrorPhase, ModelChangeEntry, NeuroSessionContext, SessionEntry, SessionEntryDraft, SessionEntryId, SessionMetadata, SessionSnapshot} from "nbook/server/agent/session/types";
+import {SessionCurrentProjectError} from "nbook/server/agent/session/current-project-error";
 import {canonicalSessionModel, projectSessionModelRef, sessionModelsEqual} from "nbook/server/agent/session/session-model";
 import type {DurableSessionModelRef} from "nbook/server/agent/session/session-model-redaction";
 import type {AgentRuntimeHook, AgentRuntimeHookResult, RuntimeSessionFacade} from "nbook/server/agent/profiles/define-agent-runtime";
@@ -62,10 +63,10 @@ import {AgentJobManager} from "nbook/server/agent/jobs/agent-job-manager";
 import {findPendingApprovalCall, findPendingApprovalCalls, resolutionToToolResult} from "nbook/server/agent/tools/approval";
 import {assertPublicToolCallId} from "nbook/shared/agent/public-tool-identity";
 import {
-    assertProjectOpen,
+    listProjects,
     openProject,
     registerAgentPresenceProbe,
-    requireReadyProjectPath,
+    requireActiveReadyProject,
     runReadyProjectOperation,
     startReadyProjectOperation,
 } from "nbook/server/workspace-files/project-session";
@@ -82,7 +83,7 @@ import {PUBLIC_TOOL_ARGS_TEXT_BYTES} from "nbook/server/agent/events/public-even
 import {projectPublicSessionSummarizerState, projectPublicSessionSummary} from "nbook/server/agent/events/public-session-projection";
 import {assertPublicClientVariablePatch, projectPublicControlReason} from "nbook/server/agent/events/public-control-event-projection";
 import {projectPublicFinalMessage} from "nbook/server/agent/events/public-invocation-result-projection";
-import {appendCompaction, compactIfNeeded} from "nbook/server/agent/harness/compaction";
+import {appendCompaction, compactIfNeeded, resolveCompactionOptions, resolveCompactionTriggerTokens} from "nbook/server/agent/harness/compaction";
 import {resolveAgentVisibleModels} from "nbook/server/agent/harness/agent-visible-models";
 import type {
     PendingSessionWritePlan,
@@ -121,28 +122,25 @@ import {resolvePiApiKeyForModelFromConfig, resolvePiModelFromConfig} from "nbook
 import {resolvePiModelsFromConfig} from "nbook/server/agent/harness/pi-runtime-resolver";
 import {mergePiRequestHeaders, parsePiSimpleRequestOptions, piRequestAuthOptions} from "nbook/server/agent/harness/pi-request-options";
 import {planModeDirectory, planModeToolDirectory, resolvePlanModeFile} from "nbook/server/agent/plan-mode-path";
-import {
-    normalizeWorkspaceRootRef,
-    resolveWorkspaceRootRef,
-    type WorkspaceRootRef,
-} from "nbook/server/workspace-files/workspace-root-ref";
+import {projectSqlSchemaSummary} from "nbook/server/agent/tools/project-sql-schema-summary";
 import {absoluteFsPath, relativeFilePathInside, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import type {ResolvedProjectWorkspace} from "nbook/server/workspace-files/project-identity";
+import {
+    canonicalProjectLocator,
+    isProjectLifecycleError,
+    ProjectLifecycleError,
+    projectWorkspaceRef,
+    type ResolvedProjectWorkspace,
+} from "nbook/server/workspace-files/project-identity";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 import type {RuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
 import {resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
-import {assertSessionFileScope, resolveSessionFileScope} from "nbook/server/agent/workspace/session-file-scope";
-import {createFileScope, resolveFileAddress} from "nbook/server/workspace-files/file-scope";
 import {resolveProfileSummarizer} from "nbook/server/agent/profiles/profile-summarizer";
 import {resolveProfileRuntimeSettings as resolveRuntimeSettings} from "nbook/server/agent/profiles/profile-runtime-settings";
 import type {ProfileRuntimeSettings} from "nbook/shared/agent/profile-runtime-settings";
 import {extractPatchTargetPaths} from "nbook/server/agent/tools/apply-patch";
 import {isReadonlyMode, type AgentMode} from "nbook/shared/dto/agent-session.dto";
 import type {EffectiveConfig, RuntimeConfigTarget} from "nbook/server/config/types";
-import {
-    assertManagedProjectDataPlaneOpen,
-    runProjectFileOperation,
-} from "nbook/server/workspace-files/project-data-plane-guard";
+import {runProjectFileOperation} from "nbook/server/workspace-files/project-data-plane-guard";
 import type {
     AgentSummary,
     AgentInvocationResult,
@@ -150,12 +148,12 @@ import type {
     DetachAgentResult,
     CreateAgentInput,
     CreateAgentResult,
-    AgentInvokeCaller,
     InvokeAgentInput,
     SessionQueryResult,
     SessionQueryInput,
     SessionRecentMessageRole,
 } from "nbook/server/agent/harness/types";
+import type {AgentInvokeCaller} from "nbook/server/agent/harness/invocation-caller";
 import type {
     AgentAbortRequestDto,
     AgentAbortResult,
@@ -194,9 +192,13 @@ import {appLogger} from "nbook/server/app-logs/logger";
 import {PiRequestRecorder} from "nbook/server/agent/observability/pi-request-recorder";
 import type {PiTraceCorrelation, PiTraceKind} from "nbook/server/agent/observability/pi-request-recorder";
 import {tracedStreamSimple} from "nbook/server/agent/observability/traced-provider";
-import {buildTraceSegments, computeToolsHash, type PromptPrefixAttribution} from "nbook/server/agent/observability/trace-segments";
+import {aggregateSegmentLabels, buildTraceSegments, computeToolsHash, type PromptPrefixAttribution} from "nbook/server/agent/observability/trace-segments";
+import {buildContextDiagnostics} from "nbook/server/agent/observability/context-diagnostics";
+import {emptyContextFacts, resolveModelCacheRetention, timelineDto} from "nbook/server/agent/observability/context-inspection";
+import {PiTraceReader} from "nbook/server/agent/observability/pi-trace-reader";
+import type {AgentContextInspectionDto} from "nbook/shared/dto/agent-context-inspection.dto";
 import type {PiTraceBinding, PiTraceSettings} from "nbook/server/agent/observability/traced-provider";
-import type {ServerTimingSink} from "nbook/server/utils/server-timing";
+import type {ServerTimingSink} from "nbook/server/utils/server-timing-sink";
 import {LowCodeFormDtoSchema} from "nbook/shared/dto/low-code-form.dto";
 import {ProfileBuildCoordinator} from "nbook/server/agent/profiles/profile-build-coordinator";
 import {providerErrorText} from "nbook/server/agent/observability/provider-error-sanitizer";
@@ -205,10 +207,9 @@ import {LocalAttachmentBlobAdapter} from "nbook/server/agent/attachments/local-a
 import {AgentAttachmentCodec, canonicalImageMime} from "nbook/server/agent/attachments/agent-attachment-codec";
 import {hasStoredAttachment, storedMessagesForText} from "nbook/server/agent/attachments/agent-attachment-codec";
 import {SessionAttachmentAuthority} from "nbook/server/agent/attachments/session-attachment-authority";
-import {estimateStoredContextTokens} from "nbook/server/agent/messages/stored-message-presentation";
+import {estimateStoredContextTokens} from "nbook/server/agent/messages/stored-message-tokens";
 import type {AttachmentId, AttachmentRef} from "nbook/shared/dto/agent-attachment.dto";
 import {AttachmentError} from "nbook/server/agent/attachments/types";
-import {AttachmentMigrationGate} from "nbook/server/agent/session/attachment-migration-gate";
 import {attachmentIdFromMarkdownTarget, parseAgentImageMarkdown, serializeAgentImageMarkdown} from "nbook/shared/agent/agent-image-markdown";
 import {AGENT_IMAGE_POLICY} from "nbook/shared/agent/agent-image-policy";
 import {authorizeFileOperation} from "nbook/server/workspace-files/authorized-file-operation";
@@ -238,8 +239,6 @@ type HarnessOptions = ({
     enableSessionSummarizer?: boolean;
     /** HTTP runtime 开启 profile 文件 watcher；测试和脚本默认不开启，避免短生命周期句柄泄漏。 */
     watchProfiles?: boolean;
-    /** HTTP 长生命周期 runtime 持有迁移互斥租约；短生命周期测试/脚本默认关闭。 */
-    holdAttachmentRuntimeLease?: boolean;
     /** 测试或替代存储后端可注入；生产默认使用 Workspace Root Local Adapter。 */
     attachmentStore?: AttachmentStore;
 };
@@ -566,7 +565,6 @@ export class NeuroAgentHarness {
     private sessionRelationIndexLoad: Promise<SessionRelationIndex> | null = null;
     private pendingRelationIndexEntries: PendingRelationIndexEntries[] = [];
     private readonly profileBuildCoordinator?: ProfileBuildCoordinator;
-    private readonly releaseAttachmentRuntimeLease: () => void;
     private readonly pendingClientPatches = new Map<string, {
         request: VariablePatchRequest;
         resolve: (ack: VariablePatchAck) => void;
@@ -585,9 +583,6 @@ export class NeuroAgentHarness {
         if (options.runtimePaths && relative(options.runtimePaths.workspaceRoot, this.workspaceRoot) !== "") {
             throw new Error("Agent Harness repo与RuntimePaths.workspaceRoot不一致");
         }
-        this.releaseAttachmentRuntimeLease = options.holdAttachmentRuntimeLease
-            ? new AttachmentMigrationGate(this.repo.rootWorkspace).acquireRuntimeLeaseSync()
-            : () => undefined;
         this.piTraceRecorder = new PiRequestRecorder({
             tracesRoot: this.repo.tracesRoot,
             onWriteError: (error) => {
@@ -764,7 +759,6 @@ export class NeuroAgentHarness {
         // Job 可能长期停在 waiting；停服必须先取消，再等待执行、回流和登记表有序落定。
         await this.jobs.shutdown();
         await this.drainBackgroundTasks();
-        this.releaseAttachmentRuntimeLease();
         await this.profiles.dispose();
     }
 
@@ -792,23 +786,13 @@ export class NeuroAgentHarness {
         if (parentSnapshot && this.repo.reduce(parentSnapshot).archived) {
             throw new Error(`不能在已归档 session ${String(input.parentSessionId)} 下创建关联 Agent。`);
         }
-        const projectPath = input.projectPath ?? parentSnapshot?.metadata.projectPath;
-        const workspaceRootRef = normalizeWorkspaceRootRef(input.workspaceRoot ?? parentSnapshot?.metadata.workspaceRoot, projectPath);
-        // Harness的repo root本身就是默认Workspace Root；首次创建session时允许它按仓库合同初始化。
-        // 明确外部Project Workspace仍必须由调用方预先创建，不能由Agent隐式mkdir。
-        const workspaceFsRoot = resolveWorkspaceRootRef(workspaceRootRef, this.workspaceRoot);
-        if (resolve(workspaceFsRoot) === resolve(this.workspaceRoot)) await mkdir(this.workspaceRoot, {recursive: true});
-        await assertSessionFileScope({
-            workspaceRootRef,
-            workspaceFsRoot,
-            projectPath,
-        });
+        const currentProjectRoot = input.currentProjectRoot ?? parentSnapshot?.metadata.currentProjectRoot;
+        if (currentProjectRoot) requireActiveReadyProject(projectWorkspaceRef(currentProjectRoot));
+        await mkdir(this.workspaceRoot, {recursive: true});
         const snapshot = await this.repo.createSession({
             profileKey: input.profileKey,
             initial: parsedInitial,
-            workspaceRoot: workspaceRootRef,
-            workspaceKey: input.workspaceKey ?? parentSnapshot?.metadata.workspaceKey ?? "global",
-            projectPath,
+            currentProjectRoot,
             parentSessionId: input.parentSessionId,
             title,
             kind: input.kind,
@@ -839,9 +823,7 @@ export class NeuroAgentHarness {
         void appLogger.info("agent.session.create", {
             sessionId: snapshot.metadata.sessionId,
             profileKey: input.profileKey,
-            workspaceRoot: snapshot.metadata.workspaceRoot,
-            workspaceKey: snapshot.metadata.workspaceKey,
-            projectPath: snapshot.metadata.projectPath ?? null,
+            currentProjectRoot: snapshot.metadata.currentProjectRoot ?? null,
             parentSessionId: input.parentSessionId ?? null,
         });
         return {
@@ -857,9 +839,7 @@ export class NeuroAgentHarness {
     private async createSystemAgent(input: {
         profileKey: string;
         initial: JsonValue;
-        workspaceRoot: WorkspaceRootRef;
-        workspaceKey: string;
-        projectPath?: string;
+        currentProjectRoot?: string;
         systemRole: "summarizer";
     }): Promise<SessionSnapshot> {
         const profile = await this.profiles.get(input.profileKey);
@@ -867,9 +847,7 @@ export class NeuroAgentHarness {
         const snapshot = await this.repo.createSession({
             profileKey: input.profileKey,
             initial: parsedInitial,
-            workspaceRoot: input.workspaceRoot,
-            workspaceKey: input.workspaceKey,
-            projectPath: input.projectPath,
+            currentProjectRoot: input.currentProjectRoot,
             systemRole: input.systemRole,
             title: profile.manifest.name,
         });
@@ -877,9 +855,7 @@ export class NeuroAgentHarness {
         void appLogger.info("agent.systemSession.create", {
             sessionId: snapshot.metadata.sessionId,
             profileKey: input.profileKey,
-            workspaceRoot: input.workspaceRoot,
-            workspaceKey: input.workspaceKey,
-            projectPath: input.projectPath ?? null,
+            currentProjectRoot: input.currentProjectRoot ?? null,
             systemRole: input.systemRole,
         });
         return snapshot;
@@ -888,15 +864,52 @@ export class NeuroAgentHarness {
     /**
      * 读取 session 当前 active path 的 reduce 结果，供工具读取 profile/session custom state。
      */
-    async readSessionContext(sessionId: number, workspaceKey?: string): Promise<NeuroSessionContext> {
-        return this.repo.reduce(await this.repo.readSession(sessionId, workspaceKey));
+    async readSessionContext(sessionId: number): Promise<NeuroSessionContext> {
+        return this.repo.reduce(await this.repo.readSession(sessionId));
+    }
+
+    /** 重新绑定或清除Session Current Project；运行中与等待中的Session禁止变更归属。 */
+    async updateCurrentProject(sessionId: number, projectRoot: string | null): Promise<AgentSessionSummaryDto> {
+        return this.withSessionMutation(sessionId, async () => {
+            const projection = await this.resolveSessionRuntimeProjection(sessionId);
+            if (projection.activeInvocation) {
+                throw new SessionCurrentProjectError(
+                    "current_project_rebind_forbidden",
+                    "运行中或等待中的 Session 不能重新绑定 Current Project。",
+                    projection.snapshot.metadata.currentProjectRoot,
+                );
+            }
+            let currentProjectRoot: string | null = null;
+            if (projectRoot !== null) {
+                const ref = projectWorkspaceRef(projectRoot);
+                const locator = canonicalProjectLocator(this.workspaceRoot, ref);
+                const snapshot = await listProjects(this.workspaceRoot);
+                const project = snapshot.projects.find((candidate) => (
+                    canonicalProjectLocator(this.workspaceRoot, candidate) === locator
+                ));
+                if (!project) {
+                    throw new ProjectLifecycleError(
+                        "PROJECT_NOT_FOUND",
+                        `Session Current Project不存在：${ref.projectRoot}`,
+                    );
+                }
+                // 写入 Lifecycle 发布的真实目录拼写，避免 Windows 大小写别名进入 durable metadata。
+                currentProjectRoot = project.projectRoot;
+            }
+            await this.executeWritePlan({
+                target: {sessionId},
+                cause: "agent.session.current_project",
+                ops: [{kind: "append", entry: {type: "current_project_change", projectRoot: currentProjectRoot}}],
+            });
+            return (await this.resolveSessionRuntimeProjection(sessionId)).summary;
+        });
     }
 
     /**
      * 返回 invocation admission 捕获的 Project generation。
      *
      * `null` 表示本 invocation 属于 Workspace Root；缺少 invocation state 表示调用链已经越过
-     * admission/terminal 边界，必须失败而不能重新按持久化 projectPath 查询 latest generation。
+     * admission/terminal 边界，必须失败而不能重新按持久化root查询latest generation。
      */
     projectForInvocation(invocationId: string): ReadyProjectSessionRef | null {
         const state = this.invocationVariableStates.get(invocationId);
@@ -906,17 +919,49 @@ export class NeuroAgentHarness {
         return state.currentProject;
     }
 
-    /** 按 session 当前持久化 Project Path 打开并捕获权威 admission 使用的精确 generation。 */
+    /** 按v2 metadata打开并捕获权威admission使用的精确generation。 */
     private async captureInvocationProject(
         sessionId: number,
-        projectPath: string | undefined,
+        metadata: SessionMetadata,
     ): Promise<ReadyProjectSessionRef | null> {
-        let currentProject: ReadyProjectSessionRef | null = null;
-        if (projectPath && /^workspace\/[^/]+$/u.test(projectPath)) {
-            currentProject = await openProject(this.workspaceRoot, projectPath, {kind: "agent", sessionId});
+        if (metadata.migrationReview) {
+            throw new SessionCurrentProjectError(
+                "migration_review_required",
+                "该 Session 无法确定所属 Project，必须先重新绑定或明确改为 Workspace Root Session。",
+                metadata.currentProjectRoot,
+            );
         }
-        assertManagedProjectDataPlaneOpen(projectPath);
-        return currentProject;
+        if (!metadata.currentProjectRoot) return null;
+        try {
+            return await openProject(
+                projectWorkspaceRef(metadata.currentProjectRoot),
+                {kind: "agent", sessionId},
+                this.workspaceRoot,
+            );
+        } catch (error) {
+            if (isProjectLifecycleError(error) && error.code === "PROJECT_NOT_FOUND") {
+                throw new SessionCurrentProjectError(
+                    "current_project_missing",
+                    `Session Current Project不存在：${metadata.currentProjectRoot}`,
+                    metadata.currentProjectRoot,
+                );
+            }
+            throw error;
+        }
+    }
+
+    /** snapshot/control读取只接受已经ready的Current Project，不隐式open。 */
+    private readyProjectForMetadata(metadata: SessionMetadata): ReadyProjectSessionRef | null {
+        if (metadata.migrationReview) {
+            throw new SessionCurrentProjectError(
+                "migration_review_required",
+                "该 Session 无法确定所属 Project，必须先重新绑定或明确改为 Workspace Root Session。",
+                metadata.currentProjectRoot,
+            );
+        }
+        return metadata.currentProjectRoot
+            ? requireActiveReadyProject(projectWorkspaceRef(metadata.currentProjectRoot))
+            : null;
     }
 
     /**
@@ -985,7 +1030,7 @@ export class NeuroAgentHarness {
     /**
      * 追加 session custom entry。工具写状态必须走这里，确保 SSE 与 session snapshot 同步。
      */
-    async appendCustomState(sessionId: number, key: string, value: JsonValue, workspaceKey?: string, invocationId?: string): Promise<SessionEntry> {
+    async appendCustomState(sessionId: number, key: string, value: JsonValue, invocationId?: string): Promise<SessionEntry> {
         return new ToolSessionWriteSink({
             executor: this.writeExecutor,
             sessionId,
@@ -1189,10 +1234,8 @@ export class NeuroAgentHarness {
                 invocationId,
                 profileKey: preparedRun.context.profileKey,
                 model: resolveAgentModelLogName(preparedRun.model),
-                workspaceRootRef: preparedRun.context.workspaceRoot,
-                workspaceFsRoot: resolveWorkspaceRootRef(preparedRun.context.workspaceRoot, this.workspaceRoot),
-                workspaceKey: preparedRun.snapshot.metadata.workspaceKey,
-                projectPath: preparedRun.context.projectPath ?? null,
+                workspaceRoot: this.workspaceRoot,
+                currentProjectRoot: currentProject?.workspace.ref.projectRoot ?? null,
                 toolKeys: preparedRun.toolKeys,
                 executionToolKeys: preparedRun.executionToolKeys ?? null,
                 callerKind: caller.kind,
@@ -1201,10 +1244,8 @@ export class NeuroAgentHarness {
 
             const result = await this.runLoop({
                 sessionId: input.sessionId,
-                workspaceKey: preparedRun.snapshot.metadata.workspaceKey,
-                workspaceRootRef: preparedRun.context.workspaceRoot,
-                workspaceFsRoot: resolveWorkspaceRootRef(preparedRun.context.workspaceRoot, this.workspaceRoot),
-                projectPath: preparedRun.context.projectPath,
+                workspaceRoot: this.workspaceRoot,
+                currentProject,
                 systemPrompt: preparedRun.systemPrompt,
                 messages: preparedRun.messages,
                 promptPrefix: preparedRun.promptPrefix,
@@ -1398,15 +1439,14 @@ export class NeuroAgentHarness {
                     : this.rejectedInvokeResult(input, "当前 Session 状态不允许执行该操作。");
             throw new InvocationAdmissionRejected(result);
         }
-        const projectPath = snapshot.metadata.projectPath;
         await this.sessionAttachments.validateDurableOwnership(input.sessionId);
-        return this.admitInvocation(input, projectPath);
+        return this.admitInvocation(input, snapshot.metadata);
     }
 
     /** 在已持有 Session mutation lock 且完成 policy admission 后 claim invocation。 */
     private async admitInvocation(
         input: InvocationCoreInput,
-        projectPath: string | undefined,
+        metadata: SessionMetadata,
         preparedInput?: PreparedInvocationInput,
     ): Promise<InvocationAdmission> {
         let snapshot: SessionSnapshot | null = null;
@@ -1541,7 +1581,7 @@ export class NeuroAgentHarness {
         };
         const isResume = Boolean(hasResolutions && currentInvocation?.status === "waiting");
         // 所有可等待 policy/input/queue 工作已经结束；ready 返回后必须同步登记 operation。
-        const currentProject = await this.captureInvocationProject(input.sessionId, projectPath);
+        const currentProject = await this.captureInvocationProject(input.sessionId, metadata);
         this.activeInvocations.set(input.sessionId, activeInvocation);
         this.steerableSessions.add(input.sessionId);
         this.abortControllers.set(input.sessionId, abortController);
@@ -2138,7 +2178,7 @@ export class NeuroAgentHarness {
         if (summary.archived || summary.status === "archived") {
             return null;
         }
-        const snapshot = await this.repo.readSession(summary.sessionId, summary.workspaceKey);
+        const snapshot = await this.repo.readSession(summary.sessionId);
         const context = this.repo.reduce(snapshot);
         const pendingMessages = storedMessagesForText(context.messages);
         const toolKeys = this.userResolutionToolKeysForListProfile(summary.profileKey, profileRuntime.profile, userResolutionToolKeysByProfile);
@@ -2166,9 +2206,10 @@ export class NeuroAgentHarness {
     /**
      * 归档绑定到指定 Project Workspace 的 session，保留 JSONL 文件但默认从列表和统计中隐藏。
      */
-    async archiveSessionsByProjectPath(projectPath: string, reason: string): Promise<number> {
+    async archiveSessionsByProjectRoot(projectRoot: string, reason: string): Promise<number> {
         const sessions = await this.repo.listSessions({
-            projectPath,
+            scope: "project",
+            projectRoot,
             includeArchived: true,
             includeSystem: true,
             status: "all",
@@ -2400,7 +2441,7 @@ export class NeuroAgentHarness {
                     : "当前 Session 状态不允许登记附件。",
             );
         }
-        assertManagedProjectDataPlaneOpen(projection.snapshot.metadata.projectPath);
+        this.readyProjectForMetadata(projection.snapshot.metadata);
     }
 
     /** 保存 multipart 上传的单张图片，并追加不移动 active leaf 的授权登记。 */
@@ -2417,34 +2458,35 @@ export class NeuroAgentHarness {
         });
     }
 
-    /** 将 Project File Address、Workspace Root `.nbook` 地址或绝对路径快照为稳定附件。 */
+    /** 将跨 Project 路径、Workspace Root `.nbook` 路径或绝对路径快照为稳定附件。 */
     async snapshotSessionAttachment(sessionId: number, input: {
         sourcePath: string;
         name?: string;
     }): Promise<AgentSessionAttachmentItemDto> {
         await this.preflightSessionAttachmentRegistration(sessionId);
-        const target = await authorizeFileOperation(
-            createFileScope({kind: "workspace", workspaceRoot: this.workspaceRoot}),
+        const authorized = await authorizeFileOperation(
+            {workspaceRoot: this.workspaceRoot, currentProject: null},
             input.sourcePath,
             "read",
         );
-        if (target.address.kind === "scope-relative") {
+        const target = authorized.target;
+        if (target.kind === "relative") {
             throw new AttachmentError(
                 "invalid_input",
-                "图片快照必须使用完整 Project File Address、workspace/.nbook 地址或绝对路径。",
+                "图片快照必须使用 workspace/<project>/<relative-path>、workspace/.nbook 路径或绝对路径。",
             );
         }
-        if (target.address.kind === "workspace-nbook-address"
-            && (target.address.relativePath === "agent/attachments"
-                || target.address.relativePath.startsWith("agent/attachments/"))) {
+        if (target.kind === "workspace-control"
+            && (target.relativePath === "agent/attachments"
+                || target.relativePath?.startsWith("agent/attachments/"))) {
             throw new AttachmentError("invalid_input", "不能从 Attachment Store 自身创建快照。");
         }
-        const bytes = await runProjectFileOperation([target.address], async () => (
-            this.attachmentSnapshotReader.read(target.address.absolutePath)
+        const bytes = await runProjectFileOperation([target], async () => (
+            this.attachmentSnapshotReader.read(target.absolutePath)
         ));
         return this.saveRegisteredSessionImage(sessionId, {
             bytes,
-            name: normalizeSessionAttachmentName(input.name, basename(target.address.absolutePath)),
+            name: normalizeSessionAttachmentName(input.name, basename(target.absolutePath)),
             source: "file_snapshot",
         });
     }
@@ -2452,7 +2494,7 @@ export class NeuroAgentHarness {
     /** 按需读取历史用户消息，并按 stored contentIndex 重建完整 Markdown。 */
     async getSessionUserContent(sessionId: number, entryId: string): Promise<AgentUserMessageContentDto> {
         const context = await this.repo.readEntryContext(sessionId, entryId);
-        assertManagedProjectDataPlaneOpen(context.metadata.projectPath);
+        this.readyProjectForMetadata(context.metadata);
         const entry = context.entry;
         if (!entry || entry.type !== "message" || entry.message.role !== "user") {
             throw new Error("User message entry 不存在");
@@ -2614,7 +2656,7 @@ export class NeuroAgentHarness {
 
     /**
      * 返回哪些 session 仍记录了指向目标 session 的 agent link。
-     * 索引按全局 sessionId 建立，兼容旧数据中 parent/child workspaceKey 不一致的关系。
+     * 索引按全局sessionId建立；关系不依赖Current Project归属。
      */
     private async linkedByAgentsFromIndex(
         sessionId: number,
@@ -2785,7 +2827,7 @@ export class NeuroAgentHarness {
             return undefined;
         }
         const initial = this.profiles.parseInitial(profile, snapshot.metadata.initial);
-        const configTarget = resolveNonInvocationConfigTarget(context, this.workspaceRoot);
+        const configTarget = resolveNonInvocationConfigTarget(snapshot.metadata, this.workspaceRoot);
         const render = async (): Promise<string | undefined> => {
             const config = await loadEffectiveConfig(configTarget);
             const {settings, home} = await this.resolveProfileSettings(profile, config, context, configTarget.project);
@@ -2794,6 +2836,7 @@ export class NeuroAgentHarness {
                 profileKey: profile.manifest.key,
                 initial,
                 context,
+                currentProject: configTarget.project,
             });
             const prepareContext = {
                 session,
@@ -2809,6 +2852,7 @@ export class NeuroAgentHarness {
                     now: new Date().toISOString(),
                     promptUserTurnCount: this.countPromptUserTurns(snapshot),
                     currentProject: configTarget.project,
+                    sqlSchemaSummary: () => projectSqlSchemaSummary(configTarget.project),
                 },
             };
             return compileProfileSystemPrompt(profile, prepareContext, await profileContext(prepareContext));
@@ -2848,9 +2892,8 @@ export class NeuroAgentHarness {
             return base;
         }
         const target = resolvePlanModeFile({
-            workspaceRootRef: snapshot.metadata.workspaceRoot,
-            workspaceFsRoot: resolveWorkspaceRootRef(snapshot.metadata.workspaceRoot, this.workspaceRoot),
-            projectPath: snapshot.metadata.projectPath,
+            workspaceRoot: this.workspaceRoot,
+            currentProject: this.readyProjectForMetadata(snapshot.metadata),
             planFilePath,
         });
         const projectedPath = textPreview(target.displayPath, 2 * 1024).preview;
@@ -2995,9 +3038,8 @@ export class NeuroAgentHarness {
             hasExitedPlan,
             visitedPlan,
             workDirectory: planModeToolDirectory({
-                workspaceRootRef: snapshot.metadata.workspaceRoot,
-                workspaceFsRoot: resolveWorkspaceRootRef(snapshot.metadata.workspaceRoot, this.workspaceRoot),
-                projectPath: snapshot.metadata.projectPath,
+                workspaceRoot: this.workspaceRoot,
+                currentProject: this.readyProjectForMetadata(snapshot.metadata),
             }),
             lastTransition,
             updatedAt: new Date().toISOString(),
@@ -3072,9 +3114,7 @@ export class NeuroAgentHarness {
             const created = await this.createAgent({
                 profileKey: snapshot.metadata.profileKey,
                 initial: snapshot.metadata.initial,
-                workspaceRoot: snapshot.metadata.workspaceRoot,
-                workspaceKey: snapshot.metadata.workspaceKey,
-                projectPath: snapshot.metadata.projectPath,
+                currentProjectRoot: snapshot.metadata.currentProjectRoot,
             });
             return {
                 kind: "created_session",
@@ -3229,7 +3269,7 @@ export class NeuroAgentHarness {
         }
         if (body.command === "compact") {
             this.assertSessionIdle(sessionId);
-            const currentProject = await this.captureInvocationProject(sessionId, snapshot.metadata.projectPath);
+            const currentProject = await this.captureInvocationProject(sessionId, snapshot.metadata);
             const claimed = await this.claimCompactInvocationLocked(sessionId, currentProject);
             this.startBackgroundTask("compact", this.runCompactCommand(
                 sessionId,
@@ -3281,7 +3321,6 @@ export class NeuroAgentHarness {
                         : "当前 Session 状态不允许编辑历史并重新运行。");
                 }
                 await this.assertProfileRunnable(branchSnapshot);
-                const projectPath = branchSnapshot.metadata.projectPath;
                 await this.sessionAttachments.validateDurableOwnership(sessionId);
 
                 const invocationInput: InvocationCoreInput = next.mode === "prompt"
@@ -3311,7 +3350,7 @@ export class NeuroAgentHarness {
                     ops: [{kind: "moveLeaf", leafId: branchLeafId}],
                 });
                 try {
-                    const admission = await this.admitInvocation(invocationInput, projectPath, prepared);
+                    const admission = await this.admitInvocation(invocationInput, branchSnapshot.metadata, prepared);
                     if ("queued" in admission) {
                         throw new Error("Tree invocation 不得进入运行中队列。");
                     }
@@ -3623,6 +3662,7 @@ export class NeuroAgentHarness {
             profileKey: profile.manifest.key,
             initial: parsedInitial,
             context,
+            currentProject: configTarget.project,
         });
         const vars = await this.createProfileVariableAccessor(snapshot, profile, {clientState: options.clientState, invocationId: options.invocationId});
         const prepared = await profile.prepare!({
@@ -3646,6 +3686,7 @@ export class NeuroAgentHarness {
                 promptUserTurnCount: this.countPromptUserTurns(snapshot),
                 currentProject: configTarget.project,
                 pendingUserMessage: options.pendingUserMessage,
+                sqlSchemaSummary: () => projectSqlSchemaSummary(configTarget.project),
             },
         });
         validateProfileTurnPlan(profile.manifest.key, prepared);
@@ -3708,7 +3749,7 @@ export class NeuroAgentHarness {
     /**
      * source invocation 完成后的后台摘要调度入口。
      *
-     * 这里只负责调度和 preflight；摘要内容、runtime-only transcript 和写回由 summarizer profile 自己完成。
+     * 这里只负责调度和 preflight；Profile 生成摘要内容，Harness 统一把结果写回 source session。
      */
     private async scheduleSessionSummarizer(sourceSessionId: number, options: {force?: boolean} = {}): Promise<void> {
         const running = this.summarizerRuns.get(sourceSessionId);
@@ -3956,9 +3997,7 @@ export class NeuroAgentHarness {
         return this.createSystemAgent({
             profileKey: input.profileKey,
             initial: input.initial,
-            workspaceRoot: input.sourceSnapshot.metadata.workspaceRoot,
-            workspaceKey: input.sourceSnapshot.metadata.workspaceKey,
-            projectPath: input.sourceSnapshot.metadata.projectPath,
+            currentProjectRoot: input.sourceSnapshot.metadata.currentProjectRoot,
             systemRole: "summarizer",
         });
     }
@@ -4184,9 +4223,8 @@ export class NeuroAgentHarness {
         };
         try {
             const target = resolvePlanModeFile({
-                workspaceRootRef: snapshot.metadata.workspaceRoot,
-                workspaceFsRoot: resolveWorkspaceRootRef(snapshot.metadata.workspaceRoot, this.workspaceRoot),
-                projectPath: snapshot.metadata.projectPath,
+                workspaceRoot: this.workspaceRoot,
+                currentProject: this.readyProjectForMetadata(snapshot.metadata),
                 planFilePath,
             });
             preview.planFilePath = target.displayPath;
@@ -4236,21 +4274,21 @@ export class NeuroAgentHarness {
                 mode: context.agentMode,
                 fromMode: context.agentMode,
                 phase: "steady",
-            }, "switch_mode", {approved, reason}), snapshot.metadata.workspaceKey, invocationId);
+            }, "switch_mode", {approved, reason}), invocationId);
             return;
         }
         if (targetMode === context.agentMode) {
             return;
         }
         const phase = this.modeSwitchPhase(targetMode, context);
-        await this.appendCustomState(snapshot.metadata.sessionId, AGENT_MODE_UI_STATE_KEY, targetMode, snapshot.metadata.workspaceKey, invocationId);
+        await this.appendCustomState(snapshot.metadata.sessionId, AGENT_MODE_UI_STATE_KEY, targetMode, invocationId);
         await this.appendCustomState(snapshot.metadata.sessionId, AGENT_MODE_STATE_KEY, this.agentModeState(
             snapshot,
             context,
             {mode: targetMode, fromMode: context.agentMode, phase},
             "switch_mode",
             {approved, reason},
-        ), snapshot.metadata.workspaceKey, invocationId);
+        ), invocationId);
     }
 
     /**
@@ -4300,10 +4338,8 @@ export class NeuroAgentHarness {
 
     private async runLoop(input: {
         sessionId: number;
-        workspaceKey: string;
-        workspaceRootRef: WorkspaceRootRef;
-        workspaceFsRoot: AbsoluteFsPath;
-        projectPath?: string;
+        workspaceRoot: AbsoluteFsPath;
+        currentProject: ReadyProjectSessionRef | null;
         systemPrompt: string;
         messages: StoredAgentMessage[];
         promptPrefix?: PromptPrefixAttribution;
@@ -4389,7 +4425,6 @@ export class NeuroAgentHarness {
         }
         const preModelSteers = await this.drainSteers({
             sessionId: frame.sessionId,
-            workspaceKey: frame.workspaceKey,
             invocationId: frame.invocationId,
         });
         if (preModelSteers.leafId) {
@@ -4562,7 +4597,7 @@ export class NeuroAgentHarness {
      * 创建本轮 provider 请求的冻结快照。
      */
     private async createTurnSnapshot(frame: RunFrame): Promise<TurnSnapshot> {
-        const snapshot = await this.repo.readSession(frame.sessionId, frame.workspaceKey);
+        const snapshot = await this.repo.readSession(frame.sessionId);
         const context = this.repo.reduce(snapshot);
         const modelMessages = consumeNextTurnModelMessages(frame);
         const prepareTurn = await this.runRuntimeHooks({
@@ -4652,10 +4687,8 @@ export class NeuroAgentHarness {
             const toolCalls = assistant.content.filter((block): block is AgentToolCall => block.type === "toolCall");
             const toolBatch = await this.runToolBatch({
                 sessionId: frame.sessionId,
-                workspaceKey: frame.workspaceKey,
-                workspaceRootRef: frame.workspaceRootRef,
-                workspaceFsRoot: frame.workspaceFsRoot,
-                projectPath: frame.projectPath,
+                workspaceRoot: frame.workspaceRoot,
+                currentProject: frame.currentProject,
                 profileKey: frame.profileKey,
                 invocationId: frame.invocationId,
                 agentMode: snapshot.sessionContext.agentMode,
@@ -4718,7 +4751,6 @@ export class NeuroAgentHarness {
     }): Promise<TurnIngestResult> {
         return this.commitTurn({
             sessionId: frame.sessionId,
-            workspaceKey: frame.workspaceKey,
             invocationId: frame.invocationId,
             assistant: input.assistant,
             toolResults: input.toolResults,
@@ -4741,7 +4773,6 @@ export class NeuroAgentHarness {
     private async resolveTurnContinuation(frame: RunFrame, turn: RuntimeTurn): Promise<TurnContinuationDecision> {
         const drainedSteers = await this.drainSteers({
             sessionId: frame.sessionId,
-            workspaceKey: frame.workspaceKey,
             invocationId: frame.invocationId,
         });
         if (drainedSteers.leafId) {
@@ -4771,7 +4802,7 @@ export class NeuroAgentHarness {
         if (!preparation.shouldContinue) {
             return;
         }
-        const snapshot = await this.repo.readSession(frame.sessionId, frame.workspaceKey);
+        const snapshot = await this.repo.readSession(frame.sessionId);
         const context = this.repo.reduce(snapshot);
         const nextTurnHooks = await withRunKernelPhase("model", () => this.runRuntimeHooks({
             sessionId: frame.sessionId,
@@ -4796,7 +4827,7 @@ export class NeuroAgentHarness {
         const compacted = await withRunKernelPhase("compaction", () => this.compactBeforeNextTurn(frame));
         if (compacted) {
             await withRunKernelPhase("ingest", () => this.reinjectHistorySetAfterCompaction(frame));
-            const compactedSnapshot = await this.repo.readSession(frame.sessionId, frame.workspaceKey);
+            const compactedSnapshot = await this.repo.readSession(frame.sessionId);
             frame.messages = this.repo.reduce(compactedSnapshot).messages;
         }
         frame.nextTurnRuntimeMessages = nextTurnHooks.runtimeMessages;
@@ -4812,7 +4843,7 @@ export class NeuroAgentHarness {
         }
         const compacted = await compactIfNeeded({
             repo: this.repo,
-            snapshot: await this.repo.readSession(frame.sessionId, frame.workspaceKey),
+            snapshot: await this.repo.readSession(frame.sessionId),
             messages: frame.messages,
             models: frame.models,
             model: frame.model,
@@ -4845,7 +4876,7 @@ export class NeuroAgentHarness {
         if (!frame.invocationId) {
             throw new Error("Compaction HistorySet reinject缺少invocationId");
         }
-        const snapshot = await this.repo.readSession(frame.sessionId, frame.workspaceKey);
+        const snapshot = await this.repo.readSession(frame.sessionId);
         const context = this.repo.reduce(snapshot);
         const parsedInitial = this.profiles.parseInitial(frame.profile, snapshot.metadata.initial);
         const configTarget = this.configTargetForInvocation(frame.invocationId);
@@ -4857,6 +4888,7 @@ export class NeuroAgentHarness {
                 profileKey: frame.profile.manifest.key,
                 initial: parsedInitial,
                 context,
+                currentProject: configTarget.project,
             }),
             initial: parsedInitial as never,
             settings: settings as never,
@@ -4873,6 +4905,7 @@ export class NeuroAgentHarness {
                 now: new Date().toISOString(),
                 promptUserTurnCount: this.countPromptUserTurns(snapshot),
                 currentProject: configTarget.project,
+                sqlSchemaSummary: () => projectSqlSchemaSummary(configTarget.project),
             },
         });
         validateProfileTurnPlan(frame.profile.manifest.key, prepared);
@@ -4990,6 +5023,7 @@ export class NeuroAgentHarness {
         const stream = tracedStreamSimple(input.snapshot.models, input.snapshot.model, context, options, input.trace, {
             context: traceContext,
             segments: traceSegments,
+            attribution: input.snapshot.promptPrefix?.mode,
             toolsHash: computeToolsHash(input.snapshot.tools),
             ...(hasStoredAttachment(authorizedMessages) ? {payloadOmittedReason: "attachment" as const} : {}),
         });
@@ -5029,10 +5063,8 @@ export class NeuroAgentHarness {
 
     private async runToolBatch(input: {
         sessionId: number;
-        workspaceKey: string;
-        workspaceRootRef: WorkspaceRootRef;
-        workspaceFsRoot: AbsoluteFsPath;
-        projectPath?: string;
+        workspaceRoot: AbsoluteFsPath;
+        currentProject: ReadyProjectSessionRef | null;
         profileKey: string;
         invocationId?: string;
         /** 当前 session 工作模式；只读模式下写工具会被注入审批挂起（Task 90）。 */
@@ -5101,7 +5133,7 @@ export class NeuroAgentHarness {
             // 检查工具是否需要用户输入
             if (tool?.userInputRequest) {
                 await flushSegment();
-                const approvalError = await this.validateUserResolutionTool(input.executionToolKeys, input.toolOverrides, input.workspaceRootRef, input.workspaceFsRoot, input.projectPath, toolCall);
+                const approvalError = await this.validateUserResolutionTool(input.executionToolKeys, input.toolOverrides, input.workspaceRoot, input.currentProject, toolCall);
                 if (approvalError) {
                     const toolResult = this.runtimeTextToolResult({
                         toolCallId: toolCall.id,
@@ -5121,9 +5153,8 @@ export class NeuroAgentHarness {
                         session: {
                             sessionId: input.sessionId,
                             profileKey: input.profileKey,
-                            workspaceRoot: input.workspaceRootRef,
-                            workspaceKey: input.workspaceKey,
-                            projectPath: input.projectPath,
+                            workspaceRoot: input.workspaceRoot,
+                            currentProject: input.currentProject,
                         },
                     };
                     const userInputRequest = await tool.userInputRequest.when(userInputContext);
@@ -5172,7 +5203,7 @@ export class NeuroAgentHarness {
 
             if (tool?.approvalRequired) {
                 await flushSegment();
-                        const approvalError = await this.validateUserResolutionTool(input.executionToolKeys, input.toolOverrides, input.workspaceRootRef, input.workspaceFsRoot, input.projectPath, toolCall);
+                        const approvalError = await this.validateUserResolutionTool(input.executionToolKeys, input.toolOverrides, input.workspaceRoot, input.currentProject, toolCall);
                 if (approvalError) {
                     const toolResult = this.runtimeTextToolResult({
                         toolCallId: toolCall.id,
@@ -5205,9 +5236,9 @@ export class NeuroAgentHarness {
 
             // Task 90: 只读模式（discuss/plan）下写工具注入审批挂起；plan 模式计划目录内 .md 写入豁免
             if (tool?.mutatesWorkspace && !tool.userInputRequest && !tool.approvalRequired && isReadonlyMode(input.agentMode)
-                && !(input.agentMode === "plan" && this.planDirectoryWriteExempt(toolCall, input.workspaceRootRef, input.workspaceFsRoot, input.projectPath))) {
+                && !(input.agentMode === "plan" && this.planDirectoryWriteExempt(toolCall, input.workspaceRoot, input.currentProject))) {
                 await flushSegment();
-                const approvalError = await this.validateUserResolutionTool(input.executionToolKeys, input.toolOverrides, input.workspaceRootRef, input.workspaceFsRoot, input.projectPath, toolCall);
+                const approvalError = await this.validateUserResolutionTool(input.executionToolKeys, input.toolOverrides, input.workspaceRoot, input.currentProject, toolCall);
                 if (approvalError) {
                     const toolResult = this.runtimeTextToolResult({
                         toolCallId: toolCall.id,
@@ -5298,10 +5329,8 @@ export class NeuroAgentHarness {
 
     private async executeToolSegment(input: {
         sessionId: number;
-        workspaceKey: string;
-        workspaceRootRef: WorkspaceRootRef;
-        workspaceFsRoot: AbsoluteFsPath;
-        projectPath?: string;
+        workspaceRoot: AbsoluteFsPath;
+        currentProject: ReadyProjectSessionRef | null;
         profileKey: string;
         invocationId?: string;
         executionToolKeys: string[];
@@ -5379,10 +5408,8 @@ export class NeuroAgentHarness {
 
     private async executeToolSegmentSequentially(input: {
         sessionId: number;
-        workspaceKey: string;
-        workspaceRootRef: WorkspaceRootRef;
-        workspaceFsRoot: AbsoluteFsPath;
-        projectPath?: string;
+        workspaceRoot: AbsoluteFsPath;
+        currentProject: ReadyProjectSessionRef | null;
         profileKey: string;
         invocationId?: string;
         executionToolKeys: string[];
@@ -5412,10 +5439,8 @@ export class NeuroAgentHarness {
 
     private async executeToolWithEvents(input: {
         sessionId: number;
-        workspaceKey: string;
-        workspaceRootRef: WorkspaceRootRef;
-        workspaceFsRoot: AbsoluteFsPath;
-        projectPath?: string;
+        workspaceRoot: AbsoluteFsPath;
+        currentProject: ReadyProjectSessionRef | null;
         profileKey: string;
         invocationId?: string;
         executionToolKeys: string[];
@@ -5441,10 +5466,8 @@ export class NeuroAgentHarness {
         });
         const executed = await this.executeTool({
             sessionId: input.sessionId,
-            workspaceKey: input.workspaceKey,
-            workspaceRootRef: input.workspaceRootRef,
-            workspaceFsRoot: input.workspaceFsRoot,
-            projectPath: input.projectPath,
+            workspaceRoot: input.workspaceRoot,
+            currentProject: input.currentProject,
             profileKey: input.profileKey,
             invocationId: input.invocationId,
             executionToolKeys: input.executionToolKeys,
@@ -5517,9 +5540,8 @@ export class NeuroAgentHarness {
     private async validateUserResolutionTool(
         executionToolKeys: string[],
         toolOverrides: Record<string, NeuroAgentTool>,
-        workspaceRootRef: WorkspaceRootRef,
-        workspaceFsRoot: AbsoluteFsPath,
-        projectPath: string | undefined,
+        workspaceRoot: AbsoluteFsPath,
+        currentProject: ReadyProjectSessionRef | null,
         toolCall: AgentToolCall,
     ): Promise<string | null> {
         const tool = toolOverrides[toolCall.name] ?? this.tools.get(toolCall.name);
@@ -5532,9 +5554,8 @@ export class NeuroAgentHarness {
         if (toolCall.name === "switch_mode" && toolCall.arguments.targetMode === "normal" && typeof toolCall.arguments.planFilePath === "string" && toolCall.arguments.planFilePath.trim()) {
             try {
                 await readFile(resolvePlanModeFile({
-                    workspaceRootRef,
-                    workspaceFsRoot,
-                    projectPath,
+                    workspaceRoot,
+                    currentProject,
                     planFilePath: toolCall.arguments.planFilePath,
                 }).absolutePath, "utf-8");
             } catch (error) {
@@ -5548,30 +5569,28 @@ export class NeuroAgentHarness {
      * plan 模式写豁免（Task 90 决策 10）：写目标全部是计划目录内的 .md 文件时免审批。
      * 解析失败或目标不可识别时不豁免（fail closed）。
      *
-     * File Scope 与普通文件工具使用同一地址解析合同；Plan Mode 只额外限制 Markdown 后缀
-     * 和 `.agent/plan` 目录，不再维护第二套 workspace/project alias。
+     * Plan Mode 复用计划文件解析器，只额外判定写工具的全部目标，不维护第二套路径规则。
      */
     private planDirectoryWriteExempt(
         toolCall: AgentToolCall,
-        workspaceRootRef: WorkspaceRootRef,
-        workspaceFsRoot: AbsoluteFsPath,
-        projectPath: string | undefined,
+        workspaceRoot: AbsoluteFsPath,
+        currentProject: ReadyProjectSessionRef | null,
     ): boolean {
         const paths = this.mutationTargetPaths(toolCall);
         if (paths.length === 0) {
             return false;
         }
-        const planRoot = normalize(planModeDirectory({workspaceRootRef, workspaceFsRoot, projectPath}));
+        const planRoot = normalize(planModeDirectory({workspaceRoot, currentProject}));
         return paths.every((path) => {
             if (!path.toLowerCase().endsWith(".md")) {
                 return false;
             }
             try {
-                const absolutePath = normalize(resolveFileAddress(resolveSessionFileScope({
-                    workspaceRootRef,
-                    workspaceFsRoot,
-                    projectPath,
-                }), path).absolutePath);
+                const absolutePath = normalize(resolvePlanModeFile({
+                    workspaceRoot,
+                    currentProject,
+                    planFilePath: path,
+                }).absolutePath);
                 const relativePath = relativeFilePathInside(absoluteFsPath(planRoot), absoluteFsPath(absolutePath));
                 return Boolean(relativePath && relativePath !== ".");
             } catch {
@@ -5663,10 +5682,10 @@ export class NeuroAgentHarness {
         }
         const executed = await this.executeTool({
             sessionId: snapshot.metadata.sessionId,
-            workspaceKey: snapshot.metadata.workspaceKey,
-            workspaceRootRef: snapshot.metadata.workspaceRoot,
-            workspaceFsRoot: resolveWorkspaceRootRef(snapshot.metadata.workspaceRoot, this.workspaceRoot),
-            projectPath: snapshot.metadata.projectPath,
+            workspaceRoot: this.workspaceRoot,
+            currentProject: invocationId
+                ? this.projectForInvocation(invocationId)
+                : this.readyProjectForMetadata(snapshot.metadata),
             profileKey: snapshot.metadata.profileKey,
             invocationId,
             executionToolKeys: [tool.key],
@@ -5720,10 +5739,10 @@ export class NeuroAgentHarness {
         }
         const executed = await this.executeTool({
             sessionId: snapshot.metadata.sessionId,
-            workspaceKey: snapshot.metadata.workspaceKey,
-            workspaceRootRef: snapshot.metadata.workspaceRoot,
-            workspaceFsRoot: resolveWorkspaceRootRef(snapshot.metadata.workspaceRoot, this.workspaceRoot),
-            projectPath: snapshot.metadata.projectPath,
+            workspaceRoot: this.workspaceRoot,
+            currentProject: invocationId
+                ? this.projectForInvocation(invocationId)
+                : this.readyProjectForMetadata(snapshot.metadata),
             profileKey: snapshot.metadata.profileKey,
             invocationId,
             executionToolKeys: [tool.key],
@@ -5748,10 +5767,8 @@ export class NeuroAgentHarness {
 
     private async executeTool(input: {
         sessionId: number;
-        workspaceKey: string;
-        workspaceRootRef: WorkspaceRootRef;
-        workspaceFsRoot: AbsoluteFsPath;
-        projectPath?: string;
+        workspaceRoot: AbsoluteFsPath;
+        currentProject: ReadyProjectSessionRef | null;
         profileKey: string;
         invocationId?: string;
         executionToolKeys: string[];
@@ -5797,13 +5814,11 @@ export class NeuroAgentHarness {
                 harness: this,
                 sessionId: input.sessionId,
                 profileKey: input.profileKey,
-                workspaceRootRef: input.workspaceRootRef,
-                workspaceFsRoot: input.workspaceFsRoot,
-                workspaceKey: input.workspaceKey,
-                projectPath: input.projectPath,
+                workspaceRoot: input.workspaceRoot,
+                currentProject: input.currentProject,
                 invocationId: input.invocationId,
                 vars: await this.createVariableAccessor(input.sessionId, input.invocationId),
-                attachments: this.attachmentStore,
+                attachmentCodec: this.attachmentCodec,
                 sessionWrites: new ToolSessionWriteSink({
                     executor: this.writeExecutor,
                     sessionId: input.sessionId,
@@ -5915,7 +5930,6 @@ export class NeuroAgentHarness {
 
     private async drainSteers(input: {
         sessionId: number;
-        workspaceKey: string;
         invocationId?: string;
     }): Promise<DrainedSteers> {
         const queue = this.steerQueues.get(input.sessionId) ?? [];
@@ -6758,7 +6772,7 @@ export class NeuroAgentHarness {
     private async resolveProfileSettings(
         profile: AgentProfile,
         config: Pick<EffectiveConfig, "agent">,
-        context: Pick<NeuroSessionContext, "profileKey" | "workspaceRoot" | "projectPath">,
+        context: Pick<NeuroSessionContext, "profileKey">,
         project: ReadyProjectSessionRef | null,
     ): Promise<{settings: Record<string, JsonValue>; home?: ProfileHomeFacade}> {
         const projectWorkspace = project?.workspace;
@@ -6770,14 +6784,12 @@ export class NeuroAgentHarness {
                 ? {
                     profileKey: context.profileKey,
                     scope: "project",
-                    workspaceRoot: context.workspaceRoot,
                     projectWorkspace,
                     ...(home ? {home, allowGlobalResourceKeys: true} : {}),
                 }
                 : {
                     profileKey: context.profileKey,
                     scope: "global",
-                    workspaceRoot: context.workspaceRoot,
                     ...(home ? {home, allowGlobalResourceKeys: true} : {}),
                 },
         );
@@ -7040,6 +7052,122 @@ export class NeuroAgentHarness {
     }
 
     /**
+     * 组装上下文检查面板所需的全部只读事实（Task 126 批次 D）。
+     *
+     * 只读：不触发 prepare、不写 session、不调 provider。数据来自已落盘的 trace
+     * 与 effective config，因此 trace 关闭时返回 `state: "disabled"` 而不是报错。
+     *
+     * @param traceId 指定要查看的请求；缺省取最近一条 `kind === "turn"`。
+     */
+    async getSessionContextInspection(sessionId: number, traceId?: string): Promise<AgentContextInspectionDto> {
+        const snapshot = await this.repo.readSession(sessionId);
+        const context = this.repo.reduce(snapshot);
+        const config = await loadEffectiveConfig(resolveNonInvocationConfigTarget(snapshot.metadata, this.workspaceRoot));
+
+        if (!config.observability.piTrace.enabled) {
+            return {state: "disabled", requests: [], timeline: [], facts: emptyContextFacts(), diagnostics: []};
+        }
+
+        const reader = new PiTraceReader({tracesRoot: this.repo.tracesRoot});
+        // listIndex 最新在前；时间轴与诊断都按时间正序推理，这里翻回来。
+        const timeline = (await reader.listIndex(String(sessionId))).reverse();
+        const turns = timeline.filter((entry) => entry.kind === "turn");
+        const facts = await this.contextInspectionFacts(snapshot, context, config);
+
+        if (turns.length === 0) {
+            return {state: "empty", requests: [], timeline: timelineDto(timeline), facts, diagnostics: []};
+        }
+
+        const requests = turns.map((entry) => ({
+            id: entry.id,
+            ts: entry.ts,
+            ...(entry.turnIndex === undefined ? {} : {turnIndex: entry.turnIndex}),
+            ...(entry.invocationId === undefined ? {} : {invocationId: entry.invocationId}),
+            promptTokens: entry.usage ? entry.usage.input + entry.usage.cacheRead + entry.usage.cacheWrite : null,
+        }));
+        const targetId = traceId && turns.some((entry) => entry.id === traceId) ? traceId : turns.at(-1)!.id;
+        const record = await reader.readRecord(String(sessionId), targetId);
+        const segments = record?.request.segments ?? [];
+
+        return {
+            state: "ok",
+            requests,
+            timeline: timelineDto(timeline),
+            facts,
+            ...(record
+                ? {
+                    selected: {
+                        traceId: targetId,
+                        ts: record.ts,
+                        provider: record.request.provider,
+                        model: record.request.model,
+                        segments,
+                        labelBreakdown: aggregateSegmentLabels(segments),
+                        ...(record.response.usage
+                            ? {
+                                usage: {
+                                    input: record.response.usage.input,
+                                    output: record.response.usage.output,
+                                    cacheRead: record.response.usage.cacheRead,
+                                    cacheWrite: record.response.usage.cacheWrite,
+                                },
+                            }
+                            : {}),
+                        // 本功能之前的记录完全没有 segments，必须与「归因不完整」区分开。
+                        ...(segments.length === 0
+                            ? {attribution: "none" as const}
+                            : record.request.attribution === "legacy" ? {attribution: "legacy" as const} : {}),
+                    },
+                }
+                : {}),
+            diagnostics: buildContextDiagnostics({
+                segments,
+                timeline: timeline.map((entry) => ({
+                    id: entry.id,
+                    ts: entry.ts,
+                    kind: entry.kind,
+                    model: entry.model,
+                    ...(entry.toolsHash === undefined ? {} : {toolsHash: entry.toolsHash}),
+                    ...(entry.usage === undefined ? {} : {usage: entry.usage}),
+                })),
+                provider: record?.request.provider ?? "",
+                contextWindowTokens: facts.contextWindowTokens,
+                compactionTriggerTokens: facts.compactionTriggerTokens,
+                cacheRetention: facts.cacheRetention,
+            }),
+        };
+    }
+
+    /**
+     * 解析面板需要的运行事实：窗口、压缩触发线、缓存保留期。
+     *
+     * 任一项解析失败都退化成 null 而不是让整个面板报错——面板是诊断工具，
+     * 配置本身有问题时更应该打得开（`contextWindowUnset` 就是一条诊断）。
+     */
+    private async contextInspectionFacts(
+        snapshot: SessionSnapshot,
+        context: NeuroSessionContext,
+        config: EffectiveConfig,
+    ): Promise<AgentContextInspectionDto["facts"]> {
+        try {
+            const model = this.resolveEffectiveSessionModel(config, context) ?? this.modelResolver(config, context.profileKey);
+            const contextWindowTokens = typeof model.contextWindow === "number" && Number.isFinite(model.contextWindow)
+                ? model.contextWindow
+                : null;
+            const profile = await this.profiles.get(context.profileKey);
+            const compaction = resolveCompactionOptions(this.resolveProfileRuntimeSettings(profile, config).compaction, model);
+            return {
+                contextWindowTokens,
+                compactionTriggerTokens: resolveCompactionTriggerTokens(compaction, contextWindowTokens),
+                cacheRetention: resolveModelCacheRetention(model, this.providerOptions(config, model).requestOptions),
+            };
+        } catch {
+            void snapshot;
+            return emptyContextFacts();
+        }
+    }
+
+    /**
      * 生成当前 active context 的 token 估算信息。
      */
     private async sessionContextUsage(snapshot: SessionSnapshot, context: NeuroSessionContext): Promise<AgentSessionContextUsageDto> {
@@ -7254,7 +7382,7 @@ export class NeuroAgentHarness {
         return {
             sessionId: snapshot.metadata.sessionId,
             profileKey: context.profileKey,
-            workspaceRoot: context.workspaceRoot,
+            currentProjectRoot: context.currentProjectRoot,
             title: context.title,
             summary: context.summary,
             status: "idle",
@@ -7290,7 +7418,6 @@ export class NeuroAgentHarness {
      */
     private async commitTurn(input: {
         sessionId: number;
-        workspaceKey: string;
         invocationId?: string;
         assistant: AssistantMessage;
         toolResults: RuntimeToolResult[];
@@ -7305,7 +7432,7 @@ export class NeuroAgentHarness {
     }): Promise<TurnIngestResult> {
         const orderedToolResults = this.orderToolResults(input.assistant, input.toolResults);
         this.assertTurnClosed(input.assistant, orderedToolResults, input.waiting);
-        const snapshot = await this.repo.readSession(input.sessionId, input.workspaceKey);
+        const snapshot = await this.repo.readSession(input.sessionId);
         const context = this.repo.reduce(snapshot);
         const ingest = await this.runRuntimeHooks({
             sessionId: input.sessionId,
@@ -7396,8 +7523,12 @@ export class NeuroAgentHarness {
             return result;
         }
 
-        const context = input.context ?? this.repo.reduce(input.snapshot ?? await this.repo.readSession(input.sessionId));
-        const hookInitial = (input.snapshot ?? await this.repo.readSession(input.sessionId)).metadata.initial;
+        const hookSnapshot = input.snapshot ?? await this.repo.readSession(input.sessionId);
+        const context = input.context ?? this.repo.reduce(hookSnapshot);
+        const hookInitial = hookSnapshot.metadata.initial;
+        const currentProject = input.invocationId
+            ? this.projectForInvocation(input.invocationId)
+            : this.readyProjectForMetadata(hookSnapshot.metadata);
         for (const hook of hooks) {
             if (hook.builtin && !this.isExecutableBuiltinHook(hook.name)) {
                 continue;
@@ -7414,6 +7545,7 @@ export class NeuroAgentHarness {
                     profileKey: input.profile.manifest.key,
                     initial: hookInitial,
                     context,
+                    currentProject,
                 }),
                 runtimeState: input.runtimeState.get(hook.name),
                 turnIndex: input.turnIndex,
@@ -7468,6 +7600,7 @@ export class NeuroAgentHarness {
         profileKey: string;
         initial: JsonValue;
         context: NeuroSessionContext;
+        currentProject: ReadyProjectSessionRef | null;
     }): Promise<RuntimeSessionFacade> {
         const index = await this.relationIndex();
         const currentContext = {
@@ -7480,7 +7613,8 @@ export class NeuroAgentHarness {
         };
         return {
             ...currentContext,
-            workspaceFsRoot: resolveWorkspaceRootRef(currentContext.workspaceRoot, this.workspaceRoot),
+            workspaceRoot: this.workspaceRoot,
+            currentProject: input.currentProject,
             read: async (sessionId = input.sessionId) => {
                 const snapshot = await this.repo.readSession(sessionId);
                 const context = this.repo.reduce(snapshot);
@@ -7832,12 +7966,19 @@ function mergeRuntimeState(previous: JsonValue | undefined, next: JsonValue): Js
 }
 
 /** snapshot/control 等非 invocation 入口在调用链顶部解析一次 Project generation。 */
-function resolveNonInvocationConfigTarget(input: {projectPath?: string}, workspaceRoot: AbsoluteFsPath): RuntimeConfigTarget {
-    if (input.projectPath) {
+function resolveNonInvocationConfigTarget(input: SessionMetadata, workspaceRoot: AbsoluteFsPath): RuntimeConfigTarget {
+    if (input.migrationReview) {
+        throw new SessionCurrentProjectError(
+            "migration_review_required",
+            "该 Session 无法确定所属 Project，必须先重新绑定或明确改为 Workspace Root Session。",
+            input.currentProjectRoot,
+        );
+    }
+    if (input.currentProjectRoot) {
         return {
             scope: "project",
             workspaceRoot,
-            project: requireReadyProjectPath(input.projectPath),
+            project: requireActiveReadyProject(projectWorkspaceRef(input.currentProjectRoot)),
         };
     }
     return {scope: "global", workspaceRoot, project: null};

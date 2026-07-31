@@ -79,7 +79,7 @@ describe("Session schema v1 -> v2 legacy decoder", () => {
                     }),
                     toolCall("call_workflow", "run_workflow", {
                         workflowKey: "split-book",
-                        args: {path: "story/manuscript/book.md", script: "open('manuscript/book.md')"},
+                        args: {filePath: "story/manuscript/book.md", script: "open('manuscript/book.md')"},
                     }),
                     toolCall("call_invoke", "invoke_agent", {
                         sessionId: 9,
@@ -260,12 +260,16 @@ describe("Session schema v1 -> v2 legacy decoder", () => {
         });
 
         expect(windows.classification).toBe("external");
-        expect(windows.reviewReasons).toEqual(["external_project", "ambiguous_path"]);
+        expect(windows.reviewReasons).toEqual(["current_project_unresolved"]);
         expect(windows.ambiguousLocations).toContain("header.metadata.initial");
+        expect(decodeTarget(windows.targetText).metadata.migrationReview).toEqual({
+            status: "required",
+            reason: "current_project_unresolved",
+        });
         expect(toolCalls(decodeTarget(windows.targetText).entries).get("call_external")?.arguments)
             .toEqual({path: "C:\\outside\\story\\manuscript\\a.md"});
         expect(unc.classification).toBe("external");
-        expect(unc.reviewReasons).toEqual(["external_project"]);
+        expect(unc.reviewReasons).toEqual(["current_project_unresolved"]);
         expect(toolCalls(decodeTarget(unc.targetText).entries).get("call_unc")?.arguments)
             .toEqual({path: "\\\\server\\share\\story\\manuscript\\a.md"});
     });
@@ -481,12 +485,12 @@ describe("Session schema v1 -> v2 legacy decoder", () => {
             value: "manuscript/not-a-file-address.md",
         });
         expect(results.get("call_bash_output")?.details).toEqual({
-            fullOutputPath: "C:\\Temp\\nbook-output.log",
+            fullOutput: {state: "reclaimed"},
             truncation: {truncated: true},
         });
     });
 
-    it("非法 apply_patch 只标记 ambiguous，不猜测 header 或自由文本", () => {
+    it("非法 apply_patch 只记录迁移警告，不阻断Project归属明确的Session", () => {
         const invalidPatch = [
             "*** Begin Patch",
             "*** Replace entire file: manuscript/a.md",
@@ -512,10 +516,35 @@ describe("Session schema v1 -> v2 legacy decoder", () => {
         const target = decodeTarget(plan.targetText);
         const assistant = target.entries.find((entry) => objectValue(entry.message)?.role === "assistant");
 
-        expect(plan.reviewReasons).toEqual(["ambiguous_path"]);
+        expect(plan.reviewReasons).toEqual([]);
         expect(plan.ambiguousLocations.some((location) => location.endsWith("arguments.patch"))).toBe(true);
         expect(stringValue(toolCalls(target.entries).get("call_invalid_patch")?.arguments, "patch")).toBe(invalidPatch);
         expect(JSON.stringify(assistant)).toContain("Do not rewrite manuscript/a.md in free text.");
+    });
+
+    it("保留nullable chapterPath，并让迁移entry沿用原active path活动时间", () => {
+        const source = sessionText({
+            metadata: legacyMetadata({projectPath: "workspace/story", workspaceKey: "workspace/story"}),
+            branch: [
+                assistantEntry([toolCall("call_chapter", "get_chapter_plot", {chapterPath: null})]),
+                toolResultEntry("call_chapter", "get_chapter_plot", {chapterPath: null}),
+            ],
+        });
+
+        const plan = decodeSessionSchemaV1({
+            sourcePath: "sessions/105.jsonl",
+            text: source,
+            migrationTimestamp: MIGRATION_TIMESTAMP,
+        });
+        const target = decodeTarget(plan.targetText);
+        const migrationEntries = target.entries.filter((entry) => (
+            typeof entry.id === "string" && entry.id.startsWith("session-v2-migration-")
+        ));
+
+        expect(plan.reviewReasons).toEqual([]);
+        expect(toolCalls(target.entries).get("call_chapter")?.arguments).toEqual({chapterPath: null});
+        expect(toolResults(target.entries).get("call_chapter")?.details).toEqual({chapterPath: null});
+        expect(migrationEntries.every((entry) => entry.timestamp === MIGRATION_TIMESTAMP - 999)).toBe(true);
     });
 
     it("null initial 与失败调用留下的 primitive data 不制造路径 review", () => {

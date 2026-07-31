@@ -18,7 +18,6 @@ import type {StoredAgentMessage, StoredUserMessage} from "nbook/server/agent/mes
 import {storedMessageText} from "nbook/server/agent/messages/stored-message-presentation";
 import type {AgentSessionEventDto} from "nbook/shared/dto/agent-session.dto";
 import type {NeuroSessionContext, SessionEntry} from "nbook/server/agent/session/types";
-import {normalizeWorkspaceRootRef} from "nbook/server/workspace-files/workspace-root-ref";
 import {AgentJobCancelledError} from "nbook/server/agent/jobs/agent-job-manager";
 import {serializeAgentImageMarkdown} from "nbook/shared/agent/agent-image-markdown";
 import {AGENT_FOLLOW_UP_QUEUE_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
@@ -258,7 +257,6 @@ describe("NeuroAgentHarness black-box contract", () => {
         const created = await harness.createAgent({
             profileKey: "test.blackbox.prompt",
             initial: {},
-            workspaceRoot: root,
         });
 
         const observed = await runAndObserve(harness, created.sessionId, () => harness.invokeAgent({
@@ -316,7 +314,6 @@ describe("NeuroAgentHarness black-box contract", () => {
         const created = await harness.createAgent({
             profileKey,
             initial: {},
-            workspaceRoot: root,
         });
         await harness.repo.appendMessage(created.sessionId, createStoredUserMessage("existing prompt"));
 
@@ -344,7 +341,6 @@ describe("NeuroAgentHarness black-box contract", () => {
         const created = await harness.repo.createSession({
             profileKey,
             initial: {},
-            workspaceRoot: normalizeWorkspaceRootRef(root),
         });
         const imageData = Buffer.from(pngBytes).toString("base64");
         const attachment = await harness.attachmentCodec.saveImage({bytes: pngBytes, mimeType: "image/png", name: "memory.png"});
@@ -354,7 +350,7 @@ describe("NeuroAgentHarness black-box contract", () => {
             timestamp: Date.now(),
         };
         // SessionEntry 的公开类型尚沿用 Pi Message；Repository invariant 会校验这里实际写入的是 stored message。
-        await harness.repo.appendMessage(created.metadata.sessionId, storedUser, undefined, "prompt");
+        await harness.repo.appendMessage(created.metadata.sessionId, storedUser, "prompt");
 
         const durable = await harness.repo.readSession(created.metadata.sessionId);
         const durableUser = harness.repo.activePath(durable).find((entry) => entry.type === "message" && entry.message.role === "user");
@@ -388,7 +384,6 @@ describe("NeuroAgentHarness black-box contract", () => {
         const created = await harness.createAgent({
             profileKey,
             initial: {},
-            workspaceRoot: root,
         });
         const before = await harness.repo.readSession(created.sessionId);
 
@@ -449,7 +444,6 @@ describe("NeuroAgentHarness black-box contract", () => {
         const created = await harness.createAgent({
             profileKey: "test.blackbox.steer",
             initial: {},
-            workspaceRoot: root,
         });
         const observer = await observeSession(harness, created.sessionId);
         try {
@@ -536,7 +530,6 @@ describe("NeuroAgentHarness black-box contract", () => {
         const created = await harness.createAgent({
             profileKey: "test.blackbox.followup",
             initial: {},
-            workspaceRoot: root,
         });
         const registered = await harness.uploadSessionAttachment(created.sessionId, {
             bytes: pngBytes,
@@ -634,7 +627,6 @@ describe("NeuroAgentHarness black-box contract", () => {
         const created = await harness.createAgent({
             profileKey: "test.blackbox.followup-admission",
             initial: {},
-            workspaceRoot: root,
         });
         const registered = await harness.uploadSessionAttachment(created.sessionId, {
             bytes: pngBytes,
@@ -722,7 +714,6 @@ describe("NeuroAgentHarness black-box contract", () => {
         const created = await harness.createAgent({
             profileKey: "test.blackbox.followup-ack",
             initial: {},
-            workspaceRoot: root,
         });
         const observer = await observeSession(harness, created.sessionId);
         const originalAppendProjection = harness.repo.appendProjectionEntry.bind(harness.repo);
@@ -807,7 +798,6 @@ describe("NeuroAgentHarness black-box contract", () => {
         const created = await harness.createAgent({
             profileKey: "test.blackbox.waiting",
             initial: {},
-            workspaceRoot: root,
         });
 
         const waiting = await harness.invokeAgent({
@@ -862,7 +852,6 @@ describe("NeuroAgentHarness black-box contract", () => {
         const created = await harness.createAgent({
             profileKey: "test.blackbox.waiting-queue",
             initial: {},
-            workspaceRoot: root,
         });
         const waiting = await harness.invokeAgent({
             sessionId: created.sessionId,
@@ -930,7 +919,6 @@ describe("NeuroAgentHarness black-box contract", () => {
         const created = await harness.createAgent({
             profileKey,
             initial: {},
-            workspaceRoot: root,
         });
         const clientMessageId = randomUUID();
 
@@ -969,7 +957,6 @@ describe("NeuroAgentHarness black-box contract", () => {
         const created = await harness.createAgent({
             profileKey,
             initial: {},
-            workspaceRoot: root,
         });
 
         const observed = await runAndObserve(harness, created.sessionId, () => harness.invokeAgent({
@@ -1026,7 +1013,6 @@ describe("NeuroAgentHarness black-box contract", () => {
         const created = await harness.createAgent({
             profileKey: "test.blackbox.recoverable-tool",
             initial: {},
-            workspaceRoot: root,
         });
 
         const observed = await runAndObserve(harness, created.sessionId, () => harness.invokeAgent({
@@ -1076,7 +1062,6 @@ describe("NeuroAgentHarness black-box contract", () => {
         const created = await harness.createAgent({
             profileKey: "test.blackbox.fatal-tool",
             initial: {},
-            workspaceRoot: root,
         });
 
         const observed = await runAndObserve(harness, created.sessionId, () => harness.invokeAgent({
@@ -1110,7 +1095,6 @@ describe("NeuroAgentHarness black-box contract", () => {
         const created = await harness.createAgent({
             profileKey,
             initial: {},
-            workspaceRoot: root,
         });
 
         const running = harness.invokeAgent({
@@ -1171,7 +1155,6 @@ describe("NeuroAgentHarness black-box contract", () => {
         const created = await harness.createAgent({
             profileKey: "test.blackbox.waiting-abort",
             initial: {},
-            workspaceRoot: root,
         });
         const waiting = await harness.invokeAgent({
             sessionId: created.sessionId,
@@ -1225,7 +1208,6 @@ describe("NeuroAgentHarness black-box contract", () => {
         const created = await harness.createAgent({
             profileKey,
             initial: {},
-            workspaceRoot: root,
         });
         const observer = await observeSession(harness, created.sessionId);
         try {
@@ -1307,7 +1289,6 @@ describe("NeuroAgentHarness black-box contract", () => {
         const created = await harness.createAgent({
             profileKey,
             initial: {},
-            workspaceRoot: root,
         });
         const running = harness.invokeAgent({
             sessionId: created.sessionId,
@@ -1359,7 +1340,6 @@ describe("NeuroAgentHarness black-box contract", () => {
         const created = await harness.createAgent({
             profileKey,
             initial: {},
-            workspaceRoot: root,
         });
         const controller = new AbortController();
         const running = harness.invokeAgent({
@@ -1423,7 +1403,6 @@ describe("NeuroAgentHarness black-box contract", () => {
         const created = await harness.createAgent({
             profileKey,
             initial: {},
-            workspaceRoot: root,
         });
         const observer = await observeSession(harness, created.sessionId);
         try {
@@ -1516,7 +1495,6 @@ describe("NeuroAgentHarness black-box contract", () => {
         const created = await harness.createAgent({
             profileKey: "test.blackbox.forced-settle-abort",
             initial: {},
-            workspaceRoot: root,
         });
         const running = harness.invokeAgent({
             sessionId: created.sessionId,
@@ -1561,14 +1539,14 @@ describe("NeuroAgentHarness black-box contract", () => {
                 throw new AgentJobCancelledError();
             },
         });
-        await waitUntil(() => harness.jobs.get(job.jobId)?.status === "waiting", "job enters waiting");
+        await waitUntil(() => harness.jobs.get(job.job.jobId)?.status === "waiting", "job enters waiting");
 
         await Promise.race([
             harness.dispose(),
             new Promise<never>((_, reject) => setTimeout(() => reject(new Error("harness dispose did not settle")), 300)),
         ]);
 
-        expect(harness.jobs.get(job.jobId)).toMatchObject({status: "cancelled"});
+        expect(harness.jobs.get(job.job.jobId)).toMatchObject({status: "cancelled"});
     });
 
     it("SSE replay 和 snapshot_required 合同可从 Harness event hub 观察", async () => {
@@ -1578,7 +1556,6 @@ describe("NeuroAgentHarness black-box contract", () => {
         const created = await harness.createAgent({
             profileKey,
             initial: {},
-            workspaceRoot: root,
         });
         const currentEpoch = harness.eventHub.eventEpoch;
         const replayAfter = harness.eventHub.lastSeq(created.sessionId);
@@ -1686,7 +1663,6 @@ describe("NeuroAgentHarness black-box contract", () => {
         const created = await harness.createAgent({
             profileKey: "test.blackbox.slow-tool",
             initial: {},
-            workspaceRoot: root,
         });
         const observer = await observeSession(harness, created.sessionId);
         try {
@@ -1759,7 +1735,6 @@ describe("NeuroAgentHarness black-box contract", () => {
         const created = await harness.createAgent({
             profileKey: "test.blackbox.slow-replay",
             initial: {},
-            workspaceRoot: root,
         });
         const observer = await observeSession(harness, created.sessionId);
         try {

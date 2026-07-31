@@ -51,6 +51,10 @@ for attempt in $(seq 1 120); do
     sleep 1
 done
 
+container_id="$("$engine" compose --env-file "$root/.env" -f "$root/.deploy/docker-compose.generated.yml" ps --quiet app)"
+[[ "$container_id" =~ ^[a-f0-9]{12,64}$ ]] || { echo "Image Variant smoke容器ID非法：$container_id" >&2; exit 1; }
+"$engine" exec "$container_id" bun --no-install .output/server/commands/product-command.mjs check sharp-image-variant
+
 cookie="${root}-cookie.txt"
 curl --fail --silent --show-error -c "$cookie" \
     -H 'content-type: application/json' \

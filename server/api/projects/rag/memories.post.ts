@@ -12,15 +12,15 @@ defineRouteMeta({
     "summary": "Create a subject memory",
     "parameters": [
         {
-            "name": "projectPath",
+            "name": "projectRoot",
             "in": "query",
             "required": true,
             "schema": {
                 "type": "string",
                 "minLength": 1,
-                "description": "Project Workspace path, for example workspace/<project>"
+                "description": "Project Workspace root, single directory name under Workspace Root"
             },
-            "description": "Project Workspace path, for example workspace/<project>"
+            "description": "Project Workspace root, single directory name under Workspace Root"
         }
     ],
     "requestBody": {
@@ -81,7 +81,7 @@ defineRouteMeta({
                     "schema": {
                         "type": "object",
                         "properties": {
-                            "projectPath": {
+                            "projectRoot": {
                                 "type": "string",
                                 "minLength": 1
                             },
@@ -229,7 +229,7 @@ defineRouteMeta({
                             }
                         },
                         "required": [
-                            "projectPath",
+                            "projectRoot",
                             "subjectPath",
                             "subjectId",
                             "events",
@@ -248,6 +248,8 @@ defineRouteMeta({
     }
 } as never,
 });
+
+
 
 
 

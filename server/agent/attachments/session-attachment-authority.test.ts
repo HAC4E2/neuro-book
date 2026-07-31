@@ -35,12 +35,11 @@ describe("SessionAttachmentAuthority rebuild", () => {
         const stableSignatures = Array.from({length: 5}, () => signature("stable", 1));
         const attachmentId = `sha256:${"a".repeat(64)}` as const;
         const metadata: SessionMetadata = {
+            schemaVersion: 2,
             sessionId: 1,
             profileKey: "test",
             initial: {},
-            workspaceRoot: "workspace",
-            workspaceKey: "project:closed-attachment-admission",
-            projectPath: "workspace/closed-attachment-admission",
+            currentProjectRoot: "closed-attachment-admission",
             createdAt: 1,
         };
         const entry: SessionEntry = {
@@ -75,11 +74,10 @@ class SignatureRepository {
     constructor(
         readonly signatures: SessionFileSignature[],
         readonly metadata: SessionMetadata = {
+            schemaVersion: 2,
             sessionId: 1,
             profileKey: "test",
             initial: {},
-            workspaceRoot: "workspace",
-            workspaceKey: "global",
             createdAt: 1,
         },
         private readonly entries: SessionEntry[] = [],

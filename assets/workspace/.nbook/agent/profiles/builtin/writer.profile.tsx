@@ -1,20 +1,18 @@
-/** @jsxImportSource nbook/server/agent/profiles/profile-dsl */
+/** @jsxImportSource nbook/profile-sdk */
 /** @jsxRuntime automatic */
 import {isAbsolute, posix} from "node:path";
-import {Type, type Static} from "typebox";
-import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {builtin, plotReadBindings, toolset} from "nbook/server/agent/profiles/profile-tools";
-import {WriterInitialSchema, WriterOutputSchema, WriterPayloadSchema} from "nbook/server/agent/profiles/builtin-contracts";
-import {AppendingSet, FileChangeNotice, HistorySet, If, Import, Message, ProfilePrompt, System} from "nbook/server/agent/profiles/profile-dsl";
-import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
-import {profileText} from "nbook/server/agent/profiles/profile-text";
-import {DEFAULT_WRITING_REFERENCE_PRESET, buildWritingReference, legacyReferenceKeyToHomeKey, loadWritingReferencePresets, normalizeReferenceHomeKey} from "nbook/server/agent/profiles/writer-writing-reference";
-import {DEFAULT_WRITING_STYLE_PRESET, buildWritingStyle, legacyStyleKeyToHomeKey, loadWritingStylePresets, normalizeStyleHomeKey} from "nbook/server/agent/profiles/writer-writing-style";
-import {defineLowCodeForm, profileHomeResource} from "nbook/server/low-code-form";
-import {defineProfileHome} from "nbook/server/agent/profiles/profile-home";
-import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
-import {readProjectManifest} from "nbook/server/workspace-files/project-workspace";
-import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {Type, type Static} from "nbook/profile-sdk";
+import {defineAgentProfile} from "nbook/profile-sdk";
+import {builtin, plotReadBindings, toolset} from "nbook/profile-sdk";
+import {WriterInitialSchema, WriterOutputSchema, WriterPayloadSchema} from "nbook/profile-sdk";
+import {AppendingSet, FileChangeNotice, HistorySet, If, Import, Message, ProfilePrompt, System} from "nbook/profile-sdk";
+import type {ProfilePrepareContext} from "nbook/profile-sdk";
+import {profileText} from "nbook/profile-sdk";
+import {DEFAULT_WRITING_REFERENCE_PRESET, buildWritingReference, legacyReferenceKeyToHomeKey, loadWritingReferencePresets, normalizeReferenceHomeKey} from "nbook/profile-sdk";
+import {DEFAULT_WRITING_STYLE_PRESET, buildWritingStyle, legacyStyleKeyToHomeKey, loadWritingStylePresets, normalizeStyleHomeKey} from "nbook/profile-sdk";
+import {defineLowCodeForm, profileHomeResource} from "nbook/profile-sdk";
+import {defineProfileHome} from "nbook/profile-sdk";
+import type {ReadyProjectSessionRef} from "nbook/profile-sdk";
 
 const DEFAULT_PARAGRAPH_RHYTHM = "段落节奏偏短段分行，接近网络小说排版：一句话、一个动作节拍或一个情绪转折可以单独成段；不要为了凑短段打碎完整语义，场景描写、复杂动作和连续心理变化可以保留为较短自然段。";
 const DEFAULT_WORD_COUNT_CONTROL = "2000-2600 字";
@@ -177,8 +175,7 @@ export const WriterSettingsForm = defineLowCodeForm({
 
 type WriterPayloadTarget = {
     path: string;
-    projectSlug: string;
-    projectPath: string;
+    projectRoot: string;
     chapterPath: string | null;
 };
 
@@ -349,7 +346,7 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
                         内容节点（lorebook / manuscript）的结构、frontmatter 字段、读取规则见 reference/content/information-control.md。
 
                         核心原则：
-                        - File Scope 是当前Project Workspace；工具路径直接使用 lorebook/...、manuscript/...
+                        - 当前 cwd 是 Current Project Workspace；工具路径直接使用 lorebook/...、manuscript/...
                         - index.md 是节点正文，state.md 是当前状态补充
                         - frontmatter 的 status / knowledge[] 控制可见性
                         - 不要把系统内部字段当作世界观事实
@@ -476,7 +473,7 @@ async function renderInputContext(ctx: ProfilePrepareContext<Initial, Payload>):
     if (!payload) {
         return [
             "<writer_input_context>",
-            `File Scope: ${ctx.session.projectPath ?? ctx.session.workspaceRoot}`,
+            `cwd: ${ctx.session.currentProject?.workspace.root ?? ctx.session.workspaceRoot}`,
             "<missing_payload>",
             "当前没有收到 invoke_agent.input。writer 不能写文件，必须通过 report_result.result 要求调用方补充 input.path 和可选 input.context。",
             "</missing_payload>",
@@ -484,13 +481,13 @@ async function renderInputContext(ctx: ProfilePrepareContext<Initial, Payload>):
         ].join("\n");
     }
 
-    const target = await resolvePayloadTarget(payload.path, ctx.session.workspaceFsRoot, ctx.session.projectPath);
+    const target = resolvePayloadTarget(payload.path, ctx.session.currentProject);
     const context = normalizePayloadContext(target, payload.context);
     return [
         "<writer_input_context>",
-        `File Scope: ${ctx.session.projectPath ?? ctx.session.workspaceRoot}`,
+        `cwd: ${ctx.session.currentProject?.workspace.root ?? ctx.session.workspaceRoot}`,
         renderTargetFile(target),
-        payload.chapterId ? `<chapter_id>${payload.chapterId}</chapter_id>\n用 get_chapter_writer_brief({projectPath: "${target.projectPath}", chapterId: "${payload.chapterId}"}) 自取本章 brief。` : "",
+        payload.chapterId ? `<chapter_id>${payload.chapterId}</chapter_id>\n用 get_chapter_writer_brief({projectRoot: "${target.projectRoot}", chapterId: "${payload.chapterId}"}) 自取本章 brief。` : "",
         renderSuggestedContext(target, context),
         "</writer_input_context>",
     ].filter(Boolean).join("\n");
@@ -499,34 +496,28 @@ async function renderInputContext(ctx: ProfilePrepareContext<Initial, Payload>):
 /**
  * 解析本轮 writer payload 的唯一写入目标。
  */
-async function resolvePayloadTarget(
+function resolvePayloadTarget(
     rawPath: string,
-    workspaceFsRoot: AbsoluteFsPath,
-    sessionProjectPath: string | undefined,
-): Promise<WriterPayloadTarget> {
+    currentProject: ReadyProjectSessionRef | null,
+): WriterPayloadTarget {
     const path = normalizePayloadPath(rawPath, "writer.input.path");
     if (!path.endsWith(".md")) {
         throw new Error("writer.input.path 必须指向当前 Project Workspace 内的 Markdown 文件，例如 manuscript/001-chapter/index.md。");
     }
-    if (!sessionProjectPath || isAbsolute(sessionProjectPath)) {
-        throw new Error("writer需要绑定managed Project Path，才能解析Project相对input.path。");
+    if (!currentProject) {
+        throw new Error("writer需要绑定Current Project，才能解析Project相对input.path。");
     }
-    const projectPath = normalizeProjectPath(sessionProjectPath);
-    const projectSlug = projectPath.slice("workspace/".length);
-    if (path === projectSlug || path.startsWith(`${projectSlug}/`) || path.startsWith("workspace/")) {
+    const projectRoot = currentProject.workspace.ref.projectRoot;
+    if (path === projectRoot || path.startsWith(`${projectRoot}/`) || path.startsWith("workspace/")) {
         throw new Error("writer.input.path必须相对当前Project Workspace；不要添加Project slug或workspace/<project>/前缀。");
     }
-    await readProjectManifest(workspaceFsRoot, projectPath).catch((error: unknown) => {
-        throw new Error(`writer.input.path 指向的 Project 不存在或无法读取：${projectPath}。${error instanceof Error ? error.message : String(error)}`);
-    });
     const projectRelativePath = path;
     const chapterPath = projectRelativePath.startsWith("manuscript/") && projectRelativePath.endsWith("/index.md")
         ? `${posix.dirname(projectRelativePath)}/`
         : null;
     return {
         path,
-        projectSlug,
-        projectPath,
+        projectRoot,
         chapterPath,
     };
 }
@@ -536,8 +527,8 @@ async function resolvePayloadTarget(
  */
 function normalizePayloadContext(target: WriterPayloadTarget, context: Payload["context"] | undefined): NonNullable<Payload["context"]> {
     return {
-        lorebookEntries: context?.lorebookEntries?.map((path) => normalizeProjectPathRef(path, target.projectSlug, "writer.input.context.lorebookEntries", {preserveTrailingSlash: true})),
-        readablePaths: context?.readablePaths?.map((path) => normalizeProjectPathRef(path, target.projectSlug, "writer.input.context.readablePaths", {mustBeMarkdown: true})),
+        lorebookEntries: context?.lorebookEntries?.map((path) => normalizeProjectRelativePath(path, target.projectRoot, "writer.input.context.lorebookEntries", {preserveTrailingSlash: true})),
+        readablePaths: context?.readablePaths?.map((path) => normalizeProjectRelativePath(path, target.projectRoot, "writer.input.context.readablePaths", {mustBeMarkdown: true})),
     };
 }
 
@@ -545,8 +536,7 @@ function renderTargetFile(target: WriterPayloadTarget): string {
     return [
         "<target_file>",
         `path: ${target.path}`,
-        `projectSlug: ${target.projectSlug}`,
-        `projectPath: ${target.projectPath}`,
+        `projectRoot: ${target.projectRoot}`,
         target.chapterPath ? `chapterPath: ${target.chapterPath}` : "",
         "规则：这是本轮唯一允许写入或修改的文件。若文件已存在，写作前先用 read 读取原文；若文件不存在，可按 message 创建。",
         "</target_file>",
@@ -557,7 +547,7 @@ function renderSuggestedContext(target: WriterPayloadTarget, context: NonNullabl
     return [
         "<suggested_context>",
         "这些是调用方建议读取的上下文引用，不是任务正文，也不是必须全部读取的清单。请根据本轮 message 判断需要读什么。",
-        `projectPath: ${target.projectPath}`,
+        `projectRoot: ${target.projectRoot}`,
         renderList("lorebookEntries", context.lorebookEntries, "建议按需用 read 读取节点 index.md，必要时读取同级 state.md。"),
         renderList("readablePaths", context.readablePaths, "建议按需用 read 读取。"),
         "</suggested_context>",
@@ -575,13 +565,13 @@ function renderList(label: string, values: readonly string[] | undefined, hint: 
     ].join("\n");
 }
 
-function normalizeProjectPathRef(rawPath: string, projectSlug: string, label: string, options: {mustBeMarkdown?: boolean; preserveTrailingSlash?: boolean} = {}): string {
+function normalizeProjectRelativePath(rawPath: string, projectRoot: string, label: string, options: {mustBeMarkdown?: boolean; preserveTrailingSlash?: boolean} = {}): string {
     const path = normalizePayloadPath(rawPath, label, {preserveTrailingSlash: options.preserveTrailingSlash});
     if (options.mustBeMarkdown && !path.endsWith(".md")) {
         throw new Error(`${label} 必须指向 Project Workspace 内的 Markdown 文件：${rawPath}`);
     }
-    if (path === projectSlug || path.startsWith(`${projectSlug}/`) || path.startsWith("workspace/")) {
-        throw new Error(`${label}必须相对当前Project Workspace；不要添加${projectSlug}/或workspace/<project>/前缀。`);
+    if (path === projectRoot || path.startsWith(`${projectRoot}/`) || path.startsWith("workspace/")) {
+        throw new Error(`${label}必须相对当前Project Workspace；不要添加${projectRoot}/或workspace/<project>/前缀。`);
     }
     return path;
 }

@@ -1,9 +1,8 @@
 import {describe, expect, it} from "vitest";
 import type {StoredAgentMessage, StoredAttachmentContent} from "nbook/server/agent/messages/stored-types";
+import {estimateStoredContextTokens, estimateStoredMessageTokens} from "nbook/server/agent/messages/stored-message-tokens";
 import {
     attachmentMarker,
-    estimateStoredContextTokens,
-    estimateStoredMessageTokens,
     storedMessageText,
     storedMessagesForText,
 } from "nbook/server/agent/messages/stored-message-presentation";

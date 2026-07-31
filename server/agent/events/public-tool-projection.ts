@@ -424,6 +424,12 @@ function projectResultDetails(toolName: string, value: unknown, budget: ValuePre
     }
     if (toolName === "bash" && details) {
         const truncation = objectValue(details.truncation);
+        const fullOutput = objectValue(details.fullOutput);
+        const fullOutputState = fullOutput?.state === "available"
+            || fullOutput?.state === "partial"
+            || fullOutput?.state === "reclaimed"
+            ? fullOutput.state
+            : undefined;
         const truncatedBy = truncation?.truncatedBy === "bytes" || truncation?.truncatedBy === "lines"
             ? truncation.truncatedBy
             : undefined;
@@ -433,7 +439,14 @@ function projectResultDetails(toolName: string, value: unknown, budget: ValuePre
             ...(truncatedBy ? {truncatedBy} : {}),
             ...(finiteInteger(truncation?.totalLines) !== undefined ? {totalLines: finiteInteger(truncation?.totalLines)} : {}),
             ...(finiteInteger(truncation?.totalBytes) !== undefined ? {totalBytes: finiteInteger(truncation?.totalBytes)} : {}),
-            ...(typeof details.fullOutputPath === "string" ? {fullOutputPath: budgetText(details.fullOutputPath, budget, PUBLIC_PATH_MAX_BYTES).preview} : {}),
+            ...(fullOutputState ? {
+                fullOutput: {
+                    state: fullOutputState,
+                    ...(fullOutputState !== "reclaimed" && typeof fullOutput?.locator === "string"
+                        ? {locator: budgetText(fullOutput.locator, budget, PUBLIC_PATH_MAX_BYTES).preview}
+                        : {}),
+                },
+            } : {}),
         };
     }
     return {

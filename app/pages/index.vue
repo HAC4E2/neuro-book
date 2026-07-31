@@ -7,7 +7,9 @@ import MarkdownStudioWorkbench from "nbook/app/components/markdown-studio/Markdo
 import AgentChatSurface from "nbook/app/components/novel-ide/agent/AgentChatSurface.vue";
 import AgentTraceViewerDialog from "nbook/app/components/novel-ide/agent/trace-viewer/AgentTraceViewerDialog.vue";import WorkspaceHistoryInboxDialog from "nbook/app/components/novel-ide/history/WorkspaceHistoryInboxDialog.vue";import AgentModeSessionSidebar from "nbook/app/components/novel-ide/agent/AgentModeSessionSidebar.vue";
 import AgentJobsDialog from "nbook/app/components/novel-ide/jobs/AgentJobsDialog.vue";
+import NovelIdeAccountMenu from "nbook/app/components/novel-ide/NovelIdeAccountMenu.vue";
 import NovelIdeHeader from "nbook/app/components/novel-ide/NovelIdeHeader.vue";
+import NovelIdeProfileDialog from "nbook/app/components/novel-ide/NovelIdeProfileDialog.vue";
 import NovelIdeSidebar from "nbook/app/components/novel-ide/NovelIdeSidebar.vue";
 import NovelIdeSettingsDialog from "nbook/app/components/novel-ide/NovelIdeSettingsDialog.vue";
 import NovelIdeToolPanel from "nbook/app/components/novel-ide/NovelIdeToolPanel.vue";
@@ -15,7 +17,7 @@ import WorldEngineWorkbenchDialog from "nbook/app/components/novel-ide/world-eng
 import NovelPromptBar from "nbook/app/components/novel-ide/NovelPromptBar.vue";
 import type {AgentSessionModelDraft} from "nbook/app/components/novel-ide/agent/agent-session-model-controls";
 import WorkspaceFilePanel from "nbook/app/components/novel-ide/workspace/WorkspaceFilePanel.vue";
-import NovelBookshelfDialog from "nbook/app/components/novel-ide/NovelBookshelfDialog.vue";
+import ProjectPickerScreen from "nbook/app/components/novel-ide/ProjectPickerScreen.vue";
 import UserProfileWorkbenchDialog from "nbook/app/components/profile-template-editor/UserProfileWorkbenchDialog.vue";
 import WorkspaceCharacterDetailPanel from "nbook/app/components/novel-ide/workspace/WorkspaceCharacterDetailPanel.vue";
 import WorkspaceFileConflictDialog from "nbook/app/components/novel-ide/workspace/WorkspaceFileConflictDialog.vue";
@@ -23,18 +25,18 @@ import WorkspaceLocationProfileDialog from "nbook/app/components/novel-ide/works
 import WorkspaceRuleProfileDialog from "nbook/app/components/novel-ide/workspace/WorkspaceRuleProfileDialog.vue";
 import type {WorkspaceReferencePreviewMeta} from "nbook/app/components/markdown-studio/tiptap/WorkspaceReference";
 import {useIdeTheme} from "nbook/app/composables/useIdeTheme";
-import {useAgentJobsFeed} from "nbook/app/composables/useAgentJobsFeed";
 import {useAuthSessionState} from "nbook/app/composables/useAuthSessionState";
 import {useMarkdownStudioController} from "nbook/app/composables/useMarkdownStudioController";
 import {useWorkspaceFileEvents} from "nbook/app/composables/useWorkspaceFileEvents";
-import {useProjectSession} from "nbook/app/composables/useProjectSession";
+import {isProjectSessionSupersededError, useProjectSession} from "nbook/app/composables/useProjectSession";
 import {useResizablePanel} from "nbook/app/composables/useResizablePanel";
 import {useDialog} from "nbook/app/composables/useDialog";
 import {useNotification} from "nbook/app/composables/useNotification";
 import type {AgentTriggerMenuContext, AgentTriggerMenuItem, AgentTriggerMenuState, MarkdownCommandKind} from "nbook/app/components/novel-ide/agent/trigger-menu";
-import {useNovelIdeStore, type AgentWorkspaceSyncPayload, type WorkspaceEditorKind, type WorkspaceEditorViewMode, type WorkspaceFileNode} from "nbook/app/stores/novel-ide";
+import {useNovelIdeStore, type WorkspaceEditorKind, type WorkspaceEditorViewMode, type WorkspaceFileNode} from "nbook/app/stores/novel-ide";
 import type {WorkspaceFileChangeEventDto, WorkspaceFileStreamEventDto} from "nbook/shared/dto/workspace-file-events.dto";
 import type {AgentSessionSummaryDto, AgentSkillCatalogItemDto} from "nbook/shared/dto/agent-session.dto";
+import {agentSessionScopeKey} from "nbook/app/utils/agent-session-scope-key";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {
     collectWorkspaceReferencePathCandidates,
@@ -60,13 +62,12 @@ type WelcomeLorebookEntryType = typeof WELCOME_LOREBOOK_ENTRY_TYPES[number];
 const initialized = ref(false);
 const themeHostRef = ref<HTMLElement | null>(null);
 const currentUser = ref<AuthSessionDto["user"]>(null);
-const bookshelfOpen = ref(false);
+const accountProfileOpen = ref(false);
 const settingsDialogOpen = ref(false);
 const traceViewerOpen = ref(false);
 const historyInboxOpen = ref(false);
-// 后台任务中心：共享 feed 喂 Header 徽标与面板（调用即启动常驻慢轮询）
+// 后台任务中心只在 Project 数据面内挂载。
 const agentJobsOpen = ref(false);
-const {activeCount: agentJobsActiveCount} = useAgentJobsFeed();
 const historyInboxRefreshKey = ref(0);
 const worldEngineWorkbenchOpen = ref(false);
 const worldEngineWorkbenchHasUnsavedDrafts = ref(false);
@@ -86,6 +87,7 @@ const markdownSkillCatalogLoading = ref(false);
 let markdownSkillCatalogRequest: Promise<void> | null = null;
 let workspaceFileSyncRunning = false;
 let pendingWorkspaceFileEvents: WorkspaceFileChangeEventDto[] = [];
+let workspaceEventRevision = 0;
 const USER_ASSETS_PROJECT_TARGET = "workspace/.nbook";
 const MODE_TRANSITION_SELECTORS = [
     ".ide-agent-mode-switch",
@@ -105,7 +107,7 @@ const router = useRouter();
 const {
     activeLeftTab,
     activeWorkspaceTabPath,
-    currentNovelId,
+    currentProjectRoot,
     currentNovel,
     hasUnsavedWorkspaceChanges,
     lastSyncedFileContent,
@@ -139,7 +141,6 @@ const {
     rightPanelWidth,
 } = storeToRefs(novelIdeStore);
 const {
-    applyAgentWorkspaceSync,
     initializeWorkspace,
     loadWorkspaceTree,
     saveCurrentFile,
@@ -154,16 +155,42 @@ const {
     setWorkspaceTabViewMode,
     resolveWorkspaceWriteConflict,
     syncWorkspaceFromDisk,
-    switchNovel,
     switchToNovelWorkspace,
+    closeProjectWorkspace,
     switchToUserAssetsWorkspace,
-    loadNovels,
+    loadProjects,
 } = novelIdeStore;
 const {mountThemeHost} = useIdeTheme(activeThemeId, customThemes, themeVarsSnapshot);
 const workspaceFileEvents = useWorkspaceFileEvents();
-// Task 94：项目显式生命周期——当前小说项目保持 open 并声明用户在场；user-assets 工作区不参与 open/presence。
-const projectSessionTarget = computed<string | null>(() => workspaceKind.value === "novel" && currentNovelId.value ? currentNovelId.value : null);
-useProjectSession(projectSessionTarget);
+// Current Project 只有在 open + presence_ready 后才提交；URL 在此之前只是打开意图。
+const projectSession = useProjectSession();
+const projectSwitching = ref(false);
+let projectRouteIntentRevision = 0;
+let processedProjectRouteRevision = 0;
+let projectRouteSyncPromise: Promise<void> | null = null;
+let terminalProjectFailurePromise: Promise<void> | null = null;
+const workspaceBootstrapped = ref(false);
+/** Project 数据面只在 Studio user-assets 或 exact ready Project 已提交时挂载。 */
+const projectSurfaceActive = computed(() => workspaceBootstrapped.value && (
+    !projectSwitching.value && (isUserAssetsWorkspace.value
+    || Boolean(
+        projectSession.state.value.status === "ready"
+        && currentProjectRoot.value
+        && projectSession.state.value.ready.projectRoot === currentProjectRoot.value,
+    ))
+));
+watch(projectSurfaceActive, (active) => {
+    if (!active) agentJobsOpen.value = false;
+});
+// Task 129：未选择 Project 时渲染项目选择界面。状态完全派生自 store，删除最后一本书 / URL 指向不存在的
+// Project / 裸 `/` 三条路径自动收敛到同一状态，不额外维护一份开关。
+const projectPickerActive = computed(() => workspaceBootstrapped.value
+    && !isUserAssetsWorkspace.value
+    && !currentProjectRoot.value
+    && (projectSession.state.value.status === "idle" || projectSession.state.value.status === "failed"));
+const projectTransitionActive = computed(() => projectSwitching.value
+    || projectSession.state.value.status === "opening"
+    || projectSession.state.value.status === "reconnecting");
 const authSessionState = useAuthSessionState();
 const agentSurfaceRef = ref<InstanceType<typeof AgentChatSurface> | null>(null);
 
@@ -180,13 +207,13 @@ const {t} = useI18n();
 
 const novelItems = computed(() => novels.value.map((novel) => ({
     label: novel.title,
-    value: novel.id,
-    active: novel.id === currentNovelId.value,
+    value: novel.projectRoot,
+    active: novel.projectRoot === currentProjectRoot.value,
 })));
 
 type ProjectRouteTarget =
     | {kind: "user-assets"}
-    | {kind: "project"; projectPath: string}
+    | {kind: "project"; projectRoot: string}
     | {kind: "default"};
 
 /**
@@ -197,8 +224,8 @@ const parseProjectRouteTarget = (): ProjectRouteTarget => {
     if (projectQuery === USER_ASSETS_PROJECT_TARGET) {
         return {kind: "user-assets"};
     }
-    if (/^workspace\/[^/]+$/u.test(projectQuery)) {
-        return {kind: "project", projectPath: projectQuery};
+    if (/^[^/\\]+$/u.test(projectQuery)) {
+        return {kind: "project", projectRoot: projectQuery};
     }
     return {kind: "default"};
 };
@@ -210,13 +237,11 @@ const buildProjectRoute = (projectTarget: string): string => {
     return `/?${new URLSearchParams({project: projectTarget}).toString()}`;
 };
 
-const workspaceBootstrapped = ref(false);
 const consumingRouteOpenPath = ref(false);
 const lastMissingProjectNoticeTarget = ref("");
-const discardOpenPathForProjectFallback = ref(false);
 const displayRightPanelOpen = computed(() => workspaceBootstrapped.value && rightPanelOpen.value);
 const isAgentMode = computed(() => layoutMode.value === "agent");
-const agentSurfaceActive = computed(() => workspaceBootstrapped.value && (rightPanelOpen.value || isAgentMode.value));
+const agentSurfaceActive = computed(() => projectSurfaceActive.value && (rightPanelOpen.value || isAgentMode.value));
 const agentModeSessions = computed(() => agentSurfaceRef.value?.sessions ?? []);
 const agentModeActiveSessionId = computed(() => agentSurfaceRef.value?.activeSessionId ?? null);
 const agentModeLoadingSession = computed(() => agentSurfaceRef.value?.loadingSession ?? false);
@@ -300,13 +325,8 @@ const ideToolPanelStyle = computed(() => ideToolPanelOpen.value ? {width: `${lef
 const displaySidebarActiveTab = computed<NovelIdeTab | "sessions" | null>(() => isAgentMode.value ? "sessions" : displayActiveLeftTab.value);
 const displayNovelTitle = computed(() => isUserAssetsWorkspace.value ? t("ide.header.userAssets") : currentNovel.value?.title ?? "");
 const displayNovelItems = computed(() => isUserAssetsWorkspace.value ? [] : novelItems.value);
-const displayNovelIdForAgent = computed(() => isUserAssetsWorkspace.value ? "" : currentNovelId.value);
-const agentWorkspaceKey = computed(() => {
-    if (isUserAssetsWorkspace.value) {
-        return "user-assets";
-    }
-    return currentNovelId.value || "workspace";
-});
+const displayNovelIdForAgent = computed(() => isUserAssetsWorkspace.value ? "" : currentProjectRoot.value);
+const agentScopeKey = computed(() => agentSessionScopeKey(isUserAssetsWorkspace.value ? "user-assets" : "novel", currentProjectRoot.value));
 
 /**
  * 当前文件扩展名，统一用于编辑器类型判断。
@@ -868,7 +888,7 @@ function buildInlineVisibleMessage(payload: InlineEditPayload): string {
  * 将 IDE store 路径规范化为当前 Project File Scope 相对路径。
  *
  * @example
- * // 当 currentNovelId = "ming-ding-zhi-shi-2"
+ * // 当 currentProjectRoot = "ming-ding-zhi-shi-2"
  * resolveInlineEditorTargetPath("manuscript/001/index.md")
  * // => "manuscript/001/index.md"
  *
@@ -879,7 +899,7 @@ function resolveInlineEditorTargetPath(projectRelativePath: string): string {
     if (!projectRelativePath) {
         return projectRelativePath;
     }
-    const projectSlug = currentNovelId.value;
+    const projectSlug = currentProjectRoot.value;
     if (!projectSlug) {
         // user-assets 或 welcome 模式没有Project File Scope，保留入口原值。
         return projectRelativePath;
@@ -1136,24 +1156,33 @@ const confirmWorldEngineWorkbenchDraftDiscardForProjectSwitch = async (): Promis
  * 切换小说前先处理当前文件保存状态。
  */
 const handleSwitchNovel = async (novelId: string): Promise<void> => {
-    if (novelId === currentNovelId.value) {
+    if (novelId === currentProjectRoot.value) {
         if (route.query.project !== novelId) {
             await router.replace(buildProjectRoute(novelId));
         }
         return;
     }
+    await router.push(buildProjectRoute(novelId));
+};
 
-    if (!(await confirmWorldEngineWorkbenchDraftDiscardForProjectSwitch())) {
-        return;
-    }
+/**
+ * 从项目选择界面进入 Project。
+ *
+ * 只改 URL，真正的 workspace 切换交给 route watch（`syncWorkspaceRoute`）统一执行；
+ * 用 push 而不是 replace，浏览器后退可以回到选择界面。
+ */
+const openProjectFromPicker = async (projectRoot: string): Promise<void> => {
+    await router.push(buildProjectRoute(projectRoot));
+};
 
-    const decision = await resolveUnsavedWorkspaceChanges();
-    if (decision === "cancel") {
-        return;
-    }
-
-    await switchNovel(novelId, {discardWorkspaceChanges: decision === "discard"});
-    await router.replace(buildProjectRoute(novelId));
+/**
+ * 关闭当前 Project 回到项目选择界面。
+ *
+ * 只断开本窗口的 presence，不调用强制 close，
+ * 因此其它窗口仍能继续持有同一个 Project。取消时保持 URL 原样，不留下多余的历史记录。
+ */
+const openProjectPicker = async (): Promise<void> => {
+    await router.push("/");
 };
 
 /**
@@ -1471,18 +1500,6 @@ const handleSidebarToggle = (tab: NovelIdeTab | "sessions"): void => {
 };
 
 /**
- * Agent 写入后刷新通用文件树；旧 chapter 事件仍交给 store 兼容处理。
- */
-const handleAgentWorkspaceUpdated = async (payload: AgentWorkspaceSyncPayload): Promise<void> => {
-    const result = await applyAgentWorkspaceSync(payload);
-    await loadWorkspaceTree();
-    historyInboxRefreshKey.value += 1;
-    if (result === "applied") {
-        studio.scrollToTop();
-    }
-};
-
-/**
  * 合并并应用 workspace 文件系统事件。
  */
 const flushWorkspaceFileEvents = async (): Promise<void> => {
@@ -1522,23 +1539,43 @@ const handleWorkspaceFileEvent = (event: WorkspaceFileStreamEventDto): void => {
 /**
  * 订阅当前 workspace 的文件变化。
  */
-const subscribeWorkspaceEvents = (): void => {
+function stopWorkspaceEvents(): void {
+    workspaceEventRevision += 1;
     workspaceEventAbortController.value?.abort();
     workspaceEventAbortController.value = null;
     pendingWorkspaceFileEvents = [];
+}
+
+const subscribeWorkspaceEvents = (): void => {
+    stopWorkspaceEvents();
     if (!import.meta.client) {
         return;
     }
 
-    const abortController = new AbortController();
-    workspaceEventAbortController.value = abortController;
     const target = workspaceKind.value === "user-assets"
         ? {workspaceKind: "user-assets"} as const
-        : currentNovelId.value ? {projectPath: currentNovelId.value} as const : null;
+        : currentProjectRoot.value
+            && projectSession.state.value.status === "ready"
+            && projectSession.state.value.ready.projectRoot === currentProjectRoot.value
+            ? {projectRoot: currentProjectRoot.value} as const
+            : null;
     if (!target) {
         return;
     }
-    void workspaceFileEvents.subscribe(target, handleWorkspaceFileEvent, abortController.signal)
+    const revision = workspaceEventRevision;
+    const projectReadyRevision = projectSession.state.value.status === "ready"
+        ? projectSession.state.value.ready.revision
+        : null;
+    const abortController = new AbortController();
+    workspaceEventAbortController.value = abortController;
+    void workspaceFileEvents.subscribe(target, (event) => {
+        if (revision !== workspaceEventRevision) return;
+        if (projectReadyRevision !== null && (
+            projectSession.state.value.status !== "ready"
+            || projectSession.state.value.ready.revision !== projectReadyRevision
+        )) return;
+        handleWorkspaceFileEvent(event);
+    }, abortController.signal)
         .catch((error) => {
             if (abortController.signal.aborted) {
                 return;
@@ -1553,9 +1590,9 @@ const subscribeWorkspaceEvents = (): void => {
  */
 const syncDefaultModelLabel = async (): Promise<void> => {
     try {
-        const query = workspaceKind.value === "user-assets" || !currentNovelId.value
+        const query = workspaceKind.value === "user-assets" || !currentProjectRoot.value
             ? {workspaceKind: "user-assets"} as const
-            : {workspaceKind: "novel", projectPath: currentNovelId.value} as const;
+            : {workspaceKind: "novel", projectRoot: currentProjectRoot.value} as const;
         const settings = await $fetch<ConfigBootstrapDto>("/api/config/bootstrap", {
             query,
         });
@@ -1612,7 +1649,7 @@ const toggleLeftTab = (tab: NovelIdeTab): void => {
  * 从主 IDE 打开当前 Project 的 World Engine 工作台。
  */
 const openWorldEngineWorkbench = (): void => {
-    if (isUserAssetsWorkspace.value || !currentNovelId.value) {
+    if (isUserAssetsWorkspace.value || !currentProjectRoot.value) {
         return;
     }
     worldEngineWorkbenchOpen.value = true;
@@ -1648,28 +1685,88 @@ const openUserAssets = (): void => {
 };
 
 /**
- * 根据页面 query 初始化当前工作区。
+ * 冷切换开始后立即停用旧 Project 工作面，再等待本标签页 presence 完整退出。
+ * Project Dialog 的开关同时清零，避免新 Project ready 后复用旧 Project 的会话态界面。
  */
-const initializeWorkspaceFromRoute = async (): Promise<void> => {
-    const target = parseProjectRouteTarget();
+const releaseProjectSurface = async (): Promise<void> => {
+    stopWorkspaceEvents();
+    worldEngineWorkbenchOpen.value = false;
+    plotWorkbenchOpen.value = false;
+    settingsDialogOpen.value = false;
+    traceViewerOpen.value = false;
+    historyInboxOpen.value = false;
+    agentJobsOpen.value = false;
+    profileWorkbenchOpen.value = false;
+    frontmatterProfileKind.value = null;
+    await projectSession.release();
+    closeProjectWorkspace();
+};
+
+/**
+ * 消费 reconnect 后出现的 terminal failure。
+ *
+ * route transition 自身的打开失败仍由对应 worker 收口；这里仅处理页面已经 ready 后
+ * 异步失去 Project 的情况，Controller 已负责展示领域错误，页面不重复通知。
+ */
+const handleTerminalProjectSessionFailure = (): void => {
+    if (projectSwitching.value || terminalProjectFailurePromise) return;
+    stopWorkspaceEvents();
+    terminalProjectFailurePromise = (async () => {
+        await releaseProjectSurface();
+        await router.replace("/");
+    })().catch((error: unknown) => {
+        notification.error(resolveApiErrorMessage(error, "返回 Project 列表失败"), {title: "Project 清理失败"});
+    }).finally(() => {
+        terminalProjectFailurePromise = null;
+    });
+};
+
+/**
+ * 根据页面 query 初始化当前工作区。
+ *
+ * 裸 `/`（default）不再自动打开上一次的 Project：置「未选择 Project」状态并落到项目选择界面。
+ */
+const initializeWorkspaceFromRoute = async (target: ProjectRouteTarget, revision: number): Promise<void> => {
     if (target.kind === "user-assets") {
+        await releaseProjectSurface();
+        if (!ownsProjectRouteIntent(revision)) return;
         await switchToUserAssetsWorkspace();
+        if (!ownsProjectRouteIntent(revision)) return;
         activeLeftTab.value = "files";
         return;
     }
 
     if (target.kind === "project") {
-        const list = await loadNovels();
-        const routeProjectExists = list.some((novel) => novel.id === target.projectPath);
-        discardOpenPathForProjectFallback.value = !routeProjectExists;
-        await switchToNovelWorkspace(routeProjectExists ? target.projectPath : list[0]?.id);
-        notifyProjectRouteFallback(target);
+        const list = await loadProjects();
+        if (!ownsProjectRouteIntent(revision)) return;
+        if (!list.some((novel) => novel.projectRoot === target.projectRoot)) {
+            notifyMissingProjectRoute(target.projectRoot);
+            if (initialized.value && currentProjectRoot.value) {
+                await restoreCurrentWorkspaceRoute();
+            } else {
+                await releaseProjectSurface();
+                if (!ownsProjectRouteIntent(revision)) return;
+                await router.replace("/");
+            }
+            return;
+        }
+        await releaseProjectSurface();
+        if (!ownsProjectRouteIntent(revision)) return;
+        await projectSession.open(target.projectRoot);
+        if (!ownsProjectRouteIntent(revision)) {
+            await projectSession.release();
+            return;
+        }
+        await switchToNovelWorkspace(target.projectRoot);
+        if (!ownsProjectRouteIntent(revision)) {
+            await releaseProjectSurface();
+            return;
+        }
+        lastMissingProjectNoticeTarget.value = "";
         return;
     }
 
-    discardOpenPathForProjectFallback.value = false;
-    await switchToNovelWorkspace();
-    notifyProjectRouteFallback(target);
+    await releaseProjectSurface();
 };
 
 /**
@@ -1680,43 +1777,39 @@ const workspaceRouteSynced = (): boolean => {
     if (target.kind === "user-assets") {
         return isUserAssetsWorkspace.value;
     }
-    if (target.kind === "project" && novels.value.some((novel) => novel.id === target.projectPath)) {
-        return workspaceKind.value === "novel" && currentNovelId.value === target.projectPath;
+    if (target.kind === "project" && novels.value.some((novel) => novel.projectRoot === target.projectRoot)) {
+        return workspaceKind.value === "novel"
+            && currentProjectRoot.value === target.projectRoot
+            && projectSession.state.value.status === "ready"
+            && projectSession.state.value.ready.projectRoot === target.projectRoot;
     }
-    return !route.query.project && workspaceKind.value === "novel";
+    // 裸 `/` 只在「未选择 Project」时才算同步；否则（例如从项目页浏览器后退）要走完整切换流程。
+    return !route.query.project && !currentProjectRoot.value;
 };
 
 /**
  * 将当前小说页面规范成可分享的 query URL。
  */
 const normalizeNovelRouteQuery = async (): Promise<void> => {
-    if (isUserAssetsWorkspace.value || !currentNovelId.value) {
+    if (isUserAssetsWorkspace.value || !currentProjectRoot.value) {
         return;
     }
-    if (route.query.project === currentNovelId.value) {
+    if (route.query.project === currentProjectRoot.value) {
         return;
     }
-    await router.replace(buildProjectRoute(currentNovelId.value));
+    await router.replace(buildProjectRoute(currentProjectRoot.value));
 };
 
 /**
- * URL 指定的 Project 不存在或已删除时，告知作者已切回当前可用 Project。
+ * URL 指定的 Project 不存在或已删除时，告知作者已回到项目选择界面。
  */
-const notifyProjectRouteFallback = (target: ProjectRouteTarget): void => {
-    if (target.kind !== "project") {
+const notifyMissingProjectRoute = (projectRoot: string): void => {
+    if (lastMissingProjectNoticeTarget.value === projectRoot) {
         return;
     }
-    if (workspaceKind.value !== "novel" || currentNovelId.value === target.projectPath) {
-        lastMissingProjectNoticeTarget.value = "";
-        return;
-    }
-    if (lastMissingProjectNoticeTarget.value === target.projectPath) {
-        return;
-    }
-    lastMissingProjectNoticeTarget.value = target.projectPath;
-    const fallbackTitle = displayNovelTitle.value || currentNovelId.value || "可用 Project";
+    lastMissingProjectNoticeTarget.value = projectRoot;
     const openPathHint = typeof route.query.openPath === "string" ? " 已忽略原链接中的文件路径。" : "";
-    notification.warning(`Project ${target.projectPath} 不存在或已删除，已切换到 ${fallbackTitle}。${openPathHint}`, {title: "Project 已不可用"});
+    notification.warning(`Project ${projectRoot} 不存在或已删除，已返回项目列表。${openPathHint}`, {title: "Project 已不可用"});
 };
 
 /**
@@ -1736,30 +1829,99 @@ const restoreCurrentWorkspaceRoute = async (): Promise<void> => {
 /**
  * 监听页面 query 变化，允许主页面直接切换 novel/user-assets workspace。
  */
-const syncWorkspaceRoute = async (): Promise<void> => {
+const ownsProjectRouteIntent = (revision: number): boolean => revision === projectRouteIntentRevision;
+
+/** 消费一个固定 route revision；每个异步边界后都验证 ownership。 */
+const syncWorkspaceRoute = async (revision: number): Promise<void> => {
+    const target = parseProjectRouteTarget();
     if (workspaceRouteSynced()) {
         await consumeWorkspaceOpenPathFromRoute();
+        if (!ownsProjectRouteIntent(revision)) return;
         if (!isUserAssetsWorkspace.value) {
             await normalizeNovelRouteQuery();
+            if (!ownsProjectRouteIntent(revision)) return;
         }
         subscribeWorkspaceEvents();
         return;
     }
     if (!(await confirmWorldEngineWorkbenchDraftDiscardForProjectSwitch())) {
+        if (!ownsProjectRouteIntent(revision)) return;
         await restoreCurrentWorkspaceRoute();
         return;
     }
+    if (!ownsProjectRouteIntent(revision)) return;
     const decision = await resolveUnsavedWorkspaceChanges();
+    if (!ownsProjectRouteIntent(revision)) return;
     if (decision === "cancel") {
         await restoreCurrentWorkspaceRoute();
         return;
     }
-    await initializeWorkspaceFromRoute();
-    await consumeWorkspaceOpenPathFromRoute();
-    if (!isUserAssetsWorkspace.value) {
-        await normalizeNovelRouteQuery();
+    projectSwitching.value = true;
+    try {
+        await initializeWorkspaceFromRoute(target, revision);
+        if (!ownsProjectRouteIntent(revision)) return;
+        await consumeWorkspaceOpenPathFromRoute();
+        if (!ownsProjectRouteIntent(revision)) return;
+        if (!isUserAssetsWorkspace.value) {
+            await normalizeNovelRouteQuery();
+            if (!ownsProjectRouteIntent(revision)) return;
+        }
+        subscribeWorkspaceEvents();
+    } catch (error) {
+        if (!ownsProjectRouteIntent(revision) || isProjectSessionSupersededError(error)) return;
+        const controllerReportedFailure = projectSession.state.value.status === "failed";
+        await releaseProjectSurface();
+        if (!ownsProjectRouteIntent(revision)) return;
+        await router.replace("/");
+        if (!controllerReportedFailure) {
+            notification.error(resolveApiErrorMessage(error, "打开 Project 失败"), {title: "Project 打开失败"});
+        }
+    } finally {
+        if (ownsProjectRouteIntent(revision)) projectSwitching.value = false;
     }
-    subscribeWorkspaceEvents();
+};
+
+/**
+ * Route watcher 只登记 intent。单一 worker 串行执行确认与 cold transition；新 intent
+ * 会立刻使旧 revision 失效，opening 阶段还会主动释放其 transport owner。
+ */
+const requestWorkspaceRouteSync = (): void => {
+    if (!initialized.value) return;
+    projectRouteIntentRevision += 1;
+    if (projectSession.state.value.status === "opening" || projectSession.state.value.status === "reconnecting") {
+        void projectSession.release();
+    }
+    startWorkspaceRouteSync();
+};
+
+/** 启动唯一 route worker；finally 再检查一次，避免收尾微任务间隙丢失 intent。 */
+const startWorkspaceRouteSync = (): void => {
+    if (projectRouteSyncPromise) return;
+    projectRouteSyncPromise = (async () => {
+        while (processedProjectRouteRevision < projectRouteIntentRevision) {
+            const revision = projectRouteIntentRevision;
+            try {
+                await syncWorkspaceRoute(revision);
+            } catch (error) {
+                if (ownsProjectRouteIntent(revision) && !isProjectSessionSupersededError(error)) {
+                    const controllerReportedFailure = projectSession.state.value.status === "failed";
+                    await releaseProjectSurface();
+                    if (ownsProjectRouteIntent(revision)) {
+                        await router.replace("/");
+                        if (!controllerReportedFailure) {
+                            notification.error(resolveApiErrorMessage(error, "打开 Project 失败"), {title: "Project 打开失败"});
+                        }
+                    }
+                }
+            } finally {
+                processedProjectRouteRevision = revision;
+            }
+        }
+    })().finally(() => {
+        projectRouteSyncPromise = null;
+        if (processedProjectRouteRevision >= projectRouteIntentRevision) projectSwitching.value = false;
+        if (processedProjectRouteRevision < projectRouteIntentRevision) startWorkspaceRouteSync();
+    });
 };
 
 /**
@@ -1854,14 +2016,7 @@ function buildWorldEngineCalendarTemplate(): string {
  * 消费 `openPath` 深链，在当前 Project Workspace 内打开目标文件。
  */
 async function consumeWorkspaceOpenPathFromRoute(): Promise<void> {
-    if (consumingRouteOpenPath.value || isUserAssetsWorkspace.value || !currentNovelId.value || typeof route.query.openPath !== "string") {
-        return;
-    }
-    if (discardOpenPathForProjectFallback.value) {
-        discardOpenPathForProjectFallback.value = false;
-        const nextQuery = {...route.query};
-        delete nextQuery.openPath;
-        await router.replace({path: route.path, query: nextQuery});
+    if (consumingRouteOpenPath.value || isUserAssetsWorkspace.value || !currentProjectRoot.value || typeof route.query.openPath !== "string") {
         return;
     }
     const filePath = normalizeWorkspacePath(route.query.openPath);
@@ -2089,30 +2244,46 @@ onMounted(() => {
             window.addEventListener("pagehide", flushWorkspaceSession);
             window.addEventListener("beforeunload", flushWorkspaceSession);
             void syncAuthSession();
-            await initializeWorkspaceFromRoute();
-            await syncDefaultModelLabel();
-            await consumeWorkspaceOpenPathFromRoute();
-            if (!isUserAssetsWorkspace.value) {
-                await normalizeNovelRouteQuery();
-            }
-            subscribeWorkspaceEvents();
             initialized.value = true;
+            requestWorkspaceRouteSync();
+            while (projectRouteSyncPromise) await projectRouteSyncPromise;
+            await syncDefaultModelLabel();
+        } catch (error) {
+            if (!isProjectSessionSupersededError(error)) {
+                const controllerReportedFailure = projectSession.state.value.status === "failed";
+                await releaseProjectSurface();
+                await router.replace("/");
+                if (!controllerReportedFailure) {
+                    notification.error(resolveApiErrorMessage(error, "打开 Project 失败"), {title: "Project 打开失败"});
+                }
+            }
         } finally {
             workspaceBootstrapped.value = true;
         }
     })();
 });
 
-watch(() => [route.query.project, route.query.openPath] as const, () => {
-    if (!initialized.value) {
+// 服务端重启后 Project 会得到新的 ready revision；文件事件必须跟随同一 generation 重订阅。
+watch(projectSession.state, (next, previous) => {
+    if (next.status === "failed") {
+        stopWorkspaceEvents();
+        handleTerminalProjectSessionFailure();
         return;
     }
-    void syncWorkspaceRoute();
+    if (next.status !== "ready") {
+        if (previous.status === "ready") stopWorkspaceEvents();
+        return;
+    }
+    if (next.ready.projectRoot !== currentProjectRoot.value) return;
+    if (previous.status !== "ready" || previous.ready.revision !== next.ready.revision) {
+        subscribeWorkspaceEvents();
+    }
 });
 
+watch(() => [route.query.project, route.query.openPath] as const, requestWorkspaceRouteSync);
+
 onBeforeUnmount(() => {
-    workspaceEventAbortController.value?.abort();
-    workspaceEventAbortController.value = null;
+    stopWorkspaceEvents();
     if (import.meta.client) {
         window.removeEventListener("pagehide", flushWorkspaceSession);
         window.removeEventListener("beforeunload", flushWorkspaceSession);
@@ -2124,7 +2295,22 @@ onBeforeUnmount(() => {
 <template>
     <!-- IDE 页面根容器 -->
     <div ref="themeHostRef" class="novel-ide-page ide-shell flex h-screen flex-col overflow-hidden bg-[var(--bg-main)] text-[var(--text-main)] transition-colors duration-300">
+        <!-- Project 激活事务期间阻止旧数据面继续编辑。 -->
+        <div v-if="projectTransitionActive" class="fixed inset-0 z-[120] grid place-items-center bg-[var(--overlay-bg)]" role="status" aria-live="polite">
+            <div class="flex items-center gap-3 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3 text-sm text-[var(--text-main)] shadow-lg">
+                <span class="i-lucide-loader-circle h-4 w-4 animate-spin text-[var(--accent-main)]"></span>
+                <span>正在打开 Project...</span>
+            </div>
+        </div>
+        <!-- 未选择 Project：项目选择界面接管整页 -->
+        <ProjectPickerScreen v-if="projectPickerActive" @open="void openProjectFromPicker($event)" @open-user-assets="openUserAssets">
+            <template #header-actions>
+                <NovelIdeAccountMenu :current-user="currentUser" @open-profile="accountProfileOpen = true" @open-admin="void openAdmin()" @logout="void logout()" />
+            </template>
+        </ProjectPickerScreen>
+
         <NovelIdeHeader
+            v-if="projectSurfaceActive"
             class="ide-panel ide-header"
             :right-panel-open="isAgentMode ? agentStudioPanelOpen : displayRightPanelOpen"
             :agent-mode-active="isAgentMode"
@@ -2132,10 +2318,9 @@ onBeforeUnmount(() => {
             :novel-items="displayNovelItems"
             :current-user="currentUser"
             :workspace-mode="isUserAssetsWorkspace ? 'user-assets' : 'novel'"
-            :agent-jobs-active-count="agentJobsActiveCount"
             @toggle-layout-mode="void toggleAgentLayoutMode()"
             @toggle-agent="isAgentMode ? toggleAgentModeStudio() : rightPanelOpen = !rightPanelOpen"
-            @open-bookshelf="bookshelfOpen = true"
+            @open-bookshelf="void openProjectPicker()"
             @open-plot-workbench="openPlotWorkbench"
             @open-world-engine="openWorldEngineWorkbench"
             @open-user-assets="openUserAssets"
@@ -2144,12 +2329,13 @@ onBeforeUnmount(() => {
             @open-history-inbox="historyInboxOpen = true"
             @open-agent-jobs="agentJobsOpen = true"
             @switch-novel="handleSwitchNovel"
+            @open-profile="accountProfileOpen = true"
             @open-admin="void openAdmin()"
             @logout="void logout()"
         />
-        <WorldEngineWorkbenchDialog v-if="!isUserAssetsWorkspace" v-model="worldEngineWorkbenchOpen" :project-path="currentNovelId" :project-title="displayNovelTitle" @has-unsaved-drafts-change="worldEngineWorkbenchHasUnsavedDrafts = $event" @saving-change="worldEngineWorkbenchSaving = $event" @open-workspace-path="void openWelcomeWorkspacePath($event)" />
+        <WorldEngineWorkbenchDialog v-if="projectSurfaceActive && !isUserAssetsWorkspace" v-model="worldEngineWorkbenchOpen" :project-root="currentProjectRoot" :project-title="displayNovelTitle" @has-unsaved-drafts-change="worldEngineWorkbenchHasUnsavedDrafts = $event" @saving-change="worldEngineWorkbenchSaving = $event" @open-workspace-path="void openWelcomeWorkspacePath($event)" />
 
-        <div class="flex min-h-0 flex-1 overflow-hidden">
+        <div v-if="projectSurfaceActive" class="flex min-h-0 flex-1 overflow-hidden">
             <NovelIdeSidebar class="ide-sidebar" :active-tab="displaySidebarActiveTab" :agent-mode="isAgentMode" :user-assets-mode="isUserAssetsWorkspace" @toggle-tab="handleSidebarToggle" @collapse="activeLeftTab = null" @open-settings="settingsDialogOpen = true" />
 
             <AgentModeSessionSidebar
@@ -2158,7 +2344,7 @@ onBeforeUnmount(() => {
                 :loading="agentModeLoadingSession"
                 :running="agentModeRunning"
                 :action-id="agentModeSessionActionId"
-                :workspace-key="agentWorkspaceKey"
+                :session-scope-key="agentScopeKey"
                 :open="isAgentMode && agentSessionPanelOpen"
                 :width="agentSessionPanelWidth"
                 @update:width="agentSessionPanelWidth = $event"
@@ -2248,7 +2434,7 @@ onBeforeUnmount(() => {
                             @open-agent-panel="void openWelcomeAgentPanel()"
                             @switch-agent-mode="void openWelcomeAgentMode()"
                             @toggle-agent-surface="toggleWelcomeAgentSurface"
-                            @open-bookshelf="bookshelfOpen = true"
+                            @open-bookshelf="void openProjectPicker()"
                             @open-user-assets="openUserAssets"
                             @open-profile-workbench="profileWorkbenchOpen = true"
                             @inline-ai-reference="addInlineAiReference"
@@ -2338,26 +2524,27 @@ onBeforeUnmount(() => {
                     :selected-file-path="selectedFilePath"
                     :open-reference="openWorkspaceReference"
                     @close="closeAgentSurface"
-                    @sync-workspace="void handleAgentWorkspaceUpdated($event)"
                     @open-reference="void openWorkspaceReference($event)"
                     @open-history-inbox="historyInboxOpen = true"
                 />
             </section>
         </div>
 
-        <NovelBookshelfDialog v-model="bookshelfOpen" :before-workspace-switch="confirmWorldEngineWorkbenchDraftDiscardForProjectSwitch" @switched="void router.replace(buildProjectRoute($event))" />
-        <NovelIdeSettingsDialog v-model="settingsDialogOpen" />
-        <AgentTraceViewerDialog v-model="traceViewerOpen" @open-session="void openTraceSession($event)" />
-        <WorkspaceHistoryInboxDialog v-model="historyInboxOpen" :project-path="isUserAssetsWorkspace ? null : currentNovelId" :theme="activeThemeId" />
-        <AgentJobsDialog v-model="agentJobsOpen" />
+        <NovelIdeSettingsDialog v-if="projectSurfaceActive" v-model="settingsDialogOpen" />
+        <NovelIdeProfileDialog v-model="accountProfileOpen" />
+        <AgentTraceViewerDialog v-if="projectSurfaceActive" v-model="traceViewerOpen" @open-session="void openTraceSession($event)" />
+        <WorkspaceHistoryInboxDialog v-if="projectSurfaceActive" v-model="historyInboxOpen" :project-root="isUserAssetsWorkspace ? null : currentProjectRoot" :theme="activeThemeId" />
+        <AgentJobsDialog v-if="projectSurfaceActive && agentJobsOpen" v-model="agentJobsOpen" />
         <UserProfileWorkbenchDialog v-model="profileWorkbenchOpen" />
         <WorkspaceFileConflictDialog
+            v-if="projectSurfaceActive"
             v-model="novelIdeStore.workspaceConflictDialogOpen"
             :conflict="novelIdeStore.workspaceWriteConflict"
             :theme="activeThemeId"
             @resolve="void resolveWorkspaceWriteConflict($event)"
         />
         <WorkspaceCharacterDetailPanel
+            v-if="projectSurfaceActive"
             v-model="characterProfileVisible"
             dialog-only
             :node="selectedFileNode"
@@ -2366,12 +2553,14 @@ onBeforeUnmount(() => {
             @refresh="void loadWorkspaceTree()"
         />
         <WorkspaceLocationProfileDialog
+            v-if="projectSurfaceActive"
             v-model="locationProfileVisible"
             :node="selectedFileNode"
             :issues="workspaceIssues"
             @refresh="void loadWorkspaceTree()"
         />
         <WorkspaceRuleProfileDialog
+            v-if="projectSurfaceActive"
             v-model="ruleProfileVisible"
             :node="selectedFileNode"
             :issues="workspaceIssues"

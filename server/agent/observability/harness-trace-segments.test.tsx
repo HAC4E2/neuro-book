@@ -78,7 +78,7 @@ describe("上下文分区归因 → trace segments", () => {
             },
         }), false);
         faux.setResponses([fauxAssistantMessage("ok")]);
-        const created = await harness.createAgent({profileKey: "trace.segments", initial: {}, workspaceRoot: root});
+        const created = await harness.createAgent({profileKey: "trace.segments", initial: {}});
 
         const result = await harness.invokeAgent({sessionId: created.sessionId, mode: "prompt", message: {text: "hello"}});
         expect(result.status).toBe("completed");
@@ -125,7 +125,7 @@ describe("上下文分区归因 → trace segments", () => {
             },
         }), false);
         faux.setResponses([fauxAssistantMessage("first"), fauxAssistantMessage("second")]);
-        const created = await harness.createAgent({profileKey: "trace.segments.second", initial: {}, workspaceRoot: root});
+        const created = await harness.createAgent({profileKey: "trace.segments.second", initial: {}});
 
         await harness.invokeAgent({sessionId: created.sessionId, mode: "prompt", message: {text: "hello"}});
         await harness.invokeAgent({sessionId: created.sessionId, mode: "prompt", message: {text: "again"}});

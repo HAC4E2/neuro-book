@@ -52,6 +52,6 @@ describe("WorkspaceHistoryDiffRequestGuard", () => {
 });
 
 /** 构造版本化请求身份。 */
-function identity(projectPath: string, path: string, revision: number): WorkspaceHistoryDiffRequestIdentity {
-    return {projectPath, path, revision, mode: "inline"};
+function identity(projectRoot: string, path: string, revision: number): WorkspaceHistoryDiffRequestIdentity {
+    return {projectRoot, path, revision, mode: "inline"};
 }

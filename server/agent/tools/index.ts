@@ -7,7 +7,6 @@ import {createWebTools} from "nbook/server/agent/tools/web-tools";
 import {createWorldEngineTools} from "nbook/server/agent/tools/world-engine-tools";
 import {createWorkflowTools} from "nbook/server/agent/tools/workflow-tools";
 import {createJobTools} from "nbook/server/agent/tools/job-tools";
-import {createNovelDataTools} from "nbook/server/agent/tools/novel-data-tools";
 import {agentCollaborationTools} from "nbook/server/agent/tools/agent-collaboration-tools";
 import {controlTools} from "nbook/server/agent/tools/control-tools";
 import {createVariableTools} from "nbook/server/agent/variables/tools";
@@ -57,8 +56,6 @@ function buildAgentTools() {
         listJobs: jobTools.listJobs,
         getJob: jobTools.getJob,
         cancelJob: jobTools.cancelJob,
-        // novel-api 榜单选题只读工具（novelRankings / novelBookDetail）
-        ...createNovelDataTools(),
         variableSchema: requireDefinition(variableTools, "variable_schema"),
         variableRead: requireDefinition(variableTools, "variable_read"),
         variablePatch: requireDefinition(variableTools, "variable_patch"),

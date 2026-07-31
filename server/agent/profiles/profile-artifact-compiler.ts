@@ -7,7 +7,8 @@ import {builtinModules, createRequire} from "node:module";
 import {availableParallelism} from "node:os";
 import {setTimeout as sleep} from "node:timers/promises";
 import {build, type Metafile, type Plugin} from "esbuild";
-import {lock as lockFile} from "proper-lockfile";
+import {lock as lockFile, type LockOptions} from "proper-lockfile";
+import {profileSourceModuleSpecifiers} from "nbook/server/agent/profiles/profile-source-imports";
 import type {AgentProfile} from "nbook/server/agent/profiles/types";
 import {generateVariableTypes, VARIABLE_TYPES_FILE_NAME, type VariableTypeGenerationDiagnostic} from "nbook/server/agent/variables/generated-types";
 import {appLogger} from "nbook/server/app-logs/logger";
@@ -15,11 +16,12 @@ import {importRuntimeArtifact} from "nbook/server/utils/runtime-artifact-import"
 import {
     resolveRuntimeArtifactCompilerContext,
     resolveRuntimeArtifactNbookPath,
+    normalizeRuntimeArtifactPath,
     type RuntimeArtifactCompilerContext,
 } from "nbook/server/utils/runtime-artifact-compiler-context";
 
 // Profile 核心 DSL / prepare wrapper 会被 bundle 进 artifact；共享依赖语义变化时必须提升版本，强制旧 bundle 重编。
-export const PROFILE_ARTIFACT_COMPILER_VERSION = 7;
+export const PROFILE_ARTIFACT_COMPILER_VERSION = 10;
 export const PROFILE_COMPILED_DIR_NAME = ".compiled";
 export const PROFILE_COMPILED_ARTIFACTS_DIR_NAME = "artifacts";
 export const PROFILE_COMPILED_MANIFEST_FILE = "manifest.json";
@@ -32,10 +34,37 @@ export const PROFILE_COMPILED_ARTIFACT_GC_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
  * 进程 B 发布 v2 并触发预算回收。没有这条地板，A 会拿到 ENOENT 变成 compiled_load_failed。
  */
 export const PROFILE_COMPILED_ARTIFACT_GC_MIN_AGE_MS = 10 * 60 * 1000;
-/** 单个 profile root 允许保留的未引用 artifact 字节预算。current 引用不计入，永不驱逐。 */
-export const PROFILE_COMPILED_ORPHAN_BUDGET_BYTES = 512 * 1024 * 1024;
+/** Product 镜像不得携带未被 current manifest 引用的 artifact。 */
+export const PROFILE_COMPILED_PRODUCT_ORPHAN_BUDGET_BYTES = 0;
+/** 仓库内置 Source 允许保留的未引用 artifact 字节预算。 */
+export const PROFILE_COMPILED_BUILTIN_SOURCE_ORPHAN_BUDGET_BYTES = 128 * 1024 * 1024;
+/** 用户 Profile 允许保留的未引用 artifact 字节预算。 */
+export const PROFILE_COMPILED_USER_ORPHAN_BUDGET_BYTES = 512 * 1024 * 1024;
+/** 普通运行默认使用用户 Profile 预算。current 引用不计入，永不驱逐。 */
+export const PROFILE_COMPILED_ORPHAN_BUDGET_BYTES = PROFILE_COMPILED_USER_ORPHAN_BUDGET_BYTES;
+export const PROFILE_ARTIFACT_STAGING_DIR_NAME = "profile-artifact-build";
+export const PROFILE_ARTIFACT_STAGING_OWNER_FILE = ".nbook-staging-owner.json";
+export const PROFILE_ARTIFACT_STAGING_LEASE_LOCK = ".nbook-staging-lease.lock";
+export const PROFILE_ARTIFACT_STAGING_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+export const PROFILE_ARTIFACT_STAGING_OWNER = "nbook.profile-artifact-compiler";
+export const PROFILE_ARTIFACT_STAGING_OWNER_SCHEMA = 1;
+const PROFILE_ARTIFACT_STAGING_HEARTBEAT_MS = 10_000;
 const PROFILE_COMPILE_MAX_FILE_CONCURRENCY = 4;
 const PROFILE_DEPENDENCY_HASH_CONCURRENCY = 16;
+
+/** artifact orphan 预算按产物所属生命周期显式选择，避免靠路径猜测。 */
+export type ProfileArtifactOrphanBudgetPolicy = "product" | "builtin_source" | "user";
+
+/** 返回指定生命周期允许保留的 orphan 字节数。 */
+export function profileArtifactOrphanBudget(policy: ProfileArtifactOrphanBudgetPolicy): number {
+    if (policy === "product") {
+        return PROFILE_COMPILED_PRODUCT_ORPHAN_BUDGET_BYTES;
+    }
+    if (policy === "builtin_source") {
+        return PROFILE_COMPILED_BUILTIN_SOURCE_ORPHAN_BUDGET_BYTES;
+    }
+    return PROFILE_COMPILED_USER_ORPHAN_BUDGET_BYTES;
+}
 
 export type ProfileArtifactDependency = {
     path: string;
@@ -68,6 +97,25 @@ export type ProfileArtifactGcReport = {
     largestArtifact: {fileName: string; bytes: number} | null;
     /** true 表示命中退化状态守卫（loaded entry 为 0），本次跳过了预算回收。 */
     skippedDegenerate: boolean;
+};
+
+/** staging owner marker 的稳定磁盘格式。 */
+export type ProfileArtifactStagingOwner = {
+    schema: typeof PROFILE_ARTIFACT_STAGING_OWNER_SCHEMA;
+    owner: typeof PROFILE_ARTIFACT_STAGING_OWNER;
+    operationId: string;
+    pid: number;
+    startedAt: string;
+};
+
+/** 一次 staging 回收扫描的结果；未识别 owner 的目录始终保留。 */
+export type ProfileArtifactStagingSweepReport = {
+    scanned: number;
+    fresh: number;
+    active: number;
+    deleted: number;
+    malformed: number;
+    failed: number;
 };
 
 export type ProfileArtifactDependencyMismatch = {
@@ -134,10 +182,14 @@ export type CompileProfileArtifactsOptions = {
     fileName?: string;
     rootLabel?: string;
     skipFresh?: boolean;
+    /** Product 可复现构建传入固定时间；普通 Source/User 编译为空并记录真实发布时间。 */
+    manifestGeneratedAt?: string;
     /** Product 内置系统 assets 使用 forbid；新鲜时零写入，过期时要求重建 Product。 */
     writePolicy?: "allow" | "forbid";
     /** 非空时覆盖默认的 profile root 同级 Agent staging 根。 */
     stagingRoot?: string;
+    /** artifact orphan 所属生命周期；默认 user，Product/内置 Source 构建必须显式传入。 */
+    orphanBudgetPolicy?: ProfileArtifactOrphanBudgetPolicy;
     /** 为空时按 CLI/preflight disk-only 发布；HTTP runtime 可传 in-process 发布策略。 */
     publish?: ProfileReleasePublishOptions;
 };
@@ -245,8 +297,14 @@ type ProfileCompileFileResult = {
     compiled?: ProfileArtifactManifestItem;
 };
 
+type ProfileArtifactStagingLease = {
+    token: object;
+    release: () => Promise<void>;
+};
+
 const artifactPromotionLocks = new Map<string, Promise<void>>();
 const profileReleaseQueues = new Map<string, Promise<void>>();
+const profileArtifactStagingLeases = new Map<string, ProfileArtifactStagingLease>();
 
 /**
  * 编译开始前源码已消失。Coordinator 应把这类情况视为 generation 变化并重排，
@@ -259,7 +317,10 @@ export class ProfileArtifactSourceMissingError extends Error {}
  * 并用 advisory lock 包住 manifest 原子替换。
  */
 export class ProfileReleaseStore {
-    constructor(readonly profileRoot: string) {}
+    constructor(
+        readonly profileRoot: string,
+        readonly orphanBudgetBytes: number = PROFILE_COMPILED_USER_ORPHAN_BUDGET_BYTES,
+    ) {}
 
     /**
      * 读取当前 profile release。返回值是规范化视图，包含 entries 与 loaded profiles 两个视图。
@@ -272,7 +333,12 @@ export class ProfileReleaseStore {
      * 将 staging 中的不可变 artifact 安装到真实 `.compiled`，再原子替换 manifest 指针。
      */
     async publishStaged(buildCompiledDir: string, manifest: ProfileArtifactManifest): Promise<void> {
-        await commitCompiledArtifacts(buildCompiledDir, join(resolve(this.profileRoot), PROFILE_COMPILED_DIR_NAME), manifest);
+        await commitCompiledArtifacts(
+            buildCompiledDir,
+            join(resolve(this.profileRoot), PROFILE_COMPILED_DIR_NAME),
+            manifest,
+            this.orphanBudgetBytes,
+        );
     }
 
     /**
@@ -280,7 +346,13 @@ export class ProfileReleaseStore {
      * 避免并发单文件编译用旧 manifest 互相覆盖。
      */
     async publishStagedEntry(buildCompiledDir: string, entry: ProfileArtifactManifestEntry, profilesRoot?: string): Promise<ProfileArtifactManifest> {
-        return commitCompiledArtifactEntry(buildCompiledDir, join(resolve(this.profileRoot), PROFILE_COMPILED_DIR_NAME), entry, profilesRoot);
+        return commitCompiledArtifactEntry(
+            buildCompiledDir,
+            join(resolve(this.profileRoot), PROFILE_COMPILED_DIR_NAME),
+            entry,
+            profilesRoot,
+            this.orphanBudgetBytes,
+        );
     }
 
     /**
@@ -288,7 +360,13 @@ export class ProfileReleaseStore {
      * 保留发布期间其它写入方已经提交的账本项。
      */
     async publishStagedEntries(buildCompiledDir: string, entries: ProfileArtifactManifestEntry[], profilesRoot?: string): Promise<ProfileArtifactManifest> {
-        return commitCompiledArtifactEntries(buildCompiledDir, join(resolve(this.profileRoot), PROFILE_COMPILED_DIR_NAME), entries, profilesRoot);
+        return commitCompiledArtifactEntries(
+            buildCompiledDir,
+            join(resolve(this.profileRoot), PROFILE_COMPILED_DIR_NAME),
+            entries,
+            profilesRoot,
+            this.orphanBudgetBytes,
+        );
     }
 }
 
@@ -299,11 +377,17 @@ export class ProfileReleaseStore {
 export class ProfileReleasePublisher {
     private readonly store: ProfileReleaseStore;
 
-    constructor(readonly input: {profileRoot: string} & ProfileReleasePublishOptions) {
+    constructor(readonly input: {
+        profileRoot: string;
+        orphanBudgetPolicy?: ProfileArtifactOrphanBudgetPolicy;
+    } & ProfileReleasePublishOptions) {
         if (input.mode === "in_process" && !input.registry) {
             throw new Error("in_process profile release 必须提供 Registry sink。");
         }
-        this.store = new ProfileReleaseStore(input.profileRoot);
+        this.store = new ProfileReleaseStore(
+            input.profileRoot,
+            profileArtifactOrphanBudget(input.orphanBudgetPolicy ?? "user"),
+        );
     }
 
     /**
@@ -387,7 +471,10 @@ export async function compileProfileArtifacts(options: CompileProfileArtifactsOp
             // 会一直留在盘上。实测到过 765 MiB 可驱逐 orphan 停在 512 MiB 预算之上。
             const gc = options.writePolicy === "forbid"
                 ? undefined
-                : await sweepProfileArtifactBudget(staged.profileRoot);
+                : await sweepProfileArtifactBudget(
+                    staged.profileRoot,
+                    profileArtifactOrphanBudget(options.orphanBudgetPolicy ?? "user"),
+                );
             return {
                 manifest: staged.manifest,
                 compiledDir: staged.compiledDir,
@@ -400,6 +487,7 @@ export async function compileProfileArtifacts(options: CompileProfileArtifactsOp
             profileRoot: staged.profileRoot,
             mode: options.publish?.mode ?? "disk_only",
             registry: options.publish?.registry,
+            orphanBudgetPolicy: options.orphanBudgetPolicy,
         }).publishStaged(staged.buildCompiledDir, staged.manifest);
         return {
             manifest: staged.manifest,
@@ -420,11 +508,11 @@ export async function stageProfileArtifacts(options: CompileProfileArtifactsOpti
     const profileRoot = resolve(options.profileRoot);
     const compiledDir = join(profileRoot, PROFILE_COMPILED_DIR_NAME);
     const fullCompile = !options.fileName;
-    const buildCompiledDir = join(
-        resolve(options.stagingRoot ?? join(dirname(profileRoot), ".staging")),
-        "profile-artifact-build",
-        randomUUID(),
-    );
+    const stagingRoot = resolve(options.stagingRoot ?? join(dirname(profileRoot), ".staging"));
+    await sweepProfileArtifactStaging(stagingRoot);
+    const operationId = randomUUID();
+    const buildCompiledDir = join(stagingRoot, PROFILE_ARTIFACT_STAGING_DIR_NAME, operationId);
+    let stagingReady: Promise<void> | undefined;
     const existingManifest = await readProfileArtifactManifest(profileRoot);
     const targetFiles = options.fileName
         ? [resolveProfileFile(profileRoot, options.fileName)]
@@ -449,7 +537,8 @@ export async function stageProfileArtifacts(options: CompileProfileArtifactsOpti
                 throw new Error(`Product 内置 profile artifact 已过期或缺失：${file.fileName}（${detail}）。请重新构建或安装与源码匹配的 Product。`);
             }
             try {
-                await mkdir(buildCompiledDir, {recursive: true});
+                stagingReady ??= createProfileArtifactStaging(buildCompiledDir, operationId);
+                await stagingReady;
                 const item = await compileProfileFile(profileRoot, buildCompiledDir, file);
                 return {entry: item, compiled: item};
             } catch (error) {
@@ -472,7 +561,9 @@ export async function stageProfileArtifacts(options: CompileProfileArtifactsOpti
         const nextProfiles = nextEntries.filter(isLoadedManifestEntry);
         const manifest: ProfileArtifactManifest = {
             compilerVersion: PROFILE_ARTIFACT_COMPILER_VERSION,
-            generatedAt: profilesEqual(existingManifest.entries, nextEntries) ? existingManifest.generatedAt : new Date().toISOString(),
+            generatedAt: profilesEqual(existingManifest.entries, nextEntries)
+                ? existingManifest.generatedAt
+                : options.manifestGeneratedAt ?? new Date().toISOString(),
             profilesRoot: options.rootLabel ?? normalizeArtifactPath(profileRoot),
             entries: nextEntries,
             profiles: nextProfiles,
@@ -557,12 +648,223 @@ function profileSourceFileNames(files: ProfileArtifactSourceFile[]): string[] {
 }
 
 /**
+ * 为一个 UUID staging 建立 owner marker，并持有带 heartbeat 的 proper-lockfile lease。
+ * lease 一直保持到显式 cleanup；进程崩溃后 lock heartbeat 停止，下一次运行才可回收。
+ */
+async function createProfileArtifactStaging(buildCompiledDir: string, operationId: string): Promise<void> {
+    const resolvedDir = resolve(buildCompiledDir);
+    let ownsDirectory = false;
+    const token = {};
+    try {
+        await mkdir(dirname(resolvedDir), {recursive: true});
+        await mkdir(resolvedDir);
+        ownsDirectory = true;
+        const marker: ProfileArtifactStagingOwner = {
+            schema: PROFILE_ARTIFACT_STAGING_OWNER_SCHEMA,
+            owner: PROFILE_ARTIFACT_STAGING_OWNER,
+            operationId,
+            pid: process.pid,
+            startedAt: new Date().toISOString(),
+        };
+        await writeFile(
+            join(resolvedDir, PROFILE_ARTIFACT_STAGING_OWNER_FILE),
+            `${JSON.stringify(marker, null, 2)}\n`,
+            {encoding: "utf8", flag: "wx"},
+        );
+        const release = await lockFile(resolvedDir, profileArtifactStagingLockOptions(resolvedDir, (error) => {
+            const lease = profileArtifactStagingLeases.get(resolvedDir);
+            if (lease?.token === token) {
+                profileArtifactStagingLeases.delete(resolvedDir);
+            }
+            // 其它线程沿既有合同直接递归删除 staging 时，锁随目录消失属于正常清理。
+            if (existsSync(resolvedDir)) {
+                void appLogger.warn("agent.profileArtifact.stagingLeaseCompromised", {
+                    buildCompiledDir: resolvedDir,
+                    error: error.message,
+                });
+            }
+        }));
+        profileArtifactStagingLeases.set(resolvedDir, {token, release});
+    } catch (error) {
+        if (ownsDirectory) {
+            await rm(resolvedDir, {recursive: true, force: true}).catch(() => undefined);
+        }
+        throw error;
+    }
+}
+
+/**
+ * 回收同 owner、超过 24 小时且无法证明活跃的 profile artifact staging。
+ * 未知或损坏 marker 一律保留；只有成功取得 lease 并二次确认 marker 后才删除。
+ */
+export async function sweepProfileArtifactStaging(
+    stagingRoot: string,
+    now: number = Date.now(),
+): Promise<ProfileArtifactStagingSweepReport> {
+    const ownerRoot = join(resolve(stagingRoot), PROFILE_ARTIFACT_STAGING_DIR_NAME);
+    const report: ProfileArtifactStagingSweepReport = {
+        scanned: 0,
+        fresh: 0,
+        active: 0,
+        deleted: 0,
+        malformed: 0,
+        failed: 0,
+    };
+    const entries = await readdir(ownerRoot, {withFileTypes: true}).catch(() => []);
+    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+        if (!entry.isDirectory()) {
+            continue;
+        }
+        report.scanned += 1;
+        const candidate = join(ownerRoot, entry.name);
+        const marker = await readProfileArtifactStagingOwner(candidate);
+        if (!marker || marker.operationId !== entry.name) {
+            report.malformed += 1;
+            continue;
+        }
+        if (!profileArtifactStagingExpired(marker, now)) {
+            report.fresh += 1;
+            continue;
+        }
+
+        let release: (() => Promise<void>) | undefined;
+        try {
+            release = await lockFile(candidate, profileArtifactStagingLockOptions(candidate, (error) => {
+                void appLogger.warn("agent.profileArtifact.stagingSweepLeaseCompromised", {
+                    buildCompiledDir: candidate,
+                    error: error.message,
+                });
+            }));
+        } catch (error) {
+            const code = profileArtifactErrorCode(error);
+            if (code === "ELOCKED") {
+                report.active += 1;
+            } else if (code !== "ENOENT") {
+                report.failed += 1;
+                void appLogger.warn("agent.profileArtifact.stagingSweepFailed", {
+                    buildCompiledDir: candidate,
+                    error: error instanceof Error ? error.message : String(error),
+                });
+            }
+            continue;
+        }
+
+        try {
+            const confirmed = await readProfileArtifactStagingOwner(candidate);
+            if (!confirmed || !profileArtifactStagingOwnersEqual(marker, confirmed)) {
+                report.malformed += 1;
+                continue;
+            }
+            if (!profileArtifactStagingExpired(confirmed, now)) {
+                report.fresh += 1;
+                continue;
+            }
+            await rm(candidate, {recursive: true, force: true});
+            report.deleted += 1;
+        } catch (error) {
+            report.failed += 1;
+            void appLogger.warn("agent.profileArtifact.stagingSweepFailed", {
+                buildCompiledDir: candidate,
+                error: error instanceof Error ? error.message : String(error),
+            });
+        } finally {
+            await release().catch((error) => {
+                const code = profileArtifactErrorCode(error);
+                if (code !== "ERELEASED" && code !== "ENOENT") {
+                    void appLogger.warn("agent.profileArtifact.stagingSweepReleaseFailed", {
+                        buildCompiledDir: candidate,
+                        error: error instanceof Error ? error.message : String(error),
+                    });
+                }
+            });
+        }
+    }
+    if (report.deleted > 0 || report.malformed > 0 || report.failed > 0) {
+        appLogger.debug("agent.profileArtifact.stagingSweep", {stagingRoot: resolve(stagingRoot), ...report});
+    }
+    return report;
+}
+
+/** 读取并严格校验 staging owner marker；外部磁盘 JSON 必须先作为 unknown 收窄。 */
+async function readProfileArtifactStagingOwner(buildCompiledDir: string): Promise<ProfileArtifactStagingOwner | null> {
+    try {
+        const parsed: unknown = JSON.parse(await readFile(join(buildCompiledDir, PROFILE_ARTIFACT_STAGING_OWNER_FILE), "utf8"));
+        if (!parsed || typeof parsed !== "object") {
+            return null;
+        }
+        if (!("schema" in parsed) || parsed.schema !== PROFILE_ARTIFACT_STAGING_OWNER_SCHEMA
+            || !("owner" in parsed) || parsed.owner !== PROFILE_ARTIFACT_STAGING_OWNER
+            || !("operationId" in parsed) || typeof parsed.operationId !== "string" || !parsed.operationId
+            || !("pid" in parsed) || typeof parsed.pid !== "number" || !Number.isInteger(parsed.pid) || parsed.pid <= 0
+            || !("startedAt" in parsed) || typeof parsed.startedAt !== "string" || !Number.isFinite(Date.parse(parsed.startedAt))) {
+            return null;
+        }
+        return {
+            schema: parsed.schema,
+            owner: parsed.owner,
+            operationId: parsed.operationId,
+            pid: parsed.pid,
+            startedAt: parsed.startedAt,
+        };
+    } catch {
+        return null;
+    }
+}
+
+/** 判断 owner marker 是否已经超过保守回收年龄。 */
+function profileArtifactStagingExpired(marker: ProfileArtifactStagingOwner, now: number): boolean {
+    return now - Date.parse(marker.startedAt) >= PROFILE_ARTIFACT_STAGING_MAX_AGE_MS;
+}
+
+/** 二次确认锁内读取的 marker 仍对应同一个 staging operation。 */
+function profileArtifactStagingOwnersEqual(left: ProfileArtifactStagingOwner, right: ProfileArtifactStagingOwner): boolean {
+    return left.schema === right.schema
+        && left.owner === right.owner
+        && left.operationId === right.operationId
+        && left.pid === right.pid
+        && left.startedAt === right.startedAt;
+}
+
+/** staging lease 与 sweeper 必须共享同一 stale/heartbeat 合同。 */
+function profileArtifactStagingLockOptions(buildCompiledDir: string, onCompromised: (error: Error) => void): LockOptions {
+    return {
+        lockfilePath: join(buildCompiledDir, PROFILE_ARTIFACT_STAGING_LEASE_LOCK),
+        realpath: false,
+        stale: PROFILE_ARTIFACT_STAGING_MAX_AGE_MS,
+        update: PROFILE_ARTIFACT_STAGING_HEARTBEAT_MS,
+        retries: 0,
+        onCompromised,
+    };
+}
+
+/** 提取 Node/proper-lockfile 的稳定错误 code。 */
+function profileArtifactErrorCode(error: unknown): string | undefined {
+    return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+        ? error.code
+        : undefined;
+}
+
+/**
  * 清理 profile artifact staging 目录。清理失败不改变 release 主结果。
  */
 export async function cleanupProfileArtifactStaging(buildCompiledDir: string): Promise<void> {
-    await rm(buildCompiledDir, {recursive: true, force: true}).catch((error) => {
+    const resolvedDir = resolve(buildCompiledDir);
+    const lease = profileArtifactStagingLeases.get(resolvedDir);
+    if (lease) {
+        profileArtifactStagingLeases.delete(resolvedDir);
+        await lease.release().catch((error) => {
+            const code = profileArtifactErrorCode(error);
+            if (code !== "ERELEASED" && code !== "ENOENT") {
+                void appLogger.warn("agent.profileArtifact.stagingLeaseReleaseFailed", {
+                    buildCompiledDir: resolvedDir,
+                    error: error instanceof Error ? error.message : String(error),
+                });
+            }
+        });
+    }
+    await rm(resolvedDir, {recursive: true, force: true}).catch((error) => {
         void appLogger.warn("agent.profileArtifact.stagingCleanupFailed", {
-            buildCompiledDir,
+            buildCompiledDir: resolvedDir,
             error: error instanceof Error ? error.message : String(error),
         });
     });
@@ -578,12 +880,11 @@ export async function stageProfileArtifactEntry(options: {
     stagingRoot?: string;
 }): Promise<StagedProfileArtifactEntryResult> {
     const profileRoot = resolve(options.profileRoot);
-    const buildCompiledDir = join(
-        resolve(options.stagingRoot ?? join(dirname(profileRoot), ".staging")),
-        "profile-artifact-build",
-        randomUUID(),
-    );
-    await mkdir(buildCompiledDir, {recursive: true});
+    const stagingRoot = resolve(options.stagingRoot ?? join(dirname(profileRoot), ".staging"));
+    await sweepProfileArtifactStaging(stagingRoot);
+    const operationId = randomUUID();
+    const buildCompiledDir = join(stagingRoot, PROFILE_ARTIFACT_STAGING_DIR_NAME, operationId);
+    await createProfileArtifactStaging(buildCompiledDir, operationId);
     try {
         const file = resolveProfileFile(profileRoot, options.fileName);
         try {
@@ -881,6 +1182,10 @@ export function resolveArtifactPath(filePath: string): string {
     if (isAbsolute(filePath) || /^[A-Za-z]:\//.test(filePath)) {
         return resolve(filePath);
     }
+    const explicitImageRoot = process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT?.trim();
+    if (explicitImageRoot && filePath.replaceAll("\\", "/").startsWith(".output/server/")) {
+        return resolve(explicitImageRoot, "server", filePath.replaceAll("\\", "/").slice(".output/server/".length));
+    }
     return resolve(process.cwd(), filePath);
 }
 
@@ -920,6 +1225,109 @@ async function mapConcurrent<TInput, TOutput>(items: TInput[], concurrency: numb
     return results;
 }
 
+/**
+ * profile artifact 依赖门禁允许的 `server/` 源码前缀（posix、cwd 相对，与
+ * `normalizeArtifactPath` 一致）。以 2026-07 切边后全量 builtin 依赖并集定稿；
+ * 新 profile 合法需要新宿主模块时显式扩这里并过 review，而不是放松门禁。
+ */
+const PROFILE_ARTIFACT_ALLOWED_SERVER_PREFIXES = [
+    "server/agent/messages/",
+    "server/agent/profiles/",
+    "server/agent/session/",
+    "server/agent/plan-mode-directory.ts",
+    "server/agent/test/",
+    "server/agent/tools/types.ts",
+    "server/agent/variables/registry.ts",
+    "server/agent/variables/schema-resolver.ts",
+    "server/agent/variables/types.ts",
+    "server/agent/world-engine-tool-description.ts",
+    "server/assets/",
+    "server/low-code-form/",
+    "server/runtime/",
+    "server/utils/",
+    "server/workspace-files/project-manifest.ts",
+    "server/workspace-files/project-identity.ts",
+    "server/workspace-files/project-domain-error.ts",
+    "server/workspace-files/system-workspace-assets.ts",
+    "server/workspace-files/workspace-runtime-root.ts",
+] as const;
+
+/**
+ * 禁止进 artifact 的依赖族。带 `/` 结尾按 scope/前缀匹配，否则按包名全等。
+ * 这些族要么是宿主实现（DB 驱动、Provider SDK），要么单包就有数 MiB；
+ * 历史上单 artifact 曾因此膨胀到 27 MiB。
+ */
+const PROFILE_ARTIFACT_FORBIDDEN_PACKAGES = [
+    "jsdom",
+    "@mozilla/",
+    "@prisma/",
+    "@libsql/",
+    "@earendil-works/",
+    "@mistralai/",
+    "openai",
+    "@anthropic-ai/",
+    "@google/",
+    "@smithy/",
+    "google-auth-library",
+    "@opentelemetry/",
+    "@notnotype/",
+] as const;
+
+/** 单个 profile artifact 的字节上限；切边后正常产物在 1-2 MiB 量级。 */
+export const PROFILE_ARTIFACT_MAX_BYTES = 4 * 1024 * 1024;
+
+/**
+ * 从 normalize 后的依赖路径解析 npm 包名；非 node_modules 路径返回 null。
+ * 兼容 bun 布局 `node_modules/.bun/<pkg>@<ver>/...` 与常规 `node_modules/<pkg>/...`。
+ */
+function dependencyPackageName(dependencyPath: string): string | null {
+    const bunMatch = dependencyPath.match(/(?:^|\/)node_modules\/\.bun\/([^/]+)\//u);
+    if (bunMatch) {
+        const segment = bunMatch[1]!;
+        return segment.startsWith("@")
+            ? `@${segment.slice(1).split("@")[0]!.replace(/\+/gu, "/")}`
+            : segment.split("@")[0]!;
+    }
+    const plainMatch = dependencyPath.match(/(?:^|\/)node_modules\/(@[^/]+\/[^/]+|[^@.][^/]*)\//u);
+    return plainMatch ? plainMatch[1]! : null;
+}
+
+/**
+ * profile artifact 依赖门禁：宿主实现与重依赖族不允许被冻结进内容寻址 artifact。
+ * 违规抛错，由调用方包装成 `compile_failed` entry；message 固定以「依赖门禁违规」
+ * 开头并列出全部违规项，供测试与用户诊断。
+ */
+export function assertProfileArtifactDependencyGate(
+    fileName: string,
+    dependencies: readonly ProfileArtifactDependency[],
+    artifactBytes: number,
+): void {
+    const violations: string[] = [];
+    for (const dependency of dependencies) {
+        const packageName = dependencyPackageName(dependency.path);
+        if (packageName) {
+            const forbidden = PROFILE_ARTIFACT_FORBIDDEN_PACKAGES.some((entry) => entry.endsWith("/") ? packageName.startsWith(entry) : packageName === entry);
+            if (forbidden) {
+                violations.push(`禁止依赖族：${packageName}（${dependency.path}）`);
+            }
+            continue;
+        }
+        if (dependency.path.startsWith("server/") && !PROFILE_ARTIFACT_ALLOWED_SERVER_PREFIXES.some((prefix) => dependency.path.startsWith(prefix))) {
+            violations.push(`server/ 白名单之外的宿主源码：${dependency.path}`);
+        }
+    }
+    if (artifactBytes > PROFILE_ARTIFACT_MAX_BYTES) {
+        violations.push(`artifact ${artifactBytes} 字节超过上限 ${PROFILE_ARTIFACT_MAX_BYTES}`);
+    }
+    if (violations.length > 0) {
+        throw new Error([
+            `依赖门禁违规：profile ${fileName} 的编译产物携带了不允许进 artifact 的依赖。`,
+            "profile 只能依赖 DSL 表面（profile-dsl、messages、纯路径模块）；宿主能力请经 ProfilePrepareContext.runtime 注入。",
+            ...violations.map((violation) => `- ${violation}`),
+        ].join("\n"));
+    }
+}
+
 async function compileFailureEntry(file: ProfileFileEntry, error: unknown): Promise<ProfileArtifactManifestFailureItem> {
     const sourceHash = await hashFile(file.absolutePath);
     const message = error instanceof Error ? error.message : String(error);
@@ -949,6 +1357,7 @@ function profileKeyFromFileName(fileName: string): string {
 
 async function compileProfileFile(profileRoot: string, compiledDir: string, file: ProfileFileEntry): Promise<ProfileArtifactManifestItem> {
     const sourceHash = await hashFile(file.absolutePath);
+    await assertProfileSourceInterface(file);
     const temporaryStem = stableArtifactStem(file.fileName, /\.profile\.(tsx|ts|mjs|js)$/);
     const temporaryOutputPath = join(compiledDir, `${temporaryStem}.${randomUUID()}.building.mjs`);
     const temporaryTypePath = join(compiledDir, `${temporaryStem}.${randomUUID()}.building.${VARIABLE_TYPES_FILE_NAME}`);
@@ -958,18 +1367,20 @@ async function compileProfileFile(profileRoot: string, compiledDir: string, file
 
     try {
         const result = await build({
-            absWorkingDir: process.cwd(),
+            // esbuild 会把 entry 相对 absWorkingDir 写入 boundary comment；绑定 profileRoot
+            // 才不会把 Product staging operation ID 混入内容寻址 artifact。
+            absWorkingDir: profileRoot,
             banner: {
-                js: runtimeRequireBanner(compilerContext.productRuntime),
+                js: runtimeRequireBanner(compilerContext),
             },
             bundle: true,
             entryPoints: [file.absolutePath],
             format: "esm",
             jsx: "automatic",
-            jsxImportSource: "nbook/server/agent/profiles/profile-dsl",
+            jsxImportSource: "nbook/profile-sdk",
             logLevel: "silent",
             metafile: true,
-            nodePaths: compilerContext.productRuntime ? [compilerContext.nodeModulesRoot] : [],
+            nodePaths: compilerContext.productRuntime ? [compilerContext.compilerNodeModulesRoot] : [],
             outfile: temporaryOutputPath,
             platform: "node",
             plugins: [repoAliasBundlePlugin(compilerContext)],
@@ -979,9 +1390,10 @@ async function compileProfileFile(profileRoot: string, compiledDir: string, file
         if (!result.metafile) {
             throw new Error(`profile ${file.fileName} 编译缺少 esbuild metafile。`);
         }
-        dependencies = await readArtifactDependencies(result.metafile, tsconfigPath);
+        dependencies = await readArtifactDependencies(result.metafile, tsconfigPath, profileRoot);
         const dependencyHash = hashArtifactDependencies(file.absolutePath, dependencies);
         const artifactHash = await hashFile(temporaryOutputPath);
+        assertProfileArtifactDependencyGate(file.fileName, dependencies, artifactHash.bytes);
         const artifactFileName = `${PROFILE_COMPILED_ARTIFACTS_DIR_NAME}/${artifactHash.sha256}.mjs`;
         const artifactPath = join(compiledDir, ...artifactFileName.split("/"));
         const profile = await importCompiledProfile(temporaryOutputPath);
@@ -1015,6 +1427,39 @@ async function compileProfileFile(profileRoot: string, compiledDir: string, file
         await rm(temporaryOutputPath, {force: true});
         await rm(temporaryTypePath, {force: true});
     }
+}
+
+/**
+ * Profile 源码只能经过稳定 SDK 进入宿主，禁止把 `server/**` 实现路径重新暴露给作者。
+ *
+ * 这里只检查 entry 源码自己声明的 import；SDK 的传递实现依赖仍会进入 bundle，
+ * 并继续由 artifact 依赖门禁约束。源码扫描必须保留 esbuild 会擦掉的 import type。
+ */
+async function assertProfileSourceInterface(file: ProfileFileEntry): Promise<void> {
+    const source = await readFile(file.absolutePath, "utf8");
+    const builtinSpecifiers = new Set([
+        ...builtinModules,
+        ...builtinModules.map((moduleName) => `node:${moduleName}`),
+        "bun",
+    ]);
+    const unsupportedImports = profileSourceModuleSpecifiers(source).filter((specifier) => {
+        if (/^(nbook|neuro_book)\//u.test(specifier)) {
+            return !/^(nbook|neuro_book)\/profile-sdk(?:\/jsx-(?:dev-)?runtime)?$/u.test(specifier);
+        }
+        if (!specifier.startsWith(".") && !isAbsolute(specifier)) {
+            return !(builtinSpecifiers.has(specifier) || specifier.startsWith("bun:"));
+        }
+        const target = resolve(dirname(file.absolutePath), specifier);
+        return normalizeArtifactPath(target).startsWith("server/");
+    });
+    if (unsupportedImports.length === 0) {
+        return;
+    }
+    throw new Error([
+        `Profile SDK 违规：profile ${file.fileName} 依赖了 Product Authoring Kit 之外的模块。`,
+        "Profile 源码只能从 nbook/profile-sdk、相对文件或运行时 builtin 导入；TSX 使用 @jsxImportSource nbook/profile-sdk。",
+        ...[...new Set(unsupportedImports)].sort().map((specifier) => `- ${specifier}`),
+    ].join("\n"));
 }
 
 /**
@@ -1098,11 +1543,15 @@ function resolveProfileFile(profileRoot: string, fileName: string): ProfileFileE
     };
 }
 
-async function readArtifactDependencies(metafile: Metafile, tsconfigPath: string): Promise<ProfileArtifactDependency[]> {
+async function readArtifactDependencies(
+    metafile: Metafile,
+    tsconfigPath: string,
+    metafileWorkingDir: string,
+): Promise<ProfileArtifactDependency[]> {
     const paths = new Set<string>([tsconfigPath]);
     for (const inputPath of Object.keys(metafile.inputs)) {
         if (!inputPath.startsWith("<")) {
-            paths.add(resolve(process.cwd(), inputPath));
+            paths.add(resolve(metafileWorkingDir, inputPath));
         }
     }
     const dependencies = await mapConcurrent(
@@ -1172,22 +1621,39 @@ async function promoteImmutableArtifactUnlocked(temporaryOutputPath: string, out
     return true;
 }
 
-async function commitCompiledArtifacts(buildCompiledDir: string, compiledDir: string, manifest: ProfileArtifactManifest): Promise<void> {
+async function commitCompiledArtifacts(
+    buildCompiledDir: string,
+    compiledDir: string,
+    manifest: ProfileArtifactManifest,
+    orphanBudgetBytes: number,
+): Promise<void> {
     await mkdir(compiledDir, {recursive: true});
     await withCompiledPublishLock(compiledDir, async () => {
         for (const item of manifest.profiles) {
             await installManifestEntryArtifacts(buildCompiledDir, compiledDir, item);
         }
         await writeJsonIfChanged(join(compiledDir, PROFILE_COMPILED_MANIFEST_FILE), serializeProfileArtifactManifest(manifest));
-        logProfileArtifactGc(compiledDir, await pruneCompiledArtifacts(compiledDir, manifest, "publish"));
+        logProfileArtifactGc(compiledDir, await pruneCompiledArtifacts(compiledDir, manifest, "publish", orphanBudgetBytes));
     });
 }
 
-async function commitCompiledArtifactEntry(buildCompiledDir: string, compiledDir: string, entry: ProfileArtifactManifestEntry, profilesRoot?: string): Promise<ProfileArtifactManifest> {
-    return commitCompiledArtifactEntries(buildCompiledDir, compiledDir, [entry], profilesRoot);
+async function commitCompiledArtifactEntry(
+    buildCompiledDir: string,
+    compiledDir: string,
+    entry: ProfileArtifactManifestEntry,
+    profilesRoot: string | undefined,
+    orphanBudgetBytes: number,
+): Promise<ProfileArtifactManifest> {
+    return commitCompiledArtifactEntries(buildCompiledDir, compiledDir, [entry], profilesRoot, orphanBudgetBytes);
 }
 
-async function commitCompiledArtifactEntries(buildCompiledDir: string, compiledDir: string, entries: ProfileArtifactManifestEntry[], profilesRoot?: string): Promise<ProfileArtifactManifest> {
+async function commitCompiledArtifactEntries(
+    buildCompiledDir: string,
+    compiledDir: string,
+    entries: ProfileArtifactManifestEntry[],
+    profilesRoot: string | undefined,
+    orphanBudgetBytes: number,
+): Promise<ProfileArtifactManifest> {
     await mkdir(compiledDir, {recursive: true});
     return withCompiledPublishLock(compiledDir, async () => {
         const existingManifest = await readProfileArtifactManifest(dirname(compiledDir));
@@ -1210,7 +1676,7 @@ async function commitCompiledArtifactEntries(buildCompiledDir: string, compiledD
             profiles: nextEntries.filter(isLoadedManifestEntry),
         };
         await writeJsonIfChanged(join(compiledDir, PROFILE_COMPILED_MANIFEST_FILE), serializeProfileArtifactManifest(manifest));
-        logProfileArtifactGc(compiledDir, await pruneCompiledArtifacts(compiledDir, manifest, "publish"));
+        logProfileArtifactGc(compiledDir, await pruneCompiledArtifacts(compiledDir, manifest, "publish", orphanBudgetBytes));
         return manifest;
     });
 }
@@ -1553,19 +2019,22 @@ async function pruneContentAddressedArtifacts(
  * Product Runtime 的动态 artifact 不在 `.output/server` 下，不能用 artifact
  * 自身位置解析 native/dynamic require；否则会越过 Nitro vendor。
  */
-function runtimeRequireBanner(productRuntime: boolean): string {
+function runtimeRequireBanner(context: RuntimeArtifactCompilerContext): string {
     const artifactUrl = runtimeImportMetaUrlExpression();
     const compilerVersionBanner = `/* nbook-profile-artifact-compiler-version:${PROFILE_ARTIFACT_COMPILER_VERSION} */`;
-    if (!productRuntime) {
+    if (!context.productRuntime) {
         return `${compilerVersionBanner}import {createRequire as __nbookCreateRequire} from "node:module";const require=__nbookCreateRequire(${artifactUrl});`;
+    }
+    const runtimeRequirePath = normalizeRuntimeArtifactPath(context.artifactRuntimeRequireRoot, context);
+    if (runtimeRequirePath !== ".output/server/index.mjs") {
+        throw new Error(`Product artifact runtime require root 无法规范化：${runtimeRequirePath}`);
     }
     return [
         compilerVersionBanner,
         'import {createRequire as __nbookCreateRequire} from "node:module";',
         'import {existsSync as __nbookExistsSync} from "node:fs";',
-        'import {dirname as __nbookDirname, resolve as __nbookResolve} from "node:path";',
-        'import {fileURLToPath as __nbookFileURLToPath} from "node:url";',
-        `function __nbookResolveProductRequireRoot(){const cwdEntry=__nbookResolve(process.cwd(),".output","server","index.mjs");if(__nbookExistsSync(cwdEntry))return cwdEntry;let current=__nbookDirname(__nbookFileURLToPath(${artifactUrl}));while(true){const entry=__nbookResolve(current,".output","server","index.mjs");if(__nbookExistsSync(entry))return entry;const parent=__nbookDirname(current);if(parent===current)return ${artifactUrl};current=parent;}}`,
+        'import {resolve as __nbookResolve} from "node:path";',
+        'function __nbookResolveProductRequireRoot(){const applicationRoot=process.env.NEURO_BOOK_APPLICATION_ROOT?.trim();const buildImageRoot=process.env.NEURO_BOOK_PRODUCT_BUILD==="1"?process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT?.trim():"";const entry=applicationRoot?__nbookResolve(applicationRoot,".output","server","index.mjs"):buildImageRoot?__nbookResolve(buildImageRoot,"server","index.mjs"):"";if(!entry||!__nbookExistsSync(entry))throw new Error("Product Profile artifact 缺少 NEURO_BOOK_APPLICATION_ROOT 或已验证的 runtime require root。");return entry;}',
         "const require=__nbookCreateRequire(__nbookResolveProductRequireRoot());",
     ].join("");
 }
@@ -1579,7 +2048,7 @@ function repoAliasBundlePlugin(context: RuntimeArtifactCompilerContext): Plugin 
         ...builtinModules,
         ...builtinModules.map((name) => `node:${name}`),
     ]);
-    const requireFromRuntime = createRequire(pathToFileURL(context.packageRequireRoot));
+    const requireFromCompiler = createRequire(pathToFileURL(context.compilerPackageRoot));
     return {
         name: "nbook-repo-alias-bundle",
         setup(buildApi) {
@@ -1591,7 +2060,7 @@ function repoAliasBundlePlugin(context: RuntimeArtifactCompilerContext): Plugin 
             });
             buildApi.onResolve({filter: /^[^./].*/}, (args) => isPlatformBuiltinModule(args.path, nodeModuleNames)
                 ? {path: args.path, external: true}
-                : resolveBarePackage(args.path, requireFromRuntime));
+                : resolveBarePackage(args.path, requireFromCompiler));
         },
     };
 }
@@ -1644,10 +2113,5 @@ function stableArtifactStem(fileName: string, extensionPattern: RegExp): string 
 }
 
 function normalizeArtifactPath(filePath: string): string {
-    const absolutePath = resolve(filePath);
-    const relativePath = relative(process.cwd(), absolutePath).split(/[\\/]+/).join("/");
-    if (relativePath && !relativePath.startsWith("../") && relativePath !== ".." && !/^[A-Za-z]:/.test(relativePath)) {
-        return relativePath;
-    }
-    return absolutePath.split(/[\\/]+/).join("/");
+    return normalizeRuntimeArtifactPath(filePath);
 }

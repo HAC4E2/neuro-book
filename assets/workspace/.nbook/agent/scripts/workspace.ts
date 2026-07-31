@@ -743,12 +743,13 @@ function resolveWorkspaceContainerRoot(): string {
 }
 
 /**
- * 定位系统模板根。源码 assets 脚本使用脚本相对路径；产品运行时脚本被复制到
- * `.output/server/scripts/agent` 后，改按 Product Root 下的 assets 模板解析。
+ * 定位系统模板根。源码 assets 脚本使用脚本相对路径；Product bundle 从
+ * `.output/server/commands` 读取同一 Runtime Image 内的 assets 模板。
  */
 async function resolveSystemTemplateRoot(): Promise<string> {
     const candidateRoots = [
         path.resolve(SCRIPT_DIR, "..", "..", "templates"),
+        path.resolve(SCRIPT_DIR, "..", "assets", "workspace", ".nbook", "templates"),
         path.resolve(SCRIPT_DIR, "..", "..", "..", "..", "assets", "workspace", ".nbook", "templates"),
         path.resolve(INVOCATION_CWD, "assets", "workspace", ".nbook", "templates"),
     ];

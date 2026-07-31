@@ -8,49 +8,47 @@ import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness"
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {PROJECT_AGENT_SQL_MODULE_TOKEN} from "nbook/server/agent/tools/agent-sql-project-module";
 import {PROJECT_PLOT_WORLD_MODULE_TOKEN} from "nbook/server/plot";
-import {listNovels} from "nbook/server/utils/novel-chapter";
 import {
     isProjectRootDeleted,
+    readProjectManifest,
     writeProjectManifest as writeProjectManifestAtRoot,
 } from "nbook/server/workspace-files/project-workspace";
 import {deleteProjectWorkspace as deleteProjectWorkspaceAtRoot} from "nbook/server/workspace-files/project-workspace-delete";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
-import {normalizeProjectPath, resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
-import {
-    activateReadyProjectModule,
+import {projectWorkspaceRef, resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-identity";
+import {activateReadyProjectModule,
     requireReadyModuleHandle,
-    requireReadyProjectPath,
-} from "nbook/server/workspace-files/project-session";
+    requireActiveReadyProject} from "nbook/server/workspace-files/project-session";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 import {PROJECT_FILE_INDEX_MODULE_TOKEN} from "nbook/server/workspace-files/project-file-index";
 
 /** 测试Adapter：按当前隔离cwd解析一次Runtime Workspace Root。 */
-function resolveProjectAbsolutePath(projectPath: string) {
-    return resolveProjectWorkspaceRoot(resolveRuntimeWorkspaceRoot(), normalizeProjectPath(projectPath));
+function resolveProjectAbsolutePath(projectRoot: string) {
+    return resolveProjectWorkspaceRoot(resolveRuntimeWorkspaceRoot(), projectWorkspaceRef(projectRoot));
 }
 
-async function writeProjectManifest(projectPath: string, manifest: Parameters<typeof writeProjectManifestAtRoot>[2]) {
-    return writeProjectManifestAtRoot(resolveRuntimeWorkspaceRoot(), projectPath, manifest);
+async function writeProjectManifest(projectRoot: string, manifest: Parameters<typeof writeProjectManifestAtRoot>[2]) {
+    return writeProjectManifestAtRoot(resolveRuntimeWorkspaceRoot(), projectWorkspaceRef(projectRoot), manifest);
 }
 
-async function deleteProjectWorkspace(projectPath: string, options?: Parameters<typeof deleteProjectWorkspaceAtRoot>[2]) {
-    return deleteProjectWorkspaceAtRoot(resolveRuntimeWorkspaceRoot(), projectPath, options);
+async function deleteProjectWorkspace(projectRoot: string, options?: Parameters<typeof deleteProjectWorkspaceAtRoot>[2]) {
+    return deleteProjectWorkspaceAtRoot(resolveRuntimeWorkspaceRoot(), projectWorkspaceRef(projectRoot), options);
 }
 
 describe("deleteProjectWorkspace", () => {
     it("删除前由ProjectSession关闭Plot/World、Agent SQL与File Index generation资源", async () => {
-        const projectPath = `workspace/delete-project-${randomUUID()}`;
-        const projectRoot = resolveProjectAbsolutePath(projectPath);
+        const projectRoot = `delete-project-${randomUUID()}`;
+        const projectDirectory = resolveProjectAbsolutePath(projectRoot);
         try {
-            await writeProjectManifest(projectPath, {
+            await writeProjectManifest(projectRoot, {
                 kind: "novel",
                 title: "Delete Project",
                 summary: "",
             });
-            await mkdir(join(projectRoot, "manuscript"), {recursive: true});
-            await mkdir(join(projectRoot, "world-engine", "schema"), {recursive: true});
-            await writeFile(join(projectRoot, "manuscript", "chapter-1.md"), "# Chapter 1\n", "utf8");
-            await writeFile(join(projectRoot, "world-engine", "schema", "index.ts"), [
+            await mkdir(join(projectDirectory, "manuscript"), {recursive: true});
+            await mkdir(join(projectDirectory, "world-engine", "schema"), {recursive: true});
+            await writeFile(join(projectDirectory, "manuscript", "chapter-1.md"), "# Chapter 1\n", "utf8");
+            await writeFile(join(projectDirectory, "world-engine", "schema", "index.ts"), [
                 'import {z} from "zod";',
                 "",
                 "export const WorldSchema = {",
@@ -60,7 +58,7 @@ describe("deleteProjectWorkspace", () => {
                 "} as const;",
                 "",
             ].join("\n"), "utf8");
-            await writeFile(join(projectRoot, "world-engine", "calendar.ts"), [
+            await writeFile(join(projectDirectory, "world-engine", "calendar.ts"), [
                 "export default {",
                 "    type: 'simple',",
                 "    eraBefore: '复兴纪元',",
@@ -71,9 +69,9 @@ describe("deleteProjectWorkspace", () => {
                 "};",
                 "",
             ].join("\n"), "utf8");
-            await openProjectForTest(projectPath);
+            await openProjectForTest(projectRoot);
 
-            const ready = requireReadyProjectPath(projectPath);
+            const ready = requireActiveReadyProject(projectWorkspaceRef(projectRoot));
             const {plot: plotFacade, world: worldEngineFacade} = await activateReadyProjectModule(
                 ready,
                 PROJECT_PLOT_WORLD_MODULE_TOKEN,
@@ -95,39 +93,39 @@ describe("deleteProjectWorkspace", () => {
                 PROJECT_FILE_INDEX_MODULE_TOKEN,
             ).read();
 
-            await deleteProjectWorkspace(projectPath, {
+            await deleteProjectWorkspace(projectRoot, {
                 archiveProjectSessions: async () => undefined,
             });
 
-            await expect(projectRootDeleted(projectRoot)).resolves.toBe(true);
+            await expect(projectRootDeleted(projectDirectory)).resolves.toBe(true);
         } finally {
-            await closeProjectForTest(projectPath).catch(() => undefined);
-            await removePathBestEffort(projectRoot);
+            await closeProjectForTest(projectRoot).catch(() => undefined);
+            await removePathBestEffort(projectDirectory);
         }
     }, 20_000);
 
     it("归档 Agent sessions 失败时仍完成 Project Workspace 删除", async () => {
         const originalCwd = process.cwd();
         const root = join(os.tmpdir(), "neuro-book-delete-project-archive-fail-test", randomUUID());
-        const projectPath = "workspace/archive-fails-book";
-        const projectRoot = join(root, "workspace", "archive-fails-book");
+        const projectRoot = "archive-fails-book";
+        const projectDirectory = join(root, "workspace", projectRoot);
         const warnSpy = vi.spyOn(consola, "warn").mockImplementation(() => undefined);
         try {
             await mkdir(join(root, "assets", "workspace", ".nbook"), {recursive: true});
             process.chdir(root);
-            await writeProjectManifest(projectPath, {
+            await writeProjectManifest(projectRoot, {
                 kind: "novel",
                 title: "Archive Fails Book",
                 summary: "",
             });
 
-            await expect(deleteProjectWorkspace(projectPath, {
+            await expect(deleteProjectWorkspace(projectRoot, {
                 archiveProjectSessions: async () => {
                     throw new Error("archive failed");
                 },
             })).resolves.toBeUndefined();
 
-            await expect(projectRootDeleted(projectRoot)).resolves.toBe(true);
+            await expect(projectRootDeleted(projectDirectory)).resolves.toBe(true);
             expect(warnSpy).toHaveBeenCalled();
         } finally {
             warnSpy.mockRestore();
@@ -136,15 +134,15 @@ describe("deleteProjectWorkspace", () => {
         }
     }, 20_000);
 
-    it("删除 Project Workspace 时归档绑定到同 projectPath 的 Agent sessions", async () => {
+    it("删除 Project Workspace 时归档绑定到同 projectRoot 的 Agent sessions", async () => {
         const originalCwd = process.cwd();
         const root = join(os.tmpdir(), "neuro-book-delete-project-session-test", randomUUID());
-        const projectPath = "workspace/same-name-book";
-        const projectRoot = join(root, "workspace", "same-name-book");
+        const projectRoot = "same-name-book";
+        const projectDirectory = join(root, "workspace", projectRoot);
         try {
             await mkdir(join(root, "assets", "workspace", ".nbook"), {recursive: true});
             process.chdir(root);
-            await writeProjectManifest(projectPath, {
+            await writeProjectManifest(projectRoot, {
                 kind: "novel",
                 title: "Same Name Book",
                 summary: "old",
@@ -154,53 +152,44 @@ describe("deleteProjectWorkspace", () => {
             const active = await repo.createSession({
                 profileKey: "leader.default",
                 initial: {},
-                workspaceRoot: "workspace",
-                workspaceKey: "global",
-                projectPath,
+                currentProjectRoot: projectRoot,
                 title: "旧书会话",
             });
-            const activeBeforeDeleteEntry = await repo.appendUserMessage(active.metadata.sessionId, "delete me", active.metadata.workspaceKey);
+            const activeBeforeDeleteEntry = await repo.appendUserMessage(active.metadata.sessionId, "delete me");
             const system = await repo.createSession({
                 profileKey: "summarizer",
                 initial: {},
-                workspaceRoot: "workspace",
-                workspaceKey: "global",
-                projectPath,
+                currentProjectRoot: projectRoot,
                 systemRole: "summarizer",
             });
             const archived = await repo.createSession({
                 profileKey: "leader.default",
                 initial: {},
-                workspaceRoot: "workspace",
-                workspaceKey: "global",
-                projectPath,
+                currentProjectRoot: projectRoot,
             });
             await repo.appendEntry(archived.metadata.sessionId, {
                 type: "session_archived",
                 reason: "already.archived",
             });
 
-            await deleteProjectWorkspace(projectPath, {
-                archiveProjectSessions: async (targetProjectPath, reason) => {
-                    await expect(projectRootDeleted(projectRoot)).resolves.toBe(true);
-                    return harness.archiveSessionsByProjectPath(targetProjectPath, reason);
+            await deleteProjectWorkspace(projectRoot, {
+                archiveProjectSessions: async (targetProjectRoot, reason) => {
+                    await expect(projectRootDeleted(projectDirectory)).resolves.toBe(true);
+                    return harness.archiveSessionsByProjectRoot(targetProjectRoot, reason);
                 },
             });
-            await writeProjectManifest(projectPath, {
+            await writeProjectManifest(projectRoot, {
                 kind: "novel",
                 title: "Same Name Book",
                 summary: "new",
             });
-            await repo.moveLeaf(active.metadata.sessionId, activeBeforeDeleteEntry.id, active.metadata.workspaceKey);
+            await repo.moveLeaf(active.metadata.sessionId, activeBeforeDeleteEntry.id);
 
-            const [novel] = await listNovels();
-            const visibleSessions = await repo.listSessions({projectPath, includeArchived: false, includeSystem: false, status: "active"});
-            const allSessions = await repo.listSessions({projectPath, includeArchived: true, includeSystem: true, status: "all"});
+            const manifest = await readProjectManifest(resolveRuntimeWorkspaceRoot(), projectWorkspaceRef(projectRoot));
+            const visibleSessions = await repo.listSessions({scope: "project", projectRoot, includeArchived: false, includeSystem: false, status: "active"});
+            const allSessions = await repo.listSessions({scope: "project", projectRoot, includeArchived: true, includeSystem: true, status: "all"});
 
-            expect(novel).toMatchObject({
-                id: projectPath,
-                summary: "new",
-            });
+            expect(manifest).toMatchObject({title: "Same Name Book", summary: "new"});
             expect(visibleSessions).toHaveLength(0);
             expect(allSessions).toHaveLength(3);
             expect(allSessions.every((session) => session.archived)).toBe(true);

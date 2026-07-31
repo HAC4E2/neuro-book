@@ -1,7 +1,7 @@
 export type WorkspaceHistoryDiffRequestMode = "inline" | "full";
 
 export type WorkspaceHistoryDiffRequestIdentity = {
-    projectPath: string;
+    projectRoot: string;
     path: string;
     revision: number;
     mode: WorkspaceHistoryDiffRequestMode;
@@ -23,7 +23,7 @@ export type WorkspaceHistoryDiffRequest = {
  * 生成 diff 缓存与请求身份键。Project、原始相对路径、group revision 和模式缺一不可。
  */
 export function workspaceHistoryDiffRequestKey(identity: WorkspaceHistoryDiffRequestIdentity): string {
-    return JSON.stringify([identity.projectPath, identity.path, identity.revision, identity.mode]);
+    return JSON.stringify([identity.projectRoot, identity.path, identity.revision, identity.mode]);
 }
 
 /**

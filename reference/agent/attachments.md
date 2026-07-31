@@ -60,6 +60,14 @@ type SessionAttachmentEntry = {
 
 Project-bound Session 的目录、上传、快照和读取都执行 Project open gate。
 
+## 图片完整解码边界
+
+- `AgentAttachmentCodec` 是 Agent 图片进入 Attachment Store 前的唯一图片语义边界。Composer 上传、文件快照和 `read(image)` 都必须经过同一个 Codec；`ToolExecutionContext` 不暴露原始 Attachment Store。
+- 图片必须通过魔数识别、声明 MIME 一致性检查和 Sharp 完整解码。空 MIME 与 `application/octet-stream` 只表示传输层未声明类型，不能替代 bytes 校验；其它具体 MIME 仍须与内容一致。
+- 输入图片上限为 `64 * 1024 * 1024` 像素。Codec 在完整解码前向 Sharp 传入同一像素上限，并在取得有效宽高后再次检查乘积；超限稳定映射为 `limit_exceeded`，不得写入 Attachment Store。
+- 单图 16 MiB 和单次请求合计 32 MiB 是字节预算，64 MP 是解码内存边界，两者必须同时成立。损坏、截断或无法完整解码的图片按 `invalid_input` 拒绝。
+- Attachment Store 继续只负责原始 bytes、内容寻址和完整性，不理解图片格式、像素或变体。图片变体由授权后的 Image Variant Module 派生，不进入 Store、Provider 输入或 Session 持久化。
+
 ## Session 附件目录
 
 `SessionAttachmentAuthority` 是目录、授权、canonical metadata、locator 和 Provider hydration 预检的统一边界。JSONL 是唯一持久化真相；Authority 只维护可丢弃的内存索引：
@@ -136,4 +144,4 @@ archive 只写当前 Session 的 `session_archived`，restore 只写 `session_re
 
 ## 非目标
 
-当前不实现文本附件、远程 URL 下载、OCR、删除、GC、引用计数回收、Provider File API 或服务端缩略图转换。
+当前不实现文本附件输入、远程 URL 下载、OCR、删除、GC、引用计数回收或 Provider File API。服务端缩略图仅由共享 Image Variant Module 按授权 locator 派生；Agent Attachment Codec 不转码原图。

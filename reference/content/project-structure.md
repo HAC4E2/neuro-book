@@ -97,12 +97,14 @@ Keep the boundary simple:
 
 | Path | Purpose |
 | --- | --- |
-| `project.yaml` | Project identity: kind, title and summary. |
+| `project.yaml` | Project identity and lightweight display metadata: kind, title, summary and optional cover. |
 | `AGENTS.md` | Project-specific instructions for agents. |
 | `.nbook/config.json` | Project-level config overrides. |
 | `.nbook/project.sqlite` | Project SQLite for Plot / Story data. |
 
 Do not store story canon in `.nbook/` or `.agent/`.
+
+When `project.yaml` declares `cover`, the value is a portable Project Workspace-relative PNG, JPEG or WebP path. Keep the image with ordinary Project content (for example `assets/cover.webp`); absolute paths, URLs, parent traversal, `.nbook/` and `.git/` are not valid cover locations.
 
 ## Detail Ownership
 

@@ -10,11 +10,18 @@ import {createWorldEngineTools} from "nbook/server/agent/tools/world-engine-tool
 import type {NeuroAgentTool, ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {resolveProjectDatabasePath} from "nbook/server/workspace-files/project-workspace";
-import {WORKSPACE_CONTAINER_ROOT} from "nbook/server/workspace-files/workspace-root-ref";
+import {closeProject, openProject} from "nbook/server/workspace-files/project-session";
+import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 
 const argv = process.argv.slice(2);
-const projectPath = argv.find((a) => !a.startsWith("--")) ?? "workspace/ming-ding-zhi-shi-2";
+const projectRoot = argv.find((a) => !a.startsWith("--")) ?? "ming-ding-zhi-shi-2";
+const projectRef = projectWorkspaceRef(projectRoot);
 const workspaceRoot = resolveRuntimeWorkspaceRoot();
+const currentProject = await openProject(
+    projectRef,
+    {kind: "job", source: "seed-heroes-story"},
+    workspaceRoot,
+);
 
 const tools = createWorldEngineTools();
 const executeWorldTool = mustTool("execute_world");
@@ -23,10 +30,9 @@ const context: ToolExecutionContext = {
     harness: {} as ToolExecutionContext["harness"],
     sessionId: 1,
     profileKey: "scripts.seed-heroes-story",
-    workspaceRootRef: WORKSPACE_CONTAINER_ROOT,
-    workspaceFsRoot: workspaceRoot,
-    workspaceKey: "global",
-    projectPath,
+    workspaceRoot,
+    currentProject,
+    invocationId: "seed-heroes-story",
 };
 
 function mustTool(key: string): NeuroAgentTool {
@@ -42,14 +48,14 @@ const ERROR_ISSUE_CODES = new Set(["dangling-ref", "broken-relative"]);
 
 async function executeWorld<TData>(code: string): Promise<ExecuteWorldResult<TData>> {
     const result = await executeWorldTool.executeWithContext(context, `execute_world-${Date.now()}`, {
-        projectPath,
+        projectRoot,
         code,
     });
     return result.details as unknown as ExecuteWorldResult<TData>;
 }
 
 function reset() {
-    const dbPath = resolveProjectDatabasePath(workspaceRoot, projectPath);
+    const dbPath = resolveProjectDatabasePath(workspaceRoot, projectRef);
     const db = new Database(dbPath);
     db.exec("DELETE FROM WorldPatch");
     db.exec("DELETE FROM WorldSlice");
@@ -275,8 +281,7 @@ async function verify() {
     console.log("\n✅ 断言检查：");
     function assert(condition: boolean, message: string) {
         if (!condition) {
-            console.error(`❌ ${message}`);
-            process.exit(1);
+            throw new Error(message);
         }
         console.log(`  ✓ ${message}`);
     }
@@ -294,14 +299,18 @@ async function verify() {
 }
 
 async function main() {
-    console.log(`勇者召唤故事线种子：projectPath=${projectPath}\n`);
+    console.log(`勇者召唤故事线种子：projectRoot=${projectRoot}\n`);
 
     reset();
     await seed();
     await verify();
 }
 
-main().catch((err) => {
-    console.error("❌ 脚本执行失败：", err);
-    process.exit(1);
-});
+try {
+    await main();
+} catch (error) {
+    console.error("❌ 脚本执行失败：", error);
+    process.exitCode = 1;
+} finally {
+    await closeProject(projectRef, "shutdown").catch(() => undefined);
+}

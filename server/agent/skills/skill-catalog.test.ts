@@ -129,6 +129,20 @@ name: user anti-ai-slop
         await expect(catalog.get("anti-ai-slop")).resolves.toBeNull();
     });
 
+    it("默认 catalog 读取 novel-data runnable package 版本", async () => {
+        const runtimePaths = runtimePathsFromEnv();
+        const catalog = new SkillCatalog(
+            join(resolveSystemNbookRoot(runtimePaths.applicationRoot), "agent", "skills"),
+            join(runtimePaths.userNbookRoot, "agent", "skills"),
+        );
+
+        await expect(catalog.get("novel-data")).resolves.toEqual(expect.objectContaining({
+            key: "novel-data",
+            name: "novel-data",
+            version: "1.0.0",
+        }));
+    });
+
     it("默认系统 catalog 包含 profile-system-guide 和已迁移 v2 skills", async () => {
         const runtimePaths = runtimePathsFromEnv();
         const catalog = new SkillCatalog(
@@ -149,6 +163,7 @@ name: user anti-ai-slop
             "novel-setup",
             "novel-writing",
             "novel-idea-exploration",
+            "novel-data",
             "novel-genre-research",
             "novel-import-silly-tavern-card",
             "novel-technique-character-card-workshop",
@@ -166,6 +181,10 @@ name: user anti-ai-slop
             name: "llmlint",
             description: expect.stringContaining("Lint and polish LLM-generated Chinese text"),
             version: "2.0.1",
+        }));
+        expect(skills.find((item) => item.key === "novel-data")).toEqual(expect.objectContaining({
+            name: "novel-data",
+            version: "1.0.0",
         }));
         expect(skills.find((item) => item.key === "stop-slop")).toEqual(expect.objectContaining({
             name: "stop-slop",

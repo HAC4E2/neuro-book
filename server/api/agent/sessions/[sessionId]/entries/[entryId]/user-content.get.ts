@@ -1,10 +1,10 @@
 import {createError, getRouterParam} from "h3";
 import {getAgentSessionUserContent, requireAgentSessionId} from "nbook/server/agent/http";
-import {withProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
+import {withProjectHttpError} from "nbook/server/api/projects/project-http-error";
 import {isProjectNotOpenError} from "nbook/server/workspace-files/project-session";
 
 /** 按需返回被公开预算截断的完整用户消息 Markdown。 */
-export default defineEventHandler(async (event) => withProjectNotOpenHttpError(async () => {
+export default defineEventHandler(async (event) => withProjectHttpError(async () => {
     const entryId = getRouterParam(event, "entryId");
     if (!entryId) {
         throw createError({statusCode: 400, message: "entryId 不能为空", data: {code: "INVALID_ENTRY_ID"}});

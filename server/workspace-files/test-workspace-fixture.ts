@@ -1,14 +1,10 @@
-import {copyFile, cp, link, lstat, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile} from "node:fs/promises";
+import {lstat, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile} from "node:fs/promises";
 import {execFile} from "node:child_process";
 import {tmpdir} from "node:os";
 import path from "node:path";
 import {randomUUID} from "node:crypto";
-import {
-    PROFILE_COMPILED_ARTIFACTS_DIR_NAME,
-    PROFILE_COMPILED_DIR_NAME,
-    PROFILE_COMPILED_MANIFEST_FILE,
-    readProfileArtifactManifest,
-} from "nbook/server/agent/profiles/profile-artifact-compiler";
+import {readProfileArtifactManifest} from "nbook/server/agent/profiles/profile-artifact-compiler";
+import {SystemAssetsProjection} from "nbook/server/workspace-files/system-assets-projection";
 import {
     getSystemWorkspaceAssetContextForTest,
     resolveApplicationRoot,
@@ -41,6 +37,7 @@ export const TEST_RUN_ID_ENV = "NBOOK_TEST_RUN_ID";
 
 /** 进程内 fallback run id：没有 globalSetup 时（例如单文件直跑）仍然要能写出 marker。 */
 const processRunId = randomUUID();
+const systemAssetsProjection = new SystemAssetsProjection();
 
 /**
  * system assets 的投影方式。
@@ -168,18 +165,14 @@ async function initializeFixture(root: string, options: IsolatedWorkspaceAssetsO
     });
 
     const snapshotRoot = resolveSharedSnapshotRoot();
-    await mkdir(path.dirname(systemNbookRoot), {recursive: true});
     const snapshotNbookRoot = path.join(snapshotRoot, "assets", "workspace", ".nbook");
-    if (systemAssets === "shared") {
-        // 共享模式：真实目录项投影，只有不可变 artifact 走硬链接。
-        // junction 会被子进程 realpath 穿透：测试里 `bun <fixture>/assets/.../agent/scripts/workspace.ts`
-        // 解析出的入口是 snapshot 内的真实路径，脚本随之把 snapshot 当成自己的 Workspace Root。
-        // 硬链接是真实目录项，没有 reparse point，既不会被穿透，又不额外占空间。
-        await projectSystemAssets(snapshotNbookRoot, systemNbookRoot);
-    } else {
-        // 独占可写副本：来源已经是投影结果，这里不再重复过滤。
-        await cp(snapshotNbookRoot, systemNbookRoot, {recursive: true, force: true});
-    }
+    // 共享模式只对内容寻址的不可变 Profile artifact 尝试硬链接；其余文件始终真实复制。
+    // junction 会被子进程 realpath 穿透，因此两种模式都必须落成 fixture 内的真实目录项。
+    await systemAssetsProjection.copyToEmpty({
+        sourceRoot: snapshotNbookRoot,
+        targetRoot: systemNbookRoot,
+        profileArtifactMode: systemAssets === "shared" ? "hardlink" : "copy",
+    });
     await mkdir(userNbookRoot, {recursive: true});
 
     if (options.useAsCwd) {
@@ -264,8 +257,9 @@ export async function createSharedSystemAssetsSnapshot(): Promise<string> {
         const applicationRoot = resolveApplicationRoot();
         const sourceSystemNbookRoot = resolveSystemNbookRoot();
         const targetSystemNbookRoot = path.join(snapshotRoot, "assets", "workspace", ".nbook");
-        const keptArtifactNames = await readCurrentArtifactNames(path.join(sourceSystemNbookRoot, "agent", "profiles"));
-        if (keptArtifactNames.size === 0) {
+        const profileRoot = path.join(sourceSystemNbookRoot, "agent", "profiles");
+        const manifest = await readProfileArtifactManifest(profileRoot);
+        if (manifest.profiles.length === 0) {
             // 没有可投影的 current artifact，测试里所有 system profile 相关断言都会以难以定位的
             // 方式失败。这里直接失败并指出修复命令，比让 13 个用例各自报奇怪的错好得多。
             throw new Error(
@@ -273,12 +267,10 @@ export async function createSharedSystemAssetsSnapshot(): Promise<string> {
                 + "请先运行 `bun run system-assets:prepare` 再跑测试。",
             );
         }
-        await ensurePublishedSystemProfilesFresh(path.join(sourceSystemNbookRoot, "agent", "profiles"));
-        await mkdir(path.dirname(targetSystemNbookRoot), {recursive: true});
-        await cp(sourceSystemNbookRoot, targetSystemNbookRoot, {
-            recursive: true,
-            force: true,
-            filter: systemAssetsProjectionFilter(sourceSystemNbookRoot, keptArtifactNames),
+        await ensurePublishedSystemProfilesFresh(profileRoot);
+        await systemAssetsProjection.copyToEmpty({
+            sourceRoot: sourceSystemNbookRoot,
+            targetRoot: targetSystemNbookRoot,
         });
         // snapshot 内要执行 `workspace node ...` 之类的子进程，bun 会 realpath 后向上找
         // package.json / tsconfig.json / node_modules，所以 snapshot 根也要挂全套链接。
@@ -347,104 +339,6 @@ async function ensurePublishedSystemProfilesFresh(profileRoot: string): Promise<
             + "请手动运行 `bun run system-assets:prepare` 查看真实编译错误。",
         );
     }
-}
-
-/**
- * 读取 profile root 当前 manifest 引用的 artifact / type artifact 文件名集合。
- * manifest 缺失或损坏时返回空集合，投影会退化成"只带源码"，不会把 orphan 带进来。
- */
-export async function readCurrentArtifactNames(profileRoot: string): Promise<ReadonlySet<string>> {
-    const names = new Set<string>();
-    const manifest = await readProfileArtifactManifest(profileRoot).catch(() => null);
-    if (!manifest) {
-        return names;
-    }
-    for (const item of manifest.profiles) {
-        for (const fileName of [item.artifactFileName, item.typeFileName]) {
-            if (fileName) {
-                names.add(path.basename(fileName));
-            }
-        }
-    }
-    return names;
-}
-
-/**
- * 系统 `.nbook` 投影过滤器：只保留源码、manifest 和 manifest 当前引用的 artifact。
- *
- * 排除 orphan artifact、`.staging`、发布锁和 skill 派生 `node_modules`。
- * 这些都是可重建产物，把它们纳入测试模板正是磁盘被乘法放大的根因。
- */
-export function systemAssetsProjectionFilter(
-    systemNbookRoot: string,
-    keptArtifactNames: ReadonlySet<string>,
-): (source: string) => boolean {
-    const root = path.resolve(systemNbookRoot);
-    const stagingRoot = path.join(root, "agent", ".staging");
-    const compiledRoot = path.join(root, "agent", "profiles", PROFILE_COMPILED_DIR_NAME);
-    const artifactsRoot = path.join(compiledRoot, PROFILE_COMPILED_ARTIFACTS_DIR_NAME);
-    return (source: string): boolean => {
-        const absolute = path.resolve(source);
-        // skill 依赖安装产物是派生物，不进模板。
-        if (path.basename(absolute) === "node_modules") {
-            return false;
-        }
-        if (absolute === stagingRoot || absolute.startsWith(`${stagingRoot}${path.sep}`)) {
-            return false;
-        }
-        if (!absolute.startsWith(`${compiledRoot}${path.sep}`)) {
-            return true;
-        }
-        const relative = path.relative(compiledRoot, absolute);
-        if (relative === PROFILE_COMPILED_MANIFEST_FILE || relative === PROFILE_COMPILED_ARTIFACTS_DIR_NAME) {
-            return true;
-        }
-        if (!absolute.startsWith(`${artifactsRoot}${path.sep}`)) {
-            // `.publish.lock` 与历史扁平 artifact 一律不进模板。
-            return false;
-        }
-        return keptArtifactNames.has(path.basename(absolute));
-    };
-}
-
-/**
- * 把 snapshot 的 system assets 投影到 fixture root：**只对不可变 artifact 用硬链接，其余真实复制**。
- *
- * 体积几乎全在 `.compiled/artifacts/<sha>.mjs`（14 个约 27 MiB），它们是内容寻址的不可变文件，
- * 换内容就换文件名，永远不会被原地改写，因此硬链接共享 inode 是安全的。
- * 其余源码、manifest、skill 等都是可能被测试改写的可变文件，必须各自持有独立副本 ——
- * 否则一个 fixture 的写入会经由共享 inode 污染 snapshot 和所有并行 fixture 的视图。
- *
- * 全部用真实目录项（不用 junction）：junction 会被子进程 realpath 穿透，
- * 让 `bun <fixture>/assets/.../workspace.ts` 把 snapshot 当成自己的 Workspace Root。
- */
-async function projectSystemAssets(sourceRoot: string, targetRoot: string): Promise<void> {
-    const artifactsSegment = `${path.sep}${PROFILE_COMPILED_DIR_NAME}${path.sep}${PROFILE_COMPILED_ARTIFACTS_DIR_NAME}${path.sep}`;
-    const walk = async (source: string, target: string): Promise<void> => {
-        await mkdir(target, {recursive: true});
-        for (const entry of await readdir(source, {withFileTypes: true})) {
-            const sourcePath = path.join(source, entry.name);
-            const targetPath = path.join(target, entry.name);
-            if (entry.isDirectory()) {
-                await walk(sourcePath, targetPath);
-                continue;
-            }
-            if (!entry.isFile()) {
-                continue;
-            }
-            if (!sourcePath.includes(artifactsSegment)) {
-                await copyFile(sourcePath, targetPath);
-                continue;
-            }
-            // 内容寻址 artifact：共享 inode 安全，且省掉每个 fixture 约 382 MiB 的复制。
-            try {
-                await link(sourcePath, targetPath);
-            } catch {
-                await copyFile(sourcePath, targetPath);
-            }
-        }
-    };
-    await walk(sourceRoot, targetRoot);
 }
 
 /**

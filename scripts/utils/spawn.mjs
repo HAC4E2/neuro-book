@@ -15,7 +15,7 @@ export function run(command, args, options = {}) {
             rejectPromise(new Error(`命令不可用或启动失败：${command}\n${error.message}`));
         });
 
-        child.on('exit', (code, signal) => {
+        child.on('close', (code, signal) => {
             if (signal) {
                 rejectPromise(new Error(`命令被信号中断：${command} ${signal}`));
                 return;
@@ -53,7 +53,7 @@ export function runCapture(command, args, options = {}) {
         child.on('error', (error) => {
             rejectPromise(new Error(`命令不可用或启动失败：${command}\n${error.message}`));
         });
-        child.on('exit', (code, signal) => {
+        child.on('close', (code, signal) => {
             if (signal) {
                 rejectPromise(new Error(`命令被信号中断：${command} ${signal}`));
                 return;

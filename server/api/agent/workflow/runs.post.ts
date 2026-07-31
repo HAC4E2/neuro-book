@@ -9,15 +9,17 @@ import {loadEffectiveConfigFromTarget} from "nbook/server/config/config-service"
 import type {RuntimeConfigTarget} from "nbook/server/config/types";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 import {validateBody} from "nbook/server/utils/novel-chapter";
-import {withProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
+import {ProjectRootDtoSchema} from "nbook/shared/dto/project.dto";
+import {withProjectHttpError} from "nbook/server/api/projects/project-http-error";
+import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 import {
     isProjectNotOpenError,
-    requireReadyProjectPath,
+    requireActiveReadyProject,
     runReadyProjectOperation,
 } from "nbook/server/workspace-files/project-session";
 
 const WorkflowRunBodySchema = z.object({
-    projectPath: z.string().trim().min(1, "projectPath 必填"),
+    projectRoot: ProjectRootDtoSchema,
     workflowKey: z.string().trim().min(1, "workflowKey 必填"),
     args: z.json().optional(),
     model: z.string().trim().min(1, "model 不能为空").optional(),
@@ -27,10 +29,11 @@ const WorkflowRunBodySchema = z.object({
  * 正式 workflow 面（Task 111）：用户主动触发一次 catalog workflow run。
  * 立即返回 jobId + runId；Job 管生命周期与取消，Run 提供状态图和交互细节。
  */
-export default defineEventHandler((event) => withProjectNotOpenHttpError(async () => {
+export default defineEventHandler((event) => withProjectHttpError(async () => {
     const body = await validateBody(event, WorkflowRunBodySchema);
     const runtimePaths = runtimePathsFromEnv();
-    const ready = requireReadyProjectPath(body.projectPath);
+    const ref = projectWorkspaceRef(body.projectRoot);
+    const ready = requireActiveReadyProject(ref);
     return runReadyProjectOperation(ready, async () => {
         const configTarget: RuntimeConfigTarget = {
             scope: "project",
@@ -51,7 +54,7 @@ export default defineEventHandler((event) => withProjectNotOpenHttpError(async (
         const item = await harness.workflows.get(body.workflowKey, ready.workspace);
         if (!item) throw createError({statusCode: 404, message: `workflow ${body.workflowKey} 不存在`});
         try {
-            const {job, runId} = spawnWorkflowJob({
+            const {job, jobEventCursor, runId} = spawnWorkflowJob({
                 jobs: harness.jobs,
                 service: useWorkflowDemoService(),
                 def: item.def,
@@ -60,10 +63,9 @@ export default defineEventHandler((event) => withProjectNotOpenHttpError(async (
                 workspace,
                 config,
                 project: ready,
-                workspaceKey: body.projectPath,
                 deliver: "none",
             });
-            return {jobId: job.jobId, runId};
+            return {jobId: job.jobId, jobEventCursor, runId};
         } catch (error) {
             if (isProjectNotOpenError(error)) {
                 throw error;

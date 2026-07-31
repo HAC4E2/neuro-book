@@ -476,7 +476,12 @@ export class SessionMigrationJournal<
     /** 严格解析通用文件状态，再由 codec 解析领域统计字段。 */
     private parseSessionState(value: unknown, runRootRelative: string): TSession {
         const session = objectValue(value, "migration session");
-        assertExactKeys(session, [...BASE_SESSION_FIELDS, ...this.codec.sessionFields]);
+        const optionalFields = this.codec.optionalSessionFields ?? [];
+        assertExactKeys(session, [
+            ...BASE_SESSION_FIELDS,
+            ...this.codec.sessionFields,
+            ...optionalFields.filter((field) => session[field] !== undefined),
+        ]);
         if (typeof session.sourcePath !== "string" || !session.sourcePath
             || typeof session.backupPath !== "string" || !session.backupPath
             || typeof session.stagePath !== "string" || !session.stagePath

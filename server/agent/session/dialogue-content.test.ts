@@ -25,35 +25,33 @@ describe("Agent Dialogue Content", () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
-            workspaceKey: "global",
         });
-        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "用户正文"}), session.metadata.workspaceKey);
+        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "用户正文"}));
         await repo.appendMessage(session.metadata.sessionId, fauxAssistantMessage([
             fauxText("助手正文"),
             fauxThinking("内部思考"),
             fauxToolCall("read", {path: "x"}, {id: "tool-1"}),
-        ]), session.metadata.workspaceKey);
+        ]));
         await repo.appendMessage(session.metadata.sessionId, createTextToolResult({
             toolCallId: "tool-1",
             toolName: "read",
             text: "工具结果",
-        }), session.metadata.workspaceKey);
+        }));
         await repo.appendEntry(session.metadata.sessionId, {
             type: "custom_message",
             message: createUserMessage({text: "自定义可见消息"}),
             visibleToModel: true,
-        }, session.metadata.workspaceKey);
+        });
         await repo.appendEntry(session.metadata.sessionId, {
             type: "compaction",
             summary: "压缩摘要",
             firstKeptEntryId: null,
             tokensBefore: 100,
-        }, session.metadata.workspaceKey);
+        });
 
         const content = buildAgentDialogueContent({
             repo,
-            snapshot: await repo.readSession(session.metadata.sessionId, session.metadata.workspaceKey),
+            snapshot: await repo.readSession(session.metadata.sessionId),
             summarizerProfileKey: "summarizer",
             summarizerInput: {sourceSessionId: session.metadata.sessionId},
         });

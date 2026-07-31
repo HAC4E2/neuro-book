@@ -13,13 +13,12 @@ import {
 } from "nbook/shared/dto/project.dto";
 
 describe("Project DTO", () => {
-    it("只接受单段 projectRoot，拒绝旧 projectPath 与旧字段", () => {
+    it("create 只接受标题与摘要，由服务端派生 projectRoot", () => {
         expect(ProjectCreateRequestDtoSchema.safeParse({
-            projectRoot: "alpha",
             title: "Alpha",
         }).success).toBe(true);
         expect(ProjectCreateRequestDtoSchema.safeParse({
-            projectRoot: "workspace/alpha",
+            projectRoot: "alpha",
             title: "Alpha",
         }).success).toBe(false);
         expect(ProjectCreateRequestDtoSchema.safeParse({
@@ -27,7 +26,6 @@ describe("Project DTO", () => {
             title: "Alpha",
         }).success).toBe(false);
         expect(ProjectCreateRequestDtoSchema.safeParse({
-            projectRoot: "alpha",
             title: "Alpha",
             id: 7,
         }).success).toBe(false);
@@ -39,6 +37,7 @@ describe("Project DTO", () => {
             kind: "novel",
             title: "Alpha",
             summary: "摘要",
+            cover: "assets/cover.webp",
             manifestUpdatedAt: "2026-07-24T01:02:03.000Z",
         };
         expect(ProjectMetadataDtoSchema.parse(metadata)).toEqual(metadata);
@@ -50,18 +49,17 @@ describe("Project DTO", () => {
             candidates: [{projectRoot: "empty-directory"}],
         })).toEqual({revision: 3, candidates: [{projectRoot: "empty-directory"}]});
         expect(ProjectMetadataDtoSchema.safeParse({...metadata, manifestUpdatedAt: "yesterday"}).success).toBe(false);
+        expect(ProjectMetadataDtoSchema.safeParse({...metadata, cover: "../cover.webp"}).success).toBe(false);
         expect(ProjectListResponseDtoSchema.safeParse({revision: 0, projects: []}).success).toBe(false);
         expect(ProjectListResponseDtoSchema.safeParse({revision: 1.5, projects: []}).success).toBe(false);
         expect(ProjectListResponseDtoSchema.safeParse({revision: 1, projects: [], statistics: {files: 0}}).success).toBe(false);
     });
 
     it("update 必须包含 title 或 summary，summary 允许显式清空", () => {
-        expect(ProjectUpdateRequestDtoSchema.safeParse({projectRoot: "alpha"}).success).toBe(false);
-        expect(ProjectUpdateRequestDtoSchema.parse({projectRoot: "alpha", summary: ""})).toEqual({
-            projectRoot: "alpha",
-            summary: "",
-        });
-        expect(ProjectUpdateRequestDtoSchema.safeParse({projectRoot: "alpha", title: "   "}).success).toBe(false);
+        expect(ProjectUpdateRequestDtoSchema.safeParse({}).success).toBe(false);
+        expect(ProjectUpdateRequestDtoSchema.parse({summary: ""})).toEqual({summary: ""});
+        expect(ProjectUpdateRequestDtoSchema.safeParse({title: "   "}).success).toBe(false);
+        expect(ProjectUpdateRequestDtoSchema.safeParse({projectRoot: "alpha", title: "Alpha"}).success).toBe(false);
     });
 
     it("open 只在 manifest 被修复时接受 recoveryPath", () => {
@@ -138,16 +136,13 @@ describe("Project DTO", () => {
 
     it("create/update 保留 title 与 summary 的输入上限", () => {
         expect(ProjectCreateRequestDtoSchema.safeParse({
-            projectRoot: "alpha",
             title: "a".repeat(121),
         }).success).toBe(false);
         expect(ProjectCreateRequestDtoSchema.safeParse({
-            projectRoot: "alpha",
             title: "Alpha",
             summary: "a".repeat(2_001),
         }).success).toBe(false);
         expect(ProjectUpdateRequestDtoSchema.safeParse({
-            projectRoot: "alpha",
             summary: "a".repeat(2_001),
         }).success).toBe(false);
     });

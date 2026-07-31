@@ -122,7 +122,7 @@ bun "<skill-root>/bin/llmlint.ts" check chapter.md --scan-all
 
 ## fix：确定性机械修复
 
-`fix` 只应用 `fixability: auto` 的规则——零宽字符删除、省略号/破折号尾部清理等**无需判断**的机械修复。重复感叹号/问号这类语气符号只作为人工提示，不再自动压缩。删填充词、改写句式等语义修复不在此列，仍由 Agent 读上下文、经用户审批后处理（默认写 `.agent/polish-output.md`）。
+`fix` 只应用 `fixability: auto` 的规则——零宽字符删除、省略号/破折号尾部清理等**无需判断**的机械修复。重复感叹号/问号这类语气符号只作为人工提示，不再自动压缩。删填充词、改写句式等语义修复不在此列，仍由 Agent 读上下文、经用户审批后处理（默认写本轮 `output/` 目录，见下面的 `round`）。
 
 默认 dry-run：只打印将修复什么（含 before → after 预览，零宽等不可见字符会被显形为 `▯`），不改文件；存在待修复项时退出码为 `1`（可用于「禁止零宽字符入库」一类 CI 门禁）。`--write` 才写回原文件：
 
@@ -133,6 +133,71 @@ bun "<skill-root>/bin/llmlint.ts" fix chapter.md --format json
 ```
 
 `fix` 同样默认尊重 Markdown 遮罩：代码块 / frontmatter 内的内容不会被改动，`--scan-all` 可关闭。
+
+## round：多轮修订谱系
+
+一次审稿 = 一轮。`round begin` 建目录、快照修前正文、在台账追加条目，并打印轮号与目录路径：
+
+```bash
+bun "<skill-root>/bin/llmlint.ts" round begin chapter.md
+bun "<skill-root>/bin/llmlint.ts" round begin a.md b.md                                   # 多文件一轮
+bun "<skill-root>/bin/llmlint.ts" round begin .agent/llmlint/rounds/0001/output/chapter.md --parent 1
+```
+
+产物布局（全部在项目内的 `.agent/llmlint/`，与项目一起走，不进用户目录）：
+
+```
+.agent/llmlint/
+    session.json                 台账：跨轮累积的唯一沉淀
+    rounds/0001/
+        source/chapter.md        修前快照
+        check-source.json        步骤 2 的 check --format json
+        detect-source.json       步骤 2 的 detect --format json
+        plan.md                  修复计划
+        output/chapter.md        修后稿
+        check-output.json        复测 check
+        detect-output.json       复测 detect
+```
+
+- **轮号**取「台账里最大轮号」与「rounds/ 现有目录号」两者的最大值 +1，四位零填充。中断轮留下的目录会占住号不被复用——复用会让两轮产物混进同一个目录。
+- **`--parent`** 声明本轮续修的是哪一轮的 `output`。必须显式给，不能靠内容比对推：第 1 轮审第 1 章、第 2 轮审第 2 章时内容天然不同，推断会得出「用户中途手改过」的错误结论。另起一篇就不传。
+- 多文件按 basename 镜像进 `source/`，重名自动加数字前缀；台账 `sourceFiles` 保留原始路径。
+- 不自动清理旧轮。想省空间就自己删轮目录，删掉不影响已经导出的发件箱条目（那些是自包含的）。
+
+## contribute：按档裁剪落本地发件箱
+
+把已完成的轮裁剪成一条自包含记录，写进用户级发件箱 `~/.llmlint/outbox/`（`LLMLINT_HOME` 可覆盖）。**本版本不联网、不发送**，发送要等服务端起来后的 `--send`。
+
+```bash
+bun "<skill-root>/bin/llmlint.ts" contribute                       # 只列将导出什么，不落盘
+bun "<skill-root>/bin/llmlint.ts" contribute --yes                 # 真写
+bun "<skill-root>/bin/llmlint.ts" contribute --yes --round 2       # 只导第 2 轮
+bun "<skill-root>/bin/llmlint.ts" contribute --auto --round 2      # 由用户设置决定，五步流程步骤 5 用这个
+bun "<skill-root>/bin/llmlint.ts" contribute --list                # 列发件箱现有条目
+```
+
+`--auto` 的四种结局由命令自己判并打印一行：
+
+| 设置 | 结局 |
+| --- | --- |
+| `sharing.tier = off` | 什么都不做，连准备都不做 |
+| `initialized = false` | 不做，提示先过初始化门（同意的落点在那里） |
+| `sharing.mode = ask` | 只列不写，提示加 `--yes` |
+| `sharing.mode = auto`（缺省） | 直接写 |
+
+按档裁剪：
+
+| 内容 | stats | fragments | full |
+| --- | --- | --- | --- |
+| 命中统计、检测分、字数 | ✓ | ✓ | ✓ |
+| wantReadOn 修前/修后 | ✓ | ✓ | ✓ |
+| 文件名 | 只有数量 | ✓ | ✓ |
+| 疑难片段原文、判定、理由、评语 | 只有计数 | ✓ | ✓ |
+| 修前/修后全文 | — | — | ✓ |
+
+条目自包含（不引用项目路径），所以将来征求发送同意时「看到什么就发什么」。`full` 档要求本轮 `output/` 还在；用户删了轮目录就如实降级成 `fragments` 并在条目里写明原档。
+
+已导出的轮会在台账里打上 `contributedAt`，不会重复导出。发件箱只进不出，用 `--list` 查看攒了什么，删文件或整个目录就是撤回。
 
 ## check 输出格式
 
@@ -224,7 +289,7 @@ abstraction.hollow
   "kind": "check",
   "filePath": "manuscript/chapter-01.md",
   "configPath": "llmlint.config.ts",
-  "summary": {"total": 2, "high": 0, "medium": 2, "low": 0},
+  "summary": {"total": 2, "high": 0, "medium": 2, "low": 0, "visibleChars": 3131},
   "filter": {"review": "agent", "hiddenByReview": 78, "minLevel": "low", "hiddenByLevel": 0},
   "registry": {"rulesets": ["builtin/default"], "totalRules": 360, "activeRules": 266, "disabledRules": 94},
   "diagnostics": [],
@@ -253,6 +318,8 @@ abstraction.hollow
 不变量：`issues[]` 与 `densityIssues[]` 的每个 `ruleId` 都能在顶层 `rules` 里查到；`rules` 只含本次报告实际涉及的规则。
 
 `context.before` / `context.after` 各裁到 24 个码点，被裁一侧带 `…` 标记（scanner 内部给的是整行，中文长段落一行常有 150+ 字）。需要完整段落时直接读原文。
+
+`summary.visibleChars` 是正文可见字数，**与 density 的「/千字」同分母**：只数 CJK / 字母 / 数字，跳过结构行与遮罩区（代码块、frontmatter、链接），标点和空白不计。它的用处是修复前后对比篇幅——审稿流程要求删减不超过两成（见 `workflow.md` 步骤 4）。不要用 `wc -m` 替代：那个数把标点空白都算进去，与规则命中的千字口径不是一套尺子，算出来的删减比例会失真。stylish 输出在总结行之后也给这个数。
 
 `--rule-detail` 恢复完整形态：命中内联完整规则对象（含 `detector.targets`、`source.canonicalKey`、`scope`）、`registry` 带逐 namespace 明细、无顶层 `rules`、缩进 2 空格。写规则、核对 canonicalKey、排查 overlap 时用它；日常审稿不要用——同一篇正文上它比紧凑形态大 4 倍以上。
 
@@ -296,7 +363,7 @@ bun "<skill-root>/bin/llmlint.ts" check chapter.md --review all --rule-detail --
   "version": "2.0.1",
   "initialized": false,
   "login": "none",
-  "sharing": {"tier": "fragments", "mode": "ask", "anonymous": false},
+  "sharing": {"tier": "fragments", "mode": "auto", "anonymous": false},
   "configPath": null,
   "detector": {
     "space": "yuchuantian-aigc-text-detector.hf.space",

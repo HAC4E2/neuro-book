@@ -13,8 +13,8 @@ export type AgentSessionListRequest = {
  */
 export function sessionListQuerySignature(query: AgentSessionListQueryDto): string {
     return JSON.stringify({
-        workspaceKey: query.workspaceKey ?? "",
-        projectPath: query.projectPath ?? "",
+        scope: query.scope ?? "all",
+        projectRoot: query.projectRoot ?? "",
         includeArchived: query.includeArchived === true,
         includeSystem: query.includeSystem === true,
         profileKey: query.profileKey ?? "",

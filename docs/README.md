@@ -6,6 +6,7 @@
 
 - `docs/modules/`：模块说明、需求整理和面向开发者的参考资料。
 - `docs/adr/`：已经接受、需要长期保留的架构与协议决策。
+- `docs/migrations/`：有状态发布的自动或人工升级说明、备份位置和回滚步骤。
 - `docs/tutorials/`：面向普通作者用户的产品教程和上手路径。
 - `docs/research/`：第三方库、外部资料和方案调研。
 - `docs/drafts/`：未定稿草案。
@@ -18,6 +19,7 @@
 - [../CONTRIBUTING.md](../CONTRIBUTING.md)：参与贡献的主入口，说明 Issue、开发规范、Agent 协作、Task 与 PR 流程；英文镜像见 [../CONTRIBUTING.en.md](../CONTRIBUTING.en.md)。
 - [English README](https://github.com/notnotype/neuro-book/blob/master/README.en.md)：英文项目入口。
 - [../PROJECT-STATUS.md](../PROJECT-STATUS.md)：仓库现状和近期任务。
+- [migrations/](migrations/)：Application State 迁移说明；直接启动源码或 Product 前先阅读。
 - [operator-bridge.md](operator-bridge.md)：交付与运维桥梁，面向用户和用户 Agent，说明部署、更新、排障和关键文档索引。
 - [tutorials/](tutorials/)：基础教程，从第一本书到前三章。
 - [core/](core/)：站点内核心能力说明——World Engine、Plot 剧情工坊、Markdown Studio、llmlint。

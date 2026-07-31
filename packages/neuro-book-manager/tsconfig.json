@@ -21,6 +21,7 @@
         }
     },
     "include": [
+        "../../proper-lockfile.d.ts",
         "src/**/*.ts",
         "vitest.config.ts"
     ]

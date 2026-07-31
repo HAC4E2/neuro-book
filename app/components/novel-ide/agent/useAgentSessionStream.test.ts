@@ -73,6 +73,36 @@ describe("useAgentSessionStream", () => {
         stream.stop();
     });
 
+    it("短连接 onOpen 后立即 EOF 不清零内部失败序列", async () => {
+        const session = useAgentSession();
+        session.applyRecovery(recovery(1, 0));
+        const subscribeSessionEvents = vi.fn(async (
+            _sessionId: number,
+            _cursor: AgentSessionEventsQueryDto,
+            _onEvent: (event: AgentSessionEventDto) => void,
+            _signal?: AbortSignal,
+            options?: {onOpen?: () => void},
+        ) => {
+            options?.onOpen?.();
+        });
+        const stream = useAgentSessionStream({
+            session,
+            activeSessionId: ref(1),
+            api: {getSessionRecovery: vi.fn(async () => recovery(1, 0)), subscribeSessionEvents},
+        });
+
+        await stream.start(1);
+        await Promise.resolve();
+        expect(stream.reconnectAttempt.value).toBe(1);
+        for (const [index, delay] of [300, 800, 1500, 3000].entries()) {
+            await vi.advanceTimersByTimeAsync(delay);
+            await Promise.resolve();
+            expect(subscribeSessionEvents).toHaveBeenCalledTimes(index + 2);
+        }
+        expect(stream.reconnectAttempt.value).toBe(5);
+        stream.stop();
+    });
+
     it("多个 snapshot_required 事件共用一次 recovery", async () => {
         const session = useAgentSession();
         session.applyRecovery(recovery(1, 1));
@@ -310,7 +340,7 @@ describe("useAgentSessionStream", () => {
 
         fail = false;
         await stream.reconnectNow();
-        expect(session.connectionStatus.value).toBe("connecting");
+        expect(session.connectionStatus.value).toBe("connected");
         expect(subscribeSessionEvents).toHaveBeenCalledTimes(5);
         stream.stop();
     });
@@ -320,7 +350,7 @@ function recovery(sessionId: number, after: number, revision: string | null = nu
     return {
         kind: "recovery",
         eventCursor: {eventEpoch: "epoch-1", after},
-        summary: {sessionId, profileKey: "leader.default", workspaceKey: "global", workspaceRoot: ".", status: "idle", updatedAt: 1, archived: false},
+        summary: {sessionId, profileKey: "leader.default", status: "idle", updatedAt: 1, archived: false},
         activeLeafId: null,
         activePathRevision: revision,
         history: {entries: [], previousCursor: null},

@@ -69,6 +69,11 @@ export type PiTraceRequest = {
     context?: unknown;
     /** 上下文分区归因；调用方未提供前缀归因时缺省（compaction / health-check 等无 profile prepare 的调用）。 */
     segments?: PiTraceSegment[];
+    /**
+     * 归因来源。缺省等同 `full`；`legacy` 表示该 session 建于归因功能之前，
+     * 分区由位置推断而来，HistorySet 与首轮提醒未分开。
+     */
+    attribution?: "full" | "legacy";
     /** 工具集指纹；用于跨请求检测工具变化导致的缓存断点前移。无工具时缺省。 */
     toolsHash?: string;
     /** onPayload 拿到的 provider 原生请求体；capturePayload 关时为 undefined。 */

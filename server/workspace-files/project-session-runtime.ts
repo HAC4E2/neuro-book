@@ -176,7 +176,11 @@ type ProjectSessionRecord = {
 };
 
 /** ProjectSession主动关闭原因；grace与外部root变化将在同一Core Interface复用。 */
-export type ProjectSessionCloseReason = "grace-expired" | "delete" | "shutdown" | "root-replaced" | "lock-compromised";
+/**
+ * `user` 是用户显式关闭当前 Project：它不走 grace 复检，直接进入关闭。
+ * 其余原因均由运行时自身触发（宽限到期、删除、进程关停、root 被替换、锁失效）。
+ */
+export type ProjectSessionCloseReason = "user" | "grace-expired" | "delete" | "shutdown" | "root-replaced" | "lock-compromised";
 
 /**
  * ProjectSession generation状态机。

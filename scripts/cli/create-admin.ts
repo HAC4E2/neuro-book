@@ -1,12 +1,9 @@
 import {cancel, isCancel, password as promptPassword, text} from "@clack/prompts";
 import {ensurePrismaRuntime} from "./prisma-runtime-preflight";
 import {hashUserPassword} from "nbook/server/utils/password";
-import {spawn} from "node:child_process";
-import {resolve as resolvePath} from "node:path";
-import {fileURLToPath} from "node:url";
+import {applyAppSqliteMigrations} from "nbook/scripts/db/app-sqlite-migrations";
 
 const [, , usernameArg, passwordArg] = process.argv;
-const scriptRoot = resolvePath(fileURLToPath(import.meta.url), "..", "..");
 type PrismaClientInstance = typeof import("nbook/server/utils/prisma").prisma;
 let prisma: PrismaClientInstance | null = null;
 
@@ -14,25 +11,7 @@ let prisma: PrismaClientInstance | null = null;
  * 确保 App SQLite schema 已迁移到当前版本。
  */
 async function ensureDatabaseSchema(): Promise<void> {
-    await new Promise<void>((resolve, reject) => {
-        const child = spawn(process.execPath, [resolvePath(scriptRoot, "db", "prisma-migrate.mjs"), "--deploy"], {
-            stdio: "inherit",
-            env: process.env,
-        });
-
-        child.on("exit", (code, signal) => {
-            if (signal) {
-                reject(new Error(`数据库迁移被信号中断：${signal}`));
-                return;
-            }
-            if (code !== 0) {
-                reject(new Error(`数据库迁移失败，退出码：${code ?? 1}`));
-                return;
-            }
-            resolve();
-        });
-        child.on("error", reject);
-    });
+    await applyAppSqliteMigrations();
 }
 
 /**

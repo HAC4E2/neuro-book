@@ -72,8 +72,7 @@ describe("RP builtin profiles", () => {
         const prepared = await rpLeaderProfile.prepare!({
             session: testSession({
                 profileKey: "rp.leader",
-                workspaceRoot: "workspace",
-                projectPath: "workspace/rp-project",
+                currentProjectRoot: "rp-project",
                 customState: {},
                 linkedAgents: [],
                 archived: false,
@@ -166,8 +165,7 @@ describe("RP builtin profiles", () => {
         const prepared = await simulatorLeaderProfile.prepare!({
             session: testSession({
                 profileKey: "simulator.leader",
-                workspaceRoot: "workspace",
-                projectPath: "workspace/rp-project",
+                currentProjectRoot: "rp-project",
                 customState: {},
                 linkedAgents: [],
                 archived: false,
@@ -211,8 +209,7 @@ describe("RP builtin profiles", () => {
             const prepared = await simulatorActorProfile.prepare!({
                 session: testSession({
                     profileKey: "simulator.actor",
-                    workspaceRoot: "workspace",
-                    projectPath: `workspace/${fixture.projectSlug}`,
+                    currentProjectRoot: fixture.projectSlug,
                     customState: {},
                     linkedAgents: [],
                     archived: false,
@@ -298,8 +295,7 @@ describe("RP builtin profiles", () => {
             const prepared = await simulatorActorProfile.prepare!({
                 session: testSession({
                     profileKey: "simulator.actor",
-                    workspaceRoot: "workspace",
-                    projectPath: `workspace/${fixture.projectSlug}`,
+                    currentProjectRoot: fixture.projectSlug,
                     customState: {},
                     linkedAgents: [],
                     archived: false,
@@ -336,8 +332,7 @@ describe("RP builtin profiles", () => {
             const prepared = await simulatorActorProfile.prepare!({
                 session: testSession({
                     profileKey: "simulator.actor",
-                    workspaceRoot: "workspace",
-                    projectPath: `workspace/${fixture.projectSlug}`,
+                    currentProjectRoot: fixture.projectSlug,
                     customState: {},
                     linkedAgents: [],
                     archived: false,
@@ -370,7 +365,6 @@ describe("RP builtin profiles", () => {
             const prepared = await rpWriterProfile.prepare!({
                 session: testSession({
                     profileKey: "rp.writer",
-                    workspaceRoot: "workspace",
                     customState: {},
                     linkedAgents: [],
                     archived: false,

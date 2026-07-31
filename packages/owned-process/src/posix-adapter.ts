@@ -1,5 +1,6 @@
 import {spawn} from "node:child_process";
 
+import {POSIX_SUPERVISOR_SOURCE} from "#owned-process/posix-supervisor-source";
 import {OwnedProcessError} from "#owned-process/types";
 import type {
     OwnedProcessCompletion,
@@ -8,150 +9,212 @@ import type {
     OwnedProcessTerminationReason,
 } from "#owned-process/types";
 
-/** POSIX Adapter用独立process group拥有目标及其后代。 */
-export function spawnPosixOwnedProcess(spec: OwnedProcessSpec): OwnedProcessLease {
+type SupervisorMessage =
+    | {kind: "ready"; rootPid: number}
+    | {kind: "complete"; exitCode: number | null; signal: NodeJS.Signals | null}
+    | {kind: "terminated"; exitCode: number | null; signal: NodeJS.Signals | null; reason: OwnedProcessTerminationReason}
+    | {kind: "error"; stage: string; message: string};
+
+type PosixAdapterOptions = {
+    /** 仅供包内监督协议故障回归覆盖，公共 spawnOwnedProcess 不暴露。 */
+    supervisorSource?: string;
+};
+
+/** POSIX Adapter 通过监督进程持有独立 process group，并在宿主 IPC 断开时收口。 */
+export function spawnPosixOwnedProcess(spec: OwnedProcessSpec, options: PosixAdapterOptions = {}): OwnedProcessLease {
     const graceMs = validWindow(spec.graceMs, 500, "graceMs");
     const hardKillWaitMs = validWindow(spec.hardKillWaitMs, 3_000, "hardKillWaitMs");
-    const child = spawn(spec.command, spec.args ?? [], {
+    const supervisor = spawn(process.execPath, ["-e", options.supervisorSource ?? POSIX_SUPERVISOR_SOURCE], {
         cwd: spec.cwd,
-        env: spec.env,
-        detached: true,
-        stdio: [spec.stdin ?? "ignore", spec.stdout ?? "pipe", spec.stderr ?? "pipe"],
+        // 监督器必须使用宿主环境；目标 env 只通过 IPC 传递。
+        env: process.env,
+        stdio: [spec.stdin === "inherit" ? 0 : "ignore", spec.stdout ?? "pipe", spec.stderr ?? "pipe", "ipc"],
     });
+    let settled = false;
     let terminationReason: OwnedProcessTerminationReason | undefined;
     let terminationPromise: Promise<OwnedProcessCompletion> | undefined;
-    let hardKillTimer: NodeJS.Timeout | undefined;
-    let hardWaitTimer: NodeJS.Timeout | undefined;
-    let groupPollTimer: NodeJS.Timeout | undefined;
-    let closeResult: {exitCode: number | null; signal: NodeJS.Signals | null} | undefined;
-    let settled = false;
+    let watchdog: NodeJS.Timeout | undefined;
+    let terminalMessage: Extract<SupervisorMessage, {kind: "complete" | "terminated"}> | undefined;
+    let terminalError: unknown;
     let resolveCompletion!: (value: OwnedProcessCompletion) => void;
     let rejectCompletion!: (error: unknown) => void;
-
     const completion = new Promise<OwnedProcessCompletion>((resolvePromise, rejectPromise) => {
         resolveCompletion = resolvePromise;
         rejectCompletion = rejectPromise;
     });
-    child.once("error", (error) => rejectOnce(new OwnedProcessError(
-            `无法启动自有进程：${error.message}`,
-            {stage: "spawn", cause: error},
-        )));
-    child.once("exit", () => {
-        // root自然退出时，后台后代仍可能持有stdio；保留同一process group所有权并清理。
-        if (!terminationReason) beginGroupCleanup();
+
+    supervisor.once("error", (error) => beginFailure(new OwnedProcessError(
+        `无法启动POSIX自有进程监督器：${error.message}`,
+        {stage: "supervisor-spawn", cause: error},
+    )));
+    supervisor.on("message", (value: unknown) => {
+        try {
+            handleSupervisorMessage(parseSupervisorMessage(value));
+        } catch (error) {
+            beginFailure(error);
+        }
     });
-    child.once("close", (exitCode, signal) => {
+    supervisor.once("close", (code, signal) => {
         if (settled) return;
-        closeResult = {exitCode, signal};
-        if (!hardKillTimer) beginGroupCleanup();
-        settleIfClosed();
+        if (terminalError) {
+            rejectOnce(terminalError);
+            return;
+        }
+        if (terminalMessage) {
+            settle({
+                exitCode: terminalMessage.exitCode,
+                signal: terminalMessage.signal,
+                ...(terminalMessage.kind === "terminated" ? {terminationReason: terminalMessage.reason} : {}),
+            });
+            return;
+        }
+        rejectOnce(new OwnedProcessError(
+            `POSIX监督进程未报告目标终态：code=${code ?? "null"} signal=${signal ?? "null"}`,
+            {stage: "supervisor-close"},
+        ));
+    });
+
+    sendControl({
+        kind: "start",
+        command: spec.command,
+        args: spec.args ?? [],
+        cwd: spec.cwd,
+        env: spec.env,
+        graceMs,
+        hardKillWaitMs,
     });
 
     return {
-        stdout: child.stdout ?? undefined,
-        stderr: child.stderr ?? undefined,
+        stdout: supervisor.stdout ?? undefined,
+        stderr: supervisor.stderr ?? undefined,
         completion,
         terminate(reason) {
             if (terminationPromise) return terminationPromise;
             if (settled) return completion;
             terminationReason = reason;
             terminationPromise = completion;
-            beginGroupCleanup();
+            armWatchdog(`POSIX自有进程终止未在窗口内完成：reason=${reason}`, graceMs + hardKillWaitMs + 250);
+            sendControl({kind: "terminate", reason});
             return terminationPromise;
         },
     };
 
-    /** TERM后升级到KILL，并为完整stdio收口设置最终上限。 */
-    function beginGroupCleanup(): void {
-        if (hardKillTimer || settled) return;
-        try {
-            signalGroup(child.pid, "SIGTERM");
-        } catch (error) {
-            rejectOnce(groupError("process-group-signal", child.pid, "SIGTERM", error));
-            return;
+    /** 严格校验监督器回传的状态。 */
+    function parseSupervisorMessage(value: unknown): SupervisorMessage {
+        if (!value || typeof value !== "object" || !("kind" in value)) {
+            throw new OwnedProcessError("POSIX监督状态缺少kind。", {stage: "protocol"});
         }
-        hardKillTimer = setTimeout(() => {
-            try {
-                signalGroup(child.pid, "SIGKILL");
-            } catch (error) {
-                rejectOnce(groupError("process-group-signal", child.pid, "SIGKILL", error));
-            }
-        }, graceMs);
-        groupPollTimer = setInterval(settleIfClosed, 25);
-        hardWaitTimer = setTimeout(() => rejectOnce(new OwnedProcessError(
-            `强制终止后仍未确认进程组收口：pid=${child.pid ?? "unknown"}`,
-            {stage: "hard-kill-wait"},
-        )), graceMs + hardKillWaitMs);
+        const candidate = value as {
+            kind?: unknown;
+            rootPid?: unknown;
+            exitCode?: unknown;
+            signal?: unknown;
+            reason?: unknown;
+            stage?: unknown;
+            message?: unknown;
+        };
+        if (candidate.kind === "ready" && typeof candidate.rootPid === "number") {
+            return {kind: "ready", rootPid: candidate.rootPid};
+        }
+        if (candidate.kind === "complete"
+            && (typeof candidate.exitCode === "number" || candidate.exitCode === null)
+            && (typeof candidate.signal === "string" || candidate.signal === null)) {
+            return {kind: "complete", exitCode: candidate.exitCode, signal: candidate.signal as NodeJS.Signals | null};
+        }
+        if (candidate.kind === "terminated"
+            && (typeof candidate.exitCode === "number" || candidate.exitCode === null)
+            && (typeof candidate.signal === "string" || candidate.signal === null)
+            && isTerminationReason(candidate.reason)) {
+            return {
+                kind: "terminated",
+                exitCode: candidate.exitCode,
+                signal: candidate.signal as NodeJS.Signals | null,
+                reason: candidate.reason,
+            };
+        }
+        if (candidate.kind === "error"
+            && typeof candidate.stage === "string"
+            && typeof candidate.message === "string") {
+            return {kind: "error", stage: candidate.stage, message: candidate.message};
+        }
+        throw new OwnedProcessError(`POSIX监督状态字段无效：kind=${String(candidate.kind)}`, {stage: "protocol"});
     }
 
-    /** 只有root close且整个process group消失后才提交completion。 */
-    function settleIfClosed(): void {
-        if (settled || !closeResult) return;
+    /** 监督控制消息走独立 IPC，不占用目标 stdio。 */
+    function sendControl(message: object): void {
         try {
-            if (groupExists(child.pid)) return;
+            if (!supervisor.connected) throw new Error("监督IPC已经断开。");
+            supervisor.send(message, (error) => {
+                if (!error || settled) return;
+                beginFailure(new OwnedProcessError("无法写入POSIX监督控制消息。", {
+                    stage: "control-ipc",
+                    cause: error,
+                }));
+            });
         } catch (error) {
-            rejectOnce(groupError("process-group-probe", child.pid, undefined, error));
+            beginFailure(new OwnedProcessError("无法写入POSIX监督控制消息。", {stage: "control-ipc", cause: error}));
+        }
+    }
+
+    /** 目标终态和结构化错误最终都等待 supervisor close。 */
+    function handleSupervisorMessage(message: SupervisorMessage): void {
+        if (message.kind === "error") {
+            terminalError = terminalError ?? new OwnedProcessError(message.message, {stage: message.stage});
+            armWatchdog("POSIX监督进程报告错误后未在窗口内退出。", hardKillWaitMs + 250);
             return;
         }
+        if (message.kind === "complete" || message.kind === "terminated") {
+            terminalMessage = message;
+            armWatchdog("POSIX监督进程报告终态后未在窗口内退出。", hardKillWaitMs + 250);
+        }
+    }
+
+    /** 父侧协议或 IPC 失败时断开监督器，由 supervisor 以 host-disconnect 收口。 */
+    function beginFailure(error: unknown): void {
+        if (settled) return;
+        terminalError = terminalError ?? error;
+        armWatchdog("POSIX监督进程失败后未在窗口内退出。", graceMs + hardKillWaitMs + 250);
+        if (supervisor.connected) supervisor.disconnect();
+    }
+
+    function armWatchdog(message: string, waitMs: number): void {
+        if (watchdog || settled) return;
+        watchdog = setTimeout(() => rejectOnce(new OwnedProcessError(message, {
+            stage: "hard-kill-wait",
+            cause: terminalError,
+        })), waitMs);
+    }
+
+    function settle(value: OwnedProcessCompletion): void {
+        if (settled) return;
         settled = true;
-        clearTimers();
-        resolveCompletion({
-            exitCode: closeResult.exitCode,
-            signal: closeResult.signal,
-            ...(terminationReason ? {terminationReason} : {}),
-        });
+        cleanup();
+        resolveCompletion(value);
     }
 
-    /** 只允许一个失败终态。 */
     function rejectOnce(error: unknown): void {
         if (settled) return;
         settled = true;
-        clearTimers();
+        cleanup();
         rejectCompletion(error);
     }
 
-    /** 清理本lease创建的所有timer。 */
-    function clearTimers(): void {
-        if (hardKillTimer) clearTimeout(hardKillTimer);
-        if (hardWaitTimer) clearTimeout(hardWaitTimer);
-        if (groupPollTimer) clearInterval(groupPollTimer);
+    function cleanup(): void {
+        if (watchdog) clearTimeout(watchdog);
+        supervisor.removeAllListeners("message");
+        if (supervisor.connected) supervisor.disconnect();
     }
 }
 
-/** 把process.kill失败归一化为Owned Process结构化错误。 */
-function groupError(
-    stage: "process-group-signal" | "process-group-probe",
-    pid: number | undefined,
-    signal: NodeJS.Signals | undefined,
-    cause: unknown,
-): OwnedProcessError {
-    const action = signal ? `发送${signal}` : "探测";
-    return new OwnedProcessError(`无法${action}自有进程组：pid=${pid ?? "unknown"}`, {stage, cause});
+function isTerminationReason(value: unknown): value is OwnedProcessTerminationReason {
+    return value === "timeout"
+        || value === "abort"
+        || value === "cancel"
+        || value === "shutdown"
+        || value === "startup-failure"
+        || value === "host-disconnect";
 }
 
-/** 检查独立process group是否仍有成员。 */
-function groupExists(pid: number | undefined): boolean {
-    if (!pid) return false;
-    try {
-        process.kill(-pid, 0);
-        return true;
-    } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
-        throw error;
-    }
-}
-
-/** 向目标独立process group发信号；进程已退出时保持幂等。 */
-function signalGroup(pid: number | undefined, signal: NodeJS.Signals): void {
-    if (!pid) return;
-    try {
-        process.kill(-pid, signal);
-    } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-    }
-}
-
-/** 拒绝负数和非有限生命周期窗口。 */
 function validWindow(value: number | undefined, fallback: number, field: string): number {
     const resolved = value ?? fallback;
     if (!Number.isFinite(resolved) || resolved < 0) throw new Error(`${field}必须是非负有限数。`);

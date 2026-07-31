@@ -10,7 +10,7 @@ const phaseId = ref("phase-arrival");
 const selectedThreadId = ref<string | null>("thread-main");
 const selectedSceneId = ref<string | null>("scene-cage");
 const selectedChapterId = ref<string | null>("chapter-01");
-const workspaceKey = ref(0);
+const renderRevision = ref(0);
 
 const story = plotPreviewDataset.story;
 const phases = plotPreviewDataset.phases;
@@ -181,7 +181,7 @@ function resetWorkspace(): void {
     selectedThreadId.value = "thread-main";
     selectedSceneId.value = "scene-cage";
     selectedChapterId.value = "chapter-01";
-    workspaceKey.value += 1;
+    renderRevision.value += 1;
 }
 </script>
 
@@ -225,7 +225,7 @@ function resetWorkspace(): void {
 
             <PlotTimelineView
                 v-if="timeline"
-                :key="workspaceKey"
+                :key="renderRevision"
                 :timeline="timeline"
                 :selected-thread-id="selectedThreadId"
                 :selected-scene-id="selectedSceneId"

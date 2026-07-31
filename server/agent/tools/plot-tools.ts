@@ -9,11 +9,11 @@ import {PROJECT_PLOT_WORLD_MODULE_TOKEN} from "nbook/server/plot";
 import type {PlotFacade} from "nbook/server/plot/facade/plot.facade";
 import {
     activateReadyProjectModule,
-    requireReadyProjectPath,
+    requireActiveReadyProject,
     runReadyProjectOperation,
 } from "nbook/server/workspace-files/project-session";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
-import {normalizeProjectPath, projectSlug} from "nbook/server/workspace-files/project-path";
+import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 
 const NonEmptyString = (description: string) => Type.String({minLength: 1, description});
 const NullableString = (description: string) => Type.Union([Type.String({minLength: 1, description}), Type.Null({description: "显式清空。"})]);
@@ -25,7 +25,7 @@ const StoryRefSchema = Type.Object({
 });
 
 const ProjectScopedSchema = Type.Object({
-    projectPath: NonEmptyString("Required Project Path, e.g. workspace/silver-dragon-hime. The agent must pass it explicitly."),
+    projectRoot: NonEmptyString("Required single-segment Project root, e.g. silver-dragon-hime. The agent must pass it explicitly."),
 });
 
 const SceneWorldAnchorSchema = Type.Object({
@@ -284,7 +284,7 @@ const SaveStoryDecisionSchema = Type.Object({
 });
 
 type PlotSelection = {
-    projectPath?: string;
+    projectRoot?: string;
     threadId?: string;
     sceneId?: string;
 };
@@ -302,44 +302,44 @@ type SceneRefPayloadWithNote = Omit<SceneRefPayload, "note"> & {
 
 /**
  * 创建 v3 plot 工具（Task 97 重排后形态：读 get_story_* 前缀统一，写 save_* + 显式 action）。
- * projectPath 必填；Thread/Scene 焦点写入 session custom state。
+ * projectRoot 必填；Thread/Scene 焦点写入 session custom state。
  */
 export function createPlotTools(): NeuroAgentTool[] {
     return [
         tool("get_story_tree", "Return the story tree (carrier acts/chapters + causal phases/threads) for the given Project Workspace.", GetStoryTreeSchema, {mutates: false}, async (context, input) => (
-            runPlotOperation(context, input.projectPath, async (facade) => plotResult(await facade.getPlotTree()))
+            runPlotOperation(context, input.projectRoot, async (facade) => plotResult(await facade.getPlotTree()))
         )),
         tool("get_story_thread", "Read the full detail of a story thread. threadId defaults to plot.selection.", GetStoryThreadSchema, {mutates: false}, async (context, input) => {
-            const threadId = await resolveThreadId(context, input.projectPath, input.threadId);
-            const result = await runPlotOperation(context, input.projectPath, (facade) => facade.getStoryThreadDetailDto(threadId));
-            await writeSelection(context, {projectPath: input.projectPath, threadId: String(threadId), sceneId: undefined});
+            const threadId = await resolveThreadId(context, input.projectRoot, input.threadId);
+            const result = await runPlotOperation(context, input.projectRoot, (facade) => facade.getStoryThreadDetailDto(threadId));
+            await writeSelection(context, {projectRoot: input.projectRoot, threadId: String(threadId), sceneId: undefined});
             return plotResult(result);
         }),
         tool("get_story_scene_context", "Read a story scene with its parent thread and chapter plot view. sceneId defaults to plot.selection.", GetStorySceneContextSchema, {mutates: false}, async (context, input) => {
-            const sceneId = await resolveSceneId(context, input.projectPath, input.sceneId);
-            const result = await runPlotOperation(context, input.projectPath, async (facade) => {
+            const sceneId = await resolveSceneId(context, input.projectRoot, input.sceneId);
+            const result = await runPlotOperation(context, input.projectRoot, async (facade) => {
                 const scene = await facade.getStorySceneDetailDto(sceneId);
                 const thread = await facade.getStoryThreadDetailDto(parseEntityId("threadId", scene.threadId));
                 const chapterPlot = scene.chapterId ? await facade.getChapterPlotDetailDto(parseEntityId("chapterId", scene.chapterId)) : null;
                 return {thread, scene, chapterPlot};
             });
             const {scene} = result;
-            await writeSelection(context, {projectPath: input.projectPath, threadId: scene.threadId, sceneId: String(sceneId)});
+            await writeSelection(context, {projectRoot: input.projectRoot, threadId: scene.threadId, sceneId: String(sceneId)});
             return plotResult(result);
         }),
         tool("get_scene_world_context", "Read filtered World Engine slices and subject states for a story scene. sceneId defaults to plot.selection.", GetStorySceneContextSchema, {mutates: false}, async (context, input) => {
-            const sceneId = await resolveSceneId(context, input.projectPath, input.sceneId);
-            const result = await runPlotOperation(context, input.projectPath, (facade) => facade.getSceneWorldContext(sceneId));
-            await writeSelection(context, {projectPath: input.projectPath, sceneId: String(sceneId)});
+            const sceneId = await resolveSceneId(context, input.projectRoot, input.sceneId);
+            const result = await runPlotOperation(context, input.projectRoot, (facade) => facade.getSceneWorldContext(sceneId));
+            await writeSelection(context, {projectRoot: input.projectRoot, sceneId: String(sceneId)});
             return plotResult(result);
         }),
         tool("get_story_chapter", "Read a StoryChapter detail (including its ChapterBrief fields) and the scenes attached to it.", GetStoryChapterSchema, {mutates: false}, async (context, input) => (
-            runPlotOperation(context, input.projectPath, async (facade) => (
+            runPlotOperation(context, input.projectRoot, async (facade) => (
                 plotResult(await facade.getChapterPlotDetailDto(parseEntityId("chapterId", input.chapterId)))
             ))
         )),
         tool("get_chapter_writer_brief", "Compile a chapter writer brief from ChapterBrief, Plot Scenes and filtered World Engine context. mode=autonomous (default) gives query hints; mode=curated expands state summaries. Returns markdown text for writer handoff and full DTO in details.", GetChapterWriterBriefSchema, {mutates: false}, async (context, input) => (
-            runPlotOperation(context, input.projectPath, async (facade) => {
+            runPlotOperation(context, input.projectRoot, async (facade) => {
                 const result = await facade.getChapterWriterBrief(parseEntityId("chapterId", input.chapterId), input.mode ?? "autonomous");
                 return {
                     content: [{type: "text" as const, text: result.suggestedBriefMarkdown}],
@@ -348,22 +348,22 @@ export function createPlotTools(): NeuroAgentTool[] {
             })
         )),
         tool("get_story_promise", "Read the reader-promise ledger. Without promiseId: list all promises (open first) with derived stage (unplanted/planted/echoed/paid_off) and beat stats. With promiseId: full detail including beats and the scene/chapter each beat lands on.", GetStoryPromiseSchema, {mutates: false}, async (context, input) => (
-            runPlotOperation(context, input.projectPath, async (facade) => (
+            runPlotOperation(context, input.projectRoot, async (facade) => (
                 input.promiseId === undefined
                     ? plotResult(await facade.listStoryPromises())
                     : plotResult(await facade.getStoryPromiseDetailDto(parseEntityId("promiseId", input.promiseId)))
             ))
         )),
         tool("get_story_decision", "Read story decisions (ADR ledger). Without decisionId: list all decisions (open first — check before planning so you neither re-litigate settled questions nor write dead open ones). With decisionId: full detail including options, rejected alternatives, risk and references (dangling references are marked valid=false).", GetStoryDecisionSchema, {mutates: false}, async (context, input) => (
-            runPlotOperation(context, input.projectPath, async (facade) => (
+            runPlotOperation(context, input.projectRoot, async (facade) => (
                 input.decisionId === undefined
                     ? plotResult(await facade.listStoryDecisions())
                     : plotResult(await facade.getStoryDecisionDto(parseEntityId("decisionId", input.decisionId)))
             ))
         )),
         tool("save_story_act", "Create or update a story act (volume) in the carrier tree. action=create requires name + title; action=update requires actId.", SaveStoryActSchema, {mutates: true}, async (context, input) => {
-            const {projectPath, action, actId, ...payload} = input;
-            return runPlotOperation(context, projectPath, async (facade) => {
+            const {projectRoot, action, actId, ...payload} = input;
+            return runPlotOperation(context, projectRoot, async (facade) => {
                 if (action === "create") {
                     if (actId !== undefined) {
                         throw new Error("save_story_act 参数校验失败：action=create 不接受 actId；如要修改已有 Act，请改用 action=update。");
@@ -381,8 +381,8 @@ export function createPlotTools(): NeuroAgentTool[] {
             });
         }),
         tool("save_story_chapter", "Create or update a StoryChapter (carrier tree), including its ChapterBrief fields via `brief` (undefined keeps, null clears). action=create requires name + title; action=update requires chapterId. Prose files link back via frontmatter `chapter: <name>`.", SaveStoryChapterSchema, {mutates: true}, async (context, input) => {
-            const {projectPath, action, chapterId, ...payload} = input;
-            return runPlotOperation(context, projectPath, async (facade) => {
+            const {projectRoot, action, chapterId, ...payload} = input;
+            return runPlotOperation(context, projectRoot, async (facade) => {
                 if (action === "create") {
                     if (chapterId !== undefined) {
                         throw new Error("save_story_chapter 参数校验失败：action=create 不接受 chapterId；如要修改已有章，请改用 action=update。");
@@ -400,8 +400,8 @@ export function createPlotTools(): NeuroAgentTool[] {
             });
         }),
         tool("save_story_thread", "Create, update or archive a story thread. action=create requires name + title; action=update/archive targets threadId (defaults to plot.selection); archive sets status to archived (soft delete).", SaveStoryThreadSchema, {mutates: true}, async (context, input) => {
-            const {projectPath, action, threadId, ...payload} = input;
-            const result = await runPlotOperation(context, projectPath, async (facade) => {
+            const {projectRoot, action, threadId, ...payload} = input;
+            const result = await runPlotOperation(context, projectRoot, async (facade) => {
                 if (action === "create") {
                     if (threadId !== undefined) {
                         throw new Error("save_story_thread 参数校验失败：action=create 不接受 threadId；如要修改已有 Thread，请改用 action=update。");
@@ -412,7 +412,7 @@ export function createPlotTools(): NeuroAgentTool[] {
                     }
                     return facade.createStoryThread({...payload, name, title});
                 }
-                const resolvedThreadId = await resolveThreadId(context, projectPath, threadId);
+                const resolvedThreadId = await resolveThreadId(context, projectRoot, threadId);
                 if (action === "archive" && payload.status !== undefined && payload.status !== "archived") {
                     throw new Error(`save_story_thread 参数校验失败：action=archive 会把 status 置为 archived，不能同时传入 status=${payload.status}；如要设置其他状态请用 action=update。`);
                 }
@@ -420,15 +420,15 @@ export function createPlotTools(): NeuroAgentTool[] {
                 return facade.updateStoryThread(resolvedThreadId, patch);
             });
             if (action === "create") {
-                await writeSelection(context, {projectPath, threadId: result.id, sceneId: undefined});
+                await writeSelection(context, {projectRoot, threadId: result.id, sceneId: undefined});
                 return plotResult(result);
             }
-            await writeSelection(context, {projectPath, threadId: result.id, sceneId: undefined});
+            await writeSelection(context, {projectRoot, threadId: result.id, sceneId: undefined});
             return plotResult(result);
         }),
         tool("save_story_scene", "Create, update or archive a story scene. action=create requires title (threadId defaults to plot.selection); action=update/archive targets sceneId (defaults to plot.selection); archive sets status to archived (soft delete).", SaveStorySceneSchema, {mutates: true}, async (context, input) => {
-            const {projectPath, action, sceneId, ...payload} = input;
-            const result = await runPlotOperation(context, projectPath, async (facade) => {
+            const {projectRoot, action, sceneId, ...payload} = input;
+            const result = await runPlotOperation(context, projectRoot, async (facade) => {
                 if (action === "create") {
                     if (sceneId !== undefined) {
                         throw new Error("save_story_scene 参数校验失败：action=create 不接受 sceneId；如要修改已有 Scene，请改用 action=update。");
@@ -437,10 +437,10 @@ export function createPlotTools(): NeuroAgentTool[] {
                     if (!title) {
                         throw new Error("save_story_scene 参数校验失败：action=create 必须提供 title。");
                     }
-                    const threadId = await resolveThreadId(context, projectPath, payload.threadId);
+                    const threadId = await resolveThreadId(context, projectRoot, payload.threadId);
                     return facade.createStoryScene(normalizeScenePayload({...payload, title, threadId: String(threadId)}));
                 }
-                const resolvedSceneId = await resolveSceneId(context, projectPath, sceneId);
+                const resolvedSceneId = await resolveSceneId(context, projectRoot, sceneId);
                 if (action === "archive" && payload.status !== undefined && payload.status !== "archived") {
                     throw new Error(`save_story_scene 参数校验失败：action=archive 会把 status 置为 archived，不能同时传入 status=${payload.status}；如要设置其他状态请用 action=update。`);
                 }
@@ -448,15 +448,15 @@ export function createPlotTools(): NeuroAgentTool[] {
                 return facade.updateStoryScene(resolvedSceneId, normalizeScenePayload(patch));
             });
             if (action === "create") {
-                await writeSelection(context, {projectPath, threadId: result.threadId, sceneId: result.id});
+                await writeSelection(context, {projectRoot, threadId: result.threadId, sceneId: result.id});
                 return plotResult(result);
             }
-            await writeSelection(context, {projectPath, threadId: result.threadId, sceneId: result.id});
+            await writeSelection(context, {projectRoot, threadId: result.threadId, sceneId: result.id});
             return plotResult(result);
         }),
         tool("save_story_promise", "Create or update a reader promise (ledger entry), or mark it abandoned/fulfilled. action=create requires name + title; other actions require promiseId. Reopen with action=update + status=open. Payoff usually fulfills automatically via save_promise_beat.", SaveStoryPromiseSchema, {mutates: true}, async (context, input) => {
-            const {projectPath, action, promiseId, ...payload} = input;
-            return runPlotOperation(context, projectPath, async (facade) => {
+            const {projectRoot, action, promiseId, ...payload} = input;
+            return runPlotOperation(context, projectRoot, async (facade) => {
                 if (action === "create") {
                     if (promiseId !== undefined) {
                         throw new Error("save_story_promise 参数校验失败：action=create 不接受 promiseId；如要修改已有 Promise，请改用 action=update。");
@@ -486,8 +486,8 @@ export function createPlotTools(): NeuroAgentTool[] {
         }),
         tool("save_promise_beat", "Set (upsert) or remove a promise beat on a story scene — the planned/factual touchpoint of a promise. One beat per promise x scene; setting again overwrites kind/note. kind=payoff auto-fulfills the promise unless autoFulfill=false. sceneId defaults to plot.selection.", SavePromiseBeatSchema, {mutates: true}, async (context, input) => {
             const promiseId = parseEntityId("promiseId", input.promiseId);
-            const sceneId = await resolveSceneId(context, input.projectPath, input.sceneId);
-            return runPlotOperation(context, input.projectPath, async (facade) => {
+            const sceneId = await resolveSceneId(context, input.projectRoot, input.sceneId);
+            return runPlotOperation(context, input.projectRoot, async (facade) => {
                 if (input.action === "set") {
                     if (!input.kind) {
                         throw new Error("save_promise_beat 参数校验失败：action=set 必须提供 kind（plant/advance/setback/payoff）。");
@@ -506,8 +506,8 @@ export function createPlotTools(): NeuroAgentTool[] {
             });
         }),
         tool("save_story_decision", "Create or update a story decision (ADR entry), settle it (decide) or drop it as moot. Record a decision whenever the reasoning, if unwritten, would let the next agent make a different or worse choice. action=create requires name + title + question; action=decide requires decision + motivation + risk (the brake point — enforced) and turns unchosen options into rejectedAlternatives skeletons (fill whyRejected afterwards); action=drop requires note explaining why the question became moot. Reopen with action=update + status=open; supersede with action=update + status=superseded + supersededById.", SaveStoryDecisionSchema, {mutates: true}, async (context, input) => {
-            const {projectPath, action, decisionId, ...rawPayload} = input;
-            return runPlotOperation(context, projectPath, async (facade) => {
+            const {projectRoot, action, decisionId, ...rawPayload} = input;
+            return runPlotOperation(context, projectRoot, async (facade) => {
                 // options/rejectedAlternatives 的可省备注统一补 null,对齐 DTO 的显式清空语义。
                 const payload = {
                     ...rawPayload,
@@ -592,43 +592,43 @@ function tool<TSchemaValue extends TSchema>(
 }
 
 async function readSelection(context: ToolExecutionContext): Promise<PlotSelection> {
-    const session = await context.harness.readSessionContext(context.sessionId, context.workspaceKey);
+    const session = await context.harness.readSessionContext(context.sessionId);
     const value = session.customState[PLOT_SELECTION_STATE_KEY];
     if (!value || typeof value !== "object" || Array.isArray(value)) {
         return {};
     }
     const record = value as Record<string, JsonValue>;
     return {
-        projectPath: typeof record.projectPath === "string" ? record.projectPath : undefined,
+        projectRoot: typeof record.projectRoot === "string" ? record.projectRoot : undefined,
         threadId: typeof record.threadId === "string" ? record.threadId : undefined,
         sceneId: typeof record.sceneId === "string" ? record.sceneId : undefined,
     };
 }
 
-async function resolveThreadId(context: ToolExecutionContext, projectPath: string, threadId?: string): Promise<number> {
+async function resolveThreadId(context: ToolExecutionContext, projectRoot: string, threadId?: string): Promise<number> {
     const selection = await readSelection(context);
-    const value = threadId ?? readSelectedId(selection, projectPath, "threadId");
+    const value = threadId ?? readSelectedId(selection, projectRoot, "threadId");
     if (!value) {
         throw new Error("缺少 threadId；请显式提供 threadId，或先读取/创建一个 Thread 建立 plot.selection。");
     }
     return parseEntityId("threadId", value);
 }
 
-async function resolveSceneId(context: ToolExecutionContext, projectPath: string, sceneId?: string): Promise<number> {
+async function resolveSceneId(context: ToolExecutionContext, projectRoot: string, sceneId?: string): Promise<number> {
     const selection = await readSelection(context);
-    const value = sceneId ?? readSelectedId(selection, projectPath, "sceneId");
+    const value = sceneId ?? readSelectedId(selection, projectRoot, "sceneId");
     if (!value) {
         throw new Error("缺少 sceneId；请显式提供 sceneId，或先读取/创建一个 Scene 建立 plot.selection。");
     }
     return parseEntityId("sceneId", value);
 }
 
-function readSelectedId(selection: PlotSelection, projectPath: string, key: "threadId" | "sceneId"): string | undefined {
+function readSelectedId(selection: PlotSelection, projectRoot: string, key: "threadId" | "sceneId"): string | undefined {
     if (!selection[key]) {
         return undefined;
     }
-    if (selection.projectPath && selection.projectPath !== projectPath) {
-        throw new Error(`plot.selection 属于 projectPath=${selection.projectPath}，本次工具调用传入 projectPath=${projectPath}；跨 Project 访问时请显式提供 ${key}。`);
+    if (selection.projectRoot && selection.projectRoot !== projectRoot) {
+        throw new Error(`plot.selection 属于 projectRoot=${selection.projectRoot}，本次工具调用传入 projectRoot=${projectRoot}；跨 Project 访问时请显式提供 ${key}。`);
     }
     return selection[key];
 }
@@ -652,7 +652,7 @@ async function writeSelection(context: ToolExecutionContext, patch: PlotSelectio
         ...current,
         ...patch,
         updatedAt: new Date().toISOString(),
-    } as JsonValue, context.workspaceKey);
+    } as JsonValue, context.invocationId);
 }
 
 function plotResult(details: unknown): NeuroToolResult {
@@ -665,10 +665,10 @@ function plotResult(details: unknown): NeuroToolResult {
 /** 在调用方选定的 exact Project generation 内执行一次 Plot 操作。 */
 async function runPlotOperation<TResult>(
     context: ToolExecutionContext,
-    projectPathInput: string,
+    projectRootInput: string,
     operation: (facade: PlotFacade) => Promise<TResult>,
 ): Promise<TResult> {
-    const ready = plotProjectForTool(context, projectPathInput);
+    const ready = plotProjectForTool(context, projectRootInput);
     return runReadyProjectOperation(ready, async () => {
         const {plot} = await activateReadyProjectModule(
             ready,
@@ -678,15 +678,12 @@ async function runPlotOperation<TResult>(
     });
 }
 
-/** Current Project复用invocation exact ref；只有显式override才从旧字符串seam解析当前ready。 */
-function plotProjectForTool(context: ToolExecutionContext, projectPathInput: string): ReadyProjectSessionRef {
-    if (!context.invocationId) {
-        throw new Error("Plot工具缺少invocationId，无法读取已捕获的Project generation。");
-    }
-    const projectPath = normalizeProjectPath(projectPathInput);
-    const currentProject = context.harness.projectForInvocation(context.invocationId);
-    if (currentProject?.workspace.ref.projectRoot === projectSlug(projectPath)) {
+/** Current Project复用工具上下文的exact ref；显式跨Project root要求目标已ready。 */
+function plotProjectForTool(context: ToolExecutionContext, projectRootInput: string): ReadyProjectSessionRef {
+    const ref = projectWorkspaceRef(projectRootInput);
+    const currentProject = context.currentProject;
+    if (currentProject?.workspace.ref.projectRoot === ref.projectRoot) {
         return currentProject;
     }
-    return requireReadyProjectPath(projectPath);
+    return requireActiveReadyProject(ref);
 }

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {storeToRefs} from "pinia";
-import {useNovelIdeStore, type AgentWorkspaceSyncPayload} from "nbook/app/stores/novel-ide";
+import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import {isNovelIdeTab} from "nbook/app/components/novel-ide/mock-data";
 import type {AgentMessage, AgentToolCall} from "nbook/app/components/novel-ide/agent/agent-message";
 import {hasVisibleInvocationError, isContinuationPointMessage, toPendingUserInputSession, type AgentPendingUserInputSession} from "nbook/app/components/novel-ide/agent/agent-message";
@@ -21,6 +21,7 @@ import type {AgentSessionModelDraft} from "nbook/app/components/novel-ide/agent/
 import AgentLinkedAgentPanel from "nbook/app/components/novel-ide/agent/AgentLinkedAgentPanel.vue";
 import AgentSessionDialog from "nbook/app/components/novel-ide/agent/AgentSessionDialog.vue";
 import AgentSessionTreeDialog from "nbook/app/components/novel-ide/agent/AgentSessionTreeDialog.vue";
+import AgentContextInspectorDialog from "nbook/app/components/novel-ide/agent/context-inspector/AgentContextInspectorDialog.vue";
 import AgentSessionAttachmentPanel from "nbook/app/components/novel-ide/agent/AgentSessionAttachmentPanel.vue";
 import {deriveAgentTreeState, resolveBranchSwitchTarget} from "nbook/app/components/novel-ide/agent/session-tree";
 import {AgentSessionListRequestGuard} from "nbook/app/components/novel-ide/agent/session-list-request-guard";
@@ -28,6 +29,7 @@ import {assertPublicToolCallId} from "nbook/shared/agent/public-tool-identity";
 import {AGENT_REQUEST_USER_INPUT_CONTEXT_KEY} from "nbook/app/components/novel-ide/agent/request-user-input-context";
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {useThemeManager} from "nbook/app/composables/useThemeManager";
+import {agentSessionScopeKey} from "nbook/app/utils/agent-session-scope-key";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {formatCost, formatCostExact, usingCnyRate} from "nbook/app/utils/cost-format";
 import {promptCacheHitRate, type PromptCacheUsage} from "nbook/app/utils/prompt-cache";
@@ -41,6 +43,7 @@ import type {JsonValue} from "nbook/server/agent/messages/types";
 import type {InlineEditPayload} from "nbook/app/utils/inline-editor-selection";
 import {LowCodeJsonObjectSchema} from "nbook/shared/dto/low-code-form.dto";
 import {
+    AgentComposerDraftClientStore,
     AgentComposerDraftSession,
     type AgentComposerDraftContext,
     type AgentComposerDraftSaveResult,
@@ -90,7 +93,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
     (e: "close"): void;
-    (e: "sync-workspace", payload: AgentWorkspaceSyncPayload): void;
     (e: "open-reference", target: string): void;
     (e: "open-history-inbox"): void;
 }>();
@@ -392,14 +394,12 @@ const createProfileDropdownItems = computed<DropdownItem[]>(() => createProfileO
 })));
 const canChooseCreateProfile = computed(() => createProfileOptions.value.length > 1);
 
-const workspaceKey = computed(() => {
-    if (ideStore.workspaceKind === "user-assets") {
-        return "user-assets";
-    }
-    return ideStore.currentNovelId || "workspace";
-});
-
-const agentWorkspaceRoot = computed(() => ideStore.workspaceKind === "user-assets" ? "workspace/.nbook" : ideStore.currentWorkspaceRoot || "workspace");
+const sessionScopeKey = computed(() => agentSessionScopeKey(ideStore.workspaceKind, ideStore.currentProjectRoot));
+const sessionScope = computed<Pick<AgentSessionListQueryDto, "scope" | "projectRoot">>(() => (
+    ideStore.workspaceKind === "novel" && ideStore.currentProjectRoot
+        ? {scope: "project", projectRoot: ideStore.currentProjectRoot}
+        : {scope: "workspace-root"}
+));
 
 /**
  * 把 Agent 面板内 API 异常统一转换为 notification 文案。
@@ -605,6 +605,8 @@ const cumulativeCacheHitRateLabel = computed(() => {
     const usage = activeSummary.value?.usage;
     return usage ? formatCacheHitRate(usage) : "";
 });
+/** 上下文检查面板开关（Task 126）；由 composer 的 gauge 芯片触发。 */
+const contextInspectorOpen = ref(false);
 const costDisplayOptions = computed(() => costDisplay.costDisplayOptions.value);
 const costExchangeRateSuffix = computed(() => {
     if (!usingCnyRate(costDisplayOptions.value)) {
@@ -708,7 +710,7 @@ const buildClientState = () => {
     return buildAgentClientState({
         activePanel: isNovelIdeTab(ideStore.activeLeftTab) ? ideStore.activeLeftTab : null,
         theme: ideStore.activeThemeId,
-        novelId: isUserAssetsWorkspace ? "" : ideStore.currentNovelId,
+        novelId: isUserAssetsWorkspace ? "" : ideStore.currentProjectRoot,
         workspace: ideStore.currentWorkspaceRoot || null,
         workspaceKind: ideStore.workspaceKind,
         selectedFilePath: props.selectedFilePath || null,
@@ -740,7 +742,7 @@ const loadSelectableModels = async (): Promise<void> => {
  */
 const loadResolvedLeaderProfileKey = async (): Promise<void> => {
     const requestId = ++defaultProfileResolveRequest;
-    if (ideStore.workspaceKind !== "user-assets" && !ideStore.currentNovelId) {
+    if (ideStore.workspaceKind !== "user-assets" && !ideStore.currentProjectRoot) {
         if (requestId === defaultProfileResolveRequest) {
             resolvedDefaultProfileKey.value = systemLeaderProfileKey.value;
         }
@@ -781,7 +783,7 @@ const refreshSessions = async (): Promise<AgentSessionSummaryDto[]> => {
 const refreshSessionsWithQuery = async (query: AgentSessionListQueryDto = {}): Promise<AgentSessionSummaryDto[]> => {
     const requestQuery = {
         ...query,
-        workspaceKey: workspaceKey.value,
+        ...sessionScope.value,
     };
     const request = sessionListRequestGuard.begin(requestQuery);
     if (!request.shouldFetch) {
@@ -860,9 +862,7 @@ const createSession = async (profileKey?: string): Promise<AgentSessionSummaryDt
     const created = await agentApi.createSession({
         profileKey: profileKey || leaderProfileKey.value,
         initial: {},
-        workspaceRoot: agentWorkspaceRoot.value,
-        workspaceKey: workspaceKey.value,
-        projectPath: ideStore.workspaceKind === "user-assets" ? undefined : ideStore.currentNovelId,
+        currentProjectRoot: ideStore.workspaceKind === "novel" ? ideStore.currentProjectRoot || undefined : undefined,
     });
     await refreshSessions();
     await loadSession(created.sessionId);
@@ -871,12 +871,12 @@ const createSession = async (profileKey?: string): Promise<AgentSessionSummaryDt
 
 /** 草稿保存结果只使用控制器捕获的 context，不能读取已经切换后的响应式 key。 */
 function handleComposerDraftSave(result: AgentComposerDraftSaveResult, context: AgentComposerDraftContext): void {
-    if (result === "oversize" && composerDraftWarning !== `${context.workspaceKey}:${String(context.sessionId)}:oversize`) {
-        composerDraftWarning = `${context.workspaceKey}:${String(context.sessionId)}:oversize`;
+    if (result === "oversize" && composerDraftWarning !== `${context.scopeKey}:${String(context.sessionId)}:oversize`) {
+        composerDraftWarning = `${context.scopeKey}:${String(context.sessionId)}:oversize`;
         notification.warning("Composer 草稿超过 256 KiB，已停止保存该草稿。", {title: "草稿过大"});
     }
-    if (result === "unsafe" && composerDraftWarning !== `${context.workspaceKey}:${String(context.sessionId)}:unsafe`) {
-        composerDraftWarning = `${context.workspaceKey}:${String(context.sessionId)}:unsafe`;
+    if (result === "unsafe" && composerDraftWarning !== `${context.scopeKey}:${String(context.sessionId)}:unsafe`) {
+        composerDraftWarning = `${context.scopeKey}:${String(context.sessionId)}:unsafe`;
         notification.warning("草稿包含 data/blob 图片地址，已按安全规则丢弃。", {title: "草稿未保存"});
     }
 }
@@ -885,32 +885,36 @@ function ensureComposerDraftSession(): AgentComposerDraftSession | null {
     if (!import.meta.client) {
         return null;
     }
-    composerDraftSession ??= new AgentComposerDraftSession(localStorage, handleComposerDraftSave);
+    composerDraftSession ??= new AgentComposerDraftSession(
+        new AgentComposerDraftClientStore(agentApi, localStorage),
+        handleComposerDraftSave,
+        (error) => notifyAgentError(error, "保存 Composer 草稿失败", "草稿未保存"),
+    );
     return composerDraftSession;
 }
 
 /** 立即持久化控制器当前 context；pending File 永远不进入 inputText。 */
-function saveComposerDraftNow(): void {
+async function saveComposerDraftNow(): Promise<void> {
     const drafts = ensureComposerDraftSession();
     if (!drafts) return;
     drafts.update(inputText.value);
-    drafts.flush();
+    await drafts.flush();
 }
 
 /** 原子切换草稿 context，并返回用于 remount Composer 的 generation。 */
-function switchComposerDraftContext(sessionId: number): void {
+async function switchComposerDraftContext(sessionId: number): Promise<void> {
     const drafts = ensureComposerDraftSession();
     if (!drafts) {
         composerContextGeneration.value += 1;
         inputText.value = "";
         return;
     }
-    const result = drafts.switchContext(workspaceKey.value, sessionId);
+    const scopeKey = sessionScopeKey.value;
+    inputText.value = "";
+    const result = await drafts.switchContext(scopeKey, sessionId);
+    if (!result.active || activeSessionId.value !== sessionId || sessionScopeKey.value !== scopeKey) return;
     composerContextGeneration.value = result.generation;
     inputText.value = result.text;
-    if (result.discarded) {
-        notification.warning("检测到损坏、过期或不安全的 Composer 草稿，已自动丢弃。", {title: "草稿已清理"});
-    }
 }
 
 /** 捕获本次提交的 context/revision，供迟到 acceptance compare-and-clear。 */
@@ -921,15 +925,15 @@ function captureComposerSubmission(sessionId: number, text: string): AgentCompos
     return drafts?.capture(text) ?? null;
 }
 
-function clearComposerAfterAccepted(
+async function clearComposerAfterAccepted(
     sessionId: number,
     acceptedText: string,
     submission = captureComposerSubmission(sessionId, acceptedText),
-): void {
+): Promise<void> {
     if (!submission) {
         return;
     }
-    const result = ensureComposerDraftSession()?.accept(submission);
+    const result = await ensureComposerDraftSession()?.accept(submission);
     if (result?.clearEditor && activeSessionId.value === sessionId && inputText.value === acceptedText) {
         inputText.value = "";
     }
@@ -1068,11 +1072,11 @@ function insertSessionAttachment(item: AgentSessionAttachmentItemDto): void {
  * 切换到指定 session，并拉取 recovery。
  */
 const loadSession = async (sessionId: number): Promise<void> => {
-    saveComposerDraftNow();
+    await saveComposerDraftNow();
     sessionStream.stop();
     resetSessionAttachments();
     activeSessionId.value = sessionId;
-    switchComposerDraftContext(sessionId);
+    await switchComposerDraftContext(sessionId);
     session.reset();
     cancelEditingMessage();
     messageActionId.value = null;
@@ -1658,7 +1662,7 @@ const send = async (): Promise<void> => {
     if (message.startsWith("/")) {
         try {
             if (await handleSlashCommand(message)) {
-                clearComposerAfterAccepted(sessionId, inputText.value);
+                await clearComposerAfterAccepted(sessionId, inputText.value);
                 return;
             }
         } catch (error) {
@@ -1715,14 +1719,14 @@ const send = async (): Promise<void> => {
         let result: InvokeAgentResult;
         if (first.kind === "accepted") {
             accepted = true;
-            clearComposerAfterAccepted(sessionId, prompt, draftSubmission);
+            await clearComposerAfterAccepted(sessionId, prompt, draftSubmission);
             result = await request;
         } else if (first.kind === "result") {
             result = first.result;
             const reconciliation = reconcileInvocationReceipt(clientMessageId, result.acceptance);
             accepted = reconciliation.state === "accepted";
             if (reconciliation.state === "accepted") {
-                clearComposerAfterAccepted(sessionId, prompt, draftSubmission);
+                await clearComposerAfterAccepted(sessionId, prompt, draftSubmission);
             } else {
                 session.removeOptimisticUserMessage(optimisticMessageId);
                 notification.error(result.error ?? t("agent.chatSurface.runFailed"), {title: t("agent.chatSurface.runFailed")});
@@ -1856,7 +1860,7 @@ const sendRunningMessage = async (mode: "steer" | "followup"): Promise<void> => 
         let result: InvokeAgentResult;
         if (first.kind === "accepted") {
             accepted = true;
-            clearComposerAfterAccepted(sessionId, prompt, draftSubmission);
+            await clearComposerAfterAccepted(sessionId, prompt, draftSubmission);
             result = await request;
         } else if (first.kind === "result") {
             result = first.result;
@@ -1869,7 +1873,7 @@ const sendRunningMessage = async (mode: "steer" | "followup"): Promise<void> => 
                 });
                 return;
             }
-            clearComposerAfterAccepted(sessionId, prompt, draftSubmission);
+            await clearComposerAfterAccepted(sessionId, prompt, draftSubmission);
             if (result.acceptance.state === "queued") {
                 session.removeOptimisticUserMessage(optimisticMessageId);
             }
@@ -2510,8 +2514,9 @@ const rollbackMessage = async (message: AgentMessage): Promise<void> => {
     }
 };
 
-const openSessionDialog = async (): Promise<void> => {
-    await ensureSessionReady();
+// Task 129：列表加载归对话框单一入口——AgentSessionDialog 打开时必然按自身筛选条件刷新一次，
+// 这里再预拉一次只会产生重复请求。`ensureSessionReady` 仍保留给 mounted / 发消息前的 active session 恢复。
+const openSessionDialog = (): void => {
     sessionDialogOpen.value = true;
 };
 
@@ -2685,11 +2690,11 @@ const restoreSessionFromDialog = async (target: AgentSessionSummaryDto): Promise
  * 清空当前 workspace 绑定的 Agent session 状态。workspace 切换时必须硬重置，
  * 避免同 profile 的不同 Project Workspace 复用旧会话。
  */
-function resetWorkspaceSessionState(): void {
+async function resetWorkspaceSessionState(): Promise<void> {
     const drafts = ensureComposerDraftSession();
     if (drafts) {
         drafts.update(inputText.value);
-        composerContextGeneration.value = drafts.clearContext();
+        composerContextGeneration.value = await drafts.clearContext();
     }
     sessionStream.stop();
     inlineEditorStream.stop();
@@ -2762,18 +2767,18 @@ watch(leaderProfileKey, async () => {
     if (suppressLeaderProfileReset) {
         return;
     }
-    resetWorkspaceSessionState();
+    await resetWorkspaceSessionState();
     if (!props.active) {
         return;
     }
     await ensureSessionReady();
 });
 
-watch(() => [ideStore.workspaceKind, ideStore.currentNovelId] as const, async () => {
+watch(() => [ideStore.workspaceKind, ideStore.currentProjectRoot] as const, async () => {
     suppressLeaderProfileReset = true;
     try {
         await loadResolvedLeaderProfileKey();
-        resetWorkspaceSessionState();
+        await resetWorkspaceSessionState();
         if (!props.active) {
             return;
         }
@@ -2794,7 +2799,7 @@ watch(() => ideStore.configRevision, async () => {
 });
 
 onBeforeUnmount(() => {
-    composerDraftSession?.dispose();
+    void composerDraftSession?.dispose().catch((error) => console.error("保存 Composer 草稿失败", error));
     composerDraftSession = null;
     sessionStream.stop();
     inlineEditorStream.stop();
@@ -2886,7 +2891,7 @@ async function refreshInlineEditorSessions(): Promise<AgentSessionSummaryDto[]> 
     inlineEditorSessionLoading.value = true;
     try {
         const page = await agentApi.listSessions({
-            workspaceKey: workspaceKey.value,
+            ...sessionScope.value,
             profileGroup: "all",
             profileKey: INLINE_EDITOR_PROFILE_KEY,
             status: "active",
@@ -2926,9 +2931,7 @@ async function createInlineEditorSession(): Promise<AgentSessionSummaryDto> {
     const created = await agentApi.createSession({
         profileKey: INLINE_EDITOR_PROFILE_KEY,
         initial: {},
-        workspaceRoot: agentWorkspaceRoot.value,
-        workspaceKey: workspaceKey.value,
-        projectPath: ideStore.workspaceKind === "user-assets" ? undefined : ideStore.currentNovelId,
+        currentProjectRoot: ideStore.workspaceKind === "novel" ? ideStore.currentProjectRoot || undefined : undefined,
     });
     await loadInlineEditorSession(created.sessionId);
     await refreshInlineEditorSessions();
@@ -2975,7 +2978,7 @@ function readInlineEditorSessionId(): number | null {
     if (!import.meta.client) {
         return null;
     }
-    const raw = localStorage.getItem(`agent:inline-editor-session:${workspaceKey.value}`);
+    const raw = localStorage.getItem(`agent:inline-editor-session:${sessionScopeKey.value}`);
     const parsed = raw ? Number(raw) : NaN;
     return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
@@ -2984,14 +2987,14 @@ function saveInlineEditorSessionId(sessionId: number): void {
     if (!import.meta.client) {
         return;
     }
-    localStorage.setItem(`agent:inline-editor-session:${workspaceKey.value}`, String(sessionId));
+    localStorage.setItem(`agent:inline-editor-session:${sessionScopeKey.value}`, String(sessionId));
 }
 
 function readLastSessionId(): number | null {
     if (!import.meta.client) {
         return null;
     }
-    const raw = localStorage.getItem(`agent:last-session:${workspaceKey.value}`);
+    const raw = localStorage.getItem(`agent:last-session:${sessionScopeKey.value}`);
     const parsed = raw ? Number(raw) : NaN;
     return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
@@ -3000,7 +3003,7 @@ function saveLastSessionId(sessionId: number): void {
     if (!import.meta.client) {
         return;
     }
-    localStorage.setItem(`agent:last-session:${workspaceKey.value}`, String(sessionId));
+    localStorage.setItem(`agent:last-session:${sessionScopeKey.value}`, String(sessionId));
 }
 
 function formatAnswerText(
@@ -3078,7 +3081,7 @@ function isApprovalApproved(answer?: {
                     <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :class="{'bg-[var(--bg-hover)] text-[var(--accent-main)]': systemPromptPanelOpen}" :title="t('agent.systemPrompt.open')" :disabled="!activeSessionId" @click="systemPromptPanelOpen = !systemPromptPanelOpen">
                         <span class="i-lucide-terminal-square h-4 w-4"></span>
                     </button>
-                    <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('agent.chatSurface.sessionListTitle')" @click="void openSessionDialog()">
+                    <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('agent.chatSurface.sessionListTitle')" @click="openSessionDialog()">
                         <span class="i-lucide-messages-square h-4 w-4"></span>
                     </button>
                     <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="emit('close')">
@@ -3139,7 +3142,7 @@ function isApprovalApproved(answer?: {
                 :session-attachments="knownSessionAttachments"
                 :can-register-attachments="activeInteraction.canRegisterAttachment"
                 :can-insert-attachments="activeInteraction.canInsertAttachment"
-                :project-path="props.novelId || null"
+                :project-root="props.novelId || null"
                 :model-supports-images="activeModelSupportsImages"
                 :attachment-insert-request="historyAttachmentInsertRequest"
                 :branch-switcher-state-by-message-id="branchSwitcherStateByMessageId"
@@ -3202,7 +3205,7 @@ function isApprovalApproved(answer?: {
                 :connection-needs-action="connectionNeedsAction"
                 :queued-messages="queuedMessages"
                 :menu-refresh-key="agentMenuRefreshKey"
-                :project-path="props.novelId || null"
+                :project-root="props.novelId || null"
                 :history-inbox-refresh-key="props.historyInboxRefreshKey ?? 0"
                 :history-inbox-active="props.active"
                 :session-id="activeSessionId"
@@ -3213,6 +3216,7 @@ function isApprovalApproved(answer?: {
                 @submit-user-input="void submitUserInputAnswers($event)"
                 @submit-user-input-form="void submitUserInputForm($event)"
                 @cancel-user-input="void cancelPendingUserInput($event)"
+                @open-context-inspector="contextInspectorOpen = true"
                 @send="void send()"
                 @steer="void steer()"
                 @followup="void followup()"
@@ -3261,5 +3265,8 @@ function isApprovalApproved(answer?: {
                 :can-activate="activeInteraction.canMutateHistory"
                 @select="void selectTreeNode($event)"
             />
+
+            <!-- 上下文检查面板（Task 126）：非模态，可与聊天并存 -->
+            <AgentContextInspectorDialog v-model="contextInspectorOpen" :session-id="activeSessionId" />
     </section>
 </template>

@@ -4,7 +4,7 @@ import {beforeAll, beforeEach, describe, expect, it, vi} from "vitest";
 
 type FetchMock = ReturnType<typeof vi.fn>;
 
-describe("useNovelIdeStore deleteNovel", () => {
+describe("useNovelIdeStore deleteProject", () => {
     beforeAll(() => {
         const globals = globalThis as typeof globalThis & Record<string, unknown>;
         globals.defineStore = defineStore;
@@ -24,30 +24,30 @@ describe("useNovelIdeStore deleteNovel", () => {
     it("删除非当前书后清理对应 workspace session", async () => {
         const {useNovelIdeStore} = await import("nbook/app/stores/novel-ide");
         const store = useNovelIdeStore();
-        store.currentNovelId = "workspace/current-book";
+        store.currentProjectRoot = "current-book";
         store.novels = [
-            createNovel("workspace/current-book"),
-            createNovel("workspace/deleted-book"),
+            projectFixture("current-book"),
+            projectFixture("deleted-book"),
         ];
         store.workspaceSessions = {
-            "novel:workspace/current-book": createWorkspaceSession("manuscript/current.md"),
-            "novel:workspace/deleted-book": createWorkspaceSession("manuscript/deleted.md"),
+            "novel:current-book": createWorkspaceSession("manuscript/current.md"),
+            "novel:deleted-book": createWorkspaceSession("manuscript/deleted.md"),
         };
 
-        await store.deleteNovel("workspace/deleted-book");
+        await store.deleteProject("deleted-book");
 
-        expect(store.workspaceSessions["novel:workspace/deleted-book"]).toBeUndefined();
-        expect(store.workspaceSessions["novel:workspace/current-book"]).toBeDefined();
-        expect(store.currentNovelId).toBe("workspace/current-book");
+        expect(store.workspaceSessions["novel:deleted-book"]).toBeUndefined();
+        expect(store.workspaceSessions["novel:current-book"]).toBeDefined();
+        expect(store.currentProjectRoot).toBe("current-book");
     });
 
-    it("删除当前书后不会把旧 workspace session 重新写回", async () => {
+    it("删除当前 Project 后进入未选择状态，不自动激活列表中的其它 Project", async () => {
         const {useNovelIdeStore} = await import("nbook/app/stores/novel-ide");
         const store = useNovelIdeStore();
-        store.currentNovelId = "workspace/deleted-book";
+        store.currentProjectRoot = "deleted-book";
         store.novels = [
-            createNovel("workspace/deleted-book"),
-            createNovel("workspace/next-book"),
+            projectFixture("deleted-book"),
+            projectFixture("next-book"),
         ];
         store.activeWorkspaceTabPath = "manuscript/deleted.md";
         store.workspaceTabs = [{
@@ -60,38 +60,50 @@ describe("useNovelIdeStore deleteNovel", () => {
             dirty: false,
         }];
         store.workspaceSessions = {
-            "novel:workspace/deleted-book": createWorkspaceSession("manuscript/deleted.md"),
-            "novel:workspace/next-book": createWorkspaceSession("manuscript/next.md"),
+            "novel:deleted-book": createWorkspaceSession("manuscript/deleted.md"),
+            "novel:next-book": createWorkspaceSession("manuscript/next.md"),
         };
 
-        await store.deleteNovel("workspace/deleted-book");
+        await store.deleteProject("deleted-book");
 
-        expect(store.workspaceSessions["novel:workspace/deleted-book"]).toBeUndefined();
-        expect(store.workspaceSessions["novel:workspace/next-book"]).toBeDefined();
-        expect(store.currentNovelId).toBe("workspace/next-book");
+        expect(store.workspaceSessions["novel:deleted-book"]).toBeUndefined();
+        expect(store.workspaceSessions["novel:next-book"]).toBeDefined();
+        expect(store.currentProjectRoot).toBe("");
         expect(store.activeWorkspaceTabPath).not.toBe("manuscript/deleted.md");
+        expect(globalThis.$fetch).not.toHaveBeenCalledWith("/api/workspace-files/tree", expect.anything());
     });
 
     it("初始化主入口不发送 include-only 查询", async () => {
         const {useNovelIdeStore} = await import("nbook/app/stores/novel-ide");
         const store = useNovelIdeStore();
-        store.currentNovelId = "workspace/current-book";
+        store.currentProjectRoot = "current-book";
 
         await store.initializeWorkspace();
 
         expect(globalThis.$fetch).toHaveBeenCalledWith("/api/projects");
-        expect(store.currentNovelId).toBe("workspace/current-book");
+        expect(store.currentProjectRoot).toBe("current-book");
+    });
+
+    it("初始化发现 Current Project 已缺失时进入未选择状态，不回退到第一项", async () => {
+        const {useNovelIdeStore} = await import("nbook/app/stores/novel-ide");
+        const store = useNovelIdeStore();
+        store.currentProjectRoot = "missing-book";
+
+        await store.initializeWorkspace();
+
+        expect(store.currentProjectRoot).toBe("");
+        expect(globalThis.$fetch).not.toHaveBeenCalledWith("/api/workspace-files/tree", expect.anything());
     });
 
     it("新建 Project 后刷新列表时包含新 Project，避免 route 规范化回旧书", async () => {
         const {useNovelIdeStore} = await import("nbook/app/stores/novel-ide");
         const store = useNovelIdeStore();
 
-        const createdId = await store.createNovel("新 Project", "");
+        const createdId = await store.createProject("新 Project", "");
 
-        expect(createdId).toBe("workspace/created-book");
+        expect(createdId).toBe("created-book");
         expect(globalThis.$fetch).toHaveBeenCalledWith("/api/projects");
-        expect(store.novels.some((novel) => novel.id === "workspace/created-book")).toBe(true);
+        expect(store.novels.some((novel) => novel.projectRoot === "created-book")).toBe(true);
     });
 });
 
@@ -100,7 +112,7 @@ function createFetchMock(): FetchMock {
     return vi.fn(async (url: string, options?: {method?: string}) => {
         if (url === "/api/projects" && "method" in (options ?? {}) && (options as {method?: string}).method === "POST") {
             createdProjectVisible = true;
-            return {id: "workspace/created-book"};
+            return {revision: 2, project: projectFixture("created-book")};
         }
         if (url === "/api/projects/item") {
             return {success: true};
@@ -108,14 +120,14 @@ function createFetchMock(): FetchMock {
         if (url === "/api/projects") {
             // 列表接口返回全量 manifest，不再接受 include/exclude/limit 裁剪参数。
             const novels = [
-                createNovel("workspace/next-book"),
-                createNovel("workspace/current-book"),
-                createNovel("workspace/ming-ding-zhi-shi-2"),
+                projectFixture("next-book"),
+                projectFixture("current-book"),
+                projectFixture("ming-ding-zhi-shi-2"),
             ];
             if (createdProjectVisible) {
-                novels.push(createNovel("workspace/created-book"));
+                novels.push(projectFixture("created-book"));
             }
-            return novels;
+            return {revision: 1, projects: novels};
         }
         if (url === "/api/workspace-files/tree") {
             return {
@@ -129,24 +141,13 @@ function createFetchMock(): FetchMock {
     });
 }
 
-function createNovel(id: string) {
-    const workspaceSlug = id.split("/").at(-1) ?? id;
+function projectFixture(projectRoot: string) {
     return {
-        id,
-        title: workspaceSlug,
+        projectRoot,
+        kind: "novel" as const,
+        title: projectRoot,
         summary: "",
-        workspaceSlug,
-        projectPath: id,
-        createdAt: "2026-01-01T00:00:00.000Z",
-        updatedAt: "2026-01-01T00:00:00.000Z",
-        volumeCount: 0,
-        chapterCount: 0,
-        totalWords: 0,
-        lorebookCount: 0,
-        sessionCount: 0,
-        threadCount: 0,
-        sceneCount: 0,
-        plotCount: 0,
+        manifestUpdatedAt: "2026-01-01T00:00:00.000Z",
     };
 }
 

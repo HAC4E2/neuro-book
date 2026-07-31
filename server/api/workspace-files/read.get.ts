@@ -23,24 +23,14 @@ defineRouteMeta({
             "description": "File path to read"
         },
         {
-            "name": "root",
+            "name": "projectRoot",
             "in": "query",
             "required": false,
             "schema": {
-                "description": "Workspace root directory",
+                "description": "Project Workspace root, single directory name under Workspace Root",
                 "type": "string"
             },
-            "description": "Workspace root directory"
-        },
-        {
-            "name": "novelId",
-            "in": "query",
-            "required": false,
-            "schema": {
-                "description": "Novel id used to resolve isolated workspace",
-                "type": "string"
-            },
-            "description": "Novel id used to resolve isolated workspace"
+            "description": "Project Workspace root, single directory name under Workspace Root"
         },
         {
             "name": "workspaceKind",
@@ -67,15 +57,17 @@ defineRouteMeta({
 
 
 
+
+
 /**
  * 读取工作区文本文件。
  */
 export default defineEventHandler(async (event) => {
     const query = getQuery(event);
     const filePath = readRequiredQueryString(query.path, "path");
-    const projectPath = typeof query.projectPath === "string" ? query.projectPath : undefined;
+    const projectRoot = typeof query.projectRoot === "string" ? query.projectRoot : undefined;
     const workspaceKind = query.workspaceKind === "user-assets" ? query.workspaceKind : undefined;
-    const target = await resolveWorkspaceFileTarget(runtimePathsFromEnv(), {projectPath, workspaceKind});
+    const target = await resolveWorkspaceFileTarget(runtimePathsFromEnv(), {projectRoot, workspaceKind});
     return withProjectTargetOperation(target, async () => {
         const [node, content] = await Promise.all([
             statWorkspacePath(target.root, filePath),

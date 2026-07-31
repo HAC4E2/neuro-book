@@ -1,13 +1,13 @@
-# 119 - nb-workshop 账号体系第二轮：GitHub OAuth + 用户 Profile + 管理员后台
+# 119 - neuro-book-site 账号体系：OAuth、Profile、管理员后台与访问码
 
-> 状态：**已实施（2026-07-22），待浏览器验收（GitHub OAuth 全链需真实 OAuth App）**。
-> 改动全部在 nb-workshop 仓；neuro-book 实例侧零改动。
+> 状态：**已实施（2026-07-22）；2026-07-27 完成注册码/邀请码分离，待浏览器验收（GitHub OAuth 全链需真实 OAuth App）**。
+> 改动全部在 neuro-book-site 仓；neuro-book 实例侧零改动。
 
 ## Relative documents refs
 
-- **接口唯一真相源**：nb-workshop 仓 `reference/passport/api-v1.md`（本轮扩订 §4 限流合同、§5.1 账号自管理、§5.2 GitHub OAuth、§10 PassportIdentity）。
+- **接口唯一真相源**：neuro-book-site 仓 `reference/passport/api-v1.md`（§4 限流合同、§5 账号与访问码、§10 数据模型）。
 - 前序任务：`docs/tasks/112-passport-official-site/README.md`（Passport 设备码流 / Backup / requireAccess 地基，本轮直接复用）。
-- nb-workshop 现状：nb-workshop 仓 `PROJECT-STATUS.md`。
+- neuro-book-site 现状：neuro-book-site 仓 `PROJECT-STATUS.md`。
 
 ## User Request / Topic
 
@@ -18,19 +18,19 @@
 
 ## Goal
 
-nb-workshop 完成账号体系第二轮：GitHub OAuth 落地 spec §5 预留的 `PassportIdentity`（关联 / 登录 / 邀请码补全注册三链路）；用户 profile（头像/签名/网站）打通展示位全链；admin 后台扩为六分区（概览 / 邀请码增强 / 举报 / 条目 / 用户管理 / 备份用量）；顺路收掉门 A 安全债中的登录防爆破并补修改密码。约束：现有 94-72=22 个新用例全绿且旧 72 测试零回归；spec 先行。
+neuro-book-site 完成账号体系第二轮：GitHub OAuth 落地 spec §5 预留的 `PassportIdentity`；用户 profile（头像/签名/网站）打通展示位全链；admin 后台扩为六分区；顺路收掉门 A 安全债中的登录防爆破并补修改密码。2026-07-27 进一步把管理员注册码与用户邀请码拆开：前者负责准入，后者只记录可选邀请归属。
 
 ## Decisions（拍板，勿重议）
 
-1. **GitHub 注册仍需邀请码**：首次 GitHub 登录无绑定 → 补全页填用户名 + 邀请码建号，**免设密码**（`passwordHash` 转可空，null = OAuth 免密账号）。闸门对 OAuth 用户不豁免。
+1. **所有注册仍需注册码**：首次 GitHub 登录无绑定 → 补全页填用户名 + 注册码，可选填邀请码，**免设密码**（`passwordHash` 转可空，null = OAuth 免密账号）。准入闸门对 OAuth 用户不豁免。
 2. **头像 = URL 字段 + GitHub 关联自动填**（账号无头像时才带入），不做本地上传。`avatarUrl` 限 http(s)（防 `javascript:` 进 `<img src>`）。
-3. **admin 四块全做**：用户管理 / 站点统计概览 / 备份用量管理 / 邀请码增强（note + 全量列表）。
+3. **admin 四块全做**：用户管理 / 站点统计概览 / 备份用量管理 / 注册码管理。
 4. **补充项三个全做**：登录防爆破、修改密码、作者页/展示位吃上 profile。
 5. spec 冻结原则不变：上游身份只能**关联**到 NeuroBook 账号（`PassportIdentity`），不能替代它作为主键；解绑守卫=无密码时拒绝（防唯一登录方式被移除后账号失联）。
 6. 实施中追加的语义定案：
    - **封禁语义**：status→disabled + sessionVersion+1（在线 cookie 会话即死）；Bearer 面由 passport-guard 既有 user-active 检查同步拒绝（零新增代码）；作者页 404（既有）；**条目不自动下架**（需要时 admin 用条目管理单独 removed）。禁止操作自己（防唯一管理员自锁）。
    - **角色变更也踢线**：session 里的 role 是快照，不踢线会出现降级后前端仍显示 admin 入口但请求全 403 的撕裂态。
-   - **登录限流键 = IP+用户名**（10 次/5min）：纯 IP 会误伤共享出口与集成测试；单账号爆破被压死，撒网式换名爆破由邀请码注册闸门兜底。注册（含 OAuth 补全，共享额度）5 次/时/IP；改密 5 次/时/用户。额度 env 可覆写（`NB_LOGIN/REGISTER/PASSWORD_RATE_LIMIT`）。
+   - **登录限流键 = IP+用户名**（10 次/5min）：纯 IP 会误伤共享出口与集成测试；单账号爆破被压死，撒网式换名爆破由注册码准入门禁兜底。注册（含 OAuth 补全，共享额度）5 次/时/IP；改密 5 次/时/用户。额度 env 可覆写（`NB_LOGIN/REGISTER/PASSWORD_RATE_LIMIT`）。
    - 一个账号每个 provider 只绑一个上游身份（bind 分支预检，重复绑定回 `github=already`）。
 
 ## Implementation Walkthrough
@@ -97,5 +97,30 @@ nb-workshop 完成账号体系第二轮：GitHub OAuth 落地 spec §5 预留的
 ## TODO / Follow-ups
 
 - [ ] 浏览器验收（用户）：GitHub OAuth 全链 + me 账号设置 + admin 六 tab + 头像展示位。
-- [ ] GitHub OAuth App 生产配置（正式域名回调地址）；`DEFAULT_PASSPORT_SITE_URL` 回填仍挂在 Task 112 TODO。
+- [x] NeuroBook 官网地址已由 [Task 128](../128-neuro-book-site-deployment/README.md) 固定为 `https://nbook.notnotype.com`，客户端不再接受自定义 Passport 上游。
+- [ ] GitHub OAuth App 生产配置仍延后；owner-only 私有内测保持 OAuth 关闭，等 Public Invite Gate 单独决策后再启用。
 - [ ] 后续（不在本任务）：邮箱注册/验证；更多 OAuth provider（PassportIdentity 已是自由 provider 字符串，只需加回调路由）；admin 恢复 removed 条目的目标状态语义（旧遗留）；评论纯文本→富文本（旧遗留）。
+
+## 2026-07-27 Follow-up：注册码与邀请码分离
+
+### 当前合同
+
+- 管理员创建 `RegistrationCode`，负责注册准入；注册码可不限次数或限制次数，可设置过期时间、备注并停用/启用。
+- 普通用户创建 `InviteCode`，只记录新用户由谁邀请；邀请码可选，不能替代注册码。创建者只能管理自己的邀请码。
+- 密码注册与 OAuth 补全注册都要求 `registrationCode`，可选 `inviteCode`。两类码和用户创建在同一事务内消费；有限次数使用条件更新，避免并发穿透。
+- 注册页接受 `?registrationCode=...&inviteCode=...` 并预填。管理员可复制注册码注册链接，用户可复制邀请码链接并选择附带注册码。
+- 旧一次性管理员邀请码迁为不限次数注册码，已有使用归属保留；不保留旧接口或旧请求字段。
+
+### 实现
+
+- Prisma 新增 `RegistrationCode`，重建 `InviteCode` 为用户所有；`User` 增加 `registrationCodeId` 与 `inviteCodeId`。
+- 管理员端点硬切为 `/api/v1/admin/registration-codes`；用户端点新增 `/api/v1/me/invite-codes`。
+- `/admin` 原“邀请码”分区改为“注册码”，支持批量签发、编辑限制、停用和复制链接；`/me` 新增“邀请好友”分区。
+- 注册码/邀请码使用上限修改采用带 `usedCount <= maxUses` 的条件更新，避免与并发注册交错后出现已用次数超过上限。
+
+### 验证与边界
+
+- `bun run typecheck`、`bun run build` 通过；新构建产物上的 `bun run test` 为 15 个文件、123 项全绿。
+- 聚焦 HTTP 测试覆盖不限次数复用、`maxUses=1` 并发门禁、过期、停用、上限下调拒绝、邀请码归属、越权和停用。
+- 独立旧库迁移演练覆盖一条已使用码和一条未使用码：分别迁为 `usedCount=1/0` 的不限次数注册码；原用户 `registrationCodeId` 保留，新邀请码表为空。
+- 生产 `NB_PRIVATE_MODE=1` 仍强制关闭注册和 GitHub OAuth。本轮完成代码能力，不代表 Public Invite Gate 已通过，也未自动执行浏览器验收。

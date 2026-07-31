@@ -47,7 +47,7 @@ type WorkbenchInlineRef = {
 };
 const props = defineProps<{
     mode: "thread" | "scene";
-    projectPath: string;
+    projectRoot: string;
     thread: PlotThreadPanelThread | null;
     scene: PlotThreadPanelScene | null;
     chapters: PlotThreadPanelChapter[];
@@ -414,10 +414,10 @@ function updateWorldAnchor(patch: Partial<PlotThreadPanelScene["worldAnchor"]>):
                         </FormField>
                     </div>
                     <FormField label="出场 Subjects">
-                        <SubjectMultiSelect :project-path="props.projectPath" :model-value="props.scene.worldAnchor.subjectIds" @update:model-value="updateWorldAnchor({subjectIds: $event})" />
+                        <SubjectMultiSelect :project-root="props.projectRoot" :model-value="props.scene.worldAnchor.subjectIds" @update:model-value="updateWorldAnchor({subjectIds: $event})" />
                     </FormField>
                     <FormField label="地点">
-                        <SubjectSingleSelect :project-path="props.projectPath" :model-value="props.scene.worldAnchor.locationSubjectId" @update:model-value="updateWorldAnchor({locationSubjectId: $event})" />
+                        <SubjectSingleSelect :project-root="props.projectRoot" :model-value="props.scene.worldAnchor.locationSubjectId" @update:model-value="updateWorldAnchor({locationSubjectId: $event})" />
                     </FormField>
                     <div v-if="props.scene.worldAnchor.unresolvedSubjectIds.length" class="rounded-md border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-2.5 py-2 text-[11px] leading-relaxed text-[var(--status-warning)]">
                         <div class="mb-1 flex items-center gap-1 font-semibold">
@@ -426,7 +426,7 @@ function updateWorldAnchor(patch: Partial<PlotThreadPanelScene["worldAnchor"]>):
                         </div>
                         <div class="break-all font-mono">{{ props.scene.worldAnchor.unresolvedSubjectIds.join("，") }}</div>
                     </div>
-                    <WorldEngineContextPanel v-if="worldContextVisible" :project-path="props.projectPath" :scene-id="props.scene.id" @open-world-engine="emit('openWorldEngine')" />
+                    <WorldEngineContextPanel v-if="worldContextVisible" :project-root="props.projectRoot" :scene-id="props.scene.id" @open-world-engine="emit('openWorldEngine')" />
                 </div>
             </section>
 

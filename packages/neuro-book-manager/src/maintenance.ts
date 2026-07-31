@@ -16,7 +16,7 @@ import {MANAGER_VERSION} from "#manager/version-info";
 
 /** 安装或更新托管 Bun，同时刷新 Manager/Application Runtime 与稳定 wrapper。 */
 export async function maintainRuntime(root: string, manifest: InstallationManifest, managerExecutable: string, version?: string): Promise<InstallationManifest> {
-    const paths = installationPaths(root, manifest.profile === "windows-portable");
+    const paths = installationPaths(root, manifest.roots);
     return withInstallLock(join(paths.deploy, "install.lock"), async () => {
         const recovered = await recoverInterruptedOperations(root);
         const current = recovered ?? await readInstallationManifest(paths.manifest);
@@ -70,7 +70,7 @@ export async function maintainRuntime(root: string, manifest: InstallationManife
 
 /** 安装或更新托管工具，并更新固定 tools 组件。 */
 export async function maintainTool(root: string, manifest: InstallationManifest, tool: ManagedToolName, managerExecutable: string): Promise<InstallationManifest> {
-    const paths = installationPaths(root, manifest.profile === "windows-portable");
+    const paths = installationPaths(root, manifest.roots);
     return withInstallLock(join(paths.deploy, "install.lock"), async () => {
         const recovered = await recoverInterruptedOperations(root);
         const current = recovered ?? await readInstallationManifest(paths.manifest);

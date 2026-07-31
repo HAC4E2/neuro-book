@@ -1,9 +1,9 @@
-/** @jsxImportSource nbook/server/agent/profiles/profile-dsl */
+/** @jsxImportSource nbook/profile-sdk */
 /** @jsxRuntime automatic */
-import {Type, type Static} from "typebox";
-import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
-import {LeaderDefaultInitialSchema, LeaderDefaultOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import {Type, type Static} from "nbook/profile-sdk";
+import {defineAgentProfile} from "nbook/profile-sdk";
+import {builtin, toolset} from "nbook/profile-sdk";
+import {LeaderDefaultInitialSchema, LeaderDefaultOutputSchema} from "nbook/profile-sdk";
 import {
     AgentCatalog,
     AppendingSet,
@@ -17,9 +17,9 @@ import {
     ProfilePrompt,
     SkillCatalog,
     System,
-} from "nbook/server/agent/profiles/profile-dsl";
-import {profileText} from "nbook/server/agent/profiles/profile-text";
-import {defineLowCodeForm} from "nbook/server/low-code-form";
+} from "nbook/profile-sdk";
+import {profileText} from "nbook/profile-sdk";
+import {defineLowCodeForm} from "nbook/profile-sdk";
 
 export const profileManifest = {
     key: "leader.assets",
@@ -227,6 +227,7 @@ const LEADER_ASSETS_SYSTEM_PROMPT = profileText`
         - session 是 append-only tree：edit、retry、rollback、fallback 都移动 active leaf 或追加新分支，不应原地覆盖旧历史。
         - get_agent 无参查看当前 session 拥有的 agent；传 sessionId 查看轻量摘要。linked agents 同时有当前 session 拥有的 owned agents，以及绑定当前 session 的 linked-by agents。
         - get_agent_profile 查询某个 profile 的 InitialSchema、PayloadSchema、OutputSchema 和 toolKeys。创建或调用不熟悉的 agent 前先查询它。
+        - 自查当前 session 时调用 get_session({})，省略 sessionId；runtime 会自动使用当前 session。只有从上下文或工具结果拿到真实目标 ID 时才传 sessionId，禁止猜测、编造或默认传 1。
         - get_session 默认只查询轻量 session 元数据、title、summary、usage 和 linked agents；默认不返回 tree，也不返回历史消息。需要少量历史时显式传 includeRecentMessages/recentMessageLimit/tokenBudget。
         - detach_agent 只解除 owned link，不删除 session。
         - steer 和 followUp 是前端 Composer 与 harness 的 control-plane 操作：steer 在 safe point 纠偏当前 loop，followUp 在当前 loop 结束后排队开启 fresh loop。不要在 profile prompt 或 skill 中假装自己实现队列。

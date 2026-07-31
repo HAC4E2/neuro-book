@@ -1,7 +1,5 @@
 #!/usr/bin/env bun
-import {createHash} from "node:crypto";
-import {access, mkdir, readFile, rename, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {access, mkdir, readFile, rename, writeFile} from "node:fs/promises";
 import path from "node:path";
 import {fileURLToPath} from "node:url";
 import {Type} from "typebox";
@@ -23,6 +21,7 @@ import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {readDotPath, VariableFileStorage} from "nbook/server/agent/variables/storage";
 import {loadGlobalEffectiveConfigAtWorkspaceRoot, saveGlobalConfig} from "nbook/server/config/config-service";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
+import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 import {closeProject, openProject} from "nbook/server/workspace-files/project-session";
 
 if (!process.env.NEURO_BOOK_APPLICATION_ROOT?.trim() || !process.env.NEURO_BOOK_STATE_ROOT?.trim()) {
@@ -58,25 +57,14 @@ if (process.argv[2] === "resume-moved-state") {
 }
 
 const projectSlug = `task109-product-smoke-${process.pid}`;
-const projectPath = `workspace/${projectSlug}`;
-const projectRoot = path.join(runtimePaths.workspaceRoot, projectSlug);
-const externalProjectRoot = path.join(tmpdir(), `neuro-book-external-project-${process.pid}`);
-const externalImageBytes = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
-await mkdir(path.join(projectRoot, ".nbook"), {recursive: true});
-await writeFile(path.join(projectRoot, "project.yaml"), [
+const projectWorkspaceRoot = path.join(runtimePaths.workspaceRoot, projectSlug);
+await mkdir(path.join(projectWorkspaceRoot, ".nbook"), {recursive: true});
+await writeFile(path.join(projectWorkspaceRoot, "project.yaml"), [
     "kind: novel",
     "title: Task 109 Product Smoke",
     "summary: Product runtime path verification",
     "",
 ].join("\n"), "utf8");
-await mkdir(path.join(externalProjectRoot, "lorebook"), {recursive: true});
-await writeFile(path.join(externalProjectRoot, "project.yaml"), [
-    "kind: novel",
-    "title: Task 108 External Project Smoke",
-    "summary: External Project attachment verification",
-    "",
-].join("\n"), "utf8");
-await writeFile(path.join(externalProjectRoot, "lorebook", "cover.jpg"), externalImageBytes);
 
 const faux = createSmokeModels();
 const harness = createSmokeHarness(runtimePaths, faux);
@@ -84,8 +72,8 @@ let sessionId: number | null = null;
 
 try {
     registerSmokeProfile(harness);
-    await writeProductState(harness, runtimePaths, projectPath, "initial-state-root");
-    await assertProductState(runtimePaths, projectPath, "initial-state-root");
+    await writeProductState(harness, runtimePaths, projectSlug, "initial-state-root");
+    await assertProductState(runtimePaths, projectSlug, "initial-state-root");
     faux.setResponses([
         fauxAssistantMessage([fauxToolCall("write", {
             path: "lorebook/product-marker.txt",
@@ -115,8 +103,7 @@ try {
     const created = await harness.createAgent({
         profileKey: "test.product-state-root",
         initial: {},
-        workspaceRoot: "workspace",
-        projectPath,
+        currentProjectRoot: projectSlug,
     });
     sessionId = created.sessionId;
     const result = await harness.invokeAgent({
@@ -128,63 +115,19 @@ try {
         throw new Error(`Product Agent smoke未完成：${result.status} ${result.error ?? ""}`.trim());
     }
 
-    await assertFile(path.join(projectRoot, "lorebook", "product-marker.txt"), "edit-ok");
-    await assertFile(path.join(projectRoot, "manuscript", "patch-marker.txt"), "patch-ok\n");
-    await assertFile(path.join(projectRoot, ".agent", "bash-marker.txt"), "bash-ok");
+    await assertFile(path.join(projectWorkspaceRoot, "lorebook", "product-marker.txt"), "edit-ok");
+    await assertFile(path.join(projectWorkspaceRoot, "manuscript", "patch-marker.txt"), "patch-ok\n");
+    await assertFile(path.join(projectWorkspaceRoot, ".agent", "bash-marker.txt"), "bash-ok");
     const stored = await harness.repo.readSession(created.sessionId);
-    if (stored.metadata.workspaceRoot !== "workspace" || stored.metadata.projectPath !== projectPath) {
-        throw new Error("Product Agent smoke的session没有保留逻辑Workspace Root Reference与Project Path。");
+    if (stored.metadata.schemaVersion !== 2 || stored.metadata.currentProjectRoot !== projectSlug) {
+        throw new Error("Product Agent smoke的session没有写入schema v2 Current Project。");
     }
     if (!sameRootLayout && await pathExists(path.join(runtimePaths.applicationRoot, "workspace"))) {
         throw new Error(`Product Agent smoke在Installation Root产生了错误Workspace Root：${path.join(runtimePaths.applicationRoot, "workspace")}`);
     }
-
-    faux.setResponses([
-        fauxAssistantMessage([fauxToolCall("read", {
-            path: "lorebook/cover.jpg",
-        }, {id: "external-image-read"})], {stopReason: "toolUse"}),
-        fauxAssistantMessage([fauxText("external image done"), fauxToolCall("report_result", {result: "ok"}, {id: "external-image-report"})], {stopReason: "toolUse"}),
-    ]);
-    const externalSession = await harness.createAgent({
-        profileKey: "test.product-state-root",
-        initial: {},
-        workspaceRoot: externalProjectRoot,
-        projectPath: externalProjectRoot,
-        workspaceKey: "external-project",
-    });
-    const externalResult = await harness.invokeAgent({
-        sessionId: externalSession.sessionId,
-        mode: "prompt",
-        message: {text: "read the external Project image"},
-    });
-    if (externalResult.status !== "completed") {
-        throw new Error(`Product external Project image smoke未完成：${externalResult.status} ${externalResult.error ?? ""}`.trim());
-    }
-    const attachmentHash = createHash("sha256").update(externalImageBytes).digest("hex");
-    const attachmentPath = path.join(
-        runtimePaths.userNbookRoot,
-        "agent",
-        "attachments",
-        "sha256",
-        attachmentHash.slice(0, 2),
-        attachmentHash.slice(2),
-    );
-    await access(attachmentPath);
-    if (await pathExists(path.join(externalProjectRoot, ".nbook", "agent", "attachments"))) {
-        throw new Error("Product external Project image错误写入了Project-local Attachment Store。");
-    }
-    const externalStored = await harness.repo.readSession(externalSession.sessionId, "external-project");
-    const attachmentId = `sha256:${attachmentHash}`;
-    const storedAttachment = externalStored.entries.some((entry) => entry.type === "message"
-        && entry.message.role === "toolResult"
-        && entry.message.content.some((block) => block.type === "attachment" && block.attachment.id === attachmentId));
-    if (!storedAttachment) {
-        throw new Error("Product external Project image没有持久化为Attachment reference。");
-    }
 } finally {
     await harness.dispose();
-    await closeProject(projectPath, "shutdown").catch(() => undefined);
-    await rm(externalProjectRoot, {recursive: true, force: true});
+    await closeProject(projectWorkspaceRef(projectSlug), "shutdown").catch(() => undefined);
 }
 
 if (sessionId === null) {
@@ -198,8 +141,8 @@ if (sameRootLayout) {
         applicationRoot: runtimePaths.applicationRoot,
         stateRoot: runtimePaths.stateRoot,
         workspaceRoot: runtimePaths.workspaceRoot,
-        projectPath,
-        projectRoot,
+        projectRoot: projectSlug,
+        projectWorkspaceRoot,
         sessionId,
     }, null, 2));
     process.exit(0);
@@ -238,8 +181,8 @@ console.log(JSON.stringify({
     originalStateRoot: runtimePaths.stateRoot,
     movedStateRoot: movedRuntimePaths.stateRoot,
     workspaceRoot: movedRuntimePaths.workspaceRoot,
-    projectPath,
-    projectRoot: movedProjectRoot,
+    projectRoot: projectSlug,
+    projectWorkspaceRoot: movedProjectRoot,
     sessionId,
 }, null, 2));
 
@@ -249,15 +192,14 @@ async function runMovedStateRootPhase(
     movedProjectSlug: string,
     movedSessionId: number,
 ): Promise<void> {
-    const movedProjectPath = `workspace/${movedProjectSlug}`;
     const movedProjectRoot = path.join(paths.workspaceRoot, movedProjectSlug);
     const movedFaux = createSmokeModels();
     const movedHarness = createSmokeHarness(paths, movedFaux);
     try {
         registerSmokeProfile(movedHarness);
-        await assertProductState(paths, movedProjectPath, "initial-state-root");
-        await writeProductState(movedHarness, paths, movedProjectPath, "moved-state-root");
-        await assertProductState(paths, movedProjectPath, "moved-state-root");
+        await assertProductState(paths, movedProjectSlug, "initial-state-root");
+        await writeProductState(movedHarness, paths, movedProjectSlug, "moved-state-root");
+        await assertProductState(paths, movedProjectSlug, "moved-state-root");
         movedFaux.setResponses([
             fauxAssistantMessage([fauxToolCall("read", {
                 path: "lorebook/product-marker.txt",
@@ -284,7 +226,7 @@ async function runMovedStateRootPhase(
         }
     } finally {
         await movedHarness.dispose();
-        await closeProject(movedProjectPath, "shutdown").catch(() => undefined);
+        await closeProject(projectWorkspaceRef(movedProjectSlug), "shutdown").catch(() => undefined);
     }
 }
 
@@ -343,7 +285,7 @@ function registerSmokeProfile(smokeHarness: NeuroAgentHarness): void {
 async function writeProductState(
     smokeHarness: NeuroAgentHarness,
     paths: ReturnType<typeof runtimePathsFromEnv>,
-    currentProjectPath: string,
+    currentProjectRoot: string,
     marker: string,
 ): Promise<void> {
     await saveGlobalConfig({
@@ -392,10 +334,10 @@ async function writeProductState(
     });
     await home.writeText("state-root-marker.txt", marker, {mode: "overwrite"});
 
-    const currentProject = await openProject(paths.workspaceRoot, currentProjectPath, {
+    const currentProject = await openProject(projectWorkspaceRef(currentProjectRoot), {
         kind: "job",
         source: "product-state-root-smoke-write",
-    });
+    }, paths.workspaceRoot);
     const storage = new VariableFileStorage(paths.workspaceRoot, currentProject.workspace);
     await storage.patch("global", "task109.productStateRoot", [{
         op: "replace",
@@ -412,7 +354,7 @@ async function writeProductState(
 /** 验证三类状态服务从当前RuntimePaths读取同一份State Root数据。 */
 async function assertProductState(
     paths: ReturnType<typeof runtimePathsFromEnv>,
-    currentProjectPath: string,
+    currentProjectRoot: string,
     expectedMarker: string,
 ): Promise<void> {
     const config = await loadGlobalEffectiveConfigAtWorkspaceRoot({workspaceRoot: paths.workspaceRoot});
@@ -433,10 +375,10 @@ async function assertProductState(
         throw new Error("Product Global Profile Home没有读取到当前State Root标记。");
     }
 
-    const currentProject = await openProject(paths.workspaceRoot, currentProjectPath, {
+    const currentProject = await openProject(projectWorkspaceRef(currentProjectRoot), {
         kind: "job",
         source: "product-state-root-smoke-read",
-    });
+    }, paths.workspaceRoot);
     const storage = new VariableFileStorage(paths.workspaceRoot, currentProject.workspace);
     const [globalVariables, projectVariables] = await Promise.all([
         storage.read("global"),

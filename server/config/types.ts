@@ -200,15 +200,6 @@ export type EffectiveConfig = {
     web: WebSettingsConfig;
     observability: ObservabilityConfig;
     history: WorkspaceHistorySettingsConfig;
-    novelData: NovelDataConfig;
-};
-
-/**
- * novel-api 榜单服务配置（sibling 仓 ../novel-api，NovelScope 小说榜单采集服务）。
- * baseUrl 是服务 HTTP 地址（不含 /v1 路径前缀）；清空表示未配置，agent 榜单工具会提示用户到设置页填写。
- */
-export type NovelDataConfig = {
-    baseUrl: string;
 };
 
 /** 可观测配置。第一版只有 Pi 请求 trace。 */
@@ -273,8 +264,6 @@ export type StoredGlobalConfig = {
         piTrace?: Partial<PiTraceConfig>;
     };
     history?: Partial<WorkspaceHistorySettingsConfig>;
-    /** novel-api 榜单服务地址（global scope，Project 不覆盖）。 */
-    novelData?: Partial<NovelDataConfig>;
 };
 
 export type StoredProjectConfig = {

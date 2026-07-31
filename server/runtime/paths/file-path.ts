@@ -72,8 +72,25 @@ export function relativeFilePathInside(root: AbsoluteFsPath, target: AbsoluteFsP
  * 用 `resolveContainedFilePath()` 得到目标，再在真正读写前调用本函数。
  */
 export async function assertRealPathContained(root: AbsoluteFsPath, target: AbsoluteFsPath): Promise<void> {
+    if (await relativeRealPathInside(root, target) !== null) {
+        return;
+    }
+    throw new Error(`真实路径越过文件系统根：${target}`);
+}
+
+/**
+ * 将目标按真实文件系统身份转换为 root 内的相对路径。
+ *
+ * 目标尚不存在时，从最近的已存在父目录解析 realpath，再拼回缺失后缀；因此既能
+ * 识别 Windows 8.3/大小写别名，也不会把穿过 symlink/junction 的路径误判在 root 内。
+ */
+export async function relativeRealPathInside(
+    root: AbsoluteFsPath,
+    target: AbsoluteFsPath,
+): Promise<string | null> {
     const realRoot = await realpath(root);
     let existingPath = target;
+    const missingSegments: string[] = [];
     while (true) {
         try {
             await lstat(existingPath);
@@ -86,15 +103,17 @@ export async function assertRealPathContained(root: AbsoluteFsPath, target: Abso
             if (parent === existingPath) {
                 throw new Error(`找不到可验证的目标父目录：${target}`);
             }
+            missingSegments.unshift(path.basename(existingPath));
             existingPath = parent as AbsoluteFsPath;
         }
     }
     const realExistingPath = await realpath(existingPath);
-    const relativePath = path.relative(realRoot, realExistingPath);
-    if (!isOutsideRootRelativePath(relativePath)) {
-        return;
+    const realTarget = path.resolve(realExistingPath, ...missingSegments);
+    const relativePath = path.relative(realRoot, realTarget);
+    if (isOutsideRootRelativePath(relativePath)) {
+        return null;
     }
-    throw new Error(`真实路径越过文件系统根：${target}`);
+    return relativePath === "" ? "." : relativePath.replaceAll(path.sep, "/");
 }
 
 /**

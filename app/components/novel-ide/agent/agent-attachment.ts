@@ -12,11 +12,14 @@ export type AgentAttachmentDisplay = {
     };
 };
 
+export type AgentAttachmentPreset = "attachment-chat" | "attachment-grid";
+
 /** 将 durable entry 的附件 locator 转成受 session/entry/content index 约束的读取地址。 */
 export const agentAttachmentUrl = (
     sessionId: number | null | undefined,
     entryId: string | null | undefined,
     contentIndex: number,
+    preset?: AgentAttachmentPreset,
 ): string | null => {
     if (
         sessionId === null
@@ -28,7 +31,8 @@ export const agentAttachmentUrl = (
     ) {
         return null;
     }
-    return `/api/agent/sessions/${encodeURIComponent(String(sessionId))}/entries/${encodeURIComponent(entryId)}/attachments/${String(contentIndex)}`;
+    const base = `/api/agent/sessions/${encodeURIComponent(String(sessionId))}/entries/${encodeURIComponent(entryId)}/attachments/${String(contentIndex)}`;
+    return preset ? `${base}?${new URLSearchParams({preset}).toString()}` : base;
 };
 
 /** 复制公开附件 locator，避免前端在消息状态中保留服务端 DTO 的可变引用。 */

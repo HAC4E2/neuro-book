@@ -1,4 +1,14 @@
-import type {AgentSessionEventSubscription, PublishedAgentSessionEvent} from "nbook/server/agent/events/session-event-hub";
+/** SSE writer 消费的不可变帧最小表面。 */
+export type AgentSseFrame = {
+    readonly frame: Buffer;
+};
+
+/** 与 payload 类型无关的 SSE 订阅最小表面。 */
+export type AgentSseSubscription<Event extends AgentSseFrame> = AsyncIterable<Event> & {
+    readonly connected: Event;
+    readonly signal: AbortSignal;
+    close(reason?: "consumer_closed"): void;
+};
 
 /** Agent SSE writer 所需的最小 Node ServerResponse 表面，便于确定性测试。 */
 export type AgentSseResponse = {
@@ -24,9 +34,9 @@ class AgentSseClosedError extends Error {
  * 以 Node response backpressure 写出 Agent SSE。任一时刻最多有一个 frame 进入
  * response；write(false) 后必须等 drain，subscription overflow 可立即打断等待。
  */
-export async function writeAgentSessionEventStream(
+export async function writeAgentEventStream<Event extends AgentSseFrame>(
     response: AgentSseResponse,
-    subscription: AgentSessionEventSubscription,
+    subscription: AgentSseSubscription<Event>,
 ): Promise<void> {
     response.setHeader("content-type", "text/event-stream; charset=utf-8");
     response.setHeader("cache-control", "no-cache, no-transform");
@@ -77,7 +87,7 @@ export async function writeAgentSessionEventStream(
 /** 写出一个 immutable frame，并在 Node highWaterMark 触发时等待 drain。 */
 async function writeFrame(
     response: AgentSseResponse,
-    event: PublishedAgentSessionEvent,
+    event: AgentSseFrame,
     signal: AbortSignal,
 ): Promise<void> {
     if (signal.aborted || response.destroyed || response.writableEnded) {

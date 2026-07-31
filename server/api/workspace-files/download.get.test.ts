@@ -6,7 +6,6 @@ import {
     projectWorkspaceRef,
     resolvedProjectWorkspace,
 } from "nbook/server/workspace-files/project-identity";
-import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
 
 describe("GET /api/workspace-files/download", () => {
     beforeEach(() => {
@@ -15,11 +14,11 @@ describe("GET /api/workspace-files/download", () => {
         vi.stubGlobal("defineEventHandler", (handler: unknown) => handler);
     });
 
-    it("只按 projectPath 解析 Project Workspace，忽略 root 查询参数", async () => {
+    it("只按 projectRoot 解析 Project Workspace，忽略 root 查询参数", async () => {
         const target = {
             kind: "project-workspace" as const,
             root: absoluteFsPath("C:/test/workspace/novel-1"),
-            projectPath: normalizeProjectPath("workspace/novel-1"),
+            projectRoot: projectWorkspaceRef("novel-1").projectRoot,
         };
         const resolveWorkspaceFileTarget = vi.fn(async () => target);
         const ref = projectWorkspaceRef("novel-1");
@@ -35,7 +34,7 @@ describe("GET /api/workspace-files/download", () => {
         }));
 
         vi.stubGlobal("getQuery", () => ({
-            projectPath: "workspace/novel-1",
+            projectRoot: "novel-1",
             root: "server",
         }));
         vi.doMock("h3", () => ({
@@ -67,7 +66,7 @@ describe("GET /api/workspace-files/download", () => {
         await handler({} as never);
 
         expect(resolveWorkspaceFileTarget).toHaveBeenCalledWith(expect.anything(), {
-            projectPath: "workspace/novel-1",
+            projectRoot: "novel-1",
             workspaceKind: undefined,
         });
         expect(createProjectWorkspaceZipStream).toHaveBeenCalledWith(workspace);
@@ -112,7 +111,7 @@ describe("GET /api/workspace-files/download", () => {
         expect(createProjectWorkspaceZipStream).not.toHaveBeenCalled();
     });
 
-    it("缺少 projectPath 时拒绝下载", async () => {
+    it("缺少 projectRoot 时拒绝下载", async () => {
         vi.stubGlobal("getQuery", () => ({
             root: "workspace/novel-1",
         }));
@@ -136,7 +135,7 @@ describe("GET /api/workspace-files/download", () => {
         const handler = (await import("nbook/server/api/workspace-files/download.get")).default;
         await expect(handler({} as never)).rejects.toMatchObject({
             statusCode: 400,
-            message: "projectPath 不能为空",
+            message: "projectRoot 不能为空",
         });
     });
 });

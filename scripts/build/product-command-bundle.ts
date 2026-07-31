@@ -1,0 +1,163 @@
+import {builtinModules} from "node:module";
+import {cp, mkdir, rm, stat} from "node:fs/promises";
+import {dirname, isAbsolute, relative, resolve, sep} from "node:path";
+import {productRuntimeCompatibilityPlugin} from "nbook/scripts/build/product-bundle-plugins";
+import {productRuntimeIslandPackageNames} from "nbook/scripts/build/product-runtime-islands";
+import {
+    createProductRuntimeContract,
+    type ProductRuntimeContract,
+    type ProductRuntimeEntryMap,
+} from "nbook/shared/product-runtime-contract";
+
+export const PRODUCT_COMMAND_SOURCES = {
+    "product-start": "scripts/deploy/product-start.mjs",
+    "check-migrations": "scripts/db/check-migrations.ts",
+    "sqlite-migrate": "scripts/db/sqlite-migrate.mjs",
+    "migrate-application-state": "scripts/db/migrate-application-state.ts",
+    "create-admin": "scripts/cli/create-admin.ts",
+    "prepare-system-assets": "scripts/build/prepare-system-assets.ts",
+    "product-profile-authoring-smoke": "scripts/deploy/product-profile-authoring-smoke.ts",
+    "product-image-variant-smoke": "scripts/deploy/product-image-variant-smoke.ts",
+    "sqlite-vec-smoke": "scripts/smoke/sqlite-vec-smoke.ts",
+    "profile": "scripts/build/profile.ts",
+    "variable": "scripts/build/variable.ts",
+    "workspace": "assets/workspace/.nbook/agent/scripts/workspace.ts",
+    "product-command": "scripts/deploy/product-command.ts",
+} as const;
+
+export type ProductCommandBundleResult = {
+    commands: string[];
+    entries: ProductRuntimeEntryMap;
+    contract: ProductRuntimeContract;
+    files: number;
+    bytes: number;
+};
+
+/** 一次多入口构建 Product 命令，共享公共 chunks，运行时不再加载 Source TypeScript。 */
+export async function buildProductCommands(outputRoot: string): Promise<ProductCommandBundleResult> {
+    const serverRoot = resolve(outputRoot, "server");
+    const commandRoot = resolve(serverRoot, "commands");
+    await rm(commandRoot, {recursive: true, force: true});
+    await mkdir(commandRoot, {recursive: true});
+
+    const result = await Bun.build({
+        entrypoints: Object.values(PRODUCT_COMMAND_SOURCES).map((source) => resolve(source)),
+        target: "bun",
+        format: "esm",
+        minify: true,
+        sourcemap: "none",
+        splitting: true,
+        metafile: true,
+        outdir: commandRoot,
+        naming: {
+            entry: "[name].mjs",
+            chunk: "chunks/[name]-[hash].mjs",
+            asset: "assets/[name]-[hash][ext]",
+        },
+        plugins: [productRuntimeCompatibilityPlugin()],
+        external: [
+            ...builtinModules,
+            ...builtinModules.map((moduleName) => `node:${moduleName}`),
+            "bun",
+            "bun:*",
+            ...productRuntimeIslandPackageNames().flatMap((packageName) => [packageName, `${packageName}/*`]),
+        ],
+    });
+    if (!result.success) {
+        throw new Error([
+            "Product command multi-entry bundle 失败：",
+            ...result.logs.map((log) => log.message),
+        ].join("\n"));
+    }
+    for (const output of result.outputs) {
+        const outputRelative = relative(commandRoot, output.path);
+        if (!outputRelative || outputRelative.startsWith("..")) {
+            throw new Error(`Product command output 逃逸 commands root：${output.path}`);
+        }
+        await mkdir(dirname(output.path), {recursive: true});
+        await Bun.write(output.path, output);
+    }
+
+    await copyPhysicalRuntimeFiles(serverRoot);
+    const commandEntries = resolveProductCommandEntries(result.metafile, commandRoot);
+    const entry = (name: keyof typeof PRODUCT_COMMAND_SOURCES): string => commandEntries[name];
+    const entries: ProductRuntimeEntryMap = {
+        productStart: entry("product-start"),
+        sqliteMigrate: entry("sqlite-migrate"),
+        applicationStateMigration: entry("migrate-application-state"),
+        createAdmin: entry("create-admin"),
+        profile: entry("profile"),
+        variable: entry("variable"),
+        workspace: entry("workspace"),
+        prepareSystemAssets: entry("prepare-system-assets"),
+        checkMigrations: entry("check-migrations"),
+        profileAuthoringSmoke: entry("product-profile-authoring-smoke"),
+        imageVariantSmoke: entry("product-image-variant-smoke"),
+        sqliteVecSmoke: entry("sqlite-vec-smoke"),
+    };
+    const inventory = await directoryInventory(commandRoot);
+    return {
+        commands: Object.keys(PRODUCT_COMMAND_SOURCES).sort(),
+        entries,
+        contract: createProductRuntimeContract(entries),
+        ...inventory,
+    };
+}
+
+/** 从 Bun metafile 的 source entryPoint 建立 Product 相对入口，不依赖输出文件名规则。 */
+export function resolveProductCommandEntries(
+    metafile: Bun.BuildMetafile | undefined,
+    commandRoot: string,
+): Record<keyof typeof PRODUCT_COMMAND_SOURCES, string> {
+    if (!metafile) throw new Error("Product command bundle 缺少 metafile。");
+    const outputBySource = new Map<string, string>();
+    for (const [outputName, output] of Object.entries(metafile.outputs)) {
+        if (!output.entryPoint) continue;
+        const sourcePath = resolve(output.entryPoint);
+        // Bun metafile 的 output key 在不同构建形态下可能是绝对路径，也可能相对 outdir。
+        // 相对值必须以 commandRoot 解析，不能借用调用进程 cwd。
+        const outputPath = isAbsolute(outputName) ? resolve(outputName) : resolve(commandRoot, outputName);
+        const outputRelative = relative(commandRoot, outputPath);
+        if (!outputRelative || outputRelative === ".." || outputRelative.startsWith(`..${sep}`)
+            || isAbsolute(outputRelative)) {
+            throw new Error(`Product command metafile output 逃逸 commands root：${outputName}`);
+        }
+        if (outputBySource.has(sourcePath)) {
+            throw new Error(`Product command source 产生多个 entry output：${sourcePath}`);
+        }
+        outputBySource.set(sourcePath, `server/commands/${outputRelative.replaceAll("\\", "/")}`);
+    }
+    return Object.fromEntries(Object.entries(PRODUCT_COMMAND_SOURCES).map(([name, source]) => {
+        const output = outputBySource.get(resolve(source));
+        if (!output) throw new Error(`Product command metafile 缺少 entry：${name}`);
+        return [name, output];
+    })) as Record<keyof typeof PRODUCT_COMMAND_SOURCES, string>;
+}
+
+/** SQLite migration SQL 是数据演进真相源，必须保留普通文件而不是冻结进 bundle。 */
+async function copyPhysicalRuntimeFiles(serverRoot: string): Promise<void> {
+    const migrationsTarget = resolve(serverRoot, "prisma", "migrations", "sqlite");
+    await rm(resolve(serverRoot, "prisma"), {recursive: true, force: true});
+    await mkdir(dirname(migrationsTarget), {recursive: true});
+    await cp(resolve("prisma", "migrations", "sqlite"), migrationsTarget, {recursive: true, dereference: true});
+    await cp(resolve("prisma", "schema.sqlite.prisma"), resolve(serverRoot, "prisma", "schema.sqlite.prisma"));
+}
+
+/** 统计包含 shared chunks 的完整命令 owner。 */
+async function directoryInventory(root: string): Promise<{files: number; bytes: number}> {
+    let files = 0;
+    let bytes = 0;
+    const walk = async (directory: string): Promise<void> => {
+        for (const entry of await Array.fromAsync(new Bun.Glob("**/*").scan({cwd: directory, onlyFiles: true}))) {
+            files += 1;
+            bytes += (await stat(resolve(directory, entry))).size;
+        }
+    };
+    await walk(root);
+    return {files, bytes};
+}
+
+if (import.meta.main) {
+    const outputRoot = resolve(process.env.NEURO_BOOK_OUTPUT_DIR ?? ".output");
+    console.log(await buildProductCommands(outputRoot));
+}

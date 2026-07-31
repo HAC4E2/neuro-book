@@ -9,11 +9,11 @@ describe("GET /api/projects/rag/overview", {timeout: 30_000}, () => {
     });
 
     it("Project 未 open 时返回稳定 PROJECT_NOT_OPEN", async () => {
-        vi.doMock("nbook/server/utils/novel-chapter", async (importOriginal) => {
-            const actual = await importOriginal<typeof import("nbook/server/utils/novel-chapter")>();
+        vi.doMock("nbook/server/api/projects/project-control-plane", async (importOriginal) => {
+            const actual = await importOriginal<typeof import("nbook/server/api/projects/project-control-plane")>();
             return {
                 ...actual,
-                requireProjectPathQuery: vi.fn(() => "workspace/rag-not-open"),
+                requireProjectRefQuery: vi.fn(() => ({projectRoot: "rag-not-open"})),
             };
         });
 
@@ -23,7 +23,7 @@ describe("GET /api/projects/rag/overview", {timeout: 30_000}, () => {
             statusCode: 409,
             data: {
                 code: "PROJECT_NOT_OPEN",
-                projectPath: "workspace/rag-not-open",
+                projectRoot: "rag-not-open",
             },
         });
     });

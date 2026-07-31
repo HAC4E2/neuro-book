@@ -46,7 +46,6 @@ model DatabaseLock {
 model PassportCredential {
   id                 Int      @id @default(autoincrement())
   slotId             String   @unique @default("default") // 账号槽位，v1 恒为 default，预留多槽位切换
-  siteBaseUrl        String // 官方站地址（自部署可指向任意站点）
   accountId          Int // 官方站账号 id（展示用）
   accountUsername    String
   accountDisplayName String

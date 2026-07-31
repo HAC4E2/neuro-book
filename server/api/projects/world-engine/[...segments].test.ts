@@ -4,7 +4,8 @@ import {afterAll, beforeEach, describe, expect, it, vi} from "vitest";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
-import {requireReadyModuleHandle, requireReadyProjectPath} from "nbook/server/workspace-files/project-session";
+import {requireReadyModuleHandle, requireActiveReadyProject} from "nbook/server/workspace-files/project-session";
+import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 import {
     PROJECT_HISTORY_MODULE_TOKEN,
     readUnseenForAgent,
@@ -36,41 +37,41 @@ describe("/api/projects/world-engine", {timeout: 30_000}, () => {
     });
 
     afterAll(async () => {
-        for (const projectPath of createdProjects) {
-            await closeProjectForTest(projectPath).catch(() => undefined);
-            await removeProjectRoot(projectPath);
+        for (const projectRootName of createdProjects) {
+            await closeProjectForTest(projectRootName).catch(() => undefined);
+            await removeProjectRoot(projectRootName);
         }
         createdProjects.splice(0);
     });
 
     it("HTTP path segment 编码不合法时返回稳定 400", async () => {
-        const projectPath = await createProject();
+        const projectRootName = await createProject();
         const handler = (await import("nbook/server/api/projects/world-engine/[...segments]")).default;
 
-        await expect(callApi(handler, projectPath, "GET", "slices/%E0%A4%A")).rejects.toMatchObject({
+        await expect(callApi(handler, projectRootName, "GET", "slices/%E0%A4%A")).rejects.toMatchObject({
             statusCode: 400,
             message: "API path 编码不合法：%E0%A4%A",
         });
     }, 30_000);
 
     it("未 open 的 Project 返回 PROJECT_NOT_OPEN", async () => {
-        const projectPath = await createProject({open: false});
+        const projectRootName = await createProject({open: false});
         const handler = (await import("nbook/server/api/projects/world-engine/[...segments]")).default;
 
-        await expect(callApi(handler, projectPath, "GET", "schema")).rejects.toMatchObject({
+        await expect(callApi(handler, projectRootName, "GET", "schema")).rejects.toMatchObject({
             statusCode: 409,
             data: {
                 code: "PROJECT_NOT_OPEN",
-                projectPath,
+                projectRoot: projectRootName,
             },
         });
     });
 
     it("使用 patches 写入、编辑、删除切面，并通过 GET /state 全量查询", async () => {
-        const projectPath = await createProject();
+        const projectRootName = await createProject();
         const handler = (await import("nbook/server/api/projects/world-engine/[...segments]")).default;
 
-        const first = await callApi(handler, projectPath, "POST", "slices", {
+        const first = await callApi(handler, projectRootName, "POST", "slices", {
             time: "复兴纪元1日 00:00:10",
             title: "艾莉娜登场",
             summary: "初始体力记录",
@@ -78,24 +79,24 @@ describe("/api/projects/world-engine", {timeout: 30_000}, () => {
                 {subjectId: "erina", type: "character", name: "艾莉娜", path: "/hp", op: "replace", value: 100},
             ],
         });
-        const createdSlice = await callApi(handler, projectPath, "GET", `slices/${readSliceId(first)}`);
-        const second = await callApi(handler, projectPath, "POST", "slices", {
+        const createdSlice = await callApi(handler, projectRootName, "GET", `slices/${readSliceId(first)}`);
+        const second = await callApi(handler, projectRootName, "POST", "slices", {
             time: "复兴纪元1日 00:00:20",
             title: "受伤",
             patches: [{subjectId: "erina", path: "/hp", op: "increment", value: -10}],
         });
-        const edited = await callApi(handler, projectPath, "POST", `slices/${readSliceId(first)}/edit`, {
+        const edited = await callApi(handler, projectRootName, "POST", `slices/${readSliceId(first)}/edit`, {
             time: "复兴纪元1日 00:00:10",
             title: "体力修正",
             summary: "体力修正摘要",
             patches: [{subjectId: "erina", path: "/hp", op: "replace", value: 80}],
         });
-        const queried = await callApi(handler, projectPath, "POST", "state/query", {subjectIds: ["erina"], attrs: ["hp"]});
-        const full = await callApi(handler, projectPath, "GET", "state");
-        const slices = await callApi(handler, projectPath, "GET", "slices", undefined, {withPatches: "true"});
-        const singleSlice = await callApi(handler, projectPath, "GET", `slices/${readSliceId(first)}`);
-        await callApi(handler, projectPath, "POST", `slices/${readSliceId(second)}/delete`);
-        const afterDelete = await callApi(handler, projectPath, "POST", "state/query", {subjectIds: ["erina"], attrs: ["hp"]});
+        const queried = await callApi(handler, projectRootName, "POST", "state/query", {subjectIds: ["erina"], attrs: ["hp"]});
+        const full = await callApi(handler, projectRootName, "GET", "state");
+        const slices = await callApi(handler, projectRootName, "GET", "slices", undefined, {withPatches: "true"});
+        const singleSlice = await callApi(handler, projectRootName, "GET", `slices/${readSliceId(first)}`);
+        await callApi(handler, projectRootName, "POST", `slices/${readSliceId(second)}/delete`);
+        const afterDelete = await callApi(handler, projectRootName, "POST", "state/query", {subjectIds: ["erina"], attrs: ["hp"]});
 
         expect(edited).toMatchObject({issues: [expect.objectContaining({code: "base-shifted", subjectId: "erina", attr: "hp"})]});
         expect(createdSlice).toMatchObject({title: "艾莉娜登场", summary: "初始体力记录"});
@@ -108,27 +109,27 @@ describe("/api/projects/world-engine", {timeout: 30_000}, () => {
     });
 
     it("POST /state/query 继续拒绝未收窄查询，GET /state 允许 UI/debug 全量查询", async () => {
-        const projectPath = await createProject();
+        const projectRootName = await createProject();
         const handler = (await import("nbook/server/api/projects/world-engine/[...segments]")).default;
 
-        await callApi(handler, projectPath, "POST", "slices", {
+        await callApi(handler, projectRootName, "POST", "slices", {
             time: "复兴纪元1日 00:00:10",
             title: "世界初始化",
             patches: [{subjectId: "world", type: "world", name: "世界", path: "/era", op: "replace", value: "复兴纪元"}],
         });
 
-        await expect(callApi(handler, projectPath, "POST", "state/query", {})).rejects.toMatchObject({
+        await expect(callApi(handler, projectRootName, "POST", "state/query", {})).rejects.toMatchObject({
             statusCode: 400,
             message: "state/query 必须提供 subjectIds 或 type",
         });
-        expect(readSubjects(await callApi(handler, projectPath, "GET", "state")).map((subject) => subject.subjectId)).toEqual(["world"]);
+        expect(readSubjects(await callApi(handler, projectRootName, "GET", "state")).map((subject) => subject.subjectId)).toEqual(["world"]);
     });
 
     it("collection 支持 remove + value，list remove + value 被 service 拒绝", async () => {
-        const projectPath = await createProject();
+        const projectRootName = await createProject();
         const handler = (await import("nbook/server/api/projects/world-engine/[...segments]")).default;
 
-        await callApi(handler, projectPath, "POST", "slices", {
+        await callApi(handler, projectRootName, "POST", "slices", {
             time: "复兴纪元1日 00:00:10",
             title: "拿到物品",
             patches: [
@@ -138,14 +139,14 @@ describe("/api/projects/world-engine", {timeout: 30_000}, () => {
                 {subjectId: "erina", path: "/inventory", op: "append", value: "subject://key"},
             ],
         });
-        await callApi(handler, projectPath, "POST", "slices", {
+        await callApi(handler, projectRootName, "POST", "slices", {
             time: "复兴纪元1日 00:00:20",
             title: "交出旧剑",
             patches: [{subjectId: "erina", path: "/inventory", op: "remove", value: "subject://old-sword"}],
         });
 
-        expect(readSubjectState(await callApi(handler, projectPath, "POST", "state/query", {subjectIds: ["erina"], attrs: ["inventory"]}), "erina").attrs.inventory).toEqual(["subject://key"]);
-        await expect(callApi(handler, projectPath, "POST", "slices", {
+        expect(readSubjectState(await callApi(handler, projectRootName, "POST", "state/query", {subjectIds: ["erina"], attrs: ["inventory"]}), "erina").attrs.inventory).toEqual(["subject://key"]);
+        await expect(callApi(handler, projectRootName, "POST", "slices", {
             time: "复兴纪元1日 00:00:30",
             title: "错误删除经历",
             patches: [{subjectId: "erina", path: "/events", op: "remove", value: "醒来"}],
@@ -153,10 +154,10 @@ describe("/api/projects/world-engine", {timeout: 30_000}, () => {
     });
 
     it("subjects/slices 支持 type 与 subject filter 查询", async () => {
-        const projectPath = await createProject();
+        const projectRootName = await createProject();
         const handler = (await import("nbook/server/api/projects/world-engine/[...segments]")).default;
 
-        await callApi(handler, projectPath, "POST", "slices", {
+        await callApi(handler, projectRootName, "POST", "slices", {
             time: "复兴纪元1日 00:00:10",
             title: "双人登场",
             patches: [
@@ -164,31 +165,31 @@ describe("/api/projects/world-engine", {timeout: 30_000}, () => {
                 {subjectId: "moran", type: "character", name: "莫然", path: "/events", op: "append", value: "遇见艾莉娜"},
             ],
         });
-        await callApi(handler, projectPath, "POST", "slices", {
+        await callApi(handler, projectRootName, "POST", "slices", {
             time: "复兴纪元1日 00:00:20",
             title: "艾莉娜独行",
             patches: [{subjectId: "erina", path: "/events", op: "append", value: "独自调查"}],
         });
 
-        expect(await callApi(handler, projectPath, "GET", "subjects", undefined, {type: "character"})).toEqual([
+        expect(await callApi(handler, projectRootName, "GET", "subjects", undefined, {type: "character"})).toEqual([
             {id: "erina", type: "character", name: "艾莉娜"},
             {id: "moran", type: "character", name: "莫然"},
         ]);
-        expect(readSlices(await callApi(handler, projectPath, "GET", "slices", undefined, {subjectIds: "erina,moran", subjectMode: "all"})).map((slice) => slice.title)).toEqual(["双人登场"]);
+        expect(readSlices(await callApi(handler, projectRootName, "GET", "slices", undefined, {subjectIds: "erina,moran", subjectMode: "all"})).map((slice) => slice.title)).toEqual(["双人登场"]);
     });
 
     it("subject event commit 通过 exact generation 记录本地用户 History", async () => {
-        const projectPath = await createProject();
+        const projectRootName = await createProject();
         const subjectPath = "simulation/subjects/erina";
         const eventsPath = `${subjectPath}/events.jsonl`;
-        await fs.mkdir(path.join(projectRoot(projectPath), subjectPath), {recursive: true});
-        await fs.writeFile(path.join(projectRoot(projectPath), eventsPath), "", "utf-8");
+        await fs.mkdir(path.join(projectDirectory(projectRootName), subjectPath), {recursive: true});
+        await fs.writeFile(path.join(projectDirectory(projectRootName), eventsPath), "", "utf-8");
         const handler = (await import("nbook/server/api/projects/world-engine/[...segments]")).default;
-        const ready = requireReadyProjectPath(projectPath);
+        const ready = requireActiveReadyProject(projectWorkspaceRef(projectRootName));
         const history = requireReadyModuleHandle(ready, PROJECT_HISTORY_MODULE_TOKEN);
         await readUnseenForAgent(history, 987_654);
 
-        const result = await callApi(handler, projectPath, "POST", "subject-file-proposals/events/commit", {
+        const result = await callApi(handler, projectRootName, "POST", "subject-file-proposals/events/commit", {
             subjectId: "erina",
             subjectPath,
             eventsPath,
@@ -196,7 +197,7 @@ describe("/api/projects/world-engine", {timeout: 30_000}, () => {
         });
 
         expect(result).toMatchObject({status: "appended", subjectId: "erina", eventsPath, dirty: true});
-        expect(await fs.readFile(path.join(projectRoot(projectPath), eventsPath), "utf-8")).toContain("抵达学院");
+        expect(await fs.readFile(path.join(projectDirectory(projectRootName), eventsPath), "utf-8")).toContain("抵达学院");
         const groups = await readUnseenForAgent(history, 987_654);
         const eventGroup = groups.find((group) => group.path === eventsPath);
         expect(eventGroup?.entries.at(-1)?.actor).toEqual({kind: "user", userId: "local"});
@@ -205,22 +206,22 @@ describe("/api/projects/world-engine", {timeout: 30_000}, () => {
 
 async function createProject(options: {open?: boolean} = {}): Promise<string> {
     const slug = `world-engine-api-test-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    const projectPath = `workspace/${slug}`;
-    const root = projectRoot(projectPath);
+    const projectRootName = slug;
+    const root = projectDirectory(projectRootName);
     await fs.mkdir(path.join(root, "world-engine", "schema"), {recursive: true});
     await fs.writeFile(path.join(root, "project.yaml"), "kind: novel\ntitle: World Engine API Test\nsummary: ''\n", "utf-8");
     await fs.writeFile(path.join(root, "world-engine", "schema", "index.ts"), schemaSource(), "utf-8");
     await fs.writeFile(path.join(root, "world-engine", "calendar.ts"), calendarSource(), "utf-8");
-    createdProjects.push(projectPath);
+    createdProjects.push(projectRootName);
     if (options.open !== false) {
-        await openProjectForTest(projectPath);
+        await openProjectForTest(projectRootName);
     }
-    return projectPath;
+    return projectRootName;
 }
 
 async function callApi(
     handler: (event: unknown) => Promise<unknown>,
-    projectPath: string,
+    projectRootName: string,
     method: string,
     segments: string,
     body?: unknown,
@@ -229,7 +230,7 @@ async function callApi(
     return handler({
         method,
         path: `/api/projects/world-engine/${segments}`,
-        query: {projectPath, ...query},
+        query: {projectRoot: projectRootName, ...query},
         body,
         context: {params: {segments}},
     });
@@ -265,11 +266,11 @@ function readSlices(input: unknown): Array<{title: string; summary: string; patc
     throw new Error("测试没有拿到 slices");
 }
 
-async function removeProjectRoot(projectPath: string): Promise<void> {
+async function removeProjectRoot(projectRootName: string): Promise<void> {
     for (let attempt = 0; attempt < 5; attempt++) {
         collectReleasedSqliteHandles();
         try {
-            await fs.rm(projectRoot(projectPath), {recursive: true, force: true});
+            await fs.rm(projectDirectory(projectRootName), {recursive: true, force: true});
             return;
         } catch (error) {
             if ((error as NodeJS.ErrnoException).code !== "EBUSY" || attempt === 4) {
@@ -280,8 +281,8 @@ async function removeProjectRoot(projectPath: string): Promise<void> {
     }
 }
 
-function projectRoot(projectPath: string): string {
-    return path.join(resolveRuntimeWorkspaceRoot(), projectPath.slice("workspace/".length));
+function projectDirectory(projectRootName: string): string {
+    return path.join(resolveRuntimeWorkspaceRoot(), projectRootName);
 }
 
 function schemaSource(): string {

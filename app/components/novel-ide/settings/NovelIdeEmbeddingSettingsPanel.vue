@@ -275,7 +275,7 @@ function parseRequestOptions(value: string): EmbeddingRequestOptions {
     }
 }
 
-watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.projectPath] as const, () => {
+watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.projectRoot] as const, () => {
     void loadSettings();
 });
 

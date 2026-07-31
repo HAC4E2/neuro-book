@@ -114,6 +114,8 @@ export type SessionMigrationJournalCodec<
     runRoot(runId: string): string;
     /** 单个 session state 除通用文件事务字段外允许出现的精确字段。 */
     sessionFields: readonly string[];
+    /** 历史 manifest 可缺失、当前新写入必须由领域 parser 补齐的字段。 */
+    optionalSessionFields?: readonly string[];
     /** 严格解析领域字段；通用字段和确定性路径已经由 journal Module 验证。 */
     parseSessionFields(
         value: {[key: string]: unknown},

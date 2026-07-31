@@ -12,19 +12,16 @@ import type {ProfileCompileWorkerResult} from "nbook/server/agent/profiles/profi
 import {withIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/test-workspace-fixture";
 
 describe("profile compile worker runtime", () => {
-    it("Product Root 仅有 .output package manifest 时从 .output/server vendor 解析 tsx API", async () => {
+    it("Product Root 只使用预编译 Authoring Kit worker，不携带 tsx vendor 或运行源码", async () => {
         const productRoot = await createProductWorkerFixture();
         try {
             const paths = resolveProfileCompileWorkerPathsForRoot(productRoot);
-            const normalizedApiUrl = paths.tsxApiUrl.replaceAll("\\", "/");
-            const normalizedLoaderUrl = paths.tsxLoaderUrl.replaceAll("\\", "/");
-
-            expect(normalizedApiUrl).toContain("/.output/server/node_modules/tsx/");
-            expect(normalizedLoaderUrl).toContain("/.output/server/node_modules/tsx/");
-
-            const tsxApi = await import(paths.tsxApiUrl) as {tsImport?: unknown};
-            expect(typeof tsxApi.tsImport).toBe("function");
+            expect(paths).toEqual({
+                entry: resolve(productRoot, ".output", "server", "authoring", "profile-compile-worker.mjs"),
+                precompiled: true,
+            });
             await expect(pathExists(resolve(productRoot, "node_modules"))).resolves.toBe(false);
+            await expect(pathExists(resolve(productRoot, ".output", "server", "node_modules"))).resolves.toBe(false);
             await expect(pathExists(resolve(productRoot, "release-meta.json"))).resolves.toBe(false);
             await expect(pathExists(resolve(productRoot, ".output", "server", "package.json"))).resolves.toBe(true);
         } finally {
@@ -506,26 +503,11 @@ async function waitForPath(filePath: string, timeoutMs = 20_000): Promise<void> 
 async function createProductWorkerFixture(): Promise<string> {
     const productRoot = await mkdtemp(resolve(tmpdir(), "nbook-profile-product-"));
     const outputRoot = resolve(productRoot, ".output", "server");
-    await mkdir(resolve(outputRoot, "server", "agent", "profiles"), {recursive: true});
-    await mkdir(resolve(outputRoot, ".nuxt"), {recursive: true});
+    await mkdir(resolve(outputRoot, "authoring"), {recursive: true});
     await writeFile(resolve(outputRoot, "index.mjs"), "", "utf8");
     await writeFile(resolve(outputRoot, "package.json"), "{\"name\":\"neuro-book-output\",\"version\":\"0.0.0\",\"type\":\"module\"}\n", "utf8");
-    await writeFile(resolve(outputRoot, ".nuxt", "tsconfig.server.json"), "{}", "utf8");
-    await writeFile(resolve(outputRoot, "server", "agent", "profiles", "profile-compile-worker-entry.ts"), "", "utf8");
-    await writeFile(resolve(outputRoot, "server", "agent", "profiles", "profile-compile-worker-runtime.ts"), "", "utf8");
-    await copyRuntimePackage("tsx", productRoot);
-    await copyRuntimePackage("get-tsconfig", productRoot);
-    await copyRuntimePackage("resolve-pkg-maps", productRoot);
-    await copyRuntimePackage("esbuild", productRoot);
-    await copyRuntimePackage("@esbuild/win32-x64", productRoot);
+    await writeFile(resolve(outputRoot, "authoring", "profile-compile-worker.mjs"), "export {};\n", "utf8");
     return productRoot;
-}
-
-async function copyRuntimePackage(packageName: string, productRoot: string): Promise<void> {
-    const source = resolve("node_modules", ...packageName.split("/"));
-    const target = resolve(productRoot, ".output", "server", "node_modules", ...packageName.split("/"));
-    await mkdir(resolve(target, ".."), {recursive: true});
-    await cp(source, target, {recursive: true});
 }
 
 async function withCompiledRootSnapshot(

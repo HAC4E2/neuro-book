@@ -24,12 +24,15 @@ RUN cp bun.lock /tmp/bun.lock \
 FROM runtime-base AS build
 WORKDIR /app
 
+ARG NEURO_BOOK_SOURCE_REVISION
 ENV DATABASE_KIND=sqlite
 ENV DATABASE_URL=file:./workspace/.nbook/neuro-book.sqlite
+ENV NEURO_BOOK_SOURCE_REVISION=${NEURO_BOOK_SOURCE_REVISION}
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN bun run nuxt:build
+RUN test -f .output/runtime-image.json && test -f .output/runtime-image.ready
 
 FROM runtime-base AS runner
 WORKDIR /app
@@ -39,31 +42,8 @@ ENV HOST=0.0.0.0
 ENV PORT=3000
 
 COPY --from=build /app/.output ./.output
-COPY --from=build /app/.nuxt/tsconfig.json ./.nuxt/tsconfig.json
-COPY --from=build /app/.nuxt/tsconfig.server.json ./.nuxt/tsconfig.server.json
-COPY --from=build /app/app ./app
-COPY --from=build /app/server ./server
-COPY --from=build /app/shared ./shared
-COPY --from=build /app/scripts ./scripts
-COPY --from=build /app/assets ./assets
-COPY --from=build /app/world-engine ./world-engine
-COPY --from=build /app/plugins ./plugins
-COPY --from=build /app/datasets ./datasets
-COPY --from=build /app/AGENTS.md ./AGENTS.md
-COPY --from=build /app/reference ./reference
-COPY --from=build /app/docs ./docs
-COPY --from=build /app/package.json ./package.json
-COPY --from=build /app/bun.lock ./bun.lock
-COPY --from=build /app/nuxt.config.ts ./nuxt.config.ts
-COPY --from=build /app/uno.config.ts ./uno.config.ts
-COPY --from=build /app/vitest.config.ts ./vitest.config.ts
-COPY --from=build /app/bun-sqlite.d.ts /app/proper-lockfile.d.ts /app/vue-shim.d.ts /app/yazl.d.ts ./
-COPY --from=build /app/tsconfig.json ./tsconfig.json
-COPY --from=build /app/prisma ./prisma
-COPY --from=build /app/prisma.config.ts ./prisma.config.ts
-RUN bun -e 'const fs = require("node:fs"); const config = JSON.parse(fs.readFileSync("tsconfig.json", "utf8")); config.compilerOptions = {...config.compilerOptions, baseUrl: ".", paths: {...(config.compilerOptions && config.compilerOptions.paths ? config.compilerOptions.paths : {}), "nbook/*": [".output/server/node_modules/nbook/*"], "neuro_book/*": [".output/server/node_modules/nbook/*"]}}; fs.writeFileSync("tsconfig.json", `${JSON.stringify(config, null, 4)}\n`, "utf8");'
-RUN bun .output/server/scripts/build/prepare-system-assets.ts --force --product-build
+COPY --from=build /app/scripts/deploy/docker-product-entrypoint.sh ./docker-product-entrypoint.sh
 
 EXPOSE 3000
 
-ENTRYPOINT ["sh", "./scripts/deploy/docker-product-entrypoint.sh"]
+ENTRYPOINT ["sh", "./docker-product-entrypoint.sh"]

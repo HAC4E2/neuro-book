@@ -9,8 +9,10 @@ import {
     moveAgentSessionTree,
     runAgentSessionCommand,
     toInvokeInput,
+    updateAgentSessionCurrentProject,
 } from "nbook/server/agent/http";
 import {AgentHistoryQueryError} from "nbook/server/agent/session/history-query";
+import {SessionCurrentProjectError} from "nbook/server/agent/session/current-project-error";
 import {AttachmentError} from "nbook/server/agent/attachments/types";
 import {assertPublicToolCallId} from "nbook/shared/agent/public-tool-identity";
 
@@ -25,8 +27,7 @@ describe("agent session http helpers", () => {
         await expect(createAgentSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: "workspace",
-            workspaceKey: "global",
+            currentProjectRoot: "novel",
             parentSessionId: 1,
         }, {createAgent} as never)).resolves.toEqual(expect.objectContaining({
             sessionId: 7,
@@ -35,8 +36,7 @@ describe("agent session http helpers", () => {
         expect(createAgent).toHaveBeenCalledWith({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: "workspace",
-            workspaceKey: "global",
+            currentProjectRoot: "novel",
             parentSessionId: 1,
         });
     });
@@ -50,7 +50,7 @@ describe("agent session http helpers", () => {
             hasMore: false,
         }));
         const query = {
-            workspaceKey: "global",
+            scope: "all",
             includeArchived: true,
             profileGroup: "leader",
             status: "active",
@@ -64,6 +64,36 @@ describe("agent session http helpers", () => {
         }));
 
         expect(listSessionPage).toHaveBeenCalledWith(query);
+    });
+
+    it("updateAgentSessionCurrentProject 支持重绑和清除 Current Project", async () => {
+        const updateCurrentProject = vi.fn(async (_sessionId: number, projectRoot: string | null) => ({
+            sessionId: 7,
+            currentProjectRoot: projectRoot,
+        }));
+
+        await expect(updateAgentSessionCurrentProject(7, {projectRoot: "novel"}, {updateCurrentProject} as never))
+            .resolves.toMatchObject({sessionId: 7, currentProjectRoot: "novel"});
+        await updateAgentSessionCurrentProject(7, {projectRoot: null}, {updateCurrentProject} as never);
+
+        expect(updateCurrentProject).toHaveBeenNthCalledWith(1, 7, "novel");
+        expect(updateCurrentProject).toHaveBeenNthCalledWith(2, 7, null);
+    });
+
+    it("updateAgentSessionCurrentProject 映射运行中禁止重绑的稳定错误", async () => {
+        const updateCurrentProject = vi.fn(async () => {
+            throw new SessionCurrentProjectError(
+                "current_project_rebind_forbidden",
+                "Session运行中不能重绑Current Project",
+                "novel",
+            );
+        });
+
+        await expect(updateAgentSessionCurrentProject(7, {projectRoot: "novel"}, {updateCurrentProject} as never))
+            .rejects.toMatchObject({
+                statusCode: 409,
+                data: {code: "current_project_rebind_forbidden", projectRoot: "novel"},
+            });
     });
 
     it("getAgentSessionQuery 调用 harness.getSessionQuery", async () => {
@@ -125,6 +155,23 @@ describe("agent session http helpers", () => {
             caller: {kind: "user"},
             block: undefined,
             onEvent: undefined,
+        });
+    });
+
+    it.each([
+        ["current_project_missing", "missing-project"],
+        ["migration_review_required", "ambiguous-project"],
+    ] as const)("invokeAgentSession 映射 %s 为稳定 HTTP 合同", async (code, projectRoot) => {
+        const invokeAgent = vi.fn(async () => {
+            throw new SessionCurrentProjectError(code, "Current Project 不可执行", projectRoot);
+        });
+
+        await expect(invokeAgentSession(12, {
+            mode: "prompt",
+            message: {text: "hello"},
+        }, {invokeAgent} as never)).rejects.toMatchObject({
+            statusCode: 409,
+            data: {code, projectRoot},
         });
     });
 

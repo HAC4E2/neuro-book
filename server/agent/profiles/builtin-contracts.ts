@@ -13,7 +13,7 @@ export const LeaderDefaultOutputSchema = Type.Object({
 });
 
 /**
- * Legacy / RP 世界模拟主管的实例初始化参数。当前 Project 由 session projectPath / Workspace Focus 承载。
+ * 世界模拟主管的实例初始化参数。当前 Project 由 Session currentProjectRoot 承载。
  */
 export const SimulatorLeaderInitialSchema = Type.Object({});
 
@@ -23,7 +23,7 @@ export const SimulatorLeaderInitialSchema = Type.Object({});
 export const SimulatorLeaderOutputSchema = Type.Object({});
 
 /**
- * rp.leader 的实例初始化参数。当前 Project 由 session projectPath / Workspace Focus 承载。
+ * rp.leader 的实例初始化参数。当前 Project 由 Session currentProjectRoot 承载。
  */
 export const RpLeaderInitialSchema = Type.Object({});
 
@@ -36,7 +36,7 @@ export const RpLeaderOutputSchema = Type.Object({});
  * director 的实例初始化参数。每轮剧情任务通过 invoke_agent.message 传入。
  */
 export const DirectorInitialSchema = Type.Object({
-    projectPath: Type.String({description: "Project Workspace path, e.g. workspace/silver-dragon-hime."}),
+    projectRoot: Type.String({description: "Single-segment Project root, e.g. silver-dragon-hime."}),
     mode: Type.Optional(Type.Union([
         Type.Literal("writing"),
         Type.Literal("rp"),

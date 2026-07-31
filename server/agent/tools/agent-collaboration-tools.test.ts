@@ -190,7 +190,10 @@ describe("agent collaboration tool definitions", () => {
             jobs: {
                 spawn(spec: {run: (context: {signal: AbortSignal}) => Promise<{resultPreview: string; message?: string}>}) {
                     runJob = spec.run;
-                    return {jobId: "job-test"};
+                    return {
+                        job: {jobId: "job-test"},
+                        jobEventCursor: {eventEpoch: "epoch-jobs", after: 3},
+                    };
                 },
             },
         });
@@ -204,6 +207,7 @@ describe("agent collaboration tool definitions", () => {
 
         expect(started.details).toEqual({
             jobId: "job-test",
+            jobEventCursor: {eventEpoch: "epoch-jobs", after: 3},
             sessionId: 2,
             status: "started",
             data: null,
@@ -241,7 +245,10 @@ describe("agent collaboration tool definitions", () => {
             jobs: {
                 spawn(spec: {run: (context: {signal: AbortSignal}) => Promise<{resultPreview: string; message?: string}>}) {
                     runJob = spec.run;
-                    return {jobId: "job-waiting"};
+                    return {
+                        job: {jobId: "job-waiting"},
+                        jobEventCursor: {eventEpoch: "epoch-jobs", after: 4},
+                    };
                 },
             },
         });
@@ -304,21 +311,33 @@ describe("agent collaboration tool definitions", () => {
         expect(JSON.stringify(result.details)).not.toContain("reportResultSchema");
         expect(JSON.stringify(result.details)).not.toContain("reportSidecarResultSchema");
     });
+
+    it("get_session 省略 id 时查询当前 session，显式 id 时查询目标 session", async () => {
+        const getSession = vi.fn(async (query: {sessionId: number}) => ({sessionId: query.sessionId}));
+        const context = toolContext({getSession}, 947);
+        const tool = agentCollaborationTools.getSession.runtime();
+
+        await tool.executeWithContext!(context, "tool-current", {});
+        await tool.executeWithContext!(context, "tool-known", {sessionId: 23});
+
+        expect(getSession).toHaveBeenNthCalledWith(1, {sessionId: 947}, 947);
+        expect(getSession).toHaveBeenNthCalledWith(2, {sessionId: 23}, 947);
+        expect(tool.description).toContain("get_session({})");
+        expect(JSON.stringify(tool.parameters)).toContain("Never guess");
+    });
 });
 
-function toolContext(harness: Record<string, unknown>): ToolExecutionContext {
+function toolContext(harness: Record<string, unknown>, sessionId = 1): ToolExecutionContext {
     const workspaceRoot = absoluteFsPath(process.cwd());
     return {
         harness: {
             configTargetForInvocation: vi.fn(() => ({scope: "global", workspaceRoot, project: null})),
             ...harness,
         } as never,
-        sessionId: 1,
+        sessionId,
         profileKey: "leader.default",
-        workspaceRootRef: "workspace",
-        workspaceFsRoot: workspaceRoot,
-        workspaceKey: "global",
-        projectPath: "workspace/project",
+        workspaceRoot,
+        currentProject: null,
         invocationId: "parent-invocation",
     };
 }

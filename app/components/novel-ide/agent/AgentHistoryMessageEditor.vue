@@ -18,7 +18,7 @@ const props = defineProps<{
     menuRefreshKey?: string | number;
     resolveMenu?: (context: AgentTriggerMenuContext) => AgentTriggerMenuState;
     onSkillTriggerStart?: () => void;
-    projectPath: string | null;
+    projectRoot: string | null;
     modelSupportsImages: boolean;
     attachmentInsertRequest?: {
         id: number;
@@ -35,6 +35,7 @@ const emit = defineEmits<{
 
 const editorRef = ref<InstanceType<typeof ReferencePlainTextEditor> | null>(null);
 const fileInputRef = ref<HTMLInputElement | null>(null);
+const {t} = useI18n();
 const images = useComposerImageTransaction({
     editor: () => editorRef.value,
     sessionId: () => props.sessionId,
@@ -43,10 +44,10 @@ const images = useComposerImageTransaction({
     canRegister: () => props.canRegisterAttachments,
     canInsert: () => props.canInsertAttachments,
     blockedReason: () => "当前 Session 状态不允许在历史消息中上传或插入图片。",
-    projectPath: () => props.projectPath,
+    unsupportedAttachmentMessage: () => t("agent.attachments.imageInsertUnsupported"),
+    projectRoot: () => props.projectRoot,
     onAttachmentRegistered: (item) => emit("attachment-registered", item),
 });
-const {t} = useI18n();
 const saveDisabled = computed(() => props.saving
     || props.readonly
     || !props.modelValue.trim()

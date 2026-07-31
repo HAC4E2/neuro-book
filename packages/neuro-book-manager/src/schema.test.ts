@@ -2,8 +2,10 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {describe, expect, it} from "vitest";
 
+import {TEST_RUNTIME_IMAGE_IDENTITY} from "#manager/fixtures/runtime-image";
 import {PRODUCT_ASSET_NAMES} from "#manager/platform";
-import {parseInstallationManifest, parseOperationJournal, parseReleaseManifest, parseReleaseManifestEnvelope} from "#manager/schema";
+import {INSTALLED_WINDOWS_ROOT_LOCATORS, INSTALLATION_SCOPED_ROOT_LOCATORS} from "#manager/root-locators";
+import {migrateOperationJournal, parseInstallationManifest, parseOperationJournal, parseReleaseManifest, parseReleaseManifestEnvelope} from "#manager/schema";
 import {PRODUCT_PLATFORMS} from "#manager/types";
 
 const SHA = "a".repeat(64);
@@ -16,7 +18,40 @@ describe("Manager manifest schemas", () => {
     });
 
     it("直接拒绝旧版Installation Manifest", () => {
-        expect(() => parseInstallationManifest({...productManifest(), schemaVersion: 3})).toThrow("schema v4");
+        expect(() => parseInstallationManifest({...productManifest(), schemaVersion: 4})).toThrow("schema v5");
+    });
+
+    it("严格校验 Root Locator 路径与批准布局", () => {
+        expect(() => parseInstallationManifest({
+            ...productManifest(),
+            roots: INSTALLED_WINDOWS_ROOT_LOCATORS,
+        })).not.toThrow();
+        for (const path of ["", ".", "../data", "data/../cache", "C:/data", "/data"]) {
+            expect(() => parseInstallationManifest({
+                ...productManifest(),
+                roots: {
+                    ...INSTALLATION_SCOPED_ROOT_LOCATORS,
+                    state: {base: "installation-root", path},
+                },
+            })).toThrow();
+        }
+        expect(() => parseInstallationManifest({
+            ...productManifest(),
+            roots: {
+                ...INSTALLATION_SCOPED_ROOT_LOCATORS,
+                state: {base: "local-app-data", path: "Other/data"},
+            },
+        })).toThrow("布局非法");
+    });
+
+    it("非容器 Product 与 Release asset 必须携带 Runtime Image identity", () => {
+        const installation = productManifest();
+        delete (installation.components.product as {imageId?: string}).imageId;
+        expect(() => parseInstallationManifest(installation)).toThrow("schema v5");
+
+        const release = releaseManifest();
+        delete (release.products[0] as {sourceDigest?: string}).sourceDigest;
+        expect(() => parseReleaseManifest(release)).toThrow("schema v4");
     });
 
     it("拒绝路径越界与 Source/Product revision 不一致", () => {
@@ -46,6 +81,30 @@ describe("Manager manifest schemas", () => {
         expect(() => parseReleaseManifest(wrongAsset)).toThrow("资产名非法");
     });
 
+    it("验证Release stateMigration三种policy、稳定slug与唯一性，不枚举Product catalog", () => {
+        expect(parseReleaseManifest({...releaseManifest(), stateMigration: {policy: "none", steps: []}}).stateMigration.policy).toBe("none");
+        expect(parseReleaseManifest({
+            ...releaseManifest(),
+            stateMigration: {policy: "manual", steps: [], guide: "docs/migrations/manual.md"},
+        }).stateMigration.policy).toBe("manual");
+        expect(() => parseReleaseManifest({
+            ...releaseManifest(),
+            stateMigration: {policy: "manual", steps: []},
+        })).toThrow("必须提供 guide");
+        expect(parseReleaseManifest({
+            ...releaseManifest(),
+            stateMigration: {policy: "automatic", steps: ["missing-step"]},
+        }).stateMigration.steps).toEqual(["missing-step"]);
+        expect(() => parseReleaseManifest({
+            ...releaseManifest(),
+            stateMigration: {policy: "automatic", steps: ["agent-session-v2", "agent-session-v2"]},
+        })).toThrow("重复step");
+        expect(() => parseReleaseManifest({
+            ...releaseManifest(),
+            stateMigration: {policy: "automatic", steps: ["Future Step"]},
+        })).toThrow("Release schema v4");
+    });
+
     it("要求容器Profile持久化engine，非容器Profile必须为null", () => {
         expect(() => parseInstallationManifest({...productManifest(), containerEngine: "docker"})).toThrow("Container Engine");
         const container = dockerManifest();
@@ -53,12 +112,47 @@ describe("Manager manifest schemas", () => {
         expect(() => parseInstallationManifest({...container, containerEngine: null})).toThrow("Container Engine");
     });
 
-    it("Operation Journal v3固定并校验Manifest engine", () => {
+    it("Operation Journal v5固定并校验Manifest engine", () => {
         const manifest = dockerManifest();
         const journal = operationJournal(manifest);
         expect(parseOperationJournal(journal, "memory.json").containerEngine).toBe("podman");
         expect(() => parseOperationJournal({...journal, containerEngine: "docker"}, "memory.json")).toThrow("不一致");
         expect(() => parseOperationJournal({...journal, schemaVersion: 1}, "memory.json")).toThrow("不符合 schema");
+    });
+
+    it("Operation Journal v3只在读取边界转换为v5 Application State记录", () => {
+        const current = operationJournal(dockerManifest());
+        const legacy = {
+            ...current,
+            schemaVersion: 3,
+            attachmentMigration: {
+                runId: "operation-attachment",
+                state: "applied",
+                migratedSessions: 1,
+                sessions: [{
+                    sessionId: 1,
+                    sourcePath: "workspace/book/.nbook/sessions/1/attachments/source.png",
+                    sourceHash: SHA,
+                    targetHash: SHA,
+                }],
+            },
+        };
+
+        expect(migrateOperationJournal(legacy, "memory.json")).toMatchObject({
+            schemaVersion: 5,
+            applicationStateMigration: {runId: "operation", state: "applied"},
+        });
+    });
+
+    it("Operation Journal v4只在读取边界转换为v5，且新 schema 才允许 start", () => {
+        const legacy = {...operationJournal(dockerManifest()), schemaVersion: 4};
+
+        expect(migrateOperationJournal(legacy, "memory.json")).toMatchObject({
+            schemaVersion: 5,
+            action: "update",
+        });
+        expect(parseOperationJournal({...operationJournal(dockerManifest()), action: "start"}, "memory.json"))
+            .toMatchObject({schemaVersion: 5, action: "start"});
     });
 
     it("可在严格payload解析前读取Release envelope", () => {
@@ -68,14 +162,14 @@ describe("Manager manifest schemas", () => {
 
 function productManifest() {
     return {
-        schemaVersion: 4 as const,
+        schemaVersion: 5 as const,
         profile: "product-bun" as const,
         containerEngine: null,
         managerVersion: "0.1.0",
         appVersion: "0.8.0",
         channel: "stable" as const,
         sourceRevision: REVISION,
-        stateRoot: "." as const,
+        roots: INSTALLATION_SCOPED_ROOT_LOCATORS,
         components: {
             source: {
                 provider: "release" as const,
@@ -89,6 +183,7 @@ function productManifest() {
                 redistribution: "test",
             },
             product: {
+                ...TEST_RUNTIME_IMAGE_IDENTITY,
                 provider: "release" as const,
                 version: "0.8.0",
                 revision: REVISION,
@@ -111,13 +206,14 @@ function productManifest() {
 
 function releaseManifest() {
     return {
-        schemaVersion: 3 as const,
+        schemaVersion: 4 as const,
         version: "0.8.0",
         channel: "stable" as const,
         sourceRevision: REVISION,
         minManagerVersion: "0.1.0",
         source: {url: "https://example.com/source.zip", sha256: SHA, bytes: 1},
         products: PRODUCT_PLATFORMS.map((platform) => ({
+            ...TEST_RUNTIME_IMAGE_IDENTITY,
             url: `https://example.com/${PRODUCT_ASSET_NAMES[platform]}`,
             sha256: SHA,
             bytes: 1,
@@ -126,6 +222,10 @@ function releaseManifest() {
         })),
         windowsPortable: {url: "https://example.com/portable.zip", sha256: SHA, bytes: 1},
         ghcr: {ref: "ghcr.io/notnotype/neuro-book:v0.8.0", digest: `sha256:${SHA}`, sourceRevision: REVISION},
+        stateMigration: {
+            policy: "automatic" as const,
+            steps: ["agent-attachment-v1", "agent-session-v2"],
+        },
     };
 }
 
@@ -152,7 +252,7 @@ function dockerManifest() {
 function operationJournal(manifest: ReturnType<typeof dockerManifest>) {
     const now = "2026-07-16T00:00:00.000Z";
     return {
-        schemaVersion: 3 as const,
+        schemaVersion: 5 as const,
         id: "operation",
         action: "update" as const,
         phase: "planned" as const,

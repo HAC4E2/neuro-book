@@ -1,6 +1,8 @@
-import {estimateContextTokens as estimatePiContextTokens, estimateTokens as estimatePiTokens} from "@earendil-works/pi-agent-core";
 import type {AgentMessage, ImageContent, Message, TextContent} from "nbook/server/agent/messages/types";
 import type {StoredAgentMessage, StoredAttachmentContent, StoredContent} from "nbook/server/agent/messages/stored-types";
+
+// 本模块会进 profile artifact 依赖图，必须保持零 npm 运行时依赖；
+// pi-agent-core 的 token 估算器在 `stored-message-tokens.ts`。
 
 /**
  * Pi 的图片估算器使用约 4800 个字符作为单张图片的保守成本。
@@ -91,17 +93,4 @@ export function storedMessageForEstimate(message: StoredMessageLike): Message {
         return {type: "image", data: "", mimeType: block.attachment.mimeType};
     });
     return {...message, content} as Message;
-}
-
-/** 不读取 blob 的单消息 token 估算。 */
-export function estimateStoredMessageTokens(message: StoredMessageLike): number {
-    return estimatePiTokens(storedMessageForEstimate(message));
-}
-
-/**
- * 不读取 blob 的上下文 token 估算。
- * 保留 Pi 对最近一次 assistant usage 的处理语义，避免 compaction 与主 turn 出现两套预算。
- */
-export function estimateStoredContextTokens(messages: readonly StoredMessageLike[]): ReturnType<typeof estimatePiContextTokens> {
-    return estimatePiContextTokens(messages.map(storedMessageForEstimate));
 }

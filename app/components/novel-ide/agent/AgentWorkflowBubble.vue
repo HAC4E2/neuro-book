@@ -8,6 +8,7 @@ import {useAgentJob} from "nbook/app/composables/useAgentJob";
 import {
     parseRunWorkflowArgs,
     parseRunWorkflowDetails,
+    resolveWorkflowBubbleError,
     resolveWorkflowBubbleStatus,
     resolveWorkflowDisplaySummary,
     shouldPollWorkflowRun,
@@ -31,7 +32,7 @@ type WorkflowCatalogResponse = {
 
 const userInputContext = inject(AGENT_REQUEST_USER_INPUT_CONTEXT_KEY, null);
 const ideStore = useNovelIdeStore();
-const catalogProjectPath = computed(() => ideStore.workspaceKind === "user-assets" ? "" : ideStore.currentNovelId);
+const catalogProjectRoot = computed(() => ideStore.workspaceKind === "user-assets" ? "" : ideStore.currentProjectRoot);
 const runState = shallowRef<WorkflowDemoRunState | null>(null);
 const pollError = ref("");
 const runUnavailable = ref(false);
@@ -46,17 +47,17 @@ const nowTick = ref(Date.now());
 
 const parsedArgs = computed(() => parseRunWorkflowArgs(props.toolCall.argsJson ?? props.toolCall.argsText));
 const details = computed(() => parseRunWorkflowDetails(props.toolCall.resultData));
-const jobId = computed(() => details.value?.jobId ?? "");
+const jobId = computed(() => details.value?.jobId ?? null);
+const jobEventCursor = computed(() => details.value?.jobEventCursor ?? null);
 const {
     job: observedJob,
-    error: jobPollError,
+    error: jobFeedError,
     unavailable: jobUnavailable,
     cancelling: cancelSubmitting,
     cancelRequested,
     canCancel: canCancelJob,
-    refresh: refreshJob,
     cancel: cancelJob,
-} = useAgentJob(jobId);
+} = useAgentJob(jobId, jobEventCursor);
 const matchingJob = computed(() => observedJob.value?.jobId === jobId.value ? observedJob.value : null);
 const jobRefRunId = computed(() => {
     const refValue = matchingJob.value?.ref;
@@ -135,7 +136,12 @@ const pendingAsks = computed<PendingAsk[]>(() => matchingRunState.value?.view.pe
 const pendingAskTitles = computed(() => pendingAsks.value.length > 0
     ? pendingAsks.value.map((ask) => ask.spec.title)
     : details.value?.pendingAsks ?? []);
-const effectiveError = computed(() => matchingJob.value?.error ?? matchingRunState.value?.view.error ?? details.value?.error ?? props.toolCall.error ?? "");
+const workflowError = computed(() => resolveWorkflowBubbleError({
+    runObserved: matchingRunState.value !== null,
+    runError: matchingRunState.value?.view.error,
+    detailsError: details.value?.error,
+    toolCallError: props.toolCall.error,
+}));
 const effectiveResult = computed<JsonValue | undefined>(() => {
     const view = matchingRunState.value?.view;
     if (view && Object.prototype.hasOwnProperty.call(view, "result")) {
@@ -175,7 +181,7 @@ const formatJobTime = (timestamp: number): string => new Date(timestamp).toLocal
 
 /** Catalog 描述仅在审批时补查；失败不阻断审批或 run。 */
 let catalogRequestRevision = 0;
-watch([workflowKey, pendingApproval, catalogProjectPath], async ([key, isPending, projectPath]) => {
+watch([workflowKey, pendingApproval, catalogProjectRoot], async ([key, isPending, projectRoot]) => {
     const revision = ++catalogRequestRevision;
     catalogTitle.value = "";
     catalogDescription.value = "";
@@ -184,7 +190,7 @@ watch([workflowKey, pendingApproval, catalogProjectPath], async ([key, isPending
     }
     try {
         const catalog = await $fetch<WorkflowCatalogResponse>("/api/agent/workflow/catalog", {
-            query: projectPath ? {projectPath} : undefined,
+            query: projectRoot ? {projectRoot} : undefined,
         });
         if (revision !== catalogRequestRevision) {
             return;
@@ -217,8 +223,6 @@ function scheduleRunPoll(delay: number): void {
     const canPollRun = shouldPollWorkflowRun({
         hasBackgroundJob: Boolean(jobId.value),
         detailsStatus: details.value?.status,
-        jobStatus: matchingJob.value?.status,
-        jobUnavailable: jobUnavailable.value,
         runStatus: observedStatus,
         runUnavailable: runUnavailable.value,
     });
@@ -276,7 +280,6 @@ async function pollRun(revision: number, expectedRunId: string): Promise<void> {
 function restartPolling(): void {
     clearRunPollTimer();
     scheduleRunPoll(0);
-    refreshJob();
 }
 
 watch(runId, (nextRunId) => {
@@ -441,6 +444,7 @@ onBeforeUnmount(() => {
             </div>
             <div v-if="matchingJob?.preview" class="mt-2 whitespace-pre-wrap break-all text-xs leading-5 text-[var(--text-secondary)]">{{ matchingJob.preview }}</div>
             <div v-else-if="!jobUnavailable" class="mt-2 text-xs text-[var(--text-muted)]">正在连接后台任务管理器…</div>
+            <div v-if="matchingJob?.error" class="mt-2 whitespace-pre-wrap break-all text-xs leading-5 text-[var(--status-danger)]"><span class="font-medium">后台任务错误：</span>{{ matchingJob.error }}</div>
             <div v-if="matchingJob" class="mt-2 flex flex-wrap gap-3 text-[10px] text-[var(--text-muted)]">
                 <span>启动 {{ formatJobTime(matchingJob.createdAt) }}</span>
                 <span v-if="matchingJob.endedAt">结束 {{ formatJobTime(matchingJob.endedAt) }}</span>
@@ -504,8 +508,8 @@ onBeforeUnmount(() => {
             </div>
         </div>
 
-        <div v-if="effectiveError" class="whitespace-pre-wrap break-all rounded border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] p-2 font-mono text-xs text-[var(--status-danger)]">{{ effectiveError }}</div>
-        <div v-if="jobPollError" class="rounded border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-3 py-2 text-xs text-[var(--status-warning)]">{{ jobPollError }}</div>
+        <div v-if="workflowError" class="whitespace-pre-wrap break-all rounded border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] p-2 font-mono text-xs text-[var(--status-danger)]">{{ workflowError }}</div>
+        <div v-if="jobFeedError" class="rounded border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-3 py-2 text-xs text-[var(--status-warning)]">{{ jobFeedError }}</div>
         <div v-if="pollError" class="rounded border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-3 py-2 text-xs text-[var(--status-warning)]">{{ pollError }}；仍保留最近一次可用的 run 状态。</div>
 
         <!-- Session 与 usage 默认折叠，避免终态卡片过长。 -->

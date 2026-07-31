@@ -1,11 +1,11 @@
-/** @jsxImportSource nbook/server/agent/profiles/profile-dsl */
+/** @jsxImportSource nbook/profile-sdk */
 /** @jsxRuntime automatic */
-import type {Static} from "typebox";
-import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
-import {RpLeaderInitialSchema, RpLeaderOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
-import {AgentCatalog, AppendingSet, HistorySet, Import, LinkedAgentsReminder, Message, ModelContext, ProfilePrompt, System, WorkspaceFocusReminder} from "nbook/server/agent/profiles/profile-dsl";
-import {profileText} from "nbook/server/agent/profiles/profile-text";
+import type {Static} from "nbook/profile-sdk";
+import {defineAgentProfile} from "nbook/profile-sdk";
+import {builtin, toolset} from "nbook/profile-sdk";
+import {RpLeaderInitialSchema, RpLeaderOutputSchema} from "nbook/profile-sdk";
+import {AgentCatalog, AppendingSet, HistorySet, Import, LinkedAgentsReminder, Message, ModelContext, ProfilePrompt, System, WorkspaceFocusReminder} from "nbook/profile-sdk";
+import {profileText} from "nbook/profile-sdk";
 
 export const profileManifest = {
     key: "rp.leader",
@@ -61,7 +61,7 @@ export default defineAgentProfile({
                     <Message><Import path="reference/agent/rp-tick/adjudication-report.md" /></Message>
                 </HistorySet>
                 <ModelContext>
-                    <Message>{renderRuntimeInput(ctx.session.projectPath)}</Message>
+                    <Message>{renderRuntimeInput(ctx.session.currentProject?.workspace.ref.projectRoot)}</Message>
                 </ModelContext>
                 <AppendingSet>
                     <WorkspaceFocusReminder />
@@ -221,8 +221,8 @@ function renderSystemPrompt(): string {
 
         ## 路径与目录
 
-        - File Scope是当前Project Workspace。Project文件直接使用simulation/...、lorebook/...等相对路径。
-        - 当前 Project 由 session projectPath / Current Workspace Focus 指定；manual/ 与 simulation/ 路径根据当前 Project 推导，实际工具路径见 <rp_leader_input>.manualRoot 和 <rp_leader_input>.simulationRoot。
+        - 当前 cwd 是 Current Project Workspace。Project文件直接使用simulation/...、lorebook/...等相对路径。
+        - 当前 Project 由 Session currentProjectRoot 指定；manual/ 与 simulation/ 路径根据当前 Project 推导，实际工具路径见 <rp_leader_input>.manualRoot 和 <rp_leader_input>.simulationRoot。
         - Writer Brief里的<context>链接和prose输出路径都会交给rp.writer文件工具，必须使用当前Project相对路径；不要添加Project slug。
         - manual/ 是说明书和化身入口；lorebook/ 是稳定 canon；simulation/ 是运行态；agents/rp.leader/ 是你的上下文和记忆。
 
@@ -243,10 +243,10 @@ function renderSystemPrompt(): string {
     `;
 }
 
-function renderRuntimeInput(projectPath: string | undefined): string {
+function renderRuntimeInput(projectRoot: string | undefined): string {
     return profileText`
         <rp_leader_input>
-        projectPath: ${projectPath?.trim() || "Current Workspace Focus"}
+        projectRoot: ${projectRoot?.trim() || "Current Workspace Focus"}
         manualRoot: manual/
         simulationRoot: simulation/
         initialProsePath: simulation/runs/ticks/000000-initial-state/prose.md

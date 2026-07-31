@@ -2,6 +2,7 @@ import type {AgentSessionEventDto, AgentSessionEventsQueryDto, AgentSessionRecov
 import type {AgentRecoveryApplyResult} from "nbook/app/components/novel-ide/agent/useAgentSession";
 import type {Ref} from "vue";
 import {ref} from "vue";
+import {SseReconnectBackoff} from "nbook/app/utils/http/sse-reconnect-backoff";
 
 export type AgentSessionStreamRecoveryReason =
     | "initial_load"
@@ -56,10 +57,6 @@ type ConnectionReady = {
     reject: (error: unknown) => void;
 };
 
-const reconnectDelay = (attempt: number): number => {
-    const delays = [300, 800, 1500, 3000, 5000];
-    return delays[Math.min(attempt, delays.length - 1)] ?? 5000;
-};
 const DISCONNECTED_AFTER_ATTEMPTS = 3;
 
 const isAbortError = (error: unknown): boolean => error instanceof DOMException && error.name === "AbortError";
@@ -89,6 +86,8 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
     let recoveryPromise: {sessionId: number; promise: Promise<boolean>} | null = null;
     let recoveryGeneration = 0;
     let stopped = false;
+    let backoffSessionId: number | null = null;
+    const reconnectBackoff = new SseReconnectBackoff();
 
     const clearReconnectTimer = (): void => {
         if (!reconnectTimer) {
@@ -130,12 +129,12 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
             return;
         }
         lastDisconnectReason.value = reason;
-        options.session.applyConnectionStatus(reconnectAttempt.value >= DISCONNECTED_AFTER_ATTEMPTS ? "disconnected" : "reconnecting");
-        const delay = reconnectDelay(reconnectAttempt.value);
-        reconnectAttempt.value += 1;
+        const retry = reconnectBackoff.disconnected();
+        reconnectAttempt.value = retry.failedAttempts;
+        options.session.applyConnectionStatus(retry.failedAttempts >= DISCONNECTED_AFTER_ATTEMPTS ? "disconnected" : "reconnecting");
         reconnectTimer = setTimeout(() => {
             void start(targetSessionId).catch(() => {});
-        }, delay);
+        }, retry.delayMs);
     };
 
     const syncRecovery = async (reason: AgentSessionStreamRecoveryReason): Promise<boolean> => {
@@ -160,11 +159,12 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
                 const applyResult = options.session.applyRecovery(recovery);
                 options.session.clearRecoveryRequest();
                 await options.applyRecoverySideEffects?.(recovery, applyResult);
+                reconnectBackoff.reset();
+                reconnectAttempt.value = 0;
                 const activeController = controller.value;
                 if (activeController && sessionId.value === targetSessionId && targetSessionId === options.activeSessionId.value) {
                     // recovery cursor 是新 subscription 的 replay 起点；旧连接不能继续沿用被重置前的读取位置。
                     clearReconnectTimer();
-                    reconnectAttempt.value = 0;
                     activeController.abort();
                     if (controller.value === activeController) {
                         controller.value = null;
@@ -218,6 +218,11 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
             return;
         }
         clearReconnectTimer();
+        if (backoffSessionId !== targetSessionId) {
+            reconnectBackoff.reset();
+            reconnectAttempt.value = 0;
+            backoffSessionId = targetSessionId;
+        }
         controller.value?.abort();
         const nextController = new AbortController();
         controller.value = nextController;
@@ -242,7 +247,8 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
                         if (controller.value !== nextController || nextController.signal.aborted) {
                             return;
                         }
-                        reconnectAttempt.value = 0;
+                        reconnectBackoff.opened();
+                        options.session.applyConnectionStatus("connected");
                         nextReady.resolve();
                     },
                 });
@@ -285,6 +291,7 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
             return;
         }
         clearReconnectTimer();
+        reconnectBackoff.reset();
         reconnectAttempt.value = 0;
         controller.value?.abort();
         controller.value = null;
@@ -302,6 +309,9 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
         ready = null;
         recoveryGeneration += 1;
         recoveryPromise = null;
+        reconnectBackoff.reset();
+        reconnectAttempt.value = 0;
+        backoffSessionId = null;
         options.session.applyConnectionStatus("idle");
     };
 

@@ -3,19 +3,23 @@ import type {StoredAgentMessage} from "nbook/server/agent/messages/stored-types"
 import type {DurableSessionModelRef} from "nbook/server/agent/session/session-model-redaction";
 import type {VariableJsonPatchOperation, VariableNamespace} from "nbook/server/agent/variables/types";
 import type {AgentMode} from "nbook/shared/dto/agent-session.dto";
-import type {WorkspaceRootRef} from "nbook/server/workspace-files/workspace-root-ref";
 import type {AttachmentRef} from "nbook/shared/dto/agent-attachment.dto";
 
 export type SessionId = number;
 export type SessionEntryId = string;
 
 export type SessionMetadata = {
+    schemaVersion: 2;
     sessionId: SessionId;
     profileKey: string;
     initial: JsonValue;
-    workspaceRoot: WorkspaceRootRef;
-    workspaceKey: string;
-    projectPath?: string;
+    /** 缺失表示 Workspace Root Session；非空时必须是单段 Project root。 */
+    currentProjectRoot?: string;
+    /** 仅离线迁移写入；重绑或清除 Current Project 后消失。 */
+    migrationReview?: {
+        status: "required";
+        reason: "current_project_unresolved";
+    };
     parentSessionId?: SessionId;
     createdAt: number;
     title?: string;
@@ -259,6 +263,15 @@ export type SessionRestoredEntry = {
     type: "session_restored";
 };
 
+/** append-only 的 Current Project 重绑事实；null 表示清除归属。 */
+export type CurrentProjectChangeEntry = {
+    id: SessionEntryId;
+    parentId: SessionEntryId | null;
+    timestamp: number;
+    type: "current_project_change";
+    projectRoot: string | null;
+};
+
 export type InvocationErrorPhase = "prepare" | "pre_loop" | "model" | "tool" | "ingest" | "compaction" | "settleRun" | "unknown";
 
 export type InvocationErrorInfo = {
@@ -296,6 +309,7 @@ export type SessionEntry =
     | ClientVariablePatchAckEntry
     | SessionArchivedEntry
     | SessionRestoredEntry
+    | CurrentProjectChangeEntry
     | InvocationLifecycleEntry;
 
 export type SessionFileRecord =
@@ -325,8 +339,7 @@ export type NeuroSessionContext = {
     /** Session 级显式 thinking 覆盖；null 表示跟随 Agent Profile 默认。 */
     thinkingLevel: ThinkingLevel | null;
     profileKey: string;
-    workspaceRoot: WorkspaceRootRef;
-    projectPath?: string;
+    currentProjectRoot?: string;
     customState: Record<string, JsonValue>;
     linkedAgents: LinkedAgentSummary[];
     title?: string;

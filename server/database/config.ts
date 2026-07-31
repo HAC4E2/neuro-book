@@ -16,13 +16,18 @@ export type DatabaseRuntimeConfig = {
     sqliteScope: "state-root" | "external";
 };
 
+export type ResolveDatabaseConfigOptions = {
+    /** false 用于只读迁移门禁，不得因解析配置创建数据库父目录。 */
+    ensureDirectory?: boolean;
+};
+
 /**
  * 解析当前进程实际使用的数据库配置。
  *
  * `.env` / 进程环境是执行真值源；`config.yaml` 只作为部署镜像和诊断输入，
  * 不覆盖进程环境。缺省时使用 App SQLite 文件库。
  */
-export function resolveDatabaseConfig(): DatabaseRuntimeConfig {
+export function resolveDatabaseConfig(options: ResolveDatabaseConfigOptions = {}): DatabaseRuntimeConfig {
     const bootDatabase = readBootDatabaseConfig();
     const envKind = normalizeKind(process.env.DATABASE_KIND);
     const envUrl = normalizeText(process.env.DATABASE_URL);
@@ -33,7 +38,9 @@ export function resolveDatabaseConfig(): DatabaseRuntimeConfig {
 
     assertDatabaseConfig(kind, url);
     const location = resolveAppSqliteLocation(url, resolveStateRoot());
-    fs.mkdirSync(path.dirname(location.hostPath), {recursive: true});
+    if (options.ensureDirectory !== false) {
+        fs.mkdirSync(path.dirname(location.hostPath), {recursive: true});
+    }
 
     return {
         kind,

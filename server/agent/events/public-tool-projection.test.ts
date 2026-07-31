@@ -231,7 +231,7 @@ describe("projectPublicToolResult", () => {
             content: [],
             details: {
                 truncation: {truncated: true, truncatedBy: "bytes", totalLines: 3000, totalBytes: 100_000, content: "x".repeat(100_000)},
-                fullOutputPath: "C:/Temp/neuro-bash.log",
+                fullOutput: {locator: "bash-output://12345678-1234-4123-8123-123456789abc/output.log", state: "available"},
             },
         });
 
@@ -249,7 +249,7 @@ describe("projectPublicToolResult", () => {
             truncatedBy: "bytes",
             totalLines: 3000,
             totalBytes: 100_000,
-            fullOutputPath: "C:/Temp/neuro-bash.log",
+            fullOutput: {locator: "bash-output://12345678-1234-4123-8123-123456789abc/output.log", state: "available"},
         });
     });
 

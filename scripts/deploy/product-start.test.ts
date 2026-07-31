@@ -5,6 +5,8 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 
 import {afterEach, describe, expect, it} from "vitest";
+import {buildProductCommands} from "nbook/scripts/build/product-command-bundle";
+import {PRODUCT_RUNTIME_CONTRACT_PATH} from "nbook/shared/product-runtime-contract";
 
 const roots: string[] = [];
 
@@ -14,22 +16,29 @@ describe("Product start生命周期", () => {
     it.skipIf(process.platform === "win32")("SIGTERM会转发给Nitro子进程并在超时前退出", async () => {
         const root = await mkdtemp(join(tmpdir(), "nbook-product-signal-"));
         roots.push(root);
-        const deployRoot = join(root, ".output", "server", "scripts", "deploy");
-        const buildRoot = join(root, ".output", "server", "scripts", "build");
+        const outputRoot = join(root, ".output");
+        const serverRoot = join(outputRoot, "server");
+        const commandRoot = join(serverRoot, "commands");
         const marker = join(root, "server-signal.txt");
         const ready = join(root, "server-ready.txt");
-        await Promise.all([mkdir(deployRoot, {recursive: true}), mkdir(buildRoot, {recursive: true})]);
-        await Promise.all([
-            writeFile(join(deployRoot, "product-start.mjs"), await readFile(join(process.cwd(), "scripts", "deploy", "product-start.mjs"), "utf8"), "utf8"),
-            writeFile(join(buildRoot, "prepare-system-assets.ts"), "process.exit(0);\n", "utf8"),
-            writeFile(join(root, ".output", "server", "index.mjs"), [
+        await mkdir(serverRoot, {recursive: true});
+        await writeFile(join(serverRoot, "index.mjs"), [
                 'import {writeFileSync} from "node:fs";',
                 `writeFileSync(${JSON.stringify(ready)}, "ready", "utf8");`,
                 `process.on("SIGTERM", () => { writeFileSync(${JSON.stringify(marker)}, "SIGTERM", "utf8"); process.exit(0); });`,
                 'setInterval(() => {}, 1_000);',
-            ].join("\n"), "utf8"),
-        ]);
-        const launcher = spawn(process.execPath, [join(deployRoot, "product-start.mjs")], {
+            ].join("\n"), "utf8");
+        const commands = await buildProductCommands(outputRoot);
+        const internalEntry = "server/commands/test-internal.mjs";
+        commands.contract.internal["check-migrations"] = {entry: internalEntry, fixedArgs: [], allowAdditionalArgs: false};
+        commands.contract.internal["prepare-system-assets"] = {entry: internalEntry, fixedArgs: [], allowAdditionalArgs: false};
+        await writeFile(join(commandRoot, "test-internal.mjs"), "process.exit(0);\n", "utf8");
+        await writeFile(
+            join(outputRoot, ...PRODUCT_RUNTIME_CONTRACT_PATH.split("/")),
+            `${JSON.stringify(commands.contract)}\n`,
+            "utf8",
+        );
+        const launcher = spawn(process.execPath, [join(outputRoot, ...commands.entries.productStart.split("/"))], {
             cwd: root,
             env: {...process.env, NEURO_BOOK_STATE_ROOT: root},
             stdio: "ignore",

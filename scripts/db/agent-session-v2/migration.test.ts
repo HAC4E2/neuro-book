@@ -410,6 +410,35 @@ describe("Session schema v2 offline migration", () => {
         await expect(exists(runRoot(root, "never-started-test"))).resolves.toBe(false);
     });
 
+    it("初始manifest已写但sentinel未发布时可安全resume或rollback", async () => {
+        const resumeRoot = nextRoot();
+        await writeUnpublishedInitialManifest(resumeRoot, "unpublished-resume");
+
+        await expect(runSessionSchemaV2Migration({
+            rootWorkspace: resumeRoot,
+            mode: "apply",
+            runId: "unpublished-resume",
+            resume: true,
+        })).resolves.toMatchObject({status: "complete", runId: "unpublished-resume"});
+        await expect(readAgentSessionStoreSentinel(resumeRoot)).resolves.toMatchObject({
+            state: "complete",
+            runId: "unpublished-resume",
+        });
+
+        const rollbackRoot = nextRoot();
+        await writeUnpublishedInitialManifest(rollbackRoot, "unpublished-rollback");
+        await expect(rollbackSessionSchemaV2Migration({
+            rootWorkspace: rollbackRoot,
+            runId: "unpublished-rollback",
+        })).resolves.toEqual({
+            version: 1,
+            runId: "unpublished-rollback",
+            status: "not_started",
+            restoredSessions: 0,
+        });
+        await expect(exists(runRoot(rollbackRoot, "unpublished-rollback"))).resolves.toBe(false);
+    });
+
     /** 为当前用例分配隔离 Workspace Root。 */
     function nextRoot(): string {
         const root = resolve(".agent", "session-v2-migration-test", randomUUID());
@@ -437,6 +466,23 @@ describe("Session schema v2 offline migration", () => {
             },
         })).rejects.toThrow("injected interruption");
         return root;
+    }
+
+    /** 模拟writeInitialManifest与首次sentinel原子发布之间的进程退出。 */
+    async function writeUnpublishedInitialManifest(root: string, runId: string): Promise<void> {
+        const rootPath = runRoot(root, runId);
+        const now = new Date(MIGRATION_TIMESTAMP).toISOString();
+        await mkdir(rootPath, {recursive: true});
+        await writeFile(resolve(rootPath, "manifest.json"), `${JSON.stringify({
+            version: 1,
+            journalVersion: 1,
+            runId,
+            status: "running",
+            appliedSeq: 0,
+            startedAt: now,
+            updatedAt: now,
+            sessions: [],
+        }, null, 4)}\n`, "utf8");
     }
 });
 

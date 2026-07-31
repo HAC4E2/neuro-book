@@ -37,12 +37,12 @@ export type PrismaRuntimePreflightOptions = {
 export function resolvePrismaRuntimePlan(options: PrismaRuntimePreflightOptions = {}): PrismaRuntimePlan {
     const cwd = resolve(options.cwd ?? process.cwd());
     const scriptPath = normalizePath(options.scriptPath ?? fileURLToPath(import.meta.url));
-    const productMode = scriptPath.includes("/.output/server/scripts/");
+    const productMode = scriptPath.includes("/.output/server/commands/");
 
     if (productMode) {
         return {
             mode: "product",
-            clientPath: resolve(cwd, ".output", "server", "node_modules", "nbook", "server", "generated", "prisma", "client.ts"),
+            clientPath: scriptPath,
             generateScriptPath: null,
         };
     }
@@ -113,7 +113,7 @@ function assertSourceDependencies(cwd: string, exists: (path: string) => boolean
     throw new Error([
         "源码部署缺少本地 Nuxt CLI，无法执行管理员脚本自愈流程。",
         "请先在源码部署目录运行 bun install --frozen-lockfile，再运行 bun run auth:create-admin。",
-        "如果这是 GHCR 部署，不要在宿主机源码 checkout 中运行 bun run auth:create-admin；请在部署目录使用 docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml exec app bun .output/server/scripts/cli/create-admin.ts。",
+            "如果这是 GHCR 部署，不要在宿主机源码 checkout 中运行 bun run auth:create-admin；请通过 NeuroBook Manager 的 admin create 命令执行。",
     ].join("\n"));
 }
 

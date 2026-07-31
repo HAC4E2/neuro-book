@@ -4,7 +4,8 @@ import type {SessionWriteEntryBatch} from "nbook/server/agent/session/write-plan
 import type {SessionEntry, SessionMetadata} from "nbook/server/agent/session/types";
 import {AttachmentError} from "nbook/server/agent/attachments/types";
 import {projectPublicAttachment} from "nbook/server/agent/events/public-tool-projection";
-import {assertManagedProjectDataPlaneOpen} from "nbook/server/workspace-files/project-data-plane-guard";
+import {requireActiveReadyProject} from "nbook/server/workspace-files/project-session";
+import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 import {attachmentMarkdownTarget} from "nbook/shared/agent/agent-image-markdown";
 import type {AttachmentId, AttachmentRef} from "nbook/shared/dto/agent-attachment.dto";
 import type {
@@ -225,7 +226,9 @@ export class SessionAttachmentAuthority {
     /** 返回经过 Project 数据面门禁的热索引；外部文件改写会触发重建。 */
     private async index(sessionId: number): Promise<SessionAttachmentIndex> {
         const index = await this.durableIndex(sessionId);
-        assertManagedProjectDataPlaneOpen(index.metadata.projectPath);
+        if (index.metadata.currentProjectRoot) {
+            requireActiveReadyProject(projectWorkspaceRef(index.metadata.currentProjectRoot));
+        }
         return index;
     }
 

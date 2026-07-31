@@ -3,6 +3,7 @@ import {dirname, join, relative} from "node:path";
 
 import {downloadVerified, extractArchive} from "#manager/download";
 import {ensureDirectory, pathExists, removePath, safeTarget} from "#manager/files";
+import {verifyProductRuntimeImage} from "#manager/product";
 import type {ProductComponent, ProductPlatform, ProductReleaseAsset, ReleaseAsset, SourceComponent} from "#manager/types";
 
 export type StagedReleaseSource = {
@@ -104,6 +105,16 @@ export async function stageReleaseProduct(input: {
     await downloadVerified(input.asset.url, archivePath, input.asset.sha256);
     await extractArchive(archivePath, extractedRoot);
     const stagedOutput = await locateOutput(extractedRoot);
+    const verified = await verifyProductRuntimeImage(stagedOutput, {
+        version: input.version,
+        revision: input.revision,
+        dirty: false,
+        platform: input.asset.platform,
+        imageId: input.asset.imageId,
+        sourceDigest: input.asset.sourceDigest,
+        lockfileSha256: input.asset.lockfileSha256,
+        builderContractVersion: input.asset.builderContractVersion,
+    });
     return {
         outputRoot: stagedOutput,
         component: {
@@ -113,6 +124,10 @@ export async function stageReleaseProduct(input: {
             path: ".output",
             archiveSha256: input.asset.sha256,
             platform: input.asset.platform,
+            imageId: verified.imageId,
+            sourceDigest: verified.sourceDigest,
+            lockfileSha256: verified.lockfileSha256,
+            builderContractVersion: verified.builderContractVersion,
             sourceUrl: input.asset.url,
             license: "AGPL-3.0-only",
             redistribution: "NeuroBook Product overlay，按项目 AGPL-3.0-only 许可证发布。",

@@ -5,9 +5,9 @@ import type {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-har
 import type {ToolSessionWriteSink} from "nbook/server/agent/session/tool-session-write-sink";
 import type {ProfileVariableAccessor} from "nbook/server/agent/variables/types";
 import type {LowCodeFormDto} from "nbook/shared/dto/low-code-form.dto";
-import type {AttachmentStore} from "nbook/server/agent/attachments/attachment-store";
+import type {AgentAttachmentCodec} from "nbook/server/agent/attachments/agent-attachment-codec";
 import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import type {WorkspaceRootRef} from "nbook/server/workspace-files/workspace-root-ref";
+import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 
 export type ToolExecutionMode = "sequential" | "parallel";
 
@@ -35,18 +35,15 @@ export type ToolExecutionContext = {
     sessionId: number;
     parentSessionId?: number;
     profileKey: string;
-    /** 持久化逻辑引用；配置、子Agent继承和DTO使用。 */
-    workspaceRootRef: WorkspaceRootRef;
-    /** Workspace Root Reference解析出的物理根；File Scope会结合projectPath选择实际cwd。 */
-    workspaceFsRoot: AbsoluteFsPath;
-    workspaceKey: string;
-    projectPath?: string;
+    /** Runtime Workspace Root与admission捕获的精确Project generation。 */
+    workspaceRoot: AbsoluteFsPath;
+    currentProject: ReadyProjectSessionRef | null;
     invocationId?: string;
     vars?: ProfileVariableAccessor;
     sessionWrites?: ToolSessionWriteSink;
-    /** Agent Attachment 领域 Store；工具不得访问具体 Local/OSS/DB Adapter。 */
+    /** Agent 图片 Codec；内建工具不能绕过完整解码直接写通用 Attachment Store。 */
     /** 生产 Harness 必填；旧测试/纯文本工具上下文可省略。图片工具缺失时必须 fail closed。 */
-    attachments?: AttachmentStore;
+    attachmentCodec?: AgentAttachmentCodec;
 };
 
 /**
@@ -60,9 +57,8 @@ export type UserInputRequestContext = {
     session: {
         sessionId: number;
         profileKey: string;
-        workspaceRoot: WorkspaceRootRef;
-        workspaceKey: string;
-        projectPath?: string;
+        workspaceRoot: AbsoluteFsPath;
+        currentProject: ReadyProjectSessionRef | null;
     };
 };
 

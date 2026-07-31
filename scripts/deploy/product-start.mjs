@@ -5,23 +5,35 @@ import {existsSync} from "node:fs";
 import {readFileSync, writeFileSync} from "node:fs";
 import {dirname, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
+import {
+    PRODUCT_BUN_RUNTIME_ARGS,
+    readProductRuntimeContract,
+    resolveProductRuntimeInternal,
+} from "nbook/shared/product-runtime-contract";
+import {createProductRuntimeEnvironment} from "nbook/shared/product-runtime-environment";
 
 const productRoot = resolveProductRoot();
 const entry = resolve(productRoot, ".output", "server", "index.mjs");
 const stateRoot = resolveStateRoot(productRoot);
-const productEnv = ensureProductEnv(stateRoot);
+const cacheRoot = resolveCacheRoot(productRoot, stateRoot);
+const stateEnv = ensureProductEnv(stateRoot);
+const productEnv = createProductRuntimeEnvironment({
+    applicationRoot: productRoot,
+    stateRoot,
+    cacheRoot,
+    development: false,
+    inheritedEnvironment: process.env,
+    stateEnvironment: stateEnv,
+    host: process.env.NITRO_HOST?.trim() || process.env.HOST?.trim(),
+    runtimeExecutable: process.execPath,
+});
 
-await prepareSystemAssets(productRoot, productEnv);
+await runInternal(productRoot, productEnv, "check-migrations");
+await runInternal(productRoot, productEnv, "prepare-system-assets");
 
-const child = spawn(process.execPath, [entry, ...process.argv.slice(2)], {
+const child = spawn(process.execPath, [...PRODUCT_BUN_RUNTIME_ARGS, entry, ...process.argv.slice(2)], {
     cwd: productRoot,
-    env: {
-        ...productEnv,
-        ...process.env,
-        NODE_ENV: process.env.NODE_ENV || "production",
-        NEURO_BOOK_APPLICATION_ROOT: productRoot,
-        NEURO_BOOK_STATE_ROOT: stateRoot,
-    },
+    env: productEnv,
     stdio: "inherit",
     windowsHide: false,
 });
@@ -37,14 +49,18 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
     });
 }
 
-async function prepareSystemAssets(root, env) {
-    await run(process.execPath, [resolve(root, ".output", "server", "scripts", "build", "prepare-system-assets.ts"), "--sync-user-assets"], {
+/** Product wrapper 只按 Runtime Contract internal ID 执行启动前步骤。 */
+async function runInternal(root, env, id) {
+    const imageRoot = resolve(root, ".output");
+    const contract = await readProductRuntimeContract(imageRoot);
+    const invocation = resolveProductRuntimeInternal(contract, id);
+    await run(process.execPath, [
+        ...PRODUCT_BUN_RUNTIME_ARGS,
+        resolve(imageRoot, ...invocation.entry.split("/")),
+        ...invocation.fixedArgs,
+    ], {
         cwd: root,
-        env: {
-            ...env,
-            ...process.env,
-            NODE_ENV: process.env.NODE_ENV || "production",
-        },
+        env,
     });
 }
 
@@ -65,7 +81,7 @@ child.on("exit", (code, signal) => {
 });
 
 /**
- * 从 product 根或 `.output/server/scripts/deploy` 副本启动时，都回推到 Product Root。
+ * 从 Product command bundle 启动时，向上定位带 `.output/server/index.mjs` 的 Product Root。
  */
 function resolveProductRoot() {
     let current = dirname(fileURLToPath(import.meta.url));
@@ -89,6 +105,12 @@ function resolveStateRoot(root) {
         return root;
     }
     return resolve(root, configured);
+}
+
+/** Cache Root 由启动 Adapter 显式决定；未设置时只回退到 State Root/cache。 */
+function resolveCacheRoot(root, stateRoot) {
+    const configured = process.env.NEURO_BOOK_CACHE_ROOT?.trim();
+    return configured ? resolve(root, configured) : resolve(stateRoot, "cache");
 }
 
 /**

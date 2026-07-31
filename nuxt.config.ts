@@ -5,6 +5,26 @@ const rootDir = fileURLToPath(new URL("./", import.meta.url));
 const serverDir = fileURLToPath(new URL("./server/", import.meta.url));
 const i18nConfigPath = fileURLToPath(new URL("./app/i18n/i18n.config.ts", import.meta.url));
 const runtimeWorkspaceRoot = fileURLToPath(new URL("./workspace/", import.meta.url)).replace(/\\/g, "/").replace(/\/$/, "");
+const productImageRoot = process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT?.trim();
+const requestedOutputRoot = process.env.NEURO_BOOK_OUTPUT_DIR?.trim();
+const productSourceDigest = process.env.NEURO_BOOK_PRODUCT_SOURCE_DIGEST?.trim();
+if (Boolean(productImageRoot) !== Boolean(requestedOutputRoot)) {
+    throw new Error("Product Nuxt build 必须由 Product Runtime Image Builder 同时注入 image root 与 output root。");
+}
+if (productImageRoot && resolve(rootDir, productImageRoot) !== resolve(rootDir, requestedOutputRoot!)) {
+    throw new Error("Product Runtime Image Builder 注入的 image root 与 output root 不一致。");
+}
+if (Boolean(productImageRoot) !== Boolean(productSourceDigest)) {
+    throw new Error("Product Nuxt build 必须由 Product Runtime Image Builder 注入 Source digest。");
+}
+if (productSourceDigest && !/^sha256:[0-9a-f]{64}$/u.test(productSourceDigest)) {
+    throw new Error("Product Runtime Image Builder 注入的 Source digest 无效。");
+}
+const productBuildId = productSourceDigest?.slice("sha256:".length);
+// 普通 Nuxt build 只产生可删除的 Developer Build State，永远不直接拥有 `.output`。
+const rawProductOutputDir = productImageRoot
+    ? resolve(rootDir, productImageRoot)
+    : resolve(rootDir, ".nuxt", "product-raw");
 const runtimeWorkspaceWatchIgnore = [
     runtimeWorkspaceRoot,
     `${runtimeWorkspaceRoot}/**`,
@@ -16,6 +36,7 @@ const runtimeWorkspaceWatchIgnore = [
 
 export default defineNuxtConfig({
     ssr: false,
+    buildId: productBuildId,
     alias: {
         nbook: rootDir,
     },
@@ -77,7 +98,7 @@ export default defineNuxtConfig({
         },
     ],
     nitro: {
-        output: process.env.NEURO_BOOK_OUTPUT_DIR ? {dir: resolve(process.env.NEURO_BOOK_OUTPUT_DIR)} : undefined,
+        output: {dir: rawProductOutputDir},
         devStorage: {
             root: {
                 driver: "fs",
@@ -103,6 +124,10 @@ export default defineNuxtConfig({
             external: [
                 "@earendil-works/pi-ai",
                 "@earendil-works/pi-agent-core",
+                // Image Variant Module 依赖平台原生 libvips；由 Product vendor 显式携带并执行 smoke。
+                "sharp",
+                // Bun 内置模块：Rollup 解析不到，运行时由 Bun 宿主提供（Windows reparse 检测的惰性 FFI）。
+                "bun:ffi",
             ],
             trace: false,
         },
@@ -166,6 +191,10 @@ export default defineNuxtConfig({
     },
     compatibilityDate: "2026-03-02",
     devtools: {
-        enabled: process.env.NUXT_DEVTOOLS === "1",
+        enabled: productImageRoot ? false : process.env.NUXT_DEVTOOLS === "1",
+    },
+    experimental: {
+        // Product 由 Manager 管理代次，不需要 Nuxt 基于 Date.now() 生成的在线旧版本检测 manifest。
+        appManifest: productImageRoot ? false : undefined,
     },
 });

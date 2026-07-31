@@ -14,28 +14,32 @@ describe("runtime artifact compiler context", () => {
         await Promise.all(roots.splice(0).map((root) => rm(root, {recursive: true, force: true})));
     });
 
-    it("Product build只使用.output内的tsconfig、nbook源码和node_modules", async () => {
+    it("Product build只使用Authoring Kit编译上下文，artifact require继续指向Product runtime", async () => {
         const root = resolve(".agent", "workspace", "artifact-context-test", randomUUID());
         roots.push(root);
         const outputRoot = join(root, ".output", "server");
-        const outputNbookFile = join(outputRoot, "node_modules", "nbook", "server", "marker.ts");
+        const authoringRoot = join(outputRoot, "authoring");
+        const outputNbookFile = join(authoringRoot, "nbook", "server", "marker.ts");
         await mkdir(join(root, "node_modules"), {recursive: true});
-        await mkdir(join(outputRoot, "node_modules", "nbook", "server"), {recursive: true});
+        await mkdir(join(authoringRoot, "nbook", "server"), {recursive: true});
         await writeFile(join(root, "package.json"), '{"name":"neuro-book"}\n', "utf8");
         await writeFile(join(root, "tsconfig.json"), "{}\n", "utf8");
         await writeFile(join(outputRoot, "package.json"), '{"name":"neuro-book-output"}\n', "utf8");
         await writeFile(join(outputRoot, "index.mjs"), "", "utf8");
-        await writeFile(join(outputRoot, "tsconfig.json"), "{}\n", "utf8");
+        await mkdir(join(authoringRoot, "node_modules", "typebox"), {recursive: true});
+        await writeFile(join(authoringRoot, "tsconfig.json"), "{}\n", "utf8");
+        await writeFile(join(authoringRoot, "package.json"), '{"name":"@notnotype/neuro-book-profile-authoring-kit"}\n', "utf8");
         await writeFile(outputNbookFile, "export const marker = true;\n", "utf8");
 
         const context = resolveRuntimeArtifactCompilerContext(root, {NEURO_BOOK_PRODUCT_BUILD: "1"});
 
         expect(context).toEqual(expect.objectContaining({
             productRuntime: true,
-            nbookRoot: join(outputRoot, "node_modules", "nbook"),
-            nodeModulesRoot: join(outputRoot, "node_modules"),
-            packageRequireRoot: join(outputRoot, "index.mjs"),
-            tsconfigPath: join(outputRoot, "tsconfig.json"),
+            nbookRoot: join(authoringRoot, "nbook"),
+            compilerPackageRoot: join(authoringRoot, "package.json"),
+            compilerNodeModulesRoot: join(authoringRoot, "node_modules"),
+            artifactRuntimeRequireRoot: join(outputRoot, "index.mjs"),
+            tsconfigPath: join(authoringRoot, "tsconfig.json"),
         }));
         expect(resolveRuntimeArtifactNbookPath(context, "server/marker")).toBe(outputNbookFile);
     });
@@ -49,6 +53,6 @@ describe("runtime artifact compiler context", () => {
         await writeFile(join(root, "tsconfig.json"), "{}\n", "utf8");
         await writeFile(join(outputRoot, "index.mjs"), "", "utf8");
 
-        expect(() => resolveRuntimeArtifactCompilerContext(root)).toThrow("Product runtime 缺少 artifact 编译 tsconfig");
+        expect(() => resolveRuntimeArtifactCompilerContext(root)).toThrow("Product runtime 缺少自包含 Authoring Kit");
     });
 });

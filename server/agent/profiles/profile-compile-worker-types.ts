@@ -16,7 +16,7 @@ export type ProfileCompileStagedRelease = {
  */
 export type ProfileCompileLifecycleError = {
     code: "PROJECT_NOT_OPEN";
-    projectPath: string;
+    projectRoot: string;
 };
 
 /**

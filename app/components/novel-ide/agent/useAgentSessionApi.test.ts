@@ -11,6 +11,35 @@ describe("useAgentSessionApi", () => {
         previousFetch = undefined;
     });
 
+    it("Composer Draft API 使用统一磁盘 Store endpoints", async () => {
+        const fetchMock = vi.fn()
+            .mockResolvedValueOnce({text: "草稿"})
+            .mockResolvedValueOnce("saved")
+            .mockResolvedValueOnce({cleared: true})
+            .mockResolvedValueOnce({migrated: 1});
+        previousFetch = globalWithFetch.$fetch;
+        globalWithFetch.$fetch = fetchMock;
+        const api = useAgentSessionApi();
+        const identity = {scopeKey: "project:a" as const, sessionId: 12};
+
+        await expect(api.getComposerDraft(identity)).resolves.toEqual({text: "草稿"});
+        await expect(api.saveComposerDraft({...identity, text: "草稿"})).resolves.toBe("saved");
+        await expect(api.clearComposerDraft(identity)).resolves.toEqual({cleared: true});
+        await expect(api.migrateComposerDrafts({drafts: [{...identity, text: "旧草稿", updatedAt: 100}]}))
+            .resolves.toEqual({migrated: 1});
+
+        expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/agent/composer-drafts", {query: identity});
+        expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/agent/composer-drafts", {
+            method: "PUT",
+            body: {...identity, text: "草稿"},
+        });
+        expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/agent/composer-drafts", {method: "DELETE", body: identity});
+        expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/agent/composer-drafts/migrate", {
+            method: "POST",
+            body: {drafts: [{...identity, text: "旧草稿", updatedAt: 100}]},
+        });
+    });
+
     it("getSessionRelations 请求轻量关联关系接口", async () => {
         const relations = {
             sessionId: 12,
@@ -63,9 +92,32 @@ describe("useAgentSessionApi", () => {
 
         const api = useAgentSessionApi();
 
-        await expect(api.listSessions({workspaceKey: "global", limit: 50})).resolves.toEqual(page);
+        await expect(api.listSessions({scope: "all", limit: 50})).resolves.toEqual(page);
         expect(fetchMock).toHaveBeenCalledWith("/api/agent/sessions", {
-            query: {workspaceKey: "global", limit: 50},
+            query: {scope: "all", limit: 50},
+        });
+    });
+
+    it("按稳定 current-project endpoint 重绑 Project 或清除为 Workspace Root", async () => {
+        const fetchMock = vi.fn()
+            .mockResolvedValueOnce({sessionId: 12, currentProjectRoot: "project-a"})
+            .mockResolvedValueOnce({sessionId: 12});
+        previousFetch = globalWithFetch.$fetch;
+        globalWithFetch.$fetch = fetchMock;
+
+        const api = useAgentSessionApi();
+
+        await expect(api.updateSessionCurrentProject(12, {projectRoot: "project-a"}))
+            .resolves.toEqual({sessionId: 12, currentProjectRoot: "project-a"});
+        await expect(api.updateSessionCurrentProject(12, {projectRoot: null}))
+            .resolves.toEqual({sessionId: 12});
+        expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/agent/sessions/12/current-project", {
+            method: "POST",
+            body: {projectRoot: "project-a"},
+        });
+        expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/agent/sessions/12/current-project", {
+            method: "POST",
+            body: {projectRoot: null},
         });
     });
 
@@ -78,8 +130,6 @@ describe("useAgentSessionApi", () => {
                 summary: {
                     sessionId: 12,
                     profileKey: "leader.default",
-                    workspaceKey: "global",
-                    workspaceRoot: "workspace",
                     status: "idle",
                     updatedAt: 1,
                     archived: false,

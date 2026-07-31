@@ -1,5 +1,6 @@
 import {fetchUpdateTarget} from "#manager/git";
 import {resolveReleaseManifest} from "#manager/manifest-store";
+import {installationRootDataPaths} from "#manager/root-locators";
 import {assertManagerUpgrade} from "#manager/runtime";
 import {planGitProfileUpdate, planReleaseProfileUpdate} from "#manager/update-planner";
 import type {GitUpdateTarget} from "#manager/git";
@@ -104,7 +105,7 @@ export async function resolveUpdatePreflight(input: UpdatePreflightInput): Promi
         if (input.version || input.releaseManifest) {
             throw new Error(`Profile ${input.manifest.profile}使用Git revision更新，不接受--version或--release-manifest。`);
         }
-        const target = await fetchUpdateTarget(input.root);
+        const target = await fetchUpdateTarget(input.root, undefined, installationRootDataPaths(input.manifest.roots));
         const plan = planGitProfileUpdate(input.manifest, target.targetRevision, channel, managerChanged);
         return {
             ...plan,
@@ -116,6 +117,9 @@ export async function resolveUpdatePreflight(input: UpdatePreflightInput): Promi
     }
 
     const release = await resolveReleaseManifest(channel, input.version, input.releaseManifest);
+    if (release.stateMigration.policy === "manual") {
+        throw new Error(`该版本需要先按迁移说明人工处理状态数据：${release.stateMigration.guide}`);
+    }
     if (lt(MANAGER_VERSION, release.minManagerVersion)) {
         const tag = channel === "stable" ? "latest" : "canary";
         throw new Error(`Manager ${MANAGER_VERSION} 低于 Release 要求 ${release.minManagerVersion}。请执行：\nbunx --bun @notnotype/neuro-book-manager@${tag} update`);

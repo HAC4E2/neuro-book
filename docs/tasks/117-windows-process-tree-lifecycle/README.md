@@ -286,10 +286,11 @@ stdout/stderr 继续使用独立 pipe，不把监督协议混入命令文本。�
 
 Linux/macOS Adapter 用独立 process group 承担相同 Interface：
 
-- 启动时创建目标 process group。
+- 轻量 supervisor 启动目标 process group，并以独立 IPC 观察宿主断连。
 - graceful 阶段向整个 group 发 SIGTERM。
 - grace 到期向整个 group 发 SIGKILL。
 - 等待 group/stdio 收口，并在 hard window 内完成。
+- supervisor 持有进程内 group identity；不写 PID 文件，不跨 invocation 扫描或重绑。
 
 不在 Windows 上模拟 POSIX group，也不在 POSIX 上引入 Job Object 术语。
 
@@ -393,7 +394,7 @@ Phase A gate：原始无 Job 实现必须稳定失败；Job fixture 必须稳定
 - [x] Windows supervisor 在 spawn 目标前完成 Job 创建、`KILL_ON_JOB_CLOSE` 和 self-assign。
 - [x] 监督协议使用独立 IPC；stdout/stderr 保持纯命令输出。
 - [x] Windows Adapter 实现 graceful request、`TerminateJobObject`、parent disconnect 和 completion watchdog。
-- [x] POSIX Adapter 实现 process group TERM→KILL。
+- [x] POSIX Adapter 以独立 supervisor 实现 process group TERM→KILL 与宿主断连清理。
 - [x] 所有 listener、timer、IPC、pipe 和 Job handle 在单一 cleanup path 释放。
 - [x] 初始化/Assign/SetInformation失败时返回结构化ownership failure，不启动未受管目标。
 - [x] 增加并发lease隔离测试，终止一个命令不能影响另一个命令。
@@ -470,6 +471,7 @@ Phase E gate：本地实现已满足；Windows Release runner真实Portable smok
 | Portable | stuck Bash then CMD close | Product/Bash/find 全部归零，端口可复用 |
 | Portable | startup health timeout | 不留 Product/Agent 后代 |
 | POSIX | Bash group TERM→KILL | 整组退出，现有 Product SIGTERM 测试继续通过 |
+| POSIX | owner SIGKILL / IPC disconnect | supervisor 仍收口 group、后代与测试端口 |
 | Release | staged Windows zip | 使用包内 Bun/PortableGit/Manager，不借宿主工具蒙混通过 |
 
 测试不能只断言 Promise reject 或直接 PID 消失；至少同时断言 OS 后代和资源释放。Windows-only 测试在非 Windows 可以 skip，但 Windows Release workflow 不得 skip。
@@ -495,12 +497,19 @@ Phase E gate：本地实现已满足；Windows Release runner真实Portable smok
 
 ## Implementation Walkthrough
 
+### 2026-07-28：POSIX 宿主断连所有权补齐
+
+- Application State 健康提交审查发现：Windows supervisor 会在 Manager IPC 断开时依靠 Job Object 清理候选 Product，但 POSIX Adapter 仍由 Manager 进程直接持有 detached process group；Manager 被强杀后，候选可能继续运行且下一次 Operation recovery 没有安全的跨进程 owner。
+- POSIX Adapter 现改为与 Windows 相同的父侧 lease + 独立 IPC supervisor。supervisor 启动目标独立 process group，转发原有 stdin/stdout/stderr；主动 terminate、根进程自然退出与宿主断连共用 TERM→KILL、group probe 和有界 completion。公共 `spawnOwnedProcess()` Interface、termination reason 与调用方均未变化。
+- 没有持久化 PID、枚举父子树或按进程名清理。Manager异常退出时由仍持有活跃 group identity 的 supervisor完成 `host-disconnect`；监督协议/信号/probe 无法证明收口时返回结构化 ownership failure，Application State rollback保持fail closed。
+- 包内故障测试改为注入私有 supervisor source，不把测试 fault 暴露到公共 Interface；宿主异常退出 fixture 现在同时作为 Windows/POSIX合同。Windows本机结果为11项通过、2项POSIX-only跳过，Owned Process typecheck、Manager 5文件58项与Manager打包安装通过。当前主机WSL没有Bun/Node且无Docker，POSIX runtime执行仍等待Linux/macOS runner，不能表述为本机实跑通过。
+
 ### 2026-07-22：终态状态机、错误语义与 Release owner门禁最终收口
 
 - Windows supervisor不再在`TerminateJobObject()`成功前报告`terminated`。调用失败会保留`GetLastError()`并返回`terminate-job`，随后关闭唯一Job handle，继续依靠`KILL_ON_JOB_CLOSE`清理目标树；包内私有source factory提供真实无效handle回归，不进入公共Interface或生产环境变量。
 - Windows Adapter把terminal message、监督协议错误、控制IPC错误和ChildProcess `error`事件都暂存到supervisor `close`后再提交；`terminate()`先固定reason、Promise和watchdog，再发送控制消息。只有无法确认supervisor关闭的watchdog到期才返回`hard-kill-wait`。
 - POSIX Adapter把TERM、KILL和process group探测的非`ESRCH`异常统一映射为`process-group-signal`/`process-group-probe`，event、interval和timer回调只进入单一`rejectOnce()`，不再向事件循环直接抛异常。
-- `runBash()`只消费lease completion中的termination reason。timeout与AbortSignal handler只停止迟到输出并请求终止；前台、后台均用嵌套`try/finally`保证`finish()`失败时仍执行`closeTempFile()`，ownership failure保持原样传播。
+- `runBash()`只消费lease completion中的termination reason。timeout与AbortSignal handler只停止迟到输出并请求终止；前台、后台均用嵌套`try/finally`保证输出 Store 的 `closeOutput()` 在 `finish()` 失败时仍执行，ownership failure 保持原样传播。旧 `closeTempFile()` / 系统 temp 文件合同已由 Task 130 的 Cache Root/逻辑 locator 生命周期取代。
 - `runPortableForeground()`现在把健康检查前退出码0明确判为启动失败，健康前非零退出仍保留真实退出码；启动健康超时继续使用`startup-failure`收口完整Product树。
 - Windows Release的Launcher参数转交继续独立验证。浏览器、鉴权和完整data复用三条候选链改为从Manifest解析实际Manager Runtime与版本化Manager bundle，直接启动并只终止该Manager PID，再等待IPC断连触发Product Job收口和端口重绑；不再把外层CMD/wrapper退出当作Product终态。
 

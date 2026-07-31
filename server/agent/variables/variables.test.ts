@@ -21,18 +21,14 @@ import {
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 
 describe("Agent variable system", () => {
-    it("外部Project Workspace不会重绑定global变量物理根", async () => {
+    it("未绑定Project的Session始终使用Workspace Root存储global变量", async () => {
         const workspaceRoot = resolve(".agent", "workspace", "variable-global-root-test", randomUUID());
-        const externalProjectRoot = resolve(".agent", "external-project", randomUUID());
-        await Promise.all([mkdir(workspaceRoot, {recursive: true}), mkdir(externalProjectRoot, {recursive: true})]);
+        await mkdir(workspaceRoot, {recursive: true});
         try {
             const repo = new JsonlSessionRepository(workspaceRoot);
             const snapshot = await repo.createSession({
                 profileKey: "test.vars",
                 initial: {},
-                workspaceRoot: absoluteFsPath(externalProjectRoot),
-                workspaceKey: "test",
-                projectPath: externalProjectRoot,
             });
             const registry = new VariableRegistry([defineWorkspaceRootVariable({
                 key: "preferences",
@@ -48,13 +44,8 @@ describe("Agent variable system", () => {
             expect(result.issue).toBeUndefined();
             const stored = await readFile(resolve(workspaceRoot, ".nbook", "agent", "variables.json"), "utf-8");
             expect(stored).toContain('"theme": "dark"');
-            await expect(readFile(resolve(externalProjectRoot, ".nbook", "agent", "variables.json"), "utf-8"))
-                .rejects.toMatchObject({code: "ENOENT"});
         } finally {
-            await Promise.all([
-                rm(workspaceRoot, {recursive: true, force: true}),
-                rm(externalProjectRoot, {recursive: true, force: true}),
-            ]);
+            await rm(workspaceRoot, {recursive: true, force: true});
         }
     });
 
@@ -143,8 +134,6 @@ describe("Agent variable system", () => {
         const snapshot = await repo.createSession({
             profileKey: "test.vars",
             initial: {},
-            workspaceRoot: absoluteFsPath(root),
-            workspaceKey: "test",
         });
         const registry = new VariableRegistry([
             defineClientVariable({
@@ -177,8 +166,6 @@ describe("Agent variable system", () => {
         const snapshot = await repo.createSession({
             profileKey: "test.vars",
             initial: {},
-            workspaceRoot: absoluteFsPath(root),
-            workspaceKey: "test",
         });
         const registry = new VariableRegistry([
             defineSessionVariable({
@@ -199,7 +186,7 @@ describe("Agent variable system", () => {
                 path: "",
                 value: {alice: 1},
             }]);
-            const nextSnapshot = await repo.readSession(snapshot.metadata.sessionId, snapshot.metadata.workspaceKey);
+            const nextSnapshot = await repo.readSession(snapshot.metadata.sessionId);
             const nextAccessor = createProfileVariableAccessor({
                 repo,
                 snapshot: nextSnapshot,
@@ -219,8 +206,6 @@ describe("Agent variable system", () => {
         const snapshot = await repo.createSession({
             profileKey: "test.vars",
             initial: {},
-            workspaceRoot: absoluteFsPath(root),
-            workspaceKey: "test",
         });
         const registry = new VariableRegistry([
             defineSessionVariable({
@@ -261,8 +246,6 @@ describe("Agent variable system", () => {
         const snapshot = await repo.createSession({
             profileKey: "test.vars",
             initial: {},
-            workspaceRoot: absoluteFsPath(root),
-            workspaceKey: "test",
         });
         const registry = new VariableRegistry([
             defineProjectVariable({
@@ -305,8 +288,6 @@ describe("Agent variable system", () => {
         const snapshot = await repo.createSession({
             profileKey: "test.vars",
             initial: {},
-            workspaceRoot: absoluteFsPath(root),
-            workspaceKey: "test",
         });
         const currentProject = readyProject(projectA);
         const variableState: VariableInvocationState = {
@@ -354,8 +335,6 @@ describe("Agent variable system", () => {
         const snapshot = await repo.createSession({
             profileKey: "test.vars",
             initial: {},
-            workspaceRoot: absoluteFsPath(root),
-            workspaceKey: "test",
         });
         const vars = createProfileVariableAccessor({
             repo,
@@ -374,9 +353,8 @@ describe("Agent variable system", () => {
                 harness: null as never,
                 sessionId: snapshot.metadata.sessionId,
                 profileKey: "leader.default",
-                workspaceRootRef: absoluteFsPath(root),
-                workspaceFsRoot: absoluteFsPath(root),
-                workspaceKey: "test",
+                workspaceRoot: absoluteFsPath(root),
+                currentProject: null,
                 vars,
             }, "tool-1", {
                 namespace: "session",
@@ -395,8 +373,6 @@ describe("Agent variable system", () => {
         const snapshot = await repo.createSession({
             profileKey: "test.vars",
             initial: {},
-            workspaceRoot: absoluteFsPath(root),
-            workspaceKey: "test",
         });
         const variableState: VariableInvocationState = {
             readFingerprints: new Map(),
@@ -452,8 +428,6 @@ describe("Agent variable system", () => {
         const snapshot = await repo.createSession({
             profileKey: "test.vars",
             initial: {},
-            workspaceRoot: absoluteFsPath(root),
-            workspaceKey: "test",
         });
         const variableState: VariableInvocationState = {
             readFingerprints: new Map(),
@@ -517,11 +491,9 @@ describe("Agent variable system", () => {
         const snapshot = await repo.createSession({
             profileKey: "test.vars",
             initial: {},
-            workspaceRoot: absoluteFsPath(root),
-            workspaceKey: "test",
         });
         const brokenRepo = Object.create(repo) as JsonlSessionRepository;
-        brokenRepo.appendEntry = async (_sessionId: number, _input: SessionEntryDraft, _workspaceKey?: string) => {
+        brokenRepo.appendEntry = async (_sessionId: number, _input: SessionEntryDraft) => {
             throw new Error("audit disk full");
         };
         const variableState: VariableInvocationState = {
@@ -601,8 +573,6 @@ describe("Agent variable system", () => {
         const snapshot = await repo.createSession({
             profileKey: "test.vars",
             initial: {},
-            workspaceRoot: absoluteFsPath(root),
-            workspaceKey: "test",
         });
         try {
             const vars = createProfileVariableAccessor({repo, snapshot, registry});
@@ -610,9 +580,8 @@ describe("Agent variable system", () => {
                 harness: null as never,
                 sessionId: snapshot.metadata.sessionId,
                 profileKey: "leader.default",
-                workspaceRootRef: absoluteFsPath(root),
-                workspaceFsRoot: absoluteFsPath(root),
-                workspaceKey: "test",
+                workspaceRoot: absoluteFsPath(root),
+                currentProject: null,
                 vars,
             }, "tool-1", {namespace: "session"});
             expect(result?.details).toEqual(expect.objectContaining({issues: []}));
@@ -628,8 +597,6 @@ describe("Agent variable system", () => {
         const snapshot = await repo.createSession({
             profileKey: "test.vars",
             initial: {},
-            workspaceRoot: absoluteFsPath(root),
-            workspaceKey: "test",
         });
         const registry = new VariableRegistry([
             defineProjectVariable({
@@ -845,11 +812,16 @@ describe("Agent variable system", () => {
     it("Product variable definition只记录.output/server自包含依赖", async () => {
         const productRoot = resolve(".agent", "workspace", "variable-product-context-test", randomUUID());
         const outputRoot = join(productRoot, ".output", "server");
+        const authoringRoot = join(outputRoot, "authoring");
         const definitionRoot = join(outputRoot, "assets", "workspace", ".nbook", "agent", "variables");
-        await mkdir(definitionRoot, {recursive: true});
+        await Promise.all([
+            mkdir(definitionRoot, {recursive: true}),
+            mkdir(authoringRoot, {recursive: true}),
+        ]);
         await writeFile(join(productRoot, "package.json"), '{"name":"neuro-book-product","type":"module"}\n', "utf8");
         await writeFile(join(outputRoot, "index.mjs"), "", "utf8");
-        await writeFile(join(outputRoot, "tsconfig.json"), "{}\n", "utf8");
+        await writeFile(join(authoringRoot, "package.json"), '{"name":"@notnotype/neuro-book-profile-authoring-kit","private":true,"type":"module"}\n', "utf8");
+        await writeFile(join(authoringRoot, "tsconfig.json"), "{}\n", "utf8");
         await writeFile(join(definitionRoot, "definitions.ts"), [
             "export const definitions = [{",
             '    namespace: "project",',
@@ -873,6 +845,57 @@ describe("Agent variable system", () => {
         } finally {
             process.chdir(previousCwd);
             await rm(productRoot, {recursive: true, force: true});
+        }
+    });
+
+    it("不同物理 Product root 生成相同 variable artifact", async () => {
+        const roots = [
+            resolve(".agent", "workspace", "variable-product-determinism-a", randomUUID()),
+            resolve(".agent", "workspace", "variable-product-determinism-b", randomUUID()),
+        ];
+        const previousCwd = process.cwd();
+        const results: Array<{artifact: string; manifest: string}> = [];
+        try {
+            for (const productRoot of roots) {
+                const outputRoot = join(productRoot, ".output", "server");
+                const authoringRoot = join(outputRoot, "authoring");
+                const definitionRoot = join(outputRoot, "assets", "workspace", ".nbook", "agent", "variables");
+                await Promise.all([
+                    mkdir(definitionRoot, {recursive: true}),
+                    mkdir(authoringRoot, {recursive: true}),
+                ]);
+                await writeFile(join(productRoot, "package.json"), '{"name":"neuro-book-product","type":"module"}\n', "utf8");
+                await writeFile(join(outputRoot, "index.mjs"), "", "utf8");
+                await writeFile(join(authoringRoot, "package.json"), '{"name":"@notnotype/neuro-book-profile-authoring-kit","private":true,"type":"module"}\n', "utf8");
+                await writeFile(join(authoringRoot, "tsconfig.json"), "{}\n", "utf8");
+                await writeFile(join(definitionRoot, "definitions.ts"), [
+                    "export const definitions = [{",
+                    '    namespace: "project",',
+                    '    key: "styleGuide",',
+                    '    schema: {type: "string"},',
+                    "}];",
+                    "export default definitions;",
+                    "",
+                ].join("\n"), "utf8");
+                process.chdir(productRoot);
+                const manifest = await compileVariableDefinitions({
+                    definitionRoot,
+                    rootLabel: "assets/workspace/.nbook/agent/variables",
+                    manifestGeneratedAt: new Date(0).toISOString(),
+                });
+                results.push({
+                    artifact: await readFile(join(definitionRoot, ".compiled", "definitions.mjs"), "utf8"),
+                    manifest: await readFile(join(definitionRoot, ".compiled", "manifest.json"), "utf8"),
+                });
+                expect(manifest.generatedAt).toBe("1970-01-01T00:00:00.000Z");
+                process.chdir(previousCwd);
+            }
+
+            expect(results[0]).toEqual(results[1]);
+            expect(results[0]?.artifact).not.toContain("variable-product-determinism-");
+        } finally {
+            process.chdir(previousCwd);
+            await Promise.all(roots.map((root) => rm(root, {recursive: true, force: true})));
         }
     });
 });

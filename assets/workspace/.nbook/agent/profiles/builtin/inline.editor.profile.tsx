@@ -1,12 +1,12 @@
-/** @jsxImportSource nbook/server/agent/profiles/profile-dsl */
+/** @jsxImportSource nbook/profile-sdk */
 /** @jsxRuntime automatic */
-import type {Static} from "typebox";
-import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {InlineEditorInitialSchema, InlineEditorOutputSchema, InlineEditorPayloadSchema} from "nbook/server/agent/profiles/builtin-contracts";
-import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
-import {AppendingSet, If, Message, ProfilePrompt, System} from "nbook/server/agent/profiles/profile-dsl";
-import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
-import {profileText} from "nbook/server/agent/profiles/profile-text";
+import type {Static} from "nbook/profile-sdk";
+import {defineAgentProfile} from "nbook/profile-sdk";
+import {InlineEditorInitialSchema, InlineEditorOutputSchema, InlineEditorPayloadSchema} from "nbook/profile-sdk";
+import {builtin, toolset} from "nbook/profile-sdk";
+import {AppendingSet, If, Message, ProfilePrompt, System} from "nbook/profile-sdk";
+import type {ProfilePrepareContext} from "nbook/profile-sdk";
+import {profileText} from "nbook/profile-sdk";
 
 export const profileManifest = {
     key: "inline.editor",
@@ -45,7 +45,7 @@ export default defineAgentProfile({
 
                         <inline_editor_contract>
                             - 本轮任务来自 hidden payload。可见 message 只是用户界面回执，不能从可见消息反解析选区正文。
-                            - Project-bound File Scope 是当前 Project Workspace，文件工具直接使用 manuscript/...、lorebook/...。
+                            - Current Project 存在时 cwd 是该 Project Workspace，文件工具直接使用 manuscript/...、lorebook/...。
                             - 所有文件操作路径必须使用 <inline_edit target> 与 <ref path> 的完整原值，不要自行添加 Project slug。
                             - 不要尝试截断或猜测路径；payload 已确保路径可直接传给 read/edit/write 工具。
                             - 修改前必须先 read target 文件确认上下文；引用路径不同于 target 时，也必须先 read 引用文件。
@@ -73,19 +73,14 @@ export default defineAgentProfile({
 });
 
 /**
- * 渲染当前 Project 上下文，明确告知 Agent projectSlug 和 projectPath。
+ * 渲染当前 Project 上下文，只暴露单段 projectRoot。
  */
 function renderProjectContext(ctx: ProfilePrepareContext<Initial, Payload>): string {
-    const projectPath = ctx.session.projectPath;
-    if (!projectPath) {
-        return "projectPath: (none - user-assets mode)";
+    const projectRoot = ctx.session.currentProject?.workspace.ref.projectRoot;
+    if (!projectRoot) {
+        return "projectRoot: (none - Workspace Root session)";
     }
-    // projectPath固定为公开Project Path：workspace/project-slug。
-    const projectSlug = projectPath.replace(/^workspace\//u, "");
-    return [
-        `projectSlug: ${projectSlug}`,
-        `projectPath: ${projectPath.startsWith("workspace/") ? projectPath : `workspace/${projectPath}`}`,
-    ].join("\n");
+    return `projectRoot: ${projectRoot}`;
 }
 
 /**
@@ -96,7 +91,7 @@ function renderInlineEditContext(ctx: ProfilePrepareContext<Initial, Payload>): 
     if (!payload) {
         return [
             "<inline_editor_input>",
-            `File Scope: ${ctx.session.projectPath ?? ctx.session.workspaceRoot}`,
+            `cwd: ${ctx.session.currentProject?.workspace.root ?? ctx.session.workspaceRoot}`,
             renderProjectContext(ctx),
             "<missing_payload>未收到 inline editor payload。不要修改文件，调用 report_result 说明缺少编辑输入。</missing_payload>",
             "</inline_editor_input>",
@@ -105,7 +100,7 @@ function renderInlineEditContext(ctx: ProfilePrepareContext<Initial, Payload>): 
 
     return [
         "<inline_editor_input>",
-        `File Scope: ${ctx.session.projectPath ?? ctx.session.workspaceRoot}`,
+        `cwd: ${ctx.session.currentProject?.workspace.root ?? ctx.session.workspaceRoot}`,
         renderProjectContext(ctx),
         renderInlineEditXml(payload),
         "</inline_editor_input>",

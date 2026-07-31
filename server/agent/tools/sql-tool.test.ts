@@ -12,8 +12,7 @@ import {
     writeProjectManifest,
 } from "nbook/server/workspace-files/project-workspace";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
-import {normalizeProjectPath, resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
-import {requireReadyProjectPath} from "nbook/server/workspace-files/project-session";
+import {projectWorkspaceRef, resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-identity";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
@@ -65,22 +64,22 @@ describe("v3 execute_sql tool", () => {
     });
 
     it("缺少invocationId时fail closed，不按持久化projectPath查询latest generation", async () => {
-        const projectPath = `workspace/sql-tool-missing-invocation-${randomUUID()}`;
+        const projectRoot = `sql-tool-missing-invocation-${randomUUID()}`;
         try {
-            const ready = await createProject(projectPath);
+            const ready = await createProject(projectRoot);
             await expect(executeSqlTool(ready, "SELECT 1", {invocationId: undefined})).rejects.toThrow(
                 "execute_sql 缺少 invocationId",
             );
         } finally {
-            await closeProjectForTest(projectPath).catch(() => undefined);
-            await removeProjectRoot(projectPath);
+            await closeProjectForTest(projectRoot).catch(() => undefined);
+            await removeProjectRoot(projectRoot);
         }
     });
 
     it("已open的Project通过工具公开入口执行当前generation SQL", async () => {
-        const projectPath = `workspace/sql-tool-${randomUUID()}`;
+        const projectRoot = `sql-tool-${randomUUID()}`;
         try {
-            const ready = await createProject(projectPath);
+            const ready = await createProject(projectRoot);
             await expect(executeSqlTool(ready, "SELECT 1 AS value")).resolves.toMatchObject({
                 details: {
                     mode: "read",
@@ -90,18 +89,17 @@ describe("v3 execute_sql tool", () => {
                 },
             });
         } finally {
-            await closeProjectForTest(projectPath).catch(() => undefined);
-            await removeProjectRoot(projectPath);
+            await closeProjectForTest(projectRoot).catch(() => undefined);
+            await removeProjectRoot(projectRoot);
         }
     }, 30_000);
 
     it("close/reopen后旧invocation generation拒绝执行且不会切换到新generation", async () => {
-        const projectPath = `workspace/sql-tool-exact-generation-${randomUUID()}`;
+        const projectRoot = `sql-tool-exact-generation-${randomUUID()}`;
         try {
-            const staleReady = await createProject(projectPath);
-            await closeProjectForTest(projectPath);
-            await openProjectForTest(projectPath);
-            const currentReady = requireReadyProjectPath(projectPath);
+            const staleReady = await createProject(projectRoot);
+            await closeProjectForTest(projectRoot);
+            const currentReady = await openProjectForTest(projectRoot);
 
             expect(currentReady.generation).not.toBe(staleReady.generation);
             await expect(executeSqlTool(staleReady, "SELECT 1 AS stale")).rejects.toThrow(
@@ -113,8 +111,8 @@ describe("v3 execute_sql tool", () => {
                 },
             });
         } finally {
-            await closeProjectForTest(projectPath).catch(() => undefined);
-            await removeProjectRoot(projectPath);
+            await closeProjectForTest(projectRoot).catch(() => undefined);
+            await removeProjectRoot(projectRoot);
         }
     }, 30_000);
 });
@@ -135,10 +133,8 @@ async function executeSqlTool(
         harness,
         sessionId: 1,
         profileKey: "leader.default",
-        workspaceRootRef: "workspace",
-        workspaceFsRoot: resolveRuntimeWorkspaceRoot(),
-        workspaceKey: "global",
-        projectPath: ready ? `workspace/${ready.workspace.ref.projectRoot}` : undefined,
+        workspaceRoot: resolveRuntimeWorkspaceRoot(),
+        currentProject: ready,
         invocationId: "execute-sql-test-invocation",
         ...overrides,
     }, "execute-sql-test", {sql});
@@ -156,23 +152,22 @@ function row(tableName: string, columnName: string, ordinalPosition: number) {
     };
 }
 
-async function createProject(projectPath: string): Promise<ReadyProjectSessionRef> {
-    await writeProjectManifest(resolveRuntimeWorkspaceRoot(), projectPath, {
+async function createProject(projectRoot: string): Promise<ReadyProjectSessionRef> {
+    await writeProjectManifest(resolveRuntimeWorkspaceRoot(), projectWorkspaceRef(projectRoot), {
         kind: "novel",
-        title: projectPath,
+        title: projectRoot,
         summary: "",
     });
-    await openProjectForTest(projectPath);
-    return requireReadyProjectPath(projectPath);
+    return openProjectForTest(projectRoot);
 }
 
-async function removeProjectRoot(projectPath: string): Promise<void> {
-    const projectRoot = resolveProjectWorkspaceRoot(resolveRuntimeWorkspaceRoot(), normalizeProjectPath(projectPath));
+async function removeProjectRoot(projectRoot: string): Promise<void> {
+    const projectDirectory = resolveProjectWorkspaceRoot(resolveRuntimeWorkspaceRoot(), projectWorkspaceRef(projectRoot));
     let lastError: unknown;
     for (let attempt = 0; attempt < 100; attempt += 1) {
         collectReleasedSqliteHandles();
         try {
-            await rm(projectRoot, {recursive: true, force: true});
+            await rm(projectDirectory, {recursive: true, force: true});
             return;
         } catch (error) {
             if (!(typeof error === "object" && error !== null && "code" in error && error.code === "EBUSY")) {

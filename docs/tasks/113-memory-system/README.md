@@ -161,14 +161,34 @@ harness 首版已建成（`nb-memory-bench` 首 commit `8a5da12`，typecheck + 3
 
 用户拍板：按第三轮形态做**自研记忆框架 spike**，持续迭代优化，最终产出「spike 探索期间架构不断优化重构的库」。计划见 [PLAN-spike-memory-framework.md](./PLAN-spike-memory-framework.md)（Goal / 工作假设 / 架构草图 / 里程碑 S0-S5 / 迭代纪律）。评测面复用 `nb-memory-bench`，nb-memory 作为新引擎 adapter 同场对比，验收基线 = mem0-tickfilter 的 B1 成绩。
 
+### Spike 结论（2026-07-27，S0-S5 完成）
+
+`nb-memory` 库建成（sibling 仓，公开 API 合同见其 README，决策考古见 `docs/adr/0001~0003`）。B1 同题集对照（fanpai-loli，facts 模式）：
+
+| 指标 | nb-memory | baseline（主仓 subject 等价内核） |
+| --- | --- | --- |
+| entity | 76.3%（19 题双跑均值，单跑峰值 94.4%） | 68.4% |
+| **时间泄漏率** | **0%（跨全部 11 跑）** | 22.2% |
+| asof | 71–100% | 57.1% |
+| 摄入成本 | 22 次 LLM / ~3 分钟 | 57 次 / 21 分钟 |
+| 分身（同实体拆多主体） | 0 | 存在 |
+| revision | 37.5%（未达标，见下） | 40% |
+
+**分叉 A/B/C 判定**（详见 ADR 0003 六条工作假设逐条）：**A 证实**（轻量自带状态层可行，World Engine 导出桥无需求未做）、**B 证实**（alias 带 tick 是泄漏 0 的直接支撑，as-of 审计双跑无泄漏）、**C 部分证实**（happening/state 二分自洽、取代链可审计无跨 topic 矛盾，但 state 对 revision 问答的增益**未被 bench 证明**）。D/E/F 亦证实：边作派生视图可行、写入时归一化 22 次调用完成消解、关键主体注册表稳定收敛 7–15 个。
+
+**S3 未达标的诚实归因**：病灶在①状态检索命中率（问「经济来源」而状态名「生计来源」召不回；无关状态因字面含主体名挤位）②评测分辨率（revision 计分题仅 8–11 道、污染率 6.3–18.8% 摆动，单跑散布 25–75%，<20pp 改动无法辨识）。用户拍板停止刷分、记录现状收口，优化留正式实现阶段。
+
+**方法论沉淀**（跨任务通用）：跨题集分数不可比（旧门槛须同题集复测才作数）；单跑数字不可信（同配置 entity 两跑差 33pp）；裁决协议 = 扩题量 → 双跑均值 → 同题集对照；判卷方差与摄入方差需分开归因。
+
 ## TODO / Follow-ups
 
 - [x] ~~用户拍板评测执行方式~~：已定乙案真跑 B1；harness 落独立仓 `nb-memory-bench`（2026-07-23 首版建成）。
 - [x] ~~语料与模型配置~~：已定《转生反派萝莉，找茬魔法少女》前 8 章 + mimo-v2.5-pro + Qwen3-Embedding-4B；baseline 首轮跑分完成（见上节）。
 - [x] ~~执行 [PLAN-b1-engines-compare.md](./PLAN-b1-engines-compare.md)~~：M2/M3/M4 全部完成（2026-07-23/24，见「B1 第二轮」节）。
-- [ ] **执行 [PLAN-spike-memory-framework.md](./PLAN-spike-memory-framework.md)**（2026-07-26 立项，**执行中**）：仓已建（`nb-memory`）。S0 建仓 ✅、S1 facts+tick ✅（泄漏 0，asof 71.4% 超 tickfilter 的 50%，摄入 0 LLM/5.5s）；S2 消解迭代中（entity 55.6→66.7%，注册表 15→10 主体收敛，分身病三修其二，轮 3 真跑中）+ 审查修复轮（id 分配收归注册表等四项）。进展与错题分析详见 PLAN §7 执行记录与 bench results/ 各 run 目录。
-- [ ] **用户拍板偷设计三项的实施顺序**（助手建议：时间过滤 → BM25 融合 → curator 跨 topic 收敛，见上节拍板建议）；三项图纸已并入 spike 架构（时间过滤=检索层 tick 过滤、BM25 融合=S4、跨 topic 收敛=状态层 curator），主仓 subject 侧是否原地改造待 spike 结论后再定。
-- [ ] 第三轮分叉 A/B/C 以 spike 工作假设先行验证，spike 结果反哺正式拍板。
+- [x] ~~执行 [PLAN-spike-memory-framework.md](./PLAN-spike-memory-framework.md)~~：**S0-S5 全部完成（2026-07-27）**，产物 = sibling 仓 `nb-memory`。结论见上节「Spike 结论」，逐轮跑分与错题分析见 PLAN §7 与 bench `results/fanpai-loli/`。
+- [x] ~~第三轮分叉 A/B/C 以 spike 验证~~：A/B 证实、C 部分证实（详见 ADR 0003）。
+- [ ] **用户拍板主仓 subject 侧路线**（spike 已给出裁决依据）：① 换用 nb-memory（vendor 进仓，泄漏 0/成本 1/7/分身 0 全面优于在位内核）；② 在位内核原地移植偷设计三项（时间过滤优先——泄漏 22.2%→0 是最大单项收益）。
+- [ ] 遗留优化项（正式实现阶段做，非 spike 债）：状态检索命中率（topic 归一化 / 当前状态清单注入）、反向专名题、revision 探针扩到 ≥24 道再谈优化。
 - [ ] 用户拍板 llmlint 共享的访问形态：共享目录 / 实例 HTTP API / 云服务（远期）。
 - [ ] 用户拍板第一轮四个分叉（私有记忆去留 / 项目级可见性 / 写权限 / 粒度）——用户记忆文件式形态若维持，这四叉仍然有效。
 - [ ] 定稿后撰写记忆系统合同文档（建议落 `reference/agent/`），补本任务 Goal 与实施计划；若采「偷设计」路线，subject 侧改造（SubjectMemory 失效语义、subject_rag_search 检索融合）单独排批次。

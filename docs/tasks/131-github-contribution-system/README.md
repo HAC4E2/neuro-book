@@ -1,6 +1,6 @@
 # GitHub 贡献体系第一期
 
-> 当前状态：Implemented and locally verified (2026-07-31) / Issue chooser 已扩展为五类结构化表单并收敛 Security 入口；远端与人工验收待执行。
+> 当前状态：Implemented and remotely verified (2026-07-31) / 五类结构化表单、单一原生 Security 入口、标签与 GitHub Actions 均已远端验证；Issue chooser 视觉人工验收待执行。
 
 ## User Request / Topic
 
@@ -135,6 +135,14 @@
 - `bun scripts/ci/validate-community-files.ts`：通过，当前清单为 23 个标签、5 个 Issue Form、10 个 YAML。
 - `bun run docs:build`：通过，VitePress 约 15 秒完成；只出现既有的大 chunk warning。
 - `git diff --check` 对本轮贡献体系文件通过；PowerShell 仅提示仓库既有的 LF/CRLF 转换行为。
+
+### Remote Verification
+
+- 实现提交 `146375d0` 已推送到 `master`；远端 `config.yml` 只保留 `blank_issues_enabled: false`，两个新增 Issue Form 均可通过 GitHub Contents API 读取。
+- `bun run github:labels -- apply --yes` 已创建 `type: other` 并更新 `area: agent` 描述；随后 `bun run github:labels -- check` 通过，23 个远端标签及全部开放 Issue 的 type/status 合同一致。
+- GitHub Private Vulnerability Reporting API 返回 `enabled: true`；移除手工 contact link 后仍保留 GitHub 原生私密漏洞报告能力。
+- [Deploy Docs #30611776367](https://github.com/notnotype/neuro-book/actions/runs/30611776367) 与手动触发的 [Community and Docs Checks #30611854690](https://github.com/notnotype/neuro-book/actions/runs/30611854690) 均在提交 `146375d0` 上成功。
+- 按仓库规则没有自动执行浏览器验收；API 能确认文件与配置落地，但不把它描述成 Issue chooser 的视觉呈现已经通过。
 
 ## TODO / Follow-ups
 

@@ -11,13 +11,6 @@
 
 import type { z } from "zod";
 
-// ─── Novel DTOs ──────────────────────────────────────────────────
-import {
-    CreateNovelRequestDtoSchema,
-    NovelListItemDtoSchema,
-    UpdateNovelRequestDtoSchema,
-} from "nbook/shared/dto/novel-chapter.dto";
-
 // ─── Plot DTOs ───────────────────────────────────────────────────
 import {
     ChapterPlotDetailDtoSchema,
@@ -134,29 +127,27 @@ export interface RouteMetaEntry {
 
 const ReadQuerySchema = z_.object({
     path: z_.string().trim().min(1, "path 不能为空").describe("File path to read"),
-    root: z_.string().optional().describe("Workspace root directory"),
-    novelId: z_.string().optional().describe("Novel id used to resolve isolated workspace"),
+    projectRoot: z_.string().optional().describe("Project Workspace root, single directory name under Workspace Root"),
     workspaceKind: z_.literal("user-assets").optional().describe("Use the global user assets workspace"),
 });
 
 const StatQuerySchema = z_.object({
     path: z_.string().trim().min(1, "path 不能为空").describe("Path to stat"),
-    root: z_.string().optional().describe("Workspace root directory"),
-    novelId: z_.string().optional().describe("Novel id used to resolve isolated workspace"),
+    projectRoot: z_.string().optional().describe("Project Workspace root, single directory name under Workspace Root"),
     workspaceKind: z_.literal("user-assets").optional().describe("Use the global user assets workspace"),
 });
 
 const TreeQuerySchema = z_.object({
-    projectPath: z_.string().optional().describe("Project Workspace path, for example workspace/<project>"),
+    projectRoot: z_.string().optional().describe("Project Workspace root, single directory name under Workspace Root"),
     workspaceKind: z_.literal("user-assets").optional().describe("Use the global user assets workspace"),
 });
 
 const ProjectRagProjectQuerySchema = z_.object({
-    projectPath: z_.string().trim().min(1).describe("Project Workspace path, for example workspace/<project>"),
+    projectRoot: z_.string().trim().min(1).describe("Project Workspace root, single directory name under Workspace Root"),
 });
 
 const ProjectPlotProjectQuerySchema = z_.object({
-    projectPath: z_.string().trim().min(1).describe("Project Workspace path, for example workspace/<project>"),
+    projectRoot: z_.string().trim().min(1).describe("Project Workspace root, single directory name under Workspace Root"),
 });
 
 const ProjectPlotChapterQuerySchema = ProjectPlotProjectQuerySchema.extend({
@@ -187,48 +178,42 @@ const WorkspaceTreeSnapshotSchema = z_.object({
 // ─── Inline request schemas for workspace-files routes ──────────
 
 const WriteBodySchema = z_.object({
-    root: z_.string().optional().describe("Workspace root directory"),
-    novelId: z_.string().optional().describe("Novel id used to resolve isolated workspace"),
+    projectRoot: z_.string().optional().describe("Project Workspace root, single directory name under Workspace Root"),
     workspaceKind: z_.literal("user-assets").optional().describe("Use the global user assets workspace"),
     path: z_.string().trim().min(1, "path 不能为空").describe("File path"),
     content: z_.string().describe("File content"),
 });
 
 const CreateFileBodySchema = z_.object({
-    root: z_.string().optional().describe("Workspace root directory"),
-    novelId: z_.string().optional().describe("Novel id used to resolve isolated workspace"),
+    projectRoot: z_.string().optional().describe("Project Workspace root, single directory name under Workspace Root"),
     workspaceKind: z_.literal("user-assets").optional().describe("Use the global user assets workspace"),
     path: z_.string().trim().min(1, "path 不能为空").describe("File path"),
     content: z_.string().optional().describe("Initial file content"),
 });
 
 const CreateDirBodySchema = z_.object({
-    root: z_.string().optional().describe("Workspace root directory"),
-    novelId: z_.string().optional().describe("Novel id used to resolve isolated workspace"),
+    projectRoot: z_.string().optional().describe("Project Workspace root, single directory name under Workspace Root"),
     workspaceKind: z_.literal("user-assets").optional().describe("Use the global user assets workspace"),
     path: z_.string().trim().min(1, "path 不能为空").describe("Directory path"),
     indexContent: z_.string().nullable().optional().describe("Index file content"),
 });
 
 const RenameBodySchema = z_.object({
-    root: z_.string().optional().describe("Workspace root directory"),
-    novelId: z_.string().optional().describe("Novel id used to resolve isolated workspace"),
+    projectRoot: z_.string().optional().describe("Project Workspace root, single directory name under Workspace Root"),
     workspaceKind: z_.literal("user-assets").optional().describe("Use the global user assets workspace"),
     from: z_.string().trim().min(1, "from 不能为空").describe("Source path"),
     to: z_.string().trim().min(1, "to 不能为空").describe("Destination path"),
 });
 
 const DeleteBodySchema = z_.object({
-    root: z_.string().optional().describe("Workspace root directory"),
-    novelId: z_.string().optional().describe("Novel id used to resolve isolated workspace"),
+    projectRoot: z_.string().optional().describe("Project Workspace root, single directory name under Workspace Root"),
     workspaceKind: z_.literal("user-assets").optional().describe("Use the global user assets workspace"),
     path: z_.string().trim().min(1, "path 不能为空").describe("Path to delete"),
     recursive: z_.boolean().optional().default(false).describe("Delete recursively"),
 });
 
 const ConvertBodySchema = z_.object({
-    root: z_.string().optional().describe("Workspace root directory"),
-    novelId: z_.string().optional().describe("Novel id used to resolve isolated workspace"),
+    projectRoot: z_.string().optional().describe("Project Workspace root, single directory name under Workspace Root"),
     workspaceKind: z_.literal("user-assets").optional().describe("Use the global user assets workspace"),
     path: z_.string().trim().min(1, "path 不能为空").describe("File path to convert"),
 });
@@ -242,45 +227,6 @@ export const routeMetaMap: RouteMetaEntry[] = [
         method: "get",
         tags: ["Hello"],
         summary: "Server health check — returns message and server time",
-    },
-
-    // ═══ Novels ═══
-    {
-        file: "novels/index.get.ts",
-        method: "get",
-        tags: ["Novels"],
-        summary: "List all novels",
-        responseBody: z_.array(NovelListItemDtoSchema),
-    },
-    {
-        file: "novels/index.post.ts",
-        method: "post",
-        tags: ["Novels"],
-        summary: "Create a new novel with an auto-created Story",
-        requestBody: CreateNovelRequestDtoSchema,
-        responseBody: NovelListItemDtoSchema,
-    },
-    {
-        file: "novels/[novelId].get.ts",
-        method: "get",
-        tags: ["Novels"],
-        summary: "Get a novel",
-        responseBody: NovelListItemDtoSchema,
-    },
-    {
-        file: "novels/[novelId].patch.ts",
-        method: "patch",
-        tags: ["Novels"],
-        summary: "Update novel title and/or summary",
-        requestBody: UpdateNovelRequestDtoSchema,
-        responseBody: NovelListItemDtoSchema,
-    },
-    {
-        file: "novels/[novelId].delete.ts",
-        method: "delete",
-        tags: ["Novels"],
-        summary: "Delete a novel and its plot data",
-        responseBody: SuccessResponseSchema,
     },
 
     // ═══ Plot: Story ═══

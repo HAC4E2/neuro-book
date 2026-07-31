@@ -5,8 +5,21 @@ import {valid} from "semver";
 import {isAbsolute, join, resolve} from "node:path";
 
 import {PRODUCT_ASSET_NAMES} from "#manager/platform";
-import {PRODUCT_PLATFORMS, type InstallationManifest, type OperationJournal, type ReleaseManifest} from "#manager/types";
+import {
+    PRODUCT_PLATFORMS,
+    type InstallationManifest,
+    type InstallationRootLocators,
+    type OperationJournal,
+    type ReleaseManifest,
+} from "#manager/types";
 import {assertAbsolutePathWithin, installationRelativePath} from "#manager/installation-path";
+import {
+    INSTALLED_WINDOWS_ROOT_LOCATORS,
+    INSTALLATION_SCOPED_ROOT_LOCATORS,
+    PORTABLE_ROOT_LOCATORS,
+    resolveInstallationRoots,
+    rootLocatorsEqual,
+} from "#manager/root-locators";
 import {sourceDockerImageName, sourceDockerImageSuffix} from "#manager/source-docker-image";
 import {resolveAppSqliteLocation} from "nbook/server/runtime/app-sqlite-location";
 
@@ -25,10 +38,28 @@ const InstallProfileSchema = Type.Union([
 const ReleaseChannelSchema = Type.Union([Type.Literal("stable"), Type.Literal("canary")]);
 const ContainerEngineSchema = Type.Union([Type.Literal("docker"), Type.Literal("podman")]);
 const ProductPlatformSchema = Type.Union(PRODUCT_PLATFORMS.map((platform) => Type.Literal(platform)));
-const StateRootSchema = Type.Union([Type.Literal("."), Type.Literal("data")]);
+const RootLocatorSchema = Type.Object({
+    base: Type.Union([Type.Literal("installation-root"), Type.Literal("local-app-data")]),
+    path: Type.String({minLength: 1}),
+}, {additionalProperties: false});
+const InstallationRootLocatorsSchema = Type.Object({
+    state: RootLocatorSchema,
+    cache: RootLocatorSchema,
+    desktop: RootLocatorSchema,
+    webview: RootLocatorSchema,
+}, {additionalProperties: false});
 const RevisionSchema = Type.String({pattern: REVISION_PATTERN});
 const ChecksumSchema = Type.String({pattern: SHA256_PATTERN});
+const RuntimeImageDigestSchema = Type.String({pattern: "^sha256:[a-fA-F0-9]{64}$"});
 const RelativePathSchema = Type.String({minLength: 1});
+
+/** Runtime Image 身份必须按 Builder manifest 原样随组件流转。 */
+const ProductRuntimeImageIdentitySchema = {
+    imageId: RuntimeImageDigestSchema,
+    sourceDigest: RuntimeImageDigestSchema,
+    lockfileSha256: RuntimeImageDigestSchema,
+    builderContractVersion: Type.String({minLength: 1}),
+};
 
 const GitSourceSchema = Type.Object({
     provider: Type.Literal("git"),
@@ -63,6 +94,7 @@ const GitProductSchema = Type.Object({
     revision: RevisionSchema,
     path: Type.Literal(".output"),
     platform: ProductPlatformSchema,
+    ...ProductRuntimeImageIdentitySchema,
 }, {additionalProperties: false});
 const ReleaseProductSchema = Type.Object({
     provider: Type.Literal("release"),
@@ -74,6 +106,7 @@ const ReleaseProductSchema = Type.Object({
     sourceUrl: Type.String({minLength: 1}),
     license: Type.String({minLength: 1}),
     redistribution: Type.String({minLength: 1}),
+    ...ProductRuntimeImageIdentitySchema,
 }, {additionalProperties: false});
 const ContainerProductSchema = Type.Object({
     provider: Type.Literal("container"),
@@ -81,6 +114,10 @@ const ContainerProductSchema = Type.Object({
     revision: RevisionSchema,
     image: Type.String({minLength: 1}),
     digest: Type.Optional(Type.String({pattern: "^sha256:[a-fA-F0-9]{64}$"})),
+    imageId: Type.Optional(RuntimeImageDigestSchema),
+    sourceDigest: Type.Optional(RuntimeImageDigestSchema),
+    lockfileSha256: Type.Optional(RuntimeImageDigestSchema),
+    builderContractVersion: Type.Optional(Type.String({minLength: 1})),
 }, {additionalProperties: false});
 const ProductSchema = Type.Union([GitProductSchema, ReleaseProductSchema, ContainerProductSchema]);
 
@@ -135,14 +172,14 @@ const ToolComponentsSchema = Type.Object({
 }, {additionalProperties: false});
 
 export const InstallationManifestSchema = Type.Object({
-    schemaVersion: Type.Literal(4),
+    schemaVersion: Type.Literal(5),
     profile: InstallProfileSchema,
     containerEngine: Type.Union([ContainerEngineSchema, Type.Null()]),
     managerVersion: Type.String({minLength: 1}),
     appVersion: Type.String({minLength: 1}),
     channel: ReleaseChannelSchema,
     sourceRevision: RevisionSchema,
-    stateRoot: StateRootSchema,
+    roots: InstallationRootLocatorsSchema,
     components: Type.Object({
         source: SourceSchema,
         product: Type.Optional(ProductSchema),
@@ -227,6 +264,13 @@ const OperationEffectSchema = Type.Union([
         targetImage: Type.Optional(Type.String({minLength: 1})),
     }, {additionalProperties: false}),
     Type.Object({
+        kind: Type.Literal("candidate-container"),
+        state: OperationEffectStateSchema,
+        owner: Type.Literal("application"),
+        containerId: Type.Optional(Type.String({pattern: "^[a-f0-9]{12,64}$"})),
+        stopped: Type.Boolean(),
+    }, {additionalProperties: false}),
+    Type.Object({
         kind: Type.Literal("sqlite-backup"),
         state: OperationEffectStateSchema,
         owner: Type.Literal("app-sqlite"),
@@ -243,6 +287,54 @@ const OperationEffectSchema = Type.Union([
 ]);
 
 export const OperationJournalSchema = Type.Object({
+    schemaVersion: Type.Literal(5),
+    id: Type.String({minLength: 1}),
+    action: Type.Union([Type.Literal("install"), Type.Literal("update"), Type.Literal("start")]),
+    phase: OperationPhaseSchema,
+    root: Type.String({minLength: 1}),
+    containerEngine: Type.Union([ContainerEngineSchema, Type.Null()]),
+    effects: Type.Array(OperationEffectSchema),
+    backupRoot: Type.String({minLength: 1}),
+    previousManifest: Type.Union([InstallationManifestSchema, Type.Null()]),
+    nextManifest: Type.Union([InstallationManifestSchema, Type.Null()]),
+    migrationRoot: Type.Optional(Type.String({minLength: 1})),
+    applicationStateMigration: Type.Optional(Type.Object({
+        runId: Type.String({pattern: "^[A-Za-z0-9_-]+$"}),
+        state: Type.Union([
+            Type.Literal("planned"),
+            Type.Literal("applied"),
+            Type.Literal("rolled_back"),
+        ]),
+    }, {additionalProperties: false})),
+    outcome: Type.Optional(Type.Union([Type.Literal("success"), Type.Literal("rolled-back")])),
+    createdAt: Type.String({pattern: ISO_DATE_PATTERN}),
+    updatedAt: Type.String({pattern: ISO_DATE_PATTERN}),
+}, {additionalProperties: false});
+
+/** v4 已使用统一 Application State operation，但尚未表达 start action。 */
+const OperationJournalV4Schema = Type.Object({
+    schemaVersion: Type.Literal(4),
+    id: Type.String({minLength: 1}),
+    action: Type.Union([Type.Literal("install"), Type.Literal("update")]),
+    phase: OperationPhaseSchema,
+    root: Type.String({minLength: 1}),
+    containerEngine: Type.Union([ContainerEngineSchema, Type.Null()]),
+    effects: Type.Array(OperationEffectSchema),
+    backupRoot: Type.String({minLength: 1}),
+    previousManifest: Type.Union([InstallationManifestSchema, Type.Null()]),
+    nextManifest: Type.Union([InstallationManifestSchema, Type.Null()]),
+    migrationRoot: Type.Optional(Type.String({minLength: 1})),
+    applicationStateMigration: Type.Optional(Type.Object({
+        runId: Type.String({pattern: "^[A-Za-z0-9_-]+$"}),
+        state: Type.Union([Type.Literal("planned"), Type.Literal("applied"), Type.Literal("rolled_back")]),
+    }, {additionalProperties: false})),
+    outcome: Type.Optional(Type.Union([Type.Literal("success"), Type.Literal("rolled-back")])),
+    createdAt: Type.String({pattern: ISO_DATE_PATTERN}),
+    updatedAt: Type.String({pattern: ISO_DATE_PATTERN}),
+}, {additionalProperties: false});
+
+/** v3 只用于 Manager 首次读取时转换旧 Attachment 专用 operation。 */
+const OperationJournalV3Schema = Type.Object({
     schemaVersion: Type.Literal(3),
     id: Type.String({minLength: 1}),
     action: Type.Union([Type.Literal("install"), Type.Literal("update")]),
@@ -255,12 +347,8 @@ export const OperationJournalSchema = Type.Object({
     nextManifest: Type.Union([InstallationManifestSchema, Type.Null()]),
     migrationRoot: Type.Optional(Type.String({minLength: 1})),
     attachmentMigration: Type.Optional(Type.Object({
-        runId: Type.String({pattern: "^[A-Za-z0-9_-]+$"}),
-        state: Type.Union([
-            Type.Literal("planned"),
-            Type.Literal("applied"),
-            Type.Literal("rolled_back"),
-        ]),
+        runId: Type.String({pattern: "^[A-Za-z0-9_-]+-attachment$"}),
+        state: Type.Union([Type.Literal("planned"), Type.Literal("applied"), Type.Literal("rolled_back")]),
         migratedSessions: Type.Integer({minimum: 1}),
         sessions: Type.Array(Type.Object({
             sessionId: Type.Union([Type.Integer(), Type.Null()]),
@@ -286,6 +374,7 @@ const ProductReleaseAssetSchema = Type.Object({
     bytes: Type.Integer({minimum: 0}),
     platform: ProductPlatformSchema,
     sourceRevision: RevisionSchema,
+    ...ProductRuntimeImageIdentitySchema,
 }, {additionalProperties: false});
 const ReleaseImageSchema = Type.Object({
     ref: Type.String({minLength: 1}),
@@ -293,8 +382,14 @@ const ReleaseImageSchema = Type.Object({
     sourceRevision: RevisionSchema,
 }, {additionalProperties: false});
 
+export const ReleaseStateMigrationSchema = Type.Object({
+    policy: Type.Union([Type.Literal("none"), Type.Literal("automatic"), Type.Literal("manual")]),
+    steps: Type.Array(Type.String({pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$"})),
+    guide: Type.Optional(Type.String({minLength: 1})),
+}, {additionalProperties: false});
+
 export const ReleaseManifestSchema = Type.Object({
-    schemaVersion: Type.Literal(3),
+    schemaVersion: Type.Literal(4),
     version: Type.String({minLength: 1}),
     channel: ReleaseChannelSchema,
     sourceRevision: RevisionSchema,
@@ -303,6 +398,7 @@ export const ReleaseManifestSchema = Type.Object({
     products: Type.Array(ProductReleaseAssetSchema, {minItems: 1}),
     windowsPortable: ReleaseAssetSchema,
     ghcr: ReleaseImageSchema,
+    stateMigration: ReleaseStateMigrationSchema,
 }, {additionalProperties: false});
 
 const ReleaseManifestEnvelopeSchema = Type.Object({
@@ -319,7 +415,7 @@ export function parseInstallationManifest(value: unknown): InstallationManifest 
     assertSchema(
         InstallationManifestSchema,
         value,
-        "installation.json 不符合 NeuroBook Manager schema v4；旧版安装必须重新安装，Windows Portable 只复用完整 data/。",
+        "installation.json 不符合 NeuroBook Manager schema v5；旧版安装必须重新安装，Windows Portable 只复用完整 data/。",
     );
     const manifest = value as InstallationManifest;
     assertSemVer(manifest.managerVersion, "managerVersion");
@@ -357,15 +453,11 @@ export function parseOperationJournal(value: unknown, path: string): OperationJo
             }
         }
     }
-    if (journal.attachmentMigration && !journal.nextManifest) {
-        throw new Error(`Attachment migration Operation journal缺少nextManifest：${path}`);
+    if (journal.applicationStateMigration && !journal.nextManifest) {
+        throw new Error(`Application State migration Operation journal缺少nextManifest：${path}`);
     }
     if (journal.migrationRoot) {
         assertAbsolutePathWithin(journalRoot, journal.migrationRoot, "Operation migrationRoot", {allowRoot: true});
-    }
-    for (const session of journal.attachmentMigration?.sessions ?? []) {
-        installationRelativePath(session.sourcePath);
-        if (session.backupPath) installationRelativePath(session.backupPath);
     }
     for (const manifest of [journal.previousManifest, journal.nextManifest]) {
         if (manifest && manifest.containerEngine !== journal.containerEngine) {
@@ -398,6 +490,21 @@ function assertOperationEffect(journal: OperationJournal, effect: OperationJourn
     if (effect.kind === "compose" && effect.previousCompose) {
         assertAbsolutePathWithin(journal.backupRoot, effect.previousCompose, "Docker previousCompose");
     }
+    if (effect.kind === "candidate-container") {
+        if (effect.state === "planned" && effect.containerId) {
+            throw new Error(`planned candidate-container不能提前声明容器ID：${journalPath}`);
+        }
+        if (effect.state === "applied" && !effect.containerId) {
+            throw new Error(`applied candidate-container缺少容器ID：${journalPath}`);
+        }
+        if (effect.state === "planned" && effect.stopped) {
+            throw new Error(`未确认身份的candidate-container不能标记为已停止：${journalPath}`);
+        }
+        const manifest = journal.nextManifest ?? journal.previousManifest;
+        if (!manifest || manifest.profile !== "ghcr" && manifest.profile !== "source-docker") {
+            throw new Error(`candidate-container只能用于容器Profile：${journalPath}`);
+        }
+    }
     if (effect.kind === "sqlite-backup") {
         if (!isAbsolute(effect.stateRoot) || !isAbsolute(effect.hostPath)) {
             throw new Error(`App SQLite effect必须保存绝对stateRoot/hostPath：${journalPath}`);
@@ -405,7 +512,7 @@ function assertOperationEffect(journal: OperationJournal, effect: OperationJourn
         assertAbsolutePathWithin(journal.backupRoot, effect.backupPath, "App SQLite backup");
         const manifest = journal.previousManifest ?? journal.nextManifest;
         if (!manifest) throw new Error(`App SQLite Operation journal缺少Manifest身份：${journalPath}`);
-        const expectedStateRoot = resolve(journal.root, manifest.stateRoot);
+        const expectedStateRoot = resolveInstallationRoots(journal.root, manifest.roots).state;
         if (resolve(effect.stateRoot) !== expectedStateRoot) {
             throw new Error(`App SQLite effect的stateRoot与Manifest不一致：${effect.stateRoot}`);
         }
@@ -458,8 +565,9 @@ function assertOwnedEffectPath(journal: OperationJournal, owner: string, input: 
     ]).has(path)) return;
     if (owner === "state" && kind === "path-create") {
         const manifest = journal.nextManifest ?? journal.previousManifest;
-        const statePrefix = manifest?.stateRoot === "." ? "" : `${manifest?.stateRoot.replaceAll("\\", "/")}/`;
-        if (manifest && new Set([
+        const stateLocator = manifest?.roots.state;
+        const statePrefix = stateLocator?.base === "installation-root" ? `${stateLocator.path.replaceAll("\\", "/")}/` : null;
+        if (statePrefix && new Set([
             `${statePrefix}workspace`, `${statePrefix}logs`, `${statePrefix}.env`, `${statePrefix}config.yaml`,
             `${statePrefix}workspace/.nbook/config.json`,
         ]).has(path)) return;
@@ -484,7 +592,7 @@ export function parseReleaseManifestEnvelope(value: unknown): {schemaVersion: nu
 
 /** 严格解析并执行 Release revision/platform 语义校验。 */
 export function parseReleaseManifest(value: unknown): ReleaseManifest {
-    assertSchema(ReleaseManifestSchema, value, "release-manifest.json 不符合 NeuroBook Release schema v3。");
+    assertSchema(ReleaseManifestSchema, value, "release-manifest.json 不符合 NeuroBook Release schema v4。");
     const manifest = value as ReleaseManifest;
     assertSemVer(manifest.version, "version");
     assertSemVer(manifest.minManagerVersion, "minManagerVersion");
@@ -514,7 +622,59 @@ export function parseReleaseManifest(value: unknown): ReleaseManifest {
     if (manifest.ghcr.sourceRevision !== manifest.sourceRevision) {
         throw new Error("GHCR sourceRevision 与 Release Source 不一致。");
     }
+    assertReleaseStateMigrationSemantics(manifest.stateMigration);
     return manifest;
+}
+
+/** 独立校验仓库级 Release state migration 声明，供资产构建器 fail-fast 使用。 */
+export function parseReleaseStateMigration(value: unknown): ReleaseManifest["stateMigration"] {
+    assertSchema(ReleaseStateMigrationSchema, value, "Release state migration 声明不符合 schema。");
+    const declaration = value as ReleaseManifest["stateMigration"];
+    assertReleaseStateMigrationSemantics(declaration);
+    return declaration;
+}
+
+function assertReleaseStateMigrationSemantics(stateMigration: ReleaseManifest["stateMigration"]): void {
+    if (stateMigration.policy === "none" && stateMigration.steps.length > 0) {
+        throw new Error("stateMigration.policy=none 时 steps 必须为空。");
+    }
+    if (stateMigration.policy === "automatic" && stateMigration.steps.length === 0) {
+        throw new Error("stateMigration.policy=automatic 时必须声明至少一个 step。");
+    }
+    if (stateMigration.policy === "automatic") {
+        if (new Set(stateMigration.steps).size !== stateMigration.steps.length) {
+            throw new Error("stateMigration.steps不能包含重复step。");
+        }
+    }
+    if (stateMigration.policy === "manual" && !stateMigration.guide) {
+        throw new Error("stateMigration.policy=manual 时必须提供 guide。");
+    }
+}
+
+/** 把旧 Attachment 专用 journal 一次性转换为 Product-owned operation 记录。 */
+export function migrateOperationJournal(value: unknown, path: string): OperationJournal {
+    if (typeof value !== "object" || value === null || !("schemaVersion" in value)) {
+        return parseOperationJournal(value, path);
+    }
+    if (value.schemaVersion === 4) {
+        assertSchema(OperationJournalV4Schema, value, `Operation journal v4 不符合可迁移 schema：${path}`);
+        return parseOperationJournal({...value, schemaVersion: 5}, path);
+    }
+    if (value.schemaVersion !== 3) return parseOperationJournal(value, path);
+    assertSchema(OperationJournalV3Schema, value, `Operation journal v3 不符合可迁移 schema：${path}`);
+    const legacy = value as Static<typeof OperationJournalV3Schema>;
+    const {attachmentMigration, ...base} = legacy;
+    const converted: OperationJournal = {
+        ...base,
+        schemaVersion: 5,
+        ...(attachmentMigration ? {
+            applicationStateMigration: {
+                runId: attachmentMigration.runId.slice(0, -"-attachment".length),
+                state: attachmentMigration.state,
+            },
+        } : {}),
+    };
+    return parseOperationJournal(converted, path);
 }
 
 function assertInstallationSemantics(manifest: InstallationManifest): void {
@@ -522,9 +682,7 @@ function assertInstallationSemantics(manifest: InstallationManifest): void {
     if (source.revision !== manifest.sourceRevision || product && product.revision !== manifest.sourceRevision) {
         throw new Error("Installation Source/Product revision 与 sourceRevision 不一致。");
     }
-    if (manifest.profile === "windows-portable" && manifest.stateRoot !== "data" || manifest.profile !== "windows-portable" && manifest.stateRoot !== ".") {
-        throw new Error(`Profile ${manifest.profile} 的 State Root 非法：${manifest.stateRoot}`);
-    }
+    assertRootLocatorsSemantics(manifest.profile, manifest.roots);
     const expected = profileContract(manifest.profile);
     const containerProfile = manifest.profile === "ghcr" || manifest.profile === "source-docker";
     if (containerProfile !== (manifest.containerEngine !== null)) {
@@ -548,6 +706,10 @@ function assertInstallationSemantics(manifest: InstallationManifest): void {
     }
     if (manifest.profile === "source-docker" && product?.provider === "container" && product.digest) {
         throw new Error("Source Docker 使用本地 revision image，不记录 GHCR digest。");
+    }
+    if (manifest.profile === "source-docker" && product?.provider === "container"
+        && (product.imageId || product.sourceDigest || product.lockfileSha256 || product.builderContractVersion)) {
+        throw new Error("Source Docker 使用本地 revision image，不伪造 Builder Runtime Image identity。");
     }
 }
 
@@ -576,7 +738,9 @@ function componentPaths(manifest: InstallationManifest): string[] {
         manifest.components.tools.git?.provider === "managed" ? manifest.components.tools.git.path : null,
         manifest.components.tools.git?.provider === "managed" ? manifest.components.tools.git.bashPath : null,
         manifest.components.product && manifest.components.product.provider !== "container" ? manifest.components.product.path : null,
-        manifest.stateRoot === "data" ? "data" : null,
+        ...Object.values(manifest.roots)
+            .filter((locator) => locator.base === "installation-root")
+            .map((locator) => locator.path),
         manifest.profile === "ghcr" || manifest.profile === "source-docker" ? ".deploy/docker-compose.generated.yml" : null,
         ".runtime/bin",
         ...manifest.components.source.provider === "release" ? manifest.components.source.files : [],
@@ -585,6 +749,31 @@ function componentPaths(manifest: InstallationManifest): string[] {
 
 export function assertSafeRelativePath(path: string): void {
     installationRelativePath(path);
+}
+
+/** 校验四类 root 的路径合同以及 Profile 允许的完整布局。 */
+function assertRootLocatorsSemantics(
+    profile: InstallationManifest["profile"],
+    roots: InstallationRootLocators,
+): void {
+    for (const [name, locator] of Object.entries(roots)) {
+        try {
+            installationRelativePath(locator.path);
+        } catch {
+            throw new Error(`${name} locator path 非法：${locator.path}`);
+        }
+    }
+    if (profile === "windows-portable") {
+        if (!rootLocatorsEqual(roots, PORTABLE_ROOT_LOCATORS)) {
+            throw new Error("Windows Portable 的 Root Locator 布局非法。");
+        }
+        return;
+    }
+    const installedWindows = rootLocatorsEqual(roots, INSTALLED_WINDOWS_ROOT_LOCATORS);
+    const installationScoped = rootLocatorsEqual(roots, INSTALLATION_SCOPED_ROOT_LOCATORS);
+    if (profile === "product-bun" ? !installedWindows && !installationScoped : !installationScoped) {
+        throw new Error(`Profile ${profile} 的 Root Locator 布局非法。`);
+    }
 }
 
 function assertSemVer(version: string, field: string): void {

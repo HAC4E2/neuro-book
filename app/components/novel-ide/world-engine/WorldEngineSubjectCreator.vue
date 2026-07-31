@@ -10,7 +10,7 @@ import type {
 } from "nbook/app/components/novel-ide/world-engine/world-engine-workbench.types";
 
 const props = defineProps<{
-    projectPath: string;
+    projectRoot: string;
     schema: WorldSchemaProjectionDto | null;
     busy?: boolean;
 }>();
@@ -33,7 +33,7 @@ const lastAppliedDefaultTime = ref("");
 const schemaTypes = computed(() => props.schema?.subjectTypes ?? []);
 const selectedTypeAttrs = computed(() => schemaTypes.value.find((item) => item.type === form.type)?.attrs ?? []);
 const formDisabled = computed(() => props.busy || creating.value);
-const canSubmit = computed(() => Boolean(props.projectPath) && !props.busy && !creating.value && form.id.trim() && form.type.trim() && form.time.trim());
+const canSubmit = computed(() => Boolean(props.projectRoot) && !props.busy && !creating.value && form.id.trim() && form.type.trim() && form.time.trim());
 
 /** 创建 World Engine subject；只有 schema default 非空时后端才会写入初始化切面。 */
 async function createSubject(): Promise<void> {
@@ -52,7 +52,7 @@ async function createSubject(): Promise<void> {
         };
         const result = await $fetch<CreateSubjectResultDto>("/api/projects/world-engine/subjects", {
             method: "POST",
-            query: {projectPath: props.projectPath},
+            query: {projectRoot: props.projectRoot},
             body: requestBody,
         });
         const subject: WorldSubjectDto = {
@@ -106,7 +106,7 @@ watch(() => props.schema, () => {
     applySchemaDefaults();
 }, {immediate: true});
 
-watch(() => props.projectPath, () => {
+watch(() => props.projectRoot, () => {
     resetFormForProject();
 });
 </script>

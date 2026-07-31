@@ -1,14 +1,5 @@
 import type {AgentInvocationAcceptanceDto} from "nbook/shared/dto/agent-session.dto";
 
-export type AgentInvocationAttempt = {
-    workspaceKey: string;
-    sessionId: number;
-    generation: number;
-    clientMessageId: string;
-    submittedText: string;
-    optimisticId?: string;
-};
-
 export type AgentInvocationReconciliation =
     | {state: "accepted"; source: "receipt" | "durable"}
     | {state: "rejected"; source: "receipt"}

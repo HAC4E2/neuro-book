@@ -4,7 +4,8 @@ import {createHash} from "node:crypto";
 import {tmpdir} from "node:os";
 import {Type} from "typebox";
 import {Value} from "typebox/value";
-import {afterEach, beforeEach, describe, expect, it} from "vitest";
+import sharp from "sharp";
+import {afterEach, beforeAll, beforeEach, describe, expect, it, vi} from "vitest";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
@@ -12,17 +13,27 @@ import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {resolveBashPathForPlatform} from "nbook/server/agent/tools/file-tools";
-import {resolveSessionFileScope} from "nbook/server/agent/workspace/session-file-scope";
-import {resolveFileAddress} from "nbook/server/workspace-files/file-scope";
+import {authorizeFileOperation} from "nbook/server/workspace-files/authorized-file-operation";
 import {closeAllProjects, openProject} from "nbook/server/workspace-files/project-session";
+import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {createRuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
+import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 
 describe("v3 file tools", () => {
     let root: string;
     let workspaceRoot: string;
     let harness: NeuroAgentHarness;
     let context: ToolExecutionContext;
+    let jpeg: Buffer;
+    let oversizedJpeg: Buffer;
+
+    beforeAll(async () => {
+        jpeg = await sharp({create: {width: 2, height: 2, channels: 3, background: "#224466"}})
+            .jpeg()
+            .toBuffer();
+        oversizedJpeg = jpegWithDimensions(jpeg, 8_193, 8_192);
+    });
 
     beforeEach(async () => {
         root = await mkdtemp(join(tmpdir(), "nbook-agent-file-tools-test-"));
@@ -51,16 +62,14 @@ describe("v3 file tools", () => {
         const session = await harness.createAgent({
             profileKey: "test.file-tools",
             initial: {},
-            workspaceRoot,
         });
         context = {
             harness,
             sessionId: session.sessionId,
             profileKey: "test.file-tools",
-            workspaceRootRef: "workspace",
-            workspaceFsRoot: absoluteFsPath(workspaceRoot),
-            workspaceKey: "global",
-            attachments: harness.attachmentStore,
+            workspaceRoot: absoluteFsPath(workspaceRoot),
+            currentProject: null,
+            attachmentCodec: harness.attachmentCodec,
         };
     }, 60_000);
 
@@ -70,8 +79,12 @@ describe("v3 file tools", () => {
         await rm(root, {recursive: true, force: true, maxRetries: 10, retryDelay: 100});
     }, 60_000);
 
-    async function openManagedProject(projectPath: string): Promise<void> {
-        await openProject(absoluteFsPath(workspaceRoot), projectPath, {kind: "job", source: "file-tools-test"});
+    async function openManagedProject(projectRoot: string): Promise<ReadyProjectSessionRef> {
+        const projectWorkspaceRoot = join(workspaceRoot, projectRoot);
+        await mkdir(projectWorkspaceRoot, {recursive: true});
+        const manifestPath = join(projectWorkspaceRoot, "project.yaml");
+        await access(manifestPath).catch(() => writeFile(manifestPath, `kind: novel\ntitle: ${basename(projectWorkspaceRoot)}\nsummary: ''\n`, "utf8"));
+        return openProject(projectWorkspaceRef(projectRoot), {kind: "job", source: "file-tools-test"}, absoluteFsPath(workspaceRoot));
     }
 
     it("read 支持 offset/limit 和 continuation 提示", async () => {
@@ -146,7 +159,7 @@ describe("v3 file tools", () => {
     });
 
     it("read 图片时直接返回 attachment ref，不生成 base64", async () => {
-        const bytes = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+        const bytes = jpeg;
         await writeFile(join(workspaceRoot, "cover.jpg"), bytes);
         const tool = mustTool("read", harness);
 
@@ -161,7 +174,7 @@ describe("v3 file tools", () => {
                 attachment: {
                     id: `sha256:${createHash("sha256").update(bytes).digest("hex")}`,
                     mimeType: "image/jpeg",
-                    bytes: 4,
+                    bytes: bytes.byteLength,
                 },
                 name: "cover.jpg",
             },
@@ -170,7 +183,6 @@ describe("v3 file tools", () => {
     });
 
     it("read 图片候选使用魔数而不是扩展名作为 MIME 真相", async () => {
-        const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
         await writeFile(join(workspaceRoot, "wrong.png"), jpeg);
         await writeFile(join(workspaceRoot, "fake.png"), "not an image", "utf8");
         const tool = mustTool("read", harness);
@@ -196,18 +208,26 @@ describe("v3 file tools", () => {
             .rejects.toMatchObject({code: "limit_exceeded"});
     });
 
+    it("read 图片通过 Codec 在 Store 写入前拒绝超过 64 MP 的源图", async () => {
+        await writeFile(join(workspaceRoot, "pixel-bomb.jpg"), oversizedJpeg);
+        const save = vi.spyOn(harness.attachmentStore, "save");
+        const tool = mustTool("read", harness);
+
+        await expect(tool.executeWithContext?.(context, "read-pixel-bomb", {path: "pixel-bomb.jpg"}))
+            .rejects.toMatchObject({code: "limit_exceeded"});
+        expect(save).not.toHaveBeenCalled();
+    });
+
     it("read 在Project-bound File Scope中直接接受Project相对路径", async () => {
         const projectWorkspaceRoot = join(root, "workspace", "silver-dragon-hime");
         await mkdir(join(projectWorkspaceRoot, "lorebook", "character", "银龙姬"), {recursive: true});
         await writeFile(join(projectWorkspaceRoot, "lorebook", "character", "银龙姬", "state.md"), "银龙姬状态", "utf-8");
-        await openManagedProject("workspace/silver-dragon-hime");
+        const currentProject = await openManagedProject("silver-dragon-hime");
         const tool = mustTool("read", harness);
 
         const result = await tool.executeWithContext?.({
             ...context,
-            workspaceRootRef: "workspace",
-            workspaceFsRoot: absoluteFsPath(workspaceRoot),
-            projectPath: "workspace/silver-dragon-hime",
+            currentProject,
         }, "read-project-workspace-path", {
             path: "lorebook/character/银龙姬/state.md",
         });
@@ -221,14 +241,12 @@ describe("v3 file tools", () => {
         const projectWorkspaceRoot = join(root, "workspace", "silver-dragon-hime");
         await mkdir(join(projectWorkspaceRoot, "lorebook", "character", "银龙姬"), {recursive: true});
         await writeFile(join(projectWorkspaceRoot, "lorebook", "character", "银龙姬", "index.md"), "银龙姬设定", "utf-8");
-        await openManagedProject("workspace/silver-dragon-hime");
+        const currentProject = await openManagedProject("silver-dragon-hime");
         const tool = mustTool("read", harness);
 
         await tool.executeWithContext?.({
             ...context,
-            workspaceRootRef: "workspace",
-            workspaceFsRoot: absoluteFsPath(workspaceRoot),
-            projectPath: "workspace/silver-dragon-hime",
+            currentProject,
         }, "read-context-access", {
             path: "lorebook/character/银龙姬/index.md",
         });
@@ -252,15 +270,13 @@ describe("v3 file tools", () => {
         await mkdir(join(root, "workspace", "silver-dragon-hime"), {recursive: true});
         await mkdir(join(betaRoot, "lorebook", "character", "beta"), {recursive: true});
         await writeFile(join(betaRoot, "lorebook", "character", "beta", "index.md"), "Beta", "utf8");
-        await openManagedProject("workspace/silver-dragon-hime");
-        await openManagedProject("workspace/beta");
+        const currentProject = await openManagedProject("silver-dragon-hime");
+        await openManagedProject("beta");
         const tool = mustTool("read", harness);
 
         await tool.executeWithContext?.({
             ...context,
-            workspaceRootRef: "workspace",
-            workspaceFsRoot: absoluteFsPath(workspaceRoot),
-            projectPath: "workspace/silver-dragon-hime",
+            currentProject,
         }, "read-cross-project", {path: "workspace/beta/lorebook/character/beta/index.md"});
 
         const state = JSON.parse(await readFile(join(betaRoot, ".nbook", "context-access", "test.file-tools.json"), "utf8")) as {
@@ -274,14 +290,12 @@ describe("v3 file tools", () => {
         const target = join(projectRoot, "lorebook", "character", "absolute", "index.md");
         await mkdir(dirname(target), {recursive: true});
         await writeFile(target, "Absolute", "utf8");
-        await openManagedProject("workspace/silver-dragon-hime");
+        const currentProject = await openManagedProject("silver-dragon-hime");
         const tool = mustTool("read", harness);
 
         await tool.executeWithContext?.({
             ...context,
-            workspaceRootRef: "workspace",
-            workspaceFsRoot: absoluteFsPath(workspaceRoot),
-            projectPath: "workspace/silver-dragon-hime",
+            currentProject,
         }, "read-absolute-project", {path: target});
 
         const state = JSON.parse(await readFile(join(projectRoot, ".nbook", "context-access", "test.file-tools.json"), "utf8")) as {
@@ -292,17 +306,17 @@ describe("v3 file tools", () => {
 
     it("跨 Project 读取图片时来源归目标 Project，blob 仍写入 Workspace Root 全局 Attachment Store", async () => {
         const betaRoot = join(root, "workspace", "beta");
-        const bytes = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+        const bytes = jpeg;
         await mkdir(join(root, "workspace", "alpha"), {recursive: true});
         await mkdir(join(betaRoot, "lorebook"), {recursive: true});
         await writeFile(join(betaRoot, "lorebook", "cover.jpg"), bytes);
-        await openManagedProject("workspace/alpha");
-        await openManagedProject("workspace/beta");
+        const currentProject = await openManagedProject("alpha");
+        await openManagedProject("beta");
         const tool = mustTool("read", harness);
 
         const result = await tool.executeWithContext?.({
             ...context,
-            projectPath: "workspace/alpha",
+            currentProject,
         }, "read-cross-project-image", {path: "workspace/beta/lorebook/cover.jpg"});
         const attachment = result?.content.find((block) => block.type === "attachment");
         if (!attachment || attachment.type !== "attachment") {
@@ -314,39 +328,40 @@ describe("v3 file tools", () => {
         await expect(access(join(betaRoot, ".nbook", "agent", "attachments"))).rejects.toThrow();
     });
 
-    it("Session File Scope将Project相对路径解析到当前Project Workspace", () => {
+    it("Project-bound session 将相对路径解析到当前 Project Workspace", async () => {
         const projectWorkspaceRoot = join(root, "workspace", "silver-dragon-hime");
-        const scope = resolveSessionFileScope({
-            workspaceRootRef: "workspace",
-            workspaceFsRoot: absoluteFsPath(workspaceRoot),
-            projectPath: "workspace/silver-dragon-hime",
-        });
+        const currentProject = await openManagedProject("silver-dragon-hime");
+        const authorized = await authorizeFileOperation({
+            workspaceRoot: absoluteFsPath(workspaceRoot),
+            currentProject,
+        }, "lorebook/character/银龙姬/state.md", "read");
 
-        expect(resolveFileAddress(scope, "lorebook/character/银龙姬/state.md").absolutePath)
-            .toBe(resolve(projectWorkspaceRoot, "lorebook", "character", "银龙姬", "state.md"));
+        expect(authorized.target.absolutePath)
+            .toBe(resolve(currentProject.workspace.root, "lorebook", "character", "银龙姬", "state.md"));
     });
 
-    it("Project File Scope支持完整Project地址跨项目和仓库绝对路径", () => {
-        const scope = resolveSessionFileScope({
-            workspaceRootRef: "workspace",
-            workspaceFsRoot: absoluteFsPath(workspaceRoot),
-            projectPath: "workspace/silver-dragon-hime",
-        });
-        expect(resolveFileAddress(scope, "workspace/another-project/manuscript/chapter.md").absolutePath)
-            .toBe(resolve(workspaceRoot, "another-project", "manuscript", "chapter.md"));
+    it("支持跨 Project 路径和绝对文件系统路径", async () => {
+        const currentProject = await openManagedProject("silver-dragon-hime");
+        const targetProject = await openManagedProject("another-project");
+        const operationContext = {
+            workspaceRoot: absoluteFsPath(workspaceRoot),
+            currentProject,
+        };
+        expect((await authorizeFileOperation(operationContext, "workspace/another-project/manuscript/chapter.md", "read")).target.absolutePath)
+            .toBe(resolve(targetProject.workspace.root, "manuscript", "chapter.md"));
 
         const repositoryReference = resolve("reference", "workspace", "TERMS.md");
-        expect(resolveFileAddress(scope, repositoryReference).absolutePath).toBe(repositoryReference);
+        expect((await authorizeFileOperation(operationContext, repositoryReference, "read")).target.absolutePath).toBe(repositoryReference);
     });
 
-    it("Project File Scope拒绝旧slug-relative路径", () => {
-        const scope = resolveSessionFileScope({
-            workspaceRootRef: "workspace",
-            workspaceFsRoot: absoluteFsPath(workspaceRoot),
-            projectPath: "workspace/silver-dragon-hime",
-        });
-        expect(() => resolveFileAddress(scope, "silver-dragon-hime/lorebook/state.md"))
-            .toThrow("不要重复添加silver-dragon-hime/前缀");
+    it("拒绝重复添加当前 Project root 的相对路径", async () => {
+        const currentProject = await openManagedProject("silver-dragon-hime");
+        const operationContext = {
+            workspaceRoot: absoluteFsPath(workspaceRoot),
+            currentProject,
+        };
+        await expect(authorizeFileOperation(operationContext, "silver-dragon-hime/lorebook/state.md", "read"))
+            .rejects.toThrow("不要重复添加 silver-dragon-hime/ 前缀");
     });
 
     it("write 创建父目录并写入内容", async () => {
@@ -368,8 +383,8 @@ describe("v3 file tools", () => {
         await mkdir(projectRoot, {recursive: true});
         await mkdir(externalRoot, {recursive: true});
         await writeFile(externalFile, "one\ntwo\n", "utf-8");
-        await openManagedProject("workspace/alpha");
-        const projectContext = {...context, projectPath: "workspace/alpha"};
+        const currentProject = await openManagedProject("alpha");
+        const projectContext = {...context, currentProject};
 
         const read = mustTool("read", harness);
         const write = mustTool("write", harness);
@@ -472,14 +487,12 @@ describe("v3 file tools", () => {
         const projectWorkspaceRoot = join(root, "workspace", "silver-dragon-hime");
         await mkdir(join(projectWorkspaceRoot, "lorebook", "character", "银龙姬"), {recursive: true});
         await writeFile(join(projectWorkspaceRoot, "lorebook", "character", "银龙姬", "state.md"), "旧状态\n", "utf-8");
-        await openManagedProject("workspace/silver-dragon-hime");
+        const currentProject = await openManagedProject("silver-dragon-hime");
         const tool = mustTool("apply_patch", harness);
 
         await tool.executeWithContext?.({
             ...context,
-            workspaceRootRef: "workspace",
-            workspaceFsRoot: absoluteFsPath(workspaceRoot),
-            projectPath: "workspace/silver-dragon-hime",
+            currentProject,
         }, "patch-project-workspace-path", patchInput([
             "*** Begin Patch",
             "*** Update File: lorebook/character/银龙姬/state.md",
@@ -743,6 +756,32 @@ describe("v3 file tools", () => {
         expect(text).toContain("err");
     });
 
+    it("bash长输出只公开逻辑locator，read可分页读取且回收后明确报错", async () => {
+        const bash = mustTool("bash", harness);
+        const result = await bash.executeWithContext?.(context, "bash-retained-output", {
+            command: "for i in $(seq 1 2100); do echo line-$i; done",
+            timeout: 10,
+        });
+        const details = result?.details as {fullOutput?: {locator?: string; state?: string}} | undefined;
+        const locator = details?.fullOutput?.locator;
+        if (!locator) throw new Error("Bash长输出没有返回逻辑locator");
+
+        expect(locator).toMatch(/^bash-output:\/\//u);
+        expect(locator).not.toContain(root);
+        const read = await mustTool("read", harness).executeWithContext?.(context, "read-retained-output", {
+            path: locator,
+            limit: 2,
+        });
+        const text = read?.content[0]?.type === "text" ? read.content[0].text : "";
+        expect(text).toContain("1 | line-1");
+        expect(text).toContain("2 | line-2");
+
+        await rm(harness.runtimePaths!.bashOutputRoot, {recursive: true, force: true});
+        await expect(mustTool("read", harness).executeWithContext?.(context, "read-reclaimed-output", {
+            path: locator,
+        })).rejects.toThrow(`Bash完整输出已回收：${locator}`);
+    });
+
     it("bash 自动注入 Agent bin 并允许 workspace CLI 从 workspace cwd 运行", async () => {
         const tool = mustTool("bash", harness);
 
@@ -764,12 +803,12 @@ describe("v3 file tools", () => {
         await writeFile(join(projectRoot, "project.yaml"), "kind: novel\ntitle: Test Project\nsummary: \"\"\n", "utf-8");
         await mkdir(join(projectRoot, "lorebook", "character", "hero"), {recursive: true});
         await writeFile(join(projectRoot, "lorebook", "character", "hero", "index.md"), "---\ntitle: Hero\ntype: character\nstatus: active\nsummary: 主角。\nrefs: []\n---\n\n正文。", "utf-8");
-        await openManagedProject("workspace/test-project");
+        const currentProject = await openManagedProject("test-project");
         const tool = mustTool("bash", harness);
 
         const result = await tool.executeWithContext?.({
             ...context,
-            projectPath: "workspace/test-project",
+            currentProject,
         }, "bash-workspace-node", {
             command: "pwd && workspace node parse lorebook/character/hero --json && workspace node validate lorebook/character/hero --fix-missing",
             timeout: 10,
@@ -940,7 +979,7 @@ describe("v3 file tools", () => {
         expect(edit.description).toContain("small as possible while still unique");
         expect(applyPatch.description).toContain("verified patch");
         expect(applyPatch.description).toContain("prefer one edit call");
-        expect(bash.description).toContain("current File Scope");
+        expect(bash.description).toContain("current Project Workspace");
         expect(bash.description).toContain("agent bin directories are prepended to PATH");
         expect(bash.description).toContain("workspace node");
         expect(bash.description).toContain("Prefer / path separators");
@@ -961,4 +1000,28 @@ function mustTool(key: string, harness: NeuroAgentHarness) {
         throw new Error(`missing tool ${key}`);
     }
     return tool;
+}
+
+/** 只改 JPEG SOF 尺寸，构造不会分配巨幅像素内存的上限 fixture。 */
+function jpegWithDimensions(input: Buffer, width: number, height: number): Buffer {
+    const result = Buffer.from(input);
+    for (let index = 0; index < result.length - 8; index += 1) {
+        const marker = result[index + 1];
+        if (result[index] !== 0xff || marker === undefined || !isStartOfFrame(marker)) {
+            continue;
+        }
+        result.writeUInt16BE(height, index + 5);
+        result.writeUInt16BE(width, index + 7);
+        return result;
+    }
+    throw new Error("JPEG fixture 缺少 SOF marker");
+}
+
+/** 判断 JPEG marker 是否携带宽高。 */
+function isStartOfFrame(marker: number): boolean {
+    return marker >= 0xc0
+        && marker <= 0xcf
+        && marker !== 0xc4
+        && marker !== 0xc8
+        && marker !== 0xcc;
 }

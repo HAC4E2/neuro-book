@@ -11,15 +11,15 @@ defineRouteMeta({
     "summary": "Read Project RAG inspector metadata and vector previews",
     "parameters": [
         {
-            "name": "projectPath",
+            "name": "projectRoot",
             "in": "query",
             "required": true,
             "schema": {
                 "type": "string",
                 "minLength": 1,
-                "description": "Project Workspace path, for example workspace/<project>"
+                "description": "Project Workspace root, single directory name under Workspace Root"
             },
-            "description": "Project Workspace path, for example workspace/<project>"
+            "description": "Project Workspace root, single directory name under Workspace Root"
         },
         {
             "name": "subjectPath",
@@ -80,7 +80,7 @@ defineRouteMeta({
                     "schema": {
                         "type": "object",
                         "properties": {
-                            "projectPath": {
+                            "projectRoot": {
                                 "type": "string",
                                 "minLength": 1
                             },
@@ -618,7 +618,7 @@ defineRouteMeta({
                             }
                         },
                         "required": [
-                            "projectPath",
+                            "projectRoot",
                             "selectedSubjectPath",
                             "sourceFilter",
                             "limit",
@@ -635,6 +635,8 @@ defineRouteMeta({
     }
 } as never,
 });
+
+
 
 
 

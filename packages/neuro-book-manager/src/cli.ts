@@ -6,6 +6,8 @@ import * as p from "@clack/prompts";
 import {Command} from "commander";
 
 import {createAdmin} from "#manager/app-commands";
+import {removeDockerDeployment, stopDocker} from "#manager/docker";
+import {assertNativeProductStopped} from "#manager/health";
 import {runInstallGuide} from "#manager/install-guide";
 import {assertInstallConsent, inspectInstallEnvironment, inspectInstallPreflight, recommendedInstallProfile} from "#manager/install-preflight";
 import {installPlan, installWithPreflight} from "#manager/installer";
@@ -29,6 +31,7 @@ import {parseProfile, profileNames} from "#manager/profiles";
 import {runManagerTui} from "#manager/tui";
 import {adoptSourceInstallation, assertAdoptionPreflight, inspectAdoptionPreflight} from "#manager/source-adoption";
 import type {InstallProfile, InstallationManifest, OfflineInspection, ReleaseChannel} from "#manager/types";
+import {resetDesktopLocalState, uninstallInstallation} from "#manager/uninstaller";
 import {updateInstallation} from "#manager/updater";
 import {inspectUpdatePreflight} from "#manager/update-preflight";
 import {MANAGER_VERSION} from "#manager/version-info";
@@ -154,7 +157,7 @@ instances.command("add")
     .option("--yes", "接受离线检查warning。", false)
     .action(importCommand);
 instances.command("import")
-    .description("导入已有Manifest v4实例，不修改实例文件。")
+    .description("导入已有Manifest v5实例，不修改实例文件。")
     .argument("<path>")
     .option("--name <name>", "实例显示名称。")
     .option("--default", "设为默认实例。", false)
@@ -306,6 +309,81 @@ program.command("doctor")
         const result = await doctor(root, manifest);
         options.json ? printJson(result) : printObject(result);
     });
+
+program.command("uninstall")
+    .description("卸载当前或指定安装；默认保留 State Root 用户数据。")
+    .option("--delete-data", "同时删除托管 State Root；外部 Project Workspace 永不删除。", false)
+    .option("--yes", "确认执行卸载。", false)
+    .action(async (options: {deleteData: boolean; yes: boolean}) => {
+        const {root, manifest} = await currentInstallation();
+        if (!options.yes) {
+            if (!process.stdin.isTTY || !process.stdout.isTTY) {
+                throw new Error("卸载需要 --yes；同时删除托管用户数据还需显式传入 --delete-data。");
+            }
+            const label = options.deleteData
+                ? "卸载应用并删除托管用户数据？外部 Project Workspace 不受影响。"
+                : "卸载应用？State Root 用户数据会保留，Cache、Desktop/WebView 和日志会删除。";
+            const confirmed = await promptResult(p.confirm({message: label, initialValue: false}));
+            if (!confirmed) {
+                p.cancel("已取消卸载。" );
+                return;
+            }
+        }
+        const result = await uninstallInstallation({
+            installationRoot: root,
+            manifest,
+            deleteData: options.deleteData,
+            stop: async () => stopInstallationForRemoval(root, manifest, true),
+        });
+        const config = await readManagerConfig();
+        const instance = findManagerInstance(config, root);
+        if (instance) await forgetManagerInstance(instance.id);
+        p.outro(result.statePreserved
+            ? `卸载完成；用户数据保留在：${result.stateRoot}`
+            : "卸载完成；托管用户数据已删除。" );
+    });
+
+const desktop = program.command("desktop").description("管理 Desktop Local/WebView 状态。");
+desktop.command("reset")
+    .description("删除当前实例的 Desktop Local Root，包括 WebView profile。")
+    .option("--yes", "确认删除桌面本地状态。", false)
+    .action(async (options: {yes: boolean}) => {
+        const {root, manifest} = await currentInstallation();
+        if (!options.yes) {
+            if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error("桌面重置需要 --yes。" );
+            const confirmed = await promptResult(p.confirm({
+                message: "删除桌面窗口设置和 WebView 本地 profile？Workspace 草稿已经独立存储，不会随之删除。",
+                initialValue: false,
+            }));
+            if (!confirmed) {
+                p.cancel("已取消桌面重置。" );
+                return;
+            }
+        }
+        const desktopRoot = await resetDesktopLocalState({
+            installationRoot: root,
+            manifest,
+            stop: async () => stopInstallationForRemoval(root, manifest, false),
+        });
+        p.outro(`桌面本地状态已重置：${desktopRoot}`);
+    });
+
+/**
+ * 删除生命周期前的停止门。
+ *
+ * 原生 Product 的控制 token 只属于启动它的 Manager 进程；独立 CLI 只能要求已停止，
+ * 不能降级为未认证 shutdown 或强杀。容器则由当前 Manager 明确停止并按卸载语义 down。
+ */
+async function stopInstallationForRemoval(root: string, manifest: InstallationManifest, removeContainer: boolean): Promise<void> {
+    const paths = installationPaths(root, manifest.roots);
+    if (manifest.components.applicationRuntime.provider !== "container") {
+        await assertNativeProductStopped(paths.state);
+        return;
+    }
+    if (!manifest.containerEngine) throw new Error(`${manifest.profile} Manifest 缺少 Container Engine。`);
+    await stopDocker(manifest.containerEngine, root, paths.state);
+    if (removeContainer) await removeDockerDeployment(manifest.containerEngine, root, paths.state);
+}
 
 const runtime = program.command("runtime").description("管理 Bun Runtime。");
 runtime.command("list").action(async () => {

@@ -40,7 +40,7 @@ const resultAttachments = computed(() => (props.toolCall.publicResult?.content ?
     <div v-if="renderConfig.mode === 'message' && renderConfig.component" class="group flex min-w-0 w-full flex-col items-stretch pl-6">
         <component :is="renderConfig.component" :tool-call="props.toolCall" />
         <AgentAttachmentGallery
-            v-if="props.toolCall.resultEntryId && resultAttachments.length > 0"
+            v-if="resultAttachments.length > 0"
             :attachments="resultAttachments"
             :session-id="props.sessionId"
             :entry-id="props.toolCall.resultEntryId"
@@ -54,7 +54,7 @@ const resultAttachments = computed(() => (props.toolCall.publicResult?.content ?
             @copy="emit('copy', props.toolCall)"
         />
         <AgentAttachmentGallery
-            v-if="props.toolCall.resultEntryId && resultAttachments.length > 0"
+            v-if="resultAttachments.length > 0"
             class="w-full"
             :attachments="resultAttachments"
             :session-id="props.sessionId"

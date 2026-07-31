@@ -131,7 +131,7 @@ describe("Owned Process", () => {
         expect(output).toContain("target:portable-input");
     });
 
-    it.runIf(process.platform === "win32")("宿主异常退出会通过IPC断连和KILL_ON_JOB_CLOSE清理完整进程树", async () => {
+    it("宿主异常退出会通过监督IPC断连清理完整进程树", async () => {
         const root = await mkdtemp(join(tmpdir(), "nbook-owned-disconnect-"));
         roots.push(root);
         const statePath = join(root, "state.json");

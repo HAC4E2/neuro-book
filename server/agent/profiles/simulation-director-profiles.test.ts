@@ -32,8 +32,7 @@ describe("simulation and director builtin profiles", () => {
         const prepared = await simulatorLeaderProfile.prepare!({
             session: testSession({
                 profileKey: "simulator.leader",
-                workspaceRoot: "workspace",
-                projectPath: "workspace/rp-project",
+                currentProjectRoot: "rp-project",
                 customState: {},
                 linkedAgents: [],
                 archived: false,
@@ -78,7 +77,7 @@ describe("simulation and director builtin profiles", () => {
         expect(prompt).toContain("AGENTS.md 和 agents/simulator.leader/context.md");
         expect(prompt).toContain("最小 subject scaffold");
         expect(prompt).toContain("直接用普通 assistant 文本返回最终结果");
-        expect(prompt).toContain("projectPath: workspace/rp-project");
+        expect(prompt).toContain("projectRoot: rp-project");
         expect(prompt).toContain("reference/agent/profile-routing.md");
         expect(prompt).toContain("RP 用户体验与叙事组装转 `rp.leader`");
         expect(prompt).toContain("reference/agent/workspace-tool-use.md");
@@ -89,14 +88,13 @@ describe("simulation and director builtin profiles", () => {
         const prepared = await directorProfile.prepare!({
             session: testSession({
                 profileKey: "director",
-                workspaceRoot: "workspace",
                 customState: {},
                 linkedAgents: [],
                 archived: false,
                 agentMode: "normal",
             }),
             initial: {
-                projectPath: "workspace/rp-project",
+                projectRoot: "rp-project",
                 mode: "writing",
                 defaultChapterPath: "rp-project/manuscript/001-volume/001-chapter/",
             },

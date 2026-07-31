@@ -45,7 +45,7 @@ import type {
 type BuilderValueMode = "hidden" | "number" | "boolean" | "enum" | "ref" | "object" | "json" | "text";
 type ObjectBuilderRow = {key: string; value: string; enabled: boolean};
 const props = defineProps<{
-    projectPath: string;
+    projectRoot: string;
     schema: WorldSchemaProjectionDto | null;
     subjects: WorldSubjectDto[];
     selectedSubjectId: string;
@@ -138,13 +138,13 @@ const mutationLoadOptions = computed<Array<{label: string; value: string}>>(() =
     }));
 });
 const sliceActionLabel = computed(() => editingSliceId.value ? "保存 Slice 编辑" : "写入 Slice");
-const canSubmit = computed(() => Boolean(props.projectPath) && !props.busy && !saving.value && sliceValidation.value.ok);
+const canSubmit = computed(() => Boolean(props.projectRoot) && !props.busy && !saving.value && sliceValidation.value.ok);
 const hasDirtyDraft = computed(() => cleanSnapshot.value !== "" && (serializeSliceForm() !== cleanSnapshot.value || builderDraftDirty.value));
 markCleanSliceForm();
 
 /** 写入新 slice 或整块替换当前编辑中的 slice。 */
 async function submitSlice(options: {continueAfterSave?: boolean} = {}): Promise<void> {
-    if (!props.projectPath || props.busy || saving.value) {
+    if (!props.projectRoot || props.busy || saving.value) {
         return;
     }
     if (!applyDirtyBuilderDraftBeforeSubmit()) {
@@ -851,8 +851,8 @@ function suggestedNewSliceTime(extraUsedTimes: string[] = []): string {
     return suggestSliceTime(examples);
 }
 
-function projectQuery(): {projectPath: string} {
-    return {projectPath: props.projectPath};
+function projectQuery(): {projectRoot: string} {
+    return {projectRoot: props.projectRoot};
 }
 
 function serializeSliceForm(): string {

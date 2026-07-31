@@ -96,12 +96,17 @@ export async function writeDurableJson(path: string, value: object): Promise<voi
 
 /** 用同目录版本化 temp + rename 原子替换 durable JSON。 */
 export async function writeAtomicDurableJson(path: string, value: object): Promise<void> {
+    await writeAtomicDurableBytes(path, Buffer.from(`${JSON.stringify(value, null, 2)}\n`, "utf8"));
+}
+
+/** 用同目录 temp + rename 原子替换原始 bytes，不重新序列化迁移前状态。 */
+export async function writeAtomicDurableBytes(path: string, bytes: Uint8Array): Promise<void> {
     await mkdir(dirname(path), {recursive: true});
     const tempPath = `${path}.next`;
     await rm(tempPath, {force: true});
     const handle = await open(tempPath, "wx");
     try {
-        await handle.writeFile(`${JSON.stringify(value, null, 2)}\n`, "utf8");
+        await handle.writeFile(bytes);
         await handle.sync();
     } finally {
         await handle.close();

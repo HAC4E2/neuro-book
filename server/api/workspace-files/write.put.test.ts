@@ -5,7 +5,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {statWorkspacePath} from "nbook/server/workspace-files/workspace-files";
 import {WorkspaceWriteConflictDtoSchema} from "nbook/shared/dto/workspace-file-conflict.dto";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
+import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 
 const createdRoots: string[] = [];
 const originalReadBody = (globalThis as typeof globalThis & {readBody?: unknown}).readBody;
@@ -33,11 +33,11 @@ describe("PUT /api/workspace-files/write", () => {
             writeWorkspaceTextFileTracked: vi.fn(),
         }));
         vi.doMock("nbook/server/workspace-files/project-open-guard", () => ({
-            withProjectTargetOperation: vi.fn((target: {kind: string; projectPath?: string}, handler: (handles: undefined) => unknown) => {
+            withProjectTargetOperation: vi.fn((target: {kind: string; projectRoot?: string}, handler: (handles: undefined) => unknown) => {
                 if (target.kind === "project-workspace") {
                     throw Object.assign(new Error("Project未打开"), {
                         statusCode: 409,
-                        data: {code: "PROJECT_NOT_OPEN", projectPath: target.projectPath},
+                        data: {code: "PROJECT_NOT_OPEN", projectRoot: target.projectRoot},
                     });
                 }
                 return handler(undefined);
@@ -72,7 +72,7 @@ describe("PUT /api/workspace-files/write", () => {
         await fs.writeFile(path.join(root, filePath), "真实文件\n", "utf-8");
         await fs.utimes(path.join(root, filePath), new Date(), new Date(baseNode.mtimeMs + 5000));
         readBodyMock.mockResolvedValue({
-            projectPath: "workspace/test-project",
+            projectRoot: "test-project",
             path: filePath,
             content: "网页编辑\n",
             baseContent: "共同基线\n",
@@ -103,11 +103,11 @@ describe("PUT /api/workspace-files/write", () => {
             resolveWorkspaceFileTarget: vi.fn(async () => ({
                 kind: "project-workspace",
                 root: absoluteFsPath("C:/test/workspace/not-open"),
-                projectPath: normalizeProjectPath("workspace/not-open"),
+                projectRoot: projectWorkspaceRef("not-open").projectRoot,
             })),
         }));
         readBodyMock.mockResolvedValue({
-            projectPath: "workspace/not-open",
+            projectRoot: "not-open",
             path: "note.md",
             content: "不会写入\n",
         });
@@ -117,7 +117,7 @@ describe("PUT /api/workspace-files/write", () => {
             statusCode: 409,
             data: {
                 code: "PROJECT_NOT_OPEN",
-                projectPath: "workspace/not-open",
+                projectRoot: "not-open",
             },
         });
     });

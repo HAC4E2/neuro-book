@@ -45,30 +45,45 @@ bun "<skill-root>/bin/llmlint.ts" status --format json
 
 这是软门，`initialized:false` 不阻塞 `check` / `detect`。
 
-如果 `initialized:false`，读 `status` 报的实际档位，向用户说明四档各上传什么（`off` 什么都不传 / `stats` 只传命中统计与检测分数 / `fragments` 再加疑难片段原文与判定 / `full` 再加全文修复谱系）与 `sharing.mode` 的含义（`ask` 每次询问、`auto` 不再询问），再用 `config set` 写用户级 `settings.json`。只在用户要求改档位时才写 `sharing.tier`：
+如果 `initialized:false`，读 `status` 报的实际档位，向用户说明四档各会**在本机攒下**什么（`off` 什么都不攒 / `stats` 只有命中统计与检测分数、不含文件名片段评语 / `fragments` 再加文件名、疑难片段原文与判定、修后评语 / `full` 再加修前修后全文，即在用户目录留一份正文副本）与 `sharing.mode` 的含义（`auto` 缺省，每轮收尾自动攒；`ask` 只列不写、要手动确认），再用 `config set` 写用户级 `settings.json`。只在用户要求改档位时才写 `sharing.tier`：
 
 ```bash
 bun "<skill-root>/bin/llmlint.ts" config set sharing.tier stats
 bun "<skill-root>/bin/llmlint.ts" config set initialized true
 ```
 
-本版本没有任何上传通道，档位现在不产生实际传输。
+本版本没有任何上传通道，数据只落在本机 `~/.llmlint/outbox/`，一个字节都不离开这台机器；将来要发送时会另行征求同意。
 
 `config` 只管理用户级 `settings.json`，不会修改项目级 `llmlint.config.ts`。项目级规则变化必须以 diff 建议形式交用户审批。
 
-## 步骤 2：check + detect
+初始化门之后、跑 `check` 之前还有两件事：
 
-静态检查。创作类正文（小说、散文、剧本）默认用 `--review all`：
+1. **问修前分**：「这稿你现在想继续读下去吗？0–5」，拒答记 null。放在 check 之前是刻意的——先看完命中报告再打分，分数会被报告带偏，修前修后的差值就失去意义。
+2. **起一轮**：
 
 ```bash
-bun "<skill-root>/bin/llmlint.ts" check <files...> --review all --format json
+bun "<skill-root>/bin/llmlint.ts" round begin <files...>
+# 续修上一轮的修后稿时必须带父轮号
+bun "<skill-root>/bin/llmlint.ts" round begin .agent/llmlint/rounds/0001/output/chapter.md --parent 1
+```
+
+它建 `.agent/llmlint/rounds/NNNN/`、把输入文件快照进 `source/`、在台账追加条目，并打印轮号与目录（下文记作 `<轮目录>`）。父轮必须显式声明：靠「内容变没变」推会在「第 1 轮审第 1 章、第 2 轮审第 2 章」时得出「用户中途手改过」的错误结论。另起一篇不传 `--parent`。
+
+## 步骤 2：check + detect
+
+静态检查。创作类正文（小说、散文、剧本）默认用 `--review all`，JSON 直接落进本轮目录：
+
+```bash
+bun "<skill-root>/bin/llmlint.ts" check <files...> --review all --format json > <轮目录>/check-source.json
 ```
 
 非创作文本（技术文档、公告、说明）用默认 agent 桶：
 
 ```bash
-bun "<skill-root>/bin/llmlint.ts" check <files...> --format json
+bun "<skill-root>/bin/llmlint.ts" check <files...> --format json > <轮目录>/check-source.json
 ```
+
+落盘后再读文件做步骤 3。命中数字不要抄进台账——`contribute` 直接从这份 JSON 统计，抄一遍只是多一次抄错的机会。
 
 规则整理已把大量语境敏感规则下沉到 `human` 桶，创作类正文只看 agent 桶会漏掉主要问题（实测一篇 P(AI) 0.88 的轻小说，agent 桶 5 条命中、all 桶 43 条 + 1 条密度指纹，而最强的比喻密度指纹整体在 human 桶）。`agent` 桶是默认可修入口；`human` 桶参与四象限、密度判断和「问 / 留」分流，要修必须先取得用户同意。
 
@@ -77,7 +92,7 @@ bun "<skill-root>/bin/llmlint.ts" check <files...> --format json
 神经检测：
 
 ```bash
-bun "<skill-root>/bin/llmlint.ts" detect <files...> --format json
+bun "<skill-root>/bin/llmlint.ts" detect <files...> --format json > <轮目录>/detect-source.json
 ```
 
 `check` 会输出 regex、handler 和 density 的结构化命中。`detect` 会输出每个文件的 `docPAi`、`maxPAi`、`spread`、`cached`，以及逐 chunk 的 span、起始行、`pAi`、`rank`（文内 P(AI) 降序位次）和 `relative`（相对本篇均值的偏离）。`rank` / `relative` / `spread` 是报告层派生字段，不进缓存，所以 `cached:true` 时同样有。
@@ -156,24 +171,32 @@ bun "<skill-root>/bin/llmlint.ts" rules --detector semantic
 
 ## 步骤 4：修复并复测一轮
 
-生成 `.agent/polish-plan.md`，等待用户审批。计划包含：
+生成 `<轮目录>/plan.md`，等待用户审批。计划包含：
 
 - 静态命中统计、两层检测结论，以及四象限摘要（`spread < 0.15` 时改为说明为何不适用）。
 - 建议修复、建议保留、需要确认的项目。
 - 每项的行号、原文片段、理由和拟改写。
 
-修复默认写入 `.agent/polish-output.md`。只有用户明确要求时才直接改原文件。
+修复默认写入 `<轮目录>/output/<原文件名>`。只有用户明确要求时才直接改原文件——即使直接改了，也要把改后内容拷一份进 `output/`，否则这一轮的谱系缺一半。计划写 `<轮目录>/plan.md`。轮目录互不覆盖，第二轮写进 `rounds/0002/`。
 
 执行顺序固定为：先读上下文并确认功能，再按 **删 → 压 → 换** 做最小修改。不能用同义词轮换、模板身体反应、硬拆短句或新增细节来掩盖命中。
+
+### 篇幅预算：删减不超过两成
+
+`check` 报告的 `summary.visibleChars` 给出正文可见字数，与「/千字」同分母（跳过结构行与遮罩区）。修复前后各取一次，算删减比例；不要用 `wc` 等外部计数，它把标点空白也算进去，比例会失真。
+
+删减接近或超过两成时**停下来向用户报告**，说明删掉的内容类别、理由，以及哪些可以恢复。这条护栏针对的是一个实测出来的失控模式：三种手法里「删」最容易累加失控——清单上每条单独看都该删，加起来能把一章削掉三分之一，而**静态命中与检测分数在这个过程中都在变好**，两个指标都不会报警。实测一次放开审批的修复把 4663 字改成 3003 字（−35.6%），同时命中 55→2、`docPAi` 0.947→0.597，人物地点道具全部保留、信息未丢——即使如此，这个幅度也该由用户决定而不是 Agent 自行决定。
+
+### 复测
 
 复测只跑一轮（创作类正文同样 `--review all`）：
 
 ```bash
-bun "<skill-root>/bin/llmlint.ts" check .agent/polish-output.md --review all --format json
-bun "<skill-root>/bin/llmlint.ts" detect .agent/polish-output.md --format json
+bun "<skill-root>/bin/llmlint.ts" check <轮目录>/output/<原文件名> --review all --format json > <轮目录>/check-output.json
+bun "<skill-root>/bin/llmlint.ts" detect <轮目录>/output/<原文件名> --format json > <轮目录>/detect-output.json
 ```
 
-复测判据是**静态命中减少且没有引入新命中**。检测分数只作参考，不作目标。
+复测判据是三条同时成立：**静态命中减少、没有引入新命中、篇幅在原文 ±20% 以内**。第三条防的是靠删够多来清零命中——只有前两条时，把正文删薄就能满足它们。检测分数只作参考，不作目标。
 
 实测证据：一篇 3131 字的 AI 生成轻小说，5 项修复后静态命中 43→38、high 1→0，但 `docPAi` 从 0.8757 **升到** 0.8844，承载其中 2 项改动的 chunk 从 0.929 升到 0.990。原因是「压缩抽象壳」的改写有时反而更贴近模型惯用表达。这与更早的配对实验一致（一轮修复规则分大降、神经检测器只动 0.7 个百分点）。
 
@@ -181,29 +204,37 @@ bun "<skill-root>/bin/llmlint.ts" detect .agent/polish-output.md --format json
 
 ## 步骤 5：台账与学习出口
 
-先读 `.agent/llmlint-session.json`，把本轮追加进 `rounds`，**不要整体覆写**；文件不存在时才新建：
+本轮条目在步骤 1 `round begin` 时已建好。这一步是**把它填完，不是追加新条目**：读 `.agent/llmlint/session.json`，找到 `round` 等于本轮轮号的那一项补字段，其余轮原样保留。
 
 ```json
 {
-    "version": 2,
+    "version": 3,
+    "projectId": "round begin 生成，不要改",
     "rounds": [
         {
-            "sourceFiles": [],
+            "round": 1,
+            "parentRound": null,
+            "startedAt": "round begin 写的，不要改",
             "completedAt": "",
             "status": "completed",
+            "sourceFiles": [],
             "settings": {"sharingTier": "", "login": "none"},
             "summary": {"staticIssues": 0, "densityIssues": 0, "docPAi": 0, "spread": 0},
             "retest": {"staticIssues": 0, "densityIssues": 0, "docPAi": 0, "spread": 0, "verdict": "pass"},
             "decisions": [],
-            "localConfigSuggestions": []
+            "localConfigSuggestions": [],
+            "judgment": {"wantReadOnBefore": null, "wantReadOnAfter": null, "comment": null, "blind": false},
+            "contributedAt": null
         }
     ]
 }
 ```
 
-台账是唯一跨轮累积的产物：`decisions` 与 `localConfigSuggestions` 是学习出口的原料，覆写等于丢掉全部历史判断。相对地，`.agent/polish-plan.md` 与 `.agent/polish-output.md` 是单槽过程产物，每轮覆盖，需要留存由用户自行另存。
+台账是唯一跨轮累积的沉淀：`decisions` 与 `localConfigSuggestions` 是学习出口的原料，覆写等于丢掉全部历史判断。过程产物（`plan.md` / `output/`）按轮存放，不再互相覆盖。
 
-`settings.sharingTier` 写 `status` 报的实际值。`summary` 与 `retest` 记 `docPAi` 与 `spread`，不记「热区数」——热区数依赖绝对阈值，跨篇不可比。
+`summary` 与 `retest` 记 `docPAi` 与 `spread`，不记「热区数」——热区数依赖绝对阈值，跨篇不可比。**规则命中分布不写台账**，它在 `<轮目录>/check-source.json` 与 `check-output.json` 里，`contribute` 直接读那两个文件。
+
+`judgment`：`wantReadOnBefore` 是步骤 1 问到的分；复测通过后再问一次同样的问题记 `wantReadOnAfter`，可顺带请用户留一句话记 `comment`。拒答记 null，不阻塞。`blind` 恒 `false` 且不要改——作者给自己的稿子打分不是盲评，如实标注才不会被将来的分析误用。
 
 `decisions` 记录疑难片段：文件、行号、静态规则、文内位次证据、用户判定、保留/修复理由。`localConfigSuggestions` 记录建议的 `llmlint.config.ts` diff，例如：
 
@@ -211,7 +242,15 @@ bun "<skill-root>/bin/llmlint.ts" detect .agent/polish-output.md --format json
 - 某类偏风格命中：`namespaces: {"punctuation.dash": {review: "human"}}`。
 - 世界观术语：`ignoreTerms: ["仿佛山海"]`。
 
-未经用户批准，不写项目配置。上传和登录不是本版本能力，只保留后续 contributions 出口说明。
+未经用户批准，不写项目配置。
+
+台账填完后跑一次：
+
+```bash
+bun "<skill-root>/bin/llmlint.ts" contribute --auto --round <本轮轮号>
+```
+
+它按用户共享设置把本轮裁剪成一条自包含记录落进 `~/.llmlint/outbox/`。**只落本地，不联网、不发送。** 落不落由命令自己判并打印一行说明（`tier=off` 不做 / 未过初始化门不做 / `mode=ask` 只列不写 / `mode=auto` 直接写），把那行转达用户即可，不需要自己读设置分支。用户想看攒了什么用 `contribute --list`，删文件即撤回。
 
 ## 规则作者注意事项
 

@@ -9,6 +9,7 @@ import {prerelease} from "semver";
 import {readJson, writeJsonAtomic} from "#manager/files";
 import {readInstallationManifest} from "#manager/manifest-store";
 import {installationPaths} from "#manager/paths";
+import {localAppDataRoot} from "#manager/root-locators";
 import type {ManagerConfig, ManagerInstance, ManagerPreferences, ReleaseChannel} from "#manager/types";
 import {MANAGER_VERSION} from "#manager/version-info";
 
@@ -38,13 +39,16 @@ export function managerConfigPath(): string {
 
 /** 构造首次运行时的默认配置，但不会主动写盘。 */
 export function defaultManagerConfig(): ManagerConfig {
+    const installDirectory = process.platform === "win32"
+        ? join(localAppDataRoot(), "Programs", "NeuroBook")
+        : join(homedir(), "neuro-book");
     return {
         schemaVersion: 1,
         defaultInstanceId: null,
         preferences: {
             channel: prerelease(MANAGER_VERSION) ? "canary" : "stable",
-            installDirectory: join(homedir(), "neuro-book"),
-            discoveryRoots: [homedir()],
+            installDirectory,
+            discoveryRoots: [process.platform === "win32" ? join(localAppDataRoot(), "Programs") : homedir()],
         },
         instances: [],
     };

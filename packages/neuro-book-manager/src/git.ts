@@ -59,9 +59,9 @@ export async function assertCleanWorktree(root: string, allowedUntracked: string
 }
 
 /** fetch 并验证 fast-forward，但不修改主 checkout。 */
-export async function fetchUpdateTarget(root: string, branch = DEFAULT_BRANCH): Promise<GitUpdateTarget> {
+export async function fetchUpdateTarget(root: string, branch = DEFAULT_BRANCH, allowedUntracked: string[] = []): Promise<GitUpdateTarget> {
     await validateRepository(root, DEFAULT_REPOSITORY, branch);
-    await assertCleanWorktree(root);
+    await assertCleanWorktree(root, allowedUntracked);
     await run("git", ["fetch", "origin", branch], {cwd: root});
     const previousRevision = await repositoryRevision(root);
     const targetRevision = (await runCapture("git", ["rev-parse", `origin/${branch}`], {cwd: root})).trim();

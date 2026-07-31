@@ -636,7 +636,6 @@ function context(overrides: Partial<LowCodeFormResolveContext> = {}): LowCodeFor
     return {
         profileKey: "writer",
         scope: "global" as const,
-        workspaceRoot: "workspace",
         ...overrides,
     };
 }

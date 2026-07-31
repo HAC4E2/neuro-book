@@ -70,9 +70,8 @@ describe("prepare next turn reducer", () => {
 function fakeFrame(): RunFrame {
     return {
         sessionId: 7,
-        workspaceKey: "global",
-        workspaceRootRef: "workspace",
-        workspaceFsRoot: absoluteFsPath(process.cwd()),
+        workspaceRoot: absoluteFsPath(process.cwd()),
+        currentProject: null,
         systemPrompt: "",
         models: {} as RunFrame["models"],
         model: {} as RunFrame["model"],

@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import type {FileHandle} from "node:fs/promises";
 import path from "node:path";
 import * as yaml from "yaml";
+import {normalizeProjectCoverPath} from "nbook/shared/project-cover";
 import {
     absoluteFsPath,
     assertRealPathContained,
@@ -33,6 +34,8 @@ export type ProjectManifest = {
     readonly kind: "novel";
     readonly title: string;
     readonly summary: string;
+    /** 可选 Project Workspace 相对路径；非法外部值按未设置处理。 */
+    readonly cover?: string;
 };
 
 /** validate返回的结构化manifest问题；只描述可由ensure修复的内容问题。 */
@@ -54,12 +57,14 @@ export type ProjectManifestIssue =
 /** Lifecycle对manifest做出的磁盘变更。 */
 export type ProjectManifestChange = "none" | "created" | "normalized" | "recovered" | "updated";
 
-/** metadata update只允许修改NeuroBook拥有的两个公开字段。 */
+/** metadata / cover mutation 只允许修改 NeuroBook 拥有的公开字段。 */
 export type ProjectManifestMetadataPatch = {
     /** undefined表示保留当前值。 */
     readonly title?: string;
     /** undefined表示保留当前值；空字符串表示清空。 */
     readonly summary?: string;
+    /** undefined表示保留；null表示删除；字符串表示设置规范 Project Workspace 相对路径。 */
+    readonly cover?: string | null;
 };
 
 /** 完全只读的Project校验结果；repairable表示ensure可安全归一化。 */
@@ -105,7 +110,7 @@ export type ProjectManifestAdapter = {
 };
 
 /** Manifest persistence执行temp best-effort清理时所属的公开Lifecycle操作。 */
-export type ProjectManifestCleanupOperation = "ensure" | "import" | "metadata-update";
+export type ProjectManifestCleanupOperation = "ensure" | "import" | "metadata-update" | "cover-update";
 
 /** Manifest persistence无法清理自身temp时交给Lifecycle的窄诊断事件。 */
 export type ProjectManifestCleanupIssue = {
@@ -219,6 +224,7 @@ export class ProjectManifestPersistence {
         workspace: ResolvedProjectWorkspace,
         patch: ProjectManifestMetadataPatch,
         commitGate: ProjectManifestCommitGate,
+        operation: Extract<ProjectManifestCleanupOperation, "metadata-update" | "cover-update"> = "metadata-update",
     ): Promise<ProjectManifestEnsureResult> {
         const {projectRoot} = workspace.ref;
         const manifestPath = path.join(workspace.root, PROJECT_MANIFEST_FILE);
@@ -235,11 +241,19 @@ export class ProjectManifestPersistence {
             kind: "novel",
             title: patch.title ?? current.title,
             summary: patch.summary ?? current.summary,
+            ...(patch.cover === null
+                ? {}
+                : patch.cover !== undefined
+                    ? {cover: patch.cover}
+                    : current.cover === undefined
+                        ? {}
+                        : {cover: current.cover}),
         };
         if (
             existing.kind === "valid"
             && manifest.title === existing.manifest.title
             && manifest.summary === existing.manifest.summary
+            && manifest.cover === existing.manifest.cover
         ) {
             return {manifest: existing.manifest, change: "none"};
         }
@@ -256,7 +270,7 @@ export class ProjectManifestPersistence {
                     Buffer.from(yaml.stringify(manifest), "utf8"),
                     null,
                     commitGate,
-                    "metadata-update",
+                    operation,
                     this.reportCleanupIssue,
                 );
                 change = "created";
@@ -267,7 +281,7 @@ export class ProjectManifestPersistence {
                     workspace.root,
                     projectRoot,
                     existing.raw,
-                    "metadata-update",
+                    operation,
                     this.reportCleanupIssue,
                 );
                 await commitGate();
@@ -279,7 +293,7 @@ export class ProjectManifestPersistence {
                         Buffer.from(yaml.stringify(manifest), "utf8"),
                         existing.raw,
                         commitGate,
-                        "metadata-update",
+                        operation,
                         this.reportCleanupIssue,
                     );
                     change = "recovered";
@@ -292,7 +306,7 @@ export class ProjectManifestPersistence {
                         Buffer.from(existing.document.toString(), "utf8"),
                         existing.raw,
                         commitGate,
-                        "metadata-update",
+                        operation,
                         this.reportCleanupIssue,
                     );
                     change = existing.kind === "valid" ? "updated" : "normalized";
@@ -568,11 +582,12 @@ async function readManifest(
     if (kind !== "novel" || typeof title !== "string" || typeof summary !== "string") {
         return {kind: "normalizable", raw, document};
     }
+    const cover = normalizeProjectCoverPath(document.get("cover"));
     return {
         kind: "valid",
         raw,
         document,
-        manifest: {kind, title, summary},
+        manifest: {kind, title, summary, ...(cover === undefined ? {} : {cover})},
         manifestUpdatedAt: stat.mtime.toISOString(),
     };
 }
@@ -589,10 +604,12 @@ function normalizedManifest(
 ): ProjectManifest {
     const title: unknown = document.get("title");
     const summary: unknown = document.get("summary");
+    const cover = normalizeProjectCoverPath(document.get("cover"));
     return {
         kind: "novel",
         title: typeof title === "string" ? title : projectRoot,
         summary: typeof summary === "string" ? summary : "",
+        ...(cover === undefined ? {} : {cover}),
     };
 }
 
@@ -621,12 +638,17 @@ function normalizeManifestDocument(
     setScalar(document, "kind", manifest.kind);
     setScalar(document, "title", manifest.title);
     setScalar(document, "summary", manifest.summary);
+    if (manifest.cover === undefined) {
+        document.delete("cover");
+    } else {
+        setScalar(document, "cover", manifest.cover);
+    }
 }
 
 /** 优先原位更新Scalar value，避免Document.set丢失节点上的行尾注释。 */
 function setScalar(
     document: ReturnType<typeof yaml.parseDocument>,
-    key: keyof ProjectManifest,
+    key: "kind" | "title" | "summary" | "cover",
     value: string,
 ): void {
     const current: unknown = document.get(key, true);

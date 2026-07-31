@@ -5,17 +5,18 @@ import type {RuntimeConfigTarget} from "nbook/server/config/types";
 import {resolveAgentVisibleModels} from "nbook/server/agent/harness/agent-visible-models";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 import {
-    requireReadyProjectPath,
+    requireActiveReadyProject,
     runReadyProjectOperation,
 } from "nbook/server/workspace-files/project-session";
-import {withProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
+import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
+import {withProjectHttpError} from "nbook/server/api/projects/project-http-error";
 
 /** 正式 workflow 面：catalog 列表 + agent 可见模型清单（前端触发表单用） */
-export default defineEventHandler((event) => withProjectNotOpenHttpError(async () => {
+export default defineEventHandler((event) => withProjectHttpError(async () => {
     const query = getQuery(event);
-    const projectPath = typeof query.projectPath === "string" ? query.projectPath : undefined;
+    const projectRoot = typeof query.projectRoot === "string" && query.projectRoot.trim() ? query.projectRoot : undefined;
     const runtimePaths = runtimePathsFromEnv();
-    const ready = projectPath ? requireReadyProjectPath(projectPath) : null;
+    const ready = projectRoot ? requireActiveReadyProject(projectWorkspaceRef(projectRoot)) : null;
     const configTarget: RuntimeConfigTarget = ready
         ? {scope: "project", workspaceRoot: runtimePaths.workspaceRoot, project: ready}
         : {scope: "global", workspaceRoot: runtimePaths.workspaceRoot, project: null};

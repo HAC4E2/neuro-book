@@ -17,7 +17,7 @@ import type {WorkspaceHistoryInboxGroupDto} from "nbook/shared/dto/workspace-his
 const props = defineProps<{
     modelValue: boolean;
     /** 当前 Project Path（workspace/<slug>）；为空（user-assets 模式）时不可用 */
-    projectPath: string | null;
+    projectRoot: string | null;
     theme?: IdeTheme;
 }>();
 
@@ -28,9 +28,9 @@ const emit = defineEmits<{
 const notification = useNotification();
 const {confirm} = useDialog();
 const {t} = useI18n();
-const projectPathRef = toRef(props, "projectPath");
+const projectRootRef = toRef(props, "projectRoot");
 const dialogOpenRef = toRef(props, "modelValue");
-const {revision, groups, loading, error: inboxError, load: loadInbox} = useWorkspaceHistoryInbox(projectPathRef, dialogOpenRef);
+const {revision, groups, loading, error: inboxError, load: loadInbox} = useWorkspaceHistoryInbox(projectRootRef, dialogOpenRef);
 const diffRequests = useWorkspaceHistoryDiffRequests();
 
 const selectedPath = ref<string | null>(null);
@@ -58,7 +58,7 @@ async function load(): Promise<void> {
 /** 选中一组并通过服务端路径授权接口读取两侧全文。 */
 async function select(group: WorkspaceHistoryInboxGroupDto | null): Promise<void> {
     selectedPath.value = group?.path ?? null;
-    if (!group || !props.projectPath) {
+    if (!group || !props.projectRoot) {
         return;
     }
     await diffRequests.load(diffIdentity(group), t("ide.historyInbox.loadFailed"));
@@ -66,12 +66,12 @@ async function select(group: WorkspaceHistoryInboxGroupDto | null): Promise<void
 
 /** 接受：把该文件的审查位点推进到最新（不改文件内容）。 */
 async function acceptGroup(group: WorkspaceHistoryInboxGroupDto): Promise<void> {
-    if (!props.projectPath || busyPath.value) {
+    if (!props.projectRoot || busyPath.value) {
         return;
     }
     busyPath.value = group.path;
     try {
-        await $fetch("/api/workspace-history/accept", {method: "POST", body: {projectPath: props.projectPath, path: group.path, revision: group.revision}});
+        await $fetch("/api/workspace-history/accept", {method: "POST", body: {projectRoot: props.projectRoot, path: group.path, revision: group.revision}});
         notification.success(t("ide.historyInbox.acceptSuccess", {path: group.path}));
         await load();
     } catch (cause) {
@@ -86,7 +86,7 @@ async function acceptGroup(group: WorkspaceHistoryInboxGroupDto): Promise<void> 
 
 /** 还原：把文件内容退回上次接受的基线（danger 确认；操作本身入账，可再次审查）。 */
 async function revertGroup(group: WorkspaceHistoryInboxGroupDto): Promise<void> {
-    if (!props.projectPath || busyPath.value) {
+    if (!props.projectRoot || busyPath.value) {
         return;
     }
     const confirmed = await confirm(t("ide.historyInbox.revertConfirm", {path: group.path}), t("ide.historyInbox.revert"));
@@ -95,7 +95,7 @@ async function revertGroup(group: WorkspaceHistoryInboxGroupDto): Promise<void> 
     }
     busyPath.value = group.path;
     try {
-        await $fetch("/api/workspace-history/revert", {method: "POST", body: {projectPath: props.projectPath, path: group.path, revision: group.revision}});
+        await $fetch("/api/workspace-history/revert", {method: "POST", body: {projectRoot: props.projectRoot, path: group.path, revision: group.revision}});
         notification.success(t("ide.historyInbox.revertSuccess", {path: group.path}));
         await load();
     } catch (cause) {
@@ -111,7 +111,7 @@ async function revertGroup(group: WorkspaceHistoryInboxGroupDto): Promise<void> 
 /** 构造完整审查模式下的版本化 diff 身份。 */
 function diffIdentity(group: WorkspaceHistoryInboxGroupDto): WorkspaceHistoryDiffRequestIdentity {
     return {
-        projectPath: props.projectPath ?? "",
+        projectRoot: props.projectRoot ?? "",
         path: group.path,
         revision: group.revision,
         mode: "full",
@@ -156,7 +156,7 @@ watch(() => props.modelValue, (open) => {
     }
 });
 
-watch(() => props.projectPath, () => {
+watch(() => props.projectRoot, () => {
     diffRequests.invalidate();
     selectedPath.value = null;
 });

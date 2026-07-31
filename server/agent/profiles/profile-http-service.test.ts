@@ -20,7 +20,7 @@ const originalApplicationRoot = process.env.NEURO_BOOK_APPLICATION_ROOT;
 const originalStateRoot = process.env.NEURO_BOOK_STATE_ROOT;
 
 afterEach(async () => {
-    await closeProjectForTest("workspace/project").catch(() => undefined);
+    await closeProjectForTest("project").catch(() => undefined);
     resetProjectSessionsForTest();
     restoreEnv("NEURO_BOOK_APPLICATION_ROOT", originalApplicationRoot);
     restoreEnv("NEURO_BOOK_STATE_ROOT", originalStateRoot);
@@ -28,7 +28,7 @@ afterEach(async () => {
 });
 
 describe("Profile prepare preview物理Workspace Root", () => {
-    it("Project与user-assets session使用各自真实物理root", async () => {
+    it("Project与未绑定Session共用真实Workspace Root，Project另携ready handle", async () => {
         const fixture = await fixtureRoot();
         const applicationRoot = absoluteFsPath(path.join(fixture, "application"));
         const stateRoot = absoluteFsPath(path.join(fixture, "state"));
@@ -62,7 +62,7 @@ describe("Profile prepare preview物理Workspace Root", () => {
                 return {
                     systemPrompt: JSON.stringify({
                         workspaceRoot: session.workspaceRoot,
-                        workspaceFsRoot: session.workspaceFsRoot,
+                        currentProjectRoot: session.currentProject?.workspace.ref.projectRoot ?? null,
                     }),
                 };
             },
@@ -72,18 +72,14 @@ describe("Profile prepare preview物理Workspace Root", () => {
             const project = await repo.createSession({
                 profileKey: "test.preview-path",
                 initial: {},
-                workspaceRoot: "workspace",
-                workspaceKey: "managed",
-                projectPath: "workspace/project",
+                currentProjectRoot: "project",
             });
-            const userAssets = await repo.createSession({
+            const unbound = await repo.createSession({
                 profileKey: "test.preview-path",
                 initial: {},
-                workspaceRoot: "workspace/.nbook",
-                workspaceKey: "user-assets",
             });
-            await expectPreviewRoot(harness, project.metadata.sessionId, "workspace", runtimePaths.workspaceRoot);
-            await expectPreviewRoot(harness, userAssets.metadata.sessionId, "workspace/.nbook", runtimePaths.userNbookRoot);
+            await expectPreviewRoot(harness, project.metadata.sessionId, "project", runtimePaths.workspaceRoot);
+            await expectPreviewRoot(harness, unbound.metadata.sessionId, null, runtimePaths.workspaceRoot);
         } finally {
             await harness.dispose();
         }
@@ -146,9 +142,7 @@ describe("Profile prepare preview物理Workspace Root", () => {
             const session = await repo.createSession({
                 profileKey: "test.project-workflow-prompt",
                 initial: {},
-                workspaceRoot: "workspace",
-                workspaceKey: "managed",
-                projectPath: "workspace/project",
+                currentProjectRoot: "project",
             });
             const preview = await previewAgentProfilePrepare(harness, {
                 profileKey: "test.project-workflow-prompt",
@@ -165,11 +159,11 @@ describe("Profile prepare preview物理Workspace Root", () => {
     });
 });
 
-/** 断言prepare preview看到的逻辑引用与物理root。 */
+/** 断言prepare preview看到的Current Project与绝对Workspace Root。 */
 async function expectPreviewRoot(
     harness: NeuroAgentHarness,
     sessionId: number,
-    expectedRef: string,
+    expectedProjectRoot: string | null,
     expectedFsRoot: string,
 ): Promise<void> {
     const preview = await previewAgentProfilePrepare(harness, {
@@ -179,8 +173,8 @@ async function expectPreviewRoot(
     expect(preview.ok).toBe(true);
     const systemPrompt = preview.messages.find((message) => message.role === "systemPrompt");
     expect(JSON.parse(systemPrompt?.text ?? "null")).toEqual({
-        workspaceRoot: expectedRef,
-        workspaceFsRoot: expectedFsRoot,
+        workspaceRoot: expectedFsRoot,
+        currentProjectRoot: expectedProjectRoot,
     });
 }
 

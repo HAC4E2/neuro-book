@@ -76,7 +76,6 @@ describe("assets builtin v3 profiles", () => {
                 model: null,
                 thinkingLevel: "off",
                 profileKey: "leader.default",
-                workspaceRoot: "workspace",
                 customState: {},
                 linkedAgents: [],
                 archived: false,
@@ -153,6 +152,8 @@ describe("assets builtin v3 profiles", () => {
         expect(visiblePrompt).toContain("invoke_agent");
         expect(visiblePrompt).toContain("get_agent");
         expect(visiblePrompt).toContain("get_agent_profile");
+        expect(visiblePrompt).toContain("自查当前 session 时调用 get_session({})");
+        expect(visiblePrompt).toContain("禁止猜测、编造或默认传 1");
         expect(visiblePrompt).toContain("Task Management");
         expect(visiblePrompt).toContain("Task tools are for execution tracking, not for storing novel facts");
         expect(visiblePrompt).toContain("task_create");
@@ -256,7 +257,6 @@ describe("assets builtin v3 profiles", () => {
                 model: null,
                 thinkingLevel: "off",
                 profileKey: "leader.default",
-                workspaceRoot: "workspace",
                 customState: {
                     "plot.selection": {
                         projectPath: "workspace/novel-7",
@@ -314,7 +314,6 @@ describe("assets builtin v3 profiles", () => {
                 model: null,
                 thinkingLevel: "off",
                 profileKey: "leader.default",
-                workspaceRoot: "workspace",
                 customState: {
                     "agent.mode": {
                         mode: "plan",
@@ -346,7 +345,6 @@ describe("assets builtin v3 profiles", () => {
                 model: null,
                 thinkingLevel: "off",
                 profileKey: "leader.default",
-                workspaceRoot: "workspace",
                 customState: {
                     "agent.mode": {
                         mode: "normal",
@@ -384,7 +382,6 @@ describe("assets builtin v3 profiles", () => {
                 model: null,
                 thinkingLevel: "off",
                 profileKey: "retrieval",
-                workspaceRoot: "workspace",
                 customState: {},
                 linkedAgents: [],
                 archived: false,
@@ -434,7 +431,6 @@ describe("assets builtin v3 profiles", () => {
                 model: null,
                 thinkingLevel: "off",
                 profileKey: "leader.assets",
-                workspaceRoot: "workspace/.nbook",
                 customState: {},
                 linkedAgents: [],
                 archived: false,
@@ -580,7 +576,6 @@ describe("assets builtin v3 profiles", () => {
         const prepared = await profile.prepare!({
             session: testSession({
                 profileKey: "leader.assets",
-                workspaceRoot: "workspace/.nbook",
             }),
             initial: {},
             vars: createTestVariableAccessor(),
@@ -694,7 +689,6 @@ describe("assets builtin v3 profiles", () => {
                 model: null,
                 thinkingLevel: "off",
                 profileKey: "researcher",
-                workspaceRoot: "workspace",
                 customState: {},
                 linkedAgents: [],
                 archived: false,
@@ -831,8 +825,7 @@ describe("assets builtin v3 profiles", () => {
                     model: null,
                     thinkingLevel: "off",
                     profileKey: "writer",
-                    workspaceRoot: "workspace",
-                    projectPath: `workspace/${projectSlug}`,
+                    currentProjectRoot: projectSlug,
                     customState: {},
                     linkedAgents: [],
                     archived: false,
@@ -907,7 +900,6 @@ describe("assets builtin v3 profiles", () => {
             const prepared = await writerProfile.prepare!({
                 session: testSession({
                     profileKey: "writer",
-                    workspaceRoot: "workspace",
                 }),
                 initial: {},
                 settings: {
@@ -952,7 +944,7 @@ describe("assets builtin v3 profiles", () => {
             wordCountControl: "2000-2600 字",
             polishingWorkflow: "使用 stop-slop。",
             adultStylePrompt: "",
-        }, {profileKey: "writer", scope: "global", workspaceRoot: "workspace"});
+        }, {profileKey: "writer", scope: "global"});
         const homeKeyResult = await validateLowCodeFormValue(WriterSettingsForm, {
             writingStylePreset: DEFAULT_WRITING_STYLE_PRESET,
             writingReferencePreset: DEFAULT_WRITING_REFERENCE_PRESET,
@@ -961,7 +953,7 @@ describe("assets builtin v3 profiles", () => {
             wordCountControl: "2000-2600 字",
             polishingWorkflow: "使用 stop-slop。",
             adultStylePrompt: "",
-        }, {profileKey: "writer", scope: "global", workspaceRoot: "workspace"});
+        }, {profileKey: "writer", scope: "global"});
         // enableKittenAdultStyle 已从 schema 下线；旧存档残留的 key 应被合并层忽略，而不是校验失败
         const retiredKeyResult = await validateLowCodeFormValue(WriterSettingsForm, {
             writingStylePreset: DEFAULT_WRITING_STYLE_PRESET,
@@ -972,7 +964,7 @@ describe("assets builtin v3 profiles", () => {
             polishingWorkflow: "使用 stop-slop。",
             adultStylePrompt: "",
             enableKittenAdultStyle: true,
-        }, {profileKey: "writer", scope: "global", workspaceRoot: "workspace"});
+        }, {profileKey: "writer", scope: "global"});
 
         expect(legacyResult.issues).toEqual([]);
         expect(homeKeyResult.issues).toEqual([]);
@@ -991,12 +983,10 @@ describe("assets builtin v3 profiles", () => {
         const validation = await validateLowCodeFormValue(LeaderDefaultSettingsForm, undefined, {
             profileKey: "leader.default",
             scope: "global",
-            workspaceRoot: "workspace" as const,
         });
         const prepared = await leaderDefaultProfile.prepare!({
             session: testSession({
                 profileKey: "leader.default",
-                workspaceRoot: "workspace",
             }),
             initial: {},
             settings: {
@@ -1027,6 +1017,8 @@ describe("assets builtin v3 profiles", () => {
         expect(systemPrompt).toContain("<neurobook_familiarity value=\"beginner\">");
         expect(systemPrompt).toContain("第一次抛出 World Engine");
         expect(systemPrompt).toContain("接近创作访谈");
+        expect(systemPrompt).toContain("自查当前 session 时调用 get_session({})");
+        expect(systemPrompt).toContain("禁止猜测、编造或默认传 1");
     });
 
     it("leader.default Project home 初始化默认人设资源并可通过 resource-preset 校验", async () => {
@@ -1054,14 +1046,12 @@ describe("assets builtin v3 profiles", () => {
             }, {
                 profileKey: "leader.default",
                 scope: "project",
-                workspaceRoot: "workspace",
                 projectWorkspace,
                 home,
             });
             const prepared = await leaderDefaultProfile.prepare!({
                 session: testSession({
                     profileKey: "leader.default",
-                    workspaceRoot: "workspace",
                 }),
                 initial: {},
                 settings: {
@@ -1100,8 +1090,7 @@ describe("assets builtin v3 profiles", () => {
             model: null,
             thinkingLevel: "off" as const,
             profileKey: "writer",
-            workspaceRoot: "workspace" as const,
-            projectPath: `workspace/${projectSlug}`,
+            currentProjectRoot: projectSlug,
             customState: {},
             linkedAgents: [],
             archived: false,

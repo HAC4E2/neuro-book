@@ -1,10 +1,12 @@
 import {createHash} from "node:crypto";
+import {createReadStream} from "node:fs";
 import {readFile, writeFile} from "node:fs/promises";
 import {basename, resolve} from "node:path";
 
 /** 为完整公开Release资产生成确定性的SHA256SUMS。 */
 export async function writeReleaseChecksums(paths: string[], output: string): Promise<void> {
-    const entries = await Promise.all(paths.map(async (path) => `${await sha256(path)}  ${basename(path)}`));
+    const entries: string[] = [];
+    for (const path of paths) entries.push(`${await sha256(path)}  ${basename(path)}`);
     await writeFile(output, `${entries.join("\n")}\n`, "utf8");
 }
 
@@ -33,6 +35,7 @@ export async function verifyReleaseChecksums(directory: string, expectedNames: s
 
 /** 计算单个Release资产的SHA256。 */
 async function sha256(path: string): Promise<string> {
-    const bytes = await readFile(path);
-    return createHash("sha256").update(bytes).digest("hex");
+    const hash = createHash("sha256");
+    for await (const chunk of createReadStream(path)) hash.update(chunk);
+    return hash.digest("hex");
 }

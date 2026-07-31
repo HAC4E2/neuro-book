@@ -4,20 +4,30 @@ import {join} from "node:path";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 
 import {
-    applyAttachmentMigration,
+    applicationEnvironment,
+    applyApplicationStateMigration,
     createAdmin,
-    planAttachmentMigration,
-    rollbackAttachmentMigration,
+    launchApplication,
+    planApplicationStateMigration,
+    rollbackApplicationStateMigration,
     runPortableForeground,
 } from "#manager/app-commands";
+import {TEST_RUNTIME_IMAGE_IDENTITY} from "#manager/fixtures/runtime-image";
+import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "#manager/root-locators";
 import type {ContainerEngine, InstallationManifest} from "#manager/types";
+import {
+    PRODUCT_SHUTDOWN_PATH,
+    PRODUCT_SHUTDOWN_TIMEOUT_MS,
+    PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT,
+} from "nbook/shared/product-runtime-contract";
 
 const processCommands = vi.hoisted(() => ({
     capture: vi.fn(),
     run: vi.fn(),
     available: vi.fn(),
 }));
-const docker = vi.hoisted(() => ({command: vi.fn(), start: vi.fn(), options: vi.fn()}));
+const docker = vi.hoisted(() => ({command: vi.fn(), start: vi.fn(), stopContainer: vi.fn(), options: vi.fn()}));
+const ownedProcess = vi.hoisted(() => ({spawn: vi.fn()}));
 
 vi.mock("#manager/process", () => ({
     runCapture: processCommands.capture,
@@ -28,57 +38,118 @@ vi.mock("#manager/docker", () => ({
     containerComposeOptions: docker.options,
     runDockerApplicationCommand: docker.command,
     startDocker: docker.start,
+    stopDockerContainer: docker.stopContainer,
 }));
+vi.mock("@notnotype/owned-process", () => ({spawnOwnedProcess: ownedProcess.spawn}));
 
 const roots: string[] = [];
 
 beforeEach(() => {
     vi.clearAllMocks();
+    ownedProcess.spawn.mockReturnValue({
+        completion: Promise.resolve({exitCode: 0, signal: null}),
+        terminate: vi.fn(async () => ({exitCode: 0, signal: null, terminationReason: "shutdown"})),
+    });
     docker.options.mockImplementation((engine: ContainerEngine, cwd: string) => engine === "podman"
         ? {cwd, env: {...process.env, PODMAN_COMPOSE_PROVIDER: "podman-compose"}}
         : {cwd});
 });
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, {recursive: true, force: true}))));
 
-describe("Application Attachment migration command", () => {
-    it("原生Product严格解析dry-run并使用同一runId执行apply/rollback", async () => {
+describe("Application State migration command", () => {
+    it("Manager统一注入Product、llmlint与Bun的State/Cache Root", async () => {
+        const root = await mkdtemp(join(tmpdir(), "manager-runtime-env-"));
+        const stateRoot = join(root, "data");
+        const cacheRoot = join(root, ".cache");
+        roots.push(root);
+        await mkdir(stateRoot, {recursive: true});
+        await writeFile(join(stateRoot, ".env"), [
+            "LLMLINT_HOME=outside-state",
+            "LLMLINT_CACHE_DIR=outside-cache",
+            "BUN_INSTALL_CACHE_DIR=outside-bun",
+            "NEURO_BOOK_LOG_DIR=outside-logs",
+        ].join("\n"), "utf8");
+
+        const env = await applicationEnvironment(root, stateRoot, false, cacheRoot);
+
+        expect(env).toMatchObject({
+            NEURO_BOOK_APPLICATION_ROOT: root,
+            NEURO_BOOK_STATE_ROOT: stateRoot,
+            NEURO_BOOK_CACHE_ROOT: cacheRoot,
+            NEURO_BOOK_LOG_DIR: join(stateRoot, "logs"),
+            LLMLINT_HOME: join(stateRoot, "tool-state", "llmlint"),
+            LLMLINT_CACHE_DIR: join(cacheRoot, "llmlint"),
+            BUN_INSTALL_CACHE_DIR: join(cacheRoot, "bun", "install"),
+        });
+    });
+
+    it("原生Product严格解析plan并使用同一runId执行apply/rollback", async () => {
         const root = await nativeProductRoot();
         const manifest = productManifest();
         processCommands.capture.mockImplementation(async (_command: string, args: string[]) => {
-            if (args.includes("--rollback")) return JSON.stringify(rollbackReport("operation-attachment"));
-            return JSON.stringify(migrationReport(
-                "operation-attachment",
-                args.includes("--apply") ? "apply" : "dry-run",
-                2,
-            ));
+            const action = args.includes("--rollback") ? "rollback" : args.includes("--apply") ? "apply" : "plan";
+            const status = action === "rollback" ? "rolled_back" : action === "apply" ? "complete" : "planned";
+            return JSON.stringify(applicationMigrationReport("operation", action, status, 2));
         });
 
-        const plan = await planAttachmentMigration(root, manifest, "operation-attachment");
-        await applyAttachmentMigration(root, manifest, plan!.runId);
-        await rollbackAttachmentMigration(root, manifest, plan!.runId);
+        const plan = await planApplicationStateMigration(root, manifest, "operation");
+        await applyApplicationStateMigration(root, manifest, plan!.runId);
+        await rollbackApplicationStateMigration(root, manifest, plan!.runId);
 
-        expect(plan).toMatchObject({runId: "operation-attachment", migratedSessions: 2});
-        expect(plan?.sessions).toHaveLength(2);
+        expect(plan?.runId).toBe("operation");
+        expect(plan?.steps[0]).toMatchObject({id: "app-sqlite", changedItems: 0});
+        expect(plan?.steps[1]).toMatchObject({id: "agent-attachment-v1", changedItems: 2});
+        expect(plan?.steps).toHaveLength(4);
         expect(processCommands.capture).toHaveBeenCalledTimes(3);
         expect(processCommands.capture.mock.calls[0]?.[0]).toBe("bun");
-        expect(processCommands.capture.mock.calls[0]?.[1]).toEqual(expect.arrayContaining(["--dry-run", "--run-id", "operation-attachment"]));
-        expect(processCommands.capture.mock.calls[1]?.[1]).toEqual(expect.arrayContaining(["--apply", "--run-id", "operation-attachment"]));
-        expect(processCommands.capture.mock.calls[2]?.[1]).toEqual(expect.arrayContaining(["--rollback", "operation-attachment"]));
+        expect(processCommands.capture.mock.calls[0]?.[1]).toEqual([
+            "--no-install",
+            join(root, ".output", "server", "commands", "product-command.mjs"),
+            "command",
+            "migrate-application-state",
+            "--plan",
+            "--run-id",
+            "operation",
+        ]);
+        expect(processCommands.capture.mock.calls[1]?.[1]).toEqual(expect.arrayContaining(["--apply", "--run-id", "operation"]));
+        expect(processCommands.capture.mock.calls[2]?.[1]).toEqual(expect.arrayContaining(["--rollback", "--run-id", "operation"]));
     });
 
-    it("没有旧图片时不创建migration plan", async () => {
-        const root = await nativeProductRoot();
-        processCommands.capture.mockResolvedValue(JSON.stringify(migrationReport("no-change", "dry-run", 0)));
+    it("Source运行分支同样禁止Bun隐式安装", async () => {
+        const root = await mkdtemp(join(tmpdir(), "manager-source-migration-"));
+        roots.push(root);
+        await mkdir(join(root, "scripts", "db"), {recursive: true});
+        await writeFile(join(root, "scripts", "db", "migrate-application-state.ts"), "", "utf8");
+        processCommands.capture.mockResolvedValue(JSON.stringify(applicationMigrationReport("source-operation", "plan", "planned")));
 
-        await expect(planAttachmentMigration(root, productManifest(), "no-change")).resolves.toBeNull();
+        await planApplicationStateMigration(root, sourceManifest(), "source-operation");
+
+        expect(processCommands.capture).toHaveBeenCalledWith("bun", [
+            "--no-install",
+            join(root, "scripts", "db", "migrate-application-state.ts"),
+            "--plan",
+            "--run-id",
+            "source-operation",
+        ], expect.objectContaining({
+            cwd: root,
+            env: expect.objectContaining({BUN: "bun"}),
+        }));
+    });
+
+    it("当前catalog已完整时不创建migration plan", async () => {
+        const root = await nativeProductRoot();
+        processCommands.capture.mockResolvedValue(JSON.stringify(applicationMigrationReport("no-change", "plan", "already_current")));
+
+        await expect(planApplicationStateMigration(root, productManifest(), "no-change"))
+            .resolves.toMatchObject({status: "already_current", runId: "no-change"});
     });
 
     it("Product缺少migration脚本时fail closed", async () => {
         const root = await mkdtemp(join(tmpdir(), "manager-missing-migration-"));
         roots.push(root);
 
-        await expect(planAttachmentMigration(root, productManifest(), "missing-script"))
-            .rejects.toThrow("缺少Attachment migration脚本");
+        await expect(planApplicationStateMigration(root, productManifest(), "missing-script"))
+            .rejects.toThrow("缺少 Application State migration runner");
         expect(processCommands.capture).not.toHaveBeenCalled();
     });
 
@@ -86,51 +157,93 @@ describe("Application Attachment migration command", () => {
         const root = await mkdtemp(join(tmpdir(), "manager-container-migration-"));
         roots.push(root);
         docker.command.mockImplementation(async (_engine: string, _root: string, _stateRoot: string, args: string[]) => {
-            if (args.includes("--rollback")) return JSON.stringify(rollbackReport("docker-attachment"));
-            return JSON.stringify(migrationReport(
-                "docker-attachment",
-                args.includes("--apply") ? "apply" : "dry-run",
-                1,
-            ));
+            const action = args.includes("--rollback") ? "rollback" : args.includes("--apply") ? "apply" : "plan";
+            const status = action === "rollback" ? "rolled_back" : action === "apply" ? "complete" : "planned";
+            return JSON.stringify(applicationMigrationReport("docker-state", action, status, 1));
         });
         const manifest = dockerManifest();
 
-        const plan = await planAttachmentMigration(root, manifest, "docker-attachment");
-        await applyAttachmentMigration(root, manifest, plan!.runId);
-        await rollbackAttachmentMigration(root, manifest, plan!.runId);
+        const plan = await planApplicationStateMigration(root, manifest, "docker-state");
+        await applyApplicationStateMigration(root, manifest, plan!.runId);
+        await rollbackApplicationStateMigration(root, manifest, plan!.runId);
 
         expect(docker.command).toHaveBeenCalledTimes(3);
         expect(docker.command.mock.calls[0]?.[3]).toEqual([
             "bun",
-            ".output/server/scripts/db/migrate-agent-attachments.ts",
-            "--dry-run",
+            "--no-install",
+            ".output/server/commands/product-command.mjs",
+            "command",
+            "migrate-application-state",
+            "--plan",
             "--run-id",
-            "docker-attachment",
+            "docker-state",
         ]);
     });
 
     it("拒绝错误runId与宽松JSON报告", async () => {
         const root = await nativeProductRoot();
-        processCommands.capture.mockResolvedValueOnce(JSON.stringify(migrationReport("other-run", "dry-run", 1)));
-        await expect(planAttachmentMigration(root, productManifest(), "expected-run"))
+        processCommands.capture.mockResolvedValueOnce(JSON.stringify(applicationMigrationReport("other-run", "plan", "planned", 1)));
+        await expect(planApplicationStateMigration(root, productManifest(), "expected-run"))
             .rejects.toThrow("不一致的报告");
-        processCommands.capture.mockResolvedValueOnce(JSON.stringify({...migrationReport("expected-run", "dry-run", 1), extra: true}));
-        await expect(planAttachmentMigration(root, productManifest(), "expected-run"))
+        processCommands.capture.mockResolvedValueOnce(JSON.stringify({...applicationMigrationReport("expected-run", "plan", "planned", 1), extra: true}));
+        await expect(planApplicationStateMigration(root, productManifest(), "expected-run"))
             .rejects.toThrow("无效报告");
     });
 
     it("applied状态拒绝not_started，只有planned恢复允许", async () => {
         const root = await nativeProductRoot();
-        processCommands.capture.mockResolvedValue(JSON.stringify(rollbackReport("rollback-run", "not_started")));
+        processCommands.capture.mockResolvedValue(JSON.stringify(applicationMigrationReport("rollback-run", "rollback", "not_started")));
 
-        await expect(rollbackAttachmentMigration(root, productManifest(), "rollback-run"))
-            .rejects.toThrow("拒绝恢复旧Product");
-        await expect(rollbackAttachmentMigration(root, productManifest(), "rollback-run", true))
+        await expect(rollbackApplicationStateMigration(root, productManifest(), "rollback-run"))
+            .rejects.toThrow("拒绝恢复旧 Product");
+        await expect(rollbackApplicationStateMigration(root, productManifest(), "rollback-run", true))
             .resolves.toBeUndefined();
     });
 });
 
 describe("容器管理员命令", () => {
+    it("launch handle 在ready失败后只终止回调发布的精确候选容器", async () => {
+        const root = await mkdtemp(join(tmpdir(), "manager-container-launch-"));
+        roots.push(root);
+        const containerId = "c".repeat(64);
+        docker.start.mockImplementation(async (
+            _engine: ContainerEngine,
+            _root: string,
+            _stateRoot: string,
+            _profile: string,
+            _expectedVersion: string,
+            onStarting?: () => Promise<void>,
+            onStarted?: (id: string) => Promise<void>,
+        ) => {
+            await onStarting?.();
+            await onStarted?.(containerId);
+            throw new Error("health timeout");
+        });
+
+        const checkpoints: string[] = [];
+
+        const launch = await launchApplication(root, dockerManifest(), {
+            onContainerStarting: async () => {
+                checkpoints.push("starting");
+            },
+            onContainerStarted: async (id) => {
+                checkpoints.push(`started:${id}`);
+            },
+            onContainerStopped: async (id) => {
+                checkpoints.push(`stopped:${id}`);
+            },
+        });
+        await expect(launch.ready).rejects.toThrow("health timeout");
+        await launch.terminate();
+
+        expect(checkpoints).toEqual([
+            "starting",
+            `started:${containerId}`,
+            `stopped:${containerId}`,
+        ]);
+        expect(docker.stopContainer).toHaveBeenCalledWith("docker", root, containerId);
+    });
+
     it.each(["docker", "podman"] as const)("%s只使用Manifest固定engine和公共Compose参数", async (engine) => {
         const root = await mkdtemp(join(tmpdir(), "manager-container-admin-"));
         roots.push(root);
@@ -140,9 +253,9 @@ describe("容器管理员命令", () => {
 
         expect(processCommands.run).toHaveBeenCalledWith(engine, [
             "compose",
-            "--env-file", join(root, ".env"),
+            "--env-file", join(root, "data", ".env"),
             "-f", join(root, ".deploy", "docker-compose.generated.yml"),
-            "exec", "-T", "app", "bun", ".output/server/scripts/cli/create-admin.ts", "admin",
+            "exec", "-T", "app", "bun", "--no-install", ".output/server/commands/product-command.mjs", "command", "create-admin", "admin",
         ], engine === "podman"
             ? {cwd: root, env: expect.objectContaining({PODMAN_COMPOSE_PROVIDER: "podman-compose"})}
             : {cwd: root});
@@ -164,6 +277,142 @@ describe("容器管理员命令", () => {
     });
 });
 
+describe("原生 Product shutdown", () => {
+    it("注入单次 token，接受 202 后等待 Product 自行退出且并发调用幂等", async () => {
+        const root = await nativeProductRoot();
+        const terminal = deferred<{exitCode: number | null; signal: NodeJS.Signals | null}>();
+        const terminate = vi.fn(async () => ({exitCode: 0, signal: null, terminationReason: "shutdown" as const}));
+        ownedProcess.spawn.mockReturnValue({completion: terminal.promise, terminate});
+        const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+            const url = String(input);
+            if (url.endsWith("/api/app/version")) return Response.json({versionLabel: "v0.8.0-canary.1"});
+            if (url.endsWith(PRODUCT_SHUTDOWN_PATH)) return new Response(null, {status: 202});
+            return new Response(null, {status: 404});
+        });
+
+        try {
+            const launch = await launchApplication(root, productManifest());
+            await launch.ready;
+            const spec = ownedProcess.spawn.mock.calls[0]?.[0] as {
+                command: string;
+                args: string[];
+                cwd: string;
+                env: NodeJS.ProcessEnv;
+            };
+            const token = spec.env[PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT];
+            expect(spec.command).toBe("bun");
+            expect(spec.args).toEqual([
+                "--no-install",
+                join(root, ".output", "server", "commands", "product-command.mjs"),
+                "command",
+                "start",
+            ]);
+            expect(spec.cwd).toBe(root);
+            expect(spec.env.BUN).toBe("bun");
+            expect(token).toMatch(/^[A-Za-z0-9_-]{40,}$/u);
+            expect(spec.env.HOST).toBe("127.0.0.1");
+            expect(spec.env.NITRO_HOST).toBe("127.0.0.1");
+
+            const first = launch.shutdown();
+            const second = launch.shutdown();
+            expect(second).toBe(first);
+            terminal.resolve({exitCode: 0, signal: null});
+            await first;
+
+            expect(terminate).not.toHaveBeenCalled();
+            expect(fetch).toHaveBeenCalledWith(
+                `http://127.0.0.1:3000${PRODUCT_SHUTDOWN_PATH}`,
+                expect.objectContaining({
+                    method: "POST",
+                    headers: {authorization: `Bearer ${token}`},
+                }),
+            );
+        } finally {
+            fetch.mockRestore();
+        }
+    });
+
+    it("shutdown HTTP 失败时使用 Owned Process fallback", async () => {
+        const root = await nativeProductRoot();
+        const terminal = deferred<{exitCode: number | null; signal: NodeJS.Signals | null}>();
+        const terminate = vi.fn(async () => ({exitCode: null, signal: "SIGTERM" as const, terminationReason: "shutdown" as const}));
+        ownedProcess.spawn.mockReturnValue({completion: terminal.promise, terminate});
+        const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+            const url = String(input);
+            if (url.endsWith("/api/app/version")) return Response.json({versionLabel: "v0.8.0-canary.1"});
+            return new Response(null, {status: 500});
+        });
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+        try {
+            const launch = await launchApplication(root, productManifest());
+            await launch.ready;
+            await launch.shutdown();
+
+            expect(terminate).toHaveBeenCalledOnce();
+            expect(terminate).toHaveBeenCalledWith("shutdown");
+        } finally {
+            warn.mockRestore();
+            fetch.mockRestore();
+        }
+    });
+
+    it("202 后 Product 非零退出时使用 Owned Process fallback", async () => {
+        const root = await nativeProductRoot();
+        const terminal = deferred<{exitCode: number | null; signal: NodeJS.Signals | null}>();
+        const terminate = vi.fn(async () => ({exitCode: null, signal: "SIGTERM" as const, terminationReason: "shutdown" as const}));
+        ownedProcess.spawn.mockReturnValue({completion: terminal.promise, terminate});
+        const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+            const url = String(input);
+            if (url.endsWith("/api/app/version")) return Response.json({versionLabel: "v0.8.0-canary.1"});
+            if (url.endsWith(PRODUCT_SHUTDOWN_PATH)) return new Response(null, {status: 202});
+            return new Response(null, {status: 404});
+        });
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+        try {
+            const launch = await launchApplication(root, productManifest());
+            await launch.ready;
+            const shutdown = launch.shutdown();
+            terminal.resolve({exitCode: 17, signal: null});
+            await shutdown;
+            expect(terminate).toHaveBeenCalledWith("shutdown");
+        } finally {
+            warn.mockRestore();
+            fetch.mockRestore();
+        }
+    });
+
+    it("202 后 Product 未在合同窗口退出时强制收口", async () => {
+        vi.useFakeTimers();
+        const root = await nativeProductRoot();
+        const terminal = deferred<{exitCode: number | null; signal: NodeJS.Signals | null}>();
+        const terminate = vi.fn(async () => ({exitCode: null, signal: "SIGTERM" as const, terminationReason: "shutdown" as const}));
+        ownedProcess.spawn.mockReturnValue({completion: terminal.promise, terminate});
+        const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+            const url = String(input);
+            if (url.endsWith("/api/app/version")) return Response.json({versionLabel: "v0.8.0-canary.1"});
+            return new Response(null, {status: 202});
+        });
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+        try {
+            const launch = await launchApplication(root, productManifest());
+            await launch.ready;
+            const shutdown = launch.shutdown();
+            await Promise.resolve();
+            await vi.advanceTimersByTimeAsync(PRODUCT_SHUTDOWN_TIMEOUT_MS);
+            await shutdown;
+
+            expect(terminate).toHaveBeenCalledWith("shutdown");
+        } finally {
+            vi.useRealTimers();
+            warn.mockRestore();
+            fetch.mockRestore();
+        }
+    });
+});
+
 describe("Windows Portable前台启动", () => {
     it("关闭健康检查时不发起HTTP探测或尝试打开浏览器", async () => {
         const fetch = vi.spyOn(globalThis, "fetch");
@@ -175,61 +424,114 @@ describe("Windows Portable前台启动", () => {
 
             expect(fetch).not.toHaveBeenCalled();
             expect(processCommands.run).not.toHaveBeenCalled();
+            expect(ownedProcess.spawn).toHaveBeenCalledWith(expect.objectContaining({
+                command: process.execPath,
+                args: ["--no-install", "--version"],
+            }));
         } finally {
             fetch.mockRestore();
         }
     });
 });
 
+describe("Manager Bun运行策略", () => {
+    it("Source启动和管理员命令都显式禁止自动安装", async () => {
+        const root = await mkdtemp(join(tmpdir(), "manager-source-runtime-"));
+        roots.push(root);
+        const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+            Response.json({versionLabel: "v0.8.0-canary.1"}),
+        );
+
+        try {
+            const launch = await launchApplication(root, sourceManifest());
+            await launch.ready;
+            await createAdmin(root, sourceManifest(), "admin");
+
+            expect(ownedProcess.spawn).toHaveBeenCalledWith(expect.objectContaining({
+                command: "bun",
+                args: ["--no-install", "run", "dev"],
+                cwd: root,
+                env: expect.objectContaining({BUN: "bun"}),
+            }));
+            expect(processCommands.run).toHaveBeenCalledWith("bun", [
+                "--no-install",
+                "run",
+                "auth:create-admin",
+                "admin",
+            ], expect.objectContaining({
+                cwd: root,
+                env: expect.objectContaining({BUN: "bun"}),
+            }));
+        } finally {
+            fetch.mockRestore();
+        }
+    });
+
+    it("原生Product管理员命令通过固定bootstrap且禁止自动安装", async () => {
+        const root = await nativeProductRoot();
+
+        await createAdmin(root, productManifest(), "admin");
+
+        expect(processCommands.run).toHaveBeenCalledWith("bun", [
+            "--no-install",
+            join(root, ".output", "server", "commands", "product-command.mjs"),
+            "command",
+            "create-admin",
+            "admin",
+        ], expect.objectContaining({
+            cwd: root,
+            env: expect.objectContaining({BUN: "bun"}),
+        }));
+    });
+});
+
 async function nativeProductRoot(): Promise<string> {
     const root = await mkdtemp(join(tmpdir(), "manager-native-migration-"));
     roots.push(root);
-    const script = join(root, ".output", "server", "scripts", "db", "migrate-agent-attachments.ts");
+    const script = join(root, ".output", "server", "commands", "product-command.mjs");
     await mkdir(join(script, ".."), {recursive: true});
     await writeFile(script, "", "utf8");
     return root;
 }
 
-function migrationReport(runId: string, mode: "dry-run" | "apply", migratedSessions: number) {
+function applicationMigrationReport(
+    runId: string,
+    action: "plan" | "apply" | "rollback",
+    status: "planned" | "complete" | "already_current" | "rolled_back" | "not_started",
+    changedItems = 0,
+) {
     return {
         version: 1,
+        catalogVersion: 3,
         runId,
-        mode,
-        status: mode === "dry-run" ? "planned" : "complete",
-        scannedSessions: migratedSessions,
-        migratedSessions,
-        skippedSessions: 0,
-        images: migratedSessions,
-        uniqueAttachments: migratedSessions,
-        bytes: migratedSessions * 10,
-        sessions: Array.from({length: migratedSessions}, (_, index) => ({
-            sessionId: index + 1,
-            sourcePath: `.nbook/agent/sessions/${String(index + 1)}.jsonl`,
-            sourceHash: "a".repeat(64),
-            targetHash: "b".repeat(64),
-            images: 1,
-            bytes: 10,
-            status: mode === "dry-run" ? "pending" : "verified",
-            ...(mode === "apply" ? {backupPath: `.nbook/agent/migrations/${String(index + 1)}.backup`} : {}),
-        })),
+        action,
+        status,
+        steps: [
+            {id: "app-sqlite", runId: `${runId}-app-sqlite`, status: stepStatus(status), changedItems: 0, reviewItems: 0},
+            {id: "agent-attachment-v1", runId: `${runId}-agent-attachment-v1`, status: stepStatus(status), changedItems, reviewItems: 0},
+            {id: "agent-session-v2", runId: `${runId}-agent-session-v2`, status: stepStatus(status), changedItems: 0, reviewItems: 0},
+            {id: "agent-session-v2-review-repair", runId: `${runId}-agent-session-v2-review-repair`, status: stepStatus(status), changedItems: 0, reviewItems: 0},
+        ],
     };
 }
 
-function rollbackReport(runId: string, status: "not_started" | "rolled_back" = "rolled_back") {
-    return {version: 1, runId, status, restoredSessions: status === "rolled_back" ? 1 : 0};
+function stepStatus(status: "planned" | "complete" | "already_current" | "rolled_back" | "not_started") {
+    if (status === "complete") return "applied" as const;
+    if (status === "already_current") return "skipped" as const;
+    return status;
 }
 
 function productManifest(): InstallationManifest {
     const revision = "a".repeat(40);
     return {
-        schemaVersion: 4,
+        schemaVersion: 5,
         profile: "product-bun",
         containerEngine: null,
         managerVersion: "0.1.0",
         appVersion: "0.8.0-canary.1",
         channel: "canary",
         sourceRevision: revision,
-        stateRoot: ".",
+        roots: INSTALLATION_SCOPED_ROOT_LOCATORS,
         components: {
             source: {
                 provider: "release",
@@ -243,6 +545,7 @@ function productManifest(): InstallationManifest {
                 files: ["package.json"],
             },
             product: {
+                ...TEST_RUNTIME_IMAGE_IDENTITY,
                 provider: "release",
                 version: "0.8.0-canary.1",
                 revision,
@@ -266,14 +569,14 @@ function productManifest(): InstallationManifest {
 function dockerManifest(): InstallationManifest {
     const revision = "b".repeat(40);
     return {
-        schemaVersion: 4,
+        schemaVersion: 5,
         profile: "ghcr",
         containerEngine: "docker",
         managerVersion: "0.1.0",
         appVersion: "0.8.0-canary.1",
         channel: "canary",
         sourceRevision: revision,
-        stateRoot: ".",
+        roots: INSTALLATION_SCOPED_ROOT_LOCATORS,
         components: {
             source: {provider: "container", version: "0.8.0-canary.1", revision, path: "/app"},
             product: {provider: "container", version: "0.8.0-canary.1", revision, image: "ghcr.io/notnotype/neuro-book:test", digest: `sha256:${"d".repeat(64)}`},
@@ -285,4 +588,17 @@ function dockerManifest(): InstallationManifest {
         installedAt: "2026-07-16T00:00:00.000Z",
         updatedAt: "2026-07-16T00:00:00.000Z",
     };
+}
+
+function sourceManifest(): InstallationManifest {
+    return {...productManifest(), profile: "source-dev"};
+}
+
+/** 创建可由测试精确推进的 Promise。 */
+function deferred<T>(): {promise: Promise<T>; resolve(value: T): void} {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((resolvePromise) => {
+        resolve = resolvePromise;
+    });
+    return {promise, resolve};
 }

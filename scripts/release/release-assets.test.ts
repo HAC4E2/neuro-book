@@ -1,13 +1,32 @@
-import {mkdtemp, readFile, rm} from "node:fs/promises";
+import {mkdir, mkdtemp, readFile, rename, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join, resolve} from "node:path";
 
-import {afterEach, describe, expect, it} from "vitest";
+import {strToU8, unzipSync, zipSync} from "fflate";
+import {afterEach, describe, expect, it, vi} from "vitest";
 import {parse} from "yaml";
 
 import {currentProductPlatform, PRODUCT_ASSET_NAMES} from "nbook/packages/neuro-book-manager/src/platform";
 import {PRODUCT_PLATFORMS} from "nbook/packages/neuro-book-manager/src/types";
+import {ProductRuntimeImageBuilder} from "nbook/scripts/build/product-runtime-image-builder";
+import {createProductRuntimeContract} from "nbook/shared/product-runtime-contract";
+import {
+    buildProductArchive,
+    buildReleaseManifest,
+    buildSourceArchive,
+    parseReleaseBuild,
+    readReleaseBuildArchive,
+    releaseBuildId,
+} from "nbook/scripts/release/release-assets";
 import {runCapture} from "nbook/scripts/utils/process.mjs";
+import {
+    assertStateMigrationSourceFiles,
+    readReleaseStateMigrationDeclaration,
+} from "nbook/scripts/release/state-migration-declaration";
+
+vi.mock("nbook/scripts/build/product-system-artifact-contract", () => ({
+    assertProductSystemArtifactContract: vi.fn(async () => undefined),
+}));
 
 const ROOT = resolve(import.meta.dirname, "..", "..");
 const roots: string[] = [];
@@ -64,17 +83,300 @@ afterEach(async () => {
 });
 
 describe("Product Release宿主合同", () => {
+    it("从仓库级文件读取当前版本迁移声明，并拒绝缺失声明或缺失 manual guide", async () => {
+        await expect(readReleaseStateMigrationDeclaration(ROOT)).resolves.toEqual({
+            policy: "automatic",
+            steps: [
+                "app-sqlite",
+                "agent-attachment-v1",
+                "agent-session-v2",
+                "agent-session-v2-review-repair",
+            ],
+            guide: "docs/migrations/0.9.0-session-v2.md",
+        });
+
+        const fixtureRoot = await mkdtemp(join(tmpdir(), "nbook-release-state-migration-"));
+        roots.push(fixtureRoot);
+        await expect(readReleaseStateMigrationDeclaration(fixtureRoot)).rejects.toThrow("缺少有状态升级声明");
+
+        await writeFile(join(fixtureRoot, "release-state-migration.json"), JSON.stringify({
+            policy: "manual",
+            steps: [],
+            guide: "docs/migrations/manual.md",
+        }), "utf8");
+        await expect(readReleaseStateMigrationDeclaration(fixtureRoot)).rejects.toThrow("guide 不存在");
+
+        await mkdir(join(fixtureRoot, "docs", "migrations"), {recursive: true});
+        await writeFile(join(fixtureRoot, "docs", "migrations", "manual.md"), "# Manual\n", "utf8");
+        await expect(readReleaseStateMigrationDeclaration(fixtureRoot)).resolves.toMatchObject({policy: "manual"});
+    });
+
+    it("Release 构建边界拒绝 automatic 声明引用当前 Product catalog 不存在的 step", async () => {
+        const fixtureRoot = await mkdtemp(join(tmpdir(), "nbook-release-state-migration-catalog-"));
+        roots.push(fixtureRoot);
+        await writeFile(join(fixtureRoot, "release-state-migration.json"), `${JSON.stringify({
+            policy: "automatic",
+            steps: ["future-step"],
+        })}\n`, "utf8");
+
+        await expect(readReleaseStateMigrationDeclaration(fixtureRoot)).rejects.toThrow("catalog 不存在");
+    });
+
+    it("Source archive 必须包含统一迁移入口与 Release guide", () => {
+        const declaration = {
+            policy: "automatic" as const,
+            steps: ["app-sqlite" as const],
+            guide: "docs/migrations/0.9.0-session-v2.md",
+        };
+        const files = [
+            "release-state-migration.json",
+            "docs/migrations/README.md",
+            "docs/migrations/0.9.0-session-v2.md",
+            "scripts/db/migrate-application-state.ts",
+            "scripts/application-state-migration/app-sqlite-step.ts",
+            "scripts/application-state-migration/catalog-registry.ts",
+            "scripts/application-state-migration/catalog.ts",
+            "scripts/application-state-migration/lease.ts",
+            "scripts/application-state-migration/runner.ts",
+            "scripts/application-state-migration/types.ts",
+            "scripts/db/agent-session-v2-review-repair/journal.ts",
+            "scripts/db/agent-session-v2-review-repair/migration.ts",
+            "scripts/db/agent-session-v2-review-repair/types.ts",
+        ];
+        expect(() => assertStateMigrationSourceFiles(files, declaration)).not.toThrow();
+        expect(() => assertStateMigrationSourceFiles(
+            files.filter((path) => path !== "scripts/application-state-migration/runner.ts"),
+            declaration,
+        )).toThrow("Source archive 缺少 Application State migration 文件");
+    });
+
+    it("Product runtime staging 只复制并重新验证 ready Runtime Image", async () => {
+        const productRuntime = await readFile(resolve(ROOT, "scripts/deploy/product-runtime.mjs"), "utf8");
+        expect(productRuntime).toContain("new ProductRuntimeImageBuilder(REPO_ROOT)");
+        expect(productRuntime).toContain("await openVerifiedImage(BUILD_OUTPUT_ROOT)");
+        expect(productRuntime).toContain("await openVerifiedImage(targetOutput, source.manifest)");
+        expect(productRuntime).not.toContain('resolve(REPO_ROOT, "scripts", "db", "agent-session-v2-review-repair")');
+    });
+
+    it("Source archive 写入可重建 build identity，并拒绝 dirty Source 与覆盖已有目标", async () => {
+        const repository = await releaseRepositoryFixture();
+        const output = join(repository, "dist", "neuro-book-source.zip");
+        await buildSourceArchive(output, repository);
+
+        const metadata = await readReleaseBuildArchive(output);
+        expect(metadata).toMatchObject({
+            schema: "nbook.release-build/v1",
+            kind: "source",
+            version: "1.2.3",
+            dirty: false,
+        });
+        expect(metadata.buildId).toBe(releaseBuildId(metadata));
+        const sourceEntries = Object.keys(unzipSync(await readFile(output)));
+        expect(sourceEntries).toContain("source-build.json");
+        expect(sourceEntries).not.toContain("product-build.json");
+        expect(sourceEntries).not.toContain(".output/runtime-image.json");
+
+        await expect(buildSourceArchive(output, repository)).rejects.toThrow("输出目标已存在，拒绝覆盖");
+        await writeFile(join(repository, "package.json"), `${JSON.stringify({name: "fixture", version: "1.2.4"})}\n`, "utf8");
+        await expect(buildSourceArchive(
+            join(repository, "dist", "dirty-source.zip"),
+            repository,
+        )).rejects.toThrow("dirty=true");
+    });
+
+    it("Product archive 只消费 verified image，并钉死 Source、平台与 image identity", async () => {
+        const repository = await releaseRepositoryFixture();
+        const platform = currentProductPlatform();
+        const builder = new ProductRuntimeImageBuilder(repository);
+        const image = await builder.buildCandidate({
+            operationId: "release-product-fixture",
+            platform,
+            owners: [{name: "server", paths: ["server"]}],
+            budget: {
+                maxFiles: 10,
+                maxBytes: 4096,
+                ownerBaselines: [{name: "server", files: 10, bytes: 4096}],
+            },
+            async build({imageRoot}) {
+                const commandRoot = join(imageRoot, "server", "commands");
+                await mkdir(commandRoot, {recursive: true});
+                await writeFile(join(imageRoot, "server", "index.mjs"), "export default true;\n", "utf8");
+                await writeFile(join(commandRoot, "all.mjs"), "export default true;\n", "utf8");
+                await writeFile(join(commandRoot, "product-command.mjs"), "export default true;\n", "utf8");
+                const entry = "server/commands/all.mjs";
+                const contract = createProductRuntimeContract({
+                    productStart: entry,
+                    sqliteMigrate: entry,
+                    applicationStateMigration: entry,
+                    createAdmin: entry,
+                    profile: entry,
+                    variable: entry,
+                    workspace: entry,
+                    prepareSystemAssets: entry,
+                    checkMigrations: entry,
+                    profileAuthoringSmoke: entry,
+                    imageVariantSmoke: entry,
+                    sqliteVecSmoke: entry,
+                });
+                await writeFile(join(imageRoot, "server", "runtime-contract.json"), `${JSON.stringify(contract)}\n`, "utf8");
+            },
+        });
+        await rename(image.path, join(repository, ".output"));
+        const assetName = PRODUCT_ASSET_NAMES[platform];
+        const output = join(repository, "artifacts", "valid", assetName);
+        await buildProductArchive(platform, output, repository);
+
+        const metadata = await readReleaseBuildArchive(output);
+        expect(metadata).toMatchObject({
+            kind: "product",
+            buildId: releaseBuildId(image.manifest),
+            platform,
+            imageId: image.manifest.imageId,
+            sourceDigest: image.manifest.sourceDigest,
+            treeDigest: image.manifest.treeDigest,
+            builderContractVersion: image.manifest.builderContractVersion,
+        });
+        const productEntries: string[] = platform === "windows-x64"
+            ? Object.keys(unzipSync(await readFile(output)))
+            : String(await runCapture("tar", ["-tzf", output], {cwd: repository})).split(/\r?\n/u);
+        expect(productEntries.some((entry) => entry.replace(/^\.\//u, "") === ".output/runtime-image.json")).toBe(true);
+        expect(productEntries.some((entry) => entry.replace(/^\.\//u, "") === ".output/runtime-image.ready")).toBe(true);
+
+        await writeFile(join(repository, ".output", "server", "index.mjs"), "export default false;\n", "utf8");
+        await expect(buildProductArchive(
+            platform,
+            join(repository, "artifacts", "tampered", assetName),
+            repository,
+        )).rejects.toThrow("payload digest 不一致");
+
+        await writeFile(join(repository, ".output", "server", "index.mjs"), "export default true;\n", "utf8");
+        await writeFile(join(repository, "package.json"), `${JSON.stringify({name: "fixture", version: "1.2.4"})}\n`, "utf8");
+        await git(repository, ["add", "package.json"]);
+        await git(repository, ["-c", "user.name=NeuroBook Test", "-c", "user.email=test@nbook.local", "commit", "--quiet", "-m", "next-source"]);
+        await expect(buildProductArchive(
+            platform,
+            join(repository, "artifacts", "stale", assetName),
+            repository,
+        )).rejects.toThrow("身份不一致");
+    }, 30_000);
+
+    it("构建身份元数据拒绝不可重建 buildId 与未知字段", () => {
+        const identity = {
+            schema: "nbook.release-build/v1",
+            kind: "source",
+            buildId: `sha256:${"0".repeat(64)}`,
+            version: "1.2.3",
+            revision: "a".repeat(40),
+            dirty: false,
+            lockfileSha256: `sha256:${"b".repeat(64)}`,
+        };
+        expect(() => parseReleaseBuild(JSON.stringify(identity))).toThrow("buildId 无法由");
+        expect(() => parseReleaseBuild(JSON.stringify({...identity, extra: true}))).toThrow("字段集合无效");
+    });
+
+    it("Release Manifest 从五平台归档写入 Runtime Image 身份，并把 manifest 最后发布", async () => {
+        const repository = await releaseRepositoryFixture();
+        const directory = join(repository, "artifacts", "manifest");
+        await mkdir(directory, {recursive: true});
+        const sourcePath = join(directory, "neuro-book-source.zip");
+        await buildSourceArchive(sourcePath, repository);
+        const source = await readReleaseBuildArchive(sourcePath);
+        if (source.kind !== "source") throw new Error("测试 Source metadata kind 错误。");
+        const {kind: _sourceKind, ...commonBuild} = source;
+        const revision = source.revision;
+        const lockfileSha256 = source.lockfileSha256;
+
+        const productPaths = {} as Record<(typeof PRODUCT_PLATFORMS)[number], string>;
+        for (const [index, platform] of PRODUCT_PLATFORMS.entries()) {
+            const metadata = {
+                ...commonBuild,
+                kind: "product" as const,
+                platform,
+                imageId: `sha256:${index.toString(16).repeat(64)}`,
+                sourceDigest: `sha256:${(index + 5).toString(16).repeat(64)}`,
+                treeDigest: `sha256:${(index + 10).toString(16).repeat(64)}`,
+                builderContractVersion: "1",
+            };
+            const productPath = join(directory, PRODUCT_ASSET_NAMES[platform]);
+            productPaths[platform] = productPath;
+            if (platform === "windows-x64") {
+                await writeFile(productPath, zipSync({
+                    "product-build.json": strToU8(`${JSON.stringify(metadata)}\n`),
+                }));
+            } else {
+                const metadataRoot = join(directory, `metadata-${platform}`);
+                await mkdir(metadataRoot, {recursive: true});
+                await writeFile(join(metadataRoot, "product-build.json"), `${JSON.stringify(metadata)}\n`, "utf8");
+                await runCapture("tar", ["-czf", productPath, "-C", metadataRoot, "product-build.json"], {cwd: directory});
+            }
+        }
+
+        const portable = join(directory, "neuro-book-windows-x64.zip");
+        const stage0Windows = join(directory, "install.ps1");
+        const stage0WindowsCmd = join(directory, "install.cmd");
+        const stage0Linux = join(directory, "install.sh");
+        await Promise.all([
+            writeFile(portable, zipSync({"portable.txt": strToU8("portable") })),
+            writeFile(stage0Windows, "stage0-windows\n", "utf8"),
+            writeFile(stage0WindowsCmd, "stage0-windows-cmd\n", "utf8"),
+            writeFile(stage0Linux, "stage0-linux\n", "utf8"),
+        ]);
+        const output = join(directory, "release-manifest.json");
+        const manifestOptions = {
+            tag: source.version,
+            revision,
+            managerVersion: "0.0.1",
+            source: sourcePath,
+            windowsProduct: productPaths["windows-x64"],
+            linuxProduct: productPaths["linux-x64-glibc"],
+            linuxAarch64Product: productPaths["linux-aarch64-glibc"],
+            darwinProduct: productPaths["darwin-x64"],
+            darwinAarch64Product: productPaths["darwin-aarch64"],
+            portable,
+            stage0Windows,
+            stage0WindowsCmd,
+            stage0Linux,
+            ghcrRef: `ghcr.io/notnotype/neuro-book:v${source.version}`,
+            ghcrDigest: `sha256:${"f".repeat(64)}`,
+            output,
+        } satisfies Parameters<typeof buildReleaseManifest>[0];
+        await buildReleaseManifest(manifestOptions, repository);
+
+        const manifest = JSON.parse(await readFile(output, "utf8")) as {
+            products: Array<{platform: string; imageId: string; sourceDigest: string; lockfileSha256: string; builderContractVersion: string}>;
+        };
+        for (const [index, platform] of PRODUCT_PLATFORMS.entries()) {
+            expect(manifest.products.find((product) => product.platform === platform)).toMatchObject({
+                platform,
+                imageId: `sha256:${index.toString(16).repeat(64)}`,
+                sourceDigest: `sha256:${(index + 5).toString(16).repeat(64)}`,
+                lockfileSha256,
+                builderContractVersion: "1",
+            });
+        }
+        expect(await readFile(join(directory, "SHA256SUMS"), "utf8")).toContain("  release-manifest.json");
+        await expect(buildReleaseManifest(manifestOptions, repository)).rejects.toThrow("输出目标已存在，拒绝覆盖");
+
+        await expect(buildReleaseManifest({
+            ...manifestOptions,
+            source: join(directory, "missing-source.zip"),
+        }, repository)).rejects.toThrow("输出目标已存在，拒绝覆盖");
+
+        await writeFile(join(repository, "dirty-marker.txt"), "dirty\n", "utf8");
+        await expect(buildReleaseManifest({
+            ...manifestOptions,
+            output: join(repository, "artifacts", "dirty", "release-manifest.json"),
+        }, repository)).rejects.toThrow("dirty=true");
+    }, 30_000);
+
     it("拒绝把当前.output包装成其他平台资产", async () => {
         const current = currentProductPlatform();
         const foreign = PRODUCT_PLATFORMS.find((platform) => platform !== current)!;
-        const outputRoot = await mkdtemp(join(tmpdir(), "nbook-product-platform-"));
-        roots.push(outputRoot);
 
         await expect(runCapture("bun", [
             "scripts/release/release-assets.ts",
             "product",
             "--platform", foreign,
-            "--output", join(outputRoot, PRODUCT_ASSET_NAMES[foreign]),
         ], {cwd: ROOT})).rejects.toThrow(`当前宿主${current}不能包装${foreign}`);
     });
 
@@ -132,6 +434,47 @@ describe("Product Release宿主合同", () => {
         expect(releaseWorkflow.jobs["product-linux-aarch64"].steps.some(
             ({run}) => run?.includes("verify-posix-product.sh") && run.includes("playwright"),
         )).toBe(true);
+    });
+
+    it("五平台 Product 与 GHCR 必须携带 sharp native island 并执行最终图片命令", async () => {
+        const [nuxtConfig, commandBundle, runtimeIslands, posixVerify, releaseWorkflow, ghcrVerify] = await Promise.all([
+            readFile(resolve(ROOT, "nuxt.config.ts"), "utf8"),
+            readFile(resolve(ROOT, "scripts/build/product-command-bundle.ts"), "utf8"),
+            readFile(resolve(ROOT, "scripts/build/product-runtime-islands.ts"), "utf8"),
+            readFile(resolve(ROOT, "scripts/release/verify-posix-product.sh"), "utf8"),
+            readFile(resolve(ROOT, ".github/workflows/release-container.yml"), "utf8"),
+            readFile(resolve(ROOT, "scripts/release/verify-public-ghcr.sh"), "utf8"),
+        ]);
+
+        expect(nuxtConfig).toContain('"sharp"');
+        expect(commandBundle).toContain('"product-image-variant-smoke": "scripts/deploy/product-image-variant-smoke.ts"');
+        for (const platformPackage of [
+            "@img/sharp-win32-x64",
+            "@img/sharp-linux-x64",
+            "@img/sharp-linux-arm64",
+            "@img/sharp-darwin-x64",
+            "@img/sharp-darwin-arm64",
+            "@img/sharp-libvips-linux-x64",
+            "@img/sharp-libvips-linux-arm64",
+            "@img/sharp-libvips-darwin-x64",
+            "@img/sharp-libvips-darwin-arm64",
+        ]) {
+            expect(runtimeIslands).toContain(platformPackage);
+        }
+        expect(posixVerify).toContain(".output/server/commands/product-command.mjs check sharp-image-variant");
+        expect(releaseWorkflow).toContain(".output/server/commands/product-command.mjs");
+        expect(releaseWorkflow).toContain("check sharp-image-variant");
+        expect(ghcrVerify).toContain(".output/server/commands/product-command.mjs check sharp-image-variant");
+        expect(posixVerify).toContain(".output/server/node_modules/@img/colour/");
+    });
+
+    it("Linux Product与Windows Portable验收根必须位于checkout之外", async () => {
+        const workflow = await readFile(resolve(ROOT, ".github/workflows/release-container.yml"), "utf8");
+
+        expect(workflow).toContain('smoke_root="${RUNNER_TEMP:?}/neuro-book-linux-product-smoke"');
+        expect(workflow).toContain('$portableRoot = Join-Path $env:RUNNER_TEMP "neuro-book-portable-smoke"');
+        expect(workflow).not.toContain('product_root="$PWD/product-browser-smoke"');
+        expect(workflow).not.toContain("Resolve-Path portable");
     });
 
     it("GHCR同时构建并验收linux amd64、arm64与rootless Podman", async () => {
@@ -206,3 +549,42 @@ describe("Product Release宿主合同", () => {
         expect(publicRun).not.toContain("Start-Process -FilePath $manager -ArgumentList");
     });
 });
+
+/** 创建最小、干净且能运行 ProductRuntimeImageBuilder 的 Git Source fixture。 */
+async function releaseRepositoryFixture(): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), "nbook-release-identity-"));
+    roots.push(root);
+    const files = new Map<string, string>([
+        [".gitignore", "node_modules/\n.deploy/\n.output/\ndist/\nartifacts/\n"],
+        ["package.json", `${JSON.stringify({name: "fixture", version: "1.2.3"})}\n`],
+        ["bun.lock", "fixture-lock\n"],
+        ["release-state-migration.json", `${JSON.stringify({policy: "none", steps: []})}\n`],
+        ["docs/migrations/README.md", "# Migrations\n"],
+        ["scripts/db/migrate-application-state.ts", "export {};\n"],
+        ["scripts/application-state-migration/app-sqlite-step.ts", "export {};\n"],
+        ["scripts/application-state-migration/catalog-registry.ts", "export {};\n"],
+        ["scripts/application-state-migration/catalog.ts", "export {};\n"],
+        ["scripts/application-state-migration/lease.ts", "export {};\n"],
+        ["scripts/application-state-migration/runner.ts", "export {};\n"],
+        ["scripts/application-state-migration/types.ts", "export {};\n"],
+        ["scripts/db/agent-session-v2-review-repair/journal.ts", "export {};\n"],
+        ["scripts/db/agent-session-v2-review-repair/migration.ts", "export {};\n"],
+        ["scripts/db/agent-session-v2-review-repair/types.ts", "export {};\n"],
+        ["node_modules/nuxt/package.json", `${JSON.stringify({name: "nuxt", version: "4.3.1"})}\n`],
+        ["node_modules/nitropack/package.json", `${JSON.stringify({name: "nitropack", version: "2.13.4"})}\n`],
+    ]);
+    for (const [path, content] of files) {
+        const absolute = join(root, path);
+        await mkdir(resolve(absolute, ".."), {recursive: true});
+        await writeFile(absolute, content, "utf8");
+    }
+    await git(root, ["init", "--quiet"]);
+    await git(root, ["add", "."]);
+    await git(root, ["-c", "user.name=NeuroBook Test", "-c", "user.email=test@nbook.local", "commit", "--quiet", "-m", "fixture"]);
+    return root;
+}
+
+/** 在 fixture 内运行 Git，不依赖全局用户配置。 */
+async function git(cwd: string, args: string[]): Promise<void> {
+    await runCapture("git", args, {cwd});
+}

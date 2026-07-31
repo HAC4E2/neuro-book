@@ -3,6 +3,12 @@ import {homedir} from "node:os";
 import {join} from "node:path";
 
 export type SharingTier = "off" | "stats" | "fragments" | "full";
+/**
+ * 数据动作是否需要逐次确认：`auto` = 每轮审稿收尾自动落发件箱，`ask` = 只列不写、等用户加 `--yes`。
+ *
+ * 缺省是 `auto`：同意的落点是初始化门（首跑时把四档念给用户听、用户确认后才写 settings），
+ * 不是每轮再问一次。所以 `initialized:false` 时 contribute --auto 不落盘，只提示先过初始化门。
+ */
 export type SharingMode = "auto" | "ask";
 
 export type UserSharingSettings = {
@@ -54,7 +60,7 @@ const DEFAULT_SETTINGS: UserSettings = {
     initialized: false,
     sharing: {
         tier: "fragments",
-        mode: "ask",
+        mode: "auto",
         anonymous: false,
     },
     detector: {
@@ -105,9 +111,10 @@ export function saveUserSettings(settings: UserSettings): void {
     writeFileSync(settingsPath(), `${JSON.stringify(normalized, null, 4)}\n`, "utf-8");
 }
 
-/** detect 缓存目录，按需创建。 */
+/** detect缓存目录；LLMLINT_CACHE_DIR与durable LLMLINT_HOME独立，按需创建。 */
 export function userCacheDir(): string {
-    const dir = join(userStateDir(), "cache");
+    const override = process.env.LLMLINT_CACHE_DIR?.trim();
+    const dir = override && override.length > 0 ? override : join(userStateDir(), "cache");
     mkdirSync(dir, {recursive: true});
     return dir;
 }

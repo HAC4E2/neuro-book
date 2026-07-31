@@ -72,7 +72,6 @@ describe("JsonlSessionRepository migration write gate", () => {
         await expect(repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         })).rejects.toMatchObject({code: "ATTACHMENT_MIGRATION_IN_PROGRESS"});
 
         await expect(repo.listSessions()).resolves.toEqual([]);
@@ -84,7 +83,6 @@ describe("JsonlSessionRepository migration write gate", () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const entriesBefore = session.entries;
         await createLock();

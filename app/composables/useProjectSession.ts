@@ -1,209 +1,350 @@
-import {onScopeDispose, ref, watch, type Ref} from "vue";
+import {onScopeDispose, readonly, ref, type Ref} from "vue";
 import {readSseStream} from "nbook/app/utils/http/read-sse";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {useNotification} from "nbook/app/composables/useNotification";
+import {SseReconnectBackoff} from "nbook/app/utils/http/sse-reconnect-backoff";
 
-/**
- * 项目在场连接状态：
- * - idle：无目标项目（或非客户端环境）；
- * - connecting：正在 open + 订阅 presence（含前几次快速重连）；
- * - connected：presence SSE 在线，服务端已登记用户在场；
- * - disconnected：连续失败达阈值（仍在低频自动重试）或项目已不存在（停止重试）。
- */
-export type ProjectSessionStatus = "connected" | "connecting" | "disconnected" | "idle";
+/** 已完成 open 与匹配 presence_ready 的 Project generation。 */
+export type ProjectSessionReady = {
+    projectRoot: string;
+    revision: number;
+};
 
-/**
- * presence SSE 事件负载（presence_ready / heartbeat）。
- * kind 可空：负载形态未契约化，前端也刻意不消费内容——收到帧的「事实」用于续命读看门狗，
- * 连接本身（建立 = 声明在场，断开 = 释放在场）才是语义所在。
- */
-type ProjectPresenceEventDto = {kind?: string};
+/** Project Session 的唯一公开状态机；ready 之外绝不允许挂载 Project 数据面。 */
+export type ProjectSessionState =
+    | {status: "idle"; ready: null}
+    | {status: "opening" | "reconnecting"; projectRoot: string; ready: null}
+    | {status: "ready"; ready: ProjectSessionReady}
+    | {status: "failed"; projectRoot: string; ready: null};
 
-/** 快速重连退避表（与 useAgentSessionStream 保持一致）。 */
-const RECONNECT_DELAYS_MS = [300, 800, 1500, 3000, 5000];
+/** 服务端 presence SSE 的稳定事件合同。 */
+export type ProjectPresenceEventDto =
+    | {type: "presence_ready"; projectRoot: string}
+    | {type: "heartbeat"};
 
-/** 连续失败达到该次数：状态转 disconnected、提示一次、改用低频重试。 */
+/** Project 激活事务的唯一前端 Interface。 */
+export type ProjectSessionController = {
+    readonly state: Readonly<Ref<ProjectSessionState>>;
+    /** 显式打开 Project，并等待 open + presence_ready。 */
+    open(projectRoot: string): Promise<ProjectSessionReady>;
+    /** 普通离开只释放当前标签页 presence，不关闭全局 Project。 */
+    release(): Promise<void>;
+    /** Vue scope 销毁时禁止后续重连，并异步释放本标签页所有权。 */
+    dispose(): void;
+};
+
+export type ProjectSessionTransport = {
+    /** 幂等打开指定 Project；必须接受取消当前标签页意图的 signal。 */
+    open(projectRoot: string, signal: AbortSignal): Promise<void>;
+    /** 订阅 presence，直到 EOF、异常或 signal 中止。 */
+    stream(
+        projectRoot: string,
+        signal: AbortSignal,
+        onEvent: (event: ProjectPresenceEventDto) => void,
+    ): Promise<void>;
+};
+
+export type ProjectSessionNotificationAdapter = {
+    interrupted(): void;
+    openFailed(projectRoot: string, error: unknown): void;
+};
+
+/** latest-wins 中被新目标或 release 取代的旧调用会收到此错误。 */
+export class ProjectSessionSupersededError extends Error {
+    constructor(readonly projectRoot: string) {
+        super("Project Session 操作已被更新目标取代：" + projectRoot);
+        this.name = "ProjectSessionSupersededError";
+    }
+}
+
+/** 路由和 Preview 可用此守卫静默忽略过期 intent。 */
+export function isProjectSessionSupersededError(error: unknown): error is ProjectSessionSupersededError {
+    return error instanceof ProjectSessionSupersededError;
+}
+
+type PresenceConnection = {
+    readonly projectRoot: string;
+    readonly ready: Promise<void>;
+    readonly completion: Promise<void>;
+};
+
+type Opening = {
+    readonly projectRoot: string;
+    readonly token: number;
+    readonly abort: AbortController;
+    readonly reconnecting: boolean;
+    presence: PresenceConnection | null;
+    promise: Promise<ProjectSessionReady>;
+};
+
+type ActivePresence = {
+    readonly projectRoot: string;
+    readonly token: number;
+    readonly abort: AbortController;
+    readonly presence: PresenceConnection;
+};
+
 const DISCONNECTED_AFTER_ATTEMPTS = 3;
 
-/** 达到失败阈值后的低频重试间隔。 */
-const LOW_FREQUENCY_RETRY_MS = 5000;
-
 /**
- * 读看门狗超时：服务端每 30s 发一次 heartbeat，超过该时长（略大于 2 个心跳周期）未收到任何帧
- * 即判定半开连接（TCP 未 FIN 但已失效），主动断开并重连——否则客户端会永久停留 connected
- * 而服务端早已释放在场。
- */
-const PRESENCE_READ_TIMEOUT_MS = 75_000;
-
-/**
- * Task 94：项目显式生命周期的前端接线（用户在场声明）。
- * 维持 target 指向的项目处于 open 状态并向服务端声明「用户在场」：
- * 幂等 POST /api/projects/open → 订阅 /api/projects/presence SSE（连接即在场、断开即释放）
- * → 流断开（非 abort）按退避自动重连；每次重连都先重新 POST open 再订阅——
- * 服务器重启后 session 已失，幂等 open 即恢复路径。
+ * 创建 Project Session Controller。
  *
- * @param target 当前应保持 open 的 projectPath（`workspace/<slug>` 归一形）；null 表示无目标（自动断开）。
- * @returns status 连接状态 ref（供将来 UI 展示，当前可不消费）。
+ * Controller 只拥有本标签页的 open/presence 所有权；它从不调用全局 Project close。
+ * 调用方必须在提交 Current Project 前 await open，因此“URL 意图”和“ready Project”
+ * 不能再被同一个响应式字段混淆。
  */
-export function useProjectSession(target: Ref<string | null>): {status: Ref<ProjectSessionStatus>} {
-    const status = ref<ProjectSessionStatus>("idle");
-    // 纯 SPA（ssr:false），但按仓库惯例仍在订阅入口做客户端守卫：非客户端返回 idle 空实现。
-    if (!import.meta.client) {
-        return {status};
-    }
-
-    const notification = useNotification();
-    // 代次守卫：target 变化 / 作用域销毁时递增，旧连接循环据此自行终止。
-    let generation = 0;
-    // 当前 presence SSE 连接的中断控制器。非空表示存在在途/在线的订阅连接。
-    let controller: AbortController | null = null;
-    // 等待中的重连定时器。非空表示已安排下一次重连。
+export function createProjectSessionController(
+    transport: ProjectSessionTransport,
+    notifications: ProjectSessionNotificationAdapter,
+): ProjectSessionController {
+    const mutableState = ref<ProjectSessionState>({status: "idle", ready: null});
+    const reconnectBackoff = new SseReconnectBackoff();
+    let token = 0;
+    let readyRevision = 0;
+    let opening: Opening | null = null;
+    let active: ActivePresence | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    // 连续失败计数；成功建立连接后归零。
-    let failedAttempts = 0;
-    // 本轮断线是否已提示过，避免低频重试期间反复弹通知；连接恢复后复位。
-    let interruptWarned = false;
+    let interruptedNotified = false;
+    let disposed = false;
 
-    /** 终止当前连接循环：代次失效 + 清定时器 + 中断 SSE（服务端随连接断开释放在场）+ 复位计数。 */
-    const stopCurrent = (): void => {
-        generation += 1;
+    const clearReconnect = (): void => {
         if (reconnectTimer) {
             clearTimeout(reconnectTimer);
             reconnectTimer = null;
         }
-        controller?.abort();
-        controller = null;
-        failedAttempts = 0;
-        interruptWarned = false;
     };
 
-    /** 安排一次重连：前两次按退避表快速重试；连续 3 次失败提示一次并转入 5s 低频重试。 */
-    const scheduleReconnect = (projectPath: string, gen: number): void => {
-        if (gen !== generation) {
-            return;
-        }
-        const attempt = failedAttempts;
-        failedAttempts += 1;
-        if (failedAttempts >= DISCONNECTED_AFTER_ATTEMPTS) {
-            status.value = "disconnected";
-            if (!interruptWarned) {
-                interruptWarned = true;
-                notification.warning("项目在场连接中断，将自动重试", {title: "项目连接中断"});
+    const ownsOpening = (current: Opening): boolean => (
+        !disposed && opening === current && current.token === token
+    );
+
+    /** 只在 matching presence_ready 后兑现 ready；EOF/错误在 ready 前均视为打开失败。 */
+    const connectPresence = (projectRoot: string, signal: AbortSignal): PresenceConnection => {
+        let settled = false;
+        let resolveReady: () => void = () => undefined;
+        let rejectReady: (error: unknown) => void = () => undefined;
+        const ready = new Promise<void>((resolve, reject) => {
+            resolveReady = resolve;
+            rejectReady = reject;
+        });
+        const completion = transport.stream(projectRoot, signal, (event) => {
+            if (settled || event.type !== "presence_ready") return;
+            if (event.projectRoot !== projectRoot) {
+                settled = true;
+                rejectReady(new Error("presence_ready Project 不匹配：" + event.projectRoot));
+                return;
             }
-        } else {
-            status.value = "connecting";
+            settled = true;
+            resolveReady();
+        }).then(() => {
+            if (!settled) {
+                settled = true;
+                rejectReady(new Error("presence 在 ready 前结束：" + projectRoot));
+            }
+        }).catch((error: unknown) => {
+            if (!settled) {
+                settled = true;
+                rejectReady(error);
+            }
+            throw error;
+        });
+        // active observer 与 open await 会在不同微任务挂接；预先消费避免间隙 unhandled rejection。
+        void completion.catch(() => undefined);
+        return {projectRoot, ready, completion};
+    };
+
+    /** presence 断开立即撤销 ready，随后通过受控 reconnect 重建新 revision。 */
+    const scheduleReconnect = (projectRoot: string, expectedToken: number): void => {
+        if (disposed || expectedToken !== token || reconnectTimer || opening || active) return;
+        const retry = reconnectBackoff.disconnected();
+        mutableState.value = {status: "reconnecting", projectRoot, ready: null};
+        if (retry.wasStable) interruptedNotified = false;
+        if (retry.failedAttempts >= DISCONNECTED_AFTER_ATTEMPTS && !interruptedNotified) {
+            interruptedNotified = true;
+            notifications.interrupted();
         }
-        const delay = failedAttempts >= DISCONNECTED_AFTER_ATTEMPTS
-            ? LOW_FREQUENCY_RETRY_MS
-            : RECONNECT_DELAYS_MS[Math.min(attempt, RECONNECT_DELAYS_MS.length - 1)] ?? LOW_FREQUENCY_RETRY_MS;
         reconnectTimer = setTimeout(() => {
             reconnectTimer = null;
-            void connect(projectPath, gen);
-        }, delay);
+            if (disposed || expectedToken !== token || opening || active) return;
+            if (mutableState.value.status !== "reconnecting" || mutableState.value.projectRoot !== projectRoot) return;
+            void beginOpen(projectRoot, true).catch(() => undefined);
+        }, retry.delayMs);
     };
 
-    /** 单次连接流程：幂等 open → 订阅 presence SSE；失败、流断开或读看门狗超时（非主动 abort）走重连。 */
-    const connect = async (projectPath: string, gen: number): Promise<void> => {
-        if (gen !== generation) {
-            return;
-        }
-        try {
-            // 每次（重）连都先重新 open：服务器重启后 session 已失，幂等 open 是恢复路径。
-            await $fetch("/api/projects/open", {method: "POST", body: {projectPath}});
-        } catch (error) {
-            if (gen !== generation) {
-                return;
-            }
-            // 提取 HTTP 状态码：$fetch FetchError 带 status/statusCode；无法识别按 null。
-            const errObj = typeof error === "object" && error !== null ? (error as {status?: unknown; statusCode?: unknown}) : null;
-            const status404 = typeof errObj?.status === "number" ? errObj.status === 404 : errObj?.statusCode === 404;
-            if (status404) {
-                // 项目目录已不存在（或被标记删除）：提示并停止该 target 的重试。
-                status.value = "disconnected";
-                notification.error(resolveApiErrorMessage(error, `项目不存在或已删除：${projectPath}`), {title: "项目打开失败"});
-                return;
-            }
-            scheduleReconnect(projectPath, gen);
-            return;
-        }
-        if (gen !== generation) {
-            return;
-        }
-        const nextController = new AbortController();
-        controller = nextController;
-        // 读看门狗：超时未收到任何帧（含心跳）即半开，主动 abort 并重连（区别于 stopCurrent 的主动断开）。
-        let readTimer: ReturnType<typeof setTimeout> | null = null;
-        let staleReconnect = false;
-        const resetReadWatchdog = (): void => {
-            if (readTimer) {
-                clearTimeout(readTimer);
-            }
-            readTimer = setTimeout(() => {
-                staleReconnect = true;
-                nextController.abort();
-            }, PRESENCE_READ_TIMEOUT_MS);
+    /** active stream 不再属于当前 generation 时，不得启动陈旧 Project 的 reconnect。 */
+    const observeActive = (current: ActivePresence): void => {
+        void current.presence.completion.then(
+            () => {
+                if (active !== current || current.token !== token) return;
+                active = null;
+                scheduleReconnect(current.projectRoot, current.token);
+            },
+            (error: unknown) => {
+                if (active !== current || current.token !== token || isAbortError(error)) return;
+                active = null;
+                scheduleReconnect(current.projectRoot, current.token);
+            },
+        );
+    };
+
+    /**
+     * 开启一个新 transport owner。
+     *
+     * open() 的新 root 会先取消旧 owner；正常主页面会在调用前 release 并清空
+     * Project surface，这里仍执行取消以保证误用时不会出现双 presence。
+     */
+    const beginOpen = (projectRoot: string, reconnecting: boolean): Promise<ProjectSessionReady> => {
+        if (opening?.projectRoot === projectRoot) return opening.promise;
+        clearReconnect();
+        token += 1;
+        const currentToken = token;
+        opening?.abort.abort();
+        active?.abort.abort();
+        active = null;
+        const abort = new AbortController();
+        const current: Opening = {
+            projectRoot,
+            token: currentToken,
+            abort,
+            reconnecting,
+            presence: null,
+            promise: Promise.resolve({projectRoot, revision: readyRevision}),
         };
-        try {
-            const response = await fetch(`/api/projects/presence?projectPath=${encodeURIComponent(projectPath)}`, {
-                method: "GET",
-                signal: nextController.signal,
-            });
-            resetReadWatchdog();
-            await readSseStream<ProjectPresenceEventDto>(response, () => {
-                // 收到任意帧（presence_ready / heartbeat）即为连接活性证据，续命读看门狗；内容无需处理。
-                resetReadWatchdog();
-            }, {
-                onOpen: () => {
-                    if (gen !== generation) {
-                        return;
-                    }
-                    failedAttempts = 0;
-                    interruptWarned = false;
-                    status.value = "connected";
-                    resetReadWatchdog();
-                },
-            });
-            // 流被服务端正常收尾（非 abort）：按断线处理，重连以恢复在场。
-            scheduleReconnect(projectPath, gen);
-        } catch (error) {
-            if (gen !== generation) {
-                return;
-            }
-            // 主动 abort（DOMException/AbortError）：看门狗触发的要重连，stopCurrent 触发的已被上面 gen 变更拦截。
-            if (error instanceof DOMException && error.name === "AbortError") {
-                if (staleReconnect) {
-                    scheduleReconnect(projectPath, gen);
+        mutableState.value = {status: reconnecting ? "reconnecting" : "opening", projectRoot, ready: null};
+        current.promise = (async () => {
+            try {
+                await transport.open(projectRoot, abort.signal);
+                if (!ownsOpening(current)) throw new ProjectSessionSupersededError(projectRoot);
+                const presence = connectPresence(projectRoot, abort.signal);
+                current.presence = presence;
+                await presence.ready;
+                if (!ownsOpening(current)) throw new ProjectSessionSupersededError(projectRoot);
+
+                reconnectBackoff.opened();
+                interruptedNotified = false;
+                const ready = {projectRoot, revision: ++readyRevision};
+                const committed: ActivePresence = {projectRoot, token: currentToken, abort, presence};
+                active = committed;
+                opening = null;
+                mutableState.value = {status: "ready", ready};
+                observeActive(committed);
+                return ready;
+            } catch (error) {
+                if (!ownsOpening(current)) {
+                    throw new ProjectSessionSupersededError(projectRoot);
                 }
-                return;
+                current.abort.abort();
+                opening = null;
+                if (current.reconnecting && !isProjectMissingError(error)) {
+                    mutableState.value = {status: "reconnecting", projectRoot, ready: null};
+                    scheduleReconnect(projectRoot, currentToken);
+                } else {
+                    mutableState.value = {status: "failed", projectRoot, ready: null};
+                    notifications.openFailed(projectRoot, error);
+                }
+                throw error;
             }
-            scheduleReconnect(projectPath, gen);
-        } finally {
-            if (readTimer) {
-                clearTimeout(readTimer);
-                readTimer = null;
-            }
-            if (controller === nextController) {
-                controller = null;
-            }
-        }
+        })();
+        opening = current;
+        return current.promise;
     };
 
-    // target 变化：先停掉旧项目的连接循环（abort 即向服务端释放在场），再为新项目建立会话。
-    watch(target, (next) => {
-        stopCurrent();
-        if (!next) {
-            status.value = "idle";
-            return;
+    /** 同 root opening single-flight；ready root 无副作用返回当前 generation。 */
+    const open = (projectRoot: string): Promise<ProjectSessionReady> => {
+        if (disposed) return Promise.reject(new Error("Project Session Controller 已销毁"));
+        if (opening?.projectRoot === projectRoot) return opening.promise;
+        if (mutableState.value.status === "ready" && mutableState.value.ready.projectRoot === projectRoot) {
+            return Promise.resolve(mutableState.value.ready);
         }
-        status.value = "connecting";
-        void connect(next, generation);
-    }, {immediate: true});
+        return beginOpen(projectRoot, mutableState.value.status === "reconnecting" && mutableState.value.projectRoot === projectRoot);
+    };
 
-    // 作用域销毁（页面卸载 / HMR）：断开全部连接与定时器，服务端 presence 随连接断开而释放。
-    onScopeDispose(() => {
-        stopCurrent();
-        status.value = "idle";
+    /** 释放本标签页 owner；显式等待 presence EOF，绝不发送全局 close。 */
+    const release = async (): Promise<void> => {
+        token += 1;
+        clearReconnect();
+        const pending = opening;
+        const connected = active;
+        opening = null;
+        active = null;
+        pending?.abort.abort();
+        connected?.abort.abort();
+        reconnectBackoff.reset();
+        interruptedNotified = false;
+        mutableState.value = {status: "idle", ready: null};
+        await Promise.all([
+            pending?.promise.catch(() => undefined),
+            connected?.presence.completion.catch(() => undefined),
+        ]);
+    };
+
+    const dispose = (): void => {
+        disposed = true;
+        void release();
+    };
+
+    return {
+        state: readonly(mutableState),
+        open,
+        release,
+        dispose,
+    };
+}
+
+/** 在 Vue scope 内创建显式 Project Session Controller。 */
+export function useProjectSession(): ProjectSessionController {
+    if (!import.meta.client) {
+        const state = ref<ProjectSessionState>({status: "idle", ready: null});
+        return {
+            state: readonly(state),
+            open: async (projectRoot) => ({projectRoot, revision: 0}),
+            release: async () => undefined,
+            dispose: () => undefined,
+        };
+    }
+
+    const notification = useNotification();
+    const projectRequest = $fetch as unknown as (
+        path: string,
+        options: {method: "POST"; body: {projectRoot: string}; signal: AbortSignal},
+    ) => Promise<void>;
+    const lifecycle = createProjectSessionController({
+        open: async (projectRoot, signal) => await projectRequest("/api/projects/open", {
+            method: "POST",
+            body: {projectRoot},
+            signal,
+        }),
+        stream: async (projectRoot, signal, onEvent) => {
+            const response = await fetch("/api/projects/presence?projectRoot=" + encodeURIComponent(projectRoot), {
+                method: "GET",
+                signal,
+            });
+            await readSseStream<ProjectPresenceEventDto>(response, onEvent);
+        },
+    }, {
+        interrupted: () => notification.warning("项目在场连接中断，正在重新连接", {title: "项目连接中断"}),
+        openFailed: (projectRoot, error) => notification.error(
+            resolveApiErrorMessage(error, "项目不存在或已删除：" + projectRoot),
+            {title: "项目打开失败"},
+        ),
     });
 
-    return {status};
+    onScopeDispose(() => lifecycle.dispose());
+    return lifecycle;
+}
+
+/** $fetch 外部错误只按稳定 data.code 判别 Project 领域状态。 */
+function apiErrorCode(error: unknown): string | null {
+    if (typeof error !== "object" || error === null || !("data" in error)) return null;
+    const data = (error as {data?: {code?: unknown; data?: {code?: unknown}}}).data;
+    if (typeof data?.code === "string") return data.code;
+    return typeof data?.data?.code === "string" ? data.data.code : null;
+}
+
+function isProjectMissingError(error: unknown): boolean {
+    return apiErrorCode(error) === "PROJECT_NOT_FOUND";
+}
+
+function isAbortError(error: unknown): boolean {
+    return typeof error === "object" && error !== null && "name" in error && error.name === "AbortError";
 }

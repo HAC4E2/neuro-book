@@ -8,7 +8,7 @@ import type {SkillCatalogItem} from "nbook/server/agent/skills/skill-catalog";
 import type {ClientStateSnapshot, ProfileVariableAccessor, VariableDefinition} from "nbook/server/agent/variables/types";
 import type {ProfileRuntimeDefaults} from "nbook/shared/agent/profile-runtime-settings";
 import type {AgentRuntimeDefinition, NormalizedAgentRuntimeDefinition, RuntimeSessionFacade} from "nbook/server/agent/profiles/define-agent-runtime";
-import type {AgentInvokeCaller} from "nbook/server/agent/harness/types";
+import type {AgentInvokeCaller} from "nbook/server/agent/harness/invocation-caller";
 import type {ProfileTools} from "nbook/server/agent/profiles/profile-tools";
 import type {LowCodeFormDefinition} from "nbook/server/low-code-form";
 import type {LowCodeJsonObject} from "nbook/shared/dto/low-code-form.dto";
@@ -124,6 +124,13 @@ export type ProfilePrepareContext<TInitial = JsonValue, TPayload = unknown, TSet
         currentProject?: ReadyProjectSessionRef | null;
         /** prompt 模式下尚未写入 session 的本轮用户输入；continue 时为空。 */
         pendingUserMessage?: StoredUserMessage;
+        /**
+         * 宿主注入的当前 Project SQL schema 摘要。为空 = 宿主未接线（测试/离线工具）；
+         * session 未绑定 Project Workspace 时调用会抛错。两种情况 profile 侧都渲染
+         * 「暂不可用」降级文案。经注入而非 import 的原因：profile artifact 依赖图
+         * 不允许携带宿主实现（project-session / @libsql），见 profile-compiled-artifacts.md。
+         */
+        sqlSchemaSummary?: () => Promise<string>;
     };
     /** 当前 profile home。Project session 读取时 Project 优先、Global 兜底；写入仍落当前主 home。 */
     home?: ProfileHomeFacade;

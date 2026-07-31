@@ -7,7 +7,7 @@ import type {WorkspaceHistoryDiffRequestIdentity} from "nbook/app/utils/workspac
 import type {WorkspaceHistoryDiffChangeDto, WorkspaceHistoryDiffDto, WorkspaceHistoryInboxGroupDto} from "nbook/shared/dto/workspace-history.dto";
 
 const props = defineProps<{
-    projectPath: string | null;
+    projectRoot: string | null;
     refreshKey: string | number;
     active: boolean;
 }>();
@@ -17,9 +17,9 @@ const emit = defineEmits<{
     (e: "open-file", path: string): void;
 }>();
 
-const projectPathRef = toRef(props, "projectPath");
+const projectRootRef = toRef(props, "projectRoot");
 const activeRef = toRef(props, "active");
-const {revision, groups, loading, error, load} = useWorkspaceHistoryInbox(projectPathRef, activeRef);
+const {revision, groups, loading, error, load} = useWorkspaceHistoryInbox(projectRootRef, activeRef);
 const diffRequests = useWorkspaceHistoryDiffRequests();
 const {t} = useI18n();
 const notification = useNotification();
@@ -29,7 +29,7 @@ const busyPath = ref<string | null>(null);
 const acceptingAll = ref(false);
 
 const visibleGroups = computed(() => groups.value.slice(0, 6));
-const visible = computed(() => Boolean(props.projectPath && (loading.value || groups.value.length > 0 || error.value)));
+const visible = computed(() => Boolean(props.projectRoot && (loading.value || groups.value.length > 0 || error.value)));
 
 /** 展开/收起 Composer 上方的变更摘要。 */
 function toggleExpanded(): void {
@@ -78,7 +78,7 @@ function resetBodyTransition(element: Element): void {
 
 /** 选择文件并按需加载服务端安全 inline diff。 */
 async function selectGroup(group: WorkspaceHistoryInboxGroupDto): Promise<void> {
-    if (!props.projectPath) {
+    if (!props.projectRoot) {
         return;
     }
     if (selectedPath.value === group.path) {
@@ -91,14 +91,14 @@ async function selectGroup(group: WorkspaceHistoryInboxGroupDto): Promise<void> 
 
 /** 接受单个文件的全部待审变更并刷新共用 inbox。 */
 async function acceptGroup(group: WorkspaceHistoryInboxGroupDto): Promise<void> {
-    if (!props.projectPath || busyPath.value || acceptingAll.value) {
+    if (!props.projectRoot || busyPath.value || acceptingAll.value) {
         return;
     }
     busyPath.value = group.path;
     try {
         await $fetch("/api/workspace-history/accept", {
             method: "POST",
-            body: {projectPath: props.projectPath, path: group.path, revision: group.revision},
+            body: {projectRoot: props.projectRoot, path: group.path, revision: group.revision},
         });
         if (selectedPath.value === group.path) {
             selectedPath.value = null;
@@ -117,14 +117,14 @@ async function acceptGroup(group: WorkspaceHistoryInboxGroupDto): Promise<void> 
 
 /** 接受服务端当前 inbox 的全部文件变更。 */
 async function acceptAll(): Promise<void> {
-    if (!props.projectPath || acceptingAll.value || busyPath.value || groups.value.length === 0) {
+    if (!props.projectRoot || acceptingAll.value || busyPath.value || groups.value.length === 0) {
         return;
     }
     acceptingAll.value = true;
     try {
         const result = await $fetch<{success: true; accepted: number}>("/api/workspace-history/accept-all", {
             method: "POST",
-            body: {projectPath: props.projectPath, revision: revision.value},
+            body: {projectRoot: props.projectRoot, revision: revision.value},
         });
         selectedPath.value = null;
         notification.success(t("agent.workspaceChanges.acceptAllSuccess", {count: result.accepted}));
@@ -153,7 +153,7 @@ function previewLines(changes: WorkspaceHistoryDiffChangeDto[]): Array<{kind: "a
 /** 构造当前 Project 下一个 group 的版本化 inline diff 身份。 */
 function diffIdentity(group: WorkspaceHistoryInboxGroupDto): WorkspaceHistoryDiffRequestIdentity {
     return {
-        projectPath: props.projectPath ?? "",
+        projectRoot: props.projectRoot ?? "",
         path: group.path,
         revision: group.revision,
         mode: "inline",
@@ -202,7 +202,7 @@ watch(() => props.active, (active) => {
     }
 });
 
-watch(() => props.projectPath, () => {
+watch(() => props.projectRoot, () => {
     diffRequests.invalidate();
     selectedPath.value = null;
     expanded.value = false;

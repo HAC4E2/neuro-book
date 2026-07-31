@@ -8,7 +8,7 @@ type PreviewProjectForm = {
 
 type PreviewProjectOption = {
     title: string;
-    projectPath: string;
+    projectRoot: string;
 };
 
 type PreviewSchemaProjection = {
@@ -42,7 +42,7 @@ function buildIdeOpenPathHref(path: string): string {
     if (!props.selectedProject) {
         return "#";
     }
-    return `/?${new URLSearchParams({project: props.selectedProject.projectPath, openPath: path}).toString()}`;
+    return `/?${new URLSearchParams({project: props.selectedProject.projectRoot, openPath: path}).toString()}`;
 }
 </script>
 
@@ -63,7 +63,7 @@ function buildIdeOpenPathHref(path: string): string {
             </fieldset>
             <div v-if="selectedProject" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-3 text-xs leading-6">
                 <div class="font-medium">{{ selectedProject.title }}</div>
-                <div class="text-[var(--text-muted)]">{{ selectedProject.projectPath }}</div>
+                <div class="text-[var(--text-muted)]">{{ selectedProject.projectRoot }}</div>
             </div>
         </div>
 

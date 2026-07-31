@@ -3,9 +3,11 @@ import {hostname} from "node:os";
 import {createError} from "h3";
 import type {FetchError} from "ofetch";
 import type {PassportCredential} from "nbook/server/generated/prisma/client";
+import {appLogger} from "nbook/server/app-logs/logger";
 import {prisma} from "nbook/server/database/prisma";
 import {PassportUnlinkedError} from "nbook/server/passport/passport-errors";
-import {DEFAULT_SLOT_ID, REQUESTED_SCOPES, normalizeSiteBaseUrl} from "nbook/shared/passport/passport-constants";
+import {officialSiteFetch} from "nbook/server/passport/official-site-transport";
+import {DEFAULT_SLOT_ID, REQUESTED_SCOPES} from "nbook/shared/passport/passport-constants";
 import type {PassportLinkPollDto, PassportLinkSessionDto, PassportStatusDto} from "nbook/shared/dto/passport.dto";
 
 // Passport 客户端服务（Task 112 spec §11）：实例侧与官方站的全部通信收口在这里。
@@ -34,7 +36,6 @@ type UpstreamTokenGrant = {
 /** 进行中的关联会话（进程内存；重启丢失 = 用户重新发起，可接受） */
 type LinkSession = {
     deviceCode: string;
-    siteBaseUrl: string;
     interval: number;
     expiresAt: number; // 毫秒时间戳
 };
@@ -50,14 +51,19 @@ function upstreamErrorCode(error: unknown): string | undefined {
 export class PassportClientService {
     private linkSessions = new Map<string, LinkSession>();
     /** 内存 access token 缓存；expiresAt 为毫秒时间戳 */
-    private accessTokenCache: {token: string; siteBaseUrl: string; expiresAt: number} | null = null;
+    private accessTokenCache: {token: string; expiresAt: number} | null = null;
     /** 进行中的 refresh 请求：并发 getAccessToken 必须共享同一次轮换，否则旧 token 双花会触发官方站撤链 */
-    private refreshInFlight: Promise<{token: string; siteBaseUrl: string}> | null = null;
+    private refreshInFlight: Promise<string> | null = null;
+    /** refresh 提交失败后阻止本进程再次读取可能未删掉的旧凭据。 */
+    private credentialBlocked = false;
 
     /**
      * 读取默认槽位的关联状态。
      */
     async getStatus(): Promise<PassportStatusDto> {
+        if (this.credentialBlocked) {
+            return this.toStatus(null);
+        }
         const credential = await prisma.passportCredential.findUnique({where: {slotId: DEFAULT_SLOT_ID}});
         return this.toStatus(credential);
     }
@@ -65,9 +71,8 @@ export class PassportClientService {
     /**
      * 发起设备码流：向官方站申请设备码，deviceCode 留在服务端内存会话。
      */
-    async startLink(siteBaseUrlInput: string): Promise<PassportLinkSessionDto> {
-        const siteBaseUrl = normalizeSiteBaseUrl(siteBaseUrlInput);
-        const upstream = await $fetch<UpstreamDeviceCode>(`${siteBaseUrl}/api/v1/passport/device/code`, {
+    async startLink(): Promise<PassportLinkSessionDto> {
+        const upstream = await officialSiteFetch<UpstreamDeviceCode>("passport.device.create", "/api/v1/passport/device/code", {
             method: "POST",
             body: {
                 instanceName: `NeuroBook @ ${hostname()}`,
@@ -78,7 +83,6 @@ export class PassportClientService {
         const linkSessionId = randomUUID();
         this.linkSessions.set(linkSessionId, {
             deviceCode: upstream.deviceCode,
-            siteBaseUrl,
             interval: upstream.interval,
             expiresAt: Date.now() + upstream.expiresIn * 1000,
         });
@@ -107,15 +111,32 @@ export class PassportClientService {
         }
 
         try {
-            const grant = await $fetch<UpstreamTokenGrant>(`${session.siteBaseUrl}/api/v1/passport/token`, {
+            const grant = await officialSiteFetch<UpstreamTokenGrant>("passport.token.exchange", "/api/v1/passport/token", {
                 method: "POST",
                 body: {grantType: "device_code", deviceCode: session.deviceCode},
             });
-            const credential = await this.saveCredential(session.siteBaseUrl, grant);
+            let credential: PassportCredential;
+            try {
+                credential = await this.saveCredential(grant);
+            } catch (error) {
+                this.linkSessions.delete(linkSessionId);
+                this.accessTokenCache = null;
+                const remoteAuthorization = await this.revokeGrant(grant, "link.persist_failed");
+                void appLogger.error("passport.link.credentialPersistFailed", {
+                    phase: "credential_persist",
+                    accountId: grant.account.id,
+                    remoteAuthorization,
+                }, error, "官网已批准，但本机 Passport 凭据写入失败");
+                return {
+                    state: "failed",
+                    reason: "credential_persist_failed",
+                    remoteAuthorization,
+                };
+            }
             this.linkSessions.delete(linkSessionId);
+            this.credentialBlocked = false;
             this.accessTokenCache = {
                 token: grant.accessToken,
-                siteBaseUrl: session.siteBaseUrl,
                 expiresAt: Date.now() + grant.expiresIn * 1000,
             };
             return {state: "linked", status: this.toStatus(credential)};
@@ -136,6 +157,13 @@ export class PassportClientService {
                 this.linkSessions.delete(linkSessionId);
                 return {state: "denied"};
             }
+            if (code === "invalid_grant") {
+                this.linkSessions.delete(linkSessionId);
+                void appLogger.warn("passport.link.exchangeInvalid", {
+                    phase: "token_exchange",
+                }, "Passport 设备码已失效或已被消费");
+                return {state: "failed", reason: "exchange_invalid"};
+            }
             throw error;
         }
     }
@@ -147,7 +175,7 @@ export class PassportClientService {
         const credential = await prisma.passportCredential.findUnique({where: {slotId: DEFAULT_SLOT_ID}});
         if (credential) {
             try {
-                await $fetch(`${credential.siteBaseUrl}/api/v1/passport/revoke`, {
+                await officialSiteFetch("passport.authorization.revoke", "/api/v1/passport/revoke", {
                     method: "POST",
                     body: {refreshToken: credential.refreshToken},
                 });
@@ -158,17 +186,21 @@ export class PassportClientService {
         }
         this.accessTokenCache = null;
         this.refreshInFlight = null;
+        this.credentialBlocked = true;
     }
 
     /**
-     * 取可用 access token（附站点地址）：缓存未到期直接用；否则用 refresh 轮换。
+     * 取可用 access token：缓存未到期直接用；否则用 refresh 轮换。
      * refresh 并发共享同一 in-flight 请求——两路并发各自轮换会让旧 token 双花，触发官方站整链撤销。
      * 凭据失效抛 PassportUnlinkedError，消费点必须转成「请重新关联」，不得静默重试。
      */
-    async getAccessToken(): Promise<{token: string; siteBaseUrl: string}> {
+    async getAccessToken(): Promise<string> {
+        if (this.credentialBlocked) {
+            throw new PassportUnlinkedError();
+        }
         const cache = this.accessTokenCache;
         if (cache && cache.expiresAt - 30_000 > Date.now()) {
-            return {token: cache.token, siteBaseUrl: cache.siteBaseUrl};
+            return cache.token;
         }
         if (this.refreshInFlight) {
             return await this.refreshInFlight;
@@ -184,14 +216,14 @@ export class PassportClientService {
     /**
      * 执行一次 refresh 轮换：新 refresh token 先落库，再更新内存缓存（spec §11 顺序要求）。
      */
-    private async refreshAccessToken(): Promise<{token: string; siteBaseUrl: string}> {
+    private async refreshAccessToken(): Promise<string> {
         const credential = await prisma.passportCredential.findUnique({where: {slotId: DEFAULT_SLOT_ID}});
         if (!credential) {
             throw new PassportUnlinkedError();
         }
         let grant: UpstreamTokenGrant;
         try {
-            grant = await $fetch<UpstreamTokenGrant>(`${credential.siteBaseUrl}/api/v1/passport/token`, {
+            grant = await officialSiteFetch<UpstreamTokenGrant>("passport.token.refresh", "/api/v1/passport/token", {
                 method: "POST",
                 body: {grantType: "refresh_token", refreshToken: credential.refreshToken},
             });
@@ -200,25 +232,53 @@ export class PassportClientService {
                 // 授权已被吊销 / token 链失效：清凭据，退回未关联态
                 await prisma.passportCredential.delete({where: {id: credential.id}}).catch(() => undefined);
                 this.accessTokenCache = null;
+                this.credentialBlocked = true;
                 throw new PassportUnlinkedError();
             }
             throw error;
         }
-        await this.saveCredential(credential.siteBaseUrl, grant);
+        try {
+            await this.saveCredential(grant);
+        } catch (error) {
+            this.accessTokenCache = null;
+            this.credentialBlocked = true;
+            const remoteAuthorization = await this.revokeGrant(grant, "refresh.persist_failed");
+            let localCredential: "deleted" | "unknown" = "deleted";
+            try {
+                await prisma.passportCredential.delete({where: {id: credential.id}});
+            } catch (deleteError) {
+                localCredential = "unknown";
+                void appLogger.warn("passport.refresh.localCredentialDeleteFailed", {
+                    phase: "credential_cleanup",
+                    accountId: credential.accountId,
+                }, "Passport 旧凭据清理失败，已在当前进程阻止继续使用");
+                void appLogger.debug("passport.refresh.localCredentialDeleteError", {
+                    phase: "credential_cleanup",
+                    accountId: credential.accountId,
+                    error: deleteError,
+                }, "Passport 旧凭据清理错误详情");
+            }
+            void appLogger.error("passport.refresh.credentialPersistFailed", {
+                phase: "credential_persist",
+                accountId: grant.account.id,
+                remoteAuthorization,
+                localCredential,
+            }, error, "Passport refresh 凭据写入失败，已要求重新关联");
+            throw new PassportUnlinkedError();
+        }
+        this.credentialBlocked = false;
         this.accessTokenCache = {
             token: grant.accessToken,
-            siteBaseUrl: credential.siteBaseUrl,
             expiresAt: Date.now() + grant.expiresIn * 1000,
         };
-        return {token: grant.accessToken, siteBaseUrl: credential.siteBaseUrl};
+        return grant.accessToken;
     }
 
     /**
      * 把 grant 写入默认槽位（upsert：关联与轮换共用）。
      */
-    private async saveCredential(siteBaseUrl: string, grant: UpstreamTokenGrant): Promise<PassportCredential> {
+    private async saveCredential(grant: UpstreamTokenGrant): Promise<PassportCredential> {
         const data = {
-            siteBaseUrl,
             accountId: grant.account.id,
             accountUsername: grant.account.username,
             accountDisplayName: grant.account.displayName,
@@ -233,15 +293,37 @@ export class PassportClientService {
     }
 
     /**
+     * 吊销尚未提交到本地的 grant；调用失败只返回 unknown，不覆盖原始提交错误。
+     */
+    private async revokeGrant(
+        grant: UpstreamTokenGrant,
+        phase: "link.persist_failed" | "refresh.persist_failed",
+    ): Promise<"revoked" | "unknown"> {
+        try {
+            await officialSiteFetch("passport.authorization.revoke", "/api/v1/passport/revoke", {
+                method: "POST",
+                body: {refreshToken: grant.refreshToken},
+            });
+            return "revoked";
+        } catch (error) {
+            void appLogger.warn("passport.authorization.compensatingRevokeFailed", {
+                phase,
+                accountId: grant.account.id,
+                error,
+            }, "Passport 补偿吊销结果未知");
+            return "unknown";
+        }
+    }
+
+    /**
      * 凭据行 → 状态 DTO。
      */
     private toStatus(credential: PassportCredential | null): PassportStatusDto {
         if (!credential) {
-            return {linked: false, siteBaseUrl: "", account: null, scopes: [], linkedAt: null};
+            return {linked: false, account: null, scopes: [], linkedAt: null};
         }
         return {
             linked: true,
-            siteBaseUrl: credential.siteBaseUrl,
             account: {
                 id: credential.accountId,
                 username: credential.accountUsername,

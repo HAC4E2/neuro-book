@@ -13,6 +13,7 @@
  * 纯函数、无 IO、不读 config。
  */
 import type {PiTraceSegment, PiTraceSegmentKind} from "nbook/server/agent/observability/pi-request-recorder";
+import {aggregateSegmentLabels} from "nbook/server/agent/observability/trace-segments";
 
 /** 时间轴上的一次请求；字段全部取自 index.jsonl，不需要读完整记录。 */
 export type ContextTimelineEntry = {
@@ -43,6 +44,31 @@ export type ContextDiagnosticsInput = {
 type Severity = "info" | "warning" | "danger";
 
 /**
+ * 全部诊断 code。
+ *
+ * 显式列成常量元组而不是只留 TS 联合：联合类型运行时不可枚举，而 i18n 完备性测试
+ * 需要在运行时遍历它，确认每个 code 在 zh-CN / en-US 都配了文案。
+ * 新增诊断时这里和判别联合都要加，漏了会被 typecheck 或该测试挡住。
+ */
+export const CONTEXT_DIAGNOSTIC_CODES = [
+    "fixedOverhead",
+    "dominantSource",
+    "toolSchemaCost",
+    "nearCompaction",
+    "contextWindowUnset",
+    "dynamicContextRewrite",
+    "cacheRetention",
+    "cacheAutoPrefix",
+    "cacheNotReported",
+    "cacheExpired",
+    "cacheCompactionRebuild",
+    "cacheToolsChanged",
+    "cacheModelChanged",
+] as const;
+
+export type ContextDiagnosticCode = typeof CONTEXT_DIAGNOSTIC_CODES[number];
+
+/**
  * 一条诊断。code 是稳定标识（前端 i18n key 与折叠记忆都挂它），其余字段是该 code 的参数。
  * 用判别联合而不是 `Record<string, unknown>`，保证前端渲染时参数类型可查。
  */
@@ -60,6 +86,13 @@ export type ContextDiagnostic =
     | {code: "cacheCompactionRebuild"; severity: "info"; traceId: string}
     | {code: "cacheToolsChanged"; severity: "warning"; traceId: string}
     | {code: "cacheModelChanged"; severity: "info"; traceId: string; from: string; to: string};
+
+/** 编译期防线：判别联合与常量元组必须覆盖同一组 code，任一侧漏加都会在这里报错。 */
+type AssertCodesAligned = ContextDiagnostic["code"] extends ContextDiagnosticCode
+    ? ContextDiagnosticCode extends ContextDiagnostic["code"] ? true : never
+    : never;
+const _codesAligned: AssertCodesAligned = true;
+void _codesAligned;
 
 /** 固定开销：每次请求都在、且不随对话增长的部分。 */
 const FIXED_OVERHEAD_KINDS: readonly PiTraceSegmentKind[] = ["system", "tools", "historySet"];
@@ -192,32 +225,10 @@ function sumTokens(segments: readonly PiTraceSegment[]): number {
     return segments.reduce((total, segment) => total + segment.estimatedTokens, 0);
 }
 
-/** 按 label 汇总找出最大的单一来源。一条消息带多个 label 时按均分摊，避免重复计数。 */
+/** 最大的单一来源。均摊规则由 `aggregateSegmentLabels` 统一持有，这里只取头名。 */
 function dominantLabel(segments: readonly PiTraceSegment[]): {label: string; tokens: number} | null {
-    const byLabel = new Map<string, number>();
-    for (const segment of segments) {
-        if (!segment.labels?.length || !segment.range) {
-            continue;
-        }
-        // 分区内按消息条数均摊：segment 只有总 token，没有逐条明细。
-        const perMessage = segment.estimatedTokens / (segment.range.end - segment.range.start);
-        for (const labels of segment.labels) {
-            if (!labels?.length) {
-                continue;
-            }
-            const share = perMessage / labels.length;
-            for (const label of labels) {
-                byLabel.set(label, (byLabel.get(label) ?? 0) + share);
-            }
-        }
-    }
-    let best: {label: string; tokens: number} | null = null;
-    for (const [label, tokens] of byLabel) {
-        if (!best || tokens > best.tokens) {
-            best = {label, tokens};
-        }
-    }
-    return best;
+    const top = aggregateSegmentLabels(segments)[0];
+    return top ? {label: top.label, tokens: top.estimatedTokens} : null;
 }
 
 /**

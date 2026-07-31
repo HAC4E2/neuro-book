@@ -1,6 +1,35 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`的五平台Product、原生双架构OCI/manifest merge、Windows/Linux候选、公开payload、Windows完整`0.8.6 data/`复用、Docker x64/ARM64与rootless Podman链全部通过，最终`release-manifest.json`和`SHA256SUMS`已发布；它是最新已确认完整canary。当前源码协议为Installation Manifest v4、Release Manifest v3与Operation Journal v3；Canary A→B事务更新仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
+> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`的五平台Product、原生双架构OCI/manifest merge、Windows/Linux候选、公开payload、Windows完整`0.8.6 data/`复用、Docker x64/ARM64与rootless Podman链全部通过，最终`release-manifest.json`和`SHA256SUMS`已发布；它是最新已确认完整canary。当前源码协议为Installation Manifest v4、Release Manifest v4、Operation Journal v5 和 Product-owned Application State catalog v3；Canary A→B事务更新仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
+
+## 2026-07-28：Catalog v3 与健康启动提交点
+
+- Application State catalog v3 固定为 `app-sqlite → agent-attachment-v1 → agent-session-v2 → agent-session-v2-review-repair`。migration-only registry 可解析 v1/v2/v3 sentinel 与 journal；complete 旧 catalog 创建新 v3 run，incomplete 旧 run 只能 resume/rollback，future catalog 与损坏/checksum 冲突 fail closed。
+- v3 journal 保存进入 run 前 sentinel 的原始 bytes、存在性和 SHA-256；rollback 逐字节恢复。apply/resume/rollback 在顶层 Application State lease 内完成状态复核和提交，手工 CLI 与 Manager/另一个 CLI 不再能并发修改同一 State Root。
+- Manager Operation Journal 升级为 v5，正式记录 `action: "start"`；v3/v4 只在读取边界转换。候选 Product plan 发生在停服务、备份、切换和状态修改前，runId 先进入 Journal。
+- native、Windows Portable 与 container 共用 `ApplicationLaunch`。migration apply 后必须通过目标 `/api/app/version` 与健康检查才提交 Operation；ready 前失败先精确终止本次候选，再回滚 Product migration、外层数据库备份和组件。容器终止使用本次 `startDocker()` 发布的精确 container id，不重新查询 Compose 当前容器。
+- 容器 identity 现已从内存 handle 提升为 Operation Journal v5 的 `candidate-container` effect。Compose 进入可能创建候选前先写 planned 屏障，读取精确 id 后、HTTP 健康检查前写 applied；install/update/start 都使用同一异步 lifecycle callback。崩溃恢复第一步按 id 停止并 durable 标记 `stopped: true`，然后才允许 migration/database/Product rollback；只有屏障没有 id 时保留 Journal 并 fail closed。
+- Native 崩溃恢复不使用 PID 文件。Windows 继续由 Job Object 监督器收口；POSIX Owned Process 改为轻量 supervisor 持有独立 process group，Manager IPC 断开时执行同一 TERM→KILL 有界清理。这样 Manager 在候选健康检查期间异常退出，不会让 POSIX Product 脱离本次 ApplicationLaunch 所有权。
+- 删除了零调用的旧 `startApplication()` 直启旁路；Manager start 的唯一执行入口保持 `startInstallationApplication()`，因此不能绕过 plan、Operation Journal、候选 ownership 和健康提交点。
+- 最终失败链审查发现两个恢复漏洞：Source Dev install 会先删除 staging worktree 再调用 Product rollback，update 则在 rollback 失败后仍删除 worktree；多个入口还会吞掉候选终止或自动恢复错误。现统一为“确认候选终止 → 恢复 Journal → 恢复成功后才清理 staging”，终止失败时禁止状态回滚，恢复失败时保留 Journal、staging 与 backup，并同时报告原始错误和恢复错误。
+- install/update 现在由外层事务持有验证 launch 直到 Operation commit。健康后、Manifest/wrapper/git 提交前发生错误时仍能按精确 handle 终止候选；container update/adopt 恢复操作前的 running/stopped 状态，Fresh container install 保持启动后的既有行为。Docker `ready` 失败的派生 `completion` 由 Manager 内部观察，避免未等待 completion 时产生进程级 unhandled rejection。
+- Windows Portable `--no-health-check` 现在只允许 migration plan 为 `already_current`；存在状态升级时必须完成健康检查。ready 后的正常退出只返回进程结果，不回滚已提交 migration。
+- planner 不再把 complete v3 sentinel 直接等同于 `already_current`。`applied` step 可永久投影完成，动态或曾 `skipped` 的 step 必须重新 preflight；Session v2 自有 sentinel 与 review repair dry-run 会共同决定是否建立同 catalog 的新 run。
+- install/adopt/update/start 现在共用 migration transaction 顺序。同版本 update 仍运行当前 Product plan；若报告 `planned`，执行 migration-only update、外层 SQLite 备份、健康验证和提交，而不是提前返回 unchanged。
+- 原生 runner 检查改为按 Profile 检查真实 bootstrap：Source Dev 检查 `scripts/db/migrate-application-state.ts`，Product/Portable 检查 Product command bootstrap，Container 不读取宿主文件。此前把命令数组 `args[0]` 当文件路径会让 Product Bun、Source Product 和 Portable 在 plan 前误报 runner 不存在。
+- Container start 明确区分操作前 `running/stopped/missing`。已有 running deployment 只验证健康，不发布 candidate；stopped/missing 才把新启动的精确 container id 交给 launch ownership。存在迁移时 running deployment 会先停止，失败恢复回到原运行状态。
+- Docker Product entrypoint 已删除独立数据库迁移。非 Manager 直接启动只经过 Application State readiness gate，不会在 Nitro 启动旁路修改 SQLite；Manager 的 one-off runner 仍执行完整 catalog。
+- 最终 Manager suite 为 33 files passed / 1 skipped、209 tests passed / 2 skipped；typecheck、build、pack 与临时安装 smoke 均通过。Docker/Release 入口合同 17 项通过。Source runner 在隔离空 State Root 实跑 `plan → apply → already_current`；Product Runtime Image 后处理仍被 Task 130 的 `profile-compile-worker.mjs` 绝对路径、`.bun` 路径与未登记 `node-fetch` package island 阻断，因此没有把 staging command 记作 Product bundle smoke。正式 Source/Product/Container/Portable 跨版本公开矩阵仍是发布门禁。
+- 当前 Windows 主机没有可用 POSIX Bun/Node 或 Docker，所以 POSIX 宿主断连与真实容器运行状态恢复只完成类型、bundle 和跨平台测试接线，必须由现有 Linux/macOS/container runner 执行后才能记为实机通过。
+
+## 2026-07-28：App SQLite 接入统一 Application State 迁移事务
+
+- Task 118 建立统一 Application State catalog / runner。本段记录当时的 catalog v2 checkpoint；现行 v3 合同见上一节与 [ADR 0008](../../adr/0008-application-state-catalog-evolution.md)。
+- Manager 的 install/update/start 共用候选 Product migration interface。只要 plan 报告 App SQLite 有待应用 migration，Manager 就先在 Operation Journal 写入 planned `sqlite-backup` effect，完成 WAL checkpoint 与冷备份后标记 applied，再让候选 Product 执行统一 migration；容器 Profile 仍通过一次性应用容器执行同一入口。
+- 删除了 catalog 外的重复 `migrateDatabase()` 调用。Product runner 按 migration 目录与 `_prisma_migrations` 只读规划，每条 SQL 与对应 migration 记录在同一 SQLite 事务提交；Product step 自己保存 backup/checkpoint 以 resume 或 rollback，Manager 保存外层数据库快照和 Operation Journal 以恢复整个安装事务。
+- 直接 `bun run dev` 现在先执行 `migration:check`。Product launcher 和 Nitro 最早插件还会各自只读复核，防止直接运行 `nuxt dev` 或 `.output/server/index.mjs` 绕过；无 pending 时不得创建数据库、备份或 migration 记录。
+- 验证：Manager 迁移聚焦 17 项通过，完整 suite 为 164 项通过、2 项按平台跳过，Manager typecheck 通过；Product build 与 runtime vendor/产物断言通过。旧 App SQLite 的 `siteBaseUrl NOT NULL` 夹具会准确列出 `20260727210000_fix_official_passport_origin`，apply 后 schema 与记录正确，再次 check 保持文件大小、mtime 和目录内容不变。
+- 当时验证的真实 State Root 是 complete catalog v2 与 Session schema v2；本轮只在隔离复制数据上演练 v3 与 repair，没有再次改写真实 State Root。自动升级不依赖应用版本号；Manager-managed install/update/start 运行 catalog，非 Manager 启动只提示显式运行 `bun run migrate:application-state -- --apply`。
 
 ## 2026-07-25：Windows Portable无健康检查临时启动参数
 

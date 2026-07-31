@@ -8,6 +8,7 @@ import {loadCompiledVariableDefinitions} from "nbook/server/agent/variables/defi
 import {resolveStateRoot, resolveStateWorkspaceRoot} from "nbook/server/runtime/installation-paths";
 import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import type {VariableNamespace} from "nbook/server/agent/variables/types";
+import {resolveRuntimeArtifactCompilerContext} from "nbook/server/utils/runtime-artifact-compiler-context";
 
 type DefinitionCommand = "status" | "check" | "compile";
 
@@ -210,8 +211,7 @@ function runTypecheck(filePath: string): boolean {
     if (!/\.(tsx|ts)$/.test(filePath) || !fs.existsSync(filePath)) {
         return true;
     }
-    const configPath = ts.findConfigFile(process.cwd(), ts.sys.fileExists, ".nuxt/tsconfig.server.json")
-        ?? ts.findConfigFile(process.cwd(), ts.sys.fileExists, "tsconfig.json");
+    const configPath = resolveRuntimeArtifactCompilerContext().tsconfigPath;
     if (!configPath) {
         console.error("未找到 tsconfig.json");
         return false;

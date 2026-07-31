@@ -28,7 +28,6 @@ describe("NeuroAgentHarness session query", () => {
         const created = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         harness.eventHub.pinReplayFrom(created.metadata.sessionId, 1);
 
@@ -94,7 +93,6 @@ describe("NeuroAgentHarness session query", () => {
         const created = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const entry = await repo.appendEntry(created.metadata.sessionId, {
             type: "message",

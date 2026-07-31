@@ -17,14 +17,14 @@ defineRouteMeta({
     "summary": "Read workspace tree snapshot",
     "parameters": [
         {
-            "name": "projectPath",
+            "name": "projectRoot",
             "in": "query",
             "required": false,
             "schema": {
-                "description": "Project Workspace path, for example workspace/<project>",
+                "description": "Project Workspace root, single directory name under Workspace Root",
                 "type": "string"
             },
-            "description": "Project Workspace path, for example workspace/<project>"
+            "description": "Project Workspace root, single directory name under Workspace Root"
         },
         {
             "name": "workspaceKind",
@@ -119,13 +119,15 @@ defineRouteMeta({
 
 
 
+
+
 /**
  * 读取工作区文件树。
  */
 export default defineEventHandler(async (event) => {
     const timing = createServerTiming(event);
     const query = getQuery(event);
-    const projectPath = typeof query.projectPath === "string" ? query.projectPath : undefined;
+    const projectRoot = typeof query.projectRoot === "string" ? query.projectRoot : undefined;
     const workspaceKind = query.workspaceKind === "user-assets" ? query.workspaceKind : undefined;
     const type = typeof query.type === "string" && query.type.trim() ? query.type.trim() : null;
     const depth = typeof query.depth === "string" ? Number.parseInt(query.depth, 10) : null;
@@ -138,7 +140,7 @@ export default defineEventHandler(async (event) => {
     });
 
     const target = await timing.measure("workspace.resolve", () => (
-        resolveWorkspaceFileTarget(runtimePathsFromEnv(), {projectPath, workspaceKind})
+        resolveWorkspaceFileTarget(runtimePathsFromEnv(), {projectRoot, workspaceKind})
     ));
     return withProjectTargetOperation(target, (projectHandles) => {
         if (target.kind !== "project-workspace") {

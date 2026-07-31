@@ -52,8 +52,7 @@ describe("writer profile contract", () => {
         const prepared = await inlineEditorProfile.prepare!({
             session: testSession({
                 profileKey: "inline.editor",
-                workspaceRoot: "workspace",
-                projectPath: "workspace/current-user-input-test",
+                currentProjectRoot: "current-user-input-test",
             }),
             initial: {},
             invocation: {
@@ -79,8 +78,7 @@ describe("writer profile contract", () => {
             const prepared = await writerProfile.prepare!({
                 session: testSession({
                     profileKey: "writer",
-                    workspaceRoot: "workspace",
-                    projectPath: `workspace/${projectSlug}`,
+                    currentProjectRoot: projectSlug,
                 }),
                 initial: {},
                 settings: defaultWriterSettings(),

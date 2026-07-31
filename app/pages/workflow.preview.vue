@@ -3,12 +3,16 @@ import {computed, onMounted, ref, watch} from "vue";
 import WorkflowMermaid from "nbook/app/components/workflow-preview/WorkflowMermaid.vue";
 import WorkflowRunPanel from "nbook/app/components/workflow-preview/WorkflowRunPanel.vue";
 import {useIdeTheme} from "nbook/app/composables/useIdeTheme";
-import {useProjectSession} from "nbook/app/composables/useProjectSession";
+import {isProjectSessionSupersededError, useProjectSession} from "nbook/app/composables/useProjectSession";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
-import type {AgentJobSnapshot} from "nbook/server/agent/jobs/agent-job-manager";
+import type {
+    AgentJobEventCursor,
+    AgentJobListResponseDto,
+    AgentJobStartDto,
+} from "nbook/shared/dto/agent-job.dto";
 import type {WorkflowDemoScenarioDto} from "nbook/server/agent/workflow/workflow-demo-service";
-import type {NovelListItemDto} from "nbook/shared/dto/novel-chapter.dto";
+import type {ProjectListResponseDto, ProjectMetadataDto} from "nbook/shared/dto/project.dto";
 
 type WorkflowCatalogItemDto = {
     key: string;
@@ -26,10 +30,11 @@ type WorkflowCatalogDto = {
 
 type FormalWorkflowRun = {
     jobId: string;
+    jobEventCursor: AgentJobEventCursor;
     runId: string;
     workflowKey: string;
     /** 只有本页当前生命周期发起的 run 保留其显式项目；job ref 不重复持久化此字段。 */
-    projectPath: string | null;
+    projectRoot: string | null;
 };
 
 /**
@@ -54,8 +59,8 @@ const starting = ref("");
 /** Task 111 正式入口：Catalog、显式 Project Workspace 与本页启动的 run。 */
 const catalogWorkflows = ref<WorkflowCatalogItemDto[]>([]);
 const catalogModels = ref<WorkflowCatalogDto["models"]>([]);
-const projects = ref<NovelListItemDto[]>([]);
-const selectedProjectPath = ref("");
+const projects = ref<ProjectMetadataDto[]>([]);
+const selectedProjectRoot = ref("");
 const selectedModelKey = ref("");
 const formalArgsDrafts = ref<Record<string, Record<string, string>>>({});
 const formalRuns = ref<FormalWorkflowRun[]>([]);
@@ -64,14 +69,16 @@ const formalStarting = ref("");
 const formalError = ref("");
 const formalCatalogLoading = ref(false);
 const formalEntryLoading = ref(false);
-const formalLoading = computed(() => formalCatalogLoading.value || formalEntryLoading.value);
-const formalProjectTarget = computed(() => selectedProjectPath.value || null);
-const {status: formalProjectStatus} = useProjectSession(formalProjectTarget);
+const formalProjectSwitching = ref(false);
+const formalLoading = computed(() => formalCatalogLoading.value || formalEntryLoading.value || formalProjectSwitching.value);
+const formalProjectSession = useProjectSession();
+const formalProjectStatus = computed(() => formalProjectSession.state.value.status);
 const formalProjectStatusLabel = computed(() => ({
     idle: "未选择项目",
-    connecting: "正在打开项目",
-    connected: "项目已就绪",
-    disconnected: "项目连接中断",
+    opening: "正在打开项目",
+    reconnecting: "正在重新连接",
+    ready: "项目已就绪",
+    failed: "项目打开失败",
 })[formalProjectStatus.value]);
 /** 演示速度：mock responder sleep 的倍率（只影响观感节奏，不影响 replay 语义） */
 const speedFactor = ref(4);
@@ -98,46 +105,89 @@ async function refreshRuns() {
     } catch { /* run 列表失败不阻塞主流程 */ }
 }
 
-let formalCatalogRevision = 0;
+type FormalCatalogRequest = {
+    key: string;
+    promise: Promise<boolean>;
+};
 
-/** 按当前 Project Workspace 读取 Catalog；切换项目时只允许最新请求更新页面。 */
-async function loadFormalCatalog(projectPath = selectedProjectPath.value): Promise<void> {
+let formalCatalogRevision = 0;
+let formalCatalogRequest: FormalCatalogRequest | null = null;
+
+/** 当前选择和 Controller 必须仍精确拥有请求发起时的 ready generation。 */
+function ownsFormalCatalogGeneration(projectRoot: string, readyRevision: number | null): boolean {
+    if (projectRoot !== selectedProjectRoot.value) return false;
+    if (!projectRoot) return readyRevision === null;
+    return formalProjectSession.state.value.status === "ready"
+        && formalProjectSession.state.value.ready.projectRoot === projectRoot
+        && formalProjectSession.state.value.ready.revision === readyRevision;
+}
+
+/** 离开 ready generation 时立即撤销旧 Catalog，迟到请求只能自行结束。 */
+function clearFormalCatalog(): void {
+    formalCatalogRevision += 1;
+    formalCatalogRequest = null;
+    formalCatalogLoading.value = false;
+    catalogWorkflows.value = [];
+    catalogModels.value = [];
+    selectedModelKey.value = "";
+    formalArgsDrafts.value = {};
+}
+
+/** 按 Project ready generation 读取 Catalog；同 generation 的入口与 reconnect 共用请求。 */
+async function loadFormalCatalog(
+    projectRoot = selectedProjectRoot.value,
+    readyRevision: number | null = projectRoot && formalProjectSession.state.value.status === "ready"
+        ? formalProjectSession.state.value.ready.revision
+        : null,
+): Promise<boolean> {
+    if (!ownsFormalCatalogGeneration(projectRoot, readyRevision)) return false;
+    const key = projectRoot ? `${projectRoot}:${readyRevision}` : "workspace-root";
+    if (formalCatalogRequest?.key === key) return formalCatalogRequest.promise;
+
     const revision = ++formalCatalogRevision;
+    const request: FormalCatalogRequest = {key, promise: Promise.resolve(false)};
     formalCatalogLoading.value = true;
     formalError.value = "";
-    try {
-        const catalog = await $fetch<WorkflowCatalogDto>("/api/agent/workflow/catalog", {
-            query: projectPath ? {projectPath} : undefined,
-        });
-        if (revision !== formalCatalogRevision || projectPath !== selectedProjectPath.value) {
-            return;
+    request.promise = (async () => {
+        try {
+            const catalog = await $fetch<WorkflowCatalogDto>("/api/agent/workflow/catalog", {
+                query: projectRoot ? {projectRoot} : undefined,
+            });
+            if (revision !== formalCatalogRevision || !ownsFormalCatalogGeneration(projectRoot, readyRevision)) {
+                return false;
+            }
+            catalogWorkflows.value = catalog.workflows;
+            catalogModels.value = catalog.models;
+            if (selectedModelKey.value && !catalog.models.some((model) => model.modelKey === selectedModelKey.value)) {
+                selectedModelKey.value = "";
+            }
+            formalArgsDrafts.value = Object.fromEntries(catalog.workflows.map((workflow) => [
+                workflow.key,
+                Object.fromEntries(workflow.argsHint.map((hint) => [
+                    hint.name,
+                    formalArgsDrafts.value[workflow.key]?.[hint.name] ?? hint.defaultValue,
+                ])),
+            ]));
+            return true;
+        } catch (error) {
+            if (revision === formalCatalogRevision && ownsFormalCatalogGeneration(projectRoot, readyRevision)) {
+                formalError.value = resolveApiErrorMessage(error, "读取正式 Workflow Catalog 失败");
+            }
+            return false;
+        } finally {
+            if (formalCatalogRequest === request) {
+                formalCatalogRequest = null;
+                formalCatalogLoading.value = false;
+            }
         }
-        catalogWorkflows.value = catalog.workflows;
-        catalogModels.value = catalog.models;
-        if (selectedModelKey.value && !catalog.models.some((model) => model.modelKey === selectedModelKey.value)) {
-            selectedModelKey.value = "";
-        }
-        formalArgsDrafts.value = Object.fromEntries(catalog.workflows.map((workflow) => [
-            workflow.key,
-            Object.fromEntries(workflow.argsHint.map((hint) => [
-                hint.name,
-                formalArgsDrafts.value[workflow.key]?.[hint.name] ?? hint.defaultValue,
-            ])),
-        ]));
-    } catch (error) {
-        if (revision === formalCatalogRevision && projectPath === selectedProjectPath.value) {
-            formalError.value = resolveApiErrorMessage(error, "读取正式 Workflow Catalog 失败");
-        }
-    } finally {
-        if (revision === formalCatalogRevision) {
-            formalCatalogLoading.value = false;
-        }
-    }
+    })();
+    formalCatalogRequest = request;
+    return request.promise;
 }
 
 /**
  * 读取现有 Project Workspace、后台 Job，再按有效项目读取正式 Workflow Catalog。
- * 选中项由 useProjectSession 建立 open + presence；列表刷新本身不改变选择。
+ * 选中项先完成显式激活事务，再读取 Project 数据面；列表刷新本身不改变选择。
  */
 let formalEntryRevision = 0;
 
@@ -147,29 +197,40 @@ async function loadFormalEntry(): Promise<void> {
     formalError.value = "";
     try {
         const [projectList, jobList] = await Promise.all([
-            $fetch<NovelListItemDto[]>("/api/projects"),
-            $fetch<{jobs: AgentJobSnapshot[]}>("/api/agent/jobs"),
+            $fetch<ProjectListResponseDto>("/api/projects"),
+            $fetch<AgentJobListResponseDto>("/api/agent/jobs"),
         ]);
         if (revision !== formalEntryRevision) {
             return;
         }
-        projects.value = projectList;
-        if (selectedProjectPath.value && !projectList.some((project) => project.projectPath === selectedProjectPath.value)) {
-            selectedProjectPath.value = "";
+        projects.value = [...projectList.projects];
+        if (selectedProjectRoot.value && !projectList.projects.some((project) => project.projectRoot === selectedProjectRoot.value)) {
+            selectedProjectRoot.value = "";
         }
-        const knownProjectPaths = new Map(formalRuns.value.map((run) => [run.jobId, run.projectPath]));
+        const knownProjectRoots = new Map(formalRuns.value.map((run) => [run.jobId, run.projectRoot]));
         formalRuns.value = jobList.jobs.flatMap((job): FormalWorkflowRun[] => {
             if (job.kind !== "workflow" || job.ownerSessionId !== null || !job.ref || typeof job.ref !== "object" || Array.isArray(job.ref)) {
                 return [];
             }
             const runId = typeof job.ref.runId === "string" ? job.ref.runId : "";
             const workflowKey = typeof job.ref.workflowKey === "string" ? job.ref.workflowKey : "";
-            return runId ? [{jobId: job.jobId, runId, workflowKey: workflowKey || job.title, projectPath: knownProjectPaths.get(job.jobId) ?? null}] : [];
+            return runId ? [{
+                jobId: job.jobId,
+                jobEventCursor: jobList.eventCursor,
+                runId,
+                workflowKey: workflowKey || job.title,
+                projectRoot: knownProjectRoots.get(job.jobId) ?? null,
+            }] : [];
         });
         if (formalActiveRun.value) {
             formalActiveRun.value = formalRuns.value.find((run) => run.jobId === formalActiveRun.value?.jobId) ?? null;
         }
-        await loadFormalCatalog();
+        if (!selectedProjectRoot.value || (
+            formalProjectSession.state.value.status === "ready"
+            && formalProjectSession.state.value.ready.projectRoot === selectedProjectRoot.value
+        )) {
+            await loadFormalCatalog();
+        }
     } catch (error) {
         if (revision === formalEntryRevision) {
             formalError.value = resolveApiErrorMessage(error, "读取正式 Workflow Catalog 失败");
@@ -183,33 +244,35 @@ async function loadFormalEntry(): Promise<void> {
 
 /** 从正式 API 启动一次绑定到显式 Project Workspace 的 catalog workflow。 */
 async function startFormalRun(workflow: WorkflowCatalogItemDto) {
-    if (!selectedProjectPath.value) {
+    if (!selectedProjectRoot.value) {
         formalError.value = "请先选择一个现有 Project Workspace";
         return;
     }
-    if (formalProjectStatus.value !== "connected") {
+    if (formalProjectSession.state.value.status !== "ready"
+        || formalProjectSession.state.value.ready.projectRoot !== selectedProjectRoot.value) {
         formalError.value = "Project Workspace 正在打开，请等待项目就绪后再运行";
         return;
     }
-    const projectPath = selectedProjectPath.value;
+    const projectRoot = selectedProjectRoot.value;
     const modelKey = selectedModelKey.value;
     formalStarting.value = workflow.key;
     formalError.value = "";
     try {
-        const result = await $fetch<{jobId: string; runId: string}>("/api/agent/workflow/runs", {
+        const result = await $fetch<AgentJobStartDto & {runId: string}>("/api/agent/workflow/runs", {
             method: "POST",
             body: {
                 workflowKey: workflow.key,
                 args: formalArgsDrafts.value[workflow.key] ?? {},
                 ...(modelKey ? {model: modelKey} : {}),
-                projectPath,
+                projectRoot,
             },
         });
         const run = {
             jobId: result.jobId,
+            jobEventCursor: result.jobEventCursor,
             runId: result.runId,
             workflowKey: workflow.key,
-            projectPath,
+            projectRoot,
         };
         formalRuns.value.unshift(run);
         formalActiveRun.value = run;
@@ -245,8 +308,88 @@ onMounted(() => {
     refreshRuns();
 });
 
-watch(selectedProjectPath, () => {
-    void loadFormalCatalog();
+let formalProjectRevision = 0;
+let suppressFormalProjectWatch = false;
+
+/** 选择变化先释放旧 presence 并清空 Catalog；只有最新 ready Project 可以提交新数据。 */
+watch(selectedProjectRoot, (projectRoot) => {
+    if (suppressFormalProjectWatch) return;
+    const revision = ++formalProjectRevision;
+    formalProjectSwitching.value = true;
+    void (async () => {
+        try {
+            clearFormalCatalog();
+            await formalProjectSession.release();
+            if (!projectRoot) {
+                return;
+            }
+            const ready = await formalProjectSession.open(projectRoot);
+            if (revision !== formalProjectRevision || selectedProjectRoot.value !== projectRoot) return;
+            const loaded = await loadFormalCatalog(projectRoot, ready.revision);
+            if (revision !== formalProjectRevision || selectedProjectRoot.value !== projectRoot || loaded) return;
+            await formalProjectSession.release();
+            if (revision !== formalProjectRevision || selectedProjectRoot.value !== projectRoot) return;
+            suppressFormalProjectWatch = true;
+            selectedProjectRoot.value = "";
+            suppressFormalProjectWatch = false;
+        } catch (error) {
+            if (isProjectSessionSupersededError(error)) return;
+            if (revision !== formalProjectRevision || selectedProjectRoot.value !== projectRoot) return;
+            await formalProjectSession.release();
+            if (revision !== formalProjectRevision || selectedProjectRoot.value !== projectRoot) return;
+            suppressFormalProjectWatch = true;
+            selectedProjectRoot.value = "";
+            suppressFormalProjectWatch = false;
+            formalError.value = resolveApiErrorMessage(error, `打开 Project 失败：${projectRoot}`);
+        } finally {
+            if (revision === formalProjectRevision) formalProjectSwitching.value = false;
+        }
+    })();
+});
+
+/**
+ * presence 离开 ready 时立即清空 Project 数据；reconnect 发布新 revision 后重走同一个
+ * generation single-flight loader。初次 opening 失败仍由选择 worker 负责回到未选择状态。
+ */
+watch(formalProjectSession.state, (next, previous) => {
+    if (!selectedProjectRoot.value) return;
+    if (next.status !== "ready" || next.ready.projectRoot !== selectedProjectRoot.value) {
+        clearFormalCatalog();
+        if (next.status === "opening" || next.status === "reconnecting") {
+            formalProjectSwitching.value = true;
+        }
+        if (next.status === "failed" && previous.status === "reconnecting") {
+            const projectRoot = selectedProjectRoot.value;
+            const revision = ++formalProjectRevision;
+            void (async () => {
+                await formalProjectSession.release();
+                if (revision !== formalProjectRevision || selectedProjectRoot.value !== projectRoot) return;
+                suppressFormalProjectWatch = true;
+                selectedProjectRoot.value = "";
+                suppressFormalProjectWatch = false;
+                formalProjectSwitching.value = false;
+            })();
+        }
+        return;
+    }
+    if (previous.status === "ready" && previous.ready.revision === next.ready.revision) return;
+    const projectRoot = next.ready.projectRoot;
+    const revision = formalProjectRevision;
+    formalProjectSwitching.value = true;
+    void (async () => {
+        const loaded = await loadFormalCatalog(next.ready.projectRoot, next.ready.revision);
+        if (revision !== formalProjectRevision || selectedProjectRoot.value !== projectRoot) return;
+        if (loaded) {
+            formalProjectSwitching.value = false;
+            return;
+        }
+        await formalProjectSession.release();
+        if (revision !== formalProjectRevision || selectedProjectRoot.value !== projectRoot) return;
+        suppressFormalProjectWatch = true;
+        selectedProjectRoot.value = "";
+        suppressFormalProjectWatch = false;
+        formalProjectSwitching.value = false;
+    })();
 });
 </script>
 
@@ -301,11 +444,11 @@ watch(selectedProjectPath, () => {
                     <label class="space-y-1 text-xs text-[var(--text-muted)]">
                         <span class="flex items-center justify-between gap-2">
                             <span>Project Workspace</span>
-                            <span :class="formalProjectStatus === 'connected' ? 'text-[var(--status-success)]' : formalProjectStatus === 'disconnected' ? 'text-[var(--status-danger)]' : formalProjectStatus === 'connecting' ? 'text-[var(--status-info)]' : 'text-[var(--text-muted)]'">{{ formalProjectStatusLabel }}</span>
+                            <span :class="formalProjectStatus === 'ready' ? 'text-[var(--status-success)]' : formalProjectStatus === 'failed' ? 'text-[var(--status-danger)]' : formalProjectStatus === 'opening' || formalProjectStatus === 'reconnecting' ? 'text-[var(--status-info)]' : 'text-[var(--text-muted)]'">{{ formalProjectStatusLabel }}</span>
                         </span>
-                        <select v-model="selectedProjectPath" class="w-full rounded border border-[var(--border-color)] bg-[var(--bg-main)] px-2 py-2 text-sm text-[var(--text-main)]">
+                        <select v-model="selectedProjectRoot" class="w-full rounded border border-[var(--border-color)] bg-[var(--bg-main)] px-2 py-2 text-sm text-[var(--text-main)]">
                             <option value="" disabled>{{ projects.length ? "选择项目" : "没有可用项目" }}</option>
-                            <option v-for="project in projects" :key="project.projectPath" :value="project.projectPath">{{ project.title }} · {{ project.projectPath }}</option>
+                            <option v-for="project in projects" :key="project.projectRoot" :value="project.projectRoot">{{ project.title }} · {{ project.projectRoot }}</option>
                         </select>
                     </label>
                     <label class="space-y-1 text-xs text-[var(--text-muted)]">
@@ -334,8 +477,8 @@ watch(selectedProjectPath, () => {
                                 <input v-model="formalArgsDrafts[workflow.key]![hint.name]" class="w-full rounded border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1.5 text-xs text-[var(--text-main)]">
                             </label>
                         </div>
-                        <button type="button" class="mt-3 self-start rounded bg-[var(--accent-main)] px-4 py-1.5 text-xs font-medium text-[var(--text-inverse)] disabled:cursor-not-allowed disabled:opacity-50" :disabled="formalLoading || !selectedProjectPath || formalProjectStatus !== 'connected' || Boolean(formalStarting)" @click="startFormalRun(workflow)">
-                            {{ formalStarting === workflow.key ? "启动中…" : formalProjectStatus === "disconnected" ? "项目连接中断" : selectedProjectPath && formalProjectStatus !== "connected" ? "正在打开项目…" : "运行正式 Workflow" }}
+                        <button type="button" class="mt-3 self-start rounded bg-[var(--accent-main)] px-4 py-1.5 text-xs font-medium text-[var(--text-inverse)] disabled:cursor-not-allowed disabled:opacity-50" :disabled="formalLoading || !selectedProjectRoot || formalProjectStatus !== 'ready' || Boolean(formalStarting)" @click="startFormalRun(workflow)">
+                            {{ formalStarting === workflow.key ? "启动中…" : formalProjectStatus === "failed" ? "项目打开失败" : selectedProjectRoot && formalProjectStatus !== "ready" ? "正在打开项目…" : "运行正式 Workflow" }}
                         </button>
                     </div>
                 </div>
@@ -350,8 +493,8 @@ watch(selectedProjectPath, () => {
                         @click="formalActiveRun = run">{{ run.workflowKey }} · {{ run.jobId }} · {{ run.runId }}</button>
                 </div>
                 <div v-if="formalActiveRun" class="mt-4">
-                    <div v-if="formalActiveRun.projectPath" class="mb-2 text-xs text-[var(--text-muted)]">{{ formalActiveRun.projectPath }}</div>
-                    <WorkflowRunPanel :run-id="formalActiveRun.runId" :job-id="formalActiveRun.jobId" mode="formal" />
+                    <div v-if="formalActiveRun.projectRoot" class="mb-2 text-xs text-[var(--text-muted)]">{{ formalActiveRun.projectRoot }}</div>
+                    <WorkflowRunPanel :run-id="formalActiveRun.runId" :job-id="formalActiveRun.jobId" :job-event-cursor="formalActiveRun.jobEventCursor" mode="formal" />
                 </div>
             </section>
 

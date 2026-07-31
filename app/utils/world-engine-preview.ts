@@ -45,7 +45,7 @@ export type WorldPreviewSubject = {
 
 export type WorldPreviewProject = {
     title: string;
-    projectPath: string;
+    projectRoot: string;
     summary?: string;
 };
 
@@ -77,7 +77,7 @@ export function formatSubjectList(input: string[]): string {
     return input.map((item) => item.trim()).filter(Boolean).join(", ");
 }
 
-/** 按 title / projectPath / summary 过滤 preview 的 Project 下拉候选。 */
+/** 按 title / projectRoot / summary 过滤 preview 的 Project 下拉候选。 */
 export function filterPreviewProjects<TProject extends WorldPreviewProject>(projects: TProject[], query: string): TProject[] {
     const keyword = query.trim().toLowerCase();
     if (!keyword) {
@@ -85,29 +85,29 @@ export function filterPreviewProjects<TProject extends WorldPreviewProject>(proj
     }
     return projects.filter((project) => {
         return project.title.toLowerCase().includes(keyword)
-            || project.projectPath.toLowerCase().includes(keyword)
+            || project.projectRoot.toLowerCase().includes(keyword)
             || (project.summary?.toLowerCase().includes(keyword) ?? false);
     });
 }
 
 /** 保证当前选中的 Project 仍出现在候选里，避免搜索词让 select 显示成空值。 */
 export function keepSelectedPreviewProject<TProject extends WorldPreviewProject>(projects: TProject[], selectedProject: TProject | null | undefined): TProject[] {
-    if (!selectedProject || projects.some((project) => project.projectPath === selectedProject.projectPath)) {
+    if (!selectedProject || projects.some((project) => project.projectRoot === selectedProject.projectRoot)) {
         return projects;
     }
     return [selectedProject, ...projects];
 }
 
-/** 从候选 path 中选择仍存在于列表里的 Project；候选都无效时回退到第一项。 */
-export function selectPreviewProjectPath<TProject extends WorldPreviewProject>(projects: TProject[], ...candidates: Array<string | null | undefined>): string {
-    const knownPaths = new Set(projects.map((project) => project.projectPath));
+/** 从候选 root 中选择仍存在于列表里的 Project；候选都无效时回退到第一项。 */
+export function selectPreviewProjectRoot<TProject extends WorldPreviewProject>(projects: TProject[], ...candidates: Array<string | null | undefined>): string {
+    const knownPaths = new Set(projects.map((project) => project.projectRoot));
     for (const candidate of candidates) {
-        const projectPath = candidate?.trim() ?? "";
-        if (projectPath && knownPaths.has(projectPath)) {
-            return projectPath;
+        const projectRoot = candidate?.trim() ?? "";
+        if (projectRoot && knownPaths.has(projectRoot)) {
+            return projectRoot;
         }
     }
-    return projects[0]?.projectPath ?? "";
+    return projects[0]?.projectRoot ?? "";
 }
 
 /** 把后端 / Agent 向的同 instant 冲突提示翻译成 Preview / Workbench 可执行的 UI 行动。 */

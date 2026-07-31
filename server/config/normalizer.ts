@@ -26,7 +26,6 @@ import type {
     ObservabilityConfig,
     PiTraceConfig,
     WorkspaceHistorySettingsConfig,
-    NovelDataConfig,
 } from "nbook/server/config/types";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import {ThinkingLevelSchema} from "nbook/shared/dto/app-settings.dto";
@@ -115,20 +114,6 @@ function normalizeObservability(input: StoredGlobalConfig["observability"]): Obs
     };
 }
 
-const DEFAULT_NOVEL_DATA: NovelDataConfig = {
-    baseUrl: "http://localhost:3000",
-};
-
-/**
- * 归一化 novel-api 榜单服务配置：从存储层 partial 覆盖默认值。
- * baseUrl 显式写成空串时保留空串（表示用户明确未配置，工具侧给配置引导），未写该字段才落默认地址。
- */
-function normalizeNovelData(input: StoredGlobalConfig["novelData"]): NovelDataConfig {
-    return {
-        baseUrl: typeof input?.baseUrl === "string" ? input.baseUrl.trim() : DEFAULT_NOVEL_DATA.baseUrl,
-    };
-}
-
 const DEFAULT_WORKSPACE_HISTORY: WorkspaceHistorySettingsConfig = {
     enabled: true,
     retentionFullDays: 90,
@@ -204,7 +189,6 @@ export function createDefaultEffectiveConfig(): EffectiveConfig {
         web: normalizeWebSettings(undefined),
         observability: normalizeObservability(undefined),
         history: normalizeWorkspaceHistory(undefined),
-        novelData: normalizeNovelData(undefined),
     };
 }
 
@@ -215,7 +199,8 @@ export function normalizeGlobalConfig(input: Partial<StoredGlobalConfig> | null 
     const raw = input && typeof input === "object" ? input : {};
     const customThemes = normalizeCustomThemes(raw.ui?.customThemes);
     return {
-        ...withoutAuth(raw),
+        ...(raw.observability ? {observability: raw.observability} : {}),
+        ...(raw.history ? {history: raw.history} : {}),
         models: {
             default: normalizeNullableModelKey(raw.models?.default),
             providers: normalizeStoredProviders(raw.models?.providers),
@@ -321,7 +306,6 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
     effective.web = normalizeWebSettings(globalConfig.web);
     effective.observability = normalizeObservability(globalConfig.observability);
     effective.history = normalizeWorkspaceHistory(globalConfig.history);
-    effective.novelData = normalizeNovelData(globalConfig.novelData);
 
     if (!projectConfig) {
         return effective;
@@ -556,14 +540,6 @@ export function normalizeProfileRuntimeSettingsPatch(input: unknown): ProfileRun
         ...(compaction.success && Object.keys(compaction.data).length > 0 ? {compaction: compaction.data} : {}),
         ...(fileChangeNotice.success && Object.keys(fileChangeNotice.data).length > 0 ? {fileChangeNotice: fileChangeNotice.data} : {}),
     };
-}
-
-/**
- * 丢弃旧 Global Config 中残留的 auth，确保下一次保存只输出当前正式契约。
- */
-function withoutAuth(input: Partial<StoredGlobalConfig> & {auth?: unknown}): Partial<StoredGlobalConfig> {
-    const {auth: _ignoredAuth, ...rest} = input;
-    return rest;
 }
 
 /**

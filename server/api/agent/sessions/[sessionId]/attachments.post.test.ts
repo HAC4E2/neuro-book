@@ -161,8 +161,8 @@ function installMocks(preflight: () => Promise<void>, upload: UploadService): vo
         preflightAgentSessionAttachmentRegistration: preflight,
         uploadAgentSessionAttachment: upload,
     }));
-    vi.doMock("nbook/server/workspace-files/project-open-guard", () => ({
-        withProjectNotOpenHttpError: async (run: () => Promise<unknown>) => run(),
+    vi.doMock("nbook/server/api/projects/project-http-error", () => ({
+        withProjectHttpError: async (run: () => Promise<unknown>) => run(),
     }));
 }
 

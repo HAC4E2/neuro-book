@@ -214,7 +214,7 @@ class RuntimeVariableAccessor implements ProfileVariableAccessor {
             return this.input.writeSessionEntry(cause, entry);
         }
         // Standalone/test fallback: active harness 必须注入 writeSessionEntry，让 audit entry 走 SessionWriteExecutor。
-        return this.input.repo.appendEntry(this.input.snapshot.metadata.sessionId, entry, this.input.snapshot.metadata.workspaceKey);
+        return this.input.repo.appendEntry(this.input.snapshot.metadata.sessionId, entry);
     }
 
     private async readInNamespace(namespace: VariableNamespace, path: string, options: {recordRead: boolean}): Promise<VariableReadResult> {

@@ -15,6 +15,8 @@ import {readVariableDefinitionManifest, VARIABLE_DEFINITION_COMPILED_DIR} from "
 import {resolveApplicationRoot, resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
 import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {resolveStateRoot} from "nbook/server/runtime/installation-paths";
+import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
+import {resolveRuntimeArtifactCompilerContext} from "nbook/server/utils/runtime-artifact-compiler-context";
 
 type ProfileCommand = "status" | "check" | "compile" | "preview";
 
@@ -25,7 +27,7 @@ type CliOptions = {
     system: boolean;
     input?: JsonValue;
     sessionId?: string;
-    projectPath?: string;
+    projectRoot?: string;
     strictVariables: boolean;
 };
 
@@ -104,9 +106,9 @@ function parseArgs(args: string[]): CliOptions | null {
         if (arg === "--project") {
             const value = args.shift();
             if (!value) {
-                throw new Error("--project 需要 Project Workspace 路径。");
+                throw new Error("--project 需要单段 Project Root。");
             }
-            options.projectPath = value;
+            options.projectRoot = projectWorkspaceRef(value).projectRoot;
             continue;
         }
         if (arg === "--input-json") {
@@ -389,8 +391,7 @@ async function runTypecheckFiles(filePaths: string[], target: Awaited<ReturnType
     }
     const variableTypes = await prepareVariableTypeEnvironment(target, options);
     try {
-        const configPath = ts.findConfigFile(process.cwd(), ts.sys.fileExists, ".nuxt/tsconfig.server.json")
-            ?? ts.findConfigFile(process.cwd(), ts.sys.fileExists, "tsconfig.json");
+        const configPath = resolveRuntimeArtifactCompilerContext().tsconfigPath;
         if (!configPath) {
             console.error("未找到 tsconfig.json");
             return false;
@@ -476,8 +477,12 @@ async function prepareVariableTypeEnvironment(target: Awaited<ReturnType<typeof 
     }
 
     await collectVariableDefinitionTypes(options.system ? SYSTEM_VARIABLE_ROOT : USER_VARIABLE_ROOT, knownPaths, typeFiles);
-    if (options.projectPath) {
-        await collectVariableDefinitionTypes(path.resolve(resolveStateRoot(), options.projectPath, ".nbook", "agent", "variables"), knownPaths, typeFiles);
+    if (options.projectRoot) {
+        await collectVariableDefinitionTypes(
+            path.resolve(resolveStateRoot(), "workspace", options.projectRoot, ".nbook", "agent", "variables"),
+            knownPaths,
+            typeFiles,
+        );
     }
     await collectProfileSessionTypes(target, knownPaths, typeFiles, tempRoot);
 
@@ -681,6 +686,6 @@ function relativeInside(root: string, filePath: string): string | null {
 }
 
 function printUsage(): void {
-    console.error("用法：profile <status|check|compile|preview> <fileName|profileKey> [--system] [--all] [--project <projectPath>] [--strict-variables]");
+    console.error("用法：profile <status|check|compile|preview> <fileName|profileKey> [--system] [--all] [--project <projectRoot>] [--strict-variables]");
     console.error("示例：profile compile builtin/leader.default.profile.tsx --system");
 }

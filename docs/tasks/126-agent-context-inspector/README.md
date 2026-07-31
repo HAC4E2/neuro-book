@@ -1,6 +1,6 @@
 # Agent 上下文组成与缓存诊断面板
 
-> Active task。状态：**批次 A / B / C 已实施并验证，批次 D（前端）未开始**（2026-07-26 建档，2026-07-27 首轮实施）
+> Active task。状态：**四个批次全部实施完成，浏览器走查与真实数据核对待用户**（2026-07-26 建档，2026-07-27 实施）
 
 ## Relative documents refs
 
@@ -113,10 +113,11 @@ Anthropic 的 `input_tokens` 既不含 cacheRead 也不含 cacheWrite，三者�
 - **D9 面板 = 上一次真实请求的快照，不是「当前 session 状态」。** 与 composer 芯片是两个不同时刻、不同口径的量，二者数值不应相等，UI 必须显式标注数据时刻。见 F1。
 - **D10 面板不提供导出 / 复制全部 / 分享入口。** traces 刻意保留完整 prompt 正文并被排除在可分享日志包之外（`pi-request-recorder.ts` 头注释），面板继承同一隐私边界。见 F6。
 
-### 待确认
+### 待确认（均已关闭）
 
-- **Q1 「预演下一轮」按钮**是否进第一版。能力已现成（`previewAgentProfilePrepare` + 真实 sessionId），但它回答的是「未来」而非「当前」，与主视图语义容易混淆。**当前倾向：第一版不做。**
-- **Q2 trace retention 上限**（每 bucket `maxRecords`）会截断缓存时间轴的历史深度。第一版只看当前 session，暂不引入独立的缓存汇总落盘文件。
+- **Q1 「预演下一轮」按钮** — **不做**。它回答的是「未来」而非「当前」，与主视图语义容易混淆。批次 D 改为「组成」Tab 支持切换历史请求（用户拍板），对比需求由此满足。
+- **Q2 trace retention 上限截断时间轴** — **不成问题，关闭**。`piTrace.maxRecords` 默认 100（`server/config/normalizer.ts:100`），足够诊断，不引入独立汇总文件。
+- **校准口径的 provider 差异**（原验收里的最高风险项）— **消解**。实测 pi 层已统一：Anthropic 直接映射三字段、OpenAI 兼容侧 `input = prompt_tokens - cacheRead - cacheWrite`，两边都使 `input + cacheRead + cacheWrite` 等于真实 prompt 总量，无需按 provider 分支。注意 `cacheWrite1h` 是 `cacheWrite` 的子集，不可重复相加。
 
 ## 设计
 
@@ -228,7 +229,8 @@ toolsHash?: string;
   `server/agent/observability/context-diagnostics.ts`，13 个 code 的判别联合 + 20 用例。**组合端点本轮未做**：返回形状应由面板实际渲染需求决定，先定端点再写 UI 大概率返工，故与批次 D 合并。代价是引擎当前无消费者（有意的中间态）。
 - **批次 C（口径修正）✅ 已实施** → 同上 walkthrough
   新增 `app/utils/prompt-cache.ts` 作为唯一口径源，分母补 `cacheWrite`，两处重复实现消除（F8），总量为 0 时显示「—」而非误导性的 0%。
-- **批次 D（前端）⬜ 未开始**：DialogWindow 面板两个 Tab + composer gauge 芯片入口 + trace 关闭时的空状态（F5）+ 组合端点（含压缩触发线，F4）+ 13 条诊断的中英文案。
+- **批次 D（前端）✅ 已实施，浏览器走查待用户** → [walkthrough](walkthroughs/batch-d-frontend-panel.md)
+  DialogWindow 面板两个 Tab + composer gauge 芯片入口 + 空状态（F5）+ 组合端点 `GET /api/agent/sessions/[id]/context-inspection`（含压缩触发线，F4）+ 中英文案各 ~50 条 + i18n 完备性门（做过失败注入验证）。顺带补了 legacy 归因回退，让批次 A 之前创建的旧 session 也能看到分区。
 
 （各批实现报告写入本目录 `walkthroughs/`。）
 

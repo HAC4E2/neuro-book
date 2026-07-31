@@ -26,7 +26,7 @@ describe("POST /api/workspace-files/upload-project", () => {
             createError: (input: {statusCode?: number; message?: string}) => Object.assign(new Error(input.message), input),
             getRequestHeader: vi.fn(() => undefined),
             readMultipartFormData: vi.fn(async () => [
-                {name: "projectPath", data: Buffer.from("workspace/novel-7")},
+                {name: "projectRoot", data: Buffer.from("novel-7")},
                 {name: "mode", data: Buffer.from("files")},
                 {name: "files", filename: "index.md", data: Buffer.from("one")},
                 {name: "relativePath", data: Buffer.from("project/index.md")},
@@ -62,7 +62,7 @@ describe("POST /api/workspace-files/upload-project", () => {
             createError: (input: {statusCode?: number; message?: string}) => Object.assign(new Error(input.message), input),
             getRequestHeader: vi.fn(() => undefined),
             readMultipartFormData: vi.fn(async () => [
-                {name: "projectPath", data: Buffer.from("workspace/novel-7")},
+                {name: "projectRoot", data: Buffer.from("novel-7")},
                 {name: "mode", data: Buffer.from("zip")},
                 {name: "zip", filename: "project.zip", data: Buffer.from([1, 2, 3])},
             ]),

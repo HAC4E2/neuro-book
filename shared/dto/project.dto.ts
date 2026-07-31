@@ -1,4 +1,5 @@
 import {z} from "zod";
+import {isProjectCoverPath} from "nbook/shared/project-cover";
 
 const WINDOWS_DEVICE_NAME_PATTERN = /^(?:con|prn|aux|nul|com[1-9\u00B9\u00B2\u00B3]|lpt[1-9\u00B9\u00B2\u00B3])(?:\..*)?$/iu;
 const PROJECT_MANIFEST_RECOVERY_FILE_PATTERN = /^project-manifest-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.yaml$/iu;
@@ -21,12 +22,20 @@ export const ProjectRootDtoSchema = z.string()
 
 const ProjectRevisionDtoSchema = z.number().int().positive();
 
+/** Project Workspace 内可携带的封面图片相对路径。 */
+export const ProjectCoverPathDtoSchema = z.string()
+    .min(1)
+    .max(512)
+    .refine(isProjectCoverPath, "cover 必须是 Project Workspace 内的 PNG、JPEG 或 WebP 相对路径");
+
 /** 最终 Project 列表、详情与 mutation 共同返回的轻量 manifest metadata。 */
 export const ProjectMetadataDtoSchema = z.object({
     projectRoot: ProjectRootDtoSchema,
     kind: z.literal("novel"),
     title: z.string(),
     summary: z.string(),
+    /** project.yaml 中显式配置的 Project Workspace 相对封面路径。 */
+    cover: ProjectCoverPathDtoSchema.optional(),
     /** 仅表示 project.yaml 的修改时间；缺失时不输出该字段。 */
     manifestUpdatedAt: z.string().datetime({offset: true}).optional(),
 }).strict();
@@ -48,9 +57,8 @@ export const ProjectCandidatesResponseDtoSchema = z.object({
     candidates: z.array(ProjectCandidateDtoSchema),
 }).strict();
 
-/** POST /api/projects 创建一个尚不存在的 Project root。 */
+/** POST /api/projects 按标题创建 Project；projectRoot 由服务端稳定派生。 */
 export const ProjectCreateRequestDtoSchema = z.object({
-    projectRoot: ProjectRootDtoSchema,
     title: z.string().trim().min(1, "title 不能为空").max(120, "title 过长"),
     summary: z.string().trim().max(2_000, "summary 过长").optional(),
 }).strict();
@@ -65,7 +73,6 @@ export const ProjectCreateResponseDtoSchema = ProjectMutationResponseDtoSchema;
 
 /** PATCH /api/projects/item 原子更新 NeuroBook 拥有的 manifest metadata。 */
 export const ProjectUpdateRequestDtoSchema = z.object({
-    projectRoot: ProjectRootDtoSchema,
     title: z.string().trim().min(1, "title 不能为空").max(120, "title 过长").optional(),
     /** 空字符串表示显式清空 summary。 */
     summary: z.string().trim().max(2_000, "summary 过长").optional(),
@@ -146,6 +153,7 @@ export type ProjectMetadataDto = z.infer<typeof ProjectMetadataDtoSchema>;
 export type ProjectCandidateDto = z.infer<typeof ProjectCandidateDtoSchema>;
 export type ProjectListResponseDto = z.infer<typeof ProjectListResponseDtoSchema>;
 export type ProjectCandidatesResponseDto = z.infer<typeof ProjectCandidatesResponseDtoSchema>;
+export type ProjectMutationResponseDto = z.infer<typeof ProjectMutationResponseDtoSchema>;
 export type ProjectCreateRequestDto = z.infer<typeof ProjectCreateRequestDtoSchema>;
 export type ProjectCreateResponseDto = z.infer<typeof ProjectCreateResponseDtoSchema>;
 export type ProjectUpdateRequestDto = z.infer<typeof ProjectUpdateRequestDtoSchema>;
