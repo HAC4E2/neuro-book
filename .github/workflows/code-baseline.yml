@@ -27,6 +27,7 @@ on:
       - "vitest.config.ts"
       - "package.json"
       - "bun.lock"
+      - "patches/**"
       - ".github/workflows/code-baseline.yml"
   workflow_dispatch:
 
@@ -49,6 +50,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
       - name: Install dependencies
@@ -63,6 +68,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
       - name: Install dependencies

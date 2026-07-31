@@ -7,6 +7,10 @@ on:
       - docs/**
       - reference/**
       - .github/workflows/deploy-docs.yml
+      - patches/**
+      - scripts/build/nitropack-reproducible-patch.test.ts
+      - nuxt.config.ts
+      - tsconfig.json
       - package.json
       - bun.lock
   workflow_dispatch:
@@ -33,6 +37,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
 
@@ -41,6 +50,9 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Check patched Nitro modules
+        run: bun run test -- scripts/build/nitropack-reproducible-patch.test.ts --reporter=dot
 
       - name: Prepare Nuxt types
         run: bun run nuxt:prepare

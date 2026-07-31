@@ -12,7 +12,7 @@ const labelDefinitionSchema = z.object({
 const remoteLabelSchema = z.object({
     name: z.string().min(1),
     color: z.string().regex(/^[0-9A-Fa-f]{6}$/u),
-    description: z.string(),
+    description: z.string().nullable().transform((description) => description ?? ""),
 });
 
 const openIssueSchema = z.object({

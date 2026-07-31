@@ -1,5 +1,5 @@
-import {readFile} from "node:fs/promises";
-import {resolve} from "node:path";
+import {readdir, readFile} from "node:fs/promises";
+import {basename, resolve} from "node:path";
 import {parse} from "yaml";
 
 import {readLabelManifest} from "nbook/scripts/ci/community-labels";
@@ -47,6 +47,10 @@ interface FormContract {
 interface WorkflowStep {
     name?: string;
     run?: string;
+    uses?: string;
+    with?: {
+        "node-version"?: string | number;
+    };
 }
 
 interface WorkflowJob {
@@ -58,6 +62,10 @@ interface WorkflowJob {
 interface WorkflowConfig {
     name: string;
     on: {
+        push?: {
+            branches?: string[];
+            paths?: string[];
+        };
         pull_request?: {
             paths?: string[];
         };
@@ -70,7 +78,7 @@ const root = resolve(import.meta.dir, "../..");
 
 const formContracts: FormContract[] = [
     {
-        path: ".github/ISSUE_TEMPLATE/bug-report.yml",
+        path: ".github/ISSUE_TEMPLATE/01-bug-report.yml",
         typeLabel: "type: bug",
         requiredIds: [
             "version",
@@ -86,7 +94,7 @@ const formContracts: FormContract[] = [
         ],
     },
     {
-        path: ".github/ISSUE_TEMPLATE/feature-request.yml",
+        path: ".github/ISSUE_TEMPLATE/02-feature-request.yml",
         typeLabel: "type: feature",
         requiredIds: [
             "problem",
@@ -98,21 +106,7 @@ const formContracts: FormContract[] = [
         ],
     },
     {
-        path: ".github/ISSUE_TEMPLATE/support-request.yml",
-        typeLabel: "type: support",
-        requiredIds: [
-            "question",
-            "version",
-            "installation",
-            "environment",
-            "attempted",
-            "current-result",
-            "privacy-confirmation",
-            "duplicate-check",
-        ],
-    },
-    {
-        path: ".github/ISSUE_TEMPLATE/prompt-contribution.yml",
+        path: ".github/ISSUE_TEMPLATE/03-prompt-contribution.yml",
         typeLabel: "type: feature",
         requiredLabels: ["area: agent"],
         requiredIds: [
@@ -127,7 +121,21 @@ const formContracts: FormContract[] = [
         ],
     },
     {
-        path: ".github/ISSUE_TEMPLATE/other-request.yml",
+        path: ".github/ISSUE_TEMPLATE/04-support-request.yml",
+        typeLabel: "type: support",
+        requiredIds: [
+            "question",
+            "version",
+            "installation",
+            "environment",
+            "attempted",
+            "current-result",
+            "privacy-confirmation",
+            "duplicate-check",
+        ],
+    },
+    {
+        path: ".github/ISSUE_TEMPLATE/99-other-request.yml",
         typeLabel: "type: other",
         requiredIds: [
             "topic",
@@ -141,11 +149,7 @@ const formContracts: FormContract[] = [
 
 const yamlPaths = [
     ".github/labels.yml",
-    ".github/ISSUE_TEMPLATE/bug-report.yml",
-    ".github/ISSUE_TEMPLATE/feature-request.yml",
-    ".github/ISSUE_TEMPLATE/support-request.yml",
-    ".github/ISSUE_TEMPLATE/prompt-contribution.yml",
-    ".github/ISSUE_TEMPLATE/other-request.yml",
+    ...formContracts.map((contract) => contract.path),
     ".github/ISSUE_TEMPLATE/config.yml",
     ".github/workflows/community-docs.yml",
     ".github/workflows/code-baseline.yml",
@@ -177,8 +181,20 @@ const codeBaselinePaths = [
     "vitest.config.ts",
     "package.json",
     "bun.lock",
+    "patches/**",
     ".github/workflows/code-baseline.yml",
 ];
+
+const docsRuntimePaths = [
+    "patches/**",
+    "scripts/build/nitropack-reproducible-patch.test.ts",
+    "nuxt.config.ts",
+    "tsconfig.json",
+    "package.json",
+    "bun.lock",
+];
+
+const nitroPatchTestCommand = "bun run test -- scripts/build/nitropack-reproducible-patch.test.ts --reporter=dot";
 
 /** 读取仓库内的 UTF-8 文本文件。 */
 async function readRepoFile(path: string): Promise<string> {
@@ -249,7 +265,30 @@ async function validateForm(contract: FormContract, labelNames: Set<string>): Pr
     ensure(Boolean(privacy.attributes?.label?.includes("Privacy")), `${contract.path} 隐私确认缺少英文标识`);
 }
 
-/** 验证中英文贡献指南保持相同章节数和互相链接。 */
+/** 验证 Issue Form 文件集合与文件名排序合同完全一致。 */
+async function validateFormFiles(): Promise<void> {
+    const actual = (await readdir(resolve(root, ".github/ISSUE_TEMPLATE")))
+        .filter((name) => name.endsWith(".yml") && name !== "config.yml")
+        .sort();
+    const expected = formContracts.map((contract) => basename(contract.path));
+
+    ensure(
+        JSON.stringify(actual) === JSON.stringify(expected),
+        `Issue Form 文件或排序不一致：期望 ${expected.join(", ")}，实际 ${actual.join(", ")}`,
+    );
+}
+
+/** 验证指定短语在文档中存在并保持给定顺序。 */
+function ensurePhraseOrder(text: string, phrases: readonly string[], label: string): void {
+    let previousIndex = -1;
+    for (const phrase of phrases) {
+        const index = text.indexOf(phrase);
+        ensure(index > previousIndex, `${label} 缺少短语或顺序错误: ${phrase}`);
+        previousIndex = index;
+    }
+}
+
+/** 验证中英文贡献指南保持相同章节、入口与分流合同。 */
 async function validateGuides(): Promise<void> {
     const chinese = await readRepoFile("CONTRIBUTING.md");
     const english = await readRepoFile("CONTRIBUTING.en.md");
@@ -272,15 +311,32 @@ async function validateGuides(): Promise<void> {
         ensure(chinese.includes(phrase), `中文贡献指南缺少分流合同: ${phrase}`);
         ensure(english.includes(phrase), `英文贡献指南缺少分流合同: ${phrase}`);
     }
+
+    ensurePhraseOrder(chinese, [
+        "错误报告",
+        "功能建议",
+        "提示词与内置 Agent 资产",
+        "使用与安装问题",
+        "其它问题",
+    ], "中文贡献指南 Issue 入口");
+    ensurePhraseOrder(english, [
+        "Bug report",
+        "Feature request",
+        "Prompts and built-in Agent assets",
+        "Usage and installation question",
+        "Other issue",
+    ], "英文贡献指南 Issue 入口");
+    ensure(chinese.includes("提示词表单还会添加 `area: agent`"), "中文贡献指南缺少提示词表单 area: agent 例外");
+    ensure(english.includes("The prompt form also adds `area: agent`"), "英文贡献指南缺少提示词表单 area: agent 例外");
+    ensure(chinese.includes("不要借此绕过安全报告"), "中文贡献指南缺少其它问题的安全边界");
+    ensure(english.includes("not a way to bypass private security reporting"), "英文贡献指南缺少其它问题的安全边界");
 }
 
 /** 验证公开 Issue 配置、PR 模板和安全政策的关键入口。 */
 async function validatePublicTemplates(): Promise<void> {
     const config = await readYaml<IssueTemplateConfig>(".github/ISSUE_TEMPLATE/config.yml");
     ensure(config.blank_issues_enabled === false, "Issue 配置必须禁止空白 Issue");
-    const duplicateSecurityLinks = (config.contact_links ?? [])
-        .filter((link) => link.url.includes("/security/advisories"));
-    ensure(duplicateSecurityLinks.length === 0, "Issue chooser 不得重复配置私密安全报告入口；GitHub 会提供原生 Security 入口");
+    ensure((config.contact_links ?? []).length === 0, "Issue chooser 不得配置 contact link；安全报告使用 GitHub 原生入口");
 
     const pullRequest = await readRepoFile(".github/PULL_REQUEST_TEMPLATE.md");
     for (const heading of [
@@ -307,6 +363,30 @@ function jobCommands(job: WorkflowJob | undefined, label: string): readonly stri
     return job!.steps!.flatMap((step) => step.run ? [step.run] : []);
 }
 
+/** 验证 job 在执行命令前按固定顺序准备 Node 24 与 Bun。 */
+function ensureRuntimeSetup(job: WorkflowJob | undefined, label: string): void {
+    const steps = job?.steps;
+    ensure(Array.isArray(steps), `工作流 job 缺少 steps: ${label}`);
+    const checkoutIndex = steps.findIndex((step) => step.uses === "actions/checkout@v5");
+    const nodeIndex = steps.findIndex((step) => step.uses === "actions/setup-node@v5");
+    const bunIndex = steps.findIndex((step) => step.uses === "oven-sh/setup-bun@v2");
+    const firstCommandIndex = steps.findIndex((step) => Boolean(step.run));
+
+    ensure(checkoutIndex >= 0, `${label} 缺少 actions/checkout@v5`);
+    ensure(nodeIndex > checkoutIndex, `${label} 必须在 checkout 后设置 Node`);
+    ensure(bunIndex > nodeIndex, `${label} 必须在 Node 后设置 Bun`);
+    ensure(firstCommandIndex > bunIndex, `${label} 必须在运行命令前完成 Node/Bun 设置`);
+    ensure(String(steps[nodeIndex]?.with?.["node-version"]) === "24", `${label} 必须使用 Node 24`);
+}
+
+/** 判断两个 paths 列表是否为完全相同的集合。 */
+function haveSamePaths(left: readonly string[], right: readonly string[]): boolean {
+    const leftSorted = [...left].sort();
+    const rightSorted = [...right].sort();
+    return leftSorted.length === rightSorted.length
+        && leftSorted.every((path, index) => path === rightSorted[index]);
+}
+
 /** 验证若干命令存在并保持给定顺序。 */
 function ensureCommandOrder(commands: readonly string[], expected: readonly string[], label: string): void {
     let previousIndex = -1;
@@ -322,10 +402,21 @@ async function validateWorkflows(): Promise<void> {
     const community = await readYaml<WorkflowConfig>(".github/workflows/community-docs.yml");
     ensure(community.permissions.contents === "read", "Community workflow 必须保持 contents: read");
     ensure(Object.keys(community.permissions).length === 1, "Community workflow 不得获得写权限");
+    const communityPush = community.on.push;
+    const communityPullRequest = community.on.pull_request;
+    ensure(communityPush?.branches?.includes("master") === true, "Community workflow 必须监听 master push");
+    const communityPushPaths = communityPush?.paths ?? [];
+    const communityPullRequestPaths = communityPullRequest?.paths ?? [];
+    ensure(haveSamePaths(communityPushPaths, communityPullRequestPaths), "Community workflow 的 push 与 PR paths 必须完全一致");
+    for (const path of docsRuntimePaths) {
+        ensure(communityPushPaths.includes(path), `Community workflow 缺少运行时 path: ${path}`);
+    }
     const communityJob = community.jobs["community-docs"];
     ensure(communityJob?.["timeout-minutes"] === 15, "Community workflow 超时必须为 15 分钟");
+    ensureRuntimeSetup(communityJob, "Community workflow");
     ensureCommandOrder(jobCommands(communityJob, "community-docs"), [
         "bun install --frozen-lockfile",
+        nitroPatchTestCommand,
         "bun run nuxt:prepare",
         "bun scripts/ci/validate-community-files.ts",
         "bun run docs:build",
@@ -335,11 +426,18 @@ async function validateWorkflows(): Promise<void> {
     ensure(deployDocs.permissions.contents === "read", "Deploy Docs 必须保持 contents: read");
     ensure(deployDocs.permissions.pages === "write", "Deploy Docs 必须声明 pages: write");
     ensure(deployDocs.permissions["id-token"] === "write", "Deploy Docs 必须声明 id-token: write");
+    ensure(deployDocs.on.push?.branches?.includes("master") === true, "Deploy Docs 必须监听 master push");
+    const deployPaths = deployDocs.on.push?.paths ?? [];
+    for (const path of docsRuntimePaths) {
+        ensure(deployPaths.includes(path), `Deploy Docs 缺少运行时 path: ${path}`);
+    }
     const deployBuild = deployDocs.jobs.build;
     ensure(deployBuild?.["timeout-minutes"] === 15, "Deploy Docs build 超时必须为 15 分钟");
     ensure(deployDocs.jobs.deploy?.["timeout-minutes"] === 10, "Deploy Docs deploy 超时必须为 10 分钟");
+    ensureRuntimeSetup(deployBuild, "Deploy Docs build");
     ensureCommandOrder(jobCommands(deployBuild, "deploy-docs/build"), [
         "bun install --frozen-lockfile",
+        nitroPatchTestCommand,
         "bun run nuxt:prepare",
         "bun run docs:build",
     ], "Deploy Docs");
@@ -359,6 +457,8 @@ async function validateWorkflows(): Promise<void> {
     ensure(test?.name?.includes("advisory") === true, "Test job 必须标记 advisory");
     ensure(typecheck?.["timeout-minutes"] === 15, "Typecheck 超时必须为 15 分钟");
     ensure(test?.["timeout-minutes"] === 30, "Full tests 超时必须为 30 分钟");
+    ensureRuntimeSetup(typecheck, "Code Baseline typecheck");
+    ensureRuntimeSetup(test, "Code Baseline test");
     ensure(jobCommands(typecheck, "code-baseline/typecheck").includes("bun run typecheck"), "缺少 typecheck 命令");
     ensure(jobCommands(test, "code-baseline/test").includes("bun run test -- --reporter=dot"), "缺少全量测试命令");
 }
@@ -373,6 +473,7 @@ async function validateYaml(): Promise<void> {
 /** 执行贡献体系静态合同校验。 */
 async function main(): Promise<void> {
     await validateYaml();
+    await validateFormFiles();
     const labelNames = await validateLabels();
     for (const contract of formContracts) {
         await validateForm(contract, labelNames);

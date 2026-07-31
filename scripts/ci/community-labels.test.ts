@@ -4,6 +4,7 @@ import {
     auditOpenIssueLabels,
     compareLabels,
     hasLabelDrift,
+    parseRemoteLabels,
     type LabelDefinition,
     type RemoteLabel,
 } from "nbook/scripts/ci/community-labels";
@@ -14,6 +15,22 @@ const expected: readonly LabelDefinition[] = [
 ];
 
 describe("community labels", () => {
+    it("将 GitHub 的空标签描述归一为空字符串", () => {
+        const remote = parseRemoteLabels(JSON.stringify([{
+            name: "type: bug",
+            color: "D73A4A",
+            description: null,
+        }]));
+
+        expect(remote).toEqual([{
+            name: "type: bug",
+            color: "D73A4A",
+            description: "",
+        }]);
+        expect(compareLabels(expected, remote).changed.map((label) => label.expected.name))
+            .toEqual(["type: bug"]);
+    });
+
     it("接受完全一致的远端标签", () => {
         const remote: readonly RemoteLabel[] = expected;
         const drift = compareLabels(expected, remote);

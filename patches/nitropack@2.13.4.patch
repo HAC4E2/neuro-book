@@ -125,7 +125,7 @@ diff --git a/dist/rollup/index.mjs b/dist/rollup/index.mjs
                size: stat.size,
                path: relative(nitro.options.output.serverDir, fullPath),
                data: nitro.options.serveStatic === "inline" ? assetData.toString("base64") : void 0
-@@ -1281,7 +1281,10 @@ function publicAssets(nitro) {
+@@ -1280,7 +1280,10 @@ function publicAssets(nitro) {
              }
            }
          }
@@ -137,7 +137,7 @@ diff --git a/dist/rollup/index.mjs b/dist/rollup/index.mjs
        },
        // #nitro-internal-virtual/public-assets-node
        "#nitro-internal-virtual/public-assets-node": () => {
-@@ -1496,7 +1496,7 @@ function serverAssets(nitro) {
+@@ -1496,7 +1499,7 @@ function serverAssets(nitro) {
                type += "; charset=utf-8";
              }
              const etag = createEtag(await promises.readFile(fsPath));

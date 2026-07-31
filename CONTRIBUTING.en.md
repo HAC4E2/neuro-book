@@ -9,10 +9,10 @@ Thank you for improving NeuroBook. This guide covers the path from reporting a p
 Choose the path that matches the size of the change:
 
 - Typo fixes, broken links, and small documentation corrections that do not change meaning may go directly to a PR.
-- A small, well-defined bug fix should reference an existing issue. Open a bug report first if no issue exists.
-- New features, cross-module changes, data-shape changes, runtime contract changes, and high-cost refactors require an issue first. Start implementation after a maintainer marks it `status: ready`.
-- Installation and usage questions belong in the “Usage and installation question” form and do not need to move to an external community.
+- A small, well-defined bug fix should reference an existing issue. Use “Bug report” first if no issue exists.
+- New features, cross-module changes, data-shape changes, runtime contract changes, and high-cost refactors require a “Feature request” first. Start implementation after a maintainer marks it `status: ready`.
 - Use “Prompts and built-in Agent assets” to improve or contribute Profiles, Skills, Workflows, and other prompts.
+- Installation and usage questions belong in the “Usage and installation question” form and do not need to move to an external community.
 - If none of the public categories fit, use the structured “Other issue” form. It is not a way to bypass private security reporting or required design discussion.
 - Do not open a public issue or PR for a security vulnerability. Follow the [security policy](.github/SECURITY.md) and use GitHub private vulnerability reporting.
 
@@ -120,7 +120,7 @@ Issues track public problems and requests. Task walkthroughs preserve the ongoin
 
 ### Maintainer Triage
 
-The five issue forms automatically add one `type:*` label and `status: needs-triage`. Maintainers use the following state contract when triaging:
+The five issue forms automatically add one `type:*` label and `status: needs-triage`. The prompt form also adds `area: agent`. Maintainers use the following state contract when triaging:
 
 - Every open issue keeps exactly one `type:*` and one `status:*`. Add zero or more `area:*` and `platform:*` labels according to the actual impact.
 - `status: needs-triage` means the first review is pending. Move an issue to `status: needs-info` when information is missing, then triage it again after the reporter responds.
