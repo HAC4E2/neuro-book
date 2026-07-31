@@ -14,7 +14,7 @@ on:
       - "reference/**"
       - ".github/**"
       - "scripts/ci/validate-community-files.ts"
-      - "scripts/build/nitropack-reproducible-patch.test.ts"
+      - "scripts/ci/validate-nitropack-patch.ts"
       - "patches/**"
       - "nuxt.config.ts"
       - "tsconfig.json"
@@ -32,7 +32,7 @@ on:
       - "reference/**"
       - ".github/**"
       - "scripts/ci/validate-community-files.ts"
-      - "scripts/build/nitropack-reproducible-patch.test.ts"
+      - "scripts/ci/validate-nitropack-patch.ts"
       - "patches/**"
       - "nuxt.config.ts"
       - "tsconfig.json"
@@ -67,7 +67,7 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Check patched Nitro modules
-        run: bun run test -- scripts/build/nitropack-reproducible-patch.test.ts --reporter=dot
+        run: bun scripts/ci/validate-nitropack-patch.ts
       - name: Prepare Nuxt types
         run: bun run nuxt:prepare
       - name: Validate community files

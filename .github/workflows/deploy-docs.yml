@@ -8,7 +8,7 @@ on:
       - reference/**
       - .github/workflows/deploy-docs.yml
       - patches/**
-      - scripts/build/nitropack-reproducible-patch.test.ts
+      - scripts/ci/validate-nitropack-patch.ts
       - nuxt.config.ts
       - tsconfig.json
       - package.json
@@ -52,7 +52,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Check patched Nitro modules
-        run: bun run test -- scripts/build/nitropack-reproducible-patch.test.ts --reporter=dot
+        run: bun scripts/ci/validate-nitropack-patch.ts
 
       - name: Prepare Nuxt types
         run: bun run nuxt:prepare

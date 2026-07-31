@@ -187,14 +187,14 @@ const codeBaselinePaths = [
 
 const docsRuntimePaths = [
     "patches/**",
-    "scripts/build/nitropack-reproducible-patch.test.ts",
+    "scripts/ci/validate-nitropack-patch.ts",
     "nuxt.config.ts",
     "tsconfig.json",
     "package.json",
     "bun.lock",
 ];
 
-const nitroPatchTestCommand = "bun run test -- scripts/build/nitropack-reproducible-patch.test.ts --reporter=dot";
+const nitroPatchTestCommand = "bun scripts/ci/validate-nitropack-patch.ts";
 
 /** 读取仓库内的 UTF-8 文本文件。 */
 async function readRepoFile(path: string): Promise<string> {
