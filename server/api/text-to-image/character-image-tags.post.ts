@@ -2,6 +2,7 @@ import {
     CharacterVisualDirectWriteRequestSchema,
     generateCharacterVisualFiles,
 } from "nbook/server/text-to-image/character-image-tags";
+import {CharacterVisualDirectWriteResultSchema} from "nbook/shared/text-to-image-character-direct-write";
 import {throwCharacterImageTagsHttpError} from "nbook/server/text-to-image/character-image-tags-http-error";
 import {requireCurrentUser} from "nbook/server/utils/auth";
 import {validateBody} from "nbook/server/utils/novel-chapter";
@@ -11,9 +12,11 @@ import {withProjectNotOpenHttpError} from "nbook/server/workspace-files/project-
 export default defineEventHandler((event) => withProjectNotOpenHttpError(async () => {
     await requireCurrentUser(event);
     const body = await validateBody(event, CharacterVisualDirectWriteRequestSchema);
+    let result: Awaited<ReturnType<typeof generateCharacterVisualFiles>>;
     try {
-        return await generateCharacterVisualFiles(body);
+        result = await generateCharacterVisualFiles(body);
     } catch (error) {
         throwCharacterImageTagsHttpError(error);
     }
+    return CharacterVisualDirectWriteResultSchema.parse(result);
 }));

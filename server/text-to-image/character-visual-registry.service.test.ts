@@ -85,11 +85,30 @@ describe("Character visual V2 registry", () => {
         expect(result.visualPlanningFactsHash).not.toBe(result.renderTagFactsHash);
     });
 
-    it("任何 legacy/无效 V2 都 fail-closed，不调用兼容 parser", async () => {
+    it("旧格式 image-tags 视为缺少视觉资料，不要求 migration", async () => {
         const store = new MemoryStore();
         store.files.set("lorebook/character/hero/image-tags.md", "# image-tags\n\n## 角色特征\ncalm\n");
+        const result = await new CharacterVisualRegistryService({store}).read({projectPath: "workspace/demo"});
+        expect(result.characters).toEqual([]);
+    });
+
+    it("声明为 V2 但内容无效时保持显式错误", async () => {
+        const store = new MemoryStore();
+        store.files.set("lorebook/character/hero/image-tags.md", renderCharacterImageTagsMarkdown(character()).replace("outfitRefs:", "unknownField: true\noutfitRefs:"));
         await expect(new CharacterVisualRegistryService({store}).read({projectPath: "workspace/demo"}))
-            .rejects.toMatchObject({code: "CHARACTER_VISUAL_MIGRATION_REQUIRED"});
+            .rejects.toMatchObject({code: "CHARACTER_VISUAL_INVALID"});
+    });
+
+    it("合法 YAML 引号 schema 键声明的无效 V2 也显式报错", async () => {
+        const store = new MemoryStore();
+        store.files.set(
+            "lorebook/character/hero/image-tags.md",
+            renderCharacterImageTagsMarkdown(character())
+                .replace("schema: nbook.character-image-tags/v2", '"schema": nbook.character-image-tags/v2')
+                .replace("outfitRefs:", "unknownField: true\noutfitRefs:"),
+        );
+        await expect(new CharacterVisualRegistryService({store}).read({projectPath: "workspace/demo"}))
+            .rejects.toMatchObject({code: "CHARACTER_VISUAL_INVALID"});
     });
 
     it("缺失 outfit、owner mismatch 与 filename identity mismatch 均拒绝", async () => {

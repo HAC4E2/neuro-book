@@ -1,4 +1,5 @@
 import path from "node:path";
+import YAML from "yaml";
 import {hashTextToImageContract} from "nbook/shared/text-to-image-contract-hash";
 import type {
     CharacterImageTagHashes,
@@ -41,7 +42,7 @@ export type CharacterVisualRegistryErrorCode =
     | "CHARACTER_VISUAL_MIGRATION_REQUIRED"
     | "CHARACTER_VISUAL_INVALID";
 
-/** Route B V2-only 角色事实错误；不存在 legacy fallback。 */
+/** Route B V2 角色事实错误。 */
 export class CharacterVisualRegistryError extends Error {
     readonly code: CharacterVisualRegistryErrorCode;
 
@@ -52,7 +53,7 @@ export class CharacterVisualRegistryError extends Error {
     }
 }
 
-/** 只消费已迁移 V2 文件的 Project 角色视觉事实 registry。 */
+/** 只消费有效 V2 文件的 Project 角色视觉事实 registry。 */
 export class CharacterVisualRegistryService {
     private readonly store: CharacterVisualRegistryFileStore;
 
@@ -60,7 +61,7 @@ export class CharacterVisualRegistryService {
         this.store = options.store ?? new WorkspaceCharacterVisualRegistryStore();
     }
 
-    /** 读取并复验全部角色与其显式 outfit refs；任一 legacy/交叉 owner 使整份 registry 失败。 */
+    /** 读取并复验全部有效 V2 角色及其显式 outfit refs；旧格式忽略，交叉 owner 显式失败。 */
     async read(input: {projectPath: string}): Promise<CharacterVisualRegistrySnapshot> {
         const root = await this.store.resolveProjectRoot(input.projectPath);
         this.store.assertProjectOpen(input.projectPath, root);
@@ -72,10 +73,13 @@ export class CharacterVisualRegistryService {
             try {
                 parsedCharacter = parseCharacterImageTagsMarkdown(characterMarkdown);
             } catch (error) {
+                if (!claimsCharacterV2(characterMarkdown)) {
+                    continue;
+                }
                 const message = error instanceof Error ? error.message : String(error);
                 throw new CharacterVisualRegistryError(
-                    "CHARACTER_VISUAL_MIGRATION_REQUIRED",
-                    `${characterPath} 尚未迁移为严格 Character Image Tags V2：${message}`,
+                    "CHARACTER_VISUAL_INVALID",
+                    `${characterPath} 声明为 Character Image Tags V2，但内容无效：${message}`,
                 );
             }
             const characterDirectory = path.posix.dirname(characterPath);
@@ -137,6 +141,21 @@ export class CharacterVisualRegistryService {
             throw new CharacterVisualRegistryError("CHARACTER_VISUAL_INVALID", `角色视觉引用文件不存在：${filePath}`);
         }
         return content;
+    }
+}
+
+/** 只检查 frontmatter 是否显式声明 V2；旧格式文本本身不再触发 migration 状态。 */
+function claimsCharacterV2(markdown: string): boolean {
+    const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u.exec(markdown)?.[1];
+    if (frontmatter === undefined) return false;
+    try {
+        const decoded: unknown = YAML.parse(frontmatter);
+        return typeof decoded === "object"
+            && decoded !== null
+            && "schema" in decoded
+            && decoded.schema === "nbook.character-image-tags/v2";
+    } catch {
+        return /^\s*(?:schema|"schema"|'schema')\s*:\s*(?:nbook\.character-image-tags\/v2|"nbook\.character-image-tags\/v2"|'nbook\.character-image-tags\/v2')\s*(?:#.*)?$/mu.test(frontmatter);
     }
 }
 
