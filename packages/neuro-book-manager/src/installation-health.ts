@@ -4,7 +4,7 @@ import {join, resolve} from "node:path";
 
 import {commandStatus} from "#manager/app-commands";
 import {resolveStateDatabaseUrl} from "#manager/config";
-import {inspectDockerApplication, readDockerComposeImage} from "#manager/docker";
+import {containerProductImageReference, inspectDockerApplication, readDockerComposeImage} from "#manager/docker";
 import {pathExists, sha256File} from "#manager/files";
 import {assertCleanWorktree, repositoryRevision, validateRepository} from "#manager/git";
 import {statePort} from "#manager/health";
@@ -493,7 +493,7 @@ async function unfinishedOperations(root: string): Promise<string[]> {
 function expectedContainerImage(manifest: InstallationManifest): string {
     const product = manifest.components.product;
     if (!product || product.provider !== "container") throw new Error("Docker Profile缺少container Product。" );
-    return manifest.profile === "ghcr" ? `${product.image}@${product.digest}` : product.image;
+    return containerProductImageReference(manifest.profile, product);
 }
 
 /**

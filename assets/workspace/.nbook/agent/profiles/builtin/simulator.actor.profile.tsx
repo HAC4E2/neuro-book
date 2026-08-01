@@ -35,7 +35,7 @@ export default defineAgentProfile({
         if (!ctx.session.currentProject) {
             throw new Error("simulator.actor需要绑定Current Project才能导入soul.md。");
         }
-        const soulPath = `${subjectDirectoryPath(ctx.initial)}/soul.md`;
+        const soulPath = `workspace/${ctx.session.currentProject.workspace.ref.projectRoot}/${subjectDirectoryPath(ctx.initial)}/soul.md`;
         return (
             <ProfilePrompt>
                 <System>{renderSystemPrompt(ctx.initial, profileManifest.key)}</System>

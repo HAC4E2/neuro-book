@@ -13,13 +13,19 @@ import {
     settleProjectCoverRecoverySnapshot,
     type ProjectCoverRecoveryState,
 } from "nbook/app/utils/project-cover-recovery";
+import {
+    beginProjectPickerRecovery,
+    emptyProjectPickerRecovery,
+    failProjectPickerRecovery,
+    settleProjectPickerRecoverySnapshot,
+    type ProjectPickerRecoveryEntry,
+    type ProjectPickerRecoveryState,
+    type ProjectPickerRecoveryTarget,
+} from "nbook/app/utils/project-picker-recovery";
 import {formatTimestamp} from "nbook/app/components/novel-ide/agent/agent-message";
 import Dialog from "nbook/app/components/common/Dialog.vue";
 import OriginalImagePreviewDialog from "nbook/app/components/common/OriginalImagePreviewDialog.vue";
-import type {
-    ProjectMetadataDto,
-    ProjectMutationResponseDto,
-} from "nbook/shared/dto/project.dto";
+import type {ProjectMetadataDto} from "nbook/shared/dto/project.dto";
 import type {AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
 import {canonicalImageMime, isUnspecifiedImageMime} from "nbook/shared/media/raster-image";
 
@@ -40,7 +46,13 @@ const notification = useNotification();
 const sessionApi = useAgentSessionApi();
 const novelIdeStore = useNovelIdeStore();
 const { novels } = storeToRefs(novelIdeStore);
-const {loadProjects: refreshProjects, createProject, deleteProject} = novelIdeStore;
+const {
+    loadProjects: refreshProjects,
+    createProject,
+    deleteProject,
+    forgetProject,
+    updateProjectCover,
+} = novelIdeStore;
 const { t, locale } = useI18n();
 
 const isLoading = ref(true);
@@ -49,7 +61,10 @@ const isCreating = ref(false);
 const isCreateFormOpen = ref(false);
 const createTitle = ref(t("ide.bookshelf.defaultTitle"));
 const createSummary = ref("");
+const createRecoveryNotice = ref("");
 const createTitleInput = ref<HTMLInputElement | null>(null);
+const pickerRecoveries = ref<ProjectPickerRecoveryState>(emptyProjectPickerRecovery());
+const deleteBusyRoots = ref<Set<string>>(new Set());
 const failedCoverRoots = ref<Set<string>>(new Set());
 const coverRefreshVersions = ref<Record<string, number>>({});
 const coverDialogOpen = ref(false);
@@ -75,12 +90,14 @@ const recoveryHasMore = ref(false);
 const recoveryTotal = ref(0);
 const recoveryTargets = ref<Record<number, string>>(Object.create(null) as Record<number, string>);
 const recoveryActionId = ref<number | null>(null);
+let recoveryAttempt = 0;
 const RECOVERY_PAGE_SIZE = 20;
 const currentCoverRecovery = computed(() => {
     const projectRoot = coverDialogProject.value?.projectRoot;
     return projectRoot ? coverRecoveries.value.get(projectRoot) : undefined;
 });
 const coverNeedsRefresh = computed(() => currentCoverRecovery.value !== undefined);
+const createRecovery = computed(() => pickerRecoveries.value.create);
 const dateFormatter = computed(() => new Intl.DateTimeFormat(locale.value, {
     year: "numeric",
     month: "short",
@@ -89,14 +106,28 @@ const dateFormatter = computed(() => new Intl.DateTimeFormat(locale.value, {
     minute: "2-digit",
 }));
 
+/** 生成组件生命周期内不复用的恢复 attempt。 */
+const nextRecoveryAttempt = (): number => {
+    recoveryAttempt += 1;
+    return recoveryAttempt;
+};
+
+/** 读取指定 Project 的删除恢复记录。 */
+const deleteRecoveryFor = (projectRoot: string): ProjectPickerRecoveryEntry | undefined => (
+    pickerRecoveries.value.deletes.get(projectRoot)
+);
+
 /** 读取 Project 列表，并为首页提供可恢复的局部错误态。 */
 const loadProjects = async (): Promise<void> => {
     isLoading.value = true;
     loadError.value = "";
     const focusedProjectRoot = coverDialogProject.value?.projectRoot;
+    const capturedCoverRecoveries = coverRecoveries.value;
+    const capturedPickerRecoveries = pickerRecoveries.value;
     try {
-        const list = await refreshProjects();
-        settleCoverRecoverySnapshot(list, focusedProjectRoot);
+        const snapshot = await refreshProjects();
+        settleCoverRecoverySnapshot(snapshot.projects, capturedCoverRecoveries, focusedProjectRoot);
+        settlePickerRecoverySnapshot(snapshot.projects, capturedPickerRecoveries);
     } catch (error) {
         loadError.value = resolveApiErrorMessage(error, t("ide.picker.loadFailed"));
     } finally {
@@ -178,6 +209,7 @@ const recoverSession = async (session: AgentSessionSummaryDto, workspaceRoot: bo
  */
 const openCreateForm = async (): Promise<void> => {
     isCreateFormOpen.value = true;
+    createRecoveryNotice.value = "";
     createTitle.value = t("ide.bookshelf.defaultTitle");
     createSummary.value = "";
     await nextTick();
@@ -188,16 +220,66 @@ const openCreateForm = async (): Promise<void> => {
  * 取消就地新建。
  */
 const cancelCreateForm = (): void => {
-    if (isCreating.value) return;
+    if (isCreating.value || createRecovery.value) return;
     isCreateFormOpen.value = false;
     createTitle.value = t("ide.bookshelf.defaultTitle");
     createSummary.value = "";
+};
+
+/** 用一次完整 Catalog snapshot 同时结算 Picker 与封面恢复记录。 */
+const refreshPickerMutationState = async (
+    target: ProjectPickerRecoveryTarget,
+    attempt: number,
+): Promise<void> => {
+    const capturedCoverRecoveries = coverRecoveries.value;
+    const capturedPickerRecoveries = pickerRecoveries.value;
+    try {
+        const snapshot = await refreshProjects();
+        settleCoverRecoverySnapshot(
+            snapshot.projects,
+            capturedCoverRecoveries,
+            coverDialogProject.value?.projectRoot,
+        );
+        settlePickerRecoverySnapshot(snapshot.projects, capturedPickerRecoveries);
+    } catch (error) {
+        pickerRecoveries.value = failProjectPickerRecovery(
+            pickerRecoveries.value,
+            target,
+            attempt,
+            resolveApiErrorMessage(error, t("ide.picker.mutationRecoveryRefreshFailed")),
+        );
+    }
+};
+
+/** 重试 create 的事实刷新，不重放创建请求。 */
+const retryCreateRecovery = async (): Promise<void> => {
+    const recovery = createRecovery.value;
+    if (!recovery || isCreating.value) return;
+    isCreating.value = true;
+    try {
+        await refreshPickerMutationState({kind: "create"}, recovery.attempt);
+    } finally {
+        isCreating.value = false;
+    }
+};
+
+/** 重试指定 Project 的删除事实刷新，不重放删除请求。 */
+const retryDeleteRecovery = async (projectRoot: string): Promise<void> => {
+    const recovery = deleteRecoveryFor(projectRoot);
+    if (!recovery || deleteBusyRoots.value.has(projectRoot)) return;
+    deleteBusyRoots.value = new Set([...deleteBusyRoots.value, projectRoot]);
+    try {
+        await refreshPickerMutationState({kind: "delete", projectRoot}, recovery.attempt);
+    } finally {
+        deleteBusyRoots.value = new Set([...deleteBusyRoots.value].filter((root) => root !== projectRoot));
+    }
 };
 
 /**
  * 新建 Project 并立刻打开。
  */
 const handleCreateNovel = async (): Promise<void> => {
+    if (createRecovery.value) return;
     const title = createTitle.value.trim();
     if (!title) {
         notification.warning(t("ide.bookshelf.emptyTitleError"));
@@ -206,12 +288,23 @@ const handleCreateNovel = async (): Promise<void> => {
 
     try {
         isCreating.value = true;
+        createRecoveryNotice.value = "";
         const projectRoot = await createProject(title, createSummary.value.trim());
-        settleCoverRecoverySnapshot(novels.value);
         isCreateFormOpen.value = false;
         emit("open", projectRoot);
     } catch (error) {
-        notification.error(resolveApiErrorMessage(error, t("ide.bookshelf.createOrSwitchFailed")), {title: t("ide.bookshelf.createOrSwitchFailed")});
+        const commitState = resolveProjectMutationCommitState(error, "create");
+        if (commitState === true || commitState === "unknown") {
+            const attempt = nextRecoveryAttempt();
+            pickerRecoveries.value = beginProjectPickerRecovery(
+                pickerRecoveries.value,
+                {kind: "create"},
+                {attempt, commitState},
+            );
+            await refreshPickerMutationState({kind: "create"}, attempt);
+        } else {
+            notification.error(resolveApiErrorMessage(error, t("ide.bookshelf.createOrSwitchFailed")), {title: t("ide.bookshelf.createOrSwitchFailed")});
+        }
     } finally {
         isCreating.value = false;
     }
@@ -221,14 +314,28 @@ const handleCreateNovel = async (): Promise<void> => {
  * 删除 Project；选择界面下没有已打开 Project，无需处理未保存修改。
  */
 const handleDeleteNovel = async (projectRoot: string, title: string): Promise<void> => {
+    if (deleteRecoveryFor(projectRoot) || deleteBusyRoots.value.has(projectRoot)) return;
     if (!await confirm(t("ide.bookshelf.deleteConfirm", {title}))) {
         return;
     }
+    deleteBusyRoots.value = new Set([...deleteBusyRoots.value, projectRoot]);
     try {
         await deleteProject(projectRoot);
-        settleCoverRecoverySnapshot(novels.value);
     } catch (error) {
-        notification.error(resolveApiErrorMessage(error, t("ide.bookshelf.deleteFailed")), {title: t("ide.bookshelf.deleteFailed")});
+        const commitState = resolveProjectMutationCommitState(error, "delete");
+        if (commitState === true || commitState === "unknown") {
+            const attempt = nextRecoveryAttempt();
+            pickerRecoveries.value = beginProjectPickerRecovery(
+                pickerRecoveries.value,
+                {kind: "delete", projectRoot},
+                {attempt, commitState},
+            );
+            await refreshPickerMutationState({kind: "delete", projectRoot}, attempt);
+        } else {
+            notification.error(resolveApiErrorMessage(error, t("ide.bookshelf.deleteFailed")), {title: t("ide.bookshelf.deleteFailed")});
+        }
+    } finally {
+        deleteBusyRoots.value = new Set([...deleteBusyRoots.value].filter((root) => root !== projectRoot));
     }
 };
 
@@ -329,12 +436,8 @@ const selectCoverFile = (event: Event): void => {
     coverPreviewUrl.value = URL.createObjectURL(file);
 };
 
-/** 把 mutation 返回的轻量 Project metadata 原位应用到书架。 */
-const applyProjectMutation = (project: ProjectMetadataDto): void => {
-    const index = novels.value.findIndex((item) => item.projectRoot === project.projectRoot);
-    if (index >= 0) {
-        novels.value.splice(index, 1, project);
-    }
+/** Store 已发布 metadata 后，只更新封面图片的局部加载状态。 */
+const applyCoverMutationResult = (project: ProjectMetadataDto): void => {
     failedCoverRoots.value = new Set([...failedCoverRoots.value].filter((root) => root !== project.projectRoot));
     coverRefreshVersions.value = {
         ...coverRefreshVersions.value,
@@ -348,10 +451,12 @@ const applyProjectMutation = (project: ProjectMetadataDto): void => {
  */
 const settleCoverRecoverySnapshot = (
     list: readonly ProjectMetadataDto[],
+    capturedState: ProjectCoverRecoveryState,
     focusedProjectRoot?: string,
 ): void => {
     const settlement = settleProjectCoverRecoverySnapshot({
         state: coverRecoveries.value,
+        capturedState,
         projects: list,
         requestedProjectRoot: focusedProjectRoot,
         activeProjectRoot: coverDialogProject.value?.projectRoot,
@@ -384,23 +489,59 @@ const settleCoverRecoverySnapshot = (
     coverRecoveryNotice.value = t("ide.picker.coverUnknownRefreshed");
 };
 
+/** 应用 create/delete 恢复结算副作用；纯状态判断全部由 helper 完成。 */
+const settlePickerRecoverySnapshot = (
+    list: readonly ProjectMetadataDto[],
+    capturedState: ProjectPickerRecoveryState,
+): void => {
+    const settlement = settleProjectPickerRecoverySnapshot({
+        state: pickerRecoveries.value,
+        capturedState,
+        projects: list,
+    });
+    pickerRecoveries.value = settlement.state;
+    if (settlement.create === "committed") {
+        isCreateFormOpen.value = false;
+        createTitle.value = t("ide.bookshelf.defaultTitle");
+        createSummary.value = "";
+        createRecoveryNotice.value = "";
+        notification.warning(t("ide.picker.createCommittedRefreshed"));
+    } else if (settlement.create === "unknown") {
+        isCreateFormOpen.value = true;
+        createRecoveryNotice.value = t("ide.picker.createUnknownRefreshed");
+    }
+    for (const deleted of settlement.deletes) {
+        if (deleted.outcome === "missing") {
+            forgetProject(deleted.projectRoot);
+            notification.success(t("ide.picker.deleteRecoveredMissing"));
+        } else {
+            notification.warning(t("ide.picker.deleteRecoveredPresent"));
+        }
+    }
+};
+
 /**
  * 重新读取服务端 Project snapshot，解除 committed true/unknown 的重试门禁。
  * 刷新失败时保留门禁，避免用户继续基于旧 metadata 修改同一封面。
  */
 const refreshCoverMutationState = async (projectRoot: string): Promise<void> => {
-    if (!coverRecoveries.value.has(projectRoot)) {
+    const recovery = coverRecoveries.value.get(projectRoot);
+    if (!recovery) {
         return;
     }
+    const capturedCoverRecoveries = coverRecoveries.value;
+    const capturedPickerRecoveries = pickerRecoveries.value;
     coverBusy.value = true;
     try {
-        const list = await refreshProjects();
+        const snapshot = await refreshProjects();
         coverBusy.value = false;
-        settleCoverRecoverySnapshot(list, projectRoot);
+        settleCoverRecoverySnapshot(snapshot.projects, capturedCoverRecoveries, projectRoot);
+        settlePickerRecoverySnapshot(snapshot.projects, capturedPickerRecoveries);
     } catch (error) {
         coverRecoveries.value = reduceProjectCoverRecovery(coverRecoveries.value, {
             type: "failure",
             projectRoot,
+            attempt: recovery.attempt,
             error: resolveApiErrorMessage(error, t("ide.picker.coverRecoveryRefreshFailed")),
         });
     } finally {
@@ -412,9 +553,11 @@ const refreshCoverMutationState = async (projectRoot: string): Promise<void> => 
 const handleCoverMutationError = async (error: unknown, fallback: string, projectRoot: string): Promise<void> => {
     const commitState = resolveProjectMutationCommitState(error, "cover-update");
     if (commitState === true || commitState === "unknown") {
+        const attempt = nextRecoveryAttempt();
         coverRecoveries.value = reduceProjectCoverRecovery(coverRecoveries.value, {
             type: "begin",
             projectRoot,
+            attempt,
             commitState,
         });
         coverError.value = "";
@@ -436,13 +579,8 @@ const uploadCover = async (): Promise<void> => {
     coverError.value = "";
     coverRecoveryNotice.value = "";
     try {
-        const body = new FormData();
-        body.append("file", file, file.name);
-        const result = await $fetch<ProjectMutationResponseDto>(
-            `/api/projects/cover?${new URLSearchParams({projectRoot: project.projectRoot}).toString()}`,
-            {method: "PUT", body},
-        );
-        applyProjectMutation(result.project);
+        const updated = await updateProjectCover(project.projectRoot, file);
+        applyCoverMutationResult(updated);
         coverBusy.value = false;
         closeCoverDialog();
     } catch (error) {
@@ -460,11 +598,8 @@ const clearCover = async (): Promise<void> => {
     coverError.value = "";
     coverRecoveryNotice.value = "";
     try {
-        const result = await $fetch<ProjectMutationResponseDto>(
-            `/api/projects/cover?${new URLSearchParams({projectRoot: project.projectRoot}).toString()}`,
-            {method: "DELETE"},
-        );
-        applyProjectMutation(result.project);
+        const updated = await updateProjectCover(project.projectRoot, null);
+        applyCoverMutationResult(updated);
         coverBusy.value = false;
         closeCoverDialog();
     } catch (error) {
@@ -537,21 +672,26 @@ onBeforeUnmount(() => {
                     <span class="i-lucide-book-plus h-4 w-4 text-[var(--accent-text)]"></span>
                     {{ t("ide.bookshelf.createBook") }}
                 </div>
+                <div v-if="createRecoveryNotice" class="mb-4 rounded-md border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-3 py-2 text-sm text-[var(--status-warning)]" role="status">{{ createRecoveryNotice }}</div>
+                <div v-if="createRecovery" class="mb-4 space-y-2 rounded-md border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-2 text-sm text-[var(--status-danger)]" role="alert">
+                    <p>{{ createRecovery.error || t("ide.picker.createRecoveryRequired") }}</p>
+                    <button type="button" class="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-[var(--status-danger-border)] bg-[var(--bg-panel)] px-3 text-xs font-medium hover:bg-[var(--bg-hover)] disabled:opacity-50" :disabled="isCreating" @click="void retryCreateRecovery()"><span class="i-lucide-refresh-cw h-3.5 w-3.5" :class="isCreating ? 'animate-spin' : ''"></span>{{ t("ide.picker.mutationRecoveryRetry") }}</button>
+                </div>
                 <div class="grid gap-4 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.4fr)_auto] lg:items-end">
                     <label class="block text-xs text-[var(--text-secondary)]">
                         <span class="mb-1.5 block">{{ t("ide.bookshelf.bookTitle") }}</span>
-                        <input ref="createTitleInput" v-model="createTitle" class="h-10 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-sm text-[var(--text-main)] outline-none transition-colors focus:border-[var(--accent-main)]" maxlength="120" :disabled="isCreating" autofocus>
+                        <input ref="createTitleInput" v-model="createTitle" class="h-10 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-sm text-[var(--text-main)] outline-none transition-colors focus:border-[var(--accent-main)]" maxlength="120" :disabled="isCreating || Boolean(createRecovery)" autofocus>
                     </label>
                     <label class="block text-xs text-[var(--text-secondary)]">
                         <span class="mb-1.5 block">{{ t("ide.bookshelf.summary") }}</span>
-                        <textarea v-model="createSummary" class="h-20 w-full resize-none rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-2 text-sm leading-5 text-[var(--text-main)] outline-none transition-colors focus:border-[var(--accent-main)] lg:h-10" maxlength="2000" :disabled="isCreating"></textarea>
+                        <textarea v-model="createSummary" class="h-20 w-full resize-none rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-2 text-sm leading-5 text-[var(--text-main)] outline-none transition-colors focus:border-[var(--accent-main)] lg:h-10" maxlength="2000" :disabled="isCreating || Boolean(createRecovery)"></textarea>
                     </label>
                     <div class="grid grid-cols-2 gap-2 lg:flex">
-                        <button type="button" class="inline-flex h-10 items-center justify-center gap-1.5 rounded-md border border-[var(--border-color)] px-3 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:opacity-60" :disabled="isCreating" @click="cancelCreateForm">
+                        <button type="button" class="inline-flex h-10 items-center justify-center gap-1.5 rounded-md border border-[var(--border-color)] px-3 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:opacity-60" :disabled="isCreating || Boolean(createRecovery)" @click="cancelCreateForm">
                             <span class="i-lucide-x h-4 w-4"></span>
                             {{ t("ide.bookshelf.cancel") }}
                         </button>
-                        <button type="submit" class="inline-flex h-10 items-center justify-center gap-1.5 rounded-md bg-[var(--accent-main)] px-4 text-sm font-medium text-[var(--text-inverse)] transition-opacity hover:opacity-90 disabled:opacity-60" :disabled="isCreating">
+                        <button type="submit" class="inline-flex h-10 items-center justify-center gap-1.5 rounded-md bg-[var(--accent-main)] px-4 text-sm font-medium text-[var(--text-inverse)] transition-opacity hover:opacity-90 disabled:opacity-60" :disabled="isCreating || Boolean(createRecovery)">
                             <span v-if="isCreating" class="i-lucide-loader-2 h-4 w-4 animate-spin"></span>
                             <span v-else class="i-lucide-check h-4 w-4"></span>
                             {{ isCreating ? t("ide.bookshelf.creating") : t("ide.bookshelf.create") }}
@@ -642,9 +782,13 @@ onBeforeUnmount(() => {
                             <button type="button" class="flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--text-muted)] transition-colors hover:border-[var(--border-accent)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)] focus-visible:border-[var(--border-accent)] focus-visible:text-[var(--accent-text)] focus-visible:outline-none" :title="t('ide.picker.setCover')" :aria-label="t('ide.picker.setCover')" @click="openCoverDialog(novel)">
                                 <span class="i-lucide-image-plus h-4 w-4"></span>
                             </button>
-                            <button type="button" class="flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--text-muted)] transition-colors hover:border-[var(--status-danger-border)] hover:bg-[var(--status-danger-bg)] hover:text-[var(--status-danger)] focus-visible:border-[var(--status-danger-border)] focus-visible:bg-[var(--status-danger-bg)] focus-visible:text-[var(--status-danger)] focus-visible:outline-none" :title="t('ide.bookshelf.deleteBook')" :aria-label="t('ide.bookshelf.deleteBook')" @click="void handleDeleteNovel(novel.projectRoot, novel.title)">
-                                <span class="i-lucide-trash-2 h-4 w-4"></span>
+                            <button type="button" class="flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--text-muted)] transition-colors hover:border-[var(--status-danger-border)] hover:bg-[var(--status-danger-bg)] hover:text-[var(--status-danger)] focus-visible:border-[var(--status-danger-border)] focus-visible:bg-[var(--status-danger-bg)] focus-visible:text-[var(--status-danger)] focus-visible:outline-none disabled:opacity-50" :title="t('ide.bookshelf.deleteBook')" :aria-label="t('ide.bookshelf.deleteBook')" :disabled="deleteBusyRoots.has(novel.projectRoot) || Boolean(deleteRecoveryFor(novel.projectRoot))" @click="void handleDeleteNovel(novel.projectRoot, novel.title)">
+                                <span :class="deleteBusyRoots.has(novel.projectRoot) ? 'i-lucide-loader-circle animate-spin' : 'i-lucide-trash-2'" class="h-4 w-4"></span>
                             </button>
+                        </div>
+                        <div v-if="deleteRecoveryFor(novel.projectRoot)" class="mt-3 space-y-2 rounded-md border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-2 text-xs text-[var(--status-danger)]" role="alert">
+                            <p>{{ deleteRecoveryFor(novel.projectRoot)?.error || t("ide.picker.deleteRecoveryRequired") }}</p>
+                            <button type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--status-danger-border)] bg-[var(--bg-panel)] px-2.5 font-medium disabled:opacity-50" :disabled="deleteBusyRoots.has(novel.projectRoot)" @click="void retryDeleteRecovery(novel.projectRoot)"><span class="i-lucide-refresh-cw h-3.5 w-3.5" :class="deleteBusyRoots.has(novel.projectRoot) ? 'animate-spin' : ''"></span>{{ t("ide.picker.mutationRecoveryRetry") }}</button>
                         </div>
                     </article>
                 </div>

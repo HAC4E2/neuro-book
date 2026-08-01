@@ -24,6 +24,8 @@ jobs:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile --linker hoisted
+      - name: Verify approved Product Runtime Image policies
+        run: bun run product:policy:check
       - name: Verify public Manager provenance
         run: bun run manager:verify-public
       - name: Verify Stage 0 and Manager contracts
@@ -488,6 +490,7 @@ jobs:
           tar -xzf candidate-assets/neuro-book-product-linux-x64-glibc.tar.gz -C "${product_root}"
           mkdir -p "${state_root}/workspace"
           test ! -e "${product_root}/node_modules"
+          bun --no-install scripts/release/verify-extracted-product.ts --product-root "${product_root}"
           (
             cd "${product_root}"
             NEURO_BOOK_APPLICATION_ROOT="${product_root}" \
@@ -505,6 +508,12 @@ jobs:
             NEURO_BOOK_APPLICATION_ROOT="${product_root}" \
             NEURO_BOOK_STATE_ROOT="${state_root}" \
             bun --no-install .output/server/commands/product-command.mjs check profile-compile
+            NEURO_BOOK_APPLICATION_ROOT="${product_root}" \
+            NEURO_BOOK_STATE_ROOT="${state_root}" \
+            bun --no-install .output/server/commands/product-command.mjs check variable-authoring
+            NEURO_BOOK_APPLICATION_ROOT="${product_root}" \
+            NEURO_BOOK_STATE_ROOT="${state_root}" \
+            bun --no-install .output/server/commands/product-command.mjs check web-fetch
           )
           test ! -e "${product_root}/workspace"
           test -d "${state_root}/workspace"

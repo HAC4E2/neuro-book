@@ -33,7 +33,6 @@ vi.mock("nbook/server/agent/http", () => ({
     requireAgentSessionId: (event: TestEvent) => event.sessionId,
     useAgentHarness: () => ({
         resolveSessionAttachment: mocks.resolveSessionAttachment,
-        attachmentStore: {load: mocks.load},
     }),
 }));
 
@@ -83,6 +82,7 @@ beforeEach(() => {
     mocks.resolveSessionAttachment.mockResolvedValue({
         ref: {id: `sha256:${"a".repeat(64)}`, mimeType: "image/png", bytes: 8},
         name: "cover.png",
+        read: mocks.load,
     });
     mocks.load.mockResolvedValue(Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
     mocks.render.mockResolvedValue({bytes: Buffer.from("webp"), etag: '"variant-etag"', cache: "hit"});
@@ -123,6 +123,7 @@ describe("GET /api/agent/sessions/:sessionId/entries/:entryId/attachments/:conte
         mocks.resolveSessionAttachment.mockResolvedValue({
             ref: {id: `sha256:${"b".repeat(64)}`, mimeType: "text/html", bytes: bytes.byteLength},
             name: "unsafe.html",
+            read: mocks.load,
         });
         mocks.load.mockResolvedValue(bytes);
         const event = createEvent();
@@ -175,6 +176,7 @@ describe("GET /api/agent/sessions/:sessionId/entries/:entryId/attachments/:conte
         mocks.resolveSessionAttachment.mockResolvedValue({
             ref: {id: `sha256:${"c".repeat(64)}`, mimeType: "text/plain", bytes: 4},
             name: "note.txt",
+            read: mocks.load,
         });
         const event = createEvent({query: {preset: "attachment-grid"}});
 

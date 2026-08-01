@@ -37,6 +37,9 @@ RUN test -f .output/runtime-image.json && test -f .output/runtime-image.ready
 FROM runtime-base AS runner
 WORKDIR /app
 
+ARG NEURO_BOOK_SOURCE_REVISION
+LABEL org.opencontainers.image.revision=${NEURO_BOOK_SOURCE_REVISION}
+
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=3000

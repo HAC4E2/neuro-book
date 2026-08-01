@@ -6,6 +6,7 @@
 - [Task 75 Round 06 SQLite 句柄清理](../75-world-engine-api-calendar-embedding-cleanup/walkthroughs/2026-06-29-round-06-sqlite-handle-cleanup.md)：前作——`collectReleasedSqliteHandles`（Bun/Node 双运行时 GC 协助）与 `TrackedPrismaLibSql` 由该轮建立，本任务直接复用。
 - [Task 21 Project Workspace Index Watcher](../21-project-workspace-index-watcher/README.md)：tree index watcher 的来源，本任务把它纳入统一生命周期。
 - [reference/workspace/TERMS.md](../../../reference/workspace/TERMS.md)：Project Workspace / Workspace Root 术语。
+- [Task 125 Round 04](../125-runtime-artifact-storage-lifecycle/walkthroughs/round-04-workspace-test-isolation.md)：测试调用方复用正式 Project Session 关闭语义，但所有可写 Project fixture 均由独立临时 Workspace Root 持有，避免并行 suite 共享本任务管理的资源与锁。
 
 ## User Request / Topic
 

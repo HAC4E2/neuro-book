@@ -45,13 +45,14 @@ describe("ProfileBuildCoordinator", () => {
             running: false,
             reason: "profile_source_saved",
         }));
-        await sleep(20);
-        expect(calls).toEqual(["custom.auto.profile.tsx"]);
-        expect(catalog.buildStateFor("custom.auto")).toEqual(expect.objectContaining({
-            queued: false,
-            running: false,
-            reason: null,
-        }));
+        await waitFor(() => {
+            expect(calls).toEqual(["custom.auto.profile.tsx"]);
+            expect(catalog.buildStateFor("custom.auto")).toEqual(expect.objectContaining({
+                queued: false,
+                running: false,
+                reason: null,
+            }));
+        }, 3_000);
     });
 
     it("同一窗口多个文件合并为 compileAll", async () => {
@@ -99,14 +100,14 @@ describe("ProfileBuildCoordinator", () => {
         catalog.attachBuildCoordinator(coordinator);
 
         await catalog.enqueueBuild({fileName, reason: "watch:change"});
-        await sleep(20);
-
-        expect(calls).toEqual([]);
-        expect(catalog.buildStateFor("custom.synced")).toEqual(expect.objectContaining({
-            queued: false,
-            running: false,
-            reason: null,
-        }));
+        await waitFor(() => {
+            expect(calls).toEqual([]);
+            expect(catalog.buildStateFor("custom.synced")).toEqual(expect.objectContaining({
+                queued: false,
+                running: false,
+                reason: null,
+            }));
+        }, 3_000);
     });
 
     it("watcher 事件发现 artifact 缺失时仍会启动编译", async () => {
@@ -130,9 +131,9 @@ describe("ProfileBuildCoordinator", () => {
         catalog.attachBuildCoordinator(coordinator);
 
         await catalog.enqueueBuild({fileName, reason: "watch:change"});
-        await sleep(20);
-
-        expect(calls).toEqual([fileName]);
+        await waitFor(() => {
+            expect(calls).toEqual([fileName]);
+        }, 3_000);
     });
 
     it("boot sweep 会把缺少 manifest entry 的用户 profile 入队自愈", async () => {
@@ -158,8 +159,9 @@ describe("ProfileBuildCoordinator", () => {
             queued: true,
             reason: "profile_boot_sweep",
         }));
-        await sleep(20);
-        expect(calls).toEqual(["custom.boot.profile.tsx"]);
+        await waitFor(() => {
+            expect(calls).toEqual(["custom.boot.profile.tsx"]);
+        }, 3_000);
     });
 
     it("boot sweep 遇到旧 compilerVersion manifest 时保留用户源码并入队重编", async () => {
@@ -207,8 +209,9 @@ describe("ProfileBuildCoordinator", () => {
             queued: true,
             reason: "profile_boot_sweep",
         }));
-        await sleep(80);
-        expect(calls).toEqual([fileName]);
+        await waitFor(() => {
+            expect(calls).toEqual([fileName]);
+        }, 3_000);
     });
 
     it("worker 返回 stale 时丢弃旧结果并重新入队", async () => {
@@ -235,14 +238,14 @@ describe("ProfileBuildCoordinator", () => {
         catalog.attachBuildCoordinator(coordinator);
 
         await catalog.enqueueBuild({fileName: "custom.stale.profile.tsx", reason: "profile_source_saved"});
-        await sleep(50);
-
-        expect(calls).toEqual(["custom.stale.profile.tsx", "custom.stale.profile.tsx"]);
-        expect(catalog.buildStateFor("custom.stale")).toEqual(expect.objectContaining({
-            queued: false,
-            running: false,
-            reason: null,
-        }));
+        await waitFor(() => {
+            expect(calls).toEqual(["custom.stale.profile.tsx", "custom.stale.profile.tsx"]);
+            expect(catalog.buildStateFor("custom.stale")).toEqual(expect.objectContaining({
+                queued: false,
+                running: false,
+                reason: null,
+            }));
+        }, 3_000);
     });
 
     it("worker 返回 stale 且源码已删除时升格为 full build", async () => {
@@ -269,10 +272,10 @@ describe("ProfileBuildCoordinator", () => {
         catalog.attachBuildCoordinator(coordinator);
 
         await catalog.enqueueBuild({fileName, reason: "profile_source_saved"});
-        await sleep(80);
-
-        expect(compileCalls).toEqual([fileName]);
-        expect(compileAllCount).toBe(1);
+        await waitFor(() => {
+            expect(compileCalls).toEqual([fileName]);
+            expect(compileAllCount).toBe(1);
+        }, 3_000);
     });
 
     async function writeProfile(fileName: string, source: string): Promise<void> {

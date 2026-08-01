@@ -25,7 +25,7 @@ const StoryRefSchema = Type.Object({
 });
 
 const ProjectScopedSchema = Type.Object({
-    projectRoot: NonEmptyString("Required single-segment Project root, e.g. silver-dragon-hime. The agent must pass it explicitly."),
+    projectRoot: Type.Optional(NonEmptyString("Optional single-segment Project root for an explicit cross-Project call.")),
 });
 
 const SceneWorldAnchorSchema = Type.Object({
@@ -302,7 +302,7 @@ type SceneRefPayloadWithNote = Omit<SceneRefPayload, "note"> & {
 
 /**
  * 创建 v3 plot 工具（Task 97 重排后形态：读 get_story_* 前缀统一，写 save_* + 显式 action）。
- * projectRoot 必填；Thread/Scene 焦点写入 session custom state。
+ * 默认使用当前 Project；跨 Project 时显式传 projectRoot。Thread/Scene 焦点写入 session custom state。
  */
 export function createPlotTools(): NeuroAgentTool[] {
     return [
@@ -605,18 +605,20 @@ async function readSelection(context: ToolExecutionContext): Promise<PlotSelecti
     };
 }
 
-async function resolveThreadId(context: ToolExecutionContext, projectRoot: string, threadId?: string): Promise<number> {
+async function resolveThreadId(context: ToolExecutionContext, projectRoot: string | undefined, threadId?: string): Promise<number> {
+    const resolvedProjectRoot = projectRootForTool(context, projectRoot);
     const selection = await readSelection(context);
-    const value = threadId ?? readSelectedId(selection, projectRoot, "threadId");
+    const value = threadId ?? readSelectedId(selection, resolvedProjectRoot, "threadId");
     if (!value) {
         throw new Error("缺少 threadId；请显式提供 threadId，或先读取/创建一个 Thread 建立 plot.selection。");
     }
     return parseEntityId("threadId", value);
 }
 
-async function resolveSceneId(context: ToolExecutionContext, projectRoot: string, sceneId?: string): Promise<number> {
+async function resolveSceneId(context: ToolExecutionContext, projectRoot: string | undefined, sceneId?: string): Promise<number> {
+    const resolvedProjectRoot = projectRootForTool(context, projectRoot);
     const selection = await readSelection(context);
-    const value = sceneId ?? readSelectedId(selection, projectRoot, "sceneId");
+    const value = sceneId ?? readSelectedId(selection, resolvedProjectRoot, "sceneId");
     if (!value) {
         throw new Error("缺少 sceneId；请显式提供 sceneId，或先读取/创建一个 Scene 建立 plot.selection。");
     }
@@ -648,9 +650,14 @@ function normalizeScenePayload<TPayload extends {refs?: SceneRefPayload[]}>(payl
 
 async function writeSelection(context: ToolExecutionContext, patch: PlotSelection): Promise<void> {
     const current = await readSelection(context);
+    const projectRoot = patch.projectRoot ?? context.currentProject?.workspace.ref.projectRoot;
+    if (!projectRoot) {
+        throw new Error("plot.selection 需要当前已打开的 Project；未绑定 Project 时不能省略 projectRoot。");
+    }
     await context.harness.appendCustomState(context.sessionId, PLOT_SELECTION_STATE_KEY, {
         ...current,
         ...patch,
+        projectRoot,
         updatedAt: new Date().toISOString(),
     } as JsonValue, context.invocationId);
 }
@@ -665,7 +672,7 @@ function plotResult(details: unknown): NeuroToolResult {
 /** 在调用方选定的 exact Project generation 内执行一次 Plot 操作。 */
 async function runPlotOperation<TResult>(
     context: ToolExecutionContext,
-    projectRootInput: string,
+    projectRootInput: string | undefined,
     operation: (facade: PlotFacade) => Promise<TResult>,
 ): Promise<TResult> {
     const ready = plotProjectForTool(context, projectRootInput);
@@ -679,11 +686,22 @@ async function runPlotOperation<TResult>(
 }
 
 /** Current Project复用工具上下文的exact ref；显式跨Project root要求目标已ready。 */
-function plotProjectForTool(context: ToolExecutionContext, projectRootInput: string): ReadyProjectSessionRef {
+function plotProjectForTool(context: ToolExecutionContext, projectRootInput?: string): ReadyProjectSessionRef {
+    if (projectRootInput === undefined) {
+        if (!context.currentProject) {
+            throw new Error("Plot 工具需要当前已打开的 Project；未绑定 Project 时请显式提供 projectRoot。");
+        }
+        return context.currentProject;
+    }
     const ref = projectWorkspaceRef(projectRootInput);
     const currentProject = context.currentProject;
     if (currentProject?.workspace.ref.projectRoot === ref.projectRoot) {
         return currentProject;
     }
     return requireActiveReadyProject(ref);
+}
+
+/** 返回当前或显式目标 Project 的稳定单段 root，仅用于 selection 归属比较。 */
+function projectRootForTool(context: ToolExecutionContext, projectRootInput?: string): string {
+    return plotProjectForTool(context, projectRootInput).workspace.ref.projectRoot;
 }

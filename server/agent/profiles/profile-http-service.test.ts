@@ -14,6 +14,7 @@ import {createRuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
 import {WorkflowCatalog} from "nbook/server/agent/workflow/workflow-catalog";
 import {resetProjectSessionsForTest} from "nbook/server/workspace-files/project-session";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
+import {setWorkspaceRuntimeRootContextForTest} from "nbook/server/workspace-files/workspace-runtime-root";
 
 const roots: string[] = [];
 const originalApplicationRoot = process.env.NEURO_BOOK_APPLICATION_ROOT;
@@ -22,6 +23,7 @@ const originalStateRoot = process.env.NEURO_BOOK_STATE_ROOT;
 afterEach(async () => {
     await closeProjectForTest("project").catch(() => undefined);
     resetProjectSessionsForTest();
+    setWorkspaceRuntimeRootContextForTest(null);
     restoreEnv("NEURO_BOOK_APPLICATION_ROOT", originalApplicationRoot);
     restoreEnv("NEURO_BOOK_STATE_ROOT", originalStateRoot);
     await Promise.all(roots.splice(0).map((root) => rm(root, {recursive: true, force: true})));
@@ -42,7 +44,8 @@ describe("Profile prepare preview物理Workspace Root", () => {
         await writeProjectManifest(projectRoot);
         process.env.NEURO_BOOK_APPLICATION_ROOT = applicationRoot;
         process.env.NEURO_BOOK_STATE_ROOT = stateRoot;
-        await openProjectForTest("workspace/project");
+        setWorkspaceRuntimeRootContextForTest({workspaceRoot: runtimePaths.workspaceRoot});
+        await openProjectForTest("project");
 
         const repo = new JsonlSessionRepository(runtimePaths.workspaceRoot);
         const harness = new NeuroAgentHarness({
@@ -109,7 +112,8 @@ describe("Profile prepare preview物理Workspace Root", () => {
         `, "utf8");
         process.env.NEURO_BOOK_APPLICATION_ROOT = applicationRoot;
         process.env.NEURO_BOOK_STATE_ROOT = stateRoot;
-        await openProjectForTest("workspace/project");
+        setWorkspaceRuntimeRootContextForTest({workspaceRoot: runtimePaths.workspaceRoot});
+        await openProjectForTest("project");
 
         const repo = new JsonlSessionRepository(runtimePaths.workspaceRoot);
         const harness = new NeuroAgentHarness({

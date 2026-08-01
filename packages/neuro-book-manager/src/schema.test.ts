@@ -238,7 +238,13 @@ function dockerManifest() {
         components: {
             ...manifest.components,
             source: {provider: "git" as const, version: "0.8.0", revision: REVISION, path: "." as const, repository: "https://github.com/notnotype/neuro-book.git", branch: "master"},
-            product: {provider: "container" as const, version: "0.8.0", revision: REVISION, image: "neuro-book-source:test"},
+            product: {
+                provider: "container" as const,
+                version: "0.8.0",
+                revision: REVISION,
+                image: "neuro-book-source:test",
+                containerImageId: `sha256:${"8".repeat(64)}`,
+            },
             applicationRuntime: {provider: "container" as const, version: "0.8.0"},
             tools: {
                 rg: {provider: "container" as const, version: "source-docker"},

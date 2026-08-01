@@ -73,7 +73,8 @@ import {
 import {createBuiltinTools, createReportResultTool} from "nbook/server/agent";
 import {AgentToolRegistry} from "nbook/server/agent/tools/tool-registry";
 import {isAgentToolDefinition} from "nbook/server/agent/tools/types";
-import type {AgentResolution, NeuroAgentTool, NeuroToolResult, ProfileToolBinding, ReportResultToolBinding, ToolExecutionContext, ToolExecutionMode, UserInputFormSpec} from "nbook/server/agent/tools/types";
+import type {AgentResolution, NeuroAgentTool, NeuroToolResult, ToolExecutionContext, ToolExecutionMode, UserInputFormSpec} from "nbook/server/agent/tools/types";
+import type {ProfileToolBinding, ReportResultToolBinding} from "nbook/profile-sdk/contracts";
 import {projectRuntimeEvent} from "nbook/server/agent/events/public-event-projection";
 import {projectAgentChatEntry} from "nbook/server/agent/events/public-chat-entry-projection";
 import {publicAgentUserInputFormSpec} from "nbook/server/agent/events/public-user-input-form";
@@ -526,7 +527,7 @@ export class NeuroAgentHarness {
     readonly jobs: AgentJobManager;
     readonly tools: AgentToolRegistry;
     readonly eventHub: AgentSessionEventHub;
-    readonly attachmentStore: AttachmentStore;
+    private readonly attachmentStore: AttachmentStore;
     readonly attachmentCodec: AgentAttachmentCodec;
     readonly sessionAttachments: SessionAttachmentAuthority;
     private readonly attachmentSnapshotReader: StableAttachmentSnapshotReader;
@@ -2512,11 +2513,17 @@ export class NeuroAgentHarness {
     async resolveSessionAttachment(sessionId: number, entryId: string, contentIndex: number): Promise<{
         ref: AttachmentRef;
         name?: string;
+        /** locator 授权完成后才能使用的原图读取能力。 */
+        read: () => Promise<Uint8Array>;
     }> {
         if (!Number.isSafeInteger(contentIndex) || contentIndex < 0 || contentIndex > 1024) {
             throw new Error("Attachment contentIndex 无效");
         }
-        return this.sessionAttachments.locator(sessionId, entryId, contentIndex);
+        const locator = await this.sessionAttachments.locator(sessionId, entryId, contentIndex);
+        return {
+            ...locator,
+            read: () => this.attachmentStore.load(locator.ref),
+        };
     }
 
     /** 保存图片并登记到 Session；登记本身不移动 active leaf。 */
@@ -7632,7 +7639,7 @@ export class NeuroAgentHarness {
                 };
             },
             agentDialogueContent: async (contentInput = {}) => {
-                const snapshot = contentInput.snapshot ?? await this.repo.readSession(contentInput.sessionId ?? input.sessionId);
+                const snapshot = await this.repo.readSession(contentInput.sessionId ?? input.sessionId);
                 return buildAgentDialogueContent({
                     repo: this.repo,
                     snapshot,
@@ -7775,7 +7782,8 @@ export class NeuroAgentHarness {
                 overrides[toolKey] = resolvedTool;
                 continue;
             }
-            if (binding.definition || binding.parameters || binding.validationSchema || binding.description) {
+            if (("definition" in binding && binding.definition)
+                || binding.parameters || binding.validationSchema || binding.description) {
                 overrides[toolKey] = resolvedTool;
             }
         }
@@ -7837,8 +7845,9 @@ export class NeuroAgentHarness {
         if (isAgentToolDefinition(binding)) {
             return binding.runtime();
         }
-        const baseTool = binding.definition
-            ? binding.definition.runtime(binding)
+        const definition = "definition" in binding ? binding.definition : undefined;
+        const baseTool = isAgentToolDefinition(definition)
+            ? definition.runtime(binding)
             : this.tools.get(toolKey);
         if (!baseTool) {
             return undefined;

@@ -8,6 +8,7 @@ import {imageVariantHttpError, imageVariantSpecFromEvent} from "nbook/server/med
 import {listProjects} from "nbook/server/workspace-files/project-session";
 import {authorizeProjectCover, ProjectCoverError} from "nbook/server/workspace-files/project-cover";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
+import {encodeRfc5987Filename} from "nbook/server/utils/rfc5987";
 
 /** 返回 project.yaml 已授权的封面图片；客户端不能指定任意文件路径。 */
 export default defineEventHandler((event) => withProjectHttpError(async () => {
@@ -54,10 +55,7 @@ export default defineEventHandler((event) => withProjectHttpError(async () => {
         }
         setResponseHeader(event, "Content-Type", authorized.mimeType);
         setResponseHeader(event, "Content-Length", bytes.byteLength);
-        const filename = encodeURIComponent(path.posix.basename(project.cover)).replace(
-            /[!'()*]/gu,
-            (character) => `%${character.codePointAt(0)!.toString(16).toUpperCase()}`,
-        );
+        const filename = encodeRfc5987Filename(path.posix.basename(project.cover));
         setResponseHeader(event, "Content-Disposition", `inline; filename*=UTF-8''${filename}`);
         return bytes;
     } catch (error) {

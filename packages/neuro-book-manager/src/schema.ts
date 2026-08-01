@@ -114,6 +114,7 @@ const ContainerProductSchema = Type.Object({
     revision: RevisionSchema,
     image: Type.String({minLength: 1}),
     digest: Type.Optional(Type.String({pattern: "^sha256:[a-fA-F0-9]{64}$"})),
+    containerImageId: Type.Optional(Type.String({pattern: "^sha256:[a-fA-F0-9]{64}$"})),
     imageId: Type.Optional(RuntimeImageDigestSchema),
     sourceDigest: Type.Optional(RuntimeImageDigestSchema),
     lockfileSha256: Type.Optional(RuntimeImageDigestSchema),
@@ -704,8 +705,14 @@ function assertInstallationSemantics(manifest: InstallationManifest): void {
     if (manifest.profile === "ghcr" && (!product || product.provider !== "container" || !product.digest)) {
         throw new Error("GHCR Product 必须记录不可变 image digest。");
     }
+    if (manifest.profile === "ghcr" && product?.provider === "container" && product.containerImageId) {
+        throw new Error("GHCR Product 使用 OCI digest，不记录本地 Container Engine image ID。");
+    }
     if (manifest.profile === "source-docker" && product?.provider === "container" && product.digest) {
         throw new Error("Source Docker 使用本地 revision image，不记录 GHCR digest。");
+    }
+    if (manifest.profile === "source-docker" && product?.provider === "container" && !product.containerImageId) {
+        throw new Error("Source Docker Product 必须记录本次 build 的 Container Engine image ID。");
     }
     if (manifest.profile === "source-docker" && product?.provider === "container"
         && (product.imageId || product.sourceDigest || product.lockfileSha256 || product.builderContractVersion)) {

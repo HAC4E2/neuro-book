@@ -56,11 +56,16 @@ describe("buildWorldSchema (Zod-native)", () => {
         });
     });
 
-    test("单参数 z.record 给出明确迁移提示", () => {
-        const BadCharacter = z.object({
+    test("Zod 4 单参数 string record 可加载为动态 object", () => {
+        const StringRecordCharacter = z.object({
             equipment: z.record(z.string()).optional().describe("装备"),
         });
-        expect(() => buildWorldSchema({character: BadCharacter})).toThrow("equipment 使用 z.record 时必须显式声明 value 类型");
+        const stringRecordSchema = buildWorldSchema({character: StringRecordCharacter});
+        expect(findAttrSchema(stringRecordSchema, "character", "/equipment")).toMatchObject({
+            kind: "object",
+            itemType: "string",
+            desc: "装备",
+        });
     });
 
     test("默认值收集：含 default 的属性进 init slice", () => {

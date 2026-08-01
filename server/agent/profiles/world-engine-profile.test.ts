@@ -1,11 +1,14 @@
 import {resolve} from "node:path";
 import {describe, expect, it} from "vitest";
-import worldEngineProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/world.engine.profile";
+import worldEngineProfileDefinition from "../../../assets/workspace/.nbook/agent/profiles/builtin/world.engine.profile";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
 import {messageText} from "nbook/server/agent/messages/message-utils";
 import {createTestRuntimeSession as testSession} from "nbook/server/agent/profiles/test/runtime-session";
 import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
+import {normalizeAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+
+const worldEngineProfile = normalizeAgentProfile(worldEngineProfileDefinition);
 
 describe("world.engine profile", () => {
     it("catalog 可以加载 world.engine runtime artifact", async () => {
@@ -79,7 +82,7 @@ describe("world.engine profile", () => {
         expect(historyText).toContain("```reference/world-engine/workflow.md");
         expect(historyText).toContain("```reference/world-engine/subject-lifecycle.md");
         expect(historyText).toContain("```reference/world-engine/schema-system.md");
-        expect(modelContextText).toContain("projectPath: workspace/world-engine-demo");
+        expect(modelContextText).toContain("projectRoot: world-engine-demo");
         expect(modelContextText).toContain("rawInstant: forbidden for Agent tools");
     });
 });

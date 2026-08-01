@@ -33,6 +33,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - platform: linux-x64-glibc
+            runner: ubuntu-latest
+            command: release:product:linux
+            archive: neuro-book-product-linux-x64-glibc.tar.gz
+            port: 39223
+            browser: playwright
           - platform: linux-aarch64-glibc
             runner: ubuntu-24.04-arm
             command: release:product:linux-aarch64
@@ -56,20 +62,47 @@ jobs:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile --linker hoisted
-      - run: bun scripts/release/release-output.ts prepare --github-env
+      - id: runtime_policy
+        name: Inspect Product Runtime Image policy
+        shell: bash
+        run: bun scripts/build/check-product-runtime-policies.ts --platform "${{ matrix.platform }}" --github-output
+      - name: Measure unregistered Product platform
+        if: steps.runtime_policy.outputs.registered != 'true'
+        shell: bash
+        run: bun run product:measure --output "${RUNNER_TEMP}/product-runtime-measurement-${{ matrix.platform }}.json"
+      - name: Upload Product Runtime Image measurement
+        if: always() && steps.runtime_policy.outputs.registered != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: product-runtime-measurement-${{ matrix.platform }}
+          if-no-files-found: warn
+          path: ${{ runner.temp }}/product-runtime-measurement-${{ matrix.platform }}.json
+      - name: Prepare approved Product release output
+        if: steps.runtime_policy.outputs.registered == 'true'
+        run: bun scripts/release/release-output.ts prepare --github-env
       - name: Verify POSIX Stage 0 behavior
+        if: steps.runtime_policy.outputs.registered == 'true'
         run: bun run test:install
       - name: Verify Manager platform contracts
+        if: steps.runtime_policy.outputs.registered == 'true'
         run: bun run manager:test
       - name: Verify Owned Process platform adapter
+        if: steps.runtime_policy.outputs.registered == 'true'
         run: bun run --cwd packages/owned-process test
-      - run: bun run nuxt:build
-      - run: bun run release:source
-      - run: bun run ${{ matrix.command }}
+      - name: Build approved Product Runtime Image
+        if: steps.runtime_policy.outputs.registered == 'true'
+        run: bun run nuxt:build
+      - name: Build Source archive for native verification
+        if: steps.runtime_policy.outputs.registered == 'true'
+        run: bun run release:source
+      - name: Build approved Product archive
+        if: steps.runtime_policy.outputs.registered == 'true'
+        run: bun run ${{ matrix.command }}
       - name: Install Playwright Chromium
-        if: matrix.browser == 'playwright'
+        if: steps.runtime_policy.outputs.registered == 'true' && matrix.browser == 'playwright'
         run: bunx playwright-core install --with-deps chromium
       - name: Verify native Product
+        if: steps.runtime_policy.outputs.registered == 'true'
         shell: bash
         run: |
           version="$(bun -e 'console.log(require("./package.json").version)')"
@@ -81,7 +114,7 @@ jobs:
             "${{ matrix.port }}" \
             "${{ matrix.browser }}"
       - name: Upload native Product diagnostics
-        if: failure()
+        if: failure() && steps.runtime_policy.outputs.registered == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.platform }}-product-diagnostics

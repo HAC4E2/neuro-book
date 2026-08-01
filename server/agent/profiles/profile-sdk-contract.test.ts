@@ -3,6 +3,7 @@ import {tmpdir} from "node:os";
 import {basename, join, resolve} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {compileProfileArtifacts} from "nbook/server/agent/profiles/profile-artifact-compiler";
+import {ProfilePrompt, Type, builtin, defineAgentProfile, toolset} from "nbook/profile-sdk";
 import {Fragment, jsx} from "nbook/profile-sdk/jsx-runtime";
 
 const builtinRoot = resolve("assets/workspace/.nbook/agent/profiles/builtin");
@@ -39,6 +40,22 @@ describe("Profile SDK 稳定入口", () => {
             kind: "System",
             children: ["ok"],
         });
+    });
+
+    it("SDK defineAgentProfile 只返回 authoring 声明", () => {
+        const definition = defineAgentProfile({
+            manifest: {key: "sdk-definition", name: "SDK Definition"},
+            initialSchema: Type.Object({}),
+            tools: toolset(builtin.file.read),
+            context() {
+                return ProfilePrompt({});
+            },
+        });
+
+        expect(definition.manifest.key).toBe("sdk-definition");
+        expect("rootToolKeys" in definition).toBe(false);
+        expect("runtime" in definition).toBe(false);
+        expect("prepare" in definition).toBe(false);
     });
 
     it("编译器拒绝 Profile 绕过 SDK 导入 server 实现", async () => {
@@ -109,6 +126,49 @@ export default defineAgentProfile({
         });
     });
 
+    it("编译器只放行正式 writing SDK 子入口", async () => {
+        const temporaryRoot = await mkdtemp(join(tmpdir(), "nbook-profile-sdk-writing-gate-"));
+        temporaryRoots.push(temporaryRoot);
+        const profileRoot = join(temporaryRoot, "profiles");
+        await mkdir(profileRoot, {recursive: true});
+        await writeFile(join(profileRoot, "writing.profile.ts"), `
+import {Type, defineAgentProfile, builtin, toolset} from "nbook/profile-sdk";
+import {DEFAULT_WRITING_STYLE_PRESET} from "nbook/profile-sdk/writing";
+
+export default defineAgentProfile({
+    manifest: {key: "writing", name: DEFAULT_WRITING_STYLE_PRESET},
+    initialSchema: Type.Object({}),
+    tools: toolset(builtin.file.read),
+    context() { return []; },
+});
+`, "utf8");
+        await writeFile(join(profileRoot, "hidden.profile.ts"), `
+import {Type, defineAgentProfile, builtin, toolset} from "nbook/profile-sdk";
+import type {ProfilePrepareContext} from "nbook/profile-sdk/contracts";
+
+export default defineAgentProfile({
+    manifest: {key: "hidden", name: "Hidden"},
+    initialSchema: Type.Object({}),
+    tools: toolset(builtin.file.read),
+    context(_ctx: ProfilePrepareContext) { return []; },
+});
+`, "utf8");
+
+        const result = await compileProfileArtifacts({
+            profileRoot,
+            stagingRoot: join(temporaryRoot, "staging"),
+            skipFresh: true,
+            rootLabel: "profile-sdk-writing-gate",
+            orphanBudgetPolicy: "product",
+        });
+
+        expect(result.manifest.entries.find((entry) => entry.fileName === "writing.profile.ts")?.status).toBe("loaded");
+        expect(result.manifest.entries.find((entry) => entry.fileName === "hidden.profile.ts")).toMatchObject({
+            status: "compile_failed",
+            issues: [{message: expect.stringContaining("nbook/profile-sdk/contracts")}],
+        });
+    });
+
     it("14 个内置 Profile 只通过 SDK 完成空目标编译", async () => {
         const temporaryRoot = await mkdtemp(join(tmpdir(), "nbook-profile-sdk-"));
         temporaryRoots.push(temporaryRoot);
@@ -129,5 +189,14 @@ export default defineAgentProfile({
         expect(result.manifest.entries).toHaveLength(14);
         expect(result.manifest.entries.filter((entry) => entry.status === "compile_failed")).toEqual([]);
         expect(result.compiled).toHaveLength(14);
+        const ordinaryProfiles = result.manifest.profiles.filter((entry) => !["writer", "rp.writer"].includes(entry.profileKey));
+        expect(ordinaryProfiles).toHaveLength(12);
+        for (const profile of ordinaryProfiles) {
+            const dependencyPaths = profile.dependencies.map((dependency) => dependency.path.replaceAll("\\", "/"));
+            expect(dependencyPaths, profile.fileName).not.toContain("server/agent/profiles/writer-writing-reference.ts");
+            expect(dependencyPaths, profile.fileName).not.toContain("server/agent/profiles/writer-writing-style.ts");
+            expect(dependencyPaths, profile.fileName).not.toContain("server/utils/frontmatter-document.ts");
+            expect(dependencyPaths.join("\n"), profile.fileName).not.toMatch(/node_modules\/(?:\.bun\/[^/]+\/node_modules\/)?(?:yaml|zod)\//u);
+        }
     }, 120_000);
 });

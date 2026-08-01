@@ -1,6 +1,5 @@
 import {randomUUID} from "node:crypto";
-import {rm} from "node:fs/promises";
-import {describe, expect, it} from "vitest";
+import {afterAll, beforeAll, describe, expect, it} from "vitest";
 import {
     buildAgentSqlSchemaSummary,
     hasSqlStatementSeparator,
@@ -12,12 +11,29 @@ import {
     writeProjectManifest,
 } from "nbook/server/workspace-files/project-workspace";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
-import {projectWorkspaceRef, resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-identity";
+import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
-import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
-import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
+import {
+    closeProjectForTest,
+    openProjectForTest,
+    removeProjectWorkspaceForTest,
+} from "nbook/server/workspace-files/project-session-test-utils";
+import {
+    createIsolatedWorkspaceAssets,
+    type IsolatedWorkspaceAssets,
+} from "nbook/server/workspace-files/test-workspace-fixture";
 
 describe("v3 execute_sql tool", () => {
+    let assets: IsolatedWorkspaceAssets;
+
+    beforeAll(async () => {
+        assets = await createIsolatedWorkspaceAssets({purpose: "sql-tool-tests"});
+    });
+
+    afterAll(async () => {
+        await assets.dispose();
+    });
+
     it("schema summary 不会把 sceneId 错挂到 StoryScene", () => {
         const summary = buildAgentSqlSchemaSummary([
             row("StoryScene", "id", 1),
@@ -71,8 +87,7 @@ describe("v3 execute_sql tool", () => {
                 "execute_sql 缺少 invocationId",
             );
         } finally {
-            await closeProjectForTest(projectRoot).catch(() => undefined);
-            await removeProjectRoot(projectRoot);
+            await removeProjectWorkspaceForTest(projectRoot);
         }
     });
 
@@ -89,8 +104,7 @@ describe("v3 execute_sql tool", () => {
                 },
             });
         } finally {
-            await closeProjectForTest(projectRoot).catch(() => undefined);
-            await removeProjectRoot(projectRoot);
+            await removeProjectWorkspaceForTest(projectRoot);
         }
     }, 30_000);
 
@@ -111,8 +125,7 @@ describe("v3 execute_sql tool", () => {
                 },
             });
         } finally {
-            await closeProjectForTest(projectRoot).catch(() => undefined);
-            await removeProjectRoot(projectRoot);
+            await removeProjectWorkspaceForTest(projectRoot);
         }
     }, 30_000);
 });
@@ -159,23 +172,4 @@ async function createProject(projectRoot: string): Promise<ReadyProjectSessionRe
         summary: "",
     });
     return openProjectForTest(projectRoot);
-}
-
-async function removeProjectRoot(projectRoot: string): Promise<void> {
-    const projectDirectory = resolveProjectWorkspaceRoot(resolveRuntimeWorkspaceRoot(), projectWorkspaceRef(projectRoot));
-    let lastError: unknown;
-    for (let attempt = 0; attempt < 100; attempt += 1) {
-        collectReleasedSqliteHandles();
-        try {
-            await rm(projectDirectory, {recursive: true, force: true});
-            return;
-        } catch (error) {
-            if (!(typeof error === "object" && error !== null && "code" in error && error.code === "EBUSY")) {
-                throw error;
-            }
-            lastError = error;
-            await new Promise((resolve) => setTimeout(resolve, 100));
-        }
-    }
-    throw lastError;
 }

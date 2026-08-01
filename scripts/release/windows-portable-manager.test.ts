@@ -5,7 +5,10 @@ import {relative, resolve} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {strToU8, zipSync} from "fflate";
 
-import {ProductRuntimeImageBuilder} from "nbook/scripts/build/product-runtime-image-builder";
+import {
+    ProductRuntimeImageBuilder,
+    productRuntimeBuildPolicy,
+} from "nbook/scripts/build/product-runtime-image-builder";
 import {materializePortableArchives, portableArchiveComponents} from "nbook/scripts/deploy/windows-portable-manager";
 import {releaseBuildId as computeReleaseBuildId} from "nbook/scripts/release/release-output";
 import {writeZipArchive, type ZipEntry} from "nbook/scripts/utils/zip";
@@ -158,12 +161,8 @@ async function writeValidArchives(
         operationId: "portable-archive-fixture",
         platform: "windows-x64",
         expectedSource: {version: VERSION, revision: REVISION, dirty: false},
-        owners: [{name: "server", paths: ["server"]}],
-        budget: {
-            maxFiles: 16,
-            maxBytes: 64 * 1024,
-            ownerBaselines: [{name: "server", files: 16, bytes: 64 * 1024}],
-        },
+        owners: productRuntimeBuildPolicy("windows-x64").owners,
+        budget: productRuntimeBuildPolicy("windows-x64").budget,
         async build({imageRoot}) {
             const contract = createProductRuntimeContract({
                 productStart: COMMAND_PATH,
@@ -176,8 +175,10 @@ async function writeValidArchives(
                 prepareSystemAssets: COMMAND_PATH,
                 checkMigrations: COMMAND_PATH,
                 profileAuthoringSmoke: COMMAND_PATH,
+                variableAuthoringSmoke: COMMAND_PATH,
                 imageVariantSmoke: COMMAND_PATH,
                 sqliteVecSmoke: COMMAND_PATH,
+                webFetchSmoke: COMMAND_PATH,
             });
             await mkdir(resolve(imageRoot, "server", "commands"), {recursive: true});
             await Promise.all([

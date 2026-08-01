@@ -546,6 +546,7 @@ function dockerManifest(): InstallationManifest {
                 version: manifest.appVersion,
                 revision: manifest.sourceRevision,
                 image: "neuro-book-source:test",
+                containerImageId: `sha256:${"8".repeat(64)}`,
             },
             manager: manifest.components.manager,
             managerRuntime: manifest.components.managerRuntime,

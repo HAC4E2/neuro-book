@@ -284,15 +284,6 @@ export function subscribeAgentSessionEvents(sessionId: number, cursor: AgentSess
     return harness.subscribeSessionEvents(sessionId, cursor);
 }
 
-/** 解析并读取 Chat Flow durable attachment。 */
-export async function readAgentSessionAttachment(sessionId: number, entryId: string, contentIndex: number, harness = useAgentHarness()) {
-    const locator = await harness.resolveSessionAttachment(sessionId, entryId, contentIndex);
-    return {
-        ...locator,
-        bytes: await harness.attachmentStore.load(locator.ref),
-    };
-}
-
 /**
  * 将 HTTP DTO 转成 harness invoke 输入。
  */

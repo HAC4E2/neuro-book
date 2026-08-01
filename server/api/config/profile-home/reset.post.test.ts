@@ -15,7 +15,7 @@ describe("POST /api/config/profile-home/reset", () => {
                 ...actual,
                 getQuery: vi.fn(() => ({
                     workspaceKind: "novel",
-                    projectPath: "workspace/config-route-not-open",
+                    projectRoot: "config-route-not-open",
                 })),
             };
         });
@@ -29,7 +29,7 @@ describe("POST /api/config/profile-home/reset", () => {
         vi.doMock("nbook/server/config/query", () => ({
             validateConfigEditorSnapshotQuery: vi.fn(() => ({
                 workspaceKind: "novel",
-                projectPath: "workspace/config-route-not-open",
+                projectRoot: "config-route-not-open",
             })),
         }));
         vi.doMock("nbook/server/config/config-service", async () => {
@@ -47,7 +47,7 @@ describe("POST /api/config/profile-home/reset", () => {
             statusCode: 409,
             data: {
                 code: "PROJECT_NOT_OPEN",
-                projectPath: "workspace/config-route-not-open",
+                projectRoot: "config-route-not-open",
             },
         });
     });

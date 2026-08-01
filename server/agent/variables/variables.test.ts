@@ -631,8 +631,7 @@ describe("Agent variable system", () => {
         await mkdir(root, {recursive: true});
         const definitionPath = resolve(root, "definitions.ts");
         await writeFile(definitionPath, [
-            "import {Type} from \"typebox\";",
-            "import {defineProjectVariable} from \"nbook/server/agent/variables/registry\";",
+            "import {Type, defineProjectVariable} from \"nbook/variable-sdk\";",
             "export const definitions = [defineProjectVariable({",
             "    key: \"affections\",",
             "    schema: Type.Record(Type.String(), Type.Number()),",
@@ -646,8 +645,8 @@ describe("Agent variable system", () => {
             const manifest = await readVariableDefinitionManifest(root);
             const item = manifest.definitions[0]!;
             const typeFileName = item.typeFileName;
-            expect(item.artifactFileName).toBe("definitions.mjs");
-            expect(typeFileName).toBe("definitions.types.d.ts");
+            expect(item.artifactFileName).toMatch(/^artifacts\/[a-f0-9]{64}\.mjs$/u);
+            expect(typeFileName).toMatch(/^artifacts\/[a-f0-9]{64}\.types\.d\.ts$/u);
             expect(await readFile(resolve(root, ".compiled", typeFileName!), "utf8")).toContain("\"project.affections\": Record<string, number>;");
             await unlink(resolve(root, ".compiled", typeFileName!));
             await expect(validateVariableDefinitionArtifact(root, item)).resolves.toEqual({fresh: true});
@@ -670,12 +669,11 @@ describe("Agent variable system", () => {
         }
     });
 
-    it("variable definition full compile 使用稳定文件名并清理旧 hash artifact", async () => {
+    it("variable definition full compile 使用内容寻址文件名且不读取旧固定产物", async () => {
         const root = resolve(".agent", "workspace", "variable-definition-prune-test", randomUUID());
         await mkdir(resolve(root, ".compiled"), {recursive: true});
         await writeFile(resolve(root, "definitions.ts"), [
-            "import {Type} from \"typebox\";",
-            "import {defineWorkspaceRootVariable} from \"nbook/server/agent/variables/registry\";",
+            "import {Type, defineWorkspaceRootVariable} from \"nbook/variable-sdk\";",
             "export const definitions = [defineWorkspaceRootVariable({",
             "    key: \"styleGuide\",",
             "    schema: Type.String(),",
@@ -689,10 +687,9 @@ describe("Agent variable system", () => {
             const manifest = await compileVariableDefinitions({definitionRoot: root});
             const item = manifest.definitions[0]!;
 
-            expect(item.artifactFileName).toBe("definitions.mjs");
-            expect(item.typeFileName).toBe("definitions.types.d.ts");
-            await expect(readFile(resolve(root, ".compiled", "old-hash-artifact.mjs"), "utf8")).rejects.toThrow();
-            await expect(readFile(resolve(root, ".compiled", "old-hash-artifact.types.d.ts"), "utf8")).rejects.toThrow();
+            expect(item.artifactFileName).toMatch(/^artifacts\/[a-f0-9]{64}\.mjs$/u);
+            expect(item.typeFileName).toMatch(/^artifacts\/[a-f0-9]{64}\.types\.d\.ts$/u);
+            await expect(readFile(resolve(root, ".compiled", "old-hash-artifact.mjs"), "utf8")).resolves.toContain("definitions");
         } finally {
             await rm(root, {recursive: true, force: true});
         }
@@ -704,8 +701,7 @@ describe("Agent variable system", () => {
         const manifestPath = resolve(root, ".compiled", "manifest.json");
         await mkdir(root, {recursive: true});
         await writeFile(definitionPath, [
-            "import {Type} from \"typebox\";",
-            "import {defineWorkspaceRootVariable} from \"nbook/server/agent/variables/registry\";",
+            "import {Type, defineWorkspaceRootVariable} from \"nbook/variable-sdk\";",
             "export const definitions = [defineWorkspaceRootVariable({",
             "    key: \"styleGuide\",",
             "    schema: Type.String(),",
@@ -733,15 +729,14 @@ describe("Agent variable system", () => {
         } finally {
             await rm(root, {recursive: true, force: true});
         }
-    });
+    }, 15_000);
 
     it("skipFresh 会在 type artifact 缺失时重新编译 variable definition", async () => {
         const root = resolve(".agent", "workspace", "variable-definition-skip-type-test", randomUUID());
         const definitionPath = resolve(root, "definitions.ts");
         await mkdir(root, {recursive: true});
         await writeFile(definitionPath, [
-            "import {Type} from \"typebox\";",
-            "import {defineProjectVariable} from \"nbook/server/agent/variables/registry\";",
+            "import {Type, defineProjectVariable} from \"nbook/variable-sdk\";",
             "export const definitions = [defineProjectVariable({",
             "    key: \"styleGuide\",",
             "    schema: Type.String(),",
@@ -762,7 +757,7 @@ describe("Agent variable system", () => {
         } finally {
             await rm(root, {recursive: true, force: true});
         }
-    });
+    }, 15_000);
 
     it("只读 Product variable definition 新鲜时零写入，过期时要求重建", async () => {
         const root = resolve(".agent", "workspace", "variable-definition-readonly-test", randomUUID());
@@ -771,8 +766,7 @@ describe("Agent variable system", () => {
         const manifestPath = resolve(root, ".compiled", "manifest.json");
         await mkdir(root, {recursive: true});
         await writeFile(definitionPath, [
-            "import {Type} from \"typebox\";",
-            "import {defineProjectVariable} from \"nbook/server/agent/variables/registry\";",
+            "import {Type, defineProjectVariable} from \"nbook/variable-sdk\";",
             "export const definitions = [defineProjectVariable({",
             "    key: \"styleGuide\",",
             "    schema: Type.String(),",
@@ -820,8 +814,10 @@ describe("Agent variable system", () => {
         ]);
         await writeFile(join(productRoot, "package.json"), '{"name":"neuro-book-product","type":"module"}\n', "utf8");
         await writeFile(join(outputRoot, "index.mjs"), "", "utf8");
+        await writeFile(join(outputRoot, "package.json"), '{"name":"neuro-book-output","type":"module"}\n', "utf8");
         await writeFile(join(authoringRoot, "package.json"), '{"name":"@notnotype/neuro-book-profile-authoring-kit","private":true,"type":"module"}\n', "utf8");
         await writeFile(join(authoringRoot, "tsconfig.json"), "{}\n", "utf8");
+        await writeFile(join(authoringRoot, "profile-compile-worker.mjs"), "export {};\n", "utf8");
         await writeFile(join(definitionRoot, "definitions.ts"), [
             "export const definitions = [{",
             '    namespace: "project",',
@@ -832,8 +828,10 @@ describe("Agent variable system", () => {
             "",
         ].join("\n"), "utf8");
         const previousCwd = process.cwd();
+        const previousImageRoot = process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT;
         try {
             process.chdir(productRoot);
+            process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT = join(productRoot, ".output");
             const manifest = await compileVariableDefinitions({
                 definitionRoot,
                 rootLabel: "assets/workspace/.nbook/agent/variables",
@@ -843,6 +841,8 @@ describe("Agent variable system", () => {
             expect(item.dependencies.every((dependency) => dependency.path.startsWith(".output/server/"))).toBe(true);
             await expect(validateVariableDefinitionArtifact(definitionRoot, item, {requireTypeArtifact: true})).resolves.toEqual({fresh: true});
         } finally {
+            if (previousImageRoot === undefined) delete process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT;
+            else process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT = previousImageRoot;
             process.chdir(previousCwd);
             await rm(productRoot, {recursive: true, force: true});
         }
@@ -854,6 +854,7 @@ describe("Agent variable system", () => {
             resolve(".agent", "workspace", "variable-product-determinism-b", randomUUID()),
         ];
         const previousCwd = process.cwd();
+        const previousImageRoot = process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT;
         const results: Array<{artifact: string; manifest: string}> = [];
         try {
             for (const productRoot of roots) {
@@ -866,8 +867,10 @@ describe("Agent variable system", () => {
                 ]);
                 await writeFile(join(productRoot, "package.json"), '{"name":"neuro-book-product","type":"module"}\n', "utf8");
                 await writeFile(join(outputRoot, "index.mjs"), "", "utf8");
+                await writeFile(join(outputRoot, "package.json"), '{"name":"neuro-book-output","type":"module"}\n', "utf8");
                 await writeFile(join(authoringRoot, "package.json"), '{"name":"@notnotype/neuro-book-profile-authoring-kit","private":true,"type":"module"}\n', "utf8");
                 await writeFile(join(authoringRoot, "tsconfig.json"), "{}\n", "utf8");
+                await writeFile(join(authoringRoot, "profile-compile-worker.mjs"), "export {};\n", "utf8");
                 await writeFile(join(definitionRoot, "definitions.ts"), [
                     "export const definitions = [{",
                     '    namespace: "project",',
@@ -878,13 +881,14 @@ describe("Agent variable system", () => {
                     "",
                 ].join("\n"), "utf8");
                 process.chdir(productRoot);
+                process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT = join(productRoot, ".output");
                 const manifest = await compileVariableDefinitions({
                     definitionRoot,
                     rootLabel: "assets/workspace/.nbook/agent/variables",
                     manifestGeneratedAt: new Date(0).toISOString(),
                 });
                 results.push({
-                    artifact: await readFile(join(definitionRoot, ".compiled", "definitions.mjs"), "utf8"),
+                    artifact: await readFile(join(definitionRoot, ".compiled", ...manifest.definitions[0]!.artifactFileName.split("/")), "utf8"),
                     manifest: await readFile(join(definitionRoot, ".compiled", "manifest.json"), "utf8"),
                 });
                 expect(manifest.generatedAt).toBe("1970-01-01T00:00:00.000Z");
@@ -894,6 +898,8 @@ describe("Agent variable system", () => {
             expect(results[0]).toEqual(results[1]);
             expect(results[0]?.artifact).not.toContain("variable-product-determinism-");
         } finally {
+            if (previousImageRoot === undefined) delete process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT;
+            else process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT = previousImageRoot;
             process.chdir(previousCwd);
             await Promise.all(roots.map((root) => rm(root, {recursive: true, force: true})));
         }

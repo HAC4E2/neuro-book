@@ -1,7 +1,7 @@
 import {Type} from "typebox";
 import type {TSchema} from "typebox";
 import type {AgentProfile} from "nbook/server/agent/profiles/types";
-import type {ProfileToolBinding, ReportResultToolBinding} from "nbook/server/agent/tools/types";
+import type {ProfileToolBinding, ReportResultToolBinding} from "nbook/profile-sdk/contracts";
 
 /**
  * 判断 TypeBox object schema 是否没有定义任何输出字段。

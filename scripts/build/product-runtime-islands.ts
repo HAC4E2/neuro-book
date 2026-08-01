@@ -25,6 +25,7 @@ type PackageManifest = {
 };
 
 let cachedDynamicPackages: string[] | undefined;
+let cachedRuntimePackages: string[] | undefined;
 
 /**
  * 返回当前平台完整的 package island 登记。
@@ -100,7 +101,29 @@ export function productRuntimeIslandDefinitions(): ProductRuntimeIslandDefinitio
 
 /** 返回供 Bun external 与最终复制共同消费的稳定 package 集合。 */
 export function productRuntimeIslandPackageNames(): string[] {
-    return [...new Set(productRuntimeIslandDefinitions().flatMap((island) => island.packages))].sort();
+    cachedRuntimePackages ??= [...new Set(
+        productRuntimeIslandDefinitions().flatMap((island) => island.packages),
+    )].sort();
+    return [...cachedRuntimePackages];
+}
+
+/**
+ * 判断 Rollup module id 是否属于 Product package island。
+ * 支持 bare specifier，以及 npm、Bun、pnpm 物理路径中的最后一个 `node_modules` 边界。
+ */
+export function isProductRuntimeIslandModule(id: string): boolean {
+    if (!id || id.startsWith("\0")) return false;
+    const normalized = id.replaceAll("\\", "/");
+    const packagePathWithSuffix = normalized.split("/node_modules/").at(-1) ?? normalized;
+    const suffixIndex = [packagePathWithSuffix.indexOf("?"), packagePathWithSuffix.indexOf("#")]
+        .filter((index) => index >= 0)
+        .sort((left, right) => left - right)[0];
+    const packagePath = suffixIndex === undefined
+        ? packagePathWithSuffix
+        : packagePathWithSuffix.slice(0, suffixIndex);
+    return productRuntimeIslandPackageNames().some((packageName) => (
+        packagePath === packageName || packagePath.startsWith(`${packageName}/`)
+    ));
 }
 
 /**
@@ -115,7 +138,7 @@ export function productOpaqueImportDefinitions(): ProductOpaqueImportDefinition[
             pathPattern: "index.mjs",
             count: 3,
             reason: "Nitro server bundle 保留运行时选择的 Profile、SQLite 与 Provider module loader。",
-            smoke: "Product HTTP startup, Profile compile, sqlite-vec and authenticated shutdown",
+            smoke: "Product HTTP startup and authenticated shutdown; TypeScript and jsdom use Profile/Variable and web-fetch checks",
         },
         {
             pathPattern: "authoring/profile-compile-worker.mjs",
@@ -168,7 +191,7 @@ function dynamicPackageNames(): string[] {
         if (existing && existing.version !== version) {
             throw new Error(`Product dynamic island 无法扁平化 ${name}：${existing.version} != ${version}`);
         }
-        const hoistedPath = rootRequire.resolve(`${name}/package.json`);
+        const hoistedPath = resolvePackageManifest(rootRequire, name);
         const hoisted = readPackageManifest(hoistedPath);
         if (hoisted.name !== name || hoisted.version !== version) {
             throw new Error(`Product dynamic island 与 hoisted package 身份不一致：${name}@${version}`);
@@ -176,7 +199,7 @@ function dynamicPackageNames(): string[] {
         packages.set(name, {version, packageJsonPath});
         const requireFromPackage = createRequire(pathToFileURL(packageJsonPath));
         for (const dependency of Object.keys(manifest.dependencies ?? {}).sort()) {
-            queue.push(requireFromPackage.resolve(`${dependency}/package.json`));
+            queue.push(resolvePackageManifest(requireFromPackage, dependency));
         }
     }
     cachedDynamicPackages = ["typescript", ...packages.keys()].sort();
@@ -186,4 +209,34 @@ function dynamicPackageNames(): string[] {
 /** 从 package.json 读取构建期受信 manifest。 */
 function readPackageManifest(packageJsonPath: string): PackageManifest {
     return JSON.parse(readFileSync(packageJsonPath, "utf8")) as PackageManifest;
+}
+
+/**
+ * 解析 package manifest；当 package exports 隐藏 `package.json` 时，从真实入口向上定位。
+ * 只有 name 精确匹配的 manifest 才能充当依赖身份，不能误取祖先 package。
+ */
+function resolvePackageManifest(requireFrom: NodeRequire, packageName: string): string {
+    try {
+        return requireFrom.resolve(`${packageName}/package.json`);
+    } catch (packageJsonError) {
+        let entryPath: string;
+        try {
+            entryPath = requireFrom.resolve(packageName);
+        } catch (entryError) {
+            throw new Error(`Product package island 无法解析依赖：${packageName}`, {cause: entryError});
+        }
+        let directory = dirname(entryPath);
+        while (true) {
+            const packageJsonPath = resolve(directory, "package.json");
+            try {
+                if (readPackageManifest(packageJsonPath).name === packageName) return packageJsonPath;
+            } catch {
+                // 继续向上寻找当前入口所属 package；缺失或损坏的祖先不能成为身份。
+            }
+            const parent = dirname(directory);
+            if (parent === directory) break;
+            directory = parent;
+        }
+        throw new Error(`Product package island 无法定位 manifest：${packageName}`, {cause: packageJsonError});
+    }
 }

@@ -1,6 +1,6 @@
 # 130 - 桌面应用前置架构、发行载荷与存储生命周期
 
-> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator 与 Product shutdown 的共享地基及 Windows Product 发行门禁已收口（2026-07-31，含发布前独立 Runtime 类型边界）。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，但 Tauri/Electron 最终选择必须经过同一套 spike 验收后再冻结。
+> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-01 已完成冻结 Source 的 Windows A/B、逐文件摘要比较和仓库外完整 Product smoke，并据此冻结新的 Windows owner baseline；当前 dirty acceptance ZIP 仍不是正式 Release archive。发行前审计确认 Authoring Context/module graph、Variable 原子发布、Manager execution/operation lifecycle 与 Draft Release 激活协议仍未收口；Linux/macOS baseline、clean runner Release、浏览器验收与 Tauri/Electron 同矩阵 spike也尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由 spike 证据冻结。
 
 ## Relative documents refs
 
@@ -252,7 +252,9 @@ NeuroBook 对应目标：
 └─ system-assets/
 ```
 
-Profile 编译需要的源码、SDK 和 compiler dependency 应组成与 Product revision 绑定的 Authoring Kit。正式 Product 不能回退读取用户可能已修改的根 Source 或根 `node_modules`。
+Profile 编译需要的源码、SDK 和 compiler dependency 应组成与 Product revision 绑定的 Authoring Kit。Profile 作者使用 `nbook/profile-sdk`；只有需要文风/参考预设能力时才显式导入正式 `nbook/profile-sdk/writing` 子入口。Import gate 精确放行该 subpath，不放开任意 SDK 内部路径；Profile root 相对模块和 Runtime builtin 继续允许。`typebox` 是 SDK 内部 implementation，不是作者 Interface。Variable 作者使用独立的 `nbook/variable-sdk`。正式 Product 不能回退读取用户可能已修改的根 Source 或根 `node_modules`。
+
+Agent 面向的稳定 CLI 是 `.nbook/agent/bin/profile`、`.nbook/agent/bin/variable` 与 `.nbook/agent/bin/workspace`。Source checkout wrapper 调用 Product-owned source entry，发行物通过 Product Runtime Contract 解析逻辑命令；已删除的 `assets/workspace/.nbook/agent/scripts/{profile,variable,workspace}.ts` 与 `.output/server/scripts/**` 只属于历史记录，不得恢复 fallback。
 
 ### D7：初步目录结构
 
@@ -341,6 +343,7 @@ Installed v1 不放 `Program Files`，因为完整 Source、`.git`、根 `node_m
 - Composer 草稿已迁入 Workspace Root `.nbook/agent/composer-drafts.json`；单条 256 KiB、最多 10 条、保留 30 天，首次加载迁移旧 WebView 草稿，发送成功删除。WebView profile 因此可以由显式桌面重置整体删除。
 - `State Root/logs` 固定按 8 个文件、80 MiB、30 天回收，并从用户内容备份语义中排除。
 - Bash 完整输出位于 `Cache Root/agent/bash-output/<lease>`，只持久化逻辑 locator；7 天、128 个文件、256 MiB，总是受 owner marker 与硬预算约束。
+- Profile preview、Profile variable typecheck 及 Profile/Variable authoring check 位于 `Cache Root/authoring/<kind>/<lease>`。每个 lease 带 owner marker 与活跃锁，正常完成或初始化失败立即删除；24 小时失活回收。128 个 lease / 256 MiB 是创建前与消费前的离散门禁，不是操作系统级实时磁盘配额；活跃写入可能短暂越限，但准备完成后必须在消费前复核，超限时关闭当前 lease 并 fail closed。
 
 ### D10：安装、更新、退出和卸载
 
@@ -351,6 +354,8 @@ Installed v1 不放 `Program Files`，因为完整 Source、`.git`、根 `node_m
 3. 运行 migration/preflight/Product smoke。
 4. 只在验证通过后切换 current identity；失败恢复旧代。
 5. State Root 永不被 Release 文件覆盖。
+
+管理员自动创建时，密码只通过 `create-admin --password-stdin` 的 stdin pipe 传入；Manager、Release smoke 与容器不得把密码放入 argv、子进程环境或日志。原始 UTF-8 输入不 trim，最大 4096 bytes；没有 `--password-stdin` 时继续使用 TTY 隐藏输入。
 
 退出：
 
@@ -485,7 +490,7 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 
 - `ProductRuntimeImageBuilder` 现在只暴露 candidate build 与 verified open：构建前后锁定 Source、lockfile 和平台身份，候选在 `.deploy/staging` 持 lease，manifest/ready marker 最后提交；当前 `.output` 只由本地 Publisher 在二次验证后原子切换。
 - Product 从完整依赖闭包改为 Nitro 单 bundle、共享 command bundles、Profile Authoring Kit、System Assets projection 与显式 package islands。最终同源五代 dirty 本地验证构建均为 4,683 个文件、161,274,231 bytes（153.80 MiB），`sourceDigest`、`treeDigest`、`shapeDigest`、`imageId` 和七个 owner inventory 完全一致，只有 `createdAt` 与 ready marker hash 不参与 payload 身份；dirty 证据不替代正式 clean Release。
-- Profile/Variable 在空白 Product 投影中重新编译；Product orphan 与 staging 均为零。14 个内置 Profile 与两个模板通过 `nbook/profile-sdk` 公开入口编译。Authoring Kit 仍包含 Pi/Provider、Prisma 与 Zod 声明，因为它们是 SDK 公开类型的传递依赖；`typebox` 额外携带运行 implementation。
+- Profile/Variable 在空白 Product 投影中重新编译；Product orphan 与 staging 均为零。该日的 14 个内置 Profile 与两个模板通过 `nbook/profile-sdk` 公开入口编译。当时 Authoring Kit 仍包含 Pi/Provider、Prisma 与 Zod 声明；该闭包已在 2026-07-31 的 SDK-only hard cut 中被取代，不能再作为当前依赖事实。
 - Release、Portable、Docker 与 Manager 统一消费 verified image identity。Portable 从传入的 Source/Product archive 组装，不再读取 live checkout；`dist` 按 version/build ID 隔离，`product:stage` 迁到 `.agent/workspace` 的带 lease 临时验收实例。
 - 仓库外命令 smoke 最初在 HTTP 启动时暴露 `typescript` 解析基准错误；根因是 raw chunk 的相对 `../../index.mjs` 在 bundle 合并后越过 Product，现已在最终 bundle 统一改为 `import.meta.url`，并增加真实 bundle + `createRequire("typescript")` + `--no-install` 回归。
 - 最终镜像已复制到 `C:\` 下祖先无 `node_modules` 的独立 Application Root，清空 `NODE_PATH` 后通过 SQLite/Application State migration、Profile compile/typebox、workspace schema 与实际 node 写入、sqlite-vec、Sharp、create-admin、version、错误 token 401、正确 token 202 shutdown、端口关闭及 State Root 移动/删除。`scripts/release/verify-windows-product.ts` 固化该矩阵并由 Windows Portable workflow 调用；workspace node 现在从真实 Project Workspace 使用相对 `manuscript/...` 地址，不能再用绝对路径掩盖 cwd 回归。
@@ -509,15 +514,52 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - `shared/product-runtime-environment.ts` 成为 Manager 与独立 Product 启动器的唯一环境优先级实现：State Root `.env` 仍可配置普通应用项，但 Application/State/Cache Root、日志、llmlint、Bun cache 和受管 host 在最后固定。卸载与 desktop reset 在 install lock 内先执行 stop gate 再删除；日志归档 manifest 不再记录绝对 `logDirectory` 或 `cwd`。
 - `native-islands.json` 升级为 v2，opaque dynamic import 必须按 Product 相对路径模式登记精确数量、原因与 smoke。最终闭包覆盖 `server/assets/**/*.mjs`；commands 从 Bun metafile `entryPoint` 建立入口映射。最终构建日志为 `rawModules=197`、`rewrites=3558`、声明 islands 52 个、发现 Seeds 34 个。
 - 清理前的 `C:\nbook-task130-final-r-20260729\.output` 与 `C:\nbook-task130-final-s-20260729\.output` 均为 4,683 个 inventory 文件、161,274,231 bytes，`imageId=sha256:2ed10249a86bd95ab48cf0aa912f10b791126a966bf44bcceb7312ed807e4b0b`。排除 `runtime-image.json` 与 `runtime-image.ready` 后，4,683 个 payload 文件的路径差异和逐文件 SHA-256 差异均为 0；证据已记录后删除临时副本。
-- Windows owner baseline：frontend 176 / 15,810,725 bytes；server-bundle 1 / 12,571,222；commands 102 / 10,692,845；authoring-kit 1,923 / 20,694,368；native-islands 2,102 / 86,688,809；system-assets 376 / 14,812,033；runtime-meta 3 / 4,229。
+- 2026-07-29 Windows 历史 owner baseline：frontend 176 / 15,810,725 bytes；server-bundle 1 / 12,571,222；commands 102 / 10,692,845；authoring-kit 1,923 / 20,694,368；native-islands 2,102 / 86,688,809；system-assets 376 / 14,812,033；runtime-meta 3 / 4,229。2026-07-31 authoring 投影变更后该组数字不再是当前发布 baseline，必须等 clean rebuild 与完整 smoke 后重新冻结。
 - 清理前的 `final-r` 在仓库外再次通过 database/Application State migration、Profile/typebox、workspace CLI、sqlite-vec、Sharp、create-admin、HTTP version、错误/正确 token shutdown、端口关闭和 State Root 移动/删除。按正式 ZIP 实现生成的本地 dirty 验收包包含 4,685 个物理条目（payload 加两个镜像控制文件），压缩后 47,698,142 bytes；旧 47,564,878 bytes 只保留为历史镜像数据，不作为本轮门禁。
 - 回归结果：Task 130 聚焦 Vitest 27 files / 114 tests；Manager 33 files / 211 tests（另 1 file / 2 tests 按平台跳过）；Manager `pack:check` 通过，包内 5 个文件、unpacked 2.23 MiB、packed 0.41 MiB。根 `bun run typecheck` 仍只有其他任务的 llmlint fixture `ignoreTerms` 与 `module`/`builtin` 基线错误，本轮不修改。
 - Manager 专用收尾检查 `bun run manager:test` 通过（33 files，211 passed，2 skipped），`bun run manager:typecheck` 通过；根 `.output` 清理后再次通过 `openVerified()`，仍为 4,683 个 payload 文件、161,274,231 bytes，且 `staging`、`staging-leases`、全局 builder/publisher lease 均为空/未持有。根 `product/`、本轮验证副本和旧 candidate 已删除，旧 `dist/` 归档未删除。
 - 2026-07-31 发布准备补齐独立 Runtime 编译边界：跨边界代码显式导入 `h3.createError`，Runtime tsconfig 显式消费既有 Web extraction 声明与 Bun host 类型，根 package 直接持有 `@types/bun`，不再依赖兄弟 workspace 的偶然 hoist。`bun run runtime:typecheck`、Manager typecheck/test/pack、install tests 与 Release contract 28 项均通过；根 typecheck 仍只剩上条已登记的 llmlint fixture 漂移。
-- 同日 clean-checkout Manager 发布连续暴露隐式前置：Prisma client 来自 ignored 生成目录，`mdast` 类型来自传递依赖偶然 hoist，Manager 新增的 `scripts/**` / `shared/**` Product Builder 导入又会让 Vite/OXC 回退到根 Nuxt tsconfig。`runtime:typecheck` 现自行生成两套 Prisma client，Prisma 输出、scripts、shared 与 server/runtime 各有不继承 Nuxt 的边界 tsconfig，根 package 直接持有 `@types/mdast`；发布合同测试已并入 `manager:test`。失败的 Manager `.31` / `.32` 只保留审计，后续使用 `.33`。
+- 同日 clean-checkout Manager 发布连续暴露隐式前置：Prisma client 来自 ignored 生成目录，`mdast` 类型来自传递依赖偶然 hoist，Manager 新增的 `scripts/**` / `shared/**` Product Builder 导入又会让 Vite/OXC 回退到根 Nuxt tsconfig。`runtime:typecheck` 现自行生成两套 Prisma client，Prisma 输出、scripts、shared 与 server/runtime 各有不继承 Nuxt 的边界 tsconfig，根 package 直接持有 `@types/mdast`；发布合同测试已并入 `manager:test`。`.33` 继续发现 6 个运行测试夹具错误固定 Windows 平台，现已改用当前宿主且未放宽生产门禁；失败的 `.31`–`.33` 只保留审计，后续使用 `.34`。
 - 贡献体系 clean-runner 修复期间复核了本 Task 使用的 Nitro patch：第二个 unified diff hunk 的旧起点应为 `1280`，第三个 hunk 的旧起点原为 `1496`，因前面累计新增三行后新起点应为 `1499`。此前坐标错误会让 patch 在安装产物上应用到错误位置，不能只靠本地残留构建产物判断通过。
 - 同一轮发现 Linux Bun clean Runner 可能只提供 `.bun/@nuxt+nitro-server.../node_modules/nitropack`，没有顶层 `node_modules/nitropack`；现由 standalone `scripts/ci/validate-nitropack-patch.ts` 解析候选安装路径、检查 `.mjs` 语法与 patch 语义，避免依赖 Vitest bootstrap 或偶然 hoist。该校验只覆盖安装产物和 patch 合同，不替代 Task 130 的 Runtime Image、平台 owner baseline 或浏览器验收。
-- 仍未完成：Linux/macOS owner baseline 未在真实平台构建，继续 fail closed；当前 dirty 构建不能替代 clean Release runner；浏览器验收和 Tauri/Electron spike 未执行。
+
+### 2026-07-31：Authoring Interface、Runtime CLI 与载荷投影（Windows 验收完成）
+
+- `profile-sdk/contracts.ts` 成为 Profile 作者类型 owner；公开 import 面收窄为 `nbook/profile-sdk`、正式 `nbook/profile-sdk/writing` 子入口、Profile root 相对模块与 Runtime builtin，底层 `typebox` 不向作者开放。新增 `nbook/variable-sdk` 承载 Variable authoring 的最小公开类型与定义函数。
+- Authoring Kit 当前第三方闭包只剩 `typebox` runtime + 声明，以及仅声明的 `@types/node`、`undici-types`；Pi/Provider SDK、Prisma 与 Zod 已退出 authoring 投影。完整 Kit 为 510 文件 / 13,400,281 bytes：compiler worker 1 / 9,581,360，runtime SDK 8 / 665,731，SDK source 8 / 60,386，公开 declarations 9 / 57,763，登记的第三方依赖 481 / 3,032,055。与旧 1,923 文件 / 20,694,368 bytes 相比，文件数减少 1,413、字节减少 7,294,087；冻结 Source A/B 与仓库外 smoke 通过后已成为 Windows owner baseline。
+- 载荷审计发现主 SDK 静态导入 writing host 时，14 个 current Profile artifact 一度增长到 21,527,519 bytes，并重复内联 Zod/YAML。最终采用正式 `nbook/profile-sdk/writing` 能力分层，而不是动态字符串 import 或全局 registry：12 个普通 Profile 不再包含 Zod/YAML，`writer` 与 `rp.writer` 各自保留真实 writing 依赖；修复后 14 个 artifact 合计 5,921,068 bytes（两个 writer 约 1.30/1.31 MB，其余约 266–298 KB）。这是对原计划“仅精确主入口”的明确差异，已同步 Import gate、Authoring Kit runtime/source/declarations、SDK smoke 与 ADR 0009；Windows `system-assets` 14,812,033 bytes baseline 未放宽。
+- Product Runtime CLI 实现归对应领域 Module，`server/runtime/commands/` 只保留薄 Adapter。`.nbook/agent/bin/{profile,variable,workspace}` 是稳定入口，发行物经 Product Runtime Contract，Source checkout wrapper 调 Product-owned source entry；旧 asset scripts 与 `server/scripts` fallback 已退出合同。
+- Profile preview、Profile variable types 与两类 authoring check 使用 `Cache Root/authoring` lease；24 小时失活回收。128 lease / 256 MiB 采用创建前准入与消费前复核两道门禁；它不是实时磁盘配额，写入期间可短暂越限，但超限内容不能交给消费者，当前 lease 会被关闭。正常路径与初始化失败路径都负责清理。
+- 管理员自动密码合同改为 stdin-only；发布验收必须证明 argv、子进程环境与日志不含明文。
+- Runtime Image manifest 升级为 v3，记录本次实际生效的 owner/预算 policy 与摘要；Builder 内置平台规范上限，调用方策略只能等于或严于该上限，`openVerified()` 与 Release archive 都会重新校验。Source 构建前后复核每次重新枚举 tracked/untracked 路径，已覆盖“构建前已 dirty、callback 新建 untracked 文件”的竞态。
+- 已完成 Authoring Kit、SDK contract、Runtime Contract、command bundle、TypeScript projection、wrapper、Docker contract、create-admin 与 authoring cache 的聚焦回归；14 个内置 Profile 已通过 SDK-only 编译。首次全链测量在 JSX runtime 裸 `nbook/profile-sdk` 自引用处按模块闭包门禁失败；Authoring Kit 现以结构化 module specifier 改写生成镜像内相对引用，新增 `nbook/**` 内部裸引用会直接失败，聚焦 2 files / 9 tests 与 scripts typecheck 通过。最终又发现 Variable authoring smoke 错把 `VariableDefinition` 当成含 `path` 字段；正式身份其实是 `namespace + key`，manifest 才持有派生 `registeredPaths`。smoke 现同时验证两层合同并在失败时输出实际 definitions，相关 4 files / 32 tests、Runtime/scripts/root typecheck 全部通过。失败候选均未复用。
+- 冻结 Source A/B 的 payload 均为 3,229 文件 / 133,132,675 bytes，`treeDigest`、`shapeDigest`、Source/Contract/policy identity 与七个 owner inventory 完全一致；排除 `runtime-image.json` 与 `runtime-image.ready` 后，3,229 个路径和逐文件 SHA-256 差异均为 0，两个镜像分别重新通过 `openVerified()`。相对 2026-07-29 历史 payload 少 1,454 文件 / 28,141,556 bytes。owner 为 frontend 177 / 15,854,204，server-bundle 1 / 12,608,947，commands（含 Prisma）106 / 10,700,869，authoring-kit 510 / 13,400,281，native-islands 2,059 / 75,260,595，system-assets 373 / 5,303,264，runtime-meta 3 / 4,515。该组数字已写入 Windows canonical baseline；全局安全上限与每 owner 10% 回归规则不变。
+- TypeScript 从完整包 132 文件 / 23,625,066 bytes 投影为 89 / 12,196,852。`jsdom` 包本身为 652 / 7,033,222；从 `jsdom` 递归解析的 39 package closure（含 undici，不含 TypeScript）为 1,806 / 21,927,469；第一 native island 加上 TypeScript 后为 40 packages / 1,895 files / 34,124,321 bytes。全部 52 个 native package island 合计 2,058 / 75,256,580，另有 1 个 4,015-byte manifest。
+- A 镜像另生成 41,172,014-byte acceptance ZIP（SHA-256 `FFE3AD4514CF473E07767090DCDC390C287314270BBC545C8AB8A2EE3FF7BDFE`），并解压到仓库外、祖先无 `node_modules` 的 `C:\nbook-task130-product-smoke-*`。解压前后与完整 smoke 后三次 `openVerified()` 均通过；database/Application State migration、Profile compile、Variable authoring、sqlite-vec、Sharp、workspace schema/node、stdin-only create-admin、HTTP version、错误/正确 token shutdown、端口关闭、State Root 移动删除全部成功，Application Root 没有影子 workspace，scratch 最终不存在。该 ZIP 使用验收归档口径；当前 Source 为 dirty 且没有伪造 `product-build.json`，不是正式 Release archive，也不能与正式 ZIP writer 的 41,575,259-byte measurement 直接混为同一压缩算法结果。
+- 仍未完成：clean runner 正式 Release archive；Linux/macOS owner baseline（真实平台登记前继续 fail closed）；浏览器验收与 Tauri/Electron spike。
+
+### 2026-08-01：发行前链路审计与 checkpoint 清理
+
+- Windows Product 的体积、文件集合、逐文件摘要和仓库外 smoke 证据继续成立，但它只证明一个冻结 Product Runtime Image；不能证明所有 Manager/Release/Authoring 消费入口都被同一 Interface 强制约束。
+- Authoring 审计实测：Installation Root 同时存在完整 Source 与根 `node_modules` 时，Profile worker 即使收到 Product image root 仍会选择 Source worker/tsconfig；entry-only import gate 还可被 helper、`NODE_PATH` 与 realpath 逃逸绕过。Variable current 发布仍是固定文件逐个覆盖。
+- Manager 审计确认 execution verification、外置 lease、Operation `applying` checkpoint、卸载恢复、committed journal 清理与 Source adoption staging 均未闭合。Release 审计确认公开事件触发、共享 prerelease concurrency、OCI tag 提前激活、Docker locked-build 生成写入和 Portable v4/v5 漂移仍是正式发布阻断。
+- checkpoint 前已停止本仓库残留 Nuxt/esbuild 进程，并删除可重建的根 `dist/`、旧 `.output/`、`.tmp-bun-install/` 与五个 `C:\nbook-task130-*` 验收根；保留 Developer Build State `node_modules/`、`.nuxt/` 与无法通过 owner marker 证明失活的 `.agent/workspace` 内容。
+- 本轮后续按四个深 Module 收口：Runtime Artifact Authoring Context、Installation Mutation、Verified Application Execution、Release Candidate Coordinator；不建设通用事务框架、通用 Artifact Store 或多 Installed 实例。
+
+### 2026-08-01：Authoring 与 Product 执行闭环
+
+- 新增 Runtime Artifact Authoring Interface，以 TypeScript AST 递归验证 Profile/Variable 作者拥有的完整相对模块图。Profile 只接受 `nbook/profile-sdk`、精确 `nbook/profile-sdk/writing`、Runtime builtin 与 root 内相对模块；Variable 只接受 `nbook/variable-sdk`、Runtime builtin 与 root 内相对模块。helper 裸包、绝对路径、非字面量 dynamic import/require、相对越界和 symlink realpath 逃逸均 fail closed。
+- Profile worker 现在直接消费显式 compiler context：存在 `NEURO_BOOK_PRODUCT_IMAGE_ROOT` 时只认该 Product identity，缺少 `server/index.mjs`、合法 `server/package.json`、Authoring Kit 或预编译 worker 立即失败，不再由根 `node_modules` / `NODE_PATH` 猜测并回退 Source。Product bootstrap 与所有 Product 子进程统一删除 `NODE_PATH`；Source Dev 保留开发语义。
+- Variable artifact 硬切 compiler v3：runtime/type artifact 使用内容摘要文件名，全部不可变文件先发布，再在 publish lock 内二次复核 Source/dependency 摘要并以临时 manifest + rename 切换 current。artifact copy、manifest rename、发布期间 Source 变化或并发发布失败时旧代仍完整；并发 reader 只能观察完整旧代或新代，超过 10 分钟且未被 current 引用的 orphan 才回收。
+- 共享 `ProductRuntimeImageVerifier` 已从 Builder 真正提取：它独立拥有 manifest/ready/Runtime Contract、canonical policy、owner inventory、tree/shape digest 与物理预算的只读验证，不导入 Builder、Git、staging 或 `proper-lockfile`。Builder 的 `openVerified()` / `openControlPlane()` 只做薄委托；Manager、Release archive 与 Product bootstrap 直接复用 Verifier。
+- Manager 新增 `VerifiedApplicationExecution` 判别联合。start、create-admin、Application State migration plan/apply/rollback 及 Operation recovery 在 spawn/Compose 前先得到 `source-dev`、`native-product` 或 `container-product` verified handle；Source Dev 明确跳过 Runtime Image 验证，Native 非入口 payload 篡改会在 spawn 前失败。
+- Container identity 已收口：GHCR Compose 使用 `repository@sha256:digest` 并核对 Engine Digest/RepoDigests、Engine image ID、Container `.Image` 与 `.Config.Image`；Source Docker image 写入精确 revision label，Installation Manifest 必填 `containerImageId`，tag 重绑、缺失 image、Compose 篡改或候选 Container image ID 不一致均拒绝 start/migration/admin。当前本机没有 Docker/Podman，只有 fixture/Manager 回归；真实 GHCR 与 rootless Podman 仍由 CI runner 验收，不能记为本机实测通过。
+- Product Runtime Contract 升级 v3 并新增 `web-fetch` release check。该检查使用本地确定性 HTML 调用正式 `fetchWeb()`，实测返回 `{ok:true, provider:"local", characters:160}`，同时覆盖 Readability、jsdom、Turndown、GFM table 与 navigation 清理；Windows/POSIX/GHCR workflow 均已接线。
+- Windows Product smoke 已增加 hostile 环境回归：先完成 archive 外部身份验证，再在 Application Root 建空根 `node_modules`、注入错误 `NODE_PATH`，通过真实 HTTP 创建并编译 SDK-only Profile，要求使用镜像内预编译 worker；测试目录在 finally 清理。该链尚未在本轮新 archive 上执行，不能用 wiring test 代替。
+- 当前验证：Task 130 跨模块 focused 18 files / 115 tests；Builder + archive verifier 2 files / 18 tests；Manager 全量 34 passed files / 1 skipped file，220 passed / 2 skipped，另有 release contract 1/1；Runtime、Manager、scripts、shared 与根 typecheck 全部通过。最终冻结窗口的根 Vitest 为 463 passed files / 1 skipped，3,159 passed tests / 14 skipped；Manager pack、install tests 与 docs build 同样通过。新增归档函数级回归使用真实 Builder candidate，证明篡改外部 `imageId` 或非入口 command payload 都在执行前失败。
+- 最新镜像的 commands owner 为 107 files / 10,725,780 bytes，仍低于 Windows commands baseline 的 10% 上限；bundle 中 `ProductRuntimeImageBuilder`、`proper-lockfile`、staging lease、Git/build callback 命中均为 0，只携带只读 verifier。
+- 首次 Build A 曾在同仓全量 Vitest占用内存时触发 Node 4 GiB heap OOM；没有调高 heap 掩盖。资源释放并冻结 Source 后，从两个空根重跑的 A/B 均为 3,230 payload files / 133,168,442 bytes，`imageId=sha256:4da1dd4c6f5c6bb56f0da09e25c561d4115568992bf22bf0e1c0b6e396ff7ae4`，Source/tree/shape identity 与七个 owner inventory 完全一致。该证据仍来自 dirty Source；本轮尚未重新生成 archive 或执行仓库外 smoke，不能替代旧冻结镜像的仓库外 smoke，更不能替代 clean runner Release。
+- 本轮没有处理 Installation Mutation、外置 operation lease、卸载恢复、Source adoption 与 Release Candidate Coordinator；这些仍是独立 `0.9.0` canary 阻断。没有执行浏览器人工验收或 Tauri/Electron spike。
 
 ## TODO / Follow-ups
 

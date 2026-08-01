@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 import {spawn} from "node:child_process";
-import {randomUUID} from "node:crypto";
+import {createHash, randomUUID} from "node:crypto";
 import {existsSync} from "node:fs";
-import {cp, mkdir, readFile, readdir, rename, rm, writeFile} from "node:fs/promises";
+import {cp, lstat, mkdir, readFile, readdir, rename, rm, writeFile} from "node:fs/promises";
 import {dirname, isAbsolute, relative, resolve, sep} from "node:path";
 import {fileURLToPath} from "node:url";
 import {check as checkLock, lock as acquireLock} from "proper-lockfile";
@@ -84,6 +84,13 @@ async function runAcceptedCommand(commandId, args) {
         await mkdir(resolve(stageRoot, stateRoot), {recursive: true});
     }
     await withAcceptanceLease(stageRoot, async () => {
+        const cacheRoot = process.env.NEURO_BOOK_CACHE_ROOT?.trim() || resolve(stageRoot, stateRoot, "cache");
+        const excludedRoots = [
+            resolve(stageRoot, ".output"),
+            resolve(stageRoot, stateRoot),
+            resolve(stageRoot, cacheRoot),
+        ];
+        const beforeApplicationDigest = await applicationTreeDigest(stageRoot, excludedRoots);
         await run(process.execPath, [
             ...PRODUCT_BUN_RUNTIME_ARGS,
             `.output/${PRODUCT_RUNTIME_COMMAND_BOOTSTRAP}`,
@@ -96,10 +103,49 @@ async function runAcceptedCommand(commandId, args) {
                 ...process.env,
                 NEURO_BOOK_APPLICATION_ROOT: stageRoot,
                 NEURO_BOOK_STATE_ROOT: stateRoot,
+                NEURO_BOOK_CACHE_ROOT: cacheRoot,
                 BUN: process.execPath,
             },
         });
+        await openVerifiedImage(resolve(stageRoot, ".output"), owner);
+        const afterApplicationDigest = await applicationTreeDigest(stageRoot, excludedRoots);
+        if (afterApplicationDigest !== beforeApplicationDigest) {
+            throw new Error("Product command 修改了只读 Application Root；运行期文件必须进入 State Root 或 Cache Root。");
+        }
     });
+}
+
+/**
+ * 摘要验收实例中不属于 Runtime Image、State 或 Cache 的 Application Root 树。
+ * owner/lease 是验收编排控制面，会在子进程运行期间刷新，因此不属于 Product 写入判定。
+ */
+async function applicationTreeDigest(applicationRoot, excludedRoots) {
+    const hash = createHash("sha256");
+    const queue = [applicationRoot];
+    while (queue.length > 0) {
+        const directory = queue.pop();
+        const entries = await readdir(directory, {withFileTypes: true});
+        entries.sort((left, right) => left.name.localeCompare(right.name));
+        for (const entry of entries) {
+            const target = resolve(directory, entry.name);
+            if (excludedRoots.some((root) => target === root || target.startsWith(`${root}${sep}`))) continue;
+            if (directory === applicationRoot
+                && (entry.name === OWNER_FILE || entry.name === LEASE_FILE || entry.name === `${LEASE_FILE}.lock`)) continue;
+            const relativePath = relative(applicationRoot, target).replaceAll("\\", "/");
+            const info = await lstat(target);
+            if (info.isSymbolicLink()) throw new Error(`Product 验收 Application Root 含 symlink：${relativePath}`);
+            if (info.isDirectory()) {
+                hash.update(`directory\0${relativePath}\n`);
+                queue.push(target);
+                continue;
+            }
+            if (!info.isFile()) throw new Error(`Product 验收 Application Root 含特殊文件：${relativePath}`);
+            hash.update(`file\0${relativePath}\0${String(info.size)}\0`);
+            hash.update(await readFile(target));
+            hash.update("\n");
+        }
+    }
+    return `sha256:${hash.digest("hex")}`;
 }
 
 /**
@@ -124,7 +170,9 @@ async function readRuntimeImageIdentity(imageRoot) {
         throw new Error("Product Runtime Image manifest 必须是对象。");
     }
     const manifest = value;
-    const requiredString = ["version", "revision", "platform", "imageId", "lockfileSha256", "sourceDigest"];
+    const requiredString = [
+        "version", "revision", "platform", "imageId", "lockfileSha256", "sourceDigest", "builderContractVersion",
+    ];
     for (const key of requiredString) {
         if (typeof manifest[key] !== "string" || !manifest[key]) {
             throw new Error(`Product Runtime Image manifest 缺少 ${key}。`);
@@ -141,6 +189,7 @@ async function readRuntimeImageIdentity(imageRoot) {
         imageId: manifest.imageId,
         lockfileSha256: manifest.lockfileSha256,
         sourceDigest: manifest.sourceDigest,
+        builderContractVersion: manifest.builderContractVersion,
     };
 }
 
@@ -205,6 +254,7 @@ function acceptanceOwner(operationId, manifest) {
         platform: manifest.platform,
         lockfileSha256: manifest.lockfileSha256,
         sourceDigest: manifest.sourceDigest,
+        builderContractVersion: manifest.builderContractVersion,
     };
 }
 
@@ -220,7 +270,10 @@ async function readOwner(stageRoot) {
         throw new Error("Product 验收实例 owner 无效。");
     }
     const owner = value;
-    const stringFields = ["owner", "operationId", "imageId", "version", "revision", "platform", "lockfileSha256", "sourceDigest"];
+    const stringFields = [
+        "owner", "operationId", "imageId", "version", "revision", "platform", "lockfileSha256", "sourceDigest",
+        "builderContractVersion",
+    ];
     for (const key of stringFields) {
         if (typeof owner[key] !== "string" || !owner[key]) {
             throw new Error(`Product 验收实例 owner 缺少 ${key}。`);

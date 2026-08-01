@@ -609,6 +609,7 @@ function resolveBashPath(): string {
  * 注入 Agent assets 的 bin 目录。用户覆盖优先于系统内置。
  */
 function createBashEnvironment(context: ToolExecutionContext): NodeJS.ProcessEnv {
+    const runtimePaths = context.harness.runtimePaths;
     const userNbookRoot = context.harness.runtimePaths?.userNbookRoot
         ?? resolve(context.harness.workspaceRoot, ".nbook");
     const systemNbookRoot = context.harness.runtimePaths
@@ -622,6 +623,11 @@ function createBashEnvironment(context: ToolExecutionContext): NodeJS.ProcessEnv
     const currentPath = process.env.PATH ?? process.env.Path ?? "";
     return {
         ...process.env,
+        ...(runtimePaths ? {
+            NEURO_BOOK_APPLICATION_ROOT: runtimePaths.applicationRoot,
+            NEURO_BOOK_STATE_ROOT: runtimePaths.stateRoot,
+            NEURO_BOOK_CACHE_ROOT: runtimePaths.cacheRoot,
+        } : {}),
         NEURO_BOOK_AGENT_BIN: userAgentBin,
         NEURO_BOOK_SYSTEM_AGENT_BIN: systemAgentBin,
         NEURO_BOOK_RIPGREP_CONFIG: ripgrepConfig,

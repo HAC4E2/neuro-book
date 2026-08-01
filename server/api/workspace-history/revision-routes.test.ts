@@ -31,7 +31,7 @@ describe("workspace history revision routes", () => {
         expect(dependencies.waitForWarmup.mock.invocationCallOrder[0])
             .toBeLessThan(history.inbox.mock.invocationCallOrder[0]!);
         expect(dependencies.requireProjectHandles).toHaveBeenCalledOnce();
-        expect(dependencies.requireProjectHandles).toHaveBeenCalledWith("workspace/book");
+        expect(dependencies.requireProjectHandles).toHaveBeenCalledWith("book");
         expect(textDiff).toHaveBeenCalledTimes(1);
     });
 

@@ -1,2 +1,11 @@
-/** Profile SDK 的 TSX development runtime 稳定入口。 */
-export * from "nbook/server/agent/profiles/profile-dsl/jsx-dev-runtime";
+import {Fragment, jsx, jsxs} from "nbook/profile-sdk/jsx-runtime";
+import type {ProfileDslNode} from "nbook/profile-sdk/contracts";
+
+type Props = {[key: string]: unknown};
+
+export {Fragment, jsx, jsxs};
+
+/** TSX development runtime 入口。 */
+export function jsxDEV(type: Parameters<typeof jsx>[0], props: Props, _key?: string): ProfileDslNode {
+    return jsx(type, props);
+}

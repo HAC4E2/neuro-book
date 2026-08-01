@@ -231,6 +231,7 @@
 - 多个世界引擎
 - profile 设置界面调整
 - leader 情绪价值设置
+- session 的 fork 能力搞回来
 
 
 

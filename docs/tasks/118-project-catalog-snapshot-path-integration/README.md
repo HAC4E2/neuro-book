@@ -1,5 +1,7 @@
 # Task 118：Project 生命周期、文件快照与 Agent 路径合同联合执行计划
 
+> 2026-07-31 CLI 交付路径取代说明：本任务的 Project identity、mutation/Occupancy 与 fail-closed preflight 合同继续有效；CLI implementation/发行所有权由 Task 130 收口。当前同步面是 Product-owned Workspace CLI、`.nbook/agent/bin/workspace(.cmd)` wrapper 与 Product Runtime Contract 的 `workspace` 逻辑命令；下文 `assets/workspace/.nbook/agent/scripts/workspace.ts` 只保留为 hard-cut 时的历史证据，不恢复 asset script 或 `server/scripts` fallback。
+
 > 当前状态：G1–G5 与整体审查结论均已冻结，Phase 0–8 的代码 hard cut 已完成，仍待发布级全量门禁与人工浏览器验收。Session schema v2、Application State catalog v3、runtime fail-closed gate、ProjectSessionController close-then-open、最终 Project HTTP 合同和旧 identity 清理在同一 release train 内落地；真实 State Root 只通过隔离副本演练，正式用户数据不在本任务中再次改写。Project root发布采用portable rename：NeuroBook与`workspace` CLI writer由mutation + Occupancy严格串行，并通过最终同步preflight把非协作外部writer窗口压到最窄；不引入三平台原生atomic no-replace Adapter，接受最终preflight后外部writer创建空同名目录仍可能在POSIX被替换的best-effort边界。
 >
 > 本任务不是替代 Task 114 或 Task 115，而是它们的协调真相源：Task 114 继续记录文件快照 package 与 NeuroBook adapter 的实现，Task 115 继续记录路径/session hard cut；本 README 冻结二者共享的 Module、Interface、Seam、依赖顺序、发布门禁和跨任务验收。
@@ -84,7 +86,9 @@
 - Phase 1 只证明稳定 alias 经 `realpath` 收敛；不宣称支持 `subst`、UNC/本地盘符互换、`\\?\` namespace alias 或其他无法由当前 canonicalization 可靠统一的 Windows 命名空间。
 - Project root发布对协作NeuroBook/CLI writer由mutation + prospective Occupancy串行；已明确接受最终preflight后非协作外部writer创建空同名目录仍可能在POSIX被替换的窄best-effort窗口。不得宣称对任意外部writer提供跨平台atomic no-replace或“任何已存在target都稳定`PROJECT_EXISTS`”。
 
-## Current State
+## 2026-07-23 Planning Snapshot
+
+本节保留 hard cut 前的实施快照；当前结论以文件顶部“当前状态”和 2026-07-28/31 实际结果为准。
 
 ### Task 114
 
@@ -972,7 +976,26 @@ Phase 4B + Phase 7 的实测规模是 **187 个生产文件 + 101 个测试文�
 - [x] Phase 4A唯一Facade、最终DTO/schema、typed HTTP mapper与HMR稳定错误协议完成；公开Product按计划保持旧合同。
 - [x] 按六个内部切片完成Phase 5；全部Project数据面使用exact generation operation，公开Product合同未提前切换。
 - [x] Phase 6 迁移引擎收口：真实 499 份基线 dry-run、隔离副本 apply/rollback/resume 全量演练、篡改与竞争恢复用例、CLI 入口均已完成；38 份旧布局死 Session 已清理并留证。
-- [ ] Phase 6 剩余的 fail-closed gate 接线（启动期 gate、session 写入门禁、两把 lease 归一）已确认与 header 消费面原子耦合，随 Phase 4B + Phase 7 同批执行，不单独落地。
-- [ ] Phase 4B与Phase 7同批原子切换Project Product与Agent路径合同；届时先停 runtime 执行真实 apply，再启动新 runtime。
-- [ ] Phase 1–8均属于同一release train；Phase 8总门禁完成前当前分支不可发布。
-- [ ] 每个阶段完成后更新本 README 的实际结果与计划差异。
+- [x] Phase 6 fail-closed gate 已随 Application State catalog v3 原子接线：启动期 gate、Session Store 写入 capability 与 runtime/migration 单一 lease 均已落地。
+- [x] Phase 4B 与 Phase 7 已原子切换 Project Product、Session v2 与 Agent 路径合同；旧 identity 只保留在 migration-only decoder 与历史证据中。
+- [x] Phase 8 的 Task 118 本地总门禁已完成，证据见顶部 2026-07-28 hard cut 结果。仓库能否发布仍取决于 Task 130 clean A/B Product、仓库外 smoke、根 typecheck 与人工验收，不能把本项勾选解释成已满足 minor 发布条件。
+- [x] 各阶段实际结果与计划差异已回写本 README；旧计划快照明确标为历史。
+
+### 2026-07-31 Project Catalog 发布者与删除事务收口
+
+- `useNovelIdeStore` 现在保存完整 readonly Catalog snapshot，`novels` 只是只读 computed；snapshot、数组和每个扁平 metadata 对象都会冻结。GET 使用进程内 generation 与同 generation single-flight；mutation 前后失效旧 generation，迟到 GET 无论成功或失败都会追读当前 generation。完整 snapshot 始终可以整体替换本地状态，即使服务重启后 revision 变小也不会被误判为旧数据。
+- create、delete、cover mutation 全部由 Store 执行，成功后始终回读服务端完整 Catalog，不再维护客户端增量排序或 revision 分支。删除在服务端明确提交后先清理本地 workspace session；任意 mutation 已明确提交但完整刷新失败时，统一抛带 `committed: true` 的内部错误，供界面刷新事实而不是重放请求。
+- 主 IDE 深链直接调用 ProjectSession open，成功后立即加载 Project Workspace 文件树与标签；Catalog 只做后台 best-effort 刷新，慢请求或失败不会阻塞、撤销 ready Project。`currentWorkspaceRoot` 直接由 ready 流程提交的 `currentProjectRoot` 投影，顶栏在 metadata 缺失时回退显示 root。
+- `DELETE /api/projects/item` 已收口为 `agent-active guard -> closeProject -> Lifecycle deleteProject -> best-effort archiveSessionsByProjectRoot`。正常响应恢复为 `{revision, projectRoot}`；只有 Lifecycle 明确 `committed: true` 时错误路径才归档 Session，`false/unknown` 不归档。旧的重复目录删除 Module 与测试已删除。
+- 回归覆盖 single-flight、失效 GET 成功/失败追读、create/delete/cover 每次权威回读、并发 mutation 乱序、服务重启 revision 回退、三种 mutation 提交后刷新失败、direct-open、删除顺序与归档差异。本轮最终一次性回归 13 files / 77 tests 通过；100 次列表门禁继续不启动 Project 数据面。
+- 复杂度取舍：迟到旧 GET 若在当前 generation 的 single-flight 已结算后才返回，会再执行一次轻量 Catalog GET。这是有界的本地控制面读取，换取不在客户端复制排序、revision 和重启规则，当前规模下优先保证正确性。
+- 根 typecheck 未通过，但本轮测试 fixture 的 callback 类型错误已修复；第二次检查零命中本轮文件，剩余输出来自未修改的 Profile SDK、Session migration 与 llmlint 在途改动。
+
+### 2026-07-31 Project Settings 与 Preview 创建链收口
+
+- `NovelIdeSettingsDialog` 已真正落实“Settings 只编辑 Current Project”：删除打开 Dialog 时的 Catalog GET、Project selector、目标 Project 状态和 Catalog watcher。Project scope 只从 `currentProjectRoot` 构造请求；标题 metadata 不可用时显示 root，关闭 Project 或进入 user-assets 时立即回退 Global scope。
+- Config HTTP 与 `requireActiveReadyProject()` 门禁没有放宽。编辑另一 Project 的配置必须先在主 IDE 打开它，因此界面不再提供必然得到 `PROJECT_NOT_OPEN` 的无效入口。
+- World Engine Preview 的创建链抽成页面专用 utility：每个动作最多一次 POST；普通失败不读 Catalog；成功、结构化 committed 或 transport unknown 只刷新一次事实。恢复入口的类型不接受 POST，重试无法自动重放 mutation。
+- Preview 行为测试覆盖普通失败零刷新、成功后 Catalog 失败保留已知 root、unknown 不猜 root、恢复刷新失败保留原记录、activation false 仍视为已提交。SFC 测试只锁页面接线，不再把源码顺序当状态行为证据。
+- 最终合并回归为 13 files / 77 tests；其中包含 Config `PROJECT_NOT_OPEN`、Catalog Store、Picker create/delete/cover recovery、route transition、ProjectSession、删除编排和连续 100 次列表门禁。根 typecheck 零命中本轮文件，仍被未修改的 Skill `commander` 声明、Session migration 与 llmlint fixture 错误阻断。
+- 按仓库规则未自动执行浏览器验证；Current Project Settings 与 Preview 的 Catalog/activation/transport unknown 人工验收仍保留。

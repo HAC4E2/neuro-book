@@ -1,19 +1,29 @@
 import {execFile} from "node:child_process";
-import {resolve} from "node:path";
+import {readFile, readdir} from "node:fs/promises";
+import {join, resolve} from "node:path";
 import {promisify} from "node:util";
 import {describe, expect, it} from "vitest";
+
+import {
+    isProductRuntimeIslandModule,
+    productRuntimeIslandPackageNames,
+} from "nbook/scripts/build/product-runtime-islands";
 
 const execFileAsync = promisify(execFile);
 const configProbe = [
     "import {loadNuxtConfig} from '@nuxt/kit';",
     "const config = await loadNuxtConfig({cwd: process.cwd()});",
-    "console.log(JSON.stringify({outputDir: config.nitro?.output?.dir, buildId: config.buildId, appManifest: config.experimental?.appManifest}));",
+    "const nitroExternal = config.nitro?.externals?.external ?? [];",
+    "const typescriptPath = 'C:/repo/node_modules/.bun/typescript@5.9.3/node_modules/typescript/lib/typescript.js';",
+    "console.log(JSON.stringify({outputDir: config.nitro?.output?.dir, buildId: config.buildId, appManifest: config.experimental?.appManifest, external: nitroExternal, externalTypeScript: nitroExternal.some((matcher) => typeof matcher === 'function' && matcher(typescriptPath))}));",
 ].join(" ");
 
 type NuxtProductConfigProbe = {
     outputDir: string;
     buildId: string;
     appManifest: boolean;
+    external: string[];
+    externalTypeScript: boolean;
 };
 
 describe("Nuxt raw Product output", () => {
@@ -33,6 +43,8 @@ describe("Nuxt raw Product output", () => {
         expect(config.outputDir).toBe(resolve(".nuxt", "product-raw"));
         expect(config.outputDir).not.toBe(resolve(".output"));
         expect(config.appManifest).toBe(true);
+        expect(config.external).toEqual(expect.arrayContaining(productRuntimeIslandPackageNames()));
+        expect(config.externalTypeScript).toBe(true);
     });
 
     it("保留 Builder 候选目录并使用 Source digest 派生稳定 build ID", async () => {
@@ -53,6 +65,8 @@ describe("Nuxt raw Product output", () => {
             outputDir: candidate,
             buildId: sourceDigest.slice("sha256:".length),
             appManifest: false,
+            external: expect.arrayContaining(productRuntimeIslandPackageNames()),
+            externalTypeScript: true,
         });
     });
 
@@ -93,5 +107,33 @@ describe("Nuxt raw Product output", () => {
             },
             windowsHide: true,
         })).rejects.toThrow(sourceDigest ? "Source digest 无效" : "注入 Source digest");
+    });
+
+    it("Product island matcher 覆盖 bare、Bun、pnpm 与 scoped package", () => {
+        expect(isProductRuntimeIslandModule("typescript")).toBe(true);
+        expect(isProductRuntimeIslandModule("typescript/lib/typescript.js?raw")).toBe(true);
+        expect(isProductRuntimeIslandModule("C:\\repo\\node_modules\\.bun\\typescript@5.9.3\\node_modules\\typescript\\lib\\typescript.js"))
+            .toBe(true);
+        expect(isProductRuntimeIslandModule("/repo/node_modules/.pnpm/jsdom@29.1.1/node_modules/jsdom/lib/api.js"))
+            .toBe(true);
+        expect(isProductRuntimeIslandModule("/repo/node_modules/@img/sharp-win32-x64/lib/sharp.node"))
+            .toBe(true);
+        expect(isProductRuntimeIslandModule("zod/v4")).toBe(false);
+        expect(isProductRuntimeIslandModule("\0virtual:typescript")).toBe(false);
+    });
+
+    it("Nitro plugin 不得用不会被 runtime 等待的 async callback 启动后台门禁", async () => {
+        const pluginRoot = resolve("server", "plugins");
+        const pluginFiles = (await readdir(pluginRoot))
+            .filter((fileName) => fileName.endsWith(".ts") && !fileName.endsWith(".test.ts"));
+        const invalid: string[] = [];
+        for (const fileName of pluginFiles) {
+            const source = await readFile(join(pluginRoot, fileName), "utf8");
+            if (/defineNitroPlugin\(\s*async\b/u.test(source)) invalid.push(fileName);
+        }
+
+        expect(invalid).toEqual([]);
+        const startup = await readFile(join(pluginRoot, "00-product-startup.ts"), "utf8");
+        expect(startup).toContain("await startProductRuntime()");
     });
 });

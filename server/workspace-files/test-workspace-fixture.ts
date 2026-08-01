@@ -1,4 +1,4 @@
-import {lstat, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile} from "node:fs/promises";
+import {lstat, mkdir, mkdtemp, readdir, readFile, rm, rmdir, symlink, writeFile} from "node:fs/promises";
 import {execFile} from "node:child_process";
 import {tmpdir} from "node:os";
 import path from "node:path";
@@ -257,17 +257,7 @@ export async function createSharedSystemAssetsSnapshot(): Promise<string> {
         const applicationRoot = resolveApplicationRoot();
         const sourceSystemNbookRoot = resolveSystemNbookRoot();
         const targetSystemNbookRoot = path.join(snapshotRoot, "assets", "workspace", ".nbook");
-        const profileRoot = path.join(sourceSystemNbookRoot, "agent", "profiles");
-        const manifest = await readProfileArtifactManifest(profileRoot);
-        if (manifest.profiles.length === 0) {
-            // 没有可投影的 current artifact，测试里所有 system profile 相关断言都会以难以定位的
-            // 方式失败。这里直接失败并指出修复命令，比让 13 个用例各自报奇怪的错好得多。
-            throw new Error(
-                `系统 Profile 尚未编译（${path.join(sourceSystemNbookRoot, "agent", "profiles")} 的 manifest 没有 loaded entry）。`
-                + "请先运行 `bun run system-assets:prepare` 再跑测试。",
-            );
-        }
-        await ensurePublishedSystemProfilesFresh(profileRoot);
+        await ensurePublishedSystemArtifactsFresh(sourceSystemNbookRoot);
         await systemAssetsProjection.copyToEmpty({
             sourceRoot: sourceSystemNbookRoot,
             targetRoot: targetSystemNbookRoot,
@@ -283,7 +273,7 @@ export async function createSharedSystemAssetsSnapshot(): Promise<string> {
 }
 
 /**
- * 保证已发布的 system profile release 相对当前源码是新鲜的，必要时就地重编一次。
+ * 保证已发布的 system Profile/Variable release 相对当前源码是新鲜的，必要时就地重编一次。
  *
  * snapshot 是纯投影，不重编；一旦 `server/**`、`packages/**` 等依赖在发布之后被改过，
  * 投影出来的 manifest 会整体判成 `dependency_changed`，所有 system profile 变 stale，
@@ -295,10 +285,13 @@ export async function createSharedSystemAssetsSnapshot(): Promise<string> {
  *
  * 只探测第一个 profile：14 个内置 profile 共享绝大部分依赖图，够用且省掉 14 倍哈希开销。
  */
-async function ensurePublishedSystemProfilesFresh(profileRoot: string): Promise<void> {
+async function ensurePublishedSystemArtifactsFresh(systemNbookRoot: string): Promise<void> {
     const {ProfileFreshnessChecker} = await import("nbook/server/agent/profiles/profile-freshness-checker");
+    const {readVariableDefinitionManifest, validateVariableDefinitionArtifact} = await import("nbook/server/agent/variables/definition-artifact");
+    const profileRoot = path.join(systemNbookRoot, "agent", "profiles");
+    const variableRoot = path.join(systemNbookRoot, "agent", "variables");
     const checker = new ProfileFreshnessChecker();
-    const probeFreshness = async (): Promise<{fresh: boolean; detail: string} | null> => {
+    const probeProfile = async (): Promise<{fresh: boolean; detail: string} | null> => {
         const manifest = await readProfileArtifactManifest(profileRoot).catch(() => null);
         const probe = manifest?.profiles[0];
         if (!probe) {
@@ -308,9 +301,19 @@ async function ensurePublishedSystemProfilesFresh(profileRoot: string): Promise<
         const detail = result.dependency ? `${result.reason}: ${result.dependency.path}` : result.reason ?? "unknown";
         return {fresh: result.fresh, detail: `${probe.fileName}，${detail}`};
     };
+    const probeVariable = async (): Promise<{fresh: boolean; detail: string} | null> => {
+        const manifest = await readVariableDefinitionManifest(variableRoot).catch(() => null);
+        const probe = manifest?.definitions[0];
+        if (!probe) {
+            return null;
+        }
+        const result = await validateVariableDefinitionArtifact(variableRoot, probe, {requireTypeArtifact: true});
+        const detail = result.dependency ? `${result.reason}: ${result.dependency.path}` : result.reason ?? "unknown";
+        return {fresh: result.fresh, detail: `${probe.fileName}，${detail}`};
+    };
 
-    const before = await probeFreshness();
-    if (before?.fresh) {
+    const [profileBefore, variableBefore] = await Promise.all([probeProfile(), probeVariable()]);
+    if (profileBefore?.fresh && variableBefore?.fresh) {
         return;
     }
 
@@ -332,12 +335,13 @@ async function ensurePublishedSystemProfilesFresh(profileRoot: string): Promise<
         );
     });
 
-    const after = await probeFreshness();
-    if (after && !after.fresh) {
-        throw new Error(
-            `系统 Profile 重编后仍然不新鲜（${after.detail}）。`
-            + "请手动运行 `bun run system-assets:prepare` 查看真实编译错误。",
-        );
+    const [profileAfter, variableAfter] = await Promise.all([probeProfile(), probeVariable()]);
+    const failures = [
+        !profileAfter ? "Profile manifest 没有 loaded entry" : !profileAfter.fresh ? `Profile ${profileAfter.detail}` : null,
+        !variableAfter ? "Variable manifest 没有 definition entry" : !variableAfter.fresh ? `Variable ${variableAfter.detail}` : null,
+    ].filter((failure): failure is string => Boolean(failure));
+    if (failures.length > 0) {
+        throw new Error(`系统 assets 重编后仍然不新鲜（${failures.join("；")}）。请手动运行 \`bun run system-assets:prepare\` 查看真实编译错误。`);
     }
 }
 
@@ -352,6 +356,11 @@ export async function removeFixtureTree(root: string): Promise<void> {
     const entries = await readdir(root, {withFileTypes: true}).catch(() => []);
     const failures: unknown[] = [];
     for (const entry of entries) {
+        // marker 必须最后删除；否则某个 junction/文件删除失败后只剩无 owner 的半棵目录，
+        // 后续 sweep 将永远无法证明它可安全回收。
+        if (entry.name === FIXTURE_MARKER_FILE) {
+            continue;
+        }
         const target = path.join(root, entry.name);
         try {
             const stats = await lstat(target);
@@ -366,10 +375,22 @@ export async function removeFixtureTree(root: string): Promise<void> {
             failures.push(error);
         }
     }
-    // 无论前面是否失败都必须尝试删除 root 本体。
-    await rm(root, {recursive: true, force: true, maxRetries: 10, retryDelay: 100}).catch((error: unknown) => failures.push(error));
     if (failures.length > 0) {
         throw new AggregateError(failures, `fixture root 清理存在失败项：${root}`);
+    }
+
+    const markerPath = path.join(root, FIXTURE_MARKER_FILE);
+    const markerText = await readFile(markerPath, "utf8").catch(() => null);
+    await rm(markerPath, {force: true, maxRetries: 10, retryDelay: 100});
+    try {
+        await rmdir(root);
+    } catch (error) {
+        if (markerText !== null) {
+            await writeFile(markerPath, markerText, "utf8").catch((restoreError: unknown) => {
+                throw new AggregateError([error, restoreError], `fixture root 清理失败且无法恢复owner marker：${root}`);
+            });
+        }
+        throw new AggregateError([error], `fixture root 清理存在失败项：${root}`);
     }
 }
 
@@ -481,12 +502,15 @@ function isProcessAlive(pid: number): boolean {
 // 这些条目必须覆盖 profile manifest 里依赖路径的全部顶层前缀：
 // 依赖按 cwd 相对记录（`normalizeArtifactPath`），fixture 内解析不到就会被判成
 // dependency_changed，进而让所有 system profile 变 stale、sync 直接跳过。
-// 当前实测前缀为 node_modules / server / shared / packages / assets / tsconfig.json。
+// 当前实测前缀为 node_modules / server / shared / packages / profile-sdk /
+// variable-sdk / assets / tsconfig.json。
 const linkedApplicationEntries = [
     {name: "app", type: "junction" as const},
     {name: "server", type: "junction" as const},
     {name: "shared", type: "junction" as const},
     {name: "packages", type: "junction" as const},
+    {name: "profile-sdk", type: "junction" as const},
+    {name: "variable-sdk", type: "junction" as const},
     {name: "reference", type: "junction" as const},
     {name: "docs", type: "junction" as const},
     {name: "node_modules", type: "junction" as const},

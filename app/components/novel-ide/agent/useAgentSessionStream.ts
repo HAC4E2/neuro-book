@@ -41,10 +41,20 @@ type AgentSessionStreamOptions = {
     session: AgentSessionStreamStore;
     api: AgentSessionStreamApi;
     activeSessionId: Ref<number | null>;
-    applyRecoverySideEffects?: (recovery: AgentSessionRecoveryDto, result: AgentRecoveryApplyResult) => void | Promise<void>;
-    onEvent?: (event: AgentSessionEventDto) => void | Promise<void>;
+    applyRecoverySideEffects?: (
+        recovery: AgentSessionRecoveryDto,
+        result: AgentRecoveryApplyResult,
+        owner: AgentSessionStreamOwner,
+    ) => void | Promise<void>;
+    onEvent?: (event: AgentSessionEventDto, owner: AgentSessionStreamOwner) => void | Promise<void>;
     onError?: (error: unknown, fallback: string) => void;
 };
+
+/** Session stream 回调的连接所有权；异步副作用提交前必须再次检查 isCurrent。 */
+export type AgentSessionStreamOwner = Readonly<{
+    sessionId: number;
+    isCurrent: () => boolean;
+}>;
 
 type RuntimeI18n = {
     t: (key: string) => string;
@@ -85,6 +95,7 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let recoveryPromise: {sessionId: number; promise: Promise<boolean>} | null = null;
     let recoveryGeneration = 0;
+    let connectionGeneration = 0;
     let stopped = false;
     let backoffSessionId: number | null = null;
     const reconnectBackoff = new SseReconnectBackoff();
@@ -137,15 +148,24 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
         }, retry.delayMs);
     };
 
-    const syncRecovery = async (reason: AgentSessionStreamRecoveryReason): Promise<boolean> => {
+    const runRecovery = async (
+        reason: AgentSessionStreamRecoveryReason,
+        behavior: {force: boolean; reportError: boolean},
+    ): Promise<boolean> => {
         const targetSessionId = options.activeSessionId.value;
         if (!targetSessionId) {
             return false;
         }
-        if (recoveryPromise?.sessionId === targetSessionId) {
+        if (!behavior.force && recoveryPromise?.sessionId === targetSessionId) {
             return recoveryPromise.promise;
         }
+        if (behavior.force) {
+            recoveryGeneration += 1;
+            recoveryPromise = null;
+        }
         const generation = recoveryGeneration;
+        const isCurrent = (): boolean => generation === recoveryGeneration
+            && targetSessionId === options.activeSessionId.value;
         if (reason !== "manual_refresh" && reason !== "invoke_error_fallback") {
             options.session.applyConnectionStatus("recovering");
         }
@@ -153,18 +173,26 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
         const promise = (async () => {
             try {
                 const recovery = await options.api.getSessionRecovery(targetSessionId);
-                if (generation !== recoveryGeneration || targetSessionId !== options.activeSessionId.value) {
+                if (!isCurrent()) {
                     return false;
+                }
+                if (recovery.summary.sessionId !== targetSessionId) {
+                    throw new Error(`Agent session recovery 身份不匹配：期望 ${String(targetSessionId)}，收到 ${String(recovery.summary.sessionId)}`);
                 }
                 const applyResult = options.session.applyRecovery(recovery);
                 options.session.clearRecoveryRequest();
-                await options.applyRecoverySideEffects?.(recovery, applyResult);
+                const owner = {sessionId: targetSessionId, isCurrent};
+                await options.applyRecoverySideEffects?.(recovery, applyResult, owner);
+                if (!isCurrent()) {
+                    return false;
+                }
                 reconnectBackoff.reset();
                 reconnectAttempt.value = 0;
                 const activeController = controller.value;
-                if (activeController && sessionId.value === targetSessionId && targetSessionId === options.activeSessionId.value) {
+                if (activeController && sessionId.value === targetSessionId && isCurrent()) {
                     // recovery cursor 是新 subscription 的 replay 起点；旧连接不能继续沿用被重置前的读取位置。
                     clearReconnectTimer();
+                    connectionGeneration += 1;
                     activeController.abort();
                     if (controller.value === activeController) {
                         controller.value = null;
@@ -175,8 +203,14 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
                 }
                 return true;
             } catch (error) {
-                options.onError?.(error, translate("agent.chatSurface.syncSessionFailed", "同步 Agent session 失败"));
-                return false;
+                if (!isCurrent()) {
+                    return false;
+                }
+                if (behavior.reportError) {
+                    options.onError?.(error, translate("agent.chatSurface.syncSessionFailed", "同步 Agent session 失败"));
+                    return false;
+                }
+                throw error;
             } finally {
                 if (recoveryPromise === request) {
                     recoveryPromise = null;
@@ -188,11 +222,30 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
         return promise;
     };
 
-    const handleEvent = async (targetSessionId: number, event: AgentSessionEventDto): Promise<void> => {
-        if (targetSessionId !== options.activeSessionId.value) {
+    /** 普通恢复共用当前 single-flight，当前错误由 stream 的错误出口处理。 */
+    const syncRecovery = async (reason: AgentSessionStreamRecoveryReason): Promise<boolean> => {
+        return runRecovery(reason, {force: false, reportError: true});
+    };
+
+    /** 配置刷新/显式重试强制开启新 recovery generation，并把当前错误交给调用方投影。 */
+    const refreshRecovery = async (reason: AgentSessionStreamRecoveryReason): Promise<boolean> => {
+        return runRecovery(reason, {force: true, reportError: false});
+    };
+
+    const handleEvent = async (
+        targetSessionId: number,
+        generation: number,
+        event: AgentSessionEventDto,
+    ): Promise<void> => {
+        const isCurrent = (): boolean => generation === connectionGeneration
+            && targetSessionId === options.activeSessionId.value;
+        if (!isCurrent() || event.sessionId !== targetSessionId) {
             return;
         }
-        await options.onEvent?.(event);
+        await options.onEvent?.(event, {sessionId: targetSessionId, isCurrent});
+        if (!isCurrent()) {
+            return;
+        }
         options.session.applyEvent(event);
         if (options.session.needsRecovery.value) {
             const reasons = options.session.recoveryReasons.value;
@@ -225,6 +278,7 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
         }
         controller.value?.abort();
         const nextController = new AbortController();
+        const nextConnectionGeneration = ++connectionGeneration;
         controller.value = nextController;
         sessionId.value = targetSessionId;
         stopped = false;
@@ -241,10 +295,12 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
                     eventEpoch: options.session.eventEpoch.value ?? undefined,
                     after: options.session.lastSeq.value,
                 }, async (event) => {
-                    await handleEvent(targetSessionId, event);
+                    await handleEvent(targetSessionId, nextConnectionGeneration, event);
                 }, nextController.signal, {
                     onOpen: () => {
-                        if (controller.value !== nextController || nextController.signal.aborted) {
+                        if (controller.value !== nextController
+                            || nextConnectionGeneration !== connectionGeneration
+                            || nextController.signal.aborted) {
                             return;
                         }
                         reconnectBackoff.opened();
@@ -293,6 +349,7 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
         clearReconnectTimer();
         reconnectBackoff.reset();
         reconnectAttempt.value = 0;
+        connectionGeneration += 1;
         controller.value?.abort();
         controller.value = null;
         sessionId.value = null;
@@ -303,6 +360,7 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
     const stop = (): void => {
         stopped = true;
         clearReconnectTimer();
+        connectionGeneration += 1;
         controller.value?.abort();
         controller.value = null;
         sessionId.value = null;
@@ -320,6 +378,7 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
         lastDisconnectReason,
         reconnectNow,
         reconnectAttempt,
+        refreshRecovery,
         start,
         stop,
         syncRecovery,

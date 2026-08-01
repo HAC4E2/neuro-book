@@ -247,7 +247,7 @@ writer prompt 现在把选中的那份 reference **全文**塞进 `<writing_refe
 
 | 批次 | 内容 | 依赖 | 冲突面 |
 | --- | --- | --- | --- |
-| **A** | `workspace node import-book` + `node set-summary` 两个 CLI 子命令；切章规则提取为共享逻辑 | 无 | `assets/.../scripts/workspace.ts` |
+| **A** | `workspace node import-book` + `node set-summary` 两个 CLI 子命令；切章规则提取为共享逻辑 | 无 | Product-owned Workspace CLI domain + `.nbook/agent/bin/workspace` wrapper |
 | **B** | `chapter-digest` workflow + Plot `bootstrap_carrier_tree` 工具 | A | workflows/ + server/plot + server/agent/tools |
 | **C** | `novel-setup` 续写分支文案 + `novel-guide` 更新 | B | skills/ |
 | **D** | writer references 索引路由（profile 改造 + `sceneReferenceRouting` 设置项 + frontmatter 扩字段） | 无 | writer.profile.tsx + writer-writing-reference.ts |

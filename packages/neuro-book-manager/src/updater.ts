@@ -22,7 +22,7 @@ import {
     type StagedProduct,
     type StagedReleaseSource,
 } from "#manager/component";
-import {buildSourceDockerImage, inspectDockerApplication, stopDocker, writeDockerCompose} from "#manager/docker";
+import {buildSourceDockerImage, containerProductImageReference, inspectDockerApplication, stopDocker, writeDockerCompose} from "#manager/docker";
 import {ensureDirectory, pathExists, removePath} from "#manager/files";
 import {statePort} from "#manager/health";
 import {
@@ -361,9 +361,11 @@ async function prepareUpdate(
             const previousImage = options.manifest.components.product?.provider === "container"
                 ? options.manifest.components.product.image
                 : undefined;
-            product = {provider: "container", version: appVersion, revision: sourceRevision, image: sourceDockerImageName(sourceRevision, journal.id)};
+            const image = sourceDockerImageName(sourceRevision, journal.id);
+            product = {provider: "container", version: appVersion, revision: sourceRevision, image};
             journal = await setOperationEffect(journal, {kind: "docker-image", state: "planned", owner: "product", image: product.image, previousImage});
-            await buildSourceDockerImage(engine, stagedWorktree, product.image);
+            const containerImageId = await buildSourceDockerImage(engine, stagedWorktree, product.image);
+            product = {...product, containerImageId};
             journal = await setOperationEffect(journal, {kind: "docker-image", state: "applied", owner: "product", image: product.image, previousImage});
         }
     } else if (profile === "source-dev" && selected.has("source")) {
@@ -433,7 +435,7 @@ async function prepareUpdate(
             stateRoot: paths.state,
             cacheRoot: paths.cache,
             profile: "ghcr",
-            image: `${product.image}@${product.digest}`,
+            image: containerProductImageReference("ghcr", product),
             port: await statePort(paths.state),
             output: join(staging, "docker-compose.generated.yml"),
             layoutPath: finalCompose,

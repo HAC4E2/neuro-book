@@ -20,6 +20,7 @@ const docker = vi.hoisted(() => ({
 }));
 const applicationStateMigration = vi.hoisted(() => ({rollback: vi.fn()}));
 const git = vi.hoisted(() => ({revision: vi.fn(), removeMaterialized: vi.fn()}));
+const execution = vi.hoisted(() => ({verify: vi.fn()}));
 
 vi.mock("#manager/docker", () => ({
     removeDockerDeployment: docker.removeDeployment,
@@ -34,10 +35,26 @@ vi.mock("#manager/git", () => ({
     repositoryRevision: git.revision,
     removeMaterializedRepository: git.removeMaterialized,
 }));
+vi.mock("#manager/application-execution", () => ({verifyApplicationExecution: execution.verify}));
 
 const roots: string[] = [];
 const JOURNAL_ROOT = join(tmpdir(), "neuro-book-operation-fixture");
 const OUTSIDE_ROOT = join(tmpdir(), "neuro-book-operation-outside");
+const CONTAINER_IMAGE_ID = `sha256:${"8".repeat(64)}`;
+
+beforeEach(() => {
+    execution.verify.mockResolvedValue({
+        kind: "container-product",
+        engine: "docker",
+        image: {
+            engine: "docker",
+            configuredImage: "neuro-book-source:test",
+            imageId: CONTAINER_IMAGE_ID,
+            profile: "source-docker",
+            revision: "a".repeat(40),
+        },
+    });
+});
 
 afterEach(async () => Promise.all(roots.splice(0).map((root) => removePath(root))));
 beforeEach(() => {
@@ -420,7 +437,13 @@ describe("Operation recovery", () => {
         expect(await readFile(database, "utf8")).toBe("old");
         await expect(stat(`${database}-wal`)).rejects.toMatchObject({code: "ENOENT"});
         expect(await readFile(compose, "utf8")).toBe("image: old");
-        expect(docker.start).toHaveBeenCalledWith("docker", root, stateRoot, "source-docker", "1.0.0");
+        expect(docker.start).toHaveBeenCalledWith(
+            expect.objectContaining({engine: "docker", imageId: CONTAINER_IMAGE_ID}),
+            root,
+            stateRoot,
+            "source-docker",
+            "1.0.0",
+        );
     });
 
     it("先停止新Docker部署释放runtime lease，再回滚Application State并恢复旧Compose", async () => {
@@ -529,7 +552,13 @@ describe("Operation recovery", () => {
         expect(docker.removeDeployment).toHaveBeenCalledTimes(removed ? 1 : 0);
         expect(docker.start).toHaveBeenCalledTimes(restarted ? 1 : 0);
         if (restarted) {
-            expect(docker.start).toHaveBeenCalledWith("docker", root, join(root, "data"), "source-docker", "1.0.0");
+            expect(docker.start).toHaveBeenCalledWith(
+                expect.objectContaining({engine: "docker", imageId: CONTAINER_IMAGE_ID}),
+                root,
+                join(root, "data"),
+                "source-docker",
+                "1.0.0",
+            );
         }
         if (!removed) expect(await readFile(compose, "utf8")).toBe("image: current");
         const saved = JSON.parse(await readFile(
@@ -694,7 +723,7 @@ function dockerManifest(root: string, image = "neuro-book-source:test"): Install
         roots: INSTALLATION_SCOPED_ROOT_LOCATORS,
         components: {
             source: {provider: "git", version: "1.0.0", revision, path: ".", repository: "https://github.com/notnotype/neuro-book.git", branch: "master"},
-            product: {provider: "container", version: "1.0.0", revision, image},
+            product: {provider: "container", version: "1.0.0", revision, image, containerImageId: CONTAINER_IMAGE_ID},
             manager: {provider: "managed", version: "0.1.0", path: ".runtime/manager/0.1.0/neuro-book.mjs", bundleSha256: "a".repeat(64)},
             managerRuntime: {provider: "system", version: "1.3.0", executable: "bun"},
             applicationRuntime: {provider: "container", version: "1.0.0"},

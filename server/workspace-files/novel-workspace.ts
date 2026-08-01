@@ -107,6 +107,9 @@ const HARD_CUT_DELETED_MANAGED_SYSTEM_ASSET_PREFIXES = [
     "agent/skills/llmlint/rulesets/builtin/cn-extreme/",
 ];
 const HARD_CUT_DELETED_MANAGED_SYSTEM_ASSET_PATHS = new Set([
+    "agent/scripts/profile.ts",
+    "agent/scripts/variable.ts",
+    "agent/scripts/workspace.ts",
     "agent/skills/llmlint/.gitignore",
 ]);
 const STALE_MANAGED_SYSTEM_ASSET_PREFIXES = [
@@ -762,9 +765,9 @@ async function removeStaleManagedSystemAssets(
 /**
  * 清理硬切旧官方目录中没有 sync state 的残留文件。
  *
- * 普通 deleted asset 清理依赖 sync state；llmlint 曾短暂生成过几组官方旧目录，
- * 真实 user-assets 可能出现“文件残留但 state 不完整”的半同步状态。这里仅扫描
- * 已硬切的官方前缀，不触碰 user ruleset。
+ * 普通 deleted asset 清理依赖 sync state；旧CLI脚本与llmlint旧目录都可能处于
+ * “文件残留但 state 不完整”的半同步状态。这里仅扫描明确登记的官方旧路径，
+ * 不触碰用户自建脚本或user ruleset。
  */
 async function removeHardCutDeletedManagedSystemAssetPrefixes(syncState: UserSystemAssetsSyncState, result: UserAssetsSyncResult, preservedDeletedAssetPaths: Set<string>): Promise<boolean> {
     let changed = false;

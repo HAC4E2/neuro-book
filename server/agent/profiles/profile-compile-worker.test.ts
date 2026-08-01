@@ -15,12 +15,16 @@ describe("profile compile worker runtime", () => {
     it("Product Root 只使用预编译 Authoring Kit worker，不携带 tsx vendor 或运行源码", async () => {
         const productRoot = await createProductWorkerFixture();
         try {
-            const paths = resolveProfileCompileWorkerPathsForRoot(productRoot);
+            await mkdir(resolve(productRoot, "node_modules"));
+            const paths = resolveProfileCompileWorkerPathsForRoot(productRoot, {
+                NEURO_BOOK_PRODUCT_IMAGE_ROOT: resolve(productRoot, ".output"),
+                NODE_PATH: resolve(productRoot, "wrong-node-path"),
+            });
             expect(paths).toEqual({
                 entry: resolve(productRoot, ".output", "server", "authoring", "profile-compile-worker.mjs"),
                 precompiled: true,
             });
-            await expect(pathExists(resolve(productRoot, "node_modules"))).resolves.toBe(false);
+            await expect(pathExists(resolve(productRoot, "node_modules"))).resolves.toBe(true);
             await expect(pathExists(resolve(productRoot, ".output", "server", "node_modules"))).resolves.toBe(false);
             await expect(pathExists(resolve(productRoot, "release-meta.json"))).resolves.toBe(false);
             await expect(pathExists(resolve(productRoot, ".output", "server", "package.json"))).resolves.toBe(true);
@@ -506,6 +510,8 @@ async function createProductWorkerFixture(): Promise<string> {
     await mkdir(resolve(outputRoot, "authoring"), {recursive: true});
     await writeFile(resolve(outputRoot, "index.mjs"), "", "utf8");
     await writeFile(resolve(outputRoot, "package.json"), "{\"name\":\"neuro-book-output\",\"version\":\"0.0.0\",\"type\":\"module\"}\n", "utf8");
+    await writeFile(resolve(outputRoot, "authoring", "package.json"), "{\"name\":\"@notnotype/neuro-book-profile-authoring-kit\",\"private\":true,\"type\":\"module\"}\n", "utf8");
+    await writeFile(resolve(outputRoot, "authoring", "tsconfig.json"), "{}\n", "utf8");
     await writeFile(resolve(outputRoot, "authoring", "profile-compile-worker.mjs"), "export {};\n", "utf8");
     return productRoot;
 }

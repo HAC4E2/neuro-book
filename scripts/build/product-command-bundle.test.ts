@@ -1,4 +1,5 @@
 import {resolve} from "node:path";
+import {readFile, readdir} from "node:fs/promises";
 
 import {describe, expect, it} from "vitest";
 import {
@@ -51,6 +52,44 @@ describe("Product command metafile", () => {
 
         expect(() => resolveProductCommandEntries(metafile, commandRoot))
             .toThrow("Product command metafile output 逃逸 commands root");
+    });
+
+    it("Product正式命令实现归server领域Module，server不得反向依赖scripts", async () => {
+        const orchestrationOnly = new Set([
+            "prepare-system-assets",
+            "product-profile-authoring-smoke",
+            "product-variable-authoring-smoke",
+            "product-image-variant-smoke",
+            "sqlite-vec-smoke",
+        ]);
+        for (const [id, source] of Object.entries(PRODUCT_COMMAND_SOURCES)) {
+            if (orchestrationOnly.has(id)) continue;
+            expect(source, id).toMatch(/^server\//u);
+        }
+        expect(PRODUCT_COMMAND_SOURCES["prepare-system-assets"])
+            .toBe("server/runtime/prepare-system-assets-command.ts");
+
+        const offenders: string[] = [];
+        const files = await readdir("server", {recursive: true});
+        for (const relativePath of files.filter((fileName) => /\.(?:ts|mjs)$/u.test(fileName))) {
+            const fileName = resolve("server", relativePath);
+            if ((await readFile(fileName, "utf8")).includes("nbook/scripts/")) offenders.push(fileName);
+        }
+        expect(offenders).toEqual([]);
+    });
+
+    it("Product bootstrap只依赖共享只读Verifier，不把Builder带入命令bundle", async () => {
+        const [bootstrap, verifier, builder] = await Promise.all([
+            readFile("server/runtime/product-command.ts", "utf8"),
+            readFile("shared/product-runtime-image-verifier.ts", "utf8"),
+            readFile("scripts/build/product-runtime-image-builder.ts", "utf8"),
+        ]);
+
+        expect(bootstrap).toContain('from "nbook/shared/product-runtime-image-verifier"');
+        expect(verifier).not.toContain("product-runtime-image-builder");
+        expect(verifier).not.toContain("proper-lockfile");
+        expect(builder).toContain('from "nbook/shared/product-runtime-image-verifier"');
+        expect(builder).toContain("new ProductRuntimeImageVerifier().openVerified");
     });
 });
 

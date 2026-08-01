@@ -33,6 +33,7 @@ type SessionAttachmentEntry = {
 - `session_attachment` 不进入模型上下文、Chat Flow、Session Tree 或摘要。
 - 该 entry 的附件读取 locator 固定使用 `contentIndex = 0`。
 - Attachment ID 不是公开授权凭证。读取必须同时提供当前 Session、真实 entry ID 和 contentIndex。
+- locator 授权成功后只返回绑定该引用的 `read()` capability；HTTP 原图与变体读取都消费该 capability。Harness 不公开原始 Attachment Store，工具上下文也只能使用图片 Codec。
 - invoke admission 只接受当前 Session 目录中已登记或已经由历史 message/toolResult/custom_message 引用的 Attachment ID。
 - 伪造其它 Session 的哈希目标、Project 图片路径、绝对路径或远程 URL 都不能直接作为图片发送；本地源文件必须先快照。
 
@@ -55,6 +56,7 @@ type SessionAttachmentEntry = {
   - 搜索名称、MIME 和 Attachment ID，按 `lastSeenAt DESC, attachmentId ASC` 排序。
 - `GET /api/agent/sessions/:sessionId/entries/:entryId/attachments/:contentIndex`
   - 通过 Session entry locator 读取完整 bytes；支持 `session_attachment`、user/toolResult message 和 custom_message 中的附件。
+  - 原图与变体都先完成 locator 授权；原图下载文件名使用统一 RFC 5987 `filename*` 编码。
 - `GET /api/agent/sessions/:sessionId/entries/:entryId/user-content`
   - 按需返回历史用户消息的完整有序 Markdown，供公开预算截断后的编辑和复制。
 

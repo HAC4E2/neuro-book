@@ -988,3 +988,11 @@ Task 108 与 Task 109 合并后完成最终串行复核：
 - Manager `installation-health`已把离线完整性、容器/原生服务状态和结构化 doctor/status/import 合同统一起来；服务停止只产生warning，运行中镜像/HTTP/version错误才失败。Manager 22 files / 78 tests、typecheck、build、pack审计通过。
 - 完整Harness/black-box现为Harness 169/169、black-box+payload 25/25；prompt payload错误返回、队列拒绝不污染和默认Workspace Root初始化均有回归。公开Product/canary与浏览器图片展示仍待重验。
 - 本轮没有迁移真实Session/Attachment，也没有执行浏览器图片展示或公开canary；Task 108继续保持Implementing，不能把本地聚焦回归写成公开资产验收完成。
+
+### 2026-07-31 Attachment capability 与真实图片基线收口
+
+- `NeuroAgentHarness` 的原始 `AttachmentStore` 已改为 private；测试只保留构造注入 Adapter。Session locator 授权成功后返回 `{ref, name?, read}` capability，原图与变体 route 都只能调用该 capability，hash 仍不能单独授权读取。
+- 上传、文件快照和 `read(image)` 继续统一经过 `AgentAttachmentCodec`。共享测试图片 helper 用 Sharp 生成可完整解码的 PNG/JPEG/WebP，并集中提供有效 GIF 与低字节 JPEG SOF 像素上限 fixture；Harness 测试不再用“只有 PNG 文件头”的假图片绕过完整解码。
+- snapshot 端到端回归证明超过 64 MP 时返回 `limit_exceeded` 且注入 Adapter 零写入；归档竞态同时锁定 `invalid_input` 和“当前 Session 已归档，不能登记附件”，避免前置解码失败误通过。
+- 完整 `file-tools.test.ts` 为 49/49；Session Attachment、Codec 与前端/路由相邻回归通过。完整 Harness 图片相关旧失败已归零，余下两个失败位于模型恢复与 Variable SDK 在途改动，不属于 Attachment。
+- 没有增加 Attachment GC、统一媒体库、Provider 文本附件或浏览器自动验收。

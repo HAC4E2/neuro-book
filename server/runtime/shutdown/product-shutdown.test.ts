@@ -33,7 +33,7 @@ vi.mock("nbook/server/workspace-files/project-session", () => ({closeAllProjects
 vi.mock("nbook/server/workspace-files/project-workspace-index", () => ({
     closeAllWorkspaceTreeIndexes: mocks.closeAllWorkspaceTreeIndexes,
 }));
-vi.mock("nbook/scripts/db/app-sqlite-migrations", () => ({
+vi.mock("nbook/server/database/app-sqlite-migrations", () => ({
     checkpointAppSqliteDatabase: mocks.checkpointAppSqliteDatabase,
 }));
 

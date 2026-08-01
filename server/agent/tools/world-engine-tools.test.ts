@@ -1,20 +1,33 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type {NeuroToolResult} from "nbook/server/agent/tools/types";
-import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
+import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi} from "vitest";
 import {createBuiltinTools} from "nbook/server/agent/tools";
 import {createWorldEngineTools} from "nbook/server/agent/tools/world-engine-tools";
 import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
-import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
+import {
+    closeProjectForTest,
+    openProjectForTest,
+    removeProjectWorkspaceForTest,
+} from "nbook/server/workspace-files/project-session-test-utils";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {
+    createIsolatedWorkspaceAssets,
+    type IsolatedWorkspaceAssets,
+} from "nbook/server/workspace-files/test-workspace-fixture";
 
 describe("world engine agent tools", {timeout: 30_000}, () => {
+    let assets: IsolatedWorkspaceAssets;
     let projectRoot: string;
     let projectDirectory: string;
     let invocationReady: ReadyProjectSessionRef;
     let context: ToolExecutionContext;
+
+    beforeAll(async () => {
+        assets = await createIsolatedWorkspaceAssets({purpose: "world-engine-tools-tests"});
+    });
 
     beforeEach(async () => {
         projectRoot = await createProject();
@@ -33,9 +46,12 @@ describe("world engine agent tools", {timeout: 30_000}, () => {
     }, 30_000);
 
     afterEach(async () => {
-        await closeProjectForTest(projectRoot).catch(() => undefined);
-        await removeProjectRoot(projectDirectory);
+        await removeProjectWorkspaceForTest(projectRoot);
     }, 30_000);
+
+    afterAll(async () => {
+        await assets.dispose();
+    });
 
     it("内置工具注册只暴露 execute_world", () => {
         const builtinKeys = createBuiltinTools().map((tool) => tool.key);
@@ -52,7 +68,8 @@ describe("world engine agent tools", {timeout: 30_000}, () => {
         const tool = createWorldEngineTools().find((item) => item.key === "execute_world");
         const description = tool?.description ?? "";
 
-        expect(description).toContain("specified Project Workspace World Engine");
+        expect(description).toContain("current Project Workspace World Engine");
+        expect(description).toContain("optional projectRoot argument");
         expect(description).toContain("subjectIds?: string[]");
         expect(description).toContain('subjectMode?: "any" | "all"');
         expect(description).toContain("title/message/explanation");
@@ -63,8 +80,14 @@ describe("world engine agent tools", {timeout: 30_000}, () => {
         expect(description).toContain("world.slice.list({from: time, to: time, withPatches: true})");
         expect(description).toContain("world.slice.editPatches(existingSliceId, [{add:{...}}])");
         expect(description).toContain("world.slice.editPatches({add}) does not register new subjects");
-        expect(description).not.toContain("current Project Workspace World Engine");
+        expect(description).not.toContain("specified Project Workspace World Engine");
         expect(description).not.toContain("先删除已有切面");
+    });
+
+    it("execute_world 省略 projectRoot 时复用 invocation 的当前 Project generation", async () => {
+        const result = await executeWorld(context, undefined, `return "current-project";`);
+
+        expect(result.details).toEqual({data: "current-project", issues: []});
     });
 
     it("execute_world 在一个脚本内写入并查询，统一返回 data 和 issues", async () => {
@@ -267,7 +290,6 @@ describe("world engine agent tools", {timeout: 30_000}, () => {
 
     it("显式跨 Project override 的脚本执行期间持有目标 operation gate", async () => {
         const targetProjectRoot = await createProject();
-        const targetProjectDirectory = path.join(resolveRuntimeWorkspaceRoot(), targetProjectRoot);
         try {
             await executeWorld(context, targetProjectRoot, `return "target-warmed";`);
             const execution = executeWorld(context, targetProjectRoot, `
@@ -285,18 +307,20 @@ describe("world engine agent tools", {timeout: 30_000}, () => {
             await expect(execution).resolves.toMatchObject({details: {data: "target-finished"}});
             await closing;
         } finally {
-            await closeProjectForTest(targetProjectRoot).catch(() => undefined);
-            await removeProjectRoot(targetProjectDirectory);
+            await removeProjectWorkspaceForTest(targetProjectRoot);
         }
     });
 });
 
-async function executeWorld(context: ToolExecutionContext, projectRoot: string, code: string): Promise<NeuroToolResult> {
+async function executeWorld(context: ToolExecutionContext, projectRoot: string | undefined, code: string): Promise<NeuroToolResult> {
     const tool = createWorldEngineTools().find((item) => item.key === "execute_world");
     if (!tool?.executeWithContext) {
         throw new Error("missing world engine tool: execute_world");
     }
-    return tool.executeWithContext(context, "execute_world-call", {projectRoot, code});
+    return tool.executeWithContext(context, "execute_world-call", {
+        ...(projectRoot === undefined ? {} : {projectRoot}),
+        code,
+    });
 }
 
 function readText(result: NeuroToolResult): string {
@@ -358,18 +382,4 @@ function calendarFixture(): string {
         "};",
         "",
     ].join("\n");
-}
-
-async function removeProjectRoot(root: string): Promise<void> {
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-        try {
-            await fs.rm(root, {recursive: true, force: true});
-            return;
-        } catch (error) {
-            if (!(typeof error === "object" && error !== null && "code" in error && error.code === "EBUSY")) {
-                throw error;
-            }
-            await new Promise((resolve) => setTimeout(resolve, 100));
-        }
-    }
 }

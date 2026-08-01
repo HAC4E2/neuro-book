@@ -4,6 +4,7 @@ import {join, relative, resolve} from "node:path";
 import {rollbackApplicationStateMigration} from "#manager/app-commands";
 import {rollbackProduct, rollbackReleaseSource} from "#manager/component";
 import {removeDockerDeployment, removeDockerImage, startDocker, stopDockerContainer} from "#manager/docker";
+import {verifyApplicationExecution} from "#manager/application-execution";
 import {ensureDirectory, pathExists, readJson, removePath, writeJsonAtomic} from "#manager/files";
 import {removeMaterializedRepository, repositoryRevision} from "#manager/git";
 import {installationTarget} from "#manager/installation-path";
@@ -315,8 +316,12 @@ export async function rollbackOperation(initialJournal: OperationJournal): Promi
     if (compose?.previousCompose && await pathExists(compose.previousCompose)) await copyFile(compose.previousCompose, currentCompose);
     else if (compose?.created) await removePath(currentCompose);
     if (journal.previousManifest && isDockerProfile(journal.previousManifest.profile) && compose?.previousState === "running") {
+        const execution = await verifyApplicationExecution(root, journal.previousManifest);
+        if (execution.kind !== "container-product") {
+            throw new Error("Operation recovery 需要已验证的 Container Product identity。");
+        }
         await startDocker(
-            requiredContainerEngine(journal),
+            execution.image,
             root,
             resolveInstallationRoots(root, journal.previousManifest.roots).state,
             journal.previousManifest.profile,

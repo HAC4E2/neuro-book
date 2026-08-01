@@ -2,6 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-07-29
+- 更新：2026-08-01（Authoring Cache、stdin Secret 与 Windows 关闭验收）
 - 关联任务：[Task 130](../tasks/130-desktop-application-foundation/README.md)、[Task 105](../tasks/105-unified-installation-manager/README.md)、[Task 117](../tasks/117-windows-process-tree-lifecycle/README.md)、[ADR 0002](0002-bounded-rebuildable-runtime-artifacts.md)
 - 取代范围：[ADR 0006](0006-image-variant-and-original-ownership.md) 中 Image Variant Cache 的物理 locator 由本 ADR 的 Cache Root 决定；其 512 MiB、10000 项等领域预算不变。
 
@@ -50,12 +51,15 @@ WebView Root       = <Installation Root>/data/.desktop/webview
 | `Cache Root/llmlint` | llmlint detect cache；1000 项、128 MiB、30 天，通过 `LLMLINT_CACHE_DIR` 注入 |
 | `Cache Root/image-variants` | 可删除、可重建；继承 ADR 0006 的 512 MiB、10000 项、每 source 32 项预算；旧 State Root 副本删除 |
 | `Cache Root/bun/install` | 托管 Bun 的专属 install cache；通过 `BUN_INSTALL_CACHE_DIR` 隔离 |
+| `Cache Root/authoring/<kind>/<lease>` | Profile preview、Profile variable typecheck、Profile/Variable authoring check 的短期工作目录；带 owner marker 与活跃锁，正常完成或初始化失败都立即删除；24 小时失活回收；创建前以 128 个 lease / 256 MiB 做准入，准备完成后在消费前复核，超限时关闭当前 lease 并拒绝消费 |
 | `Cache Root/agent/bash-output/<lease>` | 带 owner marker 的逻辑 locator；7 天、128 个文件、256 MiB，每次最多 16 MiB；过期读取明确返回“已回收” |
 | `Workspace Root/.nbook/agent/composer-drafts.json` | Agent Draft Store；单条 256 KiB、最多 10 条、30 天，发送成功删除；首次加载迁移旧 WebView 草稿 |
 | Skill root 内 `node_modules` | 对应 Skill owner；按 Task 120 合同失效，内容备份排除 |
 | Desktop Local/WebView Root | 设备本地 UI state；更新保留、内容备份排除，仅显式 desktop reset 或卸载删除 |
 
 Bun cache 的递归硬预算不在普通 Product 启动时执行。当前没有受管 `bun install` 消费者；未来 Developer Build 安装命令必须在 install 完成后执行预算检查与超限清空，并在引入该命令的同一任务中锁定数值。为了一个尚不存在的命令在每次启动扫描整个 cache 不构成有效生命周期实现。
+
+Authoring Cache 的 128 个 lease / 256 MiB 是创建前与消费前的离散门禁，不是操作系统级实时磁盘配额。活跃 lease 写入期间可能短暂超过门禁；写入停止后必须在任何消费者读取前复核 owner 总量，超限的当前 lease 会被关闭，内容不能进入运行时消费。
 
 ### loopback 与关闭
 
@@ -67,6 +71,11 @@ Bun cache 的递归硬预算不在普通 Product 启动时执行。当前没有�
 6. 每一步失败都继续执行后续步骤，最后返回带步骤身份的 `AggregateError`。并发关闭共享同一个结果。
 7. Manager 最多等待合同规定的 30 秒。只有退出码为 0 且没有 signal 才算 graceful；HTTP 失败、超时、非零退出、signal 或 Product crash 时调用 Owned Process 收口完整进程树，并明确记录 forced shutdown。
 8. Windows 不依赖 `SIGTERM`；POSIX Ctrl+C/SIGTERM 继续进入同一个 Nitro close hook 和 shutdown controller。
+
+### Secret 传递
+
+1. 管理员自动创建的密码只能通过 `create-admin --password-stdin` 的 stdin pipe 传入；Manager、Release smoke 与容器编排不得把明文放入 argv、子进程环境或日志。
+2. Manager 读取自身 `AUTH_ADMIN_PASSWORD` 后必须从子进程环境删除该键，再写入原始 UTF-8 bytes 并关闭 stdin。输入不 trim，最大 4096 bytes；交互调用继续使用 TTY 隐藏输入。
 
 ### 卸载与重置
 
@@ -87,6 +96,7 @@ Bun cache 的递归硬预算不在普通 Product 启动时执行。当前没有�
 - Composer 草稿迁出后，WebView profile 才能被显式整体重置而不丢失未发送正文。
 - Bash 完整输出不再持久化 `%TEMP%` 绝对路径；cache 被回收是正式可见状态。
 - llmlint 的 sibling source 与 NeuroBook vendored snapshot 必须同步维护两个环境变量和缓存预算。
+- Windows 仓库外 Product smoke 已证明错误 token 不结束进程、正确 token 完成应用级关闭，随后端口关闭且 State Root 可移动和删除；Owned Process 仍只保留超时后的最终兜底职责。
 - 浏览器与 Tauri/Electron UI 尚未验收；本 ADR 只冻结共享 Product/Manager 生命周期，不提前冻结 Desktop Envelope 框架。
 
 ## 未采用方案

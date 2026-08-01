@@ -1,5 +1,7 @@
 # Portable Project Workspace
 
+> 2026-07-31 CLI 路径取代说明：下文 `assets/workspace/.nbook/agent/scripts/workspace.ts` 与旧同步链只保留为历史证据。当前 Agent 稳定入口为 `.nbook/agent/bin/workspace`；Workspace CLI implementation 归 Product 领域 Module，Source checkout wrapper 调 Product-owned source entry，发行物通过 Task 130 的 Product Runtime Contract 解析 `workspace` 逻辑命令，不恢复旧 asset script fallback。
+
 > 2026-07-11 Workspace 语义补充：普通 Agent 的工具 cwd 始终是 Workspace Root；Project Slug 是单段目录名，Project Path 固定为 `workspace/{slug}`。Current Project Workspace 只是模糊项目操作的默认焦点，不是访问边界。文件工具使用 `{project-slug}/...`，项目级 API 使用 `workspace/{project-slug}`；所有受管 Project Workspace 都可跨项目访问。仓库源码与仓库级 `reference/` 位于 cwd 外，通过 Runtime Location reminder 给出的绝对路径访问。
 
 > Active task directory format: `NN-kebab-case-name/`. Archived tasks move to `docs/tasks/archived/<task-slug>/`.

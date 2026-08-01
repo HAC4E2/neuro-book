@@ -29,6 +29,13 @@ describe("Product Profile Authoring Kit", () => {
         for (const required of [
             ["profile-compile-worker.mjs"],
             ["types", "profile-sdk", "index.d.ts"],
+            ["types", "profile-sdk", "contracts.d.ts"],
+            ["types", "profile-sdk", "writing.d.ts"],
+            ["types", "variable-sdk", "index.d.ts"],
+            ["sdk-source", "profile-sdk", "contracts.ts"],
+            ["sdk-source", "profile-sdk", "writing.ts"],
+            ["nbook", "profile-sdk", "writing.mjs"],
+            ["nbook", "variable-sdk", "index.mjs"],
             ["node_modules", "typebox", "package.json"],
             ["node_modules", "@types", "node", "index.d.ts"],
             ["node_modules", "undici-types", "package.json"],
@@ -36,6 +43,17 @@ describe("Product Profile Authoring Kit", () => {
             // Bun 与 Node 对成功 access 的返回值不同；没有抛错即表示文件存在。
             await access(join(authoringRoot, ...required));
         }
+        const projectedJsxRuntime = await readFile(
+            join(authoringRoot, "nbook", "profile-sdk", "jsx-runtime.mjs"),
+            "utf8",
+        );
+        const projectedJsxDevRuntime = await readFile(
+            join(authoringRoot, "nbook", "profile-sdk", "jsx-dev-runtime.mjs"),
+            "utf8",
+        );
+        expect(projectedJsxRuntime).toContain('from"./index.mjs"');
+        expect(projectedJsxDevRuntime).toContain('from"./jsx-runtime.mjs"');
+        expect(`${projectedJsxRuntime}\n${projectedJsxDevRuntime}`).not.toMatch(/from["']nbook\//u);
         for (const forbidden of ["server", "app", "docs"]) {
             await expect(access(join(authoringRoot, forbidden))).rejects.toMatchObject({code: "ENOENT"});
         }
@@ -45,42 +63,39 @@ describe("Product Profile Authoring Kit", () => {
             .rejects.toMatchObject({code: "ENOENT"});
         await expect(access(join(authoringRoot, "node_modules", "h3")))
             .rejects.toMatchObject({code: "ENOENT"});
-        const nestedTypeboxManifest = JSON.parse(await readFile(join(
-            authoringRoot,
-            "node_modules",
-            "@earendil-works",
-            "pi-ai",
-            "node_modules",
-            "typebox",
-            "package.json",
-        ), "utf8")) as {name?: string; version?: string};
-        expect(nestedTypeboxManifest).toMatchObject({name: "typebox", version: "1.1.38"});
         const dependencyManifest = JSON.parse(await readFile(join(authoringRoot, "authoring-dependencies.json"), "utf8")) as {
             schema?: string;
+            dependencies?: Array<{name?: string}>;
             instances?: Array<{name?: string; version?: string; kind?: string; location?: string; topLevel?: boolean}>;
         };
         expect(dependencyManifest.schema).toBe("nbook.product-authoring-dependencies/v2");
-        expect(dependencyManifest.instances).toContainEqual({
-            name: "typebox",
-            version: "1.1.38",
-            location: "@earendil-works/pi-ai/node_modules/typebox",
-            kind: "types",
-            topLevel: false,
-        });
+        expect(dependencyManifest.dependencies?.map((dependency) => dependency.name).sort())
+            .toEqual(["@types/node", "typebox", "undici-types"]);
+        expect([...new Set(dependencyManifest.instances?.map((instance) => instance.name))].sort())
+            .toEqual(["@types/node", "typebox", "undici-types"]);
+        for (const forbiddenPackage of [
+            "@earendil-works/pi-agent-core",
+            "@earendil-works/pi-ai",
+            "@prisma/client",
+            "zod",
+        ]) {
+            await expect(access(join(authoringRoot, "node_modules", ...forbiddenPackage.split("/"))))
+                .rejects.toMatchObject({code: "ENOENT"});
+        }
 
         const probePath = join(authoringRoot, "profile-smoke.tsx");
         const probeTsconfigPath = join(authoringRoot, "tsconfig.smoke.json");
         await writeFile(probePath, `
 /** @jsxImportSource nbook/profile-sdk */
 /** @jsxRuntime automatic */
-import type {Static} from "typebox";
-import {ProfilePrompt, System, Type, builtin, defineAgentProfile, toolset} from "nbook/profile-sdk";
+import {ProfilePrompt, Static, System, Type, builtin, defineAgentProfile, toolset} from "nbook/profile-sdk";
+import {DEFAULT_WRITING_STYLE_PRESET} from "nbook/profile-sdk/writing";
 
 const InitialSchema = Type.Object({topic: Type.String()});
 type Initial = Static<typeof InitialSchema>;
 
 export default defineAgentProfile({
-    manifest: {key: "authoring-smoke", name: "Authoring Smoke"},
+    manifest: {key: "authoring-smoke", name: DEFAULT_WRITING_STYLE_PRESET},
     initialSchema: InitialSchema,
     tools: toolset(builtin.file.read),
     context(ctx) {
@@ -89,9 +104,18 @@ export default defineAgentProfile({
     },
 });
 `, "utf8");
+        await writeFile(join(authoringRoot, "variable-smoke.ts"), `
+import {Type, defineWorkspaceRootVariable, type VariableDefinition} from "nbook/variable-sdk";
+
+export const definitions: VariableDefinition[] = [defineWorkspaceRootVariable({
+    key: "authoring.topic",
+    schema: Type.String(),
+    default: "",
+})];
+`, "utf8");
         await writeFile(probeTsconfigPath, `${JSON.stringify({
             extends: "./tsconfig.json",
-            include: ["./profile-smoke.tsx"],
+            include: ["./profile-smoke.tsx", "./variable-smoke.ts"],
         }, null, 4)}\n`, "utf8");
         await execFileAsync("bun", [resolve("node_modules/typescript/bin/tsc"), "--project", probeTsconfigPath, "--pretty", "false"], {
             cwd: authoringRoot,
@@ -107,6 +131,7 @@ import {join} from "node:path";
 const authoringRoot = import.meta.dir;
 const aliases = new Map([
     ["nbook/profile-sdk", join(authoringRoot, "nbook", "profile-sdk", "index.mjs")],
+    ["nbook/profile-sdk/writing", join(authoringRoot, "nbook", "profile-sdk", "writing.mjs")],
     ["nbook/profile-sdk/jsx-runtime", join(authoringRoot, "nbook", "profile-sdk", "jsx-runtime.mjs")],
     ["nbook/profile-sdk/jsx-dev-runtime", join(authoringRoot, "nbook", "profile-sdk", "jsx-dev-runtime.mjs")],
 ]);
@@ -121,7 +146,7 @@ const result = await Bun.build({
     plugins: [{
         name: "authoring-sdk",
         setup(build) {
-            build.onResolve({filter: /^nbook\\/profile-sdk(?:\\/jsx(?:-dev)?-runtime)?$/u}, (args) => {
+            build.onResolve({filter: /^nbook\\/profile-sdk(?:\\/writing|\\/jsx(?:-dev)?-runtime)?$/u}, (args) => {
                 const path = aliases.get(args.path);
                 if (!path) throw new Error(\`没有 Authoring SDK alias：\${args.path}\`);
                 return {path};

@@ -43,20 +43,26 @@ describe("Project 控制面不要求 open", () => {
         });
     });
 
-    it("DELETE /api/projects/item 未 open 时仍可删除 Project", async () => {
-        const deleteProjectWorkspace = vi.fn(async () => undefined);
+    it("DELETE /api/projects/item 未 open 时仍可通过 Lifecycle 删除 Project", async () => {
+        const closeProject = vi.fn(async () => undefined);
+        const deleteProject = vi.fn(async () => ({revision: 5, projectRoot: "delete-me"}));
+        const archiveSessionsByProjectRoot = vi.fn(async () => 0);
         vi.doMock("nbook/server/api/projects/project-control-plane", () => ({
             requireProjectRefQuery: vi.fn(() => ({projectRoot: "delete-me"})),
         }));
         vi.doMock("nbook/server/workspace-files/project-session", () => ({
+            closeProject,
+            deleteProject,
             projectOccupancy: vi.fn(() => null),
         }));
-        vi.doMock("nbook/server/workspace-files/project-workspace-delete", () => ({
-            deleteProjectWorkspace,
+        vi.doMock("nbook/server/agent/http", () => ({
+            useAgentHarness: vi.fn(() => ({archiveSessionsByProjectRoot})),
         }));
 
         const handler = (await import("nbook/server/api/projects/item.delete")).default;
-        await expect(handler({} as never)).resolves.toEqual({success: true, projectRoot: "delete-me"});
-        expect(deleteProjectWorkspace).toHaveBeenCalledWith(WORKSPACE_ROOT, {projectRoot: "delete-me"});
+        await expect(handler({} as never)).resolves.toEqual({revision: 5, projectRoot: "delete-me"});
+        expect(closeProject).toHaveBeenCalledWith({projectRoot: "delete-me"}, "delete");
+        expect(deleteProject).toHaveBeenCalledWith({projectRoot: "delete-me"});
+        expect(archiveSessionsByProjectRoot).toHaveBeenCalledWith("delete-me", "project.deleted");
     });
 });

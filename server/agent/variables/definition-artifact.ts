@@ -1,25 +1,29 @@
 import {createHash, randomUUID} from "node:crypto";
 import {existsSync} from "node:fs";
-import {copyFile, mkdir, readFile, readdir, rename, rm, writeFile} from "node:fs/promises";
-import {basename, dirname, isAbsolute, join, relative, resolve} from "node:path";
-import {builtinModules} from "node:module";
-import {build, type Metafile, type Plugin} from "esbuild";
+import {copyFile, mkdir, readFile, readdir, rename, rm, stat, utimes, writeFile} from "node:fs/promises";
+import {basename, dirname, join, resolve} from "node:path";
+import {setTimeout as sleep} from "node:timers/promises";
+import {build, type Metafile} from "esbuild";
 import {lock as lockFile, type LockOptions} from "proper-lockfile";
 import {appLogger} from "nbook/server/app-logs/logger";
 import type {VariableDefinition, VariableNamespace, VariableAccessorIssue} from "nbook/server/agent/variables/types";
 import {hashFile, resolveArtifactPath} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {generateVariableTypes, VARIABLE_TYPES_FILE_NAME, type VariableTypeGenerationDiagnostic} from "nbook/server/agent/variables/generated-types";
 import {DEFAULT_RUNTIME_ARTIFACT_RETENTION, importRuntimeArtifact, type RuntimeArtifactCacheSpec} from "nbook/server/utils/runtime-artifact-import";
+import {runtimeArtifactBundlePlugin} from "nbook/server/utils/runtime-artifact-bundle-plugin";
 import {
     resolveRuntimeArtifactCompilerContext,
-    resolveRuntimeArtifactNbookPath,
     normalizeRuntimeArtifactPath,
     type RuntimeArtifactCompilerContext,
 } from "nbook/server/utils/runtime-artifact-compiler-context";
+import {validateRuntimeArtifactAuthoring} from "nbook/server/utils/runtime-artifact-authoring-interface";
 
-export const VARIABLE_DEFINITION_COMPILER_VERSION = 2;
+export const VARIABLE_DEFINITION_COMPILER_VERSION = 3;
 export const VARIABLE_DEFINITION_COMPILED_DIR = ".compiled";
+export const VARIABLE_DEFINITION_ARTIFACTS_DIR = "artifacts";
 export const VARIABLE_DEFINITION_MANIFEST_FILE = "manifest.json";
+export const VARIABLE_DEFINITION_PUBLISH_LOCK = ".publish.lock";
+export const VARIABLE_DEFINITION_ORPHAN_MIN_AGE_MS = 10 * 60 * 1000;
 export const VARIABLE_DEFINITION_STAGING_DIR_NAME = "variable-definition-build";
 export const VARIABLE_DEFINITION_STAGING_OWNER_FILE = ".nbook-staging-owner.json";
 export const VARIABLE_DEFINITION_STAGING_LEASE_LOCK = ".nbook-staging-lease.lock";
@@ -389,7 +393,7 @@ export async function compileVariableDefinitions(options: {
         if (options.writePolicy === "forbid") {
             throw new Error("Product 内置 variable definition manifest 与源码不匹配。请重新构建或安装与源码匹配的 Product。");
         }
-        await commitArtifacts(buildCompiledDir, compiledDir, manifest);
+        await commitArtifacts(definitionRoot, buildCompiledDir, compiledDir, manifest);
         return manifest;
     } finally {
         if (stagingCreated) {
@@ -512,6 +516,12 @@ async function validateVariableDefinitionDependencies(item: VariableDefinitionMa
 }
 
 async function compileDefinitionFile(root: string, compiledDir: string, file: DefinitionFileEntry): Promise<VariableDefinitionManifestItem> {
+    await validateRuntimeArtifactAuthoring({
+        kind: "variable",
+        root,
+        entry: file.absolutePath,
+        allowedSdkSpecifiers: ["nbook/variable-sdk"],
+    });
     const sourceHash = await hashFile(file.absolutePath);
     const artifactStem = stableArtifactStem(file.fileName, /\.(tsx|ts|mjs|js)$/);
     const temporaryOutputPath = join(compiledDir, `${artifactStem}.${randomUUID()}.building.mjs`);
@@ -529,9 +539,9 @@ async function compileDefinitionFile(root: string, compiledDir: string, file: De
             logLevel: "silent",
             metafile: true,
             outfile: temporaryOutputPath,
-            packages: "external",
+            nodePaths: compilerContext.productRuntime ? [compilerContext.compilerNodeModulesRoot] : [],
             platform: "node",
-            plugins: [repoAliasBundlePlugin(compilerContext)],
+            plugins: [runtimeArtifactBundlePlugin(compilerContext, "nbook-variable-definition-bundle")],
             target: "esnext",
             tsconfig: tsconfigPath,
         });
@@ -540,20 +550,20 @@ async function compileDefinitionFile(root: string, compiledDir: string, file: De
         }
         const dependencies = await readDependencies(result.metafile, tsconfigPath, root);
         const dependencyHash = hashDependencies(file.absolutePath, dependencies);
-        const artifactFileName = `${artifactStem}.mjs`;
-        const artifactPath = join(compiledDir, artifactFileName);
         const artifactHash = await hashFile(temporaryOutputPath);
+        const artifactFileName = `${VARIABLE_DEFINITION_ARTIFACTS_DIR}/${artifactHash.sha256}.mjs`;
+        const artifactPath = join(compiledDir, artifactFileName);
         // 源路径已含 randomUUID()，每轮编译都不同，不需要物理副本换路径。
         const definitions = await importDefinitions(temporaryOutputPath);
-        const typeFileName = `${artifactStem}.${VARIABLE_TYPES_FILE_NAME}`;
-        const typePath = join(compiledDir, typeFileName);
         const generatedTypes = generateVariableTypes(definitions, {
             header: `Variable definition types generated from ${file.fileName}.`,
         });
+        const typeFileName = `${VARIABLE_DEFINITION_ARTIFACTS_DIR}/${typeHashFileStem(generatedTypes.text)}.${VARIABLE_TYPES_FILE_NAME}`;
+        const typePath = join(compiledDir, typeFileName);
         await writeFile(temporaryTypePath, generatedTypes.text, "utf8");
         const typeHash = await hashFile(temporaryTypePath);
-        await promoteArtifact(temporaryOutputPath, artifactPath);
-        await promoteArtifact(temporaryTypePath, typePath);
+        await promoteImmutableArtifact(temporaryOutputPath, artifactPath, artifactHash);
+        await promoteImmutableArtifact(temporaryTypePath, typePath, typeHash);
         return {
             fileName: file.fileName,
             sourceSha256: sourceHash.sha256,
@@ -645,32 +655,73 @@ function hashDependencies(sourcePath: string, dependencies: VariableDefinitionDe
     return hash.digest("hex").slice(0, 24);
 }
 
-async function promoteArtifact(temporaryOutputPath: string, outputPath: string): Promise<void> {
+async function promoteImmutableArtifact(
+    temporaryOutputPath: string,
+    outputPath: string,
+    expected: {sha256: string; bytes: number},
+): Promise<void> {
     await mkdir(dirname(outputPath), {recursive: true});
-    await rm(outputPath, {force: true});
-    try {
-        await rename(temporaryOutputPath, outputPath);
-    } catch (error) {
-        throw error;
+    const existing = await hashFile(outputPath).catch(() => null);
+    if (existing) {
+        if (existing.sha256 !== expected.sha256 || existing.bytes !== expected.bytes) {
+            throw new Error(`content-addressed variable artifact 已存在但内容不匹配：${outputPath}`);
+        }
+        await rm(temporaryOutputPath, {force: true});
+        return;
     }
+    await renameWithRetry(temporaryOutputPath, outputPath);
 }
 
-async function commitArtifacts(buildDir: string, compiledDir: string, manifest: VariableDefinitionManifest): Promise<void> {
+/** 安装不可变 artifact，并在 publish lock 内原子翻转 manifest。 */
+async function commitArtifacts(
+    definitionRoot: string,
+    buildDir: string,
+    compiledDir: string,
+    manifest: VariableDefinitionManifest,
+): Promise<void> {
     await mkdir(compiledDir, {recursive: true});
-    for (const item of manifest.definitions) {
-        const sourcePath = join(buildDir, item.artifactFileName);
-        if (existsSync(sourcePath)) {
-            await copyFile(sourcePath, join(compiledDir, item.artifactFileName));
-        }
-        if (item.typeFileName) {
-            const typeSourcePath = join(buildDir, item.typeFileName);
-            if (existsSync(typeSourcePath)) {
-                await copyFile(typeSourcePath, join(compiledDir, item.typeFileName));
+    await withVariablePublishLock(compiledDir, async () => {
+        const previousManifest = await readVariableDefinitionManifest(definitionRoot);
+        await assertVariableReleaseFresh(definitionRoot, manifest);
+        for (const item of manifest.definitions) {
+            await installImmutableArtifact(buildDir, compiledDir, item.artifactFileName, {
+                sha256: item.artifactSha256,
+                bytes: item.artifactBytes,
+            });
+            if (item.typeFileName && item.typeSha256 && item.typeBytes !== undefined) {
+                await installImmutableArtifact(buildDir, compiledDir, item.typeFileName, {
+                    sha256: item.typeSha256,
+                    bytes: item.typeBytes,
+                });
             }
         }
+        // artifact 安装期间作者仍可能改源码；manifest 翻转前必须再次关闭 TOCTOU 窗口。
+        await assertVariableReleaseFresh(definitionRoot, manifest);
+        await protectPreviousGeneration(compiledDir, previousManifest, manifest);
+        await writeJsonIfChanged(join(compiledDir, VARIABLE_DEFINITION_MANIFEST_FILE), manifest);
+        await pruneArtifacts(compiledDir, manifest);
+    });
+}
+
+/**
+ * manifest 翻转前刷新上一代将失去引用的 artifact。
+ *
+ * orphan 的 10 分钟保护期从“失去 manifest 引用”开始，而不是从文件最初创建时开始；
+ * 这样已经读取旧 manifest 的并发消费者仍有时间完成 artifact 加载。
+ */
+async function protectPreviousGeneration(
+    compiledDir: string,
+    previousManifest: VariableDefinitionManifest,
+    nextManifest: VariableDefinitionManifest,
+): Promise<void> {
+    const nextPaths = new Set(manifestArtifactPaths(nextManifest));
+    const retiredPaths = manifestArtifactPaths(previousManifest).filter((path) => !nextPaths.has(path));
+    const protectedAt = new Date();
+    for (const relativePath of retiredPaths) {
+        await utimes(join(compiledDir, ...relativePath.split("/")), protectedAt, protectedAt).catch((error: unknown) => {
+            if (variableDefinitionErrorCode(error) !== "ENOENT") throw error;
+        });
     }
-    await writeJsonIfChanged(join(compiledDir, VARIABLE_DEFINITION_MANIFEST_FILE), manifest);
-    await pruneArtifacts(compiledDir, manifest);
 }
 
 async function writeJsonIfChanged(filePath: string, value: unknown): Promise<void> {
@@ -680,39 +731,138 @@ async function writeJsonIfChanged(filePath: string, value: unknown): Promise<voi
         return;
     }
     await mkdir(dirname(filePath), {recursive: true});
-    await writeFile(filePath, next, "utf8");
+    const temporaryPath = `${filePath}.${randomUUID()}.tmp`;
+    try {
+        await writeFile(temporaryPath, next, "utf8");
+        await renameWithRetry(temporaryPath, filePath);
+    } finally {
+        await rm(temporaryPath, {force: true});
+    }
 }
 
+/** 删除当前 manifest 不可达且超过并发 reader 保护期的 artifact。 */
 async function pruneArtifacts(compiledDir: string, manifest: VariableDefinitionManifest): Promise<void> {
-    const keep = new Set([
-        VARIABLE_DEFINITION_MANIFEST_FILE,
-        ...manifest.definitions.flatMap((item) => [item.artifactFileName, item.typeFileName].filter((name): name is string => Boolean(name))),
-    ]);
-    const entries = await readdir(compiledDir, {withFileTypes: true}).catch(() => []);
-    await Promise.all(entries
-        .filter((entry) => entry.isFile() && /\.(mjs|types\.d\.ts)$/.test(entry.name) && !keep.has(entry.name))
-        .map((entry) => rm(join(compiledDir, entry.name), {force: true})));
+    const keep = new Set(manifestArtifactPaths(manifest));
+    const artifactsDir = join(compiledDir, VARIABLE_DEFINITION_ARTIFACTS_DIR);
+    const entries = await readdir(artifactsDir, {withFileTypes: true}).catch(() => []);
+    const now = Date.now();
+    await Promise.all(entries.filter((entry) => entry.isFile()).map(async (entry) => {
+        const relativePath = `${VARIABLE_DEFINITION_ARTIFACTS_DIR}/${entry.name}`;
+        if (keep.has(relativePath)) return;
+        const info = await stat(join(artifactsDir, entry.name)).catch(() => null);
+        if (info && now - info.mtimeMs >= VARIABLE_DEFINITION_ORPHAN_MIN_AGE_MS) {
+            await rm(join(artifactsDir, entry.name), {force: true});
+        }
+    }));
 }
 
-function repoAliasBundlePlugin(context: RuntimeArtifactCompilerContext): Plugin {
-    const nodeModuleNames = new Set([...builtinModules, ...builtinModules.map((name) => `node:${name}`)]);
-    return {
-        name: "nbook-variable-definition-bundle",
-        setup(buildApi) {
-            buildApi.onResolve({filter: /^(nbook|neuro_book)\//}, (args) => ({
-                path: resolveRuntimeArtifactNbookPath(context, args.path.replace(/^(nbook|neuro_book)\//, "")),
-            }));
-            buildApi.onResolve({filter: /^[^./].*/}, (args) => {
-                if (resolve(args.path) === args.path || /^[A-Za-z]:[\\/]/.test(args.path)) {
-                    return undefined;
-                }
-                if (args.path.startsWith("nbook/") || args.path.startsWith("neuro_book/") || nodeModuleNames.has(args.path)) {
-                    return undefined;
-                }
-                return {path: args.path, external: true};
-            });
+/** 返回一代 manifest 引用的全部不可变 artifact 路径。 */
+function manifestArtifactPaths(manifest: VariableDefinitionManifest): string[] {
+    return manifest.definitions.flatMap((item) => [item.artifactFileName, item.typeFileName]
+        .filter((name): name is string => Boolean(name)));
+}
+
+/** publish lock 内复核源码集合、源码摘要和全部编译依赖。 */
+async function assertVariableReleaseFresh(
+    definitionRoot: string,
+    manifest: VariableDefinitionManifest,
+): Promise<void> {
+    const currentFiles = await findDefinitionFiles(definitionRoot);
+    const currentNames = currentFiles.map((file) => file.fileName);
+    const manifestNames = manifest.definitions.map((item) => item.fileName);
+    if (JSON.stringify(currentNames) !== JSON.stringify(manifestNames)) {
+        throw new Error("Variable definition 发布期间源码集合发生变化；本次 release 已放弃。");
+    }
+    for (const item of manifest.definitions) {
+        const source = await hashFile(join(definitionRoot, ...item.fileName.split("/"))).catch(() => null);
+        if (!source || source.sha256 !== item.sourceSha256 || source.bytes !== item.sourceBytes) {
+            throw new Error(`Variable definition 发布期间源码发生变化：${item.fileName}`);
+        }
+        const dependency = await validateVariableDefinitionDependencies(item);
+        if (!dependency.fresh) {
+            throw new Error(`Variable definition 发布期间依赖发生变化：${dependency.dependency?.path ?? item.fileName}`);
+        }
+    }
+}
+
+/** 安装单个内容寻址 artifact；已有目标必须与 manifest 摘要完全一致。 */
+async function installImmutableArtifact(
+    buildDir: string,
+    compiledDir: string,
+    relativePath: string,
+    expected: {sha256: string; bytes: number},
+): Promise<void> {
+    const outputPath = join(compiledDir, ...relativePath.split("/"));
+    const existing = await hashFile(outputPath).catch(() => null);
+    if (existing) {
+        if (existing.sha256 !== expected.sha256 || existing.bytes !== expected.bytes) {
+            throw new Error(`content-addressed variable artifact 已存在但内容不匹配：${relativePath}`);
+        }
+        return;
+    }
+    const sourcePath = join(buildDir, ...relativePath.split("/"));
+    const source = await hashFile(sourcePath).catch(() => null);
+    if (!source || source.sha256 !== expected.sha256 || source.bytes !== expected.bytes) {
+        throw new Error(`Variable definition staging artifact 缺失或损坏：${relativePath}`);
+    }
+    await mkdir(dirname(outputPath), {recursive: true});
+    const temporaryPath = `${outputPath}.${randomUUID()}.tmp`;
+    try {
+        await copyFile(sourcePath, temporaryPath);
+        const copied = await hashFile(temporaryPath);
+        if (copied.sha256 !== expected.sha256 || copied.bytes !== expected.bytes) {
+            throw new Error(`Variable definition artifact 写入校验失败：${relativePath}`);
+        }
+        await renameWithRetry(temporaryPath, outputPath);
+    } finally {
+        await rm(temporaryPath, {force: true});
+    }
+}
+
+/** Variable release 的进程间发布锁。 */
+async function withVariablePublishLock<T>(compiledDir: string, task: () => Promise<T>): Promise<T> {
+    const release = await lockFile(compiledDir, {
+        lockfilePath: join(compiledDir, VARIABLE_DEFINITION_PUBLISH_LOCK),
+        realpath: false,
+        stale: 30_000,
+        update: 10_000,
+        retries: {
+            retries: 20,
+            factor: 1.2,
+            minTimeout: 50,
+            maxTimeout: 500,
         },
-    };
+    });
+    try {
+        return await task();
+    } finally {
+        await release();
+    }
+}
+
+/** Windows Defender/索引器短暂占用目标时做有界 rename 重试。 */
+async function renameWithRetry(sourcePath: string, targetPath: string): Promise<void> {
+    const delays = [20, 50, 100, 200, 400];
+    for (let attempt = 0; ; attempt += 1) {
+        try {
+            await rename(sourcePath, targetPath);
+            return;
+        } catch (error) {
+            if (attempt >= delays.length || !transientRenameError(error)) throw error;
+            await sleep(delays[attempt]!);
+        }
+    }
+}
+
+/** 只重试 Windows 常见的短暂文件占用错误。 */
+function transientRenameError(error: unknown): boolean {
+    return typeof error === "object" && error !== null && "code" in error
+        && (error.code === "EPERM" || error.code === "EBUSY" || error.code === "EACCES");
+}
+
+/** 在 type artifact 落盘前计算与最终 UTF-8 bytes 一致的内容摘要。 */
+function typeHashFileStem(source: string): string {
+    return createHash("sha256").update(source, "utf8").digest("hex");
 }
 
 function normalizeArtifactPath(filePath: string): string {

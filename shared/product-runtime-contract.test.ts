@@ -30,9 +30,9 @@ describe("Product Runtime Contract", () => {
     });
 
     it("交互式CLI保留调用cwd，其余命令固定Application Root", () => {
-        for (const id of ["profile", "variable", "workspace"]) {
-            expect(productRuntimeCwd("command", id, "application", "invocation")).toBe("invocation");
-        }
+        expect(productRuntimeCwd("command", "workspace", "application", "invocation")).toBe("invocation");
+        expect(productRuntimeCwd("command", "profile", "application", "invocation")).toBe("application");
+        expect(productRuntimeCwd("command", "variable", "application", "invocation")).toBe("application");
         expect(productRuntimeCwd("command", "create-admin", "application", "invocation")).toBe("application");
         expect(productRuntimeCwd("check", "workspace-cli", "application", "invocation")).toBe("application");
     });
@@ -70,7 +70,9 @@ function contractFixture() {
         prepareSystemAssets: "server/commands/prepare-system-assets.mjs",
         checkMigrations: "server/commands/check-migrations.mjs",
         profileAuthoringSmoke: "server/commands/product-profile-authoring-smoke.mjs",
+        variableAuthoringSmoke: "server/commands/product-variable-authoring-smoke.mjs",
         imageVariantSmoke: "server/commands/product-image-variant-smoke.mjs",
         sqliteVecSmoke: "server/commands/sqlite-vec-smoke.mjs",
+        webFetchSmoke: "server/commands/product-web-fetch-smoke.mjs",
     });
 }

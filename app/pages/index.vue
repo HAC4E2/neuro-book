@@ -39,6 +39,12 @@ import type {AgentSessionSummaryDto, AgentSkillCatalogItemDto} from "nbook/share
 import {agentSessionScopeKey} from "nbook/app/utils/agent-session-scope-key";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {
+    projectRouteProgressView,
+    reduceProjectRouteProgress,
+    type ProjectRouteProgress,
+    type ProjectRouteProgressPhase,
+} from "nbook/app/utils/project-route-progress";
+import {
     collectWorkspaceReferencePathCandidates,
 } from "nbook/app/utils/workspace-reference-search";
 import {buildWorkspaceReferenceSections} from "nbook/app/utils/workspace-reference-menu";
@@ -112,6 +118,7 @@ const {
     hasUnsavedWorkspaceChanges,
     lastSyncedFileContent,
     loadingWorkspace,
+    restoringWorkspaceFile,
     layoutMode,
     agentSessionPanelOpen,
     agentSessionPanelWidth,
@@ -165,6 +172,7 @@ const workspaceFileEvents = useWorkspaceFileEvents();
 // Current Project 只有在 open + presence_ready 后才提交；URL 在此之前只是打开意图。
 const projectSession = useProjectSession();
 const projectSwitching = ref(false);
+const projectRouteProgress = ref<ProjectRouteProgress | null>(null);
 let projectRouteIntentRevision = 0;
 let processedProjectRouteRevision = 0;
 let projectRouteSyncPromise: Promise<void> | null = null;
@@ -179,6 +187,9 @@ const projectSurfaceActive = computed(() => workspaceBootstrapped.value && (
         && projectSession.state.value.ready.projectRoot === currentProjectRoot.value,
     ))
 ));
+const agentProjectReadyRevision = computed(() => projectSession.state.value.status === "ready"
+    ? projectSession.state.value.ready.revision
+    : null);
 watch(projectSurfaceActive, (active) => {
     if (!active) agentJobsOpen.value = false;
 });
@@ -193,6 +204,27 @@ const projectTransitionActive = computed(() => projectSwitching.value
     || projectSession.state.value.status === "reconnecting");
 const authSessionState = useAuthSessionState();
 const agentSurfaceRef = ref<InstanceType<typeof AgentChatSurface> | null>(null);
+type InlinePromptOwner = Readonly<{
+    revision: number;
+    operationKey: string;
+    surface: InstanceType<typeof AgentChatSurface>;
+}>;
+let inlinePromptRequestRevision = 0;
+
+/** 捕获 Prompt Bar 调用时的 Surface 实例与 Project ready generation。 */
+function captureInlinePromptOwner(): InlinePromptOwner | null {
+    const surface = agentSurfaceRef.value;
+    const operationKey = unref(surface?.operationScopeKey);
+    if (!surface || typeof operationKey !== "string") return null;
+    return {revision: ++inlinePromptRequestRevision, operationKey, surface};
+}
+
+/** 页面副作用只能由当前 Prompt 请求和当前 Project generation 发布。 */
+function acceptsInlinePromptOwner(owner: InlinePromptOwner): boolean {
+    return owner.revision === inlinePromptRequestRevision
+        && agentSurfaceRef.value === owner.surface
+        && unref(owner.surface.operationScopeKey) === owner.operationKey;
+}
 
 const studio = useMarkdownStudioController({
     markdown: selectedFileContent,
@@ -204,6 +236,31 @@ novelIdeStore.registerActiveEditorFlush(() => studio.flushActiveEditor());
 const {choose, prompt} = useDialog();
 const notification = useNotification();
 const {t} = useI18n();
+
+type ProjectTransitionView =
+    | {mode: "determinate"; title: string; label: string; stepLabel: string; current: number; total: number; width: string}
+    | {mode: "indeterminate"; title: string; label: string};
+
+/** 把 route revision 与 Controller phase 投影为用户可读进度，不按耗时伪造百分比。 */
+const projectTransitionView = computed<ProjectTransitionView>(() => {
+    const progressView = projectRouteProgressView({
+        sessionState: projectSession.state.value,
+        progress: projectRouteProgress.value,
+        currentRevision: projectRouteIntentRevision,
+    });
+    const title = t(`ide.projectLoading.${progressView.titleKey}`);
+    const label = t(`ide.projectLoading.${progressView.labelKey}`);
+    if (progressView.mode === "indeterminate") return {mode: "indeterminate", title, label};
+    return {
+        mode: "determinate",
+        title,
+        label,
+        stepLabel: t("ide.projectLoading.step", {current: progressView.current, total: progressView.total}),
+        current: progressView.current,
+        total: progressView.total,
+        width: `${(progressView.current / progressView.total) * 100}%`,
+    };
+});
 
 const novelItems = computed(() => novels.value.map((novel) => ({
     label: novel.title,
@@ -238,7 +295,6 @@ const buildProjectRoute = (projectTarget: string): string => {
 };
 
 const consumingRouteOpenPath = ref(false);
-const lastMissingProjectNoticeTarget = ref("");
 const displayRightPanelOpen = computed(() => workspaceBootstrapped.value && rightPanelOpen.value);
 const isAgentMode = computed(() => layoutMode.value === "agent");
 const agentSurfaceActive = computed(() => projectSurfaceActive.value && (rightPanelOpen.value || isAgentMode.value));
@@ -323,7 +379,9 @@ const displayActiveLeftTab = computed<NovelIdeTab | null>(() => {
 const ideToolPanelOpen = computed(() => !isAgentMode.value && displayActiveLeftTab.value !== null);
 const ideToolPanelStyle = computed(() => ideToolPanelOpen.value ? {width: `${leftPanelWidth.value}px`} : {width: "0px"});
 const displaySidebarActiveTab = computed<NovelIdeTab | "sessions" | null>(() => isAgentMode.value ? "sessions" : displayActiveLeftTab.value);
-const displayNovelTitle = computed(() => isUserAssetsWorkspace.value ? t("ide.header.userAssets") : currentNovel.value?.title ?? "");
+const displayNovelTitle = computed(() => isUserAssetsWorkspace.value
+    ? t("ide.header.userAssets")
+    : currentNovel.value?.title ?? currentProjectRoot.value);
 const displayNovelItems = computed(() => isUserAssetsWorkspace.value ? [] : novelItems.value);
 const displayNovelIdForAgent = computed(() => isUserAssetsWorkspace.value ? "" : currentProjectRoot.value);
 const agentScopeKey = computed(() => agentSessionScopeKey(isUserAssetsWorkspace.value ? "user-assets" : "novel", currentProjectRoot.value));
@@ -951,6 +1009,11 @@ async function sendInlineEditorPrompt(): Promise<void> {
         return;
     }
 
+    const owner = captureInlinePromptOwner();
+    if (!owner?.surface.sendInlineEditorPrompt) {
+        notification.error(t("ide.inlineAi.agentNotReady"), {title: "Inline AI"});
+        return;
+    }
     const payload: InlineEditPayload = {
         version: 1,
         task: inlinePromptTask.value,
@@ -958,11 +1021,6 @@ async function sendInlineEditorPrompt(): Promise<void> {
         instruction: inlinePromptInstruction.value.trim(),
         references: resolveInlineEditorReferences(inlinePromptReferences.value),
     };
-    const agentSurface = agentSurfaceRef.value;
-    if (!agentSurface?.sendInlineEditorPrompt) {
-        notification.error(t("ide.inlineAi.agentNotReady"), {title: "Inline AI"});
-        return;
-    }
 
     inlinePromptRunning.value = true;
     inlinePromptStatusText.value = t("ide.inlineAi.sending");
@@ -970,16 +1028,25 @@ async function sendInlineEditorPrompt(): Promise<void> {
 
     try {
         await saveCurrentWorkspaceFile();
-        await agentSurface.sendInlineEditorPrompt(payload, buildInlineVisibleMessage(payload));
+        if (!acceptsInlinePromptOwner(owner)) return;
+        const result = await owner.surface.sendInlineEditorPrompt(
+            payload,
+            buildInlineVisibleMessage(payload),
+            owner.operationKey,
+        );
+        if (!acceptsInlinePromptOwner(owner) || result.status === "superseded") return;
         inlinePromptInstruction.value = "";
         inlinePromptReferences.value = [];
         inlinePromptHoveredReference.value = null;
         inlinePromptStatusText.value = t("ide.inlineAi.started");
     } catch (error) {
+        if (!acceptsInlinePromptOwner(owner)) return;
         inlinePromptStatusText.value = resolveApiErrorMessage(error, t("ide.inlineAi.sendFailed"));
         notification.error(inlinePromptStatusText.value, {title: "Inline AI"});
     } finally {
-        inlinePromptRunning.value = false;
+        if (acceptsInlinePromptOwner(owner)) {
+            inlinePromptRunning.value = false;
+        }
     }
 }
 
@@ -987,7 +1054,10 @@ async function sendInlineEditorPrompt(): Promise<void> {
  * 停止当前 Inline AI 任务。
  */
 async function stopInlineEditorPrompt(): Promise<void> {
-    await agentSurfaceRef.value?.stopInlineEditorPrompt?.();
+    const owner = captureInlinePromptOwner();
+    if (!owner?.surface.stopInlineEditorPrompt) return;
+    const result = await owner.surface.stopInlineEditorPrompt();
+    if (!acceptsInlinePromptOwner(owner) || result.status === "superseded") return;
     inlinePromptRunning.value = false;
     inlinePromptStatusText.value = t("ide.inlineAi.stopRequested");
 }
@@ -996,10 +1066,14 @@ async function stopInlineEditorPrompt(): Promise<void> {
  * 在 PromptBar 内切换后台 Inline AI session。
  */
 async function selectInlineEditorSession(sessionId: number): Promise<void> {
+    const owner = captureInlinePromptOwner();
+    if (!owner?.surface.selectInlineEditorSession) return;
     try {
-        await agentSurfaceRef.value?.selectInlineEditorSession?.(sessionId);
+        const result = await owner.surface.selectInlineEditorSession(sessionId);
+        if (!acceptsInlinePromptOwner(owner) || result.status === "superseded") return;
         inlinePromptStatusText.value = t("ide.inlineAi.boundSession");
     } catch (error) {
+        if (!acceptsInlinePromptOwner(owner)) return;
         inlinePromptStatusText.value = resolveApiErrorMessage(error, t("ide.inlineAi.bindFailed"));
         notification.error(inlinePromptStatusText.value, {title: "Inline AI"});
     }
@@ -1009,10 +1083,14 @@ async function selectInlineEditorSession(sessionId: number): Promise<void> {
  * 在当前 Project Workspace 下创建新的 Inline AI session。
  */
 async function createInlineEditorSession(): Promise<void> {
+    const owner = captureInlinePromptOwner();
+    if (!owner?.surface.createInlineEditorSession) return;
     try {
-        await agentSurfaceRef.value?.createInlineEditorSession?.();
+        const result = await owner.surface.createInlineEditorSession();
+        if (!acceptsInlinePromptOwner(owner) || result.status === "superseded") return;
         inlinePromptStatusText.value = t("ide.inlineAi.sessionCreated");
     } catch (error) {
+        if (!acceptsInlinePromptOwner(owner)) return;
         inlinePromptStatusText.value = resolveApiErrorMessage(error, t("ide.inlineAi.createSessionFailed"));
         notification.error(inlinePromptStatusText.value, {title: "Inline AI"});
     }
@@ -1022,10 +1100,14 @@ async function createInlineEditorSession(): Promise<void> {
  * 显式打开右侧 Agent 面板查看当前 Inline AI session。
  */
 async function openInlineEditorSessionChat(): Promise<void> {
+    const owner = captureInlinePromptOwner();
+    if (!owner?.surface.openInlineEditorSession) return;
     try {
         rightPanelOpen.value = true;
-        await agentSurfaceRef.value?.openInlineEditorSession?.();
+        const result = await owner.surface.openInlineEditorSession();
+        if (!acceptsInlinePromptOwner(owner) || result.status === "superseded") return;
     } catch (error) {
+        if (!acceptsInlinePromptOwner(owner)) return;
         inlinePromptStatusText.value = resolveApiErrorMessage(error, t("ide.inlineAi.openModelPanelFailed"));
         notification.error(inlinePromptStatusText.value, {title: "Inline AI"});
     }
@@ -1056,9 +1138,19 @@ watch(currentWorkspaceViewMode, (mode) => {
 
 watch([inlinePromptAvailable, agentSurfaceRef], ([available, surface]) => {
     if (available && surface?.refreshInlineEditorSessions) {
-        void surface.refreshInlineEditorSessions();
+        void surface.refreshInlineEditorSessions().catch((error: unknown) => {
+            if (agentSurfaceRef.value !== surface) return;
+            notification.error(resolveApiErrorMessage(error, t("ide.inlineAi.bindFailed")), {title: "Inline AI"});
+        });
     }
 }, {immediate: true});
+
+watch(() => unref(agentSurfaceRef.value?.operationScopeKey), (nextScope, previousScope) => {
+    if (previousScope === undefined || nextScope === previousScope) return;
+    inlinePromptRequestRevision += 1;
+    inlinePromptRunning.value = false;
+    inlinePromptStatusText.value = t("ide.inlineAi.initialStatus");
+});
 
 watch(selectedFilePath, () => {
     inlinePromptReferences.value = [];
@@ -1737,32 +1829,24 @@ const initializeWorkspaceFromRoute = async (target: ProjectRouteTarget, revision
     }
 
     if (target.kind === "project") {
-        const list = await loadProjects();
-        if (!ownsProjectRouteIntent(revision)) return;
-        if (!list.some((novel) => novel.projectRoot === target.projectRoot)) {
-            notifyMissingProjectRoute(target.projectRoot);
-            if (initialized.value && currentProjectRoot.value) {
-                await restoreCurrentWorkspaceRoute();
-            } else {
-                await releaseProjectSurface();
-                if (!ownsProjectRouteIntent(revision)) return;
-                await router.replace("/");
-            }
-            return;
-        }
         await releaseProjectSurface();
         if (!ownsProjectRouteIntent(revision)) return;
+        setProjectRouteProgress(revision, "opening-project");
         await projectSession.open(target.projectRoot);
         if (!ownsProjectRouteIntent(revision)) {
             await projectSession.release();
             return;
         }
+        setProjectRouteProgress(revision, "syncing-project");
+        // ProjectSession 是存在性真相源；Catalog 仅补充展示 metadata，不能阻塞 direct-open。
+        void loadProjects().catch(() => undefined);
+        setProjectRouteProgress(revision, "loading-tree");
         await switchToNovelWorkspace(target.projectRoot);
         if (!ownsProjectRouteIntent(revision)) {
             await releaseProjectSurface();
             return;
         }
-        lastMissingProjectNoticeTarget.value = "";
+        setProjectRouteProgress(revision, "restoring-content");
         return;
     }
 
@@ -1777,7 +1861,7 @@ const workspaceRouteSynced = (): boolean => {
     if (target.kind === "user-assets") {
         return isUserAssetsWorkspace.value;
     }
-    if (target.kind === "project" && novels.value.some((novel) => novel.projectRoot === target.projectRoot)) {
+    if (target.kind === "project") {
         return workspaceKind.value === "novel"
             && currentProjectRoot.value === target.projectRoot
             && projectSession.state.value.status === "ready"
@@ -1801,18 +1885,6 @@ const normalizeNovelRouteQuery = async (): Promise<void> => {
 };
 
 /**
- * URL 指定的 Project 不存在或已删除时，告知作者已回到项目选择界面。
- */
-const notifyMissingProjectRoute = (projectRoot: string): void => {
-    if (lastMissingProjectNoticeTarget.value === projectRoot) {
-        return;
-    }
-    lastMissingProjectNoticeTarget.value = projectRoot;
-    const openPathHint = typeof route.query.openPath === "string" ? " 已忽略原链接中的文件路径。" : "";
-    notification.warning(`Project ${projectRoot} 不存在或已删除，已返回项目列表。${openPathHint}`, {title: "Project 已不可用"});
-};
-
-/**
  * 取消 route 触发的 workspace 切换时，把 URL 拉回当前实际 workspace。
  */
 const restoreCurrentWorkspaceRoute = async (): Promise<void> => {
@@ -1830,6 +1902,22 @@ const restoreCurrentWorkspaceRoute = async (): Promise<void> => {
  * 监听页面 query 变化，允许主页面直接切换 novel/user-assets workspace。
  */
 const ownsProjectRouteIntent = (revision: number): boolean => revision === projectRouteIntentRevision;
+
+/** 只有当前 route revision 能推进自己的 Project 冷切换进度。 */
+const setProjectRouteProgress = (revision: number, phase: ProjectRouteProgressPhase): void => {
+    if (!ownsProjectRouteIntent(revision)) return;
+    projectRouteProgress.value = reduceProjectRouteProgress(projectRouteProgress.value, {type: "advance", revision, phase});
+};
+
+// 确定进度记录已到达的最高阶段，避免 Controller/Store 瞬时状态复位时倒退。
+watch(() => projectSession.state.value, (next) => {
+    if (next.status === "opening" && next.phase === "connecting-presence") {
+        setProjectRouteProgress(projectRouteIntentRevision, "connecting-presence");
+    }
+}, {flush: "sync"});
+watch(restoringWorkspaceFile, (restoring) => {
+    if (restoring) setProjectRouteProgress(projectRouteIntentRevision, "restoring-content");
+}, {flush: "sync"});
 
 /** 消费一个固定 route revision；每个异步边界后都验证 ownership。 */
 const syncWorkspaceRoute = async (revision: number): Promise<void> => {
@@ -1856,6 +1944,11 @@ const syncWorkspaceRoute = async (revision: number): Promise<void> => {
         await restoreCurrentWorkspaceRoute();
         return;
     }
+    projectRouteProgress.value = reduceProjectRouteProgress(projectRouteProgress.value, {
+        type: "start",
+        revision,
+        kind: target.kind === "project" ? "project" : "other",
+    });
     projectSwitching.value = true;
     try {
         await initializeWorkspaceFromRoute(target, revision);
@@ -1877,7 +1970,10 @@ const syncWorkspaceRoute = async (revision: number): Promise<void> => {
             notification.error(resolveApiErrorMessage(error, "打开 Project 失败"), {title: "Project 打开失败"});
         }
     } finally {
-        if (ownsProjectRouteIntent(revision)) projectSwitching.value = false;
+        if (ownsProjectRouteIntent(revision)) {
+            projectSwitching.value = false;
+            projectRouteProgress.value = reduceProjectRouteProgress(projectRouteProgress.value, {type: "clear", revision});
+        }
     }
 };
 
@@ -1919,7 +2015,13 @@ const startWorkspaceRouteSync = (): void => {
         }
     })().finally(() => {
         projectRouteSyncPromise = null;
-        if (processedProjectRouteRevision >= projectRouteIntentRevision) projectSwitching.value = false;
+        if (processedProjectRouteRevision >= projectRouteIntentRevision) {
+            projectSwitching.value = false;
+            projectRouteProgress.value = reduceProjectRouteProgress(projectRouteProgress.value, {
+                type: "clear-through",
+                revision: processedProjectRouteRevision,
+            });
+        }
         if (processedProjectRouteRevision < projectRouteIntentRevision) startWorkspaceRouteSync();
     });
 };
@@ -2296,11 +2398,32 @@ onBeforeUnmount(() => {
     <!-- IDE 页面根容器 -->
     <div ref="themeHostRef" class="novel-ide-page ide-shell flex h-screen flex-col overflow-hidden bg-[var(--bg-main)] text-[var(--text-main)] transition-colors duration-300">
         <!-- Project 激活事务期间阻止旧数据面继续编辑。 -->
-        <div v-if="projectTransitionActive" class="fixed inset-0 z-[120] grid place-items-center bg-[var(--overlay-bg)]" role="status" aria-live="polite">
-            <div class="flex items-center gap-3 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3 text-sm text-[var(--text-main)] shadow-lg">
-                <span class="i-lucide-loader-circle h-4 w-4 animate-spin text-[var(--accent-main)]"></span>
-                <span>正在打开 Project...</span>
-            </div>
+        <div v-if="projectTransitionActive" class="fixed inset-0 z-[120] grid place-items-center bg-[var(--overlay-bg)] px-4" role="status" aria-live="polite" aria-atomic="true">
+            <!-- Project 加载进度：确定阶段按实际完成节点推进，重连保持不定进度。 -->
+            <section class="w-full max-w-[360px] rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 text-[var(--text-main)] shadow-lg">
+                <div class="flex items-start gap-3">
+                    <span class="project-loading-spinner i-lucide-loader-circle mt-0.5 h-4 w-4 shrink-0 animate-spin text-[var(--status-info)]" aria-hidden="true"></span>
+                    <div class="min-w-0 flex-1">
+                        <h2 class="text-sm font-medium">{{ projectTransitionView.title }}</h2>
+                        <div class="mt-1 flex min-h-5 items-center justify-between gap-3 text-xs text-[var(--text-muted)]">
+                            <span class="min-w-0">{{ projectTransitionView.label }}</span>
+                            <span v-if="projectTransitionView.mode === 'determinate'" class="shrink-0 tabular-nums">{{ projectTransitionView.stepLabel }}</span>
+                        </div>
+                    </div>
+                </div>
+                <div
+                    class="project-loading-track mt-3 h-1.5 overflow-hidden rounded-full bg-[var(--status-info-bg)]"
+                    role="progressbar"
+                    :aria-label="projectTransitionView.label"
+                    :aria-valuemin="projectTransitionView.mode === 'determinate' ? 0 : undefined"
+                    :aria-valuemax="projectTransitionView.mode === 'determinate' ? projectTransitionView.total : undefined"
+                    :aria-valuenow="projectTransitionView.mode === 'determinate' ? projectTransitionView.current : undefined"
+                    :aria-valuetext="projectTransitionView.mode === 'determinate' ? `${projectTransitionView.stepLabel} - ${projectTransitionView.label}` : projectTransitionView.label"
+                >
+                    <div v-if="projectTransitionView.mode === 'determinate'" class="project-loading-fill h-full rounded-full bg-[var(--status-info)]" :style="{width: projectTransitionView.width}"></div>
+                    <div v-else class="project-loading-indeterminate h-full w-1/3 rounded-full bg-[var(--status-info)]"></div>
+                </div>
+            </section>
         </div>
         <!-- 未选择 Project：项目选择界面接管整页 -->
         <ProjectPickerScreen v-if="projectPickerActive" @open="void openProjectFromPicker($event)" @open-user-assets="openUserAssets">
@@ -2520,6 +2643,7 @@ onBeforeUnmount(() => {
                     :active="agentSurfaceActive"
                     :layout="isAgentMode ? 'workbench' : 'drawer'"
                     :novel-id="displayNovelIdForAgent"
+                    :project-ready-revision="agentProjectReadyRevision"
                     :history-inbox-refresh-key="historyInboxRefreshKey"
                     :selected-file-path="selectedFilePath"
                     :open-reference="openWorkspaceReference"
@@ -2578,6 +2702,35 @@ onBeforeUnmount(() => {
 
 .plain-text-editor {
     caret-color: var(--accent-main);
+}
+
+.project-loading-fill {
+    transition: width 240ms ease-out;
+}
+
+.project-loading-indeterminate {
+    animation: project-loading-slide 1.2s ease-in-out infinite;
+}
+
+@keyframes project-loading-slide {
+    from { transform: translateX(-110%); }
+    to { transform: translateX(310%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .project-loading-fill {
+        transition: none;
+    }
+
+    .project-loading-spinner,
+    .project-loading-indeterminate {
+        animation: none;
+    }
+
+    .project-loading-indeterminate {
+        width: 100%;
+        opacity: 0.55;
+    }
 }
 
 :global(.contain-layout-paint) {

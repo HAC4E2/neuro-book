@@ -4,8 +4,8 @@ import {dirname, join, resolve} from "node:path";
 import {DatabaseSync} from "node:sqlite";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {runApplicationStateMigration} from "nbook/scripts/application-state-migration/runner";
-import {acquireApplicationStateLease} from "nbook/scripts/application-state-migration/lease";
+import {runApplicationStateMigration} from "nbook/server/runtime/application-state-migration/runner";
+import {acquireApplicationStateLease} from "nbook/server/runtime/application-state-migration/lease";
 import {
     ApplicationStateMigrationRequiredError,
     ApplicationStateSentinelCorruptError,
@@ -14,7 +14,7 @@ import {
     readApplicationStateSentinel,
 } from "nbook/server/runtime/application-state";
 import {readAgentSessionStoreSentinel} from "nbook/server/agent/session/agent-session-store";
-import {writeLegacyV2ReviewFixture} from "nbook/scripts/db/agent-session-v2-review-repair/test-fixture";
+import {writeLegacyV2ReviewFixture} from "nbook/server/agent/session/migrations/session-v2-review-repair/test-fixture";
 
 const roots: string[] = [];
 const originalDatabaseUrl = process.env.DATABASE_URL;

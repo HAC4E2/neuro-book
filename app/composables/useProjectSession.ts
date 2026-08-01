@@ -3,6 +3,7 @@ import {readSseStream} from "nbook/app/utils/http/read-sse";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {SseReconnectBackoff} from "nbook/app/utils/http/sse-reconnect-backoff";
+import type {ProjectOpenResponseDto} from "nbook/shared/dto/project.dto";
 
 /** 已完成 open 与匹配 presence_ready 的 Project generation。 */
 export type ProjectSessionReady = {
@@ -10,10 +11,19 @@ export type ProjectSessionReady = {
     revision: number;
 };
 
+/** Project 打开期间前端能够真实观测的连接阶段。 */
+export type ProjectSessionOpeningPhase = "opening-project" | "connecting-presence";
+
 /** Project Session 的唯一公开状态机；ready 之外绝不允许挂载 Project 数据面。 */
 export type ProjectSessionState =
     | {status: "idle"; ready: null}
-    | {status: "opening" | "reconnecting"; projectRoot: string; ready: null}
+    | {status: "opening"; phase: ProjectSessionOpeningPhase; projectRoot: string; ready: null}
+    | {
+        status: "reconnecting";
+        phase: "waiting-reconnect" | ProjectSessionOpeningPhase;
+        projectRoot: string;
+        ready: null;
+    }
     | {status: "ready"; ready: ProjectSessionReady}
     | {status: "failed"; projectRoot: string; ready: null};
 
@@ -35,7 +45,7 @@ export type ProjectSessionController = {
 
 export type ProjectSessionTransport = {
     /** 幂等打开指定 Project；必须接受取消当前标签页意图的 signal。 */
-    open(projectRoot: string, signal: AbortSignal): Promise<void>;
+    open(projectRoot: string, signal: AbortSignal): Promise<ProjectOpenResponseDto>;
     /** 订阅 presence，直到 EOF、异常或 signal 中止。 */
     stream(
         projectRoot: string,
@@ -47,6 +57,8 @@ export type ProjectSessionTransport = {
 export type ProjectSessionNotificationAdapter = {
     interrupted(): void;
     openFailed(projectRoot: string, error: unknown): void;
+    /** 只在对应 open 赢得 generation 并进入 ready 后提示一次。 */
+    manifestRecovered(projectRoot: string, recoveryPath: string): void;
 };
 
 /** latest-wins 中被新目标或 release 取代的旧调用会收到此错误。 */
@@ -157,7 +169,7 @@ export function createProjectSessionController(
     const scheduleReconnect = (projectRoot: string, expectedToken: number): void => {
         if (disposed || expectedToken !== token || reconnectTimer || opening || active) return;
         const retry = reconnectBackoff.disconnected();
-        mutableState.value = {status: "reconnecting", projectRoot, ready: null};
+        mutableState.value = {status: "reconnecting", phase: "waiting-reconnect", projectRoot, ready: null};
         if (retry.wasStable) interruptedNotified = false;
         if (retry.failedAttempts >= DISCONNECTED_AFTER_ATTEMPTS && !interruptedNotified) {
             interruptedNotified = true;
@@ -210,11 +222,22 @@ export function createProjectSessionController(
             presence: null,
             promise: Promise.resolve({projectRoot, revision: readyRevision}),
         };
-        mutableState.value = {status: reconnecting ? "reconnecting" : "opening", projectRoot, ready: null};
+        mutableState.value = {
+            status: reconnecting ? "reconnecting" : "opening",
+            phase: "opening-project",
+            projectRoot,
+            ready: null,
+        };
         current.promise = (async () => {
             try {
-                await transport.open(projectRoot, abort.signal);
+                const publication = await transport.open(projectRoot, abort.signal);
                 if (!ownsOpening(current)) throw new ProjectSessionSupersededError(projectRoot);
+                mutableState.value = {
+                    status: reconnecting ? "reconnecting" : "opening",
+                    phase: "connecting-presence",
+                    projectRoot,
+                    ready: null,
+                };
                 const presence = connectPresence(projectRoot, abort.signal);
                 current.presence = presence;
                 await presence.ready;
@@ -228,6 +251,9 @@ export function createProjectSessionController(
                 opening = null;
                 mutableState.value = {status: "ready", ready};
                 observeActive(committed);
+                if (publication.change === "normalized" || publication.change === "recovered") {
+                    notifications.manifestRecovered(projectRoot, publication.recoveryPath);
+                }
                 return ready;
             } catch (error) {
                 if (!ownsOpening(current)) {
@@ -236,7 +262,7 @@ export function createProjectSessionController(
                 current.abort.abort();
                 opening = null;
                 if (current.reconnecting && !isProjectMissingError(error)) {
-                    mutableState.value = {status: "reconnecting", projectRoot, ready: null};
+                    mutableState.value = {status: "reconnecting", phase: "waiting-reconnect", projectRoot, ready: null};
                     scheduleReconnect(projectRoot, currentToken);
                 } else {
                     mutableState.value = {status: "failed", projectRoot, ready: null};
@@ -307,7 +333,7 @@ export function useProjectSession(): ProjectSessionController {
     const projectRequest = $fetch as unknown as (
         path: string,
         options: {method: "POST"; body: {projectRoot: string}; signal: AbortSignal},
-    ) => Promise<void>;
+    ) => Promise<ProjectOpenResponseDto>;
     const lifecycle = createProjectSessionController({
         open: async (projectRoot, signal) => await projectRequest("/api/projects/open", {
             method: "POST",
@@ -326,6 +352,10 @@ export function useProjectSession(): ProjectSessionController {
         openFailed: (projectRoot, error) => notification.error(
             resolveApiErrorMessage(error, "项目不存在或已删除：" + projectRoot),
             {title: "项目打开失败"},
+        ),
+        manifestRecovered: (_projectRoot, recoveryPath) => notification.info(
+            "项目配置已自动修复，原文件已备份到 " + recoveryPath,
+            {title: "项目配置已修复"},
         ),
     });
 

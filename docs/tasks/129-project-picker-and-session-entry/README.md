@@ -2,6 +2,17 @@
 
 > 状态：Implemented（2026-07-27 立项并实施，W1/W2/W3、Project close-then-open 与 Session recovery 入口均已落地；项目选择页旧版视觉与状态曾完成浏览器验收，当前封面/切换/recovery 链仍待用户验收）
 
+## 2026-07-31：Project 加载阶段进度
+
+- 主 IDE 原先只有“正在打开 Project”的旋转图标，现在按真实冷切换节点显示 6 步阶段进度：释放旧工作面、准备 Project、建立 presence、同步 Catalog、加载文件树、恢复上次内容并完成深链。步骤只表达已进入的确定阶段，不按耗时伪造百分比。
+- `ProjectSessionState` 的 pending 分支增加 `opening-project`、`connecting-presence` 与 `waiting-reconnect`。重连可能退避并重复尝试，因此继续显示不定进度，并区分等待、重新打开和恢复连接；HTTP open、presence SSE、`presence_ready` 与 `readyRevision` 合同均未改变。
+- 页面进度记录绑定 route revision；旧 intent 的异步回流与 `finally` 不能推进或清空新 intent。加载面板使用主题 `info` 状态色，确定进度公开 ARIA 步骤值，不定进度不伪造 `aria-valuenow`，并为 reduced-motion 停止位移动画。用户文案已改为“正在打开作品”并同步英文。
+- 聚焦验证：`useProjectSession.test.ts`、`project-route-transition.contract.test.ts`、`theme-tokens.test.ts` 共 3 文件、18 项通过。根 `bun run typecheck` 仍被未改动的 Catalog readonly 类型、Profile command、Session migration 与 llmlint fixture 错误阻断，本轮文件零命中。按仓库规则未自动执行浏览器验收。
+- 后续审查确认原投影仍有两个微任务级倒退窗口：Controller 从 `connecting-presence` 提交 `ready` 后、route worker 写入第 4 步前会出现 `3 → 1 → 4`；Store 把 `restoringWorkspaceFile` 复位后、worker 固定第 6 步前会出现 `6 → 5 → 6`。两者根因都是用多个瞬时状态重新计算当前步骤，而没有保存同一 route revision 已达到的最高阶段。
+- 六阶段现由纯 reducer 按 revision 和固定顺序维护；`connecting-presence` 与首次文件恢复通过同步观察提交，`ready` 或恢复标记复位不再让步骤倒退。新 revision 覆盖旧 revision，迟到的 advance、精确 clear 与 worker clear-through 都不能触碰更新进度；页面只负责异步流程和文案翻译，Store 与 Project Session 合同未增加展示回调。
+- live region 已移除永久 `aria-busy`，并把 `aria-atomic` 放到 `role="status"` 节点；确定/不定 progressbar 的数值合同保持不变。动态顺序、latest-wins 和重连模式改由纯模型行为测试覆盖，源码合同只保留页面接线、失败回 Picker、静态 ARIA 与 reduced-motion。
+- 审查收口验证：Project progress、route、Controller、Novel IDE Store、Workflow/World Engine Preview、Project open/presence API 与主题合同共 12 文件、67 项通过；`index.vue` script/template/style 编译通过。根类型检查本轮路径零命中，仍被未修改的 Profile SDK/工具绑定迁移、Profile command、Session migration 与 llmlint fixture 等错误阻断；未自动执行浏览器验收。
+
 ## 2026-07-28：Project cold transition 与 Session recovery
 
 - Header、Picker、浏览器前进后退和冷启动深链只提交 route intent，由 `index.vue` 的单一 transition 串行处理。保存取消或失败发生在 release 前，旧 Project 与 URL 保持；release 开始后停止 Workspace SSE 和 consumer、清空旧 Project surface，再打开目标。
@@ -220,3 +231,67 @@
 - [ ] 封面管理浏览器走查：空 MIME 上传、上传响应丢失、两本书分别保留恢复门禁、上传/替换/清除、原图预览与正确扩展名下载、普通失败重试、committed true/unknown 刷新门禁和 mutation 后单图刷新。
 - [ ] 浏览器走查其余跨页面链：冷启动深链、Picker/Header切换、快速 A→B→C、未保存三选、打开失败回 Picker、后退前进、presence 断线重连与 SSE 新 revision、两个 Preview 快速切换、多标签/后台 Agent 不受普通切换影响；Session recovery 需分别验证重绑 Project 与改为 Workspace Root。
 - [ ] `agent-composer-reference.test.ts` 用例入参改单段（Task 118 批次 4 遗留，待用户确认）
+
+### 2026-07-31 Catalog 与 create/delete 恢复收口
+
+- Picker 不再直接 `splice` 或赋值项目列表；create/delete/cover 都调用唯一 Store action。任意完整 Catalog snapshot 同时结算请求开始时捕获的 create、delete 与 cover 恢复记录。
+- create 使用单一恢复门禁，delete 按 `projectRoot` 隔离；每次恢复都有组件生命周期内不复用的 attempt。旧成功或旧失败响应只能结算相同 attempt，不能清除同一 Project 后发起的新恢复。
+- create 的 `committed: true` 刷新后关闭并清空表单，`unknown` 保留输入让用户核对；delete snapshot 缺失目标时清理本地 workspace session，目标仍存在时解除门禁并允许显式重试。刷新失败保留持久错误，所有重试都只读取 snapshot，不自动重放 mutation。
+- World Engine Preview 的独立创建入口采用相同 transport-unknown、attempt 和刷新事实规则，但仍保持页面局部状态，不接入主 IDE Store。创建链拆成 POST、Catalog 刷新、Project 激活三段：POST 成功后 Catalog 失败按 `committed: true` 保留已知 root 和恢复门禁；Catalog 成功但激活失败只显示激活错误，不把已提交创建误报为失败，也不重放 POST。
+- 深链进入 Project 不再以 Catalog 成员关系预判；ProjectSession open 是存在性真相源。open 成功后文件树立即继续加载，Catalog 在后台 best-effort 刷新，慢请求或失败不会撤销 ready Project；Catalog 缺失时 workspace 地址仍由当前 root 正确投影，顶栏以 root 回退显示。
+- Store mutation 成功后始终回读服务端完整 Catalog，因此书架排序只由 Lifecycle snapshot 决定。发布对象、数组和 metadata 元素均为只读冻结值，组件不能再通过嵌套对象修改 Catalog。
+- 自动化覆盖同 Project attempt 1/2 ABA、多 Project 独立恢复、create true/unknown、delete missing/present、失效 GET 成功/失败追读、mutation 权威回读、direct-open 与 Preview 三阶段行为。本轮最终一次性回归 13 files / 77 tests 通过；封面、慢 Catalog 深链、Preview 激活失败、响应丢失与多 Project 恢复仍按仓库规则留给用户浏览器验收。
+
+### 2026-07-31 Preview 创建行为边界与 Settings 目标收口
+
+- World Engine Preview 不再在页面函数里手工拼接 POST、Catalog 刷新和恢复分支。页面专用 `world-engine-preview-create` utility 返回 `rejected | settled | refresh_failed`，并显式携带 commit state、已知 root 与 activation 结果。
+- POST 普通失败不会读取 Catalog；POST 成功后刷新失败保存 `committed: true` 和服务端已返回的 root；transport unknown 不猜 root。恢复刷新只接收 Catalog/activation 能力，类型层没有 POST，因此每次用户动作最多创建一次。
+- Catalog 已刷新但 Project 激活失败时，创建事实仍结算为 committed：表单按已提交语义清理，页面保留 activation 错误，不显示“创建失败”或进入 mutation 重试。
+- Settings 同步删除 Project Catalog 与跨 Project selector，只展示当前打开 Project；metadata 缺失时回退 root。该改动减少一次无必要列表请求，也消除了选择未打开 Project 后必然触发 `PROJECT_NOT_OPEN` 的入口。
+- 新增 Preview 6 项行为测试和 Settings 2 项源码合同；最终相邻合并回归 13 files / 77 tests。根 typecheck 本轮文件零错误，未修改的 Skill 声明、Session migration 与 llmlint fixture 仍阻断全仓通过。
+
+### 2026-07-31 Agent Composer 首次激活与只读态收口
+
+#### 诊断与实现
+
+- 真实浏览器复现确认：`AgentChatSurface` 初次以 `active=true` 挂载时，旧 active watcher 没有 `immediate`，`onMounted` 又只加载 config，导致完全不请求 Session 列表；关闭再打开面板才触发恢复。`activeSummary=null` 同时被旧投影误判成 Profile 不可用。
+- `AgentSurfaceActivationController` 只负责 Surface 激活状态与 recovery single-flight；`AgentSurfaceOperationController` 负责 Project/Inline/Prompt Bar 操作的发布权。数据面 owner 由 `projectRoot + readyRevision + activationRevision` 组成，Session/SSE 再校验 `sessionId` 或 connection generation；草稿和 last-session 记忆仍使用稳定的 `project:<root>`，没有把运行代次写进持久化 identity。
+- Project reset 在首个 `await` 前停止主/Inline stream、失效列表与 recovery 请求并清空旧 UI。草稿持久化可以自然完成，但只有仍拥有 reset owner 的调用才能更新 Composer generation，旧 Project 的迟到 clear 不会清掉新 Project。
+- config bootstrap 收敛为同一响应快照。默认 Profile 改变会换代并重新选 Session；Profile 未变的 config revision 也会强制开启新 recovery generation。activation 只使用自己 `listSessions()` 返回的 `page.items` 选择 Session，弹窗查询只控制共享列表投影。
+- `useAgentSessionStream` 增加显式强制 recovery：旧 Promise 不跨 generation 复用，旧 `finally` 只能清自身请求。recovery、SSE event、异步 event callback、live state 与 client variable patch 都校验 Session/connection owner；其他 Session 的 live state 会被 reducer 拒绝。当前代 recovery 失败进入 `load-error`，迟到成功和迟到错误静默失效。
+- Inline list/load/create/invoke/stop/model 操作贯穿同一 Project owner，create 固定使用启动时捕获的 Project root，stale list 不会自动创建 Session。页面在保存文件前捕获 Surface 实例、operation key 与请求 revision，保存后、Surface 返回后及 `catch/finally` 前重新校验；旧请求不能清空新 Prompt Bar、显示旧成功通知或结束新 loading。
+- Composer 改用单一判别联合投影 `ready | restoring | empty | archived | profile-unavailable | waiting-blocked | load-error | blocked`。`activeSummary=null` 不再推断 Profile 缺失；零主 Session 保持显式创建，不自动 POST。只读运行的发送位始终执行停止，即使编辑器已有草稿，草稿也不会被误发送或清空。
+- 输入壳持续显示状态图标、原因和“新建对话 / 恢复对话 / 重试”，使用既有 info/warning/danger 主题变量且不整体降 opacity。通用纯文本编辑器保留 `contenteditable=false` 门禁，并补 `role=textbox`、`aria-multiline=true`、响应式 `aria-readonly`、稳定 readonly class/data attribute 与禁用光标；Composer 整体没有设置 `aria-disabled`。
+- 390px 元素级验收发现模型选择器固定 320px 且禁止收缩，导致工具按钮与发送位重叠。`AgentSessionModelControls` 现允许作为 flex item 收缩，Composer 保留模型上限但让它占剩余宽度，发送按钮固定保留；没有为该局部问题新增断点或移动端布局分支。
+
+#### 与计划的出入
+
+1. 没有新增 ADR、共享 DTO、服务端 API、数据库或全局状态机；局部协调器已经覆盖所需所有权边界，继续上升为全局抽象只会增加概念和迁移成本。
+2. `ReferencePlainTextEditor` 没有承载 Agent 文案或重状态配色；它只提供通用只读语义，Agent 状态仍由 Composer 解释，避免影响历史消息编辑器与 Prompt Bar。
+3. 真实数据没有“只有归档主 Session、没有活跃主 Session”的 Project，也没有可安全复用的非空草稿运行。为避免篡改用户 Session，本轮没有为了浏览器覆盖而归档、恢复、创建或启动运行；归档投影、显式创建和只读运行停止由确定性回归覆盖。
+4. 390px 只验 Composer 自身 383px 容器。Novel IDE 既有桌面 drawer 在整页 390px 视口仍位于主工作区右侧，本任务不把全局移动端重排混入激活与所有权修复，因此不声明整页移动端适配通过。
+5. 没有形成可采信的浏览器 A→B→A 延迟注入或“保存文件期间切 Project”断言；这些竞态的基础发布权由 activation/operation/stream 的 deferred Promise 回归锁定，页面调用链则经过源码审查与 typecheck。若后续要把全部矩阵升级为端到端门禁，应建设可控的 Project/Session fixture，而不是在真实作者数据上注入破坏性状态。
+
+#### Verification
+
+- 聚焦回归：`agent-chat-surface-state`、Composer draft、Session list guard、`useAgentSession`、`useAgentSessionStream`、Composer image transaction 与 interaction policy 共 7 文件、59 项通过。覆盖初次 `active=true`、重新激活、A→B→A revision、同 scope 换代、卸载、single-flight、强制 recovery、旧成功/错误、阻塞 event callback、跨 Session event/live state 和全部 availability 投影。
+- 相邻回归：Session API/pagination、client variables、Project route transition、ProjectSession 与 route progress 共 6 文件、48 项通过。
+- `bun run typecheck`：全仓通过。`git diff --check` 在本轮文件没有补丁错误，仅报告仓库既有的 LF/CRLF 工作区提示。
+- Playwright（Nuxt `http://localhost:3000`）：已有 Session 的 Project 在面板已打开的冷刷新中立即发出 sessions + recovery + attachments + SSE 请求，恢复到 `contenteditable=true / aria-readonly=false`；面板关闭再打开仍可输入且不重复恢复。
+- 零 Session Project 只发 GET sessions，无隐式 POST；显示 warning 原因和“新建对话”，编辑根为 `contenteditable=false / aria-readonly=true / data-readonly=true`，wrapper 也有稳定 readonly 标记。
+- 现有 Profile 不可用 Session 显示服务端原始原因“未找到 agent profile: leader.rp”，没有再误报为通用 Profile 缺失；用于选择该 Session 的临时 browser last-session key 已删除。
+- 1440×900 的 Sepia 与内置 Default Dark 下，warning 状态的边框、软底、图标、文字和动作均可辨认；暗色检查后已恢复 Sepia，自定义主题未改。390×844 的 Composer 元素截图和 bounding box 证明全部工具/发送按钮位于自身 383px 容器内，`scrollWidth === clientWidth`。
+- 新鲜页面检查未发现浏览器 error/warning 或 `unhandledrejection`。中途 dev server 因并行 Source rebuild 重启产生的 503/断流只出现在旧页面记录，重启后的验收重新建立页面并单独检查，没有把该环境噪音计入产品结论。
+
+### 2026-08-01 Agent Composer 恢复态视觉收口
+
+- 复查确认恢复态高度跳动来自模板结构：`restoring` 在完整编辑区与工具栏上方额外插入状态栏，因此必然比 `ready` 多一行；同时 info 软底覆盖整个输入壳，让短暂加载状态看起来像持续告警。
+- `restoring` 改为在真实编辑区原位覆盖轻量 spinner 与“正在恢复对话”，底层编辑器保持挂载但不可见、不可交互。占位直接复用编辑器折叠 `44px` / 展开 `220px` 的真实布局，不新增恢复态高度常量，切换为 `ready` 时工具栏和壳体高度不变。
+- `empty`、`archived`、`profile-unavailable`、`waiting-blocked`、`load-error` 与 `blocked` 仍保留持续可见的状态栏、语义色和可用操作；本轮没有改变 availability、Session recovery、草稿或只读门禁合同。
+- 本轮执行聚焦 availability 回归与全仓 typecheck。按仓库规则未自动运行浏览器验收；恢复动画、明暗主题和实际像素高度仍建议在真实界面人工确认。
+
+### 2026-08-01 Task 63 待处理输入交互的能力拆分
+
+- Task 129 的 availability 继续只解释普通 Composer 的 `canInvoke` 与恢复状态；等待用户输入时不再把 `canInvoke=false` 复用为回答区 `readonly`。底部 pending 面板直接接收独立的 `canResolveUserInput` 与 `canAbort`，因此回答和终止能力不会被灰色 Composer 门禁误伤。
+- pending 提交复用 Task 129 的 `AgentSurfaceOperationController`，并额外绑定主 `sessionId` 与有序 pending batch key。Project generation、Session 或批次变化后，旧成功、旧错误和旧 `finally` 都不能发布；这没有改变 activation/recovery/SSE 的既有所有权层次。
+- 普通 Composer 在 pending 期间由面板替换但保留正文、模型和图片草稿。历史气泡只读消费完整 pending 列表，唯一提交 owner 仍在 Surface。完整实现与验证见 Task 63 walkthrough；本轮未自动执行浏览器验收。

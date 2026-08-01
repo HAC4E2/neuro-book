@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import {createClient} from "@libsql/client";
-import {afterAll, beforeEach, describe, expect, it, vi} from "vitest";
+import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi} from "vitest";
 import {
     PROJECT_PLOT_WORLD_MODULE_TOKEN,
     type ProjectPlotWorldHandle,
@@ -10,8 +10,15 @@ import {resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspac
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 import {activateReadyProjectModule, requireActiveReadyProject} from "nbook/server/workspace-files/project-session";
-import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
+import {
+    openProjectForTest,
+    removeProjectWorkspaceForTest,
+} from "nbook/server/workspace-files/project-session-test-utils";
 import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
+import {
+    createIsolatedWorkspaceAssets,
+    type IsolatedWorkspaceAssets,
+} from "nbook/server/workspace-files/test-workspace-fixture";
 
 vi.unmock("nbook/server/plot");
 
@@ -27,6 +34,12 @@ vi.mock("h3", async () => {
 const createdProjects: string[] = [];
 
 describe("/api/projects/plot", {timeout: 30_000}, () => {
+    let assets: IsolatedWorkspaceAssets;
+
+    beforeAll(async () => {
+        assets = await createIsolatedWorkspaceAssets({purpose: "plot-api-tests"});
+    });
+
     beforeEach(() => {
         Object.assign(globalThis, {
             defineEventHandler: (handler: unknown) => handler,
@@ -41,12 +54,14 @@ describe("/api/projects/plot", {timeout: 30_000}, () => {
         });
     }, 30_000);
 
-    afterAll(async () => {
-        for (const projectRootName of createdProjects) {
-            await closeProjectForTest(projectRootName).catch(() => undefined);
-            await removeProjectRoot(projectRootName);
+    afterEach(async () => {
+        for (const projectRootName of createdProjects.splice(0)) {
+            await removeProjectWorkspaceForTest(projectRootName);
         }
-        createdProjects.splice(0);
+    });
+
+    afterAll(async () => {
+        await assets.dispose();
     });
 
     it("GET /scenes/:sceneId/world-context 返回已解析 subject 上下文和 unresolved 占位", async () => {
@@ -432,21 +447,6 @@ function readId(input: unknown): string {
         return input.id;
     }
     throw new Error("测试没有拿到 id");
-}
-
-async function removeProjectRoot(projectRootName: string): Promise<void> {
-    for (let attempt = 0; attempt < 5; attempt++) {
-        collectReleasedSqliteHandles();
-        try {
-            await fs.rm(projectDirectory(projectRootName), {recursive: true, force: true});
-            return;
-        } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== "EBUSY" || attempt === 4) {
-                throw error;
-            }
-            await new Promise((resolve) => setTimeout(resolve, 100));
-        }
-    }
 }
 
 async function updateSceneRawInstants(projectRootName: string, sceneId: string, startInstant: bigint, endInstant: bigint): Promise<void> {

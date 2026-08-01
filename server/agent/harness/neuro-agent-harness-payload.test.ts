@@ -225,6 +225,7 @@ describe("NeuroAgentHarness invocation payload", () => {
     }, 20_000);
 
     it("running followup 入队前会校验 payload，失败时不污染队列", async () => {
+        const blockedTool = registerBlockedTool(harness, "payload_followup_gate");
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.followup-queued-payload",
@@ -234,40 +235,43 @@ describe("NeuroAgentHarness invocation payload", () => {
             payloadSchema: Type.Object({
                 plotId: Type.String(),
             }),
-            tools: profileToolsFromKeys(["request_user_input"]),
+            tools: profileToolsFromKeys(["payload_followup_gate"]),
             prepare() {
                 return {};
             },
         }), false);
         faux.setResponses([
             fauxAssistantMessage([
-                fauxToolCall("request_user_input", {
-                    questions: [{question: "Continue?"}],
-                }, {id: "ask-followup-payload"}),
+                fauxToolCall("payload_followup_gate", {}, {id: "followup-payload-gate"}),
             ], {stopReason: "toolUse"}),
+            fauxAssistantMessage("done"),
         ]);
         const created = await harness.createAgent({
             profileKey: "test.followup-queued-payload",
             initial: {},
         });
 
-        const waiting = await harness.invokeAgent({
+        const running = harness.invokeAgent({
             sessionId: created.sessionId,
             mode: "prompt",
             message: {text: "start"},
         });
-        await expect(harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "followup",
-            payload: {plotId: 1},
-        })).rejects.toThrow("payload 校验失败");
-        const snapshot = await harness.getSessionRecovery(created.sessionId);
-
-        expect(waiting.status).toBe("waiting");
-        expect(snapshot.followUpQueue.items).toEqual([]);
+        try {
+            await waitForActiveInvocation(harness, created.sessionId);
+            await expect(harness.invokeAgent({
+                sessionId: created.sessionId,
+                mode: "followup",
+                payload: {plotId: 1},
+            })).rejects.toThrow("payload 校验失败");
+            expect((await harness.getSessionRecovery(created.sessionId)).followUpQueue.items).toEqual([]);
+        } finally {
+            blockedTool.release();
+            await running.catch(() => undefined);
+        }
     }, 20_000);
 
     it("running steer 入队前会校验 payload，失败时不污染队列", async () => {
+        const blockedTool = registerBlockedTool(harness, "payload_steer_gate");
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.steer-queued-payload",
@@ -277,39 +281,73 @@ describe("NeuroAgentHarness invocation payload", () => {
             payloadSchema: Type.Object({
                 plotId: Type.String(),
             }),
-            tools: profileToolsFromKeys(["request_user_input"]),
+            tools: profileToolsFromKeys(["payload_steer_gate"]),
             prepare() {
                 return {};
             },
         }), false);
         faux.setResponses([
             fauxAssistantMessage([
-                fauxToolCall("request_user_input", {
-                    questions: [{question: "Continue?"}],
-                }, {id: "ask-steer-payload"}),
+                fauxToolCall("payload_steer_gate", {}, {id: "steer-payload-gate"}),
             ], {stopReason: "toolUse"}),
+            fauxAssistantMessage("done"),
         ]);
         const created = await harness.createAgent({
             profileKey: "test.steer-queued-payload",
             initial: {},
         });
 
-        const waiting = await harness.invokeAgent({
+        const running = harness.invokeAgent({
             sessionId: created.sessionId,
             mode: "prompt",
             message: {text: "start"},
         });
-        await expect(harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "steer",
-            payload: {plotId: 1},
-        })).rejects.toThrow("payload 校验失败");
-        const snapshot = await harness.getSessionRecovery(created.sessionId);
-
-        expect(waiting.status).toBe("waiting");
-        expect(snapshot.steerQueue).toEqual({items: [], omittedItems: 0});
+        try {
+            await waitForActiveInvocation(harness, created.sessionId);
+            await expect(harness.invokeAgent({
+                sessionId: created.sessionId,
+                mode: "steer",
+                payload: {plotId: 1},
+            })).rejects.toThrow("payload 校验失败");
+            expect((await harness.getSessionRecovery(created.sessionId)).steerQueue).toEqual({items: [], omittedItems: 0});
+        } finally {
+            blockedTool.release();
+            await running.catch(() => undefined);
+        }
     }, 20_000);
 });
+
+/** 注册一个只有测试主动放行后才完成的工具，保证 invocation 稳定停在 running。 */
+function registerBlockedTool(harness: NeuroAgentHarness, key: string): {release(): void} {
+    let release = (): void => undefined;
+    const gate = new Promise<void>((resolve) => {
+        release = resolve;
+    });
+    harness.tools.register({
+        key,
+        name: key,
+        label: "Payload Gate",
+        description: "Keeps the invocation running while payload admission is tested.",
+        parameters: Type.Object({}),
+        async execute() {
+            await gate;
+            return {content: [{type: "text", text: "released"}], details: {}};
+        },
+    });
+    return {release};
+}
+
+/** 等待 invocation 完成 admission；轮询有硬截止，失败不会留下后台运行。 */
+async function waitForActiveInvocation(harness: NeuroAgentHarness, sessionId: number): Promise<void> {
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline) {
+        if ((await harness.getSessionRecovery(sessionId)).activeInvocation) {
+            return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    throw new Error("等待 active invocation 超时");
+}
 
 function visibleText(messages: StoredAgentMessage[]): string {
     return messages.map((message) => storedMessageText(message)).join("\n");

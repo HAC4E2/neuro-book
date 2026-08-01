@@ -7,7 +7,13 @@ import {lock as acquireFileLock} from "proper-lockfile";
 import {afterEach, describe, expect, it} from "vitest";
 
 import {
+    hasProductRuntimeBuildPolicy,
+    PRODUCT_RUNTIME_BUILDER_CONTRACT_VERSION,
+    PRODUCT_RUNTIME_MAX_BYTES,
+    PRODUCT_RUNTIME_MAX_FILES,
+    PRODUCT_RUNTIME_MEASUREMENT_SCHEMA,
     ProductRuntimeImageBuilder,
+    productRuntimeBuildPolicy,
     type ProductRuntimeExpectedIdentity,
     type ProductRuntimeImageBudget,
     type ProductRuntimeImageManifest,
@@ -36,11 +42,7 @@ describe("ProductRuntimeImageBuilder", {timeout: 30_000}, () => {
         const image = await builder.buildCandidate({
             operationId: "release-001",
             platform: "windows-x64",
-            owners: [
-                {name: "public", paths: ["public"]},
-                {name: "server", paths: ["server"]},
-            ],
-            budget: budgetFor(50, 65_536, "public", "server"),
+            ...fixturePolicy(),
             async build({imageRoot, scratchRoot, sourceDigest}) {
                 callbackSourceDigest = sourceDigest;
                 expect(scratchRoot).toBe(join(imageRoot, ".build-scratch"));
@@ -56,19 +58,27 @@ describe("ProductRuntimeImageBuilder", {timeout: 30_000}, () => {
 
         expect(relative(root, image.path).replaceAll("\\", "/")).toBe(".deploy/staging/release-001");
         expect(image.manifest).toMatchObject({
-            schema: "nbook.product-runtime-image/v2",
-            builderContractVersion: "2",
+            schema: "nbook.product-runtime-image/v3",
+            builderContractVersion: PRODUCT_RUNTIME_BUILDER_CONTRACT_VERSION,
             version: "1.2.3",
             dirty: false,
             platform: "windows-x64",
             runtime: {nuxt: "4.3.1", nitro: "2.13.4"},
             runtimeContract: {path: PRODUCT_RUNTIME_CONTRACT_PATH},
+            policy: {
+                schema: "nbook.product-runtime-image-policy/v1",
+                sha256: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u),
+            },
             inventory: {
-                files: 16,
-                owners: [
-                    {name: "public", paths: ["public"], files: 1},
-                    {name: "server", paths: ["server"], files: 15},
-                ],
+                files: 18,
+                owners: expect.arrayContaining([
+                    expect.objectContaining({name: "frontend", paths: ["public"], files: 1}),
+                    expect.objectContaining({
+                        name: "server-bundle",
+                        paths: ["server/index.mjs", "server/index.mjs.map"],
+                        files: 1,
+                    }),
+                ]),
             },
         });
         expect(image.manifest.imageId).toMatch(/^sha256:[0-9a-f]{64}$/u);
@@ -95,8 +105,7 @@ describe("ProductRuntimeImageBuilder", {timeout: 30_000}, () => {
         await expect(builder.buildCandidate({
             operationId: "callback-failure",
             platform: "windows-x64",
-            owners: [{name: "server", paths: ["server"]}],
-            budget: budgetFor(10, 1024, "server"),
+            ...fixturePolicy(),
             async build({imageRoot, scratchRoot}) {
                 await mkdir(join(scratchRoot, "runtime-bundle"), {recursive: true});
                 await writeFile(join(scratchRoot, "runtime-bundle", "index.mjs"), "partial", "utf8");
@@ -108,6 +117,88 @@ describe("ProductRuntimeImageBuilder", {timeout: 30_000}, () => {
         await expect(access(candidate)).rejects.toMatchObject({code: "ENOENT"});
     });
 
+    it("未登记平台正式构建 fail closed，但 measurement 返回登记数据且不留下候选", async () => {
+        const root = await sourceFixture();
+        const builder = new ProductRuntimeImageBuilder(root);
+        let formalBuildCalled = false;
+
+        expect(hasProductRuntimeBuildPolicy("windows-x64")).toBe(true);
+        expect(hasProductRuntimeBuildPolicy("linux-x64-glibc")).toBe(false);
+        expect(() => productRuntimeBuildPolicy("linux-x64-glibc")).toThrow(
+            "尚未登记 linux-x64-glibc",
+        );
+        await expect(builder.buildCandidate({
+            operationId: "unregistered-formal",
+            platform: "linux-x64-glibc",
+            ...fixturePolicy(),
+            async build() {
+                formalBuildCalled = true;
+            },
+        })).rejects.toThrow("尚未登记 linux-x64-glibc");
+        expect(formalBuildCalled).toBe(false);
+
+        const report = await measureFixture(builder, "unregistered-measurement", "linux-x64-glibc");
+        expect(report).toMatchObject({
+            schema: PRODUCT_RUNTIME_MEASUREMENT_SCHEMA,
+            builderContractVersion: PRODUCT_RUNTIME_BUILDER_CONTRACT_VERSION,
+            version: "1.2.3",
+            dirty: false,
+            platform: "linux-x64-glibc",
+            runtime: {nuxt: "4.3.1", nitro: "2.13.4"},
+            runtimeContract: {path: PRODUCT_RUNTIME_CONTRACT_PATH},
+            policy: {
+                registered: false,
+                globalBudget: {
+                    maxFiles: PRODUCT_RUNTIME_MAX_FILES,
+                    maxBytes: PRODUCT_RUNTIME_MAX_BYTES,
+                },
+            },
+        });
+        expect(report.policy.owners.map((owner) => owner.name)).toEqual([
+            "authoring-kit",
+            "commands",
+            "frontend",
+            "native-islands",
+            "runtime-meta",
+            "server-bundle",
+            "system-assets",
+        ]);
+        expect(report.inventory.files).toBeGreaterThan(0);
+        expect(report.treeDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+        expect(report.shapeDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+        await expect(access(join(root, ".deploy", "staging", "unregistered-measurement")))
+            .rejects.toMatchObject({code: "ENOENT"});
+        await expect(access(join(root, ".deploy", "staging-leases", "unregistered-measurement")))
+            .rejects.toMatchObject({code: "ENOENT"});
+        await expect(access(join(root, ".output"))).rejects.toMatchObject({code: "ENOENT"});
+    });
+
+    it("已登记平台 measurement 仍不生成 ready image，失败时也清理 candidate 和 lease", async () => {
+        const root = await sourceFixture();
+        const builder = new ProductRuntimeImageBuilder(root);
+        const registered = await measureFixture(builder, "registered-measurement", "windows-x64");
+
+        expect(registered.policy.registered).toBe(true);
+        await expect(access(join(root, ".deploy", "staging", "registered-measurement")))
+            .rejects.toMatchObject({code: "ENOENT"});
+
+        await expect(builder.measureCandidate({
+            operationId: "measurement-failure",
+            platform: "darwin-aarch64",
+            async build({imageRoot, scratchRoot}) {
+                await mkdir(join(imageRoot, "server"), {recursive: true});
+                await mkdir(scratchRoot, {recursive: true});
+                await writeFile(join(imageRoot, "server", "index.mjs"), "partial", "utf8");
+                await writeFile(join(scratchRoot, "partial"), "partial", "utf8");
+                throw new Error("injected measurement failure");
+            },
+        })).rejects.toThrow("injected measurement failure");
+        await expect(access(join(root, ".deploy", "staging", "measurement-failure")))
+            .rejects.toMatchObject({code: "ENOENT"});
+        await expect(access(join(root, ".deploy", "staging-leases", "measurement-failure")))
+            .rejects.toMatchObject({code: "ENOENT"});
+    });
+
     it("构建期间 tracked Source 变化时拒绝候选且不留下 ready 目录", async () => {
         const root = await sourceFixture();
         const builder = new ProductRuntimeImageBuilder(root);
@@ -116,14 +207,31 @@ describe("ProductRuntimeImageBuilder", {timeout: 30_000}, () => {
         await expect(builder.buildCandidate({
             operationId: "source-race",
             platform: "windows-x64",
-            owners: [{name: "runtime", paths: ["."]}],
-            budget: budgetFor(10, 1024, "runtime"),
+            ...fixturePolicy(),
             async build({imageRoot}) {
-                await writeFile(join(imageRoot, "index.mjs"), "export default true;\n", "utf8");
+                await mkdir(join(imageRoot, "server"), {recursive: true});
+                await writeFile(join(imageRoot, "server", "index.mjs"), "export default true;\n", "utf8");
                 await writeFile(join(root, "src", "input.ts"), "export const input = 2;\n", "utf8");
             },
         })).rejects.toThrow(/Product build 期间 Source 输入发生变化[\s\S]*src\/input\.ts/u);
         await expect(readFile(join(candidate, "runtime-image.ready"), "utf8")).rejects.toMatchObject({code: "ENOENT"});
+    });
+
+    it("构建前已 dirty 时仍能发现回调新增的 untracked Source", async () => {
+        const root = await sourceFixture();
+        const builder = new ProductRuntimeImageBuilder(root);
+        await writeFile(join(root, "src", "already-dirty.ts"), "export const before = true;\n", "utf8");
+
+        await expect(builder.buildCandidate({
+            operationId: "dirty-untracked-source-race",
+            platform: "windows-x64",
+            ...fixturePolicy(),
+            async build({imageRoot}) {
+                await mkdir(join(imageRoot, "server"), {recursive: true});
+                await writeFile(join(imageRoot, "server", "index.mjs"), "export default true;\n", "utf8");
+                await writeFile(join(root, "src", "created-during-build.ts"), "export const after = true;\n", "utf8");
+            },
+        })).rejects.toThrow(/Product build 期间 Source 输入发生变化[\s\S]*src\/created-during-build\.ts/u);
     });
 
     it("把 worktree 中已删除的 tracked Source 表达为 dirty 输入而不是 lstat 失败", async () => {
@@ -189,11 +297,22 @@ describe("ProductRuntimeImageBuilder", {timeout: 30_000}, () => {
             ...expectedIdentity(image.manifest),
             lockfileSha256: `sha256:${"f".repeat(64)}`,
         })).rejects.toThrow("身份不一致：lockfileSha256");
+        await expect(builder.openVerified(image.path, {
+            ...expectedIdentity(image.manifest),
+            builderContractVersion: "999",
+        })).rejects.toThrow("身份不一致：builderContractVersion");
 
         const manifestPath = join(image.path, "runtime-image.json");
-        const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as ProductRuntimeImageManifest;
-        manifest.version = "9.9.9";
+        const manifestText = await readFile(manifestPath, "utf8");
+        const manifest = JSON.parse(manifestText) as ProductRuntimeImageManifest;
+        manifest.policy.budget.maxFiles += 1;
         await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+        await expect(builder.openVerified(image.path, expectedIdentity(image.manifest))).rejects.toThrow("policy 摘要");
+        await writeFile(manifestPath, manifestText, "utf8");
+
+        const versionManifest = JSON.parse(manifestText) as ProductRuntimeImageManifest;
+        versionManifest.version = "9.9.9";
+        await writeFile(manifestPath, `${JSON.stringify(versionManifest, null, 2)}\n`, "utf8");
         await expect(builder.openVerified(image.path, expectedIdentity(image.manifest))).rejects.toThrow("ready marker 与 manifest 不一致");
 
         await rm(join(image.path, "runtime-image.ready"));
@@ -207,12 +326,7 @@ describe("ProductRuntimeImageBuilder", {timeout: 30_000}, () => {
         await expect(builder.buildCandidate({
             operationId: "owner-growth",
             platform: "windows-x64",
-            owners: [{name: "server", paths: ["server"]}],
-            budget: {
-                maxFiles: 50,
-                maxBytes: 65_536,
-                ownerBaselines: [{name: "server", files: 1, bytes: 10}],
-            },
+            ...fixturePolicy({baselines: {"server-bundle": {files: 1, bytes: 10}}}),
             async build({imageRoot}) {
                 await mkdir(join(imageRoot, "server"), {recursive: true});
                 await writeFile(join(imageRoot, "server", "index.mjs"), "123456789012", "utf8");
@@ -223,8 +337,7 @@ describe("ProductRuntimeImageBuilder", {timeout: 30_000}, () => {
         await expect(builder.buildCandidate({
             operationId: "total-budget",
             platform: "windows-x64",
-            owners: [{name: "server", paths: ["server"]}],
-            budget: budgetFor(0, 1024, "server"),
+            ...fixturePolicy({maxFiles: 1}),
             async build({imageRoot}) {
                 await mkdir(join(imageRoot, "server"), {recursive: true});
                 await writeFile(join(imageRoot, "server", "index.mjs"), "ok", "utf8");
@@ -235,10 +348,58 @@ describe("ProductRuntimeImageBuilder", {timeout: 30_000}, () => {
         await expect(builder.buildCandidate({
             operationId: "missing-owner-baseline",
             platform: "windows-x64",
-            owners: [{name: "server", paths: ["server"]}],
+            owners: fixturePolicy().owners,
             budget: {maxFiles: 10, maxBytes: 1024, ownerBaselines: []},
             async build() {},
-        })).rejects.toThrow("缺少 owner 登记基线：server");
+        })).rejects.toThrow("缺少 owner 登记基线");
+
+        const canonical = fixturePolicy();
+        await expect(builder.buildCandidate({
+            operationId: "different-owner-policy",
+            platform: "windows-x64",
+            owners: canonical.owners.map((owner) => owner.name === "commands"
+                ? {...owner, paths: ["server/commands", "server/prisma", "server/extra"]}
+                : owner),
+            budget: canonical.budget,
+            async build() {},
+        })).rejects.toThrow("owners 不符合规范平台 policy");
+
+        await expect(builder.buildCandidate({
+            operationId: "loose-total-policy",
+            platform: "windows-x64",
+            owners: canonical.owners,
+            budget: {...canonical.budget, maxFiles: canonical.budget.maxFiles + 1},
+            async build() {},
+        })).rejects.toThrow("总预算放宽了规范平台 policy");
+
+        await expect(builder.buildCandidate({
+            operationId: "loose-owner-policy",
+            platform: "windows-x64",
+            owners: canonical.owners,
+            budget: {
+                ...canonical.budget,
+                ownerBaselines: canonical.budget.ownerBaselines.map((baseline) => baseline.name === "commands"
+                    ? {...baseline, files: baseline.files + 1}
+                    : baseline),
+            },
+            async build() {},
+        })).rejects.toThrow("owner baseline 放宽了规范平台 policy：commands");
+    });
+
+    it("物理总量预算包含 manifest 与 ready 两个控制文件", async () => {
+        const root = await sourceFixture();
+        const builder = new ProductRuntimeImageBuilder(root);
+
+        await expect(builder.buildCandidate({
+            operationId: "physical-total-budget",
+            platform: "windows-x64",
+            ...fixturePolicy({maxFiles: 17}),
+            async build({imageRoot}) {
+                await mkdir(join(imageRoot, "server"), {recursive: true});
+                await writeFile(join(imageRoot, "server", "index.mjs"), "ok", "utf8");
+                await writeRuntimeFixture(imageRoot);
+            },
+        })).rejects.toThrow("物理载荷超出总预算：19/17 files");
     });
 
     it("拒绝 owner 路径逃逸与指向候选外部的 symlink", async () => {
@@ -249,7 +410,7 @@ describe("ProductRuntimeImageBuilder", {timeout: 30_000}, () => {
             operationId: "owner-escape",
             platform: "windows-x64",
             owners: [{name: "outside", paths: ["../outside"]}],
-            budget: budgetFor(10, 1024, "outside"),
+            budget: {maxFiles: 10, maxBytes: 1024, ownerBaselines: [{name: "outside", files: 10, bytes: 1024}]},
             async build() {},
         })).rejects.toThrow("不能逃逸候选根");
 
@@ -259,10 +420,10 @@ describe("ProductRuntimeImageBuilder", {timeout: 30_000}, () => {
         await expect(builder.buildCandidate({
             operationId: "symlink-escape",
             platform: "windows-x64",
-            owners: [{name: "runtime", paths: ["."]}],
-            budget: budgetFor(10, 1024, "runtime"),
+            ...fixturePolicy(),
             async build({imageRoot}) {
-                await writeFile(join(imageRoot, "index.mjs"), "export default true;\n", "utf8");
+                await mkdir(join(imageRoot, "server"), {recursive: true});
+                await writeFile(join(imageRoot, "server", "index.mjs"), "export default true;\n", "utf8");
                 await writeRuntimeFixture(imageRoot);
                 await symlink(outside, join(imageRoot, "outside-link"), "junction");
             },
@@ -357,8 +518,7 @@ describe("ProductRuntimeImageBuilder", {timeout: 30_000}, () => {
             operationId: "gitless-valid",
             platform: "windows-x64",
             expectedSource: {revision, dirty: false},
-            owners: [{name: "server", paths: ["server"]}],
-            budget: budgetFor(50, 65_536, "server"),
+            ...fixturePolicy(),
             async build({imageRoot}) {
                 await mkdir(join(imageRoot, "server"), {recursive: true});
                 await writeFile(join(imageRoot, "server", "index.mjs"), "valid", "utf8");
@@ -371,8 +531,7 @@ describe("ProductRuntimeImageBuilder", {timeout: 30_000}, () => {
             operationId: "gitless-source-race",
             platform: "windows-x64",
             expectedSource: {revision, dirty: false},
-            owners: [{name: "server", paths: ["server"]}],
-            budget: budgetFor(10, 1024, "server"),
+            ...fixturePolicy(),
             async build({imageRoot}) {
                 await mkdir(join(imageRoot, "server"), {recursive: true});
                 await writeFile(join(imageRoot, "server", "index.mjs"), "race", "utf8");
@@ -406,8 +565,24 @@ async function simpleImage(builder: ProductRuntimeImageBuilder, operationId: str
     return await builder.buildCandidate({
         operationId,
         platform: "windows-x64",
-        owners: [{name: "server", paths: ["server"]}],
-        budget: budgetFor(50, 65_536, "server"),
+        ...fixturePolicy(),
+        async build({imageRoot}) {
+            await mkdir(join(imageRoot, "server"), {recursive: true});
+            await writeFile(join(imageRoot, "server", "index.mjs"), "export default true;\n", "utf8");
+            await writeRuntimeFixture(imageRoot);
+        },
+    });
+}
+
+/** 在任意支持平台生成一次不会持久化候选的最小测量。 */
+async function measureFixture(
+    builder: ProductRuntimeImageBuilder,
+    operationId: string,
+    platform: "windows-x64" | "linux-x64-glibc",
+) {
+    return await builder.measureCandidate({
+        operationId,
+        platform,
         async build({imageRoot}) {
             await mkdir(join(imageRoot, "server"), {recursive: true});
             await writeFile(join(imageRoot, "server", "index.mjs"), "export default true;\n", "utf8");
@@ -429,8 +604,10 @@ async function writeRuntimeFixture(imageRoot: string): Promise<void> {
         prepareSystemAssets: "server/commands/prepare-system-assets.mjs",
         checkMigrations: "server/commands/check-migrations.mjs",
         profileAuthoringSmoke: "server/commands/profile-authoring.mjs",
+        variableAuthoringSmoke: "server/commands/variable-authoring.mjs",
         imageVariantSmoke: "server/commands/sharp-image-variant.mjs",
         sqliteVecSmoke: "server/commands/sqlite-vec.mjs",
+        webFetchSmoke: "server/commands/web-fetch.mjs",
     };
     const contract = createProductRuntimeContract(entries);
     const entryPaths = new Set([PRODUCT_RUNTIME_COMMAND_BOOTSTRAP, ...Object.values(entries)]);
@@ -444,12 +621,23 @@ async function writeRuntimeFixture(imageRoot: string): Promise<void> {
     await writeFile(contractPath, `${JSON.stringify(contract, null, 2)}\n`, "utf8");
 }
 
-/** 测试预算也必须覆盖所有 owner，防止实际调用方绕过 +10% 回归门禁。 */
-function budgetFor(maxFiles: number, maxBytes: number, ...owners: string[]): ProductRuntimeImageBudget {
+/** fixture 只能收窄正式平台策略；无法创造 release 可接受的宽松 policy。 */
+function fixturePolicy(options: {
+    maxFiles?: number;
+    maxBytes?: number;
+    baselines?: {[name: string]: {files: number; bytes: number}};
+} = {}): {owners: ReturnType<typeof productRuntimeBuildPolicy>["owners"]; budget: ProductRuntimeImageBudget} {
+    const policy = productRuntimeBuildPolicy("windows-x64");
     return {
-        maxFiles,
-        maxBytes,
-        ownerBaselines: owners.map((name) => ({name, files: maxFiles, bytes: maxBytes})),
+        owners: policy.owners,
+        budget: {
+            maxFiles: options.maxFiles ?? policy.budget.maxFiles,
+            maxBytes: options.maxBytes ?? policy.budget.maxBytes,
+            ownerBaselines: policy.budget.ownerBaselines.map((baseline) => ({
+                ...baseline,
+                ...options.baselines?.[baseline.name],
+            })),
+        },
     };
 }
 
@@ -463,6 +651,7 @@ function expectedIdentity(manifest: ProductRuntimeImageManifest): ProductRuntime
         imageId: manifest.imageId,
         lockfileSha256: manifest.lockfileSha256,
         sourceDigest: manifest.sourceDigest,
+        builderContractVersion: manifest.builderContractVersion,
     };
 }
 

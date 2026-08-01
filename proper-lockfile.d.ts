@@ -16,4 +16,5 @@ declare module "proper-lockfile" {
 
     export function lock(file: string, options?: LockOptions): Promise<() => Promise<void>>;
     export function lockSync(file: string, options?: LockOptions): () => void;
+    export function check(file: string, options?: Pick<LockOptions, "lockfilePath" | "realpath" | "stale">): Promise<boolean>;
 }

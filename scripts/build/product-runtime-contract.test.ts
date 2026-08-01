@@ -21,8 +21,8 @@ describe("Product 临时验收实例合同", () => {
 
     it("bootstrap、启动器与验收实例的Bun子进程都禁止自动安装", async () => {
         const [bootstrap, start, acceptance] = await Promise.all([
-            readFile(resolve("scripts", "deploy", "product-command.ts"), "utf8"),
-            readFile(resolve("scripts", "deploy", "product-start.mjs"), "utf8"),
+            readFile(resolve("server", "runtime", "product-command.ts"), "utf8"),
+            readFile(resolve("server", "runtime", "product-start-command.mjs"), "utf8"),
             readFile(resolve("scripts", "deploy", "product-runtime.mjs"), "utf8"),
         ]);
 

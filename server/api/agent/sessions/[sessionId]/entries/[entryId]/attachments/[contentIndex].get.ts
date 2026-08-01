@@ -5,6 +5,7 @@ import {withProjectHttpError} from "nbook/server/api/projects/project-http-error
 import {ImageVariantError, type ImageVariantSpec} from "nbook/server/media/image-variant-contract";
 import {imageVariantHttpError, imageVariantSpecFromEvent} from "nbook/server/media/image-variant-http";
 import {isProjectNotOpenError} from "nbook/server/workspace-files/project-session";
+import {encodeRfc5987Filename} from "nbook/server/utils/rfc5987";
 
 /** 按公开 Chat Flow locator 返回完整 Attachment；hash 本身不构成授权。 */
 export default defineEventHandler(async (event) => withProjectHttpError(async () => {
@@ -56,7 +57,7 @@ export default defineEventHandler(async (event) => withProjectHttpError(async ()
                 read: async () => {
                     let bytes: Uint8Array;
                     try {
-                        bytes = await harness.attachmentStore.load(locator.ref);
+                        bytes = await locator.read();
                     } catch {
                         throw createError({
                             statusCode: 410,
@@ -110,7 +111,7 @@ export default defineEventHandler(async (event) => withProjectHttpError(async ()
 
     let bytes: Uint8Array;
     try {
-        bytes = await harness.attachmentStore.load(locator.ref);
+        bytes = await locator.read();
     } catch {
         setResponseHeader(event, "Cache-Control", "no-store");
         throw createError({statusCode: 410, message: "Attachment 已损坏或不可用", data: {code: "ATTACHMENT_UNAVAILABLE"}});
@@ -123,7 +124,7 @@ export default defineEventHandler(async (event) => withProjectHttpError(async ()
     const name = locator.name ?? "attachment";
     setResponseHeader(event, "Content-Type", locator.ref.mimeType);
     setResponseHeader(event, "Content-Length", bytes.byteLength);
-    setResponseHeader(event, "Content-Disposition", `${inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(name)}`);
+    setResponseHeader(event, "Content-Disposition", `${inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeRfc5987Filename(name)}`);
     setResponseHeader(event, "Server-Timing", `attachment_locator;dur=${locatorMs.toFixed(2)}, attachment_blob;dur=${(performance.now() - startedAt - locatorMs).toFixed(2)}, attachment_total;dur=${(performance.now() - startedAt).toFixed(2)}`);
     return Buffer.from(bytes);
 }));

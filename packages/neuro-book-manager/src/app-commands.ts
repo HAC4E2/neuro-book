@@ -14,14 +14,15 @@ import {
 
 import {enableAuthentication, loadStateEnv} from "#manager/config";
 import {createProductRuntimeEnvironment} from "nbook/shared/product-runtime-environment";
-import {containerComposeOptions, runDockerApplicationCommand, startDocker, stopDockerContainer} from "#manager/docker";
+import {containerComposeOptions, runDockerApplicationCommand, startDocker, stopDockerContainer, verifyRunningDockerApplication} from "#manager/docker";
 import {pathExists} from "#manager/files";
 import {assertInstallationHostCompatible} from "#manager/platform";
-import {commandAvailable, run, runCapture} from "#manager/process";
+import {commandAvailable, run, runCapture, runWithInput} from "#manager/process";
 import {resolveInstallationRoots} from "#manager/root-locators";
 import {activateManagedTools} from "#manager/tools";
 import type {CommandInspection, InstallationManifest} from "#manager/types";
 import {formatStateRootIntegrityWarning, inspectInstallationStateIntegrity, stateRootIntegrityFailed} from "#manager/state-integrity";
+import {verifyApplicationExecution} from "#manager/application-execution";
 
 const ApplicationMigrationStepSchema = Type.Object({
     id: Type.String({pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$"}),
@@ -130,12 +131,12 @@ export async function launchApplication(
         console.warn(`\n警告：${formatStateRootIntegrityWarning(stateIntegrity)}\n`);
     }
     activateManagedTools(root, manifest.components.tools);
-    if (manifest.profile === "ghcr" || manifest.profile === "source-docker") {
-        if (!manifest.containerEngine) throw new Error(`${manifest.profile} Manifest缺少Container Engine。`);
+    const execution = await verifyApplicationExecution(root, manifest);
+    if (execution.kind === "container-product") {
         let terminated = false;
         let candidateContainerId: string | null = null;
         const ready = startDocker(
-            manifest.containerEngine,
+            execution.image,
             root,
             stateRoot,
             manifest.profile,
@@ -155,7 +156,7 @@ export async function launchApplication(
             await ready.catch(() => undefined);
             if (candidateContainerId) {
                 await stopDockerContainer(
-                    manifest.containerEngine as NonNullable<InstallationManifest["containerEngine"]>,
+                    execution.engine,
                     root,
                     candidateContainerId,
                 );
@@ -176,6 +177,7 @@ export async function launchApplication(
         [PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT]: shutdownToken,
         BUN: bun,
     };
+    if (execution.kind === "native-product") delete env.NODE_PATH;
     const command = bun;
     const args = manifest.profile === "source-dev"
         ? [...PRODUCT_BUN_RUNTIME_ARGS, "run", "dev"]
@@ -315,16 +317,18 @@ export async function createAdmin(root: string, manifest: InstallationManifest, 
     activateManagedTools(root, manifest.components.tools);
     const roots = resolveInstallationRoots(root, manifest.roots);
     const stateRoot = roots.state;
-    if (manifest.profile === "ghcr" || manifest.profile === "source-docker") {
-        if (!manifest.containerEngine) throw new Error(`${manifest.profile} Manifest缺少Container Engine。`);
+    const password = process.env.AUTH_ADMIN_PASSWORD;
+    const passwordInput = password === undefined ? null : new TextEncoder().encode(password);
+    const passwordArgs = passwordInput ? ["--password-stdin"] : [];
+    const execution = await verifyApplicationExecution(root, manifest);
+    if (execution.kind === "container-product") {
+        await verifyRunningDockerApplication(execution.image, root, stateRoot);
         const compose = join(root, ".deploy", "docker-compose.generated.yml");
         const composeArgs = ["compose", "--env-file", join(stateRoot, ".env"), "-f", compose];
-        const password = process.env.AUTH_ADMIN_PASSWORD;
         const execOptions = [
-            ...(!process.stdin.isTTY ? ["-T"] : []),
-            ...(password ? ["-e", `AUTH_ADMIN_PASSWORD=${password}`] : []),
+            ...(!process.stdin.isTTY || passwordInput ? ["-T"] : []),
         ];
-        await run(manifest.containerEngine, [
+        const args = [
             ...composeArgs,
             "exec",
             ...execOptions,
@@ -335,32 +339,43 @@ export async function createAdmin(root: string, manifest: InstallationManifest, 
             "command",
             "create-admin",
             ...(username ? [username] : []),
-        ], containerComposeOptions(manifest.containerEngine, root));
+            ...passwordArgs,
+        ];
+        const options = withoutAdminPassword(containerComposeOptions(execution.engine, root));
+        if (passwordInput) await runWithInput(execution.engine, args, passwordInput, options);
+        else await run(execution.engine, args, options);
         return;
     }
-    if (manifest.profile === "source-dev") {
+    if (execution.kind === "source-dev") {
         const bun = resolveBun(root, manifest);
-        await run(bun, [
+        const args = [
             ...PRODUCT_BUN_RUNTIME_ARGS,
             "run",
             "auth:create-admin",
             ...(username ? [username] : []),
-        ], {
+            ...passwordArgs,
+        ];
+        const options = {
             cwd: root,
-            env: {...await applicationEnvironment(root, stateRoot, false, roots.cache), BUN: bun},
-        });
+            env: withoutAdminPasswordEnvironment({...await applicationEnvironment(root, stateRoot, false, roots.cache), BUN: bun}),
+        };
+        if (passwordInput) await runWithInput(bun, args, passwordInput, options);
+        else await run(bun, args, options);
         return;
     }
-    const args = productCommandArgs(root, "create-admin", username ? [username] : []);
+    const args = productCommandArgs(root, "create-admin", [...(username ? [username] : []), ...passwordArgs]);
     const bootstrap = productCommandPath(root);
     if (!await pathExists(bootstrap)) {
         throw new Error(`Product 缺少 Runtime Contract bootstrap：${bootstrap}`);
     }
     const bun = resolveBun(root, manifest);
-    await run(bun, args, {
+    const options = {
         cwd: root,
-        env: {...await applicationEnvironment(root, stateRoot, false, roots.cache), BUN: bun},
-    });
+        env: withoutAdminPasswordEnvironment({...await applicationEnvironment(root, stateRoot, false, roots.cache), BUN: bun}),
+    };
+    delete options.env.NODE_PATH;
+    if (passwordInput) await runWithInput(bun, args, passwordInput, options);
+    else await run(bun, args, options);
     if (manifest.profile === "windows-portable") {
         await enableAuthentication(stateRoot);
         console.log("管理员创建成功，Windows Portable 鉴权已启用；请重启 NeuroBook。" );
@@ -403,6 +418,22 @@ export async function applicationEnvironment(
         stateEnvironment: await loadStateEnv(stateRoot),
         host: "127.0.0.1",
     });
+}
+
+/** 从子进程环境删除Manager消费过的自动密码。 */
+function withoutAdminPasswordEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+    const projected = {...env};
+    delete projected.AUTH_ADMIN_PASSWORD;
+    return projected;
+}
+
+/** 保留Compose Adapter的cwd等选项，同时清除Docker/Podman CLI子进程中的secret。 */
+function withoutAdminPassword(options: {cwd: string; env?: NodeJS.ProcessEnv}): {cwd: string; env?: NodeJS.ProcessEnv} {
+    if (options.env) return {...options, env: withoutAdminPasswordEnvironment(options.env)};
+    if (process.env.AUTH_ADMIN_PASSWORD !== undefined) {
+        return {...options, env: withoutAdminPasswordEnvironment(process.env)};
+    }
+    return options;
 }
 
 export function resolveBun(root: string, manifest: InstallationManifest): string {
@@ -480,10 +511,10 @@ async function runApplicationCommand(
 ): Promise<string> {
     const roots = resolveInstallationRoots(root, manifest.roots);
     const stateRoot = containerStateRoot ?? roots.state;
-    if (manifest.components.applicationRuntime.provider === "container") {
-        if (!manifest.containerEngine) throw new Error(`${manifest.profile} Manifest缺少Container Engine。`);
+    const execution = await verifyApplicationExecution(applicationRoot, manifest);
+    if (execution.kind === "container-product") {
         return runDockerApplicationCommand(
-            manifest.containerEngine,
+            execution.image,
             root,
             stateRoot,
             ["bun", ...args],
@@ -491,17 +522,19 @@ async function runApplicationCommand(
         );
     }
     const bun = resolveBun(root, manifest);
+    const env: NodeJS.ProcessEnv = {
+        ...await applicationEnvironment(
+            applicationRoot,
+            stateRoot,
+            execution.kind === "source-dev",
+            containerStateRoot ? join(containerStateRoot, ".cache") : roots.cache,
+        ),
+        BUN: bun,
+    };
+    if (execution.kind === "native-product") delete env.NODE_PATH;
     return runCapture(bun, args, {
         cwd: applicationRoot,
-        env: {
-            ...await applicationEnvironment(
-                applicationRoot,
-                stateRoot,
-                manifest.profile === "source-dev",
-                containerStateRoot ? join(containerStateRoot, ".cache") : roots.cache,
-            ),
-            BUN: bun,
-        },
+        env,
     });
 }
 

@@ -1,6 +1,6 @@
 import {execFile} from "node:child_process";
 import {createRequire} from "node:module";
-import {access, mkdtemp, mkdir, readFile, rm, writeFile} from "node:fs/promises";
+import {access, mkdtemp, mkdir, readFile, readdir, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {dirname, join} from "node:path";
 import {pathToFileURL} from "node:url";
@@ -18,6 +18,20 @@ afterEach(async () => {
 });
 
 describe("Product Runtime bundle", () => {
+    it("server runtime 只通过 package island require TypeScript", async () => {
+        const sourceFiles = (await readdir("server", {recursive: true}))
+            .filter((filePath) => filePath.endsWith(".ts")
+                && !filePath.endsWith(".test.ts")
+                && !filePath.endsWith(".d.ts"))
+            .sort((left, right) => left.localeCompare(right));
+        const forbiddenImport = /^\s*import\s+(?!type\b)(?:[^;\n]*\sfrom\s+)?["']typescript["'];?|\bimport\(\s*["']typescript["']\s*\)/mu;
+        for (const relativePath of sourceFiles) {
+            const source = await readFile(join("server", relativePath), "utf8");
+            expect(source, `${relativePath} 不得把 TypeScript compiler 放入 Nitro module graph`)
+                .not.toMatch(forbiddenImport);
+        }
+    });
+
     it("把 native 物理 URL 收敛到镜像内 package island，并清除 package manager metadata", async () => {
         const outputRoot = await mkdtemp(join(tmpdir(), "nbook-product-runtime-bundle-"));
         temporaryRoots.push(outputRoot);
@@ -37,6 +51,9 @@ describe("Product Runtime bundle", () => {
         await Promise.all([
             writeFile(join(serverRoot, "commands", "placeholder.mjs"), "export default true;\n", "utf8"),
             writeFile(join(serverRoot, "authoring", "placeholder.mjs"), "export default true;\n", "utf8"),
+            writeFile(join(serverRoot, "authoring", "tsconfig.json"), JSON.stringify({
+                compilerOptions: {target: "ESNext", lib: ["ESNext", "DOM", "DOM.Iterable"]},
+            }), "utf8"),
         ]);
         await writeFile(join(serverRoot, "index.mjs"), [
             'import {createRequire} from "node:module";',

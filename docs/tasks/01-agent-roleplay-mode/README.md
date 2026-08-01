@@ -1,5 +1,7 @@
 # Agent RP Mode
 
+> 2026-07-31 CLI 路径取代说明：下文出现的 `assets/workspace/.nbook/agent/scripts/workspace.ts` 是当时实现证据，不再是当前运行合同。Agent 稳定入口为 `.nbook/agent/bin/workspace`；Source checkout wrapper 调用 Product-owned source entry，发行物通过 Task 130 的 Product Runtime Contract 解析 `workspace` 逻辑命令，不保留旧脚本 fallback。
+
 ## Current Target: Simulation / Profile Context V2
 
 2026-06-07 update: 本任务里的早期 `leader.rp`、`simulation/simulator.md`、`simulation/writer.md`、`simulation/config.yaml`、`simulation/cast.yaml` 说法已经被 profile context V2 取代。当前合同是：Project root `AGENTS.md` 和 `agent-context/{profile}/context.md` / `agent-context/{profile}/generated.md` 作为 profile guidance 入口；`simulator.leader` 读 `agent-context/simulator.leader/context.md`；`simulation/` 只保留 `subjects/`、`entities/`、`runs/` runtime state。

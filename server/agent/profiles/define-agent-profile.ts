@@ -2,15 +2,18 @@ import type {TSchema} from "typebox";
 import type {AgentProfile, AgentProfileDefinition, AgentProfileManifest, ProfilePrepareContext} from "nbook/server/agent/profiles/types";
 import {compileProfileContext, validateProfileTurnPlan} from "nbook/server/agent/profiles/profile-dsl";
 import {agentRuntimeBuiltins, defineAgentRuntime} from "nbook/server/agent/profiles/define-agent-runtime";
-import type {ProfileTools} from "nbook/server/agent/profiles/profile-tools";
-import {parseLowCodeFormValue, type LowCodeFormDefinition} from "nbook/server/low-code-form";
+import type {ProfileTools} from "nbook/profile-sdk/contracts";
+import {assertLowCodeFormDefinition, parseLowCodeFormValue, type LowCodeFormDefinition} from "nbook/server/low-code-form";
 import {validateProfileRuntimeSettingsPatch} from "nbook/server/agent/profiles/profile-runtime-settings";
 import type {LowCodeJsonObject} from "nbook/shared/dto/low-code-form.dto";
 
 /**
- * 定义一个 v3 Agent Profile。用户自定义 profile 必须通过这个函数导出。
+ * 将作者 artifact 归一化为宿主可执行的 Agent Profile。
+ *
+ * 作者 SDK 只返回纯声明；校验、默认值、Skill 过滤、DSL 编译和 prepare 包装都
+ * 集中在这个宿主 seam，避免把宿主实现冻结进每个内容寻址 artifact。
  */
-export function defineAgentProfile<
+export function normalizeAgentProfile<
     const TInitialSchema extends TSchema,
     const TPayloadSchema extends TSchema = TSchema,
     const TOutputSchema extends TSchema = TSchema,
@@ -21,6 +24,7 @@ export function defineAgentProfile<
     assertProfileManifest(profile.manifest);
     assertNoLegacyToolFields(profile.manifest.key, profile);
     const rootToolKeys = assertProfileTools(profile.manifest.key, profile.tools);
+    if (profile.settingsForm) assertLowCodeFormDefinition(profile.settingsForm);
     validateProfileRuntimeSettingsPatch(`profile ${profile.manifest.key} runtimeDefaults`, profile.runtimeDefaults);
     assertProfileSkills(profile.manifest.key, profile.skills);
     assertProfileToolKeys(profile.manifest.key, rootToolKeys, profile.toolKeys);
@@ -51,6 +55,20 @@ export function defineAgentProfile<
         runtime,
         prepare,
     };
+}
+
+/**
+ * 定义宿主内存 Profile。Source 内部调用继续直接得到可执行 Profile；作者 SDK 不调用此入口。
+ */
+export function defineAgentProfile<
+    const TInitialSchema extends TSchema,
+    const TPayloadSchema extends TSchema = TSchema,
+    const TOutputSchema extends TSchema = TSchema,
+    const TSettingsSchema extends TSchema | undefined = undefined,
+    const TSummarizerKey extends string = string,
+    const TTools extends ProfileTools = ProfileTools,
+>(profile: AgentProfileDefinition<TInitialSchema, TPayloadSchema, TOutputSchema, TSettingsSchema, TSummarizerKey, TTools>): AgentProfile<TInitialSchema, TPayloadSchema, TOutputSchema, TSettingsSchema, TSummarizerKey, TTools> {
+    return normalizeAgentProfile(profile);
 }
 
 /**

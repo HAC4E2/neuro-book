@@ -1,7 +1,9 @@
 import {randomUUID} from "node:crypto";
 import {mkdir, rm, writeFile} from "node:fs/promises";
-import {join, resolve} from "node:path";
-import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
+import {dirname, join, resolve} from "node:path";
+import {afterEach, beforeAll, beforeEach, describe, expect, it, vi} from "vitest";
+import {AttachmentStore} from "nbook/server/agent/attachments/attachment-store";
+import type {AttachmentBlobAdapter} from "nbook/server/agent/attachments/types";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
@@ -19,20 +21,33 @@ import {
     type ProjectModule,
     type ProjectModuleHandle,
 } from "nbook/server/workspace-files/project-module";
+import {createRasterTestFixtures, jpegWithDimensions} from "nbook/server/agent/test-utils/raster-fixtures";
+
+let png: Buffer;
+let oversizedJpeg: Buffer;
+
+beforeAll(async () => {
+    const fixtures = await createRasterTestFixtures();
+    png = fixtures.png;
+    oversizedJpeg = jpegWithDimensions(fixtures.jpeg, 8_193, 8_192);
+});
 
 describe("NeuroAgentHarness session attachment locator", () => {
     let root: AbsoluteFsPath;
     let repo: JsonlSessionRepository;
     let harness: NeuroAgentHarness;
+    let attachmentAdapter: AttachmentBlobAdapter;
 
     beforeEach(() => {
         resetProjectSessionsForTest();
         root = absoluteFsPath(resolve(".agent", "session-attachment-test", randomUUID()));
         repo = new JsonlSessionRepository(root);
+        attachmentAdapter = memoryAttachmentAdapter();
         harness = new NeuroAgentHarness({
             repo,
             profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
             enableSessionSummarizer: false,
+            attachmentStore: new AttachmentStore(attachmentAdapter),
         });
     });
 
@@ -68,6 +83,7 @@ describe("NeuroAgentHarness session attachment locator", () => {
         await expect(harness.resolveSessionAttachment(session.metadata.sessionId, entry.id, 1)).resolves.toEqual({
             ref: attachment,
             name: "参考图.png",
+            read: expect.any(Function),
         });
     });
 
@@ -149,6 +165,7 @@ describe("NeuroAgentHarness session attachment locator", () => {
         await expect(harness.resolveSessionAttachment(session.metadata.sessionId, entry.id, 1)).resolves.toEqual({
             ref: attachment,
             name: "scene.webp",
+            read: expect.any(Function),
         });
     });
 
@@ -184,7 +201,7 @@ describe("NeuroAgentHarness session attachment locator", () => {
         });
 
         await expect(harness.resolveSessionAttachment(session.metadata.sessionId, customMessage.id, 0))
-            .resolves.toEqual({ref: attachment, name: "internal.png"});
+            .resolves.toEqual({ref: attachment, name: "internal.png", read: expect.any(Function)});
         await expect(harness.resolveSessionAttachment(session.metadata.sessionId, followUpQueue.id, 0))
             .rejects.toThrow("Attachment locator 不存在或已失效");
     });
@@ -418,7 +435,7 @@ describe("NeuroAgentHarness session attachment locator", () => {
         const before = await repo.readSession(session.metadata.sessionId);
 
         const uploaded = await harness.uploadSessionAttachment(session.metadata.sessionId, {
-            bytes: Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+            bytes: png,
             mimeType: "image/png",
             name: "projection.png",
         });
@@ -456,7 +473,7 @@ describe("NeuroAgentHarness session attachment locator", () => {
         });
 
         const upload = harness.uploadSessionAttachment(session.metadata.sessionId, {
-            bytes: Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+            bytes: png,
             mimeType: "image/png",
             name: "late.png",
         });
@@ -464,7 +481,10 @@ describe("NeuroAgentHarness session attachment locator", () => {
         await harness.runCommand(session.metadata.sessionId, {command: "archive", reason: "concurrent archive"});
         releaseSave();
 
-        await expect(upload).rejects.toMatchObject({code: "invalid_input"});
+        await expect(upload).rejects.toMatchObject({
+            code: "invalid_input",
+            message: "当前 Session 已归档，不能登记附件。",
+        });
         const snapshot = await repo.readSession(session.metadata.sessionId);
         expect(snapshot.entries.some((entry) => entry.type === "session_attachment")).toBe(false);
     });
@@ -478,7 +498,7 @@ describe("NeuroAgentHarness session attachment locator", () => {
         await mkdir(join(root, "snapshot-project", "images"), {recursive: true});
         await mkdir(join(root, ".nbook", "assets"), {recursive: true});
         await mkdir(join(root, "outside"), {recursive: true});
-        const original = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]);
+        const original = png;
         await writeFile(projectFile, original);
         await writeFile(nbookFile, original);
         await writeFile(absoluteFile, original);
@@ -504,8 +524,8 @@ describe("NeuroAgentHarness session attachment locator", () => {
                 projectSnapshot.locator.entryId,
                 projectSnapshot.locator.contentIndex,
             );
-            const snapshottedBytes = await harness.attachmentStore.load(resolved.ref);
-            expect(Uint8Array.from(snapshottedBytes)).toEqual(original);
+            const snapshottedBytes = await resolved.read();
+            expect(Buffer.from(snapshottedBytes)).toEqual(original);
 
             await expect(harness.snapshotSessionAttachment(session.metadata.sessionId, {
                 sourcePath: "workspace/.nbook/assets/global.png",
@@ -516,12 +536,30 @@ describe("NeuroAgentHarness session attachment locator", () => {
 
             const hash = projectSnapshot.attachment.attachmentId.slice("sha256:".length);
             const attachmentStoreFile = join(repo.attachmentsRoot, "sha256", hash.slice(0, 2), hash.slice(2));
+            await mkdir(dirname(attachmentStoreFile), {recursive: true});
+            await writeFile(attachmentStoreFile, original);
             await expect(harness.snapshotSessionAttachment(session.metadata.sessionId, {
                 sourcePath: attachmentStoreFile,
             })).rejects.toMatchObject({code: "invalid_input"});
         } finally {
             await closeProject(projectWorkspaceRef(projectRoot), "shutdown");
         }
+    });
+
+    it("快照图片在 Store 写入前拒绝超过 64 MP 的源图", async () => {
+        const sourceFile = join(root, "outside", "pixel-bomb.jpg");
+        await mkdir(join(root, "outside"), {recursive: true});
+        await writeFile(sourceFile, oversizedJpeg);
+        const session = await repo.createSession({
+            profileKey: "leader.default",
+            initial: {},
+        });
+        const put = vi.spyOn(attachmentAdapter, "put");
+
+        await expect(harness.snapshotSessionAttachment(session.metadata.sessionId, {
+            sourcePath: sourceFile,
+        })).rejects.toMatchObject({code: "limit_exceeded"});
+        expect(put).not.toHaveBeenCalled();
     });
 
     it("跨 Project 快照持有源 Project generation，close 等待读取后才能重开", async () => {
@@ -532,7 +570,7 @@ describe("NeuroAgentHarness session attachment locator", () => {
         const sourceFile = join(targetProjectDirectory, "images", "cover.png");
         await mkdir(join(root, "snapshot-owner"), {recursive: true});
         await mkdir(join(targetProjectDirectory, "images"), {recursive: true});
-        await writeFile(sourceFile, Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]));
+        await writeFile(sourceFile, png);
 
         const targetModuleCloseStarted = createDeferred();
         const restoreModules = replaceProjectModulesForTest(projectModulesWithCloseProbe(
@@ -608,7 +646,7 @@ describe("NeuroAgentHarness session attachment locator", () => {
             initial: {},
         });
         const uploaded = await harness.uploadSessionAttachment(owner.metadata.sessionId, {
-            bytes: Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+            bytes: png,
             mimeType: "image/png",
             name: "private.png",
         });
@@ -624,6 +662,19 @@ function attachmentRef(hashCharacter: string, mimeType: string, bytes: number): 
         id: `sha256:${hashCharacter.repeat(64)}`,
         mimeType,
         bytes,
+    };
+}
+
+/** 创建只在当前用例内存活的 Attachment Adapter。 */
+function memoryAttachmentAdapter(): AttachmentBlobAdapter {
+    const values = new Map<string, Uint8Array>();
+    return {
+        async put(key, bytes) {
+            values.set(key, bytes.slice());
+        },
+        async get(key) {
+            return values.get(key)?.slice() ?? null;
+        },
     };
 }
 

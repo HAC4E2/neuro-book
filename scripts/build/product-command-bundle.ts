@@ -5,24 +5,27 @@ import {productRuntimeCompatibilityPlugin} from "nbook/scripts/build/product-bun
 import {productRuntimeIslandPackageNames} from "nbook/scripts/build/product-runtime-islands";
 import {
     createProductRuntimeContract,
+    PRODUCT_RUNTIME_COMMAND_BOOTSTRAP,
     type ProductRuntimeContract,
     type ProductRuntimeEntryMap,
 } from "nbook/shared/product-runtime-contract";
 
 export const PRODUCT_COMMAND_SOURCES = {
-    "product-start": "scripts/deploy/product-start.mjs",
-    "check-migrations": "scripts/db/check-migrations.ts",
-    "sqlite-migrate": "scripts/db/sqlite-migrate.mjs",
-    "migrate-application-state": "scripts/db/migrate-application-state.ts",
-    "create-admin": "scripts/cli/create-admin.ts",
-    "prepare-system-assets": "scripts/build/prepare-system-assets.ts",
+    "product-start": "server/runtime/product-start-command.mjs",
+    "check-migrations": "server/runtime/check-migrations-command.ts",
+    "sqlite-migrate": "server/database/sqlite-migrate-command.mjs",
+    "migrate-application-state": "server/runtime/application-state-command.ts",
+    "create-admin": "server/auth/create-admin-command.ts",
+    "prepare-system-assets": "server/runtime/prepare-system-assets-command.ts",
     "product-profile-authoring-smoke": "scripts/deploy/product-profile-authoring-smoke.ts",
+    "product-variable-authoring-smoke": "scripts/deploy/product-variable-authoring-smoke.ts",
     "product-image-variant-smoke": "scripts/deploy/product-image-variant-smoke.ts",
     "sqlite-vec-smoke": "scripts/smoke/sqlite-vec-smoke.ts",
-    "profile": "scripts/build/profile.ts",
-    "variable": "scripts/build/variable.ts",
-    "workspace": "assets/workspace/.nbook/agent/scripts/workspace.ts",
-    "product-command": "scripts/deploy/product-command.ts",
+    "product-web-fetch-smoke": "server/runtime/web-fetch-check.ts",
+    "profile": "server/agent/profiles/profile-command.ts",
+    "variable": "server/agent/variables/variable-command.ts",
+    "workspace": "server/workspace-files/workspace-command.ts",
+    "product-command": "server/runtime/product-command.ts",
 } as const;
 
 export type ProductCommandBundleResult = {
@@ -80,6 +83,9 @@ export async function buildProductCommands(outputRoot: string): Promise<ProductC
 
     await copyPhysicalRuntimeFiles(serverRoot);
     const commandEntries = resolveProductCommandEntries(result.metafile, commandRoot);
+    if (commandEntries["product-command"] !== PRODUCT_RUNTIME_COMMAND_BOOTSTRAP) {
+        throw new Error(`Product command bootstrap 路径不稳定：${commandEntries["product-command"]}`);
+    }
     const entry = (name: keyof typeof PRODUCT_COMMAND_SOURCES): string => commandEntries[name];
     const entries: ProductRuntimeEntryMap = {
         productStart: entry("product-start"),
@@ -92,8 +98,10 @@ export async function buildProductCommands(outputRoot: string): Promise<ProductC
         prepareSystemAssets: entry("prepare-system-assets"),
         checkMigrations: entry("check-migrations"),
         profileAuthoringSmoke: entry("product-profile-authoring-smoke"),
+        variableAuthoringSmoke: entry("product-variable-authoring-smoke"),
         imageVariantSmoke: entry("product-image-variant-smoke"),
         sqliteVecSmoke: entry("sqlite-vec-smoke"),
+        webFetchSmoke: entry("product-web-fetch-smoke"),
     };
     const inventory = await directoryInventory(commandRoot);
     return {

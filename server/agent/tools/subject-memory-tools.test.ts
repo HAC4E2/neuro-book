@@ -7,7 +7,7 @@ import {fauxAssistantMessage, fauxToolCall} from "@earendil-works/pi-ai";
 import {createFauxModels, type FauxModelsFixture} from "nbook/server/agent/test-utils/faux-models";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
-import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+import {defineAgentProfile, normalizeAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
@@ -24,12 +24,14 @@ import {
     PROJECT_HISTORY_MODULE_TOKEN,
     setHistoryEnabledOverrideForTest,
 } from "nbook/server/workspace-history/project-history";
-import memoryCuratorProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/memory.curator.profile";
+import memoryCuratorProfileDefinition from "../../../assets/workspace/.nbook/agent/profiles/builtin/memory.curator.profile";
 import {
     applySubjectMemoryPatch,
     parseSubjectEventsJsonl,
     parseSubjectMemoriesJsonl,
 } from "nbook/server/agent/tools/subject-memory";
+
+const memoryCuratorProfile = normalizeAgentProfile(memoryCuratorProfileDefinition);
 
 describe("subject memory tools", () => {
     let root: string;

@@ -6,7 +6,7 @@ export const PRODUCT_RUNTIME_CONTRACT_PATH = "server/runtime-contract.json";
 export const PRODUCT_RUNTIME_COMMAND_BOOTSTRAP = "server/commands/product-command.mjs";
 /** Product Runtime 禁止 Bun 在缺包时联网或从全局 cache 隐式补装依赖。 */
 export const PRODUCT_BUN_RUNTIME_ARGS = ["--no-install"] as const;
-export const PRODUCT_RUNTIME_CONTRACT_SCHEMA = "nbook.product-runtime-contract/v1";
+export const PRODUCT_RUNTIME_CONTRACT_SCHEMA = "nbook.product-runtime-contract/v3";
 export const PRODUCT_SHUTDOWN_PROTOCOL = "http-loopback-token/v1";
 export const PRODUCT_SHUTDOWN_PATH = "/__nbook/control/shutdown";
 export const PRODUCT_SHUTDOWN_TIMEOUT_MS = 30_000;
@@ -22,10 +22,8 @@ export const PRODUCT_RUNTIME_COMMAND_IDS = [
     "workspace",
 ] as const;
 
-/** 这些面向当前 Project Workspace 的 CLI 必须保留调用方 cwd。 */
+/** Workspace CLI 的相对文件参数属于调用方语义，必须保留 invocation cwd。 */
 export const PRODUCT_RUNTIME_INVOCATION_CWD_COMMAND_IDS = [
-    "profile",
-    "variable",
     "workspace",
 ] as const satisfies readonly ProductRuntimeCommandId[];
 
@@ -36,10 +34,12 @@ export const PRODUCT_RUNTIME_INTERNAL_IDS = [
 
 export const PRODUCT_RUNTIME_CHECK_IDS = [
     "profile-compile",
+    "variable-authoring",
     "sqlite-vec",
     "sharp-image-variant",
     "application-state",
     "workspace-cli",
+    "web-fetch",
 ] as const;
 
 export type ProductRuntimeCommandId = typeof PRODUCT_RUNTIME_COMMAND_IDS[number];
@@ -77,8 +77,10 @@ export type ProductRuntimeEntryMap = Readonly<{
     prepareSystemAssets: string;
     checkMigrations: string;
     profileAuthoringSmoke: string;
+    variableAuthoringSmoke: string;
     imageVariantSmoke: string;
     sqliteVecSmoke: string;
+    webFetchSmoke: string;
 }>;
 
 /** 从本次 bundle 的实际 entry 输出建立唯一 Product 运行合同。 */
@@ -105,10 +107,12 @@ export function createProductRuntimeContract(entries: ProductRuntimeEntryMap): P
         },
         checks: {
             "profile-compile": command(entries.profileAuthoringSmoke),
+            "variable-authoring": command(entries.variableAuthoringSmoke),
             "sqlite-vec": command(entries.sqliteVecSmoke),
             "sharp-image-variant": command(entries.imageVariantSmoke),
             "application-state": command(entries.applicationStateMigration, ["--plan"]),
-            "workspace-cli": command(entries.workspace, ["schema", "--json"]),
+            "workspace-cli": command(entries.workspace, ["node", "schema", "--json"]),
+            "web-fetch": command(entries.webFetchSmoke),
         },
         shutdown: {
             protocol: PRODUCT_SHUTDOWN_PROTOCOL,

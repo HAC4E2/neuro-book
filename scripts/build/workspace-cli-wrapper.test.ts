@@ -38,10 +38,10 @@ describe("workspace CLI wrapper", () => {
     it.skipIf(process.platform !== "win32")("Windows包装器在bundle缺失时回退Source入口", async () => {
         const fixture = await wrapperFixture("workspace.cmd", false);
 
-        const result = await runWrapper(fixture, ["schema", "--json"]);
+        const result = await runWrapper(fixture, ["node", "schema", "--json"]);
 
         expect(result.label).toBe("source");
-        expect(result.args).toEqual(["schema", "--json"]);
+        expect(result.args).toEqual(["node", "schema", "--json"]);
         expect(normalizePath(await realpath(result.cwd))).toBe(normalizePath(await realpath(fixture.invocationRoot)));
     });
 
@@ -56,10 +56,10 @@ describe("workspace CLI wrapper", () => {
     it.skipIf(process.platform === "win32")("POSIX包装器在bundle缺失时回退Source入口", async () => {
         const fixture = await wrapperFixture("workspace", false);
 
-        const result = await runWrapper(fixture, ["schema", "--json"]);
+        const result = await runWrapper(fixture, ["node", "schema", "--json"]);
 
         expect(result.label).toBe("source");
-        expect(result.args).toEqual(["schema", "--json"]);
+        expect(result.args).toEqual(["node", "schema", "--json"]);
         expect(normalizePath(await realpath(result.cwd))).toBe(normalizePath(await realpath(fixture.invocationRoot)));
     });
 });
@@ -100,7 +100,7 @@ async function wrapperFixture(name: "workspace" | "workspace.cmd", withProductBu
         await readFile(join(repoRoot, "assets", "workspace", ".nbook", "agent", "bin", name), "utf8"),
         "utf8",
     );
-    await writeProbe(join(applicationRoot, "assets", "workspace", ".nbook", "agent", "scripts", "workspace.ts"), "source");
+    await writeProbe(join(applicationRoot, "server", "workspace-files", "workspace-command.ts"), "source");
     if (withProductBundle) {
         await writeProbe(join(applicationRoot, ".output", "server", "commands", "product-command.mjs"), "product");
     }

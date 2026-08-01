@@ -4,7 +4,7 @@ import {createRequire} from "node:module";
 import {copyFile, mkdir, rm} from "node:fs/promises";
 import {dirname, join, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
-import {existsSync, readFileSync} from "node:fs";
+import {existsSync} from "node:fs";
 import {availableParallelism} from "node:os";
 import {performance} from "node:perf_hooks";
 import {
@@ -33,6 +33,7 @@ import type {
     AgentProfileCompileResultDto,
     AgentProfileIssueDto,
 } from "nbook/shared/dto/agent-profile.dto";
+import {resolveRuntimeArtifactCompilerContext} from "nbook/server/utils/runtime-artifact-compiler-context";
 
 type CompileTask = {
     id: number;
@@ -686,25 +687,24 @@ function createCompileWorker(): Worker {
     });
 }
 
-/**
- * 解析 profile 编译 worker 的源码入口。Product Root 也必须带这些运行源码，
- * 但服务启动仍使用 `.output/server/index.mjs`，不是源码 dev server。
- */
+/** 解析 Source Dev worker 源码或 Product Authoring Kit 的预编译 worker。 */
 function resolveCompileWorkerPaths(root = process.cwd()): CompileWorkerPaths {
-    return resolveProfileCompileWorkerPathsForRoot(root);
+    return resolveProfileCompileWorkerPathsForRoot(root, process.env);
 }
 
 /**
  * 按指定 Product/source root 解析 worker 入口和 TSX loader 依赖。
  */
-export function resolveProfileCompileWorkerPathsForRoot(root: string): CompileWorkerPaths {
-    const outputRoot = resolve(root, ".output", "server");
-    const bundledEntry = resolve(outputRoot, "authoring", "profile-compile-worker.mjs");
-    if (isProductRuntimeRoot(root)) {
-        if (!existsSync(bundledEntry)) {
-            throw new Error("Product runtime 缺少预编译 Profile Authoring Kit worker，请重新构建或安装 Product Runtime Image。");
-        }
-        return {entry: bundledEntry, precompiled: true};
+export function resolveProfileCompileWorkerPathsForRoot(
+    root: string,
+    env: NodeJS.ProcessEnv = process.env,
+): CompileWorkerPaths {
+    const context = resolveRuntimeArtifactCompilerContext(root, env);
+    if (context.productRuntime) {
+        return {
+            entry: resolve(context.outputRoot, "authoring", "profile-compile-worker.mjs"),
+            precompiled: true,
+        };
     }
 
     const entry = resolve(root, "server", "agent", "profiles", "profile-compile-worker-entry.ts");
@@ -719,36 +719,6 @@ export function resolveProfileCompileWorkerPathsForRoot(root: string): CompileWo
         precompiled: false,
         ...resolveTsxPackageUrls(existsSync(resolve(root, "package.json")) ? resolve(root, "package.json") : entry, false),
     };
-}
-
-/**
- * Product Root 通过 package manifest 标记；GHCR / 通用 `.output` runner
- * 使用 `.output/server/package.json`，并且不允许回退到根 node_modules。
- */
-function isProductRuntimeRoot(root: string): boolean {
-    return existsSync(resolve(root, ".output", "server", "index.mjs"))
-        && Boolean(productPackageManifestPath(root));
-}
-
-function productPackageManifestPath(root: string): string | null {
-    const rootPackage = resolve(root, "package.json");
-    if (packageManifestName(rootPackage) === "neuro-book-product") {
-        return rootPackage;
-    }
-    const outputPackage = resolve(root, ".output", "server", "package.json");
-    if (packageManifestName(outputPackage) === "neuro-book-output" && !existsSync(resolve(root, "node_modules"))) {
-        return outputPackage;
-    }
-    return null;
-}
-
-function packageManifestName(path: string): string | null {
-    try {
-        const manifest = JSON.parse(readFileSync(path, "utf8")) as {name?: unknown};
-        return typeof manifest.name === "string" ? manifest.name : null;
-    } catch {
-        return null;
-    }
 }
 
 /**

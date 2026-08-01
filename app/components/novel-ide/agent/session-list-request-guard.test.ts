@@ -60,4 +60,18 @@ describe("AgentSessionListRequestGuard", () => {
         expect(duplicateInFlight.shouldFetch).toBe(false);
         expect(duplicateApplied.shouldFetch).toBe(false);
     });
+
+    it("invalidate 后拒绝旧响应，旧 finally 不会清掉新代次 loading", () => {
+        const guard = new AgentSessionListRequestGuard();
+        const oldRequest = guard.begin({scope: "project", projectRoot: "a", status: "active", limit: 50});
+        guard.start(oldRequest);
+        guard.invalidate();
+        const currentRequest = guard.begin({scope: "project", projectRoot: "b", status: "active", limit: 50});
+        guard.start(currentRequest);
+
+        expect(guard.accepts(oldRequest)).toBe(false);
+        expect(guard.finish(oldRequest)).toBe(true);
+        expect(guard.accepts(currentRequest)).toBe(true);
+        expect(guard.finish(currentRequest)).toBe(false);
+    });
 });

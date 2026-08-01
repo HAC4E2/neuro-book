@@ -7,7 +7,7 @@ import {disconnectPrismaClient} from "nbook/server/database/prisma";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 import {closeAllProjects} from "nbook/server/workspace-files/project-session";
 import {closeAllWorkspaceTreeIndexes} from "nbook/server/workspace-files/project-workspace-index";
-import {checkpointAppSqliteDatabase} from "nbook/scripts/db/app-sqlite-migrations";
+import {checkpointAppSqliteDatabase} from "nbook/server/database/app-sqlite-migrations";
 import {ProductShutdownController} from "nbook/server/runtime/shutdown/product-shutdown-controller";
 
 export {ProductShutdownController} from "nbook/server/runtime/shutdown/product-shutdown-controller";

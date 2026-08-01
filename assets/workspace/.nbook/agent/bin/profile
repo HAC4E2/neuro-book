@@ -2,7 +2,7 @@
 set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd) || exit 1
-SOURCE_RELATIVE_PATH="scripts/build/profile.ts"
+SOURCE_RELATIVE_PATH="server/agent/profiles/profile-command.ts"
 
 is_application_root() {
     [ -f "$1/package.json" ] || return 1

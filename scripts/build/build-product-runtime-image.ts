@@ -7,13 +7,15 @@ import {currentProductPlatform} from "nbook/packages/neuro-book-manager/src/plat
 import type {ProductPlatform} from "nbook/packages/neuro-book-manager/src/types";
 import {LocalProductPublisher} from "nbook/scripts/build/local-product-publisher";
 import {
+    PRODUCT_RUNTIME_MAX_BYTES,
+    PRODUCT_RUNTIME_MAX_FILES,
     ProductRuntimeImageBuilder,
-    type ProductRuntimeImageOwner,
+    productRuntimeBuildPolicy,
+    type ProductRuntimeBuildContext,
     type ProductRuntimeOwnerBaseline,
 } from "nbook/scripts/build/product-runtime-image-builder";
 
-export const PRODUCT_RUNTIME_MAX_BYTES = 360 * 1024 * 1024;
-export const PRODUCT_RUNTIME_MAX_FILES = 6_000;
+export {PRODUCT_RUNTIME_MAX_BYTES, PRODUCT_RUNTIME_MAX_FILES};
 export const PRODUCT_SOURCE_DATE_EPOCH = "0";
 const PRODUCT_BUILD_PASSTHROUGH_ENVIRONMENT = new Set([
     "APPDATA",
@@ -34,63 +36,27 @@ const PRODUCT_BUILD_PASSTHROUGH_ENVIRONMENT = new Set([
     "XDG_CACHE_HOME",
 ]);
 
-export const PRODUCT_RUNTIME_OWNERS: readonly ProductRuntimeImageOwner[] = [
-    {name: "frontend", paths: ["public"]},
-    {name: "server-bundle", paths: ["server/index.mjs", "server/index.mjs.map"]},
-    {name: "commands", paths: ["server/commands", "server/prisma"]},
-    {name: "authoring-kit", paths: ["server/authoring"]},
-    {name: "native-islands", paths: ["server/node_modules", "server/native-islands.json"]},
-    {name: "system-assets", paths: ["server/assets"]},
-    {name: "runtime-meta", paths: ["nitro.json", "server/package.json", "server/runtime-contract.json"]},
-] as const;
-
-// 2026-07-29 Windows x64 verified Runtime Image 的 owner inventory。
-// 上调任一值必须同步 ADR 0009 与 Task 130，不能只放宽 CI 数字。
-const PRODUCT_RUNTIME_OWNER_BASELINES: Readonly<Partial<Record<ProductPlatform, readonly ProductRuntimeOwnerBaseline[]>>> = {
-    "windows-x64": [
-        {name: "frontend", files: 176, bytes: 15_810_725},
-        {name: "server-bundle", files: 1, bytes: 12_571_222},
-        {name: "commands", files: 102, bytes: 10_692_845},
-        {name: "authoring-kit", files: 1_923, bytes: 20_694_368},
-        {name: "native-islands", files: 2_102, bytes: 86_688_809},
-        {name: "system-assets", files: 376, bytes: 14_812_033},
-        {name: "runtime-meta", files: 3, bytes: 4_229},
-    ],
-};
+export const PRODUCT_RUNTIME_OWNERS = productRuntimeBuildPolicy("windows-x64").owners;
 
 /** 统一执行 Nuxt raw build、Product 后处理、Runtime Image 验证与本地发布。 */
 export async function buildProductRuntimeImage(): Promise<void> {
     const projectRoot = process.cwd();
     await withProductBuildLease(projectRoot, async () => {
         const platform = currentProductPlatform();
-        const ownerBaselines = productRuntimeOwnerBaselines(platform);
+        const policy = productRuntimeBuildPolicy(platform);
         const buildEnvironment = productBuildEnvironment(process.env);
-        await run("bun", ["scripts/build/prepare-system-assets.ts"], buildEnvironment);
+        await prepareProductRuntimeSource(buildEnvironment);
         const explicitRevision = process.env.NEURO_BOOK_SOURCE_REVISION?.trim();
         const operationId = `${new Date().toISOString().replace(/[^0-9]/gu, "")}-${randomUUID()}`;
         const builder = new ProductRuntimeImageBuilder(projectRoot);
         const candidate = await builder.buildCandidate({
             operationId,
             platform,
-            owners: PRODUCT_RUNTIME_OWNERS,
+            owners: policy.owners,
             expectedSource: explicitRevision ? {revision: explicitRevision, dirty: false} : undefined,
-            budget: {
-                maxFiles: PRODUCT_RUNTIME_MAX_FILES,
-                maxBytes: PRODUCT_RUNTIME_MAX_BYTES,
-                ownerBaselines,
-            },
-            async build({imageRoot, scratchRoot, sourceDigest}) {
-                await run("bun", ["run", "nuxt:build:raw"], {
-                    ...buildEnvironment,
-                    NEURO_BOOK_OUTPUT_DIR: imageRoot,
-                    NEURO_BOOK_PRODUCT_IMAGE_ROOT: imageRoot,
-                    NEURO_BOOK_PRODUCT_SOURCE_DIGEST: sourceDigest,
-                });
-                await run("bun", ["scripts/build/patch-nitro-runtime-deps.mjs"], {
-                    ...buildEnvironment,
-                    NEURO_BOOK_OUTPUT_DIR: imageRoot,
-                    NEURO_BOOK_PRODUCT_SCRATCH_ROOT: scratchRoot,
-                });
+            budget: policy.budget,
+            async build(context) {
+                await buildProductRuntimePayload(context, buildEnvironment);
             },
         });
         const published = await new LocalProductPublisher(projectRoot, builder).publish({
@@ -103,6 +69,32 @@ export async function buildProductRuntimeImage(): Promise<void> {
             `files=${published.manifest.inventory.files}`,
             `bytes=${published.manifest.inventory.bytes}`,
         ].join(" ") );
+    });
+}
+
+/** 在锁定 Source snapshot 前生成 Product 所需的受控静态投影。 */
+export async function prepareProductRuntimeSource(buildEnvironment: NodeJS.ProcessEnv): Promise<void> {
+    await run("bun", ["scripts/build/prepare-system-assets.ts"], buildEnvironment);
+}
+
+/**
+ * 执行正式构建与 measurement 共用的 raw Nuxt build 和 Product 后处理。
+ * 输出路径只来自 Builder 分配的候选上下文，调用方不能把测量写入 `.output`。
+ */
+export async function buildProductRuntimePayload(
+    context: ProductRuntimeBuildContext,
+    buildEnvironment: NodeJS.ProcessEnv,
+): Promise<void> {
+    await run("bun", ["run", "nuxt:build:raw"], {
+        ...buildEnvironment,
+        NEURO_BOOK_OUTPUT_DIR: context.imageRoot,
+        NEURO_BOOK_PRODUCT_IMAGE_ROOT: context.imageRoot,
+        NEURO_BOOK_PRODUCT_SOURCE_DIGEST: context.sourceDigest,
+    });
+    await run("bun", ["scripts/build/patch-nitro-runtime-deps.mjs"], {
+        ...buildEnvironment,
+        NEURO_BOOK_OUTPUT_DIR: context.imageRoot,
+        NEURO_BOOK_PRODUCT_SCRATCH_ROOT: context.scratchRoot,
     });
 }
 
@@ -163,11 +155,7 @@ export function productBuildEnvironment(source: NodeJS.ProcessEnv): NodeJS.Proce
 
 /** 返回当前平台经过真实构建审查的 owner baseline；未知平台禁止借用其他平台数字。 */
 export function productRuntimeOwnerBaselines(platform: ProductPlatform): readonly ProductRuntimeOwnerBaseline[] {
-    const baselines = PRODUCT_RUNTIME_OWNER_BASELINES[platform];
-    if (!baselines) {
-        throw new Error(`Product Runtime Image 尚未登记 ${platform} 的 owner baseline，拒绝使用其他平台预算。`);
-    }
-    return baselines;
+    return productRuntimeBuildPolicy(platform).budget.ownerBaselines;
 }
 
 function run(command: string, args: string[], env: NodeJS.ProcessEnv): Promise<void> {

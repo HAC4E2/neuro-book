@@ -8,8 +8,8 @@ import {afterEach, describe, expect, it} from "vitest";
 import {LocalProductPublisher} from "nbook/scripts/build/local-product-publisher";
 import {
     ProductRuntimeImageBuilder,
+    productRuntimeBuildPolicy,
     type ProductRuntimeExpectedIdentity,
-    type ProductRuntimeImageBudget,
     type VerifiedProductRuntimeImage,
 } from "nbook/scripts/build/product-runtime-image-builder";
 import {
@@ -172,10 +172,8 @@ async function sourceFixture(): Promise<string> {
 /** 构建一个最小但完整的 ready candidate。 */
 async function candidateImage(builder: ProductRuntimeImageBuilder, operationId: string, payload: string) {
     return await builder.buildCandidate({
+        ...productRuntimeBuildPolicy("windows-x64"),
         operationId,
-        platform: "windows-x64",
-        owners: [{name: "server", paths: ["server"]}],
-        budget: budgetFor(50, 65_536),
         async build({imageRoot}) {
             await mkdir(join(imageRoot, "server"), {recursive: true});
             await writeFile(join(imageRoot, "server", "index.mjs"), payload, "utf8");
@@ -197,8 +195,10 @@ async function writeRuntimeFixture(imageRoot: string): Promise<void> {
         prepareSystemAssets: "server/commands/prepare-system-assets.mjs",
         checkMigrations: "server/commands/check-migrations.mjs",
         profileAuthoringSmoke: "server/commands/profile-authoring.mjs",
+        variableAuthoringSmoke: "server/commands/variable-authoring.mjs",
         imageVariantSmoke: "server/commands/sharp-image-variant.mjs",
         sqliteVecSmoke: "server/commands/sqlite-vec.mjs",
+        webFetchSmoke: "server/commands/web-fetch.mjs",
     };
     const contract = createProductRuntimeContract(entries);
     for (const path of new Set([PRODUCT_RUNTIME_COMMAND_BOOTSTRAP, ...Object.values(entries)])) {
@@ -208,15 +208,6 @@ async function writeRuntimeFixture(imageRoot: string): Promise<void> {
     }
     const contractPath = join(imageRoot, ...PRODUCT_RUNTIME_CONTRACT_PATH.split("/"));
     await writeFile(contractPath, `${JSON.stringify(contract, null, 2)}\n`, "utf8");
-}
-
-/** Publisher 测试同样使用 owner 级基线，不绕过 Builder 门禁。 */
-function budgetFor(maxFiles: number, maxBytes: number): ProductRuntimeImageBudget {
-    return {
-        maxFiles,
-        maxBytes,
-        ownerBaselines: [{name: "server", files: maxFiles, bytes: maxBytes}],
-    };
 }
 
 /** 从 verified image 固定本地读取 lease 的完整身份。 */
@@ -229,6 +220,7 @@ function expectedIdentity(image: VerifiedProductRuntimeImage): ProductRuntimeExp
         imageId: image.manifest.imageId,
         lockfileSha256: image.manifest.lockfileSha256,
         sourceDigest: image.manifest.sourceDigest,
+        builderContractVersion: image.manifest.builderContractVersion,
     };
 }
 

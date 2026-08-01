@@ -73,6 +73,7 @@ if [ ! -x "$APPLICATION_ROOT/.output/server/assets/workspace/.nbook/agent/bin/wo
     echo "Product缺少可执行的稳定Workspace CLI。" >&2
     exit 1
 fi
+bun --no-install scripts/release/verify-extracted-product.ts --product-root "$APPLICATION_ROOT"
 
 cat > "$STATE_ROOT/config.yaml" <<EOF
 server:
@@ -102,6 +103,12 @@ export NEURO_BOOK_APPLICATION_ROOT="$APPLICATION_ROOT"
 export NEURO_BOOK_STATE_ROOT="$STATE_ROOT"
 
 (cd "$APPLICATION_ROOT" && bun --no-install .output/server/commands/product-command.mjs check sharp-image-variant)
+(cd "$APPLICATION_ROOT" && bun --no-install .output/server/commands/product-command.mjs check sqlite-vec)
+(cd "$APPLICATION_ROOT" && bun --no-install .output/server/commands/product-command.mjs check application-state)
+(cd "$APPLICATION_ROOT" && bun --no-install .output/server/commands/product-command.mjs check workspace-cli)
+(cd "$APPLICATION_ROOT" && bun --no-install .output/server/commands/product-command.mjs check profile-compile)
+(cd "$APPLICATION_ROOT" && bun --no-install .output/server/commands/product-command.mjs check variable-authoring)
+(cd "$APPLICATION_ROOT" && bun --no-install .output/server/commands/product-command.mjs check web-fetch)
 (cd "$APPLICATION_ROOT" && bun --no-install .output/server/commands/product-command.mjs command migrate-application-state --apply)
 test -f "$STATE_ROOT/workspace/.nbook/neuro-book.sqlite"
 (cd "$APPLICATION_ROOT" && exec bun --no-install .output/server/commands/product-command.mjs command start) >"$SMOKE_ROOT/product.log" 2>&1 &

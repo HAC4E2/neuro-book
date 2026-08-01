@@ -6,6 +6,13 @@ import WorldEnginePreviewStatePanel from "nbook/app/components/novel-ide/world-e
 import {useDialog} from "nbook/app/composables/useDialog";
 import {isProjectSessionSupersededError, useProjectSession} from "nbook/app/composables/useProjectSession";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
+import {resolveProjectMutationCommitState} from "nbook/app/utils/project-mutation-error";
+import {
+    refreshPreviewProjectCreate,
+    runPreviewProjectCreate,
+    type PreviewCreateRecovery,
+    type PreviewCreateSettled,
+} from "nbook/app/utils/world-engine-preview-create";
 import {
     clampMutationIndex,
     deleteMutationAt,
@@ -115,7 +122,6 @@ const {confirm: confirmDialog} = useDialog();
 const projectSession = useProjectSession();
 
 const previewProjectListLimit = 80;
-const previewProjectTestPrefixes = ["world-engine-test-", "world-engine-api-test-", "world-tools-test-"];
 
 const projects = ref<ProjectMetadataDto[]>([]);
 const selectedProjectRoot = ref("");
@@ -132,10 +138,16 @@ const loadingWorld = ref(false);
 const actionBusy = ref(false);
 const error = ref("");
 const notice = ref("");
+type PreviewCreateRecoveryState = PreviewCreateRecovery & Readonly<{
+    attempt: number;
+    error: string;
+}>;
+const createRecovery = ref<PreviewCreateRecoveryState | null>(null);
 const editingSliceId = ref("");
 const mutationLoadIndex = ref("0");
 let suppressProjectSelectionWatcher = false;
 let projectSelectionRevision = 0;
+let createRecoveryAttempt = 0;
 type WorldLoadRequest = {
     key: string;
     promise: Promise<boolean>;
@@ -273,7 +285,7 @@ function clearPreviewProjectData(): void {
 }
 
 /** Project 选择只有在 open + presence_ready 后才允许触发 World Engine 数据面。 */
-async function activatePreviewProject(projectRoot: string): Promise<void> {
+async function activatePreviewProject(projectRoot: string): Promise<boolean> {
     const revision = ++projectSelectionRevision;
     loadingWorld.value = true;
     try {
@@ -281,58 +293,102 @@ async function activatePreviewProject(projectRoot: string): Promise<void> {
         clearPreviewProjectData();
         await projectSession.release();
         if (!projectRoot) {
-            return;
+            return false;
         }
         const ready = await projectSession.open(projectRoot);
-        if (revision !== projectSelectionRevision || selectedProjectRoot.value !== projectRoot) return;
+        if (revision !== projectSelectionRevision || selectedProjectRoot.value !== projectRoot) return false;
         const loaded = await loadWorld(projectRoot, ready.revision);
-        if (revision !== projectSelectionRevision || selectedProjectRoot.value !== projectRoot || loaded) return;
+        if (revision !== projectSelectionRevision || selectedProjectRoot.value !== projectRoot) return false;
+        if (loaded) return true;
         await projectSession.release();
-        if (revision !== projectSelectionRevision || selectedProjectRoot.value !== projectRoot) return;
+        if (revision !== projectSelectionRevision || selectedProjectRoot.value !== projectRoot) return false;
         suppressProjectSelectionWatcher = true;
         selectedProjectRoot.value = "";
         suppressProjectSelectionWatcher = false;
+        return false;
     } catch (activationError) {
-        if (isProjectSessionSupersededError(activationError)) return;
-        if (revision !== projectSelectionRevision || selectedProjectRoot.value !== projectRoot) return;
+        if (isProjectSessionSupersededError(activationError)) return false;
+        if (revision !== projectSelectionRevision || selectedProjectRoot.value !== projectRoot) return false;
         await projectSession.release();
-        if (revision !== projectSelectionRevision || selectedProjectRoot.value !== projectRoot) return;
+        if (revision !== projectSelectionRevision || selectedProjectRoot.value !== projectRoot) return false;
         suppressProjectSelectionWatcher = true;
         selectedProjectRoot.value = "";
         suppressProjectSelectionWatcher = false;
         setPreviewError(resolveApiErrorMessage(activationError, `打开 Project 失败：${projectRoot}`));
+        return false;
     } finally {
         if (revision === projectSelectionRevision) loadingWorld.value = false;
     }
 }
 
 /** 读取 Project 列表并选择当前目标。 */
-async function loadProjects(preferredProjectRoot?: string): Promise<void> {
+async function loadProjects(preferredProjectRoot?: string): Promise<Readonly<{
+    selectedProjectRoot: string;
+    activated: boolean;
+}>> {
     loadingProjects.value = true;
     error.value = "";
     try {
         const routeProjectRoot = typeof route.query.projectRoot === "string"
             ? route.query.projectRoot
             : typeof route.query.project === "string" ? route.query.project : "";
-        // 列表接口只返回 manifest 全量，预览页的裁剪与测试项目过滤在客户端完成。
+        // 列表接口返回 manifest 全量，预览页只负责控制展示数量。
         const allProjects = (await $fetch<ProjectListResponseDto>("/api/projects")).projects;
-        const keepProjectRoots = new Set([preferredProjectRoot, routeProjectRoot, selectedProjectRoot.value].filter(Boolean));
-        const visibleProjects = allProjects.filter((project) => (
-            keepProjectRoots.has(project.projectRoot)
-            || !previewProjectTestPrefixes.some((prefix) => project.projectRoot.startsWith(prefix))
-        ));
-        projects.value = visibleProjects.slice(0, previewProjectListLimit);
+        projects.value = allProjects.slice(0, previewProjectListLimit);
         const nextProjectRoot = selectPreviewProjectRoot(projects.value, preferredProjectRoot, routeProjectRoot, selectedProjectRoot.value);
         if (selectedProjectRoot.value !== nextProjectRoot) {
             suppressProjectSelectionWatcher = true;
             selectedProjectRoot.value = nextProjectRoot;
             suppressProjectSelectionWatcher = false;
         }
-        await activatePreviewProject(nextProjectRoot);
-    } catch (loadError) {
-        setPreviewError(resolveApiErrorMessage(loadError, "读取 Project 列表失败"));
+        const activated = await activatePreviewProject(nextProjectRoot);
+        return {selectedProjectRoot: nextProjectRoot, activated};
     } finally {
         loadingProjects.value = false;
+    }
+}
+
+/** 把已刷新 Catalog 的创建事实应用到表单与页面反馈。 */
+function applyPreviewCreateSettlement(result: PreviewCreateSettled): void {
+    if (result.commitState === true) {
+        resetCreateProjectForm();
+        if (
+            result.preferredProjectRoot
+            && result.refresh.activated
+            && result.refresh.selectedProjectRoot === result.preferredProjectRoot
+        ) {
+            setPreviewNotice(`已创建 ${result.preferredProjectRoot}`);
+            return;
+        }
+        if (result.refresh.activated || !error.value) {
+            setPreviewNotice("创建操作已经提交，Project 列表已刷新。");
+        }
+        return;
+    }
+    if (result.refresh.activated || !error.value) {
+        setPreviewNotice("创建结果一度无法确认。列表已刷新，请核对后再决定是否重试。");
+    }
+}
+
+/** 只刷新 create 的提交事实，不自动重放 POST 或猜测新 Project root。 */
+async function refreshCreateRecovery(): Promise<void> {
+    const captured = createRecovery.value;
+    if (!captured) return;
+    actionBusy.value = true;
+    try {
+        const result = await refreshPreviewProjectCreate(captured, loadProjects);
+        if (createRecovery.value?.attempt !== captured.attempt) return;
+        if (result.status === "refresh_failed") {
+            createRecovery.value = {
+                ...captured,
+                error: resolveApiErrorMessage(result.error, "重新读取 Project 列表失败"),
+            };
+            return;
+        }
+        createRecovery.value = null;
+        applyPreviewCreateSettlement(result);
+    } finally {
+        actionBusy.value = false;
     }
 }
 
@@ -340,7 +396,11 @@ async function loadProjects(preferredProjectRoot?: string): Promise<void> {
 async function refreshProjects(): Promise<void> {
     if (loadingWorld.value) return;
     if (actionBusy.value) return;
-    await loadProjects();
+    try {
+        await loadProjects();
+    } catch (loadError) {
+        setPreviewError(resolveApiErrorMessage(loadError, "读取 Project 列表失败"));
+    }
 }
 
 /** 新建 Project Workspace，并立即选中它。 */
@@ -348,6 +408,7 @@ async function createProject(): Promise<void> {
     if (loadingProjects.value) return;
     if (loadingWorld.value) return;
     if (actionBusy.value) return;
+    if (createRecovery.value) return;
     if (!createProjectForm.title.trim()) {
         setPreviewError("Project 标题不能为空");
         return;
@@ -356,18 +417,32 @@ async function createProject(): Promise<void> {
     error.value = "";
     notice.value = "";
     try {
-        const created = await $fetch<ProjectCreateResponseDto>("/api/projects", {
-            method: "POST",
-            body: {
-                title: createProjectForm.title.trim(),
-                summary: createProjectForm.summary.trim(),
-            },
+        const result = await runPreviewProjectCreate({
+            request: () => $fetch<ProjectCreateResponseDto>("/api/projects", {
+                method: "POST",
+                body: {
+                    title: createProjectForm.title.trim(),
+                    summary: createProjectForm.summary.trim(),
+                },
+            }),
+            refresh: loadProjects,
+            classifyCommit: (createError) => resolveProjectMutationCommitState(createError, "create"),
         });
-        await loadProjects(created.project.projectRoot);
-        resetCreateProjectForm();
-        setPreviewNotice(`已创建 ${created.project.projectRoot}`);
-    } catch (createError) {
-        setPreviewError(resolveApiErrorMessage(createError, "创建 Project 失败"));
+        if (result.status === "rejected") {
+            setPreviewError(resolveApiErrorMessage(result.error, "创建 Project 失败"));
+            return;
+        }
+        if (result.status === "refresh_failed") {
+            createRecoveryAttempt += 1;
+            createRecovery.value = {
+                attempt: createRecoveryAttempt,
+                commitState: result.commitState,
+                ...(result.preferredProjectRoot ? {preferredProjectRoot: result.preferredProjectRoot} : {}),
+                error: resolveApiErrorMessage(result.error, "重新读取 Project 列表失败"),
+            };
+            return;
+        }
+        applyPreviewCreateSettlement(result);
     } finally {
         actionBusy.value = false;
     }
@@ -1082,7 +1157,7 @@ watch(selectedProjectRoot, (projectRoot) => {
 }, {flush: "sync"});
 
 onMounted(() => {
-    void loadProjects();
+    void refreshProjects();
 });
 </script>
 
@@ -1123,7 +1198,9 @@ onMounted(() => {
                 :loading-projects="loadingProjects"
                 :loading-world="loadingWorld"
                 :action-busy="actionBusy"
+                :create-recovery="createRecovery?.error || (createRecovery ? '必须先重新读取 Project 列表，才能再次创建。' : '')"
                 @create-project="void createProject()"
+                @retry-create-recovery="void refreshCreateRecovery()"
                 @fill-mutation="fillMutation"
             />
 

@@ -380,10 +380,9 @@ function createProfilePreviewSessionFacade(
             };
         },
         agentDialogueContent: async (contentInput = {}): Promise<AgentDialogueContent> => {
-            const sourceSnapshot = contentInput.snapshot
-                ?? (typeof contentInput.sessionId === "number" && contentInput.sessionId > 0
-                    ? await harness.repo.readSession(contentInput.sessionId)
-                    : snapshot ?? previewSessionSnapshot(profileKey, context));
+            const sourceSnapshot = typeof contentInput.sessionId === "number" && contentInput.sessionId > 0
+                ? await harness.repo.readSession(contentInput.sessionId)
+                : snapshot ?? previewSessionSnapshot(profileKey, context);
             return buildAgentDialogueContent({
                 repo: harness.repo,
                 snapshot: sourceSnapshot,

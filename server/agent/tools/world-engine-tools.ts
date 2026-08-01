@@ -16,7 +16,7 @@ import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity
 const NonEmptyString = (description: string) => Type.String({minLength: 1, description});
 
 const ExecuteWorldSchema = Type.Object({
-    projectRoot: NonEmptyString("Required single-segment Project root, e.g. silver-dragon-hime."),
+    projectRoot: Type.Optional(NonEmptyString("Optional single-segment Project root for an explicit cross-Project call.")),
     code: Type.String({minLength: 1, description: "Inline JavaScript code to execute in the World Engine CodeAct sandbox."}),
 }, {
     additionalProperties: false,
@@ -51,7 +51,13 @@ export function createWorldEngineTools(): NeuroAgentTool[] {
 }
 
 /** Current Project复用工具上下文的exact ref；显式跨Project root要求目标已ready。 */
-function worldProjectForTool(context: ToolExecutionContext, projectRootInput: string): ReadyProjectSessionRef {
+function worldProjectForTool(context: ToolExecutionContext, projectRootInput?: string): ReadyProjectSessionRef {
+    if (projectRootInput === undefined) {
+        if (!context.currentProject) {
+            throw new Error("execute_world 需要当前已打开的 Project；未绑定 Project 时请先打开目标 Project，或显式提供 projectRoot。");
+        }
+        return context.currentProject;
+    }
     const ref = projectWorkspaceRef(projectRootInput);
     const currentProject = context.currentProject;
     if (currentProject?.workspace.ref.projectRoot === ref.projectRoot) {

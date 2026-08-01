@@ -187,6 +187,7 @@ function identity(image: VerifiedProductRuntimeImage): ProductRuntimeExpectedIde
         imageId: image.manifest.imageId,
         lockfileSha256: image.manifest.lockfileSha256,
         sourceDigest: image.manifest.sourceDigest,
+        builderContractVersion: image.manifest.builderContractVersion,
     };
 }
 

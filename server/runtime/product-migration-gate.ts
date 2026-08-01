@@ -1,4 +1,4 @@
-import {planAppSqliteMigrations} from "nbook/scripts/db/app-sqlite-migrations";
+import {planAppSqliteMigrations} from "nbook/server/database/app-sqlite-migrations";
 import {
     ApplicationStateMigrationRequiredError,
     ApplicationStateSentinelCorruptError,

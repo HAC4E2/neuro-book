@@ -29,9 +29,10 @@ describe("runtime artifact compiler context", () => {
         await mkdir(join(authoringRoot, "node_modules", "typebox"), {recursive: true});
         await writeFile(join(authoringRoot, "tsconfig.json"), "{}\n", "utf8");
         await writeFile(join(authoringRoot, "package.json"), '{"name":"@notnotype/neuro-book-profile-authoring-kit"}\n', "utf8");
+        await writeFile(join(authoringRoot, "profile-compile-worker.mjs"), "export {};\n", "utf8");
         await writeFile(outputNbookFile, "export const marker = true;\n", "utf8");
 
-        const context = resolveRuntimeArtifactCompilerContext(root, {NEURO_BOOK_PRODUCT_BUILD: "1"});
+        const context = resolveRuntimeArtifactCompilerContext(root, {NEURO_BOOK_PRODUCT_IMAGE_ROOT: join(root, ".output")});
 
         expect(context).toEqual(expect.objectContaining({
             productRuntime: true,
@@ -51,8 +52,23 @@ describe("runtime artifact compiler context", () => {
         await mkdir(outputRoot, {recursive: true});
         await writeFile(join(root, "package.json"), '{"name":"neuro-book-product"}\n', "utf8");
         await writeFile(join(root, "tsconfig.json"), "{}\n", "utf8");
+        await writeFile(join(outputRoot, "package.json"), '{"name":"neuro-book-output"}\n', "utf8");
         await writeFile(join(outputRoot, "index.mjs"), "", "utf8");
 
-        expect(() => resolveRuntimeArtifactCompilerContext(root)).toThrow("Product runtime 缺少自包含 Authoring Kit");
+        expect(() => resolveRuntimeArtifactCompilerContext(root, {
+            NEURO_BOOK_PRODUCT_IMAGE_ROOT: join(root, ".output"),
+        })).toThrow("Product runtime 缺少自包含 Authoring Kit");
+    });
+
+    it("没有显式 Product identity 时始终使用 Source Dev", async () => {
+        const root = resolve(".agent", "workspace", "artifact-context-source-test", randomUUID());
+        roots.push(root);
+        const outputRoot = join(root, ".output", "server");
+        await mkdir(outputRoot, {recursive: true});
+        await writeFile(join(root, "package.json"), '{"name":"neuro-book-product"}\n', "utf8");
+        await writeFile(join(outputRoot, "package.json"), '{"name":"neuro-book-output"}\n', "utf8");
+        await writeFile(join(outputRoot, "index.mjs"), "", "utf8");
+
+        expect(resolveRuntimeArtifactCompilerContext(root).productRuntime).toBe(false);
     });
 });

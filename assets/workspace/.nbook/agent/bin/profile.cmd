@@ -1,7 +1,7 @@
 @echo off
 setlocal
 set "SCRIPT_DIR=%~dp0"
-set "SOURCE_RELATIVE_PATH=scripts\build\profile.ts"
+set "SOURCE_RELATIVE_PATH=server\agent\profiles\profile-command.ts"
 
 call :resolve_application_root
 if errorlevel 1 (

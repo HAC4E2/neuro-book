@@ -1,6 +1,22 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`的五平台Product、原生双架构OCI/manifest merge、Windows/Linux候选、公开payload、Windows完整`0.8.6 data/`复用、Docker x64/ARM64与rootless Podman链全部通过，最终`release-manifest.json`和`SHA256SUMS`已发布；它是最新已确认完整canary。当前源码协议为Installation Manifest v4、Release Manifest v4、Operation Journal v5 和 Product-owned Application State catalog v3；Canary A→B事务更新仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
+> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`的五平台Product、原生双架构OCI/manifest merge、Windows/Linux候选、公开payload、Windows完整`0.8.6 data/`复用、Docker x64/ARM64与rootless Podman链全部通过，最终`release-manifest.json`和`SHA256SUMS`已发布；它是最新已确认完整canary。当前工作树协议为Installation Manifest v5、Release Manifest v4、Operation Journal v5 和 Product-owned Application State catalog v3；Canary A→B事务更新仍需完成。2026-08-01 发行前审计中的 execution verification 已收口；operation lease、卸载恢复和切换 checkpoint 仍是发布阻断，不能把当前实现状态写成完整生命周期已闭合。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
+
+## 2026-08-01：发行前只读审计与下一阶段阻断
+
+- Windows Installed 当前允许不同 Installation Root 共用同一组 Local App Data roots，却按 Installation Root 分裂锁；v1 将固定唯一 `%LOCALAPPDATA%/Programs/NeuroBook`，并把 mutating operation lease 移到 Installation Root 外。Portable/Source 继续按 canonical root 隔离。
+- start、admin、migration 与已有 Container 执行尚未统一消费完整 Product Runtime Image / Compose / OCI identity 验证；`doctor` 通过不代表执行入口已经 fail closed。
+- Operation Journal 的 migration 只有 `planned/applied/rolled_back`，无法表达 apply 已开始但尚未记账；Product rename 中断、committed journal 绝对 root、卸载未先恢复 Operation 和锁内旧 Manifest fallback 仍需系统收口。
+- Source Dev adoption 把 staged worktree 放在 `%TEMP%`，却又要求 `migrationRoot` 位于 Installation Root 内，当前链路按自身 schema 无法完成。
+- 现有 `install.lock` 不能从强杀可靠恢复；改用 heartbeat lease 时必须同步移除锁内 ZIP/Gzip 同步解压，否则活 owner 可能被误判 stale。
+- 本节只修正文档完成度；实现留在整版 checkpoint 之后，避免把审计修复混入已有跨 Task 变更。
+
+## 2026-08-01：Verified Application Execution checkpoint
+
+- start、admin 与 Application State migration/recovery 已统一通过 `VerifiedApplicationExecution`。Source Dev 使用显式开发 Adapter；Native Product 在 spawn 前完整复核 Runtime Image、Application Bun 与受管工具；Container Product 复核 Compose、OCI digest、Engine image ID、Container image/config identity、版本和健康状态。
+- Product bootstrap 在解析命令前再次完整自验，并清除 `NODE_PATH`；非入口 payload、ready marker、Compose、tag/digest 或 Container image identity 被篡改时都在执行前失败。
+- 当前仍未完成的 Manager 阻断没有被这次执行入口修复掩盖：外置 heartbeat lease、锁内 Manifest 重读、Operation `applying` checkpoint、卸载前恢复、committed journal 清理、异步解压与 Source adoption staging 仍需由 `InstallationMutation` 收口。
+- 验证为 Manager 34 passed files / 1 skipped、220 passed tests / 2 skipped，release contract 1/1，Manager typecheck 与 pack 通过；本机没有 Docker/Podman，真实 Container 仍只由 CI runner 验收。
 
 ## 2026-07-28：Catalog v3 与健康启动提交点
 
@@ -1023,4 +1039,6 @@ uninstall
 - 新增 Manager release clean-checkout 合同测试，固定 Prisma 自准备、生成目录 tsconfig 与类型依赖所有权，并并入 `manager:test`，保证本地打 tag 和 GitHub workflow 都会执行。隔离 clone 在修复前先稳定得到三处 Prisma TS2307，串接生成后又暴露缺少 `.nuxt/tsconfig.json`；最终从 `generated-before=False` 开始完整生成 App/Project 两套 client 并通过 Runtime typecheck。合同测试先红后绿。
 - `.32` workflow `30613276952` 已证明 Prisma generate、Runtime typecheck 与 Manager typecheck 在 Ubuntu clean checkout 通过，但 Manager Vitest 有 21 个 suite 在 transform 阶段失败：Manager 新增的 Product Runtime Image 集成直接导入 `scripts/**` 和 `shared/**`，Vite/OXC 再次回退到根 Nuxt tsconfig，并因 `.nuxt/tsconfig.json` 不存在而拒绝转换。
 - 修复继续保持边界显式：`scripts/tsconfig.json` 与 `shared/tsconfig.json` 提供不继承 Nuxt 的源码编译配置，现有 `server/runtime/tsconfig.json` 继续覆盖 Runtime 边界；不为 Manager tests 执行完整 `nuxt prepare`。无 `.nuxt` 的隔离 clone 修复前稳定复现 21 failed / 12 passed / 1 skipped，加入两份边界配置后恢复 211 passed / 2 skipped。
-- `.31` 与 `.32` tag 都不移动、不删除、不复用；下一公开候选固定为 `0.1.0-canary.33`，npm 精确版本和 provenance 验证通过前不启动应用 minor release。
+- `.33` workflow `30613898542` 已通过全部 clean-checkout 生成、类型与转换门禁；最终仅 `app-commands.test.ts` 的 6 个真实运行测试失败。共同原因是该文件新建的 `productManifest()` 把平台固定为 `windows-x64`，Linux runner 按生产合同正确拒绝跨平台启动；其余 205 项通过，另 4 项按平台跳过。
+- 只修改测试夹具：需要真实启动 Product 的 manifest 使用 `currentProductPlatform()`，专门验证平台映射/拒绝语义的固定平台夹具保持不变。生产 `assertInstallationHostCompatible()` 没有放宽。
+- `.31`、`.32` 与 `.33` tag 都不移动、不删除、不复用；下一公开候选固定为 `0.1.0-canary.34`，npm 精确版本和 provenance 验证通过前不启动应用 minor release。

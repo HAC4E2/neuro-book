@@ -89,6 +89,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+    vi.restoreAllMocks();
     manifestStore.resolve.mockReset();
     git.fetchUpdateTarget.mockReset();
     git.createStagedWorktree.mockReset();
@@ -199,6 +200,7 @@ describe("Release Update预检", () => {
         const databasePath = join(root, "workspace", ".nbook", "neuro-book.sqlite");
         await mkdir(databasePath, {recursive: true});
         manifestStore.resolve.mockResolvedValue(releaseManifest({version: "0.8.7-canary.1", sourceRevision: "c".repeat(40), sha: SHA_B}));
+        vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, {status: 404}));
 
         await expect(updateInstallation({root, manifest, managerExecutable: join(root, "manager-source.mjs")}))
             .rejects.toThrow("下载失败 404");

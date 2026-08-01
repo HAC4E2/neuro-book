@@ -37,8 +37,6 @@ import {createWorkspaceContentState, createWorkspaceDirectory, readWorkspaceText
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 import {activateReadyProjectModule, closeAllProjects, openProject, requireReadyModuleHandle, requireReadyProject} from "nbook/server/workspace-files/project-session";
 
-const AGENT_WORKSPACE_SCRIPT_PATH = path.join("assets", "workspace", ".nbook", "agent", "scripts", "workspace.ts");
-const AGENT_WORKSPACE_SCRIPT_FROM_WORKSPACE_PATH = path.join("..", AGENT_WORKSPACE_SCRIPT_PATH);
 const execFileAsync = promisify(execFile);
 
 /** 测试Adapter：把单段 Project root 投影到当前隔离 Workspace Root。 */
@@ -614,424 +612,6 @@ describe("workspace-files", {timeout: 60_000}, () => {
         expect(factionProperties.character).toBeUndefined();
         expect(properties.character).toBeUndefined();
     });
-
-    it("workspace schema markdown 不再输出 Character 专属字段说明", async () => {
-        const {stdout, stderr} = await execFileAsync("bun", [AGENT_WORKSPACE_SCRIPT_PATH, "schema", "character"], {
-            encoding: "utf-8",
-        });
-
-        expect(stderr).toBe("");
-        expect(stdout).toContain("# Workspace Content Schema: character");
-        expect(stdout).not.toContain("## Character");
-        expect(stdout).not.toContain("character frontmatter");
-        expect(stdout).not.toContain("ext.character");
-    });
-
-    it("workspace node validate 在 Workspace Root 下接受 workspace/<project>/... 路径", async () => {
-        const workspaceSlug = `node-validate-path-test-${randomUUID()}`;
-        const targetRoot = path.join("workspace", workspaceSlug);
-        const chapterRoot = path.join(targetRoot, "manuscript", "001-volume", "001-chapter");
-
-        try {
-            await fs.mkdir(chapterRoot, {recursive: true});
-            await fs.writeFile(path.join(targetRoot, "project.yaml"), YAML.stringify({
-                kind: "novel",
-                title: "路径校验测试",
-                summary: "测试 Workspace Root 下 workspace/<project>/... 路径",
-            }), "utf-8");
-            await fs.writeFile(path.join(targetRoot, "manuscript", "001-volume", "index.md"), [
-                "---",
-                YAML.stringify(createWorkspaceContentFrontmatterDefaults({
-                    title: "第一卷",
-                    type: "volume",
-                    status: "draft",
-                })).trimEnd(),
-                "---",
-                "",
-                "卷简介",
-            ].join("\n"), "utf-8");
-            await fs.writeFile(path.join(chapterRoot, "index.md"), [
-                "---",
-                YAML.stringify(createWorkspaceContentFrontmatterDefaults({
-                    title: "第一章",
-                    type: "chapter",
-                    status: "draft",
-                })).trimEnd(),
-                "---",
-                "",
-                "章节正文",
-            ].join("\n"), "utf-8");
-
-            const {stderr} = await execFileAsync("bun", [
-                AGENT_WORKSPACE_SCRIPT_FROM_WORKSPACE_PATH,
-                "node",
-                "validate",
-                `workspace/${workspaceSlug}/manuscript/001-volume/001-chapter/`,
-            ], {
-                cwd: "workspace",
-                encoding: "utf-8",
-            });
-
-            expect(stderr).toBe("");
-        } finally {
-            await removeDirectoryWithRetry(targetRoot);
-        }
-    });
-
-    it("workspace node new 在 Workspace Root 下能读取系统内容节点模板", async () => {
-        const workspaceSlug = `node-new-template-test-${randomUUID()}`;
-        const targetRoot = path.join("workspace", workspaceSlug);
-        const nodeTarget = path.join(targetRoot, "lorebook", "character", "su-xue");
-
-        try {
-            await execFileAsync("bun", [
-                AGENT_WORKSPACE_SCRIPT_PATH,
-                "project",
-                "create",
-                workspaceSlug,
-                "--no-db",
-            ], {
-                encoding: "utf-8",
-            });
-
-            const {stdout, stderr} = await execFileAsync("bun", [
-                AGENT_WORKSPACE_SCRIPT_FROM_WORKSPACE_PATH,
-                "node",
-                "new",
-                nodeTarget,
-                "--type",
-                "character",
-                "--title",
-                "苏雪",
-                "--state",
-            ], {
-                cwd: "workspace",
-                encoding: "utf-8",
-            });
-
-            expect(stderr).toBe("");
-            expect(stdout.replaceAll("\\", "/")).toContain("lorebook/character/su-xue");
-            await expect(fs.readFile(path.join(nodeTarget, "index.md"), "utf-8")).resolves.toContain("title: 苏雪");
-            await expect(fs.readFile(path.join(nodeTarget, "state.md"), "utf-8")).resolves.toContain("## 当前状态");
-        } finally {
-            await removeDirectoryWithRetry(targetRoot);
-        }
-    }, 30_000);
-
-    it("workspace node new 在 Workspace Root 下优先读取用户覆盖模板", async () => {
-        const workspaceSlug = `node-new-overlay-test-${randomUUID()}`;
-        const targetRoot = path.join("workspace", workspaceSlug);
-        const nodeTarget = path.join(targetRoot, "lorebook", "character", "override-character");
-        const userTemplatePath = path.join(USER_ASSETS_WORKSPACE_ROOT, "templates", "content-node-templates", "character", "index.md");
-        const backup = await backupOptionalFile(userTemplatePath);
-
-        try {
-            await fs.mkdir(path.dirname(userTemplatePath), {recursive: true});
-            await fs.writeFile(userTemplatePath, [
-                "---",
-                "title: \"{{title}}\"",
-                "type: character",
-                "status: \"{{status}}\"",
-                "---",
-                "",
-                "## 用户覆盖模板",
-            ].join("\n"), "utf-8");
-            await execFileAsync("bun", [
-                AGENT_WORKSPACE_SCRIPT_PATH,
-                "project",
-                "create",
-                workspaceSlug,
-                "--no-db",
-            ], {
-                encoding: "utf-8",
-            });
-
-            const {stderr} = await execFileAsync("bun", [
-                AGENT_WORKSPACE_SCRIPT_FROM_WORKSPACE_PATH,
-                "node",
-                "new",
-                nodeTarget,
-                "--type",
-                "character",
-                "--title",
-                "覆盖测试",
-            ], {
-                cwd: "workspace",
-                encoding: "utf-8",
-            });
-
-            expect(stderr).toBe("");
-            await expect(fs.readFile(path.join(nodeTarget, "index.md"), "utf-8")).resolves.toContain("## 用户覆盖模板");
-        } finally {
-            await restoreOptionalFile(userTemplatePath, backup);
-            await removeDirectoryWithRetry(targetRoot);
-        }
-    }, 30_000);
-
-    it("workspace project create 给已有 Project Workspace 补模板时不再生成 simulation 目录", async () => {
-        const workspaceSlug = `writing-template-test-${randomUUID()}`;
-        const projectRoot = path.join("workspace", workspaceSlug);
-        const existingWriterContext = "# 用户自定义 Writer Context\n";
-
-        try {
-            await fs.mkdir(path.join(projectRoot, "agents", "writer"), {recursive: true});
-            await fs.writeFile(path.join(projectRoot, "project.yaml"), YAML.stringify({
-                kind: "novel",
-                title: "写作模式模板测试",
-                summary: "测试已存在 Project Workspace 安装写作模式模板",
-            }), "utf-8");
-            await fs.writeFile(path.join(projectRoot, "agents", "writer", "context.md"), existingWriterContext, "utf-8");
-
-            const {stdout, stderr} = await execFileAsync("bun", [
-                AGENT_WORKSPACE_SCRIPT_FROM_WORKSPACE_PATH,
-                "project",
-                "create",
-                workspaceSlug,
-                "--template",
-                "project-directory-templates",
-                "--json",
-            ], {
-                cwd: "workspace",
-                encoding: "utf-8",
-            });
-            const result = JSON.parse(stdout) as {
-                mode: string;
-                projectPath: string;
-                createdFiles: string[];
-                skippedFiles: string[];
-            };
-
-            expect(stderr).toBe("");
-            expect(result.mode).toBe("updated");
-            expect(result.projectPath).toBe(`workspace/${workspaceSlug}`);
-            expect(result.createdFiles).toEqual(expect.arrayContaining([
-                "agents/writer/index.md",
-                "agents/writer/memory.md",
-                "world-engine/schema/index.ts",
-                "world-engine/calendar.ts",
-            ]));
-            expect(result.createdFiles.some((filePath) => filePath === "simulation" || filePath.startsWith("simulation/"))).toBe(false);
-            expect(result.skippedFiles.some((filePath) => filePath === "simulation" || filePath.startsWith("simulation/"))).toBe(false);
-            expect(result.skippedFiles).toContain("agents/writer/context.md");
-            await expect(fs.readFile(path.join(projectRoot, "agents", "writer", "context.md"), "utf-8")).resolves.toBe(existingWriterContext);
-            await expect(fs.access(path.join(projectRoot, "simulation"))).rejects.toMatchObject({code: "ENOENT"});
-            await expect(fs.readFile(path.join(projectRoot, "world-engine", "schema", "index.ts"), "utf-8")).resolves.toContain("WorldSchema");
-            await expect(fs.readFile(path.join(projectRoot, "world-engine", "calendar.ts"), "utf-8")).resolves.toContain("type: 'gregorian'");
-
-            await expect(execFileAsync("bun", [
-                AGENT_WORKSPACE_SCRIPT_FROM_WORKSPACE_PATH,
-                "project",
-                "create",
-                workspaceSlug,
-                "--json",
-            ], {
-                cwd: "workspace",
-                encoding: "utf-8",
-            })).rejects.toMatchObject({
-                stderr: expect.stringContaining("显式传入 --template"),
-            });
-        } finally {
-            await removeDirectoryWithRetry(projectRoot);
-        }
-    }, 30_000);
-
-    it("workspace project create 能通过 --target 写入指定目录", async () => {
-        const targetRoot = path.resolve(root, "external-project");
-
-        try {
-            const {stdout, stderr} = await execFileAsync("bun", [
-                AGENT_WORKSPACE_SCRIPT_PATH,
-                "project",
-                "create",
-                "external-novel",
-                "--target",
-                targetRoot,
-                "--json",
-            ], {
-                encoding: "utf-8",
-            });
-            const result = JSON.parse(stdout) as {
-                mode: string;
-                projectPath: string;
-                absolutePath: string;
-                title: string;
-                databasePath: string | null;
-            };
-
-            expect(stderr).toBe("");
-            expect(result.mode).toBe("created");
-            expect(result.absolutePath).toBe(targetRoot);
-            expect(result.projectPath).toBe(targetRoot.replaceAll(path.sep, "/"));
-            expect(result.title).toBe("external novel");
-            expect(result.databasePath).toBe(path.join(targetRoot, ".nbook", "project.sqlite"));
-            await expect(fs.readFile(path.join(targetRoot, "project.yaml"), "utf-8")).resolves.toContain("title: external novel");
-            await expect(fs.access(path.join(targetRoot, ".nbook", "project.sqlite"))).resolves.toBeUndefined();
-            await expect(fs.readFile(path.join(targetRoot, "AGENTS.md"), "utf-8")).resolves.toContain("Project Agent Instructions");
-
-            await fs.mkdir(path.join(targetRoot, "agents", "writer"), {recursive: true});
-            await fs.writeFile(path.join(targetRoot, "agents", "writer", "context.md"), "# 外部 Writer\n", "utf-8");
-            const {stdout: updateStdout, stderr: updateStderr} = await execFileAsync("bun", [
-                AGENT_WORKSPACE_SCRIPT_PATH,
-                "project",
-                "create",
-                "external-novel",
-                "--target",
-                targetRoot,
-                "--template",
-                "project-directory-templates",
-                "--json",
-            ], {
-                encoding: "utf-8",
-            });
-            const updateResult = JSON.parse(updateStdout) as {
-                mode: string;
-                createdFiles: string[];
-                skippedFiles: string[];
-            };
-
-            expect(updateStderr).toBe("");
-            expect(updateResult.mode).toBe("updated");
-            expect(updateResult.createdFiles.some((filePath) => filePath === "simulation" || filePath.startsWith("simulation/"))).toBe(false);
-            expect(updateResult.createdFiles).not.toContain("simulation/config.yaml");
-            expect(updateResult.skippedFiles).not.toContain("simulation/config.yaml");
-            expect(updateResult.skippedFiles).toContain("agents/writer/context.md");
-            await expect(fs.readFile(path.join(targetRoot, "agents", "writer", "context.md"), "utf-8")).resolves.toBe("# 外部 Writer\n");
-            await expect(fs.access(path.join(targetRoot, "simulation"))).rejects.toMatchObject({code: "ENOENT"});
-            await expect(fs.readFile(path.join(targetRoot, "world-engine", "schema", "index.ts"), "utf-8")).resolves.toContain("WorldSchema");
-            await expect(fs.readFile(path.join(targetRoot, "world-engine", "calendar.ts"), "utf-8")).resolves.toContain("type: 'gregorian'");
-        } finally {
-            await removeDirectoryWithRetry(targetRoot);
-        }
-    }, 30_000);
-
-    it("workspace project create 的外部 --target 仍使用当前 Workspace Root 用户模板覆盖层", async () => {
-        const targetRoot = path.resolve(root, "external-overlay-project");
-        const userTemplatePath = path.join(USER_ASSETS_WORKSPACE_ROOT, "templates", "project-directory-templates", "AGENTS.md");
-        const backup = await backupOptionalFile(userTemplatePath);
-
-        try {
-            await fs.mkdir(path.dirname(userTemplatePath), {recursive: true});
-            await fs.writeFile(userTemplatePath, "# 用户覆盖 AGENTS\n", "utf-8");
-
-            const {stderr} = await execFileAsync("bun", [
-                AGENT_WORKSPACE_SCRIPT_PATH,
-                "project",
-                "create",
-                "external-overlay",
-                "--target",
-                targetRoot,
-            ], {
-                encoding: "utf-8",
-            });
-
-            expect(stderr).toBe("");
-            await expect(fs.readFile(path.join(targetRoot, "AGENTS.md"), "utf-8")).resolves.toBe("# 用户覆盖 AGENTS\n");
-        } finally {
-            await restoreOptionalFile(userTemplatePath, backup);
-            await removeDirectoryWithRetry(targetRoot);
-        }
-    }, 30_000);
-
-    it("workspace project create 给 --target 已有目录补模板时要求 project.yaml", async () => {
-        const targetRoot = path.resolve(root, "not-project");
-
-        try {
-            await fs.mkdir(targetRoot, {recursive: true});
-
-            await expect(execFileAsync("bun", [
-                AGENT_WORKSPACE_SCRIPT_PATH,
-                "project",
-                "create",
-                "not-project",
-                "--target",
-                targetRoot,
-                "--template",
-                "project-directory-templates",
-                "--json",
-            ], {
-                encoding: "utf-8",
-            })).rejects.toMatchObject({
-                stderr: expect.stringContaining("不是 Project Workspace"),
-            });
-        } finally {
-            await removeDirectoryWithRetry(targetRoot);
-        }
-    }, 30_000);
-
-    it("workspace project validate 能校验外部 Project Workspace", async () => {
-        const targetRoot = path.resolve(root, "external-validate-project");
-
-        try {
-            await execFileAsync("bun", [
-                AGENT_WORKSPACE_SCRIPT_PATH,
-                "project",
-                "create",
-                "external-validate",
-                "--target",
-                targetRoot,
-            ], {
-                encoding: "utf-8",
-            });
-
-            const {stdout, stderr} = await execFileAsync("bun", [
-                AGENT_WORKSPACE_SCRIPT_PATH,
-                "project",
-                "validate",
-                path.join(targetRoot, "manuscript"),
-            ], {
-                encoding: "utf-8",
-            });
-            const result = JSON.parse(stdout) as {
-                ok: boolean;
-                projectRoot: string;
-                manifest: {title: string};
-                database: {exists: boolean; schemaVersion: string | null};
-            };
-
-            expect(stderr).toBe("");
-            expect(result.ok).toBe(true);
-            expect(result.projectRoot).toBe(targetRoot.replaceAll(path.sep, "/"));
-            expect(result.manifest.title).toBe("external validate");
-            expect(result.database.exists).toBe(true);
-            expect(result.database.schemaVersion).toBe("1");
-        } finally {
-            await removeDirectoryWithRetry(targetRoot);
-        }
-    }, 30_000);
-
-    it("workspace project init-db 能给缺少数据库的 Project Workspace 补库", async () => {
-        const targetRoot = path.resolve(root, "external-init-db-project");
-
-        try {
-            await execFileAsync("bun", [
-                AGENT_WORKSPACE_SCRIPT_PATH,
-                "project",
-                "create",
-                "external-init-db",
-                "--target",
-                targetRoot,
-                "--no-db",
-            ], {
-                encoding: "utf-8",
-            });
-            await expect(fs.access(path.join(targetRoot, ".nbook", "project.sqlite"))).rejects.toMatchObject({code: "ENOENT"});
-
-            const {stdout, stderr} = await execFileAsync("bun", [
-                AGENT_WORKSPACE_SCRIPT_PATH,
-                "project",
-                "init-db",
-                targetRoot,
-            ], {
-                encoding: "utf-8",
-            });
-
-            expect(stderr).toBe("");
-            expect(stdout.trim()).toBe(path.join(root, "external-init-db-project", ".nbook", "project.sqlite").replaceAll(path.sep, "/"));
-            await expect(fs.access(path.join(targetRoot, ".nbook", "project.sqlite"))).resolves.toBeUndefined();
-        } finally {
-            await removeDirectoryWithRetry(targetRoot);
-        }
-    }, 30_000);
 
     it("角色内容节点模板包含 frontmatter 注释与正文结构", async () => {
         await withSystemTemplate("templates/content-node-templates/character/index.md", () => {
@@ -1696,14 +1276,15 @@ describe("workspace-files", {timeout: 60_000}, () => {
 
         try {
             const result = await syncSystemAssetsToUserAssets();
+            expect(result.assetWarnings).toEqual([]);
             const manifest = JSON.parse(await fs.readFile(userCompiledManifestPath, "utf-8")) as {definitions: Array<{fileName: string; artifactFileName: string; typeFileName?: string}>};
             const item = manifest.definitions.find((definition) => definition.fileName === "definitions.ts");
 
             expect(result.updatedAssets).toBeGreaterThan(0);
-            expect(item?.artifactFileName).toBe("definitions.mjs");
-            expect(item?.typeFileName).toBe("definitions.types.d.ts");
-            await expect(fs.readFile(path.join("workspace", ".nbook", "agent", "variables", ".compiled", item!.artifactFileName), "utf-8")).resolves.toContain("definitions_default");
-            await expect(fs.readFile(path.join("workspace", ".nbook", "agent", "variables", ".compiled", item.typeFileName!), "utf-8")).resolves.toContain("ProfileVariableValueMap");
+            expect(item?.artifactFileName).toMatch(/^artifacts\/[0-9a-f]{64}\.mjs$/u);
+            expect(item?.typeFileName).toMatch(/^artifacts\/[0-9a-f]{64}\.types\.d\.ts$/u);
+            await expect(fs.readFile(path.join("workspace", ".nbook", "agent", "variables", ".compiled", ...item!.artifactFileName.split("/")), "utf-8")).resolves.toContain("definitions_default");
+            await expect(fs.readFile(path.join("workspace", ".nbook", "agent", "variables", ".compiled", ...item.typeFileName!.split("/")), "utf-8")).resolves.toContain("ProfileVariableValueMap");
             await expect(fs.access(staleArtifactPath)).rejects.toMatchObject({code: "ENOENT"});
             await expect(fs.access(staleTypePath)).rejects.toMatchObject({code: "ENOENT"});
         } finally {
@@ -1740,11 +1321,10 @@ describe("workspace-files", {timeout: 60_000}, () => {
         }
     });
 
-    it("同步系统 assets 会补齐 Agent runtime bin、scripts 和 config", async () => {
+    it("同步系统 assets 会补齐 Agent runtime bin 和 config", async () => {
         const paths = [
             path.join("workspace", ".nbook", "agent", "bin", "workspace"),
             path.join("workspace", ".nbook", "agent", "bin", "workspace.cmd"),
-            path.join("workspace", ".nbook", "agent", "scripts", "workspace.ts"),
             path.join("workspace", ".nbook", "agent", "config", "ripgreprc"),
         ];
         const backups = await Promise.all(paths.map((filePath) => backupOptionalFile(filePath)));
@@ -1754,12 +1334,9 @@ describe("workspace-files", {timeout: 60_000}, () => {
             const result = await syncSystemAssetsToUserAssets();
 
             expect(result.copied).toBeGreaterThanOrEqual(paths.length);
-            await expect(fs.readFile(paths[0]!, "utf-8")).resolves.toContain("../scripts/workspace.ts");
-            await expect(fs.readFile(paths[1]!, "utf-8")).resolves.toContain("..\\scripts\\workspace.ts");
-            const scriptContent = await fs.readFile(paths[2]!, "utf-8");
-            expect(scriptContent).toContain(".name(\"workspace\")");
-            expect(scriptContent).toContain(".command(\"node\")");
-            await expect(fs.readFile(paths[3]!, "utf-8")).resolves.toContain("--path-separator=/");
+            await expect(fs.readFile(paths[0]!, "utf-8")).resolves.toContain("server/workspace-files/workspace-command.ts");
+            await expect(fs.readFile(paths[1]!, "utf-8")).resolves.toContain("server\\workspace-files\\workspace-command.ts");
+            await expect(fs.readFile(paths[2]!, "utf-8")).resolves.toContain("--path-separator=/");
         } finally {
             for (const [index, filePath] of paths.entries()) {
                 await restoreOptionalFile(filePath, backups[index] ?? null);
@@ -1790,17 +1367,22 @@ describe("workspace-files", {timeout: 60_000}, () => {
         }
     });
 
-    it("同步系统 assets 会保留缺少 sync state 的手改 Agent runtime 文件", async () => {
-        const paths = [
+    it("同步系统 assets 会保留手改 wrapper，并硬切缺少 sync state 的旧 scripts", async () => {
+        const wrapperPaths = [
             path.join("workspace", ".nbook", "agent", "bin", "workspace"),
             path.join("workspace", ".nbook", "agent", "bin", "workspace.cmd"),
+        ];
+        const legacyScriptPaths = [
+            path.join("workspace", ".nbook", "agent", "scripts", "profile.ts"),
+            path.join("workspace", ".nbook", "agent", "scripts", "variable.ts"),
             path.join("workspace", ".nbook", "agent", "scripts", "workspace.ts"),
         ];
-        const sentinels = [
+        const wrapperSentinels = [
             "#!/usr/bin/env sh\necho user-bin-preserved\n",
             "@echo off\necho user-cmd-preserved\n",
-            "console.log('user-script-preserved');\n",
         ];
+        const legacySentinel = "console.log('old managed script');\n";
+        const paths = [...wrapperPaths, ...legacyScriptPaths];
         const backups = await Promise.all(paths.map((filePath) => backupOptionalFile(filePath)));
         const syncStatePath = path.join("workspace", ".nbook", ".system-assets-sync-state.json");
         const syncStateBackup = await backupOptionalFile(syncStatePath);
@@ -1808,20 +1390,26 @@ describe("workspace-files", {timeout: 60_000}, () => {
         try {
             await fs.mkdir(path.dirname(syncStatePath), {recursive: true});
             await fs.writeFile(syncStatePath, JSON.stringify({profiles: [], assets: []}, null, 2), "utf-8");
-            for (const [index, filePath] of paths.entries()) {
+            for (const [index, filePath] of wrapperPaths.entries()) {
                 await fs.mkdir(path.dirname(filePath), {recursive: true});
-                await fs.writeFile(filePath, sentinels[index] ?? "", "utf-8");
+                await fs.writeFile(filePath, wrapperSentinels[index] ?? "", "utf-8");
+            }
+            for (const filePath of legacyScriptPaths) {
+                await fs.mkdir(path.dirname(filePath), {recursive: true});
+                await fs.writeFile(filePath, legacySentinel, "utf-8");
             }
 
             const result = await syncSystemAssetsToUserAssets();
 
-            for (const [index, filePath] of paths.entries()) {
-                await expect(fs.readFile(filePath, "utf-8")).resolves.toBe(sentinels[index]);
+            for (const [index, filePath] of wrapperPaths.entries()) {
+                await expect(fs.readFile(filePath, "utf-8")).resolves.toBe(wrapperSentinels[index]);
+            }
+            for (const filePath of legacyScriptPaths) {
+                await expect(fs.access(filePath)).rejects.toMatchObject({code: "ENOENT"});
             }
             expect(result.assetWarnings).toEqual(expect.arrayContaining([
                 expect.objectContaining({assetPath: "agent/bin/workspace"}),
                 expect.objectContaining({assetPath: "agent/bin/workspace.cmd"}),
-                expect.objectContaining({assetPath: "agent/scripts/workspace.ts"}),
             ]));
         } finally {
             for (const [index, filePath] of paths.entries()) {
@@ -1831,39 +1419,45 @@ describe("workspace-files", {timeout: 60_000}, () => {
         }
     });
 
-    it("同步系统 assets 会更新仍跟随上游的 Agent runtime script", async () => {
-        const userScriptPath = path.join("workspace", ".nbook", "agent", "scripts", "workspace.ts");
+    it("同步系统 assets 会删除仍跟随上游的旧 Agent runtime scripts 与 sync state", async () => {
+        const assetPaths = [
+            "agent/scripts/profile.ts",
+            "agent/scripts/variable.ts",
+            "agent/scripts/workspace.ts",
+        ];
+        const userScriptPaths = assetPaths.map((assetPath) => path.join("workspace", ".nbook", ...assetPath.split("/")));
         const syncStatePath = path.join("workspace", ".nbook", ".system-assets-sync-state.json");
-        const scriptBackup = await backupOptionalFile(userScriptPath);
+        const scriptBackups = await Promise.all(userScriptPaths.map((filePath) => backupOptionalFile(filePath)));
         const syncStateBackup = await backupOptionalFile(syncStatePath);
         const previousScript = "console.log('old runtime script');\n";
         const previousHash = createHash("sha256").update(previousScript).digest("hex");
 
         try {
-            await fs.mkdir(path.dirname(userScriptPath), {recursive: true});
-            await fs.writeFile(userScriptPath, previousScript, "utf-8");
+            for (const userScriptPath of userScriptPaths) {
+                await fs.mkdir(path.dirname(userScriptPath), {recursive: true});
+                await fs.writeFile(userScriptPath, previousScript, "utf-8");
+            }
             await fs.writeFile(syncStatePath, JSON.stringify({
                 profiles: [],
-                assets: [{
-                    assetPath: "agent/scripts/workspace.ts",
+                assets: assetPaths.map((assetPath) => ({
+                    assetPath,
                     upstreamHash: previousHash,
                     lastSyncedUserHash: previousHash,
                     syncedAt: new Date(0).toISOString(),
-                }],
+                })),
             }, null, 2), "utf-8");
 
-            const result = await syncSystemAssetsToUserAssets();
+            await syncSystemAssetsToUserAssets();
 
-            const content = await fs.readFile(userScriptPath, "utf-8");
             const syncState = JSON.parse(await fs.readFile(syncStatePath, "utf-8")) as {assets?: Array<{assetPath: string}>};
-            expect(result.updatedAssets).toBeGreaterThanOrEqual(1);
-            expect(content).toContain(".command(\"project\")");
-            expect(content).toContain(".command(\"create\")");
-            expect(syncState.assets).toEqual(expect.arrayContaining([
-                expect.objectContaining({assetPath: "agent/scripts/workspace.ts"}),
-            ]));
+            for (const userScriptPath of userScriptPaths) {
+                await expect(fs.access(userScriptPath)).rejects.toMatchObject({code: "ENOENT"});
+            }
+            expect(syncState.assets?.filter((item) => assetPaths.includes(item.assetPath))).toEqual([]);
         } finally {
-            await restoreOptionalFile(userScriptPath, scriptBackup);
+            for (const [index, userScriptPath] of userScriptPaths.entries()) {
+                await restoreOptionalFile(userScriptPath, scriptBackups[index] ?? null);
+            }
             await restoreOptionalFile(syncStatePath, syncStateBackup);
         }
     });
@@ -1898,7 +1492,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
             };
             expect(llmlintPackage).toMatchObject({
                 name: "llmlint",
-                version: "2.0.1",
+                version: "3.0.0",
                 license: "AGPL-3.0-only",
             });
             await expect(fs.readFile(paths[2]!, "utf-8")).resolves.toContain("builtin/default");
@@ -1906,7 +1500,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
             await expect(fs.readFile(paths[4]!, "utf-8")).resolves.toContain("CURATED_RULE_SLUGS");
             await expect(fs.readFile(paths[5]!, "utf-8")).resolves.toContain("chapter");
             await expect(fs.readFile(paths[6]!, "utf-8")).resolves.toContain("Leader Default Context Notes");
-            await expect(fs.readFile(paths[7]!, "utf-8")).resolves.toContain("../scripts/profile.ts");
+            await expect(fs.readFile(paths[7]!, "utf-8")).resolves.toContain("server/agent/profiles/profile-command.ts");
             await expect(fs.readFile(paths[8]!, "utf-8")).resolves.toContain("--path-separator=/");
             expect(syncState.assets).toEqual(expect.arrayContaining([
                 expect.objectContaining({assetPath: "agent/skills/profile-system-guide/SKILL.md"}),
@@ -2579,7 +2173,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
         }
     });
 
-    it("创建 Project Workspace 时会写入 manifest、初始化 Project SQLite 并加载模板", async () => {
+    it("Project Workspace 会加载模板，并由 Project Module 初始化 SQLite", async () => {
         const workspaceSlug = `workspace-files-test-${randomUUID()}`;
         const projectPath = `workspace/${workspaceSlug}`;
         const createdRoot = path.join("workspace", workspaceSlug);
@@ -2590,18 +2184,9 @@ describe("workspace-files", {timeout: 60_000}, () => {
             summary: "测试简介",
         });
         await copyNovelDirectoryTemplate(projectPath);
-        const {stderr} = await execFileAsync("bun", [
-            AGENT_WORKSPACE_SCRIPT_PATH,
-            "project",
-            "init-db",
-            projectPath,
-        ], {
-            encoding: "utf-8",
-        });
 
         let projectOpened = false;
         try {
-            expect(stderr).toBe("");
             await expect(readProjectManifest(workspaceSlug)).resolves.toEqual({
                 kind: "novel",
                 title: "测试小说",
@@ -2620,6 +2205,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
             await expect(fs.access(path.join(createdRoot, "simulation"))).rejects.toMatchObject({code: "ENOENT"});
             await openProjectForTest(workspaceSlug);
             projectOpened = true;
+            await expect(fs.access(path.join(createdRoot, ".nbook", "project.sqlite"))).resolves.toBeUndefined();
             const ready = requireReadyProject(projectWorkspaceRef(workspaceSlug));
             const {world: worldEngineFacade} = await activateReadyProjectModule(
                 ready,

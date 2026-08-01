@@ -1,6 +1,6 @@
 # 125 - 可重建运行产物的存储生命周期
 
-> 状态：Implementing。Round 01 完成诊断与设计；Round 02 复核基线并实施 Phase 1/2。
+> 状态：Implementing。Round 01 完成诊断与设计；Round 02 实施 Phase 1/2；Round 03 完成 artifact 减重；Round 04 收口 Project Workspace 测试隔离与真实 Workspace Root 残留。
 >
 > 编号说明：本任务最初建为 `120`，与 [Task 120 Agent Skill Package Contract](../120-agent-skill-package-contract/README.md) 撞号（Task 123 的 R4）。因 `124` 已被写作产品线第三批占用，本任务改号为 `125`。
 
@@ -19,6 +19,7 @@
 - [Task 75 World Engine artifact cache](../75-world-engine-api-calendar-embedding-cleanup/README.md)
 - [Task 105 Product / State Root 合同](../105-unified-installation-manager/README.md)
 - [Profile Compiled Artifacts](../../../reference/agent/profile-compiled-artifacts.md)
+- [Round 04：Project Workspace 测试隔离与残留收口](walkthroughs/round-04-workspace-test-isolation.md)
 
 ## User Request / Topic
 
@@ -254,6 +255,7 @@ Phase 0 需要把 `defineAgentProfile -> profile-dsl / low-code-form / runtime s
 - Round 01 已完成只读诊断、最小实验与推荐架构，见 [walkthrough](walkthroughs/round-01-diagnosis-and-recommended-architecture.md)。
 - Round 02 复核基线、执行一次性清理并实施 Phase 1/2，见 [walkthrough](walkthroughs/round-02-baseline-recheck-and-implementation.md)。
 - Round 03 实施 Phase 3 artifact 减重（四处切边 + 依赖门禁），见 [walkthrough](walkthroughs/round-03-phase3-artifact-diet.md)。
+- Round 04 把 Project 测试写入全部收进 suite 级隔离 Runtime Workspace Root，移除 Preview 测试前缀遮掩，并精确清理已授权残留，见 [walkthrough](walkthroughs/round-04-workspace-test-isolation.md)。
 
 ### 实际结果与原计划差异
 

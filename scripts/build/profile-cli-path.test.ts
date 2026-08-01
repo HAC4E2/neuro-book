@@ -12,9 +12,9 @@ const execFileAsync = promisify(execFile);
 const temporaryRoots: string[] = [];
 
 const cliCases = [
-    {id: "profile", source: "scripts/build/profile.ts"},
-    {id: "variable", source: "scripts/build/variable.ts"},
-    {id: "workspace", source: "assets/workspace/.nbook/agent/scripts/workspace.ts"},
+    {id: "profile", source: "server/agent/profiles/profile-command.ts"},
+    {id: "variable", source: "server/agent/variables/variable-command.ts"},
+    {id: "workspace", source: "server/workspace-files/workspace-command.ts"},
 ] as const;
 
 afterEach(async () => {

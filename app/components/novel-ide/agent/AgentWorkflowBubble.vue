@@ -71,8 +71,12 @@ const workflowTitle = computed(() => catalogTitle.value || workflowKey.value || 
 
 /** 当前 tool 是否正由会话级声明式审批宿主等待用户决策。 */
 const pendingApproval = computed(() => {
-    return userInputContext?.pendingSession.value?.questions.some((question) => {
-        return question.toolNodeId === props.toolCall.id && question.kind === "tool_approval";
+    return userInputContext?.pendingSessions.value.some((session) => {
+        return session.assistantMessageId === props.toolCall.assistantMessageId
+            && session.questions.some((question) => {
+                return (question.toolNodeId === props.toolCall.id || question.toolCallId === props.toolCall.id)
+                    && question.kind === "tool_approval";
+            });
     }) ?? false;
 });
 

@@ -1,8 +1,11 @@
 import type {
     ProjectCreateResponseDto,
+    ProjectDeleteResponseDto,
     ProjectListResponseDto,
     ProjectMetadataDto,
+    ProjectMutationResponseDto,
 } from "nbook/shared/dto/project.dto";
+import {ProjectCatalogRefreshError} from "nbook/app/utils/project-mutation-error";
 import type {ThemeVars} from "nbook/app/utils/theme/theme-tokens";
 import {resolveTheme} from "nbook/app/utils/theme/resolve-theme";
 import {triggerBrowserDownload} from "nbook/app/utils/browser-download";
@@ -35,6 +38,11 @@ import type {
 } from "nbook/shared/dto/user-assets-sync.dto";
 
 export type {WorkspaceEditorKind, WorkspaceEditorViewMode} from "nbook/shared/editor-workbench";
+
+type ProjectCatalogSnapshot = Readonly<{
+    revision: number;
+    projects: readonly Readonly<ProjectMetadataDto>[];
+}>;
 
 export type WorkspaceFileNode = {
     mode: string;
@@ -133,6 +141,7 @@ export type WorkspaceUploadResult = {
 
 export type WorkspaceKind = "novel" | "user-assets";
 type WorkspaceQueryInput = {projectRoot: string} | {workspaceKind: "user-assets"};
+type ProjectCatalogMutation = "create" | "delete" | "cover-update";
 
 type WorkspaceSessionState = {
     activeWorkspaceTabPath: string;
@@ -183,7 +192,8 @@ const DEFAULT_MODEL_LABEL = "未配置模型";
  * 统一管理小说 IDE 的业务状态与核心数据动作。
  */
 export const useNovelIdeStore = defineStore("novelIde", () => {
-    const novels = ref<ProjectMetadataDto[]>([]);
+    const projectSnapshot = ref<ProjectCatalogSnapshot | null>(null);
+    const novels = computed<readonly Readonly<ProjectMetadataDto>[]>(() => projectSnapshot.value?.projects ?? []);
     const currentProjectRoot = ref("");
     const selectedStoryThreadId = ref<string | null>(null);
     const selectedStorySceneId = ref<string | null>(null);
@@ -243,6 +253,11 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         key: string;
         promise: Promise<WorkspaceFileNode[]>;
     } | null = null;
+    let projectCatalogGeneration = 0;
+    let projectCatalogRequest: {
+        generation: number;
+        promise: Promise<ProjectCatalogSnapshot>;
+    } | null = null;
     const workspaceTreeRevision = ref(0);
 
     const reasoningOptions = [...REASONING_OPTIONS];
@@ -300,13 +315,13 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     /**
      * 当前选中的小说详情
      */
-    const currentNovel = computed<ProjectMetadataDto | null>(() => {
+    const currentNovel = computed<Readonly<ProjectMetadataDto> | null>(() => {
         return novels.value.find((novel) => novel.projectRoot === currentProjectRoot.value) ?? null;
     });
     const currentWorkspaceRoot = computed(() => workspaceKind.value === "user-assets"
         ? "workspace/.nbook"
         // Composer/变量层仍用跨 Project File Address；Session Project identity 已独立使用 currentProjectRoot。
-        : currentNovel.value?.projectRoot ? `workspace/${currentNovel.value.projectRoot}` : "");
+        : currentProjectRoot.value ? `workspace/${currentProjectRoot.value}` : "");
     const workspaceSessionKey = computed(() => workspaceKind.value === "user-assets" ? "user-assets" : `novel:${currentProjectRoot.value}`);
     const isUserAssetsWorkspace = computed(() => workspaceKind.value === "user-assets");
     const canAccessWorkspace = computed(() => workspaceKind.value === "user-assets" || Boolean(currentProjectRoot.value));
@@ -1649,14 +1664,77 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         detailUndoStacks.value = nextStacks;
     };
 
+    /** 使 mutation 前启动的 Catalog GET 失去发布权。 */
+    const invalidateProjectCatalog = (): void => {
+        projectCatalogGeneration += 1;
+    };
+
     /**
-     * 加载小说列表。
+     * 加载完整 Project Catalog snapshot；同一 generation 的并发调用共享请求。
+     * mutation 期间迟到的请求会自动追读当前 generation，绝不发布旧结果。
      */
-    const loadProjects = async (): Promise<ProjectMetadataDto[]> => {
-        const snapshot = await $fetch<ProjectListResponseDto>("/api/projects");
-        const list = [...snapshot.projects];
-        novels.value = list;
-        return list;
+    const loadProjects = async (): Promise<ProjectCatalogSnapshot> => {
+        const generation = projectCatalogGeneration;
+        if (projectCatalogRequest?.generation === generation) {
+            return await projectCatalogRequest.promise;
+        }
+
+        const readSnapshot = async (): Promise<ProjectCatalogSnapshot> => {
+            try {
+                const snapshot = await $fetch<ProjectListResponseDto>("/api/projects");
+                if (generation !== projectCatalogGeneration) {
+                    return await loadProjects();
+                }
+                const published = Object.freeze({
+                    revision: snapshot.revision,
+                    projects: Object.freeze(snapshot.projects.map((project) => Object.freeze({...project}))),
+                });
+                projectSnapshot.value = published;
+                return published;
+            } catch (error) {
+                if (generation !== projectCatalogGeneration) {
+                    return await loadProjects();
+                }
+                throw error;
+            } finally {
+                if (projectCatalogRequest?.generation === generation) {
+                    projectCatalogRequest = null;
+                }
+            }
+        };
+
+        const promise = readSnapshot();
+        projectCatalogRequest = {generation, promise};
+        return await promise;
+    };
+
+    /** mutation 已确认提交后，无法发布完整 Catalog 时保留 committed true。 */
+    const refreshAfterProjectMutation = async (operation: ProjectCatalogMutation): Promise<void> => {
+        try {
+            await loadProjects();
+        } catch (cause) {
+            throw new ProjectCatalogRefreshError(operation, {cause});
+        }
+    };
+
+    /** mutation 请求前后推进 generation；成功响应统一回读服务端权威 Catalog。 */
+    const runProjectMutation = async <T>(input: Readonly<{
+        operation: ProjectCatalogMutation;
+        request: () => Promise<T>;
+        committed?: (result: T) => void;
+    }>): Promise<T> => {
+        invalidateProjectCatalog();
+        let result: T;
+        try {
+            result = await input.request();
+        } catch (error) {
+            invalidateProjectCatalog();
+            throw error;
+        }
+        invalidateProjectCatalog();
+        input.committed?.(result);
+        await refreshAfterProjectMutation(input.operation);
+        return result;
     };
 
     /**
@@ -1671,6 +1749,14 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         clearWorkspaceSelection();
         clearActiveFile();
         clearWorkspaceState();
+    };
+
+    /** 清理已由服务端 snapshot 证明不存在的 Project 本地工作区记忆。 */
+    const forgetProject = (projectRoot: string): void => {
+        if (currentProjectRoot.value === projectRoot) {
+            closeProjectWorkspace();
+        }
+        clearNovelWorkspaceSession(projectRoot);
     };
 
     /**
@@ -1709,28 +1795,45 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
      * 新建小说。
      */
     const createProject = async (title: string, summary: string = ""): Promise<string> => {
-        const project = await $fetch<ProjectCreateResponseDto>("/api/projects", {
-            method: "POST",
-            body: { title, summary },
+        const result = await runProjectMutation<ProjectCreateResponseDto>({
+            operation: "create",
+            request: () => $fetch<ProjectCreateResponseDto>("/api/projects", {
+                method: "POST",
+                body: {title, summary},
+            }),
         });
-
-        await loadProjects();
-        return project.project.projectRoot;
+        return result.project.projectRoot;
     };
 
     /**
      * 删除小说。
      */
     const deleteProject = async (projectRoot: string): Promise<void> => {
-        await $fetch("/api/projects/item", {
-            method: "DELETE",
-            query: {projectRoot},
+        await runProjectMutation<ProjectDeleteResponseDto>({
+            operation: "delete",
+            request: () => $fetch<ProjectDeleteResponseDto>("/api/projects/item", {
+                method: "DELETE",
+                query: {projectRoot},
+            }),
+            committed: () => forgetProject(projectRoot),
         });
+    };
 
-        const deletingCurrentProject = currentProjectRoot.value === projectRoot;
-        if (deletingCurrentProject) closeProjectWorkspace();
-        clearNovelWorkspaceSession(projectRoot);
-        await loadProjects();
+    /** 上传或清除 Project 封面，并由 Store 唯一发布返回的 metadata。 */
+    const updateProjectCover = async (projectRoot: string, file: File | null): Promise<ProjectMetadataDto> => {
+        const result = await runProjectMutation<ProjectMutationResponseDto>({
+            operation: "cover-update",
+            request: () => {
+                const query = new URLSearchParams({projectRoot}).toString();
+                if (file === null) {
+                    return $fetch<ProjectMutationResponseDto>(`/api/projects/cover?${query}`, {method: "DELETE"});
+                }
+                const body = new FormData();
+                body.append("file", file, file.name);
+                return $fetch<ProjectMutationResponseDto>(`/api/projects/cover?${query}`, {method: "PUT", body});
+            },
+        });
+        return result.project;
     };
 
     /**
@@ -1755,16 +1858,6 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
                 clearWorkspaceSelection();
                 clearActiveFile();
                 clearWorkspaceState();
-                return;
-            }
-
-            const list = await loadProjects();
-
-            if (!list.some((item) => item.projectRoot === currentProjectRoot.value)) {
-                clearWorkspaceSelection();
-                clearActiveFile();
-                clearWorkspaceState();
-                currentProjectRoot.value = "";
                 return;
             }
 
@@ -1811,6 +1904,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         deleteProject,
         deleteWorkspacePath,
         downloadCurrentWorkspace,
+        forgetProject,
         hasUnsavedFileChanges,
         hasUnsavedWorkspaceChanges,
         initializeWorkspace,
@@ -1872,6 +1966,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         switchToNovelWorkspace,
         closeProjectWorkspace,
         switchToUserAssetsWorkspace,
+        updateProjectCover,
         syncUserAssetsFromSystem,
         fetchUserAssetsSyncConflictDetail,
         uploadFileToUploadFolder,

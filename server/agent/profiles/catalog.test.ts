@@ -48,9 +48,11 @@ describe("AgentProfileCatalog", () => {
     let systemRoot: string;
     let userRoot: string;
     let applicationRootBeforeTest: string | undefined;
+    let productImageRootBeforeTest: string | undefined;
 
     beforeEach(async () => {
         applicationRootBeforeTest = process.env.NEURO_BOOK_APPLICATION_ROOT;
+        productImageRootBeforeTest = process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT;
         root = resolve(".agent", "workspace", "agent-profile-catalog-test", randomUUID());
         systemRoot = join(root, "assets", ".nbook", "agent", "profiles");
         userRoot = join(root, "workspace", ".nbook", "agent", "profiles");
@@ -61,6 +63,8 @@ describe("AgentProfileCatalog", () => {
     afterEach(async () => {
         if (applicationRootBeforeTest === undefined) delete process.env.NEURO_BOOK_APPLICATION_ROOT;
         else process.env.NEURO_BOOK_APPLICATION_ROOT = applicationRootBeforeTest;
+        if (productImageRootBeforeTest === undefined) delete process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT;
+        else process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT = productImageRootBeforeTest;
         await rm(root, {recursive: true, force: true});
     });
 
@@ -1180,13 +1184,12 @@ describe("AgentProfileCatalog", () => {
         const outputServerRoot = join(productRoot, ".output", "server");
         systemRoot = join(outputServerRoot, "assets", "workspace", ".nbook", "agent", "profiles");
         userRoot = join(productRoot, "workspace", ".nbook", "agent", "profiles");
-        await mkdir(join(outputServerRoot, "node_modules", "@nbook", "product-marker"), {recursive: true});
+        await mkdir(outputServerRoot, {recursive: true});
         await writeFile(join(productRoot, "package.json"), "{\"name\":\"neuro-book-product\",\"version\":\"0.0.0\",\"type\":\"module\"}\n", "utf8");
         await writeFile(join(productRoot, "tsconfig.json"), "{}\n", "utf8");
         await writeFile(join(outputServerRoot, "tsconfig.json"), "{}\n", "utf8");
         await writeFile(join(outputServerRoot, "index.mjs"), "", "utf8");
         await writeProductAuthoringFixture(outputServerRoot);
-        await writeFile(join(outputServerRoot, "node_modules", "@nbook", "product-marker", "index.js"), 'module.exports = {marker: "output"};\n', "utf8");
         await writeProfile(systemRoot, "custom.product.profile.mjs", `
             export default {
                 manifest: { key: "custom.product", name: "Product" },
@@ -1195,14 +1198,14 @@ describe("AgentProfileCatalog", () => {
                 tools: {},
                 rootToolKeys: [],
                 prepare() {
-                    const marker = require("@nbook/" + "product-marker");
-                    return { systemPrompt: marker.marker };
+                    return { systemPrompt: "product" };
                 },
             };
         `);
 
         const previousCwd = process.cwd();
         process.env.NEURO_BOOK_APPLICATION_ROOT = productRoot;
+        process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT = join(productRoot, ".output");
         process.chdir(productRoot);
         try {
             await compileProfileArtifacts({
@@ -1234,17 +1237,16 @@ describe("AgentProfileCatalog", () => {
         }
     });
 
-    it("通用 .output Product runner 无根 Product package 时仍从 output vendor 解析 require", async () => {
+    it("显式 Product identity 无根 Product package 时仍可编译和加载Profile", async () => {
         const productRoot = join(root, "product-output-runner");
         systemRoot = join(productRoot, ".output", "server", "assets", "workspace", ".nbook", "agent", "profiles");
         userRoot = join(productRoot, "workspace", ".nbook", "agent", "profiles");
-        await mkdir(join(productRoot, ".output", "server", "node_modules", "@nbook", "output-marker"), {recursive: true});
+        await mkdir(join(productRoot, ".output", "server"), {recursive: true});
         await writeFile(join(productRoot, "tsconfig.json"), "{}\n", "utf8");
         await writeFile(join(productRoot, ".output", "server", "tsconfig.json"), "{}\n", "utf8");
         await writeFile(join(productRoot, ".output", "server", "index.mjs"), "", "utf8");
         await writeFile(join(productRoot, ".output", "server", "package.json"), "{\"name\":\"neuro-book-output\",\"version\":\"0.0.0\",\"type\":\"module\"}\n", "utf8");
         await writeProductAuthoringFixture(join(productRoot, ".output", "server"));
-        await writeFile(join(productRoot, ".output", "server", "node_modules", "@nbook", "output-marker", "index.js"), `module.exports = {marker: "output-vendor"};\n`, "utf8");
         await writeProfile(systemRoot, "custom.output.profile.mjs", `
             export default {
                 manifest: { key: "custom.output", name: "Output" },
@@ -1253,14 +1255,14 @@ describe("AgentProfileCatalog", () => {
                 tools: {},
                 rootToolKeys: [],
                 prepare() {
-                    const marker = require("@nbook/" + "output-marker");
-                    return { systemPrompt: marker.marker };
+                    return { systemPrompt: "output" };
                 },
             };
         `);
 
         const previousCwd = process.cwd();
         process.env.NEURO_BOOK_APPLICATION_ROOT = productRoot;
+        process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT = join(productRoot, ".output");
         process.chdir(productRoot);
         try {
             await compileProfileArtifacts({
@@ -1276,7 +1278,7 @@ describe("AgentProfileCatalog", () => {
             expect(artifact.slice(0, 2048)).toContain("__nbookResolveProductRequireRoot");
             expect(artifact.slice(0, 2048)).not.toContain("globalThis._importMeta_");
             expect(await profile.prepare!(context())).toEqual(expect.objectContaining({
-                systemPrompt: "output-vendor",
+                systemPrompt: "output",
             }));
         } finally {
             process.chdir(previousCwd);
@@ -1324,6 +1326,7 @@ describe("AgentProfileCatalog", () => {
         );
         process.chdir(productRoot);
         process.env.NEURO_BOOK_APPLICATION_ROOT = productRoot;
+        process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT = join(productRoot, ".output");
         try {
             const staleManifest = await readProfileArtifactManifest(systemRoot);
             await expect(validateProfileArtifact(systemRoot, staleManifest.profiles[0]!)).resolves.toEqual({
@@ -1345,21 +1348,21 @@ describe("AgentProfileCatalog", () => {
         }
     });
 
-    it("Product 用户层 artifact 经过 portable workspace junction 后仍从 app vendor 解析 require", async () => {
+    it("Product 用户层 artifact 经过 portable workspace junction 后仍可编译和加载", async () => {
         const portableRoot = join(root, "portable");
         const productRoot = join(portableRoot, "app");
         const dataWorkspaceRoot = join(portableRoot, "data", "workspace");
         systemRoot = join(productRoot, "assets", "workspace", ".nbook", "agent", "profiles");
         userRoot = join(productRoot, "workspace", ".nbook", "agent", "profiles");
-        await mkdir(join(productRoot, ".output", "server", "node_modules", "@nbook", "portable-marker"), {recursive: true});
         await mkdir(dataWorkspaceRoot, {recursive: true});
+        await mkdir(productRoot, {recursive: true});
+        await mkdir(join(productRoot, ".output", "server"), {recursive: true});
         await symlink(dataWorkspaceRoot, join(productRoot, "workspace"), process.platform === "win32" ? "junction" : "dir");
         await writeFile(join(productRoot, "package.json"), "{\"name\":\"neuro-book-product\",\"version\":\"0.0.0\",\"type\":\"module\"}\n", "utf8");
         await writeFile(join(productRoot, "tsconfig.json"), "{}\n", "utf8");
         await writeFile(join(productRoot, ".output", "server", "tsconfig.json"), "{}\n", "utf8");
         await writeFile(join(productRoot, ".output", "server", "index.mjs"), "", "utf8");
         await writeProductAuthoringFixture(join(productRoot, ".output", "server"));
-        await writeFile(join(productRoot, ".output", "server", "node_modules", "@nbook", "portable-marker", "index.js"), `module.exports = {marker: "portable-vendor"};\n`, "utf8");
         await writeProfile(userRoot, "custom.portable.profile.mjs", `
             export default {
                 manifest: { key: "custom.portable", name: "Portable" },
@@ -1368,14 +1371,14 @@ describe("AgentProfileCatalog", () => {
                 tools: {},
                 rootToolKeys: [],
                 prepare() {
-                    const marker = require("@nbook/" + "portable-marker");
-                    return { systemPrompt: marker.marker };
+                    return { systemPrompt: "portable" };
                 },
             };
         `);
 
         const previousCwd = process.cwd();
         process.env.NEURO_BOOK_APPLICATION_ROOT = productRoot;
+        process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT = join(productRoot, ".output");
         process.chdir(productRoot);
         try {
             await compileProfileArtifacts({
@@ -1385,7 +1388,7 @@ describe("AgentProfileCatalog", () => {
             const catalog = new AgentProfileCatalog(systemRoot, userRoot);
             const profile = await catalog.get("custom.portable");
             expect(await profile.prepare!(context())).toEqual(expect.objectContaining({
-                systemPrompt: "portable-vendor",
+                systemPrompt: "portable",
             }));
         } finally {
             process.chdir(previousCwd);
@@ -1402,8 +1405,10 @@ async function writeProfile(root: string, name: string, source: string): Promise
 async function writeProductAuthoringFixture(outputServerRoot: string): Promise<void> {
     const authoringRoot = join(outputServerRoot, "authoring");
     await mkdir(authoringRoot, {recursive: true});
-    await writeFile(join(authoringRoot, "package.json"), "{\"name\":\"neuro-book-profile-authoring\",\"type\":\"module\"}\n", "utf8");
+    await writeFile(join(outputServerRoot, "package.json"), "{\"name\":\"neuro-book-output\",\"type\":\"module\"}\n", "utf8");
+    await writeFile(join(authoringRoot, "package.json"), "{\"name\":\"@notnotype/neuro-book-profile-authoring-kit\",\"private\":true,\"type\":\"module\"}\n", "utf8");
     await writeFile(join(authoringRoot, "tsconfig.json"), "{}\n", "utf8");
+    await writeFile(join(authoringRoot, "profile-compile-worker.mjs"), "export {};\n", "utf8");
 }
 
 function compiledArtifactPath(root: string, item: ProfileArtifactManifestItem): string {

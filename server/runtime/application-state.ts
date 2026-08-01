@@ -3,8 +3,8 @@ import {resolve} from "node:path";
 import {
     APPLICATION_STATE_MIGRATION_CATALOG_VERSION,
     APPLICATION_STATE_MIGRATION_STEP_IDS,
-} from "nbook/scripts/application-state-migration/catalog";
-import type {ApplicationStateMigrationStepId} from "nbook/scripts/application-state-migration/types";
+} from "nbook/server/runtime/application-state-migration/catalog";
+import type {ApplicationStateMigrationStepId} from "nbook/server/runtime/application-state-migration/types";
 
 /** Application State catalog sentinel 的固定路径。 */
 export const APPLICATION_STATE_SENTINEL_RELATIVE_PATH = ".nbook/agent/migrations/application-state.json";

@@ -1,6 +1,7 @@
 import {existsSync} from "node:fs";
 import {cp, mkdir, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
 import {dirname, extname, relative, resolve} from "node:path";
+import {init, parse} from "es-module-lexer";
 import ts from "typescript";
 import {productRuntimeCompatibilityPlugin} from "nbook/scripts/build/product-bundle-plugins";
 import {productRuntimeIslandPackageNames} from "nbook/scripts/build/product-runtime-islands";
@@ -40,79 +41,6 @@ const AUTHORING_DEPENDENCIES = [
         purpose: "@types/node 的 fetch 声明引用 undici-types。",
         smoke: "resolve Node fetch declarations",
     },
-    {
-        name: "@earendil-works/pi-agent-core",
-        kind: "types",
-        purpose: "Profile 公开上下文复用 Agent message 与 tool 类型。",
-        smoke: "typecheck Profile SDK Agent message declarations",
-    },
-    {
-        name: "@earendil-works/pi-ai",
-        kind: "types",
-        purpose: "Profile 公开上下文复用模型、消息与用量类型。",
-        smoke: "typecheck Profile SDK model declarations",
-    },
-    {
-        name: "@anthropic-ai/sdk",
-        kind: "types",
-        purpose: "PI Anthropic request options 的声明依赖。",
-        smoke: "resolve PI Anthropic option declarations",
-    },
-    {
-        name: "@google/genai",
-        kind: "types",
-        purpose: "PI Google request options 的声明依赖。",
-        smoke: "resolve PI Google option declarations",
-        optionalTypePeers: ["@modelcontextprotocol/sdk"],
-    },
-    {
-        name: "google-auth-library",
-        kind: "types",
-        purpose: "Google GenAI Node auth 声明的直接类型依赖。",
-        smoke: "resolve Google GenAI auth declarations",
-    },
-    {
-        name: "gaxios",
-        kind: "types",
-        purpose: "Google Auth HTTP client 的声明依赖。",
-        smoke: "resolve Google Auth HTTP declarations",
-    },
-    {
-        name: "gcp-metadata",
-        kind: "types",
-        purpose: "Google Auth metadata client 的声明依赖。",
-        smoke: "resolve Google Auth metadata declarations",
-    },
-    {
-        name: "google-logging-utils",
-        kind: "types",
-        purpose: "Google Auth logger 的声明依赖。",
-        smoke: "resolve Google Auth logging declarations",
-    },
-    {
-        name: "openai",
-        kind: "types",
-        purpose: "PI OpenAI request options 的声明依赖。",
-        smoke: "resolve PI OpenAI option declarations",
-    },
-    {
-        name: "@prisma/client",
-        kind: "types",
-        purpose: "Project session 与 World Engine 公开类型引用生成的 Prisma 类型。",
-        smoke: "typecheck generated Project Prisma declarations",
-    },
-    {
-        name: "@prisma/client-runtime-utils",
-        kind: "types",
-        purpose: "@prisma/client runtime declarations 的直接类型依赖。",
-        smoke: "resolve Prisma runtime utility declarations",
-    },
-    {
-        name: "zod",
-        kind: "types",
-        purpose: "Profile settings、DTO 与写作资源公开类型引用 Zod。",
-        smoke: "typecheck Profile settings declarations",
-    },
 ] as const satisfies readonly AuthoringDependencyRegistration[];
 
 /**
@@ -125,11 +53,11 @@ export async function buildProductAuthoringKit(outputRoot: string): Promise<Prod
     const serverRoot = resolve(outputRoot, "server");
     const kitRoot = resolve(serverRoot, "authoring");
     const compilerPath = resolve(kitRoot, "profile-compile-worker.mjs");
-    const sdkRoot = resolve(kitRoot, "nbook", "profile-sdk");
+    const nbookRoot = resolve(kitRoot, "nbook");
     const sdkSourceRoot = resolve(kitRoot, "sdk-source");
     const typeRoot = resolve(kitRoot, "types");
     await rm(kitRoot, {recursive: true, force: true});
-    await mkdir(sdkRoot, {recursive: true});
+    await mkdir(nbookRoot, {recursive: true});
     await mkdir(sdkSourceRoot, {recursive: true});
 
     const result = await Bun.build({
@@ -154,32 +82,57 @@ export async function buildProductAuthoringKit(outputRoot: string): Promise<Prod
     if (result.outputs.length !== 1) throw new Error("Profile compiler bundle 必须只产生一个入口。");
     await Bun.write(compilerPath, result.outputs[0]!);
 
-    for (const fileName of ["index.ts", "jsx-runtime.ts", "jsx-dev-runtime.ts"]) {
-        const source = resolve("profile-sdk", fileName);
-        if (!existsSync(source)) throw new Error(`Profile SDK 缺少 ${fileName}`);
-        await cp(source, resolve(sdkSourceRoot, fileName));
-        const sdkBuild = await Bun.build({
-            entrypoints: [source],
-            target: "bun",
-            format: "esm",
-            minify: true,
-            sourcemap: "none",
-            external: ["bun", "bun:*"],
-        });
-        if (!sdkBuild.success) {
-            throw new Error([
-                `Profile SDK bundle 失败：${fileName}`,
-                ...sdkBuild.logs.map((log) => log.message),
-            ].join("\n"));
+    const sdkEntries = [
+        {name: "profile-sdk", files: ["index.ts", "contracts.ts", "constructors.ts", "writing.ts", "jsx-runtime.ts", "jsx-dev-runtime.ts"]},
+        {name: "variable-sdk", files: ["index.ts", "contracts.ts"]},
+    ] as const;
+    for (const sdk of sdkEntries) {
+        const runtimeRoot = resolve(nbookRoot, sdk.name);
+        const sourceRoot = resolve(sdkSourceRoot, sdk.name);
+        await mkdir(runtimeRoot, {recursive: true});
+        await mkdir(sourceRoot, {recursive: true});
+        for (const fileName of sdk.files) {
+            const source = resolve(sdk.name, fileName);
+            if (!existsSync(source)) throw new Error(`${sdk.name} 缺少 ${fileName}`);
+            await cp(source, resolve(sourceRoot, fileName));
+            const sdkBuild = await Bun.build({
+                entrypoints: [source],
+                target: "bun",
+                format: "esm",
+                minify: true,
+                sourcemap: "none",
+                external: [
+                    "bun",
+                    "bun:*",
+                    ...(sdk.name === "profile-sdk" && fileName.startsWith("jsx-")
+                        ? ["nbook/profile-sdk", "nbook/profile-sdk/*"]
+                        : []),
+                ],
+            });
+            if (!sdkBuild.success) {
+                throw new Error([
+                    `${sdk.name} bundle 失败：${fileName}`,
+                    ...sdkBuild.logs.map((log) => log.message),
+                ].join("\n"));
+            }
+            if (sdkBuild.outputs.length !== 1) throw new Error(`${sdk.name} ${fileName} 必须只产生一个入口。`);
+            const runtimeFileName = fileName.replace(/\.ts$/u, ".mjs");
+            const runtimeSource = await rewriteProjectedSdkImports(
+                await sdkBuild.outputs[0]!.text(),
+                `${sdk.name}/${runtimeFileName}`,
+            );
+            await Bun.write(resolve(runtimeRoot, runtimeFileName), runtimeSource);
         }
-        if (sdkBuild.outputs.length !== 1) throw new Error(`Profile SDK ${fileName} 必须只产生一个入口。`);
-        await Bun.write(resolve(sdkRoot, fileName.replace(/\.ts$/u, ".mjs")), sdkBuild.outputs[0]!);
     }
     const declarationDependencies = await emitAuthoringTypes(typeRoot);
     assertDeclaredTypeDependencies(declarationDependencies);
     await cp(resolve("proper-lockfile.d.ts"), resolve(typeRoot, "proper-lockfile.d.ts"));
     const dependencyProjection = await projectAuthoringDependencies({
-        seedSpecifiers: new Set([...declarationDependencies].filter((specifier) => specifier !== "proper-lockfile")),
+        // Authoring tsconfig 显式启用 Node globals；即使 SDK 声明没有直接 import，也必须投影其真实类型闭包。
+        seedSpecifiers: new Set([
+            ...[...declarationDependencies].filter((specifier) => specifier !== "proper-lockfile"),
+            "@types/node",
+        ]),
         targetNodeModulesRoot: resolve(kitRoot, "node_modules"),
         registrations: AUTHORING_DEPENDENCIES,
         importerPath: resolve("profile-sdk", "index.ts"),
@@ -198,6 +151,8 @@ export async function buildProductAuthoringKit(outputRoot: string): Promise<Prod
             paths: {
                 "nbook/profile-sdk": ["./types/profile-sdk/index.d.ts"],
                 "nbook/profile-sdk/*": ["./types/profile-sdk/*"],
+                "nbook/variable-sdk": ["./types/variable-sdk/index.d.ts"],
+                "nbook/variable-sdk/*": ["./types/variable-sdk/*"],
                 "nbook/*": ["./types/*"],
                 "#cache/*": ["./types/packages/file-snapshot-cache/src/*"],
                 "proper-lockfile": ["./types/proper-lockfile.d.ts"],
@@ -222,7 +177,7 @@ export async function buildProductAuthoringKit(outputRoot: string): Promise<Prod
     const packageTypeInventory = await directoryInventory(resolve(kitRoot, "node_modules"));
     return {
         compilerBytes: (await stat(compilerPath)).size,
-        sdkBytes: await sdkSize(sdkRoot) + await sdkSize(sdkSourceRoot),
+        sdkBytes: (await directoryInventory(nbookRoot)).bytes + (await directoryInventory(sdkSourceRoot)).bytes,
         typeBytes: typeInventory.bytes + packageTypeInventory.bytes,
         typeFiles: typeInventory.files + packageTypeInventory.files,
         dependencies: dependencyProjection.dependencies,
@@ -230,7 +185,43 @@ export async function buildProductAuthoringKit(outputRoot: string): Promise<Prod
 }
 
 /**
- * 使用 TypeScript 声明 emitter 建立候选图，再从 SDK 三个公开入口精确投影可达声明。
+ * 将 SDK 投影之间的公开裸入口改成镜像内相对引用。
+ *
+ * Source 仍使用 `nbook/profile-sdk` 供作者和仓库 tsconfig 消费；Product Runtime Image
+ * 内部不能依赖祖先目录的 package resolution。只登记实际存在的投影边，新增边必须显式审查。
+ */
+async function rewriteProjectedSdkImports(source: string, importer: string): Promise<string> {
+    await init;
+    const internalSpecifiers = new Map([
+        ["nbook/profile-sdk", "./index.mjs"],
+        ["nbook/profile-sdk/jsx-runtime", "./jsx-runtime.mjs"],
+    ]);
+    const [imports] = parse(source);
+    const replacements: Array<{start: number; end: number; value: string}> = [];
+    for (const item of imports) {
+        if (!item.n) continue;
+        const replacement = internalSpecifiers.get(item.n);
+        if (replacement) {
+            replacements.push({
+                start: item.s,
+                end: item.e,
+                value: item.d >= 0 ? JSON.stringify(replacement) : replacement,
+            });
+            continue;
+        }
+        if (item.n === "nbook" || item.n.startsWith("nbook/")) {
+            throw new Error(`Authoring SDK runtime 含未登记内部引用：${importer} -> ${item.n}`);
+        }
+    }
+    let rewritten = source;
+    for (const replacement of replacements.sort((left, right) => right.start - left.start)) {
+        rewritten = `${rewritten.slice(0, replacement.start)}${replacement.value}${rewritten.slice(replacement.end)}`;
+    }
+    return rewritten;
+}
+
+/**
+ * 使用 TypeScript semantic gate 与声明 emitter 建立候选图，再从 SDK 公开入口精确投影可达声明。
  * `program.emit()` 会写出 Program 中所有源码；不能直接把那棵树当成 SDK 闭包。
  */
 async function emitAuthoringTypes(typeRoot: string): Promise<Set<string>> {
@@ -251,15 +242,24 @@ async function emitAuthoringTypes(typeRoot: string): Promise<Set<string>> {
         lib: ["lib.esnext.d.ts", "lib.dom.d.ts", "lib.dom.iterable.d.ts"],
         types: ["bun", "node"],
         skipLibCheck: true,
-        noCheck: true,
+        strict: true,
         declaration: true,
         emitDeclarationOnly: true,
     };
-    const roots = ["index.ts", "jsx-runtime.ts", "jsx-dev-runtime.ts"]
-        .map((fileName) => resolve("profile-sdk", fileName));
+    const roots = [
+        resolve("profile-sdk", "index.ts"),
+        resolve("profile-sdk", "contracts.ts"),
+        resolve("profile-sdk", "constructors.ts"),
+        resolve("profile-sdk", "writing.ts"),
+        resolve("profile-sdk", "jsx-runtime.ts"),
+        resolve("profile-sdk", "jsx-dev-runtime.ts"),
+        resolve("variable-sdk", "index.ts"),
+        resolve("variable-sdk", "contracts.ts"),
+        resolve("server", "agent", "tools", "web-extraction-modules.d.ts"),
+    ];
     try {
         const program = ts.createProgram({rootNames: roots, options});
-        const diagnostics = program.getSyntacticDiagnostics();
+        const diagnostics = ts.getPreEmitDiagnostics(program);
         if (diagnostics.length > 0) {
             throw new Error(ts.formatDiagnostics(diagnostics, {
                 getCanonicalFileName: (fileName) => fileName,
@@ -277,8 +277,14 @@ async function emitAuthoringTypes(typeRoot: string): Promise<Set<string>> {
 
 /** 从声明入口沿静态 module specifier 复制闭包，并返回第三方类型依赖。 */
 async function copyReachableDeclarations(emittedRoot: string, typeRoot: string): Promise<Set<string>> {
-    const entryFiles = ["index.d.ts", "jsx-runtime.d.ts", "jsx-dev-runtime.d.ts"]
-        .map((fileName) => resolve(emittedRoot, "profile-sdk", fileName));
+    const entryFiles = [
+        resolve(emittedRoot, "profile-sdk", "index.d.ts"),
+        resolve(emittedRoot, "profile-sdk", "writing.d.ts"),
+        resolve(emittedRoot, "profile-sdk", "jsx-runtime.d.ts"),
+        resolve(emittedRoot, "profile-sdk", "jsx-dev-runtime.d.ts"),
+        resolve(emittedRoot, "variable-sdk", "index.d.ts"),
+        resolve(emittedRoot, "variable-sdk", "contracts.d.ts"),
+    ];
     const queue = [...entryFiles];
     const visited = new Set<string>();
     const dependencies = new Set<string>();
@@ -370,16 +376,6 @@ function assertDeclaredTypeDependencies(specifiers: Set<string>): void {
     if (unsupported.length > 0) {
         throw new Error(`Authoring declaration 含未登记第三方依赖：\n${unsupported.sort().map((name) => `- ${name}`).join("\n")}`);
     }
-}
-
-async function sdkSize(root: string): Promise<number> {
-    const files = ["index.ts", "jsx-runtime.ts", "jsx-dev-runtime.ts", "index.mjs", "jsx-runtime.mjs", "jsx-dev-runtime.mjs"];
-    let bytes = 0;
-    for (const fileName of files) {
-        const path = resolve(root, fileName);
-        if (existsSync(path)) bytes += (await stat(path)).size;
-    }
-    return bytes;
 }
 
 /** 统计 Authoring Kit 的声明树，供 owner inventory 和构建日志使用。 */

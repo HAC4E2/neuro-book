@@ -110,12 +110,13 @@ describe("project-session HMR boundaries", () => {
         const {createProjectHttpError} = await import("nbook/server/api/projects/project-http-error");
         const {withProjectHttpError} = await import("nbook/server/api/projects/project-http-error");
 
-        const first = await facade.openProject(workspaceRoot, "workspace/alpha", {kind: "user"});
-        const second = await facade.openProject(workspaceRoot, "workspace/alpha", {kind: "agent", sessionId: 7});
+        const ref = projectWorkspaceRef("alpha");
+        const first = await facade.openProject(ref, {kind: "user"}, workspaceRoot);
+        const second = await facade.openProject(ref, {kind: "agent", sessionId: 7}, workspaceRoot);
         expect(second).toBe(first);
         expect(lifecycle.prepareOpen).toHaveBeenCalledTimes(1);
 
-        await expect(facade.openProject(otherRoot, "workspace/alpha", {kind: "user"}))
+        await expect(facade.openProject(ref, {kind: "user"}, otherRoot))
             .rejects.toThrow("ProjectSession Service已经绑定到另一个Workspace Root");
         expect(lifecycle.prepareOpen).toHaveBeenCalledTimes(1);
 

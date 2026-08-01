@@ -40,6 +40,17 @@
 - `simulator.actor.profile.tsx`
 - `rp.writer.profile.tsx`
 
+### Authoring imports
+
+Profile 的基础公开入口是 `nbook/profile-sdk`。需要读取文风/参考预设或构造对应提示词时，显式从正式子入口 `nbook/profile-sdk/writing` 导入；不需要 writing 能力的 Profile 不应导入它，以免把 Zod/YAML 等 writing host graph 重复打入每个 artifact。
+
+```ts
+import {Type, defineAgentProfile} from "nbook/profile-sdk";
+import {buildWritingStyle, DEFAULT_WRITING_STYLE_PRESET} from "nbook/profile-sdk/writing";
+```
+
+除该精确子入口、Profile root 内相对模块和 Runtime builtin 外，不允许导入其他 SDK subpath、`server/**` 或任意第三方 npm package。`typebox` 是 SDK implementation，不是作者 Interface。
+
 ## Prepare Lifecycle
 
 1. Harness 校验 profile initial 和本轮 payload，并构造 `ProfilePrepareContext`。
@@ -67,8 +78,7 @@
 settings 使用 `defineLowCodeForm()` 定义：
 
 ```ts
-import {Type} from "typebox";
-import {defineLowCodeForm} from "nbook/server/low-code-form";
+import {Type, defineLowCodeForm} from "nbook/profile-sdk";
 
 export const SettingsSchema = Type.Object({
     writingStylePreset: Type.String(),
@@ -255,11 +265,8 @@ V1 只允许 `AGENTS.md`、`reference/**` 和 `docs/**`。不要用 `Import` 读
 ## Minimal Skeleton
 
 ```tsx
-/** @jsxImportSource nbook/server/agent/profiles/profile-dsl */
+/** @jsxImportSource nbook/profile-sdk */
 /** @jsxRuntime automatic */
-import {Type} from "typebox";
-import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
 import {
     AppendingSet,
     HistorySet,
@@ -269,8 +276,12 @@ import {
     ProfilePrompt,
     SkillCatalog,
     System,
+    Type,
     WorkspaceFocusReminder,
-} from "nbook/server/agent/profiles/profile-dsl";
+    builtin,
+    defineAgentProfile,
+    toolset,
+} from "nbook/profile-sdk";
 
 export const profileManifest = {
     key: "some.profile",
@@ -323,8 +334,7 @@ export default defineAgentProfile({
 profile 可以用 `defineProfileTool()` 定义自带工具，并把 definition 本身放进根 `tools`。自带工具的 key 只在当前 profile run 内解析，不会注册进全局 registry。
 
 ```ts
-import {Type} from "typebox";
-import {builtin, defineProfileTool, toolset} from "nbook/server/agent/profiles/profile-tools";
+import {Type, builtin, defineProfileTool, toolset} from "nbook/profile-sdk";
 
 const roll_dice = defineProfileTool({
     key: "roll_dice",
@@ -362,4 +372,4 @@ const profileTools = toolset(
 - `AppendingSet` 是否贴近当前输入，Reminder 顺序是否合理。
 - 动态焦点是否通过明确的 runtime reminder 或 `ctx.invocation.clientState` 表达。
 - 新 TSX 节点是否有定向测试覆盖。
-- profile 是否可通过 `bun scripts/build/profile.ts check <file> --system` 或对应用户 assets check。
+- profile 是否可通过 `profile check <file> --system` 或对应用户 Profile check。

@@ -1,208 +1,22 @@
-import type {Static, TSchema} from "typebox";
-import type {JsonValue} from "nbook/server/agent/messages/types";
-import type {StoredAgentMessage, StoredUserMessage} from "nbook/server/agent/messages/stored-types";
-import type {NeuroSessionContext, SessionEntryDraft} from "nbook/server/agent/session/types";
-import type {SessionWritePlan} from "nbook/server/agent/session/write-plan";
-import type {ProfileDslNode} from "nbook/server/agent/profiles/profile-dsl";
-import type {SkillCatalogItem} from "nbook/server/agent/skills/skill-catalog";
-import type {ClientStateSnapshot, ProfileVariableAccessor, VariableDefinition} from "nbook/server/agent/variables/types";
-import type {ProfileRuntimeDefaults} from "nbook/shared/agent/profile-runtime-settings";
-import type {AgentRuntimeDefinition, NormalizedAgentRuntimeDefinition, RuntimeSessionFacade} from "nbook/server/agent/profiles/define-agent-runtime";
-import type {AgentInvokeCaller} from "nbook/server/agent/harness/invocation-caller";
-import type {ProfileTools} from "nbook/server/agent/profiles/profile-tools";
-import type {LowCodeFormDefinition} from "nbook/server/low-code-form";
-import type {LowCodeJsonObject} from "nbook/shared/dto/low-code-form.dto";
-import type {ProfileHomeDefinition, ProfileHomeFacade} from "nbook/server/agent/profiles/profile-home";
-import type {ProfileTurnContextPlan} from "nbook/server/agent/profiles/profile-turn-context";
-import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
+/**
+ * Profile 作者可见合同由 `nbook/profile-sdk` 拥有。
+ *
+ * 宿主继续从这个历史入口导入，以保证 runtime implementation 与 Authoring
+ * Interface 使用同一组类型；本 Module 不再复制或扩张作者合同。
+ */
+export type {
+    AgentCatalogItem,
+    AgentCatalogSnapshot,
+    AgentProfile,
+    AgentProfileCreationMode,
+    AgentProfileDefinition,
+    AgentProfileIssue,
+    AgentProfileIssueCode,
+    AgentProfileLoadStatus,
+    AgentProfileManifest,
+    AgentProfileSourceKind,
+    ProfilePrepareContext,
+    ProfileTurnPlan,
+} from "nbook/profile-sdk/contracts";
 
-export type AgentProfileManifest<TKey extends string = string> = {
-    key: TKey;
-    name: string;
-    description?: string;
-    version?: number;
-};
-
-export type AgentProfileSourceKind = "memory" | "system" | "user";
-export type AgentProfileCreationMode = "public" | "system_only";
-
-export type AgentProfileLoadStatus =
-    | "loaded"
-    | "compiling"
-    | "compile_failed"
-    | "not_compiled"
-    | "compile_stale"
-    | "compiled_load_failed"
-    | "source_error";
-
-export type AgentProfileIssueCode =
-    | "load_failed"
-    | "invalid_export"
-    | "schema_missing"
-    | "builtin_schema_locked"
-    | "filename_mismatch"
-    | "system_profile_shadowed"
-    | "file_missing"
-    | "not_compiled"
-    | "compile_failed"
-    | "compile_stale"
-    | "source_stale"
-    | "dependency_stale"
-    | "compiled_load_failed"
-    | "source_error";
-
-export type AgentProfileIssue = {
-    code: AgentProfileIssueCode;
-    message: string;
-    profileKey?: string;
-    source?: AgentProfileSourceKind;
-    sourcePath?: string;
-};
-
-export type AgentCatalogItem = {
-    key: string;
-    name: string;
-    description?: string;
-    toolKeys?: readonly string[];
-    initialSchema?: TSchema;
-    payloadSchema?: TSchema;
-    outputSchema?: TSchema;
-    source: AgentProfileSourceKind;
-    sourcePath?: string;
-    builtin: boolean;
-    loadStatus: AgentProfileLoadStatus;
-    hasSettingsForm: boolean;
-    /** 是否声明专用 summarizer 策略；决定无用户覆盖时的默认开关，不控制设置 UI 可见性。 */
-    canResetHome: boolean;
-    creationMode: AgentProfileCreationMode;
-    issue?: AgentProfileIssue;
-};
-
-export type AgentCatalogSnapshot = {
-    profiles: AgentCatalogItem[];
-    issues: AgentProfileIssue[];
-};
-
-type ProfileSettingsContext<TSettings> = TSettings extends undefined
-    ? {settings: LowCodeJsonObject}
-    : unknown extends TSettings
-        ? {settings: LowCodeJsonObject}
-    : {settings: TSettings};
-
-type StaticSettings<TSettingsSchema extends TSchema | undefined> = [TSettingsSchema] extends [TSchema]
-    ? Static<TSettingsSchema>
-    : undefined;
-
-export type ProfilePrepareContext<TInitial = JsonValue, TPayload = unknown, TSettings = undefined> = {
-    session: RuntimeSessionFacade;
-    /** 创建 agent session 时传入的稳定初始化参数。 */
-    initial: TInitial;
-    /** 本次 invocation 的一次性入参；runtime reminder 可直接读取 clientState。 */
-    invocation?: {
-        payload?: TPayload;
-        message?: string;
-        clientState?: ClientStateSnapshot;
-        caller: AgentInvokeCaller;
-    };
-    /** 底层变量访问器；保留给需要显式编程访问的 profile。 */
-    vars: ProfileVariableAccessor;
-    /** Agent profile catalog snapshot，用于 AgentCatalog 和 create_agent/invoke_agent 提示。 */
-    catalog: AgentCatalogSnapshot;
-    /** 当前可见 skill 快照，用于 SkillCatalog。 */
-    skills: SkillCatalogItem[];
-    /** 当前可见 workflow 快照，用于 WorkflowCatalog fragment（Task 111）。为空 = 宿主未注入（测试/旧路径），fragment 渲染为空。 */
-    workflows?: {key: string; title: string; description: string; whenToUse?: string; source: "system" | "user" | "project"}[];
-    /** 已通过统一 helper 校验并应用默认兜底的 Agent 可见模型清单。 */
-    agentVisibleModels?: {modelKey: string; note: string}[];
-    runtime?: {
-        now: string;
-        promptUserTurnCount: number;
-        /**
-         * 生产 runtime 在调用入口捕获的精确 Project generation。
-         * `null` 表示本次运行属于 Workspace Root；`undefined` 仅允许直接调用 profile 的测试/离线工具。
-         */
-        currentProject?: ReadyProjectSessionRef | null;
-        /** prompt 模式下尚未写入 session 的本轮用户输入；continue 时为空。 */
-        pendingUserMessage?: StoredUserMessage;
-        /**
-         * 宿主注入的当前 Project SQL schema 摘要。为空 = 宿主未接线（测试/离线工具）；
-         * session 未绑定 Project Workspace 时调用会抛错。两种情况 profile 侧都渲染
-         * 「暂不可用」降级文案。经注入而非 import 的原因：profile artifact 依赖图
-         * 不允许携带宿主实现（project-session / @libsql），见 profile-compiled-artifacts.md。
-         */
-        sqlSchemaSummary?: () => Promise<string>;
-    };
-    /** 当前 profile home。Project session 读取时 Project 优先、Global 兜底；写入仍落当前主 home。 */
-    home?: ProfileHomeFacade;
-} & ProfileSettingsContext<TSettings>;
-
-export type ProfileTurnPlan = {
-    systemPrompt?: string;
-    historyInitMessages?: StoredAgentMessage[];
-    appendingMessages?: StoredAgentMessage[];
-    /** ModelContext 内需要按 AppendingSet 语义写入 session 的运行时提醒。 */
-    modelContextAppendingMessages?: StoredAgentMessage[];
-    modelContextMessages?: StoredAgentMessage[];
-    /** 每个 provider turn 由 profile 显式声明并动态物化的 AppendingSet 上下文。 */
-    turnContexts?: ProfileTurnContextPlan[];
-    /**
-     * 上下文归因来源名（Task 126）。各字段与同名消息数组一一对应，无来源的位置为 null；
-     * 整个分区都无来源时该字段缺省。纯可观测产物，不影响发给模型的内容。
-     */
-    promptSourceLabels?: {
-        historyInit?: (readonly string[] | null)[];
-        modelContext?: (readonly string[] | null)[];
-        modelContextAppending?: (readonly string[] | null)[];
-        appending?: (readonly string[] | null)[];
-    };
-    stateWrites?: SessionEntryDraft[];
-};
-
-export type AgentProfileRuntimeDefaults<TKey extends string = string> = ProfileRuntimeDefaults;
-
-export type AgentProfileDefinition<
-    TInitialSchema extends TSchema = TSchema,
-    TPayloadSchema extends TSchema = TSchema,
-    TOutputSchema extends TSchema = TSchema,
-    TSettingsSchema extends TSchema | undefined = TSchema | undefined,
-    TSummarizerKey extends string = string,
-    TTools extends ProfileTools = ProfileTools,
-> = {
-    manifest: AgentProfileManifest;
-    /** Agent session 创建入口能力。system_only 只能由 Harness 内部系统流程创建。 */
-    capabilities?: {
-        creation?: AgentProfileCreationMode;
-    };
-    initialSchema: TInitialSchema;
-    payloadSchema?: TPayloadSchema;
-    outputSchema?: TOutputSchema;
-    settingsForm?: TSettingsSchema extends TSchema ? LowCodeFormDefinition<TSettingsSchema> : undefined;
-    home?: ProfileHomeDefinition;
-    tools: TTools;
-    /** 主 run 实际可执行工具；不声明时等于 tools 的全部 key。 */
-    toolKeys?: readonly (keyof TTools & string)[];
-    /**
-     * Skill catalog 可见性白名单。声明 include 后，prepare ctx.skills 只保留列表内的 skill key。
-     * 这是提示层可见性过滤，不是文件级权限隔离：文件工具仍可读取任何 skill 目录。不声明时全量可见。
-     */
-    skills?: {include: readonly string[]};
-    /** Harness 通用运行策略的最低优先级出厂默认；用户配置始终可以覆盖。 */
-    runtimeDefaults?: AgentProfileRuntimeDefaults<TSummarizerKey>;
-    runtime?: AgentRuntimeDefinition<Static<TInitialSchema>> | NormalizedAgentRuntimeDefinition<Static<TInitialSchema>>;
-    /** profile 自带的 session.* 变量定义，随 profile `.compiled` artifact 加载。 */
-    variableDefinitions?: readonly VariableDefinition[];
-    context?(ctx: ProfilePrepareContext<Static<TInitialSchema>, Static<TPayloadSchema>, StaticSettings<TSettingsSchema>>): ProfileDslNode | Promise<ProfileDslNode>;
-    prepare?(ctx: ProfilePrepareContext<Static<TInitialSchema>, Static<TPayloadSchema>, StaticSettings<TSettingsSchema>>): ProfileTurnPlan | Promise<ProfileTurnPlan>;
-};
-
-export type AgentProfile<
-    TInitialSchema extends TSchema = TSchema,
-    TPayloadSchema extends TSchema = TSchema,
-    TOutputSchema extends TSchema = TSchema,
-    TSettingsSchema extends TSchema | undefined = TSchema | undefined,
-    TSummarizerKey extends string = string,
-    TTools extends ProfileTools = ProfileTools,
-> = AgentProfileDefinition<TInitialSchema, TPayloadSchema, TOutputSchema, TSettingsSchema, TSummarizerKey, TTools> & {
-    /** 由 tools 对象派生的稳定 root 工具 key 列表。运行时以 tools 为真相源，此字段只供便捷读取。 */
-    rootToolKeys: readonly (keyof TTools & string)[];
-};
+export type {ProfileRuntimeDefaults as AgentProfileRuntimeDefaults} from "nbook/profile-sdk/contracts";

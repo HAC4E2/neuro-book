@@ -1,16 +1,35 @@
 import {randomUUID} from "node:crypto";
 import {mkdir, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
-import {describe, expect, it} from "vitest";
-import writerProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/writer.profile";
-import inlineEditorProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/inline.editor.profile";
+import {afterAll, beforeAll, describe, expect, it} from "vitest";
+import writerProfileDefinition from "../../../assets/workspace/.nbook/agent/profiles/builtin/writer.profile";
+import inlineEditorProfileDefinition from "../../../assets/workspace/.nbook/agent/profiles/builtin/inline.editor.profile";
 import {DEFAULT_WRITING_REFERENCE_PRESET} from "nbook/server/agent/profiles/writer-writing-reference";
 import {DEFAULT_WRITING_STYLE_PRESET} from "nbook/server/agent/profiles/writer-writing-style";
 import {messageText} from "nbook/server/agent/messages/message-utils";
 import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
 import {createTestRuntimeSession as testSession} from "nbook/server/agent/profiles/test/runtime-session";
+import {normalizeAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
+import {
+    createIsolatedWorkspaceAssets,
+    type IsolatedWorkspaceAssets,
+} from "nbook/server/workspace-files/test-workspace-fixture";
+
+const writerProfile = normalizeAgentProfile(writerProfileDefinition);
+const inlineEditorProfile = normalizeAgentProfile(inlineEditorProfileDefinition);
 
 describe("writer profile contract", () => {
+    let assets: IsolatedWorkspaceAssets;
+
+    beforeAll(async () => {
+        assets = await createIsolatedWorkspaceAssets({purpose: "writer-profile-contract-tests"});
+    });
+
+    afterAll(async () => {
+        await assets.dispose();
+    });
+
     it("暴露正文写作 profile 基础合同", () => {
         expect(writerProfile.manifest.key).toBe("writer");
         expect(writerProfile.manifest.name).toBe("正文写作");
@@ -71,7 +90,7 @@ describe("writer profile contract", () => {
 
     it("提示词声明 autonomous 自主模式，并渲染 input.chapterId 自取 brief 提示", async () => {
         const projectSlug = `writer-project-${randomUUID()}`;
-        const projectRoot = resolve("workspace", projectSlug);
+        const projectRoot = join(resolveRuntimeWorkspaceRoot(), projectSlug);
         await mkdir(projectRoot, {recursive: true});
         await writeFile(join(projectRoot, "project.yaml"), "kind: novel\ntitle: Writer Contract\nsummary: \"\"\n", "utf8");
         try {

@@ -8,12 +8,13 @@ import {run, runBun} from "#manager/process";
 import {currentProductPlatform} from "#manager/platform";
 import type {ProductComponent, ProductPlatform, ProductRuntimeImageIdentity} from "#manager/types";
 import {
-    ProductRuntimeImageBuilder,
+    PRODUCT_RUNTIME_BUILDER_CONTRACT_VERSION,
     type ProductRuntimeExpectedIdentity,
     type ProductRuntimeImageManifest,
 } from "nbook/scripts/build/product-runtime-image-builder";
+import {ProductRuntimeImageVerifier} from "nbook/shared/product-runtime-image-verifier";
 
-const RUNTIME_IMAGE_BUILDER_CONTRACT = "2";
+const RUNTIME_IMAGE_BUILDER_CONTRACT = PRODUCT_RUNTIME_BUILDER_CONTRACT_VERSION;
 
 /** Manager 完成只读控制面验证后返回的 Runtime Image 身份。 */
 export type VerifiedRuntimeImageIdentity = ProductRuntimeImageIdentity & {
@@ -102,7 +103,7 @@ export async function verifyProductRuntimeImage(
     },
 ): Promise<VerifiedRuntimeImageIdentity> {
     const identity: ProductRuntimeExpectedIdentity = expected;
-    const image = await new ProductRuntimeImageBuilder(dirname(outputRoot)).openVerified(outputRoot, identity);
+    const image = await new ProductRuntimeImageVerifier().openVerified(outputRoot, identity);
     return verifiedIdentity(image.manifest);
 }
 
@@ -119,7 +120,7 @@ export async function verifyProductRuntimeControlPlane(
         platform: ProductPlatform;
     },
 ): Promise<VerifiedRuntimeImageIdentity> {
-    const image = await new ProductRuntimeImageBuilder(dirname(outputRoot)).openControlPlane(outputRoot, expected);
+    const image = await new ProductRuntimeImageVerifier().openControlPlane(outputRoot, expected);
     return verifiedIdentity(image.manifest);
 }
 

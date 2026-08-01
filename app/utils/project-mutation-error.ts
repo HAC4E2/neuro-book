@@ -2,6 +2,16 @@ import {FetchError} from "ofetch";
 
 export type ProjectMutationCommitState = boolean | "unknown";
 
+/** Store 已收到 mutation 成功响应，但无法重新取得完整 Catalog 时保留明确提交事实。 */
+export class ProjectCatalogRefreshError extends Error {
+    readonly committed = true;
+
+    constructor(readonly operation: string, options: ErrorOptions) {
+        super("Project 操作已经提交，但项目列表刷新失败", options);
+        this.name = "ProjectCatalogRefreshError";
+    }
+}
+
 type ApiErrorLike = {
     /** `$fetch` 解析后的响应正文；外部错误结构在运行时继续逐字段收窄。 */
     readonly data?: unknown;
@@ -21,6 +31,9 @@ export function resolveProjectMutationCommitState(
     error: unknown,
     expectedOperation: string,
 ): ProjectMutationCommitState | null {
+    if (error instanceof ProjectCatalogRefreshError) {
+        return error.operation === expectedOperation ? error.committed : null;
+    }
     if (!isObject(error)) {
         return null;
     }

@@ -1,29 +1,19 @@
 import type {TSchema} from "typebox";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
+import type {
+    VariableDefinition,
+    VariableNamespace,
+    VariableWriter,
+    VariableWriteMode,
+} from "nbook/variable-sdk/contracts";
 
-export type VariableNamespace = "client" | "global" | "project" | "session";
-
-export type VariableWriter = "frontend" | "agent" | "user";
-
-export type VariableWriteMode = "patch" | "replace";
+export type {VariableDefinition, VariableNamespace, VariableWriter, VariableWriteMode} from "nbook/variable-sdk/contracts";
 
 export type ClientStateSnapshot = {
     ide?: Record<string, JsonValue>;
     studio?: Record<string, JsonValue>;
     [key: string]: JsonValue | Record<string, JsonValue> | undefined;
-};
-
-export type VariableDefinition = {
-    namespace: VariableNamespace;
-    key: string;
-    schema: TSchema;
-    title?: string;
-    summary?: string;
-    default?: JsonValue;
-    readable?: boolean;
-    writableBy?: VariableWriter[];
-    writeMode?: VariableWriteMode;
 };
 
 export type VariableRootCatalogItem = {

@@ -1,6 +1,9 @@
 import {describe, expect, it} from "vitest";
 import {FetchError} from "ofetch";
-import {resolveProjectMutationCommitState} from "nbook/app/utils/project-mutation-error";
+import {
+    ProjectCatalogRefreshError,
+    resolveProjectMutationCommitState,
+} from "nbook/app/utils/project-mutation-error";
 
 describe("Project mutation HTTP error", () => {
     it("解析 $fetch data 与 response._data 中的 committed 状态", () => {
@@ -48,5 +51,12 @@ describe("Project mutation HTTP error", () => {
 
         expect(resolveProjectMutationCommitState(noResponse, "cover-update")).toBe("unknown");
         expect(resolveProjectMutationCommitState(withResponse, "cover-update")).toBeNull();
+    });
+
+    it("保留 mutation 成功后 Catalog 刷新失败的 committed true", () => {
+        const error = new ProjectCatalogRefreshError("delete", {cause: new Error("refresh failed")});
+
+        expect(resolveProjectMutationCommitState(error, "delete")).toBe(true);
+        expect(resolveProjectMutationCommitState(error, "create")).toBeNull();
     });
 });

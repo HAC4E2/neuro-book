@@ -11,26 +11,30 @@ const toolBubblePath = fileURLToPath(new URL("./agent/AgentToolBubble.vue", impo
 const attachmentPanelPath = fileURLToPath(new URL("./agent/AgentSessionAttachmentPanel.vue", import.meta.url));
 
 describe("Project 与 Attachment 图片体验合同", () => {
-    it("书架懒加载固定封面 preset，并通过专用 mutation 原位刷新单本 Project", async () => {
+    it("书架懒加载固定封面 preset，并由 Store 统一发布 Project mutation", async () => {
         const picker = await readFile(pickerPath, "utf8");
 
         expect(picker).toContain('new URLSearchParams({projectRoot, preset: "project-cover"})');
         expect(picker).toContain('loading="lazy" decoding="async"');
-        expect(picker).toContain('{method: "PUT", body}');
-        expect(picker).toContain('{method: "DELETE"}');
-        expect(picker.match(/applyProjectMutation\(result\.project\)/gu)).toHaveLength(2);
+        expect(picker).toContain("updateProjectCover,");
+        expect(picker).toContain("await updateProjectCover(project.projectRoot, file)");
+        expect(picker).toContain("await updateProjectCover(project.projectRoot, null)");
+        expect(picker.match(/applyCoverMutationResult\(updated\)/gu)).toHaveLength(2);
         expect(picker).toContain("coverRefreshVersions.value = {");
         expect(picker).toContain('resolveProjectMutationCommitState(error, "cover-update")');
         expect(picker).toContain("await refreshCoverMutationState(projectRoot)");
         expect(picker).toContain("coverNeedsRefresh");
         expect(picker).toContain("coverRecoveries");
         expect(picker).toContain("settleProjectCoverRecoverySnapshot({");
+        expect(picker).toContain("capturedState,");
         expect(picker).toContain("for (const projectRoot of settlement.cacheBustRoots)");
-        expect(picker).toContain("settleCoverRecoverySnapshot(list, focusedProjectRoot)");
-        expect(picker).toContain("settleCoverRecoverySnapshot(list, projectRoot)");
-        expect(picker.match(/settleCoverRecoverySnapshot\(novels\.value\)/gu)).toHaveLength(2);
-        expect(picker.match(/\{method: "PUT", body\}/gu)).toHaveLength(1);
-        expect(picker.match(/\{method: "DELETE"\}/gu)).toHaveLength(1);
+        expect(picker).toContain("settleCoverRecoverySnapshot(snapshot.projects, capturedCoverRecoveries, focusedProjectRoot)");
+        expect(picker).toContain("settleCoverRecoverySnapshot(snapshot.projects, capturedCoverRecoveries, projectRoot)");
+        expect(picker).toContain("settleProjectPickerRecoverySnapshot({");
+        expect(picker).toContain("beginProjectPickerRecovery(");
+        expect(picker).not.toContain("novels.value =");
+        expect(picker).not.toContain("novels.splice(");
+        expect(picker).not.toContain('$fetch<ProjectMutationResponseDto>("/api/projects/cover"');
         expect(picker).not.toContain("coverRecoveryRoot");
         expect(picker).not.toContain("`${project.title}-cover`");
         expect(picker).not.toContain("/api/auth/");

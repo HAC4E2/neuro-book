@@ -9,6 +9,10 @@ import {
     productRuntimeOwnerBaselines,
     withProductBuildLease,
 } from "nbook/scripts/build/build-product-runtime-image";
+import {
+    assertAllProductRuntimeBuildPolicies,
+    missingProductRuntimeBuildPolicies,
+} from "nbook/scripts/build/check-product-runtime-policies";
 
 describe("Product build environment", () => {
     it("只透传 OS 启动变量，并固定所有会改变 Nuxt/Nitro payload 的输入", () => {
@@ -47,10 +51,19 @@ describe("Product build environment", () => {
     });
 
     it("只返回当前平台实测 baseline，未登记平台 fail closed", () => {
-        expect(productRuntimeOwnerBaselines("windows-x64")).toEqual(expect.arrayContaining([
-            {name: "native-islands", files: 2_102, bytes: 86_688_809},
-        ]));
+        expect(productRuntimeOwnerBaselines("windows-x64")).toEqual([
+            {name: "frontend", files: 177, bytes: 15_854_204},
+            {name: "server-bundle", files: 1, bytes: 12_608_947},
+            {name: "commands", files: 106, bytes: 10_700_869},
+            {name: "authoring-kit", files: 510, bytes: 13_400_281},
+            {name: "native-islands", files: 2_059, bytes: 75_260_595},
+            {name: "system-assets", files: 373, bytes: 5_303_264},
+            {name: "runtime-meta", files: 3, bytes: 4_515},
+        ]);
         expect(() => productRuntimeOwnerBaselines("linux-x64-glibc")).toThrow("尚未登记 linux-x64-glibc");
+        expect(missingProductRuntimeBuildPolicies()).toContain("linux-x64-glibc");
+        expect(missingProductRuntimeBuildPolicies()).not.toContain("windows-x64");
+        expect(() => assertAllProductRuntimeBuildPolicies()).toThrow("尚未登记 approved runtime policy");
     });
 
     it("raw Nuxt pipeline 只读取 tracked 的空 Product dotenv", async () => {

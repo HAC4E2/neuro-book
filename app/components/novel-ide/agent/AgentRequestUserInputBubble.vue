@@ -20,12 +20,16 @@ const parsedArgs = computed(() => {
     }
 });
 
-/**
- * 当前 tool 是否对应挂起中的问题。
- */
-const pendingQuestion = computed(() => {
-    return userInputContext?.pendingSession.value?.questions.find((question) => question.toolNodeId === props.toolCall.id) ?? null;
-});
+/** 在完整 pending 列表中定位当前历史 tool，历史气泡只展示状态。 */
+const pendingSession = computed(() => userInputContext?.pendingSessions.value.find((session) => {
+    return session.assistantMessageId === props.toolCall.assistantMessageId
+        && (session.formToolCallId === props.toolCall.id || session.questions.some((question) => {
+            return question.toolNodeId === props.toolCall.id || question.toolCallId === props.toolCall.id;
+        }));
+}) ?? null);
+const pendingQuestion = computed(() => pendingSession.value?.questions.find((question) => {
+    return question.toolNodeId === props.toolCall.id || question.toolCallId === props.toolCall.id;
+}) ?? null);
 
 const isToolApproval = computed(() => pendingQuestion.value?.kind === "tool_approval");
 /** switch_mode 退出到 normal 的审批：第三选项语义是“补充建议”而不是“其他回答”。 */
@@ -35,10 +39,7 @@ const isPlanExitApproval = computed(() => pendingQuestion.value?.approvalAction 
  * 当前 tool 是否仍处于等待用户回答状态。
  */
 const isPendingQuestion = computed(() => {
-    return Boolean(
-        pendingQuestion.value
-        && userInputContext?.pendingSession.value?.assistantMessageId === props.toolCall.assistantMessageId,
-    );
+    return Boolean(pendingSession.value);
 });
 
 /**

@@ -65,7 +65,6 @@ const {
 
 const activeSection = ref<SettingsSection>("models");
 const activeScope = ref<SettingsScope>("global");
-const targetNovelId = ref("");
 const appVersion = ref<AppVersionDto | null>(null);
 const appVersionPending = ref(false);
 const modelSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
@@ -260,19 +259,12 @@ const monacoFontOptions = computed<SelectOption[]>(() => [
     },
 ]);
 
-const projectOptions = computed<SelectOption[]>(() => novelIdeStore.novels.map((novel) => ({
-    value: novel.projectRoot,
-    label: novel.title || novel.projectRoot,
-    description: novel.projectRoot,
-})));
-
-const targetNovel = computed(() => novelIdeStore.novels.find((novel) => novel.projectRoot === targetNovelId.value) ?? null);
-const targetQuery = computed(() => activeScope.value === "project" && targetNovelId.value
-    ? {workspaceKind: "novel" as const, projectRoot: targetNovelId.value}
+const targetQuery = computed(() => activeScope.value === "project" && novelIdeStore.currentProjectRoot
+    ? {workspaceKind: "novel" as const, projectRoot: novelIdeStore.currentProjectRoot}
     : {workspaceKind: "user-assets" as const});
 const settingsPanelKey = computed(() => `${activeScope.value}:${targetQuery.value.workspaceKind}:${targetQuery.value.projectRoot ?? "global"}`);
 const targetLabel = computed(() => activeScope.value === "project"
-    ? targetNovel.value?.title || targetNovel.value?.projectRoot || targetNovelId.value || "Project Workspace"
+    ? novelIdeStore.currentNovel?.title || novelIdeStore.currentProjectRoot || "Project Workspace"
     : activeScope.value === "boot" ? "config.yaml" : "Workspace Root");
 const visibleSectionItems = computed(() => {
     const allowed = activeScope.value === "boot"
@@ -397,7 +389,7 @@ function selectScope(scope: SettingsScope): void {
     if (!canLeaveCurrentPanel()) {
         return;
     }
-    if (scope === "project" && novelIdeStore.workspaceKind === "user-assets") {
+    if (scope === "project" && (novelIdeStore.workspaceKind === "user-assets" || !novelIdeStore.currentProjectRoot)) {
         activeScope.value = "global";
         activeSection.value = "models";
         return;
@@ -418,19 +410,6 @@ function selectSection(section: SettingsSection): void {
         return;
     }
     activeSection.value = section;
-}
-
-/**
- * 选择 Project Config 目标，不切换当前 IDE 打开的小说。
- */
-function selectTargetNovel(novelId: string): void {
-    if (novelId === targetNovelId.value) {
-        return;
-    }
-    if (!canLeaveCurrentPanel()) {
-        return;
-    }
-    targetNovelId.value = novelId;
 }
 
 /**
@@ -720,27 +699,17 @@ watch(() => props.modelValue, (open) => {
         return;
     }
     void loadAppVersion();
-    if (novelIdeStore.novels.length === 0) {
-        void novelIdeStore.loadProjects();
-    }
-    targetNovelId.value = novelIdeStore.currentProjectRoot || novelIdeStore.novels[0]?.projectRoot || "";
-    if (novelIdeStore.workspaceKind === "user-assets" && activeScope.value === "project") {
+}, {immediate: true});
+
+watch([
+    () => novelIdeStore.workspaceKind,
+    () => novelIdeStore.currentProjectRoot,
+], ([workspaceKind, currentProjectRoot]) => {
+    if ((workspaceKind === "user-assets" || !currentProjectRoot) && activeScope.value === "project") {
         activeScope.value = "global";
         activeSection.value = "models";
     }
 }, {immediate: true});
-
-watch(() => novelIdeStore.currentProjectRoot, (novelId) => {
-    if (!targetNovelId.value) {
-        targetNovelId.value = novelId;
-    }
-});
-
-watch(() => novelIdeStore.novels, (novels) => {
-    if (!targetNovelId.value) {
-        targetNovelId.value = novelIdeStore.currentProjectRoot || novels[0]?.projectRoot || "";
-    }
-}, {deep: true});
 
 watch(activeScope, alignActiveSectionToScope, {immediate: true});
 
@@ -782,11 +751,9 @@ watch(activeScope, alignActiveSectionToScope, {immediate: true});
                     </div>
 
                     <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                        <div v-if="activeScope === 'project'" class="flex min-w-[300px] items-center gap-2 rounded-lg border border-[var(--border-color)] border-opacity-60 bg-[var(--bg-panel)] bg-opacity-35 px-2 py-1">
+                        <div v-if="activeScope === 'project'" class="flex min-w-[300px] items-center gap-2 rounded-lg border border-[var(--border-color)] border-opacity-60 bg-[var(--bg-panel)] bg-opacity-35 px-3 py-2">
                             <span class="shrink-0 text-[11px] font-semibold text-[var(--text-muted)]">Project</span>
-                            <div class="min-w-0 flex-1">
-                                <FormSelect :model-value="targetNovelId" :options="projectOptions" :placeholder="t('settings.scope.project.selectorPlaceholder')" @update:model-value="selectTargetNovel" />
-                            </div>
+                            <span class="min-w-0 flex-1 truncate text-xs font-medium text-[var(--text-main)]" :title="targetLabel">{{ targetLabel }}</span>
                         </div>
 
                         <button

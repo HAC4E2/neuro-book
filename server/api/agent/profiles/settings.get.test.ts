@@ -14,7 +14,7 @@ describe("GET /api/agent/profiles/settings", () => {
                 ...actual,
                 getQuery: vi.fn(() => ({
                     workspaceKind: "novel",
-                    projectPath: "workspace/settings-route-not-open",
+                    projectRoot: "settings-route-not-open",
                     scope: "project",
                 })),
             };
@@ -30,7 +30,7 @@ describe("GET /api/agent/profiles/settings", () => {
         vi.doMock("nbook/server/config/query", () => ({
             validateConfigAgentProfileSettingsQuery: vi.fn(() => ({
                 workspaceKind: "novel",
-                projectPath: "workspace/settings-route-not-open",
+                projectRoot: "settings-route-not-open",
                 scope: "project",
             })),
         }));
@@ -49,7 +49,7 @@ describe("GET /api/agent/profiles/settings", () => {
             statusCode: 409,
             data: {
                 code: "PROJECT_NOT_OPEN",
-                projectPath: "workspace/settings-route-not-open",
+                projectRoot: "settings-route-not-open",
             },
         });
     });

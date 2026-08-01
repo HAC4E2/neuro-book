@@ -264,6 +264,8 @@ export type ProductComponent =
         image: string;
         /** GHCR 必填，并作为容器 Product 的外层内容寻址 identity。 */
         digest?: string;
+        /** Source Docker 必填，钉死本次本地 build 的 Container Engine image ID。 */
+        containerImageId?: string;
         /** 单平台容器若能读取镜像内 manifest，可附带 Builder identity；OCI digest 已是外层真相源。 */
         imageId?: string;
         sourceDigest?: string;

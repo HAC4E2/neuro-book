@@ -2,26 +2,25 @@ import {createHash, randomUUID} from "node:crypto";
 import {existsSync} from "node:fs";
 import {copyFile, mkdir, readFile, readdir, rename, rm, stat, utimes, writeFile} from "node:fs/promises";
 import {basename, dirname, isAbsolute, join, relative, resolve} from "node:path";
-import {pathToFileURL} from "node:url";
-import {builtinModules, createRequire} from "node:module";
 import {availableParallelism} from "node:os";
 import {setTimeout as sleep} from "node:timers/promises";
-import {build, type Metafile, type Plugin} from "esbuild";
+import {build, type Metafile} from "esbuild";
 import {lock as lockFile, type LockOptions} from "proper-lockfile";
-import {profileSourceModuleSpecifiers} from "nbook/server/agent/profiles/profile-source-imports";
-import type {AgentProfile} from "nbook/server/agent/profiles/types";
+import {normalizeAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+import type {AgentProfile, AgentProfileDefinition} from "nbook/server/agent/profiles/types";
 import {generateVariableTypes, VARIABLE_TYPES_FILE_NAME, type VariableTypeGenerationDiagnostic} from "nbook/server/agent/variables/generated-types";
 import {appLogger} from "nbook/server/app-logs/logger";
 import {importRuntimeArtifact} from "nbook/server/utils/runtime-artifact-import";
+import {runtimeArtifactBundlePlugin} from "nbook/server/utils/runtime-artifact-bundle-plugin";
+import {validateRuntimeArtifactAuthoring} from "nbook/server/utils/runtime-artifact-authoring-interface";
 import {
     resolveRuntimeArtifactCompilerContext,
-    resolveRuntimeArtifactNbookPath,
     normalizeRuntimeArtifactPath,
     type RuntimeArtifactCompilerContext,
 } from "nbook/server/utils/runtime-artifact-compiler-context";
 
-// Profile 核心 DSL / prepare wrapper 会被 bundle 进 artifact；共享依赖语义变化时必须提升版本，强制旧 bundle 重编。
-export const PROFILE_ARTIFACT_COMPILER_VERSION = 10;
+// Profile artifact 从 v11 起只保存 authoring 声明；宿主在 import 后统一 materialize/normalize。
+export const PROFILE_ARTIFACT_COMPILER_VERSION = 11;
 export const PROFILE_COMPILED_DIR_NAME = ".compiled";
 export const PROFILE_COMPILED_ARTIFACTS_DIR_NAME = "artifacts";
 export const PROFILE_COMPILED_MANIFEST_FILE = "manifest.json";
@@ -1357,7 +1356,12 @@ function profileKeyFromFileName(fileName: string): string {
 
 async function compileProfileFile(profileRoot: string, compiledDir: string, file: ProfileFileEntry): Promise<ProfileArtifactManifestItem> {
     const sourceHash = await hashFile(file.absolutePath);
-    await assertProfileSourceInterface(file);
+    await validateRuntimeArtifactAuthoring({
+        kind: "profile",
+        root: profileRoot,
+        entry: file.absolutePath,
+        allowedSdkSpecifiers: ["nbook/profile-sdk", "nbook/profile-sdk/writing"],
+    });
     const temporaryStem = stableArtifactStem(file.fileName, /\.profile\.(tsx|ts|mjs|js)$/);
     const temporaryOutputPath = join(compiledDir, `${temporaryStem}.${randomUUID()}.building.mjs`);
     const temporaryTypePath = join(compiledDir, `${temporaryStem}.${randomUUID()}.building.${VARIABLE_TYPES_FILE_NAME}`);
@@ -1383,7 +1387,7 @@ async function compileProfileFile(profileRoot: string, compiledDir: string, file
             nodePaths: compilerContext.productRuntime ? [compilerContext.compilerNodeModulesRoot] : [],
             outfile: temporaryOutputPath,
             platform: "node",
-            plugins: [repoAliasBundlePlugin(compilerContext)],
+            plugins: [runtimeArtifactBundlePlugin(compilerContext, "nbook-profile-artifact-bundle")],
             target: "esnext",
             tsconfig: tsconfigPath,
         });
@@ -1430,39 +1434,6 @@ async function compileProfileFile(profileRoot: string, compiledDir: string, file
 }
 
 /**
- * Profile 源码只能经过稳定 SDK 进入宿主，禁止把 `server/**` 实现路径重新暴露给作者。
- *
- * 这里只检查 entry 源码自己声明的 import；SDK 的传递实现依赖仍会进入 bundle，
- * 并继续由 artifact 依赖门禁约束。源码扫描必须保留 esbuild 会擦掉的 import type。
- */
-async function assertProfileSourceInterface(file: ProfileFileEntry): Promise<void> {
-    const source = await readFile(file.absolutePath, "utf8");
-    const builtinSpecifiers = new Set([
-        ...builtinModules,
-        ...builtinModules.map((moduleName) => `node:${moduleName}`),
-        "bun",
-    ]);
-    const unsupportedImports = profileSourceModuleSpecifiers(source).filter((specifier) => {
-        if (/^(nbook|neuro_book)\//u.test(specifier)) {
-            return !/^(nbook|neuro_book)\/profile-sdk(?:\/jsx-(?:dev-)?runtime)?$/u.test(specifier);
-        }
-        if (!specifier.startsWith(".") && !isAbsolute(specifier)) {
-            return !(builtinSpecifiers.has(specifier) || specifier.startsWith("bun:"));
-        }
-        const target = resolve(dirname(file.absolutePath), specifier);
-        return normalizeArtifactPath(target).startsWith("server/");
-    });
-    if (unsupportedImports.length === 0) {
-        return;
-    }
-    throw new Error([
-        `Profile SDK 违规：profile ${file.fileName} 依赖了 Product Authoring Kit 之外的模块。`,
-        "Profile 源码只能从 nbook/profile-sdk、相对文件或运行时 builtin 导入；TSX 使用 @jsxImportSource nbook/profile-sdk。",
-        ...[...new Set(unsupportedImports)].sort().map((specifier) => `- ${specifier}`),
-    ].join("\n"));
-}
-
-/**
  * 导入刚编译出的 staging artifact，用于读取 profile manifest 与 variable 定义。
  *
  * 不建立 Runtime Import Cache 物理副本：`temporaryOutputPath` 本身带 `randomUUID()`，
@@ -1471,10 +1442,10 @@ async function assertProfileSourceInterface(file: ProfileFileEntry): Promise<voi
 async function importCompiledProfile(artifactPath: string): Promise<AgentProfile> {
     const mod = await importRuntimeArtifact<{default?: unknown}>(artifactPath);
     const profile = mod.default;
-    if (!isProfile(profile)) {
+    if (!isProfileDefinition(profile)) {
         throw new Error(`compiled profile 没有默认导出有效的 defineAgentProfile 结果：${artifactPath}`);
     }
-    return profile;
+    return normalizeAgentProfile(profile);
 }
 
 async function artifactHasProductRequireShim(artifactPath: string): Promise<boolean> {
@@ -1487,16 +1458,14 @@ async function artifactHasNitroImportMetaShim(artifactPath: string): Promise<boo
     return head.includes("globalThis._importMeta_");
 }
 
-function isProfile(value: unknown): value is AgentProfile {
+/** 验证编译产物的最小 authoring 声明形状。 */
+function isProfileDefinition(value: unknown): value is AgentProfileDefinition {
     return Boolean(
             value
             && typeof value === "object"
             && "manifest" in value
             && "initialSchema" in value
             && "tools" in value
-            && "rootToolKeys" in value
-            && "prepare" in value
-            && typeof (value as {prepare?: unknown}).prepare === "function",
     );
 }
 
@@ -2042,50 +2011,6 @@ function runtimeRequireBanner(context: RuntimeArtifactCompilerContext): string {
 function runtimeImportMetaUrlExpression(): string {
     return ["import", ".", "meta", ".", "url"].join("");
 }
-
-function repoAliasBundlePlugin(context: RuntimeArtifactCompilerContext): Plugin {
-    const nodeModuleNames = new Set([
-        ...builtinModules,
-        ...builtinModules.map((name) => `node:${name}`),
-    ]);
-    const requireFromCompiler = createRequire(pathToFileURL(context.compilerPackageRoot));
-    return {
-        name: "nbook-repo-alias-bundle",
-        setup(buildApi) {
-            buildApi.onResolve({filter: /^(nbook|neuro_book)\//}, (args) => {
-                const relativePath = args.path.replace(/^(nbook|neuro_book)\//, "");
-                return {
-                    path: resolveRuntimeArtifactNbookPath(context, relativePath),
-                };
-            });
-            buildApi.onResolve({filter: /^[^./].*/}, (args) => isPlatformBuiltinModule(args.path, nodeModuleNames)
-                ? {path: args.path, external: true}
-                : resolveBarePackage(args.path, requireFromCompiler));
-        },
-    };
-}
-
-/**
- * 判断 specifier 是否宿主运行时自带的内置模块。
- *
- * Node builtins（含 `node:` 前缀）与 Bun builtins（`bun`、`bun:ffi` 等）都由宿主提供，
- * 必须整体 external。它们不能交给 `require.resolve()`：编译进程运行在 Node 下时
- * `bun:*` 必然解析失败并返回 undefined，会让整张 profile 依赖图编译中断。
- * 平台能力代码（例如 Windows reparse 检测）本来就只在对应运行时才会执行到。
- */
-function isPlatformBuiltinModule(specifier: string, nodeModuleNames: ReadonlySet<string>): boolean {
-    return nodeModuleNames.has(specifier) || specifier === "bun" || specifier.startsWith("bun:");
-}
-
-function resolveBarePackage(specifier: string, requireFromRuntime: NodeJS.Require): {path: string; external?: boolean} | undefined {
-    try {
-        const resolved = requireFromRuntime.resolve(specifier);
-        return isAbsolute(resolved) ? {path: resolved} : {path: specifier, external: true};
-    } catch {
-        return undefined;
-    }
-}
-
 
 function emptyArtifactManifest(profileRoot: string): ProfileArtifactManifest {
     return {

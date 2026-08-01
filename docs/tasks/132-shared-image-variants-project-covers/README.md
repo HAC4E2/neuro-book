@@ -1,6 +1,6 @@
 # 共享图片变体、Project 封面管理与原图预览
 
-> 当前状态：Implemented locally / Compiled Windows command smoke verified / Full Product post-processing blocked by existing artifact gate / Cross-platform CI pending / Manual browser acceptance pending。
+> 当前状态：Implemented locally / Repository-external Windows Product and Sharp smoke verified by Task 130 / Linux, macOS and GHCR CI pending / Manual browser acceptance pending。
 
 ## Relative documents refs
 
@@ -102,17 +102,14 @@
 
 尚未完成或不能在本机替代：
 
-- Nuxt client/server 编译已完成，但完整 Product 后处理被既有 Profile artifact 门禁阻断：`builtin/leader.assets.profile.tsx` 仍可达构建机 `node_modules/.bun/typebox...`；单独 runtime bundle 也会被 raw `.output/server/index.mjs` 中既有绝对 `file://...node_modules/.bun/...` import 图拒绝。本任务没有放宽安全门禁，因此尚无“脱离仓库根依赖的完整 Windows Product archive”证据。
-- 本轮重新执行 `nuxt build --dotenv .env.typecheck`，304 秒内没有输出诊断但未完成；工具超时后只终止了本轮确认归属的孤儿构建进程。该重验不记为通过，也不改写上一次 client/server 编译的历史证据。
-- 根 `bun run typecheck` 首次在 180 秒内无诊断超时；随后直接运行同一 `.nuxt/tsconfig.json` 的 `vue-tsc`，本轮图片文件零错误，全量被本轮未触及的 `server/agent/tools/web-tools.ts` 三个第三方声明缺失阻断：`jsdom`、`turndown`、`turndown-plugin-gfm`。
-- 2026-07-29 最新 `bun run typecheck` 在 46.5 秒完成检查；只命中既有 `server/agent/skills/llmlint.test.ts` fixture 漂移（缺少 `ignoreTerms`，以及 `"module"` 与 `"builtin"` 类型不匹配），本轮文件零错误。
+- Task 130 已在仓库外 Windows Product 中完成 Sharp 生成/缓存命中、运行时依赖闭包和 State Root 生命周期 smoke；此前的 Windows artifact blocker 已解除，不再作为本任务 TODO。
+- 2026-07-31 根 `bun run typecheck` 仍被本轮未修改的 Profile SDK、Session migration 与 llmlint 等在途错误阻断；按路径过滤，本轮 Catalog、Attachment、Project route 与测试 fixture 文件零命中。
 - Linux x64/ARM64、macOS x64/ARM64 和 GHCR amd64/arm64 只能由对应 runner/容器提供真实 native 证据。
 - 浏览器验收按仓库规则未自动执行。
 
 ## TODO / Follow-ups
 
-- [ ] 先由 Product/Profile 构建任务消除既有绝对 `.bun` artifact import，再完成无仓库根依赖的 Windows Product archive smoke；不得为本任务放宽 artifact 门禁。
-- [ ] CI 实际运行五平台 Product 与 GHCR smoke。
+- [ ] CI 实际运行 Linux x64/ARM64、macOS x64/ARM64 Product 与 GHCR amd64/arm64 smoke；Windows 仓库外 Product/Sharp smoke 已由 Task 130 完成。
 - [ ] 用户授权后浏览器验收：空 MIME 封面/Composer 图片上传、上传响应丢失、两本书分别保留恢复门禁、封面上传/替换/清除、true/unknown 恢复、正确原图扩展名、图片原图预览、Chat 非图片原件下载、Sepia/Dark、390/1024/1440 视口。
 - [ ] 发布后若真实首轮封面队列出现饱和，再基于 Server-Timing 数据调整 preset 或并发；当前不预建后台任务。
 
@@ -124,3 +121,20 @@
 - 相邻 14 文件集合中的两个 Lifecycle 用例只在并行资源竞争下超过默认 5 秒，隔离文件 5/5 通过；没有放宽测试超时。
 - 全量 typecheck 到达未触及的 web-tools 第三方声明错误，本轮文件零错误；Nuxt build 的既有重验仍为超时，完整 Product 与跨平台 runner 按原 TODO 保留。
 - 按仓库规则未自动执行浏览器验证。
+
+### 2026-07-31 Project Catalog、删除事务与外围边界收口
+
+- Image Variant 核心、缓存预算和原图所有权未改。本轮把外围状态拉回既有架构：Project Catalog 由 Store 唯一发布，封面/create/delete 的 transport unknown 都先刷新完整 snapshot，direct-open 不再依赖列表成员关系。
+- 封面恢复、Picker create/delete 恢复都使用单调 attempt。snapshot 只清除请求开始时捕获且返回时仍匹配的记录，关闭了同一 Project attempt 1/2 的 ABA 窗口；不同 Project 仍可独立操作。
+- 删除 route 恢复 Lifecycle 唯一事务链与 `{revision, projectRoot}` 响应。旧目录删除实现已移除，tombstone、rollback、unknown commit 与 snapshot publication 继续由 Lifecycle 负责。
+- Attachment locator 返回授权读取 capability，Harness 原始 Store 不再公开；四处 `filename*` 使用同一个 RFC 5987 编码函数。真实图片测试 helper 替代假 PNG 文件头，并增加 snapshot 64 MP 零写入和归档最终门禁回归。
+- Catalog publication 的最后一处分支已经删除：封面 mutation 成功后 Store 始终回读完整 Lifecycle snapshot，书架顺序不再由客户端 upsert 决定；服务端封面、变体缓存和 mutation 提交算法均未改变。
+- 当前验证：Store/删除 17 tests；Picker/World Engine/恢复/Session snapshot 5 files / 27 tests；Project/封面/Attachment/RFC 相邻集合 13 files / 150 passed / 1 skipped；完整 file-tools 49/49。两份 Harness 共 200 项中 198 通过，两个失败位于未修改的模型恢复与 Variable SDK；根 typecheck 未命中本轮文件，但被其它 Profile SDK、Session migration 与 llmlint 在途错误阻断。
+- 本轮补充最终合并验证为 Settings/Catalog/direct-open/Preview/删除/ProjectSession 等 13 files / 77 tests；连续 100 次列表读取仍只消费轻量 snapshot。没有重复执行 Sharp/native Product smoke。
+- Task 130 已提供仓库外 Windows Product/Sharp smoke。本轮未重复五平台 native smoke，也未自动执行浏览器验收；Linux、macOS、GHCR 与人工浏览器清单保持未完成。
+
+### 2026-07-31 Settings 与 Preview 相邻链收口
+
+- 本轮没有修改 Image Variant、Attachment、封面恢复 attempt、Project Lifecycle 或删除事务。相邻审查只移除了 Settings 的 Catalog/跨 Project selector，并把 World Engine Preview 创建交错抽成页面专用可测试 utility。
+- Preview 的普通失败、已提交后 Catalog 失败、transport unknown、恢复重试和 activation false 现在由行为测试约束；恢复函数不具备 POST 能力，不会重放创建。
+- 最终合并回归 13 files / 77 tests，通过封面恢复、Catalog、ProjectSession 与连续 100 次列表门禁；根 typecheck 本轮路径零命中，既有 Skill 声明、Session migration 和 llmlint fixture 错误仍在。浏览器与跨平台 Sharp 清单不变。

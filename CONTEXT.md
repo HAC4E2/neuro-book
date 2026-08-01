@@ -24,12 +24,20 @@ _Avoid_: command bundle filename, deployment script fallback, Product manifest
 与一个 Product Runtime Image revision 绑定的 Profile 编译包根，包含 `nbook/profile-sdk`、编译 worker、声明投影和显式批准的 authoring 依赖。普通 Product 的 Profile 编译不得向上借用 Source Root 或根 `node_modules`。
 _Avoid_: root development dependencies, arbitrary npm environment, Product package islands
 
+**Profile Authoring Interface**:
+Profile 作者可导入的稳定源码边界：`nbook/profile-sdk`、Profile root 内相对模块和 Runtime builtin。`typebox` 是 SDK 内部实现依赖，不是作者可直接导入的包；宿主类型图不得通过 SDK 声明泄漏给作者。
+_Avoid_: direct typebox import, server type graph, arbitrary npm import
+
+**Variable Authoring SDK**:
+`nbook/variable-sdk` 提供 Variable definition 作者需要的最小稳定类型与 `defineWorkspaceRootVariable()` / `defineProjectVariable()`。它与 Profile Authoring Interface 使用同一 Product-bound compiler package root 和 import gate，不从调用 cwd 猜测 Global 或 Project locator。
+_Avoid_: profile-sdk variable exports, server variable internals, cwd-derived scope
+
 **State Root**:
 用户真相源的物理根目录。受管 Installed Windows 固定为 `%LOCALAPPDATA%/NeuroBook/data`，Windows Portable 固定为 `Installation Root/data/`；Boot Config、Product Env、日志、secrets 和 Workspace Root 都从这里解析，更新永不覆盖。
 _Avoid_: Workspace Root, source root
 
 **Cache Root**:
-NeuroBook 可删除、可重建数据的物理根。受管 Installed Windows 固定为 `%LOCALAPPDATA%/NeuroBook/cache`，Portable 固定为 `Installation Root/.cache/`；图片变体、llmlint detect cache、Bun install cache 和 Bash 完整输出分别由自己的 Module 管理预算。Bun cache 当前只有路径隔离，尚无受管 `bun install` 消费者；硬预算在该安装命令落地时执行，不把普通 Product 启动变成全盘扫描。
+NeuroBook 可删除、可重建数据的物理根。受管 Installed Windows 固定为 `%LOCALAPPDATA%/NeuroBook/cache`，Portable 固定为 `Installation Root/.cache/`；图片变体、llmlint detect cache、Bun install cache、authoring lease 和 Bash 完整输出分别由自己的 Module 管理预算。Bun cache 当前只有路径隔离，尚无受管 `bun install` 消费者；硬预算在该安装命令落地时执行，不把普通 Product 启动变成全盘扫描。
 _Avoid_: State Root, temporary directory, one global cache owner
 
 **Desktop Local Root**:
@@ -275,6 +283,8 @@ _Avoid_: files-only panel, workspace switcher
 - A **Product Runtime Image** belongs to one exact Source identity and platform; only its ready marker makes it publishable.
 - A **Product Runtime Contract** belongs to one Product Runtime Image; every executable consumer must resolve logical commands through it.
 - A **Profile Authoring Kit** belongs to one Product Runtime Image revision and is the only ordinary Product package root for Profile compilation.
+- A **Profile Authoring Interface** belongs to the Product SDK contract; SDK implementation dependencies do not automatically become author imports.
+- A **Variable Authoring SDK** belongs to the Product SDK contract and is distinct from the richer host Variable runtime.
 - A **State Root** belongs to one Installation Root and owns Boot Config、Product Env、logs and one logical Workspace Root.
 - A **Cache Root** belongs to one installation locator set, but each cache Module owns its own reachable set and hard budget.
 - A **Desktop Local Root** belongs to the Desktop Envelope; its WebView Root is not part of Product RuntimePaths or content backup.

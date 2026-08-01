@@ -1,7 +1,7 @@
 import {randomUUID} from "node:crypto";
 import {rm} from "node:fs/promises";
 import {join, resolve} from "node:path";
-import {afterEach, beforeEach, describe, expect, it} from "vitest";
+import {afterEach, beforeAll, beforeEach, describe, expect, it} from "vitest";
 import {fauxAssistantMessage, fauxText, fauxToolCall} from "@earendil-works/pi-ai";
 import {createFauxModels, type FauxModelsFixture, writeFauxProviderConfig} from "nbook/server/agent/test-utils/faux-models";
 import {Type} from "typebox";
@@ -21,8 +21,13 @@ import type {NeuroSessionContext, SessionEntry} from "nbook/server/agent/session
 import {AgentJobCancelledError} from "nbook/server/agent/jobs/agent-job-manager";
 import {serializeAgentImageMarkdown} from "nbook/shared/agent/agent-image-markdown";
 import {AGENT_FOLLOW_UP_QUEUE_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
+import {createRasterTestFixtures} from "nbook/server/agent/test-utils/raster-fixtures";
 
-const pngBytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+let pngBytes: Buffer;
+
+beforeAll(async () => {
+    ({png: pngBytes} = await createRasterTestFixtures());
+});
 
 type ObservedRun = {
     result: AgentInvocationResult;

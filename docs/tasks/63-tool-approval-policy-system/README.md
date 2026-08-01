@@ -3,7 +3,7 @@
 ## 任务概述
 
 **创建时间**：2026-06-21  
-**状态**：🟢 已实施，`request_user_input` 已从 Low-Code Form 拆出  
+**状态**：🟢 已实施，`request_user_input` 已从 Low-Code Form 拆出，底部多 pending 面板已收口
 **优先级**：P1（功能增强）  
 **前置依赖**：Task 62.1.2（多 pendingApprovals 支持）
 
@@ -46,7 +46,7 @@ async execute(toolCallId, args) {
 - **本质**：单个 `radio` 字段
 
 **2. 问答列表（Request User Input）**
-- **展示**：分页问题，每题支持开放文本或单选 options；composer 文本作为当前题 note
+- **展示**：底部待处理面板分页展示，每题支持开放文本或单选 options，并在面板内填写 answer / note
 - **返回**：`answers[]`，每项包含 `questionIndex`、可选 `selectedOptionIndex`、`note`、`ignored`
 - **示例**：Agent 需要用户回答多个问题
 - **本质**：专用问答协议，不走 Low-Code Form
@@ -146,3 +146,67 @@ type UserInputFormSpec = {
 - 前端 `AgentUserInputPrompt` 继续使用分页问答卡：一题一页，note-only 可推进当前题，最后一题提交完整 `answers`。
 - Low-Code Form 仍服务其它工具和未来独立表单工具，不再作为 `request_user_input` 的测试案例。
 - 用户输入公开事件收敛为 `input.emit(raw event) -> projectRuntimeEvent() -> emitRuntimeEvent()` 单一路径，避免 SSE 重复 pending；`request_user_input` 继续不公开 `formSpec`。
+
+## 2026-08-01 底部多 pending 面板与提交所有权收口
+
+### 诊断
+
+- `canInvoke=false` 原本被投影成整个 Composer 的 `readonly`，同一个 `readonly` 又禁用了 `canResolveUserInput=true` 本应开放的选项和提交按钮。等待输入时同时出现“历史待回答卡片 + 灰色 Composer”，但真正的回答入口不可用。
+- Surface 只把第一个 pending 交给交互组件；多 pending 分支会把第一项的回答用于当前项，并为后续审批自动生成“批准”。这会在用户未确认时执行工具，不能保留。
+- 提交前调用 `clearPendingUserInputSession()` 会乐观移除权威状态。请求若在 Project、Session 或 pending 批次切换后迟到，旧 `catch/finally` 还可能回填错误或清除新批次提交态。
+- 普通 Composer 被隐藏后，旧 watcher 仍会调用图片事务 `reset()`；正文与模型草稿能够保留，但图片草稿会被意外清空。
+
+### 实现
+
+- `AgentComposer` 现在在 `pendingUserInputSessions.length > 0` 时用唯一的 `AgentUserInputPrompt` 替换普通 Composer。聊天历史、Workspace 变更卡和用量状态继续显示；普通正文、模型和图片事务留在原组件状态中，pending 消失后恢复，不做清空。
+- `AgentUserInputPrompt` 收敛为多 pending 面板：按服务端顺序投影问答、工具审批、模式切换和 Low-Code Form；稳定身份为 `toolCallId + questionIndex` 或表单 `toolCallId`。同 Project/Session 的 recovery/SSE 重投影按身份保留草稿，移除项才删除；跨 Project generation 或 Session 不继承。
+- 有选项的问题使用原生单选语义并始终提供“其他答案”；普通选择允许可选说明，其他答案和开放回答要求正文。审批必须明确批准或拒绝；退出计划模式的补充建议继续生成拒绝当前切换的 resolution。Low-Code Form 必须显式确认，确认后再次修改会撤销确认。
+- `agent-pending-resolution.ts` 成为局部纯状态边界：负责项目投影、完成判定、表单确认失效、草稿 reconcile、有序批次 key 和完整 `AgentResolutionDto[]` 构造。删除后续 pending 自动批准和单项/表单两套提交分支，所有项目完成后统一通过 `resolutions[]` 一次提交。
+- `useAgentSession` 直接公开只读完整 pending 列表；Surface 不再从 `recoveryShell` 旁路重建。历史 `request_user_input`、`switch_mode` 和 Workflow 气泡只按 `toolCallId` 查询完整列表并展示等待状态，不再持有回答草稿或提交能力。未使用的旧 context 与乐观 `clearPendingUserInputSession()` 入口已删除。
+- pending 提交和终止捕获 `AgentSurfaceOperationController owner + main sessionId + ordered pending batch key`。连接事件流、HTTP、recovery、错误发布和 `finally` 都校验发布权；请求固定发往捕获的 Session。Project、Session 或批次变化后的迟到成功/错误静默丢弃，旧 `finally` 只能释放自己的提交键。
+- pending 不在提交前清空。HTTP 失败后强制 recovery：服务端仍显示原批次时保留草稿并允许重试；无法确认时进入 `unknown`，只允许显式重新同步，不自动重放 resolution。终止只受 `canAbort` 控制，即使 `canResolveUserInput=false` 仍可执行。
+- `AgentPendingUserInputSession.form` 收紧为 `LowCodeFormDto`；`formSpec.form` 与 SSE `args.form` 都从 `unknown` 经过同一 schema。没有新增客户端通用表单验证器，复杂 schema 继续由既有 Low-Code Form 与服务端合同处理。
+
+### 复杂度取舍与计划差异
+
+1. 没有改服务端 API、DTO、数据库、主题变量或全局状态机，也没有新增依赖。Task 129 已有 Surface operation owner 足以承担 Project generation，本轮只增加 pending 批次维度；另建全局审批状态机会重复现有 Session 真相源。
+2. 没有改为审批弹窗。回答经常需要回看历史、工具参数和计划内容，底部非模态面板保留上下文，也消除了原截图中的双层大块区域。
+3. 没有实现第二套 Low-Code Form 客户端校验器。当前缺陷是能力映射和所有权，不是 schema 能力不足；复制服务端验证会增加漂移和维护成本。
+4. 历史气泡没有保留第二套交互入口，只显示等待状态与结果摘要。这样既避免两个草稿源，也让批量提交顺序只有一个 owner。
+
+### Verification
+
+- 聚焦与相邻回归：12 files / 115 tests 通过，覆盖 resolution builder、多问题、多审批、多表单、确认后修改、完整 pending recovery/live event/tool result 增删、Task 129 activation/stream owner、interaction policy、Composer draft、消息与 Low-Code Form 投影。
+- 新增 deferred Promise 回归直接使用 `AgentSurfaceOperationController` 和 Surface 同一 pending owner 判定，覆盖 Project/Session/批次变化、同 scope 新 revision、迟到发布拒绝及旧 `finally` 不清新提交键。
+- `bun run typecheck`：全仓通过。
+- 按仓库规则未自动运行浏览器验收。截图场景的可点击选项、普通 Composer 替换、多 pending 逐项完成、终止能力、明暗主题及 1440/390 视口仍待用户明确授权后验证；390 只验 Composer/面板，不代表整页移动端适配。
+
+## 2026-08-01 面板固定高度与富文本回答收口
+
+### 用户反馈与诊断
+
+- 多 pending 面板只有正文 `max-height`，外层没有稳定 block size。问题标题、选项数、回答框和 Low-Code Form 高度不同会直接改变整个 Composer 区域高度，切题时形成明显布局跳动。
+- “其他答案”、开放回答和补充说明仍使用原生 `textarea`，绕过了普通 Composer 的 `AgentComposerInput -> ReferencePlainTextEditor` 链路，因此无法使用 `@` 引用菜单、Workspace/剧情/selection chip 和 skill token。
+- 不能把被隐藏的普通 Composer 草稿临时改作 pending 回答：普通消息正文、模型和图片事务属于另一份草稿所有权。复用同一个编辑器能力、继续按 pending item 保存独立字符串草稿，才能避免切题和恢复时串数据。
+
+### 实现
+
+- `AgentUserInputPrompt` 外层固定为 `clamp(320px, 50dvh, 420px)`，内部按 header、status、content、footer 四行布局。问题/选项与 Low-Code Form 在 content 内滚动，footer 保持原位；切换项目时内容滚动回顶部。
+- 问答内容进一步分成可滚动的问题区和停靠底部的回答区。问题再长也只滚动选项，回答编辑器不会被推出面板；编辑器自身在 72–112px 内随内容增长。
+- 三类文本回答统一复用 `AgentComposerInput`，继续写入 `AgentPendingQuestionDraft.note`。编辑器按 `toolCallId + questionIndex` 挂载，选择“其他答案”或计划建议后自动聚焦，Enter 输入换行，批次推进仍只由面板按钮控制。
+- pending 回答复用 Surface 的引用菜单和 skill catalog，过滤会改写 Session 的斜杠命令；`canResolveUserInput`、提交中和 unknown 结果继续投影为编辑器 readonly，真实 `contenteditable=false` 与 `aria-readonly` 由通用编辑器同步。
+- `AgentComposerInput` 只增加可选的尺寸、Enter 行为和可访问性名称参数，默认值保持普通 Composer 行为。`ReferencePlainTextEditor` 同步可访问性名称；没有新增组件、依赖、主题变量或状态机。
+- 图片文件入口明确关闭。本轮没有给 `AgentResolutionDto` 虚构附件字段；未来图片回答需要单独定义 resolution 附件归属、上传恢复和 Harness/模型输入合同，但无需再次替换编辑器。
+
+### 复杂度取舍与计划差异
+
+1. 实现与批准计划一致：没有复用普通 Composer 草稿，没有修改服务端 API、DTO、数据库或 pending owner，也没有建立第二套富文本编辑器。
+2. 没有为 CSS 高度编写 jsdom 假测试。jsdom 不做真实布局，无法证明切题像素高度一致；正确验收缝仍是真实浏览器的 `getBoundingClientRect()`。
+3. 没有自动运行浏览器验收，遵守仓库规则。图片能力保持显式未支持，避免只显示图片 chip、但模型实际收不到附件的假闭环。
+
+### Verification
+
+- 最小反馈环：`agent-pending-resolution.test.ts` + `plain-reference-text.test.ts`，2 files / 21 tests 通过。
+- Task 63/129 相邻回归：12 files / 118 tests 通过；新增用例覆盖引用 Markdown、selection chip、skill token 和多行文本从编辑器序列化到完整 resolution 的保真。
+- `bun run typecheck`：全仓通过，退出码 0。
+- 浏览器待验收：连续切换短问题/长选项/开放回答/表单时的同高；`@` 选择 chip、切走返回和提交规范化；普通 Composer 草稿隔离；明暗主题与 1440/390 视口。

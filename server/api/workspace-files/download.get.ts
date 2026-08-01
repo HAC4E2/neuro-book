@@ -12,6 +12,7 @@ import {
     withProjectTargetOperation,
 } from "nbook/server/workspace-files/project-open-guard";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
+import {encodeRfc5987Filename} from "nbook/server/utils/rfc5987";
 
 /**
  * 打包下载当前 Project Workspace；user-assets 入口打包 Workspace Root .nbook。
@@ -43,7 +44,7 @@ export default defineEventHandler(async (event) => {
  * 发送当前挂载目标压缩包。
  */
 function sendArchive(event: Parameters<typeof setResponseHeader>[0], archive: WorkspaceArchive) {
-    const filename = encodeURIComponent(archive.filename);
+    const filename = encodeRfc5987Filename(archive.filename);
 
     setResponseHeader(event, "Content-Type", "application/zip");
     setResponseHeader(event, "Content-Disposition", `attachment; filename="${archive.filename}"; filename*=UTF-8''${filename}`);

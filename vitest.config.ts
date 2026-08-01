@@ -16,6 +16,9 @@ export default defineConfig({
     test: {
         environment: "node",
         globals: true,
+        // Product bundle 与隔离 workspace fixture 会显著抬高单 worker 内存；
+        // Windows 实测 4 workers 会触发进程池异常退出，2 workers 能保持完整门禁稳定。
+        maxWorkers: 2,
         // 默认 10s 不够：beforeEach 里开 Project 会加载 14 个 profile artifact，
         // 而单个 artifact 目前有 27.3 MiB（宿主实现被打进 bundle，见 Task 125 Phase 3）。
         // 这是承认当前 artifact 体积的真实成本，不是掩盖挂起——真正的修复是把 artifact 压小。

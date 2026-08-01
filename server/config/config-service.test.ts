@@ -30,7 +30,7 @@ import {
     startAgentSessionStoreRuntime,
     stopAgentSessionStoreRuntime,
 } from "nbook/server/agent/session/agent-session-store-runtime";
-import {runSessionSchemaV2Migration} from "nbook/scripts/db/agent-session-v2/migration";
+import {runSessionSchemaV2Migration} from "nbook/server/agent/session/migrations/session-v2/migration";
 
 const createdRoots: string[] = [];
 const catalog = createCatalog(["leader.default", "leader.assets", "custom.agent", "writer"]);

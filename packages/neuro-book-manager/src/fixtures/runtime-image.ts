@@ -4,7 +4,9 @@ import {join} from "node:path";
 
 import type {ProductPlatform, ProductRuntimeImageIdentity} from "#manager/types";
 import {
+    PRODUCT_RUNTIME_BUILDER_CONTRACT_VERSION,
     ProductRuntimeImageBuilder,
+    productRuntimeBuildPolicy,
     type VerifiedProductRuntimeImage,
 } from "nbook/scripts/build/product-runtime-image-builder";
 import {
@@ -18,11 +20,11 @@ export const TEST_RUNTIME_IMAGE_IDENTITY = {
     imageId: `sha256:${"e".repeat(64)}`,
     sourceDigest: `sha256:${"f".repeat(64)}`,
     lockfileSha256: `sha256:${"9".repeat(64)}`,
-    builderContractVersion: "2",
+    builderContractVersion: PRODUCT_RUNTIME_BUILDER_CONTRACT_VERSION,
 } as const satisfies ProductRuntimeImageIdentity;
 
 /**
- * 在最小 Git-less Source Root 中构建真实 Runtime Image v2 fixture。
+ * 在最小 Git-less Source Root 中构建真实 Runtime Image v3 fixture。
  * manifest、ready marker、inventory 与所有 digest 均由正式 Builder 生成。
  */
 export async function buildTestRuntimeImage(input: {
@@ -32,6 +34,7 @@ export async function buildTestRuntimeImage(input: {
     platform: ProductPlatform;
     operationId?: string;
 }): Promise<VerifiedProductRuntimeImage> {
+    const policy = productRuntimeBuildPolicy(input.platform);
     await Promise.all([
         mkdir(join(input.sourceRoot, "node_modules", "nuxt"), {recursive: true}),
         mkdir(join(input.sourceRoot, "node_modules", "nitropack"), {recursive: true}),
@@ -60,12 +63,8 @@ export async function buildTestRuntimeImage(input: {
             revision: input.revision,
             dirty: false,
         },
-        owners: [{name: "test-runtime", paths: ["server"]}],
-        budget: {
-            maxFiles: 16,
-            maxBytes: 64 * 1024,
-            ownerBaselines: [{name: "test-runtime", files: 16, bytes: 64 * 1024}],
-        },
+        owners: policy.owners,
+        budget: policy.budget,
         async build({imageRoot}) {
             const entry = "server/commands/all.mjs";
             const contract = createProductRuntimeContract({
@@ -79,8 +78,10 @@ export async function buildTestRuntimeImage(input: {
                 prepareSystemAssets: entry,
                 checkMigrations: entry,
                 profileAuthoringSmoke: entry,
+                variableAuthoringSmoke: entry,
                 imageVariantSmoke: entry,
                 sqliteVecSmoke: entry,
+                webFetchSmoke: entry,
             });
             await mkdir(join(imageRoot, "server", "commands"), {recursive: true});
             await Promise.all([

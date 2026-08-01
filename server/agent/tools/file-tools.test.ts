@@ -4,8 +4,9 @@ import {createHash} from "node:crypto";
 import {tmpdir} from "node:os";
 import {Type} from "typebox";
 import {Value} from "typebox/value";
-import sharp from "sharp";
 import {afterEach, beforeAll, beforeEach, describe, expect, it, vi} from "vitest";
+import {AttachmentStore} from "nbook/server/agent/attachments/attachment-store";
+import type {AttachmentBlobAdapter} from "nbook/server/agent/attachments/types";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
@@ -18,6 +19,7 @@ import {closeAllProjects, openProject} from "nbook/server/workspace-files/projec
 import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {createRuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
+import {createRasterTestFixtures, jpegWithDimensions} from "nbook/server/agent/test-utils/raster-fixtures";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 
 describe("v3 file tools", () => {
@@ -25,13 +27,12 @@ describe("v3 file tools", () => {
     let workspaceRoot: string;
     let harness: NeuroAgentHarness;
     let context: ToolExecutionContext;
+    let attachmentAdapter: AttachmentBlobAdapter;
     let jpeg: Buffer;
     let oversizedJpeg: Buffer;
 
     beforeAll(async () => {
-        jpeg = await sharp({create: {width: 2, height: 2, channels: 3, background: "#224466"}})
-            .jpeg()
-            .toBuffer();
+        ({jpeg} = await createRasterTestFixtures());
         oversizedJpeg = jpegWithDimensions(jpeg, 8_193, 8_192);
     });
 
@@ -43,10 +44,12 @@ describe("v3 file tools", () => {
             applicationRoot: absoluteFsPath(resolve(".")),
             stateRoot: absoluteFsPath(root),
         });
+        attachmentAdapter = memoryAttachmentAdapter();
         harness = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(runtimePaths.workspaceRoot),
             runtimePaths,
             profiles: new AgentProfileCatalog(join(root, "profiles-system"), join(root, "profiles-user")),
+            attachmentStore: new AttachmentStore(attachmentAdapter),
         });
         harness.profiles.register(defineAgentProfile({
             manifest: {
@@ -210,12 +213,12 @@ describe("v3 file tools", () => {
 
     it("read 图片通过 Codec 在 Store 写入前拒绝超过 64 MP 的源图", async () => {
         await writeFile(join(workspaceRoot, "pixel-bomb.jpg"), oversizedJpeg);
-        const save = vi.spyOn(harness.attachmentStore, "save");
+        const put = vi.spyOn(attachmentAdapter, "put");
         const tool = mustTool("read", harness);
 
         await expect(tool.executeWithContext?.(context, "read-pixel-bomb", {path: "pixel-bomb.jpg"}))
             .rejects.toMatchObject({code: "limit_exceeded"});
-        expect(save).not.toHaveBeenCalled();
+        expect(put).not.toHaveBeenCalled();
     });
 
     it("read 在Project-bound File Scope中直接接受Project相对路径", async () => {
@@ -304,7 +307,7 @@ describe("v3 file tools", () => {
         expect(state.entries).toEqual([expect.objectContaining({path: "lorebook/character/absolute/"})]);
     });
 
-    it("跨 Project 读取图片时来源归目标 Project，blob 仍写入 Workspace Root 全局 Attachment Store", async () => {
+    it("跨 Project 读取图片时来源归目标 Project，blob 仍写入 Harness 全局 Attachment Adapter", async () => {
         const betaRoot = join(root, "workspace", "beta");
         const bytes = jpeg;
         await mkdir(join(root, "workspace", "alpha"), {recursive: true});
@@ -323,8 +326,9 @@ describe("v3 file tools", () => {
             throw new Error("read 未返回 attachment");
         }
         const hash = attachment.attachment.id.slice("sha256:".length);
+        const stored = await attachmentAdapter.get(`sha256/${hash.slice(0, 2)}/${hash.slice(2)}`);
 
-        await access(join(workspaceRoot, ".nbook", "agent", "attachments", "sha256", hash.slice(0, 2), hash.slice(2)));
+        expect(stored && Buffer.from(stored)).toEqual(bytes);
         await expect(access(join(betaRoot, ".nbook", "agent", "attachments"))).rejects.toThrow();
     });
 
@@ -1002,26 +1006,15 @@ function mustTool(key: string, harness: NeuroAgentHarness) {
     return tool;
 }
 
-/** 只改 JPEG SOF 尺寸，构造不会分配巨幅像素内存的上限 fixture。 */
-function jpegWithDimensions(input: Buffer, width: number, height: number): Buffer {
-    const result = Buffer.from(input);
-    for (let index = 0; index < result.length - 8; index += 1) {
-        const marker = result[index + 1];
-        if (result[index] !== 0xff || marker === undefined || !isStartOfFrame(marker)) {
-            continue;
-        }
-        result.writeUInt16BE(height, index + 5);
-        result.writeUInt16BE(width, index + 7);
-        return result;
-    }
-    throw new Error("JPEG fixture 缺少 SOF marker");
-}
-
-/** 判断 JPEG marker 是否携带宽高。 */
-function isStartOfFrame(marker: number): boolean {
-    return marker >= 0xc0
-        && marker <= 0xcf
-        && marker !== 0xc4
-        && marker !== 0xc8
-        && marker !== 0xcc;
+/** 创建只在当前用例内存活的 Attachment Adapter。 */
+function memoryAttachmentAdapter(): AttachmentBlobAdapter {
+    const values = new Map<string, Uint8Array>();
+    return {
+        async put(key, bytes) {
+            values.set(key, bytes.slice());
+        },
+        async get(key) {
+            return values.get(key)?.slice() ?? null;
+        },
+    };
 }

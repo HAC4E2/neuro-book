@@ -1,5 +1,7 @@
 # Pi Agent Harness Migration
 
+> 2026-07-31 CLI 路径取代说明：本任务中 `assets/workspace/.nbook/agent/scripts/workspace.ts` 的迁移记录只保留为历史证据。当前 Agent 稳定入口是 `.nbook/agent/bin/workspace`；Workspace CLI implementation 归 Product 领域 Module，Source checkout wrapper 调 Product-owned source entry，发行物通过 Task 130 的 Product Runtime Contract 解析 `workspace` 逻辑命令，不恢复旧 asset script fallback。
+
 ## 2026-07-24：Session 归档与关系账本收口
 
 Agent 关系正式分为 append-only 历史账本与唯一当前有效关系投影。`agent.link.*` 会激活或重新激活目标关系，`agent.detach.*` 只解除已存在关系，不再制造 `unknown` 幽灵记录；关系索引同时维护 archived Session 集合，Runtime、Profile、`get_agent`、`get_session`、snapshot、relations API 与前端关联面板统一排除 detached 或任一端 archived 的关系。公开 `AgentLinkedSessionDto` 不再暴露 `detached`，解除关系后双方列表立即消失，历史 link/detach entry 仍完整保留用于回放与排障。

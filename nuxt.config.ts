@@ -1,5 +1,9 @@
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
+import {
+    isProductRuntimeIslandModule,
+    productRuntimeIslandPackageNames,
+} from "./scripts/build/product-runtime-islands";
 
 const rootDir = fileURLToPath(new URL("./", import.meta.url));
 const serverDir = fileURLToPath(new URL("./server/", import.meta.url));
@@ -124,8 +128,10 @@ export default defineNuxtConfig({
             external: [
                 "@earendil-works/pi-ai",
                 "@earendil-works/pi-agent-core",
-                // Image Variant Module 依赖平台原生 libvips；由 Product vendor 显式携带并执行 smoke。
-                "sharp",
+                // Runtime package islands 由 Product 后处理复制并重写为镜像内相对路径。
+                ...productRuntimeIslandPackageNames(),
+                // 函数 matcher 的优先级高于 Nitro 的 runtime inline 路径，物理 package id 仍保持 external。
+                isProductRuntimeIslandModule,
                 // Bun 内置模块：Rollup 解析不到，运行时由 Bun 宿主提供（Windows reparse 检测的惰性 FFI）。
                 "bun:ffi",
             ],

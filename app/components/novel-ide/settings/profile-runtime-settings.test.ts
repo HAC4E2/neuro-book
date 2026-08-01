@@ -1,5 +1,6 @@
 import {describe, expect, it} from "vitest";
 import {
+    countProfileRuntimeOverrides,
     createProfileRuntimeSettingsDraft,
     parseProfileRuntimeSettingsDraft,
     resolveProfileRuntimeInheritance,
@@ -63,5 +64,21 @@ describe("profile runtime settings editor", () => {
         expect(result.settings.compaction.trigger).toEqual({kind: "tokens", value: 40_000});
         expect(result.sources.compactionTriggerKind).toBe("projectDefault");
         expect(result.sources.compactionTriggerValue).toBe("projectDefault");
+    });
+
+    it("覆盖计数只统计真正写进配置的字段", () => {
+        expect(countProfileRuntimeOverrides(createProfileRuntimeSettingsDraft(undefined))).toBe(0);
+
+        const draft = createProfileRuntimeSettingsDraft(undefined);
+        // kind + value 成对写入同一个 interval 字段，只能算 1 项
+        draft.summarizerIntervalKind = "sourceInvocation";
+        draft.summarizerIntervalValue = "8";
+        draft.summarizerEnabled = true;
+        draft.fileChangeDiffMaxChars = "256";
+        expect(countProfileRuntimeOverrides(draft)).toBe(3);
+
+        // 越界值不会进 patch，也不计入覆盖数
+        draft.fileChangeDiffMaxChars = "99999";
+        expect(countProfileRuntimeOverrides(draft)).toBe(2);
     });
 });

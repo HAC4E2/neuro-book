@@ -3,7 +3,7 @@ import {isAbsolute, relative, resolve} from "node:path";
 
 import {parseReleaseStateMigration} from "nbook/packages/neuro-book-manager/src/schema";
 import type {ReleaseManifest} from "nbook/packages/neuro-book-manager/src/types";
-import {APPLICATION_STATE_MIGRATION_STEP_IDS} from "nbook/scripts/application-state-migration/catalog";
+import {APPLICATION_STATE_MIGRATION_STEP_IDS} from "nbook/server/runtime/application-state-migration/catalog";
 
 export const RELEASE_STATE_MIGRATION_DECLARATION = "release-state-migration.json";
 
@@ -11,15 +11,16 @@ const REQUIRED_SOURCE_MIGRATION_FILES = [
     RELEASE_STATE_MIGRATION_DECLARATION,
     "docs/migrations/README.md",
     "scripts/db/migrate-application-state.ts",
-    "scripts/application-state-migration/app-sqlite-step.ts",
-    "scripts/application-state-migration/catalog-registry.ts",
-    "scripts/application-state-migration/catalog.ts",
-    "scripts/application-state-migration/lease.ts",
-    "scripts/application-state-migration/runner.ts",
-    "scripts/application-state-migration/types.ts",
-    "scripts/db/agent-session-v2-review-repair/journal.ts",
-    "scripts/db/agent-session-v2-review-repair/migration.ts",
-    "scripts/db/agent-session-v2-review-repair/types.ts",
+    "server/runtime/application-state-command.ts",
+    "server/runtime/application-state-migration/app-sqlite-step.ts",
+    "server/runtime/application-state-migration/catalog-registry.ts",
+    "server/runtime/application-state-migration/catalog.ts",
+    "server/runtime/application-state-migration/lease.ts",
+    "server/runtime/application-state-migration/runner.ts",
+    "server/runtime/application-state-migration/types.ts",
+    "server/agent/session/migrations/session-v2-review-repair/journal.ts",
+    "server/agent/session/migrations/session-v2-review-repair/migration.ts",
+    "server/agent/session/migrations/session-v2-review-repair/types.ts",
 ] as const;
 
 /**

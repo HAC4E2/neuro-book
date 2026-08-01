@@ -1,4 +1,4 @@
-import {afterAll, afterEach, describe, expect, it} from "vitest";
+import {afterAll, afterEach, beforeAll, describe, expect, it} from "vitest";
 import {createClient} from "@libsql/client";
 import {PrismaClient} from "nbook/server/generated/project-prisma/client";
 import fs from "node:fs/promises";
@@ -15,15 +15,31 @@ import {
     requireActiveReadyProject,
     requireReadyModuleHandle,
 } from "nbook/server/workspace-files/project-session";
-import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
+import {
+    openProjectForTest,
+    removeProjectWorkspaceForTest,
+} from "nbook/server/workspace-files/project-session-test-utils";
 import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
+import {
+    createIsolatedWorkspaceAssets,
+    type IsolatedWorkspaceAssets,
+} from "nbook/server/workspace-files/test-workspace-fixture";
 
 const createdProjects: string[] = [];
 const createdFacades: WorldEngineFacade[] = [];
 
 describe("WorldEngineFacade", {timeout: 30_000}, () => {
+    let assets: IsolatedWorkspaceAssets;
+
+    beforeAll(async () => {
+        assets = await createIsolatedWorkspaceAssets({purpose: "world-engine-facade-tests"});
+    });
+
     afterEach(cleanupCreatedProjects, 30_000);
-    afterAll(cleanupCreatedProjects, 30_000);
+    afterAll(async () => {
+        await cleanupCreatedProjects();
+        await assets.dispose();
+    }, 30_000);
 
     it("未 open 的 Project 拒绝创建 World Engine client", async () => {
         const projectPath = await createProject(undefined, {open: false});
@@ -694,8 +710,7 @@ async function cleanupCreatedProjects(): Promise<void> {
         await facade.close();
     }
     for (const projectRoot of projectRoots) {
-        await closeProjectForTest(projectRoot).catch(() => undefined);
-        await removeProjectRoot(projectRoot);
+        await removeProjectWorkspaceForTest(projectRoot);
     }
 }
 
@@ -784,30 +799,6 @@ async function insertRawWorldPatch(projectRoot: string, input: {
         client.close();
         collectReleasedSqliteHandles({force: true});
     }
-}
-
-async function removeProjectRoot(projectRoot: string): Promise<void> {
-    const root = projectDirectory(projectRoot);
-    for (let attempt = 0; attempt < 30; attempt += 1) {
-        collectReleasedSqliteHandles({force: true});
-        try {
-            await fs.rm(root, {recursive: true, force: true});
-            return;
-        } catch (error) {
-            if (!isBusyError(error) || attempt === 29) {
-                throw error;
-            }
-            await delay(100);
-        }
-    }
-}
-
-function isBusyError(error: unknown): boolean {
-    return typeof error === "object" && error !== null && "code" in error && error.code === "EBUSY";
-}
-
-function delay(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function schemaSource(): string {

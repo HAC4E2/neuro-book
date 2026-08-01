@@ -25,6 +25,7 @@
 - `server/world-engine/patch-operations.ts`：EmbeddingText 容器禁止整块 replace 与 `append` 缺基准问题。
 - `server/world-engine/schema-loader.ts`：schema default 与 list / collection 默认空数组收集逻辑。
 - `workspace/.nbook/agent/sessions/268.jsonl`：用户点名的本地复现 session。压缩前诊断确认它没有复现 calendar 热加载失败，而是证明首次解析前改好的 calendar 能被 `execute_world` 使用，并暴露 EmbeddingText 初始化死锁。
+- [Task 125 Round 04](../125-runtime-artifact-storage-lifecycle/walkthroughs/round-04-workspace-test-isolation.md)：接续本任务 Round 06 的 Windows SQLite 清理，把 World Engine 测试 Project 迁入独立临时 Workspace Root，并删除产品侧测试前缀遮掩。
 
 ## User Request / Topic
 

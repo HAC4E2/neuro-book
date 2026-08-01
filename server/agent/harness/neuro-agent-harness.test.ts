@@ -1,7 +1,7 @@
 import {randomUUID} from "node:crypto";
 import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
-import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
+import {afterEach, beforeAll, beforeEach, describe, expect, it, vi} from "vitest";
 import {
     fauxAssistantMessage,
     fauxText,
@@ -16,7 +16,7 @@ import {Value} from "typebox/value";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import type {ResolvedPiModel} from "nbook/server/agent/harness/pi-model-metadata";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
-import {defineAgentProfile as defineRuntimeAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+import {defineAgentProfile as defineRuntimeAgentProfile, normalizeAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {agentRuntimeBuiltins, defineAgentRuntime} from "nbook/server/agent/profiles/define-agent-runtime";
 import {builtin, defineProfileTool, pluginTool, toolset} from "nbook/server/agent/profiles/profile-tools";
 import {defineLowCodeForm} from "nbook/server/low-code-form";
@@ -43,9 +43,16 @@ import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-
 import {projectModuleToken, replaceProjectModulesForTest, type ProjectModule, type ProjectModuleHandle} from "nbook/server/workspace-files/project-module";
 import {withWorkspaceRuntimeRootContextForTest} from "nbook/server/workspace-files/workspace-runtime-root";
 import {serializeAgentImageMarkdown} from "nbook/shared/agent/agent-image-markdown";
-import managedSummarizerProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/summarizer.profile";
+import managedSummarizerProfileDefinition from "../../../assets/workspace/.nbook/agent/profiles/builtin/summarizer.profile";
+import {createRasterTestFixtures} from "nbook/server/agent/test-utils/raster-fixtures";
 
-const PNG_BYTES = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const managedSummarizerProfile = normalizeAgentProfile(managedSummarizerProfileDefinition);
+
+let pngBytes: Buffer;
+
+beforeAll(async () => {
+    ({png: pngBytes} = await createRasterTestFixtures());
+});
 
 type LegacyTestProfile<
     TInitialSchema extends TSchema = TSchema,
@@ -3437,10 +3444,7 @@ describe("NeuroAgentHarness", () => {
         });
         providerDeleted = true;
 
-        expect((await harness.getSessionRecovery(created.sessionId)).model).toEqual({
-            providerConfigId: "deleted-provider",
-            modelId: "deleted-model",
-        });
+        expect((await harness.getSessionRecovery(created.sessionId)).model).toBeNull();
 
         faux.setResponses([fauxAssistantMessage("done")]);
         const result = await harness.invokeAgent({
@@ -4777,7 +4781,7 @@ describe("NeuroAgentHarness", () => {
                         async run(ctx) {
                             const sourceSession = await ctx.session.read(ctx.initial.sourceSessionId);
                             const content = await ctx.session.agentDialogueContent({
-                                snapshot: sourceSession.snapshot,
+                                sessionId: sourceSession.snapshot.metadata.sessionId,
                                 initial: ctx.initial,
                             });
                             return {
@@ -7766,7 +7770,7 @@ describe("NeuroAgentHarness", () => {
             parentSessionId: parent.sessionId,
         });
         const registered = await harness.uploadSessionAttachment(parent.sessionId, {
-            bytes: PNG_BYTES,
+            bytes: pngBytes,
             mimeType: "image/png",
             name: "queued.png",
         });
@@ -8384,8 +8388,14 @@ describe("NeuroAgentHarness", () => {
     });
 
     it("followUp queue 状态会作为 projection 持久化并能被新 harness snapshot 恢复", async () => {
+        const providerStarted = createDeferred();
+        const releaseProvider = createDeferred();
         faux.setResponses([
-            fauxAssistantMessage("failed", {stopReason: "error", errorMessage: "provider failed"}),
+            async () => {
+                providerStarted.resolve();
+                await releaseProvider.promise;
+                return fauxAssistantMessage("failed", {stopReason: "error", errorMessage: "provider failed"});
+            },
         ]);
         const created = await harness.createAgent({
             profileKey: "leader.default",
@@ -8397,38 +8407,41 @@ describe("NeuroAgentHarness", () => {
             mode: "prompt",
             message: {text: "start"},
         });
-        await waitFor(async () => {
-            const snapshot = await harness.getSessionRecovery(created.sessionId);
-            expect(snapshot.activeInvocation).not.toBeNull();
-        });
-        await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "followup",
-            message: {text: "queued followup"},
-        });
-        const result = await running;
-        const restored = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            modelResolver: () => faux.getModel(),
-            runtimeResolver: () => faux.runtime,
-            enableSessionSummarizer: false,
-        });
+        try {
+            await providerStarted.promise;
+            await harness.invokeAgent({
+                sessionId: created.sessionId,
+                mode: "followup",
+                message: {text: "queued followup"},
+            });
+            releaseProvider.resolve();
+            const result = await running;
+            const restored = new NeuroAgentHarness({
+                repo: new JsonlSessionRepository(root),
+                modelResolver: () => faux.getModel(),
+                runtimeResolver: () => faux.runtime,
+                enableSessionSummarizer: false,
+            });
 
-        const snapshot = await restored.getSessionRecovery(created.sessionId);
+            const snapshot = await restored.getSessionRecovery(created.sessionId);
 
-        expect(result.status).toBe("error");
-        expect(snapshot.followUpQueue).toEqual({
-            status: "paused",
-            pausedBy: {
-                invocationId: result.invocationId,
-                reason: "error",
-            },
-            items: [expect.objectContaining({
-                kind: "followup",
-                text: expect.objectContaining({preview: "queued followup", omitted: false}),
-            })],
-            omittedItems: 0,
-        });
+            expect(result.status).toBe("error");
+            expect(snapshot.followUpQueue).toEqual({
+                status: "paused",
+                pausedBy: {
+                    invocationId: result.invocationId,
+                    reason: "error",
+                },
+                items: [expect.objectContaining({
+                    kind: "followup",
+                    text: expect.objectContaining({preview: "queued followup", omitted: false}),
+                })],
+                omittedItems: 0,
+            });
+        } finally {
+            releaseProvider.resolve();
+            await running.catch(() => undefined);
+        }
     });
 
     it("模型 partial error 只保存文本并剥离 tool call", async () => {
@@ -9736,8 +9749,7 @@ describe("NeuroAgentHarness", () => {
         const projectA = join(root, "project-a");
         const projectB = join(root, "project-b");
         const definitionSource = [
-            "import {Type} from \"typebox\";",
-            "import {defineProjectVariable} from \"nbook/server/agent/variables/registry\";",
+            "import {Type, defineProjectVariable} from \"nbook/variable-sdk\";",
             "export const definitions = [defineProjectVariable({",
             "    key: \"scope\",",
             "    schema: Type.String(),",

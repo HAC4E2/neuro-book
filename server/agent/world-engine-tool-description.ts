@@ -55,7 +55,7 @@ export function buildExecuteWorldDescription(mode: ExecuteWorldMode): string {
         `;
 
     return profileText`
-        Execute JavaScript code against the specified Project Workspace World Engine.
+        Execute JavaScript code against the current Project Workspace World Engine. For an explicit cross-Project call, provide the optional projectRoot argument.
 
         The tool always returns:
 

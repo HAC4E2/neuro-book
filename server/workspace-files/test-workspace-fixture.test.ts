@@ -113,7 +113,7 @@ describe("Test Workspace Fixture 所有权", () => {
             [schemaMismatch, "schema_mismatch"],
             [noMarker, "no_marker"],
         ] as const) {
-            await expect(access(root)).resolves.toBeNull();
+            await expect(access(root)).resolves.toBeUndefined();
             expect(report.retained).toContainEqual({root, reason});
         }
     });

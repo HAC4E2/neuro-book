@@ -1,5 +1,5 @@
 import {randomBytes, randomUUID} from "node:crypto";
-import {mkdir, rename, rm, rmdir, stat} from "node:fs/promises";
+import {mkdir, rename, rm, rmdir, stat, writeFile} from "node:fs/promises";
 import {createServer} from "node:net";
 import {dirname, join, parse, resolve} from "node:path";
 import {parseArgs} from "node:util";
@@ -9,6 +9,8 @@ import {
     PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT,
     readProductRuntimeContract,
 } from "nbook/shared/product-runtime-contract";
+import type {ProductRuntimeCheckId} from "nbook/shared/product-runtime-contract";
+import {openVerifiedExtractedProduct} from "nbook/scripts/release/verify-extracted-product";
 
 type ProductProcess = ReturnType<typeof Bun.spawn>;
 
@@ -20,6 +22,24 @@ type ProductProcessLog = {
 type AppVersionResponse = {
     versionLabel: string;
 };
+
+type ProfileCompileResponse = {
+    ok: boolean;
+    stale: boolean;
+    detail: {manifest: {key: string}} | null;
+    issues: Array<{message: string}>;
+};
+
+/** Windows 最终归档必须逐项通过的 Product release checks。 */
+export const WINDOWS_PRODUCT_RELEASE_CHECKS = [
+    "profile-compile",
+    "variable-authoring",
+    "sqlite-vec",
+    "sharp-image-variant",
+    "application-state",
+    "workspace-cli",
+    "web-fetch",
+] as const satisfies readonly ProductRuntimeCheckId[];
 
 /** 在仓库外验证 Windows Product 的命令、HTTP 与文件句柄生命周期。 */
 export async function verifyWindowsProduct(
@@ -38,6 +58,8 @@ export async function verifyWindowsProduct(
     await stat(bunRuntime);
 
     const outputRoot = join(productRoot, ".output");
+    await openVerifiedExtractedProduct(productRoot);
+    const rootNodeModules = join(productRoot, "node_modules");
     const bootstrap = join(outputRoot, ...PRODUCT_RUNTIME_COMMAND_BOOTSTRAP.split("/"));
     const contract = await readProductRuntimeContract(outputRoot);
     await stat(bootstrap);
@@ -50,6 +72,7 @@ export async function verifyWindowsProduct(
     await mkdir(join(stateRoot, "workspace"), {recursive: true});
     await mkdir(cacheRoot, {recursive: true});
     await mkdir(logRoot, {recursive: true});
+    await writeFile(join(stateRoot, "config.yaml"), "auth:\n  enabled: false\n", "utf8");
 
     const port = await freeLoopbackPort();
     const shutdownToken = randomBytes(32).toString("hex");
@@ -71,11 +94,12 @@ export async function verifyWindowsProduct(
         NUXT_PORT: String(port),
         NUXT_SESSION_PASSWORD: randomBytes(32).toString("hex"),
         [PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT]: shutdownToken,
+        NODE_PATH: join(rootNodeModules, "missing-runtime-dependencies"),
     };
-    delete environment.NODE_PATH;
+    delete environment.AUTH_ADMIN_PASSWORD;
 
-    const command = async (...args: string[]): Promise<string> => {
-        return await runProductCommand(bunRuntime, bootstrap, productRoot, environment, args);
+    const command = async (args: string[], stdin?: Uint8Array): Promise<string> => {
+        return await runProductCommand(bunRuntime, bootstrap, productRoot, environment, args, stdin);
     };
     const commandAt = async (cwd: string, ...args: string[]): Promise<string> => {
         return await runProductCommand(bunRuntime, bootstrap, cwd, environment, args);
@@ -84,25 +108,24 @@ export async function verifyWindowsProduct(
     let product: ProductProcess | undefined;
     let logs: ProductProcessLog | undefined;
     try {
-        await command("command", "migrate-database");
-        await command("command", "migrate-application-state", "--apply");
-        await command("check", "profile-compile");
-        await command("check", "sqlite-vec");
-        await command("check", "sharp-image-variant");
-        await command("check", "application-state");
-        await command("check", "workspace-cli");
-        environment.AUTH_ADMIN_PASSWORD = randomBytes(24).toString("base64url");
-        try {
-            await command("command", "create-admin", "product-smoke-admin");
-        } finally {
-            delete environment.AUTH_ADMIN_PASSWORD;
+        await mkdir(rootNodeModules);
+        await command(["command", "migrate-database"]);
+        await command(["command", "migrate-application-state", "--apply"]);
+        for (const check of WINDOWS_PRODUCT_RELEASE_CHECKS) {
+            await command(["check", check]);
         }
+        const adminPassword = new TextEncoder().encode(randomBytes(24).toString("base64url"));
+        await command(
+            ["command", "create-admin", "product-smoke-admin", "--password-stdin"],
+            adminPassword,
+        );
 
         const launched = launchProduct(bunRuntime, bootstrap, productRoot, environment);
         product = launched.product;
         logs = launched.logs;
         const baseUrl = `http://127.0.0.1:${port}`;
         const version = await waitForVersion(product, `${baseUrl}/api/app/version`, 90_000);
+        await assertHttpProfileCompile(baseUrl, stateRoot);
 
         const wrongToken = await fetch(`${baseUrl}${contract.shutdown.path}`, {
             method: "POST",
@@ -129,7 +152,7 @@ export async function verifyWindowsProduct(
         }
         await assertPortClosed(`${baseUrl}/api/app/version`);
 
-        await command("command", "workspace", "project", "create", "product-smoke", "--title", "Product Smoke", "--json");
+        await command(["command", "workspace", "project", "create", "product-smoke", "--title", "Product Smoke", "--json"]);
         const projectWorkspaceRoot = join(stateRoot, "workspace", "product-smoke");
         const nodeRoot = join(projectWorkspaceRoot, "manuscript", "smoke-chapter");
         await commandAt(projectWorkspaceRoot, "command", "workspace", "node", "new", "manuscript/smoke-chapter", "--type", "chapter", "--title", "Smoke Chapter");
@@ -141,6 +164,7 @@ export async function verifyWindowsProduct(
         await rm(movedStateRoot, {recursive: true});
         await rm(cacheRoot, {recursive: true});
         await rmdir(scratchRoot);
+        await rm(rootNodeModules, {recursive: true});
 
         console.log(JSON.stringify({
             ok: true,
@@ -149,12 +173,9 @@ export async function verifyWindowsProduct(
             checks: [
                 "migrate-database",
                 "migrate-application-state",
-                "profile-compile",
-                "sqlite-vec",
-                "sharp-image-variant",
-                "application-state",
-                "workspace-cli",
+                ...WINDOWS_PRODUCT_RELEASE_CHECKS,
                 "create-admin",
+                "http-profile-compile-with-hostile-node-path",
                 "invalid-shutdown-token",
                 "authenticated-shutdown",
                 "workspace-node",
@@ -174,7 +195,50 @@ export async function verifyWindowsProduct(
             stdout ? `stdout:\n${stdout}` : "",
             stderr ? `stderr:\n${stderr}` : "",
         ].filter(Boolean).join("\n"), {cause: error});
+    } finally {
+        await rm(rootNodeModules, {recursive: true, force: true});
     }
+}
+
+/** 通过公开 HTTP 入口验证 Product 只使用镜像内预编译 Profile worker。 */
+async function assertHttpProfileCompile(baseUrl: string, stateRoot: string): Promise<void> {
+    const fileName = "release/http-worker.profile.tsx";
+    const profileRoot = join(stateRoot, "workspace", ".nbook", "agent", "profiles");
+    const sourcePath = join(profileRoot, ...fileName.split("/"));
+    await mkdir(dirname(sourcePath), {recursive: true});
+    await writeFile(sourcePath, [
+        "/** @jsxImportSource nbook/profile-sdk */",
+        "import {ProfilePrompt, System, Type, defineAgentProfile} from \"nbook/profile-sdk\";",
+        "export default defineAgentProfile({",
+        "    manifest: {key: \"release.http-worker\", name: \"Release HTTP Worker\"},",
+        "    initialSchema: Type.Object({}),",
+        "    context() { return <ProfilePrompt><System>Product worker only.</System></ProfilePrompt>; },",
+        "});",
+        "",
+    ].join("\n"), "utf8");
+    const response = await fetch(`${baseUrl}/api/agent/profiles/compile`, {
+        method: "POST",
+        headers: {"content-type": "application/json"},
+        body: JSON.stringify({fileName, dryRun: false, preview: false}),
+        signal: AbortSignal.timeout(90_000),
+    });
+    const value: unknown = await response.json();
+    if (!response.ok || !isProfileCompileResponse(value) || !value.ok || value.stale
+        || value.detail?.manifest.key !== "release.http-worker") {
+        throw new Error(`Product HTTP Profile 编译失败：status=${response.status} body=${JSON.stringify(value)}`);
+    }
+}
+
+/** 收窄 Profile HTTP 编译响应。 */
+function isProfileCompileResponse(value: unknown): value is ProfileCompileResponse {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    const result = value as Partial<ProfileCompileResponse>;
+    return typeof result.ok === "boolean"
+        && typeof result.stale === "boolean"
+        && Array.isArray(result.issues)
+        && (result.detail === null
+            || (typeof result.detail === "object" && result.detail !== null
+                && typeof result.detail.manifest?.key === "string"));
 }
 
 /** Product 命令不得在 Installation Root 生成影子 workspace。 */
@@ -218,22 +282,28 @@ async function assertVacant(path: string): Promise<void> {
 }
 
 /** 运行一个逻辑 Product 命令，并完整报告 stdout/stderr。 */
-async function runProductCommand(
+export async function runProductCommand(
     bunRuntime: string,
     bootstrap: string,
     cwd: string,
     environment: NodeJS.ProcessEnv,
     args: string[],
+    stdin?: Uint8Array,
 ): Promise<string> {
+    const childEnvironment = {...environment};
+    delete childEnvironment.AUTH_ADMIN_PASSWORD;
     const child = Bun.spawn([bunRuntime, ...PRODUCT_BUN_RUNTIME_ARGS, bootstrap, ...args], {
         cwd,
-        env: environment,
+        env: childEnvironment,
+        stdin: "pipe",
         stdout: "pipe",
         stderr: "pipe",
         windowsHide: true,
     });
     const stdout = new Response(child.stdout).text();
     const stderr = new Response(child.stderr).text();
+    if (stdin) await child.stdin.write(stdin);
+    await child.stdin.end();
     const [exitCode, output, diagnostic] = await Promise.all([child.exited, stdout, stderr]);
     if (exitCode !== 0) {
         throw new Error(`Product command 失败：${args.join(" ")} exit=${exitCode}\n${output}\n${diagnostic}`);

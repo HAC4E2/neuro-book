@@ -4,10 +4,9 @@
  * 测试完整的 World Engine + CodeAct 查询流程。
  */
 
-import {afterAll, afterEach, beforeEach, describe, expect, test} from "vitest";
+import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, test} from "vitest";
 import {createHash} from "node:crypto";
 import {existsSync, mkdirSync, readdirSync, writeFileSync} from "node:fs";
-import {rm} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
@@ -15,14 +14,24 @@ import {PROJECT_DATABASE_MODULE_TOKEN} from "nbook/server/workspace-files/projec
 import {
     requireReadyModuleHandle,
 } from "nbook/server/workspace-files/project-session";
-import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
+import {
+    openProjectForTest,
+    removeProjectWorkspaceForTest,
+} from "nbook/server/workspace-files/project-session-test-utils";
+import {
+    createIsolatedWorkspaceAssets,
+    type IsolatedWorkspaceAssets,
+} from "nbook/server/workspace-files/test-workspace-fixture";
 import {WorldEngineFacade} from "./world-engine.facade";
 
-const createdProjects: string[] = [];
-
 describe("CodeAct Integration", {timeout: 30_000}, () => {
+    let assets: IsolatedWorkspaceAssets;
     let facade: WorldEngineFacade;
-    let testProjectRoot: string;
+    let testProjectRoot = "";
+
+    beforeAll(async () => {
+        assets = await createIsolatedWorkspaceAssets({purpose: "world-engine-codeact-tests"});
+    });
 
     beforeEach(async () => {
         const slug = `codeact-test-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -39,7 +48,6 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
         writeFileSync(join(projectRoot, "world-engine/schema/index.ts"), zodSchemaFixture(), "utf-8");
         writeFileSync(join(projectRoot, "world-engine/calendar.ts"), calendarFixture(), "utf-8");
 
-        createdProjects.push(testProjectRoot);
         const ready = await openProjectForTest(testProjectRoot);
         facade = new WorldEngineFacade(
             resolveRuntimeWorkspaceRoot(),
@@ -50,14 +58,14 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
 
     afterEach(async () => {
         await facade.close();
-        await closeProjectForTest(testProjectRoot).catch(() => undefined);
+        if (testProjectRoot) {
+            await removeProjectWorkspaceForTest(testProjectRoot);
+            testProjectRoot = "";
+        }
     }, 30_000);
 
     afterAll(async () => {
-        for (const projectRoot of createdProjects) {
-            await removeProjectRoot(join(resolveRuntimeWorkspaceRoot(), projectRoot));
-        }
-        createdProjects.splice(0);
+        await assets.dispose();
     }, 60_000);
 
     test("Execute simple query with world.subject.get()", async () => {
@@ -956,20 +964,6 @@ function userBasicSchemaFixture(): string {
         "};",
         "",
     ].join("\n");
-}
-
-async function removeProjectRoot(projectRoot: string): Promise<void> {
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-        try {
-            await rm(projectRoot, {recursive: true, force: true});
-            return;
-        } catch (error) {
-            if (!(typeof error === "object" && error !== null && "code" in error && error.code === "EBUSY")) {
-                throw error;
-            }
-            await new Promise((resolve) => setTimeout(resolve, 100));
-        }
-    }
 }
 
 function listWorldEngineTempFiles(directory: string): string[] {

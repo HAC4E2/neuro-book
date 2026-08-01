@@ -13,6 +13,7 @@ import {assertProductRuntimeModuleClosure} from "nbook/scripts/build/product-run
 import {
     assertProductRuntimeContractFiles,
     PRODUCT_RUNTIME_CONTRACT_PATH,
+    readProductRuntimeContract,
 } from "nbook/shared/product-runtime-contract";
 
 const outputRoot = resolve(process.env.NEURO_BOOK_OUTPUT_DIR ?? ".output");
@@ -110,6 +111,7 @@ await measure("prune raw Product build state", async () => {
 console.log(`Product commands: ${commands.commands.join(", ")} (${commands.files} files / ${commands.bytes} bytes)`);
 console.log(`Product bundle: inputs=${runtime.bundledInputs}, entry=${runtime.entryBytes} bytes`);
 console.log(`Product native islands: packages=${runtime.islands.length}, files=${runtime.islandFiles}, bytes=${runtime.islandBytes}`);
+console.log(`Product TypeScript projection: ${runtime.typescriptProjection.files.length}/${runtime.typescriptProjection.sourceFiles} files, ${runtime.typescriptProjection.bytes}/${runtime.typescriptProjection.sourceBytes} bytes`);
 console.log(`Product island imports: files=${runtime.islandImportFiles}, references=${runtime.islandImportReferences}`);
 console.log(`Product runtime specifiers: rawModules=${runtime.rawModuleFiles}, declaredSeeds=${runtime.islands.join(",")}, discoveredSeeds=${runtime.discoveredSeeds.join(",")}, rewrites=${runtime.specifierRewrites}`);
 console.log(`Product post-process timings: ${timings.map((item) => `${item.label}=${item.seconds.toFixed(2)}s`).join(", ")}`);
@@ -201,15 +203,14 @@ async function assertFinalRuntimeShape() {
     }
     for (const required of [
         "index.mjs",
-        "commands/product-start.mjs",
-        "commands/product-command.mjs",
-        "commands/workspace.mjs",
         "authoring/profile-compile-worker.mjs",
         "native-islands.json",
         "prisma/migrations/sqlite",
     ]) {
         if (!existsSync(resolve(serverRoot, required))) throw new Error(`Product server 缺少 ${required}`);
     }
+    const runtimeContract = await readProductRuntimeContract(outputRoot);
+    await assertProductRuntimeContractFiles(runtimeContract, outputRoot);
     await assertProductRuntimeModuleClosure({
         imageRoot: outputRoot,
         buildRoots: [process.cwd()],

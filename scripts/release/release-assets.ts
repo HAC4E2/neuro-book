@@ -510,6 +510,7 @@ function expectedProductIdentity(manifest: ProductRuntimeImageManifest): Product
         imageId: manifest.imageId,
         lockfileSha256: manifest.lockfileSha256,
         sourceDigest: manifest.sourceDigest,
+        builderContractVersion: manifest.builderContractVersion,
     };
 }
 

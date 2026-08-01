@@ -32,6 +32,42 @@ export async function run(command: string, args: string[], options: RunOptions =
 }
 
 /**
+ * 通过stdin向子进程发送原始bytes并立即关闭pipe。
+ *
+ * secret调用方不得把同一内容放进argv、env或错误消息；本Module也不记录input。
+ */
+export async function runWithInput(
+    command: string,
+    args: string[],
+    input: Uint8Array,
+    options: Omit<RunOptions, "stdio"> = {},
+): Promise<void> {
+    await new Promise<void>((resolvePromise, rejectPromise) => {
+        const child = spawn(command, args, {
+            cwd: options.cwd,
+            env: options.env ?? process.env,
+            stdio: ["pipe", "inherit", "inherit"],
+            windowsHide: true,
+        });
+        child.on("error", rejectPromise);
+        child.stdin.on("error", rejectPromise);
+        child.stdin.end(input);
+        child.on("exit", (code, signal) => {
+            if (signal) {
+                rejectPromise(new Error(`${command} 被信号中断：${signal}`));
+                return;
+            }
+            if (code !== 0) {
+                const location = options.cwd ? `，工作目录 ${options.cwd}` : "";
+                rejectPromise(new Error(`${command} 执行失败，退出码 ${code ?? "unknown"}${location}`));
+                return;
+            }
+            resolvePromise();
+        });
+    });
+}
+
+/**
  * 从Manager Host Runtime启动Bun子进程。
  *
  * Bun 1.3.14在Windows由Bun进程直接spawn另一个`bun install`时会错误报告

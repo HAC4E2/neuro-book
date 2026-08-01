@@ -1,11 +1,17 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import {afterAll, beforeEach, describe, expect, it, vi} from "vitest";
+import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi} from "vitest";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
-import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
-import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
+import {
+    openProjectForTest,
+    removeProjectWorkspaceForTest,
+} from "nbook/server/workspace-files/project-session-test-utils";
 import {requireReadyModuleHandle, requireActiveReadyProject} from "nbook/server/workspace-files/project-session";
 import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
+import {
+    createIsolatedWorkspaceAssets,
+    type IsolatedWorkspaceAssets,
+} from "nbook/server/workspace-files/test-workspace-fixture";
 import {
     PROJECT_HISTORY_MODULE_TOKEN,
     readUnseenForAgent,
@@ -23,6 +29,12 @@ vi.mock("h3", async () => {
 });
 
 describe("/api/projects/world-engine", {timeout: 30_000}, () => {
+    let assets: IsolatedWorkspaceAssets;
+
+    beforeAll(async () => {
+        assets = await createIsolatedWorkspaceAssets({purpose: "world-engine-api-tests"});
+    });
+
     beforeEach(() => {
         Object.assign(globalThis, {
             defineEventHandler: (handler: unknown) => handler,
@@ -36,12 +48,14 @@ describe("/api/projects/world-engine", {timeout: 30_000}, () => {
         });
     });
 
-    afterAll(async () => {
-        for (const projectRootName of createdProjects) {
-            await closeProjectForTest(projectRootName).catch(() => undefined);
-            await removeProjectRoot(projectRootName);
+    afterEach(async () => {
+        for (const projectRootName of createdProjects.splice(0)) {
+            await removeProjectWorkspaceForTest(projectRootName);
         }
-        createdProjects.splice(0);
+    });
+
+    afterAll(async () => {
+        await assets.dispose();
     });
 
     it("HTTP path segment 编码不合法时返回稳定 400", async () => {
@@ -264,21 +278,6 @@ function readSlices(input: unknown): Array<{title: string; summary: string; patc
         return input as Array<{title: string; summary: string; patches?: Array<{subjectId: string; path: string; op: string}>}>;
     }
     throw new Error("测试没有拿到 slices");
-}
-
-async function removeProjectRoot(projectRootName: string): Promise<void> {
-    for (let attempt = 0; attempt < 5; attempt++) {
-        collectReleasedSqliteHandles();
-        try {
-            await fs.rm(projectDirectory(projectRootName), {recursive: true, force: true});
-            return;
-        } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== "EBUSY" || attempt === 4) {
-                throw error;
-            }
-            await new Promise((resolve) => setTimeout(resolve, 100));
-        }
-    }
 }
 
 function projectDirectory(projectRootName: string): string {

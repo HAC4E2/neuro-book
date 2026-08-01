@@ -68,7 +68,7 @@ function updateSessionModelDraft(patch: Partial<AgentSessionModelDraft>): void {
 
 <template>
     <!-- Agent Session 模型选择与参数面板 -->
-    <div ref="controlsRef" class="relative flex shrink-0 items-center gap-1.5" :class="props.rootClass">
+    <div ref="controlsRef" class="relative flex min-w-0 items-center gap-1.5" :class="props.rootClass">
         <div class="min-w-0 flex-1">
             <NovelIdeModelSelect
                 :model-value="props.sessionModelSelectionValue"

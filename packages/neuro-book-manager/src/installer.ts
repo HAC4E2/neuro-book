@@ -23,7 +23,7 @@ import {
     type StagedReleaseSource,
 } from "#manager/component";
 import {ensureStateFiles} from "#manager/config";
-import {buildSourceDockerImage, inspectDockerApplication, resolveContainerEngine, stopDocker, writeDockerCompose} from "#manager/docker";
+import {buildSourceDockerImage, containerProductImageReference, inspectDockerApplication, resolveContainerEngine, stopDocker, writeDockerCompose} from "#manager/docker";
 import {ensureDirectory, pathExists, removePath} from "#manager/files";
 import {assertCleanWorktree, createStagedWorktree, materializeRepository, removeStagedWorktree, repositoryRevision} from "#manager/git";
 import {withInstallLock} from "#manager/lock";
@@ -353,9 +353,11 @@ async function prepareInstallation(
     } else if (options.profile === "source-docker") {
         if (!journal.containerEngine) throw new Error("Source Docker安装缺少Container Engine。" );
         const engine = journal.containerEngine;
-        product = {provider: "container", version: appVersion, revision: sourceRevision, image: sourceDockerImageName(sourceRevision, journal.id)};
+        const image = sourceDockerImageName(sourceRevision, journal.id);
+        product = {provider: "container", version: appVersion, revision: sourceRevision, image};
         journal = await setOperationEffect(journal, {kind: "docker-image", state: "planned", owner: "product", image: product.image});
-        await buildSourceDockerImage(engine, stagedWorktree ?? paths.root, product.image);
+        const containerImageId = await buildSourceDockerImage(engine, stagedWorktree ?? paths.root, product.image);
+        product = {...product, containerImageId};
         journal = await setOperationEffect(journal, {kind: "docker-image", state: "applied", owner: "product", image: product.image});
     } else if (options.profile === "ghcr" && release) {
         product = {
@@ -397,7 +399,7 @@ async function prepareInstallation(
             stateRoot: migrationPlanStateRoot,
             cacheRoot: mode === "fresh" ? join(staging, "migration-plan-cache") : paths.cache,
             profile: options.profile,
-            image: options.profile === "ghcr" ? `${product.image}@${product.digest}` : product.image,
+            image: containerProductImageReference(options.profile, product),
             port: options.port,
             output: join(staging, "docker-compose.generated.yml"),
             layoutPath: join(paths.deploy, "docker-compose.generated.yml"),
@@ -449,7 +451,7 @@ async function prepareInstallation(
                 stateRoot: paths.state,
                 cacheRoot: paths.cache,
                 profile: options.profile,
-                image: options.profile === "ghcr" ? `${product.image}@${product.digest}` : product.image,
+                image: containerProductImageReference(options.profile, product),
                 port: options.port,
                 output: stagedCompose,
                 layoutPath: finalCompose,
@@ -468,7 +470,7 @@ async function prepareInstallation(
             previousCompose,
             created: composeCreated,
             previousImage: previousInspection?.configuredImage,
-            targetImage: options.profile === "ghcr" ? `${product.image}@${product.digest}` : product.image,
+            targetImage: containerProductImageReference(options.profile, product),
         });
         if (previousCompose) {
             await ensureDirectory(backup);
@@ -490,7 +492,7 @@ async function prepareInstallation(
             previousCompose,
             created: composeCreated,
             previousImage: previousInspection?.configuredImage,
-            targetImage: options.profile === "ghcr" ? `${product.image}@${product.digest}` : product.image,
+            targetImage: containerProductImageReference(options.profile, product),
         });
     }
     journal = await updateOperation(journal, "switched");

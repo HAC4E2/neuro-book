@@ -13,6 +13,7 @@ import {
     runPortableForeground,
 } from "#manager/app-commands";
 import {TEST_RUNTIME_IMAGE_IDENTITY} from "#manager/fixtures/runtime-image";
+import {currentProductPlatform} from "#manager/platform";
 import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "#manager/root-locators";
 import type {ContainerEngine, InstallationManifest} from "#manager/types";
 import {
@@ -24,14 +25,17 @@ import {
 const processCommands = vi.hoisted(() => ({
     capture: vi.fn(),
     run: vi.fn(),
+    input: vi.fn(),
     available: vi.fn(),
 }));
-const docker = vi.hoisted(() => ({command: vi.fn(), start: vi.fn(), stopContainer: vi.fn(), options: vi.fn()}));
+const docker = vi.hoisted(() => ({command: vi.fn(), start: vi.fn(), stopContainer: vi.fn(), options: vi.fn(), verifyRunning: vi.fn()}));
 const ownedProcess = vi.hoisted(() => ({spawn: vi.fn()}));
+const applicationExecution = vi.hoisted(() => ({verify: vi.fn()}));
 
 vi.mock("#manager/process", () => ({
     runCapture: processCommands.capture,
     run: processCommands.run,
+    runWithInput: processCommands.input,
     commandAvailable: processCommands.available,
 }));
 vi.mock("#manager/docker", () => ({
@@ -39,8 +43,10 @@ vi.mock("#manager/docker", () => ({
     runDockerApplicationCommand: docker.command,
     startDocker: docker.start,
     stopDockerContainer: docker.stopContainer,
+    verifyRunningDockerApplication: docker.verifyRunning,
 }));
 vi.mock("@notnotype/owned-process", () => ({spawnOwnedProcess: ownedProcess.spawn}));
+vi.mock("#manager/application-execution", () => ({verifyApplicationExecution: applicationExecution.verify}));
 
 const roots: string[] = [];
 
@@ -53,6 +59,24 @@ beforeEach(() => {
     docker.options.mockImplementation((engine: ContainerEngine, cwd: string) => engine === "podman"
         ? {cwd, env: {...process.env, PODMAN_COMPOSE_PROVIDER: "podman-compose"}}
         : {cwd});
+    applicationExecution.verify.mockImplementation(async (root: string, manifest: InstallationManifest) => {
+        if (manifest.profile === "source-dev") return {kind: "source-dev", applicationRoot: root};
+        if (manifest.profile === "ghcr" || manifest.profile === "source-docker") {
+            return {
+                kind: "container-product",
+                applicationRoot: root,
+                engine: manifest.containerEngine,
+                product: manifest.components.product,
+                image: {engine: manifest.containerEngine},
+            };
+        }
+        return {
+            kind: "native-product",
+            applicationRoot: root,
+            imageRoot: join(root, ".output"),
+            identity: {},
+        };
+    });
 });
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, {recursive: true, force: true}))));
 
@@ -261,19 +285,28 @@ describe("容器管理员命令", () => {
             : {cwd: root});
     });
 
-    it("非交互容器管理员创建显式传递环境密码", async () => {
+    it("容器管理员密码只经stdin传递，argv和子进程env不含明文", async () => {
         const root = await mkdtemp(join(tmpdir(), "manager-container-admin-password-"));
         roots.push(root);
-        process.env.AUTH_ADMIN_PASSWORD = "test-password";
+        const password = "测试-password\n";
+        process.env.AUTH_ADMIN_PASSWORD = password;
         try {
             await createAdmin(root, dockerManifest(), "admin");
         } finally {
             delete process.env.AUTH_ADMIN_PASSWORD;
         }
 
-        expect(processCommands.run).toHaveBeenCalledWith("docker", expect.arrayContaining([
-            "exec", "-T", "-e", "AUTH_ADMIN_PASSWORD=test-password", "app",
-        ]), {cwd: root});
+        expect(processCommands.run).not.toHaveBeenCalled();
+        expect(processCommands.input).toHaveBeenCalledOnce();
+        const [command, args, input, options] = processCommands.input.mock.calls[0]!;
+        expect(command).toBe("docker");
+        expect(args).toEqual(expect.arrayContaining([
+            "exec", "-T", "app", "bun", "--no-install",
+            ".output/server/commands/product-command.mjs", "command", "create-admin", "admin", "--password-stdin",
+        ]));
+        expect(args.join(" ")).not.toContain(password);
+        expect(new TextDecoder().decode(input)).toBe(password);
+        expect(options.env.AUTH_ADMIN_PASSWORD).toBeUndefined();
     });
 });
 
@@ -483,6 +516,31 @@ describe("Manager Bun运行策略", () => {
             env: expect.objectContaining({BUN: "bun"}),
         }));
     });
+
+    it("原生Product自动密码经pipe传递并从子进程env删除", async () => {
+        const root = await nativeProductRoot();
+        const password = "portable-密码\n";
+        process.env.AUTH_ADMIN_PASSWORD = password;
+        try {
+            await createAdmin(root, productManifest(), "admin");
+        } finally {
+            delete process.env.AUTH_ADMIN_PASSWORD;
+        }
+
+        const [command, args, input, options] = processCommands.input.mock.calls[0]!;
+        expect(command).toBe("bun");
+        expect(args).toEqual([
+            "--no-install",
+            join(root, ".output", "server", "commands", "product-command.mjs"),
+            "command",
+            "create-admin",
+            "admin",
+            "--password-stdin",
+        ]);
+        expect(new TextDecoder().decode(input)).toBe(password);
+        expect(options.env.AUTH_ADMIN_PASSWORD).toBeUndefined();
+        expect(JSON.stringify([args, options])).not.toContain(password);
+    });
 });
 
 async function nativeProductRoot(): Promise<string> {
@@ -549,7 +607,7 @@ function productManifest(): InstallationManifest {
                 provider: "release",
                 version: "0.8.0-canary.1",
                 revision,
-                platform: "windows-x64",
+                platform: currentProductPlatform(),
                 path: ".output",
                 archiveSha256: "b".repeat(64),
                 sourceUrl: "https://example.com/neuro-book-product-windows-x64.zip",

@@ -241,7 +241,7 @@ export function defineAgentToolFromRuntime<const TKey extends string>(tool: Neur
     });
 }
 
-export function isAgentToolDefinition(value: ProfileToolBinding | undefined): value is AgentToolDefinition {
+export function isAgentToolDefinition(value: unknown): value is AgentToolDefinition {
     return Boolean(value && typeof value === "object" && "runtime" in value && typeof value.runtime === "function");
 }
 

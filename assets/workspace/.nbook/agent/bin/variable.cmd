@@ -1,7 +1,7 @@
 @echo off
 setlocal
 set "SCRIPT_DIR=%~dp0"
-set "SOURCE_RELATIVE_PATH=scripts\build\variable.ts"
+set "SOURCE_RELATIVE_PATH=server\agent\variables\variable-command.ts"
 
 call :resolve_application_root
 if errorlevel 1 (

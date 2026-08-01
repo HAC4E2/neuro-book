@@ -133,7 +133,7 @@ name: user anti-ai-slop
         const runtimePaths = runtimePathsFromEnv();
         const catalog = new SkillCatalog(
             join(resolveSystemNbookRoot(runtimePaths.applicationRoot), "agent", "skills"),
-            join(runtimePaths.userNbookRoot, "agent", "skills"),
+            userRoot,
         );
 
         await expect(catalog.get("novel-data")).resolves.toEqual(expect.objectContaining({
@@ -147,14 +147,14 @@ name: user anti-ai-slop
         const runtimePaths = runtimePathsFromEnv();
         const catalog = new SkillCatalog(
             join(resolveSystemNbookRoot(runtimePaths.applicationRoot), "agent", "skills"),
-            join(runtimePaths.userNbookRoot, "agent", "skills"),
+            userRoot,
         );
 
         const skills = await catalog.list();
         const keys = skills.map((skill) => skill.key);
         const skill = skills.find((item) => item.key === "profile-system-guide");
 
-        expect(skill?.source).toMatch(/^(system|user)$/);
+        expect(skill?.source).toBe("system");
         expect(skill?.skillPath.replaceAll("\\", "/")).toContain(".nbook/agent/skills/profile-system-guide/SKILL.md");
         expect(skill?.description).toContain("harness");
         expect(keys).toEqual(expect.arrayContaining([
@@ -179,8 +179,8 @@ name: user anti-ai-slop
         expect(keys).not.toContain("anti-ai-slop");
         expect(skills.find((item) => item.key === "llmlint")).toEqual(expect.objectContaining({
             name: "llmlint",
-            description: expect.stringContaining("Lint and polish LLM-generated Chinese text"),
-            version: "2.0.1",
+            description: expect.stringContaining("Chinese-prose rule library"),
+            version: "3.0.0",
         }));
         expect(skills.find((item) => item.key === "novel-data")).toEqual(expect.objectContaining({
             name: "novel-data",

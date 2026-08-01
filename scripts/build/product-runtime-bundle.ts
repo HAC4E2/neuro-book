@@ -17,6 +17,10 @@ import {
     productRuntimeIslandPackageNames,
     productRuntimeIslandSourceRoot,
 } from "nbook/scripts/build/product-runtime-islands";
+import {
+    projectTypeScriptRuntime,
+    type TypeScriptRuntimeProjection,
+} from "nbook/scripts/build/typescript-runtime-projection";
 
 const NATIVE_ISLAND_SCHEMA = "nbook.product-native-islands/v2";
 const SOURCE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -35,6 +39,7 @@ export type ProductRuntimeBundleResult = {
     rawModuleFiles: number;
     discoveredSeeds: string[];
     specifierRewrites: number;
+    typescriptProjection: TypeScriptRuntimeProjection;
 };
 
 /**
@@ -121,6 +126,7 @@ export async function bundleProductRuntime(outputRoot: string, scratchRoot: stri
             rawModuleFiles: moduleSpecifiers.files,
             discoveredSeeds: moduleSpecifiers.seeds,
             specifierRewrites: moduleSpecifiers.rewrites,
+            typescriptProjection: islandInventory.typescriptProjection,
         };
     } finally {
         await rm(temporaryRoot, {recursive: true, force: true});
@@ -259,15 +265,30 @@ async function listMjsFiles(root: string): Promise<string[]> {
     return files.sort();
 }
 
-async function copyNativeIslands(serverRoot: string): Promise<{packages: string[]; files: number; bytes: number}> {
+async function copyNativeIslands(serverRoot: string): Promise<{
+    packages: string[];
+    files: number;
+    bytes: number;
+    typescriptProjection: TypeScriptRuntimeProjection;
+}> {
     const definitions = productRuntimeIslandDefinitions();
     const packages = productRuntimeIslandPackageNames();
+    let typescriptProjection: TypeScriptRuntimeProjection | null = null;
     for (const packageName of packages) {
         const source = productRuntimeIslandSourceRoot(packageName, SOURCE_ROOT);
         const target = resolve(serverRoot, "node_modules", ...packageName.split("/"));
         await mkdir(dirname(target), {recursive: true});
-        await cp(source, target, {recursive: true, dereference: true});
+        if (packageName === "typescript") {
+            typescriptProjection = await projectTypeScriptRuntime({
+                sourceRoot: source,
+                targetRoot: target,
+                authoringTsconfigPath: resolve(serverRoot, "authoring", "tsconfig.json"),
+            });
+        } else {
+            await cp(source, target, {recursive: true, dereference: true});
+        }
     }
+    if (!typescriptProjection) throw new Error("Product package islands缺少TypeScript Runtime Projection。");
     const manifest = {
         schema: NATIVE_ISLAND_SCHEMA,
         platform: currentProductPlatform(),
@@ -275,7 +296,7 @@ async function copyNativeIslands(serverRoot: string): Promise<{packages: string[
         opaqueImports: productOpaqueImportDefinitions(),
     };
     await writeFile(resolve(serverRoot, "native-islands.json"), `${JSON.stringify(manifest, null, 4)}\n`, "utf8");
-    return {packages, ...await directoryInventory(resolve(serverRoot, "node_modules"))};
+    return {packages, typescriptProjection, ...await directoryInventory(resolve(serverRoot, "node_modules"))};
 }
 
 /** Product bundle 最终不得留下构建机路径或候选外可达 import。 */

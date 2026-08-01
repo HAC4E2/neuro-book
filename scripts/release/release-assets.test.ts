@@ -8,7 +8,11 @@ import {parse} from "yaml";
 
 import {currentProductPlatform, PRODUCT_ASSET_NAMES} from "nbook/packages/neuro-book-manager/src/platform";
 import {PRODUCT_PLATFORMS} from "nbook/packages/neuro-book-manager/src/types";
-import {ProductRuntimeImageBuilder} from "nbook/scripts/build/product-runtime-image-builder";
+import {
+    ProductRuntimeImageBuilder,
+    productRuntimeBuildPolicy,
+    type ProductRuntimeImageManifest,
+} from "nbook/scripts/build/product-runtime-image-builder";
 import {createProductRuntimeContract} from "nbook/shared/product-runtime-contract";
 import {
     buildProductArchive,
@@ -133,19 +137,20 @@ describe("Product Release宿主合同", () => {
             "docs/migrations/README.md",
             "docs/migrations/0.9.0-session-v2.md",
             "scripts/db/migrate-application-state.ts",
-            "scripts/application-state-migration/app-sqlite-step.ts",
-            "scripts/application-state-migration/catalog-registry.ts",
-            "scripts/application-state-migration/catalog.ts",
-            "scripts/application-state-migration/lease.ts",
-            "scripts/application-state-migration/runner.ts",
-            "scripts/application-state-migration/types.ts",
-            "scripts/db/agent-session-v2-review-repair/journal.ts",
-            "scripts/db/agent-session-v2-review-repair/migration.ts",
-            "scripts/db/agent-session-v2-review-repair/types.ts",
+            "server/runtime/application-state-command.ts",
+            "server/runtime/application-state-migration/app-sqlite-step.ts",
+            "server/runtime/application-state-migration/catalog-registry.ts",
+            "server/runtime/application-state-migration/catalog.ts",
+            "server/runtime/application-state-migration/lease.ts",
+            "server/runtime/application-state-migration/runner.ts",
+            "server/runtime/application-state-migration/types.ts",
+            "server/agent/session/migrations/session-v2-review-repair/journal.ts",
+            "server/agent/session/migrations/session-v2-review-repair/migration.ts",
+            "server/agent/session/migrations/session-v2-review-repair/types.ts",
         ];
         expect(() => assertStateMigrationSourceFiles(files, declaration)).not.toThrow();
         expect(() => assertStateMigrationSourceFiles(
-            files.filter((path) => path !== "scripts/application-state-migration/runner.ts"),
+            files.filter((path) => path !== "server/runtime/application-state-migration/runner.ts"),
             declaration,
         )).toThrow("Source archive 缺少 Application State migration 文件");
     });
@@ -191,12 +196,8 @@ describe("Product Release宿主合同", () => {
         const image = await builder.buildCandidate({
             operationId: "release-product-fixture",
             platform,
-            owners: [{name: "server", paths: ["server"]}],
-            budget: {
-                maxFiles: 10,
-                maxBytes: 4096,
-                ownerBaselines: [{name: "server", files: 10, bytes: 4096}],
-            },
+            owners: productRuntimeBuildPolicy(platform).owners,
+            budget: productRuntimeBuildPolicy(platform).budget,
             async build({imageRoot}) {
                 const commandRoot = join(imageRoot, "server", "commands");
                 await mkdir(commandRoot, {recursive: true});
@@ -215,8 +216,10 @@ describe("Product Release宿主合同", () => {
                     prepareSystemAssets: entry,
                     checkMigrations: entry,
                     profileAuthoringSmoke: entry,
+                    variableAuthoringSmoke: entry,
                     imageVariantSmoke: entry,
                     sqliteVecSmoke: entry,
+                    webFetchSmoke: entry,
                 });
                 await writeFile(join(imageRoot, "server", "runtime-contract.json"), `${JSON.stringify(contract)}\n`, "utf8");
             },
@@ -241,6 +244,18 @@ describe("Product Release宿主合同", () => {
             : String(await runCapture("tar", ["-tzf", output], {cwd: repository})).split(/\r?\n/u);
         expect(productEntries.some((entry) => entry.replace(/^\.\//u, "") === ".output/runtime-image.json")).toBe(true);
         expect(productEntries.some((entry) => entry.replace(/^\.\//u, "") === ".output/runtime-image.ready")).toBe(true);
+
+        const runtimeManifestPath = join(repository, ".output", "runtime-image.json");
+        const runtimeManifestText = await readFile(runtimeManifestPath, "utf8");
+        const loosePolicyManifest = JSON.parse(runtimeManifestText) as ProductRuntimeImageManifest;
+        loosePolicyManifest.policy.budget.maxFiles += 1;
+        await writeFile(runtimeManifestPath, `${JSON.stringify(loosePolicyManifest, null, 2)}\n`, "utf8");
+        await expect(buildProductArchive(
+            platform,
+            join(repository, "artifacts", "loose-policy", assetName),
+            repository,
+        )).rejects.toThrow("policy 摘要");
+        await writeFile(runtimeManifestPath, runtimeManifestText, "utf8");
 
         await writeFile(join(repository, ".output", "server", "index.mjs"), "export default false;\n", "utf8");
         await expect(buildProductArchive(
@@ -437,16 +452,18 @@ describe("Product Release宿主合同", () => {
     });
 
     it("五平台 Product 与 GHCR 必须携带 sharp native island 并执行最终图片命令", async () => {
-        const [nuxtConfig, commandBundle, runtimeIslands, posixVerify, releaseWorkflow, ghcrVerify] = await Promise.all([
+        const [nuxtConfig, commandBundle, runtimeIslands, posixVerify, releaseWorkflow, ghcrVerify, extractedVerifier] = await Promise.all([
             readFile(resolve(ROOT, "nuxt.config.ts"), "utf8"),
             readFile(resolve(ROOT, "scripts/build/product-command-bundle.ts"), "utf8"),
             readFile(resolve(ROOT, "scripts/build/product-runtime-islands.ts"), "utf8"),
             readFile(resolve(ROOT, "scripts/release/verify-posix-product.sh"), "utf8"),
             readFile(resolve(ROOT, ".github/workflows/release-container.yml"), "utf8"),
             readFile(resolve(ROOT, "scripts/release/verify-public-ghcr.sh"), "utf8"),
+            readFile(resolve(ROOT, "scripts/release/verify-extracted-product.ts"), "utf8"),
         ]);
 
-        expect(nuxtConfig).toContain('"sharp"');
+        expect(nuxtConfig).toContain("...productRuntimeIslandPackageNames()");
+        expect(runtimeIslands).toContain('packages: ["sharp", "@img/colour", "semver"]');
         expect(commandBundle).toContain('"product-image-variant-smoke": "scripts/deploy/product-image-variant-smoke.ts"');
         for (const platformPackage of [
             "@img/sharp-win32-x64",
@@ -465,7 +482,13 @@ describe("Product Release宿主合同", () => {
         expect(releaseWorkflow).toContain(".output/server/commands/product-command.mjs");
         expect(releaseWorkflow).toContain("check sharp-image-variant");
         expect(ghcrVerify).toContain(".output/server/commands/product-command.mjs check sharp-image-variant");
+        expect(posixVerify).toContain(".output/server/commands/product-command.mjs check web-fetch");
+        expect(releaseWorkflow).toContain("check web-fetch");
+        expect(ghcrVerify).toContain(".output/server/commands/product-command.mjs check web-fetch");
         expect(posixVerify).toContain(".output/server/node_modules/@img/colour/");
+        expect(posixVerify).toContain("verify-extracted-product.ts --product-root");
+        expect(extractedVerifier).toContain("new ProductRuntimeImageVerifier().openVerified");
+        expect(extractedVerifier).toContain("image.manifest.treeDigest !== build.treeDigest");
     });
 
     it("Linux Product与Windows Portable验收根必须位于checkout之外", async () => {
@@ -561,15 +584,16 @@ async function releaseRepositoryFixture(): Promise<string> {
         ["release-state-migration.json", `${JSON.stringify({policy: "none", steps: []})}\n`],
         ["docs/migrations/README.md", "# Migrations\n"],
         ["scripts/db/migrate-application-state.ts", "export {};\n"],
-        ["scripts/application-state-migration/app-sqlite-step.ts", "export {};\n"],
-        ["scripts/application-state-migration/catalog-registry.ts", "export {};\n"],
-        ["scripts/application-state-migration/catalog.ts", "export {};\n"],
-        ["scripts/application-state-migration/lease.ts", "export {};\n"],
-        ["scripts/application-state-migration/runner.ts", "export {};\n"],
-        ["scripts/application-state-migration/types.ts", "export {};\n"],
-        ["scripts/db/agent-session-v2-review-repair/journal.ts", "export {};\n"],
-        ["scripts/db/agent-session-v2-review-repair/migration.ts", "export {};\n"],
-        ["scripts/db/agent-session-v2-review-repair/types.ts", "export {};\n"],
+        ["server/runtime/application-state-command.ts", "export {};\n"],
+        ["server/runtime/application-state-migration/app-sqlite-step.ts", "export {};\n"],
+        ["server/runtime/application-state-migration/catalog-registry.ts", "export {};\n"],
+        ["server/runtime/application-state-migration/catalog.ts", "export {};\n"],
+        ["server/runtime/application-state-migration/lease.ts", "export {};\n"],
+        ["server/runtime/application-state-migration/runner.ts", "export {};\n"],
+        ["server/runtime/application-state-migration/types.ts", "export {};\n"],
+        ["server/agent/session/migrations/session-v2-review-repair/journal.ts", "export {};\n"],
+        ["server/agent/session/migrations/session-v2-review-repair/migration.ts", "export {};\n"],
+        ["server/agent/session/migrations/session-v2-review-repair/types.ts", "export {};\n"],
         ["node_modules/nuxt/package.json", `${JSON.stringify({name: "nuxt", version: "4.3.1"})}\n`],
         ["node_modules/nitropack/package.json", `${JSON.stringify({name: "nitropack", version: "2.13.4"})}\n`],
     ]);

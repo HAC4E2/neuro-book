@@ -6,6 +6,7 @@ import {
     type ProjectSessionNotificationAdapter,
     type ProjectSessionTransport,
 } from "nbook/app/composables/useProjectSession";
+import type {ProjectOpenResponseDto} from "nbook/shared/dto/project.dto";
 
 describe("Project Session Controller", () => {
     afterEach(() => vi.useRealTimers());
@@ -15,8 +16,19 @@ describe("Project Session Controller", () => {
         const controller = createProjectSessionController(transport, notifications());
 
         const opening = controller.open("project-a");
+        expect(controller.state.value).toEqual({
+            status: "opening",
+            phase: "opening-project",
+            projectRoot: "project-a",
+            ready: null,
+        });
         await flushPromises();
-        expect(controller.state.value).toEqual({status: "opening", projectRoot: "project-a", ready: null});
+        expect(controller.state.value).toEqual({
+            status: "opening",
+            phase: "connecting-presence",
+            projectRoot: "project-a",
+            ready: null,
+        });
 
         transport.ready("project-a");
         await expect(opening).resolves.toEqual({projectRoot: "project-a", revision: 1});
@@ -36,6 +48,29 @@ describe("Project Session Controller", () => {
 
         await expect(first).resolves.toEqual({projectRoot: "project-a", revision: 1});
         expect(transport.open).toHaveBeenCalledOnce();
+        await controller.release();
+    });
+
+    it("manifest 修复只在 winning generation ready 后提示一次", async () => {
+        const transport = controlledTransport();
+        vi.mocked(transport.open).mockImplementationOnce(async (projectRoot) => openResponse(projectRoot, {
+            change: "recovered",
+            recoveryPath: projectRoot + "/.nbook/recovery/project-manifest-2026-07-31T12-00-00.000Z-123e4567-e89b-42d3-a456-426614174000.yaml",
+        }));
+        const notification = notifications();
+        const controller = createProjectSessionController(transport, notification);
+
+        const opening = controller.open("project-a");
+        await flushPromises();
+        expect(notification.manifestRecovered).not.toHaveBeenCalled();
+
+        transport.ready("project-a");
+        await opening;
+        expect(notification.manifestRecovered).toHaveBeenCalledOnce();
+        expect(notification.manifestRecovered).toHaveBeenCalledWith(
+            "project-a",
+            "project-a/.nbook/recovery/project-manifest-2026-07-31T12-00-00.000Z-123e4567-e89b-42d3-a456-426614174000.yaml",
+        );
         await controller.release();
     });
 
@@ -94,11 +129,33 @@ describe("Project Session Controller", () => {
         await first;
         transport.end("project-a");
         await flushPromises();
-        expect(controller.state.value).toEqual({status: "reconnecting", projectRoot: "project-a", ready: null});
+        expect(controller.state.value).toEqual({
+            status: "reconnecting",
+            phase: "waiting-reconnect",
+            projectRoot: "project-a",
+            ready: null,
+        });
 
+        const reconnectOpen = Promise.withResolvers<ProjectOpenResponseDto>();
+        vi.mocked(transport.open).mockImplementationOnce(async () => await reconnectOpen.promise);
         await vi.advanceTimersByTimeAsync(300);
         await flushPromises();
         expect(transport.open).toHaveBeenCalledTimes(2);
+        expect(controller.state.value).toEqual({
+            status: "reconnecting",
+            phase: "opening-project",
+            projectRoot: "project-a",
+            ready: null,
+        });
+
+        reconnectOpen.resolve(openResponse("project-a"));
+        await flushPromises();
+        expect(controller.state.value).toEqual({
+            status: "reconnecting",
+            phase: "connecting-presence",
+            projectRoot: "project-a",
+            ready: null,
+        });
         transport.ready("project-a");
         await flushPromises();
         expect(controller.state.value).toEqual({status: "ready", ready: {projectRoot: "project-a", revision: 2}});
@@ -120,7 +177,12 @@ describe("Project Session Controller", () => {
         vi.mocked(transport.open).mockRejectedValueOnce(new Error("restart in progress"));
         await vi.advanceTimersByTimeAsync(300);
         await flushPromises();
-        expect(controller.state.value).toEqual({status: "reconnecting", projectRoot: "project-a", ready: null});
+        expect(controller.state.value).toEqual({
+            status: "reconnecting",
+            phase: "waiting-reconnect",
+            projectRoot: "project-a",
+            ready: null,
+        });
         expect(transport.open).toHaveBeenCalledTimes(2);
 
         await vi.advanceTimersByTimeAsync(800);
@@ -171,7 +233,7 @@ function controlledTransport() {
         ready(projectRoot: string): void;
         end(projectRoot: string): void;
     } = {
-        open: vi.fn(async () => undefined),
+        open: vi.fn(async (projectRoot: string) => openResponse(projectRoot)),
         stream: vi.fn(async (projectRoot, signal, onEvent) => await new Promise<void>((resolve, reject) => {
             streams.set(projectRoot, {onEvent, resolve, reject});
             signal.addEventListener("abort", () => {
@@ -197,7 +259,25 @@ function notifications() {
     return {
         interrupted: vi.fn<() => void>(),
         openFailed: vi.fn<(projectRoot: string, error: unknown) => void>(),
+        manifestRecovered: vi.fn<(projectRoot: string, recoveryPath: string) => void>(),
     } satisfies ProjectSessionNotificationAdapter;
+}
+
+/** 建立客户端 transport 使用的最终 Project publication。 */
+function openResponse(
+    projectRoot: string,
+    change: {change: "none" | "created"} | {change: "normalized" | "recovered"; recoveryPath: string} = {change: "none"},
+): ProjectOpenResponseDto {
+    return {
+        revision: 1,
+        project: {
+            projectRoot,
+            kind: "novel",
+            title: projectRoot,
+            summary: "",
+        },
+        ...change,
+    };
 }
 
 async function flushPromises(): Promise<void> {

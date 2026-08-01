@@ -7,7 +7,7 @@ import {
     type SubjectPaths,
 } from "nbook/server/agent/tools/subject-rag-index";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import {closeProject, openProject} from "nbook/server/workspace-files/project-session";
+import {closeAllProjects, openProject} from "nbook/server/workspace-files/project-session";
 import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 
 /**
@@ -139,7 +139,7 @@ async function main(): Promise<void> {
         console.log("subject-rag smoke ok");
     } finally {
         globalThis.fetch = originalFetch;
-        if (opened) await closeProject(projectRef, "shutdown").catch(() => undefined);
+        if (opened) await closeAllProjects().catch(() => undefined);
         await rm(root, {recursive: true, force: true});
     }
 }

@@ -48,15 +48,16 @@ const targetModeLabel = computed(() => t(`agent.mode.${targetMode.value}`));
 /**
  * 当前 switch_mode 是否仍在等待审批。
  */
-const pendingQuestion = computed(() => {
-    return userInputContext?.pendingSession.value?.questions.find((question) => question.toolNodeId === props.toolCall.id) ?? null;
-});
+const pendingSession = computed(() => userInputContext?.pendingSessions.value.find((session) => {
+    return session.assistantMessageId === props.toolCall.assistantMessageId
+        && session.questions.some((question) => question.toolNodeId === props.toolCall.id || question.toolCallId === props.toolCall.id);
+}) ?? null);
+const pendingQuestion = computed(() => pendingSession.value?.questions.find((question) => {
+    return question.toolNodeId === props.toolCall.id || question.toolCallId === props.toolCall.id;
+}) ?? null);
 
 const isPendingQuestion = computed(() => {
-    return Boolean(
-        pendingQuestion.value
-        && userInputContext?.pendingSession.value?.assistantMessageId === props.toolCall.assistantMessageId,
-    );
+    return Boolean(pendingSession.value);
 });
 
 const parsedRawResult = computed(() => {

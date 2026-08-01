@@ -16,6 +16,8 @@
     "dev:warmup": "bun scripts/cli/warmup-dev-server.mjs",
     "nuxt:build": "bun scripts/build/build-product-runtime-image.ts",
     "nuxt:build:raw": "nuxt prepare --dotenv .env.product && bun run generate && nuxt build --dotenv .env.product --preset node-server",
+    "product:measure": "bun scripts/build/measure-product-runtime-image.ts",
+    "product:policy:check": "bun scripts/build/check-product-runtime-policies.ts --require-all",
     "nuxt:preview": "nuxt preview",
     "analysis": "nuxt analyze --dotenv .env",
     "nuxt:prepare": "nuxt prepare",

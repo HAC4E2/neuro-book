@@ -1,4 +1,4 @@
-import type {VariableDefinition} from "nbook/server/agent/variables/types";
+import type {VariableDefinition} from "nbook/variable-sdk";
 
 /**
  * Workspace Root 级变量定义入口。

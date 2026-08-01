@@ -74,7 +74,7 @@ describe("Jobs feed 页面接线合同", () => {
     it("Workflow preview 首批 Catalog 失败会释放已打开 Project", async () => {
         const workflowPreview = await readFile(workflowPreviewPath, "utf8");
 
-        expect(workflowPreview).toContain("const loaded = await loadFormalCatalog(projectRoot);");
+        expect(workflowPreview).toContain("const loaded = await loadFormalCatalog(projectRoot, ready.revision);");
         expect(workflowPreview).toContain("if (revision !== formalProjectRevision || selectedProjectRoot.value !== projectRoot || loaded) return;");
         expect(workflowPreview).toContain("await formalProjectSession.release();");
     });

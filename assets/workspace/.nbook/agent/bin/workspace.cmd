@@ -1,7 +1,7 @@
 @echo off
 setlocal
 set "SCRIPT_DIR=%~dp0"
-set "SOURCE_RELATIVE_PATH=assets\workspace\.nbook\agent\scripts\workspace.ts"
+set "SOURCE_RELATIVE_PATH=server\workspace-files\workspace-command.ts"
 
 call :resolve_application_root
 if errorlevel 1 (

@@ -32,13 +32,16 @@ export function resolveRuntimeArtifactCompilerContext(
         ? resolve(explicitImageRoot, "server")
         : resolve(absoluteRoot, ".output", "server");
     const outputEntry = resolve(outputRoot, "index.mjs");
-    const rootPackage = resolve(absoluteRoot, "package.json");
     const outputPackage = resolve(outputRoot, "package.json");
-    const productRuntime = existsSync(outputEntry) && (Boolean(explicitImageRoot) || (
-        packageManifestName(rootPackage) === "neuro-book-product"
-        || packageManifestName(outputPackage) === "neuro-book-output"
-            && (env.NEURO_BOOK_PRODUCT_BUILD === "1" || !existsSync(resolve(absoluteRoot, "node_modules")))
-    ));
+    if (explicitImageRoot) {
+        if (!existsSync(outputEntry)) {
+            throw new Error(`Product runtime 缺少 server/index.mjs：${explicitImageRoot}`);
+        }
+        if (packageManifestName(outputPackage) !== "neuro-book-output") {
+            throw new Error(`Product runtime 缺少有效 server/package.json：${explicitImageRoot}`);
+        }
+    }
+    const productRuntime = Boolean(explicitImageRoot);
 
     if (!productRuntime) {
         return Object.freeze({
@@ -46,9 +49,9 @@ export function resolveRuntimeArtifactCompilerContext(
             productRuntime: false,
             outputRoot,
             nbookRoot: absoluteRoot,
-            compilerPackageRoot: rootPackage,
+            compilerPackageRoot: resolve(absoluteRoot, "package.json"),
             compilerNodeModulesRoot: resolve(absoluteRoot, "node_modules"),
-            artifactRuntimeRequireRoot: rootPackage,
+            artifactRuntimeRequireRoot: resolve(absoluteRoot, "package.json"),
             tsconfigPath: resolve(absoluteRoot, "tsconfig.json"),
         });
     }
@@ -56,7 +59,8 @@ export function resolveRuntimeArtifactCompilerContext(
     const authoringRoot = resolve(outputRoot, "authoring");
     const tsconfigPath = resolve(authoringRoot, "tsconfig.json");
     const authoringPackagePath = resolve(authoringRoot, "package.json");
-    if (!existsSync(tsconfigPath) || !existsSync(authoringPackagePath)) {
+    const profileWorkerPath = resolve(authoringRoot, "profile-compile-worker.mjs");
+    if (!existsSync(tsconfigPath) || !existsSync(authoringPackagePath) || !existsSync(profileWorkerPath)) {
         throw new Error(`Product runtime 缺少自包含 Authoring Kit：${authoringRoot}`);
     }
     return Object.freeze({

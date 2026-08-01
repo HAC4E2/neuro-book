@@ -1,9 +1,9 @@
-import sharp from "sharp";
 import {beforeAll, describe, expect, it, vi} from "vitest";
 import {AgentAttachmentCodec, attachmentMarker} from "nbook/server/agent/attachments/agent-attachment-codec";
 import {AttachmentStore} from "nbook/server/agent/attachments/attachment-store";
 import type {AttachmentBlobAdapter} from "nbook/server/agent/attachments/types";
 import type {StoredAgentMessage} from "nbook/server/agent/messages/stored-types";
+import {createRasterTestFixtures, jpegWithDimensions} from "nbook/server/agent/test-utils/raster-fixtures";
 import {AGENT_IMAGE_POLICY} from "nbook/shared/agent/agent-image-policy";
 
 let png: Buffer;
@@ -13,14 +13,9 @@ let webp: Buffer;
 let oversizedJpeg: Buffer;
 
 beforeAll(async () => {
-    const image = sharp({create: {width: 2, height: 2, channels: 4, background: "#224466"}});
-    [png, jpeg, webp] = await Promise.all([
-        image.clone().png().toBuffer(),
-        image.clone().jpeg().toBuffer(),
-        image.clone().webp().toBuffer(),
-    ]);
+    const fixtures = await createRasterTestFixtures();
+    ({png, jpeg, webp, gif} = fixtures);
     oversizedJpeg = jpegWithDimensions(jpeg, 8_193, 8_192);
-    gif = Buffer.from("R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==", "base64");
 });
 
 function memoryAdapter(): AttachmentBlobAdapter {
@@ -151,28 +146,4 @@ function model(input: Array<"text" | "image">) {
         contextWindow: 1000,
         maxTokens: 100,
     };
-}
-
-/** 只改 JPEG SOF 尺寸，构造低字节量的像素上限 fixture。 */
-function jpegWithDimensions(input: Buffer, width: number, height: number): Buffer {
-    const result = Buffer.from(input);
-    for (let index = 0; index < result.length - 8; index += 1) {
-        const marker = result[index + 1];
-        if (result[index] !== 0xff || marker === undefined || !isStartOfFrame(marker)) {
-            continue;
-        }
-        result.writeUInt16BE(height, index + 5);
-        result.writeUInt16BE(width, index + 7);
-        return result;
-    }
-    throw new Error("JPEG fixture 缺少 SOF marker");
-}
-
-/** 判断 JPEG marker 是否携带宽高。 */
-function isStartOfFrame(marker: number): boolean {
-    return marker >= 0xc0
-        && marker <= 0xcf
-        && marker !== 0xc4
-        && marker !== 0xc8
-        && marker !== 0xcc;
 }

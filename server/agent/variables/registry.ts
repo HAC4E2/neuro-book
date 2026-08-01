@@ -11,8 +11,7 @@ import type {
     VariableSchemaDetail,
     VariableSchemaQuery,
 } from "nbook/server/agent/variables/types";
-
-type DefineVariableInput = Omit<VariableDefinition, "namespace">;
+import type {DefineVariableInput} from "nbook/variable-sdk/contracts";
 
 const catalogKey: Record<VariableNamespace, keyof Omit<VariableCatalog, "summary">> = {
     client: "clientVariables",
@@ -24,7 +23,10 @@ const catalogKey: Record<VariableNamespace, keyof Omit<VariableCatalog, "summary
 /**
  * 内部通用 define 入口。公开 profile/helper 只暴露固定 namespace wrapper。
  */
-export function defineVariableNamespace(namespace: VariableNamespace, input: DefineVariableInput): VariableDefinition {
+export function defineVariableNamespace<TSchemaValue extends TSchema>(
+    namespace: VariableNamespace,
+    input: DefineVariableInput<TSchemaValue>,
+): VariableDefinition<TSchemaValue> {
     return {
         ...input,
         namespace,
@@ -37,28 +39,28 @@ export function defineVariableNamespace(namespace: VariableNamespace, input: Def
 /**
  * 定义 client.* 前端状态变量。
  */
-export function defineClientVariable(input: DefineVariableInput): VariableDefinition {
+export function defineClientVariable<TSchemaValue extends TSchema>(input: DefineVariableInput<TSchemaValue>): VariableDefinition<TSchemaValue> {
     return defineVariableNamespace("client", input);
 }
 
 /**
  * 定义 Workspace Root 级全局变量。
  */
-export function defineWorkspaceRootVariable(input: DefineVariableInput): VariableDefinition {
+export function defineWorkspaceRootVariable<TSchemaValue extends TSchema>(input: DefineVariableInput<TSchemaValue>): VariableDefinition<TSchemaValue> {
     return defineVariableNamespace("global", input);
 }
 
 /**
  * 定义 Project Workspace 级变量。
  */
-export function defineProjectVariable(input: DefineVariableInput): VariableDefinition {
+export function defineProjectVariable<TSchemaValue extends TSchema>(input: DefineVariableInput<TSchemaValue>): VariableDefinition<TSchemaValue> {
     return defineVariableNamespace("project", input);
 }
 
 /**
  * 定义 session 级变量。profile artifact 加载后可把这些定义注入 registry。
  */
-export function defineSessionVariable(input: DefineVariableInput): VariableDefinition {
+export function defineSessionVariable<TSchemaValue extends TSchema>(input: DefineVariableInput<TSchemaValue>): VariableDefinition<TSchemaValue> {
     return defineVariableNamespace("session", input);
 }
 

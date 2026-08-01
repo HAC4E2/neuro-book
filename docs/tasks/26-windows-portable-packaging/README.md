@@ -2,6 +2,8 @@
 
 > 本任务保留历史设计与验收记录；当前 Windows Portable 根布局、更新协议、PortableGit/bash 与 `data/` State Root 已由 Task 105 取代，后续实现只更新 Task 105。
 
+> 2026-07-31 Product CLI 路径取代说明：下文 `assets/workspace/.nbook/agent/scripts/{profile,variable,workspace}.ts`、`.output/server/scripts/**` 和直接执行 Product bundle 的命令都只表示历史发行证据。当前稳定 Agent 入口是 `.nbook/agent/bin/{profile,variable,workspace}`，发行物统一通过 Task 130 的 Product Runtime Contract 解析逻辑命令；Source checkout wrapper 调 Product-owned source entry，不恢复旧路径 fallback。
+
 > Active task directory format: `NN-kebab-case-name/`. Archived tasks move to `docs/tasks/archived/<task-slug>/`.
 > 当前状态：下方前半段保留旧 source bootstrap 设计作为历史记录。当前 release 主线已经迁移为 Windows Product Launcher：zip 包含预构建 `app/` Product Payload、`runtime/bun/`、`launcher/` 和升级保留的 `data/`；用户机器不再 clone 源码、安装依赖或执行 Nuxt build。
 

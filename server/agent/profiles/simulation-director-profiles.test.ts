@@ -1,11 +1,15 @@
 import {describe, expect, it} from "vitest";
 import {Value} from "typebox/value";
-import directorProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/director.profile";
-import simulatorLeaderProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/simulator.leader.profile";
+import directorProfileDefinition from "../../../assets/workspace/.nbook/agent/profiles/builtin/director.profile";
+import simulatorLeaderProfileDefinition from "../../../assets/workspace/.nbook/agent/profiles/builtin/simulator.leader.profile";
 import {DirectorInitialSchema, DirectorOutputSchema, SimulatorLeaderInitialSchema, SimulatorLeaderOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {storedMessageText, type StoredMessageLike} from "nbook/server/agent/messages/stored-message-presentation";
 import {createTestRuntimeSession as testSession} from "nbook/server/agent/profiles/test/runtime-session";
 import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
+import {normalizeAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+
+const directorProfile = normalizeAgentProfile(directorProfileDefinition);
+const simulatorLeaderProfile = normalizeAgentProfile(simulatorLeaderProfileDefinition);
 
 function messagesText(messages: StoredMessageLike[] | undefined): string {
     return (messages ?? []).map((message) => storedMessageText(message)).join("\n");

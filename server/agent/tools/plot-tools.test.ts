@@ -508,6 +508,27 @@ describe("plot tools", () => {
         expect(requireActiveReadyProjectMock).not.toHaveBeenCalled();
     });
 
+    it("省略 projectRoot 时复用当前 exact generation，不查询全局 ready session", async () => {
+        const plotFacadeMock = plotFacade as {
+            getChapterWriterBrief: ReturnType<typeof vi.fn>;
+        };
+        plotFacadeMock.getChapterWriterBrief.mockResolvedValueOnce({
+            suggestedBriefMarkdown: "# Current",
+        });
+        requireActiveReadyProjectMock.mockClear();
+        runReadyProjectOperationMock.mockClear();
+        const tool = createPlotTools().find((item) => item.key === "get_chapter_writer_brief");
+
+        expect(Value.Check(tool!.parameters, {chapterId: "7"})).toBe(true);
+        await tool!.executeWithContext!(testContext(emptyHarness()), "plot-current-project", {
+            chapterId: "7",
+        });
+
+        expect(requireActiveReadyProjectMock).not.toHaveBeenCalled();
+        expect(runReadyProjectOperationMock).toHaveBeenCalledWith(currentReady, expect.any(Function));
+        expect(activateReadyProjectModuleMock).toHaveBeenCalledWith(currentReady, expect.anything());
+    });
+
     it("显式跨 Project override 在目标 generation operation 内执行", async () => {
         const plotFacadeMock = plotFacade as {
             getChapterWriterBrief: ReturnType<typeof vi.fn>;

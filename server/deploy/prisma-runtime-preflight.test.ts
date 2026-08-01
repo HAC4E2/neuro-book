@@ -3,7 +3,7 @@ import {mkdir, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
 import {dirname, join, resolve} from "node:path";
 import {tmpdir} from "node:os";
 
-import {ensurePrismaRuntime, resolvePrismaRuntimePlan} from "nbook/scripts/cli/prisma-runtime-preflight";
+import {ensurePrismaRuntime, resolvePrismaRuntimePlan} from "nbook/server/deploy/prisma-runtime-preflight";
 
 const tempRoots: string[] = [];
 

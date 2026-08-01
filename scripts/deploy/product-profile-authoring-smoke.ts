@@ -1,12 +1,13 @@
 #!/usr/bin/env bun
 import {randomUUID} from "node:crypto";
-import {mkdir, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
+import {mkdir, readFile, writeFile} from "node:fs/promises";
 import {dirname, join} from "node:path";
 import {
     compileProfileArtifacts,
     validateProfileArtifact,
 } from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
+import {createAuthoringCacheLease} from "nbook/server/runtime/authoring-cache";
 import {importRuntimeArtifact} from "nbook/server/utils/runtime-artifact-import";
 import {resolveRuntimeArtifactCompilerContext} from "nbook/server/utils/runtime-artifact-compiler-context";
 
@@ -49,10 +50,13 @@ const typebox = dependencies.dependencies.find((dependency) => dependency.name =
 if (!typebox || typebox.kind !== "runtime") {
     throw new Error("Product Authoring Kit 没有登记 typebox runtime implementation。");
 }
+const dependencyNames = dependencies.dependencies.map((dependency) => dependency.name).sort();
+if (JSON.stringify(dependencyNames) !== JSON.stringify(["@types/node", "typebox", "undici-types"])) {
+    throw new Error(`Product Authoring Kit dependency closure 超出批准集合：${dependencyNames.join(", ")}`);
+}
 
-const smokeRoot = join(runtimePaths.cacheRoot, "release-checks", "profile-authoring");
-await mkdir(smokeRoot, {recursive: true});
-const runRoot = await mkdtemp(join(smokeRoot, "run-"));
+const lease = await createAuthoringCacheLease(runtimePaths.cacheRoot, "profile-authoring-check");
+const runRoot = lease.root;
 const profileRoot = join(runRoot, "profiles");
 const fileName = "product.authoring-smoke.profile.ts";
 
@@ -79,6 +83,7 @@ export default defineAgentProfile({
         skipFresh: true,
         orphanBudgetPolicy: "product",
     });
+    await lease.verifyForConsumption();
     const item = result.compiled[0];
     if (result.compiled.length !== 1 || !item) {
         const issue = result.manifest.entries[0]?.issues?.[0]?.message ?? "没有生成 artifact";
@@ -106,7 +111,7 @@ export default defineAgentProfile({
         typeBytes: item.typeBytes,
     }, null, 2));
 } finally {
-    await rm(runRoot, {recursive: true, force: true});
+    await lease.close();
 }
 
 /** 严格收窄 Product Authoring Kit 的构建期依赖清单。 */

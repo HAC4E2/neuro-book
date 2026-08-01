@@ -5,11 +5,8 @@ This page collects a few common ways to write a Profile TSX file. The [Profile G
 ## Minimal profile
 
 ```tsx
-/** @jsxImportSource nbook/server/agent/profiles/profile-dsl */
+/** @jsxImportSource nbook/profile-sdk */
 /** @jsxRuntime automatic */
-import {Type} from "typebox";
-import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
 import {
     AppendingSet,
     HistorySet,
@@ -19,8 +16,12 @@ import {
     SkillCatalog,
     SqlSchemaSummary,
     System,
+    Type,
     WorkspaceFocusReminder,
-} from "nbook/server/agent/profiles/profile-dsl";
+    builtin,
+    defineAgentProfile,
+    toolset,
+} from "nbook/profile-sdk";
 
 export const profileManifest = {
     key: "agent.example",
@@ -141,7 +142,7 @@ profile preview agent.example
 `profile` is the stable entry point of the Agent runtime, put on PATH by `.nbook/agent/bin`. When developing a built-in profile inside the repository, use the full path plus `--system`:
 
 ```bash
-bun scripts/build/profile.ts compile builtin/leader.default.profile.tsx --system
+profile compile builtin/leader.default.profile.tsx --system
 ```
 
 ::: warning Saving is not the same as taking effect

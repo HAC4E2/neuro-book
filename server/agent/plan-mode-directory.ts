@@ -1,5 +1,4 @@
-import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
+import type {ReadyProjectSessionRef} from "nbook/profile-sdk/contracts";
 
 /**
  * Plan Mode 目录的纯路径逻辑。
@@ -15,7 +14,7 @@ import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-
 export const PLAN_MODE_DIRECTORY = ".agent/plan";
 
 export type PlanModeLocationInput = {
-    workspaceRoot: AbsoluteFsPath;
+    workspaceRoot: string;
     currentProject: ReadyProjectSessionRef | null;
 };
 

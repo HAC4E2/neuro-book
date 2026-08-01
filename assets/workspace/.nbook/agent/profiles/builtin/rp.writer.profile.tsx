@@ -5,10 +5,8 @@ import {defineAgentProfile} from "nbook/profile-sdk";
 import {builtin, toolset} from "nbook/profile-sdk";
 import {RpWriterInitialSchema, RpWriterOutputSchema} from "nbook/profile-sdk";
 import {AppendingSet, HistorySet, If, Import, Message, ModelContext, ProfilePrompt, System, WorkspaceFocusReminder} from "nbook/profile-sdk";
-import type {ProfilePrepareContext} from "nbook/profile-sdk";
 import {profileText} from "nbook/profile-sdk";
-import {buildWritingReference} from "nbook/profile-sdk";
-import {buildWritingStyle} from "nbook/profile-sdk";
+import {buildWritingReference, buildWritingStyle} from "nbook/profile-sdk/writing";
 
 const ENABLE_KITTEN_ADULT_STYLE = false;
 
@@ -35,12 +33,12 @@ export default defineAgentProfile({
         builtin.file.bash,
         builtin.result.main(),
     ),
-    async context(ctx) {
-        return buildRpWriterPrompt(ctx);
+    async context() {
+        return buildRpWriterPrompt();
     },
 });
 
-async function buildRpWriterPrompt(_ctx: ProfilePrepareContext<Initial>) {
+async function buildRpWriterPrompt() {
     const writingStyle = await buildWritingStyle();
     const writingReference = await buildWritingReference();
     return (
