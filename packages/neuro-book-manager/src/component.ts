@@ -1,3 +1,4 @@
+import {constants} from "node:fs";
 import {cp, mkdir, readdir, rename, rm} from "node:fs/promises";
 import {dirname, join, relative} from "node:path";
 
@@ -33,6 +34,7 @@ export async function stageReleaseSource(input: {
     root: string;
     staging: string;
     asset: ReleaseAsset;
+    buildId: string;
     version: string;
     revision: string;
     previous?: Extract<SourceComponent, {provider: "release"}>;
@@ -53,6 +55,7 @@ export async function stageReleaseSource(input: {
         sourceRoot: extractedRoot,
         component: {
             provider: "release",
+            buildId: input.buildId,
             version: input.version,
             revision: input.revision,
             path: ".",
@@ -96,6 +99,7 @@ export async function switchReleaseSource(input: {
 export async function stageReleaseProduct(input: {
     staging: string;
     asset: ProductReleaseAsset;
+    buildId: string;
     version: string;
     revision: string;
 }): Promise<StagedProduct> {
@@ -119,6 +123,7 @@ export async function stageReleaseProduct(input: {
         outputRoot: stagedOutput,
         component: {
             provider: "release",
+            buildId: input.buildId,
             version: input.version,
             revision: input.revision,
             path: ".output",
@@ -144,18 +149,22 @@ export async function switchProduct(
 ): Promise<void> {
     const targetOutput = join(root, ".output");
     const backupOutput = join(backup, ".output");
+    const activationOutput = `${stagedOutput}.activation`;
     await ensureDirectory(backup);
+    await removePath(activationOutput);
+    await cp(stagedOutput, activationOutput, {recursive: true, force: true, mode: constants.COPYFILE_FICLONE});
     await onSwitchIntent?.();
     if (await pathExists(targetOutput)) {
         await removePath(backupOutput);
         await rename(targetOutput, backupOutput);
     }
     try {
-        await rename(stagedOutput, targetOutput);
+        await rename(activationOutput, targetOutput);
     } catch (error) {
         if (await pathExists(backupOutput)) {
             await rename(backupOutput, targetOutput);
         }
+        await removePath(activationOutput);
         throw error;
     }
 }

@@ -161,12 +161,13 @@ describe("Release Update预检", () => {
 
         expect(result).toEqual({manifest: current, changed: false, reason: "already-current"});
         expect(await readInstallationManifest(installationPaths(root).manifest)).toEqual(current);
-        expect(await readdir(installationPaths(root).operations)).toHaveLength(1);
+        expect(await readdir(installationPaths(root).operations)).toHaveLength(0);
     });
 
     it("应用相同但Manager较新时只接管Manager", async () => {
         root = await fixtureRoot();
         const manifest = productManifest({managerVersion: "0.1.0-canary.18"});
+        await writeInstallationManifest(installationPaths(root).manifest, manifest);
         manifestStore.resolve.mockResolvedValue(releaseManifest());
         const source = join(root, "manager-source.mjs");
         await writeFile(source, MANAGER_SOURCE, "utf8");
@@ -205,14 +206,7 @@ describe("Release Update预检", () => {
         await expect(updateInstallation({root, manifest, managerExecutable: join(root, "manager-source.mjs")}))
             .rejects.toThrow("下载失败 404");
 
-        const operations = await readdir(installationPaths(root).operations);
-        expect(operations).toHaveLength(1);
-        const journal = JSON.parse(await readFile(join(installationPaths(root).operations, operations[0]!), "utf8")) as {
-            phase: string;
-            outcome?: string;
-            nextManifest: unknown;
-        };
-        expect(journal).toMatchObject({phase: "committed", outcome: "rolled-back", nextManifest: null});
+        expect(await readdir(installationPaths(root).operations)).toHaveLength(0);
         expect(await readdir(installationPaths(root).staging)).toEqual([]);
         expect(await stat(databasePath)).toBeTruthy();
     });
@@ -248,6 +242,7 @@ describe("Source Dev Update恢复", () => {
     it("迁移失败时先用staged executor恢复Operation，再删除worktree", async () => {
         root = await fixtureRoot();
         const manifest = gitManifest("source-dev");
+        await writeInstallationManifest(installationPaths(root).manifest, manifest);
         const targetRevision = "2".repeat(40);
         const events: string[] = [];
         let stagedWorktree: string | null = null;
@@ -278,7 +273,7 @@ describe("Source Dev Update恢复", () => {
                 migrationRoot: applicationRoot,
                 applicationStateMigration: {
                     runId: journal.id,
-                    state: "planned",
+                    state: "applying",
                 },
             });
             throw new Error("模拟迁移失败");
@@ -303,6 +298,7 @@ describe("Source Dev Update恢复", () => {
     it("恢复失败时保留staged executor供下一次继续恢复", async () => {
         root = await fixtureRoot();
         const manifest = gitManifest("source-dev");
+        await writeInstallationManifest(installationPaths(root).manifest, manifest);
         const targetRevision = "3".repeat(40);
         let stagedWorktree: string | null = null;
         git.fetchUpdateTarget.mockResolvedValue({
@@ -331,7 +327,7 @@ describe("Source Dev Update恢复", () => {
                 migrationRoot: applicationRoot,
                 applicationStateMigration: {
                     runId: journal.id,
-                    state: "planned",
+                    state: "applying",
                 },
             });
             throw new Error("模拟迁移失败");
@@ -357,6 +353,7 @@ async function fixtureRoot(): Promise<string> {
     const fixture = await mkdtemp(join(tmpdir(), "nbook-manager-update-"));
     await mkdir(join(fixture, ".deploy"), {recursive: true});
     await writeFile(join(fixture, "manager-source.mjs"), MANAGER_SOURCE, "utf8");
+    await writeInstallationManifest(installationPaths(fixture).manifest, productManifest());
     return fixture;
 }
 
@@ -372,7 +369,7 @@ function productManifest(overrides: {managerVersion?: string} = {}): Installatio
         roots: INSTALLATION_SCOPED_ROOT_LOCATORS,
         components: {
             source: {
-                provider: "release",
+                provider: "release", buildId: `sha256:${"9".repeat(64)}`,
                 version: "0.8.6-canary.1",
                 revision: "1".repeat(40),
                 path: ".",
@@ -384,7 +381,7 @@ function productManifest(overrides: {managerVersion?: string} = {}): Installatio
             },
             product: {
                 ...TEST_RUNTIME_IMAGE_IDENTITY,
-                provider: "release",
+                provider: "release", buildId: `sha256:${"9".repeat(64)}`,
                 version: "0.8.6-canary.1",
                 revision: "1".repeat(40),
                 path: ".output",
@@ -421,7 +418,7 @@ function ghcrManifest(overrides: {managerVersion?: string} = {}): InstallationMa
                 provider: "container",
                 version: manifest.appVersion,
                 revision: manifest.sourceRevision,
-                image: `ghcr.io/notnotype/neuro-book:v${manifest.appVersion}`,
+                image: `ghcr.io/notnotype/neuro-book@sha256:${SHA_A}`,
                 digest: `sha256:${SHA_A}`,
             },
             manager: manifest.components.manager,
@@ -464,7 +461,8 @@ function releaseManifest(overrides: {version?: string; sourceRevision?: string; 
     const sourceRevision = overrides.sourceRevision ?? "1".repeat(40);
     const sourceSha = overrides.sha ?? SHA_A;
     return {
-        schemaVersion: 4,
+        schemaVersion: 5,
+        buildId: `sha256:${"9".repeat(64)}`,
         version,
         channel: "canary",
         sourceRevision,
@@ -472,7 +470,7 @@ function releaseManifest(overrides: {version?: string; sourceRevision?: string; 
         source: {url: "https://example.com/source.zip", sha256: sourceSha, bytes: 1},
         products: [{platform: currentProductPlatform(), sourceRevision, url: `https://example.com/${PRODUCT_ASSET_NAMES[currentProductPlatform()]}`, sha256: overrides.productSha ?? sourceSha, bytes: 1, ...TEST_RUNTIME_IMAGE_IDENTITY}],
         windowsPortable: {url: "https://example.com/portable.zip", sha256: sourceSha, bytes: 1},
-        ghcr: {ref: `ghcr.io/notnotype/neuro-book:v${version}`, digest: `sha256:${SHA_A}`, sourceRevision},
+        ghcr: {ref: `ghcr.io/notnotype/neuro-book@sha256:${SHA_A}`, digest: `sha256:${SHA_A}`, sourceRevision},
         stateMigration: {policy: "automatic", steps: ["agent-attachment-v1", "agent-session-v2"]},
     };
 }

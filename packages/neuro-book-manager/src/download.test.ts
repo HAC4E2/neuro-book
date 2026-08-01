@@ -36,6 +36,19 @@ describe("Archive Extraction Adapter", () => {
         await expect(extractZip(archive, target)).rejects.toThrow("Installation Root");
         await expect(stat(join(root, "outside.txt"))).rejects.toMatchObject({code: "ENOENT"});
     });
+
+    it("在Bun下解压超过fflate异步Worker阈值的高压缩条目", async () => {
+        const root = await fixtureRoot();
+        const archive = join(root, "large.zip");
+        const target = join(root, "target");
+        const expected = new Uint8Array(600 * 1024).fill(65);
+        await writeFile(archive, zipSync({"product/server/index.mjs": expected}));
+
+        await extractZip(archive, target);
+
+        expect(new Uint8Array(await readFile(join(target, "product", "server", "index.mjs"))))
+            .toEqual(expected);
+    });
 });
 
 /** 创建每项测试独占的归档根。 */

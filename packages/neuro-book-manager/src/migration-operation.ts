@@ -14,15 +14,13 @@ import {
     type DockerApplicationInspection,
 } from "#manager/docker";
 import {assertNativeProductStopped, backupApplicationDatabase} from "#manager/health";
-import {withInstallLock} from "#manager/lock";
-import {readInstallationManifest} from "#manager/manifest-store";
+import {mutateInstallation} from "#manager/installation-mutation";
 import {
     commitOperation,
     createOperation,
     prepareCandidateContainer,
     recordCandidateContainer,
     recoverFailedOperation,
-    recoverInterruptedOperations,
     setOperationEffect,
     updateOperation,
 } from "#manager/operation";
@@ -90,12 +88,17 @@ export async function applyJournaledApplicationMigrations(
     if (journal.applicationStateMigration.state !== "planned") {
         throw new Error(`Application State migration 状态无法 apply：${journal.applicationStateMigration.state}`);
     }
-    const next = journal;
+    const applying = await updateOperation(journal, journal.phase, {
+        applicationStateMigration: {
+            ...journal.applicationStateMigration,
+            state: "applying",
+        },
+    });
     const runId = journal.applicationStateMigration.runId;
     await applyApplicationStateMigration(root, manifest, runId, applicationRoot);
-    return updateOperation(next, next.phase, {
+    return updateOperation(applying, applying.phase, {
         applicationStateMigration: {
-            ...next.applicationStateMigration!,
+            ...applying.applicationStateMigration!,
             state: "applied",
         },
     });
@@ -194,7 +197,7 @@ export async function backupJournaledApplicationDatabase(
 /**
  * 对组件身份完全相同的安装执行当前 Product migration plan。
  *
- * 调用方必须已持有 install lock；already_current 不创建 Journal，planned 才进入完整
+ * 调用方必须已持有 InstallationMutation lease；already_current 不创建 Journal，planned 才进入完整
  * 停机、备份、迁移、健康检查与提交事务。
  */
 export async function migrateCurrentApplicationState(
@@ -254,17 +257,12 @@ export async function migrateCurrentApplicationState(
  */
 export async function startInstallationApplication(
     root: string,
-    manifest: InstallationManifest,
     options: StartApplicationOptions = {},
 ): Promise<void> {
-    if (options.healthCheck === false && manifest.profile !== "windows-portable") {
-        throw new Error("--no-health-check仅支持Windows Portable。");
-    }
-    const paths = installationPaths(root, manifest.roots);
     const launchResult: {launch?: Awaited<ReturnType<typeof launchApplication>>} = {};
-    await withInstallLock(join(paths.deploy, "install.lock"), async () => {
-        const recovered = await recoverInterruptedOperations(paths.root);
-        const activeManifest = recovered ?? await readInstallationManifest(paths.manifest) ?? manifest;
+    await mutateInstallation(root, async (mutation) => {
+        const paths = installationPaths(mutation.root, mutation.manifest.roots);
+        const activeManifest = mutation.manifest;
         if (options.healthCheck === false && activeManifest.profile !== "windows-portable") {
             throw new Error("--no-health-check仅支持Windows Portable。");
         }

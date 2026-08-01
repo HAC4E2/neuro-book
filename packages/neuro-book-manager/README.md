@@ -62,11 +62,13 @@ Windows Portable的State Root固定为`data/`。如果Installation Root下另外
 
 Windows Portable可使用`neuro-book --root <安装目录> start --no-health-check`跳过启动HTTP健康检查和自动打开浏览器。该参数仍执行启动前恢复与数据迁移，并保持Product前台运行；仅用于健康探测与实际服务状态不一致时的临时诊断，其他Profile会拒绝该参数。
 
-已有Manifest v4实例使用`instances import <path> --yes`执行离线完整性门禁后登记；v3不自动迁移，需要重新安装并只复用用户状态。`--yes`只接受“服务未启动”等warning，不能绕过checksum、wrapper或Operation blocker。无Manifest源码checkout使用`adopt`显式接管；三个Source Profile均在detached worktree准备，dirty、未知remote或非法branch会停止。无法证明revision/checksum的历史`.output`不会直接纳入管理。
+已有Manifest v3/v4实例不自动迁移，需要重新安装程序并只复用完整用户状态；当前`instances import <path> --yes`只接受Manifest v5。`--yes`只接受“服务未启动”等warning，不能绕过checksum、wrapper或Operation blocker。无Manifest源码checkout使用`adopt`显式接管；三个Source Profile均在Installation Root的`.deploy/staging/<operation-id>`准备detached worktree，dirty、未知remote或非法branch会停止。无法证明revision/checksum的历史`.output`不会直接纳入管理。
 
 `status`只做轻量路径、Operation和服务探测；`doctor`执行完整checksum、组件版本、wrapper内容、Source/Product revision、Compose镜像和HTTP版本检查。服务正常停止是warning且`healthy=true`，下一步会提示`start`；Docker/Compose不可用、运行中镜像或版本错误、HTTP不可达和组件损坏才会使doctor失败。Docker `start`会等待真实版本接口通过，Compose命令成功不等于应用健康。
 
-Install、Update与Start在修改应用数据前都会先恢复未完成Operation，并在install lock内持久化Operation Journal v3 Effect Ledger。每个受管物理动作先记录planned intent，再记录applied结果；wrapper备份、SQLite、Git、Compose、镜像和Manifest恢复都使用字段级ownership。Agent Attachment格式迁移先dry-run记录受影响session的source/target hash，再apply并补充backup路径；健康检查或进程中断时，Manager先停止新Product/容器释放runtime lease并撤销session格式，之后才恢复Product、SQLite和Compose。缺少迁移脚本、runId不一致或`applied`操作返回`not_started`都会停止，不能静默启动不完整Product。
+Install、Update、Start、Migration、Admin、Desktop Reset与Uninstall共用Installation Mutation。外置heartbeat lease取得后先恢复未完成Operation，再重读磁盘Manifest；调用前缓存的Manifest不能作为执行依据。Operation Journal v5为Application State记录`planned → applying → applied → rolled_back`，并为Product切换保留operation-owned migration root；wrapper、SQLite、Git、Compose、镜像和Manifest恢复继续使用字段级ownership。缺少迁移脚本、runId不一致或`applied`操作返回`not_started`都会停止，不能静默启动不完整Product。
+
+Windows Portable从包内Bun运行卸载时会安排外置Uninstall Host，等Manager退出后再删除程序文件。默认卸载保留`data/`，`uninstall --delete-data --yes`才删除全部；durable intent被修改时Host会拒绝删除并把失败写到外置结果文件。pending卸载会阻止安装、更新、启动等其他写操作。
 
 不要使用 `bunx run @notnotype/neuro-book-manager`；`bunx run` 会把包名按本地脚本或路径解析，Manager 不会被启动。
 

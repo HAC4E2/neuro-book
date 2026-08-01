@@ -58,6 +58,7 @@ function releaseSourceCurrent(manifest: InstallationManifest, release: ReleaseMa
             && source.revision === release.sourceRevision;
     }
     return source.provider === "release"
+        && source.buildId === release.buildId
         && source.version === release.version
         && source.revision === release.sourceRevision
         && source.archiveSha256 === release.source.sha256;
@@ -77,6 +78,7 @@ function releaseProductCurrent(manifest: InstallationManifest, release: ReleaseM
     if (product.provider !== "release") return false;
     const asset = release.products.find((item) => item.platform === product.platform);
     return Boolean(asset
+        && product.buildId === release.buildId
         && product.version === release.version
         && product.revision === release.sourceRevision
         && product.archiveSha256 === asset.sha256);

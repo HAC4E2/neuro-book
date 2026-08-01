@@ -117,7 +117,8 @@ function release(tag: string, prerelease: boolean) {
             ],
         },
         manifest: {
-            schemaVersion: 4,
+            schemaVersion: 5,
+            buildId: `sha256:${"9".repeat(64)}`,
             version,
             channel: prerelease ? "canary" : "stable",
             sourceRevision: REVISION,
@@ -131,7 +132,7 @@ function release(tag: string, prerelease: boolean) {
                 {url: urls.darwinArm64, sha256: SHA, bytes: 1, platform: "darwin-aarch64", sourceRevision: REVISION, ...TEST_RUNTIME_IMAGE_IDENTITY},
             ],
             windowsPortable: {url: urls.portable, sha256: SHA, bytes: 1},
-            ghcr: {ref: `ghcr.io/notnotype/neuro-book:${tag}`, digest: `sha256:${SHA}`, sourceRevision: REVISION},
+            ghcr: {ref: `ghcr.io/notnotype/neuro-book@sha256:${SHA}`, digest: `sha256:${SHA}`, sourceRevision: REVISION},
             stateMigration: {policy: "automatic", steps: ["agent-attachment-v1", "agent-session-v2"]},
         },
     };

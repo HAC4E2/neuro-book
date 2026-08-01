@@ -6,8 +6,7 @@ import * as p from "@clack/prompts";
 import {Command} from "commander";
 
 import {createAdmin} from "#manager/app-commands";
-import {removeDockerDeployment, stopDocker} from "#manager/docker";
-import {assertNativeProductStopped} from "#manager/health";
+import {mutateInstallation} from "#manager/installation-mutation";
 import {runInstallGuide} from "#manager/install-guide";
 import {assertInstallConsent, inspectInstallEnvironment, inspectInstallPreflight, recommendedInstallProfile} from "#manager/install-preflight";
 import {installPlan, installWithPreflight} from "#manager/installer";
@@ -288,8 +287,8 @@ program.command("start")
     .description("启动当前或指定安装。")
     .option("--no-health-check", "Windows Portable跳过HTTP健康检查和自动打开浏览器。")
     .action(async (options: {healthCheck: boolean}) => {
-        const {root, manifest} = await currentInstallation();
-        await startInstallationApplication(root, manifest, {healthCheck: options.healthCheck});
+        const {root} = await currentInstallation();
+        await startInstallationApplication(root, {healthCheck: options.healthCheck});
     });
 
 program.command("status")
@@ -315,7 +314,7 @@ program.command("uninstall")
     .option("--delete-data", "同时删除托管 State Root；外部 Project Workspace 永不删除。", false)
     .option("--yes", "确认执行卸载。", false)
     .action(async (options: {deleteData: boolean; yes: boolean}) => {
-        const {root, manifest} = await currentInstallation();
+        const {root} = await currentInstallation();
         if (!options.yes) {
             if (!process.stdin.isTTY || !process.stdout.isTTY) {
                 throw new Error("卸载需要 --yes；同时删除托管用户数据还需显式传入 --delete-data。");
@@ -331,13 +330,17 @@ program.command("uninstall")
         }
         const result = await uninstallInstallation({
             installationRoot: root,
-            manifest,
             deleteData: options.deleteData,
-            stop: async () => stopInstallationForRemoval(root, manifest, true),
         });
         const config = await readManagerConfig();
         const instance = findManagerInstance(config, root);
         if (instance) await forgetManagerInstance(instance.id);
+        if (result.status === "scheduled") {
+            p.outro(result.statePreserved
+                ? `卸载已安排；当前命令退出后删除程序，用户数据保留在：${result.stateRoot}\n结果记录：${result.resultPath}`
+                : `卸载已安排；当前命令退出后删除程序和托管用户数据。\n结果记录：${result.resultPath}`);
+            return;
+        }
         p.outro(result.statePreserved
             ? `卸载完成；用户数据保留在：${result.stateRoot}`
             : "卸载完成；托管用户数据已删除。" );
@@ -348,7 +351,7 @@ desktop.command("reset")
     .description("删除当前实例的 Desktop Local Root，包括 WebView profile。")
     .option("--yes", "确认删除桌面本地状态。", false)
     .action(async (options: {yes: boolean}) => {
-        const {root, manifest} = await currentInstallation();
+        const {root} = await currentInstallation();
         if (!options.yes) {
             if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error("桌面重置需要 --yes。" );
             const confirmed = await promptResult(p.confirm({
@@ -362,28 +365,9 @@ desktop.command("reset")
         }
         const desktopRoot = await resetDesktopLocalState({
             installationRoot: root,
-            manifest,
-            stop: async () => stopInstallationForRemoval(root, manifest, false),
         });
         p.outro(`桌面本地状态已重置：${desktopRoot}`);
     });
-
-/**
- * 删除生命周期前的停止门。
- *
- * 原生 Product 的控制 token 只属于启动它的 Manager 进程；独立 CLI 只能要求已停止，
- * 不能降级为未认证 shutdown 或强杀。容器则由当前 Manager 明确停止并按卸载语义 down。
- */
-async function stopInstallationForRemoval(root: string, manifest: InstallationManifest, removeContainer: boolean): Promise<void> {
-    const paths = installationPaths(root, manifest.roots);
-    if (manifest.components.applicationRuntime.provider !== "container") {
-        await assertNativeProductStopped(paths.state);
-        return;
-    }
-    if (!manifest.containerEngine) throw new Error(`${manifest.profile} Manifest 缺少 Container Engine。`);
-    await stopDocker(manifest.containerEngine, root, paths.state);
-    if (removeContainer) await removeDockerDeployment(manifest.containerEngine, root, paths.state);
-}
 
 const runtime = program.command("runtime").description("管理 Bun Runtime。");
 runtime.command("list").action(async () => {
@@ -398,15 +382,15 @@ runtime.command("install")
     .option("--version <version>")
     .action(async (runtimeName: string, options: {version?: string}) => {
         if (runtimeName !== "bun") throw new Error(`不支持的 Runtime：${runtimeName}`);
-        const {root, manifest} = await currentInstallation();
-        await maintainRuntime(root, manifest, managerExecutable, options.version);
+        const {root} = await currentInstallation();
+        await maintainRuntime(root, managerExecutable, options.version);
     });
 runtime.command("update")
     .argument("<runtime>", "当前只支持 bun。")
     .action(async (runtimeName: string) => {
         if (runtimeName !== "bun") throw new Error(`不支持的 Runtime：${runtimeName}`);
-        const {root, manifest} = await currentInstallation();
-        await maintainRuntime(root, manifest, managerExecutable);
+        const {root} = await currentInstallation();
+        await maintainRuntime(root, managerExecutable);
     });
 
 const tools = program.command("tools").description("管理 Agent 工具链。");
@@ -418,8 +402,8 @@ tools.command("install")
     .argument("<tool>", "rg 或 git。")
     .action(async (tool: string) => {
         assertTool(tool);
-        const {root, manifest} = await currentInstallation();
-        await maintainTool(root, manifest, tool, managerExecutable);
+        const {root} = await currentInstallation();
+        await maintainTool(root, tool, managerExecutable);
     });
 tools.command("update")
     .argument("[tool]", "rg 或 git；省略时更新全部 managed tools。")
@@ -427,11 +411,11 @@ tools.command("update")
         const {root, manifest} = await currentInstallation();
         if (tool) {
             assertTool(tool);
-            await maintainTool(root, manifest, tool, managerExecutable);
+            await maintainTool(root, tool, managerExecutable);
             return;
         }
-        let next = await maintainTool(root, manifest, "rg", managerExecutable);
-        if (process.platform === "win32") next = await maintainTool(root, next, "git", managerExecutable);
+        await maintainTool(root, "rg", managerExecutable);
+        if (process.platform === "win32") await maintainTool(root, "git", managerExecutable);
     });
 tools.command("path")
     .argument("<tool>", "rg 或 git。")
@@ -447,8 +431,8 @@ const admin = program.command("admin").description("管理员操作。");
 admin.command("create")
     .argument("[username]")
     .action(async (username?: string) => {
-        const {root, manifest} = await currentInstallation();
-        await createAdmin(root, manifest, username);
+        const {root} = await currentInstallation();
+        await mutateInstallation(root, (mutation) => createAdmin(mutation.root, mutation.manifest, username));
     });
 
 await main();
@@ -484,7 +468,7 @@ async function runContextEntry(): Promise<void> {
             {value: "runtime", label: "查看Runtime"}, {value: "tools", label: "查看Tool"}, {value: "instances", label: "查看实例索引"},
         ]}));
         if (action === "manage") return runManagerTui(managerExecutable);
-        if (action === "start") return startInstallationApplication(inspection.root, inspection.manifest);
+        if (action === "start") return startInstallationApplication(inspection.root);
         if (action === "status") return printObject(await installationStatus(inspection.root, inspection.manifest));
         if (action === "doctor") return printObject(await doctor(inspection.root, inspection.manifest));
         if (action === "update") {
@@ -495,7 +479,7 @@ async function runContextEntry(): Promise<void> {
         if (action === "runtime") { printJson({managerRuntime: inspection.manifest.components.managerRuntime, applicationRuntime: inspection.manifest.components.applicationRuntime}); return; }
         if (action === "tools") { printJson(inspection.manifest.components.tools); return; }
         if (action === "instances") { printJson(await readManagerConfig()); return; }
-        await createAdmin(inspection.root, inspection.manifest);
+        await mutateInstallation(inspection.root, (mutation) => createAdmin(mutation.root, mutation.manifest));
         return;
     }
     if (inspection.kind === "invalid-installation") {

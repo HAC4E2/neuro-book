@@ -87,9 +87,9 @@ async function fixture(): Promise<{root: string; manifest: InstallationManifest}
         sourceRevision: revision,
         roots: INSTALLATION_SCOPED_ROOT_LOCATORS,
         components: {
-            source: {provider: "release", version: "1.0.0", revision, path: ".", files: ["package.json"], ...asset},
+            source: {provider: "release", buildId: `sha256:${"9".repeat(64)}`, version: "1.0.0", revision, path: ".", files: ["package.json"], ...asset},
             product: {
-                provider: "release",
+                provider: "release", buildId: `sha256:${"9".repeat(64)}`,
                 version: "1.0.0",
                 revision,
                 path: ".output",

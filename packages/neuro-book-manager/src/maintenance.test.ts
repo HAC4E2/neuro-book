@@ -56,8 +56,8 @@ describe("Manager State Root诊断", () => {
             sourceRevision: revision,
             roots: PORTABLE_ROOT_LOCATORS,
             components: {
-                source: {provider: "release", version: "0.8.0", revision, path: ".", files: ["package.json"], ...asset},
-                product: {provider: "release", version: "0.8.0", revision, path: ".output", platform: "windows-x64", ...asset, ...TEST_RUNTIME_IMAGE_IDENTITY},
+                source: {provider: "release", buildId: `sha256:${"9".repeat(64)}`, version: "0.8.0", revision, path: ".", files: ["package.json"], ...asset},
+                product: {provider: "release", buildId: `sha256:${"9".repeat(64)}`, version: "0.8.0", revision, path: ".output", platform: "windows-x64", ...asset, ...TEST_RUNTIME_IMAGE_IDENTITY},
                 manager: {provider: "managed", version: "0.1.0", path: ".runtime/manager/0.1.0/neuro-book.mjs", bundleSha256: managerSha256},
                 managerRuntime: {provider: "managed", version: "1.3.0", path: relativePath(root, bunPath), executableSha256: bunSha256, ...asset},
                 applicationRuntime: {provider: "managed", version: "1.3.0", path: relativePath(root, bunPath), executableSha256: bunSha256, ...asset},

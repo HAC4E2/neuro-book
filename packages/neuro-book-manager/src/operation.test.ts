@@ -1,4 +1,4 @@
-import {mkdir, mkdtemp, readFile, stat, writeFile} from "node:fs/promises";
+import {mkdir, mkdtemp, readFile, rename, stat, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
@@ -7,7 +7,7 @@ import {TEST_RUNTIME_IMAGE_IDENTITY} from "#manager/fixtures/runtime-image";
 import {removePath} from "#manager/files";
 import {commitOperation, createOperation, pathCreateEffect, pathRetireEffect, recoverInterruptedOperations, updateOperation} from "#manager/operation";
 import {currentProductPlatform} from "#manager/platform";
-import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "#manager/root-locators";
+import {INSTALLATION_SCOPED_ROOT_LOCATORS, PORTABLE_ROOT_LOCATORS} from "#manager/root-locators";
 import {parseOperationJournal} from "#manager/schema";
 import {sourceDockerImageName} from "#manager/source-docker-image";
 import type {InstallationManifest} from "#manager/types";
@@ -210,12 +210,7 @@ describe("Operation recovery", () => {
         expect(await readFile(join(retired, "rg.exe"), "utf8")).toBe("old");
         await expect(stat(staging)).rejects.toMatchObject({code: "ENOENT"});
         await expect(stat(backup)).rejects.toMatchObject({code: "ENOENT"});
-        const saved = JSON.parse(await readFile(join(root, ".deploy", "operations", "rolled-back-retired.json"), "utf8")) as {
-            outcome: string;
-            effects: Array<{kind: string; state: string; path?: string}>;
-        };
-        expect(saved.outcome).toBe("rolled-back");
-        expect(saved.effects).toContainEqual(expect.objectContaining({kind: "path-retire", state: "planned", path: ".runtime/tools/rg/old"}));
+        await expect(stat(join(root, ".deploy", "operations", "rolled-back-retired.json"))).rejects.toMatchObject({code: "ENOENT"});
     });
 
     it("拒绝嵌套 Manifest 损坏的 journal", () => {
@@ -258,12 +253,11 @@ describe("Operation recovery", () => {
 
         await recoverInterruptedOperations(root);
 
-        const saved = JSON.parse(await readFile(join(root, ".deploy", "operations", "git-target.json"), "utf8")) as {phase: string; outcome: string};
-        expect(saved).toMatchObject({phase: "committed", outcome: "success"});
+        await expect(stat(join(root, ".deploy", "operations", "git-target.json"))).rejects.toMatchObject({code: "ENOENT"});
         expect(docker.removeDeployment).not.toHaveBeenCalled();
     });
 
-    it("commit point 前删除本次创建路径并保留 journal", async () => {
+    it("commit point 前删除本次创建路径并在恢复完成后删除 journal", async () => {
         const root = await mkdtemp(join(tmpdir(), "manager-operation-"));
         roots.push(root);
         const created = join(root, ".runtime", "tools", "demo", "temporary");
@@ -284,7 +278,7 @@ describe("Operation recovery", () => {
         await recoverInterruptedOperations(root);
 
         await expect(stat(created)).rejects.toMatchObject({code: "ENOENT"});
-        expect(await stat(join(root, ".deploy", "operations", "interrupted.json"))).toBeTruthy();
+        await expect(stat(join(root, ".deploy", "operations", "interrupted.json"))).rejects.toMatchObject({code: "ENOENT"});
     });
 
     it("validated阶段失败不会把尚未切换的旧Product当成新Product删除", async () => {
@@ -329,6 +323,53 @@ describe("Operation recovery", () => {
         await expect(stat(join(root, ".output"))).rejects.toMatchObject({code: "ENOENT"});
     });
 
+    it.each([
+        {checkpoint: "第一次 rename 后", targetCreated: false},
+        {checkpoint: "第二次 rename 后", targetCreated: true},
+    ])("Product $checkpoint 中断时先用 immutable runner 回滚 migration，再恢复旧 Product", async ({targetCreated}) => {
+        const root = await operationRoot();
+        const id = `product-rename-${targetCreated ? "second" : "first"}`;
+        const staging = join(root, ".deploy", "staging", id);
+        const migrationRoot = join(staging, "migration-runner");
+        const backup = join(root, ".deploy", "backups", id);
+        await mkdir(join(migrationRoot, ".output"), {recursive: true});
+        await mkdir(join(backup, "product", ".output"), {recursive: true});
+        await writeFile(join(migrationRoot, ".output", "runner.mjs"), "runner", "utf8");
+        await writeFile(join(backup, "product", ".output", "old.txt"), "old", "utf8");
+        if (targetCreated) {
+            await mkdir(join(root, ".output"), {recursive: true});
+            await writeFile(join(root, ".output", "new.txt"), "new", "utf8");
+        }
+        const previousManifest = nativeManifest("1.0.0", "a".repeat(40));
+        const nextManifest = nativeManifest("1.1.0", "b".repeat(40));
+        applicationStateMigration.rollback.mockImplementationOnce(async (_root, _manifest, _runId, _allowNotStarted, runnerRoot) => {
+            expect(runnerRoot).toBe(migrationRoot);
+            expect(await readFile(join(runnerRoot, ".output", "runner.mjs"), "utf8")).toBe("runner");
+        });
+        const journal = await createOperation({
+            id,
+            action: "update",
+            root,
+            containerEngine: null,
+            backupRoot: backup,
+            previousManifest,
+            nextManifest,
+            effects: [
+                pathCreateEffect(`.deploy/staging/${id}`, "applied"),
+                {kind: "component-switch", state: "planned", owner: "product"},
+            ],
+            migrationRoot,
+            applicationStateMigration: {runId: id, state: "applying"},
+        });
+        await updateOperation(journal, "switched");
+
+        await recoverInterruptedOperations(root);
+
+        expect(applicationStateMigration.rollback).toHaveBeenCalledWith(root, nextManifest, id, true, migrationRoot);
+        expect(await readFile(join(root, ".output", "old.txt"), "utf8")).toBe("old");
+        await expect(stat(staging)).rejects.toMatchObject({code: "ENOENT"});
+    });
+
     it("Fresh Git checkout只要开始物化就在失败恢复时按ownership清理", async () => {
         const root = await operationRoot();
         const journal = await createOperation({
@@ -345,8 +386,7 @@ describe("Operation recovery", () => {
         await recoverInterruptedOperations(root);
 
         expect(git.removeMaterialized).toHaveBeenCalledWith(root);
-        const saved = JSON.parse(await readFile(join(root, ".deploy", "operations", "fresh-checkout-intent.json"), "utf8")) as {outcome: string};
-        expect(saved.outcome).toBe("rolled-back");
+        await expect(stat(join(root, ".deploy", "operations", "fresh-checkout-intent.json"))).rejects.toMatchObject({code: "ENOENT"});
     });
 
     it("Fresh Docker失败时移除容器、Compose和本地镜像", async () => {
@@ -396,8 +436,7 @@ describe("Operation recovery", () => {
 
         expect(docker.removeImage).toHaveBeenCalledTimes(1);
         expect(docker.removeImage).toHaveBeenCalledWith("docker", root, previousImage);
-        const saved = JSON.parse(await readFile(join(root, ".deploy", "operations", "docker-image-retire.json"), "utf8")) as {effects: Array<{kind: string; previousImageRetired?: boolean}>};
-        expect(saved.effects).toContainEqual(expect.objectContaining({kind: "docker-image", previousImageRetired: true}));
+        await expect(stat(join(root, ".deploy", "operations", "docker-image-retire.json"))).rejects.toMatchObject({code: "ENOENT"});
     });
 
     it("Docker更新失败时恢复数据库、Compose并重启旧实例", async () => {
@@ -482,14 +521,7 @@ describe("Operation recovery", () => {
         expect(docker.stopContainer).toHaveBeenCalledWith("docker", root, candidateContainerId);
         expect(docker.stopContainer.mock.invocationCallOrder[0]).toBeLessThan(docker.removeDeployment.mock.invocationCallOrder[0]!);
         expect(docker.removeDeployment.mock.invocationCallOrder[0]).toBeLessThan(applicationStateMigration.rollback.mock.invocationCallOrder[0]!);
-        const saved = JSON.parse(await readFile(join(root, ".deploy", "operations", "attachment-rollback.json"), "utf8")) as {
-            applicationStateMigration: {state: string};
-            effects: Array<{kind: string; stopped?: boolean}>;
-            outcome: string;
-        };
-        expect(saved.applicationStateMigration.state).toBe("rolled_back");
-        expect(saved.effects).toContainEqual(expect.objectContaining({kind: "candidate-container", stopped: true}));
-        expect(saved.outcome).toBe("rolled-back");
+        await expect(stat(join(root, ".deploy", "operations", "attachment-rollback.json"))).rejects.toMatchObject({code: "ENOENT"});
     });
 
     it("候选容器启动屏障缺少精确ID时拒绝回滚持久化状态", async () => {
@@ -561,11 +593,8 @@ describe("Operation recovery", () => {
             );
         }
         if (!removed) expect(await readFile(compose, "utf8")).toBe("image: current");
-        const saved = JSON.parse(await readFile(
-            join(root, ".deploy", "operations", `start-restore-${previousState}.json`),
-            "utf8",
-        )) as {outcome?: string};
-        expect(saved.outcome).toBe("rolled-back");
+        await expect(stat(join(root, ".deploy", "operations", `start-restore-${previousState}.json`)))
+            .rejects.toMatchObject({code: "ENOENT"});
     });
 
     it("migration-only update 的状态记录不会删除原有stopped容器", async () => {
@@ -601,7 +630,7 @@ describe("Operation recovery", () => {
         expect(await readFile(compose, "utf8")).toBe("image: current");
     });
 
-    it("Application State rollback失败时保持新部署停止并保留journal重试", async () => {
+    it("planned Application State 尚未执行时直接标记回滚，不调用 Product runner", async () => {
         const root = await operationRoot();
         const backup = join(root, ".deploy", "backups", "attachment-rollback-failure");
         const previousCompose = join(backup, "docker-compose.generated.yml");
@@ -614,7 +643,6 @@ describe("Operation recovery", () => {
         await mkdir(backup, {recursive: true});
         await writeFile(join(root, ".deploy", "docker-compose.generated.yml"), "image: new", "utf8");
         await writeFile(previousCompose, "image: old", "utf8");
-        applicationStateMigration.rollback.mockRejectedValueOnce(new Error("rollback interrupted"));
         const journal = await createOperation({
             id: "attachment-rollback-failure",
             action: "update",
@@ -639,16 +667,12 @@ describe("Operation recovery", () => {
         });
         await updateOperation(journal, "switched");
 
-        await expect(recoverInterruptedOperations(root)).rejects.toThrow("rollback interrupted");
+        await recoverInterruptedOperations(root);
 
         expect(docker.removeDeployment).toHaveBeenCalledOnce();
-        expect(applicationStateMigration.rollback).toHaveBeenCalledWith(root, nextManifest, "attachment-rollback-failure-run", true, root);
-        const saved = JSON.parse(await readFile(join(root, ".deploy", "operations", "attachment-rollback-failure.json"), "utf8")) as {
-            applicationStateMigration: {state: string};
-            outcome?: string;
-        };
-        expect(saved.applicationStateMigration.state).toBe("planned");
-        expect(saved.outcome).toBeUndefined();
+        expect(applicationStateMigration.rollback).not.toHaveBeenCalled();
+        await expect(stat(join(root, ".deploy", "operations", "attachment-rollback-failure.json")))
+            .rejects.toMatchObject({code: "ENOENT"});
     });
 
     it("镜像清理失败时仍完成其他回滚并记录人工清理信息", async () => {
@@ -671,6 +695,60 @@ describe("Operation recovery", () => {
         const saved = JSON.parse(await readFile(join(root, ".deploy", "operations", "image-cleanup.json"), "utf8")) as {outcome: string; effects: Array<{kind: string; cleanupError?: string}>};
         expect(saved.outcome).toBe("rolled-back");
         expect(saved.effects).toContainEqual(expect.objectContaining({kind: "docker-image", cleanupError: "image is in use"}));
+
+        await recoverInterruptedOperations(root);
+
+        expect(docker.removeImage).toHaveBeenCalledTimes(2);
+        await expect(stat(join(root, ".deploy", "operations", "image-cleanup.json")))
+            .rejects.toMatchObject({code: "ENOENT"});
+    });
+
+    it("Portable 在 committed 删除窗口移动后按新根完成无错误 cleanup", async () => {
+        const root = await operationRoot();
+        const moved = `${root}-moved`;
+        roots.push(moved);
+        const staging = join(root, ".deploy", "staging", "portable-move");
+        await mkdir(staging, {recursive: true});
+        const journal = await createOperation({
+            id: "portable-move",
+            action: "update",
+            root,
+            containerEngine: null,
+            backupRoot: join(root, ".deploy", "backups", "portable-move"),
+            previousManifest: portableManifest(),
+            nextManifest: portableManifest(),
+            effects: [pathCreateEffect(".deploy/staging/portable-move", "applied")],
+        });
+        await updateOperation(journal, "committed", {outcome: "success"});
+        await rename(root, moved);
+
+        await recoverInterruptedOperations(moved);
+
+        await expect(stat(join(moved, ".deploy", "staging", "portable-move"))).rejects.toMatchObject({code: "ENOENT"});
+        await expect(stat(join(moved, ".deploy", "operations", "portable-move.json"))).rejects.toMatchObject({code: "ENOENT"});
+    });
+
+    it("Portable 有 cleanup error 时必须移回原根，不能静默改写事务身份", async () => {
+        const root = await operationRoot();
+        const moved = `${root}-moved`;
+        roots.push(moved);
+        const journal = await createOperation({
+            id: "portable-move-blocked",
+            action: "update",
+            root,
+            containerEngine: null,
+            backupRoot: join(root, ".deploy", "backups", "portable-move-blocked"),
+            previousManifest: portableManifest(),
+            nextManifest: portableManifest(),
+            effects: [pathCreateEffect(".deploy/staging/portable-move-blocked", "applied")],
+        });
+        const effects = journal.effects.map((effect) => effect.kind === "path-create" && effect.owner === "staging"
+            ? {...effect, cleanupError: "file in use"}
+            : effect);
+        await updateOperation(journal, "committed", {outcome: "success", effects});
+        await rename(root, moved);
+
+        await expect(recoverInterruptedOperations(moved)).rejects.toThrow("必须移回原位置");
     });
 
     it("旧Docker实例重启失败时保留未完成journal供下次继续恢复", async () => {
@@ -745,8 +823,8 @@ function nativeManifest(version: string, revision: string): InstallationManifest
         sourceRevision: revision,
         roots: INSTALLATION_SCOPED_ROOT_LOCATORS,
         components: {
-            source: {provider: "release", version, revision, path: ".", files: ["package.json"], archiveSha256: "a".repeat(64), sourceUrl: "https://example.com/source.zip", license: "AGPL-3.0-only", redistribution: "test"},
-            product: {provider: "release", version, revision, path: ".output", platform: currentProductPlatform(), archiveSha256: "a".repeat(64), sourceUrl: "https://example.com/product.zip", license: "AGPL-3.0-only", redistribution: "test", ...TEST_RUNTIME_IMAGE_IDENTITY},
+            source: {provider: "release", buildId: `sha256:${"9".repeat(64)}`, version, revision, path: ".", files: ["package.json"], archiveSha256: "a".repeat(64), sourceUrl: "https://example.com/source.zip", license: "AGPL-3.0-only", redistribution: "test"},
+            product: {provider: "release", buildId: `sha256:${"9".repeat(64)}`, version, revision, path: ".output", platform: currentProductPlatform(), archiveSha256: "a".repeat(64), sourceUrl: "https://example.com/product.zip", license: "AGPL-3.0-only", redistribution: "test", ...TEST_RUNTIME_IMAGE_IDENTITY},
             manager: {provider: "managed", version: "0.1.0", path: ".runtime/manager/0.1.0/neuro-book.mjs", bundleSha256: "a".repeat(64)},
             managerRuntime: {provider: "system", version: "1.3.0", executable: "bun"},
             applicationRuntime: {provider: "system", version: "1.3.0", executable: "bun"},
@@ -794,5 +872,36 @@ function operationJournal() {
         nextManifest: null,
         createdAt: now,
         updatedAt: now,
+    };
+}
+
+function portableManifest(): InstallationManifest {
+    const manifest = nativeManifest("1.0.0", "a".repeat(40));
+    const asset = {
+        archiveSha256: "a".repeat(64),
+        sourceUrl: "https://example.com/bun.zip",
+        license: "MIT",
+        redistribution: "test",
+    };
+    const runtime = {
+        provider: "managed" as const,
+        version: "1.3.0",
+        path: ".runtime/bun/1.3.0/bun.exe",
+        executableSha256: "b".repeat(64),
+        ...asset,
+    };
+    return {
+        ...manifest,
+        profile: "windows-portable",
+        roots: PORTABLE_ROOT_LOCATORS,
+        components: {
+            ...manifest.components,
+            managerRuntime: runtime,
+            applicationRuntime: runtime,
+            tools: {
+                rg: {provider: "managed", version: "14.1.1", path: ".runtime/tools/rg/14.1.1/rg.exe", executableSha256: "c".repeat(64), ...asset},
+                git: {provider: "managed", version: "2.49.0", path: ".runtime/tools/git/2.49.0/cmd/git.exe", bashPath: ".runtime/tools/git/2.49.0/bin/bash.exe", distribution: "PortableGit", gitSha256: "d".repeat(64), bashSha256: "e".repeat(64), ...asset},
+            },
+        },
     };
 }

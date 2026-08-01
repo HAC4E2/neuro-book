@@ -10,6 +10,7 @@ import {
     planJournaledApplicationMigrations,
     startInstallationApplication,
 } from "#manager/migration-operation";
+import {writeInstallationManifest} from "#manager/manifest-store";
 import {createOperation} from "#manager/operation";
 import {currentProductPlatform} from "#manager/platform";
 import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "#manager/root-locators";
@@ -72,7 +73,7 @@ describe("Journaled application migration", () => {
             const saved = await savedJournal(root, "migration-success");
             expect(saved.applicationStateMigration).toEqual({
                 runId: "migration-success",
-                state: "planned",
+                state: "applying",
             });
             return {runId: "migration-success", steps: migrationSteps("migration-success")};
         });
@@ -85,7 +86,7 @@ describe("Journaled application migration", () => {
         expect((await savedJournal(root, "migration-success")).applicationStateMigration?.state).toBe("applied");
     });
 
-    it("apply中断时journal保留planned供统一恢复", async () => {
+    it("apply中断时journal保留applying供统一恢复", async () => {
         const {root, journal, manifest} = await fixture("migration-failure");
         migrations.plan.mockResolvedValue({runId: "migration-failure", status: "planned", steps: migrationSteps("migration-failure")});
         migrations.apply.mockRejectedValue(new Error("apply interrupted"));
@@ -95,7 +96,7 @@ describe("Journaled application migration", () => {
 
         expect((await savedJournal(root, "migration-failure")).applicationStateMigration).toEqual({
             runId: "migration-failure",
-            state: "planned",
+            state: "applying",
         });
     });
 
@@ -172,8 +173,7 @@ describe("Journaled application migration", () => {
         expect(lifecycle.assertNativeStopped).toHaveBeenCalledWith(join(root, "data"));
         expect(lifecycle.backupDatabase).toHaveBeenCalledOnce();
         expect(shutdown).toHaveBeenCalledOnce();
-        const saved = await onlyOperation(root) as {phase?: string; outcome?: string};
-        expect(saved).toMatchObject({phase: "committed", outcome: "success"});
+        await expect(readdir(join(root, ".deploy", "operations"))).resolves.toEqual([]);
     });
 
     it("start在maintenance journal提交后才运行前台应用", async () => {
@@ -182,7 +182,7 @@ describe("Journaled application migration", () => {
         const manifest = productManifest();
         migrations.plan.mockResolvedValue({runId: "start-current", status: "already_current", steps: migrationSteps("start-current")});
 
-        await startInstallationApplication(root, manifest, {healthCheck: true});
+        await startManagedApplication(root, manifest, {healthCheck: true});
 
         expect(migrations.launch).toHaveBeenCalledWith(root, manifest, expect.objectContaining({
             healthCheck: true,
@@ -192,10 +192,7 @@ describe("Journaled application migration", () => {
             onContainerStopped: expect.any(Function),
         }));
         expect(migrations.launch.mock.invocationCallOrder[0]).toBeGreaterThan(migrations.plan.mock.invocationCallOrder[0]!);
-        const operationFiles = await readdir(join(root, ".deploy", "operations"));
-        expect(operationFiles).toHaveLength(1);
-        const saved = JSON.parse(await readFile(join(root, ".deploy", "operations", operationFiles[0]!), "utf8")) as {action: string; phase: string; outcome: string};
-        expect(saved).toMatchObject({action: "start", phase: "committed", outcome: "success"});
+        await expect(readdir(join(root, ".deploy", "operations"))).resolves.toEqual([]);
         expect(lifecycle.assertNativeStopped).toHaveBeenCalledWith(join(root, "data"));
     });
 
@@ -234,7 +231,7 @@ describe("Journaled application migration", () => {
             return {runId: "start-native", steps: migrationSteps("start-native")};
         });
 
-        await startInstallationApplication(root, manifest, {healthCheck: true});
+        await startManagedApplication(root, manifest, {healthCheck: true});
 
         expect(lifecycle.assertNativeStopped.mock.invocationCallOrder[0])
             .toBeLessThan(lifecycle.backupDatabase.mock.invocationCallOrder[0]!);
@@ -267,7 +264,7 @@ describe("Journaled application migration", () => {
             return {runId: "start-container-transaction", steps: migrationSteps("start-container-transaction")};
         });
 
-        await startInstallationApplication(root, manifest, {healthCheck: true});
+        await startManagedApplication(root, manifest, {healthCheck: true});
 
         expect(lifecycle.assertNativeStopped).not.toHaveBeenCalled();
         expect(lifecycle.stopDocker).toHaveBeenCalledWith("docker", root, join(root, "data"));
@@ -295,7 +292,7 @@ describe("Journaled application migration", () => {
         const previousSigint = new Set(process.listeners("SIGINT"));
         const previousSigterm = new Set(process.listeners("SIGTERM"));
 
-        const running = startInstallationApplication(root, manifest, {healthCheck: true});
+        const running = startManagedApplication(root, manifest, {healthCheck: true});
         try {
             await vi.waitFor(() => {
                 expect(process.listeners("SIGINT").some((listener) => !previousSigint.has(listener))).toBe(true);
@@ -347,21 +344,9 @@ describe("Journaled application migration", () => {
             };
         });
 
-        await startInstallationApplication(root, manifest, {healthCheck: true});
+        await startManagedApplication(root, manifest, {healthCheck: true});
 
-        const operationFile = (await readdir(join(root, ".deploy", "operations")))[0]!;
-        const saved = JSON.parse(await readFile(join(root, ".deploy", "operations", operationFile), "utf8")) as {
-            phase: string;
-            outcome: string;
-            effects: Array<{kind: string; state: string; containerId?: string; stopped?: boolean}>;
-        };
-        expect(saved).toMatchObject({phase: "committed", outcome: "success"});
-        expect(saved.effects).toContainEqual(expect.objectContaining({
-            kind: "candidate-container",
-            state: "applied",
-            containerId,
-            stopped: false,
-        }));
+        await expect(readdir(join(root, ".deploy", "operations"))).resolves.toEqual([]);
     });
 
     it("ready 前失败会终止候选并回滚未提交 start operation", async () => {
@@ -376,12 +361,10 @@ describe("Journaled application migration", () => {
             terminate,
         }));
 
-        await expect(startInstallationApplication(root, productManifest(), {healthCheck: true})).rejects.toThrow("health timeout");
+        await expect(startManagedApplication(root, productManifest(), {healthCheck: true})).rejects.toThrow("health timeout");
 
         expect(terminate).toHaveBeenCalledTimes(1);
-        const files = await readdir(join(root, ".deploy", "operations"));
-        const saved = JSON.parse(await readFile(join(root, ".deploy", "operations", files[0]!), "utf8")) as {outcome?: string};
-        expect(saved.outcome).toBe("rolled-back");
+        await expect(readdir(join(root, ".deploy", "operations"))).resolves.toEqual([]);
     });
 
     it("候选终止失败时保留未提交 Journal 并禁止状态回滚", async () => {
@@ -397,7 +380,7 @@ describe("Journaled application migration", () => {
             terminate,
         }));
 
-        await expect(startInstallationApplication(root, productManifest(), {healthCheck: true}))
+        await expect(startManagedApplication(root, productManifest(), {healthCheck: true}))
             .rejects.toThrow("候选 Application 无法确认终止");
 
         expect(terminate).toHaveBeenCalledTimes(1);
@@ -420,7 +403,7 @@ describe("Journaled application migration", () => {
         roots.push(root);
         const manifest = productManifest();
 
-        await expect(startInstallationApplication(root, manifest, {healthCheck: false}))
+        await expect(startManagedApplication(root, manifest, {healthCheck: false}))
             .rejects.toThrow("--no-health-check仅支持Windows Portable");
 
         expect(migrations.plan).not.toHaveBeenCalled();
@@ -442,6 +425,16 @@ async function fixture(id: string) {
         nextManifest: manifest,
     });
     return {root, manifest, journal};
+}
+
+/** start 是高层 mutating command，测试必须提供锁内可重读的磁盘 Manifest。 */
+async function startManagedApplication(
+    root: string,
+    manifest: InstallationManifest,
+    options: Parameters<typeof startInstallationApplication>[1],
+): Promise<void> {
+    await writeInstallationManifest(join(root, ".deploy", "installation.json"), manifest);
+    await startInstallationApplication(root, options);
 }
 
 async function savedJournal(root: string, id: string) {
@@ -485,7 +478,7 @@ function productManifest(): InstallationManifest {
         roots: INSTALLATION_SCOPED_ROOT_LOCATORS,
         components: {
             source: {
-                provider: "release",
+                provider: "release", buildId: `sha256:${"9".repeat(64)}`,
                 version: "0.8.0-canary.1",
                 revision,
                 path: ".",
@@ -497,7 +490,7 @@ function productManifest(): InstallationManifest {
             },
             product: {
                 ...TEST_RUNTIME_IMAGE_IDENTITY,
-                provider: "release",
+                provider: "release", buildId: `sha256:${"9".repeat(64)}`,
                 version: "0.8.0-canary.1",
                 revision,
                 platform: currentProductPlatform(),

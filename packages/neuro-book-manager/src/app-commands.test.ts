@@ -128,6 +128,7 @@ describe("Application State migration command", () => {
         expect(processCommands.capture.mock.calls[0]?.[0]).toBe("bun");
         expect(processCommands.capture.mock.calls[0]?.[1]).toEqual([
             "--no-install",
+            "--no-env-file",
             join(root, ".output", "server", "commands", "product-command.mjs"),
             "command",
             "migrate-application-state",
@@ -150,6 +151,7 @@ describe("Application State migration command", () => {
 
         expect(processCommands.capture).toHaveBeenCalledWith("bun", [
             "--no-install",
+            "--no-env-file",
             join(root, "scripts", "db", "migrate-application-state.ts"),
             "--plan",
             "--run-id",
@@ -195,6 +197,7 @@ describe("Application State migration command", () => {
         expect(docker.command.mock.calls[0]?.[3]).toEqual([
             "bun",
             "--no-install",
+            "--no-env-file",
             ".output/server/commands/product-command.mjs",
             "command",
             "migrate-application-state",
@@ -279,7 +282,7 @@ describe("容器管理员命令", () => {
             "compose",
             "--env-file", join(root, "data", ".env"),
             "-f", join(root, ".deploy", "docker-compose.generated.yml"),
-            "exec", "-T", "app", "bun", "--no-install", ".output/server/commands/product-command.mjs", "command", "create-admin", "admin",
+            "exec", "-T", "app", "bun", "--no-install", "--no-env-file", ".output/server/commands/product-command.mjs", "command", "create-admin", "admin",
         ], engine === "podman"
             ? {cwd: root, env: expect.objectContaining({PODMAN_COMPOSE_PROVIDER: "podman-compose"})}
             : {cwd: root});
@@ -301,7 +304,7 @@ describe("容器管理员命令", () => {
         const [command, args, input, options] = processCommands.input.mock.calls[0]!;
         expect(command).toBe("docker");
         expect(args).toEqual(expect.arrayContaining([
-            "exec", "-T", "app", "bun", "--no-install",
+            "exec", "-T", "app", "bun", "--no-install", "--no-env-file",
             ".output/server/commands/product-command.mjs", "command", "create-admin", "admin", "--password-stdin",
         ]));
         expect(args.join(" ")).not.toContain(password);
@@ -336,6 +339,7 @@ describe("原生 Product shutdown", () => {
             expect(spec.command).toBe("bun");
             expect(spec.args).toEqual([
                 "--no-install",
+                "--no-env-file",
                 join(root, ".output", "server", "commands", "product-command.mjs"),
                 "command",
                 "start",
@@ -459,7 +463,7 @@ describe("Windows Portable前台启动", () => {
             expect(processCommands.run).not.toHaveBeenCalled();
             expect(ownedProcess.spawn).toHaveBeenCalledWith(expect.objectContaining({
                 command: process.execPath,
-                args: ["--no-install", "--version"],
+                args: ["--no-install", "--no-env-file", "--version"],
             }));
         } finally {
             fetch.mockRestore();
@@ -488,6 +492,7 @@ describe("Manager Bun运行策略", () => {
             }));
             expect(processCommands.run).toHaveBeenCalledWith("bun", [
                 "--no-install",
+                "--no-env-file",
                 "run",
                 "auth:create-admin",
                 "admin",
@@ -507,6 +512,7 @@ describe("Manager Bun运行策略", () => {
 
         expect(processCommands.run).toHaveBeenCalledWith("bun", [
             "--no-install",
+            "--no-env-file",
             join(root, ".output", "server", "commands", "product-command.mjs"),
             "command",
             "create-admin",
@@ -531,6 +537,7 @@ describe("Manager Bun运行策略", () => {
         expect(command).toBe("bun");
         expect(args).toEqual([
             "--no-install",
+            "--no-env-file",
             join(root, ".output", "server", "commands", "product-command.mjs"),
             "command",
             "create-admin",
@@ -592,7 +599,7 @@ function productManifest(): InstallationManifest {
         roots: INSTALLATION_SCOPED_ROOT_LOCATORS,
         components: {
             source: {
-                provider: "release",
+                provider: "release", buildId: `sha256:${"9".repeat(64)}`,
                 version: "0.8.0-canary.1",
                 revision,
                 path: ".",
@@ -604,7 +611,7 @@ function productManifest(): InstallationManifest {
             },
             product: {
                 ...TEST_RUNTIME_IMAGE_IDENTITY,
-                provider: "release",
+                provider: "release", buildId: `sha256:${"9".repeat(64)}`,
                 version: "0.8.0-canary.1",
                 revision,
                 platform: currentProductPlatform(),

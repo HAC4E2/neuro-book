@@ -71,6 +71,7 @@ const GitSourceSchema = Type.Object({
 }, {additionalProperties: false});
 const ReleaseSourceSchema = Type.Object({
     provider: Type.Literal("release"),
+    buildId: RuntimeImageDigestSchema,
     version: Type.String({minLength: 1}),
     revision: RevisionSchema,
     path: Type.Literal("."),
@@ -98,6 +99,7 @@ const GitProductSchema = Type.Object({
 }, {additionalProperties: false});
 const ReleaseProductSchema = Type.Object({
     provider: Type.Literal("release"),
+    buildId: RuntimeImageDigestSchema,
     version: Type.String({minLength: 1}),
     revision: RevisionSchema,
     path: Type.Literal(".output"),
@@ -303,6 +305,7 @@ export const OperationJournalSchema = Type.Object({
         runId: Type.String({pattern: "^[A-Za-z0-9_-]+$"}),
         state: Type.Union([
             Type.Literal("planned"),
+            Type.Literal("applying"),
             Type.Literal("applied"),
             Type.Literal("rolled_back"),
         ]),
@@ -327,7 +330,7 @@ const OperationJournalV4Schema = Type.Object({
     migrationRoot: Type.Optional(Type.String({minLength: 1})),
     applicationStateMigration: Type.Optional(Type.Object({
         runId: Type.String({pattern: "^[A-Za-z0-9_-]+$"}),
-        state: Type.Union([Type.Literal("planned"), Type.Literal("applied"), Type.Literal("rolled_back")]),
+        state: Type.Union([Type.Literal("planned"), Type.Literal("applying"), Type.Literal("applied"), Type.Literal("rolled_back")]),
     }, {additionalProperties: false})),
     outcome: Type.Optional(Type.Union([Type.Literal("success"), Type.Literal("rolled-back")])),
     createdAt: Type.String({pattern: ISO_DATE_PATTERN}),
@@ -390,7 +393,8 @@ export const ReleaseStateMigrationSchema = Type.Object({
 }, {additionalProperties: false});
 
 export const ReleaseManifestSchema = Type.Object({
-    schemaVersion: Type.Literal(4),
+    schemaVersion: Type.Literal(5),
+    buildId: RuntimeImageDigestSchema,
     version: Type.String({minLength: 1}),
     channel: ReleaseChannelSchema,
     sourceRevision: RevisionSchema,
@@ -593,7 +597,7 @@ export function parseReleaseManifestEnvelope(value: unknown): {schemaVersion: nu
 
 /** 严格解析并执行 Release revision/platform 语义校验。 */
 export function parseReleaseManifest(value: unknown): ReleaseManifest {
-    assertSchema(ReleaseManifestSchema, value, "release-manifest.json 不符合 NeuroBook Release schema v4。");
+    assertSchema(ReleaseManifestSchema, value, "release-manifest.json 不符合 NeuroBook Release schema v5。");
     const manifest = value as ReleaseManifest;
     assertSemVer(manifest.version, "version");
     assertSemVer(manifest.minManagerVersion, "minManagerVersion");
@@ -622,6 +626,9 @@ export function parseReleaseManifest(value: unknown): ReleaseManifest {
     }
     if (manifest.ghcr.sourceRevision !== manifest.sourceRevision) {
         throw new Error("GHCR sourceRevision 与 Release Source 不一致。");
+    }
+    if (!manifest.ghcr.ref.endsWith(`@${manifest.ghcr.digest}`)) {
+        throw new Error("GHCR ref 必须使用 Release Manifest 声明的不可变 digest。");
     }
     assertReleaseStateMigrationSemantics(manifest.stateMigration);
     return manifest;

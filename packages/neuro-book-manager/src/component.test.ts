@@ -5,7 +5,7 @@ import {join, relative} from "node:path";
 import {zipSync, strToU8} from "fflate";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {rollbackProduct, rollbackReleaseSource, stageReleaseProduct, stageReleaseSource, switchReleaseSource} from "#manager/component";
+import {rollbackProduct, rollbackReleaseSource, stageReleaseProduct, stageReleaseSource, switchProduct, switchReleaseSource} from "#manager/component";
 import {buildTestRuntimeImage} from "#manager/fixtures/runtime-image";
 import {removePath} from "#manager/files";
 import {currentProductPlatform} from "#manager/platform";
@@ -28,10 +28,11 @@ describe("Release Source component", () => {
             root,
             staging: join(root, ".deploy", "staging", "op"),
             asset: dataAsset(bytes),
+            buildId: `sha256:${"9".repeat(64)}`,
             version: "1.0.0",
             revision: "b".repeat(40),
             previous: {
-                provider: "release",
+                provider: "release", buildId: `sha256:${"9".repeat(64)}`,
                 version: "0.9.0",
                 revision: "a".repeat(40),
                 path: ".",
@@ -68,6 +69,7 @@ describe("Release Source component", () => {
             root,
             staging: join(root, ".deploy", "staging", "op"),
             asset: dataAsset(bytes),
+            buildId: `sha256:${"9".repeat(64)}`,
             version: "1.0.0",
             revision: "b".repeat(40),
         })).rejects.toThrow("禁止路径");
@@ -89,6 +91,7 @@ describe("Product component rollback", () => {
         };
         const staged = await stageReleaseProduct({
             staging: join(root, "staging"),
+            buildId: `sha256:${"9".repeat(64)}`,
             asset: {
                 ...dataAsset(archive.bytes),
                 ...identity,
@@ -113,6 +116,26 @@ describe("Product component rollback", () => {
         await rollbackProduct(root, backup, false);
 
         await expect(stat(join(root, ".output"))).rejects.toMatchObject({code: "ENOENT"});
+    });
+
+    it("激活副本完成两次 rename 后仍保留 Operation-owned migration runner", async () => {
+        const root = await mkdtemp(join(tmpdir(), "manager-product-activation-"));
+        roots.push(root);
+        const stagedOutput = join(root, ".deploy", "staging", "operation", "migration-runner", ".output");
+        const backup = join(root, ".deploy", "backups", "operation", "product");
+        await mkdir(stagedOutput, {recursive: true});
+        await mkdir(join(root, ".output"), {recursive: true});
+        await writeFile(join(stagedOutput, "candidate.txt"), "candidate", "utf8");
+        await writeFile(join(root, ".output", "old.txt"), "old", "utf8");
+
+        await switchProduct(root, stagedOutput, backup, async () => {
+            expect(await readFile(join(stagedOutput, "candidate.txt"), "utf8")).toBe("candidate");
+            expect(await readFile(`${stagedOutput}.activation/candidate.txt`, "utf8")).toBe("candidate");
+        });
+
+        expect(await readFile(join(root, ".output", "candidate.txt"), "utf8")).toBe("candidate");
+        expect(await readFile(join(stagedOutput, "candidate.txt"), "utf8")).toBe("candidate");
+        expect(await readFile(join(backup, ".output", "old.txt"), "utf8")).toBe("old");
     });
 
     it("更新失败时恢复旧 Product", async () => {

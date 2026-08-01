@@ -76,9 +76,9 @@ async function fixture(): Promise<string> {
     const manifest: InstallationManifest = {
         schemaVersion: 5, profile: "product-bun", containerEngine: null, managerVersion: "0.1.0", appVersion: "1.0.0", channel: "canary", sourceRevision: revision, roots: INSTALLATION_SCOPED_ROOT_LOCATORS,
         components: {
-            source: {provider: "release", version: "1.0.0", revision, path: ".", files: ["package.json"], archiveSha256: "c".repeat(64), sourceUrl: "https://example.com/source.zip", license: "test", redistribution: "test"},
+            source: {provider: "release", buildId: `sha256:${"9".repeat(64)}`, version: "1.0.0", revision, path: ".", files: ["package.json"], archiveSha256: "c".repeat(64), sourceUrl: "https://example.com/source.zip", license: "test", redistribution: "test"},
             product: {
-                provider: "release",
+                provider: "release", buildId: `sha256:${"9".repeat(64)}`,
                 version: "1.0.0",
                 revision,
                 path: ".output",

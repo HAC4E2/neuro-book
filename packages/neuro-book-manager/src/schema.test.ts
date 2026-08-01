@@ -51,7 +51,7 @@ describe("Manager manifest schemas", () => {
 
         const release = releaseManifest();
         delete (release.products[0] as {sourceDigest?: string}).sourceDigest;
-        expect(() => parseReleaseManifest(release)).toThrow("schema v4");
+        expect(() => parseReleaseManifest(release)).toThrow("schema v5");
     });
 
     it("拒绝路径越界与 Source/Product revision 不一致", () => {
@@ -102,7 +102,7 @@ describe("Manager manifest schemas", () => {
         expect(() => parseReleaseManifest({
             ...releaseManifest(),
             stateMigration: {policy: "automatic", steps: ["Future Step"]},
-        })).toThrow("Release schema v4");
+        })).toThrow("Release schema v5");
     });
 
     it("要求容器Profile持久化engine，非容器Profile必须为null", () => {
@@ -173,6 +173,7 @@ function productManifest() {
         components: {
             source: {
                 provider: "release" as const,
+                buildId: `sha256:${"9".repeat(64)}`,
                 version: "0.8.0",
                 revision: REVISION,
                 path: "." as const,
@@ -185,6 +186,7 @@ function productManifest() {
             product: {
                 ...TEST_RUNTIME_IMAGE_IDENTITY,
                 provider: "release" as const,
+                buildId: `sha256:${"9".repeat(64)}`,
                 version: "0.8.0",
                 revision: REVISION,
                 path: ".output" as const,
@@ -206,7 +208,8 @@ function productManifest() {
 
 function releaseManifest() {
     return {
-        schemaVersion: 4 as const,
+        schemaVersion: 5 as const,
+        buildId: `sha256:${"9".repeat(64)}`,
         version: "0.8.0",
         channel: "stable" as const,
         sourceRevision: REVISION,
@@ -221,7 +224,7 @@ function releaseManifest() {
             sourceRevision: REVISION,
         })),
         windowsPortable: {url: "https://example.com/portable.zip", sha256: SHA, bytes: 1},
-        ghcr: {ref: "ghcr.io/notnotype/neuro-book:v0.8.0", digest: `sha256:${SHA}`, sourceRevision: REVISION},
+        ghcr: {ref: `ghcr.io/notnotype/neuro-book@sha256:${SHA}`, digest: `sha256:${SHA}`, sourceRevision: REVISION},
         stateMigration: {
             policy: "automatic" as const,
             steps: ["agent-attachment-v1", "agent-session-v2"],

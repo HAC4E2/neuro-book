@@ -172,7 +172,8 @@ function releaseFixture(): ReleaseManifest {
     const host = inspectHostPlatform();
     const asset = {url: "https://example.com/asset.zip", sha256: "a".repeat(64), bytes: 1};
     return {
-        schemaVersion: 4,
+        schemaVersion: 5,
+        buildId: `sha256:${"9".repeat(64)}`,
         version: "0.9.0-canary.1",
         channel: "canary",
         sourceRevision: "b".repeat(40),
@@ -180,7 +181,7 @@ function releaseFixture(): ReleaseManifest {
         source: {...asset, url: "https://example.com/neuro-book-source.zip"},
         products: [{...asset, ...TEST_RUNTIME_IMAGE_IDENTITY, url: "https://example.com/product.zip", platform: host.productPlatform, sourceRevision: "b".repeat(40)}],
         windowsPortable: {...asset, url: "https://example.com/neuro-book-windows-x64.zip"},
-        ghcr: {ref: "ghcr.io/notnotype/neuro-book:v0.9.0-canary.1", digest: `sha256:${"c".repeat(64)}`, sourceRevision: "b".repeat(40)},
+        ghcr: {ref: `ghcr.io/notnotype/neuro-book@sha256:${"c".repeat(64)}`, digest: `sha256:${"c".repeat(64)}`, sourceRevision: "b".repeat(40)},
         stateMigration: {policy: "automatic", steps: ["agent-attachment-v1", "agent-session-v2"]},
     };
 }

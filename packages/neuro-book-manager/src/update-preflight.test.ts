@@ -96,8 +96,8 @@ function manifestFixture(): InstallationManifest {
         sourceRevision: "1".repeat(40),
         roots: INSTALLATION_SCOPED_ROOT_LOCATORS,
         components: {
-            source: {provider: "release", version: "0.9.0-canary.1", revision: "1".repeat(40), path: ".", files: ["package.json"], archiveSha256: SHA, sourceUrl: "https://example.com/source.zip", license: "AGPL-3.0-only", redistribution: "test"},
-            product: {provider: "release", version: "0.9.0-canary.1", revision: "1".repeat(40), path: ".output", platform: "windows-x64", archiveSha256: SHA, sourceUrl: "https://example.com/product.zip", license: "AGPL-3.0-only", redistribution: "test", ...TEST_RUNTIME_IMAGE_IDENTITY},
+            source: {provider: "release", buildId: `sha256:${"9".repeat(64)}`, version: "0.9.0-canary.1", revision: "1".repeat(40), path: ".", files: ["package.json"], archiveSha256: SHA, sourceUrl: "https://example.com/source.zip", license: "AGPL-3.0-only", redistribution: "test"},
+            product: {provider: "release", buildId: `sha256:${"9".repeat(64)}`, version: "0.9.0-canary.1", revision: "1".repeat(40), path: ".output", platform: "windows-x64", archiveSha256: SHA, sourceUrl: "https://example.com/product.zip", license: "AGPL-3.0-only", redistribution: "test", ...TEST_RUNTIME_IMAGE_IDENTITY},
             manager: {provider: "managed", version: MANAGER_VERSION, path: ".runtime/manager/current/neuro-book.mjs", bundleSha256: SHA},
             managerRuntime: {provider: "system", version: "1.3.14", executable: process.execPath},
             applicationRuntime: {provider: "system", version: "1.3.14", executable: process.execPath},
@@ -110,7 +110,8 @@ function manifestFixture(): InstallationManifest {
 
 function releaseFixture(version: string, revision: string): ReleaseManifest {
     return {
-        schemaVersion: 4,
+        schemaVersion: 5,
+        buildId: `sha256:${"9".repeat(64)}`,
         version,
         channel: "canary",
         sourceRevision: revision,
@@ -118,7 +119,7 @@ function releaseFixture(version: string, revision: string): ReleaseManifest {
         source: {url: "https://example.com/source.zip", sha256: SHA, bytes: 1},
         products: [{platform: "windows-x64", sourceRevision: revision, url: "https://example.com/product.zip", sha256: SHA, bytes: 1, ...TEST_RUNTIME_IMAGE_IDENTITY}],
         windowsPortable: {url: "https://example.com/portable.zip", sha256: SHA, bytes: 1},
-        ghcr: {ref: `ghcr.io/notnotype/neuro-book:v${version}`, digest: `sha256:${SHA}`, sourceRevision: revision},
+        ghcr: {ref: `ghcr.io/notnotype/neuro-book@sha256:${SHA}`, digest: `sha256:${SHA}`, sourceRevision: revision},
         stateMigration: {policy: "automatic", steps: ["agent-attachment-v1", "agent-session-v2"]},
     };
 }

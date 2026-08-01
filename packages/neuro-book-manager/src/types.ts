@@ -230,6 +230,7 @@ export type SourceComponent =
     }
     | ({
         provider: "release";
+        buildId: string;
         version: string;
         revision: string;
         path: ".";
@@ -252,6 +253,7 @@ export type ProductComponent =
     } & ProductRuntimeImageIdentity)
     | ({
         provider: "release";
+        buildId: string;
         version: string;
         revision: string;
         path: ".output";
@@ -378,7 +380,8 @@ export type ReleaseImage = {
 
 /** GitHub Release 附带的统一组件清单。 */
 export type ReleaseManifest = {
-    schemaVersion: 4;
+    schemaVersion: 5;
+    buildId: string;
     version: string;
     channel: ReleaseChannel;
     sourceRevision: string;
@@ -590,7 +593,7 @@ export type OperationJournal = {
     /** Product-owned Application State migration 必须先于数据库与 Product 回滚。 */
     applicationStateMigration?: {
         runId: string;
-        state: "planned" | "applied" | "rolled_back";
+        state: "planned" | "applying" | "applied" | "rolled_back";
     };
     outcome?: "success" | "rolled-back";
     createdAt: string;

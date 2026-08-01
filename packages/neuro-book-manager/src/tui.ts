@@ -185,7 +185,7 @@ export async function runManagerTui(managerExecutable: string): Promise<void> {
     screen.key("s", () => void runAction(async () => {
         const target = selected();
         screen.destroy();
-        await startInstallationApplication(target.instance.root, target.manifest);
+        await startInstallationApplication(target.instance.root);
     }));
     screen.key("u", () => void runAction(async () => {
         const target = selected();

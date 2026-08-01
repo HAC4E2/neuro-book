@@ -103,7 +103,7 @@ function manifest(): InstallationManifest {
         roots: INSTALLATION_SCOPED_ROOT_LOCATORS,
         components: {
             source: {
-                provider: "release",
+                provider: "release", buildId: `sha256:${"9".repeat(64)}`,
                 version: "0.8.0",
                 revision,
                 path: ".",
@@ -115,7 +115,7 @@ function manifest(): InstallationManifest {
             },
             product: {
                 ...TEST_RUNTIME_IMAGE_IDENTITY,
-                provider: "release",
+                provider: "release", buildId: `sha256:${"9".repeat(64)}`,
                 version: "0.8.0",
                 revision,
                 path: ".output",

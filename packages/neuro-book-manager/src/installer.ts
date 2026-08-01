@@ -1,6 +1,5 @@
 import {randomUUID} from "node:crypto";
 import {copyFile, readFile, readdir, rename} from "node:fs/promises";
-import {tmpdir} from "node:os";
 import {dirname, join, relative, resolve} from "node:path";
 
 import {
@@ -26,9 +25,9 @@ import {ensureStateFiles} from "#manager/config";
 import {buildSourceDockerImage, containerProductImageReference, inspectDockerApplication, resolveContainerEngine, stopDocker, writeDockerCompose} from "#manager/docker";
 import {ensureDirectory, pathExists, removePath} from "#manager/files";
 import {assertCleanWorktree, createStagedWorktree, materializeRepository, removeStagedWorktree, repositoryRevision} from "#manager/git";
-import {withInstallLock} from "#manager/lock";
+import {mutateFreshInstallation} from "#manager/installation-mutation";
 import {assertInstallPreflight, inspectInstallPreflight, type InstallPreflightResult} from "#manager/install-preflight";
-import {readInstallationManifest, resolveReleaseManifest, writeInstallationManifest} from "#manager/manifest-store";
+import {resolveReleaseManifest, writeInstallationManifest} from "#manager/manifest-store";
 import {
     completeRuntimeWrapperSwitch,
     commitOperation,
@@ -40,7 +39,6 @@ import {
     prepareRuntimeWrapperSwitch,
     recordCandidateContainer,
     recoverFailedOperation,
-    recoverInterruptedOperations,
     setOperationEffect,
     updateOperation,
 } from "#manager/operation";
@@ -134,11 +132,9 @@ async function installInternal(options: InstallOptions, mode: "fresh" | "adopt",
     if (mode === "adopt") await preflightAdoptionRoot(paths.root, options.profile);
     await ensureDirectory(paths.root);
     await ensureDirectory(paths.deploy);
-    return withInstallLock(join(paths.deploy, "install.lock"), async () => {
-        await recoverInterruptedOperations(paths.root);
-        if (await readInstallationManifest(paths.manifest)) {
-            throw new Error("Installation Root 已由 NeuroBook Manager 管理，请使用 neuro-book update。" );
-        }
+    return mutateFreshInstallation(paths.root, options.profile, async (mutation) => {
+        const activeOptions = {...options, root: mutation.root};
+        const paths = installationPaths(mutation.root, installationRootLocators(activeOptions.profile));
         const id = randomUUID();
         const staging = join(paths.staging, id);
         const backup = join(paths.backups, id);
@@ -159,7 +155,7 @@ async function installInternal(options: InstallOptions, mode: "fresh" | "adopt",
         let stagedWorktree: string | null = null;
         let healthLaunch: ApplicationLaunch | null = null;
         try {
-            const result = await prepareInstallation(options, journal, staging, backup, createdComponents, retiredComponents, mode, preflight?.release ?? null);
+            const result = await prepareInstallation(activeOptions, journal, staging, backup, createdComponents, retiredComponents, mode, preflight?.release ?? null);
             stagedWorktree = result.stagedWorktree;
             journal = result.journal;
             healthLaunch = await launchApplication(paths.root, result.manifest, {
@@ -175,7 +171,7 @@ async function installInternal(options: InstallOptions, mode: "fresh" | "adopt",
             });
             await healthLaunch.ready;
             const previousContainerState = operationEffect(journal, "compose")?.previousState;
-            const keepContainerRunning = (options.profile === "ghcr" || options.profile === "source-docker")
+            const keepContainerRunning = (activeOptions.profile === "ghcr" || activeOptions.profile === "source-docker")
                 && (mode === "fresh" || previousContainerState === "running");
             if (!keepContainerRunning) {
                 await healthLaunch.shutdown();
@@ -214,9 +210,7 @@ async function installInternal(options: InstallOptions, mode: "fresh" | "adopt",
         } catch (error) {
             if (healthLaunch) await terminateFailedLaunch(healthLaunch, error);
             await recoverFailedOperation(paths.root, error);
-            if (stagedWorktree || mode === "adopt") {
-                await removeStagedWorktree(paths.root, stagedWorktree ?? join(tmpdir(), `nbook-adopt-worktree-${id}`)).catch(() => undefined);
-            }
+            if (stagedWorktree) await removeStagedWorktree(paths.root, stagedWorktree).catch(() => undefined);
             throw error;
         }
     });
@@ -295,7 +289,7 @@ async function prepareInstallation(
             branch: "master",
         };
         if (mode === "adopt") {
-            stagedWorktree = join(tmpdir(), `nbook-adopt-worktree-${initialJournal.id}`);
+            stagedWorktree = join(staging, "source-worktree");
             await createStagedWorktree(paths.root, stagedWorktree, sourceRevision);
         }
     } else if (definition.source === "release" && release) {
@@ -303,6 +297,7 @@ async function prepareInstallation(
             root: paths.root,
             staging,
             asset: release.source,
+            buildId: release.buildId,
             version: release.version,
             revision: release.sourceRevision,
         });
@@ -346,6 +341,7 @@ async function prepareInstallation(
         stagedProduct = await stageReleaseProduct({
             staging,
             asset,
+            buildId: release.buildId,
             version: release.version,
             revision: release.sourceRevision,
         });
@@ -407,7 +403,9 @@ async function prepareInstallation(
     }
     const migrationPlan = await planJournaledApplicationMigrations(paths.root, manifest, journal, {
         planRoot: stagedProduct ? dirname(stagedProduct.outputRoot) : stagedWorktree ?? paths.root,
-        migrationRoot: options.profile === "source-dev" && stagedWorktree ? stagedWorktree : paths.root,
+        migrationRoot: stagedProduct
+            ? dirname(stagedProduct.outputRoot)
+            : options.profile === "source-dev" && stagedWorktree ? stagedWorktree : paths.root,
         ...(stagedCompose ? {composePath: stagedCompose} : {}),
         ...(migrationPlanStateRoot ? {containerStateRoot: migrationPlanStateRoot} : {}),
     });

@@ -51,6 +51,7 @@
         "access": "public"
     },
     "dependencies": {
+        "proper-lockfile": "^4.1.2",
         "semver": "^7.8.5"
     }
 }

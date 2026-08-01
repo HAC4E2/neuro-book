@@ -1,5 +1,5 @@
 import {copyFile, cp, readdir, rename, rm} from "node:fs/promises";
-import {join, relative, resolve} from "node:path";
+import {isAbsolute, join, relative, resolve, sep} from "node:path";
 
 import {rollbackApplicationStateMigration} from "#manager/app-commands";
 import {rollbackProduct, rollbackReleaseSource} from "#manager/component";
@@ -147,7 +147,9 @@ export function componentSwitchEffect(journal: OperationJournal, owner: Extract<
 /** 标记操作成功提交，再清理已退役资产与Operation临时目录。 */
 export async function commitOperation(journal: OperationJournal): Promise<OperationJournal> {
     const committed = await updateOperation(journal, "committed", {outcome: "success"});
-    return cleanupCommittedEffects(committed, true);
+    const cleaned = await cleanupCommittedEffects(committed, true);
+    await removeCleanJournal(cleaned);
+    return cleaned;
 }
 
 /** 在mutating command开始前恢复上次未完成操作。 */
@@ -162,13 +164,16 @@ export async function recoverInterruptedOperations(root: string): Promise<Instal
             if ("phase" in value && value.phase === "committed") continue;
             throw new Error(`发现未完成的Operation Journal v${String(value.schemaVersion)}，v3 Manager拒绝自动恢复：${path}\n请备份实例并人工核对Manifest、Product、数据库、Git和Compose状态。`);
         }
-        const journal = migrateOperationJournal(value, path);
+        let journal = migrateOperationJournal(value, path);
         if ("schemaVersion" in value && (value.schemaVersion === 3 || value.schemaVersion === 4)) {
             await writeJsonAtomic(path, journal);
         }
-        if (resolve(journal.root) !== resolve(root)) throw new Error(`Operation journal的Installation Root不匹配：${path}`);
+        if (!samePath(journal.root, root)) {
+            journal = rebaseMovedPortableCommit(journal, root, path);
+        }
         if (journal.phase === "committed") {
-            await cleanupCommittedEffects(journal, journal.outcome === "success");
+            const cleaned = await cleanupCommittedEffects(journal, journal.outcome === "success");
+            await removeCleanJournal(cleaned);
             continue;
         }
         const git = operationEffect(journal, "git-fast-forward");
@@ -245,7 +250,19 @@ async function cleanupCommittedEffects(journal: OperationJournal, includeRetired
             }
             continue;
         }
-        if (!shouldRemove) {
+        if (!includeRetired && effect.kind === "docker-image" && effect.cleanupError) {
+            try {
+                await removeDockerImage(requiredContainerEngine(journal), journal.root, effect.image);
+                changed = true;
+                effects.push({...effect, cleanupError: undefined});
+            } catch (error) {
+                changed = true;
+                effects.push({...effect, cleanupError: error instanceof Error ? error.message : String(error)});
+            }
+            continue;
+        }
+        const retryRolledBackPath = !includeRetired && effect.kind === "path-create" && Boolean(effect.cleanupError);
+        if (!shouldRemove && !retryRolledBackPath) {
             effects.push(effect);
             continue;
         }
@@ -292,7 +309,15 @@ export async function rollbackOperation(initialJournal: OperationJournal): Promi
     }
     if (journal.applicationStateMigration && journal.applicationStateMigration.state !== "rolled_back") {
         if (!journal.nextManifest) throw new Error("Application State migration 回滚缺少 nextManifest。");
-        await rollbackApplicationStateMigration(root, journal.nextManifest, journal.applicationStateMigration.runId, journal.applicationStateMigration.state === "planned", journal.migrationRoot ?? root);
+        if (journal.applicationStateMigration.state !== "planned") {
+            await rollbackApplicationStateMigration(
+                root,
+                journal.nextManifest,
+                journal.applicationStateMigration.runId,
+                journal.applicationStateMigration.state === "applying",
+                journal.migrationRoot ?? root,
+            );
+        }
         journal = await updateOperation(journal, journal.phase, {applicationStateMigration: {...journal.applicationStateMigration, state: "rolled_back"}});
     }
     const database = operationEffect(journal, "sqlite-backup");
@@ -368,7 +393,9 @@ export async function rollbackOperation(initialJournal: OperationJournal): Promi
     if (journal.previousManifest) await writeInstallationManifest(manifestPath, journal.previousManifest);
     else if (operationEffect(journal, "manifest-switch")) await rm(manifestPath, {force: true});
     const committed = await updateOperation(journal, "committed", {outcome: "rolled-back", effects: rollbackEffects});
-    await cleanupCommittedEffects(committed, false);
+    // 本轮 rollback 只记录 cleanup error；下一次 mutation 再重试，避免同一调用
+    // 同时产生“失败”和“已清理”两种互相矛盾的观察结果。
+    await removeCleanJournal(committed);
 }
 
 /** 在切换稳定wrapper前备份现有`.runtime/bin`。 */
@@ -387,6 +414,73 @@ export async function backupRuntimeWrappers(root: string, backupRoot: string): P
 
 function writeOperation(journal: OperationJournal): Promise<void> {
     return writeJsonAtomic(join(journal.root, ".deploy", "operations", `${journal.id}.json`), journal);
+}
+
+/** cleanup 全部成功后 Journal 已无恢复价值；只有具体 cleanupError 才保留重试依据。 */
+async function removeCleanJournal(journal: OperationJournal): Promise<void> {
+    if (journal.effects.some((effect) => "cleanupError" in effect && effect.cleanupError)) return;
+    await rm(join(journal.root, ".deploy", "operations", `${journal.id}.json`), {force: true});
+}
+
+/**
+ * Portable 只允许移动已经 committed 且没有 cleanup error 的崩溃窗口。
+ *
+ * 未提交事务或明确残留 cleanup error 仍必须移回原位置处理，避免把待恢复的
+ * Product/数据库绝对身份静默改写成另一棵目录。
+ */
+function rebaseMovedPortableCommit(journal: OperationJournal, currentRoot: string, journalPath: string): OperationJournal {
+    const manifests = [journal.previousManifest, journal.nextManifest].filter(
+        (manifest): manifest is InstallationManifest => manifest !== null,
+    );
+    const cleanupFailed = journal.effects.some((effect) => "cleanupError" in effect && Boolean(effect.cleanupError));
+    if (
+        journal.phase !== "committed"
+        || cleanupFailed
+        || manifests.length === 0
+        || manifests.some((manifest) => manifest.profile !== "windows-portable")
+    ) {
+        throw new Error(`Operation journal的Installation Root不匹配；未完成或待清理的Portable必须移回原位置：${journalPath}`);
+    }
+    const oldRoot = resolve(journal.root);
+    const newRoot = resolve(currentRoot);
+    const rebase = (path: string): string => {
+        const nested = relative(oldRoot, resolve(path));
+        if (nested === ".." || nested.startsWith(`..${sep}`) || isAbsolute(nested)) {
+            throw new Error(`Committed Portable journal包含Installation Root外路径，拒绝移动恢复：${path}`);
+        }
+        return resolve(newRoot, nested);
+    };
+    const effects = journal.effects.map((effect): OperationEffect => {
+        if (effect.kind === "wrapper-switch" && effect.backupPath) {
+            return {...effect, backupPath: rebase(effect.backupPath)};
+        }
+        if (effect.kind === "compose" && effect.previousCompose) {
+            return {...effect, previousCompose: rebase(effect.previousCompose)};
+        }
+        if (effect.kind === "sqlite-backup") {
+            return {
+                ...effect,
+                stateRoot: rebase(effect.stateRoot),
+                hostPath: rebase(effect.hostPath),
+                backupPath: rebase(effect.backupPath),
+            };
+        }
+        return effect;
+    });
+    return {
+        ...journal,
+        root: newRoot,
+        backupRoot: rebase(journal.backupRoot),
+        ...(journal.migrationRoot ? {migrationRoot: rebase(journal.migrationRoot)} : {}),
+        effects,
+    };
+}
+
+function samePath(left: string, right: string): boolean {
+    const normalize = (path: string): string => process.platform === "win32"
+        ? resolve(path).toLocaleLowerCase("en-US")
+        : resolve(path);
+    return normalize(left) === normalize(right);
 }
 
 function operationPathOwner(path: string): OperationPathOwner {

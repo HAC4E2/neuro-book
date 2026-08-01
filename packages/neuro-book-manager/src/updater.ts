@@ -31,8 +31,8 @@ import {
     removeStagedWorktree,
     type GitUpdateTarget,
 } from "#manager/git";
-import {withInstallLock} from "#manager/lock";
-import {readInstallationManifest, writeInstallationManifest} from "#manager/manifest-store";
+import {mutateInstallation} from "#manager/installation-mutation";
+import {writeInstallationManifest} from "#manager/manifest-store";
 import {
     completeRuntimeWrapperSwitch,
     commitOperation,
@@ -43,7 +43,6 @@ import {
     prepareRuntimeWrapperSwitch,
     recordCandidateContainer,
     recoverFailedOperation,
-    recoverInterruptedOperations,
     setOperationEffect,
     updateOperation,
 } from "#manager/operation";
@@ -84,11 +83,9 @@ export type UpdateResult = {
 
 /** 使用统一 journal 更新应用组件，Git commit point 永远位于健康检查之后。 */
 export async function updateInstallation(input: UpdateOptions): Promise<UpdateResult> {
-    const paths = installationPaths(input.root, input.manifest.roots);
-    return withInstallLock(join(paths.deploy, "install.lock"), async () => {
-        const recovered = await recoverInterruptedOperations(paths.root);
-        const stored = await readInstallationManifest(paths.manifest);
-        const options: UpdateOptions = {...input, manifest: recovered ?? stored ?? input.manifest};
+    return mutateInstallation(input.root, async (mutation) => {
+        const paths = installationPaths(mutation.root, mutation.manifest.roots);
+        const options: UpdateOptions = {...input, root: mutation.root, manifest: mutation.manifest};
         assertInstallationHostCompatible(options.manifest);
         const preflight = await resolveUpdatePreflight(options);
         if (preflight.alreadyCurrent) {
@@ -146,9 +143,9 @@ export async function updateInstallation(input: UpdateOptions): Promise<UpdateRe
                     planRoot: result.stagedProduct
                         ? dirname(result.stagedProduct.outputRoot)
                         : stagedWorktree ?? paths.root,
-                    migrationRoot: result.manifest.profile === "source-dev" && stagedWorktree
-                        ? stagedWorktree
-                        : paths.root,
+                    migrationRoot: result.stagedProduct
+                        ? dirname(result.stagedProduct.outputRoot)
+                        : result.manifest.profile === "source-dev" && stagedWorktree ? stagedWorktree : paths.root,
                     ...(result.stagedCompose ? {composePath: result.stagedCompose} : {}),
                     ...(result.stagedCompose ? {containerStateRoot: installationPaths(paths.root, result.manifest.roots).state} : {}),
                 });
@@ -220,7 +217,7 @@ export async function updateInstallation(input: UpdateOptions): Promise<UpdateRe
                     paths.root,
                     result.manifest,
                     journal,
-                    result.manifest.profile === "source-dev" && stagedWorktree ? stagedWorktree : paths.root,
+                    journal.migrationRoot ?? paths.root,
                 );
                 journal = await updateOperation(journal, "migrated");
                 const launchRoot = result.manifest.profile === "source-dev" && stagedWorktree
@@ -393,6 +390,7 @@ async function prepareUpdate(
                     root: paths.root,
                     staging,
                     asset: release.source,
+                    buildId: release.buildId,
                     version: release.version,
                     revision: release.sourceRevision,
                     previous: source,
@@ -406,6 +404,7 @@ async function prepareUpdate(
                 stagedProduct = await stageReleaseProduct({
                     staging,
                     asset,
+                    buildId: release.buildId,
                     version: release.version,
                     revision: release.sourceRevision,
                 });

@@ -180,7 +180,7 @@ export async function launchApplication(
     if (execution.kind === "native-product") delete env.NODE_PATH;
     const command = bun;
     const args = manifest.profile === "source-dev"
-        ? [...PRODUCT_BUN_RUNTIME_ARGS, "run", "dev"]
+        ? ["--no-install", "run", "dev"]
         : productCommandArgs(root, "start");
     if (manifest.profile !== "source-dev" && !await pathExists(productCommandPath(root))) {
         throw new Error("当前安装缺少 Product 启动入口，请执行 neuro-book update；应用更新始终按Profile原子执行。" );

@@ -63,7 +63,7 @@ async function nativeFixture(): Promise<{root: string; manifest: InstallationMan
     });
     await rename(image.path, join(root, ".output"));
     const manifest = installationManifest({
-        provider: "release",
+        provider: "release", buildId: `sha256:${"9".repeat(64)}`,
         version: VERSION,
         revision: REVISION,
         path: ".output",
