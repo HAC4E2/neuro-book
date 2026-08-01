@@ -2,7 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-07-29
-- 更新：2026-08-01（Authoring 完整模块图、只读 Verifier、Verified Application Execution 与 Contract v3）
+- 更新：2026-08-02（Authoring 完整模块图、只读 Verifier、Verified Application Execution 与 Contract v3 验收）
 - 关联任务：[Task 130](../tasks/130-desktop-application-foundation/README.md)、[Task 105](../tasks/105-unified-installation-manager/README.md)、[Task 117](../tasks/117-windows-process-tree-lifecycle/README.md)
 
 ## 背景
@@ -38,6 +38,7 @@ Manager 已拥有安装锁、Operation Journal、migration、健康检查、切�
 23. `source-dev`、`native-product`、`container-product` 是唯一三种 Application execution identity。Source Dev 明确执行 Source 入口且不冒充 Runtime Image；Native Product 使用 Installation Manifest 外部身份完整复算 payload；Container Product 先物化并验证 Engine image，再把只读 verified handle 交给底层 Compose runner。
 24. GHCR Compose 固定使用 `repository@sha256:digest`，Engine `Digest`/`RepoDigests`、Container `.Image`、`.Config.Image` 必须证明同一不可变引用。Source Docker manifest 必填 `containerImageId`，Dockerfile revision label、构建后 Engine image ID 与后续 tag 解析结果必须一致；tag 重绑时 start、migration 与 admin 均失败。
 25. `web-fetch` 检查必须对本地确定性 HTML 调用正式 `fetchWeb()`，同时证明 Readability、jsdom、Turndown 与 GFM table 行为；“HTTP 能启动”不构成这些动态依赖可用的替代证据。
+26. 正式发行按 [ADR 0012](0012-release-candidate-activation.md) 只消费 Draft Candidate 的精确 release ID、revision 与已验证 Runtime Image identity。版本 tag、`latest` 和公开 Release 不属于 Builder；它们只能在全部平台与 Portable gate 完成后激活。
 
 ## 原因
 
@@ -50,7 +51,7 @@ bundle 与 package islands 的组合符合 NeuroBook 的真实能力：大部分
 - 构建比普通 `nuxt build` 多一次 Source 锁定、owner 盘点和全树摘要，但发布证据可复现，半成品不能进入发行链。
 - status/discovery 只展示控制面可信度；任何会运行代码的操作仍支付完整 payload 验证成本。
 - Authoring Kit 不是任意 npm 开发环境。Profile 作者消费 `nbook/profile-sdk`，需要 writing 资源能力时可显式消费 `nbook/profile-sdk/writing`；Variable 作者消费 `nbook/variable-sdk`。底层实现依赖的登记与 smoke 不会自动把包提升成作者 Interface。
-- Windows x64 的 4,683 个文件、161,274,231 bytes 是 2026-07-29 的历史基线。2026-08-01 SDK/载荷收窄后的冻结 Source A/B 均为 3,229 个 payload 文件、133,132,675 bytes，路径与逐文件摘要完全一致，并通过仓库外完整 Product smoke；七个 owner 的实测值已成为新的 canonical baseline。41,172,014-byte acceptance ZIP（SHA-256 `FFE3AD4514CF473E07767090DCDC390C287314270BBC545C8AB8A2EE3FF7BDFE`）来自 dirty Source，不带伪造的 Release identity，不能替代 clean runner 正式归档。
+- Windows x64 的 4,683 个文件、161,274,231 bytes 是 2026-07-29 的历史基线。2026-08-01 SDK/载荷收窄后的 3,229 个 payload 文件、133,132,675 bytes 已成为 canonical owner baseline。2026-08-02 Contract v3 与执行验证收口后的冻结 Source D/E 均为 3,231 个 payload 文件、133,213,461 bytes，Source/Contract/policy/owner/tree/shape identity 完全一致，排除 manifest/ready 后路径与逐文件 SHA-256 差异为 0；增长仍在现有 owner 10% 门禁内，不据此放宽 baseline。41,599,391-byte acceptance ZIP（SHA-256 `6C1C08C1F5BF08C6EC0EA263DD1480C409D496E14490BC7C45AD5F6D46022B19`）已在仓库外通过完整 Product smoke，但仍来自 dirty Source，不带正式 Release identity，不能替代 clean runner 正式归档。
 - Linux 与 macOS 尚无实机 owner baseline，当前构建会 fail closed，不能借用 Windows 数字。
 - 完整 Source、Tool Pack 和 Runtime Image 必须分别统计。联网 Desktop 可按需下载 Git/Bash Tool Pack；严格离线 Portable 单独承担工具文件预算。
 

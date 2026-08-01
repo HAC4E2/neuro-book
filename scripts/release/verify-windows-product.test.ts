@@ -7,7 +7,10 @@ import {promisify} from "node:util";
 
 import {afterEach, describe, expect, it} from "vitest";
 
-import {WINDOWS_PRODUCT_RELEASE_CHECKS} from "nbook/scripts/release/verify-windows-product";
+import {
+    WINDOWS_PRODUCT_HTTP_PROFILE_SOURCE,
+    WINDOWS_PRODUCT_RELEASE_CHECKS,
+} from "nbook/scripts/release/verify-windows-product";
 
 const roots: string[] = [];
 const executeFile = promisify(execFile);
@@ -29,6 +32,7 @@ describe("Windows Product release command secret transport", () => {
             "workspace-cli",
             "web-fetch",
         ]);
+        expect(WINDOWS_PRODUCT_HTTP_PROFILE_SOURCE).toContain("tools: toolset()");
     });
 
     it("只通过stdin传递原始UTF-8密码字节", async () => {

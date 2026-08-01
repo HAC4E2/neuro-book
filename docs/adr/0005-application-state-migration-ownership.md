@@ -38,7 +38,7 @@ bun run migrate:application-state -- --apply
 
 旧 Session decoder 只能存在于 migration 目录；Nitro runtime 只接受 schema v2。
 
-每个 Release Manifest v4 必须声明：
+每个 Release Manifest v5 必须声明：
 
 ```ts
 stateMigration: {

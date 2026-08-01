@@ -1,6 +1,6 @@
 # 130 - 桌面应用前置架构、发行载荷与存储生命周期
 
-> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-01 已完成冻结 Source 的 Windows A/B、逐文件摘要比较和仓库外完整 Product smoke，并据此冻结新的 Windows owner baseline；当前 dirty acceptance ZIP 仍不是正式 Release archive。发行前审计确认 Authoring Context/module graph、Variable 原子发布、Manager execution/operation lifecycle 与 Draft Release 激活协议仍未收口；Linux/macOS baseline、clean runner Release、浏览器验收与 Tauri/Electron 同矩阵 spike也尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由 spike 证据冻结。
+> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution 与 Contract v3 的 focused/type 门禁、冻结 Source A/B、逐文件摘要比较和仓库外完整 Product smoke；同仓并行完成的 Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议另有独立证据。当前 dirty acceptance ZIP 仍不是正式 Release archive，真实 Docker/rootless Podman、五平台 Candidate Actions、Linux/macOS owner baseline、浏览器验收与 Tauri/Electron 同矩阵 spike 尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由 spike 证据冻结。
 
 ## Relative documents refs
 
@@ -555,11 +555,28 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - Manager 新增 `VerifiedApplicationExecution` 判别联合。start、create-admin、Application State migration plan/apply/rollback 及 Operation recovery 在 spawn/Compose 前先得到 `source-dev`、`native-product` 或 `container-product` verified handle；Source Dev 明确跳过 Runtime Image 验证，Native 非入口 payload 篡改会在 spawn 前失败。
 - Container identity 已收口：GHCR Compose 使用 `repository@sha256:digest` 并核对 Engine Digest/RepoDigests、Engine image ID、Container `.Image` 与 `.Config.Image`；Source Docker image 写入精确 revision label，Installation Manifest 必填 `containerImageId`，tag 重绑、缺失 image、Compose 篡改或候选 Container image ID 不一致均拒绝 start/migration/admin。当前本机没有 Docker/Podman，只有 fixture/Manager 回归；真实 GHCR 与 rootless Podman 仍由 CI runner 验收，不能记为本机实测通过。
 - Product Runtime Contract 升级 v3 并新增 `web-fetch` release check。该检查使用本地确定性 HTML 调用正式 `fetchWeb()`，实测返回 `{ok:true, provider:"local", characters:160}`，同时覆盖 Readability、jsdom、Turndown、GFM table 与 navigation 清理；Windows/POSIX/GHCR workflow 均已接线。
-- Windows Product smoke 已增加 hostile 环境回归：先完成 archive 外部身份验证，再在 Application Root 建空根 `node_modules`、注入错误 `NODE_PATH`，通过真实 HTTP 创建并编译 SDK-only Profile，要求使用镜像内预编译 worker；测试目录在 finally 清理。该链尚未在本轮新 archive 上执行，不能用 wiring test 代替。
-- 当前验证：Task 130 跨模块 focused 18 files / 115 tests；Builder + archive verifier 2 files / 18 tests；Manager 全量 34 passed files / 1 skipped file，220 passed / 2 skipped，另有 release contract 1/1；Runtime、Manager、scripts、shared 与根 typecheck 全部通过。最终冻结窗口的根 Vitest 为 463 passed files / 1 skipped，3,159 passed tests / 14 skipped；Manager pack、install tests 与 docs build 同样通过。新增归档函数级回归使用真实 Builder candidate，证明篡改外部 `imageId` 或非入口 command payload 都在执行前失败。
-- 最新镜像的 commands owner 为 107 files / 10,725,780 bytes，仍低于 Windows commands baseline 的 10% 上限；bundle 中 `ProductRuntimeImageBuilder`、`proper-lockfile`、staging lease、Git/build callback 命中均为 0，只携带只读 verifier。
-- 首次 Build A 曾在同仓全量 Vitest占用内存时触发 Node 4 GiB heap OOM；没有调高 heap 掩盖。资源释放并冻结 Source 后，从两个空根重跑的 A/B 均为 3,230 payload files / 133,168,442 bytes，`imageId=sha256:4da1dd4c6f5c6bb56f0da09e25c561d4115568992bf22bf0e1c0b6e396ff7ae4`，Source/tree/shape identity 与七个 owner inventory 完全一致。该证据仍来自 dirty Source；本轮尚未重新生成 archive 或执行仓库外 smoke，不能替代旧冻结镜像的仓库外 smoke，更不能替代 clean runner Release。
-- 本轮没有处理 Installation Mutation、外置 operation lease、卸载恢复、Source adoption 与 Release Candidate Coordinator；这些仍是独立 `0.9.0` canary 阻断。没有执行浏览器人工验收或 Tauri/Electron spike。
+- Windows Product hostile smoke 已实机通过：archive 先完成外部身份验证，再在仓库外 Application Root 建空根 `node_modules`、注入错误 `NODE_PATH`，通过真实 HTTP 创建并编译 SDK-only Profile，确认使用镜像内预编译 worker；测试目录在 finally 清理，smoke 结束后 Product 再次通过 `openVerified()`。
+- 真实 smoke 暴露并修复两个非依赖缺失故障。其一，Bun 1.3.14 下 `fflate.unzip()` 对 512 KiB 以上高压缩条目启用 Blob Worker 时会收到空 transferable；当前 ZIP 读取链本来就整体载入归档，因此改用 `unzipSync()`，没有扩大原有内存模型，并以 600 KiB 高压缩条目回归。其二，boot sweep 与 HTTP 请求并发编译同一 Profile 时，等待互斥的任务仍让 pump 无限调度微任务，导致 Worker `message` 事件饥饿；pump 现在只在确有可启动任务时自调度，同文件并发回归通过。
+- Authoring gate 另补齐 `ImportTypeNode`：`type X = import("zod").X` 与普通 import 使用同一 SDK-only 规则，不能绕过完整模块图验证。当前最终 Source 验证为 Task 130 focused 14 files / 153 tests、Profile Worker 19/19、Manager 全量 36 passed files / 1 skipped file与 238 passed / 2 skipped tests、Manager release contract 1/1；根全量为 466 passed files / 1 skipped file、3,176 passed / 14 skipped tests，根、Runtime 与 Manager typecheck 均通过。
+- 最终冻结 Source A/B 均为 3,231 payload files / 133,213,461 bytes，`imageId=sha256:fcb795167920d023b196bd37c0999c5dfc20ef5cd5b4ec654a78e7c4efe8f0e2`。Source、Contract、policy、tree/shape identity 与七个 owner inventory 完全一致；排除 `runtime-image.json` / `runtime-image.ready` 后，3,231 个路径和逐文件 SHA-256 差异均为 0，两份镜像分别重新通过共享 Verifier。owner 为 frontend 177 / 15,858,420，server-bundle 1 / 12,638,609，commands（含 Prisma）108 / 10,730,043，authoring-kit 510 / 13,417,522，native-islands 2,059 / 75,260,630，system-assets 373 / 5,303,474，runtime-meta 3 / 4,763；全部低于现有 baseline 的 10% 门禁，未放宽 baseline。
+- 最终验收 ZIP 为 41,599,391 bytes，SHA-256 `6C1C08C1F5BF08C6EC0EA263DD1480C409D496E14490BC7C45AD5F6D46022B19`。仓库外完整 smoke 通过 database/Application State migration、Profile compile、Variable authoring、sqlite-vec、Sharp、Application State、Workspace CLI/node、真实 `web-fetch`、stdin-only create-admin、hostile `NODE_PATH` HTTP Profile compile、认证 shutdown、State Root 移动/删除与 post-smoke `openVerified()`。
+- 早期构建曾两次被同仓外部写入正确拦截：第一次两代 Source identity 不同，第二次在构建内检测到 `PROJECT-STATUS.md`、`RELEASE.md`、Task 105/130 内容变化并拒绝发布。最终 A/B 在稳定窗口通过，未放宽 Source 竞态门禁。以上仍是 dirty Source 的本地 acceptance archive，不是正式 Release archive；本机未执行真实 Docker/rootless Podman，五平台 Candidate Actions、正式归档、浏览器验收与 Tauri/Electron spike 仍待后续证据。
+
+### 2026-08-02：Manager 生命周期与 Release Candidate 闭环
+
+- `InstallationMutation`统一所有写操作：外置heartbeat lease、pending uninstall、Operation恢复、锁内Manifest重读与Installed固定布局在一个边界内完成。Portable/Source按canonical root隔离，Installed v1固定唯一程序根；同步解压已替换为异步fflate，避免阻塞heartbeat。
+- Operation Journal v5补齐migration `applying`状态、operation-owned immutable migration root、Product两次rename恢复、rolled-back cleanup retry和完整错误聚合。Source adoption worktree进入`.deploy/staging/<operation-id>`；committed cleanup全部成功后删除Journal，存在cleanup error时保留并阻止Portable移动。
+- Windows受管Bun不能同步删除自身。新外置PowerShell Host等待Manager退出，再按SHA-256锁定的durable intent删除精确owner；默认保留`data/`，显式`--delete-data`删除全部，intent被修改时零删除。最终Release workflow对两种模式都从新解压的Portable开始并重新执行v5身份Verifier。
+- 卸载与Desktop reset只在容器路径验证完整可执行镜像；原生安装依赖严格Manifest/owner布局与停止门禁，即使Product payload已经损坏也仍能删除。这样不会把“应用坏了”变成“必须手工删目录”，同时没有放宽运行、迁移和管理员命令的完整镜像验证。
+- Release CLI删除直接公开路径，只创建Draft并传递numeric release ID、tag、revision与prerelease。workflow按release ID隔离且不互相取消；Source、Product、Portable、Draft资产和GHCR候选先验收，最终才公开Release。OCI正式别名位于独立后继job，失败后可以只重跑激活而不重新经过Draft-only上传器。
+- Release Manifest v5增加统一build ID；最终Portable Verifier在任何Manager命令前连接Release、Source、Product、Installation、Runtime Image与Windows平台身份。静态Compose与Manager Compose统一注入`NEURO_BOOK_APPLICATION_ROOT=/app`；Product Bun命令统一使用`--no-install --no-env-file`。
+- 当前实现验证为 Authoring 9 files / 114 tests、Windows uninstall 3 files / 18 tests、Manager 36 passed files / 1 skipped 与 238 passed / 2 skipped、Release 最新 3 files / 22 tests；Manager typecheck 与 pack 通过。Task 130 的 focused/type、冻结 Source A/B 与仓库外完整 Product smoke 已在后续完成；正式 Release archive、五平台 Candidate Actions 和真实 Docker/rootless Podman 仍不能由本地 dirty 证据替代。
+
+### 计划边界与偏差
+
+- 没有建设通用事务框架、Release状态数据库、多Installed实例或跨GitHub/GHCR回滚；四个实现边界保持为Authoring Context、Installation Mutation、Verified Application Execution和Release Candidate Coordinator。
+- `RELEASE.md`继续只保存当前0.9版本；`docs/changelog/`与英文镜像只收录已经成为历史的发布线，因此不会在0.9仍是当前Candidate时提前创建`v0.9.md`。正式进入下一发布线后再归档中英文0.9记录。
+- 本轮不实现Developer Mode/rebuild、Tauri/Electron spike或手工浏览器验收。Candidate Actions仍负责五平台、真实Docker/Podman与公开资产证据；本地Windows结果不能替代这些门禁。
 
 ## TODO / Follow-ups
 

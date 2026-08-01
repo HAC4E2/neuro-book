@@ -2,7 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-07-29
-- 更新：2026-08-01（Authoring Cache、stdin Secret 与 Windows 关闭验收）
+- 更新：2026-08-02（Installation Mutation、Windows 自卸载与 Candidate 验收）
 - 关联任务：[Task 130](../tasks/130-desktop-application-foundation/README.md)、[Task 105](../tasks/105-unified-installation-manager/README.md)、[Task 117](../tasks/117-windows-process-tree-lifecycle/README.md)、[ADR 0002](0002-bounded-rebuildable-runtime-artifacts.md)
 - 取代范围：[ADR 0006](0006-image-variant-and-original-ownership.md) 中 Image Variant Cache 的物理 locator 由本 ADR 的 Cache Root 决定；其 512 MiB、10000 项等领域预算不变。
 
@@ -77,12 +77,22 @@ Authoring Cache 的 128 个 lease / 256 MiB 是创建前与消费前的离散门
 1. 管理员自动创建的密码只能通过 `create-admin --password-stdin` 的 stdin pipe 传入；Manager、Release smoke 与容器编排不得把明文放入 argv、子进程环境或日志。
 2. Manager 读取自身 `AUTH_ADMIN_PASSWORD` 后必须从子进程环境删除该键，再写入原始 UTF-8 bytes 并关闭 stdin。输入不 trim，最大 4096 bytes；交互调用继续使用 TTY 隐藏输入。
 
+### Installation Mutation
+
+1. install、update、start、migration、admin、desktop reset 与 uninstall 的物理修改都必须进入同一个 `InstallationMutation` 边界。边界在锁内先恢复未完成 Operation，再重读磁盘 Manifest；调用前读到的 Manifest 只能定位 Installation Root，不能参与后续执行判断。
+2. lease 使用 `proper-lockfile` heartbeat，`stale=60s`、`update=20s`。Installed v1 固定使用用户级 `installed-v1` lease；Portable/Source 对 canonical Installation Root 做 SHA-256。lease 位于 `%LOCALAPPDATA%\NeuroBook\manager-leases`，不随卸载删除，也不受 Manager 配置文件位置影响。
+3. Windows Installed v1 只允许 `%LOCALAPPDATA%\Programs\NeuroBook`。同一用户不支持多个 Installed 实例；多实例需求由 Portable/Source Profile 承担。
+4. ZIP/Gzip 解压必须使用异步 API，避免长时间阻塞事件循环导致仍活跃的 lease owner 被误判 stale。业务失败与 lease release 失败都必须保留在 `AggregateError` 中。
+5. Native、Container 与 Source Dev 执行使用显式判别联合。Native 在 spawn 前验证完整 Runtime Image、Bun 与工具；Container 验证 Compose、OCI digest、Engine image/container identity、版本与健康；Source Dev 使用明确 Adapter，不猜测 Product identity。
+
 ### 卸载与重置
 
 1. 默认卸载删除 Installation Root、Cache Root、Desktop Local/WebView Root 和 State Root 内有界日志，保留 State Root 用户数据。
 2. Portable 的 State Root 位于 Installation Root 内，默认卸载只保留承载 `data` 的目录链；显式“同时删除数据”才删除整个目录。
 3. desktop reset 只删除 Desktop Local Root；WebView Root 是其子目录。
-4. 卸载和 desktop reset 必须在对应 Installation Root 的 install lock 内先完成 stop gate，再开始 owner 删除；底层删除 API 不接受绕过该顺序的调用。原生实例仍运行时拒绝卸载，容器先 stop/down。外部 Project Workspace 永远不属于卸载器。
+4. 卸载和 desktop reset 必须在对应 Installation Root 的外置 lease 内完成 Operation 恢复、Manifest 重读、execution identity 验证和 stop gate，再开始 owner 删除；底层删除 API 不接受绕过该顺序的调用。原生实例仍运行时拒绝卸载，容器先 stop/down。外部 Project Workspace 永远不属于卸载器。
+5. Windows 由 Installation Root 内的受管 Bun 执行卸载时，不在当前进程递归删除自身。Manager 先写入带随机 token、owner roots、`deleteData` 决定和 SHA-256 的 durable intent，再启动 Installation Root 外的 PowerShell Host；Host 等待精确父 PID 退出，重新校验 intent 与固定 owner 布局后删除，并把结果写到外置 result 文件。
+6. pending uninstall intent 阻止所有非卸载 mutation。重试只能继续完全相同的删除范围；intent、token、摘要或 owner root 被修改时零删除。Host 脚本保持 ASCII，以兼容 Windows PowerShell 5 的无 BOM 脚本解析。
 
 ## 原因
 
@@ -97,6 +107,7 @@ Authoring Cache 的 128 个 lease / 256 MiB 是创建前与消费前的离散门
 - Bash 完整输出不再持久化 `%TEMP%` 绝对路径；cache 被回收是正式可见状态。
 - llmlint 的 sibling source 与 NeuroBook vendored snapshot 必须同步维护两个环境变量和缓存预算。
 - Windows 仓库外 Product smoke 已证明错误 token 不结束进程、正确 token 完成应用级关闭，随后端口关闭且 State Root 可移动和删除；Owned Process 仍只保留超时后的最终兜底职责。
+- Windows 自卸载有独立外置 Host，因此 Portable 可以删除正在承载 Manager/Bun 的程序目录；默认卸载和 `--delete-data` 必须分别通过最终 Portable Candidate 验收。
 - 浏览器与 Tauri/Electron UI 尚未验收；本 ADR 只冻结共享 Product/Manager 生命周期，不提前冻结 Desktop Envelope 框架。
 
 ## 未采用方案

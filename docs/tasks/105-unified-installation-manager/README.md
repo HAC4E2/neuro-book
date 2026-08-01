@@ -1,6 +1,16 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`的五平台Product、原生双架构OCI/manifest merge、Windows/Linux候选、公开payload、Windows完整`0.8.6 data/`复用、Docker x64/ARM64与rootless Podman链全部通过，最终`release-manifest.json`和`SHA256SUMS`已发布；它是最新已确认完整canary。当前工作树协议为Installation Manifest v5、Release Manifest v4、Operation Journal v5 和 Product-owned Application State catalog v3；Canary A→B事务更新仍需完成。2026-08-01 发行前审计中的 execution verification 已收口；operation lease、卸载恢复和切换 checkpoint 仍是发布阻断，不能把当前实现状态写成完整生命周期已闭合。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
+> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`的五平台Product、原生双架构OCI/manifest merge、Windows/Linux候选、公开payload、Windows完整`0.8.6 data/`复用、Docker x64/ARM64与rootless Podman链全部通过，最终`release-manifest.json`和`SHA256SUMS`已发布；它是最新已确认完整canary。当前工作树协议为Installation Manifest v5、Release Manifest v5、Operation Journal v5 和 Product-owned Application State catalog v3。2026-08-02 已实现外置 heartbeat lease、锁内 Manifest 重读、Product切换恢复、Windows外置自卸载Host与Draft Candidate激活协议；新的本地全量门禁、Product A/B、仓库外Portable smoke和公开Canary A→B仍需完成，不能把实现或focused测试写成公开生命周期已验证。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
+
+## 2026-08-02：Installation Mutation、自卸载与发行候选治理
+
+- 所有 mutating command 进入用户级外置 `proper-lockfile` lease。Installed v1固定 `%LOCALAPPDATA%/Programs/NeuroBook` 与单一 `installed-v1` lease；Portable/Source以canonical Installation Root SHA-256隔离。lease不受Manager配置路径影响，也不会随卸载删除。
+- 锁内顺序固定为：检查pending uninstall、恢复Operation、重读磁盘Manifest、验证固定Installed布局，再交给业务命令。调用前Manifest只用于定位；Manifest缺失时不创建目录或复活实例。ZIP/Gzip改为异步fflate，业务错误与lease释放错误都保留。
+- Operation migration新增`applying`；`planned`恢复不调用Product，`applying`允许runner返回`not_started`，`applied`严格拒绝。Native Product双rename使用operation-owned immutable migration root；rollback cleanup error留在Journal并由下一次mutation重试，全部清理成功后才删除Journal。
+- Source adoption worktree进入`.deploy/staging/<operation-id>`。start、migration、admin、reset和uninstall统一从`VerifiedApplicationExecution`取得Source Dev、Native Product或Container Product身份；status仍保留轻量控制面。
+- Windows Portable/Installed从受管Bun执行卸载时，Manager写入带token和SHA-256的durable intent并启动Installation Root外的PowerShell Host。Host等待精确父PID退出后重新验证owner roots：默认删除程序、cache、desktop和logs并保留State Root；`--delete-data`才删除全部。intent篡改时零删除并写外置失败结果，pending intent阻断其他mutation。
+- Release Manifest硬切v5并增加统一build ID。Source/Product/Portable/Installation由最终Verifier重新连成同一代；CLI只创建Draft并显式dispatch release ID、tag、revision、prerelease。候选OCI只使用`candidate-<release-id>`，全部正确性gate后才公开Release，再由独立可重跑job激活版本tag和stable `latest`。
+- 当前验证：Authoring 9 files / 114 tests；Windows uninstall 3 files / 17 tests及真实PowerShell Host三种路径；Manager 36 passed files / 1 skipped、238 passed / 2 skipped，typecheck与pack通过；Release focused当前3 files / 22 tests。本节仍不等于新的完整本地门禁或公开Candidate结果。
 
 ## 2026-08-01：发行前只读审计与下一阶段阻断
 
@@ -1042,3 +1052,9 @@ uninstall
 - `.33` workflow `30613898542` 已通过全部 clean-checkout 生成、类型与转换门禁；最终仅 `app-commands.test.ts` 的 6 个真实运行测试失败。共同原因是该文件新建的 `productManifest()` 把平台固定为 `windows-x64`，Linux runner 按生产合同正确拒绝跨平台启动；其余 205 项通过，另 4 项按平台跳过。
 - 只修改测试夹具：需要真实启动 Product 的 manifest 使用 `currentProductPlatform()`，专门验证平台映射/拒绝语义的固定平台夹具保持不变。生产 `assertInstallationHostCompatible()` 没有放宽。
 - `.31`、`.32` 与 `.33` tag 都不移动、不删除、不复用；下一公开候选固定为 `0.1.0-canary.34`，npm 精确版本和 provenance 验证通过前不启动应用 minor release。
+
+### 2026-08-02：Installation Mutation 与可恢复卸载收口
+
+- 所有写操作统一经外置 heartbeat lease、Operation 恢复和锁内 Manifest 重读；调用前 Manifest 只用于定位，不能复活已删除或已变更的实例。Windows Installed v1 固定为用户级唯一程序根，Portable/Source 以 canonical Installation Root 摘要隔离 lease。
+- update journal 增加 migration `applying` checkpoint、operation-owned migration root、Product 双 rename 恢复和 cleanup retry。卸载自身不再接受任意 stop callback；Windows 受管 Bun 由 Installation Root 外的 Host 按摘要锁定 intent，等待 Manager 退出后删除精确 owner。
+- 原生卸载和 Desktop reset 不要求损坏的 Product payload 仍能通过执行验证，只要求严格 Manifest/owner 布局和服务停止；容器删除仍先验证 Compose 与 OCI identity。回归证明 Product payload 损坏时仍可卸载，运行、迁移与管理员命令的 fail-closed 门禁不变。

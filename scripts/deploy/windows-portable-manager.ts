@@ -155,7 +155,7 @@ export async function packagePortable(output: string, sourceArchive: string, pro
     }
 }
 
-/** 把已验证 archive identity 原样投影到 Installation Manifest v4 组件。 */
+/** 把已验证 archive identity 原样投影到 Installation Manifest v5 组件。 */
 export function portableArchiveComponents(identity: PortableArchiveIdentity): {
     source: Extract<SourceComponent, {provider: "release"}>;
     product: Extract<ProductComponent, {provider: "release"}>;
@@ -164,6 +164,7 @@ export function portableArchiveComponents(identity: PortableArchiveIdentity): {
     return {
         source: {
             provider: "release",
+            buildId: identity.buildId,
             version: identity.version,
             revision: identity.revision,
             path: ".",
@@ -175,6 +176,7 @@ export function portableArchiveComponents(identity: PortableArchiveIdentity): {
         },
         product: {
             provider: "release",
+            buildId: identity.buildId,
             version: identity.version,
             revision: identity.revision,
             path: ".output",

@@ -1,5 +1,5 @@
 import {randomBytes, randomUUID} from "node:crypto";
-import {mkdir, rename, rm, rmdir, stat, writeFile} from "node:fs/promises";
+import {mkdir, readFile, rename, rm, rmdir, stat, writeFile} from "node:fs/promises";
 import {createServer} from "node:net";
 import {dirname, join, parse, resolve} from "node:path";
 import {parseArgs} from "node:util";
@@ -10,6 +10,8 @@ import {
     readProductRuntimeContract,
 } from "nbook/shared/product-runtime-contract";
 import type {ProductRuntimeCheckId} from "nbook/shared/product-runtime-contract";
+import {parseInstallationManifest} from "nbook/packages/neuro-book-manager/src/schema";
+import {verifyInstalledProductRuntimeImage} from "nbook/packages/neuro-book-manager/src/product";
 import {openVerifiedExtractedProduct} from "nbook/scripts/release/verify-extracted-product";
 
 type ProductProcess = ReturnType<typeof Bun.spawn>;
@@ -26,7 +28,12 @@ type AppVersionResponse = {
 type ProfileCompileResponse = {
     ok: boolean;
     stale: boolean;
-    detail: {manifest: {key: string}} | null;
+    compiledCount: number;
+    profiles: Array<{
+        profileKey: string;
+        fileName: string;
+        loadStatus: string;
+    }>;
     issues: Array<{message: string}>;
 };
 
@@ -41,11 +48,25 @@ export const WINDOWS_PRODUCT_RELEASE_CHECKS = [
     "web-fetch",
 ] as const satisfies readonly ProductRuntimeCheckId[];
 
+/** hostile Product 环境中通过真实 HTTP 编译的最小合法 Profile。 */
+export const WINDOWS_PRODUCT_HTTP_PROFILE_SOURCE = [
+    "/** @jsxImportSource nbook/profile-sdk */",
+    "import {ProfilePrompt, System, Type, defineAgentProfile, toolset} from \"nbook/profile-sdk\";",
+    "export default defineAgentProfile({",
+    "    manifest: {key: \"release.http-worker\", name: \"Release HTTP Worker\"},",
+    "    initialSchema: Type.Object({}),",
+    "    tools: toolset(),",
+    "    context() { return <ProfilePrompt><System>Product worker only.</System></ProfilePrompt>; },",
+    "});",
+    "",
+].join("\n");
+
 /** 在仓库外验证 Windows Product 的命令、HTTP 与文件句柄生命周期。 */
 export async function verifyWindowsProduct(
     productRootInput: string,
     scratchRootInput: string,
     bunRuntimeInput: string,
+    installationManifestInput?: string,
 ): Promise<void> {
     if (process.platform !== "win32") {
         throw new Error("Windows Product smoke 只能在 Windows 上执行。");
@@ -58,7 +79,16 @@ export async function verifyWindowsProduct(
     await stat(bunRuntime);
 
     const outputRoot = join(productRoot, ".output");
-    await openVerifiedExtractedProduct(productRoot);
+    if (installationManifestInput) {
+        const manifest = parseInstallationManifest(JSON.parse(await readFile(resolve(installationManifestInput), "utf8")));
+        const product = manifest.components.product;
+        if (!product || product.provider === "container") {
+            throw new Error("Installation Manifest 缺少可验证的原生 Product。" );
+        }
+        await verifyInstalledProductRuntimeImage(productRoot, product);
+    } else {
+        await openVerifiedExtractedProduct(productRoot);
+    }
     const rootNodeModules = join(productRoot, "node_modules");
     const bootstrap = join(outputRoot, ...PRODUCT_RUNTIME_COMMAND_BOOTSTRAP.split("/"));
     const contract = await readProductRuntimeContract(outputRoot);
@@ -206,16 +236,7 @@ async function assertHttpProfileCompile(baseUrl: string, stateRoot: string): Pro
     const profileRoot = join(stateRoot, "workspace", ".nbook", "agent", "profiles");
     const sourcePath = join(profileRoot, ...fileName.split("/"));
     await mkdir(dirname(sourcePath), {recursive: true});
-    await writeFile(sourcePath, [
-        "/** @jsxImportSource nbook/profile-sdk */",
-        "import {ProfilePrompt, System, Type, defineAgentProfile} from \"nbook/profile-sdk\";",
-        "export default defineAgentProfile({",
-        "    manifest: {key: \"release.http-worker\", name: \"Release HTTP Worker\"},",
-        "    initialSchema: Type.Object({}),",
-        "    context() { return <ProfilePrompt><System>Product worker only.</System></ProfilePrompt>; },",
-        "});",
-        "",
-    ].join("\n"), "utf8");
+    await writeFile(sourcePath, WINDOWS_PRODUCT_HTTP_PROFILE_SOURCE, "utf8");
     const response = await fetch(`${baseUrl}/api/agent/profiles/compile`, {
         method: "POST",
         headers: {"content-type": "application/json"},
@@ -223,8 +244,13 @@ async function assertHttpProfileCompile(baseUrl: string, stateRoot: string): Pro
         signal: AbortSignal.timeout(90_000),
     });
     const value: unknown = await response.json();
+    const compiled = isProfileCompileResponse(value)
+        ? value.profiles.find((profile) => profile.fileName === fileName)
+        : undefined;
     if (!response.ok || !isProfileCompileResponse(value) || !value.ok || value.stale
-        || value.detail?.manifest.key !== "release.http-worker") {
+        || value.compiledCount < 1
+        || compiled?.profileKey !== "release.http-worker"
+        || compiled.loadStatus !== "loaded") {
         throw new Error(`Product HTTP Profile 编译失败：status=${response.status} body=${JSON.stringify(value)}`);
     }
 }
@@ -236,9 +262,13 @@ function isProfileCompileResponse(value: unknown): value is ProfileCompileRespon
     return typeof result.ok === "boolean"
         && typeof result.stale === "boolean"
         && Array.isArray(result.issues)
-        && (result.detail === null
-            || (typeof result.detail === "object" && result.detail !== null
-                && typeof result.detail.manifest?.key === "string"));
+        && typeof result.compiledCount === "number"
+        && Array.isArray(result.profiles)
+        && result.profiles.every((profile) => profile
+            && typeof profile === "object"
+            && typeof profile.profileKey === "string"
+            && typeof profile.fileName === "string"
+            && typeof profile.loadStatus === "string");
 }
 
 /** Product 命令不得在 Installation Root 生成影子 workspace。 */
@@ -417,11 +447,17 @@ if (import.meta.main) {
             "product-root": {type: "string"},
             "scratch-root": {type: "string"},
             "bun-runtime": {type: "string", default: process.execPath},
+            "installation-manifest": {type: "string"},
         },
         strict: true,
     });
     if (!values["product-root"] || !values["scratch-root"] || !values["bun-runtime"]) {
-        throw new Error("用法：bun scripts/release/verify-windows-product.ts --product-root <root> --scratch-root <empty> [--bun-runtime <bun.exe>]");
+        throw new Error("用法：bun scripts/release/verify-windows-product.ts --product-root <root> --scratch-root <empty> [--bun-runtime <bun.exe>] [--installation-manifest <path>]");
     }
-    await verifyWindowsProduct(values["product-root"], values["scratch-root"], values["bun-runtime"]);
+    await verifyWindowsProduct(
+        values["product-root"],
+        values["scratch-root"],
+        values["bun-runtime"],
+        values["installation-manifest"],
+    );
 }

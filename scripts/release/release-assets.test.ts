@@ -36,6 +36,7 @@ const ROOT = resolve(import.meta.dirname, "..", "..");
 const roots: string[] = [];
 
 type WorkflowStep = {
+    env?: {[name: string]: string};
     id?: string;
     if?: string;
     name?: string;
@@ -51,6 +52,11 @@ type WorkflowJob = {
 };
 
 type ReleaseWorkflow = {
+    on?: {
+        workflow_dispatch?: {
+            inputs?: {[name: string]: {required?: boolean; type?: string}};
+        };
+    };
     concurrency?: {
         group?: string;
         "cancel-in-progress"?: string | boolean;
@@ -351,7 +357,7 @@ describe("Product Release宿主合同", () => {
             stage0Windows,
             stage0WindowsCmd,
             stage0Linux,
-            ghcrRef: `ghcr.io/notnotype/neuro-book:v${source.version}`,
+            ghcrRef: `ghcr.io/notnotype/neuro-book@sha256:${"f".repeat(64)}`,
             ghcrDigest: `sha256:${"f".repeat(64)}`,
             output,
         } satisfies Parameters<typeof buildReleaseManifest>[0];
@@ -421,10 +427,16 @@ describe("Product Release宿主合同", () => {
         expect(windowsRun).toContain("bun run manager:test");
     });
 
-    it("Canary自动取消旧Release并精确缓存Windows依赖", async () => {
+    it("Release Candidate按release ID隔离且绝不互相取消", async () => {
         const workflow = parse(await readFile(resolve(ROOT, ".github/workflows/release-container.yml"), "utf8")) as ReleaseWorkflow;
-        expect(workflow.concurrency?.group).toContain("github.event.release.prerelease");
-        expect(workflow.concurrency?.["cancel-in-progress"]).toContain("github.event.release.prerelease");
+        expect(workflow.on?.workflow_dispatch?.inputs).toMatchObject({
+            release_id: {required: true, type: "string"},
+            tag: {required: true, type: "string"},
+            revision: {required: true, type: "string"},
+            prerelease: {required: true, type: "boolean"},
+        });
+        expect(workflow.concurrency?.group).toContain("inputs.release_id");
+        expect(workflow.concurrency?.["cancel-in-progress"]).toBe(false);
         const cache = workflow.jobs["product-windows"].steps.find(({uses}) => uses === "actions/cache@v4");
         expect(cache?.with?.path).toContain("node_modules");
         expect(cache?.with?.path).toContain("~/.bun/install/cache");
@@ -433,6 +445,40 @@ describe("Product Release宿主合同", () => {
         expect(workflow.jobs["product-windows"].steps).toContainEqual(expect.objectContaining({
             run: "bun install --frozen-lockfile --linker hoisted",
         }));
+    });
+
+    it("Draft资产摘要幂等上传，最终才公开Release并激活OCI别名", async () => {
+        const workflow = parse(await readFile(resolve(ROOT, ".github/workflows/release-container.yml"), "utf8")) as ReleaseWorkflow & {
+            jobs: ReleaseWorkflow["jobs"] & {
+                "activate-container-tags": WorkflowJob;
+                "publish-index": WorkflowJob;
+                "publish-payload": WorkflowJob;
+            };
+        };
+        const source = await readFile(resolve(ROOT, ".github/workflows/release-container.yml"), "utf8");
+        expect(source).not.toContain("softprops/action-gh-release");
+        expect(workflow.jobs["publish-payload"].steps.some(
+            ({run}) => run?.includes("draft-release-assets.ts") && run.includes("inputs.release_id"),
+        )).toBe(true);
+
+        const finalSteps = workflow.jobs["publish-index"].steps.map(({name}) => name ?? "");
+        expect(finalSteps.indexOf("Publish release index last"))
+            .toBeLessThan(finalSteps.indexOf("Publish verified Release"));
+        const publishRun = workflow.jobs["publish-index"].steps.map(({run}) => run ?? "").join("\n");
+        expect(publishRun).toContain("releases/${RELEASE_ID}");
+        expect(publishRun).toContain("{draft: false, prerelease: $prerelease}");
+
+        const activation = workflow.jobs["activate-container-tags"];
+        expect(activation.needs).toBe("publish-index");
+        expect(activation.steps.map(({name}) => name ?? ""))
+            .toContain("Verify published Release identity before OCI activation");
+        const activationRun = activation.steps.map(({run}) => run ?? "").join("\n");
+        expect(activationRun).toContain(".draft");
+        expect(activationRun).toContain('tags=(--tag "${image}:${RELEASE_TAG}")');
+        expect(activationRun).toContain('if [[ "${PRERELEASE}" != "true" ]]');
+
+        const releaseCli = await readFile(resolve(ROOT, "scripts/release/release.ts"), "utf8");
+        expect(releaseCli).toContain("item.headSha === head && item.displayTitle?.includes(tag)");
     });
 
     it("Linux AArch64 Product必须安装并执行真实浏览器smoke", async () => {
@@ -516,16 +562,20 @@ describe("Product Release宿主合同", () => {
             {arch: "arm64", platform: "linux/arm64", runner: "ubuntu-24.04-arm"},
         ]);
         const buildSteps = workflow.jobs["build-container"].steps.filter(({uses}) => uses === "docker/build-push-action@v6");
-        expect(buildSteps).toHaveLength(2);
+        expect(buildSteps).toHaveLength(1);
         for (const step of buildSteps) {
             expect(step.with?.platforms).toBe("${{ matrix.platform }}");
             expect(step.with?.outputs).toContain("push-by-digest=true");
         }
-        const mergeRun = workflow.jobs["merge-container-images"].steps.map(({run}) => run ?? "").join("\n");
+        const mergeSteps = workflow.jobs["merge-container-images"].steps;
+        const mergeRun = mergeSteps.map(({run}) => run ?? "").join("\n");
         expect(mergeRun).toContain("docker buildx imagetools create");
         expect(mergeRun).toContain("imagetools inspect");
         expect(mergeRun).toContain("--raw | sha256sum");
         expect(mergeRun).toContain('test "${#digests[@]}" -eq 2');
+        expect(mergeSteps.find(({id}) => id === "merge")?.env?.CANDIDATE_TAG)
+            .toBe("candidate-${{ inputs.release_id }}");
+        expect(mergeRun).not.toContain("${APP_IMAGE}:${RELEASE_TAG}");
         expect(workflow.jobs["verify-public-ghcr-arm64"]["runs-on"]).toBe("ubuntu-24.04-arm");
         expect(workflow.jobs["verify-public-ghcr-podman"].steps.some(
             ({run}) => run?.includes("PODMAN_COMPOSE_PROVIDER=podman-compose podman compose version"),
@@ -543,14 +593,14 @@ describe("Product Release宿主合同", () => {
         ]);
     });
 
-    it("Manifest v4首次发布只复用0.8.6完整data目录", async () => {
+    it("Manifest v5首次发布只复用0.8.6完整data目录", async () => {
         const workflow = parse(await readFile(resolve(ROOT, ".github/workflows/release-container.yml"), "utf8")) as ReleaseWorkflow & {
             jobs: ReleaseWorkflow["jobs"] & {"verify-public-windows-data-reuse": WorkflowJob};
         };
         const run = workflow.jobs["verify-public-windows-data-reuse"].steps.map((step) => step.run ?? "").join("\n");
         expect(run).toContain("$oldManager --root $baselineRoot admin create");
         expect(run).toContain("Copy-Item -LiteralPath (Join-Path $baselineRoot \"data\")");
-        expect(run).toContain("$candidateManifest.schemaVersion -ne 4");
+        expect(run).toContain("$candidateManifest.schemaVersion -ne 5");
         expect(run).not.toContain("--root $root update --channel");
     });
 
@@ -564,6 +614,9 @@ describe("Product Release宿主合同", () => {
         expect(candidateRun).toContain("Start-Process -FilePath $managerRuntime");
         expect(candidateRun).not.toContain("Start-Process -FilePath $env:ComSpec");
         expect(candidateRun).not.toContain("Stop-Process -Id $launcherProcess.Id");
+        expect(candidateRun).toContain("uninstall --yes");
+        expect(candidateRun).toContain("uninstall --delete-data --yes");
+        expect(candidateRun).toContain("Portable默认卸载没有在退出后保留data并删除程序");
 
         const publicRun = workflow.jobs["verify-public-windows-data-reuse"].steps.map((step) => step.run ?? "").join("\n");
         expect(publicRun).toContain("$managerRuntime = Join-Path $root $candidateManifest.components.managerRuntime.path");

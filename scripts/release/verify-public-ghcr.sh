@@ -53,8 +53,8 @@ done
 
 container_id="$("$engine" compose --env-file "$root/.env" -f "$root/.deploy/docker-compose.generated.yml" ps --quiet app)"
 [[ "$container_id" =~ ^[a-f0-9]{12,64}$ ]] || { echo "Product smoke容器ID非法：$container_id" >&2; exit 1; }
-"$engine" exec "$container_id" bun --no-install .output/server/commands/product-command.mjs check sharp-image-variant
-"$engine" exec "$container_id" bun --no-install .output/server/commands/product-command.mjs check web-fetch
+"$engine" exec "$container_id" bun --no-install --no-env-file .output/server/commands/product-command.mjs check sharp-image-variant
+"$engine" exec "$container_id" bun --no-install --no-env-file .output/server/commands/product-command.mjs check web-fetch
 
 cookie="${root}-cookie.txt"
 curl --fail --silent --show-error -c "$cookie" \

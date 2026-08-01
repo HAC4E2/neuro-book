@@ -301,7 +301,8 @@ export async function buildReleaseManifest(options: ManifestOptions, projectRoot
     const portable = await asset(resolve(projectRoot, options.portable), baseUrl);
     await assertArchiveBuildSet(sourcePath, productPaths, version, options.revision);
     const manifest = {
-        schemaVersion: 4,
+        schemaVersion: 5,
+        buildId: assemblySource.buildId,
         version,
         channel: version.includes("-") ? "canary" : "stable",
         sourceRevision: options.revision,
@@ -369,7 +370,15 @@ async function verifyReleaseAssets(directory: string, tagInput: string, revision
         "install.cmd",
         "install.sh",
     ]);
-    await assertArchiveBuildSet(resolve(directory, "neuro-book-source.zip"), productPaths, manifest.version, revision);
+    const archiveBuilds = await assertArchiveBuildSet(
+        resolve(directory, "neuro-book-source.zip"),
+        productPaths,
+        manifest.version,
+        revision,
+    );
+    if (manifest.buildId !== archiveBuilds.source.buildId) {
+        throw new Error("Release Manifest buildId 与 Source/Product archive 代次不一致。");
+    }
     const expectedAssets = [manifest.source, ...manifest.products, manifest.windowsPortable];
     for (const expected of expectedAssets) {
         const path = resolve(directory, basename(new URL(expected.url).pathname));

@@ -1,5 +1,5 @@
 import {createHash} from "node:crypto";
-import {mkdtemp, mkdir, readFile, readdir, rm, writeFile} from "node:fs/promises";
+import {mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {relative, resolve} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
@@ -9,8 +9,13 @@ import {
     ProductRuntimeImageBuilder,
     productRuntimeBuildPolicy,
 } from "nbook/scripts/build/product-runtime-image-builder";
+import {writeInstallationManifest} from "nbook/packages/neuro-book-manager/src/manifest-store";
+import {PRODUCT_ASSET_NAMES} from "nbook/packages/neuro-book-manager/src/platform";
+import {PORTABLE_ROOT_LOCATORS} from "nbook/packages/neuro-book-manager/src/root-locators";
+import {PRODUCT_PLATFORMS, type InstallationManifest, type ReleaseManifest} from "nbook/packages/neuro-book-manager/src/types";
 import {materializePortableArchives, portableArchiveComponents} from "nbook/scripts/deploy/windows-portable-manager";
 import {releaseBuildId as computeReleaseBuildId} from "nbook/scripts/release/release-output";
+import {verifyWindowsPortable} from "nbook/scripts/release/verify-windows-portable";
 import {writeZipArchive, type ZipEntry} from "nbook/scripts/utils/zip";
 import {
     createProductRuntimeContract,
@@ -115,6 +120,97 @@ describe("Windows Portable archive provenance", () => {
             .rejects.toThrow("build identity 代次不一致");
         expect(await readdir(stage)).toEqual([]);
         expect((await readdir(root)).some((entry) => entry.startsWith(".portable-archives-"))).toBe(false);
+    });
+
+    it("最终 verifier 把 Release、Portable、Installation 与 Runtime Image 连成同一代次", async () => {
+        const root = await temporaryRoot();
+        const stage = resolve(root, "portable");
+        const archives = await writeValidArchives(resolve(root, "archives"));
+        await mkdir(stage, {recursive: true});
+        const identity = await materializePortableArchives(stage, archives.source, archives.product);
+        const components = portableArchiveComponents(identity);
+        const asset = {
+            archiveSha256: "d".repeat(64),
+            sourceUrl: "https://example.com/runtime.zip",
+            license: "test",
+            redistribution: "test",
+        };
+        const runtime = {
+            provider: "managed" as const,
+            version: "1.3.0",
+            path: ".runtime/bun/1.3.0/bun.exe",
+            executableSha256: "e".repeat(64),
+            ...asset,
+        };
+        const now = new Date().toISOString();
+        const installation: InstallationManifest = {
+            schemaVersion: 5,
+            profile: "windows-portable",
+            containerEngine: null,
+            managerVersion: "0.1.0-canary.34",
+            appVersion: VERSION,
+            channel: "canary",
+            sourceRevision: REVISION,
+            roots: PORTABLE_ROOT_LOCATORS,
+            components: {
+                ...components,
+                manager: {provider: "managed", version: "0.1.0-canary.34", path: ".runtime/manager/0.1.0-canary.34/neuro-book.mjs", bundleSha256: "f".repeat(64)},
+                managerRuntime: runtime,
+                applicationRuntime: runtime,
+                tools: {
+                    rg: {provider: "managed", version: "14.1.1", path: ".runtime/tools/rg/14.1.1/rg.exe", executableSha256: "1".repeat(64), ...asset},
+                    git: {provider: "managed", version: "2.49.0", path: ".runtime/tools/git/2.49.0/cmd/git.exe", bashPath: ".runtime/tools/git/2.49.0/bin/bash.exe", distribution: "PortableGit", gitSha256: "2".repeat(64), bashSha256: "3".repeat(64), ...asset},
+                },
+            },
+            installedAt: now,
+            updatedAt: now,
+        };
+        await mkdir(resolve(stage, ".deploy"), {recursive: true});
+        await writeInstallationManifest(resolve(stage, ".deploy", "installation.json"), installation);
+
+        const portableArchive = resolve(root, "neuro-book-windows-x64.zip");
+        await writeZipArchive(portableArchive, await directoryZipEntries(stage));
+        const portableInfo = await stat(portableArchive);
+        const sourceInfo = await stat(archives.source);
+        const productInfo = await stat(archives.product);
+        const releaseRoot = `https://github.com/notnotype/neuro-book/releases/download/v${VERSION}`;
+        const release: ReleaseManifest = {
+            schemaVersion: 5,
+            buildId: identity.buildId,
+            version: VERSION,
+            channel: "canary",
+            sourceRevision: REVISION,
+            minManagerVersion: "0.1.0-canary.34",
+            source: {url: components.source.sourceUrl, sha256: identity.sourceArchiveSha256, bytes: sourceInfo.size},
+            products: PRODUCT_PLATFORMS.map((platform) => ({
+                platform,
+                sourceRevision: REVISION,
+                url: `${releaseRoot}/${PRODUCT_ASSET_NAMES[platform]}`,
+                sha256: platform === "windows-x64" ? identity.productArchiveSha256 : "4".repeat(64),
+                bytes: platform === "windows-x64" ? productInfo.size : 1,
+                imageId: identity.runtimeImage.imageId,
+                sourceDigest: identity.runtimeImage.sourceDigest,
+                lockfileSha256: identity.runtimeImage.lockfileSha256,
+                builderContractVersion: identity.runtimeImage.builderContractVersion,
+            })),
+            windowsPortable: {
+                url: `${releaseRoot}/neuro-book-windows-x64.zip`,
+                sha256: createHash("sha256").update(await readFile(portableArchive)).digest("hex"),
+                bytes: portableInfo.size,
+            },
+            ghcr: {ref: `ghcr.io/notnotype/neuro-book@sha256:${"5".repeat(64)}`, digest: `sha256:${"5".repeat(64)}`, sourceRevision: REVISION},
+            stateMigration: {policy: "none", steps: []},
+        };
+        const releaseManifestPath = resolve(root, "release-manifest.json");
+        await writeFile(releaseManifestPath, `${JSON.stringify(release, null, 4)}\n`, "utf8");
+
+        await expect(verifyWindowsPortable({releaseManifestPath, portableArchivePath: portableArchive, portableRoot: stage}))
+            .resolves.toMatchObject({buildId: identity.buildId, imageId: identity.runtimeImage.imageId});
+
+        installation.components.source = {...installation.components.source, buildId: `sha256:${"6".repeat(64)}`};
+        await writeInstallationManifest(resolve(stage, ".deploy", "installation.json"), installation);
+        await expect(verifyWindowsPortable({releaseManifestPath, portableArchivePath: portableArchive, portableRoot: stage}))
+            .rejects.toThrow("build ID 证明链不一致");
     });
 });
 
@@ -244,6 +340,22 @@ async function runtimeImageZipEntries(imageRoot: string): Promise<ZipEntry[]> {
     }
 
     await walk(imageRoot);
+    return entries.sort((left, right) => left.archivePath.localeCompare(right.archivePath));
+}
+
+/** 把测试 Portable stage 按真实相对路径写成最终 ZIP。 */
+async function directoryZipEntries(root: string): Promise<ZipEntry[]> {
+    const entries: ZipEntry[] = [];
+    async function walk(directory: string): Promise<void> {
+        for (const entry of await readdir(directory, {withFileTypes: true})) {
+            const path = resolve(directory, entry.name);
+            if (entry.isDirectory() && !entry.isSymbolicLink()) await walk(path);
+            else if (entry.isFile() && !entry.isSymbolicLink()) {
+                entries.push({kind: "file", source: path, archivePath: relative(root, path).replaceAll("\\", "/")});
+            } else throw new Error(`测试 Portable 包含不受支持的 entry：${path}`);
+        }
+    }
+    await walk(root);
     return entries.sort((left, right) => left.archivePath.localeCompare(right.archivePath));
 }
 
