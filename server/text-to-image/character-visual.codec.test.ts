@@ -94,4 +94,38 @@ describe("Character / Outfit V2 Markdown codec", () => {
         expect(parsed.character.fields.profileTraits).toEqual(["tr-a", "tr-z"]);
         expect(Object.keys(parsed.character.tagResolutions)).toEqual(["tr-a", "tr-z"]);
     });
+
+    it("outfit renderer 固定输出顶层 V2 字段顺序", () => {
+        const unordered = {
+            policyApprovals: {},
+            tagResolutions: {"tr-coat": resolution("coat", 3002)},
+            providerSyntaxNodes: {},
+            fieldProviderSyntaxRefs: {},
+            fields: {upper: ["tr-coat"], upperBack: [], lower: [], lowerBack: []},
+            resolutionScope: {providerKind: "novelai" as const, modelScope: {kind: "generic-novelai" as const}},
+            names: {cn: "旅行装", en: "travel outfit"},
+            ownerCharacterId: "hero",
+            outfitId: "travel",
+            schema: "nbook.outfit-tags/v2" as const,
+        };
+        const markdown = renderOutfitTagsMarkdown(unordered, "# 旅行装\n");
+
+        expect(markdown.match(/^(schema|outfitId|ownerCharacterId|names|resolutionScope|fields|fieldProviderSyntaxRefs|providerSyntaxNodes|tagResolutions|policyApprovals):/gmu))
+            .toMatchInlineSnapshot(`
+                [
+                  "schema:",
+                  "outfitId:",
+                  "ownerCharacterId:",
+                  "names:",
+                  "resolutionScope:",
+                  "fields:",
+                  "fieldProviderSyntaxRefs:",
+                  "providerSyntaxNodes:",
+                  "tagResolutions:",
+                  "policyApprovals:",
+                ]
+            `);
+        const parsed = parseOutfitTagsMarkdown(markdown);
+        expect(renderOutfitTagsMarkdown(parsed.outfit, parsed.body)).toBe(markdown);
+    });
 });
