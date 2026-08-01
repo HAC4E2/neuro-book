@@ -22,6 +22,7 @@
         "build/check-product-runtime-policies.ts",
         "build/measure-product-runtime-image.ts",
         "build/product-runtime-image-builder.ts",
+        "release/manager-release-contract.test.ts",
         "release/manager-release-vitest.config.ts"
     ]
 }

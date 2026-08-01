@@ -52,6 +52,7 @@ describe("Manager release clean-checkout contract", () => {
             });
         }
         expect(managerSourceTsConfigs[0]?.include).toContain("build/product-runtime-image-builder.ts");
+        expect(managerSourceTsConfigs[0]?.include).toContain("release/manager-release-contract.test.ts");
         expect(managerSourceTsConfigs[0]?.include).toContain("release/manager-release-vitest.config.ts");
         expect(managerSourceTsConfigs[1]?.include).toEqual(expect.arrayContaining([
             "product-runtime-contract.ts",

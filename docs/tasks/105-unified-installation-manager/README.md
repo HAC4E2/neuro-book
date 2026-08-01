@@ -1074,6 +1074,12 @@ uninstall
 - 修复为该单条合同新增最小独立Vitest配置，不加载Nuxt、Agent setup或system assets snapshot；配置自身进入`scripts/tsconfig.json`，合同同时固定package命令和tsconfig登记。不是在workflow中补`nuxt prepare`，因此Manager发布仍只消费自己的真实前置。
 - Windows Manager全量239 passed / 2 skipped、独立release contract 1/1、Manager与scripts独立typecheck通过。`.31`至`.36` tag继续保留且不复用；下一公开候选固定为`0.1.0-canary.37`。
 
+### 2026-08-02：Manager `.37` clean-checkout contract tsconfig 归属失败
+
+- `manager-v0.1.0-canary.37` 已保留release commit与tag；workflow `30720704794` 中Manager本体再次通过224 passed / 17 skipped，独立Vitest配置也已生效。npm publish仍未执行。
+- OXC随后只拒绝`manager-release-contract.test.ts`本身：上一轮把独立Vitest配置加入了`scripts/tsconfig.json`，但漏掉实际被转换的合同测试文件。Windows仍从Developer Build State找到根Nuxt tsconfig，clean Linux按独立边界正确失败。
+- 修复把合同测试与其Vitest配置同时纳入scripts TypeScript project，并由合同固定两个include。scripts独立typecheck、Windows Manager 239 passed / 2 skipped和release contract 1/1通过。`.31`至`.37` tag继续保留且不复用；下一公开候选固定为`0.1.0-canary.38`。
+
 ### 2026-08-02：Installation Mutation 与可恢复卸载收口
 
 - 所有写操作统一经外置 heartbeat lease、Operation 恢复和锁内 Manifest 重读；调用前 Manifest 只用于定位，不能复活已删除或已变更的实例。Windows Installed v1 固定为用户级唯一程序根，Portable/Source 以 canonical Installation Root 摘要隔离 lease。
