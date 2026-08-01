@@ -10,7 +10,7 @@
 - Source adoption worktree进入`.deploy/staging/<operation-id>`。start、migration、admin、reset和uninstall统一从`VerifiedApplicationExecution`取得Source Dev、Native Product或Container Product身份；status仍保留轻量控制面。
 - Windows Portable/Installed从受管Bun执行卸载时，Manager写入带token和SHA-256的durable intent并启动Installation Root外的PowerShell Host。Host等待精确父PID退出后重新验证owner roots：默认删除程序、cache、desktop和logs并保留State Root；`--delete-data`才删除全部。intent篡改时零删除并写外置失败结果，pending intent阻断其他mutation。
 - Release Manifest硬切v5并增加统一build ID。Source/Product/Portable/Installation由最终Verifier重新连成同一代；CLI只创建Draft并显式dispatch release ID、tag、revision、prerelease。候选OCI只使用`candidate-<release-id>`，全部正确性gate后才公开Release，再由独立可重跑job激活版本tag和stable `latest`。
-- 当前验证：Authoring 9 files / 114 tests；Windows uninstall 3 files / 17 tests及真实PowerShell Host三种路径；Manager 36 passed files / 1 skipped、238 passed / 2 skipped，typecheck与pack通过；Release focused当前3 files / 22 tests。本节仍不等于新的完整本地门禁或公开Candidate结果。
+- 当前验证：Authoring 9 files / 114 tests；Windows uninstall 3 files / 17 tests及真实PowerShell Host三种路径；Manager 36 passed files / 1 skipped、239 passed / 2 skipped，typecheck与pack通过；Release focused当前3 files / 22 tests。本节仍不等于新的完整本地门禁或公开Candidate结果。
 
 ## 2026-08-01：发行前只读审计与下一阶段阻断
 
@@ -1052,6 +1052,13 @@ uninstall
 - `.33` workflow `30613898542` 已通过全部 clean-checkout 生成、类型与转换门禁；最终仅 `app-commands.test.ts` 的 6 个真实运行测试失败。共同原因是该文件新建的 `productManifest()` 把平台固定为 `windows-x64`，Linux runner 按生产合同正确拒绝跨平台启动；其余 205 项通过，另 4 项按平台跳过。
 - 只修改测试夹具：需要真实启动 Product 的 manifest 使用 `currentProductPlatform()`，专门验证平台映射/拒绝语义的固定平台夹具保持不变。生产 `assertInstallationHostCompatible()` 没有放宽。
 - `.31`、`.32` 与 `.33` tag 都不移动、不删除、不复用；下一公开候选固定为 `0.1.0-canary.34`，npm 精确版本和 provenance 验证通过前不启动应用 minor release。
+
+### 2026-08-02：Manager `.34` clean-checkout shared tsconfig 门禁失败
+
+- `manager-v0.1.0-canary.34` 已保留 release commit 与 tag；workflow `30719955828` 在 `Verify package` 阶段以 `TSCONFIG_ERROR` 失败，npm publish 未执行，因此 `.34` 不是公开可安装版本。
+- 根因是新抽出的 `shared/product-runtime-image-verifier.ts` 没有进入 `shared/tsconfig.json` 的显式 `include`。Windows本地现有Nuxt开发状态掩盖了缺口，Ubuntu clean checkout的Vite/OXC按独立shared边界正确拒绝转换。
+- 修复把Verifier加入shared tsconfig，并扩展Manager release clean-checkout合同测试，确保后续共享Product执行依赖必须登记在独立编译边界。Manager全量回归随之增加为239 passed / 2 skipped。
+- `.31`至`.34` tag都不移动、不删除、不复用；下一公开候选固定为`0.1.0-canary.35`。只有npm精确版本、provenance、tarball、真实全新缓存`bunx`与公开验证全部通过后，才继续应用minor release。
 
 ### 2026-08-02：Installation Mutation 与可恢复卸载收口
 

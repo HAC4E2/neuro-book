@@ -18,6 +18,7 @@
     },
     "include": [
         "product-runtime-contract.ts",
-        "product-runtime-environment.ts"
+        "product-runtime-environment.ts",
+        "product-runtime-image-verifier.ts"
     ]
 }

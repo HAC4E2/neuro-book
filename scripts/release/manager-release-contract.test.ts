@@ -54,6 +54,7 @@ describe("Manager release clean-checkout contract", () => {
         expect(managerSourceTsConfigs[1]?.include).toEqual(expect.arrayContaining([
             "product-runtime-contract.ts",
             "product-runtime-environment.ts",
+            "product-runtime-image-verifier.ts",
         ]));
     });
 });
