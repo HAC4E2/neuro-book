@@ -80,6 +80,18 @@ describe("character visual direct-write contract", () => {
         })).toThrow();
     });
 
+    it("allows an outfit to omit Chinese name but still requires English and character names", () => {
+        expect(CharacterVisualDirectorOutputSchema.parse({
+            ...output(), outfits: [{...outfit(), names: {cn: "", en: "dark navy sailor uniform"}}],
+        }).outfits[0]?.names).toEqual({cn: "", en: "dark navy sailor uniform"});
+        expect(() => CharacterVisualDirectorOutputSchema.parse({
+            ...output(), outfits: [{...outfit(), names: {cn: "", en: ""}}],
+        })).toThrow();
+        expect(() => CharacterVisualDirectorOutputSchema.parse({
+            ...output(), character: {...character(), names: {cn: "", en: "Lin Xue"}},
+        })).toThrow();
+    });
+
     it("requires every outfit field and limits each raw field to 20 trimmed non-empty tags", () => {
         const {lowerBack: _lowerBack, ...missingField} = outfit().fields;
         expect(() => CharacterVisualDirectorOutputSchema.parse({

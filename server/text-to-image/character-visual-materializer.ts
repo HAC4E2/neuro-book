@@ -103,7 +103,7 @@ export async function materializeCharacterVisualDirect(input: {
     for (const item of input.existingOutfits) {
         const outfit = canonicalizeOutfitTags(OutfitTagsSchema.parse(item.outfit));
         const expectedPath = `${characterDirectory}/outfits/${outfit.outfitId}.md`;
-        if (item.path !== expectedPath || existing.has(item.path)) {
+        if (outfit.ownerCharacterId !== characterId || item.path !== expectedPath || existing.has(item.path)) {
             throw new CharacterVisualMaterializationError("CHARACTER_VISUAL_OUTFIT_CONFLICT", `既有服装路径不唯一或不匹配：${item.path}`);
         }
         existing.set(item.path, {path: item.path, outfit});
@@ -209,7 +209,7 @@ async function materializeFields<TField extends CharacterImageTagField | OutfitT
                 throw new CharacterVisualMaterializationError("CHARACTER_VISUAL_POLICY_BLOCKED", `${input.owner}.${field}：${message}`);
             }
             const resolutionId = stableResolverId("tag", `${input.owner}:${field}:${index}:${sourceText}`);
-            const result = TagResolverExplicitResultSchema.parse(await input.resolveTag({
+            const request: DirectVisualTagInput = {
                 runId: input.runId,
                 contextId,
                 resolutionId,
@@ -219,7 +219,8 @@ async function materializeFields<TField extends CharacterImageTagField | OutfitT
                 owner: input.owner,
                 field,
                 index,
-            }));
+            };
+            const result = TagResolverExplicitResultSchema.parse(await input.resolveTag(request));
             if (result.state === "blocked") {
                 throw new CharacterVisualMaterializationError("CHARACTER_VISUAL_POLICY_BLOCKED", `${input.owner}.${field}：${result.code}`);
             }
@@ -239,6 +240,13 @@ async function materializeFields<TField extends CharacterImageTagField | OutfitT
             const run = result.run;
             if (run.state !== "terminal_canonical" && run.state !== "terminal_replacement" && run.state !== "terminal_passthrough") {
                 throw new CharacterVisualMaterializationError("CHARACTER_VISUAL_POLICY_BLOCKED", `${input.owner}.${field} 返回了非终态 resolution`);
+            }
+            if (run.runId !== request.runId
+                || run.contextId !== request.contextId
+                || run.resolutionId !== request.resolutionId
+                || run.sourceText !== request.sourceText
+                || hashTextToImageContract(run.modelScope) !== hashTextToImageContract(request.modelScope)) {
+                throw new CharacterVisualMaterializationError("CHARACTER_VISUAL_POLICY_BLOCKED", `${input.owner}.${field} 的 Resolver terminal envelope 已失效`);
             }
             const terminal = run.terminal;
             if (terminal.sourceText !== sourceText || terminal.modelScope.kind !== "generic-novelai") {

@@ -44,17 +44,18 @@ function output(overrides: Partial<CharacterVisualDirectorOutput> = {}): Charact
     };
 }
 
-function terminal(sourceText: string, tagId: number) {
+function terminal(input: DirectVisualTagInput, tagId: number) {
+    const {runId, contextId, resolutionId, sourceText, modelScope} = input;
     return {
         state: "terminal" as const,
         run: {
             schemaVersion: "nbook.tag-resolution-run/v1" as const,
             state: "terminal_canonical" as const,
-            runId: "run-1",
-            resolutionId: `resolution-${tagId}`,
-            contextId: "hero",
+            runId,
+            resolutionId,
+            contextId,
             sourceText,
-            modelScope: {kind: "generic-novelai" as const},
+            modelScope,
             createdAt: "2026-08-01T00:00:00.000Z",
             updatedAt: "2026-08-01T00:00:00.000Z",
             terminal: {
@@ -67,7 +68,7 @@ function terminal(sourceText: string, tagId: number) {
                 resolverPolicyVersion: "resolver-policy-demo",
                 capabilityVersion: "nai-cap-demo",
                 providerKind: "novelai" as const,
-                modelScope: {kind: "generic-novelai" as const},
+                modelScope,
                 candidateSetHash: null,
                 resolvedAt: "2026-08-01T00:00:00.000Z",
                 matchedBy: "exact" as const,
@@ -79,17 +80,18 @@ function terminal(sourceText: string, tagId: number) {
     };
 }
 
-function passthrough(sourceText: string) {
+function passthrough(input: DirectVisualTagInput) {
+    const {runId, contextId, resolutionId, sourceText, modelScope} = input;
     return {
         state: "terminal" as const,
         run: {
             schemaVersion: "nbook.tag-resolution-run/v1" as const,
             state: "terminal_passthrough" as const,
-            runId: "run-1",
-            resolutionId: "resolution-passthrough",
-            contextId: "hero",
+            runId,
+            resolutionId,
+            contextId,
             sourceText,
-            modelScope: {kind: "generic-novelai" as const},
+            modelScope,
             createdAt: "2026-08-01T00:00:00.000Z",
             updatedAt: "2026-08-01T00:00:00.000Z",
             terminal: {
@@ -102,7 +104,7 @@ function passthrough(sourceText: string) {
                 resolverPolicyVersion: "resolver-policy-demo",
                 capabilityVersion: "nai-cap-demo",
                 providerKind: "novelai" as const,
-                modelScope: {kind: "generic-novelai" as const},
+                modelScope,
                 candidateSetHash: HASH,
                 resolvedAt: "2026-08-01T00:00:00.000Z",
                 wireText: sourceText,
@@ -135,13 +137,22 @@ function review(sourceText: string) {
     };
 }
 
-function resolver(results: Record<string, ReturnType<typeof terminal> | ReturnType<typeof passthrough> | ReturnType<typeof review>>) {
+type ResolverResultFactory = (input: DirectVisualTagInput) => ReturnType<typeof terminal> | ReturnType<typeof passthrough> | ReturnType<typeof review> | {
+    state: "blocked";
+    code: "TAG_POLICY_BLOCKED";
+    resolutionId: string;
+    sourceText: string;
+    policy: {policyVersion: string; contentScope: "general"; matchedRuleIds: string[]; decision: "block"};
+    subject: {kind: "canonical"; tagId: number; canonicalName: string};
+};
+
+function resolver(results: Record<string, ResolverResultFactory>) {
     const calls: DirectVisualTagInput[] = [];
     return {
         calls,
         resolveTag: async (input: DirectVisualTagInput) => {
             calls.push(input);
-            return results[input.sourceText] ?? terminal(input.sourceText, calls.length + 5000);
+            return results[input.sourceText]?.(input) ?? terminal(input, calls.length + 5000);
         },
     };
 }
@@ -215,6 +226,10 @@ describe("character visual direct materializer", () => {
         await expect(materialize(output(), [existingOutfit("旅行装", "other")])).rejects.toThrow(/CHARACTER_VISUAL_OUTFIT_CONFLICT/u);
     });
 
+    it("新输出未提及 owner 不同的旧服装时也中止整体 materialization", async () => {
+        await expect(materialize(output({outfits: []}), [existingOutfit("旧装", "other")])).rejects.toThrow(/CHARACTER_VISUAL_OUTFIT_CONFLICT/u);
+    });
+
     it("保留新输出未提及的既有有效服装引用和文档", async () => {
         const result = await materialize(output(), [existingOutfit("旅行装"), existingOutfit("旧装")]);
         expect(result.character.outfitRefs).toEqual(["outfits/旅行装.md", "outfits/旧装.md"]);
@@ -226,7 +241,7 @@ describe("character visual direct materializer", () => {
     });
 
     it("只保留 allow 与已清洗的 provider passthrough 终态 resolution", async () => {
-        const tagResolver = resolver({calm: terminal("calm", 3001), brave: passthrough("brave")});
+        const tagResolver = resolver({calm: (input) => terminal(input, 3001), brave: (input) => passthrough(input)});
         const result = await materialize(output({outfits: []}), [], tagResolver);
         expect(Object.values(result.character.tagResolutions).map((item) => item.kind).sort()).toEqual(["canonical", "provider_passthrough"]);
         expect(result.character.policyApprovals).toEqual({});
@@ -236,21 +251,21 @@ describe("character visual direct materializer", () => {
     });
 
     it("无批准的 review_required 从文档排除并返回诊断", async () => {
-        const result = await materialize(output({outfits: []}), [], resolver({calm: review("calm")}));
+        const result = await materialize(output({outfits: []}), [], resolver({calm: (input) => review(input.sourceText)}));
         expect(result.character.fields.profileTraits).toHaveLength(1);
         expect(Object.values(result.character.tagResolutions).map((item) => item.sourceText)).not.toContain("calm");
         expect(result.diagnostics).toEqual([expect.objectContaining({code: "TAG_REVIEW_EXCLUDED", owner: "character:hero", field: "profileTraits", sourceText: "calm"})]);
     });
 
     it("block、宏、权重、XML/Markdown 或 Provider 参数中的任一项都会中止全部文档", async () => {
-        await expect(materialize(output({outfits: []}), [], resolver({calm: {
+        await expect(materialize(output({outfits: []}), [], resolver({calm: (input) => ({
             state: "blocked",
             code: "TAG_POLICY_BLOCKED",
-            resolutionId: "blocked-1",
-            sourceText: "calm",
+            resolutionId: input.resolutionId,
+            sourceText: input.sourceText,
             policy: {policyVersion: "safe-demo", contentScope: "general", matchedRuleIds: [], decision: "block"},
-            subject: {kind: "canonical", tagId: 3001, canonicalName: "calm"},
-        }}))).rejects.toThrow(/CHARACTER_VISUAL_POLICY_BLOCKED/u);
+            subject: {kind: "canonical", tagId: 3001, canonicalName: input.sourceText},
+        })}))).rejects.toThrow(/CHARACTER_VISUAL_POLICY_BLOCKED/u);
         for (const value of ["${macro}", "(calm:1.2)", "<tag>", "**calm**", "quality=high"]) {
             await expect(materialize(output({outfits: [], character: {...output().character!, fields: {...output().character!.fields, profileTraits: value}}}))).rejects.toThrow(/CHARACTER_VISUAL_POLICY_BLOCKED/u);
         }
@@ -259,5 +274,34 @@ describe("character visual direct materializer", () => {
     it("每个字段超过 20 个 terminal tag 时失败而不是截断", async () => {
         const tags = Array.from({length: 21}, (_, index) => `tag-${index}`).join(",");
         await expect(materialize(output({outfits: [], character: {...output().character!, fields: {...output().character!.fields, profileTraits: tags}}}))).rejects.toThrow();
+    });
+
+    it("服装中文名为空时，以英文空白规范 stem 并 materialize", async () => {
+        const result = await materialize(output({
+            outfits: [{names: {cn: "", en: "dark navy sailor uniform"}, fields: {upper: "coat", upperBack: "", lower: "pants", lowerBack: ""}}],
+        }));
+        expect(result.outfits.map((item) => item.path)).toEqual(["lorebook/character/hero/outfits/dark-navy-sailor-uniform.md"]);
+        expect(result.character.outfitRefs).toEqual(["outfits/dark-navy-sailor-uniform.md"]);
+    });
+
+    it.each(["runId", "contextId", "resolutionId", "sourceText", "modelScope"] as const)("rejects terminal resolver result with mismatched %s", async (identity) => {
+        const tagResolver = resolver({calm: (input) => {
+            const result = terminal(input, 3001);
+            if (identity === "runId") return {...result, run: {...result.run, runId: "other-run"}};
+            if (identity === "contextId") return {...result, run: {...result.run, contextId: "other-context"}};
+            if (identity === "resolutionId") return {...result, run: {...result.run, resolutionId: "other-resolution"}};
+            if (identity === "sourceText") {
+                return {
+                    ...result,
+                    run: {
+                        ...result.run,
+                        sourceText: "other-source",
+                        terminal: {...result.run.terminal, sourceText: "other-source"},
+                    },
+                };
+            }
+            return {...result, run: {...result.run, modelScope: {kind: "novelai-model", modelId: "nai-diffusion"}}};
+        }});
+        await expect(materialize(output({outfits: []}), [], tagResolver)).rejects.toThrow(/CHARACTER_VISUAL_POLICY_BLOCKED/u);
     });
 });

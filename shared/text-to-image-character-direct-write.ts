@@ -52,7 +52,7 @@ export type CharacterVisualRawDraft = z.infer<typeof CharacterVisualRawDraftSche
 /** Director 尚未 materialize 的一套服装视觉 tag 草稿。 */
 export const OutfitVisualRawDraftSchema = z.object({
     names: z.object({
-        cn: z.string().trim().min(1).max(160),
+        cn: z.string().trim().max(160),
         en: z.string().trim().min(1).max(160),
     }).strict(),
     fields: OutfitVisualRawFieldsSchema,
