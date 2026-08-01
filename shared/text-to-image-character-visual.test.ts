@@ -4,6 +4,7 @@ import {
     createCharacterImageTagHashes,
     createOutfitTagHashes,
     OutfitTagsSchema,
+    VisualStableIdSchema,
 } from "nbook/shared/text-to-image-character-visual";
 import {hashTextToImageContract} from "nbook/shared/text-to-image-contract-hash";
 
@@ -73,6 +74,14 @@ function outfit() {
 }
 
 describe("Character / Outfit V2 contracts", () => {
+    it("VisualStableId accepts Chinese and ASCII stable IDs but rejects path/control syntax", () => {
+        expect(VisualStableIdSchema.parse("林雪-01")).toBe("林雪-01");
+        expect(VisualStableIdSchema.parse("hero_01.v2")).toBe("hero_01.v2");
+        expect(() => VisualStableIdSchema.parse("../hero")).toThrow();
+        expect(() => VisualStableIdSchema.parse("hero/01")).toThrow();
+        expect(() => VisualStableIdSchema.parse("hero\n01")).toThrow();
+    });
+
     it("接受完整固定字段，并拒绝 missing/unknown 字段", () => {
         expect(CharacterImageTagsSchema.parse(character()).characterId).toBe("hero");
         expect(OutfitTagsSchema.parse(outfit()).outfitId).toBe("travel");

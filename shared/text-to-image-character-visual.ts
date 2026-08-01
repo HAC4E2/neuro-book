@@ -45,7 +45,7 @@ export const OutfitTagFieldSchema = z.enum(OUTFIT_TAG_FIELDS);
 export type CharacterImageTagField = z.infer<typeof CharacterImageTagFieldSchema>;
 export type OutfitTagField = z.infer<typeof OutfitTagFieldSchema>;
 
-const VisualStableIdSchema = z.string().trim().min(1).max(160)
+export const VisualStableIdSchema = z.string().trim().min(1).max(160)
     .regex(/^[\p{L}\p{N}][\p{L}\p{N}._-]*$/u, "稳定 ID 不能包含路径分隔符、冒号或控制语法");
 const OutfitRefSchema = z.string().trim().min(1).max(320)
     .regex(/^outfits\/[\p{L}\p{N}][\p{L}\p{N}._-]*\.md$/u, "outfitRefs 必须是同角色目录下的 outfits/<id>.md");

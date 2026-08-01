@@ -21,7 +21,7 @@ export const ILLUSTRATION_DIRECTOR_OPERATION_POLICIES = {
         maxDurationMs: 10 * 60_000,
         maxOutputTokens: 32000,
     },
-    "propose-character-visual": {
+    "generate-character-visual": {
         maxTurns: 6,
         maxToolCalls: 1,
         maxDurationMs: 3 * 60_000,

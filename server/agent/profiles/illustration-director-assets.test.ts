@@ -23,7 +23,7 @@ describe("illustration.director fixed Profile/Skill assets", () => {
             maxDurationMs: 10 * 60_000,
             maxOutputTokens: 32000,
         });
-        expect(ILLUSTRATION_DIRECTOR_OPERATION_POLICIES["propose-character-visual"]).toEqual({
+        expect(ILLUSTRATION_DIRECTOR_OPERATION_POLICIES["generate-character-visual"]).toEqual({
             maxTurns: 6,
             maxToolCalls: 1,
             maxDurationMs: 3 * 60_000,
@@ -37,10 +37,10 @@ describe("illustration.director fixed Profile/Skill assets", () => {
         const source = await fs.readFile(PROFILE_PATH, "utf8");
         expect(source).toContain('key: "illustration.director"');
         expect(source).toContain('operation: Type.Literal("convert-preset")');
-        expect(source).toContain('operation: Type.Literal("propose-character-visual")');
+        expect(source).toContain('operation: Type.Literal("generate-character-visual")');
         expect(source).toContain('operation: Type.Literal("plan-chapter")');
         expect(source).toContain('operation: Type.Literal("plan-selection")');
-        expect(source).toContain("CharacterVisualDirectorProposalSchema");
+        expect(source).toContain("CharacterVisualDirectorOutputSchema");
         expect(source).toContain("IllustrationPlanningInputBundleSchema");
         expect(source).toContain("IllustrationPlanningProposalSchema");
         expect(source).toContain('ctx.initial.operation === "convert-preset"');
@@ -92,7 +92,7 @@ describe("illustration.director fixed Profile/Skill assets", () => {
         const convert = await hook.run({initial: {operation: "convert-preset", sourceRelativePath: "upload/a.json"}} as never);
         const character = await hook.run({
             initial: {
-                operation: "propose-character-visual",
+                operation: "generate-character-visual",
                 characterPath: "lorebook/character/a/index.md",
                 characterMarkdown: "# A",
                 sourceCharacterFileHash: `sha256:${"a".repeat(64)}`,

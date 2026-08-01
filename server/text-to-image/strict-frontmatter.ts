@@ -1,5 +1,5 @@
-import {createHash} from "node:crypto";
 import YAML, {isScalar, visit} from "yaml";
+import {createTextToImageFileHash} from "nbook/shared/text-to-image-file-hash";
 
 const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/u;
 
@@ -70,5 +70,5 @@ export function renderStrictTextToImageFrontmatter(frontmatter: object, body: st
 
 /** 完整 Markdown UTF-8 字节 hash，只用于文件编辑冲突。 */
 export function createTextToImageMarkdownFileHash(markdown: string): string {
-    return `sha256:${createHash("sha256").update(markdown, "utf8").digest("hex")}`;
+    return createTextToImageFileHash(markdown);
 }
