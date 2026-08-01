@@ -4,6 +4,7 @@ import {
     CharacterVisualDirectorOutputSchema,
     CharacterVisualDirectWriteRequestSchema,
     CharacterVisualDirectWriteResultSchema,
+    CharacterVisualDirectWriteTerminalErrorCodeSchema,
     type CharacterVisualDirectorOutput,
     type CharacterVisualDirectWriteErrorCode,
     type CharacterVisualDirectWriteRequest,
@@ -14,16 +15,19 @@ import {
     CharacterVisualMaterializationError,
     normalizeOutfitFileStem,
 } from "nbook/server/text-to-image/character-visual-materializer";
+import {TrackedWorkspaceFileConflictError} from "nbook/server/workspace-history/tracked-workspace-files";
 
 const JOURNAL_ROOT = ".nbook/text-to-image/character-visual-direct-write";
 const JOURNAL_VERSION = "nbook.character-visual-direct-write/v1" as const;
+const characterMutationTails = new Map<string, Promise<void>>();
 
 const JournalTargetSchema = z.object({
     path: z.string().trim().min(1).max(500),
     priorContent: z.string().max(5 * 1024 * 1024).nullable(),
     priorHash: z.string().nullable(),
-    targetContent: z.string().max(5 * 1024 * 1024),
-    targetHash: z.string(),
+    /** null 表示被冻结但 Director 未请求写入，必须保留原字节。 */
+    targetContent: z.string().max(5 * 1024 * 1024).nullable(),
+    targetHash: z.string().nullable(),
     state: z.enum(["pending", "written"]),
 }).strict();
 
@@ -34,6 +38,7 @@ const JournalSchema = z.object({
     projectPath: z.string().trim().min(1).max(500),
     characterPath: z.string().trim().min(1).max(500),
     characterId: z.string().trim().min(1).max(160),
+    actor: z.literal("user-local"),
     sourceCharacterFileHash: z.string(),
     sourceCharacterMarkdown: z.string().max(5 * 1024 * 1024),
     idempotencyKey: z.string().uuid(),
@@ -43,6 +48,7 @@ const JournalSchema = z.object({
     sessionId: z.number().int().positive().nullable(),
     invocationId: z.string().trim().min(1).max(200).nullable(),
     directorOutput: CharacterVisualDirectorOutputSchema.nullable(),
+    directorOutputHash: z.string().nullable(),
     targets: z.array(JournalTargetSchema).max(65),
     diagnostics: z.array(z.object({
         code: z.literal("TAG_REVIEW_EXCLUDED"),
@@ -52,6 +58,11 @@ const JournalSchema = z.object({
         message: z.string(),
     }).strict()).max(256),
     result: JournalResultSchema.nullable(),
+    resultHash: z.string().nullable(),
+    terminalError: z.object({
+        code: CharacterVisualDirectWriteTerminalErrorCodeSchema,
+        message: z.string().trim().min(1).max(2_000),
+    }).strict().nullable(),
 }).strict();
 type Journal = z.infer<typeof JournalSchema>;
 
@@ -137,7 +148,6 @@ type ServiceOptions = {
 
 /** Project-owned journal 状态机：不在模型推理或轮询期间持有进程内 mutation lock。 */
 export class CharacterVisualDirectWriteService {
-    private readonly tails = new Map<string, Promise<void>>();
     private readonly waitBudgetMs: number;
     private readonly pollIntervalMs: number;
 
@@ -156,25 +166,23 @@ export class CharacterVisualDirectWriteService {
             throw new CharacterVisualDirectWriteError("ILLUSTRATION_DIRECTOR_MODEL_NOT_CONFIGURED", "illustration.director 尚未配置模型");
         }
         const journalPath = this.journalPath(input.idempotencyKey);
-        let journal = await this.withLock(journalPath, () => this.loadOrCreate(input, journalPath));
+        let journal = await withCharacterMutationLock(input.projectPath, input.characterPath, () => this.loadOrCreate(input, journalPath));
         if (journal.state === "completed") return requireResult(journal);
-        if (journal.state === "blocked") throw new CharacterVisualDirectWriteError("CHARACTER_VISUAL_POLICY_BLOCKED", "角色事实不足或 Tag Policy 已阻止写入");
-        if (journal.state === "stale") throw new CharacterVisualDirectWriteError("CHARACTER_VISUAL_TARGET_STALE", "角色视觉目标已变化");
-        if (journal.state === "failed") throw new CharacterVisualDirectWriteError("CHARACTER_VISUAL_DIRECTOR_FAILED", "角色视觉 Director 调用失败");
+        if (journal.state === "blocked" || journal.state === "stale" || journal.state === "failed") throwJournalTerminal(journal);
 
         if (journal.state === "prepared") {
-            return this.withLock(journalPath, () => this.writePrepared(journalPath, journal));
+            return withCharacterMutationLock(journal.projectPath, journal.characterPath, () => this.writePrepared(journalPath, journal));
         }
 
         journal = await this.ensureSession(journalPath, journal);
         const durable = await this.runtime.resolve({sessionId: requireSessionId(journal), clientMessageId: journal.clientMessageId});
         const output = await this.resolveDirector(journalPath, journal, durable);
         if (output === null) {
-            const completed = await this.withLock(journalPath, async () => requireJournal(await this.runtime.read(journalPath)));
+            const completed = await withCharacterMutationLock(journal.projectPath, journal.characterPath, async () => requireJournal(await this.runtime.read(journalPath)));
             if (completed.state === "completed") return requireResult(completed);
             throw new CharacterVisualDirectWriteError("CHARACTER_VISUAL_POLICY_BLOCKED", "角色视觉 Director 已阻止写入");
         }
-        return this.withLock(journalPath, () => this.prepareAndWrite(journalPath, output));
+        return withCharacterMutationLock(journal.projectPath, journal.characterPath, () => this.prepareAndWrite(journalPath, output));
     }
 
     /** journal 首次落盘前冻结 source 与所有现有 V2 outfit 原始内容。 */
@@ -202,6 +210,7 @@ export class CharacterVisualDirectWriteService {
             projectPath: input.projectPath,
             characterPath: input.characterPath,
             characterId: snapshot.characterId,
+            actor: "user-local",
             sourceCharacterFileHash: input.sourceCharacterFileHash,
             sourceCharacterMarkdown: snapshot.sourceMarkdown,
             idempotencyKey: input.idempotencyKey,
@@ -211,12 +220,15 @@ export class CharacterVisualDirectWriteService {
             sessionId: null,
             invocationId: null,
             directorOutput: null,
+            directorOutputHash: null,
             targets: [
                 freezeTarget("lorebook/character/" + snapshot.characterId + "/image-tags.md", snapshot.characterImageTags),
                 ...snapshot.referencedOutfits.map((item) => freezeTarget(item.path, item.content)),
             ],
             diagnostics: [],
             result: null,
+            resultHash: null,
+            terminalError: null,
         });
         await this.runtime.write({path: journalPath, content: renderJournal(journal), knownBefore: null});
         return journal;
@@ -232,7 +244,7 @@ export class CharacterVisualDirectWriteService {
             sourceCharacterFileHash: journal.sourceCharacterFileHash,
             acquisitionTag: journal.sessionAcquisitionTag,
         });
-        return this.withLock(journalPath, async () => {
+        return withCharacterMutationLock(journal.projectPath, journal.characterPath, async () => {
             const current = requireJournal(await this.runtime.read(journalPath));
             if (current.sessionId !== null) return current;
             const next = JournalSchema.parse({...current, sessionId: acquired.sessionId});
@@ -253,7 +265,7 @@ export class CharacterVisualDirectWriteService {
                     characterPath: journal.characterPath,
                     characterMarkdown: journal.sourceCharacterMarkdown,
                     sourceCharacterFileHash: journal.sourceCharacterFileHash,
-                    onAccepted: async (accepted) => this.withLock(journalPath, async () => {
+                    onAccepted: async (accepted) => withCharacterMutationLock(journal.projectPath, journal.characterPath, async () => {
                         const current = requireJournal(await this.runtime.read(journalPath));
                         if (current.invocationId !== null && current.invocationId !== accepted.invocationId) {
                             throw new CharacterVisualDirectWriteError("CHARACTER_VISUAL_OPERATION_CONFLICT", "journal 已记录其他 Director invocation");
@@ -284,73 +296,114 @@ export class CharacterVisualDirectWriteService {
             }
             if (durable.state === "completed") {
                 const parsed = CharacterVisualDirectorOutputSchema.safeParse(durable.reportResult);
-                if (!parsed.success || parsed.data.sourceCharacterFileHash !== current.sourceCharacterFileHash) {
-                    await this.mark(journalPath, current, "failed");
-                    throw new CharacterVisualDirectWriteError("CHARACTER_VISUAL_DIRECTOR_OUTPUT_INVALID", "illustration.director 输出不符合当前角色视觉 contract");
-                }
-                if (parsed.data.state === "blocked") {
-                    await this.mark(journalPath, current, "blocked");
-                    return null;
-                }
-                const next = JournalSchema.parse({...current, state: "result_ready", invocationId: durable.invocationId, directorOutput: parsed.data});
-                await this.replaceJournal(journalPath, current, next);
-                return parsed.data;
+                const invocationId = durable.invocationId;
+                return withCharacterMutationLock(journal.projectPath, journal.characterPath, async () => {
+                    const latest = requireJournal(await this.runtime.read(journalPath));
+                    if (latest.directorOutput !== null) {
+                        if (JSON.stringify(latest.directorOutput) !== JSON.stringify(parsed.success ? parsed.data : null)) {
+                            throw new CharacterVisualDirectWriteError("CHARACTER_VISUAL_OPERATION_CONFLICT", "同一角色视觉操作记录了不同 Director 输出");
+                        }
+                        return latest.directorOutput.state === "blocked" ? null : latest.directorOutput;
+                    }
+                    if (!parsed.success || parsed.data.sourceCharacterFileHash !== latest.sourceCharacterFileHash) {
+                        const error = new CharacterVisualDirectWriteError("CHARACTER_VISUAL_DIRECTOR_OUTPUT_INVALID", "illustration.director 输出不符合当前角色视觉 contract");
+                        await this.markLocked(journalPath, latest, "failed", error);
+                        throw error;
+                    }
+                    if (parsed.data.state === "blocked") {
+                        await this.markLocked(journalPath, latest, "blocked", new CharacterVisualDirectWriteError("CHARACTER_VISUAL_POLICY_BLOCKED", "角色视觉 Director 已阻止写入"));
+                        return null;
+                    }
+                    const next = JournalSchema.parse({
+                        ...latest,
+                        state: "result_ready",
+                        invocationId,
+                        directorOutput: parsed.data,
+                        directorOutputHash: hashStrict(parsed.data),
+                    });
+                    await this.replaceJournal(journalPath, latest, next);
+                    return parsed.data;
+                });
             }
             if (durable.state === "orphaned") {
-                await this.mark(journalPath, current, "failed");
-                throw new CharacterVisualDirectWriteError("CHARACTER_VISUAL_INVOCATION_ORPHANED", "角色视觉 Director invocation 已失去执行租约");
+                const error = new CharacterVisualDirectWriteError("CHARACTER_VISUAL_INVOCATION_ORPHANED", "角色视觉 Director invocation 已失去执行租约");
+                await this.mark(journalPath, current, "failed", error);
+                throw error;
             }
             if (durable.state === "missing") {
                 const code = current.invocationId === null ? "CHARACTER_VISUAL_DIRECTOR_FAILED" : "CHARACTER_VISUAL_DURABLE_INVOCATION_MISSING";
-                await this.mark(journalPath, current, "failed");
-                throw new CharacterVisualDirectWriteError(code, "角色视觉 Director durable invocation 缺失");
+                const error = new CharacterVisualDirectWriteError(code, "角色视觉 Director durable invocation 缺失");
+                await this.mark(journalPath, current, "failed", error);
+                throw error;
             }
-            await this.mark(journalPath, current, "failed");
-            throw new CharacterVisualDirectWriteError("CHARACTER_VISUAL_DIRECTOR_FAILED", `角色视觉 Director 未返回可写入结果：${durable.state}`);
+            const error = new CharacterVisualDirectWriteError("CHARACTER_VISUAL_DIRECTOR_FAILED", `角色视觉 Director 未返回可写入结果：${durable.state}`);
+            await this.mark(journalPath, current, "failed", error);
+            throw error;
         }
     }
 
     /** prepare 前重新冻结 source 与每个 target，materializer 不具有任何文件写入能力。 */
     private async prepareAndWrite(journalPath: string, output: CharacterVisualDirectorOutput): Promise<CharacterVisualDirectWriteResult> {
         const journal = requireJournal(await this.runtime.read(journalPath));
+        if (journal.state === "completed") return requireResult(journal);
+        if (journal.state === "prepared") return this.writePrepared(journalPath, journal);
         const snapshot = await this.runtime.snapshot({projectPath: journal.projectPath, characterPath: journal.characterPath});
         if (snapshot.sourceMarkdown === null || createTextToImageFileHash(snapshot.sourceMarkdown) !== journal.sourceCharacterFileHash) {
-            await this.mark(journalPath, journal, "stale");
-            throw new CharacterVisualDirectWriteError("CHARACTER_VISUAL_SOURCE_STALE", "角色 index.md 在 Director 执行期间变化");
+            const error = new CharacterVisualDirectWriteError("CHARACTER_VISUAL_SOURCE_STALE", "角色 index.md 在 Director 执行期间变化");
+            await this.markLocked(journalPath, journal, "stale", error);
+            throw error;
         }
         let materialized: CharacterVisualDirectWriteMaterialization;
         try {
             materialized = await this.runtime.materialize({runId: journal.operationId, snapshot, output});
         } catch (error) {
             if (error instanceof CharacterVisualMaterializationError) {
-                await this.mark(journalPath, journal, error.code === "CHARACTER_VISUAL_POLICY_BLOCKED" ? "blocked" : "failed");
-                throw new CharacterVisualDirectWriteError(error.code, error.message);
+                const terminalError = new CharacterVisualDirectWriteError(error.code, error.message);
+                await this.markLocked(journalPath, journal, error.code === "CHARACTER_VISUAL_POLICY_BLOCKED" ? "blocked" : "failed", terminalError);
+                throw terminalError;
             }
             throw error;
         }
+        for (const frozen of journal.targets) {
+            const current = await this.runtime.read(frozen.path);
+            if (current !== frozen.priorContent) {
+                const error = new CharacterVisualDirectWriteError("CHARACTER_VISUAL_TARGET_STALE", `角色视觉冻结目标已变化：${frozen.path}`);
+                await this.markLocked(journalPath, journal, "stale", error);
+                throw error;
+            }
+        }
         const generated = new Set(output.outfits.map((item) => `lorebook/character/${journal.characterId}/outfits/${normalizeOutfitFileStem(item.names)}.md`));
-        const outfits = materialized.outfits.filter((item) => generated.has(item.path)).sort((left, right) => left.path.localeCompare(right.path));
+        const outfits = materialized.outfits.filter((item) => generated.has(item.path)).sort((left, right) => compareCodePoints(left.path, right.path));
         const requestedTargets = [
             {path: `lorebook/character/${journal.characterId}/image-tags.md`, content: materialized.characterMarkdown},
             ...outfits,
         ];
         const prior = new Map(journal.targets.map((target) => [target.path, target]));
-        const targets: z.input<typeof JournalTargetSchema>[] = [];
+        const targets: z.input<typeof JournalTargetSchema>[] = journal.targets.map((target) => ({
+            ...target,
+            targetContent: null,
+            targetHash: null,
+            state: "pending",
+        }));
         for (const item of requestedTargets) {
             const existing = prior.get(item.path);
             const current = await this.runtime.read(item.path);
             if (existing && current !== existing.priorContent) {
-                await this.mark(journalPath, journal, "stale");
-                throw new CharacterVisualDirectWriteError("CHARACTER_VISUAL_TARGET_STALE", `角色视觉目标已变化：${item.path}`);
+                const error = new CharacterVisualDirectWriteError("CHARACTER_VISUAL_TARGET_STALE", `角色视觉目标已变化：${item.path}`);
+                await this.markLocked(journalPath, journal, "stale", error);
+                throw error;
             }
-            targets.push({
+            const nextTarget: z.input<typeof JournalTargetSchema> = {
                 path: item.path,
                 priorContent: existing?.priorContent ?? current,
                 priorHash: existing?.priorHash ?? optionalHash(current),
                 targetContent: item.content,
                 targetHash: createTextToImageFileHash(item.content),
                 state: "pending",
-            });
+            };
+            const targetIndex = targets.findIndex((target) => target.path === item.path);
+            if (targetIndex >= 0) targets[targetIndex] = nextTarget;
+            else targets.push(nextTarget);
         }
         const next = JournalSchema.parse({...journal, state: "prepared", directorOutput: output, targets, diagnostics: materialized.diagnostics});
         await this.replaceJournal(journalPath, journal, next);
@@ -364,19 +417,34 @@ export class CharacterVisualDirectWriteService {
             const leftCharacter = left.path.endsWith("/image-tags.md");
             const rightCharacter = right.path.endsWith("/image-tags.md");
             if (leftCharacter !== rightCharacter) return leftCharacter ? 1 : -1;
-            return left.path.localeCompare(right.path);
+            return compareCodePoints(left.path, right.path);
         });
         for (const target of writes) {
+            if (target.targetContent === null || target.targetHash === null) continue;
             const current = await this.runtime.read(target.path);
             if (current === target.targetContent) {
                 if (target.state !== "written") journal = await this.markWrite(journalPath, journal, target.path);
                 continue;
             }
             if (current !== target.priorContent) {
-                await this.mark(journalPath, journal, "stale");
-                throw new CharacterVisualDirectWriteError("CHARACTER_VISUAL_TARGET_STALE", `恢复目标不是 prior 或 target bytes：${target.path}`);
+                const error = new CharacterVisualDirectWriteError("CHARACTER_VISUAL_TARGET_STALE", `恢复目标不是 prior 或 target bytes：${target.path}`);
+                await this.markLocked(journalPath, journal, "stale", error);
+                throw error;
             }
-            await this.runtime.write({path: target.path, content: target.targetContent, knownBefore: current});
+            try {
+                await this.runtime.write({path: target.path, content: target.targetContent, knownBefore: current});
+            } catch (error) {
+                const terminalError = error instanceof CharacterVisualDirectWriteError
+                    ? error
+                    : error instanceof TrackedWorkspaceFileConflictError
+                        ? new CharacterVisualDirectWriteError("CHARACTER_VISUAL_TARGET_STALE", `角色视觉目标在最终写入前变化：${target.path}`)
+                        : null;
+                if (terminalError !== null) {
+                    await this.markLocked(journalPath, journal, "stale", terminalError);
+                    throw terminalError;
+                }
+                throw error;
+            }
             journal = await this.markWrite(journalPath, journal, target.path);
         }
         const result = CharacterVisualDirectWriteResultSchema.parse({
@@ -385,11 +453,11 @@ export class CharacterVisualDirectWriteService {
             sessionId: requireSessionId(journal),
             invocationId: requireInvocationId(journal),
             characterImageTagsPath: `lorebook/character/${journal.characterId}/image-tags.md`,
-            outfitPaths: writes.filter((item) => !item.path.endsWith("/image-tags.md")).map((item) => item.path),
+            outfitPaths: writes.filter((item) => item.targetContent !== null && !item.path.endsWith("/image-tags.md")).map((item) => item.path),
             diagnostics: journal.diagnostics,
-            fileHashes: Object.fromEntries(writes.map((item) => [item.path, item.targetHash])),
+            fileHashes: Object.fromEntries(writes.filter((item) => item.targetHash !== null).map((item) => [item.path, item.targetHash!])),
         });
-        const completed = JournalSchema.parse({...journal, state: "completed", result});
+        const completed = JournalSchema.parse({...journal, state: "completed", result, resultHash: hashStrict(result)});
         await this.replaceJournal(journalPath, journal, completed);
         this.runtime.invalidate();
         return result;
@@ -402,10 +470,19 @@ export class CharacterVisualDirectWriteService {
         return next;
     }
 
-    private async mark(journalPath: string, journal: Journal, state: Journal["state"]): Promise<void> {
+    private async mark(journalPath: string, journal: Journal, state: Journal["state"], terminalError: CharacterVisualDirectWriteError | null = null): Promise<void> {
+        await withCharacterMutationLock(journal.projectPath, journal.characterPath, () => this.markLocked(journalPath, journal, state, terminalError));
+    }
+
+    /** 调用方已经持有角色 mutation lock 时，安全推进终态。 */
+    private async markLocked(journalPath: string, journal: Journal, state: Journal["state"], terminalError: CharacterVisualDirectWriteError | null = null): Promise<void> {
         const current = requireJournal(await this.runtime.read(journalPath));
         if (current.state === state) return;
-        await this.replaceJournal(journalPath, current, JournalSchema.parse({...current, state}));
+        await this.replaceJournal(journalPath, current, JournalSchema.parse({
+            ...current,
+            state,
+            terminalError: terminalError === null ? current.terminalError : {code: terminalError.code, message: terminalError.message},
+        }));
     }
 
     private async replaceJournal(journalPath: string, before: Journal, after: Journal): Promise<void> {
@@ -419,26 +496,41 @@ export class CharacterVisualDirectWriteService {
         return `${JOURNAL_ROOT}/${idempotencyKey}/journal.json`;
     }
 
-    private async withLock<T>(key: string, operation: () => Promise<T>): Promise<T> {
-        const previous = this.tails.get(key) ?? Promise.resolve();
-        let release: () => void = () => undefined;
-        const tail = new Promise<void>((resolve) => {
-            release = resolve;
-        });
-        const queued = previous.then(() => tail);
-        this.tails.set(key, queued);
-        await previous;
-        try {
-            return await operation();
-        } finally {
-            release();
-            if (this.tails.get(key) === queued) this.tails.delete(key);
-        }
-    }
 }
 
 function freezeTarget(path: string, content: string | null): z.input<typeof JournalTargetSchema> {
-    return {path, priorContent: content, priorHash: optionalHash(content), targetContent: "", targetHash: "", state: "pending"};
+    return {path, priorContent: content, priorHash: optionalHash(content), targetContent: null, targetHash: null, state: "pending"};
+}
+
+function compareCodePoints(left: string, right: string): number {
+    const leftPoints = Array.from(left);
+    const rightPoints = Array.from(right);
+    const length = Math.min(leftPoints.length, rightPoints.length);
+    for (let index = 0; index < length; index++) {
+        const leftPoint = leftPoints[index]!.codePointAt(0)!;
+        const rightPoint = rightPoints[index]!.codePointAt(0)!;
+        if (leftPoint !== rightPoint) return leftPoint - rightPoint;
+    }
+    return leftPoints.length - rightPoints.length;
+}
+
+/** 进程级角色写入锁；模型推理与 durable polling 从不经过此锁。 */
+async function withCharacterMutationLock<T>(projectPath: string, characterPath: string, operation: () => Promise<T>): Promise<T> {
+    const key = `${projectPath}\u0000${characterPath}`;
+    const previous = characterMutationTails.get(key) ?? Promise.resolve();
+    let release: () => void = () => undefined;
+    const tail = new Promise<void>((resolve) => {
+        release = resolve;
+    });
+    const queued = previous.then(() => tail);
+    characterMutationTails.set(key, queued);
+    await previous;
+    try {
+        return await operation();
+    } finally {
+        release();
+        if (characterMutationTails.get(key) === queued) characterMutationTails.delete(key);
+    }
 }
 
 function optionalHash(content: string | null): string | null {
@@ -451,10 +543,25 @@ function renderJournal(journal: Journal): string {
 
 function parseJournal(raw: string): Journal {
     try {
-        return JournalSchema.parse(JSON.parse(raw));
+        const journal = JournalSchema.parse(JSON.parse(raw));
+        if ((journal.directorOutput === null) !== (journal.directorOutputHash === null)
+            || (journal.directorOutput !== null && journal.directorOutputHash !== hashStrict(journal.directorOutput))
+            || (journal.result === null) !== (journal.resultHash === null)
+            || (journal.result !== null && journal.resultHash !== hashStrict(journal.result))
+            || journal.targets.some((target) => target.priorHash !== optionalHash(target.priorContent)
+                || (target.targetContent === null) !== (target.targetHash === null)
+                || (target.targetContent !== null && target.targetHash !== optionalHash(target.targetContent)))) {
+            throw new Error("journal hash mismatch");
+        }
+        return journal;
     } catch {
         throw new CharacterVisualDirectWriteError("CHARACTER_VISUAL_DIRECTOR_FAILED", "direct-write journal 已损坏");
     }
+}
+
+/** strict schema 已收窄值域后，JSON 字节串是 journal 内部不可变合约的唯一哈希输入。 */
+function hashStrict(value: CharacterVisualDirectorOutput | CharacterVisualDirectWriteResult): string {
+    return createTextToImageFileHash(JSON.stringify(value));
 }
 
 function requireJournal(raw: string | null): Journal {
@@ -475,4 +582,11 @@ function requireInvocationId(journal: Journal): string {
 function requireResult(journal: Journal): CharacterVisualDirectWriteResult {
     if (journal.result === null) throw new CharacterVisualDirectWriteError("CHARACTER_VISUAL_DIRECTOR_FAILED", "completed journal 缺少结果");
     return journal.result;
+}
+
+function throwJournalTerminal(journal: Journal): never {
+    if (journal.terminalError === null) {
+        throw new CharacterVisualDirectWriteError("CHARACTER_VISUAL_DIRECTOR_FAILED", "direct-write journal 缺少终态错误");
+    }
+    throw new CharacterVisualDirectWriteError(journal.terminalError.code, journal.terminalError.message);
 }

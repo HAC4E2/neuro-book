@@ -44,6 +44,15 @@ export {USER_LOCAL_ACTOR};
 
 /** 记账读盘上限：删除/上传记账单文件读取的最大字节，超限跳过记账（对账自愈补 external）。 */
 const RECORD_READ_MAX_BYTES = 64 * 1024 * 1024;
+const trackedFileMutationTails = new Map<string, Promise<void>>();
+
+/** 同一进程内按绝对文件路径串行 Project 的所有 tracked 文本写入。 */
+export class TrackedWorkspaceFileConflictError extends Error {
+    constructor(readonly filePath: string) {
+        super(`tracked 文件已变化，拒绝覆盖：${filePath}`);
+        this.name = "TrackedWorkspaceFileConflictError";
+    }
+}
 
 /**
  * 覆盖写文本文件 + 记账。
@@ -60,20 +69,24 @@ export async function writeWorkspaceTextFileTracked(input: {
     knownBefore?: string | null;
 }): Promise<void> {
     const target = historyTarget(input.target);
-    const before = target === null
-        ? null
-        : input.knownBefore !== undefined
-            ? (input.knownBefore === null ? null : new TextEncoder().encode(input.knownBefore))
-            : await readBytesForRecord(target.projectRoot, input.filePath);
-    await writeWorkspaceTextFile(input.target.root, input.filePath, input.content);
-    if (target !== null) {
-        await recordProjectWrite(requireHistory(input.history), {
-            relativePath: input.filePath,
-            actor: input.actor,
-            before,
-            after: new TextEncoder().encode(input.content),
-        });
-    }
+    const absolutePath = resolveWorkspacePath(input.target.root, input.filePath);
+    await withTrackedFileMutationLock(absolutePath, async () => {
+        await assertKnownBefore(absolutePath, input.knownBefore);
+        const before = target === null
+            ? null
+            : input.knownBefore !== undefined
+                ? encodeKnownBefore(input.knownBefore)
+                : await readBytesForRecord(target.projectRoot, input.filePath);
+        await writeWorkspaceTextFile(input.target.root, input.filePath, input.content);
+        if (target !== null) {
+            await recordProjectWrite(requireHistory(input.history), {
+                relativePath: input.filePath,
+                actor: input.actor,
+                before,
+                after: new TextEncoder().encode(input.content),
+            });
+        }
+    });
 }
 
 /**
@@ -96,21 +109,24 @@ export async function writeResolvedProjectTextFileTracked(input: {
         throw new Error("Project 追踪写入只接受相对路径。");
     }
     const absolutePath = resolveWorkspacePath(expectedRoot, input.filePath);
-    const before = input.knownBefore !== undefined
-        ? (input.knownBefore === null ? null : new TextEncoder().encode(input.knownBefore))
-        : await readBytesForRecord(expectedRoot, input.filePath);
-    await fs.mkdir(path.dirname(absolutePath), {recursive: true});
-    await fs.writeFile(absolutePath, input.content, "utf8");
+    await withTrackedFileMutationLock(absolutePath, async () => {
+        await assertKnownBefore(absolutePath, input.knownBefore);
+        const before = input.knownBefore !== undefined
+            ? encodeKnownBefore(input.knownBefore)
+            : await readBytesForRecord(expectedRoot, input.filePath);
+        await fs.mkdir(path.dirname(absolutePath), {recursive: true});
+        await fs.writeFile(absolutePath, input.content, "utf8");
     // 后台事务不持有路由层 handle：Project 仍打开时按当前 generation 记账，已关闭时 fail-open 交给对账。
-    const history = tryReadyProjectHistoryHandle(input.projectPath);
-    if (history) {
-        await recordProjectWrite(history, {
-            relativePath: input.filePath,
-            actor: input.actor,
-            before,
-            after: new TextEncoder().encode(input.content),
-        });
-    }
+        const history = tryReadyProjectHistoryHandle(input.projectPath);
+        if (history) {
+            await recordProjectWrite(history, {
+                relativePath: input.filePath,
+                actor: input.actor,
+                before,
+                after: new TextEncoder().encode(input.content),
+            });
+        }
+    });
 }
 
 /**
@@ -118,6 +134,58 @@ export async function writeResolvedProjectTextFileTracked(input: {
  *
  * 后台事务使用该入口，避免把已解析绝对根再次交给依赖 State Root 的通用 workspace resolver。
  */
+/** 在锁内重新读取实际 bytes；null 只代表文件不存在，绝不把读取失败误判为不存在。 */
+async function assertKnownBefore(absolutePath: string, knownBefore: string | null | undefined): Promise<void> {
+    if (knownBefore === undefined) return;
+    const current = await readCurrentBytes(absolutePath);
+    if (!sameBytes(current, encodeKnownBefore(knownBefore))) {
+        throw new TrackedWorkspaceFileConflictError(absolutePath);
+    }
+}
+
+function encodeKnownBefore(knownBefore: string | null): Uint8Array | null {
+    return knownBefore === null ? null : new TextEncoder().encode(knownBefore);
+}
+
+/** fs 的 not-found 是外部 Node I/O 边界，其他错误必须传播以避免误覆盖。 */
+async function readCurrentBytes(absolutePath: string): Promise<Uint8Array | null> {
+    try {
+        return await fs.readFile(absolutePath);
+    } catch (error) {
+        if (isNotFoundError(error)) return null;
+        throw error;
+    }
+}
+
+function isNotFoundError(error: unknown): boolean {
+    return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
+function sameBytes(left: Uint8Array | null, right: Uint8Array | null): boolean {
+    if (left === null || right === null) return left === right;
+    if (left.byteLength !== right.byteLength) return false;
+    return left.every((value, index) => value === right[index]);
+}
+
+/** 进程内共享队列：覆盖最终复验、写盘与 history，不能假设可约束外部进程。 */
+async function withTrackedFileMutationLock<T>(absolutePath: string, operation: () => Promise<T>): Promise<T> {
+    const key = path.resolve(absolutePath);
+    const previous = trackedFileMutationTails.get(key) ?? Promise.resolve();
+    let release: () => void = () => undefined;
+    const tail = new Promise<void>((resolve) => {
+        release = resolve;
+    });
+    const queued = previous.then(() => tail);
+    trackedFileMutationTails.set(key, queued);
+    await previous;
+    try {
+        return await operation();
+    } finally {
+        release();
+        if (trackedFileMutationTails.get(key) === queued) trackedFileMutationTails.delete(key);
+    }
+}
+
 export async function deleteResolvedProjectFileTracked(input: {
     projectPath: string;
     projectRoot: string;

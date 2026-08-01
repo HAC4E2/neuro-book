@@ -1,6 +1,7 @@
 import {describe, expect, it, vi} from "vitest";
 import {createTextToImageFileHash} from "nbook/shared/text-to-image-file-hash";
 import {CharacterVisualMaterializationError} from "nbook/server/text-to-image/character-visual-materializer";
+import {TrackedWorkspaceFileConflictError} from "nbook/server/workspace-history/tracked-workspace-files";
 import {
     CharacterVisualDirectWriteError,
     CharacterVisualDirectWriteService,
@@ -174,6 +175,44 @@ describe("character visual direct-write service", () => {
         expect(runtime.start).toHaveBeenCalledTimes(1);
     });
 
+    it("shares the same character mutation lock across service instances and admits once", async () => {
+        const runtime = new MemoryRuntime();
+        const [first, second] = await Promise.all([
+            service(runtime).generate(request()),
+            service(runtime).generate(request()),
+        ]);
+
+        expect(first).toEqual(second);
+        expect(runtime.start).toHaveBeenCalledTimes(1);
+    });
+
+    it("serializes different keys for one character and makes the later frozen target stale", async () => {
+        const runtime = new MemoryRuntime();
+        const secondKey = "7136d1d2-12c3-496e-a1af-352812fc932d";
+        const admitted = new Set<string>();
+        let completed = false;
+        runtime.start.mockImplementation(async (input) => {
+            admitted.add(input.clientMessageId);
+            await input.onAccepted({sessionId: 41, invocationId: `invoke-${input.clientMessageId}`, clientMessageId: input.clientMessageId});
+        });
+        runtime.resolve.mockImplementation(async (input) => {
+            if (!admitted.has(input.clientMessageId)) return {state: "missing" as const};
+            if (!completed) return {state: "active" as const, invocationId: `invoke-${input.clientMessageId}`, lifecycle: "running", executionLeaseUntil: new Date(1_000).toISOString()};
+            return {state: "completed" as const, invocationId: `invoke-${input.clientMessageId}`, reportResult: output()};
+        });
+
+        await expect(service(runtime, {waitBudgetMs: 0}).generate(request())).rejects.toMatchObject({code: "CHARACTER_VISUAL_OPERATION_RUNNING"});
+        await expect(service(runtime, {waitBudgetMs: 0}).generate(request({idempotencyKey: secondKey}))).rejects.toMatchObject({code: "CHARACTER_VISUAL_OPERATION_RUNNING"});
+        completed = true;
+
+        const [first, second] = await Promise.allSettled([
+            service(runtime).generate(request()),
+            service(runtime).generate(request({idempotencyKey: secondKey})),
+        ]);
+        expect(first.status).toBe("fulfilled");
+        expect(second).toMatchObject({status: "rejected", reason: {code: "CHARACTER_VISUAL_TARGET_STALE"}});
+    });
+
     it("seals an onAccepted persistence failure and never re-invokes the client message", async () => {
         const runtime = new MemoryRuntime();
         const write = runtime.write.bind(runtime);
@@ -215,19 +254,26 @@ describe("character visual direct-write service", () => {
         await expect(service(runtime).generate(request())).rejects.toMatchObject({code: "CHARACTER_VISUAL_INVOCATION_ORPHANED"});
     });
 
-    it("maps durable missing-after-admission and every non-result terminal state without polling or a follow-up invoke", async () => {
-        for (const durable of [
-            {state: "missing"},
-            {state: "waiting", invocationId: "invoke-41"},
-            {state: "failed", invocationId: "invoke-41", errorInfo: null},
-            {state: "completed_without_result", invocationId: "invoke-41"},
+    it("persists exact durable terminal errors after a legal admission and replays them without invoking again", async () => {
+        for (const [durable, code] of [
+            [{state: "missing"} as const, "CHARACTER_VISUAL_DURABLE_INVOCATION_MISSING"],
+            [{state: "orphaned", invocationId: "invoke-41", lifecycle: "running", providerStartRecorded: true} as const, "CHARACTER_VISUAL_INVOCATION_ORPHANED"],
+            [{state: "waiting", invocationId: "invoke-41"} as const, "CHARACTER_VISUAL_DIRECTOR_FAILED"],
+            [{state: "failed", invocationId: "invoke-41", errorInfo: {message: "provider failed"}} as const, "CHARACTER_VISUAL_DIRECTOR_FAILED"],
+            [{state: "completed_without_result", invocationId: "invoke-41"} as const, "CHARACTER_VISUAL_DIRECTOR_FAILED"],
         ] as const) {
             const runtime = new MemoryRuntime();
+            runtime.resolve
+                .mockResolvedValueOnce({state: "missing"})
+                .mockResolvedValue({state: "active", invocationId: "invoke-41", lifecycle: "running", executionLeaseUntil: new Date(1_000).toISOString()});
+            await expect(service(runtime, {waitBudgetMs: 0}).generate(request())).rejects.toMatchObject({code: "CHARACTER_VISUAL_OPERATION_RUNNING"});
+            expect(runtime.start).toHaveBeenCalledTimes(1);
+
+            runtime.resolve.mockReset();
             runtime.resolve.mockResolvedValue(durable);
-            const journalPath = `.nbook/text-to-image/character-visual-direct-write/${KEY}/journal.json`;
-            runtime.files.set(journalPath, JSON.stringify({sessionId: 41, invocationId: "invoke-41"}));
-            await expect(service(runtime).generate(request())).rejects.toBeInstanceOf(CharacterVisualDirectWriteError);
-            expect(runtime.start).not.toHaveBeenCalled();
+            await expect(service(runtime).generate(request())).rejects.toMatchObject({code});
+            await expect(service(runtime).generate(request())).rejects.toMatchObject({code});
+            expect(runtime.start).toHaveBeenCalledTimes(1);
         }
     });
 
@@ -239,6 +285,19 @@ describe("character visual direct-write service", () => {
         await expect(service(runtime).generate(request({sourceCharacterFileHash: `sha256:${"0".repeat(64)}`}))).rejects.toMatchObject({code: "CHARACTER_VISUAL_OPERATION_CONFLICT"});
         await expect(service(runtime).generate(request({projectPath: "workspace/other"}))).rejects.toMatchObject({code: "CHARACTER_VISUAL_OPERATION_CONFLICT"});
         await expect(service(runtime).generate(request({characterPath: "lorebook/character/other/index.md"}))).rejects.toMatchObject({code: "CHARACTER_VISUAL_OPERATION_CONFLICT"});
+    });
+
+    it("freezes actor and strict output/result hashes, then fails closed on journal tampering", async () => {
+        const runtime = new MemoryRuntime();
+        await service(runtime).generate(request());
+        const journalPath = `.nbook/text-to-image/character-visual-direct-write/${KEY}/journal.json`;
+        const journal = JSON.parse((await runtime.read(journalPath))!);
+        expect(journal.actor).toBe("user-local");
+        expect(journal.directorOutputHash).toMatch(/^sha256:/u);
+        expect(journal.resultHash).toMatch(/^sha256:/u);
+
+        runtime.files.set(journalPath, JSON.stringify({...journal, resultHash: `sha256:${"0".repeat(64)}`}));
+        await expect(service(runtime).generate(request())).rejects.toMatchObject({code: "CHARACTER_VISUAL_DIRECTOR_FAILED"});
     });
 
     it("marks source or target drift stale before prepare", async () => {
@@ -338,11 +397,77 @@ describe("character visual direct-write service", () => {
         expect(await runtime.read("lorebook/character/hero/outfits/old.md")).toBe("old outfit\n");
     });
 
+    it("rejects deleted or replaced referenced outfits even when Director did not return them", async () => {
+        for (const replacement of [null, "third-party replacement\n"]) {
+            const runtime = new MemoryRuntime();
+            runtime.files.set("lorebook/character/hero/outfits/old.md", "old outfit\n");
+            runtime.snapshot = vi.fn(async () => ({
+                root: "/projects/demo",
+                characterId: "hero",
+                characterPath: CHARACTER_PATH,
+                sourceMarkdown: SOURCE,
+                characterImageTags: null,
+                referencedOutfits: [{
+                    path: "lorebook/character/hero/outfits/old.md",
+                    content: "old outfit\n",
+                }],
+            }));
+            runtime.materialize.mockImplementationOnce(async () => {
+                runtime.files.set("lorebook/character/hero/outfits/old.md", replacement ?? "");
+                if (replacement === null) runtime.files.delete("lorebook/character/hero/outfits/old.md");
+                return {characterMarkdown: "character-target\n", outfits: [], diagnostics: []};
+            });
+
+            await expect(service(runtime).generate(request())).rejects.toMatchObject({code: "CHARACTER_VISUAL_TARGET_STALE"});
+            expect(runtime.writes).not.toContain("lorebook/character/hero/image-tags.md");
+        }
+    });
+
+    it("orders non-ASCII outfit paths by code point before image-tags", async () => {
+        const runtime = new MemoryRuntime();
+        runtime.resolve.mockResolvedValue({
+            state: "completed",
+            invocationId: "invoke-41",
+            reportResult: {...output(), outfits: [
+                {names: {cn: "ä", en: "a-diaeresis"}, fields: {upper: "coat", upperBack: "coat", lower: "boots", lowerBack: "boots"}},
+                {names: {cn: "z", en: "z"}, fields: {upper: "coat", upperBack: "coat", lower: "boots", lowerBack: "boots"}},
+            ]},
+        });
+        runtime.materialize.mockResolvedValueOnce({
+            characterMarkdown: "character-target\n",
+            outfits: [
+                {path: "lorebook/character/hero/outfits/ä.md", content: "ä\n"},
+                {path: "lorebook/character/hero/outfits/z.md", content: "z\n"},
+            ],
+            diagnostics: [],
+        });
+
+        await service(runtime).generate(request());
+        expect(runtime.writes.filter((path) => path.includes("outfits/"))).toEqual([
+            "lorebook/character/hero/outfits/z.md",
+            "lorebook/character/hero/outfits/ä.md",
+        ]);
+    });
+
     it("maps a materializer policy rejection to the shared terminal error before any target write", async () => {
         const runtime = new MemoryRuntime();
         runtime.materialize.mockRejectedValueOnce(new CharacterVisualMaterializationError("CHARACTER_VISUAL_POLICY_BLOCKED", "review required"));
         await expect(service(runtime).generate(request())).rejects.toBeInstanceOf(CharacterVisualDirectWriteError);
         expect(await runtime.read("lorebook/character/hero/image-tags.md")).toBeNull();
+    });
+
+    it("persists a tracked CAS conflict as target stale for replay", async () => {
+        const runtime = new MemoryRuntime();
+        const write = runtime.write.bind(runtime);
+        runtime.write = vi.fn(async (input) => {
+            if (input.path.endsWith("/image-tags.md")) {
+                throw new TrackedWorkspaceFileConflictError(input.path);
+            }
+            await write(input);
+        });
+
+        await expect(service(runtime).generate(request())).rejects.toMatchObject({code: "CHARACTER_VISUAL_TARGET_STALE"});
+        await expect(service(runtime).generate(request())).rejects.toMatchObject({code: "CHARACTER_VISUAL_TARGET_STALE"});
     });
 
     it("keeps blocked output all-or-nothing and preserves valid unreturned outfits", async () => {

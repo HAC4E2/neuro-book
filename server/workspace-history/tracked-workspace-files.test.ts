@@ -1,5 +1,5 @@
 import {randomUUID} from "node:crypto";
-import {mkdir, rm, writeFile} from "node:fs/promises";
+import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import os from "node:os";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
@@ -29,6 +29,8 @@ import {
     deleteWorkspacePathTracked,
     recordUploadedFiles,
     renameWorkspacePathTracked,
+    TrackedWorkspaceFileConflictError,
+    writeResolvedProjectTextFileTracked,
     writeWorkspaceTextFileTracked,
 } from "nbook/server/workspace-history/tracked-workspace-files";
 
@@ -106,6 +108,43 @@ describe("tracked-workspace-files 写面记账", () => {
         expect(timeline.map((item) => item.entry.operation.type)).toEqual(["file.create", "file.edit"]);
         expect(timeline[1]!.entry.actor).toEqual(USER_LOCAL_ACTOR);
         expect(timeline[1]!.bodyAvailable).toEqual({before: true, after: true});
+    });
+
+    it("knownBefore 在最终写入前比较，第三方修改不会被覆盖", async () => {
+        const project = await openTempProject("write-cas");
+        await writeWorkspaceTextFileTracked({
+            target: project.target, history: project.history, filePath: "manuscript/ch1.md",
+            content: "v1", actor: USER_LOCAL_ACTOR,
+        });
+        await writeFile(join(project.target.root, "manuscript/ch1.md"), "third-party", "utf8");
+
+        await expect(writeWorkspaceTextFileTracked({
+            target: project.target, history: project.history, filePath: "manuscript/ch1.md",
+            content: "v2", actor: USER_LOCAL_ACTOR, knownBefore: "v1",
+        })).rejects.toBeInstanceOf(TrackedWorkspaceFileConflictError);
+        await expect(readFile(join(project.target.root, "manuscript/ch1.md"), "utf8")).resolves.toBe("third-party");
+    });
+
+    it("两个 tracked 写入口在同一路径共享 CAS 锁", async () => {
+        const project = await openTempProject("shared-write-cas");
+        await writeWorkspaceTextFileTracked({
+            target: project.target, history: project.history, filePath: "manuscript/ch1.md",
+            content: "v1", actor: USER_LOCAL_ACTOR,
+        });
+        const writes = await Promise.allSettled([
+            writeWorkspaceTextFileTracked({
+                target: project.target, history: project.history, filePath: "manuscript/ch1.md",
+                content: "workspace-entry", actor: USER_LOCAL_ACTOR, knownBefore: "v1",
+            }),
+            writeResolvedProjectTextFileTracked({
+                projectPath: project.projectPath, projectRoot: project.target.root, filePath: "manuscript/ch1.md",
+                content: "resolved-entry", actor: USER_LOCAL_ACTOR, knownBefore: "v1",
+            }),
+        ]);
+
+        expect(writes.filter((item) => item.status === "fulfilled")).toHaveLength(1);
+        expect(writes.filter((item) => item.status === "rejected")[0]?.reason).toBeInstanceOf(TrackedWorkspaceFileConflictError);
+        await expect(readFile(join(project.target.root, "manuscript/ch1.md"), "utf8")).resolves.toMatch(/^(workspace|resolved)-entry$/);
     });
 
     it("convert 文件转目录 = 一条 rename：时间线跨转换连续", async () => {

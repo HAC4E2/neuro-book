@@ -19,8 +19,15 @@ import {TAG_INDEX_CAPABILITY_VERSION} from "nbook/shared/text-to-image-tag-index
 import {absoluteFsPath, invalidateProjectTreeIndex, resolveWorkspaceRootInput} from "nbook/server/text-to-image/compat";
 import {assertProjectOpen} from "nbook/server/workspace-files/project-session";
 import {readWorkspaceTextFile} from "nbook/server/workspace-files/workspace-files";
-import {USER_LOCAL_ACTOR, writeResolvedProjectTextFileTracked} from "nbook/server/workspace-history/tracked-workspace-files";
+import {
+    TrackedWorkspaceFileConflictError,
+    USER_LOCAL_ACTOR,
+    writeResolvedProjectTextFileTracked,
+} from "nbook/server/workspace-history/tracked-workspace-files";
 import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {
+    CharacterVisualDirectWriteError,
+} from "nbook/server/text-to-image/character-visual-direct-write.service";
 import type {
     CharacterVisualDirectWriteMaterialization,
     CharacterVisualDirectWriteRuntime,
@@ -62,14 +69,21 @@ class WorkspaceCharacterVisualDirectWriteRuntime implements CharacterVisualDirec
     /** 使用 Project tracked writer 落盘；service 已在调用前比较 knownBefore 形成 CAS 前置条件。 */
     async write(input: {path: string; content: string; knownBefore: string | null}): Promise<void> {
         const root = await this.root();
-        await writeResolvedProjectTextFileTracked({
-            projectPath: this.projectPath,
-            projectRoot: root,
-            filePath: input.path,
-            content: input.content,
-            knownBefore: input.knownBefore,
-            actor: USER_LOCAL_ACTOR,
-        });
+        try {
+            await writeResolvedProjectTextFileTracked({
+                projectPath: this.projectPath,
+                projectRoot: root,
+                filePath: input.path,
+                content: input.content,
+                knownBefore: input.knownBefore,
+                actor: USER_LOCAL_ACTOR,
+            });
+        } catch (error) {
+            if (error instanceof TrackedWorkspaceFileConflictError) {
+                throw new CharacterVisualDirectWriteError("CHARACTER_VISUAL_TARGET_STALE", `角色视觉目标在最终写入前变化：${input.path}`);
+            }
+            throw error;
+        }
     }
 
     /** 冻结 index、原 image-tags 与所有被有效 V2 character 文档引用的有效 V2 outfits。 */
