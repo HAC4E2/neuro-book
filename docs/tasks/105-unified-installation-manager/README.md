@@ -1067,6 +1067,13 @@ uninstall
 - 修复按测试真实依赖拆分：与宿主无关的Verifier、归档下载和执行句柄测试固定使用已审查的`windows-x64` fixture；只有必须表达“当前宿主可运行原生Product”的安装健康、离线导入与Source Product build测试，才根据canonical policy登记状态决定是否运行。Linux/macOS未来登记正式policy后会自动启用，不需再改测试。
 - Windows受影响6 files / 18 tests、Manager全量239 passed / 2 skipped、typecheck与release contract均通过。`.31`至`.35` tag继续保留且不复用；下一公开候选固定为`0.1.0-canary.36`。
 
+### 2026-08-02：Manager `.36` clean-checkout contract 隔离失败
+
+- `manager-v0.1.0-canary.36` 已保留release commit与tag；workflow `30720535140` 中Manager本体已通过32 files / 5 skipped files、224 passed / 17 skipped，证明未登记Linux policy不再导致fixture失败。npm publish仍未执行。
+- 随后的单条release contract错误复用了根`vitest.config.ts`。即使只过滤`manager-release-contract.test.ts`，Vitest仍先加载Agent global setup；clean checkout没有`.nuxt/tsconfig.json`，因此在`server/agent/test/global-setup.ts`转换阶段失败。本地Developer Build State再次掩盖了这个隐式前置。
+- 修复为该单条合同新增最小独立Vitest配置，不加载Nuxt、Agent setup或system assets snapshot；配置自身进入`scripts/tsconfig.json`，合同同时固定package命令和tsconfig登记。不是在workflow中补`nuxt prepare`，因此Manager发布仍只消费自己的真实前置。
+- Windows Manager全量239 passed / 2 skipped、独立release contract 1/1、Manager与scripts独立typecheck通过。`.31`至`.36` tag继续保留且不复用；下一公开候选固定为`0.1.0-canary.37`。
+
 ### 2026-08-02：Installation Mutation 与可恢复卸载收口
 
 - 所有写操作统一经外置 heartbeat lease、Operation 恢复和锁内 Manifest 重读；调用前 Manifest 只用于定位，不能复活已删除或已变更的实例。Windows Installed v1 固定为用户级唯一程序根，Portable/Source 以 canonical Installation Root 摘要隔离 lease。

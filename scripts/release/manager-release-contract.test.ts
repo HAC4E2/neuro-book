@@ -37,6 +37,7 @@ describe("Manager release clean-checkout contract", () => {
 
         expect(packageJson.scripts["runtime:typecheck"]).toMatch(/^bun run generate && /u);
         expect(packageJson.scripts["manager:test"]).toContain("scripts/release/manager-release-contract.test.ts");
+        expect(packageJson.scripts["manager:test"]).toContain("--config scripts/release/manager-release-vitest.config.ts");
         expect(packageJson.devDependencies["@types/mdast"]).toBeTruthy();
         expect(generatedTsConfig.extends).toBeUndefined();
         expect(generatedTsConfig.compilerOptions).toMatchObject({
@@ -51,6 +52,7 @@ describe("Manager release clean-checkout contract", () => {
             });
         }
         expect(managerSourceTsConfigs[0]?.include).toContain("build/product-runtime-image-builder.ts");
+        expect(managerSourceTsConfigs[0]?.include).toContain("release/manager-release-vitest.config.ts");
         expect(managerSourceTsConfigs[1]?.include).toEqual(expect.arrayContaining([
             "product-runtime-contract.ts",
             "product-runtime-environment.ts",

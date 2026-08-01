@@ -570,7 +570,7 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - 卸载与Desktop reset只在容器路径验证完整可执行镜像；原生安装依赖严格Manifest/owner布局与停止门禁，即使Product payload已经损坏也仍能删除。这样不会把“应用坏了”变成“必须手工删目录”，同时没有放宽运行、迁移和管理员命令的完整镜像验证。
 - Release CLI删除直接公开路径，只创建Draft并传递numeric release ID、tag、revision与prerelease。workflow按release ID隔离且不互相取消；Source、Product、Portable、Draft资产和GHCR候选先验收，最终才公开Release。OCI正式别名位于独立后继job，失败后可以只重跑激活而不重新经过Draft-only上传器。
 - Release Manifest v5增加统一build ID；最终Portable Verifier在任何Manager命令前连接Release、Source、Product、Installation、Runtime Image与Windows平台身份。静态Compose与Manager Compose统一注入`NEURO_BOOK_APPLICATION_ROOT=/app`；Product Bun命令统一使用`--no-install --no-env-file`。
-- 当前实现验证为 Authoring 9 files / 114 tests、Windows uninstall 3 files / 18 tests、Manager 36 passed files / 1 skipped 与 239 passed / 2 skipped、Release 最新 3 files / 22 tests；Manager typecheck 与 pack 通过。Manager `.34` clean runner先暴露shared Verifier未登记到独立tsconfig；`.35`又证明测试fixture错误借用了当前宿主的生产policy。两次workflow都在npm publish前失败且tag不复用；当前测试按宿主依赖拆分，没有为Linux伪造正式owner baseline。Task 130 的 focused/type、冻结 Source A/B 与仓库外完整 Product smoke 已在后续完成；正式 Release archive、五平台 Candidate Actions 和真实 Docker/rootless Podman 仍不能由本地 dirty 证据替代。
+- 当前实现验证为 Authoring 9 files / 114 tests、Windows uninstall 3 files / 18 tests、Manager Windows 36 passed files / 1 skipped与239 passed / 2 skipped；`.36` clean Linux Manager为32 passed files / 5 skipped与224 passed / 17 skipped。Manager `.34`至`.36`依次暴露shared tsconfig、未登记平台fixture和release contract误加载根Agent/Nuxt环境，三次workflow都在npm publish前失败且tag不复用；修复保持Linux正式owner baseline未登记即拒绝生产构建。Task 130 的 focused/type、冻结 Source A/B 与仓库外完整 Product smoke 已在后续完成；正式 Release archive、五平台 Candidate Actions 和真实 Docker/rootless Podman 仍不能由本地 dirty 证据替代。
 
 ### 计划边界与偏差
 
