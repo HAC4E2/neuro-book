@@ -46,6 +46,48 @@ export const TextToImageReferenceAssetDtoSchema = z.object({
 
 export type TextToImageReferenceAssetDto = z.infer<typeof TextToImageReferenceAssetDtoSchema>;
 
+/**
+ * P5 编译边界使用的不可变 source-image 证据。
+ *
+ * 该 schema 暂不替换现有公开 DTO；存储与编译完成原子切换后才会由消费者接入。
+ */
+export const FrozenReferenceAssetSchema = z.object({
+    contentHash: ReferenceContentHashSchema,
+    kind: z.literal("source-image"),
+    mimeType: z.enum(["image/png", "image/jpeg"]),
+    byteLength: z.number().int().positive().max(50_000_000),
+    width: z.number().int().positive().max(16_384),
+    height: z.number().int().positive().max(16_384),
+}).strict();
+
+export type FrozenReferenceAsset = z.infer<typeof FrozenReferenceAssetSchema>;
+
+/** P5 Inpaint 的完整内容寻址对；两张图缺一不可。 */
+export const TextToImageInpaintSelectionSchema = z.object({
+    baseImageContentHash: ReferenceContentHashSchema,
+    maskContentHash: ReferenceContentHashSchema,
+}).strict().nullable();
+
+export type TextToImageInpaintSelection = z.infer<typeof TextToImageInpaintSelectionSchema>;
+
+/** 引用资产的固定分页外形；Task 2 会让公开 DTO 消费此 schema。 */
+export const TextToImageReferenceAssetPageDtoSchema = z.object({
+    items: z.array(TextToImageReferenceAssetDtoSchema),
+    page: z.number().int().min(1),
+    pageSize: z.number().int().min(1).max(100),
+    hasMore: z.boolean(),
+}).strict();
+
+export type TextToImageReferenceAssetPageDto = z.infer<typeof TextToImageReferenceAssetPageDtoSchema>;
+
+/** Vibe informationExtracted 的严格数值边界。 */
+export const ReferenceInformationExtractedSchema = z.number().finite().min(0).max(1);
+
+/** 将同一数值的不同文本表示归一为稳定的缓存键片段。 */
+export function canonicalizeInformationExtracted(value: number): string {
+    return ReferenceInformationExtractedSchema.parse(value).toString();
+}
+
 /** Recipe 参考资源区引用：只持久 contentHash + 权重 + infoExtracted，绝不存 bytes/Data URL。 */
 export const TextToImageReferenceSelectionSchema = z.object({
     contentHash: ReferenceContentHashSchema,
@@ -60,10 +102,21 @@ export type TextToImageReferenceSelection = z.infer<typeof TextToImageReferenceS
 export const VibeEncodingCacheKeySchema = z.object({
     sourceContentHash: ReferenceContentHashSchema,
     model: z.string().trim().min(1).max(80),
-    informationExtracted: z.number().min(0).max(1),
+    informationExtracted: ReferenceInformationExtractedSchema,
 }).strict();
 
 export type VibeEncodingCacheKey = z.infer<typeof VibeEncodingCacheKeySchema>;
+
+/** 为后续 encoding lineage 提供只含非敏感元数据的确定性缓存键 hash。 */
+export function hashVibeEncodingCacheKey(input: VibeEncodingCacheKey): string {
+    const key = VibeEncodingCacheKeySchema.parse(input);
+    return hashTextToImageContract({
+        schemaVersion: "nbook.vibe-encoding-cache-key/v1",
+        sourceContentHash: key.sourceContentHash,
+        model: key.model,
+        informationExtracted: canonicalizeInformationExtracted(key.informationExtracted),
+    });
+}
 
 /** 对参考资产引用选择计算稳定 content hash，进入 executionInputHash。 */
 export function hashReferenceSelections(input: {

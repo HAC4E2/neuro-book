@@ -1,21 +1,30 @@
 import {describe, expect, it} from "vitest";
 import {
+    NovelAiVibeEncoderVersionSchema,
+    NovelAiWireModelIdSchema,
     NOVELAI_PROVIDER_MODEL_IDS,
     PROVIDER_CAPABILITY_REGISTRY_VERSION,
+    PROVIDER_CAPABILITY_SNAPSHOT_SCHEMA_VERSION,
+    PROVIDER_GRAMMAR_REGISTRY,
     PROVIDER_GRAMMAR_REGISTRY_HASH,
+    PROVIDER_GRAMMAR_REGISTRY_SCHEMA_VERSION,
     PROVIDER_GRAMMAR_REGISTRY_VERSION,
+    ProviderCapabilitySnapshotSchema,
+    ProviderGrammarRegistrySchema,
     ProviderSyntaxNodeSchema,
+    isNovelAiV4Model,
     preflightNovelAiCapabilities,
     resolveProviderCapability,
 } from "nbook/shared/text-to-image-provider-registry";
 import {TAG_INDEX_CAPABILITY_VERSION} from "nbook/shared/text-to-image-tag-index";
+import {hashTextToImageContract} from "nbook/shared/text-to-image-contract-hash";
 
 describe("text-to-image Provider Grammar / Capability registry", () => {
     it("提供唯一版本化 generic NovelAI 能力快照和稳定 registry hash", () => {
         const snapshot = resolveProviderCapability({kind: "generic-novelai"});
 
         expect(snapshot).toMatchObject({
-            schemaVersion: "nbook.provider-capability-snapshot/v2",
+            schemaVersion: "nbook.provider-capability-snapshot/v3",
             capabilityVersion: PROVIDER_CAPABILITY_REGISTRY_VERSION,
             grammarVersion: PROVIDER_GRAMMAR_REGISTRY_VERSION,
             providerKind: "novelai",
@@ -34,6 +43,65 @@ describe("text-to-image Provider Grammar / Capability registry", () => {
         expect(TAG_INDEX_CAPABILITY_VERSION).toBe(PROVIDER_CAPABILITY_REGISTRY_VERSION);
     });
 
+    it("冻结 P5 registry 与 capability snapshot 的四个版本字面量，并拒绝旧版本", () => {
+        expect(PROVIDER_GRAMMAR_REGISTRY_SCHEMA_VERSION).toBe("nbook.provider-grammar-registry/v2");
+        expect(PROVIDER_CAPABILITY_SNAPSHOT_SCHEMA_VERSION).toBe("nbook.provider-capability-snapshot/v3");
+        expect(PROVIDER_GRAMMAR_REGISTRY_VERSION).toBe("nbook-novelai-provider-grammar-v3");
+        expect(PROVIDER_CAPABILITY_REGISTRY_VERSION).toBe("nbook-generic-novelai-capability-v3");
+
+        expect(ProviderGrammarRegistrySchema.safeParse({
+            ...PROVIDER_GRAMMAR_REGISTRY,
+            schemaVersion: "nbook.provider-grammar-registry/v1",
+        }).success).toBe(false);
+        expect(ProviderCapabilitySnapshotSchema.safeParse({
+            ...resolveProviderCapability({kind: "generic-novelai"}),
+            schemaVersion: "nbook.provider-capability-snapshot/v2",
+        }).success).toBe(false);
+    });
+
+    it("导出并收窄 NovelAI wire model 与 Vibe encoder 标识", () => {
+        expect(NovelAiWireModelIdSchema.safeParse("nai-diffusion-4-5-full-inpainting").success).toBe(true);
+        expect(NovelAiWireModelIdSchema.safeParse("vendor-wire-model").success).toBe(false);
+        expect(NovelAiVibeEncoderVersionSchema.safeParse("novelai-vibe/v4-5full/v1").success).toBe(true);
+        expect(NovelAiVibeEncoderVersionSchema.safeParse("novelai-vibe/v4/unknown").success).toBe(false);
+    });
+
+    it("把唯一的 inpaint 与 Vibe 容器映射冻结在唯一 registry，并使其影响 hash", () => {
+        expect(PROVIDER_GRAMMAR_REGISTRY.advanced.inpaint).toMatchObject({
+            modelWireMappings: [{
+                model: "nai-diffusion-4-5-full",
+                wireModel: "nai-diffusion-4-5-full-inpainting",
+            }],
+        });
+        expect(PROVIDER_GRAMMAR_REGISTRY.advanced.vibeTransfer).toMatchObject({
+            containers: [{
+                bucket: "v4-5full",
+                model: "nai-diffusion-4-5-full",
+                encoderVersion: "novelai-vibe/v4-5full/v1",
+            }],
+        });
+        expect(PROVIDER_GRAMMAR_REGISTRY_HASH).toMatch(/^sha256:[a-f0-9]{64}$/u);
+        expect(PROVIDER_GRAMMAR_REGISTRY_HASH).not.toBe(hashTextToImageContract({
+            schemaVersion: PROVIDER_GRAMMAR_REGISTRY.schemaVersion,
+            registryVersion: PROVIDER_GRAMMAR_REGISTRY.registryVersion,
+            capabilityVersion: PROVIDER_GRAMMAR_REGISTRY.capabilityVersion,
+            providerKind: PROVIDER_GRAMMAR_REGISTRY.providerKind,
+            supportedModelIds: [...PROVIDER_GRAMMAR_REGISTRY.supportedModelIds],
+            ordinaryTag: PROVIDER_GRAMMAR_REGISTRY.ordinaryTag,
+            syntaxNodes: PROVIDER_GRAMMAR_REGISTRY.syntaxNodes,
+            advanced: {
+                ...PROVIDER_GRAMMAR_REGISTRY.advanced,
+                vibeTransfer: {maxReferences: 16, cacheByContentHash: true},
+                inpaint: {maskMimeType: "image/png"},
+            },
+        }));
+    });
+
+    it("通过 registry 判定 V4 模型，不接受字符串前缀猜测", () => {
+        expect(isNovelAiV4Model("nai-diffusion-4-5-full")).toBe(true);
+        expect(isNovelAiV4Model("nai-diffusion-3")).toBe(false);
+    });
+
     it("在同一 registry 预检高级标量、参考组合与费用/Token 下限", () => {
         expect(preflightNovelAiCapabilities({
             model: "nai-diffusion-4-5-full",
@@ -44,10 +112,14 @@ describe("text-to-image Provider Grammar / Capability registry", () => {
             characterReferenceCount: 1,
             hasInpaint: true,
         })).toEqual({
+            requestedModel: "nai-diffusion-4-5-full",
             effectiveModel: "nai-diffusion-4-5-full",
+            wireModel: "nai-diffusion-4-5-full-inpainting",
             action: "infill",
             additionalCostLowerBound: 5,
             tokenLowerBound: 1,
+            capabilityVersion: "nbook-generic-novelai-capability-v3",
+            registryHash: PROVIDER_GRAMMAR_REGISTRY_HASH,
         });
         expect(() => preflightNovelAiCapabilities({
             model: "nai-diffusion-4-full",
@@ -76,6 +148,18 @@ describe("text-to-image Provider Grammar / Capability registry", () => {
             characterReferenceCount: 0,
             hasInpaint: false,
         })).toThrowError(expect.objectContaining({code: "TEXT_TO_IMAGE_ADVANCED_PARAMETER_UNSUPPORTED"}));
+    });
+
+    it("只有已登记的 inpaint wire mapping 才能进入 infill，其他模型一律 fail closed", () => {
+        expect(() => preflightNovelAiCapabilities({
+            model: "nai-diffusion-4-full",
+            smeaMode: "auto",
+            smeaDyn: false,
+            useFurryDataset: false,
+            vibeReferenceCount: 0,
+            characterReferenceCount: 0,
+            hasInpaint: true,
+        })).toThrowError(expect.objectContaining({code: "TEXT_TO_IMAGE_REFERENCE_MODEL_UNSUPPORTED"}));
     });
 
     it("为当前支持的每个具体 image model 提供同源快照，并拒绝未知 model", () => {

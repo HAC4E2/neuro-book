@@ -1,10 +1,15 @@
 import {describe, expect, it} from "vitest";
 import {
+    FrozenReferenceAssetSchema,
     REFERENCE_ASSET_MIME_BY_KIND,
     ReferenceContentHashSchema,
+    TextToImageInpaintSelectionSchema,
     TextToImageReferenceAssetDtoSchema,
+    TextToImageReferenceAssetPageDtoSchema,
     TextToImageReferenceSelectionSchema,
     VibeEncodingCacheKeySchema,
+    canonicalizeInformationExtracted,
+    hashVibeEncodingCacheKey,
     hashReferenceSelections,
 } from "nbook/shared/text-to-image-reference-asset";
 
@@ -12,6 +17,84 @@ const VALID_HASH = "a".repeat(64);
 const OTHER_HASH = "b".repeat(64);
 
 describe("TextToImageReferenceAsset shared contract", () => {
+    it("新增严格冻结 source-image 证据，并拒绝 WebP、路径和原始字节", () => {
+        expect(FrozenReferenceAssetSchema.safeParse({
+            contentHash: VALID_HASH,
+            kind: "source-image",
+            mimeType: "image/png",
+            byteLength: 1024,
+            width: 768,
+            height: 512,
+        }).success).toBe(true);
+        expect(FrozenReferenceAssetSchema.safeParse({
+            contentHash: VALID_HASH,
+            kind: "source-image",
+            mimeType: "image/webp",
+            byteLength: 1024,
+            width: 768,
+            height: 512,
+        }).success).toBe(false);
+        expect(FrozenReferenceAssetSchema.safeParse({
+            contentHash: VALID_HASH,
+            kind: "source-image",
+            mimeType: "image/jpeg",
+            byteLength: 1024,
+            width: 768,
+            height: 512,
+            relativePath: "assets/private.jpg",
+            bytes: [1, 2, 3],
+        }).success).toBe(false);
+    });
+
+    it("新增严格双哈希 Inpaint selection，拒绝旧单 contentHash 和额外字段", () => {
+        expect(TextToImageInpaintSelectionSchema.safeParse({
+            baseImageContentHash: VALID_HASH,
+            maskContentHash: OTHER_HASH,
+        }).success).toBe(true);
+        expect(TextToImageInpaintSelectionSchema.safeParse(null).success).toBe(true);
+        expect(TextToImageInpaintSelectionSchema.safeParse({contentHash: VALID_HASH}).success).toBe(false);
+        expect(TextToImageInpaintSelectionSchema.safeParse({
+            baseImageContentHash: VALID_HASH,
+            maskContentHash: OTHER_HASH,
+            dataUrl: "data:image/png;base64,AAAA",
+        }).success).toBe(false);
+    });
+
+    it("新增严格引用资产分页 DTO，只接受 items/page/pageSize/hasMore", () => {
+        const item = {
+            id: "asset-1",
+            kind: "source-image",
+            contentHash: VALID_HASH,
+            relativePath: "assets/text-to-image/references/a/a.asset-1.png",
+            fileName: "a.asset-1.png",
+            mimeType: "image/png",
+            byteLength: 1024,
+            parentAssetId: null,
+            derivedModel: null,
+            derivedInfoExtracted: null,
+            createdAt: "2026-07-22T00:00:00.000Z",
+        };
+
+        expect(TextToImageReferenceAssetPageDtoSchema.safeParse({items: [item], page: 1, pageSize: 30, hasMore: false}).success).toBe(true);
+        expect(TextToImageReferenceAssetPageDtoSchema.safeParse([item]).success).toBe(false);
+        expect(TextToImageReferenceAssetPageDtoSchema.safeParse({
+            items: [item],
+            page: 1,
+            pageSize: 30,
+            hasMore: false,
+            nextCursor: "asset-2",
+        }).success).toBe(false);
+    });
+
+    it("为存储层提供稳定的 informationExtracted 规范化与 cache key hash", () => {
+        expect(canonicalizeInformationExtracted(0.70)).toBe("0.7");
+        expect(hashVibeEncodingCacheKey({
+            sourceContentHash: VALID_HASH,
+            model: "nai-diffusion-4-5-full",
+            informationExtracted: 0.7,
+        })).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    });
+
     it("reference selection 只持久 contentHash/strength/informationExtracted，拒绝 dataUrl/bytes/token/assetId", () => {
         const ok = TextToImageReferenceSelectionSchema.safeParse({
             contentHash: VALID_HASH,

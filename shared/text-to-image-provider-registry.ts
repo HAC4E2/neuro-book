@@ -6,10 +6,10 @@ import {
     type TextToImageModelScope,
 } from "nbook/shared/text-to-image-tag-resolution";
 
-export const PROVIDER_GRAMMAR_REGISTRY_SCHEMA_VERSION = "nbook.provider-grammar-registry/v1" as const;
-export const PROVIDER_CAPABILITY_SNAPSHOT_SCHEMA_VERSION = "nbook.provider-capability-snapshot/v2" as const;
-export const PROVIDER_GRAMMAR_REGISTRY_VERSION = "nbook-novelai-provider-grammar-v2" as const;
-export const PROVIDER_CAPABILITY_REGISTRY_VERSION = "nbook-generic-novelai-capability-v2" as const;
+export const PROVIDER_GRAMMAR_REGISTRY_SCHEMA_VERSION = "nbook.provider-grammar-registry/v2" as const;
+export const PROVIDER_CAPABILITY_SNAPSHOT_SCHEMA_VERSION = "nbook.provider-capability-snapshot/v3" as const;
+export const PROVIDER_GRAMMAR_REGISTRY_VERSION = "nbook-novelai-provider-grammar-v3" as const;
+export const PROVIDER_CAPABILITY_REGISTRY_VERSION = "nbook-generic-novelai-capability-v3" as const;
 
 export const NOVELAI_PROVIDER_MODEL_IDS = [
     "nai-diffusion-4-5-full",
@@ -22,6 +22,19 @@ export const NOVELAI_PROVIDER_MODEL_IDS = [
 
 export const NovelAiProviderModelIdSchema = z.enum(NOVELAI_PROVIDER_MODEL_IDS);
 export type NovelAiProviderModelId = z.infer<typeof NovelAiProviderModelIdSchema>;
+
+/** NovelAI 请求 wire 层允许出现的模型标识，不接受任意 vendor 字符串。 */
+export const NOVELAI_WIRE_MODEL_IDS = [
+    ...NOVELAI_PROVIDER_MODEL_IDS,
+    "nai-diffusion-4-5-full-inpainting",
+] as const;
+export const NovelAiWireModelIdSchema = z.enum(NOVELAI_WIRE_MODEL_IDS);
+export type NovelAiWireModelId = z.infer<typeof NovelAiWireModelIdSchema>;
+
+/** 当前已冻结的 Vibe 容器编码器版本。 */
+export const NOVELAI_VIBE_ENCODER_VERSIONS = ["novelai-vibe/v4-5full/v1"] as const;
+export const NovelAiVibeEncoderVersionSchema = z.enum(NOVELAI_VIBE_ENCODER_VERSIONS);
+export type NovelAiVibeEncoderVersion = z.infer<typeof NovelAiVibeEncoderVersionSchema>;
 
 const ProviderSyntaxRefSchema = z.string().trim().min(1).max(160)
     .regex(/^[\p{L}\p{N}][\p{L}\p{N}._-]*$/u, "Provider syntax ref 必须是稳定 ID");
@@ -78,8 +91,26 @@ export const ProviderGrammarRegistrySchema = z.object({
             resolutionBinding: z.literal("same-owner-field"),
         }).strict(),
     }).strict(),
+    modelFamilies: z.object({
+        v4: z.tuple([
+            z.literal("nai-diffusion-4-5-full"),
+            z.literal("nai-diffusion-4-5-curated"),
+            z.literal("nai-diffusion-4-full"),
+            z.literal("nai-diffusion-4-curated-preview"),
+        ]),
+    }).strict(),
     advanced: z.object({
-        vibeTransfer: z.object({maxReferences: z.literal(16), cacheByContentHash: z.literal(true)}).strict(),
+        vibeTransfer: z.object({
+            maxReferences: z.literal(16),
+            cacheByContentHash: z.literal(true),
+            containers: z.tuple([
+                z.object({
+                    bucket: z.literal("v4-5full"),
+                    model: z.literal("nai-diffusion-4-5-full"),
+                    encoderVersion: z.literal("novelai-vibe/v4-5full/v1"),
+                }).strict(),
+            ]),
+        }).strict(),
         preciseReference: z.object({
             modelIds: z.tuple([
                 z.literal("nai-diffusion-4-5-full"),
@@ -89,7 +120,15 @@ export const ProviderGrammarRegistrySchema = z.object({
             compatibleWithVibe: z.literal(false),
             additionalCostPerImage: z.literal(5),
         }).strict(),
-        inpaint: z.object({maskMimeType: z.literal("image/png")}).strict(),
+        inpaint: z.object({
+            maskMimeType: z.literal("image/png"),
+            modelWireMappings: z.tuple([
+                z.object({
+                    model: z.literal("nai-diffusion-4-5-full"),
+                    wireModel: z.literal("nai-diffusion-4-5-full-inpainting"),
+                }).strict(),
+            ]),
+        }).strict(),
     }).strict(),
 }).strict();
 
@@ -112,15 +151,37 @@ export const PROVIDER_GRAMMAR_REGISTRY: ProviderGrammarRegistry = ProviderGramma
             resolutionBinding: "same-owner-field",
         },
     },
+    modelFamilies: {
+        v4: [
+            "nai-diffusion-4-5-full",
+            "nai-diffusion-4-5-curated",
+            "nai-diffusion-4-full",
+            "nai-diffusion-4-curated-preview",
+        ],
+    },
     advanced: {
-        vibeTransfer: {maxReferences: 16, cacheByContentHash: true},
+        vibeTransfer: {
+            maxReferences: 16,
+            cacheByContentHash: true,
+            containers: [{
+                bucket: "v4-5full",
+                model: "nai-diffusion-4-5-full",
+                encoderVersion: "novelai-vibe/v4-5full/v1",
+            }],
+        },
         preciseReference: {
             modelIds: ["nai-diffusion-4-5-full", "nai-diffusion-4-5-curated"],
             maxReferences: 1,
             compatibleWithVibe: false,
             additionalCostPerImage: 5,
         },
-        inpaint: {maskMimeType: "image/png"},
+        inpaint: {
+            maskMimeType: "image/png",
+            modelWireMappings: [{
+                model: "nai-diffusion-4-5-full",
+                wireModel: "nai-diffusion-4-5-full-inpainting",
+            }],
+        },
     },
 });
 
@@ -141,6 +202,7 @@ export const PROVIDER_GRAMMAR_REGISTRY_HASH = hashTextToImageContract({
             resolutionBinding: PROVIDER_GRAMMAR_REGISTRY.syntaxNodes["novelai-tag-weight"].resolutionBinding,
         },
     },
+    modelFamilies: PROVIDER_GRAMMAR_REGISTRY.modelFamilies,
     advanced: PROVIDER_GRAMMAR_REGISTRY.advanced,
 });
 
@@ -258,10 +320,14 @@ export type NovelAiCapabilityPreflightInput = {
 };
 
 export type NovelAiCapabilityPreflight = {
+    requestedModel: NovelAiProviderModelId;
     effectiveModel: NovelAiProviderModelId;
+    wireModel: NovelAiWireModelId;
     action: "generate" | "infill";
     additionalCostLowerBound: number;
     tokenLowerBound: number;
+    capabilityVersion: typeof PROVIDER_CAPABILITY_REGISTRY_VERSION;
+    registryHash: typeof PROVIDER_GRAMMAR_REGISTRY_HASH;
 };
 
 export type NovelAiCapabilityErrorCode =
@@ -314,17 +380,39 @@ export function preflightNovelAiCapabilities(input: NovelAiCapabilityPreflightIn
             "Vibe Transfer 与 Precise Character Reference 不能在同一请求中组合。",
         );
     }
+    const inpaintMapping = PROVIDER_GRAMMAR_REGISTRY.advanced.inpaint.modelWireMappings.find(
+        (mapping) => mapping.model === effectiveModel,
+    );
+    let action: NovelAiCapabilityPreflight["action"];
+    let wireModel: NovelAiWireModelId;
+    if (input.hasInpaint) {
+        if (!inpaintMapping) {
+            throw new NovelAiCapabilityError(
+                "TEXT_TO_IMAGE_REFERENCE_MODEL_UNSUPPORTED",
+                "当前 NovelAI 模型没有已登记的 Inpaint wire model。",
+            );
+        }
+        action = "infill";
+        wireModel = inpaintMapping.wireModel;
+    } else {
+        action = "generate";
+        wireModel = NovelAiWireModelIdSchema.parse(effectiveModel);
+    }
     return {
+        requestedModel: model,
         effectiveModel,
-        action: input.hasInpaint ? "infill" : "generate",
+        wireModel,
+        action,
         additionalCostLowerBound: input.characterReferenceCount
             * PROVIDER_GRAMMAR_REGISTRY.advanced.preciseReference.additionalCostPerImage
             + Math.max(0, input.vibeReferenceCount - 4) * 2,
         tokenLowerBound: 1,
+        capabilityVersion: PROVIDER_CAPABILITY_REGISTRY_VERSION,
+        registryHash: PROVIDER_GRAMMAR_REGISTRY_HASH,
     };
 }
 
 /** 判断模型是否属于只接受 auto SMEA 的 V4/V4.5 家族。 */
-function isNovelAiV4Model(model: NovelAiProviderModelId): boolean {
-    return model.startsWith("nai-diffusion-4-");
+export function isNovelAiV4Model(model: NovelAiProviderModelId): boolean {
+    return PROVIDER_GRAMMAR_REGISTRY.modelFamilies.v4.some((registeredModel) => registeredModel === model);
 }
