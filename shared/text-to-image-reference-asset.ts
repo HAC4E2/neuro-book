@@ -1,5 +1,9 @@
 import {z} from "zod";
 import {hashTextToImageContract, type TextToImageContractValue} from "nbook/shared/text-to-image-contract-hash";
+import {
+    NovelAiProviderModelIdSchema,
+    NovelAiVibeEncoderVersionSchema,
+} from "nbook/shared/text-to-image-provider-registry";
 
 /**
  * 参考资产内容寻址的种类。
@@ -88,6 +92,18 @@ export function canonicalizeInformationExtracted(value: number): string {
     return ReferenceInformationExtractedSchema.parse(value).toString();
 }
 
+/** 已规范化的 Vibe informationExtracted，避免相同数值以不同文本参与缓存身份。 */
+export const CanonicalInformationExtractedSchema = z.string()
+    .regex(/^(?:0|1|0\.[0-9]+)$/u, "canonicalInformation 必须是 0..1 的十进制数")
+    .superRefine((value, context) => {
+        if (canonicalizeInformationExtracted(Number(value)) !== value) {
+            context.addIssue({
+                code: "custom",
+                message: "canonicalInformation 必须使用标准数值表示",
+            });
+        }
+    });
+
 /** Recipe 参考资源区引用：只持久 contentHash + 权重 + infoExtracted，绝不存 bytes/Data URL。 */
 export const TextToImageReferenceSelectionSchema = z.object({
     contentHash: ReferenceContentHashSchema,
@@ -98,23 +114,27 @@ export const TextToImageReferenceSelectionSchema = z.object({
 
 export type TextToImageReferenceSelection = z.infer<typeof TextToImageReferenceSelectionSchema>;
 
-/** Vibe encoding 缓存查询 key：源 contentHash + model + informationExtracted 唯一确定一份派生 encoding。 */
+/** Vibe encoding 缓存的完整、非敏感 typed identity。 */
 export const VibeEncodingCacheKeySchema = z.object({
+    providerKind: z.literal("novelai"),
     sourceContentHash: ReferenceContentHashSchema,
-    model: z.string().trim().min(1).max(80),
-    informationExtracted: ReferenceInformationExtractedSchema,
+    providerModel: NovelAiProviderModelIdSchema,
+    canonicalInformation: CanonicalInformationExtractedSchema,
+    encoderVersion: NovelAiVibeEncoderVersionSchema,
 }).strict();
 
 export type VibeEncodingCacheKey = z.infer<typeof VibeEncodingCacheKeySchema>;
 
-/** 为后续 encoding lineage 提供只含非敏感元数据的确定性缓存键 hash。 */
+/** 为后续 encoding lineage 提供完整 typed identity 的确定性缓存键 hash。 */
 export function hashVibeEncodingCacheKey(input: VibeEncodingCacheKey): string {
     const key = VibeEncodingCacheKeySchema.parse(input);
     return hashTextToImageContract({
-        schemaVersion: "nbook.vibe-encoding-cache-key/v1",
+        schemaVersion: "nbook.vibe-encoding-cache-key/v2",
+        providerKind: key.providerKind,
         sourceContentHash: key.sourceContentHash,
-        model: key.model,
-        informationExtracted: canonicalizeInformationExtracted(key.informationExtracted),
+        providerModel: key.providerModel,
+        canonicalInformation: key.canonicalInformation,
+        encoderVersion: key.encoderVersion,
     });
 }
 

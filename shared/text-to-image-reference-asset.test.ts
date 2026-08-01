@@ -88,11 +88,20 @@ describe("TextToImageReferenceAsset shared contract", () => {
 
     it("为存储层提供稳定的 informationExtracted 规范化与 cache key hash", () => {
         expect(canonicalizeInformationExtracted(0.70)).toBe("0.7");
-        expect(hashVibeEncodingCacheKey({
+        const key = {
+            providerKind: "novelai" as const,
             sourceContentHash: VALID_HASH,
-            model: "nai-diffusion-4-5-full",
-            informationExtracted: 0.7,
-        })).toMatch(/^sha256:[a-f0-9]{64}$/u);
+            providerModel: "nai-diffusion-4-5-full" as const,
+            canonicalInformation: "0.7",
+            encoderVersion: "novelai-vibe/v4-5full/v1" as const,
+        };
+        const hash = hashVibeEncodingCacheKey(key);
+        expect(hash).toMatch(/^sha256:[a-f0-9]{64}$/u);
+        expect(hashVibeEncodingCacheKey({...key, sourceContentHash: OTHER_HASH})).not.toBe(hash);
+        expect(hashVibeEncodingCacheKey({...key, providerModel: "nai-diffusion-4-full"})).not.toBe(hash);
+        expect(hashVibeEncodingCacheKey({...key, canonicalInformation: "0.8"})).not.toBe(hash);
+        expect(VibeEncodingCacheKeySchema.safeParse({...key, providerKind: "other"}).success).toBe(false);
+        expect(VibeEncodingCacheKeySchema.safeParse({...key, encoderVersion: "novelai-vibe/v4-5full/v2"}).success).toBe(false);
     });
 
     it("reference selection 只持久 contentHash/strength/informationExtracted，拒绝 dataUrl/bytes/token/assetId", () => {
@@ -192,13 +201,20 @@ describe("TextToImageReferenceAsset shared contract", () => {
         expect(REFERENCE_ASSET_MIME_BY_KIND["vibe-encoding"]).toEqual(["application/octet-stream"]);
     });
 
-    it("VibeEncodingCacheKey 唯一确定 source hash + model + informationExtracted", () => {
+    it("VibeEncodingCacheKey 固定 provider/encoder，并持久完整 typed identity", () => {
         const ok = VibeEncodingCacheKeySchema.safeParse({
+            providerKind: "novelai",
+            sourceContentHash: VALID_HASH,
+            providerModel: "nai-diffusion-4-5-full",
+            canonicalInformation: "0.7",
+            encoderVersion: "novelai-vibe/v4-5full/v1",
+        });
+        expect(ok.success).toBe(true);
+        expect(VibeEncodingCacheKeySchema.safeParse({
             sourceContentHash: VALID_HASH,
             model: "nai-diffusion-4-5-full",
             informationExtracted: 0.7,
-        });
-        expect(ok.success).toBe(true);
+        }).success).toBe(false);
     });
 
     it("hashReferenceSelections 稳定且包含全部三类引用", () => {

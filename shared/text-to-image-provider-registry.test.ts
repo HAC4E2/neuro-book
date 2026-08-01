@@ -49,14 +49,39 @@ describe("text-to-image Provider Grammar / Capability registry", () => {
         expect(PROVIDER_GRAMMAR_REGISTRY_VERSION).toBe("nbook-novelai-provider-grammar-v3");
         expect(PROVIDER_CAPABILITY_REGISTRY_VERSION).toBe("nbook-generic-novelai-capability-v3");
 
-        expect(ProviderGrammarRegistrySchema.safeParse({
-            ...PROVIDER_GRAMMAR_REGISTRY,
-            schemaVersion: "nbook.provider-grammar-registry/v1",
-        }).success).toBe(false);
-        expect(ProviderCapabilitySnapshotSchema.safeParse({
-            ...resolveProviderCapability({kind: "generic-novelai"}),
-            schemaVersion: "nbook.provider-capability-snapshot/v2",
-        }).success).toBe(false);
+        const versionRejections = [
+            {
+                name: "registry schema version",
+                parse: () => ProviderGrammarRegistrySchema.safeParse({
+                    ...PROVIDER_GRAMMAR_REGISTRY,
+                    schemaVersion: "nbook.provider-grammar-registry/v1",
+                }),
+            },
+            {
+                name: "capability snapshot schema version",
+                parse: () => ProviderCapabilitySnapshotSchema.safeParse({
+                    ...resolveProviderCapability({kind: "generic-novelai"}),
+                    schemaVersion: "nbook.provider-capability-snapshot/v2",
+                }),
+            },
+            {
+                name: "registry version",
+                parse: () => ProviderGrammarRegistrySchema.safeParse({
+                    ...PROVIDER_GRAMMAR_REGISTRY,
+                    registryVersion: "nbook-novelai-provider-grammar-v2",
+                }),
+            },
+            {
+                name: "capability version",
+                parse: () => ProviderCapabilitySnapshotSchema.safeParse({
+                    ...resolveProviderCapability({kind: "generic-novelai"}),
+                    capabilityVersion: "nbook-generic-novelai-capability-v2",
+                }),
+            },
+        ];
+        for (const candidate of versionRejections) {
+            expect(candidate.parse().success, candidate.name).toBe(false);
+        }
     });
 
     it("导出并收窄 NovelAI wire model 与 Vibe encoder 标识", () => {
@@ -89,6 +114,7 @@ describe("text-to-image Provider Grammar / Capability registry", () => {
             supportedModelIds: [...PROVIDER_GRAMMAR_REGISTRY.supportedModelIds],
             ordinaryTag: PROVIDER_GRAMMAR_REGISTRY.ordinaryTag,
             syntaxNodes: PROVIDER_GRAMMAR_REGISTRY.syntaxNodes,
+            modelFamilies: PROVIDER_GRAMMAR_REGISTRY.modelFamilies,
             advanced: {
                 ...PROVIDER_GRAMMAR_REGISTRY.advanced,
                 vibeTransfer: {maxReferences: 16, cacheByContentHash: true},
@@ -159,6 +185,39 @@ describe("text-to-image Provider Grammar / Capability registry", () => {
             vibeReferenceCount: 0,
             characterReferenceCount: 0,
             hasInpaint: true,
+        })).toThrowError(expect.objectContaining({code: "TEXT_TO_IMAGE_REFERENCE_MODEL_UNSUPPORTED"}));
+    });
+
+    it("按唯一 registry mapping 派生 generic 与 model-specific Vibe/Inpaint 支持性", () => {
+        const generic = resolveProviderCapability({kind: "generic-novelai"});
+        const full = resolveProviderCapability({kind: "novelai-model", modelId: "nai-diffusion-4-5-full"});
+        const diffusion3 = resolveProviderCapability({kind: "novelai-model", modelId: "nai-diffusion-3"});
+
+        // generic 表示至少有一个已登记模型可用，而不是任一具体模型都可用。
+        expect(generic.advanced.vibeTransfer.supported).toBe(true);
+        expect(generic.advanced.inpaint.supported).toBe(true);
+        expect(full.advanced.vibeTransfer.supported).toBe(true);
+        expect(full.advanced.inpaint.supported).toBe(true);
+        expect(diffusion3.advanced.vibeTransfer.supported).toBe(false);
+        expect(diffusion3.advanced.inpaint.supported).toBe(false);
+
+        expect(preflightNovelAiCapabilities({
+            model: "nai-diffusion-4-5-full",
+            smeaMode: "auto",
+            smeaDyn: false,
+            useFurryDataset: false,
+            vibeReferenceCount: 1,
+            characterReferenceCount: 0,
+            hasInpaint: false,
+        })).toMatchObject({action: "generate", wireModel: "nai-diffusion-4-5-full"});
+        expect(() => preflightNovelAiCapabilities({
+            model: "nai-diffusion-3",
+            smeaMode: "auto",
+            smeaDyn: false,
+            useFurryDataset: false,
+            vibeReferenceCount: 1,
+            characterReferenceCount: 0,
+            hasInpaint: false,
         })).toThrowError(expect.objectContaining({code: "TEXT_TO_IMAGE_REFERENCE_MODEL_UNSUPPORTED"}));
     });
 

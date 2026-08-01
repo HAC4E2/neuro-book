@@ -228,7 +228,7 @@ export const ProviderCapabilitySnapshotSchema = z.object({
         furryDataset: z.literal(true),
         smea: z.object({supported: z.literal(true), dynSupported: z.boolean()}).strict(),
         vibeTransfer: z.object({
-            supported: z.literal(true),
+            supported: z.boolean(),
             maxReferences: z.literal(16),
             cacheByContentHash: z.literal(true),
         }).strict(),
@@ -237,7 +237,7 @@ export const ProviderCapabilitySnapshotSchema = z.object({
             maxReferences: z.literal(1),
             compatibleWithVibe: z.literal(false),
         }).strict(),
-        inpaint: z.object({supported: z.literal(true), maskMimeType: z.literal("image/png")}).strict(),
+        inpaint: z.object({supported: z.boolean(), maskMimeType: z.literal("image/png")}).strict(),
     }).strict(),
 }).strict();
 
@@ -270,6 +270,19 @@ export function resolveProviderCapability(modelScope: TextToImageModelScope): Pr
         }
         supportedModelIds = [parsedModel.data];
     }
+    const modelId = scope.kind === "novelai-model"
+        ? scope.modelId as NovelAiProviderModelId
+        : null;
+    const vibeSupported = modelId === null
+        ? PROVIDER_GRAMMAR_REGISTRY.advanced.vibeTransfer.containers.length > 0
+        : PROVIDER_GRAMMAR_REGISTRY.advanced.vibeTransfer.containers.some(
+            (container) => container.model === modelId,
+        );
+    const inpaintSupported = modelId === null
+        ? PROVIDER_GRAMMAR_REGISTRY.advanced.inpaint.modelWireMappings.length > 0
+        : PROVIDER_GRAMMAR_REGISTRY.advanced.inpaint.modelWireMappings.some(
+            (mapping) => mapping.model === modelId,
+        );
 
     return ProviderCapabilitySnapshotSchema.parse({
         schemaVersion: PROVIDER_CAPABILITY_SNAPSHOT_SCHEMA_VERSION,
@@ -292,7 +305,7 @@ export function resolveProviderCapability(modelScope: TextToImageModelScope): Pr
                 dynSupported: scope.kind === "generic-novelai" || !isNovelAiV4Model(scope.modelId as NovelAiProviderModelId),
             },
             vibeTransfer: {
-                supported: true,
+                supported: vibeSupported,
                 maxReferences: PROVIDER_GRAMMAR_REGISTRY.advanced.vibeTransfer.maxReferences,
                 cacheByContentHash: true,
             },
@@ -304,7 +317,7 @@ export function resolveProviderCapability(modelScope: TextToImageModelScope): Pr
                 maxReferences: PROVIDER_GRAMMAR_REGISTRY.advanced.preciseReference.maxReferences,
                 compatibleWithVibe: false,
             },
-            inpaint: {supported: true, maskMimeType: "image/png"},
+            inpaint: {supported: inpaintSupported, maskMimeType: "image/png"},
         },
     });
 }
@@ -366,6 +379,12 @@ export function preflightNovelAiCapabilities(input: NovelAiCapabilityPreflightIn
         throw new NovelAiCapabilityError(
             "TEXT_TO_IMAGE_ADVANCED_PARAMETER_UNSUPPORTED",
             "NovelAI V4/V4.5 只支持自动或关闭 SMEA，不支持手动 SMEA/SMEA DYN。",
+        );
+    }
+    if (input.vibeReferenceCount > 0 && !capability.advanced.vibeTransfer.supported) {
+        throw new NovelAiCapabilityError(
+            "TEXT_TO_IMAGE_REFERENCE_MODEL_UNSUPPORTED",
+            "Vibe Transfer 只支持具有已登记 Vibe 容器映射的 NovelAI 模型。",
         );
     }
     if (input.characterReferenceCount > 0 && !capability.advanced.preciseReference.supported) {
