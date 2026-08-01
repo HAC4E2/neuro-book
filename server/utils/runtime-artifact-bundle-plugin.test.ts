@@ -20,8 +20,10 @@ describe("Runtime Artifact bundle plugin", () => {
         await mkdir(join(root, "authoring"), {recursive: true});
         await writeFile(packageRoot, `${JSON.stringify({name: "fixture-authoring", private: true})}\n`, "utf8");
         const context: RuntimeArtifactCompilerContext = {
+            kind: "product-candidate",
             root,
             productRuntime: true,
+            imageRoot: root,
             outputRoot: root,
             nbookRoot: resolve("."),
             compilerPackageRoot: packageRoot,

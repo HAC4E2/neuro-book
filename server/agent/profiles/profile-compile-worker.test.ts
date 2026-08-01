@@ -16,8 +16,9 @@ describe("profile compile worker runtime", () => {
         const productRoot = await createProductWorkerFixture();
         try {
             await mkdir(resolve(productRoot, "node_modules"));
-            const paths = resolveProfileCompileWorkerPathsForRoot(productRoot, {
+            const paths = await resolveProfileCompileWorkerPathsForRoot(productRoot, {
                 NEURO_BOOK_PRODUCT_IMAGE_ROOT: resolve(productRoot, ".output"),
+                NEURO_BOOK_PRODUCT_BUILD: "1",
                 NODE_PATH: resolve(productRoot, "wrong-node-path"),
             });
             expect(paths).toEqual({
@@ -108,6 +109,31 @@ describe("profile compile worker runtime", () => {
                 worker.dispose();
                 await rm(firstPath, {force: true});
                 await rm(secondPath, {force: true});
+            }
+        });
+    }, 120000);
+
+    it("watcher与手动请求并发编译同一文件时不会微任务自旋", async () => {
+        await withCompiledRootSnapshot(async (assets) => {
+            const profileRoot = assets.userProfileRoot;
+            const fileName = "codex.concurrent.same.profile.tsx";
+            const sourcePath = resolve(profileRoot, fileName);
+            const worker = new ProfileCompileWorkerService("test-concurrent-same-file", 2);
+            try {
+                await writeFile(sourcePath, await temporaryProfileSource(assets, "codex.concurrent.same"), "utf8");
+
+                const [manual, watcher] = await Promise.all([
+                    worker.compile({fileName, dryRun: false, preview: false}),
+                    worker.compile({fileName, dryRun: false, preview: false}),
+                ]);
+                const manifest = await readProfileArtifactManifest(profileRoot);
+
+                expect(manual.ok).toBe(true);
+                expect(watcher.ok).toBe(true);
+                expect(manifest.entries.filter((entry) => entry.fileName === fileName)).toHaveLength(1);
+            } finally {
+                worker.dispose();
+                await rm(sourcePath, {force: true});
             }
         });
     }, 120000);

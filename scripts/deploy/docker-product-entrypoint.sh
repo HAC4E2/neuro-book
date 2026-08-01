@@ -30,4 +30,4 @@ if [ -z "${BUN_RUNTIME:-}" ]; then
     BUN_RUNTIME="bun"
 fi
 
-exec "$BUN_RUNTIME" --no-install .output/server/commands/product-command.mjs command start
+exec "$BUN_RUNTIME" --no-install --no-env-file .output/server/commands/product-command.mjs command start

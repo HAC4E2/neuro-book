@@ -49,10 +49,12 @@ describe("AgentProfileCatalog", () => {
     let userRoot: string;
     let applicationRootBeforeTest: string | undefined;
     let productImageRootBeforeTest: string | undefined;
+    let productBuildBeforeTest: string | undefined;
 
     beforeEach(async () => {
         applicationRootBeforeTest = process.env.NEURO_BOOK_APPLICATION_ROOT;
         productImageRootBeforeTest = process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT;
+        productBuildBeforeTest = process.env.NEURO_BOOK_PRODUCT_BUILD;
         root = resolve(".agent", "workspace", "agent-profile-catalog-test", randomUUID());
         systemRoot = join(root, "assets", ".nbook", "agent", "profiles");
         userRoot = join(root, "workspace", ".nbook", "agent", "profiles");
@@ -65,6 +67,8 @@ describe("AgentProfileCatalog", () => {
         else process.env.NEURO_BOOK_APPLICATION_ROOT = applicationRootBeforeTest;
         if (productImageRootBeforeTest === undefined) delete process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT;
         else process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT = productImageRootBeforeTest;
+        if (productBuildBeforeTest === undefined) delete process.env.NEURO_BOOK_PRODUCT_BUILD;
+        else process.env.NEURO_BOOK_PRODUCT_BUILD = productBuildBeforeTest;
         await rm(root, {recursive: true, force: true});
     });
 
@@ -1206,6 +1210,7 @@ describe("AgentProfileCatalog", () => {
         const previousCwd = process.cwd();
         process.env.NEURO_BOOK_APPLICATION_ROOT = productRoot;
         process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT = join(productRoot, ".output");
+        process.env.NEURO_BOOK_PRODUCT_BUILD = "1";
         process.chdir(productRoot);
         try {
             await compileProfileArtifacts({
@@ -1230,8 +1235,9 @@ describe("AgentProfileCatalog", () => {
         try {
             await expect(validateProfileArtifact(systemRoot, manifestItem, {requireTypeArtifact: true})).resolves.toEqual({fresh: true});
             delete process.env.NEURO_BOOK_APPLICATION_ROOT;
+            delete process.env.NEURO_BOOK_PRODUCT_BUILD;
             const catalog = new AgentProfileCatalog(systemRoot, userRoot);
-            await expect(catalog.get("custom.product")).rejects.toThrow("缺少 NEURO_BOOK_APPLICATION_ROOT 或已验证的 runtime require root");
+            await expect(catalog.get("custom.product")).rejects.toThrow("必须来自 verified image identity");
         } finally {
             process.chdir(previousCwd);
         }
@@ -1263,6 +1269,7 @@ describe("AgentProfileCatalog", () => {
         const previousCwd = process.cwd();
         process.env.NEURO_BOOK_APPLICATION_ROOT = productRoot;
         process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT = join(productRoot, ".output");
+        process.env.NEURO_BOOK_PRODUCT_BUILD = "1";
         process.chdir(productRoot);
         try {
             await compileProfileArtifacts({
@@ -1327,6 +1334,7 @@ describe("AgentProfileCatalog", () => {
         process.chdir(productRoot);
         process.env.NEURO_BOOK_APPLICATION_ROOT = productRoot;
         process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT = join(productRoot, ".output");
+        process.env.NEURO_BOOK_PRODUCT_BUILD = "1";
         try {
             const staleManifest = await readProfileArtifactManifest(systemRoot);
             await expect(validateProfileArtifact(systemRoot, staleManifest.profiles[0]!)).resolves.toEqual({
@@ -1379,6 +1387,7 @@ describe("AgentProfileCatalog", () => {
         const previousCwd = process.cwd();
         process.env.NEURO_BOOK_APPLICATION_ROOT = productRoot;
         process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT = join(productRoot, ".output");
+        process.env.NEURO_BOOK_PRODUCT_BUILD = "1";
         process.chdir(productRoot);
         try {
             await compileProfileArtifacts({

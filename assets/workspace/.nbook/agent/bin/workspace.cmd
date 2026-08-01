@@ -37,7 +37,7 @@ exit /b 1
 
 :run_product
 set "NEURO_BOOK_APPLICATION_ROOT=%APPLICATION_ROOT%"
-"%BUN_RUNTIME%" --no-install "%PRODUCT_COMMAND%" command workspace %*
+"%BUN_RUNTIME%" --no-install --no-env-file "%PRODUCT_COMMAND%" command workspace %*
 set "EXIT_CODE=%ERRORLEVEL%"
 exit /b %EXIT_CODE%
 

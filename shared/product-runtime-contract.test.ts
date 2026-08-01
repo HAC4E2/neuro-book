@@ -6,6 +6,7 @@ import {
     assertProductRuntimeContractFiles,
     createProductRuntimeContract,
     parseProductRuntimeContract,
+    PRODUCT_BUN_RUNTIME_ARGS,
     productRuntimeCwd,
     resolveProductRuntimeCommand,
 } from "nbook/shared/product-runtime-contract";
@@ -15,6 +16,10 @@ describe("Product Runtime Contract", () => {
 
     afterEach(async () => {
         await Promise.all(roots.splice(0).map((root) => rm(root, {recursive: true, force: true})));
+    });
+
+    it("Bun Product 禁止自动安装和隐式加载 cwd .env", () => {
+        expect(PRODUCT_BUN_RUNTIME_ARGS).toEqual(["--no-install", "--no-env-file"]);
     });
 
     it("严格解析逻辑命令并执行参数策略", () => {

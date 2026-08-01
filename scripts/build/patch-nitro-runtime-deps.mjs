@@ -145,12 +145,12 @@ async function writeProductPackageJson() {
         private: true,
         type: "module",
         scripts: {
-            start: "bun --no-install commands/product-command.mjs command start",
-            "create-admin": "bun --no-install commands/product-command.mjs command create-admin",
-            "migrate:deploy": "bun --no-install commands/product-command.mjs command migrate-database",
-            "migrate:application-state": "bun --no-install commands/product-command.mjs command migrate-application-state",
-            "profile:check": "bun --no-install commands/product-command.mjs command profile check",
-            "profile:compile": "bun --no-install commands/product-command.mjs command profile compile",
+            start: "bun --no-install --no-env-file commands/product-command.mjs command start",
+            "create-admin": "bun --no-install --no-env-file commands/product-command.mjs command create-admin",
+            "migrate:deploy": "bun --no-install --no-env-file commands/product-command.mjs command migrate-database",
+            "migrate:application-state": "bun --no-install --no-env-file commands/product-command.mjs command migrate-application-state",
+            "profile:check": "bun --no-install --no-env-file commands/product-command.mjs command profile check",
+            "profile:compile": "bun --no-install --no-env-file commands/product-command.mjs command profile compile",
         },
     };
     await writeFile(resolve(serverRoot, "package.json"), `${JSON.stringify(packageJson, null, 4)}\n`, "utf8");

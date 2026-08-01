@@ -5,7 +5,7 @@ import {isAbsolute, posix, resolve, win32} from "node:path";
 export const PRODUCT_RUNTIME_CONTRACT_PATH = "server/runtime-contract.json";
 export const PRODUCT_RUNTIME_COMMAND_BOOTSTRAP = "server/commands/product-command.mjs";
 /** Product Runtime 禁止 Bun 在缺包时联网或从全局 cache 隐式补装依赖。 */
-export const PRODUCT_BUN_RUNTIME_ARGS = ["--no-install"] as const;
+export const PRODUCT_BUN_RUNTIME_ARGS = ["--no-install", "--no-env-file"] as const;
 export const PRODUCT_RUNTIME_CONTRACT_SCHEMA = "nbook.product-runtime-contract/v3";
 export const PRODUCT_SHUTDOWN_PROTOCOL = "http-loopback-token/v1";
 export const PRODUCT_SHUTDOWN_PATH = "/__nbook/control/shutdown";

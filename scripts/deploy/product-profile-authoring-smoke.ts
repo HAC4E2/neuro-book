@@ -38,7 +38,7 @@ type CompiledProfileModule = {
 };
 
 const runtimePaths = runtimePathsFromEnv();
-const compilerContext = resolveRuntimeArtifactCompilerContext(runtimePaths.applicationRoot);
+const compilerContext = await resolveRuntimeArtifactCompilerContext(runtimePaths.applicationRoot);
 if (!compilerContext.productRuntime) {
     throw new Error("Profile authoring smoke 必须在自包含 Product Runtime Image 中运行。");
 }

@@ -13,7 +13,7 @@ describe("Product runtime environment", () => {
             stateRoot,
             cacheRoot,
             development: false,
-            inheritedEnvironment: {API_ORIGIN: "inherited", HOST: "inherited-host"},
+            inheritedEnvironment: {API_ORIGIN: "inherited", HOST: "inherited-host", NODE_PATH: "outside-node-path"},
             stateEnvironment: {
                 API_ORIGIN: "state",
                 NEURO_BOOK_STATE_ROOT: "outside-state",
@@ -22,6 +22,7 @@ describe("Product runtime environment", () => {
                 LLMLINT_HOME: "outside-llmlint",
                 LLMLINT_CACHE_DIR: "outside-llmlint-cache",
                 BUN_INSTALL_CACHE_DIR: "outside-bun",
+                NODE_PATH: "state-node-path",
             },
             host: "127.0.0.1",
             runtimeExecutable: "bun-managed",
@@ -41,6 +42,7 @@ describe("Product runtime environment", () => {
             BUN_INSTALL_CACHE_DIR: join(cacheRoot, "bun", "install"),
             BUN: "bun-managed",
         });
+        expect(environment.NODE_PATH).toBeUndefined();
     });
 
     it("未指定 host 时保留 State 环境的容器监听配置", () => {

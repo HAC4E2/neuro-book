@@ -11,7 +11,7 @@ import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 import {resolveRuntimeArtifactCompilerContext} from "nbook/server/utils/runtime-artifact-compiler-context";
 
 const runtimePaths = runtimePathsFromEnv();
-const compiler = resolveRuntimeArtifactCompilerContext(runtimePaths.applicationRoot);
+const compiler = await resolveRuntimeArtifactCompilerContext(runtimePaths.applicationRoot);
 if (!compiler.productRuntime) {
     throw new Error("Variable authoring smoke 必须在自包含 Product Runtime Image 中运行。");
 }

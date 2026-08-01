@@ -14,13 +14,15 @@ import {
     stateRootIntegrityFailed,
 } from "nbook/server/runtime/state-root-integrity";
 
+let startup: Promise<void> | null = null;
+
 /**
- * 在 Nitro 开始监听前完成 Product 的异步启动门禁。
+ * 完成 Product 的异步启动门禁。
  *
  * 顺序是合同的一部分：Workspace Root 必须先存在，migration 必须先于任何
  * Session Store lease，最终 ready 才能表示 Agent HTTP 能力可用。
  */
-export async function startProductRuntime(): Promise<void> {
+export async function prepareProductRuntime(): Promise<void> {
     const runtimePaths = runtimePathsFromEnv();
     await mkdir(runtimePaths.workspaceRoot, {recursive: true});
 
@@ -52,4 +54,12 @@ export async function startProductRuntime(): Promise<void> {
         }
         throw error;
     }
+}
+
+/**
+ * 返回进程级唯一启动结果；Nitro middleware 与并发首批请求共享同一个 Promise。
+ */
+export function productRuntimeReady(): Promise<void> {
+    if (!startup) startup = prepareProductRuntime();
+    return startup;
 }

@@ -16,7 +16,10 @@ import {
     normalizeRuntimeArtifactPath,
     type RuntimeArtifactCompilerContext,
 } from "nbook/server/utils/runtime-artifact-compiler-context";
-import {validateRuntimeArtifactAuthoring} from "nbook/server/utils/runtime-artifact-authoring-interface";
+import {
+    assertRuntimeArtifactAuthoringMetafile,
+    validateRuntimeArtifactAuthoring,
+} from "nbook/server/utils/runtime-artifact-authoring-interface";
 
 export const VARIABLE_DEFINITION_COMPILER_VERSION = 3;
 export const VARIABLE_DEFINITION_COMPILED_DIR = ".compiled";
@@ -516,7 +519,7 @@ async function validateVariableDefinitionDependencies(item: VariableDefinitionMa
 }
 
 async function compileDefinitionFile(root: string, compiledDir: string, file: DefinitionFileEntry): Promise<VariableDefinitionManifestItem> {
-    await validateRuntimeArtifactAuthoring({
+    const authoringGraph = await validateRuntimeArtifactAuthoring({
         kind: "variable",
         root,
         entry: file.absolutePath,
@@ -526,7 +529,7 @@ async function compileDefinitionFile(root: string, compiledDir: string, file: De
     const artifactStem = stableArtifactStem(file.fileName, /\.(tsx|ts|mjs|js)$/);
     const temporaryOutputPath = join(compiledDir, `${artifactStem}.${randomUUID()}.building.mjs`);
     const temporaryTypePath = join(compiledDir, `${artifactStem}.${randomUUID()}.building.${VARIABLE_TYPES_FILE_NAME}`);
-    const compilerContext = resolveRuntimeArtifactCompilerContext();
+    const compilerContext = await resolveRuntimeArtifactCompilerContext();
     const tsconfigPath = compilerContext.tsconfigPath;
     try {
         const result = await build({
@@ -548,6 +551,7 @@ async function compileDefinitionFile(root: string, compiledDir: string, file: De
         if (!result.metafile) {
             throw new Error(`variable definition ${file.fileName} 编译缺少 esbuild metafile。`);
         }
+        await assertRuntimeArtifactAuthoringMetafile(authoringGraph, result.metafile, root);
         const dependencies = await readDependencies(result.metafile, tsconfigPath, root);
         const dependencyHash = hashDependencies(file.absolutePath, dependencies);
         const artifactHash = await hashFile(temporaryOutputPath);

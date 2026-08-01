@@ -2,6 +2,7 @@ import {builtinModules} from "node:module";
 import {createRequire} from "node:module";
 import {isAbsolute, dirname, extname, relative, resolve, sep} from "node:path";
 import {readFile, realpath, stat} from "node:fs/promises";
+import type {Metafile} from "esbuild";
 import type * as TypeScript from "typescript";
 
 // TypeScript 是 Product package island；顶层 ESM import 会让 Nitro 解析完整 compiler 并耗尽构建内存。
@@ -89,14 +90,25 @@ export async function validateRuntimeArtifactAuthoring(
 }
 
 type ModuleReference = Readonly<{
-    form: "import" | "export" | "import-equals" | "dynamic import" | "require";
+    form: "import" | "import type" | "export" | "import-equals" | "dynamic import" | "require" | "reference path" | "reference types";
     literal: boolean;
     specifier: string;
 }>;
 
 /** 从 TypeScript AST 收集所有会形成模块依赖的语法。 */
 function moduleReferences(sourceFile: TypeScript.SourceFile): ModuleReference[] {
-    const references: ModuleReference[] = [];
+    const references: ModuleReference[] = [
+        ...sourceFile.referencedFiles.map((reference) => ({
+            form: "reference path" as const,
+            literal: true,
+            specifier: reference.fileName,
+        })),
+        ...sourceFile.typeReferenceDirectives.map((reference) => ({
+            form: "reference types" as const,
+            literal: true,
+            specifier: reference.fileName,
+        })),
+    ];
     const addLiteral = (form: ModuleReference["form"], expression: TypeScript.Expression): void => {
         if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) {
             references.push({form, literal: true, specifier: expression.text});
@@ -107,6 +119,12 @@ function moduleReferences(sourceFile: TypeScript.SourceFile): ModuleReference[] 
     const visit = (node: TypeScript.Node): void => {
         if (ts.isImportDeclaration(node)) {
             addLiteral("import", node.moduleSpecifier);
+        } else if (ts.isImportTypeNode(node)) {
+            if (ts.isLiteralTypeNode(node.argument)) {
+                addLiteral("import type", node.argument.literal);
+            } else {
+                references.push({form: "import type", literal: false, specifier: node.argument.getText(sourceFile)});
+            }
         } else if (ts.isExportDeclaration(node) && node.moduleSpecifier) {
             addLiteral("export", node.moduleSpecifier);
         } else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)
@@ -129,6 +147,32 @@ function moduleReferences(sourceFile: TypeScript.SourceFile): ModuleReference[] 
     };
     visit(sourceFile);
     return references;
+}
+
+/**
+ * 复核 esbuild 最终输入没有在作者 root 内引入预检图之外的文件。
+ *
+ * SDK 与登记依赖位于 authoring root 外，由 Builder 投影合同负责；作者自己的 helper
+ * 必须与 AST 预检得到的 canonical realpath 集合完全一致。
+ */
+export async function assertRuntimeArtifactAuthoringMetafile(
+    graph: RuntimeArtifactAuthoringGraph,
+    metafile: Metafile,
+    workingDirectory: string,
+): Promise<void> {
+    const approved = new Set(graph.files);
+    for (const inputPath of Object.keys(metafile.inputs)) {
+        if (inputPath.startsWith("<")) continue;
+        const physicalPath = resolve(workingDirectory, inputPath);
+        const canonicalPath = await realpath(physicalPath).catch(() => null);
+        if (!canonicalPath) {
+            throw new Error(`Runtime Artifact Authoring metafile 输入不存在：${inputPath}`);
+        }
+        const authorRelative = relative(graph.root, canonicalPath);
+        if (!outsideRoot(authorRelative) && !approved.has(canonicalPath)) {
+            throw new Error(`Runtime Artifact Authoring metafile 引入了未登记作者模块：${authorRelative.split(sep).join("/")}`);
+        }
+    }
 }
 
 /** 解析相对模块，行为覆盖 esbuild/TypeScript authoring 源码的常用扩展名。 */

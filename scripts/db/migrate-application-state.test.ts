@@ -262,8 +262,8 @@ describe("Application State migration runner", () => {
     });
 
     it("非 Manager 启动门禁给出统一迁移命令", async () => {
-        const plugin = await readFile(resolve(import.meta.dirname, "../../server/plugins/agent-session-store.ts"), "utf8");
-        expect(plugin).toContain("bun run migrate:application-state -- --apply");
+        const startup = await readFile(resolve(import.meta.dirname, "../../server/runtime/product-startup.ts"), "utf8");
+        expect(startup).toContain("bun run migrate:application-state -- --apply");
     });
 
     it("真实 catalog v1 complete 使用新 run 升级到 v3，rollback 逐字节恢复旧 sentinel", async () => {

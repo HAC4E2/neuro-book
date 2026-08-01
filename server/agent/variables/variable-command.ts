@@ -11,6 +11,7 @@ import {resolveRuntimeArtifactCompilerContext} from "nbook/server/utils/runtime-
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 import {resolveApplicationRoot} from "nbook/server/workspace-files/system-workspace-assets";
+import {validateRuntimeArtifactAuthoring} from "nbook/server/utils/runtime-artifact-authoring-interface";
 
 const runtimeRequire = createRequire(import.meta.url);
 const ts = runtimeRequire("typescript") as typeof TypeScript;
@@ -135,7 +136,7 @@ async function runCheck(options: CliOptions): Promise<void> {
     const target = definitionTarget(options);
     const files = await findDefinitionFiles(target.root);
     for (const fileName of files) {
-        if (!runTypecheck(path.join(target.root, fileName))) {
+        if (!await runTypecheck(path.join(target.root, fileName))) {
             process.exitCode = 1;
             return;
         }
@@ -158,7 +159,7 @@ async function runCompile(options: CliOptions): Promise<void> {
     const target = definitionTarget(options);
     const files = await findDefinitionFiles(target.root);
     for (const fileName of files) {
-        if (!runTypecheck(path.join(target.root, fileName))) {
+        if (!await runTypecheck(path.join(target.root, fileName))) {
             process.exitCode = 1;
             return;
         }
@@ -204,11 +205,17 @@ async function findDefinitionFiles(root: string): Promise<string[]> {
         .sort((left, right) => left.localeCompare(right));
 }
 
-function runTypecheck(filePath: string): boolean {
+async function runTypecheck(filePath: string): Promise<boolean> {
     if (!/\.(tsx|ts)$/.test(filePath) || !fs.existsSync(filePath)) {
         return true;
     }
-    const configPath = resolveRuntimeArtifactCompilerContext().tsconfigPath;
+    await validateRuntimeArtifactAuthoring({
+        kind: "variable",
+        root: path.dirname(filePath),
+        entry: filePath,
+        allowedSdkSpecifiers: ["nbook/variable-sdk"],
+    });
+    const configPath = (await resolveRuntimeArtifactCompilerContext()).tsconfigPath;
     if (!configPath) {
         console.error("未找到 tsconfig.json");
         return false;

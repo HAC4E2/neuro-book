@@ -28,7 +28,8 @@ describe("Authoring CLI blackbox", () => {
 
         const illegalCompile = await runCli(profileCommand, ["compile", "illegal.profile.ts"], fixture);
         expect(illegalCompile.code).toBe(1);
-        expect(`${illegalCompile.stdout}\n${illegalCompile.stderr}`).toContain("Cannot find module 'zod'");
+        expect(`${illegalCompile.stdout}\n${illegalCompile.stderr}`).toContain("Profile SDK 违规");
+        expect(`${illegalCompile.stdout}\n${illegalCompile.stderr}`).toContain("- zod");
 
         const brokenCompile = await runCli(profileCommand, ["compile", "broken.profile.ts"], fixture);
         expect(brokenCompile.code).toBe(1);

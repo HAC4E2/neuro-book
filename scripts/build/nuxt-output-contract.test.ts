@@ -133,7 +133,8 @@ describe("Nuxt raw Product output", () => {
         }
 
         expect(invalid).toEqual([]);
-        const startup = await readFile(join(pluginRoot, "00-product-startup.ts"), "utf8");
-        expect(startup).toContain("await startProductRuntime()");
+        const startup = await readFile(resolve("server", "middleware", "00-product-startup.ts"), "utf8");
+        expect(startup).toContain("const startup = productRuntimeReady()");
+        expect(startup).toContain("await startup");
     });
 });

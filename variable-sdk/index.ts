@@ -8,22 +8,18 @@ export type {
 } from "nbook/variable-sdk/contracts";
 
 import type {TSchema} from "typebox";
-import {
-    defineProjectVariable as defineProjectVariableRuntime,
-    defineWorkspaceRootVariable as defineWorkspaceRootVariableRuntime,
-} from "nbook/server/agent/variables/registry";
 import type {DefineVariableInput, VariableDefinition} from "nbook/variable-sdk/contracts";
 
-/** 定义 Workspace Root `.nbook` 下的 global variable。 */
+/** 定义 Workspace Root `.nbook` 下的 global variable；不执行宿主 normalize。 */
 export function defineWorkspaceRootVariable<const TSchemaValue extends TSchema>(
     input: DefineVariableInput<TSchemaValue>,
 ): VariableDefinition<TSchemaValue> {
-    return defineWorkspaceRootVariableRuntime(input);
+    return {...input, namespace: "global"};
 }
 
-/** 定义单个 Project Workspace 下的 project variable。 */
+/** 定义单个 Project Workspace 下的 project variable；不执行宿主 normalize。 */
 export function defineProjectVariable<const TSchemaValue extends TSchema>(
     input: DefineVariableInput<TSchemaValue>,
 ): VariableDefinition<TSchemaValue> {
-    return defineProjectVariableRuntime(input);
+    return {...input, namespace: "project"};
 }

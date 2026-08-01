@@ -61,7 +61,7 @@ if [ "${NODE_ENV:-}" = "development" ] && is_source_dev; then
 fi
 if [ -f "$PRODUCT_COMMAND" ]; then
     export NEURO_BOOK_APPLICATION_ROOT="$APPLICATION_ROOT"
-    exec "$BUN_RUNTIME" --no-install "$PRODUCT_COMMAND" command workspace "$@"
+    exec "$BUN_RUNTIME" --no-install --no-env-file "$PRODUCT_COMMAND" command workspace "$@"
 fi
 if is_product_present; then
     echo "Product Runtime 不完整：缺少 .output/server/commands/product-command.mjs。" >&2

@@ -24,6 +24,7 @@ import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity
 import {resolveRuntimeArtifactCompilerContext} from "nbook/server/utils/runtime-artifact-compiler-context";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 import {prepareAuthoringCacheLease} from "nbook/server/runtime/authoring-cache";
+import {validateRuntimeArtifactAuthoring} from "nbook/server/utils/runtime-artifact-authoring-interface";
 
 const runtimeRequire = createRequire(import.meta.url);
 const ts = runtimeRequire("typescript") as typeof TypeScript;
@@ -430,9 +431,17 @@ async function runTypecheckFiles(filePaths: string[], target: Awaited<ReturnType
     if (checkedFilePaths.length === 0) {
         return true;
     }
+    for (const filePath of checkedFilePaths) {
+        await validateRuntimeArtifactAuthoring({
+            kind: "profile",
+            root: target.root,
+            entry: filePath,
+            allowedSdkSpecifiers: ["nbook/profile-sdk", "nbook/profile-sdk/writing"],
+        });
+    }
     const variableTypes = await prepareVariableTypeEnvironment(target, options);
     try {
-        const configPath = resolveRuntimeArtifactCompilerContext().tsconfigPath;
+        const configPath = (await resolveRuntimeArtifactCompilerContext()).tsconfigPath;
         if (!configPath) {
             console.error("未找到 tsconfig.json");
             return false;

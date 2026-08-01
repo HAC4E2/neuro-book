@@ -74,6 +74,8 @@ export async function buildProductRuntimeImage(): Promise<void> {
 
 /** 在锁定 Source snapshot 前生成 Product 所需的受控静态投影。 */
 export async function prepareProductRuntimeSource(buildEnvironment: NodeJS.ProcessEnv): Promise<void> {
+    await run("bun", ["x", "nuxt", "prepare", "--dotenv", ".env.product"], buildEnvironment);
+    await run("bun", ["run", "generate"], buildEnvironment);
     await run("bun", ["scripts/build/prepare-system-assets.ts"], buildEnvironment);
 }
 

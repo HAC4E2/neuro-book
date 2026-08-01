@@ -73,7 +73,7 @@ describe("Product build environment", () => {
         ]);
         const packageJson = JSON.parse(packageText) as {scripts: {"nuxt:build:raw": string}};
 
-        expect(packageJson.scripts["nuxt:build:raw"].match(/--dotenv \.env\.product/gu)).toHaveLength(2);
+        expect(packageJson.scripts["nuxt:build:raw"].match(/--dotenv \.env\.product/gu)).toHaveLength(1);
         expect(productEnv).toBe("# Product builds intentionally load no local runtime configuration.\n");
     });
 

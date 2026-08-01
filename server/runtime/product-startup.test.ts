@@ -29,7 +29,7 @@ vi.mock("nbook/server/agent/session/agent-session-store-runtime", () => ({
 }));
 vi.mock("nbook/server/app-logs/logger", () => ({appLogger: {warn: mocks.warn}}));
 
-import {startProductRuntime} from "nbook/server/runtime/product-startup";
+import {prepareProductRuntime} from "nbook/server/runtime/product-startup";
 
 describe("Product startup", () => {
     beforeEach(() => {
@@ -41,7 +41,7 @@ describe("Product startup", () => {
     });
 
     it("按 Workspace、migration、Session Store 顺序完成完整 ready 门禁", async () => {
-        await startProductRuntime();
+        await prepareProductRuntime();
 
         expect(mocks.mkdir).toHaveBeenCalledWith("C:/state/workspace", {recursive: true});
         expect(mocks.inspectStateRootIntegrity).toHaveBeenCalledWith({
@@ -63,7 +63,7 @@ describe("Product startup", () => {
         mocks.inspectStateRootIntegrity.mockResolvedValue(stateIntegrity);
         mocks.stateRootIntegrityFailed.mockReturnValue(true);
 
-        await startProductRuntime();
+        await prepareProductRuntime();
 
         expect(mocks.warn).toHaveBeenCalledWith(
             "runtime.stateRoot.integrityFailed",
@@ -75,7 +75,7 @@ describe("Product startup", () => {
     it("migration 未 ready 时绝不取得 Session Store lease", async () => {
         mocks.assertProductMigrationsReady.mockRejectedValue(new Error("migration pending"));
 
-        await expect(startProductRuntime()).rejects.toThrow("migration pending");
+        await expect(prepareProductRuntime()).rejects.toThrow("migration pending");
 
         expect(mocks.startAgentSessionStoreRuntime).not.toHaveBeenCalled();
     });

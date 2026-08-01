@@ -12,7 +12,10 @@ import {generateVariableTypes, VARIABLE_TYPES_FILE_NAME, type VariableTypeGenera
 import {appLogger} from "nbook/server/app-logs/logger";
 import {importRuntimeArtifact} from "nbook/server/utils/runtime-artifact-import";
 import {runtimeArtifactBundlePlugin} from "nbook/server/utils/runtime-artifact-bundle-plugin";
-import {validateRuntimeArtifactAuthoring} from "nbook/server/utils/runtime-artifact-authoring-interface";
+import {
+    assertRuntimeArtifactAuthoringMetafile,
+    validateRuntimeArtifactAuthoring,
+} from "nbook/server/utils/runtime-artifact-authoring-interface";
 import {
     resolveRuntimeArtifactCompilerContext,
     normalizeRuntimeArtifactPath,
@@ -1102,7 +1105,7 @@ export async function validateProfileArtifact(profileRoot: string, item: Profile
     if (await artifactHasNitroImportMetaShim(artifactPath)) {
         return {fresh: false, reason: "artifact_changed"};
     }
-    if (resolveRuntimeArtifactCompilerContext().productRuntime && !await artifactHasProductRequireShim(artifactPath)) {
+    if ((await resolveRuntimeArtifactCompilerContext()).productRuntime && !await artifactHasProductRequireShim(artifactPath)) {
         return {fresh: false, reason: "artifact_changed"};
     }
     if (!options.requireTypeArtifact) {
@@ -1356,7 +1359,7 @@ function profileKeyFromFileName(fileName: string): string {
 
 async function compileProfileFile(profileRoot: string, compiledDir: string, file: ProfileFileEntry): Promise<ProfileArtifactManifestItem> {
     const sourceHash = await hashFile(file.absolutePath);
-    await validateRuntimeArtifactAuthoring({
+    const authoringGraph = await validateRuntimeArtifactAuthoring({
         kind: "profile",
         root: profileRoot,
         entry: file.absolutePath,
@@ -1365,7 +1368,7 @@ async function compileProfileFile(profileRoot: string, compiledDir: string, file
     const temporaryStem = stableArtifactStem(file.fileName, /\.profile\.(tsx|ts|mjs|js)$/);
     const temporaryOutputPath = join(compiledDir, `${temporaryStem}.${randomUUID()}.building.mjs`);
     const temporaryTypePath = join(compiledDir, `${temporaryStem}.${randomUUID()}.building.${VARIABLE_TYPES_FILE_NAME}`);
-    const compilerContext = resolveRuntimeArtifactCompilerContext();
+    const compilerContext = await resolveRuntimeArtifactCompilerContext();
     const tsconfigPath = compilerContext.tsconfigPath;
     let dependencies: ProfileArtifactDependency[];
 
@@ -1394,6 +1397,7 @@ async function compileProfileFile(profileRoot: string, compiledDir: string, file
         if (!result.metafile) {
             throw new Error(`profile ${file.fileName} 编译缺少 esbuild metafile。`);
         }
+        await assertRuntimeArtifactAuthoringMetafile(authoringGraph, result.metafile, profileRoot);
         dependencies = await readArtifactDependencies(result.metafile, tsconfigPath, profileRoot);
         const dependencyHash = hashArtifactDependencies(file.absolutePath, dependencies);
         const artifactHash = await hashFile(temporaryOutputPath);

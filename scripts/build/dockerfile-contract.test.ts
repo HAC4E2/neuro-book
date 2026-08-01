@@ -28,7 +28,7 @@ describe("Docker Product runtime contract", () => {
         expect(dockerfile).not.toContain("prepare-system-assets.ts --force --product-build");
         expect(releaseWorkflow.replaceAll("\r\n", "\n")).toContain([
             "build-args: |",
-            "            NEURO_BOOK_SOURCE_REVISION=${{ github.sha }}",
+            "            NEURO_BOOK_SOURCE_REVISION=${{ inputs.revision }}",
         ].join("\n"));
         expect(entrypoint).toContain(".output/server/commands/product-command.mjs command start");
         expect(entrypoint).not.toContain("command migrate-database");

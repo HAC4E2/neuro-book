@@ -18,9 +18,9 @@ describe("workspace CLI wrapper", () => {
             const shell = await readFile(join(repoRoot, "assets", "workspace", ".nbook", "agent", "bin", command), "utf8");
             const cmd = await readFile(join(repoRoot, "assets", "workspace", ".nbook", "agent", "bin", `${command}.cmd`), "utf8");
 
-            expect(shell).toContain(`exec "$BUN_RUNTIME" --no-install "$PRODUCT_COMMAND" command ${command} "$@"`);
+            expect(shell).toContain(`exec "$BUN_RUNTIME" --no-install --no-env-file "$PRODUCT_COMMAND" command ${command} "$@"`);
             expect(shell).toContain('exec "$BUN_RUNTIME" --no-install "$SOURCE_SCRIPT" "$@"');
-            expect(cmd).toContain(`"%BUN_RUNTIME%" --no-install "%PRODUCT_COMMAND%" command ${command} %*`);
+            expect(cmd).toContain(`"%BUN_RUNTIME%" --no-install --no-env-file "%PRODUCT_COMMAND%" command ${command} %*`);
             expect(cmd).toContain('"%BUN_RUNTIME%" --no-install "%SOURCE_SCRIPT%" %*');
             expect(shell).not.toContain('cd "$APPLICATION_ROOT"');
             expect(cmd).not.toContain('pushd "%APPLICATION_ROOT%"');

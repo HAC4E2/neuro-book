@@ -87,6 +87,7 @@ const GITLESS_SOURCE_EXCLUDES = new Set([
     ".agent", ".cache", ".deploy", ".git", ".nuxt", ".output", ".runtime",
     "coverage", "dist", "node_modules", "tmp", "workspace",
 ]);
+const GITLESS_SOURCE_PATH_EXCLUDES = new Set(["server/generated/prisma"]);
 
 /** 调用方在构建前已经锁定、需要 Builder 复核的 Source 身份。 */
 export interface ProductRuntimeBuildExpectation {
@@ -711,6 +712,7 @@ async function gitlessSourcePaths(projectRoot: string): Promise<string[]> {
             const nextSegments = [...segments, entry.name];
             const absolutePath = resolve(directory, entry.name);
             if (entry.isDirectory()) {
+                if (GITLESS_SOURCE_PATH_EXCLUDES.has(nextSegments.join("/"))) continue;
                 await walk(absolutePath, nextSegments);
             } else if (entry.isFile() || entry.isSymbolicLink()) {
                 paths.push(nextSegments.join("/"));

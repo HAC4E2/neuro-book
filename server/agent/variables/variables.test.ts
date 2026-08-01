@@ -829,9 +829,11 @@ describe("Agent variable system", () => {
         ].join("\n"), "utf8");
         const previousCwd = process.cwd();
         const previousImageRoot = process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT;
+        const previousProductBuild = process.env.NEURO_BOOK_PRODUCT_BUILD;
         try {
             process.chdir(productRoot);
             process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT = join(productRoot, ".output");
+            process.env.NEURO_BOOK_PRODUCT_BUILD = "1";
             const manifest = await compileVariableDefinitions({
                 definitionRoot,
                 rootLabel: "assets/workspace/.nbook/agent/variables",
@@ -843,6 +845,8 @@ describe("Agent variable system", () => {
         } finally {
             if (previousImageRoot === undefined) delete process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT;
             else process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT = previousImageRoot;
+            if (previousProductBuild === undefined) delete process.env.NEURO_BOOK_PRODUCT_BUILD;
+            else process.env.NEURO_BOOK_PRODUCT_BUILD = previousProductBuild;
             process.chdir(previousCwd);
             await rm(productRoot, {recursive: true, force: true});
         }
@@ -855,6 +859,7 @@ describe("Agent variable system", () => {
         ];
         const previousCwd = process.cwd();
         const previousImageRoot = process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT;
+        const previousProductBuild = process.env.NEURO_BOOK_PRODUCT_BUILD;
         const results: Array<{artifact: string; manifest: string}> = [];
         try {
             for (const productRoot of roots) {
@@ -882,6 +887,7 @@ describe("Agent variable system", () => {
                 ].join("\n"), "utf8");
                 process.chdir(productRoot);
                 process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT = join(productRoot, ".output");
+                process.env.NEURO_BOOK_PRODUCT_BUILD = "1";
                 const manifest = await compileVariableDefinitions({
                     definitionRoot,
                     rootLabel: "assets/workspace/.nbook/agent/variables",
@@ -900,6 +906,8 @@ describe("Agent variable system", () => {
         } finally {
             if (previousImageRoot === undefined) delete process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT;
             else process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT = previousImageRoot;
+            if (previousProductBuild === undefined) delete process.env.NEURO_BOOK_PRODUCT_BUILD;
+            else process.env.NEURO_BOOK_PRODUCT_BUILD = previousProductBuild;
             process.chdir(previousCwd);
             await Promise.all(roots.map((root) => rm(root, {recursive: true, force: true})));
         }

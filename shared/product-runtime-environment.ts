@@ -22,7 +22,7 @@ export type ProductRuntimeEnvironmentInput = {
  */
 export function createProductRuntimeEnvironment(input: ProductRuntimeEnvironmentInput): NodeJS.ProcessEnv {
     const host = input.host?.trim();
-    return {
+    const environment: NodeJS.ProcessEnv = {
         ...input.inheritedEnvironment,
         ...input.stateEnvironment,
         NODE_ENV: input.development ? "development" : "production",
@@ -36,4 +36,6 @@ export function createProductRuntimeEnvironment(input: ProductRuntimeEnvironment
         BUN_INSTALL_CACHE_DIR: join(input.cacheRoot, "bun", "install"),
         ...(input.runtimeExecutable ? {BUN: input.runtimeExecutable} : {}),
     };
+    delete environment.NODE_PATH;
+    return environment;
 }

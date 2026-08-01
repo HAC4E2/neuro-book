@@ -27,13 +27,7 @@ export function defineVariableNamespace<TSchemaValue extends TSchema>(
     namespace: VariableNamespace,
     input: DefineVariableInput<TSchemaValue>,
 ): VariableDefinition<TSchemaValue> {
-    return {
-        ...input,
-        namespace,
-        readable: input.readable ?? true,
-        writableBy: input.writableBy ?? ["user"],
-        writeMode: input.writeMode ?? "patch",
-    };
+    return {...input, namespace};
 }
 
 /**
@@ -88,12 +82,7 @@ export class VariableRegistry {
         if (this.definitions.has(fullPath)) {
             throw new Error(`变量定义冲突：${fullPath}`);
         }
-        this.definitions.set(fullPath, {
-            ...definition,
-            readable: definition.readable ?? true,
-            writableBy: definition.writableBy ?? ["user"],
-            writeMode: definition.writeMode ?? "patch",
-        });
+        this.definitions.set(fullPath, normalizeVariableDefinition(definition));
     }
 
     /**
@@ -212,6 +201,16 @@ export class VariableRegistry {
     private fullPath(namespace: VariableNamespace, key: string): string {
         return `${namespace}.${normalizeVariablePath(key)}`;
     }
+}
+
+/** 宿主唯一的 VariableDefinition 默认值 normalizer。 */
+function normalizeVariableDefinition(definition: VariableDefinition): VariableDefinition {
+    return {
+        ...definition,
+        readable: definition.readable ?? true,
+        writableBy: definition.writableBy ?? ["user"],
+        writeMode: definition.writeMode ?? "patch",
+    };
 }
 
 /**

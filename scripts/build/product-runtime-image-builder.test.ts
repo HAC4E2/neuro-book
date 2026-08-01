@@ -509,6 +509,8 @@ describe("ProductRuntimeImageBuilder", {timeout: 30_000}, () => {
         const root = await sourceFixture();
         const revision = (await execFileAsync("git", ["rev-parse", "HEAD"], {cwd: root, windowsHide: true})).stdout.trim();
         await rm(join(root, ".git"), {recursive: true, force: true});
+        await mkdir(join(root, "server", "generated", "prisma"), {recursive: true});
+        await writeFile(join(root, "server", "generated", "prisma", "client.ts"), "generated-v1\n", "utf8");
         const builder = new ProductRuntimeImageBuilder(root);
 
         await expect(simpleImage(builder, "gitless-without-identity")).rejects.toThrow(
@@ -523,6 +525,7 @@ describe("ProductRuntimeImageBuilder", {timeout: 30_000}, () => {
                 await mkdir(join(imageRoot, "server"), {recursive: true});
                 await writeFile(join(imageRoot, "server", "index.mjs"), "valid", "utf8");
                 await writeRuntimeFixture(imageRoot);
+                await writeFile(join(root, "server", "generated", "prisma", "client.ts"), "generated-v2\n", "utf8");
             },
         });
         expect(image.manifest).toMatchObject({revision, dirty: false});
