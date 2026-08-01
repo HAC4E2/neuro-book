@@ -11,6 +11,8 @@ import {
     type CharacterVisualDirectWriteResult,
 } from "nbook/shared/text-to-image-character-direct-write";
 import {createTextToImageFileHash} from "nbook/shared/text-to-image-file-hash";
+import {TextToImageContractHashSchema} from "nbook/shared/text-to-image-tag-resolution";
+import {VisualStableIdSchema} from "nbook/shared/text-to-image-character-visual";
 import {
     CharacterVisualMaterializationError,
     normalizeOutfitFileStem,
@@ -24,10 +26,12 @@ const characterMutationTails = new Map<string, Promise<void>>();
 const JournalTargetSchema = z.object({
     path: z.string().trim().min(1).max(500),
     priorContent: z.string().max(5 * 1024 * 1024).nullable(),
-    priorHash: z.string().nullable(),
+    priorHash: TextToImageContractHashSchema.nullable(),
+    /** path + prior bytes 的不可变快照；prepared 只能补写 target 字段。 */
+    snapshotHash: TextToImageContractHashSchema,
     /** null 表示被冻结但 Director 未请求写入，必须保留原字节。 */
     targetContent: z.string().max(5 * 1024 * 1024).nullable(),
-    targetHash: z.string().nullable(),
+    targetHash: TextToImageContractHashSchema.nullable(),
     state: z.enum(["pending", "written"]),
 }).strict();
 
@@ -39,16 +43,17 @@ const JournalSchema = z.object({
     characterPath: z.string().trim().min(1).max(500),
     characterId: z.string().trim().min(1).max(160),
     actor: z.literal("user-local"),
-    sourceCharacterFileHash: z.string(),
+    sourceCharacterFileHash: TextToImageContractHashSchema,
     sourceCharacterMarkdown: z.string().max(5 * 1024 * 1024),
     idempotencyKey: z.string().uuid(),
     operationId: z.string().trim().min(1).max(200),
     sessionAcquisitionTag: z.string().trim().min(1).max(500),
     clientMessageId: z.string().trim().min(1).max(500),
+    identityHash: TextToImageContractHashSchema,
     sessionId: z.number().int().positive().nullable(),
     invocationId: z.string().trim().min(1).max(200).nullable(),
     directorOutput: CharacterVisualDirectorOutputSchema.nullable(),
-    directorOutputHash: z.string().nullable(),
+    directorOutputHash: TextToImageContractHashSchema.nullable(),
     targets: z.array(JournalTargetSchema).max(65),
     diagnostics: z.array(z.object({
         code: z.literal("TAG_REVIEW_EXCLUDED"),
@@ -58,13 +63,27 @@ const JournalSchema = z.object({
         message: z.string(),
     }).strict()).max(256),
     result: JournalResultSchema.nullable(),
-    resultHash: z.string().nullable(),
+    resultHash: TextToImageContractHashSchema.nullable(),
     terminalError: z.object({
         code: CharacterVisualDirectWriteTerminalErrorCodeSchema,
         message: z.string().trim().min(1).max(2_000),
     }).strict().nullable(),
 }).strict();
 type Journal = z.infer<typeof JournalSchema>;
+type JournalTarget = z.infer<typeof JournalTargetSchema>;
+type JournalIdentityEnvelope = Pick<Journal,
+    "projectPath"
+    | "characterPath"
+    | "characterId"
+    | "actor"
+    | "sourceCharacterFileHash"
+    | "sourceCharacterMarkdown"
+    | "idempotencyKey"
+    | "operationId"
+    | "sessionAcquisitionTag"
+    | "clientMessageId"
+>;
+type JournalTargetSnapshotEnvelope = Pick<JournalTarget, "path" | "priorContent" | "priorHash">;
 
 type DurableResult =
     | {state: "missing"}
@@ -204,9 +223,7 @@ export class CharacterVisualDirectWriteService {
             throw new CharacterVisualDirectWriteError("CHARACTER_VISUAL_SOURCE_STALE", "角色 index.md 已在请求前变化");
         }
         const operationId = `character-visual-${randomUUID()}`;
-        const journal = JournalSchema.parse({
-            schemaVersion: JOURNAL_VERSION,
-            state: "created",
+        const identity: JournalIdentityEnvelope = {
             projectPath: input.projectPath,
             characterPath: input.characterPath,
             characterId: snapshot.characterId,
@@ -217,6 +234,12 @@ export class CharacterVisualDirectWriteService {
             operationId,
             sessionAcquisitionTag: `character-visual-direct-write:${input.idempotencyKey}`,
             clientMessageId: `character-visual-direct-write:${input.idempotencyKey}`,
+        };
+        const journal = JournalSchema.parse({
+            schemaVersion: JOURNAL_VERSION,
+            state: "created",
+            ...identity,
+            identityHash: hashIdentityEnvelope(identity),
             sessionId: null,
             invocationId: null,
             directorOutput: null,
@@ -230,6 +253,7 @@ export class CharacterVisualDirectWriteService {
             resultHash: null,
             terminalError: null,
         });
+        assertJournalIntegrity(journal);
         await this.runtime.write({path: journalPath, content: renderJournal(journal), knownBefore: null});
         return journal;
     }
@@ -393,10 +417,14 @@ export class CharacterVisualDirectWriteService {
                 await this.markLocked(journalPath, journal, "stale", error);
                 throw error;
             }
-            const nextTarget: z.input<typeof JournalTargetSchema> = {
+            const snapshot: JournalTargetSnapshotEnvelope = {
                 path: item.path,
                 priorContent: existing?.priorContent ?? current,
                 priorHash: existing?.priorHash ?? optionalHash(current),
+            };
+            const nextTarget: z.input<typeof JournalTargetSchema> = {
+                ...snapshot,
+                snapshotHash: existing?.snapshotHash ?? hashTargetSnapshotEnvelope(snapshot),
                 targetContent: item.content,
                 targetHash: createTextToImageFileHash(item.content),
                 state: "pending",
@@ -499,7 +527,8 @@ export class CharacterVisualDirectWriteService {
 }
 
 function freezeTarget(path: string, content: string | null): z.input<typeof JournalTargetSchema> {
-    return {path, priorContent: content, priorHash: optionalHash(content), targetContent: null, targetHash: null, state: "pending"};
+    const snapshot: JournalTargetSnapshotEnvelope = {path, priorContent: content, priorHash: optionalHash(content)};
+    return {...snapshot, snapshotHash: hashTargetSnapshotEnvelope(snapshot), targetContent: null, targetHash: null, state: "pending"};
 }
 
 function compareCodePoints(left: string, right: string): number {
@@ -543,25 +572,78 @@ function renderJournal(journal: Journal): string {
 
 function parseJournal(raw: string): Journal {
     try {
-        const journal = JournalSchema.parse(JSON.parse(raw));
-        if ((journal.directorOutput === null) !== (journal.directorOutputHash === null)
-            || (journal.directorOutput !== null && journal.directorOutputHash !== hashStrict(journal.directorOutput))
-            || (journal.result === null) !== (journal.resultHash === null)
-            || (journal.result !== null && journal.resultHash !== hashStrict(journal.result))
-            || journal.targets.some((target) => target.priorHash !== optionalHash(target.priorContent)
-                || (target.targetContent === null) !== (target.targetHash === null)
-                || (target.targetContent !== null && target.targetHash !== optionalHash(target.targetContent)))) {
-            throw new Error("journal hash mismatch");
-        }
-        return journal;
+        return assertJournalIntegrity(JournalSchema.parse(JSON.parse(raw)));
     } catch {
         throw new CharacterVisualDirectWriteError("CHARACTER_VISUAL_DIRECTOR_FAILED", "direct-write journal 已损坏");
     }
 }
 
+/** 仅检测意外损坏与内部不一致；不是防可重算 hash 的对抗性签名。 */
+function assertJournalIntegrity(journal: Journal): Journal {
+    const identity: JournalIdentityEnvelope = {
+        projectPath: journal.projectPath,
+        characterPath: journal.characterPath,
+        characterId: journal.characterId,
+        actor: journal.actor,
+        sourceCharacterFileHash: journal.sourceCharacterFileHash,
+        sourceCharacterMarkdown: journal.sourceCharacterMarkdown,
+        idempotencyKey: journal.idempotencyKey,
+        operationId: journal.operationId,
+        sessionAcquisitionTag: journal.sessionAcquisitionTag,
+        clientMessageId: journal.clientMessageId,
+    };
+    if (journal.identityHash !== hashIdentityEnvelope(identity)
+        || createTextToImageFileHash(journal.sourceCharacterMarkdown) !== journal.sourceCharacterFileHash
+        || characterIdFromPath(journal.characterPath) !== journal.characterId
+        || (journal.directorOutput === null) !== (journal.directorOutputHash === null)
+        || (journal.directorOutput !== null && journal.directorOutputHash !== hashStrict(journal.directorOutput))
+        || (journal.result === null) !== (journal.resultHash === null)
+        || (journal.result !== null && journal.resultHash !== hashStrict(journal.result))
+        || journal.targets.some((target) => !isCharacterTargetPath(journal.characterId, target.path)
+            || target.priorHash !== optionalHash(target.priorContent)
+            || target.snapshotHash !== hashTargetSnapshotEnvelope(target)
+            || (target.targetContent === null) !== (target.targetHash === null)
+            || (target.targetContent !== null && target.targetHash !== optionalHash(target.targetContent)))) {
+        throw new Error("journal integrity mismatch");
+    }
+    return journal;
+}
+
 /** strict schema 已收窄值域后，JSON 字节串是 journal 内部不可变合约的唯一哈希输入。 */
 function hashStrict(value: CharacterVisualDirectorOutput | CharacterVisualDirectWriteResult): string {
     return createTextToImageFileHash(JSON.stringify(value));
+}
+
+function hashIdentityEnvelope(value: JournalIdentityEnvelope): string {
+    return createTextToImageFileHash(JSON.stringify(value));
+}
+
+function hashTargetSnapshotEnvelope(value: JournalTargetSnapshotEnvelope): string {
+    return createTextToImageFileHash(JSON.stringify({
+        path: value.path,
+        priorContent: value.priorContent,
+        priorHash: value.priorHash,
+    }));
+}
+
+function characterIdFromPath(characterPath: string): string | null {
+    const match = /^lorebook\/character\/([^/]+)\/index\.md$/u.exec(characterPath);
+    if (match === null) return null;
+    const parsed = VisualStableIdSchema.safeParse(match[1]);
+    return parsed.success && parsed.data === match[1] ? parsed.data : null;
+}
+
+function isCharacterTargetPath(characterId: string, targetPath: string): boolean {
+    const root = `lorebook/character/${characterId}`;
+    if (targetPath === `${root}/image-tags.md`) return true;
+    const match = new RegExp(`^${escapeRegExp(root)}/outfits/([^/]+)\\.md$`, "u").exec(targetPath);
+    if (match === null) return false;
+    const parsed = VisualStableIdSchema.safeParse(match[1]);
+    return parsed.success && parsed.data === match[1];
+}
+
+function escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 function requireJournal(raw: string | null): Journal {

@@ -300,6 +300,31 @@ describe("character visual direct-write service", () => {
         await expect(service(runtime).generate(request())).rejects.toMatchObject({code: "CHARACTER_VISUAL_DIRECTOR_FAILED"});
     });
 
+    it("fails closed before I/O when immutable journal identity or target routes are tampered", async () => {
+        const journalPath = `.nbook/text-to-image/character-visual-direct-write/${KEY}/journal.json`;
+        const mutations: Array<(journal: {sourceCharacterMarkdown: string; characterId: string; targets: Array<{path: string}>}) => void> = [
+            (journal) => { journal.sourceCharacterMarkdown = "# Tampered\n"; },
+            (journal) => { journal.characterId = "other"; },
+            (journal) => { journal.targets[0]!.path = "lorebook/character/hero/outfits/redirect.md"; },
+            (journal) => { journal.targets[1]!.path = "lorebook/character/other/outfits/redirect.md"; },
+        ];
+        for (const mutate of mutations) {
+            const runtime = new MemoryRuntime();
+            await service(runtime).generate(request());
+            const journal = JSON.parse((await runtime.read(journalPath))!);
+            mutate(journal);
+            runtime.files.set(journalPath, JSON.stringify(journal));
+            runtime.writes.length = 0;
+            runtime.acquire.mockClear();
+            runtime.start.mockClear();
+
+            await expect(service(runtime).generate(request())).rejects.toMatchObject({code: "CHARACTER_VISUAL_DIRECTOR_FAILED"});
+            expect(runtime.acquire).not.toHaveBeenCalled();
+            expect(runtime.start).not.toHaveBeenCalled();
+            expect(runtime.writes).toEqual([]);
+        }
+    });
+
     it("marks source or target drift stale before prepare", async () => {
         const sourceChanged = new MemoryRuntime();
         sourceChanged.resolve.mockImplementation(async () => {
