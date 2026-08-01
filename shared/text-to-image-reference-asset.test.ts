@@ -1,6 +1,7 @@
 import {describe, expect, it} from "vitest";
 import {
     FrozenReferenceAssetSchema,
+    CanonicalInformationExtractedSchema,
     REFERENCE_ASSET_MIME_BY_KIND,
     ReferenceContentHashSchema,
     TextToImageInpaintSelectionSchema,
@@ -88,6 +89,13 @@ describe("TextToImageReferenceAsset shared contract", () => {
 
     it("为存储层提供稳定的 informationExtracted 规范化与 cache key hash", () => {
         expect(canonicalizeInformationExtracted(0.70)).toBe("0.7");
+        const tinyCanonicalInformation = canonicalizeInformationExtracted(1e-7);
+        expect(tinyCanonicalInformation).toBe("1e-7");
+        expect(CanonicalInformationExtractedSchema.safeParse(tinyCanonicalInformation).success).toBe(true);
+        expect(() => CanonicalInformationExtractedSchema.safeParse("not-a-number")).not.toThrow();
+        expect(CanonicalInformationExtractedSchema.safeParse("not-a-number").success).toBe(false);
+        expect(CanonicalInformationExtractedSchema.safeParse(" 0.7").success).toBe(false);
+        expect(CanonicalInformationExtractedSchema.safeParse("0.70").success).toBe(false);
         const key = {
             providerKind: "novelai" as const,
             sourceContentHash: VALID_HASH,
@@ -98,10 +106,13 @@ describe("TextToImageReferenceAsset shared contract", () => {
         const hash = hashVibeEncodingCacheKey(key);
         expect(hash).toMatch(/^sha256:[a-f0-9]{64}$/u);
         expect(hashVibeEncodingCacheKey({...key, sourceContentHash: OTHER_HASH})).not.toBe(hash);
-        expect(hashVibeEncodingCacheKey({...key, providerModel: "nai-diffusion-4-full"})).not.toBe(hash);
         expect(hashVibeEncodingCacheKey({...key, canonicalInformation: "0.8"})).not.toBe(hash);
         expect(VibeEncodingCacheKeySchema.safeParse({...key, providerKind: "other"}).success).toBe(false);
         expect(VibeEncodingCacheKeySchema.safeParse({...key, encoderVersion: "novelai-vibe/v4-5full/v2"}).success).toBe(false);
+        expect(VibeEncodingCacheKeySchema.safeParse({
+            ...key,
+            providerModel: "nai-diffusion-4-full",
+        }).success).toBe(false);
     });
 
     it("reference selection 只持久 contentHash/strength/informationExtracted，拒绝 dataUrl/bytes/token/assetId", () => {

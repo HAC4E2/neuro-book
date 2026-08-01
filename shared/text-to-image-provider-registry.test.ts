@@ -13,6 +13,7 @@ import {
     ProviderGrammarRegistrySchema,
     ProviderSyntaxNodeSchema,
     isNovelAiV4Model,
+    isNovelAiVibeEncodingPair,
     preflightNovelAiCapabilities,
     resolveProviderCapability,
 } from "nbook/shared/text-to-image-provider-registry";
@@ -89,6 +90,17 @@ describe("text-to-image Provider Grammar / Capability registry", () => {
         expect(NovelAiWireModelIdSchema.safeParse("vendor-wire-model").success).toBe(false);
         expect(NovelAiVibeEncoderVersionSchema.safeParse("novelai-vibe/v4-5full/v1").success).toBe(true);
         expect(NovelAiVibeEncoderVersionSchema.safeParse("novelai-vibe/v4/unknown").success).toBe(false);
+    });
+
+    it("从唯一 registry 导出 Vibe model/encoder 配对判定", () => {
+        expect(isNovelAiVibeEncodingPair(
+            "nai-diffusion-4-5-full",
+            "novelai-vibe/v4-5full/v1",
+        )).toBe(true);
+        expect(isNovelAiVibeEncodingPair(
+            "nai-diffusion-4-full",
+            "novelai-vibe/v4-5full/v1",
+        )).toBe(false);
     });
 
     it("把唯一的 inpaint 与 Vibe 容器映射冻结在唯一 registry，并使其影响 hash", () => {

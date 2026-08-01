@@ -3,6 +3,7 @@ import {hashTextToImageContract, type TextToImageContractValue} from "nbook/shar
 import {
     NovelAiProviderModelIdSchema,
     NovelAiVibeEncoderVersionSchema,
+    isNovelAiVibeEncodingPair,
 } from "nbook/shared/text-to-image-provider-registry";
 
 /**
@@ -94,9 +95,10 @@ export function canonicalizeInformationExtracted(value: number): string {
 
 /** 已规范化的 Vibe informationExtracted，避免相同数值以不同文本参与缓存身份。 */
 export const CanonicalInformationExtractedSchema = z.string()
-    .regex(/^(?:0|1|0\.[0-9]+)$/u, "canonicalInformation 必须是 0..1 的十进制数")
+    .max(64, "canonicalInformation 不能超过 64 个字符")
     .superRefine((value, context) => {
-        if (canonicalizeInformationExtracted(Number(value)) !== value) {
+        const parsed = ReferenceInformationExtractedSchema.safeParse(Number(value));
+        if (!parsed.success || parsed.data.toString() !== value) {
             context.addIssue({
                 code: "custom",
                 message: "canonicalInformation 必须使用标准数值表示",
@@ -121,7 +123,15 @@ export const VibeEncodingCacheKeySchema = z.object({
     providerModel: NovelAiProviderModelIdSchema,
     canonicalInformation: CanonicalInformationExtractedSchema,
     encoderVersion: NovelAiVibeEncoderVersionSchema,
-}).strict();
+}).strict().superRefine((key, context) => {
+    if (!isNovelAiVibeEncodingPair(key.providerModel, key.encoderVersion)) {
+        context.addIssue({
+            code: "custom",
+            path: ["providerModel"],
+            message: "providerModel 与 encoderVersion 必须是已登记的 Vibe 容器配对",
+        });
+    }
+});
 
 export type VibeEncodingCacheKey = z.infer<typeof VibeEncodingCacheKeySchema>;
 

@@ -435,3 +435,13 @@ export function preflightNovelAiCapabilities(input: NovelAiCapabilityPreflightIn
 export function isNovelAiV4Model(model: NovelAiProviderModelId): boolean {
     return PROVIDER_GRAMMAR_REGISTRY.modelFamilies.v4.some((registeredModel) => registeredModel === model);
 }
+
+/** 判断 model 与 Vibe encoder 是否构成 registry 中已登记的唯一容器配对。 */
+export function isNovelAiVibeEncodingPair(
+    model: NovelAiProviderModelId,
+    encoderVersion: NovelAiVibeEncoderVersion,
+): boolean {
+    return PROVIDER_GRAMMAR_REGISTRY.advanced.vibeTransfer.containers.some(
+        (container) => container.model === model && container.encoderVersion === encoderVersion,
+    );
+}
