@@ -1085,3 +1085,10 @@ uninstall
 - 所有写操作统一经外置 heartbeat lease、Operation 恢复和锁内 Manifest 重读；调用前 Manifest 只用于定位，不能复活已删除或已变更的实例。Windows Installed v1 固定为用户级唯一程序根，Portable/Source 以 canonical Installation Root 摘要隔离 lease。
 - update journal 增加 migration `applying` checkpoint、operation-owned migration root、Product 双 rename 恢复和 cleanup retry。卸载自身不再接受任意 stop callback；Windows 受管 Bun 由 Installation Root 外的 Host 按摘要锁定 intent，等待 Manager 退出后删除精确 owner。
 - 原生卸载和 Desktop reset 不要求损坏的 Product payload 仍能通过执行验证，只要求严格 Manifest/owner 布局和服务停止；容器删除仍先验证 Compose 与 OCI identity。回归证明 Product payload 损坏时仍可卸载，运行、迁移与管理员命令的 fail-closed 门禁不变。
+
+### 2026-08-02：Manager `.38` 公开与 Portable 自卸载调度补漏
+
+- `@notnotype/neuro-book-manager@0.1.0-canary.38` 已由 workflow `30720825090` 成功公开；npm `gitHead=060f719c6b1f21965642ab90363f75d7f08f7c9c`，tarball shasum 为 `0d60bb060a47677f6d1b35f1bc464cd6b44b1857`，签名、provenance、全新 Bun cache 的真实 `bunx` 与 `manager:verify-public` 均通过。`.34` 至 `.37` 继续保留为未发布失败审计记录。
+- clean Source/Product 归档组装首次暴露 PortableGit SFX 长路径失败：相同 `2.55.0.windows.3` 资产与 SHA-256 在 30 字符输出根成功，在 248 字符输出根退出 1；`\\?\` 仍返回失败，junction 又会跳过 post-install，均不能作为修复。Portable 组装 operation 改到 OS 临时目录下的短根，并在任何下载前验证 170 字符 SFX 输出预算；真实 16,322-entry Portable ZIP 已成功生成。
+- `.38` Portable 的 doctor、完整 Product Runtime Contract、Owned Process、Manager 管理员创建、前台启动、HTTP 登录均通过；但默认自卸载实测只写入 intent 和“已安排”提示，30 秒后程序仍在。最小夹具确认 Bun 1.3.14 的 `spawn(..., detached: true).unref()` Host 不会实际运行，现有测试只同步执行 PowerShell 脚本，因此漏掉了真实调度边界。
+- 修复保留原 SHA-256 intent 与外置 Host，不增加第二套事务：Manager 同步等待一个短命 PowerShell launcher 通过 `Start-Process` 创建 Host，所有路径经私有环境 JSON 传递，Host 仍等待 Manager PID 退出后执行精确删除。新增真实调度测试先红后绿；Windows Manager 全量现为 240 passed / 2 skipped，pack 5 files / 0.42 MiB，Manager/scripts typecheck 与发行合同通过。因为公开 `.38` 不含该修复，下一公开候选必须是 `.39`，不能把 `.38` 写进最终 0.9 Candidate。

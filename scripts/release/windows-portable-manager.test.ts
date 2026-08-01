@@ -13,7 +13,12 @@ import {writeInstallationManifest} from "nbook/packages/neuro-book-manager/src/m
 import {PRODUCT_ASSET_NAMES} from "nbook/packages/neuro-book-manager/src/platform";
 import {PORTABLE_ROOT_LOCATORS} from "nbook/packages/neuro-book-manager/src/root-locators";
 import {PRODUCT_PLATFORMS, type InstallationManifest, type ReleaseManifest} from "nbook/packages/neuro-book-manager/src/types";
-import {materializePortableArchives, portableArchiveComponents} from "nbook/scripts/deploy/windows-portable-manager";
+import {
+    createPortableOperation,
+    materializePortableArchives,
+    PORTABLE_GIT_SFX_OUTPUT_PATH_LIMIT,
+    portableArchiveComponents,
+} from "nbook/scripts/deploy/windows-portable-manager";
 import {releaseBuildId as computeReleaseBuildId} from "nbook/scripts/release/release-output";
 import {verifyWindowsPortable} from "nbook/scripts/release/verify-windows-portable";
 import {writeZipArchive, type ZipEntry} from "nbook/scripts/utils/zip";
@@ -36,6 +41,24 @@ afterEach(async () => {
 });
 
 describe("Windows Portable archive provenance", () => {
+    it.runIf(process.platform === "win32")("组装根为PortableGit SFX保留传统MAX_PATH空间", async () => {
+        const operation = await createPortableOperation();
+        cleanupRoots.push(operation.root);
+
+        expect(resolve(operation.root, "..")).toBe(resolve(tmpdir()));
+        expect(operation.stage).toBe(resolve(operation.root, "p"));
+        expect(operation.managerPackageStage).toBe(resolve(operation.root, "m"));
+        const managedGeneration = `managed-${"0".repeat(36)}`;
+        const portableGitExtraction = resolve(
+            operation.stage,
+            ".deploy",
+            "staging",
+            managedGeneration,
+            "extracted",
+        );
+        expect(portableGitExtraction.length).toBeLessThanOrEqual(PORTABLE_GIT_SFX_OUTPUT_PATH_LIMIT);
+    });
+
     it("工作树与归档内容不同时只组装传入的 Source/Product archives", async () => {
         const root = await temporaryRoot();
         const liveRoot = resolve(root, "live-worktree");

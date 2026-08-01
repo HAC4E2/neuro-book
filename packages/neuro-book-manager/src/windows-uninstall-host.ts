@@ -1,12 +1,41 @@
 import {randomUUID} from "node:crypto";
-import {spawn} from "node:child_process";
 import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {isAbsolute, join, relative, resolve, sep} from "node:path";
 
 import {ensureDirectory, pathExists, sha256File, writeJsonAtomic} from "#manager/files";
+import {runCapture} from "#manager/process";
 import {INSTALLED_WINDOWS_ROOT_LOCATORS, localAppDataRoot, resolveInstallationRoots} from "#manager/root-locators";
 
 const INTENT_PATH = join(".deploy", "uninstall-intent.json");
+const HOST_COMMAND_ENVIRONMENT = "NEURO_BOOK_WINDOWS_UNINSTALL_HOST_COMMAND";
+const HOST_INPUT_ENVIRONMENT = "NEURO_BOOK_WINDOWS_UNINSTALL_HOST_INPUT";
+
+const WINDOWS_UNINSTALL_HOST_BOOTSTRAP = String.raw`$hostInput = $env:NEURO_BOOK_WINDOWS_UNINSTALL_HOST_INPUT | ConvertFrom-Json
+$scriptPath = [string]$hostInput.scriptPath
+$parameters = @{
+    ParentPid = [int]$hostInput.parentPid
+    IntentPath = [string]$hostInput.intentPath
+    ExpectedToken = [string]$hostInput.expectedToken
+    ExpectedRoot = [string]$hostInput.expectedRoot
+    ExpectedIntentSha256 = [string]$hostInput.expectedIntentSha256
+    ResultPath = [string]$hostInput.resultPath
+}
+& $scriptPath @parameters
+`;
+
+const WINDOWS_UNINSTALL_LAUNCHER_SCRIPT = String.raw`$arguments = @(
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-EncodedCommand",
+    $env:NEURO_BOOK_WINDOWS_UNINSTALL_HOST_COMMAND
+)
+$hostProcess = Start-Process -FilePath "powershell.exe" -ArgumentList $arguments -WindowStyle Hidden -PassThru
+if ($null -eq $hostProcess -or $hostProcess.Id -le 0) { throw "Windows Uninstall Host launch failed." }
+Write-Output $hostProcess.Id
+`;
 
 /** Host 只支持当前两种 Windows 可发行安装布局。 */
 export type WindowsUninstallLayout = "installation-scoped" | "installed-windows";
@@ -96,36 +125,29 @@ export async function scheduleWindowsUninstall(input: {
     const intentSha256 = await sha256File(intentPath);
     await writeFile(scriptPath, WINDOWS_UNINSTALL_HOST_SCRIPT, "utf8");
     try {
-        const child = spawn("powershell.exe", [
+        const hostInput = JSON.stringify({
+            scriptPath,
+            parentPid: input.parentPid ?? process.pid,
+            intentPath,
+            expectedToken: intent.token,
+            expectedRoot: root,
+            expectedIntentSha256: intentSha256,
+            resultPath,
+        });
+        const hostCommand = Buffer.from(WINDOWS_UNINSTALL_HOST_BOOTSTRAP, "utf16le").toString("base64");
+        await runCapture("powershell.exe", [
             "-NoLogo",
             "-NoProfile",
             "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            scriptPath,
-            "-ParentPid",
-            String(input.parentPid ?? process.pid),
-            "-IntentPath",
-            intentPath,
-            "-ExpectedToken",
-            intent.token,
-            "-ExpectedRoot",
-            root,
-            "-ExpectedIntentSha256",
-            intentSha256,
-            "-ResultPath",
-            resultPath,
+            "-Command",
+            WINDOWS_UNINSTALL_LAUNCHER_SCRIPT,
         ], {
-            detached: true,
-            stdio: "ignore",
-            windowsHide: true,
+            env: {
+                ...process.env,
+                [HOST_COMMAND_ENVIRONMENT]: hostCommand,
+                [HOST_INPUT_ENVIRONMENT]: hostInput,
+            },
         });
-        await new Promise<void>((resolvePromise, rejectPromise) => {
-            child.once("spawn", resolvePromise);
-            child.once("error", rejectPromise);
-        });
-        child.unref();
     } catch (error) {
         if (!input.intent) await rm(intentPath, {force: true});
         await rm(hostRoot, {recursive: true, force: true});

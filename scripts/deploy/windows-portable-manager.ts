@@ -4,6 +4,7 @@ import {createReadStream, createWriteStream, mkdirSync} from "node:fs";
 import {finished} from "node:stream/promises";
 import {
     lstat,
+    mkdtemp,
     mkdir,
     open,
     readFile,
@@ -13,6 +14,7 @@ import {
     rmdir,
     writeFile,
 } from "node:fs/promises";
+import {tmpdir} from "node:os";
 import {basename, dirname, relative, resolve} from "node:path";
 import {once} from "node:events";
 import {fileURLToPath} from "node:url";
@@ -64,6 +66,7 @@ const UNIX_FILE_TYPE_MASK = 0xf000;
 const UNIX_DIRECTORY = 0x4000;
 const UNIX_REGULAR_FILE = 0x8000;
 const UNIX_SYMBOLIC_LINK = 0xa000;
+export const PORTABLE_GIT_SFX_OUTPUT_PATH_LIMIT = 170;
 
 interface ZipArchiveEntry {
     archivePath: string;
@@ -102,10 +105,8 @@ export async function packagePortable(output: string, sourceArchive: string, pro
     if (process.platform !== "win32" || process.arch !== "x64") {
         throw new Error("Windows Portable 必须在 Windows x64 runner 构建。");
     }
-    const operationId = `${new Date().toISOString().replace(/[^0-9]/gu, "")}-${randomUUID()}`;
-    const operationRoot = resolve(ROOT, ".agent", "workspace", "windows-portable-manager", operationId);
-    const stage = resolve(operationRoot, "portable");
-    const managerPackageStage = resolve(operationRoot, "manager-package");
+    const operation = await createPortableOperation();
+    const {root: operationRoot, stage, managerPackageStage} = operation;
     await mkdir(stage, {recursive: true});
 
     try {
@@ -153,6 +154,32 @@ export async function packagePortable(output: string, sourceArchive: string, pro
     } finally {
         await rm(operationRoot, {recursive: true, force: true});
     }
+}
+
+/**
+ * 创建短路径Portable组装根。
+ *
+ * PortableGit自解压程序仍受传统MAX_PATH约束，且必须完成包内post-install；
+ * 因此整个一次性Installation Root放在OS临时目录，并在下载前拒绝过长环境。
+ */
+export async function createPortableOperation(): Promise<{
+    root: string;
+    stage: string;
+    managerPackageStage: string;
+}> {
+    const root = await mkdtemp(resolve(tmpdir(), "nbp-"));
+    const stage = resolve(root, "p");
+    const managerPackageStage = resolve(root, "m");
+    const managedGeneration = `managed-${"0".repeat(36)}`;
+    const portableGitExtraction = resolve(stage, ".deploy", "staging", managedGeneration, "extracted");
+    if (portableGitExtraction.length > PORTABLE_GIT_SFX_OUTPUT_PATH_LIMIT) {
+        await rm(root, {recursive: true, force: true});
+        throw new Error(
+            `Windows临时目录过长，PortableGit无法安全完成解压：${portableGitExtraction.length}`
+            + ` > ${PORTABLE_GIT_SFX_OUTPUT_PATH_LIMIT}。请为TEMP/TMP配置更短的可写目录后重试。`,
+        );
+    }
+    return {root, stage, managerPackageStage};
 }
 
 /** 把已验证 archive identity 原样投影到 Installation Manifest v5 组件。 */

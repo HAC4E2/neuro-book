@@ -5,6 +5,7 @@ import {afterEach, describe, expect, it, vi} from "vitest";
 
 import {pathExists, sha256File} from "#manager/files";
 import {
+    scheduleWindowsUninstall,
     WINDOWS_UNINSTALL_HOST_SCRIPT,
     type WindowsUninstallIntent,
     type WindowsUninstallLayout,
@@ -18,6 +19,39 @@ afterEach(async () => {
 });
 
 describe.runIf(process.platform === "win32")("Windows Uninstall Host", () => {
+    it("真实调度的Host不依赖Bun父进程句柄完成Portable删除", async () => {
+        const sandbox = testSandbox("host-scheduled-portable");
+        const root = join(sandbox, "portable");
+        await Promise.all([
+            write(root, "payload.txt", "payload"),
+            write(root, "data/workspace/novel/book.md", "truth"),
+        ]);
+
+        const scheduled = await scheduleWindowsUninstall({
+            root,
+            layout: "installation-scoped",
+            stateRoot: join(root, "data"),
+            cacheRoot: join(root, ".cache"),
+            desktopRoot: join(root, "data", ".desktop"),
+            deleteData: false,
+            parentPid: 2147483647,
+        });
+        let result: HostResult | undefined;
+        for (let attempt = 0; attempt < 100; attempt += 1) {
+            if (await pathExists(scheduled.resultPath)) {
+                const text = (await readFile(scheduled.resultPath, "utf8")).replace(/^\uFEFF/u, "");
+                result = JSON.parse(text) as HostResult;
+                break;
+            }
+            await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
+        }
+
+        expect(result).toMatchObject({ok: true});
+        await expect(stat(join(root, "payload.txt"))).rejects.toMatchObject({code: "ENOENT"});
+        await expect(readFile(join(root, "data", "workspace", "novel", "book.md"), "utf8"))
+            .resolves.toBe("truth");
+    }, 15_000);
+
     it("Portable 默认只保留 State Root 用户数据", async () => {
         const sandbox = testSandbox("host-preserve-portable");
         const root = join(sandbox, "portable");
