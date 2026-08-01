@@ -3,8 +3,7 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {verifyApplicationExecution} from "#manager/application-execution";
-import {buildTestRuntimeImage} from "#manager/fixtures/runtime-image";
-import {currentProductPlatform} from "#manager/platform";
+import {buildTestRuntimeImage, TEST_RUNTIME_IMAGE_PLATFORM} from "#manager/fixtures/runtime-image";
 import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "#manager/root-locators";
 import type {InstallationManifest} from "#manager/types";
 
@@ -59,7 +58,7 @@ async function nativeFixture(): Promise<{root: string; manifest: InstallationMan
         sourceRoot,
         version: VERSION,
         revision: REVISION,
-        platform: currentProductPlatform(),
+        platform: TEST_RUNTIME_IMAGE_PLATFORM,
     });
     await rename(image.path, join(root, ".output"));
     const manifest = installationManifest({
@@ -67,7 +66,7 @@ async function nativeFixture(): Promise<{root: string; manifest: InstallationMan
         version: VERSION,
         revision: REVISION,
         path: ".output",
-        platform: currentProductPlatform(),
+        platform: TEST_RUNTIME_IMAGE_PLATFORM,
         imageId: image.manifest.imageId,
         sourceDigest: image.manifest.sourceDigest,
         lockfileSha256: image.manifest.lockfileSha256,

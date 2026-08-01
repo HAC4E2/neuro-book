@@ -5,7 +5,7 @@ import {join} from "node:path";
 
 import {afterEach, describe, expect, it} from "vitest";
 
-import {buildTestRuntimeImage} from "#manager/fixtures/runtime-image";
+import {buildTestRuntimeImage, hostRuntimeImageFixtureAvailable} from "#manager/fixtures/runtime-image";
 import {doctor} from "#manager/installation-health";
 import {installationStatus} from "#manager/maintenance";
 import {writeInstallationManifest} from "#manager/manifest-store";
@@ -19,7 +19,7 @@ const roots: string[] = [];
 
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, {recursive: true, force: true}))));
 
-describe("Installation Health", () => {
+describe.runIf(hostRuntimeImageFixtureAvailable(currentProductPlatform()))("Installation Health", () => {
     it("原生服务正常停止时doctor保持healthy并给出start warning", async () => {
         const {root, manifest} = await fixture();
         const report = await doctor(root, manifest);

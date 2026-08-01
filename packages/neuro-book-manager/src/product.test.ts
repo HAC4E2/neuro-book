@@ -3,9 +3,8 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {buildTestRuntimeImage} from "#manager/fixtures/runtime-image";
+import {buildTestRuntimeImage, TEST_RUNTIME_IMAGE_PLATFORM} from "#manager/fixtures/runtime-image";
 import {verifyProductRuntimeControlPlane, verifyProductRuntimeImage} from "#manager/product";
-import {currentProductPlatform} from "#manager/platform";
 
 const roots: string[] = [];
 const REVISION = "b".repeat(40);
@@ -43,13 +42,13 @@ describe("Manager Product Runtime Image control plane", () => {
 async function runtimeImageFixture() {
     const sourceRoot = await mkdtemp(join(tmpdir(), "nbook-manager-runtime-image-"));
     roots.push(sourceRoot);
-    const platform = currentProductPlatform();
+    const platform = TEST_RUNTIME_IMAGE_PLATFORM;
     const image = await buildTestRuntimeImage({sourceRoot, version: "0.8.0", revision: REVISION, platform});
     const identity = {
         version: image.manifest.version,
         revision: image.manifest.revision,
         dirty: image.manifest.dirty,
-        platform,
+        platform: image.manifest.platform,
         imageId: image.manifest.imageId,
         sourceDigest: image.manifest.sourceDigest,
         lockfileSha256: image.manifest.lockfileSha256,

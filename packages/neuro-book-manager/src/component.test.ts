@@ -6,9 +6,8 @@ import {zipSync, strToU8} from "fflate";
 import {afterEach, describe, expect, it} from "vitest";
 
 import {rollbackProduct, rollbackReleaseSource, stageReleaseProduct, stageReleaseSource, switchProduct, switchReleaseSource} from "#manager/component";
-import {buildTestRuntimeImage} from "#manager/fixtures/runtime-image";
+import {buildTestRuntimeImage, TEST_RUNTIME_IMAGE_PLATFORM} from "#manager/fixtures/runtime-image";
 import {removePath} from "#manager/files";
-import {currentProductPlatform} from "#manager/platform";
 import type {VerifiedProductRuntimeImage} from "nbook/scripts/build/product-runtime-image-builder";
 
 const roots: string[] = [];
@@ -81,7 +80,7 @@ describe("Product component rollback", () => {
         const root = await mkdtemp(join(tmpdir(), "manager-product-archive-"));
         roots.push(root);
         const revision = "b".repeat(40);
-        const platform = currentProductPlatform();
+        const platform = TEST_RUNTIME_IMAGE_PLATFORM;
         const archive = await productArchive(join(root, "fixture-source"), revision, platform);
         const identity = {
             imageId: archive.image.manifest.imageId,
@@ -166,7 +165,7 @@ function dataAsset(bytes: Uint8Array): {url: string; sha256: string; bytes: numb
 async function productArchive(
     sourceRoot: string,
     revision: string,
-    platform: ReturnType<typeof currentProductPlatform>,
+    platform: typeof TEST_RUNTIME_IMAGE_PLATFORM,
 ): Promise<{bytes: Uint8Array; image: VerifiedProductRuntimeImage}> {
     const image = await buildTestRuntimeImage({sourceRoot, version: "1.0.0", revision, platform});
     const files: Record<string, Uint8Array> = {};

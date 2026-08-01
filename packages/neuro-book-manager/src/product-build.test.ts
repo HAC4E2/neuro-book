@@ -6,7 +6,7 @@ import {afterEach, describe, expect, it, vi} from "vitest";
 const processes = vi.hoisted(() => ({run: vi.fn(), runBun: vi.fn()}));
 vi.mock("#manager/process", () => processes);
 
-import {buildTestRuntimeImage} from "#manager/fixtures/runtime-image";
+import {buildTestRuntimeImage, hostRuntimeImageFixtureAvailable} from "#manager/fixtures/runtime-image";
 import {currentProductPlatform} from "#manager/platform";
 import {buildSourceProduct} from "#manager/product";
 
@@ -19,7 +19,7 @@ afterEach(async () => {
 });
 
 describe("Manager source Product build", () => {
-    it("调用统一 nuxt:build 并只返回 staging verified image", async () => {
+    it.runIf(hostRuntimeImageFixtureAvailable(currentProductPlatform()))("调用统一 nuxt:build 并只返回 staging verified image", async () => {
         const root = await mkdtemp(join(tmpdir(), "nbook-manager-product-build-"));
         roots.push(root);
         const sourceRoot = join(root, "source");

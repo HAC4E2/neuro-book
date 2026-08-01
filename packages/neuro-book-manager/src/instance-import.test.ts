@@ -5,7 +5,7 @@ import {join} from "node:path";
 
 import {afterEach, describe, expect, it} from "vitest";
 
-import {buildTestRuntimeImage} from "#manager/fixtures/runtime-image";
+import {buildTestRuntimeImage, hostRuntimeImageFixtureAvailable} from "#manager/fixtures/runtime-image";
 import {inspectInstance} from "#manager/instance-discovery";
 import {importInstallation, inspectImport} from "#manager/instance-import";
 import {writeInstallationManifest} from "#manager/manifest-store";
@@ -18,7 +18,7 @@ import type {InstallationManifest} from "#manager/types";
 const roots: string[] = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, {recursive: true, force: true}))));
 
-describe("实例离线导入", () => {
+describe.runIf(hostRuntimeImageFixtureAvailable(currentProductPlatform()))("实例离线导入", () => {
     it("服务停机只产生warning，确认后可导入", async () => {
         const root = await fixture();
         const configPath = join(root, "manager-home", "config.json");

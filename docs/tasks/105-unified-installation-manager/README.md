@@ -1060,6 +1060,13 @@ uninstall
 - 修复把Verifier加入shared tsconfig，并扩展Manager release clean-checkout合同测试，确保后续共享Product执行依赖必须登记在独立编译边界。Manager全量回归随之增加为239 passed / 2 skipped。
 - `.31`至`.34` tag都不移动、不删除、不复用；下一公开候选固定为`0.1.0-canary.35`。只有npm精确版本、provenance、tarball、真实全新缓存`bunx`与公开验证全部通过后，才继续应用minor release。
 
+### 2026-08-02：Manager `.35` clean-checkout Runtime Image fixture 门禁失败
+
+- `manager-v0.1.0-canary.35` 已保留release commit与tag；workflow `30720239948` 在`Verify package`阶段运行Manager测试时失败，npm publish仍未执行。
+- 根因是Runtime Image测试fixture按`currentProductPlatform()`调用生产Builder。Windows已有canonical owner policy所以本地239项全绿；Ubuntu正确映射为`linux-x64-glibc`，而该平台尚未完成真实A/B测量和人工登记，生产Builder按设计拒绝构造镜像。不能用Windows数字伪造Linux正式baseline，也不能给Verifier增加测试后门。
+- 修复按测试真实依赖拆分：与宿主无关的Verifier、归档下载和执行句柄测试固定使用已审查的`windows-x64` fixture；只有必须表达“当前宿主可运行原生Product”的安装健康、离线导入与Source Product build测试，才根据canonical policy登记状态决定是否运行。Linux/macOS未来登记正式policy后会自动启用，不需再改测试。
+- Windows受影响6 files / 18 tests、Manager全量239 passed / 2 skipped、typecheck与release contract均通过。`.31`至`.35` tag继续保留且不复用；下一公开候选固定为`0.1.0-canary.36`。
+
 ### 2026-08-02：Installation Mutation 与可恢复卸载收口
 
 - 所有写操作统一经外置 heartbeat lease、Operation 恢复和锁内 Manifest 重读；调用前 Manifest 只用于定位，不能复活已删除或已变更的实例。Windows Installed v1 固定为用户级唯一程序根，Portable/Source 以 canonical Installation Root 摘要隔离 lease。

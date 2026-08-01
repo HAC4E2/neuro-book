@@ -4,6 +4,7 @@ import {join} from "node:path";
 
 import type {ProductPlatform, ProductRuntimeImageIdentity} from "#manager/types";
 import {
+    hasProductRuntimeBuildPolicy,
     PRODUCT_RUNTIME_BUILDER_CONTRACT_VERSION,
     ProductRuntimeImageBuilder,
     productRuntimeBuildPolicy,
@@ -14,6 +15,14 @@ import {
     PRODUCT_RUNTIME_COMMAND_BOOTSTRAP,
     PRODUCT_RUNTIME_CONTRACT_PATH,
 } from "nbook/shared/product-runtime-contract";
+
+/** 与宿主无关的Verifier/归档测试固定消费已审查的最小规范平台。 */
+export const TEST_RUNTIME_IMAGE_PLATFORM = "windows-x64" satisfies ProductPlatform;
+
+/** 只有canonical policy已登记时，测试才能构造当前宿主可执行的真实镜像。 */
+export function hostRuntimeImageFixtureAvailable(platform: ProductPlatform): boolean {
+    return hasProductRuntimeBuildPolicy(platform);
+}
 
 /** 纯 schema/流程测试使用的合法 identity；真实镜像测试必须使用 Builder 返回值。 */
 export const TEST_RUNTIME_IMAGE_IDENTITY = {
