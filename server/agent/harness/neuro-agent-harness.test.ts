@@ -17,6 +17,7 @@ import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness"
 import {
     HarnessInvocationExecutionLeaseStore,
     InvocationExecutionEvidenceLostError,
+    type InvocationExecutionLease,
 } from "nbook/server/agent/harness/invocation-execution-lease";
 import type {ResolvedPiModel} from "nbook/server/agent/harness/pi-model-metadata";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
@@ -10280,7 +10281,86 @@ describe("NeuroAgentHarness", () => {
         }));
     });
 
-    it("durable reader reports an accepted live lease, then reconstruction fences it after expiry", async () => {
+    it("real JsonlSession terminal commit wins the execution lock before a concurrent durable orphan reader", async () => {
+        const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root, {
+            ownerId: () => "owner-real-terminal-wins",
+            leaseDurationMs: 3_600_000,
+        });
+        const originalWithLiveExecutionFence = executionLeaseStore.withLiveExecutionFence.bind(executionLeaseStore);
+        const terminalCommitEntered = createDeferred();
+        const releaseTerminalCommit = createDeferred();
+        let interceptTerminal = true;
+        (executionLeaseStore as unknown as {
+            withLiveExecutionFence(
+                lease: InvocationExecutionLease,
+                commit: () => Promise<object>,
+            ): Promise<{committed: false} | {committed: true; value: object}>;
+        }).withLiveExecutionFence = async (lease, commit) => originalWithLiveExecutionFence(lease, async () => {
+            if (interceptTerminal) {
+                interceptTerminal = false;
+                terminalCommitEntered.resolve();
+                await releaseTerminalCommit.promise;
+            }
+            return commit();
+        });
+        await harness.dispose();
+        harness = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: false,
+            executionLeaseStore,
+        });
+        faux.setResponses([fauxAssistantMessage("terminal wins")]);
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+        const clientMessageId = "00000000-0000-4000-8000-00000000001c";
+        const invocation = harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            queueIfBusy: false,
+            clientMessageId,
+            message: {text: "run"},
+            onAccepted: async () => undefined,
+        });
+        await terminalCommitEntered.promise;
+        const reconstructed = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            profiles: harness.profiles,
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: false,
+            executionLeaseStore,
+        });
+        let readerSettled = false;
+        const durableRead = reconstructed.readDurableInvocationResult({
+            sessionId: created.sessionId,
+            clientMessageId,
+        }).finally(() => {
+            readerSettled = true;
+        });
+        await new Promise<void>((resolveImmediate) => setImmediate(resolveImmediate));
+        expect(readerSettled).toBe(false);
+        releaseTerminalCommit.resolve();
+
+        const result = await invocation;
+        expect(result.status, result.error).toBe("completed");
+        await expect(durableRead).resolves.toEqual({
+            state: "completed_without_result",
+            invocationId: result.invocationId,
+        });
+        const lifecycleStatuses = harness.repo.activePath(await harness.repo.readSession(created.sessionId))
+            .filter((entry) => entry.type === "invocation_lifecycle" && entry.invocationId === result.invocationId)
+            .map((entry) => entry.type === "invocation_lifecycle" ? entry.status : "");
+        expect(lifecycleStatuses).toEqual(["start", "end"]);
+        await reconstructed.dispose();
+    });
+
+    it("real JsonlSession orphan reader wins before Provider and rejects the late owner terminal", async () => {
         let now = Date.parse("2026-07-30T00:00:00.000Z");
         const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root, {
             now: () => now,
@@ -10353,6 +10433,99 @@ describe("NeuroAgentHarness", () => {
         const fenced = await invocation;
         expect(fenced.status).not.toBe("completed");
         expect(providerCalls).toBe(0);
+        const activePath = harness.repo.activePath(await harness.repo.readSession(created.sessionId));
+        expect(activePath).toContainEqual(expect.objectContaining({
+            type: "custom",
+            key: `harness.execution_lease_established:${fenced.invocationId}`,
+        }));
+        const lifecycleStatuses = activePath
+            .filter((entry) => entry.type === "invocation_lifecycle" && entry.invocationId === fenced.invocationId)
+            .map((entry) => entry.type === "invocation_lifecycle" ? entry.status : "");
+        expect(lifecycleStatuses).toEqual(["start"]);
+        await reconstructed.dispose();
+    });
+
+    it("real JsonlSession terminal append survives a crash before sidecar prune and is authoritative on reconstruction", async () => {
+        const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root, {
+            ownerId: () => "owner-real-session-crash",
+            leaseDurationMs: 3_600_000,
+        });
+        await harness.dispose();
+        harness = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: false,
+            executionLeaseStore,
+        });
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+        const invocationId = "invocation-real-session-crash";
+        const clientMessageId = "00000000-0000-4000-8000-00000000001d";
+        await harness.repo.appendEntry(created.sessionId, {
+            type: "custom",
+            key: `harness.invocation_admission:${invocationId}`,
+            value: {clientMessageId},
+        });
+        await harness.repo.appendEntry(created.sessionId, {
+            type: "invocation_lifecycle",
+            invocationId,
+            status: "start",
+        });
+        await executionLeaseStore.ensureHealthy();
+        const lease = await executionLeaseStore.establish({
+            sessionId: created.sessionId,
+            invocationId,
+            clientMessageId,
+        }, async (established) => {
+            await harness.repo.appendEntry(created.sessionId, {
+                type: "custom",
+                key: `harness.execution_lease_established:${invocationId}`,
+                value: {
+                    invocationId,
+                    fence: established.fence,
+                },
+            });
+        });
+        await executionLeaseStore.recordProviderStarted(lease);
+        await expect(executionLeaseStore.withLiveExecutionFence(lease, async () => {
+            await harness.repo.appendEntry(created.sessionId, {
+                type: "invocation_lifecycle",
+                invocationId,
+                status: "end",
+            });
+            throw new Error("simulated crash after real Session terminal append");
+        })).rejects.toThrow("simulated crash after real Session terminal append");
+
+        const reconstructed = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            profiles: harness.profiles,
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: false,
+            executionLeaseStore,
+        });
+        await expect(reconstructed.readDurableInvocationResult({
+            sessionId: created.sessionId,
+            clientMessageId,
+        })).resolves.toEqual({
+            state: "completed_without_result",
+            invocationId,
+        });
+        const activePath = reconstructed.repo.activePath(await reconstructed.repo.readSession(created.sessionId));
+        const lifecycleStatuses = activePath
+            .filter((entry) => entry.type === "invocation_lifecycle" && entry.invocationId === invocationId)
+            .map((entry) => entry.type === "invocation_lifecycle" ? entry.status : "");
+        expect(lifecycleStatuses).toEqual(["start", "end"]);
+        let lateTerminalCallbacks = 0;
+        await expect(executionLeaseStore.withLiveExecutionFence(lease, async () => {
+            lateTerminalCallbacks += 1;
+        })).resolves.toEqual({committed: false});
+        expect(lateTerminalCallbacks).toBe(0);
         await reconstructed.dispose();
     });
 
@@ -10428,6 +10601,7 @@ describe("NeuroAgentHarness", () => {
             ], {stopReason: "toolUse"}),
             fauxAssistantMessage("must not reach second Provider"),
         ]);
+        const events: string[] = [];
 
         const result = await harness.invokeAgent({
             sessionId: created.sessionId,
@@ -10438,6 +10612,9 @@ describe("NeuroAgentHarness", () => {
             onAccepted: async () => {
                 acceptedCalls += 1;
             },
+            onEvent: async (event) => {
+                events.push(event.type);
+            },
         });
 
         expect(providerCalls).toBe(1);
@@ -10447,16 +10624,546 @@ describe("NeuroAgentHarness", () => {
         const lifecycle = harness.repo.activePath(await harness.repo.readSession(created.sessionId))
             .filter((entry) => entry.type === "invocation_lifecycle" && entry.invocationId === result.invocationId);
         expect(lifecycle.map((entry) => entry.type === "invocation_lifecycle" ? entry.status : "")).toEqual(["start"]);
+        expect(harness.repo.reduce(await harness.repo.readSession(created.sessionId)).messages.map((message) => message.role)).toEqual(["user"]);
+        expect(events).toContain("tool_execution_start");
+        expect(events).not.toContain("tool_execution_end");
         await reconstructed.dispose();
     });
 
-    it.each([
-        {
-            failureKind: "stale fence",
-            failure: () => new InvocationExecutionEvidenceLostError("heartbeat stale fence"),
-            expectedDiagnostic: "heartbeat stale fence",
-            terminalFenceFailure: false,
+    it("Provider in-flight 时被跨进程 orphan 后不持久化迟到 transcript", async () => {
+        let now = Date.parse("2026-07-30T00:00:00.000Z");
+        const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root, {
+            now: () => now,
+            ownerId: () => "owner-provider-midflight",
+            leaseDurationMs: 1_000,
+        });
+        await harness.dispose();
+        harness = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: false,
+            executionLeaseStore,
+        });
+        const providerEntered = createDeferred();
+        const releaseProvider = createDeferred();
+        faux.setResponses([
+            async () => {
+                providerEntered.resolve();
+                await releaseProvider.promise;
+                return fauxAssistantMessage("late Provider transcript");
+            },
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+        const reader = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            profiles: harness.profiles,
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: false,
+            executionLeaseStore: new HarnessInvocationExecutionLeaseStore(root, {
+                now: () => now,
+                ownerId: () => "reader-provider-midflight",
+                leaseDurationMs: 1_000,
+            }),
+        });
+        const clientMessageId = "00000000-0000-4000-8000-000000000020";
+        const running = harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            queueIfBusy: false,
+            clientMessageId,
+            message: {text: "run"},
+            onAccepted: async () => undefined,
+        });
+        await providerEntered.promise;
+        now += 1_001;
+        await expect(reader.readDurableInvocationResult({
+            sessionId: created.sessionId,
+            clientMessageId,
+        })).resolves.toMatchObject({
+            state: "orphaned",
+            lifecycle: "running",
+            providerStartRecorded: true,
+        });
+        releaseProvider.resolve();
+
+        const result = await running;
+        expect(result.status).not.toBe("completed");
+        expect(harness.repo.reduce(await harness.repo.readSession(created.sessionId)).messages.map((message) => message.role)).toEqual(["user"]);
+        const lifecycle = harness.repo.activePath(await harness.repo.readSession(created.sessionId))
+            .filter((entry) => entry.type === "invocation_lifecycle" && entry.invocationId === result.invocationId)
+            .map((entry) => entry.type === "invocation_lifecycle" ? entry.status : "");
+        expect(lifecycle).toEqual(["start"]);
+        await reader.dispose();
+    });
+
+    it("revalidates the execution fence immediately before the automatic compaction Provider call", async () => {
+        let now = Date.parse("2026-07-30T00:00:00.000Z");
+        const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root, {
+            now: () => now,
+            ownerId: () => "owner-auto-compaction",
+            leaseDurationMs: 3_600_000,
+        });
+        const originalRecordProviderStarted = executionLeaseStore.recordProviderStarted.bind(executionLeaseStore);
+        let providerFenceCalls = 0;
+        executionLeaseStore.recordProviderStarted = async (lease) => {
+            providerFenceCalls += 1;
+            if (providerFenceCalls === 2) {
+                now += 3_600_001;
+            }
+            await originalRecordProviderStarted(lease);
+        };
+        await harness.dispose();
+        harness = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: false,
+            executionLeaseStore,
+            toolExecution: "sequential",
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {key: "test.auto-compaction-fence", name: "Auto Compaction Fence"},
+            initialSchema: Type.Object({}),
+            allowedToolKeys: ["continue_before_auto_compaction"],
+            runtimeDefaults: {
+                compaction: {
+                    trigger: {kind: "tokens", value: 1},
+                    keepRecent: {kind: "tokens", value: 1},
+                },
+            },
+            prepare() {
+                return {};
+            },
+        }), false);
+        harness.tools.register({
+            key: "continue_before_auto_compaction",
+            name: "continue_before_auto_compaction",
+            label: "Continue before automatic compaction",
+            description: "Completes the first turn so automatic compaction is considered.",
+            executionMode: "sequential",
+            parameters: Type.Object({}),
+            async execute() {
+                return {
+                    content: [{type: "text", text: "continue"}],
+                    details: {},
+                    terminate: false,
+                };
+            },
+        });
+        let turnProviderCalls = 0;
+        let compactionProviderCalls = 0;
+        const originalStream = faux.runtime.streamSimple;
+        const originalComplete = faux.runtime.completeSimple;
+        faux.runtime.streamSimple = (...args) => {
+            turnProviderCalls += 1;
+            return originalStream.apply(faux.runtime, args);
+        };
+        faux.runtime.completeSimple = (...args) => {
+            compactionProviderCalls += 1;
+            return originalComplete.apply(faux.runtime, args);
+        };
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("continue_before_auto_compaction", {}, {id: "auto-compaction-fence-turn-1"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage("must not run compaction Provider"),
+            fauxAssistantMessage("must not run next turn Provider"),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.auto-compaction-fence",
+            initial: {},
+            workspaceRoot: root,
+        });
+        await harness.repo.appendMessage(created.sessionId, createUserMessage({text: "OLD CONTEXT"}));
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            queueIfBusy: false,
+            clientMessageId: "00000000-0000-4000-8000-00000000000d",
+            message: {text: "run"},
+            onAccepted: async () => undefined,
+        });
+
+        expect(providerFenceCalls).toBe(2);
+        expect(compactionProviderCalls).toBe(0);
+        expect(turnProviderCalls).toBe(1);
+        expect(result.status).not.toBe("completed");
+        const snapshot = await harness.repo.readSession(created.sessionId);
+        expect(snapshot.entries.some((entry) => entry.type === "compaction")).toBe(false);
+    });
+
+    it("automatic compaction Provider in-flight 时被跨进程 orphan 后不写 compaction entry", async () => {
+        let now = Date.parse("2026-07-30T00:00:00.000Z");
+        const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root, {
+            now: () => now,
+            ownerId: () => "owner-auto-compaction-midflight",
+            leaseDurationMs: 3_600_000,
+        });
+        await harness.dispose();
+        harness = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: false,
+            executionLeaseStore,
+            toolExecution: "sequential",
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {key: "test.auto-compaction-midflight", name: "Auto Compaction Midflight"},
+            initialSchema: Type.Object({}),
+            allowedToolKeys: ["continue_before_midflight_compaction"],
+            runtimeDefaults: {
+                compaction: {
+                    trigger: {kind: "tokens", value: 1},
+                    keepRecent: {kind: "tokens", value: 1},
+                },
+            },
+            prepare() {
+                return {};
+            },
+        }), false);
+        harness.tools.register({
+            key: "continue_before_midflight_compaction",
+            name: "continue_before_midflight_compaction",
+            label: "Continue before midflight compaction",
+            description: "Completes the first turn before the blocked compaction Provider.",
+            executionMode: "sequential",
+            parameters: Type.Object({}),
+            async execute() {
+                return {
+                    content: [{type: "text", text: "continue"}],
+                    details: {},
+                    terminate: false,
+                };
+            },
+        });
+        const compactionProviderEntered = createDeferred();
+        const releaseCompactionProvider = createDeferred();
+        let compactionProviderCalls = 0;
+        const originalComplete = faux.runtime.completeSimple;
+        faux.runtime.completeSimple = (...args) => {
+            compactionProviderCalls += 1;
+            return originalComplete.apply(faux.runtime, args);
+        };
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("continue_before_midflight_compaction", {}, {id: "auto-compaction-midflight-turn-1"}),
+            ], {stopReason: "toolUse"}),
+            async () => {
+                compactionProviderEntered.resolve();
+                await releaseCompactionProvider.promise;
+                return fauxAssistantMessage("late compaction summary");
+            },
+            fauxAssistantMessage("must not reach next Provider"),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.auto-compaction-midflight",
+            initial: {},
+            workspaceRoot: root,
+        });
+        await harness.repo.appendMessage(created.sessionId, createUserMessage({text: "OLD CONTEXT"}));
+        const reader = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            profiles: harness.profiles,
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: false,
+            executionLeaseStore: new HarnessInvocationExecutionLeaseStore(root, {
+                now: () => now,
+                ownerId: () => "reader-auto-compaction-midflight",
+                leaseDurationMs: 3_600_000,
+            }),
+        });
+        const clientMessageId = "00000000-0000-4000-8000-000000000021";
+        const running = harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            queueIfBusy: false,
+            clientMessageId,
+            message: {text: "run"},
+            onAccepted: async () => undefined,
+        });
+        await compactionProviderEntered.promise;
+        now += 3_600_001;
+        await expect(reader.readDurableInvocationResult({
+            sessionId: created.sessionId,
+            clientMessageId,
+        })).resolves.toMatchObject({
+            state: "orphaned",
+            lifecycle: "running",
+            providerStartRecorded: true,
+        });
+        releaseCompactionProvider.resolve();
+
+        const result = await running;
+        expect(result.status).not.toBe("completed");
+        expect(compactionProviderCalls).toBe(1);
+        const snapshot = await harness.repo.readSession(created.sessionId);
+        expect(snapshot.entries.some((entry) => entry.type === "compaction")).toBe(false);
+        await reader.dispose();
+    });
+
+    it.each(["missing lease", "wrong owner", "wrong fence"] as const)(
+        "hooked Provider 在 %s 时保持 fail closed，普通 Provider 调用数为零",
+        async (mutation) => {
+            const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root, {
+                ownerId: () => "owner-required-provider-lease",
+                leaseDurationMs: 3_600_000,
+            });
+            const originalRecordProviderStarted = executionLeaseStore.recordProviderStarted.bind(executionLeaseStore);
+            executionLeaseStore.recordProviderStarted = async (lease) => {
+                await originalRecordProviderStarted(lease);
+                const internals = executionInternals(harness);
+                if (mutation === "missing lease") {
+                    internals.invocationExecutionLeases.delete(lease.invocationId);
+                    return;
+                }
+                internals.invocationExecutionLeases.set(lease.invocationId, {
+                    ...lease,
+                    ...(mutation === "wrong owner"
+                        ? {ownerId: "different-owner"}
+                        : {fence: lease.fence + 1}),
+                });
+            };
+            await harness.dispose();
+            harness = new NeuroAgentHarness({
+                repo: new JsonlSessionRepository(root),
+                profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
+                modelResolver: () => faux.getModel(),
+                runtimeResolver: () => faux.runtime,
+                enableSessionSummarizer: false,
+                executionLeaseStore,
+            });
+            let providerCalls = 0;
+            const originalStream = faux.runtime.streamSimple;
+            faux.runtime.streamSimple = (...args) => {
+                providerCalls += 1;
+                return originalStream.apply(faux.runtime, args);
+            };
+            faux.setResponses([fauxAssistantMessage("must not start Provider")]);
+            const created = await harness.createAgent({
+                profileKey: "leader.default",
+                initial: {},
+                workspaceRoot: root,
+            });
+
+            const result = await harness.invokeAgent({
+                sessionId: created.sessionId,
+                mode: "prompt",
+                queueIfBusy: false,
+                clientMessageId: `00000000-0000-4000-8000-0000000000${mutation === "missing lease" ? "10" : mutation === "wrong owner" ? "11" : "12"}`,
+                message: {text: "run"},
+                onAccepted: async () => undefined,
+            });
+
+            expect(providerCalls).toBe(0);
+            expect(result.status).not.toBe("completed");
         },
+    );
+
+    it.each([
+        {failureKind: "wrong owner", expectedKind: "stale_fence" as const, clientSuffix: "15"},
+        {failureKind: "wrong fence", expectedKind: "stale_fence" as const, clientSuffix: "16"},
+        {failureKind: "missing strict store", expectedKind: "durable_io" as const, clientSuffix: "17"},
+        {failureKind: "malformed strict store", expectedKind: "durable_io" as const, clientSuffix: "18"},
+        {failureKind: "ordinary EIO", expectedKind: "durable_io" as const, clientSuffix: "19"},
+    ])("heartbeat diagnostics classify $failureKind independently from fail-closed behavior", async ({
+        failureKind,
+        expectedKind,
+        clientSuffix,
+    }) => {
+        const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root, {
+            ownerId: () => "owner-heartbeat-diagnostics",
+            leaseDurationMs: 3_600_000,
+        });
+        await harness.dispose();
+        harness = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: false,
+            executionLeaseStore,
+        });
+        faux.setResponses([fauxAssistantMessage("must not start after heartbeat diagnostic")]);
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+        const acceptedEntered = createDeferred();
+        const releaseAccepted = createDeferred();
+        let invocationId = "";
+        const running = harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            queueIfBusy: false,
+            clientMessageId: `00000000-0000-4000-8000-0000000000${clientSuffix}`,
+            message: {text: "run"},
+            onAccepted: async (accepted) => {
+                invocationId = accepted.invocationId;
+                acceptedEntered.resolve();
+                await releaseAccepted.promise;
+            },
+        });
+        await acceptedEntered.promise;
+        const lease = executionInternals(harness).invocationExecutionLeases.get(invocationId);
+        expect(lease).toBeDefined();
+        const storePath = join(root, ".nbook", "agent", "invocation-execution.json");
+        const validStore = await readFile(storePath, "utf8");
+        let injectedFailure: Error;
+        if (failureKind === "ordinary EIO") {
+            injectedFailure = Object.assign(new Error("ordinary heartbeat EIO"), {code: "EIO"});
+        } else {
+            if (failureKind === "missing strict store") {
+                await rm(storePath, {force: true});
+            } else if (failureKind === "malformed strict store") {
+                await writeFile(storePath, "{malformed-heartbeat-store", "utf8");
+            }
+            try {
+                await executionLeaseStore.renew({
+                    ...lease!,
+                    ...(failureKind === "wrong owner"
+                        ? {ownerId: "different-owner"}
+                        : failureKind === "wrong fence"
+                            ? {fence: lease!.fence + 1}
+                            : {}),
+                });
+                throw new Error("expected heartbeat evidence failure");
+            } catch (error) {
+                if (!(error instanceof Error)) {
+                    throw error;
+                }
+                injectedFailure = error;
+            } finally {
+                if (failureKind === "missing strict store" || failureKind === "malformed strict store") {
+                    await writeFile(storePath, validStore, "utf8");
+                }
+            }
+        }
+
+        try {
+            failCurrentExecutionHeartbeat(harness, invocationId, injectedFailure);
+            const classified = executionInternals(harness).invocationExecutionFailures.get(invocationId);
+            expect(classified?.kind).toBe(expectedKind);
+            expect(classified?.message).toContain(expectedKind === "stale_fence" ? "stale fence" : "durable I/O");
+        } finally {
+            releaseAccepted.resolve();
+            await running.catch(() => undefined);
+        }
+    });
+
+    it("orphan 先赢后 heartbeat watchdog 不得由旧 owner 写 Session 或清 follow-up queue", async () => {
+        let now = Date.parse("2026-07-30T00:00:00.000Z");
+        const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root, {
+            now: () => now,
+            ownerId: () => "owner-stale-watchdog",
+            leaseDurationMs: 3_600_000,
+        });
+        await harness.dispose();
+        harness = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: false,
+            executionLeaseStore,
+        });
+        const providerEntered = createDeferred();
+        const releaseProvider = createDeferred();
+        faux.setResponses([
+            async () => {
+                providerEntered.resolve();
+                await releaseProvider.promise;
+                return fauxAssistantMessage("late stale owner response");
+            },
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+        let invocationId = "";
+        const clientMessageId = "00000000-0000-4000-8000-000000000022";
+        const running = harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            queueIfBusy: false,
+            clientMessageId,
+            message: {text: "run"},
+            onAccepted: async (accepted) => {
+                invocationId = accepted.invocationId;
+            },
+        });
+        await providerEntered.promise;
+        await expect(harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            clientMessageId: "00000000-0000-4000-8000-000000000023",
+            message: {text: "keep this follow-up"},
+        })).resolves.toMatchObject({
+            status: "waiting",
+            acceptance: {state: "queued"},
+        });
+        const activePathBefore = harness.repo.activePath(await harness.repo.readSession(created.sessionId));
+        const queueBefore = (await harness.getSessionRecovery(created.sessionId)).followUpQueue;
+        expect(queueBefore.items).toHaveLength(1);
+        const reader = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            profiles: harness.profiles,
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: false,
+            executionLeaseStore: new HarnessInvocationExecutionLeaseStore(root, {
+                now: () => now,
+                ownerId: () => "reader-stale-watchdog",
+                leaseDurationMs: 3_600_000,
+            }),
+        });
+        now += 3_600_001;
+        await expect(reader.readDurableInvocationResult({
+            sessionId: created.sessionId,
+            clientMessageId,
+        })).resolves.toMatchObject({
+            state: "orphaned",
+            providerStartRecorded: true,
+        });
+        const lease = executionInternals(harness).invocationExecutionLeases.get(invocationId);
+        expect(lease).toBeDefined();
+        let staleFailure: Error | undefined;
+        try {
+            await executionLeaseStore.renew(lease!);
+        } catch (error) {
+            if (error instanceof Error) {
+                staleFailure = error;
+            }
+        }
+        expect(staleFailure).toBeDefined();
+        failCurrentExecutionHeartbeat(harness, invocationId, staleFailure!);
+
+        const result = await running;
+        expect(result.status).not.toBe("completed");
+        expect(result.error).toContain("stale fence");
+        expect(harness.repo.activePath(await harness.repo.readSession(created.sessionId))).toEqual(activePathBefore);
+        expect((await harness.getSessionRecovery(created.sessionId)).followUpQueue).toEqual(queueBefore);
+
+        releaseProvider.resolve();
+        await new Promise<void>((resolveImmediate) => setImmediate(resolveImmediate));
+        await new Promise<void>((resolveImmediate) => setImmediate(resolveImmediate));
+        await reader.dispose();
+    });
+
+    it.each([
         {
             failureKind: "I/O evidence",
             failure: () => Object.assign(new Error("heartbeat storage EIO"), {code: "EIO"}),
@@ -10464,9 +11171,9 @@ describe("NeuroAgentHarness", () => {
             terminalFenceFailure: false,
         },
         {
-            failureKind: "stale fence followed by terminal I/O",
-            failure: () => new InvocationExecutionEvidenceLostError("heartbeat stale fence"),
-            expectedDiagnostic: "heartbeat stale fence",
+            failureKind: "I/O evidence followed by terminal I/O",
+            failure: () => Object.assign(new Error("heartbeat storage EIO"), {code: "EIO"}),
+            expectedDiagnostic: "heartbeat storage EIO",
             terminalFenceFailure: true,
         },
     ])("fails closed when heartbeat renewal reports $failureKind failure", async ({
@@ -10583,7 +11290,597 @@ describe("NeuroAgentHarness", () => {
         expect(runtimeMaps.invocationExecutionLeases.has(result.invocationId)).toBe(false);
     });
 
+    it("recordProviderStarted 的非 heartbeat EIO 不启动 Provider，并清理全部 running 内存态", async () => {
+        const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root, {
+            ownerId: () => "owner-provider-start-eio",
+            leaseDurationMs: 3_600_000,
+        });
+        executionLeaseStore.recordProviderStarted = async () => {
+            throw Object.assign(new Error("recordProviderStarted sidecar EIO"), {code: "EIO"});
+        };
+        await harness.dispose();
+        harness = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: false,
+            executionLeaseStore,
+        });
+        let providerCalls = 0;
+        const originalStream = faux.runtime.streamSimple;
+        faux.runtime.streamSimple = (...args) => {
+            providerCalls += 1;
+            return originalStream.apply(faux.runtime, args);
+        };
+        faux.setResponses([fauxAssistantMessage("must not start Provider")]);
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            queueIfBusy: false,
+            clientMessageId: "00000000-0000-4000-8000-00000000001a",
+            message: {text: "run"},
+            onAccepted: async () => undefined,
+        });
+
+        expect(providerCalls).toBe(0);
+        expect(result.status).toBe("error");
+        expect(result.error).toContain("recordProviderStarted sidecar EIO");
+        const lifecycles = harness.repo.activePath(await harness.repo.readSession(created.sessionId))
+            .filter((entry) => entry.type === "invocation_lifecycle" && entry.invocationId === result.invocationId)
+            .map((entry) => entry.type === "invocation_lifecycle" ? entry.status : "");
+        expect(lifecycles).toEqual(["start", "error"]);
+        const internals = executionInternals(harness);
+        expect(internals.activeInvocations.has(created.sessionId)).toBe(false);
+        expect(internals.abortControllers.has(created.sessionId)).toBe(false);
+        expect(internals.invocationExecutionHeartbeats.has(result.invocationId)).toBe(false);
+        expect(internals.invocationExecutionLeases.has(result.invocationId)).toBe(false);
+        expect(internals.invocationAbortGates.has(result.invocationId)).toBe(false);
+        expect(internals.invocationRuntimeStates.has(result.invocationId)).toBe(false);
+    });
+
+    it("terminal sidecar EIO 只尝试一次且不伪造 Session terminal，公开 finally 仍清理 running 内存态", async () => {
+        const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root, {
+            ownerId: () => "owner-terminal-sidecar-eio",
+            leaseDurationMs: 3_600_000,
+        });
+        const originalWithLiveExecutionFence = executionLeaseStore.withLiveExecutionFence;
+        let terminalFenceCalls = 0;
+        (executionLeaseStore as unknown as {
+            withLiveExecutionFence(): Promise<never>;
+        }).withLiveExecutionFence = async () => {
+            terminalFenceCalls += 1;
+            throw Object.assign(new Error("terminal sidecar EIO"), {code: "EIO"});
+        };
+        await harness.dispose();
+        harness = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: false,
+            executionLeaseStore,
+        });
+        faux.setResponses([fauxAssistantMessage("provider completed before terminal sidecar EIO")]);
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+        let invocationId = "";
+
+        try {
+            await expect(harness.invokeAgent({
+                sessionId: created.sessionId,
+                mode: "prompt",
+                queueIfBusy: false,
+                clientMessageId: "00000000-0000-4000-8000-00000000001b",
+                message: {text: "run"},
+                onAccepted: async (accepted) => {
+                    invocationId = accepted.invocationId;
+                },
+            })).rejects.toThrow("terminal sidecar EIO");
+
+            const lifecycles = harness.repo.activePath(await harness.repo.readSession(created.sessionId))
+                .filter((entry) => entry.type === "invocation_lifecycle" && entry.invocationId === invocationId)
+                .map((entry) => entry.type === "invocation_lifecycle" ? entry.status : "");
+            expect.soft(lifecycles).toEqual(["start"]);
+            expect.soft(terminalFenceCalls).toBe(1);
+            const internals = executionInternals(harness);
+            expect.soft(internals.activeInvocations.has(created.sessionId)).toBe(false);
+            expect.soft(internals.abortControllers.has(created.sessionId)).toBe(false);
+            expect.soft(internals.invocationExecutionHeartbeats.has(invocationId)).toBe(false);
+            expect.soft(internals.invocationExecutionLeases.has(invocationId)).toBe(false);
+            expect.soft(internals.invocationAbortGates.has(invocationId)).toBe(false);
+            expect.soft(internals.invocationRuntimeStates.has(invocationId)).toBe(false);
+        } finally {
+            (executionLeaseStore as unknown as {
+                withLiveExecutionFence: typeof originalWithLiveExecutionFence;
+            }).withLiveExecutionFence = originalWithLiveExecutionFence;
+            if (executionInternals(harness).activeInvocations.has(created.sessionId)) {
+                await harness.abortInvocation(created.sessionId, {reason: "terminal sidecar EIO test cleanup"});
+            }
+        }
+    });
+
+    it("heartbeat 在等待 tool_execution_start 事件时失败，实际工具调用必须保持为零", async () => {
+        const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root, {
+            ownerId: () => "owner-tool-start-event-gap",
+            leaseDurationMs: 3_600_000,
+        });
+        const eventEntered = createDeferred();
+        const releaseEvent = createDeferred();
+        await harness.dispose();
+        harness = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: false,
+            executionLeaseStore,
+            toolExecution: "sequential",
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {key: "test.tool-start-event-gap", name: "Tool Start Event Gap"},
+            initialSchema: Type.Object({}),
+            allowedToolKeys: ["must_not_execute_after_event_gap"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        let toolCalls = 0;
+        harness.tools.register({
+            key: "must_not_execute_after_event_gap",
+            name: "must_not_execute_after_event_gap",
+            label: "Must not execute after event gap",
+            description: "Records whether the real tool boundary was crossed.",
+            executionMode: "sequential",
+            parameters: Type.Object({}),
+            async execute() {
+                toolCalls += 1;
+                return {
+                    content: [{type: "text", text: "must not execute"}],
+                    details: {},
+                    terminate: true,
+                };
+            },
+        });
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("must_not_execute_after_event_gap", {}, {id: "tool-start-event-gap-1"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.tool-start-event-gap",
+            initial: {},
+            workspaceRoot: root,
+        });
+        let acceptedInvocationId = "";
+        const invocation = harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            queueIfBusy: false,
+            clientMessageId: "00000000-0000-4000-8000-00000000000e",
+            message: {text: "run"},
+            onAccepted: async ({invocationId}) => {
+                acceptedInvocationId = invocationId;
+            },
+            onEvent: async (event) => {
+                if (event.type !== "tool_execution_start") {
+                    return;
+                }
+                eventEntered.resolve();
+                await releaseEvent.promise;
+            },
+        });
+        try {
+            await eventEntered.promise;
+            failCurrentExecutionHeartbeat(
+                harness,
+                acceptedInvocationId,
+                new InvocationExecutionEvidenceLostError("execution lease 已失效，不能续租"),
+            );
+            await waitFor(() => {
+                expect(executionInternals(harness).invocationExecutionFailures.has(acceptedInvocationId)).toBe(true);
+            });
+        } finally {
+            releaseEvent.resolve();
+        }
+
+        const timeout = Symbol("tool-start-event-gap-timeout");
+        const settled = await Promise.race([
+            invocation,
+            new Promise<typeof timeout>((resolveTimeout) => {
+                const timer = setTimeout(() => resolveTimeout(timeout), 1_000);
+                timer.unref?.();
+            }),
+        ]);
+        if (settled === timeout) {
+            await harness.abortInvocation(created.sessionId, {reason: "test cleanup after bounded timeout"});
+            await invocation.catch(() => undefined);
+            throw new Error("hooked invocation did not settle after tool start event heartbeat failure");
+        }
+        const result = settled;
+        expect(result.status).not.toBe("completed");
+        expect(toolCalls).toBe(0);
+    });
+
+    it("heartbeat failure watchdog bounds a non-cooperative Provider, clears maps, and immutable frame fences late events", async () => {
+        const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root, {
+            ownerId: () => "owner-non-cooperative-provider",
+            leaseDurationMs: 3_600_000,
+        });
+        await harness.dispose();
+        harness = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: false,
+            executionLeaseStore,
+            toolExecution: "sequential",
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {key: "test.non-cooperative-provider", name: "Non-cooperative Provider"},
+            initialSchema: Type.Object({}),
+            allowedToolKeys: ["must_not_run_after_late_provider"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        let toolCalls = 0;
+        harness.tools.register({
+            key: "must_not_run_after_late_provider",
+            name: "must_not_run_after_late_provider",
+            label: "Must not run after late Provider",
+            description: "Detects a late Provider result crossing the execution guard.",
+            executionMode: "sequential",
+            parameters: Type.Object({}),
+            async execute() {
+                toolCalls += 1;
+                return {
+                    content: [{type: "text", text: "must not execute"}],
+                    details: {},
+                    terminate: true,
+                };
+            },
+        });
+        const providerEntered = createDeferred();
+        const releaseProvider = createDeferred();
+        const providerReturned = createDeferred();
+        let providerCalls = 0;
+        const originalStream = faux.runtime.streamSimple;
+        faux.runtime.streamSimple = (...args) => {
+            providerCalls += 1;
+            return originalStream.apply(faux.runtime, args);
+        };
+        faux.setResponses([
+            async () => {
+                providerEntered.resolve();
+                await releaseProvider.promise;
+                providerReturned.resolve();
+                return fauxAssistantMessage([
+                    fauxToolCall("must_not_run_after_late_provider", {}, {id: "late-provider-tool-1"}),
+                ], {stopReason: "toolUse"});
+            },
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.non-cooperative-provider",
+            initial: {},
+            workspaceRoot: root,
+        });
+        let invocationId = "";
+        const events: string[] = [];
+        const running = harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            queueIfBusy: false,
+            clientMessageId: "00000000-0000-4000-8000-000000000013",
+            message: {text: "run"},
+            onAccepted: async (accepted) => {
+                invocationId = accepted.invocationId;
+            },
+            onEvent: async (event) => {
+                events.push(event.type);
+            },
+        });
+        await providerEntered.promise;
+        failCurrentExecutionHeartbeat(
+            harness,
+            invocationId,
+            Object.assign(new Error("heartbeat provider EIO"), {code: "EIO"}),
+        );
+
+        const timeout = Symbol("non-cooperative-provider-timeout");
+        const publicOutcome = await Promise.race([
+            running.then(
+                (result) => ({kind: "result" as const, result}),
+                (error: Error) => ({kind: "error" as const, error}),
+            ),
+            new Promise<typeof timeout>((resolveTimeout) => {
+                const timer = setTimeout(() => resolveTimeout(timeout), 1_000);
+                timer.unref?.();
+            }),
+        ]);
+        if (publicOutcome === timeout) {
+            releaseProvider.resolve();
+            await running.catch(() => undefined);
+            throw new Error("heartbeat watchdog did not bound the non-cooperative Provider");
+        }
+        if (publicOutcome.kind === "error") {
+            releaseProvider.resolve();
+            await running.catch(() => undefined);
+            throw publicOutcome.error;
+        }
+        const result = publicOutcome.result;
+        const internalsAtPublicReturn = executionInternals(harness);
+        expect(result.status).not.toBe("completed");
+        expect(result.error).toContain("durable I/O");
+        expect(internalsAtPublicReturn.activeInvocations.has(created.sessionId)).toBe(false);
+        expect(internalsAtPublicReturn.abortControllers.has(created.sessionId)).toBe(false);
+        expect(internalsAtPublicReturn.invocationExecutionHeartbeats.has(invocationId)).toBe(false);
+        expect(internalsAtPublicReturn.invocationExecutionLeases.has(invocationId)).toBe(false);
+        expect(internalsAtPublicReturn.invocationExecutionFailures.has(invocationId)).toBe(false);
+        expect(internalsAtPublicReturn.invocationExecutionRequirements.has(invocationId)).toBe(false);
+        const publicLifecycles = harness.repo.activePath(await harness.repo.readSession(created.sessionId))
+            .filter((entry) => entry.type === "invocation_lifecycle" && entry.invocationId === invocationId)
+            .map((entry) => entry.type === "invocation_lifecycle" ? entry.status : "");
+        expect(publicLifecycles).toEqual(["start", "aborted"]);
+
+        const messageEventCountAtPublicReturn = events
+            .filter((type) => type === "message_start" || type === "message_update" || type === "message_end")
+            .length;
+        releaseProvider.resolve();
+        await providerReturned.promise;
+        await new Promise<void>((resolveImmediate) => setImmediate(resolveImmediate));
+        await new Promise<void>((resolveImmediate) => setImmediate(resolveImmediate));
+        expect(providerCalls).toBe(1);
+        expect(toolCalls).toBe(0);
+        expect(events.filter((type) => type === "message_start" || type === "message_update" || type === "message_end"))
+            .toHaveLength(messageEventCountAtPublicReturn);
+        const settledLifecycles = harness.repo.activePath(await harness.repo.readSession(created.sessionId))
+            .filter((entry) => entry.type === "invocation_lifecycle" && entry.invocationId === invocationId)
+            .map((entry) => entry.type === "invocation_lifecycle" ? entry.status : "");
+        expect(settledLifecycles).toEqual(["start", "aborted"]);
+    });
+
+    it("heartbeat failure watchdog bounds a non-cooperative tool and fences all late side effects", async () => {
+        const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root, {
+            ownerId: () => "owner-non-cooperative-tool",
+            leaseDurationMs: 3_600_000,
+        });
+        await harness.dispose();
+        harness = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: false,
+            executionLeaseStore,
+            toolExecution: "sequential",
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {key: "test.non-cooperative-tool", name: "Non-cooperative Tool"},
+            initialSchema: Type.Object({}),
+            allowedToolKeys: ["non_cooperative_tool"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        const toolEntered = createDeferred();
+        const releaseTool = createDeferred();
+        const toolReturned = createDeferred();
+        let toolCalls = 0;
+        harness.tools.register({
+            key: "non_cooperative_tool",
+            name: "non_cooperative_tool",
+            label: "Non-cooperative tool",
+            description: "Ignores AbortSignal until the test explicitly releases it.",
+            executionMode: "sequential",
+            parameters: Type.Object({}),
+            async execute() {
+                toolCalls += 1;
+                toolEntered.resolve();
+                await releaseTool.promise;
+                toolReturned.resolve();
+                return {
+                    content: [{type: "text", text: "late tool result"}],
+                    details: {},
+                    terminate: false,
+                };
+            },
+        });
+        let providerCalls = 0;
+        const originalStream = faux.runtime.streamSimple;
+        faux.runtime.streamSimple = (...args) => {
+            providerCalls += 1;
+            return originalStream.apply(faux.runtime, args);
+        };
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("non_cooperative_tool", {}, {id: "non-cooperative-tool-1"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage("must not start a second Provider"),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.non-cooperative-tool",
+            initial: {},
+            workspaceRoot: root,
+        });
+        let invocationId = "";
+        const events: string[] = [];
+        const running = harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            queueIfBusy: false,
+            clientMessageId: "00000000-0000-4000-8000-000000000014",
+            message: {text: "run"},
+            onAccepted: async (accepted) => {
+                invocationId = accepted.invocationId;
+            },
+            onEvent: async (event) => {
+                events.push(event.type);
+            },
+        });
+        await toolEntered.promise;
+        failCurrentExecutionHeartbeat(
+            harness,
+            invocationId,
+            Object.assign(new Error("heartbeat tool EIO"), {code: "EIO"}),
+        );
+
+        const timeout = Symbol("non-cooperative-tool-timeout");
+        const publicOutcome = await Promise.race([
+            running.then(
+                (result) => ({kind: "result" as const, result}),
+                (error: Error) => ({kind: "error" as const, error}),
+            ),
+            new Promise<typeof timeout>((resolveTimeout) => {
+                const timer = setTimeout(() => resolveTimeout(timeout), 1_000);
+                timer.unref?.();
+            }),
+        ]);
+        if (publicOutcome === timeout) {
+            releaseTool.resolve();
+            await running.catch(() => undefined);
+            throw new Error("heartbeat watchdog did not bound the non-cooperative tool");
+        }
+        if (publicOutcome.kind === "error") {
+            releaseTool.resolve();
+            await running.catch(() => undefined);
+            throw publicOutcome.error;
+        }
+        const result = publicOutcome.result;
+        const internalsAtPublicReturn = executionInternals(harness);
+        expect(result.status).not.toBe("completed");
+        expect(result.error).toContain("durable I/O");
+        expect(internalsAtPublicReturn.activeInvocations.has(created.sessionId)).toBe(false);
+        expect(internalsAtPublicReturn.abortControllers.has(created.sessionId)).toBe(false);
+        expect(internalsAtPublicReturn.invocationExecutionHeartbeats.has(invocationId)).toBe(false);
+        expect(internalsAtPublicReturn.invocationExecutionLeases.has(invocationId)).toBe(false);
+        expect(internalsAtPublicReturn.invocationExecutionFailures.has(invocationId)).toBe(false);
+        expect(internalsAtPublicReturn.invocationExecutionRequirements.has(invocationId)).toBe(false);
+        expect(events).toContain("tool_execution_start");
+        expect(events).not.toContain("tool_execution_end");
+        const publicLifecycles = harness.repo.activePath(await harness.repo.readSession(created.sessionId))
+            .filter((entry) => entry.type === "invocation_lifecycle" && entry.invocationId === invocationId)
+            .map((entry) => entry.type === "invocation_lifecycle" ? entry.status : "");
+        expect(publicLifecycles).toEqual(["start", "aborted"]);
+
+        releaseTool.resolve();
+        await toolReturned.promise;
+        await new Promise<void>((resolveImmediate) => setImmediate(resolveImmediate));
+        await new Promise<void>((resolveImmediate) => setImmediate(resolveImmediate));
+        expect(providerCalls).toBe(1);
+        expect(toolCalls).toBe(1);
+        expect(events).not.toContain("tool_execution_end");
+        const settledLifecycles = harness.repo.activePath(await harness.repo.readSession(created.sessionId))
+            .filter((entry) => entry.type === "invocation_lifecycle" && entry.invocationId === invocationId)
+            .map((entry) => entry.type === "invocation_lifecycle" ? entry.status : "");
+        expect(settledLifecycles).toEqual(["start", "aborted"]);
+    });
+
+    it("dispose aborts managed direct invocations before closing runtime resources", async () => {
+        const providerEntered = createDeferred();
+        const releaseProvider = createDeferred();
+        const providerReturned = createDeferred();
+        let lateProviderCalls = 0;
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.dispose-managed-invocation",
+                name: "Dispose Managed Invocation",
+            },
+            initialSchema: Type.Object({}),
+            allowedToolKeys: ["report_result"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            async () => {
+                providerEntered.resolve();
+                await releaseProvider.promise;
+                providerReturned.resolve();
+                return fauxAssistantMessage([
+                    fauxToolCall("report_result", {result: "late"}, {id: "dispose-managed-report"}),
+                ], {stopReason: "toolUse"});
+            },
+            async () => {
+                lateProviderCalls += 1;
+                return fauxAssistantMessage("must not start after dispose");
+            },
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.dispose-managed-invocation",
+            initial: {},
+            workspaceRoot: root,
+        });
+        const lateCreated = await harness.createAgent({
+            profileKey: "test.dispose-managed-invocation",
+            initial: {},
+            workspaceRoot: root,
+        });
+        let invocationId = "";
+        const running = harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            queueIfBusy: false,
+            clientMessageId: "00000000-0000-4000-8000-000000000008",
+            message: {text: "run"},
+            onAccepted: async (accepted) => {
+                invocationId = accepted.invocationId;
+            },
+        });
+        await providerEntered.promise;
+        let disposing: Promise<void> | undefined;
+        try {
+            disposing = harness.dispose();
+            await expect(harness.invokeAgent({
+                sessionId: lateCreated.sessionId,
+                mode: "prompt",
+                queueIfBusy: false,
+                clientMessageId: "00000000-0000-4000-8000-000000000009",
+                message: {text: "late run"},
+                onAccepted: async () => undefined,
+            })).rejects.toThrow("harness_runtime_disposed");
+            expect(lateProviderCalls).toBe(0);
+            await waitFor(() => {
+                const internals = executionInternals(harness);
+                expect(internals.activeInvocations.has(created.sessionId)).toBe(false);
+                expect(internals.abortControllers.has(created.sessionId)).toBe(false);
+                expect(internals.invocationExecutionHeartbeats.has(invocationId)).toBe(false);
+                expect(internals.invocationExecutionLeases.has(invocationId)).toBe(false);
+                expect(internals.invocationExecutionRequirements.has(invocationId)).toBe(false);
+            });
+            const disposeTimeout = Symbol("dispose-managed-invocation-timeout");
+            const disposeOutcome = await Promise.race([
+                disposing.then(() => "settled" as const),
+                new Promise<typeof disposeTimeout>((resolveTimeout) => {
+                    const timer = setTimeout(() => resolveTimeout(disposeTimeout), 1_000);
+                    timer.unref?.();
+                }),
+            ]);
+            expect(disposeOutcome).toBe("settled");
+            await expect(running).resolves.toMatchObject({status: "error"});
+        } finally {
+            releaseProvider.resolve();
+            await providerReturned.promise;
+            await running.catch(() => undefined);
+            await disposing?.catch(() => undefined);
+            await new Promise<void>((resolveImmediate) => setImmediate(resolveImmediate));
+            await harness.piTraceRecorder.flush();
+        }
+    });
+
     it("hooked invocation entering waiting releases its execution lease before same-id resume", async () => {
+        const resumeProviderEntered = createDeferred();
+        const releaseResumeProvider = createDeferred();
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.hooked-waiting-resume",
@@ -10601,11 +11898,15 @@ describe("NeuroAgentHarness", () => {
                     questions: [{question: "继续？"}],
                 }, {id: "hooked-waiting-input"}),
             ], {stopReason: "toolUse"}),
-            fauxAssistantMessage([
-                fauxToolCall("report_result", {
-                    result: "resumed",
-                }, {id: "hooked-waiting-report"}),
-            ], {stopReason: "toolUse"}),
+            async () => {
+                resumeProviderEntered.resolve();
+                await releaseResumeProvider.promise;
+                return fauxAssistantMessage([
+                    fauxToolCall("report_result", {
+                        result: "resumed",
+                    }, {id: "hooked-waiting-report"}),
+                ], {stopReason: "toolUse"});
+            },
         ]);
         const created = await harness.createAgent({
             profileKey: "test.hooked-waiting-resume",
@@ -10629,7 +11930,7 @@ describe("NeuroAgentHarness", () => {
             invocationId: waiting.invocationId,
         });
 
-        const continued = await harness.invokeAgent({
+        const continuedPromise = harness.invokeAgent({
             sessionId: created.sessionId,
             mode: "continue",
             resolution: {
@@ -10638,6 +11939,37 @@ describe("NeuroAgentHarness", () => {
                 answers: [{questionIndex: 0, note: "继续"}],
             },
         });
+        const resumeStart = await Promise.race([
+            resumeProviderEntered.promise.then(() => ({kind: "provider_entered" as const})),
+            continuedPromise.then((result) => ({kind: "settled_early" as const, result})),
+        ]);
+        expect(resumeStart).toEqual({kind: "provider_entered"});
+        try {
+            await expect(harness.readDurableInvocationResult({
+                sessionId: created.sessionId,
+                clientMessageId: "00000000-0000-4000-8000-000000000007",
+            })).resolves.toMatchObject({
+                state: "active",
+                invocationId: waiting.invocationId,
+            });
+            const executionState = executionInternals(harness);
+            expect(executionState.invocationExecutionLeases.has(waiting.invocationId)).toBe(true);
+            expect(executionState.invocationExecutionRequirements.has(waiting.invocationId)).toBe(true);
+            const executionMarkers = harness.repo.activePath(await harness.repo.readSession(created.sessionId))
+                .filter((entry) => entry.type === "custom"
+                    && entry.key === `harness.execution_lease_established:${waiting.invocationId}`);
+            expect(executionMarkers).toHaveLength(2);
+            const fences = executionMarkers.map((entry) => entry.type === "custom"
+                && typeof entry.value === "object"
+                && entry.value !== null
+                && "fence" in entry.value
+                ? entry.value.fence
+                : null);
+            expect(fences[1]).not.toBe(fences[0]);
+        } finally {
+            releaseResumeProvider.resolve();
+        }
+        const continued = await continuedPromise;
         expect(continued).toMatchObject({
             status: "completed",
             invocationId: waiting.invocationId,
@@ -10744,6 +12076,40 @@ function sortRelationIdentities(items: Iterable<RelationIdentity>): RelationIden
             profileKey: item.profileKey,
         }))
         .sort((left, right) => left.sessionId - right.sessionId);
+}
+
+type ExecutionHarnessInternals = {
+    activeInvocations: Map<number, object>;
+    abortControllers: Map<number, AbortController>;
+    invocationExecutionHeartbeats: Map<string, ReturnType<typeof setTimeout>>;
+    invocationExecutionLeases: Map<string, InvocationExecutionLease>;
+    invocationExecutionFailures: Map<string, Error & {kind: "stale_fence" | "durable_io"}>;
+    invocationExecutionRequirements: Map<string, {ownerId: string; fence: number}>;
+    invocationAbortGates: Map<string, object>;
+    invocationRuntimeStates: Map<string, object>;
+    failExecutionLeaseHeartbeat(
+        lease: InvocationExecutionLease,
+        current: InvocationExecutionLease,
+        // 私有边界刻意接受外部异常；测试只传 Error 实例。
+        error: unknown,
+    ): void;
+};
+
+/** 仅供 execution fencing 回归测试观察运行态与同步注入 heartbeat catch。 */
+function executionInternals(target: NeuroAgentHarness): ExecutionHarnessInternals {
+    return target as unknown as ExecutionHarnessInternals;
+}
+
+/** 用当前精确 lease 同步复现 heartbeat renew catch，避免测试依赖墙钟。 */
+function failCurrentExecutionHeartbeat(
+    target: NeuroAgentHarness,
+    invocationId: string,
+    error: Error,
+): void {
+    const internals = executionInternals(target);
+    const lease = internals.invocationExecutionLeases.get(invocationId);
+    expect(lease).toBeDefined();
+    internals.failExecutionLeaseHeartbeat(lease!, lease!, error);
 }
 
 /**

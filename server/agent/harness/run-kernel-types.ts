@@ -147,8 +147,17 @@ export type RunTurnTransactionResult =
 
 export type RunKernelPhase = "model" | "ingest" | "compaction" | "settleRun" | "unknown";
 
+export type RunExecutionLeaseIdentity = {
+    readonly ownerId: string;
+    readonly fence: number;
+};
+
 export type RunFrame = {
     invocationId?: string;
+    /** true 表示本 running 段属于 durable managed invocation，任何副作用都不得退化到 ordinary 路径。 */
+    readonly executionLeaseRequired: boolean;
+    /** managed running 段建立时捕获的不可变 owner/fence；required=false 时为空。 */
+    readonly executionLeaseIdentity?: RunExecutionLeaseIdentity;
     sessionId: number;
     workspaceKey: string;
     workspaceRootRef: WorkspaceRootRef;

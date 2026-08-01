@@ -224,6 +224,58 @@ describe("compaction", () => {
         expect(compacted).toBe(false);
     });
 
+    it("beforeProviderCall 只在真实摘要 Provider 紧邻前执行，outer no-op 不触发", async () => {
+        const order: string[] = [];
+        faux.setResponses([
+            () => {
+                order.push("provider");
+                return fauxAssistantMessage("SUMMARY AFTER FENCE");
+            },
+        ]);
+        const session = await repo.createSession({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "old context"}), session.metadata.workspaceKey);
+        const snapshot = await repo.readSession(session.metadata.sessionId);
+
+        const compacted = await compactIfNeeded({
+            repo,
+            snapshot,
+            messages: repo.reduce(snapshot).messages,
+            models: faux.runtime,
+            model: faux.getModel(),
+            compaction: {
+                trigger: {kind: "tokens", value: 1},
+                keepRecent: {kind: "tokens", value: 1},
+            },
+            beforeProviderCall: async () => {
+                order.push("fence");
+            },
+            writeCompactionEntry: createCompactionEntryWriter(repo, session.metadata.sessionId),
+        });
+        const noOp = await compactIfNeeded({
+            repo,
+            snapshot: await repo.readSession(session.metadata.sessionId),
+            messages: [],
+            models: faux.runtime,
+            model: faux.getModel(),
+            compaction: {
+                trigger: {kind: "tokens", value: 100_000},
+                keepRecent: {kind: "tokens", value: 1},
+            },
+            beforeProviderCall: async () => {
+                order.push("no-op fence");
+            },
+            writeCompactionEntry: createCompactionEntryWriter(repo, session.metadata.sessionId),
+        });
+
+        expect(compacted).toBe(true);
+        expect(noOp).toBe(false);
+        expect(order).toEqual(["fence", "provider"]);
+    });
+
     it("解析默认 prompt/prefix、百分比触发和 recent 百分比", () => {
         const options = resolveCompactionOptions({
             trigger: {kind: "percent", value: 0.8},

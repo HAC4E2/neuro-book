@@ -1,5 +1,5 @@
 import {randomUUID} from "node:crypto";
-import {mkdir, open, readFile, rename, rm, stat} from "node:fs/promises";
+import {mkdir, open, readFile, readdir, rename, rm, stat} from "node:fs/promises";
 import {dirname, join} from "node:path";
 import {lock} from "proper-lockfile";
 
@@ -31,6 +31,16 @@ type ProviderStartWitness = {
     ownerId: string;
     fence: number;
     providerStartedAt: string;
+};
+
+type InvocationFenceAllocation = {
+    version: typeof STORE_VERSION;
+    sessionId: number;
+    invocationId: string;
+    clientMessageId: string;
+    ownerId: string;
+    fence: number;
+    allocatedAt: string;
 };
 
 export type InvocationExecutionLease = {
@@ -102,6 +112,16 @@ export class InvocationExecutionEvidenceLostError extends Error {
     }
 }
 
+/** 精确 owner/fence 已过期、被 orphan reader 取代或不再属于当前 execution。 */
+export class InvocationExecutionFenceRejectedError extends Error {
+    readonly code = "execution_fence_rejected" as const;
+
+    constructor(message: string, options?: ErrorOptions) {
+        super(message, options);
+        this.name = "InvocationExecutionFenceRejectedError";
+    }
+}
+
 /**
  * Harness invocation 的跨进程 execution lease 真相源。
  *
@@ -113,6 +133,7 @@ export class HarnessInvocationExecutionLeaseStore {
     private readonly lockTarget: string;
     private readonly sentinelPath: string;
     private readonly witnessRoot: string;
+    private readonly allocationRoot: string;
     private readonly now: () => number;
     private readonly ownerId: () => string;
     private readonly leaseDurationMs: number;
@@ -127,6 +148,7 @@ export class HarnessInvocationExecutionLeaseStore {
         this.lockTarget = join(agentRoot, "invocation-execution.lock-target");
         this.sentinelPath = join(this.lockTarget, "initialized");
         this.witnessRoot = join(this.lockTarget, "provider-start-witnesses");
+        this.allocationRoot = join(this.lockTarget, "fence-allocations");
         this.now = options.now ?? Date.now;
         this.ownerId = options.ownerId ?? randomUUID;
         this.leaseDurationMs = options.leaseDurationMs ?? 30_000;
@@ -146,8 +168,11 @@ export class HarnessInvocationExecutionLeaseStore {
         await this.withStoreLock(async () => {
             if (!await pathExists(this.sentinelPath)) {
                 const existing = await this.readStoreBeforeInitialization();
-                if (existing && existing.records.length > 0) {
-                    throw new InvocationExecutionEvidenceLostError("execution store 有记录但 initialized sentinel 缺失");
+                if (existing && (existing.nextFence !== 1 || existing.records.length > 0)) {
+                    throw new InvocationExecutionEvidenceLostError("execution store 有历史状态但 initialized sentinel 缺失");
+                }
+                if (await this.hasStableFenceEvidence()) {
+                    throw new InvocationExecutionEvidenceLostError("execution stable evidence 存在但 initialized sentinel 缺失");
                 }
                 await this.publishStore(emptyStore());
                 await writeDurableFile(this.sentinelPath, INITIALIZED_SENTINEL, this.fileIo);
@@ -188,6 +213,15 @@ export class HarnessInvocationExecutionLeaseStore {
                 fence: store.nextFence,
                 leaseUntil: new Date(this.now() + this.leaseDurationMs).toISOString(),
             };
+            await this.writeFenceAllocation({
+                version: STORE_VERSION,
+                sessionId: lease.sessionId,
+                invocationId: lease.invocationId,
+                clientMessageId: lease.clientMessageId,
+                ownerId: lease.ownerId,
+                fence: lease.fence,
+                allocatedAt: new Date(this.now()).toISOString(),
+            });
             store.nextFence += 1;
             store.records.push({...lease, state: "live"});
             await this.publishStore(store);
@@ -209,7 +243,7 @@ export class HarnessInvocationExecutionLeaseStore {
             const store = await this.readInitializedStore();
             const record = this.liveRecord(store, lease);
             if (!record) {
-                throw new InvocationExecutionEvidenceLostError("execution lease 已失效，禁止启动 Provider");
+                throw new InvocationExecutionFenceRejectedError("execution lease 已失效，禁止启动 Provider");
             }
             const existingWitness = await this.readProviderStartWitness(record.fence);
             if (record.providerStartedAt) {
@@ -247,7 +281,7 @@ export class HarnessInvocationExecutionLeaseStore {
             const store = await this.readInitializedStore();
             const record = this.liveRecord(store, lease);
             if (!record) {
-                throw new InvocationExecutionEvidenceLostError("execution lease 已失效，不能续租");
+                throw new InvocationExecutionFenceRejectedError("execution lease 已失效，不能续租");
             }
             record.leaseUntil = new Date(this.now() + this.leaseDurationMs).toISOString();
             await this.publishStore(store);
@@ -255,6 +289,16 @@ export class HarnessInvocationExecutionLeaseStore {
                 ...lease,
                 leaseUntil: record.leaseUntil,
             };
+        });
+    }
+
+    /** 工具等非 Provider 副作用的最后边界：只验证精确 live owner/fence，不写 Provider witness。 */
+    async assertLive(lease: InvocationExecutionLease): Promise<void> {
+        await this.withStoreLock(async () => {
+            const store = await this.readInitializedStore();
+            if (!this.liveRecord(store, lease)) {
+                throw new InvocationExecutionFenceRejectedError("execution lease 已失效，禁止启动副作用");
+            }
         });
     }
 
@@ -275,7 +319,7 @@ export class HarnessInvocationExecutionLeaseStore {
             const value = await commit();
             store.records = store.records.filter((candidate) => candidate !== record);
             await this.publishStore(store);
-            await rm(this.providerStartWitnessPath(record.fence), {force: true});
+            await this.pruneProviderStartWitness(record);
             return {committed: true, value};
         });
     }
@@ -302,14 +346,15 @@ export class HarnessInvocationExecutionLeaseStore {
 
             const truth = await readSessionTruth();
             if (truth.state === "terminal") {
-                const witnessFences = new Set<number>();
+                const matchedRecords: InvocationExecutionRecord[] = [];
                 if (store) {
                     const previousLength = store.records.length;
                     store.records = store.records.filter((record) => {
                         const matched = record.sessionId === input.sessionId
-                            && record.clientMessageId === input.clientMessageId;
+                            && record.clientMessageId === input.clientMessageId
+                            && record.invocationId === truth.invocationId;
                         if (matched) {
-                            witnessFences.add(record.fence);
+                            matchedRecords.push(record);
                         }
                         return !matched;
                     });
@@ -317,16 +362,61 @@ export class HarnessInvocationExecutionLeaseStore {
                         await this.publishStore(store);
                     }
                 }
-                if (truth.executionFence && Number.isSafeInteger(truth.executionFence)) {
-                    witnessFences.add(truth.executionFence);
+                for (const record of matchedRecords) {
+                    await this.pruneProviderStartWitness(record);
                 }
-                for (const fence of witnessFences) {
-                    await rm(this.providerStartWitnessPath(fence), {force: true});
+                if (truth.executionFence && Number.isSafeInteger(truth.executionFence)) {
+                    await this.pruneTerminalProviderStartWitness({
+                        sessionId: input.sessionId,
+                        invocationId: truth.invocationId,
+                        clientMessageId: input.clientMessageId,
+                        fence: truth.executionFence,
+                    });
                 }
                 return {state: "terminal"};
             }
             if (truth.invocationId === null) {
                 return {state: "missing"};
+            }
+            if (!truth.executionLeaseEstablished) {
+                if (store) {
+                    const record = store.records.find((candidate) => candidate.sessionId === input.sessionId
+                        && candidate.clientMessageId === input.clientMessageId);
+                    if (record) {
+                        if (record.state !== "orphaned") {
+                            record.state = "orphaned";
+                            await this.publishStore(store);
+                        }
+                    } else if (!await pathExists(this.providerStartWitnessPath(store.nextFence))) {
+                        const fence = store.nextFence;
+                        const ownerId = `orphan-reader:${randomUUID()}`;
+                        await this.writeFenceAllocation({
+                            version: STORE_VERSION,
+                            sessionId: input.sessionId,
+                            invocationId: truth.invocationId,
+                            clientMessageId: input.clientMessageId,
+                            ownerId,
+                            fence,
+                            allocatedAt: new Date(this.now()).toISOString(),
+                        });
+                        store.nextFence += 1;
+                        store.records.push({
+                            sessionId: input.sessionId,
+                            invocationId: truth.invocationId,
+                            clientMessageId: input.clientMessageId,
+                            ownerId,
+                            fence,
+                            state: "orphaned",
+                            leaseUntil: new Date(this.now()).toISOString(),
+                        });
+                        await this.publishStore(store);
+                    }
+                }
+                return {
+                    state: "orphaned",
+                    invocationId: truth.invocationId,
+                    providerStartRecorded: false,
+                };
             }
             if (evidenceLost || !store) {
                 return {
@@ -339,32 +429,6 @@ export class HarnessInvocationExecutionLeaseStore {
             const record = store.records.find((candidate) => candidate.sessionId === input.sessionId
                 && candidate.clientMessageId === input.clientMessageId);
             if (!record) {
-                if (!truth.executionLeaseEstablished) {
-                    const fence = store.nextFence;
-                    if (await pathExists(this.providerStartWitnessPath(fence))) {
-                        return {
-                            state: "orphaned",
-                            invocationId: truth.invocationId,
-                            providerStartRecorded: null,
-                        };
-                    }
-                    store.nextFence += 1;
-                    store.records.push({
-                        sessionId: input.sessionId,
-                        invocationId: truth.invocationId,
-                        clientMessageId: input.clientMessageId,
-                        ownerId: `orphan-reader:${randomUUID()}`,
-                        fence,
-                        state: "orphaned",
-                        leaseUntil: new Date(this.now()).toISOString(),
-                    });
-                    await this.publishStore(store);
-                    return {
-                        state: "orphaned",
-                        invocationId: truth.invocationId,
-                        providerStartRecorded: false,
-                    };
-                }
                 return {
                     state: "orphaned",
                     invocationId: truth.invocationId,
@@ -424,6 +488,51 @@ export class HarnessInvocationExecutionLeaseStore {
         return join(this.witnessRoot, `${fence}.json`);
     }
 
+    /** 每个 fence 的分配 tombstone 位于 stable lock target，成功发布后永久保留。 */
+    private fenceAllocationPath(fence: number): string {
+        return join(this.allocationRoot, `${fence}.json`);
+    }
+
+    /** 分配证据先于 rollbackable store 发布；同一 fence 绝不覆盖或跳过。 */
+    private async writeFenceAllocation(allocation: InvocationFenceAllocation): Promise<void> {
+        if (await pathExists(this.fenceAllocationPath(allocation.fence))) {
+            throw new InvocationExecutionEvidenceLostError("execution fence 已被永久分配");
+        }
+        await writeDurableFile(
+            this.fenceAllocationPath(allocation.fence),
+            `${JSON.stringify(allocation)}\n`,
+            this.fileIo,
+        );
+    }
+
+    /** 缺失表示该 fence 从未分配；存在但不可严格解析时必须 fail closed。 */
+    private async readFenceAllocation(fence: number): Promise<InvocationFenceAllocation | null> {
+        try {
+            return parseFenceAllocation(await readFile(this.fenceAllocationPath(fence), "utf8"));
+        } catch (error) {
+            if (isNodeError(error, "ENOENT")) {
+                return null;
+            }
+            if (error instanceof InvocationExecutionEvidenceLostError) {
+                throw error;
+            }
+            throw new InvocationExecutionEvidenceLostError("execution fence allocation 不可读", {cause: error});
+        }
+    }
+
+    /** 当前 store 的每条 record 都必须绑定永久 allocation，nextFence 则必须尚未分配。 */
+    private async validateFenceAllocations(store: InvocationExecutionStore): Promise<void> {
+        if (await this.readFenceAllocation(store.nextFence)) {
+            throw new InvocationExecutionEvidenceLostError("execution store 回滚到已永久分配的 nextFence");
+        }
+        for (const record of store.records) {
+            const allocation = await this.readFenceAllocation(record.fence);
+            if (!allocation || !matchesFenceAllocation(allocation, record)) {
+                throw new InvocationExecutionEvidenceLostError("execution record 与永久 fence allocation 不一致");
+            }
+        }
+    }
+
     /** 缺失表示尚无 witness；存在但不可严格解析时必须 fail closed。 */
     private async readProviderStartWitness(fence: number): Promise<ProviderStartWitness | null> {
         try {
@@ -436,6 +545,53 @@ export class HarnessInvocationExecutionLeaseStore {
                 throw error;
             }
             throw new InvocationExecutionEvidenceLostError("Provider start witness 不可读", {cause: error});
+        }
+    }
+
+    /**
+     * 仅完整 record identity、owner/fence 与时间戳都一致时删除 Provider witness。
+     * 这是 terminal 之后的单调清理：任何读取/删除失败都保留 witness，不能反转已提交的 Session truth。
+     */
+    private async pruneProviderStartWitness(record: InvocationExecutionRecord): Promise<void> {
+        try {
+            const witness = await this.readProviderStartWitness(record.fence);
+            if (!witness || !matchesProviderStartWitness(witness, record)) {
+                return;
+            }
+            await rm(this.providerStartWitnessPath(record.fence), {force: true});
+        } catch {
+            return;
+        }
+    }
+
+    /** record 已丢失时，仅永久 allocation 能补足 terminal Session 未携带的 owner 身份。 */
+    private async pruneTerminalProviderStartWitness(identity: {
+        sessionId: number;
+        invocationId: string;
+        clientMessageId: string;
+        fence: number;
+    }): Promise<void> {
+        try {
+            const allocation = await this.readFenceAllocation(identity.fence);
+            if (!allocation
+                || allocation.sessionId !== identity.sessionId
+                || allocation.invocationId !== identity.invocationId
+                || allocation.clientMessageId !== identity.clientMessageId
+                || allocation.fence !== identity.fence) {
+                return;
+            }
+            const witness = await this.readProviderStartWitness(identity.fence);
+            if (!witness
+                || witness.sessionId !== allocation.sessionId
+                || witness.invocationId !== allocation.invocationId
+                || witness.clientMessageId !== allocation.clientMessageId
+                || witness.ownerId !== allocation.ownerId
+                || witness.fence !== allocation.fence) {
+                return;
+            }
+            await rm(this.providerStartWitnessPath(identity.fence), {force: true});
+        } catch {
+            return;
         }
     }
 
@@ -468,11 +624,25 @@ export class HarnessInvocationExecutionLeaseStore {
             if (isNodeError(error, "ENOENT")) {
                 return null;
             }
-            if (error instanceof InvocationExecutionEvidenceLostError) {
-                return null;
-            }
             throw error;
         }
+    }
+
+    /** bootstrap 前 stable allocation/witness 目录必须都不存在或为空。 */
+    private async hasStableFenceEvidence(): Promise<boolean> {
+        for (const path of [this.allocationRoot, this.witnessRoot]) {
+            try {
+                if ((await readdir(path)).length > 0) {
+                    return true;
+                }
+            } catch (error) {
+                if (isNodeError(error, "ENOENT")) {
+                    continue;
+                }
+                throw new InvocationExecutionEvidenceLostError("execution stable evidence 目录不可读", {cause: error});
+            }
+        }
+        return false;
     }
 
     /** initialized 后任何缺失、损坏或未知版本都转换成稳定 evidence-lost 错误。 */
@@ -486,7 +656,9 @@ export class HarnessInvocationExecutionLeaseStore {
         } catch (error) {
             throw new InvocationExecutionEvidenceLostError("execution store 缺失或不可读", {cause: error});
         }
-        return parseStore(text);
+        const store = parseStore(text);
+        await this.validateFenceAllocations(store);
+        return store;
     }
 
     /** temp fsync + rename 发布完整 store。 */
@@ -653,6 +825,50 @@ function parseProviderStartWitness(text: string): ProviderStartWitness {
     };
 }
 
+/** 永久 allocation 使用独立 strict schema，避免残缺 tombstone 被当成未分配。 */
+function parseFenceAllocation(text: string): InvocationFenceAllocation {
+    let value: unknown;
+    try {
+        value = JSON.parse(text) as unknown;
+    } catch (error) {
+        throw new InvocationExecutionEvidenceLostError("execution fence allocation 不是合法 JSON", {cause: error});
+    }
+    const keys = [
+        "version",
+        "sessionId",
+        "invocationId",
+        "clientMessageId",
+        "ownerId",
+        "fence",
+        "allocatedAt",
+    ];
+    if (!isPlainObject(value)
+        || !hasExactKeys(value, keys)
+        || value.version !== STORE_VERSION
+        || !Number.isSafeInteger(value.sessionId)
+        || (value.sessionId as number) <= 0
+        || typeof value.invocationId !== "string"
+        || value.invocationId.length === 0
+        || typeof value.clientMessageId !== "string"
+        || value.clientMessageId.length === 0
+        || typeof value.ownerId !== "string"
+        || value.ownerId.length === 0
+        || !Number.isSafeInteger(value.fence)
+        || (value.fence as number) <= 0
+        || !isIsoTimestamp(value.allocatedAt)) {
+        throw new InvocationExecutionEvidenceLostError("execution fence allocation 格式损坏");
+    }
+    return {
+        version: STORE_VERSION,
+        sessionId: value.sessionId as number,
+        invocationId: value.invocationId,
+        clientMessageId: value.clientMessageId,
+        ownerId: value.ownerId,
+        fence: value.fence as number,
+        allocatedAt: value.allocatedAt,
+    };
+}
+
 /** store 与独立 witness 只有完全一致才证明已启动；确凿均无才证明未启动。 */
 function resolveProviderStartEvidence(
     record: InvocationExecutionRecord,
@@ -682,6 +898,18 @@ function matchesProviderStartWitness(
         && witness.ownerId === record.ownerId
         && witness.fence === record.fence
         && witness.providerStartedAt === record.providerStartedAt;
+}
+
+/** rollbackable record 必须与永久 allocation 的完整 execution identity 一致。 */
+function matchesFenceAllocation(
+    allocation: InvocationFenceAllocation,
+    record: InvocationExecutionRecord,
+): boolean {
+    return allocation.sessionId === record.sessionId
+        && allocation.invocationId === record.invocationId
+        && allocation.clientMessageId === record.clientMessageId
+        && allocation.ownerId === record.ownerId
+        && allocation.fence === record.fence;
 }
 
 /** 只接受无原型歧义的 JSON object。 */

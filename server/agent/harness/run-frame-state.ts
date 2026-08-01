@@ -5,6 +5,8 @@ import {sumUsage} from "nbook/server/agent/messages/message-utils";
 
 export type CreateRunFrameInput = {
     invocationId?: RunFrame["invocationId"];
+    executionLeaseRequired?: RunFrame["executionLeaseRequired"];
+    executionLeaseIdentity?: RunFrame["executionLeaseIdentity"];
     sessionId: RunFrame["sessionId"];
     workspaceKey: RunFrame["workspaceKey"];
     workspaceRootRef: RunFrame["workspaceRootRef"];
@@ -44,6 +46,8 @@ export type CreateRunFrameInput = {
 export function createRunFrame(input: CreateRunFrameInput): RunFrame {
     return {
         invocationId: input.invocationId,
+        executionLeaseRequired: input.executionLeaseRequired ?? false,
+        executionLeaseIdentity: input.executionLeaseIdentity,
         sessionId: input.sessionId,
         workspaceKey: input.workspaceKey,
         workspaceRootRef: input.workspaceRootRef,

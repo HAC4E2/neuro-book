@@ -77,6 +77,8 @@ export async function compactIfNeeded(input: {
     trace?: PiTraceBinding;
     /** 为空表示调用方没有可取消生命周期；非空时透传给摘要 Provider。 */
     signal?: AbortSignal;
+    /** managed invocation 在真实摘要 Provider 调用紧邻前执行的 fencing gate。 */
+    beforeProviderCall?: () => Promise<void>;
     writeCompactionEntry: (entry: Omit<CompactionSessionEntry, "id" | "parentId" | "timestamp">) => Promise<void>;
 }): Promise<boolean> {
     if (!input.compaction) {
@@ -105,6 +107,7 @@ export async function compactIfNeeded(input: {
         options,
         trace: input.trace,
         signal: input.signal,
+        beforeProviderCall: input.beforeProviderCall,
         writeCompactionEntry: input.writeCompactionEntry,
     });
     return true;
@@ -130,6 +133,8 @@ export async function appendCompaction(input: {
     trace?: PiTraceBinding;
     /** 为空表示调用方没有可取消生命周期；非空时透传给摘要 Provider。 */
     signal?: AbortSignal;
+    /** managed invocation 在真实摘要 Provider 调用紧邻前执行的 fencing gate。 */
+    beforeProviderCall?: () => Promise<void>;
     writeCompactionEntry: (entry: Omit<CompactionSessionEntry, "id" | "parentId" | "timestamp">) => Promise<void>;
 }): Promise<void> {
     if (!input.options && !input.compaction) {
@@ -154,6 +159,7 @@ export async function appendCompaction(input: {
         prompt: options.prompt,
         trace: input.trace,
         signal: input.signal,
+        beforeProviderCall: input.beforeProviderCall,
     });
     const summary = `${options.summaryPrefix}\n\n${generatedSummary}`;
     const tokensBefore = input.tokensBefore ?? estimateStoredContextTokens(input.messages).tokens;
@@ -240,6 +246,8 @@ async function generateCompactionSummary(input: {
     trace?: PiTraceBinding;
     /** 为空表示此次摘要不可由上层取消；非空时直接传给 Pi Provider。 */
     signal?: AbortSignal;
+    /** managed invocation 在真实摘要 Provider 调用紧邻前执行的 fencing gate。 */
+    beforeProviderCall?: () => Promise<void>;
 }): Promise<string> {
     const conversation = input.messages.length
         ? input.messages.map((message) => `${message.role}: ${messageText(message)}`).join("\n\n")
@@ -269,6 +277,8 @@ async function generateCompactionSummary(input: {
         signal: input.signal,
     };
     // 统一入口：trace 缺省时 tracedCompleteSimple 等同裸 completeSimple（不落记录、零开销）。
+    input.signal?.throwIfAborted();
+    await input.beforeProviderCall?.();
     input.signal?.throwIfAborted();
     const response = await tracedCompleteSimple(input.models, input.model, completeContext, completeOptions, input.trace);
     input.signal?.throwIfAborted();

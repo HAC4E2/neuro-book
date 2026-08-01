@@ -40,6 +40,7 @@ describe("run frame state", () => {
 
         expect(frame).toMatchObject({
             invocationId: "invoke-1",
+            executionLeaseRequired: false,
             sessionId: 1,
             workspaceKey: "global",
             workspaceRootRef: "workspace",
@@ -156,6 +157,7 @@ describe("run frame state", () => {
 
 function fakeFrame(): RunFrame {
     return {
+        executionLeaseRequired: false,
         sessionId: 1,
         workspaceKey: "global",
         workspaceRootRef: "workspace",

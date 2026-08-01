@@ -117,6 +117,7 @@ describe("turn transaction", () => {
 
 function fakeFrame(): RunFrame {
     return {
+        executionLeaseRequired: false,
         sessionId: 1,
         workspaceKey: "global",
         workspaceRootRef: "workspace",
