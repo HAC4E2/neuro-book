@@ -30,7 +30,7 @@ export function throwIllustrationExecutionHttpError(error: unknown): never {
     if (isTagIndexError(error)) throwTagIndexHttpError(error);
     if (error instanceof CharacterVisualRegistryError) {
         throw createError({
-            statusCode: error.code === "CHARACTER_VISUAL_MIGRATION_REQUIRED" ? 409 : 422,
+            statusCode: 422,
             message: error.message,
             data: {code: error.code},
         });

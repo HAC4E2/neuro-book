@@ -5,7 +5,6 @@
  */
 import {computed, ref, watch} from "vue";
 import {storeToRefs} from "pinia";
-import TextToImageCharacterMigrationPanel from "nbook/app/components/novel-ide/text-to-image/TextToImageCharacterMigrationPanel.vue";
 import TextToImageIllustrationWorkflowPanel from "nbook/app/components/novel-ide/text-to-image/TextToImageIllustrationWorkflowPanel.vue";
 import TextToImageStoryboardImportPanel from "nbook/app/components/novel-ide/text-to-image/TextToImageStoryboardImportPanel.vue";
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
@@ -84,8 +83,6 @@ watch(currentNovelId, (projectPath) => {
         <div class="custom-scrollbar min-h-0 w-full min-w-0 flex-1 overflow-y-scroll px-3 py-3" style="scrollbar-gutter: stable;">
             <TextToImageIllustrationWorkflowPanel :project-path="currentProjectPath" />
             <div v-if="currentNovelId" class="mt-3 space-y-3">
-                <!-- 角色视觉迁移：承接角色详情页 Director proposal 的 Tag 解析、逐项接受与 apply -->
-                <TextToImageCharacterMigrationPanel :project-path="currentProjectPath" />
                 <!-- Storyboard 导入：server inspect + Director Runtime 转换 + 全局发布 -->
                 <TextToImageStoryboardImportPanel :project-path="currentProjectPath" :director-configured="illustrationDirectorBinding?.configured === true" @open-director-settings="openIllustrationDirectorSettings" />
             </div>

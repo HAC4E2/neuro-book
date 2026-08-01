@@ -48,7 +48,7 @@ export function throwIllustrationWorkflowHttpError(error: unknown): never {
     }
     if (error instanceof CharacterVisualRegistryError) {
         throw createError({
-            statusCode: error.code === "CHARACTER_VISUAL_MIGRATION_REQUIRED" ? 409 : 422,
+            statusCode: 422,
             message: error.message,
             data: {code: error.code},
         });

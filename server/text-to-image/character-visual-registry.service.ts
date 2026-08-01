@@ -38,9 +38,7 @@ export type CharacterVisualRegistrySnapshot = {
     renderTagFactsHash: string;
 };
 
-export type CharacterVisualRegistryErrorCode =
-    | "CHARACTER_VISUAL_MIGRATION_REQUIRED"
-    | "CHARACTER_VISUAL_INVALID";
+export type CharacterVisualRegistryErrorCode = "CHARACTER_VISUAL_INVALID";
 
 /** Route B V2 角色事实错误。 */
 export class CharacterVisualRegistryError extends Error {
