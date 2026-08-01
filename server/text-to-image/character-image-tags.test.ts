@@ -1,162 +1,71 @@
 import {describe, expect, it, vi} from "vitest";
-import {ILLUSTRATION_DIRECTOR_MODEL_NOT_CONFIGURED} from "nbook/shared/agent/illustration-director";
-import {CHARACTER_IMAGE_TAG_FIELDS} from "nbook/shared/text-to-image-character-visual";
-import {createTextToImageMarkdownFileHash} from "nbook/server/text-to-image/strict-frontmatter";
+import {createTextToImageFileHash} from "nbook/shared/text-to-image-file-hash";
 import {
-    CharacterVisualProposalError,
-    generateCharacterVisualProposal,
-    type CharacterVisualProposalRuntime,
+    generateCharacterVisualFiles,
+    type CharacterVisualDirectWriteRuntime,
 } from "nbook/server/text-to-image/character-image-tags";
 
-const characterMarkdown = "---\ntitle: 艾丽丝\naliases: [Alice]\n---\n\n外貌：金发碧眼。\n";
-const sourceHash = createTextToImageMarkdownFileHash(characterMarkdown);
+const source = "# Hero\n";
+const sourceHash = createTextToImageFileHash(source);
 
-function completedProposal() {
+function runtime(): CharacterVisualDirectWriteRuntime {
+    let started = false;
+    const files = new Map<string, string>([["lorebook/character/hero/index.md", source]]);
     return {
-        schemaVersion: "nbook.character-visual-director-proposal/v1" as const,
-        operation: "propose-character-visual" as const,
-        state: "completed" as const,
-        summary: "已从角色事实生成视觉 proposal。",
-        sourceCharacterFileHash: sourceHash,
-        character: {
-            names: {cn: "艾丽丝", en: "Alice"},
-            fields: {
-                profileTraits: "young woman",
-                facialAppearance: "blonde hair, blue eyes",
-                facialBack: "long blonde hair",
-                upperSfw: "slender",
-                upperBackSfw: "",
-                lowerSfw: "",
-                lowerBackSfw: "",
-                upperNsfw: "",
-                upperBackNsfw: "",
-                lowerNsfw: "",
-                lowerBackNsfw: "",
-                negativePrompt: "",
-            },
+        read: async (path) => files.get(path) ?? null,
+        write: async ({path, content, knownBefore}) => {
+            expect(files.get(path) ?? null).toBe(knownBefore);
+            files.set(path, content);
         },
-        outfits: [],
-        diagnostics: [],
+        snapshot: async () => ({
+            root: "/project/demo",
+            characterId: "hero",
+            characterPath: "lorebook/character/hero/index.md",
+            sourceMarkdown: source,
+            characterImageTags: null,
+            referencedOutfits: [],
+        }),
+        acquire: async () => ({sessionId: 1}),
+        resolve: async () => started
+            ? {state: "completed" as const, invocationId: "invoke-1", reportResult: {
+                schemaVersion: "nbook.character-visual-director-output/v2",
+                operation: "generate-character-visual",
+                state: "completed",
+                sourceCharacterFileHash: sourceHash,
+                summary: "完成",
+                character: {names: {cn: "英雄", en: "Hero"}, fields: {profileTraits: "calm", facialAppearance: "brown eyes", facialBack: "short hair", upperSfw: "coat", upperBackSfw: "coat", lowerSfw: "boots", lowerBackSfw: "boots", upperNsfw: "", upperBackNsfw: "", lowerNsfw: "", lowerBackNsfw: "", negativePrompt: ""}},
+                outfits: [],
+                diagnostics: [],
+            }}
+            : {state: "missing" as const},
+        start: async ({onAccepted}) => {
+            await onAccepted({sessionId: 1, invocationId: "invoke-1", clientMessageId: "fixed"});
+            started = true;
+        },
+        materialize: async () => ({characterMarkdown: "character target\n", outfits: [], diagnostics: []}),
+        sleep: async () => undefined,
+        now: () => 0,
+        invalidate: vi.fn(),
     };
 }
 
-function runtime(patch: Partial<CharacterVisualProposalRuntime> = {}): CharacterVisualProposalRuntime {
-    return {
-        readCharacter: vi.fn(async () => characterMarkdown),
-        isDirectorConfigured: vi.fn(async () => true),
-        invoke: vi.fn(async () => ({
-            sessionId: 12,
-            invocationId: "invocation-12",
-            status: "completed",
-            data: completedProposal(),
-        })),
-        save: vi.fn(async (input) => ({
-            schemaVersion: "nbook.character-visual-director-preview/v1",
-            proposalId: "character-proposal-1234567890abcdef12345678",
-            proposalFileHash: sourceHash,
-            sourceCharacterPath: input.sourceCharacterPath,
-            sourceCharacterFileHash: input.sourceCharacterFileHash,
-            characterPath: "lorebook/character/alice/image-tags.md",
-            targetStatus: "missing_visual",
-            targetBaseSetHash: sourceHash,
-            targetNames: {cn: "艾丽丝", aliasesCn: ["Alice"], en: "Alice"},
-            rows: CHARACTER_IMAGE_TAG_FIELDS.map((field) => ({
-                field,
-                existingText: "",
-                proposalText: input.proposal.character?.fields[field] ?? "",
-                state: input.proposal.character?.fields[field] ? "proposal_only" as const : "empty" as const,
-                decisionRequired: false,
-            })),
-            outfits: [],
-            diagnostics: [],
-            previewHash: sourceHash,
-        })),
-        ...patch,
-    };
-}
-
-describe("character visual Director proposal", () => {
-    it("binding 缺失时使用稳定错误出口且不调用 Agent", async () => {
-        const testRuntime = runtime({isDirectorConfigured: vi.fn(async () => false)});
-        await expect(generateCharacterVisualProposal({
+describe("character image-tags direct orchestration", () => {
+    it("accepts only the direct request and returns the completed-only result", async () => {
+        const result = await generateCharacterVisualFiles({
             projectPath: "workspace/demo",
-            characterPath: "lorebook/character/alice/index.md",
-        }, testRuntime)).rejects.toMatchObject({code: ILLUSTRATION_DIRECTOR_MODEL_NOT_CONFIGURED});
-        expect(testRuntime.invoke).not.toHaveBeenCalled();
-    });
-
-    it("只把 source bytes/hash 交给 illustration.director，并持久化 proposal preview", async () => {
-        const testRuntime = runtime();
-        const result = await generateCharacterVisualProposal({
-            projectPath: "workspace/demo",
-            characterPath: "lorebook/character/alice/index.md",
-        }, testRuntime);
-        expect(result.state).toBe("proposal_ready");
-        expect(testRuntime.invoke).toHaveBeenCalledWith(expect.objectContaining({
-            characterMarkdown,
+            characterPath: "lorebook/character/hero/index.md",
             sourceCharacterFileHash: sourceHash,
-        }));
-        expect(testRuntime.save).toHaveBeenCalledWith(expect.objectContaining({
-            proposal: expect.objectContaining({operation: "propose-character-visual"}),
-        }));
+            idempotencyKey: "9aa9105b-0c1c-4ad3-9032-20b2aafc7e5f",
+        }, runtime());
+        expect(result).toMatchObject({state: "completed", sessionId: 1, invocationId: "invoke-1"});
     });
 
-    it("blocked report 原样返回诊断，不创建 migration proposal", async () => {
-        const testRuntime = runtime({
-            invoke: vi.fn(async () => ({
-                sessionId: 13,
-                invocationId: "invocation-13",
-                status: "completed",
-                data: {
-                    ...completedProposal(),
-                    state: "blocked",
-                    character: null,
-                    outfits: [],
-                    summary: "角色事实不足。",
-                    diagnostics: [{code: "SOURCE_FACTS_INSUFFICIENT", message: "没有明确外貌字段。"}],
-                },
-            })),
-        });
-        const result = await generateCharacterVisualProposal({
+    it("rejects malformed direct request before runtime execution", async () => {
+        await expect(generateCharacterVisualFiles({
             projectPath: "workspace/demo",
-            characterPath: "lorebook/character/alice/index.md",
-        }, testRuntime);
-        expect(result).toMatchObject({state: "blocked", summary: "角色事实不足。"});
-        expect(testRuntime.save).not.toHaveBeenCalled();
-    });
-
-    it("拒绝未绑定当前角色 source hash 的 Agent 输出", async () => {
-        const testRuntime = runtime({
-            invoke: vi.fn(async () => ({
-                sessionId: 14,
-                invocationId: "invocation-14",
-                status: "completed",
-                data: {...completedProposal(), sourceCharacterFileHash: `sha256:${"0".repeat(64)}`},
-            })),
-        });
-        await expect(generateCharacterVisualProposal({
-            projectPath: "workspace/demo",
-            characterPath: "lorebook/character/alice/index.md",
-        }, testRuntime)).rejects.toBeInstanceOf(CharacterVisualProposalError);
-        expect(testRuntime.save).not.toHaveBeenCalled();
-    });
-
-    it("拒绝缺字段的 Agent 输出，不在消费端补造 proposal", async () => {
-        const testRuntime = runtime({
-            invoke: vi.fn(async () => ({
-                sessionId: 15,
-                invocationId: "invocation-15",
-                status: "completed",
-                data: {summary: "只有自然语言摘要"},
-            })),
-        });
-
-        await expect(generateCharacterVisualProposal({
-            projectPath: "workspace/demo",
-            characterPath: "lorebook/character/alice/index.md",
-        }, testRuntime)).rejects.toMatchObject({
-            code: "CHARACTER_VISUAL_DIRECTOR_OUTPUT_INVALID",
-        });
-        expect(testRuntime.save).not.toHaveBeenCalled();
+            characterPath: "lorebook/character/hero/image-tags.md",
+            sourceCharacterFileHash: sourceHash,
+            idempotencyKey: "not-a-uuid",
+        }, runtime())).rejects.toThrow();
     });
 });

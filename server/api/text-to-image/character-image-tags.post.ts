@@ -1,24 +1,19 @@
-import {createError} from "h3";
 import {
-    CharacterVisualDirectorGenerateRequestSchema,
-    CharacterVisualProposalError,
-    generateCharacterVisualProposal,
+    CharacterVisualDirectWriteRequestSchema,
+    generateCharacterVisualFiles,
 } from "nbook/server/text-to-image/character-image-tags";
-import {throwCharacterVisualMigrationHttpError} from "nbook/server/text-to-image/character-visual-migration-http-error";
+import {throwCharacterImageTagsHttpError} from "nbook/server/text-to-image/character-image-tags-http-error";
 import {requireCurrentUser} from "nbook/server/utils/auth";
 import {validateBody} from "nbook/server/utils/novel-chapter";
 import {withProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
 
-/** 通过 illustration.director 生成不可执行角色视觉 proposal；不直接写 image-tags。 */
+/** 通过 illustration.director 直接生成并可恢复地写入角色视觉文件。 */
 export default defineEventHandler((event) => withProjectNotOpenHttpError(async () => {
     await requireCurrentUser(event);
-    const body = await validateBody(event, CharacterVisualDirectorGenerateRequestSchema);
+    const body = await validateBody(event, CharacterVisualDirectWriteRequestSchema);
     try {
-        return await generateCharacterVisualProposal(body);
+        return await generateCharacterVisualFiles(body);
     } catch (error) {
-        if (error instanceof CharacterVisualProposalError) {
-            throw createError({statusCode: 409, message: error.message, data: {code: error.code}});
-        }
-        throwCharacterVisualMigrationHttpError(error);
+        throwCharacterImageTagsHttpError(error);
     }
 }));
