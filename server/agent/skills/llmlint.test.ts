@@ -88,6 +88,7 @@ describe("llmlint", () => {
                 "vocabulary.r18": {enabled: false},
             },
             rules: {},
+            ignoreTerms: [],
             output: "stylish",
         });
 
@@ -113,6 +114,7 @@ describe("llmlint", () => {
             rulesetOverrides: {},
             namespaces: {},
             rules: {},
+            ignoreTerms: [],
             output: "stylish",
         });
 
@@ -222,6 +224,7 @@ describe("llmlint", () => {
             },
             namespaces: {},
             rules: {},
+            ignoreTerms: [],
             output: "stylish",
         });
         const issues = scanText("旧词 覆盖词", loadedRules.regexRules);
@@ -253,6 +256,7 @@ describe("llmlint", () => {
             rules: {
                 "test.explicit.rule": {enabled: true, level: "high"},
             },
+            ignoreTerms: [],
             output: "stylish",
         });
         const issues = scanText("规则词 语气词 关闭词", loadedRules.regexRules);
@@ -336,7 +340,7 @@ describe("llmlint", () => {
         expect(output).toContain("1:32-35  这是一个很长的完整行，前面有足够多的上下文用于验证不会被截断，<mark>高风险词</mark>后面也应该保留完整上下文。");
     });
 
-    it("handler rule 第一版会跳过并产生 warning", async () => {
+    it("未知 builtin handler 会跳过并产生 warning", async () => {
         const rulesetId = `test/${randomUUID()}`;
         tempRoots.push(join(RULESETS_ROOT, "test"));
         await writeRuleset(rulesetId, [{
@@ -344,14 +348,15 @@ describe("llmlint", () => {
             namespace: "test.handler",
             title: "handler",
             level: "medium",
-            handler: {type: "module", path: "handler.ts"},
+            handler: {type: "builtin", name: "test.unknown-handler"},
+            action: {type: "suggest", message: "未知 handler"},
         }]);
 
         const loadedRules = await loadRules(emptyConfig([rulesetId]));
 
         expect(loadedRules.rules).toHaveLength(0);
         expect(loadedRules.diagnostics).toEqual(expect.arrayContaining([
-            expect.objectContaining({code: "handler-not-implemented", ruleId: "test.handler"}),
+            expect.objectContaining({code: "unknown-handler-name", ruleId: "test.handler"}),
         ]));
     });
 
@@ -636,6 +641,7 @@ describe("llmlint", () => {
             rulesetOverrides: {},
             namespaces: {"test.review": {review: "human"}},
             rules: {"test.review.a": {review: "none"}},
+            ignoreTerms: [],
             output: "stylish",
         });
         const byId = new Map(loadedRules.rules.map((rule) => [rule.id, rule]));
@@ -720,6 +726,7 @@ describe("llmlint", () => {
             rulesetOverrides: {},
             namespaces: {},
             rules: {"test.enable.obj": {enabled: true, level: "high", review: "human"}},
+            ignoreTerms: [],
             output: "stylish",
         });
         const rule = loadedRules.rules.find((item) => item.id === "test.enable.obj");
@@ -739,6 +746,7 @@ describe("llmlint", () => {
             rulesetOverrides: {[rulesetId]: "off"},
             namespaces: {"test.resurrect": {review: "human"}},
             rules: {},
+            ignoreTerms: [],
             output: "stylish",
         });
         expect(attrOnly.rules.some((rule) => rule.id === "test.resurrect.rule")).toBe(false);
@@ -749,6 +757,7 @@ describe("llmlint", () => {
             rulesetOverrides: {[rulesetId]: "off"},
             namespaces: {"test.resurrect": {enabled: true, review: "human"}},
             rules: {},
+            ignoreTerms: [],
             output: "stylish",
         });
         expect(withEnable.rules.some((rule) => rule.id === "test.resurrect.rule")).toBe(true);
@@ -991,6 +1000,7 @@ function emptyConfig(rulesets: string[]) {
         rulesetOverrides: {},
         namespaces: {},
         rules: {},
+        ignoreTerms: [],
         output: "stylish" as const,
     };
 }

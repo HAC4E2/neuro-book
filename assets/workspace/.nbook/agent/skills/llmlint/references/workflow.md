@@ -45,14 +45,14 @@ bun "<skill-root>/bin/llmlint.ts" status --format json
 
 这是软门，`initialized:false` 不阻塞 `check` / `detect`。
 
-如果 `initialized:false`，读 `status` 报的实际档位，向用户说明四档各会**在本机攒下**什么（`off` 什么都不攒 / `stats` 只有命中统计与检测分数、不含文件名片段评语 / `fragments` 再加文件名、疑难片段原文与判定、修后评语 / `full` 再加修前修后全文，即在用户目录留一份正文副本）与 `sharing.mode` 的含义（`auto` 缺省，每轮收尾自动攒；`ask` 只列不写、要手动确认），再用 `config set` 写用户级 `settings.json`。只在用户要求改档位时才写 `sharing.tier`：
+如果 `initialized:false`，读 `status` 报的实际档位，向用户说明四档各会**在本机攒下**什么（`off` 什么都不攒 / `stats` 只有命中统计与检测分数、不含文件名片段评语 / `fragments` 再加轮目录安全快照名、疑难片段原文与判定、修后评语 / `full` 再加修前修后全文，即在用户目录留一份正文副本）与 `sharing.mode` 的含义（`auto` 缺省，每轮收尾自动攒；`ask` 只列不写、要手动确认），再用 `config set` 写用户级 `settings.json`。只在用户要求改档位时才写 `sharing.tier`：
 
 ```bash
 bun "<skill-root>/bin/llmlint.ts" config set sharing.tier stats
 bun "<skill-root>/bin/llmlint.ts" config set initialized true
 ```
 
-本版本没有任何上传通道，数据只落在本机 `~/.llmlint/outbox/`，一个字节都不离开这台机器；将来要发送时会另行征求同意。
+这句话只描述 `contribute`：本版本没有上传通道，记录只落在本机 `~/.llmlint/outbox/`。`detect` 是独立外部链路，会发送未缓存正文块；`sharing.off` 不会关闭它。
 
 `config` 只管理用户级 `settings.json`，不会修改项目级 `llmlint.config.ts`。项目级规则变化必须以 diff 建议形式交用户审批。
 
@@ -87,7 +87,7 @@ bun "<skill-root>/bin/llmlint.ts" check <files...> --format json > <轮目录>/c
 
 规则整理已把大量语境敏感规则下沉到 `human` 桶，创作类正文只看 agent 桶会漏掉主要问题（实测一篇 P(AI) 0.88 的轻小说，agent 桶 5 条命中、all 桶 43 条 + 1 条密度指纹，而最强的比喻密度指纹整体在 human 桶）。`agent` 桶是默认可修入口；`human` 桶参与四象限、密度判断和「问 / 留」分流，要修必须先取得用户同意。
 
-`check --format json` 默认输出紧凑形态：规则元数据在顶层 `rules`，命中只带 `ruleId`，`context` 裁到命中前后各 24 字。规则本体（`detector.targets` / `source` / `scope`）用 `--rule-detail`，体积大 4 倍以上，日常审稿不要用。
+`check --format json` 默认输出紧凑形态：规则元数据（含 resolved `scope`）在顶层 `rules`，命中只带 `ruleId`，`context` 裁到命中前后各 24 字。规则作者细节（`detector.targets` / `source` / `examples`）用 `--rule-detail`，体积大 4 倍以上，日常审稿不要用。
 
 神经检测：
 
@@ -96,6 +96,8 @@ bun "<skill-root>/bin/llmlint.ts" detect <files...> --format json > <轮目录>/
 ```
 
 `check` 会输出 regex、handler 和 density 的结构化命中。`detect` 会输出每个文件的 `docPAi`、`maxPAi`、`spread`、`cached`，以及逐 chunk 的 span、起始行、`pAi`、`rank`（文内 P(AI) 降序位次）和 `relative`（相对本篇均值的偏离）。`rank` / `relative` / `spread` 是报告层派生字段，不进缓存，所以 `cached:true` 时同样有。
+
+缓存未命中的正文块会 POST 到配置的外部检测服务（默认 HF Space），请求不含文件名或项目路径。远端日志和保留策略不受 llmlint 控制；用户不希望正文离机时不要运行 `detect`。
 
 网络失败时，不把整轮审稿判死。报告失败原因和代理建议：
 
@@ -255,7 +257,8 @@ bun "<skill-root>/bin/llmlint.ts" contribute --auto --round <本轮轮号>
 ## 规则作者注意事项
 
 - `scope.layer:"narrative"` 使用引号外等长占位视图；引号段被替成等长 `。`，offset 保持原文一致。不要写依赖“数句号”的 narrative regex。
-- `scope.layer:"dialogue"` 扫成对引号和 `【】` 面板内文本，适合公告、公文腔和系统台词。
+- `scope.layer:"quoted"` 扫同一行内成对的 `「」`、`『』`、`“”`、`‘’`、`【】`（含分隔符）；ASCII 直引号、未闭合或跨行分隔符不进入 quoted。
+- 省略 scope 归一为 `all`；一条规则只声明一个 layer，且项目配置不能覆盖。
 - `density` 是分布问题；门槛是 AND 语义，命中后只能人工/Agent 修，不提供机械替换。
 - `ignoreTerms` 是项目级豁免词；regex、density、handler 命中与豁免词区间重叠都会被丢弃。
 

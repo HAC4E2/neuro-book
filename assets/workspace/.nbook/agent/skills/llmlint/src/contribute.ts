@@ -7,13 +7,13 @@
 // 裁剪是**白名单构造**：每档显式挑字段拼出新对象，不是复制整轮再删几个字段。
 // 这样将来台账新增任何字段都默认不出现在导出里，默认方向是安全的那一边。
 import {existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync} from "node:fs";
-import {join} from "node:path";
+import {join, posix} from "node:path";
 import {createHash} from "node:crypto";
 import {loadConfig} from "./config";
 import {loadRules} from "./rules";
 import {DEFAULT_DETECTOR_VERSION, loadUserSettings, userStateDir, type SharingTier} from "./user-state";
 import {LLMLINT_VERSION} from "./version";
-import {loadLedger, roundDir, saveLedger, type Ledger, type RoundDecision, type RoundEntry, type RoundMetrics, type RoundRetest} from "./round";
+import {isSafeRuleId, loadLedger, roundDir, saveLedger, snapshotNamesForFiles, type Ledger, type RoundDecision, type RoundEntry, type RoundMetrics, type RoundRetest} from "./round";
 
 export const CONTRIBUTION_SCHEMA = "llmlint.contribution/1";
 
@@ -66,6 +66,8 @@ export type Contribution = {
     outputHash: string | null;
     /** 非 null = 本条实际档位低于用户设置，值是原本要出的档。 */
     degradedFrom: SharingTier | null;
+    /** output 快照集合不完整时固定写入；只有完整集合才允许哈希或进入 full 正文。 */
+    degradedReason: "output-snapshots-incomplete" | null;
     client: {
         skillVersion: string;
         /** 活跃规则集指纹：命中数只有配上「当时哪些规则开着」才可解释。 */
@@ -134,33 +136,52 @@ export function readCheckFacts(filePath: string): CheckFacts {
     if (typeof parsed !== "object" || parsed === null) {
         return EMPTY_FACTS;
     }
-    const report = parsed as {
-        kind?: string;
-        summary?: {visibleChars?: number};
-        issues?: Array<{ruleId?: string}>;
-        densityIssues?: Array<{ruleId?: string; hits?: number}>;
-        files?: Array<{issues?: Array<{ruleId?: string}>; densityIssues?: Array<{ruleId?: string; hits?: number}>}>;
-    };
+    const report = parsed as Record<string, unknown>;
+    if (report.kind !== "check" && report.kind !== "check-multi") {
+        return EMPTY_FACTS;
+    }
     const ruleHits: Record<string, number> = {};
     const densityHits: Record<string, number> = {};
-    const collect = (issues?: Array<{ruleId?: string}>, density?: Array<{ruleId?: string; hits?: number}>): void => {
-        for (const issue of issues ?? []) {
-            if (typeof issue.ruleId === "string") {
+    const collect = (issues: unknown, density: unknown): void => {
+        for (const value of Array.isArray(issues) ? issues : []) {
+            if (typeof value !== "object" || value === null || Array.isArray(value)) {
+                continue;
+            }
+            const issue = value as Record<string, unknown>;
+            if (typeof issue.ruleId === "string" && isSafeRuleId(issue.ruleId)) {
                 ruleHits[issue.ruleId] = (ruleHits[issue.ruleId] ?? 0) + 1;
             }
         }
-        for (const issue of density ?? []) {
-            if (typeof issue.ruleId === "string") {
-                densityHits[issue.ruleId] = (densityHits[issue.ruleId] ?? 0) + (typeof issue.hits === "number" ? issue.hits : 1);
+        for (const value of Array.isArray(density) ? density : []) {
+            if (typeof value !== "object" || value === null || Array.isArray(value)) {
+                continue;
+            }
+            const issue = value as Record<string, unknown>;
+            if (typeof issue.ruleId === "string" && isSafeRuleId(issue.ruleId) && isNonNegativeInteger(issue.hits)) {
+                densityHits[issue.ruleId] = (densityHits[issue.ruleId] ?? 0) + issue.hits;
             }
         }
     };
-    collect(report.issues, report.densityIssues);
-    for (const file of report.files ?? []) {
-        collect(file.issues, file.densityIssues);
+    if (report.kind === "check") {
+        collect(report.issues, report.densityIssues);
+    } else {
+        for (const value of Array.isArray(report.files) ? report.files : []) {
+            if (typeof value !== "object" || value === null || Array.isArray(value)) {
+                continue;
+            }
+            const file = value as Record<string, unknown>;
+            collect(file.issues, file.densityIssues);
+        }
     }
-    const visibleChars = typeof report.summary?.visibleChars === "number" ? report.summary.visibleChars : null;
+    const summary = typeof report.summary === "object" && report.summary !== null && !Array.isArray(report.summary)
+        ? report.summary as Record<string, unknown>
+        : null;
+    const visibleChars = summary && isNonNegativeInteger(summary.visibleChars) ? summary.visibleChars : null;
     return {ruleHits, densityHits, visibleChars};
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+    return typeof value === "number" && Number.isFinite(value) && Number.isInteger(value) && value >= 0;
 }
 
 export type TrimInput = {
@@ -179,14 +200,27 @@ export type TrimInput = {
  */
 export function trimRoundForTier(input: TrimInput): ContributionPayload {
     const {entry, tier, facts} = input;
+    const expectedSnapshots = snapshotNamesForFiles(entry.sourceFiles);
+    const mappedDecisionFiles = mapDecisionFiles(entry, expectedSnapshots);
     const stats: ContributionPayload = {
         round: entry.round,
         parentRound: entry.parentRound,
         startedAt: entry.startedAt,
         completedAt: entry.completedAt,
-        summary: entry.summary,
-        retest: entry.retest,
-        checkFacts: facts,
+        summary: entry.summary === null ? null : {
+            staticIssues: entry.summary.staticIssues,
+            densityIssues: entry.summary.densityIssues,
+            docPAi: entry.summary.docPAi,
+            spread: entry.summary.spread,
+        },
+        retest: entry.retest === null ? null : {
+            staticIssues: entry.retest.staticIssues,
+            densityIssues: entry.retest.densityIssues,
+            docPAi: entry.retest.docPAi,
+            spread: entry.retest.spread,
+            verdict: entry.retest.verdict,
+        },
+        checkFacts: {source: trimCheckFacts(facts.source), output: trimCheckFacts(facts.output)},
         judgment: {
             wantReadOnBefore: entry.judgment.wantReadOnBefore,
             wantReadOnAfter: entry.judgment.wantReadOnAfter,
@@ -201,8 +235,15 @@ export function trimRoundForTier(input: TrimInput): ContributionPayload {
     }
     const fragments: ContributionPayload = {
         ...stats,
-        sourceFiles: [...entry.sourceFiles],
-        decisions: entry.decisions.map((decision) => ({...decision})),
+        sourceFiles: [...expectedSnapshots],
+        decisions: entry.decisions.map((decision, index) => ({
+            file: mappedDecisionFiles[index]!,
+            line: decision.line,
+            ruleId: decision.ruleId,
+            fragment: decision.fragment,
+            verdict: decision.verdict,
+            reason: decision.reason,
+        })),
         localConfigSuggestions: [...entry.localConfigSuggestions],
         comment: entry.judgment.comment,
     };
@@ -210,6 +251,75 @@ export function trimRoundForTier(input: TrimInput): ContributionPayload {
         return fragments;
     }
     return {...fragments, texts: {source: input.texts.source, output: input.texts.output}};
+}
+
+/** 对 stats 也先完成 decision→sourceFiles 交叉引用，坏轮只能跳过，不能导出半真数据。 */
+function mapDecisionFiles(entry: RoundEntry, snapshotNames: string[]): string[] {
+    const sources = entry.sourceFiles.map((file, index) => ({
+        exact: normalizePortablePath(file),
+        windows: isWindowsStylePath(file),
+        snapshot: snapshotNames[index]!,
+    }));
+    return entry.decisions.map((decision) => {
+        const exact = normalizePortablePath(decision.file);
+        const exactMatches = sources.filter((source) => source.exact === exact);
+        if (exactMatches.length === 1) {
+            return exactMatches[0]!.snapshot;
+        }
+        if (exactMatches.length > 1) {
+            throw new Error(`decision.file 无法唯一映射到 sourceFiles：${decision.file}`);
+        }
+        if (isWindowsStylePath(decision.file)) {
+            const folded = exact.toLocaleLowerCase("en-US");
+            const foldedMatches = sources.filter((source) => source.windows && source.exact.toLocaleLowerCase("en-US") === folded);
+            if (foldedMatches.length === 1) {
+                return foldedMatches[0]!.snapshot;
+            }
+        }
+        throw new Error(`decision.file 不属于本轮 sourceFiles：${decision.file}`);
+    });
+}
+
+/** 同时规范 POSIX/Windows 分隔符；大小写保持不变，避免 POSIX 文件被错误合并。 */
+function normalizePortablePath(file: string): string {
+    return posix.normalize(file.replace(/\\/g, "/"));
+}
+
+function isWindowsStylePath(file: string): boolean {
+    return /^[a-z]:[\\/]/iu.test(file) || file.startsWith("\\\\") || file.includes("\\");
+}
+
+/** 导出层再次逐字段重建 check 事实，避免测试/未来调用者绕过读取层夹带数据。 */
+function trimCheckFacts(facts: CheckFacts): CheckFacts {
+    const ruleHits: Record<string, number> = {};
+    const densityHits: Record<string, number> = {};
+    for (const [ruleId, count] of Object.entries(facts.ruleHits)) {
+        if (isSafeRuleId(ruleId) && isNonNegativeInteger(count)) {
+            ruleHits[ruleId] = count;
+        }
+    }
+    for (const [ruleId, count] of Object.entries(facts.densityHits)) {
+        if (isSafeRuleId(ruleId) && isNonNegativeInteger(count)) {
+            densityHits[ruleId] = count;
+        }
+    }
+    return {
+        ruleHits,
+        densityHits,
+        visibleChars: facts.visibleChars !== null && isNonNegativeInteger(facts.visibleChars) ? facts.visibleChars : null,
+    };
+}
+
+/** 快照集合必须与 beginRound 生成的名字逐项一致；返回按 expected 排序后的稳定集合。 */
+function exactSnapshotSet(texts: TextSnapshot[], expected: string[]): TextSnapshot[] | null {
+    if (texts.length !== expected.length) {
+        return null;
+    }
+    const byName = new Map(texts.map((text) => [text.name, text]));
+    if (byName.size !== expected.length || expected.some((name) => !byName.has(name))) {
+        return null;
+    }
+    return expected.map((name) => byName.get(name)!);
 }
 
 /** 活跃规则集指纹：规则 id 排序后 sha256 取前 16。命中数离开它无法解释（不知道当时哪些规则开着）。 */
@@ -225,6 +335,7 @@ export type ContributionPreview = {
     round: number;
     tier: Exclude<SharingTier, "off">;
     degradedFrom: SharingTier | null;
+    degradedReason: Contribution["degradedReason"];
     bytes: number;
     /** 真写时是发件箱里的文件名；dry-run 为 null。 */
     file: string | null;
@@ -310,24 +421,35 @@ export async function contribute(options: ContributeOptions): Promise<Contribute
     const rulesetHash = candidates.length > 0 ? await rulesetFingerprint(options.cwd) : "";
     for (const entry of candidates) {
         const dir = roundDir(options.cwd, entry.round);
-        const sourceTexts = readSnapshots(join(dir, "source"));
-        if (sourceTexts.length === 0) {
-            skipped.push({round: entry.round, reason: "轮目录里没有 source 快照，无法计算正文哈希"});
+        const expectedSnapshots = snapshotNamesForFiles(entry.sourceFiles);
+        const sourceTexts = exactSnapshotSet(readSnapshots(join(dir, "source")), expectedSnapshots);
+        if (sourceTexts === null) {
+            skipped.push({round: entry.round, reason: "source 快照集合与 sourceFiles 不一致（存在缺失、额外或重名）"});
             continue;
         }
-        const outputTexts = readSnapshots(join(dir, "output"));
-        // full 档要正文；用户删了 output/ 就如实降级，不假装自己有。
-        const degraded = tier === "full" && outputTexts.length === 0;
+        const outputTexts = exactSnapshotSet(readSnapshots(join(dir, "output")), expectedSnapshots);
+        const degradedReason: Contribution["degradedReason"] = outputTexts === null ? "output-snapshots-incomplete" : null;
+        // full 档要完整 output 集合；缺失或额外文件都降级，不把半套正文伪装成完整修后稿。
+        const degraded = tier === "full" && outputTexts === null;
         const effectiveTier: Exclude<SharingTier, "off"> = degraded ? "fragments" : tier;
-        const payload = trimRoundForTier({
-            entry,
-            tier: effectiveTier,
-            facts: {
-                source: readCheckFacts(join(dir, "check-source.json")),
-                output: readCheckFacts(join(dir, "check-output.json")),
-            },
-            texts: {source: sourceTexts, output: outputTexts},
-        });
+        let payload: ContributionPayload;
+        try {
+            payload = trimRoundForTier({
+                entry,
+                tier: effectiveTier,
+                facts: {
+                    source: readCheckFacts(join(dir, "check-source.json")),
+                    output: readCheckFacts(join(dir, "check-output.json")),
+                },
+                texts: {source: sourceTexts, output: outputTexts ?? []},
+            });
+        } catch (error) {
+            skipped.push({
+                round: entry.round,
+                reason: error instanceof Error ? error.message : String(error),
+            });
+            continue;
+        }
         const contribution: Contribution = {
             schema: CONTRIBUTION_SCHEMA,
             kind: "review-round",
@@ -336,8 +458,9 @@ export async function contribute(options: ContributeOptions): Promise<Contribute
             projectId: ledger.projectId,
             contentHash: `sha256:${createHash("sha256").update(stableStringify(payload)).digest("hex")}`,
             sourceHash: hashTexts(sourceTexts),
-            outputHash: outputTexts.length > 0 ? hashTexts(outputTexts) : null,
+            outputHash: outputTexts === null ? null : hashTexts(outputTexts),
             degradedFrom: degraded ? tier : null,
+            degradedReason,
             client: {
                 skillVersion: LLMLINT_VERSION,
                 rulesetHash,
@@ -355,6 +478,7 @@ export async function contribute(options: ContributeOptions): Promise<Contribute
             round: entry.round,
             tier: effectiveTier,
             degradedFrom: contribution.degradedFrom,
+            degradedReason: contribution.degradedReason,
             bytes: Buffer.byteLength(serialized, "utf-8"),
             file: null,
         };

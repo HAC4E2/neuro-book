@@ -290,7 +290,7 @@ export async function runCli(argv: string[]): Promise<void> {
 
     program
         .command("contribute")
-        .description("把已完成的审稿轮按共享档位裁剪，落进本地发件箱（不发送，服务轮才有 --send）")
+        .description("把已完成的审稿轮按共享档位裁剪，只写本地发件箱，不联网、不发送")
         .option("--yes", "真写发件箱；缺省只列出将导出什么")
         .option("--round <round>", "只导出指定轮")
         .option("--auto", "由用户设置决定落 / 跳过 / 待确认（五步流程步骤 5 用这个）")

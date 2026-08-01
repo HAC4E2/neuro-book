@@ -161,12 +161,12 @@ bun "<skill-root>/bin/llmlint.ts" round begin .agent/llmlint/rounds/0001/output/
 
 - **轮号**取「台账里最大轮号」与「rounds/ 现有目录号」两者的最大值 +1，四位零填充。中断轮留下的目录会占住号不被复用——复用会让两轮产物混进同一个目录。
 - **`--parent`** 声明本轮续修的是哪一轮的 `output`。必须显式给，不能靠内容比对推：第 1 轮审第 1 章、第 2 轮审第 2 章时内容天然不同，推断会得出「用户中途手改过」的错误结论。另起一篇就不传。
-- 多文件按 basename 镜像进 `source/`，重名自动加数字前缀；台账 `sourceFiles` 保留原始路径。
+- 多文件按 basename 镜像进 `source/`，重名自动加数字前缀；项目内台账 `sourceFiles` 保留原始路径以便本轮定位，但贡献载荷只导出这些轮目录快照名。
 - 不自动清理旧轮。想省空间就自己删轮目录，删掉不影响已经导出的发件箱条目（那些是自包含的）。
 
 ## contribute：按档裁剪落本地发件箱
 
-把已完成的轮裁剪成一条自包含记录，写进用户级发件箱 `~/.llmlint/outbox/`（`LLMLINT_HOME` 可覆盖）。**本版本不联网、不发送**，发送要等服务端起来后的 `--send`。
+把已完成的轮裁剪成一条自包含记录，写进用户级发件箱 `~/.llmlint/outbox/`（`LLMLINT_HOME` 可覆盖）。**本版本不联网、不发送，也没有 `--send` 通道。**
 
 ```bash
 bun "<skill-root>/bin/llmlint.ts" contribute                       # 只列将导出什么，不落盘
@@ -191,11 +191,11 @@ bun "<skill-root>/bin/llmlint.ts" contribute --list                # 列发件�
 | --- | --- | --- | --- |
 | 命中统计、检测分、字数 | ✓ | ✓ | ✓ |
 | wantReadOn 修前/修后 | ✓ | ✓ | ✓ |
-| 文件名 | 只有数量 | ✓ | ✓ |
+| 文件标识 | 只有数量 | 只用轮目录安全快照名 | 只用轮目录安全快照名 |
 | 疑难片段原文、判定、理由、评语 | 只有计数 | ✓ | ✓ |
 | 修前/修后全文 | — | — | ✓ |
 
-条目自包含（不引用项目路径），所以将来征求发送同意时「看到什么就发什么」。`full` 档要求本轮 `output/` 还在；用户删了轮目录就如实降级成 `fragments` 并在条目里写明原档。
+条目自包含且不引用原始绝对路径或项目目录。`stats` 只含数字、时间、规则/检测器信息、随机项目 ID 与 SHA-256，不含文件名、正文、片段、理由、评语或配置建议。`full` 档要求本轮 `output/` 还在；用户删了轮目录就如实降级成 `fragments` 并在条目里写明原档。
 
 已导出的轮会在台账里打上 `contributedAt`，不会重复导出。发件箱只进不出，用 `--list` 查看攒了什么，删文件或整个目录就是撤回。
 
@@ -207,6 +207,8 @@ bun "<skill-root>/bin/llmlint.ts" contribute --list                # 列发件�
 - `level`（high / medium / low）：只表严重度，决定 `--min-level` 过滤和退出码。
 - `review`（agent / human / none）：审查受众，决定默认进入哪个审查出口。`check` 默认只展示 `review: agent` 的命中，把破折号、比喻、泛词形副词等更偏作者偏好的命中归到 `human`，把零宽字符和省略号/破折号尾部清理等机械命中归到 `none`。
 - `fixability`（auto / candidate / manual）：机械修复能力，决定能否被 `fix` 命令自动改写。`fix` 只应用 `auto` 桶（零宽字符、省略号/破折号尾部清理）；`check` 永远不改写。
+
+规则作者还必须决定 `scope`。加载后的 active 规则始终带 resolved scope；stylish 在非 `all` 规则旁显示 `[叙述]` / `[引号内]`，位置窗口显示为同一标签的文首/文末后缀。scope 不是项目偏好，`llmlint.config.ts` 不能覆盖。
 
 默认规则集的实际分布约为 `auto=2 / candidate=0 / 其余 manual`。`action.type: "replace"` 与 `action.replacement` 只说明规则带有替换模板，不代表模板可直接执行；应用权限由规则经过 ruleset、namespace、rule 配置覆盖后得到的最终 `fixability` 决定。用户可显式把指定 regex replace 规则提升为 `candidate`，供逐条人工确认。
 
@@ -278,7 +280,7 @@ abstraction.hollow
 - **优先换掉的词** —— 逐词替换类，按 namespace 聚成一行一组。
 - **直接不用的写法** —— 定点删除类，同样按 namespace 聚合。
 
-抬头有一段框架说明（这不是禁令清单，承担功能的写法照写），末尾声明档位与条数，例如 `档位 standard，71 / 266 条 active 规则`。生成结果不要手工编辑——规则库更新后重新跑 `guide` 覆盖即可。
+抬头有一段框架说明（这不是禁令清单，承担功能的写法照写），并声明未标注范围的规则默认适用全文；只有例外规则带 `[叙述]`、`[引号内]` 和文首/文末窗口标签。末尾声明档位与条数。生成结果不要手工编辑——规则库更新后重新跑 `guide` 覆盖即可。
 
 ## JSON 输出格式
 
@@ -300,6 +302,7 @@ abstraction.hollow
       "level": "medium",
       "review": "agent",
       "fixability": "manual",
+      "scope": {"layer": "all"},
       "action": {"type": "replace", "replacements": [""]},
       "note": "默认收窄：Agent 默认只保留「取而代之的是」和更明确的「近乎于」。"
     }
@@ -360,7 +363,7 @@ bun "<skill-root>/bin/llmlint.ts" check chapter.md --review all --rule-detail --
 ```json
 {
   "kind": "status",
-  "version": "2.0.1",
+  "version": "3.0.0",
   "initialized": false,
   "login": "none",
   "sharing": {"tier": "fragments", "mode": "auto", "anonymous": false},
@@ -394,13 +397,15 @@ bun "<skill-root>/bin/llmlint.ts" check chapter.md --review all --rule-detail --
 }
 ```
 
+本地缓存命中时不会再次请求；未命中的正文块会 POST 到 `status.detector.space` 指向的外部服务，默认是 HF Space。请求只含正文块，不含输入文件名或项目路径；远端日志与保留策略不受 llmlint 控制。`sharing.off` 只影响上面的 `contribute` 发件箱，不会关闭 `detect`。
+
 `spread`（文内 P(AI) 极差 = max − min）、`rank`（文内 P(AI) 降序位次，1 起）和 `relative`（`pAi − docPAi`）是报告层派生字段，不写进 content-hash 缓存，所以 `cached:true` 时同样存在。
 
 `docPAi` 是各 chunk 分数按可见字数加权的均值，不是独立打的一次分。由此有两条恒等关系可用来自检：单 chunk 文件的 `docPAi` 必然等于该 chunk 的 `pAi`，且 `spread` 必然为 0（只有一个 chunk 时无极差可言）；`maxPAi` 必然等于 `rank` 为 1 的那个 chunk 的 `pAi`。
 
 用法：`docPAi` 判整篇是否可疑（绝对阈值 0.85）；挑文内段落用 `rank` 取两端，不要用绝对阈值——整篇 AI 生成的文本常常全部 chunk 都超过任何固定阈值。`spread < 0.15` 说明文内没有可分辨的高低差，此时段落级的「最可疑 / 最不可疑」只是噪声（0.15 是未校准的起点，只在一篇 `spread` 0.707 的样本上定过方向，落在 0.1–0.2 区间时不要当二值判据）。`chunks` 保持原文顺序，位次单独由 `rank` 表达。
 
-## Regex Detector 与 LLM Detector
+## Regex Detector 与 Semantic Detector
 
 `regex` detector 负责定位逐处候选文本，例如：
 - 填充词：其实、实际上、事实上
@@ -413,7 +418,7 @@ bun "<skill-root>/bin/llmlint.ts" check chapter.md --review all --rule-detail --
 - 商务黑话：赋能、抓手、闭环、拉通、落地等候选词
 - 懒惰绝对词：所有人、永远、一定、毫无例外等候选词
 
-`llm` detector 负责无法靠固定正则稳定定位的问题，例如：
+`semantic` detector 负责无法靠固定正则稳定定位的问题，例如：
 - 空泛总结段
 - 语体错位
 - 节奏单调
@@ -432,8 +437,10 @@ bun "<skill-root>/bin/llmlint.ts" check chapter.md --review all --rule-detail --
 ### scope、density 与 ignoreTerms
 
 - `scope.layer:"narrative"`：只扫成对引号外的叙述层；引号段在扫描视图中是等长 `。` 占位，行列和 span 仍对应原文。规则作者不要依赖“数句号”。
-- `scope.layer:"dialogue"`：只扫成对引号和 `【】` 面板内文本。
+- `scope.layer:"quoted"`：只扫同一行内成对的 `「」`、`『』`、`“”`、`‘’`、`【】`，并包含开闭分隔符。ASCII 直引号、未闭合和跨行分隔符不进入 quoted。
+- `scope.layer:"all"`：同时扫描 narrative 与 quoted；磁盘规则省略 `scope` 时归一为它。一条规则只声明一个 layer，不使用数组。
 - `scope.position`：只扫开头或结尾可见字符窗口，例如章尾预告腔只看文末 600 字。
+- scope 由规则作者定义，项目配置不能覆盖。
 - `ignoreTerms`：项目级豁免词。regex、density、handler 的命中与豁免词区间重叠都会被丢弃。
 
 ### detector 与 review 是两个不同概念

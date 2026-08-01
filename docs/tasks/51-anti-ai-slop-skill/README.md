@@ -18,6 +18,8 @@
 
 **2026-06-30 update**：`builtin/default` 规则资产硬切为 `rules/` 层级目录递归加载，`ruleset.json` 不再声明规则文件清单，也不兼容旧根 `rules.json`。
 
+**2026-08-01 update**：NeuroBook 内置 runtime 已同步到 sibling llmlint `3.0.0`。当前为 360 条规则、266 条默认 active，scope 分布 `all=240 / narrative=24 / quoted=2`；完整静态检查由 CLI/Agent 执行 regex+density+handler，Web/MachineScan 只执行 regex+handler span 扫描。当前实现、评测和贡献闭环以 sibling llmlint 的 Task 23/24 为权威，本文件后半部保留的 2026-06 MVP 清单只是历史过程，不再作为当前 TODO。
+
 **核心需求**：
 1. CLI 工具：类似 eslint 的文本检查器，输出问题列表
 2. Agent Skill：完整的润色工作流程，包含 LLM 审查 + Web 调研 + 用户审批 + 自动修复
@@ -80,6 +82,10 @@
 - ✅ 2026-06-29：默认入口合并为 `builtin/default`，中文规则 ID 改为语义 slug
 - ✅ 2026-06-29：硬切删除旧格式兼容字段和公开单文件导入入口
 - ✅ 2026-06-30：默认规则资产硬切为 `rules/` 层级目录递归加载
+- ✅ 2026-08-01：同步 llmlint 3.0.0；规则 scope、Guide provenance、本地 round/contribute 隐私与完整性边界已落地
+- ✅ 2026-08-01：source、vendored snapshot、当前 user runtime 各 122 个文件，两段逐文件 SHA-256 差异为 0
+
+**当前边界**：`contribute` 只写本机 outbox，不联网；`detect` 会把未缓存正文分块发给配置的外部服务，`sharing.off` 不会关闭它。Web 不执行 density；这不是规则目录缺失，而是有意保持 span-only，完整静态结果以 CLI/Agent 为准。
 
 ## Decisions / Discussion
 
@@ -489,7 +495,9 @@ bun assets/workspace/.nbook/agent/skills/llmlint/bin/llmlint.ts check .agent/tes
 - **文本扫描**：约 1ms / 100 行
 - **总耗时**：< 100ms（1000 行以内）
 
-## TODO / Follow-ups
+## Historical TODO / Follow-ups（2026-06）
+
+以下内容保留早期实现过程，不代表 3.0.0 当前待办；当前待办以 sibling llmlint Task 23/24 为准。
 
 ### 当前 MVP 范围（已完成）
 - ✅ 实现规则 JSON 文件
@@ -648,7 +656,7 @@ write: 生成报告
 2. 更新本 task README
 3. 创建参考文档 `references/patterns.md`（可选）
 
-## TODO / Follow-ups
+## Historical TODO / Follow-ups（2026-06，续）
 
 ### 当前 MVP 范围
 - [x] 实现规则 JSON 文件

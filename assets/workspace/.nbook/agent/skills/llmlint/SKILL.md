@@ -54,7 +54,7 @@ bun "<skill-root>/bin/llmlint.ts" guide
 bun install --cwd "<skill-root>" --frozen-lockfile
 ```
 
-安装命令成功后才能进入 `status` 初始化门。依赖已经安装且 skill 未更新时不要每轮重复安装；安装失败时停止本轮 llmlint 流程并向用户报告，不要绕过依赖门改用其它包管理器或让 Bun 隐式补包。
+安装命令成功后才能进入 `status` 初始化门。只要依赖合同仍有效且 `node_modules` 存在，就直接复用，不要每轮重复安装；单纯版本、提示词、规则或源码更新不会使依赖合同失效。安装失败时停止本轮 llmlint 流程并向用户报告，不要绕过依赖门改用其它包管理器或让 Bun 隐式补包。
 
 ### 1. status 初始化门
 
@@ -77,10 +77,10 @@ bun "<skill-root>/bin/llmlint.ts" status --format json
 1. 读 `status` 报的 `sharing` 实际值，向用户说明当前档位，以及每轮审稿结束后会**在本机攒下**什么：
    - `off`：什么都不攒。
    - `stats`：只有规则命中统计与检测分数，不含任何原文、文件名或评语。
-   - `fragments`：再加文件名、疑难片段原文、你的判定与理由、修后那句评语。
-   - `full`：再加修前修后全文——也就是会在你的用户目录里留一份正文副本。
+   - `fragments`：再加轮目录内的安全快照名、疑难片段原文、你的判定与理由、修后那句评语；不保存原始绝对路径或项目目录。
+   - `full`：再加修前修后全文——也就是会在你的用户目录里留一份正文副本；文件标识仍只用安全快照名。
 2. 说明 `sharing.mode`：`auto`（缺省）表示每轮收尾自动攒进发件箱，`ask` 表示只列给你看、要你手动确认才写。
-3. 说明这些数据**只落在本机** `~/.llmlint/outbox/`：本版本没有登录（`login` 恒为 `none`）、没有任何上传通道，一个字节都不会离开这台机器。将来要发送时会另行征求同意。随时可以 `contribute --list` 查看攒了什么，删文件即撤回。
+3. 说明这里说的是 **`contribute` 本地贡献链路**：数据只落在本机 `~/.llmlint/outbox/`，本版本没有登录（`login` 恒为 `none`）、没有上传通道。随时可以 `contribute --list` 查看，删文件即撤回。`detect` 是另一条外部检测链路，会按下文说明发送未缓存的正文块；`sharing.off` 也不会关闭它。
 4. 用户确认后用用户级配置命令写入，不修改项目级 `llmlint.config.ts`。只在用户要求改档位时才写 `sharing.tier`：
 
 ```bash
@@ -152,6 +152,8 @@ bun "<skill-root>/bin/llmlint.ts" detect <files...> --format json > <轮目录>/
 ```bash
 bun "<skill-root>/bin/llmlint.ts" config set detector.proxy http://127.0.0.1:7890
 ```
+
+**隐私边界要单独说明**：`detect` 会把本地缓存未命中的正文块 POST 到 `status.detector.space` 指向的外部检测服务；请求只含正文块，不发送输入文件名或项目路径。远端是否记录请求、保存多久以及如何处理正文不受 llmlint 控制，使用默认 HF Space 时同样如此。用户不希望正文离机时不要运行 `detect`；`sharing.tier` 和 `sharing.mode` 只控制 `contribute` 发件箱，`sharing.off` 不会禁用或改变 `detect`。
 
 静态命中不是判决，P(AI) 也不是单独裁决。二者都只是审稿证据。
 
@@ -273,11 +275,12 @@ bun "<skill-root>/bin/llmlint.ts" contribute --auto --round <本轮轮号>
 
 ## Rule Author Notes
 
-完整的规则数据模型（磁盘形态、三种 detector、loader 不变量、命中类型、紧凑投影）见 [rule-model.md](references/rule-model.md)。下面只列写规则时最容易踩的几条。
+完整的规则数据模型（磁盘形态、四类判据、loader 不变量、命中类型、紧凑投影）见 [rule-model.md](references/rule-model.md)。下面只列写规则时最容易踩的几条。
 
 - 四个判据类别命名的是判据性质，不是执行者：`regex` 词法、`density` 统计、`handler` 算法、`semantic` 语义。
+- 一条规则只声明一个 `scope.layer`：`narrative` 只扫引号外叙述，`quoted` 只扫成对分隔符内文本，`all` 同时扫两层；磁盘省略时 loader 归一为 `all`。scope 由规则作者定义，项目配置不能覆盖。
 - `scope.layer:"narrative"` 扫描的是引号外等长占位视图；引号段呈现为等长 `。`。规则不能依赖“数句号”判断。
-- `scope.layer:"dialogue"` 扫描成对引号和 `【】` 面板内文本，适合公告/系统台词。
+- `scope.layer:"quoted"` 扫描同一行内成对的 `「」`、`『』`、`“”`、`‘’`、`【】`（含分隔符）；ASCII 直引号、未闭合或跨行分隔符不进入 quoted。
 - `density` 表示分布指纹，命中一条代表全文或一段的统计结论，不能机械替换。
 - `ignoreTerms` 是项目级白名单；命中与术语区间重叠会被三种 detector 统一跳过。
 - `examples` 的每一项必须显式声明 `hit`，并且**至少配一个 `hit: false` 的对照例**——形近但正当的写法不写清楚，写作期摘要会教模型连它一起躲开。

@@ -17,7 +17,7 @@
 // 轮号算错或快照漏拷会产出「错但看不出来」的数据。轮号、目录、台账骨架全部在这里定，
 // Agent 只负责往条目里填判断类字段（decisions / judgment / retest）。
 import {copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync} from "node:fs";
-import {basename, join, resolve} from "node:path";
+import {join, resolve} from "node:path";
 import {randomUUID} from "node:crypto";
 import {loadUserSettings, type SharingTier} from "./user-state";
 
@@ -27,6 +27,22 @@ export const LEDGER_VERSION = 3;
 const LLMLINT_DIR = join(".agent", "llmlint");
 const LEDGER_FILE = "session.json";
 const ROUNDS_DIR = "rounds";
+const LEDGER_KEYS = new Set(["version", "projectId", "rounds"]);
+const ROUND_KEYS = new Set([
+    "round", "parentRound", "startedAt", "completedAt", "status", "sourceFiles", "settings",
+    "summary", "retest", "decisions", "localConfigSuggestions", "judgment", "contributedAt",
+]);
+const METRIC_KEYS = new Set(["staticIssues", "densityIssues", "docPAi", "spread"]);
+const RETEST_KEYS = new Set([...METRIC_KEYS, "verdict"]);
+const DECISION_KEYS = new Set(["file", "line", "ruleId", "fragment", "verdict", "reason"]);
+const JUDGMENT_KEYS = new Set(["wantReadOnBefore", "wantReadOnAfter", "comment", "blind"]);
+const SETTINGS_KEYS = new Set(["sharingTier", "login"]);
+const ROUND_STATUSES = new Set<RoundStatus>(["running", "completed", "aborted"]);
+const SHARING_TIERS = new Set<SharingTier>(["off", "stats", "fragments", "full"]);
+const DECISION_VERDICTS = new Set<RoundDecision["verdict"]>(["fix", "keep", "ask"]);
+const RETEST_VERDICTS = new Set<RoundRetest["verdict"]>(["pass", "fail"]);
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+const RULE_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,127}$/iu;
 
 /** 一轮的检测指标。docPAi / spread 由 Agent 从 detect 报告抄一个数；命中分布不在这里，在轮目录的 check JSON 里。 */
 export type RoundMetrics = {
@@ -140,23 +156,216 @@ export function loadLedger(cwd: string): Ledger | null {
     } catch (error) {
         throw new Error(`${filePath} 不是合法 JSON：${error instanceof Error ? error.message : String(error)}`);
     }
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-        throw new Error(`${filePath} 顶层必须是对象。`);
-    }
-    const ledger = parsed as Partial<Ledger>;
+    const ledger = readObject(parsed, "台账", LEDGER_KEYS);
     if (ledger.version !== LEDGER_VERSION) {
         throw new Error(
             `${filePath} 是 v${String(ledger.version)} 台账，当前版本 v${LEDGER_VERSION}，不做迁移。`
                 + `需要保留旧记录请自行另存后删除该文件。`,
         );
     }
-    if (typeof ledger.projectId !== "string" || ledger.projectId.length === 0) {
-        throw new Error(`${filePath} 缺少 projectId。`);
+    if (typeof ledger.projectId !== "string" || !UUID_PATTERN.test(ledger.projectId)) {
+        throw new Error(`${filePath} 的 projectId 必须是 UUID。`);
     }
     if (!Array.isArray(ledger.rounds)) {
         throw new Error(`${filePath} 的 rounds 必须是数组。`);
     }
-    return {version: LEDGER_VERSION, projectId: ledger.projectId, rounds: ledger.rounds};
+    const rounds = ledger.rounds.map((entry, index) => parseRoundEntry(entry, `rounds[${index}]`));
+    const roundNumbers = new Set<number>();
+    for (const entry of rounds) {
+        if (roundNumbers.has(entry.round)) {
+            throw new Error(`${filePath} 的 round=${entry.round} 重复。`);
+        }
+        roundNumbers.add(entry.round);
+    }
+    for (const entry of rounds) {
+        if (entry.parentRound !== null && (!roundNumbers.has(entry.parentRound) || entry.parentRound >= entry.round)) {
+            throw new Error(`${filePath} 的 round=${entry.round} 指向非法 parentRound=${entry.parentRound}。`);
+        }
+    }
+    return {version: LEDGER_VERSION, projectId: ledger.projectId, rounds};
+}
+
+/** 规则 ID 会进入 stats/fragments；只允许规则 registry 能表达的无路径安全标识。 */
+export function isSafeRuleId(value: string): boolean {
+    return RULE_ID_PATTERN.test(value);
+}
+
+/** 逐层解析一轮台账，未知键和非法形态全部 fail closed。 */
+function parseRoundEntry(value: unknown, label: string): RoundEntry {
+    const entry = readObject(value, label, ROUND_KEYS);
+    const round = readPositiveInteger(entry.round, `${label}.round`);
+    const parentRound = entry.parentRound === null ? null : readPositiveInteger(entry.parentRound, `${label}.parentRound`);
+    const sourceFiles = readStringArray(entry.sourceFiles, `${label}.sourceFiles`, true);
+    const settings = readObject(entry.settings, `${label}.settings`, SETTINGS_KEYS);
+    const judgment = parseJudgment(entry.judgment, `${label}.judgment`);
+    return {
+        round,
+        parentRound,
+        startedAt: readTimestamp(entry.startedAt, `${label}.startedAt`, false),
+        completedAt: readTimestamp(entry.completedAt, `${label}.completedAt`, true),
+        status: readEnum(entry.status, ROUND_STATUSES, `${label}.status`),
+        sourceFiles,
+        settings: {
+            sharingTier: readEnum(settings.sharingTier, SHARING_TIERS, `${label}.settings.sharingTier`),
+            login: readLiteral(settings.login, "none", `${label}.settings.login`),
+        },
+        summary: entry.summary === null ? null : parseMetrics(entry.summary, `${label}.summary`),
+        retest: entry.retest === null ? null : parseRetest(entry.retest, `${label}.retest`),
+        decisions: readArray(entry.decisions, `${label}.decisions`).map((decision, index) => parseDecision(decision, `${label}.decisions[${index}]`)),
+        localConfigSuggestions: readStringArray(entry.localConfigSuggestions, `${label}.localConfigSuggestions`, false),
+        judgment,
+        contributedAt: readTimestamp(entry.contributedAt, `${label}.contributedAt`, true),
+    };
+}
+
+/** 解析静态/检测指标；计数必须为非负整数，概率类只要求有限数。 */
+function parseMetrics(value: unknown, label: string): RoundMetrics {
+    const metrics = readObject(value, label, METRIC_KEYS);
+    return {
+        staticIssues: readNonNegativeInteger(metrics.staticIssues, `${label}.staticIssues`),
+        densityIssues: readNonNegativeInteger(metrics.densityIssues, `${label}.densityIssues`),
+        docPAi: readFiniteNumber(metrics.docPAi, `${label}.docPAi`),
+        spread: readFiniteNumber(metrics.spread, `${label}.spread`),
+    };
+}
+
+/** 解析复测指标，禁止通过额外字段夹带自由文本。 */
+function parseRetest(value: unknown, label: string): RoundRetest {
+    const retest = readObject(value, label, RETEST_KEYS);
+    const metrics = parseMetrics({
+        staticIssues: retest.staticIssues,
+        densityIssues: retest.densityIssues,
+        docPAi: retest.docPAi,
+        spread: retest.spread,
+    }, label);
+    return {...metrics, verdict: readEnum(retest.verdict, RETEST_VERDICTS, `${label}.verdict`)};
+}
+
+/** 解析一处人工决策；文件归属在贡献阶段结合本轮 sourceFiles 做交叉校验。 */
+function parseDecision(value: unknown, label: string): RoundDecision {
+    const decision = readObject(value, label, DECISION_KEYS);
+    const ruleId = decision.ruleId === null ? null : readString(decision.ruleId, `${label}.ruleId`);
+    if (ruleId !== null && !isSafeRuleId(ruleId)) {
+        throw new Error(`${label}.ruleId 不是安全规则 ID。`);
+    }
+    return {
+        file: readString(decision.file, `${label}.file`),
+        line: readPositiveInteger(decision.line, `${label}.line`),
+        ruleId,
+        fragment: readString(decision.fragment, `${label}.fragment`, true),
+        verdict: readEnum(decision.verdict, DECISION_VERDICTS, `${label}.verdict`),
+        reason: readString(decision.reason, `${label}.reason`, true),
+    };
+}
+
+/** 解析作者自评；0–5 是 Task 24 的量表合同，null 表示拒答。 */
+function parseJudgment(value: unknown, label: string): RoundJudgment {
+    const judgment = readObject(value, label, JUDGMENT_KEYS);
+    return {
+        wantReadOnBefore: readRating(judgment.wantReadOnBefore, `${label}.wantReadOnBefore`),
+        wantReadOnAfter: readRating(judgment.wantReadOnAfter, `${label}.wantReadOnAfter`),
+        comment: judgment.comment === null ? null : readString(judgment.comment, `${label}.comment`, true),
+        blind: readLiteral(judgment.blind, false, `${label}.blind`),
+    };
+}
+
+function readObject(value: unknown, label: string, allowed: Set<string>): Record<string, unknown> {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        throw new Error(`${label} 必须是对象。`);
+    }
+    const object = value as Record<string, unknown>;
+    for (const key of Object.keys(object)) {
+        if (!allowed.has(key)) {
+            throw new Error(`${label}.${key} 不是允许的字段。`);
+        }
+    }
+    return object;
+}
+
+function readArray(value: unknown, label: string): unknown[] {
+    if (!Array.isArray(value)) {
+        throw new Error(`${label} 必须是数组。`);
+    }
+    return value;
+}
+
+function readStringArray(value: unknown, label: string, requireNonEmpty: boolean): string[] {
+    const values = readArray(value, label).map((item, index) => readString(item, `${label}[${index}]`));
+    if (requireNonEmpty && values.length === 0) {
+        throw new Error(`${label} 至少需要一项。`);
+    }
+    return values;
+}
+
+function readString(value: unknown, label: string, allowEmpty = false): string {
+    if (typeof value !== "string" || (!allowEmpty && value.trim().length === 0)) {
+        throw new Error(`${label} 必须是${allowEmpty ? "字符串" : "非空字符串"}。`);
+    }
+    return value;
+}
+
+function readFiniteNumber(value: unknown, label: string): number {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+        throw new Error(`${label} 必须是有限数字。`);
+    }
+    return value;
+}
+
+function readPositiveInteger(value: unknown, label: string): number {
+    const number = readFiniteNumber(value, label);
+    if (!Number.isInteger(number) || number < 1) {
+        throw new Error(`${label} 必须是正整数。`);
+    }
+    return number;
+}
+
+function readNonNegativeInteger(value: unknown, label: string): number {
+    const number = readFiniteNumber(value, label);
+    if (!Number.isInteger(number) || number < 0) {
+        throw new Error(`${label} 必须是非负整数。`);
+    }
+    return number;
+}
+
+function readRating(value: unknown, label: string): number | null {
+    if (value === null) {
+        return null;
+    }
+    const number = readFiniteNumber(value, label);
+    if (number < 0 || number > 5) {
+        throw new Error(`${label} 必须在 0–5 之间或为 null。`);
+    }
+    return number;
+}
+
+function readTimestamp(value: unknown, label: string, nullable: true): string | null;
+function readTimestamp(value: unknown, label: string, nullable: false): string;
+function readTimestamp(value: unknown, label: string, nullable: boolean): string | null {
+    if (value === null && nullable) {
+        return null;
+    }
+    if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(value)) {
+        throw new Error(`${label} 必须是规范 UTC ISO 时间戳${nullable ? "或 null" : ""}。`);
+    }
+    const parsed = new Date(value);
+    if (!Number.isFinite(parsed.getTime()) || parsed.toISOString() !== value) {
+        throw new Error(`${label} 必须是规范 UTC ISO 时间戳${nullable ? "或 null" : ""}。`);
+    }
+    return value;
+}
+
+function readEnum<T extends string>(value: unknown, allowed: Set<T>, label: string): T {
+    if (typeof value !== "string" || !allowed.has(value as T)) {
+        throw new Error(`${label} 必须是 ${[...allowed].join("、")} 之一。`);
+    }
+    return value as T;
+}
+
+function readLiteral<T extends string | boolean>(value: unknown, expected: T, label: string): T {
+    if (value !== expected) {
+        throw new Error(`${label} 必须是 ${String(expected)}。`);
+    }
+    return expected;
 }
 
 /** 全量写台账，四空格 JSON + 尾换行（与 settings.json 同风格，diff 友好）。 */
@@ -239,20 +448,10 @@ export function beginRound(input: BeginRoundInput): BeginRoundResult {
     mkdirSync(sourceDir, {recursive: true});
 
     // basename 镜像；重名加数字前缀消歧（台账 sourceFiles 保留原始路径，不丢信息）。
-    const used = new Set<string>();
-    const snapshots: string[] = [];
-    for (const file of input.files) {
-        let name = basename(file);
-        if (used.has(name)) {
-            let seq = 2;
-            while (used.has(`${seq}-${name}`)) {
-                seq += 1;
-            }
-            name = `${seq}-${name}`;
-        }
-        used.add(name);
+    const snapshots = snapshotNamesForFiles(input.files);
+    for (const [index, file] of input.files.entries()) {
+        const name = snapshots[index]!;
         copyFileSync(resolve(cwd, file), join(sourceDir, name));
-        snapshots.push(name);
     }
 
     const startedAt = input.now ?? new Date().toISOString();
@@ -274,4 +473,32 @@ export function beginRound(input: BeginRoundInput): BeginRoundResult {
     saveLedger(cwd, ledger);
 
     return {round, dir, snapshots};
+}
+
+/** 与 round begin 完全同口径地生成安全快照名；只含 basename，重名从 2- 开始消歧。 */
+export function snapshotNamesForFiles(files: string[]): string[] {
+    const used = new Set<string>();
+    return files.map((file) => {
+        const base = portableBasename(file) || "source.txt";
+        let name = base;
+        if (used.has(snapshotNameKey(name))) {
+            let seq = 2;
+            while (used.has(snapshotNameKey(`${seq}-${base}`))) {
+                seq += 1;
+            }
+            name = `${seq}-${base}`;
+        }
+        used.add(snapshotNameKey(name));
+        return name;
+    });
+}
+
+/** Windows 文件系统按大小写不敏感处理；所有平台都按这一更严格口径生成快照名。 */
+function snapshotNameKey(name: string): string {
+    return name.normalize("NFC").toLocaleLowerCase("en-US");
+}
+
+/** 同时识别 POSIX 与 Windows 分隔符，保证回退值不会夹带目录。 */
+export function portableBasename(file: string): string {
+    return file.replace(/\\/g, "/").split("/").filter(Boolean).at(-1) ?? "";
 }

@@ -169,10 +169,28 @@ function normalizeDetector(value: unknown): UserDetectorSettings {
     rejectUnknownKeys(value, DETECTOR_KEYS, "detector");
     return {
         proxy: readNullableString(value.proxy, DEFAULT_SETTINGS.detector.proxy, "detector.proxy"),
-        space: readString(value.space, DEFAULT_SETTINGS.detector.space, "detector.space"),
+        space: readDetectorSpace(value.space),
         chunkChars: readPositiveInteger(value.chunkChars, DEFAULT_SETTINGS.detector.chunkChars, "detector.chunkChars"),
         minIntervalMs: readNonNegativeIntegerOrNull(value.minIntervalMs, DEFAULT_SETTINGS.detector.minIntervalMs, "detector.minIntervalMs"),
     };
+}
+
+/** detector.space 会进入 stats 贡献元数据，只接受不含凭据、路径或查询参数的 host[:port]。 */
+function readDetectorSpace(value: unknown): string {
+    const space = readString(value, DEFAULT_SETTINGS.detector.space, "detector.space");
+    const separator = space.lastIndexOf(":");
+    const hasPort = separator >= 0;
+    if (hasPort && space.indexOf(":") !== separator) {
+        throw new Error("detector.space 必须是 host 或 host:port，不支持 URL、凭据或路径。");
+    }
+    const host = hasPort ? space.slice(0, separator) : space;
+    const port = hasPort ? space.slice(separator + 1) : null;
+    const hostnamePattern = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/iu;
+    const validPort = port === null || (/^\d{1,5}$/u.test(port) && Number(port) >= 1 && Number(port) <= 65535);
+    if (!hostnamePattern.test(host) || !validPort) {
+        throw new Error("detector.space 必须是 host 或 host:port，不支持 URL、凭据或路径。");
+    }
+    return space;
 }
 
 function rejectUnknownKeys(value: Record<string, unknown>, allowed: Set<string>, label: string): void {

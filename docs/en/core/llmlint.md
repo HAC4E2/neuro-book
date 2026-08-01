@@ -6,7 +6,7 @@ llmlint lints a manuscript the way eslint lints code.
 
 ## What it checks
 
-340 rules (311 enabled by default), covering the typical tells of AI writing:
+360 rules (266 enabled by default), covering the typical tells of AI writing:
 
 - Filler words and redundant modifiers
 - Mechanical transitions and boilerplate connective tissue
