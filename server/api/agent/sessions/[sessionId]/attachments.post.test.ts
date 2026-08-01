@@ -1,4 +1,4 @@
-import {Readable} from "node:stream";
+import {PassThrough, Readable} from "node:stream";
 import type {IncomingMessage} from "node:http";
 import {beforeEach, describe, expect, it, vi} from "vitest";
 import {AGENT_IMAGE_POLICY} from "nbook/shared/agent/agent-image-policy";
@@ -133,6 +133,42 @@ describe("POST /api/agent/sessions/:sessionId/attachments", () => {
         });
         expect(preflight).toHaveBeenCalledOnce();
         expect(pipe).not.toHaveBeenCalled();
+        expect(upload).not.toHaveBeenCalled();
+    });
+
+    it("缺失 multipart boundary 时保持稳定的附件错误码", async () => {
+        const upload = vi.fn<UploadService>();
+        installMocks(vi.fn(async () => {}), upload);
+        const request = incomingRequest([], {"content-type": "multipart/form-data"});
+        const handler = (await import("nbook/server/api/agent/sessions/[sessionId]/attachments.post")).default;
+
+        await expect(handler({node: {req: request}} as never)).rejects.toMatchObject({
+            statusCode: 400,
+            data: {code: "INVALID_ATTACHMENT_MULTIPART"},
+        });
+        expect(upload).not.toHaveBeenCalled();
+    });
+
+    it("上传流中止时保持 400 响应且不调用服务", async () => {
+        const upload = vi.fn<UploadService>();
+        installMocks(vi.fn(async () => {}), upload);
+        const boundary = "nbook-route-aborted";
+        const transport = new PassThrough();
+        const request = Object.assign(transport, {
+            headers: {"content-type": `multipart/form-data; boundary=${boundary}`},
+        }) as IncomingMessage;
+        const handler = (await import("nbook/server/api/agent/sessions/[sessionId]/attachments.post")).default;
+        const response = handler({node: {req: request}} as never);
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        transport.write(multipartBody(boundary, [{
+            name: "file",
+            filename: "partial.png",
+            mimeType: "image/png",
+            data: Buffer.alloc(64, 1),
+        }]).subarray(0, 80));
+        request.emit("aborted");
+
+        await expect(response).rejects.toMatchObject({statusCode: 400});
         expect(upload).not.toHaveBeenCalled();
     });
 

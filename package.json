@@ -151,6 +151,7 @@
     "prisma": "^7.3.0",
     "proper-lockfile": "4.1.2",
     "redis": "^5.10.0",
+    "sharp": "^0.35.3",
     "sqlite-vec": "^0.1.9",
     "superjson": "^2.2.6",
     "the-new-css-reset": "^1.11.3",

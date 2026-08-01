@@ -1,7 +1,8 @@
 import path from "node:path";
+import {ReferenceContentHashSchema} from "nbook/shared/text-to-image-reference-asset";
 
 export const TEXT_TO_IMAGE_ASSET_ROOT = "assets/text-to-image";
-export const TEXT_TO_IMAGE_REFERENCE_ASSET_ROOT = "assets/text-to-image/references";
+export const TEXT_TO_IMAGE_REFERENCE_ASSET_ROOT = ".nbook/text-to-image/references";
 
 const EXTENSION_TO_MIME = {
     ".png": "image/png",
@@ -49,19 +50,17 @@ export function textToImageAssetExtension(mimeType: string): keyof typeof EXTENS
 }
 
 const REFERENCE_EXTENSION_BY_MIME = {
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".webp": "image/webp",
-    ".bin": "application/octet-stream",
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "application/octet-stream": ".bin",
 } as const;
 
-const REFERENCE_RELATIVE_PATH_PATTERN = /^assets\/text-to-image\/references\/[0-9a-f]{2}\/[0-9a-f]{64}\.(png|jpg|jpeg|webp|bin)$/u;
+const REFERENCE_RELATIVE_PATH_PATTERN = /^\.nbook\/text-to-image\/references\/([0-9a-f]{2})\/([0-9a-f]{64})\.(png|jpg|bin)$/u;
 
 /** 按内容寻址的 SHA-256 前缀创建受限 Project 相对路径。 */
 export function createReferenceAssetRelativePath(contentHash: string, mimeType: string): string {
-    if (!/^[0-9a-f]{64}$/u.test(contentHash)) {
-        throw new Error("参考资产 contentHash 不合法");
+    if (!ReferenceContentHashSchema.safeParse(contentHash).success) {
+        throw new Error("引用资产内容哈希不合法");
     }
     const extension = referenceExtension(mimeType);
     return `${TEXT_TO_IMAGE_REFERENCE_ASSET_ROOT}/${contentHash.slice(0, 2)}/${contentHash}${extension}`;
@@ -69,21 +68,22 @@ export function createReferenceAssetRelativePath(contentHash: string, mimeType: 
 
 /** 验证内容寻址相对路径，返回受 Project 根目录约束的绝对路径。 */
 export function resolveReferenceAssetPath(projectRoot: string, relativePath: string): string {
-    if (!REFERENCE_RELATIVE_PATH_PATTERN.test(relativePath) || relativePath.includes("\\") || /%2e|%2f|%5c/iu.test(relativePath)) {
-        throw new Error("参考资产路径不合法");
+    const match = REFERENCE_RELATIVE_PATH_PATTERN.exec(relativePath);
+    if (!match || match[1] !== match[2]?.slice(0, 2) || relativePath.includes("\\") || /%2e|%2f|%5c/iu.test(relativePath)) {
+        throw new Error("引用资产路径不合法");
     }
     const assetRoot = path.resolve(projectRoot, TEXT_TO_IMAGE_REFERENCE_ASSET_ROOT);
     const absolutePath = path.resolve(projectRoot, relativePath);
     if (!absolutePath.startsWith(`${assetRoot}${path.sep}`)) {
-        throw new Error("参考资产路径不合法");
+        throw new Error("引用资产路径不合法");
     }
     return absolutePath;
 }
 
-function referenceExtension(mimeType: string): ".png" | ".jpg" | ".jpeg" | ".webp" | ".bin" {
-    const entry = Object.entries(REFERENCE_EXTENSION_BY_MIME).find(([, supportedMimeType]) => supportedMimeType === mimeType);
-    if (!entry) {
-        throw new Error("参考资产类型不受支持");
+function referenceExtension(mimeType: string): ".png" | ".jpg" | ".bin" {
+    const extension = REFERENCE_EXTENSION_BY_MIME[mimeType as keyof typeof REFERENCE_EXTENSION_BY_MIME];
+    if (!extension) {
+        throw new Error("引用资产 MIME 类型不受支持");
     }
-    return entry[0] as ".png" | ".jpg" | ".jpeg" | ".webp" | ".bin";
+    return extension;
 }
