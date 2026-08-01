@@ -20,13 +20,13 @@ function character() {
     return {
         names: {cn: "林雪", en: "Lin Xue"},
         fields: {
-            profileTraits: "gentle, elegant",
-            facialAppearance: "long black hair, blue eyes",
-            facialBack: "long black hair, nape",
-            upperSfw: "slender body, white shirt",
-            upperBackSfw: "slender body, white shirt",
-            lowerSfw: "long legs, black skirt",
-            lowerBackSfw: "long legs, black skirt",
+            profileTraits: "gentle,elegant",
+            facialAppearance: "long black hair,blue eyes",
+            facialBack: "long black hair,nape",
+            upperSfw: "slender body,white shirt",
+            upperBackSfw: "slender body,white shirt",
+            lowerSfw: "long legs,black skirt",
+            lowerBackSfw: "long legs,black skirt",
             upperNsfw: "",
             upperBackNsfw: "",
             lowerNsfw: "",
@@ -40,7 +40,7 @@ function outfit() {
     return {
         names: {cn: "少女校服", en: "school uniform"},
         fields: {
-            upper: "white shirt, blue ribbon",
+            upper: "white shirt,blue ribbon",
             upperBack: "white shirt",
             lower: "black skirt",
             lowerBack: "black skirt",
@@ -89,7 +89,16 @@ describe("character visual direct-write contract", () => {
             ...output(), character: {...character(), fields: {...character().fields, profileTraits: "gentle, , elegant"}},
         })).toThrow();
         expect(() => CharacterVisualDirectorOutputSchema.parse({
-            ...output(), character: {...character(), fields: {...character().fields, profileTraits: Array.from({length: 21}, (_, index) => `tag-${index}`).join(", ")}},
+            ...output(), character: {...character(), fields: {...character().fields, profileTraits: "gentle,  elegant"}},
+        })).toThrow();
+        expect(() => CharacterVisualDirectorOutputSchema.parse({
+            ...output(), character: {...character(), fields: {...character().fields, profileTraits: "gentle  , elegant"}},
+        })).toThrow();
+        expect(() => CharacterVisualDirectorOutputSchema.parse({
+            ...output(), character: {...character(), fields: {...character().fields, profileTraits: "gentle,\telegant"}},
+        })).toThrow();
+        expect(() => CharacterVisualDirectorOutputSchema.parse({
+            ...output(), character: {...character(), fields: {...character().fields, profileTraits: Array.from({length: 21}, (_, index) => `tag-${index}`).join(",")}},
         })).toThrow();
     });
 

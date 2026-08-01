@@ -11,6 +11,9 @@ const RawTagFieldSchema = z.string().trim().max(120000).superRefine((value, cont
         if (!tag.trim()) {
             context.addIssue({code: "custom", path: [index], message: "tag 不能为空"});
         }
+        if (tag !== tag.trim()) {
+            context.addIssue({code: "custom", path: [index], message: "tag 不能包含首尾空白"});
+        }
     });
 });
 
