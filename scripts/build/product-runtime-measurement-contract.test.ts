@@ -25,7 +25,8 @@ describe("Product Runtime Image measurement contracts", () => {
         for (const platform of PRODUCT_PLATFORMS) {
             expect(workflow).toContain(`platform: ${platform}`);
         }
-        expect(workflow).toContain("bun run product:measure --output");
+        expect(workflow.match(/bun run product:measure --output/gu)).toHaveLength(2);
+        expect(workflow).toContain("compare-product-runtime-measurements.ts");
         expect(workflow).toContain("product-runtime-measurement-${{ matrix.platform }}");
         expect(workflow).not.toContain("bun run nuxt:build\n");
         expect(workflow).not.toContain("release:product:");
