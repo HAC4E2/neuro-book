@@ -1,6 +1,6 @@
 # 130 - 桌面应用前置架构、发行载荷与存储生命周期
 
-> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、Contract v3、Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议。正式构建已切换为 esbuild 同图 link/minify；提交 `852eead1` 的五平台严格 A/B 与四平台 Product build/archive/native smoke 全绿，`web-fetch` 的 CommonJS 命名导出丢失也已由真实跨平台 Product 证据关闭。两个 0.9 Draft 分别暴露 Prisma 生成前置与 State Root smoke 生命周期缺口，均未公开且不可复用；两项修复已落地，新的 Candidate 仍待创建。GHCR/rootless Podman、同代 Windows Portable、浏览器验收与 Tauri/Electron 同矩阵 spike 尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由 spike 证据冻结。
+> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、Contract v3、Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议。正式构建已切换为 esbuild 同图 link/minify；提交 `852eead1` 的五平台严格 A/B 与四平台 Product build/archive/native smoke 全绿，`web-fetch` 的 CommonJS 命名导出丢失也已由真实跨平台 Product 证据关闭。三个 0.9 Draft 依次暴露 Prisma 生成前置、State Root smoke 生命周期和 release assets 测试隔离缺口，均未公开且不可复用；三项修复已落地，新的 Candidate 仍待创建。GHCR/rootless Podman、同代 Windows Portable、浏览器验收与 Tauri/Electron 同矩阵 spike 尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由 spike 证据冻结。
 
 ## Relative documents refs
 
@@ -643,6 +643,8 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - 修复提交 `5fb0f7b9` 推送后，release coordinator 创建新 Draft `v0.9.0-canary.20260802.135629Z.5fb0f7b9`，release ID `363801080`、revision `ab581c1d`，并 dispatch workflow [`30751019906`](https://github.com/notnotype/neuro-book/actions/runs/30751019906)。按 `--no-watch` 协议只确认唯一身份与启动事实；该 Release 仍为 Draft、尚未公开，不能把运行中的 GHCR、Portable、Verifier 或激活门禁记为通过。
 - workflow `30751019906` 的 clean runner 已通过 generated sources、policy、Manager、Stage 0，并在 13:57:49 输出 Agent State Root `{ok:true}`；进程随后直到 14:13:18 取消仍未退出，所有 fan-out 均未开始。根因不是业务断言或 Bun 子进程退出码，而是脚本只 `closeProject()`，全局 Project Session Service/ProjectLifecycle 仍绑定原 Workspace Root；Windows 同时稳定表现为移动 State Root 时 `EPERM`。
 - smoke 现由脚本 owner 在两个阶段都调用 `closeAllProjects()`，停止全局维护并释放 Lifecycle 后再移动 State Root；没有用 `process.exit(0)` 掩盖资源泄漏。Windows 真实两阶段 smoke 在 6.4 秒自然退出，完成 rename、移动后 session/History/Variable/Agent 工具恢复。workflow step 增加 10 分钟硬超时，防止未来生命周期回归无限占用 runner；旧 Draft 保留取消审计，下一次仍必须使用新 tag、release ID 与 revision。
+- 生命周期修复后的 Draft `v0.9.0-canary.20260802.142014Z.fa92005b`（release ID `363806130`、revision `043773ec`）dispatch workflow [`30751890962`](https://github.com/notnotype/neuro-book/actions/runs/30751890962)。clean runner 在 47 秒内通过 generated sources、policy、Manager、Stage 0 与 Agent State Root，随后 release assets Vitest 在收集目标文件前加载全仓 Agent `globalSetup/setupFiles`，clean hoisted Zod 模块形状与本地 Developer Build State 不同而失败；没有进入任何 fan-out。
+- release assets 与 checksum 两个合同现使用独立 `release-assets-vitest.config.ts`，只设置 `nbook` alias、Node environment、单 worker 和两个精确 include，不加载 Agent/Nuxt fixture。专用命令为 2 files / 22 tests、setup 0ms；合同测试同时约束 workflow 必须使用该配置且不得出现 `globalSetup` / `setupFiles`。该失败 Draft继续保留审计，下一 Candidate仍使用新身份。
 
 ## TODO / Follow-ups
 

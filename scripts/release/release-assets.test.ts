@@ -27,6 +27,7 @@ import {
     assertStateMigrationSourceFiles,
     readReleaseStateMigrationDeclaration,
 } from "nbook/scripts/release/state-migration-declaration";
+import {releaseAssetsVitestConfig} from "nbook/scripts/release/release-assets-vitest.config";
 
 vi.mock("nbook/scripts/build/product-system-artifact-contract", () => ({
     assertProductSystemArtifactContract: vi.fn(async () => undefined),
@@ -425,7 +426,13 @@ describe("Product Release宿主合同", () => {
         expect(preflightRun).toContain("bun run manager:test");
         expect(preflightRun).toContain("scripts/deploy/product-start.test.ts");
         expect(preflightRun).toContain("product-agent-state-root-smoke.ts");
-        expect(preflightRun).toContain("release-assets.test.ts");
+        expect(preflightRun).toContain("--config scripts/release/release-assets-vitest.config.ts");
+        expect(releaseAssetsVitestConfig.test.include).toEqual([
+            "scripts/release/release-assets.test.ts",
+            "scripts/release/release-checksums.test.ts",
+        ]);
+        expect(releaseAssetsVitestConfig.test).not.toHaveProperty("globalSetup");
+        expect(releaseAssetsVitestConfig.test).not.toHaveProperty("setupFiles");
         expect(workflow.jobs["build-container"].needs).toBe("preflight");
         expect(workflow.jobs["merge-container-images"].needs).toBe("build-container");
         expect(workflow.jobs.source.needs).toBe("preflight");
