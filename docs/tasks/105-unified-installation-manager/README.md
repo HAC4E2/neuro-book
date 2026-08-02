@@ -1,6 +1,6 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`仍是最新已确认完整canary。当前工作树协议为Installation Manifest v5、Release Manifest v5、Operation Journal v5 和 Product-owned Application State catalog v3。公开Manager `.41`已完成provenance、tarball、签名与真实bunx验证；第十三次0.9 Candidate再次通过五平台Product、双OCI、assemble、Linux公开GHCR/browser smoke及Windows Runtime Contract，但Manager读取宿主stdin时又把同一Windows pipe继承给Product，导致Product进程存活却不监听。修复已在真实Candidate 13包上完成5.84秒ready、正式shutdown和lease重取；仍需先发布Manager `.42`，再由新Candidate证明同State Root二次登录、公开A→B/跨Profile、Podman、自卸载、最终Verifier与Release激活。
+> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`仍是最新已确认完整canary。当前工作树协议为Installation Manifest v5、Release Manifest v5、Operation Journal v5 和 Product-owned Application State catalog v3。公开Manager `.42`已完成provenance、tarball、签名、attestation与真实bunx验证；第十三次0.9 Candidate再次通过五平台Product、双OCI、assemble、Linux公开GHCR/browser smoke及Windows Runtime Contract，但Manager读取宿主stdin时又把同一Windows pipe继承给Product，导致Product进程存活却不监听。修复已在真实Candidate 13包上完成5.84秒ready、正式shutdown和lease重取；下一Candidate仍需证明同State Root二次登录、公开A→B/跨Profile、Podman、自卸载、最终Verifier与Release激活。
 
 ## 2026-08-02：Installation Mutation、自卸载与发行候选治理
 
@@ -1174,3 +1174,4 @@ uninstall
 - 同一Windows Candidate Product绕过Manager后在60秒内完成全部migration、native islands、Authoring、HTTP、workspace CLI与shutdown；同一Product经Owned Process在Product-only根、完整Portable根、全新State及原State分别于6至10秒ready。只有Manager主动`process.stdin.resume()`并把同一开放pipe继续以`stdin: inherit`交给Product时，`server/index.mjs`稳定存活120秒但不监听；父进程不读取同一pipe时约9秒ready。
 - Manager现在独占宿主stdin，Product spawn固定为`stdin: ignore`；宿主关闭仍由`--shutdown-on-stdin-end`触发Manager的shutdown token与Owned Process fallback，不减少关闭能力。回归合同同时固定正式`launchApplication()`与旧前台Adapter的stdin ownership。
 - 修复后的本地Manager bundle在原Candidate 13 Portable与同一外层pipe下5.84秒ready，关闭stdin后退出码0且Agent Session Store lease立即可重取。Manager完整suite为36 passed files / 1 skipped、241 passed / 3 skipped，typecheck与pack通过。该证据仍是本机复现闭环；新的公开Manager与Candidate尚未执行，不能把第十三次Draft改写为成功。
+- Manager `0.1.0-canary.42` workflow [`30764517751`](https://github.com/notnotype/neuro-book/actions/runs/30764517751) 已全绿。npm `gitHead=6200b243e7764b7d0447aa4d7a3f3339bfce6d06`，公开tarball SHA-1为`9cb0be2142748c2f3562d16af4b7ca932f0c6ab2`且固定5个文件；6个registry signature、2个attestation、全新Bun cache真实bunx和`manager:verify-public`均通过。下一Candidate必须消费`.42`，不能继续使用第十三次Draft内的`.41`。

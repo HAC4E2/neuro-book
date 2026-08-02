@@ -1,6 +1,6 @@
 # 130 - 桌面应用前置架构、发行载荷与存储生命周期
 
-> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、Contract v3、Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议。正式构建已切换为 esbuild 同图 link/minify；五平台严格 A/B、四平台 Product smoke以及第十三次Candidate的五平台Product、双OCI、assemble与Linux公开GHCR/browser smoke均已通过。第十三次Windows Portable被Manager/Product共同继承并竞争宿主stdin pipe阻断；Product stdin现固定为`ignore`，原Candidate包本机已完成5.84秒ready、正式shutdown与lease重取。Manager `.42`公开和下一唯一Candidate仍未执行。最终Verifier、Podman、A→B、自卸载、Release激活、浏览器人工验收与Tauri/Electron同矩阵spike尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由spike证据冻结。
+> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、Contract v3、Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议。正式构建已切换为 esbuild 同图 link/minify；五平台严格 A/B、四平台 Product smoke以及第十三次Candidate的五平台Product、双OCI、assemble与Linux公开GHCR/browser smoke均已通过。第十三次Windows Portable被Manager/Product共同继承并竞争宿主stdin pipe阻断；Product stdin现固定为`ignore`，原Candidate包本机已完成5.84秒ready、正式shutdown与lease重取。Manager `.42`已公开并完成供应链验证，下一唯一Candidate仍未执行。最终Verifier、Podman、A→B、自卸载、Release激活、浏览器人工验收与Tauri/Electron同矩阵spike尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由spike证据冻结。
 
 ## Relative documents refs
 
@@ -730,3 +730,4 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - 同一Product的直接仓库外Verifier在60秒内完成全部命令、HTTP与shutdown；Owned Process、完整Portable根和原State Root对照均在6至10秒ready。唯一稳定失败条件是Manager执行`process.stdin.resume()`后仍让Product继承同一开放Windows pipe，最终`server/index.mjs`存活但不监听。
 - 修复保持生命周期单一所有权：Manager读取宿主stdin；Product stdin为`ignore`；关闭仍走Manager shutdown token和Owned Process Job fallback。没有增加timeout、进程扫描、平台豁免或新的事务Module。
 - 修复后本地Manager bundle消费原Candidate 13包，5.84秒ready，stdin关闭后退出码0并立即重取Agent Session Store lease。回归、Manager完整241 passed / 3 skipped、typecheck与pack通过。下一步必须先公开并验证Manager `.42`，再创建新Candidate；失败Draft不复用。
+- Manager `.42` 的 workflow [`30764517751`](https://github.com/notnotype/neuro-book/actions/runs/30764517751) 已完成Trusted Publishing。npm gitHead、5-file tarball SHA-1、registry signature、两份attestation、全新Bun cache真实bunx与`manager:verify-public`均通过；下一唯一Candidate可以正式消费`.42`。
