@@ -26,7 +26,11 @@ import {
 import {parseMarkdownDocument} from "nbook/server/workspace-files/workspace-files";
 import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
-import {currentSqliteRuntime, openSqliteHandle} from "nbook/server/rag/sqlite-handle-initialization";
+import {
+    openSqliteVecDatabase,
+    type SqliteVecDatabase,
+} from "nbook/server/rag/sqlite-vec-database";
+import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 import {
     captureUserProjectFileWrite,
     recordUserProjectFileWrite,
@@ -72,39 +76,6 @@ type ProjectRagWorkspace = Readonly<{
 const RAG_SOURCES: SubjectRagSourceType[] = ["events", "memory"];
 const INSPECTOR_VECTOR_PREVIEW_DIMENSIONS = 8;
 const DEFAULT_INSPECTOR_LIMIT = 200;
-
-type ProjectRagSqliteDatabase = {
-    run(sql: string, ...params: unknown[]): unknown;
-    query(sql: string): {
-        all(...params: unknown[]): unknown[];
-        get(...params: unknown[]): unknown;
-    };
-    loadExtension(path: string): void;
-    close(): void;
-};
-
-type BunSqliteModule = {
-    Database: new (path: string, options?: {readonly?: boolean}) => ProjectRagSqliteDatabase;
-};
-
-type NodeSqliteDatabase = {
-    exec(sql: string): void;
-    prepare(sql: string): {
-        all(...params: unknown[]): unknown[];
-        get(...params: unknown[]): unknown;
-        run(...params: unknown[]): unknown;
-    };
-    loadExtension(path: string): void;
-    close(): void;
-};
-
-type NodeSqliteModule = {
-    DatabaseSync: new (path: string, options?: {readOnly?: boolean; allowExtension?: boolean}) => NodeSqliteDatabase;
-};
-
-type SqliteVecModule = {
-    load(db: ProjectRagSqliteDatabase): void;
-};
 
 /**
  * 读取当前 Project 的 RAG subject 概览。
@@ -768,7 +739,7 @@ async function readInspectorDbSnapshot(
     sources: SubjectRagSourceType[],
     limit: 100 | 200 | 500,
 ): Promise<ReturnType<typeof createEmptyInspectorDbSnapshot>> {
-    let db: ProjectRagSqliteDatabase | null = null;
+    let db: SqliteVecDatabase | null = null;
     try {
         db = await openProjectRagSqliteDatabase(dbPath, {readonly: true, loadVec: true});
         const index = {
@@ -812,7 +783,7 @@ async function readInspectorDbSnapshot(
 }
 
 function safeReadInspectorChunkSourceCounts(
-    db: ProjectRagSqliteDatabase,
+    db: SqliteVecDatabase,
     subjectPath: string,
 ): NonNullable<ProjectRagInspectorDto["selectedSubject"]>["chunkSourceCounts"] {
     try {
@@ -832,7 +803,7 @@ function safeReadInspectorChunkSourceCounts(
 }
 
 function safeReadInspectorChunkRows(
-    db: ProjectRagSqliteDatabase,
+    db: SqliteVecDatabase,
     subjectPath: string,
     sources: SubjectRagSourceType[],
     limit: number,
@@ -844,12 +815,12 @@ function safeReadInspectorChunkRows(
     }
 }
 
-function readMetaValue(db: ProjectRagSqliteDatabase, key: string): string | null {
+function readMetaValue(db: SqliteVecDatabase, key: string): string | null {
     const row = db.query("SELECT value FROM subject_rag_meta WHERE key = ?").get(key) as {value: string} | null;
     return row?.value ?? null;
 }
 
-function readCount(db: ProjectRagSqliteDatabase, sql: string): number {
+function readCount(db: SqliteVecDatabase, sql: string): number {
     const row = db.query(sql).get() as {count: number | bigint} | null;
     return Number(row?.count ?? 0);
 }
@@ -880,7 +851,7 @@ type SubjectRagChunkColumns = {
     embeddingIndexedAt: boolean;
 };
 
-function readSubjectRagChunkColumns(db: ProjectRagSqliteDatabase): SubjectRagChunkColumns {
+function readSubjectRagChunkColumns(db: SqliteVecDatabase): SubjectRagChunkColumns {
     const rows = db.query("PRAGMA table_info(subject_rag_chunks)").all() as Array<{name: string}>;
     const names = new Set(rows.map((row) => row.name));
     return {
@@ -892,7 +863,7 @@ function readSubjectRagChunkColumns(db: ProjectRagSqliteDatabase): SubjectRagChu
 }
 
 function readInspectorChunkRows(
-    db: ProjectRagSqliteDatabase,
+    db: SqliteVecDatabase,
     subjectPath: string,
     sources: SubjectRagSourceType[],
     limit: number,
@@ -1059,73 +1030,32 @@ async function deleteSubjectIndexRows(dbPath: string, subjectPath: string): Prom
 
 async function clearRagIndexCache(projectRoot: string): Promise<void> {
     const dbPath = resolveRagDbPath(projectRoot);
-    await Promise.all([
-        rm(dbPath, {force: true}),
-        rm(`${dbPath}-wal`, {force: true}),
-        rm(`${dbPath}-shm`, {force: true}),
-    ]);
-}
-
-async function openProjectRagSqliteDatabase(dbPath: string, options: {readonly: boolean; loadVec: boolean}): Promise<ProjectRagSqliteDatabase> {
-    return openSqliteHandle({
-        runtime: currentSqliteRuntime(),
-        async openBun() {
-            const sqliteSpecifier = "bun:sqlite";
-            const sqlite = await import(sqliteSpecifier) as BunSqliteModule;
-            return new sqlite.Database(dbPath, {readonly: options.readonly});
-        },
-        async openNode() {
-            const sqliteSpecifier = "node:sqlite";
-            const sqlite = await import(sqliteSpecifier) as unknown as NodeSqliteModule;
-            return wrapNodeSqliteDatabase(new sqlite.DatabaseSync(dbPath, {readOnly: options.readonly, allowExtension: options.loadVec}));
-        },
-        async initialize(db) {
-            if (options.loadVec) {
-                await loadSqliteVec(db);
-            }
-        },
-    });
-}
-
-function wrapNodeSqliteDatabase(db: NodeSqliteDatabase): ProjectRagSqliteDatabase {
-    return {
-        run(sql, ...params) {
-            if (params.length === 0) {
-                db.exec(sql);
-                return undefined;
-            }
-            return db.prepare(sql).run(...params.map(normalizeNodeSqliteParam));
-        },
-        query(sql) {
-            const statement = db.prepare(sql);
-            return {
-                all(...params) {
-                    return statement.all(...params.map(normalizeNodeSqliteParam));
-                },
-                get(...params) {
-                    return statement.get(...params.map(normalizeNodeSqliteParam));
-                },
-            };
-        },
-        loadExtension(path) {
-            db.loadExtension(path);
-        },
-        close() {
-            db.close();
-        },
-    };
-}
-
-function normalizeNodeSqliteParam(value: unknown): unknown {
-    if (typeof value === "number" && Number.isSafeInteger(value)) {
-        return BigInt(value);
+    // Windows libsql statement finalizer 晚于 close；删除边界只重试句柄占用错误。
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+        collectReleasedSqliteHandles({force: true});
+        try {
+            await Promise.all([
+                rm(dbPath, {force: true}),
+                rm(`${dbPath}-wal`, {force: true}),
+                rm(`${dbPath}-shm`, {force: true}),
+            ]);
+            return;
+        } catch (error) {
+            const retryable = error instanceof Error
+                && "code" in error
+                && (error.code === "EBUSY" || error.code === "EPERM");
+            if (!retryable || attempt === 19) throw error;
+            await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
+        }
     }
-    return value;
 }
 
-async function loadSqliteVec(db: ProjectRagSqliteDatabase): Promise<void> {
-    const sqliteVec = await import("sqlite-vec") as unknown as SqliteVecModule;
-    sqliteVec.load(db);
+async function openProjectRagSqliteDatabase(dbPath: string, options: {readonly: boolean; loadVec: boolean}): Promise<SqliteVecDatabase> {
+    return openSqliteVecDatabase({
+        path: dbPath,
+        readonly: options.readonly,
+        loadExtension: options.loadVec,
+    });
 }
 
 function resolveIndexStatus(row: Awaited<ReturnType<typeof readRagSourceRows>>[number] | undefined, dirty: boolean): ProjectRagIndexStatusDto {

@@ -4,7 +4,10 @@ import {basename, dirname, join, relative, resolve} from "node:path";
 import {appLogger} from "nbook/server/app-logs/logger";
 import {loadEffectiveConfigFromTarget} from "nbook/server/config/config-service";
 import type {EmbeddingServiceConfig, RuntimeConfigTarget} from "nbook/server/config/types";
-import {currentSqliteRuntime, openSqliteHandle} from "nbook/server/rag/sqlite-handle-initialization";
+import {
+    openSqliteVecDatabase,
+    type SqliteVecDatabase,
+} from "nbook/server/rag/sqlite-vec-database";
 import {
     parseSubjectEventsJsonl,
     parseSubjectMemoriesJsonl,
@@ -44,40 +47,6 @@ type SubjectRagEmbeddingSource = {
 } | {
     configTarget?: never;
     embedding: EmbeddingServiceConfig;
-};
-
-type SubjectRagDatabase = {
-    run(sql: string, ...params: unknown[]): unknown;
-    query(sql: string): {
-        all(...params: unknown[]): unknown[];
-        get(...params: unknown[]): unknown;
-    };
-    transaction<TArgs extends unknown[], TResult>(fn: (...args: TArgs) => TResult): (...args: TArgs) => TResult;
-    loadExtension(path: string): void;
-    close(): void;
-};
-
-type BunSqliteModule = {
-    Database: new (path: string) => SubjectRagDatabase;
-};
-
-type NodeSqliteDatabase = {
-    exec(sql: string): void;
-    prepare(sql: string): {
-        all(...params: unknown[]): unknown[];
-        get(...params: unknown[]): unknown;
-        run(...params: unknown[]): unknown;
-    };
-    loadExtension(path: string): void;
-    close(): void;
-};
-
-type NodeSqliteModule = {
-    DatabaseSync: new (path: string, options?: {allowExtension?: boolean}) => NodeSqliteDatabase;
-};
-
-type SqliteVecModule = {
-    load(db: SubjectRagDatabase): void;
 };
 
 type RagEmbeddingModel = {
@@ -203,77 +172,17 @@ export async function markSubjectRagDirty(subject: SubjectPaths, sourceType: Sub
     }
 }
 
-async function openSubjectRagDatabase(dbPath: string, dimensions: number): Promise<SubjectRagDatabase> {
-    return openSqliteHandle({
-        runtime: currentSqliteRuntime(),
-        async openBun() {
-            const sqliteSpecifier = "bun:sqlite";
-            const sqlite = await import(sqliteSpecifier) as BunSqliteModule;
-            return new sqlite.Database(dbPath);
-        },
-        async openNode() {
-            const sqliteSpecifier = "node:sqlite";
-            const sqlite = await import(sqliteSpecifier) as unknown as NodeSqliteModule;
-            return wrapNodeSqliteDatabase(new sqlite.DatabaseSync(dbPath, {allowExtension: true}));
-        },
-        async initialize(db) {
-            const sqliteVec = await import("sqlite-vec") as unknown as SqliteVecModule;
-            sqliteVec.load(db);
+async function openSubjectRagDatabase(dbPath: string, dimensions: number): Promise<SqliteVecDatabase> {
+    return openSqliteVecDatabase({
+        path: dbPath,
+        loadExtension: true,
+        initialize(db) {
             createSchema(db, dimensions);
         },
     });
 }
 
-function wrapNodeSqliteDatabase(db: NodeSqliteDatabase): SubjectRagDatabase {
-    return {
-        run(sql, ...params) {
-            if (params.length === 0) {
-                db.exec(sql);
-                return undefined;
-            }
-            return db.prepare(sql).run(...params.map(normalizeNodeSqliteParam));
-        },
-        query(sql) {
-            const statement = db.prepare(sql);
-            return {
-                all(...params) {
-                    return statement.all(...params.map(normalizeNodeSqliteParam));
-                },
-                get(...params) {
-                    return statement.get(...params.map(normalizeNodeSqliteParam));
-                },
-            };
-        },
-        transaction(fn) {
-            return (...args) => {
-                db.exec("BEGIN IMMEDIATE");
-                try {
-                    const result = fn(...args);
-                    db.exec("COMMIT");
-                    return result;
-                } catch (error) {
-                    db.exec("ROLLBACK");
-                    throw error;
-                }
-            };
-        },
-        loadExtension(path) {
-            db.loadExtension(path);
-        },
-        close() {
-            db.close();
-        },
-    };
-}
-
-function normalizeNodeSqliteParam(value: unknown): unknown {
-    if (typeof value === "number" && Number.isSafeInteger(value)) {
-        return BigInt(value);
-    }
-    return value;
-}
-
-function createSchema(db: SubjectRagDatabase, dimensions: number): void {
+function createSchema(db: SqliteVecDatabase, dimensions: number): void {
     db.run("PRAGMA foreign_keys = ON");
     db.run(`
         CREATE TABLE IF NOT EXISTS subject_rag_meta (
@@ -328,7 +237,7 @@ function createSchema(db: SubjectRagDatabase, dimensions: number): void {
     )`);
 }
 
-function querySubjectRagSource(db: SubjectRagDatabase, input: {
+function querySubjectRagSource(db: SqliteVecDatabase, input: {
     queryEmbedding: number[];
     subjectPath: string;
     source: SubjectRagSourceType;
@@ -370,7 +279,7 @@ function querySubjectRagSource(db: SubjectRagDatabase, input: {
     }>;
 }
 
-async function ensureRagMeta(db: SubjectRagDatabase, embedding: RagEmbeddingModel): Promise<void> {
+async function ensureRagMeta(db: SqliteVecDatabase, embedding: RagEmbeddingModel): Promise<void> {
     const currentVersion = readMeta(db, "schemaVersion");
     const currentProvider = readMeta(db, "embedding.provider");
     const currentModel = readMeta(db, "embedding.model");
@@ -400,7 +309,7 @@ async function ensureRagMeta(db: SubjectRagDatabase, embedding: RagEmbeddingMode
     writeMeta(db, "embedding.normalized", "true");
 }
 
-function resetSubjectRagCache(db: SubjectRagDatabase, dimensions: number): void {
+function resetSubjectRagCache(db: SqliteVecDatabase, dimensions: number): void {
     db.run("DROP TABLE IF EXISTS subject_rag_vec");
     db.run("DROP TABLE IF EXISTS subject_rag_chunks");
     db.run("DROP TABLE IF EXISTS subject_rag_sources");
@@ -409,7 +318,7 @@ function resetSubjectRagCache(db: SubjectRagDatabase, dimensions: number): void 
 }
 
 async function syncSubjectSources(
-    db: SubjectRagDatabase,
+    db: SqliteVecDatabase,
     subject: SubjectPaths,
     sources: SubjectRagSourceType[],
     embedding: RagEmbeddingModel,
@@ -421,7 +330,7 @@ async function syncSubjectSources(
 }
 
 async function syncSubjectSource(
-    db: SubjectRagDatabase,
+    db: SqliteVecDatabase,
     subject: SubjectPaths,
     sourceType: SubjectRagSourceType,
     embedding: RagEmbeddingModel,
@@ -485,7 +394,7 @@ async function syncSubjectSource(
     }
 }
 
-function upsertSource(db: SubjectRagDatabase, input: {
+function upsertSource(db: SqliteVecDatabase, input: {
     existingId?: number;
     subjectId: string;
     subjectPath: string;
@@ -699,12 +608,12 @@ function normalizeEmbeddingVector(vector: number[], label: string): number[] {
     return vector.map((value) => value / magnitude);
 }
 
-function readMeta(db: SubjectRagDatabase, key: string): string | null {
+function readMeta(db: SqliteVecDatabase, key: string): string | null {
     const row = db.query("SELECT value FROM subject_rag_meta WHERE key = ?").get(key) as {value: string} | null;
     return row?.value ?? null;
 }
 
-function writeMeta(db: SubjectRagDatabase, key: string, value: string): void {
+function writeMeta(db: SqliteVecDatabase, key: string, value: string): void {
     db.run("INSERT INTO subject_rag_meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", key, value);
 }
 
