@@ -119,4 +119,11 @@ jobs:
         with:
           name: ${{ matrix.platform }}-product-diagnostics
           if-no-files-found: ignore
-          path: ${{ runner.temp }}/neuro-book-${{ matrix.platform }}-smoke/*
+          include-hidden-files: true
+          path: |
+            ${{ runner.temp }}/neuro-book-${{ matrix.platform }}-smoke/application/.output
+            ${{ runner.temp }}/neuro-book-${{ matrix.platform }}-smoke/application/product-build.json
+            ${{ runner.temp }}/neuro-book-${{ matrix.platform }}-smoke/application/source-build.json
+            ${{ runner.temp }}/neuro-book-${{ matrix.platform }}-smoke/state
+            ${{ runner.temp }}/neuro-book-${{ matrix.platform }}-smoke/product.log
+            ${{ runner.temp }}/neuro-book-${{ matrix.platform }}-smoke/browser-failure.png

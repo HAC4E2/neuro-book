@@ -1,8 +1,29 @@
 import {readFile} from "node:fs/promises";
+import {createRequire} from "node:module";
+import {basename, dirname} from "node:path";
 import type {Plugin} from "esbuild";
 
 const GAXIOS_SOURCE_PATTERN = /[\\/]gaxios[\\/]build[\\/](?:cjs|esm)[\\/]src[\\/]gaxios\.js$/;
 const GAXIOS_NODE_FETCH_IMPORT = "(await import('node-fetch')).default";
+const WEB_EXTRACTION_COMMONJS_IMPORT_PATTERN = /^(?:@mozilla\/readability|turndown-plugin-gfm)$/;
+const WEB_EXTRACTION_COMMONJS_NAMESPACE = "nbook-product-web-extraction-esm";
+const WEB_EXTRACTION_COMMONJS_MODULES = [
+    {
+        specifier: "@mozilla/readability",
+        expectedSource: [
+            "module.exports = {",
+            "  Readability,",
+            "  isProbablyReaderable,",
+            "};",
+        ].join("\n"),
+        exportNames: ["Readability", "isProbablyReaderable"],
+    },
+    {
+        specifier: "turndown-plugin-gfm",
+        expectedSource: "exports.gfm = gfm;",
+        exportNames: ["gfm"],
+    },
+] as const;
 const PI_AI_ROOT_PATTERN = String.raw`[\\/]@earendil-works[\\/]pi-ai[\\/]dist[\\/]`;
 const PI_AI_BEDROCK_PATTERN = new RegExp(String.raw`${PI_AI_ROOT_PATTERN}api[\\/]bedrock-converse-stream\.lazy\.js$`);
 const PI_AI_ENV_KEYS_PATTERN = new RegExp(`${PI_AI_ROOT_PATTERN}env-api-keys\\.js$`);
@@ -16,6 +37,11 @@ const PI_AI_OAUTH_PATTERN = new RegExp(String.raw`${PI_AI_ROOT_PATTERN}utils[\\/
  * `node-fetch` 留到没有该 package 的 Product 中。
  */
 export function productRuntimeCompatibilityPlugin(): Plugin {
+    const requireFromBuilder = createRequire(import.meta.url);
+    const webExtractionModules = new Map(WEB_EXTRACTION_COMMONJS_MODULES.map((definition) => [
+        definition.specifier,
+        {...definition, entry: requireFromBuilder.resolve(definition.specifier)},
+    ]));
     return {
         name: "nbook-product-runtime-compatibility",
         setup(build) {
@@ -32,6 +58,40 @@ export function productRuntimeCompatibilityPlugin(): Plugin {
                         GAXIOS_NODE_FETCH_IMPORT,
                         "globalThis.fetch.bind(globalThis)",
                     ),
+                };
+            });
+            build.onResolve({filter: WEB_EXTRACTION_COMMONJS_IMPORT_PATTERN}, (args) => ({
+                path: args.path,
+                namespace: WEB_EXTRACTION_COMMONJS_NAMESPACE,
+            }));
+            build.onLoad({filter: /.*/, namespace: WEB_EXTRACTION_COMMONJS_NAMESPACE}, async (args) => {
+                const definition = webExtractionModules.get(args.path);
+                if (!definition) throw new Error(`未登记的Web提取CommonJS入口：${args.path}`);
+                const source = (await readFile(definition.entry, "utf8")).replaceAll("\r\n", "\n");
+                const first = source.indexOf(definition.expectedSource);
+                const second = first < 0
+                    ? -1
+                    : source.indexOf(definition.expectedSource, first + definition.expectedSource.length);
+                if (first < 0 || second >= 0) {
+                    throw new Error(`${definition.specifier} CommonJS 入口形状变化：${definition.entry}`);
+                }
+                const bindingNames = definition.exportNames.join(", ");
+                const missingFunctions = definition.exportNames
+                    .map((name) => `typeof ${name} !== \"function\"`)
+                    .join(" || ");
+                return {
+                    loader: "js",
+                    resolveDir: dirname(definition.entry),
+                    contents: [
+                        `import * as commonJsNamespace from ${JSON.stringify(`./${basename(definition.entry)}`)};`,
+                        "const commonJsModule = commonJsNamespace.default ?? commonJsNamespace;",
+                        `const {${bindingNames}} = commonJsModule;`,
+                        `if (${missingFunctions}) {`,
+                        `    throw new Error(${JSON.stringify(`${definition.specifier} ESM 投影缺少函数导出。`)});`,
+                        "}",
+                        `export {${bindingNames}};`,
+                        "export default commonJsModule;",
+                    ].join("\n"),
                 };
             });
         },

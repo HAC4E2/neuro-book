@@ -37,7 +37,7 @@ Manager 已拥有安装锁、Operation Journal、migration、健康检查、切�
 22. Variable artifact 使用 compiler v3 hard cut：runtime artifact 与 type artifact 先按内容摘要发布为不可变文件，再在短期 publish lock 内复核 Source/dependency 摘要并以临时文件加 rename 原子切换 manifest。失败保持旧 manifest 与旧代完整；未被 current manifest 引用且超过 10 分钟的 orphan 才可回收。
 23. `source-dev`、`native-product`、`container-product` 是唯一三种 Application execution identity。Source Dev 明确执行 Source 入口且不冒充 Runtime Image；Native Product 使用 Installation Manifest 外部身份完整复算 payload；Container Product 先物化并验证 Engine image，再把只读 verified handle 交给底层 Compose runner。
 24. GHCR Compose 固定使用 `repository@sha256:digest`，Engine `Digest`/`RepoDigests`、Container `.Image`、`.Config.Image` 必须证明同一不可变引用。Source Docker manifest 必填 `containerImageId`，Dockerfile revision label、构建后 Engine image ID 与后续 tag 解析结果必须一致；tag 重绑时 start、migration 与 admin 均失败。
-25. `web-fetch` 检查必须对本地确定性 HTML 调用正式 `fetchWeb()`，同时证明 Readability、jsdom、Turndown 与 GFM table 行为；“HTTP 能启动”不构成这些动态依赖可用的替代证据。
+25. `web-fetch` 检查必须对本地确定性 HTML 调用正式 `fetchWeb()`，同时证明 Readability、jsdom、Turndown 与 GFM table 行为；“HTTP 能启动”不构成这些动态依赖可用的替代证据。动态导入的 CommonJS 包若依赖命名导出，必须在 Product bundler 中登记受审入口、核对上游源码形状并投影为显式 ESM 导出；业务源码不得用 named/default 猜测掩盖链接结果。
 26. 正式发行按 [ADR 0012](0012-release-candidate-activation.md) 只消费 Draft Candidate 的精确 release ID、revision 与已验证 Runtime Image identity。版本 tag、`latest` 和公开 Release 不属于 Builder；它们只能在全部平台与 Portable gate 完成后激活。
 
 ## 原因
@@ -52,7 +52,7 @@ bundle 与 package islands 的组合符合 NeuroBook 的真实能力：大部分
 - status/discovery 只展示控制面可信度；任何会运行代码的操作仍支付完整 payload 验证成本。
 - Authoring Kit 不是任意 npm 开发环境。Profile 作者消费 `nbook/profile-sdk`，需要 writing 资源能力时可显式消费 `nbook/profile-sdk/writing`；Variable 作者消费 `nbook/variable-sdk`。底层实现依赖的登记与 smoke 不会自动把包提升成作者 Interface。
 - Windows x64 的 4,683 个文件、161,274,231 bytes 是 2026-07-29 的历史基线；2026-08-01 SDK/载荷收窄后的 3,229 个 payload 文件、133,132,675 bytes 与随后 Contract v3 的 3,231 个文件、133,213,461 bytes 也是历史审查点。最终五平台 workflow `30733829868` 在提交 `18e12750` 上严格 A/B 全绿：Windows x64 为 3,238 / 133,455,576，Linux x64 为 3,241 / 133,294,968，Linux AArch64 为 3,241 / 130,718,274，macOS x64 为 3,241 / 134,063,432，macOS AArch64 为 3,241 / 130,115,684。各平台 Source/runtime/contract/policy、owner inventory、tree/shape digest 和逐文件 SHA-256 均一致，没有容差；这五组实测值是当前 canonical owner baseline。
-- Bun identifier minifier 曾在 Linux/macOS AArch64及偶发 Linux x64 产生同 Source 跨次内容漂移；measurement v3 将差异定位到 `server/index.mjs`、command chunks 与 Profile compiler。历史 workflow `30733829868` 在 Bun link/splitting + esbuild 后置 minify 下曾五平台全绿，但后续提交 `f69ff006` 的 workflow `30746538313` 在 macOS ARM64 连续两次复现 `server/index.mjs` 两种 6-byte 差异且 A/B 恰好对调，证明后置 minify 不能修复已经变化的 AST/symbol 顺序。正式合同因此改为 esbuild 在同一 module graph 内完成 link/splitting/minify；新合同必须重新通过五平台严格 A/B 后才形成新的 canonical 证据。
+- Bun identifier minifier 曾在 Linux/macOS AArch64及偶发 Linux x64 产生同 Source 跨次内容漂移；measurement v3 将差异定位到 `server/index.mjs`、command chunks 与 Profile compiler。历史 workflow `30733829868` 在 Bun link/splitting + esbuild 后置 minify 下曾五平台全绿，但后续提交 `f69ff006` 的 workflow `30746538313` 在 macOS ARM64 连续两次复现 `server/index.mjs` 两种 6-byte 差异且 A/B 恰好对调，证明后置 minify 不能修复已经变化的 AST/symbol 顺序。正式合同因此改为 esbuild 在同一 module graph 内完成 link/splitting/minify；提交 `26c24c8e` 的 workflow `30748519159` 已在五个平台重新通过严格 A/B，新合同的确定性证据成立。
 - POSIX Product workflow `30733829837` 在同一提交上通过 Linux x64/AArch64、macOS x64/AArch64 的 Source/Product archive、native islands、Runtime Contract、Manager/Owned Process、启动、HTTP 与浏览器 smoke。它不是 Windows Portable、GHCR 或完整 Release Candidate 的替代证据。
 - 完整 Source、Tool Pack 和 Runtime Image 必须分别统计。联网 Desktop 可按需下载 Git/Bash Tool Pack；严格离线 Portable 单独承担工具文件预算。
 

@@ -1,7 +1,12 @@
 import {execFile} from "node:child_process";
+import {mkdtemp, mkdir, rm, writeFile} from "node:fs/promises";
+import {join, resolve} from "node:path";
+import {pathToFileURL} from "node:url";
 import {promisify} from "node:util";
 
+import {build} from "esbuild";
 import {describe, expect, it} from "vitest";
+import {productRuntimeCompatibilityPlugin} from "nbook/scripts/build/product-bundle-plugins";
 
 const execFileAsync = promisify(execFile);
 
@@ -24,6 +29,49 @@ describe("Product bundle plugins", () => {
             "./openai-codex.js",
             "./github-copilot.js",
         ]));
+    });
+
+    it("为code splitting后的Web提取CommonJS入口保留命名导出", async () => {
+        const workspaceRoot = resolve(".agent", "workspace");
+        await mkdir(workspaceRoot, {recursive: true});
+        const root = await mkdtemp(join(workspaceRoot, "readability-interop-"));
+        const sourceRoot = join(root, "source");
+        const outputRoot = join(root, "output");
+        try {
+            await mkdir(sourceRoot, {recursive: true});
+            await writeFile(join(sourceRoot, "readability.mjs"), [
+                "export async function webExtractionExportTypes() {",
+                "    const [{Readability}, {gfm}] = await Promise.all([",
+                '        import("@mozilla/readability"),',
+                '        import("turndown-plugin-gfm"),',
+                "    ]);",
+                "    return [typeof Readability, typeof gfm];",
+                "}",
+            ].join("\n"), "utf8");
+            await writeFile(join(sourceRoot, "sentinel.mjs"), "export const sentinel = true;\n", "utf8");
+
+            await build({
+                absWorkingDir: process.cwd(),
+                entryPoints: {
+                    readability: join(sourceRoot, "readability.mjs"),
+                    sentinel: join(sourceRoot, "sentinel.mjs"),
+                },
+                bundle: true,
+                splitting: true,
+                format: "esm",
+                platform: "node",
+                target: "esnext",
+                minify: true,
+                outdir: outputRoot,
+                outExtension: {".js": ".mjs"},
+                plugins: [productRuntimeCompatibilityPlugin()],
+            });
+
+            const bundle = await import(`${pathToFileURL(join(outputRoot, "readability.mjs")).href}?interop-test`);
+            expect(await bundle.webExtractionExportTypes()).toEqual(["function", "function"]);
+        } finally {
+            await rm(root, {recursive: true, force: true});
+        }
     });
 });
 

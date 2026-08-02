@@ -42,7 +42,14 @@ type WorkflowStep = {
     name?: string;
     run?: string;
     uses?: string;
-    with?: {key?: string; outputs?: string; path?: string; pattern?: string; platforms?: string};
+    with?: {
+        "include-hidden-files"?: boolean;
+        key?: string;
+        outputs?: string;
+        path?: string;
+        pattern?: string;
+        platforms?: string;
+    };
 };
 
 type WorkflowJob = {
@@ -503,6 +510,16 @@ describe("Product Release宿主合同", () => {
         expect(releaseWorkflow.jobs["product-linux-aarch64"].steps.some(
             ({run}) => run?.includes("verify-posix-product.sh") && run.includes("playwright"),
         )).toBe(true);
+    });
+
+    it("Product失败诊断必须包含最终Runtime Image而不是复制整份Source", async () => {
+        const workflow = parse(await readFile(resolve(ROOT, ".github/workflows/product-platforms.yml"), "utf8")) as ProductWorkflow;
+        const diagnostics = workflow.jobs.product.steps.find(({name}) => name === "Upload native Product diagnostics");
+
+        expect(diagnostics?.with?.["include-hidden-files"]).toBe(true);
+        expect(diagnostics?.with?.path).toContain("/application/.output");
+        expect(diagnostics?.with?.path).toContain("/state");
+        expect(diagnostics?.with?.path).not.toContain("-smoke/*");
     });
 
     it("五平台 Product 与 GHCR 必须携带 sharp native island 并执行最终图片命令", async () => {
