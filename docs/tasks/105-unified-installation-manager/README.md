@@ -1119,3 +1119,4 @@ uninstall
 
 - Draft `v0.9.0-canary.20260802.134429Z.01a015f6` 的 preflight workflow [`30750586392`](https://github.com/notnotype/neuro-book/actions/runs/30750586392) 在 `scripts/deploy/product-start.test.ts` 解析 Product command graph 时发现 clean checkout 缺少被 `.gitignore` 排除的 Prisma client。原因是 preflight 没有在合同测试前执行 `bun run generate`；本地残留的 Developer Build State 曾掩盖这一前置。
 - release workflow 现把 `bun run generate` 固定在依赖安装后、Product policy、Manager 与 Product graph 合同前；release asset contract 同时断言该顺序。旧 Draft 保留为失败候选审计，不复用 release ID、tag 或 revision；修复后需要创建新的 0.9 Draft 才能重新进入 Candidate fan-out。
+- 修复提交 `5fb0f7b9` 推送后，新 Draft `v0.9.0-canary.20260802.135629Z.5fb0f7b9`（release ID `363801080`、revision `ab581c1d`）已 dispatch workflow [`30751019906`](https://github.com/notnotype/neuro-book/actions/runs/30751019906)。当前仍为 Draft、尚未公开；`.40` 同代 Portable、A→B、跨 Profile、GHCR/rootless Podman 与最终索引只能以该 workflow 的实际结果确认。

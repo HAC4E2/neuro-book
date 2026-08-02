@@ -1,6 +1,6 @@
 # 130 - 桌面应用前置架构、发行载荷与存储生命周期
 
-> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、Contract v3、Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议。正式构建已切换为 esbuild 同图 link/minify；提交 `852eead1` 的五平台严格 A/B 与四平台 Product build/archive/native smoke 全绿，`web-fetch` 的 CommonJS 命名导出丢失也已由真实跨平台 Product 证据关闭。上一 0.9 Draft 的 clean preflight 因缺少 Prisma 生成前置失败，未公开且不可复用；修复已提交，新的 Candidate 仍待创建。GHCR/rootless Podman、同代 Windows Portable、浏览器验收与 Tauri/Electron 同矩阵 spike 尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由 spike 证据冻结。
+> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、Contract v3、Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议。正式构建已切换为 esbuild 同图 link/minify；提交 `852eead1` 的五平台严格 A/B 与四平台 Product build/archive/native smoke 全绿，`web-fetch` 的 CommonJS 命名导出丢失也已由真实跨平台 Product 证据关闭。上一 0.9 Draft 的 clean preflight 因缺少 Prisma 生成前置失败，未公开且不可复用；修复后的新 Draft 已创建并 dispatch，但尚未公开。GHCR/rootless Podman、同代 Windows Portable、浏览器验收与 Tauri/Electron 同矩阵 spike 尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由 spike 证据冻结。
 
 ## Relative documents refs
 
@@ -640,6 +640,7 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - Draft `v0.9.0-canary.20260802.134429Z.01a015f6`（release ID `363798604`）的 workflow `30750586392` 在 `Verify Stage 0 and Manager contracts` 中执行 `scripts/deploy/product-start.test.ts` 时失败：clean checkout 没有被 Git 跟踪的 `server/generated/prisma/client`，而 preflight 只安装依赖、准备 Nuxt 和运行测试，没有执行 `bun run generate`。本地 Developer Build State 中已有生成目录，所以不能用本地通过掩盖该问题。
 - 修复在 release workflow 的依赖安装后、Product policy/Manager/`product-start` 合同前执行 `bun run generate`；`scripts/release/release-assets.test.ts` 新增顺序断言，固定生成步骤必须早于 Product command graph 检查。旧 Draft 保留为失败审计，不能复用其 release ID、tag 或 revision。
 - 本地验证：release asset contract 20/20、`product-start` Bun test（Windows 平台 SIGTERM 用例按条件跳过）、scripts typecheck、根 typecheck 与 docs build 全部通过。修复后必须创建新的 0.9 Draft，再由 clean runner 重新执行全链门禁。
+- 修复提交 `5fb0f7b9` 推送后，release coordinator 创建新 Draft `v0.9.0-canary.20260802.135629Z.5fb0f7b9`，release ID `363801080`、revision `ab581c1d`，并 dispatch workflow [`30751019906`](https://github.com/notnotype/neuro-book/actions/runs/30751019906)。按 `--no-watch` 协议只确认唯一身份与启动事实；该 Release 仍为 Draft、尚未公开，不能把运行中的 GHCR、Portable、Verifier 或激活门禁记为通过。
 
 ## TODO / Follow-ups
 
