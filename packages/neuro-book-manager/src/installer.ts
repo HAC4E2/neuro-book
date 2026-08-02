@@ -398,7 +398,6 @@ async function prepareInstallation(
             image: containerProductImageReference(options.profile, product),
             port: options.port,
             output: join(staging, "docker-compose.generated.yml"),
-            layoutPath: join(paths.deploy, "docker-compose.generated.yml"),
         });
     }
     const migrationPlan = await planJournaledApplicationMigrations(paths.root, manifest, journal, {

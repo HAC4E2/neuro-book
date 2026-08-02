@@ -1,5 +1,5 @@
 import {readFile} from "node:fs/promises";
-import {dirname, join, relative} from "node:path";
+import {dirname, isAbsolute, join, relative} from "node:path";
 import {Type, type Static} from "typebox";
 import {Value} from "typebox/value";
 import {parse, stringify} from "yaml";
@@ -135,8 +135,8 @@ export async function writeDockerCompose(input: {
     layoutPath?: string;
 }): Promise<string> {
     const composePath = input.output ?? join(input.root, ".deploy", "docker-compose.generated.yml");
-    const stateRelative = relative(dirname(input.layoutPath ?? composePath), input.stateRoot).replaceAll("\\", "/") || ".";
-    const cacheRelative = relative(dirname(input.layoutPath ?? composePath), input.cacheRoot).replaceAll("\\", "/") || ".";
+    const stateRelative = composeBindSource(input.layoutPath ?? composePath, input.stateRoot);
+    const cacheRelative = composeBindSource(input.layoutPath ?? composePath, input.cacheRoot);
     const database = resolveAppSqliteLocation(await resolveStateDatabaseUrl(input.stateRoot), input.stateRoot);
     if (!database.containerUrl) throw new Error("Docker Profile的App SQLite必须位于State Root内。" );
     const service = input.profile === "ghcr"
@@ -173,6 +173,15 @@ export async function writeDockerCompose(input: {
     }
     await writeTextAtomic(composePath, stringify({services: {app: service}}));
     return composePath;
+}
+
+/** 生成Compose可识别的bind source；普通相对路径必须带`.`前缀，否则会被解释为named volume。 */
+function composeBindSource(layoutPath: string, hostRoot: string): string {
+    const path = relative(dirname(layoutPath), hostRoot);
+    if (!path) return ".";
+    const normalized = path.replaceAll("\\", "/");
+    if (isAbsolute(path) || normalized.startsWith(".")) return normalized;
+    return `./${normalized}`;
 }
 
 /** 验证 Docker Profile 的基础 HTTP 与版本接口。 */

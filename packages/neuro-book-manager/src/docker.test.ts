@@ -142,19 +142,23 @@ describe("Docker Compose部署合同", () => {
         processCommands.capture.mockResolvedValue("migration-report");
         const root = await mkdtemp(join(tmpdir(), "nbook-compose-candidate-"));
         roots.push(root);
-        const stateRoot = root;
-        const composePath = join(root, ".deploy", "staging", "operation", "docker-compose.generated.yml");
+        const staging = join(root, ".deploy", "staging", "operation");
+        const stateRoot = join(staging, "migration-plan-state");
+        const cacheRoot = join(staging, "migration-plan-cache");
+        const composePath = join(staging, "docker-compose.generated.yml");
         await writeDockerCompose({
             engine: "docker",
             root,
             stateRoot,
-            cacheRoot: join(root, ".cache"),
+            cacheRoot,
             profile: "ghcr",
             image: verifiedImage("docker").configuredImage,
             port: 3000,
             output: composePath,
-            layoutPath: join(root, ".deploy", "docker-compose.generated.yml"),
         });
+        const compose = parse(await readFile(composePath, "utf8")) as {services: {app: {volumes: string[]}}};
+        expect(compose.services.app.volumes).toContain("./migration-plan-state/workspace:/app/workspace");
+        expect(compose.services.app.volumes).toContain("./migration-plan-cache:/app/cache");
 
         await expect(runDockerApplicationCommand(
             verifiedImage("docker"),
@@ -178,6 +182,21 @@ describe("Docker Compose部署合同", () => {
             "app",
             "migration.ts",
         ], {cwd: root});
+
+        await writeDockerCompose({
+            engine: "docker",
+            root,
+            stateRoot: root,
+            cacheRoot: join(root, ".cache"),
+            profile: "ghcr",
+            image: verifiedImage("docker").configuredImage,
+            port: 3000,
+            output: composePath,
+            layoutPath: join(root, ".deploy", "docker-compose.generated.yml"),
+        });
+        const activated = parse(await readFile(composePath, "utf8")) as {services: {app: {volumes: string[]}}};
+        expect(activated.services.app.volumes).toContain("../workspace:/app/workspace");
+        expect(activated.services.app.volumes).toContain("../.cache:/app/cache");
     });
 
     it("Podman Compose固定使用podman-compose provider", async () => {

@@ -760,3 +760,10 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - GHCR AMD64/ARM64和rootless Podman都在正确digest拉取完成后失败。Fresh Install迁移plan使用Operation staging内的候选Compose，但一次性Product命令执行前仍读取尚未切换的根Compose做身份校验，导致三个平台一致返回`.deploy/docker-compose.generated.yml` ENOENT；这不是OCI内容、架构、rootless权限或目录创建失败。
 - 修复让Compose镜像校验与实际`docker compose -f`严格消费同一路径，保留候选验证通过后才切换正式Compose的事务顺序。行为测试覆盖“正式Compose不存在、候选Compose存在”的真实安装形状；Manager全量242 passed / 3 skipped、typecheck、pack、Release 3 files / 26 tests、scripts typecheck和docs build通过。
 - Candidate 17保持10资产Draft且不复用，最终Release和OCI正式Canary tag仍未产生。Manager `.43`已由workflow [`30769613583`](https://github.com/notnotype/neuro-book/actions/runs/30769613583)完成Trusted Publishing；npm `gitHead=6d62e57387820b501cdc51022b13bb8607c0d137`，公开tarball SHA-1为`43cc2e38aa754383bb94f49066039f050e28b816`，registry signature、SLSA provenance、真实`bunx`与`manager:verify-public`均通过。全新Candidate需从头重跑GHCR双架构、rootless Podman、最终Portable Verifier、Release公开和OCI别名激活。
+
+### 2026-08-03：第十八次 Candidate 的 staging bind mount 边界
+
+- Draft `v0.9.0-canary.20260802.221657Z.3e2b7d33`（release ID `363907966`、revision `c2bc42e2dfe2980ec1632fcd3f2d636d57fe022a`）的 workflow [`30769774882`](https://github.com/notnotype/neuro-book/actions/runs/30769774882) 已通过17个job。五平台Product、Windows Portable、双OCI、assemble、Linux最终验证、Windows完整生命周期、Draft 10个payload实字节复核和0.8.6完整data复用均成功；Candidate 17的正式Compose ENOENT没有复发。
+- 三个公开GHCR job均越过候选镜像identity校验，随后把无`./`前缀的`staging/<operation>/migration-plan-*`解释为named volume而失败。Docker AMD64/ARM64报`undefined volume`，rootless Podman报`volume ... not defined in top level`；三者首错一致。
+- Compose生成现在区分执行布局与激活布局：迁移plan按候选文件所在staging生成`./migration-plan-*` bind source，plan通过后再按最终`.deploy`位置重渲染为`../...`并事务rename。Update也先按staging执行、再按最终位置重写，避免只修Fresh Install留下同类缺口。
+- focused Docker/Updater为33/33，Manager全量242 passed / 3 skipped，typecheck与隔离Release合同26/26通过。该修复需进入公开Manager `.44`后创建全新Candidate；Candidate 18保持10资产Draft，最终Portable Verifier、Release公开和OCI正式Canary tag仍未产生。

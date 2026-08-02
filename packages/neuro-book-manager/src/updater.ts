@@ -162,6 +162,22 @@ export async function updateInstallation(input: UpdateOptions): Promise<UpdateRe
                 if (!await pathExists(compose)) throw new Error("Docker Profile缺少当前generated Compose，无法事务更新。" );
                 const stateRoot = paths.state;
                 const engine = requiredContainerEngine(options.manifest);
+                const profile = result.manifest.profile;
+                const product = result.manifest.components.product;
+                if ((profile !== "ghcr" && profile !== "source-docker") || product?.provider !== "container") {
+                    throw new Error("Container Compose更新缺少目标Profile或Product。" );
+                }
+                const stagedCompose = await writeDockerCompose({
+                    engine,
+                    root: paths.root,
+                    stateRoot,
+                    cacheRoot: paths.cache,
+                    profile,
+                    image: containerProductImageReference(profile, product),
+                    port: await statePort(stateRoot),
+                    output: result.stagedCompose,
+                    layoutPath: compose,
+                });
                 const previousInspection = await inspectDockerApplication(engine, paths.root, stateRoot);
                 const previousState = !previousInspection.containerId
                     ? "missing" as const
@@ -185,7 +201,7 @@ export async function updateInstallation(input: UpdateOptions): Promise<UpdateRe
                 if (previousState === "running") await stopDocker(engine, paths.root, stateRoot);
                 journal = await backupJournaledApplicationDatabase(journal, stateRoot);
                 await removePath(compose);
-                await rename(result.stagedCompose, compose);
+                await rename(stagedCompose, compose);
                 journal = await setOperationEffect(journal, {
                     kind: "compose", state: "applied", owner: "compose",
                     previousState, stopped: previousState === "running", previousCompose,
@@ -427,7 +443,6 @@ async function prepareUpdate(
     };
     if (profile === "ghcr" && (selected.has("source") || selected.has("product"))
         && product?.provider === "container" && product.digest) {
-        const finalCompose = join(paths.deploy, "docker-compose.generated.yml");
         stagedCompose = await writeDockerCompose({
             engine: requiredContainerEngine(options.manifest),
             root: paths.root,
@@ -437,10 +452,8 @@ async function prepareUpdate(
             image: containerProductImageReference("ghcr", product),
             port: await statePort(paths.state),
             output: join(staging, "docker-compose.generated.yml"),
-            layoutPath: finalCompose,
         });
     } else if (profile === "source-docker" && product?.provider === "container") {
-        const finalCompose = join(paths.deploy, "docker-compose.generated.yml");
         stagedCompose = await writeDockerCompose({
             engine: requiredContainerEngine(options.manifest),
             root: paths.root,
@@ -450,7 +463,6 @@ async function prepareUpdate(
             image: product.image,
             port: await statePort(paths.state),
             output: join(staging, "docker-compose.generated.yml"),
-            layoutPath: finalCompose,
         });
     }
     return {manifest: next, stagedWorktree, gitTarget, stagedSource, stagedProduct, stagedCompose, journal};
