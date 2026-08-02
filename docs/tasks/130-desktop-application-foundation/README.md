@@ -583,6 +583,7 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - 仓库外解压后 doctor 31 checks 全绿，Bun 1.3.14、ripgrep 15.2.0、Git 2.55.0.windows.3 与 Bash 5.3.15 均通过真实版本检查。完整 Product Contract 通过数据库/Application State migration、Profile/Variable、sqlite-vec、Sharp、workspace schema/node、管理员创建、HTTP Profile 编译、错误/正确 shutdown token 和 State Root 移动删除；Manager 外层又通过 Owned Process、管理员创建、前台启动、HTTP 登录与零 shadow workspace。
 - 自卸载实测发现公开 Manager `.38` 的 detached Host没有运行，不能把同步Host脚本单测冒充完整生命周期证据。调度边界改为短命PowerShell launcher + 独立Host后，`.39` clean Portable的两条真实链均通过：默认卸载的durable result成功且终态只保留`data/`，`--delete-data`的独立新解压实例成功删除整个Installation Root。Candidate门禁也从“看到`.output`消失”收紧为等待Host成功result并检查完整终态。
 - 本地没有五平台产物、真实 GHCR digest 或 Candidate `release-manifest.json`，因此没有伪造最终 Portable Verifier 证明；浏览器验收也按仓库约定未自动执行。以上是 clean archive 和仓库外运行证据，不替代 Candidate Actions。
+- 第一次0.9发布命令成功推送版本提交并创建Draft release ID `363661503`，随后立即查询Releases列表时因GitHub最终一致性窗口得到零匹配，故未dispatch workflow。失败Draft按协议保留；Release Candidate Coordinator现对零匹配执行12秒有界发现重试，多匹配、非Draft或revision漂移仍立即拒绝。最终0.9 Candidate使用新的canary identity，不能篡改或复用该失败Draft。
 - `RELEASE.md`继续只保存当前0.9版本；`docs/changelog/`与英文镜像只收录已经成为历史的发布线，因此不会在0.9仍是当前Candidate时提前创建`v0.9.md`。正式进入下一发布线后再归档中英文0.9记录。
 - 本轮不实现Developer Mode/rebuild、Tauri/Electron spike或手工浏览器验收。Candidate Actions仍负责五平台、真实Docker/Podman与公开资产证据；本地Windows结果不能替代这些门禁。
 

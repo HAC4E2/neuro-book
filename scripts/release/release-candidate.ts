@@ -8,6 +8,9 @@ type ReleaseView = {
     target_commitish: string;
 };
 
+const RELEASE_DISCOVERY_ATTEMPTS = 12;
+const RELEASE_DISCOVERY_INTERVAL_MS = 1_000;
+
 export type ReleaseCandidateRequest = {
     createArgs: string[];
     dispatchRef: string;
@@ -55,13 +58,7 @@ export async function createReleaseCandidate(input: ReleaseCandidateRequest): Pr
     }
 
     await run("gh", input.createArgs);
-    const raw = await runCapture("gh", ["api", `repos/${input.repo}/releases?per_page=100`]);
-    const releases = JSON.parse(raw) as ReleaseView[];
-    const matches = releases.filter((release) => release.tag_name === input.tag);
-    if (matches.length !== 1) {
-        throw new Error(`GitHub Draft Release 数量异常：tag=${input.tag} count=${matches.length}`);
-    }
-    const [release] = matches;
+    const release = await waitForDraftRelease(input.repo, input.tag);
     if (!release || !Number.isSafeInteger(release.id) || release.id <= 0) {
         throw new Error(`GitHub Draft Release 缺少有效 release ID：${input.tag}`);
     }
@@ -76,4 +73,23 @@ export async function createReleaseCandidate(input: ReleaseCandidateRequest): Pr
 
     await run("gh", candidateDispatchArgs({...input, releaseId: release.id}));
     return {releaseId: release.id, url: release.html_url};
+}
+
+/** 等待刚创建的Draft进入GitHub Releases列表，吸收API的短暂最终一致性窗口。 */
+async function waitForDraftRelease(repo: string, tag: string): Promise<ReleaseView> {
+    for (let attempt = 0; attempt < RELEASE_DISCOVERY_ATTEMPTS; attempt += 1) {
+        const raw = await runCapture("gh", ["api", `repos/${repo}/releases?per_page=100`]);
+        const releases = JSON.parse(raw) as ReleaseView[];
+        const matches = releases.filter((release) => release.tag_name === tag);
+        if (matches.length > 1) {
+            throw new Error(`GitHub Draft Release 数量异常：tag=${tag} count=${matches.length}`);
+        }
+        if (matches.length === 1 && matches[0]) {
+            return matches[0];
+        }
+        if (attempt + 1 < RELEASE_DISCOVERY_ATTEMPTS) {
+            await new Promise<void>((resolvePromise) => setTimeout(resolvePromise, RELEASE_DISCOVERY_INTERVAL_MS));
+        }
+    }
+    throw new Error(`GitHub Draft Release 数量异常：tag=${tag} count=0`);
 }

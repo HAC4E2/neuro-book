@@ -1,4 +1,4 @@
-import {beforeEach, describe, expect, it, vi} from "vitest";
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 
 const processMocks = vi.hoisted(() => ({
     run: vi.fn(),
@@ -35,6 +35,10 @@ describe("Release Candidate Coordinator", () => {
         }]));
     });
 
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
     it("创建 Draft 并以不可变 identity 显式 dispatch", async () => {
         await expect(createReleaseCandidate(request)).resolves.toEqual({
             releaseId: 1234,
@@ -59,5 +63,28 @@ describe("Release Candidate Coordinator", () => {
         }]));
         await expect(createReleaseCandidate(request)).rejects.toThrow("identity 不匹配");
         expect(processMocks.run).toHaveBeenCalledTimes(1);
+    });
+
+    it("等待刚创建的Draft进入GitHub Releases列表后再dispatch", async () => {
+        vi.useFakeTimers();
+        processMocks.runCapture
+            .mockResolvedValueOnce("[]")
+            .mockResolvedValueOnce("[]")
+            .mockResolvedValueOnce(JSON.stringify([{
+                draft: true,
+                html_url: `https://github.com/notnotype/neuro-book/releases/tag/${request.tag}`,
+                id: 1234,
+                tag_name: request.tag,
+                target_commitish: request.revision,
+            }]));
+
+        const candidate = createReleaseCandidate(request);
+        await vi.advanceTimersByTimeAsync(2_000);
+        await expect(candidate).resolves.toEqual({
+            releaseId: 1234,
+            url: `https://github.com/notnotype/neuro-book/releases/tag/${request.tag}`,
+        });
+        expect(processMocks.runCapture).toHaveBeenCalledTimes(3);
+        expect(processMocks.run).toHaveBeenNthCalledWith(2, "gh", candidateDispatchArgs({...request, releaseId: 1234}));
     });
 });

@@ -1100,3 +1100,4 @@ uninstall
 - 仓库外验收通过31项doctor、Portable Bun/rg/Git/Bash真实版本、Owned Process、完整Product Contract、管理员创建、前台启动、HTTP版本与登录cookie，且未生成Installation Root影子`workspace/`。
 - 默认卸载的外置Host写入`ok: true` durable result，程序、Source、Runtime、cache和logs全部删除后安装根只剩`data/`，测试数据仍在；全量卸载的独立新解压实例同样写入成功result并删除整个Installation Root。验收同时发现Candidate workflow只等待`.output`消失会过早结束，现改为等待Host结果并检查完整终态。
 - 本地没有五平台资产、GHCR digest或Candidate `release-manifest.json`，因此没有伪造最终Portable Verifier结果；公开A→B、跨Profile、真实Docker/rootless Podman和最终索引仍由0.9 Candidate Actions负责。
+- 第一次0.9发布命令已推送版本提交并创建Draft release ID `363661503`，但Coordinator在`gh release create`返回后立即查询列表，撞到GitHub短暂最终一致性窗口并误报`count=0`，因此没有dispatch workflow。该Draft保留为失败候选审计，不删除、不复用；Coordinator现只对零匹配执行12次、每次1秒的有界发现重试，多匹配或identity漂移仍立即fail closed。
