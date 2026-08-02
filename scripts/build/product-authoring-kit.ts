@@ -7,6 +7,7 @@ import {
     productPiAiImportPlugin,
     productRuntimeCompatibilityPlugin,
 } from "nbook/scripts/build/product-bundle-plugins";
+import {minifyProductJavaScript} from "nbook/scripts/build/product-reproducible-minifier";
 import {productRuntimeIslandPackageNames} from "nbook/scripts/build/product-runtime-islands";
 import {
     projectAuthoringDependencies,
@@ -67,7 +68,7 @@ export async function buildProductAuthoringKit(outputRoot: string): Promise<Prod
         entrypoints: [resolve("server", "agent", "profiles", "profile-compile-worker-entry.ts")],
         target: "bun",
         format: "esm",
-        minify: true,
+        minify: false,
         sourcemap: "none",
         plugins: [productPiAiImportPlugin(), productRuntimeCompatibilityPlugin()],
         external: [
@@ -83,7 +84,11 @@ export async function buildProductAuthoringKit(outputRoot: string): Promise<Prod
         ].join("\n"));
     }
     if (result.outputs.length !== 1) throw new Error("Profile compiler bundle 必须只产生一个入口。");
-    await Bun.write(compilerPath, result.outputs[0]!);
+    await writeFile(
+        compilerPath,
+        await minifyProductJavaScript(await result.outputs[0]!.text(), "server/authoring/profile-compile-worker.mjs"),
+        "utf8",
+    );
 
     const sdkEntries = [
         {name: "profile-sdk", files: ["index.ts", "contracts.ts", "constructors.ts", "writing.ts", "jsx-runtime.ts", "jsx-dev-runtime.ts"]},
@@ -102,7 +107,7 @@ export async function buildProductAuthoringKit(outputRoot: string): Promise<Prod
                 entrypoints: [source],
                 target: "bun",
                 format: "esm",
-                minify: true,
+                minify: false,
                 sourcemap: "none",
                 external: [
                     "bun",
@@ -121,7 +126,10 @@ export async function buildProductAuthoringKit(outputRoot: string): Promise<Prod
             if (sdkBuild.outputs.length !== 1) throw new Error(`${sdk.name} ${fileName} 必须只产生一个入口。`);
             const runtimeFileName = fileName.replace(/\.ts$/u, ".mjs");
             const runtimeSource = await rewriteProjectedSdkImports(
-                await sdkBuild.outputs[0]!.text(),
+                await minifyProductJavaScript(
+                    await sdkBuild.outputs[0]!.text(),
+                    `server/authoring/nbook/${sdk.name}/${runtimeFileName}`,
+                ),
                 `${sdk.name}/${runtimeFileName}`,
             );
             await Bun.write(resolve(runtimeRoot, runtimeFileName), runtimeSource);

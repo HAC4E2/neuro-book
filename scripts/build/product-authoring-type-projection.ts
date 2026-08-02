@@ -4,6 +4,7 @@ import {mkdir, readFile, realpath, writeFile} from "node:fs/promises";
 import {dirname, isAbsolute, relative, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
 import ts from "typescript";
+import {minifyProductJavaScript} from "nbook/scripts/build/product-reproducible-minifier";
 
 export type AuthoringDependencyRegistration = {
     name: string;
@@ -446,7 +447,7 @@ async function bundleRuntimePackage(entry: SourcePackage, targetRoot: string, de
         entrypoints: [runtimeEntry],
         target: "bun",
         format: "esm",
-        minify: true,
+        minify: false,
         sourcemap: "none",
     });
     if (!result.success || result.outputs.length !== 1) {
@@ -455,7 +456,14 @@ async function bundleRuntimePackage(entry: SourcePackage, targetRoot: string, de
             ...result.logs.map((log) => log.message),
         ].join("\n"));
     }
-    await Bun.write(resolve(targetRoot, "index.mjs"), result.outputs[0]!);
+    await writeFile(
+        resolve(targetRoot, "index.mjs"),
+        await minifyProductJavaScript(
+            await result.outputs[0]!.text(),
+            `server/authoring/node_modules/${entry.registration.name}/index.mjs`,
+        ),
+        "utf8",
+    );
     const declarationRelative = relative(entry.sourceRoot, declarationPath).split(/[\\/]+/u).join("/");
     await writeFile(resolve(targetRoot, "package.json"), `${JSON.stringify({
         name: entry.registration.name,
