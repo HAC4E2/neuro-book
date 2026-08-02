@@ -1,6 +1,6 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`仍是最新已确认完整canary。当前工作树协议为Installation Manifest v5、Release Manifest v5、Operation Journal v5 和 Product-owned Application State catalog v3。公开Manager `.42`已完成provenance、tarball、签名、attestation与真实bunx验证；第十六次0.9 Candidate已通过五平台Product、Windows Portable、双OCI、assemble、Linux最终验证与Windows同State Root鉴权重启、正式shutdown/lease重取和两种自卸载。10个payload上传Draft后，独立Verifier因GitHub App token缺少Draft asset下载权限而403；公开A→B/跨Profile、Podman、最终Verifier与Release激活仍待下一Candidate。
+> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`仍是最新已确认完整canary。当前工作树协议为Installation Manifest v5、Release Manifest v5、Operation Journal v5 和 Product-owned Application State catalog v3。公开Manager `.44`已完成provenance、tarball、签名、attestation与真实bunx验证；第十九次0.9 Candidate已通过五平台Product、Windows Portable、双OCI与merge、assemble、Linux最终验证、Windows完整生命周期、Draft payload实字节复核和0.8.6完整data复用。Docker公开smoke的Manifest State Root解析与rootless Podman容器身份读取失败，现已按既有Manifest和Container identity边界修复；最终Verifier与Release/OCI激活仍待全新Candidate。
 
 ## 2026-08-02：Installation Mutation、自卸载与发行候选治理
 
@@ -1211,3 +1211,10 @@ uninstall
 - GHCR AMD64、ARM64和rootless Podman均已校验并拉取同一候选digest，随后在迁移plan解析候选Compose时同因失败。volume source是`staging/<operation>/migration-plan-state/...`，没有`./`前缀；Docker Compose将其解释成未声明的named volume，Podman Compose也返回`volume ... not defined in top level`。这不是OCI内容、架构、权限或State目录缺失。
 - 单独补`./`仍不正确：候选Compose物理位于Operation staging，若按最终`.deploy`位置计算volume，plan会挂载到错误目录。现在候选文件按自身物理位置生成合法bind source；plan通过后，在停止旧服务和rename前把同一staging文件按最终`.deploy`布局重新渲染。Fresh Install和Update都遵循该顺序，正式Compose仍只在事务切换点出现。
 - 回归测试使用真实候选Compose、`migration-plan-state`和`migration-plan-cache`形状，固定候选`./...`与激活后`../...`两组路径；focused Docker/Updater为33/33，Manager全量242 passed / 3 skipped，typecheck通过。Release合同与Manager全量并行时一个5秒Source archive测试因资源竞争耗时5.685秒，隔离重跑恢复26/26；不调大timeout。Manager `.44`已由workflow [`30771114654`](https://github.com/notnotype/neuro-book/actions/runs/30771114654)完成Trusted Publishing；npm `gitHead=24d35a994fe235cb878c2af5643cc20e80a72828`，公开tarball SHA-1为`3731d2b8b6ce49b27191b568e85861ddb1d90ad5`，registry signature、SLSA provenance、真实`bunx`与`manager:verify-public`均通过。下一步创建全新Candidate；Candidate 18保持10资产Draft、未公开且未激活正式OCI tag。
+
+### 2026-08-03：第十九次 Candidate 的公开 State Root 与 Podman 身份边界
+
+- Draft `v0.9.0-canary.20260802.225655Z.c6749e43`（release ID `363915323`、revision `77c8792bfe52e7b4f389e88bb72b8e68d2abc382`）的 workflow [`30771219424`](https://github.com/notnotype/neuro-book/actions/runs/30771219424) 最终为17个job成功、3个job失败。五平台Product、Windows Portable、双OCI与multi-arch merge、assemble、Linux最终验证、Windows Runtime/浏览器/鉴权重启/shutdown/lease/两种自卸载、Draft 10个payload实字节复核和0.8.6完整data复用全部成功。
+- Docker AMD64/ARM64均完成Fresh Install、容器启动和管理员创建，随后公开smoke仍硬编码`$root/.env`；Manifest实际声明`state={base:"installation-root",path:"data"}`，所以真实文件是`$root/data/.env`。修复没有把`data/`换成另一处硬编码，而是用无外部依赖的窄Adapter严格解析Manifest state locator，拒绝非installation-scoped、绝对路径、dot segment和越根路径；cleanup、状态读取与停止共用解析后的Compose入口。
+- rootless Podman完成正确OCI digest拉取和`deploy_app_1`启动后，Manager无法登记候选容器身份并进入回滚。`podman-compose 1.0.6`的`ps --quiet`通过继承stdout输出容器ID，同时provider自身也向stdout写诊断，不能作为机器可读API。Manager现直接调用`podman ps --all`，按`com.docker.compose.project.working_dir=<compose-dir-realpath>`和`com.docker.compose.service=app`两项label筛选，并继续要求唯一合法ID；Docker Compose路径不变。
+- 回归先红后绿：Docker/Podman focused 23/23，State Root locator 5/5；Manager全量243 passed / 3 skipped，独立Release合同31/31，Manager/scripts typecheck和docs build通过。并行门禁时Source archive的5秒用例再次因本机资源竞争超时，隔离全量Release合同5.29秒完成且全部通过，未调大timeout。Candidate 19保持10资产Draft、未公开且不复用；下一步发布新Manager并创建全新Candidate。

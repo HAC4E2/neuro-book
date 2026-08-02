@@ -1,4 +1,4 @@
-import {mkdtemp, readFile, rm} from "node:fs/promises";
+import {mkdtemp, readFile, realpath, rm} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 
@@ -227,26 +227,34 @@ describe("Docker Compose部署合同", () => {
         });
     });
 
-    it("Podman停止app时保留容器供doctor与恢复使用", async () => {
-        const root = "/tmp/neuro-book";
-        const stateRoot = "/tmp/neuro-book-state";
+    it("Podman通过原生labels定位app并在停止时保留容器", async () => {
+        const root = await mkdtemp(join(tmpdir(), "nbook-compose-podman-stop-"));
+        roots.push(root);
+        const stateRoot = root;
         const containerId = "a".repeat(64);
+        await writeDockerCompose({
+            engine: "docker",
+            root,
+            stateRoot,
+            cacheRoot: join(root, ".cache"),
+            profile: "ghcr",
+            image: "ghcr.io/notnotype/neuro-book:test",
+            port: 3000,
+        });
         processCommands.capture.mockResolvedValue(containerId);
 
         await stopDocker("podman", root, stateRoot);
 
         expect(processCommands.capture).toHaveBeenCalledWith("podman", [
-            "compose",
-            "--env-file",
-            join(stateRoot, ".env"),
-            "-f",
-            join(root, ".deploy", "docker-compose.generated.yml"),
             "ps",
-            "--quiet",
-        ], {
-            cwd: root,
-            env: expect.objectContaining({PODMAN_COMPOSE_PROVIDER: "podman-compose"}),
-        });
+            "--all",
+            "--filter",
+            `label=com.docker.compose.project.working_dir=${await realpath(join(root, ".deploy"))}`,
+            "--filter",
+            "label=com.docker.compose.service=app",
+            "--format",
+            "{{.ID}}",
+        ], {cwd: root});
         expect(processCommands.run).toHaveBeenCalledWith("podman", [
             "stop",
             "--time",
@@ -257,9 +265,20 @@ describe("Docker Compose部署合同", () => {
     });
 
     it("Podman停止app时拒绝多容器或非ID输出", async () => {
+        const root = await mkdtemp(join(tmpdir(), "nbook-compose-podman-invalid-"));
+        roots.push(root);
+        await writeDockerCompose({
+            engine: "docker",
+            root,
+            stateRoot: root,
+            cacheRoot: join(root, ".cache"),
+            profile: "ghcr",
+            image: "ghcr.io/notnotype/neuro-book:test",
+            port: 3000,
+        });
         processCommands.capture.mockResolvedValue("container-one\ncontainer-two\n");
 
-        await expect(stopDocker("podman", "/tmp/neuro-book", "/tmp/neuro-book-state"))
+        await expect(stopDocker("podman", root, root))
             .rejects.toThrow("非法app容器ID");
         expect(processCommands.run).not.toHaveBeenCalled();
     });
@@ -296,7 +315,17 @@ describe("Docker Compose部署合同", () => {
             .toBe(false);
         expect(processCommands.capture.mock.calls.some(([, args]) => args.includes("config")))
             .toBe(false);
-        expect(processCommands.capture.mock.calls.some(([, args]) => args.includes("--all") || args.includes("app")))
+        expect(processCommands.capture).toHaveBeenCalledWith("podman", [
+            "ps",
+            "--all",
+            "--filter",
+            `label=com.docker.compose.project.working_dir=${await realpath(join(root, ".deploy"))}`,
+            "--filter",
+            "label=com.docker.compose.service=app",
+            "--format",
+            "{{.ID}}",
+        ], {cwd: root});
+        expect(processCommands.capture.mock.calls.some(([, args]) => args[0] === "compose" && args.includes("ps")))
             .toBe(false);
     });
 
@@ -504,6 +533,51 @@ describe("Docker Compose部署合同", () => {
         expect(checkpoints).toEqual(["starting", `started:${containerId}`]);
         expect(processCommands.run).toHaveBeenCalledWith("docker", expect.arrayContaining(["pull", "app"]), {cwd: root});
         expect(processCommands.run).toHaveBeenCalledWith("docker", expect.arrayContaining(["up", "-d"]), {cwd: root});
+    });
+
+    it("Podman启动后通过原生labels发布精确候选ID", async () => {
+        const root = await mkdtemp(join(tmpdir(), "nbook-compose-podman-launch-"));
+        roots.push(root);
+        const containerId = "e".repeat(64);
+        processCommands.capture.mockResolvedValue("true\n");
+        await writeDockerCompose({
+            engine: "podman",
+            root,
+            stateRoot: root,
+            cacheRoot: join(root, ".cache"),
+            profile: "ghcr",
+            image: "ghcr.io/notnotype/neuro-book:test",
+            port: 3000,
+        });
+        processCommands.capture.mockReset();
+        let psCalls = 0;
+        processCommands.capture.mockImplementation(async (_command: string, args: string[]) => {
+            if (args[0] === "ps") {
+                psCalls += 1;
+                return psCalls === 1 ? "" : `${containerId}\n`;
+            }
+            if (args[0] === "inspect") return containerInspect("running");
+            throw new Error(`未预期命令：${args.join(" ")}`);
+        });
+        const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({versionLabel: "v0.9.0"}));
+        const started = vi.fn<(id: string) => Promise<void>>().mockResolvedValue(undefined);
+        try {
+            await startDocker(verifiedImage("podman"), root, root, "ghcr", "0.9.0", undefined, started);
+        } finally {
+            fetchMock.mockRestore();
+        }
+
+        expect(started).toHaveBeenCalledWith(containerId);
+        expect(processCommands.capture).toHaveBeenCalledWith("podman", [
+            "ps",
+            "--all",
+            "--filter",
+            `label=com.docker.compose.project.working_dir=${await realpath(join(root, ".deploy"))}`,
+            "--filter",
+            "label=com.docker.compose.service=app",
+            "--format",
+            "{{.ID}}",
+        ], {cwd: root});
     });
 });
 

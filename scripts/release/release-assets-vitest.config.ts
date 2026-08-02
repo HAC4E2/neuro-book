@@ -17,6 +17,7 @@ export const releaseAssetsVitestConfig = {
         maxWorkers: 1,
         include: [
             "scripts/release/install-dependencies.test.ts",
+            "scripts/release/installation-state-root.test.ts",
             "scripts/release/release-assets.test.ts",
             "scripts/release/release-checksums.test.ts",
         ],

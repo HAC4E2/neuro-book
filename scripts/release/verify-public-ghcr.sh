@@ -6,6 +6,9 @@ candidate_manifest="$2"
 root="$3"
 port="$4"
 engine="$5"
+manifest="$root/.deploy/installation.json"
+compose_path="$root/.deploy/docker-compose.generated.yml"
+state_root=""
 
 channel="$(node -e 'const m=require(process.argv[1]); process.stdout.write(m.channel)' "$candidate_manifest")"
 export NEURO_BOOK_CONTAINER_ENGINE="$engine"
@@ -19,9 +22,33 @@ manager() {
     bunx --bun "@notnotype/neuro-book-manager@${manager_version}" "$@"
 }
 
+resolve_state_root() {
+    bun --no-install --no-env-file scripts/release/installation-state-root.ts "$root"
+}
+
+compose() {
+    [[ -n "$state_root" ]] || { echo "State Root尚未解析。" >&2; return 1; }
+    "$engine" compose --env-file "$state_root/.env" -f "$compose_path" "$@"
+}
+
+application_container_id() {
+    if [[ "$engine" == "podman" ]]; then
+        compose_working_dir="$(realpath "$root/.deploy")"
+        "$engine" ps --all \
+            --filter "label=com.docker.compose.project.working_dir=$compose_working_dir" \
+            --filter "label=com.docker.compose.service=app" \
+            --format '{{.ID}}'
+    else
+        compose ps --all --quiet app
+    fi
+}
+
 cleanup() {
-    if [[ -f "$root/.deploy/docker-compose.generated.yml" ]]; then
-        "$engine" compose --env-file "$root/.env" -f "$root/.deploy/docker-compose.generated.yml" down --remove-orphans || true
+    if [[ -z "$state_root" && -f "$manifest" ]]; then
+        state_root="$(resolve_state_root)" || state_root=""
+    fi
+    if [[ -n "$state_root" && -f "$compose_path" ]]; then
+        compose down --remove-orphans || true
     fi
     rm -rf "$root" "${root}-manager"
 }
@@ -37,7 +64,9 @@ manager install \
     --port "$port" \
     --yes
 
-manifest_engine="$(node -e 'const m=require(process.argv[1]); process.stdout.write(m.containerEngine ?? "")' "$root/.deploy/installation.json")"
+state_root="$(resolve_state_root)"
+[[ -f "$state_root/.env" ]] || { echo "Manifest State Root缺少.env：$state_root" >&2; exit 1; }
+manifest_engine="$(node -e 'const m=require(process.argv[1]); process.stdout.write(m.containerEngine ?? "")' "$manifest")"
 [[ "$manifest_engine" == "$engine" ]] || { echo "Manifest engine错误：$manifest_engine != $engine" >&2; exit 1; }
 
 export AUTH_ADMIN_PASSWORD="release-ghcr-password"
@@ -51,7 +80,7 @@ for attempt in $(seq 1 120); do
     sleep 1
 done
 
-container_id="$("$engine" compose --env-file "$root/.env" -f "$root/.deploy/docker-compose.generated.yml" ps --quiet app)"
+container_id="$(application_container_id)"
 [[ "$container_id" =~ ^[a-f0-9]{12,64}$ ]] || { echo "Product smoke容器ID非法：$container_id" >&2; exit 1; }
 "$engine" exec "$container_id" bun --no-install --no-env-file .output/server/commands/product-command.mjs check sharp-image-variant
 "$engine" exec "$container_id" bun --no-install --no-env-file .output/server/commands/product-command.mjs check web-fetch
@@ -67,11 +96,11 @@ manager --root "$root" doctor --json > "${root}-doctor-running.json"
 node -e 'const r=require(process.argv[1]); if (!r.healthy || r.checks.some((c)=>c.status === "fail")) { console.error(JSON.stringify({service:r.service,failures:r.checks.filter((c)=>c.status === "fail")}, null, 2)); process.exit(1); }' "${root}-doctor-running.json"
 
 if [[ "$engine" == "podman" ]]; then
-    container_id="$("$engine" compose --env-file "$root/.env" -f "$root/.deploy/docker-compose.generated.yml" ps --quiet)"
+    container_id="$(application_container_id)"
     [[ "$container_id" =~ ^[a-f0-9]{12,64}$ ]] || { echo "Podman app容器ID非法：$container_id" >&2; exit 1; }
     "$engine" stop --time 10 "$container_id"
 else
-    "$engine" compose --env-file "$root/.env" -f "$root/.deploy/docker-compose.generated.yml" stop app
+    compose stop app
 fi
 manager --root "$root" doctor --json > "${root}-doctor-stopped.json"
 node -e 'const r=require(process.argv[1]); if (!r.healthy || !r.checks.some((c)=>c.id === "service.application" && c.status === "warn")) { console.error(JSON.stringify({service:r.service,failures:r.checks.filter((c)=>c.status === "fail")}, null, 2)); process.exit(1); }' "${root}-doctor-stopped.json"

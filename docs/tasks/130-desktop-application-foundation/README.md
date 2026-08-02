@@ -1,6 +1,6 @@
 # 130 - 桌面应用前置架构、发行载荷与存储生命周期
 
-> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、Contract v3、Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议。正式构建已切换为 esbuild 同图 link/minify；五平台严格 A/B和四平台 Product smoke已通过。第十六次Candidate完成五平台Product、Windows Portable、双OCI、assemble、Linux最终验证与Windows真实浏览器/鉴权重启/自卸载；10个payload上传后因GitHub Draft asset下载权限不足而保持未公开。Verifier已按GitHub权限合同修复；Podman、A→B、最终索引、Release激活、浏览器人工验收与Tauri/Electron同矩阵spike尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由spike证据冻结。
+> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、Contract v3、Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议。正式构建已切换为 esbuild 同图 link/minify；五平台严格 A/B和四平台 Product smoke已通过。第十九次Candidate完成五平台Product、Windows Portable、双OCI与merge、assemble、Linux最终验证、Windows真实浏览器/鉴权重启/shutdown/lease/两种自卸载、Draft payload实字节复核与0.8.6完整data复用。Docker公开smoke的Manifest State Root解析和rootless Podman容器身份读取失败，现已按现有边界修复；最终索引、Release/OCI激活、浏览器人工验收与Tauri/Electron同矩阵spike尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由spike证据冻结。
 
 ## Relative documents refs
 
@@ -767,3 +767,10 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - 三个公开GHCR job均越过候选镜像identity校验，随后把无`./`前缀的`staging/<operation>/migration-plan-*`解释为named volume而失败。Docker AMD64/ARM64报`undefined volume`，rootless Podman报`volume ... not defined in top level`；三者首错一致。
 - Compose生成现在区分执行布局与激活布局：迁移plan按候选文件所在staging生成`./migration-plan-*` bind source，plan通过后再按最终`.deploy`位置重渲染为`../...`并事务rename。Update也先按staging执行、再按最终位置重写，避免只修Fresh Install留下同类缺口。
 - focused Docker/Updater为33/33，Manager全量242 passed / 3 skipped，typecheck与隔离Release合同26/26通过。Manager `.44`已由workflow [`30771114654`](https://github.com/notnotype/neuro-book/actions/runs/30771114654)完成Trusted Publishing；npm `gitHead=24d35a994fe235cb878c2af5643cc20e80a72828`，公开tarball SHA-1为`3731d2b8b6ce49b27191b568e85861ddb1d90ad5`，registry signature、SLSA provenance、真实`bunx`与`manager:verify-public`均通过。下一步创建全新Candidate；Candidate 18保持10资产Draft，最终Portable Verifier、Release公开和OCI正式Canary tag仍未产生。
+
+### 2026-08-03：第十九次 Candidate 的公开 GHCR 最终门禁
+
+- Draft `v0.9.0-canary.20260802.225655Z.c6749e43`（release ID `363915323`、revision `77c8792bfe52e7b4f389e88bb72b8e68d2abc382`）的 workflow [`30771219424`](https://github.com/notnotype/neuro-book/actions/runs/30771219424) 有17个job成功、3个失败。五平台Product、Windows Portable、双OCI与merge、assemble、Linux最终验证、Windows完整生命周期、Draft 10个payload实字节复核和0.8.6完整data复用全部通过；第十八次staging bind source问题未复发。
+- Docker AMD64/ARM64安装和管理员创建成功后，公开smoke因读取`$root/.env`失败；实际State Root由Manifest locator声明为`$root/data`。修复通过窄Release Adapter严格解析Manifest，不猜固定目录，并让Compose cleanup/ps/stop共用解析后的State Root。
+- rootless Podman已拉取正确digest并启动候选容器，但`podman-compose 1.0.6`的诊断与容器ID共享stdout，Manager无法得到唯一机器身份并按事务协议回滚。Manager改由Podman原生命令按Compose working-dir realpath和`app` service label查询，继续拒绝零以外的多容器或非法ID；没有按容器名猜测，也没有放宽Journal身份。
+- 本地验证为Docker/Podman 23/23、State Root locator 5/5、Manager全量243 passed / 3 skipped、独立Release合同31/31、Manager/scripts typecheck和docs build通过。Candidate 19保持10资产Draft、未公开且不复用；下一步公开新Manager并创建全新Candidate，最终Portable Verifier、Release公开和OCI正式Canary tag仍未产生。

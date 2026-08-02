@@ -437,6 +437,7 @@ describe("Product Release宿主合同", () => {
         expect(scriptsTsconfig.include).toContain("deploy/windows-owned-process-smoke.ts");
         expect(releaseAssetsVitestConfig.test.include).toEqual([
             "scripts/release/install-dependencies.test.ts",
+            "scripts/release/installation-state-root.test.ts",
             "scripts/release/release-assets.test.ts",
             "scripts/release/release-checksums.test.ts",
         ]);
@@ -636,8 +637,12 @@ describe("Product Release宿主合同", () => {
         )).toBe(true);
         expect(workflow.jobs["verify-public-ghcr-podman"].steps.some(({run}) => run?.includes("verify-public-ghcr.sh") && run.includes("podman"))).toBe(true);
         const publicGhcr = await readFile(resolve(ROOT, "scripts/release/verify-public-ghcr.sh"), "utf8");
-        expect(publicGhcr).toContain('ps --quiet');
-        expect(publicGhcr).not.toContain('ps --all --quiet app');
+        expect(publicGhcr).toContain('scripts/release/installation-state-root.ts "$root"');
+        expect(publicGhcr).toContain('state_root="$(resolve_state_root)"');
+        expect(publicGhcr).toContain('--filter "label=com.docker.compose.project.working_dir=$compose_working_dir"');
+        expect(publicGhcr).toContain('--filter "label=com.docker.compose.service=app"');
+        expect(publicGhcr).toContain('compose ps --all --quiet app');
+        expect(publicGhcr).not.toContain('--env-file "$root/.env"');
         expect(publicGhcr).toContain('"$engine" stop --time 10 "$container_id"');
         expect(workflow.jobs["publish-index"].needs).toEqual([
             "verify-public-ghcr-amd64",

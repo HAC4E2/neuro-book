@@ -1,4 +1,4 @@
-import {readFile} from "node:fs/promises";
+import {readFile, realpath} from "node:fs/promises";
 import {dirname, isAbsolute, join, relative} from "node:path";
 import {Type, type Static} from "typebox";
 import {Value} from "typebox/value";
@@ -486,28 +486,38 @@ function composeArgs(root: string, stateRoot: string, composePath?: string): str
     return ["compose", "--env-file", join(stateRoot, ".env"), "-f", composePath ?? join(root, ".deploy", "docker-compose.generated.yml")];
 }
 
-/**
- * 读取Manager生成的唯一app容器ID。
- *
- * podman-compose 1.0.6的`ps --quiet`内部已经查询全部状态并按Compose project过滤，
- * 不支持Docker Compose的`--all`或service位置参数。
- */
+/** 读取Manager生成的唯一app容器ID。 */
 async function readApplicationContainerId(engine: ContainerEngine, root: string, stateRoot: string): Promise<string | undefined> {
-    const psArgs = engine === "podman"
-        ? ["ps", "--quiet"]
-        : ["ps", "--all", "--quiet", "app"];
-    const containerIds = (await runCapture(
-        engine,
-        [...composeArgs(root, stateRoot), ...psArgs],
-        containerComposeOptions(engine, root),
-    ))
+    // podman-compose 1.0.6会把provider诊断与ID混入stdout，不能作为机器可读接口。
+    let output: string;
+    if (engine === "podman") {
+        // provider也使用Compose目录的realpath写label，查询必须采用相同身份。
+        const composeWorkingDirectory = await realpath(join(root, ".deploy"));
+        output = await runCapture(engine, [
+            "ps",
+            "--all",
+            "--filter",
+            `label=com.docker.compose.project.working_dir=${composeWorkingDirectory}`,
+            "--filter",
+            "label=com.docker.compose.service=app",
+            "--format",
+            "{{.ID}}",
+        ], {cwd: root});
+    } else {
+        output = await runCapture(
+            engine,
+            [...composeArgs(root, stateRoot), "ps", "--all", "--quiet", "app"],
+            containerComposeOptions(engine, root),
+        );
+    }
+    const containerIds = output
         .split(/\r?\n/u)
         .map((value) => value.trim())
         .filter(Boolean);
     if (containerIds.length === 0) return undefined;
     const containerId = containerIds[0];
     if (containerIds.length !== 1 || !containerId || !/^[a-f0-9]{12,64}$/u.test(containerId)) {
-        throw new Error(`${engine} Compose返回了非法app容器ID：${containerIds.join(", ") || "<missing>"}`);
+        throw new Error(`${engine}返回了非法app容器ID：${containerIds.join(", ") || "<missing>"}`);
     }
     return containerId;
 }
