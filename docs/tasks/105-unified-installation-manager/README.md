@@ -1137,3 +1137,8 @@ uninstall
 
 - workflow `30754453941` 再次通过preflight、Source和五平台Product，Docker也完成frozen workspace install与raw Product build；两个OCI架构随后被短Source Root `/app`的artifact路径误报阻断。assemble、`.40`同代Portable、A→B、自卸载、公开GHCR与最终Verifier全部跳过，Release保持Draft。
 - 修复只收紧Product artifact门禁的路径token边界，不改变Manager bundle、Installation Mutation或Manifest。`.40`继续作为下一唯一Candidate的Manager输入；直到同代Portable和公开安装生命周期实际通过前，不提升本Task完成状态。
+
+### 2026-08-02：第七次 Candidate 的 Manager 边界
+
+- workflow `30755110092` 通过preflight、Source和五平台Product，两个OCI架构在Runtime bundle把合法运行根`/app`误认成Source泄漏后失败。assemble、`.40`同代Portable、A→B、自卸载、公开GHCR与最终Verifier继续全部跳过，Release保持Draft。
+- 修复集中共享Source后代路径合同，不改变Manager bundle、Installation Mutation、Manifest或容器Application Root。`.40`继续作为下一唯一Candidate的Manager输入；同代Portable与公开安装生命周期仍没有完成证据。

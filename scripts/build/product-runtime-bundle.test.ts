@@ -8,6 +8,7 @@ import {promisify} from "node:util";
 import {afterEach, describe, expect, it} from "vitest";
 
 import {currentProductPlatform} from "nbook/packages/neuro-book-manager/src/platform";
+import {assertBundledRuntimeSourcePaths} from "nbook/scripts/build/product-runtime-bundle";
 import {
     PRODUCT_COMMAND_CHUNK_BASENAME,
     productOpaqueImportDefinitions,
@@ -21,6 +22,22 @@ afterEach(async () => {
 });
 
 describe("Product Runtime bundle", () => {
+    it("区分短 Source Root 与其真实后代路径", () => {
+        expect(() => assertBundledRuntimeSourcePaths([
+            'export const applicationRoot = "/app";',
+            'export {resolveApiErrorMessage} from "nbook/app/utils/api-error";',
+        ].join("\n"), "/app")).not.toThrow();
+
+        expect(() => assertBundledRuntimeSourcePaths(
+            'export const sourcePath = "/app/server/runtime/index.ts";',
+            "/app",
+        )).toThrow("泄漏");
+        expect(() => assertBundledRuntimeSourcePaths(
+            'export const sourcePath = "C:\\\\source\\\\server\\\\runtime\\\\index.ts";',
+            "C:\\source",
+        )).toThrow("泄漏");
+    });
+
     it("server runtime 只通过 package island require TypeScript", async () => {
         const sourceFiles = (await readdir("server", {recursive: true}))
             .filter((filePath) => filePath.endsWith(".ts")

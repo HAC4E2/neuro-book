@@ -19,6 +19,7 @@ describe("Product system artifact path gate", () => {
             [
                 'export const path = "./node_modules/typebox/build/index.mjs";',
                 'export {resolveApiErrorMessage} from "nbook/app/utils/api-error";',
+                'export const applicationRoot = "/app";',
             ].join("\n"),
             "utf8",
         );

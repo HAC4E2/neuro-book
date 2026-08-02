@@ -21,6 +21,7 @@ import {
     productRuntimeIslandPackageNames,
     productRuntimeIslandSourceRoot,
 } from "nbook/scripts/build/product-runtime-islands";
+import {containsSourceRootDescendant} from "nbook/scripts/build/product-source-path-contract";
 import {
     projectTypeScriptRuntime,
     type TypeScriptRuntimeProjection,
@@ -305,8 +306,13 @@ async function assertBundledRuntimeClosure(serverRoot: string): Promise<void> {
         throw new Error("Product bundle 仍含 Nitro 非法 import.meta fallback。");
     }
     await assertRuntimeModuleFiles({filePaths: [entry], serverRoot, projectRoot: SOURCE_ROOT});
-    const normalizedRoot = SOURCE_ROOT.replaceAll("\\", "/");
-    if (source.includes("/.bun/") || source.includes("/.pnpm/") || source.includes(normalizedRoot)) {
+    assertBundledRuntimeSourcePaths(source, SOURCE_ROOT);
+}
+
+/** 验证最终 bundle 没有携带包管理器目录或 Source Root 下的构建文件路径。 */
+export function assertBundledRuntimeSourcePaths(source: string, sourceRoot: string): void {
+    if (source.includes("/.bun/") || source.includes("/.pnpm/")
+        || containsSourceRootDescendant(source, sourceRoot)) {
         throw new Error("Product bundle 泄漏了包管理器目录或构建机绝对路径。");
     }
 }
