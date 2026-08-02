@@ -327,7 +327,7 @@ RAG 索引原则：
 - `subject_rag_search` 必须显式指定单一 source：`["events"]` 或 `["memory"]`。工具层不提供默认双搜，也不允许一次同时搜两层；需要两层记忆时由 sidecar 分别调用两次后自行合并。
 - `subject_rag_search` 只暴露 `limit` 一个查询调参；相关性阈值由工具内部设置，不返回 score，也不要求 Agent 判断 score 标准。
 - 第一版建议使用独立缓存库 `{project}/.nbook/subject-rag.sqlite`，不要混入 Project SQLite `.nbook/project.sqlite`。Project SQLite 是 Plot / Story durable 结构库；subject RAG 是可重建索引缓存，并依赖 sqlite-vec 虚表。
-- Runtime 内 `subject_rag_search` 必须在 Node / Bun 使用同一 `libsql + sqlite-vec` Adapter。不要按宿主切回 `node:sqlite` / `bun:sqlite`：macOS Bun 的 SQLite build 不支持动态扩展加载，且两套参数绑定与句柄释放语义会使 Product 和开发环境漂移。
+- Runtime 内 `subject_rag_search` 必须在 Node / Bun 使用同一个 SQLite Vec Adapter，不允许消费者自行选择驱动。Bun Product 使用 `libsql + sqlite-vec`，避免 macOS Bun SQLite 禁止动态扩展加载；Node 开发宿主由同一 Adapter 使用 `node:sqlite + sqlite-vec`，获得确定性的文件句柄释放。参数绑定、只读和事务语义仍由 Adapter 统一。
 - embedding 未配置时，`subject_rag_search` 直接返回明确错误，不做关键词 fallback，避免误以为 RAG 已经生效。
 - 写入工具只标记 dirty；`subject_rag_search` 在搜索前同步重建 dirty source。第一版不做后台索引队列。
 - `actor.context-load` 注入 RAG 时必须有硬预算：最多 6 条 events + 4 条 memory，并限制最终注入文本长度，避免长线后再次撑爆上下文。
@@ -563,7 +563,7 @@ CREATE VIRTUAL TABLE subject_rag_vec USING vec0(
 - 2026-06-08：修复 profile 权限边界。`leader.default` 不再暴露 `subject_event_append`、`subject_rag_search` 和 memory update 工具；新增 `mainRunAllowedToolKeys` profile 合同和 harness 执行层接入，`simulator.actor` 主 run 只允许执行 `report_result`，RAG / memory 工具只在 `actor.context-load` 与 `actor.memory-save` sidecar 执行子集中可用。
 - 2026-06-09：根据最新命名决策硬切 memory update 工具名：`memory_bio` 改为 `subject_memory_update`，与 `subject_event_append`、`subject_rag_search` 形成同一命名族；不保留旧 alias。`subject_memory_update.facts` 改为 `string[]`；`memory.curator` 的 `report_result.data` 收窄为 `{ patch }`，人类可读摘要统一放在 `report_result.result`。
 - 2026-06-12：subject 文件结构在「Subject Soul 拆分」任务中调整，本文上方目录图里的 `memory-seed.md` 已废弃。当前 subject 目录为 `subject.md`（全知秘密档，仅 simulator.leader 可读）+ `soul.md`（第一人称扮演手册，直接 Import 进 actor 主路）+ `events.jsonl` / `memory.jsonl` / `mind.md` / `state.md`。冷启动初始记忆由 simulator.leader 直接落进 `events.jsonl` / `memory.jsonl`，不再经过 `memory-seed.md` 中转。`subject.md` 和 `soul.md` 永不进 RAG 索引；RAG 仍只索引 `events.jsonl` / `memory.jsonl`，本任务的 RAG 检索/索引合同不变。
-- 2026-08-02：五平台 Product 验证发现 macOS Bun 1.3.14 的 `bun:sqlite` 禁止动态扩展加载，真实 Subject RAG、Project RAG Inspector 与 Product sqlite-vec check 都会失败。三条链现统一消费 `libsql + sqlite-vec` Adapter；Adapter 把 `Float32Array` 转为 sqlite-vec JSON vector、安全整数转为 bigint，并在关闭后切断 native handle 引用。只读 Inspector 通过文件存在检查与 `PRAGMA query_only` 维持只读合同，RAG 缓存物理删除前显式回收 Windows libsql handle；不再保留 Node/Bun 两套 SQLite 实现。
+- 2026-08-02：五平台 Product 验证发现 macOS Bun 1.3.14 的 `bun:sqlite` 禁止动态扩展加载，真实 Subject RAG、Project RAG Inspector 与 Product sqlite-vec check 都会失败。三条链现统一消费 SQLite Vec Adapter；Bun Product 使用 `libsql`，Node 开发宿主使用 `node:sqlite`，驱动差异不再泄漏到消费者。Adapter 把 `Float32Array` 转为 sqlite-vec JSON vector、安全整数转为 bigint，并统一只读与事务语义；Windows Bun 缓存删除仍显式回收 libsql handle。
 
 ## TODO / Follow-ups
 

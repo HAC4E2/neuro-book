@@ -25,6 +25,7 @@ export type SqliteVecDatabase = {
  * 打开跨平台 RAG SQLite 连接，并按需加载 sqlite-vec。
  *
  * Product 只使用 libsql native binding，避免 Bun macOS SQLite 禁止动态扩展加载。
+ * Node 开发宿主使用 node:sqlite，获得确定性的 statement/database 关闭语义。
  * libsql 0.5 的 readonly 构造参数没有真实生效，因此只读连接在打开前确认文件存在，
  * 并由 SQLite 自身的 query_only pragma 约束。
  */
@@ -39,9 +40,24 @@ export async function openSqliteVecDatabase(input: {
         if (!file.isFile()) throw new Error(`RAG SQLite 路径不是文件：${input.path}`);
     }
 
-    const database = new LibsqlVecDatabase(input.path);
+    const bunRuntime = "Bun" in globalThis;
+    let nativeDatabase: object;
+    if (bunRuntime) {
+        nativeDatabase = new LibsqlDatabase(input.path);
+    } else {
+        const {DatabaseSync} = await import("node:sqlite");
+        nativeDatabase = new DatabaseSync(input.path, {
+            readOnly: input.readonly,
+            allowExtension: input.loadExtension,
+        });
+    }
+    // 两个外部驱动都提供同一同步 SQLite 子集；具体声明形状不同，在 Adapter 边界收窄。
+    const database = new SqliteVecDatabaseAdapter(
+        nativeDatabase as unknown as SqliteNativeDatabase,
+        bunRuntime,
+    );
     try {
-        if (input.readonly) database.enableReadonly();
+        if (input.readonly && bunRuntime) database.enableReadonly();
         if (input.loadExtension) database.loadExtension();
         await input.initialize?.(database);
         return database;
@@ -55,13 +71,27 @@ export async function openSqliteVecDatabase(input: {
     }
 }
 
-/** 把 libsql native handle 收窄到 RAG 合同，并在 close 后切断唯一长期引用。 */
-class LibsqlVecDatabase implements SqliteVecDatabase {
-    private database: LibsqlDatabase.Database | null;
+/** libsql 与 node:sqlite 共同提供的同步子集。 */
+type SqliteNativeDatabase = {
+    exec(sql: string): unknown;
+    prepare(sql: string): {
+        run(...params: Array<string | number | bigint | null>): unknown;
+        all(...params: Array<string | number | bigint | null>): unknown[];
+        get(...params: Array<string | number | bigint | null>): unknown;
+    };
+    loadExtension(path: string): unknown;
+    close(): unknown;
+};
 
-    /** 打开一个 libsql native handle。 */
-    constructor(path: string) {
-        this.database = new LibsqlDatabase(path);
+/** 把宿主 SQLite handle 收窄到 RAG 合同，并在 close 后切断唯一长期引用。 */
+class SqliteVecDatabaseAdapter implements SqliteVecDatabase {
+    private database: SqliteNativeDatabase | null;
+    private readonly collectOnClose: boolean;
+
+    /** 接管一个已打开的宿主 SQLite handle。 */
+    constructor(database: SqliteNativeDatabase, collectOnClose: boolean) {
+        this.database = database;
+        this.collectOnClose = collectOnClose;
     }
 
     /** 执行不返回结果集的 SQL。 */
@@ -114,11 +144,11 @@ class LibsqlVecDatabase implements SqliteVecDatabase {
     close(): void {
         this.openDatabase.close();
         this.database = null;
-        collectReleasedSqliteHandles();
+        if (this.collectOnClose) collectReleasedSqliteHandles();
     }
 
     /** 返回仍由当前 Adapter 持有的 handle。 */
-    private get openDatabase(): LibsqlDatabase.Database {
+    private get openDatabase(): SqliteNativeDatabase {
         if (!this.database) throw new Error("RAG SQLite 连接已经关闭。");
         return this.database;
     }

@@ -51,6 +51,7 @@ import {
     type ProductRuntimeImageBudget,
     type ProductRuntimeImageManifest,
     type ProductRuntimeImageOwner,
+    type ProductRuntimeFileRecord,
     type ProductRuntimeInspection,
     type ProductRuntimeOwnerBaseline,
     type VerifiedProductRuntimeImage,
@@ -79,7 +80,7 @@ const MANIFEST_FILE = "runtime-image.json";
 const READY_FILE = "runtime-image.ready";
 const MANIFEST_SCHEMA = PRODUCT_RUNTIME_IMAGE_MANIFEST_SCHEMA;
 const READY_SCHEMA = PRODUCT_RUNTIME_IMAGE_READY_SCHEMA;
-export const PRODUCT_RUNTIME_MEASUREMENT_SCHEMA = "nbook.product-runtime-image-measurement/v2";
+export const PRODUCT_RUNTIME_MEASUREMENT_SCHEMA = "nbook.product-runtime-image-measurement/v3";
 const BUILDER_CONTRACT_VERSION = PRODUCT_RUNTIME_BUILDER_CONTRACT_VERSION;
 const STAGING_LEASE_STALE_MS = 24 * 60 * 60 * 1000;
 const STAGING_LEASE_UPDATE_MS = 60 * 1000;
@@ -156,6 +157,8 @@ export interface ProductRuntimeMeasurementReport {
     evidence: {
         /** 对最终 native islands 和全部可执行 ESM 根的结构化复核结果。 */
         moduleClosure: Awaited<ReturnType<typeof assertProductRuntimeModuleClosure>>;
+        /** 按路径排序的逐文件大小、mode 与 SHA-256，用于定位 A/B 漂移。 */
+        payloadFiles: ProductRuntimeFileRecord[];
     };
     measuredAt: string;
 }
@@ -316,7 +319,10 @@ export class ProductRuntimeImageBuilder {
                 },
                 treeDigest: candidate.inspection.treeDigest,
                 shapeDigest: candidate.inspection.shapeDigest,
-                evidence: {moduleClosure},
+                evidence: {
+                    moduleClosure,
+                    payloadFiles: candidate.inspection.records,
+                },
                 measuredAt: new Date().toISOString(),
             };
         });

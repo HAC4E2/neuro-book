@@ -8,11 +8,6 @@ import type {ProfileHomeFacade} from "nbook/server/agent/profiles/profile-home";
 export const DEFAULT_WRITING_STYLE_PRESET = "styles/reborn-villain-loli-magic-girl.first-three-chapters.style.md";
 const LEGACY_DEFAULT_WRITING_STYLE_PRESET = "reborn-villain-loli-magic-girl.first-three-chapters.style";
 
-const WRITING_STYLE_DIR_CANDIDATES = [
-    path.join(assetResolver.systemRoot, "agent", "profiles", "builtin", "writer.home", "styles"),
-    path.join(assetResolver.userRoot, "agent", "profiles", "builtin", "writer.home", "styles"),
-] as const;
-
 const WritingStyleFrontmatterSchema = z.object({
     key: z.string().min(1),
     label: z.string().min(1),
@@ -38,8 +33,12 @@ type WritingStyleFile = {
 /**
  * 从 writer profile 默认 home 资源目录自动发现 Markdown 文风预设。
  */
-export async function loadWritingStylePresets(candidates: readonly string[] = WRITING_STYLE_DIR_CANDIDATES): Promise<WritingStyleDefinition[]> {
-    const styleFiles = await listMergedWritingStyleFiles(candidates);
+export async function loadWritingStylePresets(candidates?: readonly string[]): Promise<WritingStyleDefinition[]> {
+    const roots = candidates ?? [
+        path.join(assetResolver.systemRoot, "agent", "profiles", "builtin", "writer.home", "styles"),
+        path.join(assetResolver.userRoot, "agent", "profiles", "builtin", "writer.home", "styles"),
+    ];
+    const styleFiles = await listMergedWritingStyleFiles(roots);
     const styles: WritingStyleDefinition[] = [];
 
     for (const styleFile of styleFiles) {

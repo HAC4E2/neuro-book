@@ -8,11 +8,6 @@ import type {ProfileHomeFacade} from "nbook/server/agent/profiles/profile-home";
 export const DEFAULT_WRITING_REFERENCE_PRESET = "references/reborn-villain-loli-magic-girl.first-three-chapters.md";
 const LEGACY_DEFAULT_WRITING_REFERENCE_PRESET = "reborn-villain-loli-magic-girl.first-three-chapters";
 
-const WRITING_REFERENCE_DIR_CANDIDATES = [
-    path.join(assetResolver.systemRoot, "agent", "profiles", "builtin", "writer.home", "references"),
-    path.join(assetResolver.userRoot, "agent", "profiles", "builtin", "writer.home", "references"),
-] as const;
-
 const WritingReferenceFrontmatterSchema = z.object({
     key: z.string().min(1),
     label: z.string().min(1),
@@ -36,8 +31,12 @@ type WritingReferenceFile = {
 /**
  * 从 writer profile 默认 home 资源目录自动发现 Markdown 文风参考正文。
  */
-export async function loadWritingReferencePresets(candidates: readonly string[] = WRITING_REFERENCE_DIR_CANDIDATES): Promise<WritingReferenceDefinition[]> {
-    const referenceFiles = await listMergedWritingReferenceFiles(candidates);
+export async function loadWritingReferencePresets(candidates?: readonly string[]): Promise<WritingReferenceDefinition[]> {
+    const roots = candidates ?? [
+        path.join(assetResolver.systemRoot, "agent", "profiles", "builtin", "writer.home", "references"),
+        path.join(assetResolver.userRoot, "agent", "profiles", "builtin", "writer.home", "references"),
+    ];
+    const referenceFiles = await listMergedWritingReferenceFiles(roots);
     const references: WritingReferenceDefinition[] = [];
 
     for (const referenceFile of referenceFiles) {

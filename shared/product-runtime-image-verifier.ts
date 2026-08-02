@@ -139,9 +139,12 @@ export interface ProductRuntimeInspection {
     owners: ProductRuntimeOwnerInventory[];
     treeDigest: string;
     shapeDigest: string;
+    /** 按规范路径排序的逐文件证据；正式 manifest 只持久化聚合 digest。 */
+    records: ProductRuntimeFileRecord[];
 }
 
-interface RuntimeFileRecord {
+/** measurement 用于定位 A/B 漂移的逐文件证据。 */
+export interface ProductRuntimeFileRecord {
     relativePath: string;
     kind: "file" | "symlink";
     bytes: number;
@@ -380,7 +383,7 @@ export async function inspectProductRuntimeImage(
     };
 
     await walk(imageRoot, "");
-    const records: RuntimeFileRecord[] = [];
+    const records: ProductRuntimeFileRecord[] = [];
     for (let offset = 0; offset < pending.length; offset += 24) {
         const batch = pending.slice(offset, offset + 24);
         records.push(...await Promise.all(batch.map(async ({absolutePath, relativePath}) => {
@@ -449,6 +452,7 @@ export async function inspectProductRuntimeImage(
         owners: inventories,
         treeDigest: `sha256:${treeHash.digest("hex")}`,
         shapeDigest: `sha256:${shapeHash.digest("hex")}`,
+        records,
     };
 }
 

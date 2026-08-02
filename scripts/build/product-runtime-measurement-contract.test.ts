@@ -27,6 +27,7 @@ describe("Product Runtime Image measurement contracts", () => {
         }
         expect(workflow.match(/bun run product:measure --output/gu)).toHaveLength(2);
         expect(workflow).toContain("compare-product-runtime-measurements.ts");
+        expect(workflow).toMatch(/name: Upload baseline measurement\r?\n\s+if: always\(\)/u);
         expect(workflow).toContain("product-runtime-measurement-${{ matrix.platform }}");
         expect(workflow).not.toContain("bun run nuxt:build\n");
         expect(workflow).not.toContain("release:product:");

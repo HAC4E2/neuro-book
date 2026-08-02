@@ -48,6 +48,23 @@ describe("Product Runtime measurement A/B", () => {
             .rejects.toThrow("inventory, treeDigest");
     });
 
+    it("A/B漂移报告具体文件、大小和摘要", async () => {
+        const root = await sandbox();
+        const left = report();
+        const right = report();
+        right.inventory.bytes = 8;
+        right.treeDigest = `sha256:${"e".repeat(64)}`;
+        right.evidence.payloadFiles[0] = {
+            ...right.evidence.payloadFiles[0]!,
+            bytes: 8,
+            contentDigest: `sha256:${"9".repeat(64)}`,
+        };
+        const [leftPath, rightPath] = await writeReports(root, left, right);
+
+        await expect(compareProductRuntimeMeasurements(leftPath, rightPath))
+            .rejects.toThrow(`server/index.mjs A=2/sha256:${"8".repeat(64)} B=8/sha256:${"9".repeat(64)}`);
+    });
+
     it("拒绝native island或module closure证据漂移", async () => {
         const root = await sandbox();
         const left = report();
@@ -132,6 +149,13 @@ function report(): ProductRuntimeMeasurementReport {
                     }],
                 },
             },
+            payloadFiles: [{
+                relativePath: "server/index.mjs",
+                kind: "file",
+                bytes: 2,
+                mode: 0o644,
+                contentDigest: `sha256:${"8".repeat(64)}`,
+            }],
         },
         measuredAt: "2026-08-02T00:00:00.000Z",
     };

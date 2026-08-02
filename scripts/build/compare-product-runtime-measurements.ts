@@ -46,7 +46,18 @@ export async function compareProductRuntimeMeasurements(
         canonicalProductRuntimeJson(left[field]) !== canonicalProductRuntimeJson(right[field])
     ));
     if (drift.length > 0) {
-        throw new Error(`Product Runtime measurement A/B不可复现：${drift.join(", ")}`);
+        const leftFiles = new Map(left.evidence.payloadFiles.map((file) => [file.relativePath, file]));
+        const rightFiles = new Map(right.evidence.payloadFiles.map((file) => [file.relativePath, file]));
+        const paths = [...new Set([...leftFiles.keys(), ...rightFiles.keys()])].sort();
+        const fileDrift = paths.flatMap((path) => {
+            const leftFile = leftFiles.get(path);
+            const rightFile = rightFiles.get(path);
+            return canonicalProductRuntimeJson(leftFile) === canonicalProductRuntimeJson(rightFile)
+                ? []
+                : [`${path} A=${leftFile ? `${leftFile.bytes}/${leftFile.contentDigest}` : "missing"} B=${rightFile ? `${rightFile.bytes}/${rightFile.contentDigest}` : "missing"}`];
+        });
+        const details = fileDrift.length > 0 ? `；逐文件差异：${fileDrift.slice(0, 20).join("；")}` : "";
+        throw new Error(`Product Runtime measurement A/B不可复现：${drift.join(", ")}${details}`);
     }
     return {
         platform: left.platform,
@@ -68,6 +79,7 @@ function parseMeasurement(text: string, label: "A" | "B"): ProductRuntimeMeasure
     const evidence = objectField(record.evidence);
     const moduleClosure = objectField(evidence?.moduleClosure);
     const nativeIslands = objectField(moduleClosure?.nativeIslands);
+    const payloadFiles = evidence?.payloadFiles;
     if (
         record.schema !== PRODUCT_RUNTIME_MEASUREMENT_SCHEMA
         || record.builderContractVersion !== PRODUCT_RUNTIME_BUILDER_CONTRACT_VERSION
@@ -95,6 +107,9 @@ function parseMeasurement(text: string, label: "A" | "B"): ProductRuntimeMeasure
         || !Number.isSafeInteger(moduleClosure.opaqueImports)
         || !Array.isArray(moduleClosure.opaqueImportObservations)
         || !Array.isArray(moduleClosure.packages)
+        || !Array.isArray(payloadFiles)
+        || payloadFiles.length !== inventory?.files
+        || !payloadFiles.every(validPayloadFile)
         || !Number.isSafeInteger(inventory?.files)
         || !Number.isSafeInteger(inventory?.bytes)
         || !Array.isArray(inventory?.owners)
@@ -102,6 +117,20 @@ function parseMeasurement(text: string, label: "A" | "B"): ProductRuntimeMeasure
         throw new Error(`Product Runtime measurement ${label}身份或inventory无效。`);
     }
     return value as ProductRuntimeMeasurementReport;
+}
+
+/** 校验逐文件 measurement 记录，避免比较器接受不完整诊断证据。 */
+function validPayloadFile(value: unknown): boolean {
+    const record = objectField(value);
+    return !!record
+        && stringField(record.relativePath)
+        && (record.kind === "file" || record.kind === "symlink")
+        && Number.isSafeInteger(record.bytes)
+        && Number(record.bytes) >= 0
+        && Number.isSafeInteger(record.mode)
+        && Number(record.mode) >= 0
+        && typeof record.contentDigest === "string"
+        && /^sha256:[0-9a-f]{64}$/u.test(record.contentDigest);
 }
 
 /** 只接受非数组对象。 */

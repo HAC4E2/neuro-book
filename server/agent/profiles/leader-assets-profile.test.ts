@@ -903,7 +903,7 @@ describe("assets builtin v3 profiles", () => {
 
     it("writer settings 会切换文风参考、文风预设和默认人称", async () => {
         const referenceKey = `test-reference-${randomUUID()}`;
-        const referenceDir = join("workspace", ".nbook", "agent", "profiles", "builtin", "writer.home", "references");
+        const referenceDir = join(assets.userNbookRoot, "agent", "profiles", "builtin", "writer.home", "references");
         const referenceFile = join(referenceDir, `${referenceKey}.md`);
         await mkdir(referenceDir, {recursive: true});
         await writeFile(referenceFile, [

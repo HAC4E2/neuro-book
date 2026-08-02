@@ -43,7 +43,13 @@ export async function validateNitropackPatch(root = repositoryRoot): Promise<voi
         // Bun Linux 安装可能只保留被 Nuxt 依赖链接到的 .bun 包副本。
     }
     const bunPackageStore = resolve(root, "node_modules", ".bun");
-    for (const name of await readdir(bunPackageStore)) {
+    let bunPackageNames: string[] = [];
+    try {
+        bunPackageNames = await readdir(bunPackageStore);
+    } catch (error) {
+        if (!isMissingPath(error)) throw error;
+    }
+    for (const name of bunPackageNames) {
         if (name.startsWith("@nuxt+nitro-server@")) {
             packageRoots.add(await realpath(join(bunPackageStore, name, "node_modules", "nitropack")));
         }
@@ -57,11 +63,11 @@ export async function validateNitropackPatch(root = repositoryRoot): Promise<voi
             ensure(result.stderr === "", `Node 语法检查产生错误输出: ${path}\n${result.stderr}`);
         }
 
-        const core = await readFile(join(packageRoot, "dist", "core", "index.mjs"), "utf8");
+        const core = (await readFile(join(packageRoot, "dist", "core", "index.mjs"), "utf8")).replaceAll("\r\n", "\n");
         ensure(core.includes("const sourceDateEpoch = process.env.SOURCE_DATE_EPOCH;"), `Nitro buildDate 补丁缺失: ${packageRoot}`);
         ensure((core.match(/date: buildDate\(\)/gu) ?? []).length === 2, `Nitro buildDate 调用数量错误: ${packageRoot}`);
 
-        const rollup = await readFile(join(packageRoot, "dist", "rollup", "index.mjs"), "utf8");
+        const rollup = (await readFile(join(packageRoot, "dist", "rollup", "index.mjs"), "utf8")).replaceAll("\r\n", "\n");
         ensure(rollup.includes(publicMtime), `Nitro public asset mtime 补丁缺失: ${packageRoot}`);
         ensure(rollup.includes(serverMtime), `Nitro server asset mtime 补丁缺失: ${packageRoot}`);
         ensure(rollup.includes(stableOrder), `Nitro public asset 稳定排序补丁缺失: ${packageRoot}`);
@@ -76,6 +82,11 @@ export async function validateNitropackPatch(root = repositoryRoot): Promise<voi
     }
 
     console.log(`Nitro 补丁校验通过：${packageRoots.size} 份安装产物。`);
+}
+
+/** 判断可选 Bun package store 是否不存在。 */
+function isMissingPath(error: unknown): boolean {
+    return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
 if (import.meta.main) {

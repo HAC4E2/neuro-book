@@ -4,3 +4,5 @@ assets/workspace/.nbook/agent/bin/*.cmd text eol=crlf
 assets/workspace/.nbook/agent/scripts/*.ts text eol=lf
 server/generated/project-prisma/** text eol=lf
 bun.lock text eol=lf
+.env.product text eol=lf
+*.mjs text eol=lf

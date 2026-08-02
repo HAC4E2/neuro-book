@@ -47,6 +47,7 @@ jobs:
           --left "${RUNNER_TEMP}/product-runtime-measurement-${{ matrix.platform }}-a.json"
           --right "${RUNNER_TEMP}/product-runtime-measurement-${{ matrix.platform }}-b.json"
       - name: Upload baseline measurement
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: product-runtime-measurement-${{ matrix.platform }}-${{ github.sha }}
