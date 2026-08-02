@@ -22,6 +22,11 @@ describe("Product reproducible minifier", () => {
         expect(left).toContain("export");
     });
 
+    it("纯类型投影产生显式空 ESM，不退化成0字节文件", async () => {
+        await expect(minifyProductJavaScript("export {};\n", "contracts.mjs"))
+            .resolves.toBe("export{};\n");
+    });
+
     it("正式 Product builders 不再调用 Bun identifier minifier", async () => {
         const builders = [
             "scripts/build/product-runtime-bundle.ts",

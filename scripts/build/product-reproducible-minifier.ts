@@ -16,5 +16,6 @@ export async function minifyProductJavaScript(source: string, sourcePath: string
         sourcemap: false,
         target: "esnext",
     });
-    return result.code;
+    // 纯类型 SDK 在 Bun 链接后可能只剩空 ESM；仍需保留可验证的物理模块。
+    return result.code.trim() ? result.code : "export{};\n";
 }
