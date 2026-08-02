@@ -413,9 +413,13 @@ describe("Product Release宿主合同", () => {
     it("在任何GHCR或资产构建前集中执行Release Preflight", async () => {
         const workflow = parse(await readFile(resolve(ROOT, ".github/workflows/release-container.yml"), "utf8")) as ReleaseWorkflow;
         const scriptsTsconfig = JSON.parse(await readFile(resolve(ROOT, "scripts/tsconfig.json"), "utf8")) as {include?: string[]};
+        const publicManagerVerifier = await readFile(resolve(ROOT, "scripts/release/verify-public-manager.ts"), "utf8");
         expect(workflow.jobs.preflight.steps).toContainEqual(
             expect.objectContaining({run: "bun run manager:verify-public"}),
         );
+        expect(publicManagerVerifier).toContain('["cat-file", "-e", `${publicPackage.gitHead}^{commit}`]');
+        expect(publicManagerVerifier).toContain('["fetch", "--no-tags", "origin", publicPackage.gitHead]');
+        expect(publicManagerVerifier).not.toContain('"--depth=1"');
         const generatedSourcesStep = workflow.jobs.preflight.steps.findIndex(({run}) => run === "bun run generate");
         const productGraphStep = workflow.jobs.preflight.steps.findIndex(({run}) => run?.includes("scripts/deploy/product-start.test.ts"));
         const agentStateRootStep = workflow.jobs.preflight.steps.find(({run}) => run?.includes("product-agent-state-root-smoke.ts"));

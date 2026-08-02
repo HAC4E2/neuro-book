@@ -1,6 +1,6 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`仍是最新已确认完整canary。当前工作树协议为Installation Manifest v5、Release Manifest v5、Operation Journal v5 和 Product-owned Application State catalog v3。公开Manager `.40`已完成provenance、tarball与真实bunx验证；第十一次0.9 Candidate已通过五平台Product、双OCI、assemble、Linux公开GHCR smoke、Windows Runtime Contract与首次浏览器 smoke，但第二次复用State Root因强杀Manager留下的 `runtime.lease` `ELOCKED` 失败。正式stdin shutdown与lease重取Verifier已落地并改变Manager bundle；必须先发布新的Manager canary，再由新Candidate证明同代Portable、公开A→B/跨Profile、Podman、自卸载、最终Verifier与Release激活。
+> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`仍是最新已确认完整canary。当前工作树协议为Installation Manifest v5、Release Manifest v5、Operation Journal v5 和 Product-owned Application State catalog v3。公开Manager `.41`已完成provenance、tarball、签名与真实bunx验证；第十一次0.9 Candidate已通过五平台Product、双OCI、assemble、Linux公开GHCR smoke、Windows Runtime Contract与首次浏览器 smoke，但第二次复用State Root因强杀Manager留下的 `runtime.lease` `ELOCKED` 失败。正式stdin shutdown与lease重取Verifier已进入`.41`；下一步由新Candidate证明同代Portable、公开A→B/跨Profile、Podman、自卸载、最终Verifier与Release激活。
 
 ## 2026-08-02：Installation Mutation、自卸载与发行候选治理
 
@@ -11,6 +11,7 @@
 - Windows Portable/Installed从受管Bun执行卸载时，Manager写入带token和SHA-256的durable intent并启动Installation Root外的PowerShell Host。Host等待精确父PID退出后重新验证owner roots：默认删除程序、cache、desktop和logs并保留State Root；`--delete-data`才删除全部。intent篡改时零删除并写外置失败结果，pending intent阻断其他mutation。
 - Release Manifest硬切v5并增加统一build ID。Source/Product/Portable/Installation由最终Verifier重新连成同一代；CLI只创建Draft并显式dispatch release ID、tag、revision、prerelease。候选OCI只使用`candidate-<release-id>`，全部正确性gate后才公开Release，再由独立可重跑job激活版本tag和stable `latest`。
 - 当前验证：Authoring 9 files / 114 tests；Windows uninstall 3 files / 18 tests及真实PowerShell Host三种路径；Manager 36 passed files / 1 skipped、241 passed / 3 skipped，typecheck与pack通过；Release asset contract 20/20。第十一次Candidate的Windows首次浏览器与Runtime Contract已通过，二次启动修复仍需下一Candidate验证；本节不能写成公开生命周期已完成。
+- Manager `0.1.0-canary.41` 的Trusted Publishing workflow `30759838936`全绿；npm公开`gitHead`、registry signature、两份Sigstore attestation、公开tarball、全新Bun cache真实bunx和当前构建输入均已核对。公开Manager已具备新stdin shutdown合同，但真实Portable二次启动仍只由下一Candidate证明。
 
 ## 2026-08-01：发行前只读审计与下一阶段阻断
 

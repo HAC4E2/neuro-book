@@ -13,8 +13,14 @@ const temporaryRoot = await mkdtemp(join(tmpdir(), "neuro-book-public-manager-")
 
 try {
     const publicPackage = await materializePublicManagerPackage(packageJson.version, temporaryRoot);
-    // actions/checkout默认是单提交浅克隆；显式取回npm provenance指向的提交后才能比较构建输入。
-    await run("git", ["fetch", "--no-tags", "--depth=1", "origin", publicPackage.gitHead], {cwd: ROOT});
+    // actions/checkout可能只有单提交；只在对象缺失时抓取公开gitHead。
+    // 不能使用--depth：它会把原本完整的开发仓库改写为shallow repository。
+    try {
+        await runCapture("git", ["cat-file", "-e", `${publicPackage.gitHead}^{commit}`], {cwd: ROOT});
+    } catch {
+        await run("git", ["fetch", "--no-tags", "origin", publicPackage.gitHead], {cwd: ROOT});
+        await runCapture("git", ["cat-file", "-e", `${publicPackage.gitHead}^{commit}`], {cwd: ROOT});
+    }
     const changedInputs = (await runCapture("git", [
         "diff",
         "--name-only",

@@ -1,6 +1,6 @@
 # 130 - 桌面应用前置架构、发行载荷与存储生命周期
 
-> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、Contract v3、Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议。正式构建已切换为 esbuild 同图 link/minify；五平台严格 A/B、四平台 Product smoke以及第十一次Candidate的五平台Product、双OCI、assemble、Linux公开GHCR smoke、Windows Runtime Contract与首次浏览器 smoke均已通过。第十一次Draft在Windows第二次复用State Root时因强杀Manager留下 `runtime.lease` `ELOCKED` 失败，仍未公开且不可复用；正式stdin shutdown与lease重取Verifier已落地，下一步先发布新Manager canary再创建唯一Candidate。最终Verifier、Podman、A→B、自卸载、Release激活、浏览器人工验收与Tauri/Electron同矩阵spike尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由spike证据冻结。
+> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、Contract v3、Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议。正式构建已切换为 esbuild 同图 link/minify；五平台严格 A/B、四平台 Product smoke以及第十一次Candidate的五平台Product、双OCI、assemble、Linux公开GHCR smoke、Windows Runtime Contract与首次浏览器 smoke均已通过。第十一次Draft在Windows第二次复用State Root时因强杀Manager留下 `runtime.lease` `ELOCKED` 失败，仍未公开且不可复用；正式stdin shutdown与lease重取Verifier已落地，Manager `0.1.0-canary.41` 已公开并完成provenance与真实bunx验证，下一步创建新的唯一Candidate。最终Verifier、Podman、A→B、自卸载、Release激活、浏览器人工验收与Tauri/Electron同矩阵spike尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由spike证据冻结。
 
 ## Relative documents refs
 
@@ -702,6 +702,8 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - Windows authenticated login 在复用同一State Root时失败于 `runtime.lease` 的 `ELOCKED`。前一浏览器 step只强杀Manager并检查端口，跳过了Manager已有的graceful Product shutdown；端口释放不是Store lease释放证明。失败 Draft保持空资产，后续最终Verifier、公开资产、Podman、A→B、自卸载与Release激活均跳过。
 - 本轮修复增加宿主stdin关闭到`launch.shutdown()`的正式控制边界；新Windows Portable verifier使用包内Manager完成浏览器→正式shutdown→lease立即重取→管理员→第二次启动登录的完整顺序，并修正诊断artifact的`$RUNNER_TEMP`路径。由于Manager bundle发生变化，必须先发布新的Manager canary，再创建新的唯一0.9 Candidate；不复用`.40`、第十一次Draft或其部分产物。
 - 本地验证为Manager全量36 files passed / 1 skipped、241 passed / 3 skipped，Manager/scripts/root/Runtime typecheck、Manager pack、Release asset contract 20/20、install 8 passed / 9 skipped、docs build与根全量471 files passed / 1 skipped、3216 passed / 14 skipped。真实Windows Portable二次启动仍待新Candidate。
+- Manager `0.1.0-canary.41` 已由 workflow [`30759838936`](https://github.com/notnotype/neuro-book/actions/runs/30759838936) 通过Trusted Publishing。npm `gitHead`为`740182403c74b30712ebe7f5b172afe84208029e`，5-file公开tarball SHA-1为`87fff983046118dd5f0f5aebf7a85baa90f35abd`；registry signature、npm publish attestation、SLSA provenance、全新Bun cache真实bunx与`manager:verify-public`均已验证。
+- 本地公开校验同时发现原脚本的`git fetch --depth=1`会把完整开发仓标成shallow repository。现改为先检查公开`gitHead`对象，只在缺失时按精确commit抓取且不传depth；本地Git历史已恢复，Release contract禁止该参数复发。
 
 ## TODO / Follow-ups
 
