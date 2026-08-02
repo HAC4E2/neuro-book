@@ -1,6 +1,6 @@
 # 130 - 桌面应用前置架构、发行载荷与存储生命周期
 
-> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、Contract v3、Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议。正式构建已切换为 esbuild 同图 link/minify；五平台严格 A/B、四平台 Product smoke以及第十一次Candidate的五平台Product、双OCI、assemble、Linux公开GHCR smoke、Windows Runtime Contract与首次浏览器 smoke均已通过。第十一次Draft在Windows第二次复用State Root时因强杀Manager留下 `runtime.lease` `ELOCKED` 失败，仍未公开且不可复用；正式stdin shutdown与lease重取Verifier已落地，Manager `0.1.0-canary.41` 已公开并完成provenance与真实bunx验证，下一步创建新的唯一Candidate。最终Verifier、Podman、A→B、自卸载、Release激活、浏览器人工验收与Tauri/Electron同矩阵spike尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由spike证据冻结。
+> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、Contract v3、Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议。正式构建已切换为 esbuild 同图 link/minify；五平台严格 A/B、四平台 Product smoke以及第十二次Candidate的五平台Product、双OCI、assemble与Linux公开GHCR/browser smoke均已通过。第十二次Draft的Windows Product/Portable也已构建，但restart verifier以60秒等待Manager的120秒正式冷启动合同，刚在服务输出`Listening`时提前失败，因此浏览器、正式shutdown、lease重取和二次登录尚未执行；验收窗口已改为150秒，下一步仍创建新的唯一Candidate。Manager `0.1.0-canary.41` 已公开并完成provenance与真实bunx验证。最终Verifier、Podman、A→B、自卸载、Release激活、浏览器人工验收与Tauri/Electron同矩阵spike尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由spike证据冻结。
 
 ## Relative documents refs
 
@@ -704,6 +704,12 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - 本地验证为Manager全量36 files passed / 1 skipped、241 passed / 3 skipped，Manager/scripts/root/Runtime typecheck、Manager pack、Release asset contract 20/20、install 8 passed / 9 skipped、docs build与根全量471 files passed / 1 skipped、3216 passed / 14 skipped。真实Windows Portable二次启动仍待新Candidate。
 - Manager `0.1.0-canary.41` 已由 workflow [`30759838936`](https://github.com/notnotype/neuro-book/actions/runs/30759838936) 通过Trusted Publishing。npm `gitHead`为`740182403c74b30712ebe7f5b172afe84208029e`，5-file公开tarball SHA-1为`87fff983046118dd5f0f5aebf7a85baa90f35abd`；registry signature、npm publish attestation、SLSA provenance、全新Bun cache真实bunx与`manager:verify-public`均已验证。
 - 本地公开校验同时发现原脚本的`git fetch --depth=1`会把完整开发仓标成shallow repository。现改为先检查公开`gitHead`对象，只在缺失时按精确commit抓取且不传depth；本地Git历史已恢复，Release contract禁止该参数复发。
+
+### 2026-08-03：第十二次 Draft 的 Windows 冷启动验收窗口
+
+- Draft `v0.9.0-canary.20260802.180343Z.12a9b18d`（release ID `363855156`、revision `d72c796ebbd869a84ffe38c73cbbfa4b82294ef5`）dispatch workflow [`30760273783`](https://github.com/notnotype/neuro-book/actions/runs/30760273783)。Release preflight、Source、五平台Product、双OCI与multi-arch merge、assemble、Linux GHCR identity/Runtime Contract/真实浏览器/公开Manager smoke均通过；Windows Product与Portable也完成构建。
+- Windows先通过Portable executable/doctor、Runtime Contract与shadow-workspace诊断，随后restart verifier在第一次启动的60秒外层等待到期。诊断日志无stderr，Manager已完成migration、14个Profile和326个system asset同步，并输出`Listening on http://127.0.0.1:39123`；失败发生在浏览器之前，不是`runtime.lease`复发，也没有形成二次启动证据。
+- Manager正式启动本来允许120秒，Verifier不能用更短的60秒抢先裁决。外层保护窗口现为150秒，仍持续监控Manager提前退出和版本identity；Manager自身若在120秒失败会先给出终态，不增加重试、不忽略错误，也不改变`.41` bundle。Draft保持空资产且未公开，后续publish、Podman、A→B、自卸载、最终Verifier与OCI正式tag激活均按协议跳过。
 
 ## TODO / Follow-ups
 

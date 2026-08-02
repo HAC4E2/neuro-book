@@ -674,6 +674,7 @@ describe("Product Release宿主合同", () => {
         expect(restartVerifier).toContain("manifest.components.manager.path");
         expect(restartVerifier).toContain("--shutdown-on-stdin-end");
         expect(restartVerifier).toContain("acquireAgentSessionStoreExclusiveLease");
+        expect(restartVerifier).toContain("const STARTUP_TIMEOUT_MS = 150_000;");
 
         const publicRun = workflow.jobs["verify-public-windows-data-reuse"].steps.map((step) => step.run ?? "").join("\n");
         expect(publicRun).toContain("$managerRuntime = Join-Path $root $candidateManifest.components.managerRuntime.path");

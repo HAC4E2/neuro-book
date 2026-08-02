@@ -1,6 +1,6 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`仍是最新已确认完整canary。当前工作树协议为Installation Manifest v5、Release Manifest v5、Operation Journal v5 和 Product-owned Application State catalog v3。公开Manager `.41`已完成provenance、tarball、签名与真实bunx验证；第十一次0.9 Candidate已通过五平台Product、双OCI、assemble、Linux公开GHCR smoke、Windows Runtime Contract与首次浏览器 smoke，但第二次复用State Root因强杀Manager留下的 `runtime.lease` `ELOCKED` 失败。正式stdin shutdown与lease重取Verifier已进入`.41`；下一步由新Candidate证明同代Portable、公开A→B/跨Profile、Podman、自卸载、最终Verifier与Release激活。
+> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`仍是最新已确认完整canary。当前工作树协议为Installation Manifest v5、Release Manifest v5、Operation Journal v5 和 Product-owned Application State catalog v3。公开Manager `.41`已完成provenance、tarball、签名与真实bunx验证；第十二次0.9 Candidate已通过五平台Product、双OCI、assemble、Linux公开GHCR/browser smoke及Windows Runtime Contract，但restart verifier的60秒窗口短于Manager正式120秒冷启动合同，在首次浏览器前提前失败。窗口已改为150秒；下一步仍由新Candidate证明正式shutdown、lease重取、同State Root二次登录、公开A→B/跨Profile、Podman、自卸载、最终Verifier与Release激活。
 
 ## 2026-08-02：Installation Mutation、自卸载与发行候选治理
 
@@ -12,6 +12,7 @@
 - Release Manifest硬切v5并增加统一build ID。Source/Product/Portable/Installation由最终Verifier重新连成同一代；CLI只创建Draft并显式dispatch release ID、tag、revision、prerelease。候选OCI只使用`candidate-<release-id>`，全部正确性gate后才公开Release，再由独立可重跑job激活版本tag和stable `latest`。
 - 当前验证：Authoring 9 files / 114 tests；Windows uninstall 3 files / 18 tests及真实PowerShell Host三种路径；Manager 36 passed files / 1 skipped、241 passed / 3 skipped，typecheck与pack通过；Release asset contract 20/20。第十一次Candidate的Windows首次浏览器与Runtime Contract已通过，二次启动修复仍需下一Candidate验证；本节不能写成公开生命周期已完成。
 - Manager `0.1.0-canary.41` 的Trusted Publishing workflow `30759838936`全绿；npm公开`gitHead`、registry signature、两份Sigstore attestation、公开tarball、全新Bun cache真实bunx和当前构建输入均已核对。公开Manager已具备新stdin shutdown合同，但真实Portable二次启动仍只由下一Candidate证明。
+- 第十二次Candidate workflow `30760273783` 的Windows诊断证明Manager完成冷启动并输出`Listening`，但外层Verifier以60秒先于Manager的120秒合同超时，浏览器与二次启动未执行。修复只把Verifier保护窗口改为150秒并保留提前退出/版本门禁；失败Draft无公开资产，不能写成生命周期已验证。
 
 ## 2026-08-01：发行前只读审计与下一阶段阻断
 

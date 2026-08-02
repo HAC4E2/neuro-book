@@ -11,7 +11,8 @@ import {runProductBrowserSmoke} from "nbook/scripts/deploy/product-browser-smoke
 import {acquireAgentSessionStoreExclusiveLease} from "nbook/server/agent/session/agent-session-store";
 
 const PORT = 39_123;
-const STARTUP_TIMEOUT_MS = 60_000;
+// Manager正式启动合同允许120秒；外层Verifier必须更长，才能观察Manager自己的ready或失败终态。
+const STARTUP_TIMEOUT_MS = 150_000;
 const SHUTDOWN_TIMEOUT_MS = 40_000;
 const ADMIN_USERNAME = "release-smoke-admin";
 const ADMIN_PASSWORD = "release-auth-smoke-password";
