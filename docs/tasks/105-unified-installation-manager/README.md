@@ -1197,3 +1197,10 @@ uninstall
 - `publish-payload`已向Draft上传10个payload；Release继续是Draft且未公开。独立`verify-public-payload`随后用`contents: read`的GitHub integration token访问Draft release asset bytes，API返回`403 Resource not accessible by integration`。同一资产ID用仓库写权限token可立即返回原始bytes，资产size/digest也与GitHub记录一致；端点、资产identity和上传内容不是根因。
 - GitHub Draft Release API实际要求该integration具备Release写权限才能下载未公开资产。修复只把独立payload verifier的`contents`提升为`write`，行为仍只有读取和摘要复核；GHCR、Podman、A→B等后续job保持原最小权限。没有把验证并回上传job，也没有以Actions artifact代替GitHub上的真实bytes。
 - Candidate 16按协议保留失败审计且不rerun。A→B/data reuse、GHCR AMD64/ARM64、rootless Podman、最终Portable Verifier、Release索引公开和OCI正式Canary别名全部因依赖失败被跳过，仍待下一唯一Candidate从头执行。
+
+### 2026-08-03：第十七次 Candidate 的 Fresh GHCR Compose 身份阻断
+
+- 新Draft `v0.9.0-canary.20260802.213518Z.475cda42`（release ID `363900563`、revision `5bb9e01bf048b7a21efe7c5e42f08b24bb8a9515`）的 workflow [`30768238823`](https://github.com/notnotype/neuro-book/actions/runs/30768238823) 已通过preflight、Source、五平台Product、Windows Portable、双OCI、assemble、Linux最终验证、Windows完整生命周期、Draft 10个payload实字节复核和0.8.6完整data复用。Candidate 16的GitHub权限阻断与Windows数据复用门禁均由clean runner关闭。
+- GHCR AMD64、ARM64和rootless Podman在拉取并验证同一OCI digest后同因失败。Fresh Install先把Compose写入Operation staging，迁移plan也把该候选路径传给`docker compose -f`；但`runDockerApplicationCommand()`的执行前身份校验仍硬编码读取根`.deploy/docker-compose.generated.yml`。正式Compose只有候选plan通过后才会事务切换，所以全新Installation Root稳定返回ENOENT。
+- 修复不提前发布Compose、不在smoke创建假正式文件，也不放宽verified image identity。`readDockerComposeImage()`现在接受当前执行的Compose路径，一次性应用命令把同一个候选路径同时用于镜像身份校验与Compose执行；正式start/admin/update仍默认读取根Compose。回归测试在正式Compose不存在、候选Compose存在时先红后绿，直接覆盖Candidate 17首错。
+- 本地验证为Manager 36 files passed / 1 skipped、242 passed / 3 skipped，Manager typecheck与5-file pack通过；Release合同3 files / 26 tests、scripts typecheck和docs build全绿。该修复改变Manager bundle，必须先发布并验证Manager `.43`，再创建全新0.9 Candidate；Candidate 17保留10资产Draft审计，未公开Release或激活正式OCI tag。

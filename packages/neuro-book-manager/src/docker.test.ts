@@ -138,6 +138,48 @@ describe("Docker Compose部署合同", () => {
         ], {cwd: root});
     });
 
+    it("Fresh Install使用候选Compose完成一次性应用命令", async () => {
+        processCommands.capture.mockResolvedValue("migration-report");
+        const root = await mkdtemp(join(tmpdir(), "nbook-compose-candidate-"));
+        roots.push(root);
+        const stateRoot = root;
+        const composePath = join(root, ".deploy", "staging", "operation", "docker-compose.generated.yml");
+        await writeDockerCompose({
+            engine: "docker",
+            root,
+            stateRoot,
+            cacheRoot: join(root, ".cache"),
+            profile: "ghcr",
+            image: verifiedImage("docker").configuredImage,
+            port: 3000,
+            output: composePath,
+            layoutPath: join(root, ".deploy", "docker-compose.generated.yml"),
+        });
+
+        await expect(runDockerApplicationCommand(
+            verifiedImage("docker"),
+            root,
+            stateRoot,
+            ["bun", "migration.ts"],
+            composePath,
+        )).resolves.toBe("migration-report");
+
+        expect(processCommands.capture).toHaveBeenCalledWith("docker", [
+            "compose",
+            "--env-file",
+            join(stateRoot, ".env"),
+            "-f",
+            composePath,
+            "run",
+            "--rm",
+            "--no-deps",
+            "--entrypoint",
+            "bun",
+            "app",
+            "migration.ts",
+        ], {cwd: root});
+    });
+
     it("Podman Compose固定使用podman-compose provider", async () => {
         processCommands.capture.mockResolvedValue("migration-report");
         const root = await mkdtemp(join(tmpdir(), "nbook-compose-command-podman-"));

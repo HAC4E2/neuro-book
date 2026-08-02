@@ -753,3 +753,10 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - 新Draft `v0.9.0-canary.20260802.210808Z.dddec169`（release ID `363895565`、revision `37045283eefb519a45c202c05d610941937c457e`）dispatch workflow [`30767213367`](https://github.com/notnotype/neuro-book/actions/runs/30767213367)。五平台Product、Windows Portable、双架构OCI、multi-arch merge、assemble、Linux Runtime/GHCR/browser/Manager，以及Windows Runtime/真实Chrome/同State Root鉴权重启/shutdown/lease/两种自卸载全部成功。
 - `publish-payload`上传10个候选payload后，Release仍保持Draft。独立Verifier以`contents: read`下载Draft asset bytes时收到GitHub `403 Resource not accessible by integration`；同一asset endpoint用具备Release写权限的token能返回原始bytes，GitHub记录的size/digest也正确。根因是GitHub App对未公开Release资产的权限要求，不是归档或摘要漂移。
 - 修复只让独立payload verifier声明`contents: write`，仍逐个按release ID与asset ID下载GitHub实际bytes并复核统一Manifest/checksum；后续GHCR、Podman和Windows data reuse不扩权。Candidate 16不rerun、不复用；10个资产保持在未公开Draft中，A→B、GHCR双架构、Podman、最终索引公开和OCI正式别名仍待下一Candidate。
+
+### 2026-08-03：第十七次 Candidate 的候选 Compose 校验边界
+
+- Draft `v0.9.0-canary.20260802.213518Z.475cda42`（release ID `363900563`、revision `5bb9e01bf048b7a21efe7c5e42f08b24bb8a9515`）的 workflow [`30768238823`](https://github.com/notnotype/neuro-book/actions/runs/30768238823) 已完成五平台Product、Windows Portable、双架构OCI、assemble、Linux最终验证、Windows浏览器/鉴权重启/shutdown/lease/两种自卸载、Draft 10个payload实字节复核和0.8.6完整data复用。第十六次权限阻断已由clean runner关闭。
+- GHCR AMD64/ARM64和rootless Podman都在正确digest拉取完成后失败。Fresh Install迁移plan使用Operation staging内的候选Compose，但一次性Product命令执行前仍读取尚未切换的根Compose做身份校验，导致三个平台一致返回`.deploy/docker-compose.generated.yml` ENOENT；这不是OCI内容、架构、rootless权限或目录创建失败。
+- 修复让Compose镜像校验与实际`docker compose -f`严格消费同一路径，保留候选验证通过后才切换正式Compose的事务顺序。行为测试覆盖“正式Compose不存在、候选Compose存在”的真实安装形状；Manager全量242 passed / 3 skipped、typecheck、pack、Release 3 files / 26 tests、scripts typecheck和docs build通过。
+- Candidate 17保持10资产Draft且不复用，最终Release和OCI正式Canary tag仍未产生。修复需先进入新的公开Manager `.43`，然后由全新Candidate从头重跑GHCR双架构、rootless Podman、最终Portable Verifier、Release公开和OCI别名激活。

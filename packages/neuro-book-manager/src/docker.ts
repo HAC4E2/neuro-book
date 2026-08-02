@@ -231,9 +231,8 @@ export async function startDocker(
     await verifyDockerApplication(await statePort(stateRoot), expectedVersion);
 }
 
-/** 读取generated Compose中的固定app镜像，不依赖宿主Docker。 */
-export async function readDockerComposeImage(root: string): Promise<string> {
-    const composePath = join(root, ".deploy", "docker-compose.generated.yml");
+/** 读取当前执行所用generated Compose中的固定app镜像，不依赖宿主Docker。 */
+export async function readDockerComposeImage(root: string, composePath = join(root, ".deploy", "docker-compose.generated.yml")): Promise<string> {
     // YAML是外部文件，必须先作为unknown通过TypeBox门禁后才能读取字段。
     const value: unknown = parse(await readFile(composePath, "utf8"));
     if (!Value.Check(ComposeSchema, value)) {
@@ -302,7 +301,7 @@ export async function runDockerApplicationCommand(
     const [entrypoint, ...args] = command;
     if (!entrypoint) throw new Error("Docker一次性应用命令不能为空。");
     assertContainerUsesVerifiedImage({
-        configuredImage: await readDockerComposeImage(root),
+        configuredImage: await readDockerComposeImage(root, composePath),
     }, verifiedImage);
     return runCapture(engine, [
         ...composeArgs(root, stateRoot, composePath),
