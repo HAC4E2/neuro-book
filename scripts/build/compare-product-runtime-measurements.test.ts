@@ -65,6 +65,26 @@ describe("Product Runtime measurement A/B", () => {
             .rejects.toThrow(`server/index.mjs A=2/sha256:${"8".repeat(64)} B=8/sha256:${"9".repeat(64)}`);
     });
 
+    it("A/B shape漂移报告只存在于一侧的文件", async () => {
+        const root = await sandbox();
+        const left = report();
+        const right = report();
+        right.inventory.files = 2;
+        right.inventory.bytes = 3;
+        right.shapeDigest = `sha256:${"e".repeat(64)}`;
+        right.evidence.payloadFiles.push({
+            relativePath: "server/chunks/runtime.mjs",
+            kind: "file",
+            bytes: 1,
+            mode: 0o644,
+            contentDigest: `sha256:${"7".repeat(64)}`,
+        });
+        const [leftPath, rightPath] = await writeReports(root, left, right);
+
+        await expect(compareProductRuntimeMeasurements(leftPath, rightPath))
+            .rejects.toThrow(`server/chunks/runtime.mjs A=missing B=1/sha256:${"7".repeat(64)}`);
+    });
+
     it("拒绝native island或module closure证据漂移", async () => {
         const root = await sandbox();
         const left = report();

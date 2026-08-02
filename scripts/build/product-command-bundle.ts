@@ -1,10 +1,11 @@
 import {builtinModules} from "node:module";
-import {cp, mkdir, rm, stat} from "node:fs/promises";
+import {cp, mkdir, readFile, rm, stat, writeFile} from "node:fs/promises";
 import {dirname, isAbsolute, relative, resolve, sep} from "node:path";
 import {
     productPiAiImportPlugin,
     productRuntimeCompatibilityPlugin,
 } from "nbook/scripts/build/product-bundle-plugins";
+import {minifyProductJavaScript} from "nbook/scripts/build/product-reproducible-minifier";
 import {productRuntimeIslandPackageNames} from "nbook/scripts/build/product-runtime-islands";
 import {
     createProductRuntimeContract,
@@ -50,7 +51,8 @@ export async function buildProductCommands(outputRoot: string): Promise<ProductC
         entrypoints: Object.values(PRODUCT_COMMAND_SOURCES).map((source) => resolve(source)),
         target: "bun",
         format: "esm",
-        minify: true,
+        // identifier 压缩在 splitting 完成后交给确定性的 esbuild。
+        minify: false,
         sourcemap: "none",
         splitting: true,
         metafile: true,
@@ -75,6 +77,7 @@ export async function buildProductCommands(outputRoot: string): Promise<ProductC
             ...result.logs.map((log) => log.message),
         ].join("\n"));
     }
+    await minifyProductCommandOutputs(result.metafile, commandRoot);
     await assertProductCommandOutputs(result.metafile, commandRoot);
 
     await copyPhysicalRuntimeFiles(serverRoot);
@@ -106,6 +109,20 @@ export async function buildProductCommands(outputRoot: string): Promise<ProductC
         contract: createProductRuntimeContract(entries),
         ...inventory,
     };
+}
+
+/** 对已落盘的 Bun command outputs 做确定性压缩，不重写 chunk 文件名。 */
+async function minifyProductCommandOutputs(
+    metafile: Bun.BuildMetafile | undefined,
+    commandRoot: string,
+): Promise<void> {
+    if (!metafile) throw new Error("Product command bundle 缺少 metafile。");
+    for (const outputName of Object.keys(metafile.outputs)) {
+        const {outputPath, outputRelative} = resolveCommandOutput(outputName, commandRoot);
+        if (!outputRelative.endsWith(".mjs")) continue;
+        const source = await readFile(outputPath, "utf8");
+        await writeFile(outputPath, await minifyProductJavaScript(source, outputRelative), "utf8");
+    }
 }
 
 /** 从 Bun metafile 的 source entryPoint 建立 Product 相对入口，不依赖输出文件名规则。 */

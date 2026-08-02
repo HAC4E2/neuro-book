@@ -13,6 +13,7 @@ import {
     productPiAiImportPlugin,
     productRuntimeCompatibilityPlugin,
 } from "nbook/scripts/build/product-bundle-plugins";
+import {minifyProductJavaScript} from "nbook/scripts/build/product-reproducible-minifier";
 import {rewriteProductPackageIslandImports} from "nbook/scripts/build/product-package-island-imports";
 import {
     productOpaqueImportDefinitions,
@@ -73,7 +74,8 @@ export async function bundleProductRuntime(outputRoot: string, scratchRoot: stri
             entrypoints: [sourceEntry],
             target: "bun",
             format: "esm",
-            minify: true,
+            // identifier 压缩在链接完成后交给确定性的 esbuild。
+            minify: false,
             sourcemap: "none",
             metafile: true,
             outdir: temporaryRoot,
@@ -98,12 +100,15 @@ export async function bundleProductRuntime(outputRoot: string, scratchRoot: stri
             if (!output) throw new Error("Product Runtime bundle 没有 entry output。");
             await cp(output.path, temporaryEntry);
         }
-        const bundledSource = await readFile(temporaryEntry, "utf8");
+        const bundledSource = await minifyProductJavaScript(
+            await readFile(temporaryEntry, "utf8"),
+            "server/index.mjs",
+        );
         const portableSource = normalizeNitroImportMetaFallback(
             normalizePackageManagerMetadata(bundledSource),
             temporaryEntry,
         );
-        if (portableSource !== bundledSource) await writeFile(temporaryEntry, portableSource, "utf8");
+        await writeFile(temporaryEntry, portableSource, "utf8");
 
         await rm(sourceEntry, {force: true});
         await cp(temporaryEntry, sourceEntry);

@@ -52,7 +52,10 @@ export async function compareProductRuntimeMeasurements(
         const fileDrift = paths.flatMap((path) => {
             const leftFile = leftFiles.get(path);
             const rightFile = rightFiles.get(path);
-            return canonicalProductRuntimeJson(leftFile) === canonicalProductRuntimeJson(rightFile)
+            const equal = leftFile && rightFile
+                ? canonicalProductRuntimeJson(leftFile) === canonicalProductRuntimeJson(rightFile)
+                : leftFile === rightFile;
+            return equal
                 ? []
                 : [`${path} A=${leftFile ? `${leftFile.bytes}/${leftFile.contentDigest}` : "missing"} B=${rightFile ? `${rightFile.bytes}/${rightFile.contentDigest}` : "missing"}`];
         });
