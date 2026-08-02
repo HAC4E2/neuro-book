@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
-import {access, mkdir, mkdtemp, readFile, rm} from "node:fs/promises";
+import {access, mkdir, mkdtemp, readFile, realpath, rm} from "node:fs/promises";
 import {createServer} from "node:net";
 import {tmpdir} from "node:os";
-import {join, resolve} from "node:path";
+import {basename, dirname, join, resolve} from "node:path";
+import {fileURLToPath} from "node:url";
 import {parseArgs} from "node:util";
 
 import {AgentJobManager} from "nbook/server/agent/jobs/agent-job-manager";
@@ -19,18 +20,43 @@ if (process.platform !== "win32" || process.arch !== "x64") {
     throw new Error("Windows Owned Process smoke仅支持Windows x64。");
 }
 const bash = values.bash ? resolve(values.bash) : await defaultGitBash();
-const root = await mkdtemp(join(tmpdir(), "nbook-windows-owned-smoke-"));
-const agentBin = join(root, "agent-bin");
-await mkdir(agentBin, {recursive: true});
-
-try {
+// Bun 1.3.14 在 Windows 8.3 短路径上删除曾作为子进程 cwd 的目录会误报 EBUSY。
+const systemTempRoot = await realpath(tmpdir());
+const delegatedRoot = process.env.NEURO_BOOK_WINDOWS_OWNED_SMOKE_ROOT;
+if (!delegatedRoot) {
+    const root = await mkdtemp(join(systemTempRoot, "nbook-windows-owned-smoke-"));
+    const worker = Bun.spawn([
+        process.execPath,
+        fileURLToPath(import.meta.url),
+        "--bash",
+        bash,
+    ], {
+        cwd: process.cwd(),
+        env: {...process.env, NEURO_BOOK_WINDOWS_OWNED_SMOKE_ROOT: root},
+        stdin: "inherit",
+        stdout: "inherit",
+        stderr: "inherit",
+    });
+    let exitCode = 1;
+    try {
+        exitCode = await worker.exited;
+    } finally {
+        await rm(root, {recursive: true, force: true});
+    }
+    process.exitCode = exitCode;
+} else {
+    const root = await realpath(delegatedRoot);
+    if (dirname(root).toLowerCase() !== systemTempRoot.toLowerCase()
+        || !basename(root).startsWith("nbook-windows-owned-smoke-")) {
+        throw new Error(`Windows Owned Process worker root非法：${root}`);
+    }
+    const agentBin = join(root, "agent-bin");
+    await mkdir(agentBin, {recursive: true});
     await verifyTermination("timeout", bash, root, agentBin);
     await verifyTermination("abort", bash, root, agentBin);
     await verifyBackgroundTermination("cancel", bash, root, agentBin);
     await verifyBackgroundTermination("shutdown", bash, root, agentBin);
     console.log(JSON.stringify({status: "passed", bash, runtime: process.execPath}));
-} finally {
-    await rm(root, {recursive: true, force: true});
 }
 
 /** 验证后台Job cancel与Harness使用的shutdown seam都会等待Bash进程树收口。 */
@@ -48,7 +74,7 @@ async function verifyBackgroundTermination(
     const jobs = new AgentJobManager(() => {
         throw new Error("Owned Process smoke不应投递后台结果。");
     }, "");
-    const job = jobs.spawn({
+    const spawned = jobs.spawn({
         kind: "bash",
         title: `owned-process-${reason}`,
         deliver: "none",
@@ -71,11 +97,11 @@ async function verifyBackgroundTermination(
     });
     const state = await waitForState(statePath);
 
-    if (reason === "cancel") await jobs.cancel(job.jobId);
+    if (reason === "cancel") await jobs.cancel(spawned.job.jobId);
     else await jobs.shutdown();
     await jobs.waitIdle();
 
-    const snapshot = jobs.get(job.jobId);
+    const snapshot = jobs.get(spawned.job.jobId);
     if (snapshot?.status !== "cancelled") {
         throw new Error(`后台${reason}状态未收口：${JSON.stringify(snapshot)}`);
     }

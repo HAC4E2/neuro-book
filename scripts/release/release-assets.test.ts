@@ -412,6 +412,7 @@ describe("Product Release宿主合同", () => {
 
     it("在任何GHCR或资产构建前集中执行Release Preflight", async () => {
         const workflow = parse(await readFile(resolve(ROOT, ".github/workflows/release-container.yml"), "utf8")) as ReleaseWorkflow;
+        const scriptsTsconfig = JSON.parse(await readFile(resolve(ROOT, "scripts/tsconfig.json"), "utf8")) as {include?: string[]};
         expect(workflow.jobs.preflight.steps).toContainEqual(
             expect.objectContaining({run: "bun run manager:verify-public"}),
         );
@@ -424,9 +425,12 @@ describe("Product Release宿主合同", () => {
         const preflightRun = workflow.jobs.preflight.steps.map(({run}) => run ?? "").join("\n");
         expect(preflightRun).toContain("bun run test:install");
         expect(preflightRun).toContain("bun run manager:test");
+        expect(preflightRun).toContain("bun x tsc --noEmit -p scripts/tsconfig.json");
+        expect(preflightRun).toContain("bun run --cwd packages/owned-process typecheck");
         expect(preflightRun).toContain("scripts/deploy/product-start.test.ts");
         expect(preflightRun).toContain("product-agent-state-root-smoke.ts");
         expect(preflightRun).toContain("--config scripts/release/release-assets-vitest.config.ts");
+        expect(scriptsTsconfig.include).toContain("deploy/windows-owned-process-smoke.ts");
         expect(releaseAssetsVitestConfig.test.include).toEqual([
             "scripts/release/release-assets.test.ts",
             "scripts/release/release-checksums.test.ts",

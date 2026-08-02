@@ -582,3 +582,12 @@ Phase E gate：本地实现已满足；Windows Release runner真实Portable smok
 
 - Product Platform workflow [`30733829837`](https://github.com/notnotype/neuro-book/actions/runs/30733829837) 在提交 `18e12750` 上通过 Linux x64/AArch64、macOS x64/AArch64 的 Owned Process package、Product 启动、HTTP/浏览器与关闭链。此前“POSIX runner 尚未执行”的缺口已经关闭。
 - 该 workflow 不生成 Windows Portable Candidate，也不替代 Windows 包内 Bun + PortableGit、外置自卸载 Host 与最终进程树验收；对应 TODO 继续保留。
+
+### 2026-08-02：Candidate Windows smoke 宿主所有权修正
+
+- Candidate workflow `30752133985` 的 Windows job 在Product构建前执行Owned Process门禁时失败，表面错误是删除 `nbook-windows-owned-smoke-*` 临时根返回 `EBUSY`。finally 的删除错误覆盖了更早的真实异常，初始诊断因此误判为进程树未收口。
+- 真实首错是smoke仍按旧合同读取 `jobs.spawn(...).jobId`；当前 `AgentJobManager.spawn()` 返回 `{job, jobEventCursor}`，因此cancel实际收到`undefined`。现已改为使用`spawned.job.jobId`，cancel与shutdown都会在`waitIdle()`后复核最终`cancelled`状态。
+- Bun 1.3.14在Windows同一宿主进程内仍可能持有曾作为后代cwd的临时根，进程退出后目录立即可删。没有加入无限重试、GC或忽略清理错误；smoke改为父harness创建专属临时根、worker执行真实进程树测试、worker退出后父harness删除。worker root必须是规范化系统临时目录下的固定前缀，不能接受任意路径。
+- Windows监督控制面不再继承目标cwd；目标cwd仍只通过IPC传给目标进程。包级合同固定该边界，避免监督ChildProcess自身扩大目录句柄生命周期。
+- `scripts` TypeScript project现显式包含Source smoke，Release preflight也会在fan-out前运行scripts与Owned Process package typecheck；旧`spawn()`返回值用法不能再只等Windows运行时暴露。
+- 本地验证：Owned Process包`14 passed / 3 platform-skipped`，Source Agent Bash smoke与Portable nested Product smoke都通过；两条脚本均实际完成临时根删除。该证据修复的是Windows Candidate前置门禁，最终同代Portable仍由下一唯一Candidate证明。

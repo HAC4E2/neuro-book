@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
-import {access, mkdtemp, readFile, rm} from "node:fs/promises";
+import {access, mkdtemp, readFile, realpath, rm} from "node:fs/promises";
 import {createServer} from "node:net";
 import {tmpdir} from "node:os";
-import {join, resolve} from "node:path";
+import {basename, dirname, join, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {parseArgs} from "node:util";
 
@@ -18,15 +18,39 @@ if (process.platform !== "win32" || process.arch !== "x64") {
 }
 const bash = values.bash ? resolve(values.bash) : await defaultGitBash();
 await access(bash);
-const root = await mkdtemp(join(tmpdir(), "nbook-owned-release-smoke-"));
-
-try {
+const systemTempRoot = await realpath(tmpdir());
+const delegatedRoot = process.env.NEURO_BOOK_WINDOWS_RELEASE_SMOKE_ROOT;
+if (!delegatedRoot) {
+    const root = await mkdtemp(join(systemTempRoot, "nbook-owned-release-smoke-"));
+    const worker = Bun.spawn([
+        process.execPath,
+        fileURLToPath(import.meta.url),
+        "--bash",
+        bash,
+    ], {
+        cwd: process.cwd(),
+        env: {...process.env, NEURO_BOOK_WINDOWS_RELEASE_SMOKE_ROOT: root},
+        stdin: "inherit",
+        stdout: "inherit",
+        stderr: "inherit",
+    });
+    let exitCode = 1;
+    try {
+        exitCode = await worker.exited;
+    } finally {
+        await rm(root, {recursive: true, force: true});
+    }
+    process.exitCode = exitCode;
+} else {
+    const root = await realpath(delegatedRoot);
+    if (dirname(root).toLowerCase() !== systemTempRoot.toLowerCase()
+        || !basename(root).startsWith("nbook-owned-release-smoke-")) {
+        throw new Error(`Windows Release Owned Process worker root非法：${root}`);
+    }
     await verifyTermination("timeout", bash, root);
     await verifyTermination("abort", bash, root);
     await verifyNestedProduct(root, bash);
     console.log(JSON.stringify({status: "passed", bash, runtime: process.execPath}));
-} finally {
-    await rm(root, {recursive: true, force: true});
 }
 
 /** 验证Portable Product外层Job可以容纳并收口Agent Bash内层Job。 */

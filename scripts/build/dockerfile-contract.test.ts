@@ -13,6 +13,11 @@ describe("Docker Product runtime contract", () => {
 
         expect(dockerfile).toContain("ARG NEURO_BOOK_SOURCE_REVISION");
         expect(dockerfile).toContain("ENV NEURO_BOOK_SOURCE_REVISION=${NEURO_BOOK_SOURCE_REVISION}");
+        const dependencyStage = dockerfile.split("FROM runtime-base AS deps")[1]?.split("FROM runtime-base AS build")[0];
+        expect(dependencyStage).toBeDefined();
+        expect(dependencyStage!.indexOf("COPY patches ./patches")).toBeLessThan(
+            dependencyStage!.indexOf("bun install --frozen-lockfile --linker hoisted"),
+        );
         const runnerStage = dockerfile.split("FROM runtime-base AS runner")[1];
         expect(runnerStage).toBeDefined();
         expect(runnerStage).toContain("ARG NEURO_BOOK_SOURCE_REVISION");

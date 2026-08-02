@@ -10,6 +10,17 @@ afterEach(() => {
 });
 
 describe("Windows Adapter protocol", () => {
+    it("监督控制面不占用目标cwd，目标cwd只通过IPC下发", async () => {
+        const supervisor = new FakeSupervisor();
+        let spawnOptions: {cwd?: string} | undefined;
+        const spawnWindowsOwnedProcess = await loadAdapter(supervisor, (_command, _args, options) => {
+            spawnOptions = options;
+        });
+        spawnWindowsOwnedProcess({command: "target", cwd: "C:\\payload-root"});
+
+        expect(spawnOptions).not.toHaveProperty("cwd");
+    });
+
     it("内部监督协议不根据测试宿主架构拒绝调用", async () => {
         const descriptor = Object.getOwnPropertyDescriptor(process, "arch");
         if (!descriptor) throw new Error("process.arch descriptor 不存在");
@@ -98,9 +109,15 @@ describe("Windows Adapter protocol", () => {
 });
 
 /** 动态加载Adapter，让每个测试拥有独立的监督进程替身。 */
-async function loadAdapter(supervisor: FakeSupervisor) {
+async function loadAdapter(
+    supervisor: FakeSupervisor,
+    onSpawn?: (_command: string, _args: string[], options: {cwd?: string}) => void,
+) {
     vi.doMock("node:child_process", () => ({
-        spawn: vi.fn(() => supervisor),
+        spawn: vi.fn((command: string, args: string[], options: {cwd?: string}) => {
+            onSpawn?.(command, args, options);
+            return supervisor;
+        }),
     }));
     const module = await import("#owned-process/windows-adapter");
     return module.spawnWindowsOwnedProcess;

@@ -27,7 +27,6 @@ export function spawnWindowsOwnedProcess(spec: OwnedProcessSpec, options: Window
     const hardKillWaitMs = validWindow(spec.hardKillWaitMs, 3_000, "hardKillWaitMs");
     const supervisorRuntime = process.versions.bun ? process.execPath : "bun";
     const supervisor = spawn(supervisorRuntime, ["-e", options.supervisorSource ?? WINDOWS_SUPERVISOR_SOURCE], {
-        cwd: spec.cwd,
         // 监督器使用宿主Runtime环境；目标env只通过IPC传递，不能让调用方裁剪PATH后破坏ownership建立。
         env: process.env,
         stdio: [spec.stdin === "inherit" ? 0 : "ignore", spec.stdout ?? "pipe", spec.stderr ?? "pipe", "ipc"],

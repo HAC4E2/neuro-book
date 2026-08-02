@@ -646,6 +646,14 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - 生命周期修复后的 Draft `v0.9.0-canary.20260802.142014Z.fa92005b`（release ID `363806130`、revision `043773ec`）dispatch workflow [`30751890962`](https://github.com/notnotype/neuro-book/actions/runs/30751890962)。clean runner 在 47 秒内通过 generated sources、policy、Manager、Stage 0 与 Agent State Root，随后 release assets Vitest 在收集目标文件前加载全仓 Agent `globalSetup/setupFiles`，clean hoisted Zod 模块形状与本地 Developer Build State 不同而失败；没有进入任何 fan-out。
 - release assets 与 checksum 两个合同现使用独立 `release-assets-vitest.config.ts`，只设置 `nbook` alias、Node environment、单 worker 和两个精确 include，不加载 Agent/Nuxt fixture。专用命令为 2 files / 22 tests、setup 0ms；合同测试同时约束 workflow 必须使用该配置且不得出现 `globalSetup` / `setupFiles`。该失败 Draft继续保留审计，下一 Candidate仍使用新身份。
 
+### 2026-08-02：第四次 Draft fan-out 与双链修复
+
+- 新 Draft `v0.9.0-canary.20260802.142653Z.be5484f8`（release ID `363807688`、revision `1be5556459c7b2b6f6828b0efaf2ff69da544aea`）dispatch workflow [`30752133985`](https://github.com/notnotype/neuro-book/actions/runs/30752133985)。Release preflight、Source archive、Linux x64/AArch64与macOS x64/AArch64 Product全部成功，证明前面三轮的生成、State Root和资产测试隔离修复已经进入clean Candidate。
+- 两个OCI原生架构共同失败于deps stage：Dockerfile在`bun install --frozen-lockfile`前只复制package manifest与lockfile，没有复制lockfile登记的`patches/nitropack@2.13.4.patch`。修复把完整`patches/`投影到deps stage，并由Dockerfile合同固定copy必须早于install；本机无Docker CLI，容器构建本身仍由下一Candidate取得真实证据。
+- Windows job在Product构建前的Owned Process smoke停止。finally的`EBUSY`一度掩盖了旧`spawn()`返回值用法；修正为`spawned.job.jobId`后，smoke以父harness/子worker分离测试宿主和临时根所有权：worker完成timeout、abort、Agent Job cancel、shutdown及nested Product进程树验证，退出后父harness再删除专属根。没有用删除重试或忽略错误绕过真实泄漏。
+- `scripts` TypeScript project此前未包含Windows smoke，旧返回值漂移因此未被静态检查发现。现已登记smoke及其既有网页提取类型声明，Release preflight在任何fan-out前同时运行scripts与Owned Process package typecheck；发行合同固定命令和tsconfig include。
+- 本地验证为Owned Process包`14 passed / 3 skipped`、两条真实Windows smoke、Dockerfile合同`1/1`、release assets `22/22`、scripts/package/root typecheck与docs build全绿。workflow `30752133985` 保持失败Draft、没有公开资产或正式OCI tag；修复提交后必须创建新的唯一Draft，不能复用该release ID、tag、revision或部分产物。
+
 ## TODO / Follow-ups
 
 - [x] Phase 0：生成可重复的 Product Runtime Image 体积/文件数基线与归因报告。

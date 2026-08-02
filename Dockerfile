@@ -17,6 +17,7 @@ WORKDIR /app
 
 COPY package.json bun.lock ./
 COPY packages/neuro-book-manager/package.json ./packages/neuro-book-manager/package.json
+COPY patches ./patches
 RUN cp bun.lock /tmp/bun.lock \
     && bun install --frozen-lockfile --linker hoisted \
     && cmp bun.lock /tmp/bun.lock
