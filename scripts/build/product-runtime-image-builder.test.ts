@@ -6,6 +6,7 @@ import {promisify} from "node:util";
 import {lock as acquireFileLock} from "proper-lockfile";
 import {afterEach, describe, expect, it} from "vitest";
 
+import {PRODUCT_PLATFORMS} from "nbook/packages/neuro-book-manager/src/types";
 import {
     hasProductRuntimeBuildPolicy,
     PRODUCT_RUNTIME_BUILDER_CONTRACT_VERSION,
@@ -117,27 +118,16 @@ describe("ProductRuntimeImageBuilder", {timeout: 30_000}, () => {
         await expect(access(candidate)).rejects.toMatchObject({code: "ENOENT"});
     });
 
-    it("未登记平台正式构建 fail closed，但 measurement 返回登记数据且不留下候选", async () => {
+    it("全部正式平台已登记，measurement 返回已登记状态且不留下候选", async () => {
         const root = await sourceFixture();
         const builder = new ProductRuntimeImageBuilder(root);
-        let formalBuildCalled = false;
 
-        expect(hasProductRuntimeBuildPolicy("windows-x64")).toBe(true);
-        expect(hasProductRuntimeBuildPolicy("linux-x64-glibc")).toBe(false);
-        expect(() => productRuntimeBuildPolicy("linux-x64-glibc")).toThrow(
-            "尚未登记 linux-x64-glibc",
-        );
-        await expect(builder.buildCandidate({
-            operationId: "unregistered-formal",
-            platform: "linux-x64-glibc",
-            ...fixturePolicy(),
-            async build() {
-                formalBuildCalled = true;
-            },
-        })).rejects.toThrow("尚未登记 linux-x64-glibc");
-        expect(formalBuildCalled).toBe(false);
+        for (const platform of PRODUCT_PLATFORMS) {
+            expect(hasProductRuntimeBuildPolicy(platform)).toBe(true);
+            expect(productRuntimeBuildPolicy(platform).platform).toBe(platform);
+        }
 
-        const report = await measureFixture(builder, "unregistered-measurement", "linux-x64-glibc");
+        const report = await measureFixture(builder, "registered-measurement", "linux-x64-glibc");
         expect(report).toMatchObject({
             schema: PRODUCT_RUNTIME_MEASUREMENT_SCHEMA,
             builderContractVersion: PRODUCT_RUNTIME_BUILDER_CONTRACT_VERSION,
@@ -147,7 +137,7 @@ describe("ProductRuntimeImageBuilder", {timeout: 30_000}, () => {
             runtime: {nuxt: "4.3.1", nitro: "2.13.4"},
             runtimeContract: {path: PRODUCT_RUNTIME_CONTRACT_PATH},
             policy: {
-                registered: false,
+                registered: true,
                 globalBudget: {
                     maxFiles: PRODUCT_RUNTIME_MAX_FILES,
                     maxBytes: PRODUCT_RUNTIME_MAX_BYTES,
@@ -166,9 +156,9 @@ describe("ProductRuntimeImageBuilder", {timeout: 30_000}, () => {
         expect(report.inventory.files).toBeGreaterThan(0);
         expect(report.treeDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
         expect(report.shapeDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
-        await expect(access(join(root, ".deploy", "staging", "unregistered-measurement")))
+        await expect(access(join(root, ".deploy", "staging", "registered-measurement")))
             .rejects.toMatchObject({code: "ENOENT"});
-        await expect(access(join(root, ".deploy", "staging-leases", "unregistered-measurement")))
+        await expect(access(join(root, ".deploy", "staging-leases", "registered-measurement")))
             .rejects.toMatchObject({code: "ENOENT"});
         await expect(access(join(root, ".output"))).rejects.toMatchObject({code: "ENOENT"});
     });
@@ -589,13 +579,17 @@ async function measureFixture(
         async build({imageRoot}) {
             await mkdir(join(imageRoot, "server"), {recursive: true});
             await writeFile(join(imageRoot, "server", "index.mjs"), "export default true;\n", "utf8");
-            await writeRuntimeFixture(imageRoot);
+            await writeRuntimeFixture(imageRoot, platform, true);
         },
     });
 }
 
 /** 写入最小但完整的 Product Runtime Contract 与全部被引用入口。 */
-async function writeRuntimeFixture(imageRoot: string): Promise<void> {
+async function writeRuntimeFixture(
+    imageRoot: string,
+    platform: typeof PRODUCT_PLATFORMS[number] = "windows-x64",
+    withClosureEvidence = false,
+): Promise<void> {
     const entries: ProductRuntimeEntryMap = {
         productStart: "server/commands/start.mjs",
         sqliteMigrate: "server/commands/migrate-database.mjs",
@@ -622,6 +616,21 @@ async function writeRuntimeFixture(imageRoot: string): Promise<void> {
     const contractPath = join(imageRoot, ...PRODUCT_RUNTIME_CONTRACT_PATH.split("/"));
     await mkdir(resolve(contractPath, ".."), {recursive: true});
     await writeFile(contractPath, `${JSON.stringify(contract, null, 2)}\n`, "utf8");
+    if (!withClosureEvidence) return;
+    await Promise.all([
+        mkdir(join(imageRoot, "server", "authoring"), {recursive: true}),
+        mkdir(join(imageRoot, "server", "assets"), {recursive: true}),
+    ]);
+    await Promise.all([
+        writeFile(join(imageRoot, "server", "native-islands.json"), `${JSON.stringify({
+            schema: "nbook.product-native-islands/v2",
+            platform,
+            islands: [],
+            opaqueImports: [],
+        }, null, 4)}\n`, "utf8"),
+        writeFile(join(imageRoot, "server", "authoring", "placeholder.mjs"), "export {};\n", "utf8"),
+        writeFile(join(imageRoot, "server", "assets", "placeholder.mjs"), "export {};\n", "utf8"),
+    ]);
 }
 
 /** fixture 只能收窄正式平台策略；无法创造 release 可接受的宽松 policy。 */

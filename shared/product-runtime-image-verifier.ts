@@ -174,16 +174,52 @@ const PRODUCT_RUNTIME_OWNERS: readonly ProductRuntimeImageOwner[] = [
     {name: "runtime-meta", paths: ["nitro.json", "server/package.json", "server/runtime-contract.json"]},
 ] as const;
 
-// 2026-08-01 Windows x64：冻结 Source A/B 与仓库外完整 Product smoke 通过。
+// 2026-08-02：五个平台在 clean Source 上完成 A/B measurement、owner 与 native island 审查。
 const PRODUCT_RUNTIME_OWNER_BASELINES: Partial<Record<ProductPlatform, readonly ProductRuntimeOwnerBaseline[]>> = {
     "windows-x64": [
-        {name: "frontend", files: 177, bytes: 15_854_204},
-        {name: "server-bundle", files: 1, bytes: 12_608_947},
-        {name: "commands", files: 106, bytes: 10_700_869},
-        {name: "authoring-kit", files: 510, bytes: 13_400_281},
-        {name: "native-islands", files: 2_059, bytes: 75_260_595},
-        {name: "system-assets", files: 373, bytes: 5_303_264},
-        {name: "runtime-meta", files: 3, bytes: 4_515},
+        {name: "frontend", files: 177, bytes: 15_272_680},
+        {name: "server-bundle", files: 1, bytes: 12_647_286},
+        {name: "commands", files: 113, bytes: 10_776_183},
+        {name: "authoring-kit", files: 509, bytes: 13_424_606},
+        {name: "native-islands", files: 2_059, bytes: 75_260_630},
+        {name: "system-assets", files: 373, bytes: 5_329_690},
+        {name: "runtime-meta", files: 3, bytes: 4_762},
+    ],
+    "linux-x64-glibc": [
+        {name: "frontend", files: 177, bytes: 15_272_675},
+        {name: "server-bundle", files: 1, bytes: 12_662_685},
+        {name: "commands", files: 115, bytes: 11_146_806},
+        {name: "authoring-kit", files: 509, bytes: 14_845_986},
+        {name: "native-islands", files: 2_062, bytes: 75_144_692},
+        {name: "system-assets", files: 373, bytes: 5_285_099},
+        {name: "runtime-meta", files: 3, bytes: 4_762},
+    ],
+    "linux-aarch64-glibc": [
+        {name: "frontend", files: 177, bytes: 15_272_675},
+        {name: "server-bundle", files: 1, bytes: 12_662_685},
+        {name: "commands", files: 115, bytes: 11_146_806},
+        {name: "authoring-kit", files: 509, bytes: 14_845_986},
+        {name: "native-islands", files: 2_062, bytes: 72_567_998},
+        {name: "system-assets", files: 373, bytes: 5_285_099},
+        {name: "runtime-meta", files: 3, bytes: 4_762},
+    ],
+    "darwin-x64": [
+        {name: "frontend", files: 177, bytes: 15_272_675},
+        {name: "server-bundle", files: 1, bytes: 12_662_685},
+        {name: "commands", files: 115, bytes: 11_146_806},
+        {name: "authoring-kit", files: 509, bytes: 14_845_986},
+        {name: "native-islands", files: 2_062, bytes: 75_913_156},
+        {name: "system-assets", files: 373, bytes: 5_285_099},
+        {name: "runtime-meta", files: 3, bytes: 4_762},
+    ],
+    "darwin-aarch64": [
+        {name: "frontend", files: 177, bytes: 15_272_675},
+        {name: "server-bundle", files: 1, bytes: 12_662_685},
+        {name: "commands", files: 115, bytes: 11_146_806},
+        {name: "authoring-kit", files: 509, bytes: 14_845_986},
+        {name: "native-islands", files: 2_062, bytes: 71_965_408},
+        {name: "system-assets", files: 373, bytes: 5_285_099},
+        {name: "runtime-meta", files: 3, bytes: 4_762},
     ],
 };
 

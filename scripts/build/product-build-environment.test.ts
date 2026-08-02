@@ -3,6 +3,7 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {describe, expect, it} from "vitest";
 
+import {PRODUCT_PLATFORMS} from "nbook/packages/neuro-book-manager/src/types";
 import {
     PRODUCT_SOURCE_DATE_EPOCH,
     PRODUCT_NODE_OPTIONS,
@@ -53,20 +54,59 @@ describe("Product build environment", () => {
         expect(source.NUXT_DEVTOOLS).toBe("1");
     });
 
-    it("只返回当前平台实测 baseline，未登记平台 fail closed", () => {
-        expect(productRuntimeOwnerBaselines("windows-x64")).toEqual([
-            {name: "frontend", files: 177, bytes: 15_854_204},
-            {name: "server-bundle", files: 1, bytes: 12_608_947},
-            {name: "commands", files: 106, bytes: 10_700_869},
-            {name: "authoring-kit", files: 510, bytes: 13_400_281},
-            {name: "native-islands", files: 2_059, bytes: 75_260_595},
-            {name: "system-assets", files: 373, bytes: 5_303_264},
-            {name: "runtime-meta", files: 3, bytes: 4_515},
-        ]);
-        expect(() => productRuntimeOwnerBaselines("linux-x64-glibc")).toThrow("尚未登记 linux-x64-glibc");
-        expect(missingProductRuntimeBuildPolicies()).toContain("linux-x64-glibc");
-        expect(missingProductRuntimeBuildPolicies()).not.toContain("windows-x64");
-        expect(() => assertAllProductRuntimeBuildPolicies()).toThrow("尚未登记 approved runtime policy");
+    it("五个平台只返回各自实测 baseline，正式 policy preflight 全部通过", () => {
+        expect(Object.fromEntries(PRODUCT_PLATFORMS.map((platform) => [
+            platform,
+            productRuntimeOwnerBaselines(platform),
+        ]))).toEqual({
+            "windows-x64": [
+                {name: "frontend", files: 177, bytes: 15_272_680},
+                {name: "server-bundle", files: 1, bytes: 12_647_286},
+                {name: "commands", files: 113, bytes: 10_776_183},
+                {name: "authoring-kit", files: 509, bytes: 13_424_606},
+                {name: "native-islands", files: 2_059, bytes: 75_260_630},
+                {name: "system-assets", files: 373, bytes: 5_329_690},
+                {name: "runtime-meta", files: 3, bytes: 4_762},
+            ],
+            "linux-x64-glibc": [
+                {name: "frontend", files: 177, bytes: 15_272_675},
+                {name: "server-bundle", files: 1, bytes: 12_662_685},
+                {name: "commands", files: 115, bytes: 11_146_806},
+                {name: "authoring-kit", files: 509, bytes: 14_845_986},
+                {name: "native-islands", files: 2_062, bytes: 75_144_692},
+                {name: "system-assets", files: 373, bytes: 5_285_099},
+                {name: "runtime-meta", files: 3, bytes: 4_762},
+            ],
+            "linux-aarch64-glibc": [
+                {name: "frontend", files: 177, bytes: 15_272_675},
+                {name: "server-bundle", files: 1, bytes: 12_662_685},
+                {name: "commands", files: 115, bytes: 11_146_806},
+                {name: "authoring-kit", files: 509, bytes: 14_845_986},
+                {name: "native-islands", files: 2_062, bytes: 72_567_998},
+                {name: "system-assets", files: 373, bytes: 5_285_099},
+                {name: "runtime-meta", files: 3, bytes: 4_762},
+            ],
+            "darwin-x64": [
+                {name: "frontend", files: 177, bytes: 15_272_675},
+                {name: "server-bundle", files: 1, bytes: 12_662_685},
+                {name: "commands", files: 115, bytes: 11_146_806},
+                {name: "authoring-kit", files: 509, bytes: 14_845_986},
+                {name: "native-islands", files: 2_062, bytes: 75_913_156},
+                {name: "system-assets", files: 373, bytes: 5_285_099},
+                {name: "runtime-meta", files: 3, bytes: 4_762},
+            ],
+            "darwin-aarch64": [
+                {name: "frontend", files: 177, bytes: 15_272_675},
+                {name: "server-bundle", files: 1, bytes: 12_662_685},
+                {name: "commands", files: 115, bytes: 11_146_806},
+                {name: "authoring-kit", files: 509, bytes: 14_845_986},
+                {name: "native-islands", files: 2_062, bytes: 71_965_408},
+                {name: "system-assets", files: 373, bytes: 5_285_099},
+                {name: "runtime-meta", files: 3, bytes: 4_762},
+            ],
+        });
+        expect(missingProductRuntimeBuildPolicies()).toEqual([]);
+        expect(() => assertAllProductRuntimeBuildPolicies()).not.toThrow();
     });
 
     it("raw Nuxt pipeline 只读取 tracked 的空 Product dotenv", async () => {
