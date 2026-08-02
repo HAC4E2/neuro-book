@@ -99,7 +99,7 @@ export async function extractZip(archivePath: string, targetRoot: string): Promi
 /** 解压 tar.gz；Linux Product 与工具包使用系统 tar。 */
 export async function extractTarGz(archivePath: string, targetRoot: string): Promise<void> {
     await ensureDirectory(targetRoot);
-    await run("tar", ["-xzf", archivePath, "-C", targetRoot]);
+    await run("tar", ["-xpzf", archivePath, "-C", targetRoot]);
 }
 
 /** 根据扩展名解压组件。 */

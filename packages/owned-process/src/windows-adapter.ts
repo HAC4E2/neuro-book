@@ -23,9 +23,6 @@ type WindowsAdapterOptions = {
 
 /** Windows Adapter通过Bun FFI监督进程在目标创建前建立Job Object所有权。 */
 export function spawnWindowsOwnedProcess(spec: OwnedProcessSpec, options: WindowsAdapterOptions = {}): OwnedProcessLease {
-    if (process.arch !== "x64") {
-        throw new OwnedProcessError(`Windows Owned Process当前仅支持x64，实际为${process.arch}。`, {stage: "platform"});
-    }
     const graceMs = validWindow(spec.graceMs, 500, "graceMs");
     const hardKillWaitMs = validWindow(spec.hardKillWaitMs, 3_000, "hardKillWaitMs");
     const supervisorRuntime = process.versions.bun ? process.execPath : "bun";

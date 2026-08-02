@@ -1,4 +1,5 @@
 import {spawnPosixOwnedProcess} from "#owned-process/posix-adapter";
+import {OwnedProcessError} from "#owned-process/types";
 import type {OwnedProcessLease, OwnedProcessSpec} from "#owned-process/types";
 import {spawnWindowsOwnedProcess} from "#owned-process/windows-adapter";
 
@@ -9,7 +10,7 @@ export type {
     OwnedProcessStdio,
     OwnedProcessTerminationReason,
 } from "#owned-process/types";
-export {OwnedProcessError} from "#owned-process/types";
+export {OwnedProcessError};
 
 /**
  * 启动NeuroBook拥有的进程树。
@@ -17,7 +18,11 @@ export {OwnedProcessError} from "#owned-process/types";
  * 两个平台都在宿主IPC断开时收口目标树。
  */
 export function spawnOwnedProcess(spec: OwnedProcessSpec): OwnedProcessLease {
-    return process.platform === "win32"
-        ? spawnWindowsOwnedProcess(spec)
-        : spawnPosixOwnedProcess(spec);
+    if (process.platform === "win32") {
+        if (process.arch !== "x64") {
+            throw new OwnedProcessError(`Windows Owned Process当前仅支持x64，实际为${process.arch}。`, {stage: "platform"});
+        }
+        return spawnWindowsOwnedProcess(spec);
+    }
+    return spawnPosixOwnedProcess(spec);
 }

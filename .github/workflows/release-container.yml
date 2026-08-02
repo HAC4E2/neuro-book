@@ -474,7 +474,7 @@ jobs:
           rm -rf "${smoke_root}"
           mkdir -p "${product_root}"
           unzip -q candidate-assets/neuro-book-source.zip -d "${product_root}"
-          tar -xzf candidate-assets/neuro-book-product-linux-x64-glibc.tar.gz -C "${product_root}"
+          tar -xpzf candidate-assets/neuro-book-product-linux-x64-glibc.tar.gz -C "${product_root}"
           mkdir -p "${state_root}/workspace"
           test ! -e "${product_root}/node_modules"
           bun --no-install --no-env-file scripts/release/verify-extracted-product.ts --product-root "${product_root}"

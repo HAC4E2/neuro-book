@@ -64,7 +64,7 @@ STATE_ROOT="$SMOKE_ROOT/state"
 rm -rf "$SMOKE_ROOT"
 mkdir -p "$APPLICATION_ROOT" "$STATE_ROOT/workspace" "$STATE_ROOT/logs"
 unzip -q "$SOURCE_ARCHIVE" -d "$APPLICATION_ROOT"
-tar -xzf "$PRODUCT_ARCHIVE" -C "$APPLICATION_ROOT"
+tar -xpzf "$PRODUCT_ARCHIVE" -C "$APPLICATION_ROOT"
 if [ -e "$APPLICATION_ROOT/node_modules" ]; then
     echo "Product smoke root unexpectedly contains node_modules." >&2
     exit 1

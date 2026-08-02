@@ -427,6 +427,14 @@ describe("Product Release宿主合同", () => {
         expect(windowsRun).toContain("bun run manager:test");
     });
 
+    it("正式POSIX Product消费路径保留归档中的文件权限", async () => {
+        const workflow = await readFile(resolve(ROOT, ".github/workflows/release-container.yml"), "utf8");
+        const verifier = await readFile(resolve(ROOT, "scripts/release/verify-posix-product.sh"), "utf8");
+
+        expect(workflow).toContain("tar -xpzf candidate-assets/neuro-book-product-linux-x64-glibc.tar.gz");
+        expect(verifier).toContain('tar -xpzf "$PRODUCT_ARCHIVE" -C "$APPLICATION_ROOT"');
+    });
+
     it("Release Candidate按release ID隔离且绝不互相取消", async () => {
         const workflow = parse(await readFile(resolve(ROOT, ".github/workflows/release-container.yml"), "utf8")) as ReleaseWorkflow;
         expect(workflow.on?.workflow_dispatch?.inputs).toMatchObject({
