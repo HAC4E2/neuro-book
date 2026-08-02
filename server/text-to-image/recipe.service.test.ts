@@ -1,12 +1,23 @@
-import {describe, expect, it} from "vitest";
+import {beforeEach, describe, expect, it, vi} from "vitest";
 import {createDefaultTextToImageRecipeSource} from "nbook/shared/text-to-image-recipe";
 import {
     TextToImageRecipeConflictError,
     TextToImageRecipeInvalidError,
     TextToImageRecipeService,
+    TextToImageManualReferencesUnsupportedError,
     type TextToImageRecipeFileStore,
 } from "nbook/server/text-to-image/recipe.service";
 import {DEFAULT_TEXT_TO_IMAGE_RECIPE_PATH} from "nbook/server/text-to-image/recipe.codec";
+
+// Recipe save 现在与 Manifest registration 共享 Project mutation 锁；单元测试用 identity 替换。
+vi.mock("nbook/server/text-to-image/reference-asset-lock", () => ({
+    withTextToImageReferenceMutationLock: async <T>(_projectPath: string, operation: () => Promise<T>): Promise<T> => operation(),
+    assertTextToImageReferenceMutationScope: (): void => undefined,
+}));
+
+beforeEach(() => {
+    vi.clearAllMocks();
+});
 
 describe("TextToImageRecipeService", () => {
     it("缺少 Recipe 时只返回未持久化默认草稿，不写 Project Workspace", async () => {
@@ -175,6 +186,33 @@ describe("TextToImageRecipeService", () => {
             },
         });
         expect(store.writes).toHaveLength(1);
+    });
+
+    it("Recipe 含参考选择时手工编译被稳定拒绝", async () => {
+        const store = new MemoryRecipeFileStore();
+        const service = new TextToImageRecipeService(store);
+        const source = {
+            ...createDefaultTextToImageRecipeSource(),
+            references: {
+                normalizeVibeStrengths: true,
+                vibeReferences: [{contentHash: "a".repeat(64), strength: 0.6, informationExtracted: 0.5}],
+                characterReferences: [],
+                inpaint: null,
+            },
+        };
+        const saved = await service.save({
+            projectPath: "workspace/novel-1",
+            source,
+            expectedRecipeSourceHash: null,
+        });
+
+        await expect(service.compileManual({
+            projectPath: "workspace/novel-1",
+            prompt: "sunlit room",
+            negativePrompt: "",
+            count: 1,
+            expectedRecipeSourceHash: saved.snapshot.recipeSourceHash,
+        })).rejects.toBeInstanceOf(TextToImageManualReferencesUnsupportedError);
     });
 
     it("未显式保存 Recipe 时拒绝创建 Job", async () => {

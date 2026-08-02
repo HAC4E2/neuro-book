@@ -1,9 +1,6 @@
-import {mkdtemp, rm} from "node:fs/promises";
-import {tmpdir} from "node:os";
 import path from "node:path";
-import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
+import {describe, expect, it, vi} from "vitest";
 import {
-    generateNovelAiImage,
     NovelAiHttpError,
     requestCompiledNovelAiImage,
     requestNovelAiImages,
@@ -14,16 +11,7 @@ import {createIllustrationCompiledRequestHash, type IllustrationCompiledRequest}
 import {resolveProviderCapability} from "nbook/shared/text-to-image-provider-registry";
 import {illustrationCompiledRequestFixture} from "nbook/server/text-to-image/execution.test-fixtures";
 
-const temporaryDirectories: string[] = [];
-
 describe("NovelAI image generation", () => {
-    afterEach(async () => {
-        vi.unstubAllGlobals();
-        await Promise.all(temporaryDirectories.splice(0).map(async (directory) => {
-            await rm(directory, {recursive: true, force: true});
-        }));
-    });
-
     it("rejects token and image URL fields in the public request", () => {
         expect(TextToImageGenerateRequestSchema.safeParse({
             ...generateInput("C:/output"),
@@ -132,7 +120,7 @@ describe("NovelAI image generation", () => {
         random.mockRestore();
         expect(fetchImpl).toHaveBeenCalledTimes(1);
         const body = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body));
-        expect(body).toMatchObject({input: "exact compiled prompt", model: request.model, action: "generate"});
+        expect(body).toMatchObject({input: "exact compiled prompt", model: request.wireModel, action: "generate"});
         expect(body.parameters).toMatchObject({
             sampler: "k_euler_ancestral",
             noise_schedule: "native-schedule",
@@ -155,70 +143,94 @@ describe("NovelAI image generation", () => {
                 },
             },
         });
-        expect(response.request).toEqual({model: request.model, seed: 987654, compiledRequestHash: request.compiledRequestHash});
+        expect(response.request).toEqual({model: request.model, wireModel: request.wireModel, seed: 987654, compiledRequestHash: request.compiledRequestHash});
     });
 
-    it("P5 参考资产：Vibe encoding 走缓存命中、Character Reference 与 Inpaint 蒙版读字节，wire 与 action=inpaint 就绪", async () => {
+    it("P5 参考资产：缓存命中走零 encode-vibe 调用，Char-Ref 与 Inpaint 读源字节，wire 只含冻结 action/wireModel", async () => {
         const hash64 = "a".repeat(64);
-        // encode-vibe 返回二进制；fetch 仅被 encode-vibe 调用（缓存命中时不调用）
-        const fetchImpl = vi.fn(async () => new Response(new Uint8Array([0x01, 0x02, 0x03])));
-        // 生成图片响应返回一张 PNG
-        const generateFetch = vi.fn(async (_url: string, _init: unknown) => new Response(Buffer.from([
+        // 生成图片响应返回一张 PNG；缓存命中时绝不调用 /ai/encode-vibe。
+        const generateFetch = vi.fn(async () => new Response(Buffer.from([
             0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
         ])));
-        // 路由：/ai/encode-vibe 用 fetchImpl，/ai/generate-image 用 generateFetch
-        const dispatchFetch = vi.fn(async (url: string, init: unknown) => {
-            return String(url).includes("encode-vibe") ? fetchImpl(url, init) : generateFetch(url, init);
-        });
+        const dispatchFetch = vi.fn(async (_url: string, init: unknown) => generateFetch(_url, init));
         const resolver: CompiledNovelAiReferenceResolver = {
-            readBytes: vi.fn(async (contentHash) => ({
+            readSource: vi.fn(async (contentHash) => ({
                 bytes: new Uint8Array([0x10, 0x20, 0x30 + contentHash.charCodeAt(0) % 10]),
-                mimeType: contentHash === hash64 ? "image/png" : "image/png",
+                evidence: {
+                    contentHash,
+                    kind: "source-image" as const,
+                    mimeType: "image/png" as const,
+                    byteLength: 3,
+                    width: 3,
+                    height: 2,
+                },
             })),
-            findVibeEncoding: vi.fn(async () => new Uint8Array([0xaa, 0xbb])),  // 缓存命中
-            storeVibeEncoding: vi.fn(async () => undefined),
+            readVibeEncoding: vi.fn(async () => new Uint8Array([0xaa, 0xbb])),  // 缓存命中
+            storeRemoteVibeEncoding: vi.fn(async () => undefined),
         };
         const fixture = illustrationCompiledRequestFixture(0);
         const {compiledRequestHash: _old, ...base} = fixture;
         const requestBase = {
             ...base,
+            action: "infill" as const,
+            wireModel: "nai-diffusion-4-5-full-inpainting" as const,
             references: {
                 normalizeVibeStrengths: false,
                 vibeReferences: [{contentHash: hash64, strength: 0.6, informationExtracted: 0.5}],
                 characterReferences: [{contentHash: hash64, strength: 0.4, informationExtracted: null}],
-                inpaint: {contentHash: hash64, strength: 1, informationExtracted: null},
+                inpaint: {baseImageContentHash: hash64, maskContentHash: hash64},
             },
         };
         const request = {...requestBase, compiledRequestHash: createIllustrationCompiledRequestHash(requestBase)} as IllustrationCompiledRequest;
 
         const response = await requestCompiledNovelAiImage(request, "provider-token", new AbortController().signal, dispatchFetch as never, resolver);
 
-        expect(response.request.model).toBe(request.model);
-        expect(resolver.findVibeEncoding).toHaveBeenCalledWith(hash64, request.model, 0.5);
-        expect(resolver.storeVibeEncoding).not.toHaveBeenCalled();  // 缓存命中不派生
-        expect(fetchImpl).not.toHaveBeenCalled();  // 未走 encode-vibe
-        expect(resolver.readBytes).toHaveBeenCalledWith(hash64);  // char-ref + inpaint 读字节
+        expect(response.request).toEqual({
+            model: request.model,
+            wireModel: request.wireModel,
+            seed: request.parameters.seed,
+            compiledRequestHash: request.compiledRequestHash,
+        });
+        expect(resolver.readVibeEncoding).toHaveBeenCalledWith({
+            sourceContentHash: hash64,
+            providerModel: request.model,
+            informationExtracted: 0.5,
+            encoderVersion: "novelai-vibe/v4-5full/v1",
+        });
+        expect(resolver.storeRemoteVibeEncoding).not.toHaveBeenCalled();  // 缓存命中不派生
+        expect(dispatchFetch).not.toHaveBeenCalledWith(expect.stringContaining("encode-vibe"), expect.anything());
+        expect(resolver.readSource).toHaveBeenCalledTimes(3);  // char-ref + inpaint base + inpaint mask
         const body = JSON.parse(String(generateFetch.mock.calls[0]?.[1]?.body));
-        expect(body.action).toBe("inpaint");
+        expect(body.action).toBe("infill");
+        expect(body.model).toBe(request.wireModel);
         expect(body.parameters.normalize_reference_strength_multiple).toBe(false);
         expect(body.parameters.reference_image_multiple).toEqual([Buffer.from(new Uint8Array([0xaa, 0xbb])).toString("base64")]);
         expect(body.parameters.reference_strength_multiple).toEqual([0.6]);
         expect(body.parameters.reference_information_extracted_multiple).toEqual([0.5]);
         expect(body.parameters.use_character_reference).toBe(true);
         expect(body.parameters.character_reference_image_multiple).toHaveLength(1);
+        expect(body.parameters.image).toEqual(Buffer.from(new Uint8Array([0x10, 0x20, 0x37])).toString("base64"));
         expect(body.parameters.mask).toEqual(Buffer.from(new Uint8Array([0x10, 0x20, 0x37])).toString("base64"));
     });
 
-    it("P5 参考资产：Vibe encoding 缓存未命中时调用 /ai/encode-vibe 派生并缓存", async () => {
+    it("P5 参考资产：缓存未命中时调用 /ai/encode-vibe 派生并按完整 typed key 持久化", async () => {
         const hash64 = "b".repeat(64);
         const encodeFetch = vi.fn(async () => new Response(new Uint8Array([0xcc, 0xdd, 0xee])));
         const generateFetch = vi.fn(async () => new Response(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])));
         const dispatchFetch = vi.fn(async (url: string, init: unknown) =>
             String(url).includes("encode-vibe") ? encodeFetch(url, init) : generateFetch(url, init));
+        const sourceEvidence = {
+            contentHash: hash64,
+            kind: "source-image" as const,
+            mimeType: "image/png" as const,
+            byteLength: 2,
+            width: 3,
+            height: 2,
+        };
         const resolver: CompiledNovelAiReferenceResolver = {
-            readBytes: vi.fn(async () => ({bytes: new Uint8Array([0x01, 0x02]), mimeType: "image/png"})),
-            findVibeEncoding: vi.fn(async () => null),  // 未命中
-            storeVibeEncoding: vi.fn(async () => undefined),
+            readSource: vi.fn(async () => ({bytes: new Uint8Array([0x01, 0x02]), evidence: sourceEvidence})),
+            readVibeEncoding: vi.fn(async () => null),  // 未命中
+            storeRemoteVibeEncoding: vi.fn(async () => undefined),
         };
         const fixture = illustrationCompiledRequestFixture(0);
         const {compiledRequestHash: _old, ...base} = fixture;
@@ -239,7 +251,94 @@ describe("NovelAI image generation", () => {
         const encodeBody = JSON.parse(String(encodeFetch.mock.calls[0]?.[1]?.body));
         expect(encodeBody.model).toBe(request.model);
         expect(encodeBody.informationExtracted).toBe(0.6);
-        expect(resolver.storeVibeEncoding).toHaveBeenCalledWith(hash64, request.model, 0.6, expect.any(Uint8Array));
+        expect(resolver.storeRemoteVibeEncoding).toHaveBeenCalledWith({
+            source: sourceEvidence,
+            providerModel: request.model,
+            informationExtracted: 0.6,
+            encoderVersion: "novelai-vibe/v4-5full/v1",
+            bytes: expect.any(Uint8Array),
+        });
+    });
+
+    it("P5 参考资产：导入缓存与远端派生的 encoding 字节完全一致，wire Base64 逐字节相同", async () => {
+        const hash64 = "c".repeat(64);
+        const encodingBytes = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
+        // 导入命中：resolver 直接返回 encoding 字节。
+        const importedResolver: CompiledNovelAiReferenceResolver = {
+            readSource: vi.fn(async () => ({bytes: new Uint8Array([1]), evidence: {
+                contentHash: hash64, kind: "source-image" as const, mimeType: "image/png" as const, byteLength: 1, width: 1, height: 1,
+            }})),
+            readVibeEncoding: vi.fn(async () => encodingBytes),
+            storeRemoteVibeEncoding: vi.fn(async () => undefined),
+        };
+        // 远端派生：缓存未命中，encode-vibe 返回与导入完全相同的字节。
+        const remoteResolver: CompiledNovelAiReferenceResolver = {
+            readSource: vi.fn(async () => ({bytes: new Uint8Array([1]), evidence: {
+                contentHash: hash64, kind: "source-image" as const, mimeType: "image/png" as const, byteLength: 1, width: 1, height: 1,
+            }})),
+            readVibeEncoding: vi.fn(async () => null),
+            storeRemoteVibeEncoding: vi.fn(async () => undefined),
+        };
+        const requestBase = (() => {
+            const {compiledRequestHash: _old, ...base} = illustrationCompiledRequestFixture(0);
+            return {
+                ...base,
+                references: {
+                    normalizeVibeStrengths: true,
+                    vibeReferences: [{contentHash: hash64, strength: 0.6, informationExtracted: 0.7}],
+                    characterReferences: [],
+                    inpaint: null,
+                },
+            };
+        })();
+        const request = {...requestBase, compiledRequestHash: createIllustrationCompiledRequestHash(requestBase)} as IllustrationCompiledRequest;
+
+        const importedBody = await captureWire(request, importedResolver);
+        const remoteBody = await captureWire(request, remoteResolver, encodingBytes);
+        expect(importedBody.parameters.reference_image_multiple).toEqual([Buffer.from(encodingBytes).toString("base64")]);
+        expect(remoteBody.parameters.reference_image_multiple).toEqual(importedBody.parameters.reference_image_multiple);
+        // 只有最终 wire 边界才出现 Base64 产物；持久化与 CompiledRequest 不含 bytes。
+        expect(importedBody.parameters.reference_image_multiple[0]).toBe(Buffer.from(encodingBytes).toString("base64"));
+    });
+
+    it("P5 参考资产：encoding lineage 证据不一致时 fail closed，且不发起任何远端调用", async () => {
+        const hash64 = "d".repeat(64);
+        const generateFetch = vi.fn(async () => new Response(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])));
+        const resolver: CompiledNovelAiReferenceResolver = {
+            readSource: vi.fn(async () => { throw new Error("source lineage 身份不一致"); }),
+            readVibeEncoding: vi.fn(async () => { throw new Error("Vibe encoding lineage 身份与 cache key 不一致"); }),
+            storeRemoteVibeEncoding: vi.fn(async () => undefined),
+        };
+        const {compiledRequestHash: _old, ...base} = illustrationCompiledRequestFixture(0);
+        const requestBase = {
+            ...base,
+            references: {
+                normalizeVibeStrengths: true,
+                vibeReferences: [{contentHash: hash64, strength: 0.6, informationExtracted: 0.7}],
+                characterReferences: [],
+                inpaint: null,
+            },
+        };
+        const request = {...requestBase, compiledRequestHash: createIllustrationCompiledRequestHash(requestBase)} as IllustrationCompiledRequest;
+
+        await expect(requestCompiledNovelAiImage(
+            request, "provider-token", new AbortController().signal, generateFetch as never, resolver,
+        )).rejects.toThrow(/lineage 身份与 cache key 不一致/);
+        expect(generateFetch).not.toHaveBeenCalled();
+    });
+
+    it("generate 请求不发送 image/mask 字段；Inpaint 双字段只由 Inpaint 分支产生", async () => {
+        const fetchImpl = vi.fn(async () => new Response(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])));
+        await requestCompiledNovelAiImage(
+            illustrationCompiledRequestFixture(0),
+            "provider-token",
+            new AbortController().signal,
+            fetchImpl as never,
+        );
+        const body = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body));
+        expect(body.parameters).not.toHaveProperty("image");
+        expect(body.parameters).not.toHaveProperty("mask");
+        expect(body.parameters).not.toHaveProperty("reference_image_multiple");
     });
 
     // P5-1 安全网：CompiledRequest 全部高级标量参数必须确定性地投影到 NovelAI wire。
@@ -390,23 +489,25 @@ describe("NovelAI image generation", () => {
     });
 
     it("does not include an upstream credential echo in errors", async () => {
-        const outputPath = await createOutputPath();
         const fetchImpl = vi.fn(async () => new Response("request-token", {status: 401}));
-        vi.stubGlobal("fetch", fetchImpl);
-        const input = {
-            ...generateInput(outputPath),
-            novelAi: {
-                ...generateInput(outputPath).novelAi,
-                token: "request-token",
-                imageBaseUrl: "https://attacker.example",
-            },
-        };
-
-        const request = generateNovelAiImage(input as never, "provider-token", fetchImpl as never);
+        const request = requestNovelAiImages(queueInput(), "provider-token", new AbortController().signal, fetchImpl as never);
         await expect(request).rejects.toThrow("NovelAI 请求失败：401");
-        await expect(request).rejects.not.toThrow("request-token");
+        await expect(request).rejects.not.toThrow("provider-token");
     });
 });
+
+async function captureWire(
+    request: IllustrationCompiledRequest,
+    resolver: CompiledNovelAiReferenceResolver,
+    encodeResponse?: Uint8Array,
+): Promise<{parameters: Record<string, unknown>}> {
+    const generateFetch = vi.fn(async () => new Response(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])));
+    const encodeFetch = vi.fn(async () => new Response(encodeResponse ?? new Uint8Array()));
+    const dispatchFetch = vi.fn(async (url: string, init: unknown) =>
+        String(url).includes("encode-vibe") ? encodeFetch(url, init) : generateFetch(url, init));
+    await requestCompiledNovelAiImage(request, "provider-token", new AbortController().signal, dispatchFetch as never, resolver);
+    return JSON.parse(String(generateFetch.mock.calls[0]?.[1]?.body)) as {parameters: Record<string, unknown>};
+}
 
 function queueInput() {
     const input = generateInput("");
@@ -471,10 +572,4 @@ function generateInput(outputPath: string) {
         count: 1,
         output: {imageSavePath: outputPath},
     };
-}
-
-async function createOutputPath(): Promise<string> {
-    const directory = await mkdtemp(path.join(tmpdir(), "nbook-novelai-generation-"));
-    temporaryDirectories.push(directory);
-    return directory;
 }

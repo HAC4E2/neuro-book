@@ -43,11 +43,20 @@ describe("有界单文件 multipart 解析", () => {
 
     it("在真实流超过上限时返回稳定的 413 错误", async () => {
         const boundary = "nbook-bounded-overflow";
-        const request = incomingRequest([multipartBody(boundary, [{
+        const body = multipartBody(boundary, [{
             name: "file",
             filename: "large.bin",
-            data: Buffer.alloc(33, 1),
-        }])], boundary);
+            // 远超上限的后续字节仍会被 drain，但 Busboy 只会把 max + 1 字节交给累计器。
+            data: Buffer.alloc(1024 * 1024, 1),
+        }]);
+        const fileStart = body.indexOf(Buffer.from("\r\n\r\n", "utf8")) + 4;
+        const request = incomingRequest([
+            body.subarray(0, fileStart + 16),
+            body.subarray(fileStart + 16, fileStart + 32),
+            // 单独的第 33 字节触发溢出，后续近 1 MiB chunk 不再进入累计 buffer。
+            body.subarray(fileStart + 32, fileStart + 33),
+            body.subarray(fileStart + 33),
+        ], boundary);
 
         await expect(readBoundedFileMultipart(request, {maxFileBytes: 32})).rejects.toMatchObject({
             code: "FILE_MULTIPART_LIMIT_EXCEEDED",

@@ -13,6 +13,10 @@ import {
     parseTextToImageRecipeMarkdown,
     renderTextToImageRecipeMarkdown,
 } from "nbook/server/text-to-image/recipe.codec";
+import {
+    assertTextToImageReferenceMutationScope,
+    withTextToImageReferenceMutationLock,
+} from "nbook/server/text-to-image/reference-asset-lock";
 import {absoluteFsPath, invalidateProjectTreeIndex, resolveWorkspaceRootInput} from "nbook/server/text-to-image/compat";
 import {assertProjectOpen} from "nbook/server/workspace-files/project-session";
 import {readWorkspaceTextFile} from "nbook/server/workspace-files/workspace-files";
@@ -111,6 +115,23 @@ export class TextToImageRecipeNotConfiguredError extends Error {
     }
 }
 
+/** 手工生成链路不支持参考资产（Vibe/Character Reference/Inpaint）；这些只走插图执行入口。 */
+export class TextToImageManualReferencesUnsupportedError extends Error {
+    readonly code = "TEXT_TO_IMAGE_MANUAL_REFERENCES_UNSUPPORTED";
+
+    constructor() {
+        super("手工生成不支持参考资产，请在插图执行流程中使用 Recipe 参考资源。");
+        this.name = "TextToImageManualReferencesUnsupportedError";
+    }
+}
+
+/** Recipe snapshot 是否包含任何参考选择（Vibe/Character/Inpaint）。 */
+export function hasRecipeReferenceSelections(references: TextToImageRecipeSnapshot["references"]): boolean {
+    return references.vibeReferences.length > 0
+        || references.characterReferences.length > 0
+        || references.inpaint !== null;
+}
+
 /** 默认 Project Recipe 的唯一服务端读写入口。 */
 export class TextToImageRecipeService {
     constructor(private readonly files: TextToImageRecipeFileStore = new WorkspaceRecipeFileStore()) {}
@@ -138,7 +159,11 @@ export class TextToImageRecipeService {
         assertRecipeCapabilities(source);
         this.files.assertProjectOpen(projectPath);
         const root = await this.files.resolveProjectRoot(projectPath);
-        return await withRecipeFileLock(root, async () => {
+        // 与 Manifest registration / reference deletion 共享同一 Project mutation 锁，
+        // 杜绝 Recipe 参考资源在保存与注册之间被竞态删除。
+        return await withTextToImageReferenceMutationLock(projectPath, async (scope) => {
+            assertTextToImageReferenceMutationScope(scope, {projectPath, projectRoot: root});
+            return await withRecipeFileLock(root, async () => {
             const existingMarkdown = await this.files.read(root, DEFAULT_TEXT_TO_IMAGE_RECIPE_PATH);
             let currentHash: string | null = null;
             if (existingMarkdown !== null) {
@@ -170,6 +195,7 @@ export class TextToImageRecipeService {
             });
             this.files.invalidate(root, projectPath);
             return {exists: true, source, snapshot: createTextToImageRecipeSnapshot(source)};
+            });
         });
     }
 
@@ -207,6 +233,10 @@ export class TextToImageRecipeService {
         }
         if (document.snapshot.recipeSourceHash !== parsed.expectedRecipeSourceHash) {
             throw new TextToImageRecipeConflictError();
+        }
+        // 手工队列不投影参考资源：Recipe 含任何参考选择时拒绝，防止静默丢弃。
+        if (hasRecipeReferenceSelections(document.snapshot.references)) {
+            throw new TextToImageManualReferencesUnsupportedError();
         }
         const source = document.source;
         assertRecipeCapabilities(source);

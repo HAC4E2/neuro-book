@@ -1,4 +1,4 @@
-import {randomUUID} from "node:crypto";
+import {createHash, randomUUID} from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {consola} from "consola";
@@ -20,6 +20,11 @@ import {
 } from "nbook/server/text-to-image/asset-path";
 import {textToImageProjectClient} from "nbook/server/text-to-image/project-client";
 import {resolveProjectAbsolutePath} from "nbook/server/text-to-image/compat";
+import {
+    assertTextToImageReferenceMutationScope,
+    withTextToImageReferenceMutationLock,
+} from "nbook/server/text-to-image/reference-asset-lock";
+import {TextToImageGeneratedAssetPromotedError} from "nbook/server/text-to-image/reference-promotion.service";
 
 type SaveTextToImageAssetInput = {
     projectPath: string;
@@ -35,6 +40,12 @@ type SaveTextToImageAssetInput = {
     sourceKind: string;
     sourcePath: string | null;
     sourceAnchorId: string | null;
+    /** P5 完整性证据：所有新资产都必须写入 contentHash。 */
+    contentHash?: string;
+    /** P5 strict 资产（Route-B illustration/candidate）的编译请求 hash；manual 为 null。 */
+    compiledRequestHash?: string | null;
+    /** P5 strict 资产的语义编译 revision；manual 为 null。 */
+    compiledRevision?: string | null;
 };
 
 type ListTextToImageAssetsInput = {
@@ -115,6 +126,10 @@ export class TextToImageAssetService {
                     sourceKind: input.sourceKind,
                     sourcePath: input.sourcePath,
                     sourceAnchorId: input.sourceAnchorId,
+                    // P5：每个新资产都登记内容哈希；strict 资产额外带编译请求证据。
+                    contentHash: input.contentHash ?? sha256Hex(input.bytes),
+                    compiledRequestHash: input.compiledRequestHash ?? null,
+                    compiledRevision: input.compiledRevision ?? null,
                 },
             });
             return assetDto(asset);
@@ -170,7 +185,7 @@ export class TextToImageAssetService {
         return assetDto(asset);
     }
 
-    /** 根据资产 ID 解析已登记的实际文件，永不接收 HTTP 提供的文件路径。 */
+    /** 根据资产 ID 解析已登记的实际文件；P5 资产带 contentHash 时完整复验字节证据。 */
     async content(projectPath: string, assetId: string): Promise<{absolutePath: string; mimeType: string}> {
         const client = await this.client(projectPath);
         const asset = await client.textToImageAsset.findUnique({where: {id: assetId}});
@@ -178,6 +193,14 @@ export class TextToImageAssetService {
             throw new Error("文生图图片不存在");
         }
         const absolutePath = resolveTextToImageAssetPath(resolveProjectAbsolutePath(projectPath), asset.relativePath);
+        if (asset.contentHash) {
+            // P5：完整复验 SHA-256 与字节长度，任何证据不符 fail closed。
+            const bytes = await fs.readFile(absolutePath);
+            if (sha256Hex(bytes) !== asset.contentHash || bytes.byteLength !== asset.byteLength) {
+                throw new Error("文生图图片完整性校验失败");
+            }
+            return {absolutePath, mimeType: asset.mimeType};
+        }
         const stat = await fs.stat(absolutePath);
         if (!stat.isFile()) {
             throw new Error("文生图图片文件不存在");
@@ -185,29 +208,42 @@ export class TextToImageAssetService {
         return {absolutePath, mimeType: asset.mimeType};
     }
 
-    /** 删除未被 Markdown 引用的资产；文件与数据库删除采用 tombstone 回滚策略。 */
+    /** 删除未被 Markdown/promotion 引用的资产；在 reference mutation 锁内检查 owner。 */
     async delete(projectPath: string, assetId: string): Promise<void> {
-        const client = await this.client(projectPath);
-        const asset = await client.textToImageAsset.findUnique({where: {id: assetId}});
-        if (!asset) {
-            throw new Error("文生图图片不存在");
-        }
-        const projectRoot = resolveProjectAbsolutePath(projectPath);
-        if (await markdownReferencesAsset(projectRoot, asset.relativePath)) {
-            throw new TextToImageAssetReferencedError(asset.relativePath);
-        }
+        await withTextToImageReferenceMutationLock(projectPath, async (scope) => {
+            assertTextToImageReferenceMutationScope(scope, {
+                projectPath,
+                projectRoot: resolveProjectAbsolutePath(projectPath),
+            });
+            const client = await this.client(projectPath);
+            const asset = await client.textToImageAsset.findUnique({where: {id: assetId}});
+            if (!asset) {
+                throw new Error("文生图图片不存在");
+            }
+            const projectRoot = resolveProjectAbsolutePath(projectPath);
+            if (await markdownReferencesAsset(projectRoot, asset.relativePath)) {
+                throw new TextToImageAssetReferencedError(asset.relativePath);
+            }
+            // promotion owner：生成资产已入选为参考资产时拒绝删除；DB Restrict 关系是最终 fence。
+            const promotion = await client.textToImageReferencePromotion.findUnique({
+                where: {generatedAssetId: assetId},
+            });
+            if (promotion) {
+                throw new TextToImageGeneratedAssetPromotedError(assetId);
+            }
 
-        const absolutePath = resolveTextToImageAssetPath(projectRoot, asset.relativePath);
-        const tombstonePath = `${absolutePath}.${randomUUID()}.delete`;
-        await fs.rename(absolutePath, tombstonePath);
-        try {
-            await client.textToImageAsset.delete({where: {id: asset.id}});
-        } catch (error) {
-            await fs.rename(tombstonePath, absolutePath);
-            throw error;
-        }
-        await fs.rm(tombstonePath, {force: true}).catch((error) => {
-            consola.warn({assetId, tombstonePath, error}, "文生图图片 tombstone 清理失败，将由后续维护处理");
+            const absolutePath = resolveTextToImageAssetPath(projectRoot, asset.relativePath);
+            const tombstonePath = `${absolutePath}.${randomUUID()}.delete`;
+            await fs.rename(absolutePath, tombstonePath);
+            try {
+                await client.textToImageAsset.delete({where: {id: asset.id}});
+            } catch (error) {
+                await fs.rename(tombstonePath, absolutePath);
+                throw error;
+            }
+            await fs.rm(tombstonePath, {force: true}).catch((error) => {
+                consola.warn({assetId, tombstonePath, error}, "文生图图片 tombstone 清理失败，将由后续维护处理");
+            });
         });
     }
 }
@@ -231,6 +267,10 @@ function assetDto(asset: TextToImageAsset): TextToImageAssetDto {
         sourceAnchorId: asset.sourceAnchorId,
         createdAt: asset.createdAt.toISOString(),
     };
+}
+
+function sha256Hex(bytes: Uint8Array): string {
+    return createHash("sha256").update(Buffer.from(bytes)).digest("hex");
 }
 
 function assetListItemDto(asset: TextToImageAssetWithJob): TextToImageAssetListItemDto {

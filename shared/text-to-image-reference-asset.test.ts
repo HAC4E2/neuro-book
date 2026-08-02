@@ -47,6 +47,26 @@ describe("TextToImageReferenceAsset shared contract", () => {
         }).success).toBe(false);
     });
 
+    it("Frozen/Public DTO 共享 20 MiB 与 6400 万像素预算", () => {
+        const frozen = {
+            contentHash: VALID_HASH,
+            kind: "source-image",
+            mimeType: "image/png",
+            byteLength: 1024,
+            width: 16_000,
+            height: 5_000,
+        };
+        expect(FrozenReferenceAssetSchema.safeParse({...frozen, byteLength: 20 * 1024 * 1024 + 1}).success).toBe(false);
+        expect(FrozenReferenceAssetSchema.safeParse(frozen).success).toBe(false);
+        expect(TextToImageReferenceAssetDtoSchema.safeParse({
+            id: VALID_HASH,
+            ...frozen,
+            fileName: `${VALID_HASH}.png`,
+            status: "available",
+            createdAt: "2026-07-22T00:00:00.000Z",
+        }).success).toBe(false);
+    });
+
     it("新增严格双哈希 Inpaint selection，拒绝旧单 contentHash 和额外字段", () => {
         expect(TextToImageInpaintSelectionSchema.safeParse({
             baseImageContentHash: VALID_HASH,
@@ -63,16 +83,15 @@ describe("TextToImageReferenceAsset shared contract", () => {
 
     it("新增严格引用资产分页 DTO，只接受 items/page/pageSize/hasMore", () => {
         const item = {
-            id: "asset-1",
+            id: VALID_HASH,
             kind: "source-image",
             contentHash: VALID_HASH,
-            relativePath: "assets/text-to-image/references/a/a.asset-1.png",
             fileName: "a.asset-1.png",
             mimeType: "image/png",
             byteLength: 1024,
-            parentAssetId: null,
-            derivedModel: null,
-            derivedInfoExtracted: null,
+            width: 768,
+            height: 512,
+            status: "available",
             createdAt: "2026-07-22T00:00:00.000Z",
         };
 
@@ -158,58 +177,55 @@ describe("TextToImageReferenceAsset shared contract", () => {
         expect(ReferenceContentHashSchema.safeParse(VALID_HASH.toUpperCase()).success).toBe(false);
     });
 
-    it("reference asset DTO 严格区分派生与非派生字段", () => {
+    it("reference asset DTO 只公开 source metadata，不返回路径或派生字段", () => {
         const sourceAsset = TextToImageReferenceAssetDtoSchema.safeParse({
-            id: "asset-1",
+            id: VALID_HASH,
             kind: "source-image",
             contentHash: VALID_HASH,
-            relativePath: "assets/text-to-image/references/a/a.asset-1.png",
             fileName: "a.asset-1.png",
             mimeType: "image/png",
             byteLength: 1024,
-            parentAssetId: null,
-            derivedModel: null,
-            derivedInfoExtracted: null,
+            width: 768,
+            height: 512,
+            status: "available",
             createdAt: "2026-07-22T00:00:00.000Z",
         });
         expect(sourceAsset.success).toBe(true);
 
-        const derivedAsset = TextToImageReferenceAssetDtoSchema.safeParse({
-            id: "encoding-1",
-            kind: "vibe-encoding",
-            contentHash: OTHER_HASH,
-            relativePath: "assets/text-to-image/references/b/b.encoding-1.bin",
-            fileName: "b.encoding-1.bin",
-            mimeType: "application/octet-stream",
-            byteLength: 2048,
-            parentAssetId: "asset-1",
-            derivedModel: "nai-diffusion-4-5-full",
-            derivedInfoExtracted: 0.7,
-            createdAt: "2026-07-22T00:00:00.000Z",
-        });
-        expect(derivedAsset.success).toBe(true);
-    });
-
-    it("vibe-encoding 的 derivedModel/infoExtracted 必须非空，源资产必须为 null", () => {
-        const bad = TextToImageReferenceAssetDtoSchema.safeParse({
-            id: "encoding-1",
-            kind: "vibe-encoding",
-            contentHash: OTHER_HASH,
-            relativePath: "assets/text-to-image/references/b/b.encoding-1.bin",
-            fileName: "b.encoding-1.bin",
-            mimeType: "application/octet-stream",
-            byteLength: 2048,
-            parentAssetId: "asset-1",
+        const leaked = TextToImageReferenceAssetDtoSchema.safeParse({
+            ...sourceAsset.data,
+            relativePath: ".nbook/text-to-image/references/aa/source.png",
+            parentAssetId: null,
             derivedModel: null,
             derivedInfoExtracted: null,
-            createdAt: "2026-07-22T00:00:00.000Z",
         });
-        expect(bad.success).toBe(true); // schema 不强制 cross-field；lineage 约束由 service 校验
+        expect(leaked.success).toBe(false);
+        expect(TextToImageReferenceAssetDtoSchema.safeParse({
+            ...sourceAsset.data,
+            id: OTHER_HASH,
+        }).success).toBe(false);
     });
 
-    it("vibe-encoding 的 MIME 为二进制", () => {
-        expect(REFERENCE_ASSET_MIME_BY_KIND["source-image"]).toEqual(["image/png", "image/jpeg", "image/webp"]);
-        expect(REFERENCE_ASSET_MIME_BY_KIND["vibe-encoding"]).toEqual(["application/octet-stream"]);
+    it("reference asset DTO 拒绝 WebP、vibe-encoding 与未知状态", () => {
+        const base = {
+            id: VALID_HASH,
+            kind: "source-image",
+            contentHash: VALID_HASH,
+            fileName: `${VALID_HASH}.png`,
+            mimeType: "image/png",
+            byteLength: 2048,
+            width: 64,
+            height: 64,
+            status: "available",
+            createdAt: "2026-07-22T00:00:00.000Z",
+        };
+        expect(TextToImageReferenceAssetDtoSchema.safeParse({...base, mimeType: "image/webp"}).success).toBe(false);
+        expect(TextToImageReferenceAssetDtoSchema.safeParse({...base, kind: "vibe-encoding"}).success).toBe(false);
+        expect(TextToImageReferenceAssetDtoSchema.safeParse({...base, status: "unknown"}).success).toBe(false);
+    });
+
+    it("public source MIME 只允许 PNG/JPEG", () => {
+        expect(REFERENCE_ASSET_MIME_BY_KIND["source-image"]).toEqual(["image/png", "image/jpeg"]);
     });
 
     it("VibeEncodingCacheKey 固定 provider/encoder，并持久完整 typed identity", () => {

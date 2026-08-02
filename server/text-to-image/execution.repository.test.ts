@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {PrismaClient} from "nbook/server/generated/project-prisma/client";
-import {afterEach, beforeEach, describe, expect, it} from "vitest";
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {hashTextToImageContract} from "nbook/shared/text-to-image-contract-hash";
 import {
     createIllustrationCompiledRequestHash,
@@ -20,6 +20,11 @@ import {
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 import {initProjectDatabaseAtRoot, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
 import {TrackedPrismaLibSql} from "nbook/server/workspace-files/tracked-prisma-libsql";
+
+// 锁内重读由真实锁覆盖；这里用 identity 替换锁以聚焦事务原子性。
+vi.mock("nbook/server/text-to-image/reference-asset-lock", () => ({
+    assertTextToImageReferenceMutationScope: (): void => undefined,
+}));
 
 const H = (digit: string): string => `sha256:${digit.repeat(64)}`;
 
@@ -46,7 +51,7 @@ describe("IllustrationExecutionRepository", () => {
         const repository = new IllustrationExecutionRepository(client);
         const input = registrationFixture(2);
         const prepared = prepareIllustrationExecutionRegistration(input);
-        const receipt = await repository.register(prepared, preparationStamp(prepared));
+        const receipt = await repository.register(prepared, preparationStamp(prepared), {} as never);
 
         expect(receipt).toMatchObject({
             executionManifestHash: input.executionManifestHash,
@@ -82,7 +87,7 @@ describe("IllustrationExecutionRepository", () => {
         });
 
         const prepared = prepareIllustrationExecutionRegistration(registrationFixture(2));
-        await expect(repository.register(prepared, preparationStamp(prepared))).rejects.toThrow("injected registration failure");
+        await expect(repository.register(prepared, preparationStamp(prepared), {} as never)).rejects.toThrow("injected registration failure");
         await expect(client.illustrationExecutionManifest.count()).resolves.toBe(0);
         await expect(client.illustrationExecutionApproval.count()).resolves.toBe(0);
         await expect(client.textToImageJob.count()).resolves.toBe(0);
@@ -105,7 +110,7 @@ describe("IllustrationExecutionRepository", () => {
             prepareVersion: 1,
         };
 
-        await expect(repository.register(prepared, stamp)).rejects.toThrow("prepare lease 已失效");
+        await expect(repository.register(prepared, stamp, {} as never)).rejects.toThrow("prepare lease 已失效");
         await expect(client.illustrationExecutionManifest.count()).resolves.toBe(0);
         await expect(client.textToImageJob.count()).resolves.toBe(0);
         await expect(client.textToImageDispatchOutbox.count()).resolves.toBe(0);
@@ -116,10 +121,11 @@ describe("IllustrationExecutionRepository", () => {
         const input = registrationFixture(2);
         const prepared = prepareIllustrationExecutionRegistration(input);
         const stamp = preparationStamp(prepared);
-        const first = await repository.register(prepared, stamp);
+        const first = await repository.register(prepared, stamp, {} as never);
         const duplicate = await repository.register(
             prepareIllustrationExecutionRegistration({...input, approvedAt: "2026-07-21T00:01:00.000Z"}),
             stamp,
+            {} as never,
         );
 
         expect(duplicate).toEqual(first);
@@ -133,10 +139,10 @@ describe("IllustrationExecutionRepository", () => {
         const repository = new IllustrationExecutionRepository(client);
         const prepared = prepareIllustrationExecutionRegistration(registrationFixture(2));
         const oldStamp = preparationStamp(prepared);
-        const first = await repository.register(prepared, oldStamp);
+        const first = await repository.register(prepared, oldStamp, {} as never);
         const currentStamp = {...oldStamp, prepareAttemptId: "prepare-attempt-2", prepareVersion: 2};
 
-        await expect(repository.register(prepared, currentStamp)).resolves.toEqual(first);
+        await expect(repository.register(prepared, currentStamp, {} as never)).resolves.toEqual(first);
         const outboxes = await client.textToImageDispatchOutbox.findMany({orderBy: {jobId: "asc"}});
         expect(outboxes).toHaveLength(2);
         expect(outboxes.every((outbox) => outbox.prepareAttemptId === "prepare-attempt-2" && outbox.prepareVersion === 2)).toBe(true);
@@ -146,13 +152,13 @@ describe("IllustrationExecutionRepository", () => {
         const repository = new IllustrationExecutionRepository(client);
         const prepared = prepareIllustrationExecutionRegistration(registrationFixture(2));
         const oldStamp = preparationStamp(prepared);
-        await repository.register(prepared, oldStamp);
+        await repository.register(prepared, oldStamp, {} as never);
         await client.textToImageDispatchOutbox.update({
             where: {jobId: prepared.jobs[0]!.id},
             data: {prepareAttemptId: "mixed-attempt", prepareVersion: 2},
         });
 
-        await expect(repository.register(prepared, {...oldStamp, prepareAttemptId: "prepare-attempt-3", prepareVersion: 3}))
+        await expect(repository.register(prepared, {...oldStamp, prepareAttemptId: "prepare-attempt-3", prepareVersion: 3}, {} as never))
             .rejects.toThrow("注册闭包不完整");
         const outboxes = await client.textToImageDispatchOutbox.findMany({orderBy: {jobId: "asc"}});
         expect(new Set(outboxes.map((outbox) => outbox.prepareVersion))).toEqual(new Set([1, 2]));
@@ -163,7 +169,7 @@ describe("IllustrationExecutionRepository", () => {
         const input = registrationFixture(2);
         const prepared = prepareIllustrationExecutionRegistration(input);
         const stamp = preparationStamp(prepared);
-        const first = await repository.register(prepared, stamp);
+        const first = await repository.register(prepared, stamp, {} as never);
         const replayInputHashes = [H("8"), H("9")];
         const recipeSnapshot = input.compiledRequests[0]?.recipeSnapshot;
         if (!recipeSnapshot) throw new Error("测试 fixture 缺少 Recipe snapshot");
@@ -172,7 +178,7 @@ describe("IllustrationExecutionRepository", () => {
             recipeSnapshot,
             compiledRequests: input.compiledRequests,
             outputCount: input.outputCount,
-            knownCost: input.knownCost,
+            additionalCostLowerBound: input.additionalCostLowerBound,
             tokenLowerBound: input.tokenLowerBound,
         });
 
@@ -182,7 +188,7 @@ describe("IllustrationExecutionRepository", () => {
             executionInputHashes: replayInputHashes,
             executionManifestHash: replayManifestHash,
             approvedAt: "2026-07-21T00:02:00.000Z",
-        }), stamp);
+        }), stamp, {} as never);
 
         expect(replay).toEqual(first);
         await expect(client.illustrationExecutionManifest.count()).resolves.toBe(1);
@@ -218,7 +224,7 @@ function registrationFixture(outputCount: number) {
         recipeSnapshot,
         compiledRequests,
         outputCount,
-        knownCost: null,
+        additionalCostLowerBound: null,
         tokenLowerBound: null,
     });
     return {
@@ -229,9 +235,13 @@ function registrationFixture(outputCount: number) {
         executionManifestHash,
         compiledRequests,
         outputCount,
-        knownCost: null,
+        additionalCostLowerBound: null,
         tokenLowerBound: null,
-        authorization: {authorizedOutputCount: outputCount, authorizedCostLimit: null, authorizedTokenLimit: null},
+        authorization: {
+            authorizedOutputCount: outputCount,
+            acceptedAdditionalCostLowerBound: null,
+            acceptedTokenLowerBound: null,
+        },
         actorUserId: 7,
         approvedAt: "2026-07-21T00:00:00.000Z",
     };
@@ -260,6 +270,8 @@ function compiledRequest(outputIndex: number): IllustrationCompiledRequest {
         capabilitySnapshot: resolveProviderCapability({kind: "novelai-model", modelId: "nai-diffusion-4-5-full"}),
         model: "nai-diffusion-4-5-full" as const,
         action: "generate" as const,
+        wireModel: "nai-diffusion-4-5-full" as const,
+        referenceSnapshotHash: H("d"),
         prompt: "rain",
         negativePrompt: "lowres",
         characterPrompts: [],

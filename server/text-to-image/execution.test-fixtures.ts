@@ -26,7 +26,7 @@ export function illustrationRegistrationFixture(outputCount: number) {
         recipeSnapshot,
         compiledRequests,
         outputCount,
-        knownCost: null,
+        additionalCostLowerBound: null,
         tokenLowerBound: null,
     });
     return {
@@ -37,9 +37,13 @@ export function illustrationRegistrationFixture(outputCount: number) {
         executionManifestHash,
         compiledRequests,
         outputCount,
-        knownCost: null,
+        additionalCostLowerBound: null,
         tokenLowerBound: null,
-        authorization: {authorizedOutputCount: outputCount, authorizedCostLimit: null, authorizedTokenLimit: null},
+        authorization: {
+            authorizedOutputCount: outputCount,
+            acceptedAdditionalCostLowerBound: null,
+            acceptedTokenLowerBound: null,
+        },
         actorUserId: 7,
         approvedAt: "2026-07-21T00:00:00.000Z",
     };
@@ -68,6 +72,8 @@ export function illustrationCompiledRequestFixture(outputIndex: number): Illustr
         capabilitySnapshot: resolveProviderCapability({kind: "novelai-model", modelId: "nai-diffusion-4-5-full"}),
         model: "nai-diffusion-4-5-full" as const,
         action: "generate" as const,
+        wireModel: "nai-diffusion-4-5-full" as const,
+        referenceSnapshotHash: TEST_CONTRACT_HASH("d"),
         prompt: "rain",
         negativePrompt: "lowres",
         characterPrompts: [],

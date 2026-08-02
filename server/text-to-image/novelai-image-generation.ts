@@ -13,6 +13,13 @@ import {
     resolveNovelAiNegativePreset,
 } from "nbook/shared/text-to-image-novelai-quality";
 import type {TextToImageRecipeSource, TextToImageRecipeStyle} from "nbook/shared/text-to-image-recipe";
+import type {FrozenReferenceAsset} from "nbook/shared/text-to-image-reference-asset";
+import {
+    isNovelAiV4Model,
+    PROVIDER_GRAMMAR_REGISTRY,
+    type NovelAiProviderModelId,
+    type NovelAiVibeEncoderVersion,
+} from "nbook/shared/text-to-image-provider-registry";
 import {
     IllustrationCompiledRequestSchema,
     type IllustrationCompiledRequest,
@@ -95,9 +102,6 @@ export const TextToImageGenerateRequestSchema = z.object({
             id: z.string(),
             enabled: z.boolean().default(true),
             displayName: z.string().default("Vibe Reference"),
-            vibeEncoding: z.string().default(""),
-            imageDataUrl: z.string().default(""),
-            sourceType: z.enum(["png", "naiv4vibe", "naiv4vibebundle", "rawImage"]).default("rawImage"),
             strength: z.number().default(0.6),
             infoExtracted: z.number().default(0.7),
         }).strict()).default([]),
@@ -105,7 +109,6 @@ export const TextToImageGenerateRequestSchema = z.object({
             id: z.string(),
             enabled: z.boolean().default(true),
             displayName: z.string().default("Character Reference"),
-            imageDataUrl: z.string().default(""),
             strength: z.number().default(0.6),
             infoExtracted: z.number().default(0.7),
         }).strict()).default([]),
@@ -123,41 +126,6 @@ export const TextToImageGenerateRequestSchema = z.object({
 }).strict();
 
 export type TextToImageGenerateRequest = z.infer<typeof TextToImageGenerateRequestSchema>;
-
-export type TextToImageGeneratedImage = {
-    id: string;
-    createdAt: string;
-    fileName: string;
-    savedPath: string;
-    dataUrl: string;
-    mimeType: string;
-    byteLength: number;
-    seed: number;
-    width: number;
-    height: number;
-    model: string;
-    prompt: string;
-    negativePrompt: string;
-};
-
-export type TextToImageGenerateResponse = {
-    images: TextToImageGeneratedImage[];
-    request: {
-        model: string;
-        requestedModel: string;
-        action: "generate";
-        prompt: string;
-        negativePrompt: string;
-        seed: number;
-        width: number;
-        height: number;
-        steps: number;
-        sampler: string;
-        savedDirectory: string;
-        parameters: Record<string, unknown>;
-    };
-    warnings: string[];
-};
 
 /** 队列调用的已编译 NovelAI 输入：不携带角色、服装、输出路径或浏览器 data URL。 */
 export type NovelAiRequestInput = {
@@ -207,82 +175,31 @@ export type CompiledNovelAiResponse = {
     image: NovelAiGeneratedImage;
     request: {
         model: string;
+        /** P5 preflight 冻结的远端 wire model；作为非敏感执行证据随响应返回。 */
+        wireModel: string;
         seed: number;
         compiledRequestHash: string;
     };
 };
 
-type NovelAiRequestBuildResult = TextToImageGenerateResponse["request"] & {
+/** buildNovelAiRequest 的受控构建产物；savedDirectory 仅队列路径置空。 */
+type NovelAiRequestBuildResult = {
+    model: string;
+    requestedModel: string;
+    action: "generate";
+    prompt: string;
+    negativePrompt: string;
+    seed: number;
+    width: number;
+    height: number;
+    steps: number;
+    sampler: string;
+    savedDirectory: string;
+    parameters: Record<string, unknown>;
     requestData: Record<string, unknown>;
 };
 
 const MAX_SEED = 4294967295;
-
-export async function generateNovelAiImage(
-    input: TextToImageGenerateRequest,
-    credential: string,
-    fetchImpl: TextToImageProviderFetch = fetchTextToImageProvider,
-): Promise<TextToImageGenerateResponse> {
-    const token = normalizeNovelAiToken(credential);
-    if (!token) {
-        throw new Error("NovelAI Provider 凭据不能为空");
-    }
-
-    const warnings: string[] = [];
-    const outputDirectory = await resolveOutputDirectory(input.output.imageSavePath);
-    const buildResult = await buildNovelAiRequest(input, token, warnings, fetchImpl);
-    buildResult.savedDirectory = outputDirectory;
-    const response = await postNovelAiJson("/ai/generate-image", token, buildResult.requestData, {
-        Accept: "application/x-zip-compressed",
-    }, fetchImpl);
-    const images = extractNovelAiImages(Buffer.from(await response.arrayBuffer()));
-    if (images.length === 0) {
-        throw new Error("NovelAI 返回结果中没有找到图片");
-    }
-
-    const createdAt = new Date().toISOString();
-    const savedImages: TextToImageGeneratedImage[] = [];
-    for (const [index, image] of images.entries()) {
-        const extension = extensionFromMimeType(image.mimeType);
-        const fileName = buildImageFileName(createdAt, buildResult.seed, index, extension);
-        const savedPath = path.join(outputDirectory, fileName);
-        await fs.writeFile(savedPath, image.data);
-        savedImages.push({
-            id: `${Date.now().toString(36)}-${index}`,
-            createdAt,
-            fileName,
-            savedPath,
-            dataUrl: `data:${image.mimeType};base64,${image.data.toString("base64")}`,
-            mimeType: image.mimeType,
-            byteLength: image.data.byteLength,
-            seed: buildResult.seed,
-            width: buildResult.width,
-            height: buildResult.height,
-            model: buildResult.model,
-            prompt: buildResult.prompt,
-            negativePrompt: buildResult.negativePrompt,
-        });
-    }
-
-    return {
-        images: savedImages,
-        request: {
-            model: buildResult.model,
-            requestedModel: buildResult.requestedModel,
-            action: buildResult.action,
-            prompt: buildResult.prompt,
-            negativePrompt: buildResult.negativePrompt,
-            seed: buildResult.seed,
-            width: buildResult.width,
-            height: buildResult.height,
-            steps: buildResult.steps,
-            sampler: buildResult.sampler,
-            savedDirectory: outputDirectory,
-            parameters: buildResult.parameters,
-        },
-        warnings,
-    };
-}
 
 /**
  * 请求 NovelAI 并只返回受控的二进制图片；文件保存由 Project 资产服务负责。
@@ -359,10 +276,11 @@ export async function requestCompiledNovelAiImage(
         ? await resolveCompiledReferences(request, resolver, token, fetchImpl, signal)
         : undefined;
     const parameters = buildCompiledNovelAiParameters(request, resolved);
+    // P5：远端 action 与 wire model 只消费 preflight 冻结值，绝不在 adapter 重新推断。
     const response = await postNovelAiJson("/ai/generate-image", token, {
         input: request.prompt,
-        model: request.model,
-        action: resolved?.inpaintMaskBase64 ? "inpaint" : request.action,
+        model: request.wireModel,
+        action: request.action,
         parameters,
         use_new_shared_trial: true,
     }, {Accept: "application/x-zip-compressed"}, fetchImpl, signal);
@@ -381,6 +299,7 @@ export async function requestCompiledNovelAiImage(
         },
         request: {
             model: request.model,
+            wireModel: request.wireModel,
             seed: request.parameters.seed,
             compiledRequestHash: request.compiledRequestHash,
         },
@@ -435,6 +354,8 @@ type CompiledNovelAiParameters = {
     character_reference_strength_multiple?: number[];
     character_reference_information_extracted_multiple?: number[];
     normalize_character_reference_strength_multiple?: true;
+    /** P5 Inpaint base 图 base64（PNG/JPEG）。 */
+    image?: string;
     /** P5 Inpaint 蒙版 base64 PNG（白=重绘）。 */
     mask?: string;
 };
@@ -442,21 +363,35 @@ type CompiledNovelAiParameters = {
 /**
  * P5 参考资产字节/encoding 解析器：adapter 只消费解析产物（base64），不接触 Project 路径与凭据。
  * 仅在 CompiledRequest.references 非空时由调用方注入生产实现。
+ *
+ * 所有读取都发生在 paid window（attempt_started 之后）；任何证据不符都抛稳定错误，
+ * 由 dispatch 映射为不可重试的 reference 失败，绝不静默降级。
  */
 export interface CompiledNovelAiReferenceResolver {
-    /** 按 contentHash 读取 source-image 字节与 MIME。 */
-    readBytes(contentHash: string): Promise<{bytes: Uint8Array; mimeType: string}>;
-    /** 查询已缓存的 Vibe encoding；命中返回 encoding 字节，未命中返回 null。 */
-    findVibeEncoding(sourceContentHash: string, model: string, informationExtracted: number): Promise<Uint8Array | null>;
-    /** 缓存派生 Vibe encoding（按 sourceContentHash+model+informationExtracted）。 */
-    storeVibeEncoding(sourceContentHash: string, model: string, informationExtracted: number, encodingBytes: Uint8Array): Promise<void>;
+    /** 按 contentHash 完整复验 source-image，返回原始字节与复验证据；篡改/缺失 fail closed。 */
+    readSource(contentHash: string): Promise<{bytes: Uint8Array; evidence: FrozenReferenceAsset}>;
+    /** 按完整 typed cache key 读取已缓存 Vibe encoding；未命中返回 null，证据不符 fail closed。 */
+    readVibeEncoding(input: {
+        sourceContentHash: string;
+        providerModel: NovelAiProviderModelId;
+        informationExtracted: number;
+        encoderVersion: NovelAiVibeEncoderVersion;
+    }): Promise<Uint8Array | null>;
+    /** 持久化远端派生 Vibe encoding（完整 typed cache key；source 为复验证据）。 */
+    storeRemoteVibeEncoding(input: {
+        source: FrozenReferenceAsset;
+        providerModel: NovelAiProviderModelId;
+        informationExtracted: number;
+        encoderVersion: NovelAiVibeEncoderVersion;
+        bytes: Uint8Array;
+    }): Promise<void>;
 }
 
 /** 已解析为 base64 的参考资产产物，供 wire 投影使用；不携带 contentHash/原始字节。 */
 type ResolvedCompiledReferences = {
     vibe: Array<{encodingBase64: string; strength: number; informationExtracted: number}>;
     character: Array<{imageBase64: string; strength: number; informationExtracted: number}>;
-    inpaintMaskBase64: string | null;
+    inpaint: {imageBase64: string; maskBase64: string} | null;
 };
 
 /**
@@ -471,35 +406,57 @@ async function resolveCompiledReferences(
     signal: AbortSignal,
 ): Promise<ResolvedCompiledReferences> {
     const {vibeReferences, characterReferences, inpaint} = request.references;
+    // P5：encoderVersion 只来自唯一 Provider registry 的 model → 容器映射，adapter 不持有映射表。
+    const encoderVersion = resolveVibeEncoderVersion(request.model);
     const vibe: ResolvedCompiledReferences["vibe"] = [];
     for (const reference of vibeReferences) {
-        let encodingBytes = await resolver.findVibeEncoding(reference.contentHash, request.model, reference.informationExtracted ?? 0);
+        const informationExtracted = reference.informationExtracted ?? 0;
+        let encodingBytes = await resolver.readVibeEncoding({
+            sourceContentHash: reference.contentHash,
+            providerModel: request.model,
+            informationExtracted,
+            encoderVersion,
+        });
         if (!encodingBytes) {
-            const source = await resolver.readBytes(reference.contentHash);
-            encodingBytes = await encodeVibeFromBytes(token, source.bytes, request.model, reference.informationExtracted ?? 0, fetchImpl, signal);
-            await resolver.storeVibeEncoding(reference.contentHash, request.model, reference.informationExtracted ?? 0, encodingBytes);
+            // 缓存未命中才读取 source 字节并派生；派生结果按完整 typed key 持久化。
+            const {bytes, evidence} = await resolver.readSource(reference.contentHash);
+            encodingBytes = await encodeVibeFromBytes(token, bytes, request.model, informationExtracted, fetchImpl, signal);
+            await resolver.storeRemoteVibeEncoding({
+                source: evidence,
+                providerModel: request.model,
+                informationExtracted,
+                encoderVersion,
+                bytes: encodingBytes,
+            });
         }
         vibe.push({
             encodingBase64: Buffer.from(encodingBytes).toString("base64"),
             strength: reference.strength,
-            informationExtracted: reference.informationExtracted ?? 0,
+            informationExtracted,
         });
     }
     const character: ResolvedCompiledReferences["character"] = [];
     for (const reference of characterReferences) {
-        const source = await resolver.readBytes(reference.contentHash);
+        const {bytes} = await resolver.readSource(reference.contentHash);
         character.push({
-            imageBase64: Buffer.from(source.bytes).toString("base64"),
+            imageBase64: Buffer.from(bytes).toString("base64"),
             strength: reference.strength,
             informationExtracted: reference.informationExtracted ?? 0,
         });
     }
-    let inpaintMaskBase64: string | null = null;
+    let inpaintResolved: ResolvedCompiledReferences["inpaint"] = null;
     if (inpaint) {
-        const mask = await resolver.readBytes(inpaint.contentHash);
-        inpaintMaskBase64 = Buffer.from(mask.bytes).toString("base64");
+        // P5 双资产：base 图与 PNG 蒙版都必须按 contentHash 完整复验后取原始字节。
+        const [base, mask] = await Promise.all([
+            resolver.readSource(inpaint.baseImageContentHash),
+            resolver.readSource(inpaint.maskContentHash),
+        ]);
+        inpaintResolved = {
+            imageBase64: Buffer.from(base.bytes).toString("base64"),
+            maskBase64: Buffer.from(mask.bytes).toString("base64"),
+        };
     }
-    return {vibe, character, inpaintMaskBase64};
+    return {vibe, character, inpaint: inpaintResolved};
 }
 
 /** CompiledRequest 字段到 NovelAI wire 的纯确定性投影；不做 sampler/model/prompt 纠正。 */
@@ -530,7 +487,7 @@ function buildCompiledNovelAiParameters(request: IllustrationCompiledRequest, re
         prefer_brownian: true,
         skip_cfg_above_sigma: input.variety ? calculateVarietySigma(input.width, input.height) : null,
     };
-    if (isV4Model(request.model)) {
+    if (isNovelAiV4Model(request.model)) {
         const useCoords = !input.aiDefaultCharacterPosition;
         const positiveCaptions = request.characterPrompts.map((character): CompiledCharacterCaption => ({
             centers: [character.center],
@@ -576,9 +533,10 @@ function buildCompiledNovelAiParameters(request: IllustrationCompiledRequest, re
         parameters.character_reference_information_extracted_multiple = resolved.character.map((item) => item.informationExtracted);
         parameters.normalize_character_reference_strength_multiple = true;
     }
-    if (resolved?.inpaintMaskBase64) {
-        // Inpaint：蒙版 PNG（白=重绘），action 切为 inpaint；精确 wire 待 NovelAI V4 验证。
-        (parameters).mask = resolved.inpaintMaskBase64;
+    if (resolved?.inpaint) {
+        // P5 Inpaint：base 图原样传输 + PNG 蒙版（白=重绘）；action/wire model 由 preflight 冻结。
+        parameters.image = resolved.inpaint.imageBase64;
+        parameters.mask = resolved.inpaint.maskBase64;
     }
     return parameters;
 }
@@ -666,7 +624,7 @@ async function buildNovelAiRequest(
         skip_cfg_above_sigma: input.novelAi.variety ? calculateVarietySigma(width, height) : null,
     };
 
-    if (isV4Model(model)) {
+    if (isNovelAiV4Model(model as NovelAiProviderModelId)) {
         applyV4PromptParameters(parameters, input, prompt, negativePrompt, resolvedPrompt.characterPrompts);
     } else {
         const isDdim = sampler.includes("ddim");
@@ -675,9 +633,6 @@ async function buildNovelAiRequest(
         parameters.sm_dyn = !isDdim && input.novelAi.smeaDyn;
         parameters.uc = negativePrompt;
     }
-
-    await applyVibeTransferParameters(parameters, input, model, token, warnings, fetchImpl);
-    applyCharacterReferenceParameters(parameters, input, warnings);
 
     return {
         model,
@@ -751,80 +706,6 @@ function applyV4PromptParameters(parameters: Record<string, unknown>, input: Tex
     }));
 }
 
-async function applyVibeTransferParameters(
-    parameters: Record<string, unknown>,
-    input: TextToImageGenerateRequest,
-    model: string,
-    token: string,
-    warnings: string[],
-    fetchImpl: TextToImageProviderFetch,
-): Promise<void> {
-    const references = (input.style?.vibeReferences ?? []).filter((reference) => reference.enabled);
-    if (references.length === 0) {
-        return;
-    }
-
-    const encodings: string[] = [];
-    const strengths: number[] = [];
-    const infoExtracted: number[] = [];
-    for (const reference of references) {
-        let encoding = reference.vibeEncoding.trim();
-        if (!encoding && reference.imageDataUrl.trim()) {
-            try {
-                encoding = await encodeVibeReference(token, reference.imageDataUrl, model, reference.infoExtracted, fetchImpl);
-            } catch (error) {
-                warnings.push(`${reference.displayName || "Vibe"} 编码失败，已跳过：${error instanceof Error ? error.message : String(error)}`);
-            }
-        }
-        if (!encoding) {
-            continue;
-        }
-        encodings.push(encoding);
-        strengths.push(clampNumber(reference.strength, 0, 1, 0.6));
-        infoExtracted.push(clampNumber(reference.infoExtracted, 0, 1, 0.7));
-    }
-
-    if (encodings.length === 0) {
-        return;
-    }
-
-    parameters.normalize_reference_strength_multiple = true;
-    parameters.reference_image_multiple = encodings;
-    parameters.reference_strength_multiple = strengths;
-    parameters.reference_information_extracted_multiple = infoExtracted;
-}
-
-function applyCharacterReferenceParameters(parameters: Record<string, unknown>, input: TextToImageGenerateRequest, warnings: string[]): void {
-    const references = (input.style?.characterReferences ?? []).filter((reference) => reference.enabled);
-    if (references.length === 0) {
-        return;
-    }
-
-    const images: string[] = [];
-    const strengths: number[] = [];
-    const infoExtracted: number[] = [];
-    for (const reference of references) {
-        const image = readImageDataUrlBase64(reference.imageDataUrl);
-        if (!image) {
-            warnings.push(`${reference.displayName || "Character Reference"} 没有可用图片，已跳过。`);
-            continue;
-        }
-        images.push(image);
-        strengths.push(clampNumber(reference.strength, 0, 1, 0.6));
-        infoExtracted.push(clampNumber(reference.infoExtracted, 0, 1, 0.7));
-    }
-
-    if (images.length === 0) {
-        return;
-    }
-
-    parameters.use_character_reference = true;
-    parameters.character_reference_image_multiple = images;
-    parameters.character_reference_strength_multiple = strengths;
-    parameters.character_reference_information_extracted_multiple = infoExtracted;
-    parameters.normalize_character_reference_strength_multiple = true;
-}
-
 function collectPromptCharacters(input: TextToImageGenerateRequest): TextToImageGenerateRequest["characters"] {
     const characters = [...input.characters];
     if (input.character && !characters.some((character) => character.id === input.character?.id)) {
@@ -851,22 +732,6 @@ async function encodeVibeFromBytes(
     return new Uint8Array(await response.arrayBuffer());
 }
 
-async function encodeVibeReference(
-    token: string,
-    imageDataUrl: string,
-    model: string,
-    informationExtracted: number,
-    fetchImpl: TextToImageProviderFetch,
-): Promise<string> {
-    const imageBase64 = readImageDataUrlBase64(imageDataUrl);
-    const response = await postNovelAiJson("/ai/encode-vibe", token, {
-        image: imageBase64,
-        model,
-        informationExtracted,
-    }, {}, fetchImpl);
-    return Buffer.from(await response.arrayBuffer()).toString("base64");
-}
-
 async function postNovelAiJson(
     endpoint: string,
     token: string,
@@ -890,23 +755,6 @@ async function postNovelAiJson(
     if (!response.ok) throw new NovelAiHttpError(response.status);
 
     return response;
-}
-
-async function resolveOutputDirectory(inputPath: string): Promise<string> {
-    const trimmedPath = inputPath.trim();
-    const outputDirectory = trimmedPath
-        ? path.resolve(trimmedPath)
-        : path.join(resolveUserHomeDirectory(), "Pictures", "NeuroBook", "NovelAI");
-    if (trimmedPath && !path.isAbsolute(trimmedPath)) {
-        throw new Error("图片保存路径必须是本地绝对路径");
-    }
-
-    await fs.mkdir(outputDirectory, {recursive: true});
-    const stat = await fs.stat(outputDirectory);
-    if (!stat.isDirectory()) {
-        throw new Error("图片保存路径不是文件夹");
-    }
-    return outputDirectory;
 }
 
 function extractNovelAiImages(data: Buffer): Array<{name: string; mimeType: string; data: Buffer}> {
@@ -951,7 +799,7 @@ function shouldInlineCharacterPrompt(input: TextToImageGenerateRequest): boolean
     const requestedModel = input.style?.useFurryDataset === true && !input.novelAi.model.includes("furry")
         ? "nai-diffusion-furry-3"
         : input.novelAi.model;
-    return !isV4Model(requestedModel);
+    return !isNovelAiV4Model(requestedModel as NovelAiProviderModelId);
 }
 
 function mergePromptParts(...parts: Array<string | null | undefined>): string {
@@ -970,7 +818,7 @@ function mapSamplerForModel(sampler: string, model: string): string {
         if (model.includes("diffusion-3")) {
             return "ddim_v3";
         }
-        if (isV4Model(model)) {
+        if (isNovelAiV4Model(model as NovelAiProviderModelId)) {
             return "k_euler_ancestral";
         }
     }
@@ -978,14 +826,21 @@ function mapSamplerForModel(sampler: string, model: string): string {
 }
 
 function normalizeNoiseSchedule(noiseSchedule: string, model: string): string {
-    if (isV4Model(model) && noiseSchedule === "native") {
+    if (isNovelAiV4Model(model as NovelAiProviderModelId) && noiseSchedule === "native") {
         return "karras";
     }
     return noiseSchedule || "karras";
 }
 
-function isV4Model(model: string): boolean {
-    return model.includes("diffusion-4") || model.includes("diffusion-4-5");
+/** 从唯一 Provider registry 解析 model 的已登记 Vibe encoder 版本；未登记 fail closed。 */
+function resolveVibeEncoderVersion(model: NovelAiProviderModelId): NovelAiVibeEncoderVersion {
+    const container = PROVIDER_GRAMMAR_REGISTRY.advanced.vibeTransfer.containers.find(
+        (entry) => entry.model === model,
+    );
+    if (!container) {
+        throw new Error(`model=${model} 没有登记 Vibe 容器映射`);
+    }
+    return container.encoderVersion;
 }
 
 function calculateVarietySigma(width: number, height: number): number {
@@ -1003,14 +858,6 @@ function removeNsfwTag(prompt: string): string {
         .replace(/^\s*,\s*/u, "")
         .replace(/\s*,\s*$/u, "")
         .trim();
-}
-
-function readImageDataUrlBase64(dataUrl: string): string {
-    const match = dataUrl.trim().match(/^data:[^;]+;base64,(.+)$/u);
-    if (match?.[1]) {
-        return match[1].trim();
-    }
-    return dataUrl.trim();
 }
 
 function normalizeNovelAiToken(token: string): string {
@@ -1075,13 +922,4 @@ function extensionFromMimeType(mimeType: string): string {
         return "webp";
     }
     return "png";
-}
-
-function buildImageFileName(createdAt: string, seed: number, index: number, extension: string): string {
-    const timestamp = createdAt.replace(/[-:]/gu, "").replace(/\.\d+Z$/u, "Z");
-    return `neurobook-nai-${timestamp}-seed-${seed}-${String(index + 1).padStart(2, "0")}.${extension}`;
-}
-
-function resolveUserHomeDirectory(): string {
-    return process.env.USERPROFILE || process.env.HOME || process.cwd();
 }

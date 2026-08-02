@@ -539,33 +539,75 @@ model TextToImageAsset {
   sourceKind     String
   sourcePath     String?
   sourceAnchorId String?
+  contentHash    String?
+  compiledRequestHash String?
+  compiledRevision    String?
   createdAt      DateTime       @default(now())
   job            TextToImageJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  promotions     TextToImageReferencePromotion[]
 
   @@index([jobId, createdAt])
   @@index([sourcePath, createdAt])
 }
 
-/** P5 参考资产：内容寻址的 Vibe/Character Reference/Inpaint 蒙版与派生 Vibe encoding。 */
+/** P5 source image：只保存完整解码验证后的内容寻址图片。 */
 model TextToImageReferenceAsset {
-  id                   String   @id
-  kind                 String
-  contentHash          String   @unique
-  relativePath         String   @unique
-  fileName             String
-  mimeType             String
-  byteLength           Int
-  /** 仅 vibe-encoding 非空：派生自哪个源资产；其余为 null。 */
-  parentAssetId        String?
-  /** 仅 vibe-encoding 非空：派生时所用的 NovelAI model；其余为 null。 */
-  derivedModel         String?
-  /** 仅 vibe-encoding 非空：派生时所用的 infoExtracted；其余为 null。 */
-  derivedInfoExtracted Float?
-  createdAt            DateTime @default(now())
+  id            String   @id
+  contentHash   String   @unique
+  relativePath  String   @unique
+  fileName      String
+  mimeType      String
+  byteLength    Int
+  width         Int
+  height        Int
+  createdAt     DateTime @default(now())
+  vibeEncodings TextToImageVibeEncoding[]
+  promotions    TextToImageReferencePromotion[]
+}
 
-  @@index([kind, createdAt])
-  @@index([parentAssetId])
-  @@index([parentAssetId, derivedModel, derivedInfoExtracted])
+/** Vibe encoding 精确字节 blob；多个 lineage 可以共享同一份内容。 */
+model TextToImageVibeEncodingBlob {
+  id          String   @id
+  contentHash String   @unique
+  relativePath String  @unique
+  byteLength  Int
+  createdAt   DateTime @default(now())
+  lineages    TextToImageVibeEncoding[]
+}
+
+/** 完整 cache identity 对应的 Vibe encoding lineage。 */
+model TextToImageVibeEncoding {
+  id                         String   @id
+  sourceContentHash          String
+  providerKind               String
+  providerModel              String
+  informationExtracted       Float
+  canonicalInformation       String
+  encoderVersion             String
+  encodingContentHash        String
+  provenance                 String
+  importContainerContentHash String?
+  createdAt                  DateTime @default(now())
+  source                     TextToImageReferenceAsset  @relation(fields: [sourceContentHash], references: [contentHash], onDelete: Restrict)
+  blob                       TextToImageVibeEncodingBlob @relation(fields: [encodingContentHash], references: [contentHash], onDelete: Restrict)
+
+  @@unique([sourceContentHash, providerModel, canonicalInformation, encoderVersion])
+  @@index([encodingContentHash])
+}
+
+/** 生成资产被用户确认提升为可复用 source image 的稳定 lineage。 */
+model TextToImageReferencePromotion {
+  id                        String   @id
+  generatedAssetId          String   @unique
+  generatedAssetContentHash String
+  referenceContentHash      String
+  sourceKind                String
+  sourceId                  String
+  createdAt                 DateTime @default(now())
+  generatedAsset            TextToImageAsset          @relation(fields: [generatedAssetId], references: [id], onDelete: Restrict)
+  reference                 TextToImageReferenceAsset @relation(fields: [referenceContentHash], references: [contentHash], onDelete: Restrict)
+
+  @@unique([sourceKind, sourceId])
 }
 
 /** 用户确认后一次原子注册的不可变 execution manifest。 */
@@ -579,7 +621,7 @@ model IllustrationExecutionManifest {
   recipeSnapshotJson       String
   compiledRequestsJson     String
   outputCount              Int
-  knownCost                Float?
+  additionalCostLowerBound Float?
   tokenLowerBound          Int?
   registrationState        String                         @default("jobs_registered")
   createdAt                DateTime                       @default(now())
@@ -596,8 +638,8 @@ model IllustrationExecutionApproval {
   executionManifestHash String
   approvalHash          String                        @unique
   authorizedOutputCount Int
-  authorizedCostLimit   Float?
-  authorizedTokenLimit  Int?
+  acceptedAdditionalCostLowerBound Float?
+  acceptedTokenLowerBound  Int?
   actorUserId           Int
   approvedAt            DateTime
   createdAt             DateTime                      @default(now())

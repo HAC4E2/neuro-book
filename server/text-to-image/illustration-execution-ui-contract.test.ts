@@ -117,8 +117,8 @@ describe("illustration execution UI request ownership", () => {
             manifestHash: H("4"),
             authorization: {
                 authorizedOutputCount: 1,
-                authorizedCostLimit: null,
-                authorizedTokenLimit: null,
+                acceptedAdditionalCostLowerBound: null,
+                acceptedTokenLowerBound: null,
             },
         });
         expect(buildIllustrationBatchGenerateBody("workspace/demo", ["placeholder-1"], preview)).toEqual({
@@ -128,8 +128,8 @@ describe("illustration execution UI request ownership", () => {
             manifestHash: H("4"),
             authorization: {
                 authorizedOutputCount: 1,
-                authorizedCostLimit: null,
-                authorizedTokenLimit: null,
+                acceptedAdditionalCostLowerBound: null,
+                acceptedTokenLowerBound: null,
             },
         });
     });
@@ -209,7 +209,7 @@ function previewFixture(): IllustrationExecutionPreview {
                 hasInpaint: false,
             },
         }],
-        knownCost: null,
+        additionalCostLowerBound: null,
         tokenLowerBound: null,
         warnings: [],
     };

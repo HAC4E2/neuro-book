@@ -1,5 +1,7 @@
 import {createError} from "h3";
 import {
+    hasRecipeReferenceSelections,
+    TextToImageManualReferencesUnsupportedError,
     TextToImageRecipeConflictError,
     TextToImageRecipeInvalidError,
     TextToImageRecipeNotConfiguredError,
@@ -15,6 +17,13 @@ export function throwTextToImageRecipeHttpError(error: unknown): never {
                 code: error.code,
                 fileContentHash: error.fileContentHash,
             },
+        });
+    }
+    if (error instanceof TextToImageManualReferencesUnsupportedError) {
+        throw createError({
+            statusCode: 422,
+            message: error.message,
+            data: {code: error.code},
         });
     }
     if (error instanceof TextToImageRecipeConflictError || error instanceof TextToImageRecipeNotConfiguredError) {

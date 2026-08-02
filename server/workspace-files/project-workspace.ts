@@ -17,6 +17,97 @@ export const PROJECT_CONFIG_RELATIVE_PATH = ".nbook/config.json";
 export const PROJECT_DELETED_MARKER_RELATIVE_PATH = ".nbook/deleted-project.json";
 const STORY_PLOT_BACKUP_RELATIVE_PATH = ".nbook/story-plot-backup.json";
 
+/** P5 执行合同：immutable Manifest/Approval 的新字段结构；重建与幂等创建共用。 */
+const TEXT_TO_IMAGE_P5_EXECUTION_SQL = `
+CREATE TABLE IF NOT EXISTS "IllustrationExecutionManifest" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "projectId" TEXT NOT NULL,
+    "targetHash" TEXT NOT NULL,
+    "executionNonce" TEXT NOT NULL,
+    "executionInputHashesJson" TEXT NOT NULL,
+    "executionManifestHash" TEXT NOT NULL,
+    "recipeSnapshotJson" TEXT NOT NULL,
+    "compiledRequestsJson" TEXT NOT NULL,
+    "outputCount" INTEGER NOT NULL,
+    "additionalCostLowerBound" REAL,
+    "tokenLowerBound" INTEGER,
+    "registrationState" TEXT NOT NULL DEFAULT 'jobs_registered',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "IllustrationExecutionManifest_executionManifestHash_key" ON "IllustrationExecutionManifest"("executionManifestHash");
+CREATE INDEX IF NOT EXISTS "IllustrationExecutionManifest_projectId_createdAt_idx" ON "IllustrationExecutionManifest"("projectId", "createdAt");
+CREATE TABLE IF NOT EXISTS "IllustrationExecutionApproval" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "manifestId" TEXT NOT NULL,
+    "executionManifestHash" TEXT NOT NULL,
+    "approvalHash" TEXT NOT NULL,
+    "authorizedOutputCount" INTEGER NOT NULL,
+    "acceptedAdditionalCostLowerBound" REAL,
+    "acceptedTokenLowerBound" INTEGER,
+    "actorUserId" INTEGER NOT NULL,
+    "approvedAt" DATETIME NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "IllustrationExecutionApproval_manifestId_fkey" FOREIGN KEY ("manifestId") REFERENCES "IllustrationExecutionManifest" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "IllustrationExecutionApproval_manifestId_key" ON "IllustrationExecutionApproval"("manifestId");
+CREATE UNIQUE INDEX IF NOT EXISTS "IllustrationExecutionApproval_approvalHash_key" ON "IllustrationExecutionApproval"("approvalHash");
+`;
+
+const TEXT_TO_IMAGE_P5_REFERENCE_SQL = `
+CREATE TABLE IF NOT EXISTS "TextToImageReferenceAsset" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "contentHash" TEXT NOT NULL,
+    "relativePath" TEXT NOT NULL,
+    "fileName" TEXT NOT NULL,
+    "mimeType" TEXT NOT NULL,
+    "byteLength" INTEGER NOT NULL,
+    "width" INTEGER NOT NULL,
+    "height" INTEGER NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "TextToImageReferenceAsset_contentHash_key" ON "TextToImageReferenceAsset"("contentHash");
+CREATE UNIQUE INDEX IF NOT EXISTS "TextToImageReferenceAsset_relativePath_key" ON "TextToImageReferenceAsset"("relativePath");
+CREATE TABLE IF NOT EXISTS "TextToImageVibeEncodingBlob" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "contentHash" TEXT NOT NULL,
+    "relativePath" TEXT NOT NULL,
+    "byteLength" INTEGER NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "TextToImageVibeEncodingBlob_contentHash_key" ON "TextToImageVibeEncodingBlob"("contentHash");
+CREATE UNIQUE INDEX IF NOT EXISTS "TextToImageVibeEncodingBlob_relativePath_key" ON "TextToImageVibeEncodingBlob"("relativePath");
+CREATE TABLE IF NOT EXISTS "TextToImageVibeEncoding" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "sourceContentHash" TEXT NOT NULL,
+    "providerKind" TEXT NOT NULL,
+    "providerModel" TEXT NOT NULL,
+    "informationExtracted" REAL NOT NULL,
+    "canonicalInformation" TEXT NOT NULL,
+    "encoderVersion" TEXT NOT NULL,
+    "encodingContentHash" TEXT NOT NULL,
+    "provenance" TEXT NOT NULL,
+    "importContainerContentHash" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "TextToImageVibeEncoding_sourceContentHash_fkey" FOREIGN KEY ("sourceContentHash") REFERENCES "TextToImageReferenceAsset" ("contentHash") ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT "TextToImageVibeEncoding_encodingContentHash_fkey" FOREIGN KEY ("encodingContentHash") REFERENCES "TextToImageVibeEncodingBlob" ("contentHash") ON DELETE RESTRICT ON UPDATE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "TextToImageVibeEncoding_sourceContentHash_providerModel_canonicalInformation_encoderVersion_key" ON "TextToImageVibeEncoding"("sourceContentHash", "providerModel", "canonicalInformation", "encoderVersion");
+CREATE INDEX IF NOT EXISTS "TextToImageVibeEncoding_encodingContentHash_idx" ON "TextToImageVibeEncoding"("encodingContentHash");
+CREATE TABLE IF NOT EXISTS "TextToImageReferencePromotion" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "generatedAssetId" TEXT NOT NULL,
+    "generatedAssetContentHash" TEXT NOT NULL,
+    "referenceContentHash" TEXT NOT NULL,
+    "sourceKind" TEXT NOT NULL,
+    "sourceId" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "TextToImageReferencePromotion_generatedAssetId_fkey" FOREIGN KEY ("generatedAssetId") REFERENCES "TextToImageAsset" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT "TextToImageReferencePromotion_referenceContentHash_fkey" FOREIGN KEY ("referenceContentHash") REFERENCES "TextToImageReferenceAsset" ("contentHash") ON DELETE RESTRICT ON UPDATE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "TextToImageReferencePromotion_generatedAssetId_key" ON "TextToImageReferencePromotion"("generatedAssetId");
+CREATE UNIQUE INDEX IF NOT EXISTS "TextToImageReferencePromotion_sourceKind_sourceId_key" ON "TextToImageReferencePromotion"("sourceKind", "sourceId");
+`;
+
 export type ProjectManifest = {
     kind: "novel";
     title: string;
@@ -91,44 +182,17 @@ CREATE TABLE IF NOT EXISTS "TextToImageAsset" (
     "sourceKind" TEXT NOT NULL,
     "sourcePath" TEXT,
     "sourceAnchorId" TEXT,
+    "contentHash" TEXT,
+    "compiledRequestHash" TEXT,
+    "compiledRevision" TEXT,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "TextToImageAsset_jobId_fkey" FOREIGN KEY ("jobId") REFERENCES "TextToImageJob" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 CREATE UNIQUE INDEX IF NOT EXISTS "TextToImageAsset_relativePath_key" ON "TextToImageAsset"("relativePath");
 CREATE INDEX IF NOT EXISTS "TextToImageAsset_jobId_createdAt_idx" ON "TextToImageAsset"("jobId", "createdAt");
 CREATE INDEX IF NOT EXISTS "TextToImageAsset_sourcePath_createdAt_idx" ON "TextToImageAsset"("sourcePath", "createdAt");
-CREATE TABLE IF NOT EXISTS "IllustrationExecutionManifest" (
-    "id" TEXT NOT NULL PRIMARY KEY,
-    "projectId" TEXT NOT NULL,
-    "targetHash" TEXT NOT NULL,
-    "executionNonce" TEXT NOT NULL,
-    "executionInputHashesJson" TEXT NOT NULL,
-    "executionManifestHash" TEXT NOT NULL,
-    "recipeSnapshotJson" TEXT NOT NULL,
-    "compiledRequestsJson" TEXT NOT NULL,
-    "outputCount" INTEGER NOT NULL,
-    "knownCost" REAL,
-    "tokenLowerBound" INTEGER,
-    "registrationState" TEXT NOT NULL DEFAULT 'jobs_registered',
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE UNIQUE INDEX IF NOT EXISTS "IllustrationExecutionManifest_executionManifestHash_key" ON "IllustrationExecutionManifest"("executionManifestHash");
-CREATE INDEX IF NOT EXISTS "IllustrationExecutionManifest_projectId_createdAt_idx" ON "IllustrationExecutionManifest"("projectId", "createdAt");
-CREATE TABLE IF NOT EXISTS "IllustrationExecutionApproval" (
-    "id" TEXT NOT NULL PRIMARY KEY,
-    "manifestId" TEXT NOT NULL,
-    "executionManifestHash" TEXT NOT NULL,
-    "approvalHash" TEXT NOT NULL,
-    "authorizedOutputCount" INTEGER NOT NULL,
-    "authorizedCostLimit" REAL,
-    "authorizedTokenLimit" INTEGER,
-    "actorUserId" INTEGER NOT NULL,
-    "approvedAt" DATETIME NOT NULL,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "IllustrationExecutionApproval_manifestId_fkey" FOREIGN KEY ("manifestId") REFERENCES "IllustrationExecutionManifest" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
-);
-CREATE UNIQUE INDEX IF NOT EXISTS "IllustrationExecutionApproval_manifestId_key" ON "IllustrationExecutionApproval"("manifestId");
-CREATE UNIQUE INDEX IF NOT EXISTS "IllustrationExecutionApproval_approvalHash_key" ON "IllustrationExecutionApproval"("approvalHash");
+${TEXT_TO_IMAGE_P5_REFERENCE_SQL}
+${TEXT_TO_IMAGE_P5_EXECUTION_SQL}
 CREATE TABLE IF NOT EXISTS "TextToImageDispatchOutbox" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "dispatchKey" TEXT NOT NULL,
@@ -659,14 +723,19 @@ export async function initProjectDatabaseAtRoot(projectRoot: string): Promise<st
     const client = createClient({url: toSqliteFileUrl(databasePath)});
     try {
         await client.execute("PRAGMA foreign_keys = ON");
+        // 必须先 hard cut 精确旧 stub；否则主 migration 的 IF NOT EXISTS 会保留旧表并提前创建其余三表。
+        await ensureTextToImageP5ReferenceSchema(client);
         for (const statement of splitSqlStatements(PROJECT_MIGRATION_SQL)) {
             await client.execute(statement);
         }
+        // P5 执行合同 hard cut：旧 v2 outbox/Manifest/Approval 必须在新 repository 接收工作前收敛。
+        await ensureTextToImageP5ExecutionSchema(client);
+        // P5 generated-asset 完整性证据（contentHash/compiledRequestHash/compiledRevision）。
+        await ensureTextToImageP5GeneratedAssetSchema(client);
         await migratePlotSceneBridgeSchema(client, projectRoot);
         await migrateStorySceneChapterEntity(client);
         await ensureTextToImageJobProviderSnapshotColumn(client);
         await ensureIllustrationExecutionRegistrationSchema(client);
-        await ensureTextToImageReferenceAssetSchema(client);
         await ensureWorldSliceSummaryColumn(client);
         await ensurePlanningLayerColumns(client);
     } finally {
@@ -734,29 +803,192 @@ export async function ensureIllustrationExecutionRegistrationSchema(client: Clie
     await client.execute(`CREATE INDEX IF NOT EXISTS "TextToImageDispatchOutbox_preparationId_prepareVersion_idx" ON "TextToImageDispatchOutbox"("preparationId", "prepareVersion")`);
 }
 
+const OLD_REFERENCE_ASSET_COLUMNS = new Set([
+    "id", "kind", "contentHash", "relativePath", "fileName", "mimeType", "byteLength",
+    "parentAssetId", "derivedModel", "derivedInfoExtracted", "createdAt",
+]);
+const P5_REFERENCE_TABLE_COLUMNS = new Map<string, ReadonlySet<string>>([
+    ["TextToImageReferenceAsset", new Set([
+        "id", "contentHash", "relativePath", "fileName", "mimeType", "byteLength", "width", "height", "createdAt",
+    ])],
+    ["TextToImageVibeEncodingBlob", new Set([
+        "id", "contentHash", "relativePath", "byteLength", "createdAt",
+    ])],
+    ["TextToImageVibeEncoding", new Set([
+        "id", "sourceContentHash", "providerKind", "providerModel", "informationExtracted",
+        "canonicalInformation", "encoderVersion", "encodingContentHash", "provenance",
+        "importContainerContentHash", "createdAt",
+    ])],
+    ["TextToImageReferencePromotion", new Set([
+        "id", "generatedAssetId", "generatedAssetContentHash", "referenceContentHash",
+        "sourceKind", "sourceId", "createdAt",
+    ])],
+]);
+
+/** 同名未知表绝不 hard cut，避免误删未来或用户自建数据。 */
+export class TextToImageP5ReferenceSchemaError extends Error {
+    readonly code = "TEXT_TO_IMAGE_REFERENCE_SCHEMA_UNKNOWN";
+
+    constructor(readonly tableName: string) {
+        super(`P5 reference 表结构未知，拒绝自动替换：${tableName}`);
+        this.name = "TextToImageP5ReferenceSchemaError";
+    }
+}
+
 /**
- * P5 参考资产表：内容寻址的 Vibe/Character Reference/Inpaint 蒙版与派生 Vibe encoding。 */
-export async function ensureTextToImageReferenceAssetSchema(client: Client): Promise<void> {
-    await client.execute(`
-        CREATE TABLE IF NOT EXISTS "TextToImageReferenceAsset" (
-            "id" TEXT NOT NULL,
-            "kind" TEXT NOT NULL,
-            "contentHash" TEXT NOT NULL,
-            "relativePath" TEXT NOT NULL,
-            "fileName" TEXT NOT NULL,
-            "mimeType" TEXT NOT NULL,
-            "byteLength" INTEGER NOT NULL,
-            "parentAssetId" TEXT,
-            "derivedModel" TEXT,
-            "derivedInfoExtracted" REAL,
-            "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            CONSTRAINT "TextToImageReferenceAsset_contentHash_pkey" UNIQUE ("contentHash"),
-            CONSTRAINT "TextToImageReferenceAsset_relativePath_pkey" UNIQUE ("relativePath")
-        )
-    `);
-    await client.execute(`CREATE INDEX IF NOT EXISTS "TextToImageReferenceAsset_kind_createdAt_idx" ON "TextToImageReferenceAsset"("kind", "createdAt")`);
-    await client.execute(`CREATE INDEX IF NOT EXISTS "TextToImageReferenceAsset_parentAssetId_idx" ON "TextToImageReferenceAsset"("parentAssetId")`);
-    await client.execute(`CREATE INDEX IF NOT EXISTS "TextToImageReferenceAsset_parentAssetId_derivedModel_derivedInfoExtracted_idx" ON "TextToImageReferenceAsset"("parentAssetId", "derivedModel", "derivedInfoExtracted")`);
+ * 幂等建立 P5 四表；只有完整匹配 mixed pre-release stub 时才在同一事务内 hard cut。
+ */
+export async function ensureTextToImageP5ReferenceSchema(client: Client): Promise<void> {
+    await client.execute("PRAGMA foreign_keys = ON");
+    await client.execute("BEGIN IMMEDIATE");
+    try {
+        const sourceColumns = await tableColumns(client, "TextToImageReferenceAsset");
+        const isOldStub = sameStringSet(sourceColumns, OLD_REFERENCE_ASSET_COLUMNS);
+        const isTypedSource = sameStringSet(sourceColumns, P5_REFERENCE_TABLE_COLUMNS.get("TextToImageReferenceAsset")!);
+        if (sourceColumns.size > 0 && !isOldStub && !isTypedSource) {
+            throw new TextToImageP5ReferenceSchemaError("TextToImageReferenceAsset");
+        }
+
+        for (const [tableName, expectedColumns] of P5_REFERENCE_TABLE_COLUMNS) {
+            if (tableName === "TextToImageReferenceAsset") {
+                continue;
+            }
+            const columns = await tableColumns(client, tableName);
+            if (columns.size > 0 && !sameStringSet(columns, expectedColumns)) {
+                throw new TextToImageP5ReferenceSchemaError(tableName);
+            }
+            if (isOldStub && columns.size > 0) {
+                throw new TextToImageP5ReferenceSchemaError(tableName);
+            }
+        }
+
+        if (isOldStub) {
+            await client.execute(`DROP TABLE "TextToImageReferenceAsset"`);
+        }
+        for (const statement of splitSqlStatements(TEXT_TO_IMAGE_P5_REFERENCE_SQL)) {
+            await client.execute(statement);
+        }
+        for (const tableName of P5_REFERENCE_TABLE_COLUMNS.keys()) {
+            const violations = await client.execute(`PRAGMA foreign_key_check("${tableName}")`);
+            if (violations.rows.length > 0) {
+                throw new TextToImageP5ReferenceSchemaError(tableName);
+            }
+        }
+        await client.execute("COMMIT");
+    } catch (error) {
+        await client.execute("ROLLBACK");
+        throw error;
+    }
+}
+
+/** Set 的值与数量都必须完全相同，不能按几个特征列猜测旧 schema。 */
+function sameStringSet(actual: ReadonlySet<string>, expected: ReadonlySet<string>): boolean {
+    return actual.size === expected.size && [...actual].every((value) => expected.has(value));
+}
+
+/** 旧 Manifest 特征列；exact 匹配才 hard cut，避免误删未来或用户自建表。 */
+const OLD_EXECUTION_MANIFEST_COLUMNS = new Set([
+    "id", "projectId", "targetHash", "executionNonce", "executionInputHashesJson",
+    "executionManifestHash", "recipeSnapshotJson", "compiledRequestsJson", "outputCount",
+    "knownCost", "tokenLowerBound", "registrationState", "createdAt",
+]);
+
+const OLD_EXECUTION_APPROVAL_COLUMNS = new Set([
+    "id", "manifestId", "executionManifestHash", "approvalHash", "authorizedOutputCount",
+    "authorizedCostLimit", "authorizedTokenLimit", "actorUserId", "approvedAt", "createdAt",
+]);
+
+const NEW_EXECUTION_MANIFEST_COLUMNS = new Set([
+    "id", "projectId", "targetHash", "executionNonce", "executionInputHashesJson",
+    "executionManifestHash", "recipeSnapshotJson", "compiledRequestsJson", "outputCount",
+    "additionalCostLowerBound", "tokenLowerBound", "registrationState", "createdAt",
+]);
+
+const NEW_EXECUTION_APPROVAL_COLUMNS = new Set([
+    "id", "manifestId", "executionManifestHash", "approvalHash", "authorizedOutputCount",
+    "acceptedAdditionalCostLowerBound", "acceptedTokenLowerBound", "actorUserId", "approvedAt", "createdAt",
+]);
+
+/**
+ * P5 执行合同 hard cut：在新 repository 接收工作前，把旧 v2 dispatch/Manifest/Approval
+ * 收敛为新 contract。整个序列在单个 BEGIN IMMEDIATE 事务内，任何失败回滚后旧闭包保持可读。
+ *
+ * - 删除旧 registrationVersion 的 pending outbox（其 Manifest/Approval 由下方重建）。
+ * - 旧 queued strict Job 标记 failed（TEXT_TO_IMAGE_CONTRACT_UPGRADED）。
+ * - 旧 running|completing strict Job 标记 outcome_unknown，绝不重放。
+ * - 保留 terminal Job/asset 历史，但 detach 旧 Manifest/Approval ID。
+ * - exact 匹配旧 Manifest/Approval 结构时删除并重建为新字段表；新结构幂等跳过。
+ */
+export async function ensureTextToImageP5ExecutionSchema(client: Client): Promise<void> {
+    await client.execute("PRAGMA foreign_keys = ON");
+    await client.execute("BEGIN IMMEDIATE");
+    try {
+        await client.execute(`DELETE FROM "TextToImageDispatchOutbox" WHERE "registrationVersion" != 'route-b-dispatch-registration-v3'`);
+        await client.execute(`UPDATE "TextToImageJob" SET
+            "status" = 'failed',
+            "stableErrorCode" = 'TEXT_TO_IMAGE_CONTRACT_UPGRADED',
+            "errorMessage" = '执行合同已升级，旧排队任务已失效',
+            "finishedAt" = CURRENT_TIMESTAMP
+            WHERE "status" = 'queued' AND "kind" = 'illustration'`);
+        await client.execute(`UPDATE "TextToImageJob" SET
+            "status" = 'outcome_unknown',
+            "stableErrorCode" = 'TEXT_TO_IMAGE_CONTRACT_UPGRADED',
+            "errorMessage" = '执行合同已升级，进行中任务结果无法确认且不会重放',
+            "finishedAt" = CURRENT_TIMESTAMP
+            WHERE "status" IN ('running', 'completing') AND "kind" = 'illustration'`);
+        await client.execute(`UPDATE "TextToImageJob" SET
+            "executionManifestId" = NULL,
+            "executionApprovalId" = NULL
+            WHERE "executionManifestId" IS NOT NULL OR "executionApprovalId" IS NOT NULL`);
+
+        const manifestColumns = await tableColumns(client, "IllustrationExecutionManifest");
+        const approvalColumns = await tableColumns(client, "IllustrationExecutionApproval");
+        const isOldManifest = sameStringSet(manifestColumns, OLD_EXECUTION_MANIFEST_COLUMNS);
+        const isOldApproval = sameStringSet(approvalColumns, OLD_EXECUTION_APPROVAL_COLUMNS);
+        const isNewManifest = sameStringSet(manifestColumns, NEW_EXECUTION_MANIFEST_COLUMNS);
+        const isNewApproval = sameStringSet(approvalColumns, NEW_EXECUTION_APPROVAL_COLUMNS);
+        if (manifestColumns.size > 0 && !isOldManifest && !isNewManifest) {
+            throw new TextToImageP5ReferenceSchemaError("IllustrationExecutionManifest");
+        }
+        if (approvalColumns.size > 0 && !isOldApproval && !isNewApproval) {
+            throw new TextToImageP5ReferenceSchemaError("IllustrationExecutionApproval");
+        }
+        if (isOldManifest || isOldApproval) {
+            if (!isOldManifest || !isOldApproval) {
+                throw new TextToImageP5ReferenceSchemaError("IllustrationExecutionApproval");
+            }
+            await client.execute(`DELETE FROM "IllustrationExecutionApproval"`);
+            await client.execute(`DELETE FROM "IllustrationExecutionManifest"`);
+            await client.execute(`DROP TABLE "IllustrationExecutionApproval"`);
+            await client.execute(`DROP TABLE "IllustrationExecutionManifest"`);
+            for (const statement of splitSqlStatements(TEXT_TO_IMAGE_P5_EXECUTION_SQL)) {
+                await client.execute(statement);
+            }
+        }
+        const violations = await client.execute("PRAGMA foreign_key_check");
+        if (violations.rows.length > 0) {
+            throw new TextToImageP5ReferenceSchemaError("IllustrationExecutionManifest");
+        }
+        await client.execute("COMMIT");
+    } catch (error) {
+        await client.execute("ROLLBACK");
+        throw error;
+    }
+}
+
+/** P5 generated-asset 完整性证据列；老库幂等补齐，新库由 PROJECT_MIGRATION_SQL 直接带上。 */
+export async function ensureTextToImageP5GeneratedAssetSchema(client: Client): Promise<void> {
+    const columns = await tableColumns(client, "TextToImageAsset");
+    const additions = [
+        ["contentHash", "TEXT"],
+        ["compiledRequestHash", "TEXT"],
+        ["compiledRevision", "TEXT"],
+    ] as const;
+    for (const [column, type] of additions) {
+        if (!columns.has(column)) {
+            await client.execute(`ALTER TABLE "TextToImageAsset" ADD COLUMN "${column}" ${type}`);
+        }
+    }
 }
 
 /**

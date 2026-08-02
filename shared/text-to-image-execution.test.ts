@@ -42,6 +42,7 @@ describe("illustration execution contracts", () => {
             provider: request.provider,
             capabilitySnapshot: request.capabilitySnapshot,
             resolutionValidationHash: request.expansion.resolutionValidationHash,
+            referenceSnapshotHash: request.referenceSnapshotHash,
             executionNonce: "nonce-1",
             variantIndex: 0,
             outputIndex: 0,
@@ -55,7 +56,7 @@ describe("illustration execution contracts", () => {
             recipeSnapshot: request.recipeSnapshot,
             compiledRequests: [request],
             outputCount: 1,
-            knownCost: null,
+            additionalCostLowerBound: null,
             tokenLowerBound: null,
         });
 
@@ -87,6 +88,8 @@ function compiledRequest() {
         capabilitySnapshot: resolveProviderCapability({kind: "novelai-model", modelId: "nai-diffusion-4-5-full"}),
         model: "nai-diffusion-4-5-full" as const,
         action: "generate" as const,
+        wireModel: "nai-diffusion-4-5-full" as const,
+        referenceSnapshotHash: H("c"),
         prompt: "rain, cinematic lighting",
         negativePrompt: "lowres",
         characterPrompts: [],

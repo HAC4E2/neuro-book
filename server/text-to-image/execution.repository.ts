@@ -1,4 +1,5 @@
 import {z} from "zod";
+import {stat as statFile} from "node:fs/promises";
 import {type Prisma, type PrismaClient} from "nbook/server/generated/project-prisma/client";
 import {hashTextToImageContract} from "nbook/shared/text-to-image-contract-hash";
 import {
@@ -17,8 +18,14 @@ import {
     DispatchPreparationStampSchema,
     type DispatchPreparationStamp,
 } from "nbook/shared/text-to-image-dispatch";
+import {resolveProjectAbsolutePath} from "nbook/server/text-to-image/compat";
+import {resolveReferenceAssetPath} from "nbook/server/text-to-image/asset-path";
+import {
+    assertTextToImageReferenceMutationScope,
+    type TextToImageReferenceMutationScope,
+} from "nbook/server/text-to-image/reference-asset-lock";
 
-export const ILLUSTRATION_DISPATCH_REGISTRATION_VERSION = "route-b-dispatch-registration-v2" as const;
+export const ILLUSTRATION_DISPATCH_REGISTRATION_VERSION = "route-b-dispatch-registration-v3" as const;
 
 const RegistrationInputSchema = z.object({
     projectPath: z.string().regex(/^workspace\/[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/u),
@@ -28,7 +35,7 @@ const RegistrationInputSchema = z.object({
     executionManifestHash: TextToImageContractHashSchema,
     compiledRequests: z.array(IllustrationCompiledRequestSchema).min(1).max(32),
     outputCount: z.number().int().min(1).max(32),
-    knownCost: z.number().nonnegative().nullable(),
+    additionalCostLowerBound: z.number().nonnegative().nullable(),
     tokenLowerBound: z.number().int().nonnegative().nullable(),
     authorization: IllustrationExecutionAuthorizationSchema,
     actorUserId: z.number().int().positive().safe(),
@@ -99,12 +106,19 @@ export class IllustrationExecutionRepository {
     async register(
         prepared: PreparedIllustrationRegistration,
         stampInput: DispatchPreparationStamp,
+        scope: TextToImageReferenceMutationScope,
     ): Promise<IllustrationExecutionRegistrationReceipt> {
         const stamp = DispatchPreparationStampSchema.parse(stampInput);
         if (stamp.preparationId !== prepared.preparationId) {
             throw invalidRegistration("Project registration 的 preparationId 与稳定注册投影不一致");
         }
         this.assertPrepareLease(stamp);
+        assertTextToImageReferenceMutationScope(scope, {
+            projectPath: prepared.input.projectPath,
+            projectRoot: resolveProjectAbsolutePath(prepared.input.projectPath),
+        });
+        // 锁内重读：Preview/out-of-lock 编译后参考资产可能已被删除，注册前必须证明闭包仍闭合。
+        await this.assertReferencesStillClosed(prepared.input.projectPath, prepared.input.compiledRequests);
         const existing = await this.findExistingReceipt(prepared, stamp);
         if (existing) return existing;
         try {
@@ -120,7 +134,7 @@ export class IllustrationExecutionRepository {
                         recipeSnapshotJson: JSON.stringify(prepared.input.compiledRequests[0]?.recipeSnapshot),
                         compiledRequestsJson: JSON.stringify(prepared.input.compiledRequests),
                         outputCount: prepared.input.outputCount,
-                        knownCost: prepared.input.knownCost,
+                        additionalCostLowerBound: prepared.input.additionalCostLowerBound,
                         tokenLowerBound: prepared.input.tokenLowerBound,
                         registrationState: "jobs_registered",
                     },
@@ -133,8 +147,8 @@ export class IllustrationExecutionRepository {
                         executionManifestHash: prepared.input.executionManifestHash,
                         approvalHash: prepared.approvalHash,
                         authorizedOutputCount: prepared.input.authorization.authorizedOutputCount,
-                        authorizedCostLimit: prepared.input.authorization.authorizedCostLimit,
-                        authorizedTokenLimit: prepared.input.authorization.authorizedTokenLimit,
+                        acceptedAdditionalCostLowerBound: prepared.input.authorization.acceptedAdditionalCostLowerBound,
+                        acceptedTokenLowerBound: prepared.input.authorization.acceptedTokenLowerBound,
                         actorUserId: prepared.input.actorUserId,
                         approvedAt: new Date(prepared.input.approvedAt),
                     },
@@ -369,6 +383,48 @@ export class IllustrationExecutionRepository {
         await this.onStage?.(stage);
     }
 
+    /**
+     * 锁内重读：CompiledRequests 引用的每个参考资产行必须仍存在且 status available，
+     * 文件大小必须与登记证据一致。任何缺失/篡改都拒绝注册，绝不创建悬空 Manifest。
+     */
+    private async assertReferencesStillClosed(
+        projectPath: string,
+        requests: IllustrationCompiledRequest[],
+    ): Promise<void> {
+        const hashes = new Set<string>();
+        for (const request of requests) {
+            for (const reference of request.references.vibeReferences) hashes.add(reference.contentHash);
+            for (const reference of request.references.characterReferences) hashes.add(reference.contentHash);
+            if (request.references.inpaint) {
+                hashes.add(request.references.inpaint.baseImageContentHash);
+                hashes.add(request.references.inpaint.maskContentHash);
+            }
+        }
+        if (hashes.size === 0) return;
+        const rows = await this.client.textToImageReferenceAsset.findMany({
+            where: {contentHash: {in: [...hashes]}},
+            select: {contentHash: true, relativePath: true, byteLength: true, width: true, height: true, mimeType: true},
+        });
+        if (rows.length !== hashes.size) {
+            throw invalidRegistration("参考资产在授权后已消失，禁止创建悬空 Manifest");
+        }
+        const projectRoot = resolveProjectAbsolutePath(projectPath);
+        for (const row of rows) {
+            const absolutePath = resolveReferenceAssetPath(projectRoot, row.relativePath);
+            try {
+                const fileStat = await statFile(absolutePath);
+                if (!fileStat.isFile() || fileStat.size !== row.byteLength) {
+                    throw invalidRegistration("参考资产文件与登记证据不一致，禁止注册");
+                }
+            } catch (error) {
+                if (isMissingFileError(error)) {
+                    throw invalidRegistration("参考资产文件已缺失，禁止创建悬空 Manifest");
+                }
+                throw error;
+            }
+        }
+    }
+
     /** Project 事务开始前与提交前都必须仍持有 App prepare lease。 */
     private assertPrepareLease(stamp: DispatchPreparationStamp): void {
         const now = this.clock();
@@ -393,13 +449,15 @@ export function prepareIllustrationExecutionRegistration(
         || input.authorization.authorizedOutputCount !== input.outputCount) {
         throw invalidRegistration("outputCount、authorization 与请求/hash 数量必须完全一致");
     }
-    if (input.knownCost !== null
-        && (input.authorization.authorizedCostLimit === null || input.authorization.authorizedCostLimit < input.knownCost)) {
-        throw invalidRegistration("授权费用上限低于 Preview 已知费用");
+    if (input.additionalCostLowerBound !== null
+        && (input.authorization.acceptedAdditionalCostLowerBound === null
+            || input.authorization.acceptedAdditionalCostLowerBound < input.additionalCostLowerBound)) {
+        throw invalidRegistration("授权费用下界低于 Preview 冻结的费用下界");
     }
     if (input.tokenLowerBound !== null
-        && (input.authorization.authorizedTokenLimit === null || input.authorization.authorizedTokenLimit < input.tokenLowerBound)) {
-        throw invalidRegistration("授权 Token 上限低于 Preview 下限");
+        && (input.authorization.acceptedTokenLowerBound === null
+            || input.authorization.acceptedTokenLowerBound < input.tokenLowerBound)) {
+        throw invalidRegistration("授权 Token 下界低于 Preview 下限");
     }
     const projectId = first.source.projectId;
     const providerIdentity = hashTextToImageContract(first.provider);
@@ -416,7 +474,7 @@ export function prepareIllustrationExecutionRegistration(
         recipeSnapshot: first.recipeSnapshot,
         compiledRequests: input.compiledRequests,
         outputCount: input.outputCount,
-        knownCost: input.knownCost,
+        additionalCostLowerBound: input.additionalCostLowerBound,
         tokenLowerBound: input.tokenLowerBound,
     });
     if (manifestHash !== input.executionManifestHash) throw invalidRegistration("executionManifestHash 与注册内容不一致");
@@ -492,4 +550,9 @@ function stableId(prefix: string, contractHash: string): string {
 /** 构造稳定注册输入错误。 */
 function invalidRegistration(message: string): IllustrationExecutionRegistrationError {
     return new IllustrationExecutionRegistrationError("ILLUSTRATION_EXECUTION_REGISTRATION_INVALID", message);
+}
+
+/** 只消费 ENOENT，其他文件错误保持原样。 */
+function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
+    return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
 }

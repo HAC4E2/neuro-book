@@ -1,34 +1,30 @@
-import {createError, getRouterParam} from "h3";
+import {createError, getRouterParam, readBody} from "h3";
 import {z} from "zod";
-import {
-    TextToImageReferenceAssetInUseError,
-    TextToImageReferenceAssetNotFoundError,
-    TextToImageReferenceAssetService,
-} from "nbook/server/text-to-image/reference-asset.service";
+import {TextToImageReferenceAssetService} from "nbook/server/text-to-image/reference-asset.service";
+import {throwReferenceAssetHttpError} from "nbook/server/text-to-image/reference-asset-http-error";
 import {requireCurrentUser} from "nbook/server/utils/auth";
-import {assertProjectOpen} from "nbook/server/workspace-files/project-session";
+import {withProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
 
-const ProjectPathSchema = z.object({projectPath: z.string().trim().min(1)}).strict();
+const DeleteBodySchema = z.object({
+    projectPath: z.string().trim().min(1).max(300),
+}).strict();
 
-/** 删除未被引用的参考资产；派生 encoding 可直接删，源资产有派生依赖时拒绝。 */
-export default defineEventHandler(async (event) => {
+/** 删除未被 Vibe lineage/promotion 引用的 source-image；文件与行在 Project 锁内成对清理。 */
+export default defineEventHandler((event) => withProjectNotOpenHttpError(async () => {
     await requireCurrentUser(event);
     const assetId = getRouterParam(event, "id");
-    const parsed = ProjectPathSchema.safeParse(await readBody(event));
+    const parsed = DeleteBodySchema.safeParse(await readBody(event));
     if (!assetId || !parsed.success) {
-        throw createError({statusCode: 400, message: "删除参考资产参数不合法"});
+        throw createError({
+            statusCode: 400,
+            message: "delete 参数不合法",
+            data: {code: "INVALID_REFERENCE_ASSET_INPUT"},
+        });
     }
-    assertProjectOpen(parsed.data.projectPath);
     try {
         await new TextToImageReferenceAssetService().delete(parsed.data.projectPath, assetId);
         return {ok: true};
     } catch (error) {
-        if (error instanceof TextToImageReferenceAssetInUseError) {
-            throw createError({statusCode: 409, data: {code: error.code}, message: error.message});
-        }
-        if (error instanceof TextToImageReferenceAssetNotFoundError) {
-            throw createError({statusCode: 404, data: {code: error.code}, message: error.message});
-        }
-        throw error;
+        throwReferenceAssetHttpError(error);
     }
-});
+}));

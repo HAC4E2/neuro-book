@@ -56,6 +56,9 @@ export type TextToImageAssetMinAggregateOutputType = {
   sourceKind: string | null
   sourcePath: string | null
   sourceAnchorId: string | null
+  contentHash: string | null
+  compiledRequestHash: string | null
+  compiledRevision: string | null
   createdAt: Date | null
 }
 
@@ -75,6 +78,9 @@ export type TextToImageAssetMaxAggregateOutputType = {
   sourceKind: string | null
   sourcePath: string | null
   sourceAnchorId: string | null
+  contentHash: string | null
+  compiledRequestHash: string | null
+  compiledRevision: string | null
   createdAt: Date | null
 }
 
@@ -94,6 +100,9 @@ export type TextToImageAssetCountAggregateOutputType = {
   sourceKind: number
   sourcePath: number
   sourceAnchorId: number
+  contentHash: number
+  compiledRequestHash: number
+  compiledRevision: number
   createdAt: number
   _all: number
 }
@@ -129,6 +138,9 @@ export type TextToImageAssetMinAggregateInputType = {
   sourceKind?: true
   sourcePath?: true
   sourceAnchorId?: true
+  contentHash?: true
+  compiledRequestHash?: true
+  compiledRevision?: true
   createdAt?: true
 }
 
@@ -148,6 +160,9 @@ export type TextToImageAssetMaxAggregateInputType = {
   sourceKind?: true
   sourcePath?: true
   sourceAnchorId?: true
+  contentHash?: true
+  compiledRequestHash?: true
+  compiledRevision?: true
   createdAt?: true
 }
 
@@ -167,6 +182,9 @@ export type TextToImageAssetCountAggregateInputType = {
   sourceKind?: true
   sourcePath?: true
   sourceAnchorId?: true
+  contentHash?: true
+  compiledRequestHash?: true
+  compiledRevision?: true
   createdAt?: true
   _all?: true
 }
@@ -273,6 +291,9 @@ export type TextToImageAssetGroupByOutputType = {
   sourceKind: string
   sourcePath: string | null
   sourceAnchorId: string | null
+  contentHash: string | null
+  compiledRequestHash: string | null
+  compiledRevision: string | null
   createdAt: Date
   _count: TextToImageAssetCountAggregateOutputType | null
   _avg: TextToImageAssetAvgAggregateOutputType | null
@@ -315,8 +336,12 @@ export type TextToImageAssetWhereInput = {
   sourceKind?: Prisma.StringFilter<"TextToImageAsset"> | string
   sourcePath?: Prisma.StringNullableFilter<"TextToImageAsset"> | string | null
   sourceAnchorId?: Prisma.StringNullableFilter<"TextToImageAsset"> | string | null
+  contentHash?: Prisma.StringNullableFilter<"TextToImageAsset"> | string | null
+  compiledRequestHash?: Prisma.StringNullableFilter<"TextToImageAsset"> | string | null
+  compiledRevision?: Prisma.StringNullableFilter<"TextToImageAsset"> | string | null
   createdAt?: Prisma.DateTimeFilter<"TextToImageAsset"> | Date | string
   job?: Prisma.XOR<Prisma.TextToImageJobScalarRelationFilter, Prisma.TextToImageJobWhereInput>
+  promotions?: Prisma.TextToImageReferencePromotionListRelationFilter
 }
 
 export type TextToImageAssetOrderByWithRelationInput = {
@@ -335,8 +360,12 @@ export type TextToImageAssetOrderByWithRelationInput = {
   sourceKind?: Prisma.SortOrder
   sourcePath?: Prisma.SortOrderInput | Prisma.SortOrder
   sourceAnchorId?: Prisma.SortOrderInput | Prisma.SortOrder
+  contentHash?: Prisma.SortOrderInput | Prisma.SortOrder
+  compiledRequestHash?: Prisma.SortOrderInput | Prisma.SortOrder
+  compiledRevision?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   job?: Prisma.TextToImageJobOrderByWithRelationInput
+  promotions?: Prisma.TextToImageReferencePromotionOrderByRelationAggregateInput
 }
 
 export type TextToImageAssetWhereUniqueInput = Prisma.AtLeast<{
@@ -358,8 +387,12 @@ export type TextToImageAssetWhereUniqueInput = Prisma.AtLeast<{
   sourceKind?: Prisma.StringFilter<"TextToImageAsset"> | string
   sourcePath?: Prisma.StringNullableFilter<"TextToImageAsset"> | string | null
   sourceAnchorId?: Prisma.StringNullableFilter<"TextToImageAsset"> | string | null
+  contentHash?: Prisma.StringNullableFilter<"TextToImageAsset"> | string | null
+  compiledRequestHash?: Prisma.StringNullableFilter<"TextToImageAsset"> | string | null
+  compiledRevision?: Prisma.StringNullableFilter<"TextToImageAsset"> | string | null
   createdAt?: Prisma.DateTimeFilter<"TextToImageAsset"> | Date | string
   job?: Prisma.XOR<Prisma.TextToImageJobScalarRelationFilter, Prisma.TextToImageJobWhereInput>
+  promotions?: Prisma.TextToImageReferencePromotionListRelationFilter
 }, "id" | "relativePath">
 
 export type TextToImageAssetOrderByWithAggregationInput = {
@@ -378,6 +411,9 @@ export type TextToImageAssetOrderByWithAggregationInput = {
   sourceKind?: Prisma.SortOrder
   sourcePath?: Prisma.SortOrderInput | Prisma.SortOrder
   sourceAnchorId?: Prisma.SortOrderInput | Prisma.SortOrder
+  contentHash?: Prisma.SortOrderInput | Prisma.SortOrder
+  compiledRequestHash?: Prisma.SortOrderInput | Prisma.SortOrder
+  compiledRevision?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   _count?: Prisma.TextToImageAssetCountOrderByAggregateInput
   _avg?: Prisma.TextToImageAssetAvgOrderByAggregateInput
@@ -405,6 +441,9 @@ export type TextToImageAssetScalarWhereWithAggregatesInput = {
   sourceKind?: Prisma.StringWithAggregatesFilter<"TextToImageAsset"> | string
   sourcePath?: Prisma.StringNullableWithAggregatesFilter<"TextToImageAsset"> | string | null
   sourceAnchorId?: Prisma.StringNullableWithAggregatesFilter<"TextToImageAsset"> | string | null
+  contentHash?: Prisma.StringNullableWithAggregatesFilter<"TextToImageAsset"> | string | null
+  compiledRequestHash?: Prisma.StringNullableWithAggregatesFilter<"TextToImageAsset"> | string | null
+  compiledRevision?: Prisma.StringNullableWithAggregatesFilter<"TextToImageAsset"> | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"TextToImageAsset"> | Date | string
 }
 
@@ -423,8 +462,12 @@ export type TextToImageAssetCreateInput = {
   sourceKind: string
   sourcePath?: string | null
   sourceAnchorId?: string | null
+  contentHash?: string | null
+  compiledRequestHash?: string | null
+  compiledRevision?: string | null
   createdAt?: Date | string
   job: Prisma.TextToImageJobCreateNestedOneWithoutAssetsInput
+  promotions?: Prisma.TextToImageReferencePromotionCreateNestedManyWithoutGeneratedAssetInput
 }
 
 export type TextToImageAssetUncheckedCreateInput = {
@@ -443,7 +486,11 @@ export type TextToImageAssetUncheckedCreateInput = {
   sourceKind: string
   sourcePath?: string | null
   sourceAnchorId?: string | null
+  contentHash?: string | null
+  compiledRequestHash?: string | null
+  compiledRevision?: string | null
   createdAt?: Date | string
+  promotions?: Prisma.TextToImageReferencePromotionUncheckedCreateNestedManyWithoutGeneratedAssetInput
 }
 
 export type TextToImageAssetUpdateInput = {
@@ -461,8 +508,12 @@ export type TextToImageAssetUpdateInput = {
   sourceKind?: Prisma.StringFieldUpdateOperationsInput | string
   sourcePath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceAnchorId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  contentHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  compiledRequestHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  compiledRevision?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   job?: Prisma.TextToImageJobUpdateOneRequiredWithoutAssetsNestedInput
+  promotions?: Prisma.TextToImageReferencePromotionUpdateManyWithoutGeneratedAssetNestedInput
 }
 
 export type TextToImageAssetUncheckedUpdateInput = {
@@ -481,7 +532,11 @@ export type TextToImageAssetUncheckedUpdateInput = {
   sourceKind?: Prisma.StringFieldUpdateOperationsInput | string
   sourcePath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceAnchorId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  contentHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  compiledRequestHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  compiledRevision?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  promotions?: Prisma.TextToImageReferencePromotionUncheckedUpdateManyWithoutGeneratedAssetNestedInput
 }
 
 export type TextToImageAssetCreateManyInput = {
@@ -500,6 +555,9 @@ export type TextToImageAssetCreateManyInput = {
   sourceKind: string
   sourcePath?: string | null
   sourceAnchorId?: string | null
+  contentHash?: string | null
+  compiledRequestHash?: string | null
+  compiledRevision?: string | null
   createdAt?: Date | string
 }
 
@@ -518,6 +576,9 @@ export type TextToImageAssetUpdateManyMutationInput = {
   sourceKind?: Prisma.StringFieldUpdateOperationsInput | string
   sourcePath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceAnchorId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  contentHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  compiledRequestHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  compiledRevision?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -537,6 +598,9 @@ export type TextToImageAssetUncheckedUpdateManyInput = {
   sourceKind?: Prisma.StringFieldUpdateOperationsInput | string
   sourcePath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceAnchorId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  contentHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  compiledRequestHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  compiledRevision?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -566,6 +630,9 @@ export type TextToImageAssetCountOrderByAggregateInput = {
   sourceKind?: Prisma.SortOrder
   sourcePath?: Prisma.SortOrder
   sourceAnchorId?: Prisma.SortOrder
+  contentHash?: Prisma.SortOrder
+  compiledRequestHash?: Prisma.SortOrder
+  compiledRevision?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
 
@@ -592,6 +659,9 @@ export type TextToImageAssetMaxOrderByAggregateInput = {
   sourceKind?: Prisma.SortOrder
   sourcePath?: Prisma.SortOrder
   sourceAnchorId?: Prisma.SortOrder
+  contentHash?: Prisma.SortOrder
+  compiledRequestHash?: Prisma.SortOrder
+  compiledRevision?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
 
@@ -611,6 +681,9 @@ export type TextToImageAssetMinOrderByAggregateInput = {
   sourceKind?: Prisma.SortOrder
   sourcePath?: Prisma.SortOrder
   sourceAnchorId?: Prisma.SortOrder
+  contentHash?: Prisma.SortOrder
+  compiledRequestHash?: Prisma.SortOrder
+  compiledRevision?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
 
@@ -619,6 +692,11 @@ export type TextToImageAssetSumOrderByAggregateInput = {
   width?: Prisma.SortOrder
   height?: Prisma.SortOrder
   seed?: Prisma.SortOrder
+}
+
+export type TextToImageAssetScalarRelationFilter = {
+  is?: Prisma.TextToImageAssetWhereInput
+  isNot?: Prisma.TextToImageAssetWhereInput
 }
 
 export type TextToImageAssetCreateNestedManyWithoutJobInput = {
@@ -663,6 +741,20 @@ export type TextToImageAssetUncheckedUpdateManyWithoutJobNestedInput = {
   deleteMany?: Prisma.TextToImageAssetScalarWhereInput | Prisma.TextToImageAssetScalarWhereInput[]
 }
 
+export type TextToImageAssetCreateNestedOneWithoutPromotionsInput = {
+  create?: Prisma.XOR<Prisma.TextToImageAssetCreateWithoutPromotionsInput, Prisma.TextToImageAssetUncheckedCreateWithoutPromotionsInput>
+  connectOrCreate?: Prisma.TextToImageAssetCreateOrConnectWithoutPromotionsInput
+  connect?: Prisma.TextToImageAssetWhereUniqueInput
+}
+
+export type TextToImageAssetUpdateOneRequiredWithoutPromotionsNestedInput = {
+  create?: Prisma.XOR<Prisma.TextToImageAssetCreateWithoutPromotionsInput, Prisma.TextToImageAssetUncheckedCreateWithoutPromotionsInput>
+  connectOrCreate?: Prisma.TextToImageAssetCreateOrConnectWithoutPromotionsInput
+  upsert?: Prisma.TextToImageAssetUpsertWithoutPromotionsInput
+  connect?: Prisma.TextToImageAssetWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.TextToImageAssetUpdateToOneWithWhereWithoutPromotionsInput, Prisma.TextToImageAssetUpdateWithoutPromotionsInput>, Prisma.TextToImageAssetUncheckedUpdateWithoutPromotionsInput>
+}
+
 export type TextToImageAssetCreateWithoutJobInput = {
   id: string
   relativePath: string
@@ -678,7 +770,11 @@ export type TextToImageAssetCreateWithoutJobInput = {
   sourceKind: string
   sourcePath?: string | null
   sourceAnchorId?: string | null
+  contentHash?: string | null
+  compiledRequestHash?: string | null
+  compiledRevision?: string | null
   createdAt?: Date | string
+  promotions?: Prisma.TextToImageReferencePromotionCreateNestedManyWithoutGeneratedAssetInput
 }
 
 export type TextToImageAssetUncheckedCreateWithoutJobInput = {
@@ -696,7 +792,11 @@ export type TextToImageAssetUncheckedCreateWithoutJobInput = {
   sourceKind: string
   sourcePath?: string | null
   sourceAnchorId?: string | null
+  contentHash?: string | null
+  compiledRequestHash?: string | null
+  compiledRevision?: string | null
   createdAt?: Date | string
+  promotions?: Prisma.TextToImageReferencePromotionUncheckedCreateNestedManyWithoutGeneratedAssetInput
 }
 
 export type TextToImageAssetCreateOrConnectWithoutJobInput = {
@@ -743,7 +843,114 @@ export type TextToImageAssetScalarWhereInput = {
   sourceKind?: Prisma.StringFilter<"TextToImageAsset"> | string
   sourcePath?: Prisma.StringNullableFilter<"TextToImageAsset"> | string | null
   sourceAnchorId?: Prisma.StringNullableFilter<"TextToImageAsset"> | string | null
+  contentHash?: Prisma.StringNullableFilter<"TextToImageAsset"> | string | null
+  compiledRequestHash?: Prisma.StringNullableFilter<"TextToImageAsset"> | string | null
+  compiledRevision?: Prisma.StringNullableFilter<"TextToImageAsset"> | string | null
   createdAt?: Prisma.DateTimeFilter<"TextToImageAsset"> | Date | string
+}
+
+export type TextToImageAssetCreateWithoutPromotionsInput = {
+  id: string
+  relativePath: string
+  fileName: string
+  mimeType: string
+  byteLength: number
+  width: number
+  height: number
+  model: string
+  seed: number
+  prompt: string
+  negativePrompt: string
+  sourceKind: string
+  sourcePath?: string | null
+  sourceAnchorId?: string | null
+  contentHash?: string | null
+  compiledRequestHash?: string | null
+  compiledRevision?: string | null
+  createdAt?: Date | string
+  job: Prisma.TextToImageJobCreateNestedOneWithoutAssetsInput
+}
+
+export type TextToImageAssetUncheckedCreateWithoutPromotionsInput = {
+  id: string
+  jobId: string
+  relativePath: string
+  fileName: string
+  mimeType: string
+  byteLength: number
+  width: number
+  height: number
+  model: string
+  seed: number
+  prompt: string
+  negativePrompt: string
+  sourceKind: string
+  sourcePath?: string | null
+  sourceAnchorId?: string | null
+  contentHash?: string | null
+  compiledRequestHash?: string | null
+  compiledRevision?: string | null
+  createdAt?: Date | string
+}
+
+export type TextToImageAssetCreateOrConnectWithoutPromotionsInput = {
+  where: Prisma.TextToImageAssetWhereUniqueInput
+  create: Prisma.XOR<Prisma.TextToImageAssetCreateWithoutPromotionsInput, Prisma.TextToImageAssetUncheckedCreateWithoutPromotionsInput>
+}
+
+export type TextToImageAssetUpsertWithoutPromotionsInput = {
+  update: Prisma.XOR<Prisma.TextToImageAssetUpdateWithoutPromotionsInput, Prisma.TextToImageAssetUncheckedUpdateWithoutPromotionsInput>
+  create: Prisma.XOR<Prisma.TextToImageAssetCreateWithoutPromotionsInput, Prisma.TextToImageAssetUncheckedCreateWithoutPromotionsInput>
+  where?: Prisma.TextToImageAssetWhereInput
+}
+
+export type TextToImageAssetUpdateToOneWithWhereWithoutPromotionsInput = {
+  where?: Prisma.TextToImageAssetWhereInput
+  data: Prisma.XOR<Prisma.TextToImageAssetUpdateWithoutPromotionsInput, Prisma.TextToImageAssetUncheckedUpdateWithoutPromotionsInput>
+}
+
+export type TextToImageAssetUpdateWithoutPromotionsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  relativePath?: Prisma.StringFieldUpdateOperationsInput | string
+  fileName?: Prisma.StringFieldUpdateOperationsInput | string
+  mimeType?: Prisma.StringFieldUpdateOperationsInput | string
+  byteLength?: Prisma.IntFieldUpdateOperationsInput | number
+  width?: Prisma.IntFieldUpdateOperationsInput | number
+  height?: Prisma.IntFieldUpdateOperationsInput | number
+  model?: Prisma.StringFieldUpdateOperationsInput | string
+  seed?: Prisma.IntFieldUpdateOperationsInput | number
+  prompt?: Prisma.StringFieldUpdateOperationsInput | string
+  negativePrompt?: Prisma.StringFieldUpdateOperationsInput | string
+  sourceKind?: Prisma.StringFieldUpdateOperationsInput | string
+  sourcePath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sourceAnchorId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  contentHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  compiledRequestHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  compiledRevision?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  job?: Prisma.TextToImageJobUpdateOneRequiredWithoutAssetsNestedInput
+}
+
+export type TextToImageAssetUncheckedUpdateWithoutPromotionsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  jobId?: Prisma.StringFieldUpdateOperationsInput | string
+  relativePath?: Prisma.StringFieldUpdateOperationsInput | string
+  fileName?: Prisma.StringFieldUpdateOperationsInput | string
+  mimeType?: Prisma.StringFieldUpdateOperationsInput | string
+  byteLength?: Prisma.IntFieldUpdateOperationsInput | number
+  width?: Prisma.IntFieldUpdateOperationsInput | number
+  height?: Prisma.IntFieldUpdateOperationsInput | number
+  model?: Prisma.StringFieldUpdateOperationsInput | string
+  seed?: Prisma.IntFieldUpdateOperationsInput | number
+  prompt?: Prisma.StringFieldUpdateOperationsInput | string
+  negativePrompt?: Prisma.StringFieldUpdateOperationsInput | string
+  sourceKind?: Prisma.StringFieldUpdateOperationsInput | string
+  sourcePath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sourceAnchorId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  contentHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  compiledRequestHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  compiledRevision?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
 export type TextToImageAssetCreateManyJobInput = {
@@ -761,6 +968,9 @@ export type TextToImageAssetCreateManyJobInput = {
   sourceKind: string
   sourcePath?: string | null
   sourceAnchorId?: string | null
+  contentHash?: string | null
+  compiledRequestHash?: string | null
+  compiledRevision?: string | null
   createdAt?: Date | string
 }
 
@@ -779,7 +989,11 @@ export type TextToImageAssetUpdateWithoutJobInput = {
   sourceKind?: Prisma.StringFieldUpdateOperationsInput | string
   sourcePath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceAnchorId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  contentHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  compiledRequestHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  compiledRevision?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  promotions?: Prisma.TextToImageReferencePromotionUpdateManyWithoutGeneratedAssetNestedInput
 }
 
 export type TextToImageAssetUncheckedUpdateWithoutJobInput = {
@@ -797,7 +1011,11 @@ export type TextToImageAssetUncheckedUpdateWithoutJobInput = {
   sourceKind?: Prisma.StringFieldUpdateOperationsInput | string
   sourcePath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceAnchorId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  contentHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  compiledRequestHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  compiledRevision?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  promotions?: Prisma.TextToImageReferencePromotionUncheckedUpdateManyWithoutGeneratedAssetNestedInput
 }
 
 export type TextToImageAssetUncheckedUpdateManyWithoutJobInput = {
@@ -815,9 +1033,41 @@ export type TextToImageAssetUncheckedUpdateManyWithoutJobInput = {
   sourceKind?: Prisma.StringFieldUpdateOperationsInput | string
   sourcePath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   sourceAnchorId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  contentHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  compiledRequestHash?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  compiledRevision?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
+
+/**
+ * Count Type TextToImageAssetCountOutputType
+ */
+
+export type TextToImageAssetCountOutputType = {
+  promotions: number
+}
+
+export type TextToImageAssetCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  promotions?: boolean | TextToImageAssetCountOutputTypeCountPromotionsArgs
+}
+
+/**
+ * TextToImageAssetCountOutputType without action
+ */
+export type TextToImageAssetCountOutputTypeDefaultArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the TextToImageAssetCountOutputType
+   */
+  select?: Prisma.TextToImageAssetCountOutputTypeSelect<ExtArgs> | null
+}
+
+/**
+ * TextToImageAssetCountOutputType without action
+ */
+export type TextToImageAssetCountOutputTypeCountPromotionsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.TextToImageReferencePromotionWhereInput
+}
 
 
 export type TextToImageAssetSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
@@ -836,8 +1086,13 @@ export type TextToImageAssetSelect<ExtArgs extends runtime.Types.Extensions.Inte
   sourceKind?: boolean
   sourcePath?: boolean
   sourceAnchorId?: boolean
+  contentHash?: boolean
+  compiledRequestHash?: boolean
+  compiledRevision?: boolean
   createdAt?: boolean
   job?: boolean | Prisma.TextToImageJobDefaultArgs<ExtArgs>
+  promotions?: boolean | Prisma.TextToImageAsset$promotionsArgs<ExtArgs>
+  _count?: boolean | Prisma.TextToImageAssetCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["textToImageAsset"]>
 
 export type TextToImageAssetSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
@@ -856,6 +1111,9 @@ export type TextToImageAssetSelectCreateManyAndReturn<ExtArgs extends runtime.Ty
   sourceKind?: boolean
   sourcePath?: boolean
   sourceAnchorId?: boolean
+  contentHash?: boolean
+  compiledRequestHash?: boolean
+  compiledRevision?: boolean
   createdAt?: boolean
   job?: boolean | Prisma.TextToImageJobDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["textToImageAsset"]>
@@ -876,6 +1134,9 @@ export type TextToImageAssetSelectUpdateManyAndReturn<ExtArgs extends runtime.Ty
   sourceKind?: boolean
   sourcePath?: boolean
   sourceAnchorId?: boolean
+  contentHash?: boolean
+  compiledRequestHash?: boolean
+  compiledRevision?: boolean
   createdAt?: boolean
   job?: boolean | Prisma.TextToImageJobDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["textToImageAsset"]>
@@ -896,12 +1157,17 @@ export type TextToImageAssetSelectScalar = {
   sourceKind?: boolean
   sourcePath?: boolean
   sourceAnchorId?: boolean
+  contentHash?: boolean
+  compiledRequestHash?: boolean
+  compiledRevision?: boolean
   createdAt?: boolean
 }
 
-export type TextToImageAssetOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "jobId" | "relativePath" | "fileName" | "mimeType" | "byteLength" | "width" | "height" | "model" | "seed" | "prompt" | "negativePrompt" | "sourceKind" | "sourcePath" | "sourceAnchorId" | "createdAt", ExtArgs["result"]["textToImageAsset"]>
+export type TextToImageAssetOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "jobId" | "relativePath" | "fileName" | "mimeType" | "byteLength" | "width" | "height" | "model" | "seed" | "prompt" | "negativePrompt" | "sourceKind" | "sourcePath" | "sourceAnchorId" | "contentHash" | "compiledRequestHash" | "compiledRevision" | "createdAt", ExtArgs["result"]["textToImageAsset"]>
 export type TextToImageAssetInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   job?: boolean | Prisma.TextToImageJobDefaultArgs<ExtArgs>
+  promotions?: boolean | Prisma.TextToImageAsset$promotionsArgs<ExtArgs>
+  _count?: boolean | Prisma.TextToImageAssetCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type TextToImageAssetIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   job?: boolean | Prisma.TextToImageJobDefaultArgs<ExtArgs>
@@ -914,6 +1180,7 @@ export type $TextToImageAssetPayload<ExtArgs extends runtime.Types.Extensions.In
   name: "TextToImageAsset"
   objects: {
     job: Prisma.$TextToImageJobPayload<ExtArgs>
+    promotions: Prisma.$TextToImageReferencePromotionPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -931,6 +1198,9 @@ export type $TextToImageAssetPayload<ExtArgs extends runtime.Types.Extensions.In
     sourceKind: string
     sourcePath: string | null
     sourceAnchorId: string | null
+    contentHash: string | null
+    compiledRequestHash: string | null
+    compiledRevision: string | null
     createdAt: Date
   }, ExtArgs["result"]["textToImageAsset"]>
   composites: {}
@@ -1327,6 +1597,7 @@ readonly fields: TextToImageAssetFieldRefs;
 export interface Prisma__TextToImageAssetClient<T, Null = never, ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
   readonly [Symbol.toStringTag]: "PrismaPromise"
   job<T extends Prisma.TextToImageJobDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.TextToImageJobDefaultArgs<ExtArgs>>): Prisma.Prisma__TextToImageJobClient<runtime.Types.Result.GetResult<Prisma.$TextToImageJobPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
+  promotions<T extends Prisma.TextToImageAsset$promotionsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.TextToImageAsset$promotionsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$TextToImageReferencePromotionPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -1371,6 +1642,9 @@ export interface TextToImageAssetFieldRefs {
   readonly sourceKind: Prisma.FieldRef<"TextToImageAsset", 'String'>
   readonly sourcePath: Prisma.FieldRef<"TextToImageAsset", 'String'>
   readonly sourceAnchorId: Prisma.FieldRef<"TextToImageAsset", 'String'>
+  readonly contentHash: Prisma.FieldRef<"TextToImageAsset", 'String'>
+  readonly compiledRequestHash: Prisma.FieldRef<"TextToImageAsset", 'String'>
+  readonly compiledRevision: Prisma.FieldRef<"TextToImageAsset", 'String'>
   readonly createdAt: Prisma.FieldRef<"TextToImageAsset", 'DateTime'>
 }
     
@@ -1763,6 +2037,30 @@ export type TextToImageAssetDeleteManyArgs<ExtArgs extends runtime.Types.Extensi
    * Limit how many TextToImageAssets to delete.
    */
   limit?: number
+}
+
+/**
+ * TextToImageAsset.promotions
+ */
+export type TextToImageAsset$promotionsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the TextToImageReferencePromotion
+   */
+  select?: Prisma.TextToImageReferencePromotionSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the TextToImageReferencePromotion
+   */
+  omit?: Prisma.TextToImageReferencePromotionOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.TextToImageReferencePromotionInclude<ExtArgs> | null
+  where?: Prisma.TextToImageReferencePromotionWhereInput
+  orderBy?: Prisma.TextToImageReferencePromotionOrderByWithRelationInput | Prisma.TextToImageReferencePromotionOrderByWithRelationInput[]
+  cursor?: Prisma.TextToImageReferencePromotionWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.TextToImageReferencePromotionScalarFieldEnum | Prisma.TextToImageReferencePromotionScalarFieldEnum[]
 }
 
 /**

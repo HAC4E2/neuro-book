@@ -11,6 +11,7 @@ import {
     IllustrationExecutionRegistrationReceiptSchema,
     type IllustrationExecutionRegistrationReceipt,
 } from "nbook/shared/text-to-image-execution";
+import type {TextToImageReferenceMutationScope} from "nbook/server/text-to-image/reference-asset-lock";
 
 export type PreparedDispatchJob = {
     id: string;
@@ -44,10 +45,11 @@ export interface IllustrationRegistrationPreparationPort {
 }
 
 export interface IllustrationRegistrationProjectPort {
-    /** 在一个有界 Project 事务内写不可变 Manifest/approval/Jobs/outbox。 */
+    /** 在一个有界 Project 事务内写不可变 Manifest/approval/Jobs/outbox；scope 必须处于活跃状态。 */
     register(
         projection: PreparedIllustrationRegistration,
         stamp: PreparedDispatchStamp,
+        scope: TextToImageReferenceMutationScope,
     ): Promise<IllustrationExecutionRegistrationReceipt>;
 }
 
@@ -61,7 +63,7 @@ export class IllustrationRegistrationCoordinator {
     constructor(private readonly options: CoordinatorOptions) {}
 
     /** Project 一旦提交，后续 App promotion 失败只返回 dispatch_pending，绝不反向删除 Project 真相。 */
-    async register(input: IllustrationExecutionRegistrationInput): Promise<IllustrationExecutionRegistrationReceipt> {
+    async register(input: IllustrationExecutionRegistrationInput, scope: TextToImageReferenceMutationScope): Promise<IllustrationExecutionRegistrationReceipt> {
         const projection = prepareIllustrationExecutionRegistration(input);
         const batch = toPreparedDispatchBatch(projection);
         const stamp = DispatchPreparationStampSchema.parse(await this.options.preparation.prepare(batch));
@@ -69,7 +71,7 @@ export class IllustrationRegistrationCoordinator {
             throw new Error("TEXT_TO_IMAGE_DISPATCH_PREPARATION_CONFLICT: App preparation identity 与注册投影不一致");
         }
         const projectReceipt = IllustrationExecutionRegistrationReceiptSchema.parse(
-            await this.options.project.register(projection, stamp),
+            await this.options.project.register(projection, stamp, scope),
         );
         try {
             const committed = await this.options.preparation.projectCommitted(stamp, projectReceipt);

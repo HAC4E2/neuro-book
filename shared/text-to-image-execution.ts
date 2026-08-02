@@ -1,9 +1,19 @@
 import {z} from "zod";
-import {hashTextToImageContract} from "nbook/shared/text-to-image-contract-hash";
-import {ProviderCapabilitySnapshotSchema, NovelAiProviderModelIdSchema} from "nbook/shared/text-to-image-provider-registry";
+import {hashTextToImageContract, type TextToImageContractValue} from "nbook/shared/text-to-image-contract-hash";
+import {
+    NovelAiProviderModelIdSchema,
+    NovelAiWireModelIdSchema,
+    ProviderCapabilitySnapshotSchema,
+    type NovelAiProviderModelId,
+} from "nbook/shared/text-to-image-provider-registry";
 import {TextToImageRecipeSnapshotSchema} from "nbook/shared/text-to-image-recipe";
 import {TextToImageContractHashSchema} from "nbook/shared/text-to-image-tag-resolution";
-import {TextToImageReferenceSelectionSchema} from "nbook/shared/text-to-image-reference-asset";
+import {
+    TextToImageInpaintSelectionSchema,
+    TextToImageReferenceSelectionSchema,
+    type FrozenReferenceAsset,
+    type TextToImageReferenceSelection,
+} from "nbook/shared/text-to-image-reference-asset";
 
 export const ILLUSTRATION_COMPILED_REQUEST_SCHEMA_VERSION = "nbook.illustration-compiled-request/v1" as const;
 export const ILLUSTRATION_EXECUTION_INPUT_SCHEMA_VERSION = "nbook.illustration-execution-input/v1" as const;
@@ -136,7 +146,12 @@ const IllustrationCompiledRequestBaseSchema = z.object({
     provider: IllustrationExecutionProviderSchema,
     capabilitySnapshot: ProviderCapabilitySnapshotSchema,
     model: NovelAiProviderModelIdSchema,
-    action: z.literal("generate"),
+    /** P5 preflight 冻结的远端 action；infill 必须绑定已登记 wire model。 */
+    action: z.enum(["generate", "infill"]),
+    /** P5 preflight 冻结的远端 wire model；infill 使用 registered inpainting 映射。 */
+    wireModel: NovelAiWireModelIdSchema,
+    /** 参考资产证据快照 hash：MIME/尺寸/encoderVersion 变化都会使已冻结请求失效。 */
+    referenceSnapshotHash: TextToImageContractHashSchema,
     prompt: z.string().trim().min(1).max(200_000),
     negativePrompt: z.string().max(200_000),
     characterPrompts: z.array(IllustrationCompiledCharacterSchema).max(8),
@@ -164,7 +179,8 @@ const IllustrationCompiledRequestBaseSchema = z.object({
         normalizeVibeStrengths: z.boolean(),
         vibeReferences: z.array(TextToImageReferenceSelectionSchema).max(16),
         characterReferences: z.array(TextToImageReferenceSelectionSchema).max(1),
-        inpaint: TextToImageReferenceSelectionSchema.nullable(),
+        /** P5 Inpaint：base 图与 PNG 蒙版的内容寻址对；尺寸在 Compiler 冻结。 */
+        inpaint: TextToImageInpaintSelectionSchema,
     }).strict(),
     recipeSnapshot: TextToImageRecipeSnapshotSchema,
     expansion: IllustrationExpansionSnapshotSchema,
@@ -203,6 +219,8 @@ const IllustrationExecutionInputSchema = z.object({
     provider: IllustrationExecutionProviderSchema,
     capabilitySnapshot: ProviderCapabilitySnapshotSchema,
     resolutionValidationHash: TextToImageContractHashSchema,
+    /** P5：冻结的参考证据快照 hash；参考资产 MIME/尺寸/encoder 变化会失效旧 manifest。 */
+    referenceSnapshotHash: TextToImageContractHashSchema,
     executionNonce: StableIdSchema,
     variantIndex: z.number().int().min(0).max(31),
     outputIndex: z.number().int().min(0).max(31),
@@ -228,7 +246,7 @@ const IllustrationExecutionManifestHashInputSchema = z.object({
     recipeSnapshot: TextToImageRecipeSnapshotSchema,
     compiledRequests: z.array(IllustrationCompiledRequestSchema).min(1).max(32),
     outputCount: z.number().int().min(1).max(32),
-    knownCost: z.number().nonnegative().nullable(),
+    additionalCostLowerBound: z.number().nonnegative().nullable(),
     tokenLowerBound: z.number().int().nonnegative().nullable(),
 }).strict();
 
@@ -242,14 +260,53 @@ export function createIllustrationExecutionManifestHash(input: IllustrationExecu
     }));
 }
 
-/** 用户确认时唯一可提交的输出/费用/Token 上限；null 表示对应预算当前不可得。 */
+/** 用户确认时唯一可提交的输出/费用/Token 下界；null 表示对应预算当前不可得。 */
 export const IllustrationExecutionAuthorizationSchema = z.object({
     authorizedOutputCount: z.number().int().min(1).max(32),
-    authorizedCostLimit: z.number().nonnegative().nullable(),
-    authorizedTokenLimit: z.number().int().nonnegative().nullable(),
+    acceptedAdditionalCostLowerBound: z.number().nonnegative().nullable(),
+    acceptedTokenLowerBound: z.number().int().nonnegative().nullable(),
 }).strict();
 
 export type IllustrationExecutionAuthorization = z.infer<typeof IllustrationExecutionAuthorizationSchema>;
+
+/**
+ * P5 冻结的参考证据快照 hash：selection（contentHash/strength/info）与磁盘证据
+ * （MIME/尺寸）及 provider 上下文（model/action/encoderVersion）共同确定。
+ * 任何一项变化都会使旧 CompiledRequest/Manifest 失效。
+ */
+export function createFrozenReferenceSnapshotHash(input: {
+    vibeReferences: Array<TextToImageReferenceSelection & {evidence: FrozenReferenceAsset}>;
+    characterReferences: Array<TextToImageReferenceSelection & {evidence: FrozenReferenceAsset}>;
+    inpaint: {
+        base: TextToImageReferenceSelection & {evidence: FrozenReferenceAsset};
+        mask: TextToImageReferenceSelection & {evidence: FrozenReferenceAsset};
+    } | null;
+    model: NovelAiProviderModelId;
+    action: "generate" | "infill";
+    encoderVersion: string | null;
+}): string {
+    return hashTextToImageContract({
+        schemaVersion: "nbook.reference-snapshot/v1",
+        model: input.model,
+        action: input.action,
+        encoderVersion: input.encoderVersion,
+        vibeReferences: input.vibeReferences.map((item) => freezeSelection(item)),
+        characterReferences: input.characterReferences.map((item) => freezeSelection(item)),
+        inpaint: input.inpaint
+            ? {base: freezeSelection(input.inpaint.base), mask: freezeSelection(input.inpaint.mask)}
+            : null,
+    });
+}
+
+/** selection 与不可变磁盘证据合并为冻结快照条目。 */
+function freezeSelection(item: TextToImageReferenceSelection & {evidence: FrozenReferenceAsset}): TextToImageContractValue {
+    return {
+        contentHash: item.contentHash,
+        strength: item.strength,
+        informationExtracted: item.informationExtracted,
+        evidence: item.evidence,
+    };
+}
 
 const IllustrationExecutionApprovalHashInputSchema = z.object({
     schemaVersion: z.literal("nbook.illustration-execution-approval/v1"),

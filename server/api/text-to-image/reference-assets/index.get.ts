@@ -1,23 +1,25 @@
 import {createError, getQuery} from "h3";
+import {z} from "zod";
 import {TextToImageReferenceAssetService} from "nbook/server/text-to-image/reference-asset.service";
 import {requireCurrentUser} from "nbook/server/utils/auth";
-import {assertProjectOpen} from "nbook/server/workspace-files/project-session";
-import {TEXT_TO_IMAGE_REFERENCE_ASSET_KINDS, type TextToImageReferenceAssetKind} from "nbook/shared/text-to-image-reference-asset";
+import {withProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
 
-/** 列出 Project 参考资产元数据；不返回 bytes。 */
-export default defineEventHandler(async (event) => {
+const ListQuerySchema = z.object({
+    projectPath: z.string().trim().min(1).max(300),
+    page: z.string().regex(/^[1-9]\d*$/u).transform(Number).optional(),
+    pageSize: z.string().regex(/^[1-9]\d*$/u).transform(Number).optional(),
+}).strict();
+
+/** 列出 Project source-image 元数据；只做 DB + stat 检查，不返回 bytes。 */
+export default defineEventHandler((event) => withProjectNotOpenHttpError(async () => {
     await requireCurrentUser(event);
-    const query = getQuery(event);
-    const projectPath = typeof query.projectPath === "string" ? query.projectPath.trim() : "";
-    if (!projectPath) {
-        throw createError({statusCode: 400, message: "projectPath 不能为空"});
+    const parsed = ListQuerySchema.safeParse(getQuery(event));
+    if (!parsed.success) {
+        throw createError({
+            statusCode: 400,
+            message: "list query 不合法",
+            data: {code: "INVALID_REFERENCE_ASSET_INPUT"},
+        });
     }
-    assertProjectOpen(projectPath);
-    const rawKind = typeof query.kind === "string" ? query.kind : undefined;
-    const kind = rawKind && (TEXT_TO_IMAGE_REFERENCE_ASSET_KINDS as readonly string[]).includes(rawKind)
-        ? rawKind as TextToImageReferenceAssetKind
-        : undefined;
-    const page = typeof query.page === "string" && /^\d+$/u.test(query.page) ? Number(query.page) : undefined;
-    const pageSize = typeof query.pageSize === "string" && /^\d+$/u.test(query.pageSize) ? Number(query.pageSize) : undefined;
-    return new TextToImageReferenceAssetService().list({projectPath, kind, page, pageSize});
-});
+    return await new TextToImageReferenceAssetService().list(parsed.data);
+}));

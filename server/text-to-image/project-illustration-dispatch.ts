@@ -1,4 +1,5 @@
 import type {PrismaClient} from "nbook/server/generated/project-prisma/client";
+import {FrozenReferenceAssetSchema} from "nbook/shared/text-to-image-reference-asset";
 import {
     IllustrationCompiledRequestSchema,
     type IllustrationCompiledRequest,
@@ -24,7 +25,9 @@ import {
 import type {ProviderLaneDispatchResult} from "nbook/server/text-to-image/provider-lane.worker";
 import type {ExpiredAttemptResolution} from "nbook/server/text-to-image/provider-lane.repository";
 import {withEphemeralTextToImageProjectClient} from "nbook/server/text-to-image/project-client";
-import {TextToImageReferenceAssetService} from "nbook/server/text-to-image/reference-asset.service";
+import {TextToImageReferenceAssetService, TextToImageReferenceAssetNotFoundError} from "nbook/server/text-to-image/reference-asset.service";
+import {TextToImageReferenceImageError} from "nbook/server/text-to-image/reference-image";
+import {TextToImageVibeEncodingError, TextToImageVibeEncodingService} from "nbook/server/text-to-image/vibe-encoding.service";
 import fs from "node:fs/promises";
 
 type ProjectRunner = <T>(projectPath: string, operation: (client: PrismaClient) => Promise<T>) => Promise<T>;
@@ -46,45 +49,56 @@ export type ProjectResultWriteInput = {
 type ResultWriter = (input: ProjectResultWriteInput) => Promise<"completed" | "outcome_unknown">;
 
 /**
- * P5 生产参考资产解析器：按 contentHash 读取 source-image 字节，
- * Vibe encoding 按 sourceContentHash+model+informationExtracted 缓存读写。
+ * P5 生产参考资产解析器：使用当前 ephemeral Project client（绝不 fallback 到 active-Project
+ * 单例）。按 contentHash 完整复验 source-image 字节；Vibe encoding 按完整 typed key 读写。
+ * 任何证据不符都会抛稳定错误，由 dispatch 映射为不可重试的 reference 失败。
  */
-export function createProjectNovelAiReferenceResolver(projectPath: string): CompiledNovelAiReferenceResolver {
-    const service = new TextToImageReferenceAssetService();
+export function createProjectNovelAiReferenceResolver(input: {
+    projectPath: string;
+    client: PrismaClient;
+}): CompiledNovelAiReferenceResolver {
+    const {projectPath, client} = input;
+    const clientFactory = async (): Promise<PrismaClient> => client;
+    const reference = new TextToImageReferenceAssetService(clientFactory);
+    const vibe = new TextToImageVibeEncodingService(clientFactory);
     return {
-        readBytes: async (contentHash) => {
-            const map = await service.readByContentHashes(projectPath, [contentHash]);
+        readSource: async (contentHash) => {
+            const map = await reference.readByContentHashes(projectPath, [contentHash]);
             const dto = map.get(contentHash);
-            if (!dto) throw new Error(`参考资产 contentHash=${contentHash} 不存在`);
-            const content = await service.content(projectPath, dto.id);
-            return {bytes: new Uint8Array(await fs.readFile(content.absolutePath)), mimeType: content.mimeType};
+            if (!dto) throw new TextToImageReferenceAssetNotFoundError(contentHash);
+            // content() 完整复验：SHA-256/长度/魔数/完整解码/MIME/尺寸，任何证据不符 fail closed。
+            const content = await reference.content(projectPath, dto.id);
+            const bytes = new Uint8Array(await fs.readFile(content.absolutePath));
+            return {
+                bytes,
+                evidence: FrozenReferenceAssetSchema.parse({
+                    contentHash,
+                    kind: "source-image",
+                    mimeType: dto.mimeType,
+                    byteLength: dto.byteLength,
+                    width: dto.width,
+                    height: dto.height,
+                }),
+            };
         },
-        findVibeEncoding: async (sourceContentHash, model, informationExtracted) => {
-            const sourceMap = await service.readByContentHashes(projectPath, [sourceContentHash]);
-            const source = sourceMap.get(sourceContentHash);
-            if (!source) return null;
-            const encoding = await service.findVibeEncoding({
+        readVibeEncoding: async ({sourceContentHash, providerModel, informationExtracted, encoderVersion}) => {
+            const encoding = await vibe.readVibeEncoding({
                 projectPath,
-                sourceAssetId: source.id,
-                model,
-                infoExtracted: informationExtracted,
+                sourceContentHash,
+                providerModel,
+                informationExtracted,
+                encoderVersion,
             });
-            if (!encoding) return null;
-            const content = await service.content(projectPath, encoding.id);
-            return new Uint8Array(await fs.readFile(content.absolutePath));
+            return encoding ? new Uint8Array(encoding) : null;
         },
-        storeVibeEncoding: async (sourceContentHash, model, informationExtracted, encodingBytes) => {
-            const sourceMap = await service.readByContentHashes(projectPath, [sourceContentHash]);
-            const source = sourceMap.get(sourceContentHash);
-            if (!source) throw new Error(`派生 Vibe encoding 源资产 contentHash=${sourceContentHash} 不存在`);
-            await service.upload({
+        storeRemoteVibeEncoding: async ({source, providerModel, informationExtracted, encoderVersion, bytes}) => {
+            await vibe.storeRemoteVibeEncoding({
                 projectPath,
-                bytes: encodingBytes,
-                mimeType: "application/octet-stream",
-                kind: "vibe-encoding",
-                parentAssetId: source.id,
-                derivedModel: model,
-                derivedInfoExtracted: informationExtracted,
+                source,
+                providerModel,
+                informationExtracted,
+                encoderVersion,
+                bytes,
             });
         },
     };
@@ -195,7 +209,12 @@ export class ProjectIllustrationDispatch implements IllustrationDispatchProjectP
             if (running.count !== 1) return {kind: "outcome_unknown", message: "Project Job running fence CAS 失败"};
             try {
                 await validateProjectClosure(client, item, "running");
-                const response = await this.requestImage(request, credential, this.signalFactory(), createProjectNovelAiReferenceResolver(item.projectPath));
+                const response = await this.requestImage(
+                    request,
+                    credential,
+                    this.signalFactory(),
+                    createProjectNovelAiReferenceResolver({projectPath: item.projectPath, client}),
+                );
                 const outcome = await this.writeResult({client, item, request, response});
                 return outcome === "completed"
                     ? {kind: "completed"}
@@ -208,6 +227,14 @@ export class ProjectIllustrationDispatch implements IllustrationDispatchProjectP
                     }
                     await markJobTerminal(client, item, "failed", error.code, error.message);
                     return {kind: "failed", code: error.code, message: error.message};
+                }
+                // 授权后参考资产被删除/篡改或 lineage 证据不符：确定性完整性失败，
+                // 不是远端歧义，必须 seal failed 且零重试（没有发生过 paid 请求失败）。
+                if (isReferenceIntegrityError(error)) {
+                    const code = referenceIntegrityCode(error);
+                    const message = error instanceof Error ? error.message : "参考资产完整性校验失败";
+                    await markJobTerminal(client, item, "failed", code, message);
+                    return {kind: "failed", code, message};
                 }
                 const message = error instanceof Error ? error.message : "远端请求结果无法确认";
                 await markJobTerminal(client, item, "outcome_unknown", "TEXT_TO_IMAGE_OUTCOME_UNKNOWN", message);
@@ -354,6 +381,9 @@ async function writeProjectResult(input: {
         sourceKind: "illustration",
         sourcePath: input.request.source.chapterPath,
         sourceAnchorId: input.request.source.placeholderId,
+        // P5 strict 资产：登记编译请求 hash 与编译 revision，供 P6 candidate 审阅门槛使用。
+        compiledRequestHash: input.request.compiledRequestHash,
+        compiledRevision: input.request.compilerVersion,
     });
     const result = await new IllustrationResultService({
         assets,
@@ -410,9 +440,27 @@ async function markJobRetryable(
 
 /** 只有明确的 NovelAI 429/5xx 响应允许自动建立新 attempt。 */
 function isRetryableNovelAiErrorCode(code: string): boolean {
-    const match = /^NOVELAI_HTTP_(\d{3})$/u.exec(code);
-    const status = match?.[1] ? Number(match[1]) : 0;
+    const match = /^NOVELAI_HTTP_\d{3}$/u.exec(code);
+    if (!match) return false;
+    const status = Number(match[0].slice("NOVELAI_HTTP_".length));
     return status === 429 || (status >= 500 && status <= 599);
+}
+
+/** 参考资产字节/lineage 完整性错误：确定性失败，映射为不可重试 failed 而不是 outcome_unknown。 */
+function isReferenceIntegrityError(error: unknown): boolean {
+    return error instanceof TextToImageReferenceImageError
+        || error instanceof TextToImageReferenceAssetNotFoundError
+        || error instanceof TextToImageVibeEncodingError;
+}
+
+/** 从确定性完整性错误提取稳定 code；未识别类型不应进入本函数。 */
+function referenceIntegrityCode(error: unknown): string {
+    if (error instanceof TextToImageReferenceImageError
+        || error instanceof TextToImageReferenceAssetNotFoundError
+        || error instanceof TextToImageVibeEncodingError) {
+        return error.code;
+    }
+    return "TEXT_TO_IMAGE_REFERENCE_INTEGRITY_FAILED";
 }
 
 function parseJson(value: string): unknown {

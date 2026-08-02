@@ -27,8 +27,8 @@ export function buildIllustrationAuthorization(previewInput: IllustrationExecuti
     const preview = IllustrationExecutionPreviewSchema.parse(previewInput);
     return IllustrationExecutionAuthorizationSchema.parse({
         authorizedOutputCount: preview.outputCount,
-        authorizedCostLimit: preview.knownCost,
-        authorizedTokenLimit: preview.tokenLowerBound,
+        acceptedAdditionalCostLowerBound: preview.additionalCostLowerBound,
+        acceptedTokenLowerBound: preview.tokenLowerBound,
     });
 }
 
@@ -62,8 +62,8 @@ export function buildIllustrationBatchGenerateBody(
 export function formatIllustrationPreviewSummary(previewInput: IllustrationExecutionPreview): string {
     const preview = IllustrationExecutionPreviewSchema.parse(previewInput);
     const dimensions = preview.requests.map((request) => `${request.width}×${request.height}`).join("、");
-    const budget = preview.knownCost !== null
-        ? `已知费用 ${preview.knownCost}`
+    const budget = preview.additionalCostLowerBound !== null
+        ? `额外费用下限 ${preview.additionalCostLowerBound}`
         : preview.tokenLowerBound !== null ? `Token 下限 ${preview.tokenLowerBound}` : "费用由 Provider 结算";
     return `${preview.recipe.title} · ${preview.requests[0]?.model ?? "NovelAI"} · ${dimensions} · ${preview.outputCount} 张 · ${budget}`;
 }

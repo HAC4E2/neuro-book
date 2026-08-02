@@ -308,6 +308,24 @@ journal 使用独立新路径：
 Director；已完成请求直接返回同一结果。新的主动生成使用新 key。
 该链路不复用旧 migration/proposal 控制目录。
 
+Harness admission 会先于业务 journal 的 `onAccepted` 回写持久化，因此
+acquire-or-reuse tagged Session 后，每次可能调用 Director 前都必须先按稳定
+`clientMessageId` 读取 durable invocation。只有 `missing` 且 journal 未记录
+admission 时可调用，而且调用必须显式 `queueIfBusy: false`，不能进入稍后绕过
+业务 admission fence 的 follow-up 队列。live `active` 在单次 HTTP 中最多按
+250 ms 间隔有界等待 30 秒并持续读取最新 lease；仍在运行时返回稳定的
+in-progress 冲突且保留同一 idempotency key，completed 恢复结果，其余终态稳定
+失败。Harness 用持久 execution owner/lease/fence 区分 live 与 orphan；硬重启
+留下的 orphan 不自动继续或重调。execution sidecar 与 Session 是两个持久存储，
+因此所有受 lease 保护的 Session 终态提交必须在同一 execution-sidecar 锁内完成，
+统一按“execution sidecar -> Session mutation”取锁；orphan fencing 使用同一把锁，
+杜绝检查 fence 后再分离写 Session 的 TOCTOU 窗口。现有 Session admission 先在
+自身 mutation 中提交并释放锁，随后才按该顺序建立 execution lease，并在同一
+sidecar 锁内向 Session 追加 `execution_lease_established` marker；marker 之前崩溃
+会被识别为 Provider 尚未启动的 orphan，绝不能为追求伪原子而反向取锁。marker
+存在但 sidecar 缺失、损坏或版本未知时，Provider-start 证据为 `null`，必须按
+“可能已启动”失败关闭，且不得自动重建或覆盖证据文件。
+
 崩溃恢复规则：
 
 - 目标仍是旧 bytes：继续写。
@@ -326,6 +344,14 @@ Director；已完成请求直接返回同一结果。新的主动生成使用新
 - 写入/更新的 outfit 路径
 - 被排除的 `review_required` diagnostics
 - 最新文件 hash
+
+该接口仍是 completed-only：同一操作在 30 秒有界等待后仍 live 时返回稳定
+`409` in-progress 错误，不返回伪 completed 或不完整结果；前端保留同一 key，
+用户重试只会继续观察该持久操作。pending key 在请求前写入 `localStorage` 的
+严格小记录，storage key 使用 Project/角色 scope 的 SHA-256，不保存原始路径；
+成功或共享 terminal-error schema 明确证明的终态才清除，网络错误、未知 API
+错误和 in-progress 均保留。
+不得按本地时间静默过期不确定 key，从而在刷新或浏览器重启后重复调用 Director。
 
 前端删除：
 
@@ -628,18 +654,27 @@ P6 接受候选必须走专用 promotion：
 
 - 复验 generated asset 文件与内容哈希。
 - 复制到内容寻址 reference 存储。
-- 原子记录 `generated asset → reference asset → review selection` lineage。
-- 相同选择重放返回同一结果。
+- 按 `generatedAssetId` 原子记录可复用的
+  `generated asset → reference asset` promotion。
+- selection 在同一事务中引用 promotion；多个 review selection 可以共享同一
+  promotion，同时各自保留 review/actor/reason 审计。
+- 同一 generated asset 重放返回同一 promotion；不同 generated assets 即使
+  字节相同，也只共享 reference asset，不合并 promotion。
 
-删除参考资产前，在 Project 锁内检查：
+删除 reference asset 前，在 Project 锁内检查：
 
 - Recipe Markdown
 - CompiledRequest/Manifest evidence
 - Vibe encoding parent
-- Candidate review
-- Selection/promotion lineage
+- Promotion 的 `referenceContentHash`
 
 被任何真实引用占用时拒绝删除。
+
+Candidate Review 与 Selection 保护的是其 generated asset。未 promotion 的
+candidate 即使与某个 reference asset 内容哈希相同，也不是该 reference
+asset 的 owner；selection 通过 `promotionId` 保留间接审计 lineage。
+Promotion 同时以 restrictive `generatedAssetId` relation 保护其源 generated
+asset；generated-asset 删除与 promotion 在同一 Project 锁下串行化。
 
 ## 9. P6：独立候选审阅领域
 
@@ -658,7 +693,18 @@ P6 接受候选必须走专用 promotion：
 真正 P6 使用独立 Candidate Review 合同和服务，但仍复用同一个
 `illustration.director` Profile binding。
 
-### 9.2 候选集合闭包
+### 9.2 候选生成与集合闭包
+
+候选批次只能从成功的 P5 单图 CompiledRequest v2 资产显式发起：
+
+- 一次签名 Preview/授权创建一个 Candidate Job。
+- 一个 Job 至多发送一次 `n_samples: 2..8` 请求，成功时返回整批图片；进入
+  `attempt_started` 后，429/5xx 不自动重试，网络结果不明进入
+  `outcome_unknown`。新的付费尝试必须重新 Preview/授权。
+- 整批必须完整返回并原子持久化；任一缺失或非法图片都不能形成可审阅集合。
+- Candidate 输出只接受可 promotion 的 PNG/JPEG。
+- Candidate 资产不能继续作为嵌套候选生成来源；界面通过冻结的
+  `sourceAssetId` 返回原 P5 资产后，才可再次显式创建新批次。
 
 一次 review 必须包含 2–8 个唯一 generated assets，并冻结：
 
@@ -667,11 +713,14 @@ P6 接受候选必须走专用 promotion：
 - shotId / placeholderId
 - compiled revision/hash
 - 每项 assetId
-- 每项 contentHash、MIME、byteLength
+- 每项 contentHash、PNG/JPEG MIME、byteLength
 - canonical ordinal
 - candidateSetHash
 
-所有候选必须属于同一 manifest、同一 shot 和同一 compiled revision。
+所有候选必须是同一 terminal Candidate Job 完整结果闭包的成员，属于同一
+manifest、同一 shot 和同一 compiled revision。Review 可以选择其中 2–8 张
+子集；先复验 Job 的完整结果闭包与成员关系，再按 `assetId` 生成连续 review
+ordinal，不能把 Provider `outputIndex` 当作 review ordinal。
 
 为避免顺序错配：
 
@@ -761,6 +810,15 @@ Candidate Review 使用独立 Project durable records：
 
 - 同一集合重复启动复用同一活跃/完成 session。
 - Agent 已完成但响应丢失时，可从持久 invocation 恢复。
+- Harness admission 的执行 owner/lease/fence 必须可判断 live 与 orphan；
+  Director 调用必须显式 `queueIfBusy: false`，带 admission callback 的调用
+  不能进入稍后绕过业务 fence 的 follow-up 队列。
+- 硬重启留下的 orphan invocation 绝不自动再次调用模型：
+  `providerStartRecorded=false` 才能稳定失败并允许用户显式 retry；
+  `providerStartRecorded=true` 或 execution sidecar 已建立但证据丢失时的
+  `null` 必须进入不可重试的 `outcome_unknown`，因为模型可能已经执行。
+  `null` 可以发生在 Project `onAccepted` 回写之前，因此
+  `attaching -> outcome_unknown` 也是受该精确证据约束的合法终态转换。
 - 候选文件缺失或篡改时稳定进入 stale/invalid，不重新猜测。
 - 不创建 Job、Manifest 或 outbox。
 
@@ -791,6 +849,8 @@ Candidate Review 使用独立 Project durable records：
 在生成资产历史/详情附近提供聚焦候选审阅组件：
 
 - 只允许从同一 revision 选择 2–8 张。
+- “创建候选组”只显示在合格 P5 原始资产；Candidate 资产仅能返回查看该
+  `sourceAssetId`，不显示嵌套生成、旧 retry/restore 或正文插入入口。
 - 启动审阅。
 - 展示每张图的分数和理由。
 - 明确标出 Director 推荐。
@@ -952,7 +1012,9 @@ Reference 文件布局继续留在 Project `.nbook/text-to-image/references/` �
 - 导入原子回滚。
 - imported encoding wire 等价、cache hit、encode API 零调用。
 - encoderVersion 进入 cache key。
-- Recipe/Manifest/review/selection lineage 下拒绝删除。
+- reference asset 在 Recipe/Manifest/Vibe/promotion ownership 下拒绝删除。
+- generated asset 在 Candidate Review/Selection/promotion ownership 下拒绝删除。
+- 未 promotion 的同哈希 candidate 不会被误判为 reference owner。
 
 ### 13.4 P6
 
@@ -967,6 +1029,7 @@ Reference 文件布局继续留在 Project `.nbook/text-to-image/references/` �
 - 双窗口 selection CAS。
 - 用户可选择非推荐候选或 null。
 - promotion lineage 原子且可重放。
+- 多个 selection 可共享同一 generated-asset promotion，同时保留各自审计。
 - 永不创建 Job/Manifest/outbox，永不 reroll。
 
 ### 13.5 Workflow 历史

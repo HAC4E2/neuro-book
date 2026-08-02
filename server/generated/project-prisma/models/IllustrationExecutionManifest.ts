@@ -28,13 +28,13 @@ export type AggregateIllustrationExecutionManifest = {
 
 export type IllustrationExecutionManifestAvgAggregateOutputType = {
   outputCount: number | null
-  knownCost: number | null
+  additionalCostLowerBound: number | null
   tokenLowerBound: number | null
 }
 
 export type IllustrationExecutionManifestSumAggregateOutputType = {
   outputCount: number | null
-  knownCost: number | null
+  additionalCostLowerBound: number | null
   tokenLowerBound: number | null
 }
 
@@ -48,7 +48,7 @@ export type IllustrationExecutionManifestMinAggregateOutputType = {
   recipeSnapshotJson: string | null
   compiledRequestsJson: string | null
   outputCount: number | null
-  knownCost: number | null
+  additionalCostLowerBound: number | null
   tokenLowerBound: number | null
   registrationState: string | null
   createdAt: Date | null
@@ -64,7 +64,7 @@ export type IllustrationExecutionManifestMaxAggregateOutputType = {
   recipeSnapshotJson: string | null
   compiledRequestsJson: string | null
   outputCount: number | null
-  knownCost: number | null
+  additionalCostLowerBound: number | null
   tokenLowerBound: number | null
   registrationState: string | null
   createdAt: Date | null
@@ -80,7 +80,7 @@ export type IllustrationExecutionManifestCountAggregateOutputType = {
   recipeSnapshotJson: number
   compiledRequestsJson: number
   outputCount: number
-  knownCost: number
+  additionalCostLowerBound: number
   tokenLowerBound: number
   registrationState: number
   createdAt: number
@@ -90,13 +90,13 @@ export type IllustrationExecutionManifestCountAggregateOutputType = {
 
 export type IllustrationExecutionManifestAvgAggregateInputType = {
   outputCount?: true
-  knownCost?: true
+  additionalCostLowerBound?: true
   tokenLowerBound?: true
 }
 
 export type IllustrationExecutionManifestSumAggregateInputType = {
   outputCount?: true
-  knownCost?: true
+  additionalCostLowerBound?: true
   tokenLowerBound?: true
 }
 
@@ -110,7 +110,7 @@ export type IllustrationExecutionManifestMinAggregateInputType = {
   recipeSnapshotJson?: true
   compiledRequestsJson?: true
   outputCount?: true
-  knownCost?: true
+  additionalCostLowerBound?: true
   tokenLowerBound?: true
   registrationState?: true
   createdAt?: true
@@ -126,7 +126,7 @@ export type IllustrationExecutionManifestMaxAggregateInputType = {
   recipeSnapshotJson?: true
   compiledRequestsJson?: true
   outputCount?: true
-  knownCost?: true
+  additionalCostLowerBound?: true
   tokenLowerBound?: true
   registrationState?: true
   createdAt?: true
@@ -142,7 +142,7 @@ export type IllustrationExecutionManifestCountAggregateInputType = {
   recipeSnapshotJson?: true
   compiledRequestsJson?: true
   outputCount?: true
-  knownCost?: true
+  additionalCostLowerBound?: true
   tokenLowerBound?: true
   registrationState?: true
   createdAt?: true
@@ -245,7 +245,7 @@ export type IllustrationExecutionManifestGroupByOutputType = {
   recipeSnapshotJson: string
   compiledRequestsJson: string
   outputCount: number
-  knownCost: number | null
+  additionalCostLowerBound: number | null
   tokenLowerBound: number | null
   registrationState: string
   createdAt: Date
@@ -284,7 +284,7 @@ export type IllustrationExecutionManifestWhereInput = {
   recipeSnapshotJson?: Prisma.StringFilter<"IllustrationExecutionManifest"> | string
   compiledRequestsJson?: Prisma.StringFilter<"IllustrationExecutionManifest"> | string
   outputCount?: Prisma.IntFilter<"IllustrationExecutionManifest"> | number
-  knownCost?: Prisma.FloatNullableFilter<"IllustrationExecutionManifest"> | number | null
+  additionalCostLowerBound?: Prisma.FloatNullableFilter<"IllustrationExecutionManifest"> | number | null
   tokenLowerBound?: Prisma.IntNullableFilter<"IllustrationExecutionManifest"> | number | null
   registrationState?: Prisma.StringFilter<"IllustrationExecutionManifest"> | string
   createdAt?: Prisma.DateTimeFilter<"IllustrationExecutionManifest"> | Date | string
@@ -302,7 +302,7 @@ export type IllustrationExecutionManifestOrderByWithRelationInput = {
   recipeSnapshotJson?: Prisma.SortOrder
   compiledRequestsJson?: Prisma.SortOrder
   outputCount?: Prisma.SortOrder
-  knownCost?: Prisma.SortOrderInput | Prisma.SortOrder
+  additionalCostLowerBound?: Prisma.SortOrderInput | Prisma.SortOrder
   tokenLowerBound?: Prisma.SortOrderInput | Prisma.SortOrder
   registrationState?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -323,7 +323,7 @@ export type IllustrationExecutionManifestWhereUniqueInput = Prisma.AtLeast<{
   recipeSnapshotJson?: Prisma.StringFilter<"IllustrationExecutionManifest"> | string
   compiledRequestsJson?: Prisma.StringFilter<"IllustrationExecutionManifest"> | string
   outputCount?: Prisma.IntFilter<"IllustrationExecutionManifest"> | number
-  knownCost?: Prisma.FloatNullableFilter<"IllustrationExecutionManifest"> | number | null
+  additionalCostLowerBound?: Prisma.FloatNullableFilter<"IllustrationExecutionManifest"> | number | null
   tokenLowerBound?: Prisma.IntNullableFilter<"IllustrationExecutionManifest"> | number | null
   registrationState?: Prisma.StringFilter<"IllustrationExecutionManifest"> | string
   createdAt?: Prisma.DateTimeFilter<"IllustrationExecutionManifest"> | Date | string
@@ -341,7 +341,7 @@ export type IllustrationExecutionManifestOrderByWithAggregationInput = {
   recipeSnapshotJson?: Prisma.SortOrder
   compiledRequestsJson?: Prisma.SortOrder
   outputCount?: Prisma.SortOrder
-  knownCost?: Prisma.SortOrderInput | Prisma.SortOrder
+  additionalCostLowerBound?: Prisma.SortOrderInput | Prisma.SortOrder
   tokenLowerBound?: Prisma.SortOrderInput | Prisma.SortOrder
   registrationState?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -365,7 +365,7 @@ export type IllustrationExecutionManifestScalarWhereWithAggregatesInput = {
   recipeSnapshotJson?: Prisma.StringWithAggregatesFilter<"IllustrationExecutionManifest"> | string
   compiledRequestsJson?: Prisma.StringWithAggregatesFilter<"IllustrationExecutionManifest"> | string
   outputCount?: Prisma.IntWithAggregatesFilter<"IllustrationExecutionManifest"> | number
-  knownCost?: Prisma.FloatNullableWithAggregatesFilter<"IllustrationExecutionManifest"> | number | null
+  additionalCostLowerBound?: Prisma.FloatNullableWithAggregatesFilter<"IllustrationExecutionManifest"> | number | null
   tokenLowerBound?: Prisma.IntNullableWithAggregatesFilter<"IllustrationExecutionManifest"> | number | null
   registrationState?: Prisma.StringWithAggregatesFilter<"IllustrationExecutionManifest"> | string
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"IllustrationExecutionManifest"> | Date | string
@@ -381,7 +381,7 @@ export type IllustrationExecutionManifestCreateInput = {
   recipeSnapshotJson: string
   compiledRequestsJson: string
   outputCount: number
-  knownCost?: number | null
+  additionalCostLowerBound?: number | null
   tokenLowerBound?: number | null
   registrationState?: string
   createdAt?: Date | string
@@ -399,7 +399,7 @@ export type IllustrationExecutionManifestUncheckedCreateInput = {
   recipeSnapshotJson: string
   compiledRequestsJson: string
   outputCount: number
-  knownCost?: number | null
+  additionalCostLowerBound?: number | null
   tokenLowerBound?: number | null
   registrationState?: string
   createdAt?: Date | string
@@ -417,7 +417,7 @@ export type IllustrationExecutionManifestUpdateInput = {
   recipeSnapshotJson?: Prisma.StringFieldUpdateOperationsInput | string
   compiledRequestsJson?: Prisma.StringFieldUpdateOperationsInput | string
   outputCount?: Prisma.IntFieldUpdateOperationsInput | number
-  knownCost?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  additionalCostLowerBound?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
   tokenLowerBound?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   registrationState?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -435,7 +435,7 @@ export type IllustrationExecutionManifestUncheckedUpdateInput = {
   recipeSnapshotJson?: Prisma.StringFieldUpdateOperationsInput | string
   compiledRequestsJson?: Prisma.StringFieldUpdateOperationsInput | string
   outputCount?: Prisma.IntFieldUpdateOperationsInput | number
-  knownCost?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  additionalCostLowerBound?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
   tokenLowerBound?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   registrationState?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -453,7 +453,7 @@ export type IllustrationExecutionManifestCreateManyInput = {
   recipeSnapshotJson: string
   compiledRequestsJson: string
   outputCount: number
-  knownCost?: number | null
+  additionalCostLowerBound?: number | null
   tokenLowerBound?: number | null
   registrationState?: string
   createdAt?: Date | string
@@ -469,7 +469,7 @@ export type IllustrationExecutionManifestUpdateManyMutationInput = {
   recipeSnapshotJson?: Prisma.StringFieldUpdateOperationsInput | string
   compiledRequestsJson?: Prisma.StringFieldUpdateOperationsInput | string
   outputCount?: Prisma.IntFieldUpdateOperationsInput | number
-  knownCost?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  additionalCostLowerBound?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
   tokenLowerBound?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   registrationState?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -485,7 +485,7 @@ export type IllustrationExecutionManifestUncheckedUpdateManyInput = {
   recipeSnapshotJson?: Prisma.StringFieldUpdateOperationsInput | string
   compiledRequestsJson?: Prisma.StringFieldUpdateOperationsInput | string
   outputCount?: Prisma.IntFieldUpdateOperationsInput | number
-  knownCost?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  additionalCostLowerBound?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
   tokenLowerBound?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   registrationState?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -501,7 +501,7 @@ export type IllustrationExecutionManifestCountOrderByAggregateInput = {
   recipeSnapshotJson?: Prisma.SortOrder
   compiledRequestsJson?: Prisma.SortOrder
   outputCount?: Prisma.SortOrder
-  knownCost?: Prisma.SortOrder
+  additionalCostLowerBound?: Prisma.SortOrder
   tokenLowerBound?: Prisma.SortOrder
   registrationState?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -509,7 +509,7 @@ export type IllustrationExecutionManifestCountOrderByAggregateInput = {
 
 export type IllustrationExecutionManifestAvgOrderByAggregateInput = {
   outputCount?: Prisma.SortOrder
-  knownCost?: Prisma.SortOrder
+  additionalCostLowerBound?: Prisma.SortOrder
   tokenLowerBound?: Prisma.SortOrder
 }
 
@@ -523,7 +523,7 @@ export type IllustrationExecutionManifestMaxOrderByAggregateInput = {
   recipeSnapshotJson?: Prisma.SortOrder
   compiledRequestsJson?: Prisma.SortOrder
   outputCount?: Prisma.SortOrder
-  knownCost?: Prisma.SortOrder
+  additionalCostLowerBound?: Prisma.SortOrder
   tokenLowerBound?: Prisma.SortOrder
   registrationState?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -539,7 +539,7 @@ export type IllustrationExecutionManifestMinOrderByAggregateInput = {
   recipeSnapshotJson?: Prisma.SortOrder
   compiledRequestsJson?: Prisma.SortOrder
   outputCount?: Prisma.SortOrder
-  knownCost?: Prisma.SortOrder
+  additionalCostLowerBound?: Prisma.SortOrder
   tokenLowerBound?: Prisma.SortOrder
   registrationState?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -547,13 +547,21 @@ export type IllustrationExecutionManifestMinOrderByAggregateInput = {
 
 export type IllustrationExecutionManifestSumOrderByAggregateInput = {
   outputCount?: Prisma.SortOrder
-  knownCost?: Prisma.SortOrder
+  additionalCostLowerBound?: Prisma.SortOrder
   tokenLowerBound?: Prisma.SortOrder
 }
 
 export type IllustrationExecutionManifestScalarRelationFilter = {
   is?: Prisma.IllustrationExecutionManifestWhereInput
   isNot?: Prisma.IllustrationExecutionManifestWhereInput
+}
+
+export type NullableFloatFieldUpdateOperationsInput = {
+  set?: number | null
+  increment?: number
+  decrement?: number
+  multiply?: number
+  divide?: number
 }
 
 export type IllustrationExecutionManifestCreateNestedOneWithoutApprovalsInput = {
@@ -594,7 +602,7 @@ export type IllustrationExecutionManifestCreateWithoutApprovalsInput = {
   recipeSnapshotJson: string
   compiledRequestsJson: string
   outputCount: number
-  knownCost?: number | null
+  additionalCostLowerBound?: number | null
   tokenLowerBound?: number | null
   registrationState?: string
   createdAt?: Date | string
@@ -611,7 +619,7 @@ export type IllustrationExecutionManifestUncheckedCreateWithoutApprovalsInput = 
   recipeSnapshotJson: string
   compiledRequestsJson: string
   outputCount: number
-  knownCost?: number | null
+  additionalCostLowerBound?: number | null
   tokenLowerBound?: number | null
   registrationState?: string
   createdAt?: Date | string
@@ -644,7 +652,7 @@ export type IllustrationExecutionManifestUpdateWithoutApprovalsInput = {
   recipeSnapshotJson?: Prisma.StringFieldUpdateOperationsInput | string
   compiledRequestsJson?: Prisma.StringFieldUpdateOperationsInput | string
   outputCount?: Prisma.IntFieldUpdateOperationsInput | number
-  knownCost?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  additionalCostLowerBound?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
   tokenLowerBound?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   registrationState?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -661,7 +669,7 @@ export type IllustrationExecutionManifestUncheckedUpdateWithoutApprovalsInput = 
   recipeSnapshotJson?: Prisma.StringFieldUpdateOperationsInput | string
   compiledRequestsJson?: Prisma.StringFieldUpdateOperationsInput | string
   outputCount?: Prisma.IntFieldUpdateOperationsInput | number
-  knownCost?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  additionalCostLowerBound?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
   tokenLowerBound?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   registrationState?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -678,7 +686,7 @@ export type IllustrationExecutionManifestCreateWithoutDispatchOutboxesInput = {
   recipeSnapshotJson: string
   compiledRequestsJson: string
   outputCount: number
-  knownCost?: number | null
+  additionalCostLowerBound?: number | null
   tokenLowerBound?: number | null
   registrationState?: string
   createdAt?: Date | string
@@ -695,7 +703,7 @@ export type IllustrationExecutionManifestUncheckedCreateWithoutDispatchOutboxesI
   recipeSnapshotJson: string
   compiledRequestsJson: string
   outputCount: number
-  knownCost?: number | null
+  additionalCostLowerBound?: number | null
   tokenLowerBound?: number | null
   registrationState?: string
   createdAt?: Date | string
@@ -728,7 +736,7 @@ export type IllustrationExecutionManifestUpdateWithoutDispatchOutboxesInput = {
   recipeSnapshotJson?: Prisma.StringFieldUpdateOperationsInput | string
   compiledRequestsJson?: Prisma.StringFieldUpdateOperationsInput | string
   outputCount?: Prisma.IntFieldUpdateOperationsInput | number
-  knownCost?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  additionalCostLowerBound?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
   tokenLowerBound?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   registrationState?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -745,7 +753,7 @@ export type IllustrationExecutionManifestUncheckedUpdateWithoutDispatchOutboxesI
   recipeSnapshotJson?: Prisma.StringFieldUpdateOperationsInput | string
   compiledRequestsJson?: Prisma.StringFieldUpdateOperationsInput | string
   outputCount?: Prisma.IntFieldUpdateOperationsInput | number
-  knownCost?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  additionalCostLowerBound?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
   tokenLowerBound?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   registrationState?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -802,7 +810,7 @@ export type IllustrationExecutionManifestSelect<ExtArgs extends runtime.Types.Ex
   recipeSnapshotJson?: boolean
   compiledRequestsJson?: boolean
   outputCount?: boolean
-  knownCost?: boolean
+  additionalCostLowerBound?: boolean
   tokenLowerBound?: boolean
   registrationState?: boolean
   createdAt?: boolean
@@ -821,7 +829,7 @@ export type IllustrationExecutionManifestSelectCreateManyAndReturn<ExtArgs exten
   recipeSnapshotJson?: boolean
   compiledRequestsJson?: boolean
   outputCount?: boolean
-  knownCost?: boolean
+  additionalCostLowerBound?: boolean
   tokenLowerBound?: boolean
   registrationState?: boolean
   createdAt?: boolean
@@ -837,7 +845,7 @@ export type IllustrationExecutionManifestSelectUpdateManyAndReturn<ExtArgs exten
   recipeSnapshotJson?: boolean
   compiledRequestsJson?: boolean
   outputCount?: boolean
-  knownCost?: boolean
+  additionalCostLowerBound?: boolean
   tokenLowerBound?: boolean
   registrationState?: boolean
   createdAt?: boolean
@@ -853,13 +861,13 @@ export type IllustrationExecutionManifestSelectScalar = {
   recipeSnapshotJson?: boolean
   compiledRequestsJson?: boolean
   outputCount?: boolean
-  knownCost?: boolean
+  additionalCostLowerBound?: boolean
   tokenLowerBound?: boolean
   registrationState?: boolean
   createdAt?: boolean
 }
 
-export type IllustrationExecutionManifestOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "projectId" | "targetHash" | "executionNonce" | "executionInputHashesJson" | "executionManifestHash" | "recipeSnapshotJson" | "compiledRequestsJson" | "outputCount" | "knownCost" | "tokenLowerBound" | "registrationState" | "createdAt", ExtArgs["result"]["illustrationExecutionManifest"]>
+export type IllustrationExecutionManifestOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "projectId" | "targetHash" | "executionNonce" | "executionInputHashesJson" | "executionManifestHash" | "recipeSnapshotJson" | "compiledRequestsJson" | "outputCount" | "additionalCostLowerBound" | "tokenLowerBound" | "registrationState" | "createdAt", ExtArgs["result"]["illustrationExecutionManifest"]>
 export type IllustrationExecutionManifestInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   approvals?: boolean | Prisma.IllustrationExecutionManifest$approvalsArgs<ExtArgs>
   dispatchOutboxes?: boolean | Prisma.IllustrationExecutionManifest$dispatchOutboxesArgs<ExtArgs>
@@ -884,7 +892,7 @@ export type $IllustrationExecutionManifestPayload<ExtArgs extends runtime.Types.
     recipeSnapshotJson: string
     compiledRequestsJson: string
     outputCount: number
-    knownCost: number | null
+    additionalCostLowerBound: number | null
     tokenLowerBound: number | null
     registrationState: string
     createdAt: Date
@@ -1322,7 +1330,7 @@ export interface IllustrationExecutionManifestFieldRefs {
   readonly recipeSnapshotJson: Prisma.FieldRef<"IllustrationExecutionManifest", 'String'>
   readonly compiledRequestsJson: Prisma.FieldRef<"IllustrationExecutionManifest", 'String'>
   readonly outputCount: Prisma.FieldRef<"IllustrationExecutionManifest", 'Int'>
-  readonly knownCost: Prisma.FieldRef<"IllustrationExecutionManifest", 'Float'>
+  readonly additionalCostLowerBound: Prisma.FieldRef<"IllustrationExecutionManifest", 'Float'>
   readonly tokenLowerBound: Prisma.FieldRef<"IllustrationExecutionManifest", 'Int'>
   readonly registrationState: Prisma.FieldRef<"IllustrationExecutionManifest", 'String'>
   readonly createdAt: Prisma.FieldRef<"IllustrationExecutionManifest", 'DateTime'>

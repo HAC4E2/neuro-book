@@ -1,28 +1,34 @@
 import {createReadStream} from "node:fs";
-import {createError, getRouterParam, getQuery, sendStream, setResponseHeader} from "h3";
-import {TextToImageReferenceAssetNotFoundError, TextToImageReferenceAssetService} from "nbook/server/text-to-image/reference-asset.service";
+import {createError, getQuery, getRouterParam, sendStream, setResponseHeader} from "h3";
+import {z} from "zod";
+import {TextToImageReferenceAssetService} from "nbook/server/text-to-image/reference-asset.service";
+import {throwReferenceAssetHttpError} from "nbook/server/text-to-image/reference-asset-http-error";
 import {requireCurrentUser} from "nbook/server/utils/auth";
-import {assertProjectOpen} from "nbook/server/workspace-files/project-session";
+import {withProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
 
-/** 流式返回参考资产字节，供 Recipe 预览与 adapter 内部消费。 */
-export default defineEventHandler(async (event) => {
+const ContentQuerySchema = z.object({
+    projectPath: z.string().trim().min(1).max(300),
+}).strict();
+
+/** 完整复验通过后流式返回 source-image 字节；校验失败绝不输出任何字节。 */
+export default defineEventHandler((event) => withProjectNotOpenHttpError(async () => {
     await requireCurrentUser(event);
     const assetId = getRouterParam(event, "id");
-    const query = getQuery(event);
-    const projectPath = typeof query.projectPath === "string" ? query.projectPath.trim() : "";
-    if (!assetId || !projectPath) {
-        throw createError({statusCode: 400, message: "参数不合法"});
+    const parsed = ContentQuerySchema.safeParse(getQuery(event));
+    if (!assetId || !parsed.success) {
+        throw createError({
+            statusCode: 400,
+            message: "content 参数不合法",
+            data: {code: "INVALID_REFERENCE_ASSET_INPUT"},
+        });
     }
-    assertProjectOpen(projectPath);
+    let content: Awaited<ReturnType<TextToImageReferenceAssetService["content"]>>;
     try {
-        const content = await new TextToImageReferenceAssetService().content(projectPath, assetId);
-        setResponseHeader(event, "Content-Type", content.mimeType);
-        setResponseHeader(event, "Cache-Control", "private, max-age=60");
-        return sendStream(event, createReadStream(content.absolutePath));
+        content = await new TextToImageReferenceAssetService().content(parsed.data.projectPath, assetId);
     } catch (error) {
-        if (error instanceof TextToImageReferenceAssetNotFoundError) {
-            throw createError({statusCode: 404, data: {code: error.code}, message: error.message});
-        }
-        throw error;
+        throwReferenceAssetHttpError(error);
     }
-});
+    setResponseHeader(event, "Content-Type", content.mimeType);
+    setResponseHeader(event, "Cache-Control", "private, max-age=60");
+    return sendStream(event, createReadStream(content.absolutePath));
+}));

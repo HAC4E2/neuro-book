@@ -13,6 +13,7 @@ import {
 import {ChapterIllustrationShotSchema, type ChapterIllustrationShot} from "nbook/shared/text-to-image-chapter-storyboard";
 import {createIllustrationRecipePlanningConstraints} from "nbook/shared/text-to-image-illustration-planning";
 import {
+    createFrozenReferenceSnapshotHash,
     createIllustrationCompiledRequestHash,
     createIllustrationExecutionInputHash,
     createIllustrationExecutionManifestHash,
@@ -23,6 +24,8 @@ import {
 } from "nbook/shared/text-to-image-execution";
 import {
     NovelAiProviderModelIdSchema,
+    preflightNovelAiCapabilities,
+    PROVIDER_GRAMMAR_REGISTRY,
     ProviderCapabilitySnapshotSchema,
     type ProviderCapabilitySnapshot,
 } from "nbook/shared/text-to-image-provider-registry";
@@ -46,7 +49,12 @@ import {
     type SemanticTagResolution,
 } from "nbook/shared/text-to-image-tag-resolution";
 import type {CharacterVisualRegistrySnapshot} from "nbook/server/text-to-image/character-visual-registry.service";
-import type {TextToImageReferenceAssetDto, TextToImageReferenceSelection} from "nbook/shared/text-to-image-reference-asset";
+import type {NovelAiProviderModelId} from "nbook/shared/text-to-image-provider-registry";
+import type {
+    FrozenReferenceAsset,
+    TextToImageReferenceAssetDto,
+    TextToImageReferenceSelection,
+} from "nbook/shared/text-to-image-reference-asset";
 
 export const ILLUSTRATION_COMPILER_VERSION = "route-b-compiler-v1" as const;
 export const ILLUSTRATION_EXECUTION_POLICY_VERSION = "route-b-execution-v1" as const;
@@ -109,7 +117,9 @@ export type IllustrationCompileErrorCode =
     | "ILLUSTRATION_SHOT_STALE"
     | "REFERENCE_ASSET_UNVERIFIED"
     | "REFERENCE_ASSET_NOT_FOUND"
+    | "REFERENCE_ASSET_TAMPERED"
     | "REFERENCE_ASSET_INPAINT_NOT_PNG"
+    | "REFERENCE_ASSET_INPAINT_DIMENSIONS_MISMATCH"
     | "ILLUSTRATION_PATTERN_INVALID"
     | "CHARACTER_VISUAL_TAGS_UNRESOLVED"
     | "TEXT_TO_IMAGE_RECIPE_INVALID"
@@ -289,6 +299,36 @@ export async function compileIllustration(
         })),
     };
     const references = await resolveReferences(recipeSnapshot.references, rawInput.referenceAssetVerifier);
+    // P5 preflight：有效 model + 冻结的 reference evidence 都已知后才调用，任何失败都不得创建 Manifest。
+    const preflight = preflightNovelAiCapabilities({
+        model: effectiveModel,
+        smeaMode: recipeSnapshot.advanced.smeaMode,
+        smeaDyn: recipeSnapshot.advanced.smeaDyn,
+        useFurryDataset: getActiveTextToImageRecipeStyle(recipeSnapshot).useFurryDataset,
+        vibeReferenceCount: references.vibeReferences.length,
+        characterReferenceCount: references.characterReferences.length,
+        hasInpaint: references.inpaint !== null,
+    });
+    const encoderVersion = references.vibeReferences.length > 0 ? vibeEncoderVersionForModel(effectiveModel) : null;
+    const referenceSnapshotHash = createFrozenReferenceSnapshotHash({
+        vibeReferences: references.vibeReferences,
+        characterReferences: references.characterReferences,
+        inpaint: references.inpaint ? {base: references.inpaint.base, mask: references.inpaint.mask} : null,
+        model: effectiveModel,
+        action: preflight.action,
+        encoderVersion,
+    });
+    const requestReferences = {
+        normalizeVibeStrengths: references.normalizeVibeStrengths,
+        vibeReferences: references.vibeReferences.map(({evidence: _evidence, ...selection}) => selection),
+        characterReferences: references.characterReferences.map(({evidence: _evidence, ...selection}) => selection),
+        inpaint: references.inpaint
+            ? {
+                baseImageContentHash: references.inpaint.base.contentHash,
+                maskContentHash: references.inpaint.mask.contentHash,
+            }
+            : null,
+    };
     const requestBase = {
         schemaVersion: "nbook.illustration-compiled-request/v1" as const,
         compilerVersion: ILLUSTRATION_COMPILER_VERSION,
@@ -298,7 +338,9 @@ export async function compileIllustration(
         provider,
         capabilitySnapshot,
         model: effectiveModel,
-        action: "generate" as const,
+        action: preflight.action,
+        wireModel: preflight.wireModel,
+        referenceSnapshotHash,
         prompt,
         negativePrompt,
         characterPrompts,
@@ -321,7 +363,7 @@ export async function compileIllustration(
             ucPreset: negativePreset.ucPreset,
         },
         recipeSnapshot,
-        references,
+        references: requestReferences,
         expansion,
     };
     const request = IllustrationCompiledRequestSchema.parse({
@@ -337,6 +379,7 @@ export async function compileIllustration(
         provider,
         capabilitySnapshot,
         resolutionValidationHash: validationHash,
+        referenceSnapshotHash,
         executionNonce,
         variantIndex,
         outputIndex,
@@ -354,8 +397,8 @@ export async function compileIllustration(
             recipeSnapshot,
             compiledRequests: [request],
             outputCount,
-            knownCost: null,
-            tokenLowerBound: null,
+            additionalCostLowerBound: preflight.additionalCostLowerBound,
+            tokenLowerBound: preflight.tokenLowerBound,
         }),
     };
 }
@@ -376,19 +419,30 @@ function assertSourceIdentity(
     }
 }
 
+/** P5：reference selection 与上传时冻结的不可变磁盘证据合并。 */
+type FrozenReferenceSelection = TextToImageReferenceSelection & {evidence: FrozenReferenceAsset};
+
+/** P5：Compiler 冻结后的参考资源；evidence 供 snapshot hash 与 wire 校验消费。 */
+type ResolvedReferences = {
+    normalizeVibeStrengths: boolean;
+    vibeReferences: FrozenReferenceSelection[];
+    characterReferences: FrozenReferenceSelection[];
+    inpaint: {base: FrozenReferenceSelection; mask: FrozenReferenceSelection} | null;
+};
+
 /**
- * P5 参考：从 Recipe 顶层 references 冻结引用选择，校验资产存在性与 inpaint MIME=PNG。
- * 不存 bytes；仅冻结 contentHash + strength + informationExtracted + normalizeVibeStrengths。
+ * P5 参考：从 Recipe 顶层 references 冻结引用选择，校验资产存在性、状态、
+ * Inpaint base/mask 的 MIME 与同尺寸约束。不读文件 bytes，只消费 DB 元数据。
  */
 async function resolveReferences(
     references: TextToImageRecipeSnapshot["references"],
     verifier: IllustrationCompileInput["referenceAssetVerifier"],
-): Promise<{normalizeVibeStrengths: boolean; vibeReferences: TextToImageReferenceSelection[]; characterReferences: TextToImageReferenceSelection[]; inpaint: TextToImageReferenceSelection | null}> {
+): Promise<ResolvedReferences> {
     const {normalizeVibeStrengths, vibeReferences, characterReferences, inpaint} = references;
     const contentHashes = [
         ...vibeReferences.map((item) => item.contentHash),
         ...characterReferences.map((item) => item.contentHash),
-        ...(inpaint ? [inpaint.contentHash] : []),
+        ...(inpaint ? [inpaint.baseImageContentHash, inpaint.maskContentHash] : []),
     ];
     if (contentHashes.length === 0) {
         return {normalizeVibeStrengths, vibeReferences: [], characterReferences: [], inpaint: null};
@@ -401,13 +455,68 @@ async function resolveReferences(
     if (missing.length > 0) {
         throw new IllustrationCompileError("REFERENCE_ASSET_NOT_FOUND", `参考资产缺失：${missing.join(", ")}`);
     }
+    const frozen = new Map<string, FrozenReferenceSelection>();
+    for (const selection of [...vibeReferences, ...characterReferences]) {
+        const dto = verified.get(selection.contentHash);
+        if (!dto) continue;
+        frozen.set(selection.contentHash, {...selection, evidence: toFrozenEvidence(dto)});
+    }
     if (inpaint) {
-        const asset = verified.get(inpaint.contentHash);
-        if (asset?.mimeType !== "image/png") {
-            throw new IllustrationCompileError("REFERENCE_ASSET_INPAINT_NOT_PNG", `Inpaint 蒙版必须是 PNG，实际 MIME=${asset?.mimeType ?? "unknown"}`);
+        const baseDto = verified.get(inpaint.baseImageContentHash);
+        const maskDto = verified.get(inpaint.maskContentHash);
+        if (!baseDto || !maskDto) {
+            throw new IllustrationCompileError("REFERENCE_ASSET_NOT_FOUND", "Inpaint base/mask 参考资产缺失");
+        }
+        if (maskDto.mimeType !== "image/png") {
+            throw new IllustrationCompileError(
+                "REFERENCE_ASSET_INPAINT_NOT_PNG",
+                `Inpaint 蒙版必须是 PNG，实际 MIME=${maskDto.mimeType}`,
+            );
+        }
+        if (baseDto.width !== maskDto.width || baseDto.height !== maskDto.height) {
+            throw new IllustrationCompileError(
+                "REFERENCE_ASSET_INPAINT_DIMENSIONS_MISMATCH",
+                `Inpaint base/mask 尺寸不一致：${baseDto.width}x${baseDto.height} vs ${maskDto.width}x${maskDto.height}`,
+            );
         }
     }
-    return {normalizeVibeStrengths, vibeReferences, characterReferences, inpaint};
+    return {
+        normalizeVibeStrengths,
+        vibeReferences: vibeReferences.map((selection) => requireFrozen(frozen, selection)),
+        characterReferences: characterReferences.map((selection) => requireFrozen(frozen, selection)),
+        inpaint: inpaint
+            ? {
+                base: requireFrozen(frozen, {contentHash: inpaint.baseImageContentHash, strength: 1, informationExtracted: null}),
+                mask: requireFrozen(frozen, {contentHash: inpaint.maskContentHash, strength: 1, informationExtracted: null}),
+            }
+            : null,
+    };
+}
+
+/** 把上传时冻结的 DTO 元数据转为不可变证据；missing/tampered 状态不允许进入编译。 */
+function toFrozenEvidence(dto: TextToImageReferenceAssetDto): FrozenReferenceAsset {
+    if (dto.status !== "available") {
+        throw new IllustrationCompileError("REFERENCE_ASSET_TAMPERED", `参考资产不可用：${dto.contentHash}`);
+    }
+    return {
+        contentHash: dto.contentHash,
+        kind: dto.kind,
+        mimeType: dto.mimeType,
+        byteLength: dto.byteLength,
+        width: dto.width,
+        height: dto.height,
+    };
+}
+
+function requireFrozen(
+    frozen: Map<string, FrozenReferenceSelection>,
+    selection: TextToImageReferenceSelection,
+): FrozenReferenceSelection {
+    const entry = frozen.get(selection.contentHash);
+    if (!entry) {
+        throw new IllustrationCompileError("REFERENCE_ASSET_NOT_FOUND", `参考资产缺失：${selection.contentHash}`);
+    }
+    return entry;
 }
 
 /** 校验 Recipe 原始画风串与调用方提供的 terminal expansion 一一对应。 */
@@ -774,4 +883,15 @@ function parseStableId(value: string, label: string): string {
     } catch {
         throw new IllustrationCompileError("ILLUSTRATION_SHOT_STALE", `${label} 非法`);
     }
+}
+
+/** registry 固定 model → Vibe encoder 映射；未登记 model 拒绝进入 frozen snapshot。 */
+function vibeEncoderVersionForModel(model: NovelAiProviderModelId): string {
+    const container = PROVIDER_GRAMMAR_REGISTRY.advanced.vibeTransfer.containers.find(
+        (entry) => entry.model === model,
+    );
+    if (!container) {
+        throw new IllustrationCompileError("TEXT_TO_IMAGE_RECIPE_INVALID", `model=${model} 没有登记 Vibe 容器映射`);
+    }
+    return container.encoderVersion;
 }

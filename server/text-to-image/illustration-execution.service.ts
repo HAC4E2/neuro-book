@@ -21,6 +21,11 @@ import {
     type IllustrationCompileResult,
 } from "nbook/server/text-to-image/illustration-compiler";
 import {
+    assertTextToImageReferenceMutationScope,
+    withTextToImageReferenceMutationLock,
+    type TextToImageReferenceMutationScope,
+} from "nbook/server/text-to-image/reference-asset-lock";
+import {
     deriveIllustrationSeed,
     ExecutionPreviewTokenService,
     type ExecutionPreviewTokenClaims,
@@ -79,8 +84,8 @@ export type IllustrationExecutionRegistrationDraft = Omit<IllustrationExecutionP
 };
 
 export type IllustrationExecutionRegistrationPort = {
-    /** 在单个 Project SQLite transaction 中注册完整 Manifest/approval/Jobs/outbox。 */
-    register(input: IllustrationExecutionRegistrationInput): Promise<IllustrationExecutionRegistrationReceipt>;
+    /** 在单个 Project SQLite transaction 中注册完整 Manifest/approval/Jobs/outbox；scope 必须活跃。 */
+    register(input: IllustrationExecutionRegistrationInput, scope: TextToImageReferenceMutationScope): Promise<IllustrationExecutionRegistrationReceipt>;
 };
 
 /** 零写入 Execution Preview 编排；持久注册由 Task 7 授权边界负责。 */
@@ -166,13 +171,16 @@ export class IllustrationExecutionService {
         authorization: IllustrationExecutionAuthorization;
     }): Promise<IllustrationExecutionRegistrationReceipt> {
         const claims = this.verifyShownManifest(input.previewToken, input.manifestHash);
-        const draft = await this.recompileOne({
-            projectPath: input.projectPath,
-            ownerUserId: input.ownerUserId,
-            placeholderId: input.placeholderId,
-            claims,
+        // 重编译与注册共享 Project mutation 锁：授权后参考资产被删除必须让注册失败，不创建悬空 Manifest。
+        return await withTextToImageReferenceMutationLock(input.projectPath, async (scope) => {
+            const draft = await this.recompileOne({
+                projectPath: input.projectPath,
+                ownerUserId: input.ownerUserId,
+                placeholderId: input.placeholderId,
+                claims,
+            });
+            return await this.register(input, draft, scope);
         });
-        return await this.register(input, draft);
     }
 
     /** 验签并把共享 nonce 的完整 batch 作为一个 Project transaction 注册。 */
@@ -185,13 +193,15 @@ export class IllustrationExecutionService {
         authorization: IllustrationExecutionAuthorization;
     }): Promise<IllustrationExecutionRegistrationReceipt> {
         const claims = this.verifyShownManifest(input.previewToken, input.manifestHash);
-        const draft = await this.recompileBatch({
-            projectPath: input.projectPath,
-            ownerUserId: input.ownerUserId,
-            placeholderIds: input.placeholderIds,
-            claims,
+        return await withTextToImageReferenceMutationLock(input.projectPath, async (scope) => {
+            const draft = await this.recompileBatch({
+                projectPath: input.projectPath,
+                ownerUserId: input.ownerUserId,
+                placeholderIds: input.placeholderIds,
+                claims,
+            });
+            return await this.register(input, draft, scope);
         });
-        return await this.register(input, draft);
     }
 
     /** 全部 target 编译成功后才计算 batch manifest；过程中没有可写 port。 */
@@ -259,7 +269,7 @@ export class IllustrationExecutionService {
             recipeSnapshot: first.request.recipeSnapshot,
             compiledRequests,
             outputCount: results.length,
-            knownCost: null,
+            additionalCostLowerBound: null,
             tokenLowerBound: null,
         });
         const targetHash = hashTextToImageContract({
@@ -304,7 +314,7 @@ export class IllustrationExecutionService {
                     hasInpaint: result.request.references.inpaint !== null,
                 },
             })),
-            knownCost: null,
+            additionalCostLowerBound: null,
             tokenLowerBound: null,
             warnings: [],
             executionNonce: input.executionNonce,
@@ -340,23 +350,26 @@ export class IllustrationExecutionService {
         return claims;
     }
 
-    /** 把重编译 draft 与当前 actor/授权上限交给唯一原子 repository。 */
+    /** 把重编译 draft 与当前 actor/授权下界交给唯一原子 repository。 */
     private async register(
         input: {projectPath: string; ownerUserId: number; authorization: IllustrationExecutionAuthorization},
         draft: IllustrationExecutionRegistrationDraft,
+        scope: TextToImageReferenceMutationScope,
     ): Promise<IllustrationExecutionRegistrationReceipt> {
         if (!this.repository) {
             throw new IllustrationExecutionServiceError("ILLUSTRATION_PREVIEW_NOT_CONFIGURED", "Execution registration repository 未配置");
         }
         const authorization = IllustrationExecutionAuthorizationSchema.parse(input.authorization);
         if (authorization.authorizedOutputCount !== draft.outputCount
-            || (draft.knownCost !== null
-                && (authorization.authorizedCostLimit === null || authorization.authorizedCostLimit < draft.knownCost))
+            || (draft.additionalCostLowerBound !== null
+                && (authorization.acceptedAdditionalCostLowerBound === null
+                    || authorization.acceptedAdditionalCostLowerBound < draft.additionalCostLowerBound))
             || (draft.tokenLowerBound !== null
-                && (authorization.authorizedTokenLimit === null || authorization.authorizedTokenLimit < draft.tokenLowerBound))) {
+                && (authorization.acceptedTokenLowerBound === null
+                    || authorization.acceptedTokenLowerBound < draft.tokenLowerBound))) {
             throw new IllustrationExecutionServiceError(
                 "ILLUSTRATION_PREVIEW_CONFIRMATION_REQUIRED",
-                "授权上限不覆盖当前 Execution Preview",
+                "授权下界不覆盖当前 Execution Preview",
             );
         }
         const approvedAt = this.clock();
@@ -371,12 +384,12 @@ export class IllustrationExecutionService {
             executionManifestHash: draft.manifestHash,
             compiledRequests: draft.compiledRequests,
             outputCount: draft.outputCount,
-            knownCost: draft.knownCost,
+            additionalCostLowerBound: draft.additionalCostLowerBound,
             tokenLowerBound: draft.tokenLowerBound,
             authorization,
             actorUserId: input.ownerUserId,
             approvedAt: approvedAt.toISOString(),
-        });
+        }, scope);
     }
 
     /** 单次 preview 分配唯一、严格的 nonce。 */
@@ -438,9 +451,9 @@ export function getIllustrationExecutionService(): IllustrationExecutionService 
     const coordinator = new IllustrationRegistrationCoordinator({
         preparation: new PrismaDispatchPreparationRepository(prisma),
         project: {
-            async register(projection, stamp) {
+            async register(projection, stamp, scope) {
                 const client = await textToImageProjectClient(projection.input.projectPath);
-                return await new IllustrationExecutionRepository(client).register(projection, stamp);
+                return await new IllustrationExecutionRepository(client).register(projection, stamp, scope);
             },
         },
     });

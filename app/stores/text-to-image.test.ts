@@ -171,6 +171,59 @@ describe("useTextToImageStore", () => {
         });
         expect(JSON.stringify(requests[2]?.options?.body)).not.toContain("token");
     });
+
+    it("setInpaint 原子写入双资产；不存在单蒙版 mutation", async () => {
+        const {useTextToImageStore} = await import("nbook/app/stores/text-to-image");
+        const store = useTextToImageStore();
+        store.setCurrentProjectPath("workspace/current-book");
+        // 触发 ensureRecipeReferences 初始化默认 source。
+        store.addVibeReference("a".repeat(64), 0.6, 0.5);
+        expect(store.recipeReferences.inpaint).toBeNull();
+
+        store.setInpaint({baseImageContentHash: "b".repeat(64), maskContentHash: "c".repeat(64)});
+
+        expect(store.recipeReferences.inpaint).toEqual({
+            baseImageContentHash: "b".repeat(64),
+            maskContentHash: "c".repeat(64),
+        });
+        // 原子对：绝不存在只写蒙版或只写底图的入口。
+        expect(store as unknown as Record<string, unknown>).not.toHaveProperty("setInpaintMask");
+        expect(store as unknown as Record<string, unknown>).not.toHaveProperty("setInpaintBase");
+    });
+
+    it("clearInpaint（removeInpaint）把 Inpaint 引用恢复为 null", async () => {
+        const {useTextToImageStore} = await import("nbook/app/stores/text-to-image");
+        const store = useTextToImageStore();
+        store.setCurrentProjectPath("workspace/current-book");
+        store.setInpaint({baseImageContentHash: "b".repeat(64), maskContentHash: "c".repeat(64)});
+
+        store.removeInpaint();
+
+        expect(store.recipeReferences.inpaint).toBeNull();
+    });
+
+    it("addVibeReference 只改内存 Recipe，不触发任何写盘调用", async () => {
+        const {useTextToImageStore} = await import("nbook/app/stores/text-to-image");
+        const {vi} = await import("vitest");
+        const requests: Array<{url: string; options: {method?: string; body?: unknown}}> = [];
+        vi.stubGlobal("$fetch", vi.fn(async (url: string, options: {method?: string; body?: unknown}) => {
+            requests.push({url, options});
+            return {};
+        }));
+        const store = useTextToImageStore();
+        store.setCurrentProjectPath("workspace/current-book");
+
+        store.addVibeReference("d".repeat(64), 0.6, 0.5);
+
+        expect(store.recipeReferences.vibeReferences).toEqual([{
+            contentHash: "d".repeat(64),
+            strength: 0.6,
+            informationExtracted: 0.5,
+        }]);
+        // 仅 addVibeReference：无网络写盘；只有显式 saveRecipe 才持久化 Recipe。
+        expect(requests).toHaveLength(0);
+        vi.unstubAllGlobals();
+    });
 });
 
 function createGenerationResult(id: string) {

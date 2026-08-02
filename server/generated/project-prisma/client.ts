@@ -126,9 +126,24 @@ export type TextToImageJob = Prisma.TextToImageJobModel
 export type TextToImageAsset = Prisma.TextToImageAssetModel
 /**
  * Model TextToImageReferenceAsset
- * * P5 参考资产：内容寻址的 Vibe/Character Reference/Inpaint 蒙版与派生 Vibe encoding。
+ * * P5 source image：只保存完整解码验证后的内容寻址图片。
  */
 export type TextToImageReferenceAsset = Prisma.TextToImageReferenceAssetModel
+/**
+ * Model TextToImageVibeEncodingBlob
+ * * Vibe encoding 精确字节 blob；多个 lineage 可以共享同一份内容。
+ */
+export type TextToImageVibeEncodingBlob = Prisma.TextToImageVibeEncodingBlobModel
+/**
+ * Model TextToImageVibeEncoding
+ * * 完整 cache identity 对应的 Vibe encoding lineage。
+ */
+export type TextToImageVibeEncoding = Prisma.TextToImageVibeEncodingModel
+/**
+ * Model TextToImageReferencePromotion
+ * * 生成资产被用户确认提升为可复用 source image 的稳定 lineage。
+ */
+export type TextToImageReferencePromotion = Prisma.TextToImageReferencePromotionModel
 /**
  * Model IllustrationExecutionManifest
  * * 用户确认后一次原子注册的不可变 execution manifest。

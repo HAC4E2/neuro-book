@@ -49,7 +49,7 @@ export const IllustrationExecutionPreviewSchema = z.object({
     }).strict(),
     provider: IllustrationCompiledRequestSchema.shape.provider,
     requests: z.array(IllustrationExecutionPreviewRequestSchema).min(1).max(32),
-    knownCost: z.number().nonnegative().nullable(),
+    additionalCostLowerBound: z.number().nonnegative().nullable(),
     tokenLowerBound: z.number().int().nonnegative().nullable(),
     warnings: z.array(z.string().trim().min(1).max(500)).max(64),
 }).strict();

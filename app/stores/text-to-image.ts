@@ -1191,18 +1191,18 @@ export const useTextToImageStore = defineStore("textToImage", () => {
         recipeDirty.value = true;
     }
 
-    /** P5：设置 Inpaint 蒙版引用（strength=1、infoExtracted=null）。 */
-    function setInpaintMask(contentHash: string): void {
+    /** P5：设置 Inpaint 双资产（base 图 + PNG 蒙版）；必须两图都有效才写入 Recipe。 */
+    function setInpaint(input: {baseImageContentHash: string; maskContentHash: string}): void {
         const references = ensureRecipeReferences();
         recipeSavedSource.value = {
             ...recipeSavedSource.value!,
-            references: {...references, inpaint: {contentHash, strength: 1, informationExtracted: null}},
+            references: {...references, inpaint: {baseImageContentHash: input.baseImageContentHash, maskContentHash: input.maskContentHash}},
         };
         recipeDirty.value = true;
     }
 
-    /** P5：移除 Inpaint 蒙版引用。 */
-    function removeInpaintMask(): void {
+    /** P5：移除 Inpaint 引用。 */
+    function removeInpaint(): void {
         const references = ensureRecipeReferences();
         recipeSavedSource.value = {
             ...recipeSavedSource.value!,
@@ -1456,8 +1456,8 @@ export const useTextToImageStore = defineStore("textToImage", () => {
         updateVibeReference,
         setCharacterReference,
         removeCharacterReference,
-        setInpaintMask,
-        removeInpaintMask,
+        setInpaint,
+        removeInpaint,
         setNormalizeVibeStrengths,
         refreshProviders,
         refreshProjectJobs,

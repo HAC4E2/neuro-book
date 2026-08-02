@@ -1,4 +1,10 @@
 import {describe, expect, it, vi} from "vitest";
+
+// authorize 与 Manifest 注册共享 Project mutation 锁；单元测试用 identity 替换。
+vi.mock("nbook/server/text-to-image/reference-asset-lock", () => ({
+    withTextToImageReferenceMutationLock: async <T>(_projectPath: string, operation: (scope: unknown) => Promise<T>): Promise<T> => operation({}),
+    assertTextToImageReferenceMutationScope: (): void => undefined,
+}));
 import {hashTextToImageContract} from "nbook/shared/text-to-image-contract-hash";
 import {
     createIllustrationCompiledRequestHash,
@@ -122,7 +128,7 @@ describe("IllustrationExecutionService preview", () => {
             placeholderId: "placeholder-a",
             previewToken: preview.previewToken,
             manifestHash: preview.manifestHash,
-            authorization: {authorizedOutputCount: 1, authorizedCostLimit: null, authorizedTokenLimit: null},
+            authorization: {authorizedOutputCount: 1, acceptedAdditionalCostLowerBound: null, acceptedTokenLowerBound: null},
         });
 
         expect(receipt.executionManifestHash).toBe(preview.manifestHash);
@@ -135,7 +141,7 @@ describe("IllustrationExecutionService preview", () => {
             actorUserId: 7,
             approvedAt: "2026-07-21T01:00:00.000Z",
             compiledRequests: [expect.objectContaining({compiledRequestHash: preview.requests[0]?.compiledRequestHash})],
-        }));
+        }), expect.anything());
     });
 
     it("does not register when the client manifest or batch target set differs from signed claims", async () => {
@@ -157,7 +163,7 @@ describe("IllustrationExecutionService preview", () => {
             placeholderIds: ["placeholder-a", "placeholder-b"],
             previewToken: preview.previewToken,
             manifestHash: H("f"),
-            authorization: {authorizedOutputCount: 2, authorizedCostLimit: null, authorizedTokenLimit: null},
+            authorization: {authorizedOutputCount: 2, acceptedAdditionalCostLowerBound: null, acceptedTokenLowerBound: null},
         })).rejects.toMatchObject({code: "ILLUSTRATION_PREVIEW_CONFIRMATION_REQUIRED"});
         expect(repository.register).not.toHaveBeenCalled();
     });
@@ -188,7 +194,7 @@ function fakeCompiler(options: {blockedPlaceholderId?: string} = {}): Illustrati
 /** 只记录原子注册输入并返回稳定 receipt。 */
 function fakeRegistrationRepository(): IllustrationExecutionRegistrationPort & {register: ReturnType<typeof vi.fn>} {
     return {
-        register: vi.fn(async (input) => ({
+        register: vi.fn(async (input, _scope) => ({
             schemaVersion: "nbook.illustration-execution-registration-receipt/v1" as const,
             manifestId: "manifest-1",
             executionManifestHash: input.executionManifestHash,
@@ -241,6 +247,8 @@ function compileResult(input: Parameters<IllustrationExecutionCompilePort["compi
         capabilitySnapshot: resolveProviderCapability({kind: "novelai-model", modelId: "nai-diffusion-4-5-full"}),
         model: "nai-diffusion-4-5-full" as const,
         action: "generate" as const,
+        wireModel: "nai-diffusion-4-5-full" as const,
+        referenceSnapshotHash: H("c"),
         prompt: "rain",
         negativePrompt: "lowres",
         characterPrompts: [],
@@ -284,7 +292,7 @@ function compileResult(input: Parameters<IllustrationExecutionCompilePort["compi
             recipeSnapshot,
             compiledRequests: [request],
             outputCount: 1,
-            knownCost: null,
+            additionalCostLowerBound: null,
             tokenLowerBound: null,
         }),
     };

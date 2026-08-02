@@ -10,12 +10,18 @@ import {
 import {TEXT_TO_IMAGE_REFERENCE_ASSET_ROOT} from "nbook/server/text-to-image/asset-path";
 import {resolveWorkspaceRootInput} from "nbook/server/text-to-image/compat";
 import {assertProjectOpen} from "nbook/server/workspace-files/project-session";
+import type {TextToImageReferencePromotionService} from "nbook/server/text-to-image/reference-promotion.service";
 
 declare const referenceMutationScopeBrand: unique symbol;
 
 /** 只有项目级引用资产锁回调能取得的不透明 mutation capability。 */
 export type TextToImageReferenceMutationScope = Readonly<{
     [referenceMutationScopeBrand]: true;
+    /**
+     * P5 promotion port：只有锁回调能取得；两个方法都不会重新获取/释放锁，
+     * P6 可在一个锁内跨 prepare/selection/promotion commit。
+     */
+    promotion: TextToImageReferencePromotionService;
 }>;
 
 type ReferenceMutationScopeState = {
@@ -46,11 +52,23 @@ const mutationScopes = new WeakMap<object, ReferenceMutationScopeState>();
 const LOCK_TARGET_NAME = ".mutation-lock-target";
 
 /**
+ * 锁选项。
+ *
+ * `requireOpenProject` 默认 true：用户驱动操作（上传/删除/导入）必须绑定当前打开的 Project。
+ * 后台 Provider lane 的 Vibe encoding 缓存写入（paid window 内）不依赖 Project session，
+ * 传 false 跳过 assertProjectOpen，但锁目标文件本身仍是同一磁盘路径，保证跨操作串行。
+ */
+export type TextToImageReferenceMutationLockOptions = Readonly<{
+    requireOpenProject?: boolean;
+}>;
+
+/**
  * 在当前打开 Project 的稳定磁盘目标上取得跨实例排他锁，并把临时 capability 交给回调。
  */
 export async function withTextToImageReferenceMutationLock<TResult>(
     projectPath: string,
     operation: (scope: TextToImageReferenceMutationScope) => Promise<TResult>,
+    options: TextToImageReferenceMutationLockOptions = {},
 ): Promise<TResult> {
     if (activeMutation.getStore()) {
         throw new TextToImageReferenceLockError(
@@ -58,7 +76,9 @@ export async function withTextToImageReferenceMutationLock<TResult>(
             "引用资产 mutation lock 不允许嵌套获取",
         );
     }
-    assertProjectOpen(projectPath);
+    if (options.requireOpenProject !== false) {
+        assertProjectOpen(projectPath);
+    }
     const projectRoot = absoluteFsPath(await resolveWorkspaceRootInput({projectPath}));
     const lockTarget = resolveContainedFilePath(
         projectRoot,
@@ -101,18 +121,25 @@ export async function withTextToImageReferenceMutationLock<TResult>(
         );
     }
 
-    const scope = Object.freeze({}) as TextToImageReferenceMutationScope;
+    // scope 先占位，promotion port 用闭包 getter 延迟引用冻结后的 scope 本体。
+    // 惰性动态 import 打破 lock ↔ promotion.service ↔ reference-asset.service 的模块环。
+    const {TextToImageReferencePromotionService} = await import("./reference-promotion.service");
+    const scope = {} as TextToImageReferenceMutationScope & {promotion?: TextToImageReferencePromotionService};
+    let frozenScope!: TextToImageReferenceMutationScope;
+    const promotion = new TextToImageReferencePromotionService(() => frozenScope);
+    scope.promotion = promotion;
+    frozenScope = Object.freeze({...scope});
     const state: ReferenceMutationScopeState = {
         active: true,
         projectPath,
         projectRoot: normalizeRoot(projectRoot),
     };
-    mutationScopes.set(scope, state);
+    mutationScopes.set(frozenScope, state);
     try {
-        return await activeMutation.run(true, () => operation(scope));
+        return await activeMutation.run(true, () => operation(frozenScope));
     } finally {
         state.active = false;
-        mutationScopes.delete(scope);
+        mutationScopes.delete(frozenScope);
         await release();
     }
 }

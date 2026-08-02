@@ -473,6 +473,12 @@ function parsePersistedRequest(input: string): PersistedRequest {
 
 /** 防止任何未来内部入口绕过 Recipe service，伪造 model/采样/尺寸/画风或 snapshot hash。 */
 function assertRecipeCompiledRequest(request: PersistedRequest): void {
+    // 手工 PersistedRequest 不携带参考资源：Recipe 含任何参考选择时 fail-closed，杜绝静默丢弃。
+    if (request.recipeSnapshot.references.vibeReferences.length > 0
+        || request.recipeSnapshot.references.characterReferences.length > 0
+        || request.recipeSnapshot.references.inpaint !== null) {
+        throw new Error("手工 Job 的 Recipe snapshot 不允许携带参考资源");
+    }
     const {planningConstraintsHash: _planningHash, recipeSourceHash: _sourceHash, ...source} = request.recipeSnapshot;
     const canonical = createTextToImageRecipeSnapshot(source);
     if (canonical.planningConstraintsHash !== request.recipeSnapshot.planningConstraintsHash

@@ -10,6 +10,10 @@ import {prepareIllustrationExecutionRegistration} from "nbook/server/text-to-ima
 import {IllustrationExecutionRepository} from "nbook/server/text-to-image/execution.repository";
 import {illustrationRegistrationFixture} from "nbook/server/text-to-image/execution.test-fixtures";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
+
+vi.mock("nbook/server/text-to-image/reference-asset-lock", () => ({
+    assertTextToImageReferenceMutationScope: (): void => undefined,
+}));
 import {
     initProjectDatabaseAtRoot,
     toSqliteFileUrl,
@@ -98,7 +102,7 @@ describe("ProjectDispatchRepository", () => {
         const adapter = new TrackedPrismaLibSql({url: toSqliteFileUrl(path.join(projectRoot, ".nbook", "project.sqlite"))});
         const prisma = new PrismaClient({adapter});
         try {
-            await new IllustrationExecutionRepository(prisma).register(projection, stamp);
+            await new IllustrationExecutionRepository(prisma).register(projection, stamp, {} as never);
         } finally {
             await prisma.$disconnect();
             adapter.closeTrackedClients();

@@ -14,7 +14,7 @@ import type * as Prisma from "../internal/prismaNamespace"
 
 /**
  * Model TextToImageReferenceAsset
- * * P5 参考资产：内容寻址的 Vibe/Character Reference/Inpaint 蒙版与派生 Vibe encoding。
+ * * P5 source image：只保存完整解码验证后的内容寻址图片。
  */
 export type TextToImageReferenceAssetModel = runtime.Types.Result.DefaultSelection<Prisma.$TextToImageReferenceAssetPayload>
 
@@ -28,53 +28,49 @@ export type AggregateTextToImageReferenceAsset = {
 
 export type TextToImageReferenceAssetAvgAggregateOutputType = {
   byteLength: number | null
-  derivedInfoExtracted: number | null
+  width: number | null
+  height: number | null
 }
 
 export type TextToImageReferenceAssetSumAggregateOutputType = {
   byteLength: number | null
-  derivedInfoExtracted: number | null
+  width: number | null
+  height: number | null
 }
 
 export type TextToImageReferenceAssetMinAggregateOutputType = {
   id: string | null
-  kind: string | null
   contentHash: string | null
   relativePath: string | null
   fileName: string | null
   mimeType: string | null
   byteLength: number | null
-  parentAssetId: string | null
-  derivedModel: string | null
-  derivedInfoExtracted: number | null
+  width: number | null
+  height: number | null
   createdAt: Date | null
 }
 
 export type TextToImageReferenceAssetMaxAggregateOutputType = {
   id: string | null
-  kind: string | null
   contentHash: string | null
   relativePath: string | null
   fileName: string | null
   mimeType: string | null
   byteLength: number | null
-  parentAssetId: string | null
-  derivedModel: string | null
-  derivedInfoExtracted: number | null
+  width: number | null
+  height: number | null
   createdAt: Date | null
 }
 
 export type TextToImageReferenceAssetCountAggregateOutputType = {
   id: number
-  kind: number
   contentHash: number
   relativePath: number
   fileName: number
   mimeType: number
   byteLength: number
-  parentAssetId: number
-  derivedModel: number
-  derivedInfoExtracted: number
+  width: number
+  height: number
   createdAt: number
   _all: number
 }
@@ -82,53 +78,49 @@ export type TextToImageReferenceAssetCountAggregateOutputType = {
 
 export type TextToImageReferenceAssetAvgAggregateInputType = {
   byteLength?: true
-  derivedInfoExtracted?: true
+  width?: true
+  height?: true
 }
 
 export type TextToImageReferenceAssetSumAggregateInputType = {
   byteLength?: true
-  derivedInfoExtracted?: true
+  width?: true
+  height?: true
 }
 
 export type TextToImageReferenceAssetMinAggregateInputType = {
   id?: true
-  kind?: true
   contentHash?: true
   relativePath?: true
   fileName?: true
   mimeType?: true
   byteLength?: true
-  parentAssetId?: true
-  derivedModel?: true
-  derivedInfoExtracted?: true
+  width?: true
+  height?: true
   createdAt?: true
 }
 
 export type TextToImageReferenceAssetMaxAggregateInputType = {
   id?: true
-  kind?: true
   contentHash?: true
   relativePath?: true
   fileName?: true
   mimeType?: true
   byteLength?: true
-  parentAssetId?: true
-  derivedModel?: true
-  derivedInfoExtracted?: true
+  width?: true
+  height?: true
   createdAt?: true
 }
 
 export type TextToImageReferenceAssetCountAggregateInputType = {
   id?: true
-  kind?: true
   contentHash?: true
   relativePath?: true
   fileName?: true
   mimeType?: true
   byteLength?: true
-  parentAssetId?: true
-  derivedModel?: true
-  derivedInfoExtracted?: true
+  width?: true
+  height?: true
   createdAt?: true
   _all?: true
 }
@@ -221,15 +213,13 @@ export type TextToImageReferenceAssetGroupByArgs<ExtArgs extends runtime.Types.E
 
 export type TextToImageReferenceAssetGroupByOutputType = {
   id: string
-  kind: string
   contentHash: string
   relativePath: string
   fileName: string
   mimeType: string
   byteLength: number
-  parentAssetId: string | null
-  derivedModel: string | null
-  derivedInfoExtracted: number | null
+  width: number
+  height: number
   createdAt: Date
   _count: TextToImageReferenceAssetCountAggregateOutputType | null
   _avg: TextToImageReferenceAssetAvgAggregateOutputType | null
@@ -258,30 +248,30 @@ export type TextToImageReferenceAssetWhereInput = {
   OR?: Prisma.TextToImageReferenceAssetWhereInput[]
   NOT?: Prisma.TextToImageReferenceAssetWhereInput | Prisma.TextToImageReferenceAssetWhereInput[]
   id?: Prisma.StringFilter<"TextToImageReferenceAsset"> | string
-  kind?: Prisma.StringFilter<"TextToImageReferenceAsset"> | string
   contentHash?: Prisma.StringFilter<"TextToImageReferenceAsset"> | string
   relativePath?: Prisma.StringFilter<"TextToImageReferenceAsset"> | string
   fileName?: Prisma.StringFilter<"TextToImageReferenceAsset"> | string
   mimeType?: Prisma.StringFilter<"TextToImageReferenceAsset"> | string
   byteLength?: Prisma.IntFilter<"TextToImageReferenceAsset"> | number
-  parentAssetId?: Prisma.StringNullableFilter<"TextToImageReferenceAsset"> | string | null
-  derivedModel?: Prisma.StringNullableFilter<"TextToImageReferenceAsset"> | string | null
-  derivedInfoExtracted?: Prisma.FloatNullableFilter<"TextToImageReferenceAsset"> | number | null
+  width?: Prisma.IntFilter<"TextToImageReferenceAsset"> | number
+  height?: Prisma.IntFilter<"TextToImageReferenceAsset"> | number
   createdAt?: Prisma.DateTimeFilter<"TextToImageReferenceAsset"> | Date | string
+  vibeEncodings?: Prisma.TextToImageVibeEncodingListRelationFilter
+  promotions?: Prisma.TextToImageReferencePromotionListRelationFilter
 }
 
 export type TextToImageReferenceAssetOrderByWithRelationInput = {
   id?: Prisma.SortOrder
-  kind?: Prisma.SortOrder
   contentHash?: Prisma.SortOrder
   relativePath?: Prisma.SortOrder
   fileName?: Prisma.SortOrder
   mimeType?: Prisma.SortOrder
   byteLength?: Prisma.SortOrder
-  parentAssetId?: Prisma.SortOrderInput | Prisma.SortOrder
-  derivedModel?: Prisma.SortOrderInput | Prisma.SortOrder
-  derivedInfoExtracted?: Prisma.SortOrderInput | Prisma.SortOrder
+  width?: Prisma.SortOrder
+  height?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
+  vibeEncodings?: Prisma.TextToImageVibeEncodingOrderByRelationAggregateInput
+  promotions?: Prisma.TextToImageReferencePromotionOrderByRelationAggregateInput
 }
 
 export type TextToImageReferenceAssetWhereUniqueInput = Prisma.AtLeast<{
@@ -291,27 +281,25 @@ export type TextToImageReferenceAssetWhereUniqueInput = Prisma.AtLeast<{
   AND?: Prisma.TextToImageReferenceAssetWhereInput | Prisma.TextToImageReferenceAssetWhereInput[]
   OR?: Prisma.TextToImageReferenceAssetWhereInput[]
   NOT?: Prisma.TextToImageReferenceAssetWhereInput | Prisma.TextToImageReferenceAssetWhereInput[]
-  kind?: Prisma.StringFilter<"TextToImageReferenceAsset"> | string
   fileName?: Prisma.StringFilter<"TextToImageReferenceAsset"> | string
   mimeType?: Prisma.StringFilter<"TextToImageReferenceAsset"> | string
   byteLength?: Prisma.IntFilter<"TextToImageReferenceAsset"> | number
-  parentAssetId?: Prisma.StringNullableFilter<"TextToImageReferenceAsset"> | string | null
-  derivedModel?: Prisma.StringNullableFilter<"TextToImageReferenceAsset"> | string | null
-  derivedInfoExtracted?: Prisma.FloatNullableFilter<"TextToImageReferenceAsset"> | number | null
+  width?: Prisma.IntFilter<"TextToImageReferenceAsset"> | number
+  height?: Prisma.IntFilter<"TextToImageReferenceAsset"> | number
   createdAt?: Prisma.DateTimeFilter<"TextToImageReferenceAsset"> | Date | string
+  vibeEncodings?: Prisma.TextToImageVibeEncodingListRelationFilter
+  promotions?: Prisma.TextToImageReferencePromotionListRelationFilter
 }, "id" | "contentHash" | "relativePath">
 
 export type TextToImageReferenceAssetOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
-  kind?: Prisma.SortOrder
   contentHash?: Prisma.SortOrder
   relativePath?: Prisma.SortOrder
   fileName?: Prisma.SortOrder
   mimeType?: Prisma.SortOrder
   byteLength?: Prisma.SortOrder
-  parentAssetId?: Prisma.SortOrderInput | Prisma.SortOrder
-  derivedModel?: Prisma.SortOrderInput | Prisma.SortOrder
-  derivedInfoExtracted?: Prisma.SortOrderInput | Prisma.SortOrder
+  width?: Prisma.SortOrder
+  height?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   _count?: Prisma.TextToImageReferenceAssetCountOrderByAggregateInput
   _avg?: Prisma.TextToImageReferenceAssetAvgOrderByAggregateInput
@@ -325,259 +313,440 @@ export type TextToImageReferenceAssetScalarWhereWithAggregatesInput = {
   OR?: Prisma.TextToImageReferenceAssetScalarWhereWithAggregatesInput[]
   NOT?: Prisma.TextToImageReferenceAssetScalarWhereWithAggregatesInput | Prisma.TextToImageReferenceAssetScalarWhereWithAggregatesInput[]
   id?: Prisma.StringWithAggregatesFilter<"TextToImageReferenceAsset"> | string
-  kind?: Prisma.StringWithAggregatesFilter<"TextToImageReferenceAsset"> | string
   contentHash?: Prisma.StringWithAggregatesFilter<"TextToImageReferenceAsset"> | string
   relativePath?: Prisma.StringWithAggregatesFilter<"TextToImageReferenceAsset"> | string
   fileName?: Prisma.StringWithAggregatesFilter<"TextToImageReferenceAsset"> | string
   mimeType?: Prisma.StringWithAggregatesFilter<"TextToImageReferenceAsset"> | string
   byteLength?: Prisma.IntWithAggregatesFilter<"TextToImageReferenceAsset"> | number
-  parentAssetId?: Prisma.StringNullableWithAggregatesFilter<"TextToImageReferenceAsset"> | string | null
-  derivedModel?: Prisma.StringNullableWithAggregatesFilter<"TextToImageReferenceAsset"> | string | null
-  derivedInfoExtracted?: Prisma.FloatNullableWithAggregatesFilter<"TextToImageReferenceAsset"> | number | null
+  width?: Prisma.IntWithAggregatesFilter<"TextToImageReferenceAsset"> | number
+  height?: Prisma.IntWithAggregatesFilter<"TextToImageReferenceAsset"> | number
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"TextToImageReferenceAsset"> | Date | string
 }
 
 export type TextToImageReferenceAssetCreateInput = {
   id: string
-  kind: string
   contentHash: string
   relativePath: string
   fileName: string
   mimeType: string
   byteLength: number
-  parentAssetId?: string | null
-  derivedModel?: string | null
-  derivedInfoExtracted?: number | null
+  width: number
+  height: number
   createdAt?: Date | string
+  vibeEncodings?: Prisma.TextToImageVibeEncodingCreateNestedManyWithoutSourceInput
+  promotions?: Prisma.TextToImageReferencePromotionCreateNestedManyWithoutReferenceInput
 }
 
 export type TextToImageReferenceAssetUncheckedCreateInput = {
   id: string
-  kind: string
   contentHash: string
   relativePath: string
   fileName: string
   mimeType: string
   byteLength: number
-  parentAssetId?: string | null
-  derivedModel?: string | null
-  derivedInfoExtracted?: number | null
+  width: number
+  height: number
   createdAt?: Date | string
+  vibeEncodings?: Prisma.TextToImageVibeEncodingUncheckedCreateNestedManyWithoutSourceInput
+  promotions?: Prisma.TextToImageReferencePromotionUncheckedCreateNestedManyWithoutReferenceInput
 }
 
 export type TextToImageReferenceAssetUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  kind?: Prisma.StringFieldUpdateOperationsInput | string
   contentHash?: Prisma.StringFieldUpdateOperationsInput | string
   relativePath?: Prisma.StringFieldUpdateOperationsInput | string
   fileName?: Prisma.StringFieldUpdateOperationsInput | string
   mimeType?: Prisma.StringFieldUpdateOperationsInput | string
   byteLength?: Prisma.IntFieldUpdateOperationsInput | number
-  parentAssetId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  derivedModel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  derivedInfoExtracted?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  width?: Prisma.IntFieldUpdateOperationsInput | number
+  height?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  vibeEncodings?: Prisma.TextToImageVibeEncodingUpdateManyWithoutSourceNestedInput
+  promotions?: Prisma.TextToImageReferencePromotionUpdateManyWithoutReferenceNestedInput
 }
 
 export type TextToImageReferenceAssetUncheckedUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  kind?: Prisma.StringFieldUpdateOperationsInput | string
   contentHash?: Prisma.StringFieldUpdateOperationsInput | string
   relativePath?: Prisma.StringFieldUpdateOperationsInput | string
   fileName?: Prisma.StringFieldUpdateOperationsInput | string
   mimeType?: Prisma.StringFieldUpdateOperationsInput | string
   byteLength?: Prisma.IntFieldUpdateOperationsInput | number
-  parentAssetId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  derivedModel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  derivedInfoExtracted?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  width?: Prisma.IntFieldUpdateOperationsInput | number
+  height?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  vibeEncodings?: Prisma.TextToImageVibeEncodingUncheckedUpdateManyWithoutSourceNestedInput
+  promotions?: Prisma.TextToImageReferencePromotionUncheckedUpdateManyWithoutReferenceNestedInput
 }
 
 export type TextToImageReferenceAssetCreateManyInput = {
   id: string
-  kind: string
   contentHash: string
   relativePath: string
   fileName: string
   mimeType: string
   byteLength: number
-  parentAssetId?: string | null
-  derivedModel?: string | null
-  derivedInfoExtracted?: number | null
+  width: number
+  height: number
   createdAt?: Date | string
 }
 
 export type TextToImageReferenceAssetUpdateManyMutationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  kind?: Prisma.StringFieldUpdateOperationsInput | string
   contentHash?: Prisma.StringFieldUpdateOperationsInput | string
   relativePath?: Prisma.StringFieldUpdateOperationsInput | string
   fileName?: Prisma.StringFieldUpdateOperationsInput | string
   mimeType?: Prisma.StringFieldUpdateOperationsInput | string
   byteLength?: Prisma.IntFieldUpdateOperationsInput | number
-  parentAssetId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  derivedModel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  derivedInfoExtracted?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  width?: Prisma.IntFieldUpdateOperationsInput | number
+  height?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
 export type TextToImageReferenceAssetUncheckedUpdateManyInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  kind?: Prisma.StringFieldUpdateOperationsInput | string
   contentHash?: Prisma.StringFieldUpdateOperationsInput | string
   relativePath?: Prisma.StringFieldUpdateOperationsInput | string
   fileName?: Prisma.StringFieldUpdateOperationsInput | string
   mimeType?: Prisma.StringFieldUpdateOperationsInput | string
   byteLength?: Prisma.IntFieldUpdateOperationsInput | number
-  parentAssetId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  derivedModel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  derivedInfoExtracted?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  width?: Prisma.IntFieldUpdateOperationsInput | number
+  height?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
 export type TextToImageReferenceAssetCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
-  kind?: Prisma.SortOrder
   contentHash?: Prisma.SortOrder
   relativePath?: Prisma.SortOrder
   fileName?: Prisma.SortOrder
   mimeType?: Prisma.SortOrder
   byteLength?: Prisma.SortOrder
-  parentAssetId?: Prisma.SortOrder
-  derivedModel?: Prisma.SortOrder
-  derivedInfoExtracted?: Prisma.SortOrder
+  width?: Prisma.SortOrder
+  height?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
 
 export type TextToImageReferenceAssetAvgOrderByAggregateInput = {
   byteLength?: Prisma.SortOrder
-  derivedInfoExtracted?: Prisma.SortOrder
+  width?: Prisma.SortOrder
+  height?: Prisma.SortOrder
 }
 
 export type TextToImageReferenceAssetMaxOrderByAggregateInput = {
   id?: Prisma.SortOrder
-  kind?: Prisma.SortOrder
   contentHash?: Prisma.SortOrder
   relativePath?: Prisma.SortOrder
   fileName?: Prisma.SortOrder
   mimeType?: Prisma.SortOrder
   byteLength?: Prisma.SortOrder
-  parentAssetId?: Prisma.SortOrder
-  derivedModel?: Prisma.SortOrder
-  derivedInfoExtracted?: Prisma.SortOrder
+  width?: Prisma.SortOrder
+  height?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
 
 export type TextToImageReferenceAssetMinOrderByAggregateInput = {
   id?: Prisma.SortOrder
-  kind?: Prisma.SortOrder
   contentHash?: Prisma.SortOrder
   relativePath?: Prisma.SortOrder
   fileName?: Prisma.SortOrder
   mimeType?: Prisma.SortOrder
   byteLength?: Prisma.SortOrder
-  parentAssetId?: Prisma.SortOrder
-  derivedModel?: Prisma.SortOrder
-  derivedInfoExtracted?: Prisma.SortOrder
+  width?: Prisma.SortOrder
+  height?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
 
 export type TextToImageReferenceAssetSumOrderByAggregateInput = {
   byteLength?: Prisma.SortOrder
-  derivedInfoExtracted?: Prisma.SortOrder
+  width?: Prisma.SortOrder
+  height?: Prisma.SortOrder
 }
 
-export type NullableFloatFieldUpdateOperationsInput = {
-  set?: number | null
-  increment?: number
-  decrement?: number
-  multiply?: number
-  divide?: number
+export type TextToImageReferenceAssetScalarRelationFilter = {
+  is?: Prisma.TextToImageReferenceAssetWhereInput
+  isNot?: Prisma.TextToImageReferenceAssetWhereInput
 }
 
+export type TextToImageReferenceAssetCreateNestedOneWithoutVibeEncodingsInput = {
+  create?: Prisma.XOR<Prisma.TextToImageReferenceAssetCreateWithoutVibeEncodingsInput, Prisma.TextToImageReferenceAssetUncheckedCreateWithoutVibeEncodingsInput>
+  connectOrCreate?: Prisma.TextToImageReferenceAssetCreateOrConnectWithoutVibeEncodingsInput
+  connect?: Prisma.TextToImageReferenceAssetWhereUniqueInput
+}
+
+export type TextToImageReferenceAssetUpdateOneRequiredWithoutVibeEncodingsNestedInput = {
+  create?: Prisma.XOR<Prisma.TextToImageReferenceAssetCreateWithoutVibeEncodingsInput, Prisma.TextToImageReferenceAssetUncheckedCreateWithoutVibeEncodingsInput>
+  connectOrCreate?: Prisma.TextToImageReferenceAssetCreateOrConnectWithoutVibeEncodingsInput
+  upsert?: Prisma.TextToImageReferenceAssetUpsertWithoutVibeEncodingsInput
+  connect?: Prisma.TextToImageReferenceAssetWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.TextToImageReferenceAssetUpdateToOneWithWhereWithoutVibeEncodingsInput, Prisma.TextToImageReferenceAssetUpdateWithoutVibeEncodingsInput>, Prisma.TextToImageReferenceAssetUncheckedUpdateWithoutVibeEncodingsInput>
+}
+
+export type TextToImageReferenceAssetCreateNestedOneWithoutPromotionsInput = {
+  create?: Prisma.XOR<Prisma.TextToImageReferenceAssetCreateWithoutPromotionsInput, Prisma.TextToImageReferenceAssetUncheckedCreateWithoutPromotionsInput>
+  connectOrCreate?: Prisma.TextToImageReferenceAssetCreateOrConnectWithoutPromotionsInput
+  connect?: Prisma.TextToImageReferenceAssetWhereUniqueInput
+}
+
+export type TextToImageReferenceAssetUpdateOneRequiredWithoutPromotionsNestedInput = {
+  create?: Prisma.XOR<Prisma.TextToImageReferenceAssetCreateWithoutPromotionsInput, Prisma.TextToImageReferenceAssetUncheckedCreateWithoutPromotionsInput>
+  connectOrCreate?: Prisma.TextToImageReferenceAssetCreateOrConnectWithoutPromotionsInput
+  upsert?: Prisma.TextToImageReferenceAssetUpsertWithoutPromotionsInput
+  connect?: Prisma.TextToImageReferenceAssetWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.TextToImageReferenceAssetUpdateToOneWithWhereWithoutPromotionsInput, Prisma.TextToImageReferenceAssetUpdateWithoutPromotionsInput>, Prisma.TextToImageReferenceAssetUncheckedUpdateWithoutPromotionsInput>
+}
+
+export type TextToImageReferenceAssetCreateWithoutVibeEncodingsInput = {
+  id: string
+  contentHash: string
+  relativePath: string
+  fileName: string
+  mimeType: string
+  byteLength: number
+  width: number
+  height: number
+  createdAt?: Date | string
+  promotions?: Prisma.TextToImageReferencePromotionCreateNestedManyWithoutReferenceInput
+}
+
+export type TextToImageReferenceAssetUncheckedCreateWithoutVibeEncodingsInput = {
+  id: string
+  contentHash: string
+  relativePath: string
+  fileName: string
+  mimeType: string
+  byteLength: number
+  width: number
+  height: number
+  createdAt?: Date | string
+  promotions?: Prisma.TextToImageReferencePromotionUncheckedCreateNestedManyWithoutReferenceInput
+}
+
+export type TextToImageReferenceAssetCreateOrConnectWithoutVibeEncodingsInput = {
+  where: Prisma.TextToImageReferenceAssetWhereUniqueInput
+  create: Prisma.XOR<Prisma.TextToImageReferenceAssetCreateWithoutVibeEncodingsInput, Prisma.TextToImageReferenceAssetUncheckedCreateWithoutVibeEncodingsInput>
+}
+
+export type TextToImageReferenceAssetUpsertWithoutVibeEncodingsInput = {
+  update: Prisma.XOR<Prisma.TextToImageReferenceAssetUpdateWithoutVibeEncodingsInput, Prisma.TextToImageReferenceAssetUncheckedUpdateWithoutVibeEncodingsInput>
+  create: Prisma.XOR<Prisma.TextToImageReferenceAssetCreateWithoutVibeEncodingsInput, Prisma.TextToImageReferenceAssetUncheckedCreateWithoutVibeEncodingsInput>
+  where?: Prisma.TextToImageReferenceAssetWhereInput
+}
+
+export type TextToImageReferenceAssetUpdateToOneWithWhereWithoutVibeEncodingsInput = {
+  where?: Prisma.TextToImageReferenceAssetWhereInput
+  data: Prisma.XOR<Prisma.TextToImageReferenceAssetUpdateWithoutVibeEncodingsInput, Prisma.TextToImageReferenceAssetUncheckedUpdateWithoutVibeEncodingsInput>
+}
+
+export type TextToImageReferenceAssetUpdateWithoutVibeEncodingsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  contentHash?: Prisma.StringFieldUpdateOperationsInput | string
+  relativePath?: Prisma.StringFieldUpdateOperationsInput | string
+  fileName?: Prisma.StringFieldUpdateOperationsInput | string
+  mimeType?: Prisma.StringFieldUpdateOperationsInput | string
+  byteLength?: Prisma.IntFieldUpdateOperationsInput | number
+  width?: Prisma.IntFieldUpdateOperationsInput | number
+  height?: Prisma.IntFieldUpdateOperationsInput | number
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  promotions?: Prisma.TextToImageReferencePromotionUpdateManyWithoutReferenceNestedInput
+}
+
+export type TextToImageReferenceAssetUncheckedUpdateWithoutVibeEncodingsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  contentHash?: Prisma.StringFieldUpdateOperationsInput | string
+  relativePath?: Prisma.StringFieldUpdateOperationsInput | string
+  fileName?: Prisma.StringFieldUpdateOperationsInput | string
+  mimeType?: Prisma.StringFieldUpdateOperationsInput | string
+  byteLength?: Prisma.IntFieldUpdateOperationsInput | number
+  width?: Prisma.IntFieldUpdateOperationsInput | number
+  height?: Prisma.IntFieldUpdateOperationsInput | number
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  promotions?: Prisma.TextToImageReferencePromotionUncheckedUpdateManyWithoutReferenceNestedInput
+}
+
+export type TextToImageReferenceAssetCreateWithoutPromotionsInput = {
+  id: string
+  contentHash: string
+  relativePath: string
+  fileName: string
+  mimeType: string
+  byteLength: number
+  width: number
+  height: number
+  createdAt?: Date | string
+  vibeEncodings?: Prisma.TextToImageVibeEncodingCreateNestedManyWithoutSourceInput
+}
+
+export type TextToImageReferenceAssetUncheckedCreateWithoutPromotionsInput = {
+  id: string
+  contentHash: string
+  relativePath: string
+  fileName: string
+  mimeType: string
+  byteLength: number
+  width: number
+  height: number
+  createdAt?: Date | string
+  vibeEncodings?: Prisma.TextToImageVibeEncodingUncheckedCreateNestedManyWithoutSourceInput
+}
+
+export type TextToImageReferenceAssetCreateOrConnectWithoutPromotionsInput = {
+  where: Prisma.TextToImageReferenceAssetWhereUniqueInput
+  create: Prisma.XOR<Prisma.TextToImageReferenceAssetCreateWithoutPromotionsInput, Prisma.TextToImageReferenceAssetUncheckedCreateWithoutPromotionsInput>
+}
+
+export type TextToImageReferenceAssetUpsertWithoutPromotionsInput = {
+  update: Prisma.XOR<Prisma.TextToImageReferenceAssetUpdateWithoutPromotionsInput, Prisma.TextToImageReferenceAssetUncheckedUpdateWithoutPromotionsInput>
+  create: Prisma.XOR<Prisma.TextToImageReferenceAssetCreateWithoutPromotionsInput, Prisma.TextToImageReferenceAssetUncheckedCreateWithoutPromotionsInput>
+  where?: Prisma.TextToImageReferenceAssetWhereInput
+}
+
+export type TextToImageReferenceAssetUpdateToOneWithWhereWithoutPromotionsInput = {
+  where?: Prisma.TextToImageReferenceAssetWhereInput
+  data: Prisma.XOR<Prisma.TextToImageReferenceAssetUpdateWithoutPromotionsInput, Prisma.TextToImageReferenceAssetUncheckedUpdateWithoutPromotionsInput>
+}
+
+export type TextToImageReferenceAssetUpdateWithoutPromotionsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  contentHash?: Prisma.StringFieldUpdateOperationsInput | string
+  relativePath?: Prisma.StringFieldUpdateOperationsInput | string
+  fileName?: Prisma.StringFieldUpdateOperationsInput | string
+  mimeType?: Prisma.StringFieldUpdateOperationsInput | string
+  byteLength?: Prisma.IntFieldUpdateOperationsInput | number
+  width?: Prisma.IntFieldUpdateOperationsInput | number
+  height?: Prisma.IntFieldUpdateOperationsInput | number
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  vibeEncodings?: Prisma.TextToImageVibeEncodingUpdateManyWithoutSourceNestedInput
+}
+
+export type TextToImageReferenceAssetUncheckedUpdateWithoutPromotionsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  contentHash?: Prisma.StringFieldUpdateOperationsInput | string
+  relativePath?: Prisma.StringFieldUpdateOperationsInput | string
+  fileName?: Prisma.StringFieldUpdateOperationsInput | string
+  mimeType?: Prisma.StringFieldUpdateOperationsInput | string
+  byteLength?: Prisma.IntFieldUpdateOperationsInput | number
+  width?: Prisma.IntFieldUpdateOperationsInput | number
+  height?: Prisma.IntFieldUpdateOperationsInput | number
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  vibeEncodings?: Prisma.TextToImageVibeEncodingUncheckedUpdateManyWithoutSourceNestedInput
+}
+
+
+/**
+ * Count Type TextToImageReferenceAssetCountOutputType
+ */
+
+export type TextToImageReferenceAssetCountOutputType = {
+  vibeEncodings: number
+  promotions: number
+}
+
+export type TextToImageReferenceAssetCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  vibeEncodings?: boolean | TextToImageReferenceAssetCountOutputTypeCountVibeEncodingsArgs
+  promotions?: boolean | TextToImageReferenceAssetCountOutputTypeCountPromotionsArgs
+}
+
+/**
+ * TextToImageReferenceAssetCountOutputType without action
+ */
+export type TextToImageReferenceAssetCountOutputTypeDefaultArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the TextToImageReferenceAssetCountOutputType
+   */
+  select?: Prisma.TextToImageReferenceAssetCountOutputTypeSelect<ExtArgs> | null
+}
+
+/**
+ * TextToImageReferenceAssetCountOutputType without action
+ */
+export type TextToImageReferenceAssetCountOutputTypeCountVibeEncodingsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.TextToImageVibeEncodingWhereInput
+}
+
+/**
+ * TextToImageReferenceAssetCountOutputType without action
+ */
+export type TextToImageReferenceAssetCountOutputTypeCountPromotionsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.TextToImageReferencePromotionWhereInput
+}
 
 
 export type TextToImageReferenceAssetSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
-  kind?: boolean
   contentHash?: boolean
   relativePath?: boolean
   fileName?: boolean
   mimeType?: boolean
   byteLength?: boolean
-  parentAssetId?: boolean
-  derivedModel?: boolean
-  derivedInfoExtracted?: boolean
+  width?: boolean
+  height?: boolean
   createdAt?: boolean
+  vibeEncodings?: boolean | Prisma.TextToImageReferenceAsset$vibeEncodingsArgs<ExtArgs>
+  promotions?: boolean | Prisma.TextToImageReferenceAsset$promotionsArgs<ExtArgs>
+  _count?: boolean | Prisma.TextToImageReferenceAssetCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["textToImageReferenceAsset"]>
 
 export type TextToImageReferenceAssetSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
-  kind?: boolean
   contentHash?: boolean
   relativePath?: boolean
   fileName?: boolean
   mimeType?: boolean
   byteLength?: boolean
-  parentAssetId?: boolean
-  derivedModel?: boolean
-  derivedInfoExtracted?: boolean
+  width?: boolean
+  height?: boolean
   createdAt?: boolean
 }, ExtArgs["result"]["textToImageReferenceAsset"]>
 
 export type TextToImageReferenceAssetSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
-  kind?: boolean
   contentHash?: boolean
   relativePath?: boolean
   fileName?: boolean
   mimeType?: boolean
   byteLength?: boolean
-  parentAssetId?: boolean
-  derivedModel?: boolean
-  derivedInfoExtracted?: boolean
+  width?: boolean
+  height?: boolean
   createdAt?: boolean
 }, ExtArgs["result"]["textToImageReferenceAsset"]>
 
 export type TextToImageReferenceAssetSelectScalar = {
   id?: boolean
-  kind?: boolean
   contentHash?: boolean
   relativePath?: boolean
   fileName?: boolean
   mimeType?: boolean
   byteLength?: boolean
-  parentAssetId?: boolean
-  derivedModel?: boolean
-  derivedInfoExtracted?: boolean
+  width?: boolean
+  height?: boolean
   createdAt?: boolean
 }
 
-export type TextToImageReferenceAssetOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "kind" | "contentHash" | "relativePath" | "fileName" | "mimeType" | "byteLength" | "parentAssetId" | "derivedModel" | "derivedInfoExtracted" | "createdAt", ExtArgs["result"]["textToImageReferenceAsset"]>
+export type TextToImageReferenceAssetOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "contentHash" | "relativePath" | "fileName" | "mimeType" | "byteLength" | "width" | "height" | "createdAt", ExtArgs["result"]["textToImageReferenceAsset"]>
+export type TextToImageReferenceAssetInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  vibeEncodings?: boolean | Prisma.TextToImageReferenceAsset$vibeEncodingsArgs<ExtArgs>
+  promotions?: boolean | Prisma.TextToImageReferenceAsset$promotionsArgs<ExtArgs>
+  _count?: boolean | Prisma.TextToImageReferenceAssetCountOutputTypeDefaultArgs<ExtArgs>
+}
+export type TextToImageReferenceAssetIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {}
+export type TextToImageReferenceAssetIncludeUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {}
 
 export type $TextToImageReferenceAssetPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   name: "TextToImageReferenceAsset"
-  objects: {}
+  objects: {
+    vibeEncodings: Prisma.$TextToImageVibeEncodingPayload<ExtArgs>[]
+    promotions: Prisma.$TextToImageReferencePromotionPayload<ExtArgs>[]
+  }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
-    kind: string
     contentHash: string
     relativePath: string
     fileName: string
     mimeType: string
     byteLength: number
-    /**
-     * * 仅 vibe-encoding 非空：派生自哪个源资产；其余为 null。
-     */
-    parentAssetId: string | null
-    /**
-     * * 仅 vibe-encoding 非空：派生时所用的 NovelAI model；其余为 null。
-     */
-    derivedModel: string | null
-    /**
-     * * 仅 vibe-encoding 非空：派生时所用的 infoExtracted；其余为 null。
-     */
-    derivedInfoExtracted: number | null
+    width: number
+    height: number
     createdAt: Date
   }, ExtArgs["result"]["textToImageReferenceAsset"]>
   composites: {}
@@ -973,6 +1142,8 @@ readonly fields: TextToImageReferenceAssetFieldRefs;
  */
 export interface Prisma__TextToImageReferenceAssetClient<T, Null = never, ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
   readonly [Symbol.toStringTag]: "PrismaPromise"
+  vibeEncodings<T extends Prisma.TextToImageReferenceAsset$vibeEncodingsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.TextToImageReferenceAsset$vibeEncodingsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$TextToImageVibeEncodingPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  promotions<T extends Prisma.TextToImageReferenceAsset$promotionsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.TextToImageReferenceAsset$promotionsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$TextToImageReferencePromotionPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -1003,15 +1174,13 @@ export interface Prisma__TextToImageReferenceAssetClient<T, Null = never, ExtArg
  */
 export interface TextToImageReferenceAssetFieldRefs {
   readonly id: Prisma.FieldRef<"TextToImageReferenceAsset", 'String'>
-  readonly kind: Prisma.FieldRef<"TextToImageReferenceAsset", 'String'>
   readonly contentHash: Prisma.FieldRef<"TextToImageReferenceAsset", 'String'>
   readonly relativePath: Prisma.FieldRef<"TextToImageReferenceAsset", 'String'>
   readonly fileName: Prisma.FieldRef<"TextToImageReferenceAsset", 'String'>
   readonly mimeType: Prisma.FieldRef<"TextToImageReferenceAsset", 'String'>
   readonly byteLength: Prisma.FieldRef<"TextToImageReferenceAsset", 'Int'>
-  readonly parentAssetId: Prisma.FieldRef<"TextToImageReferenceAsset", 'String'>
-  readonly derivedModel: Prisma.FieldRef<"TextToImageReferenceAsset", 'String'>
-  readonly derivedInfoExtracted: Prisma.FieldRef<"TextToImageReferenceAsset", 'Float'>
+  readonly width: Prisma.FieldRef<"TextToImageReferenceAsset", 'Int'>
+  readonly height: Prisma.FieldRef<"TextToImageReferenceAsset", 'Int'>
   readonly createdAt: Prisma.FieldRef<"TextToImageReferenceAsset", 'DateTime'>
 }
     
@@ -1029,6 +1198,10 @@ export type TextToImageReferenceAssetFindUniqueArgs<ExtArgs extends runtime.Type
    * Omit specific fields from the TextToImageReferenceAsset
    */
   omit?: Prisma.TextToImageReferenceAssetOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.TextToImageReferenceAssetInclude<ExtArgs> | null
   /**
    * Filter, which TextToImageReferenceAsset to fetch.
    */
@@ -1048,6 +1221,10 @@ export type TextToImageReferenceAssetFindUniqueOrThrowArgs<ExtArgs extends runti
    */
   omit?: Prisma.TextToImageReferenceAssetOmit<ExtArgs> | null
   /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.TextToImageReferenceAssetInclude<ExtArgs> | null
+  /**
    * Filter, which TextToImageReferenceAsset to fetch.
    */
   where: Prisma.TextToImageReferenceAssetWhereUniqueInput
@@ -1065,6 +1242,10 @@ export type TextToImageReferenceAssetFindFirstArgs<ExtArgs extends runtime.Types
    * Omit specific fields from the TextToImageReferenceAsset
    */
   omit?: Prisma.TextToImageReferenceAssetOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.TextToImageReferenceAssetInclude<ExtArgs> | null
   /**
    * Filter, which TextToImageReferenceAsset to fetch.
    */
@@ -1114,6 +1295,10 @@ export type TextToImageReferenceAssetFindFirstOrThrowArgs<ExtArgs extends runtim
    */
   omit?: Prisma.TextToImageReferenceAssetOmit<ExtArgs> | null
   /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.TextToImageReferenceAssetInclude<ExtArgs> | null
+  /**
    * Filter, which TextToImageReferenceAsset to fetch.
    */
   where?: Prisma.TextToImageReferenceAssetWhereInput
@@ -1162,6 +1347,10 @@ export type TextToImageReferenceAssetFindManyArgs<ExtArgs extends runtime.Types.
    */
   omit?: Prisma.TextToImageReferenceAssetOmit<ExtArgs> | null
   /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.TextToImageReferenceAssetInclude<ExtArgs> | null
+  /**
    * Filter, which TextToImageReferenceAssets to fetch.
    */
   where?: Prisma.TextToImageReferenceAssetWhereInput
@@ -1204,6 +1393,10 @@ export type TextToImageReferenceAssetCreateArgs<ExtArgs extends runtime.Types.Ex
    * Omit specific fields from the TextToImageReferenceAsset
    */
   omit?: Prisma.TextToImageReferenceAssetOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.TextToImageReferenceAssetInclude<ExtArgs> | null
   /**
    * The data needed to create a TextToImageReferenceAsset.
    */
@@ -1250,6 +1443,10 @@ export type TextToImageReferenceAssetUpdateArgs<ExtArgs extends runtime.Types.Ex
    * Omit specific fields from the TextToImageReferenceAsset
    */
   omit?: Prisma.TextToImageReferenceAssetOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.TextToImageReferenceAssetInclude<ExtArgs> | null
   /**
    * The data needed to update a TextToImageReferenceAsset.
    */
@@ -1317,6 +1514,10 @@ export type TextToImageReferenceAssetUpsertArgs<ExtArgs extends runtime.Types.Ex
    */
   omit?: Prisma.TextToImageReferenceAssetOmit<ExtArgs> | null
   /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.TextToImageReferenceAssetInclude<ExtArgs> | null
+  /**
    * The filter to search for the TextToImageReferenceAsset to update in case it exists.
    */
   where: Prisma.TextToImageReferenceAssetWhereUniqueInput
@@ -1343,6 +1544,10 @@ export type TextToImageReferenceAssetDeleteArgs<ExtArgs extends runtime.Types.Ex
    */
   omit?: Prisma.TextToImageReferenceAssetOmit<ExtArgs> | null
   /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.TextToImageReferenceAssetInclude<ExtArgs> | null
+  /**
    * Filter which TextToImageReferenceAsset to delete.
    */
   where: Prisma.TextToImageReferenceAssetWhereUniqueInput
@@ -1363,6 +1568,54 @@ export type TextToImageReferenceAssetDeleteManyArgs<ExtArgs extends runtime.Type
 }
 
 /**
+ * TextToImageReferenceAsset.vibeEncodings
+ */
+export type TextToImageReferenceAsset$vibeEncodingsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the TextToImageVibeEncoding
+   */
+  select?: Prisma.TextToImageVibeEncodingSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the TextToImageVibeEncoding
+   */
+  omit?: Prisma.TextToImageVibeEncodingOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.TextToImageVibeEncodingInclude<ExtArgs> | null
+  where?: Prisma.TextToImageVibeEncodingWhereInput
+  orderBy?: Prisma.TextToImageVibeEncodingOrderByWithRelationInput | Prisma.TextToImageVibeEncodingOrderByWithRelationInput[]
+  cursor?: Prisma.TextToImageVibeEncodingWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.TextToImageVibeEncodingScalarFieldEnum | Prisma.TextToImageVibeEncodingScalarFieldEnum[]
+}
+
+/**
+ * TextToImageReferenceAsset.promotions
+ */
+export type TextToImageReferenceAsset$promotionsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the TextToImageReferencePromotion
+   */
+  select?: Prisma.TextToImageReferencePromotionSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the TextToImageReferencePromotion
+   */
+  omit?: Prisma.TextToImageReferencePromotionOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.TextToImageReferencePromotionInclude<ExtArgs> | null
+  where?: Prisma.TextToImageReferencePromotionWhereInput
+  orderBy?: Prisma.TextToImageReferencePromotionOrderByWithRelationInput | Prisma.TextToImageReferencePromotionOrderByWithRelationInput[]
+  cursor?: Prisma.TextToImageReferencePromotionWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.TextToImageReferencePromotionScalarFieldEnum | Prisma.TextToImageReferencePromotionScalarFieldEnum[]
+}
+
+/**
  * TextToImageReferenceAsset without action
  */
 export type TextToImageReferenceAssetDefaultArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1374,4 +1627,8 @@ export type TextToImageReferenceAssetDefaultArgs<ExtArgs extends runtime.Types.E
    * Omit specific fields from the TextToImageReferenceAsset
    */
   omit?: Prisma.TextToImageReferenceAssetOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.TextToImageReferenceAssetInclude<ExtArgs> | null
 }

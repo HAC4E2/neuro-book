@@ -1,5 +1,8 @@
 import {z} from "zod";
-import {TextToImageReferenceSelectionSchema} from "nbook/shared/text-to-image-reference-asset";
+import {
+    TextToImageInpaintSelectionSchema,
+    TextToImageReferenceSelectionSchema,
+} from "nbook/shared/text-to-image-reference-asset";
 
 export const TEXT_TO_IMAGE_RECIPE_SCHEMA_VERSION = 3 as const;
 export const DEFAULT_TEXT_TO_IMAGE_RECIPE_ID = "default" as const;
@@ -82,7 +85,8 @@ export const TextToImageRecipeSourceSchema = z.object({
         normalizeVibeStrengths: z.boolean(),
         vibeReferences: z.array(TextToImageReferenceSelectionSchema).max(16),
         characterReferences: z.array(TextToImageReferenceSelectionSchema).max(1),
-        inpaint: TextToImageReferenceSelectionSchema.nullable(),
+        /** P5 Inpaint：base 图与 PNG 蒙版两张内容寻址图，缺一不可；尺寸必须在 Compiler 冻结。 */
+        inpaint: TextToImageInpaintSelectionSchema,
     }).strict(),
 }).strict();
 

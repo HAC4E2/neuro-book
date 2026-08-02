@@ -24,7 +24,7 @@ import {useNotification} from "nbook/app/composables/useNotification";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import type {IllustrationDirectorModelBindingDto} from "nbook/shared/dto/config.dto";
-import {NOVELAI_PROVIDER_MODEL_IDS, type NovelAiProviderModelId} from "nbook/shared/text-to-image-provider-registry";
+import {NOVELAI_PROVIDER_MODEL_IDS, resolveProviderCapability, type NovelAiProviderModelId} from "nbook/shared/text-to-image-provider-registry";
 
 const props = defineProps<{projectPath?: string}>();
 
@@ -112,13 +112,20 @@ function updateNovelAiField(key: keyof NovelAiApiSettings, value: unknown): void
 }
 function clamp(min: number, max: number, val: number): number { return Math.max(min, Math.min(max, Math.round(val))); }
 
-/** NovelAI V4 系列只支持 SMEA auto/off，服务端会拒绝手动 SMEA on 与 SMEA Dyn。 */
-const isV4Model = computed(() => /^nai-diffusion-4(?:-|$)/u.test(novelAi.value.model));
+/** NovelAI V4 系列只支持 SMEA auto/off；capability 唯一来自 Provider registry，UI 不推断模型 ID。 */
+const novelAiCapability = computed(() => resolveProviderCapability({
+    kind: "novelai-model",
+    modelId: novelAi.value.model as NovelAiProviderModelId,
+}));
+const isV4Model = computed(() => !novelAiCapability.value.advanced.smea.dynSupported);
 const recipeModel = computed({
     get: () => novelAi.value.model,
     set: (v) => {
         // 切到 V4 时同步清掉不兼容的 SMEA 配置，避免 Recipe 自动保存被服务端 422 拒绝
-        const targetIsV4 = /^nai-diffusion-4(?:-|$)/u.test(String(v));
+        const targetIsV4 = !resolveProviderCapability({
+            kind: "novelai-model",
+            modelId: v as NovelAiProviderModelId,
+        }).advanced.smea.dynSupported;
         store.updateNovelAiSettings({
             model: v,
             ...(targetIsV4 && novelAi.value.smeaDyn ? {smeaDyn: false} : {}),

@@ -89,6 +89,39 @@ describe("TextToImageQueueService", () => {
         await expect((await textToImageProjectClient(projectPath)).textToImageJob.count()).resolves.toBe(0);
     });
 
+    it("手工请求的 Recipe snapshot 携带参考资源时 fail-closed 拒绝", async () => {
+        const service = new TextToImageQueueService({
+            assertProviderReady: async (providerId) => providerSnapshot(providerId),
+            deleteAsset: async () => undefined,
+            requestImages: async () => ({images: [], request: {model: "should-not-run", seed: 1}, warnings: []}),
+            resolveProvider: async () => ({credential: "secret", requestIntervalMs: 0}),
+            saveAsset: async () => {
+                throw new Error("本测试不应保存图片");
+            },
+        });
+        const recipeSnapshot = createTextToImageRecipeSnapshot({
+            ...createDefaultTextToImageRecipeSource(),
+            references: {
+                normalizeVibeStrengths: true,
+                vibeReferences: [{contentHash: "a".repeat(64), strength: 0.6, informationExtracted: 0.5}],
+                characterReferences: [],
+                inpaint: null,
+            },
+        });
+
+        await expect(service.enqueue({
+            projectPath,
+            providerId: 9,
+            kind: "manual",
+            prompt: "rain",
+            negativePrompt: "",
+            novelAi: baseNovelAiInput(),
+            style: baseStyleInput(),
+            recipeSnapshot,
+        })).rejects.toThrow(/不允许携带参考资源/u);
+        await expect((await textToImageProjectClient(projectPath)).textToImageJob.count()).resolves.toBe(0);
+    });
+
     it("持久化完整 Recipe snapshot，且 Provider 不覆盖 Recipe 图片模型", async () => {
         const request = vi.fn(async () => ({images: [], request: {model: "recipe-owned-model", seed: 1}, warnings: []}));
         const service = new TextToImageQueueService({

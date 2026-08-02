@@ -6,26 +6,26 @@ import {
     isNovelAiVibeEncodingPair,
 } from "nbook/shared/text-to-image-provider-registry";
 
+const REFERENCE_SOURCE_MAX_BYTES = 20 * 1024 * 1024;
+const REFERENCE_SOURCE_MAX_PIXELS = 64_000_000;
+
 /**
  * 参考资产内容寻址的种类。
  *
  * - `source-image`：用户上传的图片，可用作 Vibe Transfer 源、Character Reference 或 Inpaint 蒙版；
  *   具体用途由 Recipe 参考槽决定，Compiler 按 slot 校验 MIME（inpaint 蒙版必须是 PNG）。
- * - `vibe-encoding`：由 `source-image` 调用 `/ai/encode-vibe` 派生的 NovelAI encoding 产物，
- *   按源 contentHash + model + infoExtracted 缓存，lineage 经 parentAssetId 追溯。
+ * Vibe encoding 使用独立的 blob/lineage 内部表，不进入公开 source asset DTO。
  */
 export const TEXT_TO_IMAGE_REFERENCE_ASSET_KINDS = [
     "source-image",
-    "vibe-encoding",
 ] as const;
 export type TextToImageReferenceAssetKind = (typeof TEXT_TO_IMAGE_REFERENCE_ASSET_KINDS)[number];
 
 export const TextToImageReferenceAssetKindSchema = z.enum(TEXT_TO_IMAGE_REFERENCE_ASSET_KINDS);
 
-/** 受支持的 MIME；source-image 接受常见图片，vibe-encoding 只接受二进制。 */
+/** 公开 source asset 只接受经过完整解码验证的 PNG/JPEG。 */
 export const REFERENCE_ASSET_MIME_BY_KIND = {
-    "source-image": ["image/png", "image/jpeg", "image/webp"],
-    "vibe-encoding": ["application/octet-stream"],
+    "source-image": ["image/png", "image/jpeg"],
 } as const satisfies Record<TextToImageReferenceAssetKind, readonly string[]>;
 
 /** 内容寻址用裸 SHA-256 hex（无算法前缀），与 Project 文件路径与 dedup key 共用。 */
@@ -33,21 +33,26 @@ export const ReferenceContentHashSchema = z.string().regex(/^[0-9a-f]{64}$/u, "�
 
 /** 参考资产 DTO；不含 bytes 与 secret，可安全回传前端。 */
 export const TextToImageReferenceAssetDtoSchema = z.object({
-    id: z.string().trim().min(1).max(200),
-    kind: TextToImageReferenceAssetKindSchema,
+    id: ReferenceContentHashSchema,
+    kind: z.literal("source-image"),
     contentHash: ReferenceContentHashSchema,
-    relativePath: z.string().trim().min(1).max(500),
     fileName: z.string().trim().min(1).max(300),
-    mimeType: z.string().trim().min(1).max(80),
-    byteLength: z.number().int().positive().max(50_000_000),
-    /** 仅 vibe-encoding 非空：派生自哪个源资产；其余为 null。 */
-    parentAssetId: z.string().trim().min(1).max(200).nullable(),
-    /** 仅 vibe-encoding 非空：派生时所用的 NovelAI model；其余为 null。 */
-    derivedModel: z.string().trim().min(1).max(80).nullable(),
-    /** 仅 vibe-encoding 非空：派生时所用的 infoExtracted；其余为 null。 */
-    derivedInfoExtracted: z.number().min(0).max(1).nullable(),
+    mimeType: z.enum(["image/png", "image/jpeg"]),
+    byteLength: z.number().int().positive().max(REFERENCE_SOURCE_MAX_BYTES),
+    width: z.number().int().positive().max(16_384),
+    height: z.number().int().positive().max(16_384),
+    status: z.enum(["available", "missing", "tampered"]),
     createdAt: z.string().datetime(),
-}).strict();
+}).strict().superRefine((asset, context) => {
+    refineReferencePixelBudget(asset, context);
+    if (asset.id !== asset.contentHash) {
+        context.addIssue({
+            code: "custom",
+            path: ["id"],
+            message: "source asset id 必须等于 contentHash",
+        });
+    }
+});
 
 export type TextToImageReferenceAssetDto = z.infer<typeof TextToImageReferenceAssetDtoSchema>;
 
@@ -60,12 +65,26 @@ export const FrozenReferenceAssetSchema = z.object({
     contentHash: ReferenceContentHashSchema,
     kind: z.literal("source-image"),
     mimeType: z.enum(["image/png", "image/jpeg"]),
-    byteLength: z.number().int().positive().max(50_000_000),
+    byteLength: z.number().int().positive().max(REFERENCE_SOURCE_MAX_BYTES),
     width: z.number().int().positive().max(16_384),
     height: z.number().int().positive().max(16_384),
-}).strict();
+}).strict().superRefine(refineReferencePixelBudget);
 
 export type FrozenReferenceAsset = z.infer<typeof FrozenReferenceAssetSchema>;
+
+/** 单边合法仍可能突破总像素预算，所有 source metadata schema 共用这一约束。 */
+function refineReferencePixelBudget(
+    image: {width: number; height: number},
+    context: z.RefinementCtx,
+): void {
+    if (image.width * image.height > REFERENCE_SOURCE_MAX_PIXELS) {
+        context.addIssue({
+            code: "custom",
+            path: ["width"],
+            message: "引用图片总像素不能超过 64000000",
+        });
+    }
+}
 
 /** P5 Inpaint 的完整内容寻址对；两张图缺一不可。 */
 export const TextToImageInpaintSelectionSchema = z.object({

@@ -28,15 +28,15 @@ export type AggregateIllustrationExecutionApproval = {
 
 export type IllustrationExecutionApprovalAvgAggregateOutputType = {
   authorizedOutputCount: number | null
-  authorizedCostLimit: number | null
-  authorizedTokenLimit: number | null
+  acceptedAdditionalCostLowerBound: number | null
+  acceptedTokenLowerBound: number | null
   actorUserId: number | null
 }
 
 export type IllustrationExecutionApprovalSumAggregateOutputType = {
   authorizedOutputCount: number | null
-  authorizedCostLimit: number | null
-  authorizedTokenLimit: number | null
+  acceptedAdditionalCostLowerBound: number | null
+  acceptedTokenLowerBound: number | null
   actorUserId: number | null
 }
 
@@ -46,8 +46,8 @@ export type IllustrationExecutionApprovalMinAggregateOutputType = {
   executionManifestHash: string | null
   approvalHash: string | null
   authorizedOutputCount: number | null
-  authorizedCostLimit: number | null
-  authorizedTokenLimit: number | null
+  acceptedAdditionalCostLowerBound: number | null
+  acceptedTokenLowerBound: number | null
   actorUserId: number | null
   approvedAt: Date | null
   createdAt: Date | null
@@ -59,8 +59,8 @@ export type IllustrationExecutionApprovalMaxAggregateOutputType = {
   executionManifestHash: string | null
   approvalHash: string | null
   authorizedOutputCount: number | null
-  authorizedCostLimit: number | null
-  authorizedTokenLimit: number | null
+  acceptedAdditionalCostLowerBound: number | null
+  acceptedTokenLowerBound: number | null
   actorUserId: number | null
   approvedAt: Date | null
   createdAt: Date | null
@@ -72,8 +72,8 @@ export type IllustrationExecutionApprovalCountAggregateOutputType = {
   executionManifestHash: number
   approvalHash: number
   authorizedOutputCount: number
-  authorizedCostLimit: number
-  authorizedTokenLimit: number
+  acceptedAdditionalCostLowerBound: number
+  acceptedTokenLowerBound: number
   actorUserId: number
   approvedAt: number
   createdAt: number
@@ -83,15 +83,15 @@ export type IllustrationExecutionApprovalCountAggregateOutputType = {
 
 export type IllustrationExecutionApprovalAvgAggregateInputType = {
   authorizedOutputCount?: true
-  authorizedCostLimit?: true
-  authorizedTokenLimit?: true
+  acceptedAdditionalCostLowerBound?: true
+  acceptedTokenLowerBound?: true
   actorUserId?: true
 }
 
 export type IllustrationExecutionApprovalSumAggregateInputType = {
   authorizedOutputCount?: true
-  authorizedCostLimit?: true
-  authorizedTokenLimit?: true
+  acceptedAdditionalCostLowerBound?: true
+  acceptedTokenLowerBound?: true
   actorUserId?: true
 }
 
@@ -101,8 +101,8 @@ export type IllustrationExecutionApprovalMinAggregateInputType = {
   executionManifestHash?: true
   approvalHash?: true
   authorizedOutputCount?: true
-  authorizedCostLimit?: true
-  authorizedTokenLimit?: true
+  acceptedAdditionalCostLowerBound?: true
+  acceptedTokenLowerBound?: true
   actorUserId?: true
   approvedAt?: true
   createdAt?: true
@@ -114,8 +114,8 @@ export type IllustrationExecutionApprovalMaxAggregateInputType = {
   executionManifestHash?: true
   approvalHash?: true
   authorizedOutputCount?: true
-  authorizedCostLimit?: true
-  authorizedTokenLimit?: true
+  acceptedAdditionalCostLowerBound?: true
+  acceptedTokenLowerBound?: true
   actorUserId?: true
   approvedAt?: true
   createdAt?: true
@@ -127,8 +127,8 @@ export type IllustrationExecutionApprovalCountAggregateInputType = {
   executionManifestHash?: true
   approvalHash?: true
   authorizedOutputCount?: true
-  authorizedCostLimit?: true
-  authorizedTokenLimit?: true
+  acceptedAdditionalCostLowerBound?: true
+  acceptedTokenLowerBound?: true
   actorUserId?: true
   approvedAt?: true
   createdAt?: true
@@ -227,8 +227,8 @@ export type IllustrationExecutionApprovalGroupByOutputType = {
   executionManifestHash: string
   approvalHash: string
   authorizedOutputCount: number
-  authorizedCostLimit: number | null
-  authorizedTokenLimit: number | null
+  acceptedAdditionalCostLowerBound: number | null
+  acceptedTokenLowerBound: number | null
   actorUserId: number
   approvedAt: Date
   createdAt: Date
@@ -263,8 +263,8 @@ export type IllustrationExecutionApprovalWhereInput = {
   executionManifestHash?: Prisma.StringFilter<"IllustrationExecutionApproval"> | string
   approvalHash?: Prisma.StringFilter<"IllustrationExecutionApproval"> | string
   authorizedOutputCount?: Prisma.IntFilter<"IllustrationExecutionApproval"> | number
-  authorizedCostLimit?: Prisma.FloatNullableFilter<"IllustrationExecutionApproval"> | number | null
-  authorizedTokenLimit?: Prisma.IntNullableFilter<"IllustrationExecutionApproval"> | number | null
+  acceptedAdditionalCostLowerBound?: Prisma.FloatNullableFilter<"IllustrationExecutionApproval"> | number | null
+  acceptedTokenLowerBound?: Prisma.IntNullableFilter<"IllustrationExecutionApproval"> | number | null
   actorUserId?: Prisma.IntFilter<"IllustrationExecutionApproval"> | number
   approvedAt?: Prisma.DateTimeFilter<"IllustrationExecutionApproval"> | Date | string
   createdAt?: Prisma.DateTimeFilter<"IllustrationExecutionApproval"> | Date | string
@@ -277,8 +277,8 @@ export type IllustrationExecutionApprovalOrderByWithRelationInput = {
   executionManifestHash?: Prisma.SortOrder
   approvalHash?: Prisma.SortOrder
   authorizedOutputCount?: Prisma.SortOrder
-  authorizedCostLimit?: Prisma.SortOrderInput | Prisma.SortOrder
-  authorizedTokenLimit?: Prisma.SortOrderInput | Prisma.SortOrder
+  acceptedAdditionalCostLowerBound?: Prisma.SortOrderInput | Prisma.SortOrder
+  acceptedTokenLowerBound?: Prisma.SortOrderInput | Prisma.SortOrder
   actorUserId?: Prisma.SortOrder
   approvedAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -294,8 +294,8 @@ export type IllustrationExecutionApprovalWhereUniqueInput = Prisma.AtLeast<{
   NOT?: Prisma.IllustrationExecutionApprovalWhereInput | Prisma.IllustrationExecutionApprovalWhereInput[]
   executionManifestHash?: Prisma.StringFilter<"IllustrationExecutionApproval"> | string
   authorizedOutputCount?: Prisma.IntFilter<"IllustrationExecutionApproval"> | number
-  authorizedCostLimit?: Prisma.FloatNullableFilter<"IllustrationExecutionApproval"> | number | null
-  authorizedTokenLimit?: Prisma.IntNullableFilter<"IllustrationExecutionApproval"> | number | null
+  acceptedAdditionalCostLowerBound?: Prisma.FloatNullableFilter<"IllustrationExecutionApproval"> | number | null
+  acceptedTokenLowerBound?: Prisma.IntNullableFilter<"IllustrationExecutionApproval"> | number | null
   actorUserId?: Prisma.IntFilter<"IllustrationExecutionApproval"> | number
   approvedAt?: Prisma.DateTimeFilter<"IllustrationExecutionApproval"> | Date | string
   createdAt?: Prisma.DateTimeFilter<"IllustrationExecutionApproval"> | Date | string
@@ -308,8 +308,8 @@ export type IllustrationExecutionApprovalOrderByWithAggregationInput = {
   executionManifestHash?: Prisma.SortOrder
   approvalHash?: Prisma.SortOrder
   authorizedOutputCount?: Prisma.SortOrder
-  authorizedCostLimit?: Prisma.SortOrderInput | Prisma.SortOrder
-  authorizedTokenLimit?: Prisma.SortOrderInput | Prisma.SortOrder
+  acceptedAdditionalCostLowerBound?: Prisma.SortOrderInput | Prisma.SortOrder
+  acceptedTokenLowerBound?: Prisma.SortOrderInput | Prisma.SortOrder
   actorUserId?: Prisma.SortOrder
   approvedAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -329,8 +329,8 @@ export type IllustrationExecutionApprovalScalarWhereWithAggregatesInput = {
   executionManifestHash?: Prisma.StringWithAggregatesFilter<"IllustrationExecutionApproval"> | string
   approvalHash?: Prisma.StringWithAggregatesFilter<"IllustrationExecutionApproval"> | string
   authorizedOutputCount?: Prisma.IntWithAggregatesFilter<"IllustrationExecutionApproval"> | number
-  authorizedCostLimit?: Prisma.FloatNullableWithAggregatesFilter<"IllustrationExecutionApproval"> | number | null
-  authorizedTokenLimit?: Prisma.IntNullableWithAggregatesFilter<"IllustrationExecutionApproval"> | number | null
+  acceptedAdditionalCostLowerBound?: Prisma.FloatNullableWithAggregatesFilter<"IllustrationExecutionApproval"> | number | null
+  acceptedTokenLowerBound?: Prisma.IntNullableWithAggregatesFilter<"IllustrationExecutionApproval"> | number | null
   actorUserId?: Prisma.IntWithAggregatesFilter<"IllustrationExecutionApproval"> | number
   approvedAt?: Prisma.DateTimeWithAggregatesFilter<"IllustrationExecutionApproval"> | Date | string
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"IllustrationExecutionApproval"> | Date | string
@@ -341,8 +341,8 @@ export type IllustrationExecutionApprovalCreateInput = {
   executionManifestHash: string
   approvalHash: string
   authorizedOutputCount: number
-  authorizedCostLimit?: number | null
-  authorizedTokenLimit?: number | null
+  acceptedAdditionalCostLowerBound?: number | null
+  acceptedTokenLowerBound?: number | null
   actorUserId: number
   approvedAt: Date | string
   createdAt?: Date | string
@@ -355,8 +355,8 @@ export type IllustrationExecutionApprovalUncheckedCreateInput = {
   executionManifestHash: string
   approvalHash: string
   authorizedOutputCount: number
-  authorizedCostLimit?: number | null
-  authorizedTokenLimit?: number | null
+  acceptedAdditionalCostLowerBound?: number | null
+  acceptedTokenLowerBound?: number | null
   actorUserId: number
   approvedAt: Date | string
   createdAt?: Date | string
@@ -367,8 +367,8 @@ export type IllustrationExecutionApprovalUpdateInput = {
   executionManifestHash?: Prisma.StringFieldUpdateOperationsInput | string
   approvalHash?: Prisma.StringFieldUpdateOperationsInput | string
   authorizedOutputCount?: Prisma.IntFieldUpdateOperationsInput | number
-  authorizedCostLimit?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
-  authorizedTokenLimit?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  acceptedAdditionalCostLowerBound?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  acceptedTokenLowerBound?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   actorUserId?: Prisma.IntFieldUpdateOperationsInput | number
   approvedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -381,8 +381,8 @@ export type IllustrationExecutionApprovalUncheckedUpdateInput = {
   executionManifestHash?: Prisma.StringFieldUpdateOperationsInput | string
   approvalHash?: Prisma.StringFieldUpdateOperationsInput | string
   authorizedOutputCount?: Prisma.IntFieldUpdateOperationsInput | number
-  authorizedCostLimit?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
-  authorizedTokenLimit?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  acceptedAdditionalCostLowerBound?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  acceptedTokenLowerBound?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   actorUserId?: Prisma.IntFieldUpdateOperationsInput | number
   approvedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -394,8 +394,8 @@ export type IllustrationExecutionApprovalCreateManyInput = {
   executionManifestHash: string
   approvalHash: string
   authorizedOutputCount: number
-  authorizedCostLimit?: number | null
-  authorizedTokenLimit?: number | null
+  acceptedAdditionalCostLowerBound?: number | null
+  acceptedTokenLowerBound?: number | null
   actorUserId: number
   approvedAt: Date | string
   createdAt?: Date | string
@@ -406,8 +406,8 @@ export type IllustrationExecutionApprovalUpdateManyMutationInput = {
   executionManifestHash?: Prisma.StringFieldUpdateOperationsInput | string
   approvalHash?: Prisma.StringFieldUpdateOperationsInput | string
   authorizedOutputCount?: Prisma.IntFieldUpdateOperationsInput | number
-  authorizedCostLimit?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
-  authorizedTokenLimit?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  acceptedAdditionalCostLowerBound?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  acceptedTokenLowerBound?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   actorUserId?: Prisma.IntFieldUpdateOperationsInput | number
   approvedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -419,8 +419,8 @@ export type IllustrationExecutionApprovalUncheckedUpdateManyInput = {
   executionManifestHash?: Prisma.StringFieldUpdateOperationsInput | string
   approvalHash?: Prisma.StringFieldUpdateOperationsInput | string
   authorizedOutputCount?: Prisma.IntFieldUpdateOperationsInput | number
-  authorizedCostLimit?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
-  authorizedTokenLimit?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  acceptedAdditionalCostLowerBound?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  acceptedTokenLowerBound?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   actorUserId?: Prisma.IntFieldUpdateOperationsInput | number
   approvedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -442,8 +442,8 @@ export type IllustrationExecutionApprovalCountOrderByAggregateInput = {
   executionManifestHash?: Prisma.SortOrder
   approvalHash?: Prisma.SortOrder
   authorizedOutputCount?: Prisma.SortOrder
-  authorizedCostLimit?: Prisma.SortOrder
-  authorizedTokenLimit?: Prisma.SortOrder
+  acceptedAdditionalCostLowerBound?: Prisma.SortOrder
+  acceptedTokenLowerBound?: Prisma.SortOrder
   actorUserId?: Prisma.SortOrder
   approvedAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -451,8 +451,8 @@ export type IllustrationExecutionApprovalCountOrderByAggregateInput = {
 
 export type IllustrationExecutionApprovalAvgOrderByAggregateInput = {
   authorizedOutputCount?: Prisma.SortOrder
-  authorizedCostLimit?: Prisma.SortOrder
-  authorizedTokenLimit?: Prisma.SortOrder
+  acceptedAdditionalCostLowerBound?: Prisma.SortOrder
+  acceptedTokenLowerBound?: Prisma.SortOrder
   actorUserId?: Prisma.SortOrder
 }
 
@@ -462,8 +462,8 @@ export type IllustrationExecutionApprovalMaxOrderByAggregateInput = {
   executionManifestHash?: Prisma.SortOrder
   approvalHash?: Prisma.SortOrder
   authorizedOutputCount?: Prisma.SortOrder
-  authorizedCostLimit?: Prisma.SortOrder
-  authorizedTokenLimit?: Prisma.SortOrder
+  acceptedAdditionalCostLowerBound?: Prisma.SortOrder
+  acceptedTokenLowerBound?: Prisma.SortOrder
   actorUserId?: Prisma.SortOrder
   approvedAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -475,8 +475,8 @@ export type IllustrationExecutionApprovalMinOrderByAggregateInput = {
   executionManifestHash?: Prisma.SortOrder
   approvalHash?: Prisma.SortOrder
   authorizedOutputCount?: Prisma.SortOrder
-  authorizedCostLimit?: Prisma.SortOrder
-  authorizedTokenLimit?: Prisma.SortOrder
+  acceptedAdditionalCostLowerBound?: Prisma.SortOrder
+  acceptedTokenLowerBound?: Prisma.SortOrder
   actorUserId?: Prisma.SortOrder
   approvedAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -484,8 +484,8 @@ export type IllustrationExecutionApprovalMinOrderByAggregateInput = {
 
 export type IllustrationExecutionApprovalSumOrderByAggregateInput = {
   authorizedOutputCount?: Prisma.SortOrder
-  authorizedCostLimit?: Prisma.SortOrder
-  authorizedTokenLimit?: Prisma.SortOrder
+  acceptedAdditionalCostLowerBound?: Prisma.SortOrder
+  acceptedTokenLowerBound?: Prisma.SortOrder
   actorUserId?: Prisma.SortOrder
 }
 
@@ -536,8 +536,8 @@ export type IllustrationExecutionApprovalCreateWithoutManifestInput = {
   executionManifestHash: string
   approvalHash: string
   authorizedOutputCount: number
-  authorizedCostLimit?: number | null
-  authorizedTokenLimit?: number | null
+  acceptedAdditionalCostLowerBound?: number | null
+  acceptedTokenLowerBound?: number | null
   actorUserId: number
   approvedAt: Date | string
   createdAt?: Date | string
@@ -548,8 +548,8 @@ export type IllustrationExecutionApprovalUncheckedCreateWithoutManifestInput = {
   executionManifestHash: string
   approvalHash: string
   authorizedOutputCount: number
-  authorizedCostLimit?: number | null
-  authorizedTokenLimit?: number | null
+  acceptedAdditionalCostLowerBound?: number | null
+  acceptedTokenLowerBound?: number | null
   actorUserId: number
   approvedAt: Date | string
   createdAt?: Date | string
@@ -589,8 +589,8 @@ export type IllustrationExecutionApprovalScalarWhereInput = {
   executionManifestHash?: Prisma.StringFilter<"IllustrationExecutionApproval"> | string
   approvalHash?: Prisma.StringFilter<"IllustrationExecutionApproval"> | string
   authorizedOutputCount?: Prisma.IntFilter<"IllustrationExecutionApproval"> | number
-  authorizedCostLimit?: Prisma.FloatNullableFilter<"IllustrationExecutionApproval"> | number | null
-  authorizedTokenLimit?: Prisma.IntNullableFilter<"IllustrationExecutionApproval"> | number | null
+  acceptedAdditionalCostLowerBound?: Prisma.FloatNullableFilter<"IllustrationExecutionApproval"> | number | null
+  acceptedTokenLowerBound?: Prisma.IntNullableFilter<"IllustrationExecutionApproval"> | number | null
   actorUserId?: Prisma.IntFilter<"IllustrationExecutionApproval"> | number
   approvedAt?: Prisma.DateTimeFilter<"IllustrationExecutionApproval"> | Date | string
   createdAt?: Prisma.DateTimeFilter<"IllustrationExecutionApproval"> | Date | string
@@ -601,8 +601,8 @@ export type IllustrationExecutionApprovalCreateManyManifestInput = {
   executionManifestHash: string
   approvalHash: string
   authorizedOutputCount: number
-  authorizedCostLimit?: number | null
-  authorizedTokenLimit?: number | null
+  acceptedAdditionalCostLowerBound?: number | null
+  acceptedTokenLowerBound?: number | null
   actorUserId: number
   approvedAt: Date | string
   createdAt?: Date | string
@@ -613,8 +613,8 @@ export type IllustrationExecutionApprovalUpdateWithoutManifestInput = {
   executionManifestHash?: Prisma.StringFieldUpdateOperationsInput | string
   approvalHash?: Prisma.StringFieldUpdateOperationsInput | string
   authorizedOutputCount?: Prisma.IntFieldUpdateOperationsInput | number
-  authorizedCostLimit?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
-  authorizedTokenLimit?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  acceptedAdditionalCostLowerBound?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  acceptedTokenLowerBound?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   actorUserId?: Prisma.IntFieldUpdateOperationsInput | number
   approvedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -625,8 +625,8 @@ export type IllustrationExecutionApprovalUncheckedUpdateWithoutManifestInput = {
   executionManifestHash?: Prisma.StringFieldUpdateOperationsInput | string
   approvalHash?: Prisma.StringFieldUpdateOperationsInput | string
   authorizedOutputCount?: Prisma.IntFieldUpdateOperationsInput | number
-  authorizedCostLimit?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
-  authorizedTokenLimit?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  acceptedAdditionalCostLowerBound?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  acceptedTokenLowerBound?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   actorUserId?: Prisma.IntFieldUpdateOperationsInput | number
   approvedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -637,8 +637,8 @@ export type IllustrationExecutionApprovalUncheckedUpdateManyWithoutManifestInput
   executionManifestHash?: Prisma.StringFieldUpdateOperationsInput | string
   approvalHash?: Prisma.StringFieldUpdateOperationsInput | string
   authorizedOutputCount?: Prisma.IntFieldUpdateOperationsInput | number
-  authorizedCostLimit?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
-  authorizedTokenLimit?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  acceptedAdditionalCostLowerBound?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
+  acceptedTokenLowerBound?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   actorUserId?: Prisma.IntFieldUpdateOperationsInput | number
   approvedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -652,8 +652,8 @@ export type IllustrationExecutionApprovalSelect<ExtArgs extends runtime.Types.Ex
   executionManifestHash?: boolean
   approvalHash?: boolean
   authorizedOutputCount?: boolean
-  authorizedCostLimit?: boolean
-  authorizedTokenLimit?: boolean
+  acceptedAdditionalCostLowerBound?: boolean
+  acceptedTokenLowerBound?: boolean
   actorUserId?: boolean
   approvedAt?: boolean
   createdAt?: boolean
@@ -666,8 +666,8 @@ export type IllustrationExecutionApprovalSelectCreateManyAndReturn<ExtArgs exten
   executionManifestHash?: boolean
   approvalHash?: boolean
   authorizedOutputCount?: boolean
-  authorizedCostLimit?: boolean
-  authorizedTokenLimit?: boolean
+  acceptedAdditionalCostLowerBound?: boolean
+  acceptedTokenLowerBound?: boolean
   actorUserId?: boolean
   approvedAt?: boolean
   createdAt?: boolean
@@ -680,8 +680,8 @@ export type IllustrationExecutionApprovalSelectUpdateManyAndReturn<ExtArgs exten
   executionManifestHash?: boolean
   approvalHash?: boolean
   authorizedOutputCount?: boolean
-  authorizedCostLimit?: boolean
-  authorizedTokenLimit?: boolean
+  acceptedAdditionalCostLowerBound?: boolean
+  acceptedTokenLowerBound?: boolean
   actorUserId?: boolean
   approvedAt?: boolean
   createdAt?: boolean
@@ -694,14 +694,14 @@ export type IllustrationExecutionApprovalSelectScalar = {
   executionManifestHash?: boolean
   approvalHash?: boolean
   authorizedOutputCount?: boolean
-  authorizedCostLimit?: boolean
-  authorizedTokenLimit?: boolean
+  acceptedAdditionalCostLowerBound?: boolean
+  acceptedTokenLowerBound?: boolean
   actorUserId?: boolean
   approvedAt?: boolean
   createdAt?: boolean
 }
 
-export type IllustrationExecutionApprovalOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "manifestId" | "executionManifestHash" | "approvalHash" | "authorizedOutputCount" | "authorizedCostLimit" | "authorizedTokenLimit" | "actorUserId" | "approvedAt" | "createdAt", ExtArgs["result"]["illustrationExecutionApproval"]>
+export type IllustrationExecutionApprovalOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "manifestId" | "executionManifestHash" | "approvalHash" | "authorizedOutputCount" | "acceptedAdditionalCostLowerBound" | "acceptedTokenLowerBound" | "actorUserId" | "approvedAt" | "createdAt", ExtArgs["result"]["illustrationExecutionApproval"]>
 export type IllustrationExecutionApprovalInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   manifest?: boolean | Prisma.IllustrationExecutionManifestDefaultArgs<ExtArgs>
 }
@@ -723,8 +723,8 @@ export type $IllustrationExecutionApprovalPayload<ExtArgs extends runtime.Types.
     executionManifestHash: string
     approvalHash: string
     authorizedOutputCount: number
-    authorizedCostLimit: number | null
-    authorizedTokenLimit: number | null
+    acceptedAdditionalCostLowerBound: number | null
+    acceptedTokenLowerBound: number | null
     actorUserId: number
     approvedAt: Date
     createdAt: Date
@@ -1157,8 +1157,8 @@ export interface IllustrationExecutionApprovalFieldRefs {
   readonly executionManifestHash: Prisma.FieldRef<"IllustrationExecutionApproval", 'String'>
   readonly approvalHash: Prisma.FieldRef<"IllustrationExecutionApproval", 'String'>
   readonly authorizedOutputCount: Prisma.FieldRef<"IllustrationExecutionApproval", 'Int'>
-  readonly authorizedCostLimit: Prisma.FieldRef<"IllustrationExecutionApproval", 'Float'>
-  readonly authorizedTokenLimit: Prisma.FieldRef<"IllustrationExecutionApproval", 'Int'>
+  readonly acceptedAdditionalCostLowerBound: Prisma.FieldRef<"IllustrationExecutionApproval", 'Float'>
+  readonly acceptedTokenLowerBound: Prisma.FieldRef<"IllustrationExecutionApproval", 'Int'>
   readonly actorUserId: Prisma.FieldRef<"IllustrationExecutionApproval", 'Int'>
   readonly approvedAt: Prisma.FieldRef<"IllustrationExecutionApproval", 'DateTime'>
   readonly createdAt: Prisma.FieldRef<"IllustrationExecutionApproval", 'DateTime'>

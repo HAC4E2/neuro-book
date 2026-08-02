@@ -21,7 +21,7 @@ describe("illustration registration projection", () => {
             recipeSnapshot,
             compiledRequests: firstInput.compiledRequests,
             outputCount: firstInput.outputCount,
-            knownCost: firstInput.knownCost,
+            additionalCostLowerBound: firstInput.additionalCostLowerBound,
             tokenLowerBound: firstInput.tokenLowerBound,
         });
         const replay = prepareIllustrationExecutionRegistration({
@@ -31,7 +31,7 @@ describe("illustration registration projection", () => {
             executionManifestHash: replayManifestHash,
         });
 
-        expect(ILLUSTRATION_DISPATCH_REGISTRATION_VERSION).toBe("route-b-dispatch-registration-v2");
+        expect(ILLUSTRATION_DISPATCH_REGISTRATION_VERSION).toBe("route-b-dispatch-registration-v3");
         expect(replay.jobs.map((job) => job.id)).toEqual(first.jobs.map((job) => job.id));
         expect(replay.jobs.map((job) => job.dispatchKey)).toEqual(first.jobs.map((job) => job.dispatchKey));
         expect(replay.preparationId).toBe(first.preparationId);

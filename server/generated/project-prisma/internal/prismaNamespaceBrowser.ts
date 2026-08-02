@@ -69,6 +69,9 @@ export const ModelName = {
   TextToImageJob: 'TextToImageJob',
   TextToImageAsset: 'TextToImageAsset',
   TextToImageReferenceAsset: 'TextToImageReferenceAsset',
+  TextToImageVibeEncodingBlob: 'TextToImageVibeEncodingBlob',
+  TextToImageVibeEncoding: 'TextToImageVibeEncoding',
+  TextToImageReferencePromotion: 'TextToImageReferencePromotion',
   IllustrationExecutionManifest: 'IllustrationExecutionManifest',
   IllustrationExecutionApproval: 'IllustrationExecutionApproval',
   TextToImageDispatchOutbox: 'TextToImageDispatchOutbox',
@@ -396,6 +399,9 @@ export const TextToImageAssetScalarFieldEnum = {
   sourceKind: 'sourceKind',
   sourcePath: 'sourcePath',
   sourceAnchorId: 'sourceAnchorId',
+  contentHash: 'contentHash',
+  compiledRequestHash: 'compiledRequestHash',
+  compiledRevision: 'compiledRevision',
   createdAt: 'createdAt'
 } as const
 
@@ -404,19 +410,58 @@ export type TextToImageAssetScalarFieldEnum = (typeof TextToImageAssetScalarFiel
 
 export const TextToImageReferenceAssetScalarFieldEnum = {
   id: 'id',
-  kind: 'kind',
   contentHash: 'contentHash',
   relativePath: 'relativePath',
   fileName: 'fileName',
   mimeType: 'mimeType',
   byteLength: 'byteLength',
-  parentAssetId: 'parentAssetId',
-  derivedModel: 'derivedModel',
-  derivedInfoExtracted: 'derivedInfoExtracted',
+  width: 'width',
+  height: 'height',
   createdAt: 'createdAt'
 } as const
 
 export type TextToImageReferenceAssetScalarFieldEnum = (typeof TextToImageReferenceAssetScalarFieldEnum)[keyof typeof TextToImageReferenceAssetScalarFieldEnum]
+
+
+export const TextToImageVibeEncodingBlobScalarFieldEnum = {
+  id: 'id',
+  contentHash: 'contentHash',
+  relativePath: 'relativePath',
+  byteLength: 'byteLength',
+  createdAt: 'createdAt'
+} as const
+
+export type TextToImageVibeEncodingBlobScalarFieldEnum = (typeof TextToImageVibeEncodingBlobScalarFieldEnum)[keyof typeof TextToImageVibeEncodingBlobScalarFieldEnum]
+
+
+export const TextToImageVibeEncodingScalarFieldEnum = {
+  id: 'id',
+  sourceContentHash: 'sourceContentHash',
+  providerKind: 'providerKind',
+  providerModel: 'providerModel',
+  informationExtracted: 'informationExtracted',
+  canonicalInformation: 'canonicalInformation',
+  encoderVersion: 'encoderVersion',
+  encodingContentHash: 'encodingContentHash',
+  provenance: 'provenance',
+  importContainerContentHash: 'importContainerContentHash',
+  createdAt: 'createdAt'
+} as const
+
+export type TextToImageVibeEncodingScalarFieldEnum = (typeof TextToImageVibeEncodingScalarFieldEnum)[keyof typeof TextToImageVibeEncodingScalarFieldEnum]
+
+
+export const TextToImageReferencePromotionScalarFieldEnum = {
+  id: 'id',
+  generatedAssetId: 'generatedAssetId',
+  generatedAssetContentHash: 'generatedAssetContentHash',
+  referenceContentHash: 'referenceContentHash',
+  sourceKind: 'sourceKind',
+  sourceId: 'sourceId',
+  createdAt: 'createdAt'
+} as const
+
+export type TextToImageReferencePromotionScalarFieldEnum = (typeof TextToImageReferencePromotionScalarFieldEnum)[keyof typeof TextToImageReferencePromotionScalarFieldEnum]
 
 
 export const IllustrationExecutionManifestScalarFieldEnum = {
@@ -429,7 +474,7 @@ export const IllustrationExecutionManifestScalarFieldEnum = {
   recipeSnapshotJson: 'recipeSnapshotJson',
   compiledRequestsJson: 'compiledRequestsJson',
   outputCount: 'outputCount',
-  knownCost: 'knownCost',
+  additionalCostLowerBound: 'additionalCostLowerBound',
   tokenLowerBound: 'tokenLowerBound',
   registrationState: 'registrationState',
   createdAt: 'createdAt'
@@ -444,8 +489,8 @@ export const IllustrationExecutionApprovalScalarFieldEnum = {
   executionManifestHash: 'executionManifestHash',
   approvalHash: 'approvalHash',
   authorizedOutputCount: 'authorizedOutputCount',
-  authorizedCostLimit: 'authorizedCostLimit',
-  authorizedTokenLimit: 'authorizedTokenLimit',
+  acceptedAdditionalCostLowerBound: 'acceptedAdditionalCostLowerBound',
+  acceptedTokenLowerBound: 'acceptedTokenLowerBound',
   actorUserId: 'actorUserId',
   approvedAt: 'approvedAt',
   createdAt: 'createdAt'

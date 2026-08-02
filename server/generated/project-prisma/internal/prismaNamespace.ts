@@ -402,6 +402,9 @@ export const ModelName = {
   TextToImageJob: 'TextToImageJob',
   TextToImageAsset: 'TextToImageAsset',
   TextToImageReferenceAsset: 'TextToImageReferenceAsset',
+  TextToImageVibeEncodingBlob: 'TextToImageVibeEncodingBlob',
+  TextToImageVibeEncoding: 'TextToImageVibeEncoding',
+  TextToImageReferencePromotion: 'TextToImageReferencePromotion',
   IllustrationExecutionManifest: 'IllustrationExecutionManifest',
   IllustrationExecutionApproval: 'IllustrationExecutionApproval',
   TextToImageDispatchOutbox: 'TextToImageDispatchOutbox',
@@ -423,7 +426,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "projectMetadata" | "databaseLock" | "story" | "storyAct" | "storyChapter" | "storyPhase" | "storyThread" | "storyScene" | "storySceneRef" | "storyPromise" | "storyPromiseBeat" | "storyDecision" | "worldSubject" | "worldSlice" | "worldPatch" | "textToImageJob" | "textToImageAsset" | "textToImageReferenceAsset" | "illustrationExecutionManifest" | "illustrationExecutionApproval" | "textToImageDispatchOutbox" | "illustrationPlanningWorkflow" | "illustrationPlanningAttempt" | "illustrationPlanningApplyJournal"
+    modelProps: "projectMetadata" | "databaseLock" | "story" | "storyAct" | "storyChapter" | "storyPhase" | "storyThread" | "storyScene" | "storySceneRef" | "storyPromise" | "storyPromiseBeat" | "storyDecision" | "worldSubject" | "worldSlice" | "worldPatch" | "textToImageJob" | "textToImageAsset" | "textToImageReferenceAsset" | "textToImageVibeEncodingBlob" | "textToImageVibeEncoding" | "textToImageReferencePromotion" | "illustrationExecutionManifest" | "illustrationExecutionApproval" | "textToImageDispatchOutbox" | "illustrationPlanningWorkflow" | "illustrationPlanningAttempt" | "illustrationPlanningApplyJournal"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -1759,6 +1762,228 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    TextToImageVibeEncodingBlob: {
+      payload: Prisma.$TextToImageVibeEncodingBlobPayload<ExtArgs>
+      fields: Prisma.TextToImageVibeEncodingBlobFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.TextToImageVibeEncodingBlobFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageVibeEncodingBlobPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.TextToImageVibeEncodingBlobFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageVibeEncodingBlobPayload>
+        }
+        findFirst: {
+          args: Prisma.TextToImageVibeEncodingBlobFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageVibeEncodingBlobPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.TextToImageVibeEncodingBlobFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageVibeEncodingBlobPayload>
+        }
+        findMany: {
+          args: Prisma.TextToImageVibeEncodingBlobFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageVibeEncodingBlobPayload>[]
+        }
+        create: {
+          args: Prisma.TextToImageVibeEncodingBlobCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageVibeEncodingBlobPayload>
+        }
+        createMany: {
+          args: Prisma.TextToImageVibeEncodingBlobCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.TextToImageVibeEncodingBlobCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageVibeEncodingBlobPayload>[]
+        }
+        delete: {
+          args: Prisma.TextToImageVibeEncodingBlobDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageVibeEncodingBlobPayload>
+        }
+        update: {
+          args: Prisma.TextToImageVibeEncodingBlobUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageVibeEncodingBlobPayload>
+        }
+        deleteMany: {
+          args: Prisma.TextToImageVibeEncodingBlobDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.TextToImageVibeEncodingBlobUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.TextToImageVibeEncodingBlobUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageVibeEncodingBlobPayload>[]
+        }
+        upsert: {
+          args: Prisma.TextToImageVibeEncodingBlobUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageVibeEncodingBlobPayload>
+        }
+        aggregate: {
+          args: Prisma.TextToImageVibeEncodingBlobAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateTextToImageVibeEncodingBlob>
+        }
+        groupBy: {
+          args: Prisma.TextToImageVibeEncodingBlobGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TextToImageVibeEncodingBlobGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.TextToImageVibeEncodingBlobCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TextToImageVibeEncodingBlobCountAggregateOutputType> | number
+        }
+      }
+    }
+    TextToImageVibeEncoding: {
+      payload: Prisma.$TextToImageVibeEncodingPayload<ExtArgs>
+      fields: Prisma.TextToImageVibeEncodingFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.TextToImageVibeEncodingFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageVibeEncodingPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.TextToImageVibeEncodingFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageVibeEncodingPayload>
+        }
+        findFirst: {
+          args: Prisma.TextToImageVibeEncodingFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageVibeEncodingPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.TextToImageVibeEncodingFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageVibeEncodingPayload>
+        }
+        findMany: {
+          args: Prisma.TextToImageVibeEncodingFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageVibeEncodingPayload>[]
+        }
+        create: {
+          args: Prisma.TextToImageVibeEncodingCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageVibeEncodingPayload>
+        }
+        createMany: {
+          args: Prisma.TextToImageVibeEncodingCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.TextToImageVibeEncodingCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageVibeEncodingPayload>[]
+        }
+        delete: {
+          args: Prisma.TextToImageVibeEncodingDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageVibeEncodingPayload>
+        }
+        update: {
+          args: Prisma.TextToImageVibeEncodingUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageVibeEncodingPayload>
+        }
+        deleteMany: {
+          args: Prisma.TextToImageVibeEncodingDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.TextToImageVibeEncodingUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.TextToImageVibeEncodingUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageVibeEncodingPayload>[]
+        }
+        upsert: {
+          args: Prisma.TextToImageVibeEncodingUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageVibeEncodingPayload>
+        }
+        aggregate: {
+          args: Prisma.TextToImageVibeEncodingAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateTextToImageVibeEncoding>
+        }
+        groupBy: {
+          args: Prisma.TextToImageVibeEncodingGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TextToImageVibeEncodingGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.TextToImageVibeEncodingCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TextToImageVibeEncodingCountAggregateOutputType> | number
+        }
+      }
+    }
+    TextToImageReferencePromotion: {
+      payload: Prisma.$TextToImageReferencePromotionPayload<ExtArgs>
+      fields: Prisma.TextToImageReferencePromotionFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.TextToImageReferencePromotionFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageReferencePromotionPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.TextToImageReferencePromotionFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageReferencePromotionPayload>
+        }
+        findFirst: {
+          args: Prisma.TextToImageReferencePromotionFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageReferencePromotionPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.TextToImageReferencePromotionFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageReferencePromotionPayload>
+        }
+        findMany: {
+          args: Prisma.TextToImageReferencePromotionFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageReferencePromotionPayload>[]
+        }
+        create: {
+          args: Prisma.TextToImageReferencePromotionCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageReferencePromotionPayload>
+        }
+        createMany: {
+          args: Prisma.TextToImageReferencePromotionCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.TextToImageReferencePromotionCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageReferencePromotionPayload>[]
+        }
+        delete: {
+          args: Prisma.TextToImageReferencePromotionDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageReferencePromotionPayload>
+        }
+        update: {
+          args: Prisma.TextToImageReferencePromotionUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageReferencePromotionPayload>
+        }
+        deleteMany: {
+          args: Prisma.TextToImageReferencePromotionDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.TextToImageReferencePromotionUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.TextToImageReferencePromotionUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageReferencePromotionPayload>[]
+        }
+        upsert: {
+          args: Prisma.TextToImageReferencePromotionUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TextToImageReferencePromotionPayload>
+        }
+        aggregate: {
+          args: Prisma.TextToImageReferencePromotionAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateTextToImageReferencePromotion>
+        }
+        groupBy: {
+          args: Prisma.TextToImageReferencePromotionGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TextToImageReferencePromotionGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.TextToImageReferencePromotionCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TextToImageReferencePromotionCountAggregateOutputType> | number
+        }
+      }
+    }
     IllustrationExecutionManifest: {
       payload: Prisma.$IllustrationExecutionManifestPayload<ExtArgs>
       fields: Prisma.IllustrationExecutionManifestFieldRefs
@@ -2545,6 +2770,9 @@ export const TextToImageAssetScalarFieldEnum = {
   sourceKind: 'sourceKind',
   sourcePath: 'sourcePath',
   sourceAnchorId: 'sourceAnchorId',
+  contentHash: 'contentHash',
+  compiledRequestHash: 'compiledRequestHash',
+  compiledRevision: 'compiledRevision',
   createdAt: 'createdAt'
 } as const
 
@@ -2553,19 +2781,58 @@ export type TextToImageAssetScalarFieldEnum = (typeof TextToImageAssetScalarFiel
 
 export const TextToImageReferenceAssetScalarFieldEnum = {
   id: 'id',
-  kind: 'kind',
   contentHash: 'contentHash',
   relativePath: 'relativePath',
   fileName: 'fileName',
   mimeType: 'mimeType',
   byteLength: 'byteLength',
-  parentAssetId: 'parentAssetId',
-  derivedModel: 'derivedModel',
-  derivedInfoExtracted: 'derivedInfoExtracted',
+  width: 'width',
+  height: 'height',
   createdAt: 'createdAt'
 } as const
 
 export type TextToImageReferenceAssetScalarFieldEnum = (typeof TextToImageReferenceAssetScalarFieldEnum)[keyof typeof TextToImageReferenceAssetScalarFieldEnum]
+
+
+export const TextToImageVibeEncodingBlobScalarFieldEnum = {
+  id: 'id',
+  contentHash: 'contentHash',
+  relativePath: 'relativePath',
+  byteLength: 'byteLength',
+  createdAt: 'createdAt'
+} as const
+
+export type TextToImageVibeEncodingBlobScalarFieldEnum = (typeof TextToImageVibeEncodingBlobScalarFieldEnum)[keyof typeof TextToImageVibeEncodingBlobScalarFieldEnum]
+
+
+export const TextToImageVibeEncodingScalarFieldEnum = {
+  id: 'id',
+  sourceContentHash: 'sourceContentHash',
+  providerKind: 'providerKind',
+  providerModel: 'providerModel',
+  informationExtracted: 'informationExtracted',
+  canonicalInformation: 'canonicalInformation',
+  encoderVersion: 'encoderVersion',
+  encodingContentHash: 'encodingContentHash',
+  provenance: 'provenance',
+  importContainerContentHash: 'importContainerContentHash',
+  createdAt: 'createdAt'
+} as const
+
+export type TextToImageVibeEncodingScalarFieldEnum = (typeof TextToImageVibeEncodingScalarFieldEnum)[keyof typeof TextToImageVibeEncodingScalarFieldEnum]
+
+
+export const TextToImageReferencePromotionScalarFieldEnum = {
+  id: 'id',
+  generatedAssetId: 'generatedAssetId',
+  generatedAssetContentHash: 'generatedAssetContentHash',
+  referenceContentHash: 'referenceContentHash',
+  sourceKind: 'sourceKind',
+  sourceId: 'sourceId',
+  createdAt: 'createdAt'
+} as const
+
+export type TextToImageReferencePromotionScalarFieldEnum = (typeof TextToImageReferencePromotionScalarFieldEnum)[keyof typeof TextToImageReferencePromotionScalarFieldEnum]
 
 
 export const IllustrationExecutionManifestScalarFieldEnum = {
@@ -2578,7 +2845,7 @@ export const IllustrationExecutionManifestScalarFieldEnum = {
   recipeSnapshotJson: 'recipeSnapshotJson',
   compiledRequestsJson: 'compiledRequestsJson',
   outputCount: 'outputCount',
-  knownCost: 'knownCost',
+  additionalCostLowerBound: 'additionalCostLowerBound',
   tokenLowerBound: 'tokenLowerBound',
   registrationState: 'registrationState',
   createdAt: 'createdAt'
@@ -2593,8 +2860,8 @@ export const IllustrationExecutionApprovalScalarFieldEnum = {
   executionManifestHash: 'executionManifestHash',
   approvalHash: 'approvalHash',
   authorizedOutputCount: 'authorizedOutputCount',
-  authorizedCostLimit: 'authorizedCostLimit',
-  authorizedTokenLimit: 'authorizedTokenLimit',
+  acceptedAdditionalCostLowerBound: 'acceptedAdditionalCostLowerBound',
+  acceptedTokenLowerBound: 'acceptedTokenLowerBound',
   actorUserId: 'actorUserId',
   approvedAt: 'approvedAt',
   createdAt: 'createdAt'
@@ -3000,6 +3267,9 @@ export type GlobalOmitConfig = {
   textToImageJob?: Prisma.TextToImageJobOmit
   textToImageAsset?: Prisma.TextToImageAssetOmit
   textToImageReferenceAsset?: Prisma.TextToImageReferenceAssetOmit
+  textToImageVibeEncodingBlob?: Prisma.TextToImageVibeEncodingBlobOmit
+  textToImageVibeEncoding?: Prisma.TextToImageVibeEncodingOmit
+  textToImageReferencePromotion?: Prisma.TextToImageReferencePromotionOmit
   illustrationExecutionManifest?: Prisma.IllustrationExecutionManifestOmit
   illustrationExecutionApproval?: Prisma.IllustrationExecutionApprovalOmit
   textToImageDispatchOutbox?: Prisma.TextToImageDispatchOutboxOmit

@@ -68,8 +68,22 @@ const registryState = globalForProjectModules.__nbookProjectModuleRegistryV1 ??=
 };
 const modules = registryState.modules;
 
+/**
+ * 当前模块是否位于 Agent profile 编译产物目录（profile artifact bundle）。
+ *
+ * esbuild 打包后 `import.meta.url` 指向物理文件：server bundle（dev/.output）位于
+ * `.nuxt/dev/` 或 `.output/server/`，profile artifact 位于 `profiles/.compiled/artifacts/`。
+ * artifact bundle 携带 server 模块副本，但其执行环境（agent profile 运行时）与
+ * World Engine 依赖的「esbuild 编译 + 动态 import .mjs」链路不兼容，因此加载时
+ * 必须跳过注册，避免覆盖 server 运行时已注册的模块实现。
+ */
+const isProfileArtifactBundle = import.meta.url.includes("/profiles/.compiled/artifacts/");
+
 /** 注册或替换未来ProjectSession generation使用的内置Module。 */
 export function registerProjectModule<THandle extends ProjectModuleHandle>(module: ProjectModule<THandle>): void {
+    if (isProfileArtifactBundle) {
+        return;
+    }
     modules.set(module.token.name, module as ProjectModule);
 }
 

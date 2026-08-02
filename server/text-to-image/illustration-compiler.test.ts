@@ -5,6 +5,12 @@ import {createTagPatternRenderHash, TagPatternSchema} from "nbook/shared/text-to
 import {createTextToImageRecipeSnapshot} from "nbook/server/text-to-image/recipe.codec";
 import {resolveProviderCapability} from "nbook/shared/text-to-image-provider-registry";
 import {createIllustrationRecipePlanningConstraints} from "nbook/shared/text-to-image-illustration-planning";
+import type {TextToImageReferenceAssetDto} from "nbook/shared/text-to-image-reference-asset";
+import {
+    compileIllustration,
+    type IllustrationCompileInput,
+    type IllustrationResolutionValidator,
+} from "nbook/server/text-to-image/illustration-compiler";
 import {
     compileIllustration,
     IllustrationCompileError,
@@ -12,6 +18,22 @@ import {
 } from "nbook/server/text-to-image/illustration-compiler";
 
 const H = (value: string): string => `sha256:${value.repeat(64).slice(0, 64)}`;
+
+/** 构造最小合法 source-image DTO；inpaint 双资产测试用它提供冻结证据。 */
+function sourceDto(contentHash: string): TextToImageReferenceAssetDto {
+    return {
+        id: contentHash,
+        kind: "source-image",
+        contentHash,
+        fileName: "asset.png",
+        mimeType: "image/png",
+        byteLength: 128,
+        width: 3,
+        height: 2,
+        status: "available",
+        createdAt: "2026-08-01T00:00:00.000Z",
+    };
+}
 
 describe("Illustration Compiler", () => {
     it("canonically combines referenced Pattern, shot delta, character/outfit and Recipe style", async () => {
@@ -162,43 +184,69 @@ describe("Illustration Compiler", () => {
         expect(result.request.parameters).toMatchObject({qualityToggle: true, ucPreset: 1});
     });
 
-    it("P5 参考资产：空引用不需校验器；非空引用校验存在性并冻结 contentHash，inpaint 非 PNG 拒绝", async () => {
+    it("P5 参考资产：空引用不需校验器；非空引用冻结证据并构造 preflight action/wireModel", async () => {
         const base = compileInput();
         const empty = await compileIllustration(base, {resolutionValidator: modelValidator()});
         expect(empty.request.references).toEqual({normalizeVibeStrengths: true, vibeReferences: [], characterReferences: [], inpaint: null});
+        expect(empty.request.action).toBe("generate");
+        expect(empty.request.wireModel).toBe("nai-diffusion-4-5-full");
 
         const hash64 = "a".repeat(64);
         const vibeSelection = {contentHash: hash64, strength: 0.6, informationExtracted: 0.5};
-        const charSelection = {contentHash: hash64, strength: 0.4, informationExtracted: null};
         const recipeWithRefs = recipeSnapshot({positivePrefix: "cinematic_lighting"});
         const resolved = await compileIllustration({
             ...base,
             recipeSnapshot: {
                 ...recipeWithRefs,
-                references: {...recipeWithRefs.references, vibeReferences: [vibeSelection], characterReferences: [charSelection]},
+                references: {...recipeWithRefs.references, vibeReferences: [vibeSelection]},
             },
             referenceAssetVerifier: async (contentHashes) => {
-                const map = new Map<string, {id: string; mimeType: string}>();
-                for (const hash of contentHashes) map.set(hash, {id: `asset-${hash.slice(0, 4)}`, mimeType: "image/png"});
-                return map as never;
+                const map = new Map<string, TextToImageReferenceAssetDto>();
+                for (const hash of contentHashes) map.set(hash, sourceDto(hash));
+                return map;
             },
         }, {resolutionValidator: modelValidator()});
         expect(resolved.request.references.vibeReferences).toEqual([vibeSelection]);
-        expect(resolved.request.references.characterReferences).toEqual([charSelection]);
+        expect(resolved.request.references.characterReferences).toEqual([]);
         expect(resolved.request.references.normalizeVibeStrengths).toBe(true);
+        expect(resolved.request.referenceSnapshotHash).toMatch(/^sha256:[a-f0-9]{64}$/u);
+        // Vibe 引用命中已登记容器，preflight 仍为 generate。
+        expect(resolved.request.action).toBe("generate");
 
         await expect(compileIllustration({
             ...base,
             recipeSnapshot: {
                 ...recipeSnapshot({positivePrefix: "cinematic_lighting"}),
-                references: {...recipeSnapshot({positivePrefix: "cinematic_lighting"}).references, inpaint: {contentHash: hash64, strength: 1, informationExtracted: null}},
+                references: {
+                    ...recipeSnapshot({positivePrefix: "cinematic_lighting"}).references,
+                    inpaint: {baseImageContentHash: hash64, maskContentHash: hash64},
+                },
             },
-            referenceAssetVerifier: async () => {
-                const map = new Map<string, {id: string; mimeType: string}>();
-                map.set(hash64, {id: "asset-mask", mimeType: "image/jpeg"});
-                return map as never;
+            referenceAssetVerifier: async (contentHashes) => {
+                const map = new Map<string, TextToImageReferenceAssetDto>();
+                for (const hash of contentHashes) map.set(hash, {...sourceDto(hash), mimeType: "image/jpeg"});
+                return map;
             },
         }, {resolutionValidator: modelValidator()})).rejects.toThrow(/Inpaint/u);
+
+        // base/mask 尺寸不一致拒绝。
+        await expect(compileIllustration({
+            ...base,
+            recipeSnapshot: {
+                ...recipeSnapshot({positivePrefix: "cinematic_lighting"}),
+                references: {
+                    ...recipeSnapshot({positivePrefix: "cinematic_lighting"}).references,
+                    inpaint: {baseImageContentHash: hash64, maskContentHash: "b".repeat(64)},
+                },
+            },
+            referenceAssetVerifier: async (contentHashes) => {
+                const map = new Map<string, TextToImageReferenceAssetDto>();
+                for (const [index, hash] of contentHashes.entries()) {
+                    map.set(hash, {...sourceDto(hash), height: index === 0 ? 2 : 3});
+                }
+                return map;
+            },
+        }, {resolutionValidator: modelValidator()})).rejects.toThrow(/尺寸不一致/u);
 
         await expect(compileIllustration({
             ...base,
