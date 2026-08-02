@@ -591,3 +591,8 @@ Phase E gate：本地实现已满足；Windows Release runner真实Portable smok
 - Windows监督控制面不再继承目标cwd；目标cwd仍只通过IPC传给目标进程。包级合同固定该边界，避免监督ChildProcess自身扩大目录句柄生命周期。
 - `scripts` TypeScript project现显式包含Source smoke，Release preflight也会在fan-out前运行scripts与Owned Process package typecheck；旧`spawn()`返回值用法不能再只等Windows运行时暴露。
 - 本地验证：Owned Process包`14 passed / 3 platform-skipped`，Source Agent Bash smoke与Portable nested Product smoke都通过；两条脚本均实际完成临时根删除。该证据修复的是Windows Candidate前置门禁，最终同代Portable仍由下一唯一Candidate证明。
+
+### 2026-08-02：Windows Product clean runner证据
+
+- workflow [`30753830837`](https://github.com/notnotype/neuro-book/actions/runs/30753830837) 的 `product-windows` 已通过Owned Process package、Source Agent Bash smoke和完整Windows Product构建；旧`job undefined`与临时根`EBUSY`均未复发。
+- 同一workflow因独立OCI deps失败而没有进入assemble、Windows Portable及包内Bun + PortableGit smoke。该结果关闭Source/Product前置门禁，但不勾选最终Portable TODO，也不冒充外置Host与同代安装包证据。

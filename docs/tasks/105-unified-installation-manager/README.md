@@ -1127,3 +1127,8 @@ uninstall
 
 - workflow `30752133985` 已通过Release preflight、Source archive和四个POSIX Product；Windows在Product构建前的Owned Process smoke失败，OCI在Docker deps安装前缺少lockfile登记patch而失败。assemble、Portable、Manager A→B/卸载、公开GHCR与最终Verifier均未运行，因此不能把历史`.39` Portable或局部Product绿灯写成`.40`同代Candidate完成。
 - 本轮修复不改变Installation Mutation、Manifest或Manager bundle：Windows smoke改为父harness等待worker退出后回收临时根，并修正`AgentJobManager.spawn()`当前返回合同；Dockerfile补齐patch输入。Manager `.40`继续是下一Candidate必须消费的公开版本，不发布新的Manager版本。
+
+### 2026-08-02：第五次 Candidate 的 Manager 边界
+
+- workflow `30753830837` 已通过preflight、Source和五平台Product，Windows Manager/Owned Process前置门禁全绿；OCI因两个workspace manifest未投影而失败，后续assemble、Portable、A→B、自卸载、公开GHCR与最终Verifier全部跳过。
+- 修复只补Docker deps workspace manifest及其动态合同，不改变Manager bundle或Installation Manifest。`.40`仍是下一Candidate唯一允许消费的公开Manager；五平台Product成功不能替代`.40`同代Portable和公开安装生命周期。

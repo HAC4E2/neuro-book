@@ -654,6 +654,14 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - `scripts` TypeScript project此前未包含Windows smoke，旧返回值漂移因此未被静态检查发现。现已登记smoke及其既有网页提取类型声明，Release preflight在任何fan-out前同时运行scripts与Owned Process package typecheck；发行合同固定命令和tsconfig include。
 - 本地验证为Owned Process包`14 passed / 3 skipped`、两条真实Windows smoke、Dockerfile合同`1/1`、release assets `22/22`、scripts/package/root typecheck与docs build全绿。workflow `30752133985` 保持失败Draft、没有公开资产或正式OCI tag；修复提交后必须创建新的唯一Draft，不能复用该release ID、tag、revision或部分产物。
 
+### 2026-08-02：第五次 Draft 的五平台 Product 与 workspace deps补漏
+
+- Draft `v0.9.0-canary.20260802.151219Z.dc386983`（release ID `363818038`、revision `cc507c5e1619cee8f0cc49821ae4a7e4d27076e1`）dispatch workflow [`30753830837`](https://github.com/notnotype/neuro-book/actions/runs/30753830837)。新增的scripts/Owned Process typecheck在preflight通过，Source与Windows、Linux x64/AArch64、macOS x64/AArch64五个平台Product全部成功；Windows已越过Owned Process smoke并完成Product构建。
+- OCI已成功看到`patches/nitropack@2.13.4.patch`，随后两个原生架构共同在frozen install拒绝缺失的`@notnotype/file-snapshot-cache`与`@notnotype/owned-process` workspace。根manifest声明`packages/*`，只复制Manager manifest不足以建立Bun workspace图。
+- Docker deps stage现只补三个workspace package manifest，不复制源码整树，保留依赖层缓存。合同测试扫描实际`packages/*/package.json`，汇总根与全部workspace manifest的`workspace:`依赖，并要求每个依赖对应的manifest在frozen install前COPY；新增workspace依赖不能再静默漏投影。
+- 本地最小deps投影已用真实lockfile、patches和三个manifest完成`bun install --frozen-lockfile --linker hoisted --ignore-scripts`，解析出两个workspace package；完整postinstall在本机Windows因隔离目录中的esbuild平台二进制缺失失败，不能替代下一次Linux BuildKit证据。临时投影已删除。
+- 该workflow因OCI失败跳过merge、assemble、Portable、GHCR公开验收与发布激活，Release保持Draft。下一轮仍创建全新Candidate，不复用`363818038`或五个平台的部分产物。
+
 ## TODO / Follow-ups
 
 - [x] Phase 0：生成可重复的 Product Runtime Image 体积/文件数基线与归因报告。

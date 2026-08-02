@@ -16,7 +16,9 @@ FROM runtime-base AS deps
 WORKDIR /app
 
 COPY package.json bun.lock ./
+COPY packages/file-snapshot-cache/package.json ./packages/file-snapshot-cache/package.json
 COPY packages/neuro-book-manager/package.json ./packages/neuro-book-manager/package.json
+COPY packages/owned-process/package.json ./packages/owned-process/package.json
 COPY patches ./patches
 RUN cp bun.lock /tmp/bun.lock \
     && bun install --frozen-lockfile --linker hoisted \

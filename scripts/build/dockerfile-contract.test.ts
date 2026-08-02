@@ -1,23 +1,53 @@
-import {readFile} from "node:fs/promises";
+import {readdir, readFile} from "node:fs/promises";
 import {resolve} from "node:path";
 import {describe, expect, it} from "vitest";
 
 describe("Docker Product runtime contract", () => {
     it("runner 只消费 Builder 生成的 verified Runtime Image", async () => {
-        const [dockerfile, entrypoint, releaseWorkflow, posixVerify] = await Promise.all([
+        const packageDirectories = (await readdir(resolve("packages"), {withFileTypes: true}))
+            .filter((entry) => entry.isDirectory())
+            .map((entry) => entry.name)
+            .sort();
+        const [dockerfile, entrypoint, releaseWorkflow, posixVerify, rootManifest, ...workspaceManifests] = await Promise.all([
             readFile(resolve("Dockerfile"), "utf8"),
             readFile(resolve("scripts", "deploy", "docker-product-entrypoint.sh"), "utf8"),
             readFile(resolve(".github", "workflows", "release-container.yml"), "utf8"),
             readFile(resolve("scripts", "release", "verify-posix-product.sh"), "utf8"),
+            readFile(resolve("package.json"), "utf8"),
+            ...packageDirectories.map((directory) => readFile(resolve("packages", directory, "package.json"), "utf8")),
         ]);
 
         expect(dockerfile).toContain("ARG NEURO_BOOK_SOURCE_REVISION");
         expect(dockerfile).toContain("ENV NEURO_BOOK_SOURCE_REVISION=${NEURO_BOOK_SOURCE_REVISION}");
         const dependencyStage = dockerfile.split("FROM runtime-base AS deps")[1]?.split("FROM runtime-base AS build")[0];
         expect(dependencyStage).toBeDefined();
-        expect(dependencyStage!.indexOf("COPY patches ./patches")).toBeLessThan(
-            dependencyStage!.indexOf("bun install --frozen-lockfile --linker hoisted"),
-        );
+        const installIndex = dependencyStage!.indexOf("bun install --frozen-lockfile --linker hoisted");
+        expect(dependencyStage!.indexOf("COPY patches ./patches")).toBeLessThan(installIndex);
+        const manifests = [rootManifest, ...workspaceManifests].map((source) => JSON.parse(source) as {
+            name: string;
+            dependencies?: Record<string, string>;
+            devDependencies?: Record<string, string>;
+            optionalDependencies?: Record<string, string>;
+            peerDependencies?: Record<string, string>;
+        });
+        const manifestPathByName = new Map(workspaceManifests.map((source, index) => [
+            (JSON.parse(source) as {name: string}).name,
+            `packages/${packageDirectories[index]}/package.json`,
+        ]));
+        const workspaceDependencies = new Set(manifests.flatMap((manifest) => [
+            ...Object.entries(manifest.dependencies ?? {}),
+            ...Object.entries(manifest.devDependencies ?? {}),
+            ...Object.entries(manifest.optionalDependencies ?? {}),
+            ...Object.entries(manifest.peerDependencies ?? {}),
+        ]).filter(([, version]) => version.startsWith("workspace:"))
+            .map(([name]) => name));
+        for (const dependency of workspaceDependencies) {
+            const manifestPath = manifestPathByName.get(dependency);
+            expect(manifestPath, `${dependency}必须对应packages下的workspace manifest`).toBeDefined();
+            const copyIndex = dependencyStage!.indexOf(`COPY ${manifestPath} ./${manifestPath}`);
+            expect(copyIndex, `${dependency} manifest必须在frozen install前复制`).toBeGreaterThan(-1);
+            expect(copyIndex).toBeLessThan(installIndex);
+        }
         const runnerStage = dockerfile.split("FROM runtime-base AS runner")[1];
         expect(runnerStage).toBeDefined();
         expect(runnerStage).toContain("ARG NEURO_BOOK_SOURCE_REVISION");
