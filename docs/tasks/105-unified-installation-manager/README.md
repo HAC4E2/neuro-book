@@ -1,6 +1,6 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`的五平台Product、原生双架构OCI/manifest merge、Windows/Linux候选、公开payload、Windows完整`0.8.6 data/`复用、Docker x64/ARM64与rootless Podman链全部通过，最终`release-manifest.json`和`SHA256SUMS`已发布；它是最新已确认完整canary。当前工作树协议为Installation Manifest v5、Release Manifest v5、Operation Journal v5 和 Product-owned Application State catalog v3。2026-08-02 已实现外置 heartbeat lease、锁内 Manifest 重读、Product切换恢复、Windows外置自卸载Host与Draft Candidate激活协议；新的本地全量门禁、Product A/B、仓库外Portable smoke和公开Canary A→B仍需完成，不能把实现或focused测试写成公开生命周期已验证。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
+> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`的五平台Product、原生双架构OCI/manifest merge、Windows/Linux候选、公开payload、Windows完整`0.8.6 data/`复用、Docker x64/ARM64与rootless Podman链全部通过，最终`release-manifest.json`和`SHA256SUMS`已发布；它是最新已确认完整canary。当前工作树协议为Installation Manifest v5、Release Manifest v5、Operation Journal v5 和 Product-owned Application State catalog v3。2026-08-02 已实现外置 heartbeat lease、锁内 Manifest 重读、Product切换恢复、Windows外置自卸载Host与Draft Candidate激活协议，并使用公开Manager `.39`完成clean Windows归档、仓库外Product/Manager运行与两种自卸载终态验收。公开Canary A→B、跨Profile和五平台Candidate仍需Actions完成，不能把本地Windows证据写成公开生命周期已验证。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
 
 ## 2026-08-02：Installation Mutation、自卸载与发行候选治理
 
@@ -10,7 +10,7 @@
 - Source adoption worktree进入`.deploy/staging/<operation-id>`。start、migration、admin、reset和uninstall统一从`VerifiedApplicationExecution`取得Source Dev、Native Product或Container Product身份；status仍保留轻量控制面。
 - Windows Portable/Installed从受管Bun执行卸载时，Manager写入带token和SHA-256的durable intent并启动Installation Root外的PowerShell Host。Host等待精确父PID退出后重新验证owner roots：默认删除程序、cache、desktop和logs并保留State Root；`--delete-data`才删除全部。intent篡改时零删除并写外置失败结果，pending intent阻断其他mutation。
 - Release Manifest硬切v5并增加统一build ID。Source/Product/Portable/Installation由最终Verifier重新连成同一代；CLI只创建Draft并显式dispatch release ID、tag、revision、prerelease。候选OCI只使用`candidate-<release-id>`，全部正确性gate后才公开Release，再由独立可重跑job激活版本tag和stable `latest`。
-- 当前验证：Authoring 9 files / 114 tests；Windows uninstall 3 files / 17 tests及真实PowerShell Host三种路径；Manager 36 passed files / 1 skipped、239 passed / 2 skipped，typecheck与pack通过；Release focused当前3 files / 22 tests。本节仍不等于新的完整本地门禁或公开Candidate结果。
+- 当前验证：Authoring 9 files / 114 tests；Windows uninstall 3 files / 18 tests及真实PowerShell Host三种路径；Manager 36 passed files / 1 skipped、240 passed / 2 skipped，typecheck与pack通过；Release focused当前3 files / 22 tests。clean Windows Portable 进一步完成31项doctor、完整Product Contract、Manager HTTP登录和两种真实外置Host卸载；本节仍不等于公开Candidate结果。
 
 ## 2026-08-01：发行前只读审计与下一阶段阻断
 
@@ -1092,4 +1092,11 @@ uninstall
 - clean Source/Product 归档组装首次暴露 PortableGit SFX 长路径失败：相同 `2.55.0.windows.3` 资产与 SHA-256 在 30 字符输出根成功，在 248 字符输出根退出 1；`\\?\` 仍返回失败，junction 又会跳过 post-install，均不能作为修复。Portable 组装 operation 改到 OS 临时目录下的短根，并在任何下载前验证 170 字符 SFX 输出预算；真实 16,322-entry Portable ZIP 已成功生成。
 - `.38` Portable 的 doctor、完整 Product Runtime Contract、Owned Process、Manager 管理员创建、前台启动、HTTP 登录均通过；但默认自卸载实测只写入 intent 和“已安排”提示，30 秒后程序仍在。最小夹具确认 Bun 1.3.14 的 `spawn(..., detached: true).unref()` Host 不会实际运行，现有测试只同步执行 PowerShell 脚本，因此漏掉了真实调度边界。
 - 修复保留原 SHA-256 intent 与外置 Host，不增加第二套事务：Manager 同步等待一个短命 PowerShell launcher 通过 `Start-Process` 创建 Host，所有路径经私有环境 JSON 传递，Host 仍等待 Manager PID 退出后执行精确删除。新增真实调度测试先红后绿；Windows Manager 全量现为 240 passed / 2 skipped，pack 5 files / 0.42 MiB，Manager/scripts typecheck 与发行合同通过。因为公开 `.38` 不含该修复，下一公开候选必须是 `.39`，不能把 `.38` 写进最终 0.9 Candidate。
-- `manager-v0.1.0-canary.39` 已由 workflow `30722599876` 全绿并公开。npm `gitHead=143fafea7fb51ef26dbbab4e25fe7e8224cd9c9e`，公开 tarball shasum 为 `92c522f63e63faee5aa88e25e0ada873dd7c0273`；38 个包签名、2 个 provenance attestation、全新 Bun cache 的真实 `bunx` 与 `manager:verify-public` 均通过。下一步从包含 `.39` 的 clean Source 重建 Portable，并重跑两种自卸载，不能沿用 `.38` 归档。
+- `manager-v0.1.0-canary.39` 已由 workflow `30722599876` 全绿并公开。npm `gitHead=143fafea7fb51ef26dbbab4e25fe7e8224cd9c9e`，公开 tarball shasum 为 `92c522f63e63faee5aa88e25e0ada873dd7c0273`；38 个包签名、2 个 provenance attestation、全新 Bun cache 的真实 `bunx` 与 `manager:verify-public` 均通过。最终0.9 Candidate只能消费`.39`或后续版本，不能沿用`.38`归档；对应clean Portable终验见下一节。
+
+### 2026-08-02：Manager `.39` clean Portable终验
+
+- clean提交`0a3cc7fd84f52b1b5478745053a20cfbf0171a25`生成统一build ID `sha256:1d6ad6cfd7687132156b91bad64067530f3c53a52a8cb2a72a344b1622ed641c`。新Portable为16,322 entries / 297,242,174 bytes，SHA-256 `76F52EF5AE0026EE1091F8C433F6D0EA61909DDECBA4B89EFB2884FD3760BA9C`，包内Manager明确为`0.1.0-canary.39`。
+- 仓库外验收通过31项doctor、Portable Bun/rg/Git/Bash真实版本、Owned Process、完整Product Contract、管理员创建、前台启动、HTTP版本与登录cookie，且未生成Installation Root影子`workspace/`。
+- 默认卸载的外置Host写入`ok: true` durable result，程序、Source、Runtime、cache和logs全部删除后安装根只剩`data/`，测试数据仍在；全量卸载的独立新解压实例同样写入成功result并删除整个Installation Root。验收同时发现Candidate workflow只等待`.output`消失会过早结束，现改为等待Host结果并检查完整终态。
+- 本地没有五平台资产、GHCR digest或Candidate `release-manifest.json`，因此没有伪造最终Portable Verifier结果；公开A→B、跨Profile、真实Docker/rootless Podman和最终索引仍由0.9 Candidate Actions负责。

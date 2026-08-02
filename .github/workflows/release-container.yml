@@ -909,29 +909,48 @@ jobs:
           $preserveMarker = Join-Path $preserveRoot "data/workspace/.release-uninstall-preserve"
           New-Item -ItemType Directory -Path (Split-Path $preserveMarker) -Force | Out-Null
           Set-Content -LiteralPath $preserveMarker -Value "preserve" -Encoding ascii
+          $uninstallResultRoot = Join-Path $env:LOCALAPPDATA "NeuroBook/uninstall-results"
+          $preserveResultsBefore = @(Get-ChildItem -LiteralPath $uninstallResultRoot -Filter "*.json" -ErrorAction SilentlyContinue | ForEach-Object FullName)
           & (Join-Path $preserveRoot $preserveManifest.components.managerRuntime.path) `
             (Join-Path $preserveRoot $preserveManifest.components.manager.path) `
             --root $preserveRoot uninstall --yes
           if ($LASTEXITCODE -ne 0) { throw "Portable默认卸载调度失败：$LASTEXITCODE" }
-          $preserved = $false
-          for ($attempt = 0; $attempt -lt 120; $attempt++) {
-            if ((Test-Path -LiteralPath $preserveMarker -PathType Leaf) -and -not (Test-Path -LiteralPath (Join-Path $preserveRoot ".output"))) {
-              $preserved = $true
-              break
-            }
+          $preserveResultPath = $null
+          for ($attempt = 0; $attempt -lt 240; $attempt++) {
+            $newResults = @(Get-ChildItem -LiteralPath $uninstallResultRoot -Filter "*.json" -ErrorAction SilentlyContinue | Where-Object { $preserveResultsBefore -notcontains $_.FullName })
+            if ($newResults.Count -gt 1) { throw "Portable默认卸载产生了多个结果文件" }
+            if ($newResults.Count -eq 1) { $preserveResultPath = $newResults[0].FullName; break }
             Start-Sleep -Milliseconds 250
           }
-          if (-not $preserved) { throw "Portable默认卸载没有在退出后保留data并删除程序" }
+          if (-not $preserveResultPath) { throw "Portable默认卸载Host没有在超时前写入结果" }
+          $preserveResult = Get-Content -Raw -LiteralPath $preserveResultPath | ConvertFrom-Json
+          if (-not $preserveResult.ok -or $preserveResult.installationRoot -ne $preserveRoot) {
+            throw "Portable默认卸载Host结果失败：$($preserveResult | ConvertTo-Json -Compress)"
+          }
+          $preserveChildren = @(Get-ChildItem -LiteralPath $preserveRoot -Force | ForEach-Object Name)
+          if (-not (Test-Path -LiteralPath $preserveMarker -PathType Leaf) -or $preserveChildren.Count -ne 1 -or $preserveChildren[0] -ne "data") {
+            throw "Portable默认卸载没有在退出后只保留data：$($preserveChildren -join ', ')"
+          }
 
           $deleteRoot = Join-Path $env:RUNNER_TEMP "neuro-book-portable-uninstall-all"
           Expand-VerifiedPortable $deleteRoot
           $deleteManifest = Get-Content -Raw (Join-Path $deleteRoot ".deploy/installation.json") | ConvertFrom-Json
+          $deleteResultsBefore = @(Get-ChildItem -LiteralPath $uninstallResultRoot -Filter "*.json" -ErrorAction SilentlyContinue | ForEach-Object FullName)
           & (Join-Path $deleteRoot $deleteManifest.components.managerRuntime.path) `
             (Join-Path $deleteRoot $deleteManifest.components.manager.path) `
             --root $deleteRoot uninstall --delete-data --yes
           if ($LASTEXITCODE -ne 0) { throw "Portable全量卸载调度失败：$LASTEXITCODE" }
-          for ($attempt = 0; $attempt -lt 120 -and (Test-Path -LiteralPath $deleteRoot); $attempt++) {
+          $deleteResultPath = $null
+          for ($attempt = 0; $attempt -lt 240; $attempt++) {
+            $newResults = @(Get-ChildItem -LiteralPath $uninstallResultRoot -Filter "*.json" -ErrorAction SilentlyContinue | Where-Object { $deleteResultsBefore -notcontains $_.FullName })
+            if ($newResults.Count -gt 1) { throw "Portable全量卸载产生了多个结果文件" }
+            if ($newResults.Count -eq 1) { $deleteResultPath = $newResults[0].FullName; break }
             Start-Sleep -Milliseconds 250
+          }
+          if (-not $deleteResultPath) { throw "Portable全量卸载Host没有在超时前写入结果" }
+          $deleteResult = Get-Content -Raw -LiteralPath $deleteResultPath | ConvertFrom-Json
+          if (-not $deleteResult.ok -or $deleteResult.installationRoot -ne $deleteRoot) {
+            throw "Portable全量卸载Host结果失败：$($deleteResult | ConvertTo-Json -Compress)"
           }
           if (Test-Path -LiteralPath $deleteRoot) { throw "Portable全量卸载没有在退出后删除Installation Root" }
       - name: Verify Windows Stage 0 syntax

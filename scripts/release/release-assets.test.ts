@@ -616,7 +616,10 @@ describe("Product Release宿主合同", () => {
         expect(candidateRun).not.toContain("Stop-Process -Id $launcherProcess.Id");
         expect(candidateRun).toContain("uninstall --yes");
         expect(candidateRun).toContain("uninstall --delete-data --yes");
-        expect(candidateRun).toContain("Portable默认卸载没有在退出后保留data并删除程序");
+        expect(candidateRun).toContain("Portable默认卸载Host结果失败");
+        expect(candidateRun).toContain("$preserveChildren.Count -ne 1");
+        expect(candidateRun).toContain("Portable全量卸载Host结果失败");
+        expect(candidateRun).toContain("Portable全量卸载没有在退出后删除Installation Root");
 
         const publicRun = workflow.jobs["verify-public-windows-data-reuse"].steps.map((step) => step.run ?? "").join("\n");
         expect(publicRun).toContain("$managerRuntime = Join-Path $root $candidateManifest.components.managerRuntime.path");
