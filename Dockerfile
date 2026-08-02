@@ -34,7 +34,7 @@ ENV NEURO_BOOK_SOURCE_REVISION=${NEURO_BOOK_SOURCE_REVISION}
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN bun run nuxt:build
+RUN NEURO_BOOK_OUTPUT_DIR=/app/.output bun run nuxt:build
 RUN test -f .output/runtime-image.json && test -f .output/runtime-image.ready
 
 FROM runtime-base AS runner

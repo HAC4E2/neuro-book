@@ -1152,3 +1152,8 @@ uninstall
 
 - workflow `30756404604` 的Linux preflight已通过Manager全量，但Windows clean runner在同一测试命令的Vite OXC transform阶段因新共享build Module未登记进`scripts/tsconfig.json`而失败，Windows Product未开始。Linux x64/AArch64与macOS x64/ARM64 Product成功；双OCI越过最终closure后被Git-less运行日志误算为Source变化而拒绝。
 - 修复登记正式scripts类型输入，并同步根`logs/`的Git-less与Docker context排除合同；不改变Manager `.40` bundle、Installation Mutation、Manifest或身份语义。assemble、`.40`同代Portable、A→B、跨Profile、自卸载、公开GHCR与最终Verifier仍全部跳过，必须由新的唯一Candidate实际执行。
+
+### 2026-08-02：第十次 Candidate 的 Manager 边界
+
+- workflow `30757057719` 已通过preflight、Source和五平台Product；Windows clean Manager、Owned Process、State Root与Product归档全部成功，关闭第九次transform阻断。双OCI生成verified candidate后因Docker Adapter未显式提供`NEURO_BOOK_OUTPUT_DIR`而被本地Publisher拒绝，未产生可供assemble消费的容器digest。
+- 修复只让Docker build显式接收已验证candidate，不改变Manager `.40`、Installation Mutation、Manifest或Publisher的Git-less保护。assemble、`.40`同代Portable、A→B、跨Profile、自卸载、公开GHCR与最终Verifier仍全部跳过，下一唯一Candidate必须从头执行。

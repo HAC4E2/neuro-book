@@ -53,7 +53,7 @@ describe("Docker Product runtime contract", () => {
         expect(runnerStage).toBeDefined();
         expect(runnerStage).toContain("ARG NEURO_BOOK_SOURCE_REVISION");
         expect(runnerStage).toContain("LABEL org.opencontainers.image.revision=${NEURO_BOOK_SOURCE_REVISION}");
-        expect(dockerfile).toContain("RUN bun run nuxt:build");
+        expect(dockerfile).toContain("RUN NEURO_BOOK_OUTPUT_DIR=/app/.output bun run nuxt:build");
         expect(dockerignore.split(/\r?\n/u)).toContain("logs");
         expect(dockerfile).toContain("test -f .output/runtime-image.json && test -f .output/runtime-image.ready");
         expect(dockerfile).toContain("COPY --from=build /app/.output ./.output");

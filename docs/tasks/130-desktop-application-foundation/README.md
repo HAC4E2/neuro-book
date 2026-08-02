@@ -1,6 +1,6 @@
 # 130 - 桌面应用前置架构、发行载荷与存储生命周期
 
-> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、Contract v3、Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议。正式构建已切换为 esbuild 同图 link/minify；五平台严格 A/B、四平台 Product smoke以及第五至第八次Candidate的五平台Product均已通过，第九次也已通过四个平台Product并证明双OCI越过最终module closure。九个0.9 Draft依次暴露clean生成、生命周期、测试隔离、Docker输入、Source Root路径门禁、Git-less生成态与Windows clean transform问题，均未公开且不可复用；当前修复已落地，新的唯一Candidate仍待创建。GHCR/rootless Podman、同代Windows Portable、最终Verifier、浏览器验收与Tauri/Electron同矩阵spike尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由spike证据冻结。
+> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、Contract v3、Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议。正式构建已切换为 esbuild 同图 link/minify；五平台严格 A/B、四平台 Product smoke以及最近第十次Candidate的五平台Product均已通过，双OCI也已完成verified candidate。十个0.9 Draft依次暴露clean生成、生命周期、测试隔离、Docker输入、Source Root路径门禁、Git-less生成态、Windows clean transform与Git-less发布Adapter问题，均未公开且不可复用；当前修复已落地，新的唯一Candidate仍待创建。GHCR/rootless Podman、同代Windows Portable、最终Verifier、浏览器验收与Tauri/Electron同矩阵spike尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由spike证据冻结。
 
 ## Relative documents refs
 
@@ -688,6 +688,13 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - 双OCI都完成deps、raw build、Product后处理与最终module closure，证明第八次的四消费者共享路径合同修复已进入clean Docker构建。随后Builder检测到`logs/server-current.jsonl`在Source snapshot前后变化并fail closed：根`logs/`已由`.gitignore`定义为运行状态，但Git-less排除集和`.dockerignore`同时漏掉它，Nuxt build写入日志时因此把自身生成态误算为Source输入。修复只把精确根`logs/`同步到两份输入排除合同；未知目录和真实`src/**`变化仍拒绝。
 - Windows clean runner在`manager:test`的Vite OXC transform阶段报告共享`product-source-path-contract.ts`没有tsconfig。该文件未登记进`scripts/tsconfig.json`的显式include；POSIX preflight能够沿import解析，Windows package-root resolver不能。修复把共享Module加入正式scripts类型项目，不移动边界、不增加resolver hack。本机禁用Vitest cache的Manager全量为36 files passed / 1 skipped、240 tests passed / 3 skipped。
 - workflow按协议跳过merge、assemble、Portable、公开GHCR、最终Verifier和Release/正式tag激活，Release保持Draft且没有公开资产。修复本地通过Product/输入合同6 files / 35 tests、scripts与根typecheck、docs build及无cache Manager全量；下一轮仍创建全新Candidate，不复用`363832998`或前九次Draft的任何产物。
+
+### 2026-08-02：第十次 Draft 的 Git-less Product 发布 Adapter
+
+- Draft `v0.9.0-canary.20260802.163721Z.3ffdc320`（release ID `363836995`、revision `a3a7654b64f982b156c3d2a2934c13e7074b8d32`）dispatch workflow [`30757057719`](https://github.com/notnotype/neuro-book/actions/runs/30757057719)。Release preflight、Source archive和Windows、Linux x64/AArch64、macOS x64/ARM64五个平台Product全部成功；Windows clean Manager transform、Owned Process、State Root与Product归档均越过第九次故障。
+- 双OCI也完成deps、raw build、Product后处理、最终module closure、Source二次摘要和verified candidate，证明`logs/`生成态排除合同生效。随后`LocalProductPublisher`拒绝在没有`.git`的Docker build中隐式切换checkout根`.output`；Dockerfile此前没有按错误合同设置`NEURO_BOOK_OUTPUT_DIR`，AMD64与ARM64同因失败。
+- 修复保留Publisher的安全边界：只有本地Git checkout可隐式切换根`.output`；Docker build Adapter在单次build命令显式传`NEURO_BOOK_OUTPUT_DIR=/app/.output`，由同一个Publisher接收并再次验证candidate。没有让Git-less调用方猜测输出路径，也没有直接复制未发布staging。Dockerfile正式合同先红后绿。
+- workflow按协议跳过OCI merge、assemble、Portable、公开GHCR、最终Verifier和Release/正式tag激活，Release保持Draft且没有公开资产。下一轮仍创建全新Candidate，不复用`363836995`或前十次Draft的任何产物。
 
 ## TODO / Follow-ups
 
