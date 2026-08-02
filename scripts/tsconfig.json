@@ -22,6 +22,7 @@
         "build/build-product-runtime-image.ts",
         "build/check-product-runtime-policies.ts",
         "build/measure-product-runtime-image.ts",
+        "build/product-source-path-contract.ts",
         "build/product-runtime-image-builder.ts",
         "deploy/windows-owned-process-smoke.ts",
         "release/manager-release-contract.test.ts",

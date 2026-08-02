@@ -87,7 +87,7 @@ const STAGING_LEASE_UPDATE_MS = 60 * 1000;
 const STAGING_OWNER_SCHEMA = "nbook.product-runtime-image-staging-owner/v1";
 const GITLESS_SOURCE_EXCLUDES = new Set([
     ".agent", ".cache", ".deploy", ".git", ".nuxt", ".output", ".runtime",
-    "coverage", "dist", "node_modules", "tmp", "workspace",
+    "coverage", "dist", "logs", "node_modules", "tmp", "workspace",
 ]);
 const GITLESS_SOURCE_PATH_EXCLUDES = new Set(["server/generated/prisma"]);
 

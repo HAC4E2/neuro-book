@@ -513,8 +513,10 @@ describe("ProductRuntimeImageBuilder", {timeout: 30_000}, () => {
             ...fixturePolicy(),
             async build({imageRoot}) {
                 await mkdir(join(imageRoot, "server"), {recursive: true});
+                await mkdir(join(root, "logs"), {recursive: true});
                 await writeFile(join(imageRoot, "server", "index.mjs"), "valid", "utf8");
                 await writeRuntimeFixture(imageRoot);
+                await writeFile(join(root, "logs", "server-current.jsonl"), "generated during build\n", "utf8");
                 await writeFile(join(root, "server", "generated", "prisma", "client.ts"), "generated-v2\n", "utf8");
             },
         });

@@ -1147,3 +1147,8 @@ uninstall
 
 - workflow `30755685695` 通过preflight、Source和五平台Product，两个OCI架构在最终Runtime module closure把精确运行根`/app`误认成Source后代后失败。assemble、`.40`同代Portable、A→B、跨Profile、自卸载、公开GHCR与最终Verifier继续全部跳过，Release保持Draft且没有公开资产。
 - 修复只让最终closure与Authoring declaration接入既有Source后代路径合同，不改变Manager bundle、Installation Mutation、Manifest或容器Application Root。`.40`继续作为下一唯一Candidate的Manager输入；以上安装生命周期矩阵仍必须由新的Candidate实际执行，五平台Product重复成功不能替代这些证据。
+
+### 2026-08-02：第九次 Candidate 的 Manager 边界
+
+- workflow `30756404604` 的Linux preflight已通过Manager全量，但Windows clean runner在同一测试命令的Vite OXC transform阶段因新共享build Module未登记进`scripts/tsconfig.json`而失败，Windows Product未开始。Linux x64/AArch64与macOS x64/ARM64 Product成功；双OCI越过最终closure后被Git-less运行日志误算为Source变化而拒绝。
+- 修复登记正式scripts类型输入，并同步根`logs/`的Git-less与Docker context排除合同；不改变Manager `.40` bundle、Installation Mutation、Manifest或身份语义。assemble、`.40`同代Portable、A→B、跨Profile、自卸载、公开GHCR与最终Verifier仍全部跳过，必须由新的唯一Candidate实际执行。

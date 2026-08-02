@@ -8,8 +8,9 @@ describe("Docker Product runtime contract", () => {
             .filter((entry) => entry.isDirectory())
             .map((entry) => entry.name)
             .sort();
-        const [dockerfile, entrypoint, releaseWorkflow, posixVerify, rootManifest, ...workspaceManifests] = await Promise.all([
+        const [dockerfile, dockerignore, entrypoint, releaseWorkflow, posixVerify, rootManifest, ...workspaceManifests] = await Promise.all([
             readFile(resolve("Dockerfile"), "utf8"),
+            readFile(resolve(".dockerignore"), "utf8"),
             readFile(resolve("scripts", "deploy", "docker-product-entrypoint.sh"), "utf8"),
             readFile(resolve(".github", "workflows", "release-container.yml"), "utf8"),
             readFile(resolve("scripts", "release", "verify-posix-product.sh"), "utf8"),
@@ -53,6 +54,7 @@ describe("Docker Product runtime contract", () => {
         expect(runnerStage).toContain("ARG NEURO_BOOK_SOURCE_REVISION");
         expect(runnerStage).toContain("LABEL org.opencontainers.image.revision=${NEURO_BOOK_SOURCE_REVISION}");
         expect(dockerfile).toContain("RUN bun run nuxt:build");
+        expect(dockerignore.split(/\r?\n/u)).toContain("logs");
         expect(dockerfile).toContain("test -f .output/runtime-image.json && test -f .output/runtime-image.ready");
         expect(dockerfile).toContain("COPY --from=build /app/.output ./.output");
         expect(dockerfile).toContain("COPY --from=build /app/scripts/deploy/docker-product-entrypoint.sh ./docker-product-entrypoint.sh");
