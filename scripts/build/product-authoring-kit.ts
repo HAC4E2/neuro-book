@@ -12,6 +12,7 @@ import {
     productBundleOutputText,
 } from "nbook/scripts/build/product-reproducible-bundle";
 import {productRuntimeIslandPackageNames} from "nbook/scripts/build/product-runtime-islands";
+import {containsSourceRootDescendant} from "nbook/scripts/build/product-source-path-contract";
 import {
     projectAuthoringDependencies,
     type AuthoringDependencyRegistration,
@@ -290,10 +291,7 @@ async function copyReachableDeclarations(emittedRoot: string, typeRoot: string):
             throw new Error(`Authoring declaration 越出 emitter 根：${sourcePath}`);
         }
         const source = await readFile(sourcePath, "utf8");
-        const normalizedSourceRoot = resolve(".").replaceAll("\\", "/");
-        if (source.replaceAll("\\", "/").includes(normalizedSourceRoot)) {
-            throw new Error(`Authoring declaration 泄漏构建机绝对路径：${emittedRelativePath}`);
-        }
+        assertAuthoringDeclarationSourcePaths(source, resolve("."), emittedRelativePath);
         const targetPath = resolve(typeRoot, emittedRelativePath);
         await mkdir(dirname(targetPath), {recursive: true});
         await cp(sourcePath, targetPath);
@@ -311,6 +309,17 @@ async function copyReachableDeclarations(emittedRoot: string, typeRoot: string):
         }
     }
     return dependencies;
+}
+
+/** 验证 Authoring 声明只包含可移植类型内容，不携带 Source Root 下的文件路径。 */
+export function assertAuthoringDeclarationSourcePaths(
+    source: string,
+    sourceRoot: string,
+    emittedRelativePath: string,
+): void {
+    if (containsSourceRootDescendant(source, sourceRoot)) {
+        throw new Error(`Authoring declaration 泄漏构建机绝对路径：${emittedRelativePath}`);
+    }
 }
 
 /** 使用 TypeScript AST 收集 import、re-export 与静态 import type 的 module specifier。 */

@@ -91,6 +91,16 @@ describe("Product Runtime module closure", () => {
     });
 
     it("拒绝 bundle 正文泄漏当前构建根", async () => {
+        const exactRoot = await createImage();
+        await exactRoot.module(
+            "commands/start.mjs",
+            `export const applicationRoot = ${JSON.stringify(exactRoot.buildRoot)};\n`,
+        );
+        await expect(assertProductRuntimeModuleClosure({
+            imageRoot: exactRoot.imageRoot,
+            buildRoots: [exactRoot.buildRoot],
+        })).resolves.toMatchObject({modules: 5});
+
         const fixture = await createImage();
         await fixture.module("commands/start.mjs", `export const leaked = ${JSON.stringify(join(fixture.buildRoot, "node_modules", "pkg"))};\n`);
 

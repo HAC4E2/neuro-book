@@ -598,3 +598,4 @@ Phase E gate：本地实现已满足；Windows Release runner真实Portable smok
 - 同一workflow因独立OCI deps失败而没有进入assemble、Windows Portable及包内Bun + PortableGit smoke。该结果关闭Source/Product前置门禁，但不勾选最终Portable TODO，也不冒充外置Host与同代安装包证据。
 - workflow [`30754453941`](https://github.com/notnotype/neuro-book/actions/runs/30754453941) 再次通过同一Windows前置链并上传Product；独立OCI artifact门禁失败仍使assemble和Portable跳过。两次clean runner重复成功提高了Windows父/worker收口证据，但最终同代Portable进程树验收仍未执行。
 - workflow [`30755110092`](https://github.com/notnotype/neuro-book/actions/runs/30755110092) 第三次通过Windows前置链并上传Product；独立OCI Runtime bundle门禁失败仍使assemble和Portable跳过。重复Product证据不替代最终同代Portable的包内Bun + PortableGit进程树验收。
+- workflow [`30755685695`](https://github.com/notnotype/neuro-book/actions/runs/30755685695) 第四次通过同一Windows Product前置链；两个OCI架构直到最终module closure才被剩余路径误报阻断，assemble和Portable仍未运行。该证据继续证明Windows Product构建稳定，不证明同代Portable中的包内Bun、PortableGit、A→B与自卸载进程树。

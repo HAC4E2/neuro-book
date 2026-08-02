@@ -1,6 +1,6 @@
 # 130 - 桌面应用前置架构、发行载荷与存储生命周期
 
-> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、Contract v3、Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议。正式构建已切换为 esbuild 同图 link/minify；五平台严格 A/B、四平台 Product smoke以及最近三次Candidate的五平台Product均已通过。七个0.9 Draft依次暴露clean生成、生命周期、测试隔离、Docker输入和短Source Root路径门禁问题，均未公开且不可复用；当前修复已落地，新的唯一Candidate仍待创建。GHCR/rootless Podman、同代Windows Portable、最终Verifier、浏览器验收与Tauri/Electron同矩阵spike尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由spike证据冻结。
+> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、Contract v3、Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议。正式构建已切换为 esbuild 同图 link/minify；五平台严格 A/B、四平台 Product smoke以及最近四次Candidate的五平台Product均已通过。八个0.9 Draft依次暴露clean生成、生命周期、测试隔离、Docker输入和Source Root路径门禁的重复实现，均未公开且不可复用；当前修复已落地，新的唯一Candidate仍待创建。GHCR/rootless Podman、同代Windows Portable、最终Verifier、浏览器验收与Tauri/Electron同矩阵spike尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由spike证据冻结。
 
 ## Relative documents refs
 
@@ -674,6 +674,13 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - 根因不是架构漂移，而是Docker构建Source Root与正式Runtime Application Root都为`/app`。Runtime bundle合法包含容器SQLite映射所需的精确`"/app"`，旧门禁却把Source Root本身视为构建路径泄漏；AMD64与ARM64日志在同一行、同一错误收口。
 - 路径合同现集中到共享Module：精确运行根与`nbook/app/**`模块标识符允许，只有继续指向Source Root下文件/目录的绝对后代路径才拒绝；`/app/server/**`、Windows反斜杠后代、Bun/pnpm store、非法import与Nitro fallback继续fail closed。没有改Docker正式`/app`、没有增加平台豁免，也没有降低结构化import closure检查。
 - workflow按协议跳过OCI merge、assemble、Portable、公开GHCR、最终Verifier和Release/正式tag激活，Release继续保持Draft。本地验证为两个正式contract 2 files / 7 tests、scripts与根typecheck全绿；下一轮仍创建全新Candidate，不复用`363825288`或其部分产物。
+
+### 2026-08-02：第八次 Draft 暴露剩余路径门禁分叉
+
+- Draft `v0.9.0-canary.20260802.160118Z.5e41b2b0`（release ID `363828977`、revision `c0643142337b29c281955fe50737d3e05247d449`）dispatch workflow [`30755685695`](https://github.com/notnotype/neuro-book/actions/runs/30755685695)。Release preflight、Source archive和Windows、Linux x64/AArch64、macOS x64/ARM64五个平台Product全部成功；两个OCI架构完成deps、raw build和Product后处理后，在最终Runtime module closure共同失败。
+- 最终closure把多个Profile artifact、Authoring worker、command chunk、Application State migration与server入口中的精确运行根`/app`继续误报为构建机绝对路径。第七次修复只让Runtime bundle和System artifact消费共享合同，最终closure与Authoring declaration仍保留各自的Source Root子串检查；这是共享invariant接入不完整，不是Docker平台差异。
+- 四个消费者现统一消费同一Source路径合同：Runtime bundle、System artifact、最终module closure与Authoring declaration都允许精确运行根，拒绝`/app/server/**`、`/app/.deploy/**`等Source Root绝对后代。Bun/pnpm物理store、非法import、Nitro fallback和候选目录外引用继续fail closed；没有修改正式容器Application Root，也没有增加平台豁免。
+- workflow按协议跳过OCI merge、assemble、Portable、公开GHCR、最终Verifier和Release/正式tag激活，Release继续保持Draft且没有公开资产。本地验证为4 files / 18 tests、scripts与根typecheck、`git diff --check`全绿；下一轮仍创建全新Candidate，不复用`363828977`或前八次Draft的任何产物。
 
 ## TODO / Follow-ups
 

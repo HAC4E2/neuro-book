@@ -1142,3 +1142,8 @@ uninstall
 
 - workflow `30755110092` 通过preflight、Source和五平台Product，两个OCI架构在Runtime bundle把合法运行根`/app`误认成Source泄漏后失败。assemble、`.40`同代Portable、A→B、自卸载、公开GHCR与最终Verifier继续全部跳过，Release保持Draft。
 - 修复集中共享Source后代路径合同，不改变Manager bundle、Installation Mutation、Manifest或容器Application Root。`.40`继续作为下一唯一Candidate的Manager输入；同代Portable与公开安装生命周期仍没有完成证据。
+
+### 2026-08-02：第八次 Candidate 的 Manager 边界
+
+- workflow `30755685695` 通过preflight、Source和五平台Product，两个OCI架构在最终Runtime module closure把精确运行根`/app`误认成Source后代后失败。assemble、`.40`同代Portable、A→B、跨Profile、自卸载、公开GHCR与最终Verifier继续全部跳过，Release保持Draft且没有公开资产。
+- 修复只让最终closure与Authoring declaration接入既有Source后代路径合同，不改变Manager bundle、Installation Mutation、Manifest或容器Application Root。`.40`继续作为下一唯一Candidate的Manager输入；以上安装生命周期矩阵仍必须由新的Candidate实际执行，五平台Product重复成功不能替代这些证据。

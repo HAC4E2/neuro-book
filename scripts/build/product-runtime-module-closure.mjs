@@ -2,8 +2,8 @@ import {createHash} from "node:crypto";
 import {lstat, readFile, readdir, realpath} from "node:fs/promises";
 import {builtinModules} from "node:module";
 import {dirname, extname, isAbsolute, relative, resolve} from "node:path";
-import {pathToFileURL} from "node:url";
 import {init, parse} from "es-module-lexer";
+import {containsSourceRootDescendant} from "nbook/scripts/build/product-source-path-contract";
 
 const NATIVE_ISLAND_SCHEMA = "nbook.product-native-islands/v2";
 const executableExtensions = new Set([".cjs", ".js", ".mjs"]);
@@ -356,17 +356,10 @@ function packageAtPath(serverRoot, targetPath) {
     return parts[0].startsWith("@") && parts[1] ? `${parts[0]}/${parts[1]}` : parts[0];
 }
 
-/** 返回源码中泄漏的当前构建根，兼容 slash、转义反斜杠与 file URL。 */
+/** 返回源码中泄漏的构建根后代路径；精确运行根本身不构成 Source 文件泄漏。 */
 function leakedBuildRoot(source, buildRoots) {
-    const lowerSource = source.toLowerCase();
     for (const root of buildRoots) {
-        const variants = [
-            normalizePathText(root),
-            root,
-            root.replaceAll("\\", "\\\\"),
-            pathToFileURL(root).href,
-        ];
-        if (variants.some((variant) => variant.length > 2 && lowerSource.includes(variant.toLowerCase()))) {
+        if (containsSourceRootDescendant(source, root)) {
             return normalizePathText(root);
         }
     }

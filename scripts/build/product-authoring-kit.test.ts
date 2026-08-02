@@ -5,6 +5,7 @@ import {join, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
 import {promisify} from "node:util";
 import {afterEach, describe, expect, it} from "vitest";
+import {assertAuthoringDeclarationSourcePaths} from "nbook/scripts/build/product-authoring-kit";
 
 const temporaryRoots: string[] = [];
 const execFileAsync = promisify(execFile);
@@ -14,6 +15,19 @@ afterEach(async () => {
 });
 
 describe("Product Profile Authoring Kit", () => {
+    it("区分精确运行根与 Source Root 后代路径", () => {
+        expect(() => assertAuthoringDeclarationSourcePaths(
+            'declare const applicationRoot: "/app";',
+            "/app",
+            "profile-sdk/index.d.ts",
+        )).not.toThrow();
+        expect(() => assertAuthoringDeclarationSourcePaths(
+            'declare const sourcePath: "/app/profile-sdk/index.ts";',
+            "/app",
+            "profile-sdk/index.d.ts",
+        )).toThrow("泄漏");
+    });
+
     it("只投影 compiler、SDK 与可达声明图", async () => {
         const outputRoot = await mkdtemp(join(tmpdir(), "nbook-product-authoring-kit-"));
         temporaryRoots.push(outputRoot);
