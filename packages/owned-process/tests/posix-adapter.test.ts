@@ -37,4 +37,19 @@ describe("POSIX Owned Process failure", () => {
             stage: "process-group-probe",
         });
     });
+
+    it.runIf(process.platform !== "win32")("signal 0返回EPERM时继续等待进程组消失", async () => {
+        const lease = spawnPosixOwnedProcess({
+            command: process.execPath,
+            args: ["-e", "process.exit(0)"],
+            stdout: "ignore",
+            stderr: "ignore",
+            graceMs: 50,
+            hardKillWaitMs: 500,
+        }, {
+            supervisorSource: buildPosixSupervisorSource("probe-permission"),
+        });
+
+        await expect(lease.completion).resolves.toMatchObject({exitCode: 0});
+    });
 });

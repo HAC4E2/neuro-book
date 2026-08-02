@@ -1,4 +1,4 @@
-export type PosixSupervisorFault = "signal" | "probe";
+export type PosixSupervisorFault = "signal" | "probe" | "probe-permission";
 
 /** 生成 POSIX 监督进程源码；fault 只供包内故障回归使用。 */
 export function buildPosixSupervisorSource(fault?: PosixSupervisorFault): string {
@@ -7,6 +7,7 @@ const {spawn} = require("node:child_process");
 
 const SIGNAL_FAULT = ${fault === "signal"};
 const PROBE_FAULT = ${fault === "probe"};
+let probePermissionPending = ${fault === "probe-permission"};
 let child;
 let payload;
 let terminationReason;
@@ -156,12 +157,18 @@ function clearTimers() {
 
 function groupExists(pid) {
     if (!pid) return false;
-    if (PROBE_FAULT) throw Object.assign(new Error("operation not permitted"), {code: "EPERM"});
     try {
+        if (PROBE_FAULT) throw Object.assign(new Error("unexpected probe failure"), {code: "EIO"});
+        if (probePermissionPending) {
+            probePermissionPending = false;
+            throw Object.assign(new Error("operation not permitted"), {code: "EPERM"});
+        }
         process.kill(-pid, 0);
         return true;
     } catch (error) {
         if (error?.code === "ESRCH") return false;
+        // kill(2) 的 EPERM 仍证明目标进程组存在；继续等待，不能提前提交终态。
+        if (error?.code === "EPERM") return true;
         throw error;
     }
 }
