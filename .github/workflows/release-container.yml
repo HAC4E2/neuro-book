@@ -57,6 +57,7 @@ jobs:
           bun test scripts/deploy/product-start.test.ts
       - name: Verify Product Agent state root contract
         shell: bash
+        timeout-minutes: 10
         run: |
           smoke_root="$(mktemp -d)"
           trap 'rm -rf "${smoke_root}"' EXIT

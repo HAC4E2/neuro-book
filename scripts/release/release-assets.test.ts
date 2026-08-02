@@ -41,6 +41,7 @@ type WorkflowStep = {
     if?: string;
     name?: string;
     run?: string;
+    "timeout-minutes"?: number;
     uses?: string;
     with?: {
         "include-hidden-files"?: boolean;
@@ -415,8 +416,10 @@ describe("Product Release宿主合同", () => {
         );
         const generatedSourcesStep = workflow.jobs.preflight.steps.findIndex(({run}) => run === "bun run generate");
         const productGraphStep = workflow.jobs.preflight.steps.findIndex(({run}) => run?.includes("scripts/deploy/product-start.test.ts"));
+        const agentStateRootStep = workflow.jobs.preflight.steps.find(({run}) => run?.includes("product-agent-state-root-smoke.ts"));
         expect(generatedSourcesStep).toBeGreaterThan(-1);
         expect(productGraphStep).toBeGreaterThan(generatedSourcesStep);
+        expect(agentStateRootStep?.["timeout-minutes"]).toBe(10);
         const preflightRun = workflow.jobs.preflight.steps.map(({run}) => run ?? "").join("\n");
         expect(preflightRun).toContain("bun run test:install");
         expect(preflightRun).toContain("bun run manager:test");

@@ -22,7 +22,7 @@ import {readDotPath, VariableFileStorage} from "nbook/server/agent/variables/sto
 import {loadGlobalEffectiveConfigAtWorkspaceRoot, saveGlobalConfig} from "nbook/server/config/config-service";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
-import {closeProject, openProject} from "nbook/server/workspace-files/project-session";
+import {closeAllProjects, openProject} from "nbook/server/workspace-files/project-session";
 
 if (!process.env.NEURO_BOOK_APPLICATION_ROOT?.trim() || !process.env.NEURO_BOOK_STATE_ROOT?.trim()) {
     throw new Error("Product Agent smoke必须显式设置NEURO_BOOK_APPLICATION_ROOT与NEURO_BOOK_STATE_ROOT。");
@@ -127,7 +127,7 @@ try {
     }
 } finally {
     await harness.dispose();
-    await closeProject(projectWorkspaceRef(projectSlug), "shutdown").catch(() => undefined);
+    await closeAllProjects();
 }
 
 if (sessionId === null) {
@@ -226,7 +226,7 @@ async function runMovedStateRootPhase(
         }
     } finally {
         await movedHarness.dispose();
-        await closeProject(projectWorkspaceRef(movedProjectSlug), "shutdown").catch(() => undefined);
+        await closeAllProjects();
     }
 }
 
