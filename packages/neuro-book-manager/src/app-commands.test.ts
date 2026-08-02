@@ -334,6 +334,7 @@ describe("原生 Product shutdown", () => {
                 args: string[];
                 cwd: string;
                 env: NodeJS.ProcessEnv;
+                stdin: "inherit" | "ignore";
             };
             const token = spec.env[PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT];
             expect(spec.command).toBe("bun");
@@ -344,6 +345,7 @@ describe("原生 Product shutdown", () => {
                 "command",
                 "start",
             ]);
+            expect(spec.stdin).toBe("ignore");
             expect(spec.cwd).toBe(root);
             expect(spec.env.BUN).toBe("bun");
             expect(token).toMatch(/^[A-Za-z0-9_-]{40,}$/u);
@@ -464,6 +466,7 @@ describe("Windows Portable前台启动", () => {
             expect(ownedProcess.spawn).toHaveBeenCalledWith(expect.objectContaining({
                 command: process.execPath,
                 args: ["--no-install", "--no-env-file", "--version"],
+                stdin: "ignore",
             }));
         } finally {
             fetch.mockRestore();

@@ -192,7 +192,8 @@ export async function launchApplication(
         args,
         cwd: root,
         env,
-        stdin: "inherit",
+        // Manager独占宿主stdin；Windows上同时读取并继承同一pipe会阻塞Product启动。
+        stdin: "ignore",
         stdout: "inherit",
         stderr: "inherit",
         windowsHide: manifest.profile !== "windows-portable",
@@ -650,7 +651,8 @@ export async function runPortableForeground(
         args: [...PRODUCT_BUN_RUNTIME_ARGS, entry],
         cwd: root,
         env,
-        stdin: "inherit",
+        // 前台Adapter同样由Manager拥有stdin，Product生命周期走控制面与Owned Process。
+        stdin: "ignore",
         stdout: "inherit",
         stderr: "inherit",
         windowsHide: false,

@@ -1,6 +1,6 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`仍是最新已确认完整canary。当前工作树协议为Installation Manifest v5、Release Manifest v5、Operation Journal v5 和 Product-owned Application State catalog v3。公开Manager `.41`已完成provenance、tarball、签名与真实bunx验证；第十二次0.9 Candidate已通过五平台Product、双OCI、assemble、Linux公开GHCR/browser smoke及Windows Runtime Contract，但restart verifier的60秒窗口短于Manager正式120秒冷启动合同，在首次浏览器前提前失败。窗口已改为150秒；下一步仍由新Candidate证明正式shutdown、lease重取、同State Root二次登录、公开A→B/跨Profile、Podman、自卸载、最终Verifier与Release激活。
+> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`仍是最新已确认完整canary。当前工作树协议为Installation Manifest v5、Release Manifest v5、Operation Journal v5 和 Product-owned Application State catalog v3。公开Manager `.41`已完成provenance、tarball、签名与真实bunx验证；第十三次0.9 Candidate再次通过五平台Product、双OCI、assemble、Linux公开GHCR/browser smoke及Windows Runtime Contract，但Manager读取宿主stdin时又把同一Windows pipe继承给Product，导致Product进程存活却不监听。修复已在真实Candidate 13包上完成5.84秒ready、正式shutdown和lease重取；仍需先发布Manager `.42`，再由新Candidate证明同State Root二次登录、公开A→B/跨Profile、Podman、自卸载、最终Verifier与Release激活。
 
 ## 2026-08-02：Installation Mutation、自卸载与发行候选治理
 
@@ -1167,3 +1167,10 @@ uninstall
 - 修复不放宽 stale、删除锁或加入延时：Manager `start` 新增显式 `--shutdown-on-stdin-end` 宿主控制协议，接入已有 `launch.shutdown()`；Windows Portable verifier 现在用包内真实Manager依次执行浏览器、正式stdin shutdown、立即独占重取runtime lease、管理员创建、第二次启动与登录，并把诊断上传根修到真实 `$RUNNER_TEMP`。该修复改变Manager bundle，下一Candidate必须先消费新的公开 Manager canary，不能继续使用`.40`或第十一次Draft的部分资产。
 - 第十一次 Draft 保持空资产、未公开、未激活OCI正式tag；后续自卸载、公开A→B/跨Profile、最终Verifier与Release激活均未执行。
 - 本地修复验证为Manager全量36 files passed / 1 skipped、241 passed / 3 skipped，Manager/scripts/root/Runtime typecheck、Manager pack、Release asset contract 20/20、install 8 passed / 9 skipped、docs build与根全量471 files passed / 1 skipped、3216 passed / 14 skipped。真实包内二次启动仍只由下一Candidate取得证据。
+
+### 2026-08-03：第十三次 Candidate 的 stdin 所有权阻断
+
+- Draft `v0.9.0-canary.20260802.182923Z.61966c00`（release ID `363861676`、revision `4d115130d01ec1eeee8e0d82990332bf1e271c14`）dispatch workflow [`30761237553`](https://github.com/notnotype/neuro-book/actions/runs/30761237553)。preflight、Source、五平台Product、双OCI、assemble、Linux公开GHCR identity/Runtime Contract/browser/Manager smoke及Windows Runtime Contract均通过；Windows restart verifier在Manager自己的120秒健康检查到期后失败，Draft保持空资产、未公开，正式OCI tag未激活。
+- 同一Windows Candidate Product绕过Manager后在60秒内完成全部migration、native islands、Authoring、HTTP、workspace CLI与shutdown；同一Product经Owned Process在Product-only根、完整Portable根、全新State及原State分别于6至10秒ready。只有Manager主动`process.stdin.resume()`并把同一开放pipe继续以`stdin: inherit`交给Product时，`server/index.mjs`稳定存活120秒但不监听；父进程不读取同一pipe时约9秒ready。
+- Manager现在独占宿主stdin，Product spawn固定为`stdin: ignore`；宿主关闭仍由`--shutdown-on-stdin-end`触发Manager的shutdown token与Owned Process fallback，不减少关闭能力。回归合同同时固定正式`launchApplication()`与旧前台Adapter的stdin ownership。
+- 修复后的本地Manager bundle在原Candidate 13 Portable与同一外层pipe下5.84秒ready，关闭stdin后退出码0且Agent Session Store lease立即可重取。Manager完整suite为36 passed files / 1 skipped、241 passed / 3 skipped，typecheck与pack通过。该证据仍是本机复现闭环；新的公开Manager与Candidate尚未执行，不能把第十三次Draft改写为成功。

@@ -1,6 +1,6 @@
 # 117 - Windows 进程树所有权与 Bash 超时
 
-> 当前状态：本地实现与聚焦验证完成；Linux x64/AArch64、macOS x64/AArch64 与多次Windows Candidate Product/Owned Process workflow均已通过。第十二次Candidate已执行同代Portable包内Bun + PortableGit与Runtime Contract，但restart verifier的60秒窗口短于Manager正式120秒冷启动合同，在浏览器前提前失败；正式stdin shutdown与lease重取Verifier仍待下一Candidate验证。
+> 当前状态：本地实现与聚焦验证完成；Linux x64/AArch64、macOS x64/AArch64 与多次Windows Candidate Product/Owned Process workflow均已通过。第十三次Candidate已执行同代Portable包内Bun + PortableGit与Runtime Contract，但Manager读取宿主stdin时把同一Windows pipe继续继承给Product，导致Product存活却不监听。Product stdin所有权已改为Manager侧`ignore`，原Candidate包本机完成5.84秒ready、正式shutdown与lease重取；仍待公开Manager `.42`和下一Candidate确认。
 
 ## Relative documents refs
 
@@ -608,3 +608,10 @@ Phase E gate：本地实现已满足；Windows Release runner真实Portable smok
 - workflow [`30757628319`](https://github.com/notnotype/neuro-book/actions/runs/30757628319) 已实际执行包内 Bun + PortableGit、Windows Runtime Contract与首次浏览器 smoke；失败发生在第二次复用State Root的authenticated start，错误为 `runtime.lease` `ELOCKED`。
 - 根因是验收脚本用 `Stop-Process -Force` 终止Manager后只检查端口，未调用已有Owned Process/Product graceful shutdown；本轮改用 Manager `--shutdown-on-stdin-end`，关闭stdin后等待Manager/Product终态并立即重取唯一Store lease。Candidate workflow尚未重新执行，故Task仍保留Release candidate verification pending。
 - workflow [`30760273783`](https://github.com/notnotype/neuro-book/actions/runs/30760273783) 已使用公开`.41`和新stdin协议构建同代Portable，但第一次冷启动同步系统资产后略过60秒，外层Verifier在浏览器前超时；日志显示Manager最终输出`Listening`且stderr为空。验收窗口现大于Manager正式120秒启动窗口，下一Candidate才会实际执行shutdown、lease重取与二次登录，当前不能把进程生命周期标为通过。
+
+### 2026-08-03：第十三次 Candidate 的 stdin pipe 竞争
+
+- workflow [`30761237553`](https://github.com/notnotype/neuro-book/actions/runs/30761237553) 已越过第十二次外层timeout，最终由Manager自己的120秒健康检查报告Product未ready。进程快照持续存在`product-command.mjs → product-start.mjs → server/index.mjs`，stdout只有migration/assets准备，stderr为空。
+- 差分反馈环逐项排除Product镜像、State Root、Portable完整Source、祖先`node_modules`、Windows Job Object和`windowsHide`。精确复现条件是：Manager主动读取开放stdin pipe，同时Owned Process把同一句柄继承给Product；只继承但父进程不读时不会失败。
+- stdin现在由Manager唯一拥有，Product不再继承。Manager仍用shutdown token请求Product正式关闭，协议失败时仍由Owned Process Job收口，不引入PID扫描、延时或第二套生命周期框架。修复后原Candidate包5.84秒ready，stdin关闭后Manager/Product退出码0并立即重取唯一Store lease。
+- 本轮只完成本机真实包回归。第十三次Draft保持失败审计；TODO仍等待公开`.42`与下一Candidate实际确认，不提前勾选。
