@@ -224,40 +224,42 @@ async function commitSubjectFileEvent(
         memoryPath: join(absoluteSubjectPath, "memory.jsonl"),
         ragStatePath: join(projectRoot, ".nbook", "subject-rag-dirty.json"),
     };
-    const currentText = await readCommitEventsText(subject.eventsPath);
-    const events = parseCommitEvents(currentText, subject.eventsPath);
     const event = parseCommitEvent(body);
     const line = serializeSubjectEventsJsonl([event]);
-    if (events.some((item) => item.text === event.text && (item.time ?? "") === (event.time ?? ""))) {
+    const writeCapture = captureUserProjectFileWrite(ready, eventsPath);
+    return writeCapture.fileIndex.mutate(async () => {
+        const currentText = await readCommitEventsText(subject.eventsPath);
+        const events = parseCommitEvents(currentText, subject.eventsPath);
+        if (events.some((item) => item.text === event.text && (item.time ?? "") === (event.time ?? ""))) {
+            return {
+                status: "already-exists",
+                subjectId: body.subjectId,
+                subjectPath,
+                eventsPath,
+                ...(body.sliceId ? {sliceId: body.sliceId} : {}),
+                event,
+                line,
+                dirty: false,
+            };
+        }
+
+        const nextEvents = [...events, event];
+        const serialized = serializeSubjectEventsJsonl(nextEvents);
+        const nextText = serialized ? `${serialized}\n` : "";
+        await writeFile(subject.eventsPath, nextText, "utf-8");
+        await recordUserProjectFileWrite({capture: writeCapture, before: currentText, after: nextText});
+        await markSubjectRagDirty(subject, "events", nextText);
         return {
-            status: "already-exists",
+            status: "appended",
             subjectId: body.subjectId,
             subjectPath,
             eventsPath,
             ...(body.sliceId ? {sliceId: body.sliceId} : {}),
             event,
             line,
-            dirty: false,
+            dirty: true,
         };
-    }
-
-    const nextEvents = [...events, event];
-    const serialized = serializeSubjectEventsJsonl(nextEvents);
-    const nextText = serialized ? `${serialized}\n` : "";
-    const writeCapture = captureUserProjectFileWrite(ready, eventsPath);
-    await writeFile(subject.eventsPath, nextText, "utf-8");
-    await recordUserProjectFileWrite({capture: writeCapture, before: currentText, after: nextText});
-    await markSubjectRagDirty(subject, "events", nextText);
-    return {
-        status: "appended",
-        subjectId: body.subjectId,
-        subjectPath,
-        eventsPath,
-        ...(body.sliceId ? {sliceId: body.sliceId} : {}),
-        event,
-        line,
-        dirty: true,
-    };
+    });
 }
 
 async function toSliceInput(worldEngineFacade: WorldEngineFacade, body: SliceBody): Promise<SliceInput> {

@@ -105,42 +105,6 @@ export async function subscribeWorkspaceTreeIndex(
     return unsubscribe;
 }
 
-/** Project mutation 必须携带当前 generation handle，禁止按字符串 root 回查全局 entry。 */
-export function invalidateProjectWorkspaceIndexAfterMutation(
-    target: ProjectWorkspaceTarget,
-    fileIndex: ProjectFileIndexHandle,
-): void;
-/** plain Workspace mutation 只失效其 discriminated cache key，不取得 activation。 */
-export function invalidateProjectWorkspaceIndexAfterMutation(target: PlainWorkspaceTarget): void;
-export function invalidateProjectWorkspaceIndexAfterMutation(
-    target: WorkspaceFileTarget,
-    fileIndex?: ProjectFileIndexHandle,
-): void {
-    if (target.kind === "project-workspace") {
-        if (!fileIndex) {
-            throw new Error("Project File Index mutation 缺少当前 ReadyProjectSession generation handle");
-        }
-        fileIndex.invalidate();
-        return;
-    }
-    projectFileIndexAdapter.invalidatePlain(target);
-}
-
-/** 路由层mutation按target kind消费严格的File Index invalidation合同。 */
-export function invalidateWorkspaceTreeAfterMutation(
-    target: WorkspaceFileTarget,
-    fileIndex: ProjectFileIndexHandle | undefined,
-): void {
-    if (target.kind === "project-workspace") {
-        if (!fileIndex) {
-            throw new Error("Project File Index mutation缺少当前ReadyProjectSession generation handle");
-        }
-        invalidateProjectWorkspaceIndexAfterMutation(target, fileIndex);
-        return;
-    }
-    invalidateProjectWorkspaceIndexAfterMutation(target);
-}
-
 /** 关闭 plain Workspace root；Project entry 只能由其 Module handle 关闭。 */
 export async function closeWorkspaceTreeIndex(root: AbsoluteFsPath): Promise<void> {
     await projectFileIndexAdapter.closePlain({kind: "workspace-root", root});

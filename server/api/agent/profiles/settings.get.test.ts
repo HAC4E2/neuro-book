@@ -1,4 +1,5 @@
 import {beforeEach, describe, expect, it, vi} from "vitest";
+import {ProjectNotOpenError} from "nbook/server/workspace-files/project-session-service";
 
 describe("GET /api/agent/profiles/settings", () => {
     beforeEach(() => {
@@ -34,14 +35,11 @@ describe("GET /api/agent/profiles/settings", () => {
                 scope: "project",
             })),
         }));
-        vi.doMock("nbook/server/config/config-service", async () => {
-            const {ProjectNotOpenError} = await import("nbook/server/workspace-files/project-session-service");
-            return {
-                readConfigAgentProfileSettings: vi.fn(async () => {
-                    throw new ProjectNotOpenError("settings-route-not-open");
-                }),
-            };
-        });
+        vi.doMock("nbook/server/config/config-service", () => ({
+            readConfigAgentProfileSettings: vi.fn(async () => {
+                throw new ProjectNotOpenError("settings-route-not-open");
+            }),
+        }));
 
         const handler = (await import("nbook/server/api/agent/profiles/settings.get")).default;
 

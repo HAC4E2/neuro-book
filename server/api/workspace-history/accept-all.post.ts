@@ -3,7 +3,7 @@ import {createError} from "h3";
 import {ProjectRootDtoSchema} from "nbook/shared/dto/project.dto";
 import {withProjectHandlesOperation} from "nbook/server/workspace-files/project-open-guard";
 import {LOCAL_USER_ID} from "nbook/server/workspace-history/project-history";
-import {workspaceHistoryInboxRevision} from "nbook/server/workspace-history/history-inbox";
+import {HistoryInboxMutationError} from "nbook/server/vendor/nb-history/index";
 
 const AcceptAllBodySchema = z.object({
     projectRoot: ProjectRootDtoSchema,
@@ -22,13 +22,14 @@ export default defineEventHandler(async (event) => {
         if (!history) {
             throw createError({statusCode: 400, message: "文件历史未启用"});
         }
-        const groups = await history.inbox(LOCAL_USER_ID);
-        if (workspaceHistoryInboxRevision(groups) !== body.revision) {
-            throw createError({statusCode: 412, message: "收件箱已发生新变化，请刷新后重新审查"});
+        try {
+            const accepted = await history.acceptAllAtRevision(LOCAL_USER_ID, body.revision);
+            return {success: true, accepted};
+        } catch (error) {
+            if (error instanceof HistoryInboxMutationError) {
+                throw createError({statusCode: 412, message: "收件箱已发生新变化，请刷新后重新审查"});
+            }
+            throw error;
         }
-        for (const group of groups) {
-            await history.accept(LOCAL_USER_ID, group.path);
-        }
-        return {success: true, accepted: groups.length};
     });
 });

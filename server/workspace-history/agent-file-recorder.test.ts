@@ -73,20 +73,20 @@ describe("recordAgentWorkspaceWrite 归因记账", () => {
             history: historyHandle,
             fileIndex,
         }));
-        await recordAgentWorkspaceWrite({
+        await fileIndex.mutate(() => recordAgentWorkspaceWrite({
             sessionId: 42,
             capture: createCapture,
             before: null,
             after: "v1",
-        });
+        }));
         await fileIndex.read();
         expect(indexCommitCount).toBe(1);
-        await recordAgentWorkspaceWrite({
+        await fileIndex.mutate(() => recordAgentWorkspaceWrite({
             sessionId: 42,
             capture: captureAgentWorkspaceWrite(address),
             before: "v1",
             after: null,
-        });
+        }));
         await fileIndex.read();
         expect(indexCommitCount).toBe(2);
 
@@ -122,12 +122,14 @@ describe("recordAgentWorkspaceWrite 归因记账", () => {
             "write",
         )).target;
 
-        await recordAgentWorkspaceWrite({
+        const capture = captureAgentWorkspaceWrite(address);
+        expect(capture).not.toBeNull();
+        await capture!.fileIndex.mutate(() => recordAgentWorkspaceWrite({
             sessionId: 7,
-            capture: captureAgentWorkspaceWrite(address),
+            capture,
             before: null,
             after: "npc",
-        });
+        }));
 
         const targetHistory = await requireReadyModuleHandle(
             targetReady,

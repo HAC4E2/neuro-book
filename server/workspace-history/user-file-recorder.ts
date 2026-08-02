@@ -37,8 +37,8 @@ export function captureUserProjectFileWrite(
 }
 
 /**
- * 为已经落盘的用户文件 mutation 记账并失效 capture 绑定的精确 File Index。
- * 两个辅助动作分别 fail-open；旧 generation 在 close/reopen 后绝不会查询或污染新 generation。
+ * 为已经落盘的用户文件 mutation 记账。
+ * 调用方必须在 capture.fileIndex.mutate() 内完成落盘；History 记账保持 fail-open。
  */
 export async function recordUserProjectFileWrite(input: {
     capture: UserProjectFileWriteCapture;
@@ -67,12 +67,6 @@ export async function recordUserProjectFileWrite(input: {
         }
     } catch {
         // History关闭或记账失败只损失即时归因，后台对账仍可补为external。
-    }
-
-    try {
-        input.capture.fileIndex.invalidate();
-    } catch {
-        // mutation已经落盘；旧generation关闭导致的失效失败不能反向破坏主写入。
     }
 }
 

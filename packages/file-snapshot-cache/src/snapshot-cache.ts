@@ -21,6 +21,9 @@ type SnapshotEntry<TKey, TNode, TIssue, TEvent> = {
     key: TKey;
     id: string;
     snapshot: FileSnapshot<TNode, TIssue> | null;
+    operationGate: AsyncSemaphore;
+    operationController: AbortController;
+    mutationPromises: Set<Promise<void>>;
     buildPromise: Promise<FileSnapshot<TNode, TIssue>> | null;
     buildController: AbortController | null;
     closePromise: Promise<void> | null;
@@ -110,6 +113,24 @@ export class SnapshotCache<TKey, TNode, TIssue, TEvent> {
     invalidate(key: TKey, event?: TEvent): void {
         const entry = this.ensureEntry(key);
         this.markDirty(entry, event);
+    }
+
+    /**
+     * 与同 key 的 snapshot build 串行执行一次源数据 mutation。
+     *
+     * mutation 成功或失败后都推进 generation：调用方可能已经完成部分写入，cache 不得继续
+     * 暴露旧 snapshot。不同 key 仍可并行。
+     */
+    async mutate<TResult>(key: TKey, operation: () => TResult | Promise<TResult>): Promise<TResult> {
+        const entry = this.ensureEntry(key);
+        const task = this.runMutation(entry, operation);
+        const settled = task.then(() => undefined, () => undefined);
+        entry.mutationPromises.add(settled);
+        try {
+            return await task;
+        } finally {
+            entry.mutationPromises.delete(settled);
+        }
     }
 
     /** 显式启动 watcher，并同步返回可等待 ready 的 activation handle。 */
@@ -245,6 +266,9 @@ export class SnapshotCache<TKey, TNode, TIssue, TEvent> {
             key,
             id,
             snapshot: null,
+            operationGate: new AsyncSemaphore(1),
+            operationController: new AbortController(),
+            mutationPromises: new Set(),
             buildPromise: null,
             buildController: null,
             closePromise: null,
@@ -401,6 +425,27 @@ export class SnapshotCache<TKey, TNode, TIssue, TEvent> {
         return task;
     }
 
+    /** 执行已登记 mutation；settle 后统一推进 generation 并释放 per-entry gate。 */
+    private async runMutation<TResult>(
+        entry: SnapshotEntry<TKey, TNode, TIssue, TEvent>,
+        operation: () => TResult | Promise<TResult>,
+    ): Promise<TResult> {
+        const release = await entry.operationGate.acquire(entry.operationController.signal);
+        const generation = entry.generation;
+        try {
+            assertEntryOpen(entry, entry.operationController.signal);
+            return await operation();
+        } finally {
+            if (!entry.closed && entry.generation === generation) {
+                this.markDirty(entry);
+            }
+            release();
+            if (!entry.closed) {
+                this.scheduleIdle(entry);
+            }
+        }
+    }
+
     /** 构建期间发生变更时丢弃旧结果并重试，永不提交已知过期 snapshot。 */
     private async buildUntilStable(
         entry: SnapshotEntry<TKey, TNode, TIssue, TEvent>,
@@ -410,13 +455,18 @@ export class SnapshotCache<TKey, TNode, TIssue, TEvent> {
             assertEntryOpen(entry, signal);
             const generation = entry.generation;
             this.notifyRawEvents(entry);
-            const release = await this.semaphore.acquire(signal);
+            const releaseOperation = await entry.operationGate.acquire(signal);
+            let releaseBuild: (() => void) | null = null;
             let result;
             try {
+                // 等待本 entry mutation 时不占用全局 build 槽，避免长 mutation 阻塞其他 key。
+                releaseBuild = await this.semaphore.acquire(signal);
+                assertEntryOpen(entry, signal);
                 entry.buildCount += 1;
                 result = await this.options.builder.build({key: entry.key, signal});
             } finally {
-                release();
+                releaseBuild?.();
+                releaseOperation();
             }
             assertEntryOpen(entry, signal);
             if (generation !== entry.generation) {
@@ -483,6 +533,8 @@ export class SnapshotCache<TKey, TNode, TIssue, TEvent> {
             && entry.activation === null
             && entry.watcher === null
             && entry.watcherPromise === null
+            && entry.operationGate.activeCount === 0
+            && entry.operationGate.queuedCount === 0
             && entry.subscribers.size === 0
             && entry.buildPromise === null
             && entry.timer === null
@@ -516,6 +568,7 @@ export class SnapshotCache<TKey, TNode, TIssue, TEvent> {
     private async closeEntry(entry: SnapshotEntry<TKey, TNode, TIssue, TEvent>): Promise<void> {
         entry.closed = true;
         const reason = new SnapshotClosedError(`snapshot ${entry.id} is closed`);
+        entry.operationController.abort(reason);
         entry.buildController?.abort(reason);
         entry.buildController = null;
         entry.watcherController?.abort(reason);
@@ -529,6 +582,8 @@ export class SnapshotCache<TKey, TNode, TIssue, TEvent> {
         entry.rawPendingEvents.clear();
         entry.subscribers.clear();
         entry.onRawEvents = null;
+
+        await Promise.all(entry.mutationPromises);
 
         const handle = entry.watcher;
         await handle?.close();

@@ -206,11 +206,11 @@ function moduleContext(prepared: PreparedProjectOpen): ProjectModuleContext {
         async read() {
             throw new Error("本测试未请求File Index snapshot");
         },
+        async mutate<TResult>(operation: () => TResult | Promise<TResult>): Promise<TResult> {
+            return operation();
+        },
         subscribe() {
             throw new Error("本测试未订阅File Index");
-        },
-        invalidate(): void {
-            return undefined;
         },
     };
     const history: ProjectHistoryHandle = {

@@ -150,10 +150,11 @@ describe("ProjectSessionService", () => {
     });
 
     it("metadata update对ready generation借用Occupancy，未运行Project才请求acquire", async () => {
+        const fileIndexMutations = vi.fn();
         restores.push(replaceProjectModulesForTest([
             immediateModule("database"),
             immediateModule("history"),
-            immediateModule("file-index"),
+            immediateModule("file-index", fileIndexMutations),
         ]));
         const workspaceRoot = absoluteFsPath("C:/workspace-root");
         const prepared = preparedProject(workspaceRoot, "metadata-running");
@@ -173,6 +174,7 @@ describe("ProjectSessionService", () => {
         }
         expect(borrowed.workspace).toBe(prepared.workspace);
         expect(() => borrowed.assertActive()).not.toThrow();
+        expect(fileIndexMutations).toHaveBeenCalledOnce();
 
         await service.closeProject(runningRef, "shutdown");
         expect(() => borrowed.assertActive()).toThrow(ProjectNotOpenError);
@@ -846,12 +848,19 @@ describe("ProjectSessionService", () => {
 });
 
 /** 建立同步ready且无持久资源的required Module。 */
-function immediateModule(name: Extract<ProjectModuleName, "database" | "history" | "file-index">): ProjectModule {
+function immediateModule(
+    name: Extract<ProjectModuleName, "database" | "history" | "file-index">,
+    onMutation?: () => void,
+): ProjectModule {
     return {
         token: projectModuleToken(name, "required"),
         start: () => ({
             ready: Promise.resolve(),
             close: async () => undefined,
+            mutate: async <TResult>(operation: () => TResult | Promise<TResult>): Promise<TResult> => {
+                onMutation?.();
+                return operation();
+            },
         }),
     };
 }
@@ -865,6 +874,7 @@ function recordingModule(
         token: projectModuleToken(name, "required"),
         start: () => ({
             ready: Promise.resolve(),
+            mutate: async <TResult>(operation: () => TResult | Promise<TResult>): Promise<TResult> => operation(),
             close: async () => {
                 closeOrder.push(name);
             },

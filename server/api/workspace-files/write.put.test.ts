@@ -33,7 +33,7 @@ describe("PUT /api/workspace-files/write", () => {
             writeWorkspaceTextFileTracked: vi.fn(),
         }));
         vi.doMock("nbook/server/workspace-files/project-open-guard", () => ({
-            withProjectTargetOperation: vi.fn((target: {kind: string; projectRoot?: string}, handler: (handles: undefined) => unknown) => {
+            withProjectTargetMutation: vi.fn((target: {kind: string; projectRoot?: string}, handler: (handles: undefined) => unknown) => {
                 if (target.kind === "project-workspace") {
                     throw Object.assign(new Error("Project未打开"), {
                         statusCode: 409,

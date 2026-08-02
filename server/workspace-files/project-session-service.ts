@@ -37,6 +37,9 @@ import {
     isProjectDomainError,
     ProjectDomainError,
 } from "nbook/server/workspace-files/project-domain-error";
+import {
+    PROJECT_FILE_INDEX_MODULE_TOKEN,
+} from "nbook/server/workspace-files/project-file-index";
 
 /** Project控制面端口；生产只注入composition root持有的唯一ProjectLifecycle。 */
 export type ProjectControlLifecycle = {
@@ -335,10 +338,14 @@ export class ProjectSessionService {
             }
         };
         assertActive();
-        const operation = execute({
-            kind: "borrowed",
-            workspace: ready.workspace,
-            assertActive,
+        const fileIndex = this.requireReadyModuleHandle(ready, PROJECT_FILE_INDEX_MODULE_TOKEN);
+        const operation = fileIndex.mutate(() => {
+            assertActive();
+            return execute({
+                kind: "borrowed",
+                workspace: ready.workspace,
+                assertActive,
+            });
         });
         const completion = operation.then(() => undefined, () => undefined);
         entry.controlOperations.add(completion);

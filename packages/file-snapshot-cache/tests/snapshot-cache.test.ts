@@ -126,6 +126,123 @@ describe("SnapshotCache 基础读取与并发", () => {
         expect(cache.diagnostics().queuedBuildCount).toBe(0);
         await cache.closeAll();
     });
+
+    it("同 key mutation 不与在途 build 并发，完成后 read 取得新 generation", async () => {
+        const firstBuild = deferred<ReturnType<typeof buildResult>>();
+        let buildCount = 0;
+        let building = false;
+        const options = cacheOptions(async () => {
+            buildCount += 1;
+            building = true;
+            if (buildCount === 1) {
+                await firstBuild.promise;
+            }
+            building = false;
+            return buildResult(buildCount);
+        });
+        options.debounceMs = 10_000;
+        const cache = new SnapshotCache(options);
+        const initialRead = cache.read("alpha");
+        await waitFor(() => buildCount === 1);
+        let mutationStarted = false;
+
+        const mutation = cache.mutate("alpha", async () => {
+            mutationStarted = true;
+            expect(building).toBe(false);
+            return "mutated";
+        });
+        await Promise.resolve();
+        expect(mutationStarted).toBe(false);
+
+        firstBuild.resolve(buildResult(1));
+        const initialSnapshot = await initialRead;
+        await expect(mutation).resolves.toBe("mutated");
+        const currentSnapshot = await cache.read("alpha");
+
+        expect(initialSnapshot.generation).toBe(0);
+        expect(currentSnapshot.generation).toBe(1);
+        expect(buildCount).toBe(2);
+        await cache.closeAll();
+    });
+
+    it("mutation 执行期间同 key rebuild 等待，其他 key 继续构建", async () => {
+        let alphaBuildCount = 0;
+        let betaBuildCount = 0;
+        const options = cacheOptions(async ({key}) => {
+            if (key === "alpha") {
+                alphaBuildCount += 1;
+            } else {
+                betaBuildCount += 1;
+            }
+            return buildResult(alphaBuildCount + betaBuildCount);
+        });
+        options.debounceMs = 10_000;
+        options.maxConcurrentBuilds = 1;
+        const cache = new SnapshotCache(options);
+        await cache.read("alpha");
+        const mutationGate = deferred<void>();
+        let mutationStarted = false;
+        const mutation = cache.mutate("alpha", async () => {
+            mutationStarted = true;
+            await mutationGate.promise;
+        });
+        await waitFor(() => mutationStarted);
+
+        cache.invalidate("alpha");
+        const alphaRead = cache.read("alpha");
+        const betaRead = cache.read("beta");
+        await betaRead;
+
+        expect(alphaBuildCount).toBe(1);
+        expect(betaBuildCount).toBe(1);
+        mutationGate.resolve();
+        await mutation;
+        await alphaRead;
+        expect(alphaBuildCount).toBe(2);
+        await cache.closeAll();
+    });
+
+    it("mutation 失败后也拒绝继续返回旧 snapshot", async () => {
+        let buildCount = 0;
+        const cache = new SnapshotCache(cacheOptions(async () => buildResult(++buildCount)));
+        const initial = await cache.read("alpha");
+
+        await expect(cache.mutate("alpha", () => {
+            throw new Error("partial mutation failed");
+        })).rejects.toThrow("partial mutation failed");
+        const current = await cache.read("alpha");
+
+        expect(initial.generation).toBe(0);
+        expect(current.generation).toBe(1);
+        expect(buildCount).toBe(2);
+        await cache.closeAll();
+    });
+
+    it("close 等待活动 mutation settle，并取消同 key 排队 mutation", async () => {
+        const cache = new SnapshotCache(cacheOptions(async () => buildResult(1)));
+        const activeGate = deferred<void>();
+        let activeStarted = false;
+        const active = cache.mutate("alpha", async () => {
+            activeStarted = true;
+            await activeGate.promise;
+        });
+        await waitFor(() => activeStarted);
+        const queuedOperation = vi.fn();
+        const queued = cache.mutate("alpha", queuedOperation);
+        let closeSettled = false;
+        const close = cache.close("alpha").then(() => { closeSettled = true; });
+
+        await Promise.resolve();
+        expect(closeSettled).toBe(false);
+        await expect(queued).rejects.toBeInstanceOf(SnapshotClosedError);
+        expect(queuedOperation).not.toHaveBeenCalled();
+
+        activeGate.resolve();
+        await active;
+        await close;
+        expect(closeSettled).toBe(true);
+        expect(cache.diagnostics().entryCount).toBe(0);
+    });
 });
 
 describe("SnapshotCache generation 与事件归并", () => {

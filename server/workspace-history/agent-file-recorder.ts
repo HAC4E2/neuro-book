@@ -31,7 +31,8 @@ function toRecordBytes(content: string | Uint8Array | null): Uint8Array | null {
 }
 
 /**
- * 记一次 agent 工具写入。after = null 表示删除（此时 before 必须有内容才有账可记）。
+ * 记一次 agent 工具写入。调用方必须在 Project File Index mutation gate 内完成落盘与记账。
+ * after = null 表示删除（此时 before 必须有内容才有账可记）。
  * before = null 表示写前文件不存在（file.create 语义）。
  */
 export async function recordAgentWorkspaceWrite(input: {
@@ -69,11 +70,6 @@ export async function recordAgentWorkspaceWrite(input: {
         // History generation可能在文件落盘后、记账前关闭；记账永远不能反向破坏文件写入。
     }
 
-    try {
-        input.capture.fileIndex.invalidate();
-    } catch {
-        // 文件已经落盘；精确generation关闭导致的失效失败不能反向破坏主写入。
-    }
 }
 
 /** 落盘前捕获的目标 Project generation 记账上下文。 */

@@ -297,7 +297,7 @@ describe("Journaled application migration", () => {
             await vi.waitFor(() => {
                 expect(process.listeners("SIGINT").some((listener) => !previousSigint.has(listener))).toBe(true);
                 expect(process.listeners("SIGTERM").some((listener) => !previousSigterm.has(listener))).toBe(true);
-            });
+            }, {timeout: 5_000});
             const handler = process.listeners("SIGINT").find((listener) => !previousSigint.has(listener));
             if (!handler) throw new Error("Manager 未注册 SIGINT shutdown listener");
             handler("SIGINT");

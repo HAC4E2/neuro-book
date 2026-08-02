@@ -1,4 +1,5 @@
 import {beforeEach, describe, expect, it, vi} from "vitest";
+import {ProjectNotOpenError} from "nbook/server/workspace-files/project-session-service";
 
 describe("POST /api/config/profile-home/reset", () => {
     beforeEach(() => {
@@ -32,14 +33,11 @@ describe("POST /api/config/profile-home/reset", () => {
                 projectRoot: "config-route-not-open",
             })),
         }));
-        vi.doMock("nbook/server/config/config-service", async () => {
-            const {ProjectNotOpenError} = await import("nbook/server/workspace-files/project-session-service");
-            return {
-                resetProjectProfileHome: vi.fn(async () => {
-                    throw new ProjectNotOpenError("config-route-not-open");
-                }),
-            };
-        });
+        vi.doMock("nbook/server/config/config-service", () => ({
+            resetProjectProfileHome: vi.fn(async () => {
+                throw new ProjectNotOpenError("config-route-not-open");
+            }),
+        }));
 
         const handler = (await import("nbook/server/api/config/profile-home/reset.post")).default;
 

@@ -103,6 +103,9 @@ export type InboxGroup = {
     entries: OperationLogEntry[];
 };
 
+/** 条件式收件箱 mutation 的稳定错误码；宿主据此映射 404 / 412 等传输语义。 */
+export type HistoryInboxMutationErrorCode = "missing" | "stale";
+
 /** 会话未见变更分组。 */
 export type UnseenGroup = {
     path: string;
@@ -162,6 +165,14 @@ export class HistoryError extends Error {
     constructor(message: string) {
         super(message);
         this.name = "HistoryError";
+    }
+}
+
+/** 收件箱目标不存在或客户端 revision 已过期。 */
+export class HistoryInboxMutationError extends HistoryError {
+    constructor(readonly code: HistoryInboxMutationErrorCode, message: string) {
+        super(message);
+        this.name = "HistoryInboxMutationError";
     }
 }
 

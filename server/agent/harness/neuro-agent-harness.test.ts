@@ -5156,6 +5156,7 @@ describe("NeuroAgentHarness", () => {
         });
 
         expect(result.status).toBe("completed");
+        await harness.drainBackgroundTasks();
         await waitFor(async () => {
             const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
             expect(context.title).toBe("Source Title");
@@ -8230,7 +8231,7 @@ describe("NeuroAgentHarness", () => {
         await harness.abortInvocation(created.sessionId, {reason: "stop", clearQueue: true});
         await running;
         releaseProvider!();
-        await new Promise((resolve) => setTimeout(resolve, 20));
+        await harness.drainBackgroundTasks();
         const restored = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
             profiles: new AgentProfileCatalog(join(root, "restored-system-profiles"), join(root, "restored-user-profiles")),

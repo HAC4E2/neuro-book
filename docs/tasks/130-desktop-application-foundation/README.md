@@ -595,8 +595,29 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - 最终 baseline workflow [`30733829868`](https://github.com/notnotype/neuro-book/actions/runs/30733829868) 在提交 `18e12750707a16e6119f9769dae49bc2c2c4eca4` 上五平台严格 A/B 全绿。Windows x64 为 3,238 files / 133,455,576 bytes；Linux x64 为 3,241 / 133,294,968；Linux AArch64 为 3,241 / 130,718,274；macOS x64 为 3,241 / 134,063,432；macOS AArch64 为 3,241 / 130,115,684。各平台 Source/runtime/contract/policy、七个 owner、tree/shape digest 和逐文件 SHA-256 均一致。
 - 最终 owner 没有新增；Windows authoring-kit 相对上一审查值增长 `7.8%`，是最大增幅，低于 10% 决策线。Windows owner 为 frontend 177 / 15,272,680；server-bundle 1 / 12,300,171；commands 116 / 10,865,638；authoring-kit 509 / 14,477,260；native-islands 2,059 / 75,260,630；system-assets 373 / 5,274,435；runtime-meta 3 / 4,762。POSIX 除 native-islands 平台字节差异外共用其余精确 owner 基线。
 - Product Platform workflow [`30733829837`](https://github.com/notnotype/neuro-book/actions/runs/30733829837) 在同一提交通过 Linux x64/AArch64 与 macOS x64/AArch64 的 Source/Product archive、Runtime Contract、native islands、sqlite-vec、Sharp、Manager、Owned Process、启动、HTTP 与浏览器 smoke。该证据不包含 Windows Portable、GHCR、最终 Release Manifest 或公开索引。
-- 根全量 Vitest 当前为 468 files passed、1 failed、1 skipped；3,187 tests passed、1 failed、14 skipped。唯一失败是 `tracked-workspace-files.test.ts` 的非空目录 rename：Project File Index 正在重建时，Windows `fs.rename()` 返回 `EPERM`。最小诊断证明纯 Chokidar/Bun 不复现，关闭 File Index 或等待 build 稳定后可通过，因此根因是完整树扫描与文件 mutation 缺少单 entry 互斥，不是 Product 构建回归；在系统性 mutation gate 落地前，根全量门禁与最终发布保持阻断。
+- 根全量曾为 468 files passed、1 failed、1 skipped；唯一失败是 `tracked-workspace-files.test.ts` 的非空目录 rename：Project File Index 正在重建时，Windows `fs.rename()` 返回 `EPERM`。最小诊断证明纯 Chokidar/Bun 不复现，关闭 File Index 或等待 build 稳定后可通过，因此根因是完整树扫描与文件 mutation 缺少单 entry 互斥，不是 Product 构建回归。该阻断已由下一节 mutation gate 系统修复；最终根全量结果以本节之后的门禁记录为准。
 - 第一次失败 Draft 已把 package version 推进到 `0.9.0-canary.*`。因此原计划的 `--next minor` dry-run 会错误生成 `0.10.0-canary.*`；同一 0.9 发布线的下一 Candidate 必须显式使用 `--version 0.9.0`，并继续生成新的唯一 canary identity，不复用历史 Draft。
+
+### 2026-08-02：Project File Index mutation gate
+
+- `SnapshotCache` 新增 per-entry `mutate()`：同 key 的完整树 build 与源数据 mutation 串行，不同 key 保持并行；mutation 成功或失败后都推进 generation。`close()` 会取消排队 mutation，并等待已经开始的 mutation settle 后再释放 entry。
+- `ProjectFileIndexHandle` 只暴露 `read/mutate/subscribe`，已删除手动 `invalidate()`；plain Workspace 通过 Adapter 的 `mutatePlain()` 使用同一内核。类型层不再允许“先写盘、再失效”的两段式调用。
+- 八个 Workspace Files 写路由统一经过 `withProjectTargetMutation()`；History revert、Agent write/edit/apply_patch 与 Subject Memory、World Engine/RAG 用户写入、Plot frontmatter、Context Access，以及已打开 Project 的 metadata/封面更新也共用当前 exact generation gate。多 Project Agent patch 按稳定 workspace key 顺序取得 gate，避免反向锁顺序。
+- RAG 与 World Engine 的读取、解析、冲突判断、写盘、History 和 dirty marker 位于同一次 gate，避免两个串行写仍基于同一旧快照而丢更新。plain Workspace mutation 遇到最后一个 SSE activation 正在关闭时，会等待同一精确 lease 完成后重试；关闭失败则保持 fail closed，不猜测新 entry。
+- 原始 Windows 非空目录 rename 回归已通过；路由/History focused 为 8 files / 31 tests，File Index/guard 为 3 files / 15 tests，Agent/Plot 为 2 files / 11 tests，package 为 3 files / 44 tests，根 typecheck 通过。大型 `workspace-files.test.ts` 本次相关 2 项通过。
+- 实际偏差：实现时发现旧的手动失效入口还有五类生产消费者，后续只读审查又找到 metadata/封面、RAG/World Engine 读改写和 plain close-window 三条漏链，因此没有只修八个 HTTP route，而是删除 `ProjectFileIndexHandle.invalidate()` 并迁移全部已知消费者；没有扩展为通用文件事务框架。受信任 Bash 仍可能像外部编辑器一样修改文件，继续由 watcher 处理，不会把任意长命令放进 mutation gate。
+
+### 2026-08-02：mutation gate 最终本地发行门禁
+
+- 第一次根全量为 `467 files passed / 4 failed / 1 skipped`、`3,183 tests passed / 11 failed / 14 skipped`。原 Windows rename `EPERM` 已消失；真实剩余问题是 Subject Memory 两个写工具漏接 mutation gate、Config 测试反复迁移/启动/释放 Session Store 且切换进程 cwd，以及 Profile Coordinator 依赖 3 秒墙钟轮询。
+- Subject Memory 已把模型调用留在 gate 外，最终读改写、History 与 dirty marker 放进 exact Project generation gate；发布前重读源文件，期间变化时拒绝覆盖。`subject-memory-tools.test.ts` 为 `16/16`。
+- Config 测试不再修改 Vitest worker cwd；Workspace Root context 与 `NEURO_BOOK_STATE_ROOT` 同时指向 suite fixture。System Assets、Session migration 与 runtime lease 每个文件只建立一次，Global Config、Profile Home、Project Workspace 和额外临时目录仍逐项删除重建。完整 `config-service.test.ts` 为 `60/60`，约 71 秒；原 `ECOMPROMISED` 与 OXC `Tsconfig not found` 均未复发。
+- Profile Coordinator 新增可等待的 `flush()` idle checkpoint，并对`ok=false`、freshness、worker与Registry恢复异常明确拒绝；`closing`终态阻止teardown后重新enqueue/pump，timer显式消费后台rejection，`dispose()`等待活动pump。Catalog先关闭watcher producer再关闭Coordinator并聚合清理错误。Coordinator 12项、Catalog 46项，组合`58/58`。
+- 最终审查还把 summarizer retry 与 abort queue 测试从20ms/1秒墙钟改为等待Harness正式后台任务排空；两个路由mock不再在模块factory中递归import同一HTTP error依赖。Catalog与Variable真实编译/发布锁用例使用局部15秒集成预算，全仓普通测试仍保持5秒默认值。
+- 最终根全量为 `471 files passed / 1 skipped`、`3,209 tests passed / 14 skipped`，耗时约10分29秒。package为`3 files / 44 tests`，Profile Catalog/Coordinator为`2 files / 58 tests`，最终直接链路组为`6 files / 113 tests`；原`EPERM`与后续生命周期问题均未复发。frozen hoisted install、Nuxt prepare、根/Runtime/scripts/shared/Manager/File Snapshot Cache typecheck、Manager `240 passed / 3 skipped` + release contract `1/1`、install `8 passed / 9 skipped`、Manager pack-check（5 files / 0.43 MiB）与 docs build 全绿。
+- 最终只读审查发现两条发布链补漏。其一，History route 原先在领域写锁外复核 revision，旧审查请求可能接受或还原随后出现的新变化；`nb-history` 现提供锁内条件式 accept/revert/accept-all，批量接受位于单个 SQLite transaction，revert 同时复核磁盘 hash。其二，Profile `dispose()` 原先只等待 pump，未等待已经进入异步扫描的 `enqueue()` / `bootSweep()`；Coordinator 现显式登记 producer，Harness 也持有 startup reconcile/watcher startup，teardown 会等待全部 I/O settle。
+- 补漏验证为 sibling `nb-history` 40/40 + typecheck、NeuroBook 聚焦 5 files / 79 tests、File Snapshot Cache 3 files / 44 tests，以及根、scripts、File Snapshot Cache typecheck 全绿。没有为 metadata/封面再造第二套完整生命周期 fixture：真实生产入口已经进入同一 gate，内核与 Service/lifecycle/publish rollback 均有分层行为测试，额外 fixture 的复杂度高于新增证据价值。
+- 当前代码已通过本地发行门禁，但五平台严格 A/B 与 POSIX Product smoke 的最新证据仍绑定提交 `18e12750`。mutation gate 提交后必须在最终 HEAD 重跑这两条 workflow；在此之前不创建新的 0.9 Candidate，也不复用两个历史失败 Draft。
 
 ## TODO / Follow-ups
 

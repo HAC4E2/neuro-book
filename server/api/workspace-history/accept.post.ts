@@ -3,7 +3,7 @@ import {createError} from "h3";
 import {ProjectRootDtoSchema} from "nbook/shared/dto/project.dto";
 import {withProjectHandlesOperation} from "nbook/server/workspace-files/project-open-guard";
 import {LOCAL_USER_ID} from "nbook/server/workspace-history/project-history";
-import {matchWorkspaceHistoryInboxGroup} from "nbook/server/workspace-history/history-inbox";
+import {HistoryInboxMutationError} from "nbook/server/vendor/nb-history/index";
 
 const AcceptBodySchema = z.object({
     projectRoot: ProjectRootDtoSchema,
@@ -22,14 +22,17 @@ export default defineEventHandler(async (event) => {
         if (!history) {
             throw createError({statusCode: 400, message: "文件历史未启用"});
         }
-        const match = matchWorkspaceHistoryInboxGroup(await history.inbox(LOCAL_USER_ID), body.path, body.revision);
-        if (match.kind === "missing") {
-            throw createError({statusCode: 404, message: "待审文件不存在或已被接受"});
+        try {
+            await history.acceptAtRevision(LOCAL_USER_ID, body.path, body.revision);
+        } catch (error) {
+            if (error instanceof HistoryInboxMutationError) {
+                throw createError({
+                    statusCode: error.code === "missing" ? 404 : 412,
+                    message: error.code === "missing" ? "待审文件不存在或已被接受" : "文件已发生新变化，请刷新后重新审查",
+                });
+            }
+            throw error;
         }
-        if (match.kind === "stale") {
-            throw createError({statusCode: 412, message: "文件已发生新变化，请刷新后重新审查"});
-        }
-        await history.accept(LOCAL_USER_ID, match.group.path);
         return {success: true};
     });
 });

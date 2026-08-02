@@ -24,7 +24,10 @@ import {
     authorizeProcessCwd,
     type ResolvedFileTarget,
 } from "nbook/server/workspace-files/authorized-file-operation";
-import {runProjectFileOperation} from "nbook/server/workspace-files/project-data-plane-guard";
+import {
+    runProjectFileMutation,
+    runProjectFileOperation,
+} from "nbook/server/workspace-files/project-data-plane-guard";
 import {AttachmentError} from "nbook/server/agent/attachments/types";
 import {AGENT_IMAGE_POLICY} from "nbook/server/agent/attachments/agent-attachment-policy";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
@@ -218,7 +221,7 @@ function createWriteTool(): NeuroAgentTool {
         async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown, _userInput?: unknown, signal?: AbortSignal) {
             const input = params as WriteInput;
             const target = await resolveToolFile(context, input.path, "write");
-            return runProjectFileOperation([target], async () => {
+            return runProjectFileMutation([target], async () => {
                 const absolutePath = target.absolutePath;
                 const historyCapture = captureAgentWorkspaceWrite(target);
                 // 记账 before：覆盖写前补读一次旧内容（不存在 = null，file.create 语义）
@@ -276,7 +279,7 @@ function createEditTool(): NeuroAgentTool {
                 throw new Error("edits must contain at least one replacement.");
             }
             const target = await resolveToolFile(context, input.path, "edit");
-            return runProjectFileOperation([target], async () => {
+            return runProjectFileMutation([target], async () => {
                 const absolutePath = target.absolutePath;
                 const historyCapture = captureAgentWorkspaceWrite(target);
                 const original = await readFile(absolutePath, "utf-8");
@@ -319,7 +322,7 @@ function createApplyPatchTool(): NeuroAgentTool {
             for (const targetPath of extractPatchTargetPaths(input.patch)) {
                 targets.push(await resolveToolFile(context, targetPath, "apply_patch"));
             }
-            return runProjectFileOperation(targets, async () => {
+            return runProjectFileMutation(targets, async () => {
                 const captures = new Map<string, ReturnType<typeof captureAgentWorkspaceWrite>>();
                 for (const target of targets) {
                     captures.set(

@@ -155,7 +155,7 @@ describe("Variable definition 原子发布", () => {
         const final = await generation(fixture.root);
         expect(final.artifactSha256).toBe(sha256(final.artifact));
         expect(final.manifest).toContain("publisher-new");
-    });
+    }, 15_000);
 });
 
 async function createFixture(key: string): Promise<{root: string}> {

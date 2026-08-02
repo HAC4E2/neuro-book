@@ -20,6 +20,10 @@ import {
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 import type {WorkspaceFileTarget} from "nbook/server/workspace-files/workspace-file-target";
 import {
+    PROJECT_FILE_INDEX_MODULE_TOKEN,
+    type ProjectFileIndexHandle,
+} from "nbook/server/workspace-files/project-file-index";
+import {
     PROJECT_HISTORY_MODULE_TOKEN,
     resetWorkspaceHistoryForTest,
     setHistoryEnabledOverrideForTest,
@@ -49,6 +53,7 @@ type OpenProjectFixture = {
     projectRoot: WorkspaceRelativePath;
     target: Extract<WorkspaceFileTarget, {kind: "project-workspace"}>;
     history: ProjectHistoryHandle;
+    fileIndex: ProjectFileIndexHandle;
 };
 
 describe("tracked-workspace-files 写面记账", () => {
@@ -82,6 +87,7 @@ describe("tracked-workspace-files 写面记账", () => {
         await openProjectForTest(projectRoot);
         const ready = requireReadyProject(projectWorkspaceRef(projectRoot));
         const history = requireReadyModuleHandle(ready, PROJECT_HISTORY_MODULE_TOKEN);
+        const fileIndex = requireReadyModuleHandle(ready, PROJECT_FILE_INDEX_MODULE_TOKEN);
         return {
             projectRoot,
             target: {
@@ -90,6 +96,7 @@ describe("tracked-workspace-files 写面记账", () => {
                 projectRoot,
             },
             history,
+            fileIndex,
         };
     }
 
@@ -129,7 +136,13 @@ describe("tracked-workspace-files 写面记账", () => {
         const project = await openTempProject("rename-dir");
         await createWorkspaceFileTracked({target: project.target, history: project.history, filePath: "lorebook/npc/a.md", content: "甲", actor: USER_LOCAL_ACTOR});
         await createWorkspaceFileTracked({target: project.target, history: project.history, filePath: "lorebook/npc/b.md", content: "乙", actor: USER_LOCAL_ACTOR});
-        await renameWorkspacePathTracked({target: project.target, history: project.history, fromPath: "lorebook/npc", toPath: "lorebook/cast", actor: USER_LOCAL_ACTOR});
+        await project.fileIndex.mutate(() => renameWorkspacePathTracked({
+            target: project.target,
+            history: project.history,
+            fromPath: "lorebook/npc",
+            toPath: "lorebook/cast",
+            actor: USER_LOCAL_ACTOR,
+        }));
 
         const history = (await project.history.history)!;
         for (const name of ["a.md", "b.md"]) {

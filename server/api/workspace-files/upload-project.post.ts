@@ -1,9 +1,6 @@
 import {createError, getRequestHeader, readMultipartFormData, type MultiPartData} from "h3";
 import {resolveWorkspaceFileTarget} from "nbook/server/workspace-files/novel-workspace";
-import {
-    invalidateWorkspaceTreeAfterMutation,
-} from "nbook/server/workspace-files/project-workspace-index";
-import {withProjectTargetOperation} from "nbook/server/workspace-files/project-open-guard";
+import {withProjectTargetMutation} from "nbook/server/workspace-files/project-open-guard";
 import {
     uploadWorkspaceProjectFiles,
     uploadWorkspaceProjectZip,
@@ -25,7 +22,7 @@ export default defineEventHandler(async (event) => {
         workspaceKind,
     });
     const mode = readTextPart(parts, "mode");
-    return withProjectTargetOperation(target, async (projectHandles) => {
+    return withProjectTargetMutation(target, async (projectHandles) => {
         if (mode === "zip") {
             const zipFile = firstFilePart(parts, "zip");
             assertZipFile(zipFile.filename ?? "");
@@ -35,7 +32,6 @@ export default defineEventHandler(async (event) => {
                     data: zipFile.data,
                 });
                 await recordUploadedFiles({target, history: projectHandles?.history, files: result.files, actor: USER_LOCAL_ACTOR});
-                invalidateWorkspaceTreeAfterMutation(target, projectHandles?.fileIndex);
                 return result;
             } catch (error) {
                 throw toUploadError(error);
@@ -59,7 +55,6 @@ export default defineEventHandler(async (event) => {
         try {
             const result = await uploadWorkspaceProjectFiles(target.root, files);
             await recordUploadedFiles({target, history: projectHandles?.history, files: result.files, actor: USER_LOCAL_ACTOR});
-            invalidateWorkspaceTreeAfterMutation(target, projectHandles?.fileIndex);
             return result;
         } catch (error) {
             throw toUploadError(error);

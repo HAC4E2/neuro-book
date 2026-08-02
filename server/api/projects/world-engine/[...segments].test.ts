@@ -216,6 +216,34 @@ describe("/api/projects/world-engine", {timeout: 30_000}, () => {
         const eventGroup = groups.find((group) => group.path === eventsPath);
         expect(eventGroup?.entries.at(-1)?.actor).toEqual({kind: "user", userId: "local"});
     });
+
+    it("并发 subject event commit 在同一 gate 内读取和追加", async () => {
+        const projectRootName = await createProject();
+        const subjectPath = "simulation/subjects/erina";
+        const eventsPath = `${subjectPath}/events.jsonl`;
+        await fs.mkdir(path.join(projectDirectory(projectRootName), subjectPath), {recursive: true});
+        await fs.writeFile(path.join(projectDirectory(projectRootName), eventsPath), "", "utf-8");
+        const handler = (await import("nbook/server/api/projects/world-engine/[...segments]")).default;
+
+        await Promise.all([
+            callApi(handler, projectRootName, "POST", "subject-file-proposals/events/commit", {
+                subjectId: "erina",
+                subjectPath,
+                eventsPath,
+                event: {text: "并发提交 A"},
+            }),
+            callApi(handler, projectRootName, "POST", "subject-file-proposals/events/commit", {
+                subjectId: "erina",
+                subjectPath,
+                eventsPath,
+                event: {text: "并发提交 B"},
+            }),
+        ]);
+
+        const text = await fs.readFile(path.join(projectDirectory(projectRootName), eventsPath), "utf-8");
+        expect(text).toContain("并发提交 A");
+        expect(text).toContain("并发提交 B");
+    });
 });
 
 async function createProject(options: {open?: boolean} = {}): Promise<string> {

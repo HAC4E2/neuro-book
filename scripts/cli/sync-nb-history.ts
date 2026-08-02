@@ -7,7 +7,7 @@ import {createHash} from "node:crypto";
 const execFileAsync = promisify(execFile);
 
 const NEUROBOOK_ROOT = path.resolve(import.meta.dir, "../..");
-const NB_HISTORY_SOURCE_REPO = path.resolve(NEUROBOOK_ROOT, "..", "nb-history");
+const NB_HISTORY_SOURCE_REPO = await resolveHistorySourceRepo();
 const NB_HISTORY_SOURCE_ROOT = path.join(NB_HISTORY_SOURCE_REPO, "src");
 const NB_HISTORY_TARGET_ROOT = path.resolve(NEUROBOOK_ROOT, "server", "vendor", "nb-history");
 const VENDOR_MANIFEST_NAME = "VENDOR.json";
@@ -21,6 +21,23 @@ type VendorManifest = {
     syncedAt: string;
     note: string;
 };
+
+/** 普通 checkout 使用相邻仓；Git worktree 则从 common dir 回到主 checkout 的 sibling。 */
+async function resolveHistorySourceRepo(): Promise<string> {
+    const adjacent = path.resolve(NEUROBOOK_ROOT, "..", "nb-history");
+    if (await fs.stat(path.join(adjacent, "src")).then((entry) => entry.isDirectory(), () => false)) {
+        return adjacent;
+    }
+    const {stdout} = await execFileAsync("git", [
+        "-C",
+        NEUROBOOK_ROOT,
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-common-dir",
+    ]);
+    const primaryCheckout = path.dirname(stdout.trim());
+    return path.resolve(primaryCheckout, "..", "nb-history");
+}
 
 /**
  * 从 sibling nb-history 开发仓把 src/ 源码镜像到 NeuroBook vendored snapshot。

@@ -4,7 +4,6 @@ import type {ChapterRepository} from "nbook/server/plot/contracts/plot-repositor
 import {PlotScopeGuard} from "nbook/server/plot/services/plot-scope.guard";
 import {StoryService} from "nbook/server/plot/services/story.service";
 import {chapterIdentityFromPath} from "nbook/server/workspace-files/project-workspace";
-import {invalidateProjectWorkspaceIndexAfterMutation} from "nbook/server/workspace-files/project-workspace-index";
 import {parseMarkdownDocument, renderMarkdownDocument} from "nbook/server/workspace-files/workspace-files";
 import type {WorkspaceFileNode} from "nbook/server/workspace-files/workspace-files";
 import {recordProjectWrite} from "nbook/server/workspace-history/project-history";
@@ -133,7 +132,7 @@ export class ChapterBootstrapService {
 
 /**
  * 事务提交后回写 Prose frontmatter 反指(纯文件 I/O,与 DB 事务解耦)。
- * 已有 chapter 指针的文件跳过;有写入则失效 workspace 索引让反指立即可查。
+ * 已有 chapter 指针的文件跳过；全部写入经 File Index mutation gate 串行并自动刷新 snapshot。
  */
 export async function writeProsePointers(
     target: ProjectWorkspaceFileTarget,
@@ -143,16 +142,14 @@ export async function writeProsePointers(
 ): Promise<{proseFrontmatterWritten: string[]; warnings: string[]}> {
     const proseFrontmatterWritten: string[] = [];
     const warnings: string[] = [];
-    for (const {node, chapterName} of pointers) {
-        const written = await writeChapterPointer(target.root, node, chapterName, warnings, history);
-        if (written) {
-            proseFrontmatterWritten.push(written);
+    await fileIndex.mutate(async () => {
+        for (const {node, chapterName} of pointers) {
+            const written = await writeChapterPointer(target.root, node, chapterName, warnings, history);
+            if (written) {
+                proseFrontmatterWritten.push(written);
+            }
         }
-    }
-    if (proseFrontmatterWritten.length > 0) {
-        // frontmatter 写回绕过了常规写入口,手动失效 workspace 索引让反指立即可查。
-        invalidateProjectWorkspaceIndexAfterMutation(target, fileIndex);
-    }
+    });
     return {proseFrontmatterWritten, warnings};
 }
 

@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {randomUUID} from "node:crypto";
-import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
+import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi} from "vitest";
 import {Type} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {defineProfileHome} from "nbook/server/agent/profiles/profile-home";
@@ -35,36 +35,68 @@ import {runSessionSchemaV2Migration} from "nbook/server/agent/session/migrations
 const createdRoots: string[] = [];
 const catalog = createCatalog(["leader.default", "leader.assets", "custom.agent", "writer"]);
 const CONFIG_TEST_PROJECT_ROOT = "config-test-project";
+const originalStateRoot = process.env.NEURO_BOOK_STATE_ROOT;
 let isolatedAssets: IsolatedWorkspaceAssets | null = null;
 
 describe("config service", {timeout: 30_000}, () => {
+    beforeAll(async () => {
+        isolatedAssets = await createIsolatedWorkspaceAssets();
+        process.env.NEURO_BOOK_STATE_ROOT = isolatedAssets.root;
+        try {
+            await runSessionSchemaV2Migration({
+                rootWorkspace: isolatedAssets.workspaceContainerRoot,
+                mode: "apply",
+                runId: `config-test-${randomUUID()}`,
+            });
+            await startAgentSessionStoreRuntime(isolatedAssets.workspaceContainerRoot);
+        } catch (error) {
+            try {
+                await isolatedAssets.dispose();
+            } catch (disposeError) {
+                throw new AggregateError([error, disposeError], "Config test suite 初始化与 fixture 清理均失败");
+            } finally {
+                restoreStateRoot();
+                isolatedAssets = null;
+            }
+            throw error;
+        }
+    });
+
     beforeEach(async () => {
-        isolatedAssets = await createIsolatedWorkspaceAssets({useAsCwd: true});
-        await runSessionSchemaV2Migration({
-            rootWorkspace: isolatedAssets.workspaceContainerRoot,
-            mode: "apply",
-            runId: `config-test-${randomUUID()}`,
-        });
-        await startAgentSessionStoreRuntime(isolatedAssets.workspaceContainerRoot);
         await createProjectFixture();
         await openProjectForTest(CONFIG_TEST_PROJECT_ROOT);
     });
 
     afterEach(async () => {
-        const workspaceRoot = isolatedAssets?.workspaceContainerRoot;
+        await resetConfigTestState();
+    });
+
+    afterAll(async () => {
+        const assets = isolatedAssets;
+        if (!assets) return;
+        const failures: unknown[] = [];
         try {
-            await closeProjectForTest(CONFIG_TEST_PROJECT_ROOT).catch(() => undefined);
-            resetProjectSessionsForTest();
-            await disposeAgentHarness();
-            await Promise.all(createdRoots.splice(0).map((root) => fs.rm(root, {recursive: true, force: true})));
+            try {
+                await resetConfigTestState();
+            } catch (error) {
+                failures.push(error);
+            }
+            try {
+                await stopAgentSessionStoreRuntime(assets.workspaceContainerRoot);
+            } catch (error) {
+                failures.push(error);
+            }
         } finally {
             try {
-                if (workspaceRoot) await stopAgentSessionStoreRuntime(workspaceRoot);
-            } finally {
-                // dispose 内部已聚合错误并保证最终 rm(root)，这里只保证它一定被调用。
-                await isolatedAssets?.dispose();
-                isolatedAssets = null;
+                await assets.dispose();
+            } catch (error) {
+                failures.push(error);
             }
+            restoreStateRoot();
+            isolatedAssets = null;
+        }
+        if (failures.length > 0) {
+            throw new AggregateError(failures, "Config test suite 清理存在失败项");
         }
     });
 
@@ -73,8 +105,8 @@ describe("config service", {timeout: 30_000}, () => {
 
         expect(snapshot.defaultProfileSettings.effectiveProfileKey).toBe("leader.default");
         expect(snapshot.effective.ui).toMatchObject({costCurrency: "USD"});
-        await expect(fs.access(path.join("workspace", ".nbook", "config.json"))).rejects.toMatchObject({code: "ENOENT"});
-        await expect(fs.access(path.join("workspace", "config-test-project", ".nbook", "config.json"))).rejects.toMatchObject({code: "ENOENT"});
+        await expect(fs.access(path.join(workspaceRoot(), ".nbook", "config.json"))).rejects.toMatchObject({code: "ENOENT"});
+        await expect(fs.access(path.join(workspaceRoot(), "config-test-project", ".nbook", "config.json"))).rejects.toMatchObject({code: "ENOENT"});
     });
 
     it("Config target 复用 ready Project 的已解析 workspace", async () => {
@@ -83,7 +115,7 @@ describe("config service", {timeout: 30_000}, () => {
             projectRoot: CONFIG_TEST_PROJECT_ROOT,
         });
 
-        expect(target.project?.workspace.root).toBe(await fs.realpath(path.resolve("workspace", "config-test-project")));
+        expect(target.project?.workspace.root).toBe(await fs.realpath(path.resolve(workspaceRoot(), "config-test-project")));
     });
 
     it("Global Config 写入在文件 mutation 前拒绝不可运行模型", async () => {
@@ -123,7 +155,7 @@ describe("config service", {timeout: 30_000}, () => {
             statusCode: 400,
             data: {issues: expect.arrayContaining([expect.objectContaining({code: "missing_api"})])},
         });
-        await expect(fs.access(path.join("workspace", ".nbook", "config.json"))).rejects.toMatchObject({code: "ENOENT"});
+        await expect(fs.access(path.join(workspaceRoot(), ".nbook", "config.json"))).rejects.toMatchObject({code: "ENOENT"});
     });
 
     it("Global Config 写入拒绝缺少 Provider 默认 API", async () => {
@@ -134,12 +166,12 @@ describe("config service", {timeout: 30_000}, () => {
             statusCode: 400,
             data: {issues: expect.arrayContaining([expect.objectContaining({code: "missing_provider_model_api"})])},
         });
-        await expect(fs.access(path.join("workspace", ".nbook", "config.json"))).rejects.toMatchObject({code: "ENOENT"});
+        await expect(fs.access(path.join(workspaceRoot(), ".nbook", "config.json"))).rejects.toMatchObject({code: "ENOENT"});
     });
 
     it("不包含 models 的 Global 保存不会被当前坏模型阻断", async () => {
-        await fs.mkdir(path.join("workspace", ".nbook"), {recursive: true});
-        await fs.writeFile(path.join("workspace", ".nbook", "config.json"), JSON.stringify({
+        await fs.mkdir(path.join(workspaceRoot(), ".nbook"), {recursive: true});
+        await fs.writeFile(path.join(workspaceRoot(), ".nbook", "config.json"), JSON.stringify({
             models: {
                 default: "broken/model",
                 providers: [{
@@ -193,8 +225,8 @@ describe("config service", {timeout: 30_000}, () => {
     it("读取重复 Provider 配置保留全部原始条目、来源索引和 secret 状态", async () => {
         const models = validModelsInput();
         const first = models.providers[0]!;
-        await fs.mkdir(path.join("workspace", ".nbook"), {recursive: true});
-        await fs.writeFile(path.join("workspace", ".nbook", "config.json"), JSON.stringify({
+        await fs.mkdir(path.join(workspaceRoot(), ".nbook"), {recursive: true});
+        await fs.writeFile(path.join(workspaceRoot(), ".nbook", "config.json"), JSON.stringify({
             models: {
                 default: first.id + "/" + first.models[0]!.id,
                 providers: [
@@ -216,8 +248,8 @@ describe("config service", {timeout: 30_000}, () => {
     it("已保存 Provider 不允许通过来源索引改名或继承旧 API key", async () => {
         const models = validModelsInput();
         const first = models.providers[0]!;
-        await fs.mkdir(path.join("workspace", ".nbook"), {recursive: true});
-        await fs.writeFile(path.join("workspace", ".nbook", "config.json"), JSON.stringify({
+        await fs.mkdir(path.join(workspaceRoot(), ".nbook"), {recursive: true});
+        await fs.writeFile(path.join(workspaceRoot(), ".nbook", "config.json"), JSON.stringify({
             models: {
                 default: "first/model",
                 providers: [
@@ -232,7 +264,7 @@ describe("config service", {timeout: 30_000}, () => {
             id: index === 0 ? "first" : "second",
         }));
 
-        const configPath = path.join("workspace", ".nbook", "config.json");
+        const configPath = path.join(workspaceRoot(), ".nbook", "config.json");
         const before = await fs.readFile(configPath, "utf-8");
         await expect(saveGlobalConfig({models: {default: "first/model", providers}}, {workspaceKind: "user-assets"})).rejects.toMatchObject({
             statusCode: 400,
@@ -245,7 +277,7 @@ describe("config service", {timeout: 30_000}, () => {
         await saveGlobalConfig({models: validModelsInput()}, {workspaceKind: "user-assets"});
         const snapshot = await readConfigEditorSnapshot({workspaceKind: "user-assets"});
         const provider = snapshot.modelSettings.providers[0]!;
-        const configPath = path.join("workspace", ".nbook", "config.json");
+        const configPath = path.join(workspaceRoot(), ".nbook", "config.json");
         const before = await fs.readFile(configPath, "utf8");
 
         await expect(saveGlobalConfig({
@@ -273,7 +305,7 @@ describe("config service", {timeout: 30_000}, () => {
                 providers: [{...provider, modelApi: "openai-responses"}],
             },
         }, {workspaceKind: "user-assets"});
-        const raw = JSON.parse(await fs.readFile(path.join("workspace", ".nbook", "config.json"), "utf8")) as {
+        const raw = JSON.parse(await fs.readFile(path.join(workspaceRoot(), ".nbook", "config.json"), "utf8")) as {
             models?: {providers?: Array<{modelApi?: string; options?: {apiKey?: string}}>};
         };
 
@@ -299,8 +331,8 @@ describe("config service", {timeout: 30_000}, () => {
         const models = validModelsInput();
         await saveGlobalConfig({models}, {workspaceKind: "user-assets"});
         const modelKey = `${models.providers[0]!.id}/${models.providers[0]!.models[0]!.id}`;
-        await fs.mkdir(path.join("workspace", "config-test-project", ".nbook"), {recursive: true});
-        await fs.writeFile(path.join("workspace", "config-test-project", ".nbook", "config.json"), JSON.stringify({
+        await fs.mkdir(path.join(workspaceRoot(), "config-test-project", ".nbook"), {recursive: true});
+        await fs.writeFile(path.join(workspaceRoot(), "config-test-project", ".nbook", "config.json"), JSON.stringify({
             models: {default: modelKey},
         }), "utf8");
 
@@ -316,7 +348,7 @@ describe("config service", {timeout: 30_000}, () => {
 
     it("Agent-only Global 保存拒绝不可运行 modelKey 且不写文件", async () => {
         await saveGlobalConfig({models: validModelsInput()}, {workspaceKind: "user-assets"});
-        const configPath = path.join("workspace", ".nbook", "config.json");
+        const configPath = path.join(workspaceRoot(), ".nbook", "config.json");
         const before = await fs.readFile(configPath, "utf-8");
 
         await expect(saveGlobalConfig({
@@ -370,8 +402,8 @@ describe("config service", {timeout: 30_000}, () => {
     });
 
     it("Provider enabled 缺省为 true，保存 false 时会持久化", async () => {
-        await fs.mkdir(path.join("workspace", ".nbook"), {recursive: true});
-        await fs.writeFile(path.join("workspace", ".nbook", "config.json"), JSON.stringify({
+        await fs.mkdir(path.join(workspaceRoot(), ".nbook"), {recursive: true});
+        await fs.writeFile(path.join(workspaceRoot(), ".nbook", "config.json"), JSON.stringify({
             models: {
                 default: "legacy-provider/legacy-model",
                 providers: [{
@@ -430,7 +462,7 @@ describe("config service", {timeout: 30_000}, () => {
                 }],
             },
         }, {workspaceKind: "user-assets"}, catalog);
-        const raw = JSON.parse(await fs.readFile(path.join("workspace", ".nbook", "config.json"), "utf8")) as {models?: {providers?: Array<{enabled?: boolean}>}};
+        const raw = JSON.parse(await fs.readFile(path.join(workspaceRoot(), ".nbook", "config.json"), "utf8")) as {models?: {providers?: Array<{enabled?: boolean}>}};
 
         expect(saved.modelSettings.providers[0]?.enabled).toBe(false);
         expect(saved.modelSettings.enabledModels).toEqual([]);
@@ -477,14 +509,14 @@ describe("config service", {timeout: 30_000}, () => {
     });
 
     it("Project Config 在 project.yaml 损坏时仍可读写", async () => {
-        await fs.writeFile(path.join("workspace", "config-test-project", "project.yaml"), "kind: novel\ntitle: Config\nsummary: ''\na'a\n", "utf-8");
+        await fs.writeFile(path.join(workspaceRoot(), "config-test-project", "project.yaml"), "kind: novel\ntitle: Config\nsummary: ''\na'a\n", "utf-8");
 
         const snapshot = await saveProjectConfig({
             agent: {defaultProfileKey: "custom.agent"},
         }, {workspaceKind: "novel", projectRoot: "config-test-project"});
 
         expect(snapshot.defaultProfileSettings.effectiveProfileKey).toBe("custom.agent");
-        await fs.access(path.join("workspace", "config-test-project", ".nbook", "config.json"));
+        await fs.access(path.join(workspaceRoot(), "config-test-project", ".nbook", "config.json"));
     });
 
     it("Project 未 open 时拒绝保存 Project Config", async () => {
@@ -548,8 +580,8 @@ describe("config service", {timeout: 30_000}, () => {
         const writer = settings.agentProfiles.find((profile) => profile.profileKey === "writer");
 
         expect(writer?.settings).not.toBeNull();
-        await fs.access(path.join("workspace", ".nbook", "agents", "writer", "home.json"));
-        await expect(fs.access(path.join("workspace", "config-test-project", "agents", "writer", "home.json"))).rejects.toMatchObject({code: "ENOENT"});
+        await fs.access(path.join(workspaceRoot(), ".nbook", "agents", "writer", "home.json"));
+        await expect(fs.access(path.join(workspaceRoot(), "config-test-project", "agents", "writer", "home.json"))).rejects.toMatchObject({code: "ENOENT"});
     });
 
     it("Global secret 写回缺失 value 时保留旧 API key", async () => {
@@ -613,7 +645,7 @@ describe("config service", {timeout: 30_000}, () => {
                 }],
             },
         }, {workspaceKind: "user-assets"});
-        const raw = JSON.parse(await fs.readFile(path.join("workspace", ".nbook", "config.json"), "utf-8")) as {
+        const raw = JSON.parse(await fs.readFile(path.join(workspaceRoot(), ".nbook", "config.json"), "utf-8")) as {
             models?: {providers?: Array<{options: {apiKey: string}}>}
         };
 
@@ -664,7 +696,7 @@ describe("config service", {timeout: 30_000}, () => {
                 },
             },
         }, {workspaceKind: "user-assets"});
-        const raw = JSON.parse(await fs.readFile(path.join("workspace", ".nbook", "config.json"), "utf-8")) as {
+        const raw = JSON.parse(await fs.readFile(path.join(workspaceRoot(), ".nbook", "config.json"), "utf-8")) as {
             web?: {search?: {providers?: {tavily?: {apiKey?: string}; brave?: {apiKey?: string}}}}
         };
 
@@ -762,7 +794,7 @@ describe("config service", {timeout: 30_000}, () => {
             },
         }, {workspaceKind: "user-assets"});
 
-        const configPath = path.join("workspace", ".nbook", "config.json");
+        const configPath = path.join(workspaceRoot(), ".nbook", "config.json");
         const withOldAuth = JSON.parse(await fs.readFile(configPath, "utf-8")) as Record<string, unknown>;
         withOldAuth.auth = {enabled: false};
         await fs.writeFile(configPath, `${JSON.stringify(withOldAuth, null, 4)}\n`, "utf-8");
@@ -936,7 +968,7 @@ describe("config service", {timeout: 30_000}, () => {
         await saveProjectConfig({
             embedding: {model: "project-embed", dimensions: 768},
         }, {workspaceKind: "novel", projectRoot: CONFIG_TEST_PROJECT_ROOT});
-        const raw = JSON.parse(await fs.readFile(path.join("workspace", "config-test-project", ".nbook", "config.json"), "utf-8")) as {
+        const raw = JSON.parse(await fs.readFile(path.join(workspaceRoot(), "config-test-project", ".nbook", "config.json"), "utf-8")) as {
             models: {default: string};
             agent: {profileModelDefaults: {modelKey: string}; profiles: {writer: {model: {modelKey: string}}}};
             editor: {markdown: {fontSize: number}};
@@ -970,7 +1002,7 @@ describe("config service", {timeout: 30_000}, () => {
     });
 
     it("Global 模型保存不扫描、不修改当前 Project 的历史失效引用", async () => {
-        const projectConfigPath = path.join("workspace", "config-test-project", ".nbook", "config.json");
+        const projectConfigPath = path.join(workspaceRoot(), "config-test-project", ".nbook", "config.json");
         await fs.mkdir(path.dirname(projectConfigPath), {recursive: true});
         await fs.writeFile(projectConfigPath, JSON.stringify({
             models: {default: "missing/model"},
@@ -1458,18 +1490,18 @@ describe("config service", {timeout: 30_000}, () => {
                 },
             },
         }, {workspaceKind: "novel", projectRoot: "config-test-project"}, resourceCatalog);
-        const raw = JSON.parse(await fs.readFile(path.join("workspace", "config-test-project", ".nbook", "config.json"), "utf-8")) as {
+        const raw = JSON.parse(await fs.readFile(path.join(workspaceRoot(), "config-test-project", ".nbook", "config.json"), "utf-8")) as {
             agent?: {profiles?: {writer?: {resourceMutations?: unknown; settings?: {writingStylePreset?: string}}}}
         };
 
         expect(raw.agent?.profiles?.writer?.settings?.writingStylePreset).toBe("styles/new.md");
         expect(raw.agent?.profiles?.writer?.resourceMutations).toBeUndefined();
-        await expect(fs.readFile(path.join("workspace", "config-test-project", "agents", "writer", "styles", "new.md"), "utf-8")).resolves.toContain("新的文风正文");
+        await expect(fs.readFile(path.join(workspaceRoot(), "config-test-project", "agents", "writer", "styles", "new.md"), "utf-8")).resolves.toContain("新的文风正文");
     });
 
     it("Project 保存 settings 校验失败时不会先写入 resource mutations", async () => {
         const resourceCatalog = createCatalog(["writer"], {writingStyleResource: true});
-        const resourcePath = path.join("workspace", "config-test-project", "agents", "writer", "styles", "invalid-save.md");
+        const resourcePath = path.join(workspaceRoot(), "config-test-project", "agents", "writer", "styles", "invalid-save.md");
 
         await expect(saveProjectConfig({
             agent: {
@@ -1523,8 +1555,8 @@ describe("config service", {timeout: 30_000}, () => {
             },
         }, {workspaceKind: "novel", projectRoot: "config-test-project"}, resourceCatalog)).rejects.toMatchObject({statusCode: 400});
 
-        await expect(fs.access(path.join("workspace", "config-test-project", "agents", "writer", "styles", "first.md"))).rejects.toMatchObject({code: "ENOENT"});
-        await expect(fs.access(path.join("workspace", "config-test-project", "agents", "writer", "styles", "second.md"))).rejects.toMatchObject({code: "ENOENT"});
+        await expect(fs.access(path.join(workspaceRoot(), "config-test-project", "agents", "writer", "styles", "first.md"))).rejects.toMatchObject({code: "ENOENT"});
+        await expect(fs.access(path.join(workspaceRoot(), "config-test-project", "agents", "writer", "styles", "second.md"))).rejects.toMatchObject({code: "ENOENT"});
     });
 
     it("Project 保存按 resource mutations 最终 key 校验没有 validateKey 的 resolver", async () => {
@@ -1559,8 +1591,8 @@ describe("config service", {timeout: 30_000}, () => {
 
     it("Project 保存拒绝 rename 后继续保存旧 selected key", async () => {
         const resourceCatalog = createCatalog(["writer"], {writingStyleResource: true});
-        await fs.mkdir(path.join("workspace", "config-test-project", "agents", "writer", "styles"), {recursive: true});
-        await fs.writeFile(path.join("workspace", "config-test-project", "agents", "writer", "styles", "old.md"), "旧正文", "utf-8");
+        await fs.mkdir(path.join(workspaceRoot(), "config-test-project", "agents", "writer", "styles"), {recursive: true});
+        await fs.writeFile(path.join(workspaceRoot(), "config-test-project", "agents", "writer", "styles", "old.md"), "旧正文", "utf-8");
 
         await expect(saveProjectConfig({
             agent: {
@@ -1582,13 +1614,13 @@ describe("config service", {timeout: 30_000}, () => {
             },
         }, {workspaceKind: "novel", projectRoot: "config-test-project"}, resourceCatalog)).rejects.toMatchObject({statusCode: 400});
 
-        await expect(fs.readFile(path.join("workspace", "config-test-project", "agents", "writer", "styles", "old.md"), "utf-8")).resolves.toBe("旧正文");
+        await expect(fs.readFile(path.join(workspaceRoot(), "config-test-project", "agents", "writer", "styles", "old.md"), "utf-8")).resolves.toBe("旧正文");
     });
 
     it("Project 保存拒绝删除当前最终 selected key", async () => {
         const resourceCatalog = createCatalog(["writer"], {writingStyleResource: true});
-        await fs.mkdir(path.join("workspace", "config-test-project", "agents", "writer", "styles"), {recursive: true});
-        await fs.writeFile(path.join("workspace", "config-test-project", "agents", "writer", "styles", "old.md"), "旧正文", "utf-8");
+        await fs.mkdir(path.join(workspaceRoot(), "config-test-project", "agents", "writer", "styles"), {recursive: true});
+        await fs.writeFile(path.join(workspaceRoot(), "config-test-project", "agents", "writer", "styles", "old.md"), "旧正文", "utf-8");
 
         await expect(saveProjectConfig({
             agent: {
@@ -1608,7 +1640,7 @@ describe("config service", {timeout: 30_000}, () => {
             },
         }, {workspaceKind: "novel", projectRoot: "config-test-project"}, resourceCatalog)).rejects.toMatchObject({statusCode: 400});
 
-        await expect(fs.readFile(path.join("workspace", "config-test-project", "agents", "writer", "styles", "old.md"), "utf-8")).resolves.toBe("旧正文");
+        await expect(fs.readFile(path.join(workspaceRoot(), "config-test-project", "agents", "writer", "styles", "old.md"), "utf-8")).resolves.toBe("旧正文");
     });
 
     it("Project 显式保存 global-only resource key 时要求先复制到项目", async () => {
@@ -1697,12 +1729,12 @@ describe("config service", {timeout: 30_000}, () => {
         const writer = settings.agentProfiles.find((profile) => profile.profileKey === "writer");
 
         expect(writer?.settings?.projectPatch).toEqual({writingStylePreset: "styles/global-only.md"});
-        await expect(fs.readFile(path.join("workspace", "config-test-project", "agents", "writer", "styles", "global-only.md"), "utf-8")).resolves.toContain("项目固化正文");
+        await expect(fs.readFile(path.join(workspaceRoot(), "config-test-project", "agents", "writer", "styles", "global-only.md"), "utf-8")).resolves.toContain("项目固化正文");
     });
 
     it("Project 可以重置 profile home 并刷新完整 settings snapshot", async () => {
         const resourceCatalog = createCatalog(["writer"], {writingStyleResource: true, homeReset: true});
-        const customPath = path.join("workspace", "config-test-project", "agents", "writer", "styles", "custom.md");
+        const customPath = path.join(workspaceRoot(), "config-test-project", "agents", "writer", "styles", "custom.md");
         await fs.mkdir(path.dirname(customPath), {recursive: true});
         await fs.writeFile(customPath, "用户自定义", "utf-8");
 
@@ -1715,7 +1747,7 @@ describe("config service", {timeout: 30_000}, () => {
         const writer = settings.agentProfiles.find((profile) => profile.profileKey === "writer");
 
         await expect(fs.access(customPath)).rejects.toMatchObject({code: "ENOENT"});
-        await expect(fs.readFile(path.join("workspace", "config-test-project", "agents", "writer", "styles", "reset.md"), "utf-8")).resolves.toBe("reset");
+        await expect(fs.readFile(path.join(workspaceRoot(), "config-test-project", "agents", "writer", "styles", "reset.md"), "utf-8")).resolves.toBe("reset");
         expect(writer?.canResetHome).toBe(true);
         expect(writer?.settings?.form.fields[0]?.resource?.options).toEqual([expect.objectContaining({key: "styles/reset.md"})]);
     });
@@ -1753,8 +1785,8 @@ describe("config service", {timeout: 30_000}, () => {
             key: "styles/global-only.md",
             origin: "global",
         })]);
-        await fs.access(path.join("workspace", ".nbook", "agents", "writer", "home.json"));
-        await expect(fs.access(path.join("workspace", "config-test-project", "agents", "writer", "home.json"))).rejects.toMatchObject({code: "ENOENT"});
+        await fs.access(path.join(workspaceRoot(), ".nbook", "agents", "writer", "home.json"));
+        await expect(fs.access(path.join(workspaceRoot(), "config-test-project", "agents", "writer", "home.json"))).rejects.toMatchObject({code: "ENOENT"});
     });
 
     it("Global 保存应用 resource mutations 且不把 mutations 写入 config", async () => {
@@ -1779,13 +1811,13 @@ describe("config service", {timeout: 30_000}, () => {
                 },
             },
         }, {workspaceKind: "user-assets"}, resourceCatalog);
-        const raw = JSON.parse(await fs.readFile(path.join("workspace", ".nbook", "config.json"), "utf-8")) as {
+        const raw = JSON.parse(await fs.readFile(path.join(workspaceRoot(), ".nbook", "config.json"), "utf-8")) as {
             agent?: {profiles?: {writer?: {resourceMutations?: unknown; settings?: {writingStylePreset?: string}}}}
         };
 
         expect(raw.agent?.profiles?.writer?.settings?.writingStylePreset).toBe("styles/new.md");
         expect(raw.agent?.profiles?.writer?.resourceMutations).toBeUndefined();
-        await expect(fs.readFile(path.join("workspace", ".nbook", "agents", "writer", "styles", "new.md"), "utf-8")).resolves.toContain("全局新文风正文");
+        await expect(fs.readFile(path.join(workspaceRoot(), ".nbook", "agents", "writer", "styles", "new.md"), "utf-8")).resolves.toContain("全局新文风正文");
     });
 });
 
@@ -1824,13 +1856,72 @@ function validModelsInput(): NonNullable<GlobalConfigUpdateDto["models"]> {
 }
 
 async function createProjectFixture(): Promise<void> {
-    await fs.mkdir(path.join("workspace", "config-test-project"), {recursive: true});
-    await fs.writeFile(path.join("workspace", "config-test-project", "project.yaml"), [
+    await fs.mkdir(path.join(workspaceRoot(), "config-test-project"), {recursive: true});
+    await fs.writeFile(path.join(workspaceRoot(), "config-test-project", "project.yaml"), [
         "kind: novel",
         "title: Config Test Project",
         "summary: ''",
         "",
     ].join("\n"), "utf-8");
+}
+
+/**
+ * 清空单个 Config 用例拥有的可变状态。
+ *
+ * Session migration 与 runtime lease 是 suite 级只读基础设施；Global Config、Profile Home、
+ * Project Workspace 和额外临时目录仍逐项删除，避免用例之间共享业务状态。
+ */
+async function resetConfigTestState(): Promise<void> {
+    const failures: unknown[] = [];
+    try {
+        await closeProjectForTest(CONFIG_TEST_PROJECT_ROOT);
+    } catch (error) {
+        failures.push(error);
+    }
+    resetProjectSessionsForTest();
+    try {
+        await disposeAgentHarness();
+    } catch (error) {
+        failures.push(error);
+    }
+    for (const root of createdRoots.splice(0)) {
+        try {
+            await fs.rm(root, {recursive: true, force: true});
+        } catch (error) {
+            failures.push(error);
+        }
+    }
+    for (const target of [
+        path.join(workspaceRoot(), CONFIG_TEST_PROJECT_ROOT),
+        path.join(workspaceRoot(), ".nbook", "config.json"),
+        path.join(workspaceRoot(), ".nbook", "agents"),
+    ]) {
+        try {
+            await fs.rm(target, {recursive: true, force: true, maxRetries: 10, retryDelay: 100});
+        } catch (error) {
+            failures.push(error);
+        }
+    }
+    if (failures.length > 0) {
+        throw new AggregateError(failures, "Config test 用例清理存在失败项");
+    }
+}
+
+/** 返回当前用例显式拥有的 Workspace Root，避免测试通过进程 cwd 隐式寻址。 */
+function workspaceRoot(): string {
+    if (!isolatedAssets) {
+        throw new Error("Config test Workspace fixture 尚未初始化");
+    }
+    return isolatedAssets.workspaceContainerRoot;
+}
+
+/** 恢复测试文件进入前的 Product Runtime Environment。 */
+function restoreStateRoot(): void {
+    if (originalStateRoot === undefined) {
+        delete process.env.NEURO_BOOK_STATE_ROOT;
+        return;
+    }
+    process.env.NEURO_BOOK_STATE_ROOT = originalStateRoot;
 }
 
 function createCatalog(

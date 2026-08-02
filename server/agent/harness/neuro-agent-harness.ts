@@ -643,21 +643,23 @@ export class NeuroAgentHarness {
                 catalog: this.profiles,
             });
             this.profiles.attachBuildCoordinator(this.profileBuildCoordinator);
-            void this.profiles.refreshRuntimeRegistry("startup").then(() => this.profileBuildCoordinator?.bootSweep()).catch((error) => {
+            const startup = this.profiles.refreshRuntimeRegistry("startup").then(() => this.profileBuildCoordinator?.bootSweep()).catch((error) => {
                 void appLogger.warn("agent.profileBuild.bootSweepFailed", {
                     error: error instanceof Error ? error.message : String(error),
                 });
             });
+            this.startBackgroundTask("profile-runtime-startup", startup);
         }
         for (const tool of createBuiltinTools()) {
             this.tools.register(tool);
         }
         if (options.watchProfiles) {
-            void this.profiles.startWatching().catch((error) => {
+            const watcherStartup = this.profiles.startWatching().catch((error) => {
                 void appLogger.warn("agent.profileCatalog.watchStartFailed", {
                     error: error instanceof Error ? error.message : String(error),
                 });
             });
+            this.startBackgroundTask("profile-watcher-startup", watcherStartup);
         }
         // agent 在场探针（Task 94）：只承认捕获了同一个 ready generation 的运行中 invocation。
         // waiting 不算在场：invocation 等用户输入时项目可休眠，resume 会重新走 invokeAgent 的 ensure-open 把项目重开。

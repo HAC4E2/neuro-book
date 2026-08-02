@@ -7,7 +7,6 @@ import type {
 } from "nbook/server/workspace-files/project-identity";
 import {
     PROJECT_FILE_INDEX_MODULE_TOKEN,
-    type ProjectFileIndexHandle,
 } from "nbook/server/workspace-files/project-file-index";
 import {
     requireReadyModuleHandle,
@@ -79,15 +78,14 @@ export async function recordContextAccess(input: RecordContextAccessInput): Prom
     await runReadyProjectOperation(input.project, async () => {
         const fileIndex = requireReadyModuleHandle(input.project, PROJECT_FILE_INDEX_MODULE_TOKEN);
         const profileKey = contextProfileKey(input.profileKey);
-        await updateContextAccessState({
+        await fileIndex.mutate(() => updateContextAccessState({
             project: input.project,
-            fileIndex,
             profileKey,
             sessionId: input.sessionId,
             path: normalized.path,
             signal: input.signal ?? normalized.signal,
             now: input.now ?? new Date(),
-        });
+        }));
     });
 }
 
@@ -105,15 +103,14 @@ export async function recordExplicitContextEntries(input: RecordExplicitContextE
         const fileIndex = requireReadyModuleHandle(input.project, PROJECT_FILE_INDEX_MODULE_TOKEN);
         const profileKey = contextProfileKey(input.profileKey);
         for (const normalized of entries) {
-            await updateContextAccessState({
+            await fileIndex.mutate(() => updateContextAccessState({
                 project: input.project,
-                fileIndex,
                 profileKey,
                 sessionId: input.sessionId,
                 path: normalized.path,
                 signal: "explicitInput",
                 now: input.now ?? new Date(),
-            });
+            }));
         }
     });
 }
@@ -163,7 +160,6 @@ export function renderGeneratedRecommendations(state: ContextAccessState): strin
 
 async function updateContextAccessState(input: {
     project: ReadyProjectSessionRef;
-    fileIndex: ProjectFileIndexHandle;
     profileKey: string;
     sessionId: string;
     path: string;
@@ -220,7 +216,6 @@ async function updateContextAccessState(input: {
         state.updatedAt = nowText;
         await writeTextAtomically(statePath, `${JSON.stringify(state, null, 4)}\n`);
         await writeGeneratedRecommendations(workspace, state);
-        input.fileIndex.invalidate();
     });
 }
 

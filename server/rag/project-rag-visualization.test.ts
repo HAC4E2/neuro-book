@@ -177,6 +177,24 @@ describe("project RAG visualization service", () => {
         await expect(readFile(join(root, "workspace", "rag-visual-test", ".nbook", "subject-rag-dirty.json"), "utf-8")).resolves.toContain("\"events\"");
     });
 
+    it("并发新增 event 在同一 mutation gate 内读改写，不丢失任一结果", async () => {
+        await Promise.all([
+            service.createProjectRagEvent(target, {
+                subjectPath: "simulation/subjects/heroine",
+                event: {text: "并发事件 A"},
+            }),
+            service.createProjectRagEvent(target, {
+                subjectPath: "simulation/subjects/heroine",
+                event: {text: "并发事件 B"},
+            }),
+        ]);
+
+        const eventsText = await readFile(join(root, "workspace", "rag-visual-test", "simulation", "subjects", "heroine", "events.jsonl"), "utf-8");
+        const texts = parseSubjectEventsJsonl(eventsText).map((event) => event.text);
+        expect(texts).toContain("并发事件 A");
+        expect(texts).toContain("并发事件 B");
+    });
+
     it("memory CRUD 使用 topic 定位并标记 dirty", async () => {
         await service.createProjectRagMemory(target, {
             subjectPath: "simulation/subjects/heroine",

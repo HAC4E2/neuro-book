@@ -11,6 +11,7 @@ export {WorkspaceHistory} from "./workspace-history";
 export {
     DEFAULT_HISTORY_CONFIG,
     HistoryError,
+    HistoryInboxMutationError,
     afterStateHash,
     beforeStateHash,
     operationPath,
@@ -19,6 +20,7 @@ export type {
     DeletedFileInfo,
     FileOperation,
     HistoryConfig,
+    HistoryInboxMutationErrorCode,
     InboxGroup,
     OpenOptions,
     OperationActor,

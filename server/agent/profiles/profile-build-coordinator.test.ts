@@ -24,9 +24,14 @@ describe("ProfileBuildCoordinator", () => {
     it("源码保存入队后立即暴露 queued，并在 debounce 后清理状态", async () => {
         await writeProfile("custom.auto.profile.tsx", `export const profileManifest = { key: "custom.auto", name: "Auto" } as const;`);
         const calls: string[] = [];
+        let signalCompiled!: () => void;
+        const compiled = new Promise<void>((resolveCompiled) => {
+            signalCompiled = resolveCompiled;
+        });
         const worker = fakeWorker({
             compile: async (input) => {
                 calls.push(input.fileName);
+                signalCompiled();
                 return compileResult(true, [{
                     profileKey: "custom.auto",
                     fileName: input.fileName,
@@ -45,14 +50,14 @@ describe("ProfileBuildCoordinator", () => {
             running: false,
             reason: "profile_source_saved",
         }));
-        await waitFor(() => {
-            expect(calls).toEqual(["custom.auto.profile.tsx"]);
-            expect(catalog.buildStateFor("custom.auto")).toEqual(expect.objectContaining({
-                queued: false,
-                running: false,
-                reason: null,
-            }));
-        }, 3_000);
+        await compiled;
+        await coordinator.flush();
+        expect(calls).toEqual(["custom.auto.profile.tsx"]);
+        expect(catalog.buildStateFor("custom.auto")).toEqual(expect.objectContaining({
+            queued: false,
+            running: false,
+            reason: null,
+        }));
     });
 
     it("同一窗口多个文件合并为 compileAll", async () => {
@@ -69,14 +74,12 @@ describe("ProfileBuildCoordinator", () => {
             },
         });
         const catalog = new AgentProfileCatalog("__missing_system__", userRoot);
-        const coordinator = new ProfileBuildCoordinator({catalog, userProfileRoot: userRoot, debounceMs: 1, worker});
+        const coordinator = new ProfileBuildCoordinator({catalog, userProfileRoot: userRoot, debounceMs: 1_000, worker});
         catalog.attachBuildCoordinator(coordinator);
 
         await catalog.enqueueBuild({fileName: "custom.one.profile.tsx", reason: "watch:change"});
         await catalog.enqueueBuild({fileName: "custom.two.profile.tsx", reason: "watch:change"});
-        await waitFor(() => {
-            expect(compileAllCount).toBe(1);
-        }, 3_000);
+        await coordinator.flush();
 
         expect(compileAllCount).toBe(1);
         expect(catalog.buildStateFor("custom.one").reason).toBeNull();
@@ -100,14 +103,13 @@ describe("ProfileBuildCoordinator", () => {
         catalog.attachBuildCoordinator(coordinator);
 
         await catalog.enqueueBuild({fileName, reason: "watch:change"});
-        await waitFor(() => {
-            expect(calls).toEqual([]);
-            expect(catalog.buildStateFor("custom.synced")).toEqual(expect.objectContaining({
-                queued: false,
-                running: false,
-                reason: null,
-            }));
-        }, 3_000);
+        await coordinator.flush();
+        expect(calls).toEqual([]);
+        expect(catalog.buildStateFor("custom.synced")).toEqual(expect.objectContaining({
+            queued: false,
+            running: false,
+            reason: null,
+        }));
     });
 
     it("watcher 事件发现 artifact 缺失时仍会启动编译", async () => {
@@ -131,9 +133,8 @@ describe("ProfileBuildCoordinator", () => {
         catalog.attachBuildCoordinator(coordinator);
 
         await catalog.enqueueBuild({fileName, reason: "watch:change"});
-        await waitFor(() => {
-            expect(calls).toEqual([fileName]);
-        }, 3_000);
+        await coordinator.flush();
+        expect(calls).toEqual([fileName]);
     });
 
     it("boot sweep 会把缺少 manifest entry 的用户 profile 入队自愈", async () => {
@@ -159,9 +160,8 @@ describe("ProfileBuildCoordinator", () => {
             queued: true,
             reason: "profile_boot_sweep",
         }));
-        await waitFor(() => {
-            expect(calls).toEqual(["custom.boot.profile.tsx"]);
-        }, 3_000);
+        await coordinator.flush();
+        expect(calls).toEqual(["custom.boot.profile.tsx"]);
     });
 
     it("boot sweep 遇到旧 compilerVersion manifest 时保留用户源码并入队重编", async () => {
@@ -209,9 +209,8 @@ describe("ProfileBuildCoordinator", () => {
             queued: true,
             reason: "profile_boot_sweep",
         }));
-        await waitFor(() => {
-            expect(calls).toEqual([fileName]);
-        }, 3_000);
+        await coordinator.flush();
+        expect(calls).toEqual([fileName]);
     });
 
     it("worker 返回 stale 时丢弃旧结果并重新入队", async () => {
@@ -238,14 +237,13 @@ describe("ProfileBuildCoordinator", () => {
         catalog.attachBuildCoordinator(coordinator);
 
         await catalog.enqueueBuild({fileName: "custom.stale.profile.tsx", reason: "profile_source_saved"});
-        await waitFor(() => {
-            expect(calls).toEqual(["custom.stale.profile.tsx", "custom.stale.profile.tsx"]);
-            expect(catalog.buildStateFor("custom.stale")).toEqual(expect.objectContaining({
-                queued: false,
-                running: false,
-                reason: null,
-            }));
-        }, 3_000);
+        await coordinator.flush();
+        expect(calls).toEqual(["custom.stale.profile.tsx", "custom.stale.profile.tsx"]);
+        expect(catalog.buildStateFor("custom.stale")).toEqual(expect.objectContaining({
+            queued: false,
+            running: false,
+            reason: null,
+        }));
     });
 
     it("worker 返回 stale 且源码已删除时升格为 full build", async () => {
@@ -272,10 +270,159 @@ describe("ProfileBuildCoordinator", () => {
         catalog.attachBuildCoordinator(coordinator);
 
         await catalog.enqueueBuild({fileName, reason: "profile_source_saved"});
-        await waitFor(() => {
-            expect(compileCalls).toEqual([fileName]);
-            expect(compileAllCount).toBe(1);
-        }, 3_000);
+        await coordinator.flush();
+        expect(compileCalls).toEqual([fileName]);
+        expect(compileAllCount).toBe(1);
+    });
+
+    it("artifact freshness 校验失败后会复位 pump 并允许再次 flush", async () => {
+        const fileName = "custom.freshness.profile.tsx";
+        const source = `export const profileManifest = { key: "custom.freshness", name: "Freshness" } as const;`;
+        await writeProfile(fileName, source);
+        await writeFreshManifest(fileName, "custom.freshness", source);
+        const artifactSha = createHash("sha256").update("test").digest("hex");
+        const artifactPath = join(userRoot, ".compiled", "artifacts", `${artifactSha}.mjs`);
+        await rm(artifactPath);
+        await mkdir(artifactPath);
+        const catalog = new AgentProfileCatalog("__missing_system__", userRoot);
+        const coordinator = new ProfileBuildCoordinator({catalog, userProfileRoot: userRoot, debounceMs: 1, worker: fakeWorker({})});
+        catalog.attachBuildCoordinator(coordinator);
+
+        await catalog.enqueueBuild({fileName, reason: "watch:change"});
+        await expect(coordinator.flush()).rejects.toThrow();
+        expect(catalog.buildStateFor("custom.freshness").reason).toBe("profile_build_failed");
+
+        await rm(artifactPath, {recursive: true});
+        await writeFile(artifactPath, "test", "utf8");
+        await catalog.enqueueBuild({fileName, reason: "watch:change"});
+        await expect(coordinator.flush()).resolves.toBeUndefined();
+        expect(catalog.buildStateFor("custom.freshness")).toEqual(expect.objectContaining({
+            queued: false,
+            running: false,
+            reason: null,
+        }));
+    });
+
+    it("dispose 会等待仍在解析 Catalog 的 enqueue producer", async () => {
+        let signalSnapshotStarted!: () => void;
+        let releaseSnapshot!: () => void;
+        const snapshotStarted = new Promise<void>((resolveStarted) => {
+            signalSnapshotStarted = resolveStarted;
+        });
+        const snapshotGate = new Promise<void>((resolveSnapshot) => {
+            releaseSnapshot = resolveSnapshot;
+        });
+        const catalog = {
+            async snapshot() {
+                signalSnapshotStarted();
+                await snapshotGate;
+                return {profiles: []};
+            },
+        } as unknown as AgentProfileCatalog;
+        const coordinator = new ProfileBuildCoordinator({catalog, userProfileRoot: userRoot, worker: fakeWorker({})});
+
+        const enqueue = coordinator.enqueue({reason: "profile_boot_sweep"});
+        await snapshotStarted;
+        let disposed = false;
+        const disposal = coordinator.dispose().then(() => {
+            disposed = true;
+        });
+        await Promise.resolve();
+        expect(disposed).toBe(false);
+
+        releaseSnapshot();
+        await Promise.all([enqueue, disposal]);
+        expect(disposed).toBe(true);
+    });
+
+    it("flush 在编译结果失败时拒绝并保留失败状态", async () => {
+        const fileName = "custom.failed.profile.tsx";
+        await writeProfile(fileName, `export const profileManifest = { key: "custom.failed", name: "Failed" } as const;`);
+        const worker = fakeWorker({
+            compile: async () => ({
+                ...compileResult(false, []),
+                issues: [{severity: "error", message: "类型检查失败"}],
+            }),
+        });
+        const catalog = new AgentProfileCatalog("__missing_system__", userRoot);
+        const coordinator = new ProfileBuildCoordinator({catalog, userProfileRoot: userRoot, debounceMs: 1, worker});
+        catalog.attachBuildCoordinator(coordinator);
+
+        await catalog.enqueueBuild({fileName, reason: "profile_source_saved"});
+        await expect(coordinator.flush()).rejects.toThrow("Profile 编译失败：类型检查失败");
+        expect(catalog.buildStateFor("custom.failed")).toEqual(expect.objectContaining({
+            queued: false,
+            running: false,
+            reason: "profile_build_failed",
+        }));
+    });
+
+    it("dispose 期间 stale 结果不会重新入队或启动后继 pump", async () => {
+        const fileName = "custom.stale-dispose.profile.tsx";
+        await writeProfile(fileName, `export const profileManifest = { key: "custom.staleDispose", name: "Stale Dispose" } as const;`);
+        let signalStarted!: () => void;
+        let signalFinished!: () => void;
+        const started = new Promise<void>((resolveStarted) => { signalStarted = resolveStarted; });
+        const finish = new Promise<void>((resolveFinished) => { signalFinished = resolveFinished; });
+        let compileCount = 0;
+        const worker = fakeWorker({
+            compile: async () => {
+                compileCount += 1;
+                signalStarted();
+                await finish;
+                return {...compileResult(false, []), stale: true};
+            },
+        });
+        const catalog = new AgentProfileCatalog("__missing_system__", userRoot);
+        const coordinator = new ProfileBuildCoordinator({catalog, userProfileRoot: userRoot, debounceMs: 1, worker});
+        catalog.attachBuildCoordinator(coordinator);
+
+        await catalog.enqueueBuild({fileName, reason: "profile_source_saved"});
+        const flush = coordinator.flush();
+        await started;
+        const disposal = coordinator.dispose();
+        signalFinished();
+
+        await Promise.all([flush, disposal]);
+        expect(compileCount).toBe(1);
+        await expect(coordinator.enqueue({fileName, reason: "late"})).rejects.toThrow("ProfileBuildCoordinator 已关闭");
+    });
+
+    it("dispose 会等待正在执行的 pump 完成", async () => {
+        const fileName = "custom.dispose.profile.tsx";
+        await writeProfile(fileName, `export const profileManifest = { key: "custom.dispose", name: "Dispose" } as const;`);
+        let signalStarted!: () => void;
+        let signalFinished!: () => void;
+        const started = new Promise<void>((resolveStarted) => {
+            signalStarted = resolveStarted;
+        });
+        const finish = new Promise<void>((resolveFinished) => {
+            signalFinished = resolveFinished;
+        });
+        const worker = fakeWorker({
+            compile: async () => {
+                signalStarted();
+                await finish;
+                return compileResult(true, []);
+            },
+        });
+        const catalog = new AgentProfileCatalog("__missing_system__", userRoot);
+        const coordinator = new ProfileBuildCoordinator({catalog, userProfileRoot: userRoot, debounceMs: 1, worker});
+        catalog.attachBuildCoordinator(coordinator);
+
+        await catalog.enqueueBuild({fileName, reason: "profile_source_saved"});
+        const flush = coordinator.flush();
+        await started;
+        let disposed = false;
+        const disposal = coordinator.dispose().then(() => {
+            disposed = true;
+        });
+        await Promise.resolve();
+        expect(disposed).toBe(false);
+
+        signalFinished();
+        await Promise.all([flush, disposal]);
+        expect(disposed).toBe(true);
     });
 
     async function writeProfile(fileName: string, source: string): Promise<void> {
@@ -355,28 +502,4 @@ function compileResult(ok: boolean, profiles: NonNullable<AgentProfileCompileRes
         issues: [],
         profiles,
     };
-}
-
-async function sleep(ms: number): Promise<void> {
-    await new Promise((resolveSleep) => {
-        setTimeout(resolveSleep, ms);
-    });
-}
-
-async function waitFor(assertion: () => void, timeoutMs = 1_000): Promise<void> {
-    const startedAt = Date.now();
-    let lastError: unknown;
-    while (Date.now() - startedAt < timeoutMs) {
-        try {
-            assertion();
-            return;
-        } catch (error) {
-            lastError = error;
-            await sleep(10);
-        }
-    }
-    if (lastError instanceof Error) {
-        throw lastError;
-    }
-    throw new Error(String(lastError));
 }

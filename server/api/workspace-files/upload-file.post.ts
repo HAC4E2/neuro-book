@@ -1,9 +1,6 @@
 import {createError, getRequestHeader, readMultipartFormData, type MultiPartData} from "h3";
 import {resolveWorkspaceFileTarget} from "nbook/server/workspace-files/novel-workspace";
-import {
-    invalidateWorkspaceTreeAfterMutation,
-} from "nbook/server/workspace-files/project-workspace-index";
-import {withProjectTargetOperation} from "nbook/server/workspace-files/project-open-guard";
+import {withProjectTargetMutation} from "nbook/server/workspace-files/project-open-guard";
 import {uploadWorkspaceFile, WorkspaceUploadError} from "nbook/server/workspace-files/workspace-upload";
 import {recordUploadedFiles, USER_LOCAL_ACTOR} from "nbook/server/workspace-history/tracked-workspace-files";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
@@ -20,14 +17,13 @@ export default defineEventHandler(async (event) => {
         projectRoot: readTextPart(parts, "projectRoot"),
         workspaceKind,
     });
-    return withProjectTargetOperation(target, async (projectHandles) => {
+    return withProjectTargetMutation(target, async (projectHandles) => {
         try {
             const result = await uploadWorkspaceFile(target.root, {
                 fileName: file.filename ?? "upload.bin",
                 data: file.data,
             });
             await recordUploadedFiles({target, history: projectHandles?.history, files: result.files, actor: USER_LOCAL_ACTOR});
-            invalidateWorkspaceTreeAfterMutation(target, projectHandles?.fileIndex);
             return result;
         } catch (error) {
             throw toUploadError(error);

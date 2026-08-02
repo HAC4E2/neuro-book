@@ -426,9 +426,24 @@ export class AgentProfileCatalog implements ProfileReleaseRegistrySink {
      * 关闭 profile watcher。测试和临时 catalog 用它避免文件句柄泄漏。
      */
     async dispose(): Promise<void> {
-        await this.buildCoordinator?.dispose?.();
-        await this.sourceWatcher?.dispose();
+        const failures: unknown[] = [];
+        const watcher = this.sourceWatcher;
         this.sourceWatcher = undefined;
+        try {
+            await watcher?.dispose();
+        } catch (error) {
+            failures.push(error);
+        }
+        const coordinator = this.buildCoordinator;
+        this.buildCoordinator = undefined;
+        try {
+            await coordinator?.dispose?.();
+        } catch (error) {
+            failures.push(error);
+        }
+        if (failures.length > 0) {
+            throw new AggregateError(failures, "Profile Catalog 清理存在失败项");
+        }
     }
 
     /**

@@ -18,7 +18,7 @@ import {
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 
 const mocks = vi.hoisted(() => ({
-    invalidate: vi.fn(),
+    mutate: vi.fn(),
     requireReadyModuleHandle: vi.fn(),
     runReadyProjectOperation: vi.fn(),
 }));
@@ -34,7 +34,8 @@ describe("profile context access", () => {
 
     beforeEach(async () => {
         vi.clearAllMocks();
-        mocks.requireReadyModuleHandle.mockReturnValue({invalidate: mocks.invalidate});
+        mocks.mutate.mockImplementation(async (operation: () => Promise<unknown>) => operation());
+        mocks.requireReadyModuleHandle.mockReturnValue({mutate: mocks.mutate});
         mocks.runReadyProjectOperation.mockImplementation(async (
             _ready: ReadyProjectSessionRef,
             operation: () => Promise<unknown>,
@@ -103,7 +104,7 @@ describe("profile context access", () => {
         expect(generated).toContain("### lorebook/location/castle/");
         expect(generated).toContain("- signals: index-read:1, state-read:1");
         expect(mocks.requireReadyModuleHandle.mock.calls.every(([ready]) => ready === project)).toBe(true);
-        expect(mocks.invalidate).toHaveBeenCalledTimes(2);
+        expect(mocks.mutate).toHaveBeenCalledTimes(2);
     });
 
     it("同一 Project generation 与 profile 的并行 read 保留全部 entry 和 count", async () => {
@@ -141,7 +142,7 @@ describe("profile context access", () => {
         expect(generated).toContain("### manuscript/chapter-01.md");
         expect((await readdir(path.dirname(statePath))).some((name) => name.endsWith(".tmp"))).toBe(false);
         expect((await readdir(path.join(projectRoot, "agents/writer"))).some((name) => name.endsWith(".tmp"))).toBe(false);
-        expect(mocks.invalidate).toHaveBeenCalledTimes(reads.length);
+        expect(mocks.mutate).toHaveBeenCalledTimes(reads.length);
     });
 
     it("显式 lorebookEntries 多次出现时进入 strong", async () => {

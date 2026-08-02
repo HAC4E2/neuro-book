@@ -98,10 +98,10 @@ export type ProjectFileIndexAdapterOptions = {
 export type ProjectFileIndexHandle = ProjectModuleHandle & {
     /** 读取本 generation 的最新稳定完整树。 */
     read(): Promise<WorkspaceTreeSnapshotDto<WorkspaceFileNode>>;
+    /** 与本 generation 的完整树构建串行执行一次 Project Workspace mutation。 */
+    mutate<TResult>(operation: () => TResult | Promise<TResult>): Promise<TResult>;
     /** 订阅本 generation 的 watcher ready 与稳定 snapshot commit。 */
     subscribe(handler: (event: WorkspaceFileStreamEventDto) => void | Promise<void>): () => void;
-    /** 同进程 mutation 后失效本 generation 的 snapshot。 */
-    invalidate(): void;
 };
 
 /** ProjectSession 数据面取得当前 generation File Index handle 的 typed token。 */
@@ -164,11 +164,7 @@ export class ProjectFileIndexAdapter {
                 throw error;
             }
             const id = workspaceFileIndexKeyId(key.identity);
-            const closing = this.plainActivations.get(id)?.closePromise;
-            if (!closing) {
-                throw error;
-            }
-            await closing;
+            await this.finishPlainClose(id, error);
             return snapshotDto(await this.cache.read(key));
         }
     }
@@ -259,9 +255,26 @@ export class ProjectFileIndexAdapter {
         await this.closePlainLease(id, lease);
     }
 
-    /** 同进程 plain Workspace mutation 后失效 snapshot，不取得 watcher activation。 */
-    invalidatePlain(target: PlainWorkspaceFileTarget): void {
-        this.cache.invalidate(plainCacheKey(target));
+    /** 与相同 plain Workspace cache entry 的完整树构建串行执行 mutation。 */
+    async mutatePlain<TResult>(
+        target: PlainWorkspaceFileTarget,
+        operation: () => TResult | Promise<TResult>,
+    ): Promise<TResult> {
+        const key = plainCacheKey(target);
+        let operationStarted = false;
+        try {
+            return await this.cache.mutate(key, () => {
+                operationStarted = true;
+                return operation();
+            });
+        } catch (error) {
+            if (!(error instanceof SnapshotClosedError) || operationStarted) {
+                throw error;
+            }
+            const id = workspaceFileIndexKeyId(key.identity);
+            await this.finishPlainClose(id, error);
+            return this.cache.mutate(key, operation);
+        }
     }
 
     /** Nitro shutdown/HMR 最终释放全部 entry；关闭后的 Adapter 不再接受新消费者。 */
@@ -317,10 +330,10 @@ export class ProjectFileIndexAdapter {
             ready: activation.ready,
             close,
             read: async () => snapshotDto(await this.cache.read(key)),
+            mutate: <TResult>(operation: () => TResult | Promise<TResult>) => this.cache.mutate(key, operation),
             subscribe: (handler: (event: WorkspaceFileStreamEventDto) => void | Promise<void>) => (
                 subscribeToCache(this.cache, key, activation.ready, handler)
             ),
-            invalidate: () => this.cache.invalidate(key),
         });
     }
 
@@ -341,6 +354,15 @@ export class ProjectFileIndexAdapter {
         });
         lease.closePromise = closing;
         return closing;
+    }
+
+    /** 等待或重试最后一个 plain activation 的关闭，供 one-shot read/mutation 重新建 entry。 */
+    private async finishPlainClose(id: string, closedError: SnapshotClosedError): Promise<void> {
+        const lease = this.plainActivations.get(id);
+        if (!lease) {
+            throw closedError;
+        }
+        await (lease.closePromise ?? this.closePlainLease(id, lease));
     }
 }
 

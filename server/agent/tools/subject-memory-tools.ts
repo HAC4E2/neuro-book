@@ -82,17 +82,19 @@ function createSubjectEventAppendTool(): NeuroAgentTool {
             const subject = await resolveSubjectPaths(context, project, input.subjectPath, {events: "write", ragState: "write"});
             const historyCapture = requireSubjectWriteCapture(subject.eventsTarget, project);
             const events = input.events.map((event, index) => parseSubjectEvent(event, `events[${index}]`));
-            await mkdir(subject.absolutePath, {recursive: true});
-            const existing = await readTextIfExists(subject.eventsPath);
-            const appended = appendJsonl(existing, serializeSubjectEventsJsonl(events));
-            await writeFile(subject.eventsPath, appended, "utf-8");
-            await recordAgentWorkspaceWrite({
-                sessionId: context.sessionId,
-                capture: historyCapture,
-                before: existing || null,
-                after: appended,
+            await historyCapture.fileIndex.mutate(async () => {
+                await mkdir(subject.absolutePath, {recursive: true});
+                const existing = await readTextIfExists(subject.eventsPath);
+                const appended = appendJsonl(existing, serializeSubjectEventsJsonl(events));
+                await writeFile(subject.eventsPath, appended, "utf-8");
+                await recordAgentWorkspaceWrite({
+                    sessionId: context.sessionId,
+                    capture: historyCapture,
+                    before: existing || null,
+                    after: appended,
+                });
+                await markSubjectRagDirty(subject, "events", appended);
             });
-            await markSubjectRagDirty(subject, "events", appended);
             return {
                 content: [{type: "text", text: `已追加 ${events.length} 条 subject event。`}],
                 details: normalizeToolResultDetails({
@@ -228,15 +230,21 @@ function createSubjectMemoryUpdateTool(): NeuroAgentTool {
 
             const serialized = serializeSubjectMemoriesJsonl(result.updated);
             const nextText = serialized ? `${serialized}\n` : "";
-            await mkdir(subject.absolutePath, {recursive: true});
-            await writeFile(subject.memoryPath, nextText, "utf-8");
-            await recordAgentWorkspaceWrite({
-                sessionId: context.sessionId,
-                capture: historyCapture,
-                before: currentText || null,
-                after: nextText,
+            await historyCapture.fileIndex.mutate(async () => {
+                const latestText = await readTextIfExists(subject.memoryPath);
+                if (latestText !== currentText) {
+                    throw new Error("memory.jsonl 在整理期间已变化，请重试本次更新。");
+                }
+                await mkdir(subject.absolutePath, {recursive: true});
+                await writeFile(subject.memoryPath, nextText, "utf-8");
+                await recordAgentWorkspaceWrite({
+                    sessionId: context.sessionId,
+                    capture: historyCapture,
+                    before: currentText || null,
+                    after: nextText,
+                });
+                await markSubjectRagDirty(subject, "memory", nextText);
             });
-            await markSubjectRagDirty(subject, "memory", nextText);
             return {
                 content: [{type: "text", text: `subject_memory_update 已更新 memory.jsonl：${result.summary}`}],
                 details: normalizeToolResultDetails({

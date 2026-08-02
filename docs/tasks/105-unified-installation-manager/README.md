@@ -10,7 +10,7 @@
 - Source adoption worktree进入`.deploy/staging/<operation-id>`。start、migration、admin、reset和uninstall统一从`VerifiedApplicationExecution`取得Source Dev、Native Product或Container Product身份；status仍保留轻量控制面。
 - Windows Portable/Installed从受管Bun执行卸载时，Manager写入带token和SHA-256的durable intent并启动Installation Root外的PowerShell Host。Host等待精确父PID退出后重新验证owner roots：默认删除程序、cache、desktop和logs并保留State Root；`--delete-data`才删除全部。intent篡改时零删除并写外置失败结果，pending intent阻断其他mutation。
 - Release Manifest硬切v5并增加统一build ID。Source/Product/Portable/Installation由最终Verifier重新连成同一代；CLI只创建Draft并显式dispatch release ID、tag、revision、prerelease。候选OCI只使用`candidate-<release-id>`，全部正确性gate后才公开Release，再由独立可重跑job激活版本tag和stable `latest`。
-- 当前验证：Authoring 9 files / 114 tests；Windows uninstall 3 files / 18 tests及真实PowerShell Host三种路径；Manager 36 passed files / 1 skipped、240 passed / 2 skipped，typecheck与pack通过；Release focused当前3 files / 22 tests。clean Windows Portable 进一步完成31项doctor、完整Product Contract、Manager HTTP登录和两种真实外置Host卸载；本节仍不等于公开Candidate结果。
+- 当前验证：Authoring 9 files / 114 tests；Windows uninstall 3 files / 18 tests及真实PowerShell Host三种路径；Manager 36 passed files / 1 skipped、240 passed / 3 skipped，typecheck与pack通过；Release focused当前3 files / 22 tests。clean Windows Portable 进一步完成31项doctor、完整Product Contract、Manager HTTP登录和两种真实外置Host卸载；本节仍不等于公开Candidate结果。
 
 ## 2026-08-01：发行前只读审计与下一阶段阻断
 
@@ -1091,7 +1091,7 @@ uninstall
 - `@notnotype/neuro-book-manager@0.1.0-canary.38` 已由 workflow `30720825090` 成功公开；npm `gitHead=060f719c6b1f21965642ab90363f75d7f08f7c9c`，tarball shasum 为 `0d60bb060a47677f6d1b35f1bc464cd6b44b1857`，签名、provenance、全新 Bun cache 的真实 `bunx` 与 `manager:verify-public` 均通过。`.34` 至 `.37` 继续保留为未发布失败审计记录。
 - clean Source/Product 归档组装首次暴露 PortableGit SFX 长路径失败：相同 `2.55.0.windows.3` 资产与 SHA-256 在 30 字符输出根成功，在 248 字符输出根退出 1；`\\?\` 仍返回失败，junction 又会跳过 post-install，均不能作为修复。Portable 组装 operation 改到 OS 临时目录下的短根，并在任何下载前验证 170 字符 SFX 输出预算；真实 16,322-entry Portable ZIP 已成功生成。
 - `.38` Portable 的 doctor、完整 Product Runtime Contract、Owned Process、Manager 管理员创建、前台启动、HTTP 登录均通过；但默认自卸载实测只写入 intent 和“已安排”提示，30 秒后程序仍在。最小夹具确认 Bun 1.3.14 的 `spawn(..., detached: true).unref()` Host 不会实际运行，现有测试只同步执行 PowerShell 脚本，因此漏掉了真实调度边界。
-- 修复保留原 SHA-256 intent 与外置 Host，不增加第二套事务：Manager 同步等待一个短命 PowerShell launcher 通过 `Start-Process` 创建 Host，所有路径经私有环境 JSON 传递，Host 仍等待 Manager PID 退出后执行精确删除。新增真实调度测试先红后绿；Windows Manager 全量现为 240 passed / 2 skipped，pack 5 files / 0.42 MiB，Manager/scripts typecheck 与发行合同通过。因为公开 `.38` 不含该修复，下一公开候选必须是 `.39`，不能把 `.38` 写进最终 0.9 Candidate。
+- 修复保留原 SHA-256 intent 与外置 Host，不增加第二套事务：Manager 同步等待一个短命 PowerShell launcher 通过 `Start-Process` 创建 Host，所有路径经私有环境 JSON 传递，Host 仍等待 Manager PID 退出后执行精确删除。新增真实调度测试先红后绿；最终本地 Windows Manager 全量为 240 passed / 3 skipped，pack 5 files / 0.43 MiB，Manager/scripts typecheck 与发行合同通过。因为公开 `.38` 不含该修复，下一公开候选必须是 `.39`，不能把 `.38` 写进最终 0.9 Candidate。
 - `manager-v0.1.0-canary.39` 已由 workflow `30722599876` 全绿并公开。npm `gitHead=143fafea7fb51ef26dbbab4e25fe7e8224cd9c9e`，公开 tarball shasum 为 `92c522f63e63faee5aa88e25e0ada873dd7c0273`；38 个包签名、2 个 provenance attestation、全新 Bun cache 的真实 `bunx` 与 `manager:verify-public` 均通过。最终0.9 Candidate只能消费`.39`或后续版本，不能沿用`.38`归档；对应clean Portable终验见下一节。
 
 ### 2026-08-02：Manager `.39` clean Portable终验

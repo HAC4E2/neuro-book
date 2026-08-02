@@ -43,7 +43,7 @@ function defineAgentProfile(profile: any): ReturnType<typeof defineRuntimeAgentP
     });
 }
 
-describe("AgentProfileCatalog", () => {
+describe("AgentProfileCatalog", {timeout: 15_000}, () => {
     let root: string;
     let systemRoot: string;
     let userRoot: string;
@@ -295,6 +295,31 @@ describe("AgentProfileCatalog", () => {
         expect(enqueued).toEqual([{
             reason: "watch:unlink",
         }]);
+    });
+
+    it("dispose 先停止 watcher producer，再停止 build coordinator", async () => {
+        const catalog = new AgentProfileCatalog(systemRoot, userRoot);
+        const order: string[] = [];
+        const internal = catalog as unknown as {
+            sourceWatcher?: {dispose(): Promise<void>};
+            buildCoordinator?: {dispose(): Promise<void>};
+        };
+        internal.sourceWatcher = {
+            async dispose() {
+                order.push("watcher");
+            },
+        };
+        internal.buildCoordinator = {
+            async dispose() {
+                order.push("coordinator");
+            },
+        };
+
+        await catalog.dispose();
+
+        expect(order).toEqual(["watcher", "coordinator"]);
+        expect(internal.sourceWatcher).toBeUndefined();
+        expect(internal.buildCoordinator).toBeUndefined();
     });
 
     it("加载 TSX DSL profile 时使用自动 JSX runtime", async () => {

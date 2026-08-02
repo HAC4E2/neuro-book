@@ -13,6 +13,7 @@ import {
     beforeStateHash,
     DEFAULT_HISTORY_CONFIG,
     HistoryError,
+    HistoryInboxMutationError,
     type DeletedFileInfo,
     type FileOperation,
     type HistoryConfig,
@@ -42,6 +43,12 @@ import {
     type NameEndState,
     type Sql,
 } from "./views";
+
+type RevertPlan = {
+    span: OperationLogEntry[];
+    baselineHash: string | null;
+    baselineBytes: Uint8Array | null;
+};
 
 /**
  * Workspace 操作日志与文件历史。
@@ -204,54 +211,27 @@ export class WorkspaceHistory {
     async revert(userId: string, path: string): Promise<OperationLogEntry> {
         return this.locked(async () => {
             validateRelativePath(path);
-            const renames = await loadRenames(this.client);
-            const group = await loadGroupEntries(this.client, path, renames);
-            if (group.length === 0) {
-                throw new HistoryError(`没有该文件的日志记录: ${path}`);
-            }
-            const acceptance = await this.loadAcceptance(this.client, userId);
-            const position = acceptancePositionFor(path, renames, acceptance);
-            const span = group.filter((entry) => entry.id > position);
-            if (span.length === 0 || !span.some((e) => e.actor.kind === "agent" || e.actor.kind === "system")) {
-                throw new HistoryError(`该文件没有待还原的收件箱变更: ${path}`);
-            }
+            const plan = await this.loadRevertPlan(userId, path);
+            return this.applyRevertPlan(userId, path, plan);
+        });
+    }
 
-            const baselineHash = beforeStateHash(span[0]!.operation);
-            let baselineBytes: Uint8Array | null = null;
-            if (baselineHash !== null) {
-                baselineBytes = await this.snapshotBody(baselineHash);
-                if (baselineBytes === null) {
-                    throw new HistoryError(`基线快照不可用(超限 / 二进制 / 已被保留策略清理),无法还原: ${path}`);
-                }
+    /** 仅当该文件仍是客户端看到的 revision 时还原；校验与落盘位于同一个 History 写锁。 */
+    async revertAtRevision(userId: string, path: string, expectedRevision: number): Promise<OperationLogEntry> {
+        return this.locked(async () => {
+            validateRelativePath(path);
+            const plan = await this.loadRevertPlan(userId, path, true);
+            const currentRevision = plan.span[plan.span.length - 1]!.id;
+            if (currentRevision !== expectedRevision) {
+                throw new HistoryInboxMutationError("stale", `收件箱 revision 已变化: expected=${expectedRevision}, current=${currentRevision}`);
             }
-
             const current = await this.readDisk(path);
             const currentHash = current === null ? null : sha256Hex(current);
-            if (currentHash === null && baselineHash === null) {
-                throw new HistoryError(`文件当前不存在且基线也是「不存在」,无事可还原: ${path}`);
+            const expectedHash = afterStateHash(plan.span[plan.span.length - 1]!.operation);
+            if (currentHash !== expectedHash) {
+                throw new HistoryInboxMutationError("stale", `文件内容已在收件箱 revision ${expectedRevision} 后变化: ${path}`);
             }
-            const implicit = await this.implicitReconcile(path, current, currentHash);
-
-            if (baselineBytes === null) {
-                if (current !== null) {
-                    await fs.rm(this.absolute(path)); // 基线是「不存在」→ 还原即删除
-                }
-            } else {
-                await this.writeDisk(path, baselineBytes);
-            }
-
-            const operation: FileOperation = {
-                type: "file.revert", path,
-                beforeHash: currentHash,
-                afterHash: baselineHash,
-                revertedEntryIds: span.map((entry) => entry.id),
-            };
-            const snapshots = current === null ? [] : [current];
-            const inserted = await this.appendEntries([...implicit, this.newEntry({kind: "user", userId}, operation)], snapshots, async (tx, entries) => {
-                const revertEntry = entries[entries.length - 1]!;
-                await this.upsertAcceptance(tx, userId, path, revertEntry.id);
-            });
-            return inserted[inserted.length - 1]!;
+            return this.applyRevertPlan(userId, path, plan, {bytes: current, hash: currentHash});
         });
     }
 
@@ -405,6 +385,121 @@ export class WorkspaceHistory {
         return {bytes};
     }
 
+    /** 在指定数据库快照中构建一个用户的完整收件箱。 */
+    private async loadInbox(db: Sql, userId: string): Promise<InboxGroup[]> {
+        const renames = await loadRenames(db);
+        const acceptance = await this.loadAcceptance(db, userId);
+        // SQL 预过滤:按条目路径名下的位点裁掉已接受部分,扫描量随审查进度收敛。
+        // 位点随 rename 迁移的精确语义在下方 JS 重算——预过滤只会多包含,不会漏。
+        const entryResult = await db.execute({
+            sql: `SELECT ol.* FROM operation_log ol
+                  LEFT JOIN file_acceptance fa ON fa.user_id = ? AND fa.path = ol.path
+                  WHERE ol.id > COALESCE(fa.accepted_entry_id, 0)
+                  ORDER BY ol.id ASC`,
+            args: [userId],
+        });
+        const groups = groupByCurrentName(entryResult.rows.map(mapRow), renames);
+        const result: InboxGroup[] = [];
+        for (const [name, groupEntries] of groups) {
+            const position = acceptancePositionFor(name, renames, acceptance);
+            const span = groupEntries.filter((entry) => entry.id > position);
+            if (span.length === 0 || !span.some((entry) => entry.actor.kind === "agent" || entry.actor.kind === "system")) {
+                continue;
+            }
+            result.push({
+                path: name,
+                baseHash: beforeStateHash(span[0]!.operation),
+                endHash: afterStateHash(span[span.length - 1]!.operation),
+                entries: span,
+            });
+        }
+        return result.sort((left, right) => left.path.localeCompare(right.path));
+    }
+
+    /** 读取还原所需的待审段和基线快照；条件式调用把目标消失映射为稳定错误码。 */
+    private async loadRevertPlan(userId: string, path: string, conditional = false): Promise<RevertPlan> {
+        const renames = await loadRenames(this.client);
+        const group = await loadGroupEntries(this.client, path, renames);
+        if (group.length === 0) {
+            if (conditional) {
+                throw new HistoryInboxMutationError("missing", `待审文件不存在或已被接受: ${path}`);
+            }
+            throw new HistoryError(`没有该文件的日志记录: ${path}`);
+        }
+        const acceptance = await this.loadAcceptance(this.client, userId);
+        const position = acceptancePositionFor(path, renames, acceptance);
+        const span = group.filter((entry) => entry.id > position);
+        if (span.length === 0 || !span.some((entry) => entry.actor.kind === "agent" || entry.actor.kind === "system")) {
+            if (conditional) {
+                throw new HistoryInboxMutationError("missing", `待审文件不存在或已被接受: ${path}`);
+            }
+            throw new HistoryError(`该文件没有待还原的收件箱变更: ${path}`);
+        }
+
+        const baselineHash = beforeStateHash(span[0]!.operation);
+        let baselineBytes: Uint8Array | null = null;
+        if (baselineHash !== null) {
+            baselineBytes = await this.snapshotBody(baselineHash);
+            if (baselineBytes === null) {
+                throw new HistoryError(`基线快照不可用(超限 / 二进制 / 已被保留策略清理),无法还原: ${path}`);
+            }
+        }
+        return {span, baselineHash, baselineBytes};
+    }
+
+    /** 按已在写锁内确认的计划落盘、记 revert 条目并原子推进接受位点。 */
+    private async applyRevertPlan(
+        userId: string,
+        path: string,
+        plan: RevertPlan,
+        knownCurrent?: {bytes: Uint8Array | null; hash: string | null},
+    ): Promise<OperationLogEntry> {
+        const current = knownCurrent === undefined ? await this.readDisk(path) : knownCurrent.bytes;
+        const currentHash = knownCurrent === undefined
+            ? (current === null ? null : sha256Hex(current))
+            : knownCurrent.hash;
+        if (currentHash === null && plan.baselineHash === null) {
+            throw new HistoryError(`文件当前不存在且基线也是「不存在」,无事可还原: ${path}`);
+        }
+        const implicit = await this.implicitReconcile(path, current, currentHash);
+
+        if (plan.baselineBytes === null) {
+            if (current !== null) {
+                await fs.rm(this.absolute(path));
+            }
+        } else {
+            await this.writeDisk(path, plan.baselineBytes);
+        }
+
+        const operation: FileOperation = {
+            type: "file.revert",
+            path,
+            beforeHash: currentHash,
+            afterHash: plan.baselineHash,
+            revertedEntryIds: plan.span.map((entry) => entry.id),
+        };
+        const snapshots = current === null ? [] : [current];
+        const inserted = await this.appendEntries([...implicit, this.newEntry({kind: "user", userId}, operation)], snapshots, async (tx, entries) => {
+            const revertEntry = entries[entries.length - 1]!;
+            await this.upsertAcceptance(tx, userId, path, revertEntry.id);
+        });
+        return inserted[inserted.length - 1]!;
+    }
+
+    /** 在一个 SQLite write transaction 中推进一组收件箱接受位点。 */
+    private async writeAcceptances(userId: string, groups: InboxGroup[]): Promise<void> {
+        const tx = await this.client.transaction("write");
+        try {
+            for (const group of groups) {
+                const revision = group.entries[group.entries.length - 1]!.id;
+                await this.upsertAcceptance(tx, userId, group.path, revision);
+            }
+            await tx.commit();
+        } finally {
+            tx.close();
+        }
+    }
+
     /** 当前处于已删除状态的文件列表(renamed-away 不算删除——文件活在新名下)。 */
     async deletedFiles(): Promise<DeletedFileInfo[]> {
         return this.readTx(async (db) => {
@@ -454,39 +549,7 @@ export class WorkspaceHistory {
 
     /** 用户收件箱(R5):有未接受 agent/system 条目的文件分组。 */
     async inbox(userId: string): Promise<InboxGroup[]> {
-        return this.readTx(async (db) => {
-            const renames = await loadRenames(db);
-            const acceptance = await this.loadAcceptance(db, userId);
-            // SQL 预过滤:按条目路径名下的位点裁掉已接受部分,扫描量随审查进度收敛。
-            // 位点随 rename 迁移的精确语义在下方 JS 重算——预过滤只会多包含(旧名下无
-            // 位点行 → 该名全量),经证不会漏(接受位点恒小于该名让位后的新条目 id)。
-            const entryResult = await db.execute({
-                sql: `SELECT ol.* FROM operation_log ol
-                      LEFT JOIN file_acceptance fa ON fa.user_id = ? AND fa.path = ol.path
-                      WHERE ol.id > COALESCE(fa.accepted_entry_id, 0)
-                      ORDER BY ol.id ASC`,
-                args: [userId],
-            });
-            const groups = groupByCurrentName(entryResult.rows.map(mapRow), renames);
-            const result: InboxGroup[] = [];
-            for (const [name, groupEntries] of groups) {
-                const position = acceptancePositionFor(name, renames, acceptance);
-                const span = groupEntries.filter((entry) => entry.id > position);
-                if (span.length === 0) {
-                    continue;
-                }
-                if (!span.some((e) => e.actor.kind === "agent" || e.actor.kind === "system")) {
-                    continue; // 只有 user / external 条目 = 用户侧自知,不进收件箱
-                }
-                result.push({
-                    path: name,
-                    baseHash: beforeStateHash(span[0]!.operation),
-                    endHash: afterStateHash(span[span.length - 1]!.operation),
-                    entries: span,
-                });
-            }
-            return result.sort((a, b) => a.path.localeCompare(b.path));
-        });
+        return this.readTx((db) => this.loadInbox(db, userId));
     }
 
     /** 接受(R5):把该用户在此文件上的位点推进到当前最新条目。path 必须是现名(收件箱展示名)。 */
@@ -506,6 +569,37 @@ export class WorkspaceHistory {
             } finally {
                 tx.close();
             }
+        });
+    }
+
+    /** 仅当该文件仍是客户端看到的 revision 时推进接受位点。 */
+    async acceptAtRevision(userId: string, path: string, expectedRevision: number): Promise<void> {
+        return this.locked(async () => {
+            validateRelativePath(path);
+            const group = (await this.loadInbox(this.client, userId)).find((item) => item.path === path);
+            if (!group) {
+                throw new HistoryInboxMutationError("missing", `待审文件不存在或已被接受: ${path}`);
+            }
+            const currentRevision = group.entries[group.entries.length - 1]!.id;
+            if (currentRevision !== expectedRevision) {
+                throw new HistoryInboxMutationError("stale", `收件箱 revision 已变化: expected=${expectedRevision}, current=${currentRevision}`);
+            }
+            await this.writeAcceptances(userId, [group]);
+        });
+    }
+
+    /** 仅当整个收件箱仍是客户端看到的 revision 时，在一个事务中接受全部分组。 */
+    async acceptAllAtRevision(userId: string, expectedRevision: number): Promise<number> {
+        return this.locked(async () => {
+            const groups = await this.loadInbox(this.client, userId);
+            const currentRevision = groups.reduce((revision, group) => (
+                Math.max(revision, group.entries[group.entries.length - 1]?.id ?? 0)
+            ), 0);
+            if (currentRevision !== expectedRevision) {
+                throw new HistoryInboxMutationError("stale", `收件箱 revision 已变化: expected=${expectedRevision}, current=${currentRevision}`);
+            }
+            await this.writeAcceptances(userId, groups);
+            return groups.length;
         });
     }
 

@@ -27,7 +27,7 @@ import {
     readProjectManifest as readProjectManifestAtRoot,
     writeProjectManifest as writeProjectManifestAtRoot,
 } from "nbook/server/workspace-files/project-workspace";
-import {closeWorkspaceTreeIndex, invalidateProjectWorkspaceIndexAfterMutation, readPlainWorkspaceTreeSnapshot, readProjectWorkspaceTreeSnapshot, subscribeWorkspaceTreeIndex, type ProjectWorkspaceTreeIndexOptions} from "nbook/server/workspace-files/project-workspace-index";
+import {closeWorkspaceTreeIndex, readPlainWorkspaceTreeSnapshot, readProjectWorkspaceTreeSnapshot, subscribeWorkspaceTreeIndex, type ProjectWorkspaceTreeIndexOptions} from "nbook/server/workspace-files/project-workspace-index";
 import {PROJECT_FILE_INDEX_MODULE_TOKEN, setProjectFileIndexCommitHookForTest} from "nbook/server/workspace-files/project-file-index";
 import {prepareSystemAssets} from "nbook/server/workspace-files/system-assets-preflight";
 import {resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
@@ -89,6 +89,20 @@ describe("workspace-files", {timeout: 60_000}, () => {
             await innerAssets.dispose();
         }
 
+        expect(resolveSystemNbookRoot()).toBe(outerSystemRoot);
+        expect(resolveUserNbookRoot()).toBe(outerUserRoot);
+    });
+
+    it("隔离 Workspace assets 清理失败时仍先恢复 cwd 与 context", async () => {
+        const outerCwd = process.cwd();
+        const outerSystemRoot = assets.systemNbookRoot;
+        const outerUserRoot = assets.userNbookRoot;
+        const innerAssets = await createIsolatedWorkspaceAssets({useAsCwd: true});
+
+        await innerAssets.dispose();
+        await expect(innerAssets.dispose()).rejects.toThrow("Workspace fixture 销毁存在失败项");
+
+        expect(process.cwd()).toBe(outerCwd);
         expect(resolveSystemNbookRoot()).toBe(outerSystemRoot);
         expect(resolveUserNbookRoot()).toBe(outerUserRoot);
     });
@@ -226,15 +240,13 @@ describe("workspace-files", {timeout: 60_000}, () => {
         expect(snapshot.issues).toEqual([]);
     });
 
-    it("Project Workspace tree snapshot 失效后会重新读取文件与 issues", async () => {
+    it("Project Workspace mutation 后会重新读取文件与 issues", async () => {
         const options = await projectIndexOptions();
         const before = await readProjectWorkspaceTreeSnapshot(options);
-        await writeMarkdown("lorebook/note/cache-refresh/index.md", {
+        await options.fileIndex.mutate(() => writeMarkdown("lorebook/note/cache-refresh/index.md", {
             type: "note",
             status: "draft",
-        });
-
-        invalidateProjectWorkspaceIndexAfterMutation(options.target, options.fileIndex);
+        }));
         const after = await readProjectWorkspaceTreeSnapshot(options);
 
         expect(before.nodes.some((node) => node.path === "lorebook/note/cache-refresh/")).toBe(false);
@@ -255,52 +267,18 @@ describe("workspace-files", {timeout: 60_000}, () => {
         expect(refreshed.revision).toBeGreaterThan(before.revision);
     });
 
-    it("Project Workspace mutation 失效后会通过同一套 index 重建缓存", async () => {
+    it("Project Workspace mutation 会通过同一套 index 重建缓存", async () => {
         const options = await projectIndexOptions();
         const before = await readProjectWorkspaceTreeSnapshot(options);
-        await writeMarkdown("lorebook/note/mutation-rebuild/index.md", {
+        await options.fileIndex.mutate(() => writeMarkdown("lorebook/note/mutation-rebuild/index.md", {
             type: "note",
             status: "draft",
-        });
-
-        invalidateProjectWorkspaceIndexAfterMutation(options.target, options.fileIndex);
+        }));
         const refreshed = await waitForProjectWorkspaceTreePath("lorebook/note/mutation-rebuild/");
 
         expect(before.nodes.some((node) => node.path === "lorebook/note/mutation-rebuild/")).toBe(false);
         expect(refreshed.nodes.some((node) => node.path === "lorebook/note/mutation-rebuild/")).toBe(true);
         expect(refreshed.revision).toBeGreaterThan(before.revision);
-    });
-
-    it("Project Workspace rebuild 期间发生 mutation 会丢弃旧 build 并返回稳定 snapshot", async () => {
-        const options = await projectIndexOptions();
-        await readProjectWorkspaceTreeSnapshot(options);
-        await writeMarkdown("lorebook/note/first-mutation/index.md", {
-            type: "note",
-            status: "draft",
-        });
-
-        let hookCalled = false;
-        setProjectFileIndexCommitHookForTest(async () => {
-            if (hookCalled) {
-                return;
-            }
-            hookCalled = true;
-            await writeMarkdown("lorebook/note/second-mutation/index.md", {
-                type: "note",
-                status: "draft",
-            });
-            invalidateProjectWorkspaceIndexAfterMutation(options.target, options.fileIndex);
-        });
-
-        invalidateProjectWorkspaceIndexAfterMutation(options.target, options.fileIndex);
-        const first = await readProjectWorkspaceTreeSnapshot(options);
-        setProjectFileIndexCommitHookForTest(null);
-        const second = await readProjectWorkspaceTreeSnapshot(options);
-
-        expect(first.nodes.some((node) => node.path === "lorebook/note/first-mutation/")).toBe(true);
-        expect(first.nodes.some((node) => node.path === "lorebook/note/second-mutation/")).toBe(true);
-        expect(second.nodes.some((node) => node.path === "lorebook/note/second-mutation/")).toBe(true);
-        expect(second.revision).toBe(first.revision);
     });
 
     it("user-assets tree index 会 watch 外部新增文件且保持 issues 为空", async () => {

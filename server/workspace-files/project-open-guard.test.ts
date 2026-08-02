@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
     requireActiveReadyProject: vi.fn(),
     requireReadyModuleHandle: vi.fn(),
     runReadyProjectOperation: vi.fn(),
+    mutatePlain: vi.fn(),
 }));
 
 vi.mock("nbook/server/workspace-files/project-session", () => ({
@@ -28,6 +29,7 @@ vi.mock("nbook/server/workspace-files/project-session", () => ({
 
 vi.mock("nbook/server/workspace-files/project-file-index", () => ({
     PROJECT_FILE_INDEX_MODULE_TOKEN: tokens.fileIndex,
+    projectFileIndexAdapter: {mutatePlain: mocks.mutatePlain},
 }));
 
 vi.mock("nbook/server/workspace-history/project-history", () => ({
@@ -93,5 +95,49 @@ describe("Project HTTP data-plane operation guard", () => {
         await expect(request).resolves.toBe("done");
         await closing;
         expect(closeSettled).toBe(true);
+    });
+
+    it("Project mutation 同时持有 ready operation 与当前 File Index generation gate", async () => {
+        const ready = {generation: 10} as ReadyProjectSessionRef;
+        const fileIndex = {
+            mutate: vi.fn(async (operation: () => Promise<string>) => operation()),
+        };
+        const history = {kind: "history"};
+        mocks.requireActiveReadyProject.mockReturnValue(ready);
+        mocks.requireReadyModuleHandle.mockImplementation((_ready, token) => (
+            token === tokens.fileIndex ? fileIndex : history
+        ));
+        mocks.runReadyProjectOperation.mockImplementation((_ready, operation) => operation());
+        const target: WorkspaceFileTarget = {
+            kind: "project-workspace",
+            root: absoluteFsPath("C:/workspace-root/mutation"),
+            projectRoot: projectWorkspaceRef("mutation").projectRoot,
+        };
+        const {withProjectTargetMutation} = await import("nbook/server/workspace-files/project-open-guard");
+        const handler = vi.fn(async () => "mutated");
+
+        await expect(withProjectTargetMutation(target, handler)).resolves.toBe("mutated");
+
+        expect(mocks.runReadyProjectOperation).toHaveBeenCalledWith(ready, expect.any(Function));
+        expect(fileIndex.mutate).toHaveBeenCalledOnce();
+        expect(handler).toHaveBeenCalledWith({ready, fileIndex, history});
+        expect(mocks.mutatePlain).not.toHaveBeenCalled();
+    });
+
+    it("plain Workspace mutation 不创建 ProjectSession，但仍使用 File Index entry gate", async () => {
+        mocks.mutatePlain.mockImplementation((_target, operation) => operation());
+        const target: WorkspaceFileTarget = {
+            kind: "workspace-root",
+            root: absoluteFsPath("C:/workspace-root/plain-mutation"),
+        };
+        const {withProjectTargetMutation} = await import("nbook/server/workspace-files/project-open-guard");
+        const handler = vi.fn(async () => "mutated");
+
+        await expect(withProjectTargetMutation(target, handler)).resolves.toBe("mutated");
+
+        expect(mocks.mutatePlain).toHaveBeenCalledWith(target, expect.any(Function));
+        expect(handler).toHaveBeenCalledWith(undefined);
+        expect(mocks.requireActiveReadyProject).not.toHaveBeenCalled();
+        expect(mocks.runReadyProjectOperation).not.toHaveBeenCalled();
     });
 });

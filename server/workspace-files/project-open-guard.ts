@@ -12,6 +12,7 @@ import {
 } from "nbook/server/workspace-files/project-identity";
 import {
     PROJECT_FILE_INDEX_MODULE_TOKEN,
+    projectFileIndexAdapter,
     type ProjectFileIndexHandle,
 } from "nbook/server/workspace-files/project-file-index";
 import {
@@ -84,6 +85,30 @@ export function withProjectTargetOperation<TResult>(
             return handler(undefined);
         }
         return runReadyProjectOperation(handles.ready, async () => handler(handles));
+    });
+}
+
+/**
+ * Workspace Files HTTP统一mutation边界。
+ *
+ * Project mutation同时持有当前ready generation operation与File Index entry gate；plain Workspace
+ * 不建立ProjectSession，但仍与相同cache entry的完整树构建串行。mutation settle后cache自动失效。
+ */
+export function withProjectTargetMutation<TResult>(
+    target: WorkspaceFileTarget,
+    handler: (handles: ProjectDataPlaneHandles | undefined) => Promise<TResult> | TResult,
+): Promise<TResult> {
+    return withProjectHttpError(async () => {
+        if (target.kind !== "project-workspace") {
+            return projectFileIndexAdapter.mutatePlain(target, () => handler(undefined));
+        }
+        const handles = projectHandlesForTarget(target);
+        if (!handles) {
+            throw new Error("Project mutation缺少当前ReadyProjectSession generation handles");
+        }
+        return runReadyProjectOperation(handles.ready, () => (
+            handles.fileIndex.mutate(() => handler(handles))
+        ));
     });
 }
 

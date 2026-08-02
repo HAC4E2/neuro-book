@@ -1,5 +1,6 @@
 import path from "node:path";
 import {describe, expect, it, vi} from "vitest";
+import {SnapshotClosedError} from "@notnotype/file-snapshot-cache";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {
     createProjectWorkspaceKey,
@@ -74,6 +75,52 @@ describe("ProjectFileIndexAdapter Project Module handle", () => {
         expect(build).toHaveBeenCalledTimes(1);
         releaseBuild();
         await expect(handle.read()).resolves.toMatchObject({nodes: [], issues: [], revision: 1});
+        await handle.close();
+    });
+
+    it("Project mutation 与当前 generation build 串行，完成后 read 自动重建", async () => {
+        const workspaceRoot = absoluteFsPath(path.resolve(".agent", "project-file-index-mutation-test"));
+        const ref = projectWorkspaceRef("novel-a");
+        const workspace = resolvedProjectWorkspace(
+            ref,
+            absoluteFsPath(path.join(workspaceRoot, ref.projectRoot)),
+            createProjectWorkspaceKey(workspaceRoot, ref),
+        );
+        let releaseBuild: () => void = () => undefined;
+        const firstBuild = new Promise<void>((resolve) => {
+            releaseBuild = resolve;
+        });
+        let buildCount = 0;
+        const adapter = new ProjectFileIndexAdapter({
+            build: async () => {
+                buildCount += 1;
+                if (buildCount === 1) {
+                    await firstBuild;
+                }
+                return {nodes: [], issues: []};
+            },
+            openWatcher: () => ({close: () => undefined}),
+        });
+        const handle = adapter.startProject({
+            workspace,
+            signal: new AbortController().signal,
+            onRawEvents: () => undefined,
+        });
+        await handle.ready;
+        await vi.waitFor(() => expect(buildCount).toBe(1));
+        let mutationStarted = false;
+
+        const mutation = handle.mutate(async () => {
+            mutationStarted = true;
+            return "mutated";
+        });
+        await Promise.resolve();
+        expect(mutationStarted).toBe(false);
+        releaseBuild();
+
+        await expect(mutation).resolves.toBe("mutated");
+        await expect(handle.read()).resolves.toMatchObject({revision: 2});
+        expect(buildCount).toBe(2);
         await handle.close();
     });
 
@@ -219,6 +266,56 @@ describe("ProjectFileIndexAdapter plain Workspace", () => {
 
         await expect(adapter.closePlain(target)).resolves.toBeUndefined();
         expect(closeWatcher).toHaveBeenCalledTimes(2);
+    });
+
+    it("plain mutation 会等待关闭窗口，并在 watcher close 失败后重试精确 handle", async () => {
+        const root = absoluteFsPath(path.resolve(".agent", "plain-file-index-mutation-close-test"));
+        const closeWatcher = vi.fn()
+            .mockRejectedValueOnce(new Error("close failed"))
+            .mockResolvedValueOnce(undefined);
+        const adapter = new ProjectFileIndexAdapter({
+            build: async () => ({nodes: [], issues: []}),
+            openWatcher: () => ({close: closeWatcher}),
+        });
+        const target = {kind: "workspace-root" as const, root};
+        const events: string[] = [];
+        const unsubscribe = adapter.subscribePlain(target, (event) => {
+            events.push(event.type);
+        });
+        await vi.waitFor(() => {
+            expect(events).toContain("workspace_watch_ready");
+        });
+        unsubscribe();
+        await vi.waitFor(() => {
+            expect(closeWatcher).toHaveBeenCalledTimes(1);
+        });
+        await Promise.resolve();
+        const operation = vi.fn(async () => "mutated");
+
+        await expect(adapter.mutatePlain(target, operation)).resolves.toBe("mutated");
+
+        expect(closeWatcher).toHaveBeenCalledTimes(2);
+        expect(operation).toHaveBeenCalledOnce();
+        await adapter.closePlain(target);
+    });
+
+    it("plain mutation callback 自己抛 SnapshotClosedError 时不会重放副作用", async () => {
+        const adapter = new ProjectFileIndexAdapter({
+            build: async () => ({nodes: [], issues: []}),
+            openWatcher: () => ({close: () => undefined}),
+        });
+        const target = {
+            kind: "workspace-root" as const,
+            root: absoluteFsPath(path.resolve(".agent", "plain-file-index-no-replay-test")),
+        };
+        const operation = vi.fn(async () => {
+            throw new SnapshotClosedError("operation failed");
+        });
+
+        await expect(adapter.mutatePlain(target, operation)).rejects.toThrow("operation failed");
+
+        expect(operation).toHaveBeenCalledOnce();
+        await adapter.closePlain(target);
     });
 });
 

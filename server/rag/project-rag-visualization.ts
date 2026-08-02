@@ -273,10 +273,11 @@ export async function debugProjectRag(target: ProjectRagTarget, input: ProjectRa
  */
 export async function createProjectRagEvent(target: ProjectRagTarget, input: ProjectRagEventWriteRequestDto): Promise<ProjectRagSubjectDto> {
     const {subject} = resolveProjectSubject(target, input.subjectPath);
-    const {before, events} = readEventsForWrite(subject.paths.eventsPath);
-    events.push(parseSubjectEvent(input.event, "event"));
+    const next = parseSubjectEvent(input.event, "event");
     const capture = captureSubjectWrite(target, subject, "events");
-    await writeEventsAndMarkDirty(subject.paths, events, capture, before);
+    await mutateEvents(subject.paths, capture, (events) => {
+        events.push(next);
+    });
     return readProjectRagSubject(target, subject.subjectPath);
 }
 
@@ -286,11 +287,12 @@ export async function createProjectRagEvent(target: ProjectRagTarget, input: Pro
 export async function updateProjectRagEvent(target: ProjectRagTarget, input: ProjectRagEventWriteRequestDto): Promise<ProjectRagSubjectDto> {
     const {subject} = resolveProjectSubject(target, input.subjectPath);
     const index = requireIndex(input.index, "index");
-    const {before, events} = readEventsForWrite(subject.paths.eventsPath);
-    assertArrayIndex(events, index, "event");
-    events[index] = parseSubjectEvent(input.event, "event");
+    const next = parseSubjectEvent(input.event, "event");
     const capture = captureSubjectWrite(target, subject, "events");
-    await writeEventsAndMarkDirty(subject.paths, events, capture, before);
+    await mutateEvents(subject.paths, capture, (events) => {
+        assertArrayIndex(events, index, "event");
+        events[index] = next;
+    });
     return readProjectRagSubject(target, subject.subjectPath);
 }
 
@@ -299,11 +301,11 @@ export async function updateProjectRagEvent(target: ProjectRagTarget, input: Pro
  */
 export async function deleteProjectRagEvent(target: ProjectRagTarget, input: ProjectRagEventDeleteRequestDto): Promise<ProjectRagSubjectDto> {
     const {subject} = resolveProjectSubject(target, input.subjectPath);
-    const {before, events} = readEventsForWrite(subject.paths.eventsPath);
-    assertArrayIndex(events, input.index, "event");
-    events.splice(input.index, 1);
     const capture = captureSubjectWrite(target, subject, "events");
-    await writeEventsAndMarkDirty(subject.paths, events, capture, before);
+    await mutateEvents(subject.paths, capture, (events) => {
+        assertArrayIndex(events, input.index, "event");
+        events.splice(input.index, 1);
+    });
     return readProjectRagSubject(target, subject.subjectPath);
 }
 
@@ -312,15 +314,15 @@ export async function deleteProjectRagEvent(target: ProjectRagTarget, input: Pro
  */
 export async function reorderProjectRagEvent(target: ProjectRagTarget, input: ProjectRagEventReorderRequestDto): Promise<ProjectRagSubjectDto> {
     const {subject} = resolveProjectSubject(target, input.subjectPath);
-    const {before, events} = readEventsForWrite(subject.paths.eventsPath);
-    assertArrayIndex(events, input.fromIndex, "event");
-    assertArrayIndex(events, input.toIndex, "event");
-    const [event] = events.splice(input.fromIndex, 1);
-    if (event) {
-        events.splice(input.toIndex, 0, event);
-    }
     const capture = captureSubjectWrite(target, subject, "events");
-    await writeEventsAndMarkDirty(subject.paths, events, capture, before);
+    await mutateEvents(subject.paths, capture, (events) => {
+        assertArrayIndex(events, input.fromIndex, "event");
+        assertArrayIndex(events, input.toIndex, "event");
+        const [event] = events.splice(input.fromIndex, 1);
+        if (event) {
+            events.splice(input.toIndex, 0, event);
+        }
+    });
     return readProjectRagSubject(target, subject.subjectPath);
 }
 
@@ -329,14 +331,14 @@ export async function reorderProjectRagEvent(target: ProjectRagTarget, input: Pr
  */
 export async function createProjectRagMemory(target: ProjectRagTarget, input: ProjectRagMemoryWriteRequestDto): Promise<ProjectRagSubjectDto> {
     const {subject} = resolveProjectSubject(target, input.subjectPath);
-    const {before, memories} = readMemoriesForWrite(subject.paths.memoryPath);
     const next = parseSubjectMemory(input.memory, "memory");
-    if (memories.some((memory) => memory.topic === next.topic)) {
-        throwConflict(`memory topic 已存在：${next.topic}`);
-    }
-    memories.push(next);
     const capture = captureSubjectWrite(target, subject, "memory");
-    await writeMemoriesAndMarkDirty(subject.paths, memories, capture, before);
+    await mutateMemories(subject.paths, capture, (memories) => {
+        if (memories.some((memory) => memory.topic === next.topic)) {
+            throwConflict(`memory topic 已存在：${next.topic}`);
+        }
+        memories.push(next);
+    });
     return readProjectRagSubject(target, subject.subjectPath);
 }
 
@@ -349,18 +351,18 @@ export async function updateProjectRagMemory(target: ProjectRagTarget, input: Pr
     if (!topic) {
         throwBadRequest("topic 不能为空");
     }
-    const {before, memories} = readMemoriesForWrite(subject.paths.memoryPath);
-    const index = memories.findIndex((memory) => memory.topic === topic);
-    if (index < 0) {
-        throwConflict(`memory topic 不存在：${topic}`);
-    }
     const next = parseSubjectMemory(input.memory, "memory");
-    if (next.topic !== topic && memories.some((memory) => memory.topic === next.topic)) {
-        throwConflict(`memory topic 已存在：${next.topic}`);
-    }
-    memories[index] = next;
     const capture = captureSubjectWrite(target, subject, "memory");
-    await writeMemoriesAndMarkDirty(subject.paths, memories, capture, before);
+    await mutateMemories(subject.paths, capture, (memories) => {
+        const index = memories.findIndex((memory) => memory.topic === topic);
+        if (index < 0) {
+            throwConflict(`memory topic 不存在：${topic}`);
+        }
+        if (next.topic !== topic && memories.some((memory) => memory.topic === next.topic)) {
+            throwConflict(`memory topic 已存在：${next.topic}`);
+        }
+        memories[index] = next;
+    });
     return readProjectRagSubject(target, subject.subjectPath);
 }
 
@@ -369,14 +371,14 @@ export async function updateProjectRagMemory(target: ProjectRagTarget, input: Pr
  */
 export async function deleteProjectRagMemory(target: ProjectRagTarget, input: ProjectRagMemoryDeleteRequestDto): Promise<ProjectRagSubjectDto> {
     const {subject} = resolveProjectSubject(target, input.subjectPath);
-    const {before, memories} = readMemoriesForWrite(subject.paths.memoryPath);
-    const index = memories.findIndex((memory) => memory.topic === input.topic);
-    if (index < 0) {
-        throwConflict(`memory topic 不存在：${input.topic}`);
-    }
-    memories.splice(index, 1);
     const capture = captureSubjectWrite(target, subject, "memory");
-    await writeMemoriesAndMarkDirty(subject.paths, memories, capture, before);
+    await mutateMemories(subject.paths, capture, (memories) => {
+        const index = memories.findIndex((memory) => memory.topic === input.topic);
+        if (index < 0) {
+            throwConflict(`memory topic 不存在：${input.topic}`);
+        }
+        memories.splice(index, 1);
+    });
     return readProjectRagSubject(target, subject.subjectPath);
 }
 
@@ -662,30 +664,36 @@ function ensureSubjectSourcesReadable(subject: SubjectPaths, sources: SubjectRag
     }
 }
 
-async function writeEventsAndMarkDirty(
+async function mutateEvents(
     subject: SubjectPaths,
-    events: SubjectEvent[],
     capture: UserProjectFileWriteCapture,
-    before: Uint8Array | null,
+    operation: (events: SubjectEvent[]) => void,
 ): Promise<void> {
-    const text = serializeSubjectEventsJsonl(events);
-    const nextText = text ? `${text}\n` : "";
-    await writeFile(subject.eventsPath, nextText, "utf-8");
-    await recordUserProjectFileWrite({capture, before, after: nextText});
-    await markSubjectRagDirty(subject, "events", nextText);
+    await capture.fileIndex.mutate(async () => {
+        const {before, events} = readEventsForWrite(subject.eventsPath);
+        operation(events);
+        const text = serializeSubjectEventsJsonl(events);
+        const nextText = text ? `${text}\n` : "";
+        await writeFile(subject.eventsPath, nextText, "utf-8");
+        await recordUserProjectFileWrite({capture, before, after: nextText});
+        await markSubjectRagDirty(subject, "events", nextText);
+    });
 }
 
-async function writeMemoriesAndMarkDirty(
+async function mutateMemories(
     subject: SubjectPaths,
-    memories: SubjectMemory[],
     capture: UserProjectFileWriteCapture,
-    before: Uint8Array | null,
+    operation: (memories: SubjectMemory[]) => void,
 ): Promise<void> {
-    const text = serializeSubjectMemoriesJsonl(memories);
-    const nextText = text ? `${text}\n` : "";
-    await writeFile(subject.memoryPath, nextText, "utf-8");
-    await recordUserProjectFileWrite({capture, before, after: nextText});
-    await markSubjectRagDirty(subject, "memory", nextText);
+    await capture.fileIndex.mutate(async () => {
+        const {before, memories} = readMemoriesForWrite(subject.memoryPath);
+        operation(memories);
+        const text = serializeSubjectMemoriesJsonl(memories);
+        const nextText = text ? `${text}\n` : "";
+        await writeFile(subject.memoryPath, nextText, "utf-8");
+        await recordUserProjectFileWrite({capture, before, after: nextText});
+        await markSubjectRagDirty(subject, "memory", nextText);
+    });
 }
 
 async function readSourceStatuses(projectRoot: string, subject: SubjectPaths): Promise<ProjectRagSourceStatusDto[]> {
