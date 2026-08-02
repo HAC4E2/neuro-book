@@ -1,6 +1,6 @@
 # 130 - 桌面应用前置架构、发行载荷与存储生命周期
 
-> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、Contract v3、Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议。正式构建已切换为 esbuild 同图 link/minify；五平台严格 A/B和四平台 Product smoke已通过。第十五次Candidate完成五平台Product、Windows Portable、双OCI、assemble与Linux最终验证，Windows也完成第一次Manager ready、正式shutdown与lease重取；随后因Bun宿主下Playwright无法连接Chrome调试pipe而保持0资产Draft。浏览器探针已隔离到Node+tsx子进程，最终Verifier、Podman、A→B、自卸载、Release激活、浏览器人工验收与Tauri/Electron同矩阵spike尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由spike证据冻结。
+> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、Contract v3、Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议。正式构建已切换为 esbuild 同图 link/minify；五平台严格 A/B和四平台 Product smoke已通过。第十六次Candidate完成五平台Product、Windows Portable、双OCI、assemble、Linux最终验证与Windows真实浏览器/鉴权重启/自卸载；10个payload上传后因GitHub Draft asset下载权限不足而保持未公开。Verifier已按GitHub权限合同修复；Podman、A→B、最终索引、Release激活、浏览器人工验收与Tauri/Electron同矩阵spike尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由spike证据冻结。
 
 ## Relative documents refs
 
@@ -747,3 +747,9 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - Windows浏览器动作中，Playwright经Bun 1.3.14启动系统Chrome并得到PID，但180秒内无法建立`--remote-debugging-pipe`。Product日志已完成migration、Profile/system asset准备并监听`127.0.0.1:39123`；浏览器失败后的正式Manager shutdown和Agent Session Store lease重取没有附加错误。该故障不是Product identity、页面、HTTP、State Root或生命周期回归。
 - 最小反馈环不启动NeuroBook即可在本机复现：Bun启动Chrome与Edge都超时；Node 24连续五次启动同一Chrome为147至172毫秒。修复把浏览器探针放入Node+tsx子进程，并在Windows上拒绝Bun直接执行；60秒浏览器launch与120秒子进程边界保证失败可收口。Portable、Manager、Product和应用数据生命周期仍由候选包内Bun执行，没有引入第二套产品Runtime。
 - 本地回归为Release asset contract 20/20、scripts typecheck、真实Node Chrome DOM/版本smoke通过；Bun误用在277毫秒内明确拒绝。Candidate 15保持0资产Draft、未公开且不复用，Windows二次鉴权启动、自卸载、公开payload、GHCR AMD64/ARM64、rootless Podman、0.8.6 data reuse、最终Portable Verifier、Release公开和OCI正式tag仍待下一唯一Candidate。
+
+### 2026-08-03：第十六次 Candidate 的 Draft asset 下载权限
+
+- 新Draft `v0.9.0-canary.20260802.210808Z.dddec169`（release ID `363895565`、revision `37045283eefb519a45c202c05d610941937c457e`）dispatch workflow [`30767213367`](https://github.com/notnotype/neuro-book/actions/runs/30767213367)。五平台Product、Windows Portable、双架构OCI、multi-arch merge、assemble、Linux Runtime/GHCR/browser/Manager，以及Windows Runtime/真实Chrome/同State Root鉴权重启/shutdown/lease/两种自卸载全部成功。
+- `publish-payload`上传10个候选payload后，Release仍保持Draft。独立Verifier以`contents: read`下载Draft asset bytes时收到GitHub `403 Resource not accessible by integration`；同一asset endpoint用具备Release写权限的token能返回原始bytes，GitHub记录的size/digest也正确。根因是GitHub App对未公开Release资产的权限要求，不是归档或摘要漂移。
+- 修复只让独立payload verifier声明`contents: write`，仍逐个按release ID与asset ID下载GitHub实际bytes并复核统一Manifest/checksum；后续GHCR、Podman和Windows data reuse不扩权。Candidate 16不rerun、不复用；10个资产保持在未公开Draft中，A→B、GHCR双架构、Podman、最终索引公开和OCI正式别名仍待下一Candidate。

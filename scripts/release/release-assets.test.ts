@@ -500,6 +500,10 @@ describe("Product Release宿主合同", () => {
         expect(workflow.jobs["publish-payload"].steps.some(
             ({run}) => run?.includes("draft-release-assets.ts") && run.includes("inputs.release_id"),
         )).toBe(true);
+        expect(workflow.jobs["verify-public-payload"].permissions).toMatchObject({
+            contents: "write",
+            packages: "read",
+        });
 
         const finalSteps = workflow.jobs["publish-index"].steps.map(({name}) => name ?? "");
         expect(finalSteps.indexOf("Publish release index last"))

@@ -1,6 +1,6 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`仍是最新已确认完整canary。当前工作树协议为Installation Manifest v5、Release Manifest v5、Operation Journal v5 和 Product-owned Application State catalog v3。公开Manager `.42`已完成provenance、tarball、签名、attestation与真实bunx验证；第十五次0.9 Candidate已完成五平台Product、Windows Portable、双OCI、assemble、Linux最终验证，以及Windows第一次ready、正式shutdown和lease重取。它随后因Bun宿主下Playwright无法连接Chrome调试pipe而保持0资产Draft；浏览器探针已隔离到Node+tsx子进程，同State Root二次登录、公开A→B/跨Profile、Podman、自卸载、最终Verifier与Release激活仍待下一Candidate。
+> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`仍是最新已确认完整canary。当前工作树协议为Installation Manifest v5、Release Manifest v5、Operation Journal v5 和 Product-owned Application State catalog v3。公开Manager `.42`已完成provenance、tarball、签名、attestation与真实bunx验证；第十六次0.9 Candidate已通过五平台Product、Windows Portable、双OCI、assemble、Linux最终验证与Windows同State Root鉴权重启、正式shutdown/lease重取和两种自卸载。10个payload上传Draft后，独立Verifier因GitHub App token缺少Draft asset下载权限而403；公开A→B/跨Profile、Podman、最终Verifier与Release激活仍待下一Candidate。
 
 ## 2026-08-02：Installation Mutation、自卸载与发行候选治理
 
@@ -1190,3 +1190,10 @@ uninstall
 - 阻断发生在Playwright使用Bun 1.3.14启动系统Chrome：Chrome进程已经创建，但180秒内没有建立`--remote-debugging-pipe`。本机最小反馈环在不启动NeuroBook时稳定复现Bun+Chrome与Bun+Edge超时；Node 24连续五次启动同一Chrome均在147至172毫秒内完成，因此不是Manager、Product或State Root回归。
 - Windows浏览器探针现由Bun生命周期Verifier启动独立Node+tsx子进程；候选包内Manager、Product、shutdown与lease证明仍由Bun拥有。Windows误用Bun会在启动浏览器前明确失败，浏览器launch另有60秒边界，外层子进程有120秒边界。没有增加重试、切换非真实浏览器或放宽页面/版本断言。
 - Candidate 15保持0资产Draft且不复用。第二次鉴权启动、自卸载、公开payload、A→B/data reuse、GHCR平台验证、rootless Podman、最终Portable Verifier、Release公开与正式OCI tag激活仍待下一唯一Candidate从头执行。
+
+### 2026-08-03：第十六次 Candidate 的 Draft asset 权限阻断
+
+- 新Draft `v0.9.0-canary.20260802.210808Z.dddec169`（release ID `363895565`、revision `37045283eefb519a45c202c05d610941937c457e`）的 workflow [`30767213367`](https://github.com/notnotype/neuro-book/actions/runs/30767213367) 已通过preflight、Source、五平台Product、Windows Portable、双OCI、assemble和Linux最终验证。Windows浏览器、管理员创建、同State Root第二次登录、两次正式shutdown/lease重取、默认保留data卸载、`--delete-data`全量卸载与Stage 0全部通过，关闭Candidate 15的runtime边界。
+- `publish-payload`已向Draft上传10个payload；Release继续是Draft且未公开。独立`verify-public-payload`随后用`contents: read`的GitHub integration token访问Draft release asset bytes，API返回`403 Resource not accessible by integration`。同一资产ID用仓库写权限token可立即返回原始bytes，资产size/digest也与GitHub记录一致；端点、资产identity和上传内容不是根因。
+- GitHub Draft Release API实际要求该integration具备Release写权限才能下载未公开资产。修复只把独立payload verifier的`contents`提升为`write`，行为仍只有读取和摘要复核；GHCR、Podman、A→B等后续job保持原最小权限。没有把验证并回上传job，也没有以Actions artifact代替GitHub上的真实bytes。
+- Candidate 16按协议保留失败审计且不rerun。A→B/data reuse、GHCR AMD64/ARM64、rootless Podman、最终Portable Verifier、Release索引公开和OCI正式Canary别名全部因依赖失败被跳过，仍待下一唯一Candidate从头执行。
