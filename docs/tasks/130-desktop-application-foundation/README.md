@@ -1,6 +1,6 @@
 # 130 - 桌面应用前置架构、发行载荷与存储生命周期
 
-> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、Contract v3、Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议。正式构建已切换为 esbuild 同图 link/minify；提交 `852eead1` 的五平台严格 A/B 与四平台 Product build/archive/native smoke 全绿，`web-fetch` 的 CommonJS 命名导出丢失也已由真实跨平台 Product 证据关闭。新的 0.9 Draft 已创建并 dispatch，但尚未公开；GHCR/rootless Podman、同代 Windows Portable、浏览器验收与 Tauri/Electron 同矩阵 spike 尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由 spike 证据冻结。
+> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、Contract v3、Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议。正式构建已切换为 esbuild 同图 link/minify；提交 `852eead1` 的五平台严格 A/B 与四平台 Product build/archive/native smoke 全绿，`web-fetch` 的 CommonJS 命名导出丢失也已由真实跨平台 Product 证据关闭。上一 0.9 Draft 的 clean preflight 因缺少 Prisma 生成前置失败，未公开且不可复用；修复已提交，新的 Candidate 仍待创建。GHCR/rootless Podman、同代 Windows Portable、浏览器验收与 Tauri/Electron 同矩阵 spike 尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由 spike 证据冻结。
 
 ## Relative documents refs
 
@@ -634,6 +634,12 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - 首轮失败诊断 artifact 因默认排除隐藏目录而漏掉 `.output`。workflow 已改为只上传失败实例的 `.output`、Source/Product identity、State、server log 与浏览器截图，显式允许隐藏文件，不再复制整份 Source。本地验证为 7 个 focused 文件 / 38 项、scripts typecheck、根 typecheck 与 docs build 全绿；提交 `852eead1` 的 Baseline workflow [`30749825353`](https://github.com/notnotype/neuro-book/actions/runs/30749825353) 五平台全绿，Product Platforms workflow [`30749825356`](https://github.com/notnotype/neuro-book/actions/runs/30749825356) 四平台完整通过，Web 提取修复获得真实跨平台证据。
 - Manager `0.1.0-canary.40` 已由 workflow [`30750314307`](https://github.com/notnotype/neuro-book/actions/runs/30750314307) 通过 Trusted Publishing；npm 精确版本/`canary`、两个 Sigstore attestation、5-file tarball、全新缓存真实 bunx 与 `manager:verify-public` 均已验证。新的 0.9 Candidate 必须消费 `.40`，下一步只创建新的唯一 Draft，不复用历史失败 Draft。
 - release coordinator 已创建唯一 Draft `v0.9.0-canary.20260802.134429Z.01a015f6`，release ID `363798604`、revision `a6f9fa7e`，并 dispatch workflow [`30750586392`](https://github.com/notnotype/neuro-book/actions/runs/30750586392)。按仓库约定使用 `--no-watch`，当前 Draft 尚未公开；该 workflow 的 GHCR、Windows Portable、最终 Verifier 与发布激活结果不在本轮本地证据中。
+
+### 2026-08-02：clean Release preflight 生成前置修复
+
+- Draft `v0.9.0-canary.20260802.134429Z.01a015f6`（release ID `363798604`）的 workflow `30750586392` 在 `Verify Stage 0 and Manager contracts` 中执行 `scripts/deploy/product-start.test.ts` 时失败：clean checkout 没有被 Git 跟踪的 `server/generated/prisma/client`，而 preflight 只安装依赖、准备 Nuxt 和运行测试，没有执行 `bun run generate`。本地 Developer Build State 中已有生成目录，所以不能用本地通过掩盖该问题。
+- 修复在 release workflow 的依赖安装后、Product policy/Manager/`product-start` 合同前执行 `bun run generate`；`scripts/release/release-assets.test.ts` 新增顺序断言，固定生成步骤必须早于 Product command graph 检查。旧 Draft 保留为失败审计，不能复用其 release ID、tag 或 revision。
+- 本地验证：release asset contract 20/20、`product-start` Bun test（Windows 平台 SIGTERM 用例按条件跳过）、scripts typecheck、根 typecheck 与 docs build 全部通过。修复后必须创建新的 0.9 Draft，再由 clean runner 重新执行全链门禁。
 
 ## TODO / Follow-ups
 

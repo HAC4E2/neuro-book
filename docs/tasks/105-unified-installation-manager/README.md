@@ -1114,3 +1114,8 @@ uninstall
 - npm 精确版本与 `canary` dist-tag 均为 `0.1.0-canary.40`，`gitHead=4efc4c8fc508b1a2da4c5afe783e5992c0eba8ea`，公开 tarball shasum 为 `25a8778037520da278d3a8e1ca3e7d8ee971e193`、5 files / 2,287,846 unpacked bytes。registry 返回 publish 与 SLSA provenance 两个 Sigstore attestation；全新 Bun cache 的真实 `bunx --version` 返回 `.40`，`manager:verify-public` 证明当前 Manager 构建输入未晚于公开 gitHead。
 - 新的 0.9 Candidate 必须消费 `.40`；`.39` 的 clean Portable 仍是历史验收证据，不冒充 `.40` 同代 Portable。最终 Windows Portable、A→B、跨 Profile 与 GHCR/rootless Podman 继续由 Candidate workflow 证明。
 - release coordinator 随后创建新的 Draft `v0.9.0-canary.20260802.134429Z.01a015f6`（release ID `363798604`，revision `a6f9fa7e`）并 dispatch workflow [`30750586392`](https://github.com/notnotype/neuro-book/actions/runs/30750586392)。按发布协议没有等待 Actions；当前 Release 仍为 Draft、尚未公开，`.40` 同代 Portable、A→B、跨 Profile、GHCR/rootless Podman 与最终索引均以该后台 workflow 实际结果为准。
+
+### 2026-08-02：Release preflight 生成前置修复
+
+- Draft `v0.9.0-canary.20260802.134429Z.01a015f6` 的 preflight workflow [`30750586392`](https://github.com/notnotype/neuro-book/actions/runs/30750586392) 在 `scripts/deploy/product-start.test.ts` 解析 Product command graph 时发现 clean checkout 缺少被 `.gitignore` 排除的 Prisma client。原因是 preflight 没有在合同测试前执行 `bun run generate`；本地残留的 Developer Build State 曾掩盖这一前置。
+- release workflow 现把 `bun run generate` 固定在依赖安装后、Product policy、Manager 与 Product graph 合同前；release asset contract 同时断言该顺序。旧 Draft 保留为失败候选审计，不复用 release ID、tag 或 revision；修复后需要创建新的 0.9 Draft 才能重新进入 Candidate fan-out。

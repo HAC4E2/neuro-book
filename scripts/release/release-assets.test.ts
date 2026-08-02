@@ -413,6 +413,10 @@ describe("Product Release宿主合同", () => {
         expect(workflow.jobs.preflight.steps).toContainEqual(
             expect.objectContaining({run: "bun run manager:verify-public"}),
         );
+        const generatedSourcesStep = workflow.jobs.preflight.steps.findIndex(({run}) => run === "bun run generate");
+        const productGraphStep = workflow.jobs.preflight.steps.findIndex(({run}) => run?.includes("scripts/deploy/product-start.test.ts"));
+        expect(generatedSourcesStep).toBeGreaterThan(-1);
+        expect(productGraphStep).toBeGreaterThan(generatedSourcesStep);
         const preflightRun = workflow.jobs.preflight.steps.map(({run}) => run ?? "").join("\n");
         expect(preflightRun).toContain("bun run test:install");
         expect(preflightRun).toContain("bun run manager:test");
