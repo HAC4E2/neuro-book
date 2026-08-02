@@ -623,3 +623,4 @@ Phase E gate：本地实现已满足；Windows Release runner真实Portable smok
 - workflow [`30764872479`](https://github.com/notnotype/neuro-book/actions/runs/30764872479) 的Windows Product job已通过Manager、Owned Process、State Root、Product与Portable组装；五平台Product和双架构OCI也均成功。失败发生在独立Ubuntu assemble runner安装依赖时：`@rolldown/binding-linux-x64-musl`单个tarball下载/解压失败，非Windows进程树回归。
 - assemble未生成候选bundle，`verify-windows`因此完全跳过。第十三次修复的包内Manager restart、stdin正式关闭、Product终态和lease立即重取仍只有本机原包证据，不能用第十四次的Windows Product job替代。
 - 下一Candidate会消费统一的Release依赖安装入口；它只有限重试明确的下载/归档瞬时错误，不改变Owned Process、stdin ownership、超时或shutdown协议。
+- 第十五次Draft `v0.9.0-canary.20260802.203034Z.03357aca`（release ID `363887944`）已dispatch workflow [`30765794992`](https://github.com/notnotype/neuro-book/actions/runs/30765794992)。当前仍为0资产Draft；Windows最终restart、stdin正式关闭、Product终态和lease重取仍以该workflow实际执行为准。

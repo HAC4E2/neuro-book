@@ -739,3 +739,4 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - 证据边界保持严格：五平台Product与OCI成功继续成立；Windows最终restart/authenticated lifecycle、公开payload、GHCR AMD64/ARM64与rootless Podman、A→B/data reuse、跨Profile、自卸载、最终Portable Verifier、Release公开和正式OCI tag激活全部跳过。Draft仍为0资产、未公开，并作为失败审计永久保留。
 - 新增Release专用依赖安装Module并让13个clean-runner入口统一消费。它始终调用`bun install --frozen-lockfile`，只识别下载、瞬时HTTP/网络和归档解压错误，按2秒/10秒退避最多尝试3次；确定性的lockfile或版本错误立即传播，连续瞬时失败也保持非零终态。实现不删除cache或`node_modules`，让重试只补缺失包；没有放宽identity、复用Candidate或增加通用重试框架。
 - 本地验证包括真实frozen install、Release故障注入与资产合同3 files / 26 tests、scripts typecheck。下一步提交该边界并创建全新Candidate，从头执行全部Release链。
+- 修复提交`03357aca`已推送`master`。release脚本创建版本提交`3ee52492`并把全新第十五次Draft `v0.9.0-canary.20260802.203034Z.03357aca`（release ID `363887944`）dispatch到workflow [`30765794992`](https://github.com/notnotype/neuro-book/actions/runs/30765794992)；同一提交随后fast-forward推送`master`。当前Draft为0资产、未公开，按`--no-watch`协议不把dispatch写成Release成功。
