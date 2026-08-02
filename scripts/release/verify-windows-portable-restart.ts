@@ -1,5 +1,6 @@
 import {readFile, stat, writeFile, mkdir} from "node:fs/promises";
 import {join, resolve} from "node:path";
+import {fileURLToPath} from "node:url";
 
 import {parse as parseDotenv} from "dotenv";
 import {parse as parseYaml, stringify as stringifyYaml} from "yaml";
@@ -7,13 +8,14 @@ import {parse as parseYaml, stringify as stringifyYaml} from "yaml";
 import {readInstallationManifest} from "nbook/packages/neuro-book-manager/src/manifest-store";
 import {installationPaths} from "nbook/packages/neuro-book-manager/src/paths";
 import type {InstallationManifest} from "nbook/packages/neuro-book-manager/src/types";
-import {runProductBrowserSmoke} from "nbook/scripts/deploy/product-browser-smoke";
 import {acquireAgentSessionStoreExclusiveLease} from "nbook/server/agent/session/agent-session-store";
 
 const PORT = 39_123;
 // Manager正式启动合同允许120秒；外层Verifier必须更长，才能观察Manager自己的ready或失败终态。
 const STARTUP_TIMEOUT_MS = 150_000;
 const SHUTDOWN_TIMEOUT_MS = 40_000;
+const BROWSER_SMOKE_TIMEOUT_MS = 120_000;
+const BROWSER_SMOKE_SCRIPT = fileURLToPath(new URL("../deploy/product-browser-smoke.ts", import.meta.url));
 const ADMIN_USERNAME = "release-smoke-admin";
 const ADMIN_PASSWORD = "release-auth-smoke-password";
 
@@ -48,12 +50,8 @@ async function verifyWindowsPortableRestart(input: RestartOptions): Promise<void
     await assertMissing(shadowWorkspace, "Portable浏览器验收前存在Installation Root影子workspace");
 
     await withManagedPortable(root, stateRoot, manifest, "release-browser-smoke", async (baseUrl) => {
-        await runProductBrowserSmoke({
-            url: baseUrl,
-            expectedVersion: manifest.appVersion,
-            browserExecutable: input.browserExecutable,
-            screenshot: join(stateRoot, "logs", "release-browser-smoke-failure.png"),
-        });
+        await runBrowserSmokeWithNode(baseUrl, manifest.appVersion, input.browserExecutable,
+            join(stateRoot, "logs", "release-browser-smoke-failure.png"));
     });
 
     await createAdmin(root, manifest);
@@ -79,6 +77,56 @@ async function verifyWindowsPortableRestart(input: RestartOptions): Promise<void
         if (!response.headers.get("set-cookie")) throw new Error("Portable login没有写入session cookie。" );
         await assertMissing(shadowWorkspace, "Portable登录后在Installation Root产生了影子workspace");
     });
+}
+
+/**
+ * Windows上的Bun 1.3.14无法可靠连接Playwright Chromium调试pipe；浏览器探针固定交给Node，
+ * Portable、Manager和Product生命周期仍由候选包内Bun执行。
+ */
+async function runBrowserSmokeWithNode(
+    url: string,
+    expectedVersion: string,
+    browserExecutable: string,
+    screenshot: string,
+): Promise<void> {
+    const child = Bun.spawn([
+        "node",
+        "--import",
+        "tsx",
+        BROWSER_SMOKE_SCRIPT,
+        "--url",
+        url,
+        "--expected-version",
+        expectedVersion,
+        "--browser-executable",
+        browserExecutable,
+        "--screenshot",
+        screenshot,
+    ], {
+        cwd: process.cwd(),
+        env: {...process.env, NO_COLOR: "1"},
+        stdin: "ignore",
+        stdout: "pipe",
+        stderr: "pipe",
+        windowsHide: true,
+    });
+    const stdout = new Response(child.stdout).text();
+    const stderr = new Response(child.stderr).text();
+    let exitCode: number;
+    try {
+        exitCode = await withTimeout(child.exited, BROWSER_SMOKE_TIMEOUT_MS, "Windows Playwright smoke");
+    } catch (error) {
+        child.kill();
+        await child.exited.catch(() => undefined);
+        const [output, diagnostic] = await Promise.all([stdout, stderr]);
+        throw new Error(`Windows Playwright smoke未完成。\n${output}\n${diagnostic}`, {cause: error});
+    }
+    const [output, diagnostic] = await Promise.all([stdout, stderr]);
+    if (exitCode !== 0) {
+        throw new Error(`Windows Playwright smoke退出码异常：${String(exitCode)}\n${output}\n${diagnostic}`);
+    }
+    if (output.trim()) console.log(output.trim());
+    if (diagnostic.trim()) console.error(diagnostic.trim());
 }
 
 /**

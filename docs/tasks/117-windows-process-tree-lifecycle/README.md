@@ -1,6 +1,6 @@
 # 117 - Windows 进程树所有权与 Bash 超时
 
-> 当前状态：本地实现与聚焦验证完成；Linux x64/AArch64、macOS x64/AArch64 与多次Windows Candidate Product/Owned Process workflow均已通过。第十三次Candidate暴露的Manager/Product stdin pipe竞争已修复，原包本机完成5.84秒ready、正式shutdown与lease重取；公开Manager `.42`已完成供应链验证。第十四次Candidate完成Windows Product/Portable组装后在assemble依赖下载阶段失败，正式同代restart/shutdown仍待下一Candidate。
+> 当前状态：本地实现与聚焦验证完成；Linux x64/AArch64、macOS x64/AArch64 与多次Windows Candidate Product/Owned Process workflow均已通过。第十五次Candidate已在clean Windows runner完成第一次Manager ready、正式stdin shutdown、Product终态与Agent Session Store lease立即重取，关闭第十三次stdin竞争的发行证据缺口。后续浏览器探针因Bun/Playwright调试pipe兼容问题失败；它已隔离到Node+tsx子进程，第二次鉴权启动和自卸载仍待下一Candidate。
 
 ## Relative documents refs
 
@@ -576,7 +576,7 @@ Phase E gate：本地实现已满足；Windows Release runner真实Portable smok
 - [x] 保留Task 105、Task 116职责边界。
 - [x] FFI/嵌套Job失败保持fail closed，没有扫描式fallback。
 - [x] 执行真实候选Windows Release workflow，确认包内Bun + PortableGit，并完成四平台POSIX runner门禁。
-- [ ] 在新Candidate确认实际Manager graceful shutdown、Product终态与 `runtime.lease` 立即可重取。
+- [x] 在新Candidate确认实际Manager graceful shutdown、Product终态与 `runtime.lease` 立即可重取。
 - [ ] 经用户授权执行一次可见CMD窗口最终验收：卡住Bash fixture后关闭窗口，以fixture PID和端口确认完整收口。
 
 ### 2026-08-02：POSIX Product 最终回归
@@ -624,3 +624,9 @@ Phase E gate：本地实现已满足；Windows Release runner真实Portable smok
 - assemble未生成候选bundle，`verify-windows`因此完全跳过。第十三次修复的包内Manager restart、stdin正式关闭、Product终态和lease立即重取仍只有本机原包证据，不能用第十四次的Windows Product job替代。
 - 下一Candidate会消费统一的Release依赖安装入口；它只有限重试明确的下载/归档瞬时错误，不改变Owned Process、stdin ownership、超时或shutdown协议。
 - 第十五次Draft `v0.9.0-canary.20260802.203034Z.03357aca`（release ID `363887944`）已dispatch workflow [`30765794992`](https://github.com/notnotype/neuro-book/actions/runs/30765794992)。当前仍为0资产Draft；Windows最终restart、stdin正式关闭、Product终态和lease重取仍以该workflow实际执行为准。
+
+### 2026-08-03：第十五次 Candidate 的正式关闭证据
+
+- workflow [`30765794992`](https://github.com/notnotype/neuro-book/actions/runs/30765794992) 的Windows候选第一次启动已经ready。Playwright浏览器动作随后失败，但`withManagedPortable()`仍完成stdin关闭、Manager/Product退出码0与同一Agent Session Store lease立即重取；若任一收口失败，Verifier会聚合生命周期错误，而本轮只有浏览器launch错误。因此正式shutdown与lease TODO已有clean Candidate证据。
+- 失败根因位于宿主验证工具：Bun 1.3.14在Windows启动Chrome或Edge后无法连接Playwright调试pipe；Node 24对同一系统Chrome连续五次稳定通过。修复只把Playwright探针隔离到Node+tsx子进程，不改变Manager stdin所有权、Owned Process Job、shutdown token或Product Runtime。
+- 第二次鉴权启动和两个自卸载场景因步骤失败被跳过，不能由第一次正式收口代替；这些属于Task 105/130的完整发行矩阵，仍由下一Candidate证明。本Task仍保留用户可见CMD关闭窗口验收项。

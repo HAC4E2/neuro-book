@@ -1,6 +1,6 @@
 # 130 - 桌面应用前置架构、发行载荷与存储生命周期
 
-> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、Contract v3、Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议。正式构建已切换为 esbuild 同图 link/minify；五平台严格 A/B、四平台 Product smoke以及第十三次Candidate的五平台Product、双OCI、assemble与Linux公开GHCR/browser smoke均已通过。第十三次Windows Portable的stdin pipe竞争已修复，原包本机完成5.84秒ready、正式shutdown与lease重取；Manager `.42`已公开验证。第十四次Candidate workflow `30764872479` 已dispatch，当前仍为Draft且无资产。最终Verifier、Podman、A→B、自卸载、Release激活、浏览器人工验收与Tauri/Electron同矩阵spike尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由spike证据冻结。
+> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、Contract v3、Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议。正式构建已切换为 esbuild 同图 link/minify；五平台严格 A/B和四平台 Product smoke已通过。第十五次Candidate完成五平台Product、Windows Portable、双OCI、assemble与Linux最终验证，Windows也完成第一次Manager ready、正式shutdown与lease重取；随后因Bun宿主下Playwright无法连接Chrome调试pipe而保持0资产Draft。浏览器探针已隔离到Node+tsx子进程，最终Verifier、Podman、A→B、自卸载、Release激活、浏览器人工验收与Tauri/Electron同矩阵spike尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由spike证据冻结。
 
 ## Relative documents refs
 
@@ -740,3 +740,10 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - 新增Release专用依赖安装Module并让13个clean-runner入口统一消费。它始终调用`bun install --frozen-lockfile`，只识别下载、瞬时HTTP/网络和归档解压错误，按2秒/10秒退避最多尝试3次；确定性的lockfile或版本错误立即传播，连续瞬时失败也保持非零终态。实现不删除cache或`node_modules`，让重试只补缺失包；没有放宽identity、复用Candidate或增加通用重试框架。
 - 本地验证包括真实frozen install、Release故障注入与资产合同3 files / 26 tests、scripts typecheck。下一步提交该边界并创建全新Candidate，从头执行全部Release链。
 - 修复提交`03357aca`已推送`master`。release脚本创建版本提交`3ee52492`并把全新第十五次Draft `v0.9.0-canary.20260802.203034Z.03357aca`（release ID `363887944`）dispatch到workflow [`30765794992`](https://github.com/notnotype/neuro-book/actions/runs/30765794992)；同一提交随后fast-forward推送`master`。当前Draft为0资产、未公开，按`--no-watch`协议不把dispatch写成Release成功。
+
+### 2026-08-03：第十五次 Candidate 的 Windows Playwright/Bun 边界
+
+- workflow [`30765794992`](https://github.com/notnotype/neuro-book/actions/runs/30765794992) 已越过第十四次网络故障：Release preflight、Source、五平台Product、Windows Portable、双架构OCI、multi-arch merge、assemble和Linux最终验证全部成功。Windows executable/doctor、Runtime Contract、shadow-workspace以及第一次Manager ready也通过。
+- Windows浏览器动作中，Playwright经Bun 1.3.14启动系统Chrome并得到PID，但180秒内无法建立`--remote-debugging-pipe`。Product日志已完成migration、Profile/system asset准备并监听`127.0.0.1:39123`；浏览器失败后的正式Manager shutdown和Agent Session Store lease重取没有附加错误。该故障不是Product identity、页面、HTTP、State Root或生命周期回归。
+- 最小反馈环不启动NeuroBook即可在本机复现：Bun启动Chrome与Edge都超时；Node 24连续五次启动同一Chrome为147至172毫秒。修复把浏览器探针放入Node+tsx子进程，并在Windows上拒绝Bun直接执行；60秒浏览器launch与120秒子进程边界保证失败可收口。Portable、Manager、Product和应用数据生命周期仍由候选包内Bun执行，没有引入第二套产品Runtime。
+- 本地回归为Release asset contract 20/20、scripts typecheck、真实Node Chrome DOM/版本smoke通过；Bun误用在277毫秒内明确拒绝。Candidate 15保持0资产Draft、未公开且不复用，Windows二次鉴权启动、自卸载、公开payload、GHCR AMD64/ARM64、rootless Podman、0.8.6 data reuse、最终Portable Verifier、Release公开和OCI正式tag仍待下一唯一Candidate。

@@ -16,6 +16,8 @@ type BrowserFailure = {
     message: string;
 };
 
+const BROWSER_LAUNCH_TIMEOUT_MS = 60_000;
+
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
     await runProductBrowserSmoke(parseOptions(process.argv.slice(2)));
 }
@@ -24,12 +26,16 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
  * 启动CI明确指定的Chromium系浏览器，验证Product首页已完成Vue挂载。
  */
 export async function runProductBrowserSmoke(input: SmokeOptions): Promise<void> {
+    if (process.platform === "win32" && typeof Bun !== "undefined") {
+        throw new Error("Windows Playwright smoke必须由Node运行；Bun 1.3.14无法可靠连接Chromium调试pipe。");
+    }
     const failures: BrowserFailure[] = [];
     let browser: Browser | null = null;
     try {
         browser = await chromium.launch({
             executablePath: input.browserExecutable,
             headless: true,
+            timeout: BROWSER_LAUNCH_TIMEOUT_MS,
         });
         const page = await browser.newPage();
         observePage(page, input.url, failures);
@@ -105,7 +111,7 @@ function parseOptions(args: string[]): SmokeOptions {
     const expectedVersion = values.get("--expected-version");
     const browserExecutable = values.get("--browser-executable");
     if (!url || !expectedVersion || !browserExecutable) {
-        throw new Error("用法：bun scripts/deploy/product-browser-smoke.ts --url <url> --expected-version <version> --browser-executable <path> [--screenshot <path>]");
+        throw new Error("用法：node --import tsx scripts/deploy/product-browser-smoke.ts --url <url> --expected-version <version> --browser-executable <path> [--screenshot <path>]");
     }
     return {
         url: new URL(url).href,

@@ -1,6 +1,6 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`仍是最新已确认完整canary。当前工作树协议为Installation Manifest v5、Release Manifest v5、Operation Journal v5 和 Product-owned Application State catalog v3。公开Manager `.42`已完成provenance、tarball、签名、attestation与真实bunx验证；第十三次0.9 Candidate的Windows stdin竞争已修复并在原包完成5.84秒ready、正式shutdown和lease重取。第十四次Candidate workflow `30764872479` 已dispatch，当前仍为Draft且无资产；同State Root二次登录、公开A→B/跨Profile、Podman、自卸载、最终Verifier与Release激活以该后台workflow实际结果为准。
+> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`仍是最新已确认完整canary。当前工作树协议为Installation Manifest v5、Release Manifest v5、Operation Journal v5 和 Product-owned Application State catalog v3。公开Manager `.42`已完成provenance、tarball、签名、attestation与真实bunx验证；第十五次0.9 Candidate已完成五平台Product、Windows Portable、双OCI、assemble、Linux最终验证，以及Windows第一次ready、正式shutdown和lease重取。它随后因Bun宿主下Playwright无法连接Chrome调试pipe而保持0资产Draft；浏览器探针已隔离到Node+tsx子进程，同State Root二次登录、公开A→B/跨Profile、Podman、自卸载、最终Verifier与Release激活仍待下一Candidate。
 
 ## 2026-08-02：Installation Mutation、自卸载与发行候选治理
 
@@ -1183,3 +1183,10 @@ uninstall
 - assemble没有生成Release Manifest或候选bundle，后续Windows restart、公开payload、GHCR/Podman、A→B、跨Profile、自卸载、最终Verifier、Release公开与正式OCI tag激活全部跳过。Draft保持0资产且不复用，本轮不能补记任何安装生命周期TODO为通过。
 - Release workflow的13个clean-runner安装入口现统一消费专用安装Module：固定`--frozen-lockfile`，只对明确的网络、HTTP瞬时状态和归档解压错误以2秒/10秒退避最多尝试3次；lockfile、版本解析等确定性错误第一次即失败。故障注入合同覆盖瞬时恢复、确定性失败和重试耗尽，不清空依赖树、不忽略退出码，也不扩展为通用CI事务框架。
 - 修复提交`03357aca`已推送`master`；全新第十五次Draft `v0.9.0-canary.20260802.203034Z.03357aca`（release ID `363887944`、revision `3ee524926b1ae54c0dcfd0bdc709a4696f0a5151`）已dispatch workflow [`30765794992`](https://github.com/notnotype/neuro-book/actions/runs/30765794992)。当前仍为0资产Draft，所有Manager安装、更新、A→B、跨Profile、自卸载和最终Verifier结论必须等待该workflow实际结果。
+
+### 2026-08-03：第十五次 Candidate 的浏览器 Runtime 边界
+
+- workflow [`30765794992`](https://github.com/notnotype/neuro-book/actions/runs/30765794992) 已完成preflight、Source、五平台Product、Windows Portable、双架构OCI、assemble和Linux最终验证。Windows也通过Portable executable/doctor、Runtime Contract与shadow-workspace诊断；第一次Manager启动完成ready，浏览器动作失败后仍走正式stdin shutdown并成功重取Agent Session Store lease。
+- 阻断发生在Playwright使用Bun 1.3.14启动系统Chrome：Chrome进程已经创建，但180秒内没有建立`--remote-debugging-pipe`。本机最小反馈环在不启动NeuroBook时稳定复现Bun+Chrome与Bun+Edge超时；Node 24连续五次启动同一Chrome均在147至172毫秒内完成，因此不是Manager、Product或State Root回归。
+- Windows浏览器探针现由Bun生命周期Verifier启动独立Node+tsx子进程；候选包内Manager、Product、shutdown与lease证明仍由Bun拥有。Windows误用Bun会在启动浏览器前明确失败，浏览器launch另有60秒边界，外层子进程有120秒边界。没有增加重试、切换非真实浏览器或放宽页面/版本断言。
+- Candidate 15保持0资产Draft且不复用。第二次鉴权启动、自卸载、公开payload、A→B/data reuse、GHCR平台验证、rootless Podman、最终Portable Verifier、Release公开与正式OCI tag激活仍待下一唯一Candidate从头执行。

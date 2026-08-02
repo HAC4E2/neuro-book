@@ -678,6 +678,12 @@ describe("Product Release宿主合同", () => {
         expect(restartVerifier).toContain("--shutdown-on-stdin-end");
         expect(restartVerifier).toContain("acquireAgentSessionStoreExclusiveLease");
         expect(restartVerifier).toContain("const STARTUP_TIMEOUT_MS = 150_000;");
+        expect(restartVerifier).toContain('"node",\n        "--import",\n        "tsx"');
+        expect(restartVerifier).not.toContain('from "nbook/scripts/deploy/product-browser-smoke"');
+
+        const browserVerifier = await readFile(resolve(ROOT, "scripts/deploy/product-browser-smoke.ts"), "utf8");
+        expect(browserVerifier).toContain('process.platform === "win32" && typeof Bun !== "undefined"');
+        expect(browserVerifier).toContain("const BROWSER_LAUNCH_TIMEOUT_MS = 60_000;");
 
         const publicRun = workflow.jobs["verify-public-windows-data-reuse"].steps.map((step) => step.run ?? "").join("\n");
         expect(publicRun).toContain("$managerRuntime = Join-Path $root $candidateManifest.components.managerRuntime.path");
