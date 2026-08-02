@@ -1107,3 +1107,9 @@ uninstall
 - baseline workflow `30733829868` 已在最终提交 `18e12750` 对 Windows x64、Linux x64/AArch64、macOS x64/AArch64 完成严格双构建比较，五个平台均登记真实 canonical owner policy，没有借用 Windows 数字或增加容差。
 - Product Platform workflow `30733829837` 在同一提交通过四个 POSIX 平台的 Stage 0、Manager、Owned Process、Source/Product archive、native Product、HTTP 与浏览器 smoke。公开 A→B、跨 Profile、GHCR/rootless Podman、Windows Portable 和最终 Manifest 仍只属于正式 Candidate workflow。
 - 当前 package 已由历史失败 Draft 推进到 `0.9.0-canary.*`。`--next minor` dry-run 会生成 `0.10.0`，所以最终 0.9 Candidate 使用显式 `--version 0.9.0`；这只选择当前发布线，canary sequence、release commit、Draft ID 与 revision 仍全部重新生成。
+
+### 2026-08-02：Manager `.40` 公开验证
+
+- `manager-v0.1.0-canary.40` 已由 workflow [`30750314307`](https://github.com/notnotype/neuro-book/actions/runs/30750314307) 全绿并通过 npm Trusted Publishing。release helper 在推 tag 前完成 Runtime/Manager typecheck、Manager 240 passed / 3 skipped、独立 release contract 1/1 和 5 files / 0.43 MiB pack 审计。
+- npm 精确版本与 `canary` dist-tag 均为 `0.1.0-canary.40`，`gitHead=4efc4c8fc508b1a2da4c5afe783e5992c0eba8ea`，公开 tarball shasum 为 `25a8778037520da278d3a8e1ca3e7d8ee971e193`、5 files / 2,287,846 unpacked bytes。registry 返回 publish 与 SLSA provenance 两个 Sigstore attestation；全新 Bun cache 的真实 `bunx --version` 返回 `.40`，`manager:verify-public` 证明当前 Manager 构建输入未晚于公开 gitHead。
+- 新的 0.9 Candidate 必须消费 `.40`；`.39` 的 clean Portable 仍是历史验收证据，不冒充 `.40` 同代 Portable。最终 Windows Portable、A→B、跨 Profile 与 GHCR/rootless Podman 继续由 Candidate workflow 证明。
