@@ -1176,3 +1176,9 @@ uninstall
 - 修复后的本地Manager bundle在原Candidate 13 Portable与同一外层pipe下5.84秒ready，关闭stdin后退出码0且Agent Session Store lease立即可重取。Manager完整suite为36 passed files / 1 skipped、241 passed / 3 skipped，typecheck与pack通过。该证据仍是本机复现闭环；新的公开Manager与Candidate尚未执行，不能把第十三次Draft改写为成功。
 - Manager `0.1.0-canary.42` workflow [`30764517751`](https://github.com/notnotype/neuro-book/actions/runs/30764517751) 已全绿。npm `gitHead=6200b243e7764b7d0447aa4d7a3f3339bfce6d06`，公开tarball SHA-1为`9cb0be2142748c2f3562d16af4b7ca932f0c6ab2`且固定5个文件；6个registry signature、2个attestation、全新Bun cache真实bunx和`manager:verify-public`均通过。下一Candidate必须消费`.42`，不能继续使用第十三次Draft内的`.41`。
 - 第十四次Draft `v0.9.0-canary.20260802.200609Z.dc568d1e`（release ID `363883460`、revision `53b9a153e93b348d1f85577dbb7f98d4ad870e6c`）已dispatch workflow [`30764872479`](https://github.com/notnotype/neuro-book/actions/runs/30764872479)。按`--no-watch`协议只确认Draft、0资产和workflow入口；它尚未公开，不能把运行中的生命周期矩阵写成通过。
+
+### 2026-08-03：第十四次 Candidate 的依赖传输失败
+
+- workflow [`30764872479`](https://github.com/notnotype/neuro-book/actions/runs/30764872479) 已通过preflight、Source、五平台Product、Windows Portable组装、双架构OCI和multi-arch merge；assemble clean runner随后在`bun install --frozen-lockfile`下载/解压`@rolldown/binding-linux-x64-musl@1.1.5`时失败。该轮已安装3,095个包，只剩一个tarball失败，因此不属于Manager、Product closure、lockfile或平台身份回归。
+- assemble没有生成Release Manifest或候选bundle，后续Windows restart、公开payload、GHCR/Podman、A→B、跨Profile、自卸载、最终Verifier、Release公开与正式OCI tag激活全部跳过。Draft保持0资产且不复用，本轮不能补记任何安装生命周期TODO为通过。
+- Release workflow的13个clean-runner安装入口现统一消费专用安装Module：固定`--frozen-lockfile`，只对明确的网络、HTTP瞬时状态和归档解压错误以2秒/10秒退避最多尝试3次；lockfile、版本解析等确定性错误第一次即失败。故障注入合同覆盖瞬时恢复、确定性失败和重试耗尽，不清空依赖树、不忽略退出码，也不扩展为通用CI事务框架。

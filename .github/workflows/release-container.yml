@@ -43,7 +43,7 @@ jobs:
         with:
           ref: ${{ inputs.revision }}
       - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile --linker hoisted
+      - run: bun scripts/release/install-dependencies.ts --linker hoisted
       - name: Prepare generated sources
         run: bun run generate
       - name: Verify release process type contracts
@@ -191,7 +191,7 @@ jobs:
         with:
           ref: ${{ inputs.revision }}
       - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
+      - run: bun scripts/release/install-dependencies.ts
       - run: bun scripts/release/release-output.ts prepare --github-env
       - run: bun run release:source
       - uses: actions/upload-artifact@v4
@@ -207,7 +207,7 @@ jobs:
         with:
           ref: ${{ inputs.revision }}
       - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile --linker hoisted
+      - run: bun scripts/release/install-dependencies.ts --linker hoisted
       - run: bun scripts/release/release-output.ts prepare --github-env
       - name: Verify Agent State Root paths
         run: bun run test:agent-state-root
@@ -227,7 +227,7 @@ jobs:
         with:
           ref: ${{ inputs.revision }}
       - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile --linker hoisted
+      - run: bun scripts/release/install-dependencies.ts --linker hoisted
       - run: bun scripts/release/release-output.ts prepare --github-env
       - run: bun run nuxt:build
       - run: bun run release:product:linux-aarch64
@@ -269,7 +269,7 @@ jobs:
         with:
           ref: ${{ inputs.revision }}
       - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile --linker hoisted
+      - run: bun scripts/release/install-dependencies.ts --linker hoisted
       - run: bun scripts/release/release-output.ts prepare --github-env
       - name: Verify macOS Stage 0 and Manager adapters
         run: |
@@ -306,7 +306,7 @@ jobs:
         with:
           ref: ${{ inputs.revision }}
       - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile --linker hoisted
+      - run: bun scripts/release/install-dependencies.ts --linker hoisted
       - run: bun scripts/release/release-output.ts prepare --github-env
       - run: bun run nuxt:build
       - run: bun run release:product:darwin-aarch64
@@ -349,7 +349,7 @@ jobs:
             node_modules
           key: bun-dependencies-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-bun.outputs.bun-version }}-${{ hashFiles('bun.lock', 'package.json', 'packages/neuro-book-manager/package.json') }}
       - name: Verify cached Windows dependencies
-        run: bun install --frozen-lockfile --linker hoisted
+        run: bun scripts/release/install-dependencies.ts --linker hoisted
       - run: bun scripts/release/release-output.ts prepare --github-env
       - name: Verify Windows Manager adapters
         run: bun run manager:test
@@ -379,7 +379,7 @@ jobs:
         with:
           ref: ${{ inputs.revision }}
       - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
+      - run: bun scripts/release/install-dependencies.ts
       - run: bun scripts/release/release-output.ts prepare --github-env
       - uses: actions/download-artifact@v4
         with:
@@ -456,7 +456,7 @@ jobs:
         with:
           ref: ${{ inputs.revision }}
       - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile --linker hoisted
+      - run: bun scripts/release/install-dependencies.ts --linker hoisted
       - uses: actions/download-artifact@v4
         with:
           name: release-candidate
@@ -596,7 +596,7 @@ jobs:
         with:
           ref: ${{ inputs.revision }}
       - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile --linker hoisted
+      - run: bun scripts/release/install-dependencies.ts --linker hoisted
       - uses: actions/download-artifact@v4
         with:
           name: release-candidate
@@ -864,7 +864,7 @@ jobs:
         with:
           ref: ${{ inputs.revision }}
       - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
+      - run: bun scripts/release/install-dependencies.ts
       - run: bun scripts/release/release-output.ts prepare --github-env
       - uses: actions/download-artifact@v4
         with:
@@ -901,7 +901,7 @@ jobs:
         with:
           ref: ${{ inputs.revision }}
       - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile --linker hoisted
+      - run: bun scripts/release/install-dependencies.ts --linker hoisted
       - uses: actions/download-artifact@v4
         with:
           name: release-candidate
@@ -1159,7 +1159,7 @@ jobs:
         with:
           ref: ${{ inputs.revision }}
       - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
+      - run: bun scripts/release/install-dependencies.ts
       - run: bun scripts/release/release-output.ts prepare --github-env
       - uses: actions/download-artifact@v4
         with:

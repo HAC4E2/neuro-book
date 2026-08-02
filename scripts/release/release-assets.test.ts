@@ -436,6 +436,7 @@ describe("Product Release宿主合同", () => {
         expect(preflightRun).toContain("--config scripts/release/release-assets-vitest.config.ts");
         expect(scriptsTsconfig.include).toContain("deploy/windows-owned-process-smoke.ts");
         expect(releaseAssetsVitestConfig.test.include).toEqual([
+            "scripts/release/install-dependencies.test.ts",
             "scripts/release/release-assets.test.ts",
             "scripts/release/release-checksums.test.ts",
         ]);
@@ -480,8 +481,10 @@ describe("Product Release宿主合同", () => {
         expect(cache?.with?.key).toContain("steps.setup-bun.outputs.bun-version");
         expect(cache?.with?.key).toContain("hashFiles('bun.lock', 'package.json', 'packages/neuro-book-manager/package.json')");
         expect(workflow.jobs["product-windows"].steps).toContainEqual(expect.objectContaining({
-            run: "bun install --frozen-lockfile --linker hoisted",
+            run: "bun scripts/release/install-dependencies.ts --linker hoisted",
         }));
+        expect(await readFile(resolve(ROOT, ".github/workflows/release-container.yml"), "utf8"))
+            .not.toMatch(/run:\s*bun install\b/u);
     });
 
     it("Draft资产摘要幂等上传，最终才公开Release并激活OCI别名", async () => {

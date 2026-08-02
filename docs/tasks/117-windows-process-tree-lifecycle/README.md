@@ -1,6 +1,6 @@
 # 117 - Windows 进程树所有权与 Bash 超时
 
-> 当前状态：本地实现与聚焦验证完成；Linux x64/AArch64、macOS x64/AArch64 与多次Windows Candidate Product/Owned Process workflow均已通过。第十三次Candidate暴露的Manager/Product stdin pipe竞争已修复，原包本机完成5.84秒ready、正式shutdown与lease重取；公开Manager `.42`已完成供应链验证。第十四次Candidate workflow `30764872479` 已dispatch，仍待后台实际确认。
+> 当前状态：本地实现与聚焦验证完成；Linux x64/AArch64、macOS x64/AArch64 与多次Windows Candidate Product/Owned Process workflow均已通过。第十三次Candidate暴露的Manager/Product stdin pipe竞争已修复，原包本机完成5.84秒ready、正式shutdown与lease重取；公开Manager `.42`已完成供应链验证。第十四次Candidate完成Windows Product/Portable组装后在assemble依赖下载阶段失败，正式同代restart/shutdown仍待下一Candidate。
 
 ## Relative documents refs
 
@@ -617,3 +617,9 @@ Phase E gate：本地实现已满足；Windows Release runner真实Portable smok
 - 本轮只完成本机真实包回归。第十三次Draft保持失败审计；TODO仍等待公开`.42`与下一Candidate实际确认，不提前勾选。
 - Manager `.42` workflow [`30764517751`](https://github.com/notnotype/neuro-book/actions/runs/30764517751) 已全绿，npm gitHead、tarball、registry signature、两份attestation、全新cache bunx与公开输入校验均通过。进程生命周期TODO只剩下一Candidate真实执行，不再被Manager公开态阻断。
 - 第十四次Draft `v0.9.0-canary.20260802.200609Z.dc568d1e`（release ID `363883460`）已dispatch workflow [`30764872479`](https://github.com/notnotype/neuro-book/actions/runs/30764872479)。当前仍为0资产Draft；正式shutdown、Product终态与lease重取TODO只有在该workflow实际通过后才能勾选。
+
+### 2026-08-03：第十四次 Candidate 未进入最终 Windows 生命周期
+
+- workflow [`30764872479`](https://github.com/notnotype/neuro-book/actions/runs/30764872479) 的Windows Product job已通过Manager、Owned Process、State Root、Product与Portable组装；五平台Product和双架构OCI也均成功。失败发生在独立Ubuntu assemble runner安装依赖时：`@rolldown/binding-linux-x64-musl`单个tarball下载/解压失败，非Windows进程树回归。
+- assemble未生成候选bundle，`verify-windows`因此完全跳过。第十三次修复的包内Manager restart、stdin正式关闭、Product终态和lease立即重取仍只有本机原包证据，不能用第十四次的Windows Product job替代。
+- 下一Candidate会消费统一的Release依赖安装入口；它只有限重试明确的下载/归档瞬时错误，不改变Owned Process、stdin ownership、超时或shutdown协议。

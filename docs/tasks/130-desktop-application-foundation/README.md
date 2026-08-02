@@ -732,3 +732,10 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - 修复后本地Manager bundle消费原Candidate 13包，5.84秒ready，stdin关闭后退出码0并立即重取Agent Session Store lease。回归、Manager完整241 passed / 3 skipped、typecheck与pack通过。下一步必须先公开并验证Manager `.42`，再创建新Candidate；失败Draft不复用。
 - Manager `.42` 的 workflow [`30764517751`](https://github.com/notnotype/neuro-book/actions/runs/30764517751) 已完成Trusted Publishing。npm gitHead、5-file tarball SHA-1、registry signature、两份attestation、全新Bun cache真实bunx与`manager:verify-public`均通过；下一唯一Candidate可以正式消费`.42`。
 - 第十四次Draft `v0.9.0-canary.20260802.200609Z.dc568d1e`（release ID `363883460`、revision `53b9a153e93b348d1f85577dbb7f98d4ad870e6c`）已dispatch workflow [`30764872479`](https://github.com/notnotype/neuro-book/actions/runs/30764872479)。当前Release仍为Draft、0资产、未公开；按`--no-watch`约定不在本轮等待Actions，所有剩余门禁以后台实际结果为准。
+
+### 2026-08-03：第十四次 Candidate 的 assemble tarball 故障
+
+- workflow [`30764872479`](https://github.com/notnotype/neuro-book/actions/runs/30764872479) 已通过Release preflight、Source、Windows/Linux/macOS五平台Product、Windows Portable组装、双架构OCI与multi-arch merge。assemble runner执行frozen install时已安装3,095个包，但`@rolldown/binding-linux-x64-musl@1.1.5`的单个npm tarball下载/解压失败，因而没有生成Release Manifest和候选bundle。
+- 证据边界保持严格：五平台Product与OCI成功继续成立；Windows最终restart/authenticated lifecycle、公开payload、GHCR AMD64/ARM64与rootless Podman、A→B/data reuse、跨Profile、自卸载、最终Portable Verifier、Release公开和正式OCI tag激活全部跳过。Draft仍为0资产、未公开，并作为失败审计永久保留。
+- 新增Release专用依赖安装Module并让13个clean-runner入口统一消费。它始终调用`bun install --frozen-lockfile`，只识别下载、瞬时HTTP/网络和归档解压错误，按2秒/10秒退避最多尝试3次；确定性的lockfile或版本错误立即传播，连续瞬时失败也保持非零终态。实现不删除cache或`node_modules`，让重试只补缺失包；没有放宽identity、复用Candidate或增加通用重试框架。
+- 本地验证包括真实frozen install、Release故障注入与资产合同3 files / 26 tests、scripts typecheck。下一步提交该边界并创建全新Candidate，从头执行全部Release链。
