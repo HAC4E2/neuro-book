@@ -1,6 +1,6 @@
 # 130 - 桌面应用前置架构、发行载荷与存储生命周期
 
-> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、Contract v3、Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议。正式构建已切换为 esbuild 同图 link/minify；五平台严格 A/B、四平台 Product smoke以及最近第十次Candidate的五平台Product均已通过，双OCI也已完成verified candidate。十个0.9 Draft依次暴露clean生成、生命周期、测试隔离、Docker输入、Source Root路径门禁、Git-less生成态、Windows clean transform与Git-less发布Adapter问题，均未公开且不可复用；当前修复已落地，新的唯一Candidate仍待创建。GHCR/rootless Podman、同代Windows Portable、最终Verifier、浏览器验收与Tauri/Electron同矩阵spike尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由spike证据冻结。
+> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、Contract v3、Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议。正式构建已切换为 esbuild 同图 link/minify；五平台严格 A/B、四平台 Product smoke以及第十一次Candidate的五平台Product、双OCI、assemble、Linux公开GHCR smoke、Windows Runtime Contract与首次浏览器 smoke均已通过。第十一次Draft在Windows第二次复用State Root时因强杀Manager留下 `runtime.lease` `ELOCKED` 失败，仍未公开且不可复用；正式stdin shutdown与lease重取Verifier已落地，下一步先发布新Manager canary再创建唯一Candidate。最终Verifier、Podman、A→B、自卸载、Release激活、浏览器人工验收与Tauri/Electron同矩阵spike尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由spike证据冻结。
 
 ## Relative documents refs
 
@@ -695,6 +695,13 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - 双OCI也完成deps、raw build、Product后处理、最终module closure、Source二次摘要和verified candidate，证明`logs/`生成态排除合同生效。随后`LocalProductPublisher`拒绝在没有`.git`的Docker build中隐式切换checkout根`.output`；Dockerfile此前没有按错误合同设置`NEURO_BOOK_OUTPUT_DIR`，AMD64与ARM64同因失败。
 - 修复保留Publisher的安全边界：只有本地Git checkout可隐式切换根`.output`；Docker build Adapter在单次build命令显式传`NEURO_BOOK_OUTPUT_DIR=/app/.output`，由同一个Publisher接收并再次验证candidate。没有让Git-less调用方猜测输出路径，也没有直接复制未发布staging。Dockerfile正式合同先红后绿。
 - workflow按协议跳过OCI merge、assemble、Portable、公开GHCR、最终Verifier和Release/正式tag激活，Release保持Draft且没有公开资产。下一轮仍创建全新Candidate，不复用`363836995`或前十次Draft的任何产物。
+
+### 2026-08-03：第十一次 Draft 的 Windows 二次启动生命周期
+
+- Draft `v0.9.0-canary.20260802.165232Z.0d4fd1c0`（release ID `363840225`、revision `0d6b16613ec247d3d6e1a749175b7588b576b58f`）的五平台 Product、双OCI、assemble、Linux公开GHCR smoke、Windows Runtime Contract与首次真实浏览器 smoke均通过。
+- Windows authenticated login 在复用同一State Root时失败于 `runtime.lease` 的 `ELOCKED`。前一浏览器 step只强杀Manager并检查端口，跳过了Manager已有的graceful Product shutdown；端口释放不是Store lease释放证明。失败 Draft保持空资产，后续最终Verifier、公开资产、Podman、A→B、自卸载与Release激活均跳过。
+- 本轮修复增加宿主stdin关闭到`launch.shutdown()`的正式控制边界；新Windows Portable verifier使用包内Manager完成浏览器→正式shutdown→lease立即重取→管理员→第二次启动登录的完整顺序，并修正诊断artifact的`$RUNNER_TEMP`路径。由于Manager bundle发生变化，必须先发布新的Manager canary，再创建新的唯一0.9 Candidate；不复用`.40`、第十一次Draft或其部分产物。
+- 本地验证为Manager全量36 files passed / 1 skipped、241 passed / 3 skipped，Manager/scripts/root/Runtime typecheck、Manager pack、Release asset contract 20/20、install 8 passed / 9 skipped、docs build与根全量471 files passed / 1 skipped、3216 passed / 14 skipped。真实Windows Portable二次启动仍待新Candidate。
 
 ## TODO / Follow-ups
 

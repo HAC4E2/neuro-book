@@ -1,6 +1,6 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`的五平台Product、原生双架构OCI/manifest merge、Windows/Linux候选、公开payload、Windows完整`0.8.6 data/`复用、Docker x64/ARM64与rootless Podman链全部通过，最终`release-manifest.json`和`SHA256SUMS`已发布；它是最新已确认完整canary。当前工作树协议为Installation Manifest v5、Release Manifest v5、Operation Journal v5 和 Product-owned Application State catalog v3。2026-08-02 已实现外置heartbeat lease、锁内Manifest重读、Product切换恢复、Windows外置自卸载Host与Draft Candidate激活协议；公开Manager `.40`已完成provenance、tarball与真实bunx验证，`.39` clean Windows Portable已完成两种自卸载终态。最近Candidate已通过五平台Product，但`.40`同代Portable、公开A→B/跨Profile、GHCR/rootless Podman与最终Verifier仍需新Actions证据，不能把局部绿灯写成公开生命周期已验证。
+> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`仍是最新已确认完整canary。当前工作树协议为Installation Manifest v5、Release Manifest v5、Operation Journal v5 和 Product-owned Application State catalog v3。公开Manager `.40`已完成provenance、tarball与真实bunx验证；第十一次0.9 Candidate已通过五平台Product、双OCI、assemble、Linux公开GHCR smoke、Windows Runtime Contract与首次浏览器 smoke，但第二次复用State Root因强杀Manager留下的 `runtime.lease` `ELOCKED` 失败。正式stdin shutdown与lease重取Verifier已落地并改变Manager bundle；必须先发布新的Manager canary，再由新Candidate证明同代Portable、公开A→B/跨Profile、Podman、自卸载、最终Verifier与Release激活。
 
 ## 2026-08-02：Installation Mutation、自卸载与发行候选治理
 
@@ -10,7 +10,7 @@
 - Source adoption worktree进入`.deploy/staging/<operation-id>`。start、migration、admin、reset和uninstall统一从`VerifiedApplicationExecution`取得Source Dev、Native Product或Container Product身份；status仍保留轻量控制面。
 - Windows Portable/Installed从受管Bun执行卸载时，Manager写入带token和SHA-256的durable intent并启动Installation Root外的PowerShell Host。Host等待精确父PID退出后重新验证owner roots：默认删除程序、cache、desktop和logs并保留State Root；`--delete-data`才删除全部。intent篡改时零删除并写外置失败结果，pending intent阻断其他mutation。
 - Release Manifest硬切v5并增加统一build ID。Source/Product/Portable/Installation由最终Verifier重新连成同一代；CLI只创建Draft并显式dispatch release ID、tag、revision、prerelease。候选OCI只使用`candidate-<release-id>`，全部正确性gate后才公开Release，再由独立可重跑job激活版本tag和stable `latest`。
-- 当前验证：Authoring 9 files / 114 tests；Windows uninstall 3 files / 18 tests及真实PowerShell Host三种路径；Manager 36 passed files / 1 skipped、240 passed / 3 skipped，typecheck与pack通过；Release focused当前3 files / 22 tests。clean Windows Portable 进一步完成31项doctor、完整Product Contract、Manager HTTP登录和两种真实外置Host卸载；本节仍不等于公开Candidate结果。
+- 当前验证：Authoring 9 files / 114 tests；Windows uninstall 3 files / 18 tests及真实PowerShell Host三种路径；Manager 36 passed files / 1 skipped、241 passed / 3 skipped，typecheck与pack通过；Release asset contract 20/20。第十一次Candidate的Windows首次浏览器与Runtime Contract已通过，二次启动修复仍需下一Candidate验证；本节不能写成公开生命周期已完成。
 
 ## 2026-08-01：发行前只读审计与下一阶段阻断
 
@@ -1157,3 +1157,11 @@ uninstall
 
 - workflow `30757057719` 已通过preflight、Source和五平台Product；Windows clean Manager、Owned Process、State Root与Product归档全部成功，关闭第九次transform阻断。双OCI生成verified candidate后因Docker Adapter未显式提供`NEURO_BOOK_OUTPUT_DIR`而被本地Publisher拒绝，未产生可供assemble消费的容器digest。
 - 修复只让Docker build显式接收已验证candidate，不改变Manager `.40`、Installation Mutation、Manifest或Publisher的Git-less保护。assemble、`.40`同代Portable、A→B、跨Profile、自卸载、公开GHCR与最终Verifier仍全部跳过，下一唯一Candidate必须从头执行。
+
+### 2026-08-03：第十一次 Candidate 的 Windows 生命周期边界
+
+- Draft `v0.9.0-canary.20260802.165232Z.0d4fd1c0`（release ID `363840225`、revision `0d6b16613ec247d3d6e1a749175b7588b576b58f`）dispatch workflow [`30757628319`](https://github.com/notnotype/neuro-book/actions/runs/30757628319)。Release preflight、Source、Windows/Linux/macOS 五平台 Product、双OCI、multi-arch candidate、assemble、Linux公开GHCR smoke与Windows Portable Runtime Contract均通过；Windows真实浏览器 smoke也通过。
+- `verify-windows` 在第二次复用同一 Portable State Root 的 authenticated login 前失败。前一次浏览器 step 用 `Stop-Process -Force` 强杀 Manager，只等待端口释放；Windows端口已释放不代表Product/Agent Session Store已正式关闭，下一次启动稳定在 `data/workspace/.nbook/agent/migrations/runtime.lease` 返回 `ELOCKED`，因此不是账号或登录接口故障。诊断 artifact 原路径也错误地指向工作目录，导致失败时缺少日志。
+- 修复不放宽 stale、删除锁或加入延时：Manager `start` 新增显式 `--shutdown-on-stdin-end` 宿主控制协议，接入已有 `launch.shutdown()`；Windows Portable verifier 现在用包内真实Manager依次执行浏览器、正式stdin shutdown、立即独占重取runtime lease、管理员创建、第二次启动与登录，并把诊断上传根修到真实 `$RUNNER_TEMP`。该修复改变Manager bundle，下一Candidate必须先消费新的公开 Manager canary，不能继续使用`.40`或第十一次Draft的部分资产。
+- 第十一次 Draft 保持空资产、未公开、未激活OCI正式tag；后续自卸载、公开A→B/跨Profile、最终Verifier与Release激活均未执行。
+- 本地修复验证为Manager全量36 files passed / 1 skipped、241 passed / 3 skipped，Manager/scripts/root/Runtime typecheck、Manager pack、Release asset contract 20/20、install 8 passed / 9 skipped、docs build与根全量471 files passed / 1 skipped、3216 passed / 14 skipped。真实包内二次启动仍只由下一Candidate取得证据。

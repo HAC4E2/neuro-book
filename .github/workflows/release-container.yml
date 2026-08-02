@@ -746,156 +746,19 @@ jobs:
           if (Test-Path -LiteralPath $shadowWorkspace) {
             throw "Portable shadow workspace测试目录未清理"
           }
-      - name: Verify Windows Portable in a real browser
+      - name: Verify Windows Portable browser, authenticated restart and lifecycle
         shell: pwsh
         run: |
           $portableRoot = (Resolve-Path -LiteralPath (Join-Path $env:RUNNER_TEMP "neuro-book-portable-smoke")).Path
-          $manifest = Get-Content -Raw (Join-Path $portableRoot ".deploy/installation.json") | ConvertFrom-Json
-          $port = 39123
-          $stateRoot = Join-Path $portableRoot "data"
-          $envPath = Join-Path $stateRoot ".env"
-          $configPath = Join-Path $stateRoot "config.yaml"
-          $envContent = Get-Content -Raw -LiteralPath $envPath
-          $envContent = $envContent -replace '(?m)^NUXT_PORT=.*$', "NUXT_PORT=$port"
-          $envContent = $envContent -replace '(?m)^PORT=.*$', "PORT=$port"
-          Set-Content -LiteralPath $envPath -Value $envContent -Encoding utf8NoBOM
-          $configContent = Get-Content -Raw -LiteralPath $configPath
-          $configContent = $configContent -replace '(?m)^(\s*port:\s*)\d+\s*$', "`${1}$port"
-          Set-Content -LiteralPath $configPath -Value $configContent -Encoding utf8NoBOM
-          $stdout = Join-Path $portableRoot "data/logs/release-browser-smoke.stdout.log"
-          $stderr = Join-Path $portableRoot "data/logs/release-browser-smoke.stderr.log"
-          $managerRuntime = Join-Path $portableRoot $manifest.components.managerRuntime.path
-          $managerBundle = Join-Path $portableRoot $manifest.components.manager.path
-          $managerArguments = @("`"$managerBundle`"", "--root", "`"$portableRoot`"", "start")
-          $managerProcess = Start-Process -FilePath $managerRuntime -ArgumentList $managerArguments -WorkingDirectory $env:RUNNER_TEMP -RedirectStandardOutput $stdout -RedirectStandardError $stderr -WindowStyle Hidden -PassThru
-          try {
-            $ready = $false
-            for ($attempt = 0; $attempt -lt 120; $attempt++) {
-              if ($managerProcess.HasExited) { break }
-              try {
-                $response = Invoke-WebRequest -Uri "http://127.0.0.1:$port/api/app/version" -TimeoutSec 1
-                if ($response.StatusCode -eq 200) { $ready = $true; break }
-              } catch {}
-              Start-Sleep -Milliseconds 500
-            }
-            if (-not $ready) {
-              Get-Content -Raw $stdout -ErrorAction SilentlyContinue | Write-Host
-              Get-Content -Raw $stderr -ErrorAction SilentlyContinue | Write-Host
-              throw "Candidate Manager did not make Portable ready"
-            }
-            if ($managerProcess.HasExited) { throw "Candidate Manager exited before browser smoke" }
-            $chrome = Join-Path $env:ProgramFiles "Google/Chrome/Application/chrome.exe"
-            if (-not (Test-Path -LiteralPath $chrome)) {
-              $chrome = Join-Path ${env:ProgramFiles(x86)} "Microsoft/Edge/Application/msedge.exe"
-            }
-            & node --import tsx scripts/deploy/product-browser-smoke.ts `
-              --url "http://127.0.0.1:$port" `
-              --expected-version $manifest.appVersion `
-              --browser-executable $chrome `
-              --screenshot (Join-Path $portableRoot "data/logs/release-browser-smoke-failure.png")
-            if ($LASTEXITCODE -ne 0) {
-              Get-Content -Raw $stdout -ErrorAction SilentlyContinue | Write-Host
-              Get-Content -Raw $stderr -ErrorAction SilentlyContinue | Write-Host
-              throw "Portable browser smoke failed: $LASTEXITCODE"
-            }
-            if ($managerProcess.HasExited) { throw "Candidate Manager did not keep the Product in the foreground" }
-          } finally {
-            if (-not $managerProcess.HasExited) {
-              Stop-Process -Id $managerProcess.Id -Force
-              [void]$managerProcess.WaitForExit(10000)
-            }
-            $released = $false
-            for ($attempt = 0; $attempt -lt 40; $attempt++) {
-              try {
-                $probe = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $port)
-                $probe.Start()
-                $probe.Stop()
-                $released = $true
-                break
-              } catch {
-                Start-Sleep -Milliseconds 250
-              }
-            }
-            if (-not $released) { throw "终止Candidate Manager后端口仍未释放：$port" }
+          $chrome = Join-Path $env:ProgramFiles "Google/Chrome/Application/chrome.exe"
+          if (-not (Test-Path -LiteralPath $chrome)) {
+            $chrome = Join-Path ${env:ProgramFiles(x86)} "Microsoft/Edge/Application/msedge.exe"
           }
-      - name: Verify Windows Portable authenticated login
-        shell: pwsh
-        run: |
-          $portableRoot = (Resolve-Path -LiteralPath (Join-Path $env:RUNNER_TEMP "neuro-book-portable-smoke")).Path
-          $manifest = Get-Content -Raw (Join-Path $portableRoot ".deploy/installation.json") | ConvertFrom-Json
-          $manager = Join-Path $portableRoot ".runtime/bin/neuro-book.cmd"
-          $stateRoot = Join-Path $portableRoot "data"
-          $databasePath = Join-Path $stateRoot "workspace/.nbook/neuro-book.sqlite"
-          $shadowWorkspace = Join-Path $portableRoot "workspace"
-          $stdout = Join-Path $stateRoot "logs/release-auth-smoke.stdout.log"
-          $stderr = Join-Path $stateRoot "logs/release-auth-smoke.stderr.log"
-          $port = 39123
-          $env:NO_COLOR = "1"
-          $env:AUTH_ADMIN_PASSWORD = "release-auth-smoke-password"
-          try {
-            & $manager --root $portableRoot admin create release-smoke-admin
-            if ($LASTEXITCODE -ne 0) {
-              throw "Portable create admin failed: $LASTEXITCODE"
-            }
-          } finally {
-            Remove-Item Env:AUTH_ADMIN_PASSWORD -ErrorAction SilentlyContinue
-          }
-          if (-not (Test-Path -LiteralPath $databasePath -PathType Leaf)) {
-            throw "Portable App SQLite没有位于data/workspace/.nbook"
-          }
-          if (Test-Path -LiteralPath $shadowWorkspace) {
-            throw "Portable创建管理员后在Installation Root产生了影子workspace"
-          }
-          $managerRuntime = Join-Path $portableRoot $manifest.components.managerRuntime.path
-          $managerBundle = Join-Path $portableRoot $manifest.components.manager.path
-          $managerArguments = @("`"$managerBundle`"", "--root", "`"$portableRoot`"", "start")
-          $managerProcess = Start-Process -FilePath $managerRuntime -ArgumentList $managerArguments -WorkingDirectory $env:RUNNER_TEMP -RedirectStandardOutput $stdout -RedirectStandardError $stderr -WindowStyle Hidden -PassThru
-          try {
-            $ready = $false
-            for ($attempt = 0; $attempt -lt 120; $attempt++) {
-              if ($managerProcess.HasExited) { break }
-              try {
-                $response = Invoke-WebRequest -Uri "http://127.0.0.1:$port/api/app/version" -TimeoutSec 1
-                if ($response.StatusCode -eq 200) { $ready = $true; break }
-              } catch {}
-              Start-Sleep -Milliseconds 500
-            }
-            if (-not $ready) {
-              Get-Content -Raw $stdout -ErrorAction SilentlyContinue | Write-Host
-              Get-Content -Raw $stderr -ErrorAction SilentlyContinue | Write-Host
-              throw "Portable authenticated Product did not become ready"
-            }
-            $webSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession
-            $body = @{ username = "release-smoke-admin"; password = "release-auth-smoke-password" } | ConvertTo-Json -Compress
-            $login = Invoke-WebRequest -Uri "http://127.0.0.1:$port/api/auth/login" -Method Post -ContentType "application/json" -Body $body -WebSession $webSession -TimeoutSec 10
-            if ($login.StatusCode -ne 200) { throw "Portable login returned HTTP $($login.StatusCode)" }
-            $payload = $login.Content | ConvertFrom-Json
-            if (-not $payload.authEnabled -or $payload.user.username -ne "release-smoke-admin" -or $payload.user.role -ne "admin") {
-              throw "Portable login payload不符合管理员合同"
-            }
-            if ($webSession.Cookies.Count -lt 1) { throw "Portable login没有写入session cookie" }
-            if (Test-Path -LiteralPath $shadowWorkspace) {
-              throw "Portable登录后在Installation Root产生了影子workspace"
-            }
-          } finally {
-            if (-not $managerProcess.HasExited) {
-              Stop-Process -Id $managerProcess.Id -Force
-              [void]$managerProcess.WaitForExit(10000)
-            }
-            $released = $false
-            for ($attempt = 0; $attempt -lt 40; $attempt++) {
-              try {
-                $probe = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $port)
-                $probe.Start()
-                $probe.Stop()
-                $released = $true
-                break
-              } catch {
-                Start-Sleep -Milliseconds 250
-              }
-            }
-            if (-not $released) { throw "终止Candidate Manager后端口仍未释放：$port" }
-            Remove-Item Env:NO_COLOR -ErrorAction SilentlyContinue
+          bun scripts/release/verify-windows-portable-restart.ts `
+            --portable-root $portableRoot `
+            --browser-executable $chrome
+          if ($LASTEXITCODE -ne 0) {
+            throw "Portable浏览器、鉴权与重启生命周期验收失败：$LASTEXITCODE"
           }
       - name: Verify Windows Portable self-uninstall
         shell: pwsh
@@ -980,10 +843,10 @@ jobs:
           name: windows-portable-browser-smoke-diagnostics
           if-no-files-found: ignore
           path: |
-            portable/data/logs/release-browser-smoke*
-            portable/data/logs/release-auth-smoke*
-            portable/data-moved/logs/**
-            portable/data-moved/workspace/.nbook/logs/**
+            ${{ runner.temp }}/neuro-book-portable-smoke/data/logs/release-browser-smoke*
+            ${{ runner.temp }}/neuro-book-portable-smoke/data/logs/release-auth-smoke*
+            ${{ runner.temp }}/neuro-book-portable-smoke/data-moved/logs/**
+            ${{ runner.temp }}/neuro-book-portable-smoke/data-moved/workspace/.nbook/logs/**
 
   verify:
     needs: [verify-linux, verify-windows]

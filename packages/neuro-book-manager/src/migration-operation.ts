@@ -325,14 +325,20 @@ export async function startInstallationApplication(
     const shutdownOnSignal = (): void => {
         void launch.shutdown().catch(rejectShutdown);
     };
+    const shutdownOnHost = (): void => {
+        void launch.shutdown().catch(rejectShutdown);
+    };
     process.on("SIGINT", shutdownOnSignal);
     process.on("SIGTERM", shutdownOnSignal);
+    options.shutdownSignal?.addEventListener("abort", shutdownOnHost, {once: true});
+    if (options.shutdownSignal?.aborted) shutdownOnHost();
     let result: {code: number | null; signal: string | null};
     try {
         result = await Promise.race([launch.completion, shutdownFailure]);
     } finally {
         process.removeListener("SIGINT", shutdownOnSignal);
         process.removeListener("SIGTERM", shutdownOnSignal);
+        options.shutdownSignal?.removeEventListener("abort", shutdownOnHost);
     }
     if (result.signal || result.code !== 0 && result.code !== null) {
         throw new Error(`NeuroBook 服务退出：${result.signal ?? result.code}`);

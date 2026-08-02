@@ -70,6 +70,8 @@ export type StartApplicationOptions = {
     openBrowser?: boolean;
     /** Source Dev候选worktree验证时仍使用Installation的真实State Root。 */
     stateRoot?: string;
+    /** 嵌入宿主结束自身生命周期时请求Manager完整关闭Product。 */
+    shutdownSignal?: AbortSignal;
 };
 
 export type PortableForegroundOptions = StartApplicationOptions & {

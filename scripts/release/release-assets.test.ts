@@ -648,21 +648,28 @@ describe("Product Release宿主合同", () => {
     });
 
     it("Windows候选验收直接拥有实际Manager进程", async () => {
-        const workflow = parse(await readFile(resolve(ROOT, ".github/workflows/release-container.yml"), "utf8")) as ReleaseWorkflow & {
+        const workflowText = await readFile(resolve(ROOT, ".github/workflows/release-container.yml"), "utf8");
+        const workflow = parse(workflowText) as ReleaseWorkflow & {
             jobs: ReleaseWorkflow["jobs"] & {"verify-public-windows-data-reuse": WorkflowJob};
         };
         const candidateRun = workflow.jobs["verify-windows"].steps.map((step) => step.run ?? "").join("\n");
-        expect(candidateRun).toContain("$managerRuntime = Join-Path $portableRoot $manifest.components.managerRuntime.path");
-        expect(candidateRun).toContain("$managerBundle = Join-Path $portableRoot $manifest.components.manager.path");
-        expect(candidateRun).toContain("Start-Process -FilePath $managerRuntime");
+        expect(candidateRun).toContain("verify-windows-portable-restart.ts");
         expect(candidateRun).not.toContain("Start-Process -FilePath $env:ComSpec");
-        expect(candidateRun).not.toContain("Stop-Process -Id $launcherProcess.Id");
+        expect(candidateRun).not.toContain("Stop-Process -Id $managerProcess.Id -Force");
+        expect(workflowText).toContain("${{ runner.temp }}/neuro-book-portable-smoke/data/logs/release-browser-smoke*");
+        expect(workflowText).toContain("${{ runner.temp }}/neuro-book-portable-smoke/data/logs/release-auth-smoke*");
         expect(candidateRun).toContain("uninstall --yes");
         expect(candidateRun).toContain("uninstall --delete-data --yes");
         expect(candidateRun).toContain("Portable默认卸载Host结果失败");
         expect(candidateRun).toContain("$preserveChildren.Count -ne 1");
         expect(candidateRun).toContain("Portable全量卸载Host结果失败");
         expect(candidateRun).toContain("Portable全量卸载没有在退出后删除Installation Root");
+
+        const restartVerifier = await readFile(resolve(ROOT, "scripts/release/verify-windows-portable-restart.ts"), "utf8");
+        expect(restartVerifier).toContain("manifest.components.managerRuntime");
+        expect(restartVerifier).toContain("manifest.components.manager.path");
+        expect(restartVerifier).toContain("--shutdown-on-stdin-end");
+        expect(restartVerifier).toContain("acquireAgentSessionStoreExclusiveLease");
 
         const publicRun = workflow.jobs["verify-public-windows-data-reuse"].steps.map((step) => step.run ?? "").join("\n");
         expect(publicRun).toContain("$managerRuntime = Join-Path $root $candidateManifest.components.managerRuntime.path");

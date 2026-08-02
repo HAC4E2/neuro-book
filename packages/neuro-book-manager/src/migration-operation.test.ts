@@ -313,6 +313,40 @@ describe("Journaled application migration", () => {
         }
     });
 
+    it("嵌入宿主关闭生命周期信号时请求 graceful shutdown 并等待 Product 终态", async () => {
+        const root = await mkdtemp(join(tmpdir(), "manager-start-host-lifecycle-"));
+        roots.push(root);
+        const manifest = productManifest();
+        const terminal = deferred<{code: number | null; signal: string | null}>();
+        const controller = new AbortController();
+        const shutdown = vi.fn(async () => {
+            terminal.resolve({code: 0, signal: null});
+        });
+        migrations.plan.mockResolvedValue({runId: "start-host-lifecycle", status: "already_current", steps: migrationSteps("start-host-lifecycle")});
+        migrations.launch.mockResolvedValueOnce({
+            ready: Promise.resolve(),
+            completion: terminal.promise,
+            shutdown,
+            terminate: vi.fn(),
+        });
+
+        const running = startManagedApplication(root, manifest, {
+            healthCheck: true,
+            shutdownSignal: controller.signal,
+        });
+        try {
+            await vi.waitFor(() => expect(migrations.launch).toHaveBeenCalledOnce(), {timeout: 5_000});
+            controller.abort();
+
+            await running;
+
+            expect(shutdown).toHaveBeenCalledTimes(1);
+        } finally {
+            terminal.resolve({code: 0, signal: null});
+            await running.catch(() => undefined);
+        }
+    });
+
     it("容器start在健康检查前持久化候选身份并随Operation提交", async () => {
         const root = await mkdtemp(join(tmpdir(), "manager-start-container-"));
         roots.push(root);

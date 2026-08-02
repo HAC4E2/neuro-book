@@ -1,5 +1,6 @@
 import {mkdir} from "node:fs/promises";
 import {dirname, resolve} from "node:path";
+import {pathToFileURL} from "node:url";
 
 import {chromium, type Browser, type ConsoleMessage, type Page, type Request, type Response} from "playwright-core";
 
@@ -15,13 +16,14 @@ type BrowserFailure = {
     message: string;
 };
 
-const options = parseOptions(process.argv.slice(2));
-await runSmoke(options);
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+    await runProductBrowserSmoke(parseOptions(process.argv.slice(2)));
+}
 
 /**
  * 启动CI明确指定的Chromium系浏览器，验证Product首页已完成Vue挂载。
  */
-async function runSmoke(input: SmokeOptions): Promise<void> {
+export async function runProductBrowserSmoke(input: SmokeOptions): Promise<void> {
     const failures: BrowserFailure[] = [];
     let browser: Browser | null = null;
     try {

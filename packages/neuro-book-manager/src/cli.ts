@@ -286,9 +286,27 @@ program.command("update")
 program.command("start")
     .description("启动当前或指定安装。")
     .option("--no-health-check", "Windows Portable跳过HTTP健康检查和自动打开浏览器。")
-    .action(async (options: {healthCheck: boolean}) => {
+    .option("--shutdown-on-stdin-end", "标准输入关闭时完整收口Product；供桌面宿主和自动验收使用。", false)
+    .action(async (options: {healthCheck: boolean; shutdownOnStdinEnd: boolean}) => {
         const {root} = await currentInstallation();
-        await startInstallationApplication(root, {healthCheck: options.healthCheck});
+        const controller = options.shutdownOnStdinEnd ? new AbortController() : null;
+        const shutdown = (): void => controller?.abort();
+        if (controller) {
+            process.stdin.once("end", shutdown);
+            process.stdin.once("error", shutdown);
+            process.stdin.resume();
+            if (process.stdin.readableEnded || process.stdin.destroyed) controller.abort();
+        }
+        try {
+            await startInstallationApplication(root, {
+                healthCheck: options.healthCheck,
+                ...(controller ? {shutdownSignal: controller.signal} : {}),
+            });
+        } finally {
+            process.stdin.removeListener("end", shutdown);
+            process.stdin.removeListener("error", shutdown);
+            if (controller) process.stdin.pause();
+        }
     });
 
 program.command("status")

@@ -1,6 +1,6 @@
 # 117 - Windows 进程树所有权与 Bash 超时
 
-> 当前状态：本地实现与聚焦验证完成；Linux x64/AArch64、macOS x64/AArch64 与两次Windows Candidate Product/Owned Process workflow均已通过。最终同代Windows Portable的包内Bun + PortableGit进程树验收仍待完整Candidate执行。
+> 当前状态：本地实现与聚焦验证完成；Linux x64/AArch64、macOS x64/AArch64 与多次Windows Candidate Product/Owned Process workflow均已通过。第十一次Candidate已执行同代Portable包内Bun + PortableGit、Runtime Contract与首次浏览器 smoke，但强杀Manager后第二次启动遇到 `runtime.lease` `ELOCKED`；正式stdin shutdown与lease重取Verifier待下一Candidate验证。
 
 ## Relative documents refs
 
@@ -575,7 +575,8 @@ Phase E gate：本地实现已满足；Windows Release runner真实Portable smok
 - [x] 从正式fixture与回归测试进入实现，没有把临时探针直接复制进生产。
 - [x] 保留Task 105、Task 116职责边界。
 - [x] FFI/嵌套Job失败保持fail closed，没有扫描式fallback。
-- [ ] 执行真实候选Windows Release workflow，确认包内Bun + PortableGit、实际Manager PID cleanup与POSIX runner门禁。
+- [x] 执行真实候选Windows Release workflow，确认包内Bun + PortableGit，并完成四平台POSIX runner门禁。
+- [ ] 在新Candidate确认实际Manager graceful shutdown、Product终态与 `runtime.lease` 立即可重取。
 - [ ] 经用户授权执行一次可见CMD窗口最终验收：卡住Bash fixture后关闭窗口，以fixture PID和端口确认完整收口。
 
 ### 2026-08-02：POSIX Product 最终回归
@@ -601,3 +602,8 @@ Phase E gate：本地实现已满足；Windows Release runner真实Portable smok
 - workflow [`30755685695`](https://github.com/notnotype/neuro-book/actions/runs/30755685695) 第四次通过同一Windows Product前置链；两个OCI架构直到最终module closure才被剩余路径误报阻断，assemble和Portable仍未运行。该证据继续证明Windows Product构建稳定，不证明同代Portable中的包内Bun、PortableGit、A→B与自卸载进程树。
 - workflow [`30756404604`](https://github.com/notnotype/neuro-book/actions/runs/30756404604) 的Windows job在Manager clean transform阶段失败，未进入Owned Process或Product smoke；原因是共享build Module漏登scripts tsconfig，不是进程树回归。此前四轮Windows Product证据继续成立，但本轮没有新增Windows生命周期证据，Portable仍被上游失败跳过。
 - workflow [`30757057719`](https://github.com/notnotype/neuro-book/actions/runs/30757057719) 第五次通过Windows Manager、Owned Process、Agent State Root、Product构建与归档，证明第九次tsconfig补登没有引入进程树回归。双OCI在独立Git-less发布Adapter失败使assemble和最终Portable继续跳过，因此包内Bun + PortableGit、A→B与自卸载仍无本轮同代证据。
+
+### 2026-08-03：第十一次 Candidate 的正式关闭边界
+
+- workflow [`30757628319`](https://github.com/notnotype/neuro-book/actions/runs/30757628319) 已实际执行包内 Bun + PortableGit、Windows Runtime Contract与首次浏览器 smoke；失败发生在第二次复用State Root的authenticated start，错误为 `runtime.lease` `ELOCKED`。
+- 根因是验收脚本用 `Stop-Process -Force` 终止Manager后只检查端口，未调用已有Owned Process/Product graceful shutdown；本轮改用 Manager `--shutdown-on-stdin-end`，关闭stdin后等待Manager/Product终态并立即重取唯一Store lease。Candidate workflow尚未重新执行，故Task仍保留Release candidate verification pending。
