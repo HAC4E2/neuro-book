@@ -1,7 +1,10 @@
 import {builtinModules} from "node:module";
 import {cp, mkdir, rm, stat} from "node:fs/promises";
 import {dirname, isAbsolute, relative, resolve, sep} from "node:path";
-import {productRuntimeCompatibilityPlugin} from "nbook/scripts/build/product-bundle-plugins";
+import {
+    productPiAiImportPlugin,
+    productRuntimeCompatibilityPlugin,
+} from "nbook/scripts/build/product-bundle-plugins";
 import {productRuntimeIslandPackageNames} from "nbook/scripts/build/product-runtime-islands";
 import {
     createProductRuntimeContract,
@@ -57,7 +60,7 @@ export async function buildProductCommands(outputRoot: string): Promise<ProductC
             chunk: "chunks/[name]-[hash].mjs",
             asset: "assets/[name]-[hash][ext]",
         },
-        plugins: [productRuntimeCompatibilityPlugin()],
+        plugins: [productPiAiImportPlugin(), productRuntimeCompatibilityPlugin()],
         external: [
             ...builtinModules,
             ...builtinModules.map((moduleName) => `node:${moduleName}`),
@@ -72,14 +75,7 @@ export async function buildProductCommands(outputRoot: string): Promise<ProductC
             ...result.logs.map((log) => log.message),
         ].join("\n"));
     }
-    for (const output of result.outputs) {
-        const outputRelative = relative(commandRoot, output.path);
-        if (!outputRelative || outputRelative.startsWith("..")) {
-            throw new Error(`Product command output 逃逸 commands root：${output.path}`);
-        }
-        await mkdir(dirname(output.path), {recursive: true});
-        await Bun.write(output.path, output);
-    }
+    await assertProductCommandOutputs(result.metafile, commandRoot);
 
     await copyPhysicalRuntimeFiles(serverRoot);
     const commandEntries = resolveProductCommandEntries(result.metafile, commandRoot);
@@ -124,12 +120,7 @@ export function resolveProductCommandEntries(
         const sourcePath = resolve(output.entryPoint);
         // Bun metafile 的 output key 在不同构建形态下可能是绝对路径，也可能相对 outdir。
         // 相对值必须以 commandRoot 解析，不能借用调用进程 cwd。
-        const outputPath = isAbsolute(outputName) ? resolve(outputName) : resolve(commandRoot, outputName);
-        const outputRelative = relative(commandRoot, outputPath);
-        if (!outputRelative || outputRelative === ".." || outputRelative.startsWith(`..${sep}`)
-            || isAbsolute(outputRelative)) {
-            throw new Error(`Product command metafile output 逃逸 commands root：${outputName}`);
-        }
+        const {outputRelative} = resolveCommandOutput(outputName, commandRoot);
         if (outputBySource.has(sourcePath)) {
             throw new Error(`Product command source 产生多个 entry output：${sourcePath}`);
         }
@@ -140,6 +131,34 @@ export function resolveProductCommandEntries(
         if (!output) throw new Error(`Product command metafile 缺少 entry：${name}`);
         return [name, output];
     })) as Record<keyof typeof PRODUCT_COMMAND_SOURCES, string>;
+}
+
+/** 要求 Bun outdir 中每个 metafile output 已完整落盘，拒绝空文件与截断。 */
+export async function assertProductCommandOutputs(
+    metafile: Bun.BuildMetafile | undefined,
+    commandRoot: string,
+): Promise<void> {
+    if (!metafile) throw new Error("Product command bundle 缺少 metafile。");
+    for (const [outputName, output] of Object.entries(metafile.outputs)) {
+        const {outputPath, outputRelative} = resolveCommandOutput(outputName, commandRoot);
+        const info = await stat(outputPath).catch((error) => {
+            throw new Error(`Product command output 未落盘：${outputRelative}`, {cause: error});
+        });
+        if (!info.isFile() || info.size === 0) {
+            throw new Error(`Product command output 不完整：${outputRelative} expected=${output.bytes} actual=${info.size}`);
+        }
+    }
+}
+
+/** 将 Bun 的绝对或 outdir 相对 output key 收窄到 commands root。 */
+function resolveCommandOutput(outputName: string, commandRoot: string): {outputPath: string; outputRelative: string} {
+    const outputPath = isAbsolute(outputName) ? resolve(outputName) : resolve(commandRoot, outputName);
+    const outputRelative = relative(commandRoot, outputPath);
+    if (!outputRelative || outputRelative === ".." || outputRelative.startsWith(`..${sep}`)
+        || isAbsolute(outputRelative)) {
+        throw new Error(`Product command metafile output 逃逸 commands root：${outputName}`);
+    }
+    return {outputPath, outputRelative};
 }
 
 /** SQLite migration SQL 是数据演进真相源，必须保留普通文件而不是冻结进 bundle。 */

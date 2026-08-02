@@ -9,7 +9,10 @@ import {
     assertRuntimeModuleFiles,
     assertRuntimePackageIdentity,
 } from "nbook/scripts/build/nitro-runtime-module-specifier.mjs";
-import {productRuntimeCompatibilityPlugin} from "nbook/scripts/build/product-bundle-plugins";
+import {
+    productPiAiImportPlugin,
+    productRuntimeCompatibilityPlugin,
+} from "nbook/scripts/build/product-bundle-plugins";
 import {rewriteProductPackageIslandImports} from "nbook/scripts/build/product-package-island-imports";
 import {
     productOpaqueImportDefinitions,
@@ -75,7 +78,7 @@ export async function bundleProductRuntime(outputRoot: string, scratchRoot: stri
             metafile: true,
             outdir: temporaryRoot,
             naming: "index.mjs",
-            plugins: [piAiRuntimeImportPlugin(), productRuntimeCompatibilityPlugin()],
+            plugins: [productPiAiImportPlugin(), productRuntimeCompatibilityPlugin()],
             external: [
                 ...builtinModules,
                 ...builtinModules.map((name) => `node:${name}`),
@@ -320,45 +323,6 @@ async function assertBundledRuntimeClosure(serverRoot: string): Promise<void> {
     if (source.includes("/.bun/") || source.includes("/.pnpm/") || source.includes(normalizedRoot)) {
         throw new Error("Product bundle 泄漏了包管理器目录或构建机绝对路径。");
     }
-}
-
-/**
- * pi-ai 有意用变量 import 隔离浏览器构建；Product 是 Bun server，可安全把这些已知入口静态化。
- * 任何上游源码形状变化都会因精确匹配未命中而在 opaque import 门禁中失败。
- */
-function piAiRuntimeImportPlugin(): Bun.BunPlugin {
-    return {
-        name: "nbook-pi-ai-runtime-imports",
-        setup(build) {
-            build.onLoad({filter: /[\\/]@earendil-works[\\/]pi-ai[\\/]dist[\\/]api[\\/]bedrock-converse-stream\.lazy\.js$/u}, async (args) => {
-                const source = await readFile(args.path, "utf8");
-                return {
-                    contents: replaceRequired(source,
-                        'return import(__rewriteRelativeImportExtension(runtimeSpecifier));',
-                        'return import("./bedrock-converse-stream.js");', args.path),
-                    loader: "js",
-                };
-            });
-            build.onLoad({filter: /[\\/]@earendil-works[\\/]pi-ai[\\/]dist[\\/]utils[\\/]oauth[\\/]load\.js$/u}, async (args) => {
-                const source = await readFile(args.path, "utf8");
-                const replacement = [
-                    'export const loadAnthropicOAuth = async () => (await import("./anthropic.js")).anthropicOAuth;',
-                    'export const loadOpenAICodexOAuth = async () => (await import("./openai-codex.js")).openaiCodexOAuth;',
-                    'export const loadGitHubCopilotOAuth = async () => (await import("./github-copilot.js")).githubCopilotOAuth;',
-                ].join("\n");
-                const start = source.indexOf("export const loadAnthropicOAuth");
-                const endMarker = "//# sourceMappingURL=load.js.map";
-                const end = source.indexOf(endMarker);
-                if (start < 0 || end < start) throw new Error(`pi-ai OAuth loader 形状变化：${args.path}`);
-                return {contents: `${source.slice(0, start)}${replacement}\n${source.slice(end)}`, loader: "js"};
-            });
-        },
-    };
-}
-
-function replaceRequired(source: string, search: string, replacement: string, filePath: string): string {
-    if (!source.includes(search)) throw new Error(`pi-ai runtime import 形状变化：${filePath}`);
-    return source.replace(search, replacement);
 }
 
 async function directoryInventory(root: string): Promise<{files: number; bytes: number}> {

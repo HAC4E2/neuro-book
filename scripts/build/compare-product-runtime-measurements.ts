@@ -32,6 +32,7 @@ const IDENTITY_FIELDS = [
     "inventory",
     "treeDigest",
     "shapeDigest",
+    "evidence",
 ] as const satisfies readonly (keyof MeasurementIdentity)[];
 
 /** 比较同平台、同Source的两份measurement；时间戳是唯一允许不同的字段。 */
@@ -64,6 +65,9 @@ function parseMeasurement(text: string, label: "A" | "B"): ProductRuntimeMeasure
     const record = value as {[key: string]: unknown};
     const platform = PRODUCT_PLATFORMS.find((candidate) => candidate === record.platform);
     const inventory = objectField(record.inventory);
+    const evidence = objectField(record.evidence);
+    const moduleClosure = objectField(evidence?.moduleClosure);
+    const nativeIslands = objectField(moduleClosure?.nativeIslands);
     if (
         record.schema !== PRODUCT_RUNTIME_MEASUREMENT_SCHEMA
         || record.builderContractVersion !== PRODUCT_RUNTIME_BUILDER_CONTRACT_VERSION
@@ -80,6 +84,17 @@ function parseMeasurement(text: string, label: "A" | "B"): ProductRuntimeMeasure
         || !objectField(record.runtime)
         || !objectField(record.runtimeContract)
         || !objectField(record.policy)
+        || !moduleClosure
+        || !nativeIslands
+        || nativeIslands.platform !== platform
+        || !Array.isArray(nativeIslands.islands)
+        || !Array.isArray(nativeIslands.opaqueImports)
+        || !Number.isSafeInteger(moduleClosure.roots)
+        || !Number.isSafeInteger(moduleClosure.modules)
+        || !Number.isSafeInteger(moduleClosure.references)
+        || !Number.isSafeInteger(moduleClosure.opaqueImports)
+        || !Array.isArray(moduleClosure.opaqueImportObservations)
+        || !Array.isArray(moduleClosure.packages)
         || !Number.isSafeInteger(inventory?.files)
         || !Number.isSafeInteger(inventory?.bytes)
         || !Array.isArray(inventory?.owners)

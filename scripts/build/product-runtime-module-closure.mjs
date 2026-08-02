@@ -1,3 +1,4 @@
+import {createHash} from "node:crypto";
 import {lstat, readFile, readdir, realpath} from "node:fs/promises";
 import {builtinModules} from "node:module";
 import {dirname, extname, isAbsolute, relative, resolve} from "node:path";
@@ -15,7 +16,9 @@ const packageManagerPathPattern = /(?:^|\/)\.(?:bun|pnpm)(?:\/|$)/u;
  * @property {number} modules 实际解析的候选镜像内 JS 模块数量。
  * @property {number} references 已核对的字面量 ESM 引用数量。
  * @property {number} opaqueImports 无法静态解析、由运行时领域门禁负责的动态 import 数量。
+ * @property {Array<{modulePath: string, expression: string, fingerprint: string, pathPattern: string}>} opaqueImportObservations
  * @property {string[]} packages 可执行图实际引用的 native package island。
+ * @property {{schema: string, platform: string, islands: Array<{packages: string[], reason: string, smoke: string}>, opaqueImports: Array<{pathPattern: string, count: number, reason: string, smoke: string}>}} nativeIslands
  */
 
 /**
@@ -25,7 +28,7 @@ const packageManagerPathPattern = /(?:^|\/)\.(?:bun|pnpm)(?:\/|$)/u;
  * 都是审计根；相对 ESM 引用继续递归，进入 package island 后停在显式 manifest seam。
  * bare package 表示运行时仍可能向候选镜像祖先查找依赖，因此一律拒绝。
  *
- * @param {{imageRoot: string, buildRoots?: string[]}} options
+ * @param {{imageRoot: string, buildRoots?: string[], expectedPlatform?: string}} options
  * @returns {Promise<ProductRuntimeClosureResult>}
  */
 export async function assertProductRuntimeModuleClosure(options) {
@@ -37,6 +40,9 @@ export async function assertProductRuntimeModuleClosure(options) {
         readNativeIslands(serverRoot),
         executableRoots(serverRoot),
     ]);
+    if (options.expectedPlatform && islandContract.identity.platform !== options.expectedPlatform) {
+        throw new Error(`Product native island manifest 平台不一致：expected=${options.expectedPlatform}, actual=${islandContract.identity.platform}`);
+    }
     await assertIslandFiles(serverRoot, islandContract.packages);
 
     const buildRoots = [...new Set([
@@ -49,6 +55,7 @@ export async function assertProductRuntimeModuleClosure(options) {
     const failures = [];
     let references = 0;
     let opaqueImports = 0;
+    const opaqueImportObservations = [];
     const opaqueCounts = new Map(islandContract.opaqueImports.map((definition) => [definition.pathPattern, 0]));
 
     while (queue.length > 0) {
@@ -61,6 +68,10 @@ export async function assertProductRuntimeModuleClosure(options) {
             source = await readFile(filePath, "utf8");
         } catch (error) {
             failures.push(`${displayPath(serverRoot, filePath)}: 无法读取模块 (${errorMessage(error)})`);
+            continue;
+        }
+        if (source.length === 0) {
+            failures.push(`${displayPath(serverRoot, filePath)}: 可执行模块是0字节空文件`);
             continue;
         }
         const leakedRoot = leakedBuildRoot(source, buildRoots);
@@ -92,6 +103,13 @@ export async function assertProductRuntimeModuleClosure(options) {
                     } else {
                         const pattern = matches[0].pathPattern;
                         opaqueCounts.set(pattern, (opaqueCounts.get(pattern) ?? 0) + 1);
+                        const fullExpression = source.slice(item.ss, item.se);
+                        opaqueImportObservations.push({
+                            modulePath,
+                            expression: fullExpression.slice(0, 240),
+                            fingerprint: `sha256:${createHash("sha256").update(fullExpression).digest("hex")}`,
+                            pathPattern: pattern,
+                        });
                     }
                 }
                 continue;
@@ -156,6 +174,9 @@ export async function assertProductRuntimeModuleClosure(options) {
         const actual = opaqueCounts.get(definition.pathPattern) ?? 0;
         if (actual !== definition.count) {
             failures.push(`opaque dynamic import 登记数量不一致 ${definition.pathPattern}: expected=${definition.count}, actual=${actual}`);
+            for (const observation of opaqueImportObservations.filter((item) => item.pathPattern === definition.pathPattern)) {
+                failures.push(`opaque observation ${observation.modulePath}: ${observation.expression} (${observation.fingerprint})`);
+            }
         }
     }
 
@@ -171,7 +192,9 @@ export async function assertProductRuntimeModuleClosure(options) {
         modules: visited.size,
         references,
         opaqueImports,
+        opaqueImportObservations,
         packages: [...usedPackages].sort(),
+        nativeIslands: islandContract.identity,
     };
 }
 
@@ -202,17 +225,26 @@ async function readNativeIslands(serverRoot) {
         || !Array.isArray(manifest.opaqueImports)) {
         throw new Error(`Product native island manifest 合同无效：${manifestPath}`);
     }
+    if (typeof manifest.platform !== "string" || !manifest.platform.trim()) {
+        throw new Error(`Product native island manifest 缺少平台身份：${manifestPath}`);
+    }
     const packages = new Set();
+    const islands = [];
     for (const [index, island] of manifest.islands.entries()) {
-        if (!island || typeof island !== "object" || Array.isArray(island) || !Array.isArray(island.packages)) {
+        if (!island || typeof island !== "object" || Array.isArray(island) || !Array.isArray(island.packages)
+            || typeof island.reason !== "string" || !island.reason.trim()
+            || typeof island.smoke !== "string" || !island.smoke.trim()) {
             throw new Error(`Product native island manifest islands[${index}] 无效。`);
         }
+        const islandPackages = [];
         for (const packageName of island.packages) {
             if (typeof packageName !== "string" || packageNameFromSpecifier(packageName) !== packageName) {
                 throw new Error(`Product native island manifest 含无效 package：${String(packageName)}`);
             }
             packages.add(packageName);
+            islandPackages.push(packageName);
         }
+        islands.push({packages: islandPackages, reason: island.reason, smoke: island.smoke});
     }
     const opaqueImports = manifest.opaqueImports.map((definition, index) => {
         if (!definition || typeof definition !== "object" || Array.isArray(definition)
@@ -222,12 +254,26 @@ async function readNativeIslands(serverRoot) {
             || typeof definition.smoke !== "string" || !definition.smoke.trim()) {
             throw new Error(`Product native island manifest opaqueImports[${index}] 无效。`);
         }
-        return definition;
+        return {
+            pathPattern: definition.pathPattern,
+            count: definition.count,
+            reason: definition.reason,
+            smoke: definition.smoke,
+        };
     });
     if (new Set(opaqueImports.map((definition) => definition.pathPattern)).size !== opaqueImports.length) {
         throw new Error("Product native island manifest 含重复 opaque import path pattern。");
     }
-    return {packages, opaqueImports};
+    return {
+        packages,
+        opaqueImports,
+        identity: {
+            schema: NATIVE_ISLAND_SCHEMA,
+            platform: manifest.platform,
+            islands,
+            opaqueImports,
+        },
+    };
 }
 
 /** opaque import pattern 只允许 Product server 相对路径和最多一个通配符。 */

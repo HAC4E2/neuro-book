@@ -14,6 +14,7 @@ import {resolve} from "node:path";
 import {promisify} from "node:util";
 import {lock as acquireFileLock} from "proper-lockfile";
 import type {ProductPlatform} from "nbook/packages/neuro-book-manager/src/types";
+import {assertProductRuntimeModuleClosure} from "nbook/scripts/build/product-runtime-module-closure.mjs";
 import {
     assertProductRuntimeContractFiles,
     parseProductRuntimeContract,
@@ -78,7 +79,7 @@ const MANIFEST_FILE = "runtime-image.json";
 const READY_FILE = "runtime-image.ready";
 const MANIFEST_SCHEMA = PRODUCT_RUNTIME_IMAGE_MANIFEST_SCHEMA;
 const READY_SCHEMA = PRODUCT_RUNTIME_IMAGE_READY_SCHEMA;
-export const PRODUCT_RUNTIME_MEASUREMENT_SCHEMA = "nbook.product-runtime-image-measurement/v1";
+export const PRODUCT_RUNTIME_MEASUREMENT_SCHEMA = "nbook.product-runtime-image-measurement/v2";
 const BUILDER_CONTRACT_VERSION = PRODUCT_RUNTIME_BUILDER_CONTRACT_VERSION;
 const STAGING_LEASE_STALE_MS = 24 * 60 * 60 * 1000;
 const STAGING_LEASE_UPDATE_MS = 60 * 1000;
@@ -152,6 +153,10 @@ export interface ProductRuntimeMeasurementReport {
     inventory: ProductRuntimeImageManifest["inventory"];
     treeDigest: string;
     shapeDigest: string;
+    evidence: {
+        /** 对最终 native islands 和全部可执行 ESM 根的结构化复核结果。 */
+        moduleClosure: Awaited<ReturnType<typeof assertProductRuntimeModuleClosure>>;
+    };
     measuredAt: string;
 }
 
@@ -280,6 +285,11 @@ export class ProductRuntimeImageBuilder {
 
         return await this.withInspectedCandidate(request, owners, false, async (candidate) => {
             assertGlobalBudget(candidate.inspection, globalBudget);
+            const moduleClosure = await assertProductRuntimeModuleClosure({
+                imageRoot: candidate.imageRoot,
+                buildRoots: [this.projectRoot],
+                expectedPlatform: request.platform,
+            });
             return {
                 schema: PRODUCT_RUNTIME_MEASUREMENT_SCHEMA,
                 builderContractVersion: BUILDER_CONTRACT_VERSION,
@@ -306,6 +316,7 @@ export class ProductRuntimeImageBuilder {
                 },
                 treeDigest: candidate.inspection.treeDigest,
                 shapeDigest: candidate.inspection.shapeDigest,
+                evidence: {moduleClosure},
                 measuredAt: new Date().toISOString(),
             };
         });
@@ -625,9 +636,22 @@ function assertBuildExpectation(
     const actual = {...snapshot, platform};
     for (const key of ["version", "revision", "dirty", "lockfileSha256"] as const) {
         if (expected[key] !== undefined && expected[key] !== actual[key]) {
-            throw new Error(`Product build Source 身份不一致：${key} expected=${String(expected[key])} actual=${String(actual[key])}`);
+            const details = key === "dirty" ? sourceSnapshotStatusDetails(snapshot) : [];
+            throw new Error([
+                `Product build Source 身份不一致：${key} expected=${String(expected[key])} actual=${String(actual[key])}`,
+                ...details.map((detail) => `- ${detail}`),
+            ].join("\n"));
         }
     }
+}
+
+/** 将 porcelain v2 的当前变化集合转换为可直接定位的初始 Source dirty 诊断。 */
+function sourceSnapshotStatusDetails(snapshot: SourceSnapshot): string[] {
+    const changes = snapshot.statusResult.split("\0")
+        .filter((entry) => entry.length > 0 && !entry.startsWith("# "))
+        .slice(0, 20)
+        .map((entry) => `Git 状态：${entry.slice(0, 300)}`);
+    return changes.length > 0 ? changes : ["Git 报告 dirty，但 porcelain 中没有可枚举的变化路径"];
 }
 
 /** Source 的任意输入或 dirty 集合在构建期间变化都拒绝发布。 */

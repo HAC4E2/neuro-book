@@ -47,6 +47,17 @@ describe("Product Runtime measurement A/B", () => {
         await expect(compareProductRuntimeMeasurements(leftPath, rightPath))
             .rejects.toThrow("inventory, treeDigest");
     });
+
+    it("拒绝native island或module closure证据漂移", async () => {
+        const root = await sandbox();
+        const left = report();
+        const right = report();
+        right.evidence.moduleClosure.opaqueImports = 2;
+        const [leftPath, rightPath] = await writeReports(root, left, right);
+
+        await expect(compareProductRuntimeMeasurements(leftPath, rightPath))
+            .rejects.toThrow("evidence");
+    });
 });
 
 /** 创建隔离measurement fixture目录。 */
@@ -96,6 +107,32 @@ function report(): ProductRuntimeMeasurementReport {
         },
         treeDigest: `sha256:${"f".repeat(64)}`,
         shapeDigest: `sha256:${"0".repeat(64)}`,
+        evidence: {
+            moduleClosure: {
+                roots: 4,
+                modules: 4,
+                references: 0,
+                opaqueImports: 1,
+                opaqueImportObservations: [{
+                    modulePath: "index.mjs",
+                    expression: "import(target)",
+                    fingerprint: `sha256:${"1".repeat(64)}`,
+                    pathPattern: "index.mjs",
+                }],
+                packages: [],
+                nativeIslands: {
+                    schema: "nbook.product-native-islands/v2",
+                    platform: "linux-x64-glibc",
+                    islands: [],
+                    opaqueImports: [{
+                        pathPattern: "index.mjs",
+                        count: 1,
+                        reason: "fixture",
+                        smoke: "fixture smoke",
+                    }],
+                },
+            },
+        },
         measuredAt: "2026-08-02T00:00:00.000Z",
     };
 }

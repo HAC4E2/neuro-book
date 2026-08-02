@@ -2,6 +2,7 @@
 import {existsSync} from "node:fs";
 import {mkdir, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
 import {isAbsolute, relative, resolve, sep} from "node:path";
+import {currentProductPlatform} from "nbook/packages/neuro-book-manager/src/platform";
 import {compileProfileArtifacts} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {compileVariableDefinitions} from "nbook/server/agent/variables/definition-artifact";
 import {SystemAssetsProjection} from "nbook/server/workspace-files/system-assets-projection";
@@ -214,6 +215,7 @@ async function assertFinalRuntimeShape() {
     await assertProductRuntimeModuleClosure({
         imageRoot: outputRoot,
         buildRoots: [process.cwd()],
+        expectedPlatform: currentProductPlatform(),
     });
     const inventory = await directoryInventory(outputRoot);
     if (inventory.files > 6_000 || inventory.bytes > 360 * 1024 * 1024) {

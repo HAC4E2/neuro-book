@@ -1,11 +1,19 @@
-import {resolve} from "node:path";
-import {readFile, readdir} from "node:fs/promises";
+import {mkdtemp, mkdir, readFile, readdir, rm, writeFile} from "node:fs/promises";
+import {tmpdir} from "node:os";
+import {join, resolve} from "node:path";
 
-import {describe, expect, it} from "vitest";
+import {afterEach, describe, expect, it} from "vitest";
 import {
+    assertProductCommandOutputs,
     PRODUCT_COMMAND_SOURCES,
     resolveProductCommandEntries,
 } from "nbook/scripts/build/product-command-bundle";
+
+const temporaryRoots: string[] = [];
+
+afterEach(async () => {
+    await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, {recursive: true, force: true})));
+});
 
 describe("Product command metafile", () => {
     it("按 entryPoint 建立入口，不依赖输出文件名", () => {
@@ -52,6 +60,33 @@ describe("Product command metafile", () => {
 
         expect(() => resolveProductCommandEntries(metafile, commandRoot))
             .toThrow("Product command metafile output 逃逸 commands root");
+    });
+
+    it("验证Bun outdir已完整落盘并拒绝self-write造成的空文件", async () => {
+        const root = await mkdtemp(join(tmpdir(), "nbook-product-command-output-"));
+        temporaryRoots.push(root);
+        const commandRoot = join(root, "commands");
+        const outputPath = join(commandRoot, "start.mjs");
+        const source = "export default true;\n";
+        await mkdir(commandRoot, {recursive: true});
+        await writeFile(outputPath, source, "utf8");
+        const metafile: Bun.BuildMetafile = {
+            inputs: {},
+            outputs: {
+                [outputPath]: {
+                    bytes: Buffer.byteLength(source),
+                    inputs: {},
+                    imports: [],
+                    exports: [],
+                    entryPoint: resolve("server/runtime/product-start-command.mjs"),
+                },
+            },
+        };
+
+        await expect(assertProductCommandOutputs(metafile, commandRoot)).resolves.toBeUndefined();
+        await writeFile(outputPath, "", "utf8");
+        await expect(assertProductCommandOutputs(metafile, commandRoot))
+            .rejects.toThrow("Product command output 不完整：start.mjs");
     });
 
     it("Product正式命令实现归server领域Module，server不得反向依赖scripts", async () => {

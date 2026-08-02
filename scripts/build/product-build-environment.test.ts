@@ -5,6 +5,7 @@ import {describe, expect, it} from "vitest";
 
 import {
     PRODUCT_SOURCE_DATE_EPOCH,
+    PRODUCT_NODE_OPTIONS,
     productBuildEnvironment,
     productRuntimeOwnerBaselines,
     withProductBuildLease,
@@ -19,6 +20,7 @@ describe("Product build environment", () => {
         const source: NodeJS.ProcessEnv = {
             Path: "C:\\tools",
             TEMP: "C:\\temp",
+            NODE_OPTIONS: "--require malicious-build-hook.cjs",
             NUXT_DEVTOOLS: "1",
             NUXT_PUBLIC_LEAK: "host-value",
             NITRO_PRESET: "cloudflare-pages",
@@ -40,6 +42,7 @@ describe("Product build environment", () => {
             NODE_ENV: "production",
             NUXT_DEVTOOLS: "0",
             NUXT_TELEMETRY_DISABLED: "1",
+            NODE_OPTIONS: PRODUCT_NODE_OPTIONS,
             SOURCE_DATE_EPOCH: PRODUCT_SOURCE_DATE_EPOCH,
             TZ: "UTC",
         });
@@ -67,14 +70,16 @@ describe("Product build environment", () => {
     });
 
     it("raw Nuxt pipeline 只读取 tracked 的空 Product dotenv", async () => {
-        const [packageText, productEnv] = await Promise.all([
+        const [packageText, productEnv, attributes] = await Promise.all([
             readFile("package.json", "utf8"),
             readFile(".env.product", "utf8"),
+            readFile(".gitattributes", "utf8"),
         ]);
         const packageJson = JSON.parse(packageText) as {scripts: {"nuxt:build:raw": string}};
 
         expect(packageJson.scripts["nuxt:build:raw"].match(/--dotenv \.env\.product/gu)).toHaveLength(1);
         expect(productEnv).toBe("# Product builds intentionally load no local runtime configuration.\n");
+        expect(attributes).toContain("server/generated/project-prisma/** text eol=lf\n");
     });
 
     it("整个 Product pipeline 共用一个 fail-fast build lease", async () => {

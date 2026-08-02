@@ -38,7 +38,14 @@ describe("Product Runtime module closure", () => {
             modules: 7,
             references: 5,
             opaqueImports: 0,
+            opaqueImportObservations: [],
             packages: ["esbuild"],
+            nativeIslands: {
+                schema: "nbook.product-native-islands/v2",
+                platform: "windows-x64",
+                islands: [{packages: ["esbuild"], reason: "test", smoke: "test"}],
+                opaqueImports: [],
+            },
         });
     });
 
@@ -53,6 +60,14 @@ describe("Product Runtime module closure", () => {
         await writeFile(join(escaping.root, "outside.mjs"), "export default true;\n", "utf8");
         await expect(assertProductRuntimeModuleClosure({imageRoot: escaping.imageRoot}))
             .rejects.toThrow("相对引用逃逸候选镜像 ../../../outside.mjs");
+    });
+
+    it("拒绝被截断为0字节的可执行模块", async () => {
+        const fixture = await createImage();
+        await fixture.module("commands/start.mjs", "");
+
+        await expect(assertProductRuntimeModuleClosure({imageRoot: fixture.imageRoot}))
+            .rejects.toThrow("commands/start.mjs: 可执行模块是0字节空文件");
     });
 
     it("拒绝包管理器物理路径与绝对 module specifier", async () => {
@@ -135,7 +150,7 @@ describe("Product Runtime module closure", () => {
         });
         await registered.module("authoring/profile-compile-worker.mjs", "const target = './runtime.mjs'; await import(target);\n");
         await expect(assertProductRuntimeModuleClosure({imageRoot: registered.imageRoot}))
-            .rejects.toThrow("expected=2, actual=1");
+            .rejects.toThrow(/expected=2, actual=1[\s\S]*import\(target\)/u);
 
         await registered.module("authoring/profile-compile-worker.mjs", [
             "const first = './runtime-a.mjs';",
@@ -144,7 +159,21 @@ describe("Product Runtime module closure", () => {
             "await import(second);",
         ].join("\n"));
         await expect(assertProductRuntimeModuleClosure({imageRoot: registered.imageRoot}))
-            .resolves.toMatchObject({opaqueImports: 2});
+            .resolves.toMatchObject({
+                opaqueImports: 2,
+                opaqueImportObservations: [
+                    expect.objectContaining({
+                        modulePath: "authoring/profile-compile-worker.mjs",
+                        expression: "import(first)",
+                        fingerprint: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u),
+                    }),
+                    expect.objectContaining({
+                        modulePath: "authoring/profile-compile-worker.mjs",
+                        expression: "import(second)",
+                        fingerprint: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u),
+                    }),
+                ],
+            });
     });
 });
 

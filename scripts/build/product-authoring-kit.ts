@@ -3,7 +3,10 @@ import {cp, mkdir, readFile, readdir, rm, stat, writeFile} from "node:fs/promise
 import {dirname, extname, relative, resolve} from "node:path";
 import {init, parse} from "es-module-lexer";
 import ts from "typescript";
-import {productRuntimeCompatibilityPlugin} from "nbook/scripts/build/product-bundle-plugins";
+import {
+    productPiAiImportPlugin,
+    productRuntimeCompatibilityPlugin,
+} from "nbook/scripts/build/product-bundle-plugins";
 import {productRuntimeIslandPackageNames} from "nbook/scripts/build/product-runtime-islands";
 import {
     projectAuthoringDependencies,
@@ -66,7 +69,7 @@ export async function buildProductAuthoringKit(outputRoot: string): Promise<Prod
         format: "esm",
         minify: true,
         sourcemap: "none",
-        plugins: [productRuntimeCompatibilityPlugin()],
+        plugins: [productPiAiImportPlugin(), productRuntimeCompatibilityPlugin()],
         external: [
             "bun",
             "bun:*",

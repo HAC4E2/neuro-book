@@ -17,6 +17,7 @@ import {
 
 export {PRODUCT_RUNTIME_MAX_BYTES, PRODUCT_RUNTIME_MAX_FILES};
 export const PRODUCT_SOURCE_DATE_EPOCH = "0";
+export const PRODUCT_NODE_OPTIONS = "--max-old-space-size=4096";
 const PRODUCT_BUILD_PASSTHROUGH_ENVIRONMENT = new Set([
     "APPDATA",
     "COMSPEC",
@@ -150,6 +151,8 @@ export function productBuildEnvironment(source: NodeJS.ProcessEnv): NodeJS.Proce
         NODE_ENV: "production",
         NUXT_DEVTOOLS: "0",
         NUXT_TELEMETRY_DISABLED: "1",
+        // 不透传宿主 NODE_OPTIONS；固定 heap，同时拒绝 --require/--loader 等构建注入。
+        NODE_OPTIONS: PRODUCT_NODE_OPTIONS,
         SOURCE_DATE_EPOCH: PRODUCT_SOURCE_DATE_EPOCH,
         TZ: "UTC",
     };
