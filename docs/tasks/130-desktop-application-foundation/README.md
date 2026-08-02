@@ -1,6 +1,6 @@
 # 130 - 桌面应用前置架构、发行载荷与存储生命周期
 
-> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution 与 Contract v3 的 focused/type 门禁、冻结 Source A/B、逐文件摘要比较和仓库外完整 Product smoke；同仓并行完成的 Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议另有独立证据。当前 dirty acceptance ZIP 仍不是正式 Release archive，真实 Docker/rootless Podman、五平台 Candidate Actions、Linux/macOS owner baseline、浏览器验收与 Tauri/Electron 同矩阵 spike 尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由 spike 证据冻结。
+> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、Contract v3、五平台严格 A/B 与四个 POSIX Product 完整 smoke；Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议另有独立证据。正式 0.9 Candidate、GHCR/rootless Podman、同代 Windows Portable、浏览器验收与 Tauri/Electron 同矩阵 spike 尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由 spike 证据冻结。
 
 ## Relative documents refs
 
@@ -536,7 +536,7 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - 冻结 Source A/B 的 payload 均为 3,229 文件 / 133,132,675 bytes，`treeDigest`、`shapeDigest`、Source/Contract/policy identity 与七个 owner inventory 完全一致；排除 `runtime-image.json` 与 `runtime-image.ready` 后，3,229 个路径和逐文件 SHA-256 差异均为 0，两个镜像分别重新通过 `openVerified()`。相对 2026-07-29 历史 payload 少 1,454 文件 / 28,141,556 bytes。owner 为 frontend 177 / 15,854,204，server-bundle 1 / 12,608,947，commands（含 Prisma）106 / 10,700,869，authoring-kit 510 / 13,400,281，native-islands 2,059 / 75,260,595，system-assets 373 / 5,303,264，runtime-meta 3 / 4,515。该组数字已写入 Windows canonical baseline；全局安全上限与每 owner 10% 回归规则不变。
 - TypeScript 从完整包 132 文件 / 23,625,066 bytes 投影为 89 / 12,196,852。`jsdom` 包本身为 652 / 7,033,222；从 `jsdom` 递归解析的 39 package closure（含 undici，不含 TypeScript）为 1,806 / 21,927,469；第一 native island 加上 TypeScript 后为 40 packages / 1,895 files / 34,124,321 bytes。全部 52 个 native package island 合计 2,058 / 75,256,580，另有 1 个 4,015-byte manifest。
 - A 镜像另生成 41,172,014-byte acceptance ZIP（SHA-256 `FFE3AD4514CF473E07767090DCDC390C287314270BBC545C8AB8A2EE3FF7BDFE`），并解压到仓库外、祖先无 `node_modules` 的 `C:\nbook-task130-product-smoke-*`。解压前后与完整 smoke 后三次 `openVerified()` 均通过；database/Application State migration、Profile compile、Variable authoring、sqlite-vec、Sharp、workspace schema/node、stdin-only create-admin、HTTP version、错误/正确 token shutdown、端口关闭、State Root 移动删除全部成功，Application Root 没有影子 workspace，scratch 最终不存在。该 ZIP 使用验收归档口径；当前 Source 为 dirty 且没有伪造 `product-build.json`，不是正式 Release archive，也不能与正式 ZIP writer 的 41,575,259-byte measurement 直接混为同一压缩算法结果。
-- 仍未完成：clean runner 正式 Release archive；Linux/macOS owner baseline（真实平台登记前继续 fail closed）；浏览器验收与 Tauri/Electron spike。
+- 截至本节 Windows 验收时仍未完成：clean runner 正式 Release archive；Linux/macOS owner baseline（真实平台登记前继续 fail closed）；浏览器验收与 Tauri/Electron spike。后续五平台结果见本文末尾的最终门禁记录。
 
 ### 2026-08-01：发行前链路审计与 checkpoint 清理
 
@@ -587,6 +587,16 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - 第二个Draft release ID `363662285`成功dispatch workflow `30725587144`，并在任何资产或OCI动作前被policy preflight拒绝：除Windows x64外的四个平台尚无approved runtime policy。该失败证明硬门禁有效，不能通过放宽预算继续。专用baseline workflow已补为五平台各执行同Source A/B；除`measuredAt`外，Source/runtime/contract/policy、七个owner inventory、tree与shape digest必须全同，之后才上传两份measurement供人工登记。
 - `RELEASE.md`继续只保存当前0.9版本；`docs/changelog/`与英文镜像只收录已经成为历史的发布线，因此不会在0.9仍是当前Candidate时提前创建`v0.9.md`。正式进入下一发布线后再归档中英文0.9记录。
 - 本轮不实现Developer Mode/rebuild、Tauri/Electron spike或手工浏览器验收。Candidate Actions仍负责五平台、真实Docker/Podman与公开资产证据；本地Windows结果不能替代这些门禁。
+
+### 2026-08-02：五平台确定性与 POSIX Product 最终门禁
+
+- measurement schema 升为 v3，对全部 payload 文件记录路径、字节数、mode 与 SHA-256；A/B 失败时仍上传两份 measurement。比较器会报告仅存在于单侧的路径与具体漂移文件，不再只给 tree digest 不同。
+- Bun identifier minifier 在 Linux/macOS AArch64及偶发 Linux x64 对同一 Source 产生跨次内容漂移。v3 measurement 将差异定位到 `server/index.mjs`、command chunks 与 Profile compiler，最小差异包含 6-byte 变化；没有采用字节容差。最终正式 bundle 由 Bun 负责 link/splitting、esbuild 负责确定性 minify，纯类型空模块固定为 `export{};`，源码合同禁止重新启用 Bun identifier minifier。
+- 最终 baseline workflow [`30733829868`](https://github.com/notnotype/neuro-book/actions/runs/30733829868) 在提交 `18e12750707a16e6119f9769dae49bc2c2c4eca4` 上五平台严格 A/B 全绿。Windows x64 为 3,238 files / 133,455,576 bytes；Linux x64 为 3,241 / 133,294,968；Linux AArch64 为 3,241 / 130,718,274；macOS x64 为 3,241 / 134,063,432；macOS AArch64 为 3,241 / 130,115,684。各平台 Source/runtime/contract/policy、七个 owner、tree/shape digest 和逐文件 SHA-256 均一致。
+- 最终 owner 没有新增；Windows authoring-kit 相对上一审查值增长 `7.8%`，是最大增幅，低于 10% 决策线。Windows owner 为 frontend 177 / 15,272,680；server-bundle 1 / 12,300,171；commands 116 / 10,865,638；authoring-kit 509 / 14,477,260；native-islands 2,059 / 75,260,630；system-assets 373 / 5,274,435；runtime-meta 3 / 4,762。POSIX 除 native-islands 平台字节差异外共用其余精确 owner 基线。
+- Product Platform workflow [`30733829837`](https://github.com/notnotype/neuro-book/actions/runs/30733829837) 在同一提交通过 Linux x64/AArch64 与 macOS x64/AArch64 的 Source/Product archive、Runtime Contract、native islands、sqlite-vec、Sharp、Manager、Owned Process、启动、HTTP 与浏览器 smoke。该证据不包含 Windows Portable、GHCR、最终 Release Manifest 或公开索引。
+- 根全量 Vitest 当前为 468 files passed、1 failed、1 skipped；3,187 tests passed、1 failed、14 skipped。唯一失败是 `tracked-workspace-files.test.ts` 的非空目录 rename：Project File Index 正在重建时，Windows `fs.rename()` 返回 `EPERM`。最小诊断证明纯 Chokidar/Bun 不复现，关闭 File Index 或等待 build 稳定后可通过，因此根因是完整树扫描与文件 mutation 缺少单 entry 互斥，不是 Product 构建回归；在系统性 mutation gate 落地前，根全量门禁与最终发布保持阻断。
+- 第一次失败 Draft 已把 package version 推进到 `0.9.0-canary.*`。因此原计划的 `--next minor` dry-run 会错误生成 `0.10.0-canary.*`；同一 0.9 发布线的下一 Candidate 必须显式使用 `--version 0.9.0`，并继续生成新的唯一 canary identity，不复用历史 Draft。
 
 ## TODO / Follow-ups
 

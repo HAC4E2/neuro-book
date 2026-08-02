@@ -107,6 +107,7 @@ Authoring Cache 的 128 个 lease / 256 MiB 是创建前与消费前的离散门
 - Bash 完整输出不再持久化 `%TEMP%` 绝对路径；cache 被回收是正式可见状态。
 - llmlint 的 sibling source 与 NeuroBook vendored snapshot 必须同步维护两个环境变量和缓存预算。
 - Windows 仓库外 Product smoke 已证明错误 token 不结束进程、正确 token 完成应用级关闭，随后端口关闭且 State Root 可移动和删除；Owned Process 仍只保留超时后的最终兜底职责。
+- 最终 POSIX Product workflow `30733829837` 已在 Linux x64/AArch64 与 macOS x64/AArch64 通过 Product 启动、HTTP/浏览器 smoke、Owned Process 与关闭链；Windows Portable 的同代 Candidate 终验仍由正式 Release workflow 负责。
 - Windows 自卸载有独立外置 Host，因此 Portable 可以删除正在承载 Manager/Bun 的程序目录；默认卸载和 `--delete-data` 必须分别通过最终 Portable Candidate 验收。
 - 浏览器与 Tauri/Electron UI 尚未验收；本 ADR 只冻结共享 Product/Manager 生命周期，不提前冻结 Desktop Envelope 框架。
 

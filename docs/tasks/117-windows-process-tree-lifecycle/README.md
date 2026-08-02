@@ -1,6 +1,6 @@
 # 117 - Windows 进程树所有权与 Bash 超时
 
-> 当前状态：本地实现与聚焦验证完成；候选 Windows Release workflow 验证待执行。
+> 当前状态：本地实现与聚焦验证完成；Linux x64/AArch64 与 macOS x64/AArch64 的 Product/Owned Process workflow 已通过，候选 Windows Release workflow 验证待执行。
 
 ## Relative documents refs
 
@@ -577,3 +577,8 @@ Phase E gate：本地实现已满足；Windows Release runner真实Portable smok
 - [x] FFI/嵌套Job失败保持fail closed，没有扫描式fallback。
 - [ ] 执行真实候选Windows Release workflow，确认包内Bun + PortableGit、实际Manager PID cleanup与POSIX runner门禁。
 - [ ] 经用户授权执行一次可见CMD窗口最终验收：卡住Bash fixture后关闭窗口，以fixture PID和端口确认完整收口。
+
+### 2026-08-02：POSIX Product 最终回归
+
+- Product Platform workflow [`30733829837`](https://github.com/notnotype/neuro-book/actions/runs/30733829837) 在提交 `18e12750` 上通过 Linux x64/AArch64、macOS x64/AArch64 的 Owned Process package、Product 启动、HTTP/浏览器与关闭链。此前“POSIX runner 尚未执行”的缺口已经关闭。
+- 该 workflow 不生成 Windows Portable Candidate，也不替代 Windows 包内 Bun + PortableGit、外置自卸载 Host 与最终进程树验收；对应 TODO 继续保留。
