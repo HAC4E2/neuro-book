@@ -1,6 +1,6 @@
 # 117 - Windows 进程树所有权与 Bash 超时
 
-> 当前状态：本地实现与聚焦验证完成；Linux x64/AArch64 与 macOS x64/AArch64 的 Product/Owned Process workflow 已通过，候选 Windows Release workflow 验证待执行。
+> 当前状态：本地实现与聚焦验证完成；Linux x64/AArch64、macOS x64/AArch64 与两次Windows Candidate Product/Owned Process workflow均已通过。最终同代Windows Portable的包内Bun + PortableGit进程树验收仍待完整Candidate执行。
 
 ## Relative documents refs
 
@@ -596,3 +596,4 @@ Phase E gate：本地实现已满足；Windows Release runner真实Portable smok
 
 - workflow [`30753830837`](https://github.com/notnotype/neuro-book/actions/runs/30753830837) 的 `product-windows` 已通过Owned Process package、Source Agent Bash smoke和完整Windows Product构建；旧`job undefined`与临时根`EBUSY`均未复发。
 - 同一workflow因独立OCI deps失败而没有进入assemble、Windows Portable及包内Bun + PortableGit smoke。该结果关闭Source/Product前置门禁，但不勾选最终Portable TODO，也不冒充外置Host与同代安装包证据。
+- workflow [`30754453941`](https://github.com/notnotype/neuro-book/actions/runs/30754453941) 再次通过同一Windows前置链并上传Product；独立OCI artifact门禁失败仍使assemble和Portable跳过。两次clean runner重复成功提高了Windows父/worker收口证据，但最终同代Portable进程树验收仍未执行。

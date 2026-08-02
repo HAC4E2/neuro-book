@@ -14,9 +14,27 @@ afterEach(async () => {
 describe("Product system artifact path gate", () => {
     it("允许 Product 内部相对路径", async () => {
         const root = await fixtureRoot();
-        await writeFile(join(root, "safe.mjs"), 'export const path = "./node_modules/typebox/build/index.mjs";\n', "utf8");
+        await writeFile(
+            join(root, "safe.mjs"),
+            [
+                'export const path = "./node_modules/typebox/build/index.mjs";',
+                'export {resolveApiErrorMessage} from "nbook/app/utils/api-error";',
+            ].join("\n"),
+            "utf8",
+        );
 
-        await expect(assertProductSystemArtifactModulePaths(root, ["C:/source"])).resolves.toBeUndefined();
+        await expect(assertProductSystemArtifactModulePaths(root, ["C:/source", "/app"])).resolves.toBeUndefined();
+    });
+
+    it("拒绝短 POSIX Source Root 的真实绝对路径", async () => {
+        const root = await fixtureRoot();
+        await writeFile(
+            join(root, "leaked.mjs"),
+            'export const path = "/app/.deploy/staging/build/server/entry.mjs";\n',
+            "utf8",
+        );
+
+        await expect(assertProductSystemArtifactModulePaths(root, ["/app"])).rejects.toThrow("泄漏");
     });
 
     it("拒绝构建机绝对路径、Bun/pnpm store 与 Nitro fallback", async () => {

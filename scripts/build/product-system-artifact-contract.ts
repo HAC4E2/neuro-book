@@ -89,11 +89,30 @@ export async function assertProductSystemArtifactModulePaths(
     for (const filePath of files) {
         const source = await readFile(filePath, "utf8");
         const normalized = source.toLowerCase();
-        const root = normalizedForbiddenRoots.find((value) => normalized.includes(value));
+        const root = normalizedForbiddenRoots.find((value) => containsPathRoot(normalized, value));
         if (root || physicalPathPattern.test(source) || source.includes("file:///_entry.js")) {
             throw new Error(`Product system artifact 泄漏构建机或包管理器物理路径：${filePath}`);
         }
     }
+}
+
+/**
+ * 只把独立的绝对路径 token 视为 Source Root，避免短根 `/app` 误命中
+ * `nbook/app/**` 这类合法模块标识符。
+ */
+function containsPathRoot(source: string, root: string): boolean {
+    let offset = source.indexOf(root);
+    while (offset >= 0) {
+        const before = offset === 0 ? undefined : source[offset - 1];
+        const afterIndex = offset + root.length;
+        const after = afterIndex === source.length ? undefined : source[afterIndex];
+        const segmentCharacter = /[a-z0-9_.$@~-]/u;
+        if ((!before || !segmentCharacter.test(before)) && (!after || !segmentCharacter.test(after))) {
+            return true;
+        }
+        offset = source.indexOf(root, offset + 1);
+    }
+    return false;
 }
 
 /** 稳定递归枚举系统 artifact 的 ESM 文件。 */
