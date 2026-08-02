@@ -1,35 +1,24 @@
-import type {
-    LowCodeResourceMutationDto,
-    LowCodeResourcePresetContentDto,
-    LowCodeResourcePresetOptionDto,
-} from "nbook/shared/dto/low-code-form.dto";
 import type {LowCodeFormResolveContext} from "nbook/server/low-code-form";
 import type {ProfileHomeFacade} from "nbook/server/agent/profiles/profile-home";
-
-export type ResourcePresetCreateInput = Extract<LowCodeResourceMutationDto, {type: "create"}>;
-export type ResourcePresetUpdatePatch = Omit<Extract<LowCodeResourceMutationDto, {type: "update"}>, "type" | "fieldPath" | "key">;
-export type ResourcePresetRenameInput = Omit<Extract<LowCodeResourceMutationDto, {type: "rename"}>, "type" | "fieldPath" | "key">;
-export type ResourcePresetCreateKeyResolver = (ctx: ResourcePresetContext, input: ResourcePresetCreateInput) => Promise<string> | string;
-export type ResourcePresetRenameKeyResolver = (ctx: ResourcePresetContext, key: string, input: ResourcePresetRenameInput) => Promise<string> | string;
+import type {
+    ResourcePresetContent,
+    ResourcePresetCreateInput,
+    ResourcePresetDefinition,
+    ResourcePresetOption,
+    ResourcePresetRenameInput,
+    ResourcePresetUpdatePatch,
+} from "nbook/profile-sdk/contracts";
+export type {
+    ResourcePresetContent,
+    ResourcePresetCreateInput,
+    ResourcePresetDefinition,
+    ResourcePresetOption,
+    ResourcePresetRenameInput,
+    ResourcePresetUpdatePatch,
+} from "nbook/profile-sdk/contracts";
 
 export type ResourcePresetContext = LowCodeFormResolveContext & {
     home?: ProfileHomeFacade;
-};
-
-export type ResourcePresetDefinition = {
-    contentType: "markdown";
-    template?: string;
-    createKeyPrefix?: string;
-    createKeySuffix?: string;
-    list(ctx: ResourcePresetContext): Promise<readonly LowCodeResourcePresetOptionDto[]> | readonly LowCodeResourcePresetOptionDto[];
-    read(ctx: ResourcePresetContext, key: string): Promise<LowCodeResourcePresetContentDto> | LowCodeResourcePresetContentDto;
-    create?: (ctx: ResourcePresetContext, input: ResourcePresetCreateInput) => Promise<LowCodeResourcePresetContentDto> | LowCodeResourcePresetContentDto;
-    createKey?: ResourcePresetCreateKeyResolver;
-    update?: (ctx: ResourcePresetContext, key: string, patch: ResourcePresetUpdatePatch) => Promise<void> | void;
-    rename?: (ctx: ResourcePresetContext, key: string, input: ResourcePresetRenameInput) => Promise<{key: string; label?: string}> | {key: string; label?: string};
-    renameKey?: ResourcePresetRenameKeyResolver;
-    remove?: (ctx: ResourcePresetContext, key: string) => Promise<void> | void;
-    validateKey?: (ctx: ResourcePresetContext, key: string) => Promise<boolean> | boolean;
 };
 
 /**

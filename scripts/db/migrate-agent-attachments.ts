@@ -3,7 +3,7 @@ import {resolveStateWorkspaceRoot} from "nbook/server/runtime/installation-paths
 import {
     rollbackAgentAttachmentMigration,
     runAgentAttachmentMigration,
-} from "nbook/scripts/db/agent-attachment-v1/migration";
+} from "nbook/server/agent/session/migrations/attachment-v1/migration";
 
 type CliOptions = {
     action: "migrate" | "rollback";

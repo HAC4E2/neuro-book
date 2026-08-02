@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest";
-import {buildTraceSegments, computeToolsHash, type PromptPrefixAttribution} from "nbook/server/agent/observability/trace-segments";
+import {aggregateSegmentLabels, buildTraceSegments, computeToolsHash, type PromptPrefixAttribution} from "nbook/server/agent/observability/trace-segments";
 import type {StoredMessageLike} from "nbook/server/agent/messages/stored-message-presentation";
 
 function userMessage(text: string): StoredMessageLike {
@@ -33,6 +33,7 @@ describe("buildTraceSegments", () => {
         const prefix: PromptPrefixAttribution = {
             kinds: ["historySet", "historySet", "conversation", "modelContext", "appending", "currentInput"],
             labels: [["Import:AGENTS.md"], ["SkillCatalog"], null, null, ["Reminder:agent-mode"], null],
+            mode: "full",
         };
         const segments = buildTraceSegments({
             systemPrompt: "",
@@ -55,7 +56,7 @@ describe("buildTraceSegments", () => {
     });
 
     it("超出前缀长度的消息（本 invocation 后续 turn 追加）落入 conversation", () => {
-        const prefix: PromptPrefixAttribution = {kinds: ["historySet"], labels: [["Import:AGENTS.md"]]};
+        const prefix: PromptPrefixAttribution = {kinds: ["historySet"], labels: [["Import:AGENTS.md"]], mode: "full"};
         const segments = buildTraceSegments({
             systemPrompt: "",
             tools: [],
@@ -73,6 +74,7 @@ describe("buildTraceSegments", () => {
         const prefix: PromptPrefixAttribution = {
             kinds: ["appending", "conversation", "appending"],
             labels: [["Reminder:a"], null, ["Reminder:b"]],
+            mode: "full",
         };
         const segments = buildTraceSegments({
             systemPrompt: "",
@@ -91,6 +93,57 @@ describe("buildTraceSegments", () => {
             messages: [userMessage("a".repeat(40))],
         });
         expect(segments[0]?.estimatedTokens).toBe(10);
+    });
+});
+
+describe("aggregateSegmentLabels", () => {
+    it("分区内按消息条数均摊，总和不超过分区总量", () => {
+        const aggregates = aggregateSegmentLabels([
+            {
+                kind: "historySet",
+                estimatedTokens: 300,
+                range: {start: 0, end: 3},
+                labels: [["Import:big.md"], ["SkillCatalog"], ["Import:small.md"]],
+            },
+        ]);
+
+        expect(aggregates).toHaveLength(3);
+        expect(aggregates.every((item) => item.estimatedTokens === 100)).toBe(true);
+        expect(aggregates.reduce((sum, item) => sum + item.estimatedTokens, 0)).toBe(300);
+    });
+
+    it("一条消息带多个来源时再按来源数均分，不重复计数", () => {
+        const aggregates = aggregateSegmentLabels([
+            {kind: "historySet", estimatedTokens: 100, range: {start: 0, end: 1}, labels: [["A", "B"]]},
+        ]);
+        expect(aggregates).toEqual([
+            {kind: "historySet", label: "A", estimatedTokens: 50},
+            {kind: "historySet", label: "B", estimatedTokens: 50},
+        ]);
+    });
+
+    it("同一 kind 的多个分区（历史旧提醒 + 本轮提醒）按 kind+label 合并", () => {
+        const aggregates = aggregateSegmentLabels([
+            {kind: "appending", estimatedTokens: 40, range: {start: 0, end: 1}, labels: [["Reminder:mode"]]},
+            {kind: "conversation", estimatedTokens: 10, range: {start: 1, end: 2}},
+            {kind: "appending", estimatedTokens: 60, range: {start: 2, end: 3}, labels: [["Reminder:mode"]]},
+        ]);
+        expect(aggregates).toEqual([{kind: "appending", label: "Reminder:mode", estimatedTokens: 100}]);
+    });
+
+    it("按 token 降序，头名即诊断里的「最大单一来源」", () => {
+        const aggregates = aggregateSegmentLabels([
+            {kind: "historySet", estimatedTokens: 300, range: {start: 0, end: 2}, labels: [["small"], ["small"]]},
+            {kind: "historySet", estimatedTokens: 500, range: {start: 2, end: 3}, labels: [["big"]]},
+        ]);
+        expect(aggregates[0]).toMatchObject({label: "big", estimatedTokens: 500});
+    });
+
+    it("无 labels 或无 range 的分区不参与聚合", () => {
+        expect(aggregateSegmentLabels([
+            {kind: "system", estimatedTokens: 100, range: null},
+            {kind: "conversation", estimatedTokens: 100, range: {start: 0, end: 1}},
+        ])).toEqual([]);
     });
 });
 

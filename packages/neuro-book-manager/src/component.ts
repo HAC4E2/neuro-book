@@ -1,8 +1,10 @@
+import {constants} from "node:fs";
 import {cp, mkdir, readdir, rename, rm} from "node:fs/promises";
 import {dirname, join, relative} from "node:path";
 
 import {downloadVerified, extractArchive} from "#manager/download";
 import {ensureDirectory, pathExists, removePath, safeTarget} from "#manager/files";
+import {verifyProductRuntimeImage} from "#manager/product";
 import type {ProductComponent, ProductPlatform, ProductReleaseAsset, ReleaseAsset, SourceComponent} from "#manager/types";
 
 export type StagedReleaseSource = {
@@ -32,6 +34,7 @@ export async function stageReleaseSource(input: {
     root: string;
     staging: string;
     asset: ReleaseAsset;
+    buildId: string;
     version: string;
     revision: string;
     previous?: Extract<SourceComponent, {provider: "release"}>;
@@ -52,6 +55,7 @@ export async function stageReleaseSource(input: {
         sourceRoot: extractedRoot,
         component: {
             provider: "release",
+            buildId: input.buildId,
             version: input.version,
             revision: input.revision,
             path: ".",
@@ -95,6 +99,7 @@ export async function switchReleaseSource(input: {
 export async function stageReleaseProduct(input: {
     staging: string;
     asset: ProductReleaseAsset;
+    buildId: string;
     version: string;
     revision: string;
 }): Promise<StagedProduct> {
@@ -104,15 +109,30 @@ export async function stageReleaseProduct(input: {
     await downloadVerified(input.asset.url, archivePath, input.asset.sha256);
     await extractArchive(archivePath, extractedRoot);
     const stagedOutput = await locateOutput(extractedRoot);
+    const verified = await verifyProductRuntimeImage(stagedOutput, {
+        version: input.version,
+        revision: input.revision,
+        dirty: false,
+        platform: input.asset.platform,
+        imageId: input.asset.imageId,
+        sourceDigest: input.asset.sourceDigest,
+        lockfileSha256: input.asset.lockfileSha256,
+        builderContractVersion: input.asset.builderContractVersion,
+    });
     return {
         outputRoot: stagedOutput,
         component: {
             provider: "release",
+            buildId: input.buildId,
             version: input.version,
             revision: input.revision,
             path: ".output",
             archiveSha256: input.asset.sha256,
             platform: input.asset.platform,
+            imageId: verified.imageId,
+            sourceDigest: verified.sourceDigest,
+            lockfileSha256: verified.lockfileSha256,
+            builderContractVersion: verified.builderContractVersion,
             sourceUrl: input.asset.url,
             license: "AGPL-3.0-only",
             redistribution: "NeuroBook Product overlay，按项目 AGPL-3.0-only 许可证发布。",
@@ -129,18 +149,22 @@ export async function switchProduct(
 ): Promise<void> {
     const targetOutput = join(root, ".output");
     const backupOutput = join(backup, ".output");
+    const activationOutput = `${stagedOutput}.activation`;
     await ensureDirectory(backup);
+    await removePath(activationOutput);
+    await cp(stagedOutput, activationOutput, {recursive: true, force: true, mode: constants.COPYFILE_FICLONE});
     await onSwitchIntent?.();
     if (await pathExists(targetOutput)) {
         await removePath(backupOutput);
         await rename(targetOutput, backupOutput);
     }
     try {
-        await rename(stagedOutput, targetOutput);
+        await rename(activationOutput, targetOutput);
     } catch (error) {
         if (await pathExists(backupOutput)) {
             await rename(backupOutput, targetOutput);
         }
+        await removePath(activationOutput);
         throw error;
     }
 }

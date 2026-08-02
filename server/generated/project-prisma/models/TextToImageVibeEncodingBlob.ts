@@ -192,7 +192,7 @@ export type TextToImageVibeEncodingBlobGroupByOutputType = {
   _max: TextToImageVibeEncodingBlobMaxAggregateOutputType | null
 }
 
-type GetTextToImageVibeEncodingBlobGroupByPayload<T extends TextToImageVibeEncodingBlobGroupByArgs> = Prisma.PrismaPromise<
+export type GetTextToImageVibeEncodingBlobGroupByPayload<T extends TextToImageVibeEncodingBlobGroupByArgs> = Prisma.PrismaPromise<
   Array<
     Prisma.PickEnumerable<TextToImageVibeEncodingBlobGroupByOutputType, T['by']> &
       {
@@ -1132,6 +1132,11 @@ export type TextToImageVibeEncodingBlobFindManyArgs<ExtArgs extends runtime.Type
    * Skip the first `n` TextToImageVibeEncodingBlobs.
    */
   skip?: number
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+   * 
+   * Filter by unique combinations of TextToImageVibeEncodingBlobs.
+   */
   distinct?: Prisma.TextToImageVibeEncodingBlobScalarFieldEnum | Prisma.TextToImageVibeEncodingBlobScalarFieldEnum[]
 }
 

@@ -1,14 +1,12 @@
-/** @jsxImportSource nbook/server/agent/profiles/profile-dsl */
+/** @jsxImportSource nbook/profile-sdk */
 /** @jsxRuntime automatic */
-import type {Static} from "typebox";
-import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
-import {RpWriterInitialSchema, RpWriterOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
-import {AppendingSet, HistorySet, If, Import, Message, ModelContext, ProfilePrompt, System, WorkspaceFocusReminder} from "nbook/server/agent/profiles/profile-dsl";
-import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
-import {profileText} from "nbook/server/agent/profiles/profile-text";
-import {buildWritingReference} from "nbook/server/agent/profiles/writer-writing-reference";
-import {buildWritingStyle} from "nbook/server/agent/profiles/writer-writing-style";
+import type {Static} from "nbook/profile-sdk";
+import {defineAgentProfile} from "nbook/profile-sdk";
+import {builtin, toolset} from "nbook/profile-sdk";
+import {RpWriterInitialSchema, RpWriterOutputSchema} from "nbook/profile-sdk";
+import {AppendingSet, HistorySet, If, Import, Message, ModelContext, ProfilePrompt, System, WorkspaceFocusReminder} from "nbook/profile-sdk";
+import {profileText} from "nbook/profile-sdk";
+import {buildWritingReference, buildWritingStyle} from "nbook/profile-sdk/writing";
 
 const ENABLE_KITTEN_ADULT_STYLE = false;
 
@@ -35,12 +33,12 @@ export default defineAgentProfile({
         builtin.file.bash,
         builtin.result.main(),
     ),
-    async context(ctx) {
-        return buildRpWriterPrompt(ctx);
+    async context() {
+        return buildRpWriterPrompt();
     },
 });
 
-async function buildRpWriterPrompt(_ctx: ProfilePrepareContext<Initial>) {
+async function buildRpWriterPrompt() {
     const writingStyle = await buildWritingStyle();
     const writingReference = await buildWritingReference();
     return (

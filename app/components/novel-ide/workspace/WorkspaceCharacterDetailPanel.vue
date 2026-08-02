@@ -72,7 +72,7 @@ const emit = defineEmits<{
 const store = useNovelIdeStore();
 const notification = useNotification();
 const {t} = useI18n();
-const {currentNovelId, lastSyncedFileContent, selectedFileContent, savingFile} = storeToRefs(store);
+const {currentProjectRoot, lastSyncedFileContent, selectedFileContent, savingFile} = storeToRefs(store);
 const editForm = ref<CharacterDraft | null>(null);
 const lastAppliedContent = ref("");
 const diagnostics = ref("");
@@ -132,13 +132,13 @@ async function generateImageTags(): Promise<void> {
     if (!editForm.value || !props.node || savingFile.value || generatingImageTags.value) {
         return;
     }
-    if (!currentNovelId.value) {
+    if (!currentProjectRoot.value) {
         notification.error("当前没有打开的 Project Workspace。", {title: "生成角色视觉资料"});
         return;
     }
 
     const scope = {
-        projectPath: currentNovelId.value,
+        projectPath: `workspace/${currentProjectRoot.value}`,
         characterPath: props.node.path,
     };
     let idempotencyKey: string | null = null;

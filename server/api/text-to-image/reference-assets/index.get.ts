@@ -2,7 +2,7 @@ import {createError, getQuery} from "h3";
 import {z} from "zod";
 import {TextToImageReferenceAssetService} from "nbook/server/text-to-image/reference-asset.service";
 import {requireCurrentUser} from "nbook/server/utils/auth";
-import {withProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
+import {withProjectHttpError} from "nbook/server/api/projects/project-http-error";
 
 const ListQuerySchema = z.object({
     projectPath: z.string().trim().min(1).max(300),
@@ -11,7 +11,7 @@ const ListQuerySchema = z.object({
 }).strict();
 
 /** 列出 Project source-image 元数据；只做 DB + stat 检查，不返回 bytes。 */
-export default defineEventHandler((event) => withProjectNotOpenHttpError(async () => {
+export default defineEventHandler((event) => withProjectHttpError(async () => {
     await requireCurrentUser(event);
     const parsed = ListQuerySchema.safeParse(getQuery(event));
     if (!parsed.success) {

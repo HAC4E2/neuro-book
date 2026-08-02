@@ -44,11 +44,10 @@ describe("compaction", () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const writeCompactionEntry = createCompactionEntryWriter(repo, session.metadata.sessionId);
         for (let index = 1; index <= 6; index += 1) {
-            await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: `user ${String(index)}`}), session.metadata.workspaceKey);
+            await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: `user ${String(index)}`}));
         }
         const snapshot = await repo.readSession(session.metadata.sessionId);
 
@@ -104,9 +103,8 @@ describe("compaction", () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
-        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "old context"}), session.metadata.workspaceKey);
+        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "old context"}));
         const snapshot = await repo.readSession(session.metadata.sessionId);
         const controller = new AbortController();
         let writeCalled = false;
@@ -139,21 +137,20 @@ describe("compaction", () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const writeCompactionEntry = createCompactionEntryWriter(repo, session.metadata.sessionId);
-        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "old"}), session.metadata.workspaceKey);
+        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "old"}));
         const assistant = createAssistantTextMessage({text: ""});
         assistant.content = [
             fauxText("call"),
             fauxToolCall("report_result", {result: "ok"}, {id: "tool-1"}),
         ];
-        await repo.appendMessage(session.metadata.sessionId, assistant, session.metadata.workspaceKey);
+        await repo.appendMessage(session.metadata.sessionId, assistant);
         await repo.appendMessage(session.metadata.sessionId, createTextToolResult({
             toolCallId: "tool-1",
             toolName: "report_result",
             text: "ok",
-        }), session.metadata.workspaceKey);
+        }));
         const snapshot = await repo.readSession(session.metadata.sessionId);
 
         await appendCompaction({
@@ -180,12 +177,11 @@ describe("compaction", () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const writeCompactionEntry = createCompactionEntryWriter(repo, session.metadata.sessionId);
         const assistant = createAssistantTextMessage({text: ""});
         assistant.content = [fauxToolCall("request_user_input", {questions: []}, {id: "approval-1"})];
-        await repo.appendMessage(session.metadata.sessionId, assistant, session.metadata.workspaceKey);
+        await repo.appendMessage(session.metadata.sessionId, assistant);
         const snapshot = await repo.readSession(session.metadata.sessionId);
 
         await expect(appendCompaction({
@@ -206,10 +202,9 @@ describe("compaction", () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const writeCompactionEntry = createCompactionEntryWriter(repo, session.metadata.sessionId);
-        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "old context"}), session.metadata.workspaceKey);
+        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "old context"}));
         const snapshot = await repo.readSession(session.metadata.sessionId);
 
         const compacted = await compactIfNeeded({
@@ -222,58 +217,6 @@ describe("compaction", () => {
         });
 
         expect(compacted).toBe(false);
-    });
-
-    it("beforeProviderCall 只在真实摘要 Provider 紧邻前执行，outer no-op 不触发", async () => {
-        const order: string[] = [];
-        faux.setResponses([
-            () => {
-                order.push("provider");
-                return fauxAssistantMessage("SUMMARY AFTER FENCE");
-            },
-        ]);
-        const session = await repo.createSession({
-            profileKey: "leader.default",
-            initial: {},
-            workspaceRoot: root,
-        });
-        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "old context"}), session.metadata.workspaceKey);
-        const snapshot = await repo.readSession(session.metadata.sessionId);
-
-        const compacted = await compactIfNeeded({
-            repo,
-            snapshot,
-            messages: repo.reduce(snapshot).messages,
-            models: faux.runtime,
-            model: faux.getModel(),
-            compaction: {
-                trigger: {kind: "tokens", value: 1},
-                keepRecent: {kind: "tokens", value: 1},
-            },
-            beforeProviderCall: async () => {
-                order.push("fence");
-            },
-            writeCompactionEntry: createCompactionEntryWriter(repo, session.metadata.sessionId),
-        });
-        const noOp = await compactIfNeeded({
-            repo,
-            snapshot: await repo.readSession(session.metadata.sessionId),
-            messages: [],
-            models: faux.runtime,
-            model: faux.getModel(),
-            compaction: {
-                trigger: {kind: "tokens", value: 100_000},
-                keepRecent: {kind: "tokens", value: 1},
-            },
-            beforeProviderCall: async () => {
-                order.push("no-op fence");
-            },
-            writeCompactionEntry: createCompactionEntryWriter(repo, session.metadata.sessionId),
-        });
-
-        expect(compacted).toBe(true);
-        expect(noOp).toBe(false);
-        expect(order).toEqual(["fence", "provider"]);
     });
 
     it("解析默认 prompt/prefix、百分比触发和 recent 百分比", () => {
@@ -302,10 +245,9 @@ describe("compaction", () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const writeCompactionEntry = createCompactionEntryWriter(repo, session.metadata.sessionId);
-        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "old context"}), session.metadata.workspaceKey);
+        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "old context"}));
         const snapshot = await repo.readSession(session.metadata.sessionId);
 
         const compacted = await compactIfNeeded({
@@ -361,15 +303,14 @@ describe("compaction", () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const writeCompactionEntry = createCompactionEntryWriter(repo, session.metadata.sessionId);
         await repo.appendEntry(session.metadata.sessionId, {
             type: "custom_message",
             message: createUserMessage({text: "OLD HISTORYSET SHOULD BE CUT " + "old ".repeat(200)}),
             visibleToModel: true,
-        }, session.metadata.workspaceKey);
-        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "old user dialogue"}), session.metadata.workspaceKey);
+        });
+        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "old user dialogue"}));
         const firstSnapshot = await repo.readSession(session.metadata.sessionId);
 
         await compactIfNeeded({
@@ -389,8 +330,8 @@ describe("compaction", () => {
             type: "custom_message",
             message: createUserMessage({text: "NEW HISTORYSET SHOULD STAY " + "new ".repeat(200)}),
             visibleToModel: true,
-        }, session.metadata.workspaceKey);
-        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "new user dialogue"}), session.metadata.workspaceKey);
+        });
+        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "new user dialogue"}));
         const secondSnapshot = await repo.readSession(session.metadata.sessionId);
         await compactIfNeeded({
             repo,
@@ -430,7 +371,6 @@ describe("compaction", () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const writeCompactionEntry = createCompactionEntryWriter(repo, session.metadata.sessionId);
         await repo.appendEntry(session.metadata.sessionId, {
@@ -439,12 +379,12 @@ describe("compaction", () => {
             clientMessageId: randomUUID(),
             intent: "normal",
             origin: "harness",
-        }, session.metadata.workspaceKey);
+        });
         await repo.appendEntry(session.metadata.sessionId, {
             type: "custom_message",
             message: createUserMessage({text: "RUNTIME ONLY SHADOW SHOULD NOT EXIST IN SUMMARY"}),
             visibleToModel: true,
-        }, session.metadata.workspaceKey);
+        });
         const snapshot = await repo.readSession(session.metadata.sessionId);
 
         await appendCompaction({
@@ -473,7 +413,6 @@ describe("compaction", () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const block: StoredAttachmentContent = {
             type: "attachment",
@@ -485,8 +424,8 @@ describe("compaction", () => {
             name: "world-map.png",
         };
         const imageMessage: StoredAgentMessage = {role: "user", content: [block], timestamp: 1};
-        await repo.appendMessage(session.metadata.sessionId, imageMessage as never, session.metadata.workspaceKey);
-        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "recent"}), session.metadata.workspaceKey);
+        await repo.appendMessage(session.metadata.sessionId, imageMessage as never);
+        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "recent"}));
         const snapshot = await repo.readSession(session.metadata.sessionId);
 
         await appendCompaction({

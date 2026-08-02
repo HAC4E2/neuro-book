@@ -9,6 +9,7 @@ import {resolveApiErrorMessage, resolveApiErrorStatus} from "nbook/app/utils/api
 import {shouldPollWorkflowRun} from "nbook/app/components/novel-ide/agent/workflow-bubble";
 import type {WorkflowDemoRunState} from "nbook/server/agent/workflow/workflow-demo-service";
 import type {JsonValue, WorkflowEvent} from "nbook/server/vendor/nb-workflow/index";
+import type {AgentJobEventCursor} from "nbook/shared/dto/agent-job.dto";
 
 /**
  * 单个 run 的实时面板：轮询服务端观测 VM（人话标签 / phase 进度 / session 序列图），
@@ -22,13 +23,17 @@ const props = withDefaults(defineProps<{
     mode?: "demo" | "formal";
     /** 正式后台 run 的 AgentJobManager 身份；demo 无 job。 */
     jobId?: string;
+    /** 新启动使用创建游标；列表恢复使用该原子快照的事件游标。 */
+    jobEventCursor?: AgentJobEventCursor | null;
 }>(), {
     scenarioKey: "",
     mode: "demo",
     jobId: "",
+    jobEventCursor: null,
 });
 const runApiBase = computed(() => props.mode === "formal" ? "/api/agent/workflow" : "/api/agent/workflow-demo");
-const jobIdRef = computed(() => props.jobId);
+const jobIdRef = computed(() => props.jobId || null);
+const jobEventCursorRef = computed(() => props.jobEventCursor);
 const {
     job,
     error: jobError,
@@ -36,9 +41,8 @@ const {
     cancelling: jobCancelling,
     cancelRequested: jobCancelRequested,
     canCancel: canCancelJob,
-    refresh: refreshJob,
     cancel: cancelJob,
-} = useAgentJob(jobIdRef);
+} = useAgentJob(jobIdRef, jobEventCursorRef);
 
 /** ask 应答草稿值：只会是文本 / 多选 id 列表 / approve 布尔（递归 JsonValue 进 ref 的 UnwrapRef 会类型爆栈） */
 type AskDraftValue = string | string[] | boolean;
@@ -77,7 +81,7 @@ let pollRevision = 0;
 const STATUS_CN: Record<string, string> = {running: "运行中", waiting: "等待你的应答", completed: "已完成", failed: "失败", cancelled: "已取消"};
 const JOB_STATUS_CN: Record<string, string> = {running: "后台运行中", waiting: "后台等待应答", completed: "后台任务完成", failed: "后台任务失败", cancelled: "后台任务已取消", interrupted: "后台任务已中断"};
 const statusText = computed(() => STATUS_CN[state.value?.view.status ?? ""] ?? "…");
-const jobStatusText = computed(() => jobUnavailable.value ? "后台任务已中断" : JOB_STATUS_CN[job.value?.status ?? ""] ?? "正在连接后台任务");
+const jobStatusText = computed(() => jobUnavailable.value ? "后台任务已清除或不可查询" : JOB_STATUS_CN[job.value?.status ?? ""] ?? "正在连接后台任务");
 const progressText = computed(() => {
     const progress = state.value?.view.progress;
     if (!progress?.total) return "";
@@ -117,8 +121,6 @@ async function poll(expectedRevision: number, expectedRunId: string, expectedApi
     const status = state.value?.view.status;
     const canPollRun = shouldPollWorkflowRun({
         hasBackgroundJob: Boolean(props.jobId),
-        jobStatus: job.value?.status,
-        jobUnavailable: jobUnavailable.value,
         runStatus: status,
         runUnavailable,
     });
@@ -137,7 +139,6 @@ function restartPolling() {
     const expectedRunId = props.runId;
     const expectedApiBase = runApiBase.value;
     timer = setTimeout(() => void poll(expectedRevision, expectedRunId, expectedApiBase), 200);
-    refreshJob();
 }
 
 async function submitAsks() {
@@ -222,7 +223,6 @@ watch([() => props.runId, runApiBase], () => {
     const expectedRunId = props.runId;
     const expectedApiBase = runApiBase.value;
     timer = setTimeout(() => void poll(expectedRevision, expectedRunId, expectedApiBase), 0);
-    refreshJob();
 }, {immediate: true});
 
 onBeforeUnmount(() => {

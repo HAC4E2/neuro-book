@@ -106,6 +106,18 @@ GC 有两个入口，都在 publish lock 内执行，都只清理 `.compiled/art
 - 单个 artifact 删除失败（Windows 文件占用等）只累计 `failedFiles`，不影响 release 主结果。
 - staging 位于 profile root **同级** `.staging/`，不在 `.compiled/` 下；`.publish.lock` 是目录且不匹配扩展名过滤，两者都不会被 GC 误伤。
 
+## Dependency Gate
+
+profile artifact 是宿主实现的**冻结副本**：宿主代码更新后旧 artifact 不会跟着变。因此依赖图必须限制在 DSL 表面，宿主能力经 `ProfilePrepareContext.runtime` 注入（如 `sqlSchemaSummary`），不允许 import 进 artifact。历史教训：三条渗漏边（profile-dsl 动态 import project-session、stored-message-presentation 顶层 pi-agent-core 估算器、plan-mode-path 拖 session-file-scope）曾让单 artifact 膨胀到 27 MiB，且冻结了 DB 驱动与 Provider SDK。
+
+编译器在单 entry 编译产出 dependencies 之后、staging 之前执行 `assertProfileArtifactDependencyGate()`，违规抛错并被包装成 `compile_failed` entry（message 固定以「依赖门禁违规」开头，列出全部违规项）。对 builtin 与用户 profile 同样生效。三条规则：
+
+1. **`server/` 目录白名单**（`PROFILE_ARTIFACT_ALLOWED_SERVER_PREFIXES`）：profiles/messages/session/variables 纯闭包（registry/schema-resolver/types）/plan-mode-directory/assets/low-code-form/runtime/utils/workspace-files 纯路径模块等。以 2026-07 切边后全量 builtin 依赖并集定稿；新 profile 合法需要新宿主模块时显式扩白名单并过 review，不放松门禁。
+2. **禁止依赖族**（`PROFILE_ARTIFACT_FORBIDDEN_PACKAGES`）：jsdom、@mozilla/*、@prisma/*、@libsql/*、@earendil-works/*、@mistralai/*、openai、@anthropic-ai/*、@google/*、@smithy/*、google-auth-library、@opentelemetry/*、@notnotype/*。
+3. **字节上限**（`PROFILE_ARTIFACT_MAX_BYTES`，4 MiB）：切边后正常产物在 1.2–1.6 MiB 量级，超限说明有新渗漏边。
+
+对应的纯模块拆分（勿反向合并回宿主模块）：token 估算器在 `stored-message-tokens.ts`（presentation 保持零 npm 运行时依赖）、Plan Mode 常量在 `plan-mode-directory.ts`、project manifest 读取在 `project-manifest.ts`（project-workspace re-export）。
+
 ## Sync
 
 Profile assets sync 不直接写 `manifest.json`。它把 system artifact copy 到 staging，经 Publisher 发布 user manifest。

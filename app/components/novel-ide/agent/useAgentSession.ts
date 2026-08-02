@@ -10,8 +10,8 @@ import type {
     AgentSessionAttachmentItemDto,
     AgentSessionSystemPromptDto,
 } from "nbook/shared/dto/agent-session.dto";
-import {resolveApiErrorMessage, resolveApiErrorStatus} from "nbook/app/utils/api-error";
-import {computed, getCurrentScope, onScopeDispose, ref, shallowRef} from "vue";
+import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
+import {computed, getCurrentScope, onScopeDispose, ref, shallowReadonly, shallowRef} from "vue";
 import {
     applyRuntimeEventToMessages,
     applySessionEntryToMessages,
@@ -97,7 +97,7 @@ export function useAgentSession() {
     const liveRunStatus = ref<"idle" | "running" | "waiting" | "aborting">("idle");
     const runPhase = ref<AgentRunPhase>("idle");
     const connectionStatus = ref<AgentConnectionStatus>("idle");
-    const pendingUserInputSessions = ref<AgentPendingUserInputSession[]>([]);
+    const pendingUserInputSessions = shallowRef<AgentPendingUserInputSession[]>([]);
     const eventEpoch = ref<string | null>(null);
     const lastSeq = ref(0);
     const needsRecovery = ref(false);
@@ -121,7 +121,7 @@ export function useAgentSession() {
     }));
     const messages = computed(() => mergeMessageLayers(durableMessages.value, liveOverlay.value, optimisticMessages.value));
     const running = computed(() => Boolean(recoveryShell.value?.activeInvocation) || liveRunStatus.value === "running" || liveRunStatus.value === "aborting");
-    const pendingUserInputSession = computed(() => pendingUserInputSessions.value[0] ?? null);
+    const pendingUserInputSession = computed<AgentPendingUserInputSession | null>(() => pendingUserInputSessions.value[0] ?? null);
     const hasPrevious = computed(() => previousCursor.value !== null);
 
     /** 取消尚未执行的 message_update 批量提交。 */
@@ -250,10 +250,6 @@ export function useAgentSession() {
         systemPrompt.value = null;
         systemPromptLoading.value = false;
         systemPromptError.value = "";
-    };
-
-    const clearPendingUserInputSession = (): void => {
-        pendingUserInputSessions.value = [];
     };
 
     /** 追加与 durable history 分离的保序乐观用户消息，并返回可回滚 ID。 */
@@ -415,11 +411,10 @@ export function useAgentSession() {
                 if (generation !== requestGeneration || recoveryShell.value?.summary.sessionId !== sessionId) {
                     return false;
                 }
-                const status = resolveApiErrorStatus(error);
                 const code = apiErrorCode(error);
-                if (status === 409 && code === "ACTIVE_PATH_CHANGED") {
+                if (code === "ACTIVE_PATH_CHANGED") {
                     requestRecovery("active_path_changed");
-                } else if (status === 400 && code === "INVALID_HISTORY_CURSOR") {
+                } else if (code === "INVALID_HISTORY_CURSOR") {
                     historyWindowInvalid = true;
                     requestRecovery("invalid_history_cursor");
                 }
@@ -497,6 +492,9 @@ export function useAgentSession() {
             return;
         }
         const current = recoveryShell.value;
+        if (state.summary.sessionId !== current.summary.sessionId) {
+            return;
+        }
         const activePathChanged = state.activePathRevision !== current.activePathRevision;
         let pendingDetailsMissing = false;
         const pendingUserInputs = state.pendingUserInputs.map((pending) => {
@@ -680,7 +678,6 @@ export function useAgentSession() {
         applyLiveState,
         applyRecovery,
         applyRelations,
-        clearPendingUserInputSession,
         clearRecoveryRequest,
         connectionStatus,
         durableEntries,
@@ -697,6 +694,7 @@ export function useAgentSession() {
         needsRecovery,
         optimisticMessages,
         pendingUserInputSession,
+        pendingUserInputSessions: shallowReadonly(pendingUserInputSessions),
         previousCursor,
         recoveryReasons,
         recoveryShell,

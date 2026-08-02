@@ -1,15 +1,52 @@
 # Task 118：Project 生命周期、文件快照与 Agent 路径合同联合执行计划
 
-> 当前状态：G1–G5 与整体审查结论均已冻结，Phase 0–5已完成；Phase 6 的迁移引擎已收口（真实499份基线dry-run、隔离副本apply/rollback/resume全量演练、篡改与竞争恢复用例、CLI入口齐备），但其 fail-closed gate 接线经实施确认与 session header 消费面原子耦合，已改为随 Phase 4B + Phase 7 同批执行；Phase 4B仍未翻转公开`/api/projects`、store或旧DTO。Project root发布采用portable rename：NeuroBook与`workspace` CLI writer由mutation + Occupancy严格串行，并通过最终同步preflight把非协作外部writer窗口压到最窄；不引入三平台原生atomic no-replace Adapter，接受最终preflight后外部writer创建空同名目录仍可能在POSIX被替换的best-effort边界。ProjectSession现已接管Occupancy与全部built-in ProjectModule，Project/plain Workspace共用唯一File Index cache；控制面Facade、最终DTO/schema、typed HTTP error mapper及HMR稳定错误协议已经落地，Phase 1–8完成前均不可发布。
+> 2026-07-31 CLI 交付路径取代说明：本任务的 Project identity、mutation/Occupancy 与 fail-closed preflight 合同继续有效；CLI implementation/发行所有权由 Task 130 收口。当前同步面是 Product-owned Workspace CLI、`.nbook/agent/bin/workspace(.cmd)` wrapper 与 Product Runtime Contract 的 `workspace` 逻辑命令；下文 `assets/workspace/.nbook/agent/scripts/workspace.ts` 只保留为 hard-cut 时的历史证据，不恢复 asset script 或 `server/scripts` fallback。
+
+> 当前状态：G1–G5 与整体审查结论均已冻结，Phase 0–8 的代码 hard cut 已完成，仍待发布级全量门禁与人工浏览器验收。Session schema v2、Application State catalog v3、runtime fail-closed gate、ProjectSessionController close-then-open、最终 Project HTTP 合同和旧 identity 清理在同一 release train 内落地；真实 State Root 只通过隔离副本演练，正式用户数据不在本任务中再次改写。Project root发布采用portable rename：NeuroBook与`workspace` CLI writer由mutation + Occupancy严格串行，并通过最终同步preflight把非协作外部writer窗口压到最窄；不引入三平台原生atomic no-replace Adapter，接受最终preflight后外部writer创建空同名目录仍可能在POSIX被替换的best-effort边界。
 >
 > 本任务不是替代 Task 114 或 Task 115，而是它们的协调真相源：Task 114 继续记录文件快照 package 与 NeuroBook adapter 的实现，Task 115 继续记录路径/session hard cut；本 README 冻结二者共享的 Module、Interface、Seam、依赖顺序、发布门禁和跨任务验收。
 >
 > 术语收口：最终合同只称 Project / Project Workspace，不再使用 `managed Project`。下文“旧 managed session”仅指旧 `workspace/<slug>` session 的迁移来源类别。
 
+## 2026-07-28：Project 封面 mutation 与列表性能边界
+
+- `/api/projects` 继续只消费浅层 Lifecycle snapshot；它只投影 `project.yaml.cover` 字符串，不读取封面文件、不生成变体、不打开 File Index、History、Project SQLite、Session 或 Image Variant Module。
+- Project 封面 GET/PUT/DELETE 只接收 `projectRoot`，文件路径始终来自 manifest。GET 在缓存命中前也重新完成 Project、manifest 与文件身份授权。
+- Lifecycle 新增 `cover-update` operation，并把 `cover?: string | null` 三态合入既有 manifest transaction。内容寻址原图先发布，manifest 是提交点：known failure 回滚新文件，unknown commit 保留新旧文件，success 后只清理旧应用托管封面。
+- Project HTTP 公开的 `committed` 是客户端恢复合同：`false` 可按普通失败修正后重试；`true` 与 `unknown` 都必须先重新读取 Lifecycle snapshot。封面 Dialog 在刷新成功前持续禁用同一 Project mutation；`true` 按最新事实收口，`unknown` 则让用户核对刷新后的封面再决定。
+- 首页 mutation 不为 History 记账强制打开 Project。封面原图仍是普通 Project 内容，进入 Project Workspace File Index/下载归档，并在下次正常打开时由 History 对账。详细见 [Task 132](../132-shared-image-variants-project-covers/README.md)。
+
 > 2026-07-23统一审查结论：Project Workspace固定为Workspace Root的一级物理子目录，Project root symlink/junction/reparse point拒绝；本联合任务不新增Project rename命令，只冻结运行中rename的`PROJECT_IN_USE`协作合同。空目录/损坏manifest通过显式“打开目录”入口触发ensure，不再由空列表自动创建默认Project。新建session固定按Workspace Root mutation lock → prospective Project Occupancy Lock → resolve/fingerprint → ensure → root revalidate → snapshot publish → mutation release → 最终同步门禁 → fulfilled handoff → Module ready执行，Occupancy fail-fast；`prepareOpen()` Promise成功履行即为Occupancy所有权提交点，不增加adopter handshake。ProjectModule取代全部ResourceOwner生命周期；required Database/History/File Index并行建立最低ready，lazy Plot/World façade与Agent SQL按需激活，重扫描和维护任务可取消并在后台运行。Project/plain Workspace File Index key必须区分target kind、canonical identity/root与scan policy。
+
+## 2026-07-28：Session v2 hard cut 与统一 Application State runner
+
+- Application State catalog v3 固定按 `app-sqlite → agent-attachment-v1 → agent-session-v2 → agent-session-v2-review-repair` 执行。migration-only registry 拥有 v1/v2/v3 parser；App SQLite 是普通 schema migration step，不建立第二套 registry、journal 或恢复顺序。
+- `plan` 只读 migration 目录和 `_prisma_migrations`；数据库不存在时只报告 pending，不创建文件或目录。`apply` 使用 Bun/Node 各自的标准 SQLite driver，并保证每条 SQL 与 migration 记录同事务提交。原 `sqlite-migrate.mjs` 已改为委托这一实现，避免 dev/deploy 两套判断继续漂移。
+- Manager 负责 App SQLite 冷备份及外层 Operation Journal，Product runner 负责每个 catalog step 的 backup/checkpoint/schema 事务。两层备份分别用于整次安装事务和单次迁移恢复，不能互相替代。Source Dev、Source/Product Bun、Windows Portable、Source Docker 与 GHCR 都消费同一个候选 Product interface；容器 Profile 使用一次性容器。
+- Phase 6 的 Agent Session schema v2、全部 append owner、runtime sentinel gate 与 Phase 4B + Phase 7 已原子切换。Nitro 只接受 complete catalog v3 与 Session v2 sentinel；旧 decoder 和历史 catalog parser 不进入 runtime import graph。
+- Session decoder 已把 `migrationReview` 收窄为唯一 `current_project_unresolved`，并与 `currentProjectRoot` 互斥。nullable path 不再触发 review；旧 split-book `filePath` 转为 `path`；不可解析的已结束 apply_patch 只留 warning；迁移 reminder/leaf 使用旧 active path 的逻辑活动时间。
+- `agent-session-v2-review-repair` 读取旧 Session v2 manifest 和 source backup，验证当前文件仍以前次 target bytes 为前缀后只替换 migrated prefix，保留迁移后 append。backup、checksum 或前缀冲突直接失败。
+- 隔离复制的现有 Session 验收中，repair 只计划并修复 3 份误判：105/177/755 恢复明确 Project，Session 755 的 split-book 参数改为 `path`，最新真实活动仍为 2026-07-21 19:22:02。rollback 后三份 Session 与旧 sentinel 的 SHA-256 均逐字节恢复。真实 State Root 未被本轮修改。
+
+## 2026-07-28：hard cut 实际结果与验证
+
+- Project 激活从候选 handoff 改为 close-then-open：保存检查通过后先停止 SSE/consumer、释放本标签页 presence、清空旧 surface，再等待目标 `open + presence_ready`。close 后失败回 Picker，不恢复旧 Project；普通切换不调用全局 Project close。
+- Controller 保留 same-root single-flight、A→B→C latest-wins、release-during-open、迟到结果丢弃与断线重连 revision。主 IDE、Workflow Preview、World Engine Preview 和 Workspace SSE 都只在 exact ready revision 与页面 bootstrap 完成后挂载 Project 数据面。
+- 用户浏览器验收发现 presence 请求长期 pending 且页面停在 opening。SSE 请求保持 pending 本身正常，真正故障是响应 0 字节：route 在 `eventStream.send()` 前 `await eventStream.push(presence_ready)`，H3 `TransformStream` 又必须等 send 启动 reader 才能解除 push 背压，形成确定性死锁。现已先启动 send，再异步推首帧；首帧失败会关闭流并释放 presence。真实 localhost 探针在显式 open 后立即收到 200 `text/event-stream` 与匹配的 `presence_ready`。
+- Workflow Preview 和 World Engine Preview 的首次 Catalog/World 数据加载失败原本会留下不可见的 ready presence；两者现在都会 release、清空选择并回到未选择态。普通刷新失败仍保留已打开 Project，避免把刷新错误误当成切换失败。
+- 两个 Preview 现在按 `projectRoot + readyRevision` 共用 generation single-flight loader。离开 ready 会立即清空旧 Catalog/schema/subjects/slices 并撤销迟到请求的提交权；旧请求的 `finally` 只有仍持有当前 request 时才会关闭 loading。Controller terminal failed 也会让主页面停止 Workspace SSE、清空 surface 并回到裸 `/` Picker。
+- Session metadata/runtime/HTTP 已切到 v2。dangling Session 和 `migrationReview` Session 可以列出和 recovery，但 invocation 分别稳定返回 `current_project_missing`、`migration_review_required`；重绑或清除 Current Project 后恢复执行。新的 HTTP 契约测试覆盖两种 409 payload。
+- 最终 Picker recovery 审查发现重绑实现仍调用 `requireActiveReadyProject()`：Picker 本来就在未打开 Project 的页面，因此选择一个真实存在但未 open 的 Project 会得到 `PROJECT_NOT_OPEN`。重绑现在只在 Session mutation 临界区校验 Lifecycle snapshot，按 canonical locator 匹配并写回真实目录拼写；它不 open Project、不建立 presence、不增加 occupancy。Invocation admission 仍严格执行 `open → ready generation`，不存在的目标稳定映射为 `404 / PROJECT_NOT_FOUND`。
+- 已通过的聚焦证据：config service 60/60（分 6 组）、Project HTTP/Project Session 42/42、Workflow 21/21、Session/HTTP/Attachment/runtime lease 48/48、Harness Current Project/继承/summarizer 8/8、dangling/review Harness 2/2、Agent HTTP 18/18、Product migration/SQLite/Release 声明 18 项、Manager migration/schema/operation/preflight 55 项。最终审查另通过 Session recovery/DTO/HTTP/Project route/页面合同 12 files / 90 tests、catalog/decoder/migration/repair 4 files / 40 tests、presence route/Controller/SSE parser 3 files / 19 tests。完整 config 单进程超过 10 分钟，因此按分组执行并覆盖全部 60 项。
+- 本次续接新增 route seam 3 项与 Agent HTTP 18 项通过；Session DTO/repository 35 项、catalog/decoder/migration/repair 40 项、Manager 失败恢复/候选 ownership 66 项通过。Project/Session 组合 224 项中 223 项通过，唯一失败是无关的已删除模型 recovery 投影测试，隔离重跑仍失败；未把它误记为本轮回归或全绿。
+- 与旧计划的有意差异：不删除 `workspace/<project>/<relative-path>`。它仍是 `authorized-file-operation` 消费的跨 Project 输入语法；本批删除的是 Session/DTO 中的旧 identity、File Scope 持久化联合及过渡 Adapter。绑定 Project 的普通相对路径和 Bash cwd 仍以 Current Project Workspace 为根，unbound 才以 Workspace Root 为根。
+- 本轮发布级复跑：Manager 33 files passed / 1 skipped、209 tests passed / 2 skipped，typecheck/build/pack 与临时安装 smoke 通过；Docker/Release 资产合同 17 项通过；Application State/Session migration 4 files / 42 tests 通过。Source migration runner 在隔离空 State Root 实跑 `plan → apply → already_current`。仓内只有未通过闭包检查的 staging command，不能作为 Product bundle 证据。
+- Nuxt raw build 完成，但 Product Runtime Image 后处理被 Task 130 的 `authoring/profile-compile-worker.mjs` 绝对构建路径、`node_modules/.bun/` 路径和未登记 `node-fetch` package island 阻断，因此当前不能声称 Product build/package 或 Product command smoke 通过。根 typecheck 仍被未触及的 `server/agent/skills/llmlint.test.ts` fixture 类型漂移阻断；Runtime typecheck 还受既有第三方/运行时声明缺口阻断。本轮前端组合 5 files / 17 tests 通过。除用户发现并验证的 opening 死锁外，未自动执行其余浏览器验收。
 
 ## Relative documents refs
 
+- [SPEC：`currentProjectRoot` 语义规格](SPEC-current-project-root.md)（冻结件）
+- [PLAN：第三批回归修复与后续排期](PLAN-batch3-recovery.md)
 - [Task 114：文件快照缓存独立包与 Project File Index 生命周期](../114-file-snapshot-cache-package/README.md)
 - [Task 115：Workspace Root Agent 路径合同硬切](../115-workspace-root-agent-path-contract/README.md)
 - [Task 94：Project 生命周期模型](../94-project-lifecycle-model/README.md)
@@ -49,7 +86,9 @@
 - Phase 1 只证明稳定 alias 经 `realpath` 收敛；不宣称支持 `subst`、UNC/本地盘符互换、`\\?\` namespace alias 或其他无法由当前 canonicalization 可靠统一的 Windows 命名空间。
 - Project root发布对协作NeuroBook/CLI writer由mutation + prospective Occupancy串行；已明确接受最终preflight后非协作外部writer创建空同名目录仍可能在POSIX被替换的窄best-effort窗口。不得宣称对任意外部writer提供跨平台atomic no-replace或“任何已存在target都稳定`PROJECT_EXISTS`”。
 
-## Current State
+## 2026-07-23 Planning Snapshot
+
+本节保留 hard cut 前的实施快照；当前结论以文件顶部“当前状态”和 2026-07-28/31 实际结果为准。
 
 ### Task 114
 
@@ -332,7 +371,7 @@ flowchart TD
 
 服务启动只浅扫描、缓存和诊断manifest，不在后台静默改写损坏文件。`GET /api/projects`只消费轻量`ProjectListSnapshot`，`GET /api/projects/candidates`消费同revision的候选投影；目录入口打开缺少合法manifest的目录时才执行ensure。两者都不调用File Index、History、Project Database或session repository。缓存由同进程主动失效、一个浅层watcher和TTL共同收敛；watcher失败时允许有界stale-read，但TTL到期必须重扫并发布diagnostic。
 
-最终轻量列表DTO固定为manifest metadata：`projectRoot`、`kind`、`title`、`summary`，以及可选的明确命名`manifestUpdatedAt`。删除`id/projectPath/workspaceSlug/updatedAt/manifestError`和所有统计字段；若前端展示`manifestUpdatedAt`，文案必须说明它只是Project配置更新时间。列表返回完整snapshot，稳定排序为`manifestUpdatedAt`降序、`projectRoot`升序兜底；候选目录按`projectRoot`升序，消费者在内存筛选。
+最终轻量列表DTO固定为manifest metadata：`projectRoot`、`kind`、`title`、`summary`、可选 Project Workspace 相对路径 `cover`，以及可选的明确命名`manifestUpdatedAt`。删除`id/projectPath/workspaceSlug/updatedAt/manifestError`和所有统计字段；若前端展示`manifestUpdatedAt`，文案必须说明它只是Project配置更新时间。列表返回完整snapshot，稳定排序为`manifestUpdatedAt`降序、`projectRoot`升序兜底；候选目录按`projectRoot`升序，消费者在内存筛选。`cover` 是 2026-07-28 增补的轻量 manifest 字段，不触发列表文件探测。
 
 ### ProjectSession Occupancy Lock 与 rename 合同
 
@@ -468,7 +507,7 @@ CLI原子同步面必须在同一hard-cut切片一起更新：Bundled真相`asse
 
 - [x] composition root显式持有唯一`ProjectLifecycle`并注入唯一`ProjectSessionService`；list/candidates/create/open/metadata/delete/close全部通过该Facade进入Lifecycle/Runtime，不由route各自new Lifecycle或直接调用旧Project helper。
 - [x] `openProjectControl()`同时返回精确ready generation与Lifecycle publication；同进程ready generation幂等复用。metadata update借用精确ready generation的Occupancy并登记generation-scoped控制操作，close先封门并等待其settle后才释放Occupancy。
-- [x] 建立最终共享Project控制面DTO/schema与typed HTTP error mapper，字段只使用`projectRoot/kind/title/summary/manifestUpdatedAt?`及明确operation结果；错误只输出稳定白名单字段，不泄漏绝对root、lock artifact、cause或Module failure。
+- [x] 建立最终共享Project控制面DTO/schema与typed HTTP error mapper，字段只使用`projectRoot/kind/title/summary/cover?/manifestUpdatedAt?`及明确operation结果；错误只输出稳定白名单字段，不泄漏绝对root、lock artifact、cause或Module failure。
 - [x] Facade全部控制意图具备Interface tests，最终DTO/schema与error mapper具备纯contract tests。真实HTTP序列化、unknown 500脱敏、OpenAPI与Product consumer tests推迟到Phase 4B；4A没有建立假handler或未接线route。
 - [x] HMR重载后旧Service继续复用同root generation，不同Workspace Root拒绝；版本化global nominal Project error base与exact kind使旧Lifecycle/Lock/Session错误仍被新mapper/guard精确识别，shutdown只关闭一次底层Module、Occupancy与Lifecycle。
 - [x] 冻结4B删除矩阵：旧重列表query/统计/cache/prewarm、`/api/novels`镜像、旧identity字段、自动默认Project与首项fallback必须在同一个Product切片删除；没有新增临时v2 route、双字段DTO、双读codec、route alias或`projectRoot -> workspace/${root}` Product Adapter。
@@ -507,7 +546,7 @@ Phase 5绝不能提前修改公开HTTP query/body/response、session header、`T
 - [x] 路径/schema不得继续read-time rewrite。本轮未引入任何读时迁移；`migrateSessionJsonlModels()` 仍是唯一的安全脱敏例外，未被本次迁移复用。
 - [x] 对缺少tool result的pending call追加迁移取消result，清空pending resolution/follow-up；纯内存RunFrame/steer不迁移。真实 499 份实测 `cancelledToolCalls: 1`、`clearedPendingResolutions: 0`、`clearedFollowUpQueue: false`。
 - [x] 在隔离Workspace Root复制真实managed/user-assets/external/stale session执行完整apply、rollback、resume；另造损坏/ambiguous/篡改 fixture。
-- [ ] **推迟到 Phase 4B + Phase 7**：Manager install/update/start、开发启动入口和全部 session append owner 的 fail-closed gate 接线。理由见「2026-07-26：Phase 6 收口与 gate 接线排序修正」——gate 与 header 消费面原子耦合，单独落地必然打断开发环境。
+- [x] Manager install/update/start、开发启动入口和全部 session append owner 的 fail-closed gate 已与 v2 header 消费面原子接线；缺失、损坏、迁移中或旧 catalog sentinel 一律拒绝 runtime。非 Manager 启动只提示 `bun run migrate:application-state -- --apply`，不在 Nitro 内自动改写数据。
 
 退出条件：全部真实形状要么可安全迁移，要么有明确的可读/不可继续状态；迁移失败可恢复且不会启动新 runtime。
 
@@ -517,22 +556,21 @@ Phase 5绝不能提前修改公开HTTP query/body/response、session header、`T
 
 执行门禁：开始本切片前，用户需确认Settings是否只允许编辑Current Project，以及多标签存在时显式close的语义。当前建议分别是“Settings只编辑Current Project”和“其他user presence或active Agent存在时返回`PROJECT_IN_USE`，不强制踢掉其他标签”。
 
-- [ ] 原子翻转Project控制面：`GET /api/projects`只返回最终轻量DTO且拒绝旧`limit/include/exclude`；新增candidates/open/close，create/metadata/delete全部接唯一Facade；canonical OpenAPI切到真实`/api/projects`并删除`/api/novels`镜像。
+- [x] 原子翻转Project控制面：`GET /api/projects`只返回最终轻量DTO且拒绝旧`limit/include/exclude`；candidates/open/close、create/metadata/delete全部接唯一Facade；canonical OpenAPI切到真实`/api/projects`并删除`/api/novels`镜像。
 - [x] 删除`novel-chapter.ts` Project列表统计链、5s statistics cache、Server-Timing统计诊断、`project-list-prewarm.ts`重预热和所有File Index/Plot/session访问；100次列表读取期间File Index/History/DB/session delta必须为0。（2026-07-27 完成，见「Phase 4B 第一批」walkthrough；`novel-chapter.ts` 从 895 行降到 363 行，回归由「连续 100 次列表读取不触碰 File Index、Project SQLite 或 Agent session」用例守住。）
-- [ ] store/current selection、书架、Settings、World Engine preview、Workflow preview与route统一使用单段`projectRoot`；删除`currentNovelId`、旧列表identity/统计、本地旧session key及任何双字段/双读/route alias。
-- [ ] `useProjectSession`深化为可等待controller：`activate(projectRoot)`先等待open成功，再建立presence并允许调用方提交选择、启动Workspace SSE和数据面；`disconnect()`先禁止重连、abort presence，再等待本地连接循环退出。World Engine/Workflow preview同样经过open/presence ready gate。
-- [ ] route指定非列表root时直接尝试open，不先用列表判不存在；失败保留原选择并清除失败链接的`openPath`，不得打开旧Project或静默切换首项。
-- [ ] 无Current Project时在主布局外层显示“新建 Project”“打开目录”，不挂载Agent、Plot、World、History等数据面；空列表不自动创建默认Project。
-- [ ] 删除当前Project固定按“冻结新请求与处理未保存内容 → abort Workspace SSE → await disconnect → POST close → DELETE”执行；close/delete失败保留原选择并恢复activate/SSE，close失败绝不发送DELETE，成功后保持空态而不是选择`projects[0]`。
+- [x] store/current selection、书架、Settings、World Engine preview、Workflow preview与route统一使用单段`projectRoot`；删除`currentNovelId`、旧列表identity/统计、本地旧session key及任何双字段/双读/route alias。
+- [x] `ProjectSessionController.open(projectRoot)`等待服务端 open 与第一帧 `presence_ready`；same-root single-flight、latest-wins、release-during-open、迟到结果丢弃和重连 revision 都由 controller 拥有。主 IDE 与两个 Preview 先释放旧 surface，再只在新 ready revision 后加载数据面与 Workspace SSE。
+- [x] route指定非列表root时直接尝试open，不先用列表判不存在；失败保留原选择并清除失败链接的`openPath`，不得打开旧Project或静默切换首项。
+- [x] 无Current Project时显示 Picker，不挂载Agent、Plot、World、History等 Project 数据面；空列表不自动创建默认Project。
+- [x] 删除当前Project固定按“冻结新请求与处理未保存内容 → abort Workspace SSE → release tab presence → 显式管理操作才 POST close → DELETE”执行；close/delete失败保留原选择并恢复SSE，close失败绝不发送DELETE，成功后保持空态而不是选择`projects[0]`。
 - [ ] ensure发生normalized/recovered时显示一次性非阻塞“已修复manifest并备份原文件”通知；不显示Broken Project或Repair页面。
 
-- [ ] 停止 runtime/session append，执行一次性 migration script 的 dry-run 与 apply，全库复扫后再启动新 runtime。
-- [ ] Session metadata、RunFrame、ToolExecutionContext、attachments、linked agents、workflow、queue inheritance 同时切到 `currentProjectRoot` / structured Current Project。
-- [ ] 文件工具与 bash cwd 同时切为 `RuntimePaths.workspaceRoot`。
-- [ ] File Address 只接受 Workspace Root-relative 与 absolute；按 G1 附加 Project attribution。
-- [ ] 删除 Project File Address `workspace/<slug>/...` 和 user-assets/external File Scope。
+- [x] Session migration script 已通过真实数据的隔离 dry-run/apply/resume/rollback/reapply 演练；Session v2 runtime 只在 complete sentinel 后启动。
+- [x] Session metadata、RunFrame、ToolExecutionContext、attachments、linked agents、workflow、queue inheritance 同时切到 `currentProjectRoot` / structured Current Project。
+- [x] RunFrame 与工具上下文只携带绝对 Runtime Workspace Root 与 exact ready Project handle。绑定 Project 时文件工具与 bash cwd 是 Current Project Workspace；未绑定时是 Workspace Root。
+- [x] 普通相对路径与 absolute filesystem path 保持现有授权合同；`workspace/<slug>/...` 保留为显式跨 Project File Address，经过目标 Project open gate并保留 History/Context Access 记账。删除的是旧 File Scope 持久化联合与旧 File Address type/adapter。
 - [ ] Project-scoped Agent工具默认 Current Project，跨 Project接受可选单段 `projectRoot`。
-- [ ] 其余HTTP/DTO/前端store统一从`projectPath`/`novelId`切到`projectRoot`，与本切片的Project控制面合流。
+- [x] 其余HTTP/DTO/前端store统一从`projectPath`/`novelId`切到`projectRoot`，与本切片的Project控制面合流。
 - [ ] Plan Mode、`switch_mode.planFilePath`、`workspace node ...`、builtin profiles、brief、workflow payload、reference、skill和工具说明使用同一新地址合同。
 - [ ] `workspace project`新增ensure，删除绝对`--target`、祖先Project发现、`workspace/<slug>` alias、`init-db`和`--no-db`；只保留`ensure/create/validate`，不新增rename。
 - [ ] `workspace schema`迁为`workspace node schema`；`workspace node`只接受Workspace Root-relative与absolute filesystem path，不通过祖先扫描建立external Project。
@@ -544,15 +582,15 @@ Phase 5绝不能提前修改公开HTTP query/body/response、session header、`T
 
 ### Phase 8：删除旧合同、验证与文档收口
 
-- [ ] 删除 `ProjectPath` brand、旧 `projectPath` DTO/codec、Project File Address、旧 File Scope union、external Project runtime和全部过渡 Adapter。
-- [ ] 生产零命中审计：`workspace/<slug>`、`projectPath`、旧`workspaceKey`、`/api/novels`、`registerProjectResourceOwner`只允许存在于历史Task、migration fixture/decoder/report。
+- [x] 删除 `ProjectPath` brand、旧 `projectPath` DTO/codec、旧 File Scope union、external Project runtime和全部过渡 Adapter；保留正式跨 Project File Address 输入语法 `workspace/<slug>/<relative-path>`。
+- [ ] 生产零命中审计：`currentNovelId`、旧 Session `workspaceRoot/workspaceKey/projectPath`、`WorkspaceRootRef`、旧 File Scope union、旧 Adapter、`/api/novels` 必须为零；允许物理 `workspaceRoot`、局部变量 `projectPath`、migration decoder/fixture 和合法跨 Project File Address。
 - [ ] 删除或重写只证明旧行为的测试；状态机竞态由 package Interface tests覆盖，宿主测试聚焦 Adapter/领域语义。
-- [ ] 运行 Project Lifecycle/ProjectListSnapshot、ProjectSession、File Index、History、SSE、Project list、session migration、Agent Harness、Plan、CLI、Plot、World Engine、RAG 聚焦测试。
-- [ ] 运行 package typecheck/tests/benchmark、根 typecheck、Nuxt/Nitro build、Product packaging smoke。
+- [x] 运行 ProjectSession、Project HTTP、config、Workflow、Session migration、Agent Harness、HTTP contract、Product migration 与 Manager 聚焦测试；具体结果记录在本 README 的最新验证段。
+- [ ] 运行 Manager/根项目全量 typecheck、Nuxt/Product build、Manager pack 与 Product packaging smoke。Manager 四项已通过；Nuxt raw build 完成但 Product runtime 后处理被 Task 130 在途依赖闭包问题阻断，Windows archive 未执行。
 - [ ] 完成真实 HTTP `/api/projects` 连续/并发刷新、客户端断开、server restart、Nuxt HMR/libSQL 资源曲线。
 - [ ] 完成无根 `node_modules` Product runtime与 Windows Portable State Root移动后的 migrated session smoke。
 - [ ] 用户授权后再进行浏览器验收。
-- [ ] 更新 Task 114、Task 115、Task 83、Task 21、Task 109、`PROJECT-STATUS.md`、`CONTEXT.md` 和稳定 reference；记录实际结果与本计划出入。
+- [x] 更新本 Task、Task 105、Task 109、`PROJECT-STATUS.md`、`CONTEXT.md`、Workspace Terms、ADR 与迁移说明；明确记录跨 Project File Address 保留而非删除这一实际合同差异。
 
 退出条件：旧 Interface 零生产命中；全部门禁有证据；Project list、File Index、session/path hard cut和Portable运行同时成立。
 
@@ -619,7 +657,7 @@ Phase 6 聚焦证据（2026-07-26）：
 - 服务重启后首个列表请求文件 build=0、Plot SQLite open=0、session全文扫描=0。
 - 100 次压力后 cache-owned计数回到基线；active resources ≤ 基线+2；Windows handles ≤ 基线+10。
 - 强制 GC 后 heap增量 ≤ 10MiB，且不得同时出现 slope > 64KiB/request、R² ≥ 0.8；RSS单独报告高水位，不因 allocator波动直接判失败。
-- Project列表DTO只含`projectRoot/kind/title/summary/manifestUpdatedAt?`，不再包含旧identity、manifestError或任何统计字段。
+- Project列表DTO只含`projectRoot/kind/title/summary/cover?/manifestUpdatedAt?`，不再包含旧identity、manifestError或任何统计字段。
 - 书架不再读取已删除统计；`manifestUpdatedAt`只能解释为Project配置更新时间。
 
 ### Session and path migration
@@ -768,7 +806,7 @@ Phase 6 聚焦证据（2026-07-26）：
 ### 2026-07-24：Phase 4A控制面groundwork与HMR收口
 
 - composition root现显式保存唯一`ProjectLifecycle`并注入唯一`ProjectSessionService`；list/candidates/create/open/metadata/delete/close全部经过Facade。`openProjectControl()`同时返回ready generation与Lifecycle publication，metadata借用同generation Occupancy并登记在途控制操作，close先封门、等待settle再释放资源。
-- 最终Project DTO/schema只使用`projectRoot/kind/title/summary/manifestUpdatedAt?`与明确operation结果；typed HTTP mapper只公开白名单字段。Phase 4A没有接线公开route或store，也没有新增v2 route、双字段/双读、route alias或旧路径Product Adapter。
+- 最终Project DTO/schema只使用`projectRoot/kind/title/summary/cover?/manifestUpdatedAt?`与明确operation结果；typed HTTP mapper只公开白名单字段。Phase 4A没有接线公开route或store，也没有新增v2 route、双字段/双读、route alias或旧路径Product Adapter。
 - HMR复核发现globalThis容器会正确复用旧Service，但新模块构造器的`instanceof`无法识别旧typed error。实现新增版本化global nominal `ProjectDomainError`基类与非枚举exact kind；mapper、open guard及跨模块Lifecycle/Manifest/Root/Runtime/Lock判断改用稳定predicate，name/code形似普通对象仍被拒绝。
 - 新`vi.resetModules()`回归证明同root复用旧generation、异root拒绝、旧NotOpen/Lifecycle/Lock/Runtime error被新mapper/guard识别，并且Database/History/File Index、Occupancy与Lifecycle各只关闭一次。独立Phase 4A复跑为7 files / 68 passed，根typecheck通过。
 - 与原计划的差异：4A禁止翻转公开route，却曾同时要求真实route contract tests，两者互相冲突。现已明确4A只做Facade Interface、schema与mapper纯contract tests；真实HTTP序列化、unknown 500脱敏、OpenAPI与consumer tests推迟到4B。
@@ -829,6 +867,104 @@ Phase 4B + Phase 7 的实测规模是 **187 个生产文件 + 101 个测试文�
 
 **未做**：身份改名（`projectPath`/`novelId`/`currentNovelId`/`workspaceKey` 一个字符未动）、Facade 接入、`ProjectListResponseDto` 切换、`candidates`/`close` route、`/api/novels` 镜像删除、浏览器验证、提交。
 
+### 2026-07-27：Phase 4B 第二批 —— 显式 close 与可等待 ProjectSession controller
+
+第二个不碰身份改名的自洽批次。目的是把「时序语义改造」从身份硬切里拆出来，否则批次三要同时扛两件事。
+
+**范围修正（重要）。** 原本计划这一批还包含「open 响应换成最终 `ProjectOpenResponseDto`」和「ensure normalized/recovered 一次性通知」。实施前核对发现：最终的 `ProjectOpenRequestDto` / `ProjectCloseRequestDto` / `ProjectMetadataDto` 用的都是单段 `projectRoot` 而非 `projectPath`，采用它们本身就是身份改名，前端还得反向剥前缀（正是被禁止的构造器）。因此这两项移交身份硬切批次，本批只交付下面两项。
+
+**新增显式 close。** `ProjectSessionCloseReason` 增加 `"user"`——它不走 grace 复检，直接进入关闭；其余原因仍全部由运行时自身触发。新增 `POST /api/projects/close`（沿用当前 `projectPath` 请求合同，随身份硬切一并改名）：Project 本就未打开时幂等返回成功；仍有其他 `userConnections` 或 `agentActive` 时返回 409 `PROJECT_IN_USE` 并保持打开，符合已冻结的「不强制踢掉其他标签」决定。此前**根本不存在** close 接口，前端只能靠 abort presence SSE 让服务端被动释放。
+
+**`useProjectSession` 深化为可等待 controller。** 新增 `activate(projectPath)` 与 `disconnect()`：`activate` 等待 open 成功才 resolve（失败直接抛出，调用方据此保留原选择、不提交新选择），presence 订阅在后台建立；`disconnect` 先递增代次禁止重连、abort presence、等待本地连接循环退出，再显式 POST close，409 `PROJECT_IN_USE` 视为正常结果不抛给调用方。`target` 参数改为可选：传入时保留原有的 watch 自动驱动，两个既有调用点（`app/pages/index.vue`、`app/pages/workflow.preview.vue`）因此无需改动。
+
+**刻意未做的一半。** Phase 4B 要求的是「调用方 await activate 成功后再提交选择」。真正让 `index.vue` 显式驱动 activate/disconnect，需要改写 2465 行 store 的 `switchNovel` / `switchToNovelWorkspace` / `initializeWorkspace` 与路由同步流程——而那套选择流程在身份硬切批次里本来就要重写。所以本批只交付机制（可等待 API + close 接口），调用方接线留到那一批，避免同一段逻辑改两遍。
+
+**验证。** `server/api/projects` 8 files / 40 tests 全绿（含新增的 `close.post.test.ts` 4 个用例：正常关闭、未打开幂等、其他标签在场 409、agent 运行中 409）；`project-session-runtime` / `service` / `hmr` / `open-guard` 4 files / 44 tests 全绿；根 `bun run typecheck` 仍为 26 项既有 `llmlint.test.ts` 错误，零新增。未做浏览器验证，未提交。
+
+### 2026-07-27：Phase 4B 第三批 —— 控制面与数据面身份硬切
+
+先冻结了 [`SPEC-current-project-root.md`](SPEC-current-project-root.md)（10 节，用户拍板三项：运行时只携 handle、重绑走 session 子资源 POST、`/api/novels` 连同章节树一起处理）。随后按规格执行身份硬切。
+
+**关键发现：Facade 是窄腰。** 原以为 288 个文件要一起改，实际 `project-session.ts` 的 8 个字符串入口（`requireReadyProjectPath` / `acquireUserPresence` / `projectOccupancy` / `closeProject` / `openProject` / `assertProjectOpen` / `isProjectOpen` / `markProjectActivity`）就是全部身份收窄点。把它们**全部改成只接受 `ProjectWorkspaceRef`**，字符串形态在类型层面即不可能存在——这是系统性修法，而不是逐处替换。改完后 typecheck 精确列出全部 28 处破裂，其中生产代码仅 20 处。
+
+**已完成（生产代码 0 类型错误）**：
+
+- **Facade ref-only**：删除 `openProjectRef` / `closeProjectRef` / `markProjectActivityRef` 重复变体；`requireReadyProjectPath` 更名 `requireActiveReadyProject(ref)`。新增 `projectRefFromLegacyPath()` 作为**唯一且显式标注的迁移边界**，只服务两个尚未切换的来源（Agent session metadata 的旧 `projectPath`、workspace-files/workflow 请求体），slice 2 连同全部调用点一起删除。
+- **控制面全部接入 Facade + 最终 DTO**：`index.get`（→`ProjectListResponseDto`）、`index.post`（→`createProject` Facade + `ProjectCreateResponseDto`）、`item.get`/`item.patch`（→`updateProjectMetadata` Facade）、`item.delete`、`open.post`、`close.post` 全部改用单段 `projectRoot`。新增 `project-control-plane.ts` 承载 `requireProjectRefQuery` / `requireProjectRefBody` / `toProjectMetadataDto`。此前这些 route 与 Phase 4A 建好的 Facade 和最终 DTO **零接触**。
+- **数据面入口收窄**：plot / world-engine / rag / presence / workflow 的 catch-all 与 target 解析全部改为 `requireProjectRefQuery` + `requireActiveReadyProject`。Phase 5 早已把下游收敛成「入口解析一次、只传 ref」，所以改动只落在入口行。
+- **config 数据面**：`ConfigWorkspaceQueryDto.projectPath` → `projectRoot`（单段），service 入口改用 `projectWorkspaceRef`。
+- **删除 `/api/novels` 镜像**：5 个 route 文件 + OpenAPI route-map 的 5 个条目。
+- **前端全线改名**：`projectPath` → `projectRoot` 共 51 文件 / 307 处（camelCase）+ 11 文件 / 19 处（Vue 模板 kebab-case，第一遍漏掉、由 typecheck 暴露）；store 的 `novels` 改用 `ProjectMetadataDto`，`.id` / `.workspaceSlug` / `.updatedAt` 全部替换为 `projectRoot` / `manifestUpdatedAt`；三个 list 调用改为解包 `{revision, projects}`。**`currentNovelId` 的值因此自动变成单段**。
+- **`ProjectSessionCloseReason` 新增 `user`**（第二批已做，本批沿用）。
+
+- **错误载荷同步**：`PROJECT_NOT_OPEN` 的 `data` 从 `projectPath` 改为 `projectRoot`（`project-open-guard.ts`），`ProfileCompileLifecycleError` 同步。
+- **删除死组件族**：`NovelChapterPanel.vue` / `NovelChapterVolumeCard.vue` / `NovelChapterSortableRow.vue` / `novel-chapter-dnd.ts` 共约 76 KB。核实闭合：三个组件只互相引用、未被任何页面挂载（camelCase 与 kebab-case 均 0 命中），其 emit 的 reorder 事件无监听方。
+
+**验证（下列证据真实，但不足以支撑「完成」结论——见本节末尾更正）**：
+
+- 受影响套件 **13 files / 72 tests 全绿**（`server/api/projects` 8 files/40、store、`novel-chapter`、`project-workspace-delete`、`project-open-guard`、`project-session-service`、`world-engine-ide-entry`）。
+- **全仓 `bun run typecheck` 0 错误**——连既有的 `llmlint.test.ts` 26 项基线也已不再出现（其他工作线在本轮期间修掉了）。
+- `server/workspace-files` 全目录回归 exit 0。
+- 一次并发跑中 `plot/[...segments].test.ts > Scene 时间未连接时返回 400` 失败，单跑该文件 11/11 通过——并发 flaky，非回归。
+
+修复的 18 项测试失败全部是测试侧适配：mock 未导出 `requireActiveReadyProject`、mock 仍返回 `NovelListItemDto[]`、`close.post.test.ts` mock 字符串版 Facade、`PROJECT_NOT_OPEN` 断言仍用旧字段、`world-engine-ide-entry` 的源码文本断言仍是旧写法。
+
+**未完成（slice 2 及之后）**：
+
+- **Agent session 面整体未动**：`SessionMetadata` 仍是 `workspaceRoot`+`workspaceKey`+`projectPath`；`RunFrame` / `ToolExecutionContext` 未收敛为 `currentProject: ReadyProjectSessionRef | null`。`AgentChatSurface`、`ProfileTemplateVisualEditor`、store 的 `currentWorkspaceRoot` 三处仍构造 `workspace/${projectRoot}` 喂给旧 session DTO，均已就地注释标注为 slice 2 目标。
+- **`projectRefFromLegacyPath` 当前 32 处调用点**，分布在 harness / plot / world-engine / config / workflow / authorized-file-operation 等；它们是 slice 2 的精确工作清单，切完 session metadata 后连同该函数一起删除。
+- **store 里 7 个死函数仍在**（`loadNovelTree` / `fetchChapterDetail` / `saveCurrentChapterContent` / `updateChapter` / `updateVolume` / `reorderVolumes` / `reorderChapters`），请求的是已删除的 `/api/novels/*` 路由。组件调用方已随组件族删除而消失，但它们分散在 2400 行 store 中且牵连 `novelTree` / `selectedChapterId` 等内部状态，需单独一轮判定后删除。**Phase 8 零命中审计前必须清掉。**
+- File Address / cwd / File Scope、workspace CLI、prompt 资产、真实 apply 迁移、fail-closed gate 全部未开始。
+
+**未做**：浏览器验证、提交。
+
+> **2026-07-27 更正：本批的「完成」结论作废。** 随后的 `/code-review` 与用户手动测试发现本批引入**破坏性运行时回归**：前端做了无差别 `projectPath` → `projectRoot` 改名，但 workspace-files（12 route）、workspace-history（5 route）、plot / world-engine catch-all、workflow runs/catalog 的服务端解析未同步，导致文件面、历史、剧情、世界引擎、工作流全部 400 或静默降级；`tree.get` 因参数读不到而退化为全盘扫描整个 Workspace Root 并绕过 File Index 缓存（用户实测首次 22.5s、后续 17s）。另有三处函数体在改名后逻辑失效，且**三处测试被改成了错误方向**从而掩盖回归。
+>
+> 根本教训：**`$fetch<T>` 的类型参数是手写断言，不与服务端路由做契约校验**，因此「typecheck 0 错误 + 单元测试全绿」对身份改名不构成完成依据。身份改名必须按「一条 HTTP 契约」为单位推进，而非按前端/后端分层推进。
+>
+> 完整清单与修复排期见 [PLAN-batch3-recovery.md](PLAN-batch3-recovery.md)。
+
+### 2026-07-27：Phase 4B 第三批回归修复（A + B）
+
+按 [PLAN-batch3-recovery.md](PLAN-batch3-recovery.md) 执行 A（参数契约断裂）+ B（改名破坏函数体），五个批次全部完成：
+
+- **批次 1 workspace-files（13 route）**：`resolveWorkspaceFileTarget` / `resolveNovelWorkspaceTarget` 入参改单段 `projectRoot`，经 `projectWorkspaceRef` → `projectPathFromRef` 投影到内部旧形态（identity 校验前置）。6 个 zod body 换 `ProjectRootDtoSchema.optional()`（单段校验在 HTTP 边界生效）、5 个 inline query 改名（`download.get` 连带 400 文案、`events.get` 在可注入 handler 内）、2 个 multipart 的 `readTextPart` 字段名改 `projectRoot`。
+- **批次 2 workspace-history（5 route）**：字段统一 `projectRoot: ProjectRootDtoSchema`，显式 `normalizeProjectPath(...)` 全部换成 `projectPathFromRef(projectWorkspaceRef(...))`。
+- **批次 3 catch-all 与 workflow**：plot / world-engine catch-all 复用 `requireProjectRefQuery`，去掉 `projectRefFromLegacyPath` 一层；`runs.post` 的 `workspaceKey` 按计划显式投影旧形态并注释标注 slice 2；`catalog.get` query 改名。
+- **批次 4 函数体**：`completeProjectFileAddress` 用裸 root 拼旧格式地址（加单段守卫）；preview 前缀数组、`parseProjectRouteTarget` 正则改单段（`workspace/.nbook` 保留值判断在前、不受影响）；`NovelIdeSettingsDialog` 死分支清理。`useComposerImageTransaction.test` / `world-engine-preview.test` fixture 改回裸 root 正确方向。
+- **批次 5 守卫**：新增 `server/api/project-root-contract.test.ts` 源码级审计（5 个禁止形态：query/params/zod/multipart/已删 helper，覆盖全部 route 文件、不依赖注册表）；route-map A 组 9 条目声明更正。
+
+**计划外的联动改动**（均因「一条契约一起改」原则）：
+
+- 删除零使用的 `requireProjectPathQuery`（`novel-chapter.ts`），审计测试防复活；同文件的 `requireProjectPath`（params 版）发现为既有死代码，未动、待 slice 2 判定。
+- route-map 的 `ProjectPlotProjectQuerySchema` / `ProjectRagProjectQuerySchema` 一并改 `projectRoot`——plot 是批次 3 实现改动的直接联动，rag 实现早已是 `projectRoot`、声明属既有偏差。
+- 执行了 `bun run generate:openapi` 重新生成 37 个文件的 AUTO-GENERATED meta（计划中为「考虑」项）：config / rag / plot 的过期 `"name": "projectPath"` 文档全部顺带修正（config DTO 第二批已改，meta 一直是过期生成物）。
+- 三个计划测试清单之外、但受批次 3 实现影响的既有测试同步修复：plot catch-all 测试（`callApi` 投影 + 缺参 400 断言改 `INVALID_PROJECT_ROOT`）、world-engine catch-all 测试（`callApi`）、`catalog.get.test.ts`（mock 面还停在更早的 `requireReadyProjectPath` 旧 API，同步为 `requireActiveReadyProject` + `projectRoot` query，project workflow 可见性断言保留）。
+- `revision-routes.test.ts` 中 `requireProjectHandles` 收到 `"workspace/book"` 的断言**故意保留**——它恰好验证 route 层单段→内部旧形态的投影正确。
+
+**验证结果**：
+
+- 新增审计测试绿：`server/api/**` 41+ 文件零 `projectPath` HTTP 参数。
+- 7 个基线 route 测试全绿（download / events / read / upload-file / upload-project / write / revision-routes）。`write.put.test.ts` 存在环境性 flaky（三次运行分别为超时、realpath ENOENT、全绿），与契约改动无关。
+- 受影响单元全绿：plot / world-engine catch-all 集成（22 用例，真开 Project）、`catalog.get`、`novel-ide` store、`world-engine-preview`、`useComposerImageTransaction`、`workspace-files-containment`、`project-open-guard`、`projects/index.get`。
+- **真实 HTTP 冒烟（dev server + 真实项目 gold-fox-loli）全部通过**：open 200；`tree?projectRoot=` 200 且**只返回当前 Project 的 6 个节点、revision=1 走 File Index、0.22s**（回归时为全盘扫描 17–22.5s）；read / inbox / plot story 200 均亚秒；world-engine schema 200（gold-fox-loli 的 400 为业务错误「缺 calendar.ts」，参数链路已通，换有 calendar 的项目验证 200）；catalog 200 且**放入临时 probe workflow 后 `source:"project"` 条目可见**（静默降级消除，probe 已清理）。期间遇到的 `PROJECT_IN_USE` 409 是跨进程锁对另一 dev server 实例的正确拒绝，非回归。
+
+**与计划的出入（验证基线）**：
+
+- 计划写「typecheck 0 错误（当前基线即 0）」，实际当前工作区基线为 **26 错误，全部在 `server/agent/skills/llmlint.test.ts`**（`NormalizedLlmlintConfig.ignoreTerms` 等 llmlint snapshot 漂移；上一批记录的「已被其他工作线修掉」状态已不成立）。本轮全部改动文件 typecheck 0 错误。
+- `workspace-files.test.ts` 75 过 / 9–10 失败（两次运行数量浮动）：失败全部先于本轮——`requireReadyProjectPath is not a function`（上一批 Facade 改名后测试未适配，属 E 类）、llmlint CLI 断言漂移、File Index watcher 时序 flaky。本轮改写的「project.yaml 格式错误」用例通过。
+
+**未做（照计划）**：C / D / E、slice 2 全部内容、route-map B/C/D 组 OpenAPI 补齐、浏览器验证、提交。
+
+> **2026-07-27 补遗：用户验收发现 A 类漏网一处（Agent session 面）。** 第三批把 `currentNovelId` 改成单段后，`AgentChatSurface.vue:396` 的 `workspaceKey` computed 直接消费它发起 sessions 查询，而磁盘 session header 与服务端过滤（`session-repo.ts:370` 精确匹配）仍是旧 `workspace/<root>` 形态 → session 列表全空。同一调用里 `projectPath` 补了前缀（`:869`），`workspaceKey` 漏了。全量扫描 499 个 session 确认**数据完好且零单段污染**（`workspace/<root>` 265 + `global` 233 + `user-assets` 1），无需迁移。修复（前端投影回旧形态，服务端不动、slice 2 边界不变）与顺带发现的 `ProfileTemplateVisualEditor` `novel-` 前缀疑点移交 [Task 129](../129-project-picker-and-session-entry/README.md) W1。上一节回归修复的 A+B 结论不受影响——本条属当时计划就没枚举到的第五组契约面。
+
+### 2026-07-28：Source dev 单 owner 拓扑收口
+
+- `package.json` 的 `dev` 脚本末尾固定为 `nuxt dev --no-fork`。Source dev 现在与“单 Workspace Root 只有一个 Agent Session Store runtime lease owner”的既有合同一致，避免 Nuxt fork worker 交接期间两个进程短暂竞争 `runtime.lease`。
+- 这不是锁容错层：没有增加 bounded retry、route 级错误吞噬、手工删锁或开发环境旁路。真正启动第二个 NeuroBook 进程，或让离线 migration 与 runtime 并存，仍会 fail closed。
+- 同一 State Root 不支持同时启动两个不同端口的 dev server；并行验收必须复用已有服务，或为另一个进程配置隔离的 `NEURO_BOOK_STATE_ROOT`。修改脚本不会改变已经运行的 forked supervisor，必须完整停止并重新执行 `bun run dev`。
+- 开发命令源码合同测试锁定 `nuxt dev --no-fork` 只出现一次且位于脚本末尾。相关前端/命令聚焦组合 5 文件、32 项通过；根 typecheck 仍只被既有 llmlint fixture 26 项阻断。
+
 ## TODO / Follow-ups
 
 - [x] 用户已拍板 G1–G5 与 2026-07-23 整体审查收口，全部采用建议方案。
@@ -840,7 +976,26 @@ Phase 4B + Phase 7 的实测规模是 **187 个生产文件 + 101 个测试文�
 - [x] Phase 4A唯一Facade、最终DTO/schema、typed HTTP mapper与HMR稳定错误协议完成；公开Product按计划保持旧合同。
 - [x] 按六个内部切片完成Phase 5；全部Project数据面使用exact generation operation，公开Product合同未提前切换。
 - [x] Phase 6 迁移引擎收口：真实 499 份基线 dry-run、隔离副本 apply/rollback/resume 全量演练、篡改与竞争恢复用例、CLI 入口均已完成；38 份旧布局死 Session 已清理并留证。
-- [ ] Phase 6 剩余的 fail-closed gate 接线（启动期 gate、session 写入门禁、两把 lease 归一）已确认与 header 消费面原子耦合，随 Phase 4B + Phase 7 同批执行，不单独落地。
-- [ ] Phase 4B与Phase 7同批原子切换Project Product与Agent路径合同；届时先停 runtime 执行真实 apply，再启动新 runtime。
-- [ ] Phase 1–8均属于同一release train；Phase 8总门禁完成前当前分支不可发布。
-- [ ] 每个阶段完成后更新本 README 的实际结果与计划差异。
+- [x] Phase 6 fail-closed gate 已随 Application State catalog v3 原子接线：启动期 gate、Session Store 写入 capability 与 runtime/migration 单一 lease 均已落地。
+- [x] Phase 4B 与 Phase 7 已原子切换 Project Product、Session v2 与 Agent 路径合同；旧 identity 只保留在 migration-only decoder 与历史证据中。
+- [x] Phase 8 的 Task 118 本地总门禁已完成，证据见顶部 2026-07-28 hard cut 结果。仓库能否发布仍取决于 Task 130 clean A/B Product、仓库外 smoke、根 typecheck 与人工验收，不能把本项勾选解释成已满足 minor 发布条件。
+- [x] 各阶段实际结果与计划差异已回写本 README；旧计划快照明确标为历史。
+
+### 2026-07-31 Project Catalog 发布者与删除事务收口
+
+- `useNovelIdeStore` 现在保存完整 readonly Catalog snapshot，`novels` 只是只读 computed；snapshot、数组和每个扁平 metadata 对象都会冻结。GET 使用进程内 generation 与同 generation single-flight；mutation 前后失效旧 generation，迟到 GET 无论成功或失败都会追读当前 generation。完整 snapshot 始终可以整体替换本地状态，即使服务重启后 revision 变小也不会被误判为旧数据。
+- create、delete、cover mutation 全部由 Store 执行，成功后始终回读服务端完整 Catalog，不再维护客户端增量排序或 revision 分支。删除在服务端明确提交后先清理本地 workspace session；任意 mutation 已明确提交但完整刷新失败时，统一抛带 `committed: true` 的内部错误，供界面刷新事实而不是重放请求。
+- 主 IDE 深链直接调用 ProjectSession open，成功后立即加载 Project Workspace 文件树与标签；Catalog 只做后台 best-effort 刷新，慢请求或失败不会阻塞、撤销 ready Project。`currentWorkspaceRoot` 直接由 ready 流程提交的 `currentProjectRoot` 投影，顶栏在 metadata 缺失时回退显示 root。
+- `DELETE /api/projects/item` 已收口为 `agent-active guard -> closeProject -> Lifecycle deleteProject -> best-effort archiveSessionsByProjectRoot`。正常响应恢复为 `{revision, projectRoot}`；只有 Lifecycle 明确 `committed: true` 时错误路径才归档 Session，`false/unknown` 不归档。旧的重复目录删除 Module 与测试已删除。
+- 回归覆盖 single-flight、失效 GET 成功/失败追读、create/delete/cover 每次权威回读、并发 mutation 乱序、服务重启 revision 回退、三种 mutation 提交后刷新失败、direct-open、删除顺序与归档差异。本轮最终一次性回归 13 files / 77 tests 通过；100 次列表门禁继续不启动 Project 数据面。
+- 复杂度取舍：迟到旧 GET 若在当前 generation 的 single-flight 已结算后才返回，会再执行一次轻量 Catalog GET。这是有界的本地控制面读取，换取不在客户端复制排序、revision 和重启规则，当前规模下优先保证正确性。
+- 根 typecheck 未通过，但本轮测试 fixture 的 callback 类型错误已修复；第二次检查零命中本轮文件，剩余输出来自未修改的 Profile SDK、Session migration 与 llmlint 在途改动。
+
+### 2026-07-31 Project Settings 与 Preview 创建链收口
+
+- `NovelIdeSettingsDialog` 已真正落实“Settings 只编辑 Current Project”：删除打开 Dialog 时的 Catalog GET、Project selector、目标 Project 状态和 Catalog watcher。Project scope 只从 `currentProjectRoot` 构造请求；标题 metadata 不可用时显示 root，关闭 Project 或进入 user-assets 时立即回退 Global scope。
+- Config HTTP 与 `requireActiveReadyProject()` 门禁没有放宽。编辑另一 Project 的配置必须先在主 IDE 打开它，因此界面不再提供必然得到 `PROJECT_NOT_OPEN` 的无效入口。
+- World Engine Preview 的创建链抽成页面专用 utility：每个动作最多一次 POST；普通失败不读 Catalog；成功、结构化 committed 或 transport unknown 只刷新一次事实。恢复入口的类型不接受 POST，重试无法自动重放 mutation。
+- Preview 行为测试覆盖普通失败零刷新、成功后 Catalog 失败保留已知 root、unknown 不猜 root、恢复刷新失败保留原记录、activation false 仍视为已提交。SFC 测试只锁页面接线，不再把源码顺序当状态行为证据。
+- 最终合并回归为 13 files / 77 tests；其中包含 Config `PROJECT_NOT_OPEN`、Catalog Store、Picker create/delete/cover recovery、route transition、ProjectSession、删除编排和连续 100 次列表门禁。根 typecheck 零命中本轮文件，仍被未修改的 Skill `commander` 声明、Session migration 与 llmlint fixture 错误阻断。
+- 按仓库规则未自动执行浏览器验证；Current Project Settings 与 Preview 的 Catalog/activation/transport unknown 人工验收仍保留。

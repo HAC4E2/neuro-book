@@ -88,6 +88,7 @@ describe("llmlint", () => {
                 "vocabulary.r18": {enabled: false},
             },
             rules: {},
+            ignoreTerms: [],
             output: "stylish",
         });
 
@@ -113,6 +114,7 @@ describe("llmlint", () => {
             rulesetOverrides: {},
             namespaces: {},
             rules: {},
+            ignoreTerms: [],
             output: "stylish",
         });
 
@@ -222,6 +224,7 @@ describe("llmlint", () => {
             },
             namespaces: {},
             rules: {},
+            ignoreTerms: [],
             output: "stylish",
         });
         const issues = scanText("旧词 覆盖词", loadedRules.regexRules);
@@ -253,6 +256,7 @@ describe("llmlint", () => {
             rules: {
                 "test.explicit.rule": {enabled: true, level: "high"},
             },
+            ignoreTerms: [],
             output: "stylish",
         });
         const issues = scanText("规则词 语气词 关闭词", loadedRules.regexRules);
@@ -336,7 +340,7 @@ describe("llmlint", () => {
         expect(output).toContain("1:32-35  这是一个很长的完整行，前面有足够多的上下文用于验证不会被截断，<mark>高风险词</mark>后面也应该保留完整上下文。");
     });
 
-    it("handler rule 第一版会跳过并产生 warning", async () => {
+    it("未知 builtin handler 会跳过并产生 warning", async () => {
         const rulesetId = `test/${randomUUID()}`;
         tempRoots.push(join(RULESETS_ROOT, "test"));
         await writeRuleset(rulesetId, [{
@@ -344,14 +348,15 @@ describe("llmlint", () => {
             namespace: "test.handler",
             title: "handler",
             level: "medium",
-            handler: {type: "module", path: "handler.ts"},
+            handler: {type: "builtin", name: "test.unknown-handler"},
+            action: {type: "suggest", message: "未知 handler"},
         }]);
 
         const loadedRules = await loadRules(emptyConfig([rulesetId]));
 
         expect(loadedRules.rules).toHaveLength(0);
         expect(loadedRules.diagnostics).toEqual(expect.arrayContaining([
-            expect.objectContaining({code: "handler-not-implemented", ruleId: "test.handler"}),
+            expect.objectContaining({code: "unknown-handler-name", ruleId: "test.handler"}),
         ]));
     });
 
@@ -636,6 +641,7 @@ describe("llmlint", () => {
             rulesetOverrides: {},
             namespaces: {"test.review": {review: "human"}},
             rules: {"test.review.a": {review: "none"}},
+            ignoreTerms: [],
             output: "stylish",
         });
         const byId = new Map(loadedRules.rules.map((rule) => [rule.id, rule]));
@@ -671,7 +677,7 @@ describe("llmlint", () => {
         expect(humanOutput).not.toContain("test.review.agent");
     });
 
-    it("JSON check filter 暴露 review 过滤与隐藏统计，issues[].rule 带 review/fixability", async () => {
+    it("JSON check filter 暴露 review 过滤与隐藏统计，rules 字典带 review/fixability", async () => {
         const rulesetId = `test/${randomUUID()}`;
         const root = await mkdtemp(join(tmpdir(), "llmlint-review-json-"));
         tempRoots.push(root, join(RULESETS_ROOT, "test"));
@@ -688,11 +694,14 @@ describe("llmlint", () => {
         await runCli(["bun", "llmlint", "--config", configPath, "check", textPath]);
         const report = JSON.parse(String(log.mock.calls[0]?.[0])) as {
             filter: {review: string; hiddenByReview: number; minLevel: string; hiddenByLevel: number};
-            issues: Array<{rule: {review: string; fixability: string}}>;
+            rules: Record<string, {review: string; fixability: string}>;
+            issues: Array<{ruleId: string}>;
         };
         expect(report.filter).toMatchObject({review: "agent", hiddenByReview: 1, minLevel: "low", hiddenByLevel: 0});
         expect(report.issues).toHaveLength(1);
-        expect(report.issues[0]?.rule).toMatchObject({review: "agent", fixability: "manual"});
+        const ruleId = report.issues[0]?.ruleId;
+        expect(ruleId).toBeDefined();
+        expect(ruleId ? report.rules[ruleId] : undefined).toMatchObject({review: "agent", fixability: "manual"});
     });
 
     it("config review 非法值返回明确 schema 错误", async () => {
@@ -720,6 +729,7 @@ describe("llmlint", () => {
             rulesetOverrides: {},
             namespaces: {},
             rules: {"test.enable.obj": {enabled: true, level: "high", review: "human"}},
+            ignoreTerms: [],
             output: "stylish",
         });
         const rule = loadedRules.rules.find((item) => item.id === "test.enable.obj");
@@ -739,6 +749,7 @@ describe("llmlint", () => {
             rulesetOverrides: {[rulesetId]: "off"},
             namespaces: {"test.resurrect": {review: "human"}},
             rules: {},
+            ignoreTerms: [],
             output: "stylish",
         });
         expect(attrOnly.rules.some((rule) => rule.id === "test.resurrect.rule")).toBe(false);
@@ -749,6 +760,7 @@ describe("llmlint", () => {
             rulesetOverrides: {[rulesetId]: "off"},
             namespaces: {"test.resurrect": {enabled: true, review: "human"}},
             rules: {},
+            ignoreTerms: [],
             output: "stylish",
         });
         expect(withEnable.rules.some((rule) => rule.id === "test.resurrect.rule")).toBe(true);
@@ -818,7 +830,7 @@ describe("llmlint", () => {
         const textPath = join(root, "input.md");
         await writeFile(textPath, "其实甲。", "utf-8");
         const configPath = join(root, "llmlint.config.ts");
-        await writeFile(configPath, `export default {rulesets:["builtin/default"], output:"json"};\n`, "utf-8");
+        await writeFile(configPath, `export default {rulesets:["builtin/default"], rules:{"filler-word-actually":{enabled:true}}, output:"json"};\n`, "utf-8");
         const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
         await runCli(["bun", "llmlint", "--config", configPath, "check", textPath, "--review", "all"]);
@@ -834,7 +846,7 @@ describe("llmlint", () => {
         await mkdir(join(root, "sub"), {recursive: true});
         await writeFile(join(root, "sub", "b.md"), "其实乙。", "utf-8");
         const configPath = join(root, "llmlint.config.ts");
-        await writeFile(configPath, `export default {rulesets:["builtin/default"], output:"json"};\n`, "utf-8");
+        await writeFile(configPath, `export default {rulesets:["builtin/default"], rules:{"filler-word-actually":{enabled:true}}, output:"json"};\n`, "utf-8");
         const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
         await runCli(["bun", "llmlint", "--config", configPath, "check", root, "--review", "all"]);
@@ -850,7 +862,7 @@ describe("llmlint", () => {
         const textPath = join(root, "input.md");
         await writeFile(textPath, "正文。\n\n```\n其实代码\n```\n", "utf-8");
         const configPath = join(root, "llmlint.config.ts");
-        await writeFile(configPath, `export default {rulesets:["builtin/default"]};\n`, "utf-8");
+        await writeFile(configPath, `export default {rulesets:["builtin/default"], rules:{"filler-word-actually":{enabled:true}}};\n`, "utf-8");
         const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
         await runCli(["bun", "llmlint", "--config", configPath, "check", textPath, "--review", "all"]);
@@ -884,7 +896,7 @@ describe("llmlint", () => {
         expect(String(log.mock.calls[0]?.[0])).toContain("dry-run");
     });
 
-    it("fix --write 落盘：删零宽、连续符号去重，退出码不为 1", async () => {
+    it("fix --write 落盘：删零宽但保留需人工判断的连续符号", async () => {
         const root = await mkdtemp(join(tmpdir(), "llmlint-fix-write-"));
         tempRoots.push(root);
         const filePath = join(root, "doc.md");
@@ -894,22 +906,23 @@ describe("llmlint", () => {
 
         await runCli(["bun", "llmlint", "fix", filePath, "--write"]);
 
-        expect(await readFile(filePath, "utf-8")).toBe("正文有零宽。\n\n真的？\n");
+        expect(await readFile(filePath, "utf-8")).toBe("正文有零宽。\n\n真的？？？\n");
         expect(process.exitCode).not.toBe(1);
     });
 
-    it("fix 尊重 Markdown 遮罩：代码块内连续符号不被修复", async () => {
+    it("fix 尊重 Markdown 遮罩：代码块内零宽字符不被修复", async () => {
         const root = await mkdtemp(join(tmpdir(), "llmlint-fix-mask-"));
         tempRoots.push(root);
         const filePath = join(root, "doc.md");
-        await writeFile(filePath, "真的？？？\n\n```\n代码？？？保留\n```\n", "utf-8");
+        const zwsp = String.fromCharCode(0x200B);
+        await writeFile(filePath, `正文${zwsp}删除\n\n\`\`\`\n代码${zwsp}保留\n\`\`\`\n`, "utf-8");
         vi.spyOn(console, "log").mockImplementation(() => undefined);
 
         await runCli(["bun", "llmlint", "fix", filePath, "--write"]);
         const fixed = await readFile(filePath, "utf-8");
 
-        expect(fixed).toContain("真的？\n");
-        expect(fixed).toContain("代码？？？保留");
+        expect(fixed).toContain("正文删除\n");
+        expect(fixed).toContain(`代码${zwsp}保留`);
     });
 
     it("fix 不自动应用 candidate 规则（filler 其实 不被删）", async () => {
@@ -928,7 +941,7 @@ describe("llmlint", () => {
         const root = await mkdtemp(join(tmpdir(), "llmlint-fix-json-"));
         tempRoots.push(root);
         const filePath = join(root, "doc.md");
-        await writeFile(filePath, "真的？？？\n", "utf-8");
+        await writeFile(filePath, `正文${String.fromCharCode(0x200B)}有零宽。\n`, "utf-8");
         const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
         await runCli(["bun", "llmlint", "fix", filePath, "--format", "json"]);
@@ -991,6 +1004,7 @@ function emptyConfig(rulesets: string[]) {
         rulesetOverrides: {},
         namespaces: {},
         rules: {},
+        ignoreTerms: [],
         output: "stylish" as const,
     };
 }

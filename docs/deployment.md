@@ -258,19 +258,21 @@ neuro-book-windows-x64.zip
 ghcr.io/notnotype/neuro-book:<tag>
 ```
 
-Release Manifest v3记录应用版本、Git revision、channel、最低Manager版本、五平台资产URL/SHA256、Windows Portable资产以及GHCR digest。五个平台必须完整且唯一，资产名必须匹配平台；Product打包命令还会拒绝把当前宿主`.output`交叉标记为其他平台。Resolver先读取稳定envelope并提示升级Manager，再严格解析平台payload。Installation Manifest v4与Operation Journal v3是硬切协议，旧Installation不自动迁移。官方release CLI会在创建GitHub Release前验证本地Manager与npm同版本公开bundle；Release workflow也在任何Source/Product/GHCR构建或推送前执行同一门禁。
+Release Manifest v5记录统一build ID、应用版本、Git revision、channel、最低Manager版本、五平台资产URL/SHA256、Windows Portable资产、GHCR digest与Application State迁移声明。五个平台必须完整且唯一，Source、Product、Portable和Installation必须属于同一build ID；Product打包命令还会拒绝把当前宿主`.output`交叉标记为其他平台。Resolver先读取稳定envelope并提示升级Manager，再严格解析平台payload。Installation Manifest v5与Operation Journal v5是硬切协议，旧Installation不自动迁移。
 
-### v3实例迁移到v4
+官方release CLI先验证本地Manager与npm同版本公开bundle，再创建只读身份明确的Draft Candidate。workflow只从输入的release ID与revision构建；Source、五平台Product、Portable、公开下载、原生依赖、浏览器、Docker、rootless Podman与Windows数据复用全部通过后才公开Release，随后由独立job激活同一GHCR digest的版本别名。Candidate失败只保留Draft和候选OCI引用，不产生公开Release或正式OCI tag。
+
+### v3/v4实例迁移到v5
 
 - 先停止实例并备份完整State Root。Windows Portable必须备份完整`data/`。
 - 在新的Installation Root重新安装相同Profile，只复用State Root；不要复制旧`.deploy`、`.runtime`、`.output`、generated Compose或wrapper。
 - Portable曾使用绝对`DATABASE_URL`临时修复登录时，迁移后恢复`file:./workspace/.nbook/neuro-book.sqlite`。
-- 未完成的Operation Journal v1/v2需要人工核对Manifest、Product、Git、Compose和SQLite；v3 Manager不会自动转换或忽略。
+- 旧`.deploy/installation.json`和未完成Operation不能复制到新安装。先在旧位置完成或人工核对Product、Git、Compose和SQLite状态，再只复用完整State Root。
 - 旧Agent Session包含完整Pi Model且无法证明Provider Config ID时，按[0.8.9 的迁移说明](./changelog/v0.8#session-model-refs)使用逐entry mapping维护命令。
 
 ## 验收建议
 
-Release/PR workflow会对原生Product执行Manager、Stage 0、native package、HTTP与浏览器smoke。最终Release索引还必须等待公开Linux x64 Docker、Linux ARM64 Docker、Linux x64 rootless Podman和Windows Portable数据复用门禁；GHCR链覆盖migration、管理员、登录、restart、doctor与Operation恢复。仍建议人工验证首次启动、登录、创建项目、更新提示和更新后数据保留。
+Release/PR workflow会对原生Product执行Manager、Stage 0、native package、HTTP与浏览器smoke。最终Release索引还必须等待公开Linux x64 Docker、Linux ARM64 Docker、Linux x64 rootless Podman、Windows Portable数据复用和Windows自卸载门禁；GHCR链覆盖migration、管理员、登录、restart、doctor与Operation恢复。仍建议人工验证首次启动、登录、创建项目、更新提示和更新后数据保留。
 
 ::: warning 当前已知未验证 / 已知问题
 - **Apple Silicon 上的 Docker Desktop 与 rootless Podman 部署尚未实机验证**。

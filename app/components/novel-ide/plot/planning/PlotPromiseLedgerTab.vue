@@ -45,7 +45,7 @@ import type {
 } from "nbook/shared/dto/plot.dto";
 
 const props = defineProps<{
-    projectPath: string;
+    projectRoot: string;
     // 期限章下拉与章名显示。
     chapters: PlotThreadPanelChapter[];
     // 节拍对话框场景选择器的分组语义(线名)。
@@ -146,14 +146,14 @@ const editingPromise = ref<StoryPromiseDetailDto | null>(null);
  * selectId 非空时优先选中该承诺(跳转聚焦用),否则保持当前选中并刷新其详情,无选中时默认取可见首行。
  */
 async function loadPromises(selectId?: string): Promise<void> {
-    if (!props.projectPath) {
+    if (!props.projectRoot) {
         return;
     }
     const requestVersion = ++listRequestVersion;
     listLoading.value = true;
     listError.value = "";
     try {
-        const response = await listStoryPromises(props.projectPath);
+        const response = await listStoryPromises(props.projectRoot);
         if (requestVersion !== listRequestVersion) {
             return;
         }
@@ -214,7 +214,7 @@ async function loadDetail(promiseId: string): Promise<void> {
     detailLoading.value = true;
     detailError.value = "";
     try {
-        const response = await getStoryPromiseDetail(props.projectPath, promiseId);
+        const response = await getStoryPromiseDetail(props.projectRoot, promiseId);
         if (requestVersion !== detailRequestVersion) {
             return;
         }
@@ -290,8 +290,8 @@ async function saveEditor(payload: PlotPromiseEditorSave): Promise<void> {
     };
     try {
         const saved = editorMode.value === "create"
-            ? await createStoryPromise(props.projectPath, body)
-            : await updateStoryPromise(props.projectPath, editingId ?? "", body);
+            ? await createStoryPromise(props.projectRoot, body)
+            : await updateStoryPromise(props.projectRoot, editingId ?? "", body);
         applyDetail(saved);
         editorVisible.value = false;
         emit("mutated", {});
@@ -327,7 +327,7 @@ async function changeStatus(nextStatus: StoryPromiseStatusDto): Promise<void> {
         return;
     }
     try {
-        applyDetail(await updateStoryPromise(props.projectPath, current.id, {status: nextStatus}));
+        applyDetail(await updateStoryPromise(props.projectRoot, current.id, {status: nextStatus}));
         emit("mutated", {});
     } catch (error) {
         notification.error(resolveApiErrorMessage(error, `${text.verb}承诺失败`));
@@ -354,7 +354,7 @@ async function deletePromise(): Promise<void> {
         return;
     }
     try {
-        await deleteStoryPromise(props.projectPath, current.id);
+        await deleteStoryPromise(props.projectRoot, current.id);
         promises.value = promises.value.filter((item) => item.id !== current.id);
         selectedPromiseId.value = null;
         detail.value = null;
@@ -391,7 +391,7 @@ async function saveBeat(payload: PlotPromiseBeatSave): Promise<void> {
     beatError.value = "";
     try {
         const wasFulfilled = current.status === "fulfilled";
-        const saved = await setPromiseBeat(props.projectPath, current.id, {
+        const saved = await setPromiseBeat(props.projectRoot, current.id, {
             sceneId: payload.sceneId,
             kind: payload.kind,
             note: payload.note,
@@ -432,7 +432,7 @@ async function removeBeat(sceneId: string): Promise<void> {
         return;
     }
     try {
-        applyDetail(await removePromiseBeat(props.projectPath, current.id, sceneId));
+        applyDetail(await removePromiseBeat(props.projectRoot, current.id, sceneId));
         emit("mutated", {sceneIds: [sceneId]});
     } catch (error) {
         notification.error(resolveApiErrorMessage(error, "删除节拍失败"));

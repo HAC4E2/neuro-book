@@ -22,7 +22,6 @@ import {
     type ProjectModule,
     type ProjectModuleHandle,
 } from "nbook/server/workspace-files/project-module";
-import {projectPathFromRef} from "nbook/server/workspace-files/project-path";
 import {
     plainFileIndexKey,
     projectFileIndexKey,
@@ -284,7 +283,7 @@ export class ProjectFileIndexAdapter {
         const target: Extract<WorkspaceFileTarget, {kind: "project-workspace"}> = Object.freeze({
             kind: "project-workspace",
             root: input.workspace.root,
-            projectPath: projectPathFromRef(input.workspace.ref),
+            projectRoot: input.workspace.ref.projectRoot,
         });
         const key: FileIndexCacheKey = Object.freeze({
             identity: projectFileIndexKey(input.workspace.key),

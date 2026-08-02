@@ -1,5 +1,5 @@
 import type {JsonValue} from "nbook/server/agent/messages/types";
-import type {AgentJobStatus} from "nbook/server/agent/jobs/agent-job-manager";
+import type {AgentJobEventCursor, AgentJobStatus} from "nbook/shared/dto/agent-job.dto";
 import type {RunStatus} from "nbook/server/vendor/nb-workflow/index";
 
 /** run_workflow 工具参数的前端展示模型。 */
@@ -58,6 +58,7 @@ export type RunWorkflowToolStatus = RunStatus | "started";
 export type RunWorkflowDetails = {
     runId: string;
     jobId?: string;
+    jobEventCursor?: AgentJobEventCursor;
     workflowKey?: string;
     status?: RunWorkflowToolStatus;
     background?: boolean;
@@ -100,17 +101,15 @@ export function isAgentJobTerminalStatus(status: AgentJobStatus | undefined): bo
 /**
  * 判断是否继续读取 Run 快照。
  * Job 与 Run 的观察请求可能先后返回；即使先看到 Job cancelled，也必须读取到 Run 自身终态。
- * 只有 Run 终态、Run 不可查询或 Job 明确 interrupted 才停止观察。
+ * 只有 Run 终态或 Run 不可查询才停止观察；Job 只负责取消和启动阶段提示。
  */
 export function shouldPollWorkflowRun(input: {
     hasBackgroundJob: boolean;
     detailsStatus?: RunWorkflowToolStatus;
-    jobStatus?: AgentJobStatus;
-    jobUnavailable?: boolean;
     runStatus?: RunStatus;
     runUnavailable?: boolean;
 }): boolean {
-    if (input.runUnavailable || input.jobUnavailable || input.jobStatus === "interrupted") return false;
+    if (input.runUnavailable) return false;
     if (isWorkflowTerminalStatus(input.runStatus)) return false;
     if (!input.hasBackgroundJob && isWorkflowTerminalStatus(input.detailsStatus)) return false;
     return true;
@@ -122,9 +121,8 @@ export function shouldPollWorkflowRun(input: {
  */
 export function resolveWorkflowBubbleStatus(input: WorkflowBubbleStatusInput): WorkflowBubbleStatus {
     if (input.pendingApproval) return "approval";
-    if (input.hasBackgroundJob && input.jobUnavailable) return "interrupted";
     if (input.hasBackgroundJob) {
-        if (input.jobStatus === "interrupted") return "interrupted";
+        if (input.runUnavailable) return "interrupted";
         if (input.runStatus) return input.runStatus;
         if (input.jobStatus) {
             if (isAgentJobTerminalStatus(input.jobStatus)) return input.jobStatus;
@@ -142,6 +140,17 @@ export function resolveWorkflowBubbleStatus(input: WorkflowBubbleStatusInput): W
     if (input.toolCallStatus === "error" || input.toolCallStatus === "invalid") return "failed";
     if (input.toolCallStatus === "running" || input.toolCallStatus === "streaming") return "starting";
     return "not_started";
+}
+
+/** Workflow 错误归属：Run 一旦可见便独占 Workflow 真相，Job 错误由 Job 区域单独展示。 */
+export function resolveWorkflowBubbleError(input: {
+    runObserved: boolean;
+    runError?: string | null;
+    detailsError?: string | null;
+    toolCallError?: string | null;
+}): string {
+    if (input.runObserved) return input.runError ?? "";
+    return input.detailsError ?? input.toolCallError ?? "";
 }
 
 /** workflow 气泡的轮询节奏：运行中快刷，等待用户时降频。 */
@@ -205,6 +214,7 @@ export function parseRunWorkflowDetails(value: JsonValue | undefined): RunWorkfl
     return {
         runId: value.runId,
         jobId: typeof value.jobId === "string" ? value.jobId : undefined,
+        jobEventCursor: parseJobEventCursor(value.jobEventCursor),
         workflowKey: typeof value.workflowKey === "string" ? value.workflowKey : undefined,
         status: typeof value.status === "string" && TOOL_STATUSES.has(value.status as RunWorkflowToolStatus)
             ? value.status as RunWorkflowToolStatus
@@ -221,6 +231,19 @@ export function parseRunWorkflowDetails(value: JsonValue | undefined): RunWorkfl
         sessions,
         usage: parseUsage(value.usage) ?? undefined,
     };
+}
+
+/** 解析后台任务创建游标；旧历史没有该字段时保持 undefined。 */
+function parseJobEventCursor(value: JsonValue | undefined): AgentJobEventCursor | undefined {
+    if (!isJsonObject(value)
+        || typeof value.eventEpoch !== "string"
+        || !value.eventEpoch
+        || typeof value.after !== "number"
+        || !Number.isInteger(value.after)
+        || value.after < 0) {
+        return undefined;
+    }
+    return {eventEpoch: value.eventEpoch, after: value.after};
 }
 
 /** JSON object 类型守卫。 */

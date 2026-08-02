@@ -1,11 +1,13 @@
-import {mkdir, mkdtemp, readFile, stat, writeFile} from "node:fs/promises";
+import {mkdir, mkdtemp, readFile, rename, stat, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 
+import {TEST_RUNTIME_IMAGE_IDENTITY} from "#manager/fixtures/runtime-image";
 import {removePath} from "#manager/files";
 import {commitOperation, createOperation, pathCreateEffect, pathRetireEffect, recoverInterruptedOperations, updateOperation} from "#manager/operation";
 import {currentProductPlatform} from "#manager/platform";
+import {INSTALLATION_SCOPED_ROOT_LOCATORS, PORTABLE_ROOT_LOCATORS} from "#manager/root-locators";
 import {parseOperationJournal} from "#manager/schema";
 import {sourceDockerImageName} from "#manager/source-docker-image";
 import type {InstallationManifest} from "#manager/types";
@@ -14,26 +16,45 @@ const docker = vi.hoisted(() => ({
     removeDeployment: vi.fn(),
     removeImage: vi.fn(),
     start: vi.fn(),
+    stopContainer: vi.fn(),
 }));
-const attachmentMigration = vi.hoisted(() => ({rollback: vi.fn()}));
+const applicationStateMigration = vi.hoisted(() => ({rollback: vi.fn()}));
 const git = vi.hoisted(() => ({revision: vi.fn(), removeMaterialized: vi.fn()}));
+const execution = vi.hoisted(() => ({verify: vi.fn()}));
 
 vi.mock("#manager/docker", () => ({
     removeDockerDeployment: docker.removeDeployment,
     removeDockerImage: docker.removeImage,
     startDocker: docker.start,
+    stopDockerContainer: docker.stopContainer,
 }));
 vi.mock("#manager/app-commands", () => ({
-    rollbackAttachmentMigration: attachmentMigration.rollback,
+    rollbackApplicationStateMigration: applicationStateMigration.rollback,
 }));
 vi.mock("#manager/git", () => ({
     repositoryRevision: git.revision,
     removeMaterializedRepository: git.removeMaterialized,
 }));
+vi.mock("#manager/application-execution", () => ({verifyApplicationExecution: execution.verify}));
 
 const roots: string[] = [];
 const JOURNAL_ROOT = join(tmpdir(), "neuro-book-operation-fixture");
 const OUTSIDE_ROOT = join(tmpdir(), "neuro-book-operation-outside");
+const CONTAINER_IMAGE_ID = `sha256:${"8".repeat(64)}`;
+
+beforeEach(() => {
+    execution.verify.mockResolvedValue({
+        kind: "container-product",
+        engine: "docker",
+        image: {
+            engine: "docker",
+            configuredImage: "neuro-book-source:test",
+            imageId: CONTAINER_IMAGE_ID,
+            profile: "source-docker",
+            revision: "a".repeat(40),
+        },
+    });
+});
 
 afterEach(async () => Promise.all(roots.splice(0).map((root) => removePath(root))));
 beforeEach(() => {
@@ -51,38 +72,33 @@ describe("Operation recovery", () => {
         expect(() => parseOperationJournal({...journal, effects: [{kind: "path-create", state: "planned", owner: "runtime", path: ".runtime//bun"}]}, "memory.json")).toThrow("非根目录项");
         expect(() => parseOperationJournal({
             ...journal,
-            attachmentMigration: {
-                runId: "operation-attachment",
-                state: "planned",
-                migratedSessions: 1,
-                sessions: attachmentSessions(1),
-            },
+            applicationStateMigration: {runId: "operation", state: "planned"},
         }, "memory.json")).toThrow("缺少nextManifest");
+        const containerJournal = {
+            ...journal,
+            containerEngine: "docker" as const,
+            previousManifest: dockerManifest(JOURNAL_ROOT),
+            nextManifest: dockerManifest(JOURNAL_ROOT),
+        };
+        expect(() => parseOperationJournal({...containerJournal, effects: [{kind: "candidate-container", state: "planned", owner: "application", stopped: false}]}, "memory.json")).not.toThrow();
+        expect(() => parseOperationJournal({...containerJournal, effects: [{kind: "candidate-container", state: "applied", owner: "application", stopped: false}]}, "memory.json")).toThrow("缺少容器ID");
+        expect(() => parseOperationJournal({...containerJournal, effects: [{kind: "candidate-container", state: "planned", owner: "application", stopped: true}]}, "memory.json")).toThrow("不能标记为已停止");
     });
 
-    it("分别校验backup、SQLite、Compose、wrapper和Attachment路径合同", () => {
+    it("分别校验backup、SQLite、Compose与wrapper路径合同", () => {
         const journal = {...operationJournal(), previousManifest: nativeManifest("1.0.0", "a".repeat(40))};
         const checkpoint = {busy: 0, log: 1, checkpointed: 1};
         expect(() => parseOperationJournal({...journal, backupRoot: OUTSIDE_ROOT}, "memory.json"))
             .toThrow("backupRoot越过允许根目录");
         expect(() => parseOperationJournal({...journal, effects: [{kind: "sqlite-backup", state: "planned", owner: "app-sqlite", configuredUrl: "file:./workspace/.nbook/neuro-book.sqlite", stateRoot: "workspace", hostPath: "workspace/.nbook/neuro-book.sqlite", backupPath: "C:/neuro-book/.deploy/backups/operation/database/app.sqlite", checkpoint}]}, "memory.json")).toThrow("绝对stateRoot/hostPath");
+        const stateRoot = join(JOURNAL_ROOT, "data");
         const externalDatabase = join(OUTSIDE_ROOT, "neuro-book.sqlite");
         const externalDatabaseUrl = `file:${externalDatabase.replaceAll("\\", "/")}`;
-        expect(() => parseOperationJournal({...journal, effects: [{kind: "sqlite-backup", state: "planned", owner: "app-sqlite", configuredUrl: externalDatabaseUrl, stateRoot: JOURNAL_ROOT, hostPath: externalDatabase, backupPath: join(OUTSIDE_ROOT, "app.sqlite"), checkpoint}]}, "memory.json")).toThrow("SQLite backup越过允许根目录");
+        expect(() => parseOperationJournal({...journal, effects: [{kind: "sqlite-backup", state: "planned", owner: "app-sqlite", configuredUrl: externalDatabaseUrl, stateRoot, hostPath: externalDatabase, backupPath: join(OUTSIDE_ROOT, "app.sqlite"), checkpoint}]}, "memory.json")).toThrow("SQLite backup越过允许根目录");
         expect(() => parseOperationJournal({...journal, containerEngine: "docker", effects: [{kind: "compose", state: "planned", owner: "compose", previousState: "stopped", stopped: false, previousCompose: join(OUTSIDE_ROOT, "compose.yml"), created: false}]}, "memory.json")).toThrow("previousCompose越过允许根目录");
         expect(() => parseOperationJournal({...journal, effects: [{kind: "wrapper-switch", state: "planned", owner: "wrapper", previousState: "present", backupPath: join(OUTSIDE_ROOT, "runtime-bin")}]}, "memory.json")).toThrow("wrapper backup越过允许根目录");
         expect(() => parseOperationJournal({...journal, effects: [{kind: "wrapper-switch", state: "planned", owner: "wrapper", previousState: "present"}]}, "memory.json")).toThrow("必须预先记录backupPath");
-        expect(() => parseOperationJournal({
-            ...journal,
-            nextManifest: nativeManifest("1.0.0", "a".repeat(40)),
-            attachmentMigration: {
-                runId: "operation-attachment",
-                state: "planned",
-                migratedSessions: 1,
-                sessions: [{...attachmentSessions(1)[0]!, sourcePath: "../sessions/1.jsonl"}],
-            },
-        }, "memory.json")).toThrow("非根目录项");
-        expect(() => parseOperationJournal({...journal, effects: [{kind: "sqlite-backup", state: "planned", owner: "app-sqlite", configuredUrl: externalDatabaseUrl, stateRoot: JOURNAL_ROOT, hostPath: externalDatabase, backupPath: join(JOURNAL_ROOT, ".deploy", "backups", "operation", "database", "app.sqlite"), checkpoint}]}, "memory.json")).not.toThrow();
+        expect(() => parseOperationJournal({...journal, effects: [{kind: "sqlite-backup", state: "planned", owner: "app-sqlite", configuredUrl: externalDatabaseUrl, stateRoot, hostPath: externalDatabase, backupPath: join(JOURNAL_ROOT, ".deploy", "backups", "operation", "database", "app.sqlite"), checkpoint}]}, "memory.json")).not.toThrow();
     });
 
     it("拒绝退役nextManifest仍引用的受管资产目录", () => {
@@ -194,12 +210,7 @@ describe("Operation recovery", () => {
         expect(await readFile(join(retired, "rg.exe"), "utf8")).toBe("old");
         await expect(stat(staging)).rejects.toMatchObject({code: "ENOENT"});
         await expect(stat(backup)).rejects.toMatchObject({code: "ENOENT"});
-        const saved = JSON.parse(await readFile(join(root, ".deploy", "operations", "rolled-back-retired.json"), "utf8")) as {
-            outcome: string;
-            effects: Array<{kind: string; state: string; path?: string}>;
-        };
-        expect(saved.outcome).toBe("rolled-back");
-        expect(saved.effects).toContainEqual(expect.objectContaining({kind: "path-retire", state: "planned", path: ".runtime/tools/rg/old"}));
+        await expect(stat(join(root, ".deploy", "operations", "rolled-back-retired.json"))).rejects.toMatchObject({code: "ENOENT"});
     });
 
     it("拒绝嵌套 Manifest 损坏的 journal", () => {
@@ -242,12 +253,11 @@ describe("Operation recovery", () => {
 
         await recoverInterruptedOperations(root);
 
-        const saved = JSON.parse(await readFile(join(root, ".deploy", "operations", "git-target.json"), "utf8")) as {phase: string; outcome: string};
-        expect(saved).toMatchObject({phase: "committed", outcome: "success"});
+        await expect(stat(join(root, ".deploy", "operations", "git-target.json"))).rejects.toMatchObject({code: "ENOENT"});
         expect(docker.removeDeployment).not.toHaveBeenCalled();
     });
 
-    it("commit point 前删除本次创建路径并保留 journal", async () => {
+    it("commit point 前删除本次创建路径并在恢复完成后删除 journal", async () => {
         const root = await mkdtemp(join(tmpdir(), "manager-operation-"));
         roots.push(root);
         const created = join(root, ".runtime", "tools", "demo", "temporary");
@@ -268,7 +278,7 @@ describe("Operation recovery", () => {
         await recoverInterruptedOperations(root);
 
         await expect(stat(created)).rejects.toMatchObject({code: "ENOENT"});
-        expect(await stat(join(root, ".deploy", "operations", "interrupted.json"))).toBeTruthy();
+        await expect(stat(join(root, ".deploy", "operations", "interrupted.json"))).rejects.toMatchObject({code: "ENOENT"});
     });
 
     it("validated阶段失败不会把尚未切换的旧Product当成新Product删除", async () => {
@@ -313,6 +323,53 @@ describe("Operation recovery", () => {
         await expect(stat(join(root, ".output"))).rejects.toMatchObject({code: "ENOENT"});
     });
 
+    it.each([
+        {checkpoint: "第一次 rename 后", targetCreated: false},
+        {checkpoint: "第二次 rename 后", targetCreated: true},
+    ])("Product $checkpoint 中断时先用 immutable runner 回滚 migration，再恢复旧 Product", async ({targetCreated}) => {
+        const root = await operationRoot();
+        const id = `product-rename-${targetCreated ? "second" : "first"}`;
+        const staging = join(root, ".deploy", "staging", id);
+        const migrationRoot = join(staging, "migration-runner");
+        const backup = join(root, ".deploy", "backups", id);
+        await mkdir(join(migrationRoot, ".output"), {recursive: true});
+        await mkdir(join(backup, "product", ".output"), {recursive: true});
+        await writeFile(join(migrationRoot, ".output", "runner.mjs"), "runner", "utf8");
+        await writeFile(join(backup, "product", ".output", "old.txt"), "old", "utf8");
+        if (targetCreated) {
+            await mkdir(join(root, ".output"), {recursive: true});
+            await writeFile(join(root, ".output", "new.txt"), "new", "utf8");
+        }
+        const previousManifest = nativeManifest("1.0.0", "a".repeat(40));
+        const nextManifest = nativeManifest("1.1.0", "b".repeat(40));
+        applicationStateMigration.rollback.mockImplementationOnce(async (_root, _manifest, _runId, _allowNotStarted, runnerRoot) => {
+            expect(runnerRoot).toBe(migrationRoot);
+            expect(await readFile(join(runnerRoot, ".output", "runner.mjs"), "utf8")).toBe("runner");
+        });
+        const journal = await createOperation({
+            id,
+            action: "update",
+            root,
+            containerEngine: null,
+            backupRoot: backup,
+            previousManifest,
+            nextManifest,
+            effects: [
+                pathCreateEffect(`.deploy/staging/${id}`, "applied"),
+                {kind: "component-switch", state: "planned", owner: "product"},
+            ],
+            migrationRoot,
+            applicationStateMigration: {runId: id, state: "applying"},
+        });
+        await updateOperation(journal, "switched");
+
+        await recoverInterruptedOperations(root);
+
+        expect(applicationStateMigration.rollback).toHaveBeenCalledWith(root, nextManifest, id, true, migrationRoot);
+        expect(await readFile(join(root, ".output", "old.txt"), "utf8")).toBe("old");
+        await expect(stat(staging)).rejects.toMatchObject({code: "ENOENT"});
+    });
+
     it("Fresh Git checkout只要开始物化就在失败恢复时按ownership清理", async () => {
         const root = await operationRoot();
         const journal = await createOperation({
@@ -329,8 +386,7 @@ describe("Operation recovery", () => {
         await recoverInterruptedOperations(root);
 
         expect(git.removeMaterialized).toHaveBeenCalledWith(root);
-        const saved = JSON.parse(await readFile(join(root, ".deploy", "operations", "fresh-checkout-intent.json"), "utf8")) as {outcome: string};
-        expect(saved.outcome).toBe("rolled-back");
+        await expect(stat(join(root, ".deploy", "operations", "fresh-checkout-intent.json"))).rejects.toMatchObject({code: "ENOENT"});
     });
 
     it("Fresh Docker失败时移除容器、Compose和本地镜像", async () => {
@@ -380,8 +436,7 @@ describe("Operation recovery", () => {
 
         expect(docker.removeImage).toHaveBeenCalledTimes(1);
         expect(docker.removeImage).toHaveBeenCalledWith("docker", root, previousImage);
-        const saved = JSON.parse(await readFile(join(root, ".deploy", "operations", "docker-image-retire.json"), "utf8")) as {effects: Array<{kind: string; previousImageRetired?: boolean}>};
-        expect(saved.effects).toContainEqual(expect.objectContaining({kind: "docker-image", previousImageRetired: true}));
+        await expect(stat(join(root, ".deploy", "operations", "docker-image-retire.json"))).rejects.toMatchObject({code: "ENOENT"});
     });
 
     it("Docker更新失败时恢复数据库、Compose并重启旧实例", async () => {
@@ -389,9 +444,10 @@ describe("Operation recovery", () => {
         const backup = join(root, ".deploy", "backups", "docker-update");
         const compose = join(root, ".deploy", "docker-compose.generated.yml");
         const previousCompose = join(backup, "docker-compose.generated.yml");
-        const database = join(root, "workspace", ".nbook", "neuro-book.sqlite");
+        const stateRoot = join(root, "data");
+        const database = join(stateRoot, "workspace", ".nbook", "neuro-book.sqlite");
         const databaseBackup = join(backup, "neuro-book.sqlite");
-        await mkdir(join(root, "workspace", ".nbook"), {recursive: true});
+        await mkdir(join(stateRoot, "workspace", ".nbook"), {recursive: true});
         await mkdir(backup, {recursive: true});
         await writeFile(compose, "image: new", "utf8");
         await writeFile(previousCompose, "image: old", "utf8");
@@ -409,7 +465,7 @@ describe("Operation recovery", () => {
             nextManifest: {...previousManifest, appVersion: "1.0.1", updatedAt: "2026-07-13T00:00:00.000Z"},
             effects: [
                 {kind: "compose", state: "applied", owner: "compose", previousState: "running", stopped: true, previousCompose, created: false},
-                {kind: "sqlite-backup", state: "applied", owner: "app-sqlite", configuredUrl: "file:./workspace/.nbook/neuro-book.sqlite", stateRoot: root, hostPath: database, backupPath: databaseBackup, checkpoint: {busy: 0, log: 0, checkpointed: 0}},
+                {kind: "sqlite-backup", state: "applied", owner: "app-sqlite", configuredUrl: "file:./workspace/.nbook/neuro-book.sqlite", stateRoot, hostPath: database, backupPath: databaseBackup, checkpoint: {busy: 0, log: 0, checkpointed: 0}},
             ],
         });
         await updateOperation(journal, "migrated");
@@ -420,10 +476,16 @@ describe("Operation recovery", () => {
         expect(await readFile(database, "utf8")).toBe("old");
         await expect(stat(`${database}-wal`)).rejects.toMatchObject({code: "ENOENT"});
         expect(await readFile(compose, "utf8")).toBe("image: old");
-        expect(docker.start).toHaveBeenCalledWith("docker", root, root, "source-docker", "1.0.0");
+        expect(docker.start).toHaveBeenCalledWith(
+            expect.objectContaining({engine: "docker", imageId: CONTAINER_IMAGE_ID}),
+            root,
+            stateRoot,
+            "source-docker",
+            "1.0.0",
+        );
     });
 
-    it("先停止新Docker部署释放runtime lease，再回滚Attachment并恢复旧Compose", async () => {
+    it("先停止新Docker部署释放runtime lease，再回滚Application State并恢复旧Compose", async () => {
         const root = await operationRoot();
         const backup = join(root, ".deploy", "backups", "attachment-rollback");
         const compose = join(root, ".deploy", "docker-compose.generated.yml");
@@ -433,6 +495,7 @@ describe("Operation recovery", () => {
         await writeFile(previousCompose, "image: old", "utf8");
         const previousManifest = dockerManifest(root);
         const nextManifest = {...previousManifest, appVersion: "1.0.1", updatedAt: "2026-07-16T00:00:00.000Z"};
+        const candidateContainerId = "c".repeat(64);
         const journal = await createOperation({
             id: "attachment-rollback",
             action: "update",
@@ -441,61 +504,175 @@ describe("Operation recovery", () => {
             backupRoot: backup,
             previousManifest,
             nextManifest,
-            effects: [{kind: "compose", state: "applied", owner: "compose", previousState: "running", stopped: true, previousCompose, created: false}],
-            attachmentMigration: {
+            effects: [
+                {kind: "compose", state: "applied", owner: "compose", previousState: "running", stopped: true, previousCompose, created: false},
+                {kind: "candidate-container", state: "applied", owner: "application", containerId: candidateContainerId, stopped: false},
+            ],
+            applicationStateMigration: {
                 runId: "attachment-rollback-run",
                 state: "applied",
-                migratedSessions: 2,
-                sessions: attachmentSessions(2),
             },
         });
         await updateOperation(journal, "migrated");
 
         await recoverInterruptedOperations(root);
 
-        expect(attachmentMigration.rollback).toHaveBeenCalledWith(root, nextManifest, "attachment-rollback-run", false, root);
-        expect(docker.removeDeployment.mock.invocationCallOrder[0]).toBeLessThan(attachmentMigration.rollback.mock.invocationCallOrder[0]!);
-        const saved = JSON.parse(await readFile(join(root, ".deploy", "operations", "attachment-rollback.json"), "utf8")) as {
-            attachmentMigration: {state: string};
-            outcome: string;
-        };
-        expect(saved.attachmentMigration.state).toBe("rolled_back");
-        expect(saved.outcome).toBe("rolled-back");
+        expect(applicationStateMigration.rollback).toHaveBeenCalledWith(root, nextManifest, "attachment-rollback-run", false, root);
+        expect(docker.stopContainer).toHaveBeenCalledWith("docker", root, candidateContainerId);
+        expect(docker.stopContainer.mock.invocationCallOrder[0]).toBeLessThan(docker.removeDeployment.mock.invocationCallOrder[0]!);
+        expect(docker.removeDeployment.mock.invocationCallOrder[0]).toBeLessThan(applicationStateMigration.rollback.mock.invocationCallOrder[0]!);
+        await expect(stat(join(root, ".deploy", "operations", "attachment-rollback.json"))).rejects.toMatchObject({code: "ENOENT"});
     });
 
-    it("Attachment rollback失败时保持新部署停止并保留journal重试", async () => {
+    it("候选容器启动屏障缺少精确ID时拒绝回滚持久化状态", async () => {
         const root = await operationRoot();
         const manifest = dockerManifest(root);
+        const journal = await createOperation({
+            id: "candidate-identity-missing",
+            action: "start",
+            root,
+            containerEngine: "docker",
+            backupRoot: join(root, ".deploy", "backups", "candidate-identity-missing"),
+            previousManifest: manifest,
+            nextManifest: manifest,
+            effects: [{kind: "candidate-container", state: "planned", owner: "application", stopped: false}],
+            applicationStateMigration: {runId: "candidate-identity-missing", state: "applied"},
+        });
+        await updateOperation(journal, "migrated");
+
+        await expect(recoverInterruptedOperations(root)).rejects.toThrow("没有可验证的容器身份");
+
+        expect(docker.stopContainer).not.toHaveBeenCalled();
+        expect(docker.removeDeployment).not.toHaveBeenCalled();
+        expect(applicationStateMigration.rollback).not.toHaveBeenCalled();
+        const saved = JSON.parse(await readFile(join(root, ".deploy", "operations", "candidate-identity-missing.json"), "utf8")) as {outcome?: string};
+        expect(saved.outcome).toBeUndefined();
+    });
+
+    it.each([
+        {previousState: "stopped" as const, removed: false, restarted: false},
+        {previousState: "missing" as const, removed: true, restarted: false},
+        {previousState: "running" as const, removed: false, restarted: true},
+    ])("start恢复$previousState容器原状态", async ({previousState, removed, restarted}) => {
+        const root = await operationRoot();
+        const manifest = dockerManifest(root);
+        const compose = join(root, ".deploy", "docker-compose.generated.yml");
+        await writeFile(compose, "image: current", "utf8");
+        const journal = await createOperation({
+            id: `start-restore-${previousState}`,
+            action: "start",
+            root,
+            containerEngine: "docker",
+            backupRoot: join(root, ".deploy", "backups", `start-restore-${previousState}`),
+            previousManifest: manifest,
+            nextManifest: manifest,
+            effects: [{
+                kind: "compose",
+                state: "applied",
+                owner: "compose",
+                previousState,
+                stopped: previousState === "running",
+                created: false,
+                previousImage: "neuro-book-source:test",
+                targetImage: "neuro-book-source:test",
+            }],
+        });
+        await updateOperation(journal, "migrated");
+
+        await recoverInterruptedOperations(root);
+
+        expect(docker.removeDeployment).toHaveBeenCalledTimes(removed ? 1 : 0);
+        expect(docker.start).toHaveBeenCalledTimes(restarted ? 1 : 0);
+        if (restarted) {
+            expect(docker.start).toHaveBeenCalledWith(
+                expect.objectContaining({engine: "docker", imageId: CONTAINER_IMAGE_ID}),
+                root,
+                join(root, "data"),
+                "source-docker",
+                "1.0.0",
+            );
+        }
+        if (!removed) expect(await readFile(compose, "utf8")).toBe("image: current");
+        await expect(stat(join(root, ".deploy", "operations", `start-restore-${previousState}.json`)))
+            .rejects.toMatchObject({code: "ENOENT"});
+    });
+
+    it("migration-only update 的状态记录不会删除原有stopped容器", async () => {
+        const root = await operationRoot();
+        const manifest = dockerManifest(root);
+        const compose = join(root, ".deploy", "docker-compose.generated.yml");
+        await writeFile(compose, "image: current", "utf8");
+        const journal = await createOperation({
+            id: "migration-only-stopped",
+            action: "update",
+            root,
+            containerEngine: "docker",
+            backupRoot: join(root, ".deploy", "backups", "migration-only-stopped"),
+            previousManifest: manifest,
+            nextManifest: manifest,
+            effects: [{
+                kind: "compose",
+                state: "applied",
+                owner: "compose",
+                previousState: "stopped",
+                stopped: false,
+                created: false,
+                previousImage: "neuro-book-source:test",
+                targetImage: "neuro-book-source:test",
+            }],
+        });
+        await updateOperation(journal, "migrated");
+
+        await recoverInterruptedOperations(root);
+
+        expect(docker.removeDeployment).not.toHaveBeenCalled();
+        expect(docker.start).not.toHaveBeenCalled();
+        expect(await readFile(compose, "utf8")).toBe("image: current");
+    });
+
+    it("planned Application State 尚未执行时直接标记回滚，不调用 Product runner", async () => {
+        const root = await operationRoot();
+        const backup = join(root, ".deploy", "backups", "attachment-rollback-failure");
+        const previousCompose = join(backup, "docker-compose.generated.yml");
+        const previousManifest = dockerManifest(root);
+        const nextManifest = {
+            ...previousManifest,
+            appVersion: "1.0.1",
+            updatedAt: "2026-07-28T00:00:00.000Z",
+        };
+        await mkdir(backup, {recursive: true});
         await writeFile(join(root, ".deploy", "docker-compose.generated.yml"), "image: new", "utf8");
-        attachmentMigration.rollback.mockRejectedValueOnce(new Error("rollback interrupted"));
+        await writeFile(previousCompose, "image: old", "utf8");
         const journal = await createOperation({
             id: "attachment-rollback-failure",
             action: "update",
             root,
             containerEngine: "docker",
-            backupRoot: join(root, ".deploy", "backups", "attachment-rollback-failure"),
-            previousManifest: manifest,
-            nextManifest: manifest,
-            effects: [{kind: "compose", state: "applied", owner: "compose", previousState: "running", stopped: true, created: false}],
-            attachmentMigration: {
+            backupRoot: backup,
+            previousManifest,
+            nextManifest,
+            effects: [{
+                kind: "compose",
+                state: "applied",
+                owner: "compose",
+                previousState: "running",
+                stopped: true,
+                previousCompose,
+                created: false,
+            }],
+            applicationStateMigration: {
                 runId: "attachment-rollback-failure-run",
                 state: "planned",
-                migratedSessions: 1,
-                sessions: attachmentSessions(1),
             },
         });
         await updateOperation(journal, "switched");
 
-        await expect(recoverInterruptedOperations(root)).rejects.toThrow("rollback interrupted");
+        await recoverInterruptedOperations(root);
 
         expect(docker.removeDeployment).toHaveBeenCalledOnce();
-        expect(attachmentMigration.rollback).toHaveBeenCalledWith(root, manifest, "attachment-rollback-failure-run", true, root);
-        const saved = JSON.parse(await readFile(join(root, ".deploy", "operations", "attachment-rollback-failure.json"), "utf8")) as {
-            attachmentMigration: {state: string};
-            outcome?: string;
-        };
-        expect(saved.attachmentMigration.state).toBe("planned");
-        expect(saved.outcome).toBeUndefined();
+        expect(applicationStateMigration.rollback).not.toHaveBeenCalled();
+        await expect(stat(join(root, ".deploy", "operations", "attachment-rollback-failure.json")))
+            .rejects.toMatchObject({code: "ENOENT"});
     });
 
     it("镜像清理失败时仍完成其他回滚并记录人工清理信息", async () => {
@@ -518,6 +695,60 @@ describe("Operation recovery", () => {
         const saved = JSON.parse(await readFile(join(root, ".deploy", "operations", "image-cleanup.json"), "utf8")) as {outcome: string; effects: Array<{kind: string; cleanupError?: string}>};
         expect(saved.outcome).toBe("rolled-back");
         expect(saved.effects).toContainEqual(expect.objectContaining({kind: "docker-image", cleanupError: "image is in use"}));
+
+        await recoverInterruptedOperations(root);
+
+        expect(docker.removeImage).toHaveBeenCalledTimes(2);
+        await expect(stat(join(root, ".deploy", "operations", "image-cleanup.json")))
+            .rejects.toMatchObject({code: "ENOENT"});
+    });
+
+    it("Portable 在 committed 删除窗口移动后按新根完成无错误 cleanup", async () => {
+        const root = await operationRoot();
+        const moved = `${root}-moved`;
+        roots.push(moved);
+        const staging = join(root, ".deploy", "staging", "portable-move");
+        await mkdir(staging, {recursive: true});
+        const journal = await createOperation({
+            id: "portable-move",
+            action: "update",
+            root,
+            containerEngine: null,
+            backupRoot: join(root, ".deploy", "backups", "portable-move"),
+            previousManifest: portableManifest(),
+            nextManifest: portableManifest(),
+            effects: [pathCreateEffect(".deploy/staging/portable-move", "applied")],
+        });
+        await updateOperation(journal, "committed", {outcome: "success"});
+        await rename(root, moved);
+
+        await recoverInterruptedOperations(moved);
+
+        await expect(stat(join(moved, ".deploy", "staging", "portable-move"))).rejects.toMatchObject({code: "ENOENT"});
+        await expect(stat(join(moved, ".deploy", "operations", "portable-move.json"))).rejects.toMatchObject({code: "ENOENT"});
+    });
+
+    it("Portable 有 cleanup error 时必须移回原根，不能静默改写事务身份", async () => {
+        const root = await operationRoot();
+        const moved = `${root}-moved`;
+        roots.push(moved);
+        const journal = await createOperation({
+            id: "portable-move-blocked",
+            action: "update",
+            root,
+            containerEngine: null,
+            backupRoot: join(root, ".deploy", "backups", "portable-move-blocked"),
+            previousManifest: portableManifest(),
+            nextManifest: portableManifest(),
+            effects: [pathCreateEffect(".deploy/staging/portable-move-blocked", "applied")],
+        });
+        const effects = journal.effects.map((effect) => effect.kind === "path-create" && effect.owner === "staging"
+            ? {...effect, cleanupError: "file in use"}
+            : effect);
+        await updateOperation(journal, "committed", {outcome: "success", effects});
+        await rename(root, moved);
+
+        await expect(recoverInterruptedOperations(moved)).rejects.toThrow("必须移回原位置");
     });
 
     it("旧Docker实例重启失败时保留未完成journal供下次继续恢复", async () => {
@@ -560,17 +791,17 @@ async function operationRoot(): Promise<string> {
 function dockerManifest(root: string, image = "neuro-book-source:test"): InstallationManifest {
     const revision = "a".repeat(40);
     return {
-        schemaVersion: 4,
+        schemaVersion: 5,
         profile: "source-docker",
         containerEngine: "docker",
         managerVersion: "0.1.0",
         appVersion: "1.0.0",
         channel: "canary",
         sourceRevision: revision,
-        stateRoot: ".",
+        roots: INSTALLATION_SCOPED_ROOT_LOCATORS,
         components: {
             source: {provider: "git", version: "1.0.0", revision, path: ".", repository: "https://github.com/notnotype/neuro-book.git", branch: "master"},
-            product: {provider: "container", version: "1.0.0", revision, image},
+            product: {provider: "container", version: "1.0.0", revision, image, containerImageId: CONTAINER_IMAGE_ID},
             manager: {provider: "managed", version: "0.1.0", path: ".runtime/manager/0.1.0/neuro-book.mjs", bundleSha256: "a".repeat(64)},
             managerRuntime: {provider: "system", version: "1.3.0", executable: "bun"},
             applicationRuntime: {provider: "container", version: "1.0.0"},
@@ -583,17 +814,17 @@ function dockerManifest(root: string, image = "neuro-book-source:test"): Install
 
 function nativeManifest(version: string, revision: string): InstallationManifest {
     return {
-        schemaVersion: 4,
+        schemaVersion: 5,
         profile: "product-bun",
         containerEngine: null,
         managerVersion: "0.1.0",
         appVersion: version,
         channel: "canary",
         sourceRevision: revision,
-        stateRoot: ".",
+        roots: INSTALLATION_SCOPED_ROOT_LOCATORS,
         components: {
-            source: {provider: "release", version, revision, path: ".", files: ["package.json"], archiveSha256: "a".repeat(64), sourceUrl: "https://example.com/source.zip", license: "AGPL-3.0-only", redistribution: "test"},
-            product: {provider: "release", version, revision, path: ".output", platform: currentProductPlatform(), archiveSha256: "a".repeat(64), sourceUrl: "https://example.com/product.zip", license: "AGPL-3.0-only", redistribution: "test"},
+            source: {provider: "release", buildId: `sha256:${"9".repeat(64)}`, version, revision, path: ".", files: ["package.json"], archiveSha256: "a".repeat(64), sourceUrl: "https://example.com/source.zip", license: "AGPL-3.0-only", redistribution: "test"},
+            product: {provider: "release", buildId: `sha256:${"9".repeat(64)}`, version, revision, path: ".output", platform: currentProductPlatform(), archiveSha256: "a".repeat(64), sourceUrl: "https://example.com/product.zip", license: "AGPL-3.0-only", redistribution: "test", ...TEST_RUNTIME_IMAGE_IDENTITY},
             manager: {provider: "managed", version: "0.1.0", path: ".runtime/manager/0.1.0/neuro-book.mjs", bundleSha256: "a".repeat(64)},
             managerRuntime: {provider: "system", version: "1.3.0", executable: "bun"},
             applicationRuntime: {provider: "system", version: "1.3.0", executable: "bun"},
@@ -629,7 +860,7 @@ function nativeManifestWithManagedRg(version: string, revision: string): Install
 function operationJournal() {
     const now = "2026-07-12T00:00:00.000Z";
     return {
-        schemaVersion: 3 as const,
+        schemaVersion: 5 as const,
         id: "operation",
         action: "update" as const,
         phase: "planned" as const,
@@ -644,11 +875,33 @@ function operationJournal() {
     };
 }
 
-function attachmentSessions(count: number) {
-    return Array.from({length: count}, (_, index) => ({
-        sessionId: index + 1,
-        sourcePath: `.nbook/agent/sessions/${index + 1}.jsonl`,
-        sourceHash: "a".repeat(64),
-        targetHash: "b".repeat(64),
-    }));
+function portableManifest(): InstallationManifest {
+    const manifest = nativeManifest("1.0.0", "a".repeat(40));
+    const asset = {
+        archiveSha256: "a".repeat(64),
+        sourceUrl: "https://example.com/bun.zip",
+        license: "MIT",
+        redistribution: "test",
+    };
+    const runtime = {
+        provider: "managed" as const,
+        version: "1.3.0",
+        path: ".runtime/bun/1.3.0/bun.exe",
+        executableSha256: "b".repeat(64),
+        ...asset,
+    };
+    return {
+        ...manifest,
+        profile: "windows-portable",
+        roots: PORTABLE_ROOT_LOCATORS,
+        components: {
+            ...manifest.components,
+            managerRuntime: runtime,
+            applicationRuntime: runtime,
+            tools: {
+                rg: {provider: "managed", version: "14.1.1", path: ".runtime/tools/rg/14.1.1/rg.exe", executableSha256: "c".repeat(64), ...asset},
+                git: {provider: "managed", version: "2.49.0", path: ".runtime/tools/git/2.49.0/cmd/git.exe", bashPath: ".runtime/tools/git/2.49.0/bin/bash.exe", distribution: "PortableGit", gitSha256: "d".repeat(64), bashSha256: "e".repeat(64), ...asset},
+            },
+        },
+    };
 }

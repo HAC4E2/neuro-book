@@ -11,7 +11,7 @@ import {resetProjectSessionsForTest} from "nbook/server/workspace-files/project-
 import {writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {createIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/workspace-assets-test-helper";
-import {resolveProjectAbsolutePath} from "nbook/server/text-to-image/compat";
+import {resolveProjectAbsolutePath, textToImageProjectRef} from "nbook/server/text-to-image/compat";
 import {textToImageProjectClient} from "nbook/server/text-to-image/project-client";
 
 describe("VibeImportService", () => {
@@ -23,13 +23,13 @@ describe("VibeImportService", () => {
         resetProjectSessionsForTest();
         assets = await createIsolatedWorkspaceAssets();
         projectPath = `workspace/vibe-import-${randomUUID()}`;
-        await writeProjectManifest(resolveRuntimeWorkspaceRoot(), projectPath, {kind: "novel", title: "测试项目", summary: ""});
-        await openProjectForTest(projectPath);
+        await writeProjectManifest(resolveRuntimeWorkspaceRoot(), textToImageProjectRef(projectPath), {kind: "novel", title: "测试项目", summary: ""});
+        await openProjectForTest(textToImageProjectRef(projectPath).projectRoot);
         service = new VibeImportService();
     });
 
     afterEach(async () => {
-        await closeProjectForTest(projectPath).catch(() => undefined);
+        await closeProjectForTest(textToImageProjectRef(projectPath).projectRoot).catch(() => undefined);
         resetProjectSessionsForTest();
         await assets.dispose();
     });

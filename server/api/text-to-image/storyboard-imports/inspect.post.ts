@@ -8,7 +8,7 @@ import {
 import {throwStoryboardImportHttpError} from "nbook/server/text-to-image/storyboard-import-http-error";
 import {requireCurrentUser} from "nbook/server/utils/auth";
 import {validateBody} from "nbook/server/utils/novel-chapter";
-import {withProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
+import {withProjectHttpError} from "nbook/server/api/projects/project-http-error";
 
 const BodySchema = z.object({
     projectPath: z.string().trim().min(1).max(500),
@@ -16,7 +16,7 @@ const BodySchema = z.object({
 }).strict();
 
 /** strict inspect 并写入脱敏 archive；响应不返回原 entry content。 */
-export default defineEventHandler((event) => withProjectNotOpenHttpError(async () => {
+export default defineEventHandler((event) => withProjectHttpError(async () => {
     await requireCurrentUser(event);
     const body = await validateBody(event, BodySchema);
     try {

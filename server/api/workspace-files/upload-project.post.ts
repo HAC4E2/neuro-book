@@ -21,7 +21,7 @@ export default defineEventHandler(async (event) => {
     const parts = await readRequiredMultipart(event);
     const workspaceKind = readTextPart(parts, "workspaceKind") === "user-assets" ? "user-assets" : undefined;
     const target = await resolveWorkspaceFileTarget(runtimePathsFromEnv(), {
-        projectPath: readTextPart(parts, "projectPath"),
+        projectRoot: readTextPart(parts, "projectRoot"),
         workspaceKind,
     });
     const mode = readTextPart(parts, "mode");

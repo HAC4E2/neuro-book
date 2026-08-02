@@ -1,11 +1,12 @@
-import {mkdtemp, readFile, rm, stat, writeFile} from "node:fs/promises";
+import {chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 
 import {strToU8, zipSync} from "fflate";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {extractZip} from "#manager/download";
+import {extractTarGz, extractZip} from "#manager/download";
+import {run} from "#manager/process";
 
 const roots: string[] = [];
 
@@ -35,6 +36,35 @@ describe("Archive Extraction Adapter", () => {
 
         await expect(extractZip(archive, target)).rejects.toThrow("Installation Root");
         await expect(stat(join(root, "outside.txt"))).rejects.toMatchObject({code: "ENOENT"});
+    });
+
+    it("在Bun下解压超过fflate异步Worker阈值的高压缩条目", async () => {
+        const root = await fixtureRoot();
+        const archive = join(root, "large.zip");
+        const target = join(root, "target");
+        const expected = new Uint8Array(600 * 1024).fill(65);
+        await writeFile(archive, zipSync({"product/server/index.mjs": expected}));
+
+        await extractZip(archive, target);
+
+        expect(new Uint8Array(await readFile(join(target, "product", "server", "index.mjs"))))
+            .toEqual(expected);
+    });
+
+    it.runIf(process.platform !== "win32")("保留Product tar中的可执行权限", async () => {
+        const root = await fixtureRoot();
+        const source = join(root, "source");
+        const archive = join(root, "product.tar.gz");
+        const target = join(root, "target");
+        const runtime = join(source, "runtime.mjs");
+        await mkdir(source, {recursive: true});
+        await writeFile(runtime, "runtime");
+        await chmod(runtime, 0o764);
+        await run("tar", ["-czf", archive, "-C", source, "runtime.mjs"], {stdio: "ignore"});
+
+        await extractTarGz(archive, target);
+
+        expect((await stat(join(target, "runtime.mjs"))).mode & 0o777).toBe(0o764);
     });
 });
 

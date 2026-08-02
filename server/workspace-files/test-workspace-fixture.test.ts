@@ -3,23 +3,12 @@ import {tmpdir} from "node:os";
 import {basename, join, sep} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {
-    PROFILE_COMPILED_ARTIFACTS_DIR_NAME,
-    PROFILE_COMPILED_DIR_NAME,
-    PROFILE_COMPILED_MANIFEST_FILE,
-    PROFILE_COMPILED_PUBLISH_LOCK,
-    readProfileArtifactManifest,
-} from "nbook/server/agent/profiles/profile-artifact-compiler";
-import {resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
-import {
     createIsolatedWorkspaceAssets,
     FIXTURE_MARKER_FILE,
     FIXTURE_MARKER_SCHEMA_VERSION,
     FIXTURE_ROOT_PREFIX,
-    readCurrentArtifactNames,
     removeFixtureTree,
-    SHARED_SNAPSHOT_BYTE_BUDGET,
     sweepStaleFixtureRoots,
-    systemAssetsProjectionFilter,
     TEST_SYSTEM_ASSETS_SNAPSHOT_ENV,
     type TestWorkspaceFixtureMarker,
 } from "nbook/server/workspace-files/test-workspace-fixture";
@@ -127,49 +116,6 @@ describe("Test Workspace Fixture 所有权", () => {
             await expect(access(root)).resolves.toBeUndefined();
             expect(report.retained).toContainEqual({root, reason});
         }
-    });
-
-    it("system assets 投影只保留 manifest current refs，并排除 staging 与发布锁", async () => {
-        const systemNbookRoot = resolveSystemNbookRoot();
-        const profileRoot = join(systemNbookRoot, "agent", "profiles");
-        const kept = await readCurrentArtifactNames(profileRoot);
-        const manifest = await readProfileArtifactManifest(profileRoot);
-        expect(kept.size).toBe(manifest.profiles.length * 2);
-
-        const filter = systemAssetsProjectionFilter(systemNbookRoot, kept);
-        const artifactsDir = join(profileRoot, PROFILE_COMPILED_DIR_NAME, PROFILE_COMPILED_ARTIFACTS_DIR_NAME);
-        const onDisk = await readdir(artifactsDir);
-        const projected = onDisk.filter((name) => filter(join(artifactsDir, name)));
-
-        // 只有 current 引用能过滤器；orphan 一个都不进模板——这正是磁盘被乘法放大的根因。
-        expect(projected.sort()).toEqual([...kept].sort());
-        expect(filter(join(systemNbookRoot, "agent", ".staging", "profile-artifact-build"))).toBe(false);
-        expect(filter(join(profileRoot, PROFILE_COMPILED_DIR_NAME, PROFILE_COMPILED_PUBLISH_LOCK))).toBe(false);
-        expect(filter(join(systemNbookRoot, "agent", "skills", "llmlint", "node_modules"))).toBe(false);
-        // 源码、manifest 和 artifacts 目录本身必须放行，否则整棵子树会被剪掉。
-        expect(filter(join(profileRoot, "builtin"))).toBe(true);
-        expect(filter(join(profileRoot, PROFILE_COMPILED_DIR_NAME, PROFILE_COMPILED_MANIFEST_FILE))).toBe(true);
-        expect(filter(artifactsDir)).toBe(true);
-    });
-
-    it("投影后的 system assets 落在字节预算内", async () => {
-        const systemNbookRoot = resolveSystemNbookRoot();
-        const kept = await readCurrentArtifactNames(join(systemNbookRoot, "agent", "profiles"));
-        const filter = systemAssetsProjectionFilter(systemNbookRoot, kept);
-        // 只 stat 不复制：这里断言的是「投影计划」的体积，不额外产生磁盘开销。
-        const walk = async (dir: string): Promise<number> => {
-            let bytes = 0;
-            for (const entry of await readdir(dir, {withFileTypes: true})) {
-                const full = join(dir, entry.name);
-                if (!filter(full)) {
-                    continue;
-                }
-                bytes += entry.isDirectory() ? await walk(full) : (await stat(full)).size;
-            }
-            return bytes;
-        };
-
-        expect(await walk(systemNbookRoot)).toBeLessThan(SHARED_SNAPSHOT_BYTE_BUDGET);
     });
 
     it("fixture 会写出可供 sweep 判定的 owner marker", async () => {

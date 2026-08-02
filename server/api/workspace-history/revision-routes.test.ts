@@ -21,7 +21,7 @@ describe("workspace history revision routes", () => {
             beforeText: "old\n",
             afterText: "new\n",
         }));
-        mockGetQuery({projectPath: "workspace/book", path: "manuscript/a.md", revision: "7", mode: "inline"});
+        mockGetQuery({projectRoot: "book", path: "manuscript/a.md", revision: "7", mode: "inline"});
         const history = {inbox: vi.fn(async () => [group("manuscript/a.md", 7)]), textDiff};
         const dependencies = mockHistory(history);
 
@@ -31,13 +31,13 @@ describe("workspace history revision routes", () => {
         expect(dependencies.waitForWarmup.mock.invocationCallOrder[0])
             .toBeLessThan(history.inbox.mock.invocationCallOrder[0]!);
         expect(dependencies.requireProjectHandles).toHaveBeenCalledOnce();
-        expect(dependencies.requireProjectHandles).toHaveBeenCalledWith("workspace/book");
+        expect(dependencies.requireProjectHandles).toHaveBeenCalledWith("book");
         expect(textDiff).toHaveBeenCalledTimes(1);
     });
 
     it("diff revision 过期时返回 412，且不读取 snapshot 正文", async () => {
         const textDiff = vi.fn();
-        mockGetQuery({projectPath: "workspace/book", path: "manuscript/a.md", revision: "6", mode: "inline"});
+        mockGetQuery({projectRoot: "book", path: "manuscript/a.md", revision: "6", mode: "inline"});
         mockHistory({inbox: vi.fn(async () => [group("manuscript/a.md", 7)]), textDiff});
 
         const handler = (await import("nbook/server/api/workspace-history/diff.get")).default;
@@ -52,7 +52,7 @@ describe("workspace history revision routes", () => {
             revert: vi.fn(),
         };
         mockHistory(history);
-        vi.stubGlobal("readBody", vi.fn(async () => ({projectPath: "workspace/book", path: "manuscript/a.md", revision: 6})));
+        vi.stubGlobal("readBody", vi.fn(async () => ({projectRoot: "book", path: "manuscript/a.md", revision: 6})));
 
         const acceptHandler = (await import("nbook/server/api/workspace-history/accept.post")).default;
         await expect(acceptHandler({} as never)).rejects.toMatchObject({statusCode: 412});
@@ -61,7 +61,7 @@ describe("workspace history revision routes", () => {
         vi.resetModules();
         mockHistory(history);
         vi.stubGlobal("defineEventHandler", (handler: unknown) => handler);
-        vi.stubGlobal("readBody", vi.fn(async () => ({projectPath: "workspace/book", path: "manuscript/a.md", revision: 6})));
+        vi.stubGlobal("readBody", vi.fn(async () => ({projectRoot: "book", path: "manuscript/a.md", revision: 6})));
         const revertHandler = (await import("nbook/server/api/workspace-history/revert.post")).default;
         await expect(revertHandler({} as never)).rejects.toMatchObject({statusCode: 412});
         expect(history.revert).not.toHaveBeenCalled();
@@ -74,7 +74,7 @@ describe("workspace history revision routes", () => {
             revert: vi.fn(),
         };
         mockHistory(history);
-        vi.stubGlobal("readBody", vi.fn(async () => ({projectPath: "workspace/book", path: "manuscript/a.md", revision: 7})));
+        vi.stubGlobal("readBody", vi.fn(async () => ({projectRoot: "book", path: "manuscript/a.md", revision: 7})));
 
         const acceptHandler = (await import("nbook/server/api/workspace-history/accept.post")).default;
         await expect(acceptHandler({} as never)).resolves.toEqual({success: true});
@@ -83,7 +83,7 @@ describe("workspace history revision routes", () => {
         vi.resetModules();
         const revertMocks = mockHistory(history);
         vi.stubGlobal("defineEventHandler", (handler: unknown) => handler);
-        vi.stubGlobal("readBody", vi.fn(async () => ({projectPath: "workspace/book", path: "manuscript/a.md", revision: 7})));
+        vi.stubGlobal("readBody", vi.fn(async () => ({projectRoot: "book", path: "manuscript/a.md", revision: 7})));
         const revertHandler = (await import("nbook/server/api/workspace-history/revert.post")).default;
         await expect(revertHandler({} as never)).resolves.toEqual({success: true});
         expect(history.revert).toHaveBeenCalledWith("local", "manuscript/a.md");
@@ -96,7 +96,7 @@ describe("workspace history revision routes", () => {
             accept: vi.fn(),
         };
         mockHistory(history);
-        vi.stubGlobal("readBody", vi.fn(async () => ({projectPath: "workspace/book", revision: 7})));
+        vi.stubGlobal("readBody", vi.fn(async () => ({projectRoot: "book", revision: 7})));
 
         const handler = (await import("nbook/server/api/workspace-history/accept-all.post")).default;
         await expect(handler({} as never)).rejects.toMatchObject({statusCode: 412});
@@ -109,7 +109,7 @@ describe("workspace history revision routes", () => {
             accept: vi.fn(),
         };
         mockHistory(history);
-        vi.stubGlobal("readBody", vi.fn(async () => ({projectPath: "workspace/book", revision: 9})));
+        vi.stubGlobal("readBody", vi.fn(async () => ({projectRoot: "book", revision: 9})));
 
         const handler = (await import("nbook/server/api/workspace-history/accept-all.post")).default;
         await expect(handler({} as never)).resolves.toEqual({success: true, accepted: 2});

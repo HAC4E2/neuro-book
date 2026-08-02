@@ -4,7 +4,7 @@ import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import type {WorldSubjectDto} from "nbook/app/components/novel-ide/world-engine/world-engine-workbench.types";
 
 const props = defineProps<{
-    projectPath: string;
+    projectRoot: string;
     modelValue: string[];
 }>();
 
@@ -33,7 +33,7 @@ const filteredSubjects = computed(() => {
     ));
 });
 
-watch(() => props.projectPath, () => {
+watch(() => props.projectRoot, () => {
     void loadSubjects();
 }, {immediate: true});
 
@@ -41,7 +41,7 @@ watch(() => props.projectPath, () => {
  * 读取当前 Project Workspace 的 World Engine subjects。
  */
 async function loadSubjects(): Promise<void> {
-    if (!props.projectPath) {
+    if (!props.projectRoot) {
         subjects.value = [];
         return;
     }
@@ -49,7 +49,7 @@ async function loadSubjects(): Promise<void> {
     error.value = "";
     try {
         subjects.value = await $fetch<WorldSubjectDto[]>("/api/projects/world-engine/subjects", {
-            query: {projectPath: props.projectPath},
+            query: {projectRoot: props.projectRoot},
         });
     } catch (caught) {
         error.value = resolveApiErrorMessage(caught, "加载 World Engine subjects 失败");

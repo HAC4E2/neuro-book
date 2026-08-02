@@ -1,10 +1,7 @@
-import {isAbsolute} from "node:path";
 import {
     requireReadyModuleHandle,
 } from "nbook/server/workspace-files/project-session";
-import type {ResolvedFileAddress} from "nbook/server/workspace-files/file-scope";
-import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
-import {normalizeProjectPath, projectSlug} from "nbook/server/workspace-files/project-path";
+import type {ResolvedFileTarget} from "nbook/server/workspace-files/authorized-file-operation";
 import {
     PROJECT_FILE_INDEX_MODULE_TOKEN,
     type ProjectFileIndexHandle,
@@ -19,10 +16,9 @@ import {
 /**
  * Agent 文件工具（write / edit / apply_patch）的文件历史归因记账（Task 95 S5）。
  *
- * 项目归属直接消费统一 File Address Resolver 的结构化结果。Project-bound
- * File Scope 通过显式 `workspace/<其他slug>/...` 跨项目写文件时，解析结果
- * 已携带目标 Project Path；历史层不得再从物理路径反推领域身份。
- * 非 managed Project 地址与未 open 项目一律静默跳过；
+ * 项目归属直接消费文件授权边界捕获的 exact Project generation。通过显式
+ * `workspace/<其他slug>/...` 跨项目写文件时，历史层不得再从物理路径反推身份。
+ * 无 Project 归属的地址一律静默跳过；
  * 记账本身 fail-open（record* 内部保证），绝不影响工具主流程。
  */
 
@@ -88,23 +84,18 @@ export type AgentWorkspaceWriteCapture = Readonly<{
 }>;
 
 /**
- * 在文件 mutation 前按统一 File Address 捕获目标 Project 的精确 History handle。
- * 未打开/非 Project 地址返回 null；落盘后不得再次按地址查询当前 generation。
+ * 在文件 mutation 前从已授权目标捕获精确 History handle。
+ * 非 Project 地址返回 null；落盘后不得再次查询当前 generation。
  */
 export function captureAgentWorkspaceWrite(
-    address: ResolvedFileAddress,
-    exactProject: ReadyProjectSessionRef | undefined,
+    target: ResolvedFileTarget,
 ): AgentWorkspaceWriteCapture | null {
-    const projectPath = address.projectPath;
-    const relativePath = "relativePath" in address ? address.relativePath : null;
-    if (!exactProject || !projectPath || isAbsolute(projectPath) || !relativePath || relativePath === ".") {
+    const exactProject = target.project;
+    const relativePath = target.relativePath;
+    if (!exactProject || !relativePath || relativePath === ".") {
         return null;
     }
     try {
-        const normalizedProjectPath = normalizeProjectPath(projectPath);
-        if (exactProject.workspace.ref.projectRoot !== projectSlug(normalizedProjectPath)) {
-            return null;
-        }
         const history = requireReadyModuleHandle(
             exactProject,
             PROJECT_HISTORY_MODULE_TOKEN,

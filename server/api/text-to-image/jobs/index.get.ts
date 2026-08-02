@@ -3,6 +3,7 @@ import {createTextToImageQueueService} from "nbook/server/text-to-image/queue.se
 import {requireCurrentUser} from "nbook/server/utils/auth";
 import {assertProjectOpen} from "nbook/server/workspace-files/project-session";
 import type {TextToImageJobDto} from "nbook/shared/dto/text-to-image.dto";
+import {textToImageProjectRef} from "nbook/server/text-to-image/compat";
 
 const statuses: TextToImageJobDto["status"][] = ["queued", "running", "completing", "succeeded", "failed", "canceled", "interrupted", "configuration_stale", "outcome_unknown"];
 
@@ -13,7 +14,7 @@ export default defineEventHandler(async (event) => {
     if (!projectPath) {
         throw createError({statusCode: 400, message: "projectPath 不能为空"});
     }
-    assertProjectOpen(projectPath);
+    assertProjectOpen(textToImageProjectRef(projectPath));
     const status = typeof query.status === "string" && statuses.includes(query.status as TextToImageJobDto["status"])
         ? query.status as TextToImageJobDto["status"]
         : undefined;

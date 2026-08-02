@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type {AgentPendingUserInputSession} from "nbook/app/components/novel-ide/agent/agent-message";
+import type {AgentPendingResolutionDraft, AgentPendingSubmissionIssue} from "nbook/app/components/novel-ide/agent/agent-pending-resolution";
 import AgentComposerInput from "nbook/app/components/novel-ide/agent/AgentComposerInput.vue";
 import AgentSessionModelControls from "nbook/app/components/novel-ide/agent/AgentSessionModelControls.vue";
 import AgentUserInputPrompt from "nbook/app/components/novel-ide/agent/AgentUserInputPrompt.vue";
@@ -15,19 +16,23 @@ import {publicValuePreviewJsonValue} from "nbook/app/components/novel-ide/agent/
 import {agentAttachmentUrl} from "nbook/app/components/novel-ide/agent/agent-attachment";
 import type {ComposerImageNode} from "nbook/app/components/novel-ide/agent/composer-image-transaction";
 import {useComposerImageTransaction} from "nbook/app/components/novel-ide/agent/useComposerImageTransaction";
+import type {
+    AgentComposerAvailability,
+    AgentComposerAvailabilityAction,
+} from "nbook/app/components/novel-ide/agent/agent-chat-surface-state";
 
 const props = defineProps<{
     inputText: string;
-    pendingSession: AgentPendingUserInputSession | null;
-    selectedAnswers: Record<string, number[]>;
-    notes: Record<string, string>;
+    pendingSessions: readonly AgentPendingUserInputSession[];
+    pendingResolutionDraft: AgentPendingResolutionDraft;
     submittingUserInput: boolean;
+    canResolveUserInput: boolean;
+    canAbort: boolean;
+    pendingSubmissionIssue: AgentPendingSubmissionIssue | null;
     running: boolean;
-    readonly?: boolean;
-    readonlyReason?: string;
+    availability: AgentComposerAvailability;
     canRegisterAttachments: boolean;
     canInsertAttachments: boolean;
-    canAbort: boolean;
     loadingSession: boolean;
     sessionModelSaving: boolean;
     sessionModelPopoverOpen: boolean;
@@ -52,7 +57,7 @@ const props = defineProps<{
     connectionNeedsAction: boolean;
     queuedMessages: AgentQueuedMessageDto[];
     menuRefreshKey: string | number;
-    projectPath: string | null;
+    projectRoot: string | null;
     historyInboxRefreshKey: string | number;
     historyInboxActive: boolean;
     sessionId: number | null;
@@ -64,29 +69,15 @@ const props = defineProps<{
 
 const emit = defineEmits<{
     (e: "update:inputText", value: string): void;
-    (e: "update:selectedAnswers", value: Record<string, number[]>): void;
-    (e: "update:notes", value: Record<string, string>): void;
+    (e: "update:pendingResolutionDraft", value: AgentPendingResolutionDraft): void;
     (e: "update:sessionModelPopoverOpen", value: boolean): void;
     (e: "update:sessionModelDraft", value: AgentSessionModelDraft): void;
     (e: "update-session-model-selection", value: string | null): void;
-    (e: "submit-user-input", payload: {
-        assistantMessageId: string;
-        resume?: boolean;
-        answers: Array<{
-            toolNodeId: string;
-            questionIndex?: number;
-            selectedOptionIndex?: number;
-            note?: string;
-            ignored?: boolean;
-        }>;
-    }): void;
-    /** Task 63: Low-Code Form 提交事件 */
-    (e: "submit-user-input-form", payload: {
-        assistantMessageId: string;
-        toolCallId: string;
-        data: import("nbook/shared/dto/low-code-form.dto").LowCodeJsonObject;
-    }): void;
-    (e: "cancel-user-input", payload: {assistantMessageId: string}): void;
+    (e: "submit-user-input"): void;
+    (e: "cancel-user-input"): void;
+    (e: "resync-user-input"): void;
+    /** 打开上下文检查面板（Task 126）；宿主持有开关状态。 */
+    (e: "open-context-inspector"): void;
     (e: "send"): void;
     (e: "steer"): void;
     (e: "followup"): void;
@@ -100,42 +91,143 @@ const emit = defineEmits<{
     (e: "open-history-inbox"): void;
     (e: "open-workspace-file", path: string): void;
     (e: "attachment-registered", item: AgentSessionAttachmentItemDto): void;
+    (e: "availability-action", action: AgentComposerAvailabilityAction): void;
 }>();
 
 const inputRef = ref<InstanceType<typeof AgentComposerInput> | null>(null);
-const userInputPromptRef = ref<InstanceType<typeof AgentUserInputPrompt> | null>(null);
 const {t} = useI18n();
 const imageFileInputRef = ref<HTMLInputElement | null>(null);
-const activeQuestionKey = ref("");
 const composerExpanded = ref(false);
-const activeQuestionState = ref({
-    canContinue: false,
-    submitButtonLabel: t("agent.composer.continue"),
+const composerReadonly = computed(() => props.availability.readonly);
+const hasPendingUserInput = computed(() => props.pendingSessions.length > 0);
+
+type ComposerAvailabilityView = {
+    icon: string;
+    message: string;
+    tone: "info" | "warning" | "danger";
+    action: AgentComposerAvailabilityAction | null;
+    actionIcon: string;
+    actionLabel: string;
+};
+
+/** 将 availability 映射成持续可见的状态说明与唯一可用操作。 */
+const availabilityView = computed<ComposerAvailabilityView | null>(() => {
+    switch (props.availability.status) {
+        case "ready":
+            return null;
+        case "restoring":
+            return {
+                icon: "i-lucide-loader-circle animate-spin",
+                message: t("agent.composer.restoring"),
+                tone: "info",
+                action: null,
+                actionIcon: "",
+                actionLabel: "",
+            };
+        case "empty":
+            return {
+                icon: "i-lucide-message-square-plus",
+                message: t("agent.composer.empty"),
+                tone: "warning",
+                action: "create-session",
+                actionIcon: "i-lucide-plus",
+                actionLabel: t("agent.composer.createSession"),
+            };
+        case "archived":
+            return {
+                icon: "i-lucide-archive",
+                message: t("agent.composer.archived"),
+                tone: "warning",
+                action: props.availability.canRestore ? "restore-session" : null,
+                actionIcon: "i-lucide-archive-restore",
+                actionLabel: t("agent.composer.restore"),
+            };
+        case "profile-unavailable":
+            return {
+                icon: "i-lucide-circle-alert",
+                message: props.availability.message || t("agent.composer.profileUnavailable"),
+                tone: "danger",
+                action: null,
+                actionIcon: "",
+                actionLabel: "",
+            };
+        case "waiting-blocked":
+            return {
+                icon: "i-lucide-octagon-alert",
+                message: t("agent.composer.waitingBlocked"),
+                tone: "danger",
+                action: null,
+                actionIcon: "",
+                actionLabel: "",
+            };
+        case "load-error":
+            return {
+                icon: "i-lucide-cloud-alert",
+                message: props.availability.message || t("agent.composer.loadError"),
+                tone: "danger",
+                action: "retry-session",
+                actionIcon: "i-lucide-refresh-cw",
+                actionLabel: t("agent.composer.retry"),
+            };
+        case "blocked":
+            return {
+                icon: "i-lucide-lock-keyhole",
+                message: t("agent.composer.blocked"),
+                tone: "warning",
+                action: null,
+                actionIcon: "",
+                actionLabel: "",
+            };
+    }
 });
+
+/** restoring 在输入区原位呈现，其他不可用状态继续使用带操作的状态栏。 */
+const availabilityBannerView = computed(() => props.availability.status === "restoring"
+    ? null
+    : availabilityView.value);
+const composerRestoring = computed(() => props.availability.status === "restoring");
+
+const composerShellStyle = computed(() => {
+    switch (availabilityBannerView.value?.tone) {
+        case "info":
+            return {borderColor: "var(--status-info-border)", backgroundColor: "var(--status-info-bg)"};
+        case "warning":
+            return {borderColor: "var(--status-warning-border)", backgroundColor: "var(--status-warning-bg)"};
+        case "danger":
+            return {borderColor: "var(--status-danger-border)", backgroundColor: "var(--status-danger-bg)"};
+        default:
+            return {borderColor: "var(--border-color)", backgroundColor: "var(--bg-input)"};
+    }
+});
+
+const availabilityTextColor = computed(() => {
+    switch (availabilityBannerView.value?.tone) {
+        case "info": return "var(--status-info)";
+        case "warning": return "var(--status-warning)";
+        case "danger": return "var(--status-danger)";
+        default: return "var(--text-secondary)";
+    }
+});
+const pendingBlockedMessage = computed(() => props.canResolveUserInput
+    ? ""
+    : availabilityView.value?.message || t("agent.composer.waitingBlocked"));
 
 const images = useComposerImageTransaction({
     editor: () => inputRef.value,
     sessionId: () => props.sessionId,
     value: () => props.inputText,
     sessionAttachments: () => props.sessionAttachments,
-    canRegister: () => props.canRegisterAttachments && !props.readonly && !props.pendingSession,
-    canInsert: () => props.canInsertAttachments && !props.readonly && !props.pendingSession,
-    blockedReason: () => props.pendingSession
+    canRegister: () => props.canRegisterAttachments && !composerReadonly.value && !hasPendingUserInput.value,
+    canInsert: () => props.canInsertAttachments && !composerReadonly.value && !hasPendingUserInput.value,
+    blockedReason: () => hasPendingUserInput.value
         ? "等待用户回答期间不能上传或插入图片。"
-        : props.readonlyReason || "当前 Session 不能上传或插入图片。",
-    projectPath: () => props.projectPath,
+        : availabilityView.value?.message || t("agent.composer.readonly"),
+    unsupportedAttachmentMessage: () => t("agent.attachments.imageInsertUnsupported"),
+    projectRoot: () => props.projectRoot,
     onAttachmentRegistered: (item) => emit("attachment-registered", item),
 });
 const composerGeneration = images.generation;
-const imageDocument = images.imageDocument;
 const resolvedImageItems = images.resolvedItems;
-
-const activeComposerValue = computed(() => {
-    if (!props.pendingSession || !activeQuestionKey.value) {
-        return props.inputText;
-    }
-    return props.notes[activeQuestionKey.value] ?? "";
-});
 
 /** 各模式在 Composer 上的图标、样式与文案配置。 */
 const AGENT_MODE_META: Record<AgentMode, {icon: string; buttonClass: string; badgeVisible: boolean}> = {
@@ -149,8 +241,10 @@ const agentModeLabel = computed(() => t(`agent.mode.${props.agentMode}`));
 const modeButtonTitle = computed(() => t("agent.composer.cycleModeTitle", {mode: agentModeLabel.value}));
 
 const composerPlaceholder = computed(() => {
-    if (props.pendingSession) {
-        return t("agent.composer.pendingPlaceholder");
+    if (composerReadonly.value) {
+        return props.availability.status === "empty"
+            ? t("agent.composer.emptyPlaceholder")
+            : availabilityView.value?.message || t("agent.composer.readonly");
     }
     if (props.agentMode === "discuss") {
         return t("agent.composer.discussPlaceholder");
@@ -162,16 +256,12 @@ const composerPlaceholder = computed(() => {
 });
 
 const runInputText = computed(() => props.inputText);
-const canStopReadonlyRun = computed(() => props.readonly && props.running && props.canAbort && !runInputText.value.trim());
-const composerImages = computed(() => props.pendingSession
-    ? []
-    : images.stableImages.value);
+const canStopReadonlyRun = computed(() => composerReadonly.value && props.availability.canStop);
+const composerImages = computed(() => images.stableImages.value);
 const sessionAttachmentByTarget = computed(() => new Map(
     [...resolvedImageItems.value, ...props.sessionAttachments].map((item) => [item.target, item]),
 ));
-const documentPendingImages = computed(() => props.pendingSession
-    ? []
-    : images.pendingImages.value);
+const documentPendingImages = computed(() => images.pendingImages.value);
 const pendingImageCount = computed(() => documentPendingImages.value.length);
 const imageUsage = images.usage;
 const failedPendingImage = images.failed;
@@ -183,11 +273,8 @@ const composerMenuRefreshKey = computed(() => [
 const imageCapabilityWarning = computed(() => composerImages.value.length > 0 && !props.modelSupportsImages);
 
 const sendDisabled = computed(() => {
-    if (props.readonly) {
+    if (composerReadonly.value) {
         return !canStopReadonlyRun.value;
-    }
-    if (props.pendingSession) {
-        return props.submittingUserInput || !activeQuestionState.value.canContinue;
     }
     if (pendingImageCount.value > 0) {
         return true;
@@ -208,16 +295,13 @@ const sendDisabled = computed(() => {
 });
 
 const sendIconClass = computed(() => {
+    if (canStopReadonlyRun.value) {
+        return "i-lucide-square";
+    }
     if (pendingImageCount.value > 0) {
         return failedPendingImage.value
             ? "i-lucide-image-off"
             : "i-lucide-loader-2 animate-spin";
-    }
-    if (props.pendingSession && props.submittingUserInput) {
-        return "i-lucide-loader-2 animate-spin";
-    }
-    if (props.pendingSession) {
-        return "i-lucide-corner-down-left";
     }
     if (props.running && !runInputText.value.trim()) {
         return "i-lucide-square";
@@ -232,6 +316,9 @@ const sendIconClass = computed(() => {
 });
 
 const sendButtonTitle = computed(() => {
+    if (canStopReadonlyRun.value) {
+        return t("agent.composer.stop");
+    }
     if (pendingImageCount.value > 0) {
         return failedPendingImage.value
             ? "请重试或移除上传失败的图片"
@@ -246,14 +333,8 @@ const sendButtonTitle = computed(() => {
     if (images.budgetError.value) {
         return images.budgetError.value;
     }
-    if (canStopReadonlyRun.value) {
-        return t("agent.composer.stop");
-    }
-    if (props.readonly) {
-        return props.readonlyReason || t("agent.composer.readonly");
-    }
-    if (props.pendingSession) {
-        return activeQuestionState.value.submitButtonLabel || t("agent.composer.continue");
+    if (composerReadonly.value) {
+        return availabilityView.value?.message || t("agent.composer.readonly");
     }
     if (props.running && runInputText.value.trim()) {
         return composerExpanded.value ? t("agent.composer.steerQueueExpanded") : t("agent.composer.steerQueue");
@@ -359,53 +440,21 @@ function removeComposerImage(index: number): void {
 
 /** TipTap 文档变化是 pending 存在性、顺序和发送门禁的唯一输入。 */
 function handleImageDocument(nodes: ComposerImageNode[]): void {
-    if (props.pendingSession) {
-        imageDocument.value = [];
-        return;
-    }
     images.applyDocument(nodes);
 }
-
-watch(() => props.pendingSession, (pendingSession) => {
-    if (pendingSession) {
-        images.reset();
-    }
-});
 
 /**
  * 同步输入框内容。
  */
 function updateComposerValue(value: string): void {
-    if (!props.pendingSession || !activeQuestionKey.value) {
-        emit("update:inputText", value);
-        return;
-    }
-    emit("update:notes", {
-        ...props.notes,
-        [activeQuestionKey.value]: value,
-    });
-}
-
-/**
- * 更新当前活跃问题，供底部输入框写入 note。
- */
-function setActiveQuestion(payload: {toolNodeId: string; questionIndex: number; key: string; canContinue: boolean; submitButtonLabel: string}): void {
-    activeQuestionKey.value = payload.key;
-    activeQuestionState.value = {
-        canContinue: payload.canContinue,
-        submitButtonLabel: payload.submitButtonLabel,
-    };
+    emit("update:inputText", value);
 }
 
 /**
  * 处理回答备注输入提交。
  */
 function submitComposer(payload?: {ctrlKey?: boolean; metaKey?: boolean}): void {
-    if (props.readonly || pendingImageCount.value > 0) {
-        return;
-    }
-    if (props.pendingSession) {
-        submitActiveQuestion();
+    if (composerReadonly.value || pendingImageCount.value > 0) {
         return;
     }
     if (props.running && runInputText.value.trim()) {
@@ -420,24 +469,14 @@ function submitComposer(payload?: {ctrlKey?: boolean; metaKey?: boolean}): void 
 }
 
 /**
- * 继续或提交当前 request_user_input 问题。
- */
-function submitActiveQuestion(): void {
-    if (props.readonly) {
-        return;
-    }
-    userInputPromptRef.value?.continueQuestion();
-}
-
-/**
  * 处理右下角按钮点击。
  */
 function submitButton(event: MouseEvent): void {
-    if ((props.readonly && !canStopReadonlyRun.value) || pendingImageCount.value > 0) {
+    if (canStopReadonlyRun.value) {
+        emit("stop");
         return;
     }
-    if (props.pendingSession) {
-        submitActiveQuestion();
+    if (composerReadonly.value || pendingImageCount.value > 0) {
         return;
     }
     if (props.running && !runInputText.value.trim()) {
@@ -461,26 +500,8 @@ defineExpose({focus, insertAttachment});
 <template>
     <!-- Agent 底部输入容器 -->
     <div class="relative shrink-0 bg-[var(--bg-panel)] px-2 pb-1">
-        <!-- request_user_input 回答区 -->
-        <div v-if="props.pendingSession" class="flex min-w-0 w-full pb-2">
-            <AgentUserInputPrompt
-                ref="userInputPromptRef"
-                :session="props.pendingSession"
-                :selected-answers="props.selectedAnswers"
-                :notes="props.notes"
-                :submitting="props.submittingUserInput"
-                :readonly="props.readonly"
-                @update:selected-answers="emit('update:selectedAnswers', $event)"
-                @update:notes="emit('update:notes', $event)"
-                @active-question-change="setActiveQuestion"
-                @submit="emit('submit-user-input', $event)"
-                @submit-form="emit('submit-user-input-form', $event)"
-                @cancel="emit('cancel-user-input', $event)"
-            />
-        </div>
-
         <!-- pending 引导/队列 -->
-        <div v-if="!props.pendingSession && props.queuedMessages.length > 0" class="flex min-w-0 flex-wrap gap-1 px-1 pb-1.5">
+        <div v-if="!hasPendingUserInput && props.queuedMessages.length > 0" class="flex min-w-0 flex-wrap gap-1 px-1 pb-1.5">
             <div
                 v-for="item in props.queuedMessages"
                 :key="item.id"
@@ -493,16 +514,61 @@ defineExpose({focus, insertAttachment});
             </div>
         </div>
 
-        <AgentWorkspaceChanges :project-path="props.projectPath" :refresh-key="props.historyInboxRefreshKey" :active="props.historyInboxActive" @open-full="emit('open-history-inbox')" @open-file="emit('open-workspace-file', $event)" />
+        <AgentWorkspaceChanges :project-root="props.projectRoot" :refresh-key="props.historyInboxRefreshKey" :active="props.historyInboxActive" @open-full="emit('open-history-inbox')" @open-file="emit('open-workspace-file', $event)" />
+
+        <!-- 等待用户输入时由唯一的待处理面板替换普通 Composer。 -->
+        <AgentUserInputPrompt
+            v-if="hasPendingUserInput"
+            :sessions="props.pendingSessions"
+            :draft="props.pendingResolutionDraft"
+            :submitting="props.submittingUserInput"
+            :can-resolve="props.canResolveUserInput"
+            :can-abort="props.canAbort"
+            :blocked-message="pendingBlockedMessage"
+            :submission-issue="props.pendingSubmissionIssue"
+            :menu-refresh-key="props.menuRefreshKey"
+            :resolve-menu="props.resolveMenu"
+            :on-skill-trigger-start="props.onSkillTriggerStart"
+            @update:draft="emit('update:pendingResolutionDraft', $event)"
+            @submit="emit('submit-user-input')"
+            @cancel="emit('cancel-user-input')"
+            @resync="emit('resync-user-input')"
+        />
 
         <!-- 消息输入栏 -->
-        <div class="flex flex-col rounded-xl border border-[var(--border-color)] bg-[var(--bg-input)] shadow-sm transition-all focus-within:border-[var(--accent-main)] focus-within:ring-1 focus-within:ring-[var(--accent-main)]" style="--composer-radius: 0.75rem;">
+        <div
+            v-show="!hasPendingUserInput"
+            class="flex flex-col rounded-xl border shadow-sm transition-all"
+            :class="composerReadonly ? '' : 'focus-within:border-[var(--accent-main)] focus-within:ring-1 focus-within:ring-[var(--accent-main)]'"
+            :style="{...composerShellStyle, '--composer-radius': '0.75rem'}"
+        >
+            <!-- Composer 可用性：原因与恢复动作必须持续可见，不能只藏在发送按钮 tooltip。 -->
+            <div
+                v-if="availabilityBannerView"
+                class="flex min-w-0 items-center gap-2 border-b px-2.5 py-2 text-[11px]"
+                :style="{borderColor: composerShellStyle.borderColor, color: availabilityTextColor}"
+                role="status"
+                aria-live="polite"
+            >
+                <span :class="availabilityBannerView.icon" class="h-3.5 w-3.5 shrink-0"></span>
+                <span class="min-w-0 flex-1 break-words leading-4">{{ availabilityBannerView.message }}</span>
+                <button
+                    v-if="availabilityBannerView.action"
+                    type="button"
+                    class="inline-flex shrink-0 items-center gap-1 rounded border border-current px-2 py-1 font-medium transition-colors hover:bg-[var(--bg-hover)]"
+                    @click="emit('availability-action', availabilityBannerView.action)"
+                >
+                    <span :class="availabilityBannerView.actionIcon" class="h-3 w-3"></span>
+                    <span>{{ availabilityBannerView.actionLabel }}</span>
+                </button>
+            </div>
+
             <!-- 正文图片派生缩略图：删除只移除对应 Markdown 标记。 -->
             <div v-if="composerImages.length > 0" class="flex min-w-0 gap-1.5 overflow-x-auto border-b border-[var(--border-color)]/50 px-2 py-1.5">
                 <div v-for="(image, index) in composerImages" :key="`${image.target}:${String(index)}`" class="group relative h-12 w-16 shrink-0 overflow-hidden rounded border border-[var(--border-color)] bg-[var(--bg-panel)]">
                     <img v-if="composerImageUrl(image.target)" :src="composerImageUrl(image.target) || undefined" :alt="image.label" class="h-full w-full object-cover" />
                     <div v-else class="flex h-full w-full items-center justify-center text-[var(--text-muted)]"><span class="i-lucide-image h-4 w-4"></span></div>
-                    <button type="button" class="absolute right-0.5 top-0.5 rounded bg-[var(--bg-panel)]/90 p-0.5 text-[var(--text-muted)] opacity-0 shadow-sm transition-opacity hover:text-[var(--status-danger)] group-hover:opacity-100 disabled:hidden" :disabled="props.readonly" title="从正文移除图片" @click="removeComposerImage(index)">
+                    <button type="button" class="absolute right-0.5 top-0.5 rounded bg-[var(--bg-panel)]/90 p-0.5 text-[var(--text-muted)] opacity-0 shadow-sm transition-opacity hover:text-[var(--status-danger)] group-hover:opacity-100 disabled:hidden" :disabled="composerReadonly" title="从正文移除图片" @click="removeComposerImage(index)">
                         <span class="i-lucide-x h-3 w-3"></span>
                     </button>
                     <div class="absolute inset-x-0 bottom-0 truncate bg-[var(--bg-panel)]/85 px-1 text-[8px] text-[var(--text-secondary)]" :title="image.label">{{ image.label }}</div>
@@ -522,30 +588,45 @@ defineExpose({focus, insertAttachment});
                 </button>
             </div>
 
-            <AgentComposerInput
-                ref="inputRef"
-                borderless
-                :generation="composerGeneration"
-                :model-value="activeComposerValue"
-                :placeholder="composerPlaceholder"
-                :expanded="composerExpanded"
-                :readonly="props.readonly"
-                :enable-image-files="canRegisterImages"
-                :menu-refresh-key="composerMenuRefreshKey"
-                :resolve-menu="resolveComposerMenu"
-                :on-skill-trigger-start="props.onSkillTriggerStart"
-                @update:model-value="updateComposerValue"
-                @submit="submitComposer"
-                @cycle-mode="emit('cycle-mode')"
-                @image-files="queueImageFiles"
-                @image-files-blocked="notifyImageFilesBlocked"
-                @image-document="handleImageDocument"
-                @pending-image-retry="retryPendingImage"
-                @pending-image-remove="removePendingImage"
-            />
+            <!-- 恢复提示复用真实输入区的布局高度，避免 ready/restoring 切换时壳体跳动。 -->
+            <div class="relative">
+                <AgentComposerInput
+                    ref="inputRef"
+                    borderless
+                    :class="composerRestoring ? 'invisible pointer-events-none select-none' : ''"
+                    :aria-hidden="composerRestoring ? 'true' : undefined"
+                    :generation="composerGeneration"
+                    :model-value="props.inputText"
+                    :placeholder="composerPlaceholder"
+                    :expanded="composerExpanded"
+                    :readonly="composerReadonly"
+                    :enable-image-files="canRegisterImages"
+                    :menu-refresh-key="composerMenuRefreshKey"
+                    :resolve-menu="resolveComposerMenu"
+                    :on-skill-trigger-start="props.onSkillTriggerStart"
+                    @update:model-value="updateComposerValue"
+                    @submit="submitComposer"
+                    @cycle-mode="emit('cycle-mode')"
+                    @image-files="queueImageFiles"
+                    @image-files-blocked="notifyImageFilesBlocked"
+                    @image-document="handleImageDocument"
+                    @pending-image-retry="retryPendingImage"
+                    @pending-image-remove="removePendingImage"
+                />
+                <div
+                    v-if="composerRestoring && availabilityView"
+                    class="absolute inset-0 flex items-center gap-2 px-3 text-[13px] text-[var(--text-muted)]"
+                    role="status"
+                    aria-live="polite"
+                    aria-atomic="true"
+                >
+                    <span :class="availabilityView.icon" class="h-4 w-4 shrink-0 text-[var(--accent-text)]"></span>
+                    <span>{{ availabilityView.message }}</span>
+                </div>
+            </div>
 
-            <div class="flex items-center justify-between border-t border-[var(--border-color)]/50 px-2 py-2">
-                <div class="flex min-w-0 items-center gap-2">
+            <div class="flex min-w-0 items-center gap-2 border-t border-[var(--border-color)]/50 px-2 py-2">
+                <div class="flex min-w-0 flex-1 items-center gap-2">
                     <AgentSessionModelControls
                         :session-model-selection-value="props.sessionModelSelectionValue"
                         :session-thinking-resolved-label="props.sessionThinkingResolvedLabel"
@@ -553,11 +634,11 @@ defineExpose({focus, insertAttachment});
                         :selectable-models="props.selectableModels"
                         :session-model-saving="props.sessionModelSaving"
                         :session-model-popover-open="props.sessionModelPopoverOpen"
-                        :readonly="props.readonly"
+                        :readonly="composerReadonly"
                         :running="props.running"
                         :loading-session="props.loadingSession"
                         dropdown-direction="up"
-                        root-class="w-[320px]"
+                        root-class="min-w-0 max-w-[320px] flex-1"
                         popover-class="w-[360px]"
                         @update:session-model-popover-open="emit('update:sessionModelPopoverOpen', $event)"
                         @update:session-model-draft="emit('update:sessionModelDraft', $event)"
@@ -591,7 +672,7 @@ defineExpose({focus, insertAttachment});
                     <button
                         class="rounded p-1.5 transition-colors hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-50"
                         :class="agentModeMeta.buttonClass"
-                        :disabled="props.readonly || props.running"
+                        :disabled="composerReadonly || props.running"
                         :title="modeButtonTitle"
                         @click="emit('cycle-mode')"
                     >
@@ -599,7 +680,7 @@ defineExpose({focus, insertAttachment});
                     </button>
                 </div>
                 <button
-                    class="flex items-center justify-center rounded bg-[var(--accent-bg)] p-1.5 text-[var(--accent-text)] transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
+                    class="flex shrink-0 items-center justify-center rounded bg-[var(--accent-bg)] p-1.5 text-[var(--accent-text)] transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
                     :disabled="sendDisabled"
                     :title="sendButtonTitle"
                     @click.prevent="submitButton"
@@ -611,11 +692,12 @@ defineExpose({focus, insertAttachment});
 
         <!-- token 与运行状态 -->
         <div class="mt-1.5 flex flex-wrap items-center justify-center gap-1 text-[9px] text-[var(--text-muted)]">
-            <div :title="props.contextUsageExactLabel" class="inline-flex max-w-full items-center gap-1 rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5">
+            <!-- gauge 芯片：点击打开上下文检查面板（Task 126） -->
+            <button :title="props.contextUsageExactLabel" class="inline-flex max-w-full items-center gap-1 rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5 transition-colors hover:bg-[var(--bg-hover)]" @click="emit('open-context-inspector')">
                 <span class="i-lucide-gauge h-3 w-3 shrink-0"></span>
                 <span class="truncate font-medium text-[var(--text-secondary)]">{{ props.contextUsageCompactLabel }}</span>
                 <span v-if="props.contextPercentCompactLabel" class="rounded-full bg-[var(--accent-bg)] px-1 py-[1px] text-[8px] font-semibold text-[var(--accent-text)]">{{ props.contextPercentCompactLabel }}</span>
-            </div>
+            </button>
             <div :title="props.cumulativeUsageExactLabel" class="inline-flex items-center gap-1 rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5">
                 <span class="i-lucide-arrow-down h-3 w-3"></span>
                 <span>{{ props.cumulativeInputCompactLabel }}</span>

@@ -10,6 +10,7 @@ import type {PlainImageNodeAttrs} from "nbook/app/utils/plain-reference-text";
 const props = withDefaults(defineProps<{
     modelValue: string;
     placeholder?: string;
+    ariaLabel?: string;
     menuRefreshKey?: string | number;
     resolveMenu: (context: AgentTriggerMenuContext) => AgentTriggerMenuState;
     onSkillTriggerStart?: () => void;
@@ -18,8 +19,12 @@ const props = withDefaults(defineProps<{
     readonly?: boolean;
     generation?: number;
     enableImageFiles?: boolean;
+    minHeight?: number;
+    maxHeight?: number;
+    submitOnEnter?: boolean;
 }>(), {
     placeholder: "",
+    ariaLabel: "",
     menuRefreshKey: "",
     onSkillTriggerStart: () => {},
     borderless: false,
@@ -42,8 +47,8 @@ const emit = defineEmits<{
 
 const editorRef = ref<InstanceType<typeof ReferencePlainTextEditor> | null>(null);
 const {t} = useI18n();
-const editorMinHeight = computed(() => props.expanded ? 220 : 44);
-const editorMaxHeight = computed(() => props.expanded ? 420 : 150);
+const editorMinHeight = computed(() => props.minHeight ?? (props.expanded ? 220 : 44));
+const editorMaxHeight = computed(() => props.maxHeight ?? (props.expanded ? 420 : 150));
 
 /**
  * 聚焦编辑器。
@@ -122,9 +127,10 @@ defineExpose({
         ref="editorRef"
         :model-value="props.modelValue"
         :placeholder="props.placeholder || t('agent.composer.messagePlaceholder')"
+        :aria-label="props.ariaLabel || props.placeholder || t('agent.composer.messagePlaceholder')"
         :min-height="editorMinHeight"
         :max-height="editorMaxHeight"
-        :submit-on-enter="!props.expanded"
+        :submit-on-enter="props.submitOnEnter ?? !props.expanded"
         :enable-quick-triggers="true"
         :readonly="props.readonly"
         :match-popover-width="true"

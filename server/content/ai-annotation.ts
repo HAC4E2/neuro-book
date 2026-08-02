@@ -1,3 +1,5 @@
+import {createError} from "h3";
+
 export type AiAnnotationKind = "replace" | "command";
 
 export type AiAnnotationBlock = {

@@ -1,32 +1,16 @@
 import {join, normalize} from "node:path";
-import {absoluteFsPath, relativeFilePathInside, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import type {WorkspaceRootRef} from "nbook/server/workspace-files/workspace-root-ref";
-import {resolveSessionFileScope} from "nbook/server/agent/workspace/session-file-scope";
+import {absoluteFsPath, relativeFilePathInside} from "nbook/server/runtime/paths/file-path";
+import {PLAN_MODE_DIRECTORY, type PlanModeLocationInput} from "nbook/server/agent/plan-mode-directory";
 
-/**
- * Project Workspace 内 Plan Mode 计划目录的固定相对路径。
- */
-export const PLAN_MODE_DIRECTORY = ".agent/plan";
-
-export type PlanModeLocationInput = {
-    workspaceRootRef: WorkspaceRootRef;
-    workspaceFsRoot: AbsoluteFsPath;
-    /** 为空表示当前session没有绑定Project Workspace，回退到物理Workspace Root。 */
-    projectPath?: string;
-};
+// 纯路径部分（常量与工具目录投影）在 plan-mode-directory.ts；
+// 这里保留需要 exact Project handle 的宿主侧解析逻辑，并 re-export 保持 API 不变。
+export {PLAN_MODE_DIRECTORY, planModeToolDirectory, type PlanModeLocationInput} from "nbook/server/agent/plan-mode-directory";
 
 /**
  * 返回当前 Project Workspace 的 Plan Mode 计划目录。
  */
 export function planModeDirectory(input: PlanModeLocationInput): string {
     return join(planModeProjectRoot(input), ".agent", "plan");
-}
-
-/**
- * 返回 Agent 文件工具可使用的 Plan Mode 目录路径。
- */
-export function planModeToolDirectory(input: PlanModeLocationInput): string {
-    return PLAN_MODE_DIRECTORY;
 }
 
 /**
@@ -65,5 +49,5 @@ export function resolvePlanModeFile(input: PlanModeLocationInput & {planFilePath
 }
 
 function planModeProjectRoot(input: PlanModeLocationInput): string {
-    return resolveSessionFileScope(input).root;
+    return input.currentProject?.workspace.root ?? input.workspaceRoot;
 }

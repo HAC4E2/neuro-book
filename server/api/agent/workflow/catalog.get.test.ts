@@ -29,7 +29,6 @@ describe("GET /api/agent/workflow/catalog", () => {
             applicationRoot: absoluteFsPath(root),
             stateRoot: absoluteFsPath(root),
         });
-        const projectPath = "workspace/catalog-project";
         const projectRoot = join(runtimePaths.workspaceRoot, "catalog-project");
         const workflowRoot = join(projectRoot, ".nbook", "agent", "workflows", "brainstorm-opening");
         await mkdir(workflowRoot, {recursive: true});
@@ -45,10 +44,10 @@ describe("GET /api/agent/workflow/catalog", () => {
             ),
             generation: 1,
         };
-        const requireReadyProjectPath = vi.fn(() => ready);
+        const requireActiveReadyProject = vi.fn(() => ready);
         const runReadyProjectOperation = vi.fn((_ready, operation: () => Promise<unknown>) => operation());
         const loadEffectiveConfigFromTarget = vi.fn(async () => ({}));
-        let query: {projectPath?: string} = {projectPath};
+        let query: {projectRoot?: string} = {projectRoot: "catalog-project"};
 
         vi.doMock("h3", async () => {
             const actual = await vi.importActual<typeof import("h3")>("h3");
@@ -65,11 +64,11 @@ describe("GET /api/agent/workflow/catalog", () => {
             loadEffectiveConfigFromTarget,
         }));
         vi.doMock("nbook/server/workspace-files/project-session", () => ({
-            requireReadyProjectPath,
+            requireActiveReadyProject,
             runReadyProjectOperation,
         }));
-        vi.doMock("nbook/server/workspace-files/project-open-guard", () => ({
-            withProjectNotOpenHttpError: (operation: () => Promise<unknown>) => operation(),
+        vi.doMock("nbook/server/api/projects/project-http-error", () => ({
+            withProjectHttpError: (operation: () => Promise<unknown>) => operation(),
         }));
         vi.doMock("nbook/server/agent/harness/agent-visible-models", () => ({
             resolveAgentVisibleModels: vi.fn(() => []),
@@ -81,8 +80,8 @@ describe("GET /api/agent/workflow/catalog", () => {
         expect(projectCatalog.workflows).toEqual([
             expect.objectContaining({key: "brainstorm-opening", source: "project", title: "开篇脑暴"}),
         ]);
-        expect(requireReadyProjectPath).toHaveBeenCalledOnce();
-        expect(requireReadyProjectPath).toHaveBeenCalledWith(projectPath);
+        expect(requireActiveReadyProject).toHaveBeenCalledOnce();
+        expect(requireActiveReadyProject).toHaveBeenCalledWith(projectWorkspaceRef("catalog-project"));
         expect(runReadyProjectOperation).toHaveBeenCalledOnce();
         expect(runReadyProjectOperation).toHaveBeenCalledWith(ready, expect.any(Function));
         expect(listWorkflows).toHaveBeenLastCalledWith(ready.workspace);
@@ -95,7 +94,7 @@ describe("GET /api/agent/workflow/catalog", () => {
         query = {};
         const globalCatalog = await handler({} as never);
         expect(globalCatalog.workflows).toEqual([]);
-        expect(requireReadyProjectPath).toHaveBeenCalledTimes(1);
+        expect(requireActiveReadyProject).toHaveBeenCalledTimes(1);
         expect(runReadyProjectOperation).toHaveBeenCalledTimes(1);
         expect(listWorkflows).toHaveBeenLastCalledWith(undefined);
         expect(loadEffectiveConfigFromTarget).toHaveBeenLastCalledWith({

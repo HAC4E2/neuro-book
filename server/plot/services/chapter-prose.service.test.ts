@@ -4,7 +4,7 @@ import {beforeEach, describe, expect, it, vi} from "vitest";
 import path from "node:path";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import type {ProjectFileIndexHandle} from "nbook/server/workspace-files/project-file-index";
-import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
+import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 
 const snapshotMock = vi.fn();
 vi.mock("nbook/server/workspace-files/project-workspace-index", () => ({
@@ -28,7 +28,7 @@ describe("ChapterProseService", () => {
     const target = {
         kind: "project-workspace" as const,
         root: absoluteFsPath(path.join(workspaceRoot, "novel")),
-        projectPath: normalizeProjectPath("workspace/novel"),
+        projectRoot: projectWorkspaceRef("novel").projectRoot,
     };
     const service = new ChapterProseService(target, fileIndex);
 

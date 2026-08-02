@@ -4,10 +4,12 @@ import {join} from "node:path";
 
 import {afterEach, describe, expect, it} from "vitest";
 
-import {addDiscoveryRoot, forgetManagerInstance, readManagerConfig, registerManagerInstance, removeDiscoveryRoot, setDefaultManagerInstance} from "#manager/manager-config";
+import {TEST_RUNTIME_IMAGE_IDENTITY} from "#manager/fixtures/runtime-image";
+import {addDiscoveryRoot, defaultManagerConfig, forgetManagerInstance, readManagerConfig, registerManagerInstance, removeDiscoveryRoot, setDefaultManagerInstance} from "#manager/manager-config";
 import {writeInstallationManifest} from "#manager/manifest-store";
 import {installationPaths} from "#manager/paths";
 import {currentProductPlatform} from "#manager/platform";
+import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "#manager/root-locators";
 import type {InstallationManifest} from "#manager/types";
 
 const roots: string[] = [];
@@ -17,6 +19,14 @@ afterEach(async () => {
 });
 
 describe("用户级 Manager 配置", () => {
+    it("Windows 默认安装根位于 LocalAppData Programs，用户状态不混入安装目录", () => {
+        const config = defaultManagerConfig();
+        if (process.platform === "win32") {
+            expect(config.preferences.installDirectory.replaceAll("\\", "/")).toMatch(/\/AppData\/Local\/Programs\/NeuroBook$/u);
+            expect(config.preferences.discoveryRoots?.at(0)?.replaceAll("\\", "/")).toMatch(/\/AppData\/Local\/Programs$/u);
+        }
+    });
+
     it("注册多个实例、选择默认实例且忘记实例不会删除安装目录", async () => {
         const testRoot = await temporaryRoot();
         const configPath = join(testRoot, "home", "config.json");
@@ -83,17 +93,17 @@ function manifest(): InstallationManifest {
     const revision = "b".repeat(40);
     const now = new Date().toISOString();
     return {
-        schemaVersion: 4,
+        schemaVersion: 5,
         profile: "product-bun",
         containerEngine: null,
         managerVersion: "0.1.0",
         appVersion: "0.8.0",
         channel: "stable",
         sourceRevision: revision,
-        stateRoot: ".",
+        roots: INSTALLATION_SCOPED_ROOT_LOCATORS,
         components: {
             source: {
-                provider: "release",
+                provider: "release", buildId: `sha256:${"9".repeat(64)}`,
                 version: "0.8.0",
                 revision,
                 path: ".",
@@ -104,7 +114,8 @@ function manifest(): InstallationManifest {
                 redistribution: "test",
             },
             product: {
-                provider: "release",
+                ...TEST_RUNTIME_IMAGE_IDENTITY,
+                provider: "release", buildId: `sha256:${"9".repeat(64)}`,
                 version: "0.8.0",
                 revision,
                 path: ".output",

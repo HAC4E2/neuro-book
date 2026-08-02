@@ -18,8 +18,9 @@ describe("project RAG visualization service", () => {
     let originalFetch: typeof fetch;
     let service: ProjectRagVisualizationService;
     let sessionUtils: ProjectSessionTestUtils | null = null;
+    let resetRuntimeRootContext: (() => void) | null = null;
     let target: ProjectRagTarget;
-    const projectPath = "workspace/rag-visual-test";
+    const projectPath = "rag-visual-test";
 
     beforeEach(async () => {
         originalCwd = process.cwd();
@@ -30,6 +31,9 @@ describe("project RAG visualization service", () => {
         vi.resetModules();
         service = await import("nbook/server/rag/project-rag-visualization");
         sessionUtils = await import("nbook/server/workspace-files/project-session-test-utils");
+        const runtimeRoot = await import("nbook/server/workspace-files/workspace-runtime-root");
+        runtimeRoot.setWorkspaceRuntimeRootContextForTest({workspaceRoot: join(root, "workspace")});
+        resetRuntimeRootContext = () => runtimeRoot.setWorkspaceRuntimeRootContextForTest(null);
         await mkdir(join(root, "workspace", "rag-visual-test", "simulation", "subjects", "heroine"), {recursive: true});
         await writeFile(join(root, "workspace", "rag-visual-test", "project.yaml"), "kind: novel\ntitle: RAG Test\nsummary: ''\n", "utf-8");
         await writeFile(join(root, "workspace", "rag-visual-test", "simulation", "subjects", "heroine", "subject.md"), [
@@ -57,11 +61,10 @@ describe("project RAG visualization service", () => {
             "{\"topic\":\"艾琳娜\",\"aliases\":[\"粉色头发女孩\"],\"view\":\"她帮过我，我对她有感谢。\"}",
             "",
         ].join("\n"), "utf-8");
-        await sessionUtils.openProjectForTest(projectPath);
-        const {requireReadyProjectPath} = await import("nbook/server/workspace-files/project-session");
+        const ready = await sessionUtils.openProjectForTest(projectPath);
         target = Object.freeze({
             workspaceRoot: absoluteFsPath(join(root, "workspace")),
-            project: requireReadyProjectPath(projectPath),
+            project: ready,
         });
     });
 
@@ -71,6 +74,8 @@ describe("project RAG visualization service", () => {
         await closeAllProjects().catch(() => undefined);
         resetProjectSessionsForTest();
         collectReleasedSqliteHandles({force: true});
+        resetRuntimeRootContext?.();
+        resetRuntimeRootContext = null;
         globalThis.fetch = originalFetch;
         process.chdir(originalCwd);
         vi.resetModules();
@@ -112,16 +117,15 @@ describe("project RAG visualization service", () => {
     });
 
     it("无 subjects 时返回空概览", async () => {
-        const emptyProjectPath = "workspace/empty-rag-project";
+        const emptyProjectPath = "empty-rag-project";
         await mkdir(join(root, "workspace", "empty-rag-project"), {recursive: true});
         await writeFile(join(root, "workspace", "empty-rag-project", "project.yaml"), "kind: novel\ntitle: Empty RAG\nsummary: ''\n", "utf-8");
 
-        await sessionUtils.openProjectForTest(emptyProjectPath);
+        const ready = await sessionUtils.openProjectForTest(emptyProjectPath);
         try {
-            const {requireReadyProjectPath} = await import("nbook/server/workspace-files/project-session");
             const overview = await service.readProjectRagOverview(Object.freeze({
                 workspaceRoot: target.workspaceRoot,
-                project: requireReadyProjectPath(emptyProjectPath),
+                project: ready,
             }));
 
             expect(overview.subjects).toEqual([]);
@@ -136,11 +140,10 @@ describe("project RAG visualization service", () => {
         const eventsPath = join(root, "workspace", "rag-visual-test", "simulation", "subjects", "heroine", "events.jsonl");
         const before = await readFile(eventsPath, "utf-8");
         await sessionUtils.closeProjectForTest(projectPath);
-        await sessionUtils.openProjectForTest(projectPath);
-        const {requireReadyProjectPath} = await import("nbook/server/workspace-files/project-session");
+        const ready = await sessionUtils.openProjectForTest(projectPath);
         target = Object.freeze({
             workspaceRoot: oldTarget.workspaceRoot,
-            project: requireReadyProjectPath(projectPath),
+            project: ready,
         });
 
         expect(target.project.generation).not.toBe(oldTarget.project.generation);

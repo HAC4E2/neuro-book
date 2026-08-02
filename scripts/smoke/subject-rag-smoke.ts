@@ -6,24 +6,28 @@ import {
     searchSubjectRag,
     type SubjectPaths,
 } from "nbook/server/agent/tools/subject-rag-index";
-import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {closeAllProjects, openProject} from "nbook/server/workspace-files/project-session";
+import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 
 /**
  * Bun runtime 下验证 subject RAG 能加载 sqlite-vec、调用 embedding、建索引并检索。
  */
 async function main(): Promise<void> {
     const root = await mkdtemp(join(tmpdir(), "nbook-subject-rag-smoke-"));
-    const workspaceRoot = join(root, "workspace");
-    const projectRoot = join(workspaceRoot, "demo");
-    const subjectRoot = join(projectRoot, "simulation", "subjects", "heroine");
-    const otherSubjectRoot = join(projectRoot, "simulation", "subjects", "other");
+    const workspaceRoot = absoluteFsPath(join(root, "workspace"));
+    const projectRef = projectWorkspaceRef("demo");
+    const projectDirectory = join(workspaceRoot, projectRef.projectRoot);
+    const subjectRoot = join(projectDirectory, "simulation", "subjects", "heroine");
+    const otherSubjectRoot = join(projectDirectory, "simulation", "subjects", "other");
     const originalFetch = globalThis.fetch;
+    let opened = false;
     try {
         await mkdir(subjectRoot, {recursive: true});
         await mkdir(otherSubjectRoot, {recursive: true});
         await mkdir(join(workspaceRoot, ".nbook"), {recursive: true});
-        await mkdir(join(projectRoot, ".nbook"), {recursive: true});
+        await mkdir(join(projectDirectory, ".nbook"), {recursive: true});
+        await writeFile(join(projectDirectory, "project.yaml"), "kind: novel\ntitle: Subject RAG Smoke\nsummary: ''\n", "utf-8");
         await writeFile(join(subjectRoot, "events.jsonl"), [
             "{\"text\":\"艾琳娜在入学当天早晨帮我避免迟到。\"}",
             "{\"text\":\"我在傍晚又走错了王都学院附近的路。\"}",
@@ -66,7 +70,7 @@ async function main(): Promise<void> {
                 requestOptions: {},
             },
         }), "utf-8");
-        await writeFile(join(projectRoot, ".nbook", "config.json"), JSON.stringify({
+        await writeFile(join(projectDirectory, ".nbook", "config.json"), JSON.stringify({
             embedding: {
                 model: "project-embed",
                 dimensions: 3,
@@ -77,24 +81,22 @@ async function main(): Promise<void> {
             "艾琳娜": [1, 0, 0],
             "王都": [0, 1, 0],
         });
+        const currentProject = await openProject(
+            projectRef,
+            {kind: "job", source: "subject-rag-smoke"},
+            workspaceRoot,
+        );
+        opened = true;
+        const configTarget = {scope: "project" as const, workspaceRoot, project: currentProject};
 
         const subject: SubjectPaths = {
             absolutePath: subjectRoot,
             eventsPath: join(subjectRoot, "events.jsonl"),
             memoryPath: join(subjectRoot, "memory.jsonl"),
-            ragStatePath: join(projectRoot, ".nbook", "subject-rag-dirty.json"),
+            ragStatePath: join(projectDirectory, ".nbook", "subject-rag-dirty.json"),
         };
         const candidates = await searchSubjectRag({
-            context: {
-                workspaceRoot,
-                workspaceRootRef: "workspace",
-                workspaceFsRoot: absoluteFsPath(workspaceRoot),
-                workspaceKey: "global",
-                profileKey: "smoke",
-                sessionId: 0,
-                harness: {} as ToolExecutionContext["harness"],
-                projectPath: "workspace/demo",
-            },
+            configTarget,
             subject,
             query: "艾琳娜",
             sources: ["events", "memory"],
@@ -108,16 +110,7 @@ async function main(): Promise<void> {
             throw new Error("subject RAG smoke 跨 subject 泄露了 other 记忆。");
         }
         const memoryOnlyCandidates = await searchSubjectRag({
-            context: {
-                workspaceRoot,
-                workspaceRootRef: "workspace",
-                workspaceFsRoot: absoluteFsPath(workspaceRoot),
-                workspaceKey: "global",
-                profileKey: "smoke",
-                sessionId: 0,
-                harness: {} as ToolExecutionContext["harness"],
-                projectPath: "workspace/demo",
-            },
+            configTarget,
             subject,
             query: "艾琳娜",
             sources: ["memory"],
@@ -127,34 +120,26 @@ async function main(): Promise<void> {
             throw new Error(`subject RAG smoke memory-only 召回被其他 source 挤掉：${JSON.stringify(memoryOnlyCandidates)}`);
         }
         await markSubjectRagDirty(subject, "memory", await readFile(join(subjectRoot, "memory.jsonl"), "utf-8"));
-        const dirtyBeforeSearch = await readFile(join(projectRoot, ".nbook", "subject-rag-dirty.json"), "utf-8");
+        const dirtyBeforeSearch = await readFile(join(projectDirectory, ".nbook", "subject-rag-dirty.json"), "utf-8");
         if (!dirtyBeforeSearch.includes("\"memory\"")) {
             throw new Error(`subject RAG smoke 未写入 memory dirty 状态：${dirtyBeforeSearch}`);
         }
         await searchSubjectRag({
-            context: {
-                workspaceRoot,
-                workspaceRootRef: "workspace",
-                workspaceFsRoot: absoluteFsPath(workspaceRoot),
-                workspaceKey: "global",
-                profileKey: "smoke",
-                sessionId: 0,
-                harness: {} as ToolExecutionContext["harness"],
-                projectPath: "workspace/demo",
-            },
+            configTarget,
             subject,
             query: "艾琳娜",
             sources: ["memory"],
             limit: 1,
         });
-        const dirtyAfterSearch = await readFile(join(projectRoot, ".nbook", "subject-rag-dirty.json"), "utf-8");
+        const dirtyAfterSearch = await readFile(join(projectDirectory, ".nbook", "subject-rag-dirty.json"), "utf-8");
         if (dirtyAfterSearch.includes("\"memory\"")) {
             throw new Error(`subject RAG smoke 搜索后未消费 memory dirty 状态：${dirtyAfterSearch}`);
         }
-        await readFile(join(projectRoot, ".nbook", "subject-rag.sqlite"));
+        await readFile(join(projectDirectory, ".nbook", "subject-rag.sqlite"));
         console.log("subject-rag smoke ok");
     } finally {
         globalThis.fetch = originalFetch;
+        if (opened) await closeAllProjects().catch(() => undefined);
         await rm(root, {recursive: true, force: true});
     }
 }

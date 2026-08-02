@@ -6,10 +6,10 @@ import {TextToImageProviderService} from "nbook/server/text-to-image/provider.se
 import {TextToImageRecipeService} from "nbook/server/text-to-image/recipe.service";
 import {requireCurrentUser} from "nbook/server/utils/auth";
 import {validateBody} from "nbook/server/utils/novel-chapter";
-import {withProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
+import {withProjectHttpError} from "nbook/server/api/projects/project-http-error";
 
 /** 以浏览器语义意图启动 plan-only Workflow；所有配置/事实由服务端冻结。 */
-export default defineEventHandler((event) => withProjectNotOpenHttpError(async () => {
+export default defineEventHandler((event) => withProjectHttpError(async () => {
     const user = await requireCurrentUser(event);
     const request = await validateBody(event, IllustrationPlanningStartRequestSchema);
     try {

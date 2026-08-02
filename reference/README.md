@@ -19,6 +19,7 @@
 - [workspace/TERMS.md](workspace/TERMS.md)：Workspace Root、Project Workspace、user-assets 和 Bundled Workspace Template 标准术语。
 - [editor/](editor/)：Markdown Studio 富文本 / 源码模式稳定规则。
 - [theme/](theme/)：主题系统规则。
+- [media/image-variants.md](media/image-variants.md)：图片原图所有权、授权 Adapter、变体参数、有界缓存和 Project 封面合同。
 
 ## Reading Order
 
@@ -32,3 +33,4 @@
 - 处理旧 Plot 系统、历史剧情结构或 Plot 工具维护：先读 [plot/system.md](plot/system.md)。Plot System 负责剧情结构（Story / Thread / Scene / Chapter Plot）；动态世界状态走 World Engine。
 - 处理写作模式世界状态、时间线、subject、切面、reduce 或 leader/writer 协作：先读 [world-engine/README.md](world-engine/README.md)。
 - 处理 workspace / project / user-assets 术语：先读 [workspace/TERMS.md](workspace/TERMS.md)。
+- 处理图片缩略图、原图预览、Project 封面或 `sharp` Product 合同时：读 [media/image-variants.md](media/image-variants.md)。

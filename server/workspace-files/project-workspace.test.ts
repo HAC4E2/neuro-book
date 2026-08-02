@@ -14,13 +14,17 @@ import {
 } from "nbook/server/workspace-files/project-workspace";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 
 describe("assertProjectWorkspaceDirectory", () => {
-    it("旧链接指向已不存在 Project 时返回稳定 404", async () => {
+    it("Project root 指向不存在目录时返回稳定 404", async () => {
         const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-project-workspace-root-"));
-        const projectPath = `workspace/missing-${randomUUID()}`;
+        const projectRoot = `missing-${randomUUID()}`;
         try {
-            await expect(assertProjectWorkspaceDirectory(absoluteFsPath(workspaceRoot), projectPath)).rejects.toMatchObject({
+            await expect(assertProjectWorkspaceDirectory(
+                absoluteFsPath(workspaceRoot),
+                projectWorkspaceRef(projectRoot),
+            )).rejects.toMatchObject({
                 statusCode: 404,
                 message: "Project Workspace 不存在",
             });

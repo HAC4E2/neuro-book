@@ -8,13 +8,8 @@ import NovelIdeCostSettingsPanel from "nbook/app/components/novel-ide/settings/N
 import NovelIdeEmbeddingSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeEmbeddingSettingsPanel.vue";
 import ThemeEditorDialog from "nbook/app/components/novel-ide/settings/theme/ThemeEditorDialog.vue";
 import NovelIdeModelSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeModelSettingsPanel.vue";
-import NovelIdeNovelDataSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeNovelDataSettingsPanel.vue";
 import NovelIdeObservabilitySettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeObservabilitySettingsPanel.vue";
-import NovelIdePassportSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdePassportSettingsPanel.vue";
 import NovelIdeWebSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeWebSettingsPanel.vue";
-import NovelIdeTextToImageSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeTextToImageSettingsPanel.vue";
-import DesktopDataDirDialog from "nbook/app/components/novel-ide/DesktopDataDirDialog.vue";
-import {useDesktopBridge} from "nbook/app/composables/useDesktopBridge";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {useAuthSessionState} from "nbook/app/composables/useAuthSessionState";
@@ -26,15 +21,11 @@ import {downloadThemeJson, parseThemeJson} from "nbook/app/utils/theme/theme-io"
 import type {MarkdownStudioViewMode} from "nbook/app/composables/useMarkdownStudioController";
 import type {CustomThemeDto, ThemeAppearance} from "nbook/shared/theme/theme-vars";
 import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES, DEFAULT_MONACO_EDITOR_PREFERENCES, type MarkdownEditorPreferences, type MonacoEditorPreferences} from "nbook/shared/editor-workbench";
-import type {SettingsNavigationRequest} from "nbook/app/utils/settings-navigation";
 
-type SettingsSection = "security" | "frontend" | "editor" | "models" | "embedding" | "cost" | "web-tools" | "agent-profile-models" | "novel-data" | "observability" | "textToImage" | "passport";
+type SettingsSection = "security" | "frontend" | "editor" | "models" | "embedding" | "cost" | "web-tools" | "agent-profile-models" | "observability";
 type SettingsScope = "boot" | "global" | "project" | "browser";
 type AppVersionKind = "release" | "tag" | "commit" | "package";
 type ThemeEditorMode = "create" | "edit" | "copy";
-type RuntimeI18nLocaleApi = {
-    setLocale: (locale: "zh-CN" | "en-US") => Promise<void>;
-};
 
 interface AppVersionDto {
     versionLabel: string;
@@ -52,7 +43,6 @@ type SettingsSavePanelExpose = {
 
 const props = defineProps<{
     modelValue: boolean;
-    navigationRequest?: SettingsNavigationRequest | null;
 }>();
 
 const emit = defineEmits<{
@@ -63,8 +53,7 @@ const novelIdeStore = useNovelIdeStore();
 const notification = useNotification();
 const authSessionState = useAuthSessionState();
 const themeManager = useThemeManager();
-const {locale, t} = useI18n();
-const i18n = useNuxtApp().$i18n as RuntimeI18nLocaleApi;
+const {locale, setLocale, t} = useI18n();
 const {
     selectedReasoning,
     activeThemeId,
@@ -76,7 +65,6 @@ const {
 
 const activeSection = ref<SettingsSection>("models");
 const activeScope = ref<SettingsScope>("global");
-const targetNovelId = ref("");
 const appVersion = ref<AppVersionDto | null>(null);
 const appVersionPending = ref(false);
 const modelSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
@@ -84,17 +72,12 @@ const embeddingSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 const costSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 const webSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 const agentProfileModelSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
-const novelDataSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 const observabilitySettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
-const textToImageSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 const themeEditorOpen = ref(false);
 const themeEditorMode = ref<ThemeEditorMode>("create");
 const themeEditorInitialTheme = ref<CustomThemeDto | null>(null);
 const themeDeleteTarget = ref<CustomThemeDto | null>(null);
 const themeImportInputRef = ref<HTMLInputElement | null>(null);
-// 桌面数据目录设置（仅桌面壳环境显示）
-const {isDesktop} = useDesktopBridge();
-const showDataDirDialog = ref(false);
 
 const frontendSectionItems = computed<Array<{value: SettingsSection; label: string; description: string; iconClass: string}>>(() => [
     {
@@ -146,28 +129,10 @@ const frontendSectionItems = computed<Array<{value: SettingsSection; label: stri
         iconClass: "i-lucide-bot-message-square",
     },
     {
-        value: "novel-data",
-        label: t("settings.section.novelData.label"),
-        description: t("settings.section.novelData.description"),
-        iconClass: "i-lucide-book-open-text",
-    },
-    {
         value: "observability",
         label: t("settings.section.observability.label"),
         description: t("settings.section.observability.description"),
         iconClass: "i-lucide-activity",
-    },
-    {
-        value: "textToImage",
-        label: "文生图",
-        description: "NovelAI Recipe、画风串与参考资产",
-        iconClass: "i-lucide-image-plus",
-    },
-    {
-        value: "passport",
-        label: t("settings.section.passport.label"),
-        description: t("settings.section.passport.description"),
-        iconClass: "i-lucide-id-card",
     },
 ]);
 
@@ -198,7 +163,7 @@ const scopeOptions = computed<Array<{value: SettingsScope; label: string; descri
     },
 ]);
 
-const globalConfigSections: SettingsSection[] = ["models", "embedding", "cost", "web-tools", "agent-profile-models", "novel-data", "observability", "textToImage", "passport"];
+const globalConfigSections: SettingsSection[] = ["models", "embedding", "cost", "web-tools", "agent-profile-models", "observability"];
 const projectConfigSections: SettingsSection[] = ["agent-profile-models"];
 const browserSections: SettingsSection[] = ["frontend", "editor"];
 const bootConfigSections: SettingsSection[] = ["security"];
@@ -294,19 +259,12 @@ const monacoFontOptions = computed<SelectOption[]>(() => [
     },
 ]);
 
-const projectOptions = computed<SelectOption[]>(() => novelIdeStore.novels.map((novel) => ({
-    value: novel.id,
-    label: novel.title || novel.workspaceSlug || novel.id,
-    description: novel.workspaceSlug ? `workspace/${novel.workspaceSlug}` : novel.id,
-})));
-
-const targetNovel = computed(() => novelIdeStore.novels.find((novel) => novel.id === targetNovelId.value) ?? null);
-const targetQuery = computed(() => activeScope.value === "project" && targetNovelId.value
-    ? {workspaceKind: "novel" as const, projectPath: targetNovelId.value}
+const targetQuery = computed(() => activeScope.value === "project" && novelIdeStore.currentProjectRoot
+    ? {workspaceKind: "novel" as const, projectRoot: novelIdeStore.currentProjectRoot}
     : {workspaceKind: "user-assets" as const});
-const settingsPanelKey = computed(() => `${activeScope.value}:${targetQuery.value.workspaceKind}:${targetQuery.value.projectPath ?? "global"}`);
+const settingsPanelKey = computed(() => `${activeScope.value}:${targetQuery.value.workspaceKind}:${targetQuery.value.projectRoot ?? "global"}`);
 const targetLabel = computed(() => activeScope.value === "project"
-    ? targetNovel.value?.title || targetNovel.value?.workspaceSlug || targetNovelId.value || "Project Workspace"
+    ? novelIdeStore.currentNovel?.title || novelIdeStore.currentProjectRoot || "Project Workspace"
     : activeScope.value === "boot" ? "config.yaml" : "Workspace Root");
 const visibleSectionItems = computed(() => {
     const allowed = activeScope.value === "boot"
@@ -347,16 +305,11 @@ const activeSavePanel = computed<SettingsSavePanelExpose | null>(() => {
             return webSettingsPanelRef.value;
         case "agent-profile-models":
             return agentProfileModelSettingsPanelRef.value;
-        case "novel-data":
-            return novelDataSettingsPanelRef.value;
         case "observability":
             return observabilitySettingsPanelRef.value;
-        case "textToImage":
-            return textToImageSettingsPanelRef.value;
         case "frontend":
         case "editor":
         case "security":
-        case "passport":
             return null;
     }
 });
@@ -436,7 +389,7 @@ function selectScope(scope: SettingsScope): void {
     if (!canLeaveCurrentPanel()) {
         return;
     }
-    if (scope === "project" && novelIdeStore.workspaceKind === "user-assets") {
+    if (scope === "project" && (novelIdeStore.workspaceKind === "user-assets" || !novelIdeStore.currentProjectRoot)) {
         activeScope.value = "global";
         activeSection.value = "models";
         return;
@@ -457,19 +410,6 @@ function selectSection(section: SettingsSection): void {
         return;
     }
     activeSection.value = section;
-}
-
-/**
- * 选择 Project Config 目标，不切换当前 IDE 打开的小说。
- */
-function selectTargetNovel(novelId: string): void {
-    if (novelId === targetNovelId.value) {
-        return;
-    }
-    if (!canLeaveCurrentPanel()) {
-        return;
-    }
-    targetNovelId.value = novelId;
 }
 
 /**
@@ -724,17 +664,8 @@ function themeFileSlug(name: string): string {
  */
 function updateLocale(value: string): void {
     if (value === "zh-CN" || value === "en-US") {
-        void i18n.setLocale(value);
+        void setLocale(value);
     }
-}
-
-/** 应用外部功能页的受控设置导航请求。 */
-function applyNavigationRequest(request: SettingsNavigationRequest | null | undefined): void {
-    if (!request || !canLeaveCurrentPanel()) {
-        return;
-    }
-    activeScope.value = request.scope;
-    activeSection.value = request.section;
 }
 
 /**
@@ -768,31 +699,17 @@ watch(() => props.modelValue, (open) => {
         return;
     }
     void loadAppVersion();
-    if (novelIdeStore.novels.length === 0) {
-        void novelIdeStore.loadNovels();
-    }
-    targetNovelId.value = novelIdeStore.currentNovelId || novelIdeStore.novels[0]?.id || "";
-    if (novelIdeStore.workspaceKind === "user-assets" && activeScope.value === "project") {
+}, {immediate: true});
+
+watch([
+    () => novelIdeStore.workspaceKind,
+    () => novelIdeStore.currentProjectRoot,
+], ([workspaceKind, currentProjectRoot]) => {
+    if ((workspaceKind === "user-assets" || !currentProjectRoot) && activeScope.value === "project") {
         activeScope.value = "global";
         activeSection.value = "models";
     }
 }, {immediate: true});
-
-watch(() => props.navigationRequest?.id ?? 0, () => {
-    applyNavigationRequest(props.navigationRequest);
-}, {immediate: true});
-
-watch(() => novelIdeStore.currentNovelId, (novelId) => {
-    if (!targetNovelId.value) {
-        targetNovelId.value = novelId;
-    }
-});
-
-watch(() => novelIdeStore.novels, (novels) => {
-    if (!targetNovelId.value) {
-        targetNovelId.value = novelIdeStore.currentNovelId || novels[0]?.id || "";
-    }
-}, {deep: true});
 
 watch(activeScope, alignActiveSectionToScope, {immediate: true});
 
@@ -812,26 +729,6 @@ watch(activeScope, alignActiveSectionToScope, {immediate: true});
     >
         <!-- 固定高度，顶部配置目标栏 + 左右分栏 -->
         <div class="flex h-full flex-col gap-4">
-            <!-- 桌面数据目录入口（仅桌面壳环境显示） -->
-            <section v-if="isDesktop" class="flex shrink-0 items-center justify-between gap-3 rounded-2xl border border-[var(--border-color)] border-opacity-70 bg-[var(--bg-input)] bg-opacity-20 px-4 py-2.5 shadow-sm">
-                <div class="flex min-w-0 items-center gap-2">
-                    <span class="i-lucide-hard-drive h-4 w-4 shrink-0 text-[var(--accent-main)]"></span>
-                    <div class="min-w-0">
-                        <div class="text-xs font-semibold text-[var(--text-main)]">数据目录</div>
-                        <div class="text-[11px] text-[var(--text-muted)]">小说、数据库与生成图片的存放位置，可移出系统盘</div>
-                    </div>
-                </div>
-                <button
-                    type="button"
-                    class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] bg-opacity-45 px-3 text-xs font-medium text-[var(--text-secondary)] transition hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] active:scale-95"
-                    @click="showDataDirDialog = true"
-                >
-                    <span class="i-lucide-folder-input h-3.5 w-3.5"></span>
-                    <span>更改</span>
-                </button>
-            </section>
-            <!-- 桌面数据目录设置 Dialog -->
-            <DesktopDataDirDialog v-model="showDataDirDialog" />
             <!-- 配置目标栏 -->
             <section class="shrink-0 rounded-2xl border border-[var(--border-color)] border-opacity-70 bg-[var(--bg-input)] bg-opacity-20 px-4 py-3 shadow-sm">
                 <div class="flex flex-wrap items-start justify-between gap-3">
@@ -854,11 +751,9 @@ watch(activeScope, alignActiveSectionToScope, {immediate: true});
                     </div>
 
                     <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                        <div v-if="activeScope === 'project'" class="flex min-w-[300px] items-center gap-2 rounded-lg border border-[var(--border-color)] border-opacity-60 bg-[var(--bg-panel)] bg-opacity-35 px-2 py-1">
+                        <div v-if="activeScope === 'project'" class="flex min-w-[300px] items-center gap-2 rounded-lg border border-[var(--border-color)] border-opacity-60 bg-[var(--bg-panel)] bg-opacity-35 px-3 py-2">
                             <span class="shrink-0 text-[11px] font-semibold text-[var(--text-muted)]">Project</span>
-                            <div class="min-w-0 flex-1">
-                                <FormSelect :model-value="targetNovelId" :options="projectOptions" :placeholder="t('settings.scope.project.selectorPlaceholder')" @update:model-value="selectTargetNovel" />
-                            </div>
+                            <span class="min-w-0 flex-1 truncate text-xs font-medium text-[var(--text-main)]" :title="targetLabel">{{ targetLabel }}</span>
                         </div>
 
                         <button
@@ -1272,7 +1167,7 @@ watch(activeScope, alignActiveSectionToScope, {immediate: true});
                         <!-- 模型设定 -->
                         <div v-else-if="activeSection === 'models'" key="models">
                             <!-- 注意：ModelSettingsPanel 内部不使用 h-full，让外层自动撑开或根据内容滚动 -->
-                            <NovelIdeModelSettingsPanel ref="modelSettingsPanelRef" :key="`models:${settingsPanelKey}`" :scope="activeScope === 'project' ? 'project' : 'global'" :target-query="targetQuery" :target-label="targetLabel" :focus-target="props.navigationRequest?.focus" :focus-request-id="props.navigationRequest?.id" />
+                            <NovelIdeModelSettingsPanel ref="modelSettingsPanelRef" :key="`models:${settingsPanelKey}`" :scope="activeScope === 'project' ? 'project' : 'global'" :target-query="targetQuery" :target-label="targetLabel" />
                         </div>
 
                         <!-- Embedding 服务设定 -->
@@ -1295,25 +1190,11 @@ watch(activeScope, alignActiveSectionToScope, {immediate: true});
                             <NovelIdeAgentProfileModelSettingsPanel ref="agentProfileModelSettingsPanelRef" :key="`profile-models:${settingsPanelKey}`" :scope="activeScope === 'project' ? 'project' : 'global'" :target-query="targetQuery" :target-label="targetLabel" />
                         </div>
 
-                        <!-- 小说数据设定（novel-api 榜单服务） -->
-                        <div v-else-if="activeSection === 'novel-data'" key="novel-data">
-                            <NovelIdeNovelDataSettingsPanel ref="novelDataSettingsPanelRef" :key="`novel-data:${settingsPanelKey}`" :target-query="targetQuery" />
-                        </div>
-
                         <!-- 可观测设定（Pi 请求 trace） -->
                         <div v-else-if="activeSection === 'observability'" key="observability">
                             <NovelIdeObservabilitySettingsPanel ref="observabilitySettingsPanelRef" :key="`observability:${settingsPanelKey}`" :target-query="targetQuery" />
                         </div>
 
-                        <!-- 文生图设置 -->
-                        <div v-else-if="activeSection === 'textToImage'" key="textToImage">
-                            <NovelIdeTextToImageSettingsPanel ref="textToImageSettingsPanelRef" :key="`textToImage:${settingsPanelKey}`" />
-                        </div>
-
-                        <!-- NeuroBook 账号（Passport 关联与云备份） -->
-                        <div v-else-if="activeSection === 'passport'" key="passport">
-                            <NovelIdePassportSettingsPanel :key="`passport:${settingsPanelKey}`" />
-                        </div>
                     </Transition>
                 </div>
             </section>

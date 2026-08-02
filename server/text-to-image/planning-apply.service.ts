@@ -1,4 +1,4 @@
-import {absoluteFsPath} from "nbook/server/text-to-image/compat";
+import {absoluteFsPath, textToImageProjectRef} from "nbook/server/text-to-image/compat";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {lock} from "proper-lockfile";
@@ -88,7 +88,7 @@ export class PlanningApplyService {
 
     /** 发布或恢复单个 applying Workflow。 */
     async applyValidatedPlan(input: {projectPath: string; workflowId: string}): Promise<IllustrationPlanningApplyJournal> {
-        assertProjectOpen(input.projectPath);
+        assertProjectOpen(textToImageProjectRef(input.projectPath));
         const detail = await this.workflowRepository.read(input.workflowId);
         const storyboardPath = storyboardPathFor(detail.workflow.chapterPath);
         const projectRoot = resolveProjectAbsolutePath(input.projectPath) as any;

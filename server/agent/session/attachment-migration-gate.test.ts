@@ -1,5 +1,5 @@
 import {randomUUID} from "node:crypto";
-import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
+import {mkdir, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {
@@ -7,7 +7,6 @@ import {
     AttachmentMigrationGate,
     AttachmentMigrationInProgressError,
 } from "nbook/server/agent/session/attachment-migration-gate";
-import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 describe("AttachmentMigrationGate", () => {
@@ -44,54 +43,5 @@ describe("AttachmentMigrationGate", () => {
         await mkdir(gate.lockPath, {recursive: true});
 
         await expect(gate.assertWritable()).rejects.toBeInstanceOf(AttachmentMigrationInProgressError);
-    });
-});
-
-describe("JsonlSessionRepository migration write gate", () => {
-    let root: AbsoluteFsPath;
-    let repo: JsonlSessionRepository;
-
-    beforeEach(() => {
-        root = absoluteFsPath(resolve(".agent", "attachment-migration-repo-test", randomUUID()));
-        repo = new JsonlSessionRepository(root);
-    });
-
-    afterEach(async () => {
-        await rm(root, {recursive: true, force: true});
-    });
-
-    async function createLock(): Promise<void> {
-        const lockPath = join(root, ATTACHMENT_MIGRATION_LOCK_RELATIVE_PATH);
-        await mkdir(join(root, ".nbook", "agent", "migrations"), {recursive: true});
-        await writeFile(lockPath, "migration-running", "utf8");
-    }
-
-    it("createSession 在 nextSessionId 前被拦截，不创建 session 序列文件", async () => {
-        await createLock();
-
-        await expect(repo.createSession({
-            profileKey: "leader.default",
-            initial: {},
-            workspaceRoot: root,
-        })).rejects.toMatchObject({code: "ATTACHMENT_MIGRATION_IN_PROGRESS"});
-
-        await expect(repo.listSessions()).resolves.toEqual([]);
-        await expect(readFile(join(root, ".nbook", "agent", "session-seq.json"), "utf8"))
-            .rejects.toMatchObject({code: "ENOENT"});
-    });
-
-    it("appendLine 在已有 session 上也拒绝新增 entry", async () => {
-        const session = await repo.createSession({
-            profileKey: "leader.default",
-            initial: {},
-            workspaceRoot: root,
-        });
-        const entriesBefore = session.entries;
-        await createLock();
-
-        await expect(repo.appendUserMessage(session.metadata.sessionId, "blocked")).rejects.toMatchObject({
-            code: "ATTACHMENT_MIGRATION_IN_PROGRESS",
-        });
-        await expect(repo.readSession(session.metadata.sessionId)).resolves.toMatchObject({entries: entriesBefore});
     });
 });

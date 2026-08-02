@@ -1,190 +1,256 @@
-import {beforeEach, describe, expect, it, vi} from "vitest";
+import type {H3Event} from "h3";
+import {afterAll, beforeAll, beforeEach, describe, expect, it, vi} from "vitest";
+
+type TestEvent = H3Event & {
+    readonly params: Readonly<Record<string, string>>;
+    readonly requestHeaders: Readonly<Record<string, string>>;
+    readonly query: Readonly<Record<string, string>>;
+    readonly responseHeaders: Map<string, string | number>;
+    readonly sessionId: number;
+};
+
+const mocks = vi.hoisted(() => ({
+    resolveSessionAttachment: vi.fn(),
+    load: vi.fn(),
+    render: vi.fn(),
+    projectNotOpenError: Object.assign(new Error("Project not open"), {projectRoot: "closed-attachment"}),
+}));
+
+vi.mock("h3", async (importOriginal) => ({
+    ...await importOriginal<typeof import("h3")>(),
+    getQuery: (event: TestEvent) => event.query,
+    getRequestHeader: (event: TestEvent, name: string) => event.requestHeaders[name.toLowerCase()],
+    getRouterParam: (event: TestEvent, name: string) => event.params[name],
+    setResponseHeader: (event: TestEvent, name: string, value: string | number) => {
+        event.responseHeaders.set(name.toLowerCase(), value);
+    },
+    setResponseStatus: (event: TestEvent, status: number) => {
+        event.node.res.statusCode = status;
+    },
+}));
+
+vi.mock("nbook/server/agent/http", () => ({
+    requireAgentSessionId: (event: TestEvent) => event.sessionId,
+    useAgentHarness: () => ({
+        resolveSessionAttachment: mocks.resolveSessionAttachment,
+    }),
+}));
+
+vi.mock("nbook/server/media/image-variant-runtime", () => ({
+    useImageVariantModule: () => ({render: mocks.render}),
+}));
+
+vi.mock("nbook/server/workspace-files/project-session", () => ({
+    isProjectNotOpenError: (error: unknown) => error === mocks.projectNotOpenError,
+}));
+
+vi.mock("nbook/server/api/projects/project-http-error", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("nbook/server/api/projects/project-http-error")>();
+    return {
+        ...actual,
+        withProjectHttpError: async <T>(operation: () => Promise<T>): Promise<T> => {
+            try {
+                return await operation();
+            } catch (error) {
+                if (error === mocks.projectNotOpenError) {
+                    throw Object.assign(new Error("Project 未打开，请先打开 Project"), {
+                        statusCode: 409,
+                        data: {code: "PROJECT_NOT_OPEN", projectRoot: "closed-attachment"},
+                    });
+                }
+                throw error;
+            }
+        },
+    };
+});
+
+let handler: (event: H3Event) => Promise<unknown>;
+const originalDefineEventHandler = (globalThis as typeof globalThis & {defineEventHandler?: unknown}).defineEventHandler;
+
+beforeAll(async () => {
+    vi.stubGlobal("defineEventHandler", (routeHandler: typeof handler) => routeHandler);
+    handler = (await import("nbook/server/api/agent/sessions/[sessionId]/entries/[entryId]/attachments/[contentIndex].get")).default;
+});
+
+afterAll(() => {
+    vi.unstubAllGlobals();
+    (globalThis as typeof globalThis & {defineEventHandler?: unknown}).defineEventHandler = originalDefineEventHandler;
+});
+
+beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.resolveSessionAttachment.mockResolvedValue({
+        ref: {id: `sha256:${"a".repeat(64)}`, mimeType: "image/png", bytes: 8},
+        name: "cover.png",
+        read: mocks.load,
+    });
+    mocks.load.mockResolvedValue(Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    mocks.render.mockResolvedValue({bytes: Buffer.from("webp"), etag: '"variant-etag"', cache: "hit"});
+});
 
 describe("GET /api/agent/sessions/:sessionId/entries/:entryId/attachments/:contentIndex", () => {
-    beforeEach(() => {
-        vi.resetModules();
-        vi.clearAllMocks();
-        vi.stubGlobal("defineEventHandler", (handler: unknown) => handler);
+    it("If-None-Match 命中时在 locator 授权后返回原图 304，且不读取 blob", async () => {
+        const attachmentId = `sha256:${"a".repeat(64)}`;
+        const event = createEvent({requestHeaders: {"if-none-match": `"${attachmentId}"`}});
+
+        await expect(handler(event)).resolves.toBeNull();
+
+        expect(mocks.resolveSessionAttachment).toHaveBeenCalledWith(12, "entry-1", 1);
+        expect(mocks.load).not.toHaveBeenCalled();
+        expect(event.node.res.statusCode).toBe(304);
+        expect(headers(event)).toMatchObject({
+            etag: `"${attachmentId}"`,
+            "cache-control": "private, max-age=31536000, immutable",
+        });
     });
 
-    it("If-None-Match 命中时在 locator 授权后返回 304，且不读取 blob", async () => {
-        const attachmentId = `sha256:${"a".repeat(64)}` as const;
-        const resolveSessionAttachment = vi.fn(async () => ({
-            ref: {id: attachmentId, mimeType: "image/png", bytes: 8},
-            name: "cover.png",
-        }));
-        const load = vi.fn(async () => new Uint8Array());
-        const setResponseHeader = vi.fn();
-        const setResponseStatus = vi.fn();
-        vi.doMock("h3", async (importOriginal) => ({
-            ...(await importOriginal<typeof import("h3")>()),
-            getRequestHeader: vi.fn(() => `"${attachmentId}"`),
-            getRouterParam: vi.fn((_event: unknown, key: string) => key === "entryId" ? "entry-1" : "1"),
-            setResponseHeader,
-            setResponseStatus,
-        }));
-        vi.doMock("nbook/server/agent/http", () => ({
-            requireAgentSessionId: vi.fn(() => 12),
-            useAgentHarness: vi.fn(() => ({
-                resolveSessionAttachment,
-                attachmentStore: {load},
-            })),
-        }));
+    it("经魔数验证的 raster 原图以内联响应返回", async () => {
+        const event = createEvent();
+        const result = await handler(event);
 
-        const event = {};
-        const handler = (await import("nbook/server/api/agent/sessions/[sessionId]/entries/[entryId]/attachments/[contentIndex].get")).default;
-
-        await expect(handler(event as never)).resolves.toBeNull();
-        expect(resolveSessionAttachment).toHaveBeenCalledWith(12, "entry-1", 1);
-        expect(load).not.toHaveBeenCalled();
-        expect(setResponseStatus).toHaveBeenCalledWith(event, 304);
-        expect(setResponseHeader).toHaveBeenCalledWith(event, "ETag", `"${attachmentId}"`);
-        expect(setResponseHeader).toHaveBeenCalledWith(event, "Cache-Control", "private, max-age=31536000, immutable");
-        expect(setResponseHeader).toHaveBeenCalledWith(event, "Server-Timing", expect.stringContaining("attachment_locator"));
+        expect(Buffer.from(result as Uint8Array)).toEqual(Buffer.from(await mocks.load.mock.results[0]!.value));
+        expect(headers(event)).toMatchObject({
+            "content-type": "image/png",
+            "content-length": 8,
+            "x-content-type-options": "nosniff",
+            "content-disposition": "inline; filename*=UTF-8''cover.png",
+        });
+        expect(String(headers(event)["server-timing"])).toContain("attachment_blob");
     });
 
-    it("经魔数验证的 raster 图片以内联响应返回", async () => {
-        const bytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-        const setResponseHeader = vi.fn();
-        vi.doMock("h3", async (importOriginal) => ({
-            ...(await importOriginal<typeof import("h3")>()),
-            getRequestHeader: vi.fn(() => undefined),
-            getRouterParam: vi.fn((_event: unknown, key: string) => key === "entryId" ? "entry-image" : "2"),
-            setResponseHeader,
-            setResponseStatus: vi.fn(),
-        }));
-        vi.doMock("nbook/server/agent/http", () => ({
-            requireAgentSessionId: vi.fn(() => 12),
-            useAgentHarness: vi.fn(() => ({
-                resolveSessionAttachment: vi.fn(async () => ({
-                    ref: {id: `sha256:${"b".repeat(64)}`, mimeType: "image/png", bytes: bytes.byteLength},
-                    name: "封面 图.png",
-                })),
-                attachmentStore: {load: vi.fn(async () => bytes)},
-            })),
-        }));
-
-        const event = {};
-        const handler = (await import("nbook/server/api/agent/sessions/[sessionId]/entries/[entryId]/attachments/[contentIndex].get")).default;
-        const result = await handler(event as never);
-
-        expect(Buffer.isBuffer(result)).toBe(true);
-        expect(Buffer.from(result as Uint8Array)).toEqual(Buffer.from(bytes));
-        expect(setResponseHeader).toHaveBeenCalledWith(event, "Content-Type", "image/png");
-        expect(setResponseHeader).toHaveBeenCalledWith(event, "Content-Length", bytes.byteLength);
-        expect(setResponseHeader).toHaveBeenCalledWith(event, "X-Content-Type-Options", "nosniff");
-        expect(setResponseHeader).toHaveBeenCalledWith(event, "Server-Timing", expect.stringContaining("attachment_blob"));
-        expect(setResponseHeader).toHaveBeenCalledWith(
-            event,
-            "Content-Disposition",
-            "inline; filename*=UTF-8''%E5%B0%81%E9%9D%A2%20%E5%9B%BE.png",
-        );
-    });
-
-    it("非 raster MIME 强制使用 attachment disposition", async () => {
+    it("非 raster MIME 强制下载，且无变体参数时保持原图合同", async () => {
         const bytes = Buffer.from("<script>alert(1)</script>", "utf8");
-        const setResponseHeader = vi.fn();
-        vi.doMock("h3", async (importOriginal) => ({
-            ...(await importOriginal<typeof import("h3")>()),
-            getRequestHeader: vi.fn(() => undefined),
-            getRouterParam: vi.fn((_event: unknown, key: string) => key === "entryId" ? "entry-text" : "0"),
-            setResponseHeader,
-            setResponseStatus: vi.fn(),
-        }));
-        vi.doMock("nbook/server/agent/http", () => ({
-            requireAgentSessionId: vi.fn(() => 12),
-            useAgentHarness: vi.fn(() => ({
-                resolveSessionAttachment: vi.fn(async () => ({
-                    ref: {id: `sha256:${"c".repeat(64)}`, mimeType: "text/html", bytes: bytes.byteLength},
-                    name: "unsafe.html",
-                })),
-                attachmentStore: {load: vi.fn(async () => bytes)},
-            })),
-        }));
+        mocks.resolveSessionAttachment.mockResolvedValue({
+            ref: {id: `sha256:${"b".repeat(64)}`, mimeType: "text/html", bytes: bytes.byteLength},
+            name: "unsafe.html",
+            read: mocks.load,
+        });
+        mocks.load.mockResolvedValue(bytes);
+        const event = createEvent();
 
-        const event = {};
-        const handler = (await import("nbook/server/api/agent/sessions/[sessionId]/entries/[entryId]/attachments/[contentIndex].get")).default;
-        await expect(handler(event as never)).resolves.toEqual(bytes);
+        await expect(handler(event)).resolves.toEqual(bytes);
+        expect(headers(event)).toMatchObject({
+            "content-type": "text/html",
+            "content-disposition": "attachment; filename*=UTF-8''unsafe.html",
+        });
+        expect(mocks.render).not.toHaveBeenCalled();
+    });
 
-        expect(setResponseHeader).toHaveBeenCalledWith(event, "Content-Type", "text/html");
-        expect(setResponseHeader).toHaveBeenCalledWith(
-            event,
-            "Content-Disposition",
-            "attachment; filename*=UTF-8''unsafe.html",
+    it("变体参数仍先完成 locator 授权，再生成 immutable WebP", async () => {
+        mocks.render.mockImplementation(async (source) => {
+            await source.read();
+            return {bytes: Buffer.from("webp"), etag: '"variant-etag"', cache: "generated"};
+        });
+        const event = createEvent({query: {preset: "attachment-grid"}});
+
+        await expect(handler(event)).resolves.toEqual(Buffer.from("webp"));
+
+        expect(mocks.resolveSessionAttachment.mock.invocationCallOrder[0])
+            .toBeLessThan(mocks.render.mock.invocationCallOrder[0]!);
+        expect(mocks.render).toHaveBeenCalledWith(
+            expect.objectContaining({identity: `attachment:sha256:${"a".repeat(64)}`}),
+            {width: 384, height: 216, fit: "contain", quality: 80},
         );
+        expect(mocks.load).toHaveBeenCalledTimes(1);
+        expect(headers(event)).toMatchObject({
+            etag: '"variant-etag"',
+            "cache-control": "private, max-age=31536000, immutable",
+            "content-type": "image/webp",
+            "content-length": 4,
+        });
+        expect(String(headers(event)["server-timing"])).toContain('desc="generated"');
+    });
+
+    it("变体 ETag 命中时返回 304，缓存命中不要求路由读取 blob", async () => {
+        const event = createEvent({
+            query: {preset: "attachment-chat"},
+            requestHeaders: {"if-none-match": '"variant-etag"'},
+        });
+
+        await expect(handler(event)).resolves.toBeNull();
+        expect(event.node.res.statusCode).toBe(304);
+        expect(mocks.load).not.toHaveBeenCalled();
+    });
+
+    it("非图片变体返回 415，且不把 blob 或路径交给变体 Module", async () => {
+        mocks.resolveSessionAttachment.mockResolvedValue({
+            ref: {id: `sha256:${"c".repeat(64)}`, mimeType: "text/plain", bytes: 4},
+            name: "note.txt",
+            read: mocks.load,
+        });
+        const event = createEvent({query: {preset: "attachment-grid"}});
+
+        await expect(handler(event)).rejects.toMatchObject({
+            statusCode: 415,
+            data: {code: "UNSUPPORTED_IMAGE_TYPE"},
+        });
+        expect(mocks.resolveSessionAttachment).toHaveBeenCalledTimes(1);
+        expect(mocks.load).not.toHaveBeenCalled();
+        expect(mocks.render).not.toHaveBeenCalled();
+    });
+
+    it("非法变体参数在 locator 授权后返回 400", async () => {
+        const event = createEvent({query: {preset: "attachment-grid", width: "100"}});
+
+        await expect(handler(event)).rejects.toMatchObject({
+            statusCode: 400,
+            data: {code: "INVALID_IMAGE_VARIANT"},
+        });
+        expect(mocks.resolveSessionAttachment).toHaveBeenCalledTimes(1);
+        expect(mocks.render).not.toHaveBeenCalled();
     });
 
     it("无效 locator 返回 400 且禁止缓存错误", async () => {
-        const setResponseHeader = vi.fn();
-        vi.doMock("h3", async (importOriginal) => ({
-            ...(await importOriginal<typeof import("h3")>()),
-            getRouterParam: vi.fn((_event: unknown, key: string) => key === "entryId" ? "" : "-1"),
-            setResponseHeader,
-        }));
-        vi.doMock("nbook/server/agent/http", () => ({
-            requireAgentSessionId: vi.fn(() => 12),
-            useAgentHarness: vi.fn(),
-        }));
+        const event = createEvent({params: {entryId: "", contentIndex: "-1"}});
 
-        const event = {};
-        const handler = (await import("nbook/server/api/agent/sessions/[sessionId]/entries/[entryId]/attachments/[contentIndex].get")).default;
-
-        await expect(handler(event as never)).rejects.toMatchObject({statusCode: 400, data: {code: "INVALID_ATTACHMENT_LOCATOR"}});
-        expect(setResponseHeader).toHaveBeenCalledWith(event, "Cache-Control", "no-store");
+        await expect(handler(event)).rejects.toMatchObject({
+            statusCode: 400,
+            data: {code: "INVALID_ATTACHMENT_LOCATOR"},
+        });
+        expect(headers(event)["cache-control"]).toBe("no-store");
+        expect(mocks.resolveSessionAttachment).not.toHaveBeenCalled();
     });
 
     it("Project 未 open 保留 typed 409，不降级成 Attachment 404", async () => {
-        const setResponseHeader = vi.fn();
-        const projectRoot = "closed-attachment";
-        const projectPath = `workspace/${projectRoot}`;
-        const {ProjectNotOpenError} = await import("nbook/server/workspace-files/project-session-service");
-        vi.doMock("h3", async (importOriginal) => ({
-            ...(await importOriginal<typeof import("h3")>()),
-            getRouterParam: vi.fn((_event: unknown, key: string) => key === "entryId" ? "entry-image" : "0"),
-            setResponseHeader,
-        }));
-        vi.doMock("nbook/server/agent/http", () => ({
-            requireAgentSessionId: vi.fn(() => 12),
-            useAgentHarness: vi.fn(() => ({
-                resolveSessionAttachment: vi.fn(async () => {
-                    throw new ProjectNotOpenError(projectRoot);
-                }),
-            })),
-        }));
+        mocks.resolveSessionAttachment.mockRejectedValue(mocks.projectNotOpenError);
+        const event = createEvent();
 
-        const event = {};
-        const handler = (await import("nbook/server/api/agent/sessions/[sessionId]/entries/[entryId]/attachments/[contentIndex].get")).default;
-
-        await expect(handler(event as never)).rejects.toMatchObject({
+        await expect(handler(event)).rejects.toMatchObject({
             statusCode: 409,
-            data: {code: "PROJECT_NOT_OPEN", projectPath},
+            data: {code: "PROJECT_NOT_OPEN", projectRoot: "closed-attachment"},
         });
-        expect(setResponseHeader).not.toHaveBeenCalledWith(event, "Cache-Control", "no-store");
+        expect(headers(event)["cache-control"]).toBeUndefined();
     });
 
     it("blob 不可用返回 410 且禁止缓存错误", async () => {
-        const setResponseHeader = vi.fn();
-        vi.doMock("h3", async (importOriginal) => ({
-            ...(await importOriginal<typeof import("h3")>()),
-            getRequestHeader: vi.fn(() => undefined),
-            getRouterParam: vi.fn((_event: unknown, key: string) => key === "entryId" ? "entry-image" : "0"),
-            setResponseHeader,
-            setResponseStatus: vi.fn(),
-        }));
-        vi.doMock("nbook/server/agent/http", () => ({
-            requireAgentSessionId: vi.fn(() => 12),
-            useAgentHarness: vi.fn(() => ({
-                resolveSessionAttachment: vi.fn(async () => ({
-                    ref: {id: `sha256:${"d".repeat(64)}`, mimeType: "image/png", bytes: 8},
-                })),
-                attachmentStore: {load: vi.fn(async () => { throw new Error("missing"); })},
-            })),
-        }));
+        mocks.load.mockRejectedValue(new Error("missing"));
+        const event = createEvent();
 
-        const event = {};
-        const handler = (await import("nbook/server/api/agent/sessions/[sessionId]/entries/[entryId]/attachments/[contentIndex].get")).default;
-
-        await expect(handler(event as never)).rejects.toMatchObject({statusCode: 410, data: {code: "ATTACHMENT_UNAVAILABLE"}});
-        expect(setResponseHeader).toHaveBeenCalledWith(event, "Cache-Control", "no-store");
+        await expect(handler(event)).rejects.toMatchObject({
+            statusCode: 410,
+            data: {code: "ATTACHMENT_UNAVAILABLE"},
+        });
+        expect(headers(event)["cache-control"]).toBe("no-store");
     });
 });
+
+/** 建立路由级最小 H3 event；文件路径和物理 blob 身份不进入事件。 */
+function createEvent(overrides: {
+    readonly params?: Readonly<Record<string, string>>;
+    readonly requestHeaders?: Readonly<Record<string, string>>;
+    readonly query?: Readonly<Record<string, string>>;
+} = {}): TestEvent {
+    return {
+        params: overrides.params ?? {entryId: "entry-1", contentIndex: "1"},
+        requestHeaders: overrides.requestHeaders ?? {},
+        query: overrides.query ?? {},
+        responseHeaders: new Map(),
+        sessionId: 12,
+        node: {req: {}, res: {statusCode: 200}},
+    } as unknown as TestEvent;
+}
+
+/** 把大小写无关的响应头转为便于断言的普通对象。 */
+function headers(event: TestEvent): Record<string, string | number> {
+    return Object.fromEntries(event.responseHeaders);
+}

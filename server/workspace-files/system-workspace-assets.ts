@@ -69,6 +69,10 @@ export function resolveSystemNbookRoot(startPath = process.cwd()): AbsoluteFsPat
     if (systemWorkspaceAssetContext?.systemNbookRoot) {
         return absoluteFsPath(systemWorkspaceAssetContext.systemNbookRoot);
     }
+    const productImageRoot = process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT?.trim();
+    if (productImageRoot) {
+        return absoluteFsPath(path.resolve(productImageRoot, "server", SYSTEM_ASSETS_RELATIVE_ROOT));
+    }
     const applicationRoot = resolveApplicationRoot(startPath);
     const productAssetsRoot = path.join(applicationRoot, ".output", "server", SYSTEM_ASSETS_RELATIVE_ROOT);
     if (!fs.existsSync(path.join(applicationRoot, "node_modules")) && fs.existsSync(productAssetsRoot)) {

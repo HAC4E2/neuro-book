@@ -1,18 +1,15 @@
-import {createError} from "h3";
 import {
-    isProjectNotOpenError,
-    ProjectNotOpenError,
     requireReadyModuleHandle,
-    requireReadyProjectPath,
+    requireActiveReadyProject,
     runReadyProjectOperation,
     startReadyProjectOperation,
     type ProjectOperationStart,
 } from "nbook/server/workspace-files/project-session";
+import {throwProjectHttpError, withProjectHttpError} from "nbook/server/api/projects/project-http-error";
 import {
     projectWorkspaceRef,
     type ProjectWorkspaceRef,
 } from "nbook/server/workspace-files/project-identity";
-import {projectSlug} from "nbook/server/workspace-files/project-path";
 import {
     PROJECT_FILE_INDEX_MODULE_TOKEN,
     type ProjectFileIndexHandle,
@@ -21,7 +18,6 @@ import {
     PROJECT_HISTORY_MODULE_TOKEN,
     type ProjectHistoryHandle,
 } from "nbook/server/workspace-history/project-history";
-import {assertManagedProjectDataPlaneOpen} from "nbook/server/workspace-files/project-data-plane-guard";
 import type {WorkspaceFileTarget} from "nbook/server/workspace-files/workspace-file-target";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 
@@ -36,22 +32,15 @@ export type ProjectDataPlaneHandles = Readonly<{
  * 路由层Project open守卫：只有明确的Project Workspace目标需要显式open。
  */
 export function assertProjectOpenForTarget(target: WorkspaceFileTarget): void {
-    try {
-        if (target.kind === "project-workspace") {
-            assertManagedProjectDataPlaneOpen(target.projectPath);
-        }
-    } catch (error) {
-        if (isProjectNotOpenError(error)) {
-            throw createProjectNotOpenHttpError(error);
-        }
-        throw error;
+    if (target.kind === "project-workspace") {
+        requireActiveReadyProject(projectWorkspaceRef(target.projectRoot));
     }
 }
 
 /** Project target一次解析为结构化ref；plain Workspace返回null。 */
 export function projectRefForTarget(target: WorkspaceFileTarget): ProjectWorkspaceRef | null {
     return target.kind === "project-workspace"
-        ? projectWorkspaceRef(projectSlug(target.projectPath))
+        ? projectWorkspaceRef(target.projectRoot)
         : null;
 }
 
@@ -60,7 +49,7 @@ export function projectHandlesForTarget(target: WorkspaceFileTarget): ProjectDat
     if (target.kind !== "project-workspace") {
         return undefined;
     }
-    const ready = requireReadyProjectPath(target.projectPath);
+    const ready = requireActiveReadyProject(projectWorkspaceRef(target.projectRoot));
     return Object.freeze({
         ready,
         fileIndex: requireReadyModuleHandle(ready, PROJECT_FILE_INDEX_MODULE_TOKEN),
@@ -69,23 +58,16 @@ export function projectHandlesForTarget(target: WorkspaceFileTarget): ProjectDat
 }
 
 /**
- * Phase 7 前的旧 History HTTP seam：字符串 Project Path 只在这里解析一次，
- * 两个 required handle 都绑定到同一个 ready generation。
+ * History HTTP seam：单段 Project root 只在这里解析一次，两个 required handle
+ * 都绑定到同一个 ready generation。
  */
-export function requireProjectHandles(projectPath: string): ProjectDataPlaneHandles {
-    try {
-        const ready = requireReadyProjectPath(projectPath);
-        return Object.freeze({
-            ready,
-            fileIndex: requireReadyModuleHandle(ready, PROJECT_FILE_INDEX_MODULE_TOKEN),
-            history: requireReadyModuleHandle(ready, PROJECT_HISTORY_MODULE_TOKEN),
-        });
-    } catch (error) {
-        if (isProjectNotOpenError(error)) {
-            throw createProjectNotOpenHttpError(error);
-        }
-        throw error;
-    }
+export function requireProjectHandles(projectRoot: string): ProjectDataPlaneHandles {
+    const ready = requireActiveReadyProject(projectWorkspaceRef(projectRoot));
+    return Object.freeze({
+        ready,
+        fileIndex: requireReadyModuleHandle(ready, PROJECT_FILE_INDEX_MODULE_TOKEN),
+        history: requireReadyModuleHandle(ready, PROJECT_HISTORY_MODULE_TOKEN),
+    });
 }
 
 /**
@@ -96,7 +78,7 @@ export function withProjectTargetOperation<TResult>(
     target: WorkspaceFileTarget,
     handler: (handles: ProjectDataPlaneHandles | undefined) => Promise<TResult> | TResult,
 ): Promise<TResult> {
-    return withProjectNotOpenHttpError(async () => {
+    return withProjectHttpError(async () => {
         const handles = projectHandlesForTarget(target);
         if (!handles) {
             return handler(undefined);
@@ -105,13 +87,13 @@ export function withProjectTargetOperation<TResult>(
     });
 }
 
-/** History HTTP统一数据面边界：解析一次Project Path并持有同一generation直到请求settle。 */
+/** History HTTP统一数据面边界：解析一次 Project root 并持有同一generation直到请求settle。 */
 export function withProjectHandlesOperation<TResult>(
-    projectPath: string,
+    projectRoot: string,
     handler: (handles: ProjectDataPlaneHandles) => Promise<TResult> | TResult,
 ): Promise<TResult> {
-    return withProjectNotOpenHttpError(async () => {
-        const handles = requireProjectHandles(projectPath);
+    return withProjectHttpError(async () => {
+        const handles = requireProjectHandles(projectRoot);
         return runReadyProjectOperation(handles.ready, async () => handler(handles));
     });
 }
@@ -136,38 +118,6 @@ export function startProjectTargetOperation<TResult>(
         }
         return startReadyProjectOperation(handles.ready, (signal) => start(handles, signal));
     } catch (error) {
-        if (isProjectNotOpenError(error)) {
-            throw createProjectNotOpenHttpError(error);
-        }
-        throw error;
-    }
-}
-
-/**
- * 将 ProjectSession typed error 映射为稳定 HTTP 409，供 Nitro route handler 返回给前端。
- */
-export function createProjectNotOpenHttpError(error: ProjectNotOpenError): Error {
-    return createError({
-        statusCode: 409,
-        statusMessage: "Project not open",
-        message: error.message,
-        data: {
-            code: "PROJECT_NOT_OPEN",
-            projectPath: error.projectPath,
-        },
-    });
-}
-
-/**
- * 路由层 typed error wrapper：业务层只抛 ProjectNotOpenError，HTTP 层统一映射为稳定 409。
- */
-export async function withProjectNotOpenHttpError<T>(handler: () => Promise<T> | T): Promise<T> {
-    try {
-        return await handler();
-    } catch (error) {
-        if (isProjectNotOpenError(error)) {
-            throw createProjectNotOpenHttpError(error);
-        }
-        throw error;
+        throwProjectHttpError(error);
     }
 }

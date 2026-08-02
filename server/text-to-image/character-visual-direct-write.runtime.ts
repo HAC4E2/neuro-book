@@ -1,3 +1,5 @@
+import {createHash} from "node:crypto";
+import type {JsonValue} from "nbook/server/agent/messages/types";
 import {loadEffectiveConfig, loadEffectiveConfigForAgentRuntime} from "nbook/server/config/config-service";
 import {useAgentHarness} from "nbook/server/agent/http";
 import {ILLUSTRATION_DIRECTOR_PROFILE_KEY} from "nbook/shared/agent/illustration-director";
@@ -16,8 +18,9 @@ import {TagIndexStore} from "nbook/server/text-to-image/tag-index/tag-index-stor
 import {TagPolicyRegistryService} from "nbook/server/text-to-image/tag-index/tag-policy-registry";
 import {TagResolverService} from "nbook/server/text-to-image/tag-index/tag-resolver.service";
 import {TAG_INDEX_CAPABILITY_VERSION} from "nbook/shared/text-to-image-tag-index";
-import {absoluteFsPath, invalidateProjectTreeIndex, resolveWorkspaceRootInput} from "nbook/server/text-to-image/compat";
+import {absoluteFsPath, invalidateProjectTreeIndex, resolveWorkspaceRootInput, textToImageProjectRef} from "nbook/server/text-to-image/compat";
 import {assertProjectOpen} from "nbook/server/workspace-files/project-session";
+import type {InvocationLifecycleEntry, SessionEntry} from "nbook/server/agent/session/types";
 import {readWorkspaceTextFile} from "nbook/server/workspace-files/workspace-files";
 import {
     TrackedWorkspaceFileConflictError,
@@ -36,8 +39,9 @@ import type {
 
 /** 建立绑定到单个已打开 Project 的 direct-write runtime；service 不持有任何全局文件状态。 */
 export async function createCharacterVisualDirectWriteRuntime(projectPath: string): Promise<CharacterVisualDirectWriteRuntime> {
-    assertProjectOpen(projectPath);
-    const effective = await loadEffectiveConfig({workspaceKind: "novel", projectPath});
+    assertProjectOpen(textToImageProjectRef(projectPath));
+    const projectRoot = projectRootFromPath(projectPath);
+    const effective = await loadEffectiveConfig({workspaceKind: "novel", projectRoot});
     const indexStore = new TagIndexStore();
     const resolver = new TagResolverService({
         reader: new TagIndexReader({root: indexStore.root}),
@@ -120,7 +124,7 @@ class WorkspaceCharacterVisualDirectWriteRuntime implements CharacterVisualDirec
         return {root, characterId, characterPath: input.characterPath, sourceMarkdown, characterImageTags, referencedOutfits};
     }
 
-    /** acquisitionTag 使 Session create/writeback 崩溃后仍可重取同一 Session。 */
+    /** acquisitionTag 使 Session create/writeback 崩溃后仍可重取同一 Session；按 (profile, projectRoot, tag) 幂等复用。 */
     async acquire(input: {
         projectPath: string;
         characterPath: string;
@@ -128,26 +132,93 @@ class WorkspaceCharacterVisualDirectWriteRuntime implements CharacterVisualDirec
         sourceCharacterFileHash: string;
         acquisitionTag: string;
     }): Promise<{sessionId: number}> {
-        const created = await useAgentHarness().acquireAgent({
-            profileKey: ILLUSTRATION_DIRECTOR_PROFILE_KEY,
-            initial: {
-                operation: "generate-character-visual",
-                characterPath: input.characterPath,
-                characterMarkdown: input.characterMarkdown,
-                sourceCharacterFileHash: input.sourceCharacterFileHash,
-            },
-            workspaceRoot: "workspace",
-            workspaceKey: input.projectPath,
-            projectPath: input.projectPath,
-            acquisitionTag: input.acquisitionTag,
+        const harness = useAgentHarness();
+        const profileKey = ILLUSTRATION_DIRECTOR_PROFILE_KEY;
+        const initial: JsonValue = {
+            operation: "generate-character-visual",
+            characterPath: input.characterPath,
+            characterMarkdown: input.characterMarkdown,
+            sourceCharacterFileHash: input.sourceCharacterFileHash,
+        };
+        const profile = await harness.profiles.get(profileKey);
+        const parsedInitial = harness.profiles.parseInitial(profile, initial);
+        const projectRoot = projectRootFromPath(input.projectPath);
+        const summaries = await harness.listSessions({profileKey, scope: "project", projectRoot, includeSystem: true});
+        for (const summary of summaries) {
+            const snapshot = await harness.repo.readSession(summary.sessionId);
+            const metadata = snapshot.metadata;
+            if (metadata.profileKey !== profileKey || metadata.currentProjectRoot !== projectRoot) continue;
+            if (!metadata.tags?.includes(input.acquisitionTag)) continue;
+            if (stableJsonHash(metadata.initial) !== stableJsonHash(parsedInitial)) {
+                throw new Error(`acquisition identity 与 Initial 冲突：${input.acquisitionTag}`);
+            }
+            return {sessionId: metadata.sessionId};
+        }
+        const created = await harness.createAgent({
+            profileKey,
+            initial: parsedInitial,
+            currentProjectRoot: projectRoot,
+            tags: [input.acquisitionTag],
             title: `生成角色视觉 · ${input.characterPath}`,
         });
         return {sessionId: created.sessionId};
     }
 
-    /** 读取可跨 Harness 重建的 durable result；journal 不自行推断 invocation 是否已 admission。 */
-    async resolve(input: {sessionId: number; clientMessageId: string}) {
-        return useAgentHarness().readDurableInvocationResult(input);
+    /**
+     * 读取可跨 Harness 重建的 durable result；journal 不自行推断 invocation 是否已 admission。
+     *
+     * 上游 admission 先写 lifecycle start，user entry 随后写入；因此按 clientMessageId 定位
+     * user entry，再从它之前最近的 lifecycle start 取 invocationId，最后按该 invocation 的
+     * 最新 lifecycle 判定 terminal 状态并读取 report_result。active 租约超时（进程崩溃残留）
+     * 返回 orphaned，由 service 转为失败态，避免无限轮询。
+     */
+    async resolve(input: {sessionId: number; clientMessageId: string}): Promise<DurableResult> {
+        const harness = useAgentHarness();
+        const snapshot = await harness.repo.readSession(input.sessionId);
+        const path = harness.repo.activePath(snapshot);
+        const userIndex = path.findIndex((entry) => entry.type === "message"
+            && entry.message.role === "user"
+            && entry.clientMessageId === input.clientMessageId);
+        if (userIndex < 0) {
+            return {state: "missing"};
+        }
+        const startEntry = [...path.slice(0, userIndex + 1)].reverse().find(isLifecycleStartEntry);
+        if (!startEntry) {
+            return {state: "missing"};
+        }
+        const invocationId = startEntry.invocationId;
+        const lifecycles = path.flatMap((entry, index) => entry.type === "invocation_lifecycle" && entry.invocationId === invocationId
+            ? [{entry, index}]
+            : []);
+        const latest = lifecycles.at(-1);
+        if (!latest || latest.entry.status === "start" || latest.entry.status === "resumed") {
+            const leaseDeadline = (latest?.entry.timestamp ?? this.now()) + ACTIVE_EXECUTION_LEASE_MS;
+            if (this.now() > leaseDeadline) {
+                // 进程崩溃后无 lease renew：租约过期视为失去执行，避免 durable state 永久卡在 active。
+                return {state: "orphaned", invocationId, lifecycle: "running", providerStartRecorded: null};
+            }
+            return {state: "active", invocationId, lifecycle: "running", executionLeaseUntil: new Date(leaseDeadline).toISOString()};
+        }
+        if (latest.entry.status === "waiting") {
+            return {state: "waiting", invocationId};
+        }
+        if (latest.entry.status === "error" || latest.entry.status === "aborted" || latest.entry.status === "interrupted") {
+            return {state: "failed", invocationId, errorInfo: latest.entry.errorInfo ?? null};
+        }
+        // status === "end"：terminal；找本 invocation 的 report_result toolResult。
+        const reportResult = path.slice(userIndex, latest.index + 1).findLast((entry) => entry.type === "message"
+            && entry.message.role === "toolResult"
+            && entry.message.toolName === "report_result"
+            && !entry.message.isError
+            && isRecord(entry.message.details)
+            && hasOwn(entry.message.details, "data"));
+        if (reportResult?.type === "message"
+            && reportResult.message.role === "toolResult"
+            && isRecord(reportResult.message.details)
+            && hasOwn(reportResult.message.details, "data")) {
+            return {state: "completed", invocationId, reportResult: reportResult.message.details.data};
+        }
+        return {state: "completed_without_result", invocationId};
     }
 
     /**
@@ -243,7 +314,7 @@ class WorkspaceCharacterVisualDirectWriteRuntime implements CharacterVisualDirec
     }
 
     private async root(): Promise<AbsoluteFsPath> {
-        assertProjectOpen(this.projectPath);
+        assertProjectOpen(textToImageProjectRef(this.projectPath));
         const root = await resolveWorkspaceRootInput({projectPath: this.projectPath});
         if (!root) throw new Error("Project Workspace root 缺失");
         return absoluteFsPath(root);
@@ -268,4 +339,53 @@ function parseExistingCharacter(content: string | null, characterId: string) {
 
 function isNotFoundError(error: unknown): boolean {
     return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
+/** user entry 之前最近的一次 lifecycle start 才是本 invocation 的 durable admission。 */
+function isLifecycleStartEntry(entry: SessionEntry): entry is InvocationLifecycleEntry {
+    return entry.type === "invocation_lifecycle" && entry.status === "start";
+}
+
+/**
+ * durable invocation 真相（与 service 侧 DurableResult 结构一致）。
+ * active 租约用于崩溃残留检测：进程活着时 lifecycle 会持续推进，租约过期视为失去执行。
+ */
+type DurableResult =
+    | {state: "missing"}
+    | {state: "active"; invocationId: string; lifecycle: "accepted" | "running"; executionLeaseUntil: string}
+    | {state: "orphaned"; invocationId: string; lifecycle: "accepted" | "running"; providerStartRecorded: boolean | null}
+    | {state: "waiting"; invocationId: string}
+    | {state: "failed"; invocationId: string; errorInfo: {message?: string} | null}
+    | {state: "completed_without_result"; invocationId: string}
+    | {state: "completed"; invocationId: string; reportResult: unknown};
+
+/** 进程内无 lease renew 时，active 状态允许存活的上限；超过即视为失去执行租约。 */
+const ACTIVE_EXECUTION_LEASE_MS = 3 * 60 * 1000;
+
+/** "workspace/demo" → "demo"（上游 projectRoot 一律是单段 slug）。 */
+function projectRootFromPath(projectPath: string): string {
+    return projectPath.replace(/^workspace\//, "");
+}
+
+/** 稳定 key 排序后的 JSON 哈希；acquisition identity 比较用，避免对象 key 顺序干扰。 */
+function stableJsonHash(value: JsonValue): string {
+    return createHash("sha256").update(stableJsonStringify(value)).digest("hex");
+}
+
+function stableJsonStringify(value: JsonValue): string {
+    if (value === null || typeof value !== "object") {
+        return JSON.stringify(value);
+    }
+    if (Array.isArray(value)) {
+        return `[${value.map((item) => stableJsonStringify(item)).join(",")}]`;
+    }
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJsonStringify(value[key] ?? null)}`).join(",")}}`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasOwn(value: Record<string, unknown>, key: string): boolean {
+    return Object.prototype.hasOwnProperty.call(value, key);
 }

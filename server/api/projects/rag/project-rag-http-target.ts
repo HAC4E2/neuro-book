@@ -1,22 +1,22 @@
 import type {H3Event} from "h3";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 import type {ProjectRagTarget} from "nbook/server/rag/project-rag-visualization";
-import {requireProjectPathQuery} from "nbook/server/utils/novel-chapter";
+import {requireProjectRefQuery} from "nbook/server/api/projects/project-control-plane";
 import {
-    requireReadyProjectPath,
+    requireActiveReadyProject,
     runReadyProjectOperation,
 } from "nbook/server/workspace-files/project-session";
-import {withProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
+import {withProjectHttpError} from "nbook/server/api/projects/project-http-error";
 
 /**
- * Phase 7 前的 RAG HTTP seam：旧 projectPath query 在请求入口只解析一次，
+ * RAG HTTP seam：projectRoot query 在请求入口只收窄一次，
  * 下游只传播同一个 ReadyProjectSessionRef 与显式 Workspace Root。
  */
 export function requireProjectRagTarget(event: H3Event): ProjectRagTarget {
     const workspaceRoot = runtimePathsFromEnv().workspaceRoot;
     return Object.freeze({
         workspaceRoot,
-        project: requireReadyProjectPath(requireProjectPathQuery(event)),
+        project: requireActiveReadyProject(requireProjectRefQuery(event)),
     });
 }
 
@@ -25,7 +25,7 @@ export function withProjectRagTarget<TResult>(
     event: H3Event,
     handler: (target: ProjectRagTarget) => Promise<TResult> | TResult,
 ): Promise<TResult> {
-    return withProjectNotOpenHttpError(async () => {
+    return withProjectHttpError(async () => {
         const target = requireProjectRagTarget(event);
         return runReadyProjectOperation(target.project, async () => handler(target));
     });

@@ -391,7 +391,7 @@ export type TextToImageJobGroupByOutputType = {
   _max: TextToImageJobMaxAggregateOutputType | null
 }
 
-type GetTextToImageJobGroupByPayload<T extends TextToImageJobGroupByArgs> = Prisma.PrismaPromise<
+export type GetTextToImageJobGroupByPayload<T extends TextToImageJobGroupByArgs> = Prisma.PrismaPromise<
   Array<
     Prisma.PickEnumerable<TextToImageJobGroupByOutputType, T['by']> &
       {
@@ -2165,6 +2165,11 @@ export type TextToImageJobFindManyArgs<ExtArgs extends runtime.Types.Extensions.
    * Skip the first `n` TextToImageJobs.
    */
   skip?: number
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+   * 
+   * Filter by unique combinations of TextToImageJobs.
+   */
   distinct?: Prisma.TextToImageJobScalarFieldEnum | Prisma.TextToImageJobScalarFieldEnum[]
 }
 

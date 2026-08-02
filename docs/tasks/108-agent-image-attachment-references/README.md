@@ -2,6 +2,25 @@
 
 > 当前状态：Implemented locally / Manual browser acceptance pending。原子 Session mutation、Attachment Authority、invocation receipt/unknown 对账、可靠 follow-up、归档关系视图、Composer 图片事务与安全上传/快照入口均已接通；本轮未自动执行浏览器验收。
 
+## 2026-07-29：图片解码边界与 live 工具附件收口
+
+- Agent 图片完整解码上限统一为 64 MP。上传、文件快照和 `read(image)` 都经过 `AgentAttachmentCodec`，共享 Sharp 像素错误识别和稳定 `limit_exceeded` 映射；超限图片不会进入 Attachment Store。
+- `ToolExecutionContext` 不再暴露原始 Attachment Store，只提供图片 Codec 能力。`read(image)` 保留读取前后 16 MiB 门禁、原图 bytes、MIME 真相和 Context Access 记账，同时不能绕过完整解码与像素限制。
+- live 工具结果只要已有 Attachment metadata 就展示通用附件卡，不再等待 durable `resultEntryId` 才挂载整个区域。locator 未到达时不生成 URL、不请求变体也不轮询；durable entry 响应式补齐后，图片开始请求 `attachment-chat`，非图片出现原件下载地址。
+- 聚焦回归覆盖低字节量超 64 MP JPEG、Store 零写入、`read(image)` 同合同、live → durable 图片与非图片 locator，以及两种 ToolBubble 渲染模式。浏览器验收仍未自动执行。
+
+## 2026-07-28：共享图片变体与原图预览接入
+
+- Attachment Store 与 Session locator 继续拥有原图与授权；Provider hydration、snapshot、上传、持久化和模型输入仍只读取原图。
+- Attachment GET 无变体参数时保持原图语义；带参数时仍先完成 Session、entryId、contentIndex 授权，再把不含路径的 source capability 交给共享 Image Variant Module。
+- Chat Flow 使用 `attachment-chat`，Session 附件面板使用 `attachment-grid`；点击缩略图后才挂载无参数原图请求，并共用下载原图 Dialog。Composer 现有正文派生图片条不额外引入变体请求。
+- Attachment substrate 仍允许非图片。前端与服务端共用同一 raster MIME 规范化合同；非图片不请求变体、不进入图片预览或 Composer 图片节点，只保留原文件下载。Composer transaction 自身保留最终 MIME 门禁，不能依赖单个面板隐藏按钮。
+- 浏览器 `File.type === ""` 经过 FormData/Busboy 后会成为 `application/octet-stream`。两者都只表示 MIME 未声明：Composer 允许进入服务端，Agent Codec 必须再用魔数和完整解码确认；`text/plain`、SVG 和其它具体 MIME 不能借此绕过。
+- Chat Flow 已改用通用 Attachment 卡。用户历史与工具结果中的图片继续请求 `attachment-chat` 并按需打开原图；非图片展示文件名、MIME、大小和授权原件下载，locator 不可用时明确显示文件不可用。
+- 变体响应固定 WebP、immutable ETag/cache-control；非图片 415、解码或像素超限 422、队列饱和 503。详细合同见 [ADR 0006](../../adr/0006-image-variant-and-original-ownership.md) 与 [Task 132](../132-shared-image-variants-project-covers/README.md)。
+- 新路由测试锁定“locator 授权先于变体”、缓存命中不读 blob、非法参数/非图片失败；旧测试不再为每个用例重载整条 Agent 图。
+- 本轮审查相邻回归为 13 files / 49 tests；其中 Agent Codec 使用真实可解码 PNG/JPEG/WebP/GIF，并锁定损坏魔数和具体非图片 MIME 均在写 Store 前拒绝。浏览器验收仍未自动执行。
+
 ## 2026-07-24：二次审查收口
 
 本轮沿 prompt、steer、follow-up、Tree/history、上传、snapshot、归档、abort、SSE/recovery 和草稿切换重新走查，集中关闭 check-then-act 与迟到响应窗口，没有重写已经稳定的 Markdown、Provider hydration、follow-up durable drain 或 effective relation 设计：
@@ -459,12 +478,13 @@ return {
 
 ### 工具图片
 
-- `read(image)` 直接返回 attachment ref。
+- `read(image)` 通过 `AgentAttachmentCodec.saveImage()` 保存并直接返回 Codec 生成的 attachment block；不能直接写 Attachment Store。
 - 主 Harness 不保留“任意 Pi tool result 自动 normalize”的永久兼容分支。若未来接入外部 Pi Tool，必须通过独立、显式的 `PiToolAdapter` 转换为 `NeuroToolResult`，并在进入 Harness 前完成 attachment normalization。
 - `applySuccessfulTurn()` 只能把 commit 后的 stored assistant/tool result 写入 RunFrame。
 - runtime-only transcript 也要 normalize；V1 允许因此产生孤儿附件。
 - `SessionWriteExecutor` 在所有 `message/custom_message` durable write 前执行最终 normalization/invariant。
-- `NeuroAgentHarness` 持有单个 `AttachmentStore`，默认由 repository 的 `attachmentsRoot` 构造并允许测试注入；`ToolExecutionContext` 只暴露 Store，不暴露 Local/OSS/数据库 Adapter。
+- `NeuroAgentHarness` 持有单个 `AttachmentStore` 和基于它构造的 `AgentAttachmentCodec`；`ToolExecutionContext` 只暴露 Codec，不暴露 Store 或 Local/OSS/数据库 Adapter。
+- Codec 是上传、文件快照和工具图片共享的图片语义边界，统一执行 MIME/魔数、完整解码、64 MP 像素上限与稳定错误映射；通用 Store 保持不理解图片。
 
 ## Provider Hydration
 
@@ -552,6 +572,7 @@ export type AgentChatUserEntryDto = {
 - read tool result 的图片由 read 工具卡展示；未知工具附件由通用 tool result bubble 展示，不能建立 read-only 特判存储结构。
 - queue item 尚未形成 durable entry，只返回 `PublicAttachmentDto` metadata，不生成可读取 locator。
 - stable `session_entry` 到达后，live tool metadata 与 durable attachment locator 按 toolCall/entry 合并，不重复显示。
+- 前端在只有 live metadata 时就渲染附件卡：图片和非图片分别显示对应的暂不可用状态，但不生成 URL、不请求变体也不轮询；durable entry ID 到达后再响应式启用预览或原件下载。
 
 普通投影不得为每个 ref 调 `get/stat/has`，因此不增加 `available` 字段，避免 history/recovery N+1 I/O。
 
@@ -967,3 +988,11 @@ Task 108 与 Task 109 合并后完成最终串行复核：
 - Manager `installation-health`已把离线完整性、容器/原生服务状态和结构化 doctor/status/import 合同统一起来；服务停止只产生warning，运行中镜像/HTTP/version错误才失败。Manager 22 files / 78 tests、typecheck、build、pack审计通过。
 - 完整Harness/black-box现为Harness 169/169、black-box+payload 25/25；prompt payload错误返回、队列拒绝不污染和默认Workspace Root初始化均有回归。公开Product/canary与浏览器图片展示仍待重验。
 - 本轮没有迁移真实Session/Attachment，也没有执行浏览器图片展示或公开canary；Task 108继续保持Implementing，不能把本地聚焦回归写成公开资产验收完成。
+
+### 2026-07-31 Attachment capability 与真实图片基线收口
+
+- `NeuroAgentHarness` 的原始 `AttachmentStore` 已改为 private；测试只保留构造注入 Adapter。Session locator 授权成功后返回 `{ref, name?, read}` capability，原图与变体 route 都只能调用该 capability，hash 仍不能单独授权读取。
+- 上传、文件快照和 `read(image)` 继续统一经过 `AgentAttachmentCodec`。共享测试图片 helper 用 Sharp 生成可完整解码的 PNG/JPEG/WebP，并集中提供有效 GIF 与低字节 JPEG SOF 像素上限 fixture；Harness 测试不再用“只有 PNG 文件头”的假图片绕过完整解码。
+- snapshot 端到端回归证明超过 64 MP 时返回 `limit_exceeded` 且注入 Adapter 零写入；归档竞态同时锁定 `invalid_input` 和“当前 Session 已归档，不能登记附件”，避免前置解码失败误通过。
+- 完整 `file-tools.test.ts` 为 49/49；Session Attachment、Codec 与前端/路由相邻回归通过。完整 Harness 图片相关旧失败已归零，余下两个失败位于模型恢复与 Variable SDK 在途改动，不属于 Attachment。
+- 没有增加 Attachment GC、统一媒体库、Provider 文本附件或浏览器自动验收。

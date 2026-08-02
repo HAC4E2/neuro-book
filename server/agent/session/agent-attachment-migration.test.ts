@@ -6,7 +6,7 @@ import {afterEach, describe, expect, it} from "vitest";
 import {
     rollbackAgentAttachmentMigration,
     runAgentAttachmentMigration,
-} from "nbook/scripts/db/agent-attachment-v1/migration";
+} from "nbook/server/agent/session/migrations/attachment-v1/migration";
 
 const PNG_BYTES = Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),

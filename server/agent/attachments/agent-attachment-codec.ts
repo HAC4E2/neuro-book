@@ -4,11 +4,17 @@ import {AttachmentError} from "nbook/server/agent/attachments/types";
 import {AttachmentStore} from "nbook/server/agent/attachments/attachment-store";
 import {attachmentMarker, storedMessagesForText} from "nbook/server/agent/messages/stored-message-presentation";
 import {AGENT_IMAGE_POLICY} from "nbook/server/agent/attachments/agent-attachment-policy";
+import {
+    canonicalImageMime,
+    imageMimeType,
+    isSharpPixelLimitError,
+    isUnspecifiedImageMime,
+    MAX_RASTER_IMAGE_PIXELS,
+} from "nbook/server/media/raster-image";
 
 export {attachmentMarker, storedMessagesForText} from "nbook/server/agent/messages/stored-message-presentation";
-
-const IMAGE_MIME_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"] as const;
-export type StoredImageMimeType = typeof IMAGE_MIME_TYPES[number];
+export {canonicalImageMime, imageMimeType} from "nbook/server/media/raster-image";
+export type {RasterImageMimeType as StoredImageMimeType} from "nbook/server/media/raster-image";
 
 /** Agent 消息与通用 Attachment Store 之间的图片领域 Codec。 */
 export class AgentAttachmentCodec {
@@ -20,8 +26,33 @@ export class AgentAttachmentCodec {
             throw new AttachmentError("limit_exceeded", "单张图片超过允许大小。");
         }
         const mimeType = imageMimeType(input.bytes);
-        if (!mimeType || (input.mimeType && canonicalImageMime(input.mimeType) !== mimeType)) {
+        if (!mimeType || (!isUnspecifiedImageMime(input.mimeType) && canonicalImageMime(input.mimeType!) !== mimeType)) {
             throw new AttachmentError("invalid_input", "图片 MIME 与文件内容不一致。");
+        }
+        try {
+            const {default: sharp} = await import("sharp");
+            const image = sharp(input.bytes, {
+                animated: false,
+                failOn: "error",
+                limitInputPixels: MAX_RASTER_IMAGE_PIXELS,
+                sequentialRead: true,
+            });
+            const metadata = await image.metadata();
+            if (!metadata.width || !metadata.height) {
+                throw new Error("图片缺少有效尺寸");
+            }
+            if (metadata.width * metadata.height > MAX_RASTER_IMAGE_PIXELS) {
+                throw new AttachmentError("limit_exceeded", "图片像素超过 64 MP 限制。");
+            }
+            await image.stats();
+        } catch (error) {
+            if (error instanceof AttachmentError) {
+                throw error;
+            }
+            if (isSharpPixelLimitError(error)) {
+                throw new AttachmentError("limit_exceeded", "图片像素超过 64 MP 限制。", {cause: error});
+            }
+            throw new AttachmentError("invalid_input", "图片无法完整解码。", {cause: error});
         }
         const attachment = await this.store.save({bytes: input.bytes, mimeType});
         return {
@@ -87,42 +118,9 @@ export class AgentAttachmentCodec {
         return result;
     }
 }
-
 /** 判断 stored content 是否包含 attachment。 */
 export function hasStoredAttachment(messages: readonly StoredAgentMessage[]): boolean {
     return messages.some((message) => (message.role === "user" || message.role === "toolResult")
         && Array.isArray(message.content)
         && message.content.some((block: StoredContent) => block.type === "attachment"));
-}
-
-/** 严格识别第一版允许 inline/provider hydration 的 raster image MIME。 */
-export function canonicalImageMime(value: string): StoredImageMimeType | null {
-    const normalized = value.trim().toLowerCase();
-    if (normalized === "image/jpg") {
-        return "image/jpeg";
-    }
-    return IMAGE_MIME_TYPES.find((mimeType) => mimeType === normalized) ?? null;
-}
-
-/** 使用魔数识别 PNG/JPEG/GIF/WebP，不信任文件扩展名。 */
-export function imageMimeType(bytes: Uint8Array): StoredImageMimeType | null {
-    if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47
-        && bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a) {
-        return "image/png";
-    }
-    if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
-        return "image/jpeg";
-    }
-    if (bytes.length >= 6) {
-        const header = Buffer.from(bytes.subarray(0, 6)).toString("ascii");
-        if (header === "GIF87a" || header === "GIF89a") {
-            return "image/gif";
-        }
-    }
-    if (bytes.length >= 12
-        && Buffer.from(bytes.subarray(0, 4)).toString("ascii") === "RIFF"
-        && Buffer.from(bytes.subarray(8, 12)).toString("ascii") === "WEBP") {
-        return "image/webp";
-    }
-    return null;
 }

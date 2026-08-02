@@ -34,7 +34,7 @@ const props = defineProps<{
     mode: "create" | "edit";
     chapter: StoryChapterDto | null;
     acts: StoryActDto[];
-    projectPath: string;
+    projectRoot: string;
     saving?: boolean;
     error?: string;
 }>();
@@ -78,7 +78,7 @@ const actOptions = computed<SelectOption[]>(() => [
 
 /** 拉取通过 frontmatter 反指本章的正文节点。 */
 async function loadProse(chapterId: string): Promise<void> {
-    if (!props.projectPath) {
+    if (!props.projectRoot) {
         proseNodes.value = [];
         return;
     }
@@ -86,7 +86,7 @@ async function loadProse(chapterId: string): Promise<void> {
     proseError.value = "";
     try {
         proseNodes.value = await $fetch<ChapterProseNode[]>(`/api/projects/plot/chapters/${chapterId}/prose`, {
-            query: {projectPath: props.projectPath},
+            query: {projectRoot: props.projectRoot},
         });
     } catch (error) {
         proseError.value = resolveApiErrorMessage(error, "加载关联正文失败");

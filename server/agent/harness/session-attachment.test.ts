@@ -1,39 +1,53 @@
 import {randomUUID} from "node:crypto";
 import {mkdir, rm, writeFile} from "node:fs/promises";
-import {join, resolve} from "node:path";
-import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
+import {dirname, join, resolve} from "node:path";
+import {afterEach, beforeAll, beforeEach, describe, expect, it, vi} from "vitest";
+import {AttachmentStore} from "nbook/server/agent/attachments/attachment-store";
+import type {AttachmentBlobAdapter} from "nbook/server/agent/attachments/types";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import type {SessionEntryDraft} from "nbook/server/agent/session/types";
 import type {AttachmentRef} from "nbook/shared/dto/agent-attachment.dto";
 import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import {
-    closeAllProjects,
+import {closeAllProjects,
     closeProject,
     openProject,
-    resetProjectSessionsForTest,
-} from "nbook/server/workspace-files/project-session";
+    resetProjectSessionsForTest} from "nbook/server/workspace-files/project-session";
+import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 import {
     projectModuleToken,
     replaceProjectModulesForTest,
     type ProjectModule,
     type ProjectModuleHandle,
 } from "nbook/server/workspace-files/project-module";
+import {createRasterTestFixtures, jpegWithDimensions} from "nbook/server/agent/test-utils/raster-fixtures";
+
+let png: Buffer;
+let oversizedJpeg: Buffer;
+
+beforeAll(async () => {
+    const fixtures = await createRasterTestFixtures();
+    png = fixtures.png;
+    oversizedJpeg = jpegWithDimensions(fixtures.jpeg, 8_193, 8_192);
+});
 
 describe("NeuroAgentHarness session attachment locator", () => {
     let root: AbsoluteFsPath;
     let repo: JsonlSessionRepository;
     let harness: NeuroAgentHarness;
+    let attachmentAdapter: AttachmentBlobAdapter;
 
     beforeEach(() => {
         resetProjectSessionsForTest();
         root = absoluteFsPath(resolve(".agent", "session-attachment-test", randomUUID()));
         repo = new JsonlSessionRepository(root);
+        attachmentAdapter = memoryAttachmentAdapter();
         harness = new NeuroAgentHarness({
             repo,
             profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
             enableSessionSummarizer: false,
+            attachmentStore: new AttachmentStore(attachmentAdapter),
         });
     });
 
@@ -49,7 +63,6 @@ describe("NeuroAgentHarness session attachment locator", () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const attachment = attachmentRef("a", "image/png", 8);
         const entry = await repo.appendEntry(session.metadata.sessionId, {
@@ -70,6 +83,7 @@ describe("NeuroAgentHarness session attachment locator", () => {
         await expect(harness.resolveSessionAttachment(session.metadata.sessionId, entry.id, 1)).resolves.toEqual({
             ref: attachment,
             name: "参考图.png",
+            read: expect.any(Function),
         });
     });
 
@@ -77,7 +91,6 @@ describe("NeuroAgentHarness session attachment locator", () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const attachment = attachmentRef("d", "image/png", 8);
         const entry = await repo.appendEntry(session.metadata.sessionId, {
@@ -98,14 +111,13 @@ describe("NeuroAgentHarness session attachment locator", () => {
     });
 
     it("Project session attachment 复用 Project open gate", async () => {
-        const projectPath = "workspace/attachment-project";
-        const projectRoot = join(root, "attachment-project");
-        await mkdir(projectRoot, {recursive: true});
+        const projectRoot = "attachment-project";
+        const projectDirectory = join(root, projectRoot);
+        await mkdir(projectDirectory, {recursive: true});
         const session = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
-            projectPath,
+            currentProjectRoot: "attachment-project",
         });
         const attachment = attachmentRef("e", "image/png", 8);
         const entry = await repo.appendEntry(session.metadata.sessionId, {
@@ -121,18 +133,17 @@ describe("NeuroAgentHarness session attachment locator", () => {
         } as unknown as SessionEntryDraft);
 
         await expect(harness.resolveSessionAttachment(session.metadata.sessionId, entry.id, 0))
-            .rejects.toMatchObject({code: "PROJECT_NOT_OPEN", projectPath});
-        await openProject(root, projectPath, {kind: "agent", sessionId: session.metadata.sessionId});
+            .rejects.toMatchObject({code: "PROJECT_NOT_OPEN", projectRoot});
+        await openProject(projectWorkspaceRef(projectRoot), {kind: "agent", sessionId: session.metadata.sessionId}, root);
         await expect(harness.resolveSessionAttachment(session.metadata.sessionId, entry.id, 0))
             .resolves.toMatchObject({ref: attachment});
-        await closeProject(projectPath, "shutdown");
+        await closeProject(projectWorkspaceRef(projectRoot), "shutdown");
     });
 
     it("解析 projector 实际公开的 durable tool result attachment locator", async () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const attachment = attachmentRef("b", "image/webp", 12);
         const entry = await repo.appendEntry(session.metadata.sessionId, {
@@ -154,6 +165,7 @@ describe("NeuroAgentHarness session attachment locator", () => {
         await expect(harness.resolveSessionAttachment(session.metadata.sessionId, entry.id, 1)).resolves.toEqual({
             ref: attachment,
             name: "scene.webp",
+            read: expect.any(Function),
         });
     });
 
@@ -161,7 +173,6 @@ describe("NeuroAgentHarness session attachment locator", () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const attachment = attachmentRef("c", "image/png", 8);
         const customMessage = await repo.appendEntry(session.metadata.sessionId, {
@@ -190,7 +201,7 @@ describe("NeuroAgentHarness session attachment locator", () => {
         });
 
         await expect(harness.resolveSessionAttachment(session.metadata.sessionId, customMessage.id, 0))
-            .resolves.toEqual({ref: attachment, name: "internal.png"});
+            .resolves.toEqual({ref: attachment, name: "internal.png", read: expect.any(Function)});
         await expect(harness.resolveSessionAttachment(session.metadata.sessionId, followUpQueue.id, 0))
             .rejects.toThrow("Attachment locator 不存在或已失效");
     });
@@ -199,7 +210,6 @@ describe("NeuroAgentHarness session attachment locator", () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const first = attachmentRef("1", "image/png", 8);
         const second = attachmentRef("2", "image/webp", 12);
@@ -281,7 +291,6 @@ describe("NeuroAgentHarness session attachment locator", () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const first = attachmentRef("3", "image/png", 8);
         const second = attachmentRef("4", "image/webp", 12);
@@ -313,7 +322,6 @@ describe("NeuroAgentHarness session attachment locator", () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const first = attachmentRef("6", "image/png", 8);
         const second = attachmentRef("7", "image/webp", 12);
@@ -342,7 +350,6 @@ describe("NeuroAgentHarness session attachment locator", () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const first = attachmentRef("8", "image/png", 8);
         const second = attachmentRef("9", "image/webp", 12);
@@ -390,7 +397,6 @@ describe("NeuroAgentHarness session attachment locator", () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const attachment = attachmentRef("f", "image/png", 8);
         await repo.appendEntry(session.metadata.sessionId, {
@@ -414,7 +420,6 @@ describe("NeuroAgentHarness session attachment locator", () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const prompt = await repo.appendEntry(session.metadata.sessionId, {
             type: "message",
@@ -430,7 +435,7 @@ describe("NeuroAgentHarness session attachment locator", () => {
         const before = await repo.readSession(session.metadata.sessionId);
 
         const uploaded = await harness.uploadSessionAttachment(session.metadata.sessionId, {
-            bytes: Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+            bytes: png,
             mimeType: "image/png",
             name: "projection.png",
         });
@@ -451,7 +456,6 @@ describe("NeuroAgentHarness session attachment locator", () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const originalSaveImage = harness.attachmentCodec.saveImage.bind(harness.attachmentCodec);
         let releaseSave = (): void => {};
@@ -469,7 +473,7 @@ describe("NeuroAgentHarness session attachment locator", () => {
         });
 
         const upload = harness.uploadSessionAttachment(session.metadata.sessionId, {
-            bytes: Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+            bytes: png,
             mimeType: "image/png",
             name: "late.png",
         });
@@ -477,38 +481,41 @@ describe("NeuroAgentHarness session attachment locator", () => {
         await harness.runCommand(session.metadata.sessionId, {command: "archive", reason: "concurrent archive"});
         releaseSave();
 
-        await expect(upload).rejects.toMatchObject({code: "invalid_input"});
+        await expect(upload).rejects.toMatchObject({
+            code: "invalid_input",
+            message: "当前 Session 已归档，不能登记附件。",
+        });
         const snapshot = await repo.readSession(session.metadata.sessionId);
         expect(snapshot.entries.some((entry) => entry.type === "session_attachment")).toBe(false);
     });
 
     it("Project、Workspace Root .nbook 与绝对路径快照都生成稳定副本，并拒绝 Attachment Store 自引用", async () => {
-        const projectPath = "workspace/snapshot-project";
+        const projectRoot = "snapshot-project";
+        const projectAddress = `workspace/${projectRoot}`;
         const projectFile = join(root, "snapshot-project", "images", "cover.png");
         const nbookFile = join(root, ".nbook", "assets", "global.png");
         const absoluteFile = join(root, "outside", "absolute.png");
         await mkdir(join(root, "snapshot-project", "images"), {recursive: true});
         await mkdir(join(root, ".nbook", "assets"), {recursive: true});
         await mkdir(join(root, "outside"), {recursive: true});
-        const original = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]);
+        const original = png;
         await writeFile(projectFile, original);
         await writeFile(nbookFile, original);
         await writeFile(absoluteFile, original);
         const session = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
-            projectPath,
+            currentProjectRoot: "snapshot-project",
         });
 
         await expect(harness.snapshotSessionAttachment(session.metadata.sessionId, {
-            sourcePath: `${projectPath}/images/cover.png`,
-        })).rejects.toMatchObject({code: "PROJECT_NOT_OPEN", projectPath});
+            sourcePath: `${projectAddress}/images/cover.png`,
+        })).rejects.toMatchObject({code: "PROJECT_NOT_OPEN", projectRoot});
 
-        await openProject(root, projectPath, {kind: "agent", sessionId: session.metadata.sessionId});
+        await openProject(projectWorkspaceRef(projectRoot), {kind: "agent", sessionId: session.metadata.sessionId}, root);
         try {
             const projectSnapshot = await harness.snapshotSessionAttachment(session.metadata.sessionId, {
-                sourcePath: `${projectPath}/images/cover.png`,
+                sourcePath: `${projectAddress}/images/cover.png`,
                 name: "project.png",
             });
             await writeFile(projectFile, Uint8Array.from([...original, 2]));
@@ -517,8 +524,8 @@ describe("NeuroAgentHarness session attachment locator", () => {
                 projectSnapshot.locator.entryId,
                 projectSnapshot.locator.contentIndex,
             );
-            const snapshottedBytes = await harness.attachmentStore.load(resolved.ref);
-            expect(Uint8Array.from(snapshottedBytes)).toEqual(original);
+            const snapshottedBytes = await resolved.read();
+            expect(Buffer.from(snapshottedBytes)).toEqual(original);
 
             await expect(harness.snapshotSessionAttachment(session.metadata.sessionId, {
                 sourcePath: "workspace/.nbook/assets/global.png",
@@ -529,22 +536,41 @@ describe("NeuroAgentHarness session attachment locator", () => {
 
             const hash = projectSnapshot.attachment.attachmentId.slice("sha256:".length);
             const attachmentStoreFile = join(repo.attachmentsRoot, "sha256", hash.slice(0, 2), hash.slice(2));
+            await mkdir(dirname(attachmentStoreFile), {recursive: true});
+            await writeFile(attachmentStoreFile, original);
             await expect(harness.snapshotSessionAttachment(session.metadata.sessionId, {
                 sourcePath: attachmentStoreFile,
             })).rejects.toMatchObject({code: "invalid_input"});
         } finally {
-            await closeProject(projectPath, "shutdown");
+            await closeProject(projectWorkspaceRef(projectRoot), "shutdown");
         }
     });
 
+    it("快照图片在 Store 写入前拒绝超过 64 MP 的源图", async () => {
+        const sourceFile = join(root, "outside", "pixel-bomb.jpg");
+        await mkdir(join(root, "outside"), {recursive: true});
+        await writeFile(sourceFile, oversizedJpeg);
+        const session = await repo.createSession({
+            profileKey: "leader.default",
+            initial: {},
+        });
+        const put = vi.spyOn(attachmentAdapter, "put");
+
+        await expect(harness.snapshotSessionAttachment(session.metadata.sessionId, {
+            sourcePath: sourceFile,
+        })).rejects.toMatchObject({code: "limit_exceeded"});
+        expect(put).not.toHaveBeenCalled();
+    });
+
     it("跨 Project 快照持有源 Project generation，close 等待读取后才能重开", async () => {
-        const ownerProjectPath = "workspace/snapshot-owner";
-        const targetProjectPath = "workspace/snapshot-target";
-        const targetProjectRoot = join(root, "snapshot-target");
-        const sourceFile = join(targetProjectRoot, "images", "cover.png");
+        const ownerProjectRoot = "snapshot-owner";
+        const targetProjectRoot = "snapshot-target";
+        const targetProjectAddress = `workspace/${targetProjectRoot}`;
+        const targetProjectDirectory = join(root, targetProjectRoot);
+        const sourceFile = join(targetProjectDirectory, "images", "cover.png");
         await mkdir(join(root, "snapshot-owner"), {recursive: true});
-        await mkdir(join(targetProjectRoot, "images"), {recursive: true});
-        await writeFile(sourceFile, Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]));
+        await mkdir(join(targetProjectDirectory, "images"), {recursive: true});
+        await writeFile(sourceFile, png);
 
         const targetModuleCloseStarted = createDeferred();
         const restoreModules = replaceProjectModulesForTest(projectModulesWithCloseProbe(
@@ -554,8 +580,7 @@ describe("NeuroAgentHarness session attachment locator", () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
-            projectPath: ownerProjectPath,
+            currentProjectRoot: "snapshot-owner",
         });
         const readStarted = createDeferred();
         const releaseRead = createDeferred();
@@ -570,18 +595,18 @@ describe("NeuroAgentHarness session attachment locator", () => {
         let snapshotting: ReturnType<NeuroAgentHarness["snapshotSessionAttachment"]> | null = null;
         let closing: Promise<void> | null = null;
         try {
-            await openProject(root, ownerProjectPath, {kind: "agent", sessionId: session.metadata.sessionId});
-            const targetReady = await openProject(root, targetProjectPath, {
+            await openProject(projectWorkspaceRef(ownerProjectRoot), {kind: "agent", sessionId: session.metadata.sessionId}, root);
+            const targetReady = await openProject(projectWorkspaceRef(targetProjectRoot), {
                 kind: "job",
                 source: "cross-project-attachment-snapshot",
-            });
+            }, root);
             snapshotting = harness.snapshotSessionAttachment(session.metadata.sessionId, {
-                sourcePath: `${targetProjectPath}/images/cover.png`,
+                sourcePath: `${targetProjectAddress}/images/cover.png`,
                 name: "target-cover.png",
             });
             await readStarted.promise;
 
-            closing = closeProject(targetProjectPath, "shutdown");
+            closing = closeProject(projectWorkspaceRef(targetProjectRoot), "shutdown");
             const closeProgress = await Promise.race([
                 targetModuleCloseStarted.promise.then(() => "module-close" as const),
                 new Promise<"read-blocked">((resolveBlocked) => {
@@ -595,18 +620,18 @@ describe("NeuroAgentHarness session attachment locator", () => {
             await closing;
             await targetModuleCloseStarted.promise;
 
-            const reopened = await openProject(root, targetProjectPath, {
+            const reopened = await openProject(projectWorkspaceRef(targetProjectRoot), {
                 kind: "job",
                 source: "cross-project-attachment-snapshot-reopen",
-            });
+            }, root);
             expect(reopened.generation).not.toBe(targetReady.generation);
             expect(reader.read).toHaveBeenCalledTimes(1);
         } finally {
             releaseRead.resolve();
             await snapshotting?.catch(() => undefined);
             await closing?.catch(() => undefined);
-            await closeProject(targetProjectPath, "shutdown").catch(() => undefined);
-            await closeProject(ownerProjectPath, "shutdown").catch(() => undefined);
+            await closeProject(projectWorkspaceRef(targetProjectRoot), "shutdown").catch(() => undefined);
+            await closeProject(projectWorkspaceRef(ownerProjectRoot), "shutdown").catch(() => undefined);
             restoreModules();
         }
     });
@@ -615,15 +640,13 @@ describe("NeuroAgentHarness session attachment locator", () => {
         const owner = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const attacker = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const uploaded = await harness.uploadSessionAttachment(owner.metadata.sessionId, {
-            bytes: Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+            bytes: png,
             mimeType: "image/png",
             name: "private.png",
         });
@@ -639,6 +662,19 @@ function attachmentRef(hashCharacter: string, mimeType: string, bytes: number): 
         id: `sha256:${hashCharacter.repeat(64)}`,
         mimeType,
         bytes,
+    };
+}
+
+/** 创建只在当前用例内存活的 Attachment Adapter。 */
+function memoryAttachmentAdapter(): AttachmentBlobAdapter {
+    const values = new Map<string, Uint8Array>();
+    return {
+        async put(key, bytes) {
+            values.set(key, bytes.slice());
+        },
+        async get(key) {
+            return values.get(key)?.slice() ?? null;
+        },
     };
 }
 

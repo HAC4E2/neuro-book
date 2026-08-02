@@ -16,7 +16,7 @@ import {IllustrationResultService} from "nbook/server/text-to-image/illustration
 import {textToImageProjectClient} from "nbook/server/text-to-image/project-client";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 import {resetProjectSessionsForTest} from "nbook/server/workspace-files/project-session";
-import {resolveProjectAbsolutePath} from "nbook/server/text-to-image/compat";
+import {resolveProjectAbsolutePath, textToImageProjectRef} from "nbook/server/text-to-image/compat";
 import {writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {createIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/workspace-assets-test-helper";
@@ -39,7 +39,7 @@ describe("IllustrationResultService", () => {
         resetProjectSessionsForTest();
         workspaceAssets = await createIsolatedWorkspaceAssets();
         projectPath = `workspace/illustration-result-${randomUUID()}`;
-        await writeProjectManifest(resolveRuntimeWorkspaceRoot(), projectPath, {kind: "novel", title: "插图结果测试", summary: ""});
+        await writeProjectManifest(resolveRuntimeWorkspaceRoot(), textToImageProjectRef(projectPath), {kind: "novel", title: "插图结果测试", summary: ""});
         chapterFile = path.join(resolveProjectAbsolutePath(projectPath), ...CHAPTER_PATH.split("/"));
         await fs.mkdir(path.dirname(chapterFile), {recursive: true});
         // restore 漂移预检比对真实语义 hash：占位块是 managed block 不进 hash，先解析一次即可回填。
@@ -48,13 +48,13 @@ describe("IllustrationResultService", () => {
             .sourceChapterHash;
         request = compiledRequest(realChapterHash);
         await fs.writeFile(chapterFile, chapterMarkdown(request), "utf8");
-        await openProjectForTest(projectPath);
+        await openProjectForTest(textToImageProjectRef(projectPath).projectRoot);
         await createJobAndAsset(projectPath, request);
         service = new IllustrationResultService();
     });
 
     afterEach(async () => {
-        await closeProjectForTest(projectPath).catch(() => undefined);
+        await closeProjectForTest(textToImageProjectRef(projectPath).projectRoot).catch(() => undefined);
         await resetWorkspaceHistoryForTest();
         resetProjectSessionsForTest();
         await workspaceAssets.dispose();
@@ -307,6 +307,8 @@ function compiledRequest(sourceChapterHash: string = H("b")): IllustrationCompil
         capabilitySnapshot: resolveProviderCapability({kind: "novelai-model" as const, modelId: "nai-diffusion-4-5-full" as const}),
         model: "nai-diffusion-4-5-full" as const,
         action: "generate" as const,
+        wireModel: "nai-diffusion-4-5-full" as const,
+        referenceSnapshotHash: H("d"),
         prompt: "rain",
         negativePrompt: "lowres",
         characterPrompts: [],

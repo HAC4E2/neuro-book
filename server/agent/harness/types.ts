@@ -2,7 +2,8 @@ import type {AgentUserMessageInput, JsonValue, Usage} from "nbook/server/agent/m
 import type {InvocationErrorInfo, InvocationErrorPhase, SessionEntryId, SessionMetadata} from "nbook/server/agent/session/types";
 import type {AgentResolution} from "nbook/server/agent/tools/types";
 import type {ClientStateSnapshot} from "nbook/server/agent/variables/types";
-import type {ServerTimingSink} from "nbook/server/utils/server-timing";
+import type {ServerTimingSink} from "nbook/server/utils/server-timing-sink";
+import type {AgentInvokeCaller} from "nbook/server/agent/harness/invocation-caller";
 import type {
     AgentAbortRequestDto,
     AgentAbortResult,
@@ -28,9 +29,7 @@ export type CreateAgentInput = {
     initial?: JsonValue;
     /** 可选展示标题；为空时使用 profile manifest name。 */
     title?: string;
-    workspaceRoot?: string;
-    workspaceKey?: string;
-    projectPath?: string;
+    currentProjectRoot?: string;
     parentSessionId?: number;
     /** session 类别（D15）：workflow 创建的参与者/run session 标注用；缺省 = chat。 */
     kind?: "chat" | "workflow" | "system";
@@ -44,49 +43,7 @@ export type CreateAgentResult = {
     title?: string;
 };
 
-export type AgentInvocationAdmission = {
-    sessionId: number;
-    invocationId: string;
-    clientMessageId: string;
-};
-
-export type DurableInvocationResult =
-    | {state: "missing"}
-    | {
-        state: "active";
-        invocationId: string;
-        lifecycle: "accepted" | "running";
-        executionLeaseUntil: string;
-    }
-    | {
-        state: "orphaned";
-        invocationId: string;
-        lifecycle: "accepted" | "running";
-        /**
-         * false = durable evidence proves Provider did not start;
-         * true = start fence was recorded; null = execution evidence was lost/corrupt.
-         */
-        providerStartRecorded: boolean | null;
-    }
-    | {state: "waiting"; invocationId: string}
-    | {state: "failed"; invocationId: string; errorInfo: InvocationErrorInfo | null}
-    | {state: "completed_without_result"; invocationId: string}
-    | {
-        state: "completed";
-        invocationId: string;
-        reportResult: JsonValue;
-    };
-
-export type AcquireAgentInput = CreateAgentInput & {
-    /** 内部工作流持久身份；相同 Profile/scope/tag 必须返回同一未归档 Session。 */
-    acquisitionTag: string;
-};
-
-export type AcquireAgentResult = CreateAgentResult & {
-    reused: boolean;
-};
-
-type InvokeAgentCommonInput = {
+export type InvokeAgentInput = {
     sessionId: number;
     mode: "prompt" | "continue" | "steer" | "followup";
     /** 用户提交关联 ID；prompt/steer/followup 必须存在，内部调用缺省时由 Harness 生成。 */
@@ -105,6 +62,13 @@ type InvokeAgentCommonInput = {
     caller?: AgentInvokeCaller;
     block?: boolean;
     /** false 时目标忙碌即拒绝，不写入 follow-up queue；供必须独占自身生命周期的后台 Job 使用。 */
+    queueIfBusy?: boolean;
+    /**
+     * 内部 durable admission 回写：在 invocation 已写入 lifecycle start 与 durable user entry
+     * （provider 推理启动前）时调用。供 character direct-write 等系统 runtime 按固定预算轮询
+     * durable state；不提供时行为与默认完全一致。
+     */
+    onAccepted?: (input: {sessionId: number; invocationId: string; clientMessageId: string}) => Promise<void>;
     onEvent?: (event: AgentRuntimeStreamEventDto) => void | Promise<void>;
     /** 内部取消传播：只绑定到本次 admission 接收的 invocation，不暴露给 HTTP DTO。 */
     signal?: AbortSignal;
@@ -114,20 +78,6 @@ type InvokeAgentCommonInput = {
     /** Tree 编辑/重跑的新用户 entry 显式父节点；只允许内部 preadmission 路径设置。 */
     userMessageParentId?: SessionEntryId | null;
 };
-
-/** Harness 内部 invocation 输入；hook 存在时 queueIfBusy 必须是字面量 false。 */
-export type InvokeAgentInput =
-    | InvokeAgentCommonInput & {
-        /** 普通调用保留既有排队语义。 */
-        queueIfBusy?: boolean;
-        onAccepted?: never;
-    }
-    | InvokeAgentCommonInput & {
-        /** durable admission 已持久化、Provider 尚未启动时调用；抛错会终止本次 invocation。 */
-        onAccepted: (admission: AgentInvocationAdmission) => Promise<void>;
-        /** hooked invocation 必须由当前调用方独占执行，不允许失去 callback 后再 drain。 */
-        queueIfBusy: false;
-    };
 
 /** Harness 内部 invocation 结果；结构化 data 保持完整，不直接作为 HTTP DTO 返回。 */
 export type AgentInvocationResult = {
@@ -162,19 +112,10 @@ export type AgentTreeOperationResult = {
     invocation?: AgentInvocationResult;
 };
 
-export type AgentInvokeCallerKind = "user" | "agent" | "system";
-
-export type AgentInvokeCaller = {
-    kind: AgentInvokeCallerKind;
-    sessionId?: number;
-    profileKey?: string;
-    toolCallId?: string;
-};
-
 export type AgentSummary = {
     sessionId: number;
     profileKey: string;
-    workspaceRoot: string;
+    currentProjectRoot?: string;
     title?: string;
     summary?: string;
     status: "idle";

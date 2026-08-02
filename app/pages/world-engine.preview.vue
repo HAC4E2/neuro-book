@@ -4,7 +4,15 @@ import WorldEnginePreviewActions from "nbook/app/components/novel-ide/world-engi
 import WorldEnginePreviewProjectPanel from "nbook/app/components/novel-ide/world-engine/WorldEnginePreviewProjectPanel.vue";
 import WorldEnginePreviewStatePanel from "nbook/app/components/novel-ide/world-engine/WorldEnginePreviewStatePanel.vue";
 import {useDialog} from "nbook/app/composables/useDialog";
+import {isProjectSessionSupersededError, useProjectSession} from "nbook/app/composables/useProjectSession";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
+import {resolveProjectMutationCommitState} from "nbook/app/utils/project-mutation-error";
+import {
+    refreshPreviewProjectCreate,
+    runPreviewProjectCreate,
+    type PreviewCreateRecovery,
+    type PreviewCreateSettled,
+} from "nbook/app/utils/world-engine-preview-create";
 import {
     clampMutationIndex,
     deleteMutationAt,
@@ -28,7 +36,7 @@ import {
     previewAttrValueType,
     replaceMutationAt,
     resolvePreviewAttrPath,
-    selectPreviewProjectPath,
+    selectPreviewProjectRoot,
     suggestNextPreviewTime,
     suggestSliceTime,
     type JsonValue,
@@ -36,7 +44,7 @@ import {
     type WorldMutationOp,
     type WorldPreviewSchemaAttr,
 } from "nbook/app/utils/world-engine-preview";
-import type {NovelListItemDto} from "nbook/shared/dto/novel-chapter.dto";
+import type {ProjectCreateResponseDto, ProjectListResponseDto, ProjectMetadataDto} from "nbook/shared/dto/project.dto";
 
 type WorldSchemaProjectionDto = {
     subjectTypes: Array<{
@@ -111,12 +119,12 @@ type DeleteSliceResultDto = {
 
 const route = useRoute();
 const {confirm: confirmDialog} = useDialog();
+const projectSession = useProjectSession();
 
 const previewProjectListLimit = 80;
-const previewProjectTestPrefixes = ["workspace/world-engine-test-", "workspace/world-engine-api-test-", "workspace/world-tools-test-"];
 
-const projects = ref<NovelListItemDto[]>([]);
-const selectedProjectPath = ref("");
+const projects = ref<ProjectMetadataDto[]>([]);
+const selectedProjectRoot = ref("");
 const projectSearch = ref("");
 const schema = shallowRef<WorldSchemaProjectionDto | null>(null);
 const subjects = ref<WorldSubjectDto[]>([]);
@@ -130,9 +138,22 @@ const loadingWorld = ref(false);
 const actionBusy = ref(false);
 const error = ref("");
 const notice = ref("");
+type PreviewCreateRecoveryState = PreviewCreateRecovery & Readonly<{
+    attempt: number;
+    error: string;
+}>;
+const createRecovery = ref<PreviewCreateRecoveryState | null>(null);
 const editingSliceId = ref("");
 const mutationLoadIndex = ref("0");
 let suppressProjectSelectionWatcher = false;
+let projectSelectionRevision = 0;
+let createRecoveryAttempt = 0;
+type WorldLoadRequest = {
+    key: string;
+    promise: Promise<boolean>;
+};
+let worldLoadRevision = 0;
+let worldLoadRequest: WorldLoadRequest | null = null;
 
 /** 显示 Preview 错误，并清理旧成功提示，避免作者同时看到互相冲突的反馈。 */
 function setPreviewError(message: string): void {
@@ -204,12 +225,15 @@ const queryForm = reactive({
     listLimit: 10,
 });
 
-const selectedProject = computed(() => projects.value.find((project) => project.projectPath === selectedProjectPath.value) ?? null);
+const selectedProject = computed(() => projects.value.find((project) => project.projectRoot === selectedProjectRoot.value) ?? null);
 const projectOptions = computed(() => keepSelectedPreviewProject(filterPreviewProjects(projects.value, projectSearch.value), selectedProject.value));
 const schemaTypes = computed(() => schema.value?.subjectTypes ?? []);
 const selectedTypeAttrs = computed(() => schemaTypes.value.find((item) => item.type === subjectForm.type)?.attrs ?? []);
 const latestSlice = computed(() => slices.value.at(-1) ?? null);
-const projectReady = computed(() => Boolean(selectedProjectPath.value));
+const projectReady = computed(() => (
+    projectSession.state.value.status === "ready"
+    && projectSession.state.value.ready.projectRoot === selectedProjectRoot.value
+));
 const stateJson = computed(() => formatPreviewJson(stateResult.value as unknown as JsonValue[]));
 const writeResultJson = computed(() => formatPreviewJson(lastWriteResult.value as unknown as Record<string, JsonValue> | null));
 const sliceActionLabel = computed(() => editingSliceId.value ? "保存 Slice 编辑" : "写入 Slice");
@@ -238,34 +262,133 @@ const mutationBuilderValueHint = computed(() => {
     const valueType = previewAttrValueType(attr) ?? "object";
     return attr.kind === "list" || attr.kind === "collection" ? `${attr.kind}<${valueType}>` : `${attr.kind}:${valueType}`;
 });
+
+/** 请求必须仍属于当前选择的精确 ready generation。 */
+function ownsWorldGeneration(projectRoot: string, readyRevision: number): boolean {
+    return selectedProjectRoot.value === projectRoot
+        && projectSession.state.value.status === "ready"
+        && projectSession.state.value.ready.projectRoot === projectRoot
+        && projectSession.state.value.ready.revision === readyRevision;
+}
+
+/** 离开 ready 后立即撤销全部 Project 数据和在途请求的提交权。 */
+function clearPreviewProjectData(): void {
+    worldLoadRevision += 1;
+    worldLoadRequest = null;
+    schema.value = null;
+    subjects.value = [];
+    slices.value = [];
+    stateResult.value = [];
+    stateIssues.value = [];
+    actionIssues.value = [];
+    lastWriteResult.value = null;
+}
+
+/** Project 选择只有在 open + presence_ready 后才允许触发 World Engine 数据面。 */
+async function activatePreviewProject(projectRoot: string): Promise<boolean> {
+    const revision = ++projectSelectionRevision;
+    loadingWorld.value = true;
+    try {
+        resetPreviewProjectSessionState();
+        clearPreviewProjectData();
+        await projectSession.release();
+        if (!projectRoot) {
+            return false;
+        }
+        const ready = await projectSession.open(projectRoot);
+        if (revision !== projectSelectionRevision || selectedProjectRoot.value !== projectRoot) return false;
+        const loaded = await loadWorld(projectRoot, ready.revision);
+        if (revision !== projectSelectionRevision || selectedProjectRoot.value !== projectRoot) return false;
+        if (loaded) return true;
+        await projectSession.release();
+        if (revision !== projectSelectionRevision || selectedProjectRoot.value !== projectRoot) return false;
+        suppressProjectSelectionWatcher = true;
+        selectedProjectRoot.value = "";
+        suppressProjectSelectionWatcher = false;
+        return false;
+    } catch (activationError) {
+        if (isProjectSessionSupersededError(activationError)) return false;
+        if (revision !== projectSelectionRevision || selectedProjectRoot.value !== projectRoot) return false;
+        await projectSession.release();
+        if (revision !== projectSelectionRevision || selectedProjectRoot.value !== projectRoot) return false;
+        suppressProjectSelectionWatcher = true;
+        selectedProjectRoot.value = "";
+        suppressProjectSelectionWatcher = false;
+        setPreviewError(resolveApiErrorMessage(activationError, `打开 Project 失败：${projectRoot}`));
+        return false;
+    } finally {
+        if (revision === projectSelectionRevision) loadingWorld.value = false;
+    }
+}
+
 /** 读取 Project 列表并选择当前目标。 */
-async function loadProjects(preferredProjectPath?: string): Promise<void> {
+async function loadProjects(preferredProjectRoot?: string): Promise<Readonly<{
+    selectedProjectRoot: string;
+    activated: boolean;
+}>> {
     loadingProjects.value = true;
     error.value = "";
     try {
-        const routeProjectPath = typeof route.query.projectPath === "string"
-            ? route.query.projectPath
+        const routeProjectRoot = typeof route.query.projectRoot === "string"
+            ? route.query.projectRoot
             : typeof route.query.project === "string" ? route.query.project : "";
-        // 列表接口只返回 manifest 全量，预览页的裁剪与测试项目过滤在客户端完成。
-        const allProjects = await $fetch<NovelListItemDto[]>("/api/projects");
-        const keepProjectPaths = new Set([preferredProjectPath, routeProjectPath, selectedProjectPath.value].filter(Boolean));
-        const visibleProjects = allProjects.filter((project) => (
-            keepProjectPaths.has(project.projectPath)
-            || !previewProjectTestPrefixes.some((prefix) => project.projectPath.startsWith(prefix))
-        ));
-        projects.value = visibleProjects.slice(0, previewProjectListLimit);
-        const nextProjectPath = selectPreviewProjectPath(projects.value, preferredProjectPath, routeProjectPath, selectedProjectPath.value);
-        if (selectedProjectPath.value !== nextProjectPath) {
+        // 列表接口返回 manifest 全量，预览页只负责控制展示数量。
+        const allProjects = (await $fetch<ProjectListResponseDto>("/api/projects")).projects;
+        projects.value = allProjects.slice(0, previewProjectListLimit);
+        const nextProjectRoot = selectPreviewProjectRoot(projects.value, preferredProjectRoot, routeProjectRoot, selectedProjectRoot.value);
+        if (selectedProjectRoot.value !== nextProjectRoot) {
             suppressProjectSelectionWatcher = true;
-            selectedProjectPath.value = nextProjectPath;
+            selectedProjectRoot.value = nextProjectRoot;
             suppressProjectSelectionWatcher = false;
-            resetPreviewProjectSessionState();
         }
-        await loadWorld();
-    } catch (loadError) {
-        setPreviewError(resolveApiErrorMessage(loadError, "读取 Project 列表失败"));
+        const activated = await activatePreviewProject(nextProjectRoot);
+        return {selectedProjectRoot: nextProjectRoot, activated};
     } finally {
         loadingProjects.value = false;
+    }
+}
+
+/** 把已刷新 Catalog 的创建事实应用到表单与页面反馈。 */
+function applyPreviewCreateSettlement(result: PreviewCreateSettled): void {
+    if (result.commitState === true) {
+        resetCreateProjectForm();
+        if (
+            result.preferredProjectRoot
+            && result.refresh.activated
+            && result.refresh.selectedProjectRoot === result.preferredProjectRoot
+        ) {
+            setPreviewNotice(`已创建 ${result.preferredProjectRoot}`);
+            return;
+        }
+        if (result.refresh.activated || !error.value) {
+            setPreviewNotice("创建操作已经提交，Project 列表已刷新。");
+        }
+        return;
+    }
+    if (result.refresh.activated || !error.value) {
+        setPreviewNotice("创建结果一度无法确认。列表已刷新，请核对后再决定是否重试。");
+    }
+}
+
+/** 只刷新 create 的提交事实，不自动重放 POST 或猜测新 Project root。 */
+async function refreshCreateRecovery(): Promise<void> {
+    const captured = createRecovery.value;
+    if (!captured) return;
+    actionBusy.value = true;
+    try {
+        const result = await refreshPreviewProjectCreate(captured, loadProjects);
+        if (createRecovery.value?.attempt !== captured.attempt) return;
+        if (result.status === "refresh_failed") {
+            createRecovery.value = {
+                ...captured,
+                error: resolveApiErrorMessage(result.error, "重新读取 Project 列表失败"),
+            };
+            return;
+        }
+        createRecovery.value = null;
+        applyPreviewCreateSettlement(result);
+    } finally {
+        actionBusy.value = false;
     }
 }
 
@@ -273,7 +396,11 @@ async function loadProjects(preferredProjectPath?: string): Promise<void> {
 async function refreshProjects(): Promise<void> {
     if (loadingWorld.value) return;
     if (actionBusy.value) return;
-    await loadProjects();
+    try {
+        await loadProjects();
+    } catch (loadError) {
+        setPreviewError(resolveApiErrorMessage(loadError, "读取 Project 列表失败"));
+    }
 }
 
 /** 新建 Project Workspace，并立即选中它。 */
@@ -281,6 +408,7 @@ async function createProject(): Promise<void> {
     if (loadingProjects.value) return;
     if (loadingWorld.value) return;
     if (actionBusy.value) return;
+    if (createRecovery.value) return;
     if (!createProjectForm.title.trim()) {
         setPreviewError("Project 标题不能为空");
         return;
@@ -289,56 +417,89 @@ async function createProject(): Promise<void> {
     error.value = "";
     notice.value = "";
     try {
-        const project = await $fetch<NovelListItemDto>("/api/projects", {
-            method: "POST",
-            body: {
-                title: createProjectForm.title.trim(),
-                summary: createProjectForm.summary.trim(),
-            },
+        const result = await runPreviewProjectCreate({
+            request: () => $fetch<ProjectCreateResponseDto>("/api/projects", {
+                method: "POST",
+                body: {
+                    title: createProjectForm.title.trim(),
+                    summary: createProjectForm.summary.trim(),
+                },
+            }),
+            refresh: loadProjects,
+            classifyCommit: (createError) => resolveProjectMutationCommitState(createError, "create"),
         });
-        await loadProjects(project.projectPath);
-        resetCreateProjectForm();
-        setPreviewNotice(`已创建 ${project.projectPath}`);
-    } catch (createError) {
-        setPreviewError(resolveApiErrorMessage(createError, "创建 Project 失败"));
+        if (result.status === "rejected") {
+            setPreviewError(resolveApiErrorMessage(result.error, "创建 Project 失败"));
+            return;
+        }
+        if (result.status === "refresh_failed") {
+            createRecoveryAttempt += 1;
+            createRecovery.value = {
+                attempt: createRecoveryAttempt,
+                commitState: result.commitState,
+                ...(result.preferredProjectRoot ? {preferredProjectRoot: result.preferredProjectRoot} : {}),
+                error: resolveApiErrorMessage(result.error, "重新读取 Project 列表失败"),
+            };
+            return;
+        }
+        applyPreviewCreateSettlement(result);
     } finally {
         actionBusy.value = false;
     }
 }
 
 /** 读取当前 Project 的世界引擎 schema、subjects 和 timeline。 */
-async function loadWorld(): Promise<void> {
-    if (!selectedProjectPath.value) {
-        schema.value = null;
-        subjects.value = [];
-        slices.value = [];
-        stateResult.value = [];
-        stateIssues.value = [];
-        return;
+async function loadWorld(
+    projectRoot = selectedProjectRoot.value,
+    readyRevision: number | null = projectSession.state.value.status === "ready"
+        ? projectSession.state.value.ready.revision
+        : null,
+): Promise<boolean> {
+    if (!projectRoot) {
+        clearPreviewProjectData();
+        return true;
     }
+    if (readyRevision === null || !ownsWorldGeneration(projectRoot, readyRevision)) return false;
+    const key = `${projectRoot}:${readyRevision}`;
+    if (worldLoadRequest?.key === key) return worldLoadRequest.promise;
+
+    const revision = ++worldLoadRevision;
+    const request: WorldLoadRequest = {key, promise: Promise.resolve(false)};
     loadingWorld.value = true;
     error.value = "";
-    try {
-        const query = {projectPath: selectedProjectPath.value};
-        const [nextSchema, nextSubjects, nextSlices] = await Promise.all([
-            $fetch<WorldSchemaProjectionDto>("/api/projects/world-engine/schema", {query}),
-            $fetch<WorldSubjectDto[]>("/api/projects/world-engine/subjects", {query}),
-            $fetch<WorldSliceDto[]>("/api/projects/world-engine/slices", {query: {...query, limit: 12, withPatches: "true"}}),
-        ]);
-        schema.value = nextSchema;
-        subjects.value = nextSubjects;
-        slices.value = nextSlices;
-        applyWorldDefaults();
-    } catch (loadError) {
-        schema.value = null;
-        subjects.value = [];
-        slices.value = [];
-        stateResult.value = [];
-        stateIssues.value = [];
-        setPreviewError(resolveApiErrorMessage(loadError, "读取 World Engine 数据失败"));
-    } finally {
-        loadingWorld.value = false;
-    }
+    request.promise = (async () => {
+        try {
+            const query = {projectRoot};
+            const [nextSchema, nextSubjects, nextSlices] = await Promise.all([
+                $fetch<WorldSchemaProjectionDto>("/api/projects/world-engine/schema", {query}),
+                $fetch<WorldSubjectDto[]>("/api/projects/world-engine/subjects", {query}),
+                $fetch<WorldSliceDto[]>("/api/projects/world-engine/slices", {query: {...query, limit: 12, withPatches: "true"}}),
+            ]);
+            if (revision !== worldLoadRevision || !ownsWorldGeneration(projectRoot, readyRevision)) return false;
+            schema.value = nextSchema;
+            subjects.value = nextSubjects;
+            slices.value = nextSlices;
+            applyWorldDefaults();
+            return true;
+        } catch (loadError) {
+            if (revision === worldLoadRevision && ownsWorldGeneration(projectRoot, readyRevision)) {
+                schema.value = null;
+                subjects.value = [];
+                slices.value = [];
+                stateResult.value = [];
+                stateIssues.value = [];
+                setPreviewError(resolveApiErrorMessage(loadError, "读取 World Engine 数据失败"));
+            }
+            return false;
+        } finally {
+            if (worldLoadRequest === request) {
+                worldLoadRequest = null;
+                loadingWorld.value = false;
+            }
+        }
+    })();
+    worldLoadRequest = request;
+    return request.promise;
 }
 
 /** 用户从 StatePanel 刷新世界数据；请求飞行中不抢当前 Project / action 上下文。 */
@@ -352,7 +513,7 @@ async function refreshWorldFromStatePanel(): Promise<void> {
 async function createSubject(): Promise<void> {
     if (loadingWorld.value) return;
     if (actionBusy.value) return;
-    if (!selectedProjectPath.value) return;
+    if (!projectReady.value) return;
     const subjectId = subjectForm.id.trim();
     const subjectType = subjectForm.type.trim();
     const subjectTime = subjectForm.time.trim();
@@ -419,7 +580,7 @@ async function createSubject(): Promise<void> {
 async function writeSlice(): Promise<void> {
     if (loadingWorld.value) return;
     if (actionBusy.value) return;
-    if (!selectedProjectPath.value) return;
+    if (!projectReady.value) return;
     if (!sliceForm.time.trim()) {
         setPreviewError("time 不能为空");
         return;
@@ -468,7 +629,7 @@ async function writeSlice(): Promise<void> {
 async function deleteSlice(sliceId: string): Promise<void> {
     if (loadingWorld.value) return;
     if (actionBusy.value) return;
-    if (!selectedProjectPath.value) return;
+    if (!projectReady.value) return;
     const slice = slices.value.find((item) => item.id === sliceId);
     if (!slice) {
         setPreviewError("切面不存在，已刷新列表");
@@ -508,7 +669,7 @@ async function deleteSlice(sliceId: string): Promise<void> {
 async function queryState(options: {clearActionIssues?: boolean} = {}): Promise<void> {
     if (loadingWorld.value && options.clearActionIssues !== false) return;
     if (actionBusy.value && options.clearActionIssues !== false) return;
-    if (!selectedProjectPath.value) return;
+    if (!projectReady.value) return;
     const subjectIds = parseCsvList(queryForm.subjectIds);
     const attrs = parseCsvList(queryForm.attrs);
     const type = queryForm.type.trim();
@@ -544,8 +705,8 @@ async function queryState(options: {clearActionIssues?: boolean} = {}): Promise<
     }
 }
 
-function projectQuery(): {projectPath: string} {
-    return {projectPath: selectedProjectPath.value};
+function projectQuery(): {projectRoot: string} {
+    return {projectRoot: selectedProjectRoot.value};
 }
 
 function applyWorldDefaults(): void {
@@ -945,16 +1106,58 @@ function resetPreviewProjectSessionState(): void {
     error.value = "";
 }
 
-watch(selectedProjectPath, () => {
+/** 离开 ready 立即清空旧世界数据；新 revision 只通过 generation loader 重新发布。 */
+watch(projectSession.state, (next, previous) => {
+    if (!selectedProjectRoot.value) return;
+    if (next.status !== "ready" || next.ready.projectRoot !== selectedProjectRoot.value) {
+        clearPreviewProjectData();
+        if (next.status === "opening" || next.status === "reconnecting") {
+            loadingWorld.value = true;
+        }
+        if (next.status === "failed" && previous.status === "reconnecting") {
+            const projectRoot = selectedProjectRoot.value;
+            const revision = ++projectSelectionRevision;
+            void (async () => {
+                await projectSession.release();
+                if (revision !== projectSelectionRevision || selectedProjectRoot.value !== projectRoot) return;
+                suppressProjectSelectionWatcher = true;
+                selectedProjectRoot.value = "";
+                suppressProjectSelectionWatcher = false;
+                loadingWorld.value = false;
+                setPreviewError(`Project 已不可用：${projectRoot}`);
+            })();
+        }
+        return;
+    }
+    if (previous.status === "ready" && previous.ready.revision === next.ready.revision) return;
+    const projectRoot = next.ready.projectRoot;
+    const revision = projectSelectionRevision;
+    loadingWorld.value = true;
+    void (async () => {
+        const loaded = await loadWorld(next.ready.projectRoot, next.ready.revision);
+        if (revision !== projectSelectionRevision || selectedProjectRoot.value !== projectRoot) return;
+        if (loaded) {
+            loadingWorld.value = false;
+            return;
+        }
+        await projectSession.release();
+        if (revision !== projectSelectionRevision || selectedProjectRoot.value !== projectRoot) return;
+        suppressProjectSelectionWatcher = true;
+        selectedProjectRoot.value = "";
+        suppressProjectSelectionWatcher = false;
+        loadingWorld.value = false;
+    })();
+});
+
+watch(selectedProjectRoot, (projectRoot) => {
     if (suppressProjectSelectionWatcher) {
         return;
     }
-    resetPreviewProjectSessionState();
-    void loadWorld();
+    void activatePreviewProject(projectRoot);
 }, {flush: "sync"});
 
 onMounted(() => {
-    void loadProjects();
+    void refreshProjects();
 });
 </script>
 
@@ -970,9 +1173,9 @@ onMounted(() => {
                 </div>
                 <div class="grid w-full gap-2 sm:w-auto sm:min-w-[520px] sm:grid-cols-[minmax(180px,220px)_minmax(260px,1fr)_auto]">
                     <input v-model="projectSearch" class="h-9 min-w-0 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-sm outline-none focus:border-[var(--accent-main)]" placeholder="搜索 Project">
-                    <select v-model="selectedProjectPath" class="h-9 min-w-0 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-sm outline-none focus:border-[var(--accent-main)] disabled:opacity-50" :disabled="loadingProjects || loadingWorld || actionBusy">
+                    <select v-model="selectedProjectRoot" class="h-9 min-w-0 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-sm outline-none focus:border-[var(--accent-main)] disabled:opacity-50" :disabled="loadingProjects || loadingWorld || actionBusy">
                         <option value="">选择 Project</option>
-                        <option v-for="project in projectOptions" :key="project.projectPath" :value="project.projectPath">{{ project.title }} · {{ project.projectPath }}</option>
+                        <option v-for="project in projectOptions" :key="project.projectRoot" :value="project.projectRoot">{{ project.title }} · {{ project.projectRoot }}</option>
                     </select>
                     <button type="button" class="inline-flex h-9 items-center gap-2 rounded-md border border-[var(--border-color)] px-3 text-sm hover:bg-[var(--bg-hover)] disabled:opacity-50" :disabled="loadingProjects || loadingWorld || actionBusy" @click="void refreshProjects()">
                         <span :class="loadingProjects ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-refresh-cw'" class="h-4 w-4"></span>
@@ -995,7 +1198,9 @@ onMounted(() => {
                 :loading-projects="loadingProjects"
                 :loading-world="loadingWorld"
                 :action-busy="actionBusy"
+                :create-recovery="createRecovery?.error || (createRecovery ? '必须先重新读取 Project 列表，才能再次创建。' : '')"
                 @create-project="void createProject()"
+                @retry-create-recovery="void refreshCreateRecovery()"
                 @fill-mutation="fillMutation"
             />
 

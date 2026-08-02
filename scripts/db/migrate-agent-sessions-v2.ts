@@ -3,7 +3,7 @@ import {resolveStateWorkspaceRoot} from "nbook/server/runtime/installation-paths
 import {
     rollbackSessionSchemaV2Migration,
     runSessionSchemaV2Migration,
-} from "nbook/scripts/db/agent-session-v2/migration";
+} from "nbook/server/agent/session/migrations/session-v2/migration";
 
 type CliOptions = {
     action: "migrate" | "rollback";

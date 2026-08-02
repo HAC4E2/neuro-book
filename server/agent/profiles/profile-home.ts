@@ -1,6 +1,5 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type {JsonValue} from "nbook/server/agent/messages/types";
 import {
     absoluteFsPath,
     assertRealParentContained,
@@ -11,57 +10,25 @@ import {
 import {
     type ResolvedProjectWorkspace,
 } from "nbook/server/workspace-files/project-identity";
-
-export type ProfileHomeWriteMode = "create" | "overwrite";
-
-export type ProfileHomeWriteResult = {
-    written: boolean;
-};
-
-export type ProfileHomeScope = "global" | "project";
-
-export type ProfileHomeListItem = {
-    name: string;
-    path: string;
-    kind: "file" | "directory";
-};
-
-export type ProfileHomeFacade = {
-    root: string;
-    readText(filePath: string): Promise<string>;
-    writeText(filePath: string, content: string, options?: {mode?: ProfileHomeWriteMode}): Promise<ProfileHomeWriteResult>;
-    readJson(filePath: string): Promise<JsonValue>;
-    writeJson(filePath: string, value: JsonValue, options?: {mode?: ProfileHomeWriteMode}): Promise<ProfileHomeWriteResult>;
-    exists(filePath: string): Promise<boolean>;
-    list(directoryPath?: string): Promise<ProfileHomeListItem[]>;
-    move(fromPath: string, toPath: string, options?: {mode?: ProfileHomeWriteMode}): Promise<ProfileHomeWriteResult>;
-    remove(filePath: string): Promise<void>;
-    clear(): Promise<void>;
-};
-
-type ProfileHomeContextBase = {
-    profileKey: string;
-    profileVersion: number;
-    root: string;
-    home: ProfileHomeFacade;
-};
-
-/** Profile Home hook 只接收已经过生命周期 gate 的结构化所属域。 */
-export type ProfileHomeContext = ProfileHomeContextBase & ({
-    scope: "project";
-    workspace: ResolvedProjectWorkspace;
-} | {
-    scope: "global";
-    workspaceRoot: AbsoluteFsPath;
-    /** Global profile home 所属的 Workspace Root `.nbook` 物理目录。 */
-    workspaceNbookRoot: AbsoluteFsPath;
-});
-
-export type ProfileHomeDefinition = {
-    init?: (ctx: ProfileHomeContext) => Promise<void> | void;
-    upgrade?: (ctx: ProfileHomeContext, oldVersion: number, targetVersion: number) => Promise<void> | void;
-    reset?: (ctx: ProfileHomeContext) => Promise<void> | void;
-};
+import type {
+    ProfileHomeContext,
+    ProfileHomeDefinition,
+    ProfileHomeFacade,
+    ProfileHomeListItem,
+    ProfileHomeScope,
+    ProfileHomeWriteMode,
+    ProfileHomeWriteResult,
+    ProfileJsonValue,
+} from "nbook/profile-sdk/contracts";
+export type {
+    ProfileHomeContext,
+    ProfileHomeDefinition,
+    ProfileHomeFacade,
+    ProfileHomeListItem,
+    ProfileHomeScope,
+    ProfileHomeWriteMode,
+    ProfileHomeWriteResult,
+} from "nbook/profile-sdk/contracts";
 
 type ProfileHomeMetadata = {
     profileKey: string;
@@ -169,7 +136,7 @@ function createProfileHomeFacadeAtRoot(containmentRoot: AbsoluteFsPath, root: Ab
         readJson: async (filePath) => {
             const target = resolveHomePath(root, filePath);
             await assertRealPathContained(root, target);
-            return JSON.parse(await fs.readFile(target, "utf-8")) as JsonValue;
+            return JSON.parse(await fs.readFile(target, "utf-8")) as ProfileJsonValue;
         },
         writeJson: async (filePath, value, options) => writeText(containmentRoot, root, filePath, `${JSON.stringify(value, null, 4)}\n`, options),
         exists: async (filePath) => {

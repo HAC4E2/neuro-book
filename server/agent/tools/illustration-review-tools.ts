@@ -41,14 +41,14 @@ export function createIllustrationReviewAgentToolDefinitions(): AgentToolDefinit
         const existing = activeReviewRuns.get(runKey);
         if (existing) return existing;
 
-        if (!context.projectPath) throw new Error("REVIEW_CANDIDATES_PROJECT_REQUIRED");
+        const projectPath = requireReviewProjectPath(context);
         // toolContext.contextId 是章节路径（planning input builder 写入）
         const chapterPath = String((context as Record<string, unknown>).chapterPath ?? "");
         if (!chapterPath || !chapterPath.includes(".md")) throw new Error("REVIEW_CANDIDATES_CHAPTER_REQUIRED");
-        const snapshot = await chapterService.snapshot(context.projectPath, chapterPath);
+        const snapshot = await chapterService.snapshot(projectPath, chapterPath);
         const placeholders = findAllTextToImagePromptMarkdown(snapshot.markdown);
         const pending: ReviewRun = {
-            projectPath: context.projectPath,
+            projectPath: projectPath,
             chapterPath,
             chapterMarkdown: snapshot.markdown,
             chapterHash: snapshot.hash,
@@ -123,4 +123,10 @@ export function createIllustrationReviewAgentToolDefinitions(): AgentToolDefinit
 /** 全局 registry 使用的生产 runtime 构造入口。 */
 export function createIllustrationReviewAgentTools() {
     return createIllustrationReviewAgentToolDefinitions().map((definition) => definition.runtime());
+}
+
+/** 上游 ToolExecutionContext 用 currentProject 表达 Project scope；转回 text-to-image projectPath。 */
+function requireReviewProjectPath(context: import("nbook/server/agent/tools/types").ToolExecutionContext): string {
+    if (!context.currentProject) throw new Error("REVIEW_CANDIDATES_PROJECT_REQUIRED");
+    return `workspace/${context.currentProject.workspace.ref.projectRoot}`;
 }

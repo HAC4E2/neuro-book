@@ -406,15 +406,14 @@ async function listDirectoryFilesForRecord(projectRoot: AbsoluteFsPath, relative
 /**
  * 从Workspace文件操作目标取得History项目身份。
  *
- * Project Path与物理Project Workspace根由上游Adapter一次确定；本层不从绝对路径
+ * Project root与物理Project Workspace根由上游入口一次确定；本层不从绝对路径
  * 反推领域身份，也不重新读取State Root或cwd。
  */
-function historyTarget(target: WorkspaceFileTarget): {projectPath: string; projectRoot: AbsoluteFsPath} | null {
+function historyTarget(target: WorkspaceFileTarget): {projectRoot: AbsoluteFsPath} | null {
     if (target.kind !== "project-workspace") {
         return null;
     }
     return {
-        projectPath: target.projectPath,
         projectRoot: target.root,
     };
 }

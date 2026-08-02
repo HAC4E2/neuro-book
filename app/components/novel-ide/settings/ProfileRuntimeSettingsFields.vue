@@ -61,72 +61,92 @@ function parseBoolean(value: string): boolean | null {
 </script>
 
 <template>
-    <!-- Profile 通用运行策略字段：Global 默认和单 Profile 覆盖共用。 -->
-    <div class="grid gap-3 md:grid-cols-2">
-        <div class="space-y-1.5">
-            <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.runtime.summarizerEnabled") }}</label>
-            <FormSelect :model-value="booleanValue(props.modelValue.summarizerEnabled)" :options="booleanOptions('summarizerEnabled', props.inherited.summarizer.enabled)" @update:model-value="update({summarizerEnabled: parseBoolean($event)})" />
-        </div>
-        <div class="space-y-1.5">
-            <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.runtime.summarizerProfile") }}</label>
-            <FormInput :model-value="props.modelValue.summarizerProfileKey" :placeholder="props.inherited.summarizer.profileKey" @update:model-value="update({summarizerProfileKey: $event})" />
-            <p class="text-[10px] text-[var(--text-muted)]">{{ inheritLabel('summarizerProfileKey', props.inherited.summarizer.profileKey) }}</p>
-        </div>
-        <div class="space-y-1.5">
-            <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.runtime.summarizerIntervalKind") }}</label>
-            <FormSelect :model-value="props.modelValue.summarizerIntervalKind" :options="intervalOptions" @update:model-value="update({summarizerIntervalKind: $event as ProfileRuntimeSettingsDraft['summarizerIntervalKind']})" />
-        </div>
-        <div class="space-y-1.5">
-            <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.runtime.summarizerIntervalValue") }}</label>
-            <FormInput :model-value="props.modelValue.summarizerIntervalValue" type="number" min="1" :placeholder="String(props.inherited.summarizer.interval.value)" @update:model-value="update({summarizerIntervalValue: $event})" />
-            <p :class="errorLabel('summarizerIntervalValue') ? 'text-[var(--status-danger)]' : 'text-[var(--text-muted)]'" class="text-[10px]">{{ errorLabel('summarizerIntervalValue') || inheritLabel('summarizerIntervalValue', String(props.inherited.summarizer.interval.value)) }}</p>
-        </div>
-        <div class="space-y-1.5">
-            <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.runtime.summarizerMaxTokens") }}</label>
-            <FormInput :model-value="props.modelValue.summarizerMaxTokens" type="number" min="1" :placeholder="String(props.inherited.summarizer.maxDialogueContentTokens)" @update:model-value="update({summarizerMaxTokens: $event})" />
-            <p :class="errorLabel('summarizerMaxTokens') ? 'text-[var(--status-danger)]' : 'text-[var(--text-muted)]'" class="text-[10px]">{{ errorLabel('summarizerMaxTokens') || inheritLabel('summarizerMaxTokens', String(props.inherited.summarizer.maxDialogueContentTokens)) }}</p>
-        </div>
-        <div class="space-y-1.5">
-            <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.runtime.diffMaxChars") }}</label>
-            <FormInput :model-value="props.modelValue.fileChangeDiffMaxChars" type="number" step="64" min="0" max="8192" :placeholder="String(props.inherited.fileChangeNotice.diffMaxChars)" @update:model-value="update({fileChangeDiffMaxChars: $event})" />
-            <p :class="errorLabel('fileChangeDiffMaxChars') ? 'text-[var(--status-danger)]' : 'text-[var(--text-muted)]'" class="text-[10px]">{{ errorLabel('fileChangeDiffMaxChars') || inheritLabel('fileChangeDiffMaxChars', String(props.inherited.fileChangeNotice.diffMaxChars)) }}</p>
-        </div>
-        <div class="space-y-1.5">
-            <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.runtime.compactionEnabled") }}</label>
-            <FormSelect :model-value="booleanValue(props.modelValue.compactionEnabled)" :options="booleanOptions('compactionEnabled', props.inherited.compaction.enabled)" @update:model-value="update({compactionEnabled: parseBoolean($event)})" />
-        </div>
-        <div class="space-y-1.5">
-            <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.runtime.compactionTrigger") }}</label>
-            <FormSelect :model-value="props.modelValue.compactionTriggerKind" :options="triggerOptions" @update:model-value="update({compactionTriggerKind: $event as ProfileRuntimeSettingsDraft['compactionTriggerKind']})" />
-        </div>
-        <div v-if="props.modelValue.compactionTriggerKind === 'percent' || props.modelValue.compactionTriggerKind === 'tokens'" class="space-y-1.5">
-            <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.runtime.compactionTriggerValue") }}</label>
-            <FormInput :model-value="props.modelValue.compactionTriggerValue" type="number" min="0" :step="props.modelValue.compactionTriggerKind === 'percent' ? '0.05' : '1'" @update:model-value="update({compactionTriggerValue: $event})" />
-            <p v-if="errorLabel('compactionTriggerValue')" class="text-[10px] text-[var(--status-danger)]">{{ errorLabel('compactionTriggerValue') }}</p>
-        </div>
-        <div class="space-y-1.5">
-            <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.runtime.compactionReserveTokens") }}</label>
-            <FormInput :model-value="props.modelValue.compactionReserveTokens" type="number" min="1" :placeholder="String(props.inherited.compaction.reserveTokens)" @update:model-value="update({compactionReserveTokens: $event})" />
-            <p :class="errorLabel('compactionReserveTokens') ? 'text-[var(--status-danger)]' : 'text-[var(--text-muted)]'" class="text-[10px]">{{ errorLabel('compactionReserveTokens') || inheritLabel('compactionReserveTokens', String(props.inherited.compaction.reserveTokens)) }}</p>
-        </div>
-        <div class="space-y-1.5">
-            <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.runtime.compactionKeepRecent") }}</label>
-            <FormSelect :model-value="props.modelValue.compactionKeepRecentKind" :options="keepRecentOptions" @update:model-value="update({compactionKeepRecentKind: $event as ProfileRuntimeSettingsDraft['compactionKeepRecentKind']})" />
-        </div>
-        <div v-if="props.modelValue.compactionKeepRecentKind" class="space-y-1.5">
-            <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.runtime.compactionKeepRecentValue") }}</label>
-            <FormInput :model-value="props.modelValue.compactionKeepRecentValue" type="number" min="0" :step="props.modelValue.compactionKeepRecentKind === 'percent' ? '0.05' : '1'" @update:model-value="update({compactionKeepRecentValue: $event})" />
-            <p v-if="errorLabel('compactionKeepRecentValue')" class="text-[10px] text-[var(--status-danger)]">{{ errorLabel('compactionKeepRecentValue') }}</p>
-        </div>
-        <div class="space-y-1.5 md:col-span-2">
-            <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.runtime.compactionPrompt") }}</label>
-            <FormTextarea :model-value="props.modelValue.compactionPrompt" :placeholder="props.inherited.compaction.prompt" :rows="5" @update:model-value="update({compactionPrompt: $event})" />
-            <p class="text-[10px] text-[var(--text-muted)]">{{ inheritLabel('compactionPrompt', props.inherited.compaction.prompt) }}</p>
-        </div>
-        <div class="space-y-1.5 md:col-span-2">
-            <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.runtime.compactionSummaryPrefix") }}</label>
-            <FormTextarea :model-value="props.modelValue.compactionSummaryPrefix" :placeholder="props.inherited.compaction.summaryPrefix" :rows="4" @update:model-value="update({compactionSummaryPrefix: $event})" />
-            <p class="text-[10px] text-[var(--text-muted)]">{{ inheritLabel('compactionSummaryPrefix', props.inherited.compaction.summaryPrefix) }}</p>
-        </div>
+    <!-- Profile 通用运行策略字段：Global 默认和单 Profile 覆盖共用，按摘要 / 压缩 / 文件通知三组呈现。 -->
+    <div class="space-y-4">
+        <!-- 自动摘要 -->
+        <section>
+            <h6 class="mb-2.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">{{ t("settings.panels.profileModels.runtime.groups.summarizer") }}</h6>
+            <div class="grid gap-3 md:grid-cols-2">
+                <div class="space-y-1.5">
+                    <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.runtime.summarizerEnabled") }}</label>
+                    <FormSelect :model-value="booleanValue(props.modelValue.summarizerEnabled)" :options="booleanOptions('summarizerEnabled', props.inherited.summarizer.enabled)" @update:model-value="update({summarizerEnabled: parseBoolean($event)})" />
+                </div>
+                <div class="space-y-1.5">
+                    <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.runtime.summarizerProfile") }}</label>
+                    <FormInput :model-value="props.modelValue.summarizerProfileKey" :placeholder="props.inherited.summarizer.profileKey" @update:model-value="update({summarizerProfileKey: $event})" />
+                    <p class="text-[10px] text-[var(--text-muted)]">{{ inheritLabel('summarizerProfileKey', props.inherited.summarizer.profileKey) }}</p>
+                </div>
+                <div class="space-y-1.5">
+                    <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.runtime.summarizerIntervalKind") }}</label>
+                    <FormSelect :model-value="props.modelValue.summarizerIntervalKind" :options="intervalOptions" @update:model-value="update({summarizerIntervalKind: $event as ProfileRuntimeSettingsDraft['summarizerIntervalKind']})" />
+                </div>
+                <div class="space-y-1.5">
+                    <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.runtime.summarizerIntervalValue") }}</label>
+                    <FormInput :model-value="props.modelValue.summarizerIntervalValue" type="number" min="1" :placeholder="String(props.inherited.summarizer.interval.value)" @update:model-value="update({summarizerIntervalValue: $event})" />
+                    <p :class="errorLabel('summarizerIntervalValue') ? 'text-[var(--status-danger)]' : 'text-[var(--text-muted)]'" class="text-[10px]">{{ errorLabel('summarizerIntervalValue') || inheritLabel('summarizerIntervalValue', String(props.inherited.summarizer.interval.value)) }}</p>
+                </div>
+                <div class="space-y-1.5">
+                    <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.runtime.summarizerMaxTokens") }}</label>
+                    <FormInput :model-value="props.modelValue.summarizerMaxTokens" type="number" min="1" :placeholder="String(props.inherited.summarizer.maxDialogueContentTokens)" @update:model-value="update({summarizerMaxTokens: $event})" />
+                    <p :class="errorLabel('summarizerMaxTokens') ? 'text-[var(--status-danger)]' : 'text-[var(--text-muted)]'" class="text-[10px]">{{ errorLabel('summarizerMaxTokens') || inheritLabel('summarizerMaxTokens', String(props.inherited.summarizer.maxDialogueContentTokens)) }}</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- 上下文压缩 -->
+        <section class="border-t border-[var(--border-color)] pt-4">
+            <h6 class="mb-2.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">{{ t("settings.panels.profileModels.runtime.groups.compaction") }}</h6>
+            <div class="grid gap-3 md:grid-cols-2">
+                <div class="space-y-1.5">
+                    <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.runtime.compactionEnabled") }}</label>
+                    <FormSelect :model-value="booleanValue(props.modelValue.compactionEnabled)" :options="booleanOptions('compactionEnabled', props.inherited.compaction.enabled)" @update:model-value="update({compactionEnabled: parseBoolean($event)})" />
+                </div>
+                <div class="space-y-1.5">
+                    <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.runtime.compactionTrigger") }}</label>
+                    <FormSelect :model-value="props.modelValue.compactionTriggerKind" :options="triggerOptions" @update:model-value="update({compactionTriggerKind: $event as ProfileRuntimeSettingsDraft['compactionTriggerKind']})" />
+                </div>
+                <div v-if="props.modelValue.compactionTriggerKind === 'percent' || props.modelValue.compactionTriggerKind === 'tokens'" class="space-y-1.5">
+                    <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.runtime.compactionTriggerValue") }}</label>
+                    <FormInput :model-value="props.modelValue.compactionTriggerValue" type="number" min="0" :step="props.modelValue.compactionTriggerKind === 'percent' ? '0.05' : '1'" @update:model-value="update({compactionTriggerValue: $event})" />
+                    <p v-if="errorLabel('compactionTriggerValue')" class="text-[10px] text-[var(--status-danger)]">{{ errorLabel('compactionTriggerValue') }}</p>
+                </div>
+                <div class="space-y-1.5">
+                    <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.runtime.compactionReserveTokens") }}</label>
+                    <FormInput :model-value="props.modelValue.compactionReserveTokens" type="number" min="1" :placeholder="String(props.inherited.compaction.reserveTokens)" @update:model-value="update({compactionReserveTokens: $event})" />
+                    <p :class="errorLabel('compactionReserveTokens') ? 'text-[var(--status-danger)]' : 'text-[var(--text-muted)]'" class="text-[10px]">{{ errorLabel('compactionReserveTokens') || inheritLabel('compactionReserveTokens', String(props.inherited.compaction.reserveTokens)) }}</p>
+                </div>
+                <div class="space-y-1.5">
+                    <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.runtime.compactionKeepRecent") }}</label>
+                    <FormSelect :model-value="props.modelValue.compactionKeepRecentKind" :options="keepRecentOptions" @update:model-value="update({compactionKeepRecentKind: $event as ProfileRuntimeSettingsDraft['compactionKeepRecentKind']})" />
+                </div>
+                <div v-if="props.modelValue.compactionKeepRecentKind" class="space-y-1.5">
+                    <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.runtime.compactionKeepRecentValue") }}</label>
+                    <FormInput :model-value="props.modelValue.compactionKeepRecentValue" type="number" min="0" :step="props.modelValue.compactionKeepRecentKind === 'percent' ? '0.05' : '1'" @update:model-value="update({compactionKeepRecentValue: $event})" />
+                    <p v-if="errorLabel('compactionKeepRecentValue')" class="text-[10px] text-[var(--status-danger)]">{{ errorLabel('compactionKeepRecentValue') }}</p>
+                </div>
+                <div class="space-y-1.5 md:col-span-2">
+                    <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.runtime.compactionPrompt") }}</label>
+                    <FormTextarea :model-value="props.modelValue.compactionPrompt" :placeholder="props.inherited.compaction.prompt" :rows="5" @update:model-value="update({compactionPrompt: $event})" />
+                    <p class="text-[10px] text-[var(--text-muted)]">{{ inheritLabel('compactionPrompt', props.inherited.compaction.prompt) }}</p>
+                </div>
+                <div class="space-y-1.5 md:col-span-2">
+                    <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.runtime.compactionSummaryPrefix") }}</label>
+                    <FormTextarea :model-value="props.modelValue.compactionSummaryPrefix" :placeholder="props.inherited.compaction.summaryPrefix" :rows="4" @update:model-value="update({compactionSummaryPrefix: $event})" />
+                    <p class="text-[10px] text-[var(--text-muted)]">{{ inheritLabel('compactionSummaryPrefix', props.inherited.compaction.summaryPrefix) }}</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- 文件变更通知 -->
+        <section class="border-t border-[var(--border-color)] pt-4">
+            <h6 class="mb-2.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">{{ t("settings.panels.profileModels.runtime.groups.fileChangeNotice") }}</h6>
+            <div class="grid gap-3 md:grid-cols-2">
+                <div class="space-y-1.5">
+                    <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.runtime.diffMaxChars") }}</label>
+                    <FormInput :model-value="props.modelValue.fileChangeDiffMaxChars" type="number" step="64" min="0" max="8192" :placeholder="String(props.inherited.fileChangeNotice.diffMaxChars)" @update:model-value="update({fileChangeDiffMaxChars: $event})" />
+                    <p :class="errorLabel('fileChangeDiffMaxChars') ? 'text-[var(--status-danger)]' : 'text-[var(--text-muted)]'" class="text-[10px]">{{ errorLabel('fileChangeDiffMaxChars') || inheritLabel('fileChangeDiffMaxChars', String(props.inherited.fileChangeNotice.diffMaxChars)) }}</p>
+                </div>
+            </div>
+        </section>
     </div>
 </template>

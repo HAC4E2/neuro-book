@@ -1,11 +1,29 @@
 name: Release Product Assets
 
+run-name: Release ${{ inputs.tag }} candidate #${{ inputs.release_id }}
+
 on:
-  release:
-    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: Existing Draft Release database ID
+        required: true
+        type: string
+      tag:
+        description: SemVer release tag owned by the Draft
+        required: true
+        type: string
+      revision:
+        description: Exact pushed Source revision
+        required: true
+        type: string
+      prerelease:
+        description: Whether the final Release remains a prerelease
+        required: true
+        type: boolean
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 env:
@@ -13,8 +31,8 @@ env:
   NODE_OPTIONS: --max-old-space-size=4096
 
 concurrency:
-  group: release-product-assets-${{ github.event.release.prerelease && 'prerelease' || github.event.release.tag_name }}
-  cancel-in-progress: ${{ github.event.release.prerelease }}
+  group: release-product-assets-${{ inputs.release_id }}
+  cancel-in-progress: false
 
 jobs:
   preflight:
@@ -22,8 +40,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.revision }}
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile --linker hoisted
+      - name: Verify approved Product Runtime Image policies
+        run: bun run product:policy:check
       - name: Verify public Manager provenance
         run: bun run manager:verify-public
       - name: Verify Stage 0 and Manager contracts
@@ -59,6 +81,8 @@ jobs:
             runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.revision }}
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
@@ -72,41 +96,11 @@ jobs:
         run: |
           owner="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
           echo "app=ghcr.io/${owner}/neuro-book" >> "${GITHUB_OUTPUT}"
-          echo "runtime=ghcr.io/${owner}/neuro-book-runtime" >> "${GITHUB_OUTPUT}"
-
-      - id: runtime-build
-        name: Build and push runtime image by digest
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          target: runtime-base
-          platforms: ${{ matrix.platform }}
-          outputs: type=image,name=${{ steps.image-names.outputs.runtime }},push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=runtime-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=runtime-${{ matrix.arch }}
-
-      - name: Record runtime digest
-        shell: bash
-        run: |
-          digest='${{ steps.runtime-build.outputs.digest }}'
-          test "${digest}" != "${digest#sha256:}"
-          mkdir -p /tmp/digests/runtime
-          touch "/tmp/digests/runtime/${digest#sha256:}"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: container-runtime-digest-${{ matrix.arch }}
-          path: /tmp/digests/runtime/*
-          if-no-files-found: error
-          retention-days: 1
 
       - id: app-meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ steps.image-names.outputs.app }}
-          tags: |
-            type=raw,value=${{ github.event.release.tag_name }}
-            type=raw,value=latest,enable=${{ !github.event.release.prerelease }}
 
       - id: app-build
         name: Build and push app image by digest
@@ -114,11 +108,11 @@ jobs:
         with:
           context: .
           platforms: ${{ matrix.platform }}
+          build-args: |
+            NEURO_BOOK_SOURCE_REVISION=${{ inputs.revision }}
           labels: ${{ steps.app-meta.outputs.labels }}
           outputs: type=image,name=${{ steps.image-names.outputs.app }},push-by-digest=true,name-canonical=true,push=true
-          cache-from: |
-            type=gha,scope=runtime-${{ matrix.arch }}
-            type=gha,scope=app-${{ matrix.arch }}
+          cache-from: type=gha,scope=app-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=app-${{ matrix.arch }}
 
       - name: Record app digest
@@ -156,13 +150,6 @@ jobs:
         run: |
           owner="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
           echo "app=ghcr.io/${owner}/neuro-book" >> "${GITHUB_OUTPUT}"
-          echo "runtime=ghcr.io/${owner}/neuro-book-runtime" >> "${GITHUB_OUTPUT}"
-
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: container-runtime-digest-*
-          path: /tmp/digests/runtime
-          merge-multiple: true
       - uses: actions/download-artifact@v4
         with:
           pattern: container-app-digest-*
@@ -174,31 +161,18 @@ jobs:
         shell: bash
         env:
           APP_IMAGE: ${{ steps.image-names.outputs.app }}
-          RUNTIME_IMAGE: ${{ steps.image-names.outputs.runtime }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-          PRERELEASE: ${{ github.event.release.prerelease }}
+          CANDIDATE_TAG: candidate-${{ inputs.release_id }}
         run: |
           set -euo pipefail
-          merge_image() {
-            image="$1"
-            digest_root="$2"
-            mapfile -t digests < <(find "$digest_root" -maxdepth 1 -type f -printf '%f\n' | sort)
-            test "${#digests[@]}" -eq 2
-            refs=()
-            for digest in "${digests[@]}"; do
-              [[ "$digest" =~ ^[a-f0-9]{64}$ ]]
-              refs+=("${image}@sha256:${digest}")
-            done
-            tags=(--tag "${image}:${RELEASE_TAG}")
-            if [[ "$PRERELEASE" != "true" ]]; then
-              tags+=(--tag "${image}:latest")
-            fi
-            docker buildx imagetools create "${tags[@]}" "${refs[@]}"
-          }
-
-          merge_image "$RUNTIME_IMAGE" /tmp/digests/runtime
-          merge_image "$APP_IMAGE" /tmp/digests/app
-          app_digest="sha256:$(docker buildx imagetools inspect "${APP_IMAGE}:${RELEASE_TAG}" --raw | sha256sum | awk '{print $1}')"
+          mapfile -t digests < <(find /tmp/digests/app -maxdepth 1 -type f -printf '%f\n' | sort)
+          test "${#digests[@]}" -eq 2
+          refs=()
+          for digest in "${digests[@]}"; do
+            [[ "$digest" =~ ^[a-f0-9]{64}$ ]]
+            refs+=("${APP_IMAGE}@sha256:${digest}")
+          done
+          docker buildx imagetools create --tag "${APP_IMAGE}:${CANDIDATE_TAG}" "${refs[@]}"
+          app_digest="sha256:$(docker buildx imagetools inspect "${APP_IMAGE}:${CANDIDATE_TAG}" --raw | sha256sum | awk '{print $1}')"
           [[ "$app_digest" =~ ^sha256:[a-f0-9]{64}$ ]]
           echo "app-digest=${app_digest}" >> "$GITHUB_OUTPUT"
 
@@ -207,21 +181,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.revision }}
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
+      - run: bun scripts/release/release-output.ts prepare --github-env
       - run: bun run release:source
       - uses: actions/upload-artifact@v4
         with:
           name: source
-          path: dist/neuro-book-source.zip
+          path: ${{ env.NEURO_BOOK_RELEASE_DIR }}/neuro-book-source.zip
 
   product-linux:
     needs: preflight
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.revision }}
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile --linker hoisted
+      - run: bun scripts/release/release-output.ts prepare --github-env
       - name: Verify Agent State Root paths
         run: bun run test:agent-state-root
       - run: bun run nuxt:build
@@ -229,7 +209,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: product-linux
-          path: dist/neuro-book-product-linux-x64-glibc.tar.gz
+          path: ${{ env.NEURO_BOOK_RELEASE_DIR }}/neuro-book-product-linux-x64-glibc.tar.gz
 
   product-linux-aarch64:
     needs: source
@@ -237,24 +217,27 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.revision }}
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile --linker hoisted
+      - run: bun scripts/release/release-output.ts prepare --github-env
       - run: bun run nuxt:build
       - run: bun run release:product:linux-aarch64
       - uses: actions/download-artifact@v4
         with:
           name: source
-          path: dist
+          path: ${{ env.NEURO_BOOK_RELEASE_DIR }}
       - name: Install Playwright Chromium
         run: bunx playwright-core install --with-deps chromium
       - name: Verify Linux ARM64 Product
         shell: bash
         run: |
-          version="${{ github.event.release.tag_name }}"
+          version="${{ inputs.tag }}"
           bash scripts/release/verify-posix-product.sh \
             linux-aarch64-glibc \
-            dist/neuro-book-source.zip \
-            dist/neuro-book-product-linux-aarch64-glibc.tar.gz \
+            "${NEURO_BOOK_RELEASE_DIR}/neuro-book-source.zip" \
+            "${NEURO_BOOK_RELEASE_DIR}/neuro-book-product-linux-aarch64-glibc.tar.gz" \
             "${version#v}" \
             39127 \
             playwright
@@ -268,7 +251,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: product-linux-aarch64
-          path: dist/neuro-book-product-linux-aarch64-glibc.tar.gz
+          path: ${{ env.NEURO_BOOK_RELEASE_DIR }}/neuro-book-product-linux-aarch64-glibc.tar.gz
 
   product-darwin-x64:
     needs: source
@@ -276,8 +259,11 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.revision }}
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile --linker hoisted
+      - run: bun scripts/release/release-output.ts prepare --github-env
       - name: Verify macOS Stage 0 and Manager adapters
         run: |
           bun run test:install
@@ -287,22 +273,22 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: source
-          path: dist
+          path: ${{ env.NEURO_BOOK_RELEASE_DIR }}
       - name: Verify macOS x64 Product
         shell: bash
         run: |
-          version="${{ github.event.release.tag_name }}"
+          version="${{ inputs.tag }}"
           bash scripts/release/verify-posix-product.sh \
             darwin-x64 \
-            dist/neuro-book-source.zip \
-            dist/neuro-book-product-darwin-x64.tar.gz \
+            "${NEURO_BOOK_RELEASE_DIR}/neuro-book-source.zip" \
+            "${NEURO_BOOK_RELEASE_DIR}/neuro-book-product-darwin-x64.tar.gz" \
             "${version#v}" \
             39125 \
             "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
       - uses: actions/upload-artifact@v4
         with:
           name: product-darwin-x64
-          path: dist/neuro-book-product-darwin-x64.tar.gz
+          path: ${{ env.NEURO_BOOK_RELEASE_DIR }}/neuro-book-product-darwin-x64.tar.gz
 
   product-darwin-aarch64:
     needs: source
@@ -310,29 +296,32 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.revision }}
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile --linker hoisted
+      - run: bun scripts/release/release-output.ts prepare --github-env
       - run: bun run nuxt:build
       - run: bun run release:product:darwin-aarch64
       - uses: actions/download-artifact@v4
         with:
           name: source
-          path: dist
+          path: ${{ env.NEURO_BOOK_RELEASE_DIR }}
       - name: Verify macOS ARM64 Product
         shell: bash
         run: |
-          version="${{ github.event.release.tag_name }}"
+          version="${{ inputs.tag }}"
           bash scripts/release/verify-posix-product.sh \
             darwin-aarch64 \
-            dist/neuro-book-source.zip \
-            dist/neuro-book-product-darwin-aarch64.tar.gz \
+            "${NEURO_BOOK_RELEASE_DIR}/neuro-book-source.zip" \
+            "${NEURO_BOOK_RELEASE_DIR}/neuro-book-product-darwin-aarch64.tar.gz" \
             "${version#v}" \
             39126 \
             "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
       - uses: actions/upload-artifact@v4
         with:
           name: product-darwin-aarch64
-          path: dist/neuro-book-product-darwin-aarch64.tar.gz
+          path: ${{ env.NEURO_BOOK_RELEASE_DIR }}/neuro-book-product-darwin-aarch64.tar.gz
 
   product-windows:
     needs: source
@@ -340,6 +329,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.revision }}
       - id: setup-bun
         uses: oven-sh/setup-bun@v2
       - id: windows-dependencies
@@ -352,6 +343,7 @@ jobs:
           key: bun-dependencies-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-bun.outputs.bun-version }}-${{ hashFiles('bun.lock', 'package.json', 'packages/neuro-book-manager/package.json') }}
       - name: Verify cached Windows dependencies
         run: bun install --frozen-lockfile --linker hoisted
+      - run: bun scripts/release/release-output.ts prepare --github-env
       - name: Verify Windows Manager adapters
         run: bun run manager:test
       - name: Verify Windows Owned Process lifecycle
@@ -362,99 +354,89 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: source
-          path: dist
+          path: ${{ env.NEURO_BOOK_RELEASE_DIR }}
       - run: bun run release:product:windows
       - run: bun run package:windows-portable
       - uses: actions/upload-artifact@v4
         with:
           name: product-windows
           path: |
-            dist/neuro-book-product-windows-x64.zip
-            dist/neuro-book-windows-x64.zip
+            ${{ env.NEURO_BOOK_RELEASE_DIR }}/neuro-book-product-windows-x64.zip
+            ${{ env.NEURO_BOOK_RELEASE_DIR }}/neuro-book-windows-x64.zip
 
   assemble:
     needs: [merge-container-images, source, product-linux, product-linux-aarch64, product-darwin-x64, product-darwin-aarch64, product-windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.revision }}
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
+      - run: bun scripts/release/release-output.ts prepare --github-env
       - uses: actions/download-artifact@v4
         with:
           name: source
-          path: dist
+          path: ${{ env.NEURO_BOOK_RELEASE_DIR }}
       - uses: actions/download-artifact@v4
         with:
           name: product-linux
-          path: dist
+          path: ${{ env.NEURO_BOOK_RELEASE_DIR }}
       - uses: actions/download-artifact@v4
         with:
           name: product-linux-aarch64
-          path: dist
+          path: ${{ env.NEURO_BOOK_RELEASE_DIR }}
       - uses: actions/download-artifact@v4
         with:
           name: product-darwin-x64
-          path: dist
+          path: ${{ env.NEURO_BOOK_RELEASE_DIR }}
       - uses: actions/download-artifact@v4
         with:
           name: product-darwin-aarch64
-          path: dist
+          path: ${{ env.NEURO_BOOK_RELEASE_DIR }}
       - uses: actions/download-artifact@v4
         with:
           name: product-windows
-          path: dist
+          path: ${{ env.NEURO_BOOK_RELEASE_DIR }}
       - name: Build release manifest
         shell: bash
         env:
           GHCR_DIGEST: ${{ needs.merge-container-images.outputs.app-digest }}
           APP_IMAGE_NAME: ${{ needs.merge-container-images.outputs.app-image-name }}
         run: |
-          cp scripts/install/install.ps1 dist/install.ps1
-          cp scripts/install/install.cmd dist/install.cmd
-          cp scripts/install/install.sh dist/install.sh
           manager_version="$(bun -e 'console.log(require("./packages/neuro-book-manager/package.json").version)')"
-          mkdir -p manager-npm
-          npm pack "@notnotype/neuro-book-manager@${manager_version}" --pack-destination manager-npm >/dev/null
-          mkdir -p manager-npm/package
-          tar -xzf manager-npm/*.tgz -C manager-npm
-          test "$(bun manager-npm/package/dist/neuro-book.mjs --version)" = "${manager_version}"
-          unzip -p dist/neuro-book-windows-x64.zip ".runtime/manager/${manager_version}/neuro-book.mjs" > manager-npm/portable-neuro-book.mjs
-          cmp manager-npm/package/dist/neuro-book.mjs manager-npm/portable-neuro-book.mjs
+          manager_root="${RUNNER_TEMP:?}/manager-npm"
+          rm -rf "${manager_root}"
+          mkdir -p "${manager_root}/package"
+          npm pack "@notnotype/neuro-book-manager@${manager_version}" --pack-destination "${manager_root}" >/dev/null
+          tar -xzf "${manager_root}"/*.tgz -C "${manager_root}"
+          test "$(bun "${manager_root}/package/dist/neuro-book.mjs" --version)" = "${manager_version}"
+          unzip -p "${NEURO_BOOK_RELEASE_DIR}/neuro-book-windows-x64.zip" ".runtime/manager/${manager_version}/neuro-book.mjs" > "${manager_root}/portable-neuro-book.mjs"
+          cmp "${manager_root}/package/dist/neuro-book.mjs" "${manager_root}/portable-neuro-book.mjs"
           bun scripts/release/release-assets.ts manifest \
-            --tag "${{ github.event.release.tag_name }}" \
-            --revision "${{ github.sha }}" \
+            --tag "${{ inputs.tag }}" \
+            --revision "${{ inputs.revision }}" \
             --manager-version "${manager_version}" \
-            --source dist/neuro-book-source.zip \
-            --windows-product dist/neuro-book-product-windows-x64.zip \
-            --linux-product dist/neuro-book-product-linux-x64-glibc.tar.gz \
-            --linux-aarch64-product dist/neuro-book-product-linux-aarch64-glibc.tar.gz \
-            --darwin-product dist/neuro-book-product-darwin-x64.tar.gz \
-            --darwin-aarch64-product dist/neuro-book-product-darwin-aarch64.tar.gz \
-            --portable dist/neuro-book-windows-x64.zip \
-            --stage0-windows dist/install.ps1 \
-            --stage0-windows-cmd dist/install.cmd \
-            --stage0-linux dist/install.sh \
-            --ghcr-ref "${APP_IMAGE_NAME}:${{ github.event.release.tag_name }}" \
-            --ghcr-digest "${GHCR_DIGEST}" \
-            --output dist/release-manifest.json
-          bun -e 'const schema = await import("./manager-npm/package/dist/schema.mjs"); const manifest = await Bun.file("dist/release-manifest.json").json(); schema.parseReleaseManifest(manifest);'
+            --ghcr-ref "${APP_IMAGE_NAME}@${GHCR_DIGEST}" \
+            --ghcr-digest "${GHCR_DIGEST}"
+          MANAGER_ROOT="${manager_root}" bun -e 'const schema = await import(`${process.env.MANAGER_ROOT}/package/dist/schema.mjs`); const manifest = await Bun.file(`${process.env.NEURO_BOOK_RELEASE_DIR}/release-manifest.json`).json(); schema.parseReleaseManifest(manifest);'
       - name: Upload candidate release bundle
         uses: actions/upload-artifact@v4
         with:
           name: release-candidate
           path: |
-            dist/neuro-book-source.zip
-            dist/neuro-book-product-windows-x64.zip
-            dist/neuro-book-product-linux-x64-glibc.tar.gz
-            dist/neuro-book-product-linux-aarch64-glibc.tar.gz
-            dist/neuro-book-product-darwin-x64.tar.gz
-            dist/neuro-book-product-darwin-aarch64.tar.gz
-            dist/neuro-book-windows-x64.zip
-            dist/release-manifest.json
-            dist/SHA256SUMS
-            dist/install.ps1
-            dist/install.cmd
-            dist/install.sh
+            ${{ env.NEURO_BOOK_RELEASE_DIR }}/neuro-book-source.zip
+            ${{ env.NEURO_BOOK_RELEASE_DIR }}/neuro-book-product-windows-x64.zip
+            ${{ env.NEURO_BOOK_RELEASE_DIR }}/neuro-book-product-linux-x64-glibc.tar.gz
+            ${{ env.NEURO_BOOK_RELEASE_DIR }}/neuro-book-product-linux-aarch64-glibc.tar.gz
+            ${{ env.NEURO_BOOK_RELEASE_DIR }}/neuro-book-product-darwin-x64.tar.gz
+            ${{ env.NEURO_BOOK_RELEASE_DIR }}/neuro-book-product-darwin-aarch64.tar.gz
+            ${{ env.NEURO_BOOK_RELEASE_DIR }}/neuro-book-windows-x64.zip
+            ${{ env.NEURO_BOOK_RELEASE_DIR }}/release-manifest.json
+            ${{ env.NEURO_BOOK_RELEASE_DIR }}/SHA256SUMS
+            ${{ env.NEURO_BOOK_RELEASE_DIR }}/install.ps1
+            ${{ env.NEURO_BOOK_RELEASE_DIR }}/install.cmd
+            ${{ env.NEURO_BOOK_RELEASE_DIR }}/install.sh
 
   verify-linux:
     needs: [assemble, merge-container-images]
@@ -464,6 +446,8 @@ jobs:
       packages: read
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.revision }}
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile --linker hoisted
       - uses: actions/download-artifact@v4
@@ -471,7 +455,7 @@ jobs:
           name: release-candidate
           path: candidate-assets
       - name: Verify assets and native packages
-        run: bun scripts/release/release-assets.ts verify --dir candidate-assets --tag "${{ github.event.release.tag_name }}" --revision "${{ github.sha }}"
+        run: bun scripts/release/release-assets.ts verify --dir candidate-assets --tag "${{ inputs.tag }}" --revision "${{ inputs.revision }}"
       - name: Verify POSIX Stage 0 syntax
         run: bash -n candidate-assets/install.sh
       - name: Verify GHCR digest and source revision
@@ -479,35 +463,58 @@ jobs:
           IMAGE: ${{ needs.merge-container-images.outputs.app-image-name }}@${{ needs.merge-container-images.outputs.app-digest }}
         run: |
           docker pull "${IMAGE}"
-          test "$(docker image inspect "${IMAGE}" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')" = "${{ github.sha }}"
-      - name: Verify Linux Product Agent State Root
+          test "$(docker image inspect "${IMAGE}" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')" = "${{ inputs.revision }}"
+      - name: Verify Linux Product Runtime Contract
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf product-browser-smoke product-agent-state-root product-agent-state-root-moved
-          mkdir -p product-browser-smoke
-          unzip -q candidate-assets/neuro-book-source.zip -d product-browser-smoke
-          tar -xzf candidate-assets/neuro-book-product-linux-x64-glibc.tar.gz -C product-browser-smoke
-          product_root="$PWD/product-browser-smoke"
-          state_root="$PWD/product-agent-state-root"
+          smoke_root="${RUNNER_TEMP:?}/neuro-book-linux-product-smoke"
+          product_root="${smoke_root}/application"
+          state_root="${smoke_root}/state"
+          rm -rf "${smoke_root}"
+          mkdir -p "${product_root}"
+          unzip -q candidate-assets/neuro-book-source.zip -d "${product_root}"
+          tar -xpzf candidate-assets/neuro-book-product-linux-x64-glibc.tar.gz -C "${product_root}"
+          mkdir -p "${state_root}/workspace"
           test ! -e "${product_root}/node_modules"
+          bun --no-install --no-env-file scripts/release/verify-extracted-product.ts --product-root "${product_root}"
           (
             cd "${product_root}"
             NEURO_BOOK_APPLICATION_ROOT="${product_root}" \
             NEURO_BOOK_STATE_ROOT="${state_root}" \
-            bun .output/server/scripts/deploy/product-agent-attachment-migration-smoke.ts
+            bun --no-install --no-env-file .output/server/commands/product-command.mjs check sharp-image-variant
             NEURO_BOOK_APPLICATION_ROOT="${product_root}" \
             NEURO_BOOK_STATE_ROOT="${state_root}" \
-            bun .output/server/scripts/deploy/product-agent-state-root-smoke.ts
+            bun --no-install --no-env-file .output/server/commands/product-command.mjs check sqlite-vec
+            NEURO_BOOK_APPLICATION_ROOT="${product_root}" \
+            NEURO_BOOK_STATE_ROOT="${state_root}" \
+            bun --no-install --no-env-file .output/server/commands/product-command.mjs check application-state
+            NEURO_BOOK_APPLICATION_ROOT="${product_root}" \
+            NEURO_BOOK_STATE_ROOT="${state_root}" \
+            bun --no-install --no-env-file .output/server/commands/product-command.mjs check workspace-cli
+            NEURO_BOOK_APPLICATION_ROOT="${product_root}" \
+            NEURO_BOOK_STATE_ROOT="${state_root}" \
+            bun --no-install --no-env-file .output/server/commands/product-command.mjs check profile-compile
+            NEURO_BOOK_APPLICATION_ROOT="${product_root}" \
+            NEURO_BOOK_STATE_ROOT="${state_root}" \
+            bun --no-install --no-env-file .output/server/commands/product-command.mjs check variable-authoring
+            NEURO_BOOK_APPLICATION_ROOT="${product_root}" \
+            NEURO_BOOK_STATE_ROOT="${state_root}" \
+            bun --no-install --no-env-file .output/server/commands/product-command.mjs check web-fetch
           )
           test ! -e "${product_root}/workspace"
-          test ! -e "${state_root}"
-          test -d "${state_root}-moved/workspace"
+          test -d "${state_root}/workspace"
       - name: Verify Linux Product in a real browser
         shell: bash
         run: |
           set -euo pipefail
-          cat > product-browser-smoke/config.yaml <<'EOF'
+          smoke_root="${RUNNER_TEMP:?}/neuro-book-linux-product-smoke"
+          product_root="${smoke_root}/application"
+          state_root="${smoke_root}/browser-state"
+          log_path="${smoke_root}/product-browser-smoke.log"
+          rm -rf "${state_root}"
+          mkdir -p "${state_root}/workspace" "${state_root}/logs"
+          cat > "${state_root}/config.yaml" <<'EOF'
           server:
             host: 0.0.0.0
             port: 39124
@@ -517,17 +524,16 @@ jobs:
           auth:
             enabled: false
           EOF
-          mkdir -p product-browser-smoke/workspace product-browser-smoke/logs
-          version="${{ github.event.release.tag_name }}"
+          version="${{ inputs.tag }}"
           version="${version#v}"
           port=39124
           export NODE_ENV=production
           export NUXT_PORT="${port}"
           export PORT="${port}"
-          export NEURO_BOOK_APPLICATION_ROOT="$PWD/product-browser-smoke"
-          export NEURO_BOOK_STATE_ROOT="$PWD/product-browser-smoke"
-          bun product-browser-smoke/.output/server/scripts/db/prisma-migrate.mjs --deploy
-          setsid bun product-browser-smoke/.output/server/scripts/deploy/product-start.mjs >product-browser-smoke.log 2>&1 &
+          export NEURO_BOOK_APPLICATION_ROOT="${product_root}"
+          export NEURO_BOOK_STATE_ROOT="${state_root}"
+          bun --no-install --no-env-file "${product_root}/.output/server/commands/product-command.mjs" command migrate-application-state --apply
+          setsid bun --no-install --no-env-file "${product_root}/.output/server/commands/product-command.mjs" command start >"${log_path}" 2>&1 &
           product_pid=$!
           cleanup() {
             kill -- "-${product_pid}" 2>/dev/null || true
@@ -537,21 +543,21 @@ jobs:
           for attempt in $(seq 1 120); do
             if curl --fail --silent "http://127.0.0.1:${port}/api/app/version" >/dev/null; then break; fi
             if ! kill -0 "${product_pid}" 2>/dev/null; then
-              cat product-browser-smoke.log
+              cat "${log_path}"
               exit 1
             fi
             sleep 0.5
           done
           if ! curl --fail --silent "http://127.0.0.1:${port}/api/app/version" >/dev/null; then
-            cat product-browser-smoke.log
+            cat "${log_path}"
             exit 1
           fi
           if ! node --import tsx scripts/deploy/product-browser-smoke.ts \
             --url "http://127.0.0.1:${port}" \
             --expected-version "${version}" \
             --browser-executable /usr/bin/google-chrome \
-            --screenshot "$PWD/product-browser-smoke-failure.png"; then
-            cat product-browser-smoke.log
+            --screenshot "${smoke_root}/product-browser-smoke-failure.png"; then
+            cat "${log_path}"
             exit 1
           fi
       - name: Public Manager CLI smoke
@@ -567,10 +573,11 @@ jobs:
           name: linux-product-browser-smoke-diagnostics
           if-no-files-found: ignore
           path: |
-            product-browser-smoke.log
-            product-browser-smoke-failure.png
-            product-agent-state-root-moved/logs/**
-            product-agent-state-root-moved/workspace/.nbook/logs/**
+            ${{ runner.temp }}/neuro-book-linux-product-smoke/product-browser-smoke.log
+            ${{ runner.temp }}/neuro-book-linux-product-smoke/product-browser-smoke-failure.png
+            ${{ runner.temp }}/neuro-book-linux-product-smoke/state/logs/**
+            ${{ runner.temp }}/neuro-book-linux-product-smoke/state/workspace/.nbook/logs/**
+            ${{ runner.temp }}/neuro-book-linux-product-smoke/browser-state/logs/**
 
   verify-windows:
     needs: [assemble]
@@ -579,6 +586,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.revision }}
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile --linker hoisted
       - uses: actions/download-artifact@v4
@@ -588,8 +597,17 @@ jobs:
       - name: Verify Portable executables and doctor
         shell: pwsh
         run: |
-          Expand-Archive -LiteralPath candidate-assets/neuro-book-windows-x64.zip -DestinationPath portable
-          $portableRoot = (Resolve-Path portable).Path
+          $portableRoot = Join-Path $env:RUNNER_TEMP "neuro-book-portable-smoke"
+          Remove-Item -LiteralPath $portableRoot -Recurse -Force -ErrorAction SilentlyContinue
+          Expand-Archive -LiteralPath candidate-assets/neuro-book-windows-x64.zip -DestinationPath $portableRoot
+          $portableRoot = (Resolve-Path -LiteralPath $portableRoot).Path
+          bun scripts/release/verify-windows-portable.ts `
+            --release-manifest candidate-assets/release-manifest.json `
+            --portable-archive candidate-assets/neuro-book-windows-x64.zip `
+            --portable-root $portableRoot
+          if ($LASTEXITCODE -ne 0) {
+            throw "Portable最终发行身份验证失败：$LASTEXITCODE"
+          }
           $manifest = Get-Content -Raw (Join-Path $portableRoot ".deploy/installation.json") | ConvertFrom-Json
           & (Join-Path $portableRoot $manifest.components.managerRuntime.path) --version
           & (Join-Path $portableRoot $manifest.components.tools.rg.path) --version
@@ -663,68 +681,25 @@ jobs:
             Remove-Item Env:NEURO_BOOK_LAUNCHER_CAPTURE -ErrorAction SilentlyContinue
             Move-Item -LiteralPath $managerBackup -Destination $manager -Force
           }
-      - name: Verify Windows Portable Agent State Root
+      - name: Verify Windows Portable Runtime Contract
         shell: pwsh
         run: |
-          $portableRoot = (Resolve-Path portable).Path
+          $portableRoot = (Resolve-Path -LiteralPath (Join-Path $env:RUNNER_TEMP "neuro-book-portable-smoke")).Path
           $manifest = Get-Content -Raw (Join-Path $portableRoot ".deploy/installation.json") | ConvertFrom-Json
           $bun = Join-Path $portableRoot $manifest.components.applicationRuntime.path
-          $git = Join-Path $portableRoot $manifest.components.tools.git.path
-          $bash = Join-Path $portableRoot $manifest.components.tools.git.bashPath
-          $rg = Join-Path $portableRoot $manifest.components.tools.rg.path
-          $stateRoot = Join-Path $portableRoot "data"
-          $movedStateRoot = "$stateRoot-moved"
-          if (Test-Path -LiteralPath $movedStateRoot) {
-            Remove-Item -LiteralPath $movedStateRoot -Recurse -Force
-          }
-          $previousPath = $env:PATH
-          try {
-            $env:PATH = (@(
-              (Join-Path $portableRoot ".runtime/bin"),
-              (Split-Path -Parent $bun),
-              (Split-Path -Parent $rg),
-              (Split-Path -Parent $git),
-              (Split-Path -Parent $bash),
-              $previousPath
-            ) -join [System.IO.Path]::PathSeparator)
-            $env:NEURO_BOOK_BASH = $bash
-            $env:GIT_BASH = $bash
-            $env:NEURO_BOOK_APPLICATION_ROOT = $portableRoot
-            $env:NEURO_BOOK_STATE_ROOT = $stateRoot
-            Push-Location $portableRoot
-            try {
-              & $bun ".output/server/scripts/deploy/product-agent-attachment-migration-smoke.ts"
-              if ($LASTEXITCODE -ne 0) {
-                throw "Portable Agent Attachment migration smoke失败：$LASTEXITCODE"
-              }
-              & $bun ".output/server/scripts/deploy/product-agent-state-root-smoke.ts"
-              if ($LASTEXITCODE -ne 0) {
-                throw "Portable Agent State Root smoke失败：$LASTEXITCODE"
-              }
-            } finally {
-              Pop-Location
-            }
-            if (Test-Path -LiteralPath (Join-Path $portableRoot "workspace")) {
-              throw "Portable Agent smoke在Installation Root创建了错误workspace目录"
-            }
-            if (Test-Path -LiteralPath $stateRoot) {
-              throw "Portable Agent smoke没有移动原State Root"
-            }
-            if (-not (Test-Path -LiteralPath (Join-Path $movedStateRoot "workspace"))) {
-              throw "Portable Agent smoke移动后的State Root缺少workspace"
-            }
-            Move-Item -LiteralPath $movedStateRoot -Destination $stateRoot
-          } finally {
-            $env:PATH = $previousPath
-            Remove-Item Env:NEURO_BOOK_BASH -ErrorAction SilentlyContinue
-            Remove-Item Env:GIT_BASH -ErrorAction SilentlyContinue
-            Remove-Item Env:NEURO_BOOK_APPLICATION_ROOT -ErrorAction SilentlyContinue
-            Remove-Item Env:NEURO_BOOK_STATE_ROOT -ErrorAction SilentlyContinue
+          $scratchRoot = Join-Path $env:RUNNER_TEMP "neuro-book-windows-product-contract"
+          bun scripts/release/verify-windows-product.ts `
+            --product-root $portableRoot `
+            --scratch-root $scratchRoot `
+            --bun-runtime $bun `
+            --installation-manifest (Join-Path $portableRoot ".deploy/installation.json")
+          if ($LASTEXITCODE -ne 0) {
+            throw "Portable Runtime Contract smoke失败：$LASTEXITCODE"
           }
       - name: Verify Windows Portable shadow workspace diagnosis
         shell: pwsh
         run: |
-          $portableRoot = (Resolve-Path portable).Path
+          $portableRoot = (Resolve-Path -LiteralPath (Join-Path $env:RUNNER_TEMP "neuro-book-portable-smoke")).Path
           $manager = Join-Path $portableRoot ".runtime/bin/neuro-book.cmd"
           $stateWorkspace = Join-Path $portableRoot "data/workspace"
           $shadowWorkspace = Join-Path $portableRoot "workspace"
@@ -767,7 +742,7 @@ jobs:
       - name: Verify Windows Portable in a real browser
         shell: pwsh
         run: |
-          $portableRoot = (Resolve-Path portable).Path
+          $portableRoot = (Resolve-Path -LiteralPath (Join-Path $env:RUNNER_TEMP "neuro-book-portable-smoke")).Path
           $manifest = Get-Content -Raw (Join-Path $portableRoot ".deploy/installation.json") | ConvertFrom-Json
           $port = 39123
           $stateRoot = Join-Path $portableRoot "data"
@@ -839,7 +814,7 @@ jobs:
       - name: Verify Windows Portable authenticated login
         shell: pwsh
         run: |
-          $portableRoot = (Resolve-Path portable).Path
+          $portableRoot = (Resolve-Path -LiteralPath (Join-Path $env:RUNNER_TEMP "neuro-book-portable-smoke")).Path
           $manifest = Get-Content -Raw (Join-Path $portableRoot ".deploy/installation.json") | ConvertFrom-Json
           $manager = Join-Path $portableRoot ".runtime/bin/neuro-book.cmd"
           $stateRoot = Join-Path $portableRoot "data"
@@ -915,6 +890,69 @@ jobs:
             if (-not $released) { throw "终止Candidate Manager后端口仍未释放：$port" }
             Remove-Item Env:NO_COLOR -ErrorAction SilentlyContinue
           }
+      - name: Verify Windows Portable self-uninstall
+        shell: pwsh
+        run: |
+          function Expand-VerifiedPortable([string]$root) {
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+            Expand-Archive -LiteralPath candidate-assets/neuro-book-windows-x64.zip -DestinationPath $root
+            bun scripts/release/verify-windows-portable.ts `
+              --release-manifest candidate-assets/release-manifest.json `
+              --portable-archive candidate-assets/neuro-book-windows-x64.zip `
+              --portable-root $root
+            if ($LASTEXITCODE -ne 0) { throw "Portable卸载夹具身份验证失败：$LASTEXITCODE" }
+          }
+
+          $preserveRoot = Join-Path $env:RUNNER_TEMP "neuro-book-portable-uninstall-preserve"
+          Expand-VerifiedPortable $preserveRoot
+          $preserveManifest = Get-Content -Raw (Join-Path $preserveRoot ".deploy/installation.json") | ConvertFrom-Json
+          $preserveMarker = Join-Path $preserveRoot "data/workspace/.release-uninstall-preserve"
+          New-Item -ItemType Directory -Path (Split-Path $preserveMarker) -Force | Out-Null
+          Set-Content -LiteralPath $preserveMarker -Value "preserve" -Encoding ascii
+          $uninstallResultRoot = Join-Path $env:LOCALAPPDATA "NeuroBook/uninstall-results"
+          $preserveResultsBefore = @(Get-ChildItem -LiteralPath $uninstallResultRoot -Filter "*.json" -ErrorAction SilentlyContinue | ForEach-Object FullName)
+          & (Join-Path $preserveRoot $preserveManifest.components.managerRuntime.path) `
+            (Join-Path $preserveRoot $preserveManifest.components.manager.path) `
+            --root $preserveRoot uninstall --yes
+          if ($LASTEXITCODE -ne 0) { throw "Portable默认卸载调度失败：$LASTEXITCODE" }
+          $preserveResultPath = $null
+          for ($attempt = 0; $attempt -lt 240; $attempt++) {
+            $newResults = @(Get-ChildItem -LiteralPath $uninstallResultRoot -Filter "*.json" -ErrorAction SilentlyContinue | Where-Object { $preserveResultsBefore -notcontains $_.FullName })
+            if ($newResults.Count -gt 1) { throw "Portable默认卸载产生了多个结果文件" }
+            if ($newResults.Count -eq 1) { $preserveResultPath = $newResults[0].FullName; break }
+            Start-Sleep -Milliseconds 250
+          }
+          if (-not $preserveResultPath) { throw "Portable默认卸载Host没有在超时前写入结果" }
+          $preserveResult = Get-Content -Raw -LiteralPath $preserveResultPath | ConvertFrom-Json
+          if (-not $preserveResult.ok -or $preserveResult.installationRoot -ne $preserveRoot) {
+            throw "Portable默认卸载Host结果失败：$($preserveResult | ConvertTo-Json -Compress)"
+          }
+          $preserveChildren = @(Get-ChildItem -LiteralPath $preserveRoot -Force | ForEach-Object Name)
+          if (-not (Test-Path -LiteralPath $preserveMarker -PathType Leaf) -or $preserveChildren.Count -ne 1 -or $preserveChildren[0] -ne "data") {
+            throw "Portable默认卸载没有在退出后只保留data：$($preserveChildren -join ', ')"
+          }
+
+          $deleteRoot = Join-Path $env:RUNNER_TEMP "neuro-book-portable-uninstall-all"
+          Expand-VerifiedPortable $deleteRoot
+          $deleteManifest = Get-Content -Raw (Join-Path $deleteRoot ".deploy/installation.json") | ConvertFrom-Json
+          $deleteResultsBefore = @(Get-ChildItem -LiteralPath $uninstallResultRoot -Filter "*.json" -ErrorAction SilentlyContinue | ForEach-Object FullName)
+          & (Join-Path $deleteRoot $deleteManifest.components.managerRuntime.path) `
+            (Join-Path $deleteRoot $deleteManifest.components.manager.path) `
+            --root $deleteRoot uninstall --delete-data --yes
+          if ($LASTEXITCODE -ne 0) { throw "Portable全量卸载调度失败：$LASTEXITCODE" }
+          $deleteResultPath = $null
+          for ($attempt = 0; $attempt -lt 240; $attempt++) {
+            $newResults = @(Get-ChildItem -LiteralPath $uninstallResultRoot -Filter "*.json" -ErrorAction SilentlyContinue | Where-Object { $deleteResultsBefore -notcontains $_.FullName })
+            if ($newResults.Count -gt 1) { throw "Portable全量卸载产生了多个结果文件" }
+            if ($newResults.Count -eq 1) { $deleteResultPath = $newResults[0].FullName; break }
+            Start-Sleep -Milliseconds 250
+          }
+          if (-not $deleteResultPath) { throw "Portable全量卸载Host没有在超时前写入结果" }
+          $deleteResult = Get-Content -Raw -LiteralPath $deleteResultPath | ConvertFrom-Json
+          if (-not $deleteResult.ok -or $deleteResult.installationRoot -ne $deleteRoot) {
+            throw "Portable全量卸载Host结果失败：$($deleteResult | ConvertTo-Json -Compress)"
+          }
+          if (Test-Path -LiteralPath $deleteRoot) { throw "Portable全量卸载没有在退出后删除Installation Root" }
       - name: Verify Windows Stage 0 syntax
         shell: pwsh
         run: |
@@ -952,24 +990,35 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.revision }}
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun scripts/release/release-output.ts prepare --github-env
       - uses: actions/download-artifact@v4
         with:
           name: release-candidate
-          path: dist
+          path: ${{ env.NEURO_BOOK_RELEASE_DIR }}
       - name: Publish verified payload assets
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist/neuro-book-source.zip
-            dist/neuro-book-product-windows-x64.zip
-            dist/neuro-book-product-linux-x64-glibc.tar.gz
-            dist/neuro-book-product-linux-aarch64-glibc.tar.gz
-            dist/neuro-book-product-darwin-x64.tar.gz
-            dist/neuro-book-product-darwin-aarch64.tar.gz
-            dist/neuro-book-windows-x64.zip
-            dist/install.ps1
-            dist/install.cmd
-            dist/install.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bun scripts/release/draft-release-assets.ts \
+            --repo "${GITHUB_REPOSITORY}" \
+            --release-id "${{ inputs.release_id }}" \
+            --tag "${{ inputs.tag }}" \
+            --file \
+              "${NEURO_BOOK_RELEASE_DIR}/neuro-book-source.zip" \
+              "${NEURO_BOOK_RELEASE_DIR}/neuro-book-product-windows-x64.zip" \
+              "${NEURO_BOOK_RELEASE_DIR}/neuro-book-product-linux-x64-glibc.tar.gz" \
+              "${NEURO_BOOK_RELEASE_DIR}/neuro-book-product-linux-aarch64-glibc.tar.gz" \
+              "${NEURO_BOOK_RELEASE_DIR}/neuro-book-product-darwin-x64.tar.gz" \
+              "${NEURO_BOOK_RELEASE_DIR}/neuro-book-product-darwin-aarch64.tar.gz" \
+              "${NEURO_BOOK_RELEASE_DIR}/neuro-book-windows-x64.zip" \
+              "${NEURO_BOOK_RELEASE_DIR}/install.ps1" \
+              "${NEURO_BOOK_RELEASE_DIR}/install.cmd" \
+              "${NEURO_BOOK_RELEASE_DIR}/install.sh"
 
   verify-public-payload:
     needs: [publish-payload, merge-container-images]
@@ -979,21 +1028,23 @@ jobs:
       packages: read
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.revision }}
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile --linker hoisted
       - uses: actions/download-artifact@v4
         with:
           name: release-candidate
           path: candidate-assets
-      - name: Download public payload assets
+      - name: Download Draft payload assets by release ID
         shell: bash
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ inputs.release_id }}
         run: |
           set -euo pipefail
           mkdir public-assets
           cp candidate-assets/release-manifest.json candidate-assets/SHA256SUMS public-assets/
-          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}"
           for asset in \
             neuro-book-source.zip \
             neuro-book-product-windows-x64.zip \
@@ -1005,11 +1056,14 @@ jobs:
             install.ps1 \
             install.cmd \
             install.sh; do
-            curl --fail --location --retry 8 --retry-all-errors --retry-delay 3 \
-              --output "public-assets/${asset}" "${base}/${asset}"
+            asset_id="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets" \
+              --jq ".[] | select(.name == \"${asset}\") | .id")"
+            [[ "${asset_id}" =~ ^[0-9]+$ ]]
+            gh api -H "Accept: application/octet-stream" \
+              "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}" > "public-assets/${asset}"
           done
       - name: Verify public payload bytes and checksums
-        run: bun scripts/release/release-assets.ts verify --dir public-assets --tag "${{ github.event.release.tag_name }}" --revision "${{ github.sha }}"
+        run: bun scripts/release/release-assets.ts verify --dir public-assets --tag "${{ inputs.tag }}" --revision "${{ inputs.revision }}"
       - name: Verify public GHCR digest
         env:
           IMAGE: ${{ needs.merge-container-images.outputs.app-image-name }}@${{ needs.merge-container-images.outputs.app-digest }}
@@ -1026,6 +1080,8 @@ jobs:
       packages: read
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.revision }}
       - uses: oven-sh/setup-bun@v2
       - uses: actions/download-artifact@v4
         with:
@@ -1049,6 +1105,8 @@ jobs:
       packages: read
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.revision }}
       - uses: oven-sh/setup-bun@v2
       - uses: actions/download-artifact@v4
         with:
@@ -1072,6 +1130,8 @@ jobs:
       packages: read
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.revision }}
       - uses: oven-sh/setup-bun@v2
       - uses: actions/download-artifact@v4
         with:
@@ -1103,16 +1163,18 @@ jobs:
       BASELINE_RELEASE_TAG: v0.8.6-canary.20260717.130406Z.a91a96f
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.revision }}
       - uses: oven-sh/setup-bun@v2
       - uses: actions/download-artifact@v4
         with:
           name: release-candidate
           path: candidate-assets
-      - name: Reinstall Manifest v4 Portable and reuse complete 0.8.6 data
+      - name: Reinstall Manifest v5 Portable and reuse complete 0.8.6 data
         shell: pwsh
         run: |
           $baselineRoot = Join-Path $env:RUNNER_TEMP "portable-v3-baseline"
-          $root = Join-Path $env:RUNNER_TEMP "portable-v4-candidate"
+          $root = Join-Path $env:RUNNER_TEMP "portable-v5-candidate"
           $archive = Join-Path $env:RUNNER_TEMP "portable-0.8.6.zip"
           $candidateArchive = (Resolve-Path candidate-assets/neuro-book-windows-x64.zip).Path
           $candidateRelease = Get-Content -Raw candidate-assets/release-manifest.json | ConvertFrom-Json
@@ -1149,7 +1211,7 @@ jobs:
           Expand-Archive -LiteralPath $candidateArchive -DestinationPath $root
           $candidateManifestPath = Join-Path $root ".deploy/installation.json"
           $candidateManifest = Get-Content -Raw $candidateManifestPath | ConvertFrom-Json
-          if ($candidateManifest.schemaVersion -ne 4) { throw "Candidate不是Installation Manifest v4" }
+          if ($candidateManifest.schemaVersion -ne 5) { throw "Candidate不是Installation Manifest v5" }
           if ($candidateManifest.managerVersion -ne $managerVersion) { throw "Candidate Manager版本与精确npm版本不一致" }
           if ($candidateManifest.appVersion -ne $candidateRelease.version) { throw "Candidate应用版本不一致" }
           Remove-Item -LiteralPath (Join-Path $root "data") -Recurse -Force
@@ -1214,7 +1276,7 @@ jobs:
         shell: pwsh
         run: |
           Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP "portable-v3-baseline") -Recurse -Force -ErrorAction SilentlyContinue
-          Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP "portable-v4-candidate") -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP "portable-v5-candidate") -Recurse -Force -ErrorAction SilentlyContinue
           Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP "portable-0.8.6.zip") -Force -ErrorAction SilentlyContinue
 
   publish-index:
@@ -1223,13 +1285,100 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.revision }}
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun scripts/release/release-output.ts prepare --github-env
       - uses: actions/download-artifact@v4
         with:
           name: release-candidate
-          path: dist
+          path: ${{ env.NEURO_BOOK_RELEASE_DIR }}
+      - name: Verify Draft Release identity before activation
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ inputs.release_id }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          release="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}")"
+          test "$(jq -r '.draft' <<<"${release}")" = "true"
+          test "$(jq -r '.tag_name' <<<"${release}")" = "${RELEASE_TAG}"
+          test "$(jq -r '.target_commitish' <<<"${release}")" = "${{ inputs.revision }}"
       - name: Publish release index last
-        uses: softprops/action-gh-release@v2
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bun scripts/release/draft-release-assets.ts \
+            --repo "${GITHUB_REPOSITORY}" \
+            --release-id "${{ inputs.release_id }}" \
+            --tag "${{ inputs.tag }}" \
+            --file \
+              "${NEURO_BOOK_RELEASE_DIR}/release-manifest.json" \
+              "${NEURO_BOOK_RELEASE_DIR}/SHA256SUMS"
+      - name: Publish verified Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ inputs.prerelease }}
+          RELEASE_ID: ${{ inputs.release_id }}
+        run: |
+          set -euo pipefail
+          jq -n --argjson prerelease "${PRERELEASE}" '{draft: false, prerelease: $prerelease}' \
+            | gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" --input - >/dev/null
+
+  activate-container-tags:
+    needs: publish-index
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
         with:
-          files: |
-            dist/release-manifest.json
-            dist/SHA256SUMS
+          ref: ${{ inputs.revision }}
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-candidate
+          path: candidate-assets
+      - name: Verify published Release identity before OCI activation
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ inputs.prerelease }}
+          RELEASE_ID: ${{ inputs.release_id }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          release="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}")"
+          test "$(jq -r '.draft' <<<"${release}")" = "false"
+          test "$(jq -r '.prerelease' <<<"${release}")" = "${PRERELEASE}"
+          test "$(jq -r '.tag_name' <<<"${release}")" = "${RELEASE_TAG}"
+          test "$(jq -r '.target_commitish' <<<"${release}")" = "${{ inputs.revision }}"
+      - name: Activate verified OCI digest aliases
+        shell: bash
+        env:
+          PRERELEASE: ${{ inputs.prerelease }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          manifest="candidate-assets/release-manifest.json"
+          image_ref="$(jq -r '.ghcr.ref' "${manifest}")"
+          image="${image_ref%@*}"
+          digest="$(jq -r '.ghcr.digest' "${manifest}")"
+          test "${image_ref}" = "${image}@${digest}"
+          tags=(--tag "${image}:${RELEASE_TAG}")
+          if [[ "${PRERELEASE}" != "true" ]]; then
+            tags+=(--tag "${image}:latest")
+          fi
+          docker buildx imagetools create "${tags[@]}" "${image}@${digest}"
+          activated="sha256:$(docker buildx imagetools inspect "${image}:${RELEASE_TAG}" --raw | sha256sum | awk '{print $1}')"
+          test "${activated}" = "${digest}"

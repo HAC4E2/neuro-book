@@ -24,7 +24,7 @@ import type {
 
 const props = defineProps<{
     modelValue: boolean;
-    projectPath: string | null;
+    projectRoot: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -74,18 +74,18 @@ const statusToneClass = computed(() => {
 /**
  * RAG API 的 Project query。
  */
-function projectQuery(): {projectPath: string} {
-    if (!props.projectPath) {
+function projectQuery(): {projectRoot: string} {
+    if (!props.projectRoot) {
         throw new Error("当前没有 Project Workspace");
     }
-    return {projectPath: props.projectPath};
+    return {projectRoot: props.projectRoot};
 }
 
 /**
  * 读取 Inspector 快照。
  */
 async function loadInspector(subjectPath = selectedSubjectPath.value): Promise<void> {
-    if (!props.modelValue || !props.projectPath) {
+    if (!props.modelValue || !props.projectRoot) {
         inspector.value = null;
         return;
     }
@@ -282,7 +282,7 @@ watch(() => props.modelValue, (open) => {
     }
 });
 
-watch(() => props.projectPath, () => {
+watch(() => props.projectRoot, () => {
     selectedSubjectPath.value = "";
     inspector.value = null;
     clearSelection();
@@ -311,7 +311,7 @@ watch(() => props.projectPath, () => {
                 <span class="text-[16px] font-semibold text-[var(--text-main)]">RAG 检查器</span>
                 <span class="hidden text-[13px] text-[var(--text-muted)] md:inline">Project</span>
                 <span class="hidden text-[13px] text-[var(--text-muted)] md:inline">›</span>
-                <span class="hidden max-w-[260px] truncate text-[13px] text-[var(--text-secondary)] md:inline">{{ props.projectPath || "未选择 Project" }}</span>
+                <span class="hidden max-w-[260px] truncate text-[13px] text-[var(--text-secondary)] md:inline">{{ props.projectRoot || "未选择 Project" }}</span>
                 <span class="hidden text-[13px] text-[var(--text-muted)] lg:inline">›</span>
                 <span class="hidden max-w-[220px] truncate text-[13px] text-[var(--text-secondary)] lg:inline">{{ selectedSubject?.subjectId ?? "未选择 subject" }}</span>
 
@@ -341,7 +341,7 @@ watch(() => props.projectPath, () => {
             <div v-if="error" class="shrink-0 border-b border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-2 text-[12px] text-[var(--status-danger)]">{{ error }}</div>
             <div class="relative flex min-h-0 flex-1">
                 <NovelRagInspectorSidebar
-                    :project-path="props.projectPath"
+                    :project-root="props.projectRoot"
                     :subjects="subjects"
                     :selected-subject-path="selectedSubjectPath"
                     :loading="loading"

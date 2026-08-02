@@ -4,6 +4,7 @@ import {createTextToImageQueueService} from "nbook/server/text-to-image/queue.se
 import {resolveTextToImageProviderHttpError} from "nbook/server/text-to-image/provider-http-error";
 import {requireCurrentUser} from "nbook/server/utils/auth";
 import {assertProjectOpen} from "nbook/server/workspace-files/project-session";
+import {textToImageProjectRef} from "nbook/server/text-to-image/compat";
 
 const ProjectPathSchema = z.object({projectPath: z.string().trim().min(1)}).strict();
 
@@ -14,7 +15,7 @@ export default defineEventHandler(async (event) => {
     if (!jobId || !parsed.success) {
         throw createError({statusCode: 400, message: "重试文生图任务参数不合法"});
     }
-    assertProjectOpen(parsed.data.projectPath);
+    assertProjectOpen(textToImageProjectRef(parsed.data.projectPath));
     try {
         return await createTextToImageQueueService(user.id).retry(parsed.data.projectPath, jobId);
     } catch (error) {

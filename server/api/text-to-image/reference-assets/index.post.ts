@@ -5,12 +5,12 @@ import {TextToImageReferenceAssetService} from "nbook/server/text-to-image/refer
 import {throwReferenceAssetHttpError} from "nbook/server/text-to-image/reference-asset-http-error";
 import {readBoundedFileMultipart} from "nbook/server/utils/bounded-file-multipart";
 import {requireCurrentUser} from "nbook/server/utils/auth";
-import {withProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
+import {withProjectHttpError} from "nbook/server/api/projects/project-http-error";
 
 const MULTIPART_OVERHEAD_BYTES = 1024 * 1024;
 
 /** 公开 source-image 上传：query 只允许非空 projectPath；multipart 只允许一个 file part、零字段。 */
-export default defineEventHandler((event) => withProjectNotOpenHttpError(async () => {
+export default defineEventHandler((event) => withProjectHttpError(async () => {
     await requireCurrentUser(event);
     const projectPath = parseStrictProjectPathQuery(event);
     assertContentLengthLimit(event);

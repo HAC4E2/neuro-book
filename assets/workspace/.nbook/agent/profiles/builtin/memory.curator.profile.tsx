@@ -1,11 +1,11 @@
-/** @jsxImportSource nbook/server/agent/profiles/profile-dsl */
+/** @jsxImportSource nbook/profile-sdk */
 /** @jsxRuntime automatic */
-import {type Static} from "typebox";
-import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
-import {MemoryCuratorInitialSchema, MemoryCuratorOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
-import {Message, ModelContext, ProfilePrompt, System} from "nbook/server/agent/profiles/profile-dsl";
-import {profileText} from "nbook/server/agent/profiles/profile-text";
+import {type Static} from "nbook/profile-sdk";
+import {defineAgentProfile} from "nbook/profile-sdk";
+import {builtin, toolset} from "nbook/profile-sdk";
+import {MemoryCuratorInitialSchema, MemoryCuratorOutputSchema} from "nbook/profile-sdk";
+import {Message, ModelContext, ProfilePrompt, System} from "nbook/profile-sdk";
+import {profileText} from "nbook/profile-sdk";
 
 export const profileManifest = {
     key: "memory.curator",

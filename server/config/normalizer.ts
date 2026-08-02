@@ -26,7 +26,6 @@ import type {
     ObservabilityConfig,
     PiTraceConfig,
     WorkspaceHistorySettingsConfig,
-    NovelDataConfig,
 } from "nbook/server/config/types";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import {ThinkingLevelSchema} from "nbook/shared/dto/app-settings.dto";
@@ -38,17 +37,9 @@ import {
 import {builtInThemeIds, themeAppearanceValues, themeVarNames, type CustomThemeDto, type ThemeAppearance, type ThemeVarName} from "nbook/shared/theme/theme-vars";
 import {mergeProfileRuntimePatches} from "nbook/server/agent/profiles/profile-runtime-settings";
 import type {ProfileRuntimeSettingsPatch} from "nbook/shared/agent/profile-runtime-settings";
-import {ILLUSTRATION_DIRECTOR_PROFILE_KEY} from "nbook/shared/agent/illustration-director";
-import {
-    createDefaultProjectTagPolicyConfig,
-    ProjectTagPolicyConfigSchema,
-} from "nbook/shared/text-to-image-tag-policy";
-import {isSupportedPiApi} from "nbook/shared/models/provider-config-contract";
 
 const DEFAULT_THEME: EffectiveConfig["ui"]["theme"] = "sepia";
 const DEFAULT_COST_CURRENCY: EffectiveConfig["ui"]["costCurrency"] = "USD";
-/** 把此前运行时最终回退的接口显式物化到严格 Provider Config。 */
-const DEFAULT_MODEL_API = "openai-completions";
 const builtInThemeIdSet = new Set<string>(builtInThemeIds);
 const themeAppearanceSet = new Set<string>(themeAppearanceValues);
 const themeVarNameSet = new Set<string>(themeVarNames);
@@ -120,20 +111,6 @@ function normalizeObservability(input: StoredGlobalConfig["observability"]): Obs
             maxRecords: typeof raw.maxRecords === "number" && Number.isInteger(raw.maxRecords) && raw.maxRecords >= 0 ? raw.maxRecords : DEFAULT_PI_TRACE.maxRecords,
             capturePayload: typeof raw.capturePayload === "boolean" ? raw.capturePayload : DEFAULT_PI_TRACE.capturePayload,
         },
-    };
-}
-
-const DEFAULT_NOVEL_DATA: NovelDataConfig = {
-    baseUrl: "http://localhost:3000",
-};
-
-/**
- * 归一化 novel-api 榜单服务配置：从存储层 partial 覆盖默认值。
- * baseUrl 显式写成空串时保留空串（表示用户明确未配置，工具侧给配置引导），未写该字段才落默认地址。
- */
-function normalizeNovelData(input: StoredGlobalConfig["novelData"]): NovelDataConfig {
-    return {
-        baseUrl: typeof input?.baseUrl === "string" ? input.baseUrl.trim() : DEFAULT_NOVEL_DATA.baseUrl,
     };
 }
 
@@ -213,9 +190,9 @@ export function createDefaultEffectiveConfig(): EffectiveConfig {
         observability: normalizeObservability(undefined),
         history: normalizeWorkspaceHistory(undefined),
         illustration: {
-            tagPolicy: createDefaultProjectTagPolicyConfig(),
+            tagPolicy: {contentScope: "all", unknownTagPolicy: "review_required"},
         },
-        novelData: normalizeNovelData(undefined),
+        novelData: {baseUrl: ""},
     };
 }
 
@@ -226,7 +203,8 @@ export function normalizeGlobalConfig(input: Partial<StoredGlobalConfig> | null 
     const raw = input && typeof input === "object" ? input : {};
     const customThemes = normalizeCustomThemes(raw.ui?.customThemes);
     return {
-        ...withoutAuth(raw),
+        ...(raw.observability ? {observability: raw.observability} : {}),
+        ...(raw.history ? {history: raw.history} : {}),
         models: {
             default: normalizeNullableModelKey(raw.models?.default),
             providers: normalizeStoredProviders(raw.models?.providers),
@@ -277,7 +255,7 @@ export function normalizeProjectConfig(input: Partial<StoredProjectConfig> | nul
                 defaultProfileKey: normalizeNullableModelKey(raw.agent.defaultProfileKey),
                 profileModelDefaults: raw.agent.profileModelDefaults ? normalizeAgentProfileModelPatch(raw.agent.profileModelDefaults) : undefined,
                 profileRuntimeDefaults: raw.agent.profileRuntimeDefaults ? normalizeProfileRuntimeSettingsPatch(raw.agent.profileRuntimeDefaults) : undefined,
-                profiles: raw.agent.profiles ? normalizeProjectAgentProfiles(raw.agent.profiles) : undefined,
+                profiles: raw.agent.profiles ? normalizeAgentProfiles(raw.agent.profiles) : undefined,
             },
         } : {}),
         ...(raw.editor ? {
@@ -288,11 +266,6 @@ export function normalizeProjectConfig(input: Partial<StoredProjectConfig> | nul
         } : {}),
         ...(raw.history ? {
             history: normalizeWorkspaceHistoryPatch(raw.history),
-        } : {}),
-        ...(raw.illustration ? {
-            illustration: {
-                tagPolicy: ProjectTagPolicyConfigSchema.parse(raw.illustration.tagPolicy),
-            },
         } : {}),
     };
 }
@@ -328,7 +301,6 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
     const globalRuntimeDefaults = normalizeProfileRuntimeSettingsPatch(globalConfig.agent?.profileRuntimeDefaults);
     effective.agent.profileRuntimeDefaults = globalRuntimeDefaults;
     effective.agent.profiles = normalizeCompleteAgentProfiles(globalProfilePatches, effective.agent.profileModelDefaults, globalRuntimeDefaults);
-    enforceIllustrationDirectorModelBinding(effective.agent.profiles, globalProfilePatches);
     effective.agent.visibleModels = normalizeAgentVisibleModels(globalConfig.agent?.visibleModels);
     effective.ui.customThemes = normalizeCustomThemes(globalConfig.ui?.customThemes);
     effective.ui.theme = normalizeTheme(globalConfig.ui?.theme, effective.ui.customThemes);
@@ -338,7 +310,6 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
     effective.web = normalizeWebSettings(globalConfig.web);
     effective.observability = normalizeObservability(globalConfig.observability);
     effective.history = normalizeWorkspaceHistory(globalConfig.history);
-    effective.novelData = normalizeNovelData(globalConfig.novelData);
 
     if (!projectConfig) {
         return effective;
@@ -368,7 +339,7 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
     const projectRuntimeDefaults = normalizeProfileRuntimeSettingsPatch(projectConfig.agent?.profileRuntimeDefaults);
     effective.agent.profileRuntimeDefaults = mergeProfileRuntimePatches(globalRuntimeDefaults, projectRuntimeDefaults);
     if (projectConfig.agent?.profileModelDefaults || projectConfig.agent?.profileRuntimeDefaults || projectConfig.agent?.profiles) {
-        const projectProfiles = normalizeProjectAgentProfiles(projectConfig.agent.profiles);
+        const projectProfiles = normalizeAgentProfiles(projectConfig.agent.profiles);
         effective.agent.profiles = Object.fromEntries(
             [...new Set([...Object.keys(globalProfilePatches), ...Object.keys(projectProfiles)])]
                 .map((profileKey) => {
@@ -393,7 +364,6 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
                     } satisfies AgentProfileConfig];
                 }),
         );
-        enforceIllustrationDirectorModelBinding(effective.agent.profiles, globalProfilePatches);
     }
     if (projectConfig.editor?.markdown) {
         effective.editor.markdown = {
@@ -413,9 +383,6 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
             ...effective.history,
             ...normalizeWorkspaceHistoryPatch(projectConfig.history),
         };
-    }
-    if (projectConfig.illustration) {
-        effective.illustration.tagPolicy = ProjectTagPolicyConfigSchema.parse(projectConfig.illustration.tagPolicy);
     }
 
     return effective;
@@ -515,25 +482,6 @@ export function normalizeAgentProfiles(input: Record<string, Partial<StoredAgent
     return Object.fromEntries(entries.sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey)));
 }
 
-/**
- * 规范化 Project Profile 配置，并剥离全局独占的 Director model patch。
- * Director 的 settings/runtime 仍保留，供后续 project-scoped storyboard 等配置使用。
- */
-function normalizeProjectAgentProfiles(input: Record<string, Partial<StoredAgentProfileConfig>> | undefined): Record<string, StoredAgentProfileConfig> {
-    const profiles = normalizeAgentProfiles(input);
-    const director = profiles[ILLUSTRATION_DIRECTOR_PROFILE_KEY];
-    if (!director) {
-        return profiles;
-    }
-    return {
-        ...profiles,
-        [ILLUSTRATION_DIRECTOR_PROFILE_KEY]: {
-            ...director,
-            model: {},
-        },
-    };
-}
-
 function normalizeCompleteAgentProfiles(
     input: Record<string, StoredAgentProfileConfig> | undefined,
     defaults: AgentProfileModelConfig,
@@ -546,28 +494,6 @@ function normalizeCompleteAgentProfiles(
             runtime: mergeProfileRuntimePatches(runtimeDefaults, profile.runtime),
         } satisfies AgentProfileConfig]),
     );
-}
-
-/**
- * 强制 Director runtime 的 modelKey 只读取 Global 专用 slot。
- * 其它模型参数继续使用通用 Profile defaults/patches，Project settings/runtime 也不受影响。
- */
-function enforceIllustrationDirectorModelBinding(
-    profiles: Record<string, AgentProfileConfig>,
-    globalProfilePatches: Record<string, StoredAgentProfileConfig>,
-): void {
-    const director = profiles[ILLUSTRATION_DIRECTOR_PROFILE_KEY];
-    if (!director) {
-        return;
-    }
-    const globalModelPatch = globalProfilePatches[ILLUSTRATION_DIRECTOR_PROFILE_KEY]?.model;
-    const modelKey = globalModelPatch && Object.hasOwn(globalModelPatch, "modelKey")
-        ? normalizeNullableModelKey(globalModelPatch.modelKey)
-        : null;
-    director.model = {
-        ...director.model,
-        modelKey,
-    };
 }
 
 function mergeAgentProfileModelConfig(
@@ -621,14 +547,6 @@ export function normalizeProfileRuntimeSettingsPatch(input: unknown): ProfileRun
 }
 
 /**
- * 丢弃旧 Global Config 中残留的 auth，确保下一次保存只输出当前正式契约。
- */
-function withoutAuth(input: Partial<StoredGlobalConfig> & {auth?: unknown}): Partial<StoredGlobalConfig> {
-    const {auth: _ignoredAuth, ...rest} = input;
-    return rest;
-}
-
-/**
  * 合并 profile settings patch。当前第一版只做浅合并。
  */
 export function mergeAgentProfileSettingsConfig(
@@ -651,18 +569,14 @@ function normalizeStoredProviders(input: StoredProviderConfig[] | undefined): St
         return [];
     }
     return input
-        .map((provider) => {
-            const modelApi = normalizeNullableText(provider.modelApi) ?? DEFAULT_MODEL_API;
-            const missingModelApi = isSupportedPiApi(modelApi) ? modelApi : null;
-            return {
-                id: normalizeText(provider.id),
-                name: normalizeText(provider.name),
-                enabled: provider.enabled ?? true,
-                modelApi,
-                options: normalizeProviderOptions(provider.options),
-                models: Array.isArray(provider.models) ? provider.models.map((model) => normalizeModel(model, missingModelApi)) : [],
-            };
-        })
+        .map((provider) => ({
+            id: normalizeText(provider.id),
+            name: normalizeText(provider.name),
+            enabled: provider.enabled ?? true,
+            modelApi: normalizeNullableText(provider.modelApi),
+            options: normalizeProviderOptions(provider.options),
+            models: Array.isArray(provider.models) ? provider.models.map(normalizeModel) : [],
+        }))
         .filter((provider) => provider.id)
         .sort((left, right) => left.id.localeCompare(right.id));
 }
@@ -676,14 +590,14 @@ function countIds(values: string[]): Map<string, number> {
     return counts;
 }
 
-function normalizeModel(input: Partial<ConfiguredModelConfig>, missingApi: string | null = null): ConfiguredModelConfig {
+function normalizeModel(input: Partial<ConfiguredModelConfig>): ConfiguredModelConfig {
     const id = normalizeText(input.id);
     return {
         name: normalizeText(input.name) || id,
         id,
         group: normalizeNullableText(input.group),
         enabled: input.enabled ?? true,
-        api: normalizeNullableText(input.api) ?? missingApi,
+        api: normalizeNullableText(input.api),
         reasoning: typeof input.reasoning === "boolean" ? input.reasoning : null,
         input: normalizeModelInput(input.input),
         maxTokens: normalizeNullablePositiveInteger(input.maxTokens),

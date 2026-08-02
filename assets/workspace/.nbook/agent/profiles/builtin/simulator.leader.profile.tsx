@@ -1,11 +1,11 @@
-/** @jsxImportSource nbook/server/agent/profiles/profile-dsl */
+/** @jsxImportSource nbook/profile-sdk */
 /** @jsxRuntime automatic */
-import type {Static} from "typebox";
-import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
-import {SimulatorLeaderInitialSchema, SimulatorLeaderOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
-import {AgentCatalog, AppendingSet, HistorySet, Import, LinkedAgentsReminder, Message, ModelContext, ProfilePrompt, System, WorkspaceFocusReminder} from "nbook/server/agent/profiles/profile-dsl";
-import {profileText} from "nbook/server/agent/profiles/profile-text";
+import type {Static} from "nbook/profile-sdk";
+import {defineAgentProfile} from "nbook/profile-sdk";
+import {builtin, toolset} from "nbook/profile-sdk";
+import {SimulatorLeaderInitialSchema, SimulatorLeaderOutputSchema} from "nbook/profile-sdk";
+import {AgentCatalog, AppendingSet, HistorySet, Import, LinkedAgentsReminder, Message, ModelContext, ProfilePrompt, System, WorkspaceFocusReminder} from "nbook/profile-sdk";
+import {profileText} from "nbook/profile-sdk";
 
 export const profileManifest = {
     key: "simulator.leader",
@@ -59,7 +59,7 @@ export default defineAgentProfile({
                     <Message><Import path="reference/agent/rp-tick/subject-creation-guide.md" /></Message>
                 </HistorySet>
                 <ModelContext>
-                    <Message>{renderRuntimeInput(ctx.session.projectPath)}</Message>
+                    <Message>{renderRuntimeInput(ctx.session.currentProject?.workspace.ref.projectRoot)}</Message>
                 </ModelContext>
                 <AppendingSet>
                     <WorkspaceFocusReminder />
@@ -94,8 +94,8 @@ function renderSystemPrompt(): string {
 
         # 路径与目录
 
-        - File Scope是当前Project Workspace。Project文件直接使用simulation/...、lorebook/...等相对路径。
-        - 当前 Project 由 session projectPath / Current Workspace Focus 指定。
+        - 当前 cwd 是 Current Project Workspace。Project文件直接使用simulation/...、lorebook/...等相对路径。
+        - 当前 Project 由 Session currentProjectRoot 指定。
         - simulation/直接表示当前Project Workspace内的simulation目录。
         - 不创建 emulation/ 目录。RP/simulation 模式下的世界运行态落在 simulation/；普通写作模式的动态世界状态由 leader.default 通过 World Engine 推进。
         - lorebook/ 是 god-view canon。引用 lorebook prototype 不是 visibility authorization。
@@ -156,10 +156,10 @@ function renderSystemPrompt(): string {
     `;
 }
 
-function renderRuntimeInput(projectPath: string | undefined): string {
+function renderRuntimeInput(projectRoot: string | undefined): string {
     return profileText`
         <simulator_leader_input>
-        projectPath: ${projectPath?.trim() || "Current Workspace Focus"}
+        projectRoot: ${projectRoot?.trim() || "Current Workspace Focus"}
         simulationRoot: simulation/
         mode: 每轮任务 prompt 指定；profile initial 不保存稳定模式。
         </simulator_leader_input>

@@ -7,7 +7,8 @@ import type {NeuroSessionContext, InvocationErrorInfo, SessionEntryId, SessionSn
 import type {SessionWritePlan} from "nbook/server/agent/session/write-plan";
 import type {AgentToolRegistry} from "nbook/server/agent/tools/tool-registry";
 import type {NeuroAgentTool} from "nbook/server/agent/tools/types";
-import type {AgentInvokeCaller, AgentInvocationResult} from "nbook/server/agent/harness/types";
+import type {AgentInvokeCaller} from "nbook/server/agent/harness/invocation-caller";
+import type {AgentInvocationResult} from "nbook/server/agent/harness/types";
 import type {AgentRuntimeStreamEventDto} from "nbook/shared/dto/agent-session.dto";
 import type {AgentMode} from "nbook/shared/dto/agent-session.dto";
 import type {UserInputFormSpec} from "nbook/server/agent/tools/types";
@@ -17,7 +18,7 @@ import type {ProfileTurnContextPlan, ProfileTurnContextSettlement} from "nbook/s
 import type {Models} from "@earendil-works/pi-ai";
 import type {PublicRuntimeProjectionState} from "nbook/server/agent/events/public-event-projection";
 import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import type {WorkspaceRootRef} from "nbook/server/workspace-files/workspace-root-ref";
+import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 
 export type RunRuntimeState = Map<string, JsonValue>;
 
@@ -147,22 +148,11 @@ export type RunTurnTransactionResult =
 
 export type RunKernelPhase = "model" | "ingest" | "compaction" | "settleRun" | "unknown";
 
-export type RunExecutionLeaseIdentity = {
-    readonly ownerId: string;
-    readonly fence: number;
-};
-
 export type RunFrame = {
     invocationId?: string;
-    /** true 表示本 running 段属于 durable managed invocation，任何副作用都不得退化到 ordinary 路径。 */
-    readonly executionLeaseRequired: boolean;
-    /** managed running 段建立时捕获的不可变 owner/fence；required=false 时为空。 */
-    readonly executionLeaseIdentity?: RunExecutionLeaseIdentity;
     sessionId: number;
-    workspaceKey: string;
-    workspaceRootRef: WorkspaceRootRef;
-    workspaceFsRoot: AbsoluteFsPath;
-    projectPath?: string;
+    workspaceRoot: AbsoluteFsPath;
+    currentProject: ReadyProjectSessionRef | null;
     systemPrompt: string;
     models: Models;
     model: Model<any>;

@@ -447,3 +447,9 @@ Project Workspace 切换时，前端请求必须使用 revision 或等价的 lat
 - 新增 provider async iterator 抛错与 `stream.result()` rejection 测试，验证错误结果、单一 error lifecycle、admission 释放和同 session 后续重试均能收口。
 - 本轮新增回归共 3 个文件、4 项测试；该组测试、前一轮 9 文件 37 项聚焦集合及 `bun run typecheck` 均通过。sibling `nb-workflow` 仍为 18 pass / 0 fail。
 - 按用户要求未处理工作树中的其他任务变更，也未执行浏览器、真实 provider 或真实 Project Workspace 手工验收。
+
+### 2026-07-27：summarizer ownership fence 生产回归
+
+- session 773 的摘要失败证明 Task 116 的 invocation ownership fence 正常工作：session 774 的隐藏 summarizer invocation 不应直接获得 session 773 的写入权。
+- 根因是受管 summarizer Profile 比 Harness 内存测试 Profile 多出一个跨 session `settleRun` hook，不是需要放宽 fence 的新业务例外。
+- 受管 Profile 已删除该 hook，source session 写回继续由 Harness 在隐藏 invocation 正常结束后统一完成；真实受管 Profile 已覆盖“无 settleRun hook + 正常标题/摘要写回 + source leaf 变化重跑 + 用户标题锁只更新摘要”三条聚焦回归。

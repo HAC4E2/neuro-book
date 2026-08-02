@@ -16,7 +16,7 @@ import {resetProjectSessionsForTest} from "nbook/server/workspace-files/project-
 import {
     writeProjectManifest,
 } from "nbook/server/workspace-files/project-workspace";
-import {resolveProjectAbsolutePath} from "nbook/server/text-to-image/compat";
+import {resolveProjectAbsolutePath, textToImageProjectRef} from "nbook/server/text-to-image/compat";
 import {resolveRuntimeWorkspaceRoot, setWorkspaceRuntimeRootContextForTest} from "nbook/server/workspace-files/workspace-runtime-root";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 import type {ProjectTagPolicyConfig} from "nbook/shared/text-to-image-tag-policy";
@@ -45,14 +45,14 @@ describe("Storyboard import Project inspect/journal", () => {
         setWorkspaceRuntimeRootContextForTest({workspaceRoot: path.join(tempRoot, "workspace")});
         vi.spyOn(process, "cwd").mockReturnValue(tempRoot);
         projectPath = "workspace/storyboard-import";
-        await writeProjectManifest(resolveRuntimeWorkspaceRoot(), projectPath, {kind: "novel", title: "导入测试", summary: ""});
-        await openProjectForTest(projectPath);
+        await writeProjectManifest(resolveRuntimeWorkspaceRoot(), textToImageProjectRef(projectPath), {kind: "novel", title: "导入测试", summary: ""});
+        await openProjectForTest(textToImageProjectRef(projectPath).projectRoot);
         projectRoot = resolveProjectAbsolutePath(projectPath);
         await fs.mkdir(path.join(projectRoot, "upload"), {recursive: true});
     });
 
     afterEach(async () => {
-        await closeProjectForTest(projectPath).catch(() => undefined);
+        await closeProjectForTest(textToImageProjectRef(projectPath).projectRoot).catch(() => undefined);
         resetProjectSessionsForTest();
         setWorkspaceRuntimeRootContextForTest(null);
         collectReleasedSqliteHandles({force: true});

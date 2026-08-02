@@ -309,9 +309,8 @@ function createProductionRuntime(): IllustrationPlanningAgentRuntime {
             const created = await useAgentHarness().createAgent({
                 profileKey: ILLUSTRATION_DIRECTOR_PROFILE_KEY,
                 initial: {operation: input.operation, planningInput: input.bundle},
-                workspaceRoot: "workspace",
-                workspaceKey: input.projectPath,
-                projectPath: input.projectPath,
+                currentProjectRoot: input.projectPath.replace(/^workspace\//, ""),
+                tags: [`illustration-planning:${input.projectPath}`],
                 title: `插图规划 · ${input.bundle.requestIdentity.chapterPath}`,
             });
             return {sessionId: created.sessionId};

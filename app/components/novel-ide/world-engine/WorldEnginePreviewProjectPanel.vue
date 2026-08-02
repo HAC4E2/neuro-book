@@ -8,7 +8,7 @@ type PreviewProjectForm = {
 
 type PreviewProjectOption = {
     title: string;
-    projectPath: string;
+    projectRoot: string;
 };
 
 type PreviewSchemaProjection = {
@@ -27,10 +27,13 @@ const props = defineProps<{
     loadingProjects: boolean;
     loadingWorld: boolean;
     actionBusy: boolean;
+    /** create 结果未结算时的持久恢复详情；空字符串表示无门禁。 */
+    createRecovery: string;
 }>();
 
 const emit = defineEmits<{
     (e: "create-project"): void;
+    (e: "retry-create-recovery"): void;
     (e: "fill-mutation", typeName: string, attr: WorldPreviewSchemaAttr): void;
 }>();
 
@@ -42,7 +45,7 @@ function buildIdeOpenPathHref(path: string): string {
     if (!props.selectedProject) {
         return "#";
     }
-    return `/?${new URLSearchParams({project: props.selectedProject.projectPath, openPath: path}).toString()}`;
+    return `/?${new URLSearchParams({project: props.selectedProject.projectRoot, openPath: path}).toString()}`;
 }
 </script>
 
@@ -53,17 +56,21 @@ function buildIdeOpenPathHref(path: string): string {
             <h2 class="text-sm font-semibold">Project</h2>
         </div>
         <div class="space-y-3 p-4">
-            <fieldset class="space-y-3 disabled:opacity-60" :disabled="loadingProjects || loadingWorld || actionBusy">
+            <div v-if="createRecovery" class="space-y-2 rounded-md border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] p-3 text-xs text-[var(--status-danger)]" role="alert">
+                <p>{{ createRecovery }}</p>
+                <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--status-danger-border)] bg-[var(--bg-panel)] px-3 font-medium disabled:opacity-50" :disabled="actionBusy" @click="emit('retry-create-recovery')"><span class="i-lucide-refresh-cw h-3.5 w-3.5" :class="actionBusy ? 'animate-spin' : ''"></span>重新读取 Project 列表</button>
+            </div>
+            <fieldset class="space-y-3 disabled:opacity-60" :disabled="loadingProjects || loadingWorld || actionBusy || Boolean(createRecovery)">
                 <input v-model="createProjectForm.title" class="h-9 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-sm outline-none focus:border-[var(--accent-main)]" placeholder="Project title">
                 <input v-model="createProjectForm.summary" class="h-9 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-sm outline-none focus:border-[var(--accent-main)]" placeholder="Summary">
-                <button type="button" class="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-[var(--accent-main)] px-3 text-sm text-[var(--accent-contrast)] disabled:opacity-50" :disabled="loadingProjects || loadingWorld || actionBusy" @click="emit('create-project')">
+                <button type="button" class="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-[var(--accent-main)] px-3 text-sm text-[var(--accent-contrast)] disabled:opacity-50" :disabled="loadingProjects || loadingWorld || actionBusy || Boolean(createRecovery)" @click="emit('create-project')">
                     <span class="i-lucide-folder-plus h-4 w-4"></span>
                     新建 Project
                 </button>
             </fieldset>
             <div v-if="selectedProject" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-3 text-xs leading-6">
                 <div class="font-medium">{{ selectedProject.title }}</div>
-                <div class="text-[var(--text-muted)]">{{ selectedProject.projectPath }}</div>
+                <div class="text-[var(--text-muted)]">{{ selectedProject.projectRoot }}</div>
             </div>
         </div>
 

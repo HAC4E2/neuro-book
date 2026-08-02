@@ -1,4 +1,5 @@
 import {AgentJobCancelledError, type AgentJobManager, type AgentJobSnapshot} from "nbook/server/agent/jobs/agent-job-manager";
+import type {AgentJobEventCursor} from "nbook/shared/dto/agent-job.dto";
 import type {WorkflowRunStart, WorkflowRunSummary} from "nbook/server/agent/workflow/workflow-demo-service";
 import type {JsonValue, RunView, SessionId, WorkflowDefinition, WorkspacePort} from "nbook/server/vendor/nb-workflow/index";
 import type {EffectiveConfig} from "nbook/server/config/types";
@@ -14,7 +15,6 @@ type WorkflowJobService = {
         workspace?: WorkspacePort;
         config: EffectiveConfig;
         project: ReadyProjectSessionRef | null;
-        workspaceKey: string;
         signal?: AbortSignal;
     }): WorkflowRunStart;
     waitForRunSettled(runId: string, signal?: AbortSignal, onRunning?: () => void): Promise<RunView>;
@@ -32,7 +32,6 @@ export type SpawnWorkflowJobInput = {
     workspace?: WorkspacePort;
     config: EffectiveConfig;
     project: ReadyProjectSessionRef | null;
-    workspaceKey: string;
     /** Agent 工具发起时是回流收件人；用户从正式 HTTP 入口触发时为空。 */
     ownerSessionId?: number;
     /** Agent 工具调用 id；HTTP 主动触发时为空。 */
@@ -43,6 +42,7 @@ export type SpawnWorkflowJobInput = {
 
 export type SpawnedWorkflowJob = {
     job: AgentJobSnapshot;
+    jobEventCursor: AgentJobEventCursor;
     runId: string;
 };
 
@@ -70,46 +70,53 @@ export function spawnWorkflowJob(input: SpawnWorkflowJobInput): SpawnedWorkflowJ
         workspace: input.workspace,
         config: input.config,
         project: input.project,
-        workspaceKey: input.workspaceKey,
     });
-    const job = input.jobs.spawn({
-        kind: "workflow",
-        title: `workflow ${input.def.key}`,
-        ownerSessionId: input.ownerSessionId,
-        originToolCallId: input.originToolCallId,
-        ref: {runId, workflowKey: input.def.key},
-        deliver: input.deliver,
-        onCancel: () => input.service.cancelRun(runId),
-        run: async (ctx) => {
-            let view = await done;
-            while (view.status === "waiting" && !ctx.signal.aborted) {
-                ctx.setWaiting(`等待用户应答：${view.pendingAsks.map((ask) => ask.spec.title).join("；") || "待应答"}`);
-                view = await input.service.waitForRunSettled(runId, ctx.signal, () => ctx.setRunning());
-            }
-            if (ctx.signal.aborted || view.status === "cancelled") {
-                throw new AgentJobCancelledError();
-            }
-            if (view.status === "failed") throw new Error(view.error ?? "workflow 失败");
-            if (view.status !== "completed") throw new Error("workflow 未完成即停止");
-            const summary = await input.service.runSummary(runId);
-            const result: WorkflowJobResult = {
-                runId,
-                workflowKey: input.def.key,
-                status: "completed",
-                result: view.result ?? null,
-                sessions: summary.sessions,
-                usage: summary.usage,
-            };
-            return {
-                resultPreview: `完成：${JSON.stringify(view.result ?? null)}`,
-                result: result as unknown as JsonValue,
-                message: [
-                    "[后台 Workflow 完成]",
-                    JSON.stringify(result, null, 2),
-                    "请根据该结果向用户汇报，或继续后续编排。",
-                ].join("\n"),
-            };
-        },
-    });
-    return {job, runId};
+    let spawned: ReturnType<AgentJobManager["spawn"]>;
+    try {
+        spawned = input.jobs.spawn({
+            kind: "workflow",
+            title: `workflow ${input.def.key}`,
+            ownerSessionId: input.ownerSessionId,
+            originToolCallId: input.originToolCallId,
+            ref: {runId, workflowKey: input.def.key},
+            deliver: input.deliver,
+            onCancel: () => input.service.cancelRun(runId),
+            run: async (ctx) => {
+                let view = await done;
+                while (view.status === "waiting" && !ctx.signal.aborted) {
+                    ctx.setWaiting(`等待用户应答：${view.pendingAsks.map((ask) => ask.spec.title).join("；") || "待应答"}`);
+                    view = await input.service.waitForRunSettled(runId, ctx.signal, () => ctx.setRunning());
+                }
+                if (ctx.signal.aborted || view.status === "cancelled") {
+                    throw new AgentJobCancelledError();
+                }
+                if (view.status === "failed") throw new Error(view.error ?? "workflow 失败");
+                if (view.status !== "completed") throw new Error("workflow 未完成即停止");
+                const summary = await input.service.runSummary(runId);
+                const result: WorkflowJobResult = {
+                    runId,
+                    workflowKey: input.def.key,
+                    status: "completed",
+                    result: view.result ?? null,
+                    sessions: summary.sessions,
+                    usage: summary.usage,
+                };
+                return {
+                    resultPreview: `完成：${JSON.stringify(view.result ?? null)}`,
+                    result: result as unknown as JsonValue,
+                    message: [
+                        "[后台 Workflow 完成]",
+                        JSON.stringify(result, null, 2),
+                        "请根据该结果向用户汇报，或继续后续编排。",
+                    ].join("\n"),
+                };
+            },
+        });
+    } catch (error) {
+        // Run 已在 service 中登记；Job 登记失败时必须补偿取消，不能留下无观测入口的执行。
+        input.service.cancelRun(runId);
+        throw error;
+    }
+    const {job, jobEventCursor} = spawned;
+    return {job, jobEventCursor, runId};
 }

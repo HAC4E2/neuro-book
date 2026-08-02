@@ -4,7 +4,7 @@ import {throwIllustrationExecutionHttpError} from "nbook/server/text-to-image/il
 import {getIllustrationExecutionService} from "nbook/server/text-to-image/illustration-execution.service";
 import {requireCurrentUser} from "nbook/server/utils/auth";
 import {validateBody} from "nbook/server/utils/novel-chapter";
-import {withProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
+import {withProjectHttpError} from "nbook/server/api/projects/project-http-error";
 
 const BatchPreviewRequestSchema = z.object({
     projectPath: z.string().regex(/^workspace\/[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/u),
@@ -16,7 +16,7 @@ const BatchPreviewRequestSchema = z.object({
 });
 
 /** 批量只读预编译；任一 target 阻断时整批零 Manifest、零 Job。 */
-export default defineEventHandler((event) => withProjectNotOpenHttpError(async () => {
+export default defineEventHandler((event) => withProjectHttpError(async () => {
     const user = await requireCurrentUser(event);
     const request = await validateBody(event, BatchPreviewRequestSchema);
     try {

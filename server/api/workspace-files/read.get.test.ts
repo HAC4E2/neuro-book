@@ -1,6 +1,6 @@
 import {beforeEach, describe, expect, it, vi} from "vitest";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
+import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 
 describe("GET /api/workspace-files/read", () => {
     beforeEach(() => {
@@ -9,14 +9,14 @@ describe("GET /api/workspace-files/read", () => {
         vi.stubGlobal("defineEventHandler", (handler: unknown) => handler);
         vi.stubGlobal("defineRouteMeta", () => undefined);
         vi.stubGlobal("getQuery", () => ({
-            projectPath: "workspace/not-open",
+            projectRoot: "not-open",
             path: "note.md",
         }));
         vi.doMock("nbook/server/workspace-files/project-open-guard", () => ({
-            withProjectTargetOperation: vi.fn((target: {projectPath: string}) => {
+            withProjectTargetOperation: vi.fn((target: {projectRoot: string}) => {
                 throw Object.assign(new Error("Project未打开"), {
                     statusCode: 409,
-                    data: {code: "PROJECT_NOT_OPEN", projectPath: target.projectPath},
+                    data: {code: "PROJECT_NOT_OPEN", projectRoot: target.projectRoot},
                 });
             }),
         }));
@@ -27,7 +27,7 @@ describe("GET /api/workspace-files/read", () => {
             resolveWorkspaceFileTarget: vi.fn(async () => ({
                 kind: "project-workspace",
                 root: absoluteFsPath("C:/test/workspace/not-open"),
-                projectPath: normalizeProjectPath("workspace/not-open"),
+                projectRoot: projectWorkspaceRef("not-open").projectRoot,
             })),
         }));
 
@@ -36,7 +36,7 @@ describe("GET /api/workspace-files/read", () => {
             statusCode: 409,
             data: {
                 code: "PROJECT_NOT_OPEN",
-                projectPath: "workspace/not-open",
+                projectRoot: "not-open",
             },
         });
     });

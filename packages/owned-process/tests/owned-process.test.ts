@@ -18,6 +18,22 @@ afterEach(async () => {
 });
 
 describe("Owned Process", () => {
+    it("公共入口拒绝Windows ARM64而不进入平台Adapter", () => {
+        const platformDescriptor = Object.getOwnPropertyDescriptor(process, "platform");
+        const archDescriptor = Object.getOwnPropertyDescriptor(process, "arch");
+        if (!platformDescriptor || !archDescriptor) throw new Error("process platform descriptor 不存在");
+        Object.defineProperty(process, "platform", {...platformDescriptor, value: "win32"});
+        Object.defineProperty(process, "arch", {...archDescriptor, value: "arm64"});
+
+        try {
+            expect(() => spawnOwnedProcess({command: "target"}))
+                .toThrow("Windows Owned Process当前仅支持x64，实际为arm64。");
+        } finally {
+            Object.defineProperty(process, "platform", platformDescriptor);
+            Object.defineProperty(process, "arch", archDescriptor);
+        }
+    });
+
     it("正常退出会返回真实退出码和输出", async () => {
         const lease = spawnOwnedProcess({
             command: process.execPath,
@@ -131,7 +147,7 @@ describe("Owned Process", () => {
         expect(output).toContain("target:portable-input");
     });
 
-    it.runIf(process.platform === "win32")("宿主异常退出会通过IPC断连和KILL_ON_JOB_CLOSE清理完整进程树", async () => {
+    it("宿主异常退出会通过监督IPC断连清理完整进程树", async () => {
         const root = await mkdtemp(join(tmpdir(), "nbook-owned-disconnect-"));
         roots.push(root);
         const statePath = join(root, "state.json");

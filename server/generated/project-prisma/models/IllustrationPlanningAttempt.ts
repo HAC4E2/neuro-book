@@ -248,7 +248,7 @@ export type IllustrationPlanningAttemptGroupByOutputType = {
   _max: IllustrationPlanningAttemptMaxAggregateOutputType | null
 }
 
-type GetIllustrationPlanningAttemptGroupByPayload<T extends IllustrationPlanningAttemptGroupByArgs> = Prisma.PrismaPromise<
+export type GetIllustrationPlanningAttemptGroupByPayload<T extends IllustrationPlanningAttemptGroupByArgs> = Prisma.PrismaPromise<
   Array<
     Prisma.PickEnumerable<IllustrationPlanningAttemptGroupByOutputType, T['by']> &
       {
@@ -1449,6 +1449,11 @@ export type IllustrationPlanningAttemptFindManyArgs<ExtArgs extends runtime.Type
    * Skip the first `n` IllustrationPlanningAttempts.
    */
   skip?: number
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+   * 
+   * Filter by unique combinations of IllustrationPlanningAttempts.
+   */
   distinct?: Prisma.IllustrationPlanningAttemptScalarFieldEnum | Prisma.IllustrationPlanningAttemptScalarFieldEnum[]
 }
 

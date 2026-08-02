@@ -302,7 +302,7 @@ export type TextToImageAssetGroupByOutputType = {
   _max: TextToImageAssetMaxAggregateOutputType | null
 }
 
-type GetTextToImageAssetGroupByPayload<T extends TextToImageAssetGroupByArgs> = Prisma.PrismaPromise<
+export type GetTextToImageAssetGroupByPayload<T extends TextToImageAssetGroupByArgs> = Prisma.PrismaPromise<
   Array<
     Prisma.PickEnumerable<TextToImageAssetGroupByOutputType, T['by']> &
       {
@@ -1842,6 +1842,11 @@ export type TextToImageAssetFindManyArgs<ExtArgs extends runtime.Types.Extension
    * Skip the first `n` TextToImageAssets.
    */
   skip?: number
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+   * 
+   * Filter by unique combinations of TextToImageAssets.
+   */
   distinct?: Prisma.TextToImageAssetScalarFieldEnum | Prisma.TextToImageAssetScalarFieldEnum[]
 }
 

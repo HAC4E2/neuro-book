@@ -51,6 +51,10 @@ describe("app logs logger", () => {
             authorization: "Bearer token",
             cookie: "sid=1",
             password: "pw",
+            recoveryCode: "NBK1-secret",
+            deviceCode: "device-secret",
+            grant: {refreshToken: "refresh-secret"},
+            backupKey: "backup-secret",
             nested: {
                 token: "token",
                 secret: "secret",
@@ -63,6 +67,10 @@ describe("app logs logger", () => {
             authorization: "[REDACTED]",
             cookie: "[REDACTED]",
             password: "[REDACTED]",
+            recoveryCode: "[REDACTED]",
+            deviceCode: "[REDACTED]",
+            grant: "[REDACTED]",
+            backupKey: "[REDACTED]",
             nested: {
                 token: "[REDACTED]",
                 secret: "[REDACTED]",
@@ -74,6 +82,8 @@ describe("app logs logger", () => {
     it("redacts sensitive tokens from free text and error stacks", () => {
         expect(redactSensitiveText("Authorization: Bearer abc123 token=secret apiKey=sk-testvalue123456"))
             .toBe("Authorization: Bearer [REDACTED] token=[REDACTED] apiKey=[REDACTED]");
+        expect(redactSensitiveText("NBK1-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA-00000000"))
+            .toBe("[REDACTED]");
 
         const error = new Error("request failed password=hunter2");
         error.stack = "Error: request failed\napiKey=sk-realkey123456789";
@@ -131,8 +141,12 @@ describe("app logs logger", () => {
             env: {NEURO_BOOK_LOG_DIR: root} as NodeJS.ProcessEnv,
             maxFileBytes: 180,
             retention: 3,
+            maxAgeMs: 30 * 24 * 60 * 60 * 1000,
             now: () => new Date(`2026-06-28T10:00:${String(second++).padStart(2, "0")}.000Z`),
         });
+        const expired = path.join(root, "server-20250101-000000-1-deadbeef.jsonl");
+        await fs.writeFile(expired, "{}\n", "utf8");
+        await fs.utimes(expired, new Date("2025-01-01T00:00:00.000Z"), new Date("2025-01-01T00:00:00.000Z"));
 
         for (let index = 0; index < 8; index += 1) {
             await logger.info("test.large", {index, text: "x".repeat(80)});
@@ -143,6 +157,40 @@ describe("app logs logger", () => {
         const serverFiles = files.filter((file) => file.name === "server-current.jsonl" || file.name.startsWith("server-"));
         expect(serverFiles.length).toBeLessThanOrEqual(3);
         expect(serverFiles.some((file) => file.name === "server-current.jsonl")).toBe(true);
+        expect(serverFiles.some((file) => file.name === path.basename(expired))).toBe(false);
+    });
+
+    it("first write prunes expired launcher logs and enforces the total byte budget", async () => {
+        const root = await tempLogRoot();
+        const oldLauncher = path.join(root, "launcher-2026-05-01.log");
+        const recentLauncher = path.join(root, "launcher-2026-06-27.log");
+        const recentServer = path.join(root, "server-20260627-120000-1-deadbeef.jsonl");
+        await Promise.all([
+            fs.writeFile(oldLauncher, "o".repeat(80), "utf8"),
+            fs.writeFile(recentLauncher, "l".repeat(80), "utf8"),
+            fs.writeFile(recentServer, "s".repeat(80), "utf8"),
+        ]);
+        await fs.utimes(oldLauncher, new Date("2026-05-01T00:00:00.000Z"), new Date("2026-05-01T00:00:00.000Z"));
+        await fs.utimes(recentLauncher, new Date("2026-06-27T12:00:00.000Z"), new Date("2026-06-27T12:00:00.000Z"));
+        await fs.utimes(recentServer, new Date("2026-06-27T11:00:00.000Z"), new Date("2026-06-27T11:00:00.000Z"));
+
+        const logger = new AppFileLogger({
+            env: {NEURO_BOOK_LOG_DIR: root} as NodeJS.ProcessEnv,
+            maxFileBytes: 1024,
+            maxTotalBytes: 190,
+            retention: 4,
+            maxAgeMs: 30 * 24 * 60 * 60 * 1000,
+            now: () => new Date("2026-06-28T12:00:00.000Z"),
+        });
+        await logger.info("startup", {ready: true});
+        await logger.flush();
+
+        const files = await listAppLogFiles(root);
+        expect(files.map((file) => file.name)).toContain("server-current.jsonl");
+        expect(files.map((file) => file.name)).toContain(path.basename(recentLauncher));
+        expect(files.map((file) => file.name)).not.toContain(path.basename(oldLauncher));
+        expect(files.map((file) => file.name)).not.toContain(path.basename(recentServer));
+        expect(files.reduce((sum, file) => sum + file.size, 0)).toBeLessThanOrEqual(190);
     });
 
     it("summarizes status for empty and populated directories", async () => {

@@ -5,6 +5,188 @@ import {describe, expect, it, vi} from "vitest";
 import {AgentJobManager} from "nbook/server/agent/jobs/agent-job-manager";
 
 describe("AgentJobManager", () => {
+    it("启动回执精确指向首次 running 发布，不受同步执行器后续事件污染", async () => {
+        const jobs = new AgentJobManager(() => {
+            throw new Error("ownerless 测试不应投递");
+        }, "");
+        const before = jobs.recovery().eventCursor;
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+
+        const spawned = jobs.spawn({
+            kind: "workflow",
+            title: "causal cursor",
+            deliver: "none",
+            run: async (context) => {
+                context.setWaiting("同步进入等待");
+                await gate;
+                return {resultPreview: "done"};
+            },
+        });
+
+        expect(spawned.job).toMatchObject({status: "waiting"});
+        expect(spawned.jobEventCursor).toEqual({eventEpoch: before.eventEpoch, after: before.after + 1});
+        expect(jobs.recovery().eventCursor.after).toBe(before.after + 2);
+        const subscription = jobs.subscribeEvents(before);
+        await expect(subscription.next()).resolves.toMatchObject({
+            value: {payload: {
+                eventEpoch: spawned.jobEventCursor.eventEpoch,
+                seq: spawned.jobEventCursor.after,
+                event: {type: "job_upserted", job: {status: "running"}},
+            }},
+        });
+
+        subscription.close();
+        release();
+        await jobs.waitIdle();
+    });
+
+    it("shutdown 开始后拒绝启动新 Job", async () => {
+        const jobs = new AgentJobManager(() => {
+            throw new Error("ownerless 测试不应投递");
+        }, "");
+        await jobs.shutdown();
+
+        expect(() => jobs.spawn({
+            kind: "bash",
+            title: "too late",
+            deliver: "none",
+            run: async () => ({resultPreview: "done"}),
+        })).toThrow("已关闭");
+    });
+
+    it("列表快照与 SSE 游标之间创建的 Job 可以 replay", async () => {
+        const jobs = new AgentJobManager(() => {
+            throw new Error("ownerless 测试不应投递");
+        }, "");
+        const recovery = jobs.recovery();
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const spawned = jobs.spawn({
+            kind: "bash",
+            title: "created after snapshot",
+            deliver: "none",
+            run: async () => {
+                await gate;
+                return {resultPreview: "done"};
+            },
+        });
+        const subscription = jobs.subscribeEvents(recovery.eventCursor);
+        const event = await subscription.next();
+
+        expect(recovery.jobs).toEqual([]);
+        expect(event).toMatchObject({
+            done: false,
+            value: {payload: {event: {type: "job_upserted", job: {jobId: spawned.job.jobId, status: "running"}}}},
+        });
+
+        subscription.close();
+        release();
+        await jobs.waitIdle();
+    });
+
+    it("250ms 内的 preview 更新合并为最后一帧", async () => {
+        vi.useFakeTimers();
+        try {
+            const jobs = new AgentJobManager(() => {
+                throw new Error("ownerless 测试不应投递");
+            }, "");
+            const recovery = jobs.recovery();
+            let setPreview!: (text: string) => void;
+            let release!: () => void;
+            const gate = new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            jobs.spawn({
+                kind: "bash",
+                title: "preview coalescing",
+                deliver: "none",
+                run: async (context) => {
+                    setPreview = context.setPreview;
+                    await gate;
+                    return {resultPreview: "done"};
+                },
+            });
+            const subscription = jobs.subscribeEvents(recovery.eventCursor);
+            await subscription.next();
+
+            setPreview("first");
+            setPreview("latest");
+            await vi.advanceTimersByTimeAsync(249);
+            expect(jobs.recovery().eventCursor.after).toBe(1);
+
+            await vi.advanceTimersByTimeAsync(1);
+            const event = await subscription.next();
+            expect(event).toMatchObject({
+                done: false,
+                value: {payload: {event: {type: "job_upserted", job: {preview: "latest"}}}},
+            });
+
+            subscription.close();
+            release();
+            await jobs.waitIdle();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("waiting、running 与 terminal 立即发布且 terminal 清除迟到 preview", async () => {
+        vi.useFakeTimers();
+        try {
+            const jobs = new AgentJobManager(() => {
+                throw new Error("ownerless 测试不应投递");
+            }, "");
+            const recovery = jobs.recovery();
+            let setPreview!: (text: string) => void;
+            let setWaiting!: (text: string) => void;
+            let setRunning!: () => void;
+            let release!: () => void;
+            const gate = new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            jobs.spawn({
+                kind: "workflow",
+                title: "state transitions",
+                deliver: "none",
+                run: async (context) => {
+                    setPreview = context.setPreview;
+                    setWaiting = context.setWaiting;
+                    setRunning = context.setRunning;
+                    await gate;
+                    return {resultPreview: "final result"};
+                },
+            });
+            const subscription = jobs.subscribeEvents(recovery.eventCursor);
+            await subscription.next();
+
+            setPreview("stale preview");
+            setWaiting("need answer");
+            setRunning();
+            setPreview("latest output");
+            release();
+            await jobs.waitIdle();
+
+            const waiting = await subscription.next();
+            const running = await subscription.next();
+            const terminal = await subscription.next();
+            expect([waiting.value?.payload, running.value?.payload, terminal.value?.payload]).toMatchObject([
+                {event: {type: "job_upserted", job: {status: "waiting", preview: "need answer"}}},
+                {event: {type: "job_upserted", job: {status: "running", preview: "need answer"}}},
+                {event: {type: "job_upserted", job: {status: "completed", preview: "final result"}}},
+            ]);
+
+            await vi.advanceTimersByTimeAsync(250);
+            expect(jobs.recovery().eventCursor.after).toBe(4);
+            subscription.close();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it("结果回流使用普通 prompt invocation，且 waitIdle 等到投递完成", async () => {
         let releaseDelivery: (() => void) | undefined;
         const delivery = new Promise<void>((resolve) => {
@@ -77,6 +259,44 @@ describe("AgentJobManager", () => {
         ])).resolves.toBe("settled");
     });
 
+    it("shutdown 先关闭事件订阅并清理 preview，取消终态不再发布", async () => {
+        vi.useFakeTimers();
+        try {
+            const jobs = new AgentJobManager(() => {
+                throw new Error("ownerless 测试不应投递");
+            }, "");
+            const cursor = jobs.recovery().eventCursor;
+            let lateSetPreview!: (text: string) => void;
+            jobs.spawn({
+                kind: "bash",
+                title: "shutdown events",
+                deliver: "none",
+                run: async (context) => {
+                    lateSetPreview = context.setPreview;
+                    context.setPreview("pending");
+                    await new Promise<void>((resolve) => {
+                        context.signal.addEventListener("abort", () => resolve(), {once: true});
+                    });
+                    return {resultPreview: "cancelled"};
+                },
+            });
+            const subscription = jobs.subscribeEvents(cursor);
+            const seqBeforeShutdown = jobs.recovery().eventCursor.after;
+
+            await jobs.shutdown();
+
+            expect(subscription.signal.aborted).toBe(true);
+            expect(subscription.closeReason).toBe("hub_closed");
+            expect(vi.getTimerCount()).toBe(0);
+            lateSetPreview("after shutdown");
+            expect(vi.getTimerCount()).toBe(0);
+            expect(jobs.recovery().eventCursor.after).toBe(seqBeforeShutdown);
+            expect(() => jobs.subscribeEvents()).toThrow("job_event_hub_closed");
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it("list 保持轻量，get 保存完整大型结构化结果且通知不截断", async () => {
         const invokeAgent = vi.fn(async (_input: {message: {text: string}}) => ({
             sessionId: 7,
@@ -98,7 +318,7 @@ describe("AgentJobManager", () => {
 
         await jobs.waitIdle();
         const summary = jobs.list()[0]!;
-        const detail = jobs.get(spawned.jobId)!;
+        const detail = jobs.get(spawned.job.jobId)!;
         const notification = invokeAgent.mock.calls[0]![0].message.text;
 
         expect(summary).not.toHaveProperty("result");
@@ -167,9 +387,15 @@ describe("AgentJobManager", () => {
             },
         });
         await vi.waitFor(() => expect(jobs.list().find((job) => job.title === "finished")?.status).toBe("completed"));
+        const cursor = jobs.recovery().eventCursor;
 
         expect(jobs.clearFinished()).toBe(1);
-        expect(jobs.list().map((job) => job.jobId)).toEqual([running.jobId]);
+        expect(jobs.list().map((job) => job.jobId)).toEqual([running.job.jobId]);
+        expect(jobs.recovery().eventCursor.after).toBe(cursor.after + 1);
+        await expect(jobs.subscribeEvents(cursor).next()).resolves.toMatchObject({
+            done: false,
+            value: {payload: {event: {type: "jobs_removed", jobIds: [expect.stringMatching(/^job_/)]}}},
+        });
 
         release!();
         await jobs.waitIdle();

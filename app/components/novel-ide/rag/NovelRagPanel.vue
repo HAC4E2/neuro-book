@@ -23,7 +23,7 @@ type EventEditorMode = "create" | "edit";
 type MemoryEditorMode = "create" | "edit";
 
 const novelIdeStore = useNovelIdeStore();
-const {currentNovelId} = storeToRefs(novelIdeStore);
+const {currentProjectRoot} = storeToRefs(novelIdeStore);
 const notification = useNotification();
 
 const overview = ref<ProjectRagOverviewDto | null>(null);
@@ -68,18 +68,18 @@ const currentStatusLabel = computed(() => formatSourceStatus(subjectDetail.value
 /**
  * RAG API 的 Project query。
  */
-function projectQuery(): {projectPath: string} {
-    if (!currentNovelId.value) {
+function projectQuery(): {projectRoot: string} {
+    if (!currentProjectRoot.value) {
         throw new Error("当前没有 Project Workspace");
     }
-    return {projectPath: currentNovelId.value};
+    return {projectRoot: currentProjectRoot.value};
 }
 
 /**
  * 读取当前 Project 的 RAG 概览。
  */
 async function loadOverview(): Promise<void> {
-    if (!currentNovelId.value) {
+    if (!currentProjectRoot.value) {
         overview.value = null;
         selectedSubjectPath.value = "";
         subjectDetail.value = null;
@@ -121,7 +121,7 @@ async function loadOverview(): Promise<void> {
  * 读取选中 subject 的 events / memory。
  */
 async function loadSubject(subjectPath: string): Promise<void> {
-    if (!subjectPath || !currentNovelId.value) {
+    if (!subjectPath || !currentProjectRoot.value) {
         subjectDetail.value = null;
         searchResult.value = null;
         searchError.value = "";
@@ -421,7 +421,7 @@ function subjectStatusLabel(subject: ProjectRagSubjectSummaryDto): string {
     return formatSourceStatus(subject.sourceStatuses);
 }
 
-watch(currentNovelId, () => {
+watch(currentProjectRoot, () => {
     searchResult.value = null;
     searchError.value = "";
     void loadOverview();
@@ -454,7 +454,7 @@ onMounted(() => {
             <div v-if="error" class="border-b border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] p-2 text-[11px] text-[var(--status-danger)]">{{ error }}</div>
 
             <div class="min-h-0 flex-1 overflow-auto p-2">
-                <div v-if="!currentNovelId" class="py-8 text-center text-[12px] text-[var(--text-muted)]">当前没有 Project Workspace。</div>
+                <div v-if="!currentProjectRoot" class="py-8 text-center text-[12px] text-[var(--text-muted)]">当前没有 Project Workspace。</div>
                 <div v-else-if="!loadingOverview && subjects.length === 0" class="py-8 text-center text-[12px] text-[var(--text-muted)]">当前 Project 暂无 subject RAG 数据。</div>
                 <button
                     v-for="subject in subjects"
@@ -501,7 +501,7 @@ onMounted(() => {
             </div>
 
             <div class="min-h-0 flex-1 overflow-auto p-3">
-                <div v-if="!currentNovelId" class="py-8 text-center text-[12px] text-[var(--text-muted)]">当前没有 Project Workspace。</div>
+                <div v-if="!currentProjectRoot" class="py-8 text-center text-[12px] text-[var(--text-muted)]">当前没有 Project Workspace。</div>
 
                 <div v-else-if="loadingSubject" class="py-8 text-center text-[12px] text-[var(--text-muted)]">正在加载 RAG 数据...</div>
 

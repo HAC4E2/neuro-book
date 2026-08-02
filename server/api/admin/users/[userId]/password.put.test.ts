@@ -18,18 +18,18 @@ vi.mock("nbook/server/config/boot-config", () => ({
     loadBootAuthEnabledSync: () => false,
 }));
 
+vi.mock("nbook/server/utils/novel-chapter", () => ({
+    validateBody: vi.fn(async () => ({password: "secret123"})),
+}));
+
 describe("PUT /api/admin/users/:userId/password", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         const globals = globalThis as typeof globalThis & {
             defineEventHandler?: unknown;
-            readBody?: unknown;
             createError?: unknown;
         };
         globals.defineEventHandler = ((handler: unknown) => handler) as never;
-        globals.readBody = vi.fn().mockResolvedValue({
-            password: "secret123",
-        });
         globals.createError = ((input: {statusCode?: number; message?: string}) => {
             const error = new Error(input.message ?? "未知错误") as Error & {statusCode?: number};
             error.statusCode = input.statusCode;

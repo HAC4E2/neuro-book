@@ -42,7 +42,7 @@ Common Project Workspace paths:
 | --- | --- |
 | `{project}/AGENTS.md` | Project-level collaboration instructions. |
 | `{project}/agents/` | Profile-scoped context memory, generated recommendations and profile-specific project guidance. |
-| `{project}/project.yaml` | Project Workspace manifest with kind, title and summary. |
+| `{project}/project.yaml` | Project Workspace manifest with kind, title, summary and an optional relative cover image. |
 | `{project}/lorebook/` | Stable canon, prototypes, rules and reusable AI instructions. |
 | `{project}/manual/` | Project handbooks for quickstart, player guide, rules guide, GM guide and quick reference. |
 | `{project}/manuscript/` | Manuscript, volumes, chapters, drafts and chapter-local notes. |
@@ -51,6 +51,8 @@ Common Project Workspace paths:
 | `{project}/upload/` | Uploaded intake files awaiting organization. |
 | `{project}/.nbook/` | Project config, Project SQLite and project control files. |
 | `{project}/.agent/` | Temporary plans, caches and execution notes. |
+
+The optional `project.yaml` `cover` value must point to a PNG, JPEG or WebP file inside ordinary Project content, such as `assets/cover.webp`. Do not use URLs, absolute paths, parent traversal, `.nbook/` or `.git/`.
 
 Top-level sketch:
 

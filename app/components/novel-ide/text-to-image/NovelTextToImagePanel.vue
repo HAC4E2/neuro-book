@@ -19,11 +19,11 @@ const emit = defineEmits<{
 const store = useTextToImageStore();
 const novelIdeStore = useNovelIdeStore();
 const configApi = useConfigApi();
-const {configRevision, currentNovelId, novels} = storeToRefs(novelIdeStore);
+const {configRevision, currentProjectRoot, novels} = storeToRefs(novelIdeStore);
 const {currentProjectPath} = storeToRefs(store);
 
-const currentNovel = computed(() => novels.value.find((novel) => novel.id === currentNovelId.value || novel.projectPath === currentNovelId.value) ?? null);
-const currentNovelTitle = computed(() => currentNovel.value?.title || currentNovelId.value || "未选择小说");
+const currentNovel = computed(() => novels.value.find((novel) => novel.projectRoot === currentProjectRoot.value) ?? null);
+const currentNovelTitle = computed(() => currentNovel.value?.title || currentProjectRoot.value || "未选择小说");
 
 /** Director binding 只读快照：导入面板据此提示"先配置 Director"；本面板没有任何 Global Config 写入口。 */
 const illustrationDirectorBinding = ref<IllustrationDirectorModelBindingDto | null>(null);
@@ -45,7 +45,8 @@ function openIllustrationDirectorSettings(): void {
 }
 
 // 切换小说时同步 projectPath 并预加载 Recipe
-watch(currentNovelId, (projectPath) => {
+watch(currentProjectRoot, (projectRoot) => {
+    const projectPath = projectRoot ? `workspace/${projectRoot}` : "";
     store.setCurrentProjectPath(projectPath);
     if (projectPath) {
         void store.refreshProjectJobs(projectPath).catch(() => undefined);
@@ -82,7 +83,7 @@ watch(currentNovelId, (projectPath) => {
         <!-- 出图工作流 + 全局 Storyboard 导入 + 角色视觉生成/迁移 -->
         <div class="custom-scrollbar min-h-0 w-full min-w-0 flex-1 overflow-y-scroll px-3 py-3" style="scrollbar-gutter: stable;">
             <TextToImageIllustrationWorkflowPanel :project-path="currentProjectPath" />
-            <div v-if="currentNovelId" class="mt-3 space-y-3">
+            <div v-if="currentProjectRoot" class="mt-3 space-y-3">
                 <!-- Storyboard 导入：server inspect + Director Runtime 转换 + 全局发布 -->
                 <TextToImageStoryboardImportPanel :project-path="currentProjectPath" :director-configured="illustrationDirectorBinding?.configured === true" @open-director-settings="openIllustrationDirectorSettings" />
             </div>

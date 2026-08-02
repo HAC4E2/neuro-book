@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {canonicalImageMime} from "nbook/shared/media/raster-image";
 import {EditorContent, useEditor} from "@tiptap/vue-3";
 import type {Content, Editor} from "@tiptap/core";
 import ReferenceSelectorPopover from "nbook/app/components/common/form/ReferenceSelectorPopover.vue";
@@ -18,6 +19,7 @@ import type {ComposerImageNode} from "nbook/app/components/novel-ide/agent/compo
 const props = withDefaults(defineProps<{
     modelValue: string;
     placeholder?: string;
+    ariaLabel?: string;
     minHeight?: number;
     maxHeight?: number;
     expanded?: boolean;
@@ -32,6 +34,7 @@ const props = withDefaults(defineProps<{
     enableImageFiles?: boolean;
 }>(), {
     placeholder: "",
+    ariaLabel: "",
     minHeight: 36,
     maxHeight: 150,
     expanded: false,
@@ -78,7 +81,6 @@ let resizeFrame: number | null = null;
 // 外部替换内容时从顶部开始；用户在编辑器内继续输入时仍按 sticky-bottom 状态处理。
 let scrollToTopOnNextMeasure = Boolean(props.modelValue);
 const STICKY_BOTTOM_THRESHOLD_PX = 12;
-const COMPOSER_IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
 const menuVisible = computed(() => Boolean(suggestionMenuState.value && suggestionMenuState.value.items.length > 0));
 const skillTriggerActive = computed(() => suggestionMenuState.value?.contextKind === "skill");
@@ -168,8 +170,13 @@ const editor = useEditor({
     editable: !props.readonly,
     editorProps: {
         attributes: {
-            class: "reference-plain-text-editor__prosemirror outline-none",
+            class: `reference-plain-text-editor__prosemirror outline-none${props.readonly ? " reference-plain-text-editor__prosemirror--readonly" : ""}`,
             spellcheck: "false",
+            role: "textbox",
+            "aria-multiline": "true",
+            "aria-readonly": String(props.readonly),
+            "aria-label": props.ariaLabel || props.placeholder,
+            "data-readonly": String(props.readonly),
         },
         handleDOMEvents: {
             focus: () => {
@@ -290,9 +297,36 @@ watch(() => props.modelValue, (nextValue) => {
     });
 });
 
-watch(() => props.readonly, (readonly) => {
-    editor.value?.setEditable(!readonly);
-});
+/** 同步 TipTap 的真实编辑门禁与可访问性只读语义。 */
+function syncReadonlyState(readonly: boolean): void {
+    const currentEditor = editor.value;
+    currentEditor?.setEditable(!readonly);
+    const editorRoot = currentEditor?.view.dom;
+    if (!editorRoot) {
+        return;
+    }
+    editorRoot.setAttribute("role", "textbox");
+    editorRoot.setAttribute("aria-multiline", "true");
+    editorRoot.setAttribute("aria-readonly", String(readonly));
+    editorRoot.setAttribute("data-readonly", String(readonly));
+    editorRoot.classList.toggle("reference-plain-text-editor__prosemirror--readonly", readonly);
+}
+
+watch(() => props.readonly, syncReadonlyState, {immediate: true});
+
+/** 同步 contenteditable 根节点的可访问性名称。 */
+function syncAccessibleName(): void {
+    const editorRoot = editor.value?.view.dom;
+    if (!editorRoot) return;
+    const label = props.ariaLabel || props.placeholder;
+    if (label) {
+        editorRoot.setAttribute("aria-label", label);
+        return;
+    }
+    editorRoot.removeAttribute("aria-label");
+}
+
+watch(() => [props.ariaLabel, props.placeholder], syncAccessibleName, {immediate: true});
 
 watch(() => [props.minHeight, props.maxHeight, props.expanded], () => {
     scheduleHeightMeasure();
@@ -314,6 +348,8 @@ watch(skillTriggerActive, (active) => {
 });
 
 onMounted(() => {
+    syncReadonlyState(props.readonly);
+    syncAccessibleName();
     if (bodyRef.value) {
         resizeObserver = new ResizeObserver(() => {
             scheduleHeightMeasure();
@@ -668,7 +704,7 @@ function insertTextIntoEditor(currentEditor: Editor | null | undefined, text: st
 }
 
 function supportedImageFiles(list: FileList | null | undefined): File[] {
-    return Array.from(list ?? []).filter((file) => COMPOSER_IMAGE_MIME_TYPES.has(file.type.toLowerCase()));
+    return Array.from(list ?? []).filter((file) => canonicalImageMime(file.type) !== null);
 }
 
 function findPendingImage(uploadId: string): {
@@ -719,7 +755,8 @@ defineExpose({
     <div
         ref="wrapperRef"
         class="reference-plain-text-editor relative overflow-visible"
-        :class="[rootClass, props.borderless ? 'border-none bg-[var(--bg-panel)] shadow-none' : 'rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)]']"
+        :class="[rootClass, {'reference-plain-text-editor--readonly': props.readonly}, props.borderless ? 'border-none bg-[var(--bg-panel)] shadow-none' : 'rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)]']"
+        :data-readonly="String(props.readonly)"
     >
         <div ref="bodyRef" class="reference-plain-text-editor__body" :style="bodyStyle" @scroll="handleBodyScroll">
             <EditorContent v-if="editor" :editor="editor" class="reference-plain-text-editor__content" />
@@ -780,6 +817,10 @@ defineExpose({
     line-height: var(--plain-reference-line-height);
     white-space: pre-wrap;
     word-break: break-word;
+}
+
+:deep(.reference-plain-text-editor__prosemirror--readonly) {
+    cursor: not-allowed;
 }
 
 :deep(.reference-plain-text-editor__prosemirror p) {

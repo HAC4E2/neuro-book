@@ -33,7 +33,7 @@ const novelIdeStore = useNovelIdeStore();
 const notification = useNotification();
 const configApi = useConfigApi();
 
-const {currentNovelId} = storeToRefs(novelIdeStore);
+const {currentProjectRoot} = storeToRefs(novelIdeStore);
 
 const {
     activeStyle,
@@ -93,7 +93,8 @@ const negQualityOptions: SelectOption[] = TEXT_TO_IMAGE_NEGATIVE_QUALITY_PRESETS
 const styleOptions = computed<SelectOption[]>(() => stylePresets.value.map((s) => ({value: s.id, label: s.name || s.id})));
 
 // ══ 初始化 ══
-watch(currentNovelId, (projectPath) => {
+watch(currentProjectRoot, (projectRoot) => {
+    const projectPath = projectRoot ? `workspace/${projectRoot}` : "";
     if (projectPath) {
         store.setCurrentProjectPath(projectPath);
         void store.loadRecipe(projectPath).catch(() => undefined);

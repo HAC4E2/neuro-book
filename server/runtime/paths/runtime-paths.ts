@@ -5,11 +5,19 @@ import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/fi
 export type RuntimePaths = Readonly<{
     applicationRoot: AbsoluteFsPath;
     stateRoot: AbsoluteFsPath;
+    cacheRoot: AbsoluteFsPath;
     workspaceRoot: AbsoluteFsPath;
     userNbookRoot: AbsoluteFsPath;
     bootConfigPath: AbsoluteFsPath;
     stateEnvPath: AbsoluteFsPath;
     logRoot: AbsoluteFsPath;
+    imageVariantRoot: AbsoluteFsPath;
+    llmlintStateRoot: AbsoluteFsPath;
+    llmlintCacheRoot: AbsoluteFsPath;
+    bunInstallCacheRoot: AbsoluteFsPath;
+    bashOutputRoot: AbsoluteFsPath;
+    secretsRoot: AbsoluteFsPath;
+    backupKeyringPath: AbsoluteFsPath;
 }>;
 
 /**
@@ -20,23 +28,34 @@ export type RuntimePaths = Readonly<{
 export function createRuntimePaths(input: {
     applicationRoot: AbsoluteFsPath;
     stateRoot: AbsoluteFsPath;
+    /** 未提供时使用State Root下的cache，供源码开发与隔离测试使用。 */
+    cacheRoot?: AbsoluteFsPath;
 }): RuntimePaths {
+    const cacheRoot = input.cacheRoot ?? absoluteFsPath(path.join(input.stateRoot, "cache"));
     return Object.freeze({
         applicationRoot: input.applicationRoot,
         stateRoot: input.stateRoot,
+        cacheRoot,
         workspaceRoot: absoluteFsPath(path.join(input.stateRoot, "workspace")),
         userNbookRoot: absoluteFsPath(path.join(input.stateRoot, "workspace", ".nbook")),
         bootConfigPath: absoluteFsPath(path.join(input.stateRoot, "config.yaml")),
         stateEnvPath: absoluteFsPath(path.join(input.stateRoot, ".env")),
         logRoot: absoluteFsPath(path.join(input.stateRoot, "logs")),
+        imageVariantRoot: absoluteFsPath(path.join(cacheRoot, "image-variants")),
+        llmlintStateRoot: absoluteFsPath(path.join(input.stateRoot, "tool-state", "llmlint")),
+        llmlintCacheRoot: absoluteFsPath(path.join(cacheRoot, "llmlint")),
+        bunInstallCacheRoot: absoluteFsPath(path.join(cacheRoot, "bun", "install")),
+        bashOutputRoot: absoluteFsPath(path.join(cacheRoot, "agent", "bash-output")),
+        secretsRoot: absoluteFsPath(path.join(input.stateRoot, "secrets")),
+        backupKeyringPath: absoluteFsPath(path.join(input.stateRoot, "secrets", "backup-keyring.json")),
     });
 }
 
 /**
  * 进程环境Adapter：按Manager传入的环境变量或开发startPath建立Runtime Paths。
  *
- * `NEURO_BOOK_STATE_ROOT`相对Application Root解析；未设置时State Root等于
- * Application Root。只有本Adapter保留开发cwd默认值。
+ * State/Cache环境变量均相对Application Root解析。未设置Cache Root时使用
+ * State Root下的cache；只有本Adapter保留开发cwd默认值。
  */
 export function runtimePathsFromEnv(
     startPath = process.cwd(),
@@ -55,5 +74,11 @@ export function runtimePathsFromEnv(
             ? stateInput
             : path.resolve(applicationRoot, stateInput)
         : applicationRoot);
-    return createRuntimePaths({applicationRoot, stateRoot});
+    const cacheInput = env.NEURO_BOOK_CACHE_ROOT?.trim();
+    const cacheRoot = absoluteFsPath(cacheInput
+        ? path.isAbsolute(cacheInput)
+            ? cacheInput
+            : path.resolve(applicationRoot, cacheInput)
+        : path.join(stateRoot, "cache"));
+    return createRuntimePaths({applicationRoot, stateRoot, cacheRoot});
 }

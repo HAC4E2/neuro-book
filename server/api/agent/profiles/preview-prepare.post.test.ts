@@ -41,7 +41,7 @@ describe("POST /api/agent/profiles/preview-prepare", () => {
             statusCode: 409,
             data: {
                 code: "PROJECT_NOT_OPEN",
-                projectPath: "workspace/profile-preview-not-open",
+                projectRoot: "profile-preview-not-open",
             },
         });
     });

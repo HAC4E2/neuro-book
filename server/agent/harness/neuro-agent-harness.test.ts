@@ -1,7 +1,7 @@
 import {randomUUID} from "node:crypto";
 import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
-import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
+import {afterEach, beforeAll, beforeEach, describe, expect, it, vi} from "vitest";
 import {
     fauxAssistantMessage,
     fauxText,
@@ -14,14 +14,9 @@ import {Type} from "typebox";
 import type {TSchema} from "typebox";
 import {Value} from "typebox/value";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
-import {
-    HarnessInvocationExecutionLeaseStore,
-    InvocationExecutionEvidenceLostError,
-    type InvocationExecutionLease,
-} from "nbook/server/agent/harness/invocation-execution-lease";
 import type {ResolvedPiModel} from "nbook/server/agent/harness/pi-model-metadata";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
-import {defineAgentProfile as defineRuntimeAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+import {defineAgentProfile as defineRuntimeAgentProfile, normalizeAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {agentRuntimeBuiltins, defineAgentRuntime} from "nbook/server/agent/profiles/define-agent-runtime";
 import {builtin, defineProfileTool, pluginTool, toolset} from "nbook/server/agent/profiles/profile-tools";
 import {defineLowCodeForm} from "nbook/server/low-code-form";
@@ -42,13 +37,22 @@ import {defineSessionVariable} from "nbook/server/agent/variables/registry";
 import {compileVariableDefinitions} from "nbook/server/agent/variables/definition-artifact";
 import type {VariablePatchAck, VariablePatchRequest} from "nbook/server/agent/variables/types";
 import {closeAllProjects, openProject, projectOccupancy, ProjectNotOpenError, resetProjectSessionsForTest} from "nbook/server/workspace-files/project-session";
+import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 import {projectModuleToken, replaceProjectModulesForTest, type ProjectModule, type ProjectModuleHandle} from "nbook/server/workspace-files/project-module";
 import {withWorkspaceRuntimeRootContextForTest} from "nbook/server/workspace-files/workspace-runtime-root";
 import {serializeAgentImageMarkdown} from "nbook/shared/agent/agent-image-markdown";
+import managedSummarizerProfileDefinition from "../../../assets/workspace/.nbook/agent/profiles/builtin/summarizer.profile";
+import {createRasterTestFixtures} from "nbook/server/agent/test-utils/raster-fixtures";
 
-const PNG_BYTES = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const managedSummarizerProfile = normalizeAgentProfile(managedSummarizerProfileDefinition);
+
+let pngBytes: Buffer;
+
+beforeAll(async () => {
+    ({png: pngBytes} = await createRasterTestFixtures());
+});
 
 type LegacyTestProfile<
     TInitialSchema extends TSchema = TSchema,
@@ -249,6 +253,11 @@ describe("NeuroAgentHarness", () => {
     afterEach(async () => {
         await harness.drainBackgroundTasks();
         await harness.dispose();
+        try {
+            await closeAllProjects();
+        } finally {
+            resetProjectSessionsForTest();
+        }
         await rm(root, {recursive: true, force: true});
     });
 
@@ -273,7 +282,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const subscription = harness.subscribeSessionEvents(created.sessionId, {
             eventEpoch: harness.eventHub.eventEpoch,
@@ -333,7 +341,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.reporter",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -371,7 +378,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.large-final-message",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -410,7 +416,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.large-invocation-error",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -452,7 +457,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.provider-rejection",
             initial: {},
-            workspaceRoot: root,
         });
 
         const failed = await harness.invokeAgent({
@@ -498,7 +502,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.large-payload-error",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -535,7 +538,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.invoke-title",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -595,7 +597,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.reporter-retry",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -654,7 +655,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.reporter-error-limit",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -709,7 +709,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.large-report-result-error",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -749,7 +748,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.snapshot-system",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.getSessionQuery(created.sessionId, {view: "systemPrompt"});
@@ -812,7 +810,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.snapshot-settings",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.getSessionQuery(created.sessionId, {view: "systemPrompt"});
@@ -824,11 +821,11 @@ describe("NeuroAgentHarness", () => {
     it("managed Project 未 open 时 snapshot 不初始化 Project Profile Home", async () => {
         const profileKey = "test.snapshot-home";
         const slug = `snapshot-home-${randomUUID()}`;
-        const projectPath = `workspace/${slug}`;
-        const projectRoot = join(harness.workspaceRoot, slug);
-        const projectHomeMetadataPath = join(projectRoot, "agents", profileKey, "home.json");
-        await mkdir(projectRoot, {recursive: true});
-        await writeFile(join(projectRoot, "project.yaml"), "kind: novel\ntitle: Snapshot Home\nsummary: ''\n", "utf8");
+        const projectRoot = slug;
+        const projectDirectory = join(harness.workspaceRoot, projectRoot);
+        const projectHomeMetadataPath = join(projectDirectory, "agents", profileKey, "home.json");
+        await mkdir(projectDirectory, {recursive: true});
+        await writeFile(join(projectDirectory, "project.yaml"), "kind: novel\ntitle: Snapshot Home\nsummary: ''\n", "utf8");
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: profileKey,
@@ -848,25 +845,190 @@ describe("NeuroAgentHarness", () => {
             },
         }), false);
         try {
-            const created = await harness.createAgent({
+            const created = await harness.repo.createSession({
                 profileKey,
                 initial: {},
-                workspaceRoot: "workspace",
-                projectPath,
+                currentProjectRoot: slug,
             });
+            const sessionId = created.metadata.sessionId;
 
-            await expect(harness.getSessionRecovery(created.sessionId)).resolves.toMatchObject({kind: "recovery"});
-            await expect(harness.getSessionQuery(created.sessionId, {view: "systemPrompt"})).rejects.toBeInstanceOf(ProjectNotOpenError);
+            await expect(harness.getSessionRecovery(sessionId)).resolves.toMatchObject({kind: "recovery"});
+            await expect(harness.getSessionQuery(sessionId, {view: "systemPrompt"})).rejects.toBeInstanceOf(ProjectNotOpenError);
             await expect(readFile(projectHomeMetadataPath, "utf8")).rejects.toMatchObject({code: "ENOENT"});
 
-            await openProject(harness.workspaceRoot, projectPath, {kind: "job", source: "test"});
-            const result = await harness.getSessionQuery(created.sessionId, {view: "systemPrompt"});
+            await openProject(projectWorkspaceRef(projectRoot), {kind: "job", source: "test"}, harness.workspaceRoot);
+            const result = await harness.getSessionQuery(sessionId, {view: "systemPrompt"});
 
             expect(result.kind === "systemPrompt" ? result.systemPrompt : "").toContain("# Snapshot Home");
             await expect(readFile(projectHomeMetadataPath, "utf8")).resolves.toContain(profileKey);
         } finally {
-            await closeProjectForTest(projectPath).catch(() => undefined);
+            await closeProjectForTest(projectRoot).catch(() => undefined);
             await rm(projectRoot, {recursive: true, force: true, maxRetries: 10, retryDelay: 100});
+        }
+    });
+
+    it("dangling Session 可读取，invocation 返回稳定错误，清除 Current Project 后恢复执行", async () => {
+        const projectRoot = `missing-${randomUUID()}`;
+        const created = await harness.repo.createSession({
+            profileKey: "leader.default",
+            initial: {},
+            currentProjectRoot: projectRoot,
+        });
+
+        await expect(harness.listSessions({scope: "all"})).resolves.toContainEqual(expect.objectContaining({
+            sessionId: created.metadata.sessionId,
+            currentProjectRoot: projectRoot,
+        }));
+        await expect(harness.getSessionRecovery(created.metadata.sessionId)).resolves.toMatchObject({
+            summary: {
+                sessionId: created.metadata.sessionId,
+                currentProjectRoot: projectRoot,
+            },
+        });
+        await expect(harness.invokeAgent({
+            sessionId: created.metadata.sessionId,
+            mode: "prompt",
+            message: {text: "continue"},
+        })).rejects.toMatchObject({
+            name: "SessionCurrentProjectError",
+            code: "current_project_missing",
+            projectRoot,
+        });
+
+        const rebound = await harness.updateCurrentProject(created.metadata.sessionId, null);
+        expect(rebound.currentProjectRoot).toBeUndefined();
+        expect((await harness.repo.readSession(created.metadata.sessionId)).metadata).not.toHaveProperty("migrationReview");
+        faux.setResponses([fauxAssistantMessage(fauxText("continued"))]);
+        await expect(harness.invokeAgent({
+            sessionId: created.metadata.sessionId,
+            mode: "prompt",
+            message: {text: "continue after clearing"},
+        })).resolves.toMatchObject({status: "completed"});
+    });
+
+    it("migration review Session 可读取，未打开但存在的 Project 可重绑并恢复执行", async () => {
+        const staleProjectRoot = `ambiguous-${randomUUID()}`;
+        const targetProjectRoot = `rebound-${randomUUID()}`;
+        const created = await harness.repo.createSession({
+            profileKey: "leader.default",
+            initial: {},
+            currentProjectRoot: staleProjectRoot,
+        });
+        const sessionPath = join(root, ".nbook", "agent", "sessions", `${String(created.metadata.sessionId)}.jsonl`);
+        const source = await readFile(sessionPath, "utf8");
+        const migrationReview = `"migrationReview":{"status":"required","reason":"current_project_unresolved"}`;
+        await writeFile(sessionPath, source.replace(`"currentProjectRoot":"${staleProjectRoot}"`, migrationReview), "utf8");
+
+        await expect(harness.listSessions({scope: "all"})).resolves.toContainEqual(expect.objectContaining({
+            sessionId: created.metadata.sessionId,
+            migrationReview: {status: "required", reason: "current_project_unresolved"},
+        }));
+        await expect(harness.getSessionRecovery(created.metadata.sessionId)).resolves.toMatchObject({
+            summary: {
+                sessionId: created.metadata.sessionId,
+                migrationReview: {status: "required", reason: "current_project_unresolved"},
+            },
+        });
+        await expect(harness.invokeAgent({
+            sessionId: created.metadata.sessionId,
+            mode: "prompt",
+            message: {text: "continue"},
+        })).rejects.toMatchObject({
+            name: "SessionCurrentProjectError",
+            code: "migration_review_required",
+            projectRoot: undefined,
+        });
+        await expect(harness.listSessions({scope: "all", recovery: "required"})).resolves.toContainEqual(
+            expect.objectContaining({sessionId: created.metadata.sessionId}),
+        );
+
+        const targetDirectory = join(root, targetProjectRoot);
+        await mkdir(targetDirectory, {recursive: true});
+        await writeFile(join(targetDirectory, "project.yaml"), "kind: novel\ntitle: Rebound\nsummary: ''\n", "utf8");
+        expect(projectOccupancy(projectWorkspaceRef(targetProjectRoot))).toBeNull();
+
+        await expect(harness.updateCurrentProject(created.metadata.sessionId, targetProjectRoot)).resolves.toMatchObject({
+            currentProjectRoot: targetProjectRoot,
+        });
+        const rebound = await harness.repo.readSession(created.metadata.sessionId);
+        expect(rebound.metadata.currentProjectRoot).toBe(targetProjectRoot);
+        expect(rebound.metadata).not.toHaveProperty("migrationReview");
+        expect(projectOccupancy(projectWorkspaceRef(targetProjectRoot))).toBeNull();
+
+        faux.setResponses([fauxAssistantMessage(fauxText("continued"))]);
+        await expect(harness.invokeAgent({
+            sessionId: created.metadata.sessionId,
+            mode: "prompt",
+            message: {text: "continue after rebinding"},
+        })).resolves.toMatchObject({status: "completed"});
+    });
+
+    it("Current Project 重绑拒绝不存在的 Project 且不修改 Session metadata", async () => {
+        const missingProjectRoot = `missing-rebind-${randomUUID()}`;
+        const created = await harness.repo.createSession({
+            profileKey: "leader.default",
+            initial: {},
+        });
+
+        await expect(harness.updateCurrentProject(created.metadata.sessionId, missingProjectRoot)).rejects.toMatchObject({
+            name: "ProjectLifecycleError",
+            code: "PROJECT_NOT_FOUND",
+        });
+        await expect(harness.repo.readSession(created.metadata.sessionId)).resolves.toMatchObject({
+            metadata: expect.not.objectContaining({currentProjectRoot: missingProjectRoot}),
+        });
+    });
+
+    it("Current Project 重绑检查与写入原子阻止并发 invocation admission", async () => {
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+        });
+        const rebindReadStarted = createDeferred();
+        const releaseRebindRead = createDeferred();
+        const providerStarted = createDeferred();
+        const releaseProvider = createDeferred();
+        let providerHasStarted = false;
+        const originalReadSession = harness.repo.readSession.bind(harness.repo);
+        let blockNextRead = true;
+        vi.spyOn(harness.repo, "readSession").mockImplementation(async (sessionId) => {
+            if (sessionId === created.sessionId && blockNextRead) {
+                blockNextRead = false;
+                rebindReadStarted.resolve();
+                await releaseRebindRead.promise;
+            }
+            return originalReadSession(sessionId);
+        });
+        faux.setResponses([
+            async () => {
+                providerHasStarted = true;
+                providerStarted.resolve();
+                await releaseProvider.promise;
+                return fauxAssistantMessage(fauxText("done"));
+            },
+        ]);
+
+        const rebinding = harness.updateCurrentProject(created.sessionId, null);
+        await rebindReadStarted.promise;
+        const invoking = harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run after rebind"},
+        });
+        try {
+            await Promise.resolve();
+            await Promise.resolve();
+            expect(providerHasStarted).toBe(false);
+
+            releaseRebindRead.resolve();
+            await rebinding;
+            await providerStarted.promise;
+            releaseProvider.resolve();
+            await expect(invoking).resolves.toMatchObject({status: "completed"});
+        } finally {
+            releaseRebindRead.resolve();
+            releaseProvider.resolve();
+            await Promise.allSettled([rebinding, invoking]);
         }
     });
 
@@ -874,7 +1036,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         await harness.repo.appendMessage(created.sessionId, createAssistantTextMessage({
             text: "first",
@@ -905,7 +1066,7 @@ describe("NeuroAgentHarness", () => {
         expect(liveState.contextUsage).toEqual(recovery.contextUsage);
     });
 
-    it("新建Project session持久化逻辑Workspace Root并保留Project Path", async () => {
+    it("新建 Project Session 只持久化 Current Project root", async () => {
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.workspace-container",
@@ -918,45 +1079,42 @@ describe("NeuroAgentHarness", () => {
             },
         }), false);
 
-        await mkdir(join(root, "novel-7"), {recursive: true});
-        const created = await harness.createAgent({
+        const created = await harness.repo.createSession({
             profileKey: "test.workspace-container",
             initial: {},
-            workspaceRoot: "workspace/novel-7",
-            workspaceKey: "workspace/novel-7",
-            projectPath: "workspace/novel-7",
+            currentProjectRoot: "novel-7",
         });
-        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+        const context = harness.repo.reduce(await harness.repo.readSession(created.metadata.sessionId));
 
-        expect(context.workspaceRoot).toBe("workspace");
-        expect(context.projectPath).toBe("workspace/novel-7");
+        expect(context.currentProjectRoot).toBe("novel-7");
     });
 
-    it("/new 创建的新 session 保留 Workspace Root 和 projectPath", async () => {
-        await mkdir(join(root, "novel-7"), {recursive: true});
-        const created = await harness.createAgent({
-            profileKey: "leader.default",
-            initial: {},
-            workspaceRoot: "workspace/novel-7",
-            workspaceKey: "workspace/novel-7",
-            projectPath: "workspace/novel-7",
-        });
+    it("/new 创建的新 Session 继承 Current Project root", async () => {
+        const projectRoot = join(root, "novel-7");
+        await mkdir(projectRoot, {recursive: true});
+        await writeFile(join(projectRoot, "project.yaml"), "kind: novel\ntitle: Novel 7\nsummary: ''\n", "utf8");
+        await openProject(projectWorkspaceRef("novel-7"), {kind: "job", source: "test"}, harness.workspaceRoot);
+        try {
+            const created = await harness.createAgent({
+                profileKey: "leader.default",
+                initial: {},
+                currentProjectRoot: "novel-7",
+            });
 
-        const result = await harness.runCommand(created.sessionId, {
-            command: "new",
-        });
-        const context = harness.repo.reduce(await harness.repo.readSession(result.sessionId));
+            const result = await harness.runCommand(created.sessionId, {command: "new"});
+            const context = harness.repo.reduce(await harness.repo.readSession(result.sessionId));
 
-        expect(result.kind).toBe("created_session");
-        expect(context.workspaceRoot).toBe("workspace");
-        expect(context.projectPath).toBe("workspace/novel-7");
+            expect(result.kind).toBe("created_session");
+            expect(context.currentProjectRoot).toBe("novel-7");
+        } finally {
+            await closeProjectForTest("novel-7").catch(() => undefined);
+        }
     });
 
     it("轻控制 command 返回 live state，mode no-op 不追加 entry", async () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const initialEntryCount = (await harness.repo.readSession(created.sessionId)).entries.length;
 
@@ -993,7 +1151,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const marks = new Map<string, number>();
 
@@ -1026,7 +1183,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         await harness.runCommand(created.sessionId, {
             command: "mode",
@@ -1052,7 +1208,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         await harness.invokeAgent({
             sessionId: created.sessionId,
@@ -1128,7 +1283,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.approval-reporter",
             initial: {},
-            workspaceRoot: root,
         });
 
         const waiting = await harness.invokeAgent({
@@ -1183,7 +1337,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.pending-input-live-budget",
             initial: {},
-            workspaceRoot: root,
         });
         const invocationId = "waiting-budget";
         await harness.repo.appendEntry(created.sessionId, {
@@ -1268,7 +1421,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.pending-form-live-budget",
             initial: {},
-            workspaceRoot: root,
         });
         await harness.repo.appendEntry(created.sessionId, {
             type: "invocation_lifecycle",
@@ -1317,7 +1469,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const title = "标题".repeat(20_000);
         const summary = "摘要".repeat(20_000);
@@ -1343,7 +1494,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const lastError = "摘要失败".repeat(30_000);
         await harness.repo.appendEntry(created.sessionId, {
@@ -1395,7 +1545,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.user-input-permission",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -1442,7 +1591,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.plan-permission",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -1490,7 +1638,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.approval-reload",
             initial: {},
-            workspaceRoot: root,
         });
 
         const waiting = await harness.invokeAgent({
@@ -1508,10 +1655,13 @@ describe("NeuroAgentHarness", () => {
         restored.profiles.register(profile, false);
 
         const reloadedSnapshot = await restored.getSessionRecovery(created.sessionId);
-        const reloadedSessions = await restored.listSessions({workspaceKey: "global"});
-        const waitingSessions = await restored.listSessions({workspaceKey: "global", status: "waiting"});
-        const waitingPage = await restored.listSessionPage({workspaceKey: "global", status: "waiting", limit: 10});
-        const idleSessions = await restored.listSessions({workspaceKey: "global", status: "idle"});
+        const reloadedSessions = await restored.listSessions({});
+        const waitingSessions = await restored.listSessions({status: "waiting"});
+        const waitingPage = await restored.listSessionPage({status: "waiting", limit: 10});
+        const idleSessions = await restored.listSessions({status: "idle"});
+        await expect(restored.updateCurrentProject(created.sessionId, null)).rejects.toMatchObject({
+            code: "current_project_rebind_forbidden",
+        });
         const continued = await restored.invokeAgent({
             sessionId: created.sessionId,
             mode: "continue",
@@ -1570,28 +1720,22 @@ describe("NeuroAgentHarness", () => {
         await harness.createAgent({
             profileKey: "leader.paged",
             initial: {},
-            workspaceRoot: root,
-            workspaceKey: "global",
             title: "Alpha",
         });
         const second = await harness.createAgent({
             profileKey: "leader.paged",
             initial: {},
-            workspaceRoot: root,
-            workspaceKey: "global",
             title: "Beta Needle",
         });
         await harness.createAgent({
             profileKey: "leader.paged",
             initial: {},
-            workspaceRoot: root,
-            workspaceKey: "global",
             title: "Gamma",
         });
 
-        const firstPage = await harness.listSessionPage({workspaceKey: "global", profileGroup: "leader", status: "active", limit: 2});
-        const secondPage = await harness.listSessionPage({workspaceKey: "global", profileGroup: "leader", status: "active", limit: 2, offset: firstPage.nextOffset});
-        const searchPage = await harness.listSessionPage({workspaceKey: "global", profileGroup: "leader", status: "active", search: "needle", limit: 10});
+        const firstPage = await harness.listSessionPage({profileGroup: "leader", status: "active", limit: 2});
+        const secondPage = await harness.listSessionPage({profileGroup: "leader", status: "active", limit: 2, offset: firstPage.nextOffset});
+        const searchPage = await harness.listSessionPage({profileGroup: "leader", status: "active", search: "needle", limit: 10});
 
         expect(firstPage).toEqual(expect.objectContaining({
             total: 3,
@@ -1617,6 +1761,52 @@ describe("NeuroAgentHarness", () => {
         }));
     });
 
+    it("listSessionPage 对 recovery=required 先筛选再分页", async () => {
+        const reviewIds: number[] = [];
+        for (const projectRoot of ["ambiguous-one", "ambiguous-two", "ambiguous-three"]) {
+            const session = await harness.repo.createSession({
+                profileKey: "leader.default",
+                initial: {},
+                currentProjectRoot: projectRoot,
+                title: projectRoot,
+            });
+            reviewIds.push(session.metadata.sessionId);
+            const sessionPath = join(root, ".nbook", "agent", "sessions", `${String(session.metadata.sessionId)}.jsonl`);
+            const source = await readFile(sessionPath, "utf8");
+            await writeFile(
+                sessionPath,
+                source.replace(
+                    `"currentProjectRoot":"${projectRoot}"`,
+                    '"migrationReview":{"status":"required","reason":"current_project_unresolved"}',
+                ),
+                "utf8",
+            );
+        }
+        await harness.repo.createSession({
+            profileKey: "leader.default",
+            initial: {},
+            title: "does not need recovery",
+        });
+
+        const firstPage = await harness.listSessionPage({scope: "all", recovery: "required", limit: 2});
+        const secondPage = await harness.listSessionPage({
+            scope: "all",
+            recovery: "required",
+            limit: 2,
+            offset: firstPage.nextOffset,
+        });
+
+        expect(firstPage).toMatchObject({total: 3, offset: 0, limit: 2, hasMore: true, nextOffset: 2});
+        expect(secondPage).toMatchObject({total: 3, offset: 2, limit: 2, hasMore: false});
+        expect([...firstPage.items, ...secondPage.items].map((item) => item.sessionId).sort((left, right) => left - right))
+            .toEqual(reviewIds.sort((left, right) => left - right));
+        expect([...firstPage.items, ...secondPage.items]).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                migrationReview: {status: "required", reason: "current_project_unresolved"},
+            }),
+        ]));
+    });
+
     it("listSessionPage 标记缺失 profile 的历史 session", async () => {
         harness.profiles.register(defineAgentProfile({
             manifest: {
@@ -1632,8 +1822,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.page-missing",
             initial: {},
-            workspaceRoot: root,
-            workspaceKey: "global",
         });
         const restored = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
@@ -1643,7 +1831,7 @@ describe("NeuroAgentHarness", () => {
             enableSessionSummarizer: false,
         });
 
-        const page = await restored.listSessionPage({workspaceKey: "global", limit: 10});
+        const page = await restored.listSessionPage({limit: 10});
 
         expect(page.items).toContainEqual(expect.objectContaining({
             sessionId: created.sessionId,
@@ -1681,7 +1869,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.approval-concurrent-reload",
             initial: {},
-            workspaceRoot: root,
         });
         const waiting = await harness.invokeAgent({
             sessionId: created.sessionId,
@@ -1759,7 +1946,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.approval-unrecoverable",
             initial: {},
-            workspaceRoot: root,
         });
         const waiting = await harness.invokeAgent({
             sessionId: created.sessionId,
@@ -1820,7 +2006,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.approval-reload-abort",
             initial: {},
-            workspaceRoot: root,
         });
         const waiting = await harness.invokeAgent({
             sessionId: created.sessionId,
@@ -1879,7 +2064,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.approval-abort-resolution-race",
             initial: {},
-            workspaceRoot: root,
         });
         const waiting = await harness.invokeAgent({
             sessionId: created.sessionId,
@@ -1933,7 +2117,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         await harness.repo.appendEntry(created.sessionId, {
             type: "invocation_lifecycle",
@@ -1983,7 +2166,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.approval-batch-barrier",
             initial: {},
-            workspaceRoot: root,
         });
         const subscription = harness.subscribeSessionEvents(created.sessionId);
         const streamedToolResults: string[] = [];
@@ -2065,7 +2247,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.interrupted-tool",
             initial: {},
-            workspaceRoot: root,
         });
         await harness.repo.appendMessage(created.sessionId, createUserMessage({text: "old prompt"}));
         await harness.repo.appendMessage(created.sessionId, fauxAssistantMessage([
@@ -2108,7 +2289,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.turn-commit",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -2194,7 +2374,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.tool-save-point",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -2261,7 +2440,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.task-savepoint-parent",
             initial: {},
-            workspaceRoot: root,
         });
 
         await harness.invokeAgent({
@@ -2332,7 +2510,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.parallel-tools",
             initial: {},
-            workspaceRoot: root,
         });
 
         const running = harness.invokeAgent({
@@ -2432,7 +2609,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.sequential-segment",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -2495,7 +2671,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.global-sequential-tools",
             initial: {},
-            workspaceRoot: root,
         });
 
         const running = harness.invokeAgent({
@@ -2573,7 +2748,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.compact-before-next-turn",
             initial: {},
-            workspaceRoot: root,
         });
         await harness.repo.appendMessage(created.sessionId, createUserMessage({text: "OLD CONTEXT"}));
 
@@ -2660,7 +2834,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.no-compact-runtime",
             initial: {},
-            workspaceRoot: root,
         });
         await harness.repo.appendMessage(created.sessionId, createUserMessage({text: "OLD CONTEXT"}));
 
@@ -2707,7 +2880,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.no-compaction-overflow",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -2766,7 +2938,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.reasoning",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -2833,7 +3004,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.settings",
             initial: {},
-            workspaceRoot: root,
         });
 
         await harness.invokeAgent({
@@ -2919,7 +3089,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.session-thinking",
             initial: {},
-            workspaceRoot: root,
         });
 
         await harness.invokeAgent({
@@ -3004,7 +3173,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.snapshot-thinking",
             initial: {},
-            workspaceRoot: root,
         });
         await harness.runCommand(created.sessionId, {
             command: "thinking",
@@ -3040,7 +3208,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.no-model",
             initial: {},
-            workspaceRoot: root,
         });
 
         expect(await harness.getSessionRecovery(created.sessionId)).toMatchObject({
@@ -3070,7 +3237,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
 
         const recovery = await harness.getSessionRecovery(created.sessionId);
@@ -3117,7 +3283,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         await harness.runCommand(created.sessionId, {
             command: "model",
@@ -3181,7 +3346,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
 
         const overridden = await harness.invokeAgent({
@@ -3269,7 +3433,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         await harness.runCommand(created.sessionId, {
             command: "model",
@@ -3281,10 +3444,7 @@ describe("NeuroAgentHarness", () => {
         });
         providerDeleted = true;
 
-        expect((await harness.getSessionRecovery(created.sessionId)).model).toEqual({
-            providerConfigId: "deleted-provider",
-            modelId: "deleted-model",
-        });
+        expect((await harness.getSessionRecovery(created.sessionId)).model).toBeNull();
 
         faux.setResponses([fauxAssistantMessage("done")]);
         const result = await harness.invokeAgent({
@@ -3348,7 +3508,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const initialChanges = (await harness.repo.readSession(created.sessionId)).entries
             .filter((entry) => entry.type === "model_change").length;
@@ -3397,7 +3556,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
 
         expect((await harness.getSessionRecovery(created.sessionId)).model).toBeNull();
@@ -3434,7 +3592,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         await harness.runCommand(created.sessionId, {
             command: "model",
@@ -3575,7 +3732,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.runtime-hooks",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -3646,7 +3802,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.runtime-tool-root-boundary",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -3689,7 +3844,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.custom-runtime-no-default-transcript",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -3806,7 +3960,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.prepare-next-turn",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -3909,7 +4062,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.runtime-state-merge",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -3983,7 +4135,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.settle-run",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -4053,7 +4204,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.profile-private-tool",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -4112,7 +4262,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.profile-private-tool-bind",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -4187,8 +4336,8 @@ describe("NeuroAgentHarness", () => {
                 fauxToolCall("shadow_tool", {}, {id: "global-shadow-call"}),
             ], {stopReason: "toolUse"}),
         ]);
-        const privateSession = await harness.createAgent({profileKey: "test.private-shadow", initial: {}, workspaceRoot: root});
-        const globalSession = await harness.createAgent({profileKey: "test.global-shadow", initial: {}, workspaceRoot: root});
+        const privateSession = await harness.createAgent({profileKey: "test.private-shadow", initial: {}});
+        const globalSession = await harness.createAgent({profileKey: "test.global-shadow", initial: {}});
 
         await harness.invokeAgent({sessionId: privateSession.sessionId, mode: "prompt", message: {text: "private"}});
         await harness.invokeAgent({sessionId: globalSession.sessionId, mode: "prompt", message: {text: "global"}});
@@ -4224,7 +4373,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.missing-registered-tool",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -4287,7 +4435,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.private-approval",
             initial: {},
-            workspaceRoot: root,
         });
 
         const waiting = await harness.invokeAgent({
@@ -4357,7 +4504,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.main-run-tool-policy",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -4450,7 +4596,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.main-run-tool-policy-with-patch",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -4525,7 +4670,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.result-reminder-execution-policy",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -4579,7 +4723,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.prepare-run-runtime-message",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -4611,7 +4754,6 @@ describe("NeuroAgentHarness", () => {
         const source = await harness.createAgent({
             profileKey: "test.source",
             initial: {},
-            workspaceRoot: root,
         });
         faux.setResponses([
             fauxAssistantMessage("source answer"),
@@ -4639,7 +4781,7 @@ describe("NeuroAgentHarness", () => {
                         async run(ctx) {
                             const sourceSession = await ctx.session.read(ctx.initial.sourceSessionId);
                             const content = await ctx.session.agentDialogueContent({
-                                snapshot: sourceSession.snapshot,
+                                sessionId: sourceSession.snapshot.metadata.sessionId,
                                 initial: ctx.initial,
                             });
                             return {
@@ -4683,7 +4825,6 @@ describe("NeuroAgentHarness", () => {
             initial: {
                 sourceSessionId: source.sessionId,
             },
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -4788,7 +4929,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.runtime-only-transcript",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -4847,7 +4987,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.runtime-only-waiting",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -4940,7 +5079,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.runtime-only-report-reminder",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -4967,6 +5105,10 @@ describe("NeuroAgentHarness", () => {
             runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: true,
         });
+        // 使用真实受管 Profile 覆盖 Harness 的最小内存版本，锁定生产发布路径不再跨 session 写回。
+        harness.profiles.register(managedSummarizerProfile, false);
+        const managedRuntimeHooks = managedSummarizerProfile.runtime?.hooks.flatMap((item) => "kind" in item ? item.hooks : [item]) ?? [];
+        expect(managedRuntimeHooks.some((hook) => hook.stage === "settleRun")).toBe(false);
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.summarized-source",
@@ -5005,7 +5147,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.summarized-source",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -5039,8 +5180,8 @@ describe("NeuroAgentHarness", () => {
             systemRole: "summarizer",
         });
         expect(summarizerContext.messages).toHaveLength(0);
-        expect((await harness.listSessions({workspaceKey: "global"})).map((session) => session.sessionId)).toEqual([created.sessionId]);
-        expect((await harness.listSessions({workspaceKey: "global", includeSystem: true})).map((session) => session.sessionId).sort((left, right) => left - right)).toEqual([
+        expect((await harness.listSessions({})).map((session) => session.sessionId)).toEqual([created.sessionId]);
+        expect((await harness.listSessions({includeSystem: true})).map((session) => session.sessionId).sort((left, right) => left - right)).toEqual([
             created.sessionId,
             state.sessionId,
         ]);
@@ -5060,6 +5201,7 @@ describe("NeuroAgentHarness", () => {
             runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: true,
         });
+        harness.profiles.register(managedSummarizerProfile, false);
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.summarizer-stale",
@@ -5085,7 +5227,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.summarizer-stale",
             initial: {},
-            workspaceRoot: root,
         });
         faux.setResponses([
             fauxAssistantMessage("source answer"),
@@ -5183,7 +5324,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.summarizer-too-large",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -5204,7 +5344,7 @@ describe("NeuroAgentHarness", () => {
             lastDialogueContentTokens: expect.any(Number),
             lastError: expect.stringContaining("超过 summarizer 上限"),
         });
-        expect((await harness.listSessions({workspaceKey: "global", includeSystem: true})).map((session) => session.sessionId)).toEqual([created.sessionId]);
+        expect((await harness.listSessions({includeSystem: true})).map((session) => session.sessionId)).toEqual([created.sessionId]);
     });
 
     it("summarizer sourceInvocation interval 会按 source prompt turn 间隔触发", async () => {
@@ -5262,7 +5402,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.summarizer-interval",
             initial: {},
-            workspaceRoot: root,
         });
 
         await harness.invokeAgent({sessionId: created.sessionId, mode: "prompt", message: {text: "one"}});
@@ -5338,7 +5477,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.summarizer-retry",
             initial: {},
-            workspaceRoot: root,
         });
 
         await harness.invokeAgent({
@@ -5375,6 +5513,7 @@ describe("NeuroAgentHarness", () => {
             runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: true,
         });
+        harness.profiles.register(managedSummarizerProfile, false);
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.summarizer-rename",
@@ -5431,7 +5570,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.summarizer-rename",
             initial: {},
-            workspaceRoot: root,
         });
 
         // 第一次对话完成后自动生成 title/summary
@@ -5485,7 +5623,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.summarize-unsupported",
             initial: {},
-            workspaceRoot: root,
         });
         await harness.runCommand(created.sessionId, {command: "rename", title: "手动标题"});
         faux.setResponses([fauxAssistantMessage([
@@ -5543,7 +5680,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.custom-runtime-no-report-reminder",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -5592,7 +5728,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.approval-appending",
             initial: {},
-            workspaceRoot: root,
         });
 
         await harness.invokeAgent({
@@ -5640,7 +5775,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.approval-state",
             initial: {},
-            workspaceRoot: root,
         });
         await harness.invokeAgent({
             sessionId: created.sessionId,
@@ -5681,8 +5815,8 @@ describe("NeuroAgentHarness", () => {
 
     it("Plan Mode 使用 Project Workspace .agent/plan 并支持 exit preview", async () => {
         const workspaceRoot = root.replaceAll("\\", "/");
-        const projectPath = "workspace/alpha";
-        const projectRoot = join(workspaceRoot, "alpha");
+        const projectRoot = "alpha";
+        const projectDirectory = join(workspaceRoot, projectRoot);
         await withWorkspaceRuntimeRootContextForTest({workspaceRoot}, async () => {
             try {
                 harness.profiles.register(defineAgentProfile({
@@ -5696,12 +5830,17 @@ describe("NeuroAgentHarness", () => {
                         return {};
                     },
                 }), false);
-                await mkdir(projectRoot, {recursive: true});
+                await mkdir(join(workspaceRoot, ".nbook"), {recursive: true});
+                await writeFile(join(workspaceRoot, ".nbook", "config.json"), JSON.stringify({models: fauxProviderConfig(faux).models}), "utf-8");
+                await mkdir(join(projectDirectory, ".agent", "plan"), {recursive: true});
+                await mkdir(join(projectDirectory, ".nbook"), {recursive: true});
+                await writeFile(join(projectDirectory, "project.yaml"), "kind: novel\ntitle: Alpha\nsummary: ''\n", "utf-8");
+                await writeFile(join(projectDirectory, ".nbook", "config.json"), "{}", "utf-8");
+                await openProject(projectWorkspaceRef(projectRoot), {kind: "job", source: "test"}, harness.workspaceRoot);
                 const created = await harness.createAgent({
                     profileKey: "test.plan-mode-preview",
                     initial: {},
-                    workspaceRoot: "workspace",
-                    projectPath,
+                    currentProjectRoot: "alpha",
                 });
                 await harness.runCommand(created.sessionId, {
                     command: "mode",
@@ -5713,13 +5852,7 @@ describe("NeuroAgentHarness", () => {
                 expect(modeState.mode).toBe("plan");
                 expect(modeState.workDirectory).toBe(".agent/plan");
 
-                await mkdir(join(workspaceRoot, ".nbook"), {recursive: true});
-                await writeFile(join(workspaceRoot, ".nbook", "config.json"), JSON.stringify({models: fauxProviderConfig(faux).models}), "utf-8");
-                await mkdir(join(projectRoot, ".agent", "plan"), {recursive: true});
-                await mkdir(join(projectRoot, ".nbook"), {recursive: true});
-                await writeFile(join(projectRoot, "project.yaml"), "kind: novel\ntitle: Alpha\nsummary: ''\n", "utf-8");
-                await writeFile(join(projectRoot, ".nbook", "config.json"), "{}", "utf-8");
-                await writeFile(join(projectRoot, ".agent", "plan", "preview.md"), "# Preview Plan\n\n- one\n", "utf-8");
+                await writeFile(join(projectDirectory, ".agent", "plan", "preview.md"), "# Preview Plan\n\n- one\n", "utf-8");
                 faux.setResponses([
                     fauxAssistantMessage([
                         fauxToolCall("switch_mode", {
@@ -5765,7 +5898,7 @@ describe("NeuroAgentHarness", () => {
                     },
                 });
                 const resolvedContext = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
-            const resolvedSnapshot = await harness.getSessionRecovery(created.sessionId);
+                const resolvedSnapshot = await harness.getSessionRecovery(created.sessionId);
                 const toolResult = resolvedContext.messages.find((message) => message.role === "toolResult" && message.toolCallId === "exit-preview");
                 if (!toolResult || toolResult.role !== "toolResult") {
                     throw new Error("expected switch_mode tool result");
@@ -5788,7 +5921,7 @@ describe("NeuroAgentHarness", () => {
                 expect(resolvedModeState.phase).toBe("exit");
                 expect(resolvedModeState.fromMode).toBe("plan");
             } finally {
-                await closeProjectForTest(projectPath).catch(() => undefined);
+                await closeProjectForTest(projectRoot).catch(() => undefined);
             }
         });
     }, 20_000);
@@ -5812,7 +5945,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.plan-mode-manual-exit",
             initial: {},
-            workspaceRoot: root,
         });
 
         await harness.runCommand(created.sessionId, {
@@ -5870,7 +6002,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.plan-mode-bad-preview",
             initial: {},
-            workspaceRoot: root,
         });
         // 先进入 plan，避免 targetMode normal 被 no-op 拦截
         await harness.runCommand(created.sessionId, {
@@ -5906,7 +6037,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.readonly-write-approve",
             initial: {},
-            workspaceRoot: root,
         });
         await harness.runCommand(created.sessionId, {
             command: "mode",
@@ -5973,7 +6103,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.readonly-write-decline",
             initial: {},
-            workspaceRoot: root,
         });
         await harness.runCommand(created.sessionId, {
             command: "mode",
@@ -6030,7 +6159,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.plan-write-exempt",
             initial: {},
-            workspaceRoot: root,
         });
         await harness.runCommand(created.sessionId, {
             command: "mode",
@@ -6095,7 +6223,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.plan-moveto",
             initial: {},
-            workspaceRoot: root,
         });
         await harness.runCommand(created.sessionId, {
             command: "mode",
@@ -6161,7 +6288,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.readonly-write-restart",
             initial: {},
-            workspaceRoot: root,
         });
         await harness.runCommand(created.sessionId, {
             command: "mode",
@@ -6194,8 +6320,8 @@ describe("NeuroAgentHarness", () => {
         restored.profiles.register(profile, false);
 
         // 列表路径识别为 waiting（修复前注入写审批在此路径被漏认，会显示 idle）
-        const waitingSessions = await restored.listSessions({workspaceKey: "global", status: "waiting"});
-        const idleSessions = await restored.listSessions({workspaceKey: "global", status: "idle"});
+        const waitingSessions = await restored.listSessions({status: "waiting"});
+        const idleSessions = await restored.listSessions({status: "idle"});
         expect(waitingSessions.map((session) => session.sessionId)).toContain(created.sessionId);
         expect(idleSessions.map((session) => session.sessionId)).not.toContain(created.sessionId);
 
@@ -6236,7 +6362,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.plan-discuss-swap",
             initial: {},
-            workspaceRoot: root,
         });
 
         await harness.runCommand(created.sessionId, {command: "mode", mode: "plan"});
@@ -6267,7 +6392,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.plan-indirect-exit",
             initial: {},
-            workspaceRoot: root,
         });
 
         await harness.runCommand(created.sessionId, {command: "mode", mode: "plan"});
@@ -6302,7 +6426,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.switch-mode-noop",
             initial: {},
-            workspaceRoot: root,
         });
         await harness.runCommand(created.sessionId, {
             command: "mode",
@@ -6357,7 +6480,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.must-report",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -6392,7 +6514,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.user-caller-no-report-reminder",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -6416,7 +6537,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -6462,7 +6582,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.appending",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -6499,7 +6618,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.prompt-turns",
             initial: {},
-            workspaceRoot: root,
         });
 
         const first = await harness.invokeAgent({
@@ -6541,7 +6659,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.pending-prompt",
             initial: {},
-            workspaceRoot: root,
         });
 
         await harness.invokeAgent({
@@ -6582,7 +6699,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.model-reminder-visible",
             initial: {},
-            workspaceRoot: root,
         });
         const subscription = harness.subscribeSessionEvents(created.sessionId);
         const collect = (async () => {
@@ -6644,7 +6760,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.no-session-context-runtime",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -6694,7 +6809,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.no-session-context-writes",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -6773,7 +6887,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.no-session-context-compact",
             initial: {},
-            workspaceRoot: root,
         });
         await harness.repo.appendMessage(created.sessionId, createUserMessage({text: "OLD CONTEXT"}));
 
@@ -6826,7 +6939,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.no-profile-prompt-runtime",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -6873,7 +6985,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.fake-builtin-behavior",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -6890,13 +7001,11 @@ describe("NeuroAgentHarness", () => {
         const parent = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const child = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
             title: "  Custom Child Title  ",
-            workspaceRoot: root,
             parentSessionId: parent.sessionId,
         });
 
@@ -6922,12 +7031,10 @@ describe("NeuroAgentHarness", () => {
         const parent = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const child = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
             parentSessionId: parent.sessionId,
         });
         await expect(harness.detachAgent(child.sessionId, parent.sessionId)).resolves.toEqual({
@@ -6948,7 +7055,6 @@ describe("NeuroAgentHarness", () => {
         const parent = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const originalReadSession = harness.repo.readSession.bind(harness.repo);
         const releaseParentRead = createDeferred();
@@ -6964,7 +7070,6 @@ describe("NeuroAgentHarness", () => {
         const createPromise = harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
             parentSessionId: parent.sessionId,
         });
         await waitFor(() => expect(parentReadBlocked).toBe(true));
@@ -6988,12 +7093,10 @@ describe("NeuroAgentHarness", () => {
         const parent = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const child = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
             parentSessionId: parent.sessionId,
         });
         await harness.repo.appendEntry(child.sessionId, {
@@ -7020,43 +7123,45 @@ describe("NeuroAgentHarness", () => {
         }
     });
 
-    it("子 session 未显式传 workspace 时继承父 session 归属并能看到绑定者", async () => {
-        await mkdir(join(root, "novel-one"), {recursive: true});
-        const parent = await harness.createAgent({
-            profileKey: "leader.default",
-            initial: {},
-            workspaceRoot: "workspace",
-            workspaceKey: "novel-one",
-            projectPath: "workspace/novel-one",
-        });
-        const child = await harness.createAgent({
-            profileKey: "leader.default",
-            initial: {},
-            parentSessionId: parent.sessionId,
-        });
+    it("子 Session 未显式传 Project 时继承父 Session 的 Current Project", async () => {
+        const projectRoot = join(root, "novel-one");
+        await mkdir(projectRoot, {recursive: true});
+        await writeFile(join(projectRoot, "project.yaml"), "kind: novel\ntitle: Novel One\nsummary: ''\n", "utf8");
+        await openProject(projectWorkspaceRef("novel-one"), {kind: "job", source: "test"}, harness.workspaceRoot);
+        try {
+            const parent = await harness.createAgent({
+                profileKey: "leader.default",
+                initial: {},
+                currentProjectRoot: "novel-one",
+            });
+            const child = await harness.createAgent({
+                profileKey: "leader.default",
+                initial: {},
+                parentSessionId: parent.sessionId,
+            });
 
-        const childSnapshot = await harness.getSessionRecovery(child.sessionId);
+            const childSnapshot = await harness.getSessionRecovery(child.sessionId);
 
-        expect(childSnapshot.summary.workspaceKey).toBe("novel-one");
-        expect(childSnapshot.summary.projectPath).toBe("workspace/novel-one");
-        expect(childSnapshot.linkedByAgents).toEqual([
-            expect.objectContaining({
-                sessionId: parent.sessionId,
-                workspaceKey: "novel-one",
-            }),
-        ]);
+            expect(childSnapshot.summary.currentProjectRoot).toBe("novel-one");
+            expect(childSnapshot.linkedByAgents).toEqual([
+                expect.objectContaining({
+                    sessionId: parent.sessionId,
+                    currentProjectRoot: "novel-one",
+                }),
+            ]);
+        } finally {
+            await closeProjectForTest("novel-one").catch(() => undefined);
+        }
     });
 
     it("getSessionRelations 返回与 snapshot 一致的轻量关联关系", async () => {
         const parent = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const child = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
             parentSessionId: parent.sessionId,
         });
 
@@ -7080,12 +7185,10 @@ describe("NeuroAgentHarness", () => {
         const parent = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const blocker = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const originalReadSession = harness.repo.readSession.bind(harness.repo);
         const parentSummary = harness.repo.summary(await originalReadSession(parent.sessionId));
@@ -7109,7 +7212,6 @@ describe("NeuroAgentHarness", () => {
         const child = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
             parentSessionId: parent.sessionId,
         });
         releaseRebuild.resolve();
@@ -7129,18 +7231,15 @@ describe("NeuroAgentHarness", () => {
         const parent = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const child = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
             parentSessionId: parent.sessionId,
         });
         const blocker = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const originalReadSession = harness.repo.readSession.bind(harness.repo);
         const parentSummary = harness.repo.summary(await originalReadSession(parent.sessionId));
@@ -7174,16 +7273,12 @@ describe("NeuroAgentHarness", () => {
         const parent = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
-            workspaceKey: "novel-one",
         });
         await expectRelationsMatchSessionLedger(harness, parent.sessionId);
 
         const child = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
-            workspaceKey: "global",
             parentSessionId: parent.sessionId,
         });
         await expectRelationsMatchSessionLedger(harness, parent.sessionId);
@@ -7211,12 +7306,10 @@ describe("NeuroAgentHarness", () => {
         const parent = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const child = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
             parentSessionId: parent.sessionId,
         });
         await expectRelationsMatchSessionLedger(harness, parent.sessionId);
@@ -7236,28 +7329,28 @@ describe("NeuroAgentHarness", () => {
         await expectRelationsMatchSessionLedger(harness, child.sessionId);
     });
 
-    it("反向绑定扫描能兼容旧数据中的 workspaceKey 不一致关系", async () => {
+    it("反向绑定扫描不受 Current Project 重绑差异影响", async () => {
         const parent = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
-            workspaceKey: "novel-one",
         });
         const child = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
-            workspaceKey: "global",
             parentSessionId: parent.sessionId,
+        });
+        await harness.repo.appendEntry(parent.sessionId, {
+            type: "current_project_change",
+            projectRoot: "novel-one",
         });
 
         const childSnapshot = await harness.getSessionRecovery(child.sessionId);
 
-        expect(childSnapshot.summary.workspaceKey).toBe("global");
+        expect(childSnapshot.summary.currentProjectRoot).toBeUndefined();
         expect(childSnapshot.linkedByAgents).toEqual([
             expect.objectContaining({
                 sessionId: parent.sessionId,
-                workspaceKey: "novel-one",
+                currentProjectRoot: "novel-one",
             }),
         ]);
     });
@@ -7266,12 +7359,10 @@ describe("NeuroAgentHarness", () => {
         const parent = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const child = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
             parentSessionId: parent.sessionId,
         });
         const subscription = harness.subscribeSessionEvents(child.sessionId, {
@@ -7295,11 +7386,12 @@ describe("NeuroAgentHarness", () => {
         }
     });
 
-    it("create_agent 子 session 首次运行使用父 session workspaceRoot 的 effective 默认模型", async () => {
-        const childWorkspaceRoot = join(root, "child-workspace").replaceAll("\\", "/");
+    it("create_agent 子 Session 首次运行使用父 Session Current Project 的默认模型", async () => {
+        const projectRoot = join(root, "child-workspace").replaceAll("\\", "/");
         const childProvider = fauxProviderConfig(faux, {providerConfigId: "project-provider", modelId: "project-model"});
-        await mkdir(join(childWorkspaceRoot, ".nbook"), {recursive: true});
-        await writeFile(join(childWorkspaceRoot, ".nbook", "config.json"), JSON.stringify({
+        await mkdir(join(projectRoot, ".nbook"), {recursive: true});
+        await writeFile(join(projectRoot, "project.yaml"), "kind: novel\ntitle: Child Workspace\nsummary: ''\n", "utf8");
+        await writeFile(join(projectRoot, ".nbook", "config.json"), JSON.stringify({
             models: childProvider.models,
         }, null, 4), "utf8");
 
@@ -7316,76 +7408,39 @@ describe("NeuroAgentHarness", () => {
             runtimeResolver: () => faux.runtime,
         });
         faux.setResponses([fauxAssistantMessage(fauxText("child done"))]);
-        const parent = await harness.createAgent({
-            profileKey: "leader.default",
-            initial: {},
-            workspaceRoot: childWorkspaceRoot,
-            projectPath: childWorkspaceRoot,
-            workspaceKey: "novel-one",
-        });
-        const child = await harness.createAgent({
-            profileKey: "leader.default",
-            initial: {},
-            workspaceRoot: childWorkspaceRoot,
-            workspaceKey: "novel-one",
-            parentSessionId: parent.sessionId,
-        });
-
-        await harness.invokeAgent({
-            sessionId: child.sessionId,
-            mode: "prompt",
-            message: {text: "use default"},
-        });
-
-        expect(observedDefaultModelKeys).toContain("project-provider/project-model");
-    });
-
-    it("外部 Project Workspace session 首次运行使用绝对 projectPath 的 Project 默认模型", async () => {
-        const externalProjectRoot = resolve(root, "outside", "external-project").replaceAll("\\", "/");
-        const externalProvider = fauxProviderConfig(faux, {providerConfigId: "external-provider", modelId: "external-model"});
-        await mkdir(join(root, ".nbook"), {recursive: true});
-        await writeFile(join(root, ".nbook", "config.json"), JSON.stringify({models: externalProvider.models}), "utf8");
-        await mkdir(join(externalProjectRoot, ".nbook"), {recursive: true});
-        await writeFile(join(externalProjectRoot, "project.yaml"), "kind: novel\ntitle: External Project\nsummary: ''\n", "utf8");
-        await writeFile(join(externalProjectRoot, ".nbook", "config.json"), JSON.stringify({
-            models: {default: "external-provider/external-model"},
-        }, null, 4), "utf8");
-
-        const observedDefaultModelKeys: Array<string | null> = [];
-        harness = new NeuroAgentHarness({
-            repo: harness.repo,
-            profiles: harness.profiles,
-            modelResolver: (config, profileKey, override) => {
-                expect(profileKey).toBe("leader.default");
-                if (!override) observedDefaultModelKeys.push(config.models.defaultModelKey);
-                else expect(override.modelKey).toBe("external-provider/external-model");
-                return externalProvider.model;
-            },
-            runtimeResolver: () => faux.runtime,
-            enableSessionSummarizer: false,
-        });
-        faux.setResponses([fauxAssistantMessage("external done")]);
-        const created = await harness.createAgent({
-            profileKey: "leader.default",
-            initial: {},
-            workspaceRoot: externalProjectRoot,
-            workspaceKey: "external-project",
-            projectPath: externalProjectRoot,
-        });
-
+        await openProject(projectWorkspaceRef("child-workspace"), {kind: "job", source: "test"}, harness.workspaceRoot);
         try {
-            const result = await harness.invokeAgent({
-                sessionId: created.sessionId,
-                mode: "prompt",
-                message: {text: "use external default"},
+            const parent = await harness.createAgent({
+                profileKey: "leader.default",
+                initial: {},
+                currentProjectRoot: "child-workspace",
+            });
+            const child = await harness.createAgent({
+                profileKey: "leader.default",
+                initial: {},
+                parentSessionId: parent.sessionId,
             });
 
-            expect(result.status, result.error ?? result.errorInfo?.message).toBe("completed");
-            expect(observedDefaultModelKeys).toContain("external-provider/external-model");
+            await harness.invokeAgent({
+                sessionId: child.sessionId,
+                mode: "prompt",
+                message: {text: "use default"},
+            });
+
+            expect(observedDefaultModelKeys).toContain("project-provider/project-model");
         } finally {
-            await rm(resolve(root, "outside"), {recursive: true, force: true});
+            await closeProjectForTest("child-workspace").catch(() => undefined);
         }
-    }, 30_000);
+    });
+
+    it("Session Current Project 拒绝绝对外部路径", async () => {
+        const externalProjectRoot = resolve(root, "outside", "external-project").replaceAll("\\", "/");
+        await expect(harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            currentProjectRoot: externalProjectRoot,
+        })).rejects.toThrow();
+    });
 
     it("invoke_agent 完成后父 agent 继续进入下一轮 ReAct", async () => {
         harness.profiles.register(defineAgentProfile({
@@ -7432,12 +7487,10 @@ describe("NeuroAgentHarness", () => {
         const parent = await harness.createAgent({
             profileKey: "test.invoke-parent",
             initial: {},
-            workspaceRoot: root,
         });
         const child = await harness.createAgent({
             profileKey: "test.invoke-child",
             initial: {},
-            workspaceRoot: root,
             parentSessionId: parent.sessionId,
         });
 
@@ -7497,7 +7550,6 @@ describe("NeuroAgentHarness", () => {
         const session = await harness.createAgent({
             profileKey: "test.invoke-self",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -7582,7 +7634,6 @@ describe("NeuroAgentHarness", () => {
         const parent = await harness.createAgent({
             profileKey: "test.create-agent-parent",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -7674,7 +7725,6 @@ describe("NeuroAgentHarness", () => {
         const parent = await harness.createAgent({
             profileKey: "test.profile-parent",
             initial: {},
-            workspaceRoot: root,
         });
 
         await harness.invokeAgent({
@@ -7713,16 +7763,14 @@ describe("NeuroAgentHarness", () => {
         const parent = await harness.createAgent({
             profileKey: "test.snapshot-approval",
             initial: {},
-            workspaceRoot: root,
         });
         const child = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
             parentSessionId: parent.sessionId,
         });
         const registered = await harness.uploadSessionAttachment(parent.sessionId, {
-            bytes: PNG_BYTES,
+            bytes: pngBytes,
             mimeType: "image/png",
             name: "queued.png",
         });
@@ -7819,7 +7867,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.steer-loop",
             initial: {},
-            workspaceRoot: root,
         });
 
         const running = harness.invokeAgent({
@@ -7921,7 +7968,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.queued-model",
             initial: {},
-            workspaceRoot: root,
         });
         const running = harness.invokeAgent({
             sessionId: created.sessionId,
@@ -7976,7 +8022,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.waiting-steer",
             initial: {},
-            workspaceRoot: root,
         });
 
         const waiting = await harness.invokeAgent({
@@ -8020,7 +8065,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
 
         await expect(harness.invokeAgent({
@@ -8047,7 +8091,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         let steerError = "";
 
@@ -8099,7 +8142,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.abort-queue",
             initial: {},
-            workspaceRoot: root,
         });
         const waiting = await harness.invokeAgent({
             sessionId: created.sessionId,
@@ -8169,7 +8211,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const running = harness.invokeAgent({
             sessionId: created.sessionId,
@@ -8217,7 +8258,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
 
         const running = harness.invokeAgent({
@@ -8255,7 +8295,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
 
         const running = harness.invokeAgent({
@@ -8305,7 +8344,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
 
         const running = harness.invokeAgent({
@@ -8350,13 +8388,18 @@ describe("NeuroAgentHarness", () => {
     });
 
     it("followUp queue 状态会作为 projection 持久化并能被新 harness snapshot 恢复", async () => {
+        const providerStarted = createDeferred();
+        const releaseProvider = createDeferred();
         faux.setResponses([
-            fauxAssistantMessage("failed", {stopReason: "error", errorMessage: "provider failed"}),
+            async () => {
+                providerStarted.resolve();
+                await releaseProvider.promise;
+                return fauxAssistantMessage("failed", {stopReason: "error", errorMessage: "provider failed"});
+            },
         ]);
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
 
         const running = harness.invokeAgent({
@@ -8364,38 +8407,41 @@ describe("NeuroAgentHarness", () => {
             mode: "prompt",
             message: {text: "start"},
         });
-        await waitFor(async () => {
-            const snapshot = await harness.getSessionRecovery(created.sessionId);
-            expect(snapshot.activeInvocation).not.toBeNull();
-        });
-        await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "followup",
-            message: {text: "queued followup"},
-        });
-        const result = await running;
-        const restored = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            modelResolver: () => faux.getModel(),
-            runtimeResolver: () => faux.runtime,
-            enableSessionSummarizer: false,
-        });
+        try {
+            await providerStarted.promise;
+            await harness.invokeAgent({
+                sessionId: created.sessionId,
+                mode: "followup",
+                message: {text: "queued followup"},
+            });
+            releaseProvider.resolve();
+            const result = await running;
+            const restored = new NeuroAgentHarness({
+                repo: new JsonlSessionRepository(root),
+                modelResolver: () => faux.getModel(),
+                runtimeResolver: () => faux.runtime,
+                enableSessionSummarizer: false,
+            });
 
-        const snapshot = await restored.getSessionRecovery(created.sessionId);
+            const snapshot = await restored.getSessionRecovery(created.sessionId);
 
-        expect(result.status).toBe("error");
-        expect(snapshot.followUpQueue).toEqual({
-            status: "paused",
-            pausedBy: {
-                invocationId: result.invocationId,
-                reason: "error",
-            },
-            items: [expect.objectContaining({
-                kind: "followup",
-                text: expect.objectContaining({preview: "queued followup", omitted: false}),
-            })],
-            omittedItems: 0,
-        });
+            expect(result.status).toBe("error");
+            expect(snapshot.followUpQueue).toEqual({
+                status: "paused",
+                pausedBy: {
+                    invocationId: result.invocationId,
+                    reason: "error",
+                },
+                items: [expect.objectContaining({
+                    kind: "followup",
+                    text: expect.objectContaining({preview: "queued followup", omitted: false}),
+                })],
+                omittedItems: 0,
+            });
+        } finally {
+            releaseProvider.resolve();
+            await running.catch(() => undefined);
+        }
     });
 
     it("模型 partial error 只保存文本并剥离 tool call", async () => {
@@ -8408,7 +8454,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -8472,7 +8517,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.drain-window",
             initial: {},
-            workspaceRoot: root,
         });
         let lateSteerError = "";
         let triedLateSteer = false;
@@ -8526,7 +8570,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         await harness.invokeAgent({
             sessionId: created.sessionId,
@@ -8559,8 +8602,8 @@ describe("NeuroAgentHarness", () => {
         });
         expect(archived.kind).toBe("live_state");
         expect((await harness.getSessionRecovery(created.sessionId)).summary.archived).toBe(true);
-        expect(await harness.listSessions({workspaceKey: "global"})).toEqual([]);
-        expect(await harness.listSessions({workspaceKey: "global", includeArchived: true})).toHaveLength(1);
+        expect(await harness.listSessions({})).toEqual([]);
+        expect(await harness.listSessions({includeArchived: true})).toHaveLength(1);
     });
 
     it("invocation preflight 后并发 archive 时最终 admission 使用最新状态且不提交用户输入", async () => {
@@ -8568,7 +8611,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const originalReadSession = harness.repo.readSession.bind(harness.repo);
         const releasePreflight = createDeferred();
@@ -8612,7 +8654,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         await harness.invokeAgent({
             sessionId: created.sessionId,
@@ -8670,7 +8711,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         await harness.invokeAgent({
             sessionId: created.sessionId,
@@ -8704,7 +8744,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         await harness.invokeAgent({
             sessionId: created.sessionId,
@@ -8738,12 +8777,10 @@ describe("NeuroAgentHarness", () => {
         const parent = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const child = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
             parentSessionId: parent.sessionId,
         });
         await harness.detachAgent(child.sessionId, parent.sessionId);
@@ -8784,12 +8821,10 @@ describe("NeuroAgentHarness", () => {
         const parent = await harness.createAgent({
             profileKey: "test.linked-by",
             initial: {},
-            workspaceRoot: root,
         });
         const child = await harness.createAgent({
             profileKey: "test.linked-by",
             initial: {},
-            workspaceRoot: root,
             parentSessionId: parent.sessionId,
         });
         const waiting = await harness.invokeAgent({
@@ -8832,18 +8867,15 @@ describe("NeuroAgentHarness", () => {
         const owner = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         const archived = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
             parentSessionId: owner.sessionId,
         });
         const child = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
             parentSessionId: archived.sessionId,
         });
 
@@ -8911,12 +8943,10 @@ describe("NeuroAgentHarness", () => {
         const parent = await harness.createAgent({
             profileKey: "test.deleted-profile",
             initial: {},
-            workspaceRoot: root,
         });
         const child = await harness.createAgent({
             profileKey: "test.deleted-profile",
             initial: {},
-            workspaceRoot: root,
             parentSessionId: parent.sessionId,
         });
         const waiting = await harness.invokeAgent({
@@ -8931,7 +8961,7 @@ describe("NeuroAgentHarness", () => {
             runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
         });
-        const sessions = await restored.listSessions({workspaceKey: "global"});
+        const sessions = await restored.listSessions({});
         const parentSnapshot = await restored.getSessionRecovery(parent.sessionId);
         const parentLiveState = await restored.getSessionLiveState(parent.sessionId);
         const childRelations = await restored.getSessionRelations(child.sessionId);
@@ -9037,7 +9067,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.unloadable",
             initial: {},
-            workspaceRoot: root,
         });
         const restored = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
@@ -9048,7 +9077,7 @@ describe("NeuroAgentHarness", () => {
         });
 
         const snapshot = await restored.getSessionRecovery(created.sessionId);
-        const page = await restored.listSessionPage({workspaceKey: "global", limit: 10});
+        const page = await restored.listSessionPage({limit: 10});
         const result = await restored.invokeAgent({
             sessionId: created.sessionId,
             mode: "prompt",
@@ -9085,7 +9114,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.unloadable",
             initial: {},
-            workspaceRoot: root,
         });
         const issueMessage = "加载错误".repeat(30_000);
         const restored = new NeuroAgentHarness({
@@ -9097,7 +9125,7 @@ describe("NeuroAgentHarness", () => {
         });
         try {
             const liveState = await restored.getSessionLiveState(created.sessionId);
-            const page = await restored.listSessionPage({workspaceKey: "global", limit: 10});
+            const page = await restored.listSessionPage({limit: 10});
 
             expect(liveState.summary.profileIssueMessage).not.toBe(issueMessage);
             expect(page.items[0]?.profileIssueMessage).toBe(liveState.summary.profileIssueMessage);
@@ -9114,7 +9142,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         await harness.repo.appendMessage(created.sessionId, createUserMessage({text: "hello session"}));
 
@@ -9190,7 +9217,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.report-error",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -9238,7 +9264,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.pre-loop-error",
             initial: {},
-            workspaceRoot: root,
         });
 
         const result = await harness.invokeAgent({
@@ -9273,7 +9298,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         await harness.repo.appendMessage(created.sessionId, createUserMessage({text: "old context"}));
 
@@ -9302,7 +9326,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
         });
         await harness.repo.appendMessage(created.sessionId, createUserMessage({text: "old context"}));
 
@@ -9342,7 +9365,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.manual-compact-without-policy",
             initial: {},
-            workspaceRoot: root,
         });
         await harness.repo.appendMessage(created.sessionId, createUserMessage({text: "old context"}));
         faux.setResponses([fauxAssistantMessage("DEFAULT COMPACTION")]);
@@ -9368,8 +9390,8 @@ describe("NeuroAgentHarness", () => {
     it("Project ready发布后close先进入terminal gate时admission fail closed", async () => {
         await closeAllProjects();
         resetProjectSessionsForTest();
-        const projectPath = "workspace/admission-close-race";
-        const projectRoot = join(root, "admission-close-race");
+        const projectRootName = "admission-close-race";
+        const projectRoot = join(root, projectRootName);
         await mkdir(join(projectRoot, ".nbook"), {recursive: true});
         await writeFile(join(projectRoot, "project.yaml"), "kind: novel\ntitle: Admission Close Race\nsummary: ''\n", "utf8");
         await writeFile(join(projectRoot, ".nbook", "config.json"), "{}\n", "utf8");
@@ -9394,21 +9416,20 @@ describe("NeuroAgentHarness", () => {
         let closing: Promise<void> | null = null;
 
         try {
-            const created = await harness.createAgent({
+            const created = await harness.repo.createSession({
                 profileKey: "leader.default",
                 initial: {},
-                workspaceRoot: "workspace",
-                projectPath,
+                currentProjectRoot: "admission-close-race",
             });
-            opening = openProject(harness.workspaceRoot, projectPath, {
+            opening = openProject(projectWorkspaceRef(projectRootName), {
                 kind: "job",
                 source: "admission-close-race",
-            });
+            }, harness.workspaceRoot);
             await moduleStarted.promise;
-            closing = opening.then(() => closeProjectForTest(projectPath));
+            closing = opening.then(() => closeProjectForTest(projectRootName));
 
             const invoking = harness.invokeAgent({
-                sessionId: created.sessionId,
+                sessionId: created.metadata.sessionId,
                 mode: "prompt",
                 message: {text: "must fail before start"},
             });
@@ -9418,8 +9439,8 @@ describe("NeuroAgentHarness", () => {
 
             await rejected;
             await closing;
-            const snapshot = await harness.repo.readSession(created.sessionId);
-            const recovery = await harness.getSessionRecovery(created.sessionId);
+            const snapshot = await harness.repo.readSession(created.metadata.sessionId);
+            const recovery = await harness.getSessionRecovery(created.metadata.sessionId);
 
             expect(providerCalls).toBe(0);
             expect(recovery.activeInvocation).toBeNull();
@@ -9429,7 +9450,7 @@ describe("NeuroAgentHarness", () => {
             await opening?.catch(() => undefined);
             await closing?.catch(() => undefined);
             harness["captureInvocationProject"] = captureInvocationProject;
-            await closeProjectForTest(projectPath).catch(() => undefined);
+            await closeProjectForTest(projectRootName).catch(() => undefined);
             await closeAllProjects();
             resetProjectSessionsForTest();
             restoreModules();
@@ -9439,8 +9460,8 @@ describe("NeuroAgentHarness", () => {
     it("manual compact持有Project operation，忽略取消的迟到结果不得落盘", async () => {
         await closeAllProjects();
         resetProjectSessionsForTest();
-        const projectPath = "workspace/manual-compact-project";
-        const projectRoot = join(root, "manual-compact-project");
+        const projectRootName = "manual-compact-project";
+        const projectRoot = join(root, projectRootName);
         await mkdir(join(projectRoot, ".nbook"), {recursive: true});
         await writeFile(join(projectRoot, "project.yaml"), "kind: novel\ntitle: Manual Compact\nsummary: ''\n", "utf8");
         await writeFile(join(projectRoot, ".nbook", "config.json"), "{}\n", "utf8");
@@ -9458,11 +9479,11 @@ describe("NeuroAgentHarness", () => {
         ]);
 
         try {
+            await openProject(projectWorkspaceRef(projectRootName), {kind: "job", source: "manual-compact-test"}, harness.workspaceRoot);
             const created = await harness.createAgent({
                 profileKey: "leader.default",
                 initial: {},
-                workspaceRoot: "workspace",
-                projectPath,
+                currentProjectRoot: "manual-compact-project",
             });
             await harness.repo.appendMessage(created.sessionId, createUserMessage({text: "old context"}));
             const command = await harness.runCommand(created.sessionId, {
@@ -9480,7 +9501,7 @@ describe("NeuroAgentHarness", () => {
             await providerStarted.promise;
 
             let closeSettled = false;
-            const closing = closeProjectForTest(projectPath);
+            const closing = closeProjectForTest(projectRootName);
             void closing.then(
                 () => {
                     closeSettled = true;
@@ -9494,12 +9515,12 @@ describe("NeuroAgentHarness", () => {
             });
 
             expect(closeSettled).toBe(false);
-            expect(projectOccupancy(projectPath)).toBeNull();
+            expect(projectOccupancy(projectWorkspaceRef(projectRootName))).toBeNull();
             await closing;
-            const reopened = await openProject(harness.workspaceRoot, projectPath, {
+            const reopened = await openProject(projectWorkspaceRef(projectRootName), {
                 kind: "job",
                 source: "manual-compact-late-test",
-            });
+            }, harness.workspaceRoot);
 
             releaseProvider.resolve();
             await harness.drainBackgroundTasks();
@@ -9516,7 +9537,7 @@ describe("NeuroAgentHarness", () => {
         } finally {
             releaseProvider.resolve();
             await harness.drainBackgroundTasks().catch(() => undefined);
-            await closeProjectForTest(projectPath).catch(() => undefined);
+            await closeProjectForTest(projectRootName).catch(() => undefined);
             await closeAllProjects();
             resetProjectSessionsForTest();
         }
@@ -9525,8 +9546,8 @@ describe("NeuroAgentHarness", () => {
     it("Project invocation持有exact generation到terminal，close abort后才允许reopen", async () => {
         await closeAllProjects();
         resetProjectSessionsForTest();
-        const projectPath = "workspace/exact-config";
-        const projectRoot = join(root, "exact-config");
+        const projectRootName = "exact-config";
+        const projectRoot = join(root, projectRootName);
         await mkdir(join(projectRoot, ".nbook"), {recursive: true});
         await writeFile(join(projectRoot, "project.yaml"), "kind: novel\ntitle: Exact Config\nsummary: ''\n", "utf8");
         await writeFile(join(projectRoot, ".nbook", "config.json"), "{}\n", "utf8");
@@ -9566,11 +9587,11 @@ describe("NeuroAgentHarness", () => {
         faux.setResponses([fauxAssistantMessage(fauxText("done"))]);
 
         try {
+            await openProject(projectWorkspaceRef(projectRootName), {kind: "job", source: "exact-project-test"}, harness.workspaceRoot);
             const created = await harness.createAgent({
                 profileKey: "test.exact-project-config",
                 initial: {},
-                workspaceRoot: "workspace",
-                projectPath,
+                currentProjectRoot: "exact-config",
             });
             const invoking = harness.invokeAgent({
                 sessionId: created.sessionId,
@@ -9583,7 +9604,7 @@ describe("NeuroAgentHarness", () => {
                 throw new Error("测试未观察到 Project capture");
             }
             let closeSettled = false;
-            const closing = closeProjectForTest(projectPath);
+            const closing = closeProjectForTest(projectRootName);
             void closing.then(
                 () => {
                     closeSettled = true;
@@ -9595,19 +9616,19 @@ describe("NeuroAgentHarness", () => {
 
             await Promise.resolve();
             expect(closeSettled).toBe(false);
-            expect(projectOccupancy(projectPath)).toBeNull();
+            expect(projectOccupancy(projectWorkspaceRef(projectRootName))).toBeNull();
 
             releaseHook();
             const result = await invoking;
             await closing;
-            const reopened = await openProject(harness.workspaceRoot, projectPath, {kind: "job", source: "exact-config-test"});
+            const reopened = await openProject(projectWorkspaceRef(projectRootName), {kind: "job", source: "exact-config-test"}, harness.workspaceRoot);
 
             expect(result.status).toBe("error");
             expect(reopened.generation).not.toBe(capturedReady.generation);
             expect(() => harness.projectForInvocation(result.invocationId)).toThrow(`invocation variable state不存在：${result.invocationId}`);
         } finally {
             releaseHook();
-            await closeProjectForTest(projectPath).catch(() => undefined);
+            await closeProjectForTest(projectRootName).catch(() => undefined);
             await closeAllProjects();
             resetProjectSessionsForTest();
         }
@@ -9616,8 +9637,8 @@ describe("NeuroAgentHarness", () => {
     it("Project invocation在waiting释放operation，resume同id捕获新generation", async () => {
         await closeAllProjects();
         resetProjectSessionsForTest();
-        const projectPath = "workspace/waiting-resume-generation";
-        const projectRoot = join(root, "waiting-resume-generation");
+        const projectRootName = "waiting-resume-generation";
+        const projectRoot = join(root, projectRootName);
         await mkdir(join(projectRoot, ".nbook"), {recursive: true});
         await writeFile(join(projectRoot, "project.yaml"), "kind: novel\ntitle: Waiting Resume\nsummary: ''\n", "utf8");
         await writeFile(join(projectRoot, ".nbook", "config.json"), "{}\n", "utf8");
@@ -9664,11 +9685,11 @@ describe("NeuroAgentHarness", () => {
         ]);
 
         try {
+            await openProject(projectWorkspaceRef(projectRootName), {kind: "job", source: "waiting-project-test"}, harness.workspaceRoot);
             const created = await harness.createAgent({
                 profileKey: "test.waiting-resume-project",
                 initial: {},
-                workspaceRoot: "workspace",
-                projectPath,
+                currentProjectRoot: "waiting-resume-generation",
             });
             const waiting = await harness.invokeAgent({
                 sessionId: created.sessionId,
@@ -9683,17 +9704,17 @@ describe("NeuroAgentHarness", () => {
             expect(capturedProjects).toHaveLength(1);
             expect(harness.projectForInvocation(waiting.invocationId)).toBeNull();
 
-            await closeProjectForTest(projectPath);
+            await closeProjectForTest(projectRootName);
             const afterClose = await harness.repo.readSession(created.sessionId);
             expect(afterClose.entries).not.toContainEqual(expect.objectContaining({
                 type: "invocation_lifecycle",
                 invocationId: waiting.invocationId,
                 status: "aborted",
             }));
-            const reopened = await openProject(harness.workspaceRoot, projectPath, {
+            const reopened = await openProject(projectWorkspaceRef(projectRootName), {
                 kind: "job",
                 source: "waiting-resume-test",
-            });
+            }, harness.workspaceRoot);
             const resumed = await harness.invokeAgent({
                 sessionId: created.sessionId,
                 mode: "continue",
@@ -9716,7 +9737,7 @@ describe("NeuroAgentHarness", () => {
             expect(lifecycle).toEqual(["start", "waiting", "resumed", "end"]);
             expect(() => harness.projectForInvocation(resumed.invocationId)).toThrow(`invocation variable state不存在：${resumed.invocationId}`);
         } finally {
-            await closeProjectForTest(projectPath).catch(() => undefined);
+            await closeProjectForTest(projectRootName).catch(() => undefined);
             await closeAllProjects();
             resetProjectSessionsForTest();
         }
@@ -9728,8 +9749,7 @@ describe("NeuroAgentHarness", () => {
         const projectA = join(root, "project-a");
         const projectB = join(root, "project-b");
         const definitionSource = [
-            "import {Type} from \"typebox\";",
-            "import {defineProjectVariable} from \"nbook/server/agent/variables/registry\";",
+            "import {Type, defineProjectVariable} from \"nbook/variable-sdk\";",
             "export const definitions = [defineProjectVariable({",
             "    key: \"scope\",",
             "    schema: Type.String(),",
@@ -9740,6 +9760,7 @@ describe("NeuroAgentHarness", () => {
         for (const [projectRoot, value] of [[projectA, "project-a"], [projectB, "project-b"]] as const) {
             const definitionRoot = join(projectRoot, ".nbook", "agent", "variables");
             await mkdir(definitionRoot, {recursive: true});
+            await writeFile(join(projectRoot, "project.yaml"), `kind: novel\ntitle: ${value}\nsummary: ''\n`, "utf8");
             await writeFile(join(definitionRoot, "definitions.ts"), definitionSource, "utf8");
             await writeFile(join(projectRoot, ".nbook", "agent", "variables.json"), `${JSON.stringify({
                 schemaVersion: 1,
@@ -9761,13 +9782,13 @@ describe("NeuroAgentHarness", () => {
             ], {stopReason: "toolUse"}),
             fauxAssistantMessage(fauxText("done")),
         ]);
-        const projectPath = "workspace/project-a";
+        const projectRoot = "project-a";
         try {
+            await openProject(projectWorkspaceRef(projectRoot), {kind: "job", source: "project-vars-test"}, harness.workspaceRoot);
             const created = await harness.createAgent({
                 profileKey: "test.project-vars",
                 initial: {},
-                workspaceRoot: "workspace",
-                projectPath,
+                currentProjectRoot: "project-a",
             });
 
             const result = await harness.invokeAgent({
@@ -9783,7 +9804,7 @@ describe("NeuroAgentHarness", () => {
             expect(readResult ? messageText(readResult) : "").toContain('"value": "project-a"');
             expect(readResult ? messageText(readResult) : "").not.toContain('"value": "project-b"');
         } finally {
-            await closeProjectForTest(projectPath).catch(() => undefined);
+            await closeProjectForTest(projectRoot).catch(() => undefined);
             await closeAllProjects();
             resetProjectSessionsForTest();
         }
@@ -9821,7 +9842,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.session-vars",
             initial: {},
-            workspaceRoot: root,
         });
         const events: string[] = [];
         const subscription = harness.subscribeSessionEvents(created.sessionId);
@@ -9893,7 +9913,6 @@ describe("NeuroAgentHarness", () => {
         const created = await harness.createAgent({
             profileKey: "test.client-patch-budget",
             initial: {},
-            workspaceRoot: root,
         });
         const subscription = harness.subscribeSessionEvents(created.sessionId);
         let oversizedFallbackSeen = false;
@@ -9965,2068 +9984,6 @@ describe("NeuroAgentHarness", () => {
         expect(harness.eventHub.metrics(991_001).replayCount).toBe(0);
     });
 
-    it("acquireAgent concurrency and reconstruction reuse one durable Session", async () => {
-        const input = {
-            profileKey: "leader.default",
-            initial: {},
-            workspaceRoot: root,
-            workspaceKey: "global",
-            kind: "workflow" as const,
-            acquisitionTag: "character-direct:actor-1",
-        };
-        const [first, second] = await Promise.all([
-            harness.acquireAgent(input),
-            harness.acquireAgent(input),
-        ]);
-        expect(second.sessionId).toBe(first.sessionId);
-        expect([first.reused, second.reused].sort()).toEqual([false, true]);
-
-        const restored = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            profiles: harness.profiles,
-            modelResolver: () => faux.getModel(),
-            runtimeResolver: () => faux.runtime,
-            enableSessionSummarizer: false,
-        });
-        await expect(restored.acquireAgent(input)).resolves.toEqual({...first, reused: true});
-        await restored.dispose();
-    });
-
-    it("same acquisition identity with different Initial fails closed", async () => {
-        harness.profiles.register(defineAgentProfile({
-            manifest: {key: "test.acquire", name: "Acquire"},
-            initialSchema: Type.Object({value: Type.String()}),
-            allowedToolKeys: [],
-            prepare() {
-                return {};
-            },
-        }), false);
-        const base = {
-            profileKey: "test.acquire",
-            workspaceRoot: root,
-            workspaceKey: "global",
-            acquisitionTag: "character-direct:actor-2",
-        };
-        await harness.acquireAgent({...base, initial: {value: "a"}});
-        await expect(harness.acquireAgent({...base, initial: {value: "b"}}))
-            .rejects.toThrow("acquisition");
-        const ordinary = await harness.createAgent({
-            profileKey: base.profileKey,
-            workspaceRoot: base.workspaceRoot,
-            workspaceKey: base.workspaceKey,
-            initial: {value: "b"},
-            tags: [base.acquisitionTag],
-        });
-        expect(ordinary.sessionId).toBeGreaterThan(0);
-    });
-
-    it("durable admission runs onAccepted before Provider starts", async () => {
-        const order: string[] = [];
-        faux.setResponses([fauxAssistantMessage("done")]);
-        const originalStream = faux.runtime.streamSimple;
-        faux.runtime.streamSimple = (...args) => {
-            order.push("provider");
-            return originalStream.apply(faux.runtime, args);
-        };
-        const created = await harness.createAgent({
-            profileKey: "leader.default",
-            initial: {},
-            workspaceRoot: root,
-        });
-
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            queueIfBusy: false,
-            clientMessageId: "00000000-0000-4000-8000-000000000001",
-            message: {text: "run"},
-            onAccepted: async ({sessionId, invocationId, clientMessageId}) => {
-                order.push(`accepted:${invocationId}`);
-                expect(sessionId).toBe(created.sessionId);
-                expect(clientMessageId).toBe("00000000-0000-4000-8000-000000000001");
-                expect(await harness.repo.readSession(sessionId)).toBeDefined();
-            },
-        });
-
-        expect(result.status, result.error).toBe("completed");
-        expect(order).toEqual([`accepted:${result.invocationId}`, "provider"]);
-        const reconstructed = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
-            modelResolver: () => faux.getModel(),
-            runtimeResolver: () => faux.runtime,
-            enableSessionSummarizer: false,
-        });
-        await expect(reconstructed.readDurableInvocationResult({
-            sessionId: created.sessionId,
-            clientMessageId: "00000000-0000-4000-8000-000000000001",
-        })).resolves.toEqual({
-            state: "completed_without_result",
-            invocationId: result.invocationId,
-        });
-        await expect(reconstructed.readDurableInvocationResult({
-            sessionId: created.sessionId,
-            clientMessageId: "00000000-0000-4000-8000-ffffffffffff",
-        })).resolves.toEqual({state: "missing"});
-        await reconstructed.dispose();
-    });
-
-    it("onAccepted failure prevents Provider and seals an error lifecycle", async () => {
-        let providerCalls = 0;
-        const originalStream = faux.runtime.streamSimple;
-        faux.runtime.streamSimple = (...args) => {
-            providerCalls += 1;
-            return originalStream.apply(faux.runtime, args);
-        };
-        const created = await harness.createAgent({
-            profileKey: "leader.default",
-            initial: {},
-            workspaceRoot: root,
-        });
-
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            queueIfBusy: false,
-            clientMessageId: "00000000-0000-4000-8000-000000000002",
-            message: {text: "run"},
-            onAccepted: async () => {
-                throw new Error("caller admission failed");
-            },
-        });
-
-        expect(result.status).toBe("error");
-        expect(providerCalls).toBe(0);
-        const snapshot = await harness.repo.readSession(created.sessionId);
-        expect(snapshot.entries).toContainEqual(expect.objectContaining({
-            type: "invocation_lifecycle",
-            invocationId: result.invocationId,
-            status: "error",
-        }));
-        const reconstructed = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
-            modelResolver: () => faux.getModel(),
-            runtimeResolver: () => faux.runtime,
-            enableSessionSummarizer: false,
-        });
-        await expect(reconstructed.readDurableInvocationResult({
-            sessionId: created.sessionId,
-            clientMessageId: "00000000-0000-4000-8000-000000000002",
-        })).resolves.toMatchObject({
-            state: "failed",
-            invocationId: result.invocationId,
-        });
-        await reconstructed.dispose();
-    });
-
-    it("reconstructed Harness reads completed report_result.data by clientMessageId", async () => {
-        harness.profiles.register(defineAgentProfile({
-            manifest: {key: "test.durable-result", name: "Durable Result"},
-            initialSchema: Type.Object({}),
-            allowedToolKeys: ["report_result"],
-            prepare() {
-                return {};
-            },
-        }), false);
-        faux.setResponses([fauxAssistantMessage([
-            fauxToolCall("report_result", {
-                result: "ok",
-                data: {paths: ["lorebook/characters/actor-1.md"]},
-            }, {id: "durable-report-1"}),
-        ], {stopReason: "toolUse"})]);
-        const created = await harness.createAgent({
-            profileKey: "test.durable-result",
-            initial: {},
-            workspaceRoot: root,
-        });
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            queueIfBusy: false,
-            clientMessageId: "00000000-0000-4000-8000-000000000003",
-            message: {text: "run"},
-            onAccepted: async () => undefined,
-        });
-        expect(result.status, result.error).toBe("completed");
-
-        const restored = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            profiles: harness.profiles,
-            modelResolver: () => {
-                throw new Error("durable result read must not resolve a model");
-            },
-            enableSessionSummarizer: false,
-        });
-        await expect(restored.readDurableInvocationResult({
-            sessionId: created.sessionId,
-            clientMessageId: "00000000-0000-4000-8000-000000000003",
-        })).resolves.toEqual({
-            state: "completed",
-            invocationId: result.invocationId,
-            reportResult: {paths: ["lorebook/characters/actor-1.md"]},
-        });
-        await restored.dispose();
-    });
-
-    it("runtime rejects onAccepted unless queueIfBusy is the literal false", async () => {
-        const created = await harness.createAgent({
-            profileKey: "leader.default",
-            initial: {},
-            workspaceRoot: root,
-        });
-        // Runtime guard 必须覆盖绕过 TypeScript 或使用旧生成代码的调用方，因此此处有意跨越静态类型边界。
-        const staleCaller = {
-            sessionId: created.sessionId,
-            mode: "prompt",
-            clientMessageId: "00000000-0000-4000-8000-000000000004",
-            message: {text: "run"},
-            onAccepted: async () => undefined,
-        } as unknown as Parameters<NeuroAgentHarness["invokeAgent"]>[0];
-
-        await expect(harness.invokeAgent(staleCaller))
-            .rejects.toThrow("onAccepted requires queueIfBusy: false");
-    });
-
-    it("known-bad execution store rejects before Session admission and starts no Provider", async () => {
-        const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root);
-        await executionLeaseStore.ensureHealthy();
-        await writeFile(
-            join(root, ".nbook", "agent", "invocation-execution.json"),
-            "{\"version\":2}\n",
-            "utf8",
-        );
-        await harness.dispose();
-        harness = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
-            modelResolver: () => faux.getModel(),
-            runtimeResolver: () => faux.runtime,
-            enableSessionSummarizer: false,
-            executionLeaseStore,
-        });
-        let providerCalls = 0;
-        const originalStream = faux.runtime.streamSimple;
-        faux.runtime.streamSimple = (...args) => {
-            providerCalls += 1;
-            return originalStream.apply(faux.runtime, args);
-        };
-        const created = await harness.createAgent({
-            profileKey: "leader.default",
-            initial: {},
-            workspaceRoot: root,
-        });
-
-        await expect(harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            queueIfBusy: false,
-            clientMessageId: "00000000-0000-4000-8000-000000000009",
-            message: {text: "run"},
-            onAccepted: async () => undefined,
-        })).rejects.toMatchObject({code: "execution_evidence_lost"});
-        const path = harness.repo.activePath(await harness.repo.readSession(created.sessionId));
-        expect(path.some((entry) => entry.type === "custom"
-            && entry.key.startsWith("harness.invocation_admission:"))).toBe(false);
-        expect(providerCalls).toBe(0);
-    });
-
-    it("execution-store corruption after preflight seals admitted work as failed without Provider", async () => {
-        const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root);
-        const originalEstablish = executionLeaseStore.establish.bind(executionLeaseStore);
-        executionLeaseStore.establish = async (...args: Parameters<typeof executionLeaseStore.establish>) => {
-            await writeFile(
-                join(root, ".nbook", "agent", "invocation-execution.json"),
-                "{corrupt-after-preflight",
-                "utf8",
-            );
-            return originalEstablish(...args);
-        };
-        await harness.dispose();
-        harness = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
-            modelResolver: () => faux.getModel(),
-            runtimeResolver: () => faux.runtime,
-            enableSessionSummarizer: false,
-            executionLeaseStore,
-        });
-        let providerCalls = 0;
-        const originalStream = faux.runtime.streamSimple;
-        faux.runtime.streamSimple = (...args) => {
-            providerCalls += 1;
-            return originalStream.apply(faux.runtime, args);
-        };
-        const created = await harness.createAgent({
-            profileKey: "leader.default",
-            initial: {},
-            workspaceRoot: root,
-        });
-
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            queueIfBusy: false,
-            clientMessageId: "00000000-0000-4000-8000-00000000000a",
-            message: {text: "run"},
-            onAccepted: async () => undefined,
-        });
-        expect(result.status).toBe("error");
-        expect(providerCalls).toBe(0);
-        const path = harness.repo.activePath(await harness.repo.readSession(created.sessionId));
-        expect(path).toContainEqual(expect.objectContaining({
-            type: "invocation_lifecycle",
-            invocationId: result.invocationId,
-            status: "error",
-        }));
-    });
-
-    it("real JsonlSession terminal commit wins the execution lock before a concurrent durable orphan reader", async () => {
-        const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root, {
-            ownerId: () => "owner-real-terminal-wins",
-            leaseDurationMs: 3_600_000,
-        });
-        const originalWithLiveExecutionFence = executionLeaseStore.withLiveExecutionFence.bind(executionLeaseStore);
-        const terminalCommitEntered = createDeferred();
-        const releaseTerminalCommit = createDeferred();
-        let interceptTerminal = true;
-        (executionLeaseStore as unknown as {
-            withLiveExecutionFence(
-                lease: InvocationExecutionLease,
-                commit: () => Promise<object>,
-            ): Promise<{committed: false} | {committed: true; value: object}>;
-        }).withLiveExecutionFence = async (lease, commit) => originalWithLiveExecutionFence(lease, async () => {
-            if (interceptTerminal) {
-                interceptTerminal = false;
-                terminalCommitEntered.resolve();
-                await releaseTerminalCommit.promise;
-            }
-            return commit();
-        });
-        await harness.dispose();
-        harness = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
-            modelResolver: () => faux.getModel(),
-            runtimeResolver: () => faux.runtime,
-            enableSessionSummarizer: false,
-            executionLeaseStore,
-        });
-        faux.setResponses([fauxAssistantMessage("terminal wins")]);
-        const created = await harness.createAgent({
-            profileKey: "leader.default",
-            initial: {},
-            workspaceRoot: root,
-        });
-        const clientMessageId = "00000000-0000-4000-8000-00000000001c";
-        const invocation = harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            queueIfBusy: false,
-            clientMessageId,
-            message: {text: "run"},
-            onAccepted: async () => undefined,
-        });
-        await terminalCommitEntered.promise;
-        const reconstructed = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            profiles: harness.profiles,
-            modelResolver: () => faux.getModel(),
-            runtimeResolver: () => faux.runtime,
-            enableSessionSummarizer: false,
-            executionLeaseStore,
-        });
-        let readerSettled = false;
-        const durableRead = reconstructed.readDurableInvocationResult({
-            sessionId: created.sessionId,
-            clientMessageId,
-        }).finally(() => {
-            readerSettled = true;
-        });
-        await new Promise<void>((resolveImmediate) => setImmediate(resolveImmediate));
-        expect(readerSettled).toBe(false);
-        releaseTerminalCommit.resolve();
-
-        const result = await invocation;
-        expect(result.status, result.error).toBe("completed");
-        await expect(durableRead).resolves.toEqual({
-            state: "completed_without_result",
-            invocationId: result.invocationId,
-        });
-        const lifecycleStatuses = harness.repo.activePath(await harness.repo.readSession(created.sessionId))
-            .filter((entry) => entry.type === "invocation_lifecycle" && entry.invocationId === result.invocationId)
-            .map((entry) => entry.type === "invocation_lifecycle" ? entry.status : "");
-        expect(lifecycleStatuses).toEqual(["start", "end"]);
-        await reconstructed.dispose();
-    });
-
-    it("real JsonlSession orphan reader wins before Provider and rejects the late owner terminal", async () => {
-        let now = Date.parse("2026-07-30T00:00:00.000Z");
-        const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root, {
-            now: () => now,
-            ownerId: () => "owner-harness-restart",
-            leaseDurationMs: 3_600_000,
-        });
-        await harness.dispose();
-        harness = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
-            modelResolver: () => faux.getModel(),
-            runtimeResolver: () => faux.runtime,
-            enableSessionSummarizer: false,
-            executionLeaseStore,
-        });
-        const callbackEntered = createDeferred();
-        const releaseCallback = createDeferred();
-        let providerCalls = 0;
-        const originalStream = faux.runtime.streamSimple;
-        faux.runtime.streamSimple = (...args) => {
-            providerCalls += 1;
-            return originalStream.apply(faux.runtime, args);
-        };
-        faux.setResponses([fauxAssistantMessage("must not start")]);
-        const created = await harness.createAgent({
-            profileKey: "leader.default",
-            initial: {},
-            workspaceRoot: root,
-        });
-        const invocation = harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            queueIfBusy: false,
-            clientMessageId: "00000000-0000-4000-8000-000000000008",
-            message: {text: "run"},
-            onAccepted: async () => {
-                callbackEntered.resolve();
-                await releaseCallback.promise;
-            },
-        });
-        await callbackEntered.promise;
-
-        await expect(harness.readDurableInvocationResult({
-            sessionId: created.sessionId,
-            clientMessageId: "00000000-0000-4000-8000-000000000008",
-        })).resolves.toMatchObject({
-            state: "active",
-            lifecycle: "accepted",
-        });
-
-        const reconstructed = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
-            modelResolver: () => faux.getModel(),
-            runtimeResolver: () => faux.runtime,
-            enableSessionSummarizer: false,
-            executionLeaseStore,
-        });
-        now += 3_600_001;
-        await expect(reconstructed.readDurableInvocationResult({
-            sessionId: created.sessionId,
-            clientMessageId: "00000000-0000-4000-8000-000000000008",
-        })).resolves.toMatchObject({
-            state: "orphaned",
-            lifecycle: "accepted",
-            providerStartRecorded: false,
-        });
-
-        releaseCallback.resolve();
-        const fenced = await invocation;
-        expect(fenced.status).not.toBe("completed");
-        expect(providerCalls).toBe(0);
-        const activePath = harness.repo.activePath(await harness.repo.readSession(created.sessionId));
-        expect(activePath).toContainEqual(expect.objectContaining({
-            type: "custom",
-            key: `harness.execution_lease_established:${fenced.invocationId}`,
-        }));
-        const lifecycleStatuses = activePath
-            .filter((entry) => entry.type === "invocation_lifecycle" && entry.invocationId === fenced.invocationId)
-            .map((entry) => entry.type === "invocation_lifecycle" ? entry.status : "");
-        expect(lifecycleStatuses).toEqual(["start"]);
-        await reconstructed.dispose();
-    });
-
-    it("real JsonlSession terminal append survives a crash before sidecar prune and is authoritative on reconstruction", async () => {
-        const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root, {
-            ownerId: () => "owner-real-session-crash",
-            leaseDurationMs: 3_600_000,
-        });
-        await harness.dispose();
-        harness = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
-            modelResolver: () => faux.getModel(),
-            runtimeResolver: () => faux.runtime,
-            enableSessionSummarizer: false,
-            executionLeaseStore,
-        });
-        const created = await harness.createAgent({
-            profileKey: "leader.default",
-            initial: {},
-            workspaceRoot: root,
-        });
-        const invocationId = "invocation-real-session-crash";
-        const clientMessageId = "00000000-0000-4000-8000-00000000001d";
-        await harness.repo.appendEntry(created.sessionId, {
-            type: "custom",
-            key: `harness.invocation_admission:${invocationId}`,
-            value: {clientMessageId},
-        });
-        await harness.repo.appendEntry(created.sessionId, {
-            type: "invocation_lifecycle",
-            invocationId,
-            status: "start",
-        });
-        await executionLeaseStore.ensureHealthy();
-        const lease = await executionLeaseStore.establish({
-            sessionId: created.sessionId,
-            invocationId,
-            clientMessageId,
-        }, async (established) => {
-            await harness.repo.appendEntry(created.sessionId, {
-                type: "custom",
-                key: `harness.execution_lease_established:${invocationId}`,
-                value: {
-                    invocationId,
-                    fence: established.fence,
-                },
-            });
-        });
-        await executionLeaseStore.recordProviderStarted(lease);
-        await expect(executionLeaseStore.withLiveExecutionFence(lease, async () => {
-            await harness.repo.appendEntry(created.sessionId, {
-                type: "invocation_lifecycle",
-                invocationId,
-                status: "end",
-            });
-            throw new Error("simulated crash after real Session terminal append");
-        })).rejects.toThrow("simulated crash after real Session terminal append");
-
-        const reconstructed = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            profiles: harness.profiles,
-            modelResolver: () => faux.getModel(),
-            runtimeResolver: () => faux.runtime,
-            enableSessionSummarizer: false,
-            executionLeaseStore,
-        });
-        await expect(reconstructed.readDurableInvocationResult({
-            sessionId: created.sessionId,
-            clientMessageId,
-        })).resolves.toEqual({
-            state: "completed_without_result",
-            invocationId,
-        });
-        const activePath = reconstructed.repo.activePath(await reconstructed.repo.readSession(created.sessionId));
-        const lifecycleStatuses = activePath
-            .filter((entry) => entry.type === "invocation_lifecycle" && entry.invocationId === invocationId)
-            .map((entry) => entry.type === "invocation_lifecycle" ? entry.status : "");
-        expect(lifecycleStatuses).toEqual(["start", "end"]);
-        let lateTerminalCallbacks = 0;
-        await expect(executionLeaseStore.withLiveExecutionFence(lease, async () => {
-            lateTerminalCallbacks += 1;
-        })).resolves.toEqual({committed: false});
-        expect(lateTerminalCallbacks).toBe(0);
-        await reconstructed.dispose();
-    });
-
-    it("revalidates the execution fence before every Provider turn", async () => {
-        let now = Date.parse("2026-07-30T00:00:00.000Z");
-        const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root, {
-            now: () => now,
-            ownerId: () => "owner-multi-turn",
-            leaseDurationMs: 1_000,
-        });
-        await harness.dispose();
-        harness = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
-            modelResolver: () => faux.getModel(),
-            runtimeResolver: () => faux.runtime,
-            enableSessionSummarizer: false,
-            executionLeaseStore,
-            toolExecution: "sequential",
-        });
-        harness.profiles.register(defineAgentProfile({
-            manifest: {key: "test.multi-turn-fence", name: "Multi-turn Fence"},
-            initialSchema: Type.Object({}),
-            allowedToolKeys: ["fence_after_first_turn"],
-            prepare() {
-                return {};
-            },
-        }), false);
-        const created = await harness.createAgent({
-            profileKey: "test.multi-turn-fence",
-            initial: {},
-            workspaceRoot: root,
-        });
-        const reconstructed = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            profiles: harness.profiles,
-            modelResolver: () => faux.getModel(),
-            runtimeResolver: () => faux.runtime,
-            enableSessionSummarizer: false,
-            executionLeaseStore,
-        });
-        let toolCalls = 0;
-        harness.tools.register({
-            key: "fence_after_first_turn",
-            name: "fence_after_first_turn",
-            label: "Fence after first turn",
-            description: "Atomically fences the current execution before the next model turn.",
-            executionMode: "sequential",
-            parameters: Type.Object({}),
-            async execute() {
-                toolCalls += 1;
-                now += 1_001;
-                await reconstructed.readDurableInvocationResult({
-                    sessionId: created.sessionId,
-                    clientMessageId: "00000000-0000-4000-8000-00000000000b",
-                });
-                return {
-                    content: [{type: "text", text: "fenced"}],
-                    details: {},
-                };
-            },
-        });
-        let providerCalls = 0;
-        let acceptedCalls = 0;
-        const originalStream = faux.runtime.streamSimple;
-        faux.runtime.streamSimple = (...args) => {
-            providerCalls += 1;
-            return originalStream.apply(faux.runtime, args);
-        };
-        faux.setResponses([
-            fauxAssistantMessage([
-                fauxToolCall("fence_after_first_turn", {}, {id: "fence-turn-1"}),
-            ], {stopReason: "toolUse"}),
-            fauxAssistantMessage("must not reach second Provider"),
-        ]);
-        const events: string[] = [];
-
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            queueIfBusy: false,
-            clientMessageId: "00000000-0000-4000-8000-00000000000b",
-            message: {text: "run"},
-            onAccepted: async () => {
-                acceptedCalls += 1;
-            },
-            onEvent: async (event) => {
-                events.push(event.type);
-            },
-        });
-
-        expect(providerCalls).toBe(1);
-        expect(toolCalls).toBe(1);
-        expect(acceptedCalls).toBe(1);
-        expect(result.status).not.toBe("completed");
-        const lifecycle = harness.repo.activePath(await harness.repo.readSession(created.sessionId))
-            .filter((entry) => entry.type === "invocation_lifecycle" && entry.invocationId === result.invocationId);
-        expect(lifecycle.map((entry) => entry.type === "invocation_lifecycle" ? entry.status : "")).toEqual(["start"]);
-        expect(harness.repo.reduce(await harness.repo.readSession(created.sessionId)).messages.map((message) => message.role)).toEqual(["user"]);
-        expect(events).toContain("tool_execution_start");
-        expect(events).not.toContain("tool_execution_end");
-        await reconstructed.dispose();
-    });
-
-    it("Provider in-flight 时被跨进程 orphan 后不持久化迟到 transcript", async () => {
-        let now = Date.parse("2026-07-30T00:00:00.000Z");
-        const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root, {
-            now: () => now,
-            ownerId: () => "owner-provider-midflight",
-            leaseDurationMs: 1_000,
-        });
-        await harness.dispose();
-        harness = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
-            modelResolver: () => faux.getModel(),
-            runtimeResolver: () => faux.runtime,
-            enableSessionSummarizer: false,
-            executionLeaseStore,
-        });
-        const providerEntered = createDeferred();
-        const releaseProvider = createDeferred();
-        faux.setResponses([
-            async () => {
-                providerEntered.resolve();
-                await releaseProvider.promise;
-                return fauxAssistantMessage("late Provider transcript");
-            },
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "leader.default",
-            initial: {},
-            workspaceRoot: root,
-        });
-        const reader = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            profiles: harness.profiles,
-            modelResolver: () => faux.getModel(),
-            runtimeResolver: () => faux.runtime,
-            enableSessionSummarizer: false,
-            executionLeaseStore: new HarnessInvocationExecutionLeaseStore(root, {
-                now: () => now,
-                ownerId: () => "reader-provider-midflight",
-                leaseDurationMs: 1_000,
-            }),
-        });
-        const clientMessageId = "00000000-0000-4000-8000-000000000020";
-        const running = harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            queueIfBusy: false,
-            clientMessageId,
-            message: {text: "run"},
-            onAccepted: async () => undefined,
-        });
-        await providerEntered.promise;
-        now += 1_001;
-        await expect(reader.readDurableInvocationResult({
-            sessionId: created.sessionId,
-            clientMessageId,
-        })).resolves.toMatchObject({
-            state: "orphaned",
-            lifecycle: "running",
-            providerStartRecorded: true,
-        });
-        releaseProvider.resolve();
-
-        const result = await running;
-        expect(result.status).not.toBe("completed");
-        expect(harness.repo.reduce(await harness.repo.readSession(created.sessionId)).messages.map((message) => message.role)).toEqual(["user"]);
-        const lifecycle = harness.repo.activePath(await harness.repo.readSession(created.sessionId))
-            .filter((entry) => entry.type === "invocation_lifecycle" && entry.invocationId === result.invocationId)
-            .map((entry) => entry.type === "invocation_lifecycle" ? entry.status : "");
-        expect(lifecycle).toEqual(["start"]);
-        await reader.dispose();
-    });
-
-    it("revalidates the execution fence immediately before the automatic compaction Provider call", async () => {
-        let now = Date.parse("2026-07-30T00:00:00.000Z");
-        const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root, {
-            now: () => now,
-            ownerId: () => "owner-auto-compaction",
-            leaseDurationMs: 3_600_000,
-        });
-        const originalRecordProviderStarted = executionLeaseStore.recordProviderStarted.bind(executionLeaseStore);
-        let providerFenceCalls = 0;
-        executionLeaseStore.recordProviderStarted = async (lease) => {
-            providerFenceCalls += 1;
-            if (providerFenceCalls === 2) {
-                now += 3_600_001;
-            }
-            await originalRecordProviderStarted(lease);
-        };
-        await harness.dispose();
-        harness = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
-            modelResolver: () => faux.getModel(),
-            runtimeResolver: () => faux.runtime,
-            enableSessionSummarizer: false,
-            executionLeaseStore,
-            toolExecution: "sequential",
-        });
-        harness.profiles.register(defineAgentProfile({
-            manifest: {key: "test.auto-compaction-fence", name: "Auto Compaction Fence"},
-            initialSchema: Type.Object({}),
-            allowedToolKeys: ["continue_before_auto_compaction"],
-            runtimeDefaults: {
-                compaction: {
-                    trigger: {kind: "tokens", value: 1},
-                    keepRecent: {kind: "tokens", value: 1},
-                },
-            },
-            prepare() {
-                return {};
-            },
-        }), false);
-        harness.tools.register({
-            key: "continue_before_auto_compaction",
-            name: "continue_before_auto_compaction",
-            label: "Continue before automatic compaction",
-            description: "Completes the first turn so automatic compaction is considered.",
-            executionMode: "sequential",
-            parameters: Type.Object({}),
-            async execute() {
-                return {
-                    content: [{type: "text", text: "continue"}],
-                    details: {},
-                    terminate: false,
-                };
-            },
-        });
-        let turnProviderCalls = 0;
-        let compactionProviderCalls = 0;
-        const originalStream = faux.runtime.streamSimple;
-        const originalComplete = faux.runtime.completeSimple;
-        faux.runtime.streamSimple = (...args) => {
-            turnProviderCalls += 1;
-            return originalStream.apply(faux.runtime, args);
-        };
-        faux.runtime.completeSimple = (...args) => {
-            compactionProviderCalls += 1;
-            return originalComplete.apply(faux.runtime, args);
-        };
-        faux.setResponses([
-            fauxAssistantMessage([
-                fauxToolCall("continue_before_auto_compaction", {}, {id: "auto-compaction-fence-turn-1"}),
-            ], {stopReason: "toolUse"}),
-            fauxAssistantMessage("must not run compaction Provider"),
-            fauxAssistantMessage("must not run next turn Provider"),
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "test.auto-compaction-fence",
-            initial: {},
-            workspaceRoot: root,
-        });
-        await harness.repo.appendMessage(created.sessionId, createUserMessage({text: "OLD CONTEXT"}));
-
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            queueIfBusy: false,
-            clientMessageId: "00000000-0000-4000-8000-00000000000d",
-            message: {text: "run"},
-            onAccepted: async () => undefined,
-        });
-
-        expect(providerFenceCalls).toBe(2);
-        expect(compactionProviderCalls).toBe(0);
-        expect(turnProviderCalls).toBe(1);
-        expect(result.status).not.toBe("completed");
-        const snapshot = await harness.repo.readSession(created.sessionId);
-        expect(snapshot.entries.some((entry) => entry.type === "compaction")).toBe(false);
-    });
-
-    it("automatic compaction Provider in-flight 时被跨进程 orphan 后不写 compaction entry", async () => {
-        let now = Date.parse("2026-07-30T00:00:00.000Z");
-        const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root, {
-            now: () => now,
-            ownerId: () => "owner-auto-compaction-midflight",
-            leaseDurationMs: 3_600_000,
-        });
-        await harness.dispose();
-        harness = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
-            modelResolver: () => faux.getModel(),
-            runtimeResolver: () => faux.runtime,
-            enableSessionSummarizer: false,
-            executionLeaseStore,
-            toolExecution: "sequential",
-        });
-        harness.profiles.register(defineAgentProfile({
-            manifest: {key: "test.auto-compaction-midflight", name: "Auto Compaction Midflight"},
-            initialSchema: Type.Object({}),
-            allowedToolKeys: ["continue_before_midflight_compaction"],
-            runtimeDefaults: {
-                compaction: {
-                    trigger: {kind: "tokens", value: 1},
-                    keepRecent: {kind: "tokens", value: 1},
-                },
-            },
-            prepare() {
-                return {};
-            },
-        }), false);
-        harness.tools.register({
-            key: "continue_before_midflight_compaction",
-            name: "continue_before_midflight_compaction",
-            label: "Continue before midflight compaction",
-            description: "Completes the first turn before the blocked compaction Provider.",
-            executionMode: "sequential",
-            parameters: Type.Object({}),
-            async execute() {
-                return {
-                    content: [{type: "text", text: "continue"}],
-                    details: {},
-                    terminate: false,
-                };
-            },
-        });
-        const compactionProviderEntered = createDeferred();
-        const releaseCompactionProvider = createDeferred();
-        let compactionProviderCalls = 0;
-        const originalComplete = faux.runtime.completeSimple;
-        faux.runtime.completeSimple = (...args) => {
-            compactionProviderCalls += 1;
-            return originalComplete.apply(faux.runtime, args);
-        };
-        faux.setResponses([
-            fauxAssistantMessage([
-                fauxToolCall("continue_before_midflight_compaction", {}, {id: "auto-compaction-midflight-turn-1"}),
-            ], {stopReason: "toolUse"}),
-            async () => {
-                compactionProviderEntered.resolve();
-                await releaseCompactionProvider.promise;
-                return fauxAssistantMessage("late compaction summary");
-            },
-            fauxAssistantMessage("must not reach next Provider"),
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "test.auto-compaction-midflight",
-            initial: {},
-            workspaceRoot: root,
-        });
-        await harness.repo.appendMessage(created.sessionId, createUserMessage({text: "OLD CONTEXT"}));
-        const reader = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            profiles: harness.profiles,
-            modelResolver: () => faux.getModel(),
-            runtimeResolver: () => faux.runtime,
-            enableSessionSummarizer: false,
-            executionLeaseStore: new HarnessInvocationExecutionLeaseStore(root, {
-                now: () => now,
-                ownerId: () => "reader-auto-compaction-midflight",
-                leaseDurationMs: 3_600_000,
-            }),
-        });
-        const clientMessageId = "00000000-0000-4000-8000-000000000021";
-        const running = harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            queueIfBusy: false,
-            clientMessageId,
-            message: {text: "run"},
-            onAccepted: async () => undefined,
-        });
-        await compactionProviderEntered.promise;
-        now += 3_600_001;
-        await expect(reader.readDurableInvocationResult({
-            sessionId: created.sessionId,
-            clientMessageId,
-        })).resolves.toMatchObject({
-            state: "orphaned",
-            lifecycle: "running",
-            providerStartRecorded: true,
-        });
-        releaseCompactionProvider.resolve();
-
-        const result = await running;
-        expect(result.status).not.toBe("completed");
-        expect(compactionProviderCalls).toBe(1);
-        const snapshot = await harness.repo.readSession(created.sessionId);
-        expect(snapshot.entries.some((entry) => entry.type === "compaction")).toBe(false);
-        await reader.dispose();
-    });
-
-    it.each(["missing lease", "wrong owner", "wrong fence"] as const)(
-        "hooked Provider 在 %s 时保持 fail closed，普通 Provider 调用数为零",
-        async (mutation) => {
-            const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root, {
-                ownerId: () => "owner-required-provider-lease",
-                leaseDurationMs: 3_600_000,
-            });
-            const originalRecordProviderStarted = executionLeaseStore.recordProviderStarted.bind(executionLeaseStore);
-            executionLeaseStore.recordProviderStarted = async (lease) => {
-                await originalRecordProviderStarted(lease);
-                const internals = executionInternals(harness);
-                if (mutation === "missing lease") {
-                    internals.invocationExecutionLeases.delete(lease.invocationId);
-                    return;
-                }
-                internals.invocationExecutionLeases.set(lease.invocationId, {
-                    ...lease,
-                    ...(mutation === "wrong owner"
-                        ? {ownerId: "different-owner"}
-                        : {fence: lease.fence + 1}),
-                });
-            };
-            await harness.dispose();
-            harness = new NeuroAgentHarness({
-                repo: new JsonlSessionRepository(root),
-                profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
-                modelResolver: () => faux.getModel(),
-                runtimeResolver: () => faux.runtime,
-                enableSessionSummarizer: false,
-                executionLeaseStore,
-            });
-            let providerCalls = 0;
-            const originalStream = faux.runtime.streamSimple;
-            faux.runtime.streamSimple = (...args) => {
-                providerCalls += 1;
-                return originalStream.apply(faux.runtime, args);
-            };
-            faux.setResponses([fauxAssistantMessage("must not start Provider")]);
-            const created = await harness.createAgent({
-                profileKey: "leader.default",
-                initial: {},
-                workspaceRoot: root,
-            });
-
-            const result = await harness.invokeAgent({
-                sessionId: created.sessionId,
-                mode: "prompt",
-                queueIfBusy: false,
-                clientMessageId: `00000000-0000-4000-8000-0000000000${mutation === "missing lease" ? "10" : mutation === "wrong owner" ? "11" : "12"}`,
-                message: {text: "run"},
-                onAccepted: async () => undefined,
-            });
-
-            expect(providerCalls).toBe(0);
-            expect(result.status).not.toBe("completed");
-        },
-    );
-
-    it.each([
-        {failureKind: "wrong owner", expectedKind: "stale_fence" as const, clientSuffix: "15"},
-        {failureKind: "wrong fence", expectedKind: "stale_fence" as const, clientSuffix: "16"},
-        {failureKind: "missing strict store", expectedKind: "durable_io" as const, clientSuffix: "17"},
-        {failureKind: "malformed strict store", expectedKind: "durable_io" as const, clientSuffix: "18"},
-        {failureKind: "ordinary EIO", expectedKind: "durable_io" as const, clientSuffix: "19"},
-    ])("heartbeat diagnostics classify $failureKind independently from fail-closed behavior", async ({
-        failureKind,
-        expectedKind,
-        clientSuffix,
-    }) => {
-        const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root, {
-            ownerId: () => "owner-heartbeat-diagnostics",
-            leaseDurationMs: 3_600_000,
-        });
-        await harness.dispose();
-        harness = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
-            modelResolver: () => faux.getModel(),
-            runtimeResolver: () => faux.runtime,
-            enableSessionSummarizer: false,
-            executionLeaseStore,
-        });
-        faux.setResponses([fauxAssistantMessage("must not start after heartbeat diagnostic")]);
-        const created = await harness.createAgent({
-            profileKey: "leader.default",
-            initial: {},
-            workspaceRoot: root,
-        });
-        const acceptedEntered = createDeferred();
-        const releaseAccepted = createDeferred();
-        let invocationId = "";
-        const running = harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            queueIfBusy: false,
-            clientMessageId: `00000000-0000-4000-8000-0000000000${clientSuffix}`,
-            message: {text: "run"},
-            onAccepted: async (accepted) => {
-                invocationId = accepted.invocationId;
-                acceptedEntered.resolve();
-                await releaseAccepted.promise;
-            },
-        });
-        await acceptedEntered.promise;
-        const lease = executionInternals(harness).invocationExecutionLeases.get(invocationId);
-        expect(lease).toBeDefined();
-        const storePath = join(root, ".nbook", "agent", "invocation-execution.json");
-        const validStore = await readFile(storePath, "utf8");
-        let injectedFailure: Error;
-        if (failureKind === "ordinary EIO") {
-            injectedFailure = Object.assign(new Error("ordinary heartbeat EIO"), {code: "EIO"});
-        } else {
-            if (failureKind === "missing strict store") {
-                await rm(storePath, {force: true});
-            } else if (failureKind === "malformed strict store") {
-                await writeFile(storePath, "{malformed-heartbeat-store", "utf8");
-            }
-            try {
-                await executionLeaseStore.renew({
-                    ...lease!,
-                    ...(failureKind === "wrong owner"
-                        ? {ownerId: "different-owner"}
-                        : failureKind === "wrong fence"
-                            ? {fence: lease!.fence + 1}
-                            : {}),
-                });
-                throw new Error("expected heartbeat evidence failure");
-            } catch (error) {
-                if (!(error instanceof Error)) {
-                    throw error;
-                }
-                injectedFailure = error;
-            } finally {
-                if (failureKind === "missing strict store" || failureKind === "malformed strict store") {
-                    await writeFile(storePath, validStore, "utf8");
-                }
-            }
-        }
-
-        try {
-            failCurrentExecutionHeartbeat(harness, invocationId, injectedFailure);
-            const classified = executionInternals(harness).invocationExecutionFailures.get(invocationId);
-            expect(classified?.kind).toBe(expectedKind);
-            expect(classified?.message).toContain(expectedKind === "stale_fence" ? "stale fence" : "durable I/O");
-        } finally {
-            releaseAccepted.resolve();
-            await running.catch(() => undefined);
-        }
-    });
-
-    it("orphan 先赢后 heartbeat watchdog 不得由旧 owner 写 Session 或清 follow-up queue", async () => {
-        let now = Date.parse("2026-07-30T00:00:00.000Z");
-        const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root, {
-            now: () => now,
-            ownerId: () => "owner-stale-watchdog",
-            leaseDurationMs: 3_600_000,
-        });
-        await harness.dispose();
-        harness = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
-            modelResolver: () => faux.getModel(),
-            runtimeResolver: () => faux.runtime,
-            enableSessionSummarizer: false,
-            executionLeaseStore,
-        });
-        const providerEntered = createDeferred();
-        const releaseProvider = createDeferred();
-        faux.setResponses([
-            async () => {
-                providerEntered.resolve();
-                await releaseProvider.promise;
-                return fauxAssistantMessage("late stale owner response");
-            },
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "leader.default",
-            initial: {},
-            workspaceRoot: root,
-        });
-        let invocationId = "";
-        const clientMessageId = "00000000-0000-4000-8000-000000000022";
-        const running = harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            queueIfBusy: false,
-            clientMessageId,
-            message: {text: "run"},
-            onAccepted: async (accepted) => {
-                invocationId = accepted.invocationId;
-            },
-        });
-        await providerEntered.promise;
-        await expect(harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            clientMessageId: "00000000-0000-4000-8000-000000000023",
-            message: {text: "keep this follow-up"},
-        })).resolves.toMatchObject({
-            status: "waiting",
-            acceptance: {state: "queued"},
-        });
-        const activePathBefore = harness.repo.activePath(await harness.repo.readSession(created.sessionId));
-        const queueBefore = (await harness.getSessionRecovery(created.sessionId)).followUpQueue;
-        expect(queueBefore.items).toHaveLength(1);
-        const reader = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            profiles: harness.profiles,
-            modelResolver: () => faux.getModel(),
-            runtimeResolver: () => faux.runtime,
-            enableSessionSummarizer: false,
-            executionLeaseStore: new HarnessInvocationExecutionLeaseStore(root, {
-                now: () => now,
-                ownerId: () => "reader-stale-watchdog",
-                leaseDurationMs: 3_600_000,
-            }),
-        });
-        now += 3_600_001;
-        await expect(reader.readDurableInvocationResult({
-            sessionId: created.sessionId,
-            clientMessageId,
-        })).resolves.toMatchObject({
-            state: "orphaned",
-            providerStartRecorded: true,
-        });
-        const lease = executionInternals(harness).invocationExecutionLeases.get(invocationId);
-        expect(lease).toBeDefined();
-        let staleFailure: Error | undefined;
-        try {
-            await executionLeaseStore.renew(lease!);
-        } catch (error) {
-            if (error instanceof Error) {
-                staleFailure = error;
-            }
-        }
-        expect(staleFailure).toBeDefined();
-        failCurrentExecutionHeartbeat(harness, invocationId, staleFailure!);
-
-        const result = await running;
-        expect(result.status).not.toBe("completed");
-        expect(result.error).toContain("stale fence");
-        expect(harness.repo.activePath(await harness.repo.readSession(created.sessionId))).toEqual(activePathBefore);
-        expect((await harness.getSessionRecovery(created.sessionId)).followUpQueue).toEqual(queueBefore);
-
-        releaseProvider.resolve();
-        await new Promise<void>((resolveImmediate) => setImmediate(resolveImmediate));
-        await new Promise<void>((resolveImmediate) => setImmediate(resolveImmediate));
-        await reader.dispose();
-    });
-
-    it.each([
-        {
-            failureKind: "I/O evidence",
-            failure: () => Object.assign(new Error("heartbeat storage EIO"), {code: "EIO"}),
-            expectedDiagnostic: "heartbeat storage EIO",
-            terminalFenceFailure: false,
-        },
-        {
-            failureKind: "I/O evidence followed by terminal I/O",
-            failure: () => Object.assign(new Error("heartbeat storage EIO"), {code: "EIO"}),
-            expectedDiagnostic: "heartbeat storage EIO",
-            terminalFenceFailure: true,
-        },
-    ])("fails closed when heartbeat renewal reports $failureKind failure", async ({
-        failure,
-        expectedDiagnostic,
-        terminalFenceFailure,
-    }) => {
-        const fixedNow = Date.parse("2026-07-30T00:00:00.000Z");
-        const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root, {
-            now: () => fixedNow,
-            ownerId: () => "owner-heartbeat-failure",
-            leaseDurationMs: 30,
-        });
-        const heartbeatHandled = createDeferred();
-        const toolStarted = createDeferred();
-        let renewCalls = 0;
-        executionLeaseStore.renew = async () => {
-            renewCalls += 1;
-            await toolStarted.promise;
-            setImmediate(() => heartbeatHandled.resolve());
-            throw failure();
-        };
-        let terminalFenceCalls = 0;
-        if (terminalFenceFailure) {
-            (executionLeaseStore as unknown as {
-                withLiveExecutionFence(): Promise<never>;
-            }).withLiveExecutionFence = async () => {
-                terminalFenceCalls += 1;
-                throw Object.assign(new Error("terminal sidecar EIO"), {code: "EIO"});
-            };
-        }
-        await harness.dispose();
-        harness = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
-            modelResolver: () => faux.getModel(),
-            runtimeResolver: () => faux.runtime,
-            enableSessionSummarizer: false,
-            executionLeaseStore,
-            toolExecution: "sequential",
-        });
-        harness.profiles.register(defineAgentProfile({
-            manifest: {key: "test.heartbeat-failure", name: "Heartbeat Failure"},
-            initialSchema: Type.Object({}),
-            allowedToolKeys: ["wait_for_heartbeat_failure"],
-            prepare() {
-                return {};
-            },
-        }), false);
-        let toolCalls = 0;
-        harness.tools.register({
-            key: "wait_for_heartbeat_failure",
-            name: "wait_for_heartbeat_failure",
-            label: "Wait for heartbeat failure",
-            description: "Keeps the first turn open until the execution heartbeat fails.",
-            executionMode: "sequential",
-            parameters: Type.Object({}),
-            async execute() {
-                toolCalls += 1;
-                toolStarted.resolve();
-                await heartbeatHandled.promise;
-                return {
-                    content: [{type: "text", text: "heartbeat failed"}],
-                    details: {},
-                };
-            },
-        });
-        let providerCalls = 0;
-        const originalStream = faux.runtime.streamSimple;
-        faux.runtime.streamSimple = (...args) => {
-            providerCalls += 1;
-            return originalStream.apply(faux.runtime, args);
-        };
-        faux.setResponses([
-            fauxAssistantMessage([
-                fauxToolCall("wait_for_heartbeat_failure", {}, {id: "heartbeat-turn-1"}),
-            ], {stopReason: "toolUse"}),
-            fauxAssistantMessage("must not continue after heartbeat failure"),
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "test.heartbeat-failure",
-            initial: {},
-            workspaceRoot: root,
-        });
-
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            queueIfBusy: false,
-            clientMessageId: "00000000-0000-4000-8000-00000000000c",
-            message: {text: "run"},
-            onAccepted: async () => undefined,
-        });
-
-        expect(providerCalls).toBe(1);
-        expect(toolCalls).toBe(1);
-        expect(renewCalls).toBe(1);
-        expect(result.status).not.toBe("completed");
-        expect(result.error).toContain(expectedDiagnostic);
-        const lifecycle = harness.repo.activePath(await harness.repo.readSession(created.sessionId))
-            .filter((entry) => entry.type === "invocation_lifecycle" && entry.invocationId === result.invocationId);
-        expect(lifecycle.some((entry) => entry.type === "invocation_lifecycle"
-            && (entry.status === "error" || entry.status === "aborted"))).toBe(!terminalFenceFailure);
-        expect(terminalFenceCalls > 0).toBe(terminalFenceFailure);
-        const runtimeMaps = harness as unknown as {
-            activeInvocations: Map<number, unknown>;
-            abortControllers: Map<number, unknown>;
-            invocationExecutionHeartbeats: Map<string, unknown>;
-            invocationExecutionLeases: Map<string, unknown>;
-        };
-        expect(runtimeMaps.activeInvocations.has(created.sessionId)).toBe(false);
-        expect(runtimeMaps.abortControllers.has(created.sessionId)).toBe(false);
-        expect(runtimeMaps.invocationExecutionHeartbeats.has(result.invocationId)).toBe(false);
-        expect(runtimeMaps.invocationExecutionLeases.has(result.invocationId)).toBe(false);
-    });
-
-    it("recordProviderStarted 的非 heartbeat EIO 不启动 Provider，并清理全部 running 内存态", async () => {
-        const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root, {
-            ownerId: () => "owner-provider-start-eio",
-            leaseDurationMs: 3_600_000,
-        });
-        executionLeaseStore.recordProviderStarted = async () => {
-            throw Object.assign(new Error("recordProviderStarted sidecar EIO"), {code: "EIO"});
-        };
-        await harness.dispose();
-        harness = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
-            modelResolver: () => faux.getModel(),
-            runtimeResolver: () => faux.runtime,
-            enableSessionSummarizer: false,
-            executionLeaseStore,
-        });
-        let providerCalls = 0;
-        const originalStream = faux.runtime.streamSimple;
-        faux.runtime.streamSimple = (...args) => {
-            providerCalls += 1;
-            return originalStream.apply(faux.runtime, args);
-        };
-        faux.setResponses([fauxAssistantMessage("must not start Provider")]);
-        const created = await harness.createAgent({
-            profileKey: "leader.default",
-            initial: {},
-            workspaceRoot: root,
-        });
-
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            queueIfBusy: false,
-            clientMessageId: "00000000-0000-4000-8000-00000000001a",
-            message: {text: "run"},
-            onAccepted: async () => undefined,
-        });
-
-        expect(providerCalls).toBe(0);
-        expect(result.status).toBe("error");
-        expect(result.error).toContain("recordProviderStarted sidecar EIO");
-        const lifecycles = harness.repo.activePath(await harness.repo.readSession(created.sessionId))
-            .filter((entry) => entry.type === "invocation_lifecycle" && entry.invocationId === result.invocationId)
-            .map((entry) => entry.type === "invocation_lifecycle" ? entry.status : "");
-        expect(lifecycles).toEqual(["start", "error"]);
-        const internals = executionInternals(harness);
-        expect(internals.activeInvocations.has(created.sessionId)).toBe(false);
-        expect(internals.abortControllers.has(created.sessionId)).toBe(false);
-        expect(internals.invocationExecutionHeartbeats.has(result.invocationId)).toBe(false);
-        expect(internals.invocationExecutionLeases.has(result.invocationId)).toBe(false);
-        expect(internals.invocationAbortGates.has(result.invocationId)).toBe(false);
-        expect(internals.invocationRuntimeStates.has(result.invocationId)).toBe(false);
-    });
-
-    it("terminal sidecar EIO 只尝试一次且不伪造 Session terminal，公开 finally 仍清理 running 内存态", async () => {
-        const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root, {
-            ownerId: () => "owner-terminal-sidecar-eio",
-            leaseDurationMs: 3_600_000,
-        });
-        const originalWithLiveExecutionFence = executionLeaseStore.withLiveExecutionFence;
-        let terminalFenceCalls = 0;
-        (executionLeaseStore as unknown as {
-            withLiveExecutionFence(): Promise<never>;
-        }).withLiveExecutionFence = async () => {
-            terminalFenceCalls += 1;
-            throw Object.assign(new Error("terminal sidecar EIO"), {code: "EIO"});
-        };
-        await harness.dispose();
-        harness = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
-            modelResolver: () => faux.getModel(),
-            runtimeResolver: () => faux.runtime,
-            enableSessionSummarizer: false,
-            executionLeaseStore,
-        });
-        faux.setResponses([fauxAssistantMessage("provider completed before terminal sidecar EIO")]);
-        const created = await harness.createAgent({
-            profileKey: "leader.default",
-            initial: {},
-            workspaceRoot: root,
-        });
-        let invocationId = "";
-
-        try {
-            await expect(harness.invokeAgent({
-                sessionId: created.sessionId,
-                mode: "prompt",
-                queueIfBusy: false,
-                clientMessageId: "00000000-0000-4000-8000-00000000001b",
-                message: {text: "run"},
-                onAccepted: async (accepted) => {
-                    invocationId = accepted.invocationId;
-                },
-            })).rejects.toThrow("terminal sidecar EIO");
-
-            const lifecycles = harness.repo.activePath(await harness.repo.readSession(created.sessionId))
-                .filter((entry) => entry.type === "invocation_lifecycle" && entry.invocationId === invocationId)
-                .map((entry) => entry.type === "invocation_lifecycle" ? entry.status : "");
-            expect.soft(lifecycles).toEqual(["start"]);
-            expect.soft(terminalFenceCalls).toBe(1);
-            const internals = executionInternals(harness);
-            expect.soft(internals.activeInvocations.has(created.sessionId)).toBe(false);
-            expect.soft(internals.abortControllers.has(created.sessionId)).toBe(false);
-            expect.soft(internals.invocationExecutionHeartbeats.has(invocationId)).toBe(false);
-            expect.soft(internals.invocationExecutionLeases.has(invocationId)).toBe(false);
-            expect.soft(internals.invocationAbortGates.has(invocationId)).toBe(false);
-            expect.soft(internals.invocationRuntimeStates.has(invocationId)).toBe(false);
-        } finally {
-            (executionLeaseStore as unknown as {
-                withLiveExecutionFence: typeof originalWithLiveExecutionFence;
-            }).withLiveExecutionFence = originalWithLiveExecutionFence;
-            if (executionInternals(harness).activeInvocations.has(created.sessionId)) {
-                await harness.abortInvocation(created.sessionId, {reason: "terminal sidecar EIO test cleanup"});
-            }
-        }
-    });
-
-    it("heartbeat 在等待 tool_execution_start 事件时失败，实际工具调用必须保持为零", async () => {
-        const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root, {
-            ownerId: () => "owner-tool-start-event-gap",
-            leaseDurationMs: 3_600_000,
-        });
-        const eventEntered = createDeferred();
-        const releaseEvent = createDeferred();
-        await harness.dispose();
-        harness = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
-            modelResolver: () => faux.getModel(),
-            runtimeResolver: () => faux.runtime,
-            enableSessionSummarizer: false,
-            executionLeaseStore,
-            toolExecution: "sequential",
-        });
-        harness.profiles.register(defineAgentProfile({
-            manifest: {key: "test.tool-start-event-gap", name: "Tool Start Event Gap"},
-            initialSchema: Type.Object({}),
-            allowedToolKeys: ["must_not_execute_after_event_gap"],
-            prepare() {
-                return {};
-            },
-        }), false);
-        let toolCalls = 0;
-        harness.tools.register({
-            key: "must_not_execute_after_event_gap",
-            name: "must_not_execute_after_event_gap",
-            label: "Must not execute after event gap",
-            description: "Records whether the real tool boundary was crossed.",
-            executionMode: "sequential",
-            parameters: Type.Object({}),
-            async execute() {
-                toolCalls += 1;
-                return {
-                    content: [{type: "text", text: "must not execute"}],
-                    details: {},
-                    terminate: true,
-                };
-            },
-        });
-        faux.setResponses([
-            fauxAssistantMessage([
-                fauxToolCall("must_not_execute_after_event_gap", {}, {id: "tool-start-event-gap-1"}),
-            ], {stopReason: "toolUse"}),
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "test.tool-start-event-gap",
-            initial: {},
-            workspaceRoot: root,
-        });
-        let acceptedInvocationId = "";
-        const invocation = harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            queueIfBusy: false,
-            clientMessageId: "00000000-0000-4000-8000-00000000000e",
-            message: {text: "run"},
-            onAccepted: async ({invocationId}) => {
-                acceptedInvocationId = invocationId;
-            },
-            onEvent: async (event) => {
-                if (event.type !== "tool_execution_start") {
-                    return;
-                }
-                eventEntered.resolve();
-                await releaseEvent.promise;
-            },
-        });
-        try {
-            await eventEntered.promise;
-            failCurrentExecutionHeartbeat(
-                harness,
-                acceptedInvocationId,
-                new InvocationExecutionEvidenceLostError("execution lease 已失效，不能续租"),
-            );
-            await waitFor(() => {
-                expect(executionInternals(harness).invocationExecutionFailures.has(acceptedInvocationId)).toBe(true);
-            });
-        } finally {
-            releaseEvent.resolve();
-        }
-
-        const timeout = Symbol("tool-start-event-gap-timeout");
-        const settled = await Promise.race([
-            invocation,
-            new Promise<typeof timeout>((resolveTimeout) => {
-                const timer = setTimeout(() => resolveTimeout(timeout), 1_000);
-                timer.unref?.();
-            }),
-        ]);
-        if (settled === timeout) {
-            await harness.abortInvocation(created.sessionId, {reason: "test cleanup after bounded timeout"});
-            await invocation.catch(() => undefined);
-            throw new Error("hooked invocation did not settle after tool start event heartbeat failure");
-        }
-        const result = settled;
-        expect(result.status).not.toBe("completed");
-        expect(toolCalls).toBe(0);
-    });
-
-    it("heartbeat failure watchdog bounds a non-cooperative Provider, clears maps, and immutable frame fences late events", async () => {
-        const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root, {
-            ownerId: () => "owner-non-cooperative-provider",
-            leaseDurationMs: 3_600_000,
-        });
-        await harness.dispose();
-        harness = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
-            modelResolver: () => faux.getModel(),
-            runtimeResolver: () => faux.runtime,
-            enableSessionSummarizer: false,
-            executionLeaseStore,
-            toolExecution: "sequential",
-        });
-        harness.profiles.register(defineAgentProfile({
-            manifest: {key: "test.non-cooperative-provider", name: "Non-cooperative Provider"},
-            initialSchema: Type.Object({}),
-            allowedToolKeys: ["must_not_run_after_late_provider"],
-            prepare() {
-                return {};
-            },
-        }), false);
-        let toolCalls = 0;
-        harness.tools.register({
-            key: "must_not_run_after_late_provider",
-            name: "must_not_run_after_late_provider",
-            label: "Must not run after late Provider",
-            description: "Detects a late Provider result crossing the execution guard.",
-            executionMode: "sequential",
-            parameters: Type.Object({}),
-            async execute() {
-                toolCalls += 1;
-                return {
-                    content: [{type: "text", text: "must not execute"}],
-                    details: {},
-                    terminate: true,
-                };
-            },
-        });
-        const providerEntered = createDeferred();
-        const releaseProvider = createDeferred();
-        const providerReturned = createDeferred();
-        let providerCalls = 0;
-        const originalStream = faux.runtime.streamSimple;
-        faux.runtime.streamSimple = (...args) => {
-            providerCalls += 1;
-            return originalStream.apply(faux.runtime, args);
-        };
-        faux.setResponses([
-            async () => {
-                providerEntered.resolve();
-                await releaseProvider.promise;
-                providerReturned.resolve();
-                return fauxAssistantMessage([
-                    fauxToolCall("must_not_run_after_late_provider", {}, {id: "late-provider-tool-1"}),
-                ], {stopReason: "toolUse"});
-            },
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "test.non-cooperative-provider",
-            initial: {},
-            workspaceRoot: root,
-        });
-        let invocationId = "";
-        const events: string[] = [];
-        const running = harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            queueIfBusy: false,
-            clientMessageId: "00000000-0000-4000-8000-000000000013",
-            message: {text: "run"},
-            onAccepted: async (accepted) => {
-                invocationId = accepted.invocationId;
-            },
-            onEvent: async (event) => {
-                events.push(event.type);
-            },
-        });
-        await providerEntered.promise;
-        failCurrentExecutionHeartbeat(
-            harness,
-            invocationId,
-            Object.assign(new Error("heartbeat provider EIO"), {code: "EIO"}),
-        );
-
-        const timeout = Symbol("non-cooperative-provider-timeout");
-        const publicOutcome = await Promise.race([
-            running.then(
-                (result) => ({kind: "result" as const, result}),
-                (error: Error) => ({kind: "error" as const, error}),
-            ),
-            new Promise<typeof timeout>((resolveTimeout) => {
-                const timer = setTimeout(() => resolveTimeout(timeout), 1_000);
-                timer.unref?.();
-            }),
-        ]);
-        if (publicOutcome === timeout) {
-            releaseProvider.resolve();
-            await running.catch(() => undefined);
-            throw new Error("heartbeat watchdog did not bound the non-cooperative Provider");
-        }
-        if (publicOutcome.kind === "error") {
-            releaseProvider.resolve();
-            await running.catch(() => undefined);
-            throw publicOutcome.error;
-        }
-        const result = publicOutcome.result;
-        const internalsAtPublicReturn = executionInternals(harness);
-        expect(result.status).not.toBe("completed");
-        expect(result.error).toContain("durable I/O");
-        expect(internalsAtPublicReturn.activeInvocations.has(created.sessionId)).toBe(false);
-        expect(internalsAtPublicReturn.abortControllers.has(created.sessionId)).toBe(false);
-        expect(internalsAtPublicReturn.invocationExecutionHeartbeats.has(invocationId)).toBe(false);
-        expect(internalsAtPublicReturn.invocationExecutionLeases.has(invocationId)).toBe(false);
-        expect(internalsAtPublicReturn.invocationExecutionFailures.has(invocationId)).toBe(false);
-        expect(internalsAtPublicReturn.invocationExecutionRequirements.has(invocationId)).toBe(false);
-        const publicLifecycles = harness.repo.activePath(await harness.repo.readSession(created.sessionId))
-            .filter((entry) => entry.type === "invocation_lifecycle" && entry.invocationId === invocationId)
-            .map((entry) => entry.type === "invocation_lifecycle" ? entry.status : "");
-        expect(publicLifecycles).toEqual(["start", "aborted"]);
-
-        const messageEventCountAtPublicReturn = events
-            .filter((type) => type === "message_start" || type === "message_update" || type === "message_end")
-            .length;
-        releaseProvider.resolve();
-        await providerReturned.promise;
-        await new Promise<void>((resolveImmediate) => setImmediate(resolveImmediate));
-        await new Promise<void>((resolveImmediate) => setImmediate(resolveImmediate));
-        expect(providerCalls).toBe(1);
-        expect(toolCalls).toBe(0);
-        expect(events.filter((type) => type === "message_start" || type === "message_update" || type === "message_end"))
-            .toHaveLength(messageEventCountAtPublicReturn);
-        const settledLifecycles = harness.repo.activePath(await harness.repo.readSession(created.sessionId))
-            .filter((entry) => entry.type === "invocation_lifecycle" && entry.invocationId === invocationId)
-            .map((entry) => entry.type === "invocation_lifecycle" ? entry.status : "");
-        expect(settledLifecycles).toEqual(["start", "aborted"]);
-    });
-
-    it("heartbeat failure watchdog bounds a non-cooperative tool and fences all late side effects", async () => {
-        const executionLeaseStore = new HarnessInvocationExecutionLeaseStore(root, {
-            ownerId: () => "owner-non-cooperative-tool",
-            leaseDurationMs: 3_600_000,
-        });
-        await harness.dispose();
-        harness = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
-            modelResolver: () => faux.getModel(),
-            runtimeResolver: () => faux.runtime,
-            enableSessionSummarizer: false,
-            executionLeaseStore,
-            toolExecution: "sequential",
-        });
-        harness.profiles.register(defineAgentProfile({
-            manifest: {key: "test.non-cooperative-tool", name: "Non-cooperative Tool"},
-            initialSchema: Type.Object({}),
-            allowedToolKeys: ["non_cooperative_tool"],
-            prepare() {
-                return {};
-            },
-        }), false);
-        const toolEntered = createDeferred();
-        const releaseTool = createDeferred();
-        const toolReturned = createDeferred();
-        let toolCalls = 0;
-        harness.tools.register({
-            key: "non_cooperative_tool",
-            name: "non_cooperative_tool",
-            label: "Non-cooperative tool",
-            description: "Ignores AbortSignal until the test explicitly releases it.",
-            executionMode: "sequential",
-            parameters: Type.Object({}),
-            async execute() {
-                toolCalls += 1;
-                toolEntered.resolve();
-                await releaseTool.promise;
-                toolReturned.resolve();
-                return {
-                    content: [{type: "text", text: "late tool result"}],
-                    details: {},
-                    terminate: false,
-                };
-            },
-        });
-        let providerCalls = 0;
-        const originalStream = faux.runtime.streamSimple;
-        faux.runtime.streamSimple = (...args) => {
-            providerCalls += 1;
-            return originalStream.apply(faux.runtime, args);
-        };
-        faux.setResponses([
-            fauxAssistantMessage([
-                fauxToolCall("non_cooperative_tool", {}, {id: "non-cooperative-tool-1"}),
-            ], {stopReason: "toolUse"}),
-            fauxAssistantMessage("must not start a second Provider"),
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "test.non-cooperative-tool",
-            initial: {},
-            workspaceRoot: root,
-        });
-        let invocationId = "";
-        const events: string[] = [];
-        const running = harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            queueIfBusy: false,
-            clientMessageId: "00000000-0000-4000-8000-000000000014",
-            message: {text: "run"},
-            onAccepted: async (accepted) => {
-                invocationId = accepted.invocationId;
-            },
-            onEvent: async (event) => {
-                events.push(event.type);
-            },
-        });
-        await toolEntered.promise;
-        failCurrentExecutionHeartbeat(
-            harness,
-            invocationId,
-            Object.assign(new Error("heartbeat tool EIO"), {code: "EIO"}),
-        );
-
-        const timeout = Symbol("non-cooperative-tool-timeout");
-        const publicOutcome = await Promise.race([
-            running.then(
-                (result) => ({kind: "result" as const, result}),
-                (error: Error) => ({kind: "error" as const, error}),
-            ),
-            new Promise<typeof timeout>((resolveTimeout) => {
-                const timer = setTimeout(() => resolveTimeout(timeout), 1_000);
-                timer.unref?.();
-            }),
-        ]);
-        if (publicOutcome === timeout) {
-            releaseTool.resolve();
-            await running.catch(() => undefined);
-            throw new Error("heartbeat watchdog did not bound the non-cooperative tool");
-        }
-        if (publicOutcome.kind === "error") {
-            releaseTool.resolve();
-            await running.catch(() => undefined);
-            throw publicOutcome.error;
-        }
-        const result = publicOutcome.result;
-        const internalsAtPublicReturn = executionInternals(harness);
-        expect(result.status).not.toBe("completed");
-        expect(result.error).toContain("durable I/O");
-        expect(internalsAtPublicReturn.activeInvocations.has(created.sessionId)).toBe(false);
-        expect(internalsAtPublicReturn.abortControllers.has(created.sessionId)).toBe(false);
-        expect(internalsAtPublicReturn.invocationExecutionHeartbeats.has(invocationId)).toBe(false);
-        expect(internalsAtPublicReturn.invocationExecutionLeases.has(invocationId)).toBe(false);
-        expect(internalsAtPublicReturn.invocationExecutionFailures.has(invocationId)).toBe(false);
-        expect(internalsAtPublicReturn.invocationExecutionRequirements.has(invocationId)).toBe(false);
-        expect(events).toContain("tool_execution_start");
-        expect(events).not.toContain("tool_execution_end");
-        const publicLifecycles = harness.repo.activePath(await harness.repo.readSession(created.sessionId))
-            .filter((entry) => entry.type === "invocation_lifecycle" && entry.invocationId === invocationId)
-            .map((entry) => entry.type === "invocation_lifecycle" ? entry.status : "");
-        expect(publicLifecycles).toEqual(["start", "aborted"]);
-
-        releaseTool.resolve();
-        await toolReturned.promise;
-        await new Promise<void>((resolveImmediate) => setImmediate(resolveImmediate));
-        await new Promise<void>((resolveImmediate) => setImmediate(resolveImmediate));
-        expect(providerCalls).toBe(1);
-        expect(toolCalls).toBe(1);
-        expect(events).not.toContain("tool_execution_end");
-        const settledLifecycles = harness.repo.activePath(await harness.repo.readSession(created.sessionId))
-            .filter((entry) => entry.type === "invocation_lifecycle" && entry.invocationId === invocationId)
-            .map((entry) => entry.type === "invocation_lifecycle" ? entry.status : "");
-        expect(settledLifecycles).toEqual(["start", "aborted"]);
-    });
-
-    it("dispose aborts managed direct invocations before closing runtime resources", async () => {
-        const providerEntered = createDeferred();
-        const releaseProvider = createDeferred();
-        const providerReturned = createDeferred();
-        let lateProviderCalls = 0;
-        harness.profiles.register(defineAgentProfile({
-            manifest: {
-                key: "test.dispose-managed-invocation",
-                name: "Dispose Managed Invocation",
-            },
-            initialSchema: Type.Object({}),
-            allowedToolKeys: ["report_result"],
-            prepare() {
-                return {};
-            },
-        }), false);
-        faux.setResponses([
-            async () => {
-                providerEntered.resolve();
-                await releaseProvider.promise;
-                providerReturned.resolve();
-                return fauxAssistantMessage([
-                    fauxToolCall("report_result", {result: "late"}, {id: "dispose-managed-report"}),
-                ], {stopReason: "toolUse"});
-            },
-            async () => {
-                lateProviderCalls += 1;
-                return fauxAssistantMessage("must not start after dispose");
-            },
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "test.dispose-managed-invocation",
-            initial: {},
-            workspaceRoot: root,
-        });
-        const lateCreated = await harness.createAgent({
-            profileKey: "test.dispose-managed-invocation",
-            initial: {},
-            workspaceRoot: root,
-        });
-        let invocationId = "";
-        const running = harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            queueIfBusy: false,
-            clientMessageId: "00000000-0000-4000-8000-000000000008",
-            message: {text: "run"},
-            onAccepted: async (accepted) => {
-                invocationId = accepted.invocationId;
-            },
-        });
-        await providerEntered.promise;
-        let disposing: Promise<void> | undefined;
-        try {
-            disposing = harness.dispose();
-            await expect(harness.invokeAgent({
-                sessionId: lateCreated.sessionId,
-                mode: "prompt",
-                queueIfBusy: false,
-                clientMessageId: "00000000-0000-4000-8000-000000000009",
-                message: {text: "late run"},
-                onAccepted: async () => undefined,
-            })).rejects.toThrow("harness_runtime_disposed");
-            expect(lateProviderCalls).toBe(0);
-            await waitFor(() => {
-                const internals = executionInternals(harness);
-                expect(internals.activeInvocations.has(created.sessionId)).toBe(false);
-                expect(internals.abortControllers.has(created.sessionId)).toBe(false);
-                expect(internals.invocationExecutionHeartbeats.has(invocationId)).toBe(false);
-                expect(internals.invocationExecutionLeases.has(invocationId)).toBe(false);
-                expect(internals.invocationExecutionRequirements.has(invocationId)).toBe(false);
-            });
-            const disposeTimeout = Symbol("dispose-managed-invocation-timeout");
-            const disposeOutcome = await Promise.race([
-                disposing.then(() => "settled" as const),
-                new Promise<typeof disposeTimeout>((resolveTimeout) => {
-                    const timer = setTimeout(() => resolveTimeout(disposeTimeout), 1_000);
-                    timer.unref?.();
-                }),
-            ]);
-            expect(disposeOutcome).toBe("settled");
-            await expect(running).resolves.toMatchObject({status: "error"});
-        } finally {
-            releaseProvider.resolve();
-            await providerReturned.promise;
-            await running.catch(() => undefined);
-            await disposing?.catch(() => undefined);
-            await new Promise<void>((resolveImmediate) => setImmediate(resolveImmediate));
-            await harness.piTraceRecorder.flush();
-        }
-    });
-
-    it("hooked invocation entering waiting releases its execution lease before same-id resume", async () => {
-        const resumeProviderEntered = createDeferred();
-        const releaseResumeProvider = createDeferred();
-        harness.profiles.register(defineAgentProfile({
-            manifest: {
-                key: "test.hooked-waiting-resume",
-                name: "Hooked Waiting Resume",
-            },
-            initialSchema: Type.Object({}),
-            allowedToolKeys: ["request_user_input", "report_result"],
-            prepare() {
-                return {};
-            },
-        }), false);
-        faux.setResponses([
-            fauxAssistantMessage([
-                fauxToolCall("request_user_input", {
-                    questions: [{question: "继续？"}],
-                }, {id: "hooked-waiting-input"}),
-            ], {stopReason: "toolUse"}),
-            async () => {
-                resumeProviderEntered.resolve();
-                await releaseResumeProvider.promise;
-                return fauxAssistantMessage([
-                    fauxToolCall("report_result", {
-                        result: "resumed",
-                    }, {id: "hooked-waiting-report"}),
-                ], {stopReason: "toolUse"});
-            },
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "test.hooked-waiting-resume",
-            initial: {},
-            workspaceRoot: root,
-        });
-        const waiting = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            queueIfBusy: false,
-            clientMessageId: "00000000-0000-4000-8000-000000000007",
-            message: {text: "run"},
-            onAccepted: async () => undefined,
-        });
-        expect(waiting.status).toBe("waiting");
-        await expect(harness.readDurableInvocationResult({
-            sessionId: created.sessionId,
-            clientMessageId: "00000000-0000-4000-8000-000000000007",
-        })).resolves.toMatchObject({
-            state: "waiting",
-            invocationId: waiting.invocationId,
-        });
-
-        const continuedPromise = harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "continue",
-            resolution: {
-                kind: "user_input",
-                toolCallId: "hooked-waiting-input",
-                answers: [{questionIndex: 0, note: "继续"}],
-            },
-        });
-        const resumeStart = await Promise.race([
-            resumeProviderEntered.promise.then(() => ({kind: "provider_entered" as const})),
-            continuedPromise.then((result) => ({kind: "settled_early" as const, result})),
-        ]);
-        expect(resumeStart).toEqual({kind: "provider_entered"});
-        try {
-            await expect(harness.readDurableInvocationResult({
-                sessionId: created.sessionId,
-                clientMessageId: "00000000-0000-4000-8000-000000000007",
-            })).resolves.toMatchObject({
-                state: "active",
-                invocationId: waiting.invocationId,
-            });
-            const executionState = executionInternals(harness);
-            expect(executionState.invocationExecutionLeases.has(waiting.invocationId)).toBe(true);
-            expect(executionState.invocationExecutionRequirements.has(waiting.invocationId)).toBe(true);
-            const executionMarkers = harness.repo.activePath(await harness.repo.readSession(created.sessionId))
-                .filter((entry) => entry.type === "custom"
-                    && entry.key === `harness.execution_lease_established:${waiting.invocationId}`);
-            expect(executionMarkers).toHaveLength(2);
-            const fences = executionMarkers.map((entry) => entry.type === "custom"
-                && typeof entry.value === "object"
-                && entry.value !== null
-                && "fence" in entry.value
-                ? entry.value.fence
-                : null);
-            expect(fences[1]).not.toBe(fences[0]);
-        } finally {
-            releaseResumeProvider.resolve();
-        }
-        const continued = await continuedPromise;
-        expect(continued).toMatchObject({
-            status: "completed",
-            invocationId: waiting.invocationId,
-            reportResult: {result: "resumed"},
-        });
-    });
-
-    it("busy hooked invocation creates no follow-up and calls neither callback nor Provider", async () => {
-        const firstAccepted = createDeferred();
-        const releaseFirst = createDeferred();
-        let providerCalls = 0;
-        let secondCallbacks = 0;
-        const originalStream = faux.runtime.streamSimple;
-        faux.runtime.streamSimple = (...args) => {
-            providerCalls += 1;
-            return originalStream.apply(faux.runtime, args);
-        };
-        faux.setResponses([fauxAssistantMessage("first done")]);
-        const created = await harness.createAgent({
-            profileKey: "leader.default",
-            initial: {},
-            workspaceRoot: root,
-        });
-        const first = harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            queueIfBusy: false,
-            clientMessageId: "00000000-0000-4000-8000-000000000005",
-            message: {text: "first"},
-            onAccepted: async () => {
-                firstAccepted.resolve();
-                await releaseFirst.promise;
-            },
-        });
-        await firstAccepted.promise;
-
-        const busy = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            queueIfBusy: false,
-            clientMessageId: "00000000-0000-4000-8000-000000000006",
-            message: {text: "second"},
-            onAccepted: async () => {
-                secondCallbacks += 1;
-            },
-        });
-        expect(busy.status).toBe("error");
-        expect(busy.acceptance.state).not.toBe("queued");
-        expect(secondCallbacks).toBe(0);
-        expect(providerCalls).toBe(0);
-
-        releaseFirst.resolve();
-        await expect(first).resolves.toMatchObject({status: "completed"});
-        expect(providerCalls).toBe(1);
-        expect((await harness.getSessionRecovery(created.sessionId)).followUpQueue.items).toEqual([]);
-    });
-
 });
 
 type RelationIdentity = {
@@ -12076,40 +10033,6 @@ function sortRelationIdentities(items: Iterable<RelationIdentity>): RelationIden
             profileKey: item.profileKey,
         }))
         .sort((left, right) => left.sessionId - right.sessionId);
-}
-
-type ExecutionHarnessInternals = {
-    activeInvocations: Map<number, object>;
-    abortControllers: Map<number, AbortController>;
-    invocationExecutionHeartbeats: Map<string, ReturnType<typeof setTimeout>>;
-    invocationExecutionLeases: Map<string, InvocationExecutionLease>;
-    invocationExecutionFailures: Map<string, Error & {kind: "stale_fence" | "durable_io"}>;
-    invocationExecutionRequirements: Map<string, {ownerId: string; fence: number}>;
-    invocationAbortGates: Map<string, object>;
-    invocationRuntimeStates: Map<string, object>;
-    failExecutionLeaseHeartbeat(
-        lease: InvocationExecutionLease,
-        current: InvocationExecutionLease,
-        // 私有边界刻意接受外部异常；测试只传 Error 实例。
-        error: unknown,
-    ): void;
-};
-
-/** 仅供 execution fencing 回归测试观察运行态与同步注入 heartbeat catch。 */
-function executionInternals(target: NeuroAgentHarness): ExecutionHarnessInternals {
-    return target as unknown as ExecutionHarnessInternals;
-}
-
-/** 用当前精确 lease 同步复现 heartbeat renew catch，避免测试依赖墙钟。 */
-function failCurrentExecutionHeartbeat(
-    target: NeuroAgentHarness,
-    invocationId: string,
-    error: Error,
-): void {
-    const internals = executionInternals(target);
-    const lease = internals.invocationExecutionLeases.get(invocationId);
-    expect(lease).toBeDefined();
-    internals.failExecutionLeaseHeartbeat(lease!, lease!, error);
 }
 
 /**

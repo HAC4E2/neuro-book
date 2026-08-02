@@ -2,6 +2,8 @@
 
 状态：已实施（2026-07-22），浏览器走查待用户；实施记录与计划出入见 [README 执行小节](README.md#2026-07-22-模块-f-实施主会话任务中心)。承接 [PLAN-E](PLAN-E-background-jobs.md) 二期事项「Header 任务中心入口 + 任务中心 UI」；用户指令：`NovelIdeHeader.vue:136` 附近加后台任务按钮，点击弹出管理后台任务的 window dialog 面板。
 
+> 历史说明（2026-07-27）：本文第 37 节起的共享轮询、变频、`setPanelOpen()` 与取消后刷新描述是当时实现，现已由 [PLAN-G](PLAN-G-job-sse.md) 的单页面单 Jobs SSE 状态机替代；任务中心 UI 设计继续有效。
+
 ## 背景与目标
 
 PLAN-E 一期建成 AgentJobManager（workflow 默认非阻塞、bash/invoke_agent background、HTTP 三路由），气泡侧（PLAN-C）已具备单 job 观察、waiting 应答与取消。但**没有全局入口**：用户看不到「现在有哪些后台任务在跑」，终态任务在内存里无限堆积也无法清理。

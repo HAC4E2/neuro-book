@@ -55,7 +55,7 @@ describe("Manager平台矩阵", () => {
         const manifest = {
             profile: "product-bun",
             components: {
-                product: {provider: "release", platform: "linux-x64-glibc"},
+                product: {provider: "release", buildId: `sha256:${"9".repeat(64)}`, platform: "linux-x64-glibc"},
             },
         } as InstallationManifest;
         expect(() => assertInstallationHostCompatible(manifest, host)).toThrow("重新安装");

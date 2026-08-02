@@ -1,5 +1,7 @@
 # TSX Profile Workbench
 
+> 2026-07-31 authoring/CLI 取代说明：下文 `assets/workspace/.nbook/agent/scripts/profile.ts` 与 `.output/server/scripts/**` 路径只表示历史实现。当前作者使用 `nbook/profile-sdk`；需要文风/参考预设能力时可显式使用正式 `nbook/profile-sdk/writing` 子入口。Agent 稳定入口是 `.nbook/agent/bin/profile`，Source checkout wrapper 调 Product-owned source entry，发行物通过 Task 130 的 Product Runtime Contract 解析 `profile` 逻辑命令，不保留旧路径 fallback。
+
 ## User Request
 
 - 继续推进 TSX profile 这一块：先制定实现计划，再用 `$grill-with-docs` 对计划做术语和架构边界审问。

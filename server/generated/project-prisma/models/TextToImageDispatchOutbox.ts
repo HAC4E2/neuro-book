@@ -241,7 +241,7 @@ export type TextToImageDispatchOutboxGroupByOutputType = {
   _max: TextToImageDispatchOutboxMaxAggregateOutputType | null
 }
 
-type GetTextToImageDispatchOutboxGroupByPayload<T extends TextToImageDispatchOutboxGroupByArgs> = Prisma.PrismaPromise<
+export type GetTextToImageDispatchOutboxGroupByPayload<T extends TextToImageDispatchOutboxGroupByArgs> = Prisma.PrismaPromise<
   Array<
     Prisma.PickEnumerable<TextToImageDispatchOutboxGroupByOutputType, T['by']> &
       {
@@ -1529,6 +1529,11 @@ export type TextToImageDispatchOutboxFindManyArgs<ExtArgs extends runtime.Types.
    * Skip the first `n` TextToImageDispatchOutboxes.
    */
   skip?: number
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+   * 
+   * Filter by unique combinations of TextToImageDispatchOutboxes.
+   */
   distinct?: Prisma.TextToImageDispatchOutboxScalarFieldEnum | Prisma.TextToImageDispatchOutboxScalarFieldEnum[]
 }
 

@@ -7,6 +7,8 @@ import {
 import {
     ProjectLifecycle,
     type ProjectCandidateSnapshot,
+    type ProjectCoverUpdateInput,
+    type ProjectCoverUpdateResult,
     type ProjectCreateInput,
     type ProjectCreateResult,
     type ProjectDeleteResult,
@@ -18,10 +20,6 @@ import type {
     ProjectModuleHandle,
     ProjectModuleToken,
 } from "nbook/server/workspace-files/project-module";
-import {
-    normalizeProjectPath,
-    projectPathFromRef,
-} from "nbook/server/workspace-files/project-path";
 import {
     PROJECT_GRACE_MS,
     type ProjectOperationStart,
@@ -44,7 +42,6 @@ import "nbook/server/workspace-history/project-history";
 import "nbook/server/workspace-files/project-file-index";
 import "nbook/server/plot/index";
 import "nbook/server/agent/tools/agent-sql-project-module";
-import "nbook/server/text-to-image/project-client-module";
 
 export {isProjectNotOpenError, PROJECT_GRACE_MS, ProjectNotOpenError};
 export type {ProjectOpener, ProjectOperationStart, ReadyProjectSessionRef};
@@ -67,7 +64,7 @@ type ProjectOccupancySnapshot = {
 };
 
 type OpenProjectSnapshot = ProjectOccupancySnapshot & {
-    readonly projectPath: string;
+    readonly projectRoot: string;
     readonly openedAt: string;
     readonly lastActivityAt: string;
 };
@@ -85,26 +82,17 @@ const globalState = globalForProjectSession.__nbookProjectSessionV2 ??= {
 };
 
 /**
- * 当前HTTP/path合同的open边界。
- * projectPath只在此处解析为ProjectWorkspaceRef；Lifecycle与全部Module只接收结构化identity。
+ * 打开结构化 Project ref。
+ *
+ * Facade 只接受 `ProjectWorkspaceRef`：字符串身份在 HTTP / CLI 入口一次性收窄，
+ * 之后的调用链没有任何再次「从路径求根」的口子。
  */
 export async function openProject(
-    workspaceRoot: AbsoluteFsPath,
-    projectPath: string,
-    opener: ProjectOpener,
-): Promise<ReadyProjectSessionRef> {
-    const service = serviceFor(workspaceRoot);
-    const ready = await service.openProject(refFromProjectPath(projectPath), opener);
-    ensureMaintenanceTimer();
-    return ready;
-}
-
-/** 使用当前Runtime Workspace Root打开结构化Project ref。 */
-export async function openProjectRef(
     ref: ProjectWorkspaceRef,
     opener: ProjectOpener,
+    workspaceRoot?: AbsoluteFsPath,
 ): Promise<ReadyProjectSessionRef> {
-    const service = serviceFor(resolveRuntimeWorkspaceRoot());
+    const service = serviceFor(workspaceRoot ?? resolveRuntimeWorkspaceRoot());
     const ready = await service.openProject(ref, opener);
     ensureMaintenanceTimer();
     return ready;
@@ -121,9 +109,9 @@ export async function openProjectControl(
     return result;
 }
 
-/** 读取唯一Lifecycle的轻量Project列表snapshot。 */
-export function listProjects(): Promise<ProjectListSnapshot> {
-    return serviceFor(resolveRuntimeWorkspaceRoot()).listProjects();
+/** 读取唯一Lifecycle的轻量Project列表snapshot；测试与独立 Harness 可显式指定 Workspace Root。 */
+export function listProjects(workspaceRoot?: AbsoluteFsPath): Promise<ProjectListSnapshot> {
+    return serviceFor(workspaceRoot ?? resolveRuntimeWorkspaceRoot()).listProjects();
 }
 
 /** 读取与Project列表同revision的一级候选目录。 */
@@ -141,6 +129,11 @@ export function updateProjectMetadata(input: ProjectMetadataUpdateInput): Promis
     return serviceFor(resolveRuntimeWorkspaceRoot()).updateProjectMetadata(input);
 }
 
+/** 通过唯一 Service 更新 Project 封面，并自动选择 borrowed 或 owned Occupancy。 */
+export function updateProjectCover(input: ProjectCoverUpdateInput): Promise<ProjectCoverUpdateResult> {
+    return serviceFor(resolveRuntimeWorkspaceRoot()).updateProjectCover(input);
+}
+
 /** 删除已经显式关闭的Project；本入口绝不隐式close。 */
 export function deleteProject(ref: ProjectWorkspaceRef): Promise<ProjectDeleteResult> {
     return serviceFor(resolveRuntimeWorkspaceRoot()).deleteProject(ref);
@@ -156,12 +149,12 @@ export function requireReadyProject(ref: ProjectWorkspaceRef): ReadyProjectSessi
 }
 
 /**
- * 在 Phase 7 前的旧公开 `workspace/<root>` projectPath seam 将字符串一次性收窄为 ready Project。
- * 返回值之后必须沿调用链传播，业务 Module 不得再次从 projectPath 求根。
+ * 数据面入口：取得 ready Project 并顺带刷新活动时间。
+ * 返回值之后必须沿调用链传播，业务 Module 不得再次求根。
  */
-export function requireReadyProjectPath(projectPath: string): ReadyProjectSessionRef {
-    const ready = requireReadyProject(refFromProjectPath(projectPath));
-    markProjectActivityRef(ready.workspace.ref);
+export function requireActiveReadyProject(ref: ProjectWorkspaceRef): ReadyProjectSessionRef {
+    const ready = requireReadyProject(ref);
+    markProjectActivity(ready.workspace.ref);
     return ready;
 }
 
@@ -219,15 +212,15 @@ export function startReadyProjectOperation<TResult>(
     return service.startReadyProjectOperation(ready, start);
 }
 
-/** 当前path合同的数据面守卫；grace仍属于ready。 */
-export function assertProjectOpen(projectPath: string): void {
-    requireReadyProject(refFromProjectPath(projectPath));
+/** 数据面守卫；grace仍属于ready。 */
+export function assertProjectOpen(ref: ProjectWorkspaceRef): void {
+    requireReadyProject(ref);
 }
 
 /** Project当前是否发布ready generation。 */
-export function isProjectOpen(projectPath: string): boolean {
+export function isProjectOpen(ref: ProjectWorkspaceRef): boolean {
     try {
-        assertProjectOpen(projectPath);
+        assertProjectOpen(ref);
         return true;
     } catch {
         return false;
@@ -237,14 +230,14 @@ export function isProjectOpen(projectPath: string): boolean {
 /** 返回全部ready generation的轻量presence投影。 */
 export function listOpenProjects(): OpenProjectSnapshot[] {
     return globalState.service?.listOpenProjects().map(({ref, ...presence}) => ({
-        projectPath: projectPathFromRef(ref),
+        projectRoot: ref.projectRoot,
         ...presence,
     })) ?? [];
 }
 
 /** 删除控制面读取当前ready generation占用；opening/closing返回null。 */
-export function projectOccupancy(projectPath: string): ProjectOccupancySnapshot | null {
-    const occupancy = globalState.service?.projectOccupancy(refFromProjectPath(projectPath));
+export function projectOccupancy(ref: ProjectWorkspaceRef): ProjectOccupancySnapshot | null {
+    const occupancy = globalState.service?.projectOccupancy(ref);
     if (!occupancy) {
         return null;
     }
@@ -256,8 +249,7 @@ export function projectOccupancy(projectPath: string): ProjectOccupancySnapshot 
 }
 
 /** 为当前ready generation取得一路用户presence。 */
-export function acquireUserPresence(projectPath: string): () => void {
-    const ref = refFromProjectPath(projectPath);
+export function acquireUserPresence(ref: ProjectWorkspaceRef): () => void {
     const service = globalState.service;
     if (!service) {
         throw new ProjectNotOpenError(ref.projectRoot);
@@ -271,31 +263,16 @@ export function registerAgentPresenceProbe(probe: ((session: ReadyProjectSession
     globalState.service?.registerAgentPresenceProbe(probe);
 }
 
-/** 仅刷新当前ready generation的活动时间；未打开保持no-op。 */
-export function markProjectActivity(projectPath: string): void {
-    globalState.service?.markProjectActivity(refFromProjectPath(projectPath));
-}
-
-/** 仅刷新结构化 Project ref 对应 ready generation 的活动时间。 */
-export function markProjectActivityRef(ref: ProjectWorkspaceRef): void {
+/** 仅刷新结构化 Project ref 对应 ready generation 的活动时间；未打开保持no-op。 */
+export function markProjectActivity(ref: ProjectWorkspaceRef): void {
     globalState.service?.markProjectActivity(ref);
 }
 
 /**
- * 关闭当前path对应的精确generation。
+ * 关闭结构化 Project ref 绑定的精确generation。
  * Module或Occupancy关闭失败时Service保留entry，调用方必须处理拒绝，delete不得继续。
  */
-export async function closeProject(projectPath: string, reason: ProjectSessionCloseReason): Promise<void> {
-    const service = globalState.service;
-    if (!service) {
-        return;
-    }
-    await service.closeProject(refFromProjectPath(projectPath), reason);
-    collectReleasedSqliteHandles({force: reason === "delete" || reason === "shutdown"});
-}
-
-/** 关闭结构化Project ref绑定的精确generation。 */
-export async function closeProjectRef(ref: ProjectWorkspaceRef, reason: ProjectSessionCloseReason): Promise<void> {
+export async function closeProject(ref: ProjectWorkspaceRef, reason: ProjectSessionCloseReason): Promise<void> {
     const service = globalState.service;
     if (!service) {
         return;
@@ -304,7 +281,7 @@ export async function closeProjectRef(ref: ProjectWorkspaceRef, reason: ProjectS
     collectReleasedSqliteHandles({force: reason === "delete" || reason === "shutdown"});
 }
 
-/** 执行Agent/presence/grace维护，返回本轮完整关闭的当前path。 */
+/** 执行Agent/presence/grace维护，返回本轮完整关闭的 Project roots。 */
 export async function sweepProjectSessions(now = Date.now()): Promise<string[]> {
     const service = globalState.service;
     if (!service) {
@@ -314,7 +291,7 @@ export async function sweepProjectSessions(now = Date.now()): Promise<string[]> 
     if (closed.length > 0) {
         collectReleasedSqliteHandles();
     }
-    return closed.map(projectPathFromRef);
+    return closed.map((ref) => ref.projectRoot);
 }
 
 /** Nitro shutdown/HMR最终关闭唯一Service及其Lifecycle、Module与plain adapter资源。 */
@@ -361,16 +338,6 @@ function serviceFor(workspaceRoot: AbsoluteFsPath): ProjectSessionService {
     globalState.service = service;
     globalState.workspaceRoot = workspaceRoot;
     return service;
-}
-
-/** 把当前path合同严格收窄为单段ProjectWorkspaceRef。 */
-function refFromProjectPath(projectPath: string): ProjectWorkspaceRef {
-    const normalized = normalizeProjectPath(projectPath);
-    const segments = normalized.split("/");
-    if (segments.length !== 2 || segments[0] !== "workspace" || !segments[1]) {
-        throw new ProjectNotOpenError(normalized);
-    }
-    return projectWorkspaceRef(segments[1]);
 }
 
 /** 比较单进程Service的Workspace Root绑定，Windows按文件系统大小写语义处理。 */

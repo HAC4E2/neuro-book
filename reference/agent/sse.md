@@ -16,7 +16,7 @@ Agent 聊天同步由三层组成：
 
 ## HTTP Entry Points
 
-- `GET /api/agent/sessions/:sessionId`：返回完整 session snapshot。
+- `GET /api/agent/sessions/:sessionId`：返回有界 recovery shell 与最新 history 尾页。
 - `GET /api/agent/sessions/:sessionId/events?eventEpoch=<epoch>&after=<seq>`：建立 SSE，按 cursor replay 之后的事件。
 - `POST /api/agent/sessions/:sessionId/invocations`：发起 blocking invocation；运行过程仍通过 SSE 实时同步。
 - `POST /api/agent/sessions/:sessionId/abort`：中止当前 active invocation。
@@ -65,7 +65,18 @@ type AgentSessionEventDto =
 - 前端收到 `payload.seq > lastSeq + 1` 必须进入 recovering，单飞拉取一次 snapshot。
 - `snapshot_required` 表示服务端无法安全 replay，处理方式与 seq gap 相同。
 - SSE 断开不是 run error。前端应显示连接状态并自动重连，不应直接把 run 置为 idle。
-- `session_state_changed.snapshot` 已携带完整 snapshot，可以直接 apply，但不得因此额外拉取 `GET /api/agent/sessions/:sessionId`。
+- `session_state_changed` 只携带 live state；active path 等恢复条件变化时进入统一 recovery，不能把该事件当成 recovery response。
+
+### Reconnect Backoff
+
+Jobs、Agent Session 和 Project Presence 共用 `SseReconnectBackoff` 的失败序列，延迟固定为 `300/800/1500/3000/5000ms`，随后保持 5 秒。该 Module 只负责退避和连接稳定性，不接管 cursor、snapshot recovery、Session ready 或 Project open。
+
+- `opened()` 只记录打开时间，不清零失败次数；HTTP 200 后立即 EOF 仍继续下一档退避。
+- 连接连续存活至少 5 秒后，本次断线标记为 stable，并从 300ms 开始新的失败序列。
+- 正常 EOF 与异常 rejection 都是断线；主动 abort、代次替换和销毁不重连。
+- 手动恢复、成功 snapshot recovery、新目标和显式 stop 调用 `reset()`。
+- Agent Session 的 ready 与 `connected` 状态仍在有效 SSE open 时立即完成；这与内部失败序列是否清零是两个独立合同。
+- Project Presence 每次重连必须先执行幂等 Project open，再订阅 presence；不能由 timer 绕过 reopen 直接重订阅。
 
 ## Event Types
 
@@ -265,7 +276,7 @@ session 是 append-only tree。编辑、retry、rollback、fallback 不应原地
 
 - Initial load：拉一次 snapshot。
 - Normal SSE：不拉 snapshot。
-- `session_state_changed.snapshot`：直接 apply，不额外拉 snapshot。
+- `session_state_changed`：应用 live state；只有 reducer 标记需要 recovery 时才进入统一 single-flight。
 - Reconnect replay success：不拉 snapshot。
 - `snapshot_required` 或 seq gap：单飞拉一次 snapshot。
 - Manual refresh：用户显式触发时拉一次 snapshot。

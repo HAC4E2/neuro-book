@@ -12,6 +12,36 @@ import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-
 import {describe, expect, it, vi} from "vitest";
 
 describe("spawnWorkflowJob cancellation", () => {
+    it("Job 登记失败时补偿取消已经启动的 Run", async () => {
+        const definition: WorkflowDefinition = {
+            key: "spawn-rejected",
+            run: async () => null,
+        };
+        const jobs = new AgentJobManager(() => {
+            throw new Error("ownerless 测试不应投递 followup");
+        }, "");
+        await jobs.shutdown();
+        const done = new Promise<RunView>(() => undefined);
+        const cancelRun = vi.fn(() => undefined);
+
+        expect(() => spawnWorkflowJob({
+            jobs,
+            service: {
+                startWorkflowRun: () => ({runId: "run_spawn_rejected", done, terminal: done.then(() => undefined)}),
+                waitForRunSettled: vi.fn(),
+                cancelRun,
+                runSummary: vi.fn(),
+            },
+            def: definition,
+            args: null,
+            config: createDefaultEffectiveConfig(),
+            project: null,
+            deliver: "none",
+        })).toThrow("Agent Job Manager 已关闭");
+        expect(cancelRun).toHaveBeenCalledOnce();
+        expect(cancelRun).toHaveBeenCalledWith("run_spawn_rejected");
+    });
+
     it("Job 只在 Run 确认 cancelled 后进入取消终态", async () => {
         let settleRun: ((view: RunView) => void) | undefined;
         const done = new Promise<RunView>((resolve) => {
@@ -51,7 +81,6 @@ describe("spawnWorkflowJob cancellation", () => {
             args: null,
             config: createDefaultEffectiveConfig(),
             project: null,
-            workspaceKey: "global",
             deliver: "none",
         });
 
@@ -134,7 +163,6 @@ describe("spawnWorkflowJob cancellation", () => {
             args: null,
             config,
             project: ready,
-            workspaceKey: "project-scope",
             deliver: "none",
         });
 
@@ -142,7 +170,6 @@ describe("spawnWorkflowJob cancellation", () => {
         expect(startWorkflowRun).toHaveBeenCalledWith(expect.objectContaining({
             config,
             project: ready,
-            workspaceKey: "project-scope",
         }));
 
         initial.resolve(waitingView);

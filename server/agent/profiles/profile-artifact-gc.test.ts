@@ -7,8 +7,12 @@ import {
     PROFILE_COMPILED_ARTIFACT_GC_GRACE_MS,
     PROFILE_COMPILED_ARTIFACT_GC_MIN_AGE_MS,
     PROFILE_COMPILED_ARTIFACTS_DIR_NAME,
+    PROFILE_COMPILED_BUILTIN_SOURCE_ORPHAN_BUDGET_BYTES,
     PROFILE_COMPILED_MANIFEST_FILE,
+    PROFILE_COMPILED_PRODUCT_ORPHAN_BUDGET_BYTES,
     PROFILE_COMPILED_PUBLISH_LOCK,
+    PROFILE_COMPILED_USER_ORPHAN_BUDGET_BYTES,
+    profileArtifactOrphanBudget,
     pruneCompiledArtifacts,
     sweepProfileArtifactBudget,
     type ProfileArtifactManifest,
@@ -95,6 +99,32 @@ async function artifactNames(compiledDir: string): Promise<string[]> {
 }
 
 describe("Profile artifact GC", () => {
+    it("按 Product、内置 Source、用户三种生命周期返回固定 orphan 预算", () => {
+        expect(profileArtifactOrphanBudget("product")).toBe(PROFILE_COMPILED_PRODUCT_ORPHAN_BUDGET_BYTES);
+        expect(profileArtifactOrphanBudget("builtin_source")).toBe(PROFILE_COMPILED_BUILTIN_SOURCE_ORPHAN_BUDGET_BYTES);
+        expect(profileArtifactOrphanBudget("user")).toBe(PROFILE_COMPILED_USER_ORPHAN_BUDGET_BYTES);
+        expect(PROFILE_COMPILED_PRODUCT_ORPHAN_BUDGET_BYTES).toBe(0);
+        expect(PROFILE_COMPILED_BUILTIN_SOURCE_ORPHAN_BUDGET_BYTES).toBe(128 * 1024 * 1024);
+        expect(PROFILE_COMPILED_USER_ORPHAN_BUDGET_BYTES).toBe(512 * 1024 * 1024);
+    });
+
+    it("Product 零预算仍保护未过最小安全年龄的并发读者 artifact", async () => {
+        const compiledDir = await createCompiledDir();
+        await writeArtifact(compiledDir, "current", 100, 60 * 60 * 1000);
+        await writeArtifact(compiledDir, "reader", 500, Math.floor(PROFILE_COMPILED_ARTIFACT_GC_MIN_AGE_MS / 2));
+
+        const report = await pruneCompiledArtifacts(
+            compiledDir,
+            manifestWith(["current"]),
+            "publish",
+            profileArtifactOrphanBudget("product"),
+        );
+
+        expect(await artifactNames(compiledDir)).toEqual(["current.mjs", "reader.mjs"]);
+        expect(report.protectedBytes).toBe(500);
+        expect(report.overBudgetBytes).toBe(500);
+    });
+
     it("current manifest 引用的 artifact 永不删除，哪怕远超字节预算", async () => {
         const compiledDir = await createCompiledDir();
         await writeArtifact(compiledDir, "current", 4096, 30 * 24 * 60 * 60 * 1000);

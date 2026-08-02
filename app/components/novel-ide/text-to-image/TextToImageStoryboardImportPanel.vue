@@ -196,8 +196,7 @@ async function convertInspectedSource(): Promise<void> {
         const created = await agentApi.createSession({
             profileKey: "illustration.director",
             initial: {operation: "convert-preset", sourceRelativePath: inspected.value.sourceRelativePath},
-            workspaceKey: props.projectPath,
-            projectPath: props.projectPath,
+            currentProjectRoot: props.projectPath.replace(/^workspace\//, ""),
         });
         directorSessionId.value = created.sessionId;
         await agentApi.invokeSession(created.sessionId, {

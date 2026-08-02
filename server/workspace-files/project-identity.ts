@@ -1,6 +1,9 @@
 import {createHash} from "node:crypto";
 import path from "node:path";
-import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {
+    resolveContainedFilePath,
+    type AbsoluteFsPath,
+} from "nbook/server/runtime/paths/file-path";
 import {
     isProjectDomainError,
     ProjectDomainError,
@@ -108,6 +111,14 @@ export function isProjectRootCaseCollisionError(error: unknown): error is Projec
 /** 把外部单段字符串收窄为不可与普通 WorkspaceRelativePath 混用的 Project 引用。 */
 export function projectWorkspaceRef(input: string): ProjectWorkspaceRef {
     return Object.freeze({projectRoot: normalizeProjectRoot(input)}) as ProjectWorkspaceRef;
+}
+
+/** 将结构化 Project identity 解析到明确 Workspace Root 内。 */
+export function resolveProjectWorkspaceRoot(
+    workspaceRoot: AbsoluteFsPath,
+    ref: ProjectWorkspaceRef,
+): AbsoluteFsPath {
+    return resolveContainedFilePath(workspaceRoot, ref.projectRoot);
 }
 
 /**

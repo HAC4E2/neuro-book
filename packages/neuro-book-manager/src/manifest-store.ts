@@ -73,8 +73,8 @@ async function resolveExplicitReleaseManifest(channel: ReleaseChannel, location:
     if (versionIsPrerelease !== (channel === "canary")) {
         throw new Error(`显式Release Manifest version与channel不一致：${manifest.version} / ${channel}`);
     }
-    if (!manifest.ghcr.ref.endsWith(`:v${manifest.version}`)) {
-        throw new Error(`GHCR ref必须使用Manifest版本tag：${manifest.ghcr.ref}`);
+    if (!manifest.ghcr.ref.endsWith(`@${manifest.ghcr.digest}`)) {
+        throw new Error(`GHCR ref 必须使用 Release Manifest digest：${manifest.ghcr.ref}`);
     }
     const assets = [
         ["neuro-book-source.zip", manifest.source.url],
@@ -109,8 +109,8 @@ function assertReleaseIdentity(release: GitHubRelease, manifest: ReleaseManifest
     if (manifest.channel !== expectedChannel || channel !== expectedChannel) {
         throw new Error(`Release ${release.tag_name} 的 prerelease/channel 标记不一致。`);
     }
-    if (!manifest.ghcr.ref.endsWith(`:${release.tag_name}`)) {
-        throw new Error(`GHCR ref 必须使用 Release tag：${manifest.ghcr.ref}`);
+    if (!manifest.ghcr.ref.endsWith(`@${manifest.ghcr.digest}`)) {
+        throw new Error(`GHCR ref 必须使用 Release Manifest digest：${manifest.ghcr.ref}`);
     }
 }
 

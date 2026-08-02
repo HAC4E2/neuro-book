@@ -4,6 +4,7 @@ import {
     isWorkflowTerminalStatus,
     parseRunWorkflowArgs,
     parseRunWorkflowDetails,
+    resolveWorkflowBubbleError,
     resolveWorkflowBubbleStatus,
     resolveWorkflowDisplaySummary,
     shouldPollWorkflowRun,
@@ -25,12 +26,14 @@ describe("workflow bubble view model", () => {
     it("识别默认后台启动 details", () => {
         expect(parseRunWorkflowDetails({
             jobId: "job_abcd1234",
+            jobEventCursor: {eventEpoch: "epoch-jobs", after: 12},
             runId: "run-1",
             workflowKey: "split-book",
             status: "started",
             background: true,
         })).toMatchObject({
             jobId: "job_abcd1234",
+            jobEventCursor: {eventEpoch: "epoch-jobs", after: 12},
             runId: "run-1",
             status: "started",
             background: true,
@@ -92,26 +95,18 @@ describe("workflow bubble view model", () => {
         expect(workflowPollDelay("waiting")).toBe(2000);
     });
 
-    it("Job cancelled 后仍轮询到 Run 自己进入终态", () => {
+    it("Run 轮询只依赖 Run 与工具启动状态", () => {
         expect(shouldPollWorkflowRun({
             hasBackgroundJob: true,
-            jobStatus: "cancelled",
             runStatus: "running",
         })).toBe(true);
         expect(shouldPollWorkflowRun({
             hasBackgroundJob: true,
-            jobStatus: "cancelled",
             runStatus: "cancelled",
         })).toBe(false);
         expect(shouldPollWorkflowRun({
-            hasBackgroundJob: true,
-            jobStatus: "interrupted",
-            runStatus: "running",
-        })).toBe(false);
-        expect(shouldPollWorkflowRun({
-            hasBackgroundJob: true,
-            jobUnavailable: true,
-            runStatus: "running",
+            hasBackgroundJob: false,
+            detailsStatus: "completed",
         })).toBe(false);
     });
 
@@ -130,7 +125,32 @@ describe("workflow bubble view model", () => {
         expect(resolveWorkflowBubbleStatus({...base, jobStatus: "completed", runStatus: "completed"})).toBe("completed");
         expect(resolveWorkflowBubbleStatus({...base, jobStatus: "failed", runStatus: "failed"})).toBe("failed");
         expect(resolveWorkflowBubbleStatus({...base, jobStatus: "cancelled"})).toBe("cancelled");
-        expect(resolveWorkflowBubbleStatus({...base, jobStatus: "running", jobUnavailable: true})).toBe("interrupted");
+        expect(resolveWorkflowBubbleStatus({...base, jobStatus: "running", jobUnavailable: true})).toBe("running");
+        expect(resolveWorkflowBubbleStatus({...base, jobUnavailable: true})).toBe("starting");
+        expect(resolveWorkflowBubbleStatus({...base, jobUnavailable: true, runStatus: "completed"})).toBe("completed");
+    });
+
+    it("Run 可见后 Workflow 错误只使用 Run，启动阶段才回退工具错误", () => {
+        expect(resolveWorkflowBubbleError({
+            runObserved: true,
+            runError: null,
+            detailsError: "旧 details 错误",
+            toolCallError: "工具错误",
+        })).toBe("");
+        expect(resolveWorkflowBubbleError({
+            runObserved: true,
+            runError: "Run 失败",
+            detailsError: "旧 details 错误",
+        })).toBe("Run 失败");
+        expect(resolveWorkflowBubbleError({
+            runObserved: false,
+            detailsError: "启动失败",
+            toolCallError: "工具错误",
+        })).toBe("启动失败");
+        expect(resolveWorkflowBubbleError({
+            runObserved: false,
+            toolCallError: "工具错误",
+        })).toBe("工具错误");
     });
 
     it("wait:true 继续按 run 终态，并把刷新后丢失的非终态 run 标为中断", () => {

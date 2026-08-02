@@ -3,12 +3,12 @@ import {throwStoryboardImportHttpError} from "nbook/server/text-to-image/storybo
 import {StoryboardGlobalPublishPreviewRequestSchema} from "nbook/shared/text-to-image-storyboard-publish";
 import {requireAdminAccess, requireCurrentUser} from "nbook/server/utils/auth";
 import {validateBody} from "nbook/server/utils/novel-chapter";
-import {withProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
+import {withProjectHttpError} from "nbook/server/api/projects/project-http-error";
 
 const publishService = new StoryboardGlobalPublishService();
 
 /** 管理员读取 global companion 发布预览；该入口无副作用并冻结全部 expected hash。 */
-export default defineEventHandler((event) => withProjectNotOpenHttpError(async () => {
+export default defineEventHandler((event) => withProjectHttpError(async () => {
     await requireCurrentUser(event);
     await requireAdminAccess(event);
     const body = await validateBody(event, StoryboardGlobalPublishPreviewRequestSchema);

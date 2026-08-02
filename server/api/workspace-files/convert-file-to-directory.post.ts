@@ -1,4 +1,5 @@
 import {z} from "zod";
+import {ProjectRootDtoSchema} from "nbook/shared/dto/project.dto";
 import {convertWorkspaceFileToDirectoryTracked, USER_LOCAL_ACTOR} from "nbook/server/workspace-history/tracked-workspace-files";
 import {resolveWorkspaceFileTarget} from "nbook/server/workspace-files/novel-workspace";
 import {
@@ -20,12 +21,8 @@ defineRouteMeta({
                 "schema": {
                     "type": "object",
                     "properties": {
-                        "root": {
-                            "description": "Workspace root directory",
-                            "type": "string"
-                        },
-                        "novelId": {
-                            "description": "Novel id used to resolve isolated workspace",
+                        "projectRoot": {
+                            "description": "Project Workspace root, single directory name under Workspace Root",
                             "type": "string"
                         },
                         "workspaceKind": {
@@ -62,8 +59,10 @@ defineRouteMeta({
 
 
 
+
+
 const ConvertWorkspaceFileToDirectoryBodySchema = z.object({
-    projectPath: z.string().optional(),
+    projectRoot: ProjectRootDtoSchema.optional(),
     workspaceKind: z.literal("user-assets").optional(),
     path: z.string().trim().min(1, "path 不能为空"),
 });

@@ -147,7 +147,11 @@ export type PublicToolResultDetailsDto =
         truncatedBy?: "bytes" | "lines";
         totalLines?: number;
         totalBytes?: number;
-        fullOutputPath?: string;
+        fullOutput?: {
+            /** available/partial时存在；reclaimed不伪造locator。 */
+            locator?: string;
+            state: "available" | "partial" | "reclaimed";
+        };
     }
     | {
         kind: "request_user_input";

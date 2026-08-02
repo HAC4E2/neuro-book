@@ -1,11 +1,11 @@
-/** @jsxImportSource nbook/server/agent/profiles/profile-dsl */
+/** @jsxImportSource nbook/profile-sdk */
 /** @jsxRuntime automatic */
-import type {Static} from "typebox";
-import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {builtin, plotReadBindings, plotWriteBindings, toolset} from "nbook/server/agent/profiles/profile-tools";
-import {DirectorInitialSchema, DirectorOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
-import {AgentCatalog, AppendingSet, HistorySet, Import, LinkedAgentsReminder, Message, ModelContext, ProfilePrompt, System, WorkspaceFocusReminder} from "nbook/server/agent/profiles/profile-dsl";
-import {profileText} from "nbook/server/agent/profiles/profile-text";
+import type {Static} from "nbook/profile-sdk";
+import {defineAgentProfile} from "nbook/profile-sdk";
+import {builtin, plotReadBindings, plotWriteBindings, toolset} from "nbook/profile-sdk";
+import {DirectorInitialSchema, DirectorOutputSchema} from "nbook/profile-sdk";
+import {AgentCatalog, AppendingSet, HistorySet, Import, LinkedAgentsReminder, Message, ModelContext, ProfilePrompt, System, WorkspaceFocusReminder} from "nbook/profile-sdk";
+import {profileText} from "nbook/profile-sdk";
 
 export const profileManifest = {
     key: "director",
@@ -125,7 +125,7 @@ function renderSystemPrompt(): string {
 function renderRuntimeInput(input: Initial): string {
     return profileText`
         <director_input>
-        projectPath: ${input.projectPath}
+        projectRoot: ${input.projectRoot}
         mode: ${input.mode ?? "未指定"}
         defaultChapterPath: ${input.defaultChapterPath?.trim() || "未指定"}
         </director_input>

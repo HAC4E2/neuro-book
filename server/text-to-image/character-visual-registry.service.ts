@@ -11,7 +11,7 @@ import {
     parseOutfitTagsMarkdown,
 } from "nbook/server/text-to-image/character-visual.codec";
 import {assertProjectOpen} from "nbook/server/workspace-files/project-session";
-import {resolveWorkspaceRootInput} from "nbook/server/text-to-image/compat";
+import {resolveWorkspaceRootInput, textToImageProjectRef} from "nbook/server/text-to-image/compat";
 import {readWorkspaceTextFile, scanWorkspaceTree} from "nbook/server/workspace-files/workspace-files";
 
 export type CharacterVisualRegistryFileStore = {
@@ -166,7 +166,7 @@ class WorkspaceCharacterVisualRegistryStore implements CharacterVisualRegistryFi
     }
 
     assertProjectOpen(projectPath: string, _root: string): void {
-        assertProjectOpen(projectPath);
+        assertProjectOpen(textToImageProjectRef(projectPath));
     }
 
     async listPaths(root: string, prefix: string): Promise<string[]> {

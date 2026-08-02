@@ -101,7 +101,7 @@ export function createWorkflowTools() {
 
             // 默认后台（PLAN-E）：立即返回 jobId+runId，结果以 followup 消息回流；wait:true 走阻塞路径
             if (input.wait !== true) {
-                const {job, runId} = spawnWorkflowJob({
+                const {job, jobEventCursor, runId} = spawnWorkflowJob({
                     jobs: context.harness.jobs,
                     service,
                     def,
@@ -111,7 +111,6 @@ export function createWorkflowTools() {
                     workspace,
                     config,
                     project: target.project,
-                    workspaceKey: context.workspaceKey,
                     ownerSessionId: context.sessionId,
                     originToolCallId: toolCallId,
                 });
@@ -120,7 +119,14 @@ export function createWorkflowTools() {
                         `后台 workflow 已启动：${job.jobId}（run ${runId}，${def.key}）。`,
                         "结果将以后续消息自动回流到本会话。现在向用户简述已启动的任务并正常收尾本回合，不要轮询等待。",
                     ].join("\n")}],
-                    details: normalizeToolResultDetails({jobId: job.jobId, runId, workflowKey: def.key, status: "started", background: true}),
+                    details: normalizeToolResultDetails({
+                        jobId: job.jobId,
+                        jobEventCursor,
+                        runId,
+                        workflowKey: def.key,
+                        status: "started",
+                        background: true,
+                    }),
                 };
             }
 
@@ -132,7 +138,6 @@ export function createWorkflowTools() {
                 workspace,
                 config,
                 project: target.project,
-                workspaceKey: context.workspaceKey,
                 signal,
             });
 

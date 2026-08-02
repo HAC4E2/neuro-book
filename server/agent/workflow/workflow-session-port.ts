@@ -1,4 +1,3 @@
-import {normalizeWorkspaceRootRef} from "nbook/server/workspace-files/workspace-root-ref";
 import {createStoredUserMessage} from "nbook/server/agent/messages/message-utils";
 import {storedMessageText} from "nbook/server/agent/messages/stored-message-presentation";
 import {SessionBusyError} from "nbook/server/vendor/nb-workflow/index";
@@ -60,7 +59,6 @@ export class NeuroWorkflowSessionPort implements SessionPort {
         const snapshot = await this.repo.createSession({
             profileKey: init.profileKey,
             initial: init.initial ?? null,
-            workspaceRoot: normalizeWorkspaceRootRef(undefined),
             parentSessionId: init.parentSessionId,
             title: init.title,
             kind: init.kind,

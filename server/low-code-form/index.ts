@@ -14,64 +14,28 @@ import type {
 } from "nbook/shared/dto/low-code-form.dto";
 import type {ProfileHomeFacade} from "nbook/server/agent/profiles/profile-home";
 import {defineResourcePreset, profileHomeResource, type ResourcePresetDefinition} from "nbook/server/low-code-form/resource-preset";
-import type {WorkspaceRootRef} from "nbook/server/workspace-files/workspace-root-ref";
-import type {ResolvedProjectWorkspace} from "nbook/server/workspace-files/project-identity";
+import type {
+    LowCodeFieldDefinition,
+    LowCodeFieldOptionsProvider,
+    LowCodeFormDefinition,
+    LowCodeFormResolveContext as AuthoringLowCodeFormResolveContext,
+} from "nbook/profile-sdk/contracts";
 
 export {defineResourcePreset, profileHomeResource};
-
-type LowCodeFormResolveContextBase = {
-    profileKey: string;
-    workspaceRoot: WorkspaceRootRef;
-    values?: LowCodeJsonObject;
-    home?: ProfileHomeFacade;
-    globalHome?: ProfileHomeFacade;
-    allowGlobalResourceKeys?: boolean;
-    resourceMutationKeyView?: LowCodeResourceMutationKeyView;
-};
-
-/** Low-code Project context 必须携带 ready gate 产生的结构化 workspace。 */
-export type LowCodeFormResolveContext = LowCodeFormResolveContextBase & ({
-    scope: "project";
-    projectWorkspace: ResolvedProjectWorkspace;
-} | {
-    scope: "global";
-    projectWorkspace?: never;
-});
+export type {
+    LowCodeFieldDefinition,
+    LowCodeFieldOptionsProvider,
+    LowCodeFormDefinition,
+} from "nbook/profile-sdk/contracts";
 
 export type LowCodeResourceMutationKeyView = {
     knownKeys: ReadonlySet<string>;
     finalKeys: ReadonlySet<string>;
 };
 
-export type LowCodeFieldOptionsProvider = (
-    ctx: LowCodeFormResolveContext,
-) => readonly LowCodeFieldOptionDto[] | Promise<readonly LowCodeFieldOptionDto[]>;
-
-export type LowCodeFieldDefinition = {
-    path: string;
-    component: LowCodeFieldComponentDto;
-    label: string;
-    description?: string;
-    placeholder?: string;
-    required?: boolean;
-    defaultValue?: LowCodeJsonValue;
-    options?: readonly LowCodeFieldOptionDto[] | LowCodeFieldOptionsProvider;
-    rows?: number;
-    min?: number;
-    max?: number;
-    step?: number;
-    integer?: boolean;
-    resource?: ResourcePresetDefinition;
-};
-
-export type LowCodeFormDefinition<TSettingsSchema extends TSchema = TSchema> = {
-    schema: TSettingsSchema;
-    defaults: Static<TSettingsSchema>;
-    fields: readonly LowCodeFieldDefinition[];
-    validate?: (
-        value: Static<TSettingsSchema>,
-        ctx: LowCodeFormResolveContext,
-    ) => readonly LowCodeFormIssueDto[] | Promise<readonly LowCodeFormIssueDto[]>;
+/** 宿主在 Authoring context 上增加一次 mutation 内部视图，不进入 SDK Interface。 */
+export type LowCodeFormResolveContext = AuthoringLowCodeFormResolveContext & {
+    resourceMutationKeyView?: LowCodeResourceMutationKeyView;
 };
 
 export type LowCodeFormValidationResult<TValue> = {
@@ -205,7 +169,7 @@ async function resolveField(
 /**
  * 校验低代码 form 定义期合同。第一版只支持顶层字段，避免 patch 合并语义变成隐式 deep merge。
  */
-function assertLowCodeFormDefinition(form: LowCodeFormDefinition): void {
+export function assertLowCodeFormDefinition(form: LowCodeFormDefinition): void {
     const paths = new Set<string>();
     for (const field of form.fields) {
         assertFieldPath(field.path);

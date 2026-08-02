@@ -256,7 +256,7 @@ export type IllustrationExecutionManifestGroupByOutputType = {
   _max: IllustrationExecutionManifestMaxAggregateOutputType | null
 }
 
-type GetIllustrationExecutionManifestGroupByPayload<T extends IllustrationExecutionManifestGroupByArgs> = Prisma.PrismaPromise<
+export type GetIllustrationExecutionManifestGroupByPayload<T extends IllustrationExecutionManifestGroupByArgs> = Prisma.PrismaPromise<
   Array<
     Prisma.PickEnumerable<IllustrationExecutionManifestGroupByOutputType, T['by']> &
       {
@@ -1530,6 +1530,11 @@ export type IllustrationExecutionManifestFindManyArgs<ExtArgs extends runtime.Ty
    * Skip the first `n` IllustrationExecutionManifests.
    */
   skip?: number
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+   * 
+   * Filter by unique combinations of IllustrationExecutionManifests.
+   */
   distinct?: Prisma.IllustrationExecutionManifestScalarFieldEnum | Prisma.IllustrationExecutionManifestScalarFieldEnum[]
 }
 

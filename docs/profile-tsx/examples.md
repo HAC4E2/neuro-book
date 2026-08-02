@@ -5,11 +5,8 @@
 ## 最小 profile
 
 ```tsx
-/** @jsxImportSource nbook/server/agent/profiles/profile-dsl */
+/** @jsxImportSource nbook/profile-sdk */
 /** @jsxRuntime automatic */
-import {Type} from "typebox";
-import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
 import {
     AppendingSet,
     HistorySet,
@@ -19,8 +16,12 @@ import {
     SkillCatalog,
     SqlSchemaSummary,
     System,
+    Type,
     WorkspaceFocusReminder,
-} from "nbook/server/agent/profiles/profile-dsl";
+    builtin,
+    defineAgentProfile,
+    toolset,
+} from "nbook/profile-sdk";
 
 export const profileManifest = {
     key: "agent.example",
@@ -141,7 +142,7 @@ profile preview agent.example
 `profile` 是 Agent runtime 的稳定入口，由 `.nbook/agent/bin` 注入 PATH。在仓库里开发内置 profile 时用完整路径加 `--system`：
 
 ```bash
-bun scripts/build/profile.ts compile builtin/leader.default.profile.tsx --system
+profile compile builtin/leader.default.profile.tsx --system
 ```
 
 ::: warning 保存不等于生效

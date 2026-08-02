@@ -1,10 +1,10 @@
 import type {JsonValue} from "nbook/server/agent/messages/types";
+import type {ProjectTagPolicyConfig} from "nbook/shared/text-to-image-tag-policy";
 import type {MarkdownEditorPreferences, MonacoEditorPreferences} from "nbook/shared/editor-workbench";
 import type {ThinkingLevelDto} from "nbook/shared/dto/app-settings.dto";
 import type {ModelInputKind} from "nbook/shared/dto/app-settings.dto";
 import type {CustomThemeDto} from "nbook/shared/theme/theme-vars";
 import type {ProfileRuntimeSettingsPatch} from "nbook/shared/agent/profile-runtime-settings";
-import type {ProjectTagPolicyConfig} from "nbook/shared/text-to-image-tag-policy";
 import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 
@@ -207,14 +207,6 @@ export type EffectiveConfig = {
     novelData: NovelDataConfig;
 };
 
-/**
- * novel-api 榜单服务配置（sibling 仓 ../novel-api，NovelScope 小说榜单采集服务）。
- * baseUrl 是服务 HTTP 地址（不含 /v1 路径前缀）；清空表示未配置，agent 榜单工具会提示用户到设置页填写。
- */
-export type NovelDataConfig = {
-    baseUrl: string;
-};
-
 /** 可观测配置。第一版只有 Pi 请求 trace。 */
 export type ObservabilityConfig = {
     piTrace: PiTraceConfig;
@@ -277,8 +269,6 @@ export type StoredGlobalConfig = {
         piTrace?: Partial<PiTraceConfig>;
     };
     history?: Partial<WorkspaceHistorySettingsConfig>;
-    /** novel-api 榜单服务地址（global scope，Project 不覆盖）。 */
-    novelData?: Partial<NovelDataConfig>;
 };
 
 export type StoredProjectConfig = {
@@ -298,10 +288,6 @@ export type StoredProjectConfig = {
     };
     /** Project 侧只允许覆盖 retention / auto-accept 四项；enabled 是 Global 独有。 */
     history?: Partial<Omit<WorkspaceHistorySettingsConfig, "enabled">>;
-    /** Project Workspace 是 Tag policy scope/unknown policy 的唯一持久真相源。 */
-    illustration?: {
-        tagPolicy: ProjectTagPolicyConfig;
-    };
 };
 
 /** Config 公开字符串入口完成解析后的内部目标；Project 分支必定已经 ready。 */
@@ -324,4 +310,8 @@ export type RuntimeConfigTarget = {
     scope: "project";
     workspaceRoot: AbsoluteFsPath;
     project: ReadyProjectSessionRef;
+};
+
+export type NovelDataConfig = {
+    baseUrl: string;
 };

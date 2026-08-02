@@ -185,7 +185,7 @@ export async function runManagerTui(managerExecutable: string): Promise<void> {
     screen.key("s", () => void runAction(async () => {
         const target = selected();
         screen.destroy();
-        await startInstallationApplication(target.instance.root, target.manifest);
+        await startInstallationApplication(target.instance.root);
     }));
     screen.key("u", () => void runAction(async () => {
         const target = selected();
@@ -309,7 +309,7 @@ function formatInstance(view: InstanceView, defaultInstanceId: string | null): s
         `应用版本：${view.manifest.appVersion}`,
         `Manager：${view.manifest.managerVersion}`,
         `更新通道：${view.manifest.channel}`,
-        `State Root：${resolve(view.instance.root, view.manifest.stateRoot)}`,
+        `State Root：${installationPaths(view.instance.root, view.manifest.roots).state}`,
         "",
         "按 Enter 刷新完整状态，按 d 执行诊断。",
     ].join("\n");

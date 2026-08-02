@@ -41,6 +41,7 @@ export async function prepareSystemAssets(options: {
         rootLabel: "assets/workspace/.nbook/agent/profiles",
         skipFresh: !options.force,
         writePolicy,
+        orphanBudgetPolicy: "builtin_source",
         publish: options.profileRelease,
     });
     const userAssetsSync = options.syncUserAssets

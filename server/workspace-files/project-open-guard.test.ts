@@ -1,6 +1,7 @@
 import {beforeEach, describe, expect, it, vi} from "vitest";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
+import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 import type {WorkspaceFileTarget} from "nbook/server/workspace-files/workspace-file-target";
 
 const tokens = vi.hoisted(() => ({
@@ -9,7 +10,7 @@ const tokens = vi.hoisted(() => ({
 }));
 
 const mocks = vi.hoisted(() => ({
-    requireReadyProjectPath: vi.fn(),
+    requireActiveReadyProject: vi.fn(),
     requireReadyModuleHandle: vi.fn(),
     runReadyProjectOperation: vi.fn(),
 }));
@@ -17,7 +18,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("nbook/server/workspace-files/project-session", () => ({
     assertProjectOpen: vi.fn(),
     markProjectActivity: vi.fn(),
-    requireReadyProjectPath: mocks.requireReadyProjectPath,
+    requireActiveReadyProject: mocks.requireActiveReadyProject,
     requireReadyModuleHandle: mocks.requireReadyModuleHandle,
     runReadyProjectOperation: mocks.runReadyProjectOperation,
     startReadyProjectOperation: vi.fn(),
@@ -44,7 +45,7 @@ describe("Project HTTP data-plane operation guard", () => {
         const history = {kind: "history"};
         const active = new Set<Promise<void>>();
         const signal = new AbortController().signal;
-        mocks.requireReadyProjectPath.mockReturnValue(ready);
+        mocks.requireActiveReadyProject.mockReturnValue(ready);
         mocks.requireReadyModuleHandle.mockImplementation((_ready, token) => (
             token === tokens.fileIndex ? fileIndex : history
         ));
@@ -66,7 +67,7 @@ describe("Project HTTP data-plane operation guard", () => {
         const target: WorkspaceFileTarget = {
             kind: "project-workspace",
             root: absoluteFsPath("C:/workspace-root/guard"),
-            projectPath: "workspace/guard",
+            projectRoot: projectWorkspaceRef("guard").projectRoot,
         };
         const {withProjectTargetOperation} = await import("nbook/server/workspace-files/project-open-guard");
 
@@ -84,7 +85,7 @@ describe("Project HTTP data-plane operation guard", () => {
 
         await Promise.resolve();
         expect(closeSettled).toBe(false);
-        expect(mocks.requireReadyProjectPath).toHaveBeenCalledOnce();
+        expect(mocks.requireActiveReadyProject).toHaveBeenCalledOnce();
         expect(mocks.runReadyProjectOperation).toHaveBeenCalledOnce();
         expect(mocks.runReadyProjectOperation).toHaveBeenCalledWith(ready, expect.any(Function));
 

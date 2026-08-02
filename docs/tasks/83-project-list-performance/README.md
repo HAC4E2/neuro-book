@@ -1,5 +1,7 @@
 # Task 83 Project List Performance
 
+> 当前合同已由 Task 118 的轻量 Project Lifecycle snapshot 取代。本文件保留历史性能诊断与当时的统计缓存方案，不能作为当前 `/api/projects` 行为的说明。
+
 ## Summary
 
 - 目标：治理 `/api/projects?includeProjectPath=...` 首慢与热路径慢问题，不改变 HTTP DTO。

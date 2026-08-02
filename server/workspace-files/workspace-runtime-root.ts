@@ -2,8 +2,9 @@ import path from "node:path";
 import {resolveStateWorkspaceRoot} from "nbook/server/runtime/installation-paths";
 import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
-import {WORKSPACE_CONTAINER_ROOT} from "nbook/server/workspace-files/workspace-root-ref";
 import {resolveApplicationRoot} from "nbook/server/workspace-files/system-workspace-assets";
+
+const WORKSPACE_CONTAINER_DIRECTORY = "workspace";
 
 /** 用户Runtime Workspace Root测试覆盖；生产代码不得设置。 */
 export type WorkspaceRuntimeRootContext = {
@@ -59,7 +60,7 @@ export function resolveRuntimeWorkspaceRoot(startPath = process.cwd()): Absolute
     }
     let currentPath = path.resolve(startPath);
     while (true) {
-        if (path.basename(currentPath) === WORKSPACE_CONTAINER_ROOT) {
+        if (path.basename(currentPath) === WORKSPACE_CONTAINER_DIRECTORY) {
             return absoluteFsPath(currentPath);
         }
 

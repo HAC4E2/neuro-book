@@ -55,7 +55,7 @@ const inspectTool = defineAgentTool({
         const inspected = await inspectStoryboardImport({
             projectPath,
             sourceRelativePath: input.sourceRelativePath,
-            workspaceRoot: context.workspaceFsRoot,
+            workspaceRoot: context.workspaceRoot,
             converterVersion: ILLUSTRATION_DIRECTOR_CONVERTER_VERSION,
         });
         if (input.chunkIndex === undefined) {
@@ -135,7 +135,7 @@ const submitTool = defineAgentTool({
         const result = await convertStoryboardImport({
             projectPath,
             sourceRelativePath: input.sourceRelativePath,
-            workspaceRoot: context.workspaceFsRoot,
+            workspaceRoot: context.workspaceRoot,
             converterVersion: ILLUSTRATION_DIRECTOR_CONVERTER_VERSION,
             expectedImportId: input.expectedImportId,
             conversion: StoryboardConversionOutputSchema.parse(input.conversion),
@@ -182,8 +182,8 @@ export function createStoryboardImportAgentTools(): NeuroAgentTool[] {
 }
 
 function requireProjectPath(context: ToolExecutionContext): string {
-    if (!context.projectPath) throw new Error("STORYBOARD_IMPORT_PROJECT_REQUIRED");
-    return context.projectPath;
+    if (!context.currentProject) throw new Error("STORYBOARD_IMPORT_PROJECT_REQUIRED");
+    return `workspace/${context.currentProject.workspace.ref.projectRoot}`;
 }
 
 /** 同一 invocation 的 convert-preset 工具调用总数受 operation policy 硬限制。 */

@@ -1,65 +1,75 @@
+import {randomBytes} from "node:crypto";
 import {join, resolve} from "node:path";
 import {Type, type Static} from "typebox";
 import {Value} from "typebox/value";
 import {spawnOwnedProcess} from "@notnotype/owned-process";
+import {
+    PRODUCT_BUN_RUNTIME_ARGS,
+    PRODUCT_RUNTIME_COMMAND_BOOTSTRAP,
+    PRODUCT_SHUTDOWN_PATH,
+    PRODUCT_SHUTDOWN_TIMEOUT_MS,
+    PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT,
+    type ProductRuntimeCommandId,
+} from "nbook/shared/product-runtime-contract";
 
-import {enableAuthentication, ensureStateFiles, loadStateEnv} from "#manager/config";
-import {containerComposeOptions, runDockerApplicationCommand, startDocker} from "#manager/docker";
+import {enableAuthentication, loadStateEnv} from "#manager/config";
+import {createProductRuntimeEnvironment} from "nbook/shared/product-runtime-environment";
+import {containerComposeOptions, runDockerApplicationCommand, startDocker, stopDockerContainer, verifyRunningDockerApplication} from "#manager/docker";
 import {pathExists} from "#manager/files";
 import {assertInstallationHostCompatible} from "#manager/platform";
-import {commandAvailable, run, runCapture} from "#manager/process";
+import {commandAvailable, run, runCapture, runWithInput} from "#manager/process";
+import {resolveInstallationRoots} from "#manager/root-locators";
 import {activateManagedTools} from "#manager/tools";
 import type {CommandInspection, InstallationManifest} from "#manager/types";
 import {formatStateRootIntegrityWarning, inspectInstallationStateIntegrity, stateRootIntegrityFailed} from "#manager/state-integrity";
+import {verifyApplicationExecution} from "#manager/application-execution";
 
-const MigrationSessionSchema = Type.Object({
-    sessionId: Type.Union([Type.Integer(), Type.Null()]),
-    sourcePath: Type.String({minLength: 1}),
-    sourceHash: Type.String({pattern: "^[a-f0-9]{64}$"}),
-    targetHash: Type.String({pattern: "^[a-f0-9]{64}$"}),
-    images: Type.Integer({minimum: 0}),
-    bytes: Type.Integer({minimum: 0}),
-    status: Type.Union([Type.Literal("pending"), Type.Literal("verified")]),
-    backupPath: Type.Optional(Type.String({minLength: 1})),
+const ApplicationMigrationStepSchema = Type.Object({
+    id: Type.String({pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$"}),
+    runId: Type.String({pattern: "^[A-Za-z0-9_-]+$"}),
+    status: Type.Union([
+        Type.Literal("planned"),
+        Type.Literal("applied"),
+        Type.Literal("skipped"),
+        Type.Literal("rolled_back"),
+        Type.Literal("not_started"),
+    ]),
+    changedItems: Type.Integer({minimum: 0}),
+    reviewItems: Type.Integer({minimum: 0}),
 }, {additionalProperties: false});
 
-const MigrationReportSchema = Type.Object({
+const ApplicationMigrationReportSchema = Type.Object({
     version: Type.Literal(1),
+    catalogVersion: Type.Integer({minimum: 1}),
     runId: Type.String({minLength: 1}),
-    mode: Type.Union([Type.Literal("dry-run"), Type.Literal("apply")]),
-    status: Type.Union([Type.Literal("planned"), Type.Literal("complete")]),
-    scannedSessions: Type.Integer({minimum: 0}),
-    migratedSessions: Type.Integer({minimum: 0}),
-    skippedSessions: Type.Integer({minimum: 0}),
-    images: Type.Integer({minimum: 0}),
-    uniqueAttachments: Type.Integer({minimum: 0}),
-    bytes: Type.Integer({minimum: 0}),
-    sessions: Type.Array(MigrationSessionSchema),
+    action: Type.Union([Type.Literal("plan"), Type.Literal("apply"), Type.Literal("resume"), Type.Literal("rollback")]),
+    status: Type.Union([
+        Type.Literal("planned"),
+        Type.Literal("complete"),
+        Type.Literal("already_current"),
+        Type.Literal("manual_required"),
+        Type.Literal("rolled_back"),
+        Type.Literal("not_started"),
+    ]),
+    steps: Type.Array(ApplicationMigrationStepSchema),
+    guide: Type.Optional(Type.String({minLength: 1})),
 }, {additionalProperties: false});
 
-const MigrationRollbackReportSchema = Type.Object({
-    version: Type.Literal(1),
-    runId: Type.String({minLength: 1}),
-    status: Type.Union([Type.Literal("not_started"), Type.Literal("rolled_back")]),
-    restoredSessions: Type.Integer({minimum: 0}),
-}, {additionalProperties: false});
+type ApplicationMigrationReport = Static<typeof ApplicationMigrationReportSchema>;
 
-type MigrationReport = Static<typeof MigrationReportSchema>;
-
-export type AttachmentMigrationSessionPlan = Pick<
-    Static<typeof MigrationSessionSchema>,
-    "sessionId" | "sourcePath" | "sourceHash" | "targetHash" | "backupPath"
->;
-
-export type AttachmentMigrationPlan = {
+export type ApplicationMigrationPlan = {
     runId: string;
-    migratedSessions: number;
-    sessions: AttachmentMigrationSessionPlan[];
+    status: "planned" | "already_current";
+    steps: ApplicationMigrationReport["steps"];
 };
 
 export type StartApplicationOptions = {
     /** Windows Portable是否等待HTTP健康检查通过并自动打开浏览器；默认启用。 */
     healthCheck?: boolean;
+    /** 仅真实Windows Portable start在ready后打开浏览器；验证型launch不设置。 */
+    openBrowser?: boolean;
+    /** Source Dev候选worktree验证时仍使用Installation的真实State Root。 */
+    stateRoot?: string;
 };
 
 export type PortableForegroundOptions = StartApplicationOptions & {
@@ -67,141 +77,309 @@ export type PortableForegroundOptions = StartApplicationOptions & {
     startupTimeoutMs?: number;
 };
 
-/** 启动当前安装。原生模式前台运行，Docker 模式后台运行。 */
-export async function startApplication(root: string, manifest: InstallationManifest): Promise<void> {
+/** 事务调用方持久化候选容器所有权所需的生命周期回调。 */
+export type ApplicationLaunchOptions = PortableForegroundOptions & {
+    /** Compose 即将进入可能创建候选容器的阶段。 */
+    onContainerStarting?: () => Promise<void>;
+    /** 健康检查前发布本次候选的精确容器身份。 */
+    onContainerStarted?: (containerId: string) => Promise<void>;
+    /** 精确候选停止后发布可继续回滚的 checkpoint。 */
+    onContainerStopped?: (containerId: string) => Promise<void>;
+};
+
+/** Manager 持有的候选应用启动所有权。 */
+export interface ApplicationLaunch {
+    readonly ready: Promise<void>;
+    readonly completion: Promise<{code: number | null; signal: string | null}>;
+    /** 正常关闭先请求 Product 收口资源；超时或协议失败后终止 Owned Process。 */
+    shutdown(): Promise<void>;
+    /** 启动、更新或迁移失败时立即终止候选 Owned Process。 */
+    terminate(): Promise<void>;
+}
+
+/**
+ * 在状态回滚前终止本次候选 launch。
+ *
+ * 终止失败时把原始操作错误与终止错误一起抛出，调用方必须保留 Operation Journal，
+ * 不能在仍可能运行的候选进程或容器旁边继续恢复持久化状态。
+ */
+export async function terminateFailedLaunch(launch: ApplicationLaunch, failure: unknown): Promise<void> {
+    try {
+        await launch.terminate();
+    } catch (terminationError) {
+        throw new AggregateError(
+            [failure, terminationError],
+            "Manager 操作失败，且候选 Application 无法确认终止；已保留 Operation Journal，未执行状态回滚。",
+        );
+    }
+}
+
+/** 创建 native/container 启动句柄；调用方决定 ready 后提交还是继续等待。 */
+export async function launchApplication(
+    root: string,
+    manifest: InstallationManifest,
+    options: ApplicationLaunchOptions = {},
+): Promise<ApplicationLaunch> {
+    if (options.healthCheck === false && manifest.profile !== "windows-portable") {
+        throw new Error("--no-health-check仅支持Windows Portable。");
+    }
     assertInstallationHostCompatible(manifest);
-    const stateRoot = resolve(root, manifest.stateRoot);
-    await ensureStateFiles(stateRoot, 3000, manifest.profile !== "windows-portable");
+    const roots = resolveInstallationRoots(root, manifest.roots);
+    const stateRoot = options.stateRoot ?? roots.state;
     const stateIntegrity = await inspectInstallationStateIntegrity(root, stateRoot);
     if (stateRootIntegrityFailed(stateIntegrity)) {
         console.warn(`\n警告：${formatStateRootIntegrityWarning(stateIntegrity)}\n`);
     }
     activateManagedTools(root, manifest.components.tools);
-    if (manifest.profile === "ghcr" || manifest.profile === "source-docker") {
-        if (!manifest.containerEngine) throw new Error(`${manifest.profile} Manifest缺少Container Engine。`);
-        await startDocker(manifest.containerEngine, root, stateRoot, manifest.profile, manifest.appVersion);
-        return;
+    const execution = await verifyApplicationExecution(root, manifest);
+    if (execution.kind === "container-product") {
+        let terminated = false;
+        let candidateContainerId: string | null = null;
+        const ready = startDocker(
+            execution.image,
+            root,
+            stateRoot,
+            manifest.profile,
+            manifest.appVersion,
+            options.onContainerStarting,
+            async (containerId) => {
+                candidateContainerId = containerId;
+                await options.onContainerStarted?.(containerId);
+            },
+        );
+        const completion = ready.then(() => ({code: null, signal: null}));
+        // ready 失败是启动路径的主错误；内部观察派生 Promise，避免未等待 completion 时触发进程级 unhandled rejection。
+        void completion.catch(() => undefined);
+        const stop = async (): Promise<void> => {
+            if (terminated) return;
+            terminated = true;
+            await ready.catch(() => undefined);
+            if (candidateContainerId) {
+                await stopDockerContainer(
+                    execution.engine,
+                    root,
+                    candidateContainerId,
+                );
+                await options.onContainerStopped?.(candidateContainerId);
+            }
+        };
+        return {
+            ready,
+            completion,
+            shutdown: stop,
+            terminate: stop,
+        };
     }
-    const env = await applicationEnvironment(root, stateRoot, manifest.profile === "source-dev");
-    if (manifest.profile === "source-dev") {
-        await run(resolveBun(root, manifest), ["run", "dev"], {cwd: root, env});
-        return;
-    }
-    const entry = join(root, ".output", "server", "scripts", "deploy", "product-start.mjs");
-    if (!await pathExists(entry)) {
+    const shutdownToken = randomBytes(32).toString("base64url");
+    const bun = resolveBun(root, manifest);
+    const env: NodeJS.ProcessEnv = {
+        ...await applicationEnvironment(root, stateRoot, manifest.profile === "source-dev", roots.cache),
+        [PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT]: shutdownToken,
+        BUN: bun,
+    };
+    if (execution.kind === "native-product") delete env.NODE_PATH;
+    const command = bun;
+    const args = manifest.profile === "source-dev"
+        ? ["--no-install", "run", "dev"]
+        : productCommandArgs(root, "start");
+    if (manifest.profile !== "source-dev" && !await pathExists(productCommandPath(root))) {
         throw new Error("当前安装缺少 Product 启动入口，请执行 neuro-book update；应用更新始终按Profile原子执行。" );
     }
-    const bun = resolveBun(root, manifest);
-    if (manifest.profile === "windows-portable") {
-        await runPortableForeground(bun, entry, root, env, Number(env.NUXT_PORT ?? env.PORT ?? "3000"));
-        return;
-    }
-    await run(bun, [entry], {cwd: root, env});
-}
-
-/** 原生Product执行Prisma migration；容器与Source Dev由各自启动合同负责。 */
-export async function migrateDatabase(root: string, manifest: InstallationManifest, applicationRoot = root): Promise<void> {
-    if (manifest.profile === "ghcr" || manifest.profile === "source-docker") return;
-    const script = manifest.profile === "source-dev"
-        ? join(applicationRoot, "scripts", "db", "prisma-migrate.mjs")
-        : join(applicationRoot, ".output", "server", "scripts", "db", "prisma-migrate.mjs");
-    if (!await pathExists(script)) {
-        throw new Error("Product 缺少数据库迁移脚本。");
-    }
-    const stateRoot = resolve(root, manifest.stateRoot);
-    await run(resolveBun(root, manifest), [script, "--deploy"], {
-        cwd: applicationRoot,
-        env: await applicationEnvironment(applicationRoot, stateRoot, manifest.profile === "source-dev"),
+    const lease = spawnOwnedProcess({
+        command,
+        args,
+        cwd: root,
+        env,
+        stdin: "inherit",
+        stdout: "inherit",
+        stderr: "inherit",
+        windowsHide: manifest.profile !== "windows-portable",
+        graceMs: 2_000,
+        hardKillWaitMs: 5_000,
     });
+    const completion = lease.completion.then((result) => ({
+        code: result.exitCode,
+        signal: result.signal,
+    }));
+    const healthCheck = options.healthCheck !== false;
+    const port = Number(env.NUXT_PORT ?? env.PORT ?? "3000");
+    const ready = healthCheck
+        ? waitForApplicationReady(port, manifest.appVersion, completion, options.startupTimeoutMs ?? 120_000)
+        : Promise.resolve();
+    if (manifest.profile === "windows-portable" && healthCheck && options.openBrowser) {
+        void ready.then(() => run("cmd.exe", ["/c", "start", "", `http://127.0.0.1:${String(port)}`], {
+            cwd: root,
+            stdio: "ignore",
+        })).catch(() => undefined);
+    }
+    let shutdownPromise: Promise<void> | null = null;
+    return {
+        ready,
+        completion,
+        shutdown: () => {
+            if (!shutdownPromise) {
+                shutdownPromise = shutdownNativeApplication(
+                    port,
+                    shutdownToken,
+                    completion,
+                    async () => {
+                        await lease.terminate("shutdown");
+                    },
+                );
+            }
+            return shutdownPromise;
+        },
+        terminate: async () => {
+            await lease.terminate("startup-failure");
+        },
+    };
 }
 
-/** 只读规划Attachment hard cut；没有旧图片时返回null，缺脚本必须失败。 */
-export async function planAttachmentMigration(
+/** 只读规划 Product catalog；始终保留 already_current 结果供启动策略判断。 */
+export async function planApplicationStateMigration(
     root: string,
     manifest: InstallationManifest,
     runId: string,
     applicationRoot = root,
-): Promise<AttachmentMigrationPlan | null> {
-    const script = attachmentMigrationScript(applicationRoot, manifest);
-    if (manifest.components.applicationRuntime.provider !== "container" && !await pathExists(script)) {
-        throw new Error(`Product 缺少Attachment migration脚本：${script}`);
+    containerComposePath?: string,
+    containerStateRoot?: string,
+): Promise<ApplicationMigrationPlan> {
+    const args = applicationMigrationArgs(applicationRoot, manifest, ["--plan", "--run-id", runId]);
+    const runner = manifest.profile === "source-dev"
+        ? join(applicationRoot, "scripts", "db", "migrate-application-state.ts")
+        : productCommandPath(applicationRoot);
+    if (manifest.components.applicationRuntime.provider !== "container" && !await pathExists(runner)) {
+        throw new Error(`Product 缺少 Application State migration runner：${runner}`);
     }
-    const report = await runAttachmentMigrationCommand(root, manifest, [script, "--dry-run", "--run-id", runId], applicationRoot);
-    if (report.mode !== "dry-run" || report.status !== "planned" || report.runId !== runId) {
-        throw new Error("Attachment migration dry-run返回了不一致的报告。");
+    const report = await runApplicationMigrationCommand(
+        root,
+        manifest,
+        args,
+        applicationRoot,
+        containerComposePath,
+        containerStateRoot,
+    );
+    if (report.action !== "plan" || report.runId !== runId) {
+        throw new Error("Application State migration plan 返回了不一致的报告。");
     }
-    return report.migratedSessions > 0
-        ? {runId, migratedSessions: report.migratedSessions, sessions: migrationSessionPlans(report.sessions)}
-        : null;
+    if (report.status === "manual_required") {
+        throw new Error(`Application State migration 需要人工处理：${report.guide ?? "Product 未提供迁移说明。"}`);
+    }
+    if (report.status !== "already_current" && report.status !== "planned") {
+        throw new Error(`Application State migration plan 状态非法：${report.status}`);
+    }
+    return {runId, status: report.status, steps: report.steps};
 }
 
-/** 使用预先写入Operation Journal的runId执行Attachment hard cut。 */
-export async function applyAttachmentMigration(
+/** 使用预先写入 Operation Journal 的 runId 执行完整 Product catalog。 */
+export async function applyApplicationStateMigration(
     root: string,
     manifest: InstallationManifest,
     runId: string,
     applicationRoot = root,
-): Promise<AttachmentMigrationPlan> {
-    const script = attachmentMigrationScript(applicationRoot, manifest);
-    const report = await runAttachmentMigrationCommand(root, manifest, [script, "--apply", "--run-id", runId], applicationRoot);
-    if (report.mode !== "apply" || report.status !== "complete" || report.runId !== runId) {
-        throw new Error("Attachment migration apply返回了不一致的报告。");
+): Promise<ApplicationMigrationPlan> {
+    const report = await runApplicationMigrationCommand(
+        root,
+        manifest,
+        applicationMigrationArgs(applicationRoot, manifest, ["--apply", "--run-id", runId]),
+        applicationRoot,
+    );
+    if (report.action !== "apply" || report.status !== "complete" || report.runId !== runId) {
+        throw new Error("Application State migration apply 返回了不一致的报告。");
     }
-    return {runId, migratedSessions: report.migratedSessions, sessions: migrationSessionPlans(report.sessions)};
+    return {runId, status: "planned", steps: report.steps};
 }
 
-/** 在恢复旧Product/Compose前撤销指定Attachment hard cut。 */
-export async function rollbackAttachmentMigration(
+/** 在数据库与 Product 恢复前，由 Product runner 反序撤销 catalog。 */
+export async function rollbackApplicationStateMigration(
     root: string,
     manifest: InstallationManifest,
     runId: string,
     allowNotStarted = false,
     applicationRoot = root,
 ): Promise<void> {
-    const script = attachmentMigrationScript(applicationRoot, manifest);
-    const output = await runApplicationCommand(root, manifest, [script, "--rollback", runId], applicationRoot);
-    const value: unknown = JSON.parse(output);
-    if (!Value.Check(MigrationRollbackReportSchema, value)) {
-        throw new Error("Attachment migration rollback返回了无效报告。");
-    }
-    const report = value as Static<typeof MigrationRollbackReportSchema>;
-    if (report.runId !== runId) throw new Error("Attachment migration rollback返回了错误runId。");
+    const report = await runApplicationMigrationCommand(
+        root,
+        manifest,
+        applicationMigrationArgs(applicationRoot, manifest, ["--rollback", "--run-id", runId]),
+        applicationRoot,
+    );
+    if (report.action !== "rollback" || report.runId !== runId) throw new Error("Application State migration rollback 返回了错误报告。");
     if (report.status === "not_started" && !allowNotStarted) {
-        throw new Error("Attachment migration已记录为applied，但rollback报告not_started；拒绝恢复旧Product。" );
+        throw new Error("Application State migration 已记录为 applied，但 rollback 报告 not_started；拒绝恢复旧 Product。" );
     }
+    if (report.status !== "not_started" && report.status !== "rolled_back") throw new Error(`Application State rollback 状态非法：${report.status}`);
 }
 
 /** 创建或重置管理员。 */
 export async function createAdmin(root: string, manifest: InstallationManifest, username?: string): Promise<void> {
     assertInstallationHostCompatible(manifest);
     activateManagedTools(root, manifest.components.tools);
-    const stateRoot = resolve(root, manifest.stateRoot);
-    if (manifest.profile === "ghcr" || manifest.profile === "source-docker") {
-        if (!manifest.containerEngine) throw new Error(`${manifest.profile} Manifest缺少Container Engine。`);
+    const roots = resolveInstallationRoots(root, manifest.roots);
+    const stateRoot = roots.state;
+    const password = process.env.AUTH_ADMIN_PASSWORD;
+    const passwordInput = password === undefined ? null : new TextEncoder().encode(password);
+    const passwordArgs = passwordInput ? ["--password-stdin"] : [];
+    const execution = await verifyApplicationExecution(root, manifest);
+    if (execution.kind === "container-product") {
+        await verifyRunningDockerApplication(execution.image, root, stateRoot);
         const compose = join(root, ".deploy", "docker-compose.generated.yml");
         const composeArgs = ["compose", "--env-file", join(stateRoot, ".env"), "-f", compose];
-        const password = process.env.AUTH_ADMIN_PASSWORD;
         const execOptions = [
-            ...(!process.stdin.isTTY ? ["-T"] : []),
-            ...(password ? ["-e", `AUTH_ADMIN_PASSWORD=${password}`] : []),
+            ...(!process.stdin.isTTY || passwordInput ? ["-T"] : []),
         ];
-        await run(manifest.containerEngine, [...composeArgs, "exec", ...execOptions, "app", "bun", ".output/server/scripts/cli/create-admin.ts", ...(username ? [username] : [])], containerComposeOptions(manifest.containerEngine, root));
+        const args = [
+            ...composeArgs,
+            "exec",
+            ...execOptions,
+            "app",
+            "bun",
+            ...PRODUCT_BUN_RUNTIME_ARGS,
+            `.output/${PRODUCT_RUNTIME_COMMAND_BOOTSTRAP}`,
+            "command",
+            "create-admin",
+            ...(username ? [username] : []),
+            ...passwordArgs,
+        ];
+        const options = withoutAdminPassword(containerComposeOptions(execution.engine, root));
+        if (passwordInput) await runWithInput(execution.engine, args, passwordInput, options);
+        else await run(execution.engine, args, options);
         return;
     }
-    const productScript = join(root, ".output", "server", "scripts", "cli", "create-admin.ts");
-    const args = username ? [productScript, username] : [productScript];
-    if (await pathExists(productScript)) {
-        await run(resolveBun(root, manifest), args, {cwd: root, env: await applicationEnvironment(root, stateRoot, false)});
-        if (manifest.profile === "windows-portable") {
-            await enableAuthentication(stateRoot);
-            console.log("管理员创建成功，Windows Portable 鉴权已启用；请重启 NeuroBook。" );
-        }
+    if (execution.kind === "source-dev") {
+        const bun = resolveBun(root, manifest);
+        const args = [
+            ...PRODUCT_BUN_RUNTIME_ARGS,
+            "run",
+            "auth:create-admin",
+            ...(username ? [username] : []),
+            ...passwordArgs,
+        ];
+        const options = {
+            cwd: root,
+            env: withoutAdminPasswordEnvironment({...await applicationEnvironment(root, stateRoot, false, roots.cache), BUN: bun}),
+        };
+        if (passwordInput) await runWithInput(bun, args, passwordInput, options);
+        else await run(bun, args, options);
         return;
     }
-    await run("bun", username ? ["run", "auth:create-admin", username] : ["run", "auth:create-admin"], {
+    const args = productCommandArgs(root, "create-admin", [...(username ? [username] : []), ...passwordArgs]);
+    const bootstrap = productCommandPath(root);
+    if (!await pathExists(bootstrap)) {
+        throw new Error(`Product 缺少 Runtime Contract bootstrap：${bootstrap}`);
+    }
+    const bun = resolveBun(root, manifest);
+    const options = {
         cwd: root,
-        env: await applicationEnvironment(root, stateRoot, false),
-    });
+        env: withoutAdminPasswordEnvironment({...await applicationEnvironment(root, stateRoot, false, roots.cache), BUN: bun}),
+    };
+    delete options.env.NODE_PATH;
+    if (passwordInput) await runWithInput(bun, args, passwordInput, options);
+    else await run(bun, args, options);
+    if (manifest.profile === "windows-portable") {
+        await enableAuthentication(stateRoot);
+        console.log("管理员创建成功，Windows Portable 鉴权已启用；请重启 NeuroBook。" );
+    }
 }
 
 /** 生成状态/doctor 所需的命令版本；args允许检查docker compose等子命令。 */
@@ -218,14 +396,44 @@ export async function commandStatus(command: string, args = ["--version"]): Prom
     }
 }
 
-export async function applicationEnvironment(root: string, stateRoot: string, development: boolean): Promise<NodeJS.ProcessEnv> {
-    return {
-        ...process.env,
-        ...await loadStateEnv(stateRoot),
-        NODE_ENV: development ? "development" : "production",
-        NEURO_BOOK_STATE_ROOT: stateRoot,
-        NEURO_BOOK_APPLICATION_ROOT: root,
-    };
+/**
+ * 构造受管Product与CLI的根环境。
+ *
+ * Cache Root可由Desktop/Portable locator显式传入；未传时保留源码部署的
+ * State Root/cache默认值。四个托管工具变量在读取`.env`后覆盖，用户配置不能把
+ * durable state或可重建cache重定向到未受Manager管理的位置。
+ */
+export async function applicationEnvironment(
+    root: string,
+    stateRoot: string,
+    development: boolean,
+    cacheRoot = join(stateRoot, "cache"),
+): Promise<NodeJS.ProcessEnv> {
+    return createProductRuntimeEnvironment({
+        applicationRoot: root,
+        stateRoot,
+        cacheRoot,
+        development,
+        inheritedEnvironment: process.env,
+        stateEnvironment: await loadStateEnv(stateRoot),
+        host: "127.0.0.1",
+    });
+}
+
+/** 从子进程环境删除Manager消费过的自动密码。 */
+function withoutAdminPasswordEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+    const projected = {...env};
+    delete projected.AUTH_ADMIN_PASSWORD;
+    return projected;
+}
+
+/** 保留Compose Adapter的cwd等选项，同时清除Docker/Podman CLI子进程中的secret。 */
+function withoutAdminPassword(options: {cwd: string; env?: NodeJS.ProcessEnv}): {cwd: string; env?: NodeJS.ProcessEnv} {
+    if (options.env) return {...options, env: withoutAdminPasswordEnvironment(options.env)};
+    if (process.env.AUTH_ADMIN_PASSWORD !== undefined) {
+        return {...options, env: withoutAdminPasswordEnvironment(process.env)};
+    }
+    return options;
 }
 
 export function resolveBun(root: string, manifest: InstallationManifest): string {
@@ -235,40 +443,61 @@ export function resolveBun(root: string, manifest: InstallationManifest): string
     throw new Error("Container Application Runtime 不能执行宿主 Product 命令。" );
 }
 
-/** 根据Profile选择Source或Product内的迁移脚本入口。 */
-function attachmentMigrationScript(root: string, manifest: InstallationManifest): string {
-    if (manifest.components.applicationRuntime.provider === "container") {
-        return ".output/server/scripts/db/migrate-agent-attachments.ts";
+/** 根据 Profile 选择 Source runner 或 Product Runtime Contract 逻辑命令。 */
+function applicationMigrationArgs(
+    root: string,
+    manifest: InstallationManifest,
+    args: string[],
+): string[] {
+    if (manifest.profile === "source-dev") {
+        return [
+            ...PRODUCT_BUN_RUNTIME_ARGS,
+            join(root, "scripts", "db", "migrate-application-state.ts"),
+            ...args,
+        ];
     }
-    return manifest.profile === "source-dev"
-        ? join(root, "scripts", "db", "migrate-agent-attachments.ts")
-        : join(root, ".output", "server", "scripts", "db", "migrate-agent-attachments.ts");
+    if (manifest.components.applicationRuntime.provider === "container") {
+        return [
+            ...PRODUCT_BUN_RUNTIME_ARGS,
+            `.output/${PRODUCT_RUNTIME_COMMAND_BOOTSTRAP}`,
+            "command",
+            "migrate-application-state",
+            ...args,
+        ];
+    }
+    return productCommandArgs(root, "migrate-application-state", args);
 }
 
-/** 执行并严格解析Attachment migration JSON报告。 */
-async function runAttachmentMigrationCommand(
+/** Manager 只传逻辑命令 ID；bundle 文件名只由 Product Runtime Contract 解释。 */
+function productCommandArgs(root: string, id: ProductRuntimeCommandId, args: string[] = []): string[] {
+    return [...PRODUCT_BUN_RUNTIME_ARGS, productCommandPath(root), "command", id, ...args];
+}
+
+/** Runtime Contract bootstrap 的唯一磁盘位置；CLI flag 不参与路径存在性判断。 */
+function productCommandPath(root: string): string {
+    return join(root, ".output", ...PRODUCT_RUNTIME_COMMAND_BOOTSTRAP.split("/"));
+}
+
+/** 执行并严格解析 Product runner 的唯一 JSON 报告。 */
+async function runApplicationMigrationCommand(
     root: string,
     manifest: InstallationManifest,
     args: string[],
     applicationRoot: string,
-): Promise<MigrationReport> {
-    const output = await runApplicationCommand(root, manifest, args, applicationRoot);
+    containerComposePath?: string,
+    containerStateRoot?: string,
+): Promise<ApplicationMigrationReport> {
+    const output = await runApplicationCommand(root, manifest, args, applicationRoot, containerComposePath, containerStateRoot);
     const value: unknown = JSON.parse(output);
-    if (!Value.Check(MigrationReportSchema, value)) {
-        throw new Error("Attachment migration返回了无效报告。");
+    if (!Value.Check(ApplicationMigrationReportSchema, value)) {
+        throw new Error("Application State migration 返回了无效报告。");
     }
-    return value as MigrationReport;
-}
-
-/** 将CLI报告收敛为Operation Journal允许的可审计文件集合。 */
-function migrationSessionPlans(sessions: MigrationReport["sessions"]): AttachmentMigrationSessionPlan[] {
-    return sessions.map((session) => ({
-        sessionId: session.sessionId,
-        sourcePath: session.sourcePath,
-        sourceHash: session.sourceHash,
-        targetHash: session.targetHash,
-        ...(session.backupPath ? {backupPath: session.backupPath} : {}),
-    }));
+    const report = value as ApplicationMigrationReport;
+    const ids = report.steps.map((step) => step.id);
+    if (new Set(ids).size !== ids.length) {
+        throw new Error("Application State migration 报告包含重复 step id。");
+    }
+    return report;
 }
 
 /** 原生Profile使用Application Bun，容器Profile使用Compose一次性app容器。 */
@@ -277,15 +506,131 @@ async function runApplicationCommand(
     manifest: InstallationManifest,
     args: string[],
     applicationRoot = root,
+    containerComposePath?: string,
+    containerStateRoot?: string,
 ): Promise<string> {
-    const stateRoot = resolve(root, manifest.stateRoot);
-    if (manifest.components.applicationRuntime.provider === "container") {
-        if (!manifest.containerEngine) throw new Error(`${manifest.profile} Manifest缺少Container Engine。`);
-        return runDockerApplicationCommand(manifest.containerEngine, root, stateRoot, ["bun", ...args]);
+    const roots = resolveInstallationRoots(root, manifest.roots);
+    const stateRoot = containerStateRoot ?? roots.state;
+    const execution = await verifyApplicationExecution(applicationRoot, manifest);
+    if (execution.kind === "container-product") {
+        return runDockerApplicationCommand(
+            execution.image,
+            root,
+            stateRoot,
+            ["bun", ...args],
+            containerComposePath,
+        );
     }
-    return runCapture(resolveBun(root, manifest), args, {
+    const bun = resolveBun(root, manifest);
+    const env: NodeJS.ProcessEnv = {
+        ...await applicationEnvironment(
+            applicationRoot,
+            stateRoot,
+            execution.kind === "source-dev",
+            containerStateRoot ? join(containerStateRoot, ".cache") : roots.cache,
+        ),
+        BUN: bun,
+    };
+    if (execution.kind === "native-product") delete env.NODE_PATH;
+    return runCapture(bun, args, {
         cwd: applicationRoot,
-        env: await applicationEnvironment(applicationRoot, stateRoot, manifest.profile === "source-dev"),
+        env,
+    });
+}
+
+/** 等待候选 HTTP 与版本就绪；ready 前任何进程终态都视为启动失败。 */
+async function waitForApplicationReady(
+    port: number,
+    expectedVersion: string,
+    completion: Promise<{code: number | null; signal: string | null}>,
+    timeoutMs: number,
+): Promise<void> {
+    if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`Application 端口非法：${String(port)}`);
+    const completionState: {
+        terminal?: {code: number | null; signal: string | null};
+        error?: unknown;
+    } = {};
+    void completion.then(
+        (result) => completionState.terminal = result,
+        (error: unknown) => completionState.error = error,
+    );
+    const deadline = Date.now() + timeoutMs;
+    let lastError = "服务尚未响应";
+    let nextProgressAt = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+        if (completionState.error) throw completionState.error;
+        if (completionState.terminal) {
+            throw new Error(`Product 在 ready 前退出：${completionState.terminal.signal ?? completionState.terminal.code}`);
+        }
+        try {
+            const response = await fetch(`http://127.0.0.1:${String(port)}/api/app/version`, {
+                signal: AbortSignal.timeout(1_000),
+            });
+            if (response.ok) {
+                const value = await response.json() as {versionLabel?: string};
+                const expected = expectedVersion.startsWith("v") ? expectedVersion : `v${expectedVersion}`;
+                if (value.versionLabel !== expected) {
+                    throw new Error(`Product 版本接口返回 ${value.versionLabel ?? "<missing>"}，期望 ${expected}。`);
+                }
+                return;
+            }
+            lastError = `HTTP ${String(response.status)}`;
+        } catch (error) {
+            lastError = error instanceof Error ? error.message : String(error);
+        }
+        if (Date.now() >= nextProgressAt) {
+            console.log(`Product健康检查仍在等待：${lastError}`);
+            nextProgressAt = Date.now() + 10_000;
+        }
+        await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
+    }
+    throw new Error(`Product HTTP 健康检查超时：${lastError}`);
+}
+
+/** 请求 Product 自己关闭；协议失败或 30 秒内未退出时由 Owned Process 强制收口。 */
+async function shutdownNativeApplication(
+    port: number,
+    token: string,
+    completion: Promise<{code: number | null; signal: string | null}>,
+    forceTerminate: () => Promise<void>,
+): Promise<void> {
+    const deadline = Date.now() + PRODUCT_SHUTDOWN_TIMEOUT_MS;
+    try {
+        const response = await fetch(`http://127.0.0.1:${String(port)}${PRODUCT_SHUTDOWN_PATH}`, {
+            method: "POST",
+            headers: {authorization: `Bearer ${token}`},
+            signal: AbortSignal.timeout(PRODUCT_SHUTDOWN_TIMEOUT_MS),
+        });
+        if (response.status !== 202) {
+            throw new Error(`Product shutdown 返回 HTTP ${String(response.status)}`);
+        }
+        const result = await waitWithin(completion, Math.max(0, deadline - Date.now()));
+        if (result.signal !== null || result.code !== 0) {
+            throw new Error(`Product graceful shutdown 异常退出：${result.signal ?? result.code}`);
+        }
+    } catch (error) {
+        console.warn(`Product graceful shutdown 失败，转为强制收口：${error instanceof Error ? error.message : String(error)}`);
+        await forceTerminate();
+    }
+}
+
+/** 在固定剩余窗口内等待 Promise，完成后立即释放 timer。 */
+function waitWithin<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+    return new Promise<T>((resolvePromise, rejectPromise) => {
+        const timer = setTimeout(
+            () => rejectPromise(new Error(`Product shutdown 在 ${String(PRODUCT_SHUTDOWN_TIMEOUT_MS)}ms 内未退出`)),
+            timeoutMs,
+        );
+        void promise.then(
+            (value) => {
+                clearTimeout(timer);
+                resolvePromise(value);
+            },
+            (error: unknown) => {
+                clearTimeout(timer);
+                rejectPromise(error);
+            },
+        );
     });
 }
 
@@ -300,7 +645,7 @@ export async function runPortableForeground(
     const startupTimeoutMs = options.startupTimeoutMs ?? 120_000;
     const lease = spawnOwnedProcess({
         command: bun,
-        args: [entry],
+        args: [...PRODUCT_BUN_RUNTIME_ARGS, entry],
         cwd: root,
         env,
         stdin: "inherit",

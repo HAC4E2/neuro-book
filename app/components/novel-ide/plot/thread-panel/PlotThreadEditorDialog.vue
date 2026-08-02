@@ -86,12 +86,12 @@ const initialSceneSnapshot = ref("");
 const {choose} = useDialog();
 const ideStore = useNovelIdeStore();
 const {
-    currentNovelId,
+    currentProjectRoot,
     selectedStoryThreadId,
     selectedStorySceneId,
 } = storeToRefs(ideStore);
 const {resolveMenu, menuRefreshKey} = useStructuredReferenceMenu({
-    novelId: currentNovelId,
+    novelId: currentProjectRoot,
     selectedStoryThreadId,
     selectedStorySceneId,
 });

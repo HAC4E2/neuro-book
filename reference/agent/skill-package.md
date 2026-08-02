@@ -2,6 +2,8 @@
 
 本文定义 NeuroBook Agent Skill 的可移植 package、版本、安装和同步合同。任务过程记录见 [Task 120](../../docs/tasks/120-agent-skill-package-contract/README.md)。
 
+通过 Workshop 发布的 Skill 还必须遵守 [Agent Asset Package Protocol](agent-asset-package.md)：所有可发布 Skill 都要有根 `package.json` 和 `neurobook` 字段。本文件继续负责本地 catalog、runnable Skill 安装和依赖失效细节。
+
 ## Package Identity
 
 - Skill 目录名是 catalog 稳定 `key`；用户和 Agent 必须原样使用，不翻译或重命名。
@@ -27,7 +29,7 @@ description: Describe what the skill does and the concrete tasks that should tri
 
 ## Runnable Skill
 
-只有提示词和参考资料的 Skill 不需要 package manifest。包含 CLI、脚本依赖或独立发布生命周期的 runnable Skill 必须包含：
+本地只含提示词和参考资料的 loose Skill 不要求 package manifest；但它不能直接发布到 Workshop。包含 CLI、脚本依赖、独立发布生命周期或需要发布的 Skill 必须包含：
 
 ```text
 <skill-key>/
@@ -40,8 +42,8 @@ description: Describe what the skill does and the concrete tasks that should tri
 
 - `package.json.name` 与目录 key 一致。
 - `package.json.version` 是唯一 Skill 版本真相源，使用 SemVer；catalog 不从 `SKILL.md` 读取版本。
-- `bun.lock` 必须随 package 发布；安装统一使用 Bun 和 frozen lockfile。
-- 首次运行任何 CLI 前，Agent 必须先执行 `bun install --cwd "<skill-root>" --frozen-lockfile`。安装失败时停止，不绕过 frozen lockfile。
+- 通过 Workshop 发布时，非空 `bin`、非空 `scripts` 或任一实际 Bun 安装输入都会要求根目录携带非空 `bun.lock`；纯提示词/资料包不为形式统一而生成空锁文件。
+- 需要依赖安装的 Skill 首次运行任何 CLI 前，Agent 必须先执行 `bun install --cwd "<skill-root>" --frozen-lockfile`。安装失败时停止，不绕过 frozen lockfile。
 - 后续运行复用本地安装；只有 `node_modules` 缺失时重新安装。
 
 版本调整口径：
@@ -77,7 +79,7 @@ description: Describe what the skill does and the concrete tasks that should tri
 发布或更新 runnable Skill 时检查：
 
 1. `SKILL.md` 只含 `name` / `description` frontmatter，正文从 catalog 路径推导 `<skill-root>`。
-2. `package.json.version` 已按 SemVer 更新，`bun.lock` 与依赖声明一致。
-3. 新安装目录中先 `bun install --cwd "<skill-root>" --frozen-lockfile`，再运行初始化或业务命令。
+2. `package.json.version` 已按 SemVer 更新；存在脚本、命令或 Bun 安装输入时，非空 `bun.lock` 与安装声明一致。
+3. 需要依赖安装的新目录先运行 `bun install --cwd "<skill-root>" --frozen-lockfile`，再运行初始化或业务命令。
 4. no-op、版本号、提示词更新保留 `node_modules`；依赖或 lockfile 更新会精确失效对应 Skill。
 5. source、vendored snapshot 与 Workspace Root `.nbook` runtime 的受管文件一致，runtime 不含开发资产。

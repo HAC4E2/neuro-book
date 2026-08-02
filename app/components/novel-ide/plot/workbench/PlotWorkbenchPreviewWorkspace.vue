@@ -427,7 +427,7 @@ function cloneScenes(source: PlotPreviewScene[]): PlotThreadPanelScene[] {
 
         <PlotWorkbenchDialog
             v-model="workbenchVisible"
-            project-path="workspace/preview"
+            project-root="workspace/preview"
             :story="plotPreviewDataset.story"
             :phases="plotPreviewDataset.phases"
             :threads="threads"

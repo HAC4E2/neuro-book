@@ -1,12 +1,17 @@
 import {randomUUID} from "node:crypto";
-import {mkdir, rm, stat} from "node:fs/promises";
+import {mkdir, rm, stat, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import os from "node:os";
 import {consola} from "consola";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {PROJECT_DATABASE_MODULE_TOKEN} from "nbook/server/workspace-files/project-database-module";
-import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
+import {projectWorkspaceRef, type ProjectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
+import {
+    projectModuleToken,
+    replaceProjectModulesForTest,
+    type ProjectModuleName,
+} from "nbook/server/workspace-files/project-module";
 import {
     PROJECT_GRACE_MS,
     ProjectNotOpenError,
@@ -55,32 +60,32 @@ describe("project-session production facade", () => {
     }, 60_000);
 
     /** 在临时Workspace Root建立具备合法manifest的Project。 */
-    async function createTempProject(slug: string): Promise<string> {
-        const projectPath = `workspace/${slug}`;
-        await writeProjectManifest(workspaceRoot, projectPath, {
+    async function createTempProject(projectRoot: string): Promise<ProjectWorkspaceRef> {
+        const ref = projectWorkspaceRef(projectRoot);
+        await writeProjectManifest(workspaceRoot, ref, {
             kind: "novel",
-            title: slug,
+            title: projectRoot,
             summary: "",
         });
-        return projectPath;
+        return ref;
     }
 
     it("并发open单飞并发布required Module typed handles", async () => {
-        await expect(openProject(workspaceRoot, "workspace/does-not-exist", {kind: "user"}))
+        await expect(openProject(projectWorkspaceRef("does-not-exist"), {kind: "user"}, workspaceRoot))
             .rejects.toMatchObject({statusCode: 404});
 
-        const projectPath = await createTempProject("open-book");
+        const ref = await createTempProject("open-book");
         const [first, second] = await Promise.all([
-            openProject(workspaceRoot, projectPath, {kind: "user"}),
-            openProject(workspaceRoot, projectPath, {kind: "agent", sessionId: 1}),
+            openProject(ref, {kind: "user"}, workspaceRoot),
+            openProject(ref, {kind: "agent", sessionId: 1}, workspaceRoot),
         ]);
-        const reused = await openProject(workspaceRoot, projectPath, {kind: "job", source: "test"});
+        const reused = await openProject(ref, {kind: "job", source: "test"}, workspaceRoot);
 
         expect(first).toBe(second);
         expect(reused).toBe(first);
         expect(listOpenProjects()).toEqual([
             expect.objectContaining({
-                projectPath,
+                projectRoot: "open-book",
                 state: "open",
                 userConnections: 0,
                 agentActive: false,
@@ -124,20 +129,58 @@ describe("project-session production facade", () => {
         expect(updated.project).toMatchObject({title: "Updated Book", summary: "After"});
 
         await expect(deleteProject(ref)).rejects.toMatchObject({code: "PROJECT_IN_USE"});
-        expect(isProjectOpen("workspace/control-book")).toBe(true);
-        await closeProject("workspace/control-book", "delete");
+        expect(isProjectOpen(ref)).toBe(true);
+        await closeProject(ref, "delete");
         await expect(deleteProject(ref)).resolves.toMatchObject({projectRoot: "control-book"});
         await expect(listProjects()).resolves.toEqual(expect.objectContaining({projects: []}));
     }, 60_000);
 
-    it("用户presence归零进入grace，重连恢复且release幂等", async () => {
-        expect(() => acquireUserPresence("workspace/never-open")).toThrow(ProjectNotOpenError);
-        const projectPath = await createTempProject("presence-book");
-        await openProject(workspaceRoot, projectPath, {kind: "user"});
+    it("连续100次列表读取只消费浅层snapshot且不启动Project数据面", async () => {
+        const starts = new Map<ProjectModuleName, number>();
+        const restoreModules = replaceProjectModulesForTest(
+            (["database", "history", "file-index"] as const).map((name) => ({
+                token: projectModuleToken(name, "required"),
+                start: () => {
+                    starts.set(name, (starts.get(name) ?? 0) + 1);
+                    return {ready: Promise.resolve(), close: async () => undefined};
+                },
+            })),
+        );
+        try {
+            for (const projectRoot of ["list-book-a", "list-book-b"] as const) {
+                await createTempProject(projectRoot);
+                const manuscriptRoot = join(workspaceRoot, projectRoot, "manuscript");
+                await mkdir(manuscriptRoot, {recursive: true});
+                await writeFile(join(manuscriptRoot, "chapter.md"), `# ${projectRoot}\n\n正文内容`);
+            }
 
-        const releaseFirst = acquireUserPresence(projectPath);
-        const releaseSecond = acquireUserPresence(projectPath);
-        expect(projectOccupancy(projectPath)).toEqual({
+            for (let index = 0; index < 100; index += 1) {
+                const snapshot = await listProjects();
+                expect(snapshot.projects.map((project) => project.projectRoot).sort())
+                    .toEqual(["list-book-a", "list-book-b"]);
+            }
+
+            expect(starts.size).toBe(0);
+            expect(listOpenProjects()).toEqual([]);
+            for (const projectRoot of ["list-book-a", "list-book-b"] as const) {
+                await expect(stat(join(workspaceRoot, projectRoot, ".nbook", "project.sqlite")))
+                    .rejects.toMatchObject({code: "ENOENT"});
+                await expect(stat(join(workspaceRoot, projectRoot, ".nbook", "history.sqlite")))
+                    .rejects.toMatchObject({code: "ENOENT"});
+            }
+        } finally {
+            restoreModules();
+        }
+    });
+
+    it("用户presence归零进入grace，重连恢复且release幂等", async () => {
+        expect(() => acquireUserPresence(projectWorkspaceRef("never-open"))).toThrow(ProjectNotOpenError);
+        const ref = await createTempProject("presence-book");
+        await openProject(ref, {kind: "user"}, workspaceRoot);
+
+        const releaseFirst = acquireUserPresence(ref);
+        const releaseSecond = acquireUserPresence(ref);
+        expect(projectOccupancy(ref)).toEqual({
             state: "open",
             userConnections: 2,
             agentActive: false,
@@ -145,13 +188,13 @@ describe("project-session production facade", () => {
 
         releaseFirst();
         releaseFirst();
-        expect(projectOccupancy(projectPath)?.userConnections).toBe(1);
+        expect(projectOccupancy(ref)?.userConnections).toBe(1);
         releaseSecond();
-        expect(projectOccupancy(projectPath)?.state).toBe("grace");
-        expect(() => assertProjectOpen(projectPath)).not.toThrow();
+        expect(projectOccupancy(ref)?.state).toBe("grace");
+        expect(() => assertProjectOpen(ref)).not.toThrow();
 
-        const releaseReconnected = acquireUserPresence(projectPath);
-        expect(projectOccupancy(projectPath)).toEqual({
+        const releaseReconnected = acquireUserPresence(ref);
+        expect(projectOccupancy(ref)).toEqual({
             state: "open",
             userConnections: 1,
             agentActive: false,
@@ -160,15 +203,15 @@ describe("project-session production facade", () => {
     });
 
     it("Agent在场阻止grace，离场后到期关闭当前generation", async () => {
-        const projectPath = await createTempProject("agent-book");
-        const ready = await openProject(workspaceRoot, projectPath, {kind: "agent", sessionId: 7});
+        const ref = await createTempProject("agent-book");
+        const ready = await openProject(ref, {kind: "agent", sessionId: 7}, workspaceRoot);
         let agentRunning = true;
         registerAgentPresenceProbe((candidate) => candidate === ready && agentRunning);
 
-        acquireUserPresence(projectPath)();
+        acquireUserPresence(ref)();
         const base = Date.now();
         await expect(sweepProjectSessions(base)).resolves.toEqual([]);
-        expect(projectOccupancy(projectPath)).toEqual({
+        expect(projectOccupancy(ref)).toEqual({
             state: "open",
             userConnections: 0,
             agentActive: true,
@@ -176,35 +219,35 @@ describe("project-session production facade", () => {
 
         agentRunning = false;
         await expect(sweepProjectSessions(base)).resolves.toEqual([]);
-        expect(projectOccupancy(projectPath)?.state).toBe("grace");
-        await expect(sweepProjectSessions(base + PROJECT_GRACE_MS + 1)).resolves.toEqual([projectPath]);
-        expect(isProjectOpen(projectPath)).toBe(false);
+        expect(projectOccupancy(ref)?.state).toBe("grace");
+        await expect(sweepProjectSessions(base + PROJECT_GRACE_MS + 1)).resolves.toEqual([ref.projectRoot]);
+        expect(isProjectOpen(ref)).toBe(false);
     });
 
     it("旧generation的Agent presence不会占用close/reopen后的新generation", async () => {
-        const projectPath = await createTempProject("agent-generation-book");
-        const staleReady = await openProject(workspaceRoot, projectPath, {kind: "agent", sessionId: 8});
+        const ref = await createTempProject("agent-generation-book");
+        const staleReady = await openProject(ref, {kind: "agent", sessionId: 8}, workspaceRoot);
         registerAgentPresenceProbe((candidate) => candidate === staleReady);
 
-        expect(projectOccupancy(projectPath)?.agentActive).toBe(true);
-        await closeProject(projectPath, "shutdown");
-        const currentReady = await openProject(workspaceRoot, projectPath, {kind: "job", source: "presence-reopen-test"});
+        expect(projectOccupancy(ref)?.agentActive).toBe(true);
+        await closeProject(ref, "shutdown");
+        const currentReady = await openProject(ref, {kind: "job", source: "presence-reopen-test"}, workspaceRoot);
 
         expect(currentReady.generation).not.toBe(staleReady.generation);
-        expect(projectOccupancy(projectPath)?.agentActive).toBe(false);
+        expect(projectOccupancy(ref)?.agentActive).toBe(false);
     });
 
     it("旧generation迟到release不会扣减重开后的presence", async () => {
-        const projectPath = await createTempProject("generation-book");
-        await openProject(workspaceRoot, projectPath, {kind: "user"});
-        const staleRelease = acquireUserPresence(projectPath);
+        const ref = await createTempProject("generation-book");
+        await openProject(ref, {kind: "user"}, workspaceRoot);
+        const staleRelease = acquireUserPresence(ref);
 
-        await closeProject(projectPath, "shutdown");
-        await openProject(workspaceRoot, projectPath, {kind: "user"});
-        const currentRelease = acquireUserPresence(projectPath);
+        await closeProject(ref, "shutdown");
+        await openProject(ref, {kind: "user"}, workspaceRoot);
+        const currentRelease = acquireUserPresence(ref);
         staleRelease();
 
-        expect(projectOccupancy(projectPath)).toEqual({
+        expect(projectOccupancy(ref)).toEqual({
             state: "open",
             userConnections: 1,
             agentActive: false,
@@ -213,32 +256,32 @@ describe("project-session production facade", () => {
     });
 
     it("grace-expired close会复检状态，open generation保持可用", async () => {
-        const projectPath = await createTempProject("recheck-book");
-        await openProject(workspaceRoot, projectPath, {kind: "user"});
+        const ref = await createTempProject("recheck-book");
+        await openProject(ref, {kind: "user"}, workspaceRoot);
 
-        await closeProject(projectPath, "grace-expired");
+        await closeProject(ref, "grace-expired");
 
-        expect(isProjectOpen(projectPath)).toBe(true);
-        expect(projectOccupancy(projectPath)?.state).toBe("open");
+        expect(isProjectOpen(ref)).toBe(true);
+        expect(projectOccupancy(ref)?.state).toBe("open");
     });
 
     it("activity只刷新ready generation，closeAll完成后数据面立即拒绝", async () => {
-        markProjectActivity("workspace/never-open");
+        markProjectActivity(projectWorkspaceRef("never-open"));
         expect(listOpenProjects()).toEqual([]);
 
-        const projectPath = await createTempProject("shutdown-book");
-        await openProject(workspaceRoot, projectPath, {kind: "user"});
+        const ref = await createTempProject("shutdown-book");
+        await openProject(ref, {kind: "user"}, workspaceRoot);
         const before = listOpenProjects()[0];
         await new Promise((resolve) => setTimeout(resolve, 15));
-        markProjectActivity(projectPath);
+        markProjectActivity(ref);
         const after = listOpenProjects()[0];
         expect(after && before && after.lastActivityAt > before.lastActivityAt).toBe(true);
 
         await closeAllProjects();
 
         expect(listOpenProjects()).toEqual([]);
-        expect(isProjectOpen(projectPath)).toBe(false);
-        expect(() => assertProjectOpen(projectPath)).toThrow(ProjectNotOpenError);
+        expect(isProjectOpen(ref)).toBe(false);
+        expect(() => assertProjectOpen(ref)).toThrow(ProjectNotOpenError);
     });
 });
 

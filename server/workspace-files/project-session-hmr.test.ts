@@ -108,14 +108,15 @@ describe("project-session HMR boundaries", () => {
         vi.resetModules();
         const facade = await import("nbook/server/workspace-files/project-session");
         const {createProjectHttpError} = await import("nbook/server/api/projects/project-http-error");
-        const {withProjectNotOpenHttpError} = await import("nbook/server/workspace-files/project-open-guard");
+        const {withProjectHttpError} = await import("nbook/server/api/projects/project-http-error");
 
-        const first = await facade.openProject(workspaceRoot, "workspace/alpha", {kind: "user"});
-        const second = await facade.openProject(workspaceRoot, "workspace/alpha", {kind: "agent", sessionId: 7});
+        const ref = projectWorkspaceRef("alpha");
+        const first = await facade.openProject(ref, {kind: "user"}, workspaceRoot);
+        const second = await facade.openProject(ref, {kind: "agent", sessionId: 7}, workspaceRoot);
         expect(second).toBe(first);
         expect(lifecycle.prepareOpen).toHaveBeenCalledTimes(1);
 
-        await expect(facade.openProject(otherRoot, "workspace/alpha", {kind: "user"}))
+        await expect(facade.openProject(ref, {kind: "user"}, otherRoot))
             .rejects.toThrow("ProjectSession Service已经绑定到另一个Workspace Root");
         expect(lifecycle.prepareOpen).toHaveBeenCalledTimes(1);
 
@@ -125,11 +126,11 @@ describe("project-session HMR boundaries", () => {
         });
         expect(createProjectHttpError(oldLifecycle)?.data).toEqual({code: "PROJECT_NOT_FOUND"});
         expect(createProjectHttpError(oldLock)?.data).toEqual({code: "PROJECT_IN_USE", projectRoot: "alpha"});
-        await expect(withProjectNotOpenHttpError(() => {
+        await expect(withProjectHttpError(() => {
             throw oldNotOpen;
         })).rejects.toMatchObject({
             statusCode: 409,
-            data: {code: "PROJECT_NOT_OPEN", projectPath: "workspace/missing"},
+            data: {code: "PROJECT_NOT_OPEN", projectRoot: "missing"},
         });
 
         await facade.closeAllProjects();

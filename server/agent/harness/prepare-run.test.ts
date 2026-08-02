@@ -177,10 +177,53 @@ describe("buildPromptPrefixAttribution", () => {
         ]);
     });
 
-    it("旧 session（entry 无 promptSource）全部按对话归因，不报错", () => {
+    it("有 promptSource 时 mode 为 full", () => {
+        const message = createUserMessage({text: "H"});
+        const attribution = buildPromptPrefixAttribution({
+            snapshot: fakeSnapshot([{message, promptSource: {zone: "historySet"}}]),
+            persistedMessages: [message],
+            modelContextCount: 0,
+            appendingCount: 0,
+            currentUserInputCount: 0,
+        });
+        expect(attribution.mode).toBe("full");
+    });
+
+    it("旧 session 无 promptSource 时按位置推断：首条真实消息之前的 custom_message 判为 HistorySet", () => {
+        const historyA = createUserMessage({text: "HISTORY_A"});
+        const historyB = createUserMessage({text: "HISTORY_B"});
+        const chat = createUserMessage({text: "CHAT"});
+        const laterReminder = createUserMessage({text: "LATER_REMINDER"});
+        const persistedMessages = [historyA, historyB, chat, laterReminder];
+
+        const attribution = buildPromptPrefixAttribution({
+            snapshot: {
+                entries: [
+                    {id: "e0", parentId: null, timestamp: 0, type: "custom_message", message: historyA, visibleToModel: true},
+                    {id: "e1", parentId: null, timestamp: 1, type: "custom_message", message: historyB, visibleToModel: true},
+                    {id: "e2", parentId: null, timestamp: 2, type: "message", message: chat},
+                    {id: "e3", parentId: null, timestamp: 3, type: "custom_message", message: laterReminder, visibleToModel: true},
+                ],
+            } as unknown as SessionSnapshot,
+            persistedMessages,
+            modelContextCount: 0,
+            appendingCount: 0,
+            currentUserInputCount: 0,
+        });
+
+        expect(attribution.mode).toBe("legacy");
+        // 首条真实 message 之前 = HistorySet（含分不开的首轮提醒）；之后的 custom_message = AppendingSet。
+        expect(attribution.kinds).toEqual(["historySet", "historySet", "conversation", "appending"]);
+        // 位置推断给不出具名来源。
+        expect(attribution.labels).toEqual([null, null, null, null]);
+    });
+
+    it("完全没有 custom_message 的旧 session 全部按对话归因，不报错", () => {
         const messages = [createUserMessage({text: "A"}), createUserMessage({text: "B"})];
         const attribution = buildPromptPrefixAttribution({
-            snapshot: fakeSnapshot(messages.map((message) => ({message}))),
+            snapshot: {
+                entries: messages.map((message, index) => ({id: `e${String(index)}`, parentId: null, timestamp: index, type: "message", message})),
+            } as unknown as SessionSnapshot,
             persistedMessages: messages,
             modelContextCount: 0,
             appendingCount: 0,

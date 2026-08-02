@@ -10,6 +10,25 @@ afterEach(() => {
 });
 
 describe("Windows Adapter protocol", () => {
+    it("内部监督协议不根据测试宿主架构拒绝调用", async () => {
+        const descriptor = Object.getOwnPropertyDescriptor(process, "arch");
+        if (!descriptor) throw new Error("process.arch descriptor 不存在");
+        Object.defineProperty(process, "arch", {...descriptor, value: "arm64"});
+
+        try {
+            const supervisor = new FakeSupervisor();
+            const spawnWindowsOwnedProcess = await loadAdapter(supervisor);
+            const lease = spawnWindowsOwnedProcess({command: "target", hardKillWaitMs: 20});
+            supervisor.emit("message", {kind: "complete", exitCode: 0, signal: null});
+            supervisor.connected = false;
+            supervisor.emit("close", 0, null);
+
+            await expect(lease.completion).resolves.toMatchObject({exitCode: 0});
+        } finally {
+            Object.defineProperty(process, "arch", descriptor);
+        }
+    });
+
     it("同步IPC断开后等待supervisor close并清理watchdog", async () => {
         vi.useFakeTimers();
         const supervisor = new FakeSupervisor();

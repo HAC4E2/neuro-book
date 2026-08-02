@@ -1,17 +1,39 @@
 import path from "node:path";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
-import {normalizeProjectPath as np, resolveProjectWorkspaceRoot as resolveRoot} from "nbook/server/workspace-files/project-path";
+import {
+    normalizeProjectRoot,
+    projectWorkspaceRef,
+    resolveProjectWorkspaceRoot,
+    type ProjectWorkspaceRef,
+} from "nbook/server/workspace-files/project-identity";
 import {absoluteFsPath, resolveContainedFilePath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {PROJECT_FILE_INDEX_MODULE_TOKEN} from "nbook/server/workspace-files/project-file-index";
 import {
     isProjectNotOpenError,
     requireReadyModuleHandle,
-    requireReadyProjectPath,
+    requireReadyProject,
 } from "nbook/server/workspace-files/project-session";
 import {PROJECT_HISTORY_MODULE_TOKEN, type ProjectHistoryHandle} from "nbook/server/workspace-history/project-history";
 
+/**
+ * 把形如 `workspace/<slug>` 的文生图 projectPath 解析为上游 Project 生命周期接受的
+ * `ProjectWorkspaceRef`。旧 `normalizeProjectPath`/`requireReadyProjectPath` 随上游
+ * project-path 模块删除，text-to-image 统一经此适配上游 project-identity 架构。
+ */
+export function textToImageProjectRef(projectPath: string): ProjectWorkspaceRef {
+    const normalized = projectPath.replaceAll("\\", "/");
+    if (!normalized.startsWith("workspace/")) {
+        throw new Error("projectPath 必须形如 workspace/<project>");
+    }
+    const slug = normalized.slice("workspace/".length);
+    if (!slug || slug.includes("/")) {
+        throw new Error("projectPath 必须形如 workspace/<project>");
+    }
+    return projectWorkspaceRef(normalizeProjectRoot(slug));
+}
+
 export function resolveProjectAbsolutePath(projectPath: string): string {
-    return resolveRoot(resolveRuntimeWorkspaceRoot(), np(projectPath));
+    return resolveProjectWorkspaceRoot(resolveRuntimeWorkspaceRoot(), textToImageProjectRef(projectPath));
 }
 
 export {absoluteFsPath};
@@ -38,7 +60,7 @@ export function resolveGlobalProfileNbookRoot(workspaceRoot?: string): AbsoluteF
  */
 export function invalidateProjectTreeIndex(projectPath: string): void {
     try {
-        const ready = requireReadyProjectPath(np(projectPath));
+        const ready = requireReadyProject(textToImageProjectRef(projectPath));
         requireReadyModuleHandle(ready, PROJECT_FILE_INDEX_MODULE_TOKEN).invalidate();
     } catch (error) {
         if (isProjectNotOpenError(error)) {
@@ -54,7 +76,7 @@ export function invalidateProjectTreeIndex(projectPath: string): void {
  */
 export function tryReadyProjectHistoryHandle(projectPath: string): ProjectHistoryHandle | null {
     try {
-        const ready = requireReadyProjectPath(np(projectPath));
+        const ready = requireReadyProject(textToImageProjectRef(projectPath));
         return requireReadyModuleHandle(ready, PROJECT_HISTORY_MODULE_TOKEN);
     } catch (error) {
         if (isProjectNotOpenError(error)) {

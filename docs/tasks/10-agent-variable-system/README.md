@@ -1,5 +1,7 @@
 # Agent Variable System Refactor
 
+> 2026-07-31 authoring/CLI 取代说明：Variable 作者使用 `nbook/variable-sdk`；Agent 稳定入口是 `.nbook/agent/bin/variable`。下文 repo-backed shim、项目根 `scripts/variable.ts` 与 `assets/workspace/.nbook/agent/scripts/variable.ts` 只保留为历史证据；Source checkout wrapper 现调用 Product-owned source entry，发行物通过 Task 130 的 Product Runtime Contract 解析 `variable` 逻辑命令，不保留旧路径 fallback。
+
 > 2026-07-11 暂时收口 Profile 公开表面：全局 Agent registry 与 `variable_schema`、`variable_read`、`variable_patch` runtime/tools 继续保留；Profile DSL/JSX、`builtin.variable` 绑定、内置 Profile 提示与 Workbench 不再公开 `Variable`、`VariableSchema` 或变量插入能力。底层 storage、registry、`ctx.vars`、definition 编译和类型生成保持完整；本文后续章节保留原始设计与实现历史，不代表当前 Profile 作者界面。
 
 ## User Request

@@ -1,22 +1,44 @@
 import {join, resolve} from "node:path";
 import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {randomUUID} from "node:crypto";
-import {describe, expect, it} from "vitest";
-import rpLeaderProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/rp.leader.profile";
-import rpWriterProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/rp.writer.profile";
-import simulatorActorProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/simulator.actor.profile";
-import simulatorLeaderProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/simulator.leader.profile";
+import {afterAll, beforeAll, describe, expect, it} from "vitest";
+import rpLeaderProfileDefinition from "../../../assets/workspace/.nbook/agent/profiles/builtin/rp.leader.profile";
+import rpWriterProfileDefinition from "../../../assets/workspace/.nbook/agent/profiles/builtin/rp.writer.profile";
+import simulatorActorProfileDefinition from "../../../assets/workspace/.nbook/agent/profiles/builtin/simulator.actor.profile";
+import simulatorLeaderProfileDefinition from "../../../assets/workspace/.nbook/agent/profiles/builtin/simulator.leader.profile";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
 import {RpLeaderInitialSchema, RpLeaderOutputSchema, RpWriterInitialSchema, RpWriterOutputSchema, SimulatorLeaderInitialSchema, SubjectSimulatorInitialSchema, SubjectSimulatorOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {storedMessageText, type StoredMessageLike} from "nbook/server/agent/messages/stored-message-presentation";
 import {createTestRuntimeSession as testSession} from "nbook/server/agent/profiles/test/runtime-session";
 import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
+import {normalizeAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
+import {
+    createIsolatedWorkspaceAssets,
+    type IsolatedWorkspaceAssets,
+} from "nbook/server/workspace-files/test-workspace-fixture";
+
+const rpLeaderProfile = normalizeAgentProfile(rpLeaderProfileDefinition);
+const rpWriterProfile = normalizeAgentProfile(rpWriterProfileDefinition);
+const simulatorActorProfile = normalizeAgentProfile(simulatorActorProfileDefinition);
+const simulatorLeaderProfile = normalizeAgentProfile(simulatorLeaderProfileDefinition);
 
 function messagesText(messages: StoredMessageLike[] | undefined): string {
     return (messages ?? []).map((message) => storedMessageText(message)).join("\n");
 }
 describe("RP builtin profiles", () => {
+    let assets: IsolatedWorkspaceAssets;
+
+    beforeAll(async () => {
+        assets = await createIsolatedWorkspaceAssets({purpose: "rp-profile-tests"});
+    });
+
+    afterAll(async () => {
+        await assets.dispose();
+    });
+
     it("catalog 加载 rp.leader、simulator.leader、simulator.actor、rp.writer，不再加载 leader.rp", async () => {
         const catalog = new AgentProfileCatalog(
             resolve("assets", "workspace", ".nbook", "agent", "profiles"),
@@ -72,8 +94,7 @@ describe("RP builtin profiles", () => {
         const prepared = await rpLeaderProfile.prepare!({
             session: testSession({
                 profileKey: "rp.leader",
-                workspaceRoot: "workspace",
-                projectPath: "workspace/rp-project",
+                currentProjectRoot: "rp-project",
                 customState: {},
                 linkedAgents: [],
                 archived: false,
@@ -155,19 +176,18 @@ describe("RP builtin profiles", () => {
         expect(historyText).toContain("```reference/content/simulation.md");
         expect(historyText).toContain("```reference/agent/workspace-tool-use.md");
         expect(historyText).toContain("```reference/agent/project-workspace-guide.md");
-        expect(modelContextText).toContain("projectPath: workspace/rp-project");
+        expect(modelContextText).toContain("projectRoot: rp-project");
         expect(modelContextText).toContain("manualRoot: manual/");
         expect(modelContextText).toContain("simulationRoot: simulation/");
         expect(modelContextText).toContain("mode: 每轮任务 prompt 指定");
-        expect(appendingText).toContain("Runtime Location");
+        expect(appendingText).toContain("Current Workspace Focus");
     });
 
     it("simulator.leader 作为 simulation runtime owner 并负责调度 actor", async () => {
         const prepared = await simulatorLeaderProfile.prepare!({
             session: testSession({
                 profileKey: "simulator.leader",
-                workspaceRoot: "workspace",
-                projectPath: "workspace/rp-project",
+                currentProjectRoot: "rp-project",
                 customState: {},
                 linkedAgents: [],
                 archived: false,
@@ -201,7 +221,7 @@ describe("RP builtin profiles", () => {
         expect(historyText).toContain("World Engine 数据维护转 `world.engine`");
         expect(historyText).toContain("正式章节正文由上级调用 `writer`");
         expect(historyText).toContain("```reference/agent/workspace-tool-use.md");
-        expect(modelContextText).toContain("projectPath: workspace/rp-project");
+        expect(modelContextText).toContain("projectRoot: rp-project");
         expect(modelContextText).toContain("mode: 每轮任务 prompt 指定");
     });
 
@@ -211,8 +231,8 @@ describe("RP builtin profiles", () => {
             const prepared = await simulatorActorProfile.prepare!({
                 session: testSession({
                     profileKey: "simulator.actor",
-                    workspaceRoot: "workspace",
-                    projectPath: `workspace/${fixture.projectSlug}`,
+                    workspaceRoot: absoluteFsPath(fixture.workspaceRoot),
+                    currentProjectRoot: fixture.projectSlug,
                     customState: {},
                     linkedAgents: [],
                     archived: false,
@@ -285,7 +305,7 @@ describe("RP builtin profiles", () => {
             expect(modelContextText).toContain("并必须调用 report_result");
             expect(modelContextText).toContain("不要主动读写文件");
             expect(modelContextText).toContain("记忆维护不归我此刻操心");
-            expect(appendingText).toContain("Runtime Location");
+            expect(appendingText).toContain("Current Workspace Focus");
             expect(appendingText).not.toContain("只回应当前 user message");
         } finally {
             await fixture.cleanup();
@@ -298,8 +318,8 @@ describe("RP builtin profiles", () => {
             const prepared = await simulatorActorProfile.prepare!({
                 session: testSession({
                     profileKey: "simulator.actor",
-                    workspaceRoot: "workspace",
-                    projectPath: `workspace/${fixture.projectSlug}`,
+                    workspaceRoot: absoluteFsPath(fixture.workspaceRoot),
+                    currentProjectRoot: fixture.projectSlug,
                     customState: {},
                     linkedAgents: [],
                     archived: false,
@@ -336,8 +356,8 @@ describe("RP builtin profiles", () => {
             const prepared = await simulatorActorProfile.prepare!({
                 session: testSession({
                     profileKey: "simulator.actor",
-                    workspaceRoot: "workspace",
-                    projectPath: `workspace/${fixture.projectSlug}`,
+                    workspaceRoot: absoluteFsPath(fixture.workspaceRoot),
+                    currentProjectRoot: fixture.projectSlug,
                     customState: {},
                     linkedAgents: [],
                     archived: false,
@@ -370,7 +390,7 @@ describe("RP builtin profiles", () => {
             const prepared = await rpWriterProfile.prepare!({
                 session: testSession({
                     profileKey: "rp.writer",
-                    workspaceRoot: "workspace",
+                    workspaceRoot: absoluteFsPath(fixture.workspaceRoot),
                     customState: {},
                     linkedAgents: [],
                     archived: false,
@@ -436,7 +456,7 @@ describe("RP builtin profiles", () => {
             expect(modelContextText).toContain("profile initial 为空");
             expect(modelContextText).toContain("report_result.result");
             expect(modelContextText).toContain("不生成选项、标题、摘要");
-            expect(appendingText).toContain("Runtime Location");
+            expect(appendingText).toContain("Current Workspace Focus");
         } finally {
             await fixture.cleanup();
         }
@@ -501,9 +521,7 @@ describe("RP builtin profiles", () => {
 });
 
 async function createRoleplayFixture(): Promise<{workspaceRoot: string; projectSlug: string; cleanup: () => Promise<void>}> {
-    // actor 主路 Import soul.md 时按 repo-root 解析 workspace/${subjectPath}/soul.md，
-    // 所以 fixture 必须把 subject 目录放在 repo-root workspace/ 下，workspaceRoot 指向 resolve("workspace")。
-    const workspaceRoot = resolve("workspace");
+    const workspaceRoot = resolveRuntimeWorkspaceRoot();
     const projectSlug = `rp-project-${randomUUID()}`;
     const projectRoot = join(workspaceRoot, projectSlug);
     const actorRoot = join(projectRoot, "simulation", "subjects", "heroine");

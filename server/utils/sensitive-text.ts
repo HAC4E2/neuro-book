@@ -1,7 +1,7 @@
 const REDACTED = "[REDACTED]";
 
-const SENSITIVE_LABEL = "api[-_ ]?key|apikey|authorization|cookie|set-cookie|password|token|secret|credential|access[-_ ]?token|refresh[-_ ]?token";
-const SENSITIVE_VALUE_LABEL = "api[-_ ]?key|apikey|password|token|secret|credential|access[-_ ]?token|refresh[-_ ]?token";
+const SENSITIVE_LABEL = "api[-_ ]?key|apikey|authorization|cookie|set-cookie|password|token|secret|credential|device[-_ ]?code|grant|access[-_ ]?token|refresh[-_ ]?token|recovery[-_ ]?code|backup[-_ ]?key|backup[-_ ]?keyring";
+const SENSITIVE_VALUE_LABEL = "api[-_ ]?key|apikey|password|token|secret|credential|device[-_ ]?code|grant|access[-_ ]?token|refresh[-_ ]?token|recovery[-_ ]?code|backup[-_ ]?key|backup[-_ ]?keyring";
 
 /**
  * 清理自由文本中的常见凭据片段。
@@ -16,5 +16,6 @@ export function redactSensitiveText(input: string): string {
         .replace(/(\bauthorization\s*[:=]\s*)(?!(?:Bearer|Basic)\b)[^\s,;}]+/giu, `$1${REDACTED}`)
         .replace(new RegExp(`\\b(cookie|set-cookie)\\s*[:=]\\s*[^\\r\\n]+`, "giu"), `$1=${REDACTED}`)
         .replace(new RegExp(`(\\b(?:${SENSITIVE_VALUE_LABEL})\\s*[:=]\\s*)(?:"[^"]*"|'[^']*'|[^\\s,;}]+)`, "giu"), `$1${REDACTED}`)
+        .replace(/\bNBK1-[A-Za-z0-9_-]{43}-[0-9a-f]{8}\b/gu, REDACTED)
         .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/gu, REDACTED);
 }

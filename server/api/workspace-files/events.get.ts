@@ -34,11 +34,11 @@ export function createWorkspaceFileEventsHandler(dependencies: WorkspaceFileEven
 }) {
     return async (event: H3Event) => {
         const query = getQuery(event);
-        const projectPath = typeof query.projectPath === "string" ? query.projectPath : undefined;
+        const projectRoot = typeof query.projectRoot === "string" ? query.projectRoot : undefined;
         const workspaceKind = query.workspaceKind === "user-assets" ? query.workspaceKind : undefined;
         const target = await dependencies.resolveWorkspaceFileTarget(
             dependencies.runtimePaths(),
-            {projectPath, workspaceKind},
+            {projectRoot, workspaceKind},
         );
         const startOperation = dependencies.startProjectTargetOperation ?? ((_, start) => (
             start(undefined, new AbortController().signal).result

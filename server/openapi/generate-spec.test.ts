@@ -25,14 +25,14 @@ describe("buildOpenAPISpecForRoutes", () => {
                 file: "projects/plot/[...segments].ts",
                 path: "projects/plot/scenes/{sceneId}/world-context",
                 queryParams: z.object({
-                    projectPath: z.string().trim().min(1).describe("Project Workspace path"),
+                    projectRoot: z.string().trim().min(1).describe("Project Workspace root"),
                 }),
             }),
             route({
                 file: "projects/plot/[...segments].ts",
                 path: "projects/plot/chapter-writer-brief",
                 queryParams: z.object({
-                    projectPath: z.string().trim().min(1),
+                    projectRoot: z.string().trim().min(1),
                     chapterPath: z.string().trim().min(1),
                 }),
             }),
@@ -43,10 +43,10 @@ describe("buildOpenAPISpecForRoutes", () => {
 
         expect(worldContext?.parameters).toEqual(expect.arrayContaining([
             expect.objectContaining({name: "sceneId", in: "path", required: true}),
-            expect.objectContaining({name: "projectPath", in: "query", required: true}),
+            expect.objectContaining({name: "projectRoot", in: "query", required: true}),
         ]));
         expect(chapterBrief?.parameters).toEqual(expect.arrayContaining([
-            expect.objectContaining({name: "projectPath", in: "query", required: true}),
+            expect.objectContaining({name: "projectRoot", in: "query", required: true}),
             expect.objectContaining({name: "chapterPath", in: "query", required: true}),
         ]));
         expect(chapterBrief?.parameters).not.toEqual(expect.arrayContaining([
@@ -82,14 +82,14 @@ describe("generateOpenAPISpec", () => {
 
         expect(worldContext?.parameters).toEqual(expect.arrayContaining([
             expect.objectContaining({name: "sceneId", in: "path", required: true}),
-            expect.objectContaining({name: "projectPath", in: "query", required: true}),
+            expect.objectContaining({name: "projectRoot", in: "query", required: true}),
         ]));
         expect(chapter?.parameters).toEqual(expect.arrayContaining([
-            expect.objectContaining({name: "projectPath", in: "query", required: true}),
+            expect.objectContaining({name: "projectRoot", in: "query", required: true}),
             expect.objectContaining({name: "chapterId", in: "query", required: true}),
         ]));
         expect(chapterWriterBrief?.parameters).toEqual(expect.arrayContaining([
-            expect.objectContaining({name: "projectPath", in: "query", required: true}),
+            expect.objectContaining({name: "projectRoot", in: "query", required: true}),
             expect.objectContaining({name: "chapterId", in: "query", required: true}),
         ]));
         expect(paths.some((path) => path.startsWith("/api/novels/{novelId}/plot"))).toBe(false);

@@ -18,7 +18,8 @@ export default defineEventHandler(async (event) => {
     }
     const projectPath = typeof query.projectPath === "string" ? query.projectPath : undefined;
     const workspaceKind = query.workspaceKind === "user-assets" ? query.workspaceKind : undefined;
-    const target = await resolveWorkspaceFileTarget(runtimePathsFromEnv(), {projectPath, workspaceKind});
+    const projectRoot = projectPath ? projectPath.replace(/^workspace\//, "") : undefined;
+    const target = await resolveWorkspaceFileTarget(runtimePathsFromEnv(), {projectRoot, workspaceKind});
     assertProjectOpenForTarget(target);
 
     let image: Awaited<ReturnType<typeof resolveWorkspaceImageFile>>;

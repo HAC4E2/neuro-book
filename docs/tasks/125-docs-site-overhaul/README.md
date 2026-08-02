@@ -204,7 +204,15 @@ sibling 仓 `agent-design-template` 的 `landing-v2` 加 `LocaleContext`，同�
 
 ### 未处理，交用户决定
 
-**1. 「llmlint 340 条规则」这个数字对不上。** 实测 `builtin/default` 有 **360 条**规则，其中 **94 条 `enabled: false`**，默认启用 **266 条**。而官网对比表和文档站（README ×2、`docs/index.md`、`docs/core/llmlint.md`）都写「340 条」，llmlint demo 里又写「311 条默认启用」——311 恰好是 `level: medium` 的条数，不是启用数。llmlint 自己的 `skill/README.md` 写的是「约 340 条」，所以 340 是当时的近似值、后来漂了。没有擅自改这 5 处营销数字，等你定口径（建议：总数 360 / 默认启用 266，或统一改回「约 360 条」）。
+**1. ~~「llmlint 340 条规则」这个数字对不上。~~ 已于 2026-07-31 拍板并全量订正。** 实测 `builtin/default` 有 **360 条**规则，其中 **94 条 `enabled: false`**，默认启用 **266 条**。而官网对比表和文档站（README ×2、`docs/index.md`、`docs/core/llmlint.md`）都写「340 条」，llmlint demo 里又写「311 条默认启用」——311 恰好是 `level: medium` 的条数，不是启用数。llmlint 自己的 `skill/README.md` 写的是「约 340 条」，所以 340 是当时的近似值、后来漂了。
+
+用户拍板口径为 **总数 360 / 默认启用 266**，已在 README 重写任务中一并订正，覆盖三个仓共 17 处：
+
+- NeuroBook：`README.md`、`README.en.md`、`docs/core/llmlint.md`、`docs/en/core/llmlint.md`、`docs/index.md`、`docs/en/index.md`、`docs/drafts/marketing-kit.md`（5 处）。
+- llmlint sibling 仓：`skill/README.md`、`skill/README.en.md`（并补上「运行 `llmlint rules --format json` 查看实时统计」，避免下次再漂），已经 `sync-llmlint-skill.ts` 同步到 `assets/` 与 `workspace/` 两层副本。
+- agent-design-template sibling 仓：`landing-v2.tsx`（2）、`landing.tsx`（2）、`launch-deck.tsx`（3）、`pitch-deck.tsx`（1）、`_components/llmlint-demo.tsx`（1）。**仅改源码未重建** `docs/public/official/`——该仓无 remote 且有 61 项未提交改动，重建会把无关改动一并烘进产物；官网线上仍显示 340，需人工确认后重建。
+
+数字来源改为权威口径：`llmlint rules --format json` 的 `registry` 字段（`totalRules` / `activeRules` / `disabledRules` / `namespaces`），实测 360 / 266 / 94 / 71。`docs/tasks/77-llmlint-rule-registry/README.md` 中的 340/311 是当时的验证记录，属历史事实，未改动。
 
 **2. llmlint 规则本身可能有个缺口。** `inflation-not-only-but` 的正则不匹配带逗号的「这不仅仅是 X，更是 Y」——而带逗号才是 AI 更常见的写法。要不要补，属于 llmlint 仓的事。
 

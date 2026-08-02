@@ -4,6 +4,7 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
+import {TEST_RUNTIME_IMAGE_IDENTITY} from "#manager/fixtures/runtime-image";
 
 const mocks = vi.hoisted(() => ({resolveReleaseManifest: vi.fn()}));
 
@@ -124,6 +125,29 @@ describe("Install Preflight", () => {
         await expect(stat(root)).rejects.toMatchObject({code: "ENOENT"});
     });
 
+    it("manual state migration在任何安装写入前形成blocker", async () => {
+        const parent = await mkdtemp(join(tmpdir(), "nbook-preflight-manual-"));
+        roots.push(parent);
+        const root = join(parent, "new-installation");
+        mocks.resolveReleaseManifest.mockResolvedValue({
+            ...releaseFixture(),
+            stateMigration: {policy: "manual", steps: [], guide: "docs/migrations/manual.md"},
+        });
+
+        const result = await inspectInstallPreflight({
+            root,
+            profile: "product-bun",
+            channel: "canary",
+            port: await freePort(),
+        }, environment());
+
+        expect(result.report.blockers).toContainEqual(expect.objectContaining({
+            code: "release.resolve",
+            message: expect.stringContaining("docs/migrations/manual.md"),
+        }));
+        await expect(stat(root)).rejects.toMatchObject({code: "ENOENT"});
+    });
+
     it("推荐策略只依赖宿主与已探测engine", () => {
         const host = inspectHostPlatform();
         expect(recommendedInstallProfile(environment())).toBe(host.os === "windows" ? "windows-portable" : "product-bun");
@@ -148,15 +172,17 @@ function releaseFixture(): ReleaseManifest {
     const host = inspectHostPlatform();
     const asset = {url: "https://example.com/asset.zip", sha256: "a".repeat(64), bytes: 1};
     return {
-        schemaVersion: 3,
+        schemaVersion: 5,
+        buildId: `sha256:${"9".repeat(64)}`,
         version: "0.9.0-canary.1",
         channel: "canary",
         sourceRevision: "b".repeat(40),
         minManagerVersion: MANAGER_VERSION,
         source: {...asset, url: "https://example.com/neuro-book-source.zip"},
-        products: [{...asset, url: "https://example.com/product.zip", platform: host.productPlatform, sourceRevision: "b".repeat(40)}],
+        products: [{...asset, ...TEST_RUNTIME_IMAGE_IDENTITY, url: "https://example.com/product.zip", platform: host.productPlatform, sourceRevision: "b".repeat(40)}],
         windowsPortable: {...asset, url: "https://example.com/neuro-book-windows-x64.zip"},
-        ghcr: {ref: "ghcr.io/notnotype/neuro-book:v0.9.0-canary.1", digest: `sha256:${"c".repeat(64)}`, sourceRevision: "b".repeat(40)},
+        ghcr: {ref: `ghcr.io/notnotype/neuro-book@sha256:${"c".repeat(64)}`, digest: `sha256:${"c".repeat(64)}`, sourceRevision: "b".repeat(40)},
+        stateMigration: {policy: "automatic", steps: ["agent-attachment-v1", "agent-session-v2"]},
     };
 }
 

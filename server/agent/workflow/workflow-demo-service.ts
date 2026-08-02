@@ -13,7 +13,6 @@ import {storedMessageText} from "nbook/server/agent/messages/stored-message-pres
 import type {SessionSnapshot} from "nbook/server/agent/session/types";
 import {assertVisibleModel} from "nbook/server/agent/harness/agent-visible-models";
 import type {EffectiveConfig} from "nbook/server/config/types";
-import {projectPathFromRef} from "nbook/server/workspace-files/project-path";
 import {startReadyProjectOperation} from "nbook/server/workspace-files/project-session";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 
@@ -96,7 +95,6 @@ export type WorkflowRunStart = {
 type WorkflowRunContext = Readonly<{
     config: EffectiveConfig;
     project: ReadyProjectSessionRef | null;
-    workspaceKey: string;
 }>;
 
 type WorkflowRunTerminal = Readonly<{
@@ -208,9 +206,6 @@ class WorkflowDemoService {
             if (init.model) {
                 assertVisibleModel(runContext.config, init.model);
             }
-            const projectPath = runContext.project
-                ? projectPathFromRef(runContext.project.workspace.ref)
-                : undefined;
             const created = await harness.createAgent({
                 profileKey: init.profileKey,
                 initial: init.initial ?? undefined,
@@ -218,9 +213,7 @@ class WorkflowDemoService {
                 title: init.title,
                 kind: init.kind,
                 tags: init.tags,
-                workspaceRoot: "workspace",
-                workspaceKey: runContext.workspaceKey,
-                projectPath,
+                currentProjectRoot: runContext.project?.workspace.ref.projectRoot,
             });
             // 模型指定（Task 111）：workflow 创建的 session 落 model_change entry，后续 invoke 全部用该模型
             if (init.model) {
@@ -321,7 +314,6 @@ class WorkflowDemoService {
         workspace?: WorkspacePort;
         config: EffectiveConfig;
         project: ReadyProjectSessionRef | null;
-        workspaceKey: string;
         /** 阻塞工具调用的父 invocation signal；后台 Job 仍通过 cancelRun 传播。 */
         signal?: AbortSignal;
     }): WorkflowRunStart {
@@ -346,7 +338,6 @@ class WorkflowDemoService {
             this.runContexts.set(runId, Object.freeze({
                 config: opts.config,
                 project: opts.project,
-                workspaceKey: opts.workspaceKey,
             }));
             this.buffers.set(runId, buffer);
             this.runInfo.set(runId, {workflowKey: opts.def.key, phases: opts.def.phases});

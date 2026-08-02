@@ -4,10 +4,10 @@ import {throwIllustrationWorkflowHttpError} from "nbook/server/text-to-image/ill
 import {getIllustrationWorkflowService} from "nbook/server/text-to-image/illustration-workflow.service";
 import {requireCurrentUser} from "nbook/server/utils/auth";
 import {validateBody} from "nbook/server/utils/novel-chapter";
-import {withProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
+import {withProjectHttpError} from "nbook/server/api/projects/project-http-error";
 
 /** 由服务端生成 revision nonce，并从当前真相源建立新的 Planning request。 */
-export default defineEventHandler((event) => withProjectNotOpenHttpError(async () => {
+export default defineEventHandler((event) => withProjectHttpError(async () => {
     await requireCurrentUser(event);
     const request = await validateBody(event, IllustrationPlanningWorkflowReplanRequestSchema);
     const workflowId = getRouterParam(event, "workflowId")?.trim() ?? "";

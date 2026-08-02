@@ -34,16 +34,13 @@ describe("task tools", () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot,
-            workspaceKey: "task-tools-test",
         });
         const context = {
             harness,
             sessionId: created.sessionId,
             profileKey: "leader.default",
-            workspaceRootRef: absoluteFsPath(workspaceRoot),
-            workspaceFsRoot: absoluteFsPath(workspaceRoot),
-            workspaceKey: "task-tools-test",
+            workspaceRoot: absoluteFsPath(workspaceRoot),
+            currentProject: null,
         };
         const taskCreate = harness.tools.get("task_create");
         const taskSetStatus = harness.tools.get("task_set_status");
@@ -60,7 +57,7 @@ describe("task tools", () => {
             status: "completed",
             note: "完成",
         });
-        const session = await harness.readSessionContext(created.sessionId, "task-tools-test");
+        const session = await harness.readSessionContext(created.sessionId);
 
         expect(createdTasks?.details).toMatchObject({
             title: "迁移",
@@ -83,25 +80,20 @@ describe("task tools", () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot,
-            workspaceKey: "task-tools-savepoint-test",
         });
         const writeExecutor = (harness as unknown as {writeExecutor: SessionWriteExecutor}).writeExecutor;
         const pendingPlans: Array<{plan: SessionWritePlan; toolCallIndex: number; enqueueOrder: number}> = [];
         let enqueueOrder = 0;
-        const snapshotBeforeTurn = await harness.repo.readSession(created.sessionId, "task-tools-savepoint-test");
+        const snapshotBeforeTurn = await harness.repo.readSession(created.sessionId);
         const context = {
             harness,
             sessionId: created.sessionId,
             profileKey: "leader.default",
-            workspaceRootRef: absoluteFsPath(workspaceRoot),
-            workspaceFsRoot: absoluteFsPath(workspaceRoot),
-            workspaceKey: "task-tools-savepoint-test",
-            invocationId: "task-invocation",
+            workspaceRoot: absoluteFsPath(workspaceRoot),
+            currentProject: null,
             sessionWrites: new ToolSessionWriteSink({
                 executor: writeExecutor,
                 sessionId: created.sessionId,
-                invocationId: "task-invocation",
                 toolCallIndex: 0,
                 toolCallId: "task-create-call",
                 enqueueSavePoint(plan, source) {
@@ -142,9 +134,9 @@ describe("task tools", () => {
             ...pendingPlans
                 .sort((left, right) => left.toolCallIndex - right.toolCallIndex || left.enqueueOrder - right.enqueueOrder)
                 .map((item) => item.plan),
-        ], "task-invocation");
+        ]);
 
-        const afterTurn = await harness.readSessionContext(created.sessionId, "task-tools-savepoint-test");
+        const afterTurn = await harness.readSessionContext(created.sessionId);
         expect(afterTurn.customState[AGENT_TASKS_STATE_KEY]).toMatchObject({
             title: "当前分支任务",
             steps: [
@@ -153,8 +145,8 @@ describe("task tools", () => {
             ],
         });
 
-        await harness.repo.moveLeaf(created.sessionId, snapshotBeforeTurn.leafId, "task-tools-savepoint-test");
-        const otherBranch = await harness.readSessionContext(created.sessionId, "task-tools-savepoint-test");
+        await harness.repo.moveLeaf(created.sessionId, snapshotBeforeTurn.leafId);
+        const otherBranch = await harness.readSessionContext(created.sessionId);
         expect(otherBranch.customState[AGENT_TASKS_STATE_KEY]).toBeUndefined();
     }, 60_000);
 });

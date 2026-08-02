@@ -6,9 +6,6 @@ import type {
     JsonValue,
 } from "nbook/shared/dto/ai-form-annotation.dto";
 import {
-    ChapterStatusSchema,
-} from "nbook/shared/dto/novel-chapter.dto";
-import {
     StoryRefDtoSchema,
     StorySceneStatusSchema,
     StoryThreadStatusSchema,
@@ -25,6 +22,8 @@ type FieldMeta = {
     aiEditable?: boolean;
     inlineAnnotation?: boolean;
 };
+
+const ChapterStatusSchema = z.enum(["NOT_STARTED", "DRAFT", "REVISING", "DONE"]);
 
 type FormAnnotationRegistryItem = {
     schema: z.ZodObject<Record<string, z.ZodType<JsonValue | undefined>>>;

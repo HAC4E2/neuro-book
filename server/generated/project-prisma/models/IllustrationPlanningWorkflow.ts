@@ -242,7 +242,7 @@ export type IllustrationPlanningWorkflowGroupByOutputType = {
   _max: IllustrationPlanningWorkflowMaxAggregateOutputType | null
 }
 
-type GetIllustrationPlanningWorkflowGroupByPayload<T extends IllustrationPlanningWorkflowGroupByArgs> = Prisma.PrismaPromise<
+export type GetIllustrationPlanningWorkflowGroupByPayload<T extends IllustrationPlanningWorkflowGroupByArgs> = Prisma.PrismaPromise<
   Array<
     Prisma.PickEnumerable<IllustrationPlanningWorkflowGroupByOutputType, T['by']> &
       {
@@ -1617,6 +1617,11 @@ export type IllustrationPlanningWorkflowFindManyArgs<ExtArgs extends runtime.Typ
    * Skip the first `n` IllustrationPlanningWorkflows.
    */
   skip?: number
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+   * 
+   * Filter by unique combinations of IllustrationPlanningWorkflows.
+   */
   distinct?: Prisma.IllustrationPlanningWorkflowScalarFieldEnum | Prisma.IllustrationPlanningWorkflowScalarFieldEnum[]
 }
 

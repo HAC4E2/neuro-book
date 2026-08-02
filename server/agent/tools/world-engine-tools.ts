@@ -7,16 +7,16 @@ import type {ExecuteWorldMode} from "nbook/server/world-engine/world-engine.faca
 import {PROJECT_PLOT_WORLD_MODULE_TOKEN} from "nbook/server/plot";
 import {
     activateReadyProjectModule,
-    requireReadyProjectPath,
+    requireActiveReadyProject,
     runReadyProjectOperation,
 } from "nbook/server/workspace-files/project-session";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
-import {normalizeProjectPath, projectSlug} from "nbook/server/workspace-files/project-path";
+import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 
 const NonEmptyString = (description: string) => Type.String({minLength: 1, description});
 
 const ExecuteWorldSchema = Type.Object({
-    projectPath: NonEmptyString("Required Project Workspace path, e.g. workspace/silver-dragon-hime."),
+    projectRoot: Type.Optional(NonEmptyString("Optional single-segment Project root for an explicit cross-Project call.")),
     code: Type.String({minLength: 1, description: "Inline JavaScript code to execute in the World Engine CodeAct sandbox."}),
 }, {
     additionalProperties: false,
@@ -32,7 +32,7 @@ export function createWorldEngineTools(): NeuroAgentTool[] {
             async (context, input) => {
                 const mode = modeForContext(context);
                 try {
-                    const ready = worldProjectForTool(context, input.projectPath);
+                    const ready = worldProjectForTool(context, input.projectRoot);
                     return await runReadyProjectOperation(ready, async () => {
                         const {world: facade} = await activateReadyProjectModule(
                             ready,
@@ -50,17 +50,20 @@ export function createWorldEngineTools(): NeuroAgentTool[] {
     ];
 }
 
-/** Current Project复用invocation exact ref；只有显式override才在入口解析旧字符串。 */
-function worldProjectForTool(context: ToolExecutionContext, projectPathInput: string): ReadyProjectSessionRef {
-    if (!context.invocationId) {
-        throw new Error("World Engine工具缺少invocationId，无法读取已捕获的Project generation。");
+/** Current Project复用工具上下文的exact ref；显式跨Project root要求目标已ready。 */
+function worldProjectForTool(context: ToolExecutionContext, projectRootInput?: string): ReadyProjectSessionRef {
+    if (projectRootInput === undefined) {
+        if (!context.currentProject) {
+            throw new Error("execute_world 需要当前已打开的 Project；未绑定 Project 时请先打开目标 Project，或显式提供 projectRoot。");
+        }
+        return context.currentProject;
     }
-    const projectPath = normalizeProjectPath(projectPathInput);
-    const currentProject = context.harness.projectForInvocation(context.invocationId);
-    if (currentProject?.workspace.ref.projectRoot === projectSlug(projectPath)) {
+    const ref = projectWorkspaceRef(projectRootInput);
+    const currentProject = context.currentProject;
+    if (currentProject?.workspace.ref.projectRoot === ref.projectRoot) {
         return currentProject;
     }
-    return requireReadyProjectPath(projectPath);
+    return requireActiveReadyProject(ref);
 }
 
 function tool<TSchemaValue extends TSchema>(

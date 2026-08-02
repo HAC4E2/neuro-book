@@ -17,25 +17,17 @@ describe("silly-tavern-card cli helpers", () => {
         await Promise.all(tempRoots.splice(0).map((root) => rm(root, {recursive: true, force: true})));
     });
 
-    it("识别三张 raw 角色卡并统计 worldbook", async () => {
-        const files = [
-            ".agent/workspace/cards/公立育露学园/2.28_v1--reload.raw.json",
-            ".agent/workspace/cards/命定之诗/v4.2.1.raw.json",
-            ".agent/workspace/cards/碧蓝档案/V1.5_1.raw.json",
-        ];
+    it("识别受控 raw 角色卡并统计 worldbook", async () => {
+        const loaded = await loadCardInput(await createSyntheticCard(tempRoots));
+        const inspection = inspectCard(loaded);
 
-        for (const file of files) {
-            const loaded = await loadCardInput(path.resolve(file));
-            const inspection = inspectCard(loaded);
-
-            expect(inspection.kind).toBe("character-card");
-            expect(inspection.name.length).toBeGreaterThan(0);
-            expect(inspection.counts.worldbookEntries).toBeGreaterThan(0);
-        }
+        expect(inspection.kind).toBe("character-card");
+        expect(inspection.name).toBe("Synthetic ST Card");
+        expect(inspection.counts.worldbookEntries).toBeGreaterThan(0);
     });
 
     it("识别 preset-like JSON，不当成角色卡", async () => {
-        const loaded = await loadCardInput(path.resolve(".agent/workspace/cards/命定之诗/命定之诗Kemini5-3.8.json"));
+        const loaded = await loadCardInput(await createSyntheticPreset(tempRoots));
         const inspection = inspectCard(loaded);
 
         expect(inspection.kind).toBe("preset");
@@ -43,7 +35,7 @@ describe("silly-tavern-card cli helpers", () => {
     });
 
     it("统计 MVU/EJS 等动态 marker", async () => {
-        const loaded = await loadCardInput(path.resolve(".agent/workspace/cards/命定之诗/v4.2.1.raw.json"));
+        const loaded = await loadCardInput(await createSyntheticCard(tempRoots));
         const inspection = inspectCard(loaded);
 
         expect(
@@ -77,7 +69,7 @@ describe("silly-tavern-card cli helpers", () => {
 
     it("inspect 只输出 overview，不生成解包文件", async () => {
         const workspace = await createProjectWorkspace(tempRoots);
-        const input = path.resolve(".agent/workspace/cards/公立育露学园/2.28_v1--reload.raw.json");
+        const input = await createSyntheticCard(tempRoots);
 
         const logs = await captureConsoleLog(() => runCli(["bun", "silly-tavern-card", "inspect", input]));
 
@@ -87,10 +79,10 @@ describe("silly-tavern-card cli helpers", () => {
 
     it("unpack 生成稳定解包目录和单个 generated.json", async () => {
         const workspace = await createProjectWorkspace(tempRoots);
-        const input = path.resolve(".agent/workspace/cards/公立育露学园/2.28_v1--reload.raw.json");
+        const input = await createSyntheticCard(tempRoots);
 
         await runCli(["bun", "silly-tavern-card", "unpack", input, "--project", workspace]);
-        const unpackDir = path.join(workspace, "reference", "silly-tavern", "2.28-尝鲜版v1-全裸登校-育露学园的第一天-reload");
+        const unpackDir = path.join(workspace, "reference", "silly-tavern", "Synthetic-ST-Card");
         const manifest = JSON.parse(await readFile(path.join(unpackDir, "generated.json"), "utf-8")) as {files: Record<string, unknown>};
 
         expect(await readFile(path.join(unpackDir, "raw", "card.json"), "utf-8")).toContain("chara_card_v3");
@@ -128,10 +120,10 @@ describe("silly-tavern-card cli helpers", () => {
 
     it("import 从解包目录导入 worldbook，并拒绝 unknown 解包", async () => {
         const workspace = await createProjectWorkspace(tempRoots);
-        const input = path.resolve(".agent/workspace/cards/公立育露学园/2.28_v1--reload.raw.json");
+        const input = await createSyntheticCard(tempRoots);
         await runCli(["bun", "silly-tavern-card", "unpack", input, "--project", workspace]);
 
-        const unpackDir = "reference/silly-tavern/2.28-尝鲜版v1-全裸登校-育露学园的第一天-reload";
+        const unpackDir = "reference/silly-tavern/Synthetic-ST-Card";
         await runCli(["bun", "silly-tavern-card", "import", unpackDir, "--project", workspace, "--rp"]);
         const lorebookFiles = await listLorebookIndexFiles(workspace);
         expect(lorebookFiles.length).toBeGreaterThan(5);
@@ -280,7 +272,7 @@ describe("silly-tavern-card cli helpers", () => {
     it("拒绝非 Project Workspace", async () => {
         const notWorkspace = await mkdtemp(path.join(tmpdir(), "st-card-not-workspace-"));
         tempRoots.push(notWorkspace);
-        const input = path.resolve(".agent/workspace/cards/公立育露学园/2.28_v1--reload.raw.json");
+        const input = await createSyntheticCard(tempRoots);
 
         await expect(runCli(["bun", "silly-tavern-card", "unpack", input, "--project", notWorkspace])).rejects.toThrow("project.yaml");
     });
@@ -362,8 +354,26 @@ async function createSyntheticCard(tempRoots: string[]): Promise<string> {
                     syntheticEntry(14, "➡️种族开始", ""),
                 ],
             },
+            extensions: {
+                regex_scripts: [{script_name: "Synthetic Regex", find_regex: "foo", replace_string: "bar"}],
+                tavern_helper: {
+                    scripts: [{id: "synthetic-script", name: "Synthetic Script", content: "console.log('synthetic')"}],
+                    variables: {favor: 0},
+                },
+            },
         },
     }, null, 2) + "\n", "utf-8");
+    return file;
+}
+
+async function createSyntheticPreset(tempRoots: string[]): Promise<string> {
+    const root = await mkdtemp(path.join(tmpdir(), "st-card-preset-"));
+    tempRoots.push(root);
+    const file = path.join(root, "synthetic-preset.json");
+    await writeFile(file, `${JSON.stringify({
+        prompts: [{identifier: "main", content: "Synthetic preset"}],
+        prompt_order: [{order: ["main"]}],
+    }, null, 2)}\n`, "utf-8");
     return file;
 }
 

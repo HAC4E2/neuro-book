@@ -1,11 +1,11 @@
-/** @jsxImportSource nbook/server/agent/profiles/profile-dsl */
+/** @jsxImportSource nbook/profile-sdk */
 /** @jsxRuntime automatic */
-import {type Static} from "typebox";
-import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
-import {SubjectSimulatorInitialSchema, SubjectSimulatorOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
-import {AppendingSet, HistorySet, Import, Message, ModelContext, ProfilePrompt, System, WorkspaceFocusReminder} from "nbook/server/agent/profiles/profile-dsl";
-import {profileText} from "nbook/server/agent/profiles/profile-text";
+import {type Static} from "nbook/profile-sdk";
+import {defineAgentProfile} from "nbook/profile-sdk";
+import {builtin, toolset} from "nbook/profile-sdk";
+import {SubjectSimulatorInitialSchema, SubjectSimulatorOutputSchema} from "nbook/profile-sdk";
+import {AppendingSet, HistorySet, Import, Message, ModelContext, ProfilePrompt, System, WorkspaceFocusReminder} from "nbook/profile-sdk";
+import {profileText} from "nbook/profile-sdk";
 
 export const profileManifest = {
     key: "simulator.actor",
@@ -32,12 +32,10 @@ export default defineAgentProfile({
     ),
     context(ctx) {
         // soul.md = 角色第一人称扮演手册（无 frontmatter），Import 进 actor 主路取代旧 actor_definition。
-        // Import使用显式Project文件地址；文件工具仍使用当前Project-relative subjectPath。
-        const projectPath = ctx.session.projectPath?.trim();
-        if (!projectPath) {
-            throw new Error("simulator.actor需要绑定Project Path才能导入soul.md。");
+        if (!ctx.session.currentProject) {
+            throw new Error("simulator.actor需要绑定Current Project才能导入soul.md。");
         }
-        const soulPath = `${projectPath}/${subjectDirectoryPath(ctx.initial)}/soul.md`;
+        const soulPath = `workspace/${ctx.session.currentProject.workspace.ref.projectRoot}/${subjectDirectoryPath(ctx.initial)}/soul.md`;
         return (
             <ProfilePrompt>
                 <System>{renderSystemPrompt(ctx.initial, profileManifest.key)}</System>

@@ -1,6 +1,70 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`的五平台Product、原生双架构OCI/manifest merge、Windows/Linux候选、公开payload、Windows完整`0.8.6 data/`复用、Docker x64/ARM64与rootless Podman链全部通过，最终`release-manifest.json`和`SHA256SUMS`已发布；它是最新已确认完整canary。当前源码协议为Installation Manifest v4、Release Manifest v3与Operation Journal v3；Canary A→B事务更新仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
+> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`的五平台Product、原生双架构OCI/manifest merge、Windows/Linux候选、公开payload、Windows完整`0.8.6 data/`复用、Docker x64/ARM64与rootless Podman链全部通过，最终`release-manifest.json`和`SHA256SUMS`已发布；它是最新已确认完整canary。当前工作树协议为Installation Manifest v5、Release Manifest v5、Operation Journal v5 和 Product-owned Application State catalog v3。2026-08-02 已实现外置 heartbeat lease、锁内 Manifest 重读、Product切换恢复、Windows外置自卸载Host与Draft Candidate激活协议，并使用公开Manager `.39`完成clean Windows归档、仓库外Product/Manager运行与两种自卸载终态验收。公开Canary A→B、跨Profile和五平台Candidate仍需Actions完成，不能把本地Windows证据写成公开生命周期已验证。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
+
+## 2026-08-02：Installation Mutation、自卸载与发行候选治理
+
+- 所有 mutating command 进入用户级外置 `proper-lockfile` lease。Installed v1固定 `%LOCALAPPDATA%/Programs/NeuroBook` 与单一 `installed-v1` lease；Portable/Source以canonical Installation Root SHA-256隔离。lease不受Manager配置路径影响，也不会随卸载删除。
+- 锁内顺序固定为：检查pending uninstall、恢复Operation、重读磁盘Manifest、验证固定Installed布局，再交给业务命令。调用前Manifest只用于定位；Manifest缺失时不创建目录或复活实例。ZIP/Gzip改为异步fflate，业务错误与lease释放错误都保留。
+- Operation migration新增`applying`；`planned`恢复不调用Product，`applying`允许runner返回`not_started`，`applied`严格拒绝。Native Product双rename使用operation-owned immutable migration root；rollback cleanup error留在Journal并由下一次mutation重试，全部清理成功后才删除Journal。
+- Source adoption worktree进入`.deploy/staging/<operation-id>`。start、migration、admin、reset和uninstall统一从`VerifiedApplicationExecution`取得Source Dev、Native Product或Container Product身份；status仍保留轻量控制面。
+- Windows Portable/Installed从受管Bun执行卸载时，Manager写入带token和SHA-256的durable intent并启动Installation Root外的PowerShell Host。Host等待精确父PID退出后重新验证owner roots：默认删除程序、cache、desktop和logs并保留State Root；`--delete-data`才删除全部。intent篡改时零删除并写外置失败结果，pending intent阻断其他mutation。
+- Release Manifest硬切v5并增加统一build ID。Source/Product/Portable/Installation由最终Verifier重新连成同一代；CLI只创建Draft并显式dispatch release ID、tag、revision、prerelease。候选OCI只使用`candidate-<release-id>`，全部正确性gate后才公开Release，再由独立可重跑job激活版本tag和stable `latest`。
+- 当前验证：Authoring 9 files / 114 tests；Windows uninstall 3 files / 18 tests及真实PowerShell Host三种路径；Manager 36 passed files / 1 skipped、240 passed / 2 skipped，typecheck与pack通过；Release focused当前3 files / 22 tests。clean Windows Portable 进一步完成31项doctor、完整Product Contract、Manager HTTP登录和两种真实外置Host卸载；本节仍不等于公开Candidate结果。
+
+## 2026-08-01：发行前只读审计与下一阶段阻断
+
+- Windows Installed 当前允许不同 Installation Root 共用同一组 Local App Data roots，却按 Installation Root 分裂锁；v1 将固定唯一 `%LOCALAPPDATA%/Programs/NeuroBook`，并把 mutating operation lease 移到 Installation Root 外。Portable/Source 继续按 canonical root 隔离。
+- start、admin、migration 与已有 Container 执行尚未统一消费完整 Product Runtime Image / Compose / OCI identity 验证；`doctor` 通过不代表执行入口已经 fail closed。
+- Operation Journal 的 migration 只有 `planned/applied/rolled_back`，无法表达 apply 已开始但尚未记账；Product rename 中断、committed journal 绝对 root、卸载未先恢复 Operation 和锁内旧 Manifest fallback 仍需系统收口。
+- Source Dev adoption 把 staged worktree 放在 `%TEMP%`，却又要求 `migrationRoot` 位于 Installation Root 内，当前链路按自身 schema 无法完成。
+- 现有 `install.lock` 不能从强杀可靠恢复；改用 heartbeat lease 时必须同步移除锁内 ZIP/Gzip 同步解压，否则活 owner 可能被误判 stale。
+- 本节只修正文档完成度；实现留在整版 checkpoint 之后，避免把审计修复混入已有跨 Task 变更。
+
+## 2026-08-01：Verified Application Execution checkpoint
+
+- start、admin 与 Application State migration/recovery 已统一通过 `VerifiedApplicationExecution`。Source Dev 使用显式开发 Adapter；Native Product 在 spawn 前完整复核 Runtime Image、Application Bun 与受管工具；Container Product 复核 Compose、OCI digest、Engine image ID、Container image/config identity、版本和健康状态。
+- Product bootstrap 在解析命令前再次完整自验，并清除 `NODE_PATH`；非入口 payload、ready marker、Compose、tag/digest 或 Container image identity 被篡改时都在执行前失败。
+- 当前仍未完成的 Manager 阻断没有被这次执行入口修复掩盖：外置 heartbeat lease、锁内 Manifest 重读、Operation `applying` checkpoint、卸载前恢复、committed journal 清理、异步解压与 Source adoption staging 仍需由 `InstallationMutation` 收口。
+- 验证为 Manager 34 passed files / 1 skipped、220 passed tests / 2 skipped，release contract 1/1，Manager typecheck 与 pack 通过；本机没有 Docker/Podman，真实 Container 仍只由 CI runner 验收。
+
+## 2026-07-28：Catalog v3 与健康启动提交点
+
+- Application State catalog v3 固定为 `app-sqlite → agent-attachment-v1 → agent-session-v2 → agent-session-v2-review-repair`。migration-only registry 可解析 v1/v2/v3 sentinel 与 journal；complete 旧 catalog 创建新 v3 run，incomplete 旧 run 只能 resume/rollback，future catalog 与损坏/checksum 冲突 fail closed。
+- v3 journal 保存进入 run 前 sentinel 的原始 bytes、存在性和 SHA-256；rollback 逐字节恢复。apply/resume/rollback 在顶层 Application State lease 内完成状态复核和提交，手工 CLI 与 Manager/另一个 CLI 不再能并发修改同一 State Root。
+- Manager Operation Journal 升级为 v5，正式记录 `action: "start"`；v3/v4 只在读取边界转换。候选 Product plan 发生在停服务、备份、切换和状态修改前，runId 先进入 Journal。
+- native、Windows Portable 与 container 共用 `ApplicationLaunch`。migration apply 后必须通过目标 `/api/app/version` 与健康检查才提交 Operation；ready 前失败先精确终止本次候选，再回滚 Product migration、外层数据库备份和组件。容器终止使用本次 `startDocker()` 发布的精确 container id，不重新查询 Compose 当前容器。
+- 容器 identity 现已从内存 handle 提升为 Operation Journal v5 的 `candidate-container` effect。Compose 进入可能创建候选前先写 planned 屏障，读取精确 id 后、HTTP 健康检查前写 applied；install/update/start 都使用同一异步 lifecycle callback。崩溃恢复第一步按 id 停止并 durable 标记 `stopped: true`，然后才允许 migration/database/Product rollback；只有屏障没有 id 时保留 Journal 并 fail closed。
+- Native 崩溃恢复不使用 PID 文件。Windows 继续由 Job Object 监督器收口；POSIX Owned Process 改为轻量 supervisor 持有独立 process group，Manager IPC 断开时执行同一 TERM→KILL 有界清理。这样 Manager 在候选健康检查期间异常退出，不会让 POSIX Product 脱离本次 ApplicationLaunch 所有权。
+- 删除了零调用的旧 `startApplication()` 直启旁路；Manager start 的唯一执行入口保持 `startInstallationApplication()`，因此不能绕过 plan、Operation Journal、候选 ownership 和健康提交点。
+- 最终失败链审查发现两个恢复漏洞：Source Dev install 会先删除 staging worktree 再调用 Product rollback，update 则在 rollback 失败后仍删除 worktree；多个入口还会吞掉候选终止或自动恢复错误。现统一为“确认候选终止 → 恢复 Journal → 恢复成功后才清理 staging”，终止失败时禁止状态回滚，恢复失败时保留 Journal、staging 与 backup，并同时报告原始错误和恢复错误。
+- install/update 现在由外层事务持有验证 launch 直到 Operation commit。健康后、Manifest/wrapper/git 提交前发生错误时仍能按精确 handle 终止候选；container update/adopt 恢复操作前的 running/stopped 状态，Fresh container install 保持启动后的既有行为。Docker `ready` 失败的派生 `completion` 由 Manager 内部观察，避免未等待 completion 时产生进程级 unhandled rejection。
+- Windows Portable `--no-health-check` 现在只允许 migration plan 为 `already_current`；存在状态升级时必须完成健康检查。ready 后的正常退出只返回进程结果，不回滚已提交 migration。
+- planner 不再把 complete v3 sentinel 直接等同于 `already_current`。`applied` step 可永久投影完成，动态或曾 `skipped` 的 step 必须重新 preflight；Session v2 自有 sentinel 与 review repair dry-run 会共同决定是否建立同 catalog 的新 run。
+- install/adopt/update/start 现在共用 migration transaction 顺序。同版本 update 仍运行当前 Product plan；若报告 `planned`，执行 migration-only update、外层 SQLite 备份、健康验证和提交，而不是提前返回 unchanged。
+- 原生 runner 检查改为按 Profile 检查真实 bootstrap：Source Dev 检查 `scripts/db/migrate-application-state.ts`，Product/Portable 检查 Product command bootstrap，Container 不读取宿主文件。此前把命令数组 `args[0]` 当文件路径会让 Product Bun、Source Product 和 Portable 在 plan 前误报 runner 不存在。
+- Container start 明确区分操作前 `running/stopped/missing`。已有 running deployment 只验证健康，不发布 candidate；stopped/missing 才把新启动的精确 container id 交给 launch ownership。存在迁移时 running deployment 会先停止，失败恢复回到原运行状态。
+- Docker Product entrypoint 已删除独立数据库迁移。非 Manager 直接启动只经过 Application State readiness gate，不会在 Nitro 启动旁路修改 SQLite；Manager 的 one-off runner 仍执行完整 catalog。
+- 最终 Manager suite 为 33 files passed / 1 skipped、209 tests passed / 2 skipped；typecheck、build、pack 与临时安装 smoke 均通过。Docker/Release 入口合同 17 项通过。Source runner 在隔离空 State Root 实跑 `plan → apply → already_current`；Product Runtime Image 后处理仍被 Task 130 的 `profile-compile-worker.mjs` 绝对路径、`.bun` 路径与未登记 `node-fetch` package island 阻断，因此没有把 staging command 记作 Product bundle smoke。正式 Source/Product/Container/Portable 跨版本公开矩阵仍是发布门禁。
+- 当前 Windows 主机没有可用 POSIX Bun/Node 或 Docker，所以 POSIX 宿主断连与真实容器运行状态恢复只完成类型、bundle 和跨平台测试接线，必须由现有 Linux/macOS/container runner 执行后才能记为实机通过。
+
+## 2026-07-28：App SQLite 接入统一 Application State 迁移事务
+
+- Task 118 建立统一 Application State catalog / runner。本段记录当时的 catalog v2 checkpoint；现行 v3 合同见上一节与 [ADR 0008](../../adr/0008-application-state-catalog-evolution.md)。
+- Manager 的 install/update/start 共用候选 Product migration interface。只要 plan 报告 App SQLite 有待应用 migration，Manager 就先在 Operation Journal 写入 planned `sqlite-backup` effect，完成 WAL checkpoint 与冷备份后标记 applied，再让候选 Product 执行统一 migration；容器 Profile 仍通过一次性应用容器执行同一入口。
+- 删除了 catalog 外的重复 `migrateDatabase()` 调用。Product runner 按 migration 目录与 `_prisma_migrations` 只读规划，每条 SQL 与对应 migration 记录在同一 SQLite 事务提交；Product step 自己保存 backup/checkpoint 以 resume 或 rollback，Manager 保存外层数据库快照和 Operation Journal 以恢复整个安装事务。
+- 直接 `bun run dev` 现在先执行 `migration:check`。Product launcher 和 Nitro 最早插件还会各自只读复核，防止直接运行 `nuxt dev` 或 `.output/server/index.mjs` 绕过；无 pending 时不得创建数据库、备份或 migration 记录。
+- 验证：Manager 迁移聚焦 17 项通过，完整 suite 为 164 项通过、2 项按平台跳过，Manager typecheck 通过；Product build 与 runtime vendor/产物断言通过。旧 App SQLite 的 `siteBaseUrl NOT NULL` 夹具会准确列出 `20260727210000_fix_official_passport_origin`，apply 后 schema 与记录正确，再次 check 保持文件大小、mtime 和目录内容不变。
+- 当时验证的真实 State Root 是 complete catalog v2 与 Session schema v2；本轮只在隔离复制数据上演练 v3 与 repair，没有再次改写真实 State Root。自动升级不依赖应用版本号；Manager-managed install/update/start 运行 catalog，非 Manager 启动只提示显式运行 `bun run migrate:application-state -- --apply`。
+
+## 2026-07-25：Windows Portable无健康检查临时启动参数
+
+- Issue #13显示服务可正常使用，但Manager在120秒后仍报告`/api/app/version`未通过并终止Product。当前缺少用户机器日志，不能把探测失败的具体原因写成已确认根因。
+- Manager `start`新增`--no-health-check`，仅允许`windows-portable`使用。它保留中断Operation恢复、数据库与Attachment迁移、State Root检查和前台Product等待，只跳过HTTP轮询、超时终止与自动打开浏览器；默认启动合同不变。
+- 参数通过正式Manager入口传递到`startInstallationApplication()`和`startApplication()`，不会修改Portable launcher模板。现有`0.8.19`压缩包可用公开Manager `.30`临时运行，无需重新发布应用或Portable资产。
+- 回归覆盖无HTTP/浏览器调用、迁移后选项传递、非Portable迁移前拒绝；packed CLI审计要求`start --help`包含新参数。
+- 本地验证：Runtime与Manager typecheck通过；Manager完整suite为29文件154项通过，另1文件/2项按平台跳过；pack审计生成5文件、约0.38 MiB tarball，并在临时目录真实安装后确认新参数存在。
+- Manager `.30`发布workflow [`30152514456`](https://github.com/notnotype/neuro-book/actions/runs/30152514456)全绿；npm精确版本、`canary` dist-tag与`gitHead`一致，全新Bun缓存中的公开包返回`.30`且`start --help`包含`--no-health-check`。本轮没有创建应用Release或重新打包Windows Portable。
 
 ## 2026-07-20：`0.8.18` 不可变容器镜像身份
 
@@ -977,8 +1041,63 @@ uninstall
 - 同一脚本的源码入口和Nuxt Product `.output`副本均在隔离Application/State Root完成五工具、Attachment、State Root移动和旧Session恢复。Release preflight新增约5秒的同链门禁，避免再次在40分钟OCI后才发现Session合同漂移。
 - 本地根typecheck、Session model 4项、Release合同8项、完整Nuxt/Product build通过。Manager bundle未变化，下一应用patch`0.8.12`继续使用公开`.23`。
 
-### 2026-07-22：本地 Desktop 重打包的 Product Profile assets root 修复
+### 2026-07-31：Manager `.31` clean-checkout Runtime 类型门禁失败
 
-- 本地重新组装 Desktop portable 时，Product Runtime 已在 `product/.output/server/assets/.../.compiled` 成功生成 15 个系统 Profile，但 staging 的清理与便携性门禁仍读取 `product/assets/.../.compiled`，因此错误消费源码拷贝中的旧失败 manifest，并以“没有可保留的 artifact 引用”中止。
-- Product system artifact 的既有真值源本来就是 `.output/server/assets`。`product-runtime.mjs` 现在通过唯一的 `PRODUCT_PROFILE_COMPILED_ROOT` 同时约束清理与便携性校验，避免两处路径再次漂移；没有复制或放宽失败 manifest，也没有绕过内容寻址产物门禁。
-- 新增发布脚本目录契约回归测试，并完成红灯到绿灯验证。最终 `dist/neuro-book-desktop-x64` 已重新组装：15 个 Profile 全部 loaded，30 个 manifest 引用产物均存在，最终客户端 bundle 包含本轮 NovelAI Provider 首屏入口。
+- `manager-v0.1.0-canary.31` 已保留 release commit 与 tag，但 workflow `30612238085` 在 `Verify package` 阶段失败，npm publish 未执行，因此 `.31` 不是公开可安装版本。
+- 干净检出稳定复现 `server/generated/prisma/client` 缺失：`runtime:typecheck` 依赖被 `.gitignore` 排除的既有 Prisma client，本地 release 被工作区残留生成物掩盖。GitHub Linux runner 还暴露 `mdast` 类型缺失；根源码直接导入 `mdast`，却只通过 Markdown utility 的传递依赖和本机偶然 hoist 获得 `@types/mdast`。
+- 修复没有给 workflow 增加特例：共享 `runtime:typecheck` 先执行 canonical `bun run generate` 再运行独立 tsconfig，保证本地 helper、GitHub workflow和其它调用方使用相同准备合同；Prisma 输出父目录新增不继承 Nuxt 的专用 tsconfig，避免生成器在 clean checkout 解析不存在的 `.nuxt/tsconfig.json`。根 package 直接持有 `@types/mdast@4.0.4`，不改 Runtime tsconfig types、不切 hoisted linker、不增加 ambient 声明。
+- 新增 Manager release clean-checkout 合同测试，固定 Prisma 自准备、生成目录 tsconfig 与类型依赖所有权，并并入 `manager:test`，保证本地打 tag 和 GitHub workflow 都会执行。隔离 clone 在修复前先稳定得到三处 Prisma TS2307，串接生成后又暴露缺少 `.nuxt/tsconfig.json`；最终从 `generated-before=False` 开始完整生成 App/Project 两套 client 并通过 Runtime typecheck。合同测试先红后绿。
+- `.32` workflow `30613276952` 已证明 Prisma generate、Runtime typecheck 与 Manager typecheck 在 Ubuntu clean checkout 通过，但 Manager Vitest 有 21 个 suite 在 transform 阶段失败：Manager 新增的 Product Runtime Image 集成直接导入 `scripts/**` 和 `shared/**`，Vite/OXC 再次回退到根 Nuxt tsconfig，并因 `.nuxt/tsconfig.json` 不存在而拒绝转换。
+- 修复继续保持边界显式：`scripts/tsconfig.json` 与 `shared/tsconfig.json` 提供不继承 Nuxt 的源码编译配置，现有 `server/runtime/tsconfig.json` 继续覆盖 Runtime 边界；不为 Manager tests 执行完整 `nuxt prepare`。无 `.nuxt` 的隔离 clone 修复前稳定复现 21 failed / 12 passed / 1 skipped，加入两份边界配置后恢复 211 passed / 2 skipped。
+- `.33` workflow `30613898542` 已通过全部 clean-checkout 生成、类型与转换门禁；最终仅 `app-commands.test.ts` 的 6 个真实运行测试失败。共同原因是该文件新建的 `productManifest()` 把平台固定为 `windows-x64`，Linux runner 按生产合同正确拒绝跨平台启动；其余 205 项通过，另 4 项按平台跳过。
+- 只修改测试夹具：需要真实启动 Product 的 manifest 使用 `currentProductPlatform()`，专门验证平台映射/拒绝语义的固定平台夹具保持不变。生产 `assertInstallationHostCompatible()` 没有放宽。
+- `.31`、`.32` 与 `.33` tag 都不移动、不删除、不复用；下一公开候选固定为 `0.1.0-canary.34`，npm 精确版本和 provenance 验证通过前不启动应用 minor release。
+
+### 2026-08-02：Manager `.34` clean-checkout shared tsconfig 门禁失败
+
+- `manager-v0.1.0-canary.34` 已保留 release commit 与 tag；workflow `30719955828` 在 `Verify package` 阶段以 `TSCONFIG_ERROR` 失败，npm publish 未执行，因此 `.34` 不是公开可安装版本。
+- 根因是新抽出的 `shared/product-runtime-image-verifier.ts` 没有进入 `shared/tsconfig.json` 的显式 `include`。Windows本地现有Nuxt开发状态掩盖了缺口，Ubuntu clean checkout的Vite/OXC按独立shared边界正确拒绝转换。
+- 修复把Verifier加入shared tsconfig，并扩展Manager release clean-checkout合同测试，确保后续共享Product执行依赖必须登记在独立编译边界。Manager全量回归随之增加为239 passed / 2 skipped。
+- `.31`至`.34` tag都不移动、不删除、不复用；下一公开候选固定为`0.1.0-canary.35`。只有npm精确版本、provenance、tarball、真实全新缓存`bunx`与公开验证全部通过后，才继续应用minor release。
+
+### 2026-08-02：Manager `.35` clean-checkout Runtime Image fixture 门禁失败
+
+- `manager-v0.1.0-canary.35` 已保留release commit与tag；workflow `30720239948` 在`Verify package`阶段运行Manager测试时失败，npm publish仍未执行。
+- 根因是Runtime Image测试fixture按`currentProductPlatform()`调用生产Builder。Windows已有canonical owner policy所以本地239项全绿；Ubuntu正确映射为`linux-x64-glibc`，而该平台尚未完成真实A/B测量和人工登记，生产Builder按设计拒绝构造镜像。不能用Windows数字伪造Linux正式baseline，也不能给Verifier增加测试后门。
+- 修复按测试真实依赖拆分：与宿主无关的Verifier、归档下载和执行句柄测试固定使用已审查的`windows-x64` fixture；只有必须表达“当前宿主可运行原生Product”的安装健康、离线导入与Source Product build测试，才根据canonical policy登记状态决定是否运行。Linux/macOS未来登记正式policy后会自动启用，不需再改测试。
+- Windows受影响6 files / 18 tests、Manager全量239 passed / 2 skipped、typecheck与release contract均通过。`.31`至`.35` tag继续保留且不复用；下一公开候选固定为`0.1.0-canary.36`。
+
+### 2026-08-02：Manager `.36` clean-checkout contract 隔离失败
+
+- `manager-v0.1.0-canary.36` 已保留release commit与tag；workflow `30720535140` 中Manager本体已通过32 files / 5 skipped files、224 passed / 17 skipped，证明未登记Linux policy不再导致fixture失败。npm publish仍未执行。
+- 随后的单条release contract错误复用了根`vitest.config.ts`。即使只过滤`manager-release-contract.test.ts`，Vitest仍先加载Agent global setup；clean checkout没有`.nuxt/tsconfig.json`，因此在`server/agent/test/global-setup.ts`转换阶段失败。本地Developer Build State再次掩盖了这个隐式前置。
+- 修复为该单条合同新增最小独立Vitest配置，不加载Nuxt、Agent setup或system assets snapshot；配置自身进入`scripts/tsconfig.json`，合同同时固定package命令和tsconfig登记。不是在workflow中补`nuxt prepare`，因此Manager发布仍只消费自己的真实前置。
+- Windows Manager全量239 passed / 2 skipped、独立release contract 1/1、Manager与scripts独立typecheck通过。`.31`至`.36` tag继续保留且不复用；下一公开候选固定为`0.1.0-canary.37`。
+
+### 2026-08-02：Manager `.37` clean-checkout contract tsconfig 归属失败
+
+- `manager-v0.1.0-canary.37` 已保留release commit与tag；workflow `30720704794` 中Manager本体再次通过224 passed / 17 skipped，独立Vitest配置也已生效。npm publish仍未执行。
+- OXC随后只拒绝`manager-release-contract.test.ts`本身：上一轮把独立Vitest配置加入了`scripts/tsconfig.json`，但漏掉实际被转换的合同测试文件。Windows仍从Developer Build State找到根Nuxt tsconfig，clean Linux按独立边界正确失败。
+- 修复把合同测试与其Vitest配置同时纳入scripts TypeScript project，并由合同固定两个include。scripts独立typecheck、Windows Manager 239 passed / 2 skipped和release contract 1/1通过。`.31`至`.37` tag继续保留且不复用；下一公开候选固定为`0.1.0-canary.38`。
+
+### 2026-08-02：Installation Mutation 与可恢复卸载收口
+
+- 所有写操作统一经外置 heartbeat lease、Operation 恢复和锁内 Manifest 重读；调用前 Manifest 只用于定位，不能复活已删除或已变更的实例。Windows Installed v1 固定为用户级唯一程序根，Portable/Source 以 canonical Installation Root 摘要隔离 lease。
+- update journal 增加 migration `applying` checkpoint、operation-owned migration root、Product 双 rename 恢复和 cleanup retry。卸载自身不再接受任意 stop callback；Windows 受管 Bun 由 Installation Root 外的 Host 按摘要锁定 intent，等待 Manager 退出后删除精确 owner。
+- 原生卸载和 Desktop reset 不要求损坏的 Product payload 仍能通过执行验证，只要求严格 Manifest/owner 布局和服务停止；容器删除仍先验证 Compose 与 OCI identity。回归证明 Product payload 损坏时仍可卸载，运行、迁移与管理员命令的 fail-closed 门禁不变。
+
+### 2026-08-02：Manager `.38` 公开与 Portable 自卸载调度补漏
+
+- `@notnotype/neuro-book-manager@0.1.0-canary.38` 已由 workflow `30720825090` 成功公开；npm `gitHead=060f719c6b1f21965642ab90363f75d7f08f7c9c`，tarball shasum 为 `0d60bb060a47677f6d1b35f1bc464cd6b44b1857`，签名、provenance、全新 Bun cache 的真实 `bunx` 与 `manager:verify-public` 均通过。`.34` 至 `.37` 继续保留为未发布失败审计记录。
+- clean Source/Product 归档组装首次暴露 PortableGit SFX 长路径失败：相同 `2.55.0.windows.3` 资产与 SHA-256 在 30 字符输出根成功，在 248 字符输出根退出 1；`\\?\` 仍返回失败，junction 又会跳过 post-install，均不能作为修复。Portable 组装 operation 改到 OS 临时目录下的短根，并在任何下载前验证 170 字符 SFX 输出预算；真实 16,322-entry Portable ZIP 已成功生成。
+- `.38` Portable 的 doctor、完整 Product Runtime Contract、Owned Process、Manager 管理员创建、前台启动、HTTP 登录均通过；但默认自卸载实测只写入 intent 和“已安排”提示，30 秒后程序仍在。最小夹具确认 Bun 1.3.14 的 `spawn(..., detached: true).unref()` Host 不会实际运行，现有测试只同步执行 PowerShell 脚本，因此漏掉了真实调度边界。
+- 修复保留原 SHA-256 intent 与外置 Host，不增加第二套事务：Manager 同步等待一个短命 PowerShell launcher 通过 `Start-Process` 创建 Host，所有路径经私有环境 JSON 传递，Host 仍等待 Manager PID 退出后执行精确删除。新增真实调度测试先红后绿；Windows Manager 全量现为 240 passed / 2 skipped，pack 5 files / 0.42 MiB，Manager/scripts typecheck 与发行合同通过。因为公开 `.38` 不含该修复，下一公开候选必须是 `.39`，不能把 `.38` 写进最终 0.9 Candidate。
+- `manager-v0.1.0-canary.39` 已由 workflow `30722599876` 全绿并公开。npm `gitHead=143fafea7fb51ef26dbbab4e25fe7e8224cd9c9e`，公开 tarball shasum 为 `92c522f63e63faee5aa88e25e0ada873dd7c0273`；38 个包签名、2 个 provenance attestation、全新 Bun cache 的真实 `bunx` 与 `manager:verify-public` 均通过。最终0.9 Candidate只能消费`.39`或后续版本，不能沿用`.38`归档；对应clean Portable终验见下一节。
+
+### 2026-08-02：Manager `.39` clean Portable终验
+
+- clean提交`0a3cc7fd84f52b1b5478745053a20cfbf0171a25`生成统一build ID `sha256:1d6ad6cfd7687132156b91bad64067530f3c53a52a8cb2a72a344b1622ed641c`。新Portable为16,322 entries / 297,242,174 bytes，SHA-256 `76F52EF5AE0026EE1091F8C433F6D0EA61909DDECBA4B89EFB2884FD3760BA9C`，包内Manager明确为`0.1.0-canary.39`。
+- 仓库外验收通过31项doctor、Portable Bun/rg/Git/Bash真实版本、Owned Process、完整Product Contract、管理员创建、前台启动、HTTP版本与登录cookie，且未生成Installation Root影子`workspace/`。
+- 默认卸载的外置Host写入`ok: true` durable result，程序、Source、Runtime、cache和logs全部删除后安装根只剩`data/`，测试数据仍在；全量卸载的独立新解压实例同样写入成功result并删除整个Installation Root。验收同时发现Candidate workflow只等待`.output`消失会过早结束，现改为等待Host结果并检查完整终态。
+- 本地没有五平台资产、GHCR digest或Candidate `release-manifest.json`，因此没有伪造最终Portable Verifier结果；公开A→B、跨Profile、真实Docker/rootless Podman和最终索引仍由0.9 Candidate Actions负责。
+- 第一次0.9发布命令已推送版本提交并创建Draft release ID `363661503`，但Coordinator在`gh release create`返回后立即查询列表，撞到GitHub短暂最终一致性窗口并误报`count=0`，因此没有dispatch workflow。该Draft保留为失败候选审计，不删除、不复用；Coordinator现只对零匹配执行12次、每次1秒的有界发现重试，多匹配或identity漂移仍立即fail closed。

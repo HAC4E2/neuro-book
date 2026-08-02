@@ -26,7 +26,7 @@ defineRouteMeta({
             }
         },
         {
-            "name": "projectPath",
+            "name": "projectRoot",
             "in": "query",
             "required": false,
             "schema": {
@@ -487,7 +487,8 @@ defineRouteMeta({
                                 },
                                 "profileModelDefaults": {},
                                 "profileRuntimeDefaults": {},
-                                "profiles": {}
+                                "profiles": {},
+                                "visibleModels": []
                             },
                             "type": "object",
                             "properties": {
@@ -1152,13 +1153,36 @@ defineRouteMeta({
                                         ],
                                         "additionalProperties": false
                                     }
+                                },
+                                "visibleModels": {
+                                    "default": [],
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "modelKey": {
+                                                "type": "string",
+                                                "minLength": 1
+                                            },
+                                            "note": {
+                                                "default": "",
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": [
+                                            "modelKey",
+                                            "note"
+                                        ],
+                                        "additionalProperties": false
+                                    }
                                 }
                             },
                             "required": [
                                 "defaultProfileKey",
                                 "profileModelDefaults",
                                 "profileRuntimeDefaults",
-                                "profiles"
+                                "profiles",
+                                "visibleModels"
                             ],
                             "additionalProperties": false
                         },
@@ -2228,7 +2252,8 @@ defineRouteMeta({
                                             },
                                             "profileModelDefaults": {},
                                             "profileRuntimeDefaults": {},
-                                            "profiles": {}
+                                            "profiles": {},
+                                            "visibleModels": []
                                         },
                                         "type": "object",
                                         "properties": {
@@ -2893,13 +2918,36 @@ defineRouteMeta({
                                                     ],
                                                     "additionalProperties": false
                                                 }
+                                            },
+                                            "visibleModels": {
+                                                "default": [],
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "modelKey": {
+                                                            "type": "string",
+                                                            "minLength": 1
+                                                        },
+                                                        "note": {
+                                                            "default": "",
+                                                            "type": "string"
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "modelKey",
+                                                        "note"
+                                                    ],
+                                                    "additionalProperties": false
+                                                }
                                             }
                                         },
                                         "required": [
                                             "defaultProfileKey",
                                             "profileModelDefaults",
                                             "profileRuntimeDefaults",
-                                            "profiles"
+                                            "profiles",
+                                            "visibleModels"
                                         ],
                                         "additionalProperties": false
                                     },
@@ -4289,6 +4337,20 @@ defineRouteMeta({
                                                     "type": "string",
                                                     "minLength": 1
                                                 },
+                                                "input": {
+                                                    "default": [
+                                                        "text"
+                                                    ],
+                                                    "minItems": 1,
+                                                    "type": "array",
+                                                    "items": {
+                                                        "type": "string",
+                                                        "enum": [
+                                                            "text",
+                                                            "image"
+                                                        ]
+                                                    }
+                                                },
                                                 "contextWindowTokens": {
                                                     "default": null,
                                                     "nullable": true,
@@ -4303,7 +4365,30 @@ defineRouteMeta({
                                                 "label",
                                                 "providerId",
                                                 "modelId",
+                                                "input",
                                                 "contextWindowTokens"
+                                            ],
+                                            "additionalProperties": false
+                                        }
+                                    },
+                                    "agentVisibleModels": {
+                                        "default": [],
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "modelKey": {
+                                                    "type": "string",
+                                                    "minLength": 1
+                                                },
+                                                "note": {
+                                                    "default": "",
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "required": [
+                                                "modelKey",
+                                                "note"
                                             ],
                                             "additionalProperties": false
                                         }
@@ -4724,6 +4809,7 @@ defineRouteMeta({
                                     "defaultModelKey",
                                     "defaultModelLabel",
                                     "enabledModels",
+                                    "agentVisibleModels",
                                     "providers",
                                     "validationIssues"
                                 ],
@@ -5143,6 +5229,8 @@ defineRouteMeta({
     }
 } as never,
 });
+
+
 
 
 

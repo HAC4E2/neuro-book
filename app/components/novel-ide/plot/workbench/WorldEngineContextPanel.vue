@@ -4,7 +4,7 @@ import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import type {SceneWorldContextDto} from "nbook/shared/dto/plot.dto";
 
 const props = defineProps<{
-    projectPath: string;
+    projectRoot: string;
     sceneId: string;
 }>();
 
@@ -21,7 +21,7 @@ const hasContext = computed(() => Boolean(context.value && (
 )));
 const unresolvedSubjectIds = computed(() => context.value?.unresolvedSubjectIds ?? []);
 
-watch(() => [props.projectPath, props.sceneId], () => {
+watch(() => [props.projectRoot, props.sceneId], () => {
     void loadContext();
 }, {immediate: true});
 
@@ -29,7 +29,7 @@ watch(() => [props.projectPath, props.sceneId], () => {
  * 查询当前 Scene 的 World Engine 范围上下文。
  */
 async function loadContext(): Promise<void> {
-    if (!props.projectPath || !props.sceneId) {
+    if (!props.projectRoot || !props.sceneId) {
         context.value = null;
         return;
     }
@@ -37,7 +37,7 @@ async function loadContext(): Promise<void> {
     error.value = "";
     try {
         context.value = await $fetch<SceneWorldContextDto>(`/api/projects/plot/scenes/${encodeURIComponent(props.sceneId)}/world-context`, {
-            query: {projectPath: props.projectPath},
+            query: {projectRoot: props.projectRoot},
         });
     } catch (caught) {
         context.value = null;

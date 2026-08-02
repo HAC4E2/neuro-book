@@ -16,6 +16,7 @@ import {TextToImageReferenceImageError} from "nbook/server/text-to-image/referen
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 import {resetProjectSessionsForTest} from "nbook/server/workspace-files/project-session";
 import {writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
+import {textToImageProjectRef} from "nbook/server/text-to-image/compat";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {createIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/workspace-assets-test-helper";
 
@@ -29,14 +30,14 @@ describe("TextToImageReferencePromotionService", () => {
         resetProjectSessionsForTest();
         assets = await createIsolatedWorkspaceAssets();
         projectPath = `workspace/reference-promotion-${randomUUID()}`;
-        await writeProjectManifest(resolveRuntimeWorkspaceRoot(), projectPath, {kind: "novel", title: "测试项目", summary: ""});
-        await openProjectForTest(projectPath);
+        await writeProjectManifest(resolveRuntimeWorkspaceRoot(), textToImageProjectRef(projectPath), {kind: "novel", title: "测试项目", summary: ""});
+        await openProjectForTest(textToImageProjectRef(projectPath).projectRoot);
         assetService = new TextToImageAssetService();
         referenceService = new TextToImageReferenceAssetService();
     });
 
     afterEach(async () => {
-        await closeProjectForTest(projectPath).catch(() => undefined);
+        await closeProjectForTest(textToImageProjectRef(projectPath).projectRoot).catch(() => undefined);
         resetProjectSessionsForTest();
         await assets.dispose();
     });

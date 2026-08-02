@@ -1,12 +1,12 @@
 import {z} from "zod";
 import {createError} from "h3";
+import {ProjectRootDtoSchema} from "nbook/shared/dto/project.dto";
 import {withProjectHandlesOperation} from "nbook/server/workspace-files/project-open-guard";
-import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
 import {LOCAL_USER_ID} from "nbook/server/workspace-history/project-history";
 import {workspaceHistoryInboxRevision} from "nbook/server/workspace-history/history-inbox";
 
 const AcceptAllBodySchema = z.object({
-    projectPath: z.string().trim().min(1, "projectPath 不能为空"),
+    projectRoot: ProjectRootDtoSchema,
     revision: z.number().int().nonnegative("revision 不能为负数"),
 });
 
@@ -16,8 +16,7 @@ const AcceptAllBodySchema = z.object({
  */
 export default defineEventHandler(async (event) => {
     const body = AcceptAllBodySchema.parse(await readBody(event));
-    const projectPath = normalizeProjectPath(body.projectPath);
-    return withProjectHandlesOperation(projectPath, async (projectHandles) => {
+    return withProjectHandlesOperation(body.projectRoot, async (projectHandles) => {
         await projectHandles.history.waitForWarmup();
         const history = await projectHandles.history.history;
         if (!history) {

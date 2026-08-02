@@ -129,18 +129,32 @@ name: user anti-ai-slop
         await expect(catalog.get("anti-ai-slop")).resolves.toBeNull();
     });
 
+    it("默认 catalog 读取 novel-data runnable package 版本", async () => {
+        const runtimePaths = runtimePathsFromEnv();
+        const catalog = new SkillCatalog(
+            join(resolveSystemNbookRoot(runtimePaths.applicationRoot), "agent", "skills"),
+            userRoot,
+        );
+
+        await expect(catalog.get("novel-data")).resolves.toEqual(expect.objectContaining({
+            key: "novel-data",
+            name: "novel-data",
+            version: "1.0.0",
+        }));
+    });
+
     it("默认系统 catalog 包含 profile-system-guide 和已迁移 v2 skills", async () => {
         const runtimePaths = runtimePathsFromEnv();
         const catalog = new SkillCatalog(
             join(resolveSystemNbookRoot(runtimePaths.applicationRoot), "agent", "skills"),
-            join(runtimePaths.userNbookRoot, "agent", "skills"),
+            userRoot,
         );
 
         const skills = await catalog.list();
         const keys = skills.map((skill) => skill.key);
         const skill = skills.find((item) => item.key === "profile-system-guide");
 
-        expect(skill?.source).toMatch(/^(system|user)$/);
+        expect(skill?.source).toBe("system");
         expect(skill?.skillPath.replaceAll("\\", "/")).toContain(".nbook/agent/skills/profile-system-guide/SKILL.md");
         expect(skill?.description).toContain("harness");
         expect(keys).toEqual(expect.arrayContaining([
@@ -149,6 +163,7 @@ name: user anti-ai-slop
             "novel-setup",
             "novel-writing",
             "novel-idea-exploration",
+            "novel-data",
             "novel-genre-research",
             "novel-import-silly-tavern-card",
             "novel-technique-character-card-workshop",
@@ -164,8 +179,12 @@ name: user anti-ai-slop
         expect(keys).not.toContain("anti-ai-slop");
         expect(skills.find((item) => item.key === "llmlint")).toEqual(expect.objectContaining({
             name: "llmlint",
-            description: expect.stringContaining("Lint and polish LLM-generated Chinese text"),
-            version: "2.0.1",
+            description: expect.stringContaining("Chinese-prose rule library"),
+            version: "3.0.0",
+        }));
+        expect(skills.find((item) => item.key === "novel-data")).toEqual(expect.objectContaining({
+            name: "novel-data",
+            version: "1.0.0",
         }));
         expect(skills.find((item) => item.key === "stop-slop")).toEqual(expect.objectContaining({
             name: "stop-slop",

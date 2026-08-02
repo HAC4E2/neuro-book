@@ -24,7 +24,6 @@ import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-
 import {loadGlobalEffectiveConfigSync, loadProjectModuleConfig} from "nbook/server/config/config-service";
 import type {WorkspaceHistorySettingsConfig} from "nbook/server/config/types";
 import {isHistoryTrackedRelativePath} from "nbook/server/workspace-history/history-paths";
-import {projectPathFromRef} from "nbook/server/workspace-files/project-path";
 import type {WorkspaceFileChangeEventDto} from "nbook/shared/dto/workspace-file-events.dto";
 
 /**
@@ -140,7 +139,7 @@ export const projectHistoryModule: ProjectModule<ProjectHistoryHandle> = {
         let fullReconcileInFlight: Promise<void> | null = null;
         let closed = false;
         let closing: Promise<void> | null = null;
-        const projectPath = projectPathFromRef(context.prepared.workspace.ref);
+        const projectRoot = context.prepared.workspace.ref.projectRoot;
         const pathPolicy = (relativePath: string): ProjectWorkspacePathPolicyResult => projectWorkspacePathPolicy({
             workspace: context.prepared.workspace,
             relativePath,
@@ -167,7 +166,7 @@ export const projectHistoryModule: ProjectModule<ProjectHistoryHandle> = {
             }
             const attempt = reconcileFullScan(
                 context.prepared.workspace.root,
-                projectPath,
+                projectRoot,
                 history,
                 consumesPath,
                 moduleController.signal,
@@ -192,7 +191,7 @@ export const projectHistoryModule: ProjectModule<ProjectHistoryHandle> = {
             moduleController.signal.throwIfAborted();
             const history = await openHistoryInstance(
                 context.prepared.workspace.root,
-                projectPath,
+                projectRoot,
                 config,
                 consumesPath,
                 moduleController.signal,
@@ -231,7 +230,7 @@ export const projectHistoryModule: ProjectModule<ProjectHistoryHandle> = {
                 try {
                     await runHistoryWarmup(
                         context.prepared.workspace.key,
-                        projectPath,
+                        projectRoot,
                         history,
                         exactConfig,
                         moduleController.signal,
@@ -270,7 +269,7 @@ export const projectHistoryModule: ProjectModule<ProjectHistoryHandle> = {
                             phase,
                             lastFailure,
                         });
-                        consola.warn({projectPath, phase, error}, "workspace-history warm-up失败");
+                        consola.warn({projectRoot, phase, error}, "workspace-history warm-up失败");
                     }
                     throw error;
                 }
@@ -308,7 +307,7 @@ export const projectHistoryModule: ProjectModule<ProjectHistoryHandle> = {
                 await reconcileEventBatch(
                     history,
                     context.prepared.workspace.root,
-                    projectPath,
+                    projectRoot,
                     batch.events,
                     consumesPath,
                 );
@@ -333,7 +332,7 @@ export const projectHistoryModule: ProjectModule<ProjectHistoryHandle> = {
                     exactHistory = null;
                     closed = true;
                     collectReleasedSqliteHandles();
-                    consola.info({projectPath}, "workspace-history 已关闭");
+                    consola.info({projectRoot}, "workspace-history 已关闭");
                 })();
                 closing = attempt;
                 try {
@@ -353,19 +352,19 @@ registerProjectModule(projectHistoryModule);
 
 /** 真正打开库实例：retention 参数取项目覆盖后的 effective config（D9/N6）。 */
 async function openHistoryInstance(
-    projectRoot: AbsoluteFsPath,
-    projectPath: string,
+    projectWorkspaceRoot: AbsoluteFsPath,
+    projectRoot: string,
     config: WorkspaceHistorySettingsConfig,
     consumesPath: (relativePath: string) => boolean,
     signal?: AbortSignal,
 ): Promise<WorkspaceHistory> {
     signal?.throwIfAborted();
-    const databasePath = path.join(projectRoot, ...HISTORY_DATABASE_RELATIVE_PATH.split("/"));
+    const databasePath = path.join(projectWorkspaceRoot, ...HISTORY_DATABASE_RELATIVE_PATH.split("/"));
     await fs.mkdir(path.dirname(databasePath), {recursive: true});
     signal?.throwIfAborted();
     const history = await WorkspaceHistory.open({
         databasePath,
-        workspaceRoot: projectRoot,
+        workspaceRoot: projectWorkspaceRoot,
         config: {
             retentionFullDays: config.retentionFullDays,
             keepDailyLastAfterWindow: config.keepDailyLastAfterWindow,
@@ -376,9 +375,9 @@ async function openHistoryInstance(
         const purge = await history.purgePaths((recordedPath) => !consumesPath(recordedPath));
         signal?.throwIfAborted();
         if (purge.entriesDeleted > 0 || purge.acceptancesDeleted > 0 || purge.snapshotsDeleted > 0) {
-            consola.info({projectPath, ...purge}, "workspace-history 已清理不再受管的路径历史");
+            consola.info({projectRoot, ...purge}, "workspace-history 已清理不再受管的路径历史");
         }
-        consola.info({projectPath}, "workspace-history 已打开");
+        consola.info({projectRoot}, "workspace-history 已打开");
         return history;
     } catch (error) {
         await history.close().catch(() => undefined);
@@ -396,7 +395,7 @@ export async function resetWorkspaceHistoryForTest(): Promise<void> {
 async function reconcileEventBatch(
     history: WorkspaceHistory,
     root: string,
-    projectPath: string,
+    projectRoot: string,
     events: readonly WorkspaceFileChangeEventDto[],
     consumesPath: (relativePath: string) => boolean,
 ): Promise<void> {
@@ -412,7 +411,7 @@ async function reconcileEventBatch(
                 await history.reconcile(event.path, await readFileForReconcile(root, event.path));
             }
         } catch (error) {
-            consola.warn({projectPath, path: event.path, error}, "workspace-history 单路径对账失败");
+            consola.warn({projectRoot, path: event.path, error}, "workspace-history 单路径对账失败");
         }
     }
 }
@@ -564,7 +563,7 @@ export async function advanceAgentCursor(
 /** generation-scoped后台预热；取消与失败都不反向污染最低ready。 */
 async function runHistoryWarmup(
     workspaceKey: ProjectWorkspaceKey,
-    projectPath: string,
+    projectRoot: string,
     history: WorkspaceHistory,
     config: WorkspaceHistorySettingsConfig,
     signal: AbortSignal,
@@ -577,7 +576,7 @@ async function runHistoryWarmup(
     onPhase("maintenance");
     await runMaintenanceIfDue(
         workspaceKey,
-        projectPath,
+        projectRoot,
         history,
         config,
         signal,
@@ -601,24 +600,24 @@ function historyConsumesPath(handle: ProjectHistoryHandle, relativePath: string)
  * 未变文件被模块 hash 比对吸收为 no-op；账面存活但磁盘缺失的文件补删除条目。
  */
 async function reconcileFullScan(
-    projectRoot: AbsoluteFsPath,
+    projectWorkspaceRoot: AbsoluteFsPath,
     key: string,
     history: WorkspaceHistory,
     consumesPath: (relativePath: string) => boolean,
     signal?: AbortSignal,
 ): Promise<void> {
     signal?.throwIfAborted();
-    const diskFiles = await collectTrackedDiskFiles(projectRoot, "", signal, consumesPath);
+    const diskFiles = await collectTrackedDiskFiles(projectWorkspaceRoot, "", signal, consumesPath);
     for (const relativePath of diskFiles) {
         signal?.throwIfAborted();
         try {
-            await history.reconcile(relativePath, await readFileForReconcile(projectRoot, relativePath, signal));
+            await history.reconcile(relativePath, await readFileForReconcile(projectWorkspaceRoot, relativePath, signal));
             signal?.throwIfAborted();
         } catch (error) {
             if (signal?.aborted) {
                 throw signal.reason;
             }
-            consola.warn({projectPath: key, path: relativePath, error}, "workspace-history open 对账单文件失败");
+            consola.warn({projectRoot: key, path: relativePath, error}, "workspace-history open 对账单文件失败");
         }
     }
     const diskSet = new Set(diskFiles);
@@ -635,7 +634,7 @@ async function reconcileFullScan(
             if (signal?.aborted) {
                 throw signal.reason;
             }
-            consola.warn({projectPath: key, path: live.path, error}, "workspace-history open 删除对账失败");
+            consola.warn({projectRoot: key, path: live.path, error}, "workspace-history open 删除对账失败");
         }
     }
 }
@@ -670,7 +669,7 @@ export async function collectTrackedDiskFiles(
 /** 24h 一轮维护：auto-accept（D8）→ prune。进程内水位，重启后首次 open 会再跑一轮（幂等无害）。 */
 async function runMaintenanceIfDue(
     workspaceKey: ProjectWorkspaceKey,
-    projectPath: string,
+    projectRoot: string,
     history: WorkspaceHistory,
     config: WorkspaceHistorySettingsConfig,
     signal?: AbortSignal,
@@ -680,12 +679,12 @@ async function runMaintenanceIfDue(
     if (Date.now() - last < MAINTENANCE_MIN_INTERVAL_MS) {
         return;
     }
-    const accepted = await runAutoAccept(projectPath, history, config, signal);
+    const accepted = await runAutoAccept(projectRoot, history, config, signal);
     signal?.throwIfAborted();
     const report = await history.prune();
     signal?.throwIfAborted();
     maintenanceRanAt.set(workspaceKey, Date.now());
-    consola.info({projectPath, autoAccepted: accepted, ...report}, "workspace-history 维护完成");
+    consola.info({projectRoot, autoAccepted: accepted, ...report}, "workspace-history 维护完成");
 }
 
 /**
@@ -693,7 +692,7 @@ async function runMaintenanceIfDue(
  * 活跃变更（组内还有新条目）整组保留不被吞；兼解「未接受段永不 prune」导致库只增不减。
  */
 async function runAutoAccept(
-    projectPath: string,
+    projectRoot: string,
     history: WorkspaceHistory,
     config: WorkspaceHistorySettingsConfig,
     signal?: AbortSignal,
@@ -718,7 +717,7 @@ async function runAutoAccept(
             if (signal?.aborted) {
                 throw signal.reason;
             }
-            consola.warn({projectPath, path: group.path, error}, "workspace-history auto-accept 单组失败");
+            consola.warn({projectRoot, path: group.path, error}, "workspace-history auto-accept 单组失败");
         }
     }
     return accepted;

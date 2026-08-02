@@ -212,8 +212,8 @@ export type AgentPendingUserInputSession = {
     assistantMessageId: string;
     status: "pending";
     questions: AgentPendingUserInputQuestion[];
-    /** Task 63: Low-Code Form 表单规格（存在时优先使用 LowCodeForm 渲染）。类型递归深度限制，运行时验证由 LowCodeFormDtoSchema 保证。 */
-    form?: any;
+    /** Task 63: Low-Code Form 表单规格（存在时优先使用 LowCodeForm 渲染）。 */
+    form?: LowCodeFormDto;
     /** Task 63: 当存在 form 时，关联的 toolCallId 用于提交 resolution。 */
     formToolCallId?: string;
 };
@@ -573,7 +573,7 @@ export const toLocalMessage = (id: string, message: PiMessage | PiAgentMessage, 
 };
 
 /**
- * 把 pending approval 转成旧 composer 可复用的 PendingUserInputSession。
+ * 把服务端 pending approval 投影成底部待处理面板的统一 Session。
  */
 export const toPendingUserInputSession = (
     pending: AgentPendingApprovalDto | null,
@@ -628,9 +628,9 @@ export const toPendingUserInputSession = (
         };
     }
 
-    // Fallback: 检测 args.form（兼容旧数据或 SSE 事件直接构建的场景）
-    const form = (args as any).form;
-    if (form && typeof form === "object" && Array.isArray((form as any).fields)) {
+    // SSE 事件可以直接在 args.form 携带表单；与 recovery formSpec 共用同一 schema。
+    const form = args.form;
+    if (form && typeof form === "object" && !Array.isArray(form) && "fields" in form && Array.isArray(form.fields)) {
         const formValidation = LowCodeFormDtoSchema.safeParse(form);
         if (!formValidation.success) {
             console.warn("args.form 验证失败", formValidation.error);
@@ -1386,7 +1386,7 @@ const publicToolResultDetails = (result: PublicToolResultDto): JsonValue | undef
             ...(details.truncatedBy ? {truncatedBy: details.truncatedBy} : {}),
             ...(details.totalLines === undefined ? {} : {totalLines: details.totalLines}),
             ...(details.totalBytes === undefined ? {} : {totalBytes: details.totalBytes}),
-            ...(details.fullOutputPath ? {fullOutputPath: details.fullOutputPath} : {}),
+            ...(details.fullOutput ? {fullOutput: details.fullOutput} : {}),
         };
     }
     if (details.kind === "request_user_input") {

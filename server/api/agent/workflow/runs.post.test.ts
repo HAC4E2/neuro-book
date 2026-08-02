@@ -18,6 +18,7 @@ import {
     type ResolvedProjectWorkspace,
 } from "nbook/server/workspace-files/project-identity";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
+import type {AgentJobStartDto} from "nbook/shared/dto/agent-job.dto";
 
 type StartInput = {
     def: WorkflowDefinition;
@@ -31,9 +32,9 @@ type StartInput = {
 };
 
 type RouteFixture = {
-    handler: (event: never) => Promise<{jobId: string; runId: string}>;
+    handler: (event: never) => Promise<AgentJobStartDto & {runId: string}>;
     jobs: AgentJobManager;
-    requireReadyProjectPath: ReturnType<typeof vi.fn<(projectPath: string) => ReadyProjectSessionRef>>;
+    requireActiveReadyProject: ReturnType<typeof vi.fn<(ref: ReturnType<typeof projectWorkspaceRef>) => ReadyProjectSessionRef>>;
     runReadyProjectOperation: ReturnType<typeof vi.fn>;
     getWorkflow: ReturnType<typeof vi.fn<(key: string, workspace?: ResolvedProjectWorkspace) => Promise<{def: WorkflowDefinition} | null>>>;
     loadConfig: ReturnType<typeof vi.fn<(target: RuntimeConfigTarget) => Promise<EffectiveConfig>>>;
@@ -72,7 +73,7 @@ describe("POST /api/agent/workflow/runs", () => {
         const config = visibleModelConfig();
         const fixture = await routeFixture({
             body: {
-                projectPath: project.projectPath,
+                projectRoot: project.projectRoot,
                 workflowKey: "test-workflow",
                 args: {path: "manuscript/chapter.md"},
                 model: "local/default-model",
@@ -83,7 +84,11 @@ describe("POST /api/agent/workflow/runs", () => {
         });
 
         const response = await fixture.handler(routeEvent());
-        expect(response).toEqual({jobId: expect.stringMatching(/^job_/u), runId: "run_api"});
+        expect(response).toEqual({
+            jobId: expect.stringMatching(/^job_/u),
+            jobEventCursor: {eventEpoch: expect.any(String), after: 1},
+            runId: "run_api",
+        });
         await fixture.jobs.waitIdle();
         expect(fixture.jobs.get(response.jobId)).toMatchObject({
             kind: "workflow",
@@ -91,8 +96,8 @@ describe("POST /api/agent/workflow/runs", () => {
             status: "completed",
             ref: {runId: "run_api", workflowKey: "test-workflow"},
         });
-        expect(fixture.requireReadyProjectPath).toHaveBeenCalledOnce();
-        expect(fixture.requireReadyProjectPath).toHaveBeenCalledWith(project.projectPath);
+        expect(fixture.requireActiveReadyProject).toHaveBeenCalledOnce();
+        expect(fixture.requireActiveReadyProject).toHaveBeenCalledWith(projectWorkspaceRef(project.projectRoot));
         expect(fixture.runReadyProjectOperation).toHaveBeenCalledOnce();
         expect(fixture.runReadyProjectOperation).toHaveBeenCalledWith(project.ready, expect.any(Function));
         expect(fixture.loadConfig).toHaveBeenCalledWith({
@@ -120,7 +125,7 @@ describe("POST /api/agent/workflow/runs", () => {
         await mkdir(workflowRoot, {recursive: true});
         await writeFile(join(workflowRoot, "workflow.ts"), "export default { title: '项目开篇脑暴', run: async () => ({source: 'project'}) };\n", "utf8");
         const fixture = await routeFixture({
-            body: {projectPath: project.projectPath, workflowKey: "brainstorm-opening"},
+            body: {projectRoot: project.projectRoot, workflowKey: "brainstorm-opening"},
             runtimePaths: project.runtimePaths,
             config: visibleModelConfig(),
             ready: project.ready,
@@ -129,7 +134,11 @@ describe("POST /api/agent/workflow/runs", () => {
 
         const response = await fixture.handler(routeEvent());
 
-        expect(response).toEqual({jobId: expect.stringMatching(/^job_/u), runId: "run_api"});
+        expect(response).toEqual({
+            jobId: expect.stringMatching(/^job_/u),
+            jobEventCursor: {eventEpoch: expect.any(String), after: 1},
+            runId: "run_api",
+        });
         expect(fixture.getWorkflow).not.toHaveBeenCalled();
         await fixture.jobs.waitIdle();
         expect(fixture.jobs.get(response.jobId)).toMatchObject({
@@ -139,8 +148,8 @@ describe("POST /api/agent/workflow/runs", () => {
     }, 15_000);
 
     it.each([
-        ["缺少 projectPath", {workflowKey: "test-workflow"}],
-        ["非法 projectPath", {projectPath: "../escape", workflowKey: "test-workflow"}],
+        ["缺少 projectRoot", {workflowKey: "test-workflow"}],
+        ["非法 projectRoot", {projectRoot: "../escape", workflowKey: "test-workflow"}],
     ])("%s 时在启动 run 前以 400 拒绝", async (_label, body) => {
         const runtimePaths = await createTestRuntime("invalid");
         const fixture = await routeFixture({body, runtimePaths, config: visibleModelConfig()});
@@ -151,20 +160,20 @@ describe("POST /api/agent/workflow/runs", () => {
 
     it("Project 不存在时按 strict-ready 门禁以 409 拒绝", async () => {
         const runtimePaths = await createTestRuntime("missing");
-        const projectPath = "workspace/not-found";
+        const projectRoot = "not-found";
         const fixture = await routeFixture({
-            body: {projectPath, workflowKey: "test-workflow"},
+            body: {projectRoot, workflowKey: "test-workflow"},
             runtimePaths,
             config: visibleModelConfig(),
-            projectReadyError: Object.assign(new Error(`Project 未打开：${projectPath}`), {
+            projectReadyError: Object.assign(new Error(`Project 未打开：${projectRoot}`), {
                 statusCode: 409,
-                data: {code: "PROJECT_NOT_OPEN", projectPath},
+                data: {code: "PROJECT_NOT_OPEN", projectRoot},
             }),
         });
 
         await expect(fixture.handler(routeEvent())).rejects.toMatchObject({
             statusCode: 409,
-            data: {code: "PROJECT_NOT_OPEN", projectPath},
+            data: {code: "PROJECT_NOT_OPEN", projectRoot},
         });
         expect(fixture.startWorkflow).not.toHaveBeenCalled();
     });
@@ -172,18 +181,18 @@ describe("POST /api/agent/workflow/runs", () => {
     it("Project 存在但未 open 时以稳定 409 门禁拒绝", async () => {
         const project = await createProject("closed");
         const fixture = await routeFixture({
-            body: {projectPath: project.projectPath, workflowKey: "test-workflow"},
+            body: {projectRoot: project.projectRoot, workflowKey: "test-workflow"},
             runtimePaths: project.runtimePaths,
             config: visibleModelConfig(),
-            projectReadyError: Object.assign(new Error(`Project 未打开：${project.projectPath}`), {
+            projectReadyError: Object.assign(new Error(`Project 未打开：${project.projectRoot}`), {
                 statusCode: 409,
-                data: {code: "PROJECT_NOT_OPEN", projectPath: project.projectPath},
+                data: {code: "PROJECT_NOT_OPEN", projectRoot: project.projectRoot},
             }),
         });
 
         await expect(fixture.handler(routeEvent())).rejects.toMatchObject({
             statusCode: 409,
-            data: {code: "PROJECT_NOT_OPEN", projectPath: project.projectPath},
+            data: {code: "PROJECT_NOT_OPEN", projectRoot: project.projectRoot},
         });
         expect(fixture.startWorkflow).not.toHaveBeenCalled();
     });
@@ -192,7 +201,7 @@ describe("POST /api/agent/workflow/runs", () => {
         const project = await createProject("hidden-model");
         const fixture = await routeFixture({
             body: {
-                projectPath: project.projectPath,
+                projectRoot: project.projectRoot,
                 workflowKey: "test-workflow",
                 model: "local/hidden-model",
             },
@@ -229,24 +238,24 @@ describe("POST /api/agent/workflow/runs", () => {
     /** 建立一个最小 managed Project Workspace；是否 open 由用例显式决定。 */
     async function createProject(label: string): Promise<{
         runtimePaths: RuntimePaths;
-        projectPath: string;
+        projectRoot: string;
         ready: ReadyProjectSessionRef;
     }> {
         const runtimePaths = await createTestRuntime(label);
-        const projectPath = `workspace/${label}`;
-        const projectRoot = absoluteFsPath(join(runtimePaths.workspaceRoot, label));
-        await mkdir(join(projectRoot, "manuscript"), {recursive: true});
-        await writeFile(join(projectRoot, "manuscript", "chapter.md"), "Project 正文", "utf8");
+        const projectRoot = label;
+        const projectFsRoot = absoluteFsPath(join(runtimePaths.workspaceRoot, label));
+        await mkdir(join(projectFsRoot, "manuscript"), {recursive: true});
+        await writeFile(join(projectFsRoot, "manuscript", "chapter.md"), "Project 正文", "utf8");
         const ref = projectWorkspaceRef(label);
         const ready: ReadyProjectSessionRef = {
             workspace: resolvedProjectWorkspace(
                 ref,
-                projectRoot,
+                projectFsRoot,
                 createProjectWorkspaceKey(runtimePaths.workspaceRoot, ref),
             ),
             generation: 1,
         };
-        return {runtimePaths, projectPath, ready};
+        return {runtimePaths, projectRoot, ready};
     }
 
     /** 动态注入进程边界，结构化 Project Workspace 只读端口保持真实实现。 */
@@ -282,13 +291,13 @@ describe("POST /api/agent/workflow/runs", () => {
         const jobs = new AgentJobManager(() => {
             throw new Error("ownerless HTTP workflow 不应触发 followup 回流");
         }, "");
-        const requireReadyProjectPath = vi.fn((projectPath: string): ReadyProjectSessionRef => {
+        const requireActiveReadyProject = vi.fn((ref: ReturnType<typeof projectWorkspaceRef>): ReadyProjectSessionRef => {
             if (input.projectReadyError) throw input.projectReadyError;
-            if (!/^workspace\/[^/]+$/u.test(projectPath)) {
-                throw Object.assign(new Error("projectPath 必须形如 workspace/<project>"), {statusCode: 400});
-            }
             if (!input.ready) {
                 throw new Error("测试 fixture 缺少 ready ProjectSession");
+            }
+            if (ref.projectRoot !== input.ready.workspace.ref.projectRoot) {
+                throw new Error(`未预期的 Project root：${ref.projectRoot}`);
             }
             return input.ready;
         });
@@ -305,12 +314,12 @@ describe("POST /api/agent/workflow/runs", () => {
         vi.doMock("nbook/server/config/config-service", () => ({
             loadEffectiveConfigFromTarget: loadConfig,
         }));
-        vi.doMock("nbook/server/workspace-files/project-open-guard", () => ({
-            withProjectNotOpenHttpError: (operation: () => Promise<unknown>) => operation(),
+        vi.doMock("nbook/server/api/projects/project-http-error", () => ({
+            withProjectHttpError: (operation: () => Promise<unknown>) => operation(),
         }));
         vi.doMock("nbook/server/workspace-files/project-session", () => ({
-            isProjectNotOpenError: () => false,
-            requireReadyProjectPath,
+            isProjectNotOpenError: (error: unknown) => error === input.projectReadyError,
+            requireActiveReadyProject,
             runReadyProjectOperation,
         }));
         vi.doMock("nbook/server/agent/http", () => ({
@@ -329,7 +338,7 @@ describe("POST /api/agent/workflow/runs", () => {
         return {
             handler,
             jobs,
-            requireReadyProjectPath,
+            requireActiveReadyProject,
             runReadyProjectOperation,
             getWorkflow,
             loadConfig,

@@ -93,6 +93,20 @@ export function buildProfileRuntimeSettingsPatch(draft: ProfileRuntimeSettingsDr
     return parseProfileRuntimeSettingsDraft(draft).patch;
 }
 
+/**
+ * 统计草稿中显式覆盖的字段数，用于二级导航徽标。
+ *
+ * 直接基于 patch 计数，语义等于"实际会写进配置的字段数"：
+ * kind + value 成对的字段（interval / trigger / keepRecent）算 1 项，
+ * 填了但校验不通过的字段不进 patch，也不计入。
+ */
+export function countProfileRuntimeOverrides(draft: ProfileRuntimeSettingsDraft): number {
+    const patch = buildProfileRuntimeSettingsPatch(draft);
+    return Object.keys(patch.summarizer ?? {}).length
+        + Object.keys(patch.compaction ?? {}).length
+        + Object.keys(patch.fileChangeNotice ?? {}).length;
+}
+
 /** 严格解析运行策略草稿；空白表示继承，非空非法值必须返回字段错误。 */
 export function parseProfileRuntimeSettingsDraft(draft: ProfileRuntimeSettingsDraft): ProfileRuntimeSettingsParseResult {
     const errors: ProfileRuntimeSettingsErrors = {};

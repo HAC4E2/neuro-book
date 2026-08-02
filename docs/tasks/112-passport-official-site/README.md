@@ -43,6 +43,7 @@ nb-workshop 完成官方站点改造：按 `reference/passport/api-v1.md` 实现
 7. **备份归属账号级而非授权级**（灾难恢复 = 旧实例没了换新实例恢复；吊销授权不删备份）；服务端把归档当 opaque blob，归档格式合同归客户端（zip State Root，排除 logs/锁/wal，根放 `nb-backup.json`）。
 8. 大架构原则（前置讨论）：统一身份、统一检索、**分离事实源**；账号体系不做「大一统记忆数据库」。记忆系统（Memory Core、应用级/项目级事实源）单独立项，本任务不碰。
 9. **恢复应用机制 = staging 目录 + 手动停机替换**（2026-07-22 实施前拍板）：实例把归档解包到 State Root 同级 `restore-<ts>/`，UI 给三步停机替换指引；不接 Manager 停机事务。
+10. **云备份端到端加密由 Task 128 接管**（2026-07-27 拍板）：当前实现会把包含 `.env` / `config.yaml` 的 `encryption: "none"` zip 上传到官方站，只适合本地开发验证，不能进入真实私有内测。Task 128 将先改 wire spec，再硬切为 NeuroBook 本地随机生成 256 位 Backup Master Key、AES-256-GCM 流式加密、用户恢复码和官方站只存密文；不保留明文云备份兼容路径。
 
 ## Verification / Test
 
@@ -54,7 +55,7 @@ nb-workshop 完成官方站点改造：按 `reference/passport/api-v1.md` 实现
 - **neuro-book typecheck**：本任务全部新增/改动文件零错误（工作区残留 7 个 Task 111 workflow 相关既有错误，与本任务无关，见「与计划出入」）。
 - **端到端真实冒烟（脚本，已跑通后删除）**：neuro-book `PassportClientService` 直连真实 nb-workshop build 产物——startLink→pending 轮询→站点 cookie 会话批准（中文实例名）→兑换落库 App SQLite→getAccessToken→Bearer 调备份列表（quota 附带）→unlink 回未关联态，全链 PASS。
 
-待用户执行：浏览器验收（nb-workshop /link 页 + me 四 tab；neuro-book 设置页「NeuroBook 账号」关联/备份/恢复全流程 + 恢复指引卡片）；大体量 State Root 的备份内存/耗时观察。
+待用户执行：浏览器验收（官网 /link 页 + me 四 tab；NeuroBook 顶栏“个人中心”的关联/备份/恢复全流程 + 恢复指引卡片）；大体量 State Root 的备份内存/耗时观察。
 
 ## Implementation Walkthrough
 
@@ -76,10 +77,10 @@ nb-workshop 完成官方站点改造：按 `reference/passport/api-v1.md` 实现
 
 ### C1（neuro-book 关联链路）
 
-- **App 库**：`PassportCredential`（slotId unique 默认 "default" 预留多槽位；官方站地址存行内不进 boot config）。migration 手写纯 SQL `prisma/migrations/sqlite/20260722020000_add_passport_credential/` 走 `migrate:deploy` 应用——**dev 库存在旧 migration checksum 漂移，`prisma migrate dev` 会要求 reset，不可用**；顺带给 `scripts/db/prisma-migrate.mjs` 加了 CLI 参数透传（`bun run migrate -- --name xxx` 以后可用）。真相 schema 是 `schema.sqlite.prisma`，`schema.prisma` 是 fallback 副本，两份同步改。
+- **App 库**：`PassportCredential` 只保存默认槽位、官网账号展示信息、scope 与 refresh token，不保存上游地址。2026-07-27 前向迁移重建表，只复制地址严格等于 `https://nbook.notnotype.com` 的旧凭据并删除 `siteBaseUrl`；官网凭据继续有效，旧自定义站点凭据被丢弃。真相 schema 是 `schema.sqlite.prisma`，`schema.prisma` 是 fallback 副本，两份同步。
 - **服务**：`server/passport/passport-client-service.ts`（class + 全局单例）：startLink（deviceCode 只留服务端内存会话）/pollLink（每调一次只转发一次上游 grant；slow_down 间隔+5 透传）/unlink（best-effort revoke 后删本地）/getAccessToken（**refresh 单飞 in-flight 去重——并发双刷会导致旧 token 双花触发官方站整链撤销**；新 refresh 先落库再更新缓存；invalid_grant 清凭据抛 `PassportUnlinkedError`）。`passport-errors.ts` 含 `wrapPassportErrors`（路由层转 409 `passport_unlinked`）。
 - **路由**：`api/passport/` status / link/start / link/poll / unlink。
-- **UI**：设置对话框新增 `passport` section（global scope，无 save bar）；`NovelIdePassportSettingsPanel.vue` 未关联（地址输入+关联按钮）/等待批准（userCode 大字+批准页外链+定时轮询）/已关联（账号+scope+两步确认取消关联）三态；i18n zh/en 全量键。
+- **UI**：Passport 与云备份已从技术设置迁入独立“个人中心”。IDE 顶栏和无 Project 的项目选择页复用同一账户菜单；Profile 面板覆盖未关联/等待批准/已关联，并把状态请求明确拆成 loading/error/loaded 三态，错误详情在面板内持久显示并可重试。
 
 ### C2（neuro-book 备份/恢复）
 
@@ -89,21 +90,51 @@ nb-workshop 完成官方站点改造：按 `reference/passport/api-v1.md` 实现
 - `backup-job-manager.ts`：进程内单任务后台管理（备份/恢复互斥 409；结构化 progress；打包前先验凭据、上传前再取一次 token 防长打包期过期；`fs.openAsBlob` 优先、整读 Blob 兜底；quota_exceeded 转友好文案）。
 - 路由 `api/passport/backups/`：列表/删除代理官方站（带 `wrapPassportErrors`），创建/恢复起后台任务，jobs/[id] 轮询。
 - 面板备份区：手动备份（备注可选）、任务进度行（phase 结构化→i18n 文案）、恢复完成指引卡片（解包路径+三步停机替换+机密警示）、配额条、两步确认恢复/删除。
+- 2026-07-27 由 Task 128 完成端到端加密硬切：zip 流直接进入 AES-256-GCM envelope，keyring 与恢复码留在本机，官方站只保存密文；恢复先认证密文，再解密到 staging 目录。
+
+## 2026-07-28：Passport 凭据提交补偿与轮询状态机
+
+- 真实批准故障暴露出一次性 grant 的提交窗口：官网已经消费设备码并返回 token 后，本地 App SQLite upsert 失败，旧实现仍可能让前端继续轮询，最终只看到未处理的 `invalid_grant`。设备码和 refresh token 的一次性语义保持不变，没有把官方站协议改成可重放。
+- `PassportLinkPollDto` 新增两个稳定终态：`credential_persist_failed` 表示官网已批准但本机未能保存，并附远端清理结果 `revoked | unknown`；`exchange_invalid` 表示设备码已经失效或被消费。两者都会删除进程内关联会话，禁止二次兑换。
+- 首次兑换只有在凭据 upsert 成功后才进入 `linked` 并写 access-token cache。upsert 失败时使用刚收到的 refresh token best-effort revoke，不保存或记录 token；revoke 失败只把清理结果改为 `unknown`，不覆盖原始本地提交错误。
+- refresh 轮换同样先落库再更新 cache。新 refresh token 落库失败时 best-effort 吊销新 token、删除旧凭据、清空 cache，并设置进程内阻断闩锁；调用方得到 `PassportUnlinkedError`，必须重新关联，不能重发已轮换的旧 token。
+- 前端计时、轮询、404 对账和重试已收口到 `usePassportLink`。只有 `pending` 自动轮询；网络或未知 HTTP 错误进入保留设备码的可重试暂停态；本地提交失败停止计时并提示重新发起，远端清理未知时显示官网授权管理入口。通知和界面不暴露 Prisma 错误或 token。
+- 日志只记录阶段、账号 ID、清理结果和脱敏错误；通用敏感规则新增 `deviceCode` 与 grant 内容。聚焦验证覆盖 upsert/revoke 成败、会话终止、禁止二次兑换、refresh 本地提交失败、旧凭据清理、日志脱敏，以及 fake timers 下的 pending 调度、暂停、手动重试、404 对账和 timer 清理。
+- App SQLite schema 前置条件改由 Task 105/118 的统一迁移门禁保证，不增加 Passport 启动补丁。真实浏览器批准、落库、状态刷新和一次 access-token 使用仍未执行。
+
+## 2026-07-27：官方站网络错误治理
+
+- 新增 `official-site-transport.ts` 作为唯一官方站请求出口，覆盖设备码、token 交换/刷新、吊销、备份列表、上传、元数据、下载和删除。endpoint 只能是固定官网 origin 下不带 query/fragment 的 `/api/...` 路径。
+- DNS、拒绝连接、TLS 和超时等无响应故障统一返回 HTTP 502 + `data.error="passport_site_unreachable"`，提示检查 DNS 或代理；官方站 5xx 转换为 `passport_site_unavailable`。已有 OAuth 4xx、`authorization_pending`、配额等业务错误原样保留。
+- 控制面请求和流式下载取得响应头前使用 10 秒超时；下载 body 取得后不中断。备份上传不使用 10 秒整请求超时，否则大文件上传会被必然截断，这是相对原计划的有意调整。
+- 失败事件直接进入 NeuroBook 既有持久日志 `passport.officialSite.requestFailed`，只记录 operation、endpoint、failure、causeCode、upstreamStatus 和 durationMs，不记录 token、请求参数或 body。本体不引入 Pino。
+- Node 24 使用环境代理时，必须在启动 NeuroBook 进程之前设置环境变量并重启进程；不要把官网 IP 写死，也不要在运行后修改全局 dispatcher：
+
+```powershell
+$env:NODE_USE_ENV_PROXY = "1"
+$env:NO_PROXY = "localhost,127.0.0.1,::1"
+$env:HTTPS_PROXY = "http://127.0.0.1:7890"
+bun run dev
+```
+
+`NODE_USE_ENV_PROXY` 必须由启动 shell、服务管理器或容器环境提供；仅在 Node 进程启动后修改无效。直连环境不需要设置代理，原始 `ENOTFOUND nbook.notnotype.com` 仍表示本机 DNS 没有解析出官网地址。
 
 ## 与计划出入
 
-1. **neuro-book 客户端服务单测未写**（计划有 passport-client-service.test.ts）：需要重度 mock prisma 单例+全局 $fetch，且核心链路已被端到端真实冒烟覆盖（真 server + 真库），按「只测复杂易错处」原则以冒烟替代。
+1. 初版没有写 neuro-book 客户端服务单测；2026-07-27 已补齐设备码、refresh single-flight、吊销、固定官网备份链和隔离数据库迁移回归。
 2. **`prisma migrate dev` 在 App 库不可用**（旧 migration checksum 漂移会触发 reset 提示），改为手写 SQL + `migrate:deploy`，与生产链路一致；这也暴露了 dev/deploy 双轨的既有漂移，未在本任务修复。
 3. **neuro-book typecheck 有 7 个既有错误**（`neuro-agent-harness.ts`×4、`profile-http-service.ts`×1、`agent-job-manager.test.ts`×2，全部是工作区里 Task 111 未提交改动的 WorkflowCatalogItem source 类型问题），与本任务无关、未处理。
 4. 定时备份（kind:auto + rotate 调度）按计划刻意不进本轮，仅手动备份；服务端 rotate 语义已就绪。
 5. nb-workshop 集成测试 afterAll 清理在 Windows 下会因 server 句柄未释放 EPERM——已改为重试+容忍残留（`.agent/` 下残留无害）。
+6. 网络治理原计划把“10 秒连接超时”统一写成一个参数；实际 `$fetch` timeout 会覆盖整个请求。为避免 1 GiB 备份上传在 10 秒被强制中断，上传明确关闭整请求 timeout，控制面和下载响应头仍保留 10 秒门限。
 
 ## TODO / Follow-ups
 
-- [ ] 浏览器验收（用户）：/link 页、me 四 tab、实例设置页关联/备份/恢复全流程。
+- [ ] 浏览器验收（用户）：/link 页、me 四 tab、实例“个人中心”关联/备份/恢复全流程。
 - [ ] 大体量 State Root（GB 级）备份的内存与耗时实测。
 - [ ] 定时备份调度（kind:auto + rotate=true，Nitro 插件 setInterval）。
+- [x] 云备份端到端加密、恢复码/keyring 与密文 wire contract 已由 [Task 128](../128-neuro-book-site-deployment/README.md) 完成。
 - [x] 上线前回补登录防爆破 / token 端点更强限流（已由 Task 119 完成：login/register/改密限流，见 `docs/tasks/119-workshop-account-admin/README.md`）。
-- [ ] 官方域名定下后回填 `shared/passport/passport-constants.ts` 的 `DEFAULT_PASSPORT_SITE_URL`（当前为空，用户需手填）。
-- [ ] 后续任务（不在本任务）：邮箱注册与验证、GitHub 等上游 OAuth 关联、llmlint Contribution Outbox 与摄入端、仓库/域名改名、记忆系统（Task 113 讨论中）。
-- [ ] App 库 `prisma migrate dev` 与自研 deploy 双轨的 checksum 漂移收口（本次绕过未修）。
+- [x] 官方域名与 `OFFICIAL_PASSPORT_SITE_URL` 已由 [Task 128](../128-neuro-book-site-deployment/README.md) 固定为 `https://nbook.notnotype.com`；客户端不再提供自定义地址输入，数据库也不再保存地址列。
+- [ ] 后续任务（不在本任务）：邮箱注册与验证、llmlint Contribution Outbox 与摄入端、记忆系统（Task 113 讨论中）；GitHub OAuth 生产配置仍延后到 Public Invite Gate。
+- [x] App 库 migration 规划与 apply 已由 Task 105/118 的统一 Application State runner 收口；`sqlite-migrate.mjs`、Manager、dev 与 Product 启动门禁消费同一 migration 目录和 `_prisma_migrations` 判断。

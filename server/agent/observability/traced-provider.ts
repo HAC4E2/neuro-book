@@ -39,6 +39,8 @@ export type PiTraceProjection = {
      * compaction / health-check 不提供，落盘时该字段缺省。
      */
     segments?: PiTraceSegment[];
+    /** 分区归因来源；`legacy` 表示由位置推断而来。 */
+    attribution?: "full" | "legacy";
     /** 工具集指纹，用于跨请求检测缓存断点前移。 */
     toolsHash?: string;
     /** attachment 请求不捕获 provider 原生 payload。 */
@@ -155,6 +157,7 @@ class TraceCollector {
                 reasoning: this.reasoning,
                 context: this.context,
                 segments: this.extras.segments,
+                attribution: this.extras.attribution,
                 toolsHash: this.extras.toolsHash,
                 payload: this.capturedPayload,
                 payloadOmittedReason: this.extras.payloadOmittedReason,
@@ -202,6 +205,7 @@ export function tracedStreamSimple(
     }
     const collector = new TraceCollector(model, structuredClone(projection?.context ?? context), binding, {
         segments: projection?.segments,
+        attribution: projection?.attribution,
         toolsHash: projection?.toolsHash,
         payloadOmittedReason: projection?.payloadOmittedReason,
     });
@@ -240,6 +244,7 @@ export async function tracedCompleteSimple(
     }
     const collector = new TraceCollector(model, structuredClone(projection?.context ?? context), binding, {
         segments: projection?.segments,
+        attribution: projection?.attribution,
         toolsHash: projection?.toolsHash,
         payloadOmittedReason: projection?.payloadOmittedReason,
     });

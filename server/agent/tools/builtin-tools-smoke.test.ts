@@ -14,10 +14,8 @@ describe("createBuiltinTools smoke test", () => {
         expect(keys).toContain("variable_schema");
         expect(keys).toContain("variable_read");
         expect(keys).toContain("variable_patch");
-        expect(keys).toContain("inspect_ttp_storyboard");
-        expect(keys).toContain("submit_ttp_storyboard_conversion");
-        expect(keys).toContain("novel_rankings");
-        expect(keys).toContain("novel_book_detail");
+        expect(keys).not.toContain("novel_rankings");
+        expect(keys).not.toContain("novel_book_detail");
 
         // 确认旧的固定工具已移除。
         expect(keys).not.toContain("execute_world_query");

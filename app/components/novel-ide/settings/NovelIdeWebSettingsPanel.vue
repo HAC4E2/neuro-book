@@ -382,7 +382,7 @@ function parseNonNegativeInteger(value: string, fallback: number): number {
     return Number.isFinite(parsed) && parsed >= 0 ? Math.trunc(parsed) : fallback;
 }
 
-watch(() => [props.targetQuery?.workspaceKind, props.targetQuery?.projectPath] as const, () => {
+watch(() => [props.targetQuery?.workspaceKind, props.targetQuery?.projectRoot] as const, () => {
     void loadSettings();
 });
 

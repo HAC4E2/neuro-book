@@ -6,18 +6,15 @@
  * - chapter-write-review-revise（写盘）：assets/workspace/.nbook/agent/workflows/chapter-write-review-revise/workflow.ts
  * 以及一个 cancel 场景：对一个进行中的 consistency-audit run 发起取消，断言其终态收敛到 cancelled。
  *
- * 前提模式（用户拍板，Task 118 正在改 projects API，本脚本不踩这个易变面）：
+ * 前提模式：
  * - dev server 已启动（bun run dev），Provider apiKey 已在 workspace/.nbook/config.json 或设置页配置好；
  * - 用户提供一个已经 open 的现成测试项目，脚本不自建、不 open 项目；
- * - --project 用 Project Path（形如 workspace/<project-slug>）传入，直接透传给 POST /api/agent/workflow/runs
- *   的 projectPath 字段；本脚本假定 dev server 使用默认 State Root（未设置 NEURO_BOOK_STATE_ROOT 时等于
- *   Application Root，默认在仓库根启动），因此该字符串同时也是相对仓库根的真实文件系统路径，用于本地存在性
- *   检查与写盘场景的结果文件读取。若你的 dev server 用了自定义 NEURO_BOOK_STATE_ROOT/APPLICATION_ROOT，本地
- *   存在性检查可能与服务端解析不一致，请自行确认或改用绝对一致的目录布局。
+ * - --project 使用单段 Project Root，直接透传给 POST /api/agent/workflow/runs；本地检查与写盘结果从
+ *   <State Root>/workspace/<projectRoot> 读取，因此脚本与 dev server 必须使用同一 State Root。
  *
  * 用法示例（在仓库根执行）：
  *   bun scripts/smoke/writing-workflow-smoke.ts --help
- *   bun scripts/smoke/writing-workflow-smoke.ts --project workspace/ming-ding-zhi-shi-2 \
+ *   bun scripts/smoke/writing-workflow-smoke.ts --project ming-ding-zhi-shi-2 \
  *     --chapters manuscript/001-volume/001-chapter/index.md,manuscript/001-volume/002-chapter/index.md \
  *     --write-chapter manuscript/001-volume/003-chapter/index.md \
  *     --brief "写一段冒烟测试用的过场戏"
@@ -31,6 +28,8 @@ import {readFile} from "node:fs/promises";
 import path from "node:path";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import type {AgentJobStatus} from "nbook/server/agent/jobs/agent-job-manager";
+import {resolveStateRoot} from "nbook/server/runtime/installation-paths";
+import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 
 const BASE_URL = process.env.AGENT_HTTP_BASE_URL ?? "http://localhost:3000";
 /** 轮询间隔与上限：真实模型多轮调用可能耗时较久，给足 10 分钟。 */
@@ -45,8 +44,8 @@ const DEFAULT_BRIEF = [
 ].join("\n");
 
 type CliOptions = {
-    /** Project Path，形如 workspace/<project-slug>；直接透传给 API，也用于本地文件解析。 */
-    project: string;
+    /** 单段 Project Root；直接透传给 API，也用于 State Root 下的本地文件解析。 */
+    projectRoot: string;
     /** consistency-audit 的章节清单原始字符串（逗号/换行分隔）；未提供时该场景与 cancel 场景一起跳过。 */
     chapters: string | null;
     /** chapter-write-review-revise 的目标章节 index.md 路径；未提供时跳过写盘场景。 */
@@ -80,7 +79,7 @@ async function main(): Promise<void> {
     let options: CliOptions;
     try {
         options = parseArgs(process.argv.slice(2));
-        assertProjectExists(options.project);
+        assertProjectExists(options.projectRoot);
         await assertDevServerAlive();
     } catch (error) {
         console.error(error instanceof Error ? error.message : String(error));
@@ -95,8 +94,8 @@ async function main(): Promise<void> {
         results.push(skip("cancel（consistency-audit）", "未提供 --chapters，cancel 场景需要一个可启动的 consistency-audit run，一并跳过"));
     } else {
         const chapterPaths = splitPaths(options.chapters);
-        results.push(await runScenario("consistency-audit（只读）", () => runConsistencyAudit(options.project, options.chapters!, chapterPaths)));
-        results.push(await runScenario("cancel（consistency-audit）", () => runCancelScenario(options.project, options.chapters!, chapterPaths)));
+        results.push(await runScenario("consistency-audit（只读）", () => runConsistencyAudit(options.projectRoot, options.chapters!, chapterPaths)));
+        results.push(await runScenario("cancel（consistency-audit）", () => runCancelScenario(options.projectRoot, options.chapters!, chapterPaths)));
     }
 
     if (options.skipWrite) {
@@ -104,10 +103,10 @@ async function main(): Promise<void> {
     } else if (!options.writeChapter) {
         results.push(skip("chapter-write-review-revise（写盘）", "未提供 --write-chapter，跳过写盘场景"));
     } else {
-        const projectAbsRoot = path.resolve(process.cwd(), options.project);
+        const projectAbsRoot = path.resolve(resolveStateRoot(), "workspace", options.projectRoot);
         results.push(await runScenario(
             "chapter-write-review-revise（写盘）",
-            () => runChapterWriteReviewRevise(options.project, options.writeChapter!, options.brief, projectAbsRoot),
+            () => runChapterWriteReviewRevise(options.projectRoot, options.writeChapter!, options.brief, projectAbsRoot),
         ));
     }
 
@@ -120,7 +119,7 @@ async function main(): Promise<void> {
 // ── 参数解析 ──
 
 function parseArgs(argv: string[]): CliOptions {
-    let project: string | undefined;
+    let projectRoot: string | undefined;
     let chapters: string | undefined;
     let writeChapter: string | undefined;
     let brief: string | undefined;
@@ -132,7 +131,7 @@ function parseArgs(argv: string[]): CliOptions {
             printUsage();
             process.exit(0);
         } else if (arg === "--project") {
-            project = requireArgValue(argv, ++i, "--project");
+            projectRoot = projectWorkspaceRef(requireArgValue(argv, ++i, "--project")).projectRoot;
         } else if (arg === "--chapters") {
             chapters = requireArgValue(argv, ++i, "--chapters");
         } else if (arg === "--write-chapter") {
@@ -146,12 +145,12 @@ function parseArgs(argv: string[]): CliOptions {
         }
     }
 
-    if (!project) {
-        throw new Error("缺少必填参数 --project（测试项目的 Project Path，形如 workspace/<project-slug>）");
+    if (!projectRoot) {
+        throw new Error("缺少必填参数 --project（测试项目的单段 Project Root）");
     }
     const trimmedChapters = chapters?.trim();
     return {
-        project,
+        projectRoot,
         chapters: trimmedChapters ? trimmedChapters : null,
         writeChapter: writeChapter?.trim() || null,
         brief: brief?.trim() || DEFAULT_BRIEF,
@@ -172,10 +171,10 @@ function printUsage(): void {
         "写作 workflow 端到端冒烟（真实模型，Task 122 + Task 116 cancel）",
         "",
         "用法：",
-        "  bun scripts/smoke/writing-workflow-smoke.ts --project <path> [options]",
+        "  bun scripts/smoke/writing-workflow-smoke.ts --project <project-root> [options]",
         "",
         "参数：",
-        "  --project <path>        必填。测试项目的 Project Path（形如 workspace/<project-slug>）",
+        "  --project <root>        必填。测试项目的单段 Project Root",
         "  --chapters <paths>      可选。consistency-audit 的章节清单，逗号分隔的 Project Workspace 相对路径；",
         "                          缺省时跳过 consistency-audit 与 cancel 场景",
         "  --write-chapter <path>  可选。chapter-write-review-revise 的目标章节 index.md 路径；缺省跳过写盘场景",
@@ -192,13 +191,13 @@ function printUsage(): void {
 
 // ── gate ──
 
-/** 本地存在性检查：--project 按仓库根解析后必须是一个真实存在的目录。 */
-function assertProjectExists(projectPath: string): void {
-    const absolute = path.resolve(process.cwd(), projectPath);
+/** 本地存在性检查：Project Root 在当前 State Root 下必须是一个真实目录。 */
+function assertProjectExists(projectRoot: string): void {
+    const absolute = path.resolve(resolveStateRoot(), "workspace", projectRoot);
     if (!existsSync(absolute) || !statSync(absolute).isDirectory()) {
         throw new Error(
-            `--project 路径不存在：${projectPath}（解析为 ${absolute}）。\n`
-            + "请确认传入的是相对仓库根的 Project Path（形如 workspace/<project-slug>），"
+            `--project 不存在：${projectRoot}（解析为 ${absolute}）。\n`
+            + "请确认传入的是单段 Project Root，"
             + "且 dev server 与本脚本共用同一个 State Root。",
         );
     }
@@ -241,13 +240,13 @@ function skip(name: string, reason: string): ScenarioResult {
 }
 
 /** 场景一：consistency-audit 只读审计。 */
-async function runConsistencyAudit(projectPath: string, chaptersArg: string, chapterPaths: string[]): Promise<string> {
+async function runConsistencyAudit(projectRoot: string, chaptersArg: string, chapterPaths: string[]): Promise<string> {
     const args: Record<string, JsonValue> = {
         chapterPaths: chaptersArg,
         // 显式对齐 maxChapters 与实际传入章数，避免默认上限 12 截断导致断言假失败（workflow 上限 1-20）。
         maxChapters: String(Math.min(20, Math.max(chapterPaths.length, 1))),
     };
-    const {jobId, runId} = await startWorkflowRun(projectPath, "consistency-audit", args);
+    const {jobId, runId} = await startWorkflowRun(projectRoot, "consistency-audit", args);
     const job = await pollJobUntilTerminal(jobId);
     if (job.status !== "completed") {
         throw new Error(`run 未完成：status=${job.status}${job.error ? `，error=${job.error}` : ""}`);
@@ -266,13 +265,13 @@ async function runConsistencyAudit(projectPath: string, chaptersArg: string, cha
 
 /** 场景二：chapter-write-review-revise 写盘 + 多维评审。 */
 async function runChapterWriteReviewRevise(
-    projectPath: string,
+    projectRoot: string,
     chapterPath: string,
     brief: string,
     projectAbsRoot: string,
 ): Promise<string> {
     const args: Record<string, JsonValue> = {chapterPath, brief};
-    const {jobId, runId} = await startWorkflowRun(projectPath, "chapter-write-review-revise", args);
+    const {jobId, runId} = await startWorkflowRun(projectRoot, "chapter-write-review-revise", args);
     const job = await pollJobUntilTerminal(jobId);
     if (job.status !== "completed") {
         throw new Error(`run 未完成：status=${job.status}${job.error ? `，error=${job.error}` : ""}`);
@@ -302,12 +301,12 @@ async function runChapterWriteReviewRevise(
  * 已知风险：若真实模型响应极快，run 可能在 cancel 生效前已 completed；这是取消场景固有的竞态，
  * 出现该结果时应视为环境过快导致的偶发 flake，而非 cancel 链路本身的缺陷。
  */
-async function runCancelScenario(projectPath: string, chaptersArg: string, chapterPaths: string[]): Promise<string> {
+async function runCancelScenario(projectRoot: string, chaptersArg: string, chapterPaths: string[]): Promise<string> {
     const args: Record<string, JsonValue> = {
         chapterPaths: chaptersArg,
         maxChapters: String(Math.min(20, Math.max(chapterPaths.length, 1))),
     };
-    const {jobId, runId} = await startWorkflowRun(projectPath, "consistency-audit", args);
+    const {jobId, runId} = await startWorkflowRun(projectRoot, "consistency-audit", args);
     await requestJson(`/api/agent/jobs/${jobId}/cancel`, {method: "POST"});
     const job = await pollJobUntilTerminal(jobId);
     if (job.status !== "cancelled") {
@@ -321,10 +320,10 @@ async function runCancelScenario(projectPath: string, chaptersArg: string, chapt
 type StartRunResponse = {jobId: string; runId: string};
 
 /** POST /api/agent/workflow/runs：立即返回 jobId + runId，实际执行在后台，需轮询 job 端点。 */
-async function startWorkflowRun(projectPath: string, workflowKey: string, args: Record<string, JsonValue>): Promise<StartRunResponse> {
+async function startWorkflowRun(projectRoot: string, workflowKey: string, args: Record<string, JsonValue>): Promise<StartRunResponse> {
     const response = await requestJson("/api/agent/workflow/runs", {
         method: "POST",
-        body: {projectPath, workflowKey, args},
+        body: {projectRoot, workflowKey, args},
     });
     const record = expectObject(response as JsonValue, "runs.post 响应");
     const jobId = record.jobId;

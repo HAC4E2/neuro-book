@@ -6,13 +6,17 @@ import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {
     closeAllProjects,
     requireReadyModuleHandle,
-    requireReadyProjectPath,
+    requireReadyProject,
     resetProjectSessionsForTest,
 } from "nbook/server/workspace-files/project-session";
 import {openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 import {writeProjectManifest as writeProjectManifestAtRoot} from "nbook/server/workspace-files/project-workspace";
 import {resolveRuntimeWorkspaceRoot, setWorkspaceRuntimeRootContextForTest} from "nbook/server/workspace-files/workspace-runtime-root";
-import {normalizeProjectPath, resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
+import {
+    projectWorkspaceRef,
+    resolveProjectWorkspaceRoot,
+    type WorkspaceRelativePath,
+} from "nbook/server/workspace-files/project-identity";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 import type {WorkspaceFileTarget} from "nbook/server/workspace-files/workspace-file-target";
 import {
@@ -35,16 +39,16 @@ import {
 } from "nbook/server/workspace-history/tracked-workspace-files";
 
 /** 测试Adapter：复用当前隔离Runtime Workspace Root，不恢复生产旧resolver。 */
-function resolveProjectAbsolutePath(projectPath: string) {
-    return resolveProjectWorkspaceRoot(resolveRuntimeWorkspaceRoot(), normalizeProjectPath(projectPath));
+function resolveProjectAbsolutePath(projectRoot: string) {
+    return resolveProjectWorkspaceRoot(resolveRuntimeWorkspaceRoot(), projectWorkspaceRef(projectRoot));
 }
 
-async function writeProjectManifest(projectPath: string, manifest: Parameters<typeof writeProjectManifestAtRoot>[2]) {
-    return writeProjectManifestAtRoot(resolveRuntimeWorkspaceRoot(), projectPath, manifest);
+async function writeProjectManifest(projectRoot: string, manifest: Parameters<typeof writeProjectManifestAtRoot>[2]) {
+    return writeProjectManifestAtRoot(resolveRuntimeWorkspaceRoot(), projectWorkspaceRef(projectRoot), manifest);
 }
 
 type OpenProjectFixture = {
-    projectPath: ReturnType<typeof normalizeProjectPath>;
+    projectRoot: WorkspaceRelativePath;
     target: Extract<WorkspaceFileTarget, {kind: "project-workspace"}>;
     history: ProjectHistoryHandle;
 };
@@ -58,7 +62,7 @@ describe("tracked-workspace-files 写面记账", () => {
         tempRoot = join(os.tmpdir(), `neuro-book-tracked-files-test-${randomUUID()}`);
         await mkdir(join(tempRoot, "workspace"), {recursive: true});
         setWorkspaceRuntimeRootContextForTest({workspaceRoot: join(tempRoot, "workspace")});
-        // 核心写函数按 cwd 解析 `workspace/<slug>`：把 cwd 指到临时根，与 history 侧解析在 tempRoot 汇合。
+        // 测试只将 Runtime Workspace Root 指到临时根，Project identity 保持单段 root。
         vi.spyOn(process, "cwd").mockReturnValue(tempRoot);
     });
 
@@ -75,17 +79,17 @@ describe("tracked-workspace-files 写面记账", () => {
 
     /** 建立ready Project generation并取得写面所需的精确target与History handle。 */
     async function openTempProject(slug: string): Promise<OpenProjectFixture> {
-        const projectPath = normalizeProjectPath(`workspace/${slug}`);
-        await writeProjectManifest(projectPath, {kind: "novel", title: slug, summary: ""});
-        await openProjectForTest(projectPath);
-        const ready = requireReadyProjectPath(projectPath);
+        const projectRoot = projectWorkspaceRef(slug).projectRoot;
+        await writeProjectManifest(projectRoot, {kind: "novel", title: slug, summary: ""});
+        await openProjectForTest(projectRoot);
+        const ready = requireReadyProject(projectWorkspaceRef(projectRoot));
         const history = requireReadyModuleHandle(ready, PROJECT_HISTORY_MODULE_TOKEN);
         return {
-            projectPath,
+            projectRoot,
             target: {
                 kind: "project-workspace",
-                root: resolveProjectAbsolutePath(projectPath),
-                projectPath,
+                root: resolveProjectAbsolutePath(projectRoot),
+                projectRoot,
             },
             history,
         };

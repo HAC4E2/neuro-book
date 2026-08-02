@@ -4,10 +4,10 @@ import {throwIllustrationWorkflowHttpError} from "nbook/server/text-to-image/ill
 import {getIllustrationWorkflowService} from "nbook/server/text-to-image/illustration-workflow.service";
 import {requireCurrentUser} from "nbook/server/utils/auth";
 import {validateBody} from "nbook/server/utils/novel-chapter";
-import {withProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
+import {withProjectHttpError} from "nbook/server/api/projects/project-http-error";
 
 /** 在当前真相源 hash 完全一致时，为旧 request 创建新 Attempt。 */
-export default defineEventHandler((event) => withProjectNotOpenHttpError(async () => {
+export default defineEventHandler((event) => withProjectHttpError(async () => {
     await requireCurrentUser(event);
     const request = await validateBody(event, IllustrationPlanningWorkflowActionRequestSchema);
     const workflowId = getRouterParam(event, "workflowId")?.trim() ?? "";

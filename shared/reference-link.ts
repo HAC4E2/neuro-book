@@ -1,4 +1,3 @@
-import type {ChapterSummaryDto, VolumeDto} from "nbook/shared/dto/novel-chapter.dto";
 import {
     buildReferenceUri,
     INLINE_REFERENCE_KINDS,
@@ -7,6 +6,29 @@ import {
 } from "nbook/shared/reference-core";
 
 export type {ReferenceKind} from "nbook/shared/reference-core";
+
+/** 引用候选算法所需的最小章节结构，不绑定已删除的小说章节 HTTP DTO。 */
+export interface ChapterReferenceSource {
+    id: string;
+    volumeId: string;
+    title: string;
+    status: "NOT_STARTED" | "DRAFT" | "REVISING" | "DONE";
+    summary: string;
+    characters: string[];
+    todos: string[];
+    sortOrder: number;
+    updatedAt: string;
+}
+
+/** 引用候选算法所需的最小分卷结构。 */
+export interface VolumeReferenceSource {
+    id: string;
+    title: string;
+    summary: string;
+    sortOrder: number;
+    updatedAt: string;
+    chapters: ChapterReferenceSource[];
+}
 
 /**
  * 单个引用源码的结构化结果。
@@ -58,7 +80,7 @@ export interface ChapterReferenceCandidate {
     volumeTitle: string;
     volumeSortOrder: number;
     summary: string;
-    status: ChapterSummaryDto["status"];
+    status: ChapterReferenceSource["status"];
     updatedAt: string;
     referenceText: string;
 }
@@ -258,7 +280,7 @@ export function replaceTriggerText(
 /**
  * 将章节树拍平成引用候选。
  */
-export function flattenChapterReferenceCandidates(volumes: VolumeDto[]): ChapterReferenceCandidate[] {
+export function flattenChapterReferenceCandidates(volumes: VolumeReferenceSource[]): ChapterReferenceCandidate[] {
     return volumes.flatMap((volume) => volume.chapters.map((chapter) => ({
         id: chapter.id,
         title: chapter.title,
@@ -280,7 +302,7 @@ export function flattenChapterReferenceCandidates(volumes: VolumeDto[]): Chapter
 /**
  * 将分卷列表拍平成引用候选。
  */
-export function flattenVolumeReferenceCandidates(volumes: VolumeDto[]): VolumeReferenceCandidate[] {
+export function flattenVolumeReferenceCandidates(volumes: VolumeReferenceSource[]): VolumeReferenceCandidate[] {
     return volumes.map((volume) => ({
         id: volume.id,
         title: volume.title,
@@ -331,7 +353,7 @@ export function filterChapterReferenceCandidates(
  * 根据当前章节与最近访问历史生成三组章节候选。
  */
 export function groupChapterReferenceCandidates(
-    volumes: VolumeDto[],
+    volumes: VolumeReferenceSource[],
     selectedChapterId: string,
     recentChapterIds: string[],
     query: string,
@@ -443,7 +465,7 @@ export function flattenLorebookReferenceCandidates(entries: LorebookReferenceTre
 export function rankLorebookReferenceCandidates(
     candidates: LorebookReferenceCandidate[],
     query: string,
-    currentChapter: Pick<ChapterSummaryDto, "title" | "summary" | "characters" | "todos"> | null,
+    currentChapter: Pick<ChapterReferenceSource, "title" | "summary" | "characters" | "todos"> | null,
 ): LorebookReferenceCandidate[] {
     const normalizedQuery = normalizeQuery(query);
     const contextTerms = extractChapterContextTerms(currentChapter);
@@ -526,7 +548,7 @@ function normalizeQuery(value: string): string {
 /**
  * 生成附近章节 ID。
  */
-function resolveNearbyChapterIds(volumes: VolumeDto[], selectedChapterId: string): string[] {
+function resolveNearbyChapterIds(volumes: VolumeReferenceSource[], selectedChapterId: string): string[] {
     for (const volume of volumes) {
         const chapterIndex = volume.chapters.findIndex((chapter) => chapter.id === selectedChapterId);
         if (chapterIndex < 0) {
@@ -611,7 +633,7 @@ function buildLorebookContextScore(candidate: LorebookReferenceCandidate, contex
  * 从当前章节抽取 lorebook 相关度用词。
  */
 function extractChapterContextTerms(
-    currentChapter: Pick<ChapterSummaryDto, "title" | "summary" | "characters" | "todos"> | null,
+    currentChapter: Pick<ChapterReferenceSource, "title" | "summary" | "characters" | "todos"> | null,
 ): WeightedContextTerm[] {
     if (!currentChapter) {
         return [];

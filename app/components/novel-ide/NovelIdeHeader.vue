@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import type { DropdownItem } from "nbook/app/components/common/dropdown.types";
 import Dropdown from "nbook/app/components/common/Dropdown.vue";
+import NovelIdeAccountMenu from "nbook/app/components/novel-ide/NovelIdeAccountMenu.vue";
+import {useAgentJobsFeed} from "nbook/app/composables/useAgentJobsFeed";
 import type {AuthUserDto} from "nbook/shared/dto/auth.dto";
 
 const props = defineProps<{
@@ -10,10 +12,8 @@ const props = defineProps<{
     novelItems: DropdownItem[];
     currentUser: AuthUserDto | null;
     workspaceMode?: "novel" | "user-assets";
-    /** 进行中后台任务数（running + waiting）；>0 时 Jobs 按钮显示徽标 */
-    agentJobsActiveCount?: number;
 }>();
-const currentUser = toRef(props, "currentUser");
+const {activeCount: agentJobsActiveCount} = useAgentJobsFeed();
 const isUserAssetsMode = computed(() => props.workspaceMode === "user-assets");
 const {t} = useI18n();
 
@@ -29,47 +29,11 @@ const emit = defineEmits<{
     (e: "open-history-inbox"): void;
     (e: "open-agent-jobs"): void;
     (e: "switch-novel", value: string): void;
+    (e: "open-profile"): void;
     (e: "open-admin"): void;
     (e: "logout"): void;
 }>();
 
-const userMenuItems = computed<DropdownItem[]>(() => {
-    const items: DropdownItem[] = [];
-    if (currentUser.value?.role === "admin") {
-        items.push({
-            label: t("ide.header.openAdmin"),
-            value: "admin",
-            iconClass: "i-lucide-shield",
-        });
-    }
-    items.push({
-        label: t("ide.header.logout"),
-        value: "logout",
-        iconClass: "i-lucide-log-out",
-    });
-    return items;
-});
-
-/**
- * 当前用户头像文字。
- */
-const userInitial = computed(() => {
-    const name = currentUser.value?.displayName || currentUser.value?.username || "U";
-    return name.trim().slice(0, 1).toLocaleUpperCase();
-});
-
-/**
- * 处理用户菜单动作。
- */
-const handleUserMenuSelect = (value: string): void => {
-    if (value === "admin") {
-        emit("open-admin");
-        return;
-    }
-    if (value === "logout") {
-        emit("logout");
-    }
-};
 </script>
 
 <template>
@@ -153,7 +117,7 @@ const handleUserMenuSelect = (value: string): void => {
             <button class="relative hidden items-center gap-2 rounded-full border border-transparent px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)] md:flex" :title="t('ide.header.agentJobsTitle')" @click="emit('open-agent-jobs')">
                 <span class="i-lucide-list-checks h-4 w-4 text-[var(--accent-text)]"></span>
                 <span>Jobs</span>
-                <span v-if="(props.agentJobsActiveCount ?? 0) > 0" class="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--accent-main)] px-1 text-[10px] font-semibold leading-none tracking-normal text-[var(--text-inverse)]">{{ (props.agentJobsActiveCount ?? 0) > 99 ? "99+" : props.agentJobsActiveCount }}</span>
+                <span v-if="agentJobsActiveCount > 0" class="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--accent-main)] px-1 text-[10px] font-semibold leading-none tracking-normal text-[var(--text-inverse)]">{{ agentJobsActiveCount > 99 ? "99+" : agentJobsActiveCount }}</span>
             </button>
             <!-- 文件变更收件箱入口：审查 agent 对项目文件的改动，仅 novel 模式可用 -->
             <button v-if="!isUserAssetsMode" class="hidden items-center gap-2 rounded-full border border-transparent px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)] md:flex" :title="t('ide.header.historyInboxTitle')" @click="emit('open-history-inbox')">
@@ -180,13 +144,7 @@ const handleUserMenuSelect = (value: string): void => {
 
             <div class="mx-1 h-4 w-px bg-[var(--border-color)] sm:mx-2"></div>
 
-            <div class="w-8 shrink-0">
-                <Dropdown v-if="currentUser" :items="userMenuItems" menu-class="right-0 top-full mt-2 w-40" @select="handleUserMenuSelect">
-                    <button class="flex h-8 w-8 items-center justify-center rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-secondary)] transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('ide.header.accountMenu')">
-                        <span class="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--accent-bg)] text-[11px] font-semibold text-[var(--accent-text)]">{{ userInitial }}</span>
-                    </button>
-                </Dropdown>
-            </div>
+            <NovelIdeAccountMenu :current-user="currentUser" @open-profile="emit('open-profile')" @open-admin="emit('open-admin')" @logout="emit('logout')" />
         </div>
     </header>
 </template>

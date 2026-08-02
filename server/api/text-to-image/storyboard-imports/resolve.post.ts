@@ -14,7 +14,7 @@ import {StoryboardStableIdSchema} from "nbook/shared/text-to-image-storyboard-pr
 import {TextToImageContractHashSchema} from "nbook/shared/text-to-image-tag-resolution";
 import {requireCurrentUser} from "nbook/server/utils/auth";
 import {validateBody} from "nbook/server/utils/novel-chapter";
-import {withProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
+import {withProjectHttpError} from "nbook/server/api/projects/project-http-error";
 
 const BodySchema = z.object({
     projectPath: z.string().trim().min(1).max(500),
@@ -27,11 +27,11 @@ const BodySchema = z.object({
 }).strict();
 
 /** 显式解析 pending atoms；actor/approval identity 由服务端当前用户生成。 */
-export default defineEventHandler((event) => withProjectNotOpenHttpError(async () => {
+export default defineEventHandler((event) => withProjectHttpError(async () => {
     const user = await requireCurrentUser(event);
     const body = await validateBody(event, BodySchema);
     try {
-        const effective = await loadEffectiveConfig({workspaceKind: "novel", projectPath: body.projectPath});
+        const effective = await loadEffectiveConfig({workspaceKind: "novel", projectRoot: body.projectPath.replace(/^workspace\//, "")});
         const resolver = new TagResolverService({
             reader: new TagIndexReader({root: new TagIndexStore().root}),
             policyRegistry: new TagPolicyRegistryService(),

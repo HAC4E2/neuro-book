@@ -8,7 +8,7 @@ import {
     resolveContainedFilePath,
 } from "nbook/server/runtime/paths/file-path";
 import {TEXT_TO_IMAGE_REFERENCE_ASSET_ROOT} from "nbook/server/text-to-image/asset-path";
-import {resolveWorkspaceRootInput} from "nbook/server/text-to-image/compat";
+import {resolveWorkspaceRootInput, textToImageProjectRef} from "nbook/server/text-to-image/compat";
 import {assertProjectOpen} from "nbook/server/workspace-files/project-session";
 import type {TextToImageReferencePromotionService} from "nbook/server/text-to-image/reference-promotion.service";
 
@@ -77,7 +77,7 @@ export async function withTextToImageReferenceMutationLock<TResult>(
         );
     }
     if (options.requireOpenProject !== false) {
-        assertProjectOpen(projectPath);
+        assertProjectOpen(textToImageProjectRef(projectPath));
     }
     const projectRoot = absoluteFsPath(await resolveWorkspaceRootInput({projectPath}));
     const lockTarget = resolveContainedFilePath(

@@ -1,6 +1,6 @@
 import {readFile, writeFile} from "node:fs/promises";
 import {basename, dirname, join} from "node:path";
-import {gunzipSync, unzipSync} from "fflate";
+import {gunzip, unzipSync} from "fflate";
 
 import {ensureDirectory, safeTarget, sha256File} from "#manager/files";
 import {run} from "#manager/process";
@@ -79,7 +79,11 @@ export async function githubReleaseAsset(
 
 /** 解压 zip，拒绝路径穿越。 */
 export async function extractZip(archivePath: string, targetRoot: string): Promise<void> {
-    const files = unzipSync(new Uint8Array(await readFile(archivePath)));
+    const archive = new Uint8Array(await readFile(archivePath));
+    // Manager 运行在 Bun；fflate 的异步 unzip 会对 512 KiB 以上高压缩条目启动
+    // Blob Worker，而 Bun 1.3 的 Worker 不能稳定接收该 transferable payload。
+    // 这里原本就一次性持有完整 archive 与全部解压结果，改用同步 API 不改变内存模型。
+    const files = unzipSync(archive);
     for (const [relativePath, bytes] of Object.entries(files)) {
         if (relativePath.endsWith("/")) {
             // ZIP以尾部斜杠表达目录；InstallationRelativePath仍保持拒绝空segment的严格合同。
@@ -95,7 +99,7 @@ export async function extractZip(archivePath: string, targetRoot: string): Promi
 /** 解压 tar.gz；Linux Product 与工具包使用系统 tar。 */
 export async function extractTarGz(archivePath: string, targetRoot: string): Promise<void> {
     await ensureDirectory(targetRoot);
-    await run("tar", ["-xzf", archivePath, "-C", targetRoot]);
+    await run("tar", ["-xpzf", archivePath, "-C", targetRoot]);
 }
 
 /** 根据扩展名解压组件。 */
@@ -111,7 +115,14 @@ export async function extractArchive(archivePath: string, targetRoot: string): P
     if (archivePath.endsWith(".gz")) {
         const output = join(targetRoot, basename(archivePath, ".gz"));
         await ensureDirectory(targetRoot);
-        await writeFile(output, gunzipSync(new Uint8Array(await readFile(archivePath))));
+        const archive = new Uint8Array(await readFile(archivePath));
+        const extracted = await new Promise<Uint8Array>((resolvePromise, rejectPromise) => {
+            gunzip(archive, (error, bytes) => {
+                if (error) rejectPromise(error);
+                else resolvePromise(bytes);
+            });
+        });
+        await writeFile(output, extracted);
         return;
     }
     throw new Error(`不支持的归档格式：${archivePath}`);

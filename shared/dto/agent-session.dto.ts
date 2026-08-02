@@ -6,6 +6,7 @@ import {ThinkingLevelSchema} from "nbook/shared/dto/app-settings.dto";
 import type {AgentChatEntryDto, AgentUserInputFormDto, PublicToolArgsDto, PublicToolResultDto} from "nbook/shared/dto/agent-public-event.dto";
 import {PublicToolCallIdSchema} from "nbook/shared/agent/public-tool-identity";
 import type {AttachmentId} from "nbook/shared/dto/agent-attachment.dto";
+import {ProjectRootDtoSchema} from "nbook/shared/dto/project.dto";
 
 const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
     z.string(),
@@ -80,11 +81,9 @@ export type AgentResolutionDto = z.infer<typeof AgentResolutionDtoSchema>;
 export const AgentCreateSessionRequestDtoSchema = z.object({
     profileKey: z.string().trim().min(1, "profileKey 不能为空"),
     initial: JsonValueSchema.optional(),
-    workspaceRoot: z.string().trim().min(1).optional(),
-    workspaceKey: z.string().trim().min(1).optional(),
-    projectPath: z.string().trim().min(1).optional(),
+    currentProjectRoot: ProjectRootDtoSchema.optional(),
     parentSessionId: AgentSessionIdSchema.optional(),
-});
+}).strict();
 
 export const AgentInvokeRequestDtoSchema = z.object({
     mode: z.enum(["prompt", "continue", "steer", "followup"]),
@@ -137,8 +136,9 @@ export const AgentInvokeRequestDtoSchema = z.object({
 });
 
 export const AgentSessionListQueryDtoSchema = z.object({
-    workspaceKey: z.string().trim().min(1).optional(),
-    projectPath: z.string().trim().min(1).optional(),
+    scope: z.enum(["all", "workspace-root", "project"]).optional(),
+    projectRoot: ProjectRootDtoSchema.optional(),
+    recovery: z.literal("required").optional(),
     includeArchived: z.coerce.boolean().optional(),
     includeSystem: z.coerce.boolean().optional(),
     profileKey: z.string().trim().min(1).optional(),
@@ -148,7 +148,22 @@ export const AgentSessionListQueryDtoSchema = z.object({
     search: z.string().trim().optional(),
     offset: z.coerce.number().int().min(0).optional(),
     limit: z.coerce.number().int().min(1).max(200).optional(),
+}).strict().superRefine((value, ctx) => {
+    if (value.scope === "project" && value.projectRoot === undefined) {
+        ctx.addIssue({code: "custom", path: ["projectRoot"], message: "scope=project 时必须提供 projectRoot"});
+    }
+    if (value.scope !== "project" && value.projectRoot !== undefined) {
+        ctx.addIssue({code: "custom", path: ["projectRoot"], message: "projectRoot 只允许与 scope=project 一起使用"});
+    }
+    if (value.recovery === "required" && value.scope !== "all") {
+        ctx.addIssue({code: "custom", path: ["recovery"], message: "recovery=required 只允许与 scope=all 一起使用"});
+    }
 });
+
+/** 重新绑定或清除 Session Current Project。 */
+export const AgentCurrentProjectRequestDtoSchema = z.object({
+    projectRoot: ProjectRootDtoSchema.nullable(),
+}).strict();
 
 export const AgentSessionEventsQueryDtoSchema = z.object({
     after: z.coerce.number().int().nonnegative().optional(),
@@ -270,6 +285,7 @@ export const ClientVariablePatchAckDtoSchema = z.object({
 });
 
 export type AgentCreateSessionRequestDto = z.infer<typeof AgentCreateSessionRequestDtoSchema>;
+export type AgentCurrentProjectRequestDto = z.infer<typeof AgentCurrentProjectRequestDtoSchema>;
 export type AgentUserMessageInputDto = z.infer<typeof AgentUserMessageInputDtoSchema>;
 export type AgentInvokeRequestDto = z.infer<typeof AgentInvokeRequestDtoSchema>;
 export type AgentSessionListQueryDto = z.infer<typeof AgentSessionListQueryDtoSchema>;
@@ -326,9 +342,11 @@ export type AgentSessionSummaryDto = {
     profileAvailability?: AgentSessionProfileAvailability;
     /** profile 不可继续运行时的用户可读原因；profile 可用时为空。 */
     profileIssueMessage?: string;
-    workspaceKey: string;
-    workspaceRoot: string;
-    projectPath?: string;
+    currentProjectRoot?: string;
+    migrationReview?: {
+        status: "required";
+        reason: "current_project_unresolved";
+    };
     parentSessionId?: number;
     systemRole?: "summarizer";
     /** 公开 API 的有界展示标题；完整值保留在 session durable truth。 */

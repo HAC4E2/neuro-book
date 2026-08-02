@@ -12,6 +12,7 @@ import {
     writeProjectManifest,
 } from "nbook/server/workspace-files/project-workspace";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
+import {textToImageProjectRef} from "nbook/server/text-to-image/compat";
 import {
     createIsolatedWorkspaceAssets,
     type IsolatedWorkspaceAssets,
@@ -118,7 +119,7 @@ describe("ProjectTextToImageProviderJobReconciler", () => {
 
     async function createProject(label: string): Promise<string> {
         const projectPath = `workspace/provider-reconcile-${label}-${randomUUID()}`;
-        await writeProjectManifest(resolveRuntimeWorkspaceRoot(), projectPath, {kind: "novel", title: label, summary: ""});
+        await writeProjectManifest(resolveRuntimeWorkspaceRoot(), textToImageProjectRef(projectPath), {kind: "novel", title: label, summary: ""});
         await createJobTable(projectPath);
         return projectPath;
     }
@@ -133,7 +134,7 @@ describe("ProjectTextToImageProviderJobReconciler", () => {
     }
 
     async function createJobTable(projectPath: string): Promise<void> {
-        const databasePath = resolveProjectDatabasePath(resolveRuntimeWorkspaceRoot(), projectPath);
+        const databasePath = resolveProjectDatabasePath(resolveRuntimeWorkspaceRoot(), textToImageProjectRef(projectPath));
         await fs.mkdir(path.dirname(databasePath), {recursive: true});
         const client = await database(projectPath);
         await client.execute(`CREATE TABLE "ProjectMetadata" ("key" TEXT NOT NULL PRIMARY KEY, "value" TEXT NOT NULL)`);
@@ -147,7 +148,7 @@ describe("ProjectTextToImageProviderJobReconciler", () => {
     }
 
     async function database(projectPath: string): Promise<Client> {
-        const client = createClient({url: toSqliteFileUrl(resolveProjectDatabasePath(resolveRuntimeWorkspaceRoot(), projectPath))});
+        const client = createClient({url: toSqliteFileUrl(resolveProjectDatabasePath(resolveRuntimeWorkspaceRoot(), textToImageProjectRef(projectPath)))});
         clients.push(client);
         return client;
     }

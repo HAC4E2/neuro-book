@@ -1,25 +1,15 @@
 import {beforeEach, describe, expect, it, vi} from "vitest";
 
 const mocks = vi.hoisted(() => ({
-    disposeAgentHarness: vi.fn(async () => undefined),
-    closeAllProjects: vi.fn(async () => undefined),
-    closeAllWorkspaceTreeIndexes: vi.fn(async () => undefined),
+    shutdown: vi.fn(async () => undefined),
 }));
 
 vi.mock("nitropack/runtime", () => ({
     defineNitroPlugin: (plugin: unknown) => plugin,
 }));
 
-vi.mock("nbook/server/agent/http", () => ({
-    disposeAgentHarness: mocks.disposeAgentHarness,
-}));
-
-vi.mock("nbook/server/workspace-files/project-session", () => ({
-    closeAllProjects: mocks.closeAllProjects,
-}));
-
-vi.mock("nbook/server/workspace-files/project-workspace-index", () => ({
-    closeAllWorkspaceTreeIndexes: mocks.closeAllWorkspaceTreeIndexes,
+vi.mock("nbook/server/runtime/shutdown/product-shutdown", () => ({
+    productShutdownController: {shutdown: mocks.shutdown},
 }));
 
 import projectSessionClosePlugin from "nbook/server/plugins/project-session-close";
@@ -27,9 +17,7 @@ import projectSessionClosePlugin from "nbook/server/plugins/project-session-clos
 describe("Project runtime shutdown plugin", () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mocks.disposeAgentHarness.mockResolvedValue(undefined);
-        mocks.closeAllProjects.mockResolvedValue(undefined);
-        mocks.closeAllWorkspaceTreeIndexes.mockResolvedValue(undefined);
+        mocks.shutdown.mockResolvedValue(undefined);
     });
 
     it("Nitro close同时收口Agent、ProjectSession与plain Workspace File Index", async () => {
@@ -37,23 +25,16 @@ describe("Project runtime shutdown plugin", () => {
 
         await close();
 
-        expect(mocks.disposeAgentHarness).toHaveBeenCalledTimes(1);
-        expect(mocks.closeAllProjects).toHaveBeenCalledTimes(1);
-        expect(mocks.closeAllWorkspaceTreeIndexes).toHaveBeenCalledTimes(1);
+        expect(mocks.shutdown).toHaveBeenCalledTimes(1);
     });
 
     it("前序关闭失败时仍尝试全部资源并汇总失败", async () => {
-        const harnessFailure = new Error("agent shutdown failed");
-        const indexFailure = new Error("plain index shutdown failed");
-        mocks.disposeAgentHarness.mockRejectedValue(harnessFailure);
-        mocks.closeAllWorkspaceTreeIndexes.mockRejectedValue(indexFailure);
+        const shutdownFailure = new AggregateError([new Error("agent shutdown failed")], "shutdown failed");
+        mocks.shutdown.mockRejectedValue(shutdownFailure);
         const close = installCloseHook();
 
-        await expect(close()).rejects.toMatchObject({
-            errors: expect.arrayContaining([harnessFailure, indexFailure]),
-        });
-        expect(mocks.closeAllProjects).toHaveBeenCalledTimes(1);
-        expect(mocks.closeAllWorkspaceTreeIndexes).toHaveBeenCalledTimes(1);
+        await expect(close()).rejects.toBe(shutdownFailure);
+        expect(mocks.shutdown).toHaveBeenCalledTimes(1);
     });
 });
 

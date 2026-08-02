@@ -4,13 +4,15 @@ import {join, resolve} from "node:path";
 
 import {commandStatus} from "#manager/app-commands";
 import {resolveStateDatabaseUrl} from "#manager/config";
-import {inspectDockerApplication, readDockerComposeImage} from "#manager/docker";
+import {containerProductImageReference, inspectDockerApplication, readDockerComposeImage} from "#manager/docker";
 import {pathExists, sha256File} from "#manager/files";
 import {assertCleanWorktree, repositoryRevision, validateRepository} from "#manager/git";
 import {statePort} from "#manager/health";
 import {installationPaths} from "#manager/paths";
 import {assertInstallationHostCompatible} from "#manager/platform";
+import {verifyInstalledProductRuntimeControlPlane, verifyInstalledProductRuntimeImage} from "#manager/product";
 import {runCapture} from "#manager/process";
+import {installationRootDataPaths} from "#manager/root-locators";
 import {renderManagerWrapper, renderRuntimeWrapper} from "#manager/runtime";
 import {parseInstallationManifest} from "#manager/schema";
 import {formatStateRootIntegrityWarning, inspectInstallationStateIntegrity, stateRootIntegrityFailed} from "#manager/state-integrity";
@@ -23,7 +25,6 @@ import type {
     InstallationServiceStatus,
     InstallationStatus,
     ManagedRuntimeComponent,
-    StateRootPath,
     SystemRuntimeComponent,
     SystemToolComponent,
 } from "#manager/types";
@@ -40,11 +41,12 @@ export type InstallationIntegrityInspection = {
 /** 执行完整离线检查，包括checksum、版本、wrapper、Source和State Root。 */
 export async function inspectInstallationIntegrity(root: string, manifest: InstallationManifest): Promise<InstallationIntegrityInspection> {
     const absoluteRoot = resolve(root);
-    const stateRoot = resolve(absoluteRoot, manifest.stateRoot);
+    const paths = installationPaths(absoluteRoot, manifest.roots);
+    const stateRoot = paths.state;
     const checks: InstallationCheck[] = [];
     try {
         parseInstallationManifest(manifest);
-        pass(checks, "manifest.schema", "manifest", "Installation Manifest v4语义有效");
+        pass(checks, "manifest.schema", "manifest", "Installation Manifest v5语义有效");
     } catch (error) {
         fail(checks, "manifest.schema", "manifest", errorMessage(error), "重新安装该实例；Manager不迁移旧Installation Manifest。" );
     }
@@ -73,7 +75,7 @@ export async function inspectInstallationIntegrity(root: string, manifest: Insta
     }
     await checkSource(checks, absoluteRoot, manifest);
     await checkProduct(checks, absoluteRoot, manifest);
-    await checkState(checks, absoluteRoot, stateRoot, manifest.stateRoot);
+    await checkState(checks, stateRoot);
     try {
         const database = resolveAppSqliteLocation(await resolveStateDatabaseUrl(stateRoot), stateRoot);
         if ((manifest.profile === "ghcr" || manifest.profile === "source-docker") && database.scope === "external") {
@@ -89,25 +91,23 @@ export async function inspectInstallationIntegrity(root: string, manifest: Insta
     await checkCompose(checks, absoluteRoot, manifest);
 
     const stateIntegrity = await inspectInstallationStateIntegrity(absoluteRoot, stateRoot);
-    if (manifest.stateRoot !== ".") {
-        if (stateRootIntegrityFailed(stateIntegrity)) {
-            fail(
-                checks,
-                stateIntegrity.kind === "shadow-workspace" ? "state.shadow-workspace" : "state.workspace-integrity",
-                "state",
-                stateIntegrity.kind === "shadow-workspace"
-                    ? `检测到错误Workspace Root：${stateIntegrity.checkedWorkspaceRoot}`
-                    : `无法验证Workspace Root完整性：${stateIntegrity.errorPath}`,
-                formatStateRootIntegrityWarning(stateIntegrity),
-            );
-        } else {
-            pass(checks, "state.shadow-workspace", "state", stateIntegrity.kind === "same-target-link"
-                ? "Installation Root Workspace链接与真实Workspace Root指向同一目录"
-                : "未检测到Workspace Root数据分叉");
-        }
+    if (stateRootIntegrityFailed(stateIntegrity)) {
+        fail(
+            checks,
+            stateIntegrity.kind === "shadow-workspace" ? "state.shadow-workspace" : "state.workspace-integrity",
+            "state",
+            stateIntegrity.kind === "shadow-workspace"
+                ? `检测到错误Workspace Root：${stateIntegrity.checkedWorkspaceRoot}`
+                : `无法验证Workspace Root完整性：${stateIntegrity.errorPath}`,
+            formatStateRootIntegrityWarning(stateIntegrity),
+        );
+    } else {
+        pass(checks, "state.shadow-workspace", "state", stateIntegrity.kind === "same-target-link"
+            ? "Installation Root Workspace链接与真实Workspace Root指向同一目录"
+            : "未检测到Workspace Root数据分叉");
     }
 
-    const operations = await unfinishedOperations(installationPaths(absoluteRoot, manifest.profile === "windows-portable").operations);
+    const operations = await unfinishedOperations(paths.operations);
     if (operations.length === 0) pass(checks, "operation.unfinished", "operation", "没有未完成操作");
     else fail(checks, "operation.unfinished", "operation", `存在未完成操作：${operations.join(", ")}`, "再次运行mutating command触发恢复，或检查对应journal。" );
     return {checks, operations, stateIntegrity};
@@ -116,7 +116,7 @@ export async function inspectInstallationIntegrity(root: string, manifest: Insta
 /** 读取当前服务状态；不计算任何大文件checksum。 */
 export async function inspectInstallationService(root: string, manifest: InstallationManifest): Promise<InstallationServiceStatus> {
     const absoluteRoot = resolve(root);
-    const stateRoot = resolve(absoluteRoot, manifest.stateRoot);
+    const stateRoot = installationPaths(absoluteRoot, manifest.roots).state;
     let port: number;
     try {
         port = await statePort(stateRoot);
@@ -213,16 +213,18 @@ export async function inspectInstallationService(root: string, manifest: Install
 /** 返回轻量实例状态；只执行路径、operation和服务探测。 */
 export async function installationStatus(root: string, manifest: InstallationManifest): Promise<InstallationStatus> {
     const absoluteRoot = resolve(root);
-    const stateRoot = resolve(absoluteRoot, manifest.stateRoot);
-    const paths = installationPaths(absoluteRoot, manifest.profile === "windows-portable");
+    const paths = installationPaths(absoluteRoot, manifest.roots);
+    const stateRoot = paths.state;
     const [operations, stateIntegrity, service] = await Promise.all([
         unfinishedOperations(paths.operations),
         inspectInstallationStateIntegrity(absoluteRoot, stateRoot),
         inspectInstallationService(absoluteRoot, manifest),
     ]);
-    const productReady = !manifest.components.product || manifest.components.product.provider === "container"
-        ? true
-        : await pathExists(resolve(absoluteRoot, manifest.components.product.path, "server", "index.mjs"));
+    const product = manifest.components.product;
+    let productReady = !product || product.provider === "container";
+    if (product && product.provider !== "container") {
+        productReady = await verifyInstalledProductRuntimeControlPlane(absoluteRoot, product).then(() => true).catch(() => false);
+    }
     const nextActions = operations.length > 0
         ? ["运行 neuro-book doctor 查看恢复状态"]
         : [
@@ -240,7 +242,12 @@ export async function installationStatus(root: string, manifest: InstallationMan
         appVersion: manifest.appVersion,
         channel: manifest.channel,
         sourceRevision: manifest.sourceRevision,
-        stateRoot,
+        roots: {
+            state: paths.state,
+            cache: paths.cache,
+            desktop: paths.desktop,
+            webview: paths.webview,
+        },
         port: service.port,
         productReady,
         service,
@@ -254,7 +261,8 @@ export async function installationStatus(root: string, manifest: InstallationMan
 /** 执行完整doctor；服务停止只产生warning，因此仍可healthy。 */
 export async function doctor(root: string, manifest: InstallationManifest): Promise<DoctorReport> {
     const absoluteRoot = resolve(root);
-    const stateRoot = resolve(absoluteRoot, manifest.stateRoot);
+    const paths = installationPaths(absoluteRoot, manifest.roots);
+    const stateRoot = paths.state;
     const integrity = await inspectInstallationIntegrity(absoluteRoot, manifest);
     const containerCommand = manifest.containerEngine;
     const commands = {
@@ -272,7 +280,12 @@ export async function doctor(root: string, manifest: InstallationManifest): Prom
         checks,
         paths: {
             root: absoluteRoot,
-            stateRoot,
+            roots: {
+                state: paths.state,
+                cache: paths.cache,
+                desktop: paths.desktop,
+                webview: paths.webview,
+            },
             workspace: join(stateRoot, "workspace"),
             bootConfig: join(stateRoot, "config.yaml"),
             stateIntegrity: integrity.stateIntegrity,
@@ -357,7 +370,7 @@ async function checkSource(checks: InstallationCheck[], root: string, manifest: 
         fail(checks, "source.revision", "source", `无法读取Git revision：${errorMessage(error)}`);
     }
     try {
-        await assertCleanWorktree(root);
+        await assertCleanWorktree(root, installationRootDataPaths(manifest.roots));
         pass(checks, "source.git.dirty", "source", "Git worktree干净");
     } catch (error) {
         fail(checks, "source.git.dirty", "source", errorMessage(error), "提交或移走用户改动；Manager不会自动stash、restore或reset。" );
@@ -370,18 +383,21 @@ async function checkProduct(checks: InstallationCheck[], root: string, manifest:
     if (product.revision === manifest.sourceRevision) pass(checks, "product.revision", "product", "Source/Product revision一致");
     else fail(checks, "product.revision", "product", "Source/Product revision不一致", "重新更新Product。" );
     if (product.provider !== "container") {
-        await checkPath(checks, "product.entry", "product", resolve(root, product.path, "server", "index.mjs"));
+        try {
+            const image = await verifyInstalledProductRuntimeImage(root, product);
+            pass(checks, "product.runtime-image", "product", `Product Runtime Image完整且代次一致：${image.imageId}`);
+        } catch (error) {
+            fail(checks, "product.runtime-image", "product", errorMessage(error), "重新更新Product；不要复用只有入口文件的旧.output。" );
+        }
     }
 }
 
-async function checkState(checks: InstallationCheck[], root: string, stateRoot: string, stateRootRef: StateRootPath): Promise<void> {
+async function checkState(checks: InstallationCheck[], stateRoot: string): Promise<void> {
     await checkPath(checks, "state.root", "state", stateRoot);
     await checkPath(checks, "state.workspace", "state", join(stateRoot, "workspace"));
     await checkPath(checks, "state.config", "state", join(stateRoot, "config.yaml"));
     await checkPath(checks, "state.logs", "state", join(stateRoot, "logs"));
-    const expected = stateRootRef === "." ? root : join(root, "data");
-    if (resolve(stateRoot) === resolve(expected)) pass(checks, "state.location", "state", `State Root位置正确：${stateRoot}`);
-    else fail(checks, "state.location", "state", `State Root解析错误：${stateRoot}`);
+    pass(checks, "state.location", "state", `State Root locator解析有效：${stateRoot}`);
 }
 
 async function checkCompose(checks: InstallationCheck[], root: string, manifest: InstallationManifest): Promise<void> {
@@ -477,7 +493,7 @@ async function unfinishedOperations(root: string): Promise<string[]> {
 function expectedContainerImage(manifest: InstallationManifest): string {
     const product = manifest.components.product;
     if (!product || product.provider !== "container") throw new Error("Docker Profile缺少container Product。" );
-    return manifest.profile === "ghcr" ? `${product.image}@${product.digest}` : product.image;
+    return containerProductImageReference(manifest.profile, product);
 }
 
 /**

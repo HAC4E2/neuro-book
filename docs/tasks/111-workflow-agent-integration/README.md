@@ -1,6 +1,6 @@
 # Task 111：Workflow 正式接入 NeuroBook Agent
 
-状态：实现完成（2026-07-21）；浏览器与真实模型验收待执行。上游：Task 110（内核端口化 + demo 页 + `wf.chart` 状态图已定形）。
+状态：实现完成（Plan G Jobs SSE 于 2026-07-27 收口）；浏览器与真实模型验收待执行。上游：Task 110（内核端口化 + demo 页 + `wf.chart` 状态图已定形）。
 
 ## 用户需求（原话要点）
 
@@ -40,9 +40,10 @@
 | C 前端 | [PLAN-C-workflow-bubble.md](PLAN-C-workflow-bubble.md) | 子任务 agent | workflow 展示气泡（状态图为主），tool-render-registry 接入，复用 workflow-preview 组件 |
 | D 文档与内置库 | [PLAN-D-reference-and-builtins.md](PLAN-D-reference-and-builtins.md) | 子任务 agent | `reference/agent/workflow/` 编写指南（含 `wf.chart` 可视化规范）、除拆书外的内置 workflow |
 | E 后台任务框架 | [PLAN-E-background-jobs.md](PLAN-E-background-jobs.md) | 主会话（本 agent） | AgentJobManager 统一后台任务、run_workflow 非阻塞化 + followup 回流、非阻塞 bash/invoke_agent、job 管理工具、sidecar 机制拆除 |
-| F 任务中心 | [PLAN-F-jobs-center.md](PLAN-F-jobs-center.md) | 主会话（本 agent） | Header「Jobs」入口 + 运行数徽标、DialogWindow 任务中心（分组列表/过滤/取消/详情/复制）、`useAgentJobsFeed` 共享轮询、`clearFinished` 内存回收面（已实施 2026-07-22，浏览器走查待用户） |
+| F 任务中心 | [PLAN-F-jobs-center.md](PLAN-F-jobs-center.md) | 主会话（本 agent） | Header「Jobs」入口 + 运行数徽标、DialogWindow 任务中心（分组列表/过滤/取消/详情/复制）、`clearFinished` 内存回收面；其中共享轮询已被 Plan G 替代 |
+| G Jobs SSE | [PLAN-G-job-sse.md](PLAN-G-job-sse.md) | 主会话（本 agent） | 原子快照游标 + 全局 Job EventHub + 通用 Node SSE writer + 页面级单例状态机；删除 Jobs 周期轮询（已实施 2026-07-27，浏览器走查待用户） |
 
-依赖关系：A 先行（API/DTO 定形是 B/C/D 的地基）；B 独立可并行；C 依赖 A 的 details DTO；D 依赖 A 的 API 定稿；F 依赖 E 的 Job HTTP 面（已就绪）。
+依赖关系：A 先行（API/DTO 定形是 B/C/D 的地基）；B 独立可并行；C 依赖 A 的 details DTO；D 依赖 A 的 API 定稿；F 依赖 E 的 Job HTTP 面；G 依赖 E/F 的 Manager 与任务中心消费面。
 
 ## 执行记录
 
@@ -106,7 +107,7 @@
 - `server/api/agent/jobs/`（新三路由）：列表 / 详情 / cancel。
 
 **非阻塞工具调用**
-- `bash` 加 `background`：spawn job，输出走 `ctx.setPreview` 实时预览，完成结果卡（6000 截断 + fullOutputPath）回流。
+- `bash` 加 `background`：spawn job，输出走 `ctx.setPreview` 实时预览，完成结果卡（6000 截断 + `details.fullOutput` 逻辑 locator）回流。旧 `fullOutputPath` 设计已由 Task 130 的 Cache Root/owner/TTL 合同取代。
 - `invoke_agent.model` 下沉为本次 invocation 的 `modelKey` override：经过可见模型清单校验，但不写 `model_change`、不修改目标 session 默认模型；同进程 waiting/resume 与持久 followup queue 都保留该 override。
 - `invoke_agent` 返回 details 固定为 `{status, data, finalMessage, sessionId}`，其中 `report_result.result` 优先，否则取最后一条 assistant 文本；`background:true` 另返回 `jobId/background`，完成结果卡沿用同一结构。
 - 后台 invoke V1 采用 fail-closed：目标忙碌时不写入 followup queue；本次调用若进入用户输入/审批 waiting，Job 失败并保留目标 session 的 waiting 现场，不伪报 completed。跨 HITL 自动续接留后续系统设计。
@@ -192,12 +193,77 @@
 - feed 生命周期不靠 index.vue onMounted/onScopeDispose 显式管理：`useAgentJobsFeed()` 调用即幂等启动，消费者计数归零自动停。
 - i18n 补计划遗漏的 `clearFailed` key；`clearFinished` 的 `removedSettle` 链为计划外系统性补丁（见后端小节）。
 
+### 2026-07-27 Plan G 实施：后台任务 Jobs SSE
+
+按 [PLAN-G-job-sse.md](PLAN-G-job-sse.md) 完成。
+
+- 新增共享 Job DTO 与 Job 专用 EventHub：进程 epoch、全局 seq、500 帧/4 MiB replay、128 帧/1 MiB subscriber queue、128 KiB 单帧；不可恢复游标明确返回 `snapshot_required`。
+- `AgentJobManager.recovery()` 原子返回列表与游标；spawn/waiting/running/terminal/clear 都发布完整增量；preview 每 Job 250ms 尾沿合并；shutdown 先关闭订阅与 timer。
+- Node SSE writer 收窄为 payload 无关通用 writer，Session 与 Jobs 路由共用背压和 socket 清理；新增 `/api/agent/jobs/events`。
+- `useAgentJobsFeed` 改为 transport 可注入的模块级 SSE 单例，具备重复/gap/epoch 检查、单飞恢复、旧响应隔离和固定退避；`useAgentJob` 改为共享列表 selector，删除单 Job GET 与定时器。
+- 任务中心移除 `setPanelOpen`/取消后强刷，增加仅面板打开且有活跃 Job 时运行的单一秒表；完整 result 详情 GET 与 Workflow RunView 轮询保持不变。
+- 稳定合同新增 [reference/agent/jobs.md](../../../reference/agent/jobs.md)；PLAN-E/F 轮询描述标记为历史实现。
+
+**与计划的出入**：公开 SSE query 收紧为 `eventEpoch`/`after` 都必填；为测试状态机新增 transport 注入工厂。未新增 heartbeat、依赖或持久化格式。
+
+**验证**：Jobs route/EventHub/Manager/SSE writer/feed/observer/parser 聚焦 8 个文件、45 项通过。`bun run typecheck` 本轮文件零错误，但全仓仍被并行工作区既有的设置页 2 项、Harness 测试 1 项和 llmlint 测试类型漂移阻断。
+
+**验收边界**：浏览器 Network 单连接、dev server 重启、真实 Workflow/模型仍待用户验收。
+
+### 2026-07-27 Plan G 审查加固：Job 因果观察与三路 SSE 重连
+
+- 后台 Job 启动入口统一返回创建事件游标；Manager 从首次 running 实际发布帧取值，shutdown 后拒绝新 spawn。
+- `useAgentJobsFeed.observe()` 以 epoch/seq 证明 feed 是否越过创建点，替代 `loaded + missing` 猜测；无游标旧结果保持 pending/available。
+- Workflow Run 独占 Workflow 终态：Job 清除或不可查询只影响取消与 preview，Run 终态不再退化，Run 404 才归约 interrupted。
+- Jobs、Agent Session、Project Presence 共用小型稳定窗口退避；Project 每次重连重新 open，短连接不再永久 300ms 抖动。
+- 新增 [ADR 0003](../../adr/0003-agent-job-observation-causality.md)，并同步 Agent Jobs/SSE Reference。
+
+**历史验证基线**：当时记录为聚焦 16 个文件、113 项通过，但没有覆盖孤儿 Run、同游标 Job 切换、真实 H3 400 响应和完整 Project 通知周期；不能把该数字当作后续竞态已覆盖。未执行浏览器验收。
+
+**与原 Plan G 的出入**：原 45 项通过没有覆盖跨 SSE 乱序、open 后立即 EOF、Job 清除早于 Run 终态与 Project timer 绕过 reopen；本节单独记录加固范围，不追溯扩大原验证结论。Workflow Run SSE 仍未迁移。
+
+### 2026-07-27 Plan G 审查补漏与合同收口
+
+- `spawnWorkflowJob()` 在 Run 已创建但 Job 登记失败时补偿取消 Run，并把原始 spawn 错误返回调用方；补齐 Manager shutdown 真实场景。
+- `useAgentJobsFeed.observe()` 将 watcher 合并，并把跨 epoch 恢复证据绑定完整观察目标与快照 revision；切换到共用旧游标的另一个 Job 不再永久 pending。
+- Jobs list/events 非法 query 在真实 H3 response 边界稳定返回 HTTP 400 与各自错误码；events `after` 只接受严格十进制非负整数。
+- Workflow Run 可见后独占 Workflow 状态、结果和错误；Job error 移到独立“后台任务错误”区域，`jobPollError` 更名为 `jobFeedError`。
+- Project Presence 补齐连续短连接、稳定五秒通知复位、新目标和 dispose 的确定性 fake-timer 测试。
+
+**验证**：17 文件 Jobs/Workflow/三路 SSE 聚焦组合 129 项通过；补漏 6 文件组合 48 项通过，Project 短连接定向用例 1 项通过。第一次完整组合因后台 bash 输出清理测试仍使用已退役的 ToolExecutionContext fixture 而 3 项失败；fixture 更新为当前 `workspaceRoot/currentProject` 合同后单文件 3 项和完整组合均通过，生产 bash 未修改。
+
+**类型检查**：`bun run typecheck` 已执行，但当前工作区并行进行的 Project/Session 身份合同迁移造成大量旧字段调用点与测试夹具错误，并仍包含 llmlint config 类型漂移；本轮按边界不修改这些无关在途改动，因此没有 clean typecheck 结论。
+
+**与计划的出入**：计划预期全仓只剩 llmlint 类型漂移，实际并行身份迁移扩大了阻断范围；测试数也从旧记录 113 增至实际 129。没有新增 ADR、两阶段 Job 注册、通用 recovery 框架或持久状态，未执行浏览器验收。
+
+### 2026-07-28 Plan G 生命周期补漏与开发拓扑收口
+
+- `index.vue` 不再无条件调用 `useAgentJobsFeed()`。Header 成为徽标 feed 的真实 owner，并只随 `projectSurfaceActive` 挂载；任务中心只在工作面激活且窗口打开时挂载，工作面失活会先关闭窗口。裸 `/` Project 选择页因此没有 Jobs GET/SSE consumer。
+- 最后一个 consumer 卸载仍只中止前端连接，不取消服务端 Job；重新进入 Project/User Assets 工作面时用一次原子快照恢复离开期间的变化，随后维持一条共享 SSE。
+- 新增初始快照连续失败回归，锁定 `300/800/1500ms` 退避节点；快照成功并建立 SSE 后推进五分钟不再 GET。该恢复属于“尚未建立事件流”的故障恢复，不是健康态轮询。
+- Source dev 脚本固定为 `nuxt dev --no-fork`，使开发拓扑符合单 Workspace Root、单 Session Store lease owner。没有弱化 `runtime.lease`、增加锁重试、删除锁文件或吞掉 `ELOCKED`；同一 State Root 不支持并行启动两个 dev server。
+
+**验证**：Jobs feed、页面/dev 接线、`useAgentJob`、Workflow 气泡与 Header 账户接线共 5 文件、32 项通过。`bun run typecheck` 已运行，只剩既有 `server/agent/skills/llmlint.test.ts` fixture 漂移；本轮文件零新增错误。未执行浏览器验收。
+
+**与计划的出入**：实现未修改 feed 或 Job HTTP/SSE 公开 Interface，也未新增 ADR。为让接线合同进入现有 Vitest include，测试放在 `app/composables/agent-jobs-wiring.test.ts`，而非未被测试配置收集的 Jobs 组件目录。
+
+### 2026-07-28 Plan G 最终收口：Job 观察所有权与 Workflow 去强刷
+
+- `AgentJobsFeedController` 的公开手工引用计数改为 effect-scope-aware `consume(enabled)`；Header/任务中心仍为显式消费者，`useAgentJob()` 只有非空目标时才持有 consumer。无目标 observer 固定为 pending、无错误、不可取消、零 Jobs 请求。
+- feed 能力拆为只读 View 与任务中心完整 Interface；单 Job observer 不再暴露 `refresh()`。Workflow 气泡和 preview RunPanel 删除应答、重放和 Run 切换后的 Jobs 强刷，Run 轮询判定也不再接收 Job 状态。
+- `/workflow.preview` 正式列表首次显式 Jobs GET 保留；demo 面板不传 Job ID，因此 demo 启动/切换/应答/重放不创建 Jobs consumer。
+- 测试发现并修复首个 consumer 与跨 epoch observer 同时建立时的 single-flight 收敛竞态：目标登记后完成的初始原子快照可以作为恢复证据；A → B 仍按新目标取得 revision 证据。
+
+**验证**：计划内 6 文件组合 49/49 通过。`bun run typecheck` 本轮文件零错误，全仓只剩既有 llmlint fixture 26 项。未自动执行浏览器验收。
+
+**与计划的出入**：新增的初始快照恢复证据是测试暴露的实际竞态修复；没有新增请求、状态容器、协议或 ADR。测试文件已从组件目录迁到 `app/composables/useAgentJob.test.ts`。
+
 ## 后续 TODO
 
 - [ ] 统一 workflow/session 忙碌语义：HarnessAgentPort 对 busy caller 的 invoke 与真实直聊对 workflow 锁的互斥都需要收口到 harness admission。
 - [ ] 后台 `invoke_agent` 跨用户输入/审批 waiting 自动续接；需同时建模 invocation resume、持久 followup queue 与 Job 取消归属。
 - [ ] `adhoc.initial.tools` 白名单（需 prepareRun 支持动态 toolKeys 收窄）；V1 固定 read + report_result。
-- [ ] Job/Run 观测态仍以内存 + HTTP 轮询为主；补 run-as-session 持久化与公共 SSE projection。
+- [ ] Workflow RunView 仍独立 HTTP 轮询；后续补 Run SSE 与 run-as-session 持久化。Jobs 观察面已由 Plan G 迁移到 SSE。
 - [ ] 完整脚本沙盒化。
 - [ ] D15 剩余（systemRole 并入 kind + session 列表按 kind 隐藏）；findByTag 索引化。
 - [ ] 拆书 workflow 真跑验收（真实 Project Workspace manuscript + 审批 + 气泡 + waiting/resume + 结果回流）。

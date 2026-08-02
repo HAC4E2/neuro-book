@@ -10,9 +10,19 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("#manager/app-commands", () => ({commandStatus: mocks.commandStatus}));
-vi.mock("#manager/docker", () => ({inspectDockerApplication: mocks.inspectDockerApplication}));
+vi.mock("#manager/docker", () => ({
+    inspectDockerApplication: mocks.inspectDockerApplication,
+    containerProductImageReference: (_profile: string, product: {image: string; digest?: string}) => {
+        if (!product.digest) return product.image;
+        const slash = product.image.lastIndexOf("/");
+        const colon = product.image.lastIndexOf(":");
+        const repository = colon > slash ? product.image.slice(0, colon) : product.image;
+        return `${repository}@${product.digest}`;
+    },
+}));
 
 import {inspectInstallationService} from "#manager/installation-health";
+import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "#manager/root-locators";
 import type {InstallationManifest} from "#manager/types";
 
 const roots: string[] = [];
@@ -135,7 +145,7 @@ describe("Docker Installation Health", () => {
 
         expect(mocks.commandStatus).toHaveBeenCalledWith("podman");
         expect(mocks.commandStatus).toHaveBeenCalledWith("podman", ["compose", "version"]);
-        expect(mocks.inspectDockerApplication).toHaveBeenCalledWith("podman", root, root);
+        expect(mocks.inspectDockerApplication).toHaveBeenCalledWith("podman", root, join(root, "data"));
     });
 });
 
@@ -149,14 +159,14 @@ async function fixture(): Promise<string> {
 function manifest(): InstallationManifest {
     const revision = "b".repeat(40);
     return {
-        schemaVersion: 4,
+        schemaVersion: 5,
         profile: "ghcr",
         containerEngine: "docker",
         managerVersion: "0.1.0",
         appVersion: "1.0.0",
         channel: "canary",
         sourceRevision: revision,
-        stateRoot: ".",
+        roots: INSTALLATION_SCOPED_ROOT_LOCATORS,
         components: {
             source: {provider: "container", version: "1.0.0", revision, path: "/app"},
             product: {provider: "container", version: "1.0.0", revision, image: "ghcr.io/notnotype/neuro-book:v1", digest},

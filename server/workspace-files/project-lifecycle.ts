@@ -50,6 +50,12 @@ import {
     type ProjectRootPhysicalToken,
     type ProjectRootIdentityOptions,
 } from "nbook/server/workspace-files/project-root-identity";
+import {
+    ProjectCoverStore,
+    type ProjectCoverCleanupIssue,
+    type ProjectCoverUpload,
+    type PublishedProjectCover,
+} from "nbook/server/workspace-files/project-cover-store";
 
 export {
     isProjectLifecycleError,
@@ -176,6 +182,15 @@ export type ProjectMetadataUpdateResult = {
     readonly project: ProjectListEntry;
 };
 
+/** cover update 接受上传后的原始 bytes，null 表示清除 manifest 引用。 */
+export type ProjectCoverUpdateInput = {
+    readonly ref: ProjectWorkspaceRef;
+    readonly cover: ProjectCoverUpload | null;
+};
+
+/** cover update 与其他 Project mutation 返回同一轻量 publication。 */
+export type ProjectCoverUpdateResult = ProjectMetadataUpdateResult;
+
 /** delete成功后返回已发布的absence revision。 */
 export type ProjectDeleteResult = {
     readonly revision: number;
@@ -254,6 +269,7 @@ const NODE_PROJECT_LIFECYCLE_WATCHER_ADAPTER: ProjectLifecycleWatcherAdapter = {
 
 /** Project Lifecycle 的构造依赖；生产默认使用 Node 文件系统 Adapter。 */
 export type ProjectLifecycleOptions = {
+    readonly coverStore?: ProjectCoverStore;
     readonly manifestAdapter?: ProjectManifestAdapter;
     readonly lockModule?: ProjectLockModule;
     readonly now?: () => number;
@@ -306,8 +322,8 @@ export type ProjectDiscoveryIssue =
 /** Lifecycle事务临时目录未能完成best-effort清理时保留的内部诊断。 */
 export type ProjectCleanupIssue = {
     readonly kind: "transaction-cleanup";
-    readonly operation: "ensure" | "create" | "import" | "delete" | "metadata-update";
-    readonly target: "staging" | "tombstone" | "manifest-temp" | "recovery-temp";
+    readonly operation: "ensure" | "create" | "import" | "delete" | "metadata-update" | "cover-update";
+    readonly target: "staging" | "tombstone" | "manifest-temp" | "recovery-temp" | "cover-file";
     /** Workspace Root-relative内部事务路径，不暴露绝对文件系统位置。 */
     readonly path: WorkspaceRelativePath;
 } & (
@@ -384,7 +400,7 @@ export type PreparedProjectOpen = ProjectEnsureResult & {
 };
 
 /** Lifecycle公开mutation操作名。 */
-export type ProjectLifecycleOperation = "ensure" | "create" | "import" | "delete" | "metadata-update";
+export type ProjectLifecycleOperation = "ensure" | "create" | "import" | "delete" | "metadata-update" | "cover-update";
 
 /** Mutation失败时所处的稳定事务阶段。 */
 export type ProjectLifecycleTransactionPhase =
@@ -549,6 +565,7 @@ type LifecycleOperationCompletion<Pending, Result> =
 export class ProjectLifecycle {
     private readonly workspaceRoot: AbsoluteFsPath;
     private readonly transactionAdapter: ProjectManifestAdapter;
+    private readonly coverStore: ProjectCoverStore;
     private readonly manifestPersistence: ProjectManifestPersistence;
     private readonly lockModule: ProjectLockModule;
     private readonly now: () => number;
@@ -586,6 +603,7 @@ export class ProjectLifecycle {
     constructor(workspaceRoot: AbsoluteFsPath, options: ProjectLifecycleOptions = {}) {
         this.workspaceRoot = workspaceRoot;
         this.transactionAdapter = options.manifestAdapter ?? NODE_PROJECT_MANIFEST_ADAPTER;
+        this.coverStore = options.coverStore ?? new ProjectCoverStore();
         this.manifestPersistence = new ProjectManifestPersistence(
             workspaceRoot,
             this.transactionAdapter,
@@ -956,9 +974,102 @@ export class ProjectLifecycle {
             );
         }
 
+        return this.updateManifestWithin(
+            ref,
+            access,
+            operation,
+            "metadata-update",
+            async () => ({patch}),
+        );
+    }
+
+    /** 原子更新 Project 封面；manifest 是提交点，原图先按内容寻址发布。 */
+    async updateCover(
+        input: ProjectCoverUpdateInput,
+        access: ProjectMetadataAccess = {kind: "acquire"},
+    ): Promise<ProjectCoverUpdateResult> {
+        return this.runOperation(
+            (operation) => this.updateCoverWithin(input, access, operation),
+            {kind: "durable", commit: (result) => result},
+        );
+    }
+
+    /** 准备封面原图后复用唯一 manifest mutation 事务骨架。 */
+    private async updateCoverWithin(
+        input: ProjectCoverUpdateInput,
+        access: ProjectMetadataAccess,
+        operation: LifecycleOperationContext,
+    ): Promise<ProjectCoverUpdateResult> {
+        const ref = projectWorkspaceRef(input.ref.projectRoot);
+        return this.updateManifestWithin(
+            ref,
+            access,
+            operation,
+            "cover-update",
+            async (workspace, commitGate) => {
+                await commitGate();
+                if (input.cover === null) {
+                    return {
+                        patch: {cover: null},
+                        afterCommit: async (project) => {
+                            await this.recordCoverCleanupIssues(
+                                await this.coverStore.converge(workspace, project.cover),
+                            );
+                        },
+                    };
+                }
+                let published: PublishedProjectCover;
+                try {
+                    published = await this.coverStore.publish(workspace, input.cover);
+                } catch (error) {
+                    throw new ProjectLifecycleTransactionError(
+                        "PROJECT_PUBLISH_FAILED",
+                        "cover-update",
+                        "materialize",
+                        false,
+                        `Project 封面原图发布失败：${ref.projectRoot}`,
+                        error,
+                    );
+                }
+                this.recordCoverCleanupIssues(published.cleanupIssues);
+                return {
+                    patch: {cover: published.path},
+                    rollback: () => this.coverStore.rollback(workspace, published),
+                    afterCommit: async (project) => {
+                        await this.recordCoverCleanupIssues(
+                            await this.coverStore.converge(workspace, project.cover),
+                        );
+                    },
+                };
+            },
+        );
+    }
+
+    /**
+     * metadata 与 cover 共享的唯一 manifest mutation 骨架。
+     *
+     * prepare 在锁与 root identity 门禁内运行；manifest 发布后失败统一标记 unknown，
+     * 只有明确未提交时才执行调用方提供的原图回滚。
+     */
+    private async updateManifestWithin(
+        ref: ProjectWorkspaceRef,
+        access: ProjectMetadataAccess,
+        operation: LifecycleOperationContext,
+        lifecycleOperation: Extract<ProjectLifecycleOperation, "metadata-update" | "cover-update">,
+        prepare: (
+            workspace: ResolvedProjectWorkspace,
+            commitGate: LifecycleCommitGate,
+        ) => Promise<{
+            readonly patch: ProjectManifestMetadataPatch;
+            readonly rollback?: () => Promise<void>;
+            readonly afterCommit?: (project: ProjectListEntry) => Promise<void>;
+        }>,
+    ): Promise<ProjectMetadataUpdateResult> {
+
         const mutation = await this.lockModule.acquireMutation();
         let occupancy: ProjectOccupancyHandle | null = null;
         let committedResult: ProjectMetadataUpdateResult | null = null;
+        let prepared: Awaited<ReturnType<typeof prepare>> | null = null;
         let manifestChanged = false;
         try {
             operation.assertActive();
@@ -979,7 +1090,7 @@ export class ProjectLifecycle {
                 if (current.key !== access.workspace.key || current.root !== access.workspace.root) {
                     throw new ProjectLifecycleTransactionError(
                         "PROJECT_VALIDATION_FAILED",
-                        "metadata-update",
+                        lifecycleOperation,
                         "validate",
                         false,
                         "借用的Project session generation与目标Project不一致",
@@ -1008,12 +1119,18 @@ export class ProjectLifecycle {
 
             let manifestResult: ProjectManifestEnsureResult;
             try {
-                manifestResult = await this.manifestPersistence.updateMetadata(workspace, patch, commitGate);
+                prepared = await prepare(workspace, commitGate);
+                manifestResult = await this.manifestPersistence.updateMetadata(
+                    workspace,
+                    prepared.patch,
+                    commitGate,
+                    lifecycleOperation,
+                );
             } catch (error) {
                 if (error instanceof ProjectManifestPublishedError) {
                     throw new ProjectLifecycleTransactionError(
                         "PROJECT_PUBLISH_FAILED",
-                        "metadata-update",
+                        lifecycleOperation,
                         "publish-manifest",
                         "unknown",
                         `project.yaml已经更新，但Project snapshot尚未确认：${ref.projectRoot}`,
@@ -1036,7 +1153,7 @@ export class ProjectLifecycle {
                 if (manifestChanged) {
                     throw new ProjectLifecycleTransactionError(
                         "PROJECT_PUBLISH_FAILED",
-                        "metadata-update",
+                        lifecycleOperation,
                         "publish-snapshot",
                         "unknown",
                         `Project metadata已经写入，但snapshot尚未确认：${ref.projectRoot}`,
@@ -1049,17 +1166,35 @@ export class ProjectLifecycle {
                 revision: publishedProject.revision,
                 project: publishedProject.project,
             });
+            if (prepared.afterCommit) {
+                await prepared.afterCommit(publishedProject.project);
+            }
             try {
                 await releaseProjectLocks(mutation, occupancy);
             } catch (error) {
-                throwCommittedLockReleaseFailure("metadata-update", error);
+                throwCommittedLockReleaseFailure(lifecycleOperation, error);
             }
             return committedResult;
-        } catch (error) {
+        } catch (cause) {
             if (committedResult) {
-                throw error;
+                throw cause;
             }
-            return await throwAfterLockRelease(error, mutation, occupancy, "metadata-update");
+            let error = cause;
+            if (prepared?.rollback && committedState(cause) === false) {
+                try {
+                    await prepared.rollback();
+                } catch (rollbackError) {
+                    error = new ProjectLifecycleTransactionError(
+                        "PROJECT_ROLLBACK_FAILED",
+                        lifecycleOperation,
+                        "rollback",
+                        false,
+                        `${lifecycleOperation} 未提交，但新封面原图回滚失败`,
+                        new AggregateError([cause, rollbackError]),
+                    );
+                }
+            }
+            return await throwAfterLockRelease(error, mutation, occupancy, lifecycleOperation);
         }
     }
 
@@ -1443,6 +1578,22 @@ export class ProjectLifecycle {
             code: "PROJECT_ROOT_IO",
             ...(systemCode ? {systemCode} : {}),
         }));
+    }
+
+    /** 把已提交 cover mutation 的旧托管文件清理失败投影为有界 diagnostics。 */
+    private recordCoverCleanupIssues(issues: readonly ProjectCoverCleanupIssue[]): void {
+        for (const issue of issues) {
+            const systemCode = diagnosticSystemCode(issue.error);
+            this.appendCleanupIssue(Object.freeze({
+                kind: "transaction-cleanup",
+                operation: "cover-update",
+                target: "cover-file",
+                phase: "remove",
+                path: issue.path,
+                code: "PROJECT_ROOT_IO",
+                ...(systemCode ? {systemCode} : {}),
+            }));
+        }
     }
 
     /** 追加一条有界cleanup诊断；记录动作本身同步且不得改变原事务结果。 */

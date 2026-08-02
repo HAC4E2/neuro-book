@@ -45,7 +45,7 @@ describe("POST /api/workspace-files/upload-file", () => {
         await handler({} as never);
 
         expect(resolveWorkspaceFileTarget).toHaveBeenCalledWith(expect.anything(), {
-            projectPath: undefined,
+            projectRoot: undefined,
             workspaceKind: "user-assets",
         });
         expect(uploadWorkspaceFile).toHaveBeenCalledWith(root, {

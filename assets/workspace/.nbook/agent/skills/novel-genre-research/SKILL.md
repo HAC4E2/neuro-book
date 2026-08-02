@@ -1,27 +1,31 @@
 ---
 name: novel-genre-research
-description: 题材分析、竞品分析与写作调研。用 novel_rankings / novel_book_detail 查询本地 novel-api 缓存的起点、番茄榜单与书籍详情做选题；对标作品经 Tomato Novel Downloader + novel-import-tomato-reference 导入后，用 book-deconstruct workflow 拆书分析。用于分析某个题材的市场惯例与读者期待、拆解对标作品、为选题或转型提供参考。
-when_to_use: 用户想看榜单选题材、分析某个题材怎么写、找对标作品、拆解一本书的结构与卖点、做选题调研时。
+description: 题材分析、竞品分析与写作调研。通过 novel-data Skill 查询本地 NovelScope 缓存的起点、番茄榜单与书籍详情做选题；对标作品经 Tomato Novel Downloader 和 novel-import-tomato-reference 导入后，用 book-deconstruct workflow 拆书分析。用于分析题材惯例与读者期待、拆解对标作品、为选题或转型提供参考。
 ---
 
 # novel-genre-research：题材与竞品调研
 
 围绕「榜单选题 → 对标发现 → 拿到文本 → 拆书分析 → 结论落地」的完整调研流程。每一步都基于真实数据或已导入素材，做不到的部分向用户明确说明并给替代路径，不要伪造数据。
 
-## 1. 榜单选题（novel-api）
+## 1. 榜单选题（NovelScope）
 
-用 `novel_rankings` / `novel_book_detail` 工具查询本地 novel-api 榜单服务：
+先读取 `novel-data` Skill，从 SkillCatalog 取得它的绝对 `root` 并记为 `<novel-data-root>`。在第一次运行 CLI 或 `node_modules` 缺失时，先按该 Skill 的依赖门执行 frozen install；安装成功后再通过 `bash` 调用只读 CLI：
 
-- `novel_rankings`：查平台最新榜单快照。platform 取 `qidian` / `fanqie`；board 是榜单键——起点为 `yuepiao`（月票）/ `hotsales`（畅销）/ `recom`（推荐）/ `collect`（收藏），番茄是形如 `0_1_1139` 的机器键。
-- `novel_book_detail`：按平台书号（榜单条目里的「书号」/ externalBookId）查书籍详情：简介、分类、状态、字数。
-- 选题分析套路：先拉 1-2 个与用户方向相关的榜单，对头部作品用 `novel_book_detail` 补简介与分类，再归纳题材分布、书名/简介的钩子模式、连载状态与字数区间，落成「这个题材现在市场上怎么打」的观察。
+```bash
+bun "<novel-data-root>/scripts/novel-data.ts" rankings --platform qidian --board yuepiao
+bun "<novel-data-root>/scripts/novel-data.ts" book-detail --platform qidian --book-id 123456
+```
+
+- `rankings` 查询最新保存的榜单快照。起点榜单键为 `yuepiao`、`hotsales`、`recom`、`collect`；番茄榜单键形如 `0_1_1139`。
+- `book-detail` 按榜单条目的 `externalBookId` 查询简介、分类、状态和字数。
+- 先拉一至两个相关榜单，再补充头部作品详情，最后归纳题材分布、书名与简介钩子、连载状态和字数区间。
 
 **数据边界（必须向用户交代）**：
 
-- 数据来自本地 novel-api 缓存，不是实时抓取：榜单是最近一次采集的快照（工具会返回快照时间），书籍详情缓存 TTL 3 小时。
-- 详情返回里若标注「数据可能过期(stale)」，必须原样向用户转述，不要当作新鲜数据。
+- 数据来自本地 NovelScope 缓存，不是实时抓取：榜单是最近一次采集的快照，书籍详情缓存 TTL 3 小时。
+- 回答必须带榜单的 `fetchedAt`；详情的 `stale=true` 必须原样向用户说明数据可能过期。
 - 起点榜单条目当前没有数值 metrics（字体反爬导致数字无法还原），只有书名、作者、书号；不要编造阅读量或销量。
-- 榜单没有快照、服务未配置或未启动时，工具会报中文错误。此时用人话引导用户：到设置页「小说数据」面板配置服务地址（默认 http://localhost:3000）；服务本体在 sibling 仓 `../novel-api`，按其 README 启动。不要伪造榜单内容顶替。
+- 榜单没有快照或服务未启动时，引导用户按 sibling 仓 `../novel-api` 的 README 启动服务。默认地址是 `http://localhost:3000`，也可通过 CLI `--base-url` 或 `NOVEL_DATA_BASE_URL` 覆盖；不要伪造榜单内容顶替。
 
 ## 2. 对标发现 → 拿到文本
 

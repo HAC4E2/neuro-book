@@ -2,7 +2,7 @@ import {EventEmitter} from "node:events";
 import {once} from "node:events";
 import {createServer, request, type ServerResponse} from "node:http";
 import {describe, expect, it} from "vitest";
-import {writeAgentSessionEventStream, type AgentSseResponse} from "nbook/server/agent/events/agent-sse-writer";
+import {writeAgentEventStream, type AgentSseResponse} from "nbook/server/agent/events/agent-sse-writer";
 import {AgentSessionEventHub, type AgentSessionEventSubscription, type PublishedAgentSessionEvent} from "nbook/server/agent/events/session-event-hub";
 
 class FakeResponse extends EventEmitter implements AgentSseResponse {
@@ -76,7 +76,7 @@ class CountingSubscription implements AgentSessionEventSubscription {
     }
 }
 
-describe("writeAgentSessionEventStream", () => {
+describe("writeAgentEventStream", () => {
     it("write=false 后等待 drain，期间不拉取下一事件", async () => {
         const hub = new AgentSessionEventHub();
         const connected = hub.connectedEvent(1);
@@ -85,7 +85,7 @@ describe("writeAgentSessionEventStream", () => {
         const subscription = new CountingSubscription([connected, first, second]);
         const response = new FakeResponse([true, false, true]);
 
-        const writing = writeAgentSessionEventStream(response, subscription);
+        const writing = writeAgentEventStream(response, subscription);
         await Promise.resolve();
         await Promise.resolve();
 
@@ -107,7 +107,7 @@ describe("writeAgentSessionEventStream", () => {
             hub.publish({sessionId: 1, kind: "session", event: {type: "invocation_aborted", reason: "first"}}),
         ]);
         const response = new FakeResponse([true, false]);
-        const writing = writeAgentSessionEventStream(response, subscription);
+        const writing = writeAgentEventStream(response, subscription);
         await Promise.resolve();
         await Promise.resolve();
 
@@ -124,7 +124,7 @@ describe("writeAgentSessionEventStream", () => {
         const hub = new AgentSessionEventHub();
         const subscription = new CountingSubscription([hub.connectedEvent(1)]);
         const response = new FakeResponse([false]);
-        const writing = writeAgentSessionEventStream(response, subscription);
+        const writing = writeAgentEventStream(response, subscription);
         await Promise.resolve();
 
         response.destroy();
@@ -153,7 +153,7 @@ describe("writeAgentSessionEventStream", () => {
         const server = createServer((_request, response) => {
             state.response = response;
             state.subscription = hub.subscribe(1, {eventEpoch: hub.eventEpoch, after: hub.lastSeq(1)});
-            void writeAgentSessionEventStream(response, state.subscription).finally(finishWriter);
+            void writeAgentEventStream(response, state.subscription).finally(finishWriter);
         });
         server.listen(0, "127.0.0.1");
         await once(server, "listening");

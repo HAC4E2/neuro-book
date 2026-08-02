@@ -7,15 +7,15 @@ import {markSubjectRagDirty, type SubjectPaths} from "nbook/server/agent/tools/s
 import {PROJECT_PLOT_WORLD_MODULE_TOKEN} from "nbook/server/plot";
 import type {WorldEngineFacade} from "nbook/server/world-engine";
 import type {JsonValue, PatchInput, SliceInput, SliceListItem, WorldSliceSubjectFilterMode, WorldState} from "nbook/server/world-engine";
-import {requireProjectPathQuery, validateBody} from "nbook/server/utils/novel-chapter";
+import {validateBody} from "nbook/server/utils/novel-chapter";
+import {requireProjectRefQuery} from "nbook/server/api/projects/project-control-plane";
 import {
     activateReadyProjectModule,
-    isProjectNotOpenError,
-    requireReadyProjectPath,
+    requireActiveReadyProject,
     runReadyProjectOperation,
 } from "nbook/server/workspace-files/project-session";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
-import {createProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
+import {withProjectHttpError} from "nbook/server/api/projects/project-http-error";
 import {
     captureUserProjectFileWrite,
     recordUserProjectFileWrite,
@@ -93,23 +93,13 @@ type SubjectFileEventCommitBody = z.infer<typeof SubjectFileEventCommitBodySchem
 /**
  * World Engine Project API：所有时间入参和出参都使用项目日历字符串。
  */
-export default defineEventHandler(async (event) => {
-    try {
-        return await handleWorldEngineApi(event);
-    } catch (error) {
-        if (isProjectNotOpenError(error)) {
-            throw createProjectNotOpenHttpError(error);
-        }
-        throw error;
-    }
-});
+export default defineEventHandler((event) => withProjectHttpError(() => handleWorldEngineApi(event)));
 
 /**
  * 处理 World Engine 数据面 API。先守卫 open，避免时间/schema 预处理在未 open 时绕过会话模型。
  */
 async function handleWorldEngineApi(event: H3Event): Promise<unknown> {
-    const projectPath = requireProjectPathQuery(event);
-    const ready = requireReadyProjectPath(projectPath);
+    const ready = requireActiveReadyProject(requireProjectRefQuery(event));
     return runReadyProjectOperation(ready, async () => {
         const {world: worldEngineFacade} = await activateReadyProjectModule(ready, PROJECT_PLOT_WORLD_MODULE_TOKEN);
         const segments = readSegments(event);

@@ -406,7 +406,7 @@ function buildClientVariables() {
     return buildNovelIdeClientVariables({
         activePanel: novelIdeStore.activeLeftTab,
         theme: theme.value,
-        novelId: novelIdeStore.currentNovelId,
+        novelId: novelIdeStore.currentProjectRoot,
         workspace: novelIdeStore.currentWorkspaceRoot || null,
         workspaceKind: novelIdeStore.workspaceKind,
         selectedFilePath: novelIdeStore.selectedFilePath || null,
@@ -495,7 +495,12 @@ async function fetchTemplateDetail(): Promise<ProfileTemplateDetailDto> {
 async function loadThreads(): Promise<void> {
     loadingThreads.value = true;
     try {
-        const page = await agentApi.listSessions({workspaceKey: novelIdeStore.workspaceKind === "user-assets" ? "user-assets" : `novel-${novelIdeStore.currentNovelId}`, limit: 200});
+        const page = await agentApi.listSessions({
+            ...(novelIdeStore.workspaceKind === "novel" && novelIdeStore.currentProjectRoot
+                ? {scope: "project" as const, projectRoot: novelIdeStore.currentProjectRoot}
+                : {scope: "workspace-root" as const}),
+            limit: 200,
+        });
         threads.value = page.items
             .filter((session) => session.profileKey === currentThreadProfileKey());
         if (!selectedThreadId.value || !threads.value.some((thread) => String(thread.sessionId) === selectedThreadId.value)) {
@@ -1115,9 +1120,7 @@ async function createSessionForProfile(): Promise<void> {
         const created = await agentApi.createSession({
             profileKey: selectedProfileKey.value,
             initial: {},
-            workspaceRoot: novelIdeStore.workspaceKind === "user-assets" ? "workspace/.nbook" : novelIdeStore.currentWorkspaceRoot || undefined,
-            workspaceKey: novelIdeStore.workspaceKind === "user-assets" ? "user-assets" : novelIdeStore.currentNovelId || "workspace",
-            projectPath: novelIdeStore.workspaceKind === "user-assets" ? undefined : novelIdeStore.currentNovelId || undefined,
+            currentProjectRoot: novelIdeStore.workspaceKind === "novel" ? novelIdeStore.currentProjectRoot || undefined : undefined,
         });
         notification.success(`已创建 session #${created.sessionId}`);
         await loadThreads();

@@ -1,14 +1,14 @@
 import {createError, getQuery} from "h3";
 import {getAgentSessionQuery, requireAgentSessionId} from "nbook/server/agent/http";
 import {createServerTiming} from "nbook/server/utils/server-timing";
-import {withProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
+import {withProjectHttpError} from "nbook/server/api/projects/project-http-error";
 import {AgentSessionQueryDtoSchema} from "nbook/shared/dto/agent-session.dto";
 
 /**
  * 查询 Agent session recovery、history 或 system prompt。
  */
 export default defineEventHandler(async (event) => {
-    return withProjectNotOpenHttpError(async () => {
+    return withProjectHttpError(async () => {
         const timing = createServerTiming(event);
         const sessionId = requireAgentSessionId(event);
         const parsed = AgentSessionQueryDtoSchema.safeParse(getQuery(event));

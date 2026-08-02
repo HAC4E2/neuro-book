@@ -1,10 +1,10 @@
-/** @jsxImportSource nbook/server/agent/profiles/profile-dsl */
+/** @jsxImportSource nbook/profile-sdk */
 /** @jsxRuntime automatic */
-import {Type} from "typebox";
-import type {Static} from "typebox";
-import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
-import {ProfilePrompt, System} from "nbook/server/agent/profiles/profile-dsl";
+import {Type} from "nbook/profile-sdk";
+import type {Static} from "nbook/profile-sdk";
+import {defineAgentProfile} from "nbook/profile-sdk";
+import {builtin, toolset} from "nbook/profile-sdk";
+import {ProfilePrompt, System} from "nbook/profile-sdk";
 
 export const profileManifest = {
     key: "__PROFILE_KEY__",

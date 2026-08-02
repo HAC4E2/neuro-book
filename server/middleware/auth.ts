@@ -1,4 +1,5 @@
 import {getCurrentUser, isAuthEnabled} from "nbook/server/utils/auth";
+import {PRODUCT_SHUTDOWN_PATH} from "nbook/shared/product-runtime-contract";
 
 const publicApiPaths = new Set([
     "/api/app/version",
@@ -28,6 +29,17 @@ export function isPublicPath(pathname: string): boolean {
 }
 
 /**
+ * 判断请求是否绕过用户 session 鉴权。
+ *
+ * Product shutdown 不是公开路由；它只是不使用浏览器 session，随后仍由路由自身的
+ * loopback 地址与一次性 bearer token 完成控制面鉴权。
+ */
+export function isUserSessionAuthExemptRequest(pathname: string, method: string): boolean {
+    return isPublicPath(pathname)
+        || (pathname === PRODUCT_SHUTDOWN_PATH && method.toUpperCase() === "POST");
+}
+
+/**
  * 判断当前请求是否是 API 请求。
  */
 function isApiRequest(pathname: string): boolean {
@@ -44,7 +56,7 @@ export default defineEventHandler(async (event) => {
 
     const url = getRequestURL(event);
     const pathname = url.pathname;
-    if (isPublicPath(pathname)) {
+    if (isUserSessionAuthExemptRequest(pathname, event.method)) {
         return;
     }
 

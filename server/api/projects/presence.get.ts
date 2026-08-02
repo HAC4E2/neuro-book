@@ -1,14 +1,15 @@
-import {createError, createEventStream} from "h3";
-import {requireProjectPathQuery} from "nbook/server/utils/novel-chapter";
-import {acquireUserPresence, isProjectNotOpenError} from "nbook/server/workspace-files/project-session";
+import {createEventStream} from "h3";
+import {requireProjectRefQuery} from "nbook/server/api/projects/project-control-plane";
+import {withProjectHttpError} from "nbook/server/api/projects/project-http-error";
+import {acquireUserPresence} from "nbook/server/workspace-files/project-session";
 import {isClosingEventStreamError} from "nbook/server/utils/event-stream";
 
 /** 心跳间隔：保持 SSE 连接活性，避免代理层按空闲断连；也让断连能在下个心跳被发现。 */
 const PRESENCE_HEARTBEAT_MS = 30_000;
 
-/** presence SSE 事件载荷：presence_ready 建连即推且携带 projectPath；heartbeat 周期推送不携带。 */
+/** presence SSE 事件载荷：presence_ready 建连即推且携带 projectRoot；heartbeat 周期推送不携带。 */
 type PresenceStreamPayload =
-    | {type: "presence_ready"; projectPath: string}
+    | {type: "presence_ready"; projectRoot: string}
     | {type: "heartbeat"};
 
 /**
@@ -16,20 +17,8 @@ type PresenceStreamPayload =
  * 项目未 open 时返回 409 + data.code="PROJECT_NOT_OPEN"，前端应先调 POST /api/projects/open。
  */
 export default defineEventHandler(async (event) => {
-    const projectPath = requireProjectPathQuery(event);
-    let release: () => void;
-    try {
-        release = acquireUserPresence(projectPath);
-    } catch (error) {
-        if (isProjectNotOpenError(error)) {
-            throw createError({
-                statusCode: 409,
-                message: "项目未打开，请先打开项目",
-                data: {code: "PROJECT_NOT_OPEN", projectPath},
-            });
-        }
-        throw error;
-    }
+    const ref = await withProjectHttpError(() => requireProjectRefQuery(event));
+    const release = await withProjectHttpError(() => acquireUserPresence(ref));
 
     const eventStream = createEventStream(event);
     let streamClosed = false;
@@ -72,16 +61,26 @@ export default defineEventHandler(async (event) => {
         eventStream.close();
     });
 
-    await pushPresenceEvent({type: "presence_ready", projectPath});
-    // 30s 心跳：push 遇断连错误走 cleanup；其余瞬时错误吞掉，连接真正断开最终由 onClosed 兜底释放。
-    heartbeatTimer = setInterval(() => {
-        void pushPresenceEvent({type: "heartbeat"}).catch(() => undefined);
-    }, PRESENCE_HEARTBEAT_MS);
-    if (streamClosed) {
-        // onClosed 可能在定时器建立前已触发（对齐 events.get.ts 的补偿判定），此处立即回收定时器。
-        clearInterval(heartbeatTimer);
-        heartbeatTimer = null;
-    }
+    // H3 的 push 会等待 TransformStream reader 消费；必须先启动 send，否则首帧会因背压永久等待。
+    const sending = eventStream.send();
+    void (async () => {
+        try {
+            await pushPresenceEvent({type: "presence_ready", projectRoot: ref.projectRoot});
+            if (streamClosed) return;
+            // 30s 心跳：push 遇断连错误走 cleanup；其余瞬时错误吞掉，连接真正断开最终由 onClosed 兜底释放。
+            heartbeatTimer = setInterval(() => {
+                void pushPresenceEvent({type: "heartbeat"}).catch(() => undefined);
+            }, PRESENCE_HEARTBEAT_MS);
+            if (streamClosed) {
+                // onClosed 可能在定时器建立前已触发，此处立即回收定时器。
+                clearInterval(heartbeatTimer);
+                heartbeatTimer = null;
+            }
+        } catch {
+            cleanup();
+            await eventStream.close().catch(() => undefined);
+        }
+    })();
 
-    return eventStream.send();
+    return sending;
 });

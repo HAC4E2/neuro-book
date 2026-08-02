@@ -36,6 +36,16 @@ describe("useAgentSession event reducer", () => {
         expect(session.recoveryReasons.value).toContain("active_path_changed");
     });
 
+    it("拒绝其他 Session 的 live state", () => {
+        const session = useAgentSession();
+        session.applyRecovery(recovery(0));
+
+        session.applyLiveState({...liveState(), summary: {...liveState().summary, sessionId: 2}});
+
+        expect(session.recoveryShell.value?.summary.sessionId).toBe(1);
+        expect(session.recoveryReasons.value).not.toContain("active_path_changed");
+    });
+
     it("live state 省略 pending form 详情且本地无 runtime 详情时请求 recovery", () => {
         const session = useAgentSession();
         session.applyRecovery(recovery(0));
@@ -142,6 +152,69 @@ describe("useAgentSession event reducer", () => {
 
         expect(session.pendingUserInputSession.value?.questions).toEqual([
             expect.objectContaining({question: "是否继续？", toolCallId: "question-1"}),
+        ]);
+    });
+
+    it("公开完整 pending 列表，并保持服务端顺序", () => {
+        const session = useAgentSession();
+        session.applyRecovery({
+            ...recovery(0),
+            pendingUserInputs: ["approval-1", "approval-2"].map((toolCallId) => ({
+                toolCallId: assertPublicToolCallId(toolCallId),
+                toolName: "run_workflow",
+                args: {
+                    kind: "generic" as const,
+                    value: {kind: "object" as const, entries: [], omittedEntries: 0},
+                },
+            })),
+        });
+
+        expect(session.pendingUserInputSessions.value.map((pending) => pending.questions[0]?.toolCallId)).toEqual([
+            "approval-1",
+            "approval-2",
+        ]);
+        expect(session.pendingUserInputSession.value?.questions[0]?.toolCallId).toBe("approval-1");
+    });
+
+    it("live pending 追加到完整列表，tool result 只移除对应项", () => {
+        const session = useAgentSession();
+        session.applyRecovery({
+            ...recovery(0),
+            pendingUserInputs: ["approval-1", "approval-2"].map((toolCallId) => ({
+                toolCallId: assertPublicToolCallId(toolCallId),
+                toolName: "run_workflow",
+                args: {kind: "generic" as const, value: {kind: "object" as const, entries: [], omittedEntries: 0}},
+            })),
+        });
+        session.applyEvent(runtime(1, {
+            type: "tool.user-input-required",
+            toolCallId: assertPublicToolCallId("approval-3"),
+            toolName: "run_workflow",
+            args: {kind: "generic", value: {kind: "object", entries: [], omittedEntries: 0}},
+        }));
+
+        expect(session.pendingUserInputSessions.value.map((pending) => pending.questions[0]?.toolCallId)).toEqual([
+            "approval-1",
+            "approval-2",
+            "approval-3",
+        ]);
+
+        session.applyEvent(control(2, {
+            type: "session_entry",
+            entry: {
+                id: "result-2",
+                timestamp: 2,
+                type: "tool_result",
+                toolCallId: assertPublicToolCallId("approval-2"),
+                toolName: "run_workflow",
+                result: {content: [{type: "text", contentIndex: 0, textPreview: "已处理", textBytes: 9, textOmitted: false}], omittedContentBlocks: 0},
+                isError: false,
+            },
+        }));
+
+        expect(session.pendingUserInputSessions.value.map((pending) => pending.questions[0]?.toolCallId)).toEqual([
+            "approval-1",
+            "approval-3",
         ]);
     });
 
@@ -269,7 +342,7 @@ function liveState(): AgentSessionLiveStateDto {
 }
 
 function summary(): AgentSessionRecoveryDto["summary"] {
-    return {sessionId: 1, profileKey: "leader.default", workspaceKey: "global", workspaceRoot: ".", status: "idle", updatedAt: 1, archived: false};
+    return {sessionId: 1, profileKey: "leader.default", status: "idle", updatedAt: 1, archived: false};
 }
 
 function control(seq: number, event: Extract<AgentSessionEventDto, {kind: "session"}>["event"]): AgentSessionEventDto {

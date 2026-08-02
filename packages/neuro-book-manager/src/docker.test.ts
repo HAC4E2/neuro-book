@@ -5,7 +5,20 @@ import {join} from "node:path";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {parse} from "yaml";
 
-import {inspectDockerApplication, resolveContainerEngine, runDockerApplicationCommand, stopDocker, writeDockerCompose} from "#manager/docker";
+import {
+    buildSourceDockerImage,
+    inspectDockerApplication,
+    resolveContainerEngine,
+    runDockerApplicationCommand,
+    startDocker,
+    stopDocker,
+    stopDockerContainer,
+    writeDockerCompose,
+    verifyContainerProductImage,
+    verifyRunningDockerApplication,
+    type VerifiedContainerImage,
+} from "#manager/docker";
+import type {ContainerEngine, ProductComponent} from "#manager/types";
 
 const processCommands = vi.hoisted(() => ({
     available: vi.fn(),
@@ -60,33 +73,47 @@ describe("Docker Compose部署合同", () => {
     it("POSIX容器使用当前用户写入State Root", async () => {
         const root = await mkdtemp(join(tmpdir(), "nbook-compose-"));
         roots.push(root);
-        const output = await writeDockerCompose({engine: "docker", root, stateRoot: root, profile: "source-docker", image: "neuro-book:test", port: 3000});
-        const compose = parse(await readFile(output, "utf8")) as {services: {app: {user?: string; volumes: string[]}}};
+        const output = await writeDockerCompose({engine: "docker", root, stateRoot: root, cacheRoot: join(root, ".cache"), profile: "source-docker", image: "neuro-book:test", port: 3000});
+        const compose = parse(await readFile(output, "utf8")) as {services: {app: {user?: string; volumes: string[]; environment: Record<string, string>}}};
         if (process.platform === "win32") expect(compose.services.app.user).toBeUndefined();
         else expect(compose.services.app.user).toBe(`${process.getuid?.()}:${process.getgid?.()}`);
         expect(compose.services.app.volumes).toContain("../.env:/app/.env");
+        expect(compose.services.app.volumes).toContain("../tool-state:/app/tool-state");
+        expect(compose.services.app.volumes).toContain("../.cache:/app/cache");
+        expect(compose.services.app.environment).toMatchObject({
+            NEURO_BOOK_APPLICATION_ROOT: "/app",
+            NEURO_BOOK_CACHE_ROOT: "/app/cache",
+            LLMLINT_HOME: "/app/tool-state/llmlint",
+            LLMLINT_CACHE_DIR: "/app/cache/llmlint",
+            BUN_INSTALL_CACHE_DIR: "/app/cache/bun/install",
+        });
     });
 
     it("rootless Podman不重复注入宿主UID", async () => {
         processCommands.capture.mockResolvedValue("true\n");
         const root = await mkdtemp(join(tmpdir(), "nbook-compose-podman-"));
         roots.push(root);
-        const output = await writeDockerCompose({engine: "podman", root, stateRoot: root, profile: "source-docker", image: "neuro-book:test", port: 3000});
+        const output = await writeDockerCompose({engine: "podman", root, stateRoot: root, cacheRoot: join(root, ".cache"), profile: "source-docker", image: "neuro-book:test", port: 3000});
         const compose = parse(await readFile(output, "utf8")) as {services: {app: {user?: string}}};
         expect(compose.services.app.user).toBeUndefined();
     });
 
     it("一次性应用命令覆盖Product ENTRYPOINT并保留参数边界", async () => {
         processCommands.capture.mockResolvedValue("migration-report");
-        const root = "/tmp/neuro-book";
-        const stateRoot = "/tmp/neuro-book-state";
+        const root = await mkdtemp(join(tmpdir(), "nbook-compose-command-"));
+        roots.push(root);
+        const stateRoot = root;
+        await writeDockerCompose({engine: "docker", root, stateRoot, cacheRoot: join(root, ".cache"), profile: "ghcr", image: verifiedImage("docker").configuredImage, port: 3000});
 
-        await expect(runDockerApplicationCommand("docker", root, stateRoot, [
+        await expect(runDockerApplicationCommand(verifiedImage("docker"), root, stateRoot, [
             "bun",
-            ".output/server/scripts/db/migrate-agent-attachments.ts",
-            "--dry-run",
+            "--no-install",
+            ".output/server/commands/product-command.mjs",
+            "command",
+            "migrate-application-state",
+            "--plan",
             "--run-id",
-            "operation-attachment",
+            "operation-state",
         ])).resolves.toBe("migration-report");
 
         expect(processCommands.capture).toHaveBeenCalledWith("docker", [
@@ -101,19 +128,24 @@ describe("Docker Compose部署合同", () => {
             "--entrypoint",
             "bun",
             "app",
-            ".output/server/scripts/db/migrate-agent-attachments.ts",
-            "--dry-run",
+            "--no-install",
+            ".output/server/commands/product-command.mjs",
+            "command",
+            "migrate-application-state",
+            "--plan",
             "--run-id",
-            "operation-attachment",
+            "operation-state",
         ], {cwd: root});
     });
 
     it("Podman Compose固定使用podman-compose provider", async () => {
         processCommands.capture.mockResolvedValue("migration-report");
-        const root = "/tmp/neuro-book";
-        const stateRoot = "/tmp/neuro-book-state";
+        const root = await mkdtemp(join(tmpdir(), "nbook-compose-command-podman-"));
+        roots.push(root);
+        const stateRoot = root;
+        await writeDockerCompose({engine: "podman", root, stateRoot, cacheRoot: join(root, ".cache"), profile: "ghcr", image: verifiedImage("podman").configuredImage, port: 3000});
 
-        await runDockerApplicationCommand("podman", root, stateRoot, ["bun", "migration.ts"]);
+        await runDockerApplicationCommand(verifiedImage("podman"), root, stateRoot, ["bun", "migration.ts"]);
 
         expect(processCommands.capture).toHaveBeenCalledWith("podman", [
             "compose",
@@ -179,17 +211,14 @@ describe("Docker Compose部署合同", () => {
             engine: "docker",
             root,
             stateRoot: root,
+            cacheRoot: join(root, ".cache"),
             profile: "ghcr",
             image: "ghcr.io/notnotype/neuro-book:test",
             port: 3000,
         });
         processCommands.capture.mockImplementation(async (_command: string, args: string[]) => {
             if (args.includes("ps")) return `${containerId}\n`;
-            const format = args[2];
-            if (format === "{{.Config.Image}}") return "ghcr.io/notnotype/neuro-book:test\n";
-            if (format === "{{.State.Status}}") return "running\n";
-            if (format === "{{.State.ExitCode}}") return "0\n";
-            if (format?.includes("Health")) throw new Error("Podman无State.Health");
+            if (args[0] === "inspect") return containerInspect("running");
             throw new Error(`未预期命令：${args.join(" ")}`);
         });
 
@@ -198,6 +227,7 @@ describe("Docker Compose部署合同", () => {
                 configuredImage: "ghcr.io/notnotype/neuro-book:test",
                 containerId,
                 actualImage: "ghcr.io/notnotype/neuro-book:test",
+                containerImageId: `sha256:${"a".repeat(64)}`,
                 status: "running",
                 exitCode: 0,
             });
@@ -210,8 +240,254 @@ describe("Docker Compose部署合同", () => {
     });
 
     it("一次性应用命令拒绝空命令", async () => {
-        await expect(runDockerApplicationCommand("docker", "/tmp/neuro-book", "/tmp/neuro-book-state", []))
+        await expect(runDockerApplicationCommand(verifiedImage("docker"), "/tmp/neuro-book", "/tmp/neuro-book-state", []))
             .rejects.toThrow("Docker一次性应用命令不能为空");
         expect(processCommands.capture).not.toHaveBeenCalled();
     });
+
+    it("一次性应用命令在spawn前拒绝被改写的Compose image", async () => {
+        const root = await mkdtemp(join(tmpdir(), "nbook-compose-command-tampered-"));
+        roots.push(root);
+        await writeDockerCompose({
+            engine: "docker",
+            root,
+            stateRoot: root,
+            cacheRoot: join(root, ".cache"),
+            profile: "ghcr",
+            image: "ghcr.io/notnotype/neuro-book@sha256:" + "c".repeat(64),
+            port: 3000,
+        });
+
+        await expect(runDockerApplicationCommand(verifiedImage("docker"), root, root, ["bun", "command.mjs"]))
+            .rejects.toThrow("Compose image 与 verified identity 不一致");
+        expect(processCommands.capture).not.toHaveBeenCalled();
+    });
+
+    it("GHCR拒绝错误digest与错误repository", async () => {
+        const product = containerProduct({digest: `sha256:${"d".repeat(64)}`});
+        processCommands.capture.mockResolvedValueOnce(imageInspect({
+            digest: product.digest,
+            repoDigests: [`ghcr.io/other/neuro-book@${product.digest}`],
+        }));
+
+        await expect(verifyContainerProductImage("docker", "/tmp/neuro-book", "ghcr", product))
+            .rejects.toThrow("未证明目标 digest");
+
+        processCommands.capture.mockResolvedValueOnce(imageInspect({
+            digest: `sha256:${"e".repeat(64)}`,
+            repoDigests: [`ghcr.io/notnotype/neuro-book@sha256:${"e".repeat(64)}`],
+        }));
+        await expect(verifyContainerProductImage("docker", "/tmp/neuro-book", "ghcr", product))
+            .rejects.toThrow("未证明目标 digest");
+    });
+
+    it("GHCR接受同repository的精确digest并返回Engine image ID", async () => {
+        const product = containerProduct({digest: `sha256:${"d".repeat(64)}`});
+        processCommands.capture.mockResolvedValue(imageInspect({
+            digest: product.digest,
+            repoDigests: [`ghcr.io/notnotype/neuro-book@${product.digest}`],
+        }));
+
+        await expect(verifyContainerProductImage("podman", "/tmp/neuro-book", "ghcr", product))
+            .resolves.toMatchObject({
+                configuredImage: `ghcr.io/notnotype/neuro-book@${product.digest}`,
+                imageId: `sha256:${"a".repeat(64)}`,
+            });
+    });
+
+    it("Source Docker拒绝tag重绑与缺失镜像", async () => {
+        const product = containerProduct({
+            image: "neuro-book-source:test",
+            digest: undefined,
+            containerImageId: `sha256:${"b".repeat(64)}`,
+        });
+        processCommands.capture.mockResolvedValueOnce(imageInspect({revision: product.revision}));
+        await expect(verifyContainerProductImage("docker", "/tmp/neuro-book", "source-docker", product))
+            .rejects.toThrow("Source Docker tag 已重绑");
+
+        processCommands.capture.mockRejectedValueOnce(new Error("No such image"));
+        await expect(verifyContainerProductImage("docker", "/tmp/neuro-book", "source-docker", product))
+            .rejects.toThrow("No such image");
+        expect(processCommands.run).not.toHaveBeenCalledWith("docker", expect.arrayContaining(["pull"]), expect.anything());
+    });
+
+    it("compose exec前拒绝错误候选Container image ID", async () => {
+        const root = await mkdtemp(join(tmpdir(), "nbook-compose-exec-identity-"));
+        roots.push(root);
+        const verified = verifiedImage("docker");
+        await writeDockerCompose({engine: "docker", root, stateRoot: root, cacheRoot: join(root, ".cache"), profile: "ghcr", image: verified.configuredImage, port: 3000});
+        processCommands.capture.mockImplementation(async (_command: string, args: string[]) => {
+            if (args.includes("ps")) return `${"f".repeat(64)}\n`;
+            if (args[0] === "inspect") return containerInspect("running", undefined, `sha256:${"c".repeat(64)}`);
+            throw new Error(`未预期命令：${args.join(" ")}`);
+        });
+
+        await expect(verifyRunningDockerApplication(verified, root, root))
+            .rejects.toThrow("Container image ID 与 verified identity 不一致");
+    });
+
+    it("Source Docker把staged HEAD作为Product Runtime Image revision", async () => {
+        const sourceRoot = join(tmpdir(), "nbook-source-docker");
+        const revision = "a".repeat(40);
+        processCommands.capture.mockImplementation(async (_command: string, args: string[]) => {
+            if (args[0] === "rev-parse") return `${revision}\n`;
+            if (args[0] === "image" && args[1] === "inspect") {
+                return JSON.stringify([{
+                    Id: `sha256:${"a".repeat(64)}`,
+                    RepoDigests: [],
+                    Config: {Labels: {"org.opencontainers.image.revision": revision}},
+                }]);
+            }
+            throw new Error(`未预期命令：${args.join(" ")}`);
+        });
+
+        await expect(buildSourceDockerImage("docker", sourceRoot, "neuro-book-source:test"))
+            .resolves.toBe(`sha256:${"a".repeat(64)}`);
+
+        expect(processCommands.capture).toHaveBeenCalledWith("git", ["rev-parse", "--verify", "HEAD"], {cwd: sourceRoot});
+        expect(processCommands.run).toHaveBeenCalledWith("docker", [
+            "build",
+            "--file",
+            join(sourceRoot, "Dockerfile"),
+            "--build-arg",
+            `NEURO_BOOK_SOURCE_REVISION=${revision}`,
+            "--tag",
+            "neuro-book-source:test",
+            sourceRoot,
+        ], {cwd: sourceRoot});
+    });
+
+    it("Source Docker拒绝无法证明的staged revision", async () => {
+        processCommands.capture.mockResolvedValue("not-a-revision\n");
+
+        await expect(buildSourceDockerImage("podman", "/tmp/neuro-book", "neuro-book-source:test"))
+            .rejects.toThrow("无法读取有效revision");
+        expect(processCommands.run).not.toHaveBeenCalled();
+    });
+
+    it("已有running容器只验证版本，不发布候选也不执行Compose up", async () => {
+        const root = await mkdtemp(join(tmpdir(), "nbook-compose-owned-launch-"));
+        roots.push(root);
+        const containerId = "c".repeat(64);
+        await writeDockerCompose({
+            engine: "docker",
+            root,
+            stateRoot: root,
+            cacheRoot: join(root, ".cache"),
+            profile: "ghcr",
+            image: "ghcr.io/notnotype/neuro-book:test",
+            port: 3000,
+        });
+        processCommands.capture.mockImplementation(async (_command: string, args: string[]) => {
+            if (args.includes("ps")) return `${containerId}\n`;
+            if (args[0] === "inspect") return containerInspect("running", "healthy");
+            throw new Error(`未预期命令：${args.join(" ")}`);
+        });
+        const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+            ok: true,
+            json: async () => ({versionLabel: "v0.9.0"}),
+        } as Response);
+        const started: string[] = [];
+        const starting = vi.fn();
+        try {
+            await startDocker(verifiedImage("docker"), root, root, "ghcr", "0.9.0", starting, async (id) => {
+                started.push(id);
+            });
+        } finally {
+            fetchMock.mockRestore();
+        }
+
+        expect(starting).not.toHaveBeenCalled();
+        expect(started).toEqual([]);
+        expect(processCommands.run).not.toHaveBeenCalled();
+    });
+
+    it.each(["stopped", "missing"] as const)("%s容器启动后发布精确候选ID", async (previousState) => {
+        const root = await mkdtemp(join(tmpdir(), `nbook-compose-${previousState}-launch-`));
+        roots.push(root);
+        const containerId = "d".repeat(64);
+        await writeDockerCompose({
+            engine: "docker",
+            root,
+            stateRoot: root,
+            cacheRoot: join(root, ".cache"),
+            profile: "ghcr",
+            image: "ghcr.io/notnotype/neuro-book:test",
+            port: 3000,
+        });
+        let psCalls = 0;
+        processCommands.capture.mockImplementation(async (_command: string, args: string[]) => {
+            if (args.includes("ps")) {
+                psCalls += 1;
+                return previousState === "missing" && psCalls === 1 ? "" : `${containerId}\n`;
+            }
+            if (args[0] === "inspect") return containerInspect("exited");
+            throw new Error(`未预期命令：${args.join(" ")}`);
+        });
+        const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({versionLabel: "v0.9.0"}));
+        const checkpoints: string[] = [];
+        try {
+            await startDocker(
+                verifiedImage("docker"),
+                root,
+                root,
+                "ghcr",
+                "0.9.0",
+                async () => { checkpoints.push("starting"); },
+                async (id) => { checkpoints.push(`started:${id}`); },
+            );
+        } finally {
+            fetchMock.mockRestore();
+        }
+
+        expect(checkpoints).toEqual(["starting", `started:${containerId}`]);
+        expect(processCommands.run).toHaveBeenCalledWith("docker", expect.arrayContaining(["pull", "app"]), {cwd: root});
+        expect(processCommands.run).toHaveBeenCalledWith("docker", expect.arrayContaining(["up", "-d"]), {cwd: root});
+    });
 });
+
+/** Docker Adapter 单元测试使用的已验证镜像句柄。 */
+function verifiedImage(engine: ContainerEngine): VerifiedContainerImage {
+    return {
+        engine,
+        configuredImage: "ghcr.io/notnotype/neuro-book:test",
+        imageId: `sha256:${"a".repeat(64)}`,
+        profile: "ghcr",
+        revision: "b".repeat(40),
+    };
+}
+
+/** 生成 Docker/Podman 共用的原始 container inspect fixture。 */
+function containerInspect(status: string, health?: string, imageId = `sha256:${"a".repeat(64)}`): string {
+    return JSON.stringify([{
+        Image: imageId,
+        Config: {Image: "ghcr.io/notnotype/neuro-book:test"},
+        State: {
+            Status: status,
+            ExitCode: 0,
+            ...(health ? {Health: {Status: health}} : {}),
+        },
+    }]);
+}
+
+/** 建立容器Product fixture。 */
+function containerProduct(overrides: Partial<Extract<ProductComponent, {provider: "container"}>> = {}): Extract<ProductComponent, {provider: "container"}> {
+    return {
+        provider: "container",
+        version: "0.9.0",
+        revision: "b".repeat(40),
+        image: "ghcr.io/notnotype/neuro-book:test",
+        digest: `sha256:${"d".repeat(64)}`,
+        ...overrides,
+    };
+}
+
+/** 生成 Docker/Podman 共用的原始 image inspect fixture。 */
+function imageInspect(input: {digest?: string; repoDigests?: string[]; revision?: string} = {}): string {
+    return JSON.stringify([{
+        Id: `sha256:${"a".repeat(64)}`,
+        ...(input.digest ? {Digest: input.digest} : {}),
+        RepoDigests: input.repoDigests ?? [],
+        Config: {Labels: input.revision ? {"org.opencontainers.image.revision": input.revision} : {}},
+    }]);
+}

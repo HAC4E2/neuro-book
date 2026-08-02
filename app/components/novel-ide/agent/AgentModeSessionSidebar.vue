@@ -12,7 +12,7 @@ const props = defineProps<{
     loading: boolean;
     running: boolean;
     actionId: number | null;
-    workspaceKey: string;
+    sessionScopeKey: string;
     open: boolean;
     width: number;
 }>();
@@ -31,7 +31,7 @@ const pinnedSessionIds = ref<number[]>([]);
 const resizeHandleRef = ref<HTMLElement | null>(null);
 const {t} = useI18n();
 
-const storageKey = computed(() => `agent:pinned-sessions:${props.workspaceKey}`);
+const storageKey = computed(() => `agent:pinned-sessions:${props.sessionScopeKey}`);
 const pinnedSet = computed(() => new Set(pinnedSessionIds.value));
 const filteredSessions = computed(() => {
     const keyword = searchQuery.value.trim().toLowerCase();

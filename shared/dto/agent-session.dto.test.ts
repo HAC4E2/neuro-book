@@ -3,9 +3,39 @@ import {
     AgentInvokeRequestDtoSchema,
     AgentSessionAttachmentListQueryDtoSchema,
     AgentSessionAttachmentResolveRequestDtoSchema,
+    AgentSessionListQueryDtoSchema,
     AgentSessionQueryDtoSchema,
     ClientVariablePatchAckDtoSchema,
 } from "nbook/shared/dto/agent-session.dto";
+
+describe("AgentSessionListQueryDtoSchema", () => {
+    it("recovery=required 只允许与 scope=all 组合并保留分页参数", () => {
+        expect(AgentSessionListQueryDtoSchema.parse({
+            scope: "all",
+            recovery: "required",
+            offset: "20",
+            limit: "10",
+        })).toEqual({
+            scope: "all",
+            recovery: "required",
+            offset: 20,
+            limit: 10,
+        });
+
+        expect(AgentSessionListQueryDtoSchema.safeParse({
+            scope: "project",
+            projectRoot: "novel-a",
+            recovery: "required",
+        }).success).toBe(false);
+        expect(AgentSessionListQueryDtoSchema.safeParse({
+            scope: "workspace-root",
+            recovery: "required",
+        }).success).toBe(false);
+        expect(AgentSessionListQueryDtoSchema.safeParse({
+            recovery: "required",
+        }).success).toBe(false);
+    });
+});
 
 describe("AgentInvokeRequestDtoSchema", () => {
     it("要求 prompt、steer、followup 携带 message 或 input", () => {

@@ -1,9 +1,8 @@
 import {tracedCompleteSimple} from "nbook/server/agent/observability/traced-provider";
 import type {PiTraceBinding} from "nbook/server/agent/observability/traced-provider";
 import type {Models} from "@earendil-works/pi-ai";
+import {estimateStoredContextTokens, estimateStoredMessageTokens} from "nbook/server/agent/messages/stored-message-tokens";
 import {
-    estimateStoredContextTokens,
-    estimateStoredMessageTokens,
     type StoredMessageLike,
 } from "nbook/server/agent/messages/stored-message-presentation";
 import type {AgentMessage, AssistantMessage, JsonValue, Message, Model, ThinkingLevel, ToolResultMessage} from "nbook/server/agent/messages/types";
@@ -226,6 +225,29 @@ export function shouldCompactWithOptions(contextTokens: number, contextWindow: n
         return contextTokens / contextWindow >= options.triggerPercent;
     }
     return contextTokens > contextWindow - options.reserveTokens;
+}
+
+/**
+ * 把压缩策略折算成一个绝对 token 触发线，供上下文面板展示「离压缩还有多远」。
+ *
+ * 必须与 `shouldCompactWithOptions` 的判定顺序一致（tokens 优先、其次 percent、
+ * 最后 window - reserve），否则面板显示的线和真实触发时机会对不上。
+ * 关闭压缩、或按窗口推算却拿不到窗口时返回 null。
+ */
+export function resolveCompactionTriggerTokens(options: CompactionOptions, contextWindow: number | null): number | null {
+    if (!options.enabled) {
+        return null;
+    }
+    if (typeof options.triggerTokens === "number") {
+        return options.triggerTokens;
+    }
+    if (contextWindow === null) {
+        return null;
+    }
+    if (typeof options.triggerPercent === "number") {
+        return Math.floor(contextWindow * options.triggerPercent);
+    }
+    return contextWindow - options.reserveTokens;
 }
 
 /**

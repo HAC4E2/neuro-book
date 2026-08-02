@@ -54,6 +54,8 @@ export type AgentTraceRequestDto = {
     context?: unknown;
     /** 上下文分区归因；无 profile prepare 的调用（compaction / health-check）缺省。 */
     segments?: AgentTraceSegmentDto[];
+    /** 归因来源。缺省等同 full；legacy 表示分区由位置推断，HistorySet 与首轮提醒未分开。 */
+    attribution?: "full" | "legacy";
     /** 工具集指纹，用于跨请求检测工具变化导致的缓存断点前移。 */
     toolsHash?: string;
     /** provider 原生请求体；capturePayload 关闭或 faux provider 时缺省。任意 JSON，透传 JsonViewer。 */

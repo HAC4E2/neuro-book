@@ -35,7 +35,7 @@
   - `summarize` 命令：写 titleOwner=auto、清掉 `summarizer.state` 的 fingerprint/lastError，强制 `scheduleSessionSummarizer` 立即重跑，返回 started。
   - `writeInvokeTitle`：owner=user 时跳过 invoke 传入的 title。
   - `runSessionSummarizerJob`：读取 effective config，`agent.profiles[key].summarizer.enabled === false` 时直接跳过（配置优先于 profile 源码默认）。
-- `assets/workspace/.nbook/agent/profiles/builtin/summarizer.profile.tsx`：写回时读取 source 的 titleOwner，锁定时只写 `{summary}`；已重新编译并同步 user assets。
+- `assets/workspace/.nbook/agent/profiles/builtin/summarizer.profile.tsx`：只读取 source dialogue 并通过 `report_result` 返回结构化结果；source session 的 titleOwner 与写回统一由 Harness 处理。
 
 ### 配置
 
@@ -119,3 +119,11 @@ high effort code review 确认 10 个问题（9 CONFIRMED + 1 PLAUSIBLE），本
 - 该边界同时阻止调用者伪造 `sourceSessionId`，借 summarizer settle hook 跨 session 写标题或摘要。
 - 验证覆盖默认开关 resolver、普通 Profile 手动 summarize、interval、失败重试、leaf stale 重跑和标题所有权；摘要聚焦 7 tests、相关组合回归 11 files / 167 tests 与全仓 typecheck 通过。
 - 等 Task 94 会话收敛后确认 "Plan Mode exit preview" harness 测试恢复绿。
+
+## 2026-07-27：受管 Profile 写回漂移修复
+
+- 生产受管 `summarizer.profile.tsx` 曾残留 `write-source-summary` 的 `settleRun` hook，而 Harness 测试默认使用的内存 summarizer 没有该 hook，形成生产 Profile 与测试 Profile 漂移。
+- session 773 的两次失败均来自同一合同冲突：隐藏 summarizer invocation 实际属于 session 774，Profile hook 却在 `settleRun` 中直接写 session 773，因此被 `SessionWriteExecutor` 的 invocation ownership fence 正确拒绝。这不是偶发竞争，也不是门禁过严。
+- 修复删除受管 Profile 的跨 session hook 及其专用 helper/import；隐藏 run 只产出 `report_result`，`settleSessionSummarizerResult()` 成为 source session 标题、摘要、用户标题锁和 leaf-stale 判定的唯一写回入口。
+- ownership fence 保持不变，不为 summarizer 增加跨 session 例外。Harness 的正常写回、source leaf 运行中变化、用户手动标题锁三条用例均显式注册真实受管 Profile；正常写回用例同时断言 runtime 不含 `settleRun` hook，防止生产/测试再次漂移。
+- 已重编译 `summarizer` 并同步 bundled/user assets；上述 3 条真实 Profile 聚焦回归通过。

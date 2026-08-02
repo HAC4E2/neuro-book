@@ -29,7 +29,7 @@ features:
   - title: ✍️ A whole AI writing crew
     details: Not one chat box doing everything. leader plans and dispatches, writer writes prose, retrieval looks up your worldbuilding, researcher checks external sources — so numbers are not invented (the engine has them on the books) and facts are not guessed (it goes and checks). Discuss mode gives ideas without touching the manuscript; plan mode proposes first and executes only after you approve.
   - title: 🧹 Strip out the AI smell
-    details: Lint your prose the way eslint lints code. llmlint ships 340 rules covering filler words, mechanical transitions, formulaic parallelism, hollow summaries and other AI tells. Static rules scan a full manuscript in seconds, and mechanical issues can be fixed automatically. It works as a polishing skill inside the editor and as a standalone CLI.
+    details: Lint your prose the way eslint lints code. llmlint ships 360 rules covering filler words, mechanical transitions, formulaic parallelism, hollow summaries and other AI tells. Static rules scan a full manuscript in seconds, and mechanical issues can be fixed automatically. It works as a polishing skill inside the editor and as a standalone CLI.
   - title: 🧭 An assistant that has read the manual
     details: You do not have to master a complex tool. The built-in assistant has read the entire documentation set — ask it "what should I do first on a new book" or "how do I register a setup" and it will teach you, or just do it for you. The only skill required is typing.
   - title: 💻 Runs on your own machine

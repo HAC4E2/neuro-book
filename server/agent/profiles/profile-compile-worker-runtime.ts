@@ -318,7 +318,7 @@ function lifecycleErrorResult(error: ProjectNotOpenError, startedAt: number): Pr
         issues: [],
         lifecycleError: {
             code: "PROJECT_NOT_OPEN",
-            projectPath: error.projectPath,
+            projectRoot: error.projectRoot,
         },
         elapsedMs: Math.round((performance.now() - startedAt) * 100) / 100,
     };

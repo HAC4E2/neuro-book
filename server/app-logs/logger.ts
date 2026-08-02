@@ -39,11 +39,15 @@ type AppFileLoggerOptions = {
     env?: NodeJS.ProcessEnv;
     maxFileBytes?: number;
     retention?: number;
+    maxAgeMs?: number;
+    maxTotalBytes?: number;
     now?: () => Date;
 };
 
 const DEFAULT_MAX_FILE_BYTES = 10 * 1024 * 1024;
 const DEFAULT_RETENTION = 8;
+const DEFAULT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+const DEFAULT_MAX_TOTAL_BYTES = 80 * 1024 * 1024;
 const CURRENT_SERVER_LOG_NAME = "server-current.jsonl";
 const REDACTED = "[REDACTED]";
 const MAX_STRING_LENGTH = 4000;
@@ -51,7 +55,7 @@ const MAX_ERROR_STACK_LENGTH = 12000;
 const MAX_ARRAY_ITEMS = 50;
 const MAX_OBJECT_KEYS = 80;
 const MAX_DEPTH = 6;
-const SENSITIVE_KEY_PATTERN = /(authorization|cookie|set-cookie|api[-_]?key|apikey|password|token|secret|credential)/iu;
+const SENSITIVE_KEY_PATTERN = /(authorization|cookie|set-cookie|api[-_]?key|apikey|password|token|secret|credential|device[-_]?code|grant|recovery[-_]?code|backup[-_]?key|backup[-_]?keyring)/iu;
 
 /**
  * 解析运行时日志目录。Windows portable 会通过环境变量显式指向 data/logs。
@@ -153,13 +157,18 @@ export class AppFileLogger {
     private readonly directory: string;
     private readonly maxFileBytes: number;
     private readonly retention: number;
+    private readonly maxAgeMs: number;
+    private readonly maxTotalBytes: number;
     private readonly now: () => Date;
     private queue: Promise<void> = Promise.resolve();
+    private initialPruneComplete = false;
 
     constructor(options: AppFileLoggerOptions = {}) {
         this.directory = resolveAppLogDirectory(options);
         this.maxFileBytes = options.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES;
         this.retention = options.retention ?? DEFAULT_RETENTION;
+        this.maxAgeMs = options.maxAgeMs ?? DEFAULT_MAX_AGE_MS;
+        this.maxTotalBytes = options.maxTotalBytes ?? DEFAULT_MAX_TOTAL_BYTES;
         this.now = options.now ?? (() => new Date());
     }
 
@@ -247,13 +256,37 @@ export class AppFileLogger {
 
     private async appendLine(line: string): Promise<void> {
         await fs.mkdir(this.directory, {recursive: true});
-        await this.rotateIfNeeded(Buffer.byteLength(line, "utf8"));
+        const nextBytes = Buffer.byteLength(line, "utf8");
+        if (!this.initialPruneComplete) {
+            const currentBytes = await currentLogBytes(this.currentFilePath);
+            await pruneAppLogFiles(
+                this.directory,
+                this.retention - 1,
+                this.maxTotalBytes - currentBytes - nextBytes,
+                this.now().getTime() - this.maxAgeMs,
+                this.currentFilePath,
+            );
+            this.initialPruneComplete = true;
+        }
+        await this.rotateIfNeeded(nextBytes);
         await fs.appendFile(this.currentFilePath, line, "utf8");
     }
 
     private appendLineSync(line: string): void {
         fsSync.mkdirSync(this.directory, {recursive: true});
-        this.rotateIfNeededSync(Buffer.byteLength(line, "utf8"));
+        const nextBytes = Buffer.byteLength(line, "utf8");
+        if (!this.initialPruneComplete) {
+            const currentBytes = currentLogBytesSync(this.currentFilePath);
+            pruneAppLogFilesSync(
+                this.directory,
+                this.retention - 1,
+                this.maxTotalBytes - currentBytes - nextBytes,
+                this.now().getTime() - this.maxAgeMs,
+                this.currentFilePath,
+            );
+            this.initialPruneComplete = true;
+        }
+        this.rotateIfNeededSync(nextBytes);
         fsSync.appendFileSync(this.currentFilePath, line, "utf8");
     }
 
@@ -274,7 +307,13 @@ export class AppFileLogger {
                 throw error;
             }
         });
-        await pruneAppLogFiles(this.directory, this.retention - 1);
+        await pruneAppLogFiles(
+            this.directory,
+            this.retention - 1,
+            this.maxTotalBytes - nextBytes,
+            this.now().getTime() - this.maxAgeMs,
+            this.currentFilePath,
+        );
     }
 
     private rotateIfNeededSync(nextBytes: number): void {
@@ -299,38 +338,91 @@ export class AppFileLogger {
                 throw error;
             }
         }
-        pruneAppLogFilesSync(this.directory, this.retention - 1);
+        pruneAppLogFilesSync(
+            this.directory,
+            this.retention - 1,
+            this.maxTotalBytes - nextBytes,
+            this.now().getTime() - this.maxAgeMs,
+            this.currentFilePath,
+        );
     }
 }
 
 export const appLogger = new AppFileLogger();
 
 /**
- * 删除超过保留数量的 server 日志文件。
+ * 回收非 current 的 server / launcher 日志，同时满足文件数、总字节与保留期预算。
  */
-async function pruneAppLogFiles(directory: string, retention: number): Promise<void> {
-    const files = (await listAppLogFiles(directory))
-        .filter((file) => file.name === CURRENT_SERVER_LOG_NAME || file.name.startsWith("server-"));
-    for (const file of files.slice(Math.max(0, retention))) {
-        await fs.rm(file.path, {force: true});
+async function pruneAppLogFiles(
+    directory: string,
+    historicalRetention: number,
+    historicalByteBudget: number,
+    oldestMtimeMs: number,
+    protectedPath: string,
+): Promise<void> {
+    const files = (await listAppLogFiles(directory)).filter((file) => file.path !== protectedPath);
+    let keptFiles = 0;
+    let keptBytes = 0;
+    for (const file of files) {
+        const exceedsBudget = keptFiles >= Math.max(0, historicalRetention)
+            || keptBytes + file.size > Math.max(0, historicalByteBudget);
+        if (exceedsBudget || file.mtimeMs < oldestMtimeMs) {
+            await fs.rm(file.path, {force: true});
+            continue;
+        }
+        keptFiles += 1;
+        keptBytes += file.size;
     }
 }
 
-function pruneAppLogFilesSync(directory: string, retention: number): void {
+function pruneAppLogFilesSync(
+    directory: string,
+    historicalRetention: number,
+    historicalByteBudget: number,
+    oldestMtimeMs: number,
+    protectedPath: string,
+): void {
     const files = fsSync.readdirSync(directory, {withFileTypes: true})
-        .filter((entry) => entry.isFile() && (entry.name === CURRENT_SERVER_LOG_NAME || entry.name.startsWith("server-")))
+        .filter((entry) => entry.isFile() && isAppLogFileName(entry.name))
         .map((entry) => {
             const filePath = path.join(directory, entry.name);
             const stat = fsSync.statSync(filePath);
             return {
                 path: filePath,
                 name: entry.name,
+                size: stat.size,
                 mtimeMs: stat.mtimeMs,
             };
         })
+        .filter((file) => file.path !== protectedPath)
         .sort((left, right) => right.mtimeMs - left.mtimeMs || left.name.localeCompare(right.name));
-    for (const file of files.slice(Math.max(0, retention))) {
-        fsSync.rmSync(file.path, {force: true});
+    let keptFiles = 0;
+    let keptBytes = 0;
+    for (const file of files) {
+        const exceedsBudget = keptFiles >= Math.max(0, historicalRetention)
+            || keptBytes + file.size > Math.max(0, historicalByteBudget);
+        if (exceedsBudget || file.mtimeMs < oldestMtimeMs) {
+            fsSync.rmSync(file.path, {force: true});
+            continue;
+        }
+        keptFiles += 1;
+        keptBytes += file.size;
+    }
+}
+
+async function currentLogBytes(filePath: string): Promise<number> {
+    return await fs.stat(filePath).then((stat) => stat.size).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return 0;
+        throw error;
+    });
+}
+
+function currentLogBytesSync(filePath: string): number {
+    try {
+        return fsSync.statSync(filePath).size;
+    } catch (error) {
+        if (isNodeErrorCode(error, "ENOENT")) return 0;
+        throw error;
     }
 }
 

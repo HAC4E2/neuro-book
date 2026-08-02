@@ -1,6 +1,6 @@
 import {appLogger} from "nbook/server/app-logs/logger";
 
-const SENSITIVE_QUERY_PATTERN = /(authorization|cookie|api[-_]?key|apikey|password|token|secret|credential)/iu;
+const SENSITIVE_QUERY_PATTERN = /(authorization|cookie|api[-_]?key|apikey|password|token|secret|credential|recovery[-_]?code|backup[-_]?key|backup[-_]?keyring)/iu;
 const STATIC_ASSET_PATTERN = /\.(?:css|js|mjs|map|png|jpg|jpeg|gif|webp|svg|ico|woff2?|ttf)$/iu;
 
 type QuerySummary = {

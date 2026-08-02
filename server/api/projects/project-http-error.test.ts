@@ -2,6 +2,7 @@ import {describe, expect, it} from "vitest";
 import {
     createProjectHttpError,
     throwProjectHttpError,
+    withProjectHttpError,
 } from "nbook/server/api/projects/project-http-error";
 import {
     ProjectLifecycleError,
@@ -188,5 +189,18 @@ describe("Project HTTP error mapper", () => {
             projectRoot: "alpha",
         })).toBeNull();
         expect(() => throwProjectHttpError(unknown)).toThrow(unknown);
+    });
+
+    it("canonical wrapper 映射 Project error 并保留未知错误", async () => {
+        await expect(withProjectHttpError(() => {
+            throw new ProjectNotOpenError("alpha");
+        })).rejects.toMatchObject({
+            statusCode: 409,
+            data: {code: "PROJECT_NOT_OPEN", projectRoot: "alpha"},
+        });
+        const unknown = new Error("unknown");
+        await expect(withProjectHttpError(() => {
+            throw unknown;
+        })).rejects.toBe(unknown);
     });
 });

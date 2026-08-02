@@ -49,7 +49,7 @@ import {TagIndexStore} from "nbook/server/text-to-image/tag-index/tag-index-stor
 import {TagPolicyRegistryService} from "nbook/server/text-to-image/tag-index/tag-policy-registry";
 import {TagResolverService} from "nbook/server/text-to-image/tag-index/tag-resolver.service";
 import {assertProjectOpen} from "nbook/server/workspace-files/project-session";
-import {resolveWorkspaceRootInput} from "nbook/server/text-to-image/compat";
+import {resolveWorkspaceRootInput, textToImageProjectRef} from "nbook/server/text-to-image/compat";
 import {readWorkspaceTextFile, scanWorkspaceTree} from "nbook/server/workspace-files/workspace-files";
 
 const StyleChannelSchema = z.enum(["positivePrefix", "positiveSuffix", "negativePrefix", "negativeSuffix"]);
@@ -228,7 +228,7 @@ function createProductionDependencies(): IllustrationExecutionCompilerDependenci
 async function readPublishedTarget(input: {projectPath: string; placeholderId: string}): Promise<IllustrationExecutionTargetSnapshot> {
     const projectPath = z.string().trim().min(1).max(1_000).parse(input.projectPath);
     const placeholderId = z.string().trim().min(1).max(200).parse(input.placeholderId);
-    assertProjectOpen(projectPath);
+    assertProjectOpen(textToImageProjectRef(projectPath));
     const root = z.string().min(1).parse(await resolveWorkspaceRootInput({projectPath}));
     const client = await textToImageProjectClient(projectPath);
     const [metadata, nodes] = await Promise.all([

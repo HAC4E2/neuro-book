@@ -6,6 +6,7 @@ import {fileURLToPath} from "node:url";
 
 import {Command} from "commander";
 
+import {createReleaseCandidate} from "nbook/scripts/release/release-candidate";
 import {run, runCapture} from "nbook/scripts/utils/process.mjs";
 
 type CommonOptions = {
@@ -22,7 +23,6 @@ type PrereleaseOptions = CommonOptions & {
     allowDirty: boolean;
     channel?: PrereleaseChannel;
     currentPatch: boolean;
-    draft: boolean;
     next?: ReleaseIncrement;
     sequence?: string;
     tag?: string;
@@ -33,7 +33,6 @@ type PrereleaseOptions = CommonOptions & {
 type ReleaseIncrement = "major" | "minor" | "patch";
 
 type StableOptions = CommonOptions & {
-    draft: boolean;
     next?: ReleaseIncrement;
     version?: string;
 };
@@ -95,9 +94,8 @@ function addStableCommand(program: Command): void {
         .description("Create a stable NeuroBook release.")
         .option("--version <version>", "正式版本号，例如 0.1.3 或 v0.1.3。")
         .option("--next <part>", "自动增长正式版本：patch、minor、major。", parseReleaseIncrement)
-        .option("--draft", "创建 draft release。draft 不会等待 release workflow。", false)
         .option("--dry-run", "只打印将执行的命令，不写文件、不提交、不创建 release。", false)
-        .option("--push", "发布前推送当前分支和 tag。", false)
+        .option("--push", "发布前推送包含版本号的当前分支。", false)
         .option("--repo <repo>", "GitHub repository，例如 owner/name。", process.env.GITHUB_REPOSITORY ?? DEFAULT_REPO)
         .option("--watch", "等待 release workflow 完成。", true)
         .option("--no-watch", "创建 release 后不等待 release workflow。")
@@ -112,7 +110,6 @@ function addPrereleaseCommand(program: Command): void {
         .description("Create a NeuroBook SemVer prerelease.")
         .option("--allow-dirty", "允许 tracked worktree 不干净。真实发布通常不建议使用。", false)
         .option("--channel <channel>", "先行版本标识符：canary、alpha、beta、rc。", parsePrereleaseChannel, "canary")
-        .option("--draft", "创建 draft release。draft 不会等待 release workflow。", false)
         .option("--dry-run", "只打印将执行的 gh release create 命令。", false)
         .option("--current-patch", "基于当前 package patch 生成 prerelease；默认使用下一 patch。通常只用于补发当前版本线。", false)
         .option("--next <part>", "自动增长 prerelease 基础版本：patch、minor、major。默认等同 patch。", parseReleaseIncrement)
@@ -134,7 +131,6 @@ function addPrereleaseAliasCommand(program: Command, channel: PrereleaseChannel)
         .command(channel)
         .description(`Create a NeuroBook ${channel} prerelease.`)
         .option("--allow-dirty", "允许 tracked worktree 不干净。真实发布通常不建议使用。", false)
-        .option("--draft", "创建 draft release。draft 不会等待 release workflow。", false)
         .option("--dry-run", "只打印将执行的 gh release create 命令。", false)
         .option("--current-patch", "基于当前 package patch 生成 prerelease；默认使用下一 patch。通常只用于补发当前版本线。", false)
         .option("--next <part>", "自动增长 prerelease 基础版本：patch、minor、major。默认等同 patch。", parseReleaseIncrement)
@@ -177,7 +173,7 @@ async function runStable(options: StableOptions): Promise<void> {
         throw new Error("即将创建远端 stable release。确认执行请加 --yes；预览请加 --dry-run。");
     }
     if (!options.push) {
-        throw new Error("stable release 需要 --push，确保 release commit 和 tag 都先到远端后再创建 GitHub Release。");
+        throw new Error("stable release 需要 --push，确保 release commit 先到远端后再创建 Draft Candidate。");
     }
 
     await assertGhAvailable();
@@ -193,20 +189,25 @@ async function runStable(options: StableOptions): Promise<void> {
     }
 
     const releaseHead = await currentHead();
-    await run("git", ["tag", tag], {cwd: REPO_ROOT});
-
     await pushCurrentHead(branch);
-    await run("git", ["push", "origin", tag], {cwd: REPO_ROOT});
 
     const ghArgs = stableReleaseArgs({
-        draft: options.draft,
         repo: options.repo,
         tag,
+        target: releaseHead,
     });
-    await run("gh", ghArgs, {cwd: REPO_ROOT});
-    console.log(`Created stable release: ${tag}`);
+    const candidate = await createReleaseCandidate({
+        createArgs: ghArgs,
+        dispatchRef: branch,
+        prerelease: false,
+        repo: options.repo,
+        revision: releaseHead,
+        tag,
+        workflow: RELEASE_WORKFLOW,
+    });
+    console.log(`Created stable Draft candidate: ${tag} (${candidate.url})`);
 
-    if (options.watch && !options.draft) {
+    if (options.watch) {
         await watchReleaseWorkflow({head: releaseHead, repo: options.repo, tag});
     }
 }
@@ -244,7 +245,6 @@ async function runPrerelease(options: PrereleaseOptions): Promise<void> {
             packageVersion: tagPlan.packageVersion,
         }, options.repo);
         const ghArgs = prereleaseArgs({
-            draft: options.draft,
             notes,
             repo: options.repo,
             tag,
@@ -297,17 +297,24 @@ async function runPrerelease(options: PrereleaseOptions): Promise<void> {
         packageVersion: tagPlan.packageVersion,
     }, options.repo);
     const ghArgs = prereleaseArgs({
-        draft: options.draft,
         notes,
         repo: options.repo,
         tag,
         target: releaseHead,
     });
 
-    await run("gh", ghArgs, {cwd: REPO_ROOT});
-    console.log(`Created ${channel} prerelease: ${tag}`);
+    const candidate = await createReleaseCandidate({
+        createArgs: ghArgs,
+        dispatchRef: branch,
+        prerelease: true,
+        repo: options.repo,
+        revision: releaseHead,
+        tag,
+        workflow: RELEASE_WORKFLOW,
+    });
+    console.log(`Created ${channel} Draft candidate: ${tag} (${candidate.url})`);
 
-    if (options.watch && !options.draft) {
+    if (options.watch) {
         await watchReleaseWorkflow({head: releaseHead, repo: options.repo, tag});
     }
 }
@@ -341,19 +348,18 @@ async function printStableDryRun(input: {
     } else {
         console.log("note: package.json.version 已是目标版本，不会创建版本 bump commit。");
     }
-    console.log(`command: git tag ${input.tag}`);
     if (input.options.push) {
         console.log(`command: git push origin HEAD:${input.branch}`);
-        console.log(`command: git push origin ${input.tag}`);
     } else {
-        console.log("warning: 未传 --push；真实 stable release 会提前停止，避免留下未推送 tag。");
+        console.log("warning: 未传 --push；真实 stable release 会提前停止，避免 Candidate 指向未推送提交。");
     }
     console.log(`command: gh ${stableReleaseArgs({
-        draft: input.options.draft,
         repo: input.options.repo,
         tag: input.tag,
+        target: releaseHead,
     }).map(shellQuote).join(" ")}`);
-    if (input.options.watch && !input.options.draft) {
+    console.log(`command: gh workflow run ${RELEASE_WORKFLOW} --repo ${input.options.repo} --ref ${input.branch} --field release_id=<draft-release-id> --field tag=${input.tag} --field revision=${releaseHead} --field prerelease=false`);
+    if (input.options.watch) {
         console.log(`command: gh run watch <release-workflow-run-id> --repo ${input.options.repo} --exit-status`);
     }
     console.log(`target: ${releaseHead}`);
@@ -399,6 +405,7 @@ async function printCanaryDryRun(input: {
         console.log("note: dry-run 未检查 HEAD 是否已推送；真实 release 会检查，或可加 --push。");
     }
     console.log(`command: gh ${input.ghArgs.map(shellQuote).join(" ")}`);
+    console.log(`command: gh workflow run ${RELEASE_WORKFLOW} --repo ${input.options.repo} --ref ${input.branch} --field release_id=<draft-release-id> --field tag=${input.tag} --field revision=${input.target} --field prerelease=true`);
 }
 
 /** dry-run 模式下尽量提示已有 release/tag，但不让远端检查阻断预览。 */
@@ -804,27 +811,25 @@ async function prereleaseNotes(input: ReleaseNotesInput, repo: string): Promise<
 }
 
 /** 组装正式版 release 命令。 */
-function stableReleaseArgs(input: {draft: boolean; repo: string; tag: string}): string[] {
-    const args = [
+function stableReleaseArgs(input: {repo: string; tag: string; target: string}): string[] {
+    return [
         "release",
         "create",
         input.tag,
         "--repo",
         input.repo,
-        "--verify-tag",
+        "--target",
+        input.target,
         "--title",
         `NeuroBook ${input.tag}`,
         "--generate-notes",
+        "--draft",
     ];
-    if (input.draft) {
-        args.push("--draft");
-    }
-    return args;
 }
 
 /** 组装 prerelease release 命令。 */
-function prereleaseArgs(input: {draft: boolean; notes: string; repo: string; tag: string; target: string}): string[] {
-    const args = [
+function prereleaseArgs(input: {notes: string; repo: string; tag: string; target: string}): string[] {
+    return [
         "release",
         "create",
         input.tag,
@@ -837,11 +842,8 @@ function prereleaseArgs(input: {draft: boolean; notes: string; repo: string; tag
         "--notes",
         input.notes,
         "--prerelease",
+        "--draft",
     ];
-    if (input.draft) {
-        args.push("--draft");
-    }
-    return args;
 }
 
 /** 等待 GitHub release workflow 完成。 */
@@ -853,7 +855,7 @@ async function watchReleaseWorkflow({head, repo, tag}: {head: string; repo: stri
     await run("gh", ["run", "watch", runId, "--repo", repo, "--exit-status"], {cwd: REPO_ROOT});
 }
 
-/** 轮询查找 release 事件触发出的 workflow run。 */
+/** 轮询查找 Candidate 显式 dispatch 的 workflow run。 */
 async function findWorkflowRun({head, repo, tag}: {head: string; repo: string; tag: string}): Promise<string | null> {
     for (let attempt = 0; attempt < 18; attempt += 1) {
         const output = await runCapture("gh", [
@@ -864,14 +866,14 @@ async function findWorkflowRun({head, repo, tag}: {head: string; repo: string; t
             "--workflow",
             RELEASE_WORKFLOW,
             "--event",
-            "release",
+            "workflow_dispatch",
             "--limit",
             "10",
             "--json",
             "databaseId,headSha,displayTitle,status,createdAt",
         ], {cwd: REPO_ROOT});
         const runs = JSON.parse(output) as WorkflowRun[];
-        const match = runs.find((item) => item.headSha === head || item.displayTitle?.includes(tag));
+        const match = runs.find((item) => item.headSha === head && item.displayTitle?.includes(tag));
         if (match?.databaseId) {
             return String(match.databaseId);
         }

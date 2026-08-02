@@ -15,10 +15,8 @@ describe("run frame state", () => {
         const frame = createRunFrame({
             invocationId: "invoke-1",
             sessionId: 1,
-            workspaceKey: "global",
-            workspaceRootRef: "workspace",
-            workspaceFsRoot: absoluteFsPath(process.cwd()),
-            projectPath: "project",
+            workspaceRoot: absoluteFsPath(process.cwd()),
+            currentProject: null,
             systemPrompt: "system",
             messages,
             models: {} as RunFrame["models"],
@@ -40,12 +38,9 @@ describe("run frame state", () => {
 
         expect(frame).toMatchObject({
             invocationId: "invoke-1",
-            executionLeaseRequired: false,
             sessionId: 1,
-            workspaceKey: "global",
-            workspaceRootRef: "workspace",
-            workspaceFsRoot: absoluteFsPath(process.cwd()),
-            projectPath: "project",
+            workspaceRoot: absoluteFsPath(process.cwd()),
+            currentProject: null,
             systemPrompt: "system",
             apiKey: "key",
             timeoutMs: 1000,
@@ -157,11 +152,9 @@ describe("run frame state", () => {
 
 function fakeFrame(): RunFrame {
     return {
-        executionLeaseRequired: false,
         sessionId: 1,
-        workspaceKey: "global",
-        workspaceRootRef: "workspace",
-        workspaceFsRoot: absoluteFsPath(process.cwd()),
+        workspaceRoot: absoluteFsPath(process.cwd()),
+        currentProject: null,
         systemPrompt: "",
         models: {} as RunFrame["models"],
         model: {} as RunFrame["model"],

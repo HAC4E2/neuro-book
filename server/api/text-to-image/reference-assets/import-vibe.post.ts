@@ -5,7 +5,7 @@ import {VibeImportService} from "nbook/server/text-to-image/vibe-import.service"
 import {throwReferenceAssetHttpError} from "nbook/server/text-to-image/reference-asset-http-error";
 import {readBoundedFileMultipart} from "nbook/server/utils/bounded-file-multipart";
 import {requireCurrentUser} from "nbook/server/utils/auth";
-import {withProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
+import {withProjectHttpError} from "nbook/server/api/projects/project-http-error";
 
 const MULTIPART_OVERHEAD_BYTES = 1024 * 1024;
 
@@ -14,7 +14,7 @@ const ImportQuerySchema = z.object({
 }).strict();
 
 /** 上传并严格解析 `.vibe` / `.naiv4vibe` 容器，all-or-nothing 导入到当前 Project。 */
-export default defineEventHandler((event) => withProjectNotOpenHttpError(async () => {
+export default defineEventHandler((event) => withProjectHttpError(async () => {
     await requireCurrentUser(event);
     const parsed = ImportQuerySchema.safeParse(getQuery(event));
     if (!parsed.success) {

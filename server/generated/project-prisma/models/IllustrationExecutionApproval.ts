@@ -239,7 +239,7 @@ export type IllustrationExecutionApprovalGroupByOutputType = {
   _max: IllustrationExecutionApprovalMaxAggregateOutputType | null
 }
 
-type GetIllustrationExecutionApprovalGroupByPayload<T extends IllustrationExecutionApprovalGroupByArgs> = Prisma.PrismaPromise<
+export type GetIllustrationExecutionApprovalGroupByPayload<T extends IllustrationExecutionApprovalGroupByArgs> = Prisma.PrismaPromise<
   Array<
     Prisma.PickEnumerable<IllustrationExecutionApprovalGroupByOutputType, T['by']> &
       {
@@ -1358,6 +1358,11 @@ export type IllustrationExecutionApprovalFindManyArgs<ExtArgs extends runtime.Ty
    * Skip the first `n` IllustrationExecutionApprovals.
    */
   skip?: number
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+   * 
+   * Filter by unique combinations of IllustrationExecutionApprovals.
+   */
   distinct?: Prisma.IllustrationExecutionApprovalScalarFieldEnum | Prisma.IllustrationExecutionApprovalScalarFieldEnum[]
 }
 

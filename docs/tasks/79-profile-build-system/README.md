@@ -1,5 +1,7 @@
 # Profile Build System 底层重构
 
+> 2026-07-31 authoring/CLI 所有权补充：本任务冻结的 Profile artifact/Publisher 合同继续有效；作者 import 面与命令交付路径由 Task 130 进一步收窄。作者使用 `nbook/profile-sdk`；需要文风/参考预设能力时可显式使用正式 `nbook/profile-sdk/writing` 子入口。Agent 稳定入口为 `.nbook/agent/bin/profile`；Source checkout wrapper 调 Product-owned source entry，发行物通过 Product Runtime Contract 解析 `profile` 逻辑命令。下属 walkthrough 中项目根 build script、asset script 或 `.output/server/scripts/**` 路径均是历史证据，不是 fallback。
+
 > Active task。每一轮探索/设计记录在 `walkthroughs/`。本 README 是任务契约 + 索引 + 最终架构落点。
 >
 > **当前状态**：设计已定稿、全部决策锁定，Phase 0–3 已实现并完成 round-14 final guard + test isolation 收口；一次性贯通 Phase 0–3 的自包含执行契约见 [IMPLEMENTATION-GOAL.md](IMPLEMENTATION-GOAL.md)。

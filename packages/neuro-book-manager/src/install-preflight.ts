@@ -156,6 +156,9 @@ export async function inspectInstallPreflight(
     } else {
         try {
             release = await resolveReleaseManifest(input.channel, input.version, input.releaseManifest);
+            if (release.stateMigration.policy === "manual") {
+                throw new Error(`该版本需要先按迁移说明人工处理状态数据：${release.stateMigration.guide}`);
+            }
         } catch (error) {
             blockers.push(issue("release.resolve", error, "确认Release已完成发布、网络可用且Manifest/资产checksum有效。"));
         }

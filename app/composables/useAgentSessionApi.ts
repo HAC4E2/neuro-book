@@ -1,10 +1,19 @@
 import {readSseStream} from "nbook/app/utils/http/read-sse";
 import type {
+    AgentComposerDraftIdentity,
+    AgentComposerDraftLoadResult,
+    AgentComposerDraftMigrationRequest,
+    AgentComposerDraftMigrationResult,
+    AgentComposerDraftSaveRequest,
+    AgentComposerDraftSaveResult,
+} from "nbook/shared/dto/agent-composer-draft.dto";
+import type {
     AgentAbortRequestDto,
     AgentAbortResult,
     AgentCommandResult,
     AgentCommandRequestDto,
     AgentCreateSessionRequestDto,
+    AgentCurrentProjectRequestDto,
     AgentInvokeRequestDto,
     AgentSessionEventDto,
     AgentSessionEventsQueryDto,
@@ -30,6 +39,26 @@ import type {
  * Agent session HTTP API。新前端只使用 /api/agent/sessions/**。
  */
 export function useAgentSessionApi() {
+    /** 读取 Workspace Root `.nbook` 中的 Composer 草稿。 */
+    const getComposerDraft = (identity: AgentComposerDraftIdentity) => {
+        return $fetch<AgentComposerDraftLoadResult>("/api/agent/composer-drafts", {query: identity});
+    };
+
+    /** 保存 Composer 草稿；服务端重新执行字节预算和图片安全校验。 */
+    const saveComposerDraft = (body: AgentComposerDraftSaveRequest) => {
+        return $fetch<AgentComposerDraftSaveResult>("/api/agent/composer-drafts", {method: "PUT", body});
+    };
+
+    /** accepted 后删除磁盘草稿。 */
+    const clearComposerDraft = (body: AgentComposerDraftIdentity) => {
+        return $fetch<{cleared: true}>("/api/agent/composer-drafts", {method: "DELETE", body});
+    };
+
+    /** 首次加载时批量迁移旧 WebView 草稿。 */
+    const migrateComposerDrafts = (body: AgentComposerDraftMigrationRequest) => {
+        return $fetch<AgentComposerDraftMigrationResult>("/api/agent/composer-drafts/migrate", {method: "POST", body});
+    };
+
     const listSessions = (query: AgentSessionListQueryDto = {}) => {
         return $fetch<AgentSessionListPageDto>("/api/agent/sessions", {
             query,
@@ -41,6 +70,14 @@ export function useAgentSessionApi() {
             method: "POST",
             body,
         });
+    };
+
+    /** 恢复迁移待确认 Session；null 明确表示 Workspace Root Session。 */
+    const updateSessionCurrentProject = (sessionId: number, body: AgentCurrentProjectRequestDto) => {
+        return $fetch<{sessionId: number; currentProjectRoot?: string}>(
+            "/api/agent/sessions/" + sessionId + "/current-project",
+            {method: "POST", body},
+        );
     };
 
     /** 获取打开/刷新/SSE recovery 所需的 shell 和最近 history 尾页。 */
@@ -169,7 +206,9 @@ export function useAgentSessionApi() {
     return {
         acknowledgeClientVariablePatch,
         abortSession,
+        clearComposerDraft,
         createSession,
+        getComposerDraft,
         getSessionHistory,
         getSessionAttachments,
         getSessionRecovery,
@@ -178,11 +217,14 @@ export function useAgentSessionApi() {
         getSessionUserContent,
         invokeSession,
         listSessions,
+        migrateComposerDrafts,
         moveTree,
         runCommand,
         resolveSessionAttachments,
+        saveComposerDraft,
         snapshotSessionAttachment,
         subscribeSessionEvents,
         uploadSessionAttachment,
+        updateSessionCurrentProject,
     };
 }

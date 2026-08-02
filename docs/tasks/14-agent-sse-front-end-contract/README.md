@@ -529,3 +529,11 @@ SSE 断线不是 run error，不应投影为聊天错误卡。短暂断线在 co
 - Task 22 原始预算现有直接回归：`session_state_changed < 50 KiB`、`agent_end < 5 KiB`；10 MiB tool result 只进入有界 preview。更通用的单事件 hard limit 仍为 128 KiB。
 
 因此前文关于 `session_state_changed.snapshot`、command/tree response snapshot 和 `applySnapshotOrSync()` 的描述仅是历史实现记录，不是当前接口契约。
+
+## Task 111 重连治理加固（2026-07-27）
+
+- Agent Session 改用共享 `SseReconnectBackoff`：`onOpen` 立即完成 ready 并显示 connected，但不清零内部失败序列。
+- 连接连续存活至少 5 秒后，下一次断线才从 300ms 重新开始；正常 EOF 与 rejection 都计入 `300/800/1500/3000/5000ms` 序列。
+- recovery 成功、手动重连、新 session target 和 stop 显式 reset；主动 abort 与旧代次不安排重连。
+- 该 Module 只共享退避，不改变 Session cursor、recovery single-flight 或 reducer 合同。
+- 短连接回归继续纳入 Task 111 三路 SSE 聚焦组合。2026-07-27 审查补漏后，17 文件组合实际为 129 项通过；旧 16 文件 / 111 项记录没有覆盖本轮 Project 通知周期与 dispose 场景，不再作为当前验证结论。

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 决策记录(StoryDecision)账本 tab:左列表 + 右 ADR 详情,与承诺账本 tab 并排接线(组件契约一致)。
 // 数据自加载:组件内部经 plot-planning-api 拉列表与详情,不从宿主传规划层数据;
-// 宿主只传 projectPath 与 chapters/threads/scenes(名称解析与编辑器选择器用),经 selectScene 事件跳回线程规划 tab。
+// 宿主只传 projectRoot 与 chapters/threads/scenes(名称解析与编辑器选择器用),经 selectScene 事件跳回线程规划 tab。
 // 生命周期动作:拍板(仅 open)/作废(强制填失效原因)/重开(decided|dropped)/物理删除(仅 UI/人工出口,93 D4)。
 import {computed, ref, watch} from "vue";
 import {storeToRefs} from "pinia";
@@ -44,7 +44,7 @@ import type {StoryActDto, StoryDecisionDto, StoryPromiseDto} from "nbook/shared/
 
 // 组件契约:与承诺账本 tab 完全一致,便于工作台并排接线。
 const props = defineProps<{
-    projectPath: string;
+    projectRoot: string;
     // 锚点 kind=act 下拉与卷名解析(承载树卷实体)。
     acts: StoryActDto[];
     // 期限章下拉与章名显示。
@@ -148,7 +148,7 @@ async function loadDecisions(): Promise<void> {
     loadingList.value = true;
     listError.value = "";
     try {
-        const response = await listStoryDecisions(props.projectPath);
+        const response = await listStoryDecisions(props.projectRoot);
         if (requestVersion !== listRequestVersion) {
             return;
         }
@@ -173,7 +173,7 @@ async function loadDecisions(): Promise<void> {
 async function loadPromises(): Promise<void> {
     const requestVersion = ++promiseRequestVersion;
     try {
-        const response = await listStoryPromises(props.projectPath);
+        const response = await listStoryPromises(props.projectRoot);
         if (requestVersion === promiseRequestVersion) {
             promises.value = response;
         }
@@ -188,7 +188,7 @@ async function loadDetail(decisionId: string): Promise<void> {
     loadingDetail.value = true;
     detailError.value = "";
     try {
-        const response = await getStoryDecision(props.projectPath, decisionId);
+        const response = await getStoryDecision(props.projectRoot, decisionId);
         if (requestVersion !== detailRequestVersion || selectedId.value !== decisionId) {
             return;
         }
@@ -266,11 +266,11 @@ async function handleEditorSave(payload: PlotDecisionEditorSave): Promise<void> 
             note: payload.note,
         };
         if (editorMode.value === "create") {
-            const created = await createStoryDecision(props.projectPath, baseBody);
+            const created = await createStoryDecision(props.projectRoot, baseBody);
             selectedId.value = created.id;
             detail.value = created;
         } else if (editingDecision.value) {
-            const updated = await updateStoryDecision(props.projectPath, editingDecision.value.id, {
+            const updated = await updateStoryDecision(props.projectRoot, editingDecision.value.id, {
                 ...baseBody,
                 ...(payload.decidedFields ?? {}),
             });
@@ -297,7 +297,7 @@ async function handleDecideSave(payload: PlotDecisionDecideSave): Promise<void> 
     savingDecide.value = true;
     decideError.value = "";
     try {
-        const updated = await updateStoryDecision(props.projectPath, target.id, {
+        const updated = await updateStoryDecision(props.projectRoot, target.id, {
             status: "decided",
             decision: payload.decision,
             motivation: payload.motivation,
@@ -329,7 +329,7 @@ async function submitDrop(): Promise<void> {
     savingDrop.value = true;
     dropError.value = "";
     try {
-        const updated = await updateStoryDecision(props.projectPath, target.id, {status: "dropped", note: reason});
+        const updated = await updateStoryDecision(props.projectRoot, target.id, {status: "dropped", note: reason});
         detail.value = updated;
         dropVisible.value = false;
         emit("mutated", {});
@@ -359,7 +359,7 @@ async function reopenDecision(): Promise<void> {
         return;
     }
     try {
-        const updated = await updateStoryDecision(props.projectPath, target.id, {status: "open"});
+        const updated = await updateStoryDecision(props.projectRoot, target.id, {status: "open"});
         detail.value = updated;
         emit("mutated", {});
         await loadDecisions();
@@ -386,7 +386,7 @@ async function removeDecision(): Promise<void> {
         return;
     }
     try {
-        await deleteStoryDecision(props.projectPath, target.id);
+        await deleteStoryDecision(props.projectRoot, target.id);
         if (selectedId.value === target.id) {
             selectedId.value = null;
             detail.value = null;
@@ -398,15 +398,15 @@ async function removeDecision(): Promise<void> {
     }
 }
 
-// projectPath 变化(含首挂):重置并拉全量。
-watch(() => props.projectPath, (projectPath) => {
+// projectRoot 变化(含首挂):重置并拉全量。
+watch(() => props.projectRoot, (projectRoot) => {
     decisions.value = [];
     promises.value = [];
     detail.value = null;
     selectedId.value = null;
     listError.value = "";
     detailError.value = "";
-    if (!projectPath) {
+    if (!projectRoot) {
         return;
     }
     void loadDecisions();
@@ -415,7 +415,7 @@ watch(() => props.projectPath, (projectPath) => {
 
 // Agent 改账本时(store 递增 plotRefreshVersion),打开着的工作台自动跟进:刷新列表与当前详情。
 watch(plotRefreshVersion, (version, previousVersion) => {
-    if (!version || version === previousVersion || !props.projectPath) {
+    if (!version || version === previousVersion || !props.projectRoot) {
         return;
     }
     void loadDecisions();

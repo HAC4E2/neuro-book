@@ -2,6 +2,7 @@ import {createError, getQuery} from "h3";
 import {TextToImageAssetService} from "nbook/server/text-to-image/asset.service";
 import {requireCurrentUser} from "nbook/server/utils/auth";
 import {assertProjectOpen} from "nbook/server/workspace-files/project-session";
+import {textToImageProjectRef} from "nbook/server/text-to-image/compat";
 
 const statuses = ["queued", "running", "completing", "succeeded", "failed", "canceled", "interrupted", "configuration_stale", "outcome_unknown"] as const;
 
@@ -12,7 +13,7 @@ export default defineEventHandler(async (event) => {
     if (!projectPath) {
         throw createError({statusCode: 400, message: "projectPath 不能为空"});
     }
-    assertProjectOpen(projectPath);
+    assertProjectOpen(textToImageProjectRef(projectPath));
     return new TextToImageAssetService().list({
         projectPath,
         sourceKind: typeof query.sourceKind === "string" ? query.sourceKind : undefined,

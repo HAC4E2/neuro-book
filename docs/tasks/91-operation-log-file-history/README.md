@@ -1,5 +1,7 @@
 # 操作日志系统 / 文件历史（Operation Log & File History）
 
+> 2026-07-31 CLI 路径取代说明：本任务关于 `workspace node` 绕过 server、由 watcher 归因 `external` 的行为判断仍有效，但实现不再位于 `assets/workspace/.nbook/agent/scripts/workspace.ts`。当前稳定入口为 `.nbook/agent/bin/workspace`，发行物经 Task 130 的 Product Runtime Contract 调用 Product-owned Workspace CLI；历史路径仅作证据。
+
 ## Relative documents refs
 
 - [GOAL.md](GOAL.md)：**派发给实现 agent 的自包含任务书**（独立模块 `nb-history` spike：完整数据模型、API、语义规则 R1–R13、验收 T1–T12）。

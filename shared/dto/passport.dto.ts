@@ -6,7 +6,6 @@ import {z} from "zod";
 /** 关联状态 */
 export type PassportStatusDto = {
     linked: boolean;
-    siteBaseUrl: string; // 未关联时为空字符串
     account: {id: number; username: string; displayName: string} | null; // 为空表示未关联
     scopes: string[];
     linkedAt: string | null; // 为空表示未关联
@@ -27,18 +26,13 @@ export type PassportLinkPollDto =
     | {state: "pending"; interval: number}
     | {state: "linked"; status: PassportStatusDto}
     | {state: "expired"}
-    | {state: "denied"};
-
-export const PassportLinkStartRequestSchema = z.object({
-    siteBaseUrl: z
-        .string()
-        .trim()
-        .min(1, "请填写官方站地址")
-        .max(200)
-        .regex(/^https?:\/\//, "官方站地址必须以 http:// 或 https:// 开头"),
-});
-
-export type PassportLinkStartRequestDto = z.infer<typeof PassportLinkStartRequestSchema>;
+    | {state: "denied"}
+    | {
+        state: "failed";
+        reason: "credential_persist_failed";
+        remoteAuthorization: "revoked" | "unknown";
+    }
+    | {state: "failed"; reason: "exchange_invalid"};
 
 export const PassportLinkPollRequestSchema = z.object({
     linkSessionId: z.string().min(1, "缺少 linkSessionId"),
@@ -55,6 +49,7 @@ export type PassportBackupDto = {
     kind: "manual" | "auto";
     fileSize: number;
     sha256: string;
+    keyId: string;
     appVersion: string;
     comment: string;
     createdAt: string;
@@ -77,7 +72,7 @@ export type PassportBackupListDto = {
 
 /** 后台任务进度（结构化，前端负责转成文案） */
 export type PassportJobProgress = {
-    phase: "packing" | "uploading" | "downloading" | "unpacking";
+    phase: "packing" | "uploading" | "downloading" | "verifying" | "unpacking";
     done: number;
     total: number | null; // 为空表示总量未知（如上传流）
 };
@@ -99,3 +94,51 @@ export const PassportBackupStartRequestSchema = z.object({
 });
 
 export type PassportBackupStartRequestDto = z.infer<typeof PassportBackupStartRequestSchema>;
+
+// ---------- 云备份本地密钥 ----------
+
+export type PassportBackupKeyState = "pending" | "active" | "historical";
+
+/** 不含密钥材料的本地密钥元数据。 */
+export type PassportBackupKeyDto = {
+    keyId: string;
+    state: PassportBackupKeyState;
+    createdAt: string;
+    confirmedAt: string | null;
+};
+
+/** 本地 keyring 状态；完整恢复码只由 prepare/export 响应返回。 */
+export type PassportBackupKeyringDto = {
+    activeKeyId: string | null;
+    pendingKeyId: string | null;
+    keys: PassportBackupKeyDto[];
+};
+
+export type PassportBackupKeyPrepareDto = {
+    recoveryCode: string;
+    key: PassportBackupKeyDto;
+};
+
+export const PassportBackupKeyConfirmRequestSchema = z.object({
+    keyId: z.string().regex(/^[0-9a-f]{16}$/, "keyId 格式无效"),
+});
+
+export type PassportBackupKeyConfirmRequestDto = z.infer<typeof PassportBackupKeyConfirmRequestSchema>;
+
+export const PassportBackupKeyImportRequestSchema = z.object({
+    recoveryCode: z.string().trim().min(1, "请填写恢复码").max(100, "恢复码格式无效"),
+});
+
+export type PassportBackupKeyImportRequestDto = z.infer<typeof PassportBackupKeyImportRequestSchema>;
+
+export const PassportBackupKeyExportRequestSchema = z.object({
+    keyId: z.string().regex(/^[0-9a-f]{16}$/, "keyId 格式无效"),
+    password: z.string().min(1, "请输入当前账号密码").max(256),
+});
+
+export type PassportBackupKeyExportRequestDto = z.infer<typeof PassportBackupKeyExportRequestSchema>;
+
+export type PassportBackupKeyExportDto = {
+    keyId: string;
+    recoveryCode: string;
+};

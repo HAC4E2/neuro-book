@@ -17,7 +17,7 @@ import {
     assertTextToImageReferenceMutationScope,
     withTextToImageReferenceMutationLock,
 } from "nbook/server/text-to-image/reference-asset-lock";
-import {absoluteFsPath, invalidateProjectTreeIndex, resolveWorkspaceRootInput} from "nbook/server/text-to-image/compat";
+import {absoluteFsPath, invalidateProjectTreeIndex, resolveWorkspaceRootInput, textToImageProjectRef} from "nbook/server/text-to-image/compat";
 import {assertProjectOpen} from "nbook/server/workspace-files/project-session";
 import {readWorkspaceTextFile} from "nbook/server/workspace-files/workspace-files";
 import {
@@ -284,7 +284,7 @@ class WorkspaceRecipeFileStore implements TextToImageRecipeFileStore {
     }
 
     assertProjectOpen(projectPath: string): void {
-        assertProjectOpen(projectPath);
+        assertProjectOpen(textToImageProjectRef(projectPath));
     }
 
     async read(root: string, filePath: string): Promise<string | null> {

@@ -2,27 +2,37 @@ import {existsSync} from "node:fs";
 import {homedir} from "node:os";
 import {dirname, join, resolve} from "node:path";
 
+import {INSTALLATION_SCOPED_ROOT_LOCATORS, resolveInstallationRoots} from "#manager/root-locators";
+import type {InstallationRootLocators} from "#manager/types";
+
 /** Manager 的标准目录集合。 */
 export type InstallationPaths = {
     root: string;
     deploy: string;
     runtime: string;
     state: string;
+    cache: string;
+    desktop: string;
+    webview: string;
     manifest: string;
     staging: string;
     backups: string;
     operations: string;
 };
 
-/** 根据 Profile 解析 State Root。 */
-export function installationPaths(root: string, portable = false): InstallationPaths {
+/** 解析 Manager 固定目录与 Manifest 声明的四类数据根。 */
+export function installationPaths(
+    root: string,
+    locators: InstallationRootLocators = INSTALLATION_SCOPED_ROOT_LOCATORS,
+): InstallationPaths {
     const absoluteRoot = resolve(root);
     const deploy = join(absoluteRoot, ".deploy");
+    const resolvedRoots = resolveInstallationRoots(absoluteRoot, locators);
     return {
         root: absoluteRoot,
         deploy,
         runtime: join(absoluteRoot, ".runtime"),
-        state: portable ? join(absoluteRoot, "data") : absoluteRoot,
+        ...resolvedRoots,
         manifest: join(deploy, "installation.json"),
         staging: join(deploy, "staging"),
         backups: join(deploy, "backups"),

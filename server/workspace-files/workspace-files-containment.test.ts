@@ -54,7 +54,7 @@ describe("Workspace文件操作真实路径范围", () => {
             stateRoot: absoluteFsPath(stateRoot),
         });
 
-        await expect(resolveNovelWorkspaceTarget(runtimePaths, "workspace/project-a"))
+        await expect(resolveNovelWorkspaceTarget(runtimePaths, "project-a"))
             .rejects.toThrow("不能是symlink或junction");
         await expect(access(path.join(outsideRoot, "new.md"))).rejects.toMatchObject({code: "ENOENT"});
     });
@@ -71,7 +71,7 @@ describe("Workspace文件操作真实路径范围", () => {
             stateRoot: absoluteFsPath(stateRoot),
         });
 
-        await expect(resolveNovelWorkspaceTarget(runtimePaths, "workspace/project-alias"))
+        await expect(resolveNovelWorkspaceTarget(runtimePaths, "project-alias"))
             .rejects.toThrow("不能是symlink或junction");
     });
 });

@@ -1,5 +1,5 @@
 import {resolve} from "node:path";
-import {describe, expect, it, vi} from "vitest";
+import {describe, expect, it} from "vitest";
 import {Type} from "typebox";
 import type {TSchema} from "typebox";
 import {createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
@@ -40,15 +40,6 @@ import type {AgentProfileDefinition, ProfilePrepareContext} from "nbook/server/a
 import {createTestRuntimeSession} from "nbook/server/agent/profiles/test/runtime-session";
 import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
 import {defineLowCodeForm} from "nbook/server/low-code-form";
-import type {ProjectAgentSqlHandle} from "nbook/server/agent/tools/agent-sql-project-module";
-import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import {
-    createProjectWorkspaceKey,
-    projectWorkspaceRef,
-    resolvedProjectWorkspace,
-} from "nbook/server/workspace-files/project-identity";
-import * as projectSession from "nbook/server/workspace-files/project-session";
-import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 
 type LegacyTestProfile<
     TInitialSchema extends TSchema = TSchema,
@@ -557,27 +548,12 @@ describe("profile TSX DSL", () => {
         expect((plan.modelContextMessages ?? []).map((message) => message.role === "user" ? messageText(message) : "")).toEqual(["SQL_SCHEMA"]);
     });
 
-    it("SqlSchemaSummary只使用prepare注入的exact ready，不按session projectPath查询latest", async () => {
-        const workspaceRoot = absoluteFsPath(resolve(".agent", "profile-dsl-exact-ready"));
-        const ref = projectWorkspaceRef("captured-project");
-        const exactReady: ReadyProjectSessionRef = Object.freeze({
-            workspace: resolvedProjectWorkspace(
-                ref,
-                absoluteFsPath(resolve(workspaceRoot, ref.projectRoot)),
-                createProjectWorkspaceKey(workspaceRoot, ref),
-            ),
-            generation: 17,
-        });
-        const schemaSummary = vi.fn(async () => "MOCK_EXACT_SCHEMA");
-        const sqlHandle: ProjectAgentSqlHandle = {
-            ready: Promise.resolve(),
-            execute: async () => {
-                throw new Error("本测试不执行SQL");
-            },
-            schemaSummary,
-            close: async () => undefined,
+    it("SqlSchemaSummary只消费prepare runtime注入的SQL schema summary", async () => {
+        let schemaSummaryCalls = 0;
+        const schemaSummary = async () => {
+            schemaSummaryCalls += 1;
+            return "MOCK_EXACT_SCHEMA";
         };
-        const activationSpy = vi.spyOn(projectSession, "activateReadyProjectModule").mockResolvedValue(sqlHandle);
         const profile = defineAgentProfile({
             manifest: {
                 key: "test.sql-summary-exact-ready",
@@ -594,31 +570,18 @@ describe("profile TSX DSL", () => {
             },
         });
         const base = context();
+        const plan = await profile.prepare!({
+            ...base,
+            runtime: {
+                ...base.runtime!,
+                sqlSchemaSummary: schemaSummary,
+            },
+        });
 
-        try {
-            const plan = await profile.prepare!({
-                ...base,
-                session: {
-                    ...base.session,
-                    projectPath: "workspace/different-latest-project",
-                },
-                runtime: {
-                    ...base.runtime!,
-                    currentProject: exactReady,
-                },
-            });
-
-            expect(activationSpy).toHaveBeenCalledWith(
-                exactReady,
-                expect.objectContaining({name: "agent-sql", kind: "lazy"}),
-            );
-            expect(schemaSummary).toHaveBeenCalledTimes(1);
-            expect((plan.modelContextMessages ?? []).map((message) => message.role === "user" ? messageText(message) : "")).toEqual([
-                expect.stringContaining("MOCK_EXACT_SCHEMA"),
-            ]);
-        } finally {
-            activationSpy.mockRestore();
-        }
+        expect(schemaSummaryCalls).toBe(1);
+        expect((plan.modelContextMessages ?? []).map((message) => message.role === "user" ? messageText(message) : "")).toEqual([
+            expect.stringContaining("MOCK_EXACT_SCHEMA"),
+        ]);
     });
 
     it("Import 可导入共享 Markdown，并支持 heading 与 maxBytes", async () => {
@@ -1098,7 +1061,7 @@ describe("profile TSX DSL", () => {
             },
             session: {
                 ...context().session,
-                projectPath: "workspace/novel-7",
+                currentProjectRoot: "novel-7",
                 messages: [createUserMessage({text: "use $draft please"})],
                 customState: {
                     "agent.tasks": {
@@ -1311,9 +1274,9 @@ describe("profile TSX DSL", () => {
         expect(unchanged.appendingMessages ?? []).toEqual([]);
         const text = (projectChanged.appendingMessages ?? []).map(messageText).join("\n");
         expect(text).toContain("User switched Current Project Workspace to workspace/b");
-        expect(text).toContain("next invocation uses this Project Workspace as the File Scope");
+        expect(text).toContain("next invocation uses this Project Workspace as cwd for file tools and bash");
         expect(text).toContain("Use lorebook/..., manuscript/..., and reference/... directly");
-        expect(text).toContain("Use workspace/b when a tool explicitly asks for projectPath");
+        expect(text).toContain("Use b when a tool explicitly asks for projectRoot");
         expect(text).toContain("Any absolute filesystem path can be used directly");
 
         const fileText = (fileChanged.appendingMessages ?? []).map(messageText).join("\n");
@@ -1399,7 +1362,7 @@ describe("profile TSX DSL", () => {
             session: {
                 ...base.session,
                 profileKey: "test.mode-reminder-steady",
-                projectPath: "workspace/alpha",
+                currentProjectRoot: "alpha",
                 agentMode: "plan",
                 customState: modeState,
             },
@@ -1424,7 +1387,7 @@ describe("profile TSX DSL", () => {
             session: {
                 ...base.session,
                 profileKey: "test.mode-reminder-steady",
-                projectPath: "workspace/alpha",
+                currentProjectRoot: "alpha",
                 agentMode: "plan",
                 customState: {
                     ...modeState,

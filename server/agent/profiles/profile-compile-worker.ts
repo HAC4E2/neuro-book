@@ -4,7 +4,7 @@ import {createRequire} from "node:module";
 import {copyFile, mkdir, rm} from "node:fs/promises";
 import {dirname, join, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
-import {existsSync, readFileSync} from "node:fs";
+import {existsSync} from "node:fs";
 import {availableParallelism} from "node:os";
 import {performance} from "node:perf_hooks";
 import {
@@ -27,13 +27,13 @@ import {
     isProjectNotOpenError,
     ProjectNotOpenError,
 } from "nbook/server/workspace-files/project-session-service";
-import {normalizeProjectPath, projectSlug} from "nbook/server/workspace-files/project-path";
 import type {
     AgentProfileCompileAllRequestDto,
     AgentProfileCompileRequestDto,
     AgentProfileCompileResultDto,
     AgentProfileIssueDto,
 } from "nbook/shared/dto/agent-profile.dto";
+import {resolveRuntimeArtifactCompilerContext} from "nbook/server/utils/runtime-artifact-compiler-context";
 
 type CompileTask = {
     id: number;
@@ -61,10 +61,13 @@ type ProfileCompileEntryTask = {
 
 type CompileWorkerPaths = {
     entry: string;
-    runtime: string;
-    tsconfig: string;
-    tsxApiUrl: string;
-    tsxLoaderUrl: string;
+    /** Product 使用预编译 worker 时为空；Source Node worker 才需要 TS runtime。 */
+    runtime?: string;
+    /** Product 使用预编译 worker 时为空；Source Node worker 才需要 TS loader。 */
+    tsconfig?: string;
+    tsxApiUrl?: string;
+    tsxLoaderUrl?: string;
+    precompiled: boolean;
 };
 
 type CompileWorkerSlot = {
@@ -101,6 +104,8 @@ export class ProfileCompileWorkerService {
     private readonly running = new Map<number, WorkerSlotTask>();
     private readonly queue: CompileTask[] = [];
     private activeAllTask: CompileTask | null = null;
+    private pumping: Promise<void> | null = null;
+    private disposed = false;
     private nextId = 1;
     private nextWorkerId = 1;
     private readonly maxWorkers: number;
@@ -130,6 +135,9 @@ export class ProfileCompileWorkerService {
     }
 
     private enqueue(mode: CompileTask["mode"], input: CompileTask["input"], publish?: ProfileCompilePublishOptions): Promise<AgentProfileCompileResultDto> {
+        if (this.disposed) {
+            return Promise.resolve(workerFailedResult(input, new Error("profile compile worker disposed")));
+        }
         const task: CompileTask = {
             id: this.nextId++,
             input,
@@ -149,7 +157,7 @@ export class ProfileCompileWorkerService {
             this.markPendingStale((input as AgentProfileCompileRequestDto).fileName);
         }
         this.queue.push(task);
-        this.pump();
+        this.schedulePump();
         return promise;
     }
 
@@ -167,7 +175,27 @@ export class ProfileCompileWorkerService {
         }
     }
 
-    private pump(): void {
+    private schedulePump(): void {
+        if (this.pumping) return;
+        this.pumping = this.pump().catch((error: unknown) => {
+            const failure = error instanceof Error ? error : new Error(String(error));
+            for (const task of this.queue.splice(0)) {
+                task.resolve(workerFailedResult(task.input, failure));
+            }
+        }).finally(() => {
+            this.pumping = null;
+            // 同一文件的后续任务会被 running task 暂时阻塞；此时不能因 queue 非空
+            // 反复排微任务，否则 Worker 的 message/exit 事件永远得不到执行。
+            if (this.queue.length > 0
+                && !this.activeAllTask
+                && this.running.size < this.maxWorkers
+                && this.nextStartableTaskIndex() >= 0) {
+                this.schedulePump();
+            }
+        });
+    }
+
+    private async pump(): Promise<void> {
         if (this.activeAllTask) {
             return;
         }
@@ -197,17 +225,21 @@ export class ProfileCompileWorkerService {
                         this.activeAllTask = null;
                     }
                     task.resolve(result);
-                    this.pump();
+                    this.schedulePump();
                 }, (error) => {
                     if (this.activeAllTask === task) {
                         this.activeAllTask = null;
                     }
                     task.resolve(workerFailedResult(task.input, error instanceof Error ? error : new Error(String(error))));
-                    this.pump();
+                    this.schedulePump();
                 });
                 return;
             }
-            const slot = this.ensureIdleWorker();
+            const slot = await this.ensureIdleWorker();
+            if (!slot) {
+                task.resolve(workerFailedResult(task.input, new Error("profile compile worker disposed")));
+                continue;
+            }
             slot.task = task;
             this.running.set(task.id, task);
             slot.worker.postMessage({
@@ -246,16 +278,23 @@ export class ProfileCompileWorkerService {
         return !runningTasks.some((running) => "fileName" in running.input && running.input.fileName === fileName);
     }
 
-    private ensureIdleWorker(): CompileWorkerSlot {
+    private async ensureIdleWorker(): Promise<CompileWorkerSlot | null> {
+        if (this.disposed) {
+            return null;
+        }
         const idle = this.workers.find((slot) => !slot.task);
         if (idle) {
             return idle;
         }
         const slot: CompileWorkerSlot = {
             id: this.nextWorkerId++,
-            worker: createCompileWorker(),
+            worker: await createCompileWorker(),
             task: null,
         };
+        if (this.disposed) {
+            await slot.worker.terminate();
+            return null;
+        }
         slot.worker.on("message", (message: WorkerResponse) => this.handleMessage(slot, message));
         slot.worker.on("error", (error) => this.handleCrash(slot, error instanceof Error ? error : new Error(String(error))));
         slot.worker.on("exit", (code) => {
@@ -277,14 +316,14 @@ export class ProfileCompileWorkerService {
             slot.task = null;
             this.running.delete(task.id);
             task.resolve(message.result);
-            this.pump();
+            this.schedulePump();
             return;
         }
         void publishWorkerResult(task, message.result, this.cleanupStagedDir).then((result) => {
             slot.task = null;
             this.running.delete(task.id);
             task.resolve(result);
-            this.pump();
+            this.schedulePump();
         }, (error) => {
             slot.task = null;
             this.running.delete(task.id);
@@ -293,7 +332,7 @@ export class ProfileCompileWorkerService {
             } else {
                 task.resolve(workerFailedResult(task.input, error instanceof Error ? error : new Error(String(error))));
             }
-            this.pump();
+            this.schedulePump();
         });
     }
 
@@ -305,7 +344,7 @@ export class ProfileCompileWorkerService {
         if (task) {
             task.resolve(workerFailedResult(task.input, error));
         }
-        this.pump();
+        this.schedulePump();
     }
 
     private removeWorker(slot: CompileWorkerSlot): void {
@@ -319,6 +358,7 @@ export class ProfileCompileWorkerService {
      * HMR 或服务版本变更时关闭旧 worker，避免继续使用旧 loader 状态。
      */
     dispose(): void {
+        this.disposed = true;
         const error = new Error("profile compile worker disposed");
         for (const slot of this.workers.splice(0)) {
             void slot.worker.terminate();
@@ -432,7 +472,7 @@ export class ProfileCompileWorkerService {
         return results;
     }
 
-    private compileEntryInWorker(fileName: string): Promise<ProfileCompileWorkerResult> {
+    private async compileEntryInWorker(fileName: string): Promise<ProfileCompileWorkerResult> {
         const task: ProfileCompileEntryTask = {
             id: this.nextId++,
             mode: "entry",
@@ -446,14 +486,18 @@ export class ProfileCompileWorkerService {
         const promise = new Promise<ProfileCompileWorkerResult>((resolvePromise) => {
             task.resolve = resolvePromise;
         });
-        const slot = this.ensureIdleWorker();
+        const slot = await this.ensureIdleWorker();
+        if (!slot) {
+            task.resolve(workerFailedResult(task.input, new Error("profile compile worker disposed")));
+            return promise;
+        }
         slot.task = task;
         this.running.set(task.id, task);
-            slot.worker.postMessage({
-                id: task.id,
-                mode: task.mode,
-                input: withWorkerRoot(task.input, this.userProfileRoot),
-            });
+        slot.worker.postMessage({
+            id: task.id,
+            mode: task.mode,
+            input: withWorkerRoot(task.input, this.userProfileRoot),
+        });
         return promise;
     }
 }
@@ -630,7 +674,7 @@ function throwLifecycleError(result: ProfileCompileWorkerResult): void {
         return;
     }
     if (result.lifecycleError.code === "PROJECT_NOT_OPEN") {
-        throw new ProjectNotOpenError(projectSlug(normalizeProjectPath(result.lifecycleError.projectPath)));
+        throw new ProjectNotOpenError(result.lifecycleError.projectRoot);
     }
 }
 
@@ -669,11 +713,14 @@ function withWorkerRoot<T extends AgentProfileCompileRequestDto | AgentProfileCo
     };
 }
 
-function createCompileWorker(): Worker {
-    const workerPaths = resolveCompileWorkerPaths();
+async function createCompileWorker(): Promise<Worker> {
+    const workerPaths = await resolveCompileWorkerPaths();
+    if (workerPaths.precompiled) {
+        return new Worker(pathToFileURL(workerPaths.entry));
+    }
     if (process.versions.bun) {
         return new Worker(pathToFileURL(workerPaths.entry), {
-            execArgv: ["--import", workerPaths.tsxLoaderUrl],
+            execArgv: ["--import", requiredWorkerPath(workerPaths.tsxLoaderUrl, "tsx loader")],
         });
     }
     return new Worker(renderNodeWorkerSource(workerPaths), {
@@ -681,28 +728,23 @@ function createCompileWorker(): Worker {
     });
 }
 
-/**
- * 解析 profile 编译 worker 的源码入口。Product Root 也必须带这些运行源码，
- * 但服务启动仍使用 `.output/server/index.mjs`，不是源码 dev server。
- */
-function resolveCompileWorkerPaths(root = process.cwd()): CompileWorkerPaths {
-    return resolveProfileCompileWorkerPathsForRoot(root);
+/** 解析 Source Dev worker 源码或 Product Authoring Kit 的预编译 worker。 */
+async function resolveCompileWorkerPaths(root = process.cwd()): Promise<CompileWorkerPaths> {
+    return await resolveProfileCompileWorkerPathsForRoot(root, process.env);
 }
 
 /**
  * 按指定 Product/source root 解析 worker 入口和 TSX loader 依赖。
  */
-export function resolveProfileCompileWorkerPathsForRoot(root: string): CompileWorkerPaths {
-    const outputRoot = resolve(root, ".output", "server");
-    const outputEntry = resolve(outputRoot, "server", "agent", "profiles", "profile-compile-worker-entry.ts");
-    const outputRuntime = resolve(outputRoot, "server", "agent", "profiles", "profile-compile-worker-runtime.ts");
-    if (isProductRuntimeRoot(root) && existsSync(outputEntry) && existsSync(outputRuntime)) {
-        const tsxUrls = resolveTsxPackageUrls(resolve(outputRoot, "index.mjs"), true);
+export async function resolveProfileCompileWorkerPathsForRoot(
+    root: string,
+    env: NodeJS.ProcessEnv = process.env,
+): Promise<CompileWorkerPaths> {
+    const context = await resolveRuntimeArtifactCompilerContext(root, env);
+    if (context.productRuntime) {
         return {
-            entry: outputEntry,
-            runtime: outputRuntime,
-            tsconfig: resolvePreferredTsconfig(outputRoot),
-            ...tsxUrls,
+            entry: resolve(context.outputRoot, "authoring", "profile-compile-worker.mjs"),
+            precompiled: true,
         };
     }
 
@@ -715,38 +757,9 @@ export function resolveProfileCompileWorkerPathsForRoot(root: string): CompileWo
         entry,
         runtime,
         tsconfig: resolvePreferredTsconfig(root),
+        precompiled: false,
         ...resolveTsxPackageUrls(existsSync(resolve(root, "package.json")) ? resolve(root, "package.json") : entry, false),
     };
-}
-
-/**
- * Product Root 通过 package manifest 标记；GHCR / 通用 `.output` runner
- * 使用 `.output/server/package.json`，并且不允许回退到根 node_modules。
- */
-function isProductRuntimeRoot(root: string): boolean {
-    return existsSync(resolve(root, ".output", "server", "index.mjs"))
-        && Boolean(productPackageManifestPath(root));
-}
-
-function productPackageManifestPath(root: string): string | null {
-    const rootPackage = resolve(root, "package.json");
-    if (packageManifestName(rootPackage) === "neuro-book-product") {
-        return rootPackage;
-    }
-    const outputPackage = resolve(root, ".output", "server", "package.json");
-    if (packageManifestName(outputPackage) === "neuro-book-output" && !existsSync(resolve(root, "node_modules"))) {
-        return outputPackage;
-    }
-    return null;
-}
-
-function packageManifestName(path: string): string | null {
-    try {
-        const manifest = JSON.parse(readFileSync(path, "utf8")) as {name?: unknown};
-        return typeof manifest.name === "string" ? manifest.name : null;
-    } catch {
-        return null;
-    }
 }
 
 /**
@@ -787,6 +800,10 @@ function resolvePreferredTsconfig(root: string): string {
 }
 
 function renderNodeWorkerSource(paths: CompileWorkerPaths): string {
+    const entry = requiredWorkerPath(paths.entry, "entry");
+    const runtime = requiredWorkerPath(paths.runtime, "runtime");
+    const tsconfig = requiredWorkerPath(paths.tsconfig, "tsconfig");
+    const tsxApiUrl = requiredWorkerPath(paths.tsxApiUrl, "tsx API");
     return `
     import {parentPort} from "node:worker_threads";
     import {pathToFileURL} from "node:url";
@@ -795,10 +812,10 @@ function renderNodeWorkerSource(paths: CompileWorkerPaths): string {
         throw new Error("profile compile worker parentPort missing");
     }
 
-    const parentURL = pathToFileURL(${JSON.stringify(paths.entry)}).href;
-    const runtimeURL = pathToFileURL(${JSON.stringify(paths.runtime)}).href;
-    const tsconfig = ${JSON.stringify(paths.tsconfig)};
-    const {tsImport} = await import(${JSON.stringify(paths.tsxApiUrl)});
+    const parentURL = pathToFileURL(${JSON.stringify(entry)}).href;
+    const runtimeURL = pathToFileURL(${JSON.stringify(runtime)}).href;
+    const tsconfig = ${JSON.stringify(tsconfig)};
+    const {tsImport} = await import(${JSON.stringify(tsxApiUrl)});
     const {runProfileCompile, runProfileCompileAll, runProfileCompileEntry} = await tsImport(runtimeURL, {parentURL, tsconfig});
 
     parentPort.on("message", async (message) => {
@@ -813,4 +830,12 @@ function renderNodeWorkerSource(paths: CompileWorkerPaths): string {
         });
     });
 `;
+}
+
+/** 可选 Product/Source 路径在进入具体执行分支后必须完整。 */
+function requiredWorkerPath(value: string | undefined, label: string): string {
+    if (!value) {
+        throw new Error(`Profile compile worker 缺少 ${label}。`);
+    }
+    return value;
 }

@@ -9,8 +9,8 @@
  *      因此本脚本同时是读写合一 CodeAct 工具的端到端冒烟验证入口。
  *
  * 用法（bun 命令需在沙盒外提权执行）：
- *   bun scripts/seed-world-engine-demo.ts [projectPath] [--verify-only] [--keep]
- *     projectPath    默认 workspace/ming-ding-zhi-shi-2
+ *   bun scripts/seed-world-engine-demo.ts [projectRoot] [--verify-only] [--keep]
+ *     projectRoot    默认 ming-ding-zhi-shi-2
  *     --verify-only  跳过清空与写入，仅运行只读查询断言
  *     --keep         跳过清空（在已有数据上追加，可能与现有 id 冲突）
  *
@@ -22,17 +22,23 @@ import {createWorldEngineTools} from "nbook/server/agent/tools/world-engine-tool
 import type {NeuroAgentTool, ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {initProjectDatabase, resolveProjectDatabasePath} from "nbook/server/workspace-files/project-workspace";
-import {worldEngineFacade} from "nbook/server/world-engine";
-import {WORKSPACE_CONTAINER_ROOT} from "nbook/server/workspace-files/workspace-root-ref";
+import {closeProject, openProject} from "nbook/server/workspace-files/project-session";
+import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 
 // ========== 参数解析 ==========
 
 const argv = process.argv.slice(2);
 const flags = new Set(argv.filter((a) => a.startsWith("--")));
-const projectPath = argv.find((a) => !a.startsWith("--")) ?? "workspace/ming-ding-zhi-shi-2";
+const projectRoot = argv.find((a) => !a.startsWith("--")) ?? "ming-ding-zhi-shi-2";
+const projectRef = projectWorkspaceRef(projectRoot);
 const verifyOnly = flags.has("--verify-only");
 const keepExisting = flags.has("--keep");
 const workspaceRoot = resolveRuntimeWorkspaceRoot();
+const currentProject = await openProject(
+    projectRef,
+    {kind: "job", source: "seed-world-engine-demo"},
+    workspaceRoot,
+);
 
 // ========== Agent 工具装配（忠实复现 world-engine-tools.test.ts 的最小上下文）==========
 
@@ -44,10 +50,9 @@ const context: ToolExecutionContext = {
     harness: {} as ToolExecutionContext["harness"],
     sessionId: 1,
     profileKey: "scripts.seed-world-engine-demo",
-    workspaceRootRef: WORKSPACE_CONTAINER_ROOT,
-    workspaceFsRoot: workspaceRoot,
-    workspaceKey: "global",
-    projectPath,
+    workspaceRoot,
+    currentProject,
+    invocationId: "seed-world-engine-demo",
 };
 
 function mustTool(key: string): NeuroAgentTool {
@@ -286,8 +291,8 @@ const SLICES: Slice[] = [
 
 /** 清空该项目 db 的三张 World 表（不碰 Story* 等其它表）。 */
 async function reset(): Promise<void> {
-    await initProjectDatabase(workspaceRoot, projectPath);
-    const dbPath = resolveProjectDatabasePath(workspaceRoot, projectPath);
+    await initProjectDatabase(workspaceRoot, projectRef);
+    const dbPath = resolveProjectDatabasePath(workspaceRoot, projectRef);
     const db = new Database(dbPath);
     try {
         // 删除顺序无外键约束依赖，直接逐表清空。
@@ -369,7 +374,7 @@ async function repairHpTypo(sliceId: string): Promise<{path: string; hp: number;
 
 /** 调用 execute_world 工具，返回统一 details。 */
 async function executeWorld<TData>(code: string): Promise<ExecuteWorldResult<TData>> {
-    const res = await executeWorldTool.executeWithContext!(context, "execute_world-call", {projectPath, code});
+    const res = await executeWorldTool.executeWithContext!(context, "execute_world-call", {projectRoot, code});
     return res.details as unknown as ExecuteWorldResult<TData>;
 }
 
@@ -474,11 +479,9 @@ function assert(cond: boolean, message: string): void {
 // ========== 主流程 ==========
 
 async function main(): Promise<void> {
-    console.log(`World Engine 示范数据种子：projectPath=${projectPath}${verifyOnly ? " [verify-only]" : ""}${keepExisting ? " [keep]" : ""}\n`);
+    console.log(`World Engine 示范数据种子：projectRoot=${projectRoot}${verifyOnly ? " [verify-only]" : ""}${keepExisting ? " [keep]" : ""}\n`);
 
     if (!verifyOnly) {
-        // 清空前先让 facade 释放可能持有的 sqlite 句柄，避免与本脚本的直连冲突。
-        await worldEngineFacade.closeProject(projectPath);
         if (!keepExisting) await reset();
 
         console.log("\n📝 写入示范切面：");
@@ -492,7 +495,7 @@ async function main(): Promise<void> {
         if (errorIssues.length) {
             console.error("\n❌ 出现 E 类 issues（数据错误）：");
             for (const i of errorIssues) console.error(`  - [${i.code}] ${i.subjectId ?? ""}${i.attr ?? ""} ${i.message}`);
-            process.exit(1);
+            throw new Error("示范数据包含 E 类 issues");
         }
     }
 
@@ -502,9 +505,10 @@ async function main(): Promise<void> {
 
 try {
     await main();
-    process.exit(0);
 } catch (error) {
     console.error("\n❌ 失败：", error instanceof Error ? error.message : error);
     if (error instanceof Error && error.stack) console.error(error.stack);
-    process.exit(1);
+    process.exitCode = 1;
+} finally {
+    await closeProject(projectRef, "shutdown").catch(() => undefined);
 }

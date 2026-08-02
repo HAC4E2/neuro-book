@@ -3,6 +3,7 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {afterEach, describe, expect, it, vi} from "vitest";
 
+import {TEST_RUNTIME_IMAGE_IDENTITY} from "#manager/fixtures/runtime-image";
 import {resolveReleaseManifest} from "#manager/manifest-store";
 
 const SHA = "a".repeat(64);
@@ -116,21 +117,23 @@ function release(tag: string, prerelease: boolean) {
             ],
         },
         manifest: {
-            schemaVersion: 3,
+            schemaVersion: 5,
+            buildId: `sha256:${"9".repeat(64)}`,
             version,
             channel: prerelease ? "canary" : "stable",
             sourceRevision: REVISION,
             minManagerVersion: "0.1.0-canary.1",
             source: {url: urls.source, sha256: SHA, bytes: 1},
             products: [
-                {url: urls.windows, sha256: SHA, bytes: 1, platform: "windows-x64", sourceRevision: REVISION},
-                {url: urls.linux, sha256: SHA, bytes: 1, platform: "linux-x64-glibc", sourceRevision: REVISION},
-                {url: urls.linuxArm64, sha256: SHA, bytes: 1, platform: "linux-aarch64-glibc", sourceRevision: REVISION},
-                {url: urls.darwin, sha256: SHA, bytes: 1, platform: "darwin-x64", sourceRevision: REVISION},
-                {url: urls.darwinArm64, sha256: SHA, bytes: 1, platform: "darwin-aarch64", sourceRevision: REVISION},
+                {url: urls.windows, sha256: SHA, bytes: 1, platform: "windows-x64", sourceRevision: REVISION, ...TEST_RUNTIME_IMAGE_IDENTITY},
+                {url: urls.linux, sha256: SHA, bytes: 1, platform: "linux-x64-glibc", sourceRevision: REVISION, ...TEST_RUNTIME_IMAGE_IDENTITY},
+                {url: urls.linuxArm64, sha256: SHA, bytes: 1, platform: "linux-aarch64-glibc", sourceRevision: REVISION, ...TEST_RUNTIME_IMAGE_IDENTITY},
+                {url: urls.darwin, sha256: SHA, bytes: 1, platform: "darwin-x64", sourceRevision: REVISION, ...TEST_RUNTIME_IMAGE_IDENTITY},
+                {url: urls.darwinArm64, sha256: SHA, bytes: 1, platform: "darwin-aarch64", sourceRevision: REVISION, ...TEST_RUNTIME_IMAGE_IDENTITY},
             ],
             windowsPortable: {url: urls.portable, sha256: SHA, bytes: 1},
-            ghcr: {ref: `ghcr.io/notnotype/neuro-book:${tag}`, digest: `sha256:${SHA}`, sourceRevision: REVISION},
+            ghcr: {ref: `ghcr.io/notnotype/neuro-book@sha256:${SHA}`, digest: `sha256:${SHA}`, sourceRevision: REVISION},
+            stateMigration: {policy: "automatic", steps: ["agent-attachment-v1", "agent-session-v2"]},
         },
     };
 }

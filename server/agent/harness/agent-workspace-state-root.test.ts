@@ -12,6 +12,8 @@ import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {createFauxModels, writeFauxProviderConfig} from "nbook/server/agent/test-utils/faux-models";
 import {setWorkspaceRuntimeRootContextForTest} from "nbook/server/workspace-files/workspace-runtime-root";
 import {closeProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
+import {openProject} from "nbook/server/workspace-files/project-session";
+import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {createRuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
 
@@ -24,7 +26,7 @@ describe("Agent State Root工具链", () => {
             await harness.dispose();
             harness = undefined;
         }
-        await closeProjectForTest("workspace/alpha").catch(() => undefined);
+        await closeProjectForTest("alpha").catch(() => undefined);
         setWorkspaceRuntimeRootContextForTest(null);
         await Promise.all(cleanupRoots.splice(0).map((root) => rm(root, {recursive: true, force: true})));
     });
@@ -76,21 +78,21 @@ describe("Agent State Root工具链", () => {
             fauxAssistantMessage([fauxText("done"), fauxToolCall("report_result", {result: "ok"}, {id: "report-1"})], {stopReason: "toolUse"}),
         ]);
 
-        const created = await harness.createAgent({profileKey: "test.state-root", initial: {}, workspaceRoot: "workspace"});
+        const created = await harness.createAgent({profileKey: "test.state-root", initial: {}});
         const result = await harness.invokeAgent({sessionId: created.sessionId, mode: "prompt", message: {text: "run"}});
 
         expect(result.status, result.error ?? result.errorInfo?.message).toBe("completed");
         expect(harness.workspaceRoot).toBe(runtimePaths.workspaceRoot);
-        expect((await harness.repo.readSession(created.sessionId)).metadata.workspaceRoot).toBe("workspace");
+        expect((await harness.repo.readSession(created.sessionId)).metadata.currentProjectRoot).toBeUndefined();
         await expect(readFile(join(workspaceFsRoot, ".nbook", "write-marker.txt"), "utf8")).resolves.toBe("write-ok");
         await expect(readFile(join(workspaceFsRoot, "patch-marker.txt"), "utf8")).resolves.toBe("patch-ok\n");
         await expect(readFile(join(workspaceFsRoot, "bash-marker.txt"), "utf8")).resolves.toBe("bash-ok");
 
         faux.setResponses([
-            fauxAssistantMessage([fauxToolCall("write", {path: "user-assets-marker.txt", content: "user-assets-ok"}, {id: "write-user-assets"})], {stopReason: "toolUse"}),
+            fauxAssistantMessage([fauxToolCall("write", {path: ".nbook/user-assets-marker.txt", content: "user-assets-ok"}, {id: "write-user-assets"})], {stopReason: "toolUse"}),
             fauxAssistantMessage([fauxToolCall("report_result", {result: "ok"}, {id: "report-user-assets"})], {stopReason: "toolUse"}),
         ]);
-        const userAssets = await harness.createAgent({profileKey: "test.state-root", initial: {}, workspaceRoot: "workspace/.nbook"});
+        const userAssets = await harness.createAgent({profileKey: "test.state-root", initial: {}});
         await harness.invokeAgent({sessionId: userAssets.sessionId, mode: "prompt", message: {text: "run"}});
         await expect(readFile(join(workspaceFsRoot, ".nbook", "user-assets-marker.txt"), "utf8")).resolves.toBe("user-assets-ok");
         await expect(access(join(installationRoot, "workspace"))).rejects.toThrow();
@@ -154,11 +156,11 @@ describe("Agent State Root工具链", () => {
             fauxAssistantMessage([fauxText("done"), fauxToolCall("report_result", {result: "ok"}, {id: "project-report"})], {stopReason: "toolUse"}),
         ]);
 
+        await openProject(projectWorkspaceRef("alpha"), {kind: "job", source: "state-root-test"}, workspaceRoot);
         const created = await harness.createAgent({
             profileKey: "test.project-scope",
             initial: {},
-            workspaceRoot: "workspace",
-            projectPath: "workspace/alpha",
+            currentProjectRoot: "alpha",
         });
         const result = await harness.invokeAgent({sessionId: created.sessionId, mode: "prompt", message: {text: "run"}});
 

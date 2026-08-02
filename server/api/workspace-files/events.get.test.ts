@@ -1,6 +1,6 @@
 import {beforeAll, beforeEach, describe, expect, it, vi} from "vitest";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
+import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 
 type WorkspaceFileEventsHandlerFactory = typeof import("nbook/server/api/workspace-files/events.get")["createWorkspaceFileEventsHandler"];
 
@@ -15,7 +15,7 @@ let createWorkspaceFileEventsHandler: WorkspaceFileEventsHandlerFactory;
 const target = {
     kind: "project-workspace" as const,
     root: absoluteFsPath("C:/test/workspace/novel-1"),
-    projectPath: normalizeProjectPath("workspace/novel-1"),
+    projectRoot: projectWorkspaceRef("novel-1").projectRoot,
 };
 
 /**
@@ -34,7 +34,7 @@ describe("GET /api/workspace-files/events", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         globalThis.getQuery = () => ({
-            projectPath: "workspace/novel-1",
+            projectRoot: "novel-1",
         });
     });
 

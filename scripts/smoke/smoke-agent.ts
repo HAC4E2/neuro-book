@@ -37,7 +37,6 @@ async function main(): Promise<void> {
             initial: {
                 role: "smoke",
             },
-            workspaceRoot: "workspace",
         });
 
         const result = await harness.invokeAgent({
@@ -58,7 +57,6 @@ async function main(): Promise<void> {
             ".nbook",
             "agent",
             "sessions",
-            snapshot.metadata.workspaceKey,
             `${String(agent.sessionId)}.jsonl`,
         );
 

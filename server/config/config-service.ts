@@ -9,11 +9,8 @@ import {resolveProfileSettings} from "nbook/server/agent/profiles/profile-settin
 import {mergeProfileRuntimePatches, resolveProfileRuntimeSettings} from "nbook/server/agent/profiles/profile-runtime-settings";
 import {
     USER_ASSETS_WORKSPACE_KIND,
-    USER_ASSETS_WORKSPACE_ROOT,
-    WORKSPACE_CONTAINER_ROOT,
     type WorkspaceRootKind,
 } from "nbook/server/workspace-files/novel-workspace";
-import {projectPathFromRef} from "nbook/server/workspace-files/project-path";
 import {GlobalConfigDtoSchema} from "nbook/shared/dto/config.dto";
 import type {
     ConfigAgentProfileSettingsDto,
@@ -31,7 +28,7 @@ import type {
 } from "nbook/shared/dto/config.dto";
 import {resolveStateWorkspaceRoot} from "nbook/server/runtime/installation-paths";
 import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import {normalizeProjectPath, resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
+import {projectWorkspaceRef, resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-identity";
 import {CONFIG_REGISTRY, CONFIG_VERSION} from "nbook/server/config/registry";
 import {
     normalizeAgentProfileModelConfig,
@@ -78,7 +75,7 @@ import {
     isProjectNotOpenError,
     listProjects,
     requireReadyProject,
-    requireReadyProjectPath,
+    requireActiveReadyProject,
     runReadyProjectOperation,
 } from "nbook/server/workspace-files/project-session";
 import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-runtime-root";
@@ -262,7 +259,6 @@ export async function saveGlobalConfig(
             ...(input.editor !== undefined ? {editor: input.editor} : {}),
             ...(input.observability !== undefined ? {observability: input.observability} : {}),
             ...(input.history !== undefined ? {history: input.history} : {}),
-            ...(input.novelData !== undefined ? {novelData: input.novelData} : {}),
             ...(input.web !== undefined ? {web: normalizeGlobalWebForWrite(input.web, current)} : {}),
             ...(input.models !== undefined ? {models: normalizeGlobalModelsForWrite(input.models, current)} : {}),
             ...(input.embedding !== undefined ? {embedding: normalizeGlobalEmbeddingForWrite(input.embedding, current)} : {}),
@@ -369,14 +365,14 @@ export async function loadEffectiveConfigForAgentRuntime(input: {projectPath?: s
     if (!input.projectPath?.trim()) {
         return resolveEffectiveConfig(global, null);
     }
-    const projectRoot = resolveProjectWorkspaceRoot(workspaceRoot, normalizeProjectPath(input.projectPath));
+    const projectRoot = resolveProjectWorkspaceRoot(workspaceRoot, projectWorkspaceRef(input.projectPath));
     const project = await readProjectConfigFile(path.join(projectRoot, ".nbook", "config.json"));
     return resolveEffectiveConfig(global, project);
 }
 
 /**
  * 从已经过生命周期 gate 的结构化目标读取 Agent runtime Config。
- * 调用方必须传播同一个 ReadyProjectSessionRef，禁止在下游重新解析 projectPath。
+ * 调用方必须传播同一个 ReadyProjectSessionRef，禁止在下游重新解析 projectRoot。
  */
 export async function loadEffectiveConfigFromTarget(target: RuntimeConfigTarget): Promise<EffectiveConfig> {
     if (target.scope === "global") {
@@ -445,16 +441,16 @@ export async function resolveConfigTarget(query: ConfigWorkspaceQueryDto): Promi
         return globalConfigTarget();
     }
 
-    if (!query.projectPath) {
+    if (!query.projectRoot) {
         throw createError({
             statusCode: 400,
-            message: "Project Workspace 配置必须提供有效 projectPath",
+            message: "Project Workspace 配置必须提供有效 projectRoot",
         });
     }
     return {
         workspaceKind,
         workspaceRoot: absoluteFsPath(resolveStateWorkspaceRoot()),
-        project: requireReadyProjectPath(query.projectPath),
+        project: requireActiveReadyProject(projectWorkspaceRef(query.projectRoot)),
     };
 }
 
@@ -509,8 +505,6 @@ function redactGlobalConfig(config: StoredGlobalConfig): GlobalConfigDto {
         ui: config.ui,
         editor: config.editor,
         observability: config.observability,
-        // 注意：这里是显式对象字面量，新配置段必须手动带上，否则设置面板读不到（history 段曾因此被静默丢）。
-        novelData: config.novelData,
         web: {
             search: {
                 order: config.web?.search?.order ?? [],
@@ -683,7 +677,7 @@ export async function inspectProviderReferences(providerId: string): Promise<Arr
     const knownDirectoryNames = snapshot.projects.map((project) => project.projectRoot);
     const rootIdentity = new ProjectRootIdentityModule(workspaceRoot);
     for (const project of snapshot.projects) {
-        const projectPath = projectPathFromRef(project);
+        const projectRoot = project.projectRoot;
         let ready: ReturnType<typeof requireReadyProject> | null = null;
         try {
             ready = requireReadyProject(project);
@@ -702,8 +696,8 @@ export async function inspectProviderReferences(providerId: string): Promise<Arr
             config = await readProjectConfigFile(path.join(workspace.root, ".nbook", "config.json"));
         }
         for (const reference of [
-            {modelKey: config.models?.default ?? global.models?.default ?? null, label: `${projectPath} 默认模型`},
-            ...projectModelReferences(config).map((item) => ({...item, label: `${projectPath} ${item.label}`})),
+            {modelKey: config.models?.default ?? global.models?.default ?? null, label: `${projectRoot} 默认模型`},
+            ...projectModelReferences(config).map((item) => ({...item, label: `${projectRoot} ${item.label}`})),
         ]) {
             if (reference.modelKey?.startsWith(prefix)) {
                 references.push({label: reference.label, modelKey: reference.modelKey});
@@ -1162,7 +1156,6 @@ async function lowCodeFormContext(
     profile?: {manifest: {version?: number}; home?: ProfileHomeDefinition; settingsForm?: LowCodeFormDefinition},
     values?: LowCodeJsonObject,
 ): Promise<LowCodeFormResolveContext> {
-    const workspaceRoot = target.workspaceKind === "novel" ? WORKSPACE_CONTAINER_ROOT : USER_ASSETS_WORKSPACE_ROOT;
     const needsHome = profileNeedsHome(profile);
     const globalHome = profile && needsHome
         ? await ensureGlobalProfileHome({
@@ -1188,7 +1181,6 @@ async function lowCodeFormContext(
         return {
             profileKey,
             scope,
-            workspaceRoot,
             projectWorkspace: project.workspace,
             ...(values ? {values} : {}),
             ...(projectHome ? {home: projectHome} : {}),
@@ -1198,7 +1190,6 @@ async function lowCodeFormContext(
     return {
         profileKey,
         scope,
-        workspaceRoot,
         ...(values ? {values} : {}),
         ...(globalHome ? {home: globalHome} : {}),
     };

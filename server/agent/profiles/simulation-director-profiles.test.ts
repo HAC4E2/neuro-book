@@ -1,11 +1,15 @@
 import {describe, expect, it} from "vitest";
 import {Value} from "typebox/value";
-import directorProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/director.profile";
-import simulatorLeaderProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/simulator.leader.profile";
+import directorProfileDefinition from "../../../assets/workspace/.nbook/agent/profiles/builtin/director.profile";
+import simulatorLeaderProfileDefinition from "../../../assets/workspace/.nbook/agent/profiles/builtin/simulator.leader.profile";
 import {DirectorInitialSchema, DirectorOutputSchema, SimulatorLeaderInitialSchema, SimulatorLeaderOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {storedMessageText, type StoredMessageLike} from "nbook/server/agent/messages/stored-message-presentation";
 import {createTestRuntimeSession as testSession} from "nbook/server/agent/profiles/test/runtime-session";
 import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
+import {normalizeAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+
+const directorProfile = normalizeAgentProfile(directorProfileDefinition);
+const simulatorLeaderProfile = normalizeAgentProfile(simulatorLeaderProfileDefinition);
 
 function messagesText(messages: StoredMessageLike[] | undefined): string {
     return (messages ?? []).map((message) => storedMessageText(message)).join("\n");
@@ -32,8 +36,7 @@ describe("simulation and director builtin profiles", () => {
         const prepared = await simulatorLeaderProfile.prepare!({
             session: testSession({
                 profileKey: "simulator.leader",
-                workspaceRoot: "workspace",
-                projectPath: "workspace/rp-project",
+                currentProjectRoot: "rp-project",
                 customState: {},
                 linkedAgents: [],
                 archived: false,
@@ -78,7 +81,7 @@ describe("simulation and director builtin profiles", () => {
         expect(prompt).toContain("AGENTS.md 和 agents/simulator.leader/context.md");
         expect(prompt).toContain("最小 subject scaffold");
         expect(prompt).toContain("直接用普通 assistant 文本返回最终结果");
-        expect(prompt).toContain("projectPath: workspace/rp-project");
+        expect(prompt).toContain("projectRoot: rp-project");
         expect(prompt).toContain("reference/agent/profile-routing.md");
         expect(prompt).toContain("RP 用户体验与叙事组装转 `rp.leader`");
         expect(prompt).toContain("reference/agent/workspace-tool-use.md");
@@ -89,14 +92,13 @@ describe("simulation and director builtin profiles", () => {
         const prepared = await directorProfile.prepare!({
             session: testSession({
                 profileKey: "director",
-                workspaceRoot: "workspace",
                 customState: {},
                 linkedAgents: [],
                 archived: false,
                 agentMode: "normal",
             }),
             initial: {
-                projectPath: "workspace/rp-project",
+                projectRoot: "rp-project",
                 mode: "writing",
                 defaultChapterPath: "rp-project/manuscript/001-volume/001-chapter/",
             },

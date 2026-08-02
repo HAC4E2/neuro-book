@@ -3,6 +3,7 @@ import {z} from "zod";
 import {TextToImageAssetReferencedError, TextToImageAssetService} from "nbook/server/text-to-image/asset.service";
 import {requireCurrentUser} from "nbook/server/utils/auth";
 import {assertProjectOpen} from "nbook/server/workspace-files/project-session";
+import {textToImageProjectRef} from "nbook/server/text-to-image/compat";
 
 const ProjectPathSchema = z.object({projectPath: z.string().trim().min(1)}).strict();
 
@@ -13,7 +14,7 @@ export default defineEventHandler(async (event) => {
     if (!assetId || !parsed.success) {
         throw createError({statusCode: 400, message: "删除文生图图片参数不合法"});
     }
-    assertProjectOpen(parsed.data.projectPath);
+    assertProjectOpen(textToImageProjectRef(parsed.data.projectPath));
     try {
         await new TextToImageAssetService().delete(parsed.data.projectPath, assetId);
         return {ok: true};

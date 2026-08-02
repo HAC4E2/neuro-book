@@ -4,17 +4,17 @@ import {
     requireAgentSessionId,
     uploadAgentSessionAttachment,
 } from "nbook/server/agent/http";
+import {withProjectHttpError} from "nbook/server/api/projects/project-http-error";
 import {
-    BoundedFileMultipartError,
-    readBoundedFileMultipart,
-} from "nbook/server/utils/bounded-file-multipart";
-import {withProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
+    readSingleMultipartFile,
+    SingleFileMultipartError,
+} from "nbook/server/media/single-file-multipart";
 import {AGENT_IMAGE_POLICY} from "nbook/shared/agent/agent-image-policy";
 
 const MULTIPART_OVERHEAD_BYTES = 1024 * 1024;
 
 /** 严格流式接收一个名为 file 的 multipart 图片，并登记到当前 Session。 */
-export default defineEventHandler(async (event) => withProjectNotOpenHttpError(async () => {
+export default defineEventHandler(async (event) => withProjectHttpError(async () => {
     const sessionId = requireAgentSessionId(event);
     await preflightAgentSessionAttachmentRegistration(sessionId);
 
@@ -24,24 +24,24 @@ export default defineEventHandler(async (event) => withProjectNotOpenHttpError(a
         throw imageLimitError();
     }
 
-    let file: Awaited<ReturnType<typeof readBoundedFileMultipart>>;
     try {
-        file = await readBoundedFileMultipart(event.node.req, {
-            maxFileBytes: AGENT_IMAGE_POLICY.maxImageBytes,
+        const file = await readSingleMultipartFile(event.node.req, {
+            fieldName: "file",
+            maxBytes: AGENT_IMAGE_POLICY.maxImageBytes,
         });
+        return uploadAgentSessionAttachment(sessionId, file);
     } catch (error) {
-        if (!(error instanceof BoundedFileMultipartError)) {
-            throw error;
+        if (error instanceof SingleFileMultipartError) {
+            if (error.code === "FILE_TOO_LARGE") {
+                throw imageLimitError();
+            }
+            if (error.code === "REQUEST_ABORTED") {
+                throw createError({statusCode: 400, message: "上传请求已中止"});
+            }
+            throw invalidMultipartError();
         }
-        if (error.code === "FILE_MULTIPART_LIMIT_EXCEEDED") {
-            throw imageLimitError();
-        }
-        if (error.code === "FILE_MULTIPART_ABORTED") {
-            throw createError({statusCode: 400, message: "上传请求已中止"});
-        }
-        throw invalidMultipartError();
+        throw error;
     }
-    return uploadAgentSessionAttachment(sessionId, file);
 }));
 
 function invalidMultipartError(): Error {

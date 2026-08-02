@@ -1,25 +1,28 @@
 import {createHash, randomUUID} from "node:crypto";
 import {once} from "node:events";
 import {createReadStream, createWriteStream} from "node:fs";
-import {copyFile, mkdir, readdir, readFile, stat} from "node:fs/promises";
+import {mkdir, readdir, readFile, stat} from "node:fs/promises";
 import {join} from "node:path";
 import {finished} from "node:stream/promises";
 import {createClient} from "@libsql/client";
 import {strToU8, Zip, ZipDeflate} from "fflate";
 import type {RuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
 import {isSqliteFile, shouldExcludeFromBackup} from "nbook/server/backup/backup-archive-rules";
+import type {BackupEncryptionKey} from "nbook/server/backup/backup-keyring-service";
+import {createBackupEnvelopeCipher} from "nbook/server/backup/backup-envelope";
 
 // State Root 归档服务（Task 112 spec §9.4）：范围 = workspace/ + config.yaml + .env；
 // 排除 logs/、锁/临时/wal/shm；SQLite 经 VACUUM INTO 冷快照保证一致性；
 // fflate 流式打包（边写边算 sha256，不持大 buffer）。
 
 export type BackupArchiveResult = {
-    zipPath: string;
+    backupPath: string;
     sha256: string; // hex 小写
+    keyId: string;
     fileSize: number;
     fileCount: number;
     appVersion: string;
-    warnings: string[]; // 非致命告警（如快照失败退化为原样拷贝）
+    warnings: string[];
 };
 
 export type ArchiveProgress = (done: number, total: number) => void;
@@ -80,14 +83,17 @@ async function snapshotSqlite(sourcePath: string, snapshotDir: string): Promise<
 
 export class BackupArchiveService {
     /**
-     * 打包整个 State Root 到 tmpDir 下的 zip。zip 根含 nb-backup.json
-     * （{formatVersion:1, appVersion, createdAt, encryption:"none"}）。
+     * 打包整个 State Root，并把 zip 输出直接加密为 `.nbbackup` envelope。
      */
-    async createArchive(paths: RuntimePaths, tmpDir: string, onProgress?: ArchiveProgress): Promise<BackupArchiveResult> {
+    async createArchive(
+        paths: RuntimePaths,
+        tmpDir: string,
+        encryptionKey: BackupEncryptionKey,
+        onProgress?: ArchiveProgress,
+    ): Promise<BackupArchiveResult> {
         await mkdir(tmpDir, {recursive: true});
         const snapshotDir = join(tmpDir, "sqlite-snapshots");
         await mkdir(snapshotDir, {recursive: true});
-        const warnings: string[] = [];
 
         // 收集打包清单：workspace/ 全量 + State Root 顶层 config.yaml / .env
         const files: string[] = [];
@@ -102,22 +108,40 @@ export class BackupArchiveService {
             }
         }
 
-        const zipPath = join(tmpDir, "backup.zip");
-        const out = createWriteStream(zipPath);
+        const backupPath = join(tmpDir, "backup.nbbackup");
+        const out = createWriteStream(backupPath);
         const hash = createHash("sha256");
         let fileSize = 0;
         let zipError: Error | null = null;
+        const envelope = createBackupEnvelopeCipher(encryptionKey);
+
+        /** 写入完整 envelope 字节，同时维护上传摘要与大小。 */
+        const writeEnvelopeBytes = (bytes: Uint8Array): void => {
+            if (bytes.byteLength === 0) {
+                return;
+            }
+            hash.update(bytes);
+            fileSize += bytes.byteLength;
+            out.write(Buffer.from(bytes));
+        };
+        writeEnvelopeBytes(envelope.prefix);
+
         const zip = new Zip((error, data, final) => {
             if (error) {
                 zipError = error;
                 out.destroy(error);
                 return;
             }
-            hash.update(data);
-            fileSize += data.length;
-            out.write(Buffer.from(data));
-            if (final) {
-                out.end();
+            try {
+                writeEnvelopeBytes(envelope.cipher.update(data));
+                if (final) {
+                    writeEnvelopeBytes(envelope.cipher.final());
+                    writeEnvelopeBytes(envelope.cipher.getAuthTag());
+                    out.end();
+                }
+            } catch (cipherError) {
+                zipError = cipherError instanceof Error ? cipherError : new Error(String(cipherError));
+                out.destroy(zipError);
             }
         });
 
@@ -150,10 +174,10 @@ export class BackupArchiveService {
             const manifestEntry = new ZipDeflate("nb-backup.json", {level: 6});
             zip.add(manifestEntry);
             manifestEntry.push(strToU8(JSON.stringify({
-                formatVersion: 1,
+                formatVersion: 2,
                 appVersion,
                 createdAt: new Date().toISOString(),
-                encryption: "none",
+                encryption: "AES-256-GCM",
             }, null, 4)), true);
             await drainIfNeeded();
 
@@ -165,11 +189,7 @@ export class BackupArchiveService {
                     try {
                         sourcePath = await snapshotSqlite(absolute, snapshotDir);
                     } catch (error) {
-                        // 快照失败退化为原样拷贝（可能包含未 checkpoint 的写入），记录告警不中断
-                        warnings.push(`SQLite 快照失败，已按原文件打包：${relative}（${error instanceof Error ? error.message : String(error)}）`);
-                        const fallback = join(snapshotDir, `${randomUUID()}.raw`);
-                        await copyFile(absolute, fallback);
-                        sourcePath = fallback;
+                        throw new Error(`SQLite 快照失败，备份已停止：${relative}`, {cause: error});
                     }
                 }
                 await addEntry(relative, sourcePath);
@@ -184,6 +204,14 @@ export class BackupArchiveService {
             throw error;
         }
 
-        return {zipPath, sha256: hash.digest("hex"), fileSize, fileCount: files.length, appVersion, warnings};
+        return {
+            backupPath,
+            sha256: hash.digest("hex"),
+            keyId: encryptionKey.keyId,
+            fileSize,
+            fileCount: files.length,
+            appVersion,
+            warnings: [],
+        };
     }
 }

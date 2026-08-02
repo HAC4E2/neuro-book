@@ -177,3 +177,11 @@
 - [ ] 宽限期时长定稿（暂 5min 常量）；前端错误 UX 文案打磨。
 - [ ] 已知局限跟踪：大小写不敏感 FS 双会话（defer）；presence onClosed 单点（h3 版本敏感，升级 h3 时回归 events/presence 两 SSE）。
 - [ ] 完成后解锁 [Task 95 nb-history 集成](../95-nb-history-integration/README.md)。
+
+### 2026-07-27 Presence 重连合同加固
+
+- `useProjectSession` 增加可注入 transport 的 controller factory；生产 composable 只适配 `$fetch`、SSE reader 与通知。
+- 每次 presence 自动重连固定先执行幂等 Project open，再订阅 presence，修复旧 timer 直接重订阅、服务重启后 session 未恢复的问题。
+- 重连使用共享 `SseReconnectBackoff`：短暂 open 不清零失败序列，稳定 5 秒后的断线才开启新周期。
+- 连续抖动只提示一次；稳定连接后才允许下一周期再次提示。主动 dispose/代次切换不重连。
+- controller 的确定性 fake-timer 测试覆盖 reopen 顺序、连续短连接只通知一次、连接稳定满 5 秒后才重置通知周期，以及新目标/dispose 不触发旧代次 reopen；计入 Task 111 审查补漏组合 17 文件 / 129 项通过。旧 16 文件 / 111 项记录未覆盖完整通知周期，已退役。浏览器 presence 走查仍由用户执行。

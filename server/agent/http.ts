@@ -4,14 +4,17 @@ import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 import {AgentHistoryQueryError} from "nbook/server/agent/session/history-query";
 import {isAttachmentError} from "nbook/server/agent/attachments/types";
+import {isSessionCurrentProjectError} from "nbook/server/agent/session/current-project-error";
+import {requireReadyAgentSessionStore} from "nbook/server/agent/session/agent-session-store-runtime";
 import {projectPublicInvocationResult} from "nbook/server/agent/events/public-invocation-result-projection";
 import type {InvokeAgentInput} from "nbook/server/agent/harness/types";
-import type {ServerTimingSink} from "nbook/server/utils/server-timing";
+import type {ServerTimingSink} from "nbook/server/utils/server-timing-sink";
 import {
     AgentSessionIdSchema,
     type AgentAbortRequestDto,
     type AgentCommandRequestDto,
     type AgentCreateSessionRequestDto,
+    type AgentCurrentProjectRequestDto,
     type ClientVariablePatchAckDto,
     type AgentInvokeRequestDto,
     type AgentSessionEventsQueryDto,
@@ -42,11 +45,14 @@ const globalForAgentHttp = globalThis as typeof globalThis & GlobalAgentHttp;
 export function useAgentHarness(): NeuroAgentHarness {
     if (!globalForAgentHttp.agentHarness) {
         const runtimePaths = runtimePathsFromEnv();
+        const sessionStore = requireReadyAgentSessionStore(runtimePaths.workspaceRoot);
+        if (sessionStore.rootWorkspace !== runtimePaths.workspaceRoot) {
+            throw new Error("Agent Session Store capability 与 Runtime Workspace Root 不一致。");
+        }
         globalForAgentHttp.agentHarness = new NeuroAgentHarness({
             runtimePaths,
             repo: new JsonlSessionRepository(runtimePaths.workspaceRoot),
             watchProfiles: true,
-            holdAttachmentRuntimeLease: true,
         });
     }
     return globalForAgentHttp.agentHarness;
@@ -81,11 +87,22 @@ export async function createAgentSession(body: AgentCreateSessionRequestDto, har
     return harness.createAgent({
         profileKey: body.profileKey,
         initial: body.initial,
-        workspaceRoot: body.workspaceRoot,
-        workspaceKey: body.workspaceKey,
-        projectPath: body.projectPath,
+        currentProjectRoot: body.currentProjectRoot,
         parentSessionId: body.parentSessionId,
     });
+}
+
+/** 重新绑定或清除 Session Current Project。 */
+export async function updateAgentSessionCurrentProject(
+    sessionId: number,
+    body: AgentCurrentProjectRequestDto,
+    harness = useAgentHarness(),
+) {
+    try {
+        return await harness.updateCurrentProject(sessionId, body.projectRoot);
+    } catch (error) {
+        throw mapAgentHttpError(error);
+    }
 }
 
 /**
@@ -147,7 +164,7 @@ export async function invokeAgentSession(sessionId: number, body: AgentInvokeReq
         const result = await harness.invokeAgent(toInvokeInput(sessionId, body));
         return projectPublicInvocationResult(result);
     } catch (error) {
-        throw mapAgentAttachmentHttpError(error);
+        throw mapAgentHttpError(error);
     }
 }
 
@@ -267,15 +284,6 @@ export function subscribeAgentSessionEvents(sessionId: number, cursor: AgentSess
     return harness.subscribeSessionEvents(sessionId, cursor);
 }
 
-/** 解析并读取 Chat Flow durable attachment。 */
-export async function readAgentSessionAttachment(sessionId: number, entryId: string, contentIndex: number, harness = useAgentHarness()) {
-    const locator = await harness.resolveSessionAttachment(sessionId, entryId, contentIndex);
-    return {
-        ...locator,
-        bytes: await harness.attachmentStore.load(locator.ref),
-    };
-}
-
 /**
  * 将 HTTP DTO 转成 harness invoke 输入。
  */
@@ -338,4 +346,19 @@ function mapAgentAttachmentHttpError(error: unknown): Error {
         message: error.message || "图片输入无效",
         data: {code: "INVALID_IMAGE_INPUT", retryable: false},
     });
+}
+
+/** Session admission/rebind与Attachment共享的HTTP错误出口。 */
+function mapAgentHttpError(error: unknown): Error {
+    if (isSessionCurrentProjectError(error)) {
+        return createError({
+            statusCode: error.statusCode,
+            message: error.message,
+            data: {
+                code: error.code,
+                ...(error.projectRoot === undefined ? {} : {projectRoot: error.projectRoot}),
+            },
+        });
+    }
+    return mapAgentAttachmentHttpError(error);
 }

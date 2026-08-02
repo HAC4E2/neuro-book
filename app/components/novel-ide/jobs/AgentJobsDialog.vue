@@ -2,14 +2,14 @@
 /**
  * 后台任务中心浮窗（Task 111 PLAN-F）：
  * 非模态 DialogWindow 壳 + 工具条（过滤 chips / 清除已结束 / 刷新）+ 分组列表（进行中置顶）。
- * 数据来自 useAgentJobsFeed 共享单例（与 Header 徽标同源）；面板开合驱动 feed 变频。
+ * 数据来自 useAgentJobsFeed 共享 SSE 单例（与 Header 徽标和气泡同源）。
  */
 import DialogWindow from "nbook/app/components/common/DialogWindow.vue";
 import AgentJobRow from "nbook/app/components/novel-ide/jobs/AgentJobRow.vue";
 import {useAgentJobsFeed} from "nbook/app/composables/useAgentJobsFeed";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
-import type {AgentJobSnapshot} from "nbook/server/agent/jobs/agent-job-manager";
+import type {AgentJobSnapshot} from "nbook/shared/dto/agent-job.dto";
 
 const props = defineProps<{
     modelValue: boolean;
@@ -27,6 +27,8 @@ const {t} = useI18n();
 type JobsFilter = "all" | "active" | "done";
 const filter = ref<JobsFilter>("all");
 const clearing = ref(false);
+const nowTick = ref(Date.now());
+let clock: ReturnType<typeof setInterval> | null = null;
 
 const isActiveJob = (job: AgentJobSnapshot): boolean => job.status === "running" || job.status === "waiting";
 
@@ -67,9 +69,21 @@ async function clearFinished(): Promise<void> {
     }
 }
 
-// 面板开合驱动共享 feed 变频（开=快轮询，关=慢轮询喂徽标）
-watch(() => props.modelValue, (open) => {
-    feed.setPanelOpen(open);
+/** 任务中心只保留一个本地秒表；面板关闭或无活跃任务时立即停止。 */
+watch([() => props.modelValue, () => activeJobs.value.length], ([open, activeCount]) => {
+    if (clock) {
+        clearInterval(clock);
+        clock = null;
+    }
+    if (!open || activeCount === 0) return;
+    nowTick.value = Date.now();
+    clock = setInterval(() => {
+        nowTick.value = Date.now();
+    }, 1000);
+}, {immediate: true});
+
+onScopeDispose(() => {
+    if (clock) clearInterval(clock);
 });
 </script>
 
@@ -96,7 +110,7 @@ watch(() => props.modelValue, (open) => {
             </button>
         </div>
 
-        <!-- 轮询失败提示条（可恢复；轮询不停，成功自动消失） -->
+        <!-- 事件连接失败提示条（保留最后可信列表，恢复后自动消失） -->
         <p v-if="feedError" class="mx-3 mt-2 shrink-0 rounded border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-1.5 text-[12px] text-[var(--status-danger)]">{{ feedError }}</p>
 
         <!-- 任务列表（进行中置顶分组） -->
@@ -111,7 +125,7 @@ watch(() => props.modelValue, (open) => {
             <template v-else>
                 <section v-for="section in sections" :key="section.key">
                     <h3 class="sticky top-0 z-10 border-b border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-1.5 text-[11px] tracking-wider text-[var(--text-muted)]">{{ section.label }}（{{ section.jobs.length }}）</h3>
-                    <AgentJobRow v-for="job in section.jobs" :key="job.jobId" :job="job" @cancelled="feed.refresh()" />
+                    <AgentJobRow v-for="job in section.jobs" :key="job.jobId" :job="job" :now="nowTick" />
                 </section>
             </template>
         </div>

@@ -172,7 +172,7 @@ export type TextToImageReferencePromotionGroupByOutputType = {
   _max: TextToImageReferencePromotionMaxAggregateOutputType | null
 }
 
-type GetTextToImageReferencePromotionGroupByPayload<T extends TextToImageReferencePromotionGroupByArgs> = Prisma.PrismaPromise<
+export type GetTextToImageReferencePromotionGroupByPayload<T extends TextToImageReferencePromotionGroupByArgs> = Prisma.PrismaPromise<
   Array<
     Prisma.PickEnumerable<TextToImageReferencePromotionGroupByOutputType, T['by']> &
       {
@@ -1328,6 +1328,11 @@ export type TextToImageReferencePromotionFindManyArgs<ExtArgs extends runtime.Ty
    * Skip the first `n` TextToImageReferencePromotions.
    */
   skip?: number
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+   * 
+   * Filter by unique combinations of TextToImageReferencePromotions.
+   */
   distinct?: Prisma.TextToImageReferencePromotionScalarFieldEnum | Prisma.TextToImageReferencePromotionScalarFieldEnum[]
 }
 

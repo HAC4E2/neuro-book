@@ -9,7 +9,7 @@ import type {
     PlotTreeThread,
 } from "nbook/app/components/novel-ide/plot/tree/plot-tree.types";
 
-const workspaceKey = ref(0);
+const renderRevision = ref(0);
 const graph = ref<PlotTreeGraph>(clonePlotTreeGraph(plotTreePreviewGraph));
 const selectedThreadId = ref<string | null>("thread-main");
 const selectedSceneId = ref<string | null>("scene-cage");
@@ -83,7 +83,7 @@ function resetWorkspace(): void {
     graph.value = clonePlotTreeGraph(plotTreePreviewGraph);
     selectedThreadId.value = "thread-main";
     selectedSceneId.value = "scene-cage";
-    workspaceKey.value += 1;
+    renderRevision.value += 1;
 }
 </script>
 
@@ -108,7 +108,7 @@ function resetWorkspace(): void {
             </div>
 
             <PlotTreeView
-                :key="workspaceKey"
+                :key="renderRevision"
                 :graph="graph"
                 :selected-thread-id="selectedThreadId"
                 :selected-scene-id="selectedSceneId"

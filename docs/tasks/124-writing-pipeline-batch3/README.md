@@ -8,7 +8,7 @@
 
 ## User Request / Topic
 
-Task 122 后用户要求制定系统性计划（不留技术债/不过度设计/不脱离实际/不 hack），覆盖：整条写作产品线路线图 + 第三批能力 + 真实验收体系。拍板：novel-api 走 server 集成（非 skill+curl）；200 问做成可选 workflow（默认仍逐题交互）；冒烟前提 = dev server 已起 + 现成测试项目路径（避开 Task 118 在途 projects API 变动）。四个实施 agent 并行分发。
+Task 122 后用户要求制定系统性计划（不留技术债/不过度设计/不脱离实际/不 hack），覆盖：整条写作产品线路线图 + 第三批能力 + 真实验收体系。当时拍板 novel-api 走 server 集成（非 Skill）；该小说数据决策已被 2026-07-27 的 Skill 硬切替代。200 问继续做成可选 workflow（默认仍逐题交互）；冒烟前提 = dev server 已起 + 现成测试项目路径（避开 Task 118 在途 projects API 变动）。
 
 ## Goal
 
@@ -16,11 +16,11 @@ Task 122 后用户要求制定系统性计划（不留技术债/不过度设计/
 
 ## Current State
 
-Implemented（2026-07-26）。真实模型冒烟（需用户起 dev server + 提供已打开的测试项目）与浏览器验收待用户，走查清单见下。
+Implemented（2026-07-26；小说数据入口于 2026-07-27 硬切为 Skill）。真实模型冒烟（需用户起 dev server + 提供已打开的测试项目）与浏览器验收待用户，走查清单见下。
 
 ## ADR / Decisions / Discussion
 
-- **novel-api 分层（照 passport 先例）**：`NovelDataClient` class 收口全部上游通信；agent 工具直调 client 层不绕自家 HTTP；HTTP 代理路由与前端选题浏览面板**刻意裁剪**到后续批次（本批前端只有设置面板，走既有 config API）。只接只读查询端点，不接刷新/采集（慢操作不给 agent）。
+- **已废止的 novel-api 分层（历史决策）**：当时由 `NovelDataClient` 和 Agent 工具直连服务，并把 HTTP 代理/浏览面板延后；2026-07-27 已由文末的 `novel-data` Skill 硬切完整替代，不再保留该路线图。
 - **config 空串语义**：`novelData.baseUrl` 未写 → 默认 `http://localhost:3000`；显式空串 → 保留空串（=未配置，工具报设置引导）。`redactGlobalConfig` 显式字面量必须加段（history 曾被静默丢，已留警示注释）。
 - **book-deconstruct 输入形态**：`book` 目录（番茄导入产物，读 metadata.json+full.md）或单 .md；只按一级标题切章（`\n(?=# )`，h2/h3 不切）；书名页判定=标题等于 metadata.book_name 或正文 <50 字；采样=开头 5 + 结尾 2 + 中段居中均匀（纯整数运算保证 replay 确定性）；汇总输入用逐章字段级摘要而非完整 JSON（控长）。split-book 保留为轻量单文件版。
 - **character-qa-fanout**：批量模式是**可选项**，workshop skill 默认逐题交互不变（用户拍板）；题目由 leader 从 skill references 题库摘出经 args 传入（workflow 读不到系统资产目录）；答案册由代码按题号拼装，汇总员只产 notes/conflicts；题号解析防误伤（`Q[\w-]*\d[\w-]*` 整 token；裸数字须跟标点才算序号）。
@@ -30,7 +30,7 @@ Implemented（2026-07-26）。真实模型冒烟（需用户起 dev server + 提
 ## Verification / Test
 
 - workflow 六文件（catalog + builtins + 4 个独立测试）：21/21 绿；expectedPhases 已含 7 个内置 workflow。
-- tools/config/profile/skill 面（novel-data-tools + builtin-tools-smoke + normalizer + profile-dsl + skill-catalog）：62/62 绿。
+- 当前小说数据 Skill 面：`novel-data` CLI 外部临时目录 frozen install、SkillCatalog 版本、旧工具不存在 smoke 与 validator 均有自动化覆盖；旧 novel-data tool/config 测试已随硬切删除。
 - `bun run profile:metadata`：14 profiles（leader.default 的工具面改动已由 dev server 自动编译覆盖，重跑 0 stale）。
 - leader-assets 保持 13/15 基线（2 失败仍为 Task 111 未提交漂移，无新增）。
 - A2 全仓 typecheck：本批文件零错误（llmlint.test.ts 既有漂移与本批无关，Task 123 已记录测试套件不稳定基线）。
@@ -61,11 +61,12 @@ novel-writing 开局一轮：
 6. 落库：World Engine 出现开局时间点 slice，时间用项目日历字符串非 raw instant，只有确认事实入库。
 7. 写章：目标 `index.md` 有正文；leader 汇报过"开局评审加严"（主动选择 / 弃书风险）而非普通评审收尾。
 
-### 清单 B：novel-data 工具走查
+### 清单 B：novel-data Skill 走查
 
-1. 问"起点月票榜前十"→ `novel_rankings` 摘要含榜单名/快照时间/逐行排名，leader 转述带"快照时间"不说成实时数据。
-2. 问某本书详情 → 命中 stale 时首行"数据可能过期(stale)"，leader 明确转述。
-3. 把 baseUrl 指向未运行地址再问 → 得到"novel-api 服务未启动或地址不对……../novel-api……"引导文案，leader 原样转述不抛裸错误。
+1. 首次运行前确认 Skill 根目录依赖门执行成功；缺少 `node_modules` 时必须用该 Skill 自带的 frozen lockfile 安装，安装失败立即停止。
+2. 通过 `novel-data rankings --platform qidian --ranking monthly-ticket` 查询榜单，结果包含榜单名、`fetchedAt`、`expiresAt` 与排名；对用户说明快照时间，不说成实时数据。
+3. 通过 `novel-data book-detail --platform <platform> --book-id <id>` 查询详情；命中 `stale=true` 时明确说明缓存可能过期。
+4. 把 `--base-url` 指向未运行地址，确认 CLI 把连接错误写入 stderr 并返回非零退出码，不输出伪造结果。
 
 ### 冒烟脚本执行（待用户前提）
 
@@ -77,5 +78,14 @@ bun scripts/smoke/writing-workflow-smoke.ts --project workspace/<slug> --chapter
 ## TODO / Follow-ups
 
 - 真实模型冒烟执行 + 走查清单 A/B（待用户）；跑出的 bug 按惯例回灌 mock 回归测试并标注来源。
-- 后续批次（已登记 PROJECT-STATUS）：dogfooding 轮；novel-api 选题浏览面板 + HTTP 代理路由；Task 116 剩余真 provider 挂账。
+- 后续批次（已登记 PROJECT-STATUS）：dogfooding 轮；Task 116 剩余真 provider 挂账。小说数据不再规划技术设置面板或 NeuroBook HTTP 代理路由。
 - Task 123 发现的全仓测试套件不稳定基线（41-53 文件失败）优先级高于写作线后续批次，修复归 123。
+
+## 2026-07-27：小说数据从 Agent 工具硬切为 Skill
+
+- 本节替代上文“novel-api 走 server 集成（非 Skill）”决策；上文实现清单仅保留历史记录，不再代表当前架构。
+- 删除 `novel_rankings`、`novel_book_detail`、Leader 注册链、`NovelDataClient`、Global Config `novelData`、设置面板和旧工具测试，不保留兼容层。
+- 新增 bundled `novel-data` Skill `1.0.0`，自带 `package.json`、`bun.lock` 和 `commander` 依赖，CLI 提供 `rankings` / `book-detail` 两个只读命令。服务地址优先级固定为 `--base-url`、`NOVEL_DATA_BASE_URL`、`http://localhost:3000`；缺少 `node_modules` 时先在 Skill 根目录执行 frozen install。
+- `novel-genre-research` 改为先读取 `novel-data` Skill，再通过 `bash` 调 CLI；结论必须说明 `fetchedAt`，并在 `stale=true` 时明确提示缓存可能过期。
+- 本地 NovelScope 仍负责缓存和采集，Skill 不触发刷新；官网没有小说数据 API，两条能力保持独立。
+- 自动化只复制发布文件到仓库外临时目录，在该目录 frozen install 后覆盖地址优先级、URL 编码、空快照、stale/时间字段、404、502 和连接失败，证明 CLI 不借用仓库根或用户目录依赖；Skill 目录通过 validator。

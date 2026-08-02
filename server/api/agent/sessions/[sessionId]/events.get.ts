@@ -1,6 +1,6 @@
 import {getQuery} from "h3";
 import {requireAgentSessionId, subscribeAgentSessionEvents} from "nbook/server/agent/http";
-import {writeAgentSessionEventStream} from "nbook/server/agent/events/agent-sse-writer";
+import {writeAgentEventStream} from "nbook/server/agent/events/agent-sse-writer";
 import {AgentSessionEventsQueryDtoSchema} from "nbook/shared/dto/agent-session.dto";
 
 /**
@@ -13,5 +13,5 @@ export default defineEventHandler(async (event) => {
         eventEpoch: query.eventEpoch,
         after: query.after,
     });
-    await writeAgentSessionEventStream(event.node.res, subscription);
+    await writeAgentEventStream(event.node.res, subscription);
 });

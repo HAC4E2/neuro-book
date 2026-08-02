@@ -3,9 +3,9 @@ import {join} from "node:path";
 
 export {doctor, installationStatus} from "#manager/installation-health";
 
-import {withInstallLock} from "#manager/lock";
-import {readInstallationManifest, writeInstallationManifest} from "#manager/manifest-store";
-import {commitOperation, completeRuntimeWrapperSwitch, createOperation, pathCreateEffect, pathRetireEffect, prepareRuntimeWrapperSwitch, recoverInterruptedOperations, setOperationEffect, updateOperation} from "#manager/operation";
+import {mutateInstallation} from "#manager/installation-mutation";
+import {writeInstallationManifest} from "#manager/manifest-store";
+import {commitOperation, completeRuntimeWrapperSwitch, createOperation, pathCreateEffect, pathRetireEffect, prepareRuntimeWrapperSwitch, recoverFailedOperation, setOperationEffect, updateOperation} from "#manager/operation";
 import {installationPaths} from "#manager/paths";
 import {assertInstallationHostCompatible} from "#manager/platform";
 import {parseInstallationManifest} from "#manager/schema";
@@ -15,12 +15,11 @@ import type {InstallationManifest, ManagedGitToolComponent, ManagedToolComponent
 import {MANAGER_VERSION} from "#manager/version-info";
 
 /** 安装或更新托管 Bun，同时刷新 Manager/Application Runtime 与稳定 wrapper。 */
-export async function maintainRuntime(root: string, manifest: InstallationManifest, managerExecutable: string, version?: string): Promise<InstallationManifest> {
-    const paths = installationPaths(root, manifest.profile === "windows-portable");
-    return withInstallLock(join(paths.deploy, "install.lock"), async () => {
-        const recovered = await recoverInterruptedOperations(root);
-        const current = recovered ?? await readInstallationManifest(paths.manifest);
-        if (!current) throw new Error("Installation Manifest不存在，无法维护Runtime。");
+export async function maintainRuntime(root: string, managerExecutable: string, version?: string): Promise<InstallationManifest> {
+    return mutateInstallation(root, async (mutation) => {
+        root = mutation.root;
+        const paths = installationPaths(root, mutation.manifest.roots);
+        const current = mutation.manifest;
         assertInstallationHostCompatible(current);
         await assertManagerUpgrade(MANAGER_VERSION, current.managerVersion, current.components.manager.bundleSha256, managerExecutable);
         const createdPaths: string[] = [];
@@ -62,19 +61,18 @@ export async function maintainRuntime(root: string, manifest: InstallationManife
             await commitOperation(journal);
             return next;
         } catch (error) {
-            await recoverInterruptedOperations(root).catch(() => undefined);
+            await recoverFailedOperation(root, error);
             throw error;
         }
     });
 }
 
 /** 安装或更新托管工具，并更新固定 tools 组件。 */
-export async function maintainTool(root: string, manifest: InstallationManifest, tool: ManagedToolName, managerExecutable: string): Promise<InstallationManifest> {
-    const paths = installationPaths(root, manifest.profile === "windows-portable");
-    return withInstallLock(join(paths.deploy, "install.lock"), async () => {
-        const recovered = await recoverInterruptedOperations(root);
-        const current = recovered ?? await readInstallationManifest(paths.manifest);
-        if (!current) throw new Error("Installation Manifest不存在，无法维护Tool。");
+export async function maintainTool(root: string, tool: ManagedToolName, managerExecutable: string): Promise<InstallationManifest> {
+    return mutateInstallation(root, async (mutation) => {
+        root = mutation.root;
+        const paths = installationPaths(root, mutation.manifest.roots);
+        const current = mutation.manifest;
         assertInstallationHostCompatible(current);
         if (current.profile === "ghcr" || current.profile === "source-docker") {
             throw new Error("GHCR/Source Docker 的应用工具由容器提供，不在宿主管理。");
@@ -115,7 +113,7 @@ export async function maintainTool(root: string, manifest: InstallationManifest,
             await commitOperation(journal);
             return next;
         } catch (error) {
-            await recoverInterruptedOperations(root).catch(() => undefined);
+            await recoverFailedOperation(root, error);
             throw error;
         }
     });

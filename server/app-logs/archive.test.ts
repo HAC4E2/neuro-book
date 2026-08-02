@@ -45,6 +45,9 @@ describe("app logs archive", () => {
         ]);
 
         const manifest = JSON.parse(new TextDecoder().decode(entries["manifest.json"]));
+        expect(manifest).not.toHaveProperty("logDirectory");
+        expect(manifest).not.toHaveProperty("cwd");
+        expect(JSON.stringify(manifest)).not.toContain(root);
         expect(manifest.files).toEqual(expect.arrayContaining([
             expect.objectContaining({name: "server-current.jsonl"}),
             expect.objectContaining({name: "launcher-2026-06-28.log"}),

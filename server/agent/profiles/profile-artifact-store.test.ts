@@ -42,10 +42,9 @@ async function seedArtifact(source: string): Promise<{profileRoot: string; item:
 }
 
 const VALID_PROFILE_SOURCE = `export default {
-    manifest: {key: "probe"},
+    manifest: {key: "probe", name: "Probe"},
     initialSchema: {},
     tools: {},
-    rootToolKeys: [],
     prepare: () => ({}),
 };
 `;
@@ -57,6 +56,13 @@ describe("ProfileArtifactStore", () => {
         const profile = await new ProfileArtifactStore().importProfile(profileRoot, item);
 
         expect(profile.manifest.key).toBe("probe");
+        expect(profile.rootToolKeys).toEqual([]);
+        expect(profile.runtime?.hooks.map((hook) => hook.name)).toEqual([
+            "builtin.profilePrompt",
+            "builtin.sessionContext",
+            "builtin.transcriptPersistence",
+            "builtin.reportResult",
+        ]);
         // published artifact 的落盘名已经是内容寻址 sha，路径随内容变化，
         // 再复制一份物理副本零信息量。这条断言守住「不要把 import cache 加回来」。
         expect((await readdir(join(profileRoot, PROFILE_COMPILED_DIR_NAME))).sort()).toEqual([PROFILE_COMPILED_ARTIFACTS_DIR_NAME]);

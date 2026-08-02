@@ -1,11 +1,22 @@
-import {describe, expect, it, vi} from "vitest";
+import {beforeAll, describe, expect, it, vi} from "vitest";
 import {AgentAttachmentCodec, attachmentMarker} from "nbook/server/agent/attachments/agent-attachment-codec";
 import {AttachmentStore} from "nbook/server/agent/attachments/attachment-store";
 import type {AttachmentBlobAdapter} from "nbook/server/agent/attachments/types";
 import type {StoredAgentMessage} from "nbook/server/agent/messages/stored-types";
+import {createRasterTestFixtures, jpegWithDimensions} from "nbook/server/agent/test-utils/raster-fixtures";
 import {AGENT_IMAGE_POLICY} from "nbook/shared/agent/agent-image-policy";
 
-const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+let png: Buffer;
+let jpeg: Buffer;
+let gif: Buffer;
+let webp: Buffer;
+let oversizedJpeg: Buffer;
+
+beforeAll(async () => {
+    const fixtures = await createRasterTestFixtures();
+    ({png, jpeg, webp, gif} = fixtures);
+    oversizedJpeg = jpegWithDimensions(jpeg, 8_193, 8_192);
+});
 
 function memoryAdapter(): AttachmentBlobAdapter {
     const values = new Map<string, Uint8Array>();
@@ -32,16 +43,16 @@ describe("AgentAttachmentCodec", () => {
         expect(put).not.toHaveBeenCalled();
     });
 
-    it("saveImage 接受 PNG、JPEG、GIF、WebP 魔数和精确 16 MiB 边界", async () => {
+    it("saveImage 接受可完整解码的 PNG、JPEG、GIF、WebP 和精确 16 MiB 边界", async () => {
         const adapter = memoryAdapter();
         const codec = new AgentAttachmentCodec(new AttachmentStore(adapter));
-        const exactLimitPng = new Uint8Array(AGENT_IMAGE_POLICY.maxImageBytes);
-        exactLimitPng.set(png.subarray(0, 8));
+        const exactLimitPng = Buffer.alloc(AGENT_IMAGE_POLICY.maxImageBytes);
+        png.copy(exactLimitPng);
         const samples: Array<{mimeType: string; bytes: Uint8Array}> = [
             {mimeType: "image/png", bytes: exactLimitPng},
-            {mimeType: "image/jpeg", bytes: Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0, 0])},
-            {mimeType: "image/gif", bytes: Uint8Array.from(Buffer.from("GIF89a", "ascii"))},
-            {mimeType: "image/webp", bytes: Uint8Array.from(Buffer.from("RIFF\u0000\u0000\u0000\u0000WEBP", "binary"))},
+            {mimeType: "image/jpeg", bytes: jpeg},
+            {mimeType: "image/gif", bytes: gif},
+            {mimeType: "image/webp", bytes: webp},
         ];
 
         for (const sample of samples) {
@@ -52,6 +63,29 @@ describe("AgentAttachmentCodec", () => {
                 },
             });
         }
+    });
+
+    it("saveImage 把 multipart 的通用占位 MIME 交给图片 bytes 裁决", async () => {
+        const codec = new AgentAttachmentCodec(new AttachmentStore(memoryAdapter()));
+
+        await expect(codec.saveImage({bytes: png, mimeType: "application/octet-stream"}))
+            .resolves.toMatchObject({attachment: {mimeType: "image/png"}});
+        await expect(codec.saveImage({bytes: png, mimeType: "text/plain"}))
+            .rejects.toMatchObject({code: "invalid_input"});
+        await expect(codec.saveImage({
+            bytes: Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+            mimeType: "application/octet-stream",
+        })).rejects.toMatchObject({code: "invalid_input"});
+    });
+
+    it("saveImage 在写入 Store 前把超过 64 MP 的图片归类为 limit_exceeded", async () => {
+        const adapter = memoryAdapter();
+        const put = vi.spyOn(adapter, "put");
+        const codec = new AgentAttachmentCodec(new AttachmentStore(adapter));
+
+        await expect(codec.saveImage({bytes: oversizedJpeg, mimeType: "image/jpeg"}))
+            .rejects.toMatchObject({code: "limit_exceeded"});
+        expect(put).not.toHaveBeenCalled();
     });
 
     it("Provider 预算按 attachment 出现次数计算且超限前不读取 blob", async () => {

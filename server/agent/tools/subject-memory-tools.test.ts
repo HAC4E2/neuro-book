@@ -7,30 +7,31 @@ import {fauxAssistantMessage, fauxToolCall} from "@earendil-works/pi-ai";
 import {createFauxModels, type FauxModelsFixture} from "nbook/server/agent/test-utils/faux-models";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
-import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+import {defineAgentProfile, normalizeAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {createRuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
-import {
-    closeAllProjects,
+import {closeAllProjects,
     closeProject,
     openProject,
-    requireReadyModuleHandle,
-} from "nbook/server/workspace-files/project-session";
+    requireReadyModuleHandle} from "nbook/server/workspace-files/project-session";
+import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 import {PROJECT_FILE_INDEX_MODULE_TOKEN} from "nbook/server/workspace-files/project-file-index";
 import {
     PROJECT_HISTORY_MODULE_TOKEN,
     setHistoryEnabledOverrideForTest,
 } from "nbook/server/workspace-history/project-history";
-import memoryCuratorProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/memory.curator.profile";
+import memoryCuratorProfileDefinition from "../../../assets/workspace/.nbook/agent/profiles/builtin/memory.curator.profile";
 import {
     applySubjectMemoryPatch,
     parseSubjectEventsJsonl,
     parseSubjectMemoriesJsonl,
 } from "nbook/server/agent/tools/subject-memory";
+
+const memoryCuratorProfile = normalizeAgentProfile(memoryCuratorProfileDefinition);
 
 describe("subject memory tools", () => {
     let root: string;
@@ -39,7 +40,7 @@ describe("subject memory tools", () => {
     let context: ToolExecutionContext;
     let faux: FauxModelsFixture;
     let invocationReady: ReadyProjectSessionRef;
-    const projectPath = "workspace/demo";
+    const projectRef = projectWorkspaceRef("demo");
 
     beforeEach(async () => {
         setHistoryEnabledOverrideForTest(true);
@@ -94,22 +95,18 @@ describe("subject memory tools", () => {
                 return {};
             },
         }), false);
+        invocationReady = await openProject(projectRef, {kind: "job", source: "subject-memory-tools-test"}, absoluteFsPath(workspaceRoot));
         const session = await harness.createAgent({
             profileKey: "test.subject-memory-tools",
             initial: {},
-            workspaceRoot: "workspace",
-            projectPath,
+            currentProjectRoot: "demo",
         });
-        invocationReady = await openProject(absoluteFsPath(workspaceRoot), projectPath, {kind: "job", source: "subject-memory-tools-test"});
-        vi.spyOn(harness, "projectForInvocation").mockReturnValue(invocationReady);
         context = {
             harness,
             sessionId: session.sessionId,
             profileKey: "test.subject-memory-tools",
-            workspaceRootRef: "workspace",
-            workspaceFsRoot: absoluteFsPath(workspaceRoot),
-            workspaceKey: "global",
-            projectPath,
+            workspaceRoot: absoluteFsPath(workspaceRoot),
+            currentProject: invocationReady,
             invocationId: "subject-memory-tools-test-invocation",
         };
     });
@@ -184,17 +181,17 @@ describe("subject memory tools", () => {
             events: [{text: "不应写入。"}],
         })).rejects.toThrow("subjectPath必须是当前Project内");
 
-        await closeProject(projectPath, "shutdown");
+        await closeProject(projectRef, "shutdown");
         await expect(tool.executeWithContext?.(context, "closed-project-subject", {
             subjectPath: "simulation/subjects/heroine",
             events: [{text: "不应写入。"}],
         })).rejects.toThrow("Project未打开");
-        await openProject(absoluteFsPath(workspaceRoot), projectPath, {kind: "job", source: "subject-memory-tools-test"});
+        await openProject(projectRef, {kind: "job", source: "subject-memory-tools-test"}, absoluteFsPath(workspaceRoot));
 
         await expect(tool.executeWithContext?.(context, "reopened-project-subject", {
             subjectPath: "simulation/subjects/heroine",
             events: [{text: "不应写入新 generation。"}],
-        })).rejects.toThrow("无法捕获Current Project generation资源");
+        })).rejects.toThrow("Project未打开");
         await expect(readFile(
             join(workspaceRoot, "demo", "simulation", "subjects", "heroine", "events.jsonl"),
             "utf-8",
@@ -244,7 +241,6 @@ describe("subject memory tools", () => {
         });
         expect(agentEntries.at(-1)?.entry.operation.type).toBe("file.edit");
         await expect(readFile(join(workspaceRoot, "demo", ".nbook", "subject-rag-dirty.json"), "utf-8")).resolves.toContain("\"events\"");
-        expect(harness.projectForInvocation).toHaveBeenCalledWith("subject-memory-tools-test-invocation");
     });
 
     it("subject_event_append 硬切 JSONL，不导入旧 events.md", async () => {
@@ -279,7 +275,6 @@ describe("subject memory tools", () => {
             query: "艾琳娜",
             sources: ["events"],
         })).rejects.toThrow("不会执行关键词 fallback");
-        expect(harness.projectForInvocation).toHaveBeenCalledWith("subject-memory-tools-test-invocation");
     });
 
     it("subject_rag_search 必须显式指定 sources，不提供时不会默认双搜", async () => {
@@ -449,14 +444,14 @@ describe("subject memory tools", () => {
                 requestOptions: {},
             },
         }), "utf-8");
-        const timeoutFetch: typeof fetch = async (_url: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+        const timeoutFetch: typeof fetch = Object.assign(async (_url: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
             await new Promise((_resolve, reject) => {
                 init?.signal?.addEventListener("abort", () => {
                     reject(new DOMException("This operation was aborted", "AbortError"));
                 });
             });
             throw new Error("unreachable");
-        };
+        }, {preconnect: originalFetch.preconnect});
         globalThis.fetch = timeoutFetch;
         try {
             const tool = mustTool("subject_rag_search", harness);

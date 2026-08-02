@@ -3,14 +3,14 @@ import {z} from "zod";
 import {TextToImageReferenceAssetService} from "nbook/server/text-to-image/reference-asset.service";
 import {throwReferenceAssetHttpError} from "nbook/server/text-to-image/reference-asset-http-error";
 import {requireCurrentUser} from "nbook/server/utils/auth";
-import {withProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
+import {withProjectHttpError} from "nbook/server/api/projects/project-http-error";
 
 const DeleteBodySchema = z.object({
     projectPath: z.string().trim().min(1).max(300),
 }).strict();
 
 /** 删除未被 Vibe lineage/promotion 引用的 source-image；文件与行在 Project 锁内成对清理。 */
-export default defineEventHandler((event) => withProjectNotOpenHttpError(async () => {
+export default defineEventHandler((event) => withProjectHttpError(async () => {
     await requireCurrentUser(event);
     const assetId = getRouterParam(event, "id");
     const parsed = DeleteBodySchema.safeParse(await readBody(event));

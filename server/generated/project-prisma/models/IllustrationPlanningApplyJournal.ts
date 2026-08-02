@@ -228,7 +228,7 @@ export type IllustrationPlanningApplyJournalGroupByOutputType = {
   _max: IllustrationPlanningApplyJournalMaxAggregateOutputType | null
 }
 
-type GetIllustrationPlanningApplyJournalGroupByPayload<T extends IllustrationPlanningApplyJournalGroupByArgs> = Prisma.PrismaPromise<
+export type GetIllustrationPlanningApplyJournalGroupByPayload<T extends IllustrationPlanningApplyJournalGroupByArgs> = Prisma.PrismaPromise<
   Array<
     Prisma.PickEnumerable<IllustrationPlanningApplyJournalGroupByOutputType, T['by']> &
       {
@@ -1396,6 +1396,11 @@ export type IllustrationPlanningApplyJournalFindManyArgs<ExtArgs extends runtime
    * Skip the first `n` IllustrationPlanningApplyJournals.
    */
   skip?: number
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+   * 
+   * Filter by unique combinations of IllustrationPlanningApplyJournals.
+   */
   distinct?: Prisma.IllustrationPlanningApplyJournalScalarFieldEnum | Prisma.IllustrationPlanningApplyJournalScalarFieldEnum[]
 }
 

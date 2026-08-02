@@ -1,6 +1,7 @@
 import {join} from "node:path";
 import {PROFILE_COMPILED_DIR_NAME, type ProfileArtifactManifestItem} from "nbook/server/agent/profiles/profile-artifact-compiler";
-import type {AgentProfile, AgentProfileIssueCode} from "nbook/server/agent/profiles/types";
+import {normalizeAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+import type {AgentProfile, AgentProfileDefinition, AgentProfileIssueCode} from "nbook/server/agent/profiles/types";
 import {importRuntimeArtifact} from "nbook/server/utils/runtime-artifact-import";
 
 /**
@@ -24,22 +25,20 @@ export class ProfileArtifactStore {
             default?: unknown;
         }>(artifactPath);
         const profile = mod.default;
-        if (!this.isProfile(profile)) {
+        if (!this.isProfileDefinition(profile)) {
             throw new ProfileArtifactStoreError("invalid_export", `compiled profile 没有默认导出有效的 defineAgentProfile 结果：${artifactPath}`);
         }
-        return profile;
+        return normalizeAgentProfile(profile);
     }
 
-    private isProfile(value: unknown): value is AgentProfile {
+    /** 只验证 authoring artifact 的最小声明形状；完整合同由宿主 normalizer 校验。 */
+    private isProfileDefinition(value: unknown): value is AgentProfileDefinition {
         return Boolean(
             value
             && typeof value === "object"
             && "manifest" in value
             && "initialSchema" in value
             && "tools" in value
-            && "rootToolKeys" in value
-            && "prepare" in value
-            && typeof (value as {prepare?: unknown}).prepare === "function",
         );
     }
 }

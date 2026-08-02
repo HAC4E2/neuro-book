@@ -101,7 +101,7 @@ export function createTaskTools(): NeuroAgentTool[] {
             },
             async executeWithContext(context, _toolCallId, params: unknown) {
                 const input = params as Static<typeof TaskSetStatusSchema>;
-                const session = await context.harness.readSessionContext(context.sessionId, context.workspaceKey);
+                const session = await context.harness.readSessionContext(context.sessionId);
                 const current = readTaskList(session.customState[AGENT_TASKS_STATE_KEY]);
                 if (!current) {
                     throw new Error("当前 session 还没有任务清单，请先调用 task_create。");
@@ -138,7 +138,7 @@ export function createTaskTools(): NeuroAgentTool[] {
 }
 
 async function writeTaskList(context: ToolExecutionContext, taskList: TaskList): Promise<void> {
-    await context.harness.appendCustomState(context.sessionId, AGENT_TASKS_STATE_KEY, taskList as JsonValue, context.workspaceKey, context.invocationId);
+    await context.harness.appendCustomState(context.sessionId, AGENT_TASKS_STATE_KEY, taskList as JsonValue, context.invocationId);
     context.sessionWrites?.savePointCustomState("tool.custom_state", AGENT_TASKS_STATE_KEY, taskList as JsonValue);
 }
 

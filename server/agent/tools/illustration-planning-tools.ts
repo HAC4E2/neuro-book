@@ -144,8 +144,8 @@ export function createIllustrationPlanningAgentToolDefinitions(options: ToolFact
             consumeBudget(run);
             return run;
         }
-        if (!context.projectPath) throw new Error("ILLUSTRATION_PLANNING_PROJECT_REQUIRED");
-        const pending = createRun({projectPath: context.projectPath, toolContext}).then((run): ActiveToolRun => ({
+        const planningProjectPath = requirePlanningProjectPath(context);
+        const pending = createRun({projectPath: planningProjectPath, toolContext}).then((run): ActiveToolRun => ({
             toolContext,
             contextHash,
             run,
@@ -353,7 +353,7 @@ export function createIllustrationPlanningAgentTools() {
 }
 
 async function readPlanningToolContext(context: ToolExecutionContext): Promise<IllustrationPlanningToolContext> {
-    const snapshot = await context.harness.repo.readSession(context.sessionId, context.workspaceKey);
+    const snapshot = await context.harness.repo.readSession(context.sessionId);
     const initial = snapshot.metadata.initial;
     if (!initial || typeof initial !== "object" || Array.isArray(initial) || !("planningInput" in initial)) {
         throw new Error("ILLUSTRATION_PLANNING_CONTEXT_MISSING");
@@ -414,4 +414,10 @@ function recordToolCall(active: ActiveToolRun, toolKey: string, args: object, re
 
 function toolJson(value: Record<string, unknown>, details: Record<string, unknown>) {
     return {content: [{type: "text" as const, text: JSON.stringify(value, null, 2)}], details: details as never};
+}
+
+/** 上游 ToolExecutionContext 用 currentProject 表达 Project scope；转回 text-to-image projectPath。 */
+function requirePlanningProjectPath(context: import("nbook/server/agent/tools/types").ToolExecutionContext): string {
+    if (!context.currentProject) throw new Error("ILLUSTRATION_PLANNING_PROJECT_REQUIRED");
+    return `workspace/${context.currentProject.workspace.ref.projectRoot}`;
 }

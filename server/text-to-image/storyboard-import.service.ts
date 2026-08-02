@@ -77,7 +77,7 @@ import {
 } from "nbook/shared/text-to-image-tag-resolver";
 import type {TagResolverService} from "nbook/server/text-to-image/tag-index/tag-resolver.service";
 import {assertProjectOpen, markProjectActivity} from "nbook/server/workspace-files/project-session";
-import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
+import {textToImageProjectRef} from "nbook/server/text-to-image/compat";
 import {resolveProjectAbsolutePath} from "nbook/server/text-to-image/compat";
 
 const IMPORT_PROFILE_KEY = "illustration.director";
@@ -200,8 +200,8 @@ const importLocks = new Map<string, Promise<void>>();
 
 /** 只列出当前已打开 Project 的 upload 顶层普通 `.json` 文件，不递归扫描。 */
 export async function listStoryboardImportSources(input: ListStoryboardImportSourcesInput): Promise<StoryboardImportSourceList> {
-    const projectPath = normalizeProjectPath(input.projectPath);
-    assertProjectOpen(projectPath);
+    const projectPath = input.projectPath;
+    assertProjectOpen(textToImageProjectRef(projectPath));
     const projectRoot = resolveProjectAbsolutePath(projectPath);
     const uploadPath = path.join(projectRoot, "upload");
     let uploadReal: string;
@@ -227,7 +227,7 @@ export async function listStoryboardImportSources(input: ListStoryboardImportSou
             sizeBytes: (await fs.stat(path.join(uploadReal, entry.name))).size,
         })));
     sources.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
-    markProjectActivity(projectPath);
+    markProjectActivity(textToImageProjectRef(projectPath));
     return StoryboardImportSourceListSchema.parse({
         schemaVersion: "nbook.storyboard-import-source-list/v1",
         sources,
@@ -241,7 +241,7 @@ export async function inspectStoryboardImport(input: InspectStoryboardImportInpu
     const source = await readImportSource(input);
     const home = createImportHome(input.workspaceRoot);
     const journal = await withImportLock(`${home.root}:${source.importId}`, async () => persistInspection(home, source, input.converterVersion));
-    markProjectActivity(source.projectPath);
+    markProjectActivity(textToImageProjectRef(source.projectPath));
     return {
         importId: journal.importId,
         presetId: journal.presetId,
@@ -360,7 +360,7 @@ export async function convertStoryboardImport(input: ConvertStoryboardImportInpu
         }
         return {...companion, journal};
     });
-    markProjectActivity(source.projectPath);
+    markProjectActivity(textToImageProjectRef(source.projectPath));
     return result;
 }
 
@@ -427,8 +427,8 @@ export async function verifyResolvedStoryboardImportForPublish(input: {
     expectedResolvedPreviewToken: string;
     workspaceRoot?: string;
 }): Promise<VerifiedResolvedStoryboardImport> {
-    const projectPath = normalizeProjectPath(input.projectPath);
-    assertProjectOpen(projectPath);
+    const projectPath = input.projectPath;
+    assertProjectOpen(textToImageProjectRef(projectPath));
     const importId = StoryboardStableIdSchema.parse(input.importId);
     const expectedResolvedPreviewToken = TextToImageContractHashSchema.parse(input.expectedResolvedPreviewToken);
     const home = createImportHome(input.workspaceRoot);
@@ -457,7 +457,7 @@ export async function verifyResolvedStoryboardImportForPublish(input: {
         if (sha256(sanitizedArchive) !== journal.source.sanitizedSourceHash) {
             throw new StoryboardImportError("STORYBOARD_IMPORT_ARCHIVE_CONFLICT", "source.sanitized.json hash 与 journal 不一致");
         }
-        markProjectActivity(projectPath);
+        markProjectActivity(textToImageProjectRef(projectPath));
         return {journal, preview};
     });
 }
@@ -473,8 +473,8 @@ export async function resolveStoryboardImportTags(
     dependencies: StoryboardImportResolutionDependencies,
 ): Promise<StoryboardImportPreview> {
     const importId = StoryboardStableIdSchema.parse(input.importId);
-    const projectPath = normalizeProjectPath(input.projectPath);
-    assertProjectOpen(projectPath);
+    const projectPath = input.projectPath;
+    assertProjectOpen(textToImageProjectRef(projectPath));
     const expectedPreviewToken = TextToImageContractHashSchema.parse(input.expectedPreviewToken);
     if (!Array.isArray(input.approvals) || input.approvals.length > 100000) {
         throw new StoryboardImportError("STORYBOARD_IMPORT_APPROVAL_INVALID", "approval 数量非法");
@@ -644,8 +644,8 @@ async function readImportSource(
     input: InspectStoryboardImportInput,
     expectedImportId?: string,
 ): Promise<ReadImportSource> {
-    const projectPath = normalizeProjectPath(input.projectPath);
-    assertProjectOpen(projectPath);
+    const projectPath = input.projectPath;
+    assertProjectOpen(textToImageProjectRef(projectPath));
     const sourceRelativePath = parseSourceRelativePath(input.sourceRelativePath);
     const projectRoot = resolveProjectAbsolutePath(projectPath);
     const sourcePath = await resolveUploadSource(projectRoot, sourceRelativePath);

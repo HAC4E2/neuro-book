@@ -16,6 +16,9 @@ export default defineConfig({
     test: {
         environment: "node",
         globals: true,
+        // Product bundle 与隔离 workspace fixture 会显著抬高单 worker 内存；
+        // Windows 实测 4 workers 会触发进程池异常退出，2 workers 能保持完整门禁稳定。
+        maxWorkers: 2,
         // 默认 10s 不够：beforeEach 里开 Project 会加载 14 个 profile artifact，
         // 而单个 artifact 目前有 27.3 MiB（宿主实现被打进 bundle，见 Task 125 Phase 3）。
         // 这是承认当前 artifact 体积的真实成本，不是掩盖挂起——真正的修复是把 artifact 压小。
@@ -28,14 +31,14 @@ export default defineConfig({
             "server/agent/test/setup.ts",
         ],
         include: [
-            "app/components/novel-ide/agent/**/*.test.ts",
-            "app/components/novel-ide/rag/**/*.test.ts",
-            "app/components/novel-ide/settings/**/*.test.ts",
+            "app/composables/**/*.test.ts",
+            "app/components/novel-ide/**/*.test.ts",
             "app/components/markdown-studio/**/*.test.ts",
             "app/components/profile-template-editor/**/*.test.ts",
             "app/stores/**/*.test.ts",
             "app/utils/**/*.test.ts",
             "scripts/build/**/*.test.ts",
+            "scripts/ci/**/*.test.ts",
             "scripts/db/**/*.test.ts",
             "scripts/install/**/*.test.ts",
             "scripts/release/**/*.test.ts",

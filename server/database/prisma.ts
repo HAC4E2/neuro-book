@@ -39,6 +39,24 @@ export const usePrismaClient = (): PrismaClient => {
 };
 
 /**
+ * 断开并清空进程级 App SQLite PrismaClient。
+ *
+ * Product shutdown 后进程会立即退出；即使 disconnect 报错也不能把已经进入关闭流程的
+ * client 留在全局单例中，避免后续 close step 误认为它仍可用。
+ */
+export const disconnectPrismaClient = async (): Promise<void> => {
+    const client = globalForPrisma.prismaClient;
+    if (!client) return;
+    try {
+        await client.$disconnect();
+    } finally {
+        if (globalForPrisma.prismaClient === client) {
+            delete globalForPrisma.prismaClient;
+        }
+    }
+};
+
+/**
  * 便捷导出：适合在 server/api 中直接使用。
  */
 export const prisma = usePrismaClient();

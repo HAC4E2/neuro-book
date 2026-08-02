@@ -8,6 +8,7 @@ import {resolveContainerEngine} from "#manager/docker";
 import {readInstallationManifest} from "#manager/manifest-store";
 import {installationPaths} from "#manager/paths";
 import {commandAvailable, runCapture} from "#manager/process";
+import {verifyInstalledProductRuntimeControlPlane} from "#manager/product";
 import type {CommandInspection, EnvironmentInspection, GitInspection, InstanceDiscovery, InspectionIssue, ManagerConfig, OfflineInspection} from "#manager/types";
 
 const SKIPPED_DIRECTORIES = new Set([".git", ".output", ".runtime", ".deploy", "node_modules", ".cache", ".nuxt"]);
@@ -40,9 +41,18 @@ export async function inspectInstance(input: string): Promise<OfflineInspection>
         if (!previousAttempt && await pathExists(join(root, ".runtime"))) blockers.push({code: "manager.unknown-runtime", message: "发现没有Manifest所有权记录的.runtime目录；请移走或人工确认后再接管。"});
         if (!previousAttempt && await pathExists(join(root, ".deploy"))) blockers.push({code: "manager.unknown-deploy", message: "发现没有有效Manifest的.deploy目录；拒绝覆盖未知Manager状态。"});
     }
-    const stateRoot = manifest?.stateRoot ?? (portableState ? "data" : ".");
-    const statePath = resolve(root, stateRoot);
-    const productExists = await pathExists(join(root, ".output", "server", "index.mjs"));
+    const statePath = manifest
+        ? installationPaths(root, manifest.roots).state
+        : resolve(root, portableState ? "data" : ".");
+    const product = manifest?.components.product;
+    const productExists = product?.provider === "container"
+        ? true
+        : await pathExists(join(root, ".output"));
+    const productTrusted = product?.provider === "container"
+        ? true
+        : product
+            ? await verifyInstalledProductRuntimeControlPlane(root, product).then(() => true).catch(() => false)
+            : false;
     if (productExists && !manifest) warnings.push({code: "product.untrusted", message: "发现无法证明revision/checksum的历史.output；接管Product Profile时必须事务重建。"});
     if (kind === "portable-state") blockers.push({code: "portable.incomplete", message: "data目录只能作为Windows Portable用户状态复用，不能单独接管为实例。"});
     return {
@@ -50,9 +60,9 @@ export async function inspectInstance(input: string): Promise<OfflineInspection>
         kind,
         manifest,
         git,
-        product: {exists: productExists, trusted: Boolean(manifest?.components.product), revision: manifest?.components.product?.revision},
+        product: {exists: productExists, trusted: productTrusted, revision: product?.revision},
         state: {
-            root: stateRoot,
+            root: statePath,
             configExists: await pathExists(join(statePath, "config.yaml")),
             workspaceExists: await pathExists(join(statePath, "workspace")),
             databaseExists: await pathExists(join(statePath, "workspace", ".nbook", "neuro-book.sqlite")),

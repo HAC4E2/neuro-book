@@ -324,6 +324,12 @@ await wf.workflow(key, args);                // 嵌套限一层
 
 验证：workflow 模块 7/7（VM 用例扩了时间线/卡片/关系图/状态图断言，事件入参改 `TimedEvent`）+ `nuxt typecheck` 全绿。sibling 至 `a871cf2`。浏览器走查待用户。
 
+### 2026-07-28 Preview 观察边界收口（Task 111 联动）
+
+`WorkflowRunPanel` 继续只轮询 Run HTTP 快照；其 Job 区域只在正式 Run 带非空 Job ID 时订阅共享 Jobs feed，用于后台预览和取消。demo Run 没有 Job ID，启动、切换、应答和重放不创建 Jobs SSE consumer，也不读取 Jobs 列表。
+
+正式 `/workflow.preview` 页面首次加载或用户点击刷新正式列表时，显式读取一次 Jobs 列表以恢复现有正式 Run，并把该原子列表游标作为 Job 观察基线。Run 的应答、重放和切换只重启 Run 轮询，不再强制刷新全量 Jobs；waiting resume 后的 Job running 由服务端事件发布，不由前端补偿请求猜测。
+
 ## 后续 TODO
 
 - [ ] 状态图增强（用户已提，本轮未做）：边显示流经的数据摘要；token 沿边移动的重放动画（边序号已铺路）

@@ -1,9 +1,9 @@
 import {basename, dirname, join, resolve} from "node:path";
 import {mkdir, rm, writeFile} from "node:fs/promises";
 import {randomUUID} from "node:crypto";
-import {describe, expect, it, vi} from "vitest";
-import leaderDefaultProfile, {LeaderDefaultSettingsForm} from "../../../assets/workspace/.nbook/agent/profiles/builtin/leader.default.profile";
-import writerProfile, {WriterSettingsForm} from "../../../assets/workspace/.nbook/agent/profiles/builtin/writer.profile";
+import {afterAll, beforeAll, describe, expect, it, vi} from "vitest";
+import leaderDefaultProfileDefinition, {LeaderDefaultSettingsForm} from "../../../assets/workspace/.nbook/agent/profiles/builtin/leader.default.profile";
+import writerProfileDefinition, {WriterSettingsForm} from "../../../assets/workspace/.nbook/agent/profiles/builtin/writer.profile";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {ResearcherInitialSchema, RetrievalInitialSchema, RetrievalOutputSchema, WriterInitialSchema, WriterPayloadSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
@@ -16,6 +16,15 @@ import {ensureProfileHome} from "nbook/server/agent/profiles/profile-home";
 import {validateLowCodeFormValue} from "nbook/server/low-code-form";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {createProjectWorkspaceKey, projectWorkspaceRef, resolvedProjectWorkspace} from "nbook/server/workspace-files/project-identity";
+import {normalizeAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
+import {
+    createIsolatedWorkspaceAssets,
+    type IsolatedWorkspaceAssets,
+} from "nbook/server/workspace-files/test-workspace-fixture";
+
+const leaderDefaultProfile = normalizeAgentProfile(leaderDefaultProfileDefinition);
+const writerProfile = normalizeAgentProfile(writerProfileDefinition);
 
 vi.mock("nbook/server/utils/prisma", () => ({
     prisma: {
@@ -61,6 +70,16 @@ vi.mock("nbook/server/plot", () => ({
 }));
 
 describe("assets builtin v3 profiles", () => {
+    let assets: IsolatedWorkspaceAssets;
+
+    beforeAll(async () => {
+        assets = await createIsolatedWorkspaceAssets({purpose: "leader-assets-profile-tests"});
+    });
+
+    afterAll(async () => {
+        await assets.dispose();
+    });
+
     it("leader.default 从 assets/workspace/.nbook 加载并使用 v3 工具名", async () => {
         const catalog = new AgentProfileCatalog(
             resolve("assets", "workspace", ".nbook", "agent", "profiles"),
@@ -76,7 +95,6 @@ describe("assets builtin v3 profiles", () => {
                 model: null,
                 thinkingLevel: "off",
                 profileKey: "leader.default",
-                workspaceRoot: "workspace",
                 customState: {},
                 linkedAgents: [],
                 archived: false,
@@ -133,6 +151,11 @@ describe("assets builtin v3 profiles", () => {
             "save_promise_beat",
             "save_story_decision",
             "execute_sql",
+            "run_workflow",
+            "list_workflows",
+            "list_jobs",
+            "get_job",
+            "cancel_job",
         ]);
         expect(profile.rootToolKeys).not.toContain("report_result");
         expect(profile.rootToolKeys).not.toContain("web_search");
@@ -153,6 +176,8 @@ describe("assets builtin v3 profiles", () => {
         expect(visiblePrompt).toContain("invoke_agent");
         expect(visiblePrompt).toContain("get_agent");
         expect(visiblePrompt).toContain("get_agent_profile");
+        expect(visiblePrompt).toContain("自查当前 session 时调用 get_session({})");
+        expect(visiblePrompt).toContain("禁止猜测、编造或默认传 1");
         expect(visiblePrompt).toContain("Task Management");
         expect(visiblePrompt).toContain("Task tools are for execution tracking, not for storing novel facts");
         expect(visiblePrompt).toContain("task_create");
@@ -230,7 +255,7 @@ describe("assets builtin v3 profiles", () => {
         expect(historyText).toContain("Available Skills");
         expect(historyText).toContain("Draft Skill");
         expect(historyText).toContain("Skills are reusable work methods");
-        expect(historyText).toContain("These agent profiles are currently available");
+        expect(historyText).toContain("These public agent profiles are currently available");
         expect(historyText).toContain("```reference/agent/profile-routing.md");
         expect(historyText).toContain("当你察觉当前任务与自身职责不同");
         expect(historyText).toContain("建议用户新建或切换到对应 agent");
@@ -256,7 +281,6 @@ describe("assets builtin v3 profiles", () => {
                 model: null,
                 thinkingLevel: "off",
                 profileKey: "leader.default",
-                workspaceRoot: "workspace",
                 customState: {
                     "plot.selection": {
                         projectPath: "workspace/novel-7",
@@ -298,13 +322,12 @@ describe("assets builtin v3 profiles", () => {
         expect(runtimeModelContextText).not.toContain("client.studio.selectedFilePath");
         expect(runtimeModelContextText).not.toContain("\"ide\"");
         expect(runtimeModelContextText).not.toContain("<dynamic-context>");
-        expect(runtimeAppendingText).toContain("Runtime Location:");
-        expect(runtimeAppendingText).toContain("- Tool cwd / Workspace Root: workspace/");
-        expect(runtimeAppendingText).toContain("not an access boundary");
         expect(runtimeAppendingText).toContain("Current Workspace Focus:");
         expect(runtimeAppendingText).toContain("Current Project Workspace: workspace/novel-7");
-        expect(runtimeAppendingText).toContain("novel-7/lorebook/..., novel-7/manuscript/..., or novel-7/reference/...");
-        expect(runtimeAppendingText).toContain("Current selected file: novel-7/manuscript/001-opening/index.md");
+        expect(runtimeAppendingText).toContain("use lorebook/..., manuscript/..., or reference/... directly");
+        expect(runtimeAppendingText).toContain("not an access boundary");
+        expect(runtimeAppendingText).toContain("Current selected file: manuscript/001-opening/index.md");
+        expect(runtimeAppendingText).toContain("Use novel-7 when a tool explicitly asks for projectRoot");
         expect(runtimeAppendingText).toContain("You are in normal mode. switch_mode is available");
         expect(runtimeAppendingText).not.toContain("Current plot focus:");
         const planModePrepared = await profile.prepare!({
@@ -314,7 +337,6 @@ describe("assets builtin v3 profiles", () => {
                 model: null,
                 thinkingLevel: "off",
                 profileKey: "leader.default",
-                workspaceRoot: "workspace",
                 customState: {
                     "agent.mode": {
                         mode: "plan",
@@ -346,7 +368,6 @@ describe("assets builtin v3 profiles", () => {
                 model: null,
                 thinkingLevel: "off",
                 profileKey: "leader.default",
-                workspaceRoot: "workspace",
                 customState: {
                     "agent.mode": {
                         mode: "normal",
@@ -384,7 +405,6 @@ describe("assets builtin v3 profiles", () => {
                 model: null,
                 thinkingLevel: "off",
                 profileKey: "retrieval",
-                workspaceRoot: "workspace",
                 customState: {},
                 linkedAgents: [],
                 archived: false,
@@ -434,7 +454,6 @@ describe("assets builtin v3 profiles", () => {
                 model: null,
                 thinkingLevel: "off",
                 profileKey: "leader.assets",
-                workspaceRoot: "workspace/.nbook",
                 customState: {},
                 linkedAgents: [],
                 archived: false,
@@ -580,7 +599,6 @@ describe("assets builtin v3 profiles", () => {
         const prepared = await profile.prepare!({
             session: testSession({
                 profileKey: "leader.assets",
-                workspaceRoot: "workspace/.nbook",
             }),
             initial: {},
             vars: createTestVariableAccessor(),
@@ -694,7 +712,6 @@ describe("assets builtin v3 profiles", () => {
                 model: null,
                 thinkingLevel: "off",
                 profileKey: "researcher",
-                workspaceRoot: "workspace",
                 customState: {},
                 linkedAgents: [],
                 archived: false,
@@ -820,7 +837,7 @@ describe("assets builtin v3 profiles", () => {
 
     it("writer payload prepare 只注入目标 path 和建议读取清单", async () => {
         const projectSlug = `writer-project-${randomUUID()}`;
-        const projectRoot = resolve("workspace", projectSlug);
+        const projectRoot = join(resolveRuntimeWorkspaceRoot(), projectSlug);
         await mkdir(projectRoot, {recursive: true});
         await writeFile(join(projectRoot, "project.yaml"), "kind: novel\ntitle: Writer Test\nsummary: \"\"\n", "utf8");
         try {
@@ -831,8 +848,7 @@ describe("assets builtin v3 profiles", () => {
                     model: null,
                     thinkingLevel: "off",
                     profileKey: "writer",
-                    workspaceRoot: "workspace",
-                    projectPath: `workspace/${projectSlug}`,
+                    currentProjectRoot: projectSlug,
                     customState: {},
                     linkedAgents: [],
                     archived: false,
@@ -868,8 +884,7 @@ describe("assets builtin v3 profiles", () => {
             expect(prepared.systemPrompt).not.toContain("你不持有 Plot tools");
             expect(historyContext).toContain("<target_file>");
             expect(historyContext).toContain("path: manuscript/001-chapter/index.md");
-            expect(historyContext).toContain(`projectSlug: ${projectSlug}`);
-            expect(historyContext).toContain(`projectPath: workspace/${projectSlug}`);
+            expect(historyContext).toContain(`projectRoot: ${projectSlug}`);
             expect(historyContext).toContain("chapterPath: manuscript/001-chapter/");
             expect(historyContext).toContain("<suggested_context>");
             expect(historyContext).toContain("lorebook/character/hero/");
@@ -907,7 +922,6 @@ describe("assets builtin v3 profiles", () => {
             const prepared = await writerProfile.prepare!({
                 session: testSession({
                     profileKey: "writer",
-                    workspaceRoot: "workspace",
                 }),
                 initial: {},
                 settings: {
@@ -952,7 +966,7 @@ describe("assets builtin v3 profiles", () => {
             wordCountControl: "2000-2600 字",
             polishingWorkflow: "使用 stop-slop。",
             adultStylePrompt: "",
-        }, {profileKey: "writer", scope: "global", workspaceRoot: "workspace"});
+        }, {profileKey: "writer", scope: "global"});
         const homeKeyResult = await validateLowCodeFormValue(WriterSettingsForm, {
             writingStylePreset: DEFAULT_WRITING_STYLE_PRESET,
             writingReferencePreset: DEFAULT_WRITING_REFERENCE_PRESET,
@@ -961,7 +975,7 @@ describe("assets builtin v3 profiles", () => {
             wordCountControl: "2000-2600 字",
             polishingWorkflow: "使用 stop-slop。",
             adultStylePrompt: "",
-        }, {profileKey: "writer", scope: "global", workspaceRoot: "workspace"});
+        }, {profileKey: "writer", scope: "global"});
         // enableKittenAdultStyle 已从 schema 下线；旧存档残留的 key 应被合并层忽略，而不是校验失败
         const retiredKeyResult = await validateLowCodeFormValue(WriterSettingsForm, {
             writingStylePreset: DEFAULT_WRITING_STYLE_PRESET,
@@ -972,7 +986,7 @@ describe("assets builtin v3 profiles", () => {
             polishingWorkflow: "使用 stop-slop。",
             adultStylePrompt: "",
             enableKittenAdultStyle: true,
-        }, {profileKey: "writer", scope: "global", workspaceRoot: "workspace"});
+        }, {profileKey: "writer", scope: "global"});
 
         expect(legacyResult.issues).toEqual([]);
         expect(homeKeyResult.issues).toEqual([]);
@@ -991,12 +1005,10 @@ describe("assets builtin v3 profiles", () => {
         const validation = await validateLowCodeFormValue(LeaderDefaultSettingsForm, undefined, {
             profileKey: "leader.default",
             scope: "global",
-            workspaceRoot: "workspace" as const,
         });
         const prepared = await leaderDefaultProfile.prepare!({
             session: testSession({
                 profileKey: "leader.default",
-                workspaceRoot: "workspace",
             }),
             initial: {},
             settings: {
@@ -1027,6 +1039,8 @@ describe("assets builtin v3 profiles", () => {
         expect(systemPrompt).toContain("<neurobook_familiarity value=\"beginner\">");
         expect(systemPrompt).toContain("第一次抛出 World Engine");
         expect(systemPrompt).toContain("接近创作访谈");
+        expect(systemPrompt).toContain("自查当前 session 时调用 get_session({})");
+        expect(systemPrompt).toContain("禁止猜测、编造或默认传 1");
     });
 
     it("leader.default Project home 初始化默认人设资源并可通过 resource-preset 校验", async () => {
@@ -1054,14 +1068,12 @@ describe("assets builtin v3 profiles", () => {
             }, {
                 profileKey: "leader.default",
                 scope: "project",
-                workspaceRoot: "workspace",
                 projectWorkspace,
                 home,
             });
             const prepared = await leaderDefaultProfile.prepare!({
                 session: testSession({
                     profileKey: "leader.default",
-                    workspaceRoot: "workspace",
                 }),
                 initial: {},
                 settings: {
@@ -1082,7 +1094,6 @@ describe("assets builtin v3 profiles", () => {
             expect(validation.issues).toEqual([]);
             expect(persona).toContain("精简彩绘");
             expect(prepared.systemPrompt).toContain("有创作陪伴感");
-            expect(prepared.systemPrompt).toContain("不引入 RP 小屋、万华镜");
             expect(prepared.systemPrompt).toContain("少问，优先给建议和默认路径");
         } finally {
             await rm(projectRoot, {recursive: true, force: true});
@@ -1091,7 +1102,7 @@ describe("assets builtin v3 profiles", () => {
 
     it("writer 无 payload 时不崩溃，非法 payload path 会明确拒绝", async () => {
         const projectSlug = `writer-project-${randomUUID()}`;
-        const projectRoot = resolve("workspace", projectSlug);
+        const projectRoot = join(resolveRuntimeWorkspaceRoot(), projectSlug);
         await mkdir(projectRoot, {recursive: true});
         await writeFile(join(projectRoot, "project.yaml"), "kind: novel\ntitle: Writer Test\nsummary: \"\"\n", "utf8");
         const baseSession = {
@@ -1100,8 +1111,7 @@ describe("assets builtin v3 profiles", () => {
             model: null,
             thinkingLevel: "off" as const,
             profileKey: "writer",
-            workspaceRoot: "workspace" as const,
-            projectPath: `workspace/${projectSlug}`,
+            currentProjectRoot: projectSlug,
             customState: {},
             linkedAgents: [],
             archived: false,

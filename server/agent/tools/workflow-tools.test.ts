@@ -104,6 +104,51 @@ describe("run_workflow cancellation propagation", () => {
         expect(result.details).toEqual(expect.objectContaining({runId: "run_cancelled", status: "cancelled"}));
     });
 
+    it("后台启动 details 返回首次 Job 事件的因果游标", async () => {
+        const workspaceRoot = absoluteFsPath(process.cwd());
+        const ready = readyProject(workspaceRoot, absoluteFsPath(join(workspaceRoot, ".agent", "workflow-tools-cursor-project")));
+        const targetMocks = mockWorkflowProject(ready, workspaceRoot);
+        const startWorkflowRun = vi.fn(() => ({runId: "run-causal", done: new Promise(() => {})}));
+        vi.doMock("nbook/server/agent/workflow/workflow-demo-service", () => ({
+            useWorkflowDemoService: () => ({
+                startWorkflowRun,
+                waitForRunSettled: vi.fn(),
+                cancelRun: vi.fn(),
+                runSummary: vi.fn(),
+            }),
+        }));
+        const spawn = vi.fn(() => ({
+            job: {jobId: "job-causal"},
+            jobEventCursor: {eventEpoch: "epoch-jobs", after: 9},
+        }));
+        const {createWorkflowTools} = await import("nbook/server/agent/tools/workflow-tools");
+        const context = {
+            harness: {
+                configTargetForInvocation: targetMocks.configTargetForInvocation,
+                workflows: {get: vi.fn(async () => ({def: {key: "causal", run: async () => null}}))},
+                jobs: {spawn},
+            },
+            sessionId: 1,
+            profileKey: "leader",
+            workspaceRootRef: "workspace",
+            workspaceFsRoot: workspaceRoot,
+            workspaceKey: "global",
+            invocationId: "workflow-causal-invocation",
+        } as unknown as ToolExecutionContext;
+
+        const result = await createWorkflowTools().runWorkflow.runtime().executeWithContext!(
+            context,
+            "tool-workflow-causal",
+            {workflowKey: "causal"},
+        );
+
+        expect(result.details).toEqual(expect.objectContaining({
+            jobId: "job-causal",
+            jobEventCursor: {eventEpoch: "epoch-jobs", after: 9},
+            runId: "run-causal",
+        }));
+    });
+
     it("list_workflows 使用当前 Project Workspace 的三层 catalog", async () => {
         const root = await mkdtemp(join(process.cwd(), ".agent", "workflow-tools-catalog-"));
         try {

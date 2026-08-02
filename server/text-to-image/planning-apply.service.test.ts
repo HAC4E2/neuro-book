@@ -20,7 +20,7 @@ import {parseChapterStoryboardMarkdown} from "nbook/server/text-to-image/chapter
 import {textToImageProjectClient} from "nbook/server/text-to-image/project-client";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 import {resetProjectSessionsForTest} from "nbook/server/workspace-files/project-session";
-import {resolveProjectAbsolutePath} from "nbook/server/text-to-image/compat";
+import {resolveProjectAbsolutePath, textToImageProjectRef} from "nbook/server/text-to-image/compat";
 import {writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {createIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/workspace-assets-test-helper";
@@ -165,13 +165,13 @@ async function createContext(): Promise<TestContext> {
     resetProjectSessionsForTest();
     const assets = await createIsolatedWorkspaceAssets();
     const projectPath = `workspace/planning-apply-${randomUUID()}`;
-    await writeProjectManifest(resolveRuntimeWorkspaceRoot(), projectPath, {kind: "novel", title: "Planning Apply", summary: ""});
+    await writeProjectManifest(resolveRuntimeWorkspaceRoot(), textToImageProjectRef(projectPath), {kind: "novel", title: "Planning Apply", summary: ""});
     const projectRoot = resolveProjectAbsolutePath(projectPath);
     const chapterFile = path.join(projectRoot, ...CHAPTER_PATH.split("/"));
     const storyboardFile = path.join(projectRoot, ...STORYBOARD_PATH.split("/"));
     await fs.mkdir(path.dirname(chapterFile), {recursive: true});
     await fs.writeFile(chapterFile, CHAPTER_MARKDOWN, "utf8");
-    await openProjectForTest(projectPath);
+    await openProjectForTest(textToImageProjectRef(projectPath).projectRoot);
     const client = await textToImageProjectClient(projectPath);
     const projectId = "project-1";
     await client.projectMetadata.update({where: {key: "projectId"}, data: {value: projectId}});
@@ -202,7 +202,7 @@ async function createContext(): Promise<TestContext> {
 }
 
 async function disposeContext(context: TestContext): Promise<void> {
-    await closeProjectForTest(context.projectPath).catch(() => undefined);
+    await closeProjectForTest(textToImageProjectRef(context.projectPath).projectRoot).catch(() => undefined);
     await resetWorkspaceHistoryForTest();
     resetProjectSessionsForTest();
     await context.assets.dispose();

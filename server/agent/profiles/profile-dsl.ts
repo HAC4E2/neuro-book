@@ -6,168 +6,62 @@ import type {StoredAgentMessage} from "nbook/server/agent/messages/stored-types"
 import {createAssistantTextMessage, createStoredTextToolResult, createStoredUserMessage} from "nbook/server/agent/messages/message-utils";
 import {storedMessageText} from "nbook/server/agent/messages/stored-message-presentation";
 import type {AgentCatalogItem, AgentProfile, ProfilePrepareContext, ProfileTurnPlan} from "nbook/server/agent/profiles/types";
-import {planModeToolDirectory} from "nbook/server/agent/plan-mode-path";
+import {planModeToolDirectory} from "nbook/server/agent/plan-mode-directory";
 import {AGENT_MODE_STATE_KEY, AGENT_TASKS_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
 import type {NeuroSessionContext, SessionEntryDraft} from "nbook/server/agent/session/types";
 import type {ProfileVariablePathInput} from "nbook/server/agent/variables/types";
 import type {AgentMode} from "nbook/shared/dto/agent-session.dto";
 import type {FileChangeAwareness} from "nbook/server/agent/profiles/profile-turn-context";
 import {absoluteFsPath, resolveContainedFilePath} from "nbook/server/runtime/paths/file-path";
-
-export type ProfileDslChild = ProfileDslNode | string | number | boolean | null | undefined | ProfileDslChild[];
-
-export type ProfileDslNode =
-    | ProfilePromptNode
-    | ProfileSetNode
-    | ProfileMessageNode
-    | ProfileToolCallNode
-    | ProfileReminderNode
-    | ProfileWatchNode
-    | ProfileIfNode
-    | ProfileStringFragmentNode
-    | ProfileModeSlotNode
-    | ProfileFileChangeNoticeNode
-    | ProfileFragmentNode;
-
-export type ProfilePromptNode = {
-    kind: "ProfilePrompt";
-    children: ProfileDslChild[];
-};
-
-export type ProfileSetNode = {
-    kind: "System" | "HistorySet" | "ModelContext" | "AppendingSet";
-    children: ProfileDslChild[];
-};
-
-export type ProfileMessageNode = {
-    kind: "Message" | "AIMessage" | "ToolResult";
-    role?: "user" | "assistant" | "toolResult" | "system";
-    toolCallId?: string;
-    toolName?: string;
-    isError?: boolean;
-    children: ProfileDslChild[];
-};
-
-export type ProfileToolCallNode = {
-    kind: "ToolCall";
-    id: string;
-    name: string;
-    args?: Record<string, unknown>;
-};
-
-export type ProfileReminderNode = {
-    kind: "Reminder";
-    id: string;
-    when: boolean;
-    watchPath?: ProfileVariablePathInput;
-    watchValue?: JsonValue;
-    watch?: (ctx: ProfilePrepareContext<any>) => JsonValue | undefined | Promise<JsonValue | undefined>;
-    render?: (change: ReminderChange) => ProfileDslChild | Promise<ProfileDslChild>;
-    repeatEveryTurns?: number;
-    children: ProfileDslChild[];
-};
-
-export type ReminderChange = {
-    previousValue: JsonValue | undefined;
-    currentValue: JsonValue | undefined;
-    hasPreviousValue: boolean;
-    hasCurrentValue: boolean;
-    didChange: boolean;
-    session: NeuroSessionContext;
-};
-
-export type WatchChange = {
-    previousValue: JsonValue | undefined;
-    currentValue: JsonValue | undefined;
-    path: string;
-    hasPreviousValue: boolean;
-    hasCurrentValue: boolean;
-    session: NeuroSessionContext;
-};
-
-export type ProfileWatchNode = {
-    kind: "Watch";
-    id?: string;
-    path?: string;
-    value?: JsonValue;
-    render?: (change: WatchChange) => ProfileDslChild | Promise<ProfileDslChild>;
-    children: ProfileDslChild[];
-};
-
-export type ProfileIfNode = {
-    kind: "If";
-    condition: boolean;
-    children: ProfileDslChild[];
-};
-
-export type ProfileStringFragmentNode = {
-    kind: "StringFragment";
-    text: string | ((ctx: ProfilePrepareContext<any>) => string | Promise<string>);
-    /**
-     * 上下文归因用的来源名（Task 126）。只影响可观测，不参与渲染，也绝不进入发给模型的正文。
-     * 匿名 fragment（profile 作者手写的裸字符串片段）无需提供。
-     */
-    label?: string;
-};
-
-export type ProfileImportAs = "text";
-
-export type ProfileImportProps = {
-    /** Repo / app root 相对路径。允许 AGENTS.md、reference/**、docs/** 和系统 skill 文档。 */
-    path: string;
-    /** 可选 Markdown 标题文本；设置后只导入该标题段落。 */
-    heading?: string;
-    /** 最大 UTF-8 字节数；超出时截断并标记 truncated。 */
-    maxBytes?: number;
-    /** 缺失文件或标题是否抛错。缺失文件默认 false；标题缺失默认仍抛错，除非显式 false。 */
-    required?: boolean;
-    /** 展示给模型的可读标签；缺省使用 path。 */
-    label?: string;
-    /** 未来扩展图片 / artifact；第一版固定为 text。 */
-    as?: ProfileImportAs;
-};
-
-/**
- * ModeReminder 插槽档位（Task 90）：mode × phase 的 7 种默认文案，slot 可逐档覆盖。
- */
-export type ModeSlotKind = "plan_enter" | "plan_reentry" | "plan_steady" | "discuss_enter" | "discuss_steady" | "exit_from_plan" | "exit_plain";
-
-export type ProfileModeSlotNode = {
-    kind: "ModeSlot";
-    slot: ModeSlotKind;
-    children: ProfileDslChild[];
-};
-
-export type ProfileFragmentNode = {
-    kind: "Fragment";
-    children: ProfileDslChild[];
-};
-
-export type ProfileFileChangeNoticeNode = {
-    kind: "FileChangeNotice";
-    mode: FileChangeAwareness;
-};
+import type {
+    ModeSlotKind,
+    ProfileBuiltinNode,
+    ProfileDslChild,
+    ProfileDslNode,
+    ProfileFileChangeNoticeNode,
+    ProfileFragmentNode,
+    ProfileIfNode,
+    ProfileImportAs,
+    ProfileImportProps,
+    ProfileMessageNode,
+    ProfileModeSlotNode,
+    ProfilePromptNode,
+    ProfileReminderNode,
+    ProfileRuntimeState,
+    ProfileSetNode,
+    ProfileStringFragmentNode,
+    ProfileToolCallNode,
+    ProfileWatchNode,
+    ReminderChange,
+    ReminderState,
+    WatchChange,
+    WatchState,
+} from "nbook/profile-sdk/contracts";
+export type {
+    ModeSlotKind,
+    ProfileDslChild,
+    ProfileDslNode,
+    ProfileFileChangeNoticeNode,
+    ProfileFragmentNode,
+    ProfileIfNode,
+    ProfileImportAs,
+    ProfileImportProps,
+    ProfileMessageNode,
+    ProfileModeSlotNode,
+    ProfilePromptNode,
+    ProfileReminderNode,
+    ProfileRuntimeState,
+    ProfileSetNode,
+    ProfileStringFragmentNode,
+    ProfileToolCallNode,
+    ProfileWatchNode,
+    ReminderChange,
+    ReminderState,
+    WatchChange,
+    WatchState,
+} from "nbook/profile-sdk/contracts";
 
 type RenderZone = "root" | "system" | "history" | "model" | "appending" | "message" | "assistant" | "reminder" | "watch";
-
-export type ReminderState = {
-    hasValue?: boolean;
-    value?: JsonValue | null;
-    fingerprint?: string;
-    /** 最近一次实际产生 reminder 消息的用户轮次；空渲染不会更新。 */
-    injectedAtTurn?: number;
-};
-
-export type WatchState = {
-    hasValue: boolean;
-    value: JsonValue | null;
-    fingerprint: string;
-};
-
-export type ProfileRuntimeState = {
-    reminders?: Record<string, ReminderState>;
-    watches?: Record<string, WatchState>;
-};
 
 type CompileState = {
     context: ProfilePrepareContext<any>;
@@ -222,6 +116,7 @@ export async function compileProfileContext(
     context: ProfilePrepareContext<any>,
     tree: ProfileDslNode,
 ): Promise<ProfileTurnPlan> {
+    const materializedTree = materializeProfileDslNode(tree);
     const currentRuntimeState = readProfileRuntimeState(context.session.customState[profileStateKey(profile.manifest.key)]);
     const state: CompileState = {
         context,
@@ -234,7 +129,7 @@ export async function compileProfileContext(
         plan: {},
         ...emptyLabelState(),
     };
-    await renderRoot(state, tree);
+    await renderRoot(state, materializedTree);
     const promptSourceLabels = collectPromptSourceLabels(state);
     if (promptSourceLabels) {
         state.plan.promptSourceLabels = promptSourceLabels;
@@ -258,7 +153,8 @@ export async function compileProfileSystemPrompt(
     context: ProfilePrepareContext<any>,
     tree: ProfileDslNode,
 ): Promise<string | undefined> {
-    if (!tree || typeof tree !== "object" || Array.isArray(tree) || tree.kind !== "ProfilePrompt") {
+    const materializedTree = materializeProfileDslNode(tree);
+    if (materializedTree.kind !== "ProfilePrompt") {
         throw new Error("context(ctx) 必须返回 <ProfilePrompt> 根节点。");
     }
     const state: CompileState = {
@@ -272,7 +168,7 @@ export async function compileProfileSystemPrompt(
         plan: {},
         ...emptyLabelState(),
     };
-    const systemPrompt = await renderSystemOnlyChildren(state, tree.children);
+    const systemPrompt = await renderSystemOnlyChildren(state, materializedTree.children);
     return systemPrompt.trim() ? systemPrompt : undefined;
 }
 
@@ -408,7 +304,7 @@ export function AIMessage(props: {children?: ProfileDslChild | ProfileDslChild[]
 /**
  * Assistant tool call 子节点。
  */
-export function ToolCall(props: {id: string; name: string; args?: Record<string, unknown>}): ProfileToolCallNode {
+export function ToolCall(props: {id: string; name: string; args?: Record<string, JsonValue>}): ProfileToolCallNode {
     return {
         kind: "ToolCall",
         id: props.id,
@@ -602,7 +498,7 @@ export function LinkedAgentsReminder(props: {id?: string; repeatEveryTurns?: num
 }
 
 /**
- * 首轮注入当前File Scope、路径合同和用户在IDE中选中的文件；后续在焦点变化时注入变化提醒。
+ * 首轮注入当前 cwd、路径合同和用户在IDE中选中的文件；后续在焦点变化时注入变化提醒。
  */
 export function WorkspaceFocusReminder(props: {id?: string; repeatEveryTurns?: number} = {}): ProfileReminderNode {
     return Reminder({
@@ -616,13 +512,13 @@ export function WorkspaceFocusReminder(props: {id?: string; repeatEveryTurns?: n
                     "Current Workspace Focus:",
                     "- Current Project Workspace: none",
                     "- Current selected file: none",
-                    "- File tools and bash use the Workspace Root as their current File Scope.",
-                    "- Relative paths resolve from that File Scope. Any absolute filesystem path can be used directly.",
-                    "- Managed Project APIs still use projectPath workspace/<project-slug>.",
+                    "- File tools and bash use the Workspace Root as cwd.",
+                    "- Relative paths resolve from cwd. Any absolute filesystem path can be used directly.",
+                    "- Managed Project APIs use a single-segment projectRoot.",
                 ].join("\n"))});
             }
-            const projectSlug = projectSlugFromWorkspace(focus.currentProjectWorkspace);
-            const selectedFile = renderSelectedWorkspaceFile(projectSlug, focus.selectedFilePath);
+            const projectRoot = projectRootFromWorkspace(focus.currentProjectWorkspace);
+            const selectedFile = renderSelectedWorkspaceFile(projectRoot, focus.selectedFilePath);
             if (change.hasPreviousValue && change.didChange) {
                 const previous = readWorkspaceFocusState(change.previousValue);
                 const projectChanged = previous.currentProjectWorkspace !== focus.currentProjectWorkspace;
@@ -630,9 +526,9 @@ export function WorkspaceFocusReminder(props: {id?: string; repeatEveryTurns?: n
                 if (projectChanged) {
                     return Message({children: systemReminder([
                         `User switched Current Project Workspace to ${focus.currentProjectWorkspace}.`,
-                        "The next invocation uses this Project Workspace as the File Scope for file tools and bash.",
+                        "The next invocation uses this Project Workspace as cwd for file tools and bash.",
                         "Use lorebook/..., manuscript/..., and reference/... directly for current project files.",
-                        `Use workspace/${projectSlug} when a tool explicitly asks for projectPath.`,
+                        `Use ${projectRoot} when a tool explicitly asks for projectRoot.`,
                         "Any absolute filesystem path can be used directly.",
                         "For another managed Project file, prefer workspace/<project-slug>/<relative-path> when Project identity, open gate, History, or Context Access matters.",
                         `Current selected file: ${selectedFile}`,
@@ -648,13 +544,13 @@ export function WorkspaceFocusReminder(props: {id?: string; repeatEveryTurns?: n
             return Message({children: systemReminder([
                 "Current Workspace Focus:",
                 `- Current Project Workspace: ${focus.currentProjectWorkspace}`,
-                "- File tools and bash use this Project Workspace as their current File Scope.",
+                "- File tools and bash use this Project Workspace as cwd.",
                 "- For focused project files, use lorebook/..., manuscript/..., or reference/... directly.",
                 "- Any absolute filesystem path can be used directly; cwd is only the base for relative paths, not an access boundary.",
                 "- For another managed Project file, prefer workspace/<project-slug>/<relative-path> when Project identity, open gate, History, or Context Access matters.",
                 `- Current selected file: ${selectedFile}`,
                 "- project.yaml is at project.yaml.",
-                `- Use workspace/${projectSlug} when a tool explicitly asks for projectPath.`,
+                `- Use ${projectRoot} when a tool explicitly asks for projectRoot.`,
             ].join("\n"))});
         },
     });
@@ -1306,7 +1202,7 @@ function isAllowedImportPath(path: string): boolean {
 
 async function readImportFile(path: string, required: boolean, context: ProfilePrepareContext<any>): Promise<{exists: true; text: string} | {exists: false}> {
     const target = path.startsWith("workspace/")
-        ? resolveContainedFilePath(absoluteFsPath(context.session.workspaceFsRoot), path.slice("workspace/".length))
+        ? resolveContainedFilePath(absoluteFsPath(context.session.workspaceRoot), path.slice("workspace/".length))
         : resolveApplicationImportPath(path);
     try {
         return {
@@ -1470,11 +1366,71 @@ async function renderStandaloneString(context: ProfilePrepareContext<any>, child
     return renderStringChildren(state, "message", children);
 }
 
+/**
+ * 将 SDK artifact 中的宿主能力描述符转换为本进程实现。
+ * 这里是 DSL 宿主能力的唯一 materialize seam。
+ */
+function materializeProfileBuiltinNode(node: ProfileBuiltinNode): Exclude<ProfileDslNode, ProfileBuiltinNode> {
+    switch (node.name) {
+        case "SkillCatalog": return SkillCatalog(node.props);
+        case "AgentCatalog": return AgentCatalog(node.props);
+        case "WorkflowCatalog": return WorkflowCatalog(node.props);
+        case "ActivatedSkills": return ActivatedSkills(node.props);
+        case "SqlSchemaSummary": return SqlSchemaSummary(node.props);
+        case "Import": return Import(node.props);
+        case "SystemReminder": return SystemReminder(node.props);
+        case "LinkedAgentsSummary": return LinkedAgentsSummary(node.props);
+        case "MentionedSkillsReminder": return MentionedSkillsReminder(node.props);
+        case "LinkedAgentsReminder": return LinkedAgentsReminder(node.props);
+        case "WorkspaceFocusReminder": return WorkspaceFocusReminder(node.props);
+        case "ModeAvailabilityReminder": return ModeAvailabilityReminder(node.props);
+        case "TaskReminder": return TaskReminder(node.props);
+        case "ModeReminder": return ModeReminder(node.props);
+    }
+}
+
+/** 递归 materialize 一个 SDK DSL 节点，并在宿主侧执行结构校验。 */
+function materializeProfileDslNode(node: ProfileDslNode): Exclude<ProfileDslNode, ProfileBuiltinNode> {
+    const concrete = node.kind === "ProfileBuiltin" ? materializeProfileBuiltinNode(node) : node;
+    if (concrete.kind === "Message" && concrete.role === "system") {
+        throw new Error("<Message role=\"system\"> 不被支持，请使用 <System> 或 <AppendingSet><Message>。");
+    }
+    if (
+        concrete.kind === "ProfilePrompt"
+        || concrete.kind === "System"
+        || concrete.kind === "HistorySet"
+        || concrete.kind === "ModelContext"
+        || concrete.kind === "AppendingSet"
+        || concrete.kind === "Message"
+        || concrete.kind === "AIMessage"
+        || concrete.kind === "ToolResult"
+        || concrete.kind === "Reminder"
+        || concrete.kind === "Watch"
+        || concrete.kind === "If"
+        || concrete.kind === "ModeSlot"
+        || concrete.kind === "Fragment"
+    ) {
+        return {
+            ...concrete,
+            children: normalizeChildren(concrete.children),
+        };
+    }
+    return concrete;
+}
+
+/** 递归 materialize 动态 render 返回的 DSL child。 */
+function materializeProfileDslChild(child: ProfileDslChild): ProfileDslChild {
+    if (Array.isArray(child)) return child.map(materializeProfileDslChild);
+    if (child && typeof child === "object") return materializeProfileDslNode(child);
+    return child;
+}
+
 function normalizeChildren(children: ProfileDslChild | ProfileDslChild[] | undefined): ProfileDslChild[] {
     if (children === undefined) {
         return [];
     }
-    return Array.isArray(children) ? children : [children];
+    const values = Array.isArray(children) ? children : [children];
+    return values.map(materializeProfileDslChild);
 }
 
 function flattenChildren(child: ProfileDslChild): ProfileDslChild[] {
@@ -1733,7 +1689,9 @@ function readRecord(value: unknown): Record<string, unknown> {
 
 async function readCurrentProjectWorkspace(ctx: ProfilePrepareContext<any>): Promise<string> {
     const value = ctx.invocation?.clientState?.studio?.workspace;
-    const projectWorkspace = typeof value === "string" && value.trim() ? value : ctx.session.projectPath ?? "";
+    const projectWorkspace = typeof value === "string" && value.trim()
+        ? value
+        : ctx.session.currentProject ? `workspace/${ctx.session.currentProject.workspace.ref.projectRoot}` : "";
     return projectWorkspace ? normalizeDisplayPath(projectWorkspace) : "";
 }
 
@@ -1762,32 +1720,32 @@ function normalizeDisplayPath(value: string): string {
     return normalized;
 }
 
-function projectSlugFromWorkspace(projectWorkspace: string): string {
+function projectRootFromWorkspace(projectWorkspace: string): string {
     const normalized = projectWorkspace.replace(/\\/g, "/").replace(/\/+$/g, "");
     return normalized.startsWith("workspace/") ? normalized.slice("workspace/".length) : normalized;
 }
 
-function renderSelectedWorkspaceFile(projectSlug: string, selectedFilePath: string | null): string {
+function renderSelectedWorkspaceFile(projectRoot: string, selectedFilePath: string | null): string {
     if (!selectedFilePath) {
         return "none";
     }
     const normalized = selectedFilePath.replace(/\\/g, "/").replace(/^\/+/g, "").replace(/\/+$/g, "");
-    if (!projectSlug) {
+    if (!projectRoot) {
         return normalized;
     }
-    if (normalized === projectSlug) {
+    if (normalized === projectRoot) {
         return ".";
     }
-    if (normalized.startsWith(`${projectSlug}/`)) {
-        return normalized.slice(projectSlug.length + 1);
+    if (normalized.startsWith(`${projectRoot}/`)) {
+        return normalized.slice(projectRoot.length + 1);
     }
     if (normalized.startsWith("workspace/")) {
         const withoutWorkspace = normalized.slice("workspace/".length);
-        if (withoutWorkspace === projectSlug) {
+        if (withoutWorkspace === projectRoot) {
             return ".";
         }
-        return withoutWorkspace.startsWith(`${projectSlug}/`)
-            ? withoutWorkspace.slice(projectSlug.length + 1)
+        return withoutWorkspace.startsWith(`${projectRoot}/`)
+            ? withoutWorkspace.slice(projectRoot.length + 1)
             : normalized;
     }
     if (/^(manuscript|lorebook|reference|upload|simulation|\.nbook)(\/|$)/.test(normalized)) {
@@ -1898,12 +1856,11 @@ function ModeReminderText(props: {stateKey: string; slots: Partial<Record<ModeSl
                 ? modeState.fromMode
                 : "normal";
             const toolDirectory = planModeToolDirectory({
-                workspaceRootRef: ctx.session.workspaceRoot,
-                workspaceFsRoot: ctx.session.workspaceFsRoot,
-                projectPath: ctx.session.projectPath,
+                workspaceRoot: ctx.session.workspaceRoot,
+                currentProject: ctx.session.currentProject,
             });
             // workDirectory是运行时投影，不信任旧session可能持久化的安装机绝对路径。
-            // File Scope移动后始终展示当前工具可直接使用的逻辑目录。
+            // cwd切换后始终展示当前工具可直接使用的逻辑目录。
             const workDirectory = toolDirectory;
             // 周期重放只出 steady 档；状态变化按 phase 出全文
             const slotKind = resolveModeSlotKind(mode, props.steadyOnly ? "steady" : phase, fromMode);
@@ -2024,7 +1981,7 @@ function renderModeReminderText(kind: ModeSlotKind, workDirectory: string, toolD
         "## Plan Work Directory",
         "",
         `- The Project Workspace plan directory is ${workDirectory}. It can contain plan files, walkthrough files, or research notes for this project.`,
-        `- File tools and bash use the current Project Workspace as their File Scope. Write plan files via ${toolDirectory}/<slug>.md. The switch_mode planFilePath argument uses the same Project-relative path, so the approval UI can preview the file.`,
+        `- File tools and bash use the current Project Workspace as cwd. Write plan files via ${toolDirectory}/<slug>.md. The switch_mode planFilePath argument uses the same Project-relative path, so the approval UI can preview the file.`,
         "- No file is bound when entering plan mode. Choose a short readable Markdown file name when the task needs persisted planning or walkthrough notes. Do not create files just for formality for small non-editing tasks.",
         "- If a relevant Markdown file already exists in this exact plan directory, you can read it and make incremental edits using read and edit.",
         "- Do not put scratch/cache/command-output drafts under Project Workspace .agent; use the system temp directory for temporary files.",
@@ -2204,20 +2161,16 @@ async function defaultActivatedSkillsText(ctx: ProfilePrepareContext<any>): Prom
 
 async function defaultSqlSchemaSummaryText(ctx: ProfilePrepareContext<any>): Promise<string> {
     try {
-        const ready = ctx.runtime?.currentProject;
-        if (!ready) {
-            throw new Error("当前session没有Project Workspace");
+        // SQL schema 摘要经宿主注入获得；artifact 依赖图不允许携带 project-session / @libsql。
+        const sqlSchemaSummary = ctx.runtime?.sqlSchemaSummary;
+        if (!sqlSchemaSummary) {
+            throw new Error("当前运行环境没有注入 SQL schema 摘要");
         }
-        const [{PROJECT_AGENT_SQL_MODULE_TOKEN}, {activateReadyProjectModule}] = await Promise.all([
-            import("nbook/server/agent/tools/agent-sql-project-module"),
-            import("nbook/server/workspace-files/project-session"),
-        ]);
-        const sql = await activateReadyProjectModule(ready, PROJECT_AGENT_SQL_MODULE_TOKEN);
         return [
             "<sql-schema-summary>",
             "Target database is current Project Workspace .nbook/project.sqlite. App SQLite is not accessible from execute_sql.",
             "Double-quote business tables with uppercase letters and camelCase columns, e.g. \"createdAt\", \"sortOrder\".",
-            await sql.schemaSummary(),
+            await sqlSchemaSummary(),
             "</sql-schema-summary>",
         ].join("\n");
     } catch (error) {

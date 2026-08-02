@@ -9,7 +9,7 @@ import {throwIllustrationExecutionHttpError} from "nbook/server/text-to-image/il
 import {getIllustrationExecutionService} from "nbook/server/text-to-image/illustration-execution.service";
 import {requireCurrentUser} from "nbook/server/utils/auth";
 import {validateBody} from "nbook/server/utils/novel-chapter";
-import {withProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
+import {withProjectHttpError} from "nbook/server/api/projects/project-http-error";
 
 const AuthorizeRequestSchema = z.object({
     projectPath: z.string().regex(/^workspace\/[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/u),
@@ -19,7 +19,7 @@ const AuthorizeRequestSchema = z.object({
 }).strict();
 
 /** 验签并把一个已展示 Preview 原子注册为 immutable Manifest/approval/Job/outbox。 */
-export default defineEventHandler((event) => withProjectNotOpenHttpError(async () => {
+export default defineEventHandler((event) => withProjectHttpError(async () => {
     const user = await requireCurrentUser(event);
     const placeholderId = StoryboardStableIdSchema.safeParse(getRouterParam(event, "placeholderId")?.trim() ?? "");
     if (!placeholderId.success) throw createError({statusCode: 400, message: "placeholderId 不合法"});

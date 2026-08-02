@@ -18,6 +18,7 @@ describe("WorkflowDemoService terminal summary", () => {
     };
     let generationController: AbortController;
     let leasedCompletion: Promise<void> | undefined;
+    let harnessProvider: () => object;
     let startReadyProjectOperation: ReturnType<typeof vi.fn<(
         ready: ReadyProjectSessionRef,
         start: (signal: AbortSignal) => {result: WorkflowRunStart; completion: Promise<void>},
@@ -37,11 +38,12 @@ describe("WorkflowDemoService terminal summary", () => {
         vi.doMock("nbook/server/workspace-files/project-session", () => ({
             startReadyProjectOperation,
         }));
+        harnessProvider = () => ({
+            repo: {readSession: vi.fn()},
+            createAgent: vi.fn(),
+        });
         vi.doMock("nbook/server/agent/http", () => ({
-            useAgentHarness: () => ({
-                repo: {readSession: vi.fn()},
-                createAgent: vi.fn(),
-            }),
+            useAgentHarness: () => harnessProvider(),
         }));
     });
 
@@ -57,7 +59,7 @@ describe("WorkflowDemoService terminal summary", () => {
             key: "ask-then-complete",
             run: async (wf) => ({answer: await wf.ask({kind: "approve", title: "继续"})}),
         };
-        const {runId, done, terminal} = service.startWorkflowRun({def: definition, args: null, config: createDefaultEffectiveConfig(), project: null, workspaceKey: "global"});
+        const {runId, done, terminal} = service.startWorkflowRun({def: definition, args: null, config: createDefaultEffectiveConfig(), project: null});
         const waiting = await done;
         expect(waiting.status).toBe("waiting");
         const ask = waiting.pendingAsks[0];
@@ -99,7 +101,6 @@ describe("WorkflowDemoService terminal summary", () => {
             args: null,
             config: createDefaultEffectiveConfig(),
             project,
-            workspaceKey: "project-scope",
             signal: invocationController.signal,
         });
 
@@ -125,7 +126,7 @@ describe("WorkflowDemoService terminal summary", () => {
             },
         };
         const project = {workspace: {ref: {projectRoot: "failed-project"}}} as never;
-        const {runId, done, terminal} = service.startWorkflowRun({def: definition, args: null, config: createDefaultEffectiveConfig(), project, workspaceKey: "project-scope"});
+        const {runId, done, terminal} = service.startWorkflowRun({def: definition, args: null, config: createDefaultEffectiveConfig(), project});
         await expect(done).resolves.toMatchObject({status: "failed", error: "预期失败"});
         expect(startReadyProjectOperation).toHaveBeenCalledWith(project, expect.any(Function));
         expect(leasedCompletion).toBe(terminal);
@@ -146,7 +147,7 @@ describe("WorkflowDemoService terminal summary", () => {
             key: "sync-complete",
             run: async () => ({ok: true}),
         };
-        const {runId, done} = service.startWorkflowRun({def: definition, args: null, config: createDefaultEffectiveConfig(), project: null, workspaceKey: "global"});
+        const {runId, done} = service.startWorkflowRun({def: definition, args: null, config: createDefaultEffectiveConfig(), project: null});
         await done;
 
         const state = await service.runState(runId, 0);
@@ -280,7 +281,6 @@ describe("WorkflowDemoService terminal summary", () => {
             args: null,
             config: createDefaultEffectiveConfig(),
             project: null,
-            workspaceKey: "global",
             deliver: "none",
         });
         await jobs.waitIdle();
@@ -313,7 +313,6 @@ describe("WorkflowDemoService terminal summary", () => {
             args: null,
             config: createDefaultEffectiveConfig(),
             project: null,
-            workspaceKey: "global",
             deliver: "none",
         });
         await vi.waitFor(() => expect(jobs.get(job.jobId)?.status).toBe("waiting"));
@@ -350,7 +349,6 @@ describe("WorkflowDemoService terminal summary", () => {
             args: null,
             config: createDefaultEffectiveConfig(),
             project,
-            workspaceKey: "project-scope",
             deliver: "none",
         });
         await vi.waitFor(() => expect(jobs.get(job.jobId)?.status).toBe("waiting"));
@@ -370,12 +368,11 @@ describe("WorkflowDemoService terminal summary", () => {
     it("正式run创建participant时复用冻结的Config与Project generation", async () => {
         const snapshot = {
             metadata: {
+                schemaVersion: 2,
                 sessionId: 42,
                 profileKey: "adhoc",
                 initial: null,
-                workspaceRoot: "workspace",
-                workspaceKey: "book-scope",
-                projectPath: "workspace/book",
+                currentProjectRoot: "book",
                 createdAt: Date.now(),
                 kind: "workflow",
                 tags: [],
@@ -390,9 +387,7 @@ describe("WorkflowDemoService terminal summary", () => {
         const createAgent = vi.fn(async () => ({sessionId: 42, profileKey: "adhoc", title: "Participant"}));
         const runCommand = vi.fn(async () => undefined);
         const assertVisibleModel = vi.fn();
-        vi.doMock("nbook/server/agent/http", () => ({
-            useAgentHarness: () => ({repo, createAgent, runCommand}),
-        }));
+        harnessProvider = () => ({repo, createAgent, runCommand});
         vi.doMock("nbook/server/agent/harness/agent-visible-models", () => ({assertVisibleModel}));
         const {useWorkflowDemoService} = await import("nbook/server/agent/workflow/workflow-demo-service");
         const service = useWorkflowDemoService();
@@ -412,7 +407,6 @@ describe("WorkflowDemoService terminal summary", () => {
             args: null,
             config,
             project,
-            workspaceKey: "book-scope",
         });
 
         const waiting = await done;
@@ -423,15 +417,13 @@ describe("WorkflowDemoService terminal summary", () => {
         service.resume(runId, {[waiting.pendingAsks[0]!.key]: true});
         await terminal;
         const completed = await service.runState(runId, 0);
-        expect(createAgent).toHaveBeenCalledTimes(1);
         expect(completed.view.error).toBeUndefined();
         expect(completed.view.status).toBe("completed");
+        expect(createAgent).toHaveBeenCalledTimes(1);
         expect(assertVisibleModel).toHaveBeenCalledWith(config, "local/allowed");
         expect(createAgent).toHaveBeenCalledWith(expect.objectContaining({
             profileKey: "adhoc",
-            workspaceRoot: "workspace",
-            workspaceKey: "book-scope",
-            projectPath: "workspace/book",
+            currentProjectRoot: "book",
         }));
         expect(runCommand).toHaveBeenCalledWith(42, {command: "model", modelKey: "local/allowed"});
     });
@@ -441,14 +433,12 @@ describe("WorkflowDemoService terminal summary", () => {
         const assertVisibleModel = vi.fn((_config: unknown, modelKey: string) => {
             if (modelKey === "local/hidden") throw new Error("模型 local/hidden 不在 agent 可见模型清单内");
         });
-        vi.doMock("nbook/server/agent/http", () => ({
-            useAgentHarness: () => ({
-                workspaceRoot: "C:/workspace",
-                repo: {readSession: vi.fn()},
-                createAgent,
-                runCommand: vi.fn(),
-            }),
-        }));
+        harnessProvider = () => ({
+            workspaceRoot: "C:/workspace",
+            repo: {readSession: vi.fn()},
+            createAgent,
+            runCommand: vi.fn(),
+        });
         vi.doMock("nbook/server/agent/harness/agent-visible-models", () => ({assertVisibleModel}));
         const {useWorkflowDemoService} = await import("nbook/server/agent/workflow/workflow-demo-service");
         const service = useWorkflowDemoService();
@@ -460,7 +450,7 @@ describe("WorkflowDemoService terminal summary", () => {
             },
         };
 
-        const {done} = service.startWorkflowRun({def: definition, args: null, config: {} as never, project: null, workspaceKey: "global"});
+        const {done} = service.startWorkflowRun({def: definition, args: null, config: {} as never, project: null});
 
         await expect(done).resolves.toMatchObject({
             status: "failed",

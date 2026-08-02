@@ -1,6 +1,6 @@
 import {existsSync} from "node:fs";
 import {mkdir, readFile, stat, writeFile} from "node:fs/promises";
-import {dirname, isAbsolute, join, resolve, win32} from "node:path";
+import {dirname, join, resolve, win32} from "node:path";
 import {createPatch} from "diff";
 import {Type} from "typebox";
 import type {Static} from "typebox";
@@ -9,24 +9,25 @@ import {recordContextAccess} from "nbook/server/agent/context-access/profile-con
 import {detectImageMimeType, firstChangedLine} from "nbook/server/agent/tools/file-tool-utils";
 import {formatSize, DEFAULT_MAX_BYTES, truncateHead, type TruncationResult} from "nbook/server/agent/tools/truncate";
 import {OutputAccumulator} from "nbook/server/agent/tools/output-accumulator";
-import type {NeuroAgentTool, NeuroToolUpdateCallback, ToolExecutionContext} from "nbook/server/agent/tools/types";
+import {
+    BashOutputStore,
+    isBashOutputLocator,
+    type BashOutputReference,
+} from "nbook/server/agent/tools/bash-output-store";
+import type {NeuroAgentTool, NeuroToolResult, NeuroToolUpdateCallback, ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {applyCodexPatch, extractPatchTargetPaths} from "nbook/server/agent/tools/apply-patch";
 import {captureAgentWorkspaceWrite, recordAgentWorkspaceWrite} from "nbook/server/workspace-history/agent-file-recorder";
 import {resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
 import {normalizeToolResultDetails} from "nbook/server/agent/messages/message-utils";
-import {resolveSessionFileScope} from "nbook/server/agent/workspace/session-file-scope";
-import {authorizeFileOperation, authorizeProcessCwd} from "nbook/server/workspace-files/authorized-file-operation";
-import type {ResolvedFileAddress} from "nbook/server/workspace-files/file-scope";
 import {
-    runProjectFileOperation,
-    type ProjectFileOperationProjects,
-} from "nbook/server/workspace-files/project-data-plane-guard";
-import {imageMimeType} from "nbook/server/agent/attachments/agent-attachment-codec";
+    authorizeFileOperation,
+    authorizeProcessCwd,
+    type ResolvedFileTarget,
+} from "nbook/server/workspace-files/authorized-file-operation";
+import {runProjectFileOperation} from "nbook/server/workspace-files/project-data-plane-guard";
 import {AttachmentError} from "nbook/server/agent/attachments/types";
 import {AGENT_IMAGE_POLICY} from "nbook/server/agent/attachments/agent-attachment-policy";
-import {ProjectNotOpenError} from "nbook/server/workspace-files/project-session";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
-import {normalizeProjectPath, projectSlug} from "nbook/server/workspace-files/project-path";
 
 const ReadSchema = Type.Object({
     path: Type.String({description: "Path to the file to read (relative or absolute)."}),
@@ -79,8 +80,10 @@ type EditDetails = {
 
 type BashDetails = {
     truncation?: TruncationResult;
-    fullOutputPath?: string;
+    fullOutput?: BashOutputReference;
 };
+
+const bashOutputStores = new Map<string, Promise<BashOutputStore>>();
 
 /**
  * 构造 Pi 风格基础文件与 bash 工具。
@@ -95,14 +98,14 @@ export function createFileTools(): NeuroAgentTool[] {
     ];
 }
 
-/** 使用统一 File Scope / File Address Module解析工具路径，并保留领域归属。 */
+/** 使用统一授权边界解析工具路径，并捕获 exact Project generation。 */
 async function resolveToolFile(
     context: ToolExecutionContext,
     inputPath: string,
     operation: "read" | "write" | "edit" | "apply_patch",
-): Promise<ResolvedFileAddress> {
-    const authorized = await authorizeFileOperation(resolveSessionFileScope(context), inputPath, operation);
-    return authorized.address;
+): Promise<ResolvedFileTarget> {
+    const authorized = await authorizeFileOperation(context, inputPath, operation);
+    return authorized.target;
 }
 
 function createReadTool(): NeuroAgentTool {
@@ -115,10 +118,14 @@ function createReadTool(): NeuroAgentTool {
         parameters: ReadSchema,
         async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown, _userInput?: unknown, signal?: AbortSignal) {
             const input = params as ReadInput;
-            const address = await resolveToolFile(context, input.path, "read");
-            return runProjectFileOperation([address], async (projects) => {
-                const contextAccess = captureReadContextAccess(address, projectForAddress(projects, address));
-                const absolutePath = address.absolutePath;
+            if (isBashOutputLocator(input.path)) {
+                const buffer = await (await bashOutputStore(context)).read(input.path);
+                return formatTextRead(buffer, input, input.path);
+            }
+            const target = await resolveToolFile(context, input.path, "read");
+            return runProjectFileOperation([target], async () => {
+                const contextAccess = captureReadContextAccess(target);
+                const absolutePath = target.absolutePath;
                 const imageCandidate = detectImageMimeType(absolutePath) !== null;
                 if (imageCandidate && (await stat(absolutePath)).size > AGENT_IMAGE_POLICY.maxImageBytes) {
                     throw new AttachmentError("limit_exceeded", "图片超过 read 工具允许大小。");
@@ -128,63 +135,25 @@ function createReadTool(): NeuroAgentTool {
                     if (buffer.byteLength > AGENT_IMAGE_POLICY.maxImageBytes) {
                         throw new AttachmentError("limit_exceeded", "图片超过 read 工具允许大小。");
                     }
-                    const mimeType = imageMimeType(buffer);
-                    if (!mimeType) {
-                        throw new AttachmentError("invalid_input", "图片扩展名对应的文件内容不是受支持图片。");
+                    if (!context.attachmentCodec) {
+                        throw new Error("图片工具缺少 AgentAttachmentCodec。");
                     }
-                    if (!context.attachments) {
-                        throw new Error("图片工具缺少 AttachmentStore。");
-                    }
-                    const attachment = await context.attachments.save({
+                    const attachment = await context.attachmentCodec.saveImage({
                         bytes: buffer,
-                        mimeType,
+                        name: absolutePath.split(/[\\/]/).pop(),
                     });
                     await recordReadContextAccess(context, contextAccess);
                     return {
                         content: [
-                            {type: "text", text: `Read image file [${mimeType}]`},
-                            {type: "attachment", attachment, name: absolutePath.split(/[\\/]/).pop()},
+                            {type: "text", text: `Read image file [${attachment.attachment.mimeType}]`},
+                            attachment,
                         ],
                         details: normalizeToolResultDetails({path: absolutePath}),
                     };
                 }
 
                 await recordReadContextAccess(context, contextAccess);
-                const text = buffer.toString("utf-8");
-                const lines = text.split("\n");
-                const startLine = input.offset ? Math.max(0, input.offset - 1) : 0;
-                if (startLine >= lines.length) {
-                    throw new Error(`Offset ${input.offset} is beyond end of file (${lines.length} lines total)`);
-                }
-                const selected = input.limit !== undefined
-                    ? lines.slice(startLine, startLine + input.limit).join("\n")
-                    : lines.slice(startLine).join("\n");
-                const truncation = truncateHead(selected);
-                const shouldShowLineNumbers = input.lineNumbers ?? (input.offset !== undefined || input.limit !== undefined || truncation.truncated);
-                const endLine = startLine + truncation.outputLines;
-                const nextOffset = truncation.truncated
-                    ? endLine + 1
-                    : input.limit !== undefined && startLine + input.limit < lines.length ? startLine + input.limit + 1 : undefined;
-                let outputText = shouldShowLineNumbers ? addLineNumbers(truncation.content, startLine + 1) : truncation.content;
-                if (truncation.firstLineExceedsLimit) {
-                    const firstLineSize = formatSize(Buffer.byteLength(lines[startLine] ?? "", "utf-8"));
-                    outputText = `[Line ${startLine + 1} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n '${startLine + 1}p' ${input.path} | head -c ${DEFAULT_MAX_BYTES}]`;
-                } else if (truncation.truncated) {
-                    outputText += `\n\n[Showing lines ${startLine + 1}-${endLine} of ${lines.length}. Use offset=${endLine + 1} to continue.]`;
-                } else if (nextOffset !== undefined) {
-                    outputText += `\n\n[${lines.length - startLine - input.limit!} more lines in file. Use offset=${nextOffset} to continue.]`;
-                }
-                return {
-                    content: [{type: "text", text: outputText}],
-                    details: normalizeToolResultDetails({
-                        path: absolutePath,
-                        startLine: startLine + 1,
-                        endLine,
-                        totalLines: lines.length,
-                        nextOffset,
-                        truncation: truncation.truncated ? truncation : undefined,
-                    }),
-                };
+                return formatTextRead(buffer, input, absolutePath);
             });
         },
         async execute() {
@@ -200,34 +169,19 @@ type ReadContextAccessCapture = Readonly<{
 
 /** 在文件读取前捕获目标 Project 的精确 ready generation，读取后不得按 path 重新求根。 */
 function captureReadContextAccess(
-    address: ResolvedFileAddress,
-    exactProject: ReadyProjectSessionRef | undefined,
+    target: ResolvedFileTarget,
 ): ReadContextAccessCapture | null {
-    const projectPath = address.projectPath;
-    const filePath = "relativePath" in address ? address.relativePath : null;
-    if (!projectPath || isAbsolute(projectPath) || !filePath) {
+    const filePath = target.relativePath;
+    if (!target.project || !filePath) {
         return null;
     }
     if (!filePath.startsWith("lorebook/") && !filePath.startsWith("manuscript/")) {
         return null;
     }
-    const projectRoot = projectSlug(normalizeProjectPath(projectPath));
-    if (!exactProject || exactProject.workspace.ref.projectRoot !== projectRoot) {
-        throw new ProjectNotOpenError(projectRoot);
-    }
     return Object.freeze({
-        project: exactProject,
+        project: target.project,
         filePath,
     });
-}
-
-/** 从本次文件操作已经登记的 generation 集合取得地址所属 exact Project。 */
-function projectForAddress(
-    projects: ProjectFileOperationProjects,
-    address: ResolvedFileAddress,
-): ReadyProjectSessionRef | undefined {
-    const projectPath = address.projectPath;
-    return projectPath && !isAbsolute(projectPath) ? projects.get(projectPath) : undefined;
 }
 
 /** 使用读取前捕获的 Project generation 记录辅助访问状态。 */
@@ -263,10 +217,10 @@ function createWriteTool(): NeuroAgentTool {
         parameters: WriteSchema,
         async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown, _userInput?: unknown, signal?: AbortSignal) {
             const input = params as WriteInput;
-            const address = await resolveToolFile(context, input.path, "write");
-            return runProjectFileOperation([address], async (projects) => {
-                const absolutePath = address.absolutePath;
-                const historyCapture = captureAgentWorkspaceWrite(address, projectForAddress(projects, address));
+            const target = await resolveToolFile(context, input.path, "write");
+            return runProjectFileOperation([target], async () => {
+                const absolutePath = target.absolutePath;
+                const historyCapture = captureAgentWorkspaceWrite(target);
                 // 记账 before：覆盖写前补读一次旧内容（不存在 = null，file.create 语义）
                 const before = await readFile(absolutePath).catch(() => null);
                 await mkdir(dirname(absolutePath), {recursive: true});
@@ -321,10 +275,10 @@ function createEditTool(): NeuroAgentTool {
             if (!Array.isArray(input.edits) || input.edits.length === 0) {
                 throw new Error("edits must contain at least one replacement.");
             }
-            const address = await resolveToolFile(context, input.path, "edit");
-            return runProjectFileOperation([address], async (projects) => {
-                const absolutePath = address.absolutePath;
-                const historyCapture = captureAgentWorkspaceWrite(address, projectForAddress(projects, address));
+            const target = await resolveToolFile(context, input.path, "edit");
+            return runProjectFileOperation([target], async () => {
+                const absolutePath = target.absolutePath;
+                const historyCapture = captureAgentWorkspaceWrite(target);
                 const original = await readFile(absolutePath, "utf-8");
                 const updated = applyExactEdits(original, input.edits, input.path);
                 await writeFile(absolutePath, updated, "utf-8");
@@ -361,20 +315,20 @@ function createApplyPatchTool(): NeuroAgentTool {
         parameters: ApplyPatchSchema,
         async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown, _userInput?: unknown, signal?: AbortSignal) {
             const input = params as {patch: string};
-            const addresses: ResolvedFileAddress[] = [];
+            const targets: ResolvedFileTarget[] = [];
             for (const targetPath of extractPatchTargetPaths(input.patch)) {
-                addresses.push(await resolveToolFile(context, targetPath, "apply_patch"));
+                targets.push(await resolveToolFile(context, targetPath, "apply_patch"));
             }
-            return runProjectFileOperation(addresses, async (projects) => {
+            return runProjectFileOperation(targets, async () => {
                 const captures = new Map<string, ReturnType<typeof captureAgentWorkspaceWrite>>();
-                for (const address of addresses) {
+                for (const target of targets) {
                     captures.set(
-                        address.absolutePath,
-                        captureAgentWorkspaceWrite(address, projectForAddress(projects, address)),
+                        target.absolutePath,
+                        captureAgentWorkspaceWrite(target),
                     );
                 }
                 const result = await applyCodexPatch({
-                    fileScope: resolveSessionFileScope(context),
+                    context,
                     patchText: input.patch,
                     captureChange: (change) => captures.get(change.absolutePath) ?? null,
                 });
@@ -410,7 +364,7 @@ function createBashTool(): NeuroAgentTool {
         name: "bash",
         label: "bash",
         executionMode: "sequential",
-        description: "Execute a bash command in the current File Scope. Project-bound sessions use the current Project Workspace; Workspace and user-assets sessions use their own roots. The agent bin directories are prepended to PATH, with user assets before system assets, so use workspace node ... for content-node CLI tasks. Prefer / path separators in bash commands; quote Windows backslash paths if you must use them. Returns stdout and stderr merged. Output is truncated to the last 2000 lines or 50KB (whichever is hit first). If truncated, the full output is saved to a temp file and the result includes its path. Use bash for rg/find/ls/git/tests/build/workspace CLI, not for file reading or editing when a dedicated tool exists.",
+        description: "Execute a bash command in the current Project Workspace, or in the Workspace Root when the session has no Current Project. The agent bin directories are prepended to PATH, with user assets before system assets, so use workspace node ... for content-node CLI tasks. Prefer / path separators in bash commands; quote Windows backslash paths if you must use them. Returns stdout and stderr merged. Output is truncated to the last 2000 lines or 50KB (whichever is hit first). If truncated, the retained output is addressed by a logical bash-output locator and can be read with the read tool while it remains available. Use bash for rg/find/ls/git/tests/build/workspace CLI, not for file reading or editing when a dedicated tool exists.",
         parameters: BashSchema,
         async executeWithContext(
             context: ToolExecutionContext,
@@ -422,18 +376,17 @@ function createBashTool(): NeuroAgentTool {
         ) {
             const input = params as BashInput;
             const bash = resolveBashPath();
-            const fileScope = resolveSessionFileScope(context);
-            const authorizedScope = await authorizeProcessCwd(fileScope);
+            const authorizedScope = await authorizeProcessCwd(context);
             // 后台模式（PLAN-E）：立即返回 jobId，输出以 followup 消息回流；取消经 job signal 直接 kill 进程
             if (input.background) {
-                const job = context.harness.jobs.spawn({
+                const {job, jobEventCursor} = context.harness.jobs.spawn({
                     kind: "bash",
                     title: `bash: ${input.command.length > 60 ? `${input.command.slice(0, 60)}…` : input.command}`,
                     ownerSessionId: context.sessionId,
                     originToolCallId: _toolCallId,
                     ref: {command: input.command},
                     run: async (ctx) => {
-                        const output = new OutputAccumulator();
+                        const output = new OutputAccumulator(await (await bashOutputStore(context)).reserve());
                         try {
                             const result = await runBash({
                                 bash,
@@ -455,7 +408,7 @@ function createBashTool(): NeuroAgentTool {
                                 message: [
                                     `后台 bash 命令完成：\`${input.command}\``,
                                     "```",
-                                    formatted.length > 6000 ? `${formatted.slice(0, 6000)}\n…（截断${snapshot.fullOutputPath ? `，完整输出见 ${snapshot.fullOutputPath}` : ""}）` : formatted,
+                                    formatted.length > 6000 ? `${formatted.slice(0, 6000)}\n…（截断${formatFullOutput(snapshot.fullOutput)}）` : formatted,
                                     "```",
                                 ].join("\n"),
                             };
@@ -463,17 +416,23 @@ function createBashTool(): NeuroAgentTool {
                             try {
                                 output.finish();
                             } finally {
-                                await output.closeTempFile();
+                                await output.closeOutput();
                             }
                         }
                     },
                 });
                 return {
                     content: [{type: "text", text: `后台命令已启动：${job.jobId}。输出将以后续消息回流；正常收尾本回合，不要轮询等待。`}],
-                    details: normalizeToolResultDetails({jobId: job.jobId, command: input.command, status: "started", background: true}),
+                    details: normalizeToolResultDetails({
+                        jobId: job.jobId,
+                        jobEventCursor,
+                        command: input.command,
+                        status: "started",
+                        background: true,
+                    }),
                 };
             }
-            const output = new OutputAccumulator();
+            const output = new OutputAccumulator(await (await bashOutputStore(context)).reserve());
             try {
                 const result = await runBash({
                     bash,
@@ -489,7 +448,7 @@ function createBashTool(): NeuroAgentTool {
                             content: [{type: "text", text: snapshot.content}],
                             details: snapshot.truncation.truncated ? normalizeToolResultDetails({
                                 truncation: snapshot.truncation,
-                                fullOutputPath: snapshot.fullOutputPath,
+                                fullOutput: snapshot.fullOutput,
                             }) : undefined,
                         });
                     },
@@ -503,14 +462,14 @@ function createBashTool(): NeuroAgentTool {
                     content: [{type: "text", text: formatted}],
                     details: snapshot.truncation.truncated ? normalizeToolResultDetails({
                         truncation: snapshot.truncation,
-                        fullOutputPath: snapshot.fullOutputPath,
+                        fullOutput: snapshot.fullOutput,
                     }) : undefined,
                 };
             } finally {
                 try {
                     output.finish();
                 } finally {
-                    await output.closeTempFile();
+                    await output.closeOutput();
                 }
             }
         },
@@ -650,6 +609,7 @@ function resolveBashPath(): string {
  * 注入 Agent assets 的 bin 目录。用户覆盖优先于系统内置。
  */
 function createBashEnvironment(context: ToolExecutionContext): NodeJS.ProcessEnv {
+    const runtimePaths = context.harness.runtimePaths;
     const userNbookRoot = context.harness.runtimePaths?.userNbookRoot
         ?? resolve(context.harness.workspaceRoot, ".nbook");
     const systemNbookRoot = context.harness.runtimePaths
@@ -663,6 +623,11 @@ function createBashEnvironment(context: ToolExecutionContext): NodeJS.ProcessEnv
     const currentPath = process.env.PATH ?? process.env.Path ?? "";
     return {
         ...process.env,
+        ...(runtimePaths ? {
+            NEURO_BOOK_APPLICATION_ROOT: runtimePaths.applicationRoot,
+            NEURO_BOOK_STATE_ROOT: runtimePaths.stateRoot,
+            NEURO_BOOK_CACHE_ROOT: runtimePaths.cacheRoot,
+        } : {}),
         NEURO_BOOK_AGENT_BIN: userAgentBin,
         NEURO_BOOK_SYSTEM_AGENT_BIN: systemAgentBin,
         NEURO_BOOK_RIPGREP_CONFIG: ripgrepConfig,
@@ -818,10 +783,73 @@ function formatBashOutput(snapshot: ReturnType<OutputAccumulator["snapshot"]>, e
     if (snapshot.truncation.truncated) {
         const startLine = snapshot.truncation.totalLines - snapshot.truncation.outputLines + 1;
         const endLine = snapshot.truncation.totalLines;
-        text += `\n\n[Showing lines ${startLine}-${endLine} of ${snapshot.truncation.totalLines}. Full output: ${snapshot.fullOutputPath}]`;
+        text += `\n\n[Showing lines ${startLine}-${endLine} of ${snapshot.truncation.totalLines}. ${formatFullOutput(snapshot.fullOutput)}]`;
     }
     if (exitCode !== 0) {
         text += `\n\nCommand exited with code ${exitCode}`;
     }
     return text;
+}
+
+/** Cache Root由生产RuntimePaths注入；纯Repository测试不允许隐式回退到Workspace。 */
+async function bashOutputStore(context: ToolExecutionContext): Promise<BashOutputStore> {
+    const root = context.harness.runtimePaths?.bashOutputRoot;
+    if (!root) {
+        throw new Error("Bash完整输出需要显式RuntimePaths Cache Root");
+    }
+    let store = bashOutputStores.get(root);
+    if (!store) {
+        store = (async () => {
+            const created = new BashOutputStore(root);
+            await created.collect();
+            return created;
+        })();
+        bashOutputStores.set(root, store);
+    }
+    return store;
+}
+
+function formatFullOutput(reference: BashOutputReference | undefined): string {
+    if (!reference || reference.state === "reclaimed") return "Full output reclaimed";
+    return reference.state === "partial"
+        ? `Full output capped at cache limit: ${reference.locator}`
+        : `Full output: ${reference.locator}`;
+}
+
+/** 普通文件与Bash逻辑locator共用同一分页、字节截断和details合同。 */
+function formatTextRead(buffer: Buffer, input: ReadInput, reportedPath: string): NeuroToolResult {
+    const lines = buffer.toString("utf-8").split("\n");
+    const startLine = input.offset ? Math.max(0, input.offset - 1) : 0;
+    if (startLine >= lines.length) {
+        throw new Error(`Offset ${input.offset} is beyond end of file (${lines.length} lines total)`);
+    }
+    const selected = input.limit !== undefined
+        ? lines.slice(startLine, startLine + input.limit).join("\n")
+        : lines.slice(startLine).join("\n");
+    const truncation = truncateHead(selected);
+    const shouldShowLineNumbers = input.lineNumbers ?? (input.offset !== undefined || input.limit !== undefined || truncation.truncated);
+    const endLine = startLine + truncation.outputLines;
+    const nextOffset = truncation.truncated
+        ? endLine + 1
+        : input.limit !== undefined && startLine + input.limit < lines.length ? startLine + input.limit + 1 : undefined;
+    let outputText = shouldShowLineNumbers ? addLineNumbers(truncation.content, startLine + 1) : truncation.content;
+    if (truncation.firstLineExceedsLimit) {
+        const firstLineSize = formatSize(Buffer.byteLength(lines[startLine] ?? "", "utf-8"));
+        outputText = `[Line ${startLine + 1} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use read with offset/limit to inspect retained output.]`;
+    } else if (truncation.truncated) {
+        outputText += `\n\n[Showing lines ${startLine + 1}-${endLine} of ${lines.length}. Use offset=${endLine + 1} to continue.]`;
+    } else if (nextOffset !== undefined) {
+        outputText += `\n\n[${lines.length - startLine - input.limit!} more lines in file. Use offset=${nextOffset} to continue.]`;
+    }
+    return {
+        content: [{type: "text", text: outputText}],
+        details: normalizeToolResultDetails({
+            path: reportedPath,
+            startLine: startLine + 1,
+            endLine,
+            totalLines: lines.length,
+            nextOffset,
+            truncation: truncation.truncated ? truncation : undefined,
+        }),
+    };
 }

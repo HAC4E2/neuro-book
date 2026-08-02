@@ -4,7 +4,7 @@ import { messageStatusLabel } from "nbook/app/components/novel-ide/agent/agent-m
 import { useCollapsible } from "nbook/app/composables/useCollapsible";
 import AgentMarkdownContent from "nbook/app/components/novel-ide/agent/AgentMarkdownContent.vue";
 import AgentAttachmentGallery from "nbook/app/components/novel-ide/agent/AgentAttachmentGallery.vue";
-import AgentAttachmentImage from "nbook/app/components/novel-ide/agent/AgentAttachmentImage.vue";
+import AgentAttachmentCard from "nbook/app/components/novel-ide/agent/AgentAttachmentCard.vue";
 import AgentHistoryMessageEditor from "nbook/app/components/novel-ide/agent/AgentHistoryMessageEditor.vue";
 import type {AgentSessionAttachmentItemDto} from "nbook/shared/dto/agent-session.dto";
 import {formatCost, formatCostExact, type CostDisplayOptions} from "nbook/app/utils/cost-format";
@@ -32,7 +32,7 @@ const props = defineProps<{
     sessionAttachments: AgentSessionAttachmentItemDto[];
     canRegisterAttachments: boolean;
     canInsertAttachments: boolean;
-    projectPath: string | null;
+    projectRoot: string | null;
     modelSupportsImages: boolean;
     attachmentInsertRequest?: {id: number; item: AgentSessionAttachmentItemDto} | null;
     branchSwitcher?: {
@@ -537,7 +537,7 @@ const endSwipe = (event: PointerEvent): void => {
                         :menu-refresh-key="props.menuRefreshKey"
                         :resolve-menu="props.resolveMenu"
                         :on-skill-trigger-start="props.onSkillTriggerStart"
-                        :project-path="props.projectPath"
+                        :project-root="props.projectRoot"
                         :model-supports-images="props.modelSupportsImages"
                         :attachment-insert-request="props.attachmentInsertRequest"
                         @cancel="cancelEdit"
@@ -550,7 +550,7 @@ const endSwipe = (event: PointerEvent): void => {
                     <template v-if="props.node.message.contentBlocks?.length">
                         <div v-for="(block, blockIndex) in props.node.message.contentBlocks" :key="`${block.type}:${block.contentIndex}`" :class="blockIndex > 0 ? 'mt-3' : ''">
                             <AgentMarkdownContent v-if="block.type === 'text'" :content="block.content.preview" :open-reference="props.openReference" />
-                            <AgentAttachmentImage
+                            <AgentAttachmentCard
                                 v-else
                                 :session-id="props.sessionId"
                                 :entry-id="block.locator?.entryId ?? props.node.message.id"

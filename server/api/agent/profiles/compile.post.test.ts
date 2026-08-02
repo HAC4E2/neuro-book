@@ -50,7 +50,7 @@ describe("POST /api/agent/profiles/compile", () => {
             statusCode: 409,
             data: {
                 code: "PROJECT_NOT_OPEN",
-                projectPath: "workspace/profile-compile-not-open",
+                projectRoot: "profile-compile-not-open",
             },
         });
     });
