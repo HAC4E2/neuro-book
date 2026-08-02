@@ -1,12 +1,16 @@
 import {builtinModules} from "node:module";
 import {cp, mkdir, readFile, rm, stat, writeFile} from "node:fs/promises";
 import {dirname, isAbsolute, relative, resolve, sep} from "node:path";
+import type {Metafile} from "esbuild";
 import {
     productPiAiImportPlugin,
     productRuntimeCompatibilityPlugin,
 } from "nbook/scripts/build/product-bundle-plugins";
-import {minifyProductJavaScript} from "nbook/scripts/build/product-reproducible-minifier";
-import {productRuntimeIslandPackageNames} from "nbook/scripts/build/product-runtime-islands";
+import {bundleProductJavaScript} from "nbook/scripts/build/product-reproducible-bundle";
+import {
+    PRODUCT_COMMAND_CHUNK_BASENAME,
+    productRuntimeIslandPackageNames,
+} from "nbook/scripts/build/product-runtime-islands";
 import {
     createProductRuntimeContract,
     PRODUCT_RUNTIME_COMMAND_BOOTSTRAP,
@@ -47,21 +51,18 @@ export async function buildProductCommands(outputRoot: string): Promise<ProductC
     await rm(commandRoot, {recursive: true, force: true});
     await mkdir(commandRoot, {recursive: true});
 
-    const result = await Bun.build({
-        entrypoints: Object.values(PRODUCT_COMMAND_SOURCES).map((source) => resolve(source)),
-        target: "bun",
-        format: "esm",
-        // identifier 压缩在 splitting 完成后交给确定性的 esbuild。
-        minify: false,
-        sourcemap: "none",
+    const result = await bundleProductJavaScript({
+        absWorkingDir: commandRoot,
+        entryPoints: Object.fromEntries(Object.entries(PRODUCT_COMMAND_SOURCES).map(([name, source]) => (
+            [name, resolve(source)]
+        ))),
         splitting: true,
         metafile: true,
         outdir: commandRoot,
-        naming: {
-            entry: "[name].mjs",
-            chunk: "chunks/[name]-[hash].mjs",
-            asset: "assets/[name]-[hash][ext]",
-        },
+        entryNames: "[name]",
+        chunkNames: `chunks/${PRODUCT_COMMAND_CHUNK_BASENAME}-[hash]`,
+        assetNames: "assets/[name]-[hash]",
+        outExtension: {".js": ".mjs"},
         plugins: [productPiAiImportPlugin(), productRuntimeCompatibilityPlugin()],
         external: [
             ...builtinModules,
@@ -71,13 +72,6 @@ export async function buildProductCommands(outputRoot: string): Promise<ProductC
             ...productRuntimeIslandPackageNames().flatMap((packageName) => [packageName, `${packageName}/*`]),
         ],
     });
-    if (!result.success) {
-        throw new Error([
-            "Product command multi-entry bundle 失败：",
-            ...result.logs.map((log) => log.message),
-        ].join("\n"));
-    }
-    await minifyProductCommandOutputs(result.metafile, commandRoot);
     await assertProductCommandOutputs(result.metafile, commandRoot);
 
     await copyPhysicalRuntimeFiles(serverRoot);
@@ -111,31 +105,19 @@ export async function buildProductCommands(outputRoot: string): Promise<ProductC
     };
 }
 
-/** 对已落盘的 Bun command outputs 做确定性压缩，不重写 chunk 文件名。 */
-async function minifyProductCommandOutputs(
-    metafile: Bun.BuildMetafile | undefined,
-    commandRoot: string,
-): Promise<void> {
-    if (!metafile) throw new Error("Product command bundle 缺少 metafile。");
-    for (const outputName of Object.keys(metafile.outputs)) {
-        const {outputPath, outputRelative} = resolveCommandOutput(outputName, commandRoot);
-        if (!outputRelative.endsWith(".mjs")) continue;
-        const source = await readFile(outputPath, "utf8");
-        await writeFile(outputPath, await minifyProductJavaScript(source, outputRelative), "utf8");
-    }
-}
-
-/** 从 Bun metafile 的 source entryPoint 建立 Product 相对入口，不依赖输出文件名规则。 */
+/** 从 esbuild metafile 的 source entryPoint 建立 Product 相对入口，不依赖输出文件名规则。 */
 export function resolveProductCommandEntries(
-    metafile: Bun.BuildMetafile | undefined,
+    metafile: Metafile | undefined,
     commandRoot: string,
 ): Record<keyof typeof PRODUCT_COMMAND_SOURCES, string> {
     if (!metafile) throw new Error("Product command bundle 缺少 metafile。");
     const outputBySource = new Map<string, string>();
     for (const [outputName, output] of Object.entries(metafile.outputs)) {
         if (!output.entryPoint) continue;
-        const sourcePath = resolve(output.entryPoint);
-        // Bun metafile 的 output key 在不同构建形态下可能是绝对路径，也可能相对 outdir。
+        const sourcePath = isAbsolute(output.entryPoint)
+            ? resolve(output.entryPoint)
+            : resolve(commandRoot, output.entryPoint);
+        // esbuild metafile 的 output key 在不同构建形态下可能是绝对路径，也可能相对 absWorkingDir。
         // 相对值必须以 commandRoot 解析，不能借用调用进程 cwd。
         const {outputRelative} = resolveCommandOutput(outputName, commandRoot);
         if (outputBySource.has(sourcePath)) {
@@ -150,9 +132,9 @@ export function resolveProductCommandEntries(
     })) as Record<keyof typeof PRODUCT_COMMAND_SOURCES, string>;
 }
 
-/** 要求 Bun outdir 中每个 metafile output 已完整落盘，拒绝空文件与截断。 */
+/** 要求 esbuild outdir 中每个 metafile output 已完整落盘，拒绝空文件与截断。 */
 export async function assertProductCommandOutputs(
-    metafile: Bun.BuildMetafile | undefined,
+    metafile: Metafile | undefined,
     commandRoot: string,
 ): Promise<void> {
     if (!metafile) throw new Error("Product command bundle 缺少 metafile。");

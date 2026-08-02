@@ -4,7 +4,10 @@ import {mkdir, readFile, realpath, writeFile} from "node:fs/promises";
 import {dirname, isAbsolute, relative, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
 import ts from "typescript";
-import {minifyProductJavaScript} from "nbook/scripts/build/product-reproducible-minifier";
+import {
+    bundleProductJavaScript,
+    productBundleOutputText,
+} from "nbook/scripts/build/product-reproducible-bundle";
 
 export type AuthoringDependencyRegistration = {
     name: string;
@@ -443,25 +446,15 @@ async function copyDeclaration(owner: SourcePackage, sourcePath: string, source:
 async function bundleRuntimePackage(entry: SourcePackage, targetRoot: string, declarationPath: string): Promise<void> {
     const requireFromSource = createRequire(pathToFileURL(resolve("package.json")));
     const runtimeEntry = requireFromSource.resolve(entry.registration.name);
-    const result = await Bun.build({
-        entrypoints: [runtimeEntry],
-        target: "bun",
-        format: "esm",
-        minify: false,
-        sourcemap: "none",
+    const runtimeOutput = resolve(targetRoot, "index.mjs");
+    const result = await bundleProductJavaScript({
+        entryPoints: [runtimeEntry],
+        outfile: runtimeOutput,
+        write: false,
     });
-    if (!result.success || result.outputs.length !== 1) {
-        throw new Error([
-            `Authoring runtime dependency bundle 失败：${entry.registration.name}`,
-            ...result.logs.map((log) => log.message),
-        ].join("\n"));
-    }
     await writeFile(
-        resolve(targetRoot, "index.mjs"),
-        await minifyProductJavaScript(
-            await result.outputs[0]!.text(),
-            `server/authoring/node_modules/${entry.registration.name}/index.mjs`,
-        ),
+        runtimeOutput,
+        productBundleOutputText(result, `Authoring runtime dependency bundle：${entry.registration.name}`),
         "utf8",
     );
     const declarationRelative = relative(entry.sourceRoot, declarationPath).split(/[\\/]+/u).join("/");

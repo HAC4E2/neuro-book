@@ -13,8 +13,8 @@ import {
     productPiAiImportPlugin,
     productRuntimeCompatibilityPlugin,
 } from "nbook/scripts/build/product-bundle-plugins";
-import {minifyProductJavaScript} from "nbook/scripts/build/product-reproducible-minifier";
 import {rewriteProductPackageIslandImports} from "nbook/scripts/build/product-package-island-imports";
+import {bundleProductJavaScript} from "nbook/scripts/build/product-reproducible-bundle";
 import {
     productOpaqueImportDefinitions,
     productRuntimeIslandDefinitions,
@@ -47,7 +47,7 @@ export type ProductRuntimeBundleResult = {
 };
 
 /**
- * 把 Nitro 可执行图收敛为单个 Bun bundle，并只保留需要真实 package 形状的 native islands。
+ * 把 Nitro 可执行图收敛为单个确定性 bundle，并只保留需要真实 package 形状的 native islands。
  * pi-ai 的三个变量相对 import 通过 build plugin 改成静态入口，避免把整套 Provider SDK 留在磁盘。
  */
 export async function bundleProductRuntime(outputRoot: string, scratchRoot: string): Promise<ProductRuntimeBundleResult> {
@@ -70,16 +70,10 @@ export async function bundleProductRuntime(outputRoot: string, scratchRoot: stri
     await mkdir(temporaryRoot, {recursive: true});
     try {
         const moduleSpecifiers = await normalizeRawRuntimeImports(serverRoot);
-        const build = await Bun.build({
-            entrypoints: [sourceEntry],
-            target: "bun",
-            format: "esm",
-            // identifier 压缩在链接完成后交给确定性的 esbuild。
-            minify: false,
-            sourcemap: "none",
+        const build = await bundleProductJavaScript({
+            entryPoints: [sourceEntry],
+            outfile: temporaryEntry,
             metafile: true,
-            outdir: temporaryRoot,
-            naming: "index.mjs",
             plugins: [productPiAiImportPlugin(), productRuntimeCompatibilityPlugin()],
             external: [
                 ...builtinModules,
@@ -89,23 +83,11 @@ export async function bundleProductRuntime(outputRoot: string, scratchRoot: stri
                 ...productRuntimeIslandPackageNames().flatMap((packageName) => [packageName, `${packageName}/*`]),
             ],
         });
-        if (!build.success) {
-            throw new Error([
-                "Product Runtime bundle 失败：",
-                ...build.logs.map((log) => log.message),
-            ].join("\n"));
-        }
         if (!existsSync(temporaryEntry)) {
-            const output = build.outputs.find((item) => item.kind === "entry-point");
-            if (!output) throw new Error("Product Runtime bundle 没有 entry output。");
-            await cp(output.path, temporaryEntry);
+            throw new Error("Product Runtime bundle 没有 entry output。");
         }
-        const bundledSource = await minifyProductJavaScript(
-            await readFile(temporaryEntry, "utf8"),
-            "server/index.mjs",
-        );
         const portableSource = normalizeNitroImportMetaFallback(
-            normalizePackageManagerMetadata(bundledSource),
+            normalizePackageManagerMetadata(await readFile(temporaryEntry, "utf8")),
             temporaryEntry,
         );
         await writeFile(temporaryEntry, portableSource, "utf8");
@@ -122,10 +104,9 @@ export async function bundleProductRuntime(outputRoot: string, scratchRoot: stri
         });
         await assertBundledRuntimeClosure(serverRoot);
 
-        const metafile = build.metafile as {inputs?: Record<string, unknown>} | undefined;
         return {
             entryBytes: (await stat(sourceEntry)).size,
-            bundledInputs: Object.keys(metafile?.inputs ?? {}).length,
+            bundledInputs: Object.keys(build.metafile?.inputs ?? {}).length,
             islands: islandInventory.packages,
             islandFiles: islandInventory.files,
             islandBytes: islandInventory.bytes,
@@ -154,7 +135,7 @@ function normalizePackageManagerMetadata(source: string): string {
 
 /**
  * 把 raw Nitro 中的构建机 package 路径改成可迁移 module specifier。
- * native island 使用 bare subpath 交给 Bun external，其余路径落到当前 raw vendor 供 bundle 读取。
+ * native island 使用 bare subpath 交给 bundler external，其余路径落到当前 raw vendor 供 bundle 读取。
  */
 async function normalizeRawRuntimeImports(serverRoot: string): Promise<{files: number; seeds: string[]; rewrites: number}> {
     const nativePackages = new Set(productRuntimeIslandPackageNames());
@@ -237,7 +218,7 @@ function replaceQuotedSpecifier(source: string, current: string, next: string, i
 
 /**
  * 非 native external 只在构建期指向已核对版本的 hoisted Source package。
- * Bun 会把实现收入单文件 bundle，最终镜像不会保留这个相对路径。
+ * esbuild 会把实现收入单文件 bundle，最终镜像不会保留这个相对路径。
  */
 function sourcePackageSpecifier(
     importerPath: string,

@@ -1,6 +1,6 @@
 # 130 - 桌面应用前置架构、发行载荷与存储生命周期
 
-> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、Contract v3、五平台严格 A/B 与四个 POSIX Product 完整 smoke；Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议另有独立证据。正式 0.9 Candidate、GHCR/rootless Podman、同代 Windows Portable、浏览器验收与 Tauri/Electron 同矩阵 spike 尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由 spike 证据冻结。
+> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、Contract v3、五平台 canonical baseline 与四个 POSIX Product 完整 smoke；Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议另有独立证据。最新 final-head A/B 在 macOS ARM64 暴露 Bun linker 的 6-byte 非确定性，正式构建已切为 esbuild 同图 link/minify，正在重新取得五平台 clean 证据。正式 0.9 Candidate、GHCR/rootless Podman、同代 Windows Portable、浏览器验收与 Tauri/Electron 同矩阵 spike 尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由 spike 证据冻结。
 
 ## Relative documents refs
 
@@ -591,7 +591,7 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 ### 2026-08-02：五平台确定性与 POSIX Product 最终门禁
 
 - measurement schema 升为 v3，对全部 payload 文件记录路径、字节数、mode 与 SHA-256；A/B 失败时仍上传两份 measurement。比较器会报告仅存在于单侧的路径与具体漂移文件，不再只给 tree digest 不同。
-- Bun identifier minifier 在 Linux/macOS AArch64及偶发 Linux x64 对同一 Source 产生跨次内容漂移。v3 measurement 将差异定位到 `server/index.mjs`、command chunks 与 Profile compiler，最小差异包含 6-byte 变化；没有采用字节容差。最终正式 bundle 由 Bun 负责 link/splitting、esbuild 负责确定性 minify，纯类型空模块固定为 `export{};`，源码合同禁止重新启用 Bun identifier minifier。
+- Bun identifier minifier 在 Linux/macOS AArch64及偶发 Linux x64 对同一 Source 产生跨次内容漂移。v3 measurement 将差异定位到 `server/index.mjs`、command chunks 与 Profile compiler，最小差异包含 6-byte 变化；没有采用字节容差。该轮曾采用 Bun link/splitting + esbuild 后置 minify，纯类型空模块固定为 `export{};`；这一结论随后被 macOS ARM64 的 2/2 重现推翻，当前正式合同见后文的 esbuild 同图 hard cut。
 - 最终 baseline workflow [`30733829868`](https://github.com/notnotype/neuro-book/actions/runs/30733829868) 在提交 `18e12750707a16e6119f9769dae49bc2c2c4eca4` 上五平台严格 A/B 全绿。Windows x64 为 3,238 files / 133,455,576 bytes；Linux x64 为 3,241 / 133,294,968；Linux AArch64 为 3,241 / 130,718,274；macOS x64 为 3,241 / 134,063,432；macOS AArch64 为 3,241 / 130,115,684。各平台 Source/runtime/contract/policy、七个 owner、tree/shape digest 和逐文件 SHA-256 均一致。
 - 最终 owner 没有新增；Windows authoring-kit 相对上一审查值增长 `7.8%`，是最大增幅，低于 10% 决策线。Windows owner 为 frontend 177 / 15,272,680；server-bundle 1 / 12,300,171；commands 116 / 10,865,638；authoring-kit 509 / 14,477,260；native-islands 2,059 / 75,260,630；system-assets 373 / 5,274,435；runtime-meta 3 / 4,762。POSIX 除 native-islands 平台字节差异外共用其余精确 owner 基线。
 - Product Platform workflow [`30733829837`](https://github.com/notnotype/neuro-book/actions/runs/30733829837) 在同一提交通过 Linux x64/AArch64 与 macOS x64/AArch64 的 Source/Product archive、Runtime Contract、native islands、sqlite-vec、Sharp、Manager、Owned Process、启动、HTTP 与浏览器 smoke。该证据不包含 Windows Portable、GHCR、最终 Release Manifest 或公开索引。
@@ -618,6 +618,13 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - 最终只读审查发现两条发布链补漏。其一，History route 原先在领域写锁外复核 revision，旧审查请求可能接受或还原随后出现的新变化；`nb-history` 现提供锁内条件式 accept/revert/accept-all，批量接受位于单个 SQLite transaction，revert 同时复核磁盘 hash。其二，Profile `dispose()` 原先只等待 pump，未等待已经进入异步扫描的 `enqueue()` / `bootSweep()`；Coordinator 现显式登记 producer，Harness 也持有 startup reconcile/watcher startup，teardown 会等待全部 I/O settle。
 - 补漏验证为 sibling `nb-history` 40/40 + typecheck、NeuroBook 聚焦 5 files / 79 tests、File Snapshot Cache 3 files / 44 tests，以及根、scripts、File Snapshot Cache typecheck 全绿。没有为 metadata/封面再造第二套完整生命周期 fixture：真实生产入口已经进入同一 gate，内核与 Service/lifecycle/publish rollback 均有分层行为测试，额外 fixture 的复杂度高于新增证据价值。
 - 当前代码已通过本地发行门禁，但五平台严格 A/B 与 POSIX Product smoke 的最新证据仍绑定提交 `18e12750`。mutation gate 提交后必须在最终 HEAD 重跑这两条 workflow；在此之前不创建新的 0.9 Candidate，也不复用两个历史失败 Draft。
+
+### 2026-08-02：macOS ARM64 linker 漂移与同图构建 hard cut
+
+- mutation/lifecycle 提交 `f69ff006` 的 Product Platforms workflow [`30746538230`](https://github.com/notnotype/neuro-book/actions/runs/30746538230) 已通过四个 POSIX 平台完整 smoke。Baseline workflow [`30746538313`](https://github.com/notnotype/neuro-book/actions/runs/30746538313) 只有 macOS ARM64 失败：`server/index.mjs` 在 12,305,479 与 12,305,485 bytes 两种结果间变化，两次重试的 A/B 恰好对调，复现率为 2/2；其余 payload 路径稳定。
+- 该证据推翻了“Bun link/splitting + esbuild 后置 minify 已解决确定性”的旧结论。后置 transform 只能压缩 Bun 已经产出的 AST，无法修复 linker 的 module/symbol 排序。正式 Nitro server、命令多入口、Profile Authoring Kit compiler 和类型投影现统一由同一个 esbuild graph 完成 link/tree-shaking/splitting/minify；Bun 继续作为构建宿主与 Product Runtime，不再参与正式 Product 链接。
+- esbuild metafile 的 `entryPoint` 与 output key 统一按各 Builder 的 `absWorkingDir` 收窄；命令 shared chunk 使用 `command-shared-*` 稳定前缀，opaque import 仍固定为三项，没有放宽到任意输出。Bun 将 npm `undici` 解析成同名 bare runtime specifier 时，package-island 重写从已登记 package root 的 manifest 解析入口，并继续执行普通文件与 realpath containment 校验。
+- 当前未提交 Source 在 Windows 完成两次独立 dirty measurement：两份报告除 `measuredAt` 外完整 JSON 相同，3,227 payload files / 133,489,445 bytes，3,227 条逐文件 SHA-256、七个 owner、`treeDigest=sha256:9e352a32745713cd326f11d75fa65a91f4cb9dfd2d92f65d92beb3b4794639fb` 与 `shapeDigest=sha256:28730968247f3a688bd7b9cf02bf2fcd2911d2ac57dad68821a5ab4ec90d0728` 均一致。dirty 证据不更新 canonical baseline；新 HEAD 的五平台 clean A/B 与 POSIX Product workflow 全绿前仍禁止发布 0.9 Candidate。
 
 ## TODO / Follow-ups
 

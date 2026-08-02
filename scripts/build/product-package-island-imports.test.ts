@@ -25,8 +25,9 @@ describe("Product package-island imports", () => {
         await Promise.all([
             writeModule(join(serverRoot, "index.mjs"), [
                 'import ts from "typescript";',
+                'import {ProxyAgent} from "undici";',
                 'import sharp from "sharp/dist/index.mjs";',
-                "export default [ts, sharp];",
+                "export default [ts, ProxyAgent, sharp];",
             ].join("\n")),
             writeModule(join(serverRoot, "commands", "chunks", "deep.mjs"), [
                 'export const sqlite = import("sqlite-vec/index.mjs");',
@@ -35,23 +36,26 @@ describe("Product package-island imports", () => {
                 'export {default as sharp} from "sharp/dist/index.mjs";',
             ].join("\n")),
             writeModule(join(serverRoot, "node_modules", "typescript", "lib", "typescript.js"), "module.exports = {};\n"),
+            writeModule(join(serverRoot, "node_modules", "undici", "index.js"), "module.exports = {};\n"),
             writeModule(join(serverRoot, "node_modules", "sharp", "dist", "index.mjs"), "export default {};\n"),
             writeModule(join(serverRoot, "node_modules", "sqlite-vec", "index.mjs"), "export default {};\n"),
         ]);
 
         const result = await rewriteProductPackageIslandImports({
             serverRoot,
-            packageNames: ["typescript", "sharp", "sqlite-vec"],
+            packageNames: ["typescript", "undici", "sharp", "sqlite-vec"],
         });
 
         expect(result).toEqual({
             scannedFiles: 3,
             rewrittenFiles: 3,
-            rewrittenReferences: 4,
-            packages: ["sharp", "sqlite-vec", "typescript"],
+            rewrittenReferences: 5,
+            packages: ["sharp", "sqlite-vec", "typescript", "undici"],
         });
         expect(await readFile(join(serverRoot, "index.mjs"), "utf8"))
             .toContain('from "./node_modules/typescript/lib/typescript.js"');
+        expect(await readFile(join(serverRoot, "index.mjs"), "utf8"))
+            .toContain('from "./node_modules/undici/index.js"');
         expect(await readFile(join(serverRoot, "index.mjs"), "utf8"))
             .toContain('from "./node_modules/sharp/dist/index.mjs"');
         expect(await readFile(join(serverRoot, "commands", "chunks", "deep.mjs"), "utf8"))

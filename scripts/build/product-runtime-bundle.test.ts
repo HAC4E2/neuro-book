@@ -8,7 +8,10 @@ import {promisify} from "node:util";
 import {afterEach, describe, expect, it} from "vitest";
 
 import {currentProductPlatform} from "nbook/packages/neuro-book-manager/src/platform";
-import {productOpaqueImportDefinitions} from "nbook/scripts/build/product-runtime-islands";
+import {
+    PRODUCT_COMMAND_CHUNK_BASENAME,
+    productOpaqueImportDefinitions,
+} from "nbook/scripts/build/product-runtime-islands";
 
 const temporaryRoots: string[] = [];
 const execFileAsync = promisify(execFile);
@@ -110,6 +113,10 @@ describe("Product Runtime bundle", () => {
         expect(islands.platform).toBe(currentProductPlatform());
         expect(islands.schema).toBe("nbook.product-native-islands/v2");
         expect(islands.opaqueImports).toEqual(productOpaqueImportDefinitions());
+        expect(islands.opaqueImports).toContainEqual(expect.objectContaining({
+            pathPattern: `commands/chunks/${PRODUCT_COMMAND_CHUNK_BASENAME}-*.mjs`,
+            count: 3,
+        }));
         const islandPackages = islands.islands.flatMap((island) => island.packages);
         expect(islandPackages).toEqual(expect.arrayContaining(["jsdom", "typescript", "undici"]));
         await expect(access(join(serverRoot, "node_modules", "jsdom", "package.json"))).resolves.toBeUndefined();

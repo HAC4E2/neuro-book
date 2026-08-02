@@ -18,6 +18,9 @@ export type ProductOpaqueImportDefinition = {
     smoke: string;
 };
 
+/** esbuild 多入口命令图中稳定的 shared chunk 名称前缀。 */
+export const PRODUCT_COMMAND_CHUNK_BASENAME = "command-shared";
+
 type PackageManifest = {
     name?: string;
     version?: string;
@@ -129,7 +132,7 @@ export function isProductRuntimeIslandModule(id: string): boolean {
 /**
  * 返回最终 Product 允许保留的 opaque dynamic import 精确集合。
  *
- * Bun shared chunk 的 content hash 会随 Source 改变，因此 product-start 使用一个
+ * shared chunk 的 content hash 会随 Source 改变，因此命令图使用 Builder 固定的
  * 受限文件名前缀；数量仍必须完全一致，任何新增、消失或移动都要求重新审查本合同。
  */
 export function productOpaqueImportDefinitions(): ProductOpaqueImportDefinition[] {
@@ -147,9 +150,9 @@ export function productOpaqueImportDefinitions(): ProductOpaqueImportDefinition[
             smoke: "Profile compiler compile/import with typebox",
         },
         {
-            pathPattern: "commands/chunks/product-start-*.mjs",
+            pathPattern: `commands/chunks/${PRODUCT_COMMAND_CHUNK_BASENAME}-*.mjs`,
             count: 3,
-            reason: "Product start 的共享依赖按当前 Runtime 与平台选择 module implementation。",
+            reason: "Product command 的共享依赖按当前 Runtime 与平台选择 module implementation。",
             smoke: "Product command start and database/application-state migrations",
         },
     ];

@@ -19,6 +19,12 @@ type PackageSpecifier = {
     resolutionSpecifier: string;
 };
 
+type PackageManifest = {
+    // package.json 是构建期外部输入；读取后必须逐字段收窄。
+    name?: unknown;
+    main?: unknown;
+};
+
 /**
  * 把 Product 三类可执行输出中的字面量 package-island import 改成镜像内相对文件路径。
  *
@@ -121,10 +127,19 @@ async function resolveProductSpecifier(options: {
     }
 
     let packageRelativePath: string;
-    if (resolvedSourcePath) {
+    if (resolvedSourcePath && isAbsolute(resolvedSourcePath)) {
         const canonicalSourcePath = await realpath(resolvedSourcePath);
         assertContainedPath(sourcePackageRoot, canonicalSourcePath, descriptor.resolutionSpecifier);
         packageRelativePath = relative(sourcePackageRoot, canonicalSourcePath);
+    } else if (resolvedSourcePath === descriptor.packageName && !descriptor.packageSubpath) {
+        packageRelativePath = await packageMainEntry({
+            packageName: descriptor.packageName,
+            packageRoot: sourcePackageRoot,
+        });
+    } else if (resolvedSourcePath) {
+        throw new Error(
+            `Product package island 返回非物理解析结果：${descriptor.resolutionSpecifier} -> ${resolvedSourcePath}`,
+        );
     } else {
         if (!descriptor.packageSubpath) {
             throw new Error(`Product package island 无法解析入口：${descriptor.resolutionSpecifier}`, {
@@ -146,6 +161,27 @@ async function resolveProductSpecifier(options: {
     const importerRelativePath = relative(dirname(options.importerPath), targetPath).replaceAll("\\", "/");
     const portablePath = importerRelativePath.startsWith(".") ? importerRelativePath : `./${importerRelativePath}`;
     return `${portablePath}${descriptor.suffix}`;
+}
+
+/**
+ * Bun 会把与 runtime builtin 同名的 npm 根包解析成 bare specifier。
+ * 此时只接受已登记 island 自身 manifest 的 CommonJS 入口，不猜测构建机路径。
+ */
+async function packageMainEntry(options: {packageName: string; packageRoot: string}): Promise<string> {
+    const manifestPath = resolve(options.packageRoot, "package.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as PackageManifest;
+    if (manifest.name !== options.packageName) {
+        throw new Error(`Product package island manifest 身份无效：${options.packageName} (${manifestPath})`);
+    }
+    if (manifest.main !== undefined && (typeof manifest.main !== "string" || !manifest.main.trim())) {
+        throw new Error(`Product package island main 无效：${options.packageName} (${manifestPath})`);
+    }
+    const declaredEntry = resolve(options.packageRoot, manifest.main ?? "index.js");
+    assertContainedPath(options.packageRoot, declaredEntry, options.packageName);
+    await requireRegularFile(declaredEntry, `Product package island main ${options.packageName}`);
+    const canonicalEntry = await realpath(declaredEntry);
+    assertContainedPath(options.packageRoot, canonicalEntry, options.packageName);
+    return relative(options.packageRoot, canonicalEntry);
 }
 
 /** 解析一个 bare package specifier，并拒绝可逃逸 package root 的 subpath。 */

@@ -1,6 +1,7 @@
 import {mkdtemp, mkdir, readFile, readdir, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
-import {join, resolve} from "node:path";
+import {join, relative, resolve} from "node:path";
+import type {Metafile} from "esbuild";
 
 import {afterEach, describe, expect, it} from "vitest";
 import {
@@ -28,9 +29,12 @@ describe("Product command metafile", () => {
         }
     });
 
-    it("按 commands outdir 解析 Bun 返回的相对 output key", () => {
+    it("按 commands root 解析 esbuild 返回的相对 output key 与 entryPoint", () => {
         const commandRoot = resolve(".agent", "workspace", "product-command-metafile-relative", "commands");
         const metafile = buildMetafile(commandRoot, true);
+        for (const output of Object.values(metafile.outputs)) {
+            output.entryPoint = relative(commandRoot, output.entryPoint!);
+        }
 
         const entries = resolveProductCommandEntries(metafile, commandRoot);
 
@@ -62,7 +66,7 @@ describe("Product command metafile", () => {
             .toThrow("Product command metafile output 逃逸 commands root");
     });
 
-    it("验证Bun outdir已完整落盘并拒绝self-write造成的空文件", async () => {
+    it("验证esbuild outdir已完整落盘并拒绝self-write造成的空文件", async () => {
         const root = await mkdtemp(join(tmpdir(), "nbook-product-command-output-"));
         temporaryRoots.push(root);
         const commandRoot = join(root, "commands");
@@ -70,7 +74,7 @@ describe("Product command metafile", () => {
         const source = "export default true;\n";
         await mkdir(commandRoot, {recursive: true});
         await writeFile(outputPath, source, "utf8");
-        const metafile: Bun.BuildMetafile = {
+        const metafile: Metafile = {
             inputs: {},
             outputs: {
                 [outputPath]: {
@@ -128,8 +132,8 @@ describe("Product command metafile", () => {
     });
 });
 
-/** 为每个命令建立文件名与 source 名完全无关的最小 Bun metafile。 */
-function buildMetafile(commandRoot: string, relativeOutput = false): Bun.BuildMetafile {
+/** 为每个命令建立文件名与 source 名完全无关的最小 esbuild metafile。 */
+function buildMetafile(commandRoot: string, relativeOutput = false): Metafile {
     return {
         inputs: {},
         outputs: Object.fromEntries(Object.entries(PRODUCT_COMMAND_SOURCES).map(([, source], index) => [

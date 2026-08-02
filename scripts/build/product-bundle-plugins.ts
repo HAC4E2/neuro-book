@@ -1,20 +1,21 @@
 import {readFile} from "node:fs/promises";
+import type {Plugin} from "esbuild";
 
-const GAXIOS_SOURCE_PATTERN = /[\\/]gaxios[\\/]build[\\/](?:cjs|esm)[\\/]src[\\/]gaxios\.js$/u;
+const GAXIOS_SOURCE_PATTERN = /[\\/]gaxios[\\/]build[\\/](?:cjs|esm)[\\/]src[\\/]gaxios\.js$/;
 const GAXIOS_NODE_FETCH_IMPORT = "(await import('node-fetch')).default";
 const PI_AI_ROOT_PATTERN = String.raw`[\\/]@earendil-works[\\/]pi-ai[\\/]dist[\\/]`;
-const PI_AI_BEDROCK_PATTERN = new RegExp(String.raw`${PI_AI_ROOT_PATTERN}api[\\/]bedrock-converse-stream\.lazy\.js$`, "u");
-const PI_AI_ENV_KEYS_PATTERN = new RegExp(`${PI_AI_ROOT_PATTERN}env-api-keys\\.js$`, "u");
-const PI_AI_OAUTH_PATTERN = new RegExp(String.raw`${PI_AI_ROOT_PATTERN}utils[\\/]oauth[\\/]load\.js$`, "u");
+const PI_AI_BEDROCK_PATTERN = new RegExp(String.raw`${PI_AI_ROOT_PATTERN}api[\\/]bedrock-converse-stream\.lazy\.js$`);
+const PI_AI_ENV_KEYS_PATTERN = new RegExp(`${PI_AI_ROOT_PATTERN}env-api-keys\\.js$`);
+const PI_AI_OAUTH_PATTERN = new RegExp(String.raw`${PI_AI_ROOT_PATTERN}utils[\\/]oauth[\\/]load\.js$`);
 
 /**
  * 把现代 Bun 已内置的 fetch 投影为 gaxios 的 node-fetch fallback。
  *
- * Bun.build 会有意保留字面量 dynamic import，因此 `onResolve` 无法接管这里；
+ * bundler 会有意保留字面量 dynamic import，因此 `onResolve` 无法接管这里；
  * 必须在 gaxios 的稳定源码边界精确改写。上游形状变化时 fail closed，不能把
  * `node-fetch` 留到没有该 package 的 Product 中。
  */
-export function productRuntimeCompatibilityPlugin(): Bun.BunPlugin {
+export function productRuntimeCompatibilityPlugin(): Plugin {
     return {
         name: "nbook-product-runtime-compatibility",
         setup(build) {
@@ -42,7 +43,7 @@ export function productRuntimeCompatibilityPlugin(): Bun.BunPlugin {
  * auth/context 的 Node builtin loader 有意保留为唯一 pi-ai opaque seam；其他上游形状
  * 变化必须在 onLoad 中 fail closed，不能随平台 tree-shaking 漂移。
  */
-export function productPiAiImportPlugin(): Bun.BunPlugin {
+export function productPiAiImportPlugin(): Plugin {
     return {
         name: "nbook-pi-ai-runtime-imports",
         setup(build) {

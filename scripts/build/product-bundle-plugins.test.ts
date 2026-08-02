@@ -16,9 +16,9 @@ describe("Product bundle plugins", () => {
 
         expect(result.opaqueImports).toBe(1);
         expect(result.specifiers).toEqual(expect.arrayContaining([
-            "fs",
-            "os",
-            "path",
+            "node:fs",
+            "node:os",
+            "node:path",
             "./bedrock-converse-stream.js",
             "./anthropic.js",
             "./openai-codex.js",
@@ -29,27 +29,31 @@ describe("Product bundle plugins", () => {
 
 const BUN_PLUGIN_PROBE = String.raw`
 import {resolve} from "node:path";
+import {build} from "esbuild";
 import {init, parse} from "es-module-lexer";
 import {productPiAiImportPlugin} from "nbook/scripts/build/product-bundle-plugins";
 await init;
-const result = await Bun.build({
-    entrypoints: [
+const result = await build({
+    entryPoints: [
         resolve("node_modules/@earendil-works/pi-ai/dist/auth/context.js"),
         resolve("node_modules/@earendil-works/pi-ai/dist/env-api-keys.js"),
         resolve("node_modules/@earendil-works/pi-ai/dist/api/bedrock-converse-stream.lazy.js"),
         resolve("node_modules/@earendil-works/pi-ai/dist/utils/oauth/load.js"),
     ],
-    target: "bun",
+    bundle: true,
+    target: "esnext",
+    platform: "node",
     format: "esm",
     minify: true,
-    sourcemap: "none",
+    sourcemap: false,
+    write: false,
+    outdir: "probe-output",
     plugins: [productPiAiImportPlugin()],
     external: ["*"],
 });
-if (!result.success) throw new Error(result.logs.map((log) => log.message).join("\\n"));
 const imports = [];
-for (const output of result.outputs) {
-    const [outputImports] = parse(await output.text());
+for (const output of result.outputFiles) {
+    const [outputImports] = parse(output.text);
     imports.push(...outputImports);
 }
 console.log(JSON.stringify({

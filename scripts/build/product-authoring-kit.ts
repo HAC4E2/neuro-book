@@ -7,7 +7,10 @@ import {
     productPiAiImportPlugin,
     productRuntimeCompatibilityPlugin,
 } from "nbook/scripts/build/product-bundle-plugins";
-import {minifyProductJavaScript} from "nbook/scripts/build/product-reproducible-minifier";
+import {
+    bundleProductJavaScript,
+    productBundleOutputText,
+} from "nbook/scripts/build/product-reproducible-bundle";
 import {productRuntimeIslandPackageNames} from "nbook/scripts/build/product-runtime-islands";
 import {
     projectAuthoringDependencies,
@@ -50,7 +53,7 @@ const AUTHORING_DEPENDENCIES = [
 /**
  * 建立与 Product revision 绑定的 Profile Authoring Kit。
  *
- * worker 实现被 bundle 成一个 Bun 入口；SDK 保留源码与专用 tsconfig，供运行时
+ * worker 实现被 bundle 成一个确定性入口；SDK 保留源码与专用 tsconfig，供运行时
  * esbuild 编译用户 Profile。这里不复制完整 server/app/docs 或通用 node_modules。
  */
 export async function buildProductAuthoringKit(outputRoot: string): Promise<ProductAuthoringKitResult> {
@@ -64,12 +67,10 @@ export async function buildProductAuthoringKit(outputRoot: string): Promise<Prod
     await mkdir(nbookRoot, {recursive: true});
     await mkdir(sdkSourceRoot, {recursive: true});
 
-    const result = await Bun.build({
-        entrypoints: [resolve("server", "agent", "profiles", "profile-compile-worker-entry.ts")],
-        target: "bun",
-        format: "esm",
-        minify: false,
-        sourcemap: "none",
+    const result = await bundleProductJavaScript({
+        entryPoints: [resolve("server", "agent", "profiles", "profile-compile-worker-entry.ts")],
+        outfile: compilerPath,
+        write: false,
         plugins: [productPiAiImportPlugin(), productRuntimeCompatibilityPlugin()],
         external: [
             "bun",
@@ -77,16 +78,9 @@ export async function buildProductAuthoringKit(outputRoot: string): Promise<Prod
             ...productRuntimeIslandPackageNames().flatMap((packageName) => [packageName, `${packageName}/*`]),
         ],
     });
-    if (!result.success) {
-        throw new Error([
-            "Profile compiler bundle 失败：",
-            ...result.logs.map((log) => log.message),
-        ].join("\n"));
-    }
-    if (result.outputs.length !== 1) throw new Error("Profile compiler bundle 必须只产生一个入口。");
     await writeFile(
         compilerPath,
-        await minifyProductJavaScript(await result.outputs[0]!.text(), "server/authoring/profile-compile-worker.mjs"),
+        productBundleOutputText(result, "Profile compiler bundle"),
         "utf8",
     );
 
@@ -103,12 +97,11 @@ export async function buildProductAuthoringKit(outputRoot: string): Promise<Prod
             const source = resolve(sdk.name, fileName);
             if (!existsSync(source)) throw new Error(`${sdk.name} 缺少 ${fileName}`);
             await cp(source, resolve(sourceRoot, fileName));
-            const sdkBuild = await Bun.build({
-                entrypoints: [source],
-                target: "bun",
-                format: "esm",
-                minify: false,
-                sourcemap: "none",
+            const runtimeFileName = fileName.replace(/\.ts$/u, ".mjs");
+            const sdkBuild = await bundleProductJavaScript({
+                entryPoints: [source],
+                outfile: resolve(runtimeRoot, runtimeFileName),
+                write: false,
                 external: [
                     "bun",
                     "bun:*",
@@ -117,22 +110,11 @@ export async function buildProductAuthoringKit(outputRoot: string): Promise<Prod
                         : []),
                 ],
             });
-            if (!sdkBuild.success) {
-                throw new Error([
-                    `${sdk.name} bundle 失败：${fileName}`,
-                    ...sdkBuild.logs.map((log) => log.message),
-                ].join("\n"));
-            }
-            if (sdkBuild.outputs.length !== 1) throw new Error(`${sdk.name} ${fileName} 必须只产生一个入口。`);
-            const runtimeFileName = fileName.replace(/\.ts$/u, ".mjs");
             const runtimeSource = await rewriteProjectedSdkImports(
-                await minifyProductJavaScript(
-                    await sdkBuild.outputs[0]!.text(),
-                    `server/authoring/nbook/${sdk.name}/${runtimeFileName}`,
-                ),
+                productBundleOutputText(sdkBuild, `${sdk.name} ${fileName}`),
                 `${sdk.name}/${runtimeFileName}`,
             );
-            await Bun.write(resolve(runtimeRoot, runtimeFileName), runtimeSource);
+            await writeFile(resolve(runtimeRoot, runtimeFileName), runtimeSource, "utf8");
         }
     }
     const declarationDependencies = await emitAuthoringTypes(typeRoot);
