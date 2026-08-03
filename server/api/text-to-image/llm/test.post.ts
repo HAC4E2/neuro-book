@@ -4,12 +4,25 @@ import {validateBody} from "nbook/server/utils/novel-chapter";
 import {requireCurrentUser} from "nbook/server/utils/auth";
 import {TextToImageProviderService} from "nbook/server/text-to-image/provider.service";
 import {requestLlmCompletion} from "nbook/server/text-to-image/llm-chat";
-import {TextToImageLlmProviderSettingsSchema} from "nbook/shared/dto/text-to-image.dto";
+import {TextToImageLlmProviderSettingsSchema, TextToImageRequestTypeSchema} from "nbook/shared/dto/text-to-image.dto";
+import {buildContextMessages, resolveTextToImageContextEntries} from "nbook/server/text-to-image/llm-context";
 
 const LlmTestBodySchema = z.object({
     providerId: z.number().int().positive(),
     prompt: z.string().trim().min(1),
     stream: z.boolean().optional().default(false),
+    requestType: TextToImageRequestTypeSchema.optional().default("image_gen"),
+    runtime: z.object({
+        body: z.string().optional().default(""),
+        context: z.string().optional().default(""),
+        userDemand: z.string().optional().default(""),
+        worldBook: z.string().optional().default(""),
+    }).optional().default({
+        body: "",
+        context: "",
+        userDemand: "",
+        worldBook: "",
+    }),
 });
 
 export default defineEventHandler(async (event) => {
@@ -28,7 +41,11 @@ export default defineEventHandler(async (event) => {
         sendImages: settings.sendImages,
         mergeSystemUser: settings.mergeSystemUser,
         retryCount: settings.retryCount,
-        messages: [{role: "user", content: body.prompt}],
+        runtime: body.runtime,
+        messages: [
+            ...buildContextMessages(await resolveTextToImageContextEntries(body.requestType), body.runtime),
+            {role: "user", content: body.prompt},
+        ],
     });
     return {content};
 });

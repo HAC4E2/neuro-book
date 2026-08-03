@@ -10,6 +10,9 @@ import {
     requestLlmCompletion,
 } from "nbook/server/text-to-image/llm-chat";
 import {TextToImageLlmProviderSettingsSchema} from "nbook/shared/dto/text-to-image.dto";
+import {buildContextMessages} from "nbook/server/text-to-image/llm-context";
+import type {TextToImageContextEntry} from "nbook/shared/dto/text-to-image.dto";
+import type {TextToImageRuntimePlaceholderContext} from "nbook/server/text-to-image/runtime-placeholder";
 
 export type CharacterVisualDraftMode = "fill_empty" | "replace_visual";
 
@@ -23,6 +26,8 @@ export type GenerateCharacterVisualDraftInput = {
     characterPage: string;
     existingSummary: string;
     mode: CharacterVisualDraftMode;
+    contextEntries?: TextToImageContextEntry[];
+    runtime?: TextToImageRuntimePlaceholderContext;
 };
 
 /** 角色字段中文标签 -> schema 键。 */
@@ -188,7 +193,9 @@ export async function generateCharacterVisualDraft(
             sendImages: settings.sendImages,
             mergeSystemUser: settings.mergeSystemUser,
             retryCount: settings.retryCount,
+            runtime: input.runtime,
             messages: [
+                ...buildContextMessages(input.contextEntries ?? [], input.runtime ?? {}),
                 {role: "system", content: systemPrompt},
                 {role: "user", content: userPrompt},
             ],

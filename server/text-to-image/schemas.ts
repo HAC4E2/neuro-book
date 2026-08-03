@@ -16,5 +16,9 @@ export const SaveTextToImageProviderSchema = z.object({
 });
 export type SaveTextToImageProviderInput = z.infer<typeof SaveTextToImageProviderSchema>;
 
-/** 工作台配置写入入参；只允许更新 textToImage 非敏感面。 */
-export const TextToImageWorkbenchConfigPutSchema = TextToImageGlobalConfigSchema.partial();
+/** 工作台配置写入入参；只允许更新 textToImage 非敏感面，并支持可选 CAS 基线。 */
+export const TextToImageWorkbenchConfigPutSchema = z.object({
+    /** 可选 CAS 基线：调用方保存前拿到的完整 textToImage 配置 JSON。 */
+    expectedTextToImageJson: z.string().optional(),
+    patch: TextToImageGlobalConfigSchema.partial(),
+});

@@ -88,6 +88,27 @@ export const TextToImageNovelAiVibeGroupSettingsSchema = z.object({
 });
 export type TextToImageNovelAiVibeGroupSettings = z.infer<typeof TextToImageNovelAiVibeGroupSettingsSchema>;
 
+/** NovelAI 配置档案：模型/采样/参数快照，可独立读取、另存为、删除。 */
+export const TextToImageNovelAiProfileSchema = z.object({
+    model: z.string(),
+    sampler: z.string(),
+    noiseSchedule: z.string(),
+    promptGuidance: z.number(),
+    promptGuidanceRescale: z.number(),
+    aiDefaultCharacterPosition: z.boolean(),
+    smea: z.boolean(),
+    smeaDyn: z.boolean(),
+    variety: z.boolean(),
+    decrisp: z.boolean(),
+    width: z.number(),
+    height: z.number(),
+    steps: z.number(),
+    seed: z.number(),
+    positiveQualityPreset: z.boolean(),
+    negativeQualityPreset: z.string(),
+});
+export type TextToImageNovelAiProfile = z.infer<typeof TextToImageNovelAiProfileSchema>;
+
 const DEFAULT_NOVEL_AI_VIBE = TextToImageNovelAiVibeSettingsSchema.parse({});
 const DEFAULT_CHARACTER_REFERENCE = TextToImageCharacterReferenceSettingsSchema.parse({});
 const DEFAULT_NOVEL_AI_VIBE_GROUP = TextToImageNovelAiVibeGroupSettingsSchema.parse({});
@@ -116,6 +137,7 @@ export const TextToImageNovelAiSettingsSchema = z.object({
     furryDataset: z.boolean().default(false),
     positiveQualityPreset: z.boolean().default(true),
     negativeQualityPreset: z.string().default("none"),
+    profiles: z.record(z.string(), TextToImageNovelAiProfileSchema).default({}),
     fixedPromptPresets: z.record(z.string(), z.object({
         positive: z.string().default(""),
         positiveEnd: z.string().default(""),

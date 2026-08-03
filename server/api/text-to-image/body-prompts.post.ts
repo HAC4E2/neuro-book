@@ -7,6 +7,7 @@ import {TextToImageProviderService} from "nbook/server/text-to-image/provider.se
 import {generateBodyImageBlocks} from "nbook/server/text-to-image/body-image-llm";
 import {insertBodyImagePlaceholders} from "nbook/server/text-to-image/body-image-insert.service";
 import {loadEffectiveConfig} from "nbook/server/config/config-service";
+import {resolveTextToImageContextEntries} from "nbook/server/text-to-image/llm-context";
 
 const BodyPromptsBodySchema = z.object({
     providerId: z.number().int().positive(),
@@ -32,6 +33,12 @@ export default defineEventHandler(async (event) => {
         characterSummary: body.characterSummary,
         textReplacementRules: profile?.textReplacement ?? "",
         aiReplacementRules: profile?.aiReplacement ?? "",
+        contextEntries: await resolveTextToImageContextEntries("image_gen"),
+        runtime: {
+            body: body.chapterContent,
+            context: body.characterSummary,
+            userDemand: "",
+        },
     });
     const inserted = insertBodyImagePlaceholders({
         chapterContent: body.chapterContent,

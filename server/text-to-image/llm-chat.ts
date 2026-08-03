@@ -1,5 +1,6 @@
 import {setTimeout as delay} from "node:timers/promises";
 import {fetchTextToImageProvider} from "nbook/server/text-to-image/provider-fetch";
+import {resolveTextToImageRuntimePlaceholders, type TextToImageRuntimePlaceholderContext} from "nbook/server/text-to-image/runtime-placeholder";
 
 export type LlmChatContent = string | Array<Record<string, unknown>>;
 
@@ -25,6 +26,8 @@ export type RequestLlmCompletionInput = {
     retryCount?: number;
     signal?: AbortSignal;
     allowPrivateNetwork?: boolean;
+    /** 运行时占位符上下文；缺省时只替换空值。 */
+    runtime?: TextToImageRuntimePlaceholderContext;
     /** 测试注入；生产由 fetchTextToImageProvider 使用默认 fetch。 */
     fetchImpl?: LlmFetchImpl;
 };
@@ -37,7 +40,7 @@ type ProviderFetchDependencies = NonNullable<Parameters<typeof fetchTextToImageP
  * 安全出站复用 provider-fetch 的 URL/DNS/重定向策略；429/5xx/空响应按 retryCount 重试。
  */
 export async function requestLlmCompletion(input: RequestLlmCompletionInput): Promise<string> {
-    const messages = prepareMessages(input.messages, {
+    const messages = prepareMessages(applyRuntimePlaceholders(input.messages, input.runtime), {
         sendImages: input.sendImages ?? false,
         mergeSystemUser: input.mergeSystemUser ?? false,
     });
@@ -95,6 +98,37 @@ export async function requestLlmCompletion(input: RequestLlmCompletionInput): Pr
     }
 
     throw lastError ?? new Error("LLM 请求失败");
+}
+
+function applyRuntimePlaceholders(
+    messages: LlmChatMessage[],
+    runtime: TextToImageRuntimePlaceholderContext | undefined,
+): LlmChatMessage[] {
+    if (!runtime) {
+        return messages;
+    }
+    return messages.map((message) => ({
+        ...message,
+        content: resolveMessageContent(message.content, runtime),
+    }));
+}
+
+function resolveMessageContent(
+    content: LlmChatContent,
+    runtime: TextToImageRuntimePlaceholderContext,
+): LlmChatContent {
+    if (typeof content === "string") {
+        return resolveTextToImageRuntimePlaceholders(content, runtime);
+    }
+    return content.map((part) => {
+        if (typeof part !== "object" || part === null || !("type" in part) || part.type !== "text" || typeof part.text !== "string") {
+            return part;
+        }
+        return {
+            ...part,
+            text: resolveTextToImageRuntimePlaceholders(part.text, runtime),
+        };
+    });
 }
 
 function prepareMessages(

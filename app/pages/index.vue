@@ -51,6 +51,7 @@ import {
 import {buildWorkspaceReferenceSections} from "nbook/app/utils/workspace-reference-menu";
 import {resolveWorkspaceFileExtension, type FrontmatterProfileKind} from "nbook/shared/editor-workbench";
 import {buildSelectionRefChip, type InlineEditPayload, type InlineEditReference, type InlineEditTask} from "nbook/app/utils/inline-editor-selection";
+import type {TextToImagePromptPayload} from "nbook/shared/text-to-image-markdown";
 
 type SameDocumentViewTransition = {
     ready: Promise<void>;
@@ -907,6 +908,41 @@ const saveCurrentWorkspaceFile = async (): Promise<void> => {
         saveQueued.value = false;
     }
 };
+
+/**
+ * 从正文占位符卡片发起端到端生成：入队 → 消费队列 → 替换占位符 → 保存文件。
+ */
+async function handleTextToImageGenerate(payload: TextToImagePromptPayload): Promise<void> {
+    if (!currentProjectRoot.value || !selectedFilePath.value) {
+        notification.error("请先打开项目并选中章节文件", {title: "生成失败"});
+        return;
+    }
+    try {
+        const snapshot = await $fetch<{providers: Array<{id: number; kind: string}>}>("/api/text-to-image/workbench/config");
+        const provider = snapshot.providers.find((item) => item.kind === "novelai");
+        if (!provider) {
+            notification.error("请先在文生图工作台配置 NovelAI Provider", {title: "生成失败"});
+            return;
+        }
+        const result = await $fetch<{content: string; asset: {relativePath: string}}>(
+            `/api/text-to-image/prompt-placeholders/${encodeURIComponent(payload.id)}/generate`,
+            {
+                method: "POST",
+                body: {
+                    projectRoot: currentProjectRoot.value,
+                    path: selectedFilePath.value,
+                    providerId: provider.id,
+                    content: selectedFileContent.value,
+                },
+            },
+        );
+        selectedFileContent.value = result.content;
+        await saveCurrentWorkspaceFile();
+        notification.success("图片已生成并插入正文");
+    } catch (cause) {
+        notification.error(resolveApiErrorMessage(cause, "生成图片失败"), {title: "生成失败"});
+    }
+}
 
 /**
  * 将 TipTap 选区加入底部 Inline AI 输入栏。
@@ -2542,6 +2578,7 @@ onBeforeUnmount(() => {
                             :inline-ai-references="inlinePromptReferences"
                             :inline-ai-highlight-reference="inlinePromptHoveredReference"
                             :enable-quick-triggers="true"
+                            :on-text-to-image-generate="handleTextToImageGenerate"
                             @select-tab="void selectWorkspaceTab($event)"
                             @close-tab="void closeEditorTab($event)"
                             @set-pin="setWorkspaceTabPinned"

@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import {computed, ref, watch} from "vue";
+import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {
     TextToImageNovelAiSettingsSchema,
+    type TextToImageNovelAiProfile,
     type TextToImageProviderDto,
 } from "nbook/shared/dto/text-to-image.dto";
 
@@ -15,7 +17,9 @@ const emit = defineEmits<{
 }>();
 
 const novelAiProviders = computed(() => props.providers.filter((provider) => provider.kind === "novelai"));
+const llmProviders = computed(() => props.providers.filter((provider) => provider.kind === "openai_compatible"));
 const selectedProviderId = ref<number | null>(null);
+const translateLlmProviderId = ref<number | null>(null);
 const form = ref(TextToImageNovelAiSettingsSchema.parse({}));
 const name = ref("");
 const credential = ref("");
@@ -23,16 +27,42 @@ const error = ref("");
 const fixedPromptPresetName = ref("");
 const vibeGroupName = ref("");
 const characterGroupName = ref("");
+const tagInput = ref("");
+const translating = ref(false);
+const vibeImageInput = ref<HTMLInputElement | null>(null);
+const profileName = ref("");
 
 const fixedPromptPresetNames = computed(() => Object.keys(form.value.fixedPromptPresets ?? {}));
 const vibeGroupNames = computed(() => Object.keys(form.value.vibeGroups ?? {}));
 const characterGroupNames = computed(() => Object.keys(form.value.characterGroups ?? {}));
+const profileNames = computed(() => Object.keys(form.value.profiles ?? {}));
 const positiveTokenCount = computed(() => form.value.fixedPositivePrompt.length + form.value.fixedPositivePromptEnd.length);
 const negativeTokenCount = computed(() => form.value.fixedNegativePrompt.length);
+const commonTags = [
+    "1girl",
+    "solo",
+    "long hair",
+    "blue eyes",
+    "school uniform",
+    "soft lighting",
+    "detailed background",
+    "looking at viewer",
+    "smile",
+    "blush",
+];
+const sizePresets = [
+    {label: "竖版 832x1216", width: 832, height: 1216},
+    {label: "横版 1216x832", width: 1216, height: 832},
+    {label: "方图 1024x1024", width: 1024, height: 1024},
+    {label: "小图 512x768", width: 512, height: 768},
+];
 
 watch(() => props.providers, () => {
     if (selectedProviderId.value === null && novelAiProviders.value.length > 0) {
         selectProvider(novelAiProviders.value[0]!.id);
+    }
+    if (translateLlmProviderId.value === null && llmProviders.value.length > 0) {
+        translateLlmProviderId.value = llmProviders.value[0]!.id;
     }
 }, {immediate: true});
 
@@ -134,6 +164,154 @@ function deleteCharacterGroup(groupName: string): void {
     delete next[groupName];
     form.value.characterGroups = next;
 }
+
+function saveProfile(): void {
+    const name = profileName.value.trim();
+    if (!name) return;
+    form.value.profiles = {
+        ...form.value.profiles,
+        [name]: snapshotProfile(),
+    };
+}
+
+function applyProfile(name: string): void {
+    const profile = form.value.profiles[name];
+    if (!profile) return;
+    form.value.model = profile.model;
+    form.value.sampler = profile.sampler;
+    form.value.noiseSchedule = profile.noiseSchedule;
+    form.value.promptGuidance = profile.promptGuidance;
+    form.value.promptGuidanceRescale = profile.promptGuidanceRescale;
+    form.value.aiDefaultCharacterPosition = profile.aiDefaultCharacterPosition;
+    form.value.smea = profile.smea;
+    form.value.smeaDyn = profile.smeaDyn;
+    form.value.variety = profile.variety;
+    form.value.decrisp = profile.decrisp;
+    form.value.width = profile.width;
+    form.value.height = profile.height;
+    form.value.steps = profile.steps;
+    form.value.seed = profile.seed;
+    form.value.positiveQualityPreset = profile.positiveQualityPreset;
+    form.value.negativeQualityPreset = profile.negativeQualityPreset;
+}
+
+function deleteProfile(name: string): void {
+    const next = {...form.value.profiles};
+    delete next[name];
+    form.value.profiles = next;
+    if (profileName.value === name) {
+        profileName.value = "";
+    }
+}
+
+function snapshotProfile(): TextToImageNovelAiProfile {
+    return {
+        model: form.value.model,
+        sampler: form.value.sampler,
+        noiseSchedule: form.value.noiseSchedule,
+        promptGuidance: form.value.promptGuidance,
+        promptGuidanceRescale: form.value.promptGuidanceRescale,
+        aiDefaultCharacterPosition: form.value.aiDefaultCharacterPosition,
+        smea: form.value.smea,
+        smeaDyn: form.value.smeaDyn,
+        variety: form.value.variety,
+        decrisp: form.value.decrisp,
+        width: form.value.width,
+        height: form.value.height,
+        steps: form.value.steps,
+        seed: form.value.seed,
+        positiveQualityPreset: form.value.positiveQualityPreset,
+        negativeQualityPreset: form.value.negativeQualityPreset,
+    };
+}
+
+async function translateFixedPrompts(): Promise<void> {
+    if (translateLlmProviderId.value === null) {
+        error.value = "请先选择翻译用的 LLM Provider";
+        return;
+    }
+    const fields: Array<{
+        key: "fixedPositivePrompt" | "fixedPositivePromptEnd" | "fixedNegativePrompt";
+        value: string;
+    }> = [
+        {key: "fixedPositivePrompt", value: form.value.fixedPositivePrompt},
+        {key: "fixedPositivePromptEnd", value: form.value.fixedPositivePromptEnd},
+        {key: "fixedNegativePrompt", value: form.value.fixedNegativePrompt},
+    ];
+    translating.value = true;
+    error.value = "";
+    try {
+        for (const field of fields) {
+            if (!field.value.trim()) continue;
+            const result = await $fetch<{content: string}>("/api/text-to-image/llm/test", {
+                method: "POST",
+                body: {
+                    providerId: translateLlmProviderId.value,
+                    prompt: `把下面的图片提示词翻译成英文 tag，保持逗号分隔格式，只输出翻译结果：\n\n${field.value}`,
+                },
+            });
+            form.value[field.key] = result.content.trim();
+        }
+    } catch (cause) {
+        error.value = resolveApiErrorMessage(cause, "翻译固定提示词失败");
+    } finally {
+        translating.value = false;
+    }
+}
+
+function appendTag(): void {
+    const tag = tagInput.value.trim();
+    if (!tag) return;
+    const current = form.value.fixedPositivePrompt.trim();
+    form.value.fixedPositivePrompt = current ? `${current}, ${tag}` : tag;
+    tagInput.value = "";
+}
+
+function applySizePreset(width: number, height: number): void {
+    form.value.width = width;
+    form.value.height = height;
+}
+
+function onVibeImageSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (file) {
+        form.value.vibe.imageId = file.name;
+    }
+}
+
+function openVibeImagePicker(): void {
+    vibeImageInput.value?.click();
+}
+
+function downloadVibeFile(): void {
+    const name = `vibe-${Date.now()}`;
+    const payload = {
+        identifier: "novelai-vibe-transfer",
+        version: 1,
+        type: "image",
+        image: "",
+        id: name,
+        encodings: {},
+        name,
+        thumbnail: "",
+        createdAt: Date.now(),
+        importInfo: {
+            model: form.value.model,
+            information_extracted: form.value.vibe.informationExtracted,
+            strength: form.value.vibe.referenceStrength,
+        },
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {type: "application/json"});
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${name}.naiv4vibe`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+}
 </script>
 
 <template>
@@ -207,6 +385,11 @@ function deleteCharacterGroup(groupName: string): void {
                         <input v-model.number="form.width" type="number" class="h-8 w-1/2 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]" />
                         <input v-model.number="form.height" type="number" class="h-8 w-1/2 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]" />
                     </div>
+                    <div class="mt-1 flex flex-wrap gap-1">
+                        <button v-for="preset in sizePresets" :key="preset.label" type="button" class="rounded-md border border-[var(--border-color)] px-2 py-1 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="applySizePreset(preset.width, preset.height)">
+                            {{ preset.label }}
+                        </button>
+                    </div>
                 </label>
                 <label class="flex flex-col gap-1 text-[12px] text-[var(--text-secondary)]">
                     Steps
@@ -242,6 +425,20 @@ function deleteCharacterGroup(groupName: string): void {
                     <input v-model="form.furryDataset" type="checkbox" class="accent-[var(--accent-main)]" />
                     福瑞数据集
                 </label>
+                <label class="flex items-center gap-2 text-[12px] text-[var(--text-secondary)]">
+                    <input v-model="form.positiveQualityPreset" type="checkbox" class="accent-[var(--accent-main)]" />
+                    正面质量预设
+                </label>
+                <label class="flex items-center gap-2 text-[12px] text-[var(--text-secondary)]">
+                    负面质量预设
+                    <select v-model="form.negativeQualityPreset" class="h-8 flex-1 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]">
+                        <option value="none">无</option>
+                        <option value="Heavy">Heavy</option>
+                        <option value="Light">Light</option>
+                        <option value="Human Focus">Human Focus</option>
+                        <option value="Furry Focus">Furry Focus</option>
+                    </select>
+                </label>
             </div>
             <div class="mt-3 grid grid-cols-3 gap-3">
                 <label class="flex flex-col gap-1 text-[12px] text-[var(--text-secondary)]">
@@ -257,12 +454,41 @@ function deleteCharacterGroup(groupName: string): void {
                     <textarea v-model="form.fixedNegativePrompt" rows="4" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-[13px] text-[var(--text-main)]" />
                 </label>
             </div>
+            <div class="mt-3 flex flex-wrap items-center gap-2">
+                <select v-model.number="translateLlmProviderId" class="h-8 max-w-[220px] rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]">
+                    <option v-for="provider in llmProviders" :key="provider.id" :value="provider.id">{{ provider.name }}</option>
+                </select>
+                <button class="h-8 rounded-md border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-secondary)]" :disabled="translating || translateLlmProviderId === null" @click="translateFixedPrompts">翻译固定提示词</button>
+                <span v-if="translating" class="text-[12px] text-[var(--text-muted)]">翻译中...</span>
+            </div>
+            <div class="mt-2 flex flex-wrap items-center gap-2">
+                <input v-model="tagInput" list="novelai-common-tags" class="h-8 w-56 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]" placeholder="输入 Tag" />
+                <datalist id="novelai-common-tags">
+                    <option v-for="tag in commonTags" :key="tag" :value="tag" />
+                </datalist>
+                <button class="h-8 rounded-md border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-secondary)]" @click="appendTag">追加 Tag</button>
+            </div>
             <label class="mt-3 flex flex-col gap-1 text-[12px] text-[var(--text-secondary)]">
                 提示词替换规则
                 <textarea v-model="form.promptReplaceText" rows="3" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-[13px] text-[var(--text-main)]" />
             </label>
             <div class="mt-3 flex items-center gap-2">
                 <button class="h-8 rounded-md bg-[var(--accent-main)] px-3 text-[12px] font-medium text-[var(--text-inverse)]" @click="saveProvider">保存 Provider</button>
+            </div>
+        </div>
+
+        <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-3">
+            <h3 class="mb-2 text-[13px] font-semibold text-[var(--text-main)]">配置档案</h3>
+            <div class="flex items-center gap-2">
+                <input v-model="profileName" class="h-8 w-44 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]" placeholder="档案名" />
+                <select v-model="profileName" class="h-8 flex-1 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]">
+                    <option v-for="name in profileNames" :key="name" :value="name">{{ name }}</option>
+                </select>
+            </div>
+            <div class="mt-2 flex items-center gap-2">
+                <button class="h-8 rounded-md border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-secondary)]" :disabled="!profileName" @click="profileName && applyProfile(profileName)">读取</button>
+                <button class="h-8 rounded-md border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-secondary)]" @click="saveProfile">另存为</button>
+                <button class="h-8 rounded-md border border-[var(--danger-border)] px-3 text-[12px] text-[var(--danger-text)]" :disabled="!profileName" @click="profileName && deleteProfile(profileName)">删除</button>
             </div>
         </div>
 
@@ -275,6 +501,11 @@ function deleteCharacterGroup(groupName: string): void {
                 <button class="h-8 rounded-md border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-secondary)]" @click="fixedPromptPresetName && applyFixedPromptPreset(fixedPromptPresetName)">读取</button>
                 <button class="h-8 rounded-md border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-secondary)]" @click="saveFixedPromptPreset">另存为</button>
                 <button class="h-8 rounded-md border border-[var(--danger-border)] px-3 text-[12px] text-[var(--danger-text)]" :disabled="!fixedPromptPresetName" @click="deleteFixedPromptPreset(fixedPromptPresetName)">删除</button>
+            </div>
+            <div v-if="fixedPromptPresetNames.length > 0" class="mt-2 flex flex-wrap gap-2">
+                <button v-for="presetName in fixedPromptPresetNames" :key="presetName" type="button" class="rounded-md border border-[var(--border-color)] px-3 py-1.5 text-[12px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="applyFixedPromptPreset(presetName)">
+                    {{ presetName }}
+                </button>
             </div>
             <p class="mt-2 text-[11px] text-[var(--text-muted)]">正面 token：{{ positiveTokenCount }} · 负面 token：{{ negativeTokenCount }}</p>
         </div>
@@ -321,6 +552,15 @@ function deleteCharacterGroup(groupName: string): void {
                         氛围强度
                         <input v-model.number="form.vibe.referenceStrength" type="number" min="0" max="1" step="0.01" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]" />
                     </label>
+                    <label class="mt-2 flex flex-col gap-1 text-[12px] text-[var(--text-secondary)]">
+                        参考图
+                        <div class="flex items-center gap-2">
+                            <input ref="vibeImageInput" type="file" accept="image/*" class="hidden" @change="onVibeImageSelected" />
+                            <button type="button" class="h-8 rounded-md border border-[var(--border-color)] px-2 text-[12px] text-[var(--text-secondary)]" @click="openVibeImagePicker">选择图片</button>
+                            <span class="min-w-0 flex-1 truncate text-[12px] text-[var(--text-muted)]">{{ form.vibe.imageId ?? "未选择" }}</span>
+                        </div>
+                    </label>
+                    <button type="button" class="mt-3 h-8 rounded-md border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-secondary)]" @click="downloadVibeFile">下载 Vibe 文件</button>
                 </div>
                 <div class="rounded-md border border-[var(--border-color)] p-3">
                     <label class="flex items-center gap-2 text-[12px] text-[var(--text-secondary)]">

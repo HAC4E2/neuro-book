@@ -2,6 +2,9 @@ import {
     requestLlmCompletion,
 } from "nbook/server/text-to-image/llm-chat";
 import {TextToImageLlmProviderSettingsSchema} from "nbook/shared/dto/text-to-image.dto";
+import {buildContextMessages} from "nbook/server/text-to-image/llm-context";
+import type {TextToImageContextEntry} from "nbook/shared/dto/text-to-image.dto";
+import type {TextToImageRuntimePlaceholderContext} from "nbook/server/text-to-image/runtime-placeholder";
 
 const CHARACTER_PHOTO_PROMPT_PATTERN = /image###([\s\S]*?)###/iu;
 
@@ -72,6 +75,8 @@ export async function generateCharacterPhotoPrompt(input: {
     characterText: string;
     outfitText: string;
     userRequirement: string;
+    contextEntries?: TextToImageContextEntry[];
+    runtime?: TextToImageRuntimePlaceholderContext;
     complete?: typeof requestLlmCompletion;
 }): Promise<string> {
     // provider.baseUrl 是运行时显式传入的连接地址；settings 里同名字段仅作兼容备件。
@@ -91,7 +96,9 @@ export async function generateCharacterPhotoPrompt(input: {
         sendImages: settings.sendImages,
         mergeSystemUser: settings.mergeSystemUser,
         retryCount: settings.retryCount,
+        runtime: input.runtime,
         messages: [
+            ...buildContextMessages(input.contextEntries ?? [], input.runtime ?? {}),
             {role: "system", content: buildCharacterPhotoSystemPrompt()},
             {role: "user", content: buildCharacterPhotoUserPrompt(input)},
         ],

@@ -17,7 +17,7 @@
 | 安全出站 fetch | `server/text-to-image/provider-fetch.ts` | 迁入 | undici dispatcher + DNS 校验 + 重定向策略 |
 | NovelAI 生图 | `server/text-to-image/novelai-image-generation.ts` | 迁入/改造 | 需要按本仓库 Provider/Job 简化参数适配 |
 | Provider 服务 | `server/text-to-image/provider.service.ts` | 改造 | 参考分支含 reconciliation/lane，首版只保留 Provider CRUD + 凭据密封 + openai_compatible 支持 |
-| 队列服务 | `server/text-to-image/queue.service.ts` | 改造 | 首版简化：Job 先落库 + 进程内串行 lane，不迁 DispatchPreparation/Lane/Throttle saga |
+| 队列服务 | `server/text-to-image/queue.service.ts` | 改造 | 首版简化：Job 先落库 + 进程内串行本地队列；云端队列及 DispatchPreparation/Lane/Throttle saga 不迁移 |
 | 资产服务 | `server/text-to-image/asset.service.ts` + `asset-path.ts` | 迁入/改造 | 文件与 Project DB 记录成对维护 |
 | 章节写回 | `server/text-to-image/chapter.service.ts` | 迁入/改造 | 依赖 tracked write + Workspace History |
 | L2 占位符 | `shared/text-to-image-markdown.ts` | 迁入 | render/parse/find；schema `nbook.text-to-image-prompt/v2` |
@@ -71,7 +71,7 @@
 当前仓库只有 `User`、`DatabaseLock`、`PassportCredential`。首版新增：
 
 - `TextToImageProvider`：`kind`（`novelai` / `openai_compatible`）、`name`、`baseUrl`、`model`、`credentialCiphertext/iv/tag`、`credentialRevision`、`settings`。
-- 参考分支另有 Reconciliation / DispatchPreparation / ProviderLaneItem / Throttle / RevisionInvalidation；首版不迁，简化成单 Provider CRUD。
+- 参考分支另有 Reconciliation / DispatchPreparation / ProviderLaneItem / Throttle / RevisionInvalidation；这些云端队列相关模型明确不迁移，简化成单 Provider CRUD。
 
 迁移来源：`prisma/migrations/sqlite/20260710...text_to_image_providers` 等，按当前仓库 migration 时间线生成新 migration，不复制旧目录。
 
@@ -83,7 +83,7 @@
 - `TextToImageAsset`：relativePath/fileName/mimeType/byteLength/width/height/model/seed/prompt/negativePrompt/sourceKind/sourcePath/sourceAnchorId/contentHash。
 - `TextToImageReferenceAsset`：参考图/Vibe 文件存储记录（首版角色参考图需要）。
 
-参考分支另有 VibeEncoding/ReferencePromotion/ExecutionManifest/DispatchOutbox/PlanningWorkflow；首版不迁，由文件 + JSON manifest 承担。
+参考分支另有 VibeEncoding/ReferencePromotion/ExecutionManifest/DispatchOutbox/PlanningWorkflow；云端队列模型（DispatchOutbox 等）明确不迁移，本地 Job/Asset 承担队列语义。
 
 Project SQLite 初始化目前是 `server/workspace-files/project-workspace.ts` 的幂等 DDL 字符串，不是 Prisma migration；新增表必须同时进入 `PROJECT_MIGRATION_SQL` 与 schema。
 

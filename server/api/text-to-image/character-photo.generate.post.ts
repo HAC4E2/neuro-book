@@ -18,6 +18,7 @@ import {
 import {resolveTextToImageProjectRoot} from "nbook/server/text-to-image/project-client";
 import {CharacterVisualFileSchema} from "nbook/server/text-to-image/character-visual.codec";
 import {generateCharacterPhotoPrompt} from "nbook/server/text-to-image/character-photo-llm";
+import {resolveTextToImageContextEntries} from "nbook/server/text-to-image/llm-context";
 
 const CharacterPhotoGenerateBodySchema = z.object({
     llmProviderId: z.number().int().positive(),
@@ -45,6 +46,12 @@ export default defineEventHandler(async (event) => {
         characterText: body.characterText,
         outfitText: body.outfitText,
         userRequirement: body.userRequirement,
+        contextEntries: await resolveTextToImageContextEntries("char_display"),
+        runtime: {
+            currentCharacter: body.characterText,
+            currentOutfit: body.outfitText,
+            userDemand: body.userRequirement,
+        },
     });
 
     const providers = await providerService.list(user.id);

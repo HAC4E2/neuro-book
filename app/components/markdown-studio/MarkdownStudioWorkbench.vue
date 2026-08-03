@@ -12,6 +12,7 @@ import MarkdownStudioToolbar from "nbook/app/components/markdown-studio/Markdown
 import MarkdownStudioWelcome from "nbook/app/components/markdown-studio/MarkdownStudioWelcome.vue";
 import MarkdownCommentFlowPanel from "nbook/app/components/markdown-studio/MarkdownCommentFlowPanel.vue";
 import type {InlineEditReference} from "nbook/app/utils/inline-editor-selection";
+import type {TextToImagePromptPayload} from "nbook/shared/text-to-image-markdown";
 
 type WorkspaceMode = "novel" | "user-assets";
 
@@ -38,6 +39,7 @@ const props = withDefaults(defineProps<{
     inlineAiReferences?: InlineEditReference[];
     inlineAiHighlightReference?: InlineEditReference | null;
     enableQuickTriggers?: boolean;
+    onTextToImageGenerate?: (payload: TextToImagePromptPayload) => void;
 }>(), {
     activeTabRows: 3,
     agentModeActive: false,
@@ -51,6 +53,7 @@ const props = withDefaults(defineProps<{
     openReference: () => {},
     inlineAiReferences: () => [],
     enableQuickTriggers: false,
+    onTextToImageGenerate: undefined,
 });
 
 const emit = defineEmits<{
@@ -152,6 +155,7 @@ watch(() => props.activePath, () => {
                         :inline-ai-references="props.inlineAiReferences"
                         :inline-ai-highlight-reference="props.inlineAiHighlightReference"
                         :enable-quick-triggers="props.enableQuickTriggers"
+                        :on-text-to-image-generate="props.onTextToImageGenerate"
                         @save-request="emit('save-request')"
                         @open-frontmatter-profile="emit('open-frontmatter-profile', $event)"
                         @update-monaco-temporary-font-size="emit('update-monaco-temporary-font-size', $event)"

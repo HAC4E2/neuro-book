@@ -42,6 +42,7 @@
 - **D9：入口是新建项。** 干净仓库没有 `NovelTextToImagePanel.vue`，P1 必须新建左侧入口或直接接侧栏，不能假设已有面板。
 - **D10：NovelAI 配置全量移植，LLM 按扩展清单实现。** NovelAI 分页包含 Vibe Transfer、角色参考、Vibe 文件生成器、Vibe 组等全部能力；LLM 分页包含流式生成、发送图片、模型发现、完整上下文预设条目与运行时占位符。
 - **D11：敏感词替换移植，正则模块不移植。** `textReplacement` 用于发送正文前，`aiReplacement` 用于解析 LLM 图片回复前；`regex.html` 的前后正则、文字正则和测试模式不做。
+- **D12：云端队列不移植。** 只保留本地队列语义：Job 落 Project SQLite、本机消费；不迁移 Reconciliation / Dispatch / Lane / Throttle / DispatchOutbox / PlanningWorkflow 等云端队列模型与 saga。
 
 ## Verification / Test
 
@@ -59,7 +60,7 @@
 - 可迁移文件清单：`server/text-to-image/provider-credential.ts`、`provider-url-policy.ts`、`provider-fetch.ts`、`novelai-image-generation.ts`、`queue.service.ts`、`asset.service.ts`、`chapter.service.ts`、`shared/text-to-image-markdown.ts`、TipTap `TextToImagePrompt.ts`、`TextToImageHistoryWorkspace.vue` 等，逐项标注「迁入 / 改造 / 新写」。
 - NovelAI 全量能力清单：Vibe Transfer、角色参考、Vibe 文件生成器、Vibe 组、配置档案、AI 默认角色位置等，逐项标注「迁入 / 改造 / 新写」。
 - LLM 执行链路清单：流式/非流式请求、发送图片、合并 System/User、上下文历史、Tagthink 回显、历史保留 `<image>`、请求类型注册表、运行时占位符与敏感词替换，逐项标注「迁入 / 改造 / 新写」。
-- schema diff：App SQLite（`TextToImageProvider`、Reconciliation、Dispatch、Lane、Throttle 等）与 Project SQLite（`TextToImageJob`、`TextToImageAsset`、ReferenceAsset、Vibe、DispatchOutbox、Planning 等）的模型和 migration 清单。
+- schema diff：App SQLite 只迁移 `TextToImageProvider`；Project SQLite 只迁移 `TextToImageJob` / `TextToImageAsset` / `TextToImageReferenceAsset`。云端队列相关模型（Reconciliation / Dispatch / Lane / Throttle / DispatchOutbox / PlanningWorkflow 等）明确不移植。
 - 配置边界：`StoredGlobalConfig.textToImage` 的字段定义；哪些进 JSON、哪些进 App SQLite；AES-GCM 主密钥位置（参考分支为 Workspace Root `secrets/text-to-image.key`）。
 - 测试适配清单：参考分支测试依赖其 schema/config/组件，迁入后需要按干净仓库改写；明确每阶段需要新增或删除的测试。
 
@@ -232,12 +233,12 @@
 
 ## TODO / Follow-ups
 
-- [ ] P0 盘点与迁移基线
-- [ ] P1 实现
-- [ ] P2 实现
-- [ ] P3 实现
-- [ ] P4 基础角色头像实现
+- [x] P0 盘点与迁移基线
+- [x] P1 实现（LLM/NovelAI 配置、模型发现、上下文预设、敏感词替换、NovelAI 翻译/Tag/Vibe/配置档案）
+- [x] P2 实现（角色视觉生成与 visual.json 管理）
+- [x] P3 实现（正文生图 L1→L2、本地队列、TipTap 一键生成并替换正文）
+- [x] P4 基础角色头像实现
 - [ ] P6 首版收尾
 - [ ] Backlog：P4.5 已生成图片后续操作
 - [ ] Backlog：P5 词库 / 历史图片 / 生图日志
-- [ ] 浏览器走查（用户授权）
+- [ ] 浏览器走查（清单见 `BROWSER-WALKTHROUGH.md`，待用户授权执行）

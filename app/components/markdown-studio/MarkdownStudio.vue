@@ -6,6 +6,7 @@ import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES, DEFAULT_MONACO_EDITOR_PREFERENCES, 
 import type {AgentTriggerMenuContext, AgentTriggerMenuState} from "nbook/app/components/novel-ide/agent/trigger-menu";
 import type {WorkspaceReferenceResolver} from "nbook/app/components/markdown-studio/tiptap/WorkspaceReference";
 import type {InlineEditReference} from "nbook/app/utils/inline-editor-selection";
+import type {TextToImagePromptPayload} from "nbook/shared/text-to-image-markdown";
 
 const props = withDefaults(defineProps<{
     controller: MarkdownStudioController;
@@ -22,6 +23,7 @@ const props = withDefaults(defineProps<{
     inlineAiReferences?: InlineEditReference[];
     inlineAiHighlightReference?: InlineEditReference | null;
     enableQuickTriggers?: boolean;
+    onTextToImageGenerate?: (payload: TextToImagePromptPayload) => void;
 }>(), {
     readonly: false,
     theme: "sepia",
@@ -39,6 +41,7 @@ const props = withDefaults(defineProps<{
     inlineAiReferences: () => [],
     inlineAiHighlightReference: null,
     enableQuickTriggers: false,
+    onTextToImageGenerate: undefined,
 });
 
 const sourceEditorRef = ref<MarkdownStudioEditorHandle | null>(null);
@@ -99,6 +102,7 @@ function handleSourceBlur(): void {
                     :inline-ai-references="props.inlineAiReferences"
                     :inline-ai-highlight-reference="props.inlineAiHighlightReference"
                     :enable-quick-triggers="props.enableQuickTriggers"
+                    :on-text-to-image-generate="props.onTextToImageGenerate"
                     @change="onPreviewChange"
                     @focus="controller.onPreviewFocus"
                     @blur="handlePreviewBlur"

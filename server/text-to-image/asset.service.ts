@@ -130,6 +130,20 @@ export async function listTextToImageAssets(input: ListTextToImageAssetsInput): 
     });
 }
 
+/** 按来源锚点查找最新资产；占位符生成完成后用它定位最终图片。 */
+export async function findLatestTextToImageAssetBySourceAnchorId(
+    projectPath: string,
+    sourceAnchorId: string,
+): Promise<TextToImageAssetDto | null> {
+    return await withTextToImageAssetClient(projectPath, undefined, async (client) => {
+        const record = await client.textToImageAsset.findFirst({
+            where: {sourceAnchorId},
+            orderBy: {createdAt: "desc"},
+        });
+        return record ? toTextToImageAssetDto(record) : null;
+    });
+}
+
 function toTextToImageAssetDto(record: TextToImageAsset): TextToImageAssetDto {
     return {
         id: record.id,

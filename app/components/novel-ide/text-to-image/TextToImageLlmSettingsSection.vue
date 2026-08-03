@@ -2,6 +2,8 @@
 import {computed, ref, watch} from "vue";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {
+    TextToImageContextProfileSchema,
+    TextToImageGlobalConfigSchema,
     TextToImageLlmProviderSettingsSchema,
     type TextToImageContextEntry,
     type TextToImageContextProfile,
@@ -60,6 +62,7 @@ const requestBindings = ref<Record<TextToImageRequestType, TextToImageRequestBin
 const wordReplacementProfiles = ref<TextToImageGlobalConfig["wordReplacementProfiles"]>({});
 const wordReplacementText = ref("{}");
 const wordReplacementDirty = ref(false);
+const currentWordReplacementProfile = ref("default");
 
 const contextProfileKeys = computed(() => Object.keys(contextProfiles.value).sort());
 const selectedContextProfileId = ref("");
@@ -109,6 +112,8 @@ const modelOptions = ref<string[]>([]);
 const fetchingModels = ref(false);
 const error = ref("");
 const saving = ref(false);
+const contextProfileImportInput = ref<HTMLInputElement | null>(null);
+const globalConfigImportInput = ref<HTMLInputElement | null>(null);
 
 watch(() => props.providers, () => {
     if (selectedProviderId.value === null && llmProviders.value.length > 0) {
@@ -129,6 +134,7 @@ function syncConfigState(config: TextToImageGlobalConfig): void {
             : {providerId: null, contextProfileId: contextProfileKeys.value[0] ?? "default"};
     }
     wordReplacementProfiles.value = {...(config.wordReplacementProfiles ?? {})};
+    currentWordReplacementProfile.value = config.currentWordReplacementProfile ?? "default";
     if (!wordReplacementDirty.value) {
         wordReplacementText.value = JSON.stringify(wordReplacementProfiles.value, null, 2);
     }
@@ -312,11 +318,103 @@ function saveWordReplacement(): void {
     }
 }
 
+function exportContextProfiles(): void {
+    const blob = new Blob([JSON.stringify(contextProfiles.value, null, 2)], {type: "application/json"});
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "context-profiles.json";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+}
+
+function exportGlobalConfig(): void {
+    const payload = {
+        contextProfiles: contextProfiles.value,
+        requestTypeBindings: requestBindings.value,
+        wordReplacementProfiles: wordReplacementProfiles.value,
+        currentWordReplacementProfile: currentWordReplacementProfile.value,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {type: "application/json"});
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "text-to-image-global-config.json";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+}
+
+async function importGlobalConfig(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+        const parsed = TextToImageGlobalConfigSchema.parse(
+            JSON.parse(await file.text()) as unknown,
+        );
+        contextProfiles.value = {...parsed.contextProfiles};
+        requestBindings.value = {
+            image_gen: parsed.requestTypeBindings?.image_gen ?? {providerId: null, contextProfileId: "default"},
+            char_design: parsed.requestTypeBindings?.char_design ?? {providerId: null, contextProfileId: "default"},
+            char_display: parsed.requestTypeBindings?.char_display ?? {providerId: null, contextProfileId: "default"},
+            char_modify: parsed.requestTypeBindings?.char_modify ?? {providerId: null, contextProfileId: "default"},
+            tag_modify: parsed.requestTypeBindings?.tag_modify ?? {providerId: null, contextProfileId: "default"},
+        };
+        wordReplacementProfiles.value = {...(parsed.wordReplacementProfiles ?? {})};
+        currentWordReplacementProfile.value = parsed.currentWordReplacementProfile ?? "default";
+        error.value = "";
+        persistGlobal({
+            contextProfiles: contextProfiles.value,
+            requestTypeBindings: requestBindings.value,
+            wordReplacementProfiles: wordReplacementProfiles.value,
+            currentWordReplacementProfile: currentWordReplacementProfile.value,
+        });
+    } catch (cause) {
+        error.value = resolveApiErrorMessage(cause, "导入全局配置失败");
+    } finally {
+        input.value = "";
+    }
+}
+
+async function importContextProfiles(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+        const parsed = JSON.parse(await file.text()) as Record<string, unknown>;
+        const next = {...contextProfiles.value};
+        for (const [id, value] of Object.entries(parsed)) {
+            if (typeof value !== "object" || value === null) continue;
+            next[id] = TextToImageContextProfileSchema.parse({...value as Record<string, unknown>, id});
+        }
+        contextProfiles.value = next;
+        error.value = "";
+        persistGlobal({contextProfiles: next});
+    } catch (cause) {
+        error.value = resolveApiErrorMessage(cause, "导入上下文预设失败");
+    } finally {
+        input.value = "";
+    }
+}
+
+function openContextProfileImport(): void {
+    contextProfileImportInput.value?.click();
+}
+
+function openGlobalConfigImport(): void {
+    globalConfigImportInput.value?.click();
+}
+
 function persistGlobal(patch: Partial<TextToImageGlobalConfig>): void {
     emit("save-config", {
         contextProfiles: contextProfiles.value,
         requestTypeBindings: requestBindings.value,
         wordReplacementProfiles: wordReplacementProfiles.value,
+        currentWordReplacementProfile: currentWordReplacementProfile.value,
         ...patch,
     });
 }
@@ -456,7 +554,14 @@ async function fetchModels(): Promise<void> {
         </div>
 
         <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-3">
-            <h3 class="mb-2 text-[13px] font-semibold text-[var(--text-main)]">全局配置</h3>
+            <div class="mb-2 flex items-center justify-between">
+                <h3 class="text-[13px] font-semibold text-[var(--text-main)]">全局配置</h3>
+                <div class="flex items-center gap-2">
+                    <input ref="globalConfigImportInput" type="file" accept="application/json" class="hidden" @change="importGlobalConfig" />
+                    <button class="h-8 rounded-md border border-[var(--border-color)] px-2 text-[12px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="openGlobalConfigImport">导入</button>
+                    <button class="h-8 rounded-md border border-[var(--border-color)] px-2 text-[12px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="exportGlobalConfig">导出全部</button>
+                </div>
+            </div>
             <div class="grid grid-cols-1 gap-3">
                 <div class="rounded-md border border-[var(--border-color)] p-3">
                     <div class="mb-2 flex items-center justify-between">
@@ -468,6 +573,9 @@ async function fetchModels(): Promise<void> {
                             </select>
                             <button class="h-8 rounded-md border border-[var(--border-color)] px-2 text-[12px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="newContextProfile">新建</button>
                             <button class="h-8 rounded-md border border-[var(--border-color)] px-2 text-[12px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="saveContextProfile">保存</button>
+                            <input ref="contextProfileImportInput" type="file" accept="application/json" class="hidden" @change="importContextProfiles" />
+                            <button class="h-8 rounded-md border border-[var(--border-color)] px-2 text-[12px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="openContextProfileImport">导入</button>
+                            <button class="h-8 rounded-md border border-[var(--border-color)] px-2 text-[12px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="exportContextProfiles">导出全部</button>
                             <button class="h-8 rounded-md border border-[var(--danger-border)] px-2 text-[12px] text-[var(--danger-text)] hover:bg-[var(--bg-hover)]" :disabled="!selectedContextProfileId" @click="deleteContextProfile">删除</button>
                         </div>
                     </div>

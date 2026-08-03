@@ -9,6 +9,8 @@ import {
     type SaveTextToImageAssetInput,
 } from "nbook/server/text-to-image/asset.service";
 import type {TextToImageAssetDto} from "nbook/shared/dto/text-to-image.dto";
+import {applyPromptReplaceRules} from "nbook/server/text-to-image/prompt-replacement";
+import {resolveNovelAiQualityPresets} from "nbook/server/text-to-image/novelai-quality";
 
 export type TextToImageQueueDependencies = {
     listQueued: (projectPath: string) => Promise<TextToImageJobDto[]>;
@@ -56,8 +58,16 @@ async function processSingleJob(
         ...runtime.settings,
         ...(request.novelAi ?? {}),
     });
-    const prompt = request.prompt ?? "";
-    const negativePrompt = request.negativePrompt ?? settings.fixedNegativePrompt;
+    const basePrompt = applyPromptReplaceRules(request.prompt ?? "", settings.promptReplaceText);
+    const {aqt, ucp} = resolveNovelAiQualityPresets({
+        model: settings.model,
+        positiveEnabled: settings.positiveQualityPreset,
+        negativePreset: settings.negativeQualityPreset,
+    });
+    const prompt = aqt === "" ? basePrompt : `${aqt}, ${basePrompt}`;
+    const negativePrompt = [ucp, request.negativePrompt ?? settings.fixedNegativePrompt]
+        .filter((item) => item !== "")
+        .join(", ");
     const images = await deps.generate({
         credential: runtime.credential,
         baseUrl: settings.baseUrl,

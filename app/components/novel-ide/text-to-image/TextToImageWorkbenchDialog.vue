@@ -87,7 +87,10 @@ async function saveConfig(patch: Partial<TextToImageGlobalConfig>): Promise<void
     try {
         snapshot.value = await $fetch<WorkbenchSnapshot>("/api/text-to-image/workbench/config", {
             method: "PUT",
-            body: patch,
+            body: {
+                patch,
+                expectedTextToImageJson: JSON.stringify(snapshot.value.config),
+            },
         });
     } catch (cause) {
         error.value = resolveApiErrorMessage(cause, "保存全局配置失败");

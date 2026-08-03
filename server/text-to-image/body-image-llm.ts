@@ -7,6 +7,9 @@ import {
 } from "nbook/server/text-to-image/llm-chat";
 import {TextToImageLlmProviderSettingsSchema} from "nbook/shared/dto/text-to-image.dto";
 import {applyReplacementProfile} from "nbook/server/text-to-image/sensitive-word-replacement";
+import {buildContextMessages} from "nbook/server/text-to-image/llm-context";
+import type {TextToImageContextEntry} from "nbook/shared/dto/text-to-image.dto";
+import type {TextToImageRuntimePlaceholderContext} from "nbook/server/text-to-image/runtime-placeholder";
 
 /** L1 正文生图块：五要素契约，不落盘。 */
 export type BodyImageBlock = {
@@ -45,6 +48,8 @@ export async function generateBodyImageBlocks(input: {
     characterSummary: string;
     textReplacementRules?: string;
     aiReplacementRules?: string;
+    contextEntries?: TextToImageContextEntry[];
+    runtime?: TextToImageRuntimePlaceholderContext;
     complete?: typeof requestLlmCompletion;
 }): Promise<BodyImageBlock[]> {
     const settings = TextToImageLlmProviderSettingsSchema.parse(input.provider.settings);
@@ -72,7 +77,9 @@ export async function generateBodyImageBlocks(input: {
             sendImages: settings.sendImages,
             mergeSystemUser: settings.mergeSystemUser,
             retryCount: settings.retryCount,
+            runtime: input.runtime,
             messages: [
+                ...buildContextMessages(input.contextEntries ?? [], input.runtime ?? {}),
                 {role: "system", content: systemPrompt},
                 {role: "user", content: userPrompt},
             ],

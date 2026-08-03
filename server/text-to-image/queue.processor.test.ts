@@ -28,7 +28,7 @@ describe("processTextToImageJobs", () => {
         expect(saveAsset).toHaveBeenCalledWith(expect.objectContaining({
             jobId: job.id,
             mimeType: "image/png",
-            prompt: "1girl",
+            prompt: expect.stringContaining("1girl"),
             sourceKind: "manual",
         }));
     });

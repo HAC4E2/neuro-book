@@ -5,6 +5,7 @@ import {validateBody} from "nbook/server/utils/novel-chapter";
 import {TextToImageLlmProviderSettingsSchema} from "nbook/shared/dto/text-to-image.dto";
 import {TextToImageProviderService} from "nbook/server/text-to-image/provider.service";
 import {generateCharacterPhotoPrompt} from "nbook/server/text-to-image/character-photo-llm";
+import {resolveTextToImageContextEntries} from "nbook/server/text-to-image/llm-context";
 
 const CharacterPhotoGeneratePromptBodySchema = z.object({
     providerId: z.number().int().positive(),
@@ -27,6 +28,12 @@ export default defineEventHandler(async (event) => {
         characterText: body.characterText,
         outfitText: body.outfitText,
         userRequirement: body.userRequirement,
+        contextEntries: await resolveTextToImageContextEntries("char_display"),
+        runtime: {
+            currentCharacter: body.characterText,
+            currentOutfit: body.outfitText,
+            userDemand: body.userRequirement,
+        },
     });
     return {prompt};
 });
