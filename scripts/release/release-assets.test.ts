@@ -647,6 +647,12 @@ describe("Product Release宿主合同", () => {
         expect(publicGhcr).toContain('manager_cwd="${manager_home}/bunx"');
         expect(publicGhcr).toContain('(cd "$manager_cwd" && bunx --bun "@notnotype/neuro-book-manager@${manager_version}" "$@")');
         expect(publicGhcr).not.toContain('\n    bunx --bun "@notnotype/neuro-book-manager@${manager_version}" "$@"\n');
+        expect(publicGhcr).toContain('if ! manager --root "$root" update');
+        expect(publicGhcr).toContain('cat "$recovery_log" >&2');
+        expect(publicGhcr).toContain('".deploy/operations/release-recovery.json"');
+        expect(publicGhcr).toContain('".deploy/staging/release-recovery-marker"');
+        expect(publicGhcr).toContain('".deploy/backups/release-recovery"');
+        expect(publicGhcr).not.toContain('outcome !== "rolled-back"');
         const interruptedOperation = await readFile(resolve(ROOT, "scripts/release/create-interrupted-operation.ts"), "utf8");
         const scriptsTsconfig = JSON.parse(await readFile(resolve(ROOT, "scripts/tsconfig.json"), "utf8")) as {include?: string[]};
         expect(interruptedOperation).not.toContain('from "nbook/');

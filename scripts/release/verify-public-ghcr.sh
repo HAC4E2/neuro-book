@@ -118,5 +118,9 @@ curl --fail --silent --show-error -b "$cookie" "$base/api/auth/me" >/dev/null
 
 # Inject one planned Operation and let the public Manager recover it before its no-op update.
 bun scripts/release/create-interrupted-operation.ts "$root"
-manager --root "$root" update --channel "$channel" --release-manifest "$candidate_manifest" > "${root}-recovery.log"
-node -e 'const fs=require("node:fs"); const root=process.argv[1]; const names=fs.readdirSync(root+"/.deploy/operations").filter((name)=>name.startsWith("release-recovery")); if (names.length !== 1 || JSON.parse(fs.readFileSync(root+"/.deploy/operations/"+names[0])).outcome !== "rolled-back") process.exit(1); if (fs.existsSync(root+"/.deploy/staging/release-recovery-marker")) process.exit(1)' "$root"
+recovery_log="${root}-recovery.log"
+if ! manager --root "$root" update --channel "$channel" --release-manifest "$candidate_manifest" > "$recovery_log" 2>&1; then
+    cat "$recovery_log" >&2
+    exit 1
+fi
+node -e 'const fs=require("node:fs"); const path=require("node:path"); const root=process.argv[1]; const leftovers=[".deploy/operations/release-recovery.json", ".deploy/staging/release-recovery-marker", ".deploy/backups/release-recovery"].filter((relative)=>fs.existsSync(path.join(root, relative))); if (leftovers.length) { console.error(`Operation recovery cleanup incomplete: ${leftovers.join(", ")}`); process.exit(1); }' "$root"
