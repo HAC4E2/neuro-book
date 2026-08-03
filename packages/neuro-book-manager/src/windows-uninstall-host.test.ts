@@ -12,6 +12,8 @@ import {
 } from "#manager/windows-uninstall-host";
 
 const cleanupRoots: string[] = [];
+// 真实 PowerShell 与独立 Host 冷启动在共享 Windows runner 上曾超过 15 秒。
+const WINDOWS_HOST_TEST_TIMEOUT_MS = 30_000;
 
 afterEach(async () => {
     vi.unstubAllEnvs();
@@ -50,7 +52,7 @@ describe.runIf(process.platform === "win32")("Windows Uninstall Host", () => {
         await expect(stat(join(root, "payload.txt"))).rejects.toMatchObject({code: "ENOENT"});
         await expect(readFile(join(root, "data", "workspace", "novel", "book.md"), "utf8"))
             .resolves.toBe("truth");
-    }, 15_000);
+    }, WINDOWS_HOST_TEST_TIMEOUT_MS);
 
     it("Portable 默认只保留 State Root 用户数据", async () => {
         const sandbox = testSandbox("host-preserve-portable");
@@ -79,7 +81,7 @@ describe.runIf(process.platform === "win32")("Windows Uninstall Host", () => {
         await expect(stat(join(root, ".cache"))).rejects.toMatchObject({code: "ENOENT"});
         await expect(stat(join(root, "data", ".desktop"))).rejects.toMatchObject({code: "ENOENT"});
         await expect(stat(join(root, "data", "logs"))).rejects.toMatchObject({code: "ENOENT"});
-    }, 15_000);
+    }, WINDOWS_HOST_TEST_TIMEOUT_MS);
 
     it("Installed Windows 的 deleteData 删除程序和全部托管数据根", async () => {
         const sandbox = testSandbox("host-delete-installed");
@@ -102,7 +104,7 @@ describe.runIf(process.platform === "win32")("Windows Uninstall Host", () => {
         for (const target of [root, stateRoot, cacheRoot, desktopRoot]) {
             await expect(stat(target)).rejects.toMatchObject({code: "ENOENT"});
         }
-    }, 15_000);
+    }, WINDOWS_HOST_TEST_TIMEOUT_MS);
 
     it("intent 摘要被篡改时零删除并写失败结果", async () => {
         const sandbox = testSandbox("host-tampered-intent");
@@ -123,7 +125,7 @@ describe.runIf(process.platform === "win32")("Windows Uninstall Host", () => {
         expect(result.ok).toBe(false);
         expect(result.error).toContain("digest does not match");
         await expect(readFile(join(root, ".output", "server", "index.mjs"), "utf8")).resolves.toBe("product");
-    }, 15_000);
+    }, WINDOWS_HOST_TEST_TIMEOUT_MS);
 });
 
 type HostResult = {
