@@ -729,7 +729,7 @@ describe("Product Release宿主合同", () => {
         expect(candidateRun).toContain("Portable全量卸载Host结果失败");
         expect(candidateRun).toContain("Portable全量卸载没有在退出后删除Installation Root");
 
-        const restartVerifier = await readFile(resolve(ROOT, "scripts/release/verify-windows-portable-restart.ts"), "utf8");
+        const restartVerifier = (await readFile(resolve(ROOT, "scripts/release/verify-windows-portable-restart.ts"), "utf8")).replaceAll("\r\n", "\n");
         expect(restartVerifier).toContain("manifest.components.managerRuntime");
         expect(restartVerifier).toContain("manifest.components.manager.path");
         expect(restartVerifier).toContain("--shutdown-on-stdin-end");
