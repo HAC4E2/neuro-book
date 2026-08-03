@@ -105,6 +105,8 @@ function contextProfileLabel(id: string): string {
 const testPrompt = ref("");
 const testResult = ref("");
 const testStatus = ref<"idle" | "success" | "failure">("idle");
+const modelOptions = ref<string[]>([]);
+const fetchingModels = ref(false);
 const error = ref("");
 const saving = ref(false);
 
@@ -345,6 +347,26 @@ async function runTest(): Promise<void> {
         saving.value = false;
     }
 }
+
+async function fetchModels(): Promise<void> {
+    if (selectedProviderId.value === null) return;
+    fetchingModels.value = true;
+    error.value = "";
+    try {
+        const result = await $fetch<{models: string[]}>("/api/text-to-image/llm/models", {
+            method: "POST",
+            body: {providerId: selectedProviderId.value},
+        });
+        modelOptions.value = result.models;
+        if (result.models.length > 0 && !form.value.model) {
+            form.value.model = result.models[0]!;
+        }
+    } catch (cause) {
+        error.value = resolveApiErrorMessage(cause, "获取模型列表失败");
+    } finally {
+        fetchingModels.value = false;
+    }
+}
 </script>
 
 <template>
@@ -371,7 +393,13 @@ async function runTest(): Promise<void> {
                 </label>
                 <label class="flex flex-col gap-1 text-[12px] text-[var(--text-secondary)]">
                     模型
-                    <input v-model="form.model" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]" />
+                    <div class="flex gap-2">
+                        <input v-model="form.model" list="llm-model-options" class="h-8 flex-1 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]" />
+                        <datalist id="llm-model-options">
+                            <option v-for="model in modelOptions" :key="model" :value="model" />
+                        </datalist>
+                        <button class="h-8 shrink-0 rounded-md border border-[var(--border-color)] px-2 text-[12px] text-[var(--text-secondary)]" :disabled="selectedProviderId === null || fetchingModels" @click="fetchModels">获取模型</button>
+                    </div>
                 </label>
                 <label class="flex flex-col gap-1 text-[12px] text-[var(--text-secondary)]">
                     API Key（留空表示保留）
