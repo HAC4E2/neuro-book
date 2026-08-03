@@ -236,6 +236,7 @@ export async function saveGlobalConfig(
             ...(input.editor !== undefined ? {editor: input.editor} : {}),
             ...(input.observability !== undefined ? {observability: input.observability} : {}),
             ...(input.history !== undefined ? {history: input.history} : {}),
+            ...(input.textToImage !== undefined ? {textToImage: input.textToImage} : {}),
             ...(input.web !== undefined ? {web: normalizeGlobalWebForWrite(input.web, current)} : {}),
             ...(input.models !== undefined ? {models: normalizeGlobalModelsForWrite(input.models, current)} : {}),
             ...(input.embedding !== undefined ? {embedding: normalizeGlobalEmbeddingForWrite(input.embedding, current)} : {}),
@@ -497,6 +498,7 @@ function redactGlobalConfig(config: StoredGlobalConfig): GlobalConfigDto {
                 },
             })),
         },
+        textToImage: config.textToImage,
     });
 }
 

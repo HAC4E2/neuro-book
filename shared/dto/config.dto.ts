@@ -27,6 +27,7 @@ import {
 } from "nbook/shared/agent/profile-runtime-settings";
 import {MAX_AGENT_DIFF_MAX_CHARS} from "nbook/shared/agent/file-change-policy";
 import {PiSimpleRequestOptionsSchema} from "nbook/shared/dto/pi-request-options.dto";
+import {TextToImageGlobalConfigSchema} from "nbook/shared/dto/text-to-image.dto";
 
 const themeVarNameSet = new Set<string>(themeVarNames);
 
@@ -421,6 +422,7 @@ export const GlobalConfigDtoSchema = z.object({
     web: WebConfigDtoSchema,
     observability: ObservabilityConfigDtoSchema,
     history: WorkspaceHistoryConfigDtoSchema,
+    textToImage: TextToImageGlobalConfigSchema,
 }).partial().passthrough();
 
 export const GlobalConfigUpdateDtoSchema = z.object({
@@ -444,6 +446,7 @@ export const GlobalConfigUpdateDtoSchema = z.object({
     web: z.preprocess((value) => value === undefined ? undefined : value, WebConfigDtoSchema).optional(),
     observability: ObservabilityConfigDtoSchema.optional(),
     history: WorkspaceHistoryConfigDtoSchema.optional(),
+    textToImage: TextToImageGlobalConfigSchema.partial().optional(),
 }).partial().passthrough();
 
 export const ProjectConfigDtoSchema = z.object({

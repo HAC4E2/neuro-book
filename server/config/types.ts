@@ -4,6 +4,7 @@ import type {ThinkingLevelDto} from "nbook/shared/dto/app-settings.dto";
 import type {ModelInputKind} from "nbook/shared/dto/app-settings.dto";
 import type {CustomThemeDto} from "nbook/shared/theme/theme-vars";
 import type {ProfileRuntimeSettingsPatch} from "nbook/shared/agent/profile-runtime-settings";
+import type {TextToImageGlobalConfig} from "nbook/shared/dto/text-to-image.dto";
 import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 
@@ -200,6 +201,7 @@ export type EffectiveConfig = {
     web: WebSettingsConfig;
     observability: ObservabilityConfig;
     history: WorkspaceHistorySettingsConfig;
+    textToImage: TextToImageGlobalConfig;
 };
 
 /** 可观测配置。第一版只有 Pi 请求 trace。 */
@@ -264,6 +266,7 @@ export type StoredGlobalConfig = {
         piTrace?: Partial<PiTraceConfig>;
     };
     history?: Partial<WorkspaceHistorySettingsConfig>;
+    textToImage?: Partial<TextToImageGlobalConfig>;
 };
 
 export type StoredProjectConfig = {

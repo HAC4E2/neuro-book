@@ -1,5 +1,6 @@
 import {describe, expect, it} from "vitest";
 import {normalizeGlobalConfig, resolveEffectiveConfig} from "nbook/server/config/normalizer";
+import {GlobalConfigUpdateDtoSchema} from "nbook/shared/dto/config.dto";
 import type {StoredProjectConfig} from "nbook/server/config/types";
 
 describe("config normalizer theme", () => {
@@ -153,6 +154,82 @@ describe("config normalizer profile runtime", () => {
         expect(effective.agent.profiles.min?.runtime?.fileChangeNotice?.diffMaxChars).toBe(0);
         expect(effective.agent.profiles.max?.runtime?.fileChangeNotice?.diffMaxChars).toBe(8192);
         expect(effective.agent.profiles.invalid?.runtime?.fileChangeNotice).toBeUndefined();
+    });
+});
+
+describe("config normalizer text-to-image", () => {
+    it("normalizeGlobalConfig 保留 textToImage 上下文预设、请求绑定与敏感词档案", () => {
+        const global = normalizeGlobalConfig({
+            textToImage: {
+                contextProfiles: {
+                    default: {
+                        id: "default",
+                        name: "默认",
+                        entries: [{
+                            id: "e1",
+                            role: "system",
+                            content: "{{正文}}",
+                            triggerMode: "always",
+                        }],
+                    },
+                },
+                requestTypeBindings: {
+                    image_gen: {
+                        providerId: 1,
+                        contextProfileId: "default",
+                    },
+                },
+                wordReplacementProfiles: {
+                    默认: {
+                        textReplacement: "岁=🎄",
+                        aiReplacement: "sf_=safe_",
+                    },
+                },
+                currentWordReplacementProfile: "默认",
+            },
+        });
+
+        expect(global.textToImage).toMatchObject({
+            contextProfiles: {
+                default: expect.objectContaining({name: "默认"}),
+            },
+            requestTypeBindings: {
+                image_gen: {providerId: 1, contextProfileId: "default"},
+            },
+            wordReplacementProfiles: {
+                默认: {textReplacement: "岁=🎄", aiReplacement: "sf_=safe_"},
+            },
+            currentWordReplacementProfile: "默认",
+        });
+    });
+
+    it("GlobalConfigUpdateDtoSchema 接受 textToImage 更新", () => {
+        const parsed = GlobalConfigUpdateDtoSchema.parse({
+            textToImage: {
+                contextProfiles: {
+                    body: {
+                        id: "body",
+                        name: "正文生图",
+                        entries: [],
+                    },
+                },
+                requestTypeBindings: {
+                    char_design: {
+                        providerId: 2,
+                        contextProfileId: "body",
+                    },
+                },
+            },
+        });
+
+        expect(parsed.textToImage).toMatchObject({
+            contextProfiles: {
+                body: {name: "正文生图"},
+            },
+            requestTypeBindings: {
+                char_design: {providerId: 2, contextProfileId: "body"},
+            },
+        });
     });
 });
 

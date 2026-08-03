@@ -1,0 +1,180 @@
+import {mkdtemp, rm} from "node:fs/promises";
+import {tmpdir} from "node:os";
+import path from "node:path";
+import {afterEach, describe, expect, it} from "vitest";
+import {
+    TextToImageProviderNotConfiguredError,
+    TextToImageProviderService,
+    type TextToImageProviderRecord,
+    type TextToImageProviderStore,
+} from "nbook/server/text-to-image/provider.service";
+
+const temporaryDirectories: string[] = [];
+
+afterEach(async () => {
+    await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, {recursive: true, force: true})));
+});
+
+describe("TextToImageProviderService", () => {
+    it("保存 Provider 时密封凭据并返回脱敏 DTO", async () => {
+        const service = new TextToImageProviderService(new InMemoryProviderStore(), await createKeyPath());
+
+        const provider = await service.save(7, {
+            kind: "novelai",
+            name: "NovelAI",
+            baseUrl: "https://image.novelai.net",
+            credential: "server-only-token",
+            settings: {requestIntervalMs: 15_000},
+        });
+
+        expect(provider).toMatchObject({
+            id: 1,
+            kind: "novelai",
+            name: "NovelAI",
+            hasCredential: true,
+        });
+        expect(JSON.stringify(provider)).not.toContain("server-only-token");
+        expect(JSON.stringify(provider)).not.toContain("credentialCiphertext");
+        await expect(service.resolveCredential(7, provider.id)).resolves.toBe("server-only-token");
+    });
+
+    it("只在明文凭据变化时递增 credentialRevision", async () => {
+        const store = new InMemoryProviderStore();
+        const service = new TextToImageProviderService(store, await createKeyPath());
+        const provider = await service.save(7, {
+            kind: "openai_compatible",
+            name: "LLM",
+            baseUrl: "https://api.example.com/v1",
+            credential: "token-one",
+            settings: {model: "gpt-4o"},
+        });
+
+        await service.save(7, {
+            id: provider.id,
+            kind: "openai_compatible",
+            name: "LLM renamed",
+            baseUrl: "https://api.example.com/v1",
+            settings: {model: "gpt-4o"},
+        });
+        await expect(service.resolveCredential(7, provider.id)).resolves.toBe("token-one");
+        expect(store.records[0]?.credentialRevision).toBe(1);
+
+        await service.save(7, {
+            id: provider.id,
+            kind: "openai_compatible",
+            name: "LLM renamed",
+            baseUrl: "https://api.example.com/v1",
+            credential: "token-one",
+            settings: {model: "gpt-4o"},
+        });
+        expect(store.records[0]?.credentialRevision).toBe(1);
+
+        await service.save(7, {
+            id: provider.id,
+            kind: "openai_compatible",
+            name: "LLM renamed",
+            baseUrl: "https://api.example.com/v1",
+            credential: "token-two",
+            settings: {model: "gpt-4o"},
+        });
+        expect(store.records[0]?.credentialRevision).toBe(2);
+        await expect(service.resolveCredential(7, provider.id)).resolves.toBe("token-two");
+    });
+
+    it("缺少完整凭据时拒绝读取并抛出稳定错误", async () => {
+        const store = new InMemoryProviderStore();
+        const service = new TextToImageProviderService(store, await createKeyPath());
+        const provider = await service.save(7, {
+            kind: "novelai",
+            name: "NovelAI",
+            baseUrl: "https://image.novelai.net",
+            credential: "server-only-token",
+            settings: {},
+        });
+        store.records[0] = {
+            ...store.records[0]!,
+            credentialCiphertext: "",
+            credentialIv: "",
+            credentialTag: "",
+        };
+
+        await expect(service.resolveCredential(7, provider.id)).rejects.toBeInstanceOf(TextToImageProviderNotConfiguredError);
+        await expect(service.resolveCredential(7, 999)).rejects.toBeInstanceOf(TextToImageProviderNotConfiguredError);
+    });
+
+    it("list 只返回当前 owner 的 Provider 且不暴露凭据", async () => {
+        const store = new InMemoryProviderStore();
+        const service = new TextToImageProviderService(store, await createKeyPath());
+        await service.save(7, {
+            kind: "novelai",
+            name: "NovelAI",
+            baseUrl: "https://image.novelai.net",
+            credential: "token",
+            settings: {},
+        });
+        await service.save(8, {
+            kind: "novelai",
+            name: "Other",
+            baseUrl: "https://image.novelai.net",
+            credential: "other-token",
+            settings: {},
+        });
+
+        const providers = await service.list(7);
+        expect(providers).toHaveLength(1);
+        expect(providers[0]).toMatchObject({name: "NovelAI", hasCredential: true});
+        expect(JSON.stringify(providers)).not.toContain("token");
+    });
+});
+
+class InMemoryProviderStore implements TextToImageProviderStore {
+    records: TextToImageProviderRecord[] = [];
+    private nextId = 1;
+
+    async list(ownerUserId: number): Promise<TextToImageProviderRecord[]> {
+        return this.records.filter((record) => record.ownerUserId === ownerUserId);
+    }
+
+    async find(ownerUserId: number, id: number): Promise<TextToImageProviderRecord | null> {
+        return this.records.find((record) => record.ownerUserId === ownerUserId && record.id === id) ?? null;
+    }
+
+    async create(input: Omit<TextToImageProviderRecord, "id" | "createdAt" | "updatedAt">): Promise<TextToImageProviderRecord> {
+        const record: TextToImageProviderRecord = {
+            ...input,
+            id: this.nextId++,
+            createdAt: new Date("2026-08-03T00:00:00.000Z"),
+            updatedAt: new Date("2026-08-03T00:00:00.000Z"),
+        };
+        this.records.push(record);
+        return record;
+    }
+
+    async update(
+        ownerUserId: number,
+        id: number,
+        update: Partial<Omit<TextToImageProviderRecord, "id" | "ownerUserId" | "createdAt" | "updatedAt">>,
+    ): Promise<TextToImageProviderRecord | null> {
+        const index = this.records.findIndex((record) => record.ownerUserId === ownerUserId && record.id === id);
+        if (index < 0) return null;
+        this.records[index] = {
+            ...this.records[index]!,
+            ...update,
+            updatedAt: new Date("2026-08-03T00:00:01.000Z"),
+        };
+        return this.records[index]!;
+    }
+
+    async delete(ownerUserId: number, id: number): Promise<boolean> {
+        const index = this.records.findIndex((record) => record.ownerUserId === ownerUserId && record.id === id);
+        if (index < 0) return false;
+        this.records.splice(index, 1);
+        return true;
+    }
+}
+
+async function createKeyPath(): Promise<string> {
+    const directory = await mkdtemp(path.join(tmpdir(), "nbook-tti-provider-"));
+    temporaryDirectories.push(directory);
+    return path.join(directory, "text-to-image.key");
+}

@@ -50,7 +50,10 @@ describe("App SQLite migration gate", () => {
 
         expect(check).toMatchObject({
             ready: false,
-            pendingMigrationIds: ["20260727210000_fix_official_passport_origin"],
+            pendingMigrationIds: [
+                "20260727210000_fix_official_passport_origin",
+                "20260803160000_text_to_image_provider",
+            ],
             applicationStateError: null,
         });
         await expect(assertProductMigrationsReady()).rejects.toThrow("20260727210000_fix_official_passport_origin");
@@ -58,7 +61,10 @@ describe("App SQLite migration gate", () => {
         expect(await readdir(stateRoot)).toEqual(beforeEntries);
 
         const applied = await applyAppSqliteMigrations({applicationRoot: process.cwd()});
-        expect(applied.appliedMigrationIds).toEqual(["20260727210000_fix_official_passport_origin"]);
+        expect(applied.appliedMigrationIds).toEqual([
+            "20260727210000_fix_official_passport_origin",
+            "20260803160000_text_to_image_provider",
+        ]);
         const database = new DatabaseSync(databasePath, {readOnly: true});
         try {
             const columns = database.prepare(`PRAGMA table_info("PassportCredential")`).all() as Array<{name: string}>;

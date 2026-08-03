@@ -18,6 +18,7 @@ const emit = defineEmits<{
     (e: "toggle-tab", value: NovelIdeTab | "sessions"): void;
     (e: "collapse"): void;
     (e: "open-settings"): void;
+    (e: "open-text-to-image"): void;
 }>();
 
 const items: SidebarItem[] = [
@@ -53,6 +54,13 @@ const visibleItems = computed(() => {
         </template>
 
         <div class="mt-auto"></div>
+        <button
+            class="group mb-3 flex h-9 w-9 items-center justify-center rounded-full border border-transparent text-[var(--text-muted)] transition-all hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
+            title="文生图"
+            @click="emit('open-text-to-image')"
+        >
+            <span class="i-lucide-image h-[18px] w-[18px]"></span>
+        </button>
         <button
             class="group mb-3 flex h-9 w-9 items-center justify-center rounded-full border border-transparent text-[var(--text-muted)] transition-all hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
             title="Settings"

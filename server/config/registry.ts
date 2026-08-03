@@ -155,4 +155,12 @@ export const CONFIG_REGISTRY: ConfigItemMeta[] = [
         secret: false,
         description: "工作区文件历史（操作日志）配置。Global 持有总开关 enabled；retentionFullDays / keepDailyLastAfterWindow / autoAcceptEnabled / autoAcceptDays 可被 Project Config 覆盖。改动在项目下次 open 时生效。",
     },
+    {
+        key: "textToImage",
+        scope: "global",
+        effect: "next-run",
+        merge: "deep-merge",
+        secret: false,
+        description: "文生图工作台非敏感全局配置：上下文预设、请求类型绑定与敏感词替换档案。Provider 凭据存 App SQLite。",
+    },
 ];

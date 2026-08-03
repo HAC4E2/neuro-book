@@ -1,0 +1,34 @@
+import {z} from "zod";
+import {defineEventHandler} from "h3";
+import {validateBody} from "nbook/server/utils/novel-chapter";
+import {requireCurrentUser} from "nbook/server/utils/auth";
+import {TextToImageProviderService} from "nbook/server/text-to-image/provider.service";
+import {requestLlmCompletion} from "nbook/server/text-to-image/llm-chat";
+import {TextToImageLlmProviderSettingsSchema} from "nbook/shared/dto/text-to-image.dto";
+
+const LlmTestBodySchema = z.object({
+    providerId: z.number().int().positive(),
+    prompt: z.string().trim().min(1),
+    stream: z.boolean().optional().default(false),
+});
+
+export default defineEventHandler(async (event) => {
+    const user = await requireCurrentUser(event);
+    const body = await validateBody(event, LlmTestBodySchema);
+    const runtime = await new TextToImageProviderService().resolveRuntimeProvider(user.id, body.providerId);
+    const settings = TextToImageLlmProviderSettingsSchema.parse(runtime.settings);
+    const content = await requestLlmCompletion({
+        baseUrl: settings.baseUrl,
+        credential: runtime.credential,
+        model: settings.model,
+        temperature: settings.temperature,
+        topP: settings.topP,
+        maxTokens: settings.maxTokens,
+        stream: body.stream ?? settings.stream,
+        sendImages: settings.sendImages,
+        mergeSystemUser: settings.mergeSystemUser,
+        retryCount: settings.retryCount,
+        messages: [{role: "user", content: body.prompt}],
+    });
+    return {content};
+});

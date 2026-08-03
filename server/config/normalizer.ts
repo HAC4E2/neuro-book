@@ -37,6 +37,7 @@ import {
 import {builtInThemeIds, themeAppearanceValues, themeVarNames, type CustomThemeDto, type ThemeAppearance, type ThemeVarName} from "nbook/shared/theme/theme-vars";
 import {mergeProfileRuntimePatches} from "nbook/server/agent/profiles/profile-runtime-settings";
 import type {ProfileRuntimeSettingsPatch} from "nbook/shared/agent/profile-runtime-settings";
+import {TextToImageGlobalConfigSchema, type TextToImageGlobalConfig} from "nbook/shared/dto/text-to-image.dto";
 
 const DEFAULT_THEME: EffectiveConfig["ui"]["theme"] = "sepia";
 const DEFAULT_COST_CURRENCY: EffectiveConfig["ui"]["costCurrency"] = "USD";
@@ -189,6 +190,7 @@ export function createDefaultEffectiveConfig(): EffectiveConfig {
         web: normalizeWebSettings(undefined),
         observability: normalizeObservability(undefined),
         history: normalizeWorkspaceHistory(undefined),
+        textToImage: normalizeTextToImageGlobalConfig(undefined),
     };
 }
 
@@ -226,7 +228,13 @@ export function normalizeGlobalConfig(input: Partial<StoredGlobalConfig> | null 
             monaco: normalizeMonacoPreferences(raw.editor?.monaco),
         },
         web: normalizeStoredWebSettings(raw.web),
+        textToImage: normalizeTextToImageGlobalConfig(raw.textToImage),
     };
+}
+
+/** 规范化文生图全局配置；未知字段由 Zod 丢弃，缺失字段补默认值。 */
+function normalizeTextToImageGlobalConfig(input: Partial<TextToImageGlobalConfig> | undefined): TextToImageGlobalConfig {
+    return TextToImageGlobalConfigSchema.parse(input ?? {});
 }
 
 /**
@@ -306,6 +314,7 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
     effective.web = normalizeWebSettings(globalConfig.web);
     effective.observability = normalizeObservability(globalConfig.observability);
     effective.history = normalizeWorkspaceHistory(globalConfig.history);
+    effective.textToImage = normalizeTextToImageGlobalConfig(globalConfig.textToImage);
 
     if (!projectConfig) {
         return effective;

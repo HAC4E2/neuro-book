@@ -19,6 +19,11 @@ enum UserStatus {
   disabled
 }
 
+enum TextToImageProviderKind {
+  novelai
+  openai_compatible
+}
+
 model User {
   id             Int        @id @default(autoincrement())
   username       String     @unique
@@ -31,10 +36,31 @@ model User {
   lastSeenAt     DateTime?
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @default(now()) @updatedAt
+  textToImageProviders TextToImageProvider[]
 
   @@index([role, status])
   @@index([lastSeenAt])
   @@index([updatedAt])
+}
+
+model TextToImageProvider {
+  id                   Int                     @id @default(autoincrement())
+  ownerUserId          Int
+  owner                User                    @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  kind                 TextToImageProviderKind
+  name                 String
+  baseUrl              String
+  model                String?
+  credentialCiphertext String
+  credentialIv         String
+  credentialTag        String
+  credentialRevision   Int                     @default(1)
+  settings             Json
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @default(now()) @updatedAt
+
+  @@unique([ownerUserId, name])
+  @@index([ownerUserId, kind])
 }
 
 model DatabaseLock {
