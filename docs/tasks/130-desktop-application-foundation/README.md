@@ -588,6 +588,12 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - `RELEASE.md`继续只保存当前0.9版本；`docs/changelog/`与英文镜像只收录已经成为历史的发布线，因此不会在0.9仍是当前Candidate时提前创建`v0.9.md`。正式进入下一发布线后再归档中英文0.9记录。
 - 本轮不实现Developer Mode/rebuild、Tauri/Electron spike或手工浏览器验收。Candidate Actions仍负责五平台、真实Docker/Podman与公开资产证据；本地Windows结果不能替代这些门禁。
 
+### 2026-08-03：Manager clean-checkout 修复与主产品发布前门禁
+
+- `manager-v0.1.0-canary.48` 的 workflow 在 clean checkout 的 Manager 测试阶段失败：`shared/product-runtime-shutdown.ts` 已被 Manager 导入，但未登记到独立 `shared/tsconfig.json`，本地 Developer Build State 未暴露该缺口。该 tag 保留为失败审计，不移动、不删除、不复用。
+- 将 shutdown shared module 加入独立 TypeScript project，并由 `manager-release-contract.test.ts` 固定登记；`manager-v0.1.0-canary.49` workflow 全绿后公开。npm 精确版本的 `gitHead=9a293dd12e7b976ac7208b2634c47c4f1998e299`、tarball integrity/signature、真实 `bunx --version` 与 `manager:verify-public` 均通过。
+- 主仓库最终门禁：根全量 Vitest 为 478 files / 3,321 tests passed、1 skipped file / 14 skipped tests；两个旧合同断言已分别对齐 Source Dev launcher 与 Windows CRLF 读取，focused 3 files / 15 tests 通过；根 typecheck、install 8 tests、docs build 和 Product/Release focused 8 files / 56 tests 均通过。全量 Vitest 的预期 fail-open/模拟 EBUSY/SQLite 警告不构成失败。
+
 ### 2026-08-02：桌面前置的 Source Dev 与 Runtime lease 生命周期
 
 - 直接 Source Dev 不再把 Nuxt 进程树交给终端隐式管理。公开 `dev` 进入 Owned Process launcher，内部 `dev:runtime` 保留完整构建链；Manager 直接拥有内部入口，避免双重 owner。正常信号复用 Product 认证 shutdown，宿主异常退出由 Windows Job Object/POSIX process group 收口。
