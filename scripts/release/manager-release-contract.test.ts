@@ -58,6 +58,7 @@ describe("Manager release clean-checkout contract", () => {
             "product-runtime-contract.ts",
             "product-runtime-environment.ts",
             "product-runtime-image-verifier.ts",
+            "product-runtime-shutdown.ts",
         ]));
     });
 });
