@@ -1,6 +1,6 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`仍是最新已确认完整canary。当前工作树协议为Installation Manifest v5、Release Manifest v5、Operation Journal v5 和 Product-owned Application State catalog v3。公开Manager `.46`已完成provenance、tarball、签名、attestation与真实bunx验证；第二十次0.9 Candidate已通过五平台Product、Windows Portable、双OCI与merge、assemble、Linux最终验证、Windows完整生命周期、Draft payload实字节复核和0.8.6完整data复用。公开GHCR最终门禁暴露Cache Root宿主ownership与Podman 4.9.3 inspect形状，修复待Candidate 21从头验证；最终Verifier与Release/OCI激活尚未产生。
+> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`仍是最新已确认完整canary。当前工作树协议为Installation Manifest v5、Release Manifest v5、Operation Journal v5 和 Product-owned Application State catalog v3。公开Manager `.46`已完成provenance、tarball、签名、attestation与真实bunx验证；第二十次0.9 Candidate暴露的Cache Root宿主ownership与Podman 4.9.3 inspect形状已修复。Candidate 21已按显式`0.9.0`版本创建为隔离Draft并从头执行完整矩阵；在workflow全部成功前，最终Verifier、Release公开与OCI正式别名仍未完成。
 
 ## 2026-08-02：Installation Mutation、自卸载与发行候选治理
 
@@ -1227,3 +1227,8 @@ uninstall
 - Podman 4.9.3上游结构确认无healthcheck时`State.Health.Status`是合法空字符串，顶层`ImageName`是原始镜像引用。Manager按该Adapter形状解析，不再把Docker非空Health假设施加给Podman。唯一label查询取得候选ID后先持久化ownership、再验证镜像身份，保证inspect或identity失败仍能精确回收；CLI展开AggregateError全部叶错误，保留首错和恢复错。
 - 本地相关3 files / 48 tests、Manager全量248 passed / 3 skipped、Manager/root/scripts typecheck、5-file pack和Release 4 files / 31 tests通过。Candidate 20保持10资产Draft且不复用；下一步发布并验证Manager `.46`，再创建Candidate 21从头执行全部Release gate。
 - Manager `.46`已由workflow [`30775254534`](https://github.com/notnotype/neuro-book/actions/runs/30775254534)完成Trusted Publishing；npm `gitHead=ef98cf244bb0c942f374e67b7db9d4fed020756a`，5-file公开tarball SHA-1为`b94e32004a731019a550adfa7d418a3b12317674`，registry signature、npm publish attestation、SLSA provenance、隔离Bun cache真实bunx与`manager:verify-public`均通过。Candidate 21可以消费该精确版本。
+
+### 2026-08-03：Candidate 21 显式锁定 0.9 发布线
+
+- 当前package version已经位于`0.9.0-canary.*`，原计划命令`--next minor`实际会选择`0.10.0`。误生成的Draft `v0.10.0-canary.20260803.005155Z.4eb16b29`（release ID `363935623`、revision `d1a5a5f0514dd645c9801307fd0f667bb872100d`）只推送到隔离分支；workflow [`30775479903`](https://github.com/notnotype/neuro-book/actions/runs/30775479903)已取消，Draft保持空资产、未公开且永久保留审计。GHCR Registry API确认`candidate-363935623`和该正式版本tag均为404，未产生OCI别名。
+- 恢复没有reset、删除或复用错误Draft。从`origin/master`新建干净分支后，`--version 0.9.0 --dry-run`确认目标发布线，再创建Candidate 21：Draft `v0.9.0-canary.20260803.005535Z.4eb16b29`（release ID `363936400`、revision `ca8dd97f760f0726a09b81c4ea59abae735370c7`），workflow [`30775631022`](https://github.com/notnotype/neuro-book/actions/runs/30775631022)已dispatch并在后台执行。该revision已fast-forward进入`origin/master`；Release仍是Draft，尚未公开，也未激活OCI正式tag。
