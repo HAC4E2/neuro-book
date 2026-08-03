@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import {computed, ref, watch} from "vue";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
+import {useNotification} from "nbook/app/composables/useNotification";
+import BooleanToggleButton from "nbook/app/components/common/form/BooleanToggleButton.vue";
+import {normalizeImportedContextProfiles} from "nbook/app/utils/text-to-image-context-import";
 import {
-    TextToImageContextProfileSchema,
     TextToImageGlobalConfigSchema,
     TextToImageLlmProviderSettingsSchema,
     type TextToImageContextEntry,
@@ -116,6 +118,7 @@ const error = ref("");
 const saving = ref(false);
 const contextProfileImportInput = ref<HTMLInputElement | null>(null);
 const globalConfigImportInput = ref<HTMLInputElement | null>(null);
+const notification = useNotification();
 
 watch(() => props.providers, () => {
     if (selectedProviderId.value === null && llmProviders.value.length > 0) {
@@ -355,9 +358,12 @@ async function importGlobalConfig(event: Event): Promise<void> {
     const file = input.files?.[0];
     if (!file) return;
     try {
-        const parsed = TextToImageGlobalConfigSchema.parse(
-            JSON.parse(await file.text()) as unknown,
-        );
+        const raw = JSON.parse(await file.text()) as unknown;
+        const parsed = typeof raw === "object" && raw !== null && !Array.isArray(raw) && "contextProfiles" in raw
+            ? TextToImageGlobalConfigSchema.parse(raw)
+            : TextToImageGlobalConfigSchema.parse({
+                contextProfiles: normalizeImportedContextProfiles(raw),
+            });
         contextProfiles.value = {...parsed.contextProfiles};
         requestBindings.value = {
             image_gen: parsed.requestTypeBindings?.image_gen ?? {providerId: null, contextProfileId: "default"},
@@ -375,8 +381,10 @@ async function importGlobalConfig(event: Event): Promise<void> {
             wordReplacementProfiles: wordReplacementProfiles.value,
             currentWordReplacementProfile: currentWordReplacementProfile.value,
         });
+        notification.success("全局配置导入成功");
     } catch (cause) {
         error.value = resolveApiErrorMessage(cause, "导入全局配置失败");
+        notification.error(error.value, {title: "导入全局配置失败"});
     } finally {
         input.value = "";
     }
@@ -387,17 +395,16 @@ async function importContextProfiles(event: Event): Promise<void> {
     const file = input.files?.[0];
     if (!file) return;
     try {
-        const parsed = JSON.parse(await file.text()) as Record<string, unknown>;
+        const parsed = JSON.parse(await file.text()) as unknown;
         const next = {...contextProfiles.value};
-        for (const [id, value] of Object.entries(parsed)) {
-            if (typeof value !== "object" || value === null) continue;
-            next[id] = TextToImageContextProfileSchema.parse({...value as Record<string, unknown>, id});
-        }
+        Object.assign(next, normalizeImportedContextProfiles(parsed));
         contextProfiles.value = next;
         error.value = "";
         persistGlobal({contextProfiles: next});
+        notification.success("上下文预设导入成功");
     } catch (cause) {
         error.value = resolveApiErrorMessage(cause, "导入上下文预设失败");
+        notification.error(error.value, {title: "导入上下文预设失败"});
     } finally {
         input.value = "";
     }
@@ -464,20 +471,34 @@ function buildTestPreview(): void {
 }
 
 async function fetchModels(): Promise<void> {
-    if (selectedProviderId.value === null) return;
+    if (selectedProviderId.value === null && form.value.baseUrl.trim() === "") {
+        error.value = "请先填写 Base URL";
+        return;
+    }
     fetchingModels.value = true;
     error.value = "";
     try {
         const result = await $fetch<{models: string[]}>("/api/text-to-image/llm/models", {
             method: "POST",
-            body: {providerId: selectedProviderId.value},
+            body: selectedProviderId.value !== null
+                ? {providerId: selectedProviderId.value}
+                : {
+                    baseUrl: form.value.baseUrl,
+                    credential: form.value.credential,
+                },
         });
         modelOptions.value = result.models;
-        if (result.models.length > 0 && !form.value.model) {
-            form.value.model = result.models[0]!;
+        if (result.models.length === 0) {
+            error.value = "模型列表为空";
+        } else {
+            if (!form.value.model) {
+                form.value.model = result.models[0]!;
+            }
+            notification.success(`获取到 ${result.models.length} 个模型`);
         }
     } catch (cause) {
         error.value = resolveApiErrorMessage(cause, "获取模型列表失败");
+        notification.error(error.value, {title: "获取模型列表失败"});
     } finally {
         fetchingModels.value = false;
     }
@@ -513,7 +534,7 @@ async function fetchModels(): Promise<void> {
                         <datalist id="llm-model-options">
                             <option v-for="model in modelOptions" :key="model" :value="model" />
                         </datalist>
-                        <button class="h-8 shrink-0 rounded-md border border-[var(--border-color)] px-2 text-[12px] text-[var(--text-secondary)]" :disabled="selectedProviderId === null || fetchingModels" @click="fetchModels">获取模型</button>
+                        <button class="h-8 shrink-0 rounded-md border border-[var(--border-color)] px-2 text-[12px] text-[var(--text-secondary)]" :disabled="fetchingModels" @click="fetchModels">{{ fetchingModels ? "获取中..." : "获取模型" }}</button>
                     </div>
                 </label>
                 <label class="flex flex-col gap-1 text-[12px] text-[var(--text-secondary)]">
@@ -539,16 +560,16 @@ async function fetchModels(): Promise<void> {
             </div>
             <div class="mt-3 grid grid-cols-3 gap-3">
                 <label class="flex items-center gap-2 text-[12px] text-[var(--text-secondary)]">
-                    <input v-model="form.stream" type="checkbox" class="accent-[var(--accent-main)]" />
                     流式生成
+                    <BooleanToggleButton v-model="form.stream" />
                 </label>
                 <label class="flex items-center gap-2 text-[12px] text-[var(--text-secondary)]">
-                    <input v-model="form.sendImages" type="checkbox" class="accent-[var(--accent-main)]" />
                     发送图片
+                    <BooleanToggleButton v-model="form.sendImages" />
                 </label>
                 <label class="flex items-center gap-2 text-[12px] text-[var(--text-secondary)]">
-                    <input v-model="form.mergeSystemUser" type="checkbox" class="accent-[var(--accent-main)]" />
                     合并 System/User
+                    <BooleanToggleButton v-model="form.mergeSystemUser" />
                 </label>
             </div>
             <div class="mt-3 grid grid-cols-3 gap-3">
@@ -557,12 +578,12 @@ async function fetchModels(): Promise<void> {
                     <input v-model.number="form.historyDepth" type="number" min="0" max="20" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]" />
                 </label>
                 <label class="flex items-center gap-2 text-[12px] text-[var(--text-secondary)]">
-                    <input v-model="form.tagthinkEcho" type="checkbox" class="accent-[var(--accent-main)]" />
                     Tagthink 回显
+                    <BooleanToggleButton v-model="form.tagthinkEcho" />
                 </label>
                 <label class="flex items-center gap-2 text-[12px] text-[var(--text-secondary)]">
-                    <input v-model="form.historyKeepImageTag" type="checkbox" class="accent-[var(--accent-main)]" />
                     历史保留 &lt;image&gt; 标签
+                    <BooleanToggleButton v-model="form.historyKeepImageTag" />
                 </label>
             </div>
             <div class="mt-3 flex items-center gap-2">
@@ -628,8 +649,8 @@ async function fetchModels(): Promise<void> {
                                 </select>
                             </label>
                             <label class="flex items-end gap-2 pb-1 text-[11px] text-[var(--text-secondary)]">
-                                <input v-model="entry.enabled" type="checkbox" class="accent-[var(--accent-main)]" />
                                 enabled
+                                <BooleanToggleButton v-model="entry.enabled" />
                             </label>
                             <label class="flex flex-col gap-1 text-[11px] text-[var(--text-secondary)]">
                                 triggerWords
