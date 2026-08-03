@@ -3,6 +3,7 @@ import {ref, watch} from "vue";
 import Dialog from "nbook/app/components/common/Dialog.vue";
 import TextToImageLlmSettingsSection from "nbook/app/components/novel-ide/text-to-image/TextToImageLlmSettingsSection.vue";
 import TextToImageNovelAiSettingsSection from "nbook/app/components/novel-ide/text-to-image/TextToImageNovelAiSettingsSection.vue";
+import TextToImageBodySessionSection from "nbook/app/components/novel-ide/text-to-image/TextToImageBodySessionSection.vue";
 import {
     TextToImageGlobalConfigSchema,
     type TextToImageGlobalConfig,
@@ -23,7 +24,7 @@ type WorkbenchSnapshot = {
     providers: TextToImageProviderDto[];
 };
 
-const activeSection = ref<"llm" | "novelai">("llm");
+const activeSection = ref<"llm" | "novelai" | "body">("llm");
 const snapshot = ref<WorkbenchSnapshot>({
     config: TextToImageGlobalConfigSchema.parse({}),
     providers: [],
@@ -120,6 +121,14 @@ async function saveConfig(patch: Partial<TextToImageGlobalConfig>): Promise<void
                     <span class="i-lucide-image h-4 w-4"></span>
                     NovelAI
                 </button>
+                <button
+                    class="mb-1 flex h-9 items-center gap-2 rounded-md px-2 text-left text-[12px]"
+                    :class="activeSection === 'body' ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'"
+                    @click="activeSection = 'body'"
+                >
+                    <span class="i-lucide-file-text h-4 w-4"></span>
+                    正文生图
+                </button>
             </nav>
 
             <!-- 右侧内容 -->
@@ -133,10 +142,14 @@ async function saveConfig(patch: Partial<TextToImageGlobalConfig>): Promise<void
                     @save-config="saveConfig"
                 />
                 <TextToImageNovelAiSettingsSection
-                    v-else
+                    v-else-if="activeSection === 'novelai'"
                     :providers="snapshot.providers"
                     @save-provider="saveProvider"
                     @delete-provider="deleteProvider"
+                />
+                <TextToImageBodySessionSection
+                    v-else
+                    :providers="snapshot.providers"
                 />
             </div>
         </div>
