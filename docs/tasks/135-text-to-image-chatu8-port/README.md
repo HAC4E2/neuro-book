@@ -238,7 +238,33 @@
 - [x] P2 实现（角色视觉生成与 visual.json 管理）
 - [x] P3 实现（正文生图 L1→L2、本地队列、TipTap 一键生成并替换正文）
 - [x] P4 基础角色头像实现
-- [ ] P6 首版收尾
+- [x] P6 代码侧收尾（全局配置导入导出/CAS、清理审计、typecheck/generate/全量回归、文档更新）
 - [ ] Backlog：P4.5 已生成图片后续操作
 - [ ] Backlog：P5 词库 / 历史图片 / 生图日志
 - [ ] 浏览器走查（清单见 `BROWSER-WALKTHROUGH.md`，待用户授权执行）
+
+## 实施记录（2026-08-03）
+
+### 已完成实现
+
+- Provider 安全层：AES-GCM 凭据密封、URL 策略、DNS 校验出站 fetch 均从参考分支迁移并适配。
+- LLM 链路：非流式/SSE、发送图片、合并 System/User、模型发现、上下文预设注入、请求类型绑定、运行时占位符、敏感词替换、测试工具（请求类型 + 组合提示词预览）。
+- NovelAI 链路：Provider/配置档案/模型采样参数/固定提示词/翻译/Tag 补全/提示词替换规则/AQT-UCP/Vibe 参考图预览/全局参考图库/Vibe 组条目编辑（最多 4 个）/`.naiv4vibe` 下载。
+- 正文生图：L1 `<image>` 块 → L2 占位符 → 本地队列 → NovelAI 出图 → 替换为 Markdown 图片；TipTap 卡片一键生成；占位符状态查询接口。
+- 角色视觉：`visual.json` 真相源、12 字段管理、LLM 生成/回填、头像生成并写入 `photos[]`。
+- 全局配置：导入/导出、CAS 冲突检测；云端队列明确不移植。
+
+### 关键提交
+
+- `17f8d53f`：端到端生成链路与配置收口
+- `f5a31692`：NovelAI 参考图库与测试工具补全
+- `c4ffde7b`：补齐计划点名服务文件
+- `36b7baa5`：占位符状态查询接口
+
+### 验证记录
+
+- `bun run typecheck`：通过。
+- 聚焦 vitest：`236/236` 通过。
+- `bun run generate`：通过（Prisma 两个客户端）。
+- 全量 `bun run test`：`3339/3358` 通过；剩余为本机/既有基线（Windows symlink EPERM、`.gitattributes` CRLF、release-assets、novel-data 文案）与一次 harness 全量顺序抖动，单跑通过。
+- 浏览器走查：清单已建，待用户授权执行。
