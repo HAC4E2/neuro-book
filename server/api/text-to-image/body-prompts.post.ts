@@ -6,6 +6,7 @@ import {TextToImageLlmProviderSettingsSchema} from "nbook/shared/dto/text-to-ima
 import {TextToImageProviderService} from "nbook/server/text-to-image/provider.service";
 import {generateBodyImageBlocks} from "nbook/server/text-to-image/body-image-llm";
 import {insertBodyImagePlaceholders} from "nbook/server/text-to-image/body-image-insert.service";
+import {loadEffectiveConfig} from "nbook/server/config/config-service";
 
 const BodyPromptsBodySchema = z.object({
     providerId: z.number().int().positive(),
@@ -18,6 +19,9 @@ export default defineEventHandler(async (event) => {
     const body = await validateBody(event, BodyPromptsBodySchema);
     const runtime = await new TextToImageProviderService().resolveRuntimeProvider(user.id, body.providerId);
     const settings = TextToImageLlmProviderSettingsSchema.parse(runtime.settings);
+    const effective = await loadEffectiveConfig({workspaceKind: "user-assets"});
+    const profileName = effective.textToImage.currentWordReplacementProfile;
+    const profile = effective.textToImage.wordReplacementProfiles[profileName];
     const blocks = await generateBodyImageBlocks({
         provider: {
             baseUrl: settings.baseUrl,
@@ -26,6 +30,8 @@ export default defineEventHandler(async (event) => {
         },
         chapterContent: body.chapterContent,
         characterSummary: body.characterSummary,
+        textReplacementRules: profile?.textReplacement ?? "",
+        aiReplacementRules: profile?.aiReplacement ?? "",
     });
     const inserted = insertBodyImagePlaceholders({
         chapterContent: body.chapterContent,

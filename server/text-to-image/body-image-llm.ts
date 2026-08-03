@@ -6,6 +6,7 @@ import {
     requestLlmCompletion,
 } from "nbook/server/text-to-image/llm-chat";
 import {TextToImageLlmProviderSettingsSchema} from "nbook/shared/dto/text-to-image.dto";
+import {applyReplacementProfile} from "nbook/server/text-to-image/sensitive-word-replacement";
 
 /** L1 正文生图块：五要素契约，不落盘。 */
 export type BodyImageBlock = {
@@ -42,13 +43,19 @@ export async function generateBodyImageBlocks(input: {
     };
     chapterContent: string;
     characterSummary: string;
+    textReplacementRules?: string;
+    aiReplacementRules?: string;
     complete?: typeof requestLlmCompletion;
 }): Promise<BodyImageBlock[]> {
     const settings = TextToImageLlmProviderSettingsSchema.parse(input.provider.settings);
     const complete = input.complete ?? requestLlmCompletion;
     const systemPrompt = buildBodyImageSystemPrompt();
     const userPrompt = buildBodyImageUserPrompt({
-        chapterContent: input.chapterContent,
+        chapterContent: applyReplacementProfile({
+            text: input.chapterContent,
+            rulesText: input.textReplacementRules ?? "",
+            kind: "text",
+        }),
         characterSummary: input.characterSummary,
     });
     let lastError: Error | null = null;
@@ -71,7 +78,11 @@ export async function generateBodyImageBlocks(input: {
             ],
         });
         try {
-            return parseBodyImageBlocks(content);
+            return parseBodyImageBlocks(applyReplacementProfile({
+                text: content,
+                rulesText: input.aiReplacementRules ?? "",
+                kind: "ai",
+            }));
         } catch (error) {
             lastError = toError(error);
         }
