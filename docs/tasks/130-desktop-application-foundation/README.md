@@ -1,6 +1,6 @@
 # 130 - 桌面应用前置架构、发行载荷与存储生命周期
 
-> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、Contract v3、Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议。正式构建已切换为 esbuild 同图 link/minify；五平台严格 A/B和四平台 Product smoke已通过。第二十次Candidate的Cache Root宿主ownership与Podman inspect阻断已修复并进入公开Manager `.46`。Candidate 22通过五平台、Portable、OCI build/merge、Draft payload与Windows data复用，但最终三个GHCR smoke因Source故障注入脚本依赖仓库`node_modules`同因失败；标准库-only fixture修复待Candidate 23从头验证。最终索引、Release/OCI激活、浏览器人工验收与Tauri/Electron同矩阵spike尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由spike证据冻结。
+> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、Contract v3、Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议均已完成；正式构建使用 esbuild 同图 link/minify，五平台严格 A/B 已通过。Manager `.47` 与 `v0.9.0-canary.20260803.030205Z.1252af3b` 已公开，Candidate 25 的五平台、Portable、OCI、公开复验、最终索引和正式版本 tag 全绿。Actions 中的真实浏览器 smoke 已通过；浏览器人工验收与 Tauri/Electron 同矩阵 spike 尚未执行。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由 spike 证据冻结。
 
 ## Relative documents refs
 
@@ -722,6 +722,7 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - [ ] Phase 3：在 Desktop Envelope spike 中验证普通页面 Origin/CSP 和最小 Tauri capability。
 - [ ] Phase 4：执行 Tauri/Electron Windows 双 spike。
 - [ ] 基于 spike 结果冻结 Desktop Envelope 技术选择。
+- [x] 完成 0.9 Product、Windows Portable 与 Container Canary 的公开号、索引和 OCI 激活。
 - [ ] Phase 5：实现首个 Desktop Release、更新、回滚、退出和卸载闭环。
 
 ### 2026-08-03：第十三次 Candidate 的 Windows stdin 所有权修复
@@ -800,3 +801,21 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - Draft `v0.9.0-canary.20260803.013300Z.7e9bc0ea`（revision `d6de1b443c718112dfc7acbe3a285a2c69586e09`）的workflow [`30777137614`](https://github.com/notnotype/neuro-book/actions/runs/30777137614)仍为17成功、3失败、2跳过。五平台、Portable、OCI build/merge、Draft 10资产、Windows完整生命周期与0.8.6 data复用通过；三个GHCR容器都越过第二次Manager `start`，随后执行`create-interrupted-operation.ts`时同因失败。
 - 恢复fixture原本深层导入Manager operation Module，而公开GHCR job刻意不安装Source依赖。它现改为标准库-only并原子发布Operation Journal：先记录planned path intent，再创建marker并记录applied effect；公开Manager仍负责schema校验、恢复和最终`rolled-back`断言，不复制生产恢复逻辑。
 - 脚本已进入scripts typecheck，Release合同执行真实fixture并禁止重新引入`nbook/**`。本地shell语法、typecheck与21项合同通过。Candidate 22保留未公开Draft且没有正式OCI tag，Candidate 23从头运行。
+
+### 2026-08-03：Candidate 23 的 Windows Host 测试预算
+
+- Draft `v0.9.0-canary.20260803.021228Z.5f420615`（release ID `363954387`、revision `6d55c11e22ab97185c45d6420dd13a335ec85d29`）的 workflow [`30778745831`](https://github.com/notnotype/neuro-book/actions/runs/30778745831) 通过 preflight、Source、四个 POSIX Product、双架构 OCI build/merge；Windows 在 Product 构建前的 Manager Adapter 测试失败，后续 assemble 与发布门禁按协议跳过。
+- 首错是 Windows runner 上真实 PowerShell Host 启动超过测试写死的 15 秒，不是卸载协议或 Product 行为失败。修复只把该具名 Host 启动预算调整为 30 秒；连续 10 轮共 40 项 Windows Host 测试、Manager 248 passed / 3 skipped、typecheck、Release contract 与 5-file pack 均通过，没有跳过测试或放宽生产超时。
+- Manager `0.1.0-canary.47` 由 workflow [`30779402862`](https://github.com/notnotype/neuro-book/actions/runs/30779402862) 完成 Trusted Publishing；npm `canary`、registry signature、SLSA provenance、隔离 cache 真实 bunx 与 `manager:verify-public` 均通过，公开 tarball SHA-1 为 `a7824d43d126f1bf33e6467e0f0cde372ef9419e`。
+
+### 2026-08-03：Candidate 24 的恢复终态断言
+
+- Draft `v0.9.0-canary.20260803.023155Z.b39e74ef`（release ID `363959292`、revision `5fe0422cbb66a9209cbe97193eadbe8d297dd5d7`）的 workflow [`30779535759`](https://github.com/notnotype/neuro-book/actions/runs/30779535759) 已通过五平台 Product、Windows Portable、双 OCI、assemble、Windows/Linux 最终验证、Draft payload 实字节复核和 0.8.6 data 复用。三个 GHCR job 在恢复 smoke 的最后断言同因失败，最终索引、Release 公开和 OCI 正式版本 tag 均未执行。
+- 正式 Operation v5 合同规定成功回滚且 cleanup 无错误时删除 Journal；旧 smoke 却要求保留 `outcome=rolled-back` Journal。修复改为同时断言 Journal、staging marker 与 backup 都不存在，并在 Manager update 失败时保留原 recovery log；没有恢复历史命令，也没有改变生产事务终态。回归先红后绿，Release assets 21/21、scripts typecheck 与 shell 语法通过。
+
+### 2026-08-03：Candidate 25 公开发布终验
+
+- `v0.9.0-canary.20260803.030205Z.1252af3b`（revision `4f551179920b2b4735d69f378e26632850216a84`）的 workflow [`30780756837`](https://github.com/notnotype/neuro-book/actions/runs/30780756837) 全部成功。五平台 Product、Windows Portable、双架构 OCI build/merge、Windows/Linux Runtime 与真实浏览器、Draft payload、GHCR AMD64/ARM64/rootless Podman、0.8.6 data 复用、最终索引和 OCI 别名激活均通过。
+- GitHub Release 已公开为 prerelease，目标 revision 准确，共 12 个资产；`release-manifest.json` 为 schema v5、build ID `sha256:cbfa63d942b80544e716f14153841869dd4adc989004b32d9bd7323552f27455`，声明五个平台 Product、297,722,402-byte Windows Portable 与 Manager `.47`。公开 Manifest 的 SHA-256 `3072f786495e647fc2d6f68cb263f7350728371e03250ab6ffe178d2b0aae457` 与 `SHA256SUMS` 一致，三个安装入口和索引均返回 HTTP 200。
+- 正式版本 tag `ghcr.io/notnotype/neuro-book:v0.9.0-canary.20260803.030205Z.1252af3b` 的 Registry digest 为 `sha256:ae916e746993d39ef2a9c63cb3868342b8c3c19022eb1dff1438a02c749cc202`，与 Release Manifest 完全一致；`latest` 仍指向不同的 `sha256:26e32f9d6fd2ff3e490f59caf786963202b2417b8d4afb37313eef923955bb4c`，Canary 未移动稳定别名。
+- 与计划的差异：公开发行最终完成，失败 Candidate 23/24 按不可复用协议保留为 Draft；Actions 已执行 Windows/Linux 真实浏览器 smoke，但仓库约定的人工浏览器验收、Tauri/Electron 双 spike、Desktop Envelope 和 Developer Mode/rebuild 仍未完成，也未记为完成。

@@ -13,13 +13,13 @@ Past release notes, grouped by release line. Notes for the **current** version a
 Every version so far carries a `-canary` suffix, meaning "early validation build": the features work, but they may not have been through full manual acceptance yet. A full version number looks like this:
 
 ```
-0.8.19-canary.20260720.112718Z.1b4c9685
+0.9.0-canary.20260803.030205Z.1252af3b
 └─┬──┘ └─┬──┘ └──────┬───────┘ └───┬──┘
 version channel   release time    code
                      (UTC)      snapshot
 ```
 
-The middle block is when it was published; the tail identifies the exact code it was built from. The installer (NeuroBook Manager) has its own version number, like `0.1.0-canary.30` — that is a separate thing from the app version.
+The middle block is when it was published; the tail identifies the exact code it was built from. The installer (NeuroBook Manager) has its own version number, like `0.1.0-canary.47` — that is a separate thing from the app version.
 
 ## Missing a version?
 

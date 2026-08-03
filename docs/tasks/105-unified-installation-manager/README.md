@@ -1,6 +1,6 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`仍是最新已确认完整canary。当前工作树协议为Installation Manifest v5、Release Manifest v5、Operation Journal v5 和 Product-owned Application State catalog v3。公开Manager `.46`已完成provenance、tarball、签名、attestation与真实bunx验证。Candidate 22通过17个job，三个GHCR生命周期在容器重启后执行Source故障注入脚本时同因失败；该脚本现已改为标准库-only并纳入scripts typecheck，待Candidate 23从头验证。最终Release公开与OCI正式别名仍未完成。
+> 当前状态：实现中，Canary A公开索引与 0.9 Product 发行链均已完成。当前工作树协议为 Installation Manifest v5、Release Manifest v5、Operation Journal v5 和 Product-owned Application State catalog v3。Manager `0.1.0-canary.47` 已完成 provenance、tarball、签名与真实 bunx 验证；`v0.9.0-canary.20260803.030205Z.1252af3b` 已公开为 prerelease，五平台、Windows Portable、GHCR Docker/Podman、恢复、自卸载、0.8.6 data 复用、最终索引与 OCI 正式版本 tag 全绿。失败 Candidate 仍保持 Draft 且未复用。
 
 ## 2026-08-02：Installation Mutation、自卸载与发行候选治理
 
@@ -1244,3 +1244,19 @@ uninstall
 - Draft `v0.9.0-canary.20260803.013300Z.7e9bc0ea`（revision `d6de1b443c718112dfc7acbe3a285a2c69586e09`）的workflow [`30777137614`](https://github.com/notnotype/neuro-book/actions/runs/30777137614)同样为17个job成功、3个失败、2个跳过。三个GHCR job中，隔离bunx完成安装、管理员创建、doctor、停止和第二次`start`；随后`create-interrupted-operation.ts`从Source深层导入Manager operation，clean job没有根`node_modules`，因此稳定复现相同Owned Process解析错误。
 - 该脚本只负责制造一个刻意停在`planned`的Operation Journal以验证下一次公开Manager自动回滚，不应消费生产事务实现。现在改为Node/Bun标准库-only：读取实际Installation Manifest，先原子写planned intent，再创建marker并原子写applied effect；最终Journal仍由公开Manager的schema和恢复路径真实验证。
 - `scripts/tsconfig.json`现显式包含该脚本；Release合同同时执行自包含fixture并禁止`nbook/**`导入。shell语法、scripts typecheck与Release合同21/21通过。Candidate 22保持10资产Draft、未公开且无正式OCI tag；Candidate 23从头运行全部gate。
+
+### 2026-08-03：Candidate 23 与 Manager `.47`
+
+- Draft `v0.9.0-canary.20260803.021228Z.5f420615`（release ID `363954387`）的 workflow [`30778745831`](https://github.com/notnotype/neuro-book/actions/runs/30778745831) 在 Windows Manager Adapter 测试中失败；preflight、Source、四个 POSIX Product 与双 OCI build/merge 已通过。真实 PowerShell 卸载 Host 在 runner 上超过写死的 15 秒预算，生产卸载协议没有失败。
+- 测试改用具名 30 秒 Host 启动预算；Windows 连续 10 轮 40 项、Manager 248 passed / 3 skipped、typecheck、Release contract 和 5-file pack 全绿。Manager `0.1.0-canary.47` 的 workflow [`30779402862`](https://github.com/notnotype/neuro-book/actions/runs/30779402862) 随后完成 Trusted Publishing；npm `canary`、registry signature、SLSA provenance、全新 cache 真实 bunx 和 `manager:verify-public` 均通过，tarball SHA-1 为 `a7824d43d126f1bf33e6467e0f0cde372ef9419e`。
+
+### 2026-08-03：Candidate 24 的 Operation cleanup 假失败
+
+- Draft `v0.9.0-canary.20260803.023155Z.b39e74ef`（release ID `363959292`）的 workflow [`30779535759`](https://github.com/notnotype/neuro-book/actions/runs/30779535759) 完成五平台、Portable、OCI、Windows/Linux 最终验证、公开 payload 复核和 0.8.6 data 复用；三个 GHCR job 在最后的 recovery 断言同因失败，因此索引与正式 tag 未激活。
+- 正式协议在成功回滚且 cleanup 无错误时删除 Journal，旧 smoke 却要求保留 `rolled-back` Journal。修复改为验证 Journal、staging marker 和 backup 全部清除，并保留失败 recovery log；生产 recovery/cleanup 合同不变。Candidate 24 保持未公开 Draft，不 rerun、不复用。
+
+### 2026-08-03：0.9 Canary 公开闭环
+
+- Candidate 25 `v0.9.0-canary.20260803.030205Z.1252af3b` 的 workflow [`30780756837`](https://github.com/notnotype/neuro-book/actions/runs/30780756837) 全绿。公开 prerelease 精确指向 revision `4f551179920b2b4735d69f378e26632850216a84`，12 个资产包含 Source、五平台 Product、Windows Portable、三个安装入口、Release Manifest 与 checksum；Windows/Linux 真实浏览器、Portable 两种自卸载、GHCR Docker/Podman、0.8.6 data 复用与最终索引均通过。
+- Release Manifest 固定 Manager `.47`、build ID `sha256:cbfa63d942b80544e716f14153841869dd4adc989004b32d9bd7323552f27455` 和 GHCR digest `sha256:ae916e746993d39ef2a9c63cb3868342b8c3c19022eb1dff1438a02c749cc202`。Registry 正式版本 tag 返回同一 digest；`latest` 仍是 `sha256:26e32f9d6fd2ff3e490f59caf786963202b2417b8d4afb37313eef923955bb4c`，Canary 未移动稳定别名。
+- 公开 Manager 精确版本仍可由 npm 发现，`canary` 指向 `.47`，签名与 provenance 存在。人工浏览器验收和 Desktop Envelope 不属于 Manager 发行合同，继续由 Task 130 挂账。
