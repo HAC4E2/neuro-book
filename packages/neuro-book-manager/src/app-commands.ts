@@ -12,7 +12,7 @@ import {
     type ProductRuntimeCommandId,
 } from "nbook/shared/product-runtime-contract";
 
-import {enableAuthentication, loadStateEnv} from "#manager/config";
+import {enableAuthentication, ensureWritableRuntimeRoots, loadStateEnv} from "#manager/config";
 import {createProductRuntimeEnvironment} from "nbook/shared/product-runtime-environment";
 import {containerComposeOptions, runDockerApplicationCommand, startDocker, stopDockerContainer, verifyRunningDockerApplication} from "#manager/docker";
 import {pathExists} from "#manager/files";
@@ -128,6 +128,7 @@ export async function launchApplication(
     assertInstallationHostCompatible(manifest);
     const roots = resolveInstallationRoots(root, manifest.roots);
     const stateRoot = options.stateRoot ?? roots.state;
+    await ensureWritableRuntimeRoots(stateRoot, roots.cache);
     const stateIntegrity = await inspectInstallationStateIntegrity(root, stateRoot);
     if (stateRootIntegrityFailed(stateIntegrity)) {
         console.warn(`\n警告：${formatStateRootIntegrityWarning(stateIntegrity)}\n`);

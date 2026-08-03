@@ -21,7 +21,7 @@ import {
     type StagedProduct,
     type StagedReleaseSource,
 } from "#manager/component";
-import {ensureStateFiles} from "#manager/config";
+import {ensureStateFiles, ensureWritableRuntimeRoots} from "#manager/config";
 import {buildSourceDockerImage, containerProductImageReference, inspectDockerApplication, resolveContainerEngine, stopDocker, writeDockerCompose} from "#manager/docker";
 import {ensureDirectory, pathExists, removePath} from "#manager/files";
 import {assertCleanWorktree, createStagedWorktree, materializeRepository, removeStagedWorktree, repositoryRevision} from "#manager/git";
@@ -389,11 +389,13 @@ async function prepareInstallation(
         if (!engine) throw new Error(`${options.profile}安装缺少Container Engine。`);
         migrationPlanStateRoot = mode === "fresh" ? join(staging, "migration-plan-state") : paths.state;
         if (mode === "fresh") await ensureStateFiles(migrationPlanStateRoot, options.port, options.authEnabled);
+        const migrationPlanCacheRoot = mode === "fresh" ? join(staging, "migration-plan-cache") : paths.cache;
+        await ensureWritableRuntimeRoots(migrationPlanStateRoot, migrationPlanCacheRoot);
         stagedCompose = await writeDockerCompose({
             engine,
             root: paths.root,
             stateRoot: migrationPlanStateRoot,
-            cacheRoot: mode === "fresh" ? join(staging, "migration-plan-cache") : paths.cache,
+            cacheRoot: migrationPlanCacheRoot,
             profile: options.profile,
             image: containerProductImageReference(options.profile, product),
             port: options.port,
@@ -507,6 +509,7 @@ async function prepareInstallation(
             journal = await setOperationEffect(journal, {kind: "path-create", state: "applied", owner: "state", path: relative(paths.root, path).replaceAll("\\", "/")});
         }
     }
+    await ensureWritableRuntimeRoots(paths.state, paths.cache);
     journal = await applyJournaledApplicationMigrations(paths.root, manifest, journal);
     journal = await updateOperation(journal, "migrated");
     return {manifest, journal, stagedWorktree};

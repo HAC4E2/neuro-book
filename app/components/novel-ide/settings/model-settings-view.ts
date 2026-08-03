@@ -1,4 +1,3 @@
-import type {SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
 import type {ModelSettingsModelDraft} from "nbook/app/components/novel-ide/settings/model-settings-draft";
 import type {ConfiguredModelDto, ModelLibraryEntryDto} from "nbook/shared/dto/app-settings.dto";
 import type {ProviderConfigIssue} from "nbook/shared/models/provider-config-contract";
@@ -54,4 +53,11 @@ export type ManualModelDraft = {
     maxTokens: string;
 };
 
-export type ModelApiOption = SelectOption;
+/** 模型设置跨TS/Vue边界使用的下拉项；结构与FormSelect的公开props一致。 */
+export type ModelApiOption = {
+    value: string;
+    label: string;
+    description?: string;
+    iconClass?: string;
+    indicatorClass?: string;
+};

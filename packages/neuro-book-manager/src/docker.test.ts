@@ -329,6 +329,39 @@ describe("Docker Compose部署合同", () => {
             .toBe(false);
     });
 
+    it("Podman使用顶层ImageName并接受未配置healthcheck的原生inspect形状", async () => {
+        const root = await mkdtemp(join(tmpdir(), "nbook-compose-inspect-podman-native-"));
+        roots.push(root);
+        const containerId = "f".repeat(64);
+        await writeDockerCompose({
+            engine: "docker",
+            root,
+            stateRoot: root,
+            cacheRoot: join(root, ".cache"),
+            profile: "ghcr",
+            image: "ghcr.io/notnotype/neuro-book:test",
+            port: 3000,
+        });
+        processCommands.capture.mockImplementation(async (_command: string, args: string[]) => {
+            if (args[0] === "ps") return `${containerId}\n`;
+            if (args[0] === "inspect") return JSON.stringify([{
+                Image: "a".repeat(64),
+                ImageName: "ghcr.io/notnotype/neuro-book:test",
+                Config: {Image: ""},
+                State: {Status: "running", ExitCode: 0, Health: {Status: "", FailingStreak: 0, Log: null}},
+            }]);
+            throw new Error(`未预期命令：${args.join(" ")}`);
+        });
+
+        await expect(inspectDockerApplication("podman", root, root))
+            .resolves.toMatchObject({
+                actualImage: "ghcr.io/notnotype/neuro-book:test",
+                containerImageId: `sha256:${"a".repeat(64)}`,
+                status: "running",
+                exitCode: 0,
+            });
+    });
+
     it("一次性应用命令拒绝空命令", async () => {
         await expect(runDockerApplicationCommand(verifiedImage("docker"), "/tmp/neuro-book", "/tmp/neuro-book-state", []))
             .rejects.toThrow("Docker一次性应用命令不能为空");
@@ -533,6 +566,35 @@ describe("Docker Compose部署合同", () => {
         expect(checkpoints).toEqual(["starting", `started:${containerId}`]);
         expect(processCommands.run).toHaveBeenCalledWith("docker", expect.arrayContaining(["pull", "app"]), {cwd: root});
         expect(processCommands.run).toHaveBeenCalledWith("docker", expect.arrayContaining(["up", "-d"]), {cwd: root});
+    });
+
+    it("候选镜像身份错误时仍先发布精确容器ID供事务回收", async () => {
+        const root = await mkdtemp(join(tmpdir(), "nbook-compose-invalid-candidate-launch-"));
+        roots.push(root);
+        const containerId = "1".repeat(64);
+        await writeDockerCompose({
+            engine: "docker",
+            root,
+            stateRoot: root,
+            cacheRoot: join(root, ".cache"),
+            profile: "ghcr",
+            image: "ghcr.io/notnotype/neuro-book:test",
+            port: 3000,
+        });
+        let psCalls = 0;
+        processCommands.capture.mockImplementation(async (_command: string, args: string[]) => {
+            if (args.includes("ps")) {
+                psCalls += 1;
+                return psCalls === 1 ? "" : `${containerId}\n`;
+            }
+            if (args[0] === "inspect") return containerInspect("running", undefined, `sha256:${"9".repeat(64)}`);
+            throw new Error(`未预期命令：${args.join(" ")}`);
+        });
+        const started = vi.fn<(id: string) => Promise<void>>().mockResolvedValue(undefined);
+
+        await expect(startDocker(verifiedImage("docker"), root, root, "ghcr", "0.9.0", undefined, started))
+            .rejects.toThrow("Container image ID 与 verified identity 不一致");
+        expect(started).toHaveBeenCalledWith(containerId);
     });
 
     it("Podman启动后通过原生labels发布精确候选ID", async () => {

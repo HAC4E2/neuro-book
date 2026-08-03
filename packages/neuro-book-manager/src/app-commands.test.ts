@@ -1,4 +1,4 @@
-import {mkdir, mkdtemp, rm, writeFile} from "node:fs/promises";
+import {mkdir, mkdtemp, rm, stat, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
@@ -229,6 +229,18 @@ describe("Application State migration command", () => {
 });
 
 describe("容器管理员命令", () => {
+    it("启动前由Manager建立宿主用户拥有的Cache Root与tool-state", async () => {
+        const root = await mkdtemp(join(tmpdir(), "manager-container-writable-roots-"));
+        roots.push(root);
+        docker.start.mockResolvedValue(undefined);
+
+        const launch = await launchApplication(root, dockerManifest());
+        await launch.ready;
+
+        expect((await stat(join(root, ".cache"))).isDirectory()).toBe(true);
+        expect((await stat(join(root, "data", "tool-state"))).isDirectory()).toBe(true);
+    });
+
     it("launch handle 在ready失败后只终止回调发布的精确候选容器", async () => {
         const root = await mkdtemp(join(tmpdir(), "manager-container-launch-"));
         roots.push(root);

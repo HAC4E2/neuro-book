@@ -1,6 +1,6 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`仍是最新已确认完整canary。当前工作树协议为Installation Manifest v5、Release Manifest v5、Operation Journal v5 和 Product-owned Application State catalog v3。公开Manager `.45`已完成provenance、tarball、签名、attestation与真实bunx验证；第十九次0.9 Candidate已通过五平台Product、Windows Portable、双OCI与merge、assemble、Linux最终验证、Windows完整生命周期、Draft payload实字节复核和0.8.6完整data复用。Docker公开smoke的Manifest State Root解析与rootless Podman容器身份读取失败，现已按既有Manifest和Container identity边界修复；最终Verifier与Release/OCI激活仍待Candidate 20从头验证。
+> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`仍是最新已确认完整canary。当前工作树协议为Installation Manifest v5、Release Manifest v5、Operation Journal v5 和 Product-owned Application State catalog v3。公开Manager `.45`已完成provenance、tarball、签名、attestation与真实bunx验证；第二十次0.9 Candidate已通过五平台Product、Windows Portable、双OCI与merge、assemble、Linux最终验证、Windows完整生命周期、Draft payload实字节复核和0.8.6完整data复用。公开GHCR最终门禁暴露Cache Root宿主ownership与Podman 4.9.3 inspect形状，修复待Manager `.46`和Candidate 21从头验证；最终Verifier与Release/OCI激活尚未产生。
 
 ## 2026-08-02：Installation Mutation、自卸载与发行候选治理
 
@@ -1219,3 +1219,10 @@ uninstall
 - rootless Podman完成正确OCI digest拉取和`deploy_app_1`启动后，Manager无法登记候选容器身份并进入回滚。`podman-compose 1.0.6`的`ps --quiet`通过继承stdout输出容器ID，同时provider自身也向stdout写诊断，不能作为机器可读API。Manager现直接调用`podman ps --all`，按`com.docker.compose.project.working_dir=<compose-dir-realpath>`和`com.docker.compose.service=app`两项label筛选，并继续要求唯一合法ID；Docker Compose路径不变。
 - 回归先红后绿：Docker/Podman focused 23/23，State Root locator 5/5；Manager全量243 passed / 3 skipped，独立Release合同31/31，Manager/scripts typecheck和docs build通过。并行门禁时Source archive的5秒用例再次因本机资源竞争超时，隔离全量Release合同5.29秒完成且全部通过，未调大timeout。Candidate 19保持10资产Draft、未公开且不复用。
 - Manager `.45`已由workflow [`30772919928`](https://github.com/notnotype/neuro-book/actions/runs/30772919928)完成Trusted Publishing；npm `gitHead=c07d4a157d88ea480e5075905446b894c174fa31`，5-file公开tarball SHA-1为`02bd5a3cd5a8d15847558f32763506fac79e5fdf`，registry signature、2份attestation、SLSA provenance、隔离Bun cache真实bunx与`manager:verify-public`均通过。下一步创建Candidate 20，从头执行全部Release gate。
+
+### 2026-08-03：第二十次 Candidate 的Container可写目录与Podman恢复身份
+
+- Draft `v0.9.0-canary.20260802.235048Z.3930b64d`（release ID `363924164`、revision `d680200bc8b77619a38b02527788df65480d403b`）的 workflow [`30773118840`](https://github.com/notnotype/neuro-book/actions/runs/30773118840) 最终有16个job成功、3个job失败。五平台Product、Windows Portable、双OCI与merge、assemble、Linux最终验证、Windows完整生命周期、Draft payload实字节复核和0.8.6完整data复用均成功；公开GHCR AMD64/ARM64与rootless Podman阻止最终索引和OCI正式tag激活。
+- Docker链证明全新Installation的Cache Root未由Manager预建。Container Engine代建bind source会改变ownership，非root Product无法创建`image-variants`，而Image Variant的运行时降级语义又会隐藏原始写入失败。Manager现在在候选迁移和每次启动前建立Cache Root与`State Root/tool-state`，使缓存可删除后重建、工具状态持久化和Container用户身份使用同一生命周期合同。
+- Podman 4.9.3上游结构确认无healthcheck时`State.Health.Status`是合法空字符串，顶层`ImageName`是原始镜像引用。Manager按该Adapter形状解析，不再把Docker非空Health假设施加给Podman。唯一label查询取得候选ID后先持久化ownership、再验证镜像身份，保证inspect或identity失败仍能精确回收；CLI展开AggregateError全部叶错误，保留首错和恢复错。
+- 本地相关3 files / 48 tests、Manager全量248 passed / 3 skipped、Manager/root/scripts typecheck、5-file pack和Release 4 files / 31 tests通过。Candidate 20保持10资产Draft且不复用；下一步发布并验证Manager `.46`，再创建Candidate 21从头执行全部Release gate。

@@ -26,6 +26,7 @@ import {doctor, installationStatus, maintainRuntime, maintainTool} from "#manage
 import {startInstallationApplication} from "#manager/migration-operation";
 import {readInstallationManifest} from "#manager/manifest-store";
 import {discoverInstallationRoot, installationPaths} from "#manager/paths";
+import {formatCliError} from "#manager/error-message";
 import {parseProfile, profileNames} from "#manager/profiles";
 import {runManagerTui} from "#manager/tui";
 import {adoptSourceInstallation, assertAdoptionPreflight, inspectAdoptionPreflight} from "#manager/source-adoption";
@@ -464,7 +465,7 @@ async function main(): Promise<void> {
         }
         await program.parseAsync(process.argv);
     } catch (error) {
-        p.log.error(error instanceof Error ? error.message : String(error));
+        p.log.error(formatCliError(error));
         process.exitCode = 1;
     }
 }

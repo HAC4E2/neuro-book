@@ -57,6 +57,18 @@ export async function ensureStateFiles(
     return created;
 }
 
+/**
+ * 在任何 Product 进程或容器启动前建立可写的运行目录。
+ *
+ * Container Engine 会以 root 创建不存在的 bind source，导致随后以宿主用户运行的
+ * Product 无法写入；因此这些目录必须由 Manager 宿主进程负责创建。目录内容均属于
+ * 可删除缓存或持久工具状态，调用方无需在每次启动时重新初始化其中内容。
+ */
+export async function ensureWritableRuntimeRoots(stateRoot: string, cacheRoot: string): Promise<void> {
+    await ensureDirectory(join(stateRoot, "tool-state"));
+    await ensureDirectory(cacheRoot);
+}
+
 /** 读取简单 KEY=VALUE 环境文件。 */
 export async function loadStateEnv(stateRoot: string): Promise<NodeJS.ProcessEnv> {
     const content = await readFile(join(stateRoot, ".env"), "utf8").catch((error: NodeJS.ErrnoException) => {

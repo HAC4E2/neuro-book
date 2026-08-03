@@ -33,11 +33,16 @@ const ImageInspectSchema = Type.Array(Type.Object({
 
 const ContainerInspectSchema = Type.Array(Type.Object({
     Image: Type.String({minLength: 1}),
-    Config: Type.Object({Image: Type.String({minLength: 1})}, {additionalProperties: true}),
+    ImageName: Type.Optional(Type.String({minLength: 1})),
+    Config: Type.Object({Image: Type.Optional(Type.String())}, {additionalProperties: true}),
     State: Type.Object({
         Status: Type.String({minLength: 1}),
         ExitCode: Type.Integer(),
-        Health: Type.Optional(Type.Object({Status: Type.String({minLength: 1})}, {additionalProperties: true})),
+        Health: Type.Optional(Type.Union([
+            Type.Null(),
+            // Podman 4.9.3在没有healthcheck时仍输出Health对象，但Status为空字符串。
+            Type.Object({Status: Type.String()}, {additionalProperties: true}),
+        ])),
     }, {additionalProperties: true}),
 }, {additionalProperties: true}), {minItems: 1, maxItems: 1});
 
@@ -235,8 +240,10 @@ export async function startDocker(
     }
     const containerId = await readApplicationContainerId(engine, root, stateRoot);
     if (!containerId) throw new Error("Compose启动后未返回app容器ID。");
-    assertContainerUsesVerifiedImage(await inspectDockerApplication(engine, root, stateRoot), verifiedImage);
+    // ID已由当前Compose的唯一ownership label解析；先发布所有权，后续身份门禁失败时
+    // 调用方才能精确停止本次候选，而不是遗留无法恢复的planned container effect。
     await onStarted?.(containerId);
+    assertContainerUsesVerifiedImage(await inspectDockerApplication(engine, root, stateRoot), verifiedImage);
     await verifyDockerApplication(await statePort(stateRoot), expectedVersion);
 }
 
@@ -257,10 +264,16 @@ export async function inspectDockerApplication(engine: ContainerEngine, root: st
     const containerId = await readApplicationContainerId(engine, root, stateRoot);
     if (!containerId) return {configuredImage};
     const inspected = parseContainerInspect(await runCapture(engine, ["inspect", containerId], {cwd: root}));
+    const actualImage = engine === "podman"
+        ? inspected.ImageName ?? inspected.Config.Image
+        : inspected.Config.Image;
+    if (!actualImage) {
+        throw new Error(`${engine} container inspect 缺少原始镜像引用。`);
+    }
     return {
         configuredImage,
         containerId,
-        actualImage: inspected.Config.Image,
+        actualImage,
         containerImageId: normalizeEngineImageId(inspected.Image),
         status: inspected.State.Status,
         exitCode: inspected.State.ExitCode,
