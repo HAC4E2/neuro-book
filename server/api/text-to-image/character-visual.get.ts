@@ -2,6 +2,7 @@ import {createError, defineEventHandler, getQuery} from "h3";
 import {z} from "zod";
 import {requireCurrentUser} from "nbook/server/utils/auth";
 import {readCharacterVisual} from "nbook/server/text-to-image/character-visual.service";
+import {resolveTextToImageProjectRoot} from "nbook/server/text-to-image/project-client";
 
 const CharacterVisualGetQuerySchema = z.object({
     projectRoot: z.string().trim().min(1),
@@ -19,6 +20,6 @@ export default defineEventHandler(async (event) => {
         });
     }
     return {
-        visual: await readCharacterVisual(query.data.projectRoot, query.data.characterId),
+        visual: await readCharacterVisual(resolveTextToImageProjectRoot(query.data.projectRoot), query.data.characterId),
     };
 });

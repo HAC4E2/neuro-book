@@ -9,6 +9,7 @@ import {
     writeCharacterVisual,
 } from "nbook/server/text-to-image/character-visual.service";
 import {generateCharacterVisualDraft} from "nbook/server/text-to-image/character-visual-llm";
+import {resolveTextToImageProjectRoot} from "nbook/server/text-to-image/project-client";
 
 const CharacterVisualGenerateBodySchema = z.object({
     providerId: z.number().int().positive(),
@@ -23,7 +24,8 @@ export default defineEventHandler(async (event) => {
     const body = await validateBody(event, CharacterVisualGenerateBodySchema);
     const runtime = await new TextToImageProviderService().resolveRuntimeProvider(user.id, body.providerId);
     const settings = TextToImageLlmProviderSettingsSchema.parse(runtime.settings);
-    const existing = await readCharacterVisual(body.projectRoot, body.characterId);
+    const projectRoot = resolveTextToImageProjectRoot(body.projectRoot);
+    const existing = await readCharacterVisual(projectRoot, body.characterId);
     const visual = await generateCharacterVisualDraft({
         provider: {
             baseUrl: settings.baseUrl,
@@ -35,6 +37,6 @@ export default defineEventHandler(async (event) => {
         existingSummary: existing ? JSON.stringify(existing) : "",
         mode: body.mode,
     });
-    await writeCharacterVisual(body.projectRoot, body.characterId, visual);
+    await writeCharacterVisual(projectRoot, body.characterId, visual);
     return {visual};
 });

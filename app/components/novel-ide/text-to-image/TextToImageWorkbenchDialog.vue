@@ -4,6 +4,8 @@ import Dialog from "nbook/app/components/common/Dialog.vue";
 import TextToImageLlmSettingsSection from "nbook/app/components/novel-ide/text-to-image/TextToImageLlmSettingsSection.vue";
 import TextToImageNovelAiSettingsSection from "nbook/app/components/novel-ide/text-to-image/TextToImageNovelAiSettingsSection.vue";
 import TextToImageBodySessionSection from "nbook/app/components/novel-ide/text-to-image/TextToImageBodySessionSection.vue";
+import TextToImageCharacterSection from "nbook/app/components/novel-ide/text-to-image/TextToImageCharacterSection.vue";
+import TextToImageHistorySection from "nbook/app/components/novel-ide/text-to-image/TextToImageHistorySection.vue";
 import {
     TextToImageGlobalConfigSchema,
     type TextToImageGlobalConfig,
@@ -24,7 +26,7 @@ type WorkbenchSnapshot = {
     providers: TextToImageProviderDto[];
 };
 
-const activeSection = ref<"llm" | "novelai" | "body">("llm");
+const activeSection = ref<"llm" | "novelai" | "body" | "character" | "history">("llm");
 const snapshot = ref<WorkbenchSnapshot>({
     config: TextToImageGlobalConfigSchema.parse({}),
     providers: [],
@@ -129,6 +131,22 @@ async function saveConfig(patch: Partial<TextToImageGlobalConfig>): Promise<void
                     <span class="i-lucide-file-text h-4 w-4"></span>
                     正文生图
                 </button>
+                <button
+                    class="mb-1 flex h-9 items-center gap-2 rounded-md px-2 text-left text-[12px]"
+                    :class="activeSection === 'character' ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'"
+                    @click="activeSection = 'character'"
+                >
+                    <span class="i-lucide-users-round h-4 w-4"></span>
+                    角色管理
+                </button>
+                <button
+                    class="mb-1 flex h-9 items-center gap-2 rounded-md px-2 text-left text-[12px]"
+                    :class="activeSection === 'history' ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'"
+                    @click="activeSection = 'history'"
+                >
+                    <span class="i-lucide-images h-4 w-4"></span>
+                    历史图片
+                </button>
             </nav>
 
             <!-- 右侧内容 -->
@@ -148,9 +166,14 @@ async function saveConfig(patch: Partial<TextToImageGlobalConfig>): Promise<void
                     @delete-provider="deleteProvider"
                 />
                 <TextToImageBodySessionSection
-                    v-else
+                    v-else-if="activeSection === 'body'"
                     :providers="snapshot.providers"
                 />
+                <TextToImageCharacterSection
+                    v-else-if="activeSection === 'character'"
+                    :providers="snapshot.providers"
+                />
+                <TextToImageHistorySection v-else />
             </div>
         </div>
         <p v-if="error" class="border-t border-[var(--border-color)] px-4 py-2 text-[12px] text-[var(--danger-text)]">{{ error }}</p>
