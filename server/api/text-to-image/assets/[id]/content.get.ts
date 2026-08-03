@@ -7,7 +7,7 @@ import {resolveTextToImageAssetPath} from "nbook/server/text-to-image/asset-path
 import {resolveTextToImageProjectRoot} from "nbook/server/text-to-image/project-client";
 
 const QuerySchema = z.object({
-    projectPath: z.string().trim().min(1),
+    projectRoot: z.string().trim().min(1),
 });
 
 export default defineEventHandler(async (event) => {
@@ -15,12 +15,12 @@ export default defineEventHandler(async (event) => {
     const query = QuerySchema.parse(getQuery(event));
     const id = getRouterParam(event, "id");
     if (!id) throw new Error("缺少 asset id");
-    const record = await withEphemeralTextToImageProjectClient(query.projectPath, async (client) => {
+    const record = await withEphemeralTextToImageProjectClient(`workspace/${query.projectRoot}`, async (client) => {
         return await client.textToImageAsset.findUnique({where: {id}});
     });
     if (!record) {
         throw new Error("资产不存在");
     }
-    const absolutePath = resolveTextToImageAssetPath(resolveTextToImageProjectRoot(query.projectPath), record.relativePath);
+    const absolutePath = resolveTextToImageAssetPath(resolveTextToImageProjectRoot(query.projectRoot), record.relativePath);
     return await send(event, await readFile(absolutePath), record.mimeType);
 });

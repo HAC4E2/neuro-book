@@ -22,7 +22,7 @@ import {generateCharacterPhotoPrompt} from "nbook/server/text-to-image/character
 const CharacterPhotoGenerateBodySchema = z.object({
     llmProviderId: z.number().int().positive(),
     novelAiProviderId: z.number().int().positive(),
-    projectPath: z.string().trim().min(1),
+    projectRoot: z.string().trim().min(1),
     characterId: z.string().trim().min(1),
     characterText: z.string().default(""),
     outfitText: z.string().default(""),
@@ -53,9 +53,10 @@ export default defineEventHandler(async (event) => {
         throw new Error("NovelAI Provider 不存在");
     }
 
+    const projectPath = `workspace/${body.projectRoot}`;
     const queue = new TextToImageQueueService();
     await queue.enqueue({
-        projectPath: body.projectPath,
+        projectPath,
         providerId: novelAiProvider.id,
         providerOwnerUserId: user.id,
         providerCredentialRevision: novelAiProvider.credentialRevision,
@@ -67,7 +68,7 @@ export default defineEventHandler(async (event) => {
             credentialRevision: novelAiProvider.credentialRevision,
         }),
     });
-    await processTextToImageJobs(body.projectPath, {
+    await processTextToImageJobs(projectPath, {
         listQueued: (projectPath) => queue.list(projectPath, "queued"),
         markRunning: (projectPath, id) => queue.markRunning(projectPath, id),
         markSucceeded: (projectPath, id) => queue.markSucceeded(projectPath, id),
@@ -77,9 +78,9 @@ export default defineEventHandler(async (event) => {
         saveAsset: saveTextToImageAsset,
     });
 
-    const photo = await findLatestCharacterPhoto(body.projectPath, body.characterId);
+    const photo = await findLatestCharacterPhoto(projectPath, body.characterId);
     if (photo) {
-        await appendCharacterPhoto(body.projectPath, body.characterId, photo);
+        await appendCharacterPhoto(projectPath, body.characterId, photo);
     }
     return {prompt, photo};
 });

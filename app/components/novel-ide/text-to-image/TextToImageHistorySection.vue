@@ -28,7 +28,7 @@ async function load(): Promise<void> {
     try {
         const result = await $fetch<AssetPage>("/api/text-to-image/assets", {
             query: {
-                projectPath: projectPath.value,
+                projectRoot: projectPath.value.replace(/^workspace\//u, ""),
                 page: page.value,
                 pageSize: pageSize.value,
             },
@@ -43,7 +43,7 @@ async function load(): Promise<void> {
 }
 
 function assetUrl(asset: TextToImageAssetDto): string {
-    return `/api/text-to-image/assets/${asset.id}/content?projectPath=${encodeURIComponent(projectPath.value)}`;
+    return `/api/text-to-image/assets/${asset.id}/content?projectRoot=${encodeURIComponent(projectPath.value.replace(/^workspace\//u, ""))}`;
 }
 </script>
 

@@ -186,7 +186,7 @@ describe("Application State migration runner", () => {
             action: "apply",
             runId: "sqlite-byte-rollback",
         });
-        expect(applied.steps[0]).toMatchObject({id: "app-sqlite", status: "applied", changedItems: 1});
+        expect(applied.steps[0]).toMatchObject({id: "app-sqlite", status: "applied", changedItems: 2});
         expect(await readFile(databasePath)).not.toEqual(before);
 
         const rolledBack = await runApplicationStateMigration({

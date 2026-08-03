@@ -4,7 +4,7 @@ import {requireCurrentUser} from "nbook/server/utils/auth";
 import {TextToImageQueueService} from "nbook/server/text-to-image/queue.service";
 
 const QuerySchema = z.object({
-    projectPath: z.string().trim().min(1),
+    projectRoot: z.string().trim().min(1),
 });
 
 export default defineEventHandler(async (event) => {
@@ -12,6 +12,6 @@ export default defineEventHandler(async (event) => {
     const query = QuerySchema.parse(getQuery(event));
     const id = getRouterParam(event, "id");
     if (!id) throw new Error("缺少 job id");
-    const canceled = await new TextToImageQueueService().cancel(query.projectPath, id);
+    const canceled = await new TextToImageQueueService().cancel(`workspace/${query.projectRoot}`, id);
     return {canceled};
 });

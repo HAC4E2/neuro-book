@@ -6,7 +6,7 @@ import {TextToImageProviderService} from "nbook/server/text-to-image/provider.se
 import {TextToImageQueueService} from "nbook/server/text-to-image/queue.service";
 
 const EnqueueBodySchema = z.object({
-    projectPath: z.string().trim().min(1),
+    projectRoot: z.string().trim().min(1),
     providerId: z.number().int().positive(),
     kind: z.enum(["manual", "body", "character", "reroll"]),
     requestJson: z.string(),
@@ -23,7 +23,7 @@ export default defineEventHandler(async (event) => {
         throw new Error("Provider 不存在");
     }
     return await new TextToImageQueueService().enqueue({
-        projectPath: body.projectPath,
+        projectPath: `workspace/${body.projectRoot}`,
         providerId: body.providerId,
         providerOwnerUserId: user.id,
         providerCredentialRevision: provider.credentialRevision,

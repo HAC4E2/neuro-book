@@ -9,7 +9,7 @@ import {requestNovelAiImages} from "nbook/server/text-to-image/novelai-image-gen
 import {saveTextToImageAsset} from "nbook/server/text-to-image/asset.service";
 
 const ProcessBodySchema = z.object({
-    projectPath: z.string().trim().min(1),
+    projectRoot: z.string().trim().min(1),
 });
 
 export default defineEventHandler(async (event) => {
@@ -17,7 +17,8 @@ export default defineEventHandler(async (event) => {
     const body = await validateBody(event, ProcessBodySchema);
     const queue = new TextToImageQueueService();
     const providerService = new TextToImageProviderService();
-    const processed = await processTextToImageJobs(body.projectPath, {
+    const projectPath = `workspace/${body.projectRoot}`;
+    const processed = await processTextToImageJobs(projectPath, {
         listQueued: (projectPath) => queue.list(projectPath, "queued"),
         markRunning: (projectPath, id) => queue.markRunning(projectPath, id),
         markSucceeded: (projectPath, id) => queue.markSucceeded(projectPath, id),

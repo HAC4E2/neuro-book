@@ -92,7 +92,7 @@ async function enqueue(): Promise<void> {
             const job = await $fetch<{id: string}>("/api/text-to-image/jobs", {
                 method: "POST",
                 body: {
-                    projectPath: projectPath.value,
+                    projectRoot: projectPath.value.replace(/^workspace\//u, ""),
                     providerId: novelAiProviderId.value,
                     kind: "body",
                     requestJson: JSON.stringify({
@@ -116,7 +116,7 @@ async function processQueue(): Promise<void> {
     try {
         const result = await $fetch<{processed: number}>("/api/text-to-image/queue/process", {
             method: "POST",
-            body: {projectPath: projectPath.value},
+            body: {projectRoot: projectPath.value.replace(/^workspace\//u, "")},
         });
         jobs.value = [];
         error.value = `已处理 ${result.processed} 个任务`;

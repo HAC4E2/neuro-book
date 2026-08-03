@@ -1,4 +1,4 @@
-import {lstat, mkdir, mkdtemp, readdir, readFile, rm, rmdir, symlink, writeFile} from "node:fs/promises";
+import {copyFile, lstat, mkdir, mkdtemp, readdir, readFile, rm, rmdir, symlink, writeFile} from "node:fs/promises";
 import {execFile} from "node:child_process";
 import {tmpdir} from "node:os";
 import path from "node:path";
@@ -524,8 +524,12 @@ async function linkApplicationFiles(applicationRoot: string, isolatedRoot: strin
     for (const entry of linkedApplicationEntries) {
         const source = path.join(applicationRoot, entry.name);
         const target = path.join(isolatedRoot, entry.name);
-        await symlink(source, target, entry.type).catch((error) => {
+        await symlink(source, target, entry.type).catch(async (error) => {
             if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+                return;
+            }
+            if (typeof error === "object" && error !== null && "code" in error && error.code === "EPERM" && entry.type === "file") {
+                await copyFile(source, target);
                 return;
             }
             throw error;

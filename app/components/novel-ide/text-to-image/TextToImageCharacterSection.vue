@@ -166,7 +166,7 @@ async function generateAvatar(): Promise<void> {
             body: {
                 llmProviderId: llmProviderId.value,
                 novelAiProviderId: novelAiProviderId.value,
-                projectPath: projectRoot.value,
+                projectRoot: projectRoot.value,
                 characterId: characterId.value,
                 characterText: JSON.stringify(character.value),
                 outfitText: outfitsText.value,
