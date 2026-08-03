@@ -8,18 +8,21 @@ port="$4"
 engine="$5"
 manifest="$root/.deploy/installation.json"
 compose_path="$root/.deploy/docker-compose.generated.yml"
+manager_home="${root}-manager"
+manager_cwd="${manager_home}/bunx"
 state_root=""
 
 channel="$(node -e 'const m=require(process.argv[1]); process.stdout.write(m.channel)' "$candidate_manifest")"
 export NEURO_BOOK_CONTAINER_ENGINE="$engine"
-export NEURO_BOOK_MANAGER_CONFIG="${root}-manager/config.json"
+export NEURO_BOOK_MANAGER_CONFIG="${manager_home}/config.json"
 export NO_COLOR=1
 if [[ "$engine" == "podman" ]]; then
     export PODMAN_COMPOSE_PROVIDER="podman-compose"
 fi
 
 manager() {
-    bunx --bun "@notnotype/neuro-book-manager@${manager_version}" "$@"
+    # 仓库自身也是同名 Bun workspace；必须在空目录运行，确保消费 npm 公开包而不是 Source workspace。
+    (cd "$manager_cwd" && bunx --bun "@notnotype/neuro-book-manager@${manager_version}" "$@")
 }
 
 resolve_state_root() {
@@ -50,12 +53,12 @@ cleanup() {
     if [[ -n "$state_root" && -f "$compose_path" ]]; then
         compose down --remove-orphans || true
     fi
-    rm -rf "$root" "${root}-manager"
+    rm -rf "$root" "$manager_home"
 }
 trap cleanup EXIT INT TERM
 
-rm -rf "$root" "${root}-manager"
-mkdir -p "${root}-manager"
+rm -rf "$root" "$manager_home"
+mkdir -p "$manager_cwd"
 manager install \
     --profile ghcr \
     --channel "$channel" \

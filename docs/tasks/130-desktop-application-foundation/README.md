@@ -1,6 +1,6 @@
 # 130 - 桌面应用前置架构、发行载荷与存储生命周期
 
-> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、Contract v3、Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议。正式构建已切换为 esbuild 同图 link/minify；五平台严格 A/B和四平台 Product smoke已通过。第二十次Candidate完成五平台Product、Windows Portable、双OCI与merge、assemble、Linux最终验证、Windows完整生命周期、Draft payload实字节复核与0.8.6完整data复用；其Cache Root宿主ownership与Podman inspect阻断已修复并进入公开Manager `.46`。Candidate 21已按显式`0.9.0`版本创建为隔离Draft并执行完整矩阵；最终索引、Release/OCI激活、浏览器人工验收与Tauri/Electron同矩阵spike尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由spike证据冻结。
+> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、Contract v3、Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议。正式构建已切换为 esbuild 同图 link/minify；五平台严格 A/B和四平台 Product smoke已通过。第二十次Candidate的Cache Root宿主ownership与Podman inspect阻断已修复并进入公开Manager `.46`。Candidate 21通过五平台、Portable、OCI build/merge、Draft payload与Windows data复用，但最终三个GHCR smoke因验证脚本的Bun workspace遮蔽同因失败；隔离bunx修复待Candidate 22从头验证。最终索引、Release/OCI激活、浏览器人工验收与Tauri/Electron同矩阵spike尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由spike证据冻结。
 
 ## Relative documents refs
 
@@ -788,3 +788,9 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 
 - 发行脚本的`--next minor`按当前package version计算；因为历史失败Draft已经把版本推进到`0.9.0-canary.*`，该参数实际生成了错误的`0.10.0`。Draft `v0.10.0-canary.20260803.005155Z.4eb16b29`（release ID `363935623`、revision `d1a5a5f0514dd645c9801307fd0f667bb872100d`）只存在于隔离分支，workflow [`30775479903`](https://github.com/notnotype/neuro-book/actions/runs/30775479903)已取消。Draft保持空资产与未公开状态；GHCR Registry API对`candidate-363935623`和正式版本tag都返回404，因此没有正式OCI别名需要回滚。
 - 不删除错误Draft、不改写其历史，也不在该分支继续发布。从`origin/master`建立干净分支后，dry-run使用显式`--version 0.9.0`确认目标，再创建Candidate 21：Draft `v0.9.0-canary.20260803.005535Z.4eb16b29`（release ID `363936400`、revision `ca8dd97f760f0726a09b81c4ea59abae735370c7`），workflow [`30775631022`](https://github.com/notnotype/neuro-book/actions/runs/30775631022)已dispatch并在后台执行。发行revision已fast-forward到`origin/master`；在完整矩阵通过前，Draft不会公开，OCI正式tag也不会激活。
+
+### 2026-08-03：Candidate 21 的 GHCR bunx 隔离边界
+
+- Workflow [`30775631022`](https://github.com/notnotype/neuro-book/actions/runs/30775631022)最终17个job成功、3个失败。五平台Product、Windows Portable、双OCI build/merge、assemble、Windows/Linux最终验证、Draft 10资产实字节和0.8.6完整data复用均成功；AMD64、ARM64与rootless Podman都在容器重启后执行公开Manager `start`时失败，最终索引与OCI正式tag因此跳过。
+- 三个平台相同首错为Actions checkout内的Manager Source无法解析私有`@notnotype/owned-process`。公开`.46` tarball的SHA-1、package identity和bundle内容重新核对正确；真实原因是GHCR脚本在同名Bun workspace中反复执行bunx，后续精确版本命令仍被本地workspace遮蔽。这个问题不会通过增加npm依赖或放宽门禁修复。
+- GHCR生命周期现在把bunx cwd固定到相邻空目录，继续消费公开精确Manager版本，同时与Source checkout、根lockfile和node_modules完全隔离。合同测试固定该边界；本地shell语法、Release 20 tests、scripts typecheck与公开Manager identity通过。Candidate 21保留未公开Draft审计，Candidate 22从头运行。

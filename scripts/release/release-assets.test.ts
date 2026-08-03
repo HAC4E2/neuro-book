@@ -644,6 +644,9 @@ describe("Product Release宿主合同", () => {
         expect(publicGhcr).toContain('compose ps --all --quiet app');
         expect(publicGhcr).not.toContain('--env-file "$root/.env"');
         expect(publicGhcr).toContain('"$engine" stop --time 10 "$container_id"');
+        expect(publicGhcr).toContain('manager_cwd="${manager_home}/bunx"');
+        expect(publicGhcr).toContain('(cd "$manager_cwd" && bunx --bun "@notnotype/neuro-book-manager@${manager_version}" "$@")');
+        expect(publicGhcr).not.toContain('\n    bunx --bun "@notnotype/neuro-book-manager@${manager_version}" "$@"\n');
         expect(workflow.jobs["publish-index"].needs).toEqual([
             "verify-public-ghcr-amd64",
             "verify-public-ghcr-arm64",
