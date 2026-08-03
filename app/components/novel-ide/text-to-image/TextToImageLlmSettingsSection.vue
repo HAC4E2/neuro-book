@@ -112,6 +112,7 @@ const testResult = ref("");
 const testPreview = ref("");
 const testRequestType = ref<TextToImageRequestType>("image_gen");
 const testStatus = ref<"idle" | "success" | "failure">("idle");
+const contextProfileExpanded = ref(false);
 const modelOptions = ref<string[]>([]);
 const fetchingModels = ref(false);
 const error = ref("");
@@ -603,7 +604,13 @@ async function fetchModels(): Promise<void> {
             <div class="grid grid-cols-1 gap-3">
                 <div class="rounded-md border border-[var(--border-color)] p-3">
                     <div class="mb-2 flex items-center justify-between">
-                        <h4 class="text-[12px] font-semibold text-[var(--text-main)]">上下文预设</h4>
+                        <div class="flex items-center gap-2">
+                            <button type="button" class="flex h-7 w-7 items-center justify-center rounded-md border border-[var(--border-color)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="contextProfileExpanded = !contextProfileExpanded">
+                                <span :class="contextProfileExpanded ? 'i-lucide-chevron-down h-3.5 w-3.5' : 'i-lucide-chevron-right h-3.5 w-3.5'"></span>
+                            </button>
+                            <h4 class="text-[12px] font-semibold text-[var(--text-main)]">上下文预设</h4>
+                            <span class="text-[11px] text-[var(--text-muted)]">{{ contextProfileKeys.length }} 个</span>
+                        </div>
                         <div class="flex items-center gap-2">
                             <select v-model="selectedContextProfileId" class="h-8 max-w-[220px] rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]" @change="selectContextProfile(selectedContextProfileId)">
                                 <option value="" disabled>选择预设</option>
@@ -617,6 +624,7 @@ async function fetchModels(): Promise<void> {
                             <button class="h-8 rounded-md border border-[var(--danger-border)] px-2 text-[12px] text-[var(--danger-text)] hover:bg-[var(--bg-hover)]" :disabled="!selectedContextProfileId" @click="deleteContextProfile">删除</button>
                         </div>
                     </div>
+                    <div v-show="contextProfileExpanded">
                     <div class="grid grid-cols-2 gap-3">
                         <label class="flex flex-col gap-1 text-[12px] text-[var(--text-secondary)]">
                             预设 ID
@@ -667,6 +675,7 @@ async function fetchModels(): Promise<void> {
                         </label>
                     </div>
                     <button class="mt-2 h-8 rounded-md border border-[var(--border-color)] px-2 text-[12px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="addContextEntry">添加条目</button>
+                    </div>
                 </div>
 
                 <div class="rounded-md border border-[var(--border-color)] p-3">
