@@ -29,6 +29,7 @@
   2. 这次修复或重构，能否在代码设计上约束 Agent 以后不会犯这种错误？
   3. 本次重构或修复会导致那些测试出问题？哪些测试没用了考虑删除。哪些应该修改优化？
 - 任务结束后记得报告并清理用户不知情的临时文件（例如 ~/some-files）
+- 进行提示词工程的时候不要把当前对话用户提到的要求带进提示词中，也不要假定对方拥有和你一样的知识（上下文）
 
 ## Git 工作流
 
@@ -142,10 +143,6 @@
 - 只有在复杂、大型功能编写后才运行测试。简单的小功能不要主动测试。不要过度测试，只在最常用，最复杂，最容易犯错的地方加测试即可
 - 类型覆盖非常重要，你设计的每一个组件都尽可能地标注类型。不要用 Record<string, unknown>，unknown，any 这些类型。如果特殊情况（外部未知数据用 unknown，无法表达或主动绕过类型系统时才用 any。）使用 any/unknown 请在代码旁边写明原因，如果你使用了 any，需要提出系统设计是否有问题。
 
-## Others
-
-- 进行提示词工程的时候不要把当前对话用户提到的要求带进提示词中，也不要假定对方拥有和你一样的知识（上下文）
-
 ### HTML/Vue
 
 - HTML 容器附近使用注释标注，以便后续修改时能快速指认位置
@@ -167,23 +164,6 @@
   - **全局通知 `useNotification()`**：跨入口操作、后台动作（自动保存、Agent 运行）、即时反馈（复制、粘贴、文件操作）、成功提示。使用 `notification.success()` / `error()` / `warning()` / `info()`，配合 `resolveApiErrorMessage()` 解析错误。
   - **局部 error state (`const error = ref("")`)**：当前 Dialog/Panel 内可恢复的表单或加载错误，需要持续展示直到用户修正。
   - **决策标准**：如果操作完成后 Dialog 会关闭，或错误可能在其它入口不可见，使用 `useNotification()`；如果错误需要和当前表单字段关联展示，使用局部 error state。
-  - **标准模式**：
-    ```typescript
-    import { resolveApiErrorMessage } from "nbook/app/utils/api-error";
-    import { useNotification } from "nbook/app/composables/useNotification";
-    
-    const notification = useNotification();
-    
-    try {
-        await $fetch("/api/save", { method: "POST", body: data });
-        notification.success("保存成功");
-    } catch (error) {
-        notification.error(
-            resolveApiErrorMessage(error, "保存失败"),
-            { title: "保存失败" }
-        );
-    }
-    ```
 - 如果同一业务函数会被多个入口复用，必须在函数内按调用入口显式选择错误出口，或拆成入口级 wrapper，避免隐藏宿主、Dialog、侧边栏之间错误不可见。
 - 可拖拽调整尺寸的面板统一使用 `app/composables/useResizablePanel.ts`；不要在组件里重复手写 `mousemove` / `mouseup` / pointer 监听。尺寸状态放在宿主或 store，组件只通过 `update:width` / `update:height` 回传。
 
@@ -217,6 +197,8 @@
 - 如果 release 命令被中断，先检查 `git status --short --branch`、`git log --oneline -5`、`package.json.version`，再用 `gh release view <tag> --repo notnotype/neuro-book` 判断版本提交和 GitHub Release 是否已经完成，避免重复发布。
 
 ## llmlint 独立开发仓（sibling source + vendored snapshot）
+
+（这里可以精简成子项目索引，例如 nb-memory neuro-book-site llmlint 等）
 
 - llmlint 真正开发仓位于 sibling 路径 `C:\Users\notnotype\Documents\CodeRepository\GithubProjects\llmlint`，remote 是 **github.com/notnotype/llmlint**（AGPL-3.0-only）。仓库根是开发工作区，真正可安装的 skill package 固定在 `skill/`。
 - NeuroBook 内置副本 `assets/workspace/.nbook/agent/skills/llmlint/` 只是 `../llmlint/skill` 的 vendored runtime snapshot，不再有嵌套 `.git`，不要在该目录内执行 llmlint 仓的 git 操作。
