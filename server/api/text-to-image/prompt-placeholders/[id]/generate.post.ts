@@ -2,13 +2,15 @@ import {createError, defineEventHandler, getRouterParam} from "h3";
 import {z} from "zod";
 import {requireCurrentUser} from "nbook/server/utils/auth";
 import {validateBody} from "nbook/server/utils/novel-chapter";
-import {readWorkspaceTextFile} from "nbook/server/workspace-files/workspace-files";
 import {resolveTextToImageProjectRoot} from "nbook/server/text-to-image/project-client";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {
     findTextToImagePromptMarkdown,
-    renderTextToImageAssetMarkdown,
 } from "nbook/shared/text-to-image-markdown";
+import {
+    readChapterMarkdown,
+    replacePromptPlaceholderWithAsset,
+} from "nbook/server/text-to-image/chapter.service";
 import {compileBodyPrompt} from "nbook/server/text-to-image/body-prompt-compiler";
 import {TextToImageProviderService} from "nbook/server/text-to-image/provider.service";
 import {TextToImageQueueService} from "nbook/server/text-to-image/queue.service";
@@ -41,7 +43,7 @@ export default defineEventHandler(async (event) => {
 
     const projectPath = `workspace/${body.projectRoot}`;
     const projectRoot = resolveTextToImageProjectRoot(projectPath);
-    const content = body.content ?? await readWorkspaceTextFile(absoluteFsPath(projectRoot), body.path);
+    const content = body.content ?? await readChapterMarkdown(absoluteFsPath(projectRoot), body.path);
     const matched = findTextToImagePromptMarkdown(content, placeholderId);
     if (!matched) {
         throw createError({statusCode: 404, message: `未找到占位符：${placeholderId}`});
@@ -93,6 +95,6 @@ export default defineEventHandler(async (event) => {
     return {
         jobId: job.id,
         asset,
-        content: content.replace(matched.raw, renderTextToImageAssetMarkdown(asset)),
+        content: replacePromptPlaceholderWithAsset(content, placeholderId, asset),
     };
 });
