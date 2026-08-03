@@ -105,6 +105,28 @@ enum StoryDecisionAnchorKind {
   content
 }
 
+enum TextToImageJobKind {
+  manual
+  body
+  character
+  reroll
+}
+
+enum TextToImageJobStatus {
+  queued
+  running
+  succeeded
+  failed
+  canceled
+}
+
+enum TextToImageSourceInsertStatus {
+  not_applicable
+  pending
+  inserted
+  missing
+}
+
 model ProjectMetadata {
   key       String   @id
   value     String
@@ -416,4 +438,51 @@ model WorldPatch {
   @@index([subjectId, instant, seq])
   @@index([subjectId, path, instant])
   @@index([path])
+}
+
+model TextToImageJob {
+  id                           String                        @id
+  providerId                   Int
+  providerOwnerUserId          Int
+  providerCredentialRevision   Int                           @default(1)
+  kind                         TextToImageJobKind
+  status                       TextToImageJobStatus          @default(queued)
+  sourcePath                   String?
+  sourceAnchorId               String?
+  sourceInsertStatus           TextToImageSourceInsertStatus @default(not_applicable)
+  requestJson                  String
+  providerSnapshotJson         String                        @default("{}")
+  errorMessage                 String?
+  attemptCount                 Int                           @default(0)
+  createdAt                    DateTime                      @default(now())
+  startedAt                    DateTime?
+  finishedAt                   DateTime?
+  assets                       TextToImageAsset[]
+
+  @@index([status, createdAt])
+  @@index([sourcePath, createdAt])
+}
+
+model TextToImageAsset {
+  id             String         @id
+  jobId          String
+  relativePath   String         @unique
+  fileName       String
+  mimeType       String
+  byteLength     Int
+  width          Int
+  height         Int
+  model          String
+  seed           Int
+  prompt         String
+  negativePrompt String
+  sourceKind     String
+  sourcePath     String?
+  sourceAnchorId String?
+  contentHash    String
+  createdAt      DateTime       @default(now())
+  job            TextToImageJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, createdAt])
+  @@index([sourcePath, createdAt])
 }

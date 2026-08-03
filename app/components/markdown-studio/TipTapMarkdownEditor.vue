@@ -10,6 +10,7 @@ import TipTapFrontmatterPanel from "nbook/app/components/markdown-studio/TipTapF
 import type {MarkdownFormatCommand, MarkdownInlineCommentItem, MarkdownStudioEditorHandle} from "nbook/app/composables/useMarkdownStudioController";
 import {createMarkdownEditorExtensions} from "nbook/app/components/markdown-studio/tiptap/markdown-editor-extensions";
 import {COMMENT_PLUGIN_KEY, type CommentItem} from "nbook/app/components/markdown-studio/tiptap/Comment";
+import type {TextToImagePromptPayload} from "nbook/shared/text-to-image-markdown";
 import {useDialog} from "nbook/app/composables/useDialog";
 import {useEditorChangeDebounce} from "nbook/app/composables/useEditorChangeDebounce";
 import {useNotification} from "nbook/app/composables/useNotification";
@@ -40,6 +41,7 @@ const props = withDefaults(defineProps<{
     showFrontmatterPanel?: boolean;
     submitOnEnter?: boolean;
     enableQuickTriggers?: boolean;
+    onTextToImageGenerate?: (payload: TextToImagePromptPayload) => void;
     onSkillTriggerStart?: () => void;
     popoverDirection?: PopoverDirection;
     matchPopoverWidth?: boolean;
@@ -63,6 +65,7 @@ const props = withDefaults(defineProps<{
     showFrontmatterPanel: true,
     submitOnEnter: false,
     enableQuickTriggers: false,
+    onTextToImageGenerate: undefined,
     onSkillTriggerStart: () => {},
     popoverDirection: "auto",
     matchPopoverWidth: false,
@@ -240,6 +243,7 @@ const editor = useEditor({
             sourcePath: props.activePath,
             resolveReference: props.resolveReference,
             enableQuickTriggers: props.enableQuickTriggers,
+            onTextToImageGenerate: props.onTextToImageGenerate,
         }),
         InlineAiReferenceHighlight,
     ],
@@ -1719,6 +1723,49 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
 
 :deep(.nb-html-embed.ProseMirror-selectednode) {
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-main) 45%, transparent);
+}
+
+/* 正文插图占位符：标题 + 状态 + 生成按钮 */
+:deep(.nb-text-to-image-prompt-node) {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.3rem;
+    margin: 0.25rem 0 1rem;
+}
+
+:deep(.nb-text-to-image-prompt-title) {
+    color: var(--text-main);
+    font-size: 0.9em;
+    font-weight: 700;
+    line-height: 1.3;
+}
+
+:deep(.nb-text-to-image-prompt-status) {
+    color: var(--status-info);
+    font-size: 0.75em;
+    line-height: 1.3;
+}
+
+:deep(.nb-text-to-image-prompt-button) {
+    display: inline-flex;
+    min-height: 2rem;
+    align-items: center;
+    gap: 0.4rem;
+    border: 1px solid color-mix(in srgb, var(--accent-main) 42%, var(--border-color));
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--accent-bg) 58%, var(--bg-panel));
+    padding: 0.28rem 0.72rem;
+    color: var(--accent-main);
+    font-size: 0.86rem;
+    font-weight: 700;
+    line-height: 1.2;
+    cursor: pointer;
+}
+
+:deep(.nb-text-to-image-prompt-button:hover) {
+    border-color: color-mix(in srgb, var(--accent-main) 70%, var(--border-color));
+    background: color-mix(in srgb, var(--accent-bg) 76%, var(--bg-panel));
 }
 
 /* 块级未知 HTML 兜底：低调源码块，只保数据不渲染 */

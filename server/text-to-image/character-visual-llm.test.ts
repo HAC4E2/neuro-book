@@ -1,0 +1,251 @@
+import {describe, expect, it} from "vitest";
+import {
+    requestLlmCompletion,
+    type RequestLlmCompletionInput,
+} from "nbook/server/text-to-image/llm-chat";
+import {
+    buildCharacterVisualSystemPrompt,
+    buildCharacterVisualUserPrompt,
+    generateCharacterVisualDraft,
+    parseCharacterVisualDraft,
+} from "nbook/server/text-to-image/character-visual-llm";
+
+describe("character visual llm", () => {
+    it("解析 JSON 角色草稿并映射中文字段", () => {
+        const draft = parseCharacterVisualDraft(JSON.stringify({
+            角色设计: {
+                人物: {
+                    中文名称: "小克",
+                    英文名称: "Xiao Ke",
+                    角色特征: "innocent, gentle",
+                    五官外貌: "long black hair, ((sapphire blue eyes)), pale skin, young girl",
+                    五官外貌背面: "long black hair, nape, pale skin, young girl",
+                    上半身SFW: "petite, slender body, medium breasts",
+                    上半身SFW背面: "shoulder blades, slim waist",
+                    下半身SFW: "long legs, thick thighs",
+                    下半身SFW背面: "hips, back of thighs",
+                    上半身NSFW: "medium breasts, pink nipples",
+                    上半身NSFW背面: "bare back, shoulder blades",
+                    下半身NSFW: "pussy, pubic hair",
+                    下半身NSFW背面: "buttocks, anus",
+                    负面: "bad anatomy, extra fingers",
+                },
+                服装: [{
+                    中文名称: "校服",
+                    英文名称: "School Uniform",
+                    上半身: "white shirt, navy vest",
+                    上半身背面: "plain back",
+                    下半身: "navy pleated skirt",
+                    下半身背面: "plain back",
+                }],
+            },
+        }));
+
+        expect(draft.character.cnName).toBe("小克");
+        expect(draft.character.facialBack).toContain("nape");
+        expect(draft.character.negativePrompt).toContain("bad anatomy");
+        expect(draft.outfits).toHaveLength(1);
+        expect(draft.outfits[0]?.upperBack).toBe("plain back");
+        expect(draft.schema).toBe("nbook.character-visual/v1");
+    });
+
+    it("解析 JSON 对象（schema 键）", () => {
+        const draft = parseCharacterVisualDraft(JSON.stringify({
+            character: {cnName: "小克", enName: "Xiao Ke"},
+            outfits: [{cnName: "校服", upper: "white shirt"}],
+        }));
+
+        expect(draft.character.cnName).toBe("小克");
+        expect(draft.outfits[0]?.upper).toBe("white shirt");
+        expect(draft.character.facialAppearance).toBe("");
+    });
+
+    it("解析 <人物>/<服装> 行式草稿并支持多个服装", () => {
+        const text = [
+            "```",
+            "<人物>",
+            "中文名称: 小克",
+            "英文名称: Xiao Ke",
+            "五官外貌: long black hair, blue eyes",
+            "五官外貌背面: long black hair, nape",
+            "负面: bad anatomy",
+            "</人物>",
+            "<服装>",
+            "中文名称: 校服",
+            "英文名称: School Uniform",
+            "上半身: white shirt",
+            "上半身背面: plain back",
+            "下半身: navy skirt",
+            "下半身背面: plain back",
+            "</服装>",
+            "<服装>",
+            "中文名称: 睡衣",
+            "英文名称: Pajamas",
+            "上半身: white pajamas shirt",
+            "下半身: pink shorts",
+            "</服装>",
+            "```",
+        ].join("\n");
+
+        const draft = parseCharacterVisualDraft(text);
+        expect(draft.character.cnName).toBe("小克");
+        expect(draft.character.facialAppearance).toContain("blue eyes");
+        expect(draft.outfits).toHaveLength(2);
+        expect(draft.outfits[1]?.cnName).toBe("睡衣");
+    });
+
+    it("解析失败抛出含诊断的错误", () => {
+        expect(() => parseCharacterVisualDraft("这是一段没有格式的输出")).toThrow(/解析失败/);
+    });
+
+    it("system prompt 包含字段、POV、SFW/NSFW 与 tag 语法", () => {
+        const prompt = buildCharacterVisualSystemPrompt();
+        expect(prompt).toContain("中文名称");
+        expect(prompt).toContain("英文名称");
+        expect(prompt).toContain("角色特征");
+        expect(prompt).toContain("五官外貌背面");
+        expect(prompt).toContain("上半身SFW背面");
+        expect(prompt).toContain("上半身NSFW");
+        expect(prompt).toContain("下半身NSFW背面");
+        expect(prompt).toContain("负面");
+        expect(prompt).toContain("上半身背面");
+        expect(prompt).toContain("下半身背面");
+        expect(prompt).toContain("(tag:1.5)");
+        expect(prompt).toContain("互斥");
+        expect(prompt).toContain("SFW");
+        expect(prompt).toContain("NSFW");
+    });
+
+    it("user prompt 区分 fill_empty 与 replace_visual", () => {
+        const fill = buildCharacterVisualUserPrompt({
+            characterPage: "角色页",
+            existingSummary: "",
+            mode: "fill_empty",
+        });
+        const replace = buildCharacterVisualUserPrompt({
+            characterPage: "角色页",
+            existingSummary: "{}",
+            mode: "replace_visual",
+        });
+
+        expect(fill).toContain("只补全为空");
+        expect(replace).toContain("整体重写");
+        expect(fill).toContain("角色页");
+    });
+
+    it("generateCharacterVisualDraft 使用注入 complete 并返回完整文件", async () => {
+        let lastInput: RequestLlmCompletionInput | undefined;
+        const complete: typeof requestLlmCompletion = async (input) => {
+            lastInput = input;
+            return JSON.stringify({
+                character: {cnName: "小克", facialAppearance: "long black hair, blue eyes"},
+                outfits: [{cnName: "校服", upper: "white shirt"}],
+            });
+        };
+
+        const visual = await generateCharacterVisualDraft({
+            provider: {
+                baseUrl: "https://api.example.com/v1",
+                credential: "sk-test",
+                settings: {
+                    model: "gpt-4o",
+                    temperature: 0.8,
+                    topP: 0.9,
+                    maxTokens: 4096,
+                    stream: false,
+                    sendImages: false,
+                    mergeSystemUser: false,
+                    retryCount: 0,
+                },
+            },
+            characterId: "char-1",
+            characterPage: "角色页",
+            existingSummary: "",
+            mode: "fill_empty",
+        }, complete);
+
+        expect(visual.characterId).toBe("char-1");
+        expect(visual.character.cnName).toBe("小克");
+        expect(visual.outfits[0]?.upper).toBe("white shirt");
+        expect(lastInput?.baseUrl).toBe("https://api.example.com/v1");
+        expect(lastInput?.model).toBe("gpt-4o");
+        expect(lastInput?.maxTokens).toBe(4096);
+        expect(lastInput?.messages[0]?.role).toBe("system");
+        expect(lastInput?.messages[1]?.role).toBe("user");
+        expect(String(lastInput?.messages[1]?.content)).toContain("角色页");
+    });
+
+    it("fill_empty 保留既有非空字段", async () => {
+        const complete: typeof requestLlmCompletion = async () => JSON.stringify({
+            character: {cnName: "小克"},
+        });
+
+        const visual = await generateCharacterVisualDraft({
+            provider: {
+                baseUrl: "https://api.example.com/v1",
+                credential: "sk-test",
+                settings: {model: "gpt-4o"},
+            },
+            characterId: "char-1",
+            characterPage: "角色页",
+            existingSummary: JSON.stringify({
+                schema: "nbook.character-visual/v1",
+                characterId: "char-1",
+                character: {facialAppearance: "long black hair, blue eyes"},
+                outfits: [],
+                photos: ["assets/tti/avatar-1.png"],
+            }),
+            mode: "fill_empty",
+        }, complete);
+
+        expect(visual.character.cnName).toBe("小克");
+        expect(visual.character.facialAppearance).toBe("long black hair, blue eyes");
+        expect(visual.photos).toEqual(["assets/tti/avatar-1.png"]);
+    });
+
+    it("解析失败最多重试 2 次后成功", async () => {
+        let calls = 0;
+        const complete: typeof requestLlmCompletion = async () => {
+            calls += 1;
+            return calls === 1
+                ? "这不是有效草稿"
+                : JSON.stringify({character: {cnName: "小克"}});
+        };
+
+        const visual = await generateCharacterVisualDraft({
+            provider: {
+                baseUrl: "https://api.example.com/v1",
+                credential: "sk-test",
+                settings: {model: "gpt-4o"},
+            },
+            characterId: "char-1",
+            characterPage: "角色页",
+            existingSummary: "",
+            mode: "replace_visual",
+        }, complete);
+
+        expect(calls).toBe(2);
+        expect(visual.character.cnName).toBe("小克");
+    });
+
+    it("连续解析失败抛错", async () => {
+        let calls = 0;
+        const complete: typeof requestLlmCompletion = async () => {
+            calls += 1;
+            return "坏输出";
+        };
+
+        await expect(generateCharacterVisualDraft({
+            provider: {
+                baseUrl: "https://api.example.com/v1",
+                credential: "sk-test",
+                settings: {model: "gpt-4o"},
+            },
+            characterId: "char-1",
+            characterPage: "角色页",
+            existingSummary: "",
+            mode: "replace_visual",
+        }, complete)).rejects.toThrow(/解析失败/);
+        expect(calls).toBe(3);
+    });
+});

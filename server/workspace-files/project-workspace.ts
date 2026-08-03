@@ -266,6 +266,49 @@ CREATE INDEX IF NOT EXISTS "WorldSubject_type_idx" ON "WorldSubject"("type");
 CREATE INDEX IF NOT EXISTS "WorldPatch_subjectId_instant_seq_idx" ON "WorldPatch"("subjectId", "instant", "seq");
 CREATE INDEX IF NOT EXISTS "WorldPatch_subjectId_path_instant_idx" ON "WorldPatch"("subjectId", "path", "instant");
 CREATE INDEX IF NOT EXISTS "WorldPatch_path_idx" ON "WorldPatch"("path");
+CREATE TABLE IF NOT EXISTS "TextToImageJob" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "providerId" INTEGER NOT NULL,
+    "providerOwnerUserId" INTEGER NOT NULL,
+    "providerCredentialRevision" INTEGER NOT NULL DEFAULT 1,
+    "kind" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'queued',
+    "sourcePath" TEXT,
+    "sourceAnchorId" TEXT,
+    "sourceInsertStatus" TEXT NOT NULL DEFAULT 'not_applicable',
+    "requestJson" TEXT NOT NULL,
+    "providerSnapshotJson" TEXT NOT NULL DEFAULT '{}',
+    "errorMessage" TEXT,
+    "attemptCount" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "startedAt" DATETIME,
+    "finishedAt" DATETIME
+);
+CREATE INDEX IF NOT EXISTS "TextToImageJob_status_createdAt_idx" ON "TextToImageJob"("status", "createdAt");
+CREATE INDEX IF NOT EXISTS "TextToImageJob_sourcePath_createdAt_idx" ON "TextToImageJob"("sourcePath", "createdAt");
+CREATE TABLE IF NOT EXISTS "TextToImageAsset" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "jobId" TEXT NOT NULL,
+    "relativePath" TEXT NOT NULL,
+    "fileName" TEXT NOT NULL,
+    "mimeType" TEXT NOT NULL,
+    "byteLength" INTEGER NOT NULL,
+    "width" INTEGER NOT NULL,
+    "height" INTEGER NOT NULL,
+    "model" TEXT NOT NULL,
+    "seed" INTEGER NOT NULL,
+    "prompt" TEXT NOT NULL,
+    "negativePrompt" TEXT NOT NULL,
+    "sourceKind" TEXT NOT NULL,
+    "sourcePath" TEXT,
+    "sourceAnchorId" TEXT,
+    "contentHash" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "TextToImageAsset_jobId_fkey" FOREIGN KEY ("jobId") REFERENCES "TextToImageJob" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "TextToImageAsset_relativePath_key" ON "TextToImageAsset"("relativePath");
+CREATE INDEX IF NOT EXISTS "TextToImageAsset_jobId_createdAt_idx" ON "TextToImageAsset"("jobId", "createdAt");
+CREATE INDEX IF NOT EXISTS "TextToImageAsset_sourcePath_createdAt_idx" ON "TextToImageAsset"("sourcePath", "createdAt");
 INSERT INTO "ProjectMetadata" ("key", "value", "updatedAt")
 VALUES ('schemaVersion', '1', CURRENT_TIMESTAMP)
 ON CONFLICT("key") DO UPDATE SET "value" = excluded."value", "updatedAt" = CURRENT_TIMESTAMP;
