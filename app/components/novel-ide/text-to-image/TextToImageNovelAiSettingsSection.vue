@@ -11,6 +11,13 @@ const props = defineProps<{
     providers: TextToImageProviderDto[];
 }>();
 
+type ReferenceImageMeta = {
+    relativePath: string;
+    fileName: string;
+    byteLength: number;
+    mimeType: string;
+};
+
 const emit = defineEmits<{
     (e: "save-provider", input: Record<string, unknown>): void;
     (e: "delete-provider", id: number): void;
@@ -27,10 +34,15 @@ const error = ref("");
 const fixedPromptPresetName = ref("");
 const vibeGroupName = ref("");
 const characterGroupName = ref("");
+const vibeGroupEntryDrafts = ref<Record<string, string>>({});
 const tagInput = ref("");
 const translating = ref(false);
 const vibeImageInput = ref<HTMLInputElement | null>(null);
+const vibePreviewUrl = ref<string | null>(null);
 const profileName = ref("");
+const referenceImages = ref<ReferenceImageMeta[]>([]);
+const referenceLibraryLoading = ref(false);
+const referenceUploadInput = ref<HTMLInputElement | null>(null);
 
 const fixedPromptPresetNames = computed(() => Object.keys(form.value.fixedPromptPresets ?? {}));
 const vibeGroupNames = computed(() => Object.keys(form.value.vibeGroups ?? {}));
@@ -64,6 +76,7 @@ watch(() => props.providers, () => {
     if (translateLlmProviderId.value === null && llmProviders.value.length > 0) {
         translateLlmProviderId.value = llmProviders.value[0]!.id;
     }
+    void loadReferenceImages();
 }, {immediate: true});
 
 function selectProvider(id: number): void {
@@ -140,6 +153,7 @@ function addVibeGroup(): void {
         ...form.value.vibeGroups,
         [groupName]: form.value.vibeGroups[groupName] ?? [],
     };
+    vibeGroupEntryDrafts.value[groupName] = "";
     vibeGroupName.value = "";
 }
 
@@ -147,6 +161,113 @@ function deleteVibeGroup(groupName: string): void {
     const next = {...form.value.vibeGroups};
     delete next[groupName];
     form.value.vibeGroups = next;
+    delete vibeGroupEntryDrafts.value[groupName];
+}
+
+function addVibeGroupItem(groupName: string): void {
+    const item = (vibeGroupEntryDrafts.value[groupName] ?? "").trim();
+    if (!item) return;
+    const current = form.value.vibeGroups[groupName] ?? [];
+    if (current.length >= 4) {
+        error.value = "每个 Vibe 组最多 4 个 Vibe";
+        return;
+    }
+    if (current.includes(item)) {
+        return;
+    }
+    form.value.vibeGroups = {
+        ...form.value.vibeGroups,
+        [groupName]: [...current, item],
+    };
+    vibeGroupEntryDrafts.value[groupName] = "";
+}
+
+function removeVibeGroupItem(groupName: string, item: string): void {
+    form.value.vibeGroups = {
+        ...form.value.vibeGroups,
+        [groupName]: (form.value.vibeGroups[groupName] ?? []).filter((value) => value !== item),
+    };
+}
+
+async function loadReferenceImages(): Promise<void> {
+    referenceLibraryLoading.value = true;
+    try {
+        const result = await $fetch<{items: typeof referenceImages.value}>("/api/text-to-image/reference-images");
+        referenceImages.value = result.items;
+    } catch (cause) {
+        error.value = resolveApiErrorMessage(cause, "读取参考图库失败");
+    } finally {
+        referenceLibraryLoading.value = false;
+    }
+}
+
+async function uploadReferenceImage(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+        const dataBase64 = await readFileAsBase64(file);
+        const meta = await $fetch<ReferenceImageMeta>("/api/text-to-image/reference-images", {
+            method: "POST",
+            body: {
+                fileName: file.name,
+                dataBase64,
+            },
+        });
+        await loadReferenceImages();
+        if (!form.value.characterReference.imageIds.includes(meta.relativePath)) {
+            form.value.characterReference.imageIds = [
+                ...form.value.characterReference.imageIds,
+                meta.relativePath,
+            ];
+        }
+    } catch (cause) {
+        error.value = resolveApiErrorMessage(cause, "上传参考图失败");
+    } finally {
+        input.value = "";
+    }
+}
+
+function toggleReferenceImage(relativePath: string): void {
+    const current = form.value.characterReference.imageIds;
+    form.value.characterReference.imageIds = current.includes(relativePath)
+        ? current.filter((item) => item !== relativePath)
+        : [...current, relativePath];
+}
+
+async function deleteReferenceImage(relativePath: string): Promise<void> {
+    try {
+        await $fetch("/api/text-to-image/reference-images/delete", {
+            method: "POST",
+            body: {relativePath},
+        });
+        form.value.characterReference.imageIds = form.value.characterReference.imageIds
+            .filter((item) => item !== relativePath);
+        await loadReferenceImages();
+    } catch (cause) {
+        error.value = resolveApiErrorMessage(cause, "删除参考图失败");
+    }
+}
+
+function openReferenceUpload(): void {
+    referenceUploadInput.value?.click();
+}
+
+function referenceImageUrl(relativePath: string): string {
+    return `/api/text-to-image/reference-images/content?path=${encodeURIComponent(relativePath)}`;
+}
+
+function readFileAsBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            const dataUrl = typeof reader.result === "string" ? reader.result : "";
+            const commaIndex = dataUrl.indexOf(",");
+            resolve(commaIndex >= 0 ? dataUrl.slice(commaIndex + 1) : dataUrl);
+        };
+        reader.onerror = () => reject(reader.error ?? new Error("读取文件失败"));
+        reader.readAsDataURL(file);
+    });
 }
 
 function addCharacterGroup(): void {
@@ -275,9 +396,18 @@ function applySizePreset(width: number, height: number): void {
 function onVibeImageSelected(event: Event): void {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
-    if (file) {
-        form.value.vibe.imageId = file.name;
-    }
+    if (!file) return;
+    form.value.vibe.imageId = file.name;
+    const reader = new FileReader();
+    reader.onload = () => {
+        vibePreviewUrl.value = typeof reader.result === "string" ? reader.result : null;
+    };
+    reader.readAsDataURL(file);
+}
+
+function removeVibeImage(): void {
+    form.value.vibe.imageId = null;
+    vibePreviewUrl.value = null;
 }
 
 function openVibeImagePicker(): void {
@@ -519,9 +649,21 @@ function downloadVibeFile(): void {
                         <button class="h-8 rounded-md border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-secondary)]" @click="addVibeGroup">添加</button>
                     </div>
                     <ul class="mt-2 space-y-1">
-                        <li v-for="groupName in vibeGroupNames" :key="groupName" class="flex items-center justify-between text-[12px] text-[var(--text-secondary)]">
-                            <span>{{ groupName }}</span>
-                            <button class="text-[var(--danger-text)]" @click="deleteVibeGroup(groupName)">删除</button>
+                        <li v-for="groupName in vibeGroupNames" :key="groupName" class="rounded-md border border-[var(--border-color)] p-2 text-[12px] text-[var(--text-secondary)]">
+                            <div class="flex items-center justify-between">
+                                <span class="font-medium text-[var(--text-main)]">{{ groupName }}</span>
+                                <button class="text-[var(--danger-text)]" @click="deleteVibeGroup(groupName)">删除</button>
+                            </div>
+                            <div class="mt-1 flex items-center gap-1">
+                                <input v-model="vibeGroupEntryDrafts[groupName]" class="h-7 min-w-0 flex-1 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] text-[var(--text-main)]" placeholder="Vibe ID" @keydown.enter="addVibeGroupItem(groupName)" />
+                                <button class="h-7 shrink-0 rounded-md border border-[var(--border-color)] px-2 text-[11px] text-[var(--text-secondary)]" @click="addVibeGroupItem(groupName)">添加</button>
+                            </div>
+                            <ul class="mt-1 space-y-1">
+                                <li v-for="item in form.vibeGroups[groupName]" :key="item" class="flex items-center justify-between text-[11px]">
+                                    <span class="truncate">{{ item }}</span>
+                                    <button class="text-[var(--danger-text)]" @click="removeVibeGroupItem(groupName, item)">移除</button>
+                                </li>
+                            </ul>
                         </li>
                     </ul>
                 </div>
@@ -560,6 +702,10 @@ function downloadVibeFile(): void {
                             <span class="min-w-0 flex-1 truncate text-[12px] text-[var(--text-muted)]">{{ form.vibe.imageId ?? "未选择" }}</span>
                         </div>
                     </label>
+                    <div v-if="vibePreviewUrl" class="mt-2 flex items-center gap-2">
+                        <img :src="vibePreviewUrl" class="h-12 w-12 rounded-md object-cover" alt="Vibe 参考图预览" />
+                        <button type="button" class="h-8 rounded-md border border-[var(--danger-border)] px-2 text-[12px] text-[var(--danger-text)]" @click="removeVibeImage">移除</button>
+                    </div>
                     <button type="button" class="mt-3 h-8 rounded-md border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-secondary)]" @click="downloadVibeFile">下载 Vibe 文件</button>
                 </div>
                 <div class="rounded-md border border-[var(--border-color)] p-3">
@@ -571,6 +717,33 @@ function downloadVibeFile(): void {
                         角色组 ID
                         <input v-model="form.characterReference.groupId" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]" />
                     </label>
+                    <label class="mt-2 flex flex-col gap-1 text-[12px] text-[var(--text-secondary)]">
+                        参考图库
+                        <div class="flex items-center gap-2">
+                            <input ref="referenceUploadInput" type="file" accept="image/png,image/jpeg,image/webp" class="hidden" @change="uploadReferenceImage" />
+                            <button type="button" class="h-8 rounded-md border border-[var(--border-color)] px-2 text-[12px] text-[var(--text-secondary)]" @click="openReferenceUpload">上传</button>
+                            <span v-if="referenceLibraryLoading" class="text-[11px] text-[var(--text-muted)]">读取中...</span>
+                        </div>
+                    </label>
+                    <div v-if="referenceImages.length > 0" class="mt-2 grid grid-cols-3 gap-2">
+                        <div
+                            v-for="image in referenceImages"
+                            :key="image.relativePath"
+                            class="relative overflow-hidden rounded-md border"
+                            :class="form.characterReference.imageIds.includes(image.relativePath) ? 'border-[var(--accent-main)]' : 'border-[var(--border-color)]'"
+                        >
+                            <button type="button" class="block w-full" :title="image.fileName" @click="toggleReferenceImage(image.relativePath)">
+                                <img :src="referenceImageUrl(image.relativePath)" class="h-14 w-full object-cover" :alt="image.fileName" />
+                            </button>
+                            <button
+                                type="button"
+                                class="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded bg-[var(--bg-panel)] text-[var(--danger-text)]"
+                                @click="deleteReferenceImage(image.relativePath)"
+                            >
+                                <span class="i-lucide-x h-3 w-3"></span>
+                            </button>
+                        </div>
+                    </div>
                 </div>
                 <div class="rounded-md border border-[var(--border-color)] p-3">
                     <label class="flex items-center gap-2 text-[12px] text-[var(--text-secondary)]">

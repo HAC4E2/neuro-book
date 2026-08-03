@@ -107,6 +107,8 @@ function contextProfileLabel(id: string): string {
 
 const testPrompt = ref("");
 const testResult = ref("");
+const testPreview = ref("");
+const testRequestType = ref<TextToImageRequestType>("image_gen");
 const testStatus = ref<"idle" | "success" | "failure">("idle");
 const modelOptions = ref<string[]>([]);
 const fetchingModels = ref(false);
@@ -433,6 +435,7 @@ async function runTest(): Promise<void> {
                 providerId: selectedProviderId.value,
                 prompt: testPrompt.value.trim() || "连接测试",
                 stream: form.value.stream,
+                requestType: testRequestType.value,
             },
         });
         testResult.value = result.content;
@@ -444,6 +447,20 @@ async function runTest(): Promise<void> {
     } finally {
         saving.value = false;
     }
+}
+
+function buildTestPreview(): void {
+    const binding = requestBindings.value[testRequestType.value];
+    const profileId = binding?.contextProfileId ?? "default";
+    const entries = (contextProfiles.value[profileId]?.entries ?? [])
+        .filter((entry) => entry.enabled)
+        .map((entry) => `[${entry.role}] ${entry.content}`)
+        .join("\n");
+    testPreview.value = [
+        entries,
+        "---",
+        testPrompt.value.trim() || "连接测试",
+    ].filter((part) => part !== "").join("\n");
 }
 
 async function fetchModels(): Promise<void> {
@@ -671,8 +688,15 @@ async function fetchModels(): Promise<void> {
                 <span v-if="testStatus === 'success'" class="text-[12px] text-[var(--status-success)]">连接成功</span>
                 <span v-else-if="testStatus === 'failure'" class="text-[12px] text-[var(--danger-text)]">连接失败</span>
             </div>
+            <div class="mb-2 flex flex-wrap items-center gap-2">
+                <select v-model="testRequestType" class="h-8 max-w-[220px] rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]">
+                    <option v-for="option in requestTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                </select>
+                <button class="h-8 rounded-md border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-secondary)]" @click="buildTestPreview">组合提示词预览</button>
+            </div>
             <textarea v-model="testPrompt" rows="4" class="w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-[13px] text-[var(--text-main)]" placeholder="输入测试提示词（可选，留空则发送连接测试）" />
             <button class="mt-2 h-8 rounded-md bg-[var(--accent-main)] px-3 text-[12px] font-medium text-[var(--text-inverse)]" :disabled="saving || selectedProviderId === null" @click="runTest">连接测试</button>
+            <textarea v-if="testPreview" v-model="testPreview" readonly rows="6" class="mt-2 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-[13px] text-[var(--text-main)]" placeholder="组合提示词预览" />
             <textarea v-model="testResult" readonly rows="6" class="mt-2 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-[13px] text-[var(--text-main)]" placeholder="AI 回复将显示在这里" />
         </div>
 

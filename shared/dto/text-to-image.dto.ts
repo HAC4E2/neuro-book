@@ -77,6 +77,7 @@ export type TextToImageNovelAiVibeSettings = z.infer<typeof TextToImageNovelAiVi
 export const TextToImageCharacterReferenceSettingsSchema = z.object({
     enabled: z.boolean().default(false),
     groupId: z.string().trim().nullable().default(null),
+    imageIds: z.array(z.string()).default([]),
 });
 export type TextToImageCharacterReferenceSettings = z.infer<typeof TextToImageCharacterReferenceSettingsSchema>;
 
