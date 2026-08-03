@@ -34,14 +34,13 @@ describe("Jobs feed 页面接线合同", () => {
         expect(indexPage).toContain("if (!active) agentJobsOpen.value = false;");
     });
 
-    it("开发命令固定为单进程 Nuxt", async () => {
+    it("开发命令固定经过Source Dev launcher，并由内部入口启动单进程 Nuxt", async () => {
         const packageJson = JSON.parse(await readFile(packagePath, "utf8")) as {
-            scripts: {dev: string};
+            scripts: {dev: string; "dev:runtime": string};
         };
-        const matches = packageJson.scripts.dev.match(/nuxt dev --no-fork/gu) ?? [];
 
-        expect(matches).toHaveLength(1);
-        expect(packageJson.scripts.dev.endsWith("nuxt dev --no-fork")).toBe(true);
+        expect(packageJson.scripts.dev).toBe("bun scripts/cli/source-dev.ts");
+        expect(packageJson.scripts["dev:runtime"].endsWith("nuxt dev --no-fork")).toBe(true);
     });
 
     it("单 Job 观察器不暴露全局刷新，Workflow 动作只重启 Run 轮询", async () => {
