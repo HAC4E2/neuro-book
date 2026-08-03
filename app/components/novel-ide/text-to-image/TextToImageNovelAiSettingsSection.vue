@@ -20,6 +20,15 @@ const form = ref(TextToImageNovelAiSettingsSchema.parse({}));
 const name = ref("");
 const credential = ref("");
 const error = ref("");
+const fixedPromptPresetName = ref("");
+const vibeGroupName = ref("");
+const characterGroupName = ref("");
+
+const fixedPromptPresetNames = computed(() => Object.keys(form.value.fixedPromptPresets ?? {}));
+const vibeGroupNames = computed(() => Object.keys(form.value.vibeGroups ?? {}));
+const characterGroupNames = computed(() => Object.keys(form.value.characterGroups ?? {}));
+const positiveTokenCount = computed(() => form.value.fixedPositivePrompt.length + form.value.fixedPositivePromptEnd.length);
+const negativeTokenCount = computed(() => form.value.fixedNegativePrompt.length);
 
 watch(() => props.providers, () => {
     if (selectedProviderId.value === null && novelAiProviders.value.length > 0) {
@@ -65,6 +74,65 @@ function deleteProvider(): void {
         emit("delete-provider", selectedProviderId.value);
         newProvider();
     }
+}
+
+function saveFixedPromptPreset(): void {
+    const presetName = fixedPromptPresetName.value.trim();
+    if (!presetName) return;
+    form.value.fixedPromptPresets = {
+        ...form.value.fixedPromptPresets,
+        [presetName]: {
+            positive: form.value.fixedPositivePrompt,
+            positiveEnd: form.value.fixedPositivePromptEnd,
+            negative: form.value.fixedNegativePrompt,
+        },
+    };
+}
+
+function applyFixedPromptPreset(presetName: string): void {
+    const preset = form.value.fixedPromptPresets[presetName];
+    if (!preset) return;
+    form.value.fixedPositivePrompt = preset.positive;
+    form.value.fixedPositivePromptEnd = preset.positiveEnd;
+    form.value.fixedNegativePrompt = preset.negative;
+}
+
+function deleteFixedPromptPreset(presetName: string): void {
+    const next = {...form.value.fixedPromptPresets};
+    delete next[presetName];
+    form.value.fixedPromptPresets = next;
+}
+
+function addVibeGroup(): void {
+    const groupName = vibeGroupName.value.trim();
+    if (!groupName) return;
+    form.value.vibeGroups = {
+        ...form.value.vibeGroups,
+        [groupName]: form.value.vibeGroups[groupName] ?? [],
+    };
+    vibeGroupName.value = "";
+}
+
+function deleteVibeGroup(groupName: string): void {
+    const next = {...form.value.vibeGroups};
+    delete next[groupName];
+    form.value.vibeGroups = next;
+}
+
+function addCharacterGroup(): void {
+    const groupName = characterGroupName.value.trim();
+    if (!groupName) return;
+    form.value.characterGroups = {
+        ...form.value.characterGroups,
+        [groupName]: form.value.characterGroups[groupName] ?? [],
+    };
+    characterGroupName.value = "";
+}
+
+function deleteCharacterGroup(groupName: string): void {
+    const next = {...form.value.characterGroups};
+    delete next[groupName];
+    form.value.characterGroups = next;
 }
 </script>
 
@@ -199,7 +267,46 @@ function deleteProvider(): void {
         </div>
 
         <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-3">
+            <h3 class="mb-2 text-[13px] font-semibold text-[var(--text-main)]">固定提示词预设</h3>
+            <div class="flex items-center gap-2">
+                <select v-model="fixedPromptPresetName" class="h-8 flex-1 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]">
+                    <option v-for="presetName in fixedPromptPresetNames" :key="presetName" :value="presetName">{{ presetName }}</option>
+                </select>
+                <button class="h-8 rounded-md border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-secondary)]" @click="fixedPromptPresetName && applyFixedPromptPreset(fixedPromptPresetName)">读取</button>
+                <button class="h-8 rounded-md border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-secondary)]" @click="saveFixedPromptPreset">另存为</button>
+                <button class="h-8 rounded-md border border-[var(--danger-border)] px-3 text-[12px] text-[var(--danger-text)]" :disabled="!fixedPromptPresetName" @click="deleteFixedPromptPreset(fixedPromptPresetName)">删除</button>
+            </div>
+            <p class="mt-2 text-[11px] text-[var(--text-muted)]">正面 token：{{ positiveTokenCount }} · 负面 token：{{ negativeTokenCount }}</p>
+        </div>
+
+        <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-3">
             <h3 class="mb-2 text-[13px] font-semibold text-[var(--text-main)]">Vibe / 角色参考</h3>
+            <div class="mb-3 grid grid-cols-2 gap-3">
+                <div>
+                    <div class="flex items-center gap-2">
+                        <input v-model="vibeGroupName" class="h-8 flex-1 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]" placeholder="Vibe 组名" />
+                        <button class="h-8 rounded-md border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-secondary)]" @click="addVibeGroup">添加</button>
+                    </div>
+                    <ul class="mt-2 space-y-1">
+                        <li v-for="groupName in vibeGroupNames" :key="groupName" class="flex items-center justify-between text-[12px] text-[var(--text-secondary)]">
+                            <span>{{ groupName }}</span>
+                            <button class="text-[var(--danger-text)]" @click="deleteVibeGroup(groupName)">删除</button>
+                        </li>
+                    </ul>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <input v-model="characterGroupName" class="h-8 flex-1 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]" placeholder="角色组名" />
+                        <button class="h-8 rounded-md border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-secondary)]" @click="addCharacterGroup">添加</button>
+                    </div>
+                    <ul class="mt-2 space-y-1">
+                        <li v-for="groupName in characterGroupNames" :key="groupName" class="flex items-center justify-between text-[12px] text-[var(--text-secondary)]">
+                            <span>{{ groupName }}</span>
+                            <button class="text-[var(--danger-text)]" @click="deleteCharacterGroup(groupName)">删除</button>
+                        </li>
+                    </ul>
+                </div>
+            </div>
             <div class="grid grid-cols-2 gap-3">
                 <div class="rounded-md border border-[var(--border-color)] p-3">
                     <label class="flex items-center gap-2 text-[12px] text-[var(--text-secondary)]">

@@ -60,6 +60,9 @@ export const TextToImageLlmProviderSettingsSchema = z.object({
     sendImages: z.boolean().default(false),
     mergeSystemUser: z.boolean().default(false),
     retryCount: z.number().int().min(0).max(5).default(0),
+    historyDepth: z.number().int().min(0).max(20).default(2),
+    tagthinkEcho: z.boolean().default(false),
+    historyKeepImageTag: z.boolean().default(false),
 });
 export type TextToImageLlmProviderSettings = z.infer<typeof TextToImageLlmProviderSettingsSchema>;
 
@@ -113,6 +116,13 @@ export const TextToImageNovelAiSettingsSchema = z.object({
     furryDataset: z.boolean().default(false),
     positiveQualityPreset: z.boolean().default(true),
     negativeQualityPreset: z.string().default("none"),
+    fixedPromptPresets: z.record(z.string(), z.object({
+        positive: z.string().default(""),
+        positiveEnd: z.string().default(""),
+        negative: z.string().default(""),
+    })).default({}),
+    vibeGroups: z.record(z.string(), z.array(z.string())).default({}),
+    characterGroups: z.record(z.string(), z.array(z.string())).default({}),
     vibe: TextToImageNovelAiVibeSettingsSchema.default(DEFAULT_NOVEL_AI_VIBE),
     characterReference: TextToImageCharacterReferenceSettingsSchema.default(DEFAULT_CHARACTER_REFERENCE),
     vibeGroup: TextToImageNovelAiVibeGroupSettingsSchema.default(DEFAULT_NOVEL_AI_VIBE_GROUP),

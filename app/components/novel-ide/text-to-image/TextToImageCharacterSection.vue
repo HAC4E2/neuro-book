@@ -32,8 +32,33 @@ const defaultCharacterFields = {
     negativePrompt: "",
 };
 
+type CharacterFieldKey = keyof typeof defaultCharacterFields;
+
+const characterFieldLabels: Record<CharacterFieldKey, string> = {
+    cnName: "中文名",
+    enName: "英文名",
+    profileTraits: "角色特征",
+    facialAppearance: "五官正面",
+    facialBack: "五官背面",
+    upperSfw: "上半身 SFW",
+    upperBackSfw: "上半身 SFW 背面",
+    lowerSfw: "下半身 SFW",
+    lowerBackSfw: "下半身 SFW 背面",
+    upperNsfw: "上半身 NSFW",
+    upperBackNsfw: "上半身 NSFW 背面",
+    lowerNsfw: "下半身 NSFW",
+    lowerBackNsfw: "下半身 NSFW 背面",
+    negativePrompt: "负面",
+};
+
 const llmProviders = computed(() => props.providers.filter((provider) => provider.kind === "openai_compatible"));
 const novelAiProviders = computed(() => props.providers.filter((provider) => provider.kind === "novelai"));
+const characterFields = computed(() => (
+    Object.keys(defaultCharacterFields) as CharacterFieldKey[]
+).map((key) => ({
+    key,
+    label: characterFieldLabels[key],
+})));
 
 const projectRoot = ref("demo");
 const characterId = ref("char-1");
@@ -48,8 +73,6 @@ const photoPrompt = ref("");
 const error = ref("");
 const loading = ref(false);
 
-const projectPath = computed(() => `workspace/${projectRoot.value}`);
-
 async function loadVisual(): Promise<void> {
     loading.value = true;
     error.value = "";
@@ -61,6 +84,11 @@ async function loadVisual(): Promise<void> {
             character.value = {...defaultCharacterFields, ...result.visual.character};
             outfitsText.value = JSON.stringify(result.visual.outfits, null, 2);
             photos.value = result.visual.photos ?? [];
+        } else {
+            character.value = {...defaultCharacterFields};
+            outfitsText.value = "[]";
+            photos.value = [];
+            photoPrompt.value = "";
         }
     } catch (cause) {
         error.value = resolveApiErrorMessage(cause, "读取角色视觉失败");
@@ -81,7 +109,7 @@ async function saveVisual(): Promise<void> {
                 visual,
             },
         });
-        photos.value = visual.photos;
+        await loadVisual();
     } catch (cause) {
         error.value = resolveApiErrorMessage(cause, "保存角色视觉失败");
     }
@@ -138,7 +166,7 @@ async function generateAvatar(): Promise<void> {
             body: {
                 llmProviderId: llmProviderId.value,
                 novelAiProviderId: novelAiProviderId.value,
-                projectPath: projectPath.value,
+                projectPath: projectRoot.value,
                 characterId: characterId.value,
                 characterText: JSON.stringify(character.value),
                 outfitText: outfitsText.value,
@@ -198,9 +226,9 @@ function buildVisual(): CharacterVisual {
         <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-3">
             <h3 class="mb-2 text-[13px] font-semibold text-[var(--text-main)]">12 字段</h3>
             <div class="grid grid-cols-3 gap-3">
-                <label v-for="(value, key) in character" :key="key" class="flex flex-col gap-1 text-[12px] text-[var(--text-secondary)]">
-                    {{ key }}
-                    <input v-model="character[key]" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]" />
+                <label v-for="field in characterFields" :key="field.key" class="flex flex-col gap-1 text-[12px] text-[var(--text-secondary)]">
+                    {{ field.label }}
+                    <input v-model="character[field.key]" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[13px] text-[var(--text-main)]" />
                 </label>
             </div>
             <label class="mt-3 flex flex-col gap-1 text-[12px] text-[var(--text-secondary)]">
