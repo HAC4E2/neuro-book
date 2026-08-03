@@ -25,6 +25,7 @@
         "build/product-source-path-contract.ts",
         "build/product-runtime-image-builder.ts",
         "deploy/windows-owned-process-smoke.ts",
+        "release/create-interrupted-operation.ts",
         "release/install-dependencies.ts",
         "release/verify-windows-portable-restart.ts",
         "release/manager-release-contract.test.ts",

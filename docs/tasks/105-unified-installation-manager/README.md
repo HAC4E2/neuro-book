@@ -1,6 +1,6 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`仍是最新已确认完整canary。当前工作树协议为Installation Manifest v5、Release Manifest v5、Operation Journal v5 和 Product-owned Application State catalog v3。公开Manager `.46`已完成provenance、tarball、签名、attestation与真实bunx验证；第二十次0.9 Candidate暴露的Cache Root宿主ownership与Podman 4.9.3 inspect形状已修复。Candidate 21通过17个job，最终三个GHCR生命周期因验证脚本的Bun workspace遮蔽同因失败；修复已把公开Manager bunx移到隔离空目录，待Candidate 22从头验证。最终Release公开与OCI正式别名仍未完成。
+> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`仍是最新已确认完整canary。当前工作树协议为Installation Manifest v5、Release Manifest v5、Operation Journal v5 和 Product-owned Application State catalog v3。公开Manager `.46`已完成provenance、tarball、签名、attestation与真实bunx验证。Candidate 22通过17个job，三个GHCR生命周期在容器重启后执行Source故障注入脚本时同因失败；该脚本现已改为标准库-only并纳入scripts typecheck，待Candidate 23从头验证。最终Release公开与OCI正式别名仍未完成。
 
 ## 2026-08-02：Installation Mutation、自卸载与发行候选治理
 
@@ -1233,8 +1233,14 @@ uninstall
 - 当前package version已经位于`0.9.0-canary.*`，原计划命令`--next minor`实际会选择`0.10.0`。误生成的Draft `v0.10.0-canary.20260803.005155Z.4eb16b29`（release ID `363935623`、revision `d1a5a5f0514dd645c9801307fd0f667bb872100d`）只推送到隔离分支；workflow [`30775479903`](https://github.com/notnotype/neuro-book/actions/runs/30775479903)已取消，Draft保持空资产、未公开且永久保留审计。GHCR Registry API确认`candidate-363935623`和该正式版本tag均为404，未产生OCI别名。
 - 恢复没有reset、删除或复用错误Draft。从`origin/master`新建干净分支后，`--version 0.9.0 --dry-run`确认目标发布线，再创建Candidate 21：Draft `v0.9.0-canary.20260803.005535Z.4eb16b29`（release ID `363936400`、revision `ca8dd97f760f0726a09b81c4ea59abae735370c7`），workflow [`30775631022`](https://github.com/notnotype/neuro-book/actions/runs/30775631022)已dispatch并在后台执行。该revision已fast-forward进入`origin/master`；Release仍是Draft，尚未公开，也未激活OCI正式tag。
 
-### 2026-08-03：Candidate 21 的公开 Manager workspace 遮蔽
+### 2026-08-03：Candidate 21 的 GHCR Source 依赖首错
 
-- Workflow [`30775631022`](https://github.com/notnotype/neuro-book/actions/runs/30775631022)最终为17个job成功、3个失败、2个依赖跳过。五平台Product、双OCI build/merge、Windows与Linux最终验证、Draft 10资产实字节、Windows 0.8.6完整data复用均通过；三个GHCR job都完成安装、管理员创建、图片缓存、网页提取、停止和容器重启，随后在公开Manager再次执行`start`时同因失败。
-- 首错是Bun从Actions checkout的`packages/neuro-book-manager/src/app-commands.ts`解析`@notnotype/owned-process`失败。npm `.46` tarball已按公开SHA-1重新下载，单文件bundle中包含Owned Process，问题不是漏发依赖；验证脚本反复在仓库cwd执行`bunx`，后续调用被同名Bun workspace遮蔽。Candidate保持10资产Draft且正式OCI tag为404。
-- 修复不把私有workspace包改成npm生产依赖，也不绕过真实bunx。每个GHCR smoke在独立空目录运行精确版本bunx，Manager config仍使用相邻临时目录；发行合同测试禁止恢复仓库cwd直调。shell语法、Release合同20/20、scripts typecheck与公开Manager identity均通过，Candidate 22需从头执行全部gate。
+- Workflow [`30775631022`](https://github.com/notnotype/neuro-book/actions/runs/30775631022)最终为17个job成功、3个失败、2个依赖跳过。五平台Product、双OCI build/merge、Windows与Linux最终验证、Draft 10资产实字节、Windows 0.8.6完整data复用均通过；三个GHCR job都完成安装、管理员创建、图片缓存、网页提取、停止和容器重启，随后出现同一Source模块解析错误。
+- 首错是Actions checkout的`packages/neuro-book-manager/src/app-commands.ts`无法解析`@notnotype/owned-process`。npm `.46` tarball已按公开SHA-1重新下载，单文件bundle中包含Owned Process，问题不是漏发依赖。Candidate 21日志当时把错误过早归到相邻的Manager `start`；Candidate 22用隔离bunx证明该命令和容器重启实际成功，真实失败点是下一行Source故障注入脚本。
+- 精确版本bunx继续固定在独立空目录，避免公开验证被同名Source workspace影响；这个边界正确但不是本次首错的充分修复。Candidate 21保持10资产Draft且正式OCI tag为404，不重跑、不复用。
+
+### 2026-08-03：Candidate 22 的崩溃fixture依赖闭包
+
+- Draft `v0.9.0-canary.20260803.013300Z.7e9bc0ea`（revision `d6de1b443c718112dfc7acbe3a285a2c69586e09`）的workflow [`30777137614`](https://github.com/notnotype/neuro-book/actions/runs/30777137614)同样为17个job成功、3个失败、2个跳过。三个GHCR job中，隔离bunx完成安装、管理员创建、doctor、停止和第二次`start`；随后`create-interrupted-operation.ts`从Source深层导入Manager operation，clean job没有根`node_modules`，因此稳定复现相同Owned Process解析错误。
+- 该脚本只负责制造一个刻意停在`planned`的Operation Journal以验证下一次公开Manager自动回滚，不应消费生产事务实现。现在改为Node/Bun标准库-only：读取实际Installation Manifest，先原子写planned intent，再创建marker并原子写applied effect；最终Journal仍由公开Manager的schema和恢复路径真实验证。
+- `scripts/tsconfig.json`现显式包含该脚本；Release合同同时执行自包含fixture并禁止`nbook/**`导入。shell语法、scripts typecheck与Release合同21/21通过。Candidate 22保持10资产Draft、未公开且无正式OCI tag；Candidate 23从头运行全部gate。

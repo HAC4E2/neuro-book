@@ -1,6 +1,6 @@
 # 130 - 桌面应用前置架构、发行载荷与存储生命周期
 
-> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、Contract v3、Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议。正式构建已切换为 esbuild 同图 link/minify；五平台严格 A/B和四平台 Product smoke已通过。第二十次Candidate的Cache Root宿主ownership与Podman inspect阻断已修复并进入公开Manager `.46`。Candidate 21通过五平台、Portable、OCI build/merge、Draft payload与Windows data复用，但最终三个GHCR smoke因验证脚本的Bun workspace遮蔽同因失败；隔离bunx修复待Candidate 22从头验证。最终索引、Release/OCI激活、浏览器人工验收与Tauri/Electron同矩阵spike尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由spike证据冻结。
+> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、Contract v3、Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议。正式构建已切换为 esbuild 同图 link/minify；五平台严格 A/B和四平台 Product smoke已通过。第二十次Candidate的Cache Root宿主ownership与Podman inspect阻断已修复并进入公开Manager `.46`。Candidate 22通过五平台、Portable、OCI build/merge、Draft payload与Windows data复用，但最终三个GHCR smoke因Source故障注入脚本依赖仓库`node_modules`同因失败；标准库-only fixture修复待Candidate 23从头验证。最终索引、Release/OCI激活、浏览器人工验收与Tauri/Electron同矩阵spike尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由spike证据冻结。
 
 ## Relative documents refs
 
@@ -789,8 +789,14 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - 发行脚本的`--next minor`按当前package version计算；因为历史失败Draft已经把版本推进到`0.9.0-canary.*`，该参数实际生成了错误的`0.10.0`。Draft `v0.10.0-canary.20260803.005155Z.4eb16b29`（release ID `363935623`、revision `d1a5a5f0514dd645c9801307fd0f667bb872100d`）只存在于隔离分支，workflow [`30775479903`](https://github.com/notnotype/neuro-book/actions/runs/30775479903)已取消。Draft保持空资产与未公开状态；GHCR Registry API对`candidate-363935623`和正式版本tag都返回404，因此没有正式OCI别名需要回滚。
 - 不删除错误Draft、不改写其历史，也不在该分支继续发布。从`origin/master`建立干净分支后，dry-run使用显式`--version 0.9.0`确认目标，再创建Candidate 21：Draft `v0.9.0-canary.20260803.005535Z.4eb16b29`（release ID `363936400`、revision `ca8dd97f760f0726a09b81c4ea59abae735370c7`），workflow [`30775631022`](https://github.com/notnotype/neuro-book/actions/runs/30775631022)已dispatch并在后台执行。发行revision已fast-forward到`origin/master`；在完整矩阵通过前，Draft不会公开，OCI正式tag也不会激活。
 
-### 2026-08-03：Candidate 21 的 GHCR bunx 隔离边界
+### 2026-08-03：Candidate 21 的 GHCR Source 首错
 
-- Workflow [`30775631022`](https://github.com/notnotype/neuro-book/actions/runs/30775631022)最终17个job成功、3个失败。五平台Product、Windows Portable、双OCI build/merge、assemble、Windows/Linux最终验证、Draft 10资产实字节和0.8.6完整data复用均成功；AMD64、ARM64与rootless Podman都在容器重启后执行公开Manager `start`时失败，最终索引与OCI正式tag因此跳过。
-- 三个平台相同首错为Actions checkout内的Manager Source无法解析私有`@notnotype/owned-process`。公开`.46` tarball的SHA-1、package identity和bundle内容重新核对正确；真实原因是GHCR脚本在同名Bun workspace中反复执行bunx，后续精确版本命令仍被本地workspace遮蔽。这个问题不会通过增加npm依赖或放宽门禁修复。
-- GHCR生命周期现在把bunx cwd固定到相邻空目录，继续消费公开精确Manager版本，同时与Source checkout、根lockfile和node_modules完全隔离。合同测试固定该边界；本地shell语法、Release 20 tests、scripts typecheck与公开Manager identity通过。Candidate 21保留未公开Draft审计，Candidate 22从头运行。
+- Workflow [`30775631022`](https://github.com/notnotype/neuro-book/actions/runs/30775631022)最终17个job成功、3个失败。五平台Product、Windows Portable、双OCI build/merge、assemble、Windows/Linux最终验证、Draft 10资产实字节和0.8.6完整data复用均成功；AMD64、ARM64与rootless Podman都在容器重启后出现同一Source模块解析错误，最终索引与OCI正式tag因此跳过。
+- 三个平台相同首错为Actions checkout内的Manager Source无法解析私有`@notnotype/owned-process`；公开`.46` tarball本身复核正确。Candidate 21日志最初把失败归到相邻的Manager `start`，Candidate 22隔离bunx后证明`start`已成功，真正失败的是随后运行的Source故障注入脚本。
+- GHCR生命周期仍把bunx cwd固定到相邻空目录，确保公开精确Manager版本不被Source workspace遮蔽；这项边界保留，但不再被记录成Candidate 21首错的完整根因。
+
+### 2026-08-03：Candidate 22 的自包含恢复fixture
+
+- Draft `v0.9.0-canary.20260803.013300Z.7e9bc0ea`（revision `d6de1b443c718112dfc7acbe3a285a2c69586e09`）的workflow [`30777137614`](https://github.com/notnotype/neuro-book/actions/runs/30777137614)仍为17成功、3失败、2跳过。五平台、Portable、OCI build/merge、Draft 10资产、Windows完整生命周期与0.8.6 data复用通过；三个GHCR容器都越过第二次Manager `start`，随后执行`create-interrupted-operation.ts`时同因失败。
+- 恢复fixture原本深层导入Manager operation Module，而公开GHCR job刻意不安装Source依赖。它现改为标准库-only并原子发布Operation Journal：先记录planned path intent，再创建marker并记录applied effect；公开Manager仍负责schema校验、恢复和最终`rolled-back`断言，不复制生产恢复逻辑。
+- 脚本已进入scripts typecheck，Release合同执行真实fixture并禁止重新引入`nbook/**`。本地shell语法、typecheck与21项合同通过。Candidate 22保留未公开Draft且没有正式OCI tag，Candidate 23从头运行。

@@ -1,4 +1,4 @@
-import {mkdir, mkdtemp, readFile, rename, rm, writeFile} from "node:fs/promises";
+import {mkdir, mkdtemp, readFile, rename, rm, stat, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join, resolve} from "node:path";
 
@@ -647,12 +647,51 @@ describe("Product Release宿主合同", () => {
         expect(publicGhcr).toContain('manager_cwd="${manager_home}/bunx"');
         expect(publicGhcr).toContain('(cd "$manager_cwd" && bunx --bun "@notnotype/neuro-book-manager@${manager_version}" "$@")');
         expect(publicGhcr).not.toContain('\n    bunx --bun "@notnotype/neuro-book-manager@${manager_version}" "$@"\n');
+        const interruptedOperation = await readFile(resolve(ROOT, "scripts/release/create-interrupted-operation.ts"), "utf8");
+        const scriptsTsconfig = JSON.parse(await readFile(resolve(ROOT, "scripts/tsconfig.json"), "utf8")) as {include?: string[]};
+        expect(interruptedOperation).not.toContain('from "nbook/');
+        expect(interruptedOperation).toContain("schemaVersion: 5");
+        expect(interruptedOperation).toContain("await writeJsonAtomic(journalPath, journal)");
+        expect(scriptsTsconfig.include).toContain("release/create-interrupted-operation.ts");
         expect(workflow.jobs["publish-index"].needs).toEqual([
             "verify-public-ghcr-amd64",
             "verify-public-ghcr-arm64",
             "verify-public-ghcr-podman",
             "verify-public-windows-data-reuse",
         ]);
+    });
+
+    it("GHCR崩溃恢复fixture不依赖Source node_modules", async () => {
+        const root = await mkdtemp(join(tmpdir(), "nbook-release-recovery-fixture-"));
+        roots.push(root);
+        await mkdir(join(root, ".deploy"), {recursive: true});
+        await writeFile(
+            join(root, ".deploy", "installation.json"),
+            `${JSON.stringify({containerEngine: "docker"})}\n`,
+            "utf8",
+        );
+
+        await runCapture("bun", ["scripts/release/create-interrupted-operation.ts", root], {cwd: ROOT});
+
+        const journal = JSON.parse(await readFile(
+            join(root, ".deploy", "operations", "release-recovery.json"),
+            "utf8",
+        )) as {
+            schemaVersion: number;
+            phase: string;
+            previousManifest: {containerEngine: string};
+            effects: Array<{kind: string; owner: string; path: string; state: string}>;
+        };
+        expect(journal.schemaVersion).toBe(5);
+        expect(journal.phase).toBe("planned");
+        expect(journal.previousManifest.containerEngine).toBe("docker");
+        expect(journal.effects).toContainEqual({
+            kind: "path-create",
+            state: "applied",
+            owner: "staging",
+            path: ".deploy/staging/release-recovery-marker",
+        });
+        expect((await stat(join(root, ".deploy", "staging", "release-recovery-marker"))).isDirectory()).toBe(true);
     });
 
     it("Manifest v5首次发布只复用0.8.6完整data目录", async () => {
