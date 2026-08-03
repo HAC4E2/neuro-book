@@ -1,7 +1,7 @@
 import {readFile} from "node:fs/promises";
 import {defineEventHandler, getQuery, getRouterParam, send} from "h3";
 import {z} from "zod";
-import {requireCurrentUser} from "nbook/server/utils/auth";
+import {requireTextToImageUser} from "nbook/server/text-to-image/auth";
 import {withEphemeralTextToImageProjectClient} from "nbook/server/text-to-image/project-client";
 import {resolveTextToImageAssetPath} from "nbook/server/text-to-image/asset-path";
 import {resolveTextToImageProjectRoot} from "nbook/server/text-to-image/project-client";
@@ -11,7 +11,7 @@ const QuerySchema = z.object({
 });
 
 export default defineEventHandler(async (event) => {
-    await requireCurrentUser(event);
+    await requireTextToImageUser(event);
     const query = QuerySchema.parse(getQuery(event));
     const id = getRouterParam(event, "id");
     if (!id) throw new Error("缺少 asset id");

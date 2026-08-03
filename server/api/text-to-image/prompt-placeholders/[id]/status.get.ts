@@ -1,6 +1,6 @@
 import {createError, defineEventHandler, getQuery, getRouterParam} from "h3";
 import {z} from "zod";
-import {requireCurrentUser} from "nbook/server/utils/auth";
+import {requireTextToImageUser} from "nbook/server/text-to-image/auth";
 import {resolveTextToImageProjectRoot} from "nbook/server/text-to-image/project-client";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {findTextToImagePromptMarkdown} from "nbook/shared/text-to-image-markdown";
@@ -13,7 +13,7 @@ const StatusQuerySchema = z.object({
 
 /** 查询正文占位符是否仍待生成；用于前端轮询卡片状态。 */
 export default defineEventHandler(async (event) => {
-    await requireCurrentUser(event);
+    await requireTextToImageUser(event);
     const query = StatusQuerySchema.parse(getQuery(event));
     const placeholderId = getRouterParam(event, "id") ?? "";
     if (placeholderId.trim() === "") {

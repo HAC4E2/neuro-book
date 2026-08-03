@@ -1,6 +1,6 @@
 import {defineEventHandler, getQuery} from "h3";
 import {z} from "zod";
-import {requireCurrentUser} from "nbook/server/utils/auth";
+import {requireTextToImageUser} from "nbook/server/text-to-image/auth";
 import {TextToImageQueueService} from "nbook/server/text-to-image/queue.service";
 
 const QuerySchema = z.object({
@@ -9,7 +9,7 @@ const QuerySchema = z.object({
 });
 
 export default defineEventHandler(async (event) => {
-    await requireCurrentUser(event);
+    await requireTextToImageUser(event);
     const query = QuerySchema.parse(getQuery(event));
     return await new TextToImageQueueService().list(`workspace/${query.projectRoot}`, query.status);
 });

@@ -1,6 +1,6 @@
 import {createError, defineEventHandler, getRouterParam} from "h3";
 import {z} from "zod";
-import {requireCurrentUser} from "nbook/server/utils/auth";
+import {requireTextToImageUser} from "nbook/server/text-to-image/auth";
 import {validateBody} from "nbook/server/utils/novel-chapter";
 import {resolveTextToImageProjectRoot} from "nbook/server/text-to-image/project-client";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
@@ -34,7 +34,7 @@ const GeneratePlaceholderBodySchema = z.object({
  * 找到最新资产并把正文里的占位符替换为 Markdown 图片引用。
  */
 export default defineEventHandler(async (event) => {
-    const user = await requireCurrentUser(event);
+    const user = await requireTextToImageUser(event);
     const body = await validateBody(event, GeneratePlaceholderBodySchema);
     const placeholderId = getRouterParam(event, "id") ?? "";
     if (placeholderId.trim() === "") {

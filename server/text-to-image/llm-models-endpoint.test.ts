@@ -15,8 +15,8 @@ describe("POST /api/text-to-image/llm/models", () => {
         };
         globals.defineEventHandler = (handler) => handler;
         globals.defineRouteMeta = () => undefined;
-        vi.doMock("nbook/server/utils/auth", () => ({
-            requireCurrentUser: vi.fn(async () => ({id: 1})),
+        vi.doMock("nbook/server/text-to-image/auth", () => ({
+            requireTextToImageUser: vi.fn(async () => ({id: 1})),
         }));
         vi.doMock("nbook/server/utils/novel-chapter", () => ({
             validateBody: vi.fn(async () => body),
@@ -36,7 +36,7 @@ describe("POST /api/text-to-image/llm/models", () => {
         };
         globals.defineEventHandler = originalDefineEventHandler;
         globals.defineRouteMeta = originalDefineRouteMeta;
-        vi.doUnmock("nbook/server/utils/auth");
+        vi.doUnmock("nbook/server/text-to-image/auth");
         vi.doUnmock("nbook/server/utils/novel-chapter");
         vi.doUnmock("nbook/server/text-to-image/llm-models");
         vi.doUnmock("nbook/server/text-to-image/provider.service");

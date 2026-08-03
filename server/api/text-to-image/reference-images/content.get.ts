@@ -1,7 +1,7 @@
 import {readFile} from "node:fs/promises";
 import {defineEventHandler, getQuery, send} from "h3";
 import {z} from "zod";
-import {requireCurrentUser} from "nbook/server/utils/auth";
+import {requireTextToImageUser} from "nbook/server/text-to-image/auth";
 import {resolveTextToImageReferenceImagePath} from "nbook/server/text-to-image/reference-image.service";
 
 const ContentQuerySchema = z.object({
@@ -9,7 +9,7 @@ const ContentQuerySchema = z.object({
 });
 
 export default defineEventHandler(async (event) => {
-    await requireCurrentUser(event);
+    await requireTextToImageUser(event);
     const query = ContentQuerySchema.parse(getQuery(event));
     const absolutePath = await resolveTextToImageReferenceImagePath(query.path);
     const extension = query.path.split(".").pop()?.toLowerCase() ?? "";

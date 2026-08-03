@@ -1,9 +1,9 @@
 import {defineEventHandler} from "h3";
-import {requireCurrentUser} from "nbook/server/utils/auth";
+import {requireTextToImageUser} from "nbook/server/text-to-image/auth";
 import {listTextToImageReferenceImages} from "nbook/server/text-to-image/reference-image.service";
 
 export default defineEventHandler(async (event) => {
-    await requireCurrentUser(event);
+    await requireTextToImageUser(event);
     return {
         items: await listTextToImageReferenceImages(),
     };

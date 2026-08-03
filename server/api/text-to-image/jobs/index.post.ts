@@ -1,7 +1,7 @@
 import {defineEventHandler} from "h3";
 import {z} from "zod";
 import {validateBody} from "nbook/server/utils/novel-chapter";
-import {requireCurrentUser} from "nbook/server/utils/auth";
+import {requireTextToImageUser} from "nbook/server/text-to-image/auth";
 import {TextToImageProviderService} from "nbook/server/text-to-image/provider.service";
 import {TextToImageQueueService} from "nbook/server/text-to-image/queue.service";
 
@@ -15,7 +15,7 @@ const EnqueueBodySchema = z.object({
 });
 
 export default defineEventHandler(async (event) => {
-    const user = await requireCurrentUser(event);
+    const user = await requireTextToImageUser(event);
     const body = await validateBody(event, EnqueueBodySchema);
     const providers = await new TextToImageProviderService().list(user.id);
     const provider = providers.find((item) => item.id === body.providerId);

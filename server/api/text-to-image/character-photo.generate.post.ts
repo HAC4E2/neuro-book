@@ -1,6 +1,6 @@
 import {defineEventHandler} from "h3";
 import {z} from "zod";
-import {requireCurrentUser} from "nbook/server/utils/auth";
+import {requireTextToImageUser} from "nbook/server/text-to-image/auth";
 import {validateBody} from "nbook/server/utils/novel-chapter";
 import {generateCharacterAvatar} from "nbook/server/text-to-image/character-photo.service";
 
@@ -15,7 +15,7 @@ const CharacterPhotoGenerateBodySchema = z.object({
 });
 
 export default defineEventHandler(async (event) => {
-    const user = await requireCurrentUser(event);
+    const user = await requireTextToImageUser(event);
     const body = await validateBody(event, CharacterPhotoGenerateBodySchema);
     return await generateCharacterAvatar({
         userId: user.id,

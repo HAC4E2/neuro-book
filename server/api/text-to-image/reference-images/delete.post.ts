@@ -1,6 +1,6 @@
 import {defineEventHandler} from "h3";
 import {z} from "zod";
-import {requireCurrentUser} from "nbook/server/utils/auth";
+import {requireTextToImageUser} from "nbook/server/text-to-image/auth";
 import {validateBody} from "nbook/server/utils/novel-chapter";
 import {deleteTextToImageReferenceImage} from "nbook/server/text-to-image/reference-image.service";
 
@@ -9,7 +9,7 @@ const DeleteReferenceImageBodySchema = z.object({
 });
 
 export default defineEventHandler(async (event) => {
-    await requireCurrentUser(event);
+    await requireTextToImageUser(event);
     const body = await validateBody(event, DeleteReferenceImageBodySchema);
     await deleteTextToImageReferenceImage(body.relativePath);
     return {ok: true};

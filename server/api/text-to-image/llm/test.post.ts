@@ -1,7 +1,7 @@
 import {z} from "zod";
 import {defineEventHandler} from "h3";
 import {validateBody} from "nbook/server/utils/novel-chapter";
-import {requireCurrentUser} from "nbook/server/utils/auth";
+import {requireTextToImageUser} from "nbook/server/text-to-image/auth";
 import {TextToImageProviderService} from "nbook/server/text-to-image/provider.service";
 import {requestLlmCompletion} from "nbook/server/text-to-image/llm-chat";
 import {TextToImageLlmProviderSettingsSchema, TextToImageRequestTypeSchema} from "nbook/shared/dto/text-to-image.dto";
@@ -26,7 +26,7 @@ const LlmTestBodySchema = z.object({
 });
 
 export default defineEventHandler(async (event) => {
-    const user = await requireCurrentUser(event);
+    const user = await requireTextToImageUser(event);
     const body = await validateBody(event, LlmTestBodySchema);
     const runtime = await new TextToImageProviderService().resolveRuntimeProvider(user.id, body.providerId);
     const settings = TextToImageLlmProviderSettingsSchema.parse(runtime.settings);

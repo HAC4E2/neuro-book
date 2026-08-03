@@ -1,6 +1,6 @@
 import {createError, defineEventHandler, getQuery} from "h3";
 import {z} from "zod";
-import {requireCurrentUser} from "nbook/server/utils/auth";
+import {requireTextToImageUser} from "nbook/server/text-to-image/auth";
 import {readCharacterVisual} from "nbook/server/text-to-image/character-visual.service";
 import {resolveTextToImageProjectRoot} from "nbook/server/text-to-image/project-client";
 
@@ -10,7 +10,7 @@ const CharacterVisualGetQuerySchema = z.object({
 });
 
 export default defineEventHandler(async (event) => {
-    await requireCurrentUser(event);
+    await requireTextToImageUser(event);
     const query = CharacterVisualGetQuerySchema.safeParse(getQuery(event));
     if (!query.success) {
         const firstIssue = query.error.issues[0];
