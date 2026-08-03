@@ -4,8 +4,7 @@
 
 **用工程的方法，写完你的长篇**
 
-> 设定不吃书 · 伏笔有账本 · 文字过 lint · 数据在本地
-
+> 设定不吃书 · 伏笔有账本 · 文字没 AI 味 · AI 听指挥
 
 [下载 Windows 免安装包](https://github.com/notnotype/neuro-book/releases) · [文档](https://blog.notnotype.com/neuro-book/) · [Discord](https://discord.gg/bSQB7mNpHB) · QQ 群 287447372
 
