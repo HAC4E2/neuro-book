@@ -1,6 +1,6 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`仍是最新已确认完整canary。当前工作树协议为Installation Manifest v5、Release Manifest v5、Operation Journal v5 和 Product-owned Application State catalog v3。公开Manager `.45`已完成provenance、tarball、签名、attestation与真实bunx验证；第二十次0.9 Candidate已通过五平台Product、Windows Portable、双OCI与merge、assemble、Linux最终验证、Windows完整生命周期、Draft payload实字节复核和0.8.6完整data复用。公开GHCR最终门禁暴露Cache Root宿主ownership与Podman 4.9.3 inspect形状，修复待Manager `.46`和Candidate 21从头验证；最终Verifier与Release/OCI激活尚未产生。
+> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`仍是最新已确认完整canary。当前工作树协议为Installation Manifest v5、Release Manifest v5、Operation Journal v5 和 Product-owned Application State catalog v3。公开Manager `.46`已完成provenance、tarball、签名、attestation与真实bunx验证；第二十次0.9 Candidate已通过五平台Product、Windows Portable、双OCI与merge、assemble、Linux最终验证、Windows完整生命周期、Draft payload实字节复核和0.8.6完整data复用。公开GHCR最终门禁暴露Cache Root宿主ownership与Podman 4.9.3 inspect形状，修复待Candidate 21从头验证；最终Verifier与Release/OCI激活尚未产生。
 
 ## 2026-08-02：Installation Mutation、自卸载与发行候选治理
 
@@ -1226,3 +1226,4 @@ uninstall
 - Docker链证明全新Installation的Cache Root未由Manager预建。Container Engine代建bind source会改变ownership，非root Product无法创建`image-variants`，而Image Variant的运行时降级语义又会隐藏原始写入失败。Manager现在在候选迁移和每次启动前建立Cache Root与`State Root/tool-state`，使缓存可删除后重建、工具状态持久化和Container用户身份使用同一生命周期合同。
 - Podman 4.9.3上游结构确认无healthcheck时`State.Health.Status`是合法空字符串，顶层`ImageName`是原始镜像引用。Manager按该Adapter形状解析，不再把Docker非空Health假设施加给Podman。唯一label查询取得候选ID后先持久化ownership、再验证镜像身份，保证inspect或identity失败仍能精确回收；CLI展开AggregateError全部叶错误，保留首错和恢复错。
 - 本地相关3 files / 48 tests、Manager全量248 passed / 3 skipped、Manager/root/scripts typecheck、5-file pack和Release 4 files / 31 tests通过。Candidate 20保持10资产Draft且不复用；下一步发布并验证Manager `.46`，再创建Candidate 21从头执行全部Release gate。
+- Manager `.46`已由workflow [`30775254534`](https://github.com/notnotype/neuro-book/actions/runs/30775254534)完成Trusted Publishing；npm `gitHead=ef98cf244bb0c942f374e67b7db9d4fed020756a`，5-file公开tarball SHA-1为`b94e32004a731019a550adfa7d418a3b12317674`，registry signature、npm publish attestation、SLSA provenance、隔离Bun cache真实bunx与`manager:verify-public`均通过。Candidate 21可以消费该精确版本。
