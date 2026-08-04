@@ -46,7 +46,7 @@ import {resolveApiErrorCode, resolveApiErrorMessage} from "nbook/app/utils/api-e
 import {formatCost, formatCostExact, usingCnyRate} from "nbook/app/utils/cost-format";
 import {promptCacheHitRate, type PromptCacheUsage} from "nbook/app/utils/prompt-cache";
 import type {ConfigBootstrapDto, ConfigModelSettingsDto} from "nbook/shared/dto/config.dto";
-import type {AgentQueuedMessageDto, AgentSessionAttachmentItemDto, AgentSessionInteractionDto, AgentSessionListPageDto, AgentSessionListQueryDto, AgentSessionRecoveryDto, AgentSessionSummaryDto, AgentMode} from "nbook/shared/dto/agent-session.dto";
+import type {AgentQueuedMessageDto, AgentSessionAttachmentItemDto, AgentSessionAttachmentResolveResultDto, AgentSessionInteractionDto, AgentSessionListPageDto, AgentSessionListQueryDto, AgentSessionRecoveryDto, AgentSessionSummaryDto, AgentMode} from "nbook/shared/dto/agent-session.dto";
 import {AgentModeSchema} from "nbook/shared/dto/agent-session.dto";
 import type {AgentCommandResult, InvokeAgentResult} from "nbook/shared/dto/agent-session.dto";
 import type {DropdownItem} from "nbook/app/components/common/dropdown.types";
@@ -180,6 +180,7 @@ let defaultProfileResolveRequest = 0;
 let inlineEditorSessionRequestId = 0;
 let inlineEditorRecoveryRequestId = 0;
 let sessionAttachmentRequestId = 0;
+let sessionAttachmentGeneration = 0;
 let historyAttachmentInsertRequestId = 0;
 let sessionAttachmentSearchTimer: ReturnType<typeof setTimeout> | null = null;
 let composerDraftWarning = "";
@@ -1070,9 +1071,10 @@ async function clearComposerAfterAccepted(
     }
 }
 
-/** 重置附件分页状态；Session 切换时旧请求通过 requestId 失效。 */
+/** 重置附件分页状态；目录请求通过 requestId、Composer metadata 请求通过 generation 失效。 */
 function resetSessionAttachments(): void {
     sessionAttachmentRequestId += 1;
+    sessionAttachmentGeneration += 1;
     sessionAttachments.value = [];
     knownSessionAttachments.value = [];
     sessionAttachmentUniqueTotal.value = 0;
@@ -1095,6 +1097,7 @@ function invalidateSessionAttachments(): void {
         return;
     }
     sessionAttachmentRequestId += 1;
+    sessionAttachmentGeneration += 1;
     sessionAttachmentLoading.value = false;
     knownSessionAttachments.value = [];
     void loadSessionAttachments(true);
@@ -1692,7 +1695,7 @@ const cycleAgentMode = async (): Promise<void> => {
 async function resolveComposerAttachmentItems(
     sessionId: number,
     markdown: string,
-): Promise<AgentSessionAttachmentItemDto[]> {
+): Promise<AgentSessionAttachmentItemDto[] | null> {
     const attachmentIds = [...new Set(parseAgentImageMarkdown(markdown).flatMap((part) => {
         if (part.type !== "image") {
             return [];
@@ -1703,7 +1706,24 @@ async function resolveComposerAttachmentItems(
     const byId = new Map(knownSessionAttachments.value.map((item) => [item.attachment.attachmentId, item]));
     const missingIds = attachmentIds.filter((attachmentId) => !byId.has(attachmentId));
     if (missingIds.length > 0) {
-        const resolved = await agentApi.resolveSessionAttachments(sessionId, missingIds);
+        const requestScopeKey = sessionScopeKey.value;
+        const requestSessionId = sessionId;
+        const requestGeneration = sessionAttachmentGeneration;
+        const isCurrent = (): boolean => sessionScopeKey.value === requestScopeKey
+            && activeSessionId.value === requestSessionId
+            && sessionAttachmentGeneration === requestGeneration;
+        let resolved: AgentSessionAttachmentResolveResultDto;
+        try {
+            resolved = await agentApi.resolveSessionAttachments(sessionId, missingIds);
+        } catch (error) {
+            if (!isCurrent()) {
+                return null;
+            }
+            throw error;
+        }
+        if (!isCurrent()) {
+            return null;
+        }
         rememberSessionAttachments(resolved.items);
         for (const item of resolved.items) {
             byId.set(item.attachment.attachmentId, item);
@@ -1713,6 +1733,20 @@ async function resolveComposerAttachmentItems(
         const item = byId.get(attachmentId);
         return item ? [item] : [];
     });
+}
+
+/** 附件 metadata 失败时不能进入乐观消息或 Session invoke。 */
+async function prepareComposerAttachmentItems(
+    sessionId: number,
+    markdown: string,
+): Promise<AgentSessionAttachmentItemDto[] | null> {
+    try {
+        return await resolveComposerAttachmentItems(sessionId, markdown);
+    } catch (error) {
+        console.error("校验 Agent 消息图片附件失败", error);
+        notifyAgentError(error, "校验 Session 图片失败");
+        return null;
+    }
 }
 
 /** 等待 durable user entry 或 queue item，二者都是输入已接受的 SSE 旁证。 */
@@ -1797,7 +1831,10 @@ const send = async (): Promise<void> => {
     }
 
     const prompt = inputText.value;
-    const attachmentItems = await resolveComposerAttachmentItems(sessionId, prompt);
+    const attachmentItems = await prepareComposerAttachmentItems(sessionId, prompt);
+    if (!attachmentItems) {
+        return;
+    }
     if (activeSessionId.value !== sessionId || inputText.value !== prompt) {
         return;
     }
@@ -1965,7 +2002,10 @@ const sendRunningMessage = async (mode: "steer" | "followup"): Promise<void> => 
     }
     const sessionId = activeSessionId.value;
     const prompt = inputText.value;
-    const attachmentItems = await resolveComposerAttachmentItems(sessionId, prompt);
+    const attachmentItems = await prepareComposerAttachmentItems(sessionId, prompt);
+    if (!attachmentItems) {
+        return;
+    }
     if (activeSessionId.value !== sessionId || inputText.value !== prompt) {
         return;
     }
