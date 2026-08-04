@@ -65,8 +65,8 @@ type AssertLeaseHealthy = () => void;
 /**
  * 规划或执行 Session schema v1 -> v2 离线迁移。
  *
- * 所有模式先取得 Agent Session Store 唯一独占 lease；dry-run 只读取 Session JSONL，
- * 不创建 sentinel、manifest、backup 或 stage。
+ * apply 模式先取得 Agent Session Store 唯一独占 lease；dry-run 只读取 Session JSONL，
+ * 不持有 lease，也不创建 sentinel、manifest、backup 或 stage。
  */
 export async function runSessionSchemaV2Migration(
     options: RunSessionSchemaV2Options,

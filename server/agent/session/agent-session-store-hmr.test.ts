@@ -74,6 +74,101 @@ describe("Agent Session Store HMR registry", () => {
         });
     });
 
+    it("HMR重载期间starting transition完成前不重复取得runtime lease", async () => {
+        const root = resolve(".agent", "tmp", `hmr-starting-${randomUUID()}`);
+        const ready = {schemaVersion: 2, rootWorkspace: root} as unknown as ReadyAgentSessionStore;
+        const release = vi.fn(async () => undefined);
+        const active = {
+            ready,
+            release,
+            assertHealthy: vi.fn(),
+            compromised: new Promise<never>(() => undefined),
+        };
+        let entry!: RuntimeEntry;
+        let finishTransition!: () => void;
+        const transition = new Promise<void>((resolvePromise) => {
+            finishTransition = () => {
+                entry.active = active;
+                entry.phase = "active";
+                resolvePromise();
+            };
+        });
+        entry = {
+            rootWorkspace: root,
+            active: null,
+            phase: "starting",
+            transition,
+        };
+        const previous = new Map([[runtimeKey(root), entry]]);
+        hmrGlobals.__nbookAgentSessionStoreRuntimesV4 = previous;
+        delete hmrGlobals.__nbookAgentSessionStoreRuntimesV3;
+
+        const runtime = await import("nbook/server/agent/session/agent-session-store-runtime");
+        const starting = runtime.startAgentSessionStoreRuntime(root);
+        let settled = false;
+        void starting.then(
+            () => { settled = true; },
+            () => { settled = true; },
+        );
+
+        await Promise.resolve();
+        expect(settled).toBe(false);
+        expect(entry.phase).toBe("starting");
+
+        finishTransition();
+        await expect(starting).resolves.toBe(ready);
+        expect(active.assertHealthy).toHaveBeenCalledOnce();
+    });
+
+    it("HMR重载期间closing transition完成前不提前释放或改变runtime", async () => {
+        const root = resolve(".agent", "tmp", `hmr-closing-${randomUUID()}`);
+        const ready = {schemaVersion: 2, rootWorkspace: root} as unknown as ReadyAgentSessionStore;
+        const release = vi.fn(async () => undefined);
+        const active = {
+            ready,
+            release,
+            assertHealthy: vi.fn(),
+            compromised: new Promise<never>(() => undefined),
+        };
+        let entry!: RuntimeEntry;
+        let finishTransition!: () => void;
+        const transition = new Promise<void>((resolvePromise) => {
+            finishTransition = () => {
+                entry.active = null;
+                entry.phase = "idle";
+                resolvePromise();
+            };
+        });
+        entry = {
+            rootWorkspace: root,
+            active,
+            phase: "closing",
+            transition,
+        } as unknown as RuntimeEntry;
+        const previous = new Map([[runtimeKey(root), entry]]);
+        hmrGlobals.__nbookAgentSessionStoreRuntimesV4 = previous;
+        delete hmrGlobals.__nbookAgentSessionStoreRuntimesV3;
+
+        const runtime = await import("nbook/server/agent/session/agent-session-store-runtime");
+        const stopping = runtime.stopAgentSessionStoreRuntime(root);
+        let settled = false;
+        void stopping.then(
+            () => { settled = true; },
+            () => { settled = true; },
+        );
+
+        await Promise.resolve();
+        expect(settled).toBe(false);
+        expect(release).not.toHaveBeenCalled();
+        expect(entry.phase).toBe("closing");
+
+        finishTransition();
+        await stopping;
+        expect(release).not.toHaveBeenCalled();
+        expect(entry.active).toBeNull();
+        expect(entry.phase).toBe("idle");
+    });
+
     it("旧shared runtime lease升级后release为no-op并保留失效信号", async () => {
         const root = resolve(".agent", "tmp", `hmr-lease-${randomUUID()}`);
         const key = runtimeKey(root);

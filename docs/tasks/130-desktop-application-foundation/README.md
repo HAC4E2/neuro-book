@@ -600,6 +600,13 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - Session Store 的 runtime/migration 物理 lease 增加不含用户内容和凭据的最小 owner JSON，并用稳定 `ELOCKED` 错误报告 lease path、heartbeat 和可选 owner。metadata 不改变 15 秒 heartbeat / 30 秒 stale 协议，也不成为 Desktop 自动清理或杀进程的权威。
 - Windows 仓库外 fixture 和隔离 State Root 的完整 Source Dev smoke 已通过；真实可见终端关闭仍属于 Task 117 的人工候选验收。此修复不改变 Product Runtime Image、Installation Manifest、Desktop Root 或 Tauri/Electron 选择。
 
+### 2026-08-04：Session Store lease 失效闭环复审与 stale takeover 复现
+
+- 对 `proper-lockfile` 的失效边界重新走查：旧 owner 的 heartbeat 恢复时拿到 `ECOMPROMISED`，一次性 typed signal 经过共享 runtime registry 到 Product startup；startup 记录 lease path、lease kind、15 秒 heartbeat 与 30 秒 stale 配置，随后同步进入 shutdown controller 的 draining。关闭步骤仍按既有顺序执行，75 优先于 shutdown/release 次生失败；Manager 的 ready 前、ready 后和 Portable 前台路径统一翻译为“运行租约失去所有权”的可操作提示。没有增加第二把锁、状态文件、IPC、自动删锁或杀进程。
+- HMR 审查补了 `starting` 与 `closing` transition 回归：重载后的新模块必须等待旧 transition 完成，不能重复取得 lease、提前 release 或改变旧 entry。迁移注释同步修正为：apply 持有独占 lease，dry-run 只读且不持有 lease。
+- 相关聚焦验证通过：Session/runtime、Product startup/shutdown、shared shutdown/source-dev 共 11 个文件 / 65 个测试；Manager 独立 Vitest 配置下 `app-commands`、`migration-operation`、Owned Process 共 3 个文件 / 47 个测试。另一次两进程复现中，A 阻塞事件循环超过 30 秒，B 第 62 次尝试接管 stale lease；A 记录 `AGENT_SESSION_STORE_LEASE_COMPROMISED`，原始 cause 为 `Unable to update lock within the stale threshold`，输出 draining 与 session-store close，并以 75 退出。父进程确认旧 release 没有删除 B 的新锁，B 正常释放后锁才消失。
+- 复现 harness 首次使用固定睡眠窗口时，旧 owner 退出与 B 释放之间存在不可稳定观察的时序，未把该次断言失败记为业务失败；改为“父进程确认 A 退出后写 marker，B 再释放”的同步后复现通过。harness 与临时 Workspace Root 均已清理。浏览器验收、正式 Release archive、五平台 Candidate、真实 Docker/Podman 和 merge 状态仍未由本轮本地证据替代。
+
 ## TODO / Follow-ups
 
 - [x] Phase 0：生成可重复的 Product Runtime Image 体积/文件数基线与归因报告。
