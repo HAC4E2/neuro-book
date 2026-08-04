@@ -8326,6 +8326,68 @@ describe("NeuroAgentHarness", () => {
         }));
     });
 
+    it("取消保留已生成的半截正文，且 lifecycle 不写 provider 原文", async () => {
+        // 真实 provider SDK 取消时抛的是英文 "Request was aborted"。以前它被当成错误详情持久化，
+        // 同时半截正文整段丢失（实测 40 次取消 0 次保留）。这里锁住修好之后的两条契约（Task 139）。
+        faux.setResponses([
+            fauxAssistantMessage("写到一半就被停了", {stopReason: "aborted", errorMessage: "Request was aborted"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+        });
+
+        await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "start"},
+        });
+        await harness.drainBackgroundTasks();
+        const snapshot = await harness.repo.readSession(created.sessionId);
+
+        // 半截正文以 interrupted 落盘，成为可回溯的分支锚点。
+        const assistant = snapshot.entries.find((entry) => entry.type === "message" && entry.message.role === "assistant");
+        expect(assistant).toBeDefined();
+        expect(assistant).toEqual(expect.objectContaining({status: "interrupted"}));
+        expect(JSON.stringify(assistant)).toContain("写到一半就被停了");
+        // 错误详情不再挂在 assistant 上：那是 lifecycle 的职责，两处都写会渲染成两个气泡。
+        expect(JSON.stringify(assistant)).not.toContain("Request was aborted");
+
+        // lifecycle 只记「这是取消」，不夹带 provider 英文原文。
+        const lifecycle = snapshot.entries.find((entry) => entry.type === "invocation_lifecycle" && entry.status === "aborted");
+        expect(lifecycle).toBeDefined();
+        expect(JSON.stringify(lifecycle)).not.toContain("Request was aborted");
+    });
+
+    it("取消的阻塞 invoke 返回 aborted 标记，界面据此不弹错误", async () => {
+        // 取消结束的 invocation 依然是 status: "error"（调用方要按异常终止处理），但 error 里是英文技术
+        // 文本 "invocation aborted"。前端的兜底通知只认 status，于是每次点停止都会弹一条英文报错。
+        // aborted 标记是让「取消」在返回值里有独立身份的唯一手段（Task 139）。
+        faux.setResponses([
+            // provider 永不返回：这正是宽限期强制收尾（forceAbortInvocation）要兜住的「模型/工具卡住」场景。
+            () => new Promise<never>(() => {}),
+        ]);
+        const created = await harness.createAgent({profileKey: "leader.default", initial: {}});
+        const running = harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "start"},
+        });
+        await waitFor(async () => {
+            const snapshot = await harness.getSessionRecovery(created.sessionId);
+            expect(snapshot.activeInvocation).not.toBeNull();
+        });
+
+        await harness.abortInvocation(created.sessionId, {});
+        const result = await running;
+
+        expect(result.aborted).toBe(true);
+        // 账本里不能出现 status: "error" 的 lifecycle，否则前端会额外渲染一张 Run Error 卡片。
+        const snapshot = await harness.repo.readSession(created.sessionId);
+        const lifecycles = snapshot.entries.filter((entry) => entry.type === "invocation_lifecycle");
+        expect(lifecycles.map((entry) => entry.type === "invocation_lifecycle" ? entry.status : null)).toEqual(["start", "aborted"]);
+    });
+
     it("abort clearQueue 会清空已持久化的 followUp queue projection", async () => {
         let releaseProvider: (() => void) | undefined;
         const providerGate = new Promise<void>((resolve) => {
