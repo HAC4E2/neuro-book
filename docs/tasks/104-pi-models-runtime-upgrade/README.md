@@ -24,13 +24,13 @@
 
 - 共享 `DEFAULT_PI_MAX_RETRIES = 5` 与 `parsePiMaxRetries()` 统一校验：只接受非负整数，不设产品硬上限；未配置时运行时补 `5`，显式 `0` 继续关闭重试。
 - 配置路径保持 `models.providers[].options.requestOptions.maxRetries`。服务端 `parsePiSimpleRequestOptions()` 是运行时默认入口，Agent turn、compaction、健康检查和 runtime hook 共用它；没有新增 NeuroBook 重试器，也不自动重放完整 Agent turn。
-- 设置页把 `maxRetries` 从高级 JSON 拆成独立数字字段。读取旧配置时迁移展示、保存时合并回原路径；空值保存和检查按 `5` 处理，`0` 正常保留。高级 JSON 继续保留 `maxRetryDelayMs` 等字段，但再次声明 `maxRetries` 会在保存、Provider check、Model check 和 discovery 发请求前明确拒绝。
+- 设置页把 `maxRetries` 从高级 JSON 拆成独立数字字段。读取旧配置时迁移展示、保存时合并回原路径；空值保存和检查按 `5` 处理，`0` 正常保留。高级 JSON 继续保留其他字段，但再次声明 `maxRetries` 会在保存、Provider check、Model check 和 discovery 发请求前明确拒绝。`maxRetryDelayMs` 是否生效由具体 Pi adapter 决定；OpenCode Go 使用的 `openai-completions` adapter 不会把它传给 OpenAI SDK。
 - 保存、检查和发现请求共用 Provider request-options 合并 helper。Provider discovery 仍使用现有直接 HTTP `/models` adapter，不因本轮需求额外重写一套重试逻辑。
-- `maxRetries = 5` 遵循 Pi/OpenAI SDK 语义：首次请求之外最多重试 5 次，最终最多 6 次请求；退避和 `Retry-After` 继续由 SDK 处理。只保证实际支持该字段的 Pi adapter（当前 OpenCode Go 的 `openai-completions` 链路）按 adapter 语义生效，不为其他 adapter 增加通用重试层。
+- `maxRetries = 5` 遵循 Pi/OpenAI SDK 语义：首次请求之外最多重试 5 次，最终最多 6 次请求；退避和 `Retry-After` 继续由 SDK 处理。当前已用本地 OpenAI-compatible HTTP server 固化 `500` 无响应体后按 `maxRetries` 重试的回归；`maxRetryDelayMs` 不会调节 OpenCode Go 这条 Completions 链路的退避，不为其他 adapter 增加通用重试层。
 
 ### 本轮验证
 
-- 聚焦 Vitest：设置页草稿/检查/发现/模板、共享 DTO、Pi request options、compaction、Provider health check 共 9 个文件 78 项通过；Agent Harness 回归 1 个文件 175 项通过。
+- 本轮复核聚焦 Vitest：设置页草稿/检查/发现/模板、共享 DTO、Pi request options、compaction、Provider health check 与 runtime resolver 共 10 个文件 90 项通过，其中包含本地 OpenAI-compatible HTTP server 的 `500` 无响应体后按 `maxRetries` 重试回归；另定向运行 Agent turn runtime-hook 用例 1/1 通过，确认最终 TurnSnapshot 收到默认 `maxRetries: 5`。
 - `bun run typecheck`：通过。
 - 未自动执行浏览器验收、真实 OpenCode Go 重放、构建或发布；设置页由用户手动验收。
 
@@ -140,7 +140,7 @@ Provider Config 的默认 API 字段正式命名为 `defaultApi`。它只用于�
 ### Hardening implementation results
 
 - runtime 选择已收敛为唯一分类函数：只有正式 builtin 配置（`providerConfigId === model.provider`、无显式 API override、builtin Provider 支持 resolved API）复用进程级 `Models`；本地同类连接、override、未知 Provider 或 builtin 不支持的 API 均创建 invocation 私有 runtime。
-- 新增共享 `PiSimpleRequestOptionsSchema` 与统一解析器，Agent turn、sidecar、自动/手动 compaction、健康检查和 runtime hook 共用同一合同。正式支持 `temperature`、`headers`、`websocketConnectTimeoutMs`、`maxRetries`、`maxRetryDelayMs`、`metadata`、`env`、`transport`、`cacheRetention`、`thinkingBudgets`；未知、类型错误、runtime-owned 或 Pi `streamSimple` 不会转发的字段均明确失败。
+- 新增共享 `PiSimpleRequestOptionsSchema` 与统一解析器，Agent turn、sidecar、自动/手动 compaction、健康检查和 runtime hook 共用同一合同。请求 schema 接受 `temperature`、`headers`、`websocketConnectTimeoutMs`、`maxRetries`、`maxRetryDelayMs`、`metadata`、`env`、`transport`、`cacheRetention`、`thinkingBudgets`；未知、类型错误、runtime-owned 或 Pi `streamSimple` 不会转发的字段均明确失败。字段是否实际生效仍由 adapter 决定，OpenCode Go 的 `openai-completions` 只把 `maxRetries` 传给 SDK。
 - 自定义 OpenAI completions/responses 在 API key 为空时使用仅存在于当前请求内的 no-auth 占位 key，以兼容无认证端点；Bedrock API key 映射到 `AWS_BEARER_TOKEN_BEDROCK` provider env，空 key 保留 AWS ambient credential chain。Anthropic、Google 等 adapter 的无 key 行为保持明确失败。
 - app logger 与 Provider error sanitizer 共用无副作用的敏感文本清洗底座；Bearer、Basic、authorization、cookie、set-cookie、API key、token、secret 和常见裸 `sk-*` 均覆盖。Provider 错误继续执行 4,000 字符上限，`sidecar_error` SSE 也只发送清洗后的文本。
 - 模型设置父组件继续作为 Pi catalog/effective metadata 的唯一解析者；Dialog 在继承状态展示四项实际价格和逐 tier 摘要，registry 缺失时明确显示无可用继承价格，不再用 0 冒充继承值。
